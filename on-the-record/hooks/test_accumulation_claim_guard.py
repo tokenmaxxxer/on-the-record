@@ -97,3 +97,65 @@ def t_empty_repo_git_ls_files_does_not_crash(tmp_path):
     repo = _init_repo(tmp_path)
     r = _run({"file_path": str(repo / "foo.py"), "content": "x = 1\n"}, cwd=repo)
     assert r.returncode == 0
+
+
+# issue #547 — proposal-authoring-time branch (Write/Edit/MultiEdit on
+# docs/issue-<n>/proposals/*.md, checked against its own `files:` list)
+
+def t_proposal_write_naming_roles_json_without_accumulation_is_denied(tmp_path):
+    repo = _init_repo(tmp_path)
+    body = "files:\n  - roles/x.json\n\n## Request\nfoo\n"
+    r = _run({
+        "file_path": str(repo / "docs" / "issue-1" / "proposals" / "p.md"),
+        "content": body,
+    }, cwd=repo)
+    assert r.returncode == 2
+    assert "issue #424" in r.stderr
+
+
+def t_proposal_write_naming_roles_json_with_accumulation_is_allowed(tmp_path):
+    repo = _init_repo(tmp_path)
+    body = ("files:\n  - roles/x.json\n\n## Accumulation\nAt N more this "
+            "needs codegen.\n\n## Request\nfoo\n")
+    r = _run({
+        "file_path": str(repo / "docs" / "issue-1" / "proposals" / "p.md"),
+        "content": body,
+    }, cwd=repo)
+    assert r.returncode == 0
+
+
+def t_proposal_naming_only_unrelated_files_never_blocked(tmp_path):
+    repo = _init_repo(tmp_path)
+    body = "files:\n  - README.md\n  - src/thing.py\n\n## Request\nfoo\n"
+    r = _run({
+        "file_path": str(repo / "docs" / "issue-1" / "proposals" / "p.md"),
+        "content": body,
+    }, cwd=repo)
+    assert r.returncode == 0
+
+
+def t_non_proposal_md_write_is_ignored(tmp_path):
+    repo = _init_repo(tmp_path)
+    body = "files:\n  - roles/x.json\n\n## Request\nfoo\n"
+    r = _run({
+        "file_path": str(repo / "docs" / "issue-1" / "reports" / "implementation.md"),
+        "content": body,
+    }, cwd=repo)
+    assert r.returncode == 0
+
+
+def t_proposal_incremental_edit_appending_to_open_files_list_is_caught(tmp_path):
+    # regression test for the warrant-hunt finding recorded in the
+    # proposal: an Edit that appends a list item without repeating the
+    # `files:` key must still be seen via full-file reconstruction, not
+    # missed by scanning only the edit's own fragment.
+    repo = _init_repo(tmp_path)
+    _commit(repo, "docs/issue-1/proposals/p.md",
+            "files:\n  - README.md\n\n## Request\nfoo\n")
+    r = _run({
+        "file_path": str(repo / "docs" / "issue-1" / "proposals" / "p.md"),
+        "old_string": "  - README.md\n",
+        "new_string": "  - README.md\n  - roles/x.json\n",
+    }, tool_name="Edit", cwd=repo)
+    assert r.returncode == 2
+    assert "issue #424" in r.stderr
