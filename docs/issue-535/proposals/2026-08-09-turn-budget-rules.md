@@ -122,3 +122,7 @@ bare Bash call that should itself be backgrounded or deferred).
   batch-merge scripting rule), the phase-2 record will name
   `gates/*.py` as the enforcement hook that would carry it, per the
   issue's own empty-state acceptance criterion.
+
+## Hunt record
+
+after-proposal: docs-only, no before-landing dispatch — all touched paths (`docs/issue-535/proposals/`, `docs/issue-535/reports/`) are under `docs/`, per the warrant directive's docs-only fast path.
