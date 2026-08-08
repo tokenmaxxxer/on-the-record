@@ -98,6 +98,28 @@ def _touches_shape_5(changed: list[str]) -> bool:
     return any(re.match(r"^roles/[^/]+\.json$", rel) for rel in changed)
 
 
+def check_accumulation_claim_for_files(work: Path, files: list[str], body: str) -> list[str]:
+    """issue #547 — proposal 작성 시점 진입점. `git diff` 가 아니라 proposal
+    의 `files:` 목록을 그대로 받아, 같은 모양 1/5 판정을 그 목록의 *현재
+    트리 상태*에 대해 적용한다(존재하지 않는 새 파일은 판정할 내용이 없다
+    — proposal Out of scope에 명시된 근사치와 동일한 한계).
+
+    `check_accumulation_claim`과 판정/메시지 로직을 하나로 유지한다 —
+    변경분 출처(diff 대 정적 목록)만 다르다."""
+    changed = sorted(set(f for f in files if isinstance(f, str) and f))
+    if not (_touches_shape_1(work, changed) or _touches_shape_5(changed)):
+        return []
+    if _has_filled_accumulation(body):
+        return []
+    return [
+        "proposal 의 files: 목록이 축적-비용 모양(공유 헬퍼 없는 인라인 "
+        "subprocess/gh 호출 누적, 또는 roles/*.json 류 반복 파일에 대한 "
+        "동일 한 줄 수정)을 건드리지만, proposal 본문에 '## Accumulation' "
+        "줄이 없다 — 이런 변경이 N번 더 오면 이 파일/목록이 어떻게 되는지 "
+        "명시해야 한다."
+    ]
+
+
 def check_accumulation_claim(work: Path, body: str) -> list[str]:
     """proposal 본문(`body`)이, 작업트리(`work`)의 바뀐 파일이 모양 1/5 중
     하나를 건드릴 때 `## Accumulation` 줄을 갖고 있는지 검사한다.
