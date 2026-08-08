@@ -105,7 +105,23 @@ failures).
 
 ## Open findings
 
-None raised against this delivery.
+None. Before-landing warrant hunt (stance 0, bypass hunt) found one:
+the `files:` parser only recognized block-style YAML
+(`files:\n  - path`), silently letting inline flow-style
+(`files: [roles/x.json]`) bypass the check with no denial — recorded at
+`docs/reports/2026-08-09-hunt-accumulation-claim-authoring-time.md`.
+Fixed in the same file (`accumulation-claim-guard.sh`) by parsing the
+inline-list form before falling back to block-style, with a regression
+test (`t_proposal_flow_style_files_list_without_accumulation_is_denied`).
+
+## resolved_findings
+
+- finding: before-landing warrant hunt, stance 0 — `files:` parser
+  bypass via inline flow-style YAML (`files: [roles/x.json]`)
+  source: docs/reports/2026-08-09-hunt-accumulation-claim-authoring-time.md
+  resolution: added inline-list parsing branch in
+  `on-the-record/hooks/accumulation-claim-guard.sh` plus regression test
+  `t_proposal_flow_style_files_list_without_accumulation_is_denied`
 
 ## closed_checks
 

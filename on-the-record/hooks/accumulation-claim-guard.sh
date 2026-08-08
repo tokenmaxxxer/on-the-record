@@ -163,13 +163,23 @@ if _PROPOSAL_RE.match(rel):
                     if isinstance(os_, str) and isinstance(ns_, str):
                         new_body = new_body.replace(os_, ns_, 1)
 
-    fm = re.search(r"^files:\s*$(.*?)(?=^\S|\Z)", new_body, re.M | re.S)
     listed = []
-    if fm:
-        for line in fm.group(1).splitlines():
-            lm = re.match(r"^\s*-\s*(\S.*?)\s*$", line)
-            if lm:
-                listed.append(lm.group(1))
+    inline_m = re.search(r"^files:\s*\[(.*?)\]\s*$", new_body, re.M)
+    if inline_m:
+        # flow-style YAML: files: [a, b] — warrant-hunt finding (before-
+        # landing, issue #547): the block-style-only parser silently let
+        # this form through unchecked.
+        for item in inline_m.group(1).split(","):
+            item = item.strip().strip("'\"")
+            if item:
+                listed.append(item)
+    else:
+        fm = re.search(r"^files:\s*$(.*?)(?=^\S|\Z)", new_body, re.M | re.S)
+        if fm:
+            for line in fm.group(1).splitlines():
+                lm = re.match(r"^\s*-\s*(\S.*?)\s*$", line)
+                if lm:
+                    listed.append(lm.group(1))
 
     hit = any(_touches_shape_5(p) or _path_touches_shape_1(p) for p in listed)
     if hit and not _has_filled_accumulation(new_body):
