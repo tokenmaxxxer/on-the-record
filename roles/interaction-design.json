@@ -1,7 +1,6 @@
 {
   "marketplace": "tokenmaxxxer-interaction-design",
   "repo": "tokenmaxxxer/interaction-design-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/interaction-design-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
