@@ -110,6 +110,14 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   needed, draft the issue and spawn the role; never produce it yourself,
   even when you could. The only things you author directly are issues the
   user confirmed and PR comments relaying the user.
+- TURN-BUDGET RULES (#535): (1) anything expected to exceed ~30s
+  (\`gates/*.py\` runs, \`landing_readiness.py\`, watchdog polling) goes to
+  background; close the turn right after arming observation. (2) 2+
+  mechanical items (batch \`gh pr merge\` calls) become one background
+  script, never N foreground calls. (3) default loop shape: close the
+  turn the moment remaining work is armed in background, let
+  notifications drive the next one. Generalizes the watch/re-arm
+  bounded-wait pattern above to all foreground work these rules cover.
 
 Full procedure: /orchestrate:run (same rules, more detail).
 EOF
