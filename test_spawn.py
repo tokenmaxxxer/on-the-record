@@ -4607,6 +4607,170 @@ class PostStallComment(unittest.TestCase):
         self.assertEqual(len(calls), 1)
 
 
+class PostSessionEndComment(unittest.TestCase):
+    """이슈 #534: session-end(normal)을 durable 이슈 코멘트로 남긴다."""
+
+    def setUp(self):
+        self._orig_comments = spawn._issue_comments
+        self._orig_slug = spawn._repo_slug
+        self._orig_run = subprocess.run
+        self._orig_verdict = spawn.session_end_verdict
+        self._orig_pr = spawn._pr_open_or_merged_for_branch
+        self._orig_pr_list_ok = spawn._pr_list_call_ok
+
+    def tearDown(self):
+        spawn._issue_comments = self._orig_comments
+        spawn._repo_slug = self._orig_slug
+        subprocess.run = self._orig_run
+        spawn.session_end_verdict = self._orig_verdict
+        spawn._pr_open_or_merged_for_branch = self._orig_pr
+        spawn._pr_list_call_ok = self._orig_pr_list_ok
+
+    def test_noop_when_verdict_not_normal(self):
+        spawn.session_end_verdict = lambda work, log_path: "crashed"
+        calls = []
+        spawn._issue_comments = lambda root, n: (calls.append("comments"), ([], True))[1]
+        spawn._post_session_end_comment(Path("."), 534, "issue-534/coding", "w", "l")
+        self.assertEqual(calls, [])
+
+    def test_skips_when_marker_already_present(self):
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        marker = spawn._SESSION_END_COMMENT_MARKER.format(key="issue-534/coding")
+        spawn._issue_comments = lambda root, n: (
+            [{"login": "bot", "body": f"{marker} no PR"}], True)
+        calls = []
+        def fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return self._orig_run(["true"], capture_output=True, text=True)
+        subprocess.run = fake_run
+        spawn._post_session_end_comment(Path("."), 534, "issue-534/coding", "w", "l")
+        self.assertEqual(calls, [])
+
+    def test_posts_pr_url_when_pr_open(self):
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._issue_comments = lambda root, n: ([], True)
+        spawn._repo_slug = lambda root: "acme/repo"
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: 42
+        calls = []
+        def fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            if cmd[:2] == ["git", "-C"]:
+                return self._orig_run(["echo", "issue-534/coding"],
+                                      capture_output=True, text=True)
+            return self._orig_run(["true"], capture_output=True, text=True)
+        subprocess.run = fake_run
+        spawn._post_session_end_comment(Path("."), 534, "issue-534/coding", "w", "l")
+        gh_calls = [c for c in calls if c[:2] == ["gh", "api"]]
+        self.assertEqual(len(gh_calls), 1)
+        body = next(a for a in gh_calls[0] if a.startswith("body="))
+        self.assertIn("PR https://github.com/acme/repo/pull/42 opened", body)
+
+    def test_pr_check_failed_fallback(self):
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._issue_comments = lambda root, n: ([], True)
+        spawn._repo_slug = lambda root: "acme/repo"
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn._pr_list_call_ok = lambda root, branch: False
+        calls = []
+        def fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            if cmd[:2] == ["git", "-C"]:
+                return self._orig_run(["echo", "issue-534/coding"],
+                                      capture_output=True, text=True)
+            return self._orig_run(["true"], capture_output=True, text=True)
+        subprocess.run = fake_run
+        spawn._post_session_end_comment(Path("."), 534, "issue-534/coding", "w", "l")
+        gh_calls = [c for c in calls if c[:2] == ["gh", "api"]]
+        self.assertEqual(len(gh_calls), 1)
+        body = next(a for a in gh_calls[0] if a.startswith("body="))
+        self.assertIn("no PR (pr-check-failed)", body)
+
+    def test_posts_no_pr_when_pr_check_ok_and_absent(self):
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._issue_comments = lambda root, n: ([], True)
+        spawn._repo_slug = lambda root: "acme/repo"
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn._pr_list_call_ok = lambda root, branch: True
+        calls = []
+        def fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            if cmd[:2] == ["git", "-C"]:
+                return self._orig_run(["echo", "issue-534/coding"],
+                                      capture_output=True, text=True)
+            return self._orig_run(["true"], capture_output=True, text=True)
+        subprocess.run = fake_run
+        spawn._post_session_end_comment(Path("."), 534, "issue-534/coding", "w", "l")
+        gh_calls = [c for c in calls if c[:2] == ["gh", "api"]]
+        self.assertEqual(len(gh_calls), 1)
+        body = next(a for a in gh_calls[0] if a.startswith("body="))
+        self.assertIn("no PR", body)
+        self.assertNotIn("pr-check-failed", body)
+
+
+class RosterReconcileUnreported(unittest.TestCase):
+    """이슈 #534: `spawn.py reconcile --unreported` — workspace 인덱스에서
+    session-end(normal) 인데 [watch] 코멘트가 없는 엔트리를 찍고,
+    코멘트가 생기면 사라진다."""
+
+    def setUp(self):
+        self._orig_idx = spawn._workspace_index_load
+        self._orig_verdict = spawn.session_end_verdict
+        self._orig_comments = spawn._issue_comments
+
+    def tearDown(self):
+        spawn._workspace_index_load = self._orig_idx
+        spawn.session_end_verdict = self._orig_verdict
+        spawn._issue_comments = self._orig_comments
+
+    def test_lists_ended_session_with_open_pr_before_ack_and_empties_after(self):
+        spawn._workspace_index_load = lambda: {
+            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+        }
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+
+        marker = spawn._SESSION_END_COMMENT_MARKER.format(key="issue-534/coding")
+        state = {"acked": False}
+        def fake_comments(root, n):
+            if state["acked"]:
+                return ([{"login": "bot", "body": f"{marker} PR ... opened"}], True)
+            return ([], True)
+        spawn._issue_comments = fake_comments
+
+        before = spawn._roster_reconcile_unreported()
+        self.assertEqual(before, 1)
+
+        state["acked"] = True
+        after = spawn._roster_reconcile_unreported()
+        self.assertEqual(after, 0)
+
+    def test_filters_by_issue(self):
+        spawn._workspace_index_load = lambda: {
+            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+            "issue-1/coding": {"work": "/tmp/w2", "log": "/tmp/l2"},
+        }
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._issue_comments = lambda root, n: ([], True)
+        self.assertEqual(spawn._roster_reconcile_unreported(issue=534), 1)
+
+    def test_skips_non_normal_verdicts(self):
+        spawn._workspace_index_load = lambda: {
+            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+        }
+        spawn.session_end_verdict = lambda work, log_path: "in-progress"
+        spawn._issue_comments = lambda root, n: ([], True)
+        self.assertEqual(spawn._roster_reconcile_unreported(), 0)
+
+    def test_reconcile_dispatches_to_unreported(self):
+        orig = spawn._roster_reconcile_unreported
+        calls = []
+        spawn._roster_reconcile_unreported = lambda issue=None: (calls.append(issue), 0)[1]
+        try:
+            spawn.roster_reconcile(issue=534, unreported=True)
+        finally:
+            spawn._roster_reconcile_unreported = orig
+        self.assertEqual(calls, [534])
+
+
 class IssueComments(unittest.TestCase):
     """이슈 #224: `--paginate --slurp`로 30개 코멘트 상한을 넘긴다 —
     페이지 리스트를 평탄화해 기존과 같은 dict 리스트를 돌려줘야 한다."""
