@@ -76,3 +76,52 @@ without a comment on the fast/common path — exactly the gap the
 now the sweep's own "acknowledgment = marker comment present" freshness
 check will report *every* normally-ended session as unreported forever,
 since the comment step it's checking for never runs.
+
+## before-landing — stance 0: assume the gate/guard just added is bypassable — find the bypass
+
+Verdict: FINDING — `spawn.py reconcile --unreported` detects session-end(normal) entries missing the `[watch]` marker comment, but never posts the comment: `_roster_reconcile_unreported()` only `print()`s "미보고" and returns a count — it never calls `_post_session_end_comment()` or issues any `gh api .../comments` write. The durability guarantee's stated recovery path for the exact scenario cited in the proposal (process killed between session-end event append and comment call) is detect-only, not self-healing, contrary to the docstring's framing ("오케스트레이터가 아무 때나 한 번의 호출로 회복하는 창구" — "a window the orchestrator can recover through with a single call").
+Kind: silent-failure
+Seed: spawn.py `_post_session_end_comment` (2298-2333), `_roster_reconcile_unreported` (1968-2010), `roster_reconcile` (2011-2036), `roster_watchdog` best-effort call (1944-1954), `_spawn_one` call site (4249), plus test_spawn.py and on-the-record/commands/run.md; ~250 lines touched
+cap_seconds: 180
+tier: default (size:>200 lines)
+diff_stat_lines: ~250
+started_at: 2026-08-09T00:00:00Z
+ended_at: 2026-08-09T00:20:00Z
+
+### Reproduce
+```
+python3 - <<'PYEOF'
+import sys, subprocess
+sys.path.insert(0, "/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-534-implementation")
+import spawn
+
+calls = []
+orig_run = subprocess.run
+def spy_run(cmd, *a, **kw):
+    calls.append(cmd)
+    return orig_run(cmd, *a, **kw)
+subprocess.run = spy_run
+
+spawn._workspace_index_load = lambda: {
+    "issue-999/worker": {"work": "/tmp/fake-workspace-999", "log": "/tmp/fake-999.log"}
+}
+spawn.session_end_verdict = lambda work, log: "normal"
+spawn._issue_comments = lambda root, number: ([], True)  # marker absent -> flagged unreported
+
+n = spawn._roster_reconcile_unreported(999)
+print("unreported count returned:", n)
+posting_calls = [c for c in calls if isinstance(c, list) and "comments" in " ".join(c)]
+print("comment-posting subprocess calls made:", posting_calls)
+PYEOF
+```
+
+### Observed
+```
+[reconcile --unreported] issue-999/worker: session-end(normal) 미보고 — issue #999, work=/tmp/fake-workspace-999, log=/tmp/fake-999.log
+unreported count returned: 1
+comment-posting subprocess calls made: []
+```
+The scenario is flagged as unreported (count=1, printed) but no `gh api repos/.../issues/999/comments` call — or any other comment-posting call — is made. The `[watch]` marker never lands on the issue. A human/cron who runs `spawn.py reconcile --unreported` and doesn't separately wire up posting from its stdout will see the durability gap "detected" forever without it ever closing. This matches the CLI's own `--unreported` help text, which says the flag "찍는다" (prints), not "posts" — unlike `closure-sweep --post`, `reconcile` has no `--post` companion flag to actually deliver the comment for unreported entries.
+
+### Expected
+For the "durable session-end reporting" guarantee to actually hold across the crash-between-event-and-comment scenario the proposal names, `_roster_reconcile_unreported()` (or a `--post`-gated companion) should call `_post_session_end_comment()` for each flagged entry so the marker comment actually gets posted — not just print a line that requires a human to notice and act on out-of-band.
