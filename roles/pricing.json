@@ -15,10 +15,25 @@
   "decides": "얼마를, 어떤 구조로 받을지",
   "use_when": "신규 가격 정책이 걸릴 때",
   "produces": "pricing verdict, tier structure, rationale vs alternatives considered",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/pricing.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "surveying",
+        "computing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "price-point-undeclared"
+      ],
+      "error": [
+        "survey-data-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/pricing.spec.json"
 }

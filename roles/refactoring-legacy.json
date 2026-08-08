@@ -16,15 +16,24 @@
   "use_when": "레거시/기존 코드에 손을 대야 할 때",
   "produces": "refactoring plan, characterization tests, before/after behavior-equivalence note",
   "write_scope": [
-    "src/**",
-    "test/**"
+    "docs/issue-<n>/reports/refactoring-legacy.md"
   ],
   "record_fields": {
-    "loop_state": [
-      "scope-proposed",
-      "scope-approved",
-      "in-progress",
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "identifying",
+        "applying"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "motivation-undeclared"
+      ],
+      "error": [
+        "tests-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/refactoring-legacy.spec.json"
 }

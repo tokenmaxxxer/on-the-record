@@ -15,10 +15,25 @@
   "decides": "프로덕션 내부 상태에 대해 사전에 정의하지 않은 질문도 던질 수 있는가",
   "use_when": "신규 서비스/경로에 계측이 필요할 때",
   "produces": "telemetry/instrumentation design, cardinality budget, dashboard/query examples",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/observability.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "instrumenting",
+        "validating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "signal-undeclared"
+      ],
+      "error": [
+        "registry-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/observability.spec.json"
 }

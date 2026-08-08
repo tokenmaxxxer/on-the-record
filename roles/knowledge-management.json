@@ -16,11 +16,23 @@
   "use_when": "여러 이슈의 회고가 쌓여 지식 큐레이션이 필요할 때",
   "produces": "curated pattern-library entry, cross-issue index, supersession note (if replacing an older pattern)",
   "write_scope": [
-    "docs/patterns/**"
+    "docs/issue-<n>/reports/knowledge-management.md"
   ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "capturing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "not-captured-at-resolution"
+      ],
+      "error": [
+        "article-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/knowledge-management.spec.json"
 }

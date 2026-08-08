@@ -1,0 +1,60 @@
+{
+  "role": "partnerships-bd",
+  "source_standard": "ISO 44001:2017 Collaborative Business Relationship Management, https://www.iso.org/standard/72798.html",
+  "required_fields": [
+    {
+      "name": "partner_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "lifecycle_stage",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "awareness",
+        "knowledge",
+        "internal-assessment",
+        "partner-selection",
+        "working-together",
+        "value-creation",
+        "staying-together",
+        "exit-strategy"
+      ]
+    },
+    {
+      "name": "governance_note",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "reference_resolution": {
+    "rule": "partner_id must resolve to an actual tracked partner entity — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "lifecycle_stage is recomputed from the partnership's current governance evidence, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/partnerships-bd.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "assessing",
+      "collaborating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "stage-undeclared"
+    ],
+    "error": [
+      "partner-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a partnership reaches a lifecycle checkpoint AND no partnerships-bd record exists yet for that partner_id"
+  }
+}

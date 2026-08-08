@@ -1,0 +1,55 @@
+{
+  "role": "issue-retrospective",
+  "source_standard": "Blameless retrospective format (SRE lineage, applied to non-incident retros), https://www.blameless.com/blog/retrospective-template",
+  "required_fields": [
+    {
+      "name": "retro_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "timeline",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "impact_summary",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "action_items",
+      "type": "ref[]",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "action_items must each resolve to an actual tracked issue — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "action_items is recomputed from timeline evidence, never pre-filled; blame language directed at a person is refused at write time (blameless constraint).",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/issue-retrospective.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "gathering",
+      "writing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "blame-language-detected"
+    ],
+    "error": [
+      "timeline-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a non-incident issue closes AND no issue-retrospective record exists yet for that issue"
+  }
+}

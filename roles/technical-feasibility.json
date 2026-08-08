@@ -15,9 +15,30 @@
   "decides": "기술적으로 되는가",
   "use_when": "기술 PoC가 필요할 때. 시장 논리 없이 판정",
   "produces": "go|no-go|conditional verdict, PoC code/measurement, assumptions list",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/technical-feasibility.md"
+  ],
   "record_fields": {
-    "verdict": ["go", "no-go", "conditional"],
-    "loop_state": ["measuring", "verdict"]
-  }
+    "verdict": [
+      "go",
+      "no-go",
+      "conditional"
+    ],
+    "loop_state": {
+      "progress": [
+        "spiking",
+        "reviewing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "goal-undeclared"
+      ],
+      "error": [
+        "spike-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/technical-feasibility.spec.json"
 }

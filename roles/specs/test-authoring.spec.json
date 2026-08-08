@@ -1,0 +1,60 @@
+{
+  "role": "test-authoring",
+  "source_standard": "IEEE 829 test case specification format, https://www.stickyminds.com/article/software-test-case-specification-ieee-829-1998-format-template",
+  "required_fields": [
+    {
+      "name": "test_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "test_items",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "input_spec",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "output_spec",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "environment",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "reference_resolution": {
+    "rule": "test_id must resolve to an actual test file or test case — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "output_spec is recomputed by re-running test_id against input_spec, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/test-authoring.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "drafting",
+      "running"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "items-undeclared"
+    ],
+    "error": [
+      "test-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "new testable behavior lands on the branch AND no test-authoring record exists yet for that behavior"
+  }
+}

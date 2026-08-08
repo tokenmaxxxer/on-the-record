@@ -15,10 +15,25 @@
   "decides": "메시지가 외부에 어떻게 읽힐지",
   "use_when": "외부 커뮤니케이션이 걸릴 때",
   "produces": "communications plan, key message, risk/Q&A prep",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/pr-communications.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "planning",
+        "measuring"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "objective-undeclared"
+      ],
+      "error": [
+        "channel-data-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/pr-communications.spec.json"
 }

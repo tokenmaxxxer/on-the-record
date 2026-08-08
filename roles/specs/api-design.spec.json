@@ -1,0 +1,71 @@
+{
+  "role": "api-design",
+  "source_standard": "Spectral ruleset (OpenAPI linting) + OpenAPI schema conformance, https://stoplight.io/open-source/spectral",
+  "required_fields": [
+    {
+      "name": "endpoint_path",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "method",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE"
+      ]
+    },
+    {
+      "name": "spectral_ruleset_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    {
+      "name": "openapi_version",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "reference_resolution": {
+    "rule": "spectral_ruleset_id must resolve to an actual rule in the project's Spectral ruleset file — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "verdict is recomputed by re-running the spectral ruleset against the current endpoint_path, never a standalone asserted field (issue-515 invariant 4).",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/api-design.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "linting",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "spec-undeclared"
+    ],
+    "error": [
+      "ruleset-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "an OpenAPI spec file changed on the branch AND no api-design record exists yet for that commit sha"
+  }
+}

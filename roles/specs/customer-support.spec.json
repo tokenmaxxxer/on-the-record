@@ -1,0 +1,57 @@
+{
+  "role": "customer-support",
+  "source_standard": "HDI Support Center Standard + CSAT, https://www.thinkhdi.com/services/support-center-standard",
+  "required_fields": [
+    {
+      "name": "ticket_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "csat_score",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "1",
+        "2",
+        "3",
+        "4",
+        "5"
+      ]
+    },
+    {
+      "name": "resolution_summary",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "ticket_id must resolve to an actual support ticket — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "csat_score is recomputed from the actual customer survey response, never pre-filled before the survey returns.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/customer-support.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "triaging",
+      "resolving"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "score-undeclared"
+    ],
+    "error": [
+      "ticket-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a support ticket closes AND no customer-support record exists yet for that ticket_id"
+  }
+}

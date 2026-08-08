@@ -1,0 +1,54 @@
+{
+  "role": "content-design",
+  "source_standard": "GOV.UK Content Design / GDS style guide, https://www.gov.uk/guidance/content-design/writing-for-gov-uk",
+  "required_fields": [
+    {
+      "name": "content_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "user_need",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "plain_language_check",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "content_id must resolve to an actual content page or document — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "plain_language_check is recomputed by re-running content against GDS plain-language conventions, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/content-design.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "drafting",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "user-need-undeclared"
+    ],
+    "error": [
+      "content-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "new user-facing content is proposed on the branch AND no content-design record exists yet for that content_id"
+  }
+}

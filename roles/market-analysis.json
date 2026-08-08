@@ -15,10 +15,25 @@
   "decides": "경쟁 구도에서 이 스펙이 서는가",
   "use_when": "product 스펙 확정 후, 경쟁 구도가 걸린 결정일 때",
   "produces": "five-forces summary, competitor list w/ evidence links, JTBD-landscape verdict",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/market-analysis.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "researching",
+        "assessing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "evidence-undeclared"
+      ],
+      "error": [
+        "market-data-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/market-analysis.spec.json"
 }

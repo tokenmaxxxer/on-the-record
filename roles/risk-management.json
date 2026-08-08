@@ -15,10 +15,25 @@
   "decides": "전사 리스크 노출이 허용 범위인가",
   "use_when": "재무/운영/전략 리스크가 걸릴 때 (feasibility보다 넓은 범위)",
   "produces": "ERM verdict, risk register entry, mitigation owner",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/risk-management.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "registering",
+        "treating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "treatment-undeclared"
+      ],
+      "error": [
+        "risk-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/risk-management.spec.json"
 }
