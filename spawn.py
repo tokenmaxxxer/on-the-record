@@ -1944,6 +1944,13 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
             for div in divergences:
                 print(f"  - {div['kind']}: {div['detail']} -> {div['next_action']}")
         if not _alive(e.get("pid", 0)):
+            work = e.get("work")
+            issue_n = e.get("issue")
+            if work and issue_n is not None:
+                # 이슈 #534: self-trigger 가 놓친(프로세스가 그 줄에 닿기 전에
+                # 죽는 등) dead-but-registered 엔트리를 best-effort 로 잡는다
+                # — 주 경로는 _spawn_one() 의 self-trigger 다, 이 틱이 아니다.
+                _post_session_end_comment(ROOT, issue_n, key, work, e.get("log", ""))
             if auto_respawn:
                 _auto_respawn_check(key, e, respawn_state)
             continue
@@ -1961,14 +1968,66 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
     return anomaly_count
 
 
-def roster_reconcile(issue: int | None = None) -> int:
-    """`spawn.py reconcile [--issue N]` — 이슈-492 step 2 CLI verb.
+def _roster_reconcile_unreported(issue: int | None = None) -> int:
+    """`spawn.py reconcile --unreported [--issue N]` (이슈 #534): roster 는
+    session-end 직후 곧바로 지워지므로(`roster_remove()`, spawn.py:3988)
+    끝난 세션의 흔적을 담지 못한다 — 대신 세션이 끝나도 지워지지 않는
+    `_workspace_index_put()` 의 workspace 인덱스(`WORKSPACE_INDEX`)를
+    훑는다. `verdict == "normal"` 인데 `_SESSION_END_COMMENT_MARKER`
+    코멘트가 아직 없는 엔트리를 "미보고"로 찍는다 — self-trigger/watchdog
+    이 둘 다 놓친 경우(프로세스가 코멘트 줄에 닿기 전에 죽는 등)를
+    오케스트레이터가 아무 때나 한 번의 호출로 회복하는 창구다."""
+    idx = _workspace_index_load()
+    total = 0
+    found_any = False
+    for key, e in sorted(idx.items()):
+        m = re.match(r"^issue-(\d+)/", key)
+        if not m:
+            continue
+        issue_n = int(m.group(1))
+        if issue is not None and issue_n != issue:
+            continue
+        found_any = True
+        work = e.get("work")
+        if not work:
+            continue
+        log = e.get("log")
+        verdict = session_end_verdict(work, Path(log) if log else None)
+        if verdict != "normal":
+            continue
+        marker = _SESSION_END_COMMENT_MARKER.format(key=key)
+        # `_issue_comments`가 `ok=False`(코멘트를 못 읽음)면 마커 부재를
+        # 확인할 수 없다 — "확인 못 함은 통과가 아니다"(#287) 원칙대로
+        # 미보고 쪽으로 넘어간다(중복 코멘트를 감수).
+        comments, ok = _issue_comments(Path(work), issue_n)
+        if ok and any(marker in c.get("body", "") for c in comments):
+            continue
+        total += 1
+        print(f"[reconcile --unreported] {key}: session-end(normal) 미보고 "
+              f"— issue #{issue_n}, work={work}, log={log}")
+    if not found_any:
+        print("reconcile --unreported: 대상 workspace 엔트리 없음")
+    elif not total:
+        print("reconcile --unreported: 미보고 없음")
+    return total
 
-    로스터(살아있는 것 + 죽은 것 전부, `watchdog --auto-respawn` 의 스캔
-    범위와 같다)를 훑어 엔트리마다 `reconcile()` 을 한 번씩 돌린다.
-    `--issue` 를 주면 그 이슈 번호의 엔트리로만 좁힌다. divergence 한 줄씩
-    찍고, 종료 코드는 divergence 총 개수(0 = 깨끗함) — `roster_watchdog`
-    의 반환값과 같은 관례(spawn.py:1752-1755)."""
+
+def roster_reconcile(issue: int | None = None, unreported: bool = False) -> int:
+    """`spawn.py reconcile [--issue N] [--unreported]` — 이슈-492 step 2 CLI
+    verb, 이슈 #534 로 `--unreported` 모드가 추가됐다.
+
+    `unreported=True` 면 `_roster_reconcile_unreported()` 로 위임한다 —
+    roster 가 아니라 workspace 인덱스를 보는, 다른 데이터소스/다른 질문
+    (divergence 가 아니라 "미보고 session-end")이라 별도 함수로 분리했다.
+
+    기본 모드(`unreported=False`)는 그대로다: 로스터(살아있는 것 + 죽은 것
+    전부, `watchdog --auto-respawn` 의 스캔 범위와 같다)를 훑어 엔트리마다
+    `reconcile()` 을 한 번씩 돌린다. `--issue` 를 주면 그 이슈 번호의
+    엔트리로만 좁힌다. divergence 한 줄씩 찍고, 종료 코드는 divergence 총
+    개수(0 = 깨끗함) — `roster_watchdog` 의 반환값과 같은 관례
+    (spawn.py:1752-1755)."""
+    if unreported:
+        return _roster_reconcile_unreported(issue)
     d = _roster_load()
     if issue is not None:
         d = {k: e for k, e in d.items() if e.get("issue") == issue}
@@ -2219,6 +2278,62 @@ def _post_stall_comment(root: Path, issue: int, key: str, work: str, log: str) -
             f"(관찰-전용 정책). 사람이 확인해야 한다.")
     subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
                     "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
+
+
+_SESSION_END_COMMENT_MARKER = "[watch] {key}: session-end:"
+
+
+def _pr_list_call_ok(root: Path, branch: str) -> bool:
+    """`_pr_open_or_merged_for_branch()`(spawn.py:1049)와 같은 `gh pr list`
+    호출이되, PR 상태 판정 로직은 재사용하고 이건 그 밑에 깔린 `gh` 호출
+    자체가 성공했는지만 본다 — "PR 없음"과 "확인 못 함"을 구별하는 데 쓴다
+    (이슈 #534, 프로포절의 empty-state 규정: `gh` 호출이 실패하면
+    `(pr-check-failed)` 접미사를 붙인다)."""
+    r = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "all",
+                        "--json", "number,state"],
+                       cwd=root, capture_output=True, text=True)
+    return r.returncode == 0
+
+
+def _post_session_end_comment(root: Path, issue: int, key: str, work: str,
+                              log: str) -> None:
+    """이슈 #534: 세션 종료(`normal`)를 GitHub 이슈 코멘트로 durable 하게
+    남긴다 — 오케스트레이터의 대화 상태(재무장 루프)가 아니라 이 코멘트가
+    "세션이 끝났다"는 사실을 관찰할 다리가 되도록 한다.
+
+    `crashed`/`stalled` 는 이 함수의 범위가 아니다 — 이미
+    `_post_crash_comment`/`_post_stall_comment` 가 처리한다. 이 함수는
+    `verdict == "normal"` 인 세션에만 코멘트를 남긴다.
+
+    `_post_stall_comment`/`_post_crash_comment` 와 같은 멱등 read-then-check
+    패턴: 고정 마커(`{key}` 까지만 — PR 유무와 무관하게 한 번만 남긴다)가
+    이미 있으면 아무것도 하지 않는다.
+    """
+    verdict = session_end_verdict(work, Path(log) if log else None)
+    if verdict != "normal":
+        return
+    marker = _SESSION_END_COMMENT_MARKER.format(key=key)
+    comments, ok = _issue_comments(root, issue)
+    if ok and any(marker in c.get("body", "") for c in comments):
+        return
+    slug = _repo_slug(root)
+    if not slug:
+        return
+    branch = subprocess.run(["git", "-C", work, "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True).stdout.strip()
+    pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
+    if pr_number is not None:
+        line = f"PR https://github.com/{slug}/pull/{pr_number} opened"
+    elif branch and not _pr_list_call_ok(root, branch):
+        line = "no PR (pr-check-failed)"
+    else:
+        line = "no PR"
+    body = f"{marker} {line}\n\n워크스페이스: {work}\n로그: {log}"
+    r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
+                        "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"[spawn] 이슈 #{issue} session-end 코멘트 게시 실패: {r.stderr.strip()}",
+              file=sys.stderr)
 
 
 _STRANDED_PUSH_COMMENT_MARKER = "[on-the-record] stranded-relay: {key}"
@@ -3027,6 +3142,10 @@ def main() -> int:
     ap.add_argument("--auto-respawn", action="store_true",
                     help="watchdog: crashed 세션에 한해 최대 2회 자동 재스폰, "
                          "상한 도달 시 이슈 코멘트 (기본 off, 관찰-전용 유지)")
+    ap.add_argument("--unreported", action="store_true",
+                    help="reconcile: roster 대신 workspace 인덱스를 훑어, "
+                         "session-end(normal) 인데 아직 [watch] 코멘트가 없는 "
+                         "엔트리를 찍는다 (이슈 #534, 압축/재시작 뒤 복구용 단일 스윕)")
     ap.add_argument("--post", action="store_true",
                     help="closure-sweep: 위반을 해당 이슈에 코멘트로도 남긴다 (기본은 stdout 만)")
     ap.add_argument("--json", action="store_true",
@@ -3041,7 +3160,7 @@ def main() -> int:
     if a.role == "watchdog":
         return roster_watchdog(auto_respawn=a.auto_respawn)
     if a.role == "reconcile":
-        return roster_reconcile(a.issue)
+        return roster_reconcile(a.issue, unreported=a.unreported)
     if a.role == "flows":
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import flows
@@ -4122,6 +4241,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         _append_event(events_path, "session-end",
                       {"outcome": outcome, "reason": push_reason}
                       if push_reason is not None else outcome)
+        # 이슈 #534: session-end 직후, self-trigger 재스폰과 같은 자리에서
+        # durable 코멘트도 남긴다 — roster_watchdog() 틱이 이 엔트리를 볼
+        # 무렵엔 roster_remove()(spawn.py:3988)가 이미 지워버린 뒤라
+        # _self_trigger_respawn()과 같은 dead-entry-invisible 레이스를
+        # 그대로 겪는다.
+        _post_session_end_comment(Path(cwd), issue, roster_key, cwd, str(log_path))
         _self_trigger_respawn(outcome, roster_key, cwd, issue, role,
                               str(log_path), session_start_ts)
         os._exit(rc if isinstance(rc, int) else 0)
