@@ -134,6 +134,22 @@ wake-up").
   start / post-compaction recovery — first act is `spawn.py reconcile
   --unreported` (not resuming from conversation memory).
 
+## Accumulation
+
+`_post_session_end_comment()` adds one more inline `subprocess.run(["gh", ...])`
+site to `spawn.py`, alongside the existing `_post_stall_comment`/
+`_post_crash_comment`/`_post_stranded_push_comment` family it follows the
+pattern of. If N more outcome-comment variants show up later (e.g. a
+`waiting-on-human` comment), the right move is the same one this family
+already avoids taking today: consolidate the shared
+read-marker/post-if-absent skeleton into one small helper
+(`_post_marker_comment(root, issue, marker, body_fn)`) that the per-verdict
+functions call, rather than adding a fourth/fifth copy of the
+read-then-check block. This proposal does not do that consolidation now —
+three near-identical call sites (crash/stall/session-end) is still within
+the pattern's existing shape, and a fourth (stranded-push, which already
+exists) has not triggered it either; a fifth new variant should.
+
 ## Out of scope
 
 - Issue #533 (roster key collision) — not present in this checkout, no
