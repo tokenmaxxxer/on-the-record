@@ -144,6 +144,21 @@ def t_non_proposal_md_write_is_ignored(tmp_path):
     assert r.returncode == 0
 
 
+def t_proposal_flow_style_files_list_without_accumulation_is_denied(tmp_path):
+    # regression test for before-landing warrant-hunt finding
+    # (docs/reports/2026-08-09-hunt-accumulation-claim-authoring-time.md):
+    # inline flow-style YAML (files: [a, b]) used to bypass the check
+    # because only the block-style `files:\n  - a` form was parsed.
+    repo = _init_repo(tmp_path)
+    body = "files: [roles/x.json]\n\n## Request\nfoo\n"
+    r = _run({
+        "file_path": str(repo / "docs" / "issue-1" / "proposals" / "p.md"),
+        "content": body,
+    }, cwd=repo)
+    assert r.returncode == 2
+    assert "issue #424" in r.stderr
+
+
 def t_proposal_incremental_edit_appending_to_open_files_list_is_caught(tmp_path):
     # regression test for the warrant-hunt finding recorded in the
     # proposal: an Edit that appends a list item without repeating the

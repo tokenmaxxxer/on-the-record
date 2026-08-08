@@ -40,3 +40,39 @@ The fragment parses as a plain list, never a mapping with a `files:` key — so 
 
 ### Expected
 An `Edit` that adds `roles/x.json` (shape 5) to a proposal's `files:` list — via an old_string/new_string pair scoped to the list body rather than the full frontmatter block — should still trigger the shape-5 check and deny if `## Accumulation` is missing, since the resulting proposal file on disk does contain the shape-5 path in its `files:` list. The proposal's plan, by parsing only the write's own fragment content (mirroring the current hook's `.py`-branch pattern) rather than the resulting full on-disk file, leaves this Edit shape unseen — a way to grow a proposal's `files:` list into an accumulation shape across multiple small edits that individually never surface a `files:` key to parse.
+
+## before-landing — stance 0: assume the gate just touched is bypassable — find the bypass
+
+Verdict: FINDING — the authoring-time `files:` list parser only recognizes block-style YAML lists (`files:\n  - path`); inline flow-style lists (`files: [roles/x.json]`) never match the `files:\s*$` regex, so listed paths are silently never checked against the accumulation shapes, and a proposal touching roles/*.json via this syntax ships without a `## Accumulation` section and no denial.
+Kind: silent-failure
+Seed: on-the-record/hooks/accumulation-claim-guard.sh (git diff 625feb7 HEAD)
+cap_seconds: 180
+tier: default
+diff_stat_lines: 371 across 4 code files + 1 record file
+started_at: 2026-08-09T06:15:00+09:00
+ended_at: 2026-08-09T06:23:00+09:00
+
+### Reproduce
+Payload (Write tool_name, file_path `docs/issue-547/proposals/test-bypass.md`) with content:
+```
+# Test proposal
+
+files: [roles/foo.json]
+
+No Accumulation heading here.
+```
+Run:
+```
+python3 build_payload.py testcontent.txt "$(pwd)" | ORCHESTRATE_OFF=0 bash on-the-record/hooks/accumulation-claim-guard.sh; echo exit=$?
+```
+
+### Observed
+`exit=0` (allowed) — hook emits no stderr and exits 0, i.e. the write is permitted.
+
+### Expected
+The proposal touches `roles/foo.json` (shape 5: `^roles/[^/]+\.json$`) with no filled `## Accumulation` heading, so the hook should call `deny(...)` and exit 2, matching its behavior for the equivalent block-style list:
+```
+files:
+  - roles/foo.json
+```
+which the current regex `^files:\s*$(.*?)(?=^\S|\Z)` correctly parses and denies. The regex requires nothing but whitespace after `files:` on its own line before descending into the following lines; any inline value after the colon (flow-style list, quoted single path, etc.) causes the whole capture group to fail to match, silently disabling shape checking for that write.
