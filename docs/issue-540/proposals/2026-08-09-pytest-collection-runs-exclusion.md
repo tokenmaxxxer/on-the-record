@@ -69,6 +69,20 @@ already-bound `ROSTER` value, confirmed by reading `spawn.py:1670`.
 - Any other live-only test divergence not already identified as the
   `Drive` class's `ROSTER` leak.
 
+## Accumulation
+
+`test_spawn.py` already crosses the inline-subprocess-call-site
+threshold this repo's accumulation guard watches for (shape 1), from
+pre-existing tests unrelated to this change (e.g.
+`IssueScopedPrompt.test_preparation_and_preamble_happen_once`'s `git`
+invocations). This proposal's edits to the `Drive` class add zero new
+subprocess/gh call sites — only a `tempfile.TemporaryDirectory()` +
+monkeypatch pattern already used by `RequireDoctor._with_root` in the
+same file. If this pattern repeats N more times it stays bounded: each
+addition is one more test class reusing the same small
+patch-and-restore helper shape, not a new inline subprocess site, so it
+does not compound the counted accumulation shape.
+
 ## How you'll know it worked
 
 - `python3 -m pytest -q` collects with zero collection ERRORs in a
