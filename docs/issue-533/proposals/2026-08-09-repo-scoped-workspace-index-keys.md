@@ -188,3 +188,36 @@ today, including all existing test fixtures, for no behavioral benefit.
   `watcher_pid` set) → `_workspace_index_put` raises instead of silently
   overwriting — including the pre-watcher-registration-window case the
   after-proposal hunt found.
+
+## Accumulation
+
+This fix adds one repeated-shape cost: `_repo_identity(cwd)` — a local
+`git -C cwd remote get-url origin` subprocess call — now runs on every
+`_workspace_index_put` call (both call sites in `_spawn_one`) and every
+`watch`/`_watch` invocation, where today those call sites do zero repo-
+identity work. That's a new per-call shell-out on two hot paths
+(`spawn.py:3741`, `spawn.py:3780`) plus `main()`'s `watch` dispatch.
+
+Why this repeated cost is acceptable: it's a local `git` subprocess (no
+network, no `gh` round-trip — the Rationale section already rejected the
+network-backed `_repo_slug` alternative for exactly this reason), and it
+replaces work the fix's own key scheme requires at each of those call
+sites regardless of implementation — there's no way to key an index entry
+by repo identity without computing that identity somewhere on the write/
+lookup path. The alternative (compute it once and thread a `repo` string
+through every caller) was considered and rejected in Rationale for a
+different reason (forces a signature change at ~15+ call sites including
+test fixtures) but would carry the identical git-subprocess cost, just
+moved earlier — so the "repeated shape" is inherent to the fix, not an
+avoidable duplication introduced by this particular implementation choice.
+
+Shared helper used to keep the duplication itself minimal: a single new
+function, `_repo_identity(cwd)`, is the only place that shape lives — both
+`_workspace_index_put` call sites, `_workspace_index_load`'s migration
+path, and `_watch`'s `-C` scoping all call through that one helper rather
+than each re-implementing the `git remote get-url` + regex-parse +
+basename-fallback logic inline. This mirrors the existing
+`_origin_pr_prefix` (`spawn.py:2392-2400`) pattern the Rationale section
+already cites as precedent for this exact local-only repo-identity shape,
+so the codebase ends up with two small helpers following one convention
+rather than a proliferation of ad hoc `git remote get-url` call sites.
