@@ -4089,6 +4089,8 @@ class SelfTriggeredRespawn(unittest.TestCase):
             roster = Path(td) / "active.json"
             old_roster = spawn.ROSTER
             spawn.ROSTER = roster
+            old_idx = spawn.WORKSPACE_INDEX
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
             triggered = []
 
             def fake_trigger(outcome, roster_key, w, issue, role, log, ts):
@@ -4125,6 +4127,7 @@ class SelfTriggeredRespawn(unittest.TestCase):
                     os.dup2(real, fd)
                     os.close(real)
                 spawn.ROSTER = old_roster
+                spawn.WORKSPACE_INDEX = old_idx
             self.assertEqual(triggered, ["uncommitted-work"])
 
 
@@ -4245,6 +4248,8 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
             roster = Path(td) / "active.json"
             old_roster = spawn.ROSTER
             spawn.ROSTER = roster
+            old_idx = spawn.WORKSPACE_INDEX
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
 
             order = []
             orig_rewrite = spawn._rewrite_spawn_claim_pid
@@ -4282,6 +4287,7 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
                     os.dup2(real, fd)
                     os.close(real)
                 spawn.ROSTER = old_roster
+                spawn.WORKSPACE_INDEX = old_idx
 
             self.assertEqual(order, ["rewrite", "setsid"])
             claim = json.loads(Path(str(work) + ".spawn-claim").read_text())
@@ -4736,8 +4742,12 @@ class RosterReconcileUnreported(unittest.TestCase):
         spawn._issue_comments = self._orig_comments
 
     def test_lists_ended_session_with_open_pr_before_ack_and_empties_after(self):
+        # 이슈 #533: workspace 인덱스 키는 레포 접두사가 붙지만
+        # (`repo/issue-534/coding`), 코멘트에 실제로 박히는 마커는
+        # `_post_session_end_comment`가 여전히 쓰는 bare `issue-534/coding`
+        # 이어야 한다 — before-landing hunt 가 찾은 마커 불일치 회귀.
         spawn._workspace_index_load = lambda: {
-            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+            "repo/issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
         }
         spawn.session_end_verdict = lambda work, log_path: "normal"
 
@@ -4758,8 +4768,8 @@ class RosterReconcileUnreported(unittest.TestCase):
 
     def test_filters_by_issue(self):
         spawn._workspace_index_load = lambda: {
-            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
-            "issue-1/coding": {"work": "/tmp/w2", "log": "/tmp/l2"},
+            "repo/issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+            "repo/issue-1/coding": {"work": "/tmp/w2", "log": "/tmp/l2"},
         }
         spawn.session_end_verdict = lambda work, log_path: "normal"
         spawn._issue_comments = lambda root, n: ([], True)
@@ -4767,7 +4777,7 @@ class RosterReconcileUnreported(unittest.TestCase):
 
     def test_skips_non_normal_verdicts(self):
         spawn._workspace_index_load = lambda: {
-            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+            "repo/issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
         }
         spawn.session_end_verdict = lambda work, log_path: "in-progress"
         spawn._issue_comments = lambda root, n: ([], True)
@@ -5553,7 +5563,7 @@ class WatchFollow(unittest.TestCase):
         sys.argv = ["spawn.py", "watch", "--issue", "180", "--follow"]
         captured = {}
 
-        def fake_watch(issue, role, stall_timeout_min, follow=False):
+        def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None):
             captured["follow"] = follow
             return 0
 
@@ -5571,7 +5581,7 @@ class WatchFollow(unittest.TestCase):
         sys.argv = ["spawn.py", "watch", "--issue", "180"]
         captured = {}
 
-        def fake_watch(issue, role, stall_timeout_min, follow=False):
+        def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None):
             captured["follow"] = follow
             return 0
 
@@ -5639,7 +5649,7 @@ class WatchRegistrationRace(unittest.TestCase):
             # 처음 두 번은 아직 명부 쓰기가 안 반영된 것처럼 빈 명부 —
             # 세 번째 폴에서 등록이 나타난다.
             if calls["n"] >= 3:
-                return {"issue-484/implementation": entry}
+                return {"wk/issue-484/implementation": entry}
             return {}
 
         def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
@@ -6360,16 +6370,16 @@ class WatcherAutoArm(unittest.TestCase):
     def test_workspace_index_put_records_watcher_pid(self):
         spawn._workspace_index_put(488, "implementation", "work", "log",
                                     watcher_pid=12345)
-        entry = spawn._workspace_index_load()["issue-488/implementation"]
+        entry = spawn._workspace_index_load()["work/issue-488/implementation"]
         self.assertEqual(entry["watcher_pid"], 12345)
 
     def test_workspace_index_put_without_watcher_pid_omits_field(self):
         spawn._workspace_index_put(488, "implementation", "work", "log")
-        entry = spawn._workspace_index_load()["issue-488/implementation"]
+        entry = spawn._workspace_index_load()["work/issue-488/implementation"]
         self.assertNotIn("watcher_pid", entry)
 
-    def _entry(self, log):
-        return {"log": str(log), "work": None, "ts": int(time.time()),
+    def _entry(self, log, work="work"):
+        return {"log": str(log), "work": work, "ts": int(time.time()),
                 "before_head": None, "pid": None}
 
     def test_watchdog_flags_dead_watcher(self):
@@ -6407,7 +6417,7 @@ class WatcherAutoArm(unittest.TestCase):
             log = Path(td) / "s.log"
             log.write_text('{"type":"text"}\n')
             out = spawn.watchdog_check_one(
-                "issue-999/nobody", self._entry(log), state={})
+                "issue-999/nobody", self._entry(log, work="nobody-work"), state={})
             self.assertFalse(any("watcher-" in a for a in out))
 
     @unittest.skipUnless(Path("/proc").is_dir(), "cmdline 신원 검사는 /proc 필요")
@@ -6426,6 +6436,101 @@ class WatcherAutoArm(unittest.TestCase):
             out = spawn.watchdog_check_one(
                 "issue-488/implementation", entry, state={})
             self.assertTrue(any("watcher-dead" in a for a in out))
+
+
+class RepoScopedWorkspaceIndex(unittest.TestCase):
+    """이슈 #533: 서로 다른 레포가 같은 이슈+역할로 워크스페이스 인덱스
+    키가 충돌하던 문제 — 키에 레포 정체성을 넣고, 조회를 `-C`로 좁히고,
+    같은 키에 다른 work 로 덮어쓰면 조용히 넘어가지 않고 에러낸다."""
+
+    def _init_repo(self, path: Path, origin_url: str) -> None:
+        path.mkdir(parents=True)
+        run = lambda *args: subprocess.run(
+            args, cwd=str(path), capture_output=True, text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "remote", "add", "origin", origin_url)
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        old_idx = spawn.WORKSPACE_INDEX
+        spawn.WORKSPACE_INDEX = Path(self.td) / "workspaces.json"
+        self.addCleanup(setattr, spawn, "WORKSPACE_INDEX", old_idx)
+        self.repo_a = Path(self.td) / "repoA"
+        self._init_repo(self.repo_a, "https://github.com/acme/repo-a.git")
+        self.repo_b = Path(self.td) / "repoB"
+        self._init_repo(self.repo_b, "https://github.com/acme/repo-b.git")
+
+    def test_two_repos_same_issue_role_keep_distinct_entries(self):
+        spawn._workspace_index_put(19, "implementation", str(self.repo_a), "log-a")
+        spawn._workspace_index_put(19, "implementation", str(self.repo_b), "log-b")
+        idx = spawn._workspace_index_load()
+        self.assertEqual(len(idx), 2)
+        self.assertEqual(idx["repo-a/issue-19/implementation"]["log"], "log-a")
+        self.assertEqual(idx["repo-b/issue-19/implementation"]["log"], "log-b")
+
+    def test_same_key_different_work_raises_regardless_of_watcher_pid(self):
+        spawn._workspace_index_put(19, "implementation", str(self.repo_a), "log-a")
+        with self.assertRaises(RuntimeError):
+            spawn._workspace_index_put(19, "implementation", str(self.repo_a) + "/",
+                                        "log-a-other")
+
+    def test_same_key_different_work_raises_before_watcher_pid_set(self):
+        # 이슈 #533 after-proposal hunt: watcher_pid 가 아직 안 붙은 첫 등록
+        # 시점에도(스폰 초입, spawn.py:3860) 충돌은 똑같이 에러여야 한다 —
+        # watcher_pid 유무로 완화하면 그 창에서 조용히 덮어써지는 원래 버그가
+        # 재현된다.
+        spawn._workspace_index_put(19, "implementation", str(self.repo_a), "log-a")
+        with self.assertRaises(RuntimeError):
+            spawn._workspace_index_put(19, "implementation", str(self.repo_a) + "/",
+                                        "log-a-other", watcher_pid=None)
+
+    def test_same_key_same_work_is_a_normal_update_not_a_collision(self):
+        spawn._workspace_index_put(19, "implementation", str(self.repo_a), "log-a")
+        spawn._workspace_index_put(19, "implementation", str(self.repo_a), "log-a",
+                                    watcher_pid=4242)
+        idx = spawn._workspace_index_load()
+        self.assertEqual(idx["repo-a/issue-19/implementation"]["watcher_pid"], 4242)
+
+    def test_lookup_roster_entry_scoped_by_repo_ignores_other_repo(self):
+        spawn._workspace_index_put(19, "implementation", str(self.repo_a), "log-a")
+        spawn._workspace_index_put(19, "implementation", str(self.repo_b), "log-b")
+        idx = spawn._workspace_index_load()
+        key, entry = spawn._lookup_roster_entry(idx, 19, "implementation", repo="repo-a")
+        self.assertEqual(key, "repo-a/issue-19/implementation")
+        self.assertEqual(entry["log"], "log-a")
+
+    def test_watch_scoped_by_cwd_never_returns_other_repo_entry(self):
+        from unittest import mock
+        spawn._workspace_index_put(19, "implementation", str(self.repo_a), "log-a")
+        spawn._workspace_index_put(19, "implementation", str(self.repo_b), "log-b")
+        seen = {}
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+            seen["log_path"] = log_path
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            old_argv = sys.argv
+            sys.argv = ["spawn.py", "watch", "--issue", "19", "--role", "implementation",
+                        "-C", str(self.repo_a)]
+            try:
+                rc = spawn.main()
+            finally:
+                sys.argv = old_argv
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen["log_path"], Path("log-a"))
+
+    def test_legacy_bare_key_migrates_on_load(self):
+        spawn.WORKSPACE_INDEX.parent.mkdir(parents=True, exist_ok=True)
+        spawn.WORKSPACE_INDEX.write_text(json.dumps(
+            {"issue-19/implementation": {"work": str(self.repo_a), "log": "log-a"}}))
+        idx = spawn._workspace_index_load()
+        self.assertNotIn("issue-19/implementation", idx)
+        self.assertEqual(idx["repo-a/issue-19/implementation"]["log"], "log-a")
+        # 재로딩은 멱등 — 두 번째 로드에서 다시 안 바뀐다.
+        idx2 = spawn._workspace_index_load()
+        self.assertEqual(idx2, idx)
 
 
 class WatchAll(unittest.TestCase):
@@ -6478,7 +6583,7 @@ class WatchAll(unittest.TestCase):
         seen_end = set()
         reported = self._run_one_iteration(seen_end)
         keys = {k for k, _ in reported}
-        self.assertEqual(keys, {"issue-1/implementation", "issue-2/implementation"})
+        self.assertEqual(keys, {"a/issue-1/implementation", "b/issue-2/implementation"})
 
     def test_key_registered_after_polling_started_is_picked_up(self):
         # 워처가 시작된 뒤에 등록된 스폰도 다음 이터레이션에서 잡힌다 —
@@ -6490,8 +6595,8 @@ class WatchAll(unittest.TestCase):
                                     str(self.work_a) + ".log")
         spawn._append_event(spawn._events_path(self.work_a), "session-end", "done")
         second = self._run_one_iteration(seen_end)
-        self.assertEqual(second, [("issue-3/implementation", "session-end")])
-        self.assertIn("issue-3/implementation", seen_end)
+        self.assertEqual(second, [("a/issue-3/implementation", "session-end")])
+        self.assertIn("a/issue-3/implementation", seen_end)
 
     def test_offset_advances_only_for_consumed_key(self):
         spawn._workspace_index_put(1, "implementation", str(self.work_a),

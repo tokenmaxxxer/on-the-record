@@ -1853,7 +1853,8 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     # signal 5 (이슈 #488): 자동 무장한 워처가 죽었거나 애초에 없으면 신고한다
     # — 죽은 워처는 조용히 넘어가면 auto-arm 의 요구("워처 없는 스폰 불가")를
     # 관측 시점에서 다시 어기는 셈이라, watchdog 틱마다 여기서 잡는다.
-    ws_entry = _workspace_index_load().get(key)
+    ws_key = f"{_repo_identity(work)}/{key}" if work else key
+    ws_entry = _workspace_index_load().get(ws_key)
     if ws_entry is not None:
         watcher_pid = ws_entry.get("watcher_pid")
         if watcher_pid is None:
@@ -1981,7 +1982,7 @@ def _roster_reconcile_unreported(issue: int | None = None) -> int:
     total = 0
     found_any = False
     for key, e in sorted(idx.items()):
-        m = re.match(r"^issue-(\d+)/", key)
+        m = re.search(r"(?:^|/)issue-(\d+)/", key)
         if not m:
             continue
         issue_n = int(m.group(1))
@@ -1995,7 +1996,13 @@ def _roster_reconcile_unreported(issue: int | None = None) -> int:
         verdict = session_end_verdict(work, Path(log) if log else None)
         if verdict != "normal":
             continue
-        marker = _SESSION_END_COMMENT_MARKER.format(key=key)
+        # 이슈 #533: 마커는 `_post_session_end_comment` 가 실제로 코멘트에
+        # 박아 둔 bare `issue-<n>/<role>` 형태여야 한다 — workspace 인덱스
+        # `key` 는 이제 레포 접두사가 붙어 그대로 쓰면 마커가 영원히
+        # 안 맞아 매번 미보고로 오탐한다.
+        m2 = re.search(r"issue-\d+/[^/]+$", key)
+        roster_key = m2.group(0) if m2 else key
+        marker = _SESSION_END_COMMENT_MARKER.format(key=roster_key)
         # `_issue_comments`가 `ok=False`(코멘트를 못 읽음)면 마커 부재를
         # 확인할 수 없다 — "확인 못 함은 통과가 아니다"(#287) 원칙대로
         # 미보고 쪽으로 넘어간다(중복 코멘트를 감수).
@@ -2521,23 +2528,70 @@ def _write_offset(offset_path: Path, n: int) -> None:
     offset_path.write_text(str(n))
 
 
+def _repo_identity(cwd) -> str:
+    """이슈 #533: workspace 인덱스 키의 레포 구분자 — 순수 로컬, 네트워크
+    호출 없음(`_origin_pr_prefix` 와 같은 방식). origin remote 가 없거나
+    git 저장소가 아니면 디렉터리 basename 으로 떨어진다 — 항상 성공한다."""
+    try:
+        out = subprocess.run(["git", "-C", str(cwd), "remote", "get-url", "origin"],
+                             capture_output=True, text=True)
+        if out.returncode == 0:
+            m = re.search(r"github\.com[:/]+[^/\s]+/([^/\s]+?)(?:\.git)?\s*$", out.stdout)
+            if m:
+                return m.group(1)
+    except OSError:
+        pass
+    return Path(str(cwd)).resolve().name
+
+
+_LEGACY_WORKSPACE_KEY_RE = re.compile(r"^issue-\d+/[^/]+$")
+
+
 def _workspace_index_load() -> dict:
     try:
-        return json.loads(WORKSPACE_INDEX.read_text())
+        d = json.loads(WORKSPACE_INDEX.read_text())
     except (OSError, ValueError):
         return {}
+    migrated = False
+    for key in list(d.keys()):
+        if _LEGACY_WORKSPACE_KEY_RE.match(key):
+            entry = d[key]
+            new_key = f"{_repo_identity(entry['work'])}/{key}"
+            if new_key in d and new_key != key:
+                raise RuntimeError(
+                    f"workspace index migration collision: {key!r} -> "
+                    f"{new_key!r} already exists (live entries: "
+                    f"{d[new_key]!r} vs {entry!r})")
+            del d[key]
+            d[new_key] = entry
+            migrated = True
+    if migrated:
+        WORKSPACE_INDEX.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+    return d
 
 
 def _workspace_index_put(issue: int, role: str, work: str, log: str,
                           watcher_pid: int | None = None) -> None:
     """이슈 #488: `watcher_pid` 는 이 스폰이 자동 무장한 워처 프로세스의
-    pid(있으면) — `watchdog`이 여기서 읽어 워처가 죽었는지 신고한다."""
+    pid(있으면) — `watchdog`이 여기서 읽어 워처가 죽었는지 신고한다.
+
+    이슈 #533: 키는 레포 정체성(`_repo_identity`)까지 포함한다 — 서로 다른
+    레포가 같은 이슈 번호+역할로 충돌하면 이전 엔트리가 조용히 덮어써지던
+    문제. 같은 키에 다른 `work` 값이 이미 있으면(=진짜 충돌이거나 버그)
+    조용히 덮지 않고 즉시 에러낸다."""
     WORKSPACE_INDEX.parent.mkdir(parents=True, exist_ok=True)
     d = _workspace_index_load()
+    key = f"{_repo_identity(work)}/issue-{issue}/{role}"
+    existing = d.get(key)
+    if existing is not None and existing.get("work") != work:
+        raise RuntimeError(
+            f"workspace index collision on {key!r}: existing entry "
+            f"{existing!r} has a different work dir than {work!r} — "
+            f"refusing to overwrite silently (issue #533)")
     entry = {"work": work, "log": log}
     if watcher_pid is not None:
         entry["watcher_pid"] = watcher_pid
-    d[f"issue-{issue}/{role}"] = entry
+    d[key] = entry
     WORKSPACE_INDEX.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
 
@@ -2601,24 +2655,45 @@ WATCH_CRASH_RC = 2  # `--follow`가 session-end 없이 pid 사망을 감지했�
                     # docs/issue-224/decisions/watch-crash-exit-code.md).
 
 
-def _lookup_roster_entry(idx: dict, issue: int, role: str | None):
+def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | None = None):
+    """이슈 #533: `repo` 가 주어지면 그 레포로만 조회를 좁힌다 — `-C` 가
+    지금까지 조회에 안 먹히던 구멍을 막는다. 안 주면(기존 기본값) 모든
+    레포를 대상으로 이슈+역할 접미사로 매칭하던 예전 동작을 유지한다."""
+    if repo is not None:
+        if role:
+            key = f"{repo}/issue-{issue}/{role}"
+            entry = idx.get(key)
+        else:
+            matches = [(k, v) for k, v in idx.items()
+                       if k.startswith(f"{repo}/issue-{issue}/")]
+            if len(matches) > 1:
+                sys.exit(f"레포 {repo} 이슈 {issue} 에 역할이 여럿 기록돼 있다 — "
+                         "역할을 지정하라: "
+                         + ", ".join(k.rsplit("/", 1)[1] for k, _ in matches))
+            key = matches[0][0] if matches else None
+            entry = matches[0][1] if matches else None
+        return key, entry
     if role:
-        key = f"issue-{issue}/{role}"
-        entry = idx.get(key)
+        matches = [(k, v) for k, v in idx.items() if k.endswith(f"/issue-{issue}/{role}")]
+        if len(matches) > 1:
+            sys.exit(f"이슈 {issue}/{role} 이 레포 여럿에 기록돼 있다 — -C 로 "
+                     "레포를 지정하라: " + ", ".join(k.rsplit("/issue-", 1)[0] for k, _ in matches))
+        key = matches[0][0] if matches else None
+        entry = matches[0][1] if matches else None
     else:
-        matches = [(k, v) for k, v in idx.items() if k.startswith(f"issue-{issue}/")]
+        matches = [(k, v) for k, v in idx.items() if f"/issue-{issue}/" in k]
         if len(matches) > 1:
             sys.exit(f"이슈 {issue} 에 역할이 여럿 기록돼 있다 — 역할을 지정하라: "
-                     + ", ".join(k.split("/", 1)[1] for k, _ in matches))
+                     + ", ".join(k.rsplit("/", 1)[1] for k, _ in matches))
         key = matches[0][0] if matches else None
         entry = matches[0][1] if matches else None
     return key, entry
 
 
 def _watch(issue: int, role: str | None, stall_timeout_min: float,
-           follow: bool = False) -> int:
+           follow: bool = False, repo: str | None = None) -> int:
     idx = _workspace_index_load()
-    key, entry = _lookup_roster_entry(idx, issue, role)
+    key, entry = _lookup_roster_entry(idx, issue, role, repo=repo)
     if entry is None:
         # 등록 레이스(이슈 #484): 스폰이 막 리턴했지만 명부 쓰기가 아직
         # 반영되지 않았을 수 있다 — #451 의 "끝내 안 나타남"과는 구분되는
@@ -2632,7 +2707,7 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
             time.sleep(poll_s)
             poll_s = min(poll_s * 2, 2.0)
             idx = _workspace_index_load()
-            key, entry = _lookup_roster_entry(idx, issue, role)
+            key, entry = _lookup_roster_entry(idx, issue, role, repo=repo)
     if entry is None:
         print(f"[watch] issue-{issue}{'/' + role if role else ''}: 기록 없음 — "
               f"아직 스폰된 적이 없다", file=sys.stderr)
@@ -2690,7 +2765,12 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
         # proc.wait() 로 이미 정상적으로 죽어 있어서, 그 시점의 `pid`
         # 사망만으로 판정하면 아직 정상 진행 중인 후처리 구간을 크래시로
         # 오판한다(이슈 #224 hunt 발견).
-        roster_entry = _roster_load().get(key) if key else None
+        # 이슈 #533: `key` 는 workspace 인덱스 키(레포 접두사 포함)지만
+        # ROSTER 는 별도 메커니즘으로 `issue-<n>/<role>` 그대로 키를 쓴다
+        # (이번 변경의 out-of-scope) — 여기서 조회할 때는 접두사를 떼어
+        # bare 형태로 되돌린다.
+        m = re.search(r"issue-\d+/[^/]+$", key) if key else None
+        roster_entry = _roster_load().get(m.group(0)) if m else None
         pid = roster_entry.get("wrapper_pid") if roster_entry else None
         # 명부 엔트리 부재는 사망 신호로 안 쓴다(이슈 #266) — `_spawn_one()`의
         # 후처리 꼬리 동안 `roster_remove`(spawn.py:2995)가 `session-end`
@@ -3202,7 +3282,8 @@ def main() -> int:
         if a.issue is None:
             sys.exit("사용법: spawn.py watch --issue <n> [--role <역할>] "
                      "[--stall-timeout <분>], 또는 spawn.py watch --all")
-        return _watch(a.issue, a.watch_role, a.stall_timeout, follow=a.follow)
+        return _watch(a.issue, a.watch_role, a.stall_timeout, follow=a.follow,
+                      repo=_repo_identity(a.cwd))
     if a.role == "clean":
         # 안전한 것만 지운다: 미커밋 변경 없음 + origin 에 없는 커밋 없음.
         base = os.environ.get("MUSTER_WORK_DIR")
