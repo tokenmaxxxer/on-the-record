@@ -1,0 +1,63 @@
+{
+  "role": "knowledge-management",
+  "source_standard": "KCS (Knowledge-Centered Service) Solve loop, https://www.thekcsacademy.net/kcs/",
+  "required_fields": [
+    {
+      "name": "article_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "capture_point",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "at-resolution",
+        "retroactive"
+      ]
+    },
+    {
+      "name": "article_content",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "reuse_status",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "new",
+        "reused",
+        "flagged-for-review"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "article_id must resolve to an actual KB article file — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "capture_point must equal at-resolution — KCS's own capture-at-point-of-resolution invariant (mirrors issue-515 invariant 1); a retroactive capture is a refusal state, not a silent pass.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/knowledge-management.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "capturing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "not-captured-at-resolution"
+    ],
+    "error": [
+      "article-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "an issue reaches resolution AND no knowledge-management record exists yet for that resolution"
+  }
+}

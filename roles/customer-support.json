@@ -15,10 +15,25 @@
   "decides": "문의를 어떤 우선순위/SLA로 처리할지",
   "use_when": "CS 플로우/SLA 설계가 걸릴 때",
   "produces": "support playbook, SLA table, escalation path",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/customer-support.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "triaging",
+        "resolving"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "score-undeclared"
+      ],
+      "error": [
+        "ticket-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/customer-support.spec.json"
 }

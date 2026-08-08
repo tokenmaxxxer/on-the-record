@@ -1,0 +1,56 @@
+{
+  "role": "devrel",
+  "source_standard": "Keystone DevRel metrics + DevRel-Qualified-Lead concept (Mary Thengvall) — convergent industry practice, no single ratified standard confirmed (scout-brief gap, stated as assumption); https://openviewpartners.com/blog/measuring-the-impact-of-your-developer-relations-team/ , https://developerrelations.com/talks/measuring-progress-in-developer-relations/",
+  "required_fields": [
+    {
+      "name": "metric_name",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "product_journey_stage",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "awareness",
+        "activation",
+        "adoption",
+        "advocacy"
+      ]
+    },
+    {
+      "name": "value",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "metric_name must resolve to an actual tracked DevRel metric — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "value is recomputed from the current metric source, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/devrel.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "tracking",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "stage-undeclared"
+    ],
+    "error": [
+      "metric-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a DevRel campaign or content piece ships AND no devrel record exists yet for that campaign"
+  }
+}

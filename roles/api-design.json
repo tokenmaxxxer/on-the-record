@@ -15,8 +15,25 @@
   "decides": "서비스 경계의 인터페이스 형태",
   "use_when": "여러 소비자가 걸리는 API 표면을 설계/변경할 때",
   "produces": "interface spec (endpoints/schema/versioning), lifecycle/deprecation plan",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/api-design.md"
+  ],
   "record_fields": {
-    "loop_state": ["landed"]
-  }
+    "loop_state": {
+      "progress": [
+        "linting",
+        "reviewing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "spec-undeclared"
+      ],
+      "error": [
+        "ruleset-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/api-design.spec.json"
 }

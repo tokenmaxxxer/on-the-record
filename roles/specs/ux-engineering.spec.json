@@ -1,0 +1,50 @@
+{
+  "role": "ux-engineering",
+  "source_standard": "DTCG Design Tokens Format spec (consumption side, shared lineage with brand-design), https://www.designtokens.org/tr/2025.10/format/",
+  "required_fields": [
+    {
+      "name": "token_name",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "consuming_component",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "rendered_value",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "token_name must resolve to an actual entry in the design-tokens JSON file (brand-design's write_scope); consuming_component must resolve to an actual UI component — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "rendered_value is recomputed by re-resolving token_name through the current token build, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/ux-engineering.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "implementing",
+      "validating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "token-undeclared"
+    ],
+    "error": [
+      "component-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a UI component consumes a design token on the branch AND no ux-engineering record exists yet for that component"
+  }
+}

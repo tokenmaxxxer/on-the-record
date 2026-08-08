@@ -1,0 +1,61 @@
+{
+  "role": "growth-analytics",
+  "source_standard": "AARRR Pirate Metrics (Dave McClure) + North Star Metric — original McClure source not independently fetched this pass (scout-brief gap, stated as assumption); https://www.productcompass.pm/p/aarrr-pirate-metrics",
+  "required_fields": [
+    {
+      "name": "funnel_stage",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "acquisition",
+        "activation",
+        "retention",
+        "referral",
+        "revenue"
+      ]
+    },
+    {
+      "name": "metric_value",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "is_north_star",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "true",
+        "false"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "metric_value must resolve to an actual computed figure from the current analytics data source — no fabricated figures.",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "exactly one metric across all growth-analytics records may carry is_north_star=true at any time, recomputed at each new record, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/growth-analytics.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "measuring",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "stage-undeclared"
+    ],
+    "error": [
+      "analytics-data-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a funnel metric is reassessed AND no growth-analytics record exists yet for that funnel_stage"
+  }
+}

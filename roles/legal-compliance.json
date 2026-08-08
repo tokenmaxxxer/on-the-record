@@ -15,10 +15,25 @@
   "decides": "이 스펙/처리가 법·규제를 통과하는가",
   "use_when": "개인정보·라이선스·계약이 걸릴 때",
   "produces": "compliance verdict, applicable regulation list, required mitigations",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/legal-compliance.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "assessing",
+        "mitigating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "processing-undeclared"
+      ],
+      "error": [
+        "dpia-source-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/legal-compliance.spec.json"
 }

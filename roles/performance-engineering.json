@@ -15,8 +15,25 @@
   "decides": "부하/지연 목표를 만족하는가",
   "use_when": "성능 예산이 걸린 설계/회귀일 때",
   "produces": "performance budget, profiling evidence, bottleneck list",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/performance-engineering.md"
+  ],
   "record_fields": {
-    "loop_state": ["landed"]
-  }
+    "loop_state": {
+      "progress": [
+        "measuring",
+        "reviewing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "slo-undeclared"
+      ],
+      "error": [
+        "metric-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/performance-engineering.spec.json"
 }

@@ -15,10 +15,25 @@
   "decides": "문구가 사용자의 실제 결정을 돕는가",
   "use_when": "플로우에 새 카피/마이크로카피가 걸릴 때",
   "produces": "copy draft, rationale per string, A/B alternative (if applicable)",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/content-design.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "drafting",
+        "reviewing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "user-need-undeclared"
+      ],
+      "error": [
+        "content-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/content-design.spec.json"
 }

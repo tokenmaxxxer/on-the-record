@@ -15,10 +15,26 @@
   "decides": "브랜드 정체성이 시각적으로 일관되는가",
   "use_when": "브랜드 자산 신설/변경이 걸릴 때",
   "produces": "brand guide entry, asset spec, consistency check vs existing guide",
-  "write_scope": [],
+  "write_scope": [
+    "design-tokens/*.json",
+    "docs/issue-<n>/reports/brand-design.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "designing",
+        "validating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "type-undeclared"
+      ],
+      "error": [
+        "token-file-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/brand-design.spec.json"
 }

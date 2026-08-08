@@ -15,10 +15,25 @@
   "decides": "독자가 알아야 할 것을 어떻게 구조화할지",
   "use_when": "외부 공개 문서가 필요할 때",
   "produces": "doc outline, draft, target-reader note",
-  "write_scope": ["docs/guides/**", "docs/issue-<n>/guides/**"],
+  "write_scope": [
+    "docs/issue-<n>/reports/technical-writing.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "drafting",
+        "reviewing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "quadrant-undeclared"
+      ],
+      "error": [
+        "doc-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/technical-writing.spec.json"
 }

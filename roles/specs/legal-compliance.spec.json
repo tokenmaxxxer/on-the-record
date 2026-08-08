@@ -1,0 +1,64 @@
+{
+  "role": "legal-compliance",
+  "source_standard": "GDPR Article 35(7) DPIA, https://gdpr.eu/data-protection-impact-assessment-template/",
+  "required_fields": [
+    {
+      "name": "processing_description",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "necessity_assessment",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "risk_assessment",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "mitigation_measures",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "compliant",
+        "non-compliant"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "mitigation_measures, when it cites a control, must resolve to an actual implemented control — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "verdict is recomputed as the worst-case across necessity_assessment and risk_assessment, never a standalone summary field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/legal-compliance.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "assessing",
+      "mitigating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "processing-undeclared"
+    ],
+    "error": [
+      "dpia-source-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "new personal-data processing is proposed on the branch AND no legal-compliance record exists yet for that processing"
+  }
+}

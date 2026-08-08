@@ -1,0 +1,60 @@
+{
+  "role": "brand-design",
+  "source_standard": "DTCG Design Tokens Format spec, https://www.designtokens.org/tr/2025.10/format/",
+  "required_fields": [
+    {
+      "name": "token_name",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "token_type",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "color",
+        "dimension",
+        "fontFamily",
+        "fontWeight",
+        "duration",
+        "cubicBezier",
+        "number"
+      ]
+    },
+    {
+      "name": "value",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "token_name must resolve to an actual entry in the design-tokens JSON file — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "value is recomputed by re-validating token_name's entry against the DTCG format spec, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "design-tokens/*.json",
+    "docs/issue-<n>/reports/brand-design.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "designing",
+      "validating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "type-undeclared"
+    ],
+    "error": [
+      "token-file-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a new design token is proposed on the branch AND no brand-design record exists yet for that token_name"
+  }
+}
