@@ -104,6 +104,57 @@ def t_non_git_directory_fails_closed_not_silently_empty():
         shutil.rmtree(d)
 
 
+def t_for_files_shape5_roles_json_without_accumulation_line_flags():
+    d = _repo({"roles/product.json": "{}\n"})
+    try:
+        bad = accumulation.check_accumulation_claim_for_files(
+            d, ["roles/product.json"], "## Request\nfoo\n")
+        assert bad, "files: list naming roles/*.json with no ## Accumulation must flag"
+    finally:
+        shutil.rmtree(d)
+
+
+def t_for_files_shape5_roles_json_with_accumulation_line_passes():
+    d = _repo({"roles/product.json": "{}\n"})
+    try:
+        body = "## Accumulation\nAt N more edits this needs a codegen step.\n"
+        assert accumulation.check_accumulation_claim_for_files(
+            d, ["roles/product.json"], body) == []
+    finally:
+        shutil.rmtree(d)
+
+
+def t_for_files_shape1_existing_over_threshold_path_without_accumulation_line_flags():
+    d = _repo({"gates/ci.py": "import subprocess\n" + _CI_PY_WITH_7TH_CALL})
+    try:
+        bad = accumulation.check_accumulation_claim_for_files(
+            d, ["gates/ci.py"], "## Request\nfoo\n")
+        assert bad, "files: list naming an already-over-threshold .py path must flag"
+    finally:
+        shutil.rmtree(d)
+
+
+def t_for_files_shape1_existing_over_threshold_path_with_accumulation_line_passes():
+    d = _repo({"gates/ci.py": "import subprocess\n" + _CI_PY_WITH_7TH_CALL})
+    try:
+        body = "## Accumulation\nAfter N more, ci.py grows one gh call per row.\n"
+        assert accumulation.check_accumulation_claim_for_files(
+            d, ["gates/ci.py"], body) == []
+    finally:
+        shutil.rmtree(d)
+
+
+def t_for_files_list_touching_neither_shape_returns_empty_regardless_of_body():
+    d = _repo({"README.md": "hello\n"})
+    try:
+        assert accumulation.check_accumulation_claim_for_files(
+            d, ["README.md"], "## Request\nfoo\n") == []
+        assert accumulation.check_accumulation_claim_for_files(
+            d, ["README.md"], "no heading at all") == []
+    finally:
+        shutil.rmtree(d)
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:
