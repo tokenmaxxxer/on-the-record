@@ -89,17 +89,29 @@ today, including all existing test fixtures, for no behavioral benefit.
 - `_workspace_index_put(issue, role, work, log, watcher_pid=None)`: key
   becomes `f"{_repo_identity(work)}/issue-{issue}/{role}"` instead of
   `f"issue-{issue}/{role}"`. Before writing, if the computed key already
-  exists in the loaded index with a **different** `work` value, and the
-  existing entry's `watcher_pid` is present and `_alive(watcher_pid)` is
-  true (the index's own existing liveness signal — the same one `watchdog`
-  already trusts for watcher-dead/watcher-missing checks), raise
-  `RuntimeError` instead of overwriting — a same-key overwrite while a
-  watcher is verifiably alive means either a real repo-identity collision
-  (two different repos resolved to the same fallback basename) or a bug,
-  and both must fail loudly per the issue's acceptance requirement, not
-  clobber the live entry. Same-key writes where `work` is unchanged (the
-  existing two-call pattern in `_spawn_one`: register, then re-register
-  with `watcher_pid` added) remain a normal update, not a collision.
+  exists in the loaded index with a **different** `work` value, raise
+  `RuntimeError` unconditionally instead of overwriting — a same-key
+  overwrite with a different `work` means either a real repo-identity
+  collision (two different repos resolved to the same fallback basename)
+  or a bug, and both must fail loudly per the issue's acceptance
+  requirement, not clobber the existing entry. Same-key writes where
+  `work` is unchanged (the existing two-call pattern in `_spawn_one`:
+  register, then re-register with `watcher_pid` added) remain a normal
+  update, not a collision. (After-proposal warrant hunt, stance 0, found
+  that gating this on `watcher_pid`/`_alive(watcher_pid)` — the initial
+  design — leaves a race window: `_spawn_one`'s first
+  `_workspace_index_put` call has no `watcher_pid` yet [`spawn.py:3741`],
+  so a second colliding repo could clobber it before the later
+  watcher-bearing call [`spawn.py:3780`] lands, reproducing the exact bug
+  this fix targets — see
+  `docs/reports/2026-08-09-hunt-repo-scoped-workspace-index-keys.md`.
+  Dropping the liveness carve-out closes that race: the only legitimate
+  same-key-different-`work` case left is an intentional respawn into a
+  fresh workspace for an issue+role whose prior entry is dead, which is
+  handled by deleting/pruning the stale entry before respawn rather than
+  by silently overwriting it in `_put` — out of scope for this fix since
+  no current caller does that today; noted as a follow-up if a future
+  issue needs deliberate re-registration over a dead entry.)
 - `_workspace_index_load()`: after parsing JSON, migrate any key not
   already in `<repo>/issue-<n>/<role>` shape (i.e. matching the legacy
   bare `issue-<n>/<role>` pattern) by computing
@@ -141,8 +153,10 @@ today, including all existing test fixtures, for no behavioral benefit.
   new tests: (a) two `_workspace_index_put` calls with different `work`
   paths pointing at two distinct fake git repos (different `origin`
   remotes) but the same issue+role keep two distinct index entries; (b)
-  same scenario but same-key/different-`work` collision with a live
-  `watcher_pid` raises `RuntimeError`; (c) `_lookup_roster_entry` with
+  same scenario but same-key/different-`work` collision raises
+  `RuntimeError` regardless of whether `watcher_pid` is set yet (covers
+  the pre-registration race the after-proposal hunt found); (c)
+  `_lookup_roster_entry` with
   `repo=` set only returns that repo's entry when two repos share an
   issue+role; (d) a legacy bare-format entry migrates correctly on next
   `_workspace_index_load()` call.
@@ -170,6 +184,7 @@ today, including all existing test fixtures, for no behavioral benefit.
   exercises `spawn.py watch --issue n -C <repoA path>` end-to-end against
   a fabricated two-repo index.
 - `python3 -m pytest` (full suite) exits 0 — acceptance check #3.
-- Collision hard-error test: same key, different `work`, live
-  `watcher_pid` → `_workspace_index_put` raises instead of silently
-  overwriting.
+- Collision hard-error test: same key, different `work` (with or without
+  `watcher_pid` set) → `_workspace_index_put` raises instead of silently
+  overwriting — including the pre-watcher-registration-window case the
+  after-proposal hunt found.
