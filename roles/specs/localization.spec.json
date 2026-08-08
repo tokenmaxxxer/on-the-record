@@ -1,0 +1,57 @@
+{
+  "role": "localization",
+  "source_standard": "Unicode CLDR / UTS #35 (LDML), https://cldr.unicode.org/ , https://www.unicode.org/reports/tr35/",
+  "required_fields": [
+    {
+      "name": "locale",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "pattern_type",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "date",
+        "time",
+        "number",
+        "currency",
+        "name"
+      ]
+    },
+    {
+      "name": "pattern_value",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "locale must resolve to an actual CLDR locale identifier — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "pattern_value is recomputed by re-validating it against the locale's current LDML pattern grammar, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/localization.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "translating",
+      "validating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "locale-undeclared"
+    ],
+    "error": [
+      "cldr-data-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a new locale or translated string lands on the branch AND no localization record exists yet for that locale"
+  }
+}

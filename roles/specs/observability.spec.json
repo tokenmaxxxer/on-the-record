@@ -1,0 +1,64 @@
+{
+  "role": "observability",
+  "source_standard": "OpenTelemetry semantic conventions, https://opentelemetry.io/docs/specs/semconv/",
+  "required_fields": [
+    {
+      "name": "signal_type",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "span",
+        "metric",
+        "log"
+      ]
+    },
+    {
+      "name": "attribute_name",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "attribute_type",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "attribute_name must resolve to an actual OpenTelemetry semantic-convention attribute or a documented custom extension — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "verdict is recomputed by validating attribute_name against the current semconv registry, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/observability.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "instrumenting",
+      "validating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "signal-undeclared"
+    ],
+    "error": [
+      "registry-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "new instrumentation is added on the branch AND no observability record exists yet for that signal"
+  }
+}

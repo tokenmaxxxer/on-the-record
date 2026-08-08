@@ -15,10 +15,25 @@
   "decides": "퍼널 병목과 실험 결과가 실제 개선인지",
   "use_when": "퍼널 분석 또는 A/B 실험 해석이 걸릴 때",
   "produces": "funnel diagnosis, experiment trust verdict (SRM/pre-registration check)",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/growth-analytics.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "measuring",
+        "reviewing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "stage-undeclared"
+      ],
+      "error": [
+        "analytics-data-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/growth-analytics.spec.json"
 }

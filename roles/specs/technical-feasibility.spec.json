@@ -1,0 +1,60 @@
+{
+  "role": "technical-feasibility",
+  "source_standard": "ADR-style spike record, https://adr.github.io/",
+  "required_fields": [
+    {
+      "name": "spike_goal",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "timebox",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "findings",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "decision",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "proceed",
+        "reject",
+        "defer"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "when decision is proceed, it must resolve to an actual follow-up ADR filed under docs/decisions/ — no orphan references.",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "decision is recomputed from findings at review time, never pre-filled before the spike concludes.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/technical-feasibility.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "spiking",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "goal-undeclared"
+    ],
+    "error": [
+      "spike-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a build-vs-buy or technology choice is proposed on the branch AND no technical-feasibility record exists yet for that choice"
+  }
+}

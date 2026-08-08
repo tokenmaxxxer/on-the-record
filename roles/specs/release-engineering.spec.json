@@ -1,0 +1,59 @@
+{
+  "role": "release-engineering",
+  "source_standard": "Keep a Changelog, https://keepachangelog.com/",
+  "required_fields": [
+    {
+      "name": "version",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "change_type",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "Added",
+        "Changed",
+        "Deprecated",
+        "Removed",
+        "Fixed",
+        "Security"
+      ]
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "version must resolve to an actual entry in CHANGELOG.md — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "change_type is recomputed from the actual diff category the release contains, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "CHANGELOG.md",
+    "docs/issue-<n>/reports/release-engineering.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "drafting",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "version-undeclared"
+    ],
+    "error": [
+      "changelog-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a release is cut on the branch AND no release-engineering record exists yet for that version"
+  }
+}

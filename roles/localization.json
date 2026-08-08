@@ -15,10 +15,25 @@
   "decides": "다른 로케일에서도 산출물이 성립하는가",
   "use_when": "i18n 대상 표면이 걸릴 때",
   "produces": "locale-fitness verdict per target locale, string-external issue list",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/localization.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "translating",
+        "validating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "locale-undeclared"
+      ],
+      "error": [
+        "cldr-data-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/localization.spec.json"
 }

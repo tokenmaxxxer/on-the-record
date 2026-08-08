@@ -14,8 +14,25 @@
   "decides": "이슈 역사가 무엇을 가르치는가 (단일 이슈 회고)",
   "use_when": "작업이 랜딩되고 defect-verification/conformance-review 가 종결된 뒤. 기록만 읽는다",
   "produces": "timeline, lessons list, one-line advisory (advisory only)",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/issue-retrospective.md"
+  ],
   "record_fields": {
-    "loop_state": ["idle", "retrospecting", "candidate-round-done", "round-done"]
-  }
+    "loop_state": {
+      "progress": [
+        "gathering",
+        "writing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "blame-language-detected"
+      ],
+      "error": [
+        "timeline-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/issue-retrospective.spec.json"
 }

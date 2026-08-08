@@ -16,14 +16,24 @@
   "use_when": "신규/기존 테스트 스위트를 설계·리뷰할 때",
   "produces": "suite architecture note, fixture strategy, smell list (Meszaros catalog refs)",
   "write_scope": [
-    "test/**"
+    "docs/issue-<n>/reports/test-authoring.md"
   ],
   "record_fields": {
-    "loop_state": [
-      "scope-proposed",
-      "scope-approved",
-      "in-progress",
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "drafting",
+        "running"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "items-undeclared"
+      ],
+      "error": [
+        "test-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/test-authoring.spec.json"
 }

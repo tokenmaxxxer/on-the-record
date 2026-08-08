@@ -1,0 +1,59 @@
+{
+  "role": "performance-engineering",
+  "source_standard": "Google SRE SLO / error-budget, https://sre.google/workbook/implementing-slos/ , https://sre.google/workbook/error-budget-policy/",
+  "required_fields": [
+    {
+      "name": "sli",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "slo_target",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "error_budget_remaining",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "within-budget",
+        "exhausted"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "sli must resolve to an actual monitored metric — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "error_budget_remaining is recomputed from the current sli measurement against slo_target, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/performance-engineering.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "measuring",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "slo-undeclared"
+    ],
+    "error": [
+      "metric-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a latency- or throughput-sensitive change lands on the branch AND no performance-engineering record exists yet for that commit sha"
+  }
+}

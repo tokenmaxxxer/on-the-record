@@ -1,0 +1,74 @@
+{
+  "role": "implementation",
+  "source_standard": "Conventional Commits v1.0.0, https://www.conventionalcommits.org/en/v1.0.0/",
+  "required_fields": [
+    {
+      "name": "commit_sha",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "type",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "feat",
+        "fix",
+        "docs",
+        "style",
+        "refactor",
+        "perf",
+        "test",
+        "build",
+        "ci",
+        "chore",
+        "revert"
+      ]
+    },
+    {
+      "name": "breaking",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "commit_sha must resolve to an actual commit on the branch — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "verdict is recomputed by re-parsing commit_sha's message header against the Conventional Commits grammar, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "src/**",
+    "test/**",
+    "docs/issue-<n>/reports/implementation.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "coding",
+      "committing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "scope-undeclared"
+    ],
+    "error": [
+      "commit-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a commit lands on the branch AND no implementation record exists yet for that commit sha"
+  }
+}

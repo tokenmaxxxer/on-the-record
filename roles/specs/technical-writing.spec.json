@@ -1,0 +1,56 @@
+{
+  "role": "technical-writing",
+  "source_standard": "Diataxis, https://diataxis.fr/",
+  "required_fields": [
+    {
+      "name": "doc_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "quadrant",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "tutorial",
+        "how-to",
+        "reference",
+        "explanation"
+      ]
+    },
+    {
+      "name": "content",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "doc_id must resolve to an actual documentation file — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "quadrant is exclusive per Diataxis — a doc belongs to exactly one quadrant, recomputed by re-classifying content against the quadrant's own structural markers, never asserted standalone.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/technical-writing.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "drafting",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "quadrant-undeclared"
+    ],
+    "error": [
+      "doc-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "new user-facing documentation is proposed on the branch AND no technical-writing record exists yet for that doc_id"
+  }
+}
