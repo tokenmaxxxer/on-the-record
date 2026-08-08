@@ -1996,7 +1996,13 @@ def _roster_reconcile_unreported(issue: int | None = None) -> int:
         verdict = session_end_verdict(work, Path(log) if log else None)
         if verdict != "normal":
             continue
-        marker = _SESSION_END_COMMENT_MARKER.format(key=key)
+        # 이슈 #533: 마커는 `_post_session_end_comment` 가 실제로 코멘트에
+        # 박아 둔 bare `issue-<n>/<role>` 형태여야 한다 — workspace 인덱스
+        # `key` 는 이제 레포 접두사가 붙어 그대로 쓰면 마커가 영원히
+        # 안 맞아 매번 미보고로 오탐한다.
+        m2 = re.search(r"issue-\d+/[^/]+$", key)
+        roster_key = m2.group(0) if m2 else key
+        marker = _SESSION_END_COMMENT_MARKER.format(key=roster_key)
         # `_issue_comments`가 `ok=False`(코멘트를 못 읽음)면 마커 부재를
         # 확인할 수 없다 — "확인 못 함은 통과가 아니다"(#287) 원칙대로
         # 미보고 쪽으로 넘어간다(중복 코멘트를 감수).

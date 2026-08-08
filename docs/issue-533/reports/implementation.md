@@ -106,8 +106,21 @@ After-proposal hunt (stance 0, recorded in
 the pre-watcher-pid collision race; addressed above (unconditional
 collision check, not gated on `watcher_pid`/liveness).
 
+Before-landing hunt (stance 3, same record file) found a second, distinct
+regression: `_roster_reconcile_unreported()` built its
+`_SESSION_END_COMMENT_MARKER` from the now-repo-prefixed workspace-index
+key, but `_post_session_end_comment()` still posts (and every existing
+caller still looks for) the marker keyed by the bare `issue-<n>/<role>`
+roster key — so the substring match would never succeed and every normal
+session-end would be reported as unreported on every run. Fixed by
+deriving the bare `issue-<n>/<role>` suffix from the workspace-index key
+before formatting the marker (`spawn.py`, in `_roster_reconcile_unreported`).
+Regression test added: `RosterReconcileUnreported::test_lists_ended_session_with_open_pr_before_ack_and_empties_after`
+now uses a repo-prefixed workspace-index key against a bare-key marker,
+reproducing the mismatch the hunt found before the fix.
+
 closed_checks:
-- full pytest suite, code_sha 6f7815932dc19fcc0f3b230ba4e9ac6a11271ab3 —
+- full pytest suite, code_sha (see `code_under_review: HEAD` above) —
   reproduce: `python3 -m pytest test_spawn.py -q`; the only failure is
   pre-existing and unrelated
   (`WatcherAutoArm::test_watchdog_flags_pid_reused_by_unrelated_process`),

@@ -4742,8 +4742,12 @@ class RosterReconcileUnreported(unittest.TestCase):
         spawn._issue_comments = self._orig_comments
 
     def test_lists_ended_session_with_open_pr_before_ack_and_empties_after(self):
+        # 이슈 #533: workspace 인덱스 키는 레포 접두사가 붙지만
+        # (`repo/issue-534/coding`), 코멘트에 실제로 박히는 마커는
+        # `_post_session_end_comment`가 여전히 쓰는 bare `issue-534/coding`
+        # 이어야 한다 — before-landing hunt 가 찾은 마커 불일치 회귀.
         spawn._workspace_index_load = lambda: {
-            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+            "repo/issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
         }
         spawn.session_end_verdict = lambda work, log_path: "normal"
 
@@ -4764,8 +4768,8 @@ class RosterReconcileUnreported(unittest.TestCase):
 
     def test_filters_by_issue(self):
         spawn._workspace_index_load = lambda: {
-            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
-            "issue-1/coding": {"work": "/tmp/w2", "log": "/tmp/l2"},
+            "repo/issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+            "repo/issue-1/coding": {"work": "/tmp/w2", "log": "/tmp/l2"},
         }
         spawn.session_end_verdict = lambda work, log_path: "normal"
         spawn._issue_comments = lambda root, n: ([], True)
@@ -4773,7 +4777,7 @@ class RosterReconcileUnreported(unittest.TestCase):
 
     def test_skips_non_normal_verdicts(self):
         spawn._workspace_index_load = lambda: {
-            "issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
+            "repo/issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
         }
         spawn.session_end_verdict = lambda work, log_path: "in-progress"
         spawn._issue_comments = lambda root, n: ([], True)
