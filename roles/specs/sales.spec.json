@@ -1,0 +1,84 @@
+{
+  "role": "sales",
+  "source_standard": "MEDDPICC, https://meddicc.com/meddpicc-sales-methodology-and-process",
+  "required_fields": [
+    {
+      "name": "metrics",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "economic_buyer",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "decision_criteria",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "decision_process",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "paper_process",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "identify_pain",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "champion",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "competition",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "qualified",
+        "disqualified"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "economic_buyer and champion must each resolve to an actual named contact on the deal record — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "verdict is recomputed as the worst-case completeness across all 8 MEDDPICC fields, never a standalone summary field (issue-515 invariant 4).",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/sales.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "qualifying",
+      "negotiating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "economic-buyer-undeclared"
+    ],
+    "error": [
+      "deal-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a deal reaches a qualification checkpoint AND no sales record exists yet for that deal"
+  }
+}

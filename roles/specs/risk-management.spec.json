@@ -1,0 +1,75 @@
+{
+  "role": "risk-management",
+  "source_standard": "NIST SP 800-161r1 (C-SCRM), https://csrc.nist.gov/pubs/sp/800/161/r1/upd1/final — NIST IR 8286 lineage cited by secondary sources only, not independently fetched this pass (scout-brief gap, stated as assumption)",
+  "required_fields": [
+    {
+      "name": "risk_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "description",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "likelihood",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "name": "impact",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "name": "treatment",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "owner",
+      "type": "ref",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "owner must resolve to an actual assigned person or role; risk_id must resolve to an actual registered risk-register entry — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "every registered risk_id must carry a treatment/owner pair before reaching a terminal loop_state — NIST-lineage completeness, checked at write time, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/risk-management.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "registering",
+      "treating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "treatment-undeclared"
+    ],
+    "error": [
+      "risk-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a new risk is identified on the branch AND no risk-management record exists yet for that risk_id"
+  }
+}

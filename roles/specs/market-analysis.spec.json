@@ -1,0 +1,62 @@
+{
+  "role": "market-analysis",
+  "source_standard": "Porter's Five Forces (HBR), https://hbr.org/2008/01/the-five-competitive-forces-that-shape-strategy",
+  "required_fields": [
+    {
+      "name": "force",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "new-entrants",
+        "supplier-power",
+        "buyer-power",
+        "substitutes",
+        "rivalry"
+      ]
+    },
+    {
+      "name": "assessment",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "low",
+        "medium",
+        "high"
+      ]
+    },
+    {
+      "name": "evidence",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "evidence, when it cites a competitor, must resolve to an actual tracked competitor entry — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "assessment is recomputed from current evidence at each market review, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/market-analysis.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "researching",
+      "assessing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "evidence-undeclared"
+    ],
+    "error": [
+      "market-data-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a market entry or strategy decision is proposed AND no market-analysis record exists yet covering all five forces"
+  }
+}

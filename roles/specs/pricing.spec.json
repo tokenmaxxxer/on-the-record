@@ -1,0 +1,56 @@
+{
+  "role": "pricing",
+  "source_standard": "Van Westendorp Price Sensitivity Meter, https://en.wikipedia.org/wiki/Van_Westendorp's_Price_Sensitivity_Meter",
+  "required_fields": [
+    {
+      "name": "price_point",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "too-cheap",
+        "cheap",
+        "expensive",
+        "too-expensive"
+      ]
+    },
+    {
+      "name": "price_value",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "acceptable_range",
+      "type": "string",
+      "required": false
+    }
+  ],
+  "reference_resolution": {
+    "rule": "acceptable_range, when present, must resolve from the actual four price_point survey responses on the same record — no orphan references.",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "acceptable_range is recomputed from all four price_point values via the PSM intersection method, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/pricing.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "surveying",
+      "computing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "price-point-undeclared"
+    ],
+    "error": [
+      "survey-data-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a pricing decision checkpoint occurs AND no pricing record exists yet for that decision"
+  }
+}

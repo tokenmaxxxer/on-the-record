@@ -15,8 +15,25 @@
   "decides": "데이터를 어떤 관계/스키마로 모델링할지",
   "use_when": "스키마 신설/변경이 걸릴 때",
   "produces": "schema/ERD, migration plan, normalization rationale",
-  "write_scope": ["src/**"],
+  "write_scope": [
+    "docs/issue-<n>/reports/data-modeling.md"
+  ],
   "record_fields": {
-    "loop_state": ["scope-proposed", "scope-approved", "in-progress", "landed"]
-  }
+    "loop_state": {
+      "progress": [
+        "modeling",
+        "reviewing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "grain-undeclared"
+      ],
+      "error": [
+        "table-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/data-modeling.spec.json"
 }

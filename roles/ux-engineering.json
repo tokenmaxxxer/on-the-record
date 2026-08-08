@@ -15,8 +15,25 @@
   "decides": "디자인 결정 → 토큰/규칙 시스템화",
   "use_when": "화면 스펙이 여러 개 쌓여 시스템화가 필요할 때",
   "produces": "token set (name/value/usage), rule doc, migration note for existing screens",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/ux-engineering.md"
+  ],
   "record_fields": {
-    "loop_state": ["landed"]
-  }
+    "loop_state": {
+      "progress": [
+        "implementing",
+        "validating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "token-undeclared"
+      ],
+      "error": [
+        "component-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/ux-engineering.spec.json"
 }

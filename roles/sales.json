@@ -15,10 +15,25 @@
   "decides": "리드/기회를 어떻게 진행시킬지",
   "use_when": "영업 프로세스 설계가 걸릴 때",
   "produces": "sales playbook, stage definitions, qualification criteria",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/sales.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "qualifying",
+        "negotiating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "economic-buyer-undeclared"
+      ],
+      "error": [
+        "deal-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/sales.spec.json"
 }

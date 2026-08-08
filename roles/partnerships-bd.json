@@ -15,10 +15,25 @@
   "decides": "파트너십이 구조적으로 성립하는가",
   "use_when": "제휴/BD 딜 구조가 걸릴 때",
   "produces": "deal structure verdict, term sheet outline",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/partnerships-bd.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "assessing",
+        "collaborating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "stage-undeclared"
+      ],
+      "error": [
+        "partner-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/partnerships-bd.spec.json"
 }

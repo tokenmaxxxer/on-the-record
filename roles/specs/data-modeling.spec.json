@@ -1,0 +1,63 @@
+{
+  "role": "data-modeling",
+  "source_standard": "Kimball dimensional-modeling conventions (fact/dimension grain), https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/ — chosen at this delivery sub-batch's own re-scout per the batch-3-plus proposal's flagged gap; the Data Contract Specification (bitol.io) was considered and rejected because it duplicates data-engineering's dbt-contract scope within this repo's family split.",
+  "required_fields": [
+    {
+      "name": "table_name",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "table_type",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "fact",
+        "dimension"
+      ]
+    },
+    {
+      "name": "grain",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "table_name must resolve to an actual modeled table definition — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "verdict is recomputed by re-checking table_name's declared grain against its current column set, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/data-modeling.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "modeling",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "grain-undeclared"
+    ],
+    "error": [
+      "table-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a new fact or dimension table is proposed on the branch AND no data-modeling record exists yet for that table"
+  }
+}

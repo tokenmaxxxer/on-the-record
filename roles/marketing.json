@@ -15,10 +15,25 @@
   "decides": "어떤 메시지로 어떤 채널에 도달할지",
   "use_when": "캠페인/포지셔닝이 걸릴 때",
   "produces": "messaging doc, channel plan, target segment",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/marketing.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "researching",
+        "positioning"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "alternatives-undeclared"
+      ],
+      "error": [
+        "market-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/marketing.spec.json"
 }

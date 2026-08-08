@@ -1,0 +1,60 @@
+{
+  "role": "marketing",
+  "source_standard": "April Dunford's positioning framework, https://www.aprildunford.com/books",
+  "required_fields": [
+    {
+      "name": "competitive_alternatives",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "unique_attributes",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "value_themes",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "target_market",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "market_category",
+      "type": "ref",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "market_category, when it names a competitor, must resolve to an actual tracked competitor entry — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "value_themes is recomputed from unique_attributes and competitive_alternatives at each positioning review, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/marketing.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "researching",
+      "positioning"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "alternatives-undeclared"
+    ],
+    "error": [
+      "market-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a new product or segment launches AND no marketing record exists yet for that positioning"
+  }
+}

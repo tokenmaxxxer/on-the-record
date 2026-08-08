@@ -1,0 +1,60 @@
+{
+  "role": "incident-response",
+  "source_standard": "SRE Postmortem Template (Google SRE book), https://sre.google/sre-book/postmortem-culture/",
+  "required_fields": [
+    {
+      "name": "incident_id",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "timeline",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "impact_statement",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "root_cause",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "action_items",
+      "type": "ref[]",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "action_items must each resolve to an actual tracked issue — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "root_cause is recomputed from timeline evidence at postmortem review, never pre-filled before the timeline is complete.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/incident-response.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "triaging",
+      "writing-postmortem"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "impact-undeclared"
+    ],
+    "error": [
+      "timeline-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "an incident is resolved AND no incident-response record exists yet for that incident_id"
+  }
+}

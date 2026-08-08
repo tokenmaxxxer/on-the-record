@@ -15,10 +15,25 @@
   "decides": "단위경제상 성립하는가",
   "use_when": "가격/비용 구조가 걸린 결정일 때",
   "produces": "unit economics model (CAC/LTV/margin), sensitivity note",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/finance-unit-economics.md"
+  ],
   "record_fields": {
-    "loop_state": [
-      "landed"
-    ]
-  }
+    "loop_state": {
+      "progress": [
+        "computing",
+        "reviewing"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "period-undeclared"
+      ],
+      "error": [
+        "billing-data-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/finance-unit-economics.spec.json"
 }

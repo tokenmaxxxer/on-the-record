@@ -15,8 +15,25 @@
   "decides": "모델을 서비스로 안정적으로 서빙 가능한가",
   "use_when": "모델 서빙 표면이 걸릴 때",
   "produces": "serving design, risk note (drift/latency/failure mode)",
-  "write_scope": [],
+  "write_scope": [
+    "docs/issue-<n>/reports/ml-engineering.md"
+  ],
   "record_fields": {
-    "loop_state": ["landed"]
-  }
+    "loop_state": {
+      "progress": [
+        "training",
+        "evaluating"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "intended-use-undeclared"
+      ],
+      "error": [
+        "model-unreachable"
+      ]
+    }
+  },
+  "spec": "roles/specs/ml-engineering.spec.json"
 }

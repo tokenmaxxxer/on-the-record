@@ -1,0 +1,59 @@
+{
+  "role": "capacity-planning",
+  "source_standard": "ITIL Capacity Management practice, https://www.itlibrary.org/",
+  "required_fields": [
+    {
+      "name": "resource",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "demand_forecast",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "capacity_threshold",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "within-capacity",
+        "over-capacity"
+      ]
+    }
+  ],
+  "reference_resolution": {
+    "rule": "resource must resolve to an actual monitored resource — no orphan references (issue-515 invariant 2).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "verdict is recomputed from the current demand_forecast against capacity_threshold, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/capacity-planning.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "forecasting",
+      "reviewing"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "threshold-undeclared"
+    ],
+    "error": [
+      "resource-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "projected demand for a resource is reassessed AND no capacity-planning record exists yet for that resource"
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "role": "pr-communications",
+  "source_standard": "AMEC Integrated Evaluation Framework (Barcelona Principles), https://amecorg.com/amecframework/",
+  "required_fields": [
+    {
+      "name": "objective",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "channel",
+      "type": "enum",
+      "required": true,
+      "enum": [
+        "paid",
+        "earned",
+        "shared",
+        "owned"
+      ]
+    },
+    {
+      "name": "output",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "outtake",
+      "type": "string",
+      "required": false
+    },
+    {
+      "name": "outcome",
+      "type": "string",
+      "required": true
+    }
+  ],
+  "reference_resolution": {
+    "rule": "outcome must trace back to a stated objective on the same record — no orphan outcomes (AMEC's own chain requirement).",
+    "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
+  },
+  "recomputation": {
+    "rule": "outcome is recomputed from the current channel's actual measured output, never a standalone asserted field.",
+    "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
+  },
+  "write_scope": [
+    "docs/issue-<n>/reports/pr-communications.md"
+  ],
+  "loop_state": {
+    "progress": [
+      "planning",
+      "measuring"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "objective-undeclared"
+    ],
+    "error": [
+      "channel-data-unreachable"
+    ]
+  },
+  "use_when": {
+    "board_condition": "a PR or communications activity concludes AND no pr-communications record exists yet for that activity"
+  }
+}
