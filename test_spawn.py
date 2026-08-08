@@ -2056,18 +2056,31 @@ class Drive(unittest.TestCase):
     자동 라우팅 표가 아니라 오케스트레이터의 판단이다(이슈 #120), 그래서
     drive() 는 스스로 역할을 고르지 않고 항상 즉시 멈춘다."""
 
+    def _with_roster(self, td):
+        old = spawn.ROSTER
+        spawn.ROSTER = Path(td) / "active.json"
+        return old
+
     def test_stops_when_nothing_to_spawn(self):
-        self.assertEqual(spawn.drive("/x", False), 0)
+        with tempfile.TemporaryDirectory() as td:
+            old = self._with_roster(td)
+            try:
+                self.assertEqual(spawn.drive("/x", False), 0)
+            finally:
+                spawn.ROSTER = old
 
     def test_never_calls_spawn_one(self):
         calls = []
         old_spawn = spawn._spawn_one
         spawn._spawn_one = lambda *a, **k: calls.append(a) or 0
-        try:
-            spawn.drive("/x", False, limit=3)
-            self.assertEqual(calls, [], "drive 가 역할을 자동으로 스폰했다")
-        finally:
-            spawn._spawn_one = old_spawn
+        with tempfile.TemporaryDirectory() as td:
+            old_roster = self._with_roster(td)
+            try:
+                spawn.drive("/x", False, limit=3)
+                self.assertEqual(calls, [], "drive 가 역할을 자동으로 스폰했다")
+            finally:
+                spawn._spawn_one = old_spawn
+                spawn.ROSTER = old_roster
 
 
 class IssueScopedPrompt(unittest.TestCase):
