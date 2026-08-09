@@ -6589,6 +6589,81 @@ class WatcherAutoArm(unittest.TestCase):
                 "issue-488/implementation", entry, state={})
             self.assertTrue(any("watcher-dead" in a for a in out))
 
+    @unittest.skipUnless(Path("/proc").is_dir(), "cmdline 신원 검사는 /proc 필요")
+    def test_watcher_looks_real_rejects_live_watcher_of_a_different_role(self):
+        # after-proposal hunt 발견(이슈 #559): 같은 이슈, 다른 역할의 살아있는
+        # 워처를 이 역할의 워처로 오인하면 안 된다 — 이 테스트 프로세스는
+        # "watch" 인자를 안 가지므로 role 유무와 무관하게 issue-only 체크로도
+        # 이미 실패하지만, role 을 넘겼을 때 cmdline 에 role 문자열이 없으면
+        # 별도로도 거짓을 리턴해야 한다는 계약을 고정한다.
+        self.assertFalse(spawn._watcher_looks_real(
+            os.getpid(), 488, role="implementation"))
+
+
+class WatcherPs(unittest.TestCase):
+    """이슈 #559: `ps` 가 살아있는 각 세션마다 붙은 워처를 보여준다 — pid,
+    armed-at, follow 여부, 죽은 워처는 죽었다고, 워처가 없으면 UNWATCHED."""
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        old_idx = spawn.WORKSPACE_INDEX
+        spawn.WORKSPACE_INDEX = Path(self.td) / "workspaces.json"
+        self.addCleanup(setattr, spawn, "WORKSPACE_INDEX", old_idx)
+        old_roster = spawn.ROSTER
+        spawn.ROSTER = Path(self.td) / "active.json"
+        self.addCleanup(setattr, spawn, "ROSTER", old_roster)
+        self.work = Path(self.td) / "wk"
+        self.work.mkdir()
+
+    def _register(self, role="implementation", issue=488, pid=None):
+        pid = pid if pid is not None else os.getpid()
+        spawn.roster_register(f"issue-{issue}/{role}", {
+            "pid": pid, "role": role, "issue": issue, "ts": int(time.time()),
+            "work": str(self.work), "log": str(self.work) + ".session.log"})
+
+    def _capture_ps(self) -> str:
+        buf = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            spawn.roster_ps()
+        finally:
+            sys.stdout = old_stdout
+        return buf.getvalue()
+
+    def test_watcher_ps_shows_unwatched_when_no_watcher_recorded(self):
+        self._register()
+        spawn._workspace_index_put(488, "implementation", str(self.work), "log")
+        out = self._capture_ps()
+        self.assertIn("UNWATCHED", out)
+
+    def test_watcher_ps_shows_alive_watcher_pid_armed_at_and_follow(self):
+        self._register()
+        armed_at = time.time() - 120
+        spawn._workspace_index_put(488, "implementation", str(self.work), "log",
+                                    watcher_pid=os.getpid(),
+                                    watcher_armed_at=armed_at)
+        # 실행 중인 프로세스가 실제 `watch` 워처는 아니므로(테스트 러너
+        # 자신) 신원 확인만 우회하고 나머지 ps 출력 조립은 실물로 검증한다.
+        with mock.patch.object(spawn, "_watcher_looks_real", return_value=True):
+            out = self._capture_ps()
+        self.assertIn(f"pid {os.getpid()}", out)
+        self.assertIn("armed", out)
+        self.assertIn("follow=True", out)
+        self.assertNotIn("UNWATCHED", out)
+
+    def test_watcher_ps_shows_dead_watcher_as_dead_not_omitted(self):
+        self._register()
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        spawn._workspace_index_put(488, "implementation", str(self.work), "log",
+                                    watcher_pid=dead.pid,
+                                    watcher_armed_at=time.time())
+        out = self._capture_ps()
+        self.assertIn("DEAD", out)
+        self.assertIn(str(dead.pid), out)
+
 
 class RepoScopedWorkspaceIndex(unittest.TestCase):
     """이슈 #533: 서로 다른 레포가 같은 이슈+역할로 워크스페이스 인덱스
@@ -6849,4 +6924,48 @@ class WatchAll(unittest.TestCase):
         with self.assertRaises(SystemExit):
             with mock.patch.object(sys, "argv",
                                     ["spawn.py", "watch", "--all", "--issue", "1"]):
+                spawn.main()
+
+    def test_until_idle_returns_once_all_watched_sessions_end(self):
+        # 이슈 #559: 모든 세션이 session-end 를 남기면 --until-idle 은
+        # 영원히 자며 다시 돌지 않고 리턴해야 한다.
+        spawn._workspace_index_put(1, "implementation", str(self.work_a),
+                                    str(self.work_a) + ".log")
+        spawn._append_event(spawn._events_path(self.work_a), "session-end", "done")
+        rc = spawn._watch_all(0.01, until_idle=True)
+        self.assertEqual(rc, 0)
+
+    def test_until_idle_does_not_exit_while_a_session_is_still_live(self):
+        # 한 세션은 끝났고 다른 세션은 아직 살아있으면 idle 이 아니다 —
+        # KeyboardInterrupt 로 직접 끊어서 무한 루프가 실제로 돌았음을 확인한다.
+        spawn._workspace_index_put(1, "implementation", str(self.work_a),
+                                    str(self.work_a) + ".log")
+        spawn._workspace_index_put(2, "implementation", str(self.work_b),
+                                    str(self.work_b) + ".log")
+        spawn._append_event(spawn._events_path(self.work_a), "session-end", "done")
+        spawn._append_event(spawn._events_path(self.work_b), "progress", "still going")
+
+        call_count = {"n": 0}
+        real_sleep = time.sleep
+
+        def counting_sleep(s):
+            call_count["n"] += 1
+            if call_count["n"] >= 2:
+                raise KeyboardInterrupt
+            real_sleep(0)
+
+        with mock.patch.object(time, "sleep", counting_sleep):
+            rc = spawn._watch_all(0.01, until_idle=True)
+        self.assertEqual(rc, 0)
+        self.assertGreaterEqual(call_count["n"], 2)
+
+    def test_until_idle_empty_index_returns_immediately(self):
+        rc = spawn._watch_all(0.01, until_idle=True)
+        self.assertEqual(rc, 0)
+
+    def test_until_idle_flag_rejected_without_all(self):
+        with self.assertRaises(SystemExit):
+            with mock.patch.object(sys, "argv",
+                                    ["spawn.py", "watch", "--until-idle",
+                                     "--issue", "1"]):
                 spawn.main()

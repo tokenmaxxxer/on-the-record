@@ -1728,14 +1728,19 @@ def _roster_save(d: dict) -> None:
     ROSTER.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
 
-def _watcher_looks_real(pid: int, issue: int | None) -> bool:
+def _watcher_looks_real(pid: int, issue: int | None,
+                         role: str | None = None) -> bool:
     """이슈 #488 before-landing hunt 발견: `_alive()` 만으로는 워처가 죽은
     뒤 OS 가 같은 pid 를 다른 프로세스에 재할당한 경우를 못 잡는다 — 살아는
     있지만 그 워처가 아니다. `issue` 를 알면(로스터 엔트리가 준다)
     `/proc/<pid>/cmdline` 이 실제로 이 이슈의 `watch` 호출인지까지 최선
     노력으로 확인한다. `/proc` 없는 플랫폼이나 `issue` 를 모르는 호출(adhoc
     스폰)에서는 `_alive()` 로 저하한다 — 표시적 신원 검사가 리눅스 전용
-    기능이라 그 이상은 판단 불가."""
+    기능이라 그 이상은 판단 불가.
+
+    이슈 #559 after-proposal hunt 발견: `issue` 만 보면 같은 이슈의 *다른*
+    역할이 무장한 살아있는 워처를 이 역할의 워처로 오인한다 — `role` 을
+    넘기면 cmdline 에 그 문자열도 있어야 한다."""
     if not _alive(pid):
         return False
     if issue is None:
@@ -1747,7 +1752,11 @@ def _watcher_looks_real(pid: int, issue: int | None) -> bool:
         parts = cmdline_path.read_bytes().decode("utf-8", "replace").split("\x00")
     except OSError:
         return True
-    return "watch" in parts and str(issue) in parts
+    if "watch" not in parts or str(issue) not in parts:
+        return False
+    if role is not None and role not in parts:
+        return False
+    return True
 
 
 def _alive(pid: int) -> bool:
@@ -1773,11 +1782,17 @@ def roster_remove(key: str) -> None:
 
 
 def roster_ps() -> int:
-    """돌고 있는 역할 세션들. 죽은 항목은 표시 후 정리한다."""
+    """돌고 있는 역할 세션들. 죽은 항목은 표시 후 정리한다.
+
+    이슈 #559: 각 살아있는 세션마다 붙은 워처(있으면)를 함께 보여준다 —
+    "워처가 무장됐는지 죽었는지 바깥에서 알 방법이 없다"는 관찰에 대한
+    응답. `ROSTER`(`issue-<n>/<role>` 키)와 `WORKSPACE_INDEX`(레포 접두사
+    포함 키)를 `_watch`/`watchdog_check_one`과 같은 방식으로 조인한다."""
     d = _roster_load()
     if not d:
         print("돌고 있는 역할 세션 없음")
         return 0
+    ws_idx = _workspace_index_load()
     dead = []
     for key, e in sorted(d.items()):
         pid = e.get("pid", 0)
@@ -1788,6 +1803,22 @@ def roster_ps() -> int:
               f"{mins}분  pid {pid}")
         print(f"               log: {e.get('log','')}")
         print(f"               work: {e.get('work','')}")
+        if alive:
+            work = e.get("work")
+            ws_key = f"{_repo_identity(work)}/{key}" if work else key
+            ws_entry = ws_idx.get(ws_key)
+            watcher_pid = ws_entry.get("watcher_pid") if ws_entry else None
+            role = key.split("/", 1)[1] if "/" in key else None
+            if watcher_pid is None:
+                print("               워처: UNWATCHED")
+            elif _watcher_looks_real(watcher_pid, e.get("issue"), role):
+                armed_at = ws_entry.get("watcher_armed_at")
+                armed_mins = (int(time.time()) - int(armed_at)) // 60 \
+                    if armed_at is not None else "?"
+                print(f"               워처: pid {watcher_pid}  "
+                      f"armed {armed_mins}분 전  follow=True")
+            else:
+                print(f"               워처: DEAD(pid {watcher_pid})")
         if not alive:
             dead.append(key)
     for k in dead:
@@ -1890,9 +1921,10 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     ws_entry = _workspace_index_load().get(ws_key)
     if ws_entry is not None:
         watcher_pid = ws_entry.get("watcher_pid")
+        watcher_role = key.split("/", 1)[1] if "/" in key else None
         if watcher_pid is None:
             anomalies.append(f"watcher-missing: {key} 에 등록된 워처가 없다")
-        elif not _watcher_looks_real(watcher_pid, entry.get("issue")):
+        elif not _watcher_looks_real(watcher_pid, entry.get("issue"), watcher_role):
             anomalies.append(
                 f"watcher-dead: 워처 pid {watcher_pid} 가 죽어 있거나(또는 다른 "
                 f"프로세스가 그 pid 를 물려받았거나) — spawn.py watch --issue "
@@ -2612,9 +2644,13 @@ def _workspace_index_load() -> dict:
 
 
 def _workspace_index_put(issue: int, role: str, work: str, log: str,
-                          watcher_pid: int | None = None) -> None:
+                          watcher_pid: int | None = None,
+                          watcher_armed_at: float | None = None) -> None:
     """이슈 #488: `watcher_pid` 는 이 스폰이 자동 무장한 워처 프로세스의
     pid(있으면) — `watchdog`이 여기서 읽어 워처가 죽었는지 신고한다.
+
+    이슈 #559: `watcher_armed_at` 은 그 워처가 무장된 시각(`time.time()`)—
+    `ps` 가 세션 시작 시각(`ts`)과 구분해 "워처가 언제 붙었는지"를 보여준다.
 
     이슈 #533: 키는 레포 정체성(`_repo_identity`)까지 포함한다 — 서로 다른
     레포가 같은 이슈 번호+역할로 충돌하면 이전 엔트리가 조용히 덮어써지던
@@ -2632,6 +2668,8 @@ def _workspace_index_put(issue: int, role: str, work: str, log: str,
     entry = {"work": work, "log": log}
     if watcher_pid is not None:
         entry["watcher_pid"] = watcher_pid
+    if watcher_armed_at is not None:
+        entry["watcher_armed_at"] = watcher_armed_at
     d[key] = entry
     WORKSPACE_INDEX.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
@@ -2919,12 +2957,20 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
             return 0
 
 
-def _watch_all(stall_timeout_min: float) -> int:
+def _watch_all(stall_timeout_min: float, until_idle: bool = False) -> int:
     """`spawn.py watch --all --follow` — 이슈 #488 요구 (2): 워크스페이스
     인덱스 전체를 다중화해 하나의 장수명 호출로 스트리밍한다. 매 반복마다
     인덱스를 다시 읽으므로, 이 호출이 시작된 *뒤*에 등록된 스폰도 잡힌다
     (auto-arm 이 개별 워처를 이미 세우지만, 이건 그 전체를 한 화면에서
     보는 오케스트레이터용 집계 뷰다). SIGINT/SIGTERM 으로 끊길 때까지 돈다.
+
+    이슈 #559: `until_idle=True` 면 매 전체 패스가 끝날 때마다 인덱스의
+    모든 키가 이미 `seen_end` 에 있는지(빈 인덱스도 idle로 친다) 확인해,
+    맞으면 자며 다시 돌지 않고 0으로 리턴한다 — `--follow` 없이 영원히
+    블록하던 오케스트레이터 대기 문제(#559 "Additional finding")에 대한
+    응답. `_watch`(단수)가 `session-end` 를 종료의 유일한 신호로 삼는
+    정의를 그대로 재사용한다(프로세스 생존은 부차 신호일 뿐이라는 이유는
+    `_watch` 쪽 주석 참고).
     """
     seen_end: set[str] = set()
     poll_s = 0.2
@@ -2952,6 +2998,8 @@ def _watch_all(stall_timeout_min: float) -> int:
                     if ev["type"] == "session-end":
                         seen_end.add(key)
                         break
+            if until_idle and all(key in seen_end for key in idx):
+                return 0
             time.sleep(poll_s)
     except KeyboardInterrupt:
         return 0
@@ -3349,6 +3397,10 @@ def main() -> int:
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
+    ap.add_argument("--until-idle", action="store_true",
+                    help="watch --all: 워치 중인 세션이 모두 session-end 를 "
+                         "남기면(또는 인덱스가 비어 있으면) 영원히 블록하지 "
+                         "않고 리턴한다 (--all 하고만 쓴다, 이슈 #559)")
     ap.add_argument("--auto-respawn", action="store_true",
                     help="watchdog: crashed 세션에 한해 최대 2회 자동 재스폰, "
                          "상한 도달 시 이슈 코멘트 (기본 off, 관찰-전용 유지)")
@@ -3408,7 +3460,9 @@ def main() -> int:
         if a.all:
             if a.issue is not None:
                 sys.exit("사용법: spawn.py watch --all 은 --issue 와 함께 못 쓴다")
-            return _watch_all(a.stall_timeout)
+            return _watch_all(a.stall_timeout, until_idle=a.until_idle)
+        if a.until_idle:
+            sys.exit("사용법: spawn.py watch --until-idle 은 --all 과 함께만 쓴다")
         if a.issue is None:
             sys.exit("사용법: spawn.py watch --issue <n> [--role <역할>] "
                      "[--stall-timeout <분>], 또는 spawn.py watch --all")
@@ -4111,7 +4165,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                           f"않는다: {exc}", file=sys.stderr)
                     return 1
                 _workspace_index_put(issue, role, str(cwd), str(log_path),
-                                      watcher_pid=wproc.pid)
+                                      watcher_pid=wproc.pid,
+                                      watcher_armed_at=time.time())
                 print(f"[{role}] 워처 자동 무장: pid {wproc.pid} "
                       f"(로그 {watcher_log})", file=sys.stderr)
                 return _await_bounded(events_path, offset_path,
