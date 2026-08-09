@@ -6533,6 +6533,90 @@ class RepoScopedWorkspaceIndex(unittest.TestCase):
         self.assertEqual(idx2, idx)
 
 
+class WatchMultiRoleAmbiguity(unittest.TestCase):
+    """이슈 #554: 이슈에 역할이 여럿 기록돼 있을 때 `watch` 가 죽은
+    재시도 구간으로 빠지지 않게 한다 — (1) 살아있는 세션이 정확히
+    하나면 자동 선택, (2) 여전히 애매하면 그대로 실행 가능한 `--role`
+    명령을 에러에 찍는다, (3) `watch <역할> --issue N` 위치 인자 문법을
+    `kill` 과 동일하게 받는다."""
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        old_idx = spawn.WORKSPACE_INDEX
+        spawn.WORKSPACE_INDEX = Path(self.td) / "workspaces.json"
+        self.addCleanup(setattr, spawn, "WORKSPACE_INDEX", old_idx)
+        old_roster = spawn.ROSTER
+        spawn.ROSTER = Path(self.td) / "active.json"
+        self.addCleanup(setattr, spawn, "ROSTER", old_roster)
+        self.work_a = Path(self.td) / "wk-a"
+        self.work_b = Path(self.td) / "wk-b"
+        self.work_a.mkdir()
+        self.work_b.mkdir()
+        spawn._workspace_index_put(1, "technical-feasibility", str(self.work_a), "log-a")
+        spawn._workspace_index_put(1, "implementation", str(self.work_b), "log-b")
+
+    def _register(self, role: str, pid: int, work: Path):
+        spawn.roster_register(f"issue-1/{role}", {
+            "pid": pid, "role": role, "issue": 1, "ts": int(time.time()),
+            "work": str(work), "log": str(work) + ".session.log"})
+
+    def _dead_pid(self) -> int:
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        return dead.pid
+
+    def test_auto_selects_the_one_role_with_a_live_session(self):
+        self._register("technical-feasibility", self._dead_pid(), self.work_a)
+        self._register("implementation", os.getpid(), self.work_b)
+        idx = spawn._workspace_index_load()
+        key, entry = spawn._lookup_roster_entry(idx, 1, None)
+        self.assertEqual(key, next(iter(
+            k for k in idx if k.endswith("/implementation"))))
+        self.assertEqual(entry["log"], "log-b")
+
+    def test_ambiguous_error_names_runnable_role_command_when_zero_live(self):
+        self._register("technical-feasibility", self._dead_pid(), self.work_a)
+        self._register("implementation", self._dead_pid(), self.work_b)
+        idx = spawn._workspace_index_load()
+        with self.assertRaises(SystemExit) as cm:
+            spawn._lookup_roster_entry(idx, 1, None)
+        msg = str(cm.exception)
+        self.assertIn("--role", msg)
+        self.assertIn("spawn.py watch --issue 1 --role technical-feasibility", msg)
+        self.assertIn("spawn.py watch --issue 1 --role implementation", msg)
+
+    def test_ambiguous_error_names_runnable_role_command_when_two_live(self):
+        self._register("technical-feasibility", os.getpid(), self.work_a)
+        self._register("implementation", os.getpid(), self.work_b)
+        idx = spawn._workspace_index_load()
+        with self.assertRaises(SystemExit) as cm:
+            spawn._lookup_roster_entry(idx, 1, None)
+        msg = str(cm.exception)
+        self.assertIn("--role", msg)
+        self.assertIn("technical-feasibility", msg)
+        self.assertIn("implementation", msg)
+
+    def test_positional_role_resolves_identically_to_role_flag(self):
+        from unittest import mock
+        seen = {}
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+            seen["log_path"] = log_path
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            old_argv = sys.argv
+            sys.argv = ["spawn.py", "watch", "implementation", "--issue", "1",
+                        "-C", str(self.work_b)]
+            try:
+                rc = spawn.main()
+            finally:
+                sys.argv = old_argv
+        self.assertEqual(rc, 0)
+        self.assertEqual(seen["log_path"], Path("log-b"))
+
+
 class WatchAll(unittest.TestCase):
     """이슈 #488: `watch --all` — 워크스페이스 인덱스 전체를 다중화한다.
     루프 자체는 무한이라 테스트에서 직접 돌리지 않고, 그 루프 몸통이
