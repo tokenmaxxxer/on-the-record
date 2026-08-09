@@ -1,5 +1,5 @@
 ---
-code_under_review: 8170dae
+code_under_review: ee61c07
 loop_state: handed-off
 ---
 
@@ -258,6 +258,198 @@ go/pivot/kill call on the 30-record metric to the human, once the
 window fills or once Findings 1-2 are triaged — whichever the human
 judges should come first.
 
+## 2026-08-10 measurement update — post-rollout, independent re-execution
+
+### Independence statement (this update)
+
+This role did not author or edit the observed artifacts read this
+session. `gates/claim_scan.py`, `gates/reexecution_gate.py`,
+`gates/landing_readiness.py`, `on-the-record/UNENFORCED-CLAUSES.md`,
+and the 36 merged report files scanned below (issues 472 through 559)
+were read only, never edited, this session. The scan script that
+exercises `claim_scan.scan_text()` against them
+(`scan_corpus.py`, scratchpad, not committed, per this role's own
+out-of-scope statement) imports and calls the already-committed
+`gates/claim_scan.py` at working-tree HEAD (`ee61c07`), no edit to that
+file.
+
+### Findings 1-2 status: fixed since last record
+
+Both findings this record's prior pass raised are closed, not by this
+role — commit `49a6154` ("fix(gates): scope claim_scan targets to diff
+base, resolve dotted citations", `Closes #490`, merged to `main` via PR
+#491, commit `55e8279`), read this session (`git show 49a6154 --stat`).
+`gates/claim_scan.py` now defines `_dotted_to_file()` and an opt-in
+`base` parameter on `_repo_targets()` that raises `BaseResolutionError`
+rather than silently falling back to whole-repo `git ls-files` when the
+diff command fails — read from the source at `ee61c07` itself this
+session, not from issue-490's own record (this role does not treat a
+prior record's self-report as evidence).
+
+### Decisive finding: the mechanism is deployed but never wired to fire automatically
+
+This session ran `gates/claim_scan.py`'s actual `scan_text()` function
+against every report file merged to `main` since rollout commit
+`8170dae` (`git log --oneline 8170dae..origin/main -- 'docs/issue-*/
+reports/*.md'`, this session):
+
+```
+total scanned records with dirs: 36
+records containing claim-language (reproduced/verified/passed/...): 34
+  docs/issue-472/reports/implementation.md: evidence_marker_present=False claim_scan_findings=4
+  docs/issue-473/reports/implementation.md: evidence_marker_present=False claim_scan_findings=1
+  docs/issue-484/reports/implementation.md: evidence_marker_present=False claim_scan_findings=2
+  docs/issue-488/reports/implementation.md: evidence_marker_present=False claim_scan_findings=1
+  docs/issue-490/reports/implementation.md: evidence_marker_present=True claim_scan_findings=5
+  docs/issue-492/reports/implementation.md: evidence_marker_present=False claim_scan_findings=2
+  docs/issue-497/reports/defect-verification.md: evidence_marker_present=False claim_scan_findings=19
+  docs/issue-499/reports/implementation.md: evidence_marker_present=False claim_scan_findings=3
+  docs/issue-501/reports/implementation.md: evidence_marker_present=False claim_scan_findings=3
+  docs/issue-503/reports/implementation.md: evidence_marker_present=False claim_scan_findings=7
+  docs/issue-505/reports/implementation.md: evidence_marker_present=False claim_scan_findings=2
+  docs/issue-508/reports/implementation.md: evidence_marker_present=True claim_scan_findings=6
+  docs/issue-511/reports/execution-observation.md: evidence_marker_present=False claim_scan_findings=10
+  docs/issue-511/reports/requirements-engineering.md: evidence_marker_present=False claim_scan_findings=11
+  docs/issue-512/reports/execution-observation.md: evidence_marker_present=False claim_scan_findings=3
+  docs/issue-512/reports/implementation.md: evidence_marker_present=False claim_scan_findings=6
+  docs/issue-515/reports/requirements-engineering.md: evidence_marker_present=False claim_scan_findings=9
+  docs/issue-517/reports/implementation.md: evidence_marker_present=False claim_scan_findings=7
+  docs/issue-521/reports/implementation.md: evidence_marker_present=False claim_scan_findings=6
+  docs/issue-522/reports/implementation.md: evidence_marker_present=False claim_scan_findings=2
+  docs/issue-523/reports/implementation.md: evidence_marker_present=False claim_scan_findings=2
+  docs/issue-524/reports/requirements-engineering.md: evidence_marker_present=False claim_scan_findings=3
+  docs/issue-525/reports/implementation.md: evidence_marker_present=False claim_scan_findings=9
+  docs/issue-529/reports/implementation.md: evidence_marker_present=False claim_scan_findings=3
+  docs/issue-533/reports/implementation.md: evidence_marker_present=False claim_scan_findings=1
+  docs/issue-534/reports/implementation.md: evidence_marker_present=False claim_scan_findings=1
+  docs/issue-535/reports/implementation.md: evidence_marker_present=False claim_scan_findings=1
+  docs/issue-547/reports/implementation.md: evidence_marker_present=False claim_scan_findings=4
+  docs/issue-551/reports/implementation.md: evidence_marker_present=False claim_scan_findings=1
+  docs/issue-554/reports/implementation.md: evidence_marker_present=False claim_scan_findings=3
+  docs/issue-556/reports/implementation.md: evidence_marker_present=False claim_scan_findings=3
+  docs/issue-557/reports/implementation.md: evidence_marker_present=False claim_scan_findings=0
+  docs/issue-558/reports/implementation.md: evidence_marker_present=False claim_scan_findings=4
+  docs/issue-559/reports/implementation.md: evidence_marker_present=False claim_scan_findings=1
+```
+
+Reading the fenced output above: 36 records scanned `derived: fenced
+scan_corpus.py output above, this session`, of which 34 contain
+claim-language `derived: fenced scan_corpus.py output above, this
+session`. Of those 34, only 2 `derived: fenced scan_corpus.py output
+above, this session` — the issue-490 and issue-508 implementation
+records — show `evidence_marker_present=True`; the other 32 `derived:
+fenced scan_corpus.py output above, this session` show
+`claim_scan_findings > 0` with no evidence marker, meaning `claim_scan`
+would hard-fail every one of them ("인접한 코드펜스나 Repro:/Verify: 줄이
+없다") were it ever run against them.
+
+It was never run against any of them. This session traced the actual
+wiring, not the design docs' description of it:
+- `on-the-record/UNENFORCED-CLAUSES.md`'s gates table (read this
+  session) itself states both gates are "CI-supplement... not yet a
+  `PreToolUse` hook, CI-only where installed" — opt-in, not automatic,
+  by the delivered design's own admission.
+- No `.yml`/`.yaml` workflow file in this repo references `claim_scan`
+  or `reexecution_gate` (`find . -iname "*.yml" -o -iname "*.yaml" |
+  xargs grep -l`, this session, no matches).
+- No file under `on-the-record/hooks/` references either module
+  (`grep -rl`, this session, no matches).
+- `gates/landing_readiness.py`'s `reexecution_blocking_cause()`
+  function only *reads* `.reexecution/<issue>-<role>.json` if it
+  already exists — its verdict-is-`None` branch does not block. Nothing
+  in this repo's history ever created that file: `git log --all
+  --oneline -- .reexecution` returns empty this session, and no
+  `.reexecution/` directory exists in the working tree. Missing-verdict
+  and passing-verdict are treated identically — fail-open on "never
+  ran," not fail-closed.
+- `reexecution_gate.main()` is invoked from nowhere in this repo except
+  its own CLI docstring and its own test file (`grep -n
+  "reexecution_gate\.main\|reexecution_gate\.py"`, this session,
+  matches only `gates/reexecution_gate.py` itself, its test, and prose
+  under `docs/`).
+
+Net: across the entire post-rollout window `derived: fenced
+scan_corpus.py output above, this session` (34 qualifying records of 36
+scanned), the mechanized re-execution mechanism produced zero verdicts
+— not because nothing needed catching (32 of the 34 records `derived:
+fenced scan_corpus.py output above, this session` would have
+hard-failed `claim_scan` on the evidence-marker check alone), but
+because nothing ever invokes it. This is exactly the failure signature
+the discovery record pre-registered (`docs/issue-476/proposals/
+discovery.md`, H1 "Failure signature": "the trigger condition for
+'this claim needs re-execution' is itself a self-reported field a
+session can omit") — realized in a stronger form than anticipated: it
+is not a field a session can omit, it is a trigger that was never
+built at all, so omission versus firing is not even a live distinction
+in production.
+
+### Metric measurement vs registered threshold
+
+- **Corpus**: 34 qualifying records `derived: fenced scan_corpus.py
+  output above, this session` in the post-rollout window; the count
+  that actually received a mechanized re-execution verdict is 0
+  `derived: no .reexecution/ directory or history entry found this
+  session`. The registered metric,
+  `fabrication_survival_rate = (fabricated-positive records merged
+  without independent-re-run catching them) / (total records claiming a
+  reproduced/verified/passed outcome)`, requires "independent-re-run"
+  to have been attempted at all to be well-defined; it was attempted 0
+  times.
+- **Measured value**: `fabrication_survival_rate` over the
+  mechanism-executed corpus is undefined (zero-denominator). Read the
+  other direction — treating "never invoked" as equivalent to "did not
+  catch," per the discovery record's own framing (a survival rate is
+  about whether fabrication would have been caught) — the effective
+  survival rate against the full qualifying corpus is 100% `derived:
+  fenced scan_corpus.py output above, this session`: none of the 34
+  qualifying records `derived: fenced scan_corpus.py output above, this
+  session` ever received a mechanized verdict, because the mechanism
+  never fires without a human or CI step this session found no evidence
+  of invoking.
+- **Threshold**: registered `fabrication_survival_rate` ≤ 10%
+  (`docs/issue-476/proposals/discovery.md`, H1). 100% (or undefined) is
+  far above 10 percent — threshold not met, under either reading.
+- **Guardrail `false_reject_rate`**: also unmeasurable in production for
+  the same reason (zero executed cases); the 2 `derived: fenced
+  scan_corpus.py output above, this session` records — issue-490 and
+  issue-508 — that used the expected `Repro:`/`Verify:` form were never
+  scanned automatically either — this session's scan is the first time
+  `claim_scan` has been run against them since they merged.
+
+### Registered decision rule — outcome (per operator's 2026-08-08 iterative addition)
+
+`docs/issue-476/proposals/discovery.md`'s H1 decision rule: "if
+`fabrication_survival_rate` > 10% → pivot: the re-execution check exists
+but isn't catching enough — widen its trigger condition (more
+claim-types re-run) before declaring it insufficient." This session's
+measurement is that specific case, precisely: the check exists
+(`gates/claim_scan.py`, `gates/reexecution_gate.py`, both present and,
+per Findings 1-2's resolution, correct on the cases the earlier sandbox
+pass probed), but its trigger condition is absent entirely rather than
+merely narrow — zero of the 34 qualifying records `derived: fenced
+scan_corpus.py output above, this session` were ever evaluated. Per
+this issue's own Acceptance ("empty state: the measurement corpus may
+be empty if no post-rollout spawns exist — ... an empty corpus triggers
+the registered decision rule's 'effect not demonstrated' branch, not a
+pass"): the qualifying-record corpus is not empty `derived: fenced
+scan_corpus.py output above, this session` (34 records exist), but the
+mechanism-executed corpus is empty (0 verdicts, per the `.reexecution/`
+absence cited above), which is the same failure shape the Acceptance
+criterion anticipated — effect not demonstrated, because nothing ran.
+
+**This record's explicit outcome, per the operator's iterative decision
+rule: effect absent → recommend a new discovery/build round, not
+close.** The gap is narrow and nameable (H1's mechanism is correct
+where it runs but is never triggered — a wiring/trigger-condition gap,
+not a design-from-scratch gap), which the pivot branch of H1's own
+decision rule already anticipates: "widen its trigger condition" is the
+literal next action, scoped to making `claim_scan`/`reexecution_gate`
+fire automatically (a `PreToolUse` hook or a CI workflow step, per
+`UNENFORCED-CLAUSES.md`'s own "not yet a PreToolUse hook" line) rather
+than remaining opt-in CLI tools nothing calls. This role does not file
+that follow-up itself (contract v3) — it is stated here as the action
+item the next round should take up.
+
 ## loop_state
 
 `handed-off` — the only terminal `loop_state` this role's schema
@@ -270,24 +462,28 @@ this role does not render that call itself, and does not file issues.
 
 ## Next steps
 
-1. Human/orchestrator triages Findings 1-2 above; if judged valid,
-   files a follow-up issue/proposal scoped to `gates/claim_scan.py`
-   (this role does not file issues).
-2. The 30-record `fabrication_survival_rate` window stays open; a
-   future execution-observation session re-runs the counting procedure
-   in this same record's "30-record window" section once qualifying
-   records accumulate on `main`.
-3. Per the operator's iterative decision rule: once the window fills
-   (or Findings 1-2 are resolved, whichever the human prioritizes), a
-   future step 4 session renders the go/pivot/kill call this record
-   defers.
+1. **Superseded by the 2026-08-10 update above**: Findings 1-2 no
+   longer need triage — both closed by commit `49a6154` (PR #491, per
+   the update's "Findings 1-2 status" section).
+2. **Superseded**: the 30-record window question is answered — the
+   qualifying-record corpus is not the bottleneck (34 records exist),
+   the mechanism-executed corpus is (0 verdicts, per the update's
+   "Decisive finding" section). A future execution-observation session
+   should re-run this same corpus scan after a trigger-wiring fix lands,
+   not merely wait for more records to accumulate.
+3. Per the operator's iterative decision rule, applied this session:
+   **effect not demonstrated → new discovery/build round recommended**,
+   scoped to wiring `claim_scan`/`reexecution_gate` into an actual
+   automatic trigger (`PreToolUse` hook or CI step) — the mechanism's
+   own correctness (Findings 1-2's fixes) is not in question, only
+   whether it ever runs. This role does not file that follow-up itself
+   (contract v3); the human/orchestrator triages and files it.
 
 ## Resolution path
 
-Findings 1-2 resolve via a follow-up proposal scoped to
-`gates/claim_scan.py` (target-sourcing fix for Finding 1, citation-form
-reconciliation for Finding 2), filed by the human once triaged. The
-30-record window resolves by natural accumulation of qualifying merged
-PRs on `main`, counted by a future execution-observation session per
-the procedure already stated in `docs/issue-476/proposals/
-execution-observation.md`.
+Findings 1-2: already resolved (commit `49a6154`, this session's
+"Findings 1-2 status" section) — no further action. The 30-record
+window: resolved as a *measurement* question this session (34
+qualifying records exist, 0 were mechanism-executed) — the open item
+going forward is not "wait for more records" but "wire the trigger,"
+per the action item in the "Registered decision rule" section above.
