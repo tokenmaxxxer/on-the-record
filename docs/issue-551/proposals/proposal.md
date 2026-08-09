@@ -102,6 +102,16 @@ wrapper anyway.
   convention — it never needed core resolution in the first place; that
   is stated as the one enumerated exception).
 
+## Accumulation
+`gates/test_env_resolve.py`'s CLI wrapper runs no `subprocess`/`gh` calls
+itself — it is the resolver being defined, not a caller of one. It adds
+one new file, not a repeated per-repo pattern in this codebase; the
+convention is meant to be *referenced* by the 23 rulebook repos (each in
+its own separate issue/PR, see Out of scope), not copy-pasted N more
+times into this repo. If a future issue needs a second reference
+resolver variant here, the fix is to extend `resolve_core()`'s
+`candidates` parameter, not add a parallel file.
+
 ## Out of scope
 - Modifying any of the 23 rulebook repos' actual gate-test scripts to
   adopt this convention — each is a separate repo needing its own
