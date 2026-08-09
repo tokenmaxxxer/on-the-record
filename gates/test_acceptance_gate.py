@@ -122,6 +122,20 @@ def t_empty_state_not_applicable_passes():
     assert acceptance_gate.check_issue_body(416, body) == []
 
 
+def t_all_three_violations_reported_together():
+    """issue-555: prose-only + no empty state + no provenance, all at
+    once, must appear in the SAME refusal, not one per round-trip."""
+    body = """## Acceptance
+- It should work correctly and users should be happy.
+"""
+    bad = acceptance_gate.check_issue_body(555, body)
+    assert any("프로즈뿐" in b or "unverifiable" in b for b in bad), bad
+    assert any("empty state" in b for b in bad), bad
+    assert any("provenance" in b for b in bad), bad
+    assert any("executed-live|executed-unit|read" in b for b in bad), bad
+    assert len(bad) == 3, bad
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:

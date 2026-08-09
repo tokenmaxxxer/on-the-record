@@ -62,14 +62,16 @@ def check_issue_body(issue: int, body: str) -> list[str]:
                 f"통과가 아니다."]
     if _UNVERIFIABLE.search(section):
         return []
+    # issue-555: 모든 위반을 한 번에 모아서 반환한다 — 하나 발견 즉시
+    # return 하면 다음 라운드에서 새 위반이 또 하나씩만 드러난다.
+    bad = []
     if not _ARTIFACT_REF.search(section):
-        return [f"이슈 #{issue}의 'Acceptance' 절이 프로즈뿐이다 — 실행가능한 "
-                f"산출물(백틱으로 감싼 test/, gates/ 경로, 또는 'gate:'/'check:' "
-                f"줄)을 가리키거나, 검증 불가능한 이유를 "
-                f"'unverifiable: <이유>' 로 명시해야 한다."]
+        bad.append(f"이슈 #{issue}의 'Acceptance' 절이 프로즈뿐이다 — 실행가능한 "
+                   f"산출물(백틱으로 감싼 test/, gates/ 경로, 또는 'gate:'/'check:' "
+                   f"줄)을 가리키거나, 검증 불가능한 이유를 "
+                   f"'unverifiable: <이유>' 로 명시해야 한다.")
     # issue-416: 실행가능 산출물 참조가 있으면(=행동 주장) empty state/provenance
     # 존재를 추가로 요구한다. unverifiable: 은 위에서 이미 둘 다 면제했다.
-    bad = []
     if not _EMPTY_STATE.search(section):
         bad.append(
             f"이슈 #{issue}의 'Acceptance' 절이 실행가능 산출물을 참조하지만 "
