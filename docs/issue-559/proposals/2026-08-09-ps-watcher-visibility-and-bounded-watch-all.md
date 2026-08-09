@@ -22,6 +22,17 @@ spawned sessions were done.
   scouting skipped per the survey (internal CLI ops tooling only).
 - Reuse the existing dead-watcher check (`_watcher_looks_real`) rather than
   inventing a second liveness definition for `ps` vs. `watchdog`.
+- After-proposal hunt (stance 0,
+  docs/reports/2026-08-09-hunt-ps-watcher-visibility-and-bounded-watch-all.md)
+  found `_watcher_looks_real(pid, issue)` checks only that `issue` appears
+  in `/proc/<pid>/cmdline`, never `role` — a live watcher for a *different
+  role* of the same issue is reported "real" for a sibling role's stale
+  record. `ps` and `--until-idle` must not inherit this unchanged: the
+  role check is added to `_watcher_looks_real` (it already has the role
+  string available at every call site — spawn.py:1862 via
+  `entry.get("issue")`, and the new `ps`/`until-idle` call sites will have
+  the role from the same roster/workspace-index entry) rather than left
+  issue-only.
 - `ROSTER` and `WORKSPACE_INDEX` stay two separate registries (out of
   scope to merge them) — `ps` must join them by key the same way `_watch`
   already does (spawn.py:2806-2811), not restructure either store.
@@ -57,6 +68,14 @@ process can be legitimately gone before `session-end` is written. Reusing
 
 ## What will be done
 
+- `spawn.py`: `_watcher_looks_real` gains a `role: str | None = None`
+  parameter; when given (and `/proc/<pid>/cmdline` is readable), it
+  additionally requires `role` to appear in argv, closing the
+  after-proposal hunt finding above. Existing callers
+  (`watchdog_check_one`) keep working unchanged since the new parameter
+  defaults to `None` (issue-only check, current behavior) — `watchdog`
+  already has `key` (`issue-<n>/<role>`) available to pass the role too,
+  and this proposal passes it there as well while it's in the function.
 - `spawn.py`: `_workspace_index_put` gains an optional `watcher_armed_at`
   parameter, stored in the entry when given; the auto-arm call site
   (spawn.py:4021-4022) passes `time.time()` alongside `watcher_pid`.
@@ -89,7 +108,10 @@ process can be legitimately gone before `session-end` is written. Reusing
   `WatcherAutoArm`/`Watchdog` `setUp` pattern). New tests near `WatchAll`
   asserting the `--until-idle` loop body exits once all fixture sessions'
   events show `session-end` (covers acceptance check 3), and that it does
-  not exit early while a session is still live.
+  not exit early while a session is still live. A test near
+  `WatcherAutoArm` asserts `_watcher_looks_real` rejects a pid whose
+  `/proc/<pid>/cmdline` matches the issue but a *different* role
+  (regression test for the after-proposal hunt finding).
 
 ## Accumulation
 
