@@ -5413,7 +5413,7 @@ class WatchFollow(unittest.TestCase):
         spawn._append_event(self.events, "session-end", "progressed")
         calls = []
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             calls.append(1)
             seen = spawn._read_offset(offset_path)
             lines = events_path.read_text(encoding="utf-8").splitlines()
@@ -5431,7 +5431,7 @@ class WatchFollow(unittest.TestCase):
         spawn._append_event(self.events, "session-end", "progressed")
         calls = []
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             calls.append(1)
             if len(calls) < 3:
                 return 0  # stall 흉내: offset 은 그대로
@@ -5464,7 +5464,7 @@ class WatchFollow(unittest.TestCase):
             "log": str(self.log)})
         calls = []
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             calls.append(1)
             return 0  # 매번 stall 흉내 — offset 진행 없음
 
@@ -5501,7 +5501,7 @@ class WatchFollow(unittest.TestCase):
         spawn._append_event(self.events, "session-end", "progressed")
         calls = []
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             calls.append(1)
             seen = spawn._read_offset(offset_path)
             lines = events_path.read_text(encoding="utf-8").splitlines()
@@ -5529,7 +5529,7 @@ class WatchFollow(unittest.TestCase):
             "log": str(self.log)})
         calls = []
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             calls.append(1)
             if len(calls) < 3:
                 return 0  # 후처리 구간 흉내: session-end 가 아직 없다
@@ -5547,7 +5547,7 @@ class WatchFollow(unittest.TestCase):
         spawn._append_event(self.events, "progress", {"kind": "tool_use", "detail": "x"})
         calls = []
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             calls.append(1)
             spawn._write_offset(offset_path, spawn._read_offset(offset_path) + 1)
             return 0
@@ -5606,7 +5606,7 @@ class WatchFollow(unittest.TestCase):
         spawn.roster_remove("issue-180/implementation")
         calls = []
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             calls.append(1)
             if len(calls) < 3:
                 return 0  # 엔트리 부재 꼬리 구간 흉내: session-end 가 아직 없다
@@ -5618,6 +5618,96 @@ class WatchFollow(unittest.TestCase):
             rc = spawn._watch(180, "implementation", 5.0, follow=True)
         self.assertEqual(rc, 0)
         self.assertEqual(len(calls), 3, calls)
+
+
+class WatchFollowSessionScoping(unittest.TestCase):
+    """이슈 #557: --follow 커서는 무장 시점에 살아있는 세션(pid+ts)에만
+    스코프된다 — 같은 워크스페이스 로그에 남은 이전 세션의 이벤트를
+    재생하면 안 되고, 배너는 호출당 한 번만 찍고, 찍히는 모든 이벤트
+    줄은 원본 세션의 pid/ts 를 달고 나와야 한다."""
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        self.work = Path(self.td) / "wk"
+        self.work.mkdir()
+        self.events = spawn._events_path(self.work)
+        self.offset = spawn._offset_path(self.work)
+        self.log = Path(str(self.work) + ".session.log")
+        self.log.write_text("")
+        old_idx = spawn.WORKSPACE_INDEX
+        spawn.WORKSPACE_INDEX = Path(self.td) / "workspaces.json"
+        self.addCleanup(setattr, spawn, "WORKSPACE_INDEX", old_idx)
+        spawn._workspace_index_put(557, "implementation", str(self.work), str(self.log))
+        old_roster = spawn.ROSTER
+        spawn.ROSTER = Path(self.td) / "active.json"
+        self.addCleanup(setattr, spawn, "ROSTER", old_roster)
+
+    def _register_live(self, pid):
+        spawn.roster_register("issue-557/implementation", {
+            "pid": pid, "wrapper_pid": os.getpid(), "role": "implementation",
+            "issue": 557, "ts": int(time.time()), "work": str(self.work),
+            "log": str(self.log)})
+
+    def test_no_replay_of_earlier_session_events(self):
+        # pid A(옛 세션)의 이벤트 다음에 pid B(지금 살아있는 세션)의
+        # session-start 와 이벤트를 남긴다 — 무장 시점에 B 가 살아있으니
+        # A 몫 이벤트는 하나도 재생돼선 안 된다.
+        spawn._append_event(self.events, "session-start", {"pid": 111, "ts": 1.0})
+        spawn._append_event(self.events, "progress", {"kind": "old-session-marker"})
+        spawn._append_event(self.events, "session-end", "old-progressed")
+        spawn._append_event(self.events, "session-start", {"pid": 222, "ts": 2.0})
+        spawn._append_event(self.events, "progress", {"kind": "new-session-marker"})
+        spawn._append_event(self.events, "session-end", "new-progressed")
+        self._register_live(222)
+
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = spawn._watch(557, "implementation", 5.0, follow=True)
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        self.assertNotIn("old-session-marker", out)
+        self.assertNotIn("old-progressed", out)
+        self.assertIn("new-session-marker", out)
+        self.assertIn("new-progressed", out)
+
+    def test_banner_prints_at_most_once_per_invocation(self):
+        spawn._append_event(self.events, "session-start", {"pid": 333, "ts": 3.0})
+        spawn._append_event(self.events, "progress", {"kind": "a"})
+        spawn._append_event(self.events, "progress", {"kind": "b"})
+        spawn._append_event(self.events, "progress", {"kind": "c"})
+        spawn._append_event(self.events, "session-end", "progressed")
+        self._register_live(333)
+
+        import io
+        from contextlib import redirect_stderr
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            rc = spawn._watch(557, "implementation", 5.0, follow=True)
+        self.assertEqual(rc, 0)
+        banner = "스폰은 리턴했지만"
+        self.assertEqual(buf.getvalue().count(banner), 1)
+
+    def test_events_tagged_with_session_pid_ts(self):
+        spawn._append_event(self.events, "session-start", {"pid": 444, "ts": 4.5})
+        spawn._append_event(self.events, "progress", {"kind": "tagged"})
+        spawn._append_event(self.events, "session-end", "progressed")
+        self._register_live(444)
+
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = spawn._watch(557, "implementation", 5.0, follow=True)
+        self.assertEqual(rc, 0)
+        out = buf.getvalue()
+        lines = [l for l in out.splitlines() if l.strip()]
+        self.assertTrue(lines)
+        for line in lines:
+            self.assertIn("pid=444", line)
+            self.assertIn("ts=4.5", line)
 
 
 class WatchRegistrationRace(unittest.TestCase):
@@ -5652,7 +5742,7 @@ class WatchRegistrationRace(unittest.TestCase):
                 return {"wk/issue-484/implementation": entry}
             return {}
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             print(f"[watch] session-end: progressed")
             return 0
 
@@ -6506,7 +6596,7 @@ class RepoScopedWorkspaceIndex(unittest.TestCase):
         spawn._workspace_index_put(19, "implementation", str(self.repo_b), "log-b")
         seen = {}
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             seen["log_path"] = log_path
             return 0
 
@@ -6601,7 +6691,7 @@ class WatchMultiRoleAmbiguity(unittest.TestCase):
         from unittest import mock
         seen = {}
 
-        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path):
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
             seen["log_path"] = log_path
             return 0
 
