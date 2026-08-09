@@ -464,6 +464,26 @@ def self_hosted_hooks(cwd: str) -> dict | None:
     return parsed.get("hooks")
 
 
+def _workspace_bash_allow(cwd: str) -> list[str]:
+    """이슈 #558: 이 스폰의 격리된 워크스페이스(cwd) 안에서 정당한 venv
+    생성/pip install/워크스페이스 test/ 스크립트 실행을 스폰 시점에 미리
+    허용한다. `Bash(cd {cwd}*)` 처럼 `cd` 뒤에 트레일링 와일드카드만 붙이면
+    `cd {cwd} && rm -rf ~` 같은 임의 셸까지 통과한다 — after-proposal
+    warrant-hunt(stance 0)가 잡아낸 실패 모양이라, 각 항목은 `cd` 뒤에 올
+    명령 자체까지 구체적으로 명시한다. `cwd` 는 *어디*를, 나머지 패턴은
+    *무엇*을 좁힌다 — 이 스폰과 다른 cwd 를 받은 스폰은 다른 문자열을
+    받는다."""
+    venv = f"{cwd}/venv"
+    return [
+        f"Bash(cd {cwd} && python3 -m venv venv)",
+        f"Bash(python3 -m venv {venv})",
+        f"Bash(cd {cwd} && {venv}/bin/pip install *)",
+        f"Bash({venv}/bin/pip install *)",
+        f"Bash(cd {cwd} && python3 test/*.py)",
+        f"Bash(cd {cwd} && {venv}/bin/python3 test/*.py)",
+    ]
+
+
 def role_settings(role: str, cwd: str | None = None) -> dict:
     """역할의 샌드박스 경계 + 전역 플러그인 차단.
 
@@ -580,6 +600,19 @@ def role_settings(role: str, cwd: str | None = None) -> dict:
     for tool in ("WebSearch", "WebFetch", "Read", "Grep", "Glob"):
         if tool not in allow:
             allow.append(tool)
+
+    # 이슈 #558: 격리된 워크스페이스(cwd) 안에서 정당한 venv 생성/pip
+    # install/워크스페이스 test/ 스크립트 실행은 하네스 권한(2층)에 막힌다
+    # — headless 세션은 답할 사람이 없어 permissions.allow 에 없는 명령은
+    # 그냥 거부된다(2026-08-09 soongsil-course-registration 런 실측). 위의
+    # Bash 하위 패턴 제외 사유(바로 위 주석)는 "경로 앵커 없는" 패턴에만
+    # 해당한다 — 여기 항목은 이 스폰의 cwd 로 완전히 앵커링되므로 별개다.
+    # cwd 가 없으면(레지스트리 점검 등 워크스페이스 없는 호출) 아무것도
+    # 추가하지 않는다.
+    if cwd is not None:
+        for pattern in _workspace_bash_allow(cwd):
+            if pattern not in allow:
+                allow.append(pattern)
 
     # MUSTER_MCP_ALLOW: 같은 TOOL-PERMISSION 층 결함이 사용자가 직접 붙인
     # MCP 서버에도 그대로 있다 — 서버 연결은 되는데(`mcp_servers` 에
@@ -2104,7 +2137,7 @@ def _tool_result_text(content) -> str:
     return ""
 
 
-def _classify_refusal_text(text: str):
+def _classify_refusal_text(text: str, command: str | None = None):
     """거부 tool_result 텍스트를 층으로 분류한다. 매치 없으면 None, 있으면
     (이벤트 타입, 세션당 dedup 키, detail) — 층 1 의 게이트 이름은 hook 경로
     stem 에서만 뽑는다. `gate_deny <role-or-gate-name> <message>` 의 첫
@@ -2131,8 +2164,16 @@ def _classify_refusal_text(text: str):
                 {"gate": gate, "reason": reason})
     for pat in _HARNESS_REFUSAL_PATTERNS:
         if pat.search(text):
-            detail = " ".join(text.strip().split())[:300]
-            return ("harness-refusal", ("harness", detail), detail)
+            detail_text = " ".join(text.strip().split())[:300]
+            # 이슈 #558: 거부 사유 문구만으로는 오케스트레이터가 "정당하게
+            # 필요했던 거부(사전 허용에 없던 명령)"와 "모델이 그냥 안 돌린
+            # 것"을 구분할 수 없었다 — 상관된 Bash 명령이 있으면 이벤트
+            # detail 에 얹는다. dedup 키(위 튜플)는 detail_text 만 쓴다:
+            # 같은 사유 문구의 서로 다른 명령까지 별도 이벤트로 쪼개는 건
+            # 이 변경의 범위 밖이다(제안서 "What will be done" 참고).
+            detail = ({"text": detail_text, "command": command[:300]}
+                      if command else detail_text)
+            return ("harness-refusal", ("harness", detail_text), detail)
     for pat in _SANDBOX_REFUSAL_PATTERNS:
         if pat.search(text):
             detail = " ".join(text.strip().split())[:300]
@@ -4154,7 +4195,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # tool_result 블록의 tool_use_id 를 통해 어느 도구 호출이 거부됐는지
         # 건별로 되짚는다. 두 필드 모두 이미 파싱 중인 스트림에 있던 것이라
         # 새 계측이 아니다(제안서 제약).
-        tool_use_names: dict[str, str] = {}
+        # 이슈 #558: 값이 name 단독에서 (name, command) 로 바뀌었다 — Bash
+        # 블록이면 command, 아니면 None. 이미 진행 리포팅(아래 elif name ==
+        # "Bash")이 뽑던 값을 재사용한다.
+        tool_use_names: dict[str, tuple[str, str | None]] = {}
         # 이슈 #246 결함 1: 터미널 result 줄을 실제로 파싱했는지 — 스트림이
         # 그 줄 전에 끝나면(크래시/kill/truncation, S1) 또는 그 줄이 malformed
         # JSON 이면(S3, 위의 `except ValueError: continue`) 이 플래그는 False 로
@@ -4232,14 +4276,15 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                         if not block.get("is_error"):
                             continue
                         text = _tool_result_text(block.get("content"))
-                        classified = _classify_refusal_text(text)
+                        tool_use_id = block.get("tool_use_id")
+                        name_cmd = (tool_use_names.get(tool_use_id)
+                                   if isinstance(tool_use_id, str) else None)
+                        tool_name, tool_command = name_cmd if name_cmd else (None, None)
+                        classified = _classify_refusal_text(text, command=tool_command)
                         if classified is None:
                             continue
                         ev_type, key, detail = classified
                         if key not in pending_refusals:
-                            tool_use_id = block.get("tool_use_id")
-                            tool_name = (tool_use_names.get(tool_use_id)
-                                        if isinstance(tool_use_id, str) else None)
                             pending_refusals[key] = (ev_type, detail, tool_name)
                 elif issue is not None and obj.get("type") == "assistant":
                     # gate-refusal/pr-opened 와 같은 파싱 결과(obj)를 재사용한다
@@ -4248,15 +4293,17 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                         if not isinstance(block, dict) or block.get("type") != "tool_use":
                             continue
                         name = block.get("name")
-                        # 이슈 #246 결함 3: 이 tool_use 의 id -> name 을 기록해
-                        # 둔다 — 뒤이어 올 tool_result 의 tool_use_id 가 이걸
-                        # 통해 어느 도구 호출이 거부됐는지 되짚는다. Write/Edit/
-                        # Bash 로 좁히지 않고 전부 기록한다(진행 리포팅과 달리
-                        # 상관관계는 모든 도구가 대상).
+                        inp = block.get("input") or {}
+                        command = str(inp.get("command") or "") if name == "Bash" else None
+                        # 이슈 #246 결함 3: 이 tool_use 의 id -> (name, command) 를
+                        # 기록해 둔다 — 뒤이어 올 tool_result 의 tool_use_id 가
+                        # 이걸 통해 어느 도구 호출이 거부됐는지 되짚는다.
+                        # Write/Edit/Bash 로 좁히지 않고 전부 기록한다(진행
+                        # 리포팅과 달리 상관관계는 모든 도구가 대상). command 는
+                        # 이슈 #558: Bash 가 아니면 None.
                         block_id = block.get("id")
                         if isinstance(block_id, str) and isinstance(name, str):
-                            tool_use_names[block_id] = name
-                        inp = block.get("input") or {}
+                            tool_use_names[block_id] = (name, command)
                         if name in ("Write", "Edit"):
                             fp = inp.get("file_path")
                             if fp and fp != last_progress_file:
@@ -4264,7 +4311,6 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                 _append_event(events_path, "progress",
                                              {"kind": "tool_use", "detail": f"{name} {fp}"})
                         elif name == "Bash":
-                            command = str(inp.get("command") or "")
                             if command.startswith(_PROGRESS_BASH_PREFIXES):
                                 last_progress_file = None
                                 _append_event(events_path, "progress",
