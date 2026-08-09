@@ -2595,13 +2595,43 @@ def _workspace_index_put(issue: int, role: str, work: str, log: str,
     WORKSPACE_INDEX.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
 
+def _live_session_start_index(events_path: Path, pid) -> int | None:
+    """이슈 #557: 지금 살아있는 세션(`pid`)의 `session-start` 이벤트가
+    events.jsonl 에서 몇 번째 줄(0-based)인지 찾는다. 같은 워크스페이스
+    로그에 이전 세션들의 이벤트가 남아 있어도, 이 줄보다 앞선 이벤트는
+    전부 이전 세션 몫이므로 follow 커서가 재생하면 안 된다. 같은 pid 를
+    쓴 세션이 여럿 기록돼 있으면(재사용) 가장 최근 것을 고른다."""
+    if pid is None:
+        return None
+    try:
+        lines = events_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    idx = None
+    for i, line in enumerate(lines):
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if ev.get("type") == "session-start" and ev.get("detail", {}).get("pid") == pid:
+            idx = i
+    return idx
+
+
 def _await_bounded(events_path: Path, offset_path: Path, stall_timeout_min: float,
-                    log_path: Path) -> int:
+                    log_path: Path, session_tag: tuple | None = None,
+                    show_banner: bool = True) -> int:
     """이벤트 하나가 뜨거나 stall 시간이 다 찰 때까지 — 둘 중 먼저 오는
     쪽에서 리턴한다. 무한정 블록하지 않는다 (이슈 #114 proposal).
 
     stall 은 events.jsonl 에 안 남고 offset 도 안 미룬다 — 다음 watch 가
     같은 미보고 구간을 다시 본다.
+
+    `session_tag` (pid, ts) 가 주어지면 찍는 이벤트 줄마다 원본 세션을
+    표시한다 — `--all` 처럼 여러 세션을 다중화해 보는 소비자가 어느
+    이벤트가 어느 세션 것인지 알 수 있게 한다(이슈 #557).
+    `show_banner=False` 면 "스폰은 리턴했지만" 배너를 찍지 않는다 —
+    `--follow` 반복 호출 중 이미 한 번 찍었으면 호출자가 이걸로 끈다.
     """
     limit_s = stall_timeout_min * 60
     seen = _read_offset(offset_path)
@@ -2617,12 +2647,13 @@ def _await_bounded(events_path: Path, offset_path: Path, stall_timeout_min: floa
             if len(lines) > seen:
                 ev = json.loads(lines[seen])
                 _write_offset(offset_path, seen + 1)
-                print(f"[watch] {ev['type']}: {ev['detail']}")
+                tag = f" [session pid={session_tag[0]} ts={session_tag[1]}]" if session_tag else ""
+                print(f"[watch]{tag} {ev['type']}: {ev['detail']}")
                 # exit 0 는 "스폰이 리턴했다"이지 "세션이 끝났다"가 아니다.
                 # 호출자가 그 둘을 추론하게 두면 오케스트레이터가 사람에게
                 # 끝났다고 오보한다 — 이 저장소가 가장 비싸게 치는 실패다
                 # (이슈 #142). session-end 만이 종료를 뜻한다.
-                if ev["type"] != "session-end":
+                if ev["type"] != "session-end" and show_banner:
                     print("[watch] 스폰은 리턴했지만 세션은 계속 돈다 — "
                           "상태는 spawn.py ps, 이어보려면 spawn.py watch",
                           file=sys.stderr)
@@ -2754,8 +2785,24 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
     events_path = _events_path(work)
     offset_path = _offset_path(work)
     log_path = Path(entry["log"])
+    # 이슈 #557: 무장 시점에 살아있는 세션의 pid 를 명부에서 찾아, 그
+    # session-start 줄보다 앞선(=이전 세션 몫인) 이벤트는 커서가 절대
+    # 재생하지 않도록 offset 바닥을 그 줄로 끌어올린다. pid 를 못 찾으면
+    # (명부 엔트리 부재) 오늘의 동작(스코프 없음)으로 그대로 떨어진다.
+    m = re.search(r"issue-\d+/[^/]+$", key) if key else None
+    roster_entry = _roster_load().get(m.group(0)) if m else None
+    live_pid = roster_entry.get("pid") if roster_entry else None
+    session_idx = _live_session_start_index(events_path, live_pid)
+    session_tag = None
+    if session_idx is not None:
+        if _read_offset(offset_path) < session_idx:
+            _write_offset(offset_path, session_idx)
+        lines = events_path.read_text(encoding="utf-8").splitlines()
+        detail = json.loads(lines[session_idx]).get("detail", {})
+        session_tag = (detail.get("pid"), detail.get("ts"))
     if not follow:
-        return _await_bounded(events_path, offset_path, stall_timeout_min, log_path)
+        return _await_bounded(events_path, offset_path, stall_timeout_min, log_path,
+                               session_tag=session_tag)
     # --follow: _await_bounded 자체는 바꾸지 않고 반복 호출한다 — 매 호출이
     # 소비한 이벤트를 계속 찍다가, 그 이벤트 타입이 session-end 일 때만
     # 멈춘다. _await_bounded 는 이벤트 소비 여부와 무관하게 항상 0 을
@@ -2767,13 +2814,15 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
     # 보장하므로, 여기서는 반복에 걸친 무진전 누적 시간을 직접 잰다.
     stall_limit_s = stall_timeout_min * 60
     last_progress = time.monotonic()
+    banner_shown = False  # 이슈 #557: --follow 반복 전체에서 배너는 한 번만
     while True:
         before = _read_offset(offset_path)
         try:
             before_size = log_path.stat().st_size
         except OSError:
             before_size = None
-        rc = _await_bounded(events_path, offset_path, stall_timeout_min, log_path)
+        rc = _await_bounded(events_path, offset_path, stall_timeout_min, log_path,
+                             session_tag=session_tag, show_banner=not banner_shown)
         after = _read_offset(offset_path)
         try:
             after_size = log_path.stat().st_size
@@ -2784,6 +2833,8 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
         if after > before:
             lines = events_path.read_text(encoding="utf-8").splitlines()
             ev = json.loads(lines[after - 1])
+            if ev.get("type") != "session-end":
+                banner_shown = True
             if ev.get("type") == "session-end":
                 return rc
         # 세션 프로세스 사망 판정보다 session-end 잔여 이벤트 소진을 먼저
