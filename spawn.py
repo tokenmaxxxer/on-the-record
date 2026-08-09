@@ -2655,10 +2655,43 @@ WATCH_CRASH_RC = 2  # `--follow`가 session-end 없이 pid 사망을 감지했�
                     # docs/issue-224/decisions/watch-crash-exit-code.md).
 
 
+def _live_roster_matches(matches: list, issue: int) -> list:
+    """`matches` (workspace-index (key, entry) 쌍들) 중 실제로 살아있는
+    세션(roster 의 pid 로 판단)이 있는 것만 걸러낸다 — 이슈 #554: 역할이
+    여럿 기록돼 있어도 그중 하나만 살아있으면 그게 사용자가 보고 싶은
+    세션이다."""
+    roster = _roster_load()
+    live = []
+    for k, v in matches:
+        role = k.rsplit("/", 1)[1]
+        e = roster.get(f"issue-{issue}/{role}")
+        if e is not None and _alive(e.get("pid", 0)):
+            live.append((k, v))
+    return live
+
+
+def _ambiguous_watch_exit(issue: int, matches: list, repo: str | None) -> None:
+    """이슈 #554: 애매할 때(살아있는 세션이 0개 또는 2개 이상) 그대로
+    붙여넣을 수 있는 명령을 에러에 찍는다 — `--role` 없이 재시도하면 같은
+    메시지가 또 나오는 죽은 재시도 구간을 없앤다."""
+    cwd_flag = f" -C {repo}" if repo else ""
+    roles = [k.rsplit("/", 1)[1] for k, _ in matches]
+    cmds = "; ".join(
+        f"spawn.py watch --issue {issue} --role {r}{cwd_flag}" for r in roles)
+    sys.exit(f"이슈 {issue} 에 역할이 여럿 기록돼 있다 — 역할을 지정하라 "
+             f"(후보: {', '.join(roles)}): {cmds}")
+
+
 def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | None = None):
     """이슈 #533: `repo` 가 주어지면 그 레포로만 조회를 좁힌다 — `-C` 가
     지금까지 조회에 안 먹히던 구멍을 막는다. 안 주면(기존 기본값) 모든
-    레포를 대상으로 이슈+역할 접미사로 매칭하던 예전 동작을 유지한다."""
+    레포를 대상으로 이슈+역할 접미사로 매칭하던 예전 동작을 유지한다.
+
+    이슈 #554: 역할을 안 줬는데 매치가 여럿이면, 그중 살아있는 세션이
+    정확히 하나면 그걸 자동 선택한다 — watch 는 어차피 실행 중인 세션만
+    보고하므로 그게 유일하게 뜻이 통하는 선택이다. 0개 또는 2개 이상
+    살아있으면 여전히 애매하니 `--role`을 요구한다(실행 가능한 명령까지
+    같이 찍는다)."""
     if repo is not None:
         if role:
             key = f"{repo}/issue-{issue}/{role}"
@@ -2667,9 +2700,11 @@ def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | No
             matches = [(k, v) for k, v in idx.items()
                        if k.startswith(f"{repo}/issue-{issue}/")]
             if len(matches) > 1:
-                sys.exit(f"레포 {repo} 이슈 {issue} 에 역할이 여럿 기록돼 있다 — "
-                         "역할을 지정하라: "
-                         + ", ".join(k.rsplit("/", 1)[1] for k, _ in matches))
+                live = _live_roster_matches(matches, issue)
+                if len(live) == 1:
+                    matches = live
+                else:
+                    _ambiguous_watch_exit(issue, matches, repo)
             key = matches[0][0] if matches else None
             entry = matches[0][1] if matches else None
         return key, entry
@@ -2683,8 +2718,11 @@ def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | No
     else:
         matches = [(k, v) for k, v in idx.items() if f"/issue-{issue}/" in k]
         if len(matches) > 1:
-            sys.exit(f"이슈 {issue} 에 역할이 여럿 기록돼 있다 — 역할을 지정하라: "
-                     + ", ".join(k.rsplit("/", 1)[1] for k, _ in matches))
+            live = _live_roster_matches(matches, issue)
+            if len(live) == 1:
+                matches = live
+            else:
+                _ambiguous_watch_exit(issue, matches, repo)
         key = matches[0][0] if matches else None
         entry = matches[0][1] if matches else None
     return key, entry
@@ -3282,7 +3320,10 @@ def main() -> int:
         if a.issue is None:
             sys.exit("사용법: spawn.py watch --issue <n> [--role <역할>] "
                      "[--stall-timeout <분>], 또는 spawn.py watch --all")
-        return _watch(a.issue, a.watch_role, a.stall_timeout, follow=a.follow,
+        # 이슈 #554: `kill <역할> --issue N` 과 같은 위치 인자 문법을
+        # `watch` 에도 허용한다 — `--role` 이 이미 있으면 그게 우선한다.
+        watch_role = a.watch_role or a.task
+        return _watch(a.issue, watch_role, a.stall_timeout, follow=a.follow,
                       repo=_repo_identity(a.cwd))
     if a.role == "clean":
         # 안전한 것만 지운다: 미커밋 변경 없음 + origin 에 없는 커밋 없음.
