@@ -86,3 +86,56 @@ check. The fix needs to treat an empty/unset gates dir as an explicit
 `import` raise `ModuleNotFoundError` cleanly, or explicitly `deny()`
 before attempting import) rather than passing `""` through to
 `sys.path.insert`.
+
+## before-landing — stance 1: assume this change and another plugin's rule cancel each other — find the pair
+
+Verdict: FINDING — the new `../gates` (packaged on-the-record/gates/) resolution priority makes record-claim-guard.sh / role-spec-reference-guard.sh silently read a copy of gates/record_lint.py that diverges from repo-root gates/record_lint.py once someone edits the root source without also updating the packaged copy; no hook or test detects the drift, so the two guard-family hooks enforce stale/inconsistent rule text against the same repo tree.
+Kind: composition
+Seed: on-the-record/hooks/record-claim-guard.sh, on-the-record/hooks/role-spec-reference-guard.sh gates_dir resolution (../gates before ../../gates); on-the-record/gates/*.py packaged copies vs repo-root gates/*.py
+cap_seconds: 180
+tier: size:large
+diff_stat_lines: 1943 insertions across 8 files (commit cc9feff)
+started_at: 2026-08-09T11:48:39+09:00
+ended_at: 2026-08-09T12:03:00+09:00
+
+### Reproduce
+```
+# copy of the repo tree in a scratch dir, then edit ONLY root gates/record_lint.py:
+sed -i "s/이유가 없다/FIXED-MESSAGE-marker/" gates/record_lint.py
+diff gates/record_lint.py on-the-record/gates/record_lint.py   # now differ
+
+# feed record-claim-guard.sh a payload that trips unverifiable_reason_check
+# (an owned docs/issue-NNN/reports/implementation.md write, body "unverifiable:\n")
+bash on-the-record/hooks/record-claim-guard.sh < payload.json
+```
+
+### Observed
+```
+Exit code 2
+record-claim-guard: `unverifiable:` 줄에 이유가 없다 (issue #310) — ...
+```
+The guard still emits the *unedited* Korean message string — it resolved
+gates_dir to `../gates` (on-the-record/gates/record_lint.py), never
+touching the edited root-level `gates/record_lint.py` at all, even though
+the guard's own header comment says it calls "into gates/record_lint.py's
+functions" without distinguishing which copy is authoritative.
+
+### Expected
+Either a single source of truth (no second copy able to diverge) or some
+mechanism (test, sync check, or doc) that fails loudly when
+on-the-record/gates/*.py and repo-root gates/*.py disagree. Currently
+nothing detects or prevents the drift; test_hook_cache_layout.py only
+checks import success and ownership-order, not copy parity — so a fix
+landed in the root `gates/` tree (the place every other hook, e.g.
+impact-guard.sh's `os.path.join(checkout, "gates")`, still reads from)
+silently fails to reach record-claim-guard.sh / role-spec-reference-guard.sh
+once the packaged copy exists and is preferred.
+
+### Disposition
+Not a blocking regression: the proposal's `## Out of scope` section
+already names this exact tradeoff ("A general drift-prevention mechanism
+keeping the packaged `gates/` copies in sync with the repo-root
+originals automatically ... noted as a follow-up, not built here"). The
+hunt confirms the drift is real and currently silent, which sharpens why
+that follow-up matters — filed as a candidate for a future issue
+(sync-check CI/test), not addressed in this branch.
