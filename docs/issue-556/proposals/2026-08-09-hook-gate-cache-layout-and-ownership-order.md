@@ -106,6 +106,19 @@ so no alternative is weighed for it.
 - `impact-guard.sh`'s target-repo `gates/` resolution — a different
   mechanism (locates the *target* repo's own gates, not this plugin's).
 
+## Accumulation
+
+The new `on-the-record/hooks/test_hook_cache_layout.py` calls
+`subprocess.run` through one shared `_run` helper (a single call site),
+not inline per test — the repo already carries this same shared-helper
+pattern in `test_record_claim_guard.py` and other `hooks/test_*.py`
+files, so this addition does not increase the count of inline,
+helper-free `subprocess`/`gh` call sites anywhere in the tree. If this
+hook-test-file pattern recurs N more times across future issues, each
+new file follows the same one-shared-helper shape rather than adding
+inline call sites, so the accumulation-cost shape this gate watches for
+does not compound.
+
 ## How you'll know it worked
 
 - `bash -n` passes on both edited hooks.

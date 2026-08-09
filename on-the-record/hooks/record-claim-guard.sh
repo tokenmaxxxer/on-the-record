@@ -35,13 +35,15 @@ payload="$(cat 2>/dev/null || true)"
 command -v python3 >/dev/null 2>&1 || exit 2
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-gates_dir="$(cd "$script_dir/../../gates" && pwd)"
+gates_dir=""
+if [ -d "$script_dir/../gates" ]; then
+    gates_dir="$(cd "$script_dir/../gates" && pwd)"
+elif [ -d "$script_dir/../../gates" ]; then
+    gates_dir="$(cd "$script_dir/../../gates" && pwd)"
+fi
 
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, posixpath, re, sys
-
-sys.path.insert(0, os.environ["RCG_GATES_DIR"])
-import record_lint
 
 def deny(msg):
     sys.stderr.write("record-claim-guard: %s\n" % msg)
@@ -65,6 +67,15 @@ if not isinstance(p, str) or not p:
 n = posixpath.normpath(p.replace("\\", "/"))
 if not re.search(r"(^|/)docs/issue-[^/]+/reports/", n):
     sys.exit(0)
+
+gates_dir = os.environ.get("RCG_GATES_DIR") or ""
+if not gates_dir:
+    deny("gates module directory could not be resolved")
+try:
+    sys.path.insert(0, gates_dir)
+    import record_lint
+except ImportError:
+    deny("gates module could not be imported")
 
 # The new content: Write carries it directly; Edit/MultiEdit carry only
 # the changed fragment(s) — check those fragments (issue #457 Group A/B

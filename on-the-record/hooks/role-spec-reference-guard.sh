@@ -27,13 +27,32 @@ payload="$(cat 2>/dev/null || true)"
 command -v python3 >/dev/null 2>&1 || exit 2
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-gates_dir="$(cd "$script_dir/../../gates" && pwd)"
+gates_dir=""
+if [ -d "$script_dir/../gates" ]; then
+    gates_dir="$(cd "$script_dir/../gates" && pwd)"
+elif [ -d "$script_dir/../../gates" ]; then
+    gates_dir="$(cd "$script_dir/../../gates" && pwd)"
+fi
 
 IFS='' read -r -d '' GUARD <<'PY' || true
-import json, os, posixpath, sys
+import json, os, posixpath, re, sys
 
-sys.path.insert(0, os.environ["RSRG_GATES_DIR"])
-import role_spec_shape
+_VERIFICATION_FAMILY_ROLES = frozenset((
+    "execution-observation",
+    "conformance-review",
+    "defect-verification",
+    "security-threat-model",
+    "accessibility",
+    "secure-coding",
+))
+
+def record_path_role(rel_path):
+    n = posixpath.normpath(rel_path.replace("\\", "/"))
+    m = re.match(r"^(?:.*/)?docs/issue-[^/]+/reports/([^/]+)\.md$", n)
+    if not m:
+        return None
+    role = m.group(1)
+    return role if role in _VERIFICATION_FAMILY_ROLES else None
 
 def deny(msg):
     sys.stderr.write("role-spec-reference-guard: %s\n" % msg)
@@ -55,8 +74,17 @@ if not isinstance(p, str) or not p:
     sys.exit(0)
 
 n = posixpath.normpath(p.replace("\\", "/"))
-if role_spec_shape.record_path_role(n) is None:
+if record_path_role(n) is None:
     sys.exit(0)
+
+gates_dir = os.environ.get("RSRG_GATES_DIR") or ""
+if not gates_dir:
+    deny("gates module directory could not be resolved")
+try:
+    sys.path.insert(0, gates_dir)
+    import role_spec_shape
+except ImportError:
+    deny("gates module could not be imported")
 
 content_parts = []
 nc = ti.get("content")
