@@ -66,7 +66,16 @@ so no alternative is weighed for it.
   `import record_lint` line.
 - Only after the path is confirmed owned does the guard import the gate
   module, inside a `try/except ImportError` that calls `deny()` (exit 2) —
-  preserving fail-closed for owned paths whose gate module can't load.
+  preserving fail-closed for owned paths whose gate module can't load. The
+  guard checks the resolved gates dir is a non-empty string *before*
+  calling `sys.path.insert(0, ...)`: an empty string there means "current
+  working directory" to Python, which would let a same-named file planted
+  in cwd be silently imported instead of raising `ImportError` — an
+  after-proposal hunt (stance 0, docs/reports/2026-08-09-hunt-hook-gate-cache-layout-and-ownership-order.md)
+  reproduced exactly this bypass against the pre-fix hooks. When the
+  resolved dir is empty, the guard treats that the same as an import
+  failure (`deny()` for owned paths) without ever inserting `""` into
+  `sys.path`.
 - In both hooks' bash preamble: resolve `gates_dir` by checking, in order,
   `$script_dir/../gates` (packaged: `on-the-record/gates/`, matches the
   cache layout) then `$script_dir/../../gates` (repo-root dev layout);
