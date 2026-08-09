@@ -58,3 +58,56 @@ this role-blind spot: a dead watcher for role X can be silently reported
 "watched" — purely because some other role of the same issue happens to be
 running a real watcher whose pid was assigned to (or reused for) role X's
 stale roster/workspace-index record.
+
+## before-landing — stance 1: assume this change and another plugin's rule cancel each other — find the pair
+
+Verdict: NO FINDING
+Seed: spawn.py diff — `_watcher_looks_real(pid, issue, role=None)` role check, `_workspace_index_put(..., watcher_armed_at=None)`, `roster_ps()` watcher-column output, `_watch_all(stall_timeout_min, until_idle=False)` bounded-idle mode, new `--until-idle` argparse flag on `watch` (mutually exclusive with lack of `--all`)
+cap_seconds: 120
+tier: default
+diff_stat_lines: ~90 (spawn.py) + ~90 (test_spawn.py)
+started_at: 2026-08-09T12:51:07+09:00
+ended_at: 2026-08-09T13:35:00+09:00
+
+Checked for a colliding rule/gate and found none real:
+- `main()`'s `--until-idle` validation (`sys.exit` if set without `--all`) is checked
+  *after* the `--all`+`--issue` mutual-exclusion check inside the `a.all` branch, so
+  `watch --all --issue 5 --until-idle` correctly reports the `--all`/`--issue`
+  conflict, and `watch --until-idle` alone (or with `--issue`, without `--all`)
+  correctly reports the `--until-idle` requires `--all` message. Verified both by
+  running `python3 spawn.py watch --until-idle` and
+  `python3 spawn.py watch --all --issue 5 --until-idle` directly.
+- The issue #554 positional-role/`--role` parsing (`watch_role = a.watch_role or
+  a.task`) is only reached in the `--issue` (single-session) branch, never in the
+  `--all` branch, so `--until-idle`/`--all` can't collide with it.
+- `roster_ps()`'s new `role = key.split("/", 1)[1] if "/" in key else None` looked
+  suspect against adhoc roster keys (`adhoc/<role>/<pid>`, which would split to
+  `"<role>/<pid>"` and never match cmdline), but adhoc spawns never get a watcher
+  armed (`_workspace_index_put(..., watcher_pid=...)` is only called inside
+  `if bounded and issue is not None:` in `_spawn_one`), so `roster_ps`'s watcher
+  block, which is keyed off `WORKSPACE_INDEX`, never sees an adhoc key with a
+  watcher_pid — no live collision.
+- `roster_ps()` and `watchdog_check_one()` build the workspace-index join key
+  identically (`f"{_repo_identity(work)}/{key}"`), consistent with the existing
+  `_workspace_index_put` key shape — no join-key drift between the two readers.
+- Searched on-the-record hook `.sh` gates (`directive.sh`, `deliverable-guard.sh`,
+  `decision-queue-stopgate.sh`, `retry-loop-bound.sh`, `impact-guard.sh`,
+  `self-update.sh`) referencing spawn.py: none mechanically parse or reject
+  spawn.py's argparse shape (new flag, new optional kwarg, new print lines).
+  `directive.sh` has stale prose describing single-session `watch --issue`
+  semantics that doesn't mention `--all`/`--until-idle`, but that's documentation
+  drift, not a mechanical gate collision (nothing enforces it against the code).
+- Ran `python3 -m unittest`/`pytest` combinations of the new `WatcherPs`,
+  `WatchAll`, and `WatcherAutoArm` test classes together and individually
+  (`pytest test_spawn.py -k "WatcherPs or WatchAll or WatcherAutoArm"`, 5 repeats)
+  — all 19 tests passed consistently. One earlier run (interleaved with a stray
+  background debug process of mine reading the same PID's `/proc/<pid>/cmdline`)
+  showed `_watcher_looks_real(os.getpid(), 488, role="implementation")` returning
+  `True` instead of the expected `False`, which would point at the
+  `except OSError: return True` degrade-to-alive-only fallback in
+  `_watcher_looks_real` firing on a transient read failure rather than genuine
+  `/proc` absence. This did not reproduce on 5 repeated clean runs, so I could not
+  pin it to the diff under this stance (composition with another plugin's rule)
+  rather than to my own concurrent process interfering with the same PID's
+  `/proc` entry — not reporting it as a finding since I couldn't get a reliable,
+  isolated reproduction.
