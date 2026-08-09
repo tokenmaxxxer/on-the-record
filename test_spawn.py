@@ -621,6 +621,44 @@ class WebToolPermissionAccess(unittest.TestCase):
             f.write_text(original_text)
 
 
+class WorkspaceBashAllowlist(unittest.TestCase):
+    """이슈 #558: 격리된 워크스페이스 안에서 정당한 venv/pip/테스트 스크립트
+    실행은 헤드리스 세션에서 답할 사람이 없어 하네스 권한 층에 거부된다
+    (2026-08-09 soongsil-course-registration 런 실측). role_settings 가
+    cwd 로 앵커링된 Bash 허용 항목을 스폰 시점에 채우는지, 그리고 그
+    항목이 전역이 아니라 그 cwd 로만 좁혀지는지 검증한다."""
+
+    def test_no_workspace_bash_allow_when_cwd_is_none(self):
+        out = spawn.role_settings("implementation")
+        allow = out["permissions"]["allow"]
+        self.assertFalse([a for a in allow if a.startswith("Bash(") and "venv" in a], allow)
+
+    def test_venv_and_pip_and_test_script_shapes_allowed_for_cwd(self):
+        cwd = "/tmp/muster-work/issue-558-implementation"
+        out = spawn.role_settings("implementation", cwd)
+        allow = out["permissions"]["allow"]
+        bash_entries = [a for a in allow if a.startswith("Bash(")]
+        self.assertTrue(any("venv" in a for a in bash_entries), bash_entries)
+        self.assertTrue(any("pip install" in a for a in bash_entries), bash_entries)
+        self.assertTrue(any("test/" in a for a in bash_entries), bash_entries)
+
+    def test_every_added_bash_entry_is_scoped_to_cwd(self):
+        cwd = "/tmp/muster-work/issue-558-implementation"
+        out = spawn.role_settings("implementation", cwd)
+        allow = out["permissions"]["allow"]
+        bash_entries = [a for a in allow if a.startswith("Bash(")]
+        for entry in bash_entries:
+            self.assertIn(cwd, entry, entry)
+
+    def test_different_cwds_produce_differently_anchored_entries(self):
+        out1 = spawn.role_settings("implementation", "/tmp/muster-work/issue-1")
+        out2 = spawn.role_settings("implementation", "/tmp/muster-work/issue-2")
+        bash1 = {a for a in out1["permissions"]["allow"] if a.startswith("Bash(")}
+        bash2 = {a for a in out2["permissions"]["allow"] if a.startswith("Bash(")}
+        self.assertTrue(bash1, bash1)
+        self.assertFalse(bash1 & bash2, bash1 & bash2)
+
+
 class MustMcpAllowEnv(unittest.TestCase):
     """MUSTER_MCP_ALLOW: #58/#65 와 같은 TOOL-PERMISSION 결함이 사용자가 직접
     붙인 MCP 서버에도 있다 — 서버는 연결되는데 도구 호출은 permissions.allow
@@ -2209,12 +2247,15 @@ class EventReporting(unittest.TestCase):
         return [json.loads(l) for l in events_path.read_text().splitlines()]
 
     @staticmethod
-    def _tool_use_line(tool_use_id, name):
+    def _tool_use_line(tool_use_id, name, command=None):
         # 이슈 #246 결함 3: 실제 스트림에서 tool_result 는 언제나 그 도구를
         # 요청한 assistant 의 tool_use 블록(같은 id) 뒤에 온다 — 건별
         # 상관관계 픽스처가 그 순서를 재현한다.
+        # 이슈 #558: command 는 Bash tool_use 픽스처에 거부된 명령 텍스트를
+        # 싣기 위한 선택적 인자다 — 다른 도구 이름은 그대로 input={}.
+        inp = {"command": command} if command is not None else {}
         event = _event("assistant", message={"content": [
-            {"type": "tool_use", "id": tool_use_id, "name": name, "input": {}}]})
+            {"type": "tool_use", "id": tool_use_id, "name": name, "input": inp}]})
         return json.dumps(event)
 
     def test_end_turn_result_is_not_a_gate_refusal(self):
@@ -2294,6 +2335,27 @@ class EventReporting(unittest.TestCase):
                                    tool_use + "\n" + tool_result + "\n" + result_line + "\n")
                 self.assertTrue([e for e in events if e["type"] == "harness-refusal"], events)
                 self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
+
+    def test_harness_refusal_event_carries_refused_command_text(self):
+        # 이슈 #558: 하네스 거부 이벤트는 거부 사유 텍스트만이 아니라 어떤
+        # Bash 명령이 거부됐는지도 실어야 한다 — 옛 코드는 "requires
+        # approval" 같은 고정 사유 문구뿐이라, 오케스트레이터가 정당하게
+        # 필요했던 거부(사전 허용에 없던 명령)와 모델이 그냥 안 돌린 걸
+        # 구분할 수 없었다(2026-08-09 soongsil-course-registration 런
+        # 실측).
+        command = "python3 -m venv venv && venv/bin/pip install requests"
+        tool_use = self._tool_use_line("t1", "Bash", command=command)
+        tool_result = json.dumps({"type": "user", "message": {"content": [
+            {"type": "tool_result", "is_error": True, "tool_use_id": "t1",
+             "content": "This command requires approval"}]}})
+        result_line = json.dumps({"type": "result", "is_error": False,
+                                  "permission_denials": [{"tool_name": "Bash"}]})
+        events = self._run(tempfile.mkdtemp(),
+                           tool_use + "\n" + tool_result + "\n" + result_line + "\n")
+        refusals = [e for e in events if e["type"] == "harness-refusal"]
+        self.assertEqual(len(refusals), 1, events)
+        self.assertEqual(refusals[0]["detail"]["command"], command, events)
+        self.assertIn("requires approval", refusals[0]["detail"]["text"], events)
 
     def test_sandbox_denial_is_not_labeled_gate_refusal(self):
         # 이슈 #232 층 3 실물 샘플 — 옛 코드는 이것도 gate-refusal 로 뭉갰다.
