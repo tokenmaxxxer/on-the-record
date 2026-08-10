@@ -17,7 +17,8 @@
       "required": true
     },
     { "name": "downstream_link", "type": "ref", "required": true },
-    { "name": "status", "type": "string", "required": false }
+    { "name": "status", "type": "string", "required": false },
+    { "name": "open_decision_item", "type": "ref[]", "required": false }
   ],
   "reference_resolution": {
     "rule": "statement must match its declared ears_pattern's template grammar (Ubiquitous 'THE <system> SHALL <response>'; Event-driven 'WHEN <trigger>, THE <system> SHALL <response>'; State-driven 'WHILE <precondition>, THE <system> SHALL <response>'; Optional-feature 'WHERE <feature>, THE <system> SHALL <response>'; Unwanted-behaviour 'IF <trigger>, THEN THE <system> SHALL <response>'; Complex = chained combination). source and downstream_link must each resolve to a real repo path, commit sha, or cited artifact — no orphan references (issue-515 invariant 2).",
