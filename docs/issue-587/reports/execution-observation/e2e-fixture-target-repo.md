@@ -176,3 +176,121 @@ Tally derived by counting the "Fired" column immediately above: four rows read "
 (missing posting logic) but introduced a new gap in its place (the posting logic has no caller) —
 the net observable behavior on the git surface is unchanged: event 4 does not fire during real
 operation.
+
+## Round 3 (PR #606, commit 53f9d16) — event 4 re-drive
+
+### Scope of this round
+
+PR #606's own diff (`git show 53f9d16 --stat`, read this session): only `spawn.py`,
+`test_spawn.py`, and `docs/issue-587/reports/implementation.md` changed —
+`on-the-record/hooks/delegated-judgment-gate.sh` and `gates/remediation_spawn.py` untouched.
+Events 1-3 and 5's code paths are therefore unaffected by this round and carry forward unchanged
+from the round-1/round-2 records, same reasoning as the prior round's "## Scope of this round".
+This round re-drives event 4 only, against the new `reconcile --remediation-merged` CLI verb.
+
+### Step A — does the shipped CLI surface now expose a caller?
+
+```
+$ python3 spawn.py --help 2>&1 | grep -n "remediation-merged"
+6:                [--remediation-merged] [--post] [--json]
+37:  --remediation-merged  reconcile --issue N: docs/issue-N/decisions/remediation-*.md 중 ...
+```
+
+```
+$ grep -n "_remediation_merge_sweep(" spawn.py
+2109:def _remediation_merge_sweep(root: Path, issue: int) -> int:
+2168:    `remediation_merged=True` 면 `_remediation_merge_sweep(ROOT, issue)` 로
+2183:        return _remediation_merge_sweep(ROOT, issue)
+```
+
+Two matches beyond the `def` line: the CLI flag now exists and `roster_reconcile` now has a real
+call site (`spawn.py:2183`), reached from `main()`'s `role == "reconcile"` branch
+(`spawn.py:3509-3511`, read this session: `return roster_reconcile(a.issue,
+unreported=a.unreported, remediation_merged=a.remediation_merged)`). The round-2 gap (zero
+callers) is closed.
+
+### Step B — drive the shipped CLI verb against a merged fixture branch, via `-C`
+
+New disposable fixture built the same way as round 2 (temp-dir git repo, never this repo's
+board): `roles/coding.json`, a fixture-only `<fixture>/docs/issue-9999/decisions/remediation-1.md`
+(`routed_to: coding`, `round: 1`, `status: open`, `candidate_pr: 601`), branch `issue-9999/coding`
+merged (`git merge --no-ff`) into the fixture's default branch, and a `gh` stub on `PATH` logging
+every call and answering `pr list --head issue-9999/coding ...` with a MERGED PR #605.
+
+```
+$ python3 spawn.py reconcile --remediation-merged --issue 9999 -C <fixture>
+EXIT_CODE=0
+--- gh.log ---
+(no gh.log — gh never invoked)
+```
+
+`gh` was never called and no comment posted, despite the fixture's merged branch and open
+remediation record being set up identically to round 2's Step C (which did post correctly when
+called directly — see round 2's "Step C" and this round's Step D below).
+
+### Step C — isolate: is `-C` actually threaded to the sweep's `root` argument?
+
+```
+$ grep -n "^ROOT = \|    ROOT = \|ROOT=" spawn.py
+37:ROOT = Path(__file__).resolve().parent
+```
+
+The only assignment to `ROOT` in the whole file is the module-level constant at load time — no
+place in `main()` reassigns `ROOT` from `a.cwd`/`-C` (`a.cwd` is threaded to every other
+cwd-sensitive call site via an explicit parameter — `roster_reconcile`'s `unreported` branch
+reads a location-independent workspace index, and every other role dispatch in `main()` passes
+`a.cwd` explicitly, e.g. `spawn.py:3521,3644,3648,3650,3694`, read this session).
+`roster_reconcile`'s `remediation_merged` branch (`spawn.py:2183`) calls
+`_remediation_merge_sweep(ROOT, issue)` — the global module constant, not `a.cwd` — so `-C`'s
+target directory is silently never consulted by this code path. This explains Step B directly:
+this session's own on-the-record checkout (`ROOT`) has no fixture-shaped decisions directory of
+its own —
+
+```
+$ test -d <this-repo>/docs/issue-9999 && echo EXISTS || echo NOT_EXIST
+NOT_EXIST
+```
+
+— so `_remediation_merge_sweep`'s own guard (`decisions_dir.is_dir()` check, `spawn.py:2120-2121`)
+returns `0` before ever calling `gh`, matching Step B's empty `gh.log` and `EXIT_CODE=0` exactly.
+No exception, no stderr, no indication to a caller that `-C` was ignored — a silent no-op against
+the wrong directory, not a visible failure.
+
+### Step D — confirm the posting logic itself is still correct, called with the right `root` directly
+
+To isolate wiring from logic, `_remediation_merge_sweep` was called directly against the fixture
+path (not via the CLI's `-C`-ignoring `main()` → `roster_reconcile` path):
+
+```
+>>> spawn._remediation_merge_sweep(fixture, 9999)
+posted: 1
+gh.log:
+repo view --json nameWithOwner -q .nameWithOwner
+repo view --json nameWithOwner -q .nameWithOwner
+api repos/acme/repo/issues/9999/comments --paginate --slurp
+pr list --head issue-9999/coding --state all --json number,state
+api repos/acme/repo/issues/9999/comments -f body=[watch] remediation-merged: <fixture>/docs/issue-9999/decisions/remediation-1.md
+
+Remediation merged: PR #605 resolves round 1 of PR #601
+https://github.com/acme/repo/pull/605
+```
+
+Comment body matches #573 §12's format verbatim, same as round 2's Step C — the posting logic
+itself is unchanged and still correct. The defect is isolated entirely to Step C's finding: the
+CLI verb dispatches to the right function but never threads the caller's `-C` target into it.
+
+### Per-event table (round 3)
+
+| # | Event | Fired | Evidence |
+|---|---|---|---|
+| 1 | PR opened under judgment | yes — carried forward, code path unchanged per "## Scope of this round" | round-1 record, Scenario A step 2 |
+| 2 | Verdict synthesized | yes — carried forward, unchanged | round-1 record, Scenario A step 2 + 5a |
+| 3 | Remediation routed | yes — carried forward, unchanged | round-1 record, Scenario A step 2 |
+| 4 | Remediation PR merged | no — CLI verb exists and dispatches (Step A) but ignores `-C`, silently no-ops against the wrong directory (Step B-C); posting logic itself still correct in isolation (Step D) | this round, Steps A-D above |
+| 5 | Escalation to operator | yes — carried forward, unchanged | round-1 record, Scenario B |
+
+Tally: four "yes", one "no". Round 3 (PR #606) closed round 2's gap (no caller) but the new
+caller has a distinct, third root cause for the same observable failure: the CLI verb never
+threads its own `-C`/`--cwd` argument to the function it calls, so on a real target/fixture repo
+different from wherever `spawn.py` physically resides, event 4 still never fires — silently,
+with exit 0 and no error.
