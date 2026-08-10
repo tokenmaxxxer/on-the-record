@@ -1100,6 +1100,25 @@ def _pr_open_or_merged_for_branch(root: Path, branch: str) -> int | None:
     return None
 
 
+def _merged_pr_for_branch(root: Path, branch: str) -> int | None:
+    """`_pr_open_or_merged_for_branch`(spawn.py:1082) 의 MERGED 전용 버전 —
+    이슈 #587 §12 event-4(remediation PR merged) 는 OPEN 은 세지 않는다,
+    아직 안 끝난 PR 을 merged 로 오탐하면 안 되므로."""
+    r = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "all",
+                        "--json", "number,state"],
+                       cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    try:
+        prs = json.loads(r.stdout)
+    except ValueError:
+        return None
+    for pr in prs:
+        if pr.get("state") == "MERGED":
+            return pr.get("number")
+    return None
+
+
 def _issue_comments(root: Path, number: int) -> tuple[list[dict], bool]:
     """`number` 앞으로 달린 코멘트. GitHub 는 이슈든 PR 이든 같은
     `/issues/<n>/comments` 로 대화 코멘트를 낸다 — PR 리뷰 코멘트가 아니라
@@ -2082,6 +2101,58 @@ def _roster_reconcile_unreported(issue: int | None = None) -> int:
     elif not total:
         print("reconcile --unreported: 미보고 없음")
     return total
+
+
+_REMEDIATION_MERGE_COMMENT_MARKER = "[watch] remediation-merged: {path}"
+
+
+def _remediation_merge_sweep(root: Path, issue: int) -> int:
+    """`spawn.py reconcile --remediation-merged --issue N` (이슈 #587 §12
+    event 4): `docs/issue-<n>/decisions/remediation-*.md` 중 `status: open`
+    인 기록의 `routed_to` 역할 브랜치(`issue-<n>/<role>`, 관례는
+    `remediation_spawn.py` 의 멱등성 체크와 동일)가 머지됐으면 §12 형식의
+    한 줄 코멘트를 이슈에 남긴다.
+
+    `_roster_reconcile_unreported`와 같은 read-then-check 멱등 패턴: 고정
+    마커가 이미 있으면 건너뛴다 — 같은 remediation 기록에 두 번 코멘트를
+    달지 않는다."""
+    decisions_dir = root / BOARD / f"issue-{issue}" / "decisions"
+    if not decisions_dir.is_dir():
+        return 0
+    slug = _repo_slug(root)
+    posted = 0
+    for rem_path in sorted(decisions_dir.glob("remediation-*.md")):
+        fm = frontmatter(rem_path)
+        if fm.get("status") != "open":
+            continue
+        routed_to = fm.get("routed_to")
+        if not routed_to or routed_to == "UNRESOLVED":
+            continue
+        round_n = fm.get("round", "?")
+        candidate_pr = fm.get("candidate_pr", "?")
+        marker = _REMEDIATION_MERGE_COMMENT_MARKER.format(
+            path=f"docs/issue-{issue}/decisions/{rem_path.name}")
+        comments, ok = _issue_comments(root, issue)
+        if ok and any(marker in c.get("body", "") for c in comments):
+            continue
+        branch = f"issue-{issue}/{routed_to}"
+        merged_pr = _merged_pr_for_branch(root, branch)
+        if merged_pr is None:
+            continue
+        if not slug:
+            continue
+        body = (f"{marker}\n\n"
+                f"Remediation merged: PR #{merged_pr} resolves round {round_n} "
+                f"of PR #{candidate_pr}\n"
+                f"https://github.com/{slug}/pull/{merged_pr}")
+        r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
+                            "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
+        if r.returncode == 0:
+            posted += 1
+        else:
+            print(f"[spawn] 이슈 #{issue} remediation-merged 코멘트 게시 실패: "
+                  f"{r.stderr.strip()}", file=sys.stderr)
+    return posted
 
 
 def roster_reconcile(issue: int | None = None, unreported: bool = False) -> int:

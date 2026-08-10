@@ -4788,6 +4788,99 @@ class PostSessionEndComment(unittest.TestCase):
         self.assertNotIn("pr-check-failed", body)
 
 
+class RemediationMergeSweep(unittest.TestCase):
+    """이슈 #587 §12 event 4: remediation PR 이 머지되면 §12 형식 코멘트를
+    한 번만 남긴다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.decisions_dir = self.root / "docs" / "issue-587" / "decisions"
+        self.decisions_dir.mkdir(parents=True)
+        self._orig_merged = spawn._merged_pr_for_branch
+        self._orig_comments = spawn._issue_comments
+        self._orig_slug = spawn._repo_slug
+        self._orig_run = subprocess.run
+
+    def tearDown(self):
+        spawn._merged_pr_for_branch = self._orig_merged
+        spawn._issue_comments = self._orig_comments
+        spawn._repo_slug = self._orig_slug
+        subprocess.run = self._orig_run
+        self.tmp.cleanup()
+
+    def _write_record(self, name, **fields):
+        defaults = {
+            "finding_source": "docs/issue-587/decisions/auto-1.md",
+            "candidate_pr": "601",
+            "routed_to": "implementation",
+            "target_path": "spawn.py",
+            "required_fix": "wire event 4",
+            "contradicting_role": "verify",
+            "round": "1",
+            "status": "open",
+            "timestamp": "2026-08-10T00:00:00Z",
+        }
+        defaults.update(fields)
+        lines = ["---"] + [f"{k}: {v}" for k, v in defaults.items()] + ["---", ""]
+        (self.decisions_dir / name).write_text("\n".join(lines), encoding="utf-8")
+
+    def test_posts_event4_comment_on_merge(self):
+        self._write_record("remediation-1.md")
+        spawn._merged_pr_for_branch = lambda root, branch: 605
+        spawn._issue_comments = lambda root, n: ([], True)
+        spawn._repo_slug = lambda root: "acme/repo"
+        calls = []
+        def fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return self._orig_run(["true"], capture_output=True, text=True)
+        subprocess.run = fake_run
+        posted = spawn._remediation_merge_sweep(self.root, 587)
+        self.assertEqual(posted, 1)
+        gh_calls = [c for c in calls if c[:2] == ["gh", "api"]]
+        self.assertEqual(len(gh_calls), 1)
+        body = next(a for a in gh_calls[0] if a.startswith("body="))
+        self.assertIn("Remediation merged: PR #605 resolves round 1 of PR #601", body)
+
+    def test_skips_when_marker_already_present(self):
+        self._write_record("remediation-1.md")
+        marker = spawn._REMEDIATION_MERGE_COMMENT_MARKER.format(
+            path="docs/issue-587/decisions/remediation-1.md")
+        spawn._merged_pr_for_branch = lambda root, branch: 605
+        spawn._issue_comments = lambda root, n: ([{"login": "bot", "body": marker}], True)
+        spawn._repo_slug = lambda root: "acme/repo"
+        calls = []
+        subprocess.run = lambda cmd, *a, **k: (calls.append(cmd),
+                                                self._orig_run(["true"], capture_output=True, text=True))[1]
+        posted = spawn._remediation_merge_sweep(self.root, 587)
+        self.assertEqual(posted, 0)
+        self.assertEqual([c for c in calls if c[:2] == ["gh", "api"]], [])
+
+    def test_skips_when_branch_not_merged(self):
+        self._write_record("remediation-1.md")
+        spawn._merged_pr_for_branch = lambda root, branch: None
+        spawn._issue_comments = lambda root, n: ([], True)
+        spawn._repo_slug = lambda root: "acme/repo"
+        calls = []
+        subprocess.run = lambda cmd, *a, **k: (calls.append(cmd),
+                                                self._orig_run(["true"], capture_output=True, text=True))[1]
+        posted = spawn._remediation_merge_sweep(self.root, 587)
+        self.assertEqual(posted, 0)
+        self.assertEqual([c for c in calls if c[:2] == ["gh", "api"]], [])
+
+    def test_skips_non_open_status_without_pr_lookup(self):
+        self._write_record("remediation-1.md", status="escalated")
+        self._write_record("remediation-2.md", status="resolved")
+        lookups = []
+        spawn._merged_pr_for_branch = lambda root, branch: (lookups.append(branch), 605)[1]
+        spawn._issue_comments = lambda root, n: ([], True)
+        spawn._repo_slug = lambda root: "acme/repo"
+        subprocess.run = lambda cmd, *a, **k: self._orig_run(["true"], capture_output=True, text=True)
+        posted = spawn._remediation_merge_sweep(self.root, 587)
+        self.assertEqual(posted, 0)
+        self.assertEqual(lookups, [])
+
+
 class RosterReconcileUnreported(unittest.TestCase):
     """이슈 #534: `spawn.py reconcile --unreported` — workspace 인덱스에서
     session-end(normal) 인데 [watch] 코멘트가 없는 엔트리를 찍고,
