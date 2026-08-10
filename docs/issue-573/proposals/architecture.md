@@ -317,6 +317,104 @@ before any verdict is requested, so "why wasn't role X consulted" is answered by
 `write_scope`/`judgment_axes` lookup against the recorded `target_path` — never by asking the gate
 "what did you decide to skip," because it decided nothing; it computed a fixed intersection.
 
+## 11. In-place comments on the judged artifact
+
+Operator addition (issue #573 comment 5234838953 / PR #581 review comment 5234839040): a reader of
+the judged PR must see which roles evaluated, each verdict, and the concrete findings without
+leaving the PR — the audit record (section 4) is the mechanized, re-derivable layer; this comment is
+the in-place visibility layer. The two are complementary, not redundant: the comment is generated
+from the audit record, never authored independently of it.
+
+**Writer:** the gate (`delegated-judgment-gate.sh`), at the same moment it writes the audit record
+(section 4) or the remediation record (section 7) — never the role itself. A role's own
+`axis_evaluation` entry (section 1) is a record in that role's file, not a comment; roles do not
+self-report to the artifact. Posting reuses `gh pr comment <n> --body-file -` / `gh issue comment <n>
+--body-file -`, the same `gh` invocation family `pr-preflight.sh` and `impact-guard.sh` already shell
+out to, so no new authentication or transport path is introduced.
+
+**Firing event:** exactly one comment per synthesis outcome (`approve` | `reject` | `escalate`),
+posted on the PR carrying the judged decision, fired the instant section 9's synthesis resolves —
+same trigger point as the audit-record write, so the two can never diverge in count (one synthesis,
+one record, one comment). A `reject` outcome additionally triggers the section-7 remediation comment
+below at routing time, not folded into the synthesis comment, because routing may not be known yet
+when the verdict itself is posted (resolving the `write_scope` owner is a separate lookup step).
+
+**Format**, generated verbatim from the audit record's fields (section 4), never re-composed by the
+gate outside that record:
+
+```markdown
+### Delegated judgment: `<decision-id>` — **<decision: approve|reject|escalate>**
+
+| Role | Axis | Verdict | Finding |
+|---|---|---|---|
+| architecture | maintenance_complexity | supports | — |
+| security-threat-model | attack_potential | contradicts | `hooks.json` missing the new hook's registration; required fix: register under PreToolUse/Bash |
+
+Synthesis rule: `panel-unanimous-support-v1` · quorum: 2/2
+Audit record: `docs/issue-573/decisions/auto-4.md`
+```
+
+The table is one row per `evaluating_roles` entry (section 4); the `Finding` column is empty unless
+that role's verdict is `contradicts`, in which case it is `finding.required_fix` (section 6)
+verbatim — the same text that later drives routing, not a paraphrase. The trailing line names the
+`synthesis_rule_id` and the `eligible_roles`/`evaluating_roles` cardinality (quorum), and links the
+audit record by its repo-relative path — sufficient for cross-reference since comment and record live
+in the same repo; no external URL is constructed.
+
+**Remediation comment** (fires on section 7's routing, additive to the synthesis comment above, same
+writer and posting mechanism):
+
+```markdown
+### Remediation routed: round <n>
+
+Finding from `docs/issue-573/decisions/auto-4.md` routed to **architecture** (owns
+`on-the-record/hooks/*.sh` via `write_scope`).
+Required fix: register the new hook under PreToolUse/Bash in `hooks.json`.
+Remediation record: `docs/issue-573/decisions/remediation-1.md`
+```
+
+Escalation (section 8) fires one more comment of the same family, `### Escalated to operator`,
+naming the `finding_source` chain and the escalation condition that fired (round exhausted vs.
+repeat contradiction) — this is the same event section 12 mirrors onto the issue, so the two comments
+share the escalation condition text verbatim rather than each deriving their own wording.
+
+## 12. Issue as narrative hub
+
+Operator addition (issue #573 comment 5234842284 / PR #581 review comment 5234842378): reading the
+flow's issue alone must show the whole story in order — every judged PR, its verdict, every
+remediation PR spawned from a finding, and every outcome — cross-linked to the per-PR comments
+(section 11) and the audit records (section 4/7). The issue is the timeline; the PR comment is the
+per-artifact detail; the audit record remains the mechanized layer underneath both.
+
+**Writer:** the gate, same as section 11 — never a role, never the operator. Posted with `gh issue
+comment <issue-n> --body-file -`, same `gh` family as section 11's posting mechanism; no second
+transport.
+
+**Firing events**, one issue comment per event, each a single line plus links (never restates the
+full per-PR table — that already lives on the PR per section 11):
+
+| Event | Fires when | Comment content |
+|---|---|---|
+| PR opened under judgment | a candidate decision's PR/comment enters gate evaluation (section 2, before AND-rule resolution) | `Judgment opened: PR #<n> — <one-line decision description>` |
+| Verdict synthesized | section 9 resolves (`approve`\|`reject`\|`escalate`) | `Verdict: PR #<n> → <decision>` + link to the PR-level synthesis comment (section 11) + link to `auto-<seq>.md` |
+| Remediation routed | section 7 writes a `remediation-<n>.md` | `Remediation round <r>: PR #<n>'s finding → <routed-to role>` + link to `remediation-<n>.md` |
+| Remediation PR merged | the routed-to role's fix PR merges (contract v3's board-is-what's-merged rule) | `Remediation merged: PR #<m> resolves round <r> of PR #<n>` + link to `PR #<m>` |
+| Escalation to operator | section 8's escalation condition fires | `Escalated: PR #<n>, round <r> — <escalation condition text, verbatim from section 11's escalation comment>` |
+
+Each row's link set is repo-native (`#<n>` PR/issue references, `docs/.../*.md` paths) — the same
+zero-external-URL convention section 11 uses — so the issue timeline is walkable by `git log`/GitHub
+UI alone, with no separate index to keep in sync. Ordering is implicit: GitHub issue comments are
+already timeline-ordered by post time, so no explicit sequence field is needed on the issue comment
+itself (unlike `round` on the remediation record, which the gate still needs for its own routing
+logic in section 8).
+
+The "remediation PR merged" event is the one row not driven directly by the gate's own write (the
+gate does not merge PRs); it fires from the same merge-detection surface contract v3 already relies
+on for "board is what's merged" (a `session-end`/merge-watching mechanism already used elsewhere in
+this repo's operator-facing notifications, e.g. `spawn.py watch`'s existing session-end messages) —
+this phase does not invent a new merge-detection channel, it reuses the one already observed
+posting `[watch] ... session-end: PR ... opened` style messages to this very issue.
+
 ## Guardrail alignment
 
 `auto_decision_reversal_rate <= 5%` (product-discovery's registered guardrail) is what section 3's
@@ -360,6 +458,12 @@ Section 9/10 add no new files to this list: the panel eligibility rule and synth
 inside `delegated-judgment-gate.sh` (already listed) and the `roles/*.json` `write_scope`/
 `judgment_axes` fields (already listed), read together rather than through a new lookup table.
 
+Section 11/12 add no new files either: both comment surfaces are generated and posted by
+`delegated-judgment-gate.sh` (already listed) at the same write points that already produce
+`auto-<sequence>.md`/`remediation-<sequence>.md` (already listed) — comment posting is `gh pr
+comment`/`gh issue comment` calls appended to the existing write, not a separate script or record
+kind.
+
 ## How success will be judged
 
 This proposal succeeds if implementation can build directly against it without a design gap
@@ -390,6 +494,13 @@ surfacing mid-build (the re-scout trigger this role would otherwise need to fire
 - No decision auto-resolves on a partial panel: `eligible_roles` and `evaluating_roles` (section 4)
   should always have matching cardinality on any `approve`/`reject` record; a mismatch is a design
   gap in this proposal, not a valid escalate-to-approve shortcut.
+- Every synthesis comment (section 11) is generated from its audit record's fields, never composed
+  independently — a PR comment whose table disagrees with `evaluating_roles` in the record it cites
+  is a design gap, not an implementation bug to patch quietly.
+- The issue timeline (section 12) is reconstructable from the five firing events alone: reading the
+  issue's comments in order should name every judged PR, its verdict, every remediation round, and
+  every escalation without needing to open a single PR or docs file first — the links are for
+  drill-down, not for completeness.
 
 ## Hand-off
 
