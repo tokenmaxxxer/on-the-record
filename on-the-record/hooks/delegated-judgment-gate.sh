@@ -27,6 +27,13 @@
 # underlying command; it only judges alongside it and writes/posts its own
 # audit trail, so it always exits 0 once the payload is well-formed Bash.
 #
+# Sixth firing condition (issue #597): `gh pr merge` / `gh issue reopen <n>`
+# / `gh issue close <n>` post a four-element framing snapshot (resolved
+# problem / prior cost / newly possible / still broken) as an issue
+# comment, synthesized only from citable record fields with a mechanized
+# resolvability check (fails closed — no comment — if a citation doesn't
+# resolve), per docs/issue-597/proposals/{architecture,implementation}.md.
+#
 # Kill switch: ORCHESTRATE_OFF=1 (same convention as impact-guard.sh).
 set -uo pipefail
 
@@ -74,6 +81,206 @@ ti = e.get("tool_input") or {}
 cmd = ti.get("command") if isinstance(ti, dict) else None
 if not isinstance(cmd, str):
     sys.exit(0)
+
+# --- framing-snapshot citation resolvability (issue #597, architecture.md
+# section 4) — inline port, same convention as reversibility_of below; no
+# `gates`/record_lint import, matching this file's zero-install header. ---
+def resolve_citation(target, value):
+    if re.fullmatch(r"[0-9a-fA-F]{7,40}", value):
+        return True
+    if re.fullmatch(r"\d+ \(no prior record; issue body is the baseline\)", value):
+        return True
+    return (target / value).exists()
+
+
+def gather_citable_records(target, issue):
+    records = []
+    reports_dir = target / "docs" / f"issue-{issue}" / "reports"
+    if reports_dir.is_dir():
+        records += sorted(reports_dir.glob("*.md"))
+    decisions_dir = target / "docs" / f"issue-{issue}" / "decisions"
+    if decisions_dir.is_dir():
+        records += sorted(decisions_dir.glob("*.md"))
+    return records
+
+
+def _field_and_citation(text, key):
+    """`key: value` frontmatter-style field, plus an optional immediately-
+    following `Citation: ...` override line (the record's own path is the
+    default citation otherwise)."""
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(rf"^{re.escape(key)}:\s*(.*)$", line.strip())
+        if not m:
+            continue
+        value = m.group(1).strip()
+        citation = None
+        if i + 1 < len(lines) and lines[i + 1].strip().lower().startswith("citation:"):
+            citation = lines[i + 1].strip().split(":", 1)[1].strip()
+        return value, citation
+    return None, None
+
+
+def _first_heading_prose(text, headings):
+    """First non-blank paragraph line under any of `headings` (matched by
+    stripped, lower-cased heading text), plus an optional following
+    `Citation: ...` override line."""
+    wanted = {h.lower() for h in headings}
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.strip().lstrip("#").strip().lower().rstrip(":")
+        if stripped not in wanted:
+            continue
+        sentence = sentence_idx = None
+        for j in range(i + 1, len(lines)):
+            cand = lines[j].strip()
+            if cand.startswith("#"):
+                break
+            if not cand:
+                if sentence is not None:
+                    break
+                continue
+            sentence, sentence_idx = cand, j
+            break
+        if sentence is None:
+            continue
+        citation = None
+        if sentence_idx + 1 < len(lines) and lines[sentence_idx + 1].strip().lower().startswith("citation:"):
+            citation = lines[sentence_idx + 1].strip().split(":", 1)[1].strip()
+        return sentence, citation
+    return None, None
+
+
+def build_framing_snapshot(target, issue, transition, pr_ref):
+    records = gather_citable_records(target, issue)
+    if not records:
+        baseline_cite = f"{issue} (no prior record; issue body is the baseline)"
+        elements = {
+            "Resolved problem": (
+                "No prior records exist for this issue — this is the first "
+                "tracked transition. Baseline: no established resolution to "
+                "compare against yet.", baseline_cite),
+            "Prior cost": (
+                "No prior records exist for this issue — this is the first "
+                "tracked transition. Baseline: no established cost to compare "
+                "against yet.", baseline_cite),
+            "Newly possible": (
+                "No prior records exist for this issue — this is the first "
+                "tracked transition. Baseline: nothing yet built to compare "
+                "against.", baseline_cite),
+            "Still broken": (
+                "No prior records exist for this issue — this is the first "
+                "tracked transition. Baseline: nothing yet attempted or "
+                "resolved.", baseline_cite),
+        }
+    else:
+        reports = [p for p in records if p.parent.name == "reports"]
+        decisions = [p for p in records if p.parent.name == "decisions"]
+        auto_decisions = sorted(p for p in decisions if p.name.startswith("auto-"))
+        remediations = sorted(p for p in decisions if p.name.startswith("remediation-"))
+
+        resolved_sentence = resolved_cite = None
+        if auto_decisions:
+            latest = auto_decisions[-1]
+            value, cite = _field_and_citation(
+                latest.read_text(encoding="utf-8", errors="ignore"), "decision")
+            if value:
+                resolved_sentence = f"Decision recorded: {value}"
+                resolved_cite = cite or str(latest.relative_to(target))
+
+        broken_sentence = broken_cite = None
+        if remediations:
+            latest = remediations[-1]
+            text = latest.read_text(encoding="utf-8", errors="ignore")
+            value, cite = _field_and_citation(text, "status")
+            fix, _ = _field_and_citation(text, "required_fix")
+            if value:
+                broken_sentence = ("Open remediation status: " + value
+                                    + (f" — required fix: {fix}" if fix else ""))
+                broken_cite = cite or str(latest.relative_to(target))
+        elif auto_decisions:
+            latest = auto_decisions[-1]
+            value, cite = _field_and_citation(
+                latest.read_text(encoding="utf-8", errors="ignore"), "decision")
+            if value == "reject":
+                broken_sentence = "Latest candidate decision was rejected; no approved remediation yet."
+                broken_cite = cite or str(latest.relative_to(target))
+
+        cost_sentence = cost_cite = None
+        possible_sentence = possible_cite = None
+        for rep in reports:
+            text = rep.read_text(encoding="utf-8", errors="ignore")
+            if cost_sentence is None:
+                sentence, cite = _first_heading_prose(
+                    text, ["what did not work", "rationale for deviations"])
+                if sentence:
+                    cost_sentence, cost_cite = sentence, cite or str(rep.relative_to(target))
+            if possible_sentence is None:
+                sentence, cite = _first_heading_prose(
+                    text, ["what was done", "what did we do", "summary of work",
+                           "what will be done"])
+                if sentence:
+                    possible_sentence, possible_cite = sentence, cite or str(rep.relative_to(target))
+            if cost_sentence and possible_sentence:
+                break
+
+        fallback_cite = str(records[0].relative_to(target))
+        elements = {
+            "Resolved problem": (
+                resolved_sentence or "No resolved-problem field found in this "
+                "issue's audit records yet.", resolved_cite or fallback_cite),
+            "Prior cost": (
+                cost_sentence or "No prior-cost prose found in this issue's "
+                "role records yet.", cost_cite or fallback_cite),
+            "Newly possible": (
+                possible_sentence or "No newly-possible prose found in this "
+                "issue's role records yet.", possible_cite or fallback_cite),
+            "Still broken": (
+                broken_sentence or "No open remediation record found for "
+                "this issue.", broken_cite or fallback_cite),
+        }
+
+    for _, citation in elements.values():
+        if not resolve_citation(target, citation):
+            return None
+
+    pr_part = f" / PR #{pr_ref}" if pr_ref else ""
+    out = [f"## Framing snapshot — {transition} ({issue}{pr_part})", ""]
+    for label in ("Resolved problem", "Prior cost", "Newly possible", "Still broken"):
+        sentence, citation = elements[label]
+        out.append(f"**{label}:** {sentence}")
+        out.append(f"Citation: {citation}")
+        out.append("")
+    return "\n".join(out).rstrip("\n") + "\n"
+
+
+FRAMING_TRANSITIONS = [
+    (re.compile(r"\bgh\s+pr\s+merge\s+(\S+)"), "delivery-merged", "arg"),
+    (re.compile(r"\bgh\s+issue\s+reopen\s+(\d+)"), "issue-reopened", "arg"),
+    (re.compile(r"\bgh\s+issue\s+close\s+(\d+)"), "issue-closed", "arg"),
+]
+
+for _pattern, _transition, _ in FRAMING_TRANSITIONS:
+    _m = _pattern.search(cmd)
+    if not _m:
+        continue
+    if _transition == "delivery-merged":
+        _r = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
+        if _r is None:
+            sys.exit(0)
+        _bm = re.match(r"^issue-(\d+)/([\w-]+)$", _r.stdout.strip())
+        if not _bm:
+            sys.exit(0)
+        _f_issue = int(_bm.group(1))
+        _f_pr_ref = _m.group(1)
+    else:
+        _f_issue = int(_m.group(1))
+        _f_pr_ref = None
+    _body = build_framing_snapshot(TARGET, _f_issue, _transition, _f_pr_ref)
+    if _body is not None:
+        _gh(["issue", "comment", str(_f_issue), "--body-file", "-"], body=_body)
+    sys.exit(0)
+
 if not re.search(r"\bgh\s+pr\s+create\b", cmd):
     sys.exit(0)
 
