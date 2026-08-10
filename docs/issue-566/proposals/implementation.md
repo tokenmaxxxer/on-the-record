@@ -68,6 +68,16 @@ nothing and costs correctness.
 - Run the new test file once against the built hook before this record is written, per the
   no-mock directive's single confirmation-run requirement; fix whatever the run surfaces.
 
+## Accumulation
+
+The test file's `_run`/`_git`/`_init_repo`/`_write_transcript` helpers are new but stay local to
+`test_product_capture_stopgate.py`, mirroring `test_decision_queue_stopgate.py`'s own local
+`_fake_checkout`/`_run` helpers rather than a shared cross-file helper module — the existing hooks
+directory has no shared test-helper module today, and this proposal does not introduce one. If a
+third stopgate test file needing both a temp git repo and a temp transcript fixture appears later,
+extracting a shared helper becomes worth it then; two occurrences (this file and
+`test_decision_queue_stopgate.py`'s narrower git-repo-only fixture) do not yet justify it.
+
 ## Out of scope
 
 - Widening detector recall/vocabulary beyond architecture's starting set — that is the
