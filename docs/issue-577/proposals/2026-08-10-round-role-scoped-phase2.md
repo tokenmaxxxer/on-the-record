@@ -9,9 +9,12 @@ files:
 round. On a multi-round issue this denies every new round's phase-1
 proposal PR (no `Closes` obligation should apply to it), which forced an
 `ORCHESTRATE_OFF=1` bypass live on issue #476. Scope the phase-2 obligation
-to the delivering PR of the same (role, round): a prior-round approval must
-not block a new phase-1 PR; a same-round approval must still require the
-delivering PR's `Closes`.
+to the same round: a prior-round approval must not block a new phase-1 PR;
+a same-round approval must still require the delivering PR's `Closes`.
+Role stays out of the scoping signal — `gates/ci.py._approved_roles_on_issue`
+(issue #312) deliberately treats phase-2 as a property of the issue, not
+the role, to support cross-role handoff (architect approves, implementation
+delivers), and this fix must not diverge from that.
 
 ## Constraints
 
@@ -43,39 +46,48 @@ call this script already issues, at zero extra round trips.
 Considered and rejected: keeping the scan issue-wide but requiring the
 approval comment to be the single most recent one (`max` by `createdAt`)
 rather than `any`. Rejected because "most recent" is still round-blind if
-two different roles approve back-to-back within the same round window, and
-it does not fix the role-blindness half of the defect at all — the issue's
-acceptance explicitly requires the fix to be both round- and role-aware, not
-just round-aware.
+two different roles approve back-to-back within the same round window.
 
-Chosen approach: scope the phase-2 scan two ways simultaneously —
-(a) **role-match**: build the approval prefix from the PR's own role
-(`headRefName`'s `issue-<n>/<role>` suffix), not just the issue number, so
-an approval for a different role never counts; (b) **time-match**: only
-comments with `createdAt` strictly newer than the head branch's first
-commit's `committedDate` count. Both signals are already present in fields
-`gh pr view` already returns; only the requested field list needs widening
-(`headRefName`, `commits`), plus selecting `createdAt` on the existing issue
-comments query. This is the minimum-viable variant the issue itself names,
-using only calls the script already performs.
+Considered and rejected (found by the after-proposal warrant hunt,
+`docs/reports/2026-08-10-hunt-round-role-scoped-phase2.md`): the issue's
+minimum-viable phrasing also suggests matching the approval token to the
+PR's own role. That was this proposal's first draft, and it is wrong —
+`gates/ci.py._approved_roles_on_issue` (issue #312) deliberately makes
+phase-2 a property of the *issue*, not the role, exactly to support
+cross-role handoff (architect proposes, implementation delivers — #304,
+#307): an `APPROVE issue-<n>/architect` comment must still gate a *later
+implementation* PR's `Closes` obligation. This script's own header already
+claims "Phase is determined the same way
+`gates/ci.py._approved_roles_on_issue` does" — adding a role filter here
+would silently diverge from that claim and reopen the cross-role bypass
+`_phase_from_approval` was written to close. Role-matching is dropped
+entirely; only the time-match survives.
+
+Chosen approach: scope the phase-2 scan by time alone — only comments with
+`createdAt` strictly newer than the PR's own head branch's first commit's
+`committedDate` count, regardless of which role token follows the `APPROVE
+issue-<n>/` prefix (keeping today's issue-number-only prefix and
+`_approved_roles_on_issue`'s role-agnostic stance intact). This one signal
+already satisfies both acceptance rows: a prior round's approval predates
+the new round's first commit (no longer counts -> allow); a same round's
+own approval postdates its own first commit (still counts -> deny without
+`Closes`). The field is already present in the same `pr view` call this
+script already issues (`commits[].committedDate`); only the requested field
+list needs widening, plus selecting `createdAt` on the existing issue
+comments query — zero extra `gh` round trips, and no divergence from
+`gates/ci.py`'s established role-agnostic phase model.
 
 ## What will be done
 
 In `contract-guard.sh`:
 - Widen `pr_data = gh_json("pr", "view", pr, "--json", "body,number")` to
-  also request `headRefName,commits`.
-- Derive `role = pr_data.get("headRefName", "").rsplit("/", 1)[-1]` (empty
-  string if unparseable — falls through to fail-open below).
+  also request `commits`.
 - Derive `first_commit_at` from `pr_data.get("commits") or []` — the
   earliest `committedDate` among the PR's commits (empty list -> `None`).
 - Widen the issue-comments query's `-q` projection so each comment object
   keeps `createdAt` alongside `body`/`author`.
-- Replace `prefix = "APPROVE issue-%d/" % issue` with a role-scoped prefix
-  `"APPROVE issue-%d/%s" % (issue, role)` — only used when `role` is
-  non-empty; when `role` can't be parsed from `headRefName`, fall back to
-  the current issue-number-only prefix (fail-open: an unparseable branch
-  name must not silently start allowing bypasses in the other direction —
-  see Out of scope).
+- Keep `prefix = "APPROVE issue-%d/" % issue` exactly as-is (role-agnostic,
+  matching `gates/ci.py._approved_roles_on_issue`).
 - Add `and (not first_commit_at or c.get("createdAt", "") > first_commit_at)`
   to the `phase2 = any(...)` predicate — an approval with a missing/older
   timestamp than the branch's first commit no longer counts; a missing
@@ -87,22 +99,28 @@ In `contract-guard.sh`:
   so no date parsing library is introduced.
 
 In `test_contract_guard.py`:
-- Extend `FAKE_GH`'s `pr view` branch to also emit `headRefName` and
-  `commits` (a list of `{"committedDate": ...}`) from the fixture.
+- Extend `FAKE_GH`'s `pr view` branch to also emit `commits` (a list of
+  `{"committedDate": ...}`) from the fixture.
 - Extend `FAKE_GH`'s `issue view` branch to pass through `createdAt` on each
   comment object already present in the fixture.
-- Extend `_approve_comment` to accept `role` and `created_at` parameters
-  (defaulted to keep the 7 existing call sites unchanged).
+- Extend `_approve_comment` to accept a `created_at` parameter (defaulted to
+  keep the 7 existing call sites unchanged).
 - Add the acceptance's test matrix as new test functions:
-  - prior-round approval present (older than head branch's first commit, OR
-    for a different role) + new phase-1 PR body (no closing keyword) ->
-    `returncode == 0` (allow).
-  - same-round approval present (newer than head branch's first commit,
-    matching role) + delivering PR body without `Closes` -> `returncode ==
-    2` (deny), matching today's existing denial-path assertions.
+  - prior-round approval present (its `createdAt` older than the new PR's
+    head branch's first-commit `committedDate`) + new phase-1 PR body (no
+    closing keyword) -> `returncode == 0` (allow).
+  - same-round approval present (its `createdAt` newer than the PR's own
+    head branch's first commit) + delivering PR body without `Closes` ->
+    `returncode == 2` (deny), matching today's existing denial-path
+    assertions.
   - same-round approval present + delivering PR body WITH `Closes #<n>` ->
     `returncode == 0` (allow) — confirms the fix doesn't turn same-round
     delivery into a false denial.
+  - cross-role handoff regression (issue #312 shape): an approval for a
+    *different* role than the PR's own, but newer than the PR's first
+    commit, must still count as phase-2 (deny without `Closes`) — proves
+    the fix stays role-agnostic and doesn't reintroduce the bypass
+    `gates/ci.py._phase_from_approval` was written to close.
 
 ## Out of scope
 
@@ -120,9 +138,10 @@ In `test_contract_guard.py`:
 ## How you'll know it worked
 
 `python3 -m pytest on-the-record/hooks/test_contract_guard.py -v` passes:
-the 7 existing target-repo tests unchanged, plus the 3 new round/role-matrix
-tests (prior-round-allow, same-round-deny, same-round-with-Closes-allow)
-covering the issue's stated acceptance check.
+the 7 existing target-repo tests unchanged, plus the 4 new round-scoping
+matrix tests (prior-round-allow, same-round-deny, same-round-with-Closes-
+allow, cross-role-handoff-still-phase2) covering the issue's stated
+acceptance check plus the #312 regression the warrant hunt surfaced.
 
 Irony noted per instruction: the delivering (phase-2) PR for this very issue
 will itself need `Closes #577` in its body, and will be evaluated by the
