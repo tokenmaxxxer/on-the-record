@@ -70,3 +70,38 @@ Either `gates/gates.py`'s `_always_writable()` (or every relevant role's declare
 architecture.md mandates the new hook produce — but `gates/gates.py` is not in the
 phase-1 proposal's frozen phase-2 `files:` write set, so this necessary edit has no
 listed file to land in when phase 2 opens.
+
+## after-proposal — stance 0 (proposal: docs/issue-608/proposals/implementation.md): approval-gate.sh is bypassable via branch-name parse failing open
+
+Verdict: FINDING — a role session on a branch that doesn't match `^issue-(\d+)/([\w-]+)$` (e.g. detached HEAD, or any branch not shaped exactly `issue-<n>/<role>`) causes approval-gate.sh, by the proposal's own design ("same regex as pr-preflight.sh"), to skip the check entirely (fail-open), letting an unapproved phase-2-shaped Write/Edit/MultiEdit through regardless of CLAUDE_ROLE or approvers.md/comment state.
+Kind: design-error
+Seed: docs/issue-608/proposals/implementation.md, "What will be done" step 1 ("Parses `issue-<n>/<role>` off the current branch name (same regex as `pr-preflight.sh`)")
+cap_seconds: 120
+tier: default
+diff_stat_lines: 256 (docs-only, `git show 3e57697`)
+started_at: 2026-08-10T00:00:00Z
+ended_at: 2026-08-10T00:10:00Z
+
+### Reproduce
+`on-the-record/hooks/pr-preflight.sh` (the script the proposal names as the source of the reused regex) contains:
+
+    branch = r.stdout.strip()
+    bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
+    if not bm:
+        sys.exit(0)
+
+Run the same regex against branch names a real session can be on (script saved to a scratch file to avoid heredoc-in-heredoc issues):
+
+    python3 /tmp/claude-1000/-home-jwjung--tokenmaxxxer-work-on-the-record-issue-608-implementation/810ea3cf-8401-46b2-b631-f6ed48ccbb74/scratchpad/branch_regex_probe.py
+
+### Observed
+
+    HEAD -> NO MATCH (fail-open, gate skipped)
+    main -> NO MATCH (fail-open, gate skipped)
+    issue-608/implementation -> MATCH
+    wip/issue-608/execution-observation -> NO MATCH (fail-open, gate skipped)
+
+`git rev-parse --abbrev-ref HEAD` returns literally `HEAD` for a detached checkout, and returns any custom/renamed branch string for a renamed local branch — neither matches the required `issue-<n>/<role>` shape. Since the proposal specifies "same regex" and inherits pr-preflight.sh's `if not bm: sys.exit(0)` fail-open-on-parse-failure convention (justified there because it only skips an *additional* PR-body check on an already-permitted `gh pr` command), an implementer following this design verbatim will produce an approval-gate.sh that no-ops for any role session doing its unapproved record/src/test write while checked out detached or on a differently-named local branch (`git checkout --detach <sha>` then perform the write) — a trivial, silent bypass of the very enforcement the proposal exists to add.
+
+### Expected
+The proposal should specify that a branch-parse failure for a role session (`CLAUDE_ROLE` set) is treated as a deny-and-instruct case (or otherwise reject the phase-2-shaped write), not a silent skip — reusing pr-preflight.sh's fail-open-on-parse-failure policy verbatim converts an infra-failure convention (safe there, because failure only skips an *additional* check on an already-permitted command) into a full enforcement bypass here, because failure skips the *entire* gate on the underlying Write/Edit/MultiEdit tool call.
