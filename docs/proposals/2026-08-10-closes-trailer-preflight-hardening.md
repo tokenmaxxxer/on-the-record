@@ -1,51 +1,57 @@
 ---
 status: proposed
 files:
-  - on-the-record/hooks/pr-preflight.sh
-  - on-the-record/hooks/contract-guard.sh
-  - on-the-record/hooks/test_pr_preflight.py
+  - docs/issue-653/proposals/2026-08-10-closes-trailer-preflight-hardening.md
 ---
 
 ## Intent
-Close issue #653: `pr-preflight.sh`'s pre-create `Closes #<n>` refusal
-already exists but has two gaps that let a phase-2 PR body's missing trailer
-slip through uncaught — no round-scoping (the #577 fix, applied to
-`contract-guard.sh` only) and a body-file-read-before-write race — so the
-omission surfaces later as a merge-time block instead of a pre-create
-refusal.
+Rewrite the phase-1 architecture proposal for issue #653 per the
+orchestrator's relayed feedback (issue #653 comment 5236513161,
+2026-08-10): five real recurrences show refusal-hardening alone can't
+help a session that's structurally incapable of writing the trailer, so
+the ADR now adopts "the merge broker (`contract-guard.sh`, at `gh pr
+merge` time) attaches/corrects `Closes #<n>` itself before allowing the
+merge" as the primary mechanism, judged by: a decided merge must never
+deadlock even if the session never writes the trailer.
 
 ## Constraints
+- This turn only rewrites the phase-1 ADR document
+  (`docs/issue-653/proposals/2026-08-10-closes-trailer-preflight-hardening.md`);
+  it does not touch `on-the-record/hooks/*` — that's phase-2, gated on
+  approval per role-handoff contract v3 s19.
 - Zero-install, no GitHub Actions (issue's stated constraint).
 - Must reuse #577's round-scoped phase-2 signal, not re-invent it.
-- Auto-attach is ruled out: no hook in this deployment rewrites `Bash` tool
-  input; see `docs/issue-653/reports/architecture/survey.md` and
-  `docs/issue-653/proposals/2026-08-10-closes-trailer-preflight-hardening.md`
-  for the full architecture rationale.
+- Auto-attach via rewriting the intercepted `Bash` tool input is still
+  ruled out on this deployed surface — but the revised design below does
+  not need that capability; it acts via a plain `gh pr edit` side effect
+  inside `contract-guard.sh`, not input rewriting. See the rewritten ADR
+  itself for the full rationale.
 
-## Will do (phase 2, after approval)
-1. Add round-scoping to `pr-preflight.sh`'s phase2 determination, anchored
-   on the current branch's own first commit (no PR exists yet at create
-   time, so no `commits` field to read as `contract-guard.sh` does).
-2. Statically evaluate a `--body-file` path's same-command producer
-   (`printf ... >`, `cat <<EOF >`) when the file does not yet exist at
-   check time, instead of failing open.
-3. Add/extend a fixture test covering: prior-round approval + new phase-1
-   PR -> allow; same-round approval + delivering PR missing Closes via
-   `--body-file` written in the same compound command -> deny naming the
-   trailer.
+## Will do (this turn)
+Rewrite `docs/issue-653/proposals/2026-08-10-closes-trailer-preflight-hardening.md`
+in place: revised Context (record the orchestrator feedback and the
+deadlock-freedom judgment criterion), revised Decision (auto-attach/correct
+`Closes #<n>` in `contract-guard.sh` at `gh pr merge` time,
+falling back to deny only if the `gh pr edit` write itself fails; downgrade
+`pr-preflight.sh` hardening to out-of-scope/deferred), revised Alternatives
+(add refusal-hardening-only as a rejected alternative with the evidence
+that killed it), revised C4 and Hand-off to match. `survey.md` is kept
+as-is per the orchestrator's instruction — its recorded facts still hold.
 
 ## Out of scope
-- Auto-attach / command rewriting.
-- Any change to `contract-guard.sh`'s existing (already-correct) merge-time
-  logic beyond factoring the shared round-scoping computation out.
+- Any actual code change to `on-the-record/hooks/*` — phase-2, gated on
+  approval per contract v3 s19.
+- Auto-attach via rewriting the intercepted `Bash` command itself.
 - CI/Actions-based enforcement.
 
 ## How we'll know it worked
-Fixture test (per issue's acceptance criteria) drives a phase-2 delivery PR
-creation with a missing/absent Closes trailer via both `--body` and
-`--body-file` forms and asserts pre-create denial naming the exact trailer;
-a phase-1 proposal PR on a multi-round issue with a prior-round approval
-asserts allow (no false phase-2).
+The rewritten ADR states an auto-attach-at-merge mechanism that satisfies
+the orchestrator's own stated judgment criterion in its Decision section
+in plain terms: a decided merge does not deadlock even if the session
+never writes the trailer. The phase-2 fixture test (once approved and
+implemented) will drive a phase-2 merge attempt with a missing/wrong Closes
+trailer and assert the merged PR body ends up correct without any edit
+from the calling session.
 
 ## What did not work
-(none yet — phase 2 not started)
+(none — this turn only rewrites the proposal document)
