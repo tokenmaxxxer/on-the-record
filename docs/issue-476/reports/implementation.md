@@ -1,5 +1,12 @@
 ---
-code_under_review: HEAD
+code_under_review:
+  - on-the-record/hooks/claim-scan-preflight.sh
+  - on-the-record/hooks/hooks.json
+  - test/claim-scan-preflight.test.sh
+  - docs/specs/enforcement-boundary.md
+type: feature
+breaking: false
+verdict: pass
 loop_state: landed
 ---
 
@@ -159,3 +166,105 @@ step and is unaffected by this finding.
 The open finding above resolves via a new proposal scoped to
 `gates/ci.py`/`gates/closure_sweep.py`, filed against issue #476 (or a
 follow-up issue) once triaged by the user/orchestrator.
+
+## Round 2 — claim-scan preflight hook (H1b)
+
+### What was done
+
+Built `on-the-record/hooks/claim-scan-preflight.sh` per
+`docs/issue-476/proposals/implementation-round2.md`, approved on issue
+#476 (`APPROVE issue-476/implementation`, single-account mode), which in
+turn executes `docs/issue-476/proposals/architecture-round2.md`'s frozen
+Decision (approved via `APPROVE issue-476/architecture`, PR #572 merged).
+
+- `on-the-record/hooks/claim-scan-preflight.sh` — new `PreToolUse`+`Bash`
+  hook. Checks `ORCHESTRATE_OFF` first, then the same `gh\s+pr\s+(create|edit)`
+  matcher and `--body`/`--body-file` extraction as
+  `on-the-record/hooks/pr-preflight.sh`, copied verbatim. Ports
+  `gates/claim_scan.py`'s `CLAIM_RE`, `EVIDENCE_MARKER_RE`, `FENCE_RE`,
+  `ADJACENCY_LINES = 5`, and the `_fence_spans`/`_in_fence`/
+  `_nearby_evidence` helpers character-for-character (no `gates/` import
+  — this hook must run in a consumer repo with no dev-tooling checkout).
+  Three branches: (a) any parse ambiguity → `exit 0`, silent; (b) a
+  claim with no adjacent evidence → `exit 0` (warn, never blocks),
+  emitting `hookSpecificOutput.additionalContext` plus a mirrored
+  stderr message naming the claim line; (c) a header-comment-only future
+  branch quoting the H1b flip-to-deny rule verbatim (two-week window,
+  `>=60%` correction rate flips branch (b) to `exit 2`; `<60%` pivots to
+  a documentation fix instead) — not live code, so the eventual flip
+  touches only branch (b)'s exit code.
+- `on-the-record/hooks/hooks.json` — new manifest entry inserted
+  immediately after the `pr-preflight.sh` entry and before
+  `spec-index-preflight.sh` in the same `PreToolUse`/`Bash` matcher
+  array — no new matcher group.
+- `test/claim-scan-preflight.test.sh` — new end-to-end shell test,
+  invokes the hook as a subprocess with constructed JSON payloads on
+  stdin. Four cases: claim-with-adjacent-evidence exits 0 with no
+  `additionalContext`; claim-with-no-evidence exits 0 with
+  `additionalContext` and a mirrored stderr message naming the claim
+  line; a non-`gh pr create`/`edit` command exits 0 silently;
+  `ORCHESTRATE_OFF` set exits 0 before any parsing, verified against a
+  payload that would otherwise trigger the positive-hit branch.
+- `docs/specs/enforcement-boundary.md` — updated the `claim_scan.py` row
+  to record the ported logic's enforcement class as
+  `zero-install-hooked` (evidence presence only, no target
+  traceability, which stays CI-only), and added a
+  `claim-scan-preflight.sh` row alongside `pr-preflight.sh`'s, per
+  architecture-round2's own Files section — matching round 1's own
+  precedent of updating this table when a `gates/*.py` module gains a
+  new enforcement site outside its own originally-frozen write set.
+
+Doc-placement ladder: `docs/specs/enforcement-boundary.md` is the
+component's own spec table (system-design doc), updated the same turn
+the new hook was added — completed above, not narrated only in prose.
+
+### Test run
+
+Repro: bash test/claim-scan-preflight.test.sh
+
+```
+PASS: claim-with-adjacent-evidence exits 0 with no additionalContext
+PASS: claim-with-no-evidence exits 0 with additionalContext and mirrored stderr
+PASS: non gh pr create/edit command exits 0 silently
+PASS: ORCHESTRATE_OFF set exits 0 before parsing
+
+All checks passed
+```
+
+### Why
+
+Per `docs/issue-476/proposals/architecture-round2.md`'s Decision: H1's
+claim-scan check needs a zero-install `PreToolUse` enforcement site
+(not only the CI-supplement CLI path) so it fires in a consumer repo
+with no `gates/` checkout, following the same pattern
+`pr-preflight.sh`/`contract-guard.sh` already established for other
+`gates/*.py` contract checks.
+
+### Upstream
+
+Basis: `docs/issue-476/proposals/implementation-round2.md`,
+`docs/issue-476/proposals/architecture-round2.md`.
+
+### What did not work
+
+None.
+
+### Rationale for deviations
+
+None — this build executed architecture-round2's Decision and
+implementation-round2's `## What will be done` with no scope-exceeded
+stop and no alternative-swap.
+
+### Open findings
+
+None new. The round-1 open finding above (`gates/ci.py`/
+`closure_sweep.py`'s refusal-state/closing-intent gap) is unaffected by
+this round's build and remains open via its own resolution path.
+
+### Next steps
+
+Step 4 of the issue's execution plan (execution-observation /
+conformance-review, measuring `wiring_coverage_rate` and
+`warn_period_correction_rate` against the H1b two-week/60% threshold) is
+the issue's own next step, out of scope for this build per
+implementation-round2's `## Out of scope`.
