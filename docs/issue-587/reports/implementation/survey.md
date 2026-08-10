@@ -1,82 +1,124 @@
-# Issue #587 — implementation current-state survey (phase 1, remediation round 2)
+# Issue #587 — implementation current-state survey (phase 1, remediation round 3)
 
-Skip condition: no new design decision is open. The prior
-execution-observation round (`docs/issue-587/reports/execution-observation.md`,
-"## Resolution path") already named the two possible shapes for the missing
-call site — a `reconcile --remediation-merged` CLI verb (the shape
-`_remediation_merge_sweep`'s own docstring documents, spawn.py:2109-2118) or
-a `run.md` orchestration step — and left the choice to implementer, "either
-way". This survey confirms the exact insertion points for the CLI-verb shape
-(it composes with the existing `reconcile` verb family rather than adding a
-parallel orchestration-only path, matching how `--unreported` was added in
-issue #534) and records that choice; no product-facing surface is involved
-(pure CLI wiring against an already-frozen internal contract), so scout's
-sweep is not triggered.
+Skip condition: pure bugfix. The third e2e re-verification
+(`docs/issue-587/reports/execution-observation.md`, latest entry) already
+names the exact defect and its exact fix shape — thread the caller's
+resolved `-C`/`--cwd` root into `_remediation_merge_sweep` instead of the
+hardcoded global `ROOT` — leaving no open design decision for this round.
+No product-facing surface is involved, so scout's sweep is not triggered.
 
-## Write surfaces
+## The defect, confirmed by reading the code
 
-### 1. spawn.py — CLI verb wiring
+- `_remediation_merge_sweep(root: Path, issue: int)` (spawn.py:2109-2151)
+  reads `root / BOARD / f"issue-{issue}" / "decisions"` — this is the
+  *target* (consumer) repo's board data, not anything belonging to
+  spawn.py's own checkout.
+- `roster_reconcile(issue, unreported, remediation_merged)`
+  (spawn.py:2158-2189), the `remediation_merged=True` branch
+  (spawn.py:2180-2183), calls `_remediation_merge_sweep(ROOT, issue)` —
+  the module-level global `ROOT = Path(__file__).resolve().parent`
+  (spawn.py:37), i.e. spawn.py's *own* checkout, unconditionally.
+- `main()`'s `if a.role == "reconcile":` branch (spawn.py:3509-3511) calls
+  `roster_reconcile(a.issue, unreported=a.unreported,
+  remediation_merged=a.remediation_merged)` — `a.cwd` (the parsed `-C`
+  value, spawn.py:3458, default `"."`) is never passed in at all, for any
+  of the three modes.
+- Net effect confirmed by trace: `spawn.py reconcile --remediation-merged
+  --issue <n> -C /path/to/consumer-repo` silently ignores `-C` and sweeps
+  spawn.py's own `docs/issue-<n>/decisions/` instead of the consumer
+  repo's — wrong or missing directory in any real consumer repo, so
+  `_remediation_merge_sweep` returns 0 with no error and no comment. This
+  matches the third e2e's observed symptom (silent no-op, event 4 still
+  missing) and matches PR #610's stated root cause.
 
-- `_remediation_merge_sweep(root: Path, issue: int) -> int` already exists
-  and is individually correct (spawn.py:2109-2151, covered by
-  `RemediationMergeSweep` in test_spawn.py:4791-4879, called directly there).
-  Zero callers anywhere else in spawn.py (confirmed:
-  `grep -n "_remediation_merge_sweep(" spawn.py` hits only the def line and
-  the four direct-call test cases).
-- `roster_reconcile(issue, unreported=False)` (spawn.py:2158-2189) is the
-  existing dispatcher for the `reconcile` role verb; `--unreported` already
-  demonstrates the pattern of a second bool flag selecting a different sweep
-  inside the same verb (spawn.py:2159-2172, added issue #534). Adding a
-  third mode (`remediation_merged=False`) here mirrors that precedent
-  exactly rather than introducing a new dispatch shape.
-- `main()`'s `if a.role == "reconcile":` branch (spawn.py:3495-3496) currently
-  reads `return roster_reconcile(a.issue, unreported=a.unreported)` — extends
-  to pass the new flag through.
-- argparse: `--unreported` is defined at spawn.py:3478-3481 as a
-  `store_true`; a sibling `--remediation-merged` flag goes next to it,
-  following the same help-string convention (issue number, one-line purpose,
-  cross-ref).
-- `a.issue` (spawn.py:3454-3455, `type=positive_int`) is already required
-  for `_remediation_merge_sweep`'s `issue` param — no new required-arg
-  plumbing needed, `roster_reconcile` already receives `a.issue`.
+## Existing test coverage's blind spot
 
-### 2. run.md — no change needed for this wiring choice
+- `RosterReconcileRemediationMergedCLI` (test_spawn.py, the class defined
+  just above `RosterReconcileUnreported`, added by the prior remediation
+  round) calls `spawn.roster_reconcile(issue=587, remediation_merged=True)`
+  with `spawn.ROOT` monkeypatched to a tmp fixture dir in `setUp`. This
+  exercises the shipped *function* entry point but not the shipped *CLI*
+  entry point — the `-C` plumbing gap in `main()` has zero coverage: the
+  test never goes through `argparse`/`main()`, so it cannot observe that
+  `-C` is dropped. This is why the prior round shipped green while this
+  round's e2e still failed on a fixture repo outside the checkout.
 
-Round 2's chosen shape (CLI verb on the existing `reconcile` role, not a new
-orchestration step) means `on-the-record/commands/run.md` needs no edit:
-`run.md`'s existing step 3 (line 77-82) already tells the orchestrator to
-run `remediation_spawn.py --issue <n>` before free judgment, which is a
-different generator (routing table -> spawn task), not this sweep (posts a
-comment once a routed remediation's branch has merged). No existing run.md
-step currently invokes any `reconcile` subcommand at all, so there is no
-step to extend for this proposal's actual write set — confirmed via
-`grep -n "reconcile" on-the-record/commands/run.md` (zero hits). Adding a
-`run.md` step that calls `reconcile --remediation-merged` would duplicate
-what a periodic/manual `spawn.py reconcile --remediation-merged --issue <n>`
-invocation already covers now that the CLI verb exists, and is out of this
-round's write set per the observation record's own "either way" framing —
-the CLI verb alone satisfies "an entry point the shipped surface actually
-exposes."
+## Fix shape (write surfaces)
 
-### 3. test_spawn.py — drive the shipped entrypoint
+### 1. `spawn.py` — thread the resolved target root through
 
-`RemediationMergeSweep` (test_spawn.py:4791-4879) currently calls
-`spawn._remediation_merge_sweep(self.root, 587)` directly — exactly what the
-execution-observation record flagged as insufficient ("called directly
-rather than via a shipped entry point"). This round adds a new test class
-(or method) that instead calls `spawn.roster_reconcile(issue=587,
-remediation_merged=True)` (or drives `main()` via `sys.argv` +
-`spawn.main()`, matching how `Reconcile` (test_spawn.py:3660) and
-`RosterReconcileUnreported` (test_spawn.py:4884) already test their verbs)
-against the same merged-fixture-branch setup already built in
-`RemediationMergeSweep.setUp`, asserting the `gh api ... /comments` call
-fires. No new fixture-building helpers needed — the existing `setUp` already
-constructs an open `remediation-*.md` record with a merged `routed_to`
-branch and monkeypatches `subprocess.run`.
+- `roster_reconcile`: add a `root: Path | None = None` parameter; in the
+  `remediation_merged` branch, use `root if root is not None else ROOT`
+  (default preserves existing non-CLI callers' behavior — see audit
+  note below on why only this branch changes here).
+- `main()`'s `reconcile` dispatch: pass `root=Path(a.cwd).resolve()`
+  alongside the existing `a.issue`/`unreported`/`remediation_merged` args
+  — the same resolution pattern already used by `drive()`
+  (spawn.py:3234, `root = Path(cwd).resolve()`) and by the mainline
+  spawn/watch paths (`cwd_path = Path(a.cwd)` etc., spawn.py:3672-3675).
 
-## No new state store, no new dependency, no new env var
+### 2. `test_spawn.py` — CLI-level regression test, per the issue's
+   explicit requirement
 
-Same conclusion as round 1's survey: the CLI flag is a `store_true` on the
-existing `reconcile` verb, `roster_reconcile` gains one new keyword-only
-parameter, and `_remediation_merge_sweep` itself is unchanged. No schema,
-migration, dependency-manifest, or `.env.example` entry is implicated.
+- New test class driving the shipped CLI via `subprocess.run([sys.executable,
+  ".../spawn.py", "reconcile", "--remediation-merged", "--issue", "587",
+  "-C", str(fixture_root)], ...)`, where `fixture_root` is a
+  `tempfile.TemporaryDirectory()`-based fixture repo (`git init` +
+  `git remote add origin ...`) that is NOT spawn.py's own checkout
+  (`os.path.dirname(os.path.abspath(spawn.__file__))`) — asserting this
+  inequality explicitly in the test, then asserting the `gh api
+  .../comments` call (captured via a stub `gh` executable prepended to
+  `PATH`) actually fires with the expected comment body. This mirrors the
+  fixture shape the prior round's test already built (an open
+  `remediation-*.md` record with a merged `routed_to` branch) but drives
+  it through `main()`/`argparse`/`-C` instead of a monkeypatched `ROOT`
+  and a direct function call.
+- The existing `RosterReconcileRemediationMergedCLI` class stays — it
+  still validates `roster_reconcile()`'s own dispatch logic at the
+  function level and is not redundant with the new CLI-level test.
+
+## Audit: sibling ROOT-vs-target-root sites (per the round-3 mandate — report, do not fix)
+
+```
+$ grep -n "(ROOT)\|(ROOT," spawn.py
+2013:    anomaly_count = _board_wide_sweep(ROOT)
+2025:        divergences = reconcile(_build_expected(e), _build_observed(ROOT, e))
+2038:                _post_session_end_comment(ROOT, issue_n, key, work, e.get("log", ""))
+2168:    `remediation_merged=True` 면 `_remediation_merge_sweep(ROOT, issue)` 로
+2183:        return _remediation_merge_sweep(ROOT, issue)
+2192:        divergences = reconcile(_build_expected(e), _build_observed(ROOT, e))
+```
+
+The hit at `_remediation_merge_sweep(ROOT, issue)` inside `roster_reconcile`
+is this round's fix. The rest, examined:
+
+- `roster_watchdog()` (the `_board_wide_sweep`/`_build_observed`/
+  `_post_session_end_comment` calls above): the `watchdog` CLI verb never
+  accepts `-C` — `roster_watchdog(auto_respawn=a.auto_respawn)` takes no
+  cwd argument at all. This reads the *roster* (`runs/active.json`,
+  spawn.py:1722), spawn.py's own orchestrator-local session-tracking
+  state, regardless of which repos the tracked sessions' `work` field
+  points at — so `ROOT` here plausibly is the intended scope. Flagging
+  anyway because `_build_observed(root, e)` (spawn.py:1695) internally
+  calls `board(root)` (spawn.py:1709) to read `root`'s own
+  `docs/issue-<n>/` board for that entry's `loop_state` — if a roster
+  entry's issue lives in a repo other than spawn.py's own checkout,
+  `board(ROOT)` reads the wrong repo's board for that entry. Same defect
+  *shape* as this round's bug; unconfirmed whether it manifests in
+  practice — would need a live multi-repo roster to reproduce, out of
+  this round's fixture scope.
+- `roster_reconcile`'s **default mode** (neither `unreported` nor
+  `remediation_merged` — the loop ending at the last
+  `_build_observed(ROOT, e)` call in the grep above): same
+  `ROOT`-hardcoding as the bug this round fixes, and the same `main()`
+  gap (the `reconcile` dispatch never threads `a.cwd` into this call
+  path either, before this round's fix). Contrast: `drive()`
+  (spawn.py:3234-3266) runs materially the same `reconcile()`-over-roster
+  loop but correctly resolves `root = Path(cwd).resolve()` and passes it
+  into `_build_observed(root, e)` — `drive` got this right,
+  `roster_reconcile`'s default mode did not.
+
+Both are the same bug class as this round's assigned fix, on call sites
+this round's write set does not cover (`--remediation-merged` only, per
+the issue's explicit scope). Not fixed here per the scope-exceeded rule
+— left for a follow-up issue if the operator wants them addressed.
