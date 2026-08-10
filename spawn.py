@@ -2395,6 +2395,11 @@ def _prior_event_details(events_path: Path, ev_type: str) -> set:
 
 RESPAWN_STATE = ROOT / "runs" / "respawn_state.json"
 RESPAWN_MAX_ATTEMPTS = 2
+# 이슈 #678: no-progress 스트릭이 매 재스폰마다 진행을 인정해 리셋되더라도,
+# 토큰 비용 백스톱으로 전체 재스폰 횟수에 독립적인 절대 상한을 둔다 —
+# 진짜 진행 중인 작업(스트릭 리셋)을 방해하지 않을 만큼 넉넉히, 그러나
+# 무한하지 않게: RESPAWN_MAX_ATTEMPTS 의 4배.
+RESPAWN_ABSOLUTE_MAX = RESPAWN_MAX_ATTEMPTS * 4
 _CRASH_COMMENT_MARKER = "[on-the-record] {key}: crashed, respawn cap ({cap}) reached"
 _STALL_COMMENT_MARKER = "[on-the-record] {key}: stalled"
 
@@ -2412,8 +2417,8 @@ def _respawn_state_save(d: dict) -> None:
 
 
 def _post_crash_comment(root: Path, issue: int, key: str, work: str, log: str,
-                        trigger: str = "crashed") -> None:
-    """재스폰 상한(2) 도달 시 이슈에 남기는 코멘트. 멱등: 고정 마커 문자열을
+                        trigger: str = "crashed", absolute: bool = False) -> None:
+    """재스폰 상한 도달 시 이슈에 남기는 코멘트. 멱등: 고정 마커 문자열을
     기존 코멘트에서 먼저 찾는다(`_issue_comments`/`approve_scope` 와 같은
     read-then-check 패턴) — 워치독을 반복 호출해도 두 번째 코멘트는 없다.
 
@@ -2421,17 +2426,24 @@ def _post_crash_comment(root: Path, issue: int, key: str, work: str, log: str,
     `watchdog-observed-crashed` / `self-triggered-abandoned`) 본문에
     남긴다 — 마커 문자열 자체는 이슈 #132 부터 쓰던 그대로 둔다. 멱등성
     키는 트리거 종류와 무관하게 key+상한 하나여야 두 경로가 같은
-    attempt-cap 예산을 공유한다는 프로포절의 결정이 그대로 성립한다."""
-    marker = _CRASH_COMMENT_MARKER.format(key=key, cap=RESPAWN_MAX_ATTEMPTS)
+    attempt-cap 예산을 공유한다는 프로포절의 결정이 그대로 성립한다.
+
+    `absolute` (이슈 #678): no-progress 스트릭 상한(`RESPAWN_MAX_ATTEMPTS`)
+    이 아니라 `RESPAWN_ABSOLUTE_MAX` 총 시도 상한이 찼을 때 True — 마커의
+    `cap` 값 자체가 달라지므로(2 vs `RESPAWN_ABSOLUTE_MAX`) 두 캡은 서로
+    다른 멱등성 키를 쓰고, 어느 쪽이 찼는지가 코멘트 본문에서도 구분된다."""
+    cap = RESPAWN_ABSOLUTE_MAX if absolute else RESPAWN_MAX_ATTEMPTS
+    marker = _CRASH_COMMENT_MARKER.format(key=key, cap=cap)
     comments, ok = _issue_comments(root, issue)
     if ok and any(marker in c.get("body", "") for c in comments):
         return
     slug = _repo_slug(root)
     if not slug:
         return
+    cap_label = "absolute total-respawn ceiling" if absolute else "no-progress respawn cap"
     body = (f"{marker}\n\n"
             f"trigger: {trigger}\nworkspace: {work}\nlog: {log}\n\n"
-            f"All {RESPAWN_MAX_ATTEMPTS} automatic respawns exhausted — needs human intervention.")
+            f"All {cap} automatic respawns exhausted ({cap_label}) — needs human intervention.")
     r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
                     "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
@@ -2544,10 +2556,31 @@ def _post_stranded_push_comment(root: Path, issue: int, role: str, branch: str,
                     "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
 
 
+def _respawn_fingerprint(work: str) -> dict:
+    """이슈 #678: no-progress 스트릭 판정에 쓰는 지문 — git HEAD sha 와
+    `board_snapshot()` 의 안정적 해시(정렬된 dict 를 직렬화해 해시하므로,
+    같은 내용이면 dict 순서가 달라도 같은 해시). 두 재스폰 시점의 지문이
+    같으면 "그 사이에 관측 가능한 진행이 없었다"는 뜻이다."""
+    board = board_snapshot(work)
+    board_hash = hashlib.sha256(
+        json.dumps(board, sort_keys=True).encode("utf-8")).hexdigest()
+    return {"head": _git_head(work), "board": board_hash}
+
+
 def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
                     session_start_ts, state: dict, trigger: str) -> None:
     """공유 재스폰 시퀀스: 원자적 클레임 확인, 상한(`RESPAWN_MAX_ATTEMPTS`)
     확인, `.task.txt` 를 통한 `_spawn_one()` 재생, 상한 도달 시 캡-코멘트.
+
+    이슈 #678: `attempts` 는 이제 no-progress *스트릭* 이다 — 직전 재스폰
+    시점에 저장해둔 지문(`_respawn_fingerprint()`)과 지금 지문이 다르면
+    (새 커밋 또는 보드 델타) 진행이 있었다고 보고 스트릭을 0 으로 리셋한
+    뒤 이번 시도를 1 로 센다. 지문이 없으면(최초 재스폰) 비교할 것이
+    없으므로 진행/무진행 어느 쪽으로도 치지 않고 오늘처럼 스트릭을
+    1부터 시작한다. `total_attempts` 는 스트릭과 무관하게 매 재스폰마다
+    증가하는 별도 카운터로, `RESPAWN_ABSOLUTE_MAX` 총 상한과 비교한다 —
+    스트릭이 계속 리셋돼도 무한정 재스폰하지 않게 하는 토큰 비용
+    백스톱(프로포절의 명시적 결정).
 
     이슈 #132 워치독 `crashed` 경로(`_auto_respawn_check()`)와 이슈 #247
     self-trigger 경로(`_spawn_one()` 자신이 정상 종료하며 미커밋 작업을
@@ -2580,8 +2613,17 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
         for ev in events)
     if already_claimed:
         return
-    attempts = state.get(key, {}).get("attempts", 0)
+    prior = state.get(key, {})
+    attempts = prior.get("attempts", 0)
+    total_attempts = prior.get("total_attempts", 0)
+    prev_fingerprint = prior.get("fingerprint")
+    cur_fingerprint = _respawn_fingerprint(work)
+    if prev_fingerprint is not None and cur_fingerprint != prev_fingerprint:
+        attempts = 0
     root = Path(work)
+    if total_attempts >= RESPAWN_ABSOLUTE_MAX:
+        _post_crash_comment(root, issue, key, work, log, trigger, absolute=True)
+        return
     if attempts >= RESPAWN_MAX_ATTEMPTS:
         _post_crash_comment(root, issue, key, work, log, trigger)
         return
@@ -2598,11 +2640,14 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
         return
     task = task_path.read_text(encoding="utf-8")
     attempt_n = attempts + 1
+    total_attempt_n = total_attempts + 1
     _append_event(events_path, "respawn-attempt",
                   {"session_start_ts": session_start_ts, "attempt": attempt_n})
-    state[key] = {"attempts": attempt_n}
+    state[key] = {"attempts": attempt_n, "total_attempts": total_attempt_n,
+                  "fingerprint": cur_fingerprint}
     _respawn_state_save(state)
-    print(f"[respawn] {key}: {trigger} — 재스폰 시도 {attempt_n}/{RESPAWN_MAX_ATTEMPTS}",
+    print(f"[respawn] {key}: {trigger} — 재스폰 시도 {attempt_n}/{RESPAWN_MAX_ATTEMPTS} "
+          f"(총 {total_attempt_n}/{RESPAWN_ABSOLUTE_MAX})",
           file=sys.stderr)
     _spawn_one(work, role, task, unattended=True, issue=issue, bounded=True)
 
