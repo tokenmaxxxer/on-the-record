@@ -377,6 +377,7 @@ rem_path = decisions_dir / f"remediation-{rem_seq}.md"
 rem_lines = [
     "---",
     f"finding_source: {finding_source}",
+    f"candidate_pr: {pr_ref}",
     f"routed_to: {routed_to or 'UNRESOLVED'}",
     f"target_path: {target_path}",
     f"required_fix: {required_fix}",

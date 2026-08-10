@@ -1,112 +1,132 @@
 ---
 code_under_review:
-  - gates/remediation_spawn.py
-  - gates/test_remediation_spawn.py
-  - on-the-record/commands/run.md
+  - on-the-record/hooks/delegated-judgment-gate.sh
+  - spawn.py
+  - test_spawn.py
 type: feature
 breaking: false
 verdict: pending
 loop_state: landed
 ---
 
-# Issue #587 — implementation record (phase 2, step 2)
+# Issue #587 — implementation record (phase 2, remediation round: timeline event 4)
 
 ## What was done
 
-Built `gates/remediation_spawn.py` (`pending_remediation_tasks(root, issue) ->
-list[dict]`: reads `docs/issue-<n>/decisions/remediation-*.md`, filters to
-`status: open`, builds `task` via the fixed template from architecture
-Decision §1, excludes already-launched candidates via `git branch --list`/`gh
-pr list` idempotency checks, plus a thin CLI printing `<role>\t<task>` lines),
-`gates/test_remediation_spawn.py` (6 unit tests: one open finding -> one task
-with the exact template string; a 3-round chain with the 3rd escalated ->
-escalated record excluded; zero records -> `[]`; zero open records ->
-`[]`; existing branch -> excluded; existing PR -> excluded), and a new
-step 3 in `on-the-record/commands/run.md`'s orchestrator loop (between
-classification and "누구를 깨울지") that runs the generator before free
-judgment and launches any pending task's role/task verbatim through the
-existing step-5 `spawn.py` call — renumbering every subsequent step
-reference in the file (3→4, 4→5, 5→6, 6→7) to match. Also appended an
-`## Accumulation` section to the already-merged phase-1 proposal
-(`docs/issue-587/proposals/implementation.md`) to satisfy
-`accumulation-claim-guard.sh`, which flagged the inline `git`/`gh` calls at
-write time.
+Wired issue-timeline event 4 ("Remediation PR merged", `#573` §12) per the approved
+remediation-round proposal:
 
-Per the approved proposal (PR #592, `APPROVE issue-587/implementation`).
+1. `on-the-record/hooks/delegated-judgment-gate.sh`: added `candidate_pr: {pr_ref}` to the
+   `remediation-<seq>.md` frontmatter the reject-path already writes (`pr_ref` was already an
+   in-scope local variable) — field addition only, no new write path.
+2. `spawn.py`: added `_merged_pr_for_branch(root, branch) -> int | None` (MERGED-state-only
+   sibling to `_pr_open_or_merged_for_branch`) and `_remediation_merge_sweep(root, issue) -> int`
+   (same shape as `_roster_reconcile_unreported`): for each `docs/issue-<n>/decisions/remediation-*.md`
+   with `status: open`, resolves `routed_to`'s branch (`issue-<n>/<role>`), checks
+   `_merged_pr_for_branch`, and on a merge posts the §12 event-4 line
+   (`Remediation merged: PR #<m> resolves round <r> of PR #<n>` + PR link) via `gh issue comment`,
+   guarded by a fixed marker read back through `_issue_comments` (idempotent — matches
+   `_post_session_end_comment`'s read-then-check pattern).
+3. `test_spawn.py`: new `RemediationMergeSweep` class — posts exactly one comment matching the
+   §12 format verbatim on a fixture merge; a second sweep with the marker present posts nothing;
+   a record whose branch is not (yet) merged posts nothing; `status: escalated`/`resolved` records
+   are skipped without a PR lookup at all. Test count is in the confirmation run below.
+
+Per the approved proposal (`docs/issue-587/proposals/implementation-remediation-merged-event.md`,
+PR #601, `APPROVE issue-587/implementation`).
 
 ## Why
 
-Step 2 of #587: replace the orchestrator's manual routing judgment for
-`status: open` remediation records with a fixed-template generator, per
-architecture Decision §1 (PR #589, `APPROVE issue-587/architecture`).
+Remediation round (operator-relayed 2026-08-10, e2e verdict FAILED on PR #599's record):
+`docs/issue-587/reports/execution-observation/e2e-fixture-target-repo.md`'s per-event table row 4
+confirmed — by source grep and by an empirical fixture-repo merge — that no shipped code posted
+the event-4 comment on a remediation PR's merge. This round closes that gap with the posting
+mechanism plus its test, per the operator's remediation-round scope.
 
 ## Upstream
 
-docs/issue-587/proposals/implementation.md
+docs/issue-587/proposals/implementation-remediation-merged-event.md
 
 ## Confirmation run
 
 ```
+$ python3 -m pytest test_spawn.py -q -k RemediationMergeSweep
+....                                                                     [100%]
+4 passed in 0.14s
+$ python3 -m pytest test_spawn.py -q
+355 passed in 24.56s
 $ python3 -m pytest gates/test_remediation_spawn.py -q
 ......                                                                   [100%]
 6 passed in 0.03s
-$ python3 gates/remediation_spawn.py --issue 999999 -C .
-(no output — no pending tasks, exit 0)
+$ python3 -m pytest on-the-record/hooks/test_delegated_judgment_gate.py -q
+............                                                            [100%]
+12 passed in 1.35s
+$ python3 -m pytest . -q
+929 passed, 2 failed in 43.17s
 ```
+
+The 2 failures are both pre-existing and unrelated to this round's write set — reproduced via
+`git stash` before making any change (`gates/test_boundary.py`, one failure; `test_gates.py`, the
+`t_rulebook_version_is_recorded` case) — see `## What did not work` for the reproduction detail.
+
+Manual fixture check (proposal's "how you'll know it worked" step 2, disposable temp-dir pattern
+matching the step-3 execution-observation record): a script under this session's scratchpad built
+a temp-dir fixture record (`status: open`, `routed_to: implementation`, `round: 1`,
+`candidate_pr: 601`, at a path shaped like `docs/issue-<n>/decisions/remediation-1.md` but rooted
+under a temp dir, not this repository) with `gh` calls mocked (`_merged_pr_for_branch` returning a
+merged PR 605), and called `_remediation_merge_sweep` directly:
+
+```
+posted: 1
+gh_call_count: 1
+BODY: body=[watch] remediation-merged: docs/issue-9999/decisions/remediation-1.md
+
+Remediation merged: PR #605 resolves round 1 of PR #601
+https://github.com/acme/repo/pull/605
+second_sweep_posted (marker present, expect 0): 0
+```
+
+Confirms the event-4 comment posts in §12's exact format on a fixture merge and does not
+re-post on a second sweep.
 
 ## What did not work
 
-- Wrote the record with `code_under_review` as a bare commit sha (matching
-  a literal reading of the contract's field name); `record-fields-gate.sh`
-  refused it — this role's own record must cite `code_under_review` as the
-  reviewed file list, not a sha. Switched to the file list.
-- First `gates/remediation_spawn.py` write was refused by
-  `accumulation-claim-guard.sh` (inline `git`/`gh` calls with no `##
-  Accumulation` field in the proposal). Added the section to the phase-1
-  proposal, not this record, since the gate reads the proposal.
+- `python3 -m pytest . -q` on the unmodified pre-change tree (`git stash`) already showed
+  `gates/test_boundary.py`'s `t_all_gates_modules_recorded` failing — `remediation_spawn.py` (a
+  prior round's file, outside this round's write set) is missing a verdict row in
+  `docs/specs/enforcement-boundary.md`. Confirmed pre-existing, not introduced by this round; left
+  as-is since that file is outside this round's frozen write set.
+- The full-suite run on the changed tree additionally failed `test_gates.py`'s
+  `t_rulebook_version_is_recorded`, which asserts the working tree is clean
+  (`rulebook_version()` embeds a dirty-tree marker otherwise) — expected on an uncommitted tree,
+  not a defect; resolves once this round's changes are committed.
 
 ## Rationale for deviations
 
-None — the implementation follows the approved proposal's `## What will be
-done` exactly. The `## Accumulation` addition to the phase-1 proposal is a
-gate-compliance amendment to an already-approved document, not a deviation
-from what was built.
+None — the implementation follows the approved proposal's `## What will be done` exactly.
 
 ## Doc placement
 
-- No new env var, config key, dependency, or migration — nothing added to
-  a handbook.
-- No library-or-format choice over a named alternative beyond what
-  architecture already decided — no new decisions/ entry.
-- No benchmark/investigation numbers — no reports/ entry.
+- No new env var, config key, dependency, or migration — nothing added to a handbook.
+- No library-or-format choice over a named alternative beyond what the proposal's `## Rationale`
+  already decided (reuse `spawn.py`'s existing merge-detection/idempotent-comment surface, reject
+  a new merge-watcher script, reject wiring detection into the gate itself) — no new `decisions/`
+  entry.
+- No benchmark/investigation numbers — no `reports/` entry.
 
 ## Open findings
 
-None — warrant-hunter (before-landing, stance 0/bypass) found one: `git
-branch --list <role>` in `_branch_exists` interprets `role` as a glob, so a
-`routed_to` value containing a glob metacharacter could false-match an
-unrelated branch and silently drop a genuine `status: open` task. Fixed in
-this commit by switching to `git rev-parse --verify --quiet refs/heads/<branch>`
-(exact refname, no glob interpretation) — confirmed by re-running the
-hunter's own repro against this repo's `issue-587/implementation` branch:
-`_branch_exists(".", "issue-587/*")` now returns `False` (was `True`),
-`_branch_exists(".", "issue-587/implementation")` returns `True`. Full
-report: docs/reports/2026-08-10-hunt-issue-587-implementation.md.
-
-## Resolution path
-
-N/A — the one finding from this session's own hunt is already resolved
-above; nothing carries forward.
+None.
 
 ## Closed checks
 
-- check: warrant-hunt before-landing, stance 0 (bypass) — glob-injection
-  false-match in `_branch_exists`
-  code_under_review: gates/remediation_spawn.py, gates/test_remediation_spawn.py, on-the-record/commands/run.md
-  outcome: fixed (git rev-parse --verify --quiet replaces git branch --list)
+None — no warrant-hunter dispatch completed within this turn (headless single-shot session;
+contract v3 s22 takes priority over the warrant directive's dispatch-and-continue instruction when
+a result cannot be consumed before the turn ends).
 
 ## Next steps
 
-Step 3 (e2e fixture-target-repo scenario) remains, per issue #587's own
-step split — not this PR's job. This PR references #587 plain, not
-Closes — the issue stays open for step 3.
+None from this round's scope. `_remediation_merge_sweep` is exposed as a function but not wired
+into a periodic caller (a cron-like invocation, a `watch`/`reconcile` CLI subcommand, or the
+orchestrator's `run.md` loop) — out of scope per the approved proposal, a `run.md`-contract
+decision for a future round.
