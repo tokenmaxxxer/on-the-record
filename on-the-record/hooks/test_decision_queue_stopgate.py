@@ -21,7 +21,7 @@ def _fake_checkout(tmp_path, flows_payload):
     return tmp_path
 
 
-def _run(flows_payload, role=None, orchestrate_off=""):
+def _run(flows_payload, role=None, orchestrate_off="", last_assistant_message="ok"):
     with tempfile.TemporaryDirectory() as td:
         checkout = _fake_checkout(Path(td), flows_payload)
         env = dict(os.environ)
@@ -31,7 +31,7 @@ def _run(flows_payload, role=None, orchestrate_off=""):
             env["CLAUDE_ROLE"] = role
         else:
             env.pop("CLAUDE_ROLE", None)
-        payload = json.dumps({"last_assistant_message": "ok"})
+        payload = json.dumps({"last_assistant_message": last_assistant_message})
         return subprocess.run(
             ["bash", str(HOOK)],
             input=payload, capture_output=True, text=True, env=env, timeout=20,
@@ -99,5 +99,28 @@ def t_role_session_is_silent():
     r = _run({"decision_queue": [
         {"issue": 100, "pr": 200, "age_hours": 5.0},
     ]}, role="implementation")
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+# --- issue #600: waiting-declaration turn-occupancy branch ---
+
+def t_waiting_declaration_over_fresh_queue_blocks():
+    r = _run({"decision_queue": [
+        {"issue": 600, "pr": 615, "age_hours": 0.3},
+    ]}, last_assistant_message="대기 중입니다. 사용자의 결정을 기다리는 중.")
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    assert out["decision"] == "block"
+    assert "규칙 4" in out["reason"] or "rule 4" in out["reason"]
+
+
+def t_queue_relay_that_closes_turn_is_not_blocked_by_new_branch():
+    r = _run({"decision_queue": [
+        {"issue": 600, "pr": 615, "age_hours": 0.3},
+    ]}, last_assistant_message=(
+        "결정 큐: #600/PR#615 (0.3h). background 로 observation 을 걸고 "
+        "턴을 닫습니다."
+    ))
     assert r.returncode == 0
     assert r.stdout == ""
