@@ -119,6 +119,23 @@ does not close.
    -q` or equivalent) plus the new fixture matrix, fenced output in this
    role's record (`docs/issue-608/reports/implementation.md`).
 
+## Hunt note (after-proposal, stance 0)
+
+`docs/reports/2026-08-10-hunt-implementation.md` flags that the
+branch-name parse (`^issue-(\d+)/([\w-]+)$`, `pr-preflight.sh`'s own
+pattern) fails open — a detached-HEAD checkout or any non-matching
+branch name skips the gate entirely (`sys.exit(0)`), letting an
+unapproved phase-2-shaped write through unblocked on such a checkout.
+This is real but not new scope: `pr-preflight.sh` and `contract-guard.sh`
+already fail open on the identical branch-parse-mismatch case, so
+`approval-gate.sh` inherits an already-accepted repo-wide policy rather
+than introducing a fresh one — the alternative (deny outright on any
+unparseable branch) would also deny legitimate non-issue branches
+(scratch work, `main` itself) with no phase-2 act in play. Recorded here
+as an accepted, pattern-consistent limitation, not silently dropped: a
+detached-HEAD or oddly-named checkout is a known residual gap this unit
+does not close.
+
 ## Out of scope
 
 - Gating `Bash`/`git commit` directly (Rationale, second alternative) —
