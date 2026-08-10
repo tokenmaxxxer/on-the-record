@@ -183,6 +183,10 @@ Implementation's phase-2 write set, per the component boundary above (not built 
   owning roles)
 - `gates/role_spec_shape.py` (accept the two new shapes)
 - `on-the-record/hooks/delegated-judgment-gate.sh` (new deployed hook, mirrors `impact-guard.sh`)
+- `on-the-record/hooks/hooks.json` (register the new hook under `PreToolUse`/`Bash`, matching the
+  approval-act `gh` invocations named in section 2 — without this edit the new script exists on
+  disk but never fires, silently bypassing the gate; caught by warrant-hunter, after-proposal
+  transition, `docs/reports/2026-08-10-hunt-architecture.md`)
 - `docs/issue-<n>/decisions/auto-<sequence>.md` (new record kind, written by the gate at decision
   time, not a source file implementation edits by hand)
 
