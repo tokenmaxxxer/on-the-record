@@ -2235,7 +2235,7 @@ class EventReporting(unittest.TestCase):
                                    lambda *a, **k: None), \
                  mock.patch.object(spawn, "ledger_write",
                                    lambda *a, **k: None), \
-                 mock.patch.object(spawn, "_pr_for_branch", pr_for_branch):
+                 mock.patch.object(spawn, "_open_pr_for_branch", pr_for_branch):
                 spawn._spawn_one(str(work), "execution-observation", task, unattended=True, issue=7)
         finally:
             sys.stdout = old_stdout
@@ -2765,6 +2765,18 @@ class EventReporting(unittest.TestCase):
         opened = [e for e in events if e["type"] == "pr-opened"]
         self.assertEqual(opened, [{"ts": opened[0]["ts"], "type": "pr-opened",
                                    "detail": url}], events)
+
+    def test_pr_opened_reports_new_pr_not_stale_merged_pr_on_reused_branch(self):
+        # issue-576: 같은 head 브랜치를 재사용한 라운드에서 이전 PR(#479)이
+        # 이미 머지돼 있고 새 PR(#555)이 방금 열렸다 — `_open_pr_for_branch`
+        # 는 (`gh pr list --state open`처럼) OPEN 인 새 PR 번호만 낸다. 옛
+        # 머지 PR URL 을 세션이 언급해도 pr-opened 는 새 PR 로만 서야 한다.
+        merged_url = "https://github.com/tokenmaxxxer/on-the-record/pull/479"
+        new_url = "https://github.com/tokenmaxxxer/on-the-record/pull/555"
+        events = self._run(tempfile.mkdtemp(), merged_url + "\n" + new_url + "\n",
+                           pr_for_branch=lambda *a, **k: 555)
+        opened = [e["detail"] for e in events if e["type"] == "pr-opened"]
+        self.assertEqual(opened, [new_url], events)
 
     def test_pr_for_branch_call_count_not_proportional_to_candidate_urls(self):
         # PR #184 리뷰 코멘트의 수용 기준: 브랜치의 실제 PR 번호가 한 번
