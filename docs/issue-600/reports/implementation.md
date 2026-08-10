@@ -1,9 +1,13 @@
 ---
-code_under_review: pending-commit
+code_under_review:
+  - on-the-record/commands/run.md
+  - on-the-record/hooks/decision-queue-stopgate.sh
+  - on-the-record/hooks/test_decision_queue_stopgate.py
+  - docs/specs/reconciled-index.md
 type: feature
 breaking: false
 verdict: pass
-loop_state: committing
+loop_state: landed
 ---
 
 # Implementation record — issue #600
