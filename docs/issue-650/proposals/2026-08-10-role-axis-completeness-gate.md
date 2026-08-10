@@ -108,6 +108,23 @@ already-battle-tested wiring pattern rather than inventing a new one.
 - Any change to `roles/*.json` content itself — this fix only adds
   enforcement, it doesn't touch what's being enforced.
 
+## Accumulation
+
+`test_role_axis_completeness_guard.py` drives the hook via repeated
+`subprocess.run(["bash", str(GUARD)], ...)` calls (>= 3 sites) and writes
+`roles/*.json`-shaped fixture files inside a throwaway `tmp_path` git repo
+per test — both match the two accumulation shapes
+`accumulation-claim-guard.sh` watches for. Neither grows unbounded: the
+subprocess call sites are a small, fixed set of test cases (one per
+axis-completeness scenario: valid, zero-owner, double-owner, invalid axis
+name, no-staged-roles, non-commit command, `ORCHESTRATE_OFF`), not a
+pattern that accretes a new inline call per future change; a shared
+`_run()` helper already collapses the repeated shape to one call site per
+test. The `roles/*.json` fixture files are ephemeral pytest `tmp_path`
+fixtures, never real `roles/` entries — they don't add to the repo's real
+41-file `roles/` set and aren't touched by future unrelated commits the
+way a real accumulating file would be.
+
 ## How you'll know it worked
 
 - `on-the-record/hooks/test_role_axis_completeness_guard.py` passes,
