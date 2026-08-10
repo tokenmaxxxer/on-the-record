@@ -294,3 +294,76 @@ caller has a distinct, third root cause for the same observable failure: the CLI
 threads its own `-C`/`--cwd` argument to the function it calls, so on a real target/fixture repo
 different from wherever `spawn.py` physically resides, event 4 still never fires — silently,
 with exit 0 and no error.
+
+## Round 4
+
+### Scope of this round
+
+PR #621 (merged, commit f9bc73143a2d828c80a05f4add04d51694846f4e, `gh pr view 621` and
+`grep -n "_remediation_merge_sweep\|root=Path(a.cwd)" spawn.py` read this session) threads
+`root: Path | None = None` through `roster_reconcile` and passes `root=Path(a.cwd).resolve()`
+from `main()`'s `reconcile` dispatch (spawn.py:3518), targeting exactly round 3's root cause
+(the CLI never threading `-C`/`--cwd` into `_remediation_merge_sweep`'s `root` parameter). Per
+round 3's own resolution path, re-verification is scoped to event 4 again — the other four
+events' code paths are untouched by this PR's diff (`gh pr view 621 --json files` this session:
+only `spawn.py`, `test_spawn.py`, `docs/issue-587/reports/implementation.md`, and a hunt report
+changed).
+
+### Step A — drive the shipped CLI verb via `-C` from a fixture OUTSIDE the checkout
+
+A fresh disposable fixture git repo was built under the session scratchpad (never this
+repository's board), distinct from `spawn.py`'s own checkout directory, the same way rounds 2-3
+built theirs: a fixture-only remediation record at
+`<fixture>/docs/issue-9999/decisions/remediation-1.md` with `status: open`,
+`routed_to: coding`, a branch `issue-9999/coding` merged (`git merge --no-ff`) into the fixture's
+default branch simulating the remediation PR having landed, a `gh` stub on `PATH` logging every
+invocation to `gh.log` and reporting PR #200 as `MERGED` for that branch, and a fake `origin`
+remote so `_repo_slug` resolves.
+
+The driver script itself (not committed, matches the approved proposal's declared write set: the
+fixture and driver live entirely outside the repository) invoked the shipped, unmodified CLI:
+
+```
+$ python3 spawn.py reconcile --remediation-merged --issue 9999 -C <fixture>
+```
+
+run with cwd `/` (deliberately outside both `spawn.py`'s checkout and the fixture, to prove `-C`
+alone — not an inherited cwd — drives the target), against the fixture built above.
+
+```
+rc = 1
+stdout: (empty)
+stderr: (empty)
+
+gh.log:
+repo view --json nameWithOwner -q .nameWithOwner
+repo view --json nameWithOwner -q .nameWithOwner
+api repos/acme/repo/issues/9999/comments --paginate --slurp
+pr list --head issue-9999/coding --state all --json number,state
+api repos/acme/repo/issues/9999/comments -f body=[watch] remediation-merged: <fixture>/docs/issue-9999/decisions/remediation-1.md
+
+Remediation merged: PR #200 resolves round 1 of PR #100
+https://github.com/acme/repo/pull/200
+```
+
+`rc=1` matches `roster_reconcile`'s documented convention (spawn.py:2178-2181, "종료 코드는
+... `roster_watchdog` 의 반환값과 같은 관례"): `_remediation_merge_sweep` returns the count of
+comments posted, and one comment posted here. The `gh api ... comments -f body=...` call fired
+against the fixture's own decision path (`<fixture>/docs/issue-9999/decisions/remediation-1.md`),
+through a process invoked with cwd `/`, driven entirely by the `-C <fixture>` argument. This is
+the shipped code posting to the correct target from outside the checkout — round 3's failure mode
+(silent no-op, exit 0, no comment) does not reproduce.
+
+### Per-event table (round 4)
+
+| # | Event | Fired | Evidence |
+|---|---|---|---|
+| 1 | PR opened under judgment | yes — carried forward, code path unchanged per "## Scope of this round" | round-1 record, Scenario A step 2 |
+| 2 | Verdict synthesized | yes — carried forward, unchanged | round-1 record, Scenario A step 2 + 5a |
+| 3 | Remediation routed | yes — carried forward, unchanged | round-1 record, Scenario A step 2 |
+| 4 | Remediation PR merged | yes — CLI verb dispatches (unchanged from round 3) and now threads `-C` into `_remediation_merge_sweep`'s `root`, confirmed posting from cwd `/` against a fixture outside the checkout (this round, Step A) | this round, Step A above |
+| 5 | Escalation to operator | yes — carried forward, unchanged | round-1 record, Scenario B |
+
+Tally: five "yes", zero "no". All five issue-timeline events now fire on the shipped code through
+its exposed CLI surface, exercised against a fixture target repo distinct from `spawn.py`'s own
+checkout.
