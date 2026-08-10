@@ -34,6 +34,25 @@
 # resolvability check (fails closed — no comment — if a citation doesn't
 # resolve), per docs/issue-597/proposals/{architecture,implementation}.md.
 #
+# Seventh firing condition (issue #641): review-is-role-work detector.
+# `gh pr comment` / `gh issue comment`, only when CLAUDE_ROLE is unset
+# (an orchestrator session, not a role session doing legitimate
+# conformance-review/axis-panel work — same CLAUDE_ROLE convention
+# approval-gate.sh uses to tell the two apart). Advisory only, never
+# blocks the underlying command: a lexical proxy checks whether the
+# comment body carries review-verdict-shaped language
+# (Present/Surface/Absent/Incorrect/Unverifiable, supports/contradicts/
+# no-opinion, or 리뷰 결과/검토 결과/지적 사항/수정 필요) without also
+# citing a role record (docs/issue-<n>/reports/<role>.md) or a PR
+# reference; on a hit it posts its own audit comment flagging the gap.
+# Deliberately narrow vocabulary — never #320's mandated 문제/비용/가능
+# framing words alone — see docs/issue-641/proposals/architecture.md
+# ("Trigger vocabulary" / "Gaming-resistance stated plainly" / "False-
+# positive posture") for the accepted lexical-proxy and channel-bypass
+# limits (chat-only critique and non-matched `gh api` calls are outside
+# this hook's reach; run.md's own review-is-role-work boundary text is
+# the primary control for those).
+#
 # Kill switch: ORCHESTRATE_OFF=1 (same convention as impact-guard.sh).
 set -uo pipefail
 
@@ -284,6 +303,32 @@ for _pattern, _transition, _ in FRAMING_TRANSITIONS:
     if _body is not None:
         _gh(["issue", "comment", str(_f_issue), "--body-file", "-"], body=_body)
     sys.exit(0)
+
+# --- review-is-role-work detector (issue #641) ------------------------------
+REVIEW_VERDICT_RE = re.compile(
+    r"\b(Present|Surface|Absent|Incorrect|Unverifiable|supports|contradicts|no-opinion)\b"
+    r"|리뷰\s*결과|검토\s*결과|지적\s*사항|수정\s*필요")
+CITATION_RE = re.compile(
+    r"docs/issue-\d+/reports/[\w-]+\.md|(?:PR\s*)?#\d+")
+
+if not os.environ.get("CLAUDE_ROLE"):
+    _rc_m = re.search(r"\bgh\s+(pr|issue)\s+comment\s+(\d+)", cmd)
+    if _rc_m:
+        _rc_body_m = re.search(r"--body\s+(['\"])(.*?)\1", cmd, re.S)
+        if _rc_body_m:
+            _rc_body = _rc_body_m.group(2)
+            if REVIEW_VERDICT_RE.search(_rc_body) and not CITATION_RE.search(_rc_body):
+                _rc_kind, _rc_id = _rc_m.group(1), _rc_m.group(2)
+                _rc_args = (["pr", "comment", _rc_id] if _rc_kind == "pr"
+                            else ["issue", "comment", _rc_id])
+                _gh(_rc_args + ["--body",
+                    "Review-is-role-work audit (issue #641): this comment reads as "
+                    "review-verdict-shaped critique but cites no role record "
+                    "(docs/issue-<n>/reports/<role>.md) or PR reference — spawn the "
+                    "owning role (conformance-review, or the judgment-axis panel via "
+                    "open_decision_item triage) and relay its recorded finding "
+                    "instead of authoring the critique directly."])
+        sys.exit(0)
 
 if not re.search(r"\bgh\s+pr\s+create\b", cmd):
     sys.exit(0)
