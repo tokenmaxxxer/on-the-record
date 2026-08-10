@@ -82,9 +82,15 @@ ledger's own record.
   reaching this function is by definition undispositioned). Skips PRs
   whose issue number equals `exclude_issue`. Returns `(blockers, ok)`
   with the same `ok` propagation as `_open_role_prs`.
-- Wire into `spawn_cmd`/`main()`'s spawn dispatch path: when `a.issue` is
-  set and the command is a spawn (not `watch`/`reconcile`/etc.), call
-  `_undispositioned_role_prs(root, exclude_issue=a.issue)` before the
+- Wire the check into `_spawn_one` itself (spawn.py ~4109-4150), not only
+  into `main()`'s argparse dispatch: the auto-respawn path
+  (`_auto_respawn_check`/`_self_trigger_respawn` -> `_respawn_or_cap` ->
+  `_spawn_one`, spawn.py:2570-2648) calls `_spawn_one()` directly,
+  bypassing `main()`'s dispatch entirely (found by the after-proposal
+  warrant hunt — docs/reports/2026-08-10-hunt-returned-pr-spawn-gate.md).
+  Gating only at `main()` would leave every auto-respawn ungated. When
+  `issue` is set and `_spawn_one` is entered, call
+  `_undispositioned_role_prs(root, exclude_issue=issue)` before the
   fork. On `ok=False` (gh failure): print the fail-open warning to
   stderr, `ledger_write` the `returned_pr_gate_fail_open` event, and
   proceed. On `ok=True` with non-empty blockers and no
