@@ -44,7 +44,8 @@
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-claim-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/role-spec-reference-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/call-shape-guard.sh" },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/accumulation-claim-guard.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/accumulation-claim-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/approval-gate.sh" }
         ]
       }
     ],

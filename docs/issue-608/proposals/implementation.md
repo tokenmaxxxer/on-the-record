@@ -136,6 +136,21 @@ as an accepted, pattern-consistent limitation, not silently dropped: a
 detached-HEAD or oddly-named checkout is a known residual gap this unit
 does not close.
 
+## Accumulation
+
+`approval-gate.sh` adds one more inline `subprocess`/`gh` call site to the
+`on-the-record/hooks/*.sh` family (alongside `pr-preflight.sh`,
+`contract-guard.sh`, `record-claim-guard.sh`); its test file adds one more
+fake-`gh`-shim pytest module. Neither is expected to repeat: this closes
+the one remaining `Write`/`Edit`/`MultiEdit` approval-check gap step 1
+found — there is no next hook in this family queued behind it. If a
+future issue adds another `Write`/`Edit`-scoped `gh`-consulting hook, the
+existing `gh_json`-shaped helper in `pr-preflight.sh`/`approval-gate.sh`
+should be factored into a shared inline snippet at that point, not before
+(YAGNI: two instances of the same 15-line helper is not yet a maintenance
+cost worth a shared-import indirection in a zero-install bash+heredoc
+hook family).
+
 ## Out of scope
 
 - Gating `Bash`/`git commit` directly (Rationale, second alternative) —
