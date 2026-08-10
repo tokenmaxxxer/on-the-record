@@ -68,6 +68,19 @@ fixture) plus a second, separate fixture for the 4-round escalation path, since 
 the primary happy-path closure are mutually exclusive outcomes for a single candidate PR and
 cannot both be observed on one candidate.
 
+## What did not work
+
+- After-proposal hunt (stance 4, docs/reports/2026-08-10-hunt-issue-587-execution-observation.md)
+  found the declared write set named only the two report paths, with no location for the
+  fixture repo or a driver script phase 2 will actually create. Resolved by declaring it here:
+  the fixture repo lives entirely under the session scratchpad
+  (/tmp/claude-*/.../scratchpad, per this session's scratchpad-directory instruction), never
+  under a tracked docs/issue-587 path, and is torn down after the run — matching architecture's
+  "created fresh under a temp dir per test run, torn down after" design. Any driver script used
+  to construct/drive the fixture also lives in that scratchpad, not in gates/ or another tracked
+  path, since it is a one-shot harness for this record, not new shipped code. Nothing outside
+  the two declared report paths is committed to the repository by phase 2.
+
 ## Hand-off
 
 Phase 2 (the actual fixture construction, drive, and record) opens only on
