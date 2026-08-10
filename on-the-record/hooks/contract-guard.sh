@@ -24,6 +24,17 @@
 # passed through rather than blocking an unrelated command. What must never
 # happen is silently approving a merge this script positively determined
 # violates the contract; that path is the only one that exits 2.
+#
+# Broker-attach at merge (issue #653, revising #441's original refusal-only
+# design): a phase-2 merge missing/wrong 'Closes #<issue>' is no longer
+# denied outright. Five same-day recurrences (orchestrator relay, issue #653
+# comment) showed the refusal only helps a session capable of correcting
+# itself, and that premise doesn't hold in practice. Instead this hook, the
+# one broker that actually executes every merge, attaches/corrects the
+# trailer itself via `gh pr edit` before allowing the merge — so a decided
+# merge never deadlocks on a session that never wrote the trailer. Deny is
+# now the fallback: it fires only if the `gh pr edit` write itself fails,
+# never as the primary response to a missing trailer.
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
@@ -167,10 +178,27 @@ if not phase2:
     sys.exit(0)  # phase-1 PR: no closing-keyword obligation (pr_reference.py phase1 path)
 
 if not closes_m or int(closes_m.group(2)) != issue:
-    deny(f"PR #{pr} merges against a phase-2 issue (#{issue}) with no "
-         f"'Closes #{issue}' (or Fixes/Resolves) in its body. Per run.md / "
-         f"gates/pr_reference.py phase-2 rule: a phase-2 delivering PR must "
-         f"close its issue explicitly. Denied before the merge executes.")
+    if closes_m:
+        old_num = closes_m.group(2)
+        match_text = closes_m.group(0)
+        fixed_text = match_text[: len(match_text) - len(old_num)] + str(issue)
+        new_body = body[: closes_m.start()] + fixed_text + body[closes_m.end():]
+    else:
+        sep = "\n\n" if body.strip() else ""
+        new_body = body + sep + f"Closes #{issue}"
+
+    extra = ["-R", target_repo_flag] if target_repo_flag else []
+    edit = subprocess.run(
+        ["gh", "pr", "edit", pr, "--body", new_body, *extra],
+        capture_output=True, text=True, timeout=20, cwd=target_cwd,
+    )
+    if edit.returncode != 0:
+        deny(f"PR #{pr} merges against a phase-2 issue (#{issue}) with no "
+             f"'Closes #{issue}' (or Fixes/Resolves) in its body, and the "
+             f"broker's attempt to attach/correct it via `gh pr edit` "
+             f"failed ({(edit.stderr or '').strip()}). Denied before the "
+             f"merge executes.")
+    sys.exit(0)
 PY
 
 CG_PAYLOAD="$payload" python3 -c "$GUARD"

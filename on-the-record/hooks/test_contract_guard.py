@@ -46,6 +46,17 @@ if argv[:2] == ["pr", "view"]:
     }))
 elif argv[:2] == ["issue", "view"]:
     print(json.dumps(data.get("issue_comments", [])))
+elif argv[:2] == ["pr", "edit"]:
+    body_idx = argv.index("--body") + 1
+    new_body = argv[body_idx]
+    log_path = os.environ.get("GH_EDIT_LOG")
+    if log_path:
+        calls = json.loads(open(log_path).read()) if os.path.exists(log_path) else []
+        calls.append({"repo": repo, "pr": argv[2], "body": new_body})
+        open(log_path, "w").write(json.dumps(calls))
+    if data.get("edit_fails"):
+        sys.stderr.write("gh: simulated pr edit failure\\n")
+        sys.exit(1)
 else:
     sys.exit(1)
 """
@@ -65,7 +76,7 @@ def _approve_comment(issue, login, created_at=None, role="implementation"):
     return c
 
 
-def _run_guard(cmd, fixtures, tmp_path, cwd=None):
+def _run_guard(cmd, fixtures, tmp_path, cwd=None, edit_log=None):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     _write_fake_gh(bin_dir)
@@ -77,6 +88,8 @@ def _run_guard(cmd, fixtures, tmp_path, cwd=None):
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["GH_FIXTURES"] = str(fixtures_path)
     env["ORCHESTRATE_OFF"] = ""
+    if edit_log is not None:
+        env["GH_EDIT_LOG"] = str(edit_log)
     return subprocess.run(
         ["bash", str(GUARD)],
         input=payload, capture_output=True, text=True,
@@ -94,9 +107,10 @@ def _repo_dir(tmp_path, name, approvers):
 
 
 def test_cross_repo_same_number_judges_target_not_cwd(tmp_path):
-    """Red-green: cwd repo and `cd <target>` repo both have PR #7 / issue
-    #9, different bodies/approval — the fixed hook must judge the target
-    repo, not cwd."""
+    """cwd repo and `cd <target>` repo both have PR #7 / issue #9,
+    different bodies/approval — the hook must attach the trailer against
+    the target repo's PR, not cwd's, and allow the merge (broker-attach,
+    issue #653)."""
     cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
     target_dir = _repo_dir(tmp_path, "targetrepo", ["bob"])
 
@@ -108,14 +122,21 @@ def test_cross_repo_same_number_judges_target_not_cwd(tmp_path):
                 "issue_comments": [_approve_comment(9, "alice")],
             },
             "target": {
-                "pr_body": "no closing keyword here, just #9",  # must FAIL
+                "pr_body": "no closing keyword here, just #9",  # needs attach
                 "issue_comments": [_approve_comment(9, "bob")],
             },
         },
     }
-    r = _run_guard(f"cd {target_dir} && gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
-    assert r.returncode == 2, r.stderr
-    assert "phase-2 issue (#9)" in r.stderr
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard(
+        f"cd {target_dir} && gh pr merge 7 --merge", fixtures, tmp_path,
+        cwd=cwd_dir, edit_log=edit_log,
+    )
+    assert r.returncode == 0, r.stderr
+    calls = json.loads(edit_log.read_text())
+    assert len(calls) == 1
+    assert calls[0]["repo"] == "target"
+    assert "Closes #9" in calls[0]["body"]
 
 
 def test_repo_flag_targets_repo_but_no_local_approvers_is_unreached(tmp_path):
@@ -151,7 +172,7 @@ def test_full_pr_url_targets_repo_but_no_local_approvers_is_unreached(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
-def test_cd_prefix_reads_target_approvers_and_denies(tmp_path):
+def test_cd_prefix_reads_target_approvers_and_attaches(tmp_path):
     cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
     target_dir = _repo_dir(tmp_path, "targetrepo", ["bob"])
     fixtures = {
@@ -163,9 +184,14 @@ def test_cd_prefix_reads_target_approvers_and_denies(tmp_path):
             },
         },
     }
-    r = _run_guard(f"cd {target_dir} && gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
-    assert r.returncode == 2, r.stderr
-    assert "phase-2 issue (#9)" in r.stderr
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard(
+        f"cd {target_dir} && gh pr merge 7 --merge", fixtures, tmp_path,
+        cwd=cwd_dir, edit_log=edit_log,
+    )
+    assert r.returncode == 0, r.stderr
+    calls = json.loads(edit_log.read_text())
+    assert len(calls) == 1 and "Closes #9" in calls[0]["body"]
 
 
 def test_cd_prefix_allows_when_target_pr_closes_issue(tmp_path):
@@ -222,9 +248,35 @@ def test_no_repo_indicator_unchanged_cwd_behavior(tmp_path):
             },
         },
     }
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log)
+    assert r.returncode == 0, r.stderr
+    calls = json.loads(edit_log.read_text())
+    assert len(calls) == 1 and "Closes #9" in calls[0]["body"]
+
+
+def test_write_failure_still_denies_merge(tmp_path):
+    """The one remaining deny path (issue #653): a phase-2 merge with a
+    missing trailer whose `gh pr edit` write itself fails must still be
+    denied — auto-attach must never silently wave through an unfixed
+    body."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "no closing keyword, just #9",
+                "issue_comments": [_approve_comment(9, "alice")],
+                "edit_fails": True,
+            },
+        },
+    }
     r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
     assert r.returncode == 2, r.stderr
     assert "phase-2 issue (#9)" in r.stderr
+    assert "gh pr edit" in r.stderr
+
+
 
 
 # --- round-scoping matrix (issue #577) ---------------------------------
@@ -248,9 +300,10 @@ def test_prior_round_approval_allows_new_phase1_pr(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
-def test_same_round_approval_denies_without_closes(tmp_path):
+def test_same_round_approval_attaches_closes_when_missing(tmp_path):
     """An approval newer than this PR's own first commit is the same round
-    — must still deny a delivering PR with no Closes."""
+    — a delivering PR with no Closes must have it attached, not just
+    denied (broker-attach, issue #653)."""
     cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
     fixtures = {
         "cwd_map": {str(cwd_dir): "cwd"},
@@ -262,9 +315,11 @@ def test_same_round_approval_denies_without_closes(tmp_path):
             },
         },
     }
-    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
-    assert r.returncode == 2, r.stderr
-    assert "phase-2 issue (#9)" in r.stderr
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log)
+    assert r.returncode == 0, r.stderr
+    calls = json.loads(edit_log.read_text())
+    assert len(calls) == 1 and "Closes #9" in calls[0]["body"]
 
 
 def test_same_round_approval_with_closes_allows(tmp_path):
@@ -288,7 +343,8 @@ def test_same_round_approval_with_closes_allows(tmp_path):
 def test_cross_role_approval_still_gates_phase2(tmp_path):
     """#312 regression: an approval for a *different* role than the PR's
     own, but newer than the PR's first commit, must still count as
-    phase-2 — role stays out of the scoping signal."""
+    phase-2 — role stays out of the scoping signal, and the missing
+    trailer still gets attached rather than silently skipped."""
     cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
     fixtures = {
         "cwd_map": {str(cwd_dir): "cwd"},
@@ -302,6 +358,8 @@ def test_cross_role_approval_still_gates_phase2(tmp_path):
             },
         },
     }
-    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
-    assert r.returncode == 2, r.stderr
-    assert "phase-2 issue (#9)" in r.stderr
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log)
+    assert r.returncode == 0, r.stderr
+    calls = json.loads(edit_log.read_text())
+    assert len(calls) == 1 and "Closes #9" in calls[0]["body"]
