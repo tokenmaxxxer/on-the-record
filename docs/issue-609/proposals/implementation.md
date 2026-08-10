@@ -105,6 +105,20 @@ rolled out to `architecture` first and extended role-by-role afterward (confirme
      path — non-empty corpus clearing depth/impact, single owning role with `supports`, asserting
      `decision: resolved` and no operator-facing escalation comment.
 
+## Accumulation
+
+`gates/role_spec_shape.py` gains one more `check_*` function
+(`check_open_decision_item`), following the same module-level,
+dict-in/reason-list-out pattern as `check`, `check_role_judgment_axes`,
+`check_axis_ownership`, and `check_axis_evaluation_entry` before it. At N
+more additions this file stays a flat, uniform set of independent shape
+checks — there is no shared mutable state between them and no call-site
+fan-out, so the file's size grows linearly with the number of record
+shapes this repo defines, not with any per-call accumulation. If this
+pattern ever exceeds roughly a dozen `check_*` functions, the follow-up is
+splitting them into a `gates/shape_checks/` package by concern (schema vs.
+role-config vs. record-entry), not rewriting this proposal's mechanism.
+
 ## Out of scope
 
 - Extending `open_decision_item` to any role other than `requirements-engineering` (Rationale,

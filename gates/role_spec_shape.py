@@ -172,6 +172,34 @@ def check_axis_evaluation_entry(entry: dict, owning_axes: list[str],
     return bad
 
 
+def check_open_decision_item(entry: dict) -> list[str]:
+    """Shape of one `open_decision_item` record entry (issue-609
+    architecture proposal): the thin upstream shape a role records when it
+    declines to settle a spec-stage ambiguity. `item` and `source_role` are
+    non-empty strings, `source_path` is a non-empty path reference (I/O
+    resolution of that reference is the hook's concern, not this shape
+    check's — mirrors this module's other check_* functions), and
+    `candidate_axes` is a non-empty list drawn from the closed
+    `_JUDGMENT_AXES` set."""
+    bad = []
+    if not isinstance(entry, dict):
+        return ["open_decision_item entry is not an object"]
+    if not entry.get("item"):
+        bad.append("open_decision_item.item must be a non-empty string")
+    if not entry.get("source_role"):
+        bad.append("open_decision_item.source_role must be a non-empty string")
+    if not entry.get("source_path"):
+        bad.append("open_decision_item.source_path must be a non-empty string")
+    axes = entry.get("candidate_axes")
+    if not isinstance(axes, list) or not axes:
+        bad.append("open_decision_item.candidate_axes must be a non-empty array")
+    else:
+        for a in axes:
+            if a not in _JUDGMENT_AXES:
+                bad.append(f"open_decision_item.candidate_axes entry {a!r} not in {sorted(_JUDGMENT_AXES)}")
+    return bad
+
+
 _VERIFICATION_FAMILY_ROLES = (
     "execution-observation", "conformance-review", "defect-verification",
     "security-threat-model", "accessibility", "secure-coding",
