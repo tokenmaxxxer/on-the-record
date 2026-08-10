@@ -48,6 +48,24 @@ Stages used: 1 (targeted, no new search — reused Step 1's verified sources per
 justification above). Mode: not applicable (no fan-out dispatched; single targeted synthesis pass
 over already-verified sources).
 
+## Re-scout micro-round (2026-08-10, post-PR-581 operator addition)
+
+New decision surfaced mid-build: strict rejection standards + brokered role-to-role remediation +
+loop bound, per the operator's PR #581 review comment. No new web search dispatched — the decision
+composes entirely with patterns already adopted above and in Step 1's survey, so a fresh sweep
+would re-derive sources already cited, not find new ones.
+
+**Adopt**: route a rejection's remediation to the role by *write-set path ownership*
+(CODEOWNERS/`write_scope` pattern, same as the axis-ownership routing above), not by a new registry
+— the routed-to role is whichever role's `write_scope` covers the path the finding names, reusing
+the exact mechanism this brief already adopted for axis ownership. This keeps routing a read over
+existing schema fields, not a new ownership concept.
+
+**Skip**: a dedicated remediation-routing registry decoupled from `write_scope`/`judgment_axes` —
+same duplication-of-source-of-truth reasoning as the original skip line above.
+
+Stages used: 1 (targeted, reused this brief's own already-adopted pattern; no new search).
+
 Sources: docs/issue-573/reports/technical-feasibility/survey.md (sections 1-2, itself citing
 https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners,
 https://chromium.googlesource.com/chromium/src/+/main/docs/code_review_owners.md,
