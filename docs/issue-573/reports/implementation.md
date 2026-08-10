@@ -1,9 +1,19 @@
 ---
-code_under_review: N/A
+code_under_review:
+  - roles/architecture.json
+  - roles/security-threat-model.json
+  - roles/specs/architecture.spec.json
+  - roles/specs/security-threat-model.spec.json
+  - gates/role_spec_shape.py
+  - gates/test_role_spec_shape_batch9.py
+  - gates/gates.py
+  - on-the-record/hooks/delegated-judgment-gate.sh
+  - on-the-record/hooks/hooks.json
+  - on-the-record/hooks/test_delegated_judgment_gate.py
 type: feat
 breaking: false
 verdict: pass
-loop_state: committing
+loop_state: landed
 ---
 
 # Implementation record — issue #573: delegated-judgment gate (phase 2)
