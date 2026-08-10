@@ -435,6 +435,77 @@ def t_framing_snapshot_field_not_found_cites_baseline_not_record(tmp_path: Path)
     assert "docs/issue-42/reports/architecture.md" not in text
 
 
+def t_review_verdict_without_citation_gets_flagged(tmp_path: Path):
+    target = _init_target(tmp_path / "g1", {"architecture": ARCHITECTURE_ROLE})
+    bin_dir, log = tmp_path / "bing1", tmp_path / "ghg1.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    env = dict(os.environ)
+    env.pop("CLAUDE_ROLE", None)
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {
+        "command": "gh pr comment 42 --body 'Verdict: Absent — this claim is not implemented.'"}})
+    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    env.pop("ORCHESTRATE_OFF", None)
+    r = subprocess.run(["bash", str(SCRIPT)], cwd=target, input=payload,
+                        capture_output=True, text=True, env=env)
+    assert r.returncode == 0
+    text = log.read_text()
+    assert "pr comment 42" in text
+    assert "Review-is-role-work audit (issue #641)" in text
+
+
+def t_review_verdict_with_role_record_citation_not_flagged(tmp_path: Path):
+    target = _init_target(tmp_path / "g2", {"architecture": ARCHITECTURE_ROLE})
+    bin_dir, log = tmp_path / "bing2", tmp_path / "ghg2.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    env = dict(os.environ)
+    env.pop("CLAUDE_ROLE", None)
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {
+        "command": "gh pr comment 42 --body 'Verdict: Absent per "
+                   "docs/issue-42/reports/conformance-review.md.'"}})
+    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    env.pop("ORCHESTRATE_OFF", None)
+    r = subprocess.run(["bash", str(SCRIPT)], cwd=target, input=payload,
+                        capture_output=True, text=True, env=env)
+    assert r.returncode == 0
+    assert not log.exists()
+
+
+def t_review_verdict_in_role_session_not_flagged(tmp_path: Path):
+    target = _init_target(tmp_path / "g3", {"architecture": ARCHITECTURE_ROLE})
+    bin_dir, log = tmp_path / "bing3", tmp_path / "ghg3.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    env = dict(os.environ)
+    env["CLAUDE_ROLE"] = "conformance-review"
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {
+        "command": "gh pr comment 42 --body 'Verdict: Absent — this claim is not implemented.'"}})
+    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    env.pop("ORCHESTRATE_OFF", None)
+    r = subprocess.run(["bash", str(SCRIPT)], cwd=target, input=payload,
+                        capture_output=True, text=True, env=env)
+    assert r.returncode == 0
+    assert not log.exists()
+
+
+def t_non_verdict_comment_not_flagged(tmp_path: Path):
+    target = _init_target(tmp_path / "g4", {"architecture": ARCHITECTURE_ROLE})
+    bin_dir, log = tmp_path / "bing4", tmp_path / "ghg4.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    env = dict(os.environ)
+    env.pop("CLAUDE_ROLE", None)
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {
+        "command": "gh pr comment 42 --body 'PR opened, ready for review.'"}})
+    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    env.pop("ORCHESTRATE_OFF", None)
+    r = subprocess.run(["bash", str(SCRIPT)], cwd=target, input=payload,
+                        capture_output=True, text=True, env=env)
+    assert r.returncode == 0
+    assert not log.exists()
+
+
 def t_no_import_gates_and_no_checkout_resolve_in_the_hook_source():
     text = SCRIPT.read_text()
     assert "import gates" not in text
