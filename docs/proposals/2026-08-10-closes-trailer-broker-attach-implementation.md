@@ -1,5 +1,5 @@
 ---
-status: approved
+status: landed
 files:
   - on-the-record/hooks/contract-guard.sh
   - on-the-record/hooks/test_contract_guard.py
