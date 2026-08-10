@@ -325,6 +325,93 @@ def t_kill_switch_disables_the_gate(tmp_path: Path):
     assert not (target / "docs" / "issue-42" / "decisions").exists()
 
 
+def _stub_gh_with_stdin(bin_dir: Path, log: Path) -> None:
+    script = bin_dir / "gh"
+    script.write_text(
+        "#!/usr/bin/env bash\n"
+        f'printf \'%s\\n\' "$*" >> "{log}"\n'
+        f'cat >> "{log}"\n'
+        f'printf \'\\n---\\n\' >> "{log}"\n'
+        "exit 0\n")
+    script.chmod(script.stat().st_mode | stat.S_IEXEC)
+
+
+def _run_cmd(target: Path, bin_dir: Path, cmd: str) -> subprocess.CompletedProcess:
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}})
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}:{env.get('PATH', '')}"
+    env.pop("ORCHESTRATE_OFF", None)
+    return subprocess.run(["bash", str(SCRIPT)], cwd=target, input=payload,
+                           capture_output=True, text=True, env=env)
+
+
+def t_framing_snapshot_baseline_on_delivery_merged_no_prior_records(tmp_path: Path):
+    target = _init_target(tmp_path / "f1", {"architecture": ARCHITECTURE_ROLE})
+    bin_dir, log = tmp_path / "binf1", tmp_path / "ghf1.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    r = _run_cmd(target, bin_dir, "gh pr merge 42 --squash")
+    assert r.returncode == 0
+    text = log.read_text()
+    assert "issue comment 42" in text
+    assert "## Framing snapshot — delivery-merged (42 / PR #42)" in text
+    assert "**Resolved problem:**" in text
+    assert "**Prior cost:**" in text
+    assert "**Newly possible:**" in text
+    assert "**Still broken:**" in text
+    assert "no prior record; issue body is the baseline" in text
+
+
+def t_framing_snapshot_on_issue_reopened_cites_role_record(tmp_path: Path):
+    target = _init_target(tmp_path / "f2", {"architecture": ARCHITECTURE_ROLE})
+    record = target / "docs" / "issue-42" / "reports" / "architecture.md"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(
+        "## What was done\nWired the reversibility axis.\n\n"
+        "## What did not work\nFirst attempt used the wrong glob.\n")
+    bin_dir, log = tmp_path / "binf2", tmp_path / "ghf2.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    r = _run_cmd(target, bin_dir, "gh issue reopen 42")
+    assert r.returncode == 0
+    text = log.read_text()
+    assert "## Framing snapshot — issue-reopened (42)" in text
+    assert "Wired the reversibility axis." in text
+    assert "First attempt used the wrong glob." in text
+    assert "docs/issue-42/reports/architecture.md" in text
+
+
+def t_framing_snapshot_on_issue_closed_cites_decision_record(tmp_path: Path):
+    target = _init_target(tmp_path / "f3", {"architecture": ARCHITECTURE_ROLE})
+    decisions = target / "docs" / "issue-42" / "decisions"
+    decisions.mkdir(parents=True, exist_ok=True)
+    (decisions / "auto-1.md").write_text("---\ndecision: approve\ntimestamp: x\n---\n")
+    bin_dir, log = tmp_path / "binf3", tmp_path / "ghf3.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    r = _run_cmd(target, bin_dir, "gh issue close 42")
+    assert r.returncode == 0
+    text = log.read_text()
+    assert "## Framing snapshot — issue-closed (42)" in text
+    assert "Decision recorded: approve" in text
+    assert "docs/issue-42/decisions/auto-1.md" in text
+
+
+def t_framing_snapshot_fails_closed_on_unresolvable_citation(tmp_path: Path):
+    target = _init_target(tmp_path / "f4", {"architecture": ARCHITECTURE_ROLE})
+    record = target / "docs" / "issue-42" / "reports" / "architecture.md"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(
+        "## What was done\nWired the reversibility axis.\n"
+        "Citation: docs/does/not/exist.md\n")
+    bin_dir, log = tmp_path / "binf4", tmp_path / "ghf4.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    r = _run_cmd(target, bin_dir, "gh issue reopen 42")
+    assert r.returncode == 0
+    assert not log.exists()
+
+
 def t_no_import_gates_and_no_checkout_resolve_in_the_hook_source():
     text = SCRIPT.read_text()
     assert "import gates" not in text
