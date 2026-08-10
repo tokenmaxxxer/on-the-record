@@ -12,6 +12,7 @@
       ]
     }
   },
+  "judgment_axes": ["performance"],
   "decides": "부하/지연 목표를 만족하는가",
   "use_when": "성능 예산이 걸린 설계/회귀일 때",
   "produces": "performance budget, profiling evidence, bottleneck list",

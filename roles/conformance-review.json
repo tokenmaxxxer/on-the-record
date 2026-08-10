@@ -12,6 +12,7 @@
       ]
     }
   },
+  "judgment_axes": ["alignment"],
   "decides": "산출물 vs 명세 일치",
   "use_when": "implementation 커밋이 랜딩된 후, 요구사항 대비 감사가 필요할 때. 빌더 의도는 안 읽는다 (board_condition: an implementation commit landed on the branch AND no conformance-review record exists yet for this commit sha)",
   "produces": "요구사항별 Present|Surface|Absent|Incorrect|Unverifiable, 인용된 증거",
