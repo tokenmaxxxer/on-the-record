@@ -19,6 +19,7 @@
     "docs/decisions/*.md",
     "docs/issue-<n>/reports/architecture.md"
   ],
+  "judgment_axes": ["maintenance_complexity"],
   "record_fields": {
     "loop_state": {
       "progress": [

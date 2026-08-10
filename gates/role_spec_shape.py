@@ -88,6 +88,88 @@ def check(spec: dict) -> list[str]:
     return bad
 
 
+_JUDGMENT_AXES = {
+    "alignment", "maintenance_complexity", "external_burden",
+    "attack_potential", "performance",
+}
+_AXIS_EVAL_VERDICTS = {"supports", "contradicts", "no-opinion"}
+
+
+def check_role_judgment_axes(role: dict) -> list[str]:
+    """`roles/<role>.json`'s optional `judgment_axes` array (issue-573
+    architecture proposal, section 1): each entry must be one of the five
+    fixed methodology axes. A role with no `judgment_axes` field owns none
+    (opt-in, not a default-all) — absence is not an error here."""
+    bad = []
+    if not isinstance(role, dict):
+        return ["role config is not a JSON object"]
+    if "judgment_axes" not in role:
+        return bad
+    axes = role["judgment_axes"]
+    if not isinstance(axes, list) or not axes:
+        return ["judgment_axes must be a non-empty array when present"]
+    for a in axes:
+        if a not in _JUDGMENT_AXES:
+            bad.append(f"judgment_axes entry {a!r} not in {sorted(_JUDGMENT_AXES)}")
+    return bad
+
+
+def check_axis_ownership(roles: dict[str, dict]) -> list[str]:
+    """Each of the five methodology axes must resolve to exactly one owning
+    role across the whole `roles/*.json` set — an axis owned by zero or by
+    more than one role is a schema error (architecture proposal section 1)."""
+    owners: dict[str, list[str]] = {axis: [] for axis in _JUDGMENT_AXES}
+    for name, cfg in roles.items():
+        for a in (cfg.get("judgment_axes") or []):
+            if a in owners:
+                owners[a].append(name)
+    bad = []
+    for axis, names in owners.items():
+        if len(names) > 1:
+            bad.append(f"axis {axis!r} owned by more than one role: {sorted(names)}")
+    return bad
+
+
+def check_axis_evaluation_entry(entry: dict, owning_axes: list[str],
+                                 write_scopes: dict[str, list[str]]) -> list[str]:
+    """Shape of one `axis_evaluation` record entry (architecture proposal
+    sections 1 and 6): `axis` must be one this role owns, `verdict` one of
+    the closed set, `citation` a non-empty string, and — iff
+    `verdict == "contradicts"` — a `finding` object carrying a non-empty
+    `required_fix` and a `target_path` that resolves against some role's
+    `write_scope` glob (fnmatch, mirrors `gates.py::role_scope`'s own
+    matching)."""
+    import fnmatch
+    bad = []
+    if not isinstance(entry, dict):
+        return ["axis_evaluation entry is not an object"]
+    axis = entry.get("axis")
+    if axis not in owning_axes:
+        bad.append(f"axis_evaluation.axis {axis!r} not in this role's judgment_axes {owning_axes}")
+    verdict = entry.get("verdict")
+    if verdict not in _AXIS_EVAL_VERDICTS:
+        bad.append(f"axis_evaluation.verdict {verdict!r} not in {sorted(_AXIS_EVAL_VERDICTS)}")
+    if not entry.get("citation"):
+        bad.append("axis_evaluation.citation must be a non-empty string")
+    finding = entry.get("finding")
+    if verdict == "contradicts":
+        if not isinstance(finding, dict):
+            bad.append("axis_evaluation.finding is required when verdict is 'contradicts'")
+        else:
+            target_path = finding.get("target_path")
+            if not target_path:
+                bad.append("axis_evaluation.finding.target_path must be a non-empty string")
+            elif not any(fnmatch.fnmatch(target_path, g)
+                         for globs in write_scopes.values() for g in globs):
+                bad.append(f"axis_evaluation.finding.target_path {target_path!r} "
+                           f"does not resolve against any role's write_scope")
+            if not finding.get("required_fix"):
+                bad.append("axis_evaluation.finding.required_fix must be a non-empty string")
+    elif finding is not None:
+        bad.append("axis_evaluation.finding must be absent when verdict is not 'contradicts'")
+    return bad
+
+
 _VERIFICATION_FAMILY_ROLES = (
     "execution-observation", "conformance-review", "defect-verification",
     "security-threat-model", "accessibility", "secure-coding",
