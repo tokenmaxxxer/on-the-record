@@ -1134,6 +1134,57 @@ def _merged_pr_for_branch(root: Path, branch: str) -> int | None:
     return None
 
 
+def _open_role_prs(root: Path) -> tuple[list[dict], bool]:
+    """열린 `issue-*/` 브랜치 PR 목록. `(prs, ok)` — `ok=False` 는 `gh` 조회
+    실패(`_issue_comments`/`_pr_for_branch` 와 같은 튜플 관례, issue #287 S6).
+    각 항목은 `number`, `headRefName`, `body`, `url`, 그리고 파싱해 뽑은
+    `issue`(int) 를 담는다."""
+    slug = _repo_slug(root)
+    if not slug:
+        return [], False
+    r = subprocess.run(["gh", "pr", "list", "--repo", slug, "--state", "open",
+                        "--json", "number,headRefName,body,url"],
+                       cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return [], False
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return [], False
+    out = []
+    for pr in data:
+        m = re.match(r"^issue-(\d+)/", pr.get("headRefName", ""))
+        if not m:
+            continue
+        out.append({**pr, "issue": int(m.group(1))})
+    return out, True
+
+
+def _undispositioned_role_prs(root: Path, exclude_issue: int | None = None
+                               ) -> tuple[list[dict], bool]:
+    """열린 `issue-*/` PR 중 아직 처분(phase-1 승인 또는 phase-2 머지/닫힘)
+    되지 않은 것들. phase 판정은 `gates/ci.py._approved_roles_on_issue` 를
+    재사용한다 — `_approved_roles_on_issue` 가 비어 있으면 phase-1 미승인,
+    있으면 phase-2 진행 중(그 이슈의 phase-2 PR 은 정의상 아직 열려 있으니
+    처분 전). `exclude_issue` 와 같은 이슈 번호는 건너뛴다(진행 중인 그
+    이슈 자신을 막지 않는다). `(blockers, ok)` — `ok` 는 `_open_role_prs`
+    의 실패를 그대로 전파한다.
+    """
+    prs, ok = _open_role_prs(root)
+    if not ok:
+        return [], False
+    sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+    import ci as _ci
+    blockers = []
+    for pr in prs:
+        if exclude_issue is not None and pr["issue"] == exclude_issue:
+            continue
+        approved_roles = _ci._approved_roles_on_issue(root, pr["issue"])
+        phase = "phase2" if approved_roles else "phase1"
+        blockers.append({**pr, "phase": phase})
+    return blockers, True
+
+
 def _issue_comments(root: Path, number: int) -> tuple[list[dict], bool]:
     """`number` 앞으로 달린 코멘트. GitHub 는 이슈든 PR 이든 같은
     `/issues/<n>/comments` 로 대화 코멘트를 낸다 — PR 리뷰 코멘트가 아니라
@@ -3588,6 +3639,9 @@ def main() -> int:
     ap.add_argument("--no-wait", action="store_true",
                     help="spawn --issue: fork 직후 _await_bounded 없이 즉시 "
                          "리턴한다 — 재개 명령(spawn.py watch)을 찍는다 (이슈 #645)")
+    ap.add_argument("--despite-returned", action="store_true",
+                    help="다른 issue-*/ PR 이 아직 처분되지 않았어도 스폰을 "
+                         "강행한다 — ledger 에 bypass 이벤트를 남긴다 (이슈 #680)")
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
@@ -3808,7 +3862,8 @@ def main() -> int:
     return _spawn_one(a.cwd, a.role, a.task, a.unattended, a.issue,
                       bounded=a.issue is not None,
                       stall_timeout_min=a.stall_timeout,
-                      no_wait=a.no_wait)
+                      no_wait=a.no_wait,
+                      despite_returned=a.despite_returned)
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -4236,7 +4291,8 @@ def _release_spawn_claim(work: str, pid: int) -> None:
 
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
-               stall_timeout_min: float = 5.0, no_wait: bool = False) -> int:
+               stall_timeout_min: float = 5.0, no_wait: bool = False,
+               despite_returned: bool = False) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -4244,6 +4300,30 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     """
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
     if issue is not None:
+        root = Path(cwd).resolve()
+        blockers, ok = _undispositioned_role_prs(root, exclude_issue=issue)
+        if not ok:
+            print(f"[{role}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
+                  f"통과시킨다 (이슈 #680)", file=sys.stderr)
+            ledger_write({"event": "returned_pr_gate_fail_open", "role": role,
+                          "issue": issue, "ts": int(time.time())})
+        elif blockers and not despite_returned:
+            print(f"[{role}] 다른 issue-*/ PR 이 아직 처분되지 않았다 — "
+                  f"이 스폰을 거절한다 (--despite-returned 로 무시 가능):",
+                  file=sys.stderr)
+            for b in blockers:
+                print(f"  issue #{b['issue']} ({b['phase']}): {b['url']}",
+                      file=sys.stderr)
+            ledger_write({"event": "returned_pr_gate_refused", "role": role,
+                          "issue": issue,
+                          "blocked_by": [b["issue"] for b in blockers],
+                          "ts": int(time.time())})
+            return 1
+        elif blockers and despite_returned:
+            ledger_write({"event": "returned_pr_gate_bypassed", "role": role,
+                          "issue": issue,
+                          "blocked_by": [b["issue"] for b in blockers],
+                          "ts": int(time.time())})
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
         # 동시 스폰들이 서로의 index/브랜치를 밟지 않는다.
         cwd = issue_workspace(cwd, issue, role)
