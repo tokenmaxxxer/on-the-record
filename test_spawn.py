@@ -4947,6 +4947,83 @@ class RosterReconcileRemediationMergedCLI(unittest.TestCase):
         self.assertIn("--remediation-merged", r.stdout)
 
 
+class RosterReconcileRemediationMergedCLITargetRoot(unittest.TestCase):
+    """이슈 #587 round 3: 세 번째 e2e 가 잡은 결함 — `_remediation_merge_sweep`
+    이 항상 `spawn.ROOT`(spawn.py 자신의 체크아웃)로만 불려서, `-C` 로 다른
+    레포를 겨눈 CLI 호출에서 조용히 no-op 됐다. 이 테스트는 shipped CLI
+    프로세스(`python3 spawn.py reconcile --remediation-merged ...`)를
+    spawn.py 자신의 체크아웃 밖에 있는 fixture 레포로 `-C` 를 줘서 구동한다
+    — `_remediation_merge_sweep` 직접 호출도, `spawn.ROOT` monkeypatch 도
+    아니다: 그게 바로 이전 라운드가 통과시킨 채 이 결함을 놓친 커버리지
+    구멍이다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.checkout_root = Path(os.path.dirname(os.path.abspath(spawn.__file__)))
+        self.fixture_root = Path(self.tmp.name) / "fixture-repo"
+        self.fixture_root.mkdir()
+        self.assertNotEqual(self.fixture_root, self.checkout_root)
+        self._orig_run = subprocess.run
+        self._orig_run(["git", "-C", str(self.fixture_root), "init", "-q"],
+                        capture_output=True, text=True)
+        self._orig_run(["git", "-C", str(self.fixture_root), "remote", "add",
+                         "origin", "https://github.com/acme/repo.git"],
+                        capture_output=True, text=True)
+        decisions_dir = self.fixture_root / "docs" / "issue-587" / "decisions"
+        decisions_dir.mkdir(parents=True)
+        lines = ["---",
+                 "finding_source: docs/issue-587/decisions/auto-1.md",
+                 "candidate_pr: 601",
+                 "routed_to: implementation",
+                 "target_path: spawn.py",
+                 "required_fix: wire event 4",
+                 "contradicting_role: verify",
+                 "round: 1",
+                 "status: open",
+                 "timestamp: 2026-08-10T00:00:00Z",
+                 "---", ""]
+        (decisions_dir / "remediation-1.md").write_text("\n".join(lines), encoding="utf-8")
+        self.calls_log = Path(self.tmp.name) / "gh-calls.log"
+        bin_dir = Path(self.tmp.name) / "bin"
+        bin_dir.mkdir()
+        gh_stub = bin_dir / "gh"
+        gh_stub.write_text(
+            "#!/usr/bin/env python3\n"
+            "import json, sys, pathlib\n"
+            "argv = sys.argv[1:]\n"
+            f"pathlib.Path({str(self.calls_log)!r}).open('a').write(repr(argv) + chr(10))\n"
+            "if argv[:2] == ['repo', 'view']:\n"
+            "    print('acme/repo')\n"
+            "elif argv[:2] == ['pr', 'list']:\n"
+            "    print(json.dumps([{'number': 605, 'state': 'MERGED'}]))\n"
+            "elif argv[:2] == ['api', 'repos/acme/repo/issues/587/comments'] and '--paginate' in argv:\n"
+            "    print(json.dumps([[]]))\n"
+            "elif argv[0] == 'api' and any(a.startswith('body=') for a in argv):\n"
+            "    pass\n"
+            "else:\n"
+            "    sys.exit(1)\n",
+            encoding="utf-8")
+        gh_stub.chmod(0o755)
+        self._orig_path = os.environ.get("PATH", "")
+        self.env = dict(os.environ)
+        self.env["PATH"] = f"{bin_dir}{os.pathsep}{self._orig_path}"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_cli_dash_c_targets_fixture_repo_not_checkout(self):
+        spawn_py = self.checkout_root / "spawn.py"
+        r = self._orig_run(
+            [sys.executable, str(spawn_py), "reconcile", "--remediation-merged",
+             "--issue", "587", "-C", str(self.fixture_root)],
+            capture_output=True, text=True, env=self.env)
+        self.assertEqual(r.returncode, 1, msg=r.stderr)  # posted-comment count, per _remediation_merge_sweep's return convention
+        raw_calls = self.calls_log.read_text(encoding="utf-8").splitlines() if self.calls_log.exists() else []
+        post_calls = [c for c in raw_calls if "'api'" in c and "body=" in c]
+        self.assertEqual(len(post_calls), 1, msg=f"gh calls: {raw_calls}")
+        self.assertIn("Remediation merged: PR #605 resolves round 1 of PR #601", post_calls[0])
+
+
 class RosterReconcileUnreported(unittest.TestCase):
     """이슈 #534: `spawn.py reconcile --unreported` — workspace 인덱스에서
     session-end(normal) 인데 [watch] 코멘트가 없는 엔트리를 찍고,
