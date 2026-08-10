@@ -224,20 +224,24 @@ def build_framing_snapshot(target, issue, transition, pr_ref):
             if cost_sentence and possible_sentence:
                 break
 
-        fallback_cite = str(records[0].relative_to(target))
+        # Per-field fallback text is baseline/no-record prose (architecture
+        # section 5's exception), so it takes the same baseline citation form
+        # as the no-records-at-all branch above — never a specific record's
+        # path, which would claim that record contains text it does not.
+        baseline_cite = f"{issue} (no prior record; issue body is the baseline)"
         elements = {
             "Resolved problem": (
                 resolved_sentence or "No resolved-problem field found in this "
-                "issue's audit records yet.", resolved_cite or fallback_cite),
+                "issue's audit records yet.", resolved_cite or baseline_cite),
             "Prior cost": (
                 cost_sentence or "No prior-cost prose found in this issue's "
-                "role records yet.", cost_cite or fallback_cite),
+                "role records yet.", cost_cite or baseline_cite),
             "Newly possible": (
                 possible_sentence or "No newly-possible prose found in this "
-                "issue's role records yet.", possible_cite or fallback_cite),
+                "issue's role records yet.", possible_cite or baseline_cite),
             "Still broken": (
                 broken_sentence or "No open remediation record found for "
-                "this issue.", broken_cite or fallback_cite),
+                "this issue.", broken_cite or baseline_cite),
         }
 
     for _, citation in elements.values():
