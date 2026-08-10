@@ -7857,3 +7857,131 @@ class ReturnedPrGate(unittest.TestCase):
             self.assertIn("gh 조회 실패", captured_stderr.getvalue())
             events = [e["event"] for e in ledger_calls]
             self.assertIn("returned_pr_gate_fail_open", events)
+
+
+class ClosureSweepCallCountTest(unittest.TestCase):
+    """issue #682 — find_violations 의 gh 호출이 subject 수에 비례하지 않는다."""
+
+    def setUp(self):
+        sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+        import closure_sweep
+        import ci
+        self.cs = closure_sweep
+        self.ci = ci
+        self.root = Path(".")
+
+    def _patch(self, obj, name, fn):
+        orig = getattr(obj, name)
+        setattr(obj, name, fn)
+        self.addCleanup(setattr, obj, name, orig)
+
+    def _subjects(self, n):
+        return {f"issue-{i}": {"implementation": {}} for i in range(1, n + 1)}
+
+    def test_pr_lookup_is_one_call_regardless_of_subject_count(self):
+        """브랜치별 개별 조회(_pr_for_branch/_pr_view_state_body)를 쓰지 않는다."""
+        calls = {"index": 0, "per_branch": 0, "pr_view": 0}
+
+        def index(root):
+            calls["index"] += 1
+            return {f"issue-{i}/implementation": {
+                "number": 500 + i, "state": "MERGED",
+                "body": f"Closes #{i}"} for i in range(1, 51)}, True
+
+        self._patch(self.cs, "_pr_index_all", index)
+        self._patch(spawn, "_pr_for_branch",
+                    lambda root, branch: calls.__setitem__("per_branch", calls["per_branch"] + 1))
+        self._patch(self.cs, "_pr_view_state_body",
+                    lambda root, pr: calls.__setitem__("pr_view", calls["pr_view"] + 1))
+        self._patch(self.ci, "_phase2_record_evidence",
+                    lambda root, pr, branch, issue: False)
+
+        states = {i: "OPEN" for i in range(1, 51)}
+        violations, skips = self.cs.find_violations(
+            self.root, subjects=self._subjects(50), issue_states=states)
+
+        self.assertEqual(calls["index"], 1)
+        self.assertEqual(calls["per_branch"], 0)
+        self.assertEqual(calls["pr_view"], 0)
+        self.assertEqual(len(violations), 50)
+        self.assertEqual(skips, [])
+
+    def test_record_evidence_fetched_only_when_it_can_change_the_verdict(self):
+        """MERGED + 이슈 OPEN + closes 키워드 없음 — 그 조합에서만 조회한다."""
+        fetched = []
+        rows = {
+            # closes 키워드가 있으니 증거 없이도 위반 — 조회 불필요
+            "issue-1/implementation": {"number": 501, "state": "MERGED", "body": "Closes #1"},
+            # 이슈가 닫혀 있으니 그 가지에 못 들어간다 — 조회 불필요
+            "issue-2/implementation": {"number": 502, "state": "MERGED", "body": "#2"},
+            # 유일하게 증거가 판정을 뒤집을 수 있는 행
+            "issue-3/implementation": {"number": 503, "state": "MERGED", "body": "#3"},
+        }
+        self._patch(self.cs, "_pr_index_all", lambda root: (rows, True))
+
+        def evidence(root, pr, branch, issue):
+            fetched.append(pr)
+            return True
+
+        self._patch(self.ci, "_phase2_record_evidence", evidence)
+
+        violations, skips = self.cs.find_violations(
+            self.root, subjects=self._subjects(3),
+            issue_states={1: "OPEN", 2: "CLOSED", 3: "OPEN"})
+
+        self.assertEqual(fetched, [503])
+        self.assertEqual(sorted(v["issue"] for v in violations), [1, 3])
+        self.assertEqual(skips, [])
+
+    def test_pr_list_failure_becomes_skips_not_silent_zero(self):
+        """목록 조회가 실패하면 '위반 없음'이 아니라 확인 불가로 남는다."""
+        self._patch(self.cs, "_pr_index_all", lambda root: (None, False))
+        violations, skips = self.cs.find_violations(
+            self.root, subjects=self._subjects(4),
+            issue_states={i: "OPEN" for i in range(1, 5)})
+        self.assertEqual(violations, [])
+        self.assertEqual(len(skips), 4)
+        self.assertTrue(all(s["reason"] == "gh-pr-list-failed" for s in skips))
+
+    def test_truncated_pr_list_falls_back_to_per_branch_lookup(self):
+        """--limit 에 걸리면 조용히 놓치지 않고 옛 개별 조회로 되돌아간다."""
+        self._patch(self.cs, "_pr_index_all", lambda root: (None, True))
+        self._patch(spawn, "_pr_for_branch", lambda root, branch: 777)
+        self._patch(self.cs, "_pr_view_state_body",
+                    lambda root, pr: (("MERGED", "Closes #1"), True))
+        self._patch(self.ci, "_phase2_record_evidence",
+                    lambda root, pr, branch, issue: False)
+        violations, skips = self.cs.find_violations(
+            self.root, subjects=self._subjects(1), issue_states={1: "OPEN"})
+        self.assertEqual(len(violations), 1)
+        self.assertEqual(violations[0]["pr"], 777)
+        self.assertEqual(skips, [])
+
+
+class RepoSlugCacheTest(unittest.TestCase):
+    """issue #682 — 슬러그는 체크아웃당 상수라 한 번만 조회한다."""
+
+    def test_repeated_calls_hit_gh_once_per_root(self):
+        spawn._repo_slug_cache_clear()
+        self.addCleanup(spawn._repo_slug_cache_clear)
+        calls = []
+
+        class R:
+            returncode = 0
+            stdout = "acme/repo\n"
+
+        def fake_run(argv, **kw):
+            calls.append(argv)
+            return R()
+
+        orig = spawn.subprocess.run
+        spawn.subprocess.run = fake_run
+        try:
+            first = [spawn._repo_slug(Path("/tmp/a")) for _ in range(5)]
+            second = spawn._repo_slug(Path("/tmp/b"))
+        finally:
+            spawn.subprocess.run = orig
+
+        self.assertEqual(first, ["acme/repo"] * 5)
+        self.assertEqual(second, "acme/repo")
+        self.assertEqual(len(calls), 2)  # root 당 1회

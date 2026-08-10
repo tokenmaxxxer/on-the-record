@@ -1059,10 +1059,33 @@ def _approvers(root: Path) -> set[str]:
     return out
 
 
+_REPO_SLUG_CACHE: dict[str, str | None] = {}
+
+
+def _repo_slug_cache_clear() -> None:
+    """`_repo_slug` 캐시를 비운다 — 한 프로세스에서 여러 레포나 여러 인증
+    상태를 순차로 다루는 테스트용."""
+    _REPO_SLUG_CACHE.clear()
+
+
 def _repo_slug(root: Path) -> str | None:
-    r = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
-                        "-q", ".nameWithOwner"], cwd=root, capture_output=True, text=True)
-    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+    """레포 슬러그(`owner/name`). 프로세스 수명 동안 root 별로 캐시한다
+    (issue #682).
+
+    슬러그는 체크아웃당 상수다. flows-schema.md §4 는 이 호출을 이미
+    "1 call (cached)" 로 계약에 적어뒀는데 구현에 캐시가 없어,
+    `closure_sweep` 경로에서 `_fetch_ref_file` 이 subject 마다 다시 불러
+    182회 · 94초를 썼다. 이 캐시가 그 계약을 구현으로 옮긴다.
+
+    실패(`None`)도 캐시한다 — `gh` 인증/레포 인식 실패는 이 프로세스
+    실행 내내 같은 결과이므로 호출마다 느린 재시도를 반복할 이유가 없다."""
+    key = str(root)
+    if key not in _REPO_SLUG_CACHE:
+        r = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
+                            "-q", ".nameWithOwner"], cwd=root, capture_output=True, text=True)
+        _REPO_SLUG_CACHE[key] = (
+            r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None)
+    return _REPO_SLUG_CACHE[key]
 
 
 def _repo_name(root: Path) -> str | None:
