@@ -2380,7 +2380,7 @@ def _prior_event_details(events_path: Path, ev_type: str) -> set:
 
 RESPAWN_STATE = ROOT / "runs" / "respawn_state.json"
 RESPAWN_MAX_ATTEMPTS = 2
-_CRASH_COMMENT_MARKER = "[on-the-record] {key}: crashed, 재스폰 상한({cap}) 도달"
+_CRASH_COMMENT_MARKER = "[on-the-record] {key}: crashed, respawn cap ({cap}) reached"
 _STALL_COMMENT_MARKER = "[on-the-record] {key}: stalled"
 
 
@@ -2415,8 +2415,8 @@ def _post_crash_comment(root: Path, issue: int, key: str, work: str, log: str,
     if not slug:
         return
     body = (f"{marker}\n\n"
-            f"트리거: {trigger}\n워크스페이스: {work}\n로그: {log}\n\n"
-            f"{RESPAWN_MAX_ATTEMPTS}회 자동 재스폰을 모두 소진했다 — 사람이 개입해야 한다.")
+            f"trigger: {trigger}\nworkspace: {work}\nlog: {log}\n\n"
+            f"All {RESPAWN_MAX_ATTEMPTS} automatic respawns exhausted — needs human intervention.")
     r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
                     "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
@@ -2440,9 +2440,9 @@ def _post_stall_comment(root: Path, issue: int, key: str, work: str, log: str) -
     if not slug:
         return
     body = (f"{marker}\n\n"
-            f"워크스페이스: {work}\n로그: {log}\n\n"
-            f"세션이 멈춘 것으로 판정됐다 — 자동 재스폰은 걸리지 않는다"
-            f"(관찰-전용 정책). 사람이 확인해야 한다.")
+            f"workspace: {work}\nlog: {log}\n\n"
+            f"Session judged stalled — automatic respawn will not trigger "
+            f"(observation-only policy). Needs human check.")
     subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
                     "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
 
@@ -2495,7 +2495,7 @@ def _post_session_end_comment(root: Path, issue: int, key: str, work: str,
         line = "no PR (pr-check-failed)"
     else:
         line = "no PR"
-    body = f"{marker} {line}\n\n워크스페이스: {work}\n로그: {log}"
+    body = f"{marker} {line}\n\nworkspace: {work}\nlog: {log}"
     r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
                         "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
@@ -2521,10 +2521,10 @@ def _post_stranded_push_comment(root: Path, issue: int, role: str, branch: str,
     if not slug:
         return
     body = (f"{marker}\n\n"
-            f"브랜치: {branch}\n사유: {reason}\n상세: {detail[:200]}\n\n"
-            f"{role} 역할 세션의 작업이 여기서 멈췄다 — 재개하거나(호스트에서 "
-            f"push/PR 생성을 다시 시도), 이유를 남기고 이슈를 닫아야 한다. "
-            f"사람이 개입해야 한다.")
+            f"branch: {branch}\nreason: {reason}\ndetail: {detail[:200]}\n\n"
+            f"The {role}-role session's work stopped here — resume it (retry the "
+            f"push/PR creation from the host), or close the issue with a stated "
+            f"reason. Needs human intervention.")
     subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
                     "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
 
