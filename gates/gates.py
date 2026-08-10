@@ -1228,6 +1228,30 @@ def schema_field_orphans(d: Path, cfg: dict) -> list[str]:
     return bad
 
 
+def ui_evidence_gate_gate(d: Path, cfg: dict) -> list[str]:
+    """변경된 `docs/issue-<n>/reports/<role>.md` 가 `verdict: pass` 를
+    주장하는데 diff 가 UI 표면을 건드리면 `provenance: executed-live`
+    증거를 요구한다 (issue-685). `ui_evidence_gate.py` 는 순수 함수라
+    여기서 diff-scoped 배선만 한다 — `claims`/`_claims_gate` 와 같은
+    순환 임포트 회피를 위해 지연 임포트한다."""
+    import ui_evidence_gate
+    root = d / "work" if (d / "work").exists() else d
+    try:
+        files = changed_files(root)
+    except RuntimeError as e:
+        return [str(e)]
+    bad = []
+    for f in files:
+        m = RECORD_PATH.match(f)
+        if not m:
+            continue
+        record_file = root / f
+        text = (record_file.read_text(encoding="utf-8-sig", errors="replace")
+                if record_file.exists() else "")
+        bad += ui_evidence_gate.check_record(root, f, text, files)
+    return bad
+
+
 ALL = {"writeset": writeset, "deps": deps,
        "record_enums": record_enums,
        "record_refusal_reasoned": record_refusal_reasoned,
@@ -1241,7 +1265,8 @@ ALL = {"writeset": writeset, "deps": deps,
        "subprocess_call_shape_divergence": subprocess_call_shape_divergence_gate,
        "sibling_mention_check": sibling_mention_check_gate,
        "ci_reachable_gates": ci_reachable_gates,
-       "schema_field_orphans": schema_field_orphans}
+       "schema_field_orphans": schema_field_orphans,
+       "ui_evidence_gate": ui_evidence_gate_gate}
 
 
 def _claims_gate(d: Path, cfg: dict) -> list[str]:
