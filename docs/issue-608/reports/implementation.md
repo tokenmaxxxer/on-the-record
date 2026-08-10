@@ -7,7 +7,7 @@ code_under_review:
 type: feature
 breaking: false
 verdict: pass
-loop_state: committing
+loop_state: landed
 ---
 
 # Issue #608 step 2 — implementation record
@@ -122,8 +122,4 @@ None.
 
 ## Next steps
 
-Commit, push, open PR against main with `Closes #608`.
-
-## Resolution path
-
-N/A — no open finding.
+None — landed.
