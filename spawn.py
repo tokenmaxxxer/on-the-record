@@ -2156,7 +2156,8 @@ def _remediation_merge_sweep(root: Path, issue: int) -> int:
 
 
 def roster_reconcile(issue: int | None = None, unreported: bool = False,
-                      remediation_merged: bool = False) -> int:
+                      remediation_merged: bool = False,
+                      root: Path | None = None) -> int:
     """`spawn.py reconcile [--issue N] [--unreported] [--remediation-merged]`
     — 이슈-492 step 2 CLI verb, 이슈 #534 로 `--unreported` 모드가, 이슈
     #587 round 2 로 `--remediation-merged` 모드가 추가됐다.
@@ -2165,9 +2166,13 @@ def roster_reconcile(issue: int | None = None, unreported: bool = False,
     roster 가 아니라 workspace 인덱스를 보는, 다른 데이터소스/다른 질문
     (divergence 가 아니라 "미보고 session-end")이라 별도 함수로 분리했다.
 
-    `remediation_merged=True` 면 `_remediation_merge_sweep(ROOT, issue)` 로
-    위임한다 — `issue` 가 없으면 대상을 특정할 수 없으므로 아무 것도 하지
-    않고 0 을 반환한다.
+    `remediation_merged=True` 면 `_remediation_merge_sweep(target_root,
+    issue)` 로 위임한다 — `target_root` 는 `root` (호출자의 `-C` 대상)가
+    주어지면 그것, 아니면 `ROOT`(spawn.py 자신의 체크아웃)다. 이슈 #587
+    round 3: `_remediation_merge_sweep` 이 항상 `ROOT` 로만 불려서 다른
+    레포를 대상으로 한 CLI 호출에서 조용히 no-op 됐던 결함의 수정 —
+    `issue` 가 없으면 대상을 특정할 수 없으므로 아무 것도 하지 않고 0 을
+    반환한다.
 
     기본 모드(둘 다 False)는 그대로다: 로스터(살아있는 것 + 죽은 것
     전부, `watchdog --auto-respawn` 의 스캔 범위와 같다)를 훑어 엔트리마다
@@ -2180,7 +2185,8 @@ def roster_reconcile(issue: int | None = None, unreported: bool = False,
     if remediation_merged:
         if issue is None:
             return 0
-        return _remediation_merge_sweep(ROOT, issue)
+        target_root = root if root is not None else ROOT
+        return _remediation_merge_sweep(target_root, issue)
     d = _roster_load()
     if issue is not None:
         d = {k: e for k, e in d.items() if e.get("issue") == issue}
@@ -3508,7 +3514,8 @@ def main() -> int:
         return roster_watchdog(auto_respawn=a.auto_respawn)
     if a.role == "reconcile":
         return roster_reconcile(a.issue, unreported=a.unreported,
-                                 remediation_merged=a.remediation_merged)
+                                 remediation_merged=a.remediation_merged,
+                                 root=Path(a.cwd).resolve())
     if a.role == "flows":
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import flows
