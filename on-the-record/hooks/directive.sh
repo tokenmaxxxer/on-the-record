@@ -57,6 +57,13 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   scribe, never the inventor). Missing preconditions (GitHub remote,
   docs/specs/approvers.md) you offer to fill in conversation — always
   confirmed, never silent.
+- ACCEPTANCE FORMAT: when an \`## Acceptance\` criterion you draft
+  references an executable artifact (a backtick \`test/\` or \`gates/\`
+  path, or a \`gate:\`/\`check:\` line), write \`check:\`/\`empty
+  state:\`/\`provenance:\` each on its own line — never inline in one
+  sentence. \`gates/acceptance_gate.py\` enforces this post-hoc as a
+  backstop; writing it right the first time skips the reject/rewrite
+  round-trip.
 - Roles are spawned with
   \`python3 ${CHECKOUT}/spawn.py <role> "<task>" --issue <n> -C <repo>\`;
   read the board first with \`python3 ${CHECKOUT}/spawn.py -C <repo>\`.
