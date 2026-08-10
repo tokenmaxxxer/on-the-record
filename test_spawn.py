@@ -3994,6 +3994,139 @@ class AutoRespawnClaim(unittest.TestCase):
             self.assertEqual(called[0][0], "comment")
 
 
+class ProgressAwareRespawnCounter(unittest.TestCase):
+    """이슈 #678: `_respawn_or_cap()` 의 attempts 는 no-progress *스트릭* —
+    직전 재스폰 시점 지문(커밋 sha + 보드 스냅샷)과 다르면 리셋된다.
+    `RESPAWN_ABSOLUTE_MAX` 는 스트릭과 무관한 총 시도 상한."""
+
+    def _prep_repo(self, td):
+        work = Path(td) / "w"
+        work.mkdir()
+        run = lambda *a: subprocess.run(a, cwd=str(work), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (work / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        Path(str(work) + ".task.txt").write_text("원래 맡길 일")
+        return work, run
+
+    def test_new_commit_resets_streak_instead_of_capping(self):
+        with tempfile.TemporaryDirectory() as td:
+            work, run = self._prep_repo(td)
+            prev_fp = spawn._respawn_fingerprint(str(work))
+            # attempts 는 이미 상한(2)이지만, 그 지문 이후 실제로 새
+            # 커밋이 얹혔다 — 스트릭이 리셋돼 재스폰돼야 한다.
+            state = {"issue-678/coding": {"attempts": spawn.RESPAWN_MAX_ATTEMPTS,
+                                          "total_attempts": spawn.RESPAWN_MAX_ATTEMPTS,
+                                          "fingerprint": prev_fp}}
+            (work / "f.txt").write_text("y")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "progress")
+            called = []
+            orig = spawn._spawn_one
+            spawn._spawn_one = lambda *a, **k: called.append(1)
+            try:
+                spawn._respawn_or_cap("issue-678/coding", str(work), 678,
+                                      "implementation", "l", 1, state,
+                                      "self-triggered-abandoned")
+            finally:
+                spawn._spawn_one = orig
+            self.assertEqual(len(called), 1)
+            self.assertEqual(state["issue-678/coding"]["attempts"], 1)
+            self.assertEqual(state["issue-678/coding"]["total_attempts"],
+                             spawn.RESPAWN_MAX_ATTEMPTS + 1)
+
+    def test_board_delta_resets_streak(self):
+        with tempfile.TemporaryDirectory() as td:
+            work, run = self._prep_repo(td)
+            board_dir = work / "docs" / "issue-678" / "reports"
+            board_dir.mkdir(parents=True)
+            (board_dir / "implementation.md").write_text("before")
+            prev_fp = spawn._respawn_fingerprint(str(work))
+            state = {"issue-678/coding": {"attempts": spawn.RESPAWN_MAX_ATTEMPTS,
+                                          "total_attempts": spawn.RESPAWN_MAX_ATTEMPTS,
+                                          "fingerprint": prev_fp}}
+            (board_dir / "implementation.md").write_text("after — real progress")
+            called = []
+            orig = spawn._spawn_one
+            spawn._spawn_one = lambda *a, **k: called.append(1)
+            try:
+                spawn._respawn_or_cap("issue-678/coding", str(work), 678,
+                                      "implementation", "l", 1, state,
+                                      "self-triggered-abandoned")
+            finally:
+                spawn._spawn_one = orig
+            self.assertEqual(len(called), 1)
+            self.assertEqual(state["issue-678/coding"]["attempts"], 1)
+
+    def test_consecutive_no_progress_still_hits_cap(self):
+        with tempfile.TemporaryDirectory() as td:
+            work, run = self._prep_repo(td)
+            fp = spawn._respawn_fingerprint(str(work))
+            state = {"issue-678/coding": {"attempts": spawn.RESPAWN_MAX_ATTEMPTS,
+                                          "total_attempts": spawn.RESPAWN_MAX_ATTEMPTS,
+                                          "fingerprint": fp}}
+            called = []
+            orig_spawn = spawn._spawn_one
+            orig_comment = spawn._post_crash_comment
+            spawn._spawn_one = lambda *a, **k: called.append(("spawn", a))
+            spawn._post_crash_comment = lambda *a, **k: called.append(("comment", a, k))
+            try:
+                spawn._respawn_or_cap("issue-678/coding", str(work), 678,
+                                      "implementation", "l", 1, state,
+                                      "self-triggered-abandoned")
+            finally:
+                spawn._spawn_one = orig_spawn
+                spawn._post_crash_comment = orig_comment
+            self.assertEqual(len(called), 1)
+            self.assertEqual(called[0][0], "comment")
+            self.assertNotIn("absolute", called[0][2])
+
+    def test_absolute_max_fires_even_when_streak_resets(self):
+        with tempfile.TemporaryDirectory() as td:
+            work, run = self._prep_repo(td)
+            prev_fp = spawn._respawn_fingerprint(str(work))
+            # 스트릭은 낮지만(진행이 매번 있었음) 총 시도 수가 절대 상한에
+            # 닿아 있다 — 스트릭 리셋과 무관하게 캡이 걸려야 한다.
+            state = {"issue-678/coding": {"attempts": 0,
+                                          "total_attempts": spawn.RESPAWN_ABSOLUTE_MAX,
+                                          "fingerprint": prev_fp}}
+            (work / "f.txt").write_text("z")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "more progress")
+            called = []
+            orig_spawn = spawn._spawn_one
+            orig_comment = spawn._post_crash_comment
+            spawn._spawn_one = lambda *a, **k: called.append(("spawn", a))
+            spawn._post_crash_comment = lambda *a, **k: called.append(("comment", a, k))
+            try:
+                spawn._respawn_or_cap("issue-678/coding", str(work), 678,
+                                      "implementation", "l", 1, state,
+                                      "self-triggered-abandoned")
+            finally:
+                spawn._spawn_one = orig_spawn
+                spawn._post_crash_comment = orig_comment
+            self.assertEqual(len(called), 1)
+            self.assertEqual(called[0][0], "comment")
+            self.assertTrue(called[0][2].get("absolute"))
+
+    def test_refused_and_waiting_on_human_never_reach_respawn_or_cap(self):
+        called = []
+        orig = spawn._respawn_or_cap
+        spawn._respawn_or_cap = lambda *a, **k: called.append(a)
+        try:
+            spawn._self_trigger_respawn("refused", "issue-678/coding", "w",
+                                        678, "implementation", "l", 1)
+            spawn._self_trigger_respawn("waiting-on-human", "issue-678/coding",
+                                        "w", 678, "implementation", "l", 1)
+        finally:
+            spawn._respawn_or_cap = orig
+        self.assertEqual(called, [])
+
+
 class SelfTriggeredRespawn(unittest.TestCase):
     """이슈 #247: 정상 종료(crashed 아님)했지만 미커밋 작업을 남긴 헤드리스
     세션이, 워치독 틱을 기다리지 않고 `_spawn_one()` 자기 프로세스 안에서
