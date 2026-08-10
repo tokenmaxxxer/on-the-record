@@ -39,7 +39,11 @@ if data is None:
     sys.exit(1)
 
 if argv[:2] == ["pr", "view"]:
-    print(json.dumps({"body": data["pr_body"], "number": int(argv[2])}))
+    print(json.dumps({
+        "body": data["pr_body"],
+        "number": int(argv[2]),
+        "commits": data.get("commits", []),
+    }))
 elif argv[:2] == ["issue", "view"]:
     print(json.dumps(data.get("issue_comments", [])))
 else:
@@ -54,8 +58,11 @@ def _write_fake_gh(bin_dir: Path):
     return p
 
 
-def _approve_comment(issue, login):
-    return {"body": f"APPROVE issue-{issue}/implementation", "author": {"login": login}}
+def _approve_comment(issue, login, created_at=None, role="implementation"):
+    c = {"body": f"APPROVE issue-{issue}/{role}", "author": {"login": login}}
+    if created_at is not None:
+        c["createdAt"] = created_at
+    return c
 
 
 def _run_guard(cmd, fixtures, tmp_path, cwd=None):
@@ -212,6 +219,86 @@ def test_no_repo_indicator_unchanged_cwd_behavior(tmp_path):
             "cwd": {
                 "pr_body": "no closing keyword, just #9",
                 "issue_comments": [_approve_comment(9, "alice")],
+            },
+        },
+    }
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
+    assert r.returncode == 2, r.stderr
+    assert "phase-2 issue (#9)" in r.stderr
+
+
+# --- round-scoping matrix (issue #577) ---------------------------------
+
+def test_prior_round_approval_allows_new_phase1_pr(tmp_path):
+    """An approval predating this PR's own head branch's first commit is a
+    prior round's approval — must not gate a new round's phase-1 PR (no
+    Closes obligation)."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "proposal(issue-9): phase-1 for round 2, no closing keyword",
+                "commits": [{"committedDate": "2026-08-10T12:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-01T00:00:00Z")],
+            },
+        },
+    }
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
+    assert r.returncode == 0, r.stderr
+
+
+def test_same_round_approval_denies_without_closes(tmp_path):
+    """An approval newer than this PR's own first commit is the same round
+    — must still deny a delivering PR with no Closes."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "no closing keyword here, just #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+            },
+        },
+    }
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
+    assert r.returncode == 2, r.stderr
+    assert "phase-2 issue (#9)" in r.stderr
+
+
+def test_same_round_approval_with_closes_allows(tmp_path):
+    """Same-round approval plus a proper Closes must still allow — the fix
+    must not turn same-round delivery into a false denial."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "Closes #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+            },
+        },
+    }
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir)
+    assert r.returncode == 0, r.stderr
+
+
+def test_cross_role_approval_still_gates_phase2(tmp_path):
+    """#312 regression: an approval for a *different* role than the PR's
+    own, but newer than the PR's first commit, must still count as
+    phase-2 — role stays out of the scoping signal."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "no closing keyword here, just #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [
+                    _approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z", role="architect"),
+                ],
             },
         },
     }
