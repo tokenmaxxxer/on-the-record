@@ -368,10 +368,17 @@ def escalate(reason):
     sys.exit(0)
 
 
-if not (DEPTH and LOW_IMPACT):
-    escalate("depth or impact axis did not clear")
+def rfc3339():
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
 
 # --- roles / write_scope / judgment_axes ------------------------------------
+# Moved above the candidate-decision AND-gate exit below (issue #609): the
+# open-decision triage block that follows needs ROLES/parse_axis_evaluations/
+# latest_axis_evaluation regardless of whether that gate escalates, since
+# triage evaluates a different, item-scoped question than the candidate
+# decision does. Function bodies are unchanged from #573 — only their
+# definition point moved earlier in the same heredoc.
 def load_roles():
     roles = {}
     roles_dir = TARGET / "roles"
@@ -402,24 +409,7 @@ def role_scope(role):
     return [g.replace("<n>", str(issue)) for g in (ROLES.get(role, {}).get("write_scope") or [])]
 
 
-standing_roles = set()
-for p in paths:
-    for role in ROLES:
-        if any(glob_matches(p, g) for g in role_scope(role)):
-            standing_roles.add(role)
-
-implicated_axes = set()
-for role in standing_roles:
-    implicated_axes.update(ROLES.get(role, {}).get("judgment_axes") or [])
-
-eligible_roles = sorted(
-    role for role, cfg in ROLES.items()
-    if set(cfg.get("judgment_axes") or []) & implicated_axes)
-
-if not eligible_roles:
-    escalate("no eligible role owns an implicated judgment axis")
-
-# --- read each eligible role's latest axis_evaluation record ---------------
+# --- read a role's latest axis_evaluation record ----------------------------
 BLOCK_RE = re.compile(r"<!--\s*axis_evaluation\s*\n(.*?)-->", re.S)
 
 
@@ -461,6 +451,125 @@ def latest_axis_evaluation(role, axis):
     return entries[-1] if entries else None
 
 
+# --- open-decision triage (issue #609) --------------------------------------
+# A role that declined to settle a spec-stage ambiguity records a thin
+# `open_decision_item` block in its own docs/issue-<n>/reports/<role>.md.
+# Triage routes each item, mechanically, to the role(s) owning its
+# candidate_axes (reusing the same judgment_axes table candidate-decision
+# panel synthesis uses below), reuses that role's latest axis_evaluation
+# verbatim (no new evaluation logic), and escalates on threshold-exceeded
+# (the same DEPTH/LOW_IMPACT AND-gate below, unmodified) OR panel-conflict
+# (mixed supports/contradicts across the owning roles for the same item) —
+# an OR gate, deliberately looser than the candidate-decision AND gate,
+# since an unrouted or contested open decision is exactly the case an
+# operator needs to see. Runs before the candidate-decision gate's own
+# early exit so an empty judgment-capture corpus (DEPTH always False)
+# still produces a triage record for every item found, instead of the
+# whole hook returning before triage ever executes.
+_JUDGMENT_AXES = {
+    "alignment", "maintenance_complexity", "external_burden",
+    "attack_potential", "performance",
+}
+ITEM_BLOCK_RE = re.compile(r"<!--\s*open_decision_item\s*\n(.*?)-->", re.S)
+
+
+def parse_open_decision_items(text):
+    out = []
+    for block in ITEM_BLOCK_RE.findall(text):
+        entry = {}
+        for line in block.splitlines():
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            k, v = (x.strip() for x in line.split(":", 1))
+            if k == "candidate_axes":
+                entry[k] = [a.strip() for a in v.split(",") if a.strip()]
+            else:
+                entry[k] = v
+        out.append(entry)
+    return out
+
+
+def changed_role_record_paths(paths, issue):
+    pattern = re.compile(rf"^docs/issue-{issue}/reports/[^/]+\.md$")
+    return [p for p in paths if pattern.match(p)]
+
+
+TRIAGE_DECISIONS_DIR = TARGET / "docs" / f"issue-{issue}" / "decisions"
+
+for _rec_rel in changed_role_record_paths(paths, issue):
+    _rec_path = TARGET / _rec_rel
+    if not _rec_path.is_file():
+        continue
+    try:
+        _rec_text = _rec_path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        continue
+    for _item in parse_open_decision_items(_rec_text):
+        _source_role = _item.get("source_role", "")
+        _candidate_axes = [a for a in _item.get("candidate_axes", []) if a in _JUDGMENT_AXES]
+        _owning_roles = sorted({
+            role for role, cfg in ROLES.items()
+            if set(cfg.get("judgment_axes") or []) & set(_candidate_axes)})
+
+        _item_evaluations = []
+        for _o_role in _owning_roles:
+            for _o_axis in sorted(set(ROLES[_o_role].get("judgment_axes") or []) & set(_candidate_axes)):
+                _o_ev = latest_axis_evaluation(_o_role, _o_axis)
+                if _o_ev is not None:
+                    _item_evaluations.append((_o_role, _o_axis, _o_ev))
+
+        _verdicts = {ev.get("verdict") for (_, _, ev) in _item_evaluations}
+        _threshold_exceeded = not (DEPTH and LOW_IMPACT)
+        _panel_conflict = "supports" in _verdicts and "contradicts" in _verdicts
+        _triage_decision = ("escalated"
+                             if (_threshold_exceeded or _panel_conflict or not _owning_roles)
+                             else "resolved")
+
+        TRIAGE_DECISIONS_DIR.mkdir(parents=True, exist_ok=True)
+        _tseq = len(list(TRIAGE_DECISIONS_DIR.glob("triage-*.md"))) + 1
+        _tpath = TRIAGE_DECISIONS_DIR / f"triage-{_tseq}.md"
+        _tpath.write_text("\n".join([
+            "---",
+            f"derivation_source: {_rec_rel}",
+            f"impact_grade: {IMPACT_GRADE}",
+            f"evaluating_roles: {[r for r, _, _ in _item_evaluations]}",
+            f"decision: {_triage_decision}",
+            f"timestamp: {rfc3339()}",
+            "---", "",
+        ]), encoding="utf-8")
+
+        if _triage_decision == "escalated":
+            _gh(["issue", "comment", str(issue), "--body",
+                 f"Open-decision triage: `{_item.get('item', '?')}` (from "
+                 f"{_source_role or '?'}) → escalated.\n"
+                 f"Audit record: `docs/issue-{issue}/decisions/triage-{_tseq}.md`"])
+        else:
+            _gh(["pr", "comment", pr_ref, "--body",
+                 f"Open-decision triage: `{_item.get('item', '?')}` → resolved "
+                 f"by {', '.join(r for r, _, _ in _item_evaluations)}.\n"
+                 f"Audit record: `docs/issue-{issue}/decisions/triage-{_tseq}.md`"])
+
+if not (DEPTH and LOW_IMPACT):
+    escalate("depth or impact axis did not clear")
+
+standing_roles = set()
+for p in paths:
+    for role in ROLES:
+        if any(glob_matches(p, g) for g in role_scope(role)):
+            standing_roles.add(role)
+
+implicated_axes = set()
+for role in standing_roles:
+    implicated_axes.update(ROLES.get(role, {}).get("judgment_axes") or [])
+
+eligible_roles = sorted(
+    role for role, cfg in ROLES.items()
+    if set(cfg.get("judgment_axes") or []) & implicated_axes)
+
+if not eligible_roles:
+    escalate("no eligible role owns an implicated judgment axis")
+
 evaluating_roles = []
 quorum = True
 for role in eligible_roles:
@@ -491,10 +600,6 @@ if decision == "escalate":
     escalate("panel-unanimous-support-v1 resolved neither approve nor reject")
 
 # --- write the audit record --------------------------------------------------
-def rfc3339():
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-
-
 decisions_dir = TARGET / "docs" / f"issue-{issue}" / "decisions"
 decisions_dir.mkdir(parents=True, exist_ok=True)
 seq = len(list(decisions_dir.glob("auto-*.md"))) + 1
