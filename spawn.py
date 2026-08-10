@@ -1079,6 +1079,21 @@ def _pr_for_branch(root: Path, branch: str) -> int | None:
     return int(out) if r.returncode == 0 and out.isdigit() else None
 
 
+def _open_pr_for_branch(root: Path, branch: str) -> int | None:
+    """`_pr_for_branch`(spawn.py:1071)의 `--state all` 은 브랜치 재사용 시
+    이미 머지된 과거 라운드 PR 을 먼저 돌려줄 수 있다 — `_watch`의
+    `pr-opened` 판정에 그대로 쓰면 새로 열린 PR 대신 머지된 PR 을
+    보고한다(issue #576). 여기선 OPEN 만 센다. `_pr_for_branch` 자체를
+    좁히지 않는 이유: `approve_scope`(spawn.py:1225)는 이미 머지된
+    phase-1 PR 코멘트에 달린 승인도 찾아야 해서 `--state all`이 필요하다.
+    """
+    r = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "open",
+                        "--json", "number", "-q", ".[0].number"],
+                       cwd=root, capture_output=True, text=True)
+    out = r.stdout.strip()
+    return int(out) if r.returncode == 0 and out.isdigit() else None
+
+
 def _pr_open_or_merged_for_branch(root: Path, branch: str) -> int | None:
     """`_pr_for_branch`의 `--state all` 은 머지 없이 닫힌 PR 도 "있음"으로
     센다 — outcome-derivation 의 already_delivered 판정에 그대로 쓰면
@@ -4375,7 +4390,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                         if m in pr_seen:
                             continue
                         if pr_number is None:
-                            pr_number = _pr_for_branch(Path(cwd), br)
+                            pr_number = _open_pr_for_branch(Path(cwd), br)
                         if pr_number is not None and int(m.rsplit("/", 1)[-1]) == pr_number:
                             pr_seen.add(m)
                             _append_event(events_path, "pr-opened", m)
