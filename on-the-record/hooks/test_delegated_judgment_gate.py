@@ -135,6 +135,37 @@ def t_escalate_on_no_quorum(tmp_path: Path):
     assert "escalate" in log.read_text()
 
 
+def t_missing_origin_main_reports_explicit_outcome(tmp_path: Path):
+    """issue #649 (red side): origin/main absent -> explicit outcome, never a silent no-op."""
+    target = _init_target(tmp_path / "t3a", {"architecture": ARCHITECTURE_ROLE})
+    subprocess.run(["git", "update-ref", "-d", "refs/remotes/origin/main"], cwd=target, check=True)
+    _commit_change(target, "docs/decisions/foo.md", "x")
+    bin_dir, log = tmp_path / "bin3a", tmp_path / "gh3a.log"
+    bin_dir.mkdir()
+    _stub_gh(bin_dir, log)
+    r = _run(target, bin_dir)
+    assert r.returncode == 0
+    assert log.exists()
+    text = log.read_text()
+    assert "issue comment 42" in text
+    assert "origin/main" in text and "git fetch origin main" in text
+    assert not (target / "docs" / "issue-42" / "decisions").exists()
+
+
+def t_present_origin_main_unchanged_behavior(tmp_path: Path):
+    """issue #649 (green side): origin/main present -> unaffected, same as t_escalate_on_no_quorum."""
+    target = _init_target(tmp_path / "t3b", {"architecture": ARCHITECTURE_ROLE})
+    _commit_change(target, "docs/decisions/foo.md", "x")
+    bin_dir, log = tmp_path / "bin3b", tmp_path / "gh3b.log"
+    bin_dir.mkdir()
+    _stub_gh(bin_dir, log)
+    r = _run(target, bin_dir)
+    assert r.returncode == 0
+    assert not (target / "docs" / "issue-42" / "decisions").exists()
+    assert "escalate" in log.read_text()
+    assert "git fetch origin main" not in log.read_text()
+
+
 def t_auto_approve_single_role(tmp_path: Path):
     target = _init_target(tmp_path / "t4", {"architecture": ARCHITECTURE_ROLE})
     _commit_change(target, "docs/decisions/foo.md", "x")
