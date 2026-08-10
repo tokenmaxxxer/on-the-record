@@ -88,6 +88,23 @@ already accepts for its own claim-word list (survey) — stated as a known gap, 
 here, matching this repo's existing posture of accepting narrow-but-honest lexical checks
 over unbuilt semantic ones.
 
+**Channel-bypass gap, stated plainly (found by the after-proposal warrant hunt,
+`docs/reports/2026-08-10-hunt-issue-641-architecture.md`)**: the hook is scoped to
+PreToolUse/Bash and only matches `gh pr comment`/`gh issue comment` literal invocations. An
+orchestrator that never issues those commands — answering "what do you think of this PR"
+directly in the chat transcript, or posting the same critique via an un-matched command
+such as `gh api .../comments` — is completely invisible to this detector, not merely
+un-caught by wording. This is a strictly bigger gap than the lexical one above: skipping
+the channel avoids detection entirely, no wording games required. The run.md contract text
+in section 1 is the primary control for this gap (it governs the orchestrator's behavior
+regardless of channel); the hook extension in this section is a secondary, narrower net
+that only covers one enforcement channel among several the orchestrator could use. Stated
+as an accepted limit of "partially detectable," not resolved by this proposal — a
+transcript-level (Stop-hook) check would be needed to close the chat-only path, and is left
+as an open item below rather than designed here, since it is a materially different
+mechanism (session-transcript inspection, not Bash-call inspection) than what this phase
+scoped.
+
 **False-positive posture**: fail-open, comment-only, same as `delegated-judgment-gate.sh`'s
 existing six firing conditions — the hook never blocks `gh pr comment`; on a lexical hit
 with no citation, it posts its own audit comment flagging the gap for the operator to see,
@@ -104,3 +121,6 @@ given the proxy's known imprecision above.
 - `docs/specs/reconciled-index.md` regeneration once run.md's phase-2 diff lands.
 - Whether the citation format should be a strict path regex or accept a bare PR link —
   left to implementation given the shape is a text-matching heuristic either way.
+- Whether a Stop-hook transcript scan is worth adding later to cover the chat-only
+  channel-bypass gap above — a separate design decision (different inspection point, higher
+  false-positive surface over free-form conversation) not resolved in this phase.
