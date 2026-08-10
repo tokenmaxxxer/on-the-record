@@ -82,3 +82,67 @@ branch also counts as already-launched.
 Confirmed: everything read (remediation-*.md records) is already written by
 the gate; everything checked for idempotency (branches, PRs) already exists
 via git/gh. No new file, table, or marker is introduced.
+
+## Round 2 — timeline event 4 ("Remediation PR merged")
+
+Remediation round, operator-relayed 2026-08-10. Basis: the step-3
+execution-observation record
+(`docs/issue-587/reports/execution-observation/e2e-fixture-target-repo.md`,
+per-event table, row 4) — empirically drove a real fixture merge and grepped
+the shipped surface; event 4 does not fire anywhere in tracked code. Design
+decision already fixed by the architecture doc's §12 hand-off text ("this
+phase does not invent a new merge-detection channel, it reuses the one
+already observed posting `[watch] ... session-end:` style messages") —
+implementation's job here is picking the concrete integration point inside
+that existing channel, which is a real open decision (not covered by the
+architecture doc's own write set, which lists only `remediation_spawn.py`/
+its test/`run.md`), so this is not a skip-condition round.
+
+### 1. `on-the-record/hooks/delegated-judgment-gate.sh` (edit)
+
+Reject-path write, re-read at
+`on-the-record/hooks/delegated-judgment-gate.sh` lines 330-410, writes
+`remediation-<seq>.md` with `finding_source`, `routed_to`, `target_path`,
+`required_fix`, `contradicting_role`, `round`, `status`, `timestamp` — no
+field names the *candidate* PR (`pr_ref`, already in scope as a local
+variable at that point in the script, used to post the routing comment).
+#573 §12's event-4 format ("Remediation merged: PR #<m> resolves round <r>
+of PR #<n>") needs `<n>` — the candidate PR — at merge-detection time, which
+runs in a different process/invocation than the reject-path write. Confirmed
+by reading the full reject-path block: no existing record field can supply
+it without a new field.
+
+### 2. `spawn.py` (edit)
+
+Confirmed via read: `_pr_open_or_merged_for_branch` (spawn.py:1082) already
+collapses OPEN and MERGED into one "delivered" signal for the
+already-delivered idempotency check — reused as-is by
+`gates/remediation_spawn.py`'s idempotency lookup (round 1 above) — but
+nothing in spawn.py distinguishes MERGED specifically, and no existing
+call site scans `remediation-*.md status: open` records the way
+`_roster_reconcile_unreported` (spawn.py, `RosterReconcileUnreported` test
+class) scans the workspace index for unacked session-ends. That function is
+the closest existing shape: a periodic/on-demand sweep, idempotent via a
+fixed comment marker read back through `_issue_comments` before posting
+(same pattern `_post_session_end_comment` and `_post_stall_comment` both
+use). No sweep over `remediation-*.md` exists today — confirmed by grep,
+zero hits for `remediation-` in spawn.py.
+
+### 3. Test file
+
+`test_spawn.py` already carries `PostSessionEndComment` and
+`RosterReconcileUnreported` classes covering the two closest analogues
+(idempotent comment posting off a marker; a scan-and-report sweep) — the new
+test lives in the same file, following the same
+setUp/tearDown-monkeypatch-`subprocess.run` style already used throughout
+(confirmed: no separate test file per spawn.py function; one file for the
+whole module).
+
+## No new state store (round 2)
+
+The candidate-PR field added to `remediation-<seq>.md` is not new state — it
+extends a record the gate already writes, the same way `round`/`status`
+already do; no new file/table/marker. Idempotency for the merge comment
+reuses the fixed-marker read-then-check pattern already in
+`_post_session_end_comment`/`_post_stall_comment`, applied to a new marker
+string — not a new mechanism.
