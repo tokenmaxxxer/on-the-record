@@ -4223,6 +4223,126 @@ class SelfTriggeredRespawn(unittest.TestCase):
             self.assertEqual(triggered, ["uncommitted-work"])
 
 
+class SpawnOneNoWait(unittest.TestCase):
+    """이슈 #645: `--no-wait` 는 fork/워처 무장 뒤 `_await_bounded` 를 아예
+    안 거치고 즉시 리턴한다 — harness `run_in_background` 에 기대지 않는
+    인프로세스 fire-and-return 경로."""
+
+    def _prep_repo(self, td, name="work"):
+        work = Path(td) / name
+        work.mkdir()
+        run = lambda *a: subprocess.run(a, cwd=str(work), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (work / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        return work
+
+    def test_no_wait_returns_promptly_without_calling_await_bounded(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = Path(td) / "active.json"
+            old_idx = spawn.WORKSPACE_INDEX
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+            await_calls = []
+
+            class FakeWatcherProc:
+                pid = 424242
+
+            real_popen = subprocess.Popen
+
+            def selective_popen(cmd, *a, **k):
+                if isinstance(cmd, list) and "watch" in cmd:
+                    return FakeWatcherProc()
+                return real_popen(cmd, *a, **k)
+
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []), \
+                     mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"), \
+                     mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
+                     mock.patch.object(spawn, "core_version", lambda: "v0"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
+                     mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
+                     mock.patch.object(spawn.subprocess, "Popen", selective_popen), \
+                     mock.patch.object(spawn, "_await_bounded",
+                                       lambda *a, **k: await_calls.append(1) or 0), \
+                     mock.patch.object(os, "fork", return_value=4321):
+                    t0 = time.monotonic()
+                    rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                          unattended=True, issue=645, bounded=True,
+                                          no_wait=True)
+                    elapsed = time.monotonic() - t0
+            finally:
+                spawn.ROSTER = old_roster
+                spawn.WORKSPACE_INDEX = old_idx
+            self.assertEqual(rc, 0)
+            self.assertEqual(await_calls, [])
+            self.assertLess(elapsed, 1.0)
+
+    def test_resume_command_prints_and_round_trips_through_watch(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = Path(td) / "active.json"
+            old_idx = spawn.WORKSPACE_INDEX
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+
+            class FakeWatcherProc:
+                pid = 424242
+
+            real_popen = subprocess.Popen
+
+            def selective_popen(cmd, *a, **k):
+                if isinstance(cmd, list) and "watch" in cmd:
+                    return FakeWatcherProc()
+                return real_popen(cmd, *a, **k)
+
+            captured_stderr = io.StringIO()
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []), \
+                     mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"), \
+                     mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
+                     mock.patch.object(spawn, "core_version", lambda: "v0"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
+                     mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
+                     mock.patch.object(spawn.subprocess, "Popen", selective_popen), \
+                     mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
+                     mock.patch.object(os, "fork", return_value=4321), \
+                     contextlib.redirect_stderr(captured_stderr):
+                    spawn._spawn_one(str(work), "implementation", "task\n",
+                                     unattended=True, issue=645, bounded=True,
+                                     no_wait=True)
+                # 워크스페이스 인덱스가 그 명령이 실제로 찾을 엔트리를 갖고
+                # 있는지 확인한다 — round-trip 이 "찍힌 텍스트"가 아니라 실제
+                # 조회로도 성립함을 고정한다. WORKSPACE_INDEX 를 복원하기 전에
+                # 읽어야 한다.
+                idx = spawn._workspace_index_load()
+                key, entry = spawn._lookup_roster_entry(idx, 645, "implementation")
+            finally:
+                spawn.ROSTER = old_roster
+                spawn.WORKSPACE_INDEX = old_idx
+            printed = captured_stderr.getvalue()
+            self.assertIn("spawn.py watch --issue 645 --role implementation", printed)
+            self.assertIsNotNone(entry)
+            self.assertEqual(entry["work"], str(work))
+
+
 class SpawnOneIssueRoleClaim(unittest.TestCase):
     """이슈 #223: 재스폰 경로(`AutoRespawnClaim`)에만 있던 (issue,role) 클레임을
     주 스폰 경로(`_spawn_one()` 자체)에도 넣는다."""
@@ -5891,7 +6011,8 @@ class WatchFollow(unittest.TestCase):
         sys.argv = ["spawn.py", "watch", "--issue", "180", "--follow"]
         captured = {}
 
-        def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None):
+        def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None,
+                       max_wait_min=None):
             captured["follow"] = follow
             return 0
 
@@ -5909,7 +6030,8 @@ class WatchFollow(unittest.TestCase):
         sys.argv = ["spawn.py", "watch", "--issue", "180"]
         captured = {}
 
-        def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None):
+        def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None,
+                       max_wait_min=None):
             captured["follow"] = follow
             return 0
 
@@ -6128,6 +6250,156 @@ class AwaitBoundedTiming(unittest.TestCase):
             self.assertEqual(rc, 0)
             self.assertGreaterEqual(elapsed, stall_timeout_min * 60 - 0.5)
             self.assertLess(elapsed, stall_timeout_min * 60 + 2.5)
+
+
+class AwaitBoundedWallClockCap(unittest.TestCase):
+    """이슈 #645: `max_wait_s` 가 주어지면 로그가 계속 자라도(stall 시계가
+    한 번도 안 찍혀도) 활동과 무관한 wall-clock 상한에서 리턴한다 — 셋
+    (event/stall/wall-clock cap) 이 서로 다른 리턴 코드로 구분된다."""
+
+    def test_wallclock_cap_wins_over_endless_activity(self):
+        # 로그가 계속 자라 stall 시계는 절대 안 찍힌다 — stall_timeout_min 을
+        # 크게 잡아 stall 경로가 실수로 먼저 트리거하지 않게 한다. max_wait_s
+        # 만 이 리턴을 강제해야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            events_path = Path(td) / "events.jsonl"
+            offset_path = Path(td) / "offset"
+            log_path = Path(td) / "session.log"
+            log_path.write_text("")
+            stop = threading.Event()
+
+            def grower():
+                n = 0
+                while not stop.is_set():
+                    n += 1
+                    log_path.write_text("x" * n)
+                    time.sleep(0.05)
+
+            t = threading.Thread(target=grower)
+            t.start()
+            t0 = time.monotonic()
+            try:
+                rc = spawn._await_bounded(events_path, offset_path, 5.0, log_path,
+                                          max_wait_s=1.0)
+            finally:
+                stop.set()
+                t.join()
+            elapsed = time.monotonic() - t0
+            self.assertEqual(rc, spawn.WATCH_WALLCLOCK_RC)
+            self.assertGreaterEqual(elapsed, 0.9)
+            self.assertLess(elapsed, 3.0)
+
+    def test_wallclock_cap_does_not_advance_offset(self):
+        # 캡에 걸려 리턴해도 미보고 이벤트를 건너뛰면 안 된다 — 다음 호출이
+        # 같은 offset 에서 그대로 이어 본다(resumability).
+        with tempfile.TemporaryDirectory() as td:
+            events_path = Path(td) / "events.jsonl"
+            offset_path = Path(td) / "offset"
+            log_path = Path(td) / "session.log"
+            log_path.write_text("")
+            spawn._append_event(events_path, "tool-call", "unread-after-cap")
+            self.assertEqual(spawn._read_offset(offset_path), 0)
+            # 이미 있는 이벤트를 "이미 읽었다"고 offset 을 밀어 둔다 — 그
+            # 이후로는 새 이벤트가 없으므로 캡만 리턴 사유가 된다.
+            spawn._write_offset(offset_path, 1)
+            rc = spawn._await_bounded(events_path, offset_path, 5.0, log_path,
+                                      max_wait_s=0.3)
+            self.assertEqual(rc, spawn.WATCH_WALLCLOCK_RC)
+            self.assertEqual(spawn._read_offset(offset_path), 1)
+
+    def test_event_still_wins_when_it_arrives_before_the_cap(self):
+        with tempfile.TemporaryDirectory() as td:
+            events_path = Path(td) / "events.jsonl"
+            offset_path = Path(td) / "offset"
+            log_path = Path(td) / "session.log"
+            log_path.write_text("")
+
+            def writer():
+                time.sleep(0.1)
+                spawn._append_event(events_path, "session-end", "done")
+
+            t = threading.Thread(target=writer)
+            t.start()
+            rc = spawn._await_bounded(events_path, offset_path, 5.0, log_path,
+                                      max_wait_s=5.0)
+            t.join()
+            self.assertEqual(rc, 0)
+
+    def test_max_wait_unset_preserves_existing_stall_behavior(self):
+        # 회귀 방지: max_wait_s 를 안 넘기면(기존 모든 호출부) 동작이
+        # byte-for-byte 그대로다 — stall 로만 리턴하고 WATCH_WALLCLOCK_RC 는
+        # 절대 안 나온다.
+        with tempfile.TemporaryDirectory() as td:
+            events_path = Path(td) / "events.jsonl"
+            offset_path = Path(td) / "offset"
+            log_path = Path(td) / "session.log"
+            log_path.write_text("")
+            rc = spawn._await_bounded(events_path, offset_path, 0.03, log_path)
+            self.assertEqual(rc, 0)
+
+
+class WatchFollowWallClockCap(unittest.TestCase):
+    """이슈 #645: `watch --follow` 는 반복 호출에 걸친 누적 wall-clock 을
+    `max_wait_min` 으로 예산 삼아, 매 진전이 있어도 예산이 다하면
+    WATCH_WALLCLOCK_RC 로 리턴한다."""
+
+    def _prep(self, td, entry_extra=None):
+        work = Path(td) / "work"
+        work.mkdir()
+        events_path = spawn._events_path(str(work))
+        offset_path = spawn._offset_path(str(work))
+        log_path = Path(td) / "session.log"
+        log_path.write_text("")
+        spawn._workspace_index_put(645, "implementation", str(work), str(log_path))
+        spawn._roster_save({"issue-645/implementation": {"pid": os.getpid()}})
+        return work, events_path, offset_path, log_path
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        self.old_idx = spawn.WORKSPACE_INDEX
+        spawn.WORKSPACE_INDEX = Path(self.td) / "workspaces.json"
+        self.old_roster = spawn.ROSTER
+        spawn.ROSTER = Path(self.td) / "active.json"
+        self.addCleanup(setattr, spawn, "WORKSPACE_INDEX", self.old_idx)
+        self.addCleanup(setattr, spawn, "ROSTER", self.old_roster)
+
+    def test_budget_exhausted_across_repeated_progress_returns_wallclock_rc(self):
+        work, events_path, offset_path, log_path = self._prep(self.td)
+        calls = []
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min,
+                                log_path, **kwargs):
+            calls.append(kwargs.get("max_wait_s"))
+            # 매 호출마다 "진전"을 낸다(로그 크기 변화) — session-end 없이
+            # 계속 도는 것처럼 보이게 해, stall/crash 경로가 아니라 캡만
+            # 리턴 사유가 되게 한다.
+            log_path.write_text("x" * (len(calls) + 1))
+            time.sleep(0.05)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded), \
+             mock.patch.object(spawn, "_alive", lambda pid: True):
+            rc = spawn._watch(645, "implementation", 5.0, follow=True,
+                              max_wait_min=0.01)  # 0.6s 예산
+        self.assertEqual(rc, spawn.WATCH_WALLCLOCK_RC)
+        self.assertTrue(len(calls) >= 1)
+
+    def test_unset_budget_leaves_follow_loop_unbounded_by_wallclock(self):
+        work, events_path, offset_path, log_path = self._prep(self.td)
+        spawn._append_event(events_path, "session-end", "done")
+        calls = []
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min,
+                                log_path, **kwargs):
+            calls.append(kwargs.get("max_wait_s"))
+            spawn._write_offset(offset_path, 1)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(645, "implementation", 5.0, follow=True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, [None])
 
 
 class RulebookCheckoutMemo(unittest.TestCase):
