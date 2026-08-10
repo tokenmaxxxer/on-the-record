@@ -345,6 +345,14 @@ issue = int(bm.group(1))
 prm = re.search(r"--number\s+(\d+)", cmd)
 pr_ref = prm.group(1) if prm else "?"
 
+if _run(["git", "rev-parse", "--verify", "-q", "refs/remotes/origin/main"]) is None:
+    _gh(["issue", "comment", str(issue), "--body",
+         f"Judgment evaluation skipped: `origin/main` is absent in this "
+         f"checkout, so PR #{pr_ref} on branch `{branch}` could not be "
+         f"diffed against it. Run `git fetch origin main` and re-open the "
+         f"PR (or re-run `gh pr create`) to get a judgment evaluation."])
+    sys.exit(0)
+
 r = _run(["git", "diff", "--name-only", "origin/main...HEAD"])
 paths = [p for p in (r.stdout.splitlines() if r else []) if p.strip()]
 if not paths:
