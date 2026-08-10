@@ -88,6 +88,19 @@ excluded spawn.py from the write set. Two shapes were considered:
 - Any change to `on-the-record/hooks/delegated-judgment-gate.sh`'s existing round/escalation
   logic — this proposal only reads what it already writes.
 
+## Accumulation
+
+`pending_remediation_tasks` makes two `gh`/`git` calls per candidate remediation
+record (`git branch --list`, `gh pr list`) — same per-call cost class every other
+gate in this family already accepts (`closure_sweep.py`'s `_issue_view`/
+`_pr_view_state_body`, one call per subject x role). This is not an accumulating
+inline-subprocess-call site in the accumulation.py shape-1 sense: both calls live
+inside `pending_remediation_tasks` itself, the single choke point every caller
+(the thin CLI, `run.md`'s orchestrator step) goes through — a future caller adds
+no new call site, it calls the existing function. Neither touched file is a
+`roles/*.json`-style repeated one-line-edit file (shape 5); `run.md`'s edit adds
+one step once, not a per-role repeated line.
+
 ## How you'll know it worked
 
 - `python3 -m pytest gates/test_remediation_spawn.py` (or the repo's plain-assert runner
