@@ -2645,30 +2645,35 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
                     "watchdog-observed-crashed")
 
 
-_ABANDONED_WORK_OUTCOMES = ("uncommitted-work", "failed-no-commit")
+_ABANDONED_WORK_OUTCOMES = ("uncommitted-work", "failed-no-commit", "silent-failure")
 
 
 def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
                           role: str, log: str, session_start_ts) -> None:
-    """이슈 #247: `_spawn_one()` 자신이 정상 종료(`session-end` 가 이미
+    """이슈 #247/#675: `_spawn_one()` 자신이 정상 종료(`session-end` 가 이미
     남는다)했지만 outcome 이 미커밋-방치 신호(`uncommitted-work`/
-    `failed-no-commit`)일 때, 다음 `spawn.py watchdog` 틱을 기다리지 않고
-    지금 이 자리에서 바로 `_respawn_or_cap()` 을 부른다.
+    `failed-no-commit`) 이거나, 원인 없이 그냥 멈춘 `silent-failure` 일 때,
+    다음 `spawn.py watchdog` 틱을 기다리지 않고 지금 이 자리에서 바로
+    `_respawn_or_cap()` 을 부른다.
 
     `roster_watchdog()`/`_auto_respawn_check()` 의 crashed 판정은 이
     경우에 절대 못 걸린다 — `roster_remove()` 가 `proc.wait()` 직후
     동기적으로 로스터 엔트리를 지우고, `session-end` 이벤트도 이미
     남으므로(spawn.py `_spawn_one()` 끝부분), 이후 어떤 워치독 틱도
     dead-but-registered 엔트리를 볼 수 없다(survey.md). `refused`/
-    `waiting-on-human`/그냥 `silent-failure` 는 사람이 봐야 하거나
-    정당한 무변화이지 이 결함의 모양이 아니라서 여기서 건드리지 않는다
-    (프로포절의 두 번째 기각안).
+    `waiting-on-human` 은 정당한 게이트 거부/대기이지 이 결함의 모양이
+    아니라서 여기서 건드리지 않는다(프로포절의 두 번째 기각안). 다만
+    `silent-failure` 는 `fail_closed_downgrade()` 를 이미 거쳐 실제로는
+    진행됐다고 판명되면 `progressed` 로 승격되므로, 여기 도달하는
+    `silent-failure` 는 이미 원인 없는(causeless) 경우로 걸러져 있다.
     """
     if outcome not in _ABANDONED_WORK_OUTCOMES:
         return
     state = _respawn_state_load()
+    trigger = ("self-triggered-causeless" if outcome == "silent-failure"
+               else "self-triggered-abandoned")
     _respawn_or_cap(roster_key, work, issue, role, log, session_start_ts, state,
-                    "self-triggered-abandoned")
+                    trigger)
 
 
 def _read_offset(offset_path: Path) -> int:

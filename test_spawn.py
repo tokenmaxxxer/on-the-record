@@ -4032,11 +4032,11 @@ class SelfTriggeredRespawn(unittest.TestCase):
         self.assertEqual(called[0][-1], "self-triggered-abandoned")
 
     def test_does_not_fire_on_legitimate_stops(self):
-        # refused/waiting-on-human 은 사람이 봐야 할 정당한 정지고,
-        # 맨 silent-failure 는 정말 할 일이 없던 정당한 무변화다 — 이
-        # 결함의 모양(방치된-미커밋-작업)이 아니므로 재스폰하지 않는다
-        # (프로포절의 두 번째 기각안).
-        for outcome in ("refused", "waiting-on-human", "silent-failure",
+        # refused/waiting-on-human 은 사람이 봐야 할 정당한 게이트 거부/
+        # 대기이지 이 결함의 모양(방치된-미커밋-작업/원인없는 정지)이
+        # 아니므로 재스폰하지 않는다(프로포절의 두 번째 기각안). #675로
+        # silent-failure는 더 이상 여기 속하지 않는다 — 아래 별도 테스트.
+        for outcome in ("refused", "waiting-on-human",
                         "progressed", "errored", "progressed-dirty-tree"):
             called = []
             orig_respawn = spawn._respawn_or_cap
@@ -4047,6 +4047,24 @@ class SelfTriggeredRespawn(unittest.TestCase):
             finally:
                 spawn._respawn_or_cap = orig_respawn
             self.assertEqual(called, [], outcome)
+
+    def test_fires_on_silent_failure_with_distinct_trigger(self):
+        # 이슈 #675: 원인 없는(causeless) silent-failure — 거부 기록도,
+        # human-gate 대기 표시도 없는 — 은 이제 재스폰되며, 기존
+        # self-triggered-abandoned 와 구별되는 trigger 문자열을 받는다.
+        called = []
+        orig_respawn = spawn._respawn_or_cap
+        orig_state = spawn._respawn_state_load
+        spawn._respawn_or_cap = lambda *a, **k: called.append(a)
+        spawn._respawn_state_load = lambda: {"seen": True}
+        try:
+            spawn._self_trigger_respawn("silent-failure", "issue-247/coding",
+                                        "w", 247, "implementation", "l", 123)
+        finally:
+            spawn._respawn_or_cap = orig_respawn
+            spawn._respawn_state_load = orig_state
+        self.assertEqual(len(called), 1)
+        self.assertEqual(called[0][-1], "self-triggered-causeless")
 
     def test_respects_cap_and_posts_comment_with_trigger_label(self):
         with tempfile.TemporaryDirectory() as td:
