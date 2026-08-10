@@ -1958,6 +1958,8 @@ class Ledger(unittest.TestCase):
                                        lambda *a, **k: None), \
                      mock.patch.object(spawn, "roster_register",
                                        spy_roster_register), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: ([], True)), \
                      mock.patch.object(spawn, "ledger_write",
                                        lambda entry: entries.append(entry)):
                     spawn._spawn_one(str(work), "execution-observation", "task\n",
@@ -7640,3 +7642,218 @@ class WatchAll(unittest.TestCase):
                                     ["spawn.py", "watch", "--until-idle",
                                      "--issue", "1"]):
                 spawn.main()
+
+
+class ReturnedPrGate(unittest.TestCase):
+    """이슈 #680: 다른 issue-*/ PR 이 아직 처분(phase-1 승인 또는 phase-2
+    머지/닫힘)되지 않았으면 `_spawn_one()` 이 스폰을 거절한다."""
+
+    def _prep_repo(self, td, name="work"):
+        work = Path(td) / name
+        work.mkdir()
+        run = lambda *a: subprocess.run(a, cwd=str(work), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (work / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        return work
+
+    # -- _open_role_prs / _undispositioned_role_prs -----------------------
+
+    def test_open_role_prs_filters_to_issue_dash_branches(self):
+        prs = [
+            {"number": 1, "headRefName": "issue-11/implementation",
+             "body": "", "url": "https://example/1"},
+            {"number": 2, "headRefName": "some-other-branch",
+             "body": "", "url": "https://example/2"},
+        ]
+
+        def fake_run(cmd, **k):
+            if cmd[:2] == ["gh", "repo"]:
+                return subprocess.CompletedProcess(cmd, 0, "o/r\n", "")
+            if cmd[:3] == ["gh", "pr", "list"]:
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(prs), "")
+            raise AssertionError(cmd)
+
+        with mock.patch.object(spawn.subprocess, "run", fake_run):
+            out, ok = spawn._open_role_prs(Path("."))
+        self.assertTrue(ok)
+        self.assertEqual([p["number"] for p in out], [1])
+        self.assertEqual(out[0]["issue"], 11)
+
+    def test_open_role_prs_fails_open_marker_on_gh_error(self):
+        def fake_run(cmd, **k):
+            if cmd[:2] == ["gh", "repo"]:
+                return subprocess.CompletedProcess(cmd, 0, "o/r\n", "")
+            return subprocess.CompletedProcess(cmd, 1, "", "boom")
+
+        with mock.patch.object(spawn.subprocess, "run", fake_run):
+            out, ok = spawn._open_role_prs(Path("."))
+        self.assertFalse(ok)
+        self.assertEqual(out, [])
+
+    def test_undispositioned_excludes_same_issue_and_classifies_phase(self):
+        prs = [
+            {"number": 1, "headRefName": "issue-11/implementation",
+             "body": "", "url": "https://example/1"},
+            {"number": 2, "headRefName": "issue-22/qa",
+             "body": "", "url": "https://example/2"},
+        ]
+
+        def fake_run(cmd, **k):
+            if cmd[:2] == ["gh", "repo"]:
+                return subprocess.CompletedProcess(cmd, 0, "o/r\n", "")
+            if cmd[:3] == ["gh", "pr", "list"]:
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(prs), "")
+            raise AssertionError(cmd)
+
+        sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+        import ci as _ci
+
+        def fake_approved(repo, issue):
+            return {"implementation"} if issue == 22 else set()
+
+        with mock.patch.object(spawn.subprocess, "run", fake_run), \
+             mock.patch.object(_ci, "_approved_roles_on_issue", fake_approved):
+            blockers, ok = spawn._undispositioned_role_prs(Path("."), exclude_issue=11)
+        self.assertTrue(ok)
+        self.assertEqual(len(blockers), 1)
+        self.assertEqual(blockers[0]["issue"], 22)
+        self.assertEqual(blockers[0]["phase"], "phase2")
+
+    def test_undispositioned_empty_when_all_excluded_or_dispositioned(self):
+        with mock.patch.object(spawn, "_open_role_prs", lambda root: ([], True)):
+            blockers, ok = spawn._undispositioned_role_prs(Path("."), exclude_issue=11)
+        self.assertTrue(ok)
+        self.assertEqual(blockers, [])
+
+    # -- _spawn_one wiring ---------------------------------------------
+
+    def test_spawn_one_refuses_on_undispositioned_pr(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            blockers = [{"issue": 22, "phase": "phase1", "url": "https://example/2",
+                         "number": 2, "headRefName": "issue-22/qa", "body": ""}]
+            captured_stderr = io.StringIO()
+            ledger_calls = []
+            with mock.patch.object(spawn, "_undispositioned_role_prs",
+                                   lambda root, exclude_issue=None: (blockers, True)), \
+                 mock.patch.object(spawn, "ledger_write",
+                                   lambda entry: ledger_calls.append(entry)), \
+                 contextlib.redirect_stderr(captured_stderr):
+                rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                      unattended=True, issue=11, bounded=True)
+            self.assertEqual(rc, 1)
+            printed = captured_stderr.getvalue()
+            self.assertIn("issue #22", printed)
+            self.assertIn("phase1", printed)
+            self.assertEqual(ledger_calls[-1]["event"], "returned_pr_gate_refused")
+            self.assertEqual(ledger_calls[-1]["blocked_by"], [22])
+
+    def _full_mock_scaffold(self, work):
+        class FakeWatcherProc:
+            pid = 424242
+
+        real_popen = subprocess.Popen
+
+        def selective_popen(cmd, *a, **k):
+            if isinstance(cmd, list) and "watch" in cmd:
+                return FakeWatcherProc()
+            return real_popen(cmd, *a, **k)
+
+        return [
+            mock.patch.object(spawn, "issue_workspace",
+                               lambda cwd, issue, role: str(work)),
+            mock.patch.object(spawn, "checkout_issue_branch",
+                               lambda cwd, issue, role: "b"),
+            mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []),
+            mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"),
+            mock.patch.object(spawn, "core_plugin_dirs", lambda: []),
+            mock.patch.object(spawn, "core_version", lambda: "v0"),
+            mock.patch.object(spawn, "spawn_cmd", lambda *a, **k: (["cat"], {})),
+            mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None),
+            mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None),
+            mock.patch.object(spawn.subprocess, "Popen", selective_popen),
+            mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0),
+            mock.patch.object(os, "fork", return_value=4321),
+        ]
+
+    def test_spawn_one_passes_silently_when_no_blockers(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            old_roster, old_idx = spawn.ROSTER, spawn.WORKSPACE_INDEX
+            spawn.ROSTER = Path(td) / "active.json"
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+            ledger_calls = []
+            try:
+                with mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: ([], True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)), \
+                     contextlib.ExitStack() as stack:
+                    for cm in self._full_mock_scaffold(work):
+                        stack.enter_context(cm)
+                    rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                          unattended=True, issue=11, bounded=True,
+                                          no_wait=True)
+            finally:
+                spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
+            self.assertEqual(rc, 0)
+            events = [e.get("event") for e in ledger_calls]
+            self.assertNotIn("returned_pr_gate_refused", events)
+
+    def test_spawn_one_despite_returned_bypasses_and_logs(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            old_roster, old_idx = spawn.ROSTER, spawn.WORKSPACE_INDEX
+            spawn.ROSTER = Path(td) / "active.json"
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+            blockers = [{"issue": 22, "phase": "phase1", "url": "https://example/2",
+                         "number": 2, "headRefName": "issue-22/qa", "body": ""}]
+            ledger_calls = []
+            try:
+                with mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: (blockers, True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)), \
+                     contextlib.ExitStack() as stack:
+                    for cm in self._full_mock_scaffold(work):
+                        stack.enter_context(cm)
+                    rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                          unattended=True, issue=11, bounded=True,
+                                          no_wait=True, despite_returned=True)
+            finally:
+                spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
+            self.assertEqual(rc, 0)
+            events = [e["event"] for e in ledger_calls]
+            self.assertIn("returned_pr_gate_bypassed", events)
+
+    def test_spawn_one_fails_open_on_gh_failure_with_warning(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            old_roster, old_idx = spawn.ROSTER, spawn.WORKSPACE_INDEX
+            spawn.ROSTER = Path(td) / "active.json"
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+            captured_stderr = io.StringIO()
+            ledger_calls = []
+            try:
+                with mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: ([], False)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)), \
+                     contextlib.redirect_stderr(captured_stderr), \
+                     contextlib.ExitStack() as stack:
+                    for cm in self._full_mock_scaffold(work):
+                        stack.enter_context(cm)
+                    rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                          unattended=True, issue=11, bounded=True,
+                                          no_wait=True)
+            finally:
+                spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
+            self.assertEqual(rc, 0)
+            self.assertIn("gh 조회 실패", captured_stderr.getvalue())
+            events = [e["event"] for e in ledger_calls]
+            self.assertIn("returned_pr_gate_fail_open", events)
