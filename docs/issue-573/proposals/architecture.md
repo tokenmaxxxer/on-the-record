@@ -103,21 +103,22 @@ Inputs the gate computes, both against the target repo:
   window, not be frozen at design time).
 
 AND rule: the gate auto-decides only when both axes independently clear (depth axis matches AND
-impact axis grades low) **and** at least one owning role's `axis_evaluation` record exists citing
-that same product-corpus entry with `verdict: supports`. Any one of the three missing means
-escalate (no partial credit, no OR fallback) — this is the same non-averaging, non-overridable-
-by-the-other composition #511 already chose for its own four axes (survey.md), applied one level
-up.
+impact axis grades low) **and** the multi-role panel synthesis (section 9) resolves to `approve` or
+`reject` under the registered composition rule — never a single owning role's solo `supports`.
+Any one of the three missing (depth, impact, panel-resolved) means escalate (no partial credit, no
+OR fallback) — this is the same non-averaging, non-overridable-by-the-other composition #511
+already chose for its own four axes (survey.md), applied one level up.
 
 ## 3. Contradiction-only auto-reject
 
-Auto-reject requires the same three preconditions as auto-approve, plus: the citing
-`axis_evaluation` record's `verdict` must be `contradicts`, not merely absent-of-support. A
-`verdict: no-opinion`, an ambiguous match to more than one corpus entry, or no `axis_evaluation`
-record at all — all escalate. The gate never infers contradiction from the absence of a
-supporting record; it only reads an explicit `contradicts` verdict the owning role already wrote.
-This is a read-only check on an existing field, not new gate logic beyond the verdict-value branch
-in the AND rule above.
+Auto-reject requires the same three preconditions as auto-approve, plus: the panel synthesis
+(section 9) resolves to `reject`, which under the registered composition rule requires at least one
+eligible role's `axis_evaluation.verdict` to be `contradicts` — not merely absent-of-support from
+one role. A panel where every eligible role reports `no-opinion`, or an ambiguous match to more
+than one corpus entry, or a panel that has not reached quorum (section 9) — all escalate, they do
+not reject. The gate never infers contradiction from the absence of a supporting record; it only
+reads explicit `contradicts` verdicts eligible roles already wrote. This is a read-only check on
+existing fields plus the fixed synthesis rule, not new gate logic invented at decision time.
 
 ## 4. Audit record: write path and four-field format
 
@@ -134,11 +135,13 @@ shape, not free text):
 ```yaml
 derivation_source: <product-corpus file>#<entry-id>       # depth axis match
 impact_grade: {reversibility: 2, blast_radius: 1, propagation: 1, existing_signals: 1}  # classify_axes() output, verbatim
-evaluating_roles:                                          # >=1 entry, each resolving to a real axis_evaluation record
+eligible_roles: [architecture, security-threat-model]      # section 9's relevance rule, resolved and recorded
+synthesis_rule_id: panel-unanimous-support-v1               # section 9's fixed composition rule, by name
+evaluating_roles:                                          # one entry per eligible role; quorum requires all present
   - role: <owning-role>
     axis: maintenance_complexity
     verdict: supports
-decision: approve   # or reject; contradiction-only per section 3
+decision: approve   # or reject; per section 9's synthesis of the entries above
 timestamp: <RFC3339>
 ```
 
@@ -248,22 +251,92 @@ records are the *only* remediation records that reach the operator, per the oper
 "operator receives only above-threshold escalations" — every `status: open`/`resolved` record stays
 role-to-role.
 
+## 9. Multi-role panel synthesis
+
+Operator addition (PR #581 review comment + issue #573 comment 5234823298): a decision is judged
+by ALL relevant expert roles in parallel, each from its own axis, and the approve/reject outcome is
+a registered synthesis of their verdicts — never one role's solo `supports`, and never an
+orchestrator judgment call made at decision time. Fan-out and aggregation belong to the gate (the
+on-the-record surface), not to any role.
+
+**Fan-out (which roles are relevant), mechanical:** relevance is not asked of a role, it is
+computed from data the gate already reads. The gate resolves the candidate decision's
+`target_path`(s) against every role's `write_scope` (same lookup section 7 already uses for
+remediation routing) to get the set of roles with standing over the change; the union of those
+roles' `judgment_axes` (section 1) is the decision's implicated axis set; a role is eligible iff it
+owns at least one axis in that set. No role is asked to self-nominate, and no axis is included by
+an orchestrator's read of the decision's substance — both are derived from `write_scope` and
+`judgment_axes`, fields that already exist and are already checked for shape (section 1). The gate
+writes the resolved set as `eligible_roles` (section 4) before requesting any verdict, so the panel
+membership is fixed and auditable before synthesis runs, not adjusted after verdicts arrive.
+
+**Quorum:** the panel reaches quorum only when every role in `eligible_roles` has written an
+`axis_evaluation` record for this decision. Quorum is full-panel, not majority — a decision with
+one eligible role still has a panel of one and still needs that role's verdict; a decision with
+five eligible roles needs all five. Quorum not reached (any eligible role silent) is not a
+rejection and not an approval: it escalates, same fail-closed default as section 5's degradation
+rule and section 3's ambiguous-match case. No timeout promotes a partial panel to a decision.
+
+**Composition rule (fixed, named, registered — `synthesis_rule_id: panel-unanimous-support-v1`,
+section 4):**
+- `approve` iff quorum is reached AND every eligible role's verdict is `supports` AND none is
+  `contradicts`. Partial support (some `supports`, some `no-opinion`, zero `contradicts`) still does
+  not approve — `no-opinion` from an eligible role means that axis has no affirmative case and the
+  gate has nothing to auto-decide on, so it escalates rather than approves on a subset.
+- `reject` iff quorum is reached AND at least one eligible role's verdict is `contradicts` (section
+  3's contradiction-only bar, now read across the whole panel rather than one citing role) —
+  **any single contradiction blocks approval outright**, regardless of how many other roles
+  support; contradiction is never outvoted.
+- Anything else that is neither the `approve` condition nor the `reject` condition (no quorum, or
+  quorum reached with a mix that is neither all-`supports` nor any-`contradicts`, e.g. all
+  `no-opinion`) escalates.
+- This rule is fixed at design time, named, and versioned (`synthesis_rule_id`), the same way
+  section 8's `MAX_REMEDIATION_ROUNDS` is a fixed constant rather than a per-decision choice —
+  changing the rule means shipping a new `synthesis_rule_id`, not the gate improvising per decision.
+  The gate looks the rule up by id and applies it mechanically; it never composes verdicts by any
+  path outside this lookup.
+
+`gates/role_spec_shape.py`'s extension (section 1) grows the `eligible_roles`/`synthesis_rule_id`
+presence check on the audit record; same validator, no new checker file.
+
+## 10. Panel eligibility as the cost boundary
+
+Operator's cost concern: a low-impact decision should not always pay for the full role roster.
+Section 9's fan-out rule already is the cost boundary — it is not a separate trimming step layered
+on top, because `write_scope` intersection is naturally narrow for a narrow change (a one-line
+`hooks.json` edit has standing with the roles owning that path, not with the other 29). Nothing in
+this design lets impact grade change which roles are eligible; eligibility is a function of
+`target_path` and `judgment_axes` only, never of `impact_grade`. This is deliberate: letting impact
+grade trim the panel would make the trim itself an ungoverned, per-decision judgment call exactly
+where operator asked for none — a role quietly excluded from a "low-impact" decision is invisible
+gaming surface. What impact grade already does (section 2) is decide whether the gate is allowed to
+auto-decide at all; it does not decide who gets asked.
+
+The trim that does exist is auditable by construction: `eligible_roles` (section 4) is written
+before any verdict is requested, so "why wasn't role X consulted" is answered by re-running the same
+`write_scope`/`judgment_axes` lookup against the recorded `target_path` — never by asking the gate
+"what did you decide to skip," because it decided nothing; it computed a fixed intersection.
+
 ## Guardrail alignment
 
 `auto_decision_reversal_rate <= 5%` (product-discovery's registered guardrail) is what section 3's
 narrow contradiction-only bar and section 2's three-way AND (not two) exist to hold down — a wider
 matcher can be tuned per the pre-registered pivot rule without touching the reject bar or the
 axis-role authority requirement, keeping the guardrail's stricter surface stable while the
-looser-by-design primary metric iterates.
+looser-by-design primary metric iterates. Section 9's unanimous-support/any-contradiction-blocks
+rule tightens this further, not looser: a panel of one already had to support to approve; a panel
+of five now all have to support and none may contradict, so widening the panel can only raise the
+bar to auto-approve, never lower it.
 
 ## Deferred to implementation
 
 Exact Python module boundaries inside `gates/`, the depth-matcher's initial vocabulary, the exact
 `gh` subcommand patterns `delegated-judgment-gate.sh` matches, and the `gates/role_spec_shape.py`
-diff (now including the section 6 conditional-presence check and the section 7 `write_scope`
-routing lookup). This phase fixes the schema shape, the gate's read surface and composition rule,
-the audit record's write path and fields, the degradation behavior, the rejection finding's
-required shape, the remediation-routing rule, and the loop bound — not the implementation's
+diff (now including the section 6 conditional-presence check, the section 7 `write_scope` routing
+lookup, and the section 9 `eligible_roles`/`synthesis_rule_id` presence check). This phase fixes
+the schema shape, the gate's read surface and composition rule, the audit record's write path and
+fields, the degradation behavior, the rejection finding's required shape, the remediation-routing
+rule, the loop bound, the panel eligibility rule, and the synthesis rule — not the implementation's
 line-level detail.
 
 ## Files (write set — phase 2, not this proposal's own write set)
@@ -282,6 +355,10 @@ Implementation's phase-2 write set, per the component boundary above (not built 
   time, not a source file implementation edits by hand)
 - `docs/issue-<n>/decisions/remediation-<sequence>.md` (new record kind, section 7, written by the
   gate on each remediation routing; `status: escalated` records are what reaches the operator)
+
+Section 9/10 add no new files to this list: the panel eligibility rule and synthesis rule live
+inside `delegated-judgment-gate.sh` (already listed) and the `roles/*.json` `write_scope`/
+`judgment_axes` fields (already listed), read together rather than through a new lookup table.
 
 ## How success will be judged
 
@@ -305,6 +382,14 @@ surfacing mid-build (the re-scout trigger this role would otherwise need to fire
 - The remediation loop is bounded by fields the gate itself already writes (section 8) — no
   external timer, no unbounded round count reachable without hitting one of the two escalation
   conditions first.
+- Panel membership (section 9) is derivable by anyone from `target_path` + `write_scope` +
+  `judgment_axes` before any verdict exists, and the synthesis outcome is derivable by anyone from
+  `eligible_roles` + each role's recorded verdict + the named `synthesis_rule_id` — no decision
+  should exist whose approve/reject cannot be recomputed this way without asking the gate "what did
+  it decide."
+- No decision auto-resolves on a partial panel: `eligible_roles` and `evaluating_roles` (section 4)
+  should always have matching cardinality on any `approve`/`reject` record; a mismatch is a design
+  gap in this proposal, not a valid escalate-to-approve shortcut.
 
 ## Hand-off
 
