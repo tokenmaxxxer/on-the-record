@@ -20,10 +20,15 @@
     { "name": "description", "type": "string", "required": true },
     { "name": "severity", "type": "string", "required": true },
     { "name": "status", "type": "string", "required": true },
-    { "name": "mitigation", "type": "string", "required": true }
+    { "name": "mitigation", "type": "string", "required": true },
+    {
+      "name": "axis_evaluation",
+      "type": "ref[]",
+      "required": false
+    }
   ],
   "reference_resolution": {
-    "rule": "element must resolve to an actual system/data-flow element named elsewhere in the same record — no orphan references (issue-515 invariant 2). severity and status are free text: the Threat Dragon model schema (scout-brief.md, confirmed live fetch, resolving #515's prior open finding) carries these as present fields but does not define a closed vocabulary for either — an invented value list would violate the proposal's no-invented-enum constraint.",
+    "rule": "element must resolve to an actual system/data-flow element named elsewhere in the same record — no orphan references (issue-515 invariant 2). severity and status are free text: the Threat Dragon model schema (scout-brief.md, confirmed live fetch, resolving #515's prior open finding) carries these as present fields but does not define a closed vocabulary for either — an invented value list would violate the proposal's no-invented-enum constraint. Each axis_evaluation ref must resolve to a real entry inside this record carrying axis (must be in this role's judgment_axes), verdict (supports|contradicts|no-opinion), and citation (a docs/product/*.md entry path); when verdict is contradicts, the entry must also carry a finding object with target_path (must resolve against some role's write_scope) and a non-empty required_fix (issue-573 architecture proposal, sections 1 and 6).",
     "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
   },
   "recomputation": {
