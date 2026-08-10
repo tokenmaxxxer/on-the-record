@@ -15,13 +15,14 @@ def _git(repo, *args):
     )
 
 
-def _init_repo(repo):
+def _init_repo(repo, branch="issue-123/product-capture"):
     _git(repo, "init", "-q")
     _git(repo, "config", "user.email", "test@example.com")
     _git(repo, "config", "user.name", "Test")
     (repo / "README.md").write_text("init\n")
     _git(repo, "add", "README.md")
     _git(repo, "commit", "-q", "-m", "init")
+    _git(repo, "checkout", "-q", "-B", branch)
 
 
 def _write_transcript(repo, user_texts):
@@ -87,7 +88,7 @@ def t_bootstrap_creates_missing_file_on_first_flag():
         transcript = _write_transcript(
             repo, ["the project must support offline mode."]
         )
-        doc = repo / "docs" / "product" / "requirements.md"
+        doc = repo / "docs" / "issue-123" / "product" / "requirements.md"
         assert not doc.exists()
         _run(repo, transcript)
         assert doc.exists()
@@ -98,12 +99,12 @@ def t_flagged_requirement_with_matching_doc_diff_is_silent():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        doc_dir = repo / "docs" / "product"
+        doc_dir = repo / "docs" / "issue-123" / "product"
         doc_dir.mkdir(parents=True)
         doc = doc_dir / "requirements.md"
         doc.write_text("# Requirements\n\nAppend-only, newest entry last.\n")
         doc.write_text(doc.read_text() + "- offline mode support\n")
-        _git(repo, "add", "docs/product/requirements.md")
+        _git(repo, "add", "docs/issue-123/product/requirements.md")
         _git(repo, "commit", "-q", "-m", "record requirement")
         transcript = _write_transcript(
             repo, ["the project must support offline mode."]
@@ -135,6 +136,19 @@ def t_orchestrate_off_is_noop():
         r = _run(repo, transcript, orchestrate_off="1")
         assert r.returncode == 0
         assert r.stdout == ""
+
+
+def t_off_issue_branch_is_noop():
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo, branch="main")
+        transcript = _write_transcript(
+            repo, ["the project must support offline mode."]
+        )
+        r = _run(repo, transcript)
+        assert r.returncode == 0
+        assert r.stdout == ""
+        assert not (repo / "docs").exists()
 
 
 def t_missing_transcript_path_fails_closed_silently():

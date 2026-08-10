@@ -19,6 +19,14 @@
 # remap to 2 on unexpected failure. Advisory only
 # (hookSpecificOutput.additionalContext), never decision:"block" —
 # architecture's cross-check section states this explicitly.
+#
+# Issue #684: docs/product/<cat>.md was keyed only by a fixed category
+# name — two concurrent issue sessions flagging the same category would
+# append to the identical path. The write target is now issue-scoped,
+# docs/issue-<n>/product/<cat>.md, deriving <n> from the current branch
+# (issue-<n>/<role>), the same convention delegated-judgment-gate.sh
+# already uses. Off an issue-scoped branch there is no safe path to
+# derive, so the hook no-ops.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
@@ -47,6 +55,15 @@ if not os.path.isfile(transcript_path):
     sys.exit(0)
 
 repo = os.environ.get("PRODUCT_CAPTURE_REPO", "")
+
+branch_r = subprocess.run(
+    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+    cwd=repo, capture_output=True, text=True, timeout=10,
+)
+branch_m = re.match(r"^issue-(\d+)/([\w-]+)$", branch_r.stdout.strip())
+if branch_r.returncode != 0 or not branch_m:
+    sys.exit(0)
+issue_n = branch_m.group(1)
 
 CATEGORIES = {
     "requirements": (
@@ -143,14 +160,14 @@ if not active:
 
 unrecorded = []
 for cat, sents in active.items():
-    doc_path = os.path.join(repo, "docs", "product", f"{cat}.md")
+    rel = os.path.join("docs", f"issue-{issue_n}", "product", f"{cat}.md")
+    doc_path = os.path.join(repo, rel)
     if not os.path.isfile(doc_path):
         os.makedirs(os.path.dirname(doc_path), exist_ok=True)
         title = cat.capitalize()
         with open(doc_path, "w", encoding="utf-8") as fh:
             fh.write(f"# {title}\n\nAppend-only, newest entry last.\n")
 
-    rel = os.path.join("docs", "product", f"{cat}.md")
     added_lines = 0
     for args in (
         ["git", "diff", "--unified=0", "--", rel],
@@ -178,7 +195,7 @@ out = {
         "hookEventName": "Stop",
         "additionalContext": (
             "product-capture-stopgate: statements matching these categories "
-            "were not reflected in docs/product/: " + "; ".join(parts) + ". "
+            f"were not reflected in docs/issue-{issue_n}/product/: " + "; ".join(parts) + ". "
             "Record them as structured entries before ending the turn."
         ),
     }
