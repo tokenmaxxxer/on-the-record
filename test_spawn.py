@@ -4881,6 +4881,72 @@ class RemediationMergeSweep(unittest.TestCase):
         self.assertEqual(lookups, [])
 
 
+class RosterReconcileRemediationMergedCLI(unittest.TestCase):
+    """이슈 #587 round 2: `spawn.py reconcile --remediation-merged --issue N`
+    이 실제로 `_remediation_merge_sweep` 을 호출해 event 4 코멘트를 남기는지,
+    private 함수가 아니라 shipped entrypoint(`roster_reconcile`)를 통해
+    검증한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.decisions_dir = self.root / "docs" / "issue-587" / "decisions"
+        self.decisions_dir.mkdir(parents=True)
+        self._orig_root = spawn.ROOT
+        spawn.ROOT = self.root
+        self._orig_merged = spawn._merged_pr_for_branch
+        self._orig_comments = spawn._issue_comments
+        self._orig_slug = spawn._repo_slug
+        self._orig_run = subprocess.run
+
+    def tearDown(self):
+        spawn.ROOT = self._orig_root
+        spawn._merged_pr_for_branch = self._orig_merged
+        spawn._issue_comments = self._orig_comments
+        spawn._repo_slug = self._orig_slug
+        subprocess.run = self._orig_run
+        self.tmp.cleanup()
+
+    def _write_record(self, name, **fields):
+        defaults = {
+            "finding_source": "docs/issue-587/decisions/auto-1.md",
+            "candidate_pr": "601",
+            "routed_to": "implementation",
+            "target_path": "spawn.py",
+            "required_fix": "wire event 4",
+            "contradicting_role": "verify",
+            "round": "1",
+            "status": "open",
+            "timestamp": "2026-08-10T00:00:00Z",
+        }
+        defaults.update(fields)
+        lines = ["---"] + [f"{k}: {v}" for k, v in defaults.items()] + ["---", ""]
+        (self.decisions_dir / name).write_text("\n".join(lines), encoding="utf-8")
+
+    def test_cli_flag_drives_sweep_and_posts_comment(self):
+        self._write_record("remediation-1.md")
+        spawn._merged_pr_for_branch = lambda root, branch: 605
+        spawn._issue_comments = lambda root, n: ([], True)
+        spawn._repo_slug = lambda root: "acme/repo"
+        calls = []
+        def fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return self._orig_run(["true"], capture_output=True, text=True)
+        subprocess.run = fake_run
+        posted = spawn.roster_reconcile(issue=587, remediation_merged=True)
+        self.assertEqual(posted, 1)
+        gh_calls = [c for c in calls if c[:2] == ["gh", "api"]]
+        self.assertEqual(len(gh_calls), 1)
+        body = next(a for a in gh_calls[0] if a.startswith("body="))
+        self.assertIn("Remediation merged: PR #605 resolves round 1 of PR #601", body)
+
+    def test_help_lists_flag(self):
+        r = self._orig_run([sys.executable, "spawn.py", "--help"],
+                            cwd=os.path.dirname(os.path.abspath(spawn.__file__)),
+                            capture_output=True, text=True)
+        self.assertIn("--remediation-merged", r.stdout)
+
+
 class RosterReconcileUnreported(unittest.TestCase):
     """이슈 #534: `spawn.py reconcile --unreported` — workspace 인덱스에서
     session-end(normal) 인데 [watch] 코멘트가 없는 엔트리를 찍고,
