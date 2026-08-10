@@ -412,6 +412,29 @@ def t_framing_snapshot_fails_closed_on_unresolvable_citation(tmp_path: Path):
     assert not log.exists()
 
 
+def t_framing_snapshot_field_not_found_cites_baseline_not_record(tmp_path: Path):
+    # issue #597 conformance-review R6: a record exists (so the
+    # no-records-at-all baseline branch does not fire), but it carries none
+    # of the fields build_framing_snapshot looks for. The per-field fallback
+    # sentence must cite the baseline form, never the record's own path —
+    # citing the record would claim it contains text it does not.
+    target = _init_target(tmp_path / "f5", {"architecture": ARCHITECTURE_ROLE})
+    record = target / "docs" / "issue-42" / "reports" / "architecture.md"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text("## Unrelated heading\nNothing the gate looks for.\n")
+    bin_dir, log = tmp_path / "binf5", tmp_path / "ghf5.log"
+    bin_dir.mkdir()
+    _stub_gh_with_stdin(bin_dir, log)
+    r = _run_cmd(target, bin_dir, "gh issue reopen 42")
+    assert r.returncode == 0
+    text = log.read_text()
+    assert "## Framing snapshot — issue-reopened (42)" in text
+    assert "No newly-possible prose found" in text
+    assert "No prior-cost prose found" in text
+    assert "no prior record; issue body is the baseline" in text
+    assert "docs/issue-42/reports/architecture.md" not in text
+
+
 def t_no_import_gates_and_no_checkout_resolve_in_the_hook_source():
     text = SCRIPT.read_text()
     assert "import gates" not in text
