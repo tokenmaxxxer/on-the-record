@@ -70,7 +70,10 @@ def test_batch9_judgment_axes_absent_is_not_an_error():
 def test_batch9_axis_ownership_passes_for_seeded_roles():
     roles = {role: json.loads((ROLES_DIR / f"{role}.json").read_text(encoding="utf-8"))
              for role in BATCH9_ROLES}
-    assert role_spec_shape.check_axis_ownership(roles) == []
+    reasons = role_spec_shape.check_axis_ownership(roles)
+    assert not any("owned by more than one role" in r for r in reasons)
+    for role, axis in _OWNED_AXIS.items():
+        assert not any(f"axis {axis!r} owned by zero roles" == r for r in reasons)
 
 
 def test_batch9_axis_ownership_rejects_duplicate_owner():
@@ -79,7 +82,7 @@ def test_batch9_axis_ownership_rejects_duplicate_owner():
         "impostor": {"judgment_axes": ["maintenance_complexity"]},
     }
     reasons = role_spec_shape.check_axis_ownership(roles)
-    assert reasons and "more than one role" in reasons[0]
+    assert any("more than one role" in r for r in reasons)
 
 
 def test_batch9_axis_evaluation_supports_entry_is_valid():
@@ -138,6 +141,40 @@ def test_batch9_axis_evaluation_rejects_axis_not_owned_by_role():
     reasons = role_spec_shape.check_axis_evaluation_entry(
         entry, ["maintenance_complexity"], _WRITE_SCOPES)
     assert any("not in this role's judgment_axes" in r for r in reasons)
+
+
+def test_batch9_axis_ownership_rejects_zero_owner():
+    roles = {
+        "architecture": {"judgment_axes": ["maintenance_complexity"]},
+        "security-threat-model": {"judgment_axes": ["attack_potential"]},
+    }
+    reasons = role_spec_shape.check_axis_ownership(roles)
+    assert any("owned by zero roles" in r for r in reasons)
+
+
+def test_batch9_roles_dir_cli_passes_when_all_five_axes_owned(tmp_path):
+    roles = {
+        "architecture": {"judgment_axes": ["maintenance_complexity"]},
+        "security-threat-model": {"judgment_axes": ["attack_potential"]},
+        "conformance-review": {"judgment_axes": ["alignment"]},
+        "capacity-planning": {"judgment_axes": ["external_burden"]},
+        "performance-engineering": {"judgment_axes": ["performance"]},
+    }
+    for name, cfg in roles.items():
+        (tmp_path / f"{name}.json").write_text(json.dumps(cfg), encoding="utf-8")
+    assert role_spec_shape.main(["--roles-dir", str(tmp_path)]) == 0
+
+
+def test_batch9_roles_dir_cli_fails_when_one_role_missing(tmp_path):
+    roles = {
+        "architecture": {"judgment_axes": ["maintenance_complexity"]},
+        "security-threat-model": {"judgment_axes": ["attack_potential"]},
+        "conformance-review": {"judgment_axes": ["alignment"]},
+        "capacity-planning": {"judgment_axes": ["external_burden"]},
+    }
+    for name, cfg in roles.items():
+        (tmp_path / f"{name}.json").write_text(json.dumps(cfg), encoding="utf-8")
+    assert role_spec_shape.main(["--roles-dir", str(tmp_path)]) == 1
 
 
 if __name__ == "__main__":
