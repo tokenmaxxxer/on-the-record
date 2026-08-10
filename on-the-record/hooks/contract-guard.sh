@@ -111,10 +111,21 @@ def gh_json(*args):
     except ValueError:
         return None
 
-pr_data = gh_json("pr", "view", pr, "--json", "body,number")
+pr_data = gh_json("pr", "view", pr, "--json", "body,number,commits")
 if pr_data is None:
     sys.exit(0)  # gh lookup failed — fail-open per header note, not a verdict
 body = pr_data.get("body") or ""
+
+# Round-scoping (issue #577): only an approval comment newer than this PR's
+# own head branch's first commit counts as phase-2 for THIS pr — a
+# prior-round approval (older than the new round's first commit) must not
+# gate a new round's phase-1 proposal PR. Missing/empty commits leaves
+# first_commit_at None, which fails open (unchanged from pre-#577 behavior).
+commit_dates = [
+    c.get("committedDate") for c in (pr_data.get("commits") or [])
+    if isinstance(c, dict) and c.get("committedDate")
+]
+first_commit_at = min(commit_dates) if commit_dates else None
 
 _CLOSES_REF = re.compile(r"(?i)\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)")
 _PLAIN_REF = re.compile(r"(?<!\w)#(\d+)")
@@ -140,12 +151,16 @@ if os.path.isfile(approvers_path):
         if mm:
             approvers.add(mm.group(1))
 
-comments = gh_json("issue", "view", str(issue), "--json", "comments", "-q", ".comments") or []
+comments = gh_json(
+    "issue", "view", str(issue), "--json", "comments",
+    "-q", "[.comments[] | {body, author, createdAt}]",
+) or []
 prefix = "APPROVE issue-%d/" % issue
 phase2 = any(
     (c.get("body") or "").strip().startswith(prefix)
     and c.get("author", {}).get("login") in approvers
     and (c.get("body") or "").strip()[len(prefix):]
+    and (not first_commit_at or c.get("createdAt", "") > first_commit_at)
     for c in comments
 )
 if not phase2:

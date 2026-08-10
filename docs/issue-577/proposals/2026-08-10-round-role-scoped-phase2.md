@@ -150,3 +150,18 @@ the delivering PR judges itself with the old, later-corrected logic. This is
 unavoidable (a gate cannot retroactively apply its own not-yet-merged fix to
 its own merge), and is not a defect in the fix, just a one-time bootstrap
 quirk worth recording.
+
+## Accumulation
+
+`test_contract_guard.py`'s `FAKE_GH` shim is a single fixture-driven `gh`
+stand-in with one `pr view` branch and one `issue view` branch — it is not
+an accumulating inline-subprocess-call site (accumulation.py shape 1):
+future test additions extend the same two branches' fixture data rather
+than adding new call sites. `contract-guard.sh`'s own `gh_json()` helper is
+already the shared choke point for all `gh` invocations in the hook; this
+change adds no new call site there, only widens two existing calls'
+`--json`/`-q` field lists. Neither touched file is a `roles/*.json`-style
+repeated one-line-edit file (shape 5). If a third `gh_json()` call site were
+added to `contract-guard.sh` for an unrelated lookup, that would cross into
+shape-1 territory and warrant a shared-helper refactor at that point, not
+before.
