@@ -127,6 +127,8 @@ def check_axis_ownership(roles: dict[str, dict]) -> list[str]:
     for axis, names in owners.items():
         if len(names) > 1:
             bad.append(f"axis {axis!r} owned by more than one role: {sorted(names)}")
+        elif len(names) == 0:
+            bad.append(f"axis {axis!r} owned by zero roles")
     return bad
 
 
@@ -211,10 +213,38 @@ def reference_resolution_check(content: str, repo_root) -> list[str]:
     return record_lint.orphaned_path_reference_check(_Path(repo_root), content)
 
 
+def _run_roles_dir_check(roles_dir: str) -> int:
+    """`--roles-dir <dir>` mode: run check_role_judgment_axes per role.json
+    in the directory plus check_axis_ownership across the whole set."""
+    ok = True
+    roles: dict[str, dict] = {}
+    for path in sorted(Path(roles_dir).glob("*.json")):
+        try:
+            cfg = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as e:
+            print(f"{path}: unreadable/invalid JSON: {e}", file=sys.stderr)
+            ok = False
+            continue
+        roles[path.stem] = cfg
+        for reason in check_role_judgment_axes(cfg):
+            ok = False
+            print(f"{path}: {reason}", file=sys.stderr)
+    for reason in check_axis_ownership(roles):
+        ok = False
+        print(f"--roles-dir {roles_dir}: {reason}", file=sys.stderr)
+    return 0 if ok else 1
+
+
 def main(argv: list[str]) -> int:
     if not argv:
         print("usage: role_spec_shape.py <spec.json> [<spec.json> ...]", file=sys.stderr)
+        print("       role_spec_shape.py --roles-dir <dir>", file=sys.stderr)
         return 1
+    if argv[0] == "--roles-dir":
+        if len(argv) != 2:
+            print("usage: role_spec_shape.py --roles-dir <dir>", file=sys.stderr)
+            return 1
+        return _run_roles_dir_check(argv[1])
     ok = True
     for path in argv:
         try:
