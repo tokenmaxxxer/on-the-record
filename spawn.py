@@ -2801,7 +2801,7 @@ def _live_session_start_index(events_path: Path, pid) -> int | None:
 
 def _await_bounded(events_path: Path, offset_path: Path, stall_timeout_min: float,
                     log_path: Path, session_tag: tuple | None = None,
-                    show_banner: bool = True) -> int:
+                    show_banner: bool = True, max_wait_s: float | None = None) -> int:
     """이벤트 하나가 뜨거나 stall 시간이 다 찰 때까지 — 둘 중 먼저 오는
     쪽에서 리턴한다. 무한정 블록하지 않는다 (이슈 #114 proposal).
 
@@ -2813,6 +2813,13 @@ def _await_bounded(events_path: Path, offset_path: Path, stall_timeout_min: floa
     이벤트가 어느 세션 것인지 알 수 있게 한다(이슈 #557).
     `show_banner=False` 면 "스폰은 리턴했지만" 배너를 찍지 않는다 —
     `--follow` 반복 호출 중 이미 한 번 찍었으면 호출자가 이걸로 끈다.
+
+    `max_wait_s` (기본 None=비활성) 는 활동(로그 크기 변화)과 무관하게
+    호출 진입 시점부터 잰 순수 wall-clock 상한이다 — stall 시계는
+    로그가 계속 자라면 절대 안 찍히므로(이슈 #645), 수다스럽지만
+    끝나지 않는 세션에도 리턴 보장이 필요한 호출자가 옵트인한다. stall
+    과 마찬가지로 offset 을 안 미루고 리턴한다 — 다음 호출이 같은
+    미보고 구간을 다시 본다.
     """
     limit_s = stall_timeout_min * 60
     seen = _read_offset(offset_path)
@@ -2821,6 +2828,7 @@ def _await_bounded(events_path: Path, offset_path: Path, stall_timeout_min: floa
     except OSError:
         last_size = 0
     last_change = time.monotonic()
+    start = time.monotonic()
     poll_s = 0.05
     while True:
         if events_path.exists():
@@ -2857,6 +2865,11 @@ def _await_bounded(events_path: Path, offset_path: Path, stall_timeout_min: floa
             print(f"[watch] stall: 세션 로그 {secs}초째 무변화 — 이벤트 없이 "
                   f"멈춘다. 다시 spawn.py watch 로 재무장하라", file=sys.stderr)
             return 0
+        if max_wait_s is not None and time.monotonic() - start >= max_wait_s:
+            secs = int(time.monotonic() - start)
+            print(f"[watch] wall-clock cap: {secs}초 경과 — 활동 여부와 무관하게 "
+                  f"상한에 도달했다. 다시 spawn.py watch 로 재무장하라", file=sys.stderr)
+            return WATCH_WALLCLOCK_RC
         time.sleep(poll_s)
         poll_s = min(poll_s * 2, 2.0)
 
@@ -2865,6 +2878,10 @@ WATCH_CRASH_RC = 2  # `--follow`가 session-end 없이 pid 사망을 감지했�
                     # 리턴하는 종료 코드 — 0(정상, session-end 도달)과도,
                     # 1(사용법 오류/기록 없음)과도 구분한다(이슈 #224,
                     # docs/issue-224/decisions/watch-crash-exit-code.md).
+WATCH_WALLCLOCK_RC = 3  # `_await_bounded`/`_watch --follow` 가 활동과 무관한
+                    # wall-clock 상한(`max_wait_s`/`--max-wait`)에 걸려
+                    # 리턴했을 때의 종료 코드 — 0(이벤트/정상), 1(사용법
+                    # 오류), 2(crash) 와 모두 구분한다(이슈 #645).
 
 
 def _live_roster_matches(matches: list, issue: int) -> list:
@@ -2941,7 +2958,8 @@ def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | No
 
 
 def _watch(issue: int, role: str | None, stall_timeout_min: float,
-           follow: bool = False, repo: str | None = None) -> int:
+           follow: bool = False, repo: str | None = None,
+           max_wait_min: float | None = None) -> int:
     idx = _workspace_index_load()
     key, entry = _lookup_roster_entry(idx, issue, role, repo=repo)
     if entry is None:
@@ -2996,14 +3014,31 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
     stall_limit_s = stall_timeout_min * 60
     last_progress = time.monotonic()
     banner_shown = False  # 이슈 #557: --follow 반복 전체에서 배너는 한 번만
+    # 이슈 #645: `_await_bounded` 는 호출 한 번의 stall 만 본다 — 로그가
+    # 계속 자라는(진전은 있지만 끝나지 않는) 세션에 대해 `--follow` 전체의
+    # 누적 wall-clock 을 여기서 잰다. 반복에 걸쳐 남은 예산을 매 호출마다
+    # `max_wait_s` 로 좁혀 넘긴다.
+    follow_start = time.monotonic()
+    follow_budget_s = max_wait_min * 60 if max_wait_min is not None else None
     while True:
         before = _read_offset(offset_path)
         try:
             before_size = log_path.stat().st_size
         except OSError:
             before_size = None
+        call_max_wait_s = None
+        if follow_budget_s is not None:
+            remaining = follow_budget_s - (time.monotonic() - follow_start)
+            if remaining <= 0:
+                print(f"[watch] follow wall-clock cap 도달 — 다시 spawn.py "
+                      f"watch --follow 로 재무장하라", file=sys.stderr)
+                return WATCH_WALLCLOCK_RC
+            call_max_wait_s = remaining
         rc = _await_bounded(events_path, offset_path, stall_timeout_min, log_path,
-                             session_tag=session_tag, show_banner=not banner_shown)
+                             session_tag=session_tag, show_banner=not banner_shown,
+                             max_wait_s=call_max_wait_s)
+        if rc == WATCH_WALLCLOCK_RC:
+            return rc
         after = _read_offset(offset_path)
         try:
             after_size = log_path.stat().st_size
@@ -3496,6 +3531,13 @@ def main() -> int:
     ap.add_argument("--follow", action="store_true",
                     help="watch: 이벤트마다 재무장하지 않고 session-end 까지 "
                          "_await_bounded 를 반복 호출하며 스트리밍한다")
+    ap.add_argument("--max-wait", type=float, default=None,
+                    help="분 단위. watch --follow 반복 전체에 걸친 wall-clock "
+                         "상한 — 활동(로그 증가)이 있어도 이 시간이 지나면 "
+                         "리턴한다 (기본 없음=비활성, 이슈 #645)")
+    ap.add_argument("--no-wait", action="store_true",
+                    help="spawn --issue: fork 직후 _await_bounded 없이 즉시 "
+                         "리턴한다 — 재개 명령(spawn.py watch)을 찍는다 (이슈 #645)")
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
@@ -3578,7 +3620,7 @@ def main() -> int:
         # `watch` 에도 허용한다 — `--role` 이 이미 있으면 그게 우선한다.
         watch_role = a.watch_role or a.task
         return _watch(a.issue, watch_role, a.stall_timeout, follow=a.follow,
-                      repo=_repo_identity(a.cwd))
+                      repo=_repo_identity(a.cwd), max_wait_min=a.max_wait)
     if a.role == "clean":
         # 안전한 것만 지운다: 미커밋 변경 없음 + origin 에 없는 커밋 없음.
         base = os.environ.get("MUSTER_WORK_DIR")
@@ -3715,7 +3757,8 @@ def main() -> int:
     require_doctor()
     return _spawn_one(a.cwd, a.role, a.task, a.unattended, a.issue,
                       bounded=a.issue is not None,
-                      stall_timeout_min=a.stall_timeout)
+                      stall_timeout_min=a.stall_timeout,
+                      no_wait=a.no_wait)
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -4143,7 +4186,7 @@ def _release_spawn_claim(work: str, pid: int) -> None:
 
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
-               stall_timeout_min: float = 5.0) -> int:
+               stall_timeout_min: float = 5.0, no_wait: bool = False) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -4277,6 +4320,17 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                       watcher_armed_at=time.time())
                 print(f"[{role}] 워처 자동 무장: pid {wproc.pid} "
                       f"(로그 {watcher_log})", file=sys.stderr)
+                if no_wait:
+                    # 이슈 #645: fork/detach 뒤 `_await_bounded` 를 아예
+                    # 안 거치고 즉시 리턴한다 — "항상 백그라운드로 스폰"
+                    # 규약이 harness 의 run_in_background 에만 기대지 않게,
+                    # spawn.py 자신도 인프로세스로 블록하지 않는 경로를 둔다.
+                    # 워처는 이미 무장됐으니 재개는 그대로 spawn.py watch 로.
+                    print(f"[{role}] --no-wait: 스폰은 리턴했지만 세션은 계속 "
+                          f"돈다 — 상태는 spawn.py ps, 이어보려면 "
+                          f"spawn.py watch --issue {issue} --role {role}",
+                          file=sys.stderr)
+                    return 0
                 return _await_bounded(events_path, offset_path,
                                        stall_timeout_min, log_path)
             _rewrite_spawn_claim_pid(cwd)
