@@ -1,9 +1,12 @@
 ---
-code_under_review: pending-commit
+code_under_review:
+  - on-the-record/hooks/product-capture-stopgate.sh
+  - on-the-record/hooks/test_product_capture_stopgate.py
+  - on-the-record/hooks/hooks.json
 type: feature
 breaking: false
 verdict: pass
-loop_state: committing
+loop_state: landed
 ---
 
 # Implementation record — issue #566: Stop-time product-capture hook
@@ -103,8 +106,8 @@ Not applicable — no open findings to resolve.
 ## closed_checks
 
 - pytest suite, derived: the fenced `pytest -v` output under "How you'll know it worked" above —
-  code_sha: pending-commit
-- hooks.json JSON-validity parse — code_sha: pending-commit
+  code_sha: e02988f
+- hooks.json JSON-validity parse — code_sha: e02988f
 
 ## Hunt
 
