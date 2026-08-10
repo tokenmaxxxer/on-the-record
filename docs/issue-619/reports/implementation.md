@@ -1,9 +1,10 @@
 ---
-code_under_review: <PENDING>
+code_under_review:
+  - spawn.py
 type: fix
 breaking: false
 verdict: pass
-loop_state: committing
+loop_state: landed
 ---
 
 # Implementation record — issue #619 (phase 2)
