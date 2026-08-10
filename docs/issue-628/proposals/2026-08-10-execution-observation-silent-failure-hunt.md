@@ -71,6 +71,23 @@ already-recorded three prior silent failures beyond citing them as
 established; hunting #576/#619 (marked "phase 2 in flight" — not yet
 merged, nothing to drive).
 
+## What did not work
+
+- After-proposal warrant hunt (stance 0, `docs/reports/2026-08-10-hunt-execution-observation-silent-failure-hunt.md`)
+  found the "evidenced absence" / "fenced fixture-drive output"
+  requirement below has no mechanical enforcement — an executor could
+  hand-type a plausible fenced block or invoke the "legitimately
+  unreachable" escape hatch without a real fixture drive, and every
+  "how you'll know it worked" item would still read as satisfied.
+  Mitigation folded into phase 2 (not a proposal-text fix, since no
+  automated checker exists for this claim class, unlike
+  `role-test-claim-guard.sh`'s test-run cross-check): each fenced drive
+  block in the hunt record must include the fixture's `$TMPDIR` path
+  and the literal command invoked, so a reader can independently confirm
+  the block is not hand-typed; any "legitimately unreachable" row must
+  name the concrete blocker (missing consumer repo, no reachable
+  trigger) rather than a bare "not reachable."
+
 ## How you'll know it worked
 
 `docs/issue-628/reports/execution-observation.md` exists, committed,
