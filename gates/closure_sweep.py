@@ -85,6 +85,52 @@ def _pr_view_state_body(root: Path, pr: int) -> tuple[tuple[str, str] | None, bo
     return (data.get("state", ""), data.get("body", "") or ""), True
 
 
+_PR_INDEX_LIMIT = 1000
+
+
+def _pr_index_all(root: Path) -> tuple[dict[str, dict] | None, bool]:
+    """브랜치 이름 -> `{number, state, body}` 사전, `gh` 한 번(issue #682).
+
+    이전에는 subject x role 마다 `spawn._pr_for_branch`(브랜치->번호)와
+    `_pr_view_state_body`(번호->state/body)를 각각 불러 179+179회 · 199초를
+    썼다. 두 조회가 필요로 하는 필드는 `gh pr list --state all` 하나에 다
+    들어 있다.
+
+    `_pr_for_branch` 의 "같은 브랜치에 PR 이 여럿이면 가장 최근 것" 시맨틱은
+    `gh pr list` 의 기본 정렬(생성 역순)에서 **첫 번째** 항목만 채택해
+    보존한다.
+
+    `(index, ok)` — `ok=False` 는 `gh` 호출 자체가 실패했다는 뜻이고, 그때
+    `index` 는 `None` 이다: 호출부가 "그 브랜치에 PR 이 없다"와 "PR 목록을
+    못 읽었다"를 구별해야 한다(issue #287 S1 과 같은 이유).
+
+    `--limit` 상한에 정확히 걸리면 잘렸을 수 있으므로 `(None, True)` 를
+    돌려 호출부가 레포별 개별 조회로 되돌아가게 한다 — 조용한 절단으로
+    위반을 놓치느니 느린 옛 경로가 낫다(issue #224 가 같은 절단을 지적)."""
+    r = subprocess.run(["gh", "pr", "list", "--state", "all", "--json",
+                        "number,headRefName,state,body",
+                        "--limit", str(_PR_INDEX_LIMIT)],
+                       cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, False
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None, False
+    if not isinstance(data, list):
+        return None, False
+    if len(data) >= _PR_INDEX_LIMIT:
+        return None, True
+    index: dict[str, dict] = {}
+    for pr in data:
+        branch = pr.get("headRefName") or ""
+        if branch and branch not in index:
+            index[branch] = {"number": pr.get("number"),
+                             "state": pr.get("state", ""),
+                             "body": pr.get("body", "") or ""}
+    return index, True
+
+
 def find_violations(root: Path, subjects: dict | None = None,
                      issue_states: dict[int, str] | None = None) -> tuple[list[dict], list[dict]]:
     """보드의 각 subject x role 브랜치에 대해 이슈/PR 상태를 읽고 위반을 모은다.
@@ -104,6 +150,7 @@ def find_violations(root: Path, subjects: dict | None = None,
         subjects = spawn.board(root)
     violations = []
     skips = []
+    pr_index, pr_index_ok = _pr_index_all(root)
     for subject, roles in subjects.items():
         m = subject.split("-", 1)
         if len(m) != 2 or not m[1].isdigit():
@@ -120,19 +167,41 @@ def find_violations(root: Path, subjects: dict | None = None,
             continue
         for role in roles:
             branch = f"{subject}/{role}"
-            pr = spawn._pr_for_branch(root, branch)
-            if pr is None:
+            if not pr_index_ok:
+                skips.append({"subject": subject, "role": role,
+                              "reason": "gh-pr-list-failed"})
                 continue
-            view, ok = _pr_view_state_body(root, pr)
-            if not ok:
-                skips.append({"subject": subject, "role": role, "pr": pr,
-                              "reason": "gh-pr-view-failed"})
-                continue
-            if view is None:
-                continue
-            pr_state, pr_body = view
-            has_record_evidence = ci._phase2_record_evidence(root, pr, branch, issue)
-            kind = classify(issue_state, pr_state, pr_body, issue, has_record_evidence)
+            if pr_index is not None:
+                entry = pr_index.get(branch)
+                if entry is None:
+                    continue
+                pr = entry["number"]
+                pr_state, pr_body = entry["state"], entry["body"]
+            else:
+                # 목록이 --limit 에 걸려 잘렸을 수 있다 — 옛 개별 조회로
+                # 되돌아간다(`_pr_index_all` 참조).
+                pr = spawn._pr_for_branch(root, branch)
+                if pr is None:
+                    continue
+                view, ok = _pr_view_state_body(root, pr)
+                if not ok:
+                    skips.append({"subject": subject, "role": role, "pr": pr,
+                                  "reason": "gh-pr-view-failed"})
+                    continue
+                if view is None:
+                    continue
+                pr_state, pr_body = view
+            # `_phase2_record_evidence` 는 subject 마다 `gh api .../contents`
+            # 한 번을 쓰는 원격 조회다(179회 · 163초, issue #682). `classify`
+            # 가 그 값을 쓰는 곳은 `pr_state == MERGED and issue_state ==
+            # OPEN` 가지 하나뿐이고, 거기서도 `has_closes` 와 OR 이라 값은
+            # `None -> MERGED_DELIVERY_ISSUE_OPEN` 방향으로만 작용한다.
+            # 따라서 증거 없이 한 번 판정해 보고, 결과가 `None` 이면서 그
+            # 가지 조건일 때만 조회해 재판정해도 결과가 동치다.
+            kind = classify(issue_state, pr_state, pr_body, issue, False)
+            if kind is None and pr_state == "MERGED" and issue_state == "OPEN":
+                if ci._phase2_record_evidence(root, pr, branch, issue):
+                    kind = classify(issue_state, pr_state, pr_body, issue, True)
             if kind:
                 violations.append({"issue": issue, "pr": pr, "role": role, "kind": kind})
     return violations, skips
