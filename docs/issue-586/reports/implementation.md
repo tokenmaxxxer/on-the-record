@@ -10,7 +10,7 @@ code_under_review:
 type: feature
 breaking: false
 verdict: pass
-loop_state: committing
+loop_state: landed
 ---
 
 # Record — issue #586 step 2: realize the axis matrix (implementation, batch 1)
@@ -43,10 +43,28 @@ docs/issue-586/proposals/implementation.md
   reasons list.
 
 ## Open findings
-None.
+- `test_gates.py::t_rulebook_version_is_recorded` fails on this checkout
+  (execution-observation rulebook's local checkout is dirty, unrelated to
+  this batch's write set) — pre-existing, out of scope for this
+  proposal; not caused by any file this batch touched.
+- Before-landing warrant hunt (stance 0,
+  docs/reports/2026-08-10-hunt-issue-586-judgment-axis-matrix.md):
+  `--roles-dir` is a real, callable entrypoint (this batch's deliverable,
+  matching the proposal's "How you'll know it worked" criterion of a
+  manual `python3 gates/role_spec_shape.py --roles-dir roles`
+  invocation) but nothing invokes it automatically yet — no
+  `on-the-record/hooks/hooks.json` entry, no CI job. The pre-existing
+  `check()`/`main()` spec.json path has the same property today (only
+  `reference_resolution_check` is hook-wired via
+  `role-spec-reference-guard.sh`), so this is a pattern this proposal
+  inherited rather than one it created. Automatic hook/CI wiring is a
+  follow-up issue for a future proposal to scope and write its own write
+  set for.
 
 ## Next steps
 Land this batch's edits, run the full suite, commit, push, open PR.
 
 ## Resolution path
-N/A — no open findings.
+The whoever owns the execution-observation rulebook checkout's
+cleanliness (not this batch) commits or resets that local checkout;
+unrelated to any file in this batch's write set.
