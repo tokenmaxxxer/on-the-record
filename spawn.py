@@ -2155,15 +2155,21 @@ def _remediation_merge_sweep(root: Path, issue: int) -> int:
     return posted
 
 
-def roster_reconcile(issue: int | None = None, unreported: bool = False) -> int:
-    """`spawn.py reconcile [--issue N] [--unreported]` — 이슈-492 step 2 CLI
-    verb, 이슈 #534 로 `--unreported` 모드가 추가됐다.
+def roster_reconcile(issue: int | None = None, unreported: bool = False,
+                      remediation_merged: bool = False) -> int:
+    """`spawn.py reconcile [--issue N] [--unreported] [--remediation-merged]`
+    — 이슈-492 step 2 CLI verb, 이슈 #534 로 `--unreported` 모드가, 이슈
+    #587 round 2 로 `--remediation-merged` 모드가 추가됐다.
 
     `unreported=True` 면 `_roster_reconcile_unreported()` 로 위임한다 —
     roster 가 아니라 workspace 인덱스를 보는, 다른 데이터소스/다른 질문
     (divergence 가 아니라 "미보고 session-end")이라 별도 함수로 분리했다.
 
-    기본 모드(`unreported=False`)는 그대로다: 로스터(살아있는 것 + 죽은 것
+    `remediation_merged=True` 면 `_remediation_merge_sweep(ROOT, issue)` 로
+    위임한다 — `issue` 가 없으면 대상을 특정할 수 없으므로 아무 것도 하지
+    않고 0 을 반환한다.
+
+    기본 모드(둘 다 False)는 그대로다: 로스터(살아있는 것 + 죽은 것
     전부, `watchdog --auto-respawn` 의 스캔 범위와 같다)를 훑어 엔트리마다
     `reconcile()` 을 한 번씩 돌린다. `--issue` 를 주면 그 이슈 번호의
     엔트리로만 좁힌다. divergence 한 줄씩 찍고, 종료 코드는 divergence 총
@@ -2171,6 +2177,10 @@ def roster_reconcile(issue: int | None = None, unreported: bool = False) -> int:
     (spawn.py:1752-1755)."""
     if unreported:
         return _roster_reconcile_unreported(issue)
+    if remediation_merged:
+        if issue is None:
+            return 0
+        return _remediation_merge_sweep(ROOT, issue)
     d = _roster_load()
     if issue is not None:
         d = {k: e for k, e in d.items() if e.get("issue") == issue}
@@ -3479,6 +3489,10 @@ def main() -> int:
                     help="reconcile: roster 대신 workspace 인덱스를 훑어, "
                          "session-end(normal) 인데 아직 [watch] 코멘트가 없는 "
                          "엔트리를 찍는다 (이슈 #534, 압축/재시작 뒤 복구용 단일 스윕)")
+    ap.add_argument("--remediation-merged", action="store_true",
+                    help="reconcile --issue N: docs/issue-N/decisions/remediation-*.md 중 "
+                         "status: open 인 기록의 routed_to 역할 브랜치가 머지됐으면 "
+                         "이슈에 코멘트를 남긴다 (이슈 #587 round 2, §12 event 4)")
     ap.add_argument("--post", action="store_true",
                     help="closure-sweep: 위반을 해당 이슈에 코멘트로도 남긴다 (기본은 stdout 만)")
     ap.add_argument("--json", action="store_true",
@@ -3493,7 +3507,8 @@ def main() -> int:
     if a.role == "watchdog":
         return roster_watchdog(auto_respawn=a.auto_respawn)
     if a.role == "reconcile":
-        return roster_reconcile(a.issue, unreported=a.unreported)
+        return roster_reconcile(a.issue, unreported=a.unreported,
+                                 remediation_merged=a.remediation_merged)
     if a.role == "flows":
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import flows
