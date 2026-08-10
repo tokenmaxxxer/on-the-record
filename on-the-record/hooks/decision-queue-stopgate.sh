@@ -52,7 +52,7 @@ FLOWS_JSON="$(python3 "$CHECKOUT/spawn.py" flows --json -C "$REPO" 2>/dev/null |
 [ -n "$FLOWS_JSON" ] || { trap - EXIT; exit 0; }
 
 IFS='' read -r -d '' CHECK <<'PY' || true
-import json, os, sys
+import json, os, re, sys
 
 try:
     flows = json.loads(os.environ.get("STOPGATE_FLOWS_JSON", ""))
@@ -63,6 +63,43 @@ if not isinstance(flows, dict):
 
 queue = flows.get("decision_queue")
 if not isinstance(queue, list) or not queue:
+    sys.exit(0)
+
+# Issue #600: waiting-declaration turn-holding. A non-empty queue (any
+# age -- the incident item was age_hours=0.3, below tier 1) combined with
+# a reply that declares it is waiting but shows no sign of closing the
+# turn (no background-arm marker) is the turn-occupancy violation run.md
+# rule 4 (#535 section) forbids. Independent of, and fires before, the
+# age-tier logic below.
+try:
+    stdin_payload = json.loads(os.environ.get("STOPGATE_STDIN_JSON", ""))
+except ValueError:
+    stdin_payload = {}
+last_msg = ""
+if isinstance(stdin_payload, dict):
+    last_msg = stdin_payload.get("last_assistant_message") or ""
+if not isinstance(last_msg, str):
+    last_msg = ""
+
+_WAITING_RE = re.compile(
+    r"대기\s*중|기다리는\s*중|waiting for|standing by", re.IGNORECASE
+)
+_ARM_RE = re.compile(
+    r"background|observation|백그라운드|옵저베이션", re.IGNORECASE
+)
+if _WAITING_RE.search(last_msg) and not _ARM_RE.search(last_msg):
+    out = {
+        "decision": "block",
+        "reason": (
+            "decision-queue-stopgate: waiting-declaration reply over a "
+            "non-empty decision queue with no background-arm marker -- "
+            "this is turn-occupancy, not a closed turn. run.md #535 규칙 "
+            "4 (\"남은 작업이 사람의 결정뿐이면 그 자리에서 턴을 닫는다\") "
+            "requires closing the turn instead of repeating a waiting "
+            "status line; let the user's next message open the next turn."
+        ),
+    }
+    sys.stdout.write(json.dumps(out))
     sys.exit(0)
 
 tier1, tier2 = [], []
@@ -122,7 +159,7 @@ sys.stdout.write(json.dumps(out))
 sys.exit(0)
 PY
 
-STOPGATE_FLOWS_JSON="$FLOWS_JSON" python3 -c "$CHECK"
+STOPGATE_FLOWS_JSON="$FLOWS_JSON" STOPGATE_STDIN_JSON="$payload" python3 -c "$CHECK"
 rc=$?
 trap - EXIT
 exit "$rc"

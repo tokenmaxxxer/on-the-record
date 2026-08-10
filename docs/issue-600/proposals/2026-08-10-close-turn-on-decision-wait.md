@@ -10,7 +10,7 @@ files:
 
 # Proposal — close the turn while waiting on a human decision (issue #600)
 
-## Intent
+## Request
 An orchestration session that has nothing left to do except wait for the
 user's decision must close its turn instead of holding it open with
 repeated "waiting" status text. Holding the turn queues the user's actual
@@ -26,7 +26,26 @@ reply unread until they interrupt — observed live, four consecutive
 - Red/green testable: a waiting-declaration reply over a non-empty queue
   must flag; a normal queue-relay reply that closes the turn must pass.
 
-## Design
+## Rationale
+The issue's own text frames the detection mechanism as "the deployed
+check's own design choice" and names one explicit alternative: a
+PreToolUse detector for foreground sleep/poll loops. That alternative is
+considered and rejected here — the incident evidence (four repeated Stop
+turns, each printing a status line, with no intervening tool call at
+all) is a Stop-surface pattern, not a tool-call pattern; a PreToolUse
+sleep/poll detector would never fire on a session that isn't sleeping or
+polling, only declaring itself "waiting" via plain text. The chosen
+design is a Stop-surface conjunction instead: (a) decision-queue
+non-empty (existing signal) AND (b) the last assistant message matches a
+waiting-declaration phrasing set with no background-arm marker. A
+text-only check (phrasing match alone, no state fact) was also
+considered and rejected: it is trivially gameable by rephrasing away
+from the trigger list, exactly the weakness `report-framing-check.sh`
+already has for the same class of check. Conjoining the state fact
+closes that gap — an operator cannot make a genuinely non-empty decision
+queue disappear by choosing different words.
+
+## What will be done
 
 ### 1. Contract text — `run.md`, new subsection under "턴 예산 규칙 (#535)"
 Add a 4th rule (numbered rule 4, not a new section — the failure is a
@@ -118,6 +137,18 @@ file's existing `_run()` harness (extend its payload to carry
   /role-session) must stay green, unmodified in expectation — this is an
   additive branch, not a replacement.
 
+## Accumulation
+`_run()`'s test helper gains one new optional kwarg
+(`last_assistant_message`), and the CHECK block inside
+`decision-queue-stopgate.sh` gains one new branch reading one new env var
+(`STOPGATE_STDIN_JSON`) — not a new per-item inline `subprocess`/`gh`
+call site, and not a `roles/*.json`-style repeated-file edit. If a third
+turn-occupancy signal (a different Stop-surface state fact) is added
+later, it extends this same branch/kwarg shape rather than opening a new
+call site; the branch already reads its one stdin payload and one `flows
+--json` call per Stop event, matching the existing age-tier branch, so
+there is no N-times-more accumulation risk from this change.
+
 ## Out of scope (this proposal)
 - Implementing the above (step 2 in the issue's own 실행 계획 — a
   separate phase/session).
@@ -156,7 +187,7 @@ Both branches can fire independently — the new branch reaches a fresh
 `age_hours=0.3` item the age-tier branch would leave silent, matching the
 incident (its queue item was under 1h old).
 
-## How this will be known to have worked
+## How you'll know it worked
 - `python3 -m pytest on-the-record/hooks/test_decision_queue_stopgate.py -q`
   exits 0, including the new red/green pair.
 - `run.md` contains rule 4 verbatim under the #535 section; commit
