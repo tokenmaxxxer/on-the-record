@@ -120,3 +120,80 @@ def t_edit_tool_uses_new_string(tmp_path):
              tool_name="Edit")
     assert r.returncode == 2
     assert "issue #333" in r.stderr
+
+
+# --- record-claim-shape-directive.sh (issue #730) -------------------------
+
+DIRECTIVE = HOOKS_DIR / "record-claim-shape-directive.sh"
+
+
+def _run_directive(claude_role="implementation"):
+    env = dict(os.environ)
+    env["ORCHESTRATE_OFF"] = ""
+    if claude_role is None:
+        env.pop("CLAUDE_ROLE", None)
+    else:
+        env["CLAUDE_ROLE"] = claude_role
+    return subprocess.run(
+        ["bash", str(DIRECTIVE)],
+        input="", capture_output=True, text=True, env=env, timeout=20,
+    )
+
+
+def t_directive_names_all_four_record_lint_rules():
+    r = _run_directive(claude_role="implementation")
+    assert r.returncode == 0
+    out = r.stdout
+    assert "<record-claim-citation-directive>" in out
+    # count-needs-citation (#333: bare count/ratio needs a code fence or
+    # a `derived:` tag)
+    assert "derived:" in out and "#333" in out
+    # unverifiable-needs-reason (#310 and the #331 checked-claim variant)
+    assert "unverifiable:" in out and "#310" in out
+    assert "#331" in out
+    # path-must-resolve (#330: a backtick-quoted path must resolve)
+    assert "#330" in out
+
+
+def t_directive_is_silent_without_claude_role():
+    r = _run_directive(claude_role=None)
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def t_directive_fails_open_without_orchestrate_off_flag_set_wrong():
+    env = dict(os.environ)
+    env["ORCHESTRATE_OFF"] = "1"
+    env["CLAUDE_ROLE"] = "implementation"
+    r = subprocess.run(["bash", str(DIRECTIVE)], input="", capture_output=True,
+                        text=True, env=env, timeout=20)
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def t_directive_shows_visible_notice_on_renamed_check_function(tmp_path):
+    # before-landing hunt (issue #730, stance 0): a rename of a
+    # record_lint check attribute must not silently produce the same
+    # empty output as the intentional no-op paths.
+    import shutil
+
+    gates_src = HOOKS_DIR.parent / "gates"
+    tmp_gates = tmp_path / "gates"
+    shutil.copytree(gates_src, tmp_gates)
+    lint_path = tmp_gates / "record_lint.py"
+    text = lint_path.read_text()
+    lint_path.write_text(
+        text.replace("def bare_count_claim_check", "def bare_count_claim_check_renamed", 1))
+
+    tmp_hooks = tmp_path / "hooks"
+    tmp_hooks.mkdir()
+    shutil.copy(DIRECTIVE, tmp_hooks / DIRECTIVE.name)
+
+    env = dict(os.environ)
+    env["ORCHESTRATE_OFF"] = ""
+    env["CLAUDE_ROLE"] = "implementation"
+    r = subprocess.run(["bash", str(tmp_hooks / DIRECTIVE.name)], input="",
+                        capture_output=True, text=True, env=env, timeout=20)
+    assert r.returncode == 0
+    assert "<record-claim-citation-directive>" in r.stdout
+    assert "could not generate" in r.stdout
