@@ -1,4 +1,5 @@
-"""Tests for record-claim-guard.sh (issue #457 Group A+B porting)."""
+"""Tests for record-claim-guard.sh (issue #457 Group A+B porting) and
+record-claim-shape-directive.sh (issue #730 proactive statement)."""
 import json
 import os
 import subprocess
@@ -6,6 +7,7 @@ from pathlib import Path
 
 HOOKS_DIR = Path(__file__).resolve().parent
 GUARD = HOOKS_DIR / "record-claim-guard.sh"
+SHAPE_DIRECTIVE = HOOKS_DIR / "record-claim-shape-directive.sh"
 
 
 def _run(tool_input, tool_name="Write", cwd=None):
@@ -120,3 +122,53 @@ def t_edit_tool_uses_new_string(tmp_path):
              tool_name="Edit")
     assert r.returncode == 2
     assert "issue #333" in r.stderr
+
+
+def _run_shape_directive(claude_role="implementation", orchestrate_off=""):
+    env = dict(os.environ)
+    env["ORCHESTRATE_OFF"] = orchestrate_off
+    if claude_role is None:
+        env.pop("CLAUDE_ROLE", None)
+    else:
+        env["CLAUDE_ROLE"] = claude_role
+    return subprocess.run(
+        ["bash", str(SHAPE_DIRECTIVE)],
+        capture_output=True, text=True, env=env, timeout=20,
+    )
+
+
+def t_shape_directive_names_the_three_acceptance_rules_for_a_role_session():
+    r = _run_shape_directive(claude_role="implementation")
+    assert r.returncode == 0
+    # issue #730 Acceptance wording: count-needs-citation, path-must-resolve,
+    # unverifiable-needs-reason. Empty state: this fails if the directive
+    # text is missing or stops naming these rules.
+    assert "derived:" in r.stdout  # count-needs-citation
+    assert "resolves nowhere in the working tree" in r.stdout  # path-must-resolve
+    assert "unverifiable_reason_check" in r.stdout  # unverifiable-needs-reason
+    assert "needs a reason" in r.stdout  # unverifiable-needs-reason (rule text)
+
+
+def t_shape_directive_names_all_four_record_lint_checks_in_call_order():
+    r = _run_shape_directive(claude_role="implementation")
+    assert r.returncode == 0
+    expected_order = [
+        "unverifiable_reason_check",
+        "checked_claim_reason_check",
+        "bare_count_claim_check",
+        "orphaned_path_reference_check",
+    ]
+    positions = [r.stdout.index(name) for name in expected_order]
+    assert positions == sorted(positions)
+
+
+def t_shape_directive_silent_without_claude_role():
+    r = _run_shape_directive(claude_role=None)
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def t_shape_directive_respects_kill_switch():
+    r = _run_shape_directive(claude_role="implementation", orchestrate_off="1")
+    assert r.returncode == 0
+    assert r.stdout == ""
