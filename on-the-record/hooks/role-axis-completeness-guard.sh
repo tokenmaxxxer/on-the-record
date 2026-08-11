@@ -35,8 +35,8 @@ set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
-command -v python3 >/dev/null 2>&1 || exit 0
-command -v git >/dev/null 2>&1 || exit 0
+command -v python3 >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: python3 not found (fail-open)" >&2; exit 0; }
+command -v git >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: git not found (fail-open)" >&2; exit 0; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cand1=""
@@ -105,7 +105,14 @@ def load_role_spec_shape():
                 "racg_role_spec_shape_%d" % i, mod_path)
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
-        except Exception:
+        except Exception as exc:
+            # issue #910 finding #6: a candidate that raises on import used
+            # to be skipped with zero output, silently disabling this
+            # deny-capable gate's axis-ownership check if both candidates
+            # fail. Log which candidate failed and why.
+            print("[role-axis-completeness-guard] candidate %s failed to "
+                  "load: %s: %s" % (mod_path, type(exc).__name__, exc),
+                  file=sys.stderr)
             continue
         if hasattr(mod, "check_axis_ownership") and hasattr(mod, "check_role_judgment_axes"):
             return mod

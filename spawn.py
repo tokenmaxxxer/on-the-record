@@ -2266,8 +2266,13 @@ def _resume_orchestrator_session(session_id: str, nudge: str,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
-    except OSError:
-        return None
+    except OSError as exc:
+        # issue #910 finding #1: a Popen failure here (e.g. the `claude`
+        # binary is missing/unspawnable) was previously indistinguishable
+        # from the ordinary claim-skip path in _maybe_resume_for_ready_pr —
+        # both returned False with no roster/record trace. Record it here
+        # so the caller's event carries the real cause.
+        return ("popen-failed", str(exc))
 
 
 def _maybe_resume_for_ready_pr(key: str, entry: dict, pr_number: int) -> bool:
@@ -2279,15 +2284,29 @@ def _maybe_resume_for_ready_pr(key: str, entry: dict, pr_number: int) -> bool:
     맡으므로 여기서는 아무것도 하지 않는다(중복 트리거 방지).
 
     반환: 실제로 resume 를 쐈으면 True, 건너뛰었으면(session_id 없음/이미
-    다른 엔트리가 같은 세션을 깨움/Popen 실패) False."""
+    다른 엔트리가 같은 세션을 깨움/Popen 실패) False.
+
+    이슈 #910 finding #1: Popen 실패와 claim-skip 은 이전에는 둘 다
+    아무 기록 없이 False 로 수렴했다 — 어느 쪽인지 events.jsonl 에 남긴다."""
     session_id = entry.get("session_id")
     if not session_id:
         return False
+    work = entry.get("work")
+    events_path = _events_path(work) if work else None
     if not _session_resume_claim(session_id):
+        if events_path is not None:
+            _append_event(events_path, "resume-skipped-claimed",
+                          {"session_id": session_id, "pr_number": pr_number})
         return False
     nudge = (f"delegated PR #{pr_number} ({key}) is ready — verify, merge, "
              f"rebuild/re-check, and emit the 4-part final_report.")
-    proc = _resume_orchestrator_session(session_id, nudge, cwd=entry.get("work"))
+    proc = _resume_orchestrator_session(session_id, nudge, cwd=work)
+    if isinstance(proc, tuple) and proc[0] == "popen-failed":
+        if events_path is not None:
+            _append_event(events_path, "resume-attempt-failed",
+                          {"session_id": session_id, "pr_number": pr_number,
+                           "reason": proc[1]})
+        return False
     return proc is not None
 
 

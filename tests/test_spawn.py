@@ -9507,5 +9507,63 @@ class StateRootIsolation(unittest.TestCase):
                           str(Path(self.fixture_state).resolve() / "workspaces.json"))
 
 
+class TestMaybeResumeForReadyPrRecordsFailureCause(unittest.TestCase):
+    """issue #910 finding #1: a Popen failure inside
+    _resume_orchestrator_session and an ordinary claim-skip (another entry
+    already claimed the same session_id) previously both collapsed to
+    `_maybe_resume_for_ready_pr` returning False with no roster/record
+    trace. Both paths must now append a distinguishing event."""
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        self.work = Path(self.td) / "wk"
+        self.work.mkdir()
+        self.events = spawn._events_path(self.work)
+
+    def _event_types(self):
+        if not self.events.exists():
+            return []
+        return [json.loads(line)["type"]
+                for line in self.events.read_text(encoding="utf-8").splitlines()]
+
+    def test_popen_failure_is_recorded_distinctly(self):
+        from unittest import mock
+        entry = {"session_id": "sess-popen-fail", "work": str(self.work)}
+        with mock.patch.object(spawn, "_session_resume_claim", return_value=True), \
+             mock.patch.object(spawn, "_resume_orchestrator_session",
+                                return_value=("popen-failed", "no such file or directory: claude")):
+            result = spawn._maybe_resume_for_ready_pr("issue-1/implementation", entry, 42)
+        self.assertFalse(result)
+        self.assertIn("resume-attempt-failed", self._event_types())
+
+    def test_claim_skip_is_recorded_distinctly(self):
+        from unittest import mock
+        entry = {"session_id": "sess-claimed", "work": str(self.work)}
+        with mock.patch.object(spawn, "_session_resume_claim", return_value=False):
+            result = spawn._maybe_resume_for_ready_pr("issue-1/implementation", entry, 42)
+        self.assertFalse(result)
+        self.assertIn("resume-skipped-claimed", self._event_types())
+
+    def test_successful_resume_records_no_failure_event(self):
+        from unittest import mock
+        entry = {"session_id": "sess-ok", "work": str(self.work)}
+        fake_proc = mock.Mock()
+        with mock.patch.object(spawn, "_session_resume_claim", return_value=True), \
+             mock.patch.object(spawn, "_resume_orchestrator_session", return_value=fake_proc):
+            result = spawn._maybe_resume_for_ready_pr("issue-1/implementation", entry, 42)
+        self.assertTrue(result)
+        types = self._event_types()
+        self.assertNotIn("resume-attempt-failed", types)
+        self.assertNotIn("resume-skipped-claimed", types)
+
+    def test_resume_orchestrator_session_returns_failure_tuple_on_oserror(self):
+        from unittest import mock
+        with mock.patch.object(spawn.subprocess, "Popen", side_effect=OSError("no such file")):
+            result = spawn._resume_orchestrator_session("sess-x", "nudge", cwd=str(self.work))
+        self.assertEqual(result[0], "popen-failed")
+        self.assertIn("no such file", result[1])
+
+
 if __name__ == "__main__":
     unittest.main()

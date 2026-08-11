@@ -49,8 +49,8 @@ set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
-command -v python3 >/dev/null 2>&1 || exit 0
-command -v git >/dev/null 2>&1 || exit 0
+command -v python3 >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: python3 not found (fail-open)" >&2; exit 0; }
+command -v git >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: git not found (fail-open)" >&2; exit 0; }
 
 spawn_py="${CLAUDE_PLUGIN_ROOT:-}/../spawn.py"
 [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -f "$spawn_py" ] || exit 0
