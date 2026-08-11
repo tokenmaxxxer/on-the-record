@@ -14,11 +14,16 @@
 #
 # Resolves the on-the-record checkout the same way directive.sh does.
 # Kill switches: ORCHESTRATE_OFF=1, CLAUDE_ROLE set (spawned role session).
+# Role identity (issue #706): the CLAUDE_ROLE presence check is resolved
+# inside the CHECK python body from the #698 session-role-bind snapshot,
+# falling back to the live env var only when no snapshot exists — a role
+# session unsetting CLAUDE_ROLE before a Stop turn can no longer flip
+# itself into the orchestrator-only branch and have this decision-queue
+# nudge/block applied to it. See approval-gate.sh for the resolve pattern.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-[ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
 payload="$(cat 2>/dev/null || true)"
 
 _checkout_resolve() {
@@ -55,6 +60,36 @@ IFS='' read -r -d '' CHECK <<'PY' || true
 import json, os, re, sys
 
 try:
+    stdin_payload = json.loads(os.environ.get("STOPGATE_STDIN_JSON", ""))
+except ValueError:
+    stdin_payload = {}
+if not isinstance(stdin_payload, dict):
+    stdin_payload = {}
+
+# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
+# same resolve-with-fallback pattern as approval-gate.sh: a role session
+# that unsets CLAUDE_ROLE before a Stop turn no longer flips this hook
+# into treating the turn as orchestrator-authored.
+role = os.environ.get("CLAUDE_ROLE", "")
+_session_id_for_role = stdin_payload.get("session_id")
+if isinstance(_session_id_for_role, str) and _session_id_for_role:
+    state_dir = os.environ.get(
+        "OTR_ROLE_BIND_STATE_DIR",
+        os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
+    )
+    safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", _session_id_for_role)
+    snapshot_path = os.path.join(state_dir, safe_session + ".json")
+    try:
+        with open(snapshot_path, encoding="utf-8") as f:
+            snapshot = json.load(f)
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
+            role = snapshot["role"]
+    except (OSError, ValueError):
+        pass  # no snapshot yet — fall back to the live env var
+if role:
+    sys.exit(0)  # role session — this decision-queue nudge is orchestrator-only
+
+try:
     flows = json.loads(os.environ.get("STOPGATE_FLOWS_JSON", ""))
 except ValueError:
     sys.exit(0)
@@ -85,15 +120,8 @@ def _name(item):
 # turn (no background-arm marker) is the turn-occupancy violation run.md
 # rule 4 (#535 section) forbids. Independent of, and fires before, the
 # age-tier logic below.
-try:
-    stdin_payload = json.loads(os.environ.get("STOPGATE_STDIN_JSON", ""))
-except ValueError:
-    stdin_payload = {}
-last_msg = ""
-session_id = None
-if isinstance(stdin_payload, dict):
-    last_msg = stdin_payload.get("last_assistant_message") or ""
-    session_id = stdin_payload.get("session_id")
+last_msg = stdin_payload.get("last_assistant_message") or ""
+session_id = stdin_payload.get("session_id")
 if not isinstance(last_msg, str):
     last_msg = ""
 if not isinstance(session_id, str) or not session_id:
