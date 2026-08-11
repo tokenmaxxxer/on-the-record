@@ -351,5 +351,112 @@ def test_hook_allows_legitimate_phase2_pr(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+# --- issue #854: heredoc --body extraction truncated at an embedded quote --
+#
+# PR #844's real `gh pr create --body "$(cat <<'EOF' ... EOF)"` command
+# (recovered verbatim from the spawning session's log) is embedded below
+# unmodified, plus the same body turned into a `gh pr edit 844 --body ...`
+# call with 'Closes #839' appended after the heredoc's own literal,
+# unescaped '"무리"' quote — the exact real-world shape that let issue #839
+# get auto-closed by a phase-1 PR (docs/issue-854/reports/implementation/
+# survey.md has the full incident timeline). Neither command ever actually
+# ran through this hook in that incident (the closing PR body edit was made
+# directly on github.com, outside any Bash-tool call — confirmed via the
+# PR's GraphQL userContentEdits) — these two tests instead confirm the
+# hook's *own* behavior against the real command text, independent of how
+# that incident happened: the old quote-balance --body regex truncated the
+# captured body at the first literal '"' inside the heredoc (before the
+# body's 'Closes #839' line even that far in), so a hypothetical in-session
+# call carrying this exact shape would have slipped past the phase-1
+# closing-keyword refusal too.
+
+REAL_PR844_CREATE_CMD = 'gh pr create --title "issue-839: phase-1 survey + proposal for generated-paths.md row fix + gate-registration-guard classification check" --body "$(cat <<\'EOF\'\n## Summary\n\nAddresses #839 — phase 1 (research + proposal) only, per role-handoff contract v3 s19. No code changes land in this PR; phase 2 opens on Approve.\n\n- `stop-poll-rearm.sh` has no write call in its own file text, but `docs/specs/generated-paths.md` records it `out-of-tree` instead of `n/a` per the spec\'s own file-level grep unit — the row landed wrong in `d4a8228` alongside `poll-rearm.sh`\'s row.\n- `gate-registration-guard.sh` (issue #759) only checks that a spec row *exists* for a newly-staged hook, never that its classification matches what the same commit\'s source derives — so the wrong row landed without the PreToolUse gate catching it.\n- Survey (`docs/issue-839/reports/implementation/survey.md`) decides both judgment calls the issue hands over: (1) fix the doc cell, don\'t change the spec\'s file-level unit — confirmed the unit is already specified by the spec and its origin proposal (issue-684), and changing it would only affect this one row anyway; (2) extend `gate-registration-guard.sh` to reuse `gates/test_generated_paths.py`\'s existing classification derivation, restricted to newly-staged hook scripts — verified live that this is feasible and bounded, not "무리" (impractical).\n- After-proposal warrant hunt (stance 0) found the ported classification check only validates value *shape* (n/a / out-of-tree / issue-scoped, placeholder presence), not truthfulness of an `out-of-tree` claim against a writer hook\'s actual constructed path — a pre-existing gap in `gates/test_generated_paths.py::check()` itself, not introduced here. Folded into the proposal\'s Rationale and Out of scope as an explicit, honest limitation rather than left implicit.\n\n## Test plan\n\n- [ ] Human approver (`docs/specs/approvers.md`) reviews and Approves per contract v3 s19, opening phase 2.\n- [ ] Phase 2: land the `docs/specs/generated-paths.md` row fix and the `gate-registration-guard.sh` extension exactly as scoped in the proposal\'s "What will be done".\n- [ ] Phase 2: `python3 -m pytest gates/ tests/ on-the-record/hooks/ -q` on the branch vs `origin/main`, failure-set diff = exactly minus one failure (`t_all_generators_recorded_and_disjoint`), pasted into the phase-2 record.\nEOF\n)"\n'
+
+REAL_PR844_EDIT_WITH_CLOSES_CMD = 'gh pr edit 844 --body "$(cat <<\'EOF\'\n## Summary\n\nAddresses #839 — phase 1 (research + proposal) only, per role-handoff contract v3 s19. No code changes land in this PR; phase 2 opens on Approve.\n\n- `stop-poll-rearm.sh` has no write call in its own file text, but `docs/specs/generated-paths.md` records it `out-of-tree` instead of `n/a` per the spec\'s own file-level grep unit — the row landed wrong in `d4a8228` alongside `poll-rearm.sh`\'s row.\n- `gate-registration-guard.sh` (issue #759) only checks that a spec row *exists* for a newly-staged hook, never that its classification matches what the same commit\'s source derives — so the wrong row landed without the PreToolUse gate catching it.\n- Survey (`docs/issue-839/reports/implementation/survey.md`) decides both judgment calls the issue hands over: (1) fix the doc cell, don\'t change the spec\'s file-level unit — confirmed the unit is already specified by the spec and its origin proposal (issue-684), and changing it would only affect this one row anyway; (2) extend `gate-registration-guard.sh` to reuse `gates/test_generated_paths.py`\'s existing classification derivation, restricted to newly-staged hook scripts — verified live that this is feasible and bounded, not "무리" (impractical).\n- After-proposal warrant hunt (stance 0) found the ported classification check only validates value *shape* (n/a / out-of-tree / issue-scoped, placeholder presence), not truthfulness of an `out-of-tree` claim against a writer hook\'s actual constructed path — a pre-existing gap in `gates/test_generated_paths.py::check()` itself, not introduced here. Folded into the proposal\'s Rationale and Out of scope as an explicit, honest limitation rather than left implicit.\n\n## Test plan\n\n- [ ] Human approver (`docs/specs/approvers.md`) reviews and Approves per contract v3 s19, opening phase 2.\n- [ ] Phase 2: land the `docs/specs/generated-paths.md` row fix and the `gate-registration-guard.sh` extension exactly as scoped in the proposal\'s "What will be done".\n- [ ] Phase 2: `python3 -m pytest gates/ tests/ on-the-record/hooks/ -q` on the branch vs `origin/main`, failure-set diff = exactly minus one failure (`t_all_generators_recorded_and_disjoint`), pasted into the phase-2 record.\n\nCloses #839\nEOF\n)"\n'
+
+
+def test_hook_allows_real_pr844_create_command_unmodified(tmp_path):
+    """PR #844's actual `gh pr create` command, byte-for-byte from the
+    session log, carries no closing keyword (only 'Addresses #839') — must
+    pass through untouched on the issue-839/implementation branch with no
+    approval comment yet (phase1)."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-839/implementation")
+    fixtures = {"issue_comments": []}  # no approval yet -> phase1, matches the incident
+    r = _run_preflight(REAL_PR844_CREATE_CMD, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_denies_pr844_body_shape_with_closes_after_embedded_quote(tmp_path):
+    """Same real body, as a `gh pr edit 844` call, with 'Closes #839'
+    appended after the body's own literal '"무리"' quote — must be denied
+    (exit 2) on the issue-839/implementation branch, phase1. Red before the
+    heredoc-aware --body extraction fix (the old quote-balance regex
+    truncated the capture at '"무리"' and never saw 'Closes #839'); green
+    after it."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-839/implementation")
+    fixtures = {"issue_comments": []}
+    r = _run_preflight(REAL_PR844_EDIT_WITH_CLOSES_CMD, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "closing" in r.stderr.lower()
+
+
+def test_hook_denies_synthetic_heredoc_body_with_embedded_quote_and_closes(tmp_path):
+    """Minimal, non-issue-839-specific pin of the same defect class: any
+    heredoc --body containing a literal unescaped '"' before a downstream
+    'Closes #<issue>' must still be denied in phase1."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-854/implementation")
+    fixtures = {"issue_comments": []}
+    cmd = (
+        'gh pr create --title "proposal" --body "$(cat <<\'EOF\'\n'
+        '## Summary\n\nAddresses #854 — phase 1.\n\n'
+        '- decided not "무리" (impractical) to do X\n\n'
+        'Closes #854\n'
+        'EOF\n)"'
+    )
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "closing" in r.stderr.lower()
+
+
+def test_hook_denies_dash_heredoc_body_with_tab_indented_terminator_and_closes(tmp_path):
+    """Before-landing hunt finding (docs/issue-854/reports/implementation/
+    2026-08-12-hunt-heredoc-aware-body-extraction.md, stance 0): `cat
+    <<-EOF` (the dash form) permits a tab-indented terminator line in real
+    bash. The first cut of `_HEREDOC_BODY_RE` only tolerated *trailing*
+    whitespace after the delimiter word, never *leading* whitespace before
+    it, so a tab-indented `\tEOF` terminator failed to match at all and
+    fell through to the old quote-balance regex — reintroducing the exact
+    truncation-before-Closes bug this fix exists to close. Must deny."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-854/implementation")
+    fixtures = {"issue_comments": []}
+    cmd = (
+        'gh pr create --title "x" --body "$(cat <<-EOF\n'
+        '## Summary\n\nAddresses #854 - phase 1.\n\n'
+        '- decided not "무리" (impractical) to do X\n\n'
+        'Closes #854\n'
+        '\tEOF\n)"'
+    )
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "closing" in r.stderr.lower()
+
+
+def test_hook_allows_synthetic_heredoc_body_with_embedded_quote_no_closes(tmp_path):
+    """Same embedded-quote heredoc shape but with no closing keyword
+    anywhere — a legitimate phase-1 body (plain '#854' reference only) must
+    still pass; the heredoc-aware extraction must not over-trigger on the
+    embedded quote itself."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-854/implementation")
+    fixtures = {"issue_comments": []}
+    cmd = (
+        'gh pr create --title "proposal" --body "$(cat <<\'EOF\'\n'
+        '## Summary\n\nAddresses #854 — phase 1.\n\n'
+        '- decided not "무리" (impractical) to do X\n'
+        'EOF\n)"'
+    )
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
 if __name__ == "__main__":
     sys.exit(run())
