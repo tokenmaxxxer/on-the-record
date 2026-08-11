@@ -3719,6 +3719,55 @@ class Watchdog(unittest.TestCase):
             self.assertEqual(result, 3)
             self.assertNotIn("이상 신호 없음", buf.getvalue())
 
+    def test_roster_watchdog_reports_completed_for_session_end_written_after_arming_turn(self):
+        # 이슈 #848: #849 이 핀한 결함은 "부모 턴이 끝난 뒤에 날아온 종료
+        # 이벤트를 놓친다"는 모양이다 — CLI 의 run_in_background watch 는
+        # 그 턴이 끝나면 죽지만, poll 백스톱(#835/#841 Monitor 틱이 그대로
+        # 타는 poll_rearm_arm_if_due -> roster_watchdog 경로)은 턴과 무관하게
+        # 다음 틱에서 roster 를 다시 스캔한다. 여기서는 그 스캔이, 로스터
+        # 엔트리의 프로세스가 이미 죽은 "뒤에" events.jsonl 에 적힌
+        # session-end 를 실제로 잡아 COMPLETED 로 보고하는지 — 아무 흔적
+        # 없이 조용히 드롭되지 않는지 — 를 재현한다.
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "work"
+            events_path = spawn._events_path(str(work))
+            # "arming turn" 동안은 session-start 만 있고, 그 턴이 끝난 뒤에야
+            # (시뮬레이션: 이 시점에 이미 pid 999999999 는 죽어 있다) 후처리
+            # 꼬리가 session-end 를 남긴다 — #849 의 사망 시나리오 순서.
+            spawn._append_event(events_path, "session-start", {"pid": 999999999, "ts": 1})
+            spawn._append_event(events_path, "session-end", "progressed")
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            roster_path = Path(td) / "active.json"
+            roster_path.write_text(json.dumps({
+                "issue-848/implementation": self._entry(
+                    log, work=str(work), pid=999999999)}))
+            old_roster = spawn.ROSTER
+            old_state = spawn.WATCHDOG_STATE
+            old_ledger = spawn.RECONCILE_LEDGER
+            old_pr_check = spawn._pr_open_or_merged_for_branch
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            spawn.RECONCILE_LEDGER = Path(td) / "reconcile_ledger.json"
+            spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_post_session_end_comment"):
+                    result = spawn.roster_watchdog()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+                spawn.RECONCILE_LEDGER = old_ledger
+                spawn._pr_open_or_merged_for_branch = old_pr_check
+            # 이상 신호 없이(정상 종료) 매 틱 상태 보고 라인에 COMPLETED 로
+            # 잡혀야 한다 — 사라지지 않는다.
+            self.assertEqual(result, 0)
+            self.assertIn("[poll-report] issue-848/implementation: COMPLETED", buf.getvalue())
+
     def test_board_wide_sweep_reports_and_counts_closure_violations(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
