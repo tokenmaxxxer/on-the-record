@@ -870,6 +870,13 @@ def t_find_violations_uses_record_evidence_for_keywordless_merge(tmp_path):
     original_pr_for_branch = spawn._pr_for_branch
     original_pr_view = closure_sweep._pr_view_state_body
     original_fetch_ref_file = ci._fetch_ref_file
+    original_pr_index_all = closure_sweep._pr_index_all
+    # issue #682: find_violations now resolves branch->PR via one
+    # `_pr_index_all` list call; the per-branch `_pr_for_branch`/
+    # `_pr_view_state_body` fallback this test targets only fires when
+    # that list was truncated (`(None, True)`) — force that path,
+    # mirroring the sibling fix in gates/test_closure_sweep.py.
+    closure_sweep._pr_index_all = lambda root: (None, True)
     spawn._pr_for_branch = lambda root, branch: 368
     closure_sweep._pr_view_state_body = (
         lambda root, pr: (("MERGED", "no closing keyword here"), True))
@@ -882,6 +889,7 @@ def t_find_violations_uses_record_evidence_for_keywordless_merge(tmp_path):
         spawn._pr_for_branch = original_pr_for_branch
         closure_sweep._pr_view_state_body = original_pr_view
         ci._fetch_ref_file = original_fetch_ref_file
+        closure_sweep._pr_index_all = original_pr_index_all
 
     assert not skips, skips
     assert len(violations) == 1, violations
