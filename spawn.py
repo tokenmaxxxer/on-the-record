@@ -3759,6 +3759,8 @@ def main() -> int:
         return init_board(a.cwd, a.login)
     if a.role == "ps":
         return roster_ps()
+    if a.role == "recut-if-absorbed":
+        return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
     if a.role == "watchdog":
         return roster_watchdog(auto_respawn=a.auto_respawn)
     if a.role == "reconcile":
@@ -4168,6 +4170,118 @@ def issue_workspace(cwd: str, issue: int, role: str) -> str:
     return str(work)
 
 
+def _recut_absorbed_branch(cwd: str, br: str):
+    """`br` 이 이미 로컬에 체크아웃돼 있다고 가정하고, base 에 흡수됐는지
+    검사해 필요하면 재컷한다 (untracked 작업은 stash 로 보존). 스폰 시점
+    `checkout_issue_branch()` 와 세션 자신의 mid-run 재검사
+    (`recut_if_absorbed_cli`, 이슈 #784) 양쪽에서 재사용하는 공유 헬퍼 —
+    로직은 #732 가 이미 검증한 것 그대로, 호출 시점만 늘어난다.
+
+    반환값은 최종 `git checkout`/`checkout -B` 의 CompletedProcess."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    base = _base(cwd)
+    ahead = git("rev-list", "--count", f"{base}..{br}")
+    remote_ahead = git("rev-list", "--count", f"{base}..origin/{br}")
+    local_zero = ahead.returncode == 0 and ahead.stdout.strip() == "0"
+    # 로컬은 0-ahead 라도 origin/br 이 base 보다 앞서 있으면, 이
+    # 워크스페이스의 로컬 ref 가 그저 stale 한 것뿐이지 브랜치 자체가
+    # base 에 흡수된 게 아니다 — 그 상태에서 base 로 재설정하면 다른
+    # 워크스페이스가 이미 push 해 둔 커밋을 조용히 버린다 (이슈 #719).
+    # remote_ahead 조회가 실패하면(원격 브랜치 없음 등) 로컬 판단만으로
+    # 진행 — 오늘과 동일한 fail-open.
+    remote_stale_only = (
+        local_zero and remote_ahead.returncode == 0
+        and remote_ahead.stdout.strip() != "0"
+    )
+    if remote_stale_only:
+        print(f"[spawn] {br} 는 로컬만 {base} 에 흡수된 것처럼 보인다 — "
+              f"origin/{br} 이 앞서 있어 재컷 대신 origin 을 따라간다.",
+              file=sys.stderr)
+        return git("checkout", "-B", br, f"origin/{br}")
+    if local_zero:
+        print(f"[spawn] {br} 는 {base} 에 완전히 흡수돼 커밋이 없다 — "
+              f"로컬 브랜치를 지우고 새로 판다.", file=sys.stderr)
+        # 흡수된 브랜치는 base 대비 영원히 0-ahead 라 재컷 없이는
+        # 이 워크스페이스가 다시 PR 을 열 수 없다 (issue-732). 그런데
+        # 워크스페이스에 untracked 파일만 있으면(커밋된 고유 작업은
+        # 없음) `checkout -B` 가 그 파일들과 base 트리 사이의 경로
+        # 충돌로 실패할 수 있어 조용히 no-op 재컷으로 빠진다. 재컷
+        # 전에 untracked 파일을 stash 로 치워 뒀다가 재컷 뒤 새
+        # 브랜치 위에 다시 풀어준다 — 절대 조용히 버리지 않는다.
+        stash_marker = f"checkout_issue_branch-preserve-{br}"
+        # 이전 실행이 push 와 pop 사이에서 중단됐다면 stash 가
+        # working tree 에는 안 보이는 채로 남아있을 수 있다 (`git
+        # status --porcelain` 은 stash 를 보지 않는다) — 그 상태로
+        # clean 의 보존 가드를 통과하면 워크스페이스 전체가 지워지며
+        # 안에 숨은 작업까지 조용히 사라진다. 재컷 전에 먼저 회수한다.
+        leftover = git("stash", "list", "--grep", stash_marker)
+        if leftover.returncode == 0 and leftover.stdout.strip():
+            pop_r = git("stash", "pop", "-q")
+            if pop_r.returncode != 0:
+                print(f"[spawn] {br} 의 이전 실행이 남긴 stash 를 "
+                      f"복구하지 못했다 — 수동 확인 필요: "
+                      f"git -C {cwd} stash list", file=sys.stderr)
+        untracked = git("ls-files", "--others", "--exclude-standard")
+        has_untracked = (
+            untracked.returncode == 0 and untracked.stdout.strip() != ""
+        )
+        if has_untracked:
+            stash_r = git("stash", "push", "-u", "-q", "-m", stash_marker)
+            has_untracked = stash_r.returncode == 0
+        # -B 는 br 이 현재 체크아웃된 브랜치여도(재사용 워크스페이스가
+        # 이미 그 위에 있는 경우) 지우지 않고 그대로 재설정한다 —
+        # `branch -D` 는 체크아웃된 브랜치는 못 지운다.
+        r = git("checkout", "-B", br, base)
+        if r.returncode != 0:   # base 없음(원격 없음 등) — 현 HEAD 에서라도 재설정
+            r = git("checkout", "-B", br)
+        if has_untracked:
+            pop_r = git("stash", "pop", "-q")
+            if pop_r.returncode != 0:
+                print(f"[spawn] {br} 재컷은 됐지만 보존해 둔 untracked "
+                      f"작업을 자동으로 못 풀었다(충돌) — 수동 확인 "
+                      f"필요: git -C {cwd} stash list / "
+                      f"git -C {cwd} stash show -p", file=sys.stderr)
+        return r
+    return git("checkout", br)
+
+
+def recut_if_absorbed_cli(cwd: str) -> int:
+    """`spawn.py recut-if-absorbed -C <cwd>` — mid-run 세션이 자기 자신의
+    브랜치를 재검사한다 (이슈 #784). 스폰 이후 이미 살아있는 세션은
+    `checkout_issue_branch()`를 다시 부르지 않으므로, 그 세션이 떠 있는 동안
+    orchestrator 가 phase-1 PR 을 `--delete-branch`로 머지하면 로컬 브랜치가
+    base 에 흡수된 채로 조용히 남는다 — 다음 `git commit`/`gh pr create` 가
+    "No commits between main and issue-<n>/<role>"로 실패하기 직전까지
+    아무도 모른다. `absorbed-branch-recut-guard.sh`(PreToolUse/Bash)가 그
+    커맨드들 직전에 이 함수를 호출한다.
+
+    roster/cross-process 조회 없이 세션 자신의 현재 `HEAD` 에서 브랜치
+    이름을 얻는다 — `issue-<n>/<role>` 모양이 아니면(분리 HEAD, 무관한
+    브랜치 등) 아무 것도 안 하고 0 을 반환한다(오늘과 동일하게 fail-open).
+    """
+    br_r = subprocess.run(["git", "-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
+                          capture_output=True, text=True)
+    br = br_r.stdout.strip()
+    if br_r.returncode != 0 or not re.fullmatch(r"issue-\d+/[A-Za-z0-9_-]+", br):
+        return 0
+    # 흡수 여부 판단(local_zero/remote_ahead)이 최신 원격 상태를 봐야 하니
+    # 이 브랜치와 base 만 갱신한다 — 실패해도(네트워크 등) 로컬 판단만으로
+    # 진행하는 기존 fail-open 을 그대로 따른다.
+    subprocess.run(["git", "-C", cwd, "fetch", "-q", "origin", br],
+                   capture_output=True, text=True)
+    base = _base(cwd)
+    subprocess.run(["git", "-C", cwd, "fetch", "-q", "origin",
+                    base.removeprefix("origin/")],
+                   capture_output=True, text=True)
+    r = _recut_absorbed_branch(cwd, br)
+    if r.returncode != 0:
+        print(f"[recut-if-absorbed] {br} 재검사 실패: {r.stderr.strip()[:200]}",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
 def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
     """대상 레포에서 issue-<n>/<역할> 브랜치를 만든다(있으면 갈아탄다).
 
@@ -4189,70 +4303,7 @@ def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
         # 커밋이 하나도 없으면 (완전 흡수) 로컬 ref 를 지우고 base 에서
         # 새로 판다 — 진행 중 작업(유니크 커밋 있음)은 오늘과 동일하게
         # 그대로 재사용한다.
-        base = _base(cwd)
-        ahead = git("rev-list", "--count", f"{base}..{br}")
-        remote_ahead = git("rev-list", "--count", f"{base}..origin/{br}")
-        local_zero = ahead.returncode == 0 and ahead.stdout.strip() == "0"
-        # 로컬은 0-ahead 라도 origin/br 이 base 보다 앞서 있으면, 이
-        # 워크스페이스의 로컬 ref 가 그저 stale 한 것뿐이지 브랜치 자체가
-        # base 에 흡수된 게 아니다 — 그 상태에서 base 로 재설정하면 다른
-        # 워크스페이스가 이미 push 해 둔 커밋을 조용히 버린다 (이슈 #719).
-        # remote_ahead 조회가 실패하면(원격 브랜치 없음 등) 로컬 판단만으로
-        # 진행 — 오늘과 동일한 fail-open.
-        remote_stale_only = (
-            local_zero and remote_ahead.returncode == 0
-            and remote_ahead.stdout.strip() != "0"
-        )
-        if remote_stale_only:
-            print(f"[spawn] {br} 는 로컬만 {base} 에 흡수된 것처럼 보인다 — "
-                  f"origin/{br} 이 앞서 있어 재컷 대신 origin 을 따라간다.",
-                  file=sys.stderr)
-            r = git("checkout", "-B", br, f"origin/{br}")
-        elif local_zero:
-            print(f"[spawn] {br} 는 {base} 에 완전히 흡수돼 커밋이 없다 — "
-                  f"로컬 브랜치를 지우고 새로 판다.", file=sys.stderr)
-            # 흡수된 브랜치는 base 대비 영원히 0-ahead 라 재컷 없이는
-            # 이 워크스페이스가 다시 PR 을 열 수 없다 (issue-732). 그런데
-            # 워크스페이스에 untracked 파일만 있으면(커밋된 고유 작업은
-            # 없음) `checkout -B` 가 그 파일들과 base 트리 사이의 경로
-            # 충돌로 실패할 수 있어 조용히 no-op 재컷으로 빠진다. 재컷
-            # 전에 untracked 파일을 stash 로 치워 뒀다가 재컷 뒤 새
-            # 브랜치 위에 다시 풀어준다 — 절대 조용히 버리지 않는다.
-            stash_marker = f"checkout_issue_branch-preserve-{br}"
-            # 이전 실행이 push 와 pop 사이에서 중단됐다면 stash 가
-            # working tree 에는 안 보이는 채로 남아있을 수 있다 (`git
-            # status --porcelain` 은 stash 를 보지 않는다) — 그 상태로
-            # clean 의 보존 가드를 통과하면 워크스페이스 전체가 지워지며
-            # 안에 숨은 작업까지 조용히 사라진다. 재컷 전에 먼저 회수한다.
-            leftover = git("stash", "list", "--grep", stash_marker)
-            if leftover.returncode == 0 and leftover.stdout.strip():
-                pop_r = git("stash", "pop", "-q")
-                if pop_r.returncode != 0:
-                    print(f"[spawn] {br} 의 이전 실행이 남긴 stash 를 "
-                          f"복구하지 못했다 — 수동 확인 필요: "
-                          f"git -C {cwd} stash list", file=sys.stderr)
-            untracked = git("ls-files", "--others", "--exclude-standard")
-            has_untracked = (
-                untracked.returncode == 0 and untracked.stdout.strip() != ""
-            )
-            if has_untracked:
-                stash_r = git("stash", "push", "-u", "-q", "-m", stash_marker)
-                has_untracked = stash_r.returncode == 0
-            # -B 는 br 이 현재 체크아웃된 브랜치여도(재사용 워크스페이스가
-            # 이미 그 위에 있는 경우) 지우지 않고 그대로 재설정한다 —
-            # `branch -D` 는 체크아웃된 브랜치는 못 지운다.
-            r = git("checkout", "-B", br, base)
-            if r.returncode != 0:   # base 없음(원격 없음 등) — 현 HEAD 에서라도 재설정
-                r = git("checkout", "-B", br)
-            if has_untracked:
-                pop_r = git("stash", "pop", "-q")
-                if pop_r.returncode != 0:
-                    print(f"[spawn] {br} 재컷은 됐지만 보존해 둔 untracked "
-                          f"작업을 자동으로 못 풀었다(충돌) — 수동 확인 "
-                          f"필요: git -C {cwd} stash list / "
-                          f"git -C {cwd} stash show -p", file=sys.stderr)
-        else:
-            r = git("checkout", br)
+        r = _recut_absorbed_branch(cwd, br)
     elif git("rev-parse", "--verify", "-q", f"origin/{br}").returncode == 0:
         # rev-parse --verify -q br 는 로컬 ref 만 본다 — 워크스페이스가 새로
         # 클론된 직후라면 origin 에는 이미 있는 브랜치도 로컬엔 없어, 여기서
