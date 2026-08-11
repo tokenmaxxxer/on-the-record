@@ -128,7 +128,7 @@ def test_empty_corpus_degrades_to_escalated(tmp_path):
                   _item_block("ambiguous EARS phrasing", "requirements-engineering",
                               REQ_ENG_REL, ["alignment"]))
     _commit_all(repo)
-    assert not (repo / "docs" / "product").is_dir()
+    assert not (repo / "docs" / f"issue-{ISSUE}" / "product").is_dir()
 
     result = _run_gate(repo)
     assert result.returncode == 0, result.stderr
@@ -149,8 +149,8 @@ def test_panel_conflict_escalates_despite_cleared_threshold(tmp_path):
                               REQ_ENG_REL, ["alignment", "maintenance_complexity"]))
     _write_record(repo, alpha_rel, _axis_eval_block("alignment", "supports", REQ_ENG_REL))
     _write_record(repo, beta_rel, _axis_eval_block("maintenance_complexity", "contradicts", REQ_ENG_REL))
-    # clear the depth axis: docs/product corpus mentions a changed basename.
-    _write_record(repo, "docs/product/priorities.md",
+    # clear the depth axis: docs/issue-<n>/product corpus mentions a changed basename.
+    _write_record(repo, f"docs/issue-{ISSUE}/product/priorities.md",
                   f"see {Path(REQ_ENG_REL).name}\n")
     _commit_all(repo)
 
@@ -169,7 +169,7 @@ def test_single_owner_supports_resolves(tmp_path):
                   _item_block("ambiguous EARS phrasing", "requirements-engineering",
                               REQ_ENG_REL, ["alignment"]))
     _write_record(repo, alpha_rel, _axis_eval_block("alignment", "supports", REQ_ENG_REL))
-    _write_record(repo, "docs/product/priorities.md",
+    _write_record(repo, f"docs/issue-{ISSUE}/product/priorities.md",
                   f"see {Path(REQ_ENG_REL).name}\n")
     _commit_all(repo)
 
