@@ -104,6 +104,27 @@ def t_new_hook_script_with_both_rows_in_same_commit_passes(tmp_path):
     assert r.stdout == ""
 
 
+def t_new_hook_script_with_wrong_classification_denies_commit(tmp_path):
+    """issue #839 regression: a newly-staged hook script with no write call
+    in its own text but a generated-paths.md row recorded out-of-tree (this
+    incident's exact shape -- `stop-poll-rearm.sh` in `d4a8228`) must be
+    denied at commit time, not just a missing row."""
+    repo = _init_repo(tmp_path)
+    (repo / "on-the-record" / "hooks" / "new-guard.sh").write_text(
+        "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    (repo / "docs" / "specs" / "enforcement-boundary.md").write_text(
+        BOUNDARY_HEADER + "| `new-guard.sh` | contract | test fixture |\n",
+        encoding="utf-8")
+    (repo / "docs" / "specs" / "generated-paths.md").write_text(
+        PATHS_HEADER + "| `new-guard.sh` | out-of-tree | test fixture |\n",
+        encoding="utf-8")
+    _stage_all(repo)
+    r = _run(repo)
+    assert r.returncode == 2, r.stdout
+    assert "new-guard.sh" in r.stderr
+    assert "classification mismatch" in r.stderr
+
+
 def t_no_registration_target_change_passes_untouched(tmp_path):
     """issue #759 acceptance's stated empty-state green case: a change
     touching no new mechanism file passes untouched."""

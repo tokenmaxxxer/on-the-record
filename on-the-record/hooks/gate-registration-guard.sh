@@ -135,6 +135,18 @@ if not targets:
 _ROW_RE = re.compile(r"^\|\s*`?([^`|]+?)`?\s*\|\s*(.+?)\s*\|", re.MULTILINE)
 _SEP_ROW = re.compile(r"^\|[\s:-]+\|")
 
+# Ported from gates/test_generated_paths.py's _WRITE_CALL_RE/_ISSUE_PLACEHOLDER_RE
+# (issue #839) -- same inline-porting convention _ROW_RE above already uses
+# for that module's _ROW_RE, for the same no-guaranteed-checkout reason.
+_WRITE_CALL_RE = re.compile(
+    r"write_text\(|open\([^)]*['\"]w|\.mkdir\(|shutil\.(copy|move)|"
+    r"\bmkdir\s+-p\b|\bgit\s+clone\b"
+)
+_ISSUE_PLACEHOLDER_RE = re.compile(
+    r"issue-\$\{?issue|issue-\{issue|f[\"'].*issue[_-]?\{|issue-\(\?P<n>|"
+    r"docs/issue-|issue-\d\+.*rev-parse|re\.match.*issue-"
+)
+
 
 def recorded_names(text):
     out = set()
@@ -151,6 +163,28 @@ def recorded_names(text):
     return out
 
 
+def recorded_classifications(text):
+    """{mechanism: classification} from a generated-paths.md-shaped table.
+
+    _ROW_RE's second (non-greedy) capture group lands on the classification
+    column for a 3-column table (mechanism | classification | verdict) --
+    same regex recorded_names() already uses for the 2-column presence
+    check, reused here for its second group instead of discarding it.
+    """
+    out = {}
+    for line in text.splitlines():
+        if not line.startswith("|") or _SEP_ROW.match(line):
+            continue
+        m = _ROW_RE.match(line)
+        if not m:
+            continue
+        name, classification = m.group(1).strip(), m.group(2).strip()
+        if name in ("mechanism", "act") or not classification:
+            continue
+        out[name] = classification
+    return out
+
+
 def read_spec(rel_path):
     if rel_path in staged_all:
         rr = subprocess.run(["git", "show", ":" + rel_path],
@@ -164,7 +198,7 @@ def read_spec(rel_path):
     try:
         with open(abs_path, "r", encoding="utf-8") as f:
             return f.read()
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
 
 
@@ -172,6 +206,7 @@ boundary_text = read_spec("docs/specs/enforcement-boundary.md")
 boundary_names = recorded_names(boundary_text) if boundary_text is not None else set()
 
 missing = []
+mismatches = []
 for p in targets:
     name = os.path.basename(p)
     if name not in boundary_names:
@@ -180,19 +215,66 @@ for p in targets:
 if hook_scripts:
     paths_text = read_spec("docs/specs/generated-paths.md")
     paths_names = recorded_names(paths_text) if paths_text is not None else set()
+    paths_classifications = (
+        recorded_classifications(paths_text) if paths_text is not None else {}
+    )
     for p in hook_scripts:
         name = os.path.basename(p)
         if name not in paths_names:
             missing.append(f"{p}: no row in docs/specs/generated-paths.md")
+            continue
+        # issue #839: existence alone (above) does not catch a row that
+        # exists but is classified wrong (the incident this guard missed) --
+        # derive write-call/issue-placeholder presence from this hook's own
+        # staged text and compare against its recorded classification, same
+        # bounded scope as the presence check (only this commit's own
+        # newly-staged hook_scripts, never the whole directory).
+        source_text = read_spec(p)
+        if source_text is None:
+            continue
+        classification = paths_classifications.get(name, "")
+        has_write = bool(_WRITE_CALL_RE.search(source_text))
+        if not has_write:
+            if classification != "n/a":
+                mismatches.append(
+                    f"{p}: recorded '{classification}' in "
+                    "docs/specs/generated-paths.md but has no write call in "
+                    "its own staged text (expected n/a)"
+                )
+        elif classification == "collision-risk" or classification not in (
+            "out-of-tree", "issue-scoped",
+        ):
+            mismatches.append(
+                f"{p}: recorded '{classification}' in "
+                "docs/specs/generated-paths.md, which is not out-of-tree/"
+                "issue-scoped"
+            )
+        elif classification == "issue-scoped" and not _ISSUE_PLACEHOLDER_RE.search(
+            source_text
+        ):
+            mismatches.append(
+                f"{p}: recorded issue-scoped in docs/specs/generated-paths.md "
+                "but no issue-number placeholder found in its own staged text"
+            )
 
-if missing:
-    deny(
-        "newly-added gate/hook module(s) missing a spec registration row "
-        "(issue #441/#684):\n" + "\n".join(missing) +
-        "\nAdd a row in the same commit (docs/specs/enforcement-boundary.md, "
+if missing or mismatches:
+    parts = []
+    if missing:
+        parts.append(
+            "newly-added gate/hook module(s) missing a spec registration row "
+            "(issue #441/#684):\n" + "\n".join(missing)
+        )
+    if mismatches:
+        parts.append(
+            "newly-added hook script(s) with a classification mismatch in "
+            "docs/specs/generated-paths.md (issue #839):\n" + "\n".join(mismatches)
+        )
+    parts.append(
+        "Fix the row in the same commit (docs/specs/enforcement-boundary.md, "
         "and for a hook script also docs/specs/generated-paths.md), then "
         "retry the commit."
     )
+    deny("\n".join(parts))
 PY
 
 GRG_PAYLOAD="$payload" python3 -c "$GUARD"

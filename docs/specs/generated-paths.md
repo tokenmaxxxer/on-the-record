@@ -21,7 +21,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `self-update.sh` | out-of-tree | safe — writes into the shared plugin checkout, not the target repo |
 | `directive.sh` | out-of-tree | safe — clones into the shared plugin checkout |
 | `poll-rearm.sh` | out-of-tree | safe — shared function library sourced by `directive.sh`/`stop-poll-rearm.sh`; its checkout-clone fallback writes into the shared plugin checkout, same as `directive.sh` |
-| `stop-poll-rearm.sh` | out-of-tree | safe — same shared checkout clone via `poll-rearm.sh`'s `poll_rearm_resolve_checkout()` |
+| `stop-poll-rearm.sh` | n/a | reads/validates only in its own file — no write call greppable in this file itself; the actual write happens via the sourced `poll-rearm.sh`'s `poll_rearm_arm_if_due()`, already recorded out-of-tree on that row |
 | `impact-guard.sh` | out-of-tree | safe — same shared checkout clone |
 | `spawn-allow-gate.sh` | n/a | reads/validates only, no write call |
 | `merge-allow-gate.sh` | out-of-tree | safe — same `_checkout_resolve` shared-checkout-clone pattern as `impact-guard.sh`/`decision-queue-stopgate.sh` below, never inside the target repo |
