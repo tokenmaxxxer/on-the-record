@@ -49,6 +49,13 @@ def _write_proposal(target: Path, name: str, files: list[str]) -> None:
 
 BATCH_CMD = "gh pr merge 101 --squash && gh pr merge 102 --squash"
 SINGLE_CMD = "gh pr merge 101 --squash"
+# issue #813: a real `gh issue comment` whose --body text merely *discusses*
+# the merge verb, repeated — must not be misread as a batched merge.
+COMMENT_BODY_MENTIONING_MERGE_CMD = (
+    'gh issue comment 5 --body '
+    '"design note: gh pr merge is called twice per batch, '
+    'see gh pr merge docs for details"'
+)
 
 
 def t_batch_with_high_impact_proposal_is_denied(tmp_path: Path):
@@ -74,6 +81,17 @@ def t_single_merge_is_not_treated_as_a_batch(tmp_path: Path):
     _write_proposal(target, "a.md", ["on-the-record/hooks/new-hook.sh"])
     r = _run(target, SINGLE_CMD)
     assert r.returncode == 0, f"single merge should pass through, got {r.returncode}: {r.stderr}"
+
+
+def t_comment_body_mentioning_merge_verb_is_not_misclassified_as_a_batch(tmp_path: Path):
+    # false-positive-now-passes: the body text names the merge verb twice,
+    # but the invoked command is `gh issue comment`, not `gh pr merge` —
+    # regression pin for issue #813.
+    target = tmp_path / "target-comment-body"
+    target.mkdir()
+    _write_proposal(target, "a.md", ["on-the-record/hooks/new-hook.sh"])
+    r = _run(target, COMMENT_BODY_MENTIONING_MERGE_CMD)
+    assert r.returncode == 0, f"comment body mentioning merge should pass through, got {r.returncode}: {r.stderr}"
 
 
 def t_batch_of_only_low_impact_proposals_is_allowed(tmp_path: Path):

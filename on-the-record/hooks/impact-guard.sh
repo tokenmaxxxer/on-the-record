@@ -76,7 +76,30 @@ cmd = ti.get("command") if isinstance(ti, dict) else None
 if not isinstance(cmd, str):
     sys.exit(0)
 
-merge_count = len(re.findall(r"\bgh\s+pr\s+merge\b", cmd))
+import shlex
+
+
+def _count_merge_invocations(command):
+    # issue #813: a naive whole-string regex over `cmd` also matches the
+    # merge-verb literal when it appears inside a quoted --body/--body-file/
+    # here-string argument of an unrelated `gh issue comment`/`gh pr comment`
+    # call — the text is data, not an invocation. Tokenizing first (shlex,
+    # POSIX quote/escape rules) merges a quoted argument into a single
+    # token, so "gh pr merge" inside quotes never reassembles into the
+    # three adjacent bare tokens a real invocation produces.
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return 0  # unbalanced quoting — unparseable, fail open (below threshold)
+    return sum(
+        1 for i in range(len(tokens) - 2)
+        if tokens[i] == "gh" and tokens[i + 1] == "pr" and tokens[i + 2] == "merge"
+    )
+
+
+merge_count = _count_merge_invocations(cmd)
 if merge_count < 2:
     sys.exit(0)  # single merge — ordinary individually-approved act, not a batch
 
