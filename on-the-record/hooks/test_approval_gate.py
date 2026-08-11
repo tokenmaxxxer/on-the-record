@@ -198,5 +198,90 @@ def test_gh_lookup_failure_fails_open(repo, tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+# --- spoof regression (issue #698): bound snapshot wins over live env ------
+
+SESSION_ID = "sess-spoof-1"
+
+
+def _run_with_session(repo, bin_dir, state_dir, file_path, comments,
+                       approvers_present, live_role, bound_role):
+    if approvers_present:
+        specs = repo / "docs" / "specs"
+        specs.mkdir(parents=True, exist_ok=True)
+        (specs / "approvers.md").write_text("- octocat\n")
+    else:
+        p = repo / "docs" / "specs" / "approvers.md"
+        if p.exists():
+            p.unlink()
+
+    if bound_role is not None:
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / f"{SESSION_ID}.json").write_text(
+            json.dumps({"role": bound_role})
+        )
+
+    payload = json.dumps({
+        "tool_name": "Write",
+        "tool_input": {"file_path": file_path, "content": "x"},
+        "cwd": str(repo),
+        "session_id": SESSION_ID,
+    })
+    env = dict(os.environ)
+    env["CLAUDE_ROLE"] = live_role
+    env["OTR_ROLE_BIND_STATE_DIR"] = str(state_dir)
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    env["FAKE_GH_COMMENTS"] = json.dumps(comments)
+    env.pop("ORCHESTRATE_OFF", None)
+    return subprocess.run(
+        ["bash", str(GUARD)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        cwd=repo,
+        env=env,
+        timeout=30,
+    )
+
+
+def test_spoofed_live_env_ignored_when_bound_role_matches_branch_and_approved(
+    repo, bin_dir, tmp_path
+):
+    # session bound to ROLE ("implementation") at SessionStart, then the
+    # session re-exports CLAUDE_ROLE to a different role ("hunt") before a
+    # Write — the gate must still use the bound role, which matches the
+    # branch and is approved, so this is allowed.
+    r = _run_with_session(
+        repo, bin_dir, tmp_path / "state", RECORD_PATH, APPROVED_COMMENTS,
+        approvers_present=True, live_role="hunt", bound_role=ROLE,
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_spoofed_live_env_still_denied_without_matching_approval(
+    repo, bin_dir, tmp_path
+):
+    # Same spoof attempt, but no APPROVE comment exists for the bound role
+    # ("implementation"). If the gate trusted the live "hunt" value instead,
+    # role != branch_role would make it exit 0 (not this hook's target) —
+    # the spoof's actual goal. The bound snapshot must prevent that.
+    r = _run_with_session(
+        repo, bin_dir, tmp_path / "state", RECORD_PATH, UNAPPROVED_COMMENTS,
+        approvers_present=True, live_role="hunt", bound_role=ROLE,
+    )
+    assert r.returncode == 2, r.stderr
+    assert f"APPROVE issue-{ISSUE}/{ROLE}" in r.stderr
+
+
+def test_no_snapshot_falls_back_to_live_env(repo, bin_dir, tmp_path):
+    # session-role-bind.sh hasn't fired (or its state dir was cleared) —
+    # no snapshot file exists, so the gate falls back to the live env var,
+    # preserving pre-#698 behavior.
+    r = _run_with_session(
+        repo, bin_dir, tmp_path / "state", RECORD_PATH, APPROVED_COMMENTS,
+        approvers_present=True, live_role=ROLE, bound_role=None,
+    )
+    assert r.returncode == 0, r.stderr
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
