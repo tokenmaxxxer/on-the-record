@@ -11,34 +11,12 @@ case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; e
 # A spawned role session is never the orchestrator, even if the plugin leaks in.
 [ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
 
-# Resolve the on-the-record checkout (spawn.py lives at the repo root,
-# OUTSIDE the plugin subtree — a cache install copies only orchestrate/, so
-# the old plugin-root/../.. guess pointed at nothing there). Order: dev
-# override, plugin-root ancestors, the marketplace clone, else self-clone
-# (preferring an existing new-path checkout, falling back to a still-present
-# old-path checkout before re-cloning).
-_checkout_resolve() {
-  if [ -n "${TOKENMAXXXER_CHECKOUT:-}" ] && [ -f "${TOKENMAXXXER_CHECKOUT}/spawn.py" ]; then
-    printf '%s' "${TOKENMAXXXER_CHECKOUT}"; return 0
-  fi
-  d="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-  probe="$d"
-  for _ in 1 2 3 4; do
-    probe="$(dirname "$probe")"
-    if [ -f "$probe/spawn.py" ]; then printf '%s' "$probe"; return 0; fi
-  done
-  mk="$HOME/.claude/plugins/marketplaces/tokenmaxxxer"
-  if [ -f "$mk/spawn.py" ]; then printf '%s' "$mk"; return 0; fi
-  own="$HOME/.claude/tokenmaxxxer/on-the-record"
-  if [ -f "$own/spawn.py" ]; then printf '%s' "$own"; return 0; fi
-  old="$HOME/.claude/tokenmaxxxer/muster"
-  if [ -f "$old/spawn.py" ]; then printf '%s' "$old"; return 0; fi
-  mkdir -p "$(dirname "$own")" 2>/dev/null
-  git clone -q https://github.com/tokenmaxxxer/on-the-record.git "$own" 2>/dev/null
-  if [ -f "$own/spawn.py" ]; then printf '%s' "$own"; return 0; fi
-  return 1
-}
-CHECKOUT="$(_checkout_resolve || true)"
+# Shared checkout resolution + poll-due/watchdog arming (issue #801):
+# factored into poll-rearm.sh so UserPromptSubmit (here) and Stop
+# (stop-poll-rearm.sh) trip the exact same logic, not two forks of it.
+# shellcheck source=./poll-rearm.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/poll-rearm.sh"
+CHECKOUT="$(poll_rearm_resolve_checkout "${BASH_SOURCE[0]}" || true)"
 if [ -z "$CHECKOUT" ]; then
   cat <<'NOTE'
 [orchestrate] on-the-record checkout not found and could not be cloned. Roles
@@ -50,16 +28,13 @@ NOTE
 fi
 
 # 이슈 #782 req #7: 폴링 채널은 CI 도, 명시적 호출도 아니라 이 훅이 매 턴
-# 트립하는 15분-간격 staleness 체크로 구동된다 — 이벤트(watch)와 독립적으로
+# 트립하는 60초-간격 staleness 체크로 구동된다 — 이벤트(watch)와 독립적으로
 # 항상 켜져 있다. `poll-due` 는 원자적 체크+스탬프라 같은 창 안의 다른 턴은
 # 조용히 due=False 를 받는다. TURN-BUDGET RULES #535: watchdog 은 foreground
-# 30초 바를 이미 넘으므로 백그라운드로 던진다.
-if python3 "${CHECKOUT}/spawn.py" poll-due >/dev/null 2>&1; then
-  mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
-  nohup python3 "${CHECKOUT}/spawn.py" watchdog --auto-respawn \
-    >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>&1 &
-  disown 2>/dev/null || true
-fi
+# 30초 바를 이미 넘으므로 백그라운드로 던진다. 이슈 #801: 이 트립은
+# turn-START 경계다 — turn-END 경계는 stop-poll-rearm.sh 가 같은
+# poll_rearm_arm_if_due() 로 맡는다.
+poll_rearm_arm_if_due "${CHECKOUT}" || true
 
 cat <<EOF
 [orchestrate] You are the orchestration session for the tokenmaxxxer
