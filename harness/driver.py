@@ -29,6 +29,16 @@ def instantiate_fixture_target(dest_dir):
     if dest.exists():
         raise FileExistsError(f"{dest} already exists; the harness requires a clean checkout")
     shutil.copytree(FIXTURE_TEMPLATE_DIR, dest)
+    # Real installed targets are git checkouts; deliverable-guard.sh's
+    # git-root walk silently allows when no .git is reachable, so an
+    # un-initialized fixture never exercises the guard (issue #817).
+    subprocess.run(["git", "init"], cwd=str(dest), check=True, capture_output=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(dest), check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-c", "user.email=harness@example.com", "-c", "user.name=harness",
+         "commit", "-m", "harness fixture initial commit"],
+        cwd=str(dest), check=True, capture_output=True,
+    )
     return dest
 
 
