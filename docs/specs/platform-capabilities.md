@@ -51,3 +51,31 @@ as the hook-events section above):
 As with the hook-events section above, this is a platform property, not
 a repo-derived claim, and no gate in `gates/gates.py` claims to verify
 it.
+
+## Ephemeral CLI `run_in_background` watch vs. the poll backstop (issue #848)
+
+A Claude Code session that arms the Bash tool's `run_in_background: true`
+to watch a spawned role session (e.g. "I've armed `watch --follow` in
+the background, I'll report when it finishes") is using a task tracked
+in-process by the `claude` binary itself. Issue #848/#849 pinned this
+task as **ephemeral and best-effort**: it dies the instant its own
+arming turn ends (`spawn.py`'s own task-prefix text to spawned role
+sessions states this plainly: "`run_in_background` 로 넘긴 작업은 부모
+턴이 끝나는 순간 함께 죽는다"), and nothing re-arms it — a terminal
+event (PR opened, gate refusal, session-end) that lands after the turn
+ends is lost with it unless something else also catches it.
+
+That something else is the #782/#829 poll backstop described above
+(`directive.sh` + `stop-poll-rearm.sh` + this Monitor's ~60s tick), which
+is the **authoritative** capture path for a spawned role session's
+post-turn terminal event: every due tick — turn-driven or, via this
+Monitor, turn-independent — runs `spawn.py watchdog`
+(`roster_watchdog()`), which rescans every roster entry including ones
+whose process has already died, and reports a dead-but-registered entry
+whose workspace event log carries a matched `session-start` →
+`session-end` pair as `COMPLETED` rather than dropping it (issue #848,
+regression-tested in `tests/test_spawn.py`,
+`test_roster_watchdog_reports_completed_for_session_end_written_after_arming_turn`).
+Do not rely on an ad-hoc `run_in_background` watch to be the thing that
+reports a spawned session's outcome — treat it as a convenience narration
+at best, and let the poll backstop's next tick be the actual catch.
