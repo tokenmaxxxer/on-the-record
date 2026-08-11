@@ -8993,6 +8993,28 @@ class ReconcileLedger(unittest.TestCase):
         self.assertEqual(results, [True, False, False, False, False])
 
 
+class ResumeOrchestratorSessionPermissionMode(unittest.TestCase):
+    """이슈 #886: acceptEdits 는 파일 편집만 자동승인하고 Bash(gh pr merge,
+    git fetch)는 거부한다(PR #885 실측) — 재개 호출은 bypassPermissions 를
+    명시적으로 실어야 한다."""
+
+    def test_popen_command_carries_bypass_permissions(self):
+        captured = {}
+
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return unittest.mock.Mock()
+
+        with unittest.mock.patch.object(spawn.subprocess, "Popen", fake_popen):
+            spawn._resume_orchestrator_session("sess-1", "nudge")
+
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[:2], ["claude", "-p"])
+        self.assertIn("--resume", cmd)
+        idx = cmd.index("--permission-mode")
+        self.assertEqual(cmd[idx + 1], "bypassPermissions")
+
+
 class SessionResumeClaim(unittest.TestCase):
     """이슈 #878: session_id 는 roster 엔트리가 아니라 오케스트레이터
     프로세스 단위 — 같은 session_id 를 공유하는 두 엔트리가 같은 폴 창에서
