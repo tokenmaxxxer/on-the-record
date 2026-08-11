@@ -148,9 +148,220 @@ load-bearing 하지 않다는 것.
   이 이슈의 reports 디렉터리 바로 아래(role 레코드 파일 경로)에 새로
   만든다(지금은 아직 존재하지 않는다).
 
-## Scout: ran
+## Scout: ran (1라운드, 위 표 참고)
 
 외부 선례는 scout-brief.md 참고. 두 단계(웹서치 1라운드, 판단 1회)로 예산
 안에서 종료 — 이 저장소 자체의 기존 신호 세 개(위 표)가 이미 결정에
 필요한 대부분의 근거를 제공해서, 추가 심화 라운드가 결정을 바꿀 여지가
 없었다(포화 판단).
+
+---
+
+# Round 2 (2026-08-11, 재조사 — 실환경 반증 2건)
+
+위 라운드가 승인·구현·랜딩된 뒤(PR #756, `contract-guard.sh` 에
+`is_src_test`/`is_record` 내용 게이트 추가, 유닛테스트 17개 통과), 실환경에서
+두 건이 반증됐다. 이슈 코멘트 원문:
+canonical: `gh issue view 741 --comments` (2026-08-11T05:55:34Z 코멘트)
+두 사례 모두 이 코멘트에 기록돼 있다.
+
+## 사례 2 근본 원인 (PR #768, issue-759 phase-1): 로직이 아니라 배포 캐시가 오래됐다
+
+canonical: `git log -1 --format="%H %ai %s" -- on-the-record/hooks/contract-guard.sh`
+(main, 커밋 `978d112`, `2026-08-11 14:23:29 +0900` = `05:23:29Z`) 및
+`gh pr view 756 --json mergedAt` (`2026-08-11T05:28:21Z`, 이 내용 게이트를
+main 에 실제로 얹은 머지).
+
+PR #768 은 그보다 늦은 `2026-08-11T05:52:52Z` 에 머지됐다 —
+canonical: `gh pr view 768 --json mergedAt`. 즉 **main 의 git 이력만 보면
+내용 게이트는 PR #768 머지 24분 전에 이미 존재했다.** 그런데도 파일
+목록(issue-759 의 proposals·reports/implementation 아래 문서 4개뿐,
+`src/`·`tests?/` 없음)으로 게이트 조건을 재현하면 `is_src_test=False`,
+`is_record=False` — 로직대로면 부착 전에 종료해야 했는데 부착됐다
+(이슈 코멘트 원문, 위 canonical).
+
+이 모순을 풀려면 "main 의 git 이력"과 "머지 순간 실제로 실행된 훅 파일"이
+같은 것이 아니라는 사실이 필요하다. 이 세션이 실측한 것:
+
+canonical:
+```
+$ python3 -c "
+import json
+d = json.load(open('/Users/jk/.claude/plugins/installed_plugins.json'))
+for e in d['plugins']['on-the-record@tokenmaxxxer']:
+    print(e)
+"
+{'scope': 'local', 'projectPath': '/Users/jk/workspace/10_WORK/tokenmaxxxer/on-the-record', 'installPath': '/Users/jk/.claude/plugins/cache/tokenmaxxxer/on-the-record/0a983531a9fe', 'version': '0a983531a9fe', 'installedAt': '2026-08-01T03:59:21.648Z', 'lastUpdated': '2026-08-11T04:06:29.067Z', 'gitCommitSha': '0a983531a9fe41d5059d3925cca2820bb7624ece'}
+```
+- `on-the-record/hooks/hooks.json` 이 `contract-guard.sh` 를
+  `${CLAUDE_PLUGIN_ROOT}/hooks/contract-guard.sh` 로 등록한다(해당 줄:
+  `"command": "${CLAUDE_PLUGIN_ROOT}/hooks/contract-guard.sh"`, 실행
+  matcher `Bash` 블록) — 이 값은 오케스트레이터 자신의 프로젝트 경로
+  (`/Users/jk/workspace/10_WORK/tokenmaxxxer/on-the-record`, on-the-record
+  저장소 자체 checkout, 각 롤의 `~/.tokenmaxxxer/work/
+  on-the-record-issue-*-implementation` 워크트리와는 별개)에 대해 위
+  `installed_plugins.json` 항목이 가리키는 `installPath` 로 Claude Code
+  플러그인 로더가 해석한다.
+- 그 `installPath`(`.../cache/tokenmaxxxer/on-the-record/0a983531a9fe`)의
+  `hooks/contract-guard.sh` 를 실측하면 —
+canonical:
+```
+$ grep -c "is_src_test" /Users/jk/.claude/plugins/cache/tokenmaxxxer/on-the-record/0a983531a9fe/hooks/contract-guard.sh
+0
+$ diff /Users/jk/.claude/plugins/cache/tokenmaxxxer/on-the-record/0a983531a9fe/hooks/contract-guard.sh /Users/jk/workspace/10_WORK/tokenmaxxxer/on-the-record/on-the-record/hooks/contract-guard.sh | head -5
+125c125
+< pr_data = gh_json("pr", "view", pr, "--json", "body,number,commits")
+---
+> pr_data = gh_json("pr", "view", pr, "--json", "body,number,commits,files")
+```
+  — 내용 게이트가 통째로 빠져 있다. `gh pr view` 호출조차 `files` 필드를
+  안 받는다.
+- 이 설치본의 `gitCommitSha`(`0a983531a9fe41d5059d3925cca2820bb7624ece`)가
+  실제로 main 이력에서 어디인지 —
+canonical:
+```
+$ git -C /Users/jk/workspace/10_WORK/tokenmaxxxer/on-the-record log -1 --format="%H %ai %s" 0a983531a9fe41d5059d3925cca2820bb7624ece
+0a983531a9fe41d5059d3925cca2820bb7624ece 2026-08-11 13:00:05 +0900 Merge pull request #728 from tokenmaxxxer/issue-726/conformance-review
+$ git -C /Users/jk/workspace/10_WORK/tokenmaxxxer/on-the-record log 0a983531a9fe41d5059d3925cca2820bb7624ece..main --oneline -- on-the-record/hooks/contract-guard.sh
+978d112 fix(issue-741): content-based phase-2 gate for contract-guard.sh
+```
+  설치본은 `2026-08-11 04:00:05Z` 커밋에서 멈춰 있다 — 내용 게이트 커밋
+  (`05:23:29Z`)보다 83분 이르다. `lastUpdated: 2026-08-11T04:06:29.067Z`
+  가 설치 시각과 정확히 일치한다.
+- 8개 캐시 디렉터리 전부를 스캔해도 —
+derived: `for d in /Users/jk/.claude/plugins/cache/tokenmaxxxer/on-the-record/*/; do grep -c is_src_test "${d}hooks/contract-guard.sh" 2>/dev/null; done`
+```
+0a983531a9fe   mtime=2026-08-11T13:06:26 has_is_src_test=0
+0fa8a2c621e5   mtime=2026-08-08T10:37:13 has_is_src_test=0
+18a5f9d88cd1   mtime=2026-08-10T16:28:54 has_is_src_test=0
+23b3b6354cc7   mtime=2026-08-10T21:42:01 has_is_src_test=0
+be71072db26b   mtime=2026-08-10T12:31:23 has_is_src_test=0
+d95b7d4148a1   mtime=2026-08-09T12:39:44 has_is_src_test=0
+e21cdf07fc24   mtime=2026-08-11T12:04:07 has_is_src_test=0
+fbbae5b892df   mtime=2026-08-11T11:51:02 has_is_src_test=0
+```
+  이 세션이 시작된 지금(2026-08-11 오후, 여러 후속 머지가 이미 main 에
+  더 얹힌 시점)까지도 캐시 8개 중 내용 게이트를 가진 사본은 0개다.
+
+`on-the-record/hooks/self-update.sh` 의 자체 주석이 정확히 이 함정을 이미
+문서화하고 있다: "`claude plugin update` 가 버전 문자열만 읽고 영원히
+'already latest' 라고 보고한다" — 그리고 그 스크립트 자신이 `git pull`
+하는 대상은 이 "설치 캐시"(installPath)가 아니라 별도의
+"체크아웃"(spawn.py 를 찾아가는 대상, 위 예시에서
+`/Users/jk/workspace/10_WORK/tokenmaxxxer/on-the-record` 자체)이다 —
+canonical: `git -C /Users/jk/workspace/10_WORK/tokenmaxxxer/on-the-record log -1` 는
+main 최신(`f9d2ded`, 이 저장소 `on-the-record/hooks/contract-guard.sh` 에
+`is_src_test` 존재 확인됨)과 일치한다. 즉 **체크아웃은 최신인데 설치
+캐시는 오래됐다** — self-update.sh 는 체크아웃만 갱신하고 설치 캐시는
+갱신하지 않으므로 이 두 값이 갈라져도 아무것도 알아채지 못한다.
+
+결론: 사례 2 는 `contract-guard.sh` 의 판정 로직 결함이 아니다(유닛테스트
+17개가 이미 이를 확인, 위 라운드 참고). 원인은 머지를 실제로 집행한
+프로세스가 어느 훅 사본을 실행했는지가 git 이력과 별개로 결정된다는
+배포 계층의 사실이며, 지금까지는 그것을 실행 중에 기록할 수단이 전혀 없어
+사후에 캐시 디렉터리 8개와 `installed_plugins.json` 을 손으로 대조해야만
+알 수 있었다.
+
+## 사례 1 근본 원인 (PR #763, issue-743 phase-1): 저자가 쓴 Closes 를 걸러낼 살아있는 체크가 없다
+
+canonical: `gh pr view 763 --json body`
+PR #763 본문은 `"...\n\n#743\n\nCloses #743"` 로 끝난다 — 저자가 평문
+참조와 `Closes` 를 모두 직접 썼다(broker-attach 관여 없음, 병합 자체가
+GitHub 네이티브 키워드 종결로 이슈를 닫았다).
+
+canonical: `gh pr view 763 --json createdAt` / `gh issue view 743 --json comments`
+PR 생성 시각은 `2026-08-11T05:40:57Z`, `APPROVE issue-743/implementation`
+코멘트는 그보다 늦은 `05:42:18Z` — 즉 `gh pr create` 실행 시점에는 아직
+승인이 없었다. `pr-preflight.sh` 의 phase 판정(정확한 문자열 일치 +
+approvers.md)은 이 시점에 `phase2=False` 를 정확히 냈을 것이다 — 잘못된
+phase 판정이 아니라, **phase1 로 정확히 판정된 뒤에도 저자가 쓴 Closes 를
+걸러내지 못했다**는 뜻이다.
+
+canonical: `on-the-record/hooks/pr-preflight.sh` 246-251번째 줄
+```
+    refs = {int(n) for n in _PLAIN_REF.findall(body)}
+    if issue not in refs:
+        return [f"PR 본문에 '#{issue}' 참조가 없다 — phase-1 제안 PR도 자기 "
+                f"이슈를 본문에서 가리켜야 한다(Closes/Fixes/Resolves는 금지: "
+                f"phase-1 머지가 이슈를 자동으로 닫으면 안 된다)."]
+    return []
+```
+`check_body` 의 phase1 분기는 평문 `#issue` 참조가 있는지만 본다. deny
+메시지 문구는 "Closes/Fixes/Resolves는 금지"라고 주장하지만, 그 문구가
+반환되는 유일한 경로는 "평문 참조가 아예 없을 때"이지 "Closes 가 있을
+때"가 아니다 — `#743` 과 `Closes #743` 이 본문에 함께 있으면 `refs`
+집합에 743 이 들어 있으므로 `return []`(통과)한다. 이 코드는 이 훅이
+`gates/pr_reference.py` 의 `check_body` 를 그대로 포팅한 것이라고 자기
+헤더에 명시하는데(`on-the-record/hooks/pr-preflight.sh` 7번째 줄), 원본도
+동일하다 — canonical: `gates/pr_reference.py` 58-63번째 줄(동일한 5줄,
+동일한 조건문).
+
+이건 우연한 이식 누락이 아니라 **의도적으로 남겨둔 경계**다 —
+canonical: `tests/test_gates.py` 713-717번째 줄
+```
+def t_pr_reference_phase1_does_not_gate_closing_keywords_itself():
+    # check_body 의 phase1 분기는 그 자체로 closing 키워드를 차단하지
+    # 않는다 — 그 책임은 gates/ci.py 의 _phase1_mismatch 에 있다(코드
+    # 확인, proposal 참조). phase1 은 #126 참조 존재 여부만 본다.
+    assert pr_reference.check_body(126, "Closes #126", "phase1") == []
+```
+이 테스트가 `check_body(126, "Closes #126", "phase1") == []`(통과, 거부
+아님)를 핀 처리하며, "책임은 `_phase1_mismatch` 에 있다"고 명시적으로
+위임한다.
+
+canonical: `gates/ci.py` 319-342번째 줄(`_phase1_mismatch`/
+`_phase1_surface_mismatch` 정의) 및 440번째 줄(`main()` 안에서의 유일한
+호출부)
+`_phase1_mismatch`/`_phase1_surface_mismatch` 는 실제로 존재하고, 정확히
+같은 `_CLOSES_REF` 정규식으로 본문(과 제목·커밋 메시지)을 검사해 phase1
+PR 에 closing 키워드가 있으면 거부 사유를 반환한다 — `check_body` 가
+일부러 안 하는 바로 그 검사다. 문제는 이 함수를 호출하는 코드가
+`gates/ci.py` 의 `main()` 하나뿐이라는 것이다 —
+canonical: `grep -rn "_phase1_mismatch\|_phase1_surface_mismatch" --include="*.py" --include="*.sh" .` 결과
+(위 두 정의/호출 외 다른 호출부 0건).
+
+`gates/ci.py` 의 `main()` 은 예전에 GitHub Actions 러너가 매 PR 마다
+자동으로 실행했지만, 그 러너는 issue #460 으로 없어졌다 —
+canonical: `on-the-record/hooks/accumulation-claim-guard.sh` 3-4번째 줄,
+`on-the-record/hooks/call-shape-guard.sh` 3-4번째 줄 ("ported per issue
+#512 — gates/ci.py's runner disappeared with GitHub Actions retirement,
+#460"). issue #512 는 그 러너가 사라지며 잃은 개별 체크들을 하나씩
+zero-install `PreToolUse` 훅으로 포팅하는 진행 중인 이니셔티브다
+(`on-the-record/hooks/accumulation-claim-guard.sh` 가
+`check_accumulation_claim` 을, `on-the-record/hooks/call-shape-guard.sh`
+가 `subprocess_call_shape_divergence`/`sibling_mention_check` 를 포팅한
+사례가 이미 있음). `pr-preflight.sh` 는 자기 헤더(6-9번째 줄)에 "ports
+gates/pr_reference.py::check_body and gates/flows.py::_plan_from_body
+inline" 이라고만 적혀 있고 `_phase1_mismatch`/`_phase1_surface_mismatch`
+는 언급되지 않는다 — 이 포팅 이니셔티브가 아직 닿지 않은 항목이다.
+
+결론: **이 저장소 전체에서 "phase-1 PR 본문에 Closes 금지"를 실시간으로
+(`gh pr create`/`gh pr edit` 시점에) 집행하는 살아있는 코드는 현재
+없다.** `check_body` 는 설계상 안 하고, `_phase1_mismatch` 는 하지만
+아무도 부르지 않는다.
+
+### 이전 라운드 판단의 정정
+
+이전 라운드 서베이(위, "`docs/proposals/2026-08-10-closes-trailer-broker-attach-implementation.md`
+와 issue-653 ADR" 절)는 "`pr-preflight.sh` 가 오판해도 머지를 집행하지도
+`Closes` 를 쓰지도 않으므로 이슈 조기 종결을 스스로 만들어내지 않는다"고
+결론지었다 — 이 결론은 그 절이 다루던 문제(라운드 스코프 오판이 phase1
+PR 에 불필요한 `Closes` 요구를 강제하는 것)에 대해서는 지금도 맞다.
+하지만 사례 1 은 **다른 메커니즘**이다: `phase` 판정 자체는 맞았고
+(phase1), `pr-preflight.sh` 가 "쓰지" 않은 게 아니라 저자가 이미 쓴
+것을 막지 못했다 — 저자의 `gh pr create` 명령 자체가 GitHub 에
+`Closes #743` 를 담은 본문을 전달했고, 그 명령을 막았어야 할 `check_body`
+가 막지 않았다. `gh pr merge` 는 그 본문을 그대로 읽어 네이티브 키워드
+종결을 수행했을 뿐, broker-attach 관여가 전혀 없었다(사례 2 와 무관한
+별도 경로).
+
+## Scout: skip (조건 — 순수 버그픽스)
+
+두 사례 모두 "이미 문서화된, 그러나 실행되지 않는" 규칙을 실행 경로에
+복원/추가하는 작업이다: (a) 배포 캐시 최신성을 실행 중에 기록하는 것은
+이 저장소의 다른 훅에 이미 있는 관측성 패턴(로그·마커 파일)의 연장이고
+외부 제품 카테고리 비교 대상이 없다, (b) `pr-preflight.sh` 에 저자가 쓴
+Closes 를 거부하는 검사를 추가하는 것은 이미 `gates/ci.py` 의
+`_phase1_mismatch` 로 설계·구현·테스트까지 끝나 있는 로직을 이식하는
+것뿐, 새 설계 결정이 아니다. 스카우트-디렉티브의 "순수 버그픽스" 스킵
+조건에 해당한다.
