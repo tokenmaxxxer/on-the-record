@@ -55,6 +55,45 @@ def _complete_ownership_roles():
     return {f"role-{i}": [axis] for i, axis in enumerate(_AXES)}
 
 
+def t_broken_candidate_module_logs_its_failure(tmp_path):
+    """issue #910 finding #6: a candidate role_spec_shape.py that raises on
+    import must be logged (candidate path + exception), not silently
+    skipped — this is a deny-capable gate, so a silently-disabled check
+    is more consequential than an ordinary missing-tool fail-open."""
+    hooks_copy = tmp_path / "hooks"
+    hooks_copy.mkdir()
+    import shutil as _shutil
+    _shutil.copy(GUARD, hooks_copy / GUARD.name)
+    gates_dir = tmp_path / "gates"
+    gates_dir.mkdir()
+    (gates_dir / "role_spec_shape.py").write_text(
+        "raise RuntimeError('deliberately broken for issue-910 test')\n",
+        encoding="utf-8")
+
+    repo = _init_repo(tmp_path)
+    for name, axes in _complete_ownership_roles().items():
+        _write_role(repo, name, axes)
+    _stage_all(repo)
+
+    payload = json.dumps({
+        "tool_name": "Bash",
+        "cwd": str(repo),
+        "tool_input": {"command": "git commit -m test"},
+    })
+    env = dict(os.environ)
+    env["ORCHESTRATE_OFF"] = ""
+    r = subprocess.run(
+        ["bash", str(hooks_copy / GUARD.name)],
+        input=payload, capture_output=True, text=True, env=env, timeout=20,
+        cwd=repo,
+    )
+    # both candidates fail to load -> role_spec_shape is None -> fail-open
+    # (exit 0), but the failure must be visible on stderr.
+    assert r.returncode == 0, r.stdout
+    assert "role_spec_shape.py" in r.stderr
+    assert "deliberately broken for issue-910 test" in r.stderr
+
+
 def t_valid_axis_ownership_allows_commit(tmp_path):
     repo = _init_repo(tmp_path)
     for name, axes in _complete_ownership_roles().items():

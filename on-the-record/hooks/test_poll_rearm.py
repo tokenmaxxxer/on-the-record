@@ -24,6 +24,9 @@ FAKE_SPAWN_PY = """#!/usr/bin/env python3
 import os, sys, time
 marker = os.environ["FAKE_SPAWN_MARKER"]
 if sys.argv[1:2] == ["poll-due"]:
+    if os.environ.get("FAKE_POLL_DUE_CRASH") == "1":
+        sys.stderr.write("Traceback: bad JSON in state file\\n")
+        sys.exit(1)
     sys.exit(0 if os.environ.get("FAKE_POLL_DUE") == "1" else 1)
 if sys.argv[1:2] == ["watchdog"]:
     with open(marker, "a", encoding="utf-8") as f:
@@ -130,6 +133,47 @@ def t_directive_sh_still_spawns_watchdog_on_userpromptsubmit():
         assert r.returncode == 0, f"directive.sh should exit 0: {r.stderr}"
         assert _wait_for_marker(marker), \
             "directive.sh's turn-start arm regressed after factoring into poll-rearm.sh"
+
+
+def t_poll_due_crash_is_logged_and_distinguished_from_not_due():
+    """issue #910 finding #3: poll-due crashing (non-zero exit + stderr
+    output) must leave a trace in poll-watchdog.log distinguishing it from
+    the ordinary not-due case (non-zero exit, no stderr)."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_hook(STOP_POLL_REARM, checkout, marker,
+                      {"FAKE_POLL_DUE_CRASH": "1", "HOME": str(home)})
+        assert r.returncode == 0
+        time.sleep(0.5)
+        assert not (marker.exists() and marker.read_text().strip()), \
+            "watchdog must not spawn on a poll-due crash"
+        watchdog_log = home / ".claude" / "tokenmaxxxer" / "poll-watchdog.log"
+        assert watchdog_log.is_file(), "poll-due crash left no trace in poll-watchdog.log"
+        content = watchdog_log.read_text(encoding="utf-8")
+        assert "poll-due crashed" in content, content
+        assert "bad JSON in state file" in content, content
+
+
+def t_poll_due_not_due_leaves_no_crash_log():
+    """The ordinary not-due case (clean non-zero exit, no stderr) must not
+    write a poll-watchdog.log entry — only an actual crash does."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_hook(STOP_POLL_REARM, checkout, marker,
+                      {"FAKE_POLL_DUE": "0", "HOME": str(home)})
+        assert r.returncode == 0
+        time.sleep(0.5)
+        watchdog_log = home / ".claude" / "tokenmaxxxer" / "poll-watchdog.log"
+        assert not watchdog_log.exists() or not watchdog_log.read_text().strip(), \
+            "an ordinary not-due skip must not be logged as a crash"
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
