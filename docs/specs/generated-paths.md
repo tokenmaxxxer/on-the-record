@@ -28,6 +28,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `claim-scan-preflight.sh` | n/a | reads/validates only, no write call |
 | `contract-guard.sh` | n/a | reads/validates only, no write call |
 | `deliverable-guard.sh` | n/a | reads/validates only, no write call |
+| `delegation-post-gate.sh` | n/a | reads/validates only, no write call |
 | `pr-preflight.sh` | n/a | reads/validates only, no write call |
 | `record-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `report-framing-check.sh` | n/a | reads/validates only, no write call |
