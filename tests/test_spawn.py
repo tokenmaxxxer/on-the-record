@@ -8993,6 +8993,103 @@ class ReconcileLedger(unittest.TestCase):
         self.assertEqual(results, [True, False, False, False, False])
 
 
+class ResumeOrchestratorSessionPermissionMode(unittest.TestCase):
+    """이슈 #886: acceptEdits 는 파일 편집만 자동승인하고 Bash(gh pr merge,
+    git fetch)는 거부한다(PR #885 실측) — 재개 호출은 bypassPermissions 를
+    명시적으로 실어야 한다."""
+
+    def test_popen_command_carries_bypass_permissions(self):
+        captured = {}
+
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return unittest.mock.Mock()
+
+        with unittest.mock.patch.object(spawn.subprocess, "Popen", fake_popen):
+            spawn._resume_orchestrator_session("sess-1", "nudge")
+
+        cmd = captured["cmd"]
+        self.assertEqual(cmd[:2], ["claude", "-p"])
+        self.assertIn("--resume", cmd)
+        idx = cmd.index("--permission-mode")
+        self.assertEqual(cmd[idx + 1], "bypassPermissions")
+
+
+class SessionResumeClaim(unittest.TestCase):
+    """이슈 #878: session_id 는 roster 엔트리가 아니라 오케스트레이터
+    프로세스 단위 — 같은 session_id 를 공유하는 두 엔트리가 같은 폴 창에서
+    ready 가 돼도 resume-invoke 는 한 번만 나가야 한다(after-proposal hunt
+    발견에 대한 응답)."""
+
+    def setUp(self):
+        self._orig = spawn.RECONCILE_LEDGER
+        self._td = tempfile.TemporaryDirectory()
+        spawn.RECONCILE_LEDGER = Path(self._td.name) / "reconcile_ledger.json"
+
+    def tearDown(self):
+        spawn.RECONCILE_LEDGER = self._orig
+        self._td.cleanup()
+
+    def test_first_claim_for_a_session_id_succeeds(self):
+        self.assertTrue(spawn._session_resume_claim("sess-1", now=1000.0))
+
+    def test_second_claim_for_same_session_id_within_ttl_fails(self):
+        spawn._session_resume_claim("sess-1", now=1000.0)
+        self.assertFalse(spawn._session_resume_claim(
+            "sess-1", now=1000.0 + spawn.SESSION_RESUME_CLAIM_TTL_SEC - 1))
+
+    def test_two_roster_entries_sharing_a_session_id_resume_exactly_once(self):
+        # roster_watchdog 의 완료-감지 틱에서, session_id 를 공유하는 두 엔트리가
+        # 같은 창에서 ready 가 되는 상황을 시뮬레이션한다.
+        entry_a = {"session_id": "sess-shared", "work": "/tmp/a"}
+        entry_b = {"session_id": "sess-shared", "work": "/tmp/b"}
+        with unittest.mock.patch.object(
+                spawn, "_resume_orchestrator_session",
+                return_value=unittest.mock.Mock()) as fake_resume:
+            fired_a = spawn._maybe_resume_for_ready_pr("issue-1/impl-a", entry_a, 10)
+            fired_b = spawn._maybe_resume_for_ready_pr("issue-1/impl-b", entry_b, 11)
+        self.assertTrue(fired_a)
+        self.assertFalse(fired_b)
+        fake_resume.assert_called_once()
+
+    def test_no_session_id_never_resumes(self):
+        with unittest.mock.patch.object(
+                spawn, "_resume_orchestrator_session") as fake_resume:
+            fired = spawn._maybe_resume_for_ready_pr(
+                "issue-1/impl", {"session_id": None, "work": "/tmp/a"}, 10)
+        self.assertFalse(fired)
+        fake_resume.assert_not_called()
+
+    def test_resume_popen_failure_reports_not_fired(self):
+        with unittest.mock.patch.object(
+                spawn, "_resume_orchestrator_session", return_value=None):
+            fired = spawn._maybe_resume_for_ready_pr(
+                "issue-1/impl", {"session_id": "sess-2", "work": "/tmp/a"}, 10)
+        self.assertFalse(fired)
+
+
+class OrchestratorSessionIdCapture(unittest.TestCase):
+    """이슈 #878: `ORCHESTRATOR_SESSION_ID_ENV` 가 심어져 있으면 roster
+    엔트리에 그대로 옮겨 담긴다 — 없으면 spawn.py 는 절대 지어내지 않고
+    None 으로 남긴다(케이스 1/인터랙티브 세션은 이 필드가 필요 없다)."""
+
+    def test_env_var_name_is_stable(self):
+        self.assertEqual(spawn.ORCHESTRATOR_SESSION_ID_ENV, "ORCHESTRATOR_SESSION_ID")
+
+    def test_roster_register_call_site_reads_env_at_spawn_time(self):
+        # 전체 _spawn_one() 을 굴리지 않고, 그 줄이 실제로 참조하는 계약만
+        # 좁게 확인한다: os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None.
+        with unittest.mock.patch.dict(
+                os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-abc"}):
+            self.assertEqual(
+                os.environ.get(spawn.ORCHESTRATOR_SESSION_ID_ENV) or None,
+                "sess-abc")
+        with unittest.mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(spawn.ORCHESTRATOR_SESSION_ID_ENV, None)
+            self.assertIsNone(
+                os.environ.get(spawn.ORCHESTRATOR_SESSION_ID_ENV) or None)
+
+
 class DiagnoseHealth(unittest.TestCase):
     """이슈 #782 스코프-확장: HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED."""
 

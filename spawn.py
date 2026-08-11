@@ -35,6 +35,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+# 이슈 #878: 오케스트레이터 자신의 (headless `-p`) 세션 ID를 전달하는 환경
+# 변수 이름 — 이 프로세스(spawn.py)를 부른 오케스트레이터 프로세스가 이미
+# 알고 있을 때만(interactive 세션은 모른다/필요없다; harness driver 는
+# `claude -p --output-format json` 의 첫 턴 결과에서 얻은 뒤 다음 스폰부터
+# export 한다) 심어준다. 이름 자체는 새 스케줄러가 아니라 기존 roster 엔트리
+# 필드 하나를 채우는 관례일 뿐이다.
+ORCHESTRATOR_SESSION_ID_ENV = "ORCHESTRATOR_SESSION_ID"
+# 이슈 #878 after-proposal hunt 발견: session_id 는 프로세스 단위지 roster
+# 엔트리 단위가 아니다 — 같은 오케스트레이터 세션이 무장한 여러 엔트리가
+# 같은 폴 창에서 동시에 ready 가 되면 이 TTL 로 session_id 당 딱 한 번만
+# resume-invoke 가 나가게 한다(ledger_check_and_stamp 를 그대로 락으로
+# 재사용, 새 락 프리미티브를 만들지 않는다).
+SESSION_RESUME_CLAIM_TTL_SEC = 15 * 60
 USER_SETTINGS = Path.home() / ".claude" / "settings.json"
 
 # 이슈 #857: 로스터(ROSTER)/워크스페이스 인덱스(WORKSPACE_INDEX)가 기본으로
@@ -2202,6 +2216,81 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
             "detail": f"{key}: 최근 로그 성장, RUNNING"}
 
 
+def _session_resume_claim(session_id: str, now: float | None = None) -> bool:
+    """이슈 #878: `session_id` 하나에 대해 지난
+    `SESSION_RESUME_CLAIM_TTL_SEC` 안에 이미 resume-invoke 를 찍은 적
+    없으면 True(=지금 이 호출이 그 유일한 소유자, 찍는다), 있으면
+    False(=이미 다른 엔트리가 같은 세션을 깨웠다, 침묵) — `spawn.py
+    poll-due` 가 이미 쓰는 원자적 체크+스탬프(ledger_check_and_stamp)를
+    그대로 락으로 재사용한다(hunt 발견: session_id 는 엔트리가 아니라
+    프로세스 단위라 별도 키 네임스페이스가 필요하다)."""
+    return ledger_check_and_stamp(
+        f"session-resume:{session_id}", now=now, ttl=SESSION_RESUME_CLAIM_TTL_SEC)
+
+
+def _resume_orchestrator_session(session_id: str, nudge: str,
+                                  cwd: str | None = None) -> subprocess.Popen | None:
+    """이슈 #878 케이스 2: 이미 `end_turn` 으로 끝난 헤드리스 오케스트레이터
+    프로세스 그 자체는 인프로세스로 되살릴 수 없다(생존해 있는 프로세스가
+    하나도 없다) — `claude -p "<nudge>" --resume "<session_id>"` 로 새
+    프로세스를 띄우는 것이 유일한 경로다(survey 인용:
+    code.claude.com/docs/en/headless.md "Background tasks at exit"). 그
+    새 턴이 verify→merge→rebuild/re-check→`final_report` 를 스스로
+    수행한다 — 이 함수는 그 턴을 놓는 것만 하고 기다리지 않는다(watchdog
+    틱을 블록하지 않는다는 기존 observe-only 계약과 동일).
+
+    `claude` 실행 파일이 없거나(테스트/부분 설치 환경) Popen 자체가
+    실패하면 None — 호출부가 UNMEASURED-shaped 로 보고할 신호.
+
+    이슈 #886: `--permission-mode` 를 안 주면(또는 `acceptEdits` 를 주면)
+    이 재개 턴은 파일 편집만 자동승인되고 Bash(`gh pr merge`, `git
+    fetch`, `spawn.py`)는 그대로 거부된다 — `acceptEdits` 는 편집 전용
+    이지 Bash 자동승인이 아니다(PR #885 실측, `.permission_denials`).
+    `bypassPermissions` 는 #700 이 실제 롤 스폰 경로에 이미 쓰는 것과
+    같은 헤드리스 기본값이며, 여는 것은 호스트 권한 프롬프트뿐이다 —
+    PreToolUse 훅으로 걸린 게이트(gh-write-allow-gate.sh,
+    merge-allow-gate.sh, deliverable-guard)는 이 모드와 무관하게 여전히
+    실행된다. 단, 정확한 경계 하나: 이 훅들은 "allow" 만 내고 "deny"
+    는 내지 않는 설계라, 자기 허용목록 밖의 셰이프(예: `gh repo delete`,
+    `git push --force`)에 대해서는 원래 host 기본-거부에 기대고 있었다
+    — bypassPermissions 아래서는 그 기본-거부 자체가 없다(issue #886
+    hunt 실측, docs/issue-886/reports/implementation/
+    hunt-issue-886-permission-mode-fix.md). 이는 #700 이 이미 프로덕션
+    롤 스폰에 쓰는 동일 모드의 기존 속성이며, 이 diff 가 새로 만든
+    회귀는 아니다."""
+    try:
+        return subprocess.Popen(
+            ["claude", "-p", nudge, "--resume", session_id,
+             "--permission-mode", "bypassPermissions"],
+            cwd=cwd, stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+    except OSError:
+        return None
+
+
+def _maybe_resume_for_ready_pr(key: str, entry: dict, pr_number: int) -> bool:
+    """이슈 #878: 죽은(=역할 세션이 끝난) roster 엔트리가 PR 을 남겼을 때,
+    그 스폰을 무장한 오케스트레이터가 headless 세션이었다면(`session_id`
+    가 찍혀 있으면) `--resume` 으로 그 세션을 재개해 merge→rebuild/
+    re-check→`final_report` 턴을 잇는다. 인터랙티브 세션(`session_id`
+    없음)은 케이스 1 의 라이브 `watch --follow` notify 경로가 이미
+    맡으므로 여기서는 아무것도 하지 않는다(중복 트리거 방지).
+
+    반환: 실제로 resume 를 쐈으면 True, 건너뛰었으면(session_id 없음/이미
+    다른 엔트리가 같은 세션을 깨움/Popen 실패) False."""
+    session_id = entry.get("session_id")
+    if not session_id:
+        return False
+    if not _session_resume_claim(session_id):
+        return False
+    nudge = (f"delegated PR #{pr_number} ({key}) is ready — verify, merge, "
+             f"rebuild/re-check, and emit the 4-part final_report.")
+    proc = _resume_orchestrator_session(session_id, nudge, cwd=entry.get("work"))
+    return proc is not None
+
+
 def _board_wide_sweep(root: Path) -> int:
     """이슈 #464: closure_sweep/spawn_coverage 를 한 틱씩 돌려 보고만 한다
     (observe-only, roster_watchdog 계약과 동일). 위반/미커버 이슈 수를
@@ -2307,6 +2396,17 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
             if dead_health is not None:
                 dead_label = "COMPLETED" if dead_health["state"] is None else dead_health["state"]
                 print(f"[poll-report] {key}: {dead_label} — {dead_health['detail']}")
+                if dead_health["state"] is None:
+                    # 이슈 #878 케이스 2: 완료(PR 존재) 이면서 이 엔트리를
+                    # 무장한 오케스트레이터가 headless(session_id 있음) 였다면
+                    # 여기서 --resume 을 쏜다 — 인터랙티브 케이스 1 은
+                    # 라이브 notify 로 이미 처리되므로 session_id 없는 엔트리는
+                    # 그대로 통과한다(중복 트리거 없음).
+                    branch = Path(work).name if work else None
+                    pr_number = _pr_open_or_merged_for_branch(ROOT, branch) if branch else None
+                    if pr_number is not None and _maybe_resume_for_ready_pr(key, e, pr_number):
+                        print(f"[resume] {key}: PR #{pr_number} ready — "
+                              f"resumed session {e.get('session_id')}")
             if auto_respawn:
                 _auto_respawn_check(key, e, respawn_state)
             continue
@@ -5006,6 +5106,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             "issue": issue, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
+            # 이슈 #878: 이 스폰을 무장한 오케스트레이터 자신의 세션 ID —
+            # `ORCHESTRATOR_SESSION_ID_ENV` 로 호출자(인터랙티브 호스트나
+            # harness driver)가 심어준 값을 그대로 옮겨 담는다. spawn.py
+            # 자신은 이 값을 지어내지 않는다 — 없으면 None(해당 세션은
+            # headless-resume 대상이 아니라는 신호, 케이스 1 의 라이브
+            # notify 경로만 쓴다).
+            "session_id": os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None,
             "before_head": before_head,  # 이슈 #90 watchdog signal 4 재료
             # `pid`(claude 서브프로세스)는 proc.wait() 리턴과 함께 정상
             # 종료에서도 먼저 죽는다 — push/게이트·소유권 리포트/classify/
