@@ -160,12 +160,34 @@ lookup was correctly repo-scoped.
    comments (spawn.py:3385-3388) record as knowingly left out of
    scope by issue #533.
 
+## Finding 4 — `WORKSPACE_INDEX` (the repo-scoped layer in Finding 2) also has no lock, so its own collision guard is not race-safe
+
+canonical: `docs/issue-857/reports/defect-verification/hunt-defect-verification.md`,
+this session's dispatched warrant-hunter, read this session —
+`_workspace_index_put()` (spawn.py:3060) does load-mutate-save with no
+locking, unlike `ROSTER`, which is wrapped in `_roster_locked()`
+(`fcntl` flock, spawn.py:1760-1770). The hunter's reproduction spawned
+20 concurrent `_workspace_index_put()` calls against distinct keys and
+observed only 1 surviving entry afterward — a classic unlocked
+read-modify-write race, independent of Findings 1-3's repo-scoping
+question. `_workspace_index_put()`'s same-key collision guard
+(spawn.py:3077-3081) only catches a collision visible within one
+process's own load; it does nothing for two processes (an observer and
+a fixture it spawns) racing to load, mutate distinct keys, and save —
+whichever saves last silently discards the other's key. This means even
+a step-2 fix that correctly threads `-C`/repo scoping through
+`WORKSPACE_INDEX` (closing Finding 2) would still be exposed to this
+independent concurrent-write data-loss path unless that fix also adds
+locking equivalent to `ROSTER`'s.
+
 ## Open findings
 
-None — this survey pins the mechanism per the issue's step-1 scope; no
-new defect beyond what #855 finding 5 already reported is raised here.
-Formal severity assignment (`verify:severity-classification`) is later
-work, gated on approval.
+Finding 4 above is a defect independently reproduced by this session's
+dispatched warrant-hunter, additional to and independent of the #855
+finding-5 collision this survey was scoped to pin (Findings 1-3). Route
+to issue #857 step 2 (implementation) alongside Findings 1-3, or to a
+new backlog item, per spec §6. Formal severity assignment
+(`verify:severity-classification`) is later work, gated on approval.
 
 ## What did not work
 
