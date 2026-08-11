@@ -25,11 +25,17 @@
 #
 # Fails OPEN on any parse/state error or missing session_id -- this hook
 # only adds behavior on top of the existing gates, never instead of them.
+#
+# Role identity (issue #706): the CLAUDE_ROLE presence check is resolved
+# inside the python body from the #698 session-role-bind snapshot,
+# falling back to the live env var only when no snapshot exists — a role
+# session unsetting CLAUDE_ROLE before a tool call can no longer flip
+# itself into the orchestrator-only branch and have this retry bound
+# applied to it. See approval-gate.sh for the resolve pattern.
 trap 'exit 0' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-[ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
 
 MODE="${1:-}"
 case "$MODE" in pre|post) ;; *) trap - EXIT; exit 0 ;; esac
@@ -73,6 +79,26 @@ if not isinstance(session_id, str) or not session_id:
     sys.exit(0)
 safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
 state_path = os.path.join(state_dir, safe_session + ".json")
+
+# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
+# same resolve-with-fallback pattern as approval-gate.sh: a role session
+# that unsets CLAUDE_ROLE before this tool call no longer flips this hook
+# into treating the call as orchestrator-authored.
+role = os.environ.get("CLAUDE_ROLE", "")
+bind_state_dir = os.environ.get(
+    "OTR_ROLE_BIND_STATE_DIR",
+    os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
+)
+snapshot_path = os.path.join(bind_state_dir, safe_session + ".json")
+try:
+    with open(snapshot_path, encoding="utf-8") as f:
+        snapshot = json.load(f)
+    if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
+        role = snapshot["role"]
+except (OSError, ValueError):
+    pass  # no snapshot yet — fall back to the live env var
+if role:
+    sys.exit(0)  # role session — this retry bound is orchestrator-only
 
 tool_name = payload.get("tool_name")
 tool_input = payload.get("tool_input")

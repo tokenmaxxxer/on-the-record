@@ -15,12 +15,18 @@
 # Kill switch: ORCHESTRATE_OFF=1. Fail closed on non-0/2 (now including
 # parse failure, not just crashes — the previous header claim here was
 # false for the parse-failure path; issue #287 S4).
+#
+# Role identity (issue #706): the CLAUDE_ROLE presence check is resolved
+# inside the Python body from the #698 session-role-bind snapshot,
+# falling back to the live env var only when no snapshot exists — a role
+# session unsetting CLAUDE_ROLE before this hook fires can no longer flip
+# itself into the orchestrator branch and dodge its own deliverable-write
+# denial. See approval-gate.sh for the ported resolve pattern.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
-[ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
 
 # No fast-path skip on "doesn't look like src/test/docs" here anymore:
 # that shortcut used to also skip empty/malformed payloads straight to
@@ -44,6 +50,30 @@ except ValueError:
 if not isinstance(e, dict):
     deny("stdin payload is not a JSON object — cannot verify this write is "
          "safe, denying rather than silently allowing it through.")
+
+# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
+# same resolve-with-fallback pattern as approval-gate.sh: a role session
+# that unsets CLAUDE_ROLE before this Write/Edit no longer flips this
+# hook into treating the write as orchestrator-authored.
+role = os.environ.get("CLAUDE_ROLE", "")
+session_id = e.get("session_id")
+if isinstance(session_id, str) and session_id:
+    state_dir = os.environ.get(
+        "OTR_ROLE_BIND_STATE_DIR",
+        os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
+    )
+    safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
+    snapshot_path = os.path.join(state_dir, safe_session + ".json")
+    try:
+        with open(snapshot_path, encoding="utf-8") as f:
+            snapshot = json.load(f)
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
+            role = snapshot["role"]
+    except (OSError, ValueError):
+        pass  # no snapshot yet — fall back to the live env var
+if role:
+    sys.exit(0)  # role session — deliverable writes are its own job, not this hook's
+
 if (e.get("tool_name") or "") not in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
     sys.exit(0)
 ti = e.get("tool_input") or {}
