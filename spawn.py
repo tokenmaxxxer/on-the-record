@@ -1880,6 +1880,104 @@ def roster_ps() -> int:
     return 0
 
 
+RECONCILE_LEDGER = ROOT / "runs" / "reconcile_ledger.json"
+# 이슈 #782 step 2: 이벤트 채널과 폴링 채널이 같은 완료/헬스 신호를 각자
+# 관측해도 next-action 은 한 번만 나가야 한다(멱등 reconcile) — 프로포절의
+# TTL 근거: WATCHDOG_SILENCE_MIN/WATCHDOG_NO_COMMIT_MIN 보다 짧게 잡아,
+# 15분 안에 다시 폴링 틱이 돌아도 이미 찍힌 키는 조용히 넘어간다.
+RECONCILE_LEDGER_TTL_SEC = 15 * 60
+
+
+def _reconcile_ledger_lock_path() -> Path:
+    return RECONCILE_LEDGER.with_name(RECONCILE_LEDGER.name + ".lock")
+
+
+@contextlib.contextmanager
+def _reconcile_ledger_locked():
+    lock_path = _reconcile_ledger_lock_path()
+    lock_path.parent.mkdir(exist_ok=True)
+    with open(lock_path, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
+def _reconcile_ledger_load() -> dict:
+    try:
+        return json.loads(RECONCILE_LEDGER.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _reconcile_ledger_save(d: dict) -> None:
+    RECONCILE_LEDGER.parent.mkdir(exist_ok=True)
+    RECONCILE_LEDGER.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+
+
+def ledger_check_and_stamp(dedup_key: str, now: float | None = None,
+                            ttl: float = RECONCILE_LEDGER_TTL_SEC) -> bool:
+    """`dedup_key` 가 지난 `ttl` 초 안에 이미 찍힌 적 없으면 True(=행동해도
+    됨, 지금 찍는다), 있으면 False(=이미 처리됐다, 침묵) 를 돌려주며 항상
+    락을 잡고 read-modify-write 한다 — 이벤트 채널과 폴링 채널이 같은
+    completion/health 를 동시에 봐도 next-action 이 한 번만 나가게 하는
+    유일한 관문(이슈 #782 Acceptance test 3)."""
+    now = time.time() if now is None else now
+    with _reconcile_ledger_locked():
+        d = _reconcile_ledger_load()
+        last = d.get(dedup_key)
+        due = last is None or (now - last) >= ttl
+        if due:
+            d[dedup_key] = now
+            _reconcile_ledger_save(d)
+        return due
+
+
+def ledger_stamp(dedup_key: str, now: float | None = None) -> None:
+    """조건 없이 찍기만 한다 — `_spawn_one()` 의 이벤트-발신 지점에서
+    completion 을 이미 확정적으로 안 순간 쓴다. 이후 같은 키로 도착하는
+    폴링 틱의 `ledger_check_and_stamp()` 는 TTL 안이면 False 를 받아
+    조용히 넘어간다(Acceptance test 2: watch 가 먼저 잡은 완료를 폴링이
+    다시 보고하지 않는다)."""
+    with _reconcile_ledger_locked():
+        d = _reconcile_ledger_load()
+        d[dedup_key] = time.time() if now is None else now
+        _reconcile_ledger_save(d)
+
+
+POLL_STATE = ROOT / "runs" / "poll_state.json"
+POLL_INTERVAL_SEC = 15 * 60  # RECONCILE_LEDGER_TTL_SEC 와 같은 근거로 같은 값
+
+
+def poll_due(now: float | None = None, poll_state: Path = POLL_STATE,
+             interval: float = POLL_INTERVAL_SEC) -> bool:
+    """`spawn.py poll-due` (이슈 #782 req #7): `runs/poll_state.json` 의
+    마지막 폴 시각을 원자적으로 확인+갱신한다. True 를 돌려주면 그 호출이
+    바로 '지금 폴링 틱을 돌려도 된다'는 허가이자 갱신 — `directive.sh`
+    가 매 턴 `UserPromptSubmit` 훅에서 부르므로, 같은 15분 창 안의 다음
+    호출들은 False 를 받아 백그라운드 `watchdog` 를 또 띄우지 않는다."""
+    now = time.time() if now is None else now
+    lock_path = poll_state.with_name(poll_state.name + ".lock")
+    lock_path.parent.mkdir(exist_ok=True)
+    with open(lock_path, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            try:
+                st = json.loads(poll_state.read_text())
+            except (OSError, ValueError):
+                st = {}
+            last = st.get("last_poll")
+            due = last is None or (now - last) >= interval
+            if due:
+                st["last_poll"] = now
+                poll_state.parent.mkdir(exist_ok=True)
+                poll_state.write_text(json.dumps(st, ensure_ascii=False))
+            return due
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 WATCHDOG_STATE = ROOT / "runs" / "watchdog_state.json"
 WATCHDOG_SILENCE_MIN = 90     # 이슈 #90 proposal, signal 1
 WATCHDOG_NO_COMMIT_MIN = 71   # 이슈 #90 proposal, signal 4 (0.5 * p90 ≈ 142.6)
@@ -1983,8 +2081,116 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
                 f"watcher-dead: 워처 pid {watcher_pid} 가 죽어 있거나(또는 다른 "
                 f"프로세스가 그 pid 를 물려받았거나) — spawn.py watch --issue "
                 f"<n> --follow 로 재무장하라")
+        else:
+            # signal 6 (이슈 #782): 워처 pid 는 살아 있고 신원도 진짜인데
+            # (_watcher_looks_real 통과) 워처 자신의 로그가 무장 이후로
+            # mtime 이 안 움직인다 — 2026-08-11 실측 실패 모드(첫 줄에서
+            # 멈춘 watch --follow): pid 는 살아 있어 watcher-dead 로는
+            # 안 잡힌다. `watcher_armed_at` 을 못 읽으면(구 로스터 엔트리)
+            # 판정하지 않는다 — 없는 기준선으로 조용한 오탐을 내지 않는다.
+            armed_at = ws_entry.get("watcher_armed_at")
+            watcher_log = Path(str(work) + ".watcher.log") if work else None
+            if armed_at is not None and watcher_log is not None and watcher_log.exists():
+                w_mtime = watcher_log.stat().st_mtime
+                silence_min = (now - max(w_mtime, float(armed_at))) / 60
+                if silence_min > WATCHDOG_SILENCE_MIN:
+                    anomalies.append(
+                        f"watcher-silent: 워처 pid {watcher_pid} 는 살아 있지만 "
+                        f"{int(silence_min)}분째 로그 무응답 ({watcher_log}) — "
+                        f"spawn.py watch --issue <n> --follow 로 재무장하라")
 
     return anomalies
+
+
+_HEALTH_REFUSAL_TYPES = ("gate-refusal", "harness-refusal", "sandbox-refusal")
+DEADLOCK_MIN_REPEATS = 3  # 스코프-확장 코멘트: "짧은 간격으로 반복" 최소 재현 횟수
+
+
+def _deadlock_signature(work: str | None, min_repeats: int = DEADLOCK_MIN_REPEATS
+                         ) -> str | None:
+    """`work` 워크스페이스의 `.events.jsonl` 꼬리를 읽어, 마지막
+    `progress` 이벤트(있으면) 이후로 같은 거부/게이트-거부 signature 가
+    `min_repeats` 번 이상 반복됐으면 그 signature 문자열을, 아니면 None
+    을 돌려준다 — DEADLOCKED 판정의 유일한 근거(이슈 #782 스코프-확장
+    코멘트: "같은 에러/거부 signature 가 짧은 간격으로 반복, 새 진행
+    이벤트 없음"). 순수 읽기: 이벤트 파일에 아무것도 쓰지 않는다."""
+    if not work:
+        return None
+    events_path = _events_path(work)
+    if not events_path.exists():
+        return None
+    events = []
+    for line in events_path.read_text(encoding="utf-8").splitlines():
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(ev, dict):
+            events.append(ev)
+    last_progress_ts = max(
+        (e.get("ts", -1) for e in events if e.get("type") == "progress"),
+        default=-1)
+    tail = [e for e in events
+            if e.get("type") in _HEALTH_REFUSAL_TYPES and e.get("ts", -1) > last_progress_ts]
+    if len(tail) < min_repeats:
+        return None
+    sigs = [json.dumps(e.get("detail"), sort_keys=True, ensure_ascii=False)
+            for e in tail[-min_repeats:]]
+    if len(set(sigs)) == 1:
+        return sigs[0]
+    return None
+
+
+def diagnose_health(key: str, entry: dict, root: Path = ROOT,
+                     now: float | None = None, state: dict | None = None,
+                     anomalies: list[str] | None = None) -> dict:
+    """이슈 #782 스코프-확장: 살아있는(또는 방금 죽은) 로스터 엔트리 하나를
+    HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED 네 상태 중 하나로 진단하고
+    next-action 을 매긴다. 완료(정상 session-end + PR)는 이 함수의 대상이
+    아니다 — `roster_watchdog()`의 기존 completion 경로가 다룬다; 여기는
+    "완료가 아닌데 뭐가 문제인가"만 답한다.
+
+    반환: `{"state": str, "next_action": str, "detail": str}`. 완료로
+    판정되면(죽었는데 verdict=="normal" 이거나 PR 이 있음) `state` 는
+    `None` — 호출부가 그 경우를 건너뛴다는 신호.
+
+    원자료(raw ground truth)만 쓴다: `_alive()`(raw ps), 세션 로그
+    mtime/내용(`watchdog_check_one()`), `_pr_open_or_merged_for_branch()`
+    — 새 `gh`/git 호출 타입을 추가하지 않는다(프로포절 제약).
+
+    `anomalies`: 호출부가 같은 틱에서 이미 `watchdog_check_one()` 을
+    돌렸으면 그 결과를 넘긴다 — `watchdog_check_one()` 은 로그 오프셋
+    상태를 소비하는 부수효과가 있어(signal 2/3), 한 틱에 두 번 부르면
+    두 번째 호출이 빈 텍스트만 보고 신호를 놓친다. 생략하면(단독/테스트
+    호출) 이 함수가 직접 한 번 돌린다."""
+    now = time.time() if now is None else now
+    pid = entry.get("pid", 0)
+    work = entry.get("work")
+    branch = Path(work).name if work else None
+    alive = _alive(pid)
+    if not alive:
+        verdict = session_end_verdict(
+            work, Path(entry["log"]) if entry.get("log") else None, now=now) \
+            if work else None
+        pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
+        if verdict == "normal" or pr_number is not None:
+            return {"state": None, "next_action": "none",
+                    "detail": "completion, not a health diagnosis"}
+        return {"state": "DEAD-ERRORED", "next_action": "respawn",
+                "detail": f"{key}: pid {pid} 부재, PR 없음, "
+                          f"session_verdict={verdict!r}"}
+    deadlock_sig = _deadlock_signature(work)
+    if deadlock_sig is not None:
+        return {"state": "DEADLOCKED", "next_action": "surface-repeating-cause",
+                "detail": f"{key}: 같은 거부 signature 반복, 새 진행 없음 — {deadlock_sig[:200]}"}
+    if anomalies is None:
+        anomalies = watchdog_check_one(key, entry, now=now, state=state)
+    if any(a.startswith("log-silence") or a.startswith("watcher-silent")
+           for a in anomalies):
+        return {"state": "STALLED", "next_action": "resume-watch",
+                "detail": f"{key}: idle > {WATCHDOG_SILENCE_MIN}분, RUNNING"}
+    return {"state": "HEALTHY", "next_action": "none",
+            "detail": f"{key}: 최근 로그 성장, RUNNING"}
 
 
 def _board_wide_sweep(root: Path) -> int:
@@ -2055,15 +2261,20 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
         return anomaly_count
     state = _watchdog_state_load()
     respawn_state = _respawn_state_load() if auto_respawn else {}
+    issue_role_key = lambda e: (e.get("issue"), e.get("role"))
     for key, e in sorted(d.items()):
         # 이슈 #492: 같은 틱에서 reconcile() 도 한 번 태운다 — 새 폴러가
         # 아니라 이 기존 스캔에 올라탄다(ADR 결정 4).
         divergences = reconcile(_build_expected(e), _build_observed(ROOT, e))
         if divergences:
-            anomaly_count += len(divergences)
-            print(f"[reconcile] {key}: divergence {len(divergences)}건")
+            issue_n, role_n = issue_role_key(e)
             for div in divergences:
-                print(f"  - {div['kind']}: {div['detail']} -> {div['next_action']}")
+                dedup_key = f"health-repair:{issue_n}:{role_n}:{div['kind']}"
+                if not ledger_check_and_stamp(dedup_key):
+                    continue  # 이슈 #782: 이미 같은 TTL 창에서 보고됨 — 조용히
+                anomaly_count += 1
+                print(f"[reconcile] {key}: divergence — "
+                      f"{div['kind']}: {div['detail']} -> {div['next_action']}")
         if not _alive(e.get("pid", 0)):
             work = e.get("work")
             issue_n = e.get("issue")
@@ -2076,6 +2287,19 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
                 _auto_respawn_check(key, e, respawn_state)
             continue
         anomalies = watchdog_check_one(key, e, state=state)
+        # 이슈 #782 스코프-확장: HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED 네
+        # 상태로 진단하고, 완료가 아닌 진단 결과만 원장으로 게이팅해 보고한다
+        # (완료는 위 reconcile()/아래 죽음-분기가 이미 다룬다). 같은 틱에서
+        # 이미 계산한 anomalies 를 넘겨 watchdog_check_one() 의 오프셋
+        # 소비를 두 번 겪지 않는다.
+        health = diagnose_health(key, e, state=state, anomalies=anomalies)
+        if health["state"] is not None and health["state"] != "HEALTHY":
+            issue_n, role_n = issue_role_key(e)
+            dedup_key = f"health:{issue_n}:{role_n}:{health['state']}"
+            if ledger_check_and_stamp(dedup_key):
+                anomaly_count += 1
+                print(f"[health] {key}: {health['state']} — "
+                      f"{health['detail']} -> {health['next_action']}")
         if anomalies:
             anomaly_count += 1
             print(f"[watchdog] {key}: 이상 신호 {len(anomalies)}건")
@@ -3763,6 +3987,8 @@ def main() -> int:
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
     if a.role == "watchdog":
         return roster_watchdog(auto_respawn=a.auto_respawn)
+    if a.role == "poll-due":
+        return 0 if poll_due(poll_state=POLL_STATE) else 1
     if a.role == "reconcile":
         return roster_reconcile(a.issue, unreported=a.unreported,
                                  remediation_merged=a.remediation_merged,
@@ -4787,6 +5013,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                         if pr_number is not None and int(m.rsplit("/", 1)[-1]) == pr_number:
                             pr_seen.add(m)
                             _append_event(events_path, "pr-opened", m)
+                            if issue is not None:
+                                # 이슈 #782: 이벤트 채널이 완료를 확정적으로
+                                # 안 순간 원장에 찍어 둔다 — 뒤이은 폴링
+                                # 틱의 ledger_check_and_stamp() 가 같은 키를
+                                # 보면 TTL 안이라 조용히 넘어간다(Acceptance
+                                # test 2).
+                                ledger_stamp(
+                                    f"health-repair:{issue}:{role}:pr-expected-missing")
                 try:
                     obj = json.loads(line)
                 except ValueError:
@@ -5014,6 +5248,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         _append_event(events_path, "session-end",
                       {"outcome": outcome, "reason": push_reason}
                       if push_reason is not None else outcome)
+        # 이슈 #782: session-end 를 이미 확정적으로 아는 순간 원장에 찍는다
+        # — 뒤이은 폴링 틱이 이 세션을 죽었다고(DEAD-ERRORED/session-crashed)
+        # 다시 보고하지 않게 한다(Acceptance test 2/3).
+        ledger_stamp(f"health-repair:{issue}:{role}:session-crashed")
+        ledger_stamp(f"health:{issue}:{role}:DEAD-ERRORED")
         # 이슈 #534: session-end 직후, self-trigger 재스폰과 같은 자리에서
         # durable 코멘트도 남긴다 — roster_watchdog() 틱이 이 엔트리를 볼
         # 무렵엔 roster_remove()(spawn.py:3988)가 이미 지워버린 뒤라
