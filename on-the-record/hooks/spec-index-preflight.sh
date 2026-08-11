@@ -52,8 +52,21 @@ if not isinstance(cmd, str):
 # options, and (unlike a looser substring check) does not fire on
 # `commit` appearing inside an unrelated token (`--grep=commit`,
 # `commit-tree`) or inside a quoted string.
+#
+# issue #882: plain `shlex.split` fuses an unspaced opening punctuation
+# character onto the following word — `(git commit -m x)` tokenizes to
+# `["(git", "commit", ..., "x)"]`, so `"git" in tokens` is False and a
+# real, ordinary subshell-wrapped commit silently escapes this trigger.
+# `shlex.shlex(..., punctuation_chars=True)` (the design issue
+# #824/#834 already landed in merge-allow-gate.sh/spawn-allow-gate.sh)
+# splits `(` and `)` into their own tokens instead of fusing them, so
+# `"git"`/`"commit"` land standalone again — `whitespace_split = True`
+# is required alongside it, or unquoted characters like `@`/`.` also
+# get split out of tokens such as `user.email=b@e`.
 try:
-    tokens = shlex.split(cmd)
+    _lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    _lexer.whitespace_split = True
+    tokens = list(_lexer)
 except ValueError:
     sys.exit(0)
 if "git" not in tokens or "commit" not in tokens:

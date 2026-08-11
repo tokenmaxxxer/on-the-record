@@ -20,13 +20,17 @@ _ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*`([0-9a-f]{64})`\s*\|\s*$")
 
 
 def is_git_commit_invocation(cmd):
-    """Mirrors the GUARD python body's trigger check (issue #866): tokenize
-    first, then require both `git` and `commit` as standalone tokens —
-    survives any global option (`-c key=val`, `-C <path>`, ...) between
-    them, and does not fire on `commit` appearing inside an unrelated
-    token or a quoted string."""
+    """Mirrors the GUARD python body's trigger check (issue #866, tokenizer
+    swapped to `punctuation_chars=True` in issue #882): tokenize first,
+    then require both `git` and `commit` as standalone tokens — survives
+    any global option (`-c key=val`, `-C <path>`, ...) between them, does
+    not fire on `commit` appearing inside an unrelated token or a quoted
+    string, and (issue #882) does not fuse an unspaced `(`/`)` onto the
+    adjacent word, which plain `shlex.split` did."""
     try:
-        tokens = shlex.split(cmd)
+        _lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        _lexer.whitespace_split = True
+        tokens = list(_lexer)
     except ValueError:
         return False
     return "git" in tokens and "commit" in tokens
@@ -209,6 +213,20 @@ def _t11():
 @test("trigger: unparseable command (unbalanced quote) fails open -> False")
 def _t12():
     assert is_git_commit_invocation('git commit -m "unterminated') is False
+
+
+@test("trigger: issue #882 regression — `(git commit -m x)` subshell wrap is recognized")
+def _t13():
+    # plain `shlex.split` fuses the unspaced `(` onto `git`, producing
+    # `"(git"` as one token — `"git" in tokens` was False even though the
+    # wrapped command is a real, ordinary subshell commit (issue #876's
+    # before-landing hunt reproduced this live: exit 0, commit landed).
+    assert is_git_commit_invocation('(git commit -m "x")') is True
+
+
+@test("trigger: `cd /tmp && git commit -m x` chained invocation is recognized")
+def _t14():
+    assert is_git_commit_invocation("cd /tmp && git commit -m x") is True
 
 
 def main():
