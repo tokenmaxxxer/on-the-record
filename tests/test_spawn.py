@@ -7108,7 +7108,7 @@ class FixtureShapeContracts(unittest.TestCase):
     통과하는 대신 여기서 시끄럽게 실패해야 한다."""
 
     GOLDEN_GH_PATH = os.path.join(
-        os.path.dirname(__file__), "tests", "fixtures", "golden",
+        os.path.dirname(__file__), "fixtures", "golden",
         "gh_paginate_slurp_sample.json")
 
     def _golden_gh_payload(self):
@@ -8318,7 +8318,7 @@ class PlainSessionDirectiveNorms(unittest.TestCase):
     norm 문구를 봐야 한다."""
 
     def _render(self, env_extra=None):
-        repo_root = Path(__file__).resolve().parent
+        repo_root = Path(__file__).resolve().parent.parent
         env = {**os.environ, "TOKENMAXXXER_CHECKOUT": str(repo_root)}
         env.pop("CLAUDE_ROLE", None)
         env.pop("ORCHESTRATE_OFF", None)

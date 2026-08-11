@@ -51,6 +51,7 @@
   "write_scope": [
     "src/**",
     "test/**",
+    "tests/**",
     "docs/issue-<n>/reports/implementation.md"
   ],
   "loop_state": {
