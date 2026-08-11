@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixture-redtest"
+version = "0.1.0"
+description = "Northpole E2E harness fixture — failing-test-driven scenario (issue #895 type 4): a shipped red test with no implementation"
+requires-python = ">=3.9"
+
+[tool.setuptools]
+packages = ["fixture_redtest"]

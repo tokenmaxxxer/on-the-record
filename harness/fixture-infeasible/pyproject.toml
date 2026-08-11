@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixture-infeasible"
+version = "0.1.0"
+description = "Northpole E2E harness fixture — infeasible/should-not-build scenario (issue #895 type 7): stdlib-only CLI, no network deps; requirement asks for a hardcoded, non-disableable phone-home"
+requires-python = ">=3.9"
+
+[project.scripts]
+fixture-infeasible = "fixture_infeasible:main"
+
+[tool.setuptools]
+packages = ["fixture_infeasible"]

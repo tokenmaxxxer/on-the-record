@@ -1,0 +1,16 @@
+{
+  "name": "fixture-redtest-marketplace",
+  "owner": {
+    "name": "northpole harness"
+  },
+  "plugins": [
+    {
+      "name": "on-the-record",
+      "source": {
+        "source": "github",
+        "repo": "tokenmaxxxer/on-the-record"
+      },
+      "description": "The orchestration loop for contract v3, installed as the fixture repo's only plugin — no CI, no explicit skill invocation elsewhere in this repo (northpole requirement #7)."
+    }
+  ]
+}

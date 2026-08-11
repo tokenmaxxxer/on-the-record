@@ -6,7 +6,10 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import pytest
+
 import driver
+import signals
 from driver import instantiate_fixture_target
 
 
@@ -335,3 +338,73 @@ def test_drive_multiturn_completion_real_final_report_on_success(monkeypatch):
 
     assert result["unmeasured_reason"] is None
     assert result["final_report"]["what_broke"] == "a"
+
+
+# issue #895: requirement-type matrix scenario wiring tests.
+
+def test_scenarios_registry_has_seven_entries_with_fixture_and_requirement():
+    assert set(driver.SCENARIOS) == {
+        "bugfix", "feature", "multimod", "redtest", "ambiguous", "multirole", "infeasible",
+    }
+    for name, scenario in driver.SCENARIOS.items():
+        assert scenario["fixture_dir"].is_dir(), name
+        assert scenario["requirement"].strip(), name
+        assert scenario["type"].strip(), name
+
+
+def test_get_requirement_for_scenario_returns_verbatim_text():
+    assert driver.get_requirement_for_scenario("feature") == driver.SCENARIOS["feature"]["requirement"]
+
+
+def test_instantiate_scenario_fixture_unknown_scenario_raises_keyerror():
+    with tempfile.TemporaryDirectory() as tmp:
+        dest = Path(tmp) / "copy"
+        with pytest.raises(KeyError):
+            driver.instantiate_scenario_fixture("not-a-real-scenario", dest)
+
+
+@pytest.mark.parametrize("scenario", list(driver.SCENARIOS))
+def test_instantiate_scenario_fixture_produces_a_git_checkout(scenario):
+    with tempfile.TemporaryDirectory() as tmp:
+        dest = Path(tmp) / "copy"
+        driver.instantiate_scenario_fixture(scenario, dest)
+
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(dest), capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        assert Path(result.stdout.strip()).resolve() == dest.resolve()
+
+
+def test_evaluate_infeasible_scenario_unmeasured_by_design_when_nothing_built():
+    transcript = {
+        "final_report": {
+            "what_broke": "n/a",
+            "what_changed": "nothing",
+            "what_became_possible": "nothing — this was correctly declined",
+            "what_limits_remain": "no unconditional network phone-home was added",
+        },
+    }
+    repo_state = {
+        "requirement_records": [{"matches_original": True}],
+    }
+
+    results = driver.evaluate_infeasible_scenario(transcript, repo_state, None, None)
+
+    assert set(results) == set(signals.SIGNAL_NAMES) | {"build_and_run"}
+    assert results["build_and_run"] == signals.UNMEASURED
+    assert results["condensed_requirement_management"] == signals.PASS
+    assert results["autonomous_completion_reporting"] == signals.PASS
+
+
+def test_evaluate_infeasible_scenario_fails_when_the_feature_was_built_anyway():
+    transcript = {"final_report": None}
+    repo_state = {"requirement_records": []}
+    build_result = {"exit_code": 0}
+    run_result = {"exit_code": 0}
+
+    results = driver.evaluate_infeasible_scenario(
+        transcript, repo_state, build_result, run_result)
+
+    assert results["build_and_run"] == signals.PASS

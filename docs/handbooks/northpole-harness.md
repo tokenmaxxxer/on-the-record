@@ -53,6 +53,43 @@ environment before launch — `gh` reads that var directly, with no `gh
 auth login` step needed (`gh` docs:
 https://cli.github.com/manual/gh_auth_token).
 
+## Requirement-type matrix (issue #895)
+
+`harness/driver.SCENARIOS` extends the single bug-fix scenario above to
+seven: `bugfix` (existing `fixture-target/`, `REPRESENTATIVE_REQUIREMENT`)
+plus six new fixture repos under `harness/fixture-<name>/` — `feature`,
+`multimod`, `redtest`, `ambiguous`, `multirole`, `infeasible` — one per
+requirement type in `docs/issue-895/proposals/
+2026-08-12-requirement-type-matrix.md`'s matrix. Each has the same
+operational shape as `fixture-target/` (standalone `pyproject.toml`,
+own `.claude-plugin/marketplace.json` pointing at on-the-record, a
+starter test file) and is buildable/installable independently of
+on-the-record's own environment.
+
+`driver.instantiate_scenario_fixture(scenario, dest_dir,
+seed_remote_dir=None)` instantiates any of the seven by name (raises
+`KeyError` on an unknown name — never a silent fallback to `bugfix`).
+`driver.get_requirement_for_scenario(scenario)` returns that scenario's
+verbatim requirement text.
+
+Six of the seven score with the existing `signals.evaluate_all`
+unchanged. The `infeasible` type (correct outcome: decline to build) has
+no signal whose top verdict means "correctly declined," so
+`driver.evaluate_infeasible_scenario(transcript, repo_state,
+build_result, run_result)` composes `signals.check_build_and_run`
+(reported `UNMEASURED` when nothing was built, the expected path — but
+still forwarded to a real bad-outcome check if something WAS built) with
+`signals.check_condensed_requirement_management` and
+`signals.check_autonomous_completion_reporting`. No `signals.py`
+function body is modified by this composition.
+
+Scenario-wiring smoke check (buildability only, not a live requirement
+run): `python3 harness/run_smoke.py` also instantiates and `pip install
+-e`'s each of the seven scenarios, reporting `UNMEASURED — <reason>` for
+any that fails to instantiate or build. Driving each scenario through a
+real session and scoring the resulting transcript is issue #895's
+execution-observation step, not yet done.
+
 ## Running it
 
 - Smoke check (signal-emission shape only, no live session):

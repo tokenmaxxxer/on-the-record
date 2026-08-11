@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixture-multirole"
+version = "0.1.0"
+description = "Northpole E2E harness fixture — multi-role scenario (issue #895 type 6): two partially-stubbed storage backends, neither wired into save/load"
+requires-python = ">=3.9"
+
+[project.scripts]
+fixture-multirole = "fixture_multirole.cli:main"
+
+[tool.setuptools]
+packages = ["fixture_multirole"]

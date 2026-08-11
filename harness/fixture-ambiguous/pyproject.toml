@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixture-ambiguous"
+version = "0.1.0"
+description = "Northpole E2E harness fixture — ambiguous/underspecified scenario (issue #895 type 5): convert command omits the units it converts between"
+requires-python = ">=3.9"
+
+[project.scripts]
+fixture-ambiguous = "fixture_ambiguous:main"
+
+[tool.setuptools]
+packages = ["fixture_ambiguous"]
