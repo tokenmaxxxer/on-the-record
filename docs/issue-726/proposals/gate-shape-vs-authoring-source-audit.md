@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: landed
 files:
   - docs/issue-726/reports/conformance-review.md
   - docs/issue-726/reports/conformance-review/current-state-survey.md
