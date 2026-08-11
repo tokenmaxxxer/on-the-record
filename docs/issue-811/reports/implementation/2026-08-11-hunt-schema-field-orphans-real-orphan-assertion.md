@@ -108,3 +108,81 @@ indefinitely even if `schema_field_orphans`'s ability to correctly clear a
 genuinely-read field regresses to zero for every field that follows this
 same-file producer+consumer shape — the exact "false positive masking a
 capability the gate no longer has" scenario named in the task.
+
+## before-landing — stance 1: assume this change and another plugin's rule/gate cancel each other — find the pair
+
+Verdict: FINDING — `schema_field_orphans` (the gate this diff's test proves "catches a real orphan") and its own sibling capability-reachability gate `ci_reachable_gates`, both defined and tested in `gates/test_capability_gates.py`, cancel each other: `ci_reachable_gates` correctly flags `schema_field_orphans` as never called by `gates/ci.py`'s real call graph, but `ci_reachable_gates` is itself never called there either, so neither refusal ever reaches the actual required CI check — which currently passes clean despite 5 real orphaned `docs/specs/*.md` fields sitting in the tree right now.
+Kind: composition
+Seed: `git diff -- gates/test_capability_gates.py` (renames `t_actual_tree_schema_field_orphans_catches_alive` to `t_actual_tree_schema_field_orphans_catches_a_real_orphan`, replaces the hardcoded `assert any("alive" in b for b in bad), bad` with a structural `assert bad, <two-cause message>`, and rewrites the docstring to reason at length about `schema_field_orphans`'s reliability as real-tree protection)
+cap_seconds: 120
+tier: default
+diff_stat_lines: 1 file changed, 26 insertions(+), 8 deletions(-)
+started_at: 2026-08-11T00:00:00Z
+ended_at: 2026-08-11T00:20:00Z
+
+### Reproduce
+```
+cd /Users/jk/.tokenmaxxxer/work/on-the-record-issue-811-implementation
+
+# 1. schema_field_orphans finds real, currently-live orphans in the actual tree
+# (exactly what the rewritten test t_actual_tree_schema_field_orphans_catches_a_real_orphan proves)
+python3 -c "
+import sys; sys.path.insert(0, 'gates')
+import gates
+from pathlib import Path
+print(gates.schema_field_orphans(Path('.').resolve(), {}))
+"
+
+# 2. gates/test_capability_gates.py's own sibling capability-reachability gate says
+# schema_field_orphans is registered but never actually invoked by gates/ci.py
+python3 -c "
+import sys; sys.path.insert(0, 'gates')
+import gates
+from pathlib import Path
+bad = gates.ci_reachable_gates(Path('.').resolve(), {})
+print([b for b in bad if 'schema_field_orphans' in b])
+print([b for b in bad if 'ci_reachable_gates' in b])
+"
+
+# 3. neither name appears anywhere in the real CI entrypoint
+grep -n "schema_field_orphans\|ci_reachable_gates" gates/ci.py
+
+# 4. the actual required CI check (per gates/ci.py::check's own docstring: the mode
+# issue #245's required status check uses) passes clean anyway
+python3 gates/ci.py --closes-only .
+```
+
+### Observed
+Step 1 prints 5 orphaned fields, including `closure_sweep_skips`, `elapsed_min`,
+`errors`, `ts`, `unapproved_open_prs` — independently confirmed genuine (not a
+detector bug) by `docs/issue-674/reports/implementation/hunt-flows-json-closure-sweep-not-run.md`:
+"No consumer of `flows --json`'s `hygiene.closure_sweep`/`closure_sweep_skips`" anywhere.
+
+Step 2 prints:
+```
+['등록된 게이트가 gates/ci.py 에서 전혀 호출되지 않는다: gates.schema_field_orphans — 등록만 되고 절대 안 도는 죽은 게이트다']
+['등록된 게이트가 gates/ci.py 에서 전혀 호출되지 않는다: gates.ci_reachable_gates — 등록만 되고 절대 안 도는 죽은 게이트다']
+```
+i.e. the capability-reachability gate correctly identifies `schema_field_orphans`
+as dead code from CI's perspective — and is itself dead by the same measure, so
+its own refusal is never delivered to anyone.
+
+Step 3 (grep) returns nothing — exit 1, no matches in either direction.
+
+Step 4 prints `게이트 통과` (gate passed) and exits 0 — the real required check
+is silent about all 5 live orphaned fields, including the confirmed-genuine
+`closure_sweep_skips`.
+
+### Expected
+If `t_actual_tree_schema_field_orphans_catches_a_real_orphan`'s elaborate new
+docstring is right to treat "the gate's ability to catch a true
+no-reader-anywhere orphan" as something worth defending against regressing "to
+zero" — i.e. if `schema_field_orphans` is meant to be live protection against
+new orphaned schema fields — then `gates/ci.py --closes-only` should fail (or
+at minimum the sibling `ci_reachable_gates` gate, whose entire purpose is to
+catch exactly this "registered but unreachable" shape, should itself be
+reachable so its refusal surfaces). Instead the pair cancels: `schema_field_orphans`
+is unreachable, and the gate built to catch that is unreachable too, so this
+diff's stronger real-tree assertion polishes a unit test for a capability that
+provides zero actual CI enforcement right now, with 5 real orphans (one
+independently confirmed genuine) currently unflagged by the required check.
