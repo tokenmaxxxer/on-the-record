@@ -89,7 +89,7 @@ def _run(target: Path, bin_dir: Path) -> subprocess.CompletedProcess:
 
 
 def _product_corpus(target: Path, mentions: list[str]) -> None:
-    d = target / "docs" / "product"
+    d = target / "docs" / "issue-42" / "product"
     d.mkdir(parents=True, exist_ok=True)
     (d / "priorities.md").write_text(
         "# priorities\n" + "\n".join(f"- see {m}" for m in mentions))
@@ -542,6 +542,12 @@ def t_no_import_gates_and_no_checkout_resolve_in_the_hook_source():
     assert "import gates" not in text
     assert "_checkout_resolve" not in text
     assert "TOKENMAXXXER_CHECKOUT" not in text
+
+
+def t_no_retired_flat_product_path_in_the_hook_source():
+    text = SCRIPT.read_text()
+    assert '"docs" / "product"' not in text
+    assert "docs/product" not in text
 
 
 if __name__ == "__main__":
