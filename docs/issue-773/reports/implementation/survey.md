@@ -15,10 +15,19 @@ scout-directive.
 
 ## Write set (frozen candidates)
 
-- `spawn.py` — `rulebook_checkout()` (spawn.py:207-251), the sole
-  populator of `runs/rulebooks/<mkt>`.
-- `tests/test_spawn.py` — new test class for concurrent
-  `rulebook_checkout()` calls.
+- `spawn.py` — `rulebook_checkout()` (spawn.py:207-251) AND
+  `core_root()` (spawn.py:3227-3265) — both populate
+  `runs/rulebooks/<mkt>` with the identical unlocked
+  exists-check-then-clone shape (`core_root()`'s clone at
+  spawn.py:3244-3261 targets `runs/rulebooks/tokenmaxxxer-core`, the
+  same directory tree, via a separate hand-written copy of the same
+  race). A hunt dispatched after this proposal's first draft
+  (docs/issue-773/reports/implementation/2026-08-11-hunt-rulebook-cache-lock.md)
+  confirmed a lock scoped to `rulebook_checkout()` alone would leave
+  `core_root()`'s mandatory core clone still racing — both call sites
+  are in scope.
+- `tests/test_spawn.py` — new test classes for concurrent
+  `rulebook_checkout()` and `core_root()` calls.
 
 No `.env.example`, no dependency manifest, no migration: the fix is
 pure stdlib (`os`, `tempfile`, `fcntl`/`os.link`, already imported in
