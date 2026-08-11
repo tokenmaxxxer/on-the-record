@@ -70,6 +70,12 @@ carries the required record fields (what/why/upstream/kind/loop_state/
 open findings), and every PARTIAL/GAP row is checkable against the
 survey's cited file:line evidence by a reader with no other context.
 
+## Hunt record
+
+after-proposal: docs-only, no before-landing dispatch — every path
+touched by this transition is under `docs/`, so the after-proposal
+warrant-hunter dispatch is skipped per the docs-only fast path.
+
 ## What did not work
 
 - First survey draft cited `path:line` inside a single backtick span
