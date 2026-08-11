@@ -51,8 +51,8 @@ set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
-command -v python3 >/dev/null 2>&1 || exit 0
-command -v gh >/dev/null 2>&1 || exit 0
+command -v python3 >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: python3 not found (fail-open)" >&2; exit 0; }
+command -v gh >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: gh not found (fail-open)" >&2; exit 0; }
 
 CG_SELF_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
 export CG_SELF_PATH

@@ -53,12 +53,25 @@ poll_rearm_resolve_checkout() {
 
 poll_rearm_arm_if_due() {
   local checkout="${1:?poll_rearm_arm_if_due requires the resolved checkout path}"
-  if python3 "${checkout}/spawn.py" poll-due >/dev/null 2>&1; then
+  local due_out due_rc
+  # issue #910 finding #3: "not due" (clean non-zero exit) and "poll-due
+  # crashed" (unhandled exception on corrupt state/bad JSON) previously both
+  # discarded stdout+stderr and returned 1 identically. Capture stderr and
+  # log it on a crash so a persistent failure doesn't read as a healthy
+  # quiet period.
+  due_out="$(python3 "${checkout}/spawn.py" poll-due 2>&1 >/dev/null)"
+  due_rc=$?
+  if [ "$due_rc" -eq 0 ]; then
     mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
     nohup python3 "${checkout}/spawn.py" watchdog --auto-respawn \
       >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>&1 &
     disown 2>/dev/null || true
     return 0
+  fi
+  if [ -n "$due_out" ]; then
+    mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
+    printf '[poll-due crashed, rc=%s] %s\n' "$due_rc" "$due_out" \
+      >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
   fi
   return 1
 }

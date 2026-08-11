@@ -107,6 +107,66 @@ def t_non_shallow_checkout_records_shallow_false():
         assert marker.read_text(encoding="utf-8").strip() == "shallow=false"
 
 
+def t_pull_check_marker_records_ok_on_successful_pull():
+    """issue #910 finding #4: a successful `git pull --ff-only` must record
+    pull=ok in .pull-check, mirroring the .shallow-check pattern."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        src = _build_source_repo(tmp)
+        checkout = tmp / "checkout"
+        _git(tmp, "clone", "-q", f"file://{src}", str(checkout))
+        marker = checkout / ".pull-check"
+        assert not marker.exists()
+
+        result = subprocess.run(
+            ["bash", str(SELF_UPDATE)],
+            capture_output=True, text=True,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "TOKENMAXXXER_CHECKOUT": str(checkout),
+                "HOME": str(tmp / "home"),
+            },
+            timeout=30,
+        )
+        assert result.returncode in (0, 2), (result.returncode, result.stderr)
+        assert marker.is_file(), f"{marker} missing — self-update.sh did not record the pull outcome."
+        assert marker.read_text(encoding="utf-8").strip() == "pull=ok"
+
+
+def t_pull_check_marker_records_failure_reason_on_diverged_history():
+    """A `git pull --ff-only` that cannot fast-forward (diverged local
+    history) must record pull=failed:<reason>, not silently proceed."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        src = _build_source_repo(tmp)
+        checkout = tmp / "checkout"
+        _git(tmp, "clone", "-q", f"file://{src}", str(checkout))
+        # Diverge the checkout's local history from origin so --ff-only fails.
+        (checkout / "spawn.py").write_text("# local-only divergent commit\n", encoding="utf-8")
+        _git(checkout, "add", "-A")
+        _git(checkout, "commit", "-q", "-m", "local divergent commit")
+        (src / "spawn.py").write_text("# upstream-only divergent commit\n", encoding="utf-8")
+        _git(src, "add", "-A")
+        _git(src, "commit", "-q", "-m", "upstream divergent commit")
+
+        marker = checkout / ".pull-check"
+
+        result = subprocess.run(
+            ["bash", str(SELF_UPDATE)],
+            capture_output=True, text=True,
+            env={
+                "PATH": "/usr/bin:/bin",
+                "TOKENMAXXXER_CHECKOUT": str(checkout),
+                "HOME": str(tmp / "home"),
+            },
+            timeout=30,
+        )
+        assert result.returncode in (0, 2), (result.returncode, result.stderr)
+        assert marker.is_file(), f"{marker} missing — a failed pull must still be recorded."
+        content = marker.read_text(encoding="utf-8").strip()
+        assert content.startswith("pull=failed:"), content
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:

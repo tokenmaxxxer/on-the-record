@@ -33,7 +33,20 @@ _checkout_resolve() {
   return 1
 }
 CHECKOUT="$(_checkout_resolve || true)"
-[ -n "$CHECKOUT" ] && git -C "$CHECKOUT" pull -q --ff-only 2>/dev/null || true
+if [ -n "$CHECKOUT" ]; then
+  # issue #910 finding #4: a failed `git pull --ff-only` (diverged history,
+  # merge conflict, network down) was previously discarded silently and
+  # every downstream hook kept running against a stale checkout with no
+  # trace. Mirror the `.shallow-check` marker pattern below: record the
+  # outcome either way.
+  pull_err="$(git -C "$CHECKOUT" pull -q --ff-only 2>&1)"
+  if [ $? -eq 0 ]; then
+    printf 'pull=ok\n' > "$CHECKOUT/.pull-check" 2>/dev/null || true
+  else
+    printf 'pull=failed:%s\n' "$(printf '%s' "$pull_err" | tr '\n' ' ' | head -c 500)" \
+      > "$CHECKOUT/.pull-check" 2>/dev/null || true
+  fi
+fi
 # #412: a self-clone (or any pre-existing checkout) can be shallow — a
 # shallow checkout silently breaks history-dependent checks (log/blame
 # ranges truncate at the shallow boundary). Detect it and attempt to

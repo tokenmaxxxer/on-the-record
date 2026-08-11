@@ -124,6 +124,26 @@ def _repo_dir_on_branch(tmp_path, name, approvers, branch):
     return d
 
 
+def test_missing_gh_fails_open_but_logs_the_skip(tmp_path):
+    """issue #910 finding #7: this hook fails open (by design) when `gh`
+    is missing from PATH, but previously did so with zero stderr output,
+    indistinguishable from "ran and found nothing to flag." A skip must
+    now be logged."""
+    payload = json.dumps({"tool_name": "Bash", "tool_input": {"command": "gh pr merge 1"}})
+    env = dict(os.environ)
+    # a minimal PATH carrying only the basics contract-guard.sh itself
+    # needs (bash builtins + coreutils), deliberately excluding gh.
+    env["PATH"] = "/usr/bin:/bin"
+    env["ORCHESTRATE_OFF"] = ""
+    r = subprocess.run(
+        ["bash", str(GUARD)],
+        input=payload, capture_output=True, text=True, env=env, timeout=20,
+    )
+    assert r.returncode == 0, r.stdout
+    assert "gh" in r.stderr
+    assert "fail-open" in r.stderr or "not found" in r.stderr
+
+
 def test_cross_repo_same_number_judges_target_not_cwd(tmp_path):
     """cwd repo and `cd <target>` repo both have PR #7 / issue #9,
     different bodies/approval — the hook must attach the trailer against
