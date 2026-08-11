@@ -64,6 +64,22 @@ for its own Approve checks) rather than at the role session, and it
 degrades safely: if the `gh` check fails or the flag is absent, the
 subject falls back to the existing two-phase default.
 
+**Hardening found during this proposal's own warrant hunt (after-proposal,
+stance 0 — see `docs/issue-785/reports/implementation/hunt-conditional-phase-split.md`):**
+"named upstream subject's proposal PR is merged" alone is satisfiable by
+naming *any* already-merged, content-unrelated proposal (the hunt
+reproduced this against real merged PR #783, `issue-760/implementation`,
+naming it as upstream for an unrelated current subject) — merging is a
+routine phase-1 event, not a human phase-2 delivery approval, and the
+design as first drafted never tied the named upstream subject's content
+to the current subject's actual task. The verification step in
+`## What will be done` item 2 must therefore also confirm the named
+upstream subject specifically authorizes the current subject's delivery
+content — at minimum, the upstream subject's merged proposal or record
+must cross-reference the current subject's issue number, not merely
+exist as *some* merged PR under that subject name. Item 2 below is
+written to that stricter predicate.
+
 ## What will be done
 
 (Scoped to `tokenmaxxxer/tokenmaxxxer-core`, `core` plugin — a follow-up
@@ -77,13 +93,17 @@ there.)
    record/branch/PR mechanics, but no stop-after-proposal step: research
    and current-state survey (if any) land in the same commit as the
    deliverable, one PR, no wait for a second Approve.
-2. `core/hooks/approval-gate.sh`: when the signal is present and the
-   named upstream subject's proposal PR is confirmed merged via `gh`,
-   treat the current subject as already in phase-2 — `execution_surface`
-   writes are allowed without requiring this subject's own Approve.
-   Verification failure (bad reference, upstream not actually merged,
-   `gh` call fails) falls through to the existing unconditional
-   two-phase gate — never fails open.
+2. `core/hooks/approval-gate.sh`: when the signal is present, confirm
+   via `gh` both that the named upstream subject's proposal PR is
+   merged AND that its merged content (proposal body or record)
+   cross-references the *current* subject's issue number — not merely
+   that some PR under that subject name merged. Only when both hold
+   does the gate treat the current subject as already in phase-2 and
+   allow `execution_surface` writes without requiring this subject's
+   own Approve. Verification failure (bad reference, upstream not
+   actually merged, no cross-reference to the current subject, `gh`
+   call fails) falls through to the existing unconditional two-phase
+   gate — never fails open.
 3. `spawn.py` (repo `on-the-record`, outside this subject's own write
    set — noted here for completeness, not committed by this subject):
    the orchestrator sets the upstream-subject signal only when it is
