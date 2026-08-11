@@ -45,6 +45,15 @@ explicitly puts the `test_spawn.py` split into a separate follow-up
 issue, to start only once this move lands (ordering forced because the
 split's target paths aren't fixed until after the move).
 
+**Revision basis**: PR #746 (this delivery's own PR) carries a
+change-requested review comment (jjongkwann) that independently
+reproduced the collection failure below and directed both of this
+record's own previously-self-declared "Open findings" to be resolved
+inside this same delivery — both files were already anticipated in
+this record's `code_under_review:` list before this revision, so
+fixing them stays inside the already-frozen write set, not a new
+widening of it.
+
 ## Why
 
 Root-level test scatter (a `test/` directory, nine root-level test
@@ -92,54 +101,126 @@ by the approval feedback comment).
 - Confirmed `pytest.ini` needs no edit (it names no directory) and
   `conftest.py` needs no edit (its own fixture-root reference already
   named `tests/`, unaffected by files moving into that same directory).
+- (Revision, this session) Extended `gates/test_closes_gate_ci.py`'s
+  existing repo-root `sys.path` insert to also add the new `tests/`
+  directory ahead of its `import shape_contracts` line — the same
+  pattern the file already uses for its own directory's insert.
+- (Revision, this session) Added `"tests/**"` alongside the existing
+  `"test/**"` entry in `roles/implementation.json`'s and
+  `roles/specs/implementation.spec.json`'s `write_scope` arrays.
+- (Revision, this session) Running the full suite once collection
+  worked again surfaced two more instances of the same "repo-root-
+  relative to `__file__`" class of bug the original move's fix list
+  missed — both inside `tests/test_spawn.py`, both outside the
+  proposal's enumerated import-fix list because they don't touch a
+  module import: `FixtureShapeContracts.GOLDEN_GH_PATH` and
+  `PlainSessionDirectiveNorms._render`'s `repo_root`. Fixed within this
+  delivery since the file was already in the frozen write set — see
+  "What did not work" for the mechanism.
 
 ## Acceptance checks (proposal's "How you'll know it worked")
 
-**1. Node ID set equivalence.** Captured `pytest --collect-only -q`
-before the move and after, normalized the before-set's path prefixes to
-match the after-set's new `tests/`-relative form, and diffed the two
-sorted sets:
+**1. Node ID set equivalence.** (Revision, this session, post-fix.)
+Captured `pytest --collect-only -q` on an independent `origin/main`
+worktree (the pre-move tree — `origin/main` resolves to the same commit
+this branch was forked from) and on this branch after today's fix
+commit, normalized the `origin/main` set's path prefixes to match the
+after-set's new `tests/`-relative form (`test/<f>` → `tests/<f>`, and
+each of the eight moved root `test_*.py` files → `tests/test_*.py`),
+then compared the two sets in Python — a plain-set comparison rather
+than a text `diff`, because an earlier same-session attempt using shell
+`sort` on both sides produced spurious reordering-only differences
+between two files with identical content, traced to `sort`'s
+locale-dependent collation disagreeing with the generation order:
 
 ```
-derived: python3 -m pytest --collect-only -q   (before move, on the pre-move tree)
--> 1095 tests collected in 2.16s
+derived: git fetch origin main && git rev-parse origin/main
+-> 5f0d198b359a035c646c7a7289babd25f24f69db
 
-derived: python3 -m pytest --collect-only -q   (after move)
--> 1041 tests collected, 1 error in 2.08s
+derived: git worktree add /tmp/otr-main-baseline origin/main
+derived: (cd /tmp/otr-main-baseline && python3 -m pytest --collect-only -q)
+-> 1095 tests collected in 0.97s
 
-derived: diff <(sort normalized-before-node-ids) <(sort after-node-ids)
--> 54 lines removed, 0 lines added; every removed line has the form
-   gates/test_closes_gate_ci.py::t_<name>
+derived: python3 -m pytest --collect-only -q   (this branch, after this
+session's fix commit 336a7e3)
+-> 1095 tests collected in 1.47s
+
+derived: python3 set-comparison, origin/main's node IDs normalized per
+the path-prefix mapping above, against this branch's node IDs:
+-> baseline normalized set size: 1095
+-> branch set size: 1095
+-> only in baseline, not in branch: 0
+-> only in branch, not in baseline: 0
 ```
 
-Once the path-prefix change is normalized away, every remaining node ID
-matches exactly — no test name silently disappeared or reappeared as a
-side effect of the move itself. The only divergence is a single file's
-worth of node IDs vanishing because that file can no longer be imported
-(see Rationale for deviations) — not a rename, not a path-prefix
-mismatch, and not a file this delivery moved or edited.
-
-**2. Full-suite pass/skip parity.** Captured a clean before-move baseline
-by stashing this delivery's working-tree changes, running the suite,
-then restoring them:
+Exact match after normalization — no test name disappeared, reappeared,
+or silently renamed beyond the moved files' own path-prefix change.
+This closes the collection-blocking gap PR #746's review comment
+identified. Before today's fix commit, the after-side of this
+comparison could not be produced at all, per the reviewer's own
+independent reproduction, quoted from the PR #746 review comment:
 
 ```
-derived: python3 -m pytest -q   (before move, clean baseline via git stash)
--> 3 failed, 1090 passed, 2 skipped in 172.05s (0:02:52)
+quoted from PR #746 review comment (independent reproduction on this
+branch, before this session's fix commit):
+$ python3 -m pytest --collect-only -q
+ERROR gates/test_closes_gate_ci.py
+!!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+1041 tests collected, 1 error in 2.70s
 
-derived: python3 -m pytest -q   (after move)
--> 1 error in 1.77s
+$ python3 -m pytest -q
+    import shape_contracts
+E   ModuleNotFoundError: No module named 'shape_contracts'
 ```
 
-Not parity: the same collection failure that breaks check 1 aborts the
-whole run before any test executes, so there is no passed/skipped count
-to compare on the "after" side at all. The three pre-existing failures
-on the "before" side are unrelated to this move — two are an unrelated
-gate script missing from two enforcement-tracking documents (issues
-#441 and #684), and the third is a `tmp_path`-scoped subprocess failure
-inside a fixture that never creates its own subdirectory; none of the
-three names a file this delivery touches, and none of the three test
-files is in this delivery's write set.
+— see "Rationale for deviations" for the prior state and its fix.
+
+**2. Full-suite pass/skip parity.** (Revision, this session, post-fix.)
+Same `origin/main` worktree as check 1, full run (not `--collect-only`):
+
+```
+derived: (cd /tmp/otr-main-baseline && python3 -m pytest -q)
+-> 3 failed, 1090 passed, 2 skipped in 172.82s
+
+derived: python3 -m pytest -q   (this branch, after fix commit 336a7e3,
+clean working tree confirmed via `git status --short` producing no
+output immediately before this run)
+-> 3 failed, 1090 passed, 2 skipped in 169.03s
+```
+
+Exact parity: identical passed/skipped/failed counts, and the three
+failing node IDs match one-to-one (path-prefix-normalized) across both
+runs:
+
+```
+derived: failing node IDs, origin/main baseline
+-> gates/test_boundary.py::t_all_gates_modules_recorded
+-> gates/test_generated_paths.py::t_all_generators_recorded_and_disjoint
+-> test_gates.py::t_find_violations_uses_record_evidence_for_keywordless_merge
+
+derived: failing node IDs, this branch (fix commit 336a7e3, clean tree)
+-> gates/test_boundary.py::t_all_gates_modules_recorded
+-> gates/test_generated_paths.py::t_all_generators_recorded_and_disjoint
+-> tests/test_gates.py::t_find_violations_uses_record_evidence_for_keywordless_merge
+```
+
+All three are unrelated to this move (two are an unrelated gate script
+missing from two enforcement-tracking documents, issues #441 and #684;
+the third is a `tmp_path`-scoped subprocess failure inside a fixture
+that never creates its own subdirectory — same failure mode and same
+error text on both sides). None of the three names a file this delivery
+touches, and none of the three test files is in this delivery's write
+set.
+
+A fourth failure appeared transiently mid-session, in the node named
+`t_rulebook_version_is_recorded` inside `tests/test_gates.py`, while
+this session's fix commit was still an uncommitted working-tree diff —
+that test asserts a git-status-derived version string for this same
+repo checkout carries no "dirty" marker, so it fails by design whenever
+the tree carrying the fix is itself dirty. It is not counted above
+because the check above intentionally runs against the clean,
+already-committed tree — the same condition that test itself is
+designed to be evaluated under.
 
 **3. Zero broken references.** The proposal's specified check — grep
 `spawn.py`, every file under `gates/`, and every file under
@@ -214,86 +295,114 @@ above.
   collection for the *entire* repository, not just that one file. Found
   only by actually running collection and the full suite after the
   move, not by the grep the proposal specified as the check.
+- (Revision, this session) Expected the previous session's `sys.path`/
+  `__file__` import-path fix pass to have covered every repo-root-
+  relative assumption in the moved files. Actual: two more instances
+  survived in `tests/test_spawn.py` that don't touch a module import at
+  all — `FixtureShapeContracts.GOLDEN_GH_PATH` built its golden-fixture
+  path by joining `os.path.dirname(__file__)` with a literal `"tests"`
+  path segment (correct when `__file__` was at repo root; after the
+  move, `__file__`'s own directory is itself `tests/`, so the literal
+  segment double-counted that same directory name and pointed one level
+  too deep, at a path that does not exist), and
+  `PlainSessionDirectiveNorms._render`'s `repo_root` used
+  `Path(__file__).resolve().parent` (one level too shallow post-move,
+  so the `directive.sh` path it built was one directory short of the
+  real one, and every `subprocess.run` call in that class returned exit
+  code 127). Neither surfaced during collection — only running the full
+  suite after this session's collection fix caught them, as 6 of that
+  run's 9 failures (`FixtureShapeContracts` x2, `PlainSessionDirectiveNorms`
+  x3, one more accounted for by a transient dirty-tree artifact — see
+  Acceptance check 2) that a node-ID-set-only comparison would have
+  missed entirely, since none of these tests were removed, added, or
+  renamed by the move — they still collected, they just failed at
+  runtime.
 
 ## Rationale for deviations
 
-`gates/test_closes_gate_ci.py` is outside this proposal's frozen
-`files:` list — Rationale (b) explicitly kept every `gates/`-colocated
-test file untouched. That file imports `shape_contracts` by resolving
-its own parent's parent directory onto `sys.path`, which reached repo
-root before this move (where `shape_contracts.py` used to live). After
-the move, no directory on that file's `sys.path` contains a
-`shape_contracts` module, so the import raises and pytest cannot collect
-that module — which in turn aborts collection for the whole repository,
-not just that one file's tests.
+`gates/test_closes_gate_ci.py`, `roles/implementation.json`, and
+`roles/specs/implementation.spec.json` are outside this proposal's
+original phase-1 `files:` frontmatter — Rationale (b) explicitly kept
+every `gates/`-colocated test file untouched, and the proposal never
+named `roles/` at all. All three were nonetheless already named in this
+delivery's own `code_under_review:` frontmatter list before this
+session (the previous session flagged both as blocking Open findings
+with a fully-specified, no-new-judgment fix, but did not apply either
+fix itself, citing the SCOPE-EXCEEDED RULE against the *original*
+phase-1 proposal's write set).
 
-Making the suite collect again requires editing
-`gates/test_closes_gate_ci.py` — a file outside the frozen write set.
-Per the SCOPE-EXCEEDED RULE, this delivery does not widen the write set
-to include it: every file the proposal's `files:` list names is finished
-and committed, and this gap is reported here rather than silently
-patched by reaching outside that list. The fix itself needs no design
-decision — one more `sys.path` insert line, mirroring the pattern the
-same file already uses for its own directory's insert — but it is still
-an edit to a file the human approver did not get to review before
-approving this proposal's scope. The next proposal for this repo should
-apply it before or alongside merging this delivery: until it lands,
-the full suite does not run on `main` at all.
+This session resolves both, on explicit direction from PR #746's own
+review comment (jjongkwann, an approvers.md account, revising this same
+delivery on the same branch/PR — ordinary feedback-driven revision, not
+a fresh phase-1 approval): `gates/test_closes_gate_ci.py`'s import of
+`shape_contracts` resolved its own parent's parent directory onto
+`sys.path`, which reached repo root before this move (where
+`shape_contracts.py` used to live); after the move, no directory on
+that file's `sys.path` contains a `shape_contracts` module, so the
+import raised and aborted collection for the whole repository, not just
+that one file's tests. `roles/implementation.json` and
+`roles/specs/implementation.spec.json` still declared `write_scope`
+entries naming the old, now-nonexistent `test/` directory — read live
+by `on-the-record/hooks/delegated-judgment-gate.sh` (standing-role
+computation for judgment-panel quorum) and `gates/role_spec_shape.py`
+(review-finding target-path validation), so any change confined to the
+new `tests/` directory silently resolved to zero standing roles.
+
+Both fixes landed exactly as each finding's own resolution path
+specified — an added `sys.path` insert line mirroring the file's
+existing pattern, and an added `"tests/**"` array entry alongside the
+existing `"test/**"` one — no new design decision was needed for
+either, and none was made. See "Acceptance checks" above for the
+re-run evidence and "Open findings" below for closure.
 
 ## Open findings
 
-**Blocking, first**: `gates/test_closes_gate_ci.py` fails to import once
-this move lands, which aborts the entire suite run — see "Rationale for
-deviations" above for the full mechanism and reproduction. Not caused by
-editing that file (this delivery does not touch it) — caused by moving
-`shape_contracts.py`, which that file's existing import path can no
-longer reach.
+Both findings this record previously carried as blocking are resolved
+in this session's fix commit (`336a7e3`, `fix(issue-729): resolve
+collection-blocking import and stale write_scope`):
 
-Resolution path: a follow-up proposal adds `gates/test_closes_gate_ci.py`
-to a frozen write set and extends its existing repo-root `sys.path`
-insert to also add the new `tests/` directory, ahead of its
-`shape_contracts` import — the same pattern the file already uses for
-its own directory's insert, no new design decision required. Until that
-lands, the full suite does not run on `main`.
+- `gates/test_closes_gate_ci.py`'s collection-aborting import failure —
+  resolved by extending its existing repo-root `sys.path` insert to
+  also add `tests/`. Verified via Acceptance checks 1 and 2 above (node
+  ID set equivalence and full-suite pass/skip parity, both now exact
+  matches against the `origin/main` baseline).
+- `roles/implementation.json`'s and `roles/specs/implementation.spec.json`'s
+  stale `write_scope` — resolved by adding `"tests/**"` alongside the
+  existing `"test/**"` entry. Verified by re-running the same
+  `write_scope`-resolution reproduction the before-landing warrant hunt
+  used (`docs/issue-729/reports/implementation/hunt-2026-08-11-consolidate-test-homes.md`):
 
-**Blocking, second**, surfaced by the before-landing warrant hunt (see
-`docs/issue-729/reports/implementation/hunt-2026-08-11-consolidate-test-homes.md`'s
-before-landing section for the full reproduction): `roles/implementation.json`
-and `roles/specs/implementation.spec.json` still declare a `write_scope`
-entry naming the old directory this move renamed away — this delivery's
-frozen write set never included `roles/`, so it was left untouched. That
-`write_scope` field is not decorative: `on-the-record/hooks/delegated-judgment-gate.sh`
-reads it live to compute which roles "stand" for a changed-file list
-(driving judgment-panel quorum/escalation), and `gates/role_spec_shape.py`'s
-`check_axis_evaluation_entry` reads it to validate a review finding's
-target path. The hunt's reproduction shows a change confined to the new
-test directory now resolves to no standing roles where the identical
-old-path change correctly resolved to the `implementation` role, and a
-review finding targeting the new directory gets rejected as not
-resolving against any role's write scope — silently, with no error
-surfaced anywhere. This is a governance-mechanism regression, not a
-test-running one, and it is silent rather than loud (unlike the first
-finding above, which fails loudly at collection time).
+```
+derived: python3 -c "<load_roles/glob_matches/role_scope/standing_roles_for
+  reproduction, identical to the one in the hunt record above, run
+  against this session's fixed roles/*.json>"
+-> OLD path test/test_gates.py  -> {'implementation'}
+-> NEW path tests/test_gates.py -> {'implementation'}
+```
 
-Resolution path: a follow-up proposal adds `roles/implementation.json`
-and `roles/specs/implementation.spec.json` to a frozen write set and
-extends each one's `write_scope` array to also name the new test
-directory, alongside (not replacing) the existing entry — no new design
-decision required, since the intent ("implementation owns the test
-tree") is unchanged; only the directory name needs to stay current.
-Until that lands, any future change confined to the new test directory
-silently loses its standing-role coverage under the judgment-panel gate.
+No open findings remain.
 
 ## Next steps
 
 File the `test_spawn.py`-split follow-up issue per the approval
-feedback (deferred out of this delivery's scope), and raise both
-blocking open findings above for the human reviewer's decision: fold
-either or both fixes into this PR's scope before merging, or land this
-PR with both fixes tracked as immediate follow-ups.
+feedback (deferred out of this delivery's scope; unaffected by this
+session's revision).
 
 ## Hunt
 
-Before-landing hunt dispatched and consumed within this same turn; see
+Before-landing hunt dispatched and consumed within this same turn in
+the previous session; see
 `docs/issue-729/reports/implementation/hunt-2026-08-11-consolidate-test-homes.md`
-for the appended before-landing section.
+for the appended before-landing section — that hunt is what supplied
+this session's resolution path for the `write_scope` finding, and this
+session's Acceptance-check reproduction above re-runs its exact repro
+script against the fix as a closed-check confirmation rather than
+re-hunting blind.
+
+No new warrant-hunter dispatch was made this session: the two findings
+being closed were already fully diagnosed (mechanism, reproduction, and
+no-new-judgment fix) by the prior session's own record and hunt, this
+session's PR #746 review comment, and this session's own direct
+reproduction of both fixes (Acceptance checks 1–2, and the `write_scope`
+repro immediately above) — a mechanical revision of two already-hunted
+findings, not new-surface work a fresh stance would add coverage for.
