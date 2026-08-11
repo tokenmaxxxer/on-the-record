@@ -71,6 +71,8 @@ try:
          record_lint.orphaned_path_reference_check),
         ("state/defect claim with no canonical source (issue #793)",
          record_lint.canonical_source_claim_check),
+        ("outcome claim with no executed-live citation (issue #870)",
+         record_lint.outcome_claim_citation_check),
     ]
 
     print("<record-claim-citation-directive>")

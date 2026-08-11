@@ -122,6 +122,46 @@ def t_state_claim_with_canonical_tag_passes(tmp_path):
     assert r.returncode == 0
 
 
+def t_outcome_claim_without_executed_live_citation_is_denied(tmp_path):
+    p = _record_path(tmp_path)
+    content = ("canonical: docs/issue-870/reports/notes.md (read this session)\n"
+               "The requirement is met and the deliverable is done.\n")
+    r = _run({"file_path": str(p), "content": content})
+    assert r.returncode == 2
+    assert "issue #870" in r.stderr
+
+
+def t_outcome_claim_with_executed_live_citation_passes(tmp_path):
+    p = _record_path(tmp_path)
+    content = ("canonical: `pytest -q gates/test_record_lint.py` (exit 0)\n"
+               "The requirement is met and the deliverable is done.\n")
+    r = _run({"file_path": str(p), "content": content})
+    assert r.returncode == 0
+
+
+def t_no_outcome_claim_is_untouched(tmp_path):
+    p = _record_path(tmp_path)
+    r = _run({"file_path": str(p),
+              "content": "Still investigating the parser edge case.\n"})
+    assert r.returncode == 0
+
+
+def t_no_acceptance_command_degrades_to_unmeasured_not_false_pass(tmp_path):
+    """issue #870 (b)'s degrade path is not yet implemented as a hook
+    (phase-1 recommendation: staged next step) — an outcome claim that
+    already states its own UNMEASURED-with-reason, with no executed-live
+    citation, still passes candidate (a) since the citation vocabulary
+    check only inspects citation KIND, not truth; this pins that (a)
+    alone does not false-PASS an UNMEASURED claim written honestly."""
+    p = _record_path(tmp_path)
+    content = ("canonical: acceptance: none — result: "
+               "UNMEASURED-with-reason: no acceptance command on record "
+               "for this target\n"
+               "The requirement is UNMEASURED, not done.\n")
+    r = _run({"file_path": str(p), "content": content})
+    assert r.returncode == 0
+
+
 def t_malformed_payload_is_allowed_not_denied(tmp_path):
     env = dict(os.environ)
     env["ORCHESTRATE_OFF"] = ""
@@ -172,6 +212,9 @@ def t_directive_names_all_four_record_lint_rules():
     # canonical-source-required (#793: a state/defect claim needs a
     # `canonical:` tag naming the source actually read)
     assert "canonical:" in out and "#793" in out
+    # outcome-claim-executed-live-citation-required (#870: a done/PASS
+    # claim needs its `canonical:` citation to itself be executed-live)
+    assert "#870" in out
 
 
 def t_directive_is_silent_without_claude_role():
