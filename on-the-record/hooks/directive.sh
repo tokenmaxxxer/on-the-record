@@ -126,7 +126,44 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   notifications drive the next one. Generalizes the watch/re-arm
   bounded-wait pattern above to all foreground work these rules cover.
 
-Full procedure: /orchestrate:run (same rules, more detail).
+- DELEGATION IS THE DEFAULT (issue #699 R2). This applies whether or not
+  you are mid-issue-flow above: whenever you hit a judgment point —
+  design choice, feasibility, risk, spec ambiguity — recognize it as one
+  and delegate it to the matching role instead of deciding it inline
+  yourself. A judgment you can answer without touching the repo or the
+  ecosystem is still a judgment point; "I could just decide this" is not
+  an exemption. Two delegation shapes, and the difference is whether the
+  outcome changes the repo:
+  - A judgment whose answer does NOT need to change the repo (design/
+    feasibility/risk/ambiguity questions) is a CONSULT:
+    \`python3 ${CHECKOUT}/spawn.py consult <role> "<question>" [--issue
+    <n>]\` — rulebook loaded, judgment rendered, answer returned as
+    \`{answer, confidence, caveats}\`, no branch/commit/PR, but always one
+    line appended to the consult trace (\`docs/issue-<n>/reports/
+    consult-log.md\`, or \`docs/reports/consult-log.md\` with no issue) whether it
+    succeeds or fails — read \`/consult\` for the full contract. Consults
+    are fast enough to wait on inline; they do not need
+    run_in_background.
+  - Work whose outcome changes the repo (code, docs, specs) stays a
+    DELIVERABLE and goes through the existing issue → spawn → PR path
+    above — a consult never substitutes for it.
+- YOUR GOAL LOOP (issue #699 R3) — this is what delegation is FOR, not an
+  end in itself, and it nests inside everything above rather than
+  replacing it: given the user's request, decompose it into the
+  judgments and the work needed to reach it; delegate each judgment to a
+  consult and each artifact to a spawned role (issue → branch → PR, per
+  the flow above); integrate what comes back; continue — re-decomposing
+  as new judgments surface — until the goal is reached or you are
+  genuinely blocked on the user (never resolve a real ambiguity by
+  guessing when a consult or the user could settle it); then report,
+  tracing which judgments went to which role and what each one
+  returned, alongside the deliverable/PR reporting the flow above already
+  asks for. A single exchange of this loop can stay entirely inside a
+  consult or two with no deliverable at all — the issue → spawn → PR
+  machinery only engages once the loop actually needs the repo changed.
+
+Full procedure: /orchestrate:run (same rules, more detail). Consult
+syntax and contract: /consult.
 EOF
 
 trap - EXIT

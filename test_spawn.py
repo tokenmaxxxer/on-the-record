@@ -7854,3 +7854,144 @@ class RepoSlugCacheTest(unittest.TestCase):
         self.assertEqual(first, ["acme/repo"] * 5)
         self.assertEqual(second, "acme/repo")
         self.assertEqual(len(calls), 2)  # root 당 1회
+
+
+class ConsultCmd(unittest.TestCase):
+    """이슈 #699 R1 — consult 는 답만 돌려주고, PR 을 열지 않고, 트레이스를
+    항상 남긴다. `plugin_dirs`/`core_plugin_dirs`/`subprocess.run` 을
+    막아 실제 룰북 fetch 나 claude 세션 없이 조립만 검증한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self._patches = []
+        self._patch(spawn, "plugin_dirs", lambda role, spec: [Path("/fake/plugin")])
+        self._patch(spawn, "core_plugin_dirs", lambda: [])
+        root = self.root
+        self._patch(spawn, "_consult_trace_path",
+                    lambda issue: (root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
+                                   if issue is not None else root / "docs" / "consult-log.md"))
+
+    def _patch(self, obj, name, value):
+        orig = getattr(obj, name)
+        setattr(obj, name, value)
+        self._patches.append((obj, name, orig))
+        self.addCleanup(lambda: setattr(obj, name, orig))
+
+    def _fake_run(self, stdout_result_text, returncode=0):
+        def run(cmd, **kw):
+            payload = json.dumps({"result": stdout_result_text, "is_error": False})
+            return subprocess.CompletedProcess(cmd, returncode, stdout=payload, stderr="")
+        return run
+
+    def test_returns_answer_no_pr_and_traces(self):
+        verdict_json = ('설계 검토 결과입니다.\n'
+                         '{"answer": "괜찮다", "confidence": "medium", "caveats": ["엣지케이스 미확인"]}')
+        gh_calls = []
+        self._patch(spawn.subprocess, "run",
+                    self._fake_run(verdict_json))
+        real_popen = subprocess.Popen
+        def no_gh_popen(*a, **kw):
+            gh_calls.append(a)
+            return real_popen(*a, **kw)
+        result = spawn.consult_cmd("implementation", "이 설계 괜찮은가?", cwd=str(self.root))
+
+        self.assertEqual(result["answer"], "괜찮다")
+        self.assertEqual(result["confidence"], "medium")
+        self.assertEqual(result["caveats"], ["엣지케이스 미확인"])
+        self.assertEqual(gh_calls, [])  # gh pr create 등 어떤 서브프로세스도 안 거쳤다
+
+        trace = (self.root / "docs" / "consult-log.md").read_text(encoding="utf-8")
+        self.assertIn("role=implementation", trace)
+        self.assertIn("이 설계 괜찮은가", trace)
+        self.assertIn("ok:", trace)
+
+    def test_issue_scopes_trace_path(self):
+        self._patch(spawn.subprocess, "run",
+                    self._fake_run('{"answer": "ok", "confidence": "high", "caveats": []}'))
+        spawn.consult_cmd("implementation", "질문", issue=699, cwd=str(self.root))
+
+        scoped = self.root / "docs" / "issue-699" / "reports" / "consult-log.md"
+        self.assertTrue(scoped.is_file())
+        self.assertFalse((self.root / "docs" / "consult-log.md").exists())
+
+    def test_traces_on_malformed_verdict(self):
+        self._patch(spawn.subprocess, "run", self._fake_run("이건 JSON 이 아니다"))
+
+        with self.assertRaises(RuntimeError):
+            spawn.consult_cmd("implementation", "질문", cwd=str(self.root))
+
+        trace = (self.root / "docs" / "consult-log.md").read_text(encoding="utf-8")
+        self.assertIn("error:", trace)
+
+    def test_traces_on_subprocess_crash(self):
+        def crash_run(cmd, **kw):
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
+        self._patch(spawn.subprocess, "run", crash_run)
+
+        with self.assertRaises(RuntimeError):
+            spawn.consult_cmd("implementation", "질문", cwd=str(self.root))
+
+        trace = (self.root / "docs" / "consult-log.md").read_text(encoding="utf-8")
+        self.assertIn("error:", trace)
+        self.assertIn("종료 코드 1", trace)
+
+    def test_traces_on_timeout(self):
+        def timeout_run(cmd, **kw):
+            raise subprocess.TimeoutExpired(cmd, kw.get("timeout", 1))
+        self._patch(spawn.subprocess, "run", timeout_run)
+
+        with self.assertRaises(subprocess.TimeoutExpired):
+            spawn.consult_cmd("implementation", "질문", cwd=str(self.root))
+
+        trace = (self.root / "docs" / "consult-log.md").read_text(encoding="utf-8")
+        self.assertIn("시간초과", trace)
+
+
+class ConsultVerdictParsing(unittest.TestCase):
+    def test_finds_trailing_json_after_prose(self):
+        text = '분석했다.\n결론은 다음과 같다.\n{"answer": "가능", "confidence": "low", "caveats": []}'
+        got = spawn._parse_consult_verdict(text)
+        self.assertEqual(got["answer"], "가능")
+
+    def test_none_when_no_object_present(self):
+        self.assertIsNone(spawn._parse_consult_verdict("그냥 텍스트, JSON 없음"))
+
+    def test_none_when_empty(self):
+        self.assertIsNone(spawn._parse_consult_verdict(""))
+
+
+class PlainSessionDirectiveNorms(unittest.TestCase):
+    """이슈 #699 R2/R3 — CLAUDE_ROLE 이 비어 있는(오케스트레이터/일반) 세션은
+    directive.sh 가 매번 주입하는 텍스트에서 delegation norm 과 goal-loop
+    norm 문구를 봐야 한다."""
+
+    def _render(self, env_extra=None):
+        repo_root = Path(__file__).resolve().parent
+        env = {**os.environ, "TOKENMAXXXER_CHECKOUT": str(repo_root)}
+        env.pop("CLAUDE_ROLE", None)
+        env.pop("ORCHESTRATE_OFF", None)
+        if env_extra:
+            env.update(env_extra)
+        script = repo_root / "on-the-record" / "hooks" / "directive.sh"
+        r = subprocess.run(["bash", str(script)], capture_output=True, text=True, env=env)
+        return r
+
+    def test_plain_session_sees_delegation_and_goal_loop_norms(self):
+        r = self._render()
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("spawn.py consult", r.stdout)
+        self.assertIn("DELEGATION IS THE DEFAULT", r.stdout)
+        self.assertIn("YOUR GOAL LOOP", r.stdout)
+        self.assertIn("judgment point", r.stdout)
+
+    def test_role_session_does_not_see_norms(self):
+        r = self._render(env_extra={"CLAUDE_ROLE": "implementation"})
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("DELEGATION IS THE DEFAULT", r.stdout)
+
+    def test_orchestrate_off_suppresses_norms(self):
+        r = self._render(env_extra={"ORCHESTRATE_OFF": "1"})
+        self.assertEqual(r.returncode, 0)
+        self.assertNotIn("DELEGATION IS THE DEFAULT", r.stdout)
