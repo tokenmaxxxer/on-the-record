@@ -145,6 +145,44 @@ def t_2k_denial_is_terminal_deny():
         assert TARGET in r.stderr
 
 
+# --- unset-spoof regression (issue #706) ---
+
+def _post_with_bind(state_dir, bind_state_dir, bind_role, k=5):
+    env = dict(os.environ)
+    env["OTR_RETRY_BOUND_STATE_DIR"] = str(state_dir)
+    env["OTR_RETRY_BOUND_K"] = str(k)
+    env.pop("CLAUDE_ROLE", None)
+    env["ORCHESTRATE_OFF"] = ""
+    if bind_role is not None:
+        bind_state_dir.mkdir(parents=True, exist_ok=True)
+        (bind_state_dir / f"{SESSION}.json").write_text(json.dumps({"role": bind_role}))
+    env["OTR_ROLE_BIND_STATE_DIR"] = str(bind_state_dir)
+    return subprocess.run(
+        ["bash", str(HOOK), "post"],
+        input=json.dumps({
+            "session_id": SESSION, "tool_name": TOOL,
+            "tool_input": {"file_path": TARGET},
+            "tool_response": DENY_TOOL_RESPONSE,
+        }),
+        capture_output=True, text=True, env=env, timeout=20,
+    )
+
+
+def t_unset_spoof_with_bound_role_never_counts(tmp_path):
+    # session bound to "implementation" at SessionStart, then unsets
+    # CLAUDE_ROLE before every retried tool call -- the hook must still
+    # resolve the bound role and skip counting (role sessions are outside
+    # this bound), not silently start applying the orchestrator-only bound.
+    state_dir = tmp_path / "state"
+    bind_dir = tmp_path / "bind"
+    for _ in range(10):
+        r = _post_with_bind(state_dir, bind_dir, "implementation", k=5)
+        assert r.returncode == 0
+    r = _pre(state_dir, k=5)
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
 def t_orchestrate_off_is_silent():
     with tempfile.TemporaryDirectory() as td:
         for _ in range(6):

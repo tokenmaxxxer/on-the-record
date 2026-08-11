@@ -22,7 +22,8 @@ def _fake_checkout(tmp_path, flows_payload):
 
 
 def _run(flows_payload, role=None, orchestrate_off="", last_assistant_message="ok",
-         session_id="test-session", state_dir=None):
+         session_id="test-session", state_dir=None,
+         bind_state_dir=None, bind_role=None):
     with tempfile.TemporaryDirectory() as td:
         checkout = _fake_checkout(Path(td), flows_payload)
         env = dict(os.environ)
@@ -36,6 +37,13 @@ def _run(flows_payload, role=None, orchestrate_off="", last_assistant_message="o
             env["CLAUDE_ROLE"] = role
         else:
             env.pop("CLAUDE_ROLE", None)
+        if bind_state_dir is not None:
+            env["OTR_ROLE_BIND_STATE_DIR"] = str(bind_state_dir)
+            if bind_role is not None:
+                bind_state_dir.mkdir(parents=True, exist_ok=True)
+                (bind_state_dir / f"{session_id}.json").write_text(
+                    json.dumps({"role": bind_role})
+                )
         payload = json.dumps({
             "last_assistant_message": last_assistant_message,
             "session_id": session_id,
@@ -109,6 +117,28 @@ def t_role_session_is_silent():
     ]}, role="implementation")
     assert r.returncode == 0
     assert r.stdout == ""
+
+
+# --- unset-spoof regression (issue #706) ---
+
+def t_unset_spoof_with_bound_role_stays_silent(tmp_path):
+    # session bound to "implementation" at SessionStart, then unsets
+    # CLAUDE_ROLE before this Stop — the hook must still resolve the bound
+    # role and stay silent (role-only skip), not flip into the
+    # orchestrator-only decision-queue nudge/block branch.
+    r = _run({"decision_queue": [
+        {"issue": 100, "pr": 200, "age_hours": 5.0},
+    ]}, role=None, bind_state_dir=tmp_path / "bind", bind_role="implementation")
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def t_no_snapshot_falls_back_to_live_env(tmp_path):
+    r = _run({"decision_queue": [
+        {"issue": 100, "pr": 200, "age_hours": 5.0},
+    ]}, role=None, bind_state_dir=tmp_path / "bind", bind_role=None)
+    out = json.loads(r.stdout)
+    assert out["decision"] == "block"
 
 
 # --- issue #600: waiting-declaration turn-occupancy branch ---
