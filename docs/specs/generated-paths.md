@@ -25,6 +25,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `impact-guard.sh` | out-of-tree | safe — same shared checkout clone |
 | `spawn-allow-gate.sh` | n/a | reads/validates only, no write call |
 | `merge-allow-gate.sh` | out-of-tree | safe — same `_checkout_resolve` shared-checkout-clone pattern as `impact-guard.sh`/`decision-queue-stopgate.sh` below, never inside the target repo |
+| `gh-write-allow-gate.sh` | n/a | reads/validates only, no write call, no checkout resolution needed |
 | `decision-queue-stopgate.sh` | out-of-tree | safe — same shared checkout clone |
 | `accumulation-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `approval-gate.sh` | n/a | reads/validates only, no write call |
