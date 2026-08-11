@@ -1642,6 +1642,165 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 "ahead 워크스페이스에선 stash 를 쓰면 안 된다")
 
 
+class AbsorbedBranchRecutMidRun(unittest.TestCase):
+    """이슈 #784: 세션이 이미 살아있는 채로 자기 브랜치가 흡수됐을 때 —
+    `checkout_issue_branch()`가 스폰 시점에만 한 번 부르는 것과 달리,
+    mid-run 재검사(`recut_if_absorbed_cli`, 훅이 호출)는 세션 자신의
+    다음 commit/PR-open 직전에 같은 흡수 판정을 다시 돌린다."""
+
+    def _git(self, cwd, *a):
+        return subprocess.run(["git", "-C", str(cwd), *a],
+                              capture_output=True, text=True)
+
+    def _init_repo(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+        self._git(path, "init", "-q")
+        self._git(path, "config", "user.email", "t@t.t")
+        self._git(path, "config", "user.name", "t")
+
+    def test_recut_absorbed_branch_preserves_untracked_files(self):
+        # #732 이 spawn 시점에 검증한 것과 같은 시나리오를, 공유 헬퍼
+        # `_recut_absorbed_branch`를 직접 불러 mid-run 재사용 경로에서도
+        # 검증한다 — 브랜치가 이미 체크아웃돼 있고 base 에 완전히 흡수된
+        # (0-ahead) 상태에서 untracked 작업이 보존돼야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999910, "implementation"
+            br = f"issue-{issue}/{role}"
+            self._git(work, "checkout", "-q", "-b", br, base_branch)
+            base_commit = self._git(work, "rev-parse", base_branch).stdout.strip()
+            (work / "scratch-work.txt").write_text("uncommitted, untracked")
+
+            result = spawn._recut_absorbed_branch(str(work), br)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            after = self._git(work, "rev-parse", br).stdout.strip()
+            self.assertEqual(after, base_commit,
+                             "재컷된 브랜치가 base 팁과 일치해야 한다")
+            self.assertEqual((work / "scratch-work.txt").read_text(),
+                             "uncommitted, untracked",
+                             "untracked 작업이 재컷 뒤에도 남아있어야 한다")
+
+    def test_recut_absorbed_branch_unchanged_when_ahead(self):
+        # base 대비 커밋이 앞서 있으면(진짜 흡수가 아니면) 아무 것도 안
+        # 건드리고 그냥 checkout br 만 해야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999911, "implementation"
+            br = f"issue-{issue}/{role}"
+            self._git(work, "checkout", "-q", "-b", br, base_branch)
+            (work / "progress.txt").write_text("real committed work")
+            self._git(work, "add", "progress.txt")
+            self._git(work, "commit", "-q", "-m", "in-progress work, ahead of base")
+            ahead_commit = self._git(work, "rev-parse", br).stdout.strip()
+
+            result = spawn._recut_absorbed_branch(str(work), br)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            after = self._git(work, "rev-parse", br).stdout.strip()
+            self.assertEqual(after, ahead_commit,
+                             "커밋이 앞서 있으면 브랜치가 재컷되면 안 된다")
+
+    def test_recut_if_absorbed_cli_recuts_mid_run_absorbed_branch(self):
+        # 이슈 #784 인수 기준: 세션이 RUNNING 인 채로 자기 phase-1 PR 이
+        # merge+delete-branch 돼 브랜치가 흡수된 상태를 흉내낸다 — origin
+        # 에서 브랜치가 사라지고(merge+delete) 로컬 워크스페이스는 여전히
+        # 그 브랜치 위에 남아있는 상황과 동치인, base 에 완전히 흡수된
+        # 로컬 ref. `recut_if_absorbed_cli`가 롤백 없이 재컷해, 뒤이은
+        # commit 이 "No commits between main and issue-<n>/<role>"로 조용히
+        # 실패하지 않아야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999912, "implementation"
+            br = f"issue-{issue}/{role}"
+            # 세션이 실제로 살아있던 워크스페이스를 흉내낸다: 브랜치를
+            # base 에서 파고, phase-1 PR 이 merge+delete-branch 되며
+            # (원격에는 없고, 로컬 ref 만 base 와 정확히 같게) 흡수된
+            # 상태를 재현한다.
+            self._git(work, "checkout", "-q", "-b", br, base_branch)
+            base_commit = self._git(work, "rev-parse", base_branch).stdout.strip()
+            (work / "mid-run-scratch.txt").write_text("phase-2 work in progress")
+
+            rc = spawn.recut_if_absorbed_cli(str(work))
+
+            self.assertEqual(rc, 0)
+            after = self._git(work, "rev-parse", br).stdout.strip()
+            self.assertEqual(after, base_commit)
+            self.assertEqual((work / "mid-run-scratch.txt").read_text(),
+                             "phase-2 work in progress",
+                             "mid-run 재컷도 untracked 작업을 보존해야 한다")
+            # 재컷 뒤 세션이 실제로 커밋하면 base 대비 ahead 인 진짜 PR 이
+            # 열릴 수 있어야 한다 — "No commits" 로 다시 막히지 않는다.
+            self._git(work, "add", "mid-run-scratch.txt")
+            self._git(work, "commit", "-q", "-m", "phase 2 commit after recut")
+            self.assertNotEqual(
+                self._git(work, "rev-list", "--count", f"{base_branch}..{br}")
+                .stdout.strip(),
+                "0")
+
+    def test_recut_if_absorbed_cli_noop_on_detached_head(self):
+        # 브랜치 이름이 issue-<n>/<role> 모양이 아니면(분리 HEAD 등) 아무
+        # 것도 안 하고 0 을 반환한다 — roster/liveness 조회 없이 세션
+        # 자신의 HEAD 만 보는 이 함수의 fail-open 경계.
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "work"
+            self._init_repo(work)
+            (work / "a.txt").write_text("x")
+            self._git(work, "add", "a.txt")
+            self._git(work, "commit", "-q", "-m", "c")
+            head = self._git(work, "rev-parse", "HEAD").stdout.strip()
+            self._git(work, "checkout", "-q", head)  # detached HEAD
+
+            rc = spawn.recut_if_absorbed_cli(str(work))
+
+            self.assertEqual(rc, 0)
+
+
 class WorkspaceExcludesHomeDotfiles(unittest.TestCase):
     """이슈 #289 H1: 샌드박스가 홈 dotfile 을 워크스페이스 루트에 오버레이해
     `git status`에 untracked 로 잡힌다 — `.muster-cache/`와 같은 방식으로
