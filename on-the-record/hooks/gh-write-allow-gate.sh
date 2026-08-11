@@ -95,18 +95,32 @@ if role:
 # (see docs/issue-868/reports/implementation/survey.md). Only this exact
 # shape is special-cased; any other `$(...)`/backtick/newline still exits
 # untouched below.
+#
+# issue #873: a real markdown issue/comment body routinely carries its own
+# backtick code-spans (`` `--version` ``, `` `_pkg.VERSION` ``, ...) inside
+# the quoted-heredoc body — those backticks are inert by construction (the
+# quoted delimiter disables all expansion of the body, backticks included),
+# but the pre-#873 check tested `"`" not in cmd` against the WHOLE raw
+# command before collapsing the substitution, so any such body backtick
+# defeated the collapse and the command fell through denied. The backtick
+# (and stray `$(`) check below must only see the command with the matched
+# heredoc span already removed, never the untouched body text.
 _HEREDOC_SUB_RE = re.compile(
     r"\$\(\s*cat\s*<<\s*(?P<q>['\"])(?P<delim>[A-Za-z_][A-Za-z0-9_]*)(?P=q)"
     r"\s*\n(?P<body>.*?)\n(?P=delim)[ \t]*\n?\s*\)",
     re.DOTALL,
 )
 _subs = list(_HEREDOC_SUB_RE.finditer(cmd))
-if len(_subs) == 1 and cmd.count("$(") == 1 and "`" not in cmd:
-    # Exactly one substitution, of the provably-benign shape, and nothing
-    # else in the command needs `$(` at all — collapse it to an inert
-    # single-token placeholder so the rest of the command (the actual gh
-    # verb and its other flags) can be shape-checked as normal below.
-    cmd = cmd[: _subs[0].start()] + '"__OTR_QUOTED_HEREDOC_BODY__"' + cmd[_subs[0].end():]
+if len(_subs) == 1:
+    _sub = _subs[0]
+    _cmd_outside_sub = cmd[: _sub.start()] + cmd[_sub.end():]
+    if _cmd_outside_sub.count("$(") == 0 and "`" not in _cmd_outside_sub:
+        # Exactly one substitution, of the provably-benign shape, and
+        # nothing else in the command (outside the heredoc body itself)
+        # needs `$(` or a backtick — collapse it to an inert single-token
+        # placeholder so the rest of the command (the actual gh verb and
+        # its other flags) can be shape-checked as normal below.
+        cmd = cmd[: _sub.start()] + '"__OTR_QUOTED_HEREDOC_BODY__"' + cmd[_sub.end():]
 
 if "`" in cmd or "$(" in cmd or "\n" in cmd:
     sys.exit(0)  # no legitimate invocation needs substitution or a newline

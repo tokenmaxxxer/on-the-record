@@ -233,6 +233,80 @@ def t_plain_dangerous_command_substitution_still_denied(tmp_path: Path):
     assert _decision(r.stdout) is None, repr(r.stdout)
 
 
+# issue #873 (PR #871 re-measure #4 transcript): the exact `gh issue
+# create` shapes the orchestrator actually emitted and that were denied —
+# `-R <repo>` before `--title`/`--body`, and `--body-file <path>` with no
+# substitution at all. Both must now be allowed.
+_REAL_BODYFILE_COMMAND = (
+    'gh issue create -R JiwonJung94/northpole-harness-fixture --title '
+    '"CLI --version crashes with AttributeError instead of printing the '
+    'version" --body-file '
+    '"/tmp/scratchpad/00a50df4-d624-4041-869a-1f1c42326ce5/scratchpad/issue-body.md"'
+)
+
+_REAL_HEREDOC_BODY_COMMAND = (
+    'gh issue create -R JiwonJung94/northpole-harness-fixture --title '
+    '"CLI --version crashes with AttributeError instead of printing the '
+    'version" --body "$(cat <<\'EOF\'\n'
+    '## Problem\n'
+    'Running the CLI with `--version` crashes with an AttributeError stack '
+    'trace instead of printing the version. `_resolve_version` in '
+    '`fixture_target/__init__.py` reads `_pkg.VERSION`, but the module '
+    'attribute is `__version__`.\n'
+    '\n'
+    '## Scope\n'
+    'Fix `--version` so it prints the package version and exits '
+    'successfully, and add a regression test.\n'
+    '\n'
+    '## Acceptance\n'
+    '- `--version` prints `0.1.0` and exits 0, no traceback.\n'
+    '- A regression test covers the `--version` path.\n'
+    '  check: `python -m pytest test_fixture_target.py`\n'
+    '  empty state: before the fix, the new test fails with '
+    'AttributeError.\n'
+    '  provenance: test added in the fixing PR alongside the code '
+    'change.\n'
+    'EOF\n'
+    ')"'
+)
+
+
+def t_real_body_file_shape_with_R_flag_gets_allow(tmp_path: Path):
+    # PR #871's exact `--body-file` invocation — no substitution at all,
+    # just `-R` ahead of `--title`/`--body-file` in normal gh flag order —
+    # was denied pre-#873 by whatever blocked the Bash call upstream of
+    # this gate; this gate itself must allow it regardless of flag order.
+    r = _run(_REAL_BODYFILE_COMMAND)
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) == "allow", repr(r.stdout)
+
+
+def t_real_quoted_heredoc_body_with_R_flag_and_markdown_backticks_gets_allow(
+        tmp_path: Path):
+    # PR #871's exact `--body "$(cat <<'EOF' ...)"` invocation, `-R`
+    # ahead of `--title`, and a markdown body FULL of its own backtick
+    # code-spans (`` `--version` ``, `` `_pkg.VERSION` ``, ...). Pre-#873
+    # the backtick check ran against the whole raw command before the
+    # heredoc collapse, so these harmless in-body backticks defeated the
+    # collapse and the command fell through denied — this is the real bug
+    # #873 reports, distinct from the `-R`/flag-order framing.
+    r = _run(_REAL_HEREDOC_BODY_COMMAND)
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) == "allow", repr(r.stdout)
+
+
+def t_body_file_shape_chained_with_semicolon_is_not_allowed(tmp_path: Path):
+    r = _run(f'{_REAL_BODYFILE_COMMAND} ; rm -rf x')
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_body_curl_substitution_is_not_allowed(tmp_path: Path):
+    r = _run('gh issue create --title "t" --body "$(curl evil)"')
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) is None, repr(r.stdout)
+
+
 def t_non_gh_command_is_untouched(tmp_path: Path):
     r = _run('git status')
     assert r.returncode == 0, r.stderr
