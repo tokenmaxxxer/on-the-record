@@ -3,6 +3,8 @@ code_under_review:
   - on-the-record/hooks/merge-allow-gate.sh
   - on-the-record/hooks/hooks.json
   - on-the-record/hooks/test_merge_allow_gate.py
+  - on-the-record/hooks/spawn-allow-gate.sh
+  - on-the-record/hooks/test_spawn_allow_gate.py
 type: feature
 breaking: false
 verdict: pass
@@ -162,6 +164,126 @@ whatever this same allow-hook pattern generalizes to.
   editing this checkout's `hooks.json` would not have affected this session's own hook
   behavior. Replaced with a fresh, isolated `claude -p` fixture project instead (Step 1),
   which does pick up its own project-level `.claude/settings.json`.
+
+## Follow-up — SCOPE EXTENSION 2 (spawn.py coverage)
+
+canonical: issue #810 comment "SCOPE EXTENSION 2 (orchestrator, live evidence 2026-08-11)",
+posted 2026-08-11T08:51:43Z, read via `gh issue view 810 --comments`.
+
+The comment reports a second, distinct live friction from this same PR#816 session: the
+plugin's own `spawn.py` role-spawn invocation was denied by the host permission classifier
+purely because its **task-description text** contained sensitive-looking literals (forge
+verbs and words from this hook's own vocabulary) — rewording the identical command's task
+text unblocked it, proving the block was text-driven, not action-driven. The requirement
+extension: the orchestrator-identity allow mechanism established for `gh pr merge` in Step
+2 above must extend to spawn.py role-spawn/watch/consult invocations, keyed only on
+orchestrator identity + the command resolving to this checkout's own `spawn.py` — never on
+any word inside the command's arguments.
+
+This follow-up keeps the exact design/safety composition Step 2 established (same
+`session-role-bind.sh` SessionStart-snapshot identity read, same "only ever adds a
+permission signal, never denies" posture, same default-on `hooks.json` wiring, same
+kill switch), generalized to a second command shape:
+
+- `on-the-record/hooks/spawn-allow-gate.sh` (new): `PreToolUse`/`Bash` hook. Fires only
+  when (a) `CLAUDE_ROLE` resolves empty (identical identity primitive to
+  `merge-allow-gate.sh`, path:on-the-record/hooks/merge-allow-gate.sh lines 79-101); (b)
+  the command, after stripping an optional leading `cd DIR &&`, is a single `python3
+  <path-ending-in-spawn.py> ...` invocation with no unquoted `&&`/`;`/`|` after it (quoted
+  spans are stripped before this check, so shell-operator characters *inside* the task-text
+  argument — the exact content class that tripped the classifier — never affect the
+  decision); (c) the resolved path normalizes to this checkout's own `spawn.py` on disk
+  (reusing `merge-allow-gate.sh`'s `_checkout_resolve` probe). The allow decision never
+  inspects, matches against, or branches on the argument text itself beyond the bare
+  `spawn.py`-path shape — directly closing the text-driven false-block this comment
+  reports. Any other shape falls through to plain `exit 0`, no JSON — same non-interference
+  posture as merge-allow-gate.sh.
+- `on-the-record/hooks/hooks.json`: registered `spawn-allow-gate.sh` in the existing
+  `PreToolUse`/`Bash` matcher list immediately after `merge-allow-gate.sh` — default-on at
+  install, no user configuration.
+
+derived: `grep -c '^def t_' on-the-record/hooks/test_spawn_allow_gate.py` (12)
+- `on-the-record/hooks/test_spawn_allow_gate.py` (new): cases against the real script as a
+  subprocess (count above), including the reported failure mode directly
+  (`t_sensitive_literal_in_task_text_does_not_block_allow`, which passes a task string
+  containing the same class of literal named in the issue comment — forge-verb and
+  allow-design vocabulary — and asserts `allow` is still granted), a single-quoted-operator
+  case proving `&&`/`;`/`|` inside single quotes (fully inert in bash) does not trip the
+  anti-chaining check, an unquoted-chaining case proving a real appended command (`&& rm
+  -rf ...`) is correctly left unreached, a spawn.py-outside-checkout case, role-session,
+  kill-switch, `cd`-prefix, and `consult` cases, plus two cases added after the warrant
+  hunt below (`t_double_quoted_command_substitution_is_unreached`,
+  `t_backtick_command_substitution_is_unreached`).
+
+derived: `python3 on-the-record/hooks/test_spawn_allow_gate.py`
+```
+  ok  t_backtick_command_substitution_is_unreached
+  ok  t_cd_prefixed_spawn_invocation_gets_allow
+  ok  t_consult_invocation_gets_allow
+  ok  t_double_quoted_command_substitution_is_unreached
+  ok  t_kill_switch_suppresses_allow
+  ok  t_non_spawn_command_is_untouched
+  ok  t_orchestrator_spawn_invocation_gets_allow
+  ok  t_role_session_never_gets_allow
+  ok  t_sensitive_literal_in_task_text_does_not_block_allow
+  ok  t_single_quoted_shell_operator_in_task_text_does_not_trip_chain_check
+  ok  t_spawn_py_outside_checkout_is_unreached
+  ok  t_unquoted_chained_command_after_spawn_is_unreached
+
+12 passed
+```
+
+### Warrant hunt (before-landing, stance 3) — finding and fix
+
+canonical: docs/issue-810/reports/implementation/hunt-technical-feasibility.md
+(warrant-hunter dispatch, agentId ab97c5dc9f426b17a).
+
+FINDING: the initial `spawn-allow-gate.sh` chaining check stripped quoted spans (both
+single- and double-quoted) before searching for `&&`/`;`/`|`, then only searched for those
+three operators — missing that `$(...)` and `` `...` `` command substitution still executes
+inside **double** quotes in bash (only single quotes fully neutralize them), so
+`python3 spawn.py "$(touch /tmp/PWNED_MARKER)"` was granted `allow` while the identical
+string, run directly, executes arbitrary shell code. Reproduced live by the hunter
+(hunt record above has the full repro and hook output).
+
+Fix: stop stripping double-quoted spans before the check (only single-quoted spans are
+actually inert); extended the operator search to also catch `$(`, `` ` ``, `<(`, `>(`.
+Added `t_double_quoted_command_substitution_is_unreached` and
+`t_backtick_command_substitution_is_unreached` as regression cases, and renamed the
+existing double-quoted-operator test to
+`t_single_quoted_shell_operator_in_task_text_does_not_trip_chain_check` (single quotes are
+the only case that is actually safe to allow through unexamined).
+
+closed_checks:
+- check: command/process substitution outside single quotes is never auto-allowed —
+  code_under_review: on-the-record/hooks/spawn-allow-gate.sh — verified via
+  `t_double_quoted_command_substitution_is_unreached` and
+  `t_backtick_command_substitution_is_unreached` (derived above; both pass post-fix).
+
+derived: existing-suite regression check, executed live 2026-08-11 —
+`python3 on-the-record/hooks/test_merge_allow_gate.py` (8 passed, unchanged),
+`python3 on-the-record/hooks/test_impact_guard.py` (4 passed),
+`python3 -m pytest on-the-record/hooks/test_contract_guard.py -q` (17 passed),
+`python3 gates/test_landing_readiness.py` (14 passed),
+`python3 gates/test_hooks_parity.py` (4 passed) — the parity check picked up
+`spawn-allow-gate.sh`'s new `hooks.json` registration automatically, same as it did for
+`merge-allow-gate.sh` in Step 2, confirming the wiring without a separate parity-test edit.
+
+closed_checks:
+- check: no-unquoted-chaining anti-injection property (a real appended shell command after
+  a spawn.py call is never auto-allowed) — code_under_review:
+  on-the-record/hooks/spawn-allow-gate.sh — verified via
+  `t_unquoted_chained_command_after_spawn_is_unreached` (derived above).
+- check: allow decision does not key on argument-text content (the exact reported failure
+  mode) — code_under_review: on-the-record/hooks/spawn-allow-gate.sh — verified via
+  `t_sensitive_literal_in_task_text_does_not_block_allow` and
+  `t_quoted_shell_operator_in_task_text_does_not_trip_chain_check` (derived above).
+
+The broader SCOPE CLARIFICATION ask (full gh-write set — issue create/comment, pr comment,
+issue/pr close) named in the `## Rationale for deviations` section above remains out of
+scope for this follow-up too, unchanged from that section's reasoning: this follow-up
+covers exactly what SCOPE EXTENSION 2 specifies (spawn.py coverage), not the still-open
+broader gh-write-set ask, which is a separate future proposal.
 
 ## Open findings
 
