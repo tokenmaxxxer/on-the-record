@@ -58,7 +58,7 @@ CHECKOUT="$(_checkout_resolve || true)"
 TARGET_REPO="$(pwd -P)"
 
 IFS='' read -r -d '' GUARD <<'PY' || true
-import json, os, re, sys
+import datetime, json, os, re, sys
 from pathlib import Path
 
 def deny(msg):
@@ -97,10 +97,38 @@ if not blocked:
 
 names = ", ".join(f"{b['path']} (reversibility={b['axes']['reversibility']})"
                    for b in blocked)
-deny(f"batch of {merge_count} `gh pr merge` calls denied before executing: "
-     f"{len(blocked)} open proposal(s) require individual approval per "
-     f"docs/specs/impact-classification.md's dominant-axis rule: {names}. "
-     f"Merge them one at a time so each gets its own individual approval.")
+if blocked:
+    deny(f"batch of {merge_count} `gh pr merge` calls denied before executing: "
+         f"{len(blocked)} open proposal(s) require individual approval per "
+         f"docs/specs/impact-classification.md's dominant-axis rule: {names}. "
+         f"Merge them one at a time so each gets its own individual approval.")
+
+# Axis 1 (issue #659): strictly after batch_blocked clears — grouping only
+# the proposals that were NOT individually-required above.
+_ISSUE_RE = re.compile(r"^docs/issue-(\d+)/")
+eligible = [p for p in proposals if p["path"] not in {b["path"] for b in blocked}]
+prs = [{"path": p["path"], "files": p["files"]} for p in eligible]
+groups = risk_report.batch_eligible_groups(prs, root)
+if groups:
+    by_issue: dict[str, list[list[str]]] = {}
+    for g in groups:
+        m = _ISSUE_RE.match(g[0]) if g else None
+        issue_n = m.group(1) if m else None
+        if issue_n is None:
+            continue
+        by_issue.setdefault(issue_n, []).append(g)
+    ts = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    for issue_n, issue_groups in by_issue.items():
+        out_dir = root / "docs" / f"issue-{issue_n}" / "decisions"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        lines = [f"# batch-eligible groups — {ts}", "",
+                 "Write-set non-overlap grouping (issue #659 Axis 1), "
+                 "computed by `risk_report.batch_eligible_groups` over the "
+                 "open, non-individually-required proposals at batch-merge "
+                 "time.", ""]
+        for g in issue_groups:
+            lines.append(f"- group: {', '.join(g)}")
+        (out_dir / f"batch-{ts}.md").write_text("\n".join(lines) + "\n")
 PY
 
 IG_PAYLOAD="$payload" IG_CHECKOUT="$CHECKOUT" IG_TARGET="$TARGET_REPO" python3 -c "$GUARD"

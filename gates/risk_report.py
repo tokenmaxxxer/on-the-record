@@ -307,6 +307,56 @@ def batch_blocked(proposals: list[dict], root: Path) -> list[dict]:
     return blocked
 
 
+def _paths_overlap(files_a: list[str], files_b: list[str]) -> bool:
+    """`files_a`/`files_b`가 하나라도 같은 경로거나 서로의 write-set을
+    `_glob_matches`로 덮으면 True. 두 PR의 write-set이 서로 glob일 수도
+    있어(예: `docs/**` 대 `docs/issue-1/x.md`) 양방향으로 검사한다."""
+    for a in files_a:
+        for b in files_b:
+            if a == b or _glob_matches(a, b) or _glob_matches(b, a):
+                return True
+    return False
+
+
+def batch_eligible_groups(prs: list[dict], root: Path) -> list[list[str]]:
+    """대기 중인 PR들을 write-set 비중첩 기준으로 배치 승인 가능한 그룹으로
+    묶는다 (issue #659 Axis 1). `prs`는 `[{"path"|"number": ..., "files":
+    [...]}, ...]`; 각 PR을 노드로, write-set이 겹치는 쌍을 간선으로 하는
+    충돌 그래프를 만들고, 내부 간선이 없는 연결요소(connected component)
+    하나하나가 배치 승인 가능한 그룹이다 — 서로 겹치지 않는 PR들끼리만 한
+    그룹에 들어간다는 뜻은 아니고, 겹침 관계로 이어진 덩어리 전체가 한
+    그룹(그 안에서 개별 겹침 쌍은 여전히 순차 처리 대상)이다.
+
+    `root`는 함수 시그니처에 남겨 `blast_radius_grade` 등 다른 축과 같은
+    호출 형태를 유지하지만, 현재 순수 write-set 비교에는 쓰이지 않는다.
+    PR이 없으면 빈 리스트, 단일 PR이면 단일 원소 그룹 하나를 반환한다."""
+    del root
+    ids = [p.get("path") or str(p.get("number")) for p in prs]
+    n = len(prs)
+    parent = list(range(n))
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    def union(i, j):
+        ri, rj = find(i), find(j)
+        if ri != rj:
+            parent[ri] = rj
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if _paths_overlap(prs[i].get("files") or [], prs[j].get("files") or []):
+                union(i, j)
+
+    groups: dict[int, list[str]] = {}
+    for i in range(n):
+        groups.setdefault(find(i), []).append(ids[i])
+    return list(groups.values())
+
+
 if __name__ == "__main__":
     import sys
     root = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).resolve().parent.parent
