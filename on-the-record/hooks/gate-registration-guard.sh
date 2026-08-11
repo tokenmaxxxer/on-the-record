@@ -241,6 +241,64 @@ for p in targets:
     if name not in boundary_names:
         missing.append(f"{p}: no row in docs/specs/enforcement-boundary.md")
 
+# issue #909: a doc row alone does not mean the hook actually fires --
+# absorbed-branch-recut-guard.sh had a docs/specs/enforcement-boundary.md
+# row asserting it is a live PreToolUse/Bash hook while carrying no
+# on-the-record/hooks/hooks.json entry, so it satisfied this guard's
+# original (row-presence-only) check while never running in an installed
+# session. A row is only exempt from the hooks.json cross-check when it
+# says so explicitly (same convention `poll-rearm.sh`/`record-scaffold.sh`
+# already use: "not a hook itself", "not wired into `hooks.json`",
+# "CLI-invoked") -- any other row is read as a live-hook claim and must
+# have a matching hooks.json command entry in the same staged tree.
+_NOT_WIRED_RE = re.compile(
+    r"not a hook itself|not wired into `?hooks\.json`?|CLI-invoked",
+    re.IGNORECASE,
+)
+
+
+def boundary_row_text(text, name):
+    for line in text.splitlines():
+        if line.startswith("|") and not _SEP_ROW.match(line) and f"`{name}`" in line:
+            return line
+    return ""
+
+
+if hook_scripts:
+    hooks_json_text = read_spec("on-the-record/hooks/hooks.json")
+    # No hooks.json in this tree at all -> nothing to cross-check against
+    # (e.g. a test fixture repo that never sets one up); stay fail-open,
+    # same posture the rest of this guard already takes on environment
+    # gaps, rather than deny on a signal that was never available.
+    hooks_json_names = None
+    if hooks_json_text is not None:
+        try:
+            parsed_hooks = json.loads(hooks_json_text).get("hooks", {})
+            hooks_json_names = set()
+            for group_list in parsed_hooks.values():
+                for group in group_list:
+                    for h in group.get("hooks", []):
+                        cmd_text = h.get("command", "")
+                        script_token = cmd_text.split()[0] if cmd_text.split() else ""
+                        hooks_json_names.add(os.path.basename(script_token))
+        except ValueError:
+            hooks_json_names = None
+    for p in hook_scripts:
+        name = os.path.basename(p)
+        if name not in boundary_names:
+            continue
+        row = boundary_row_text(boundary_text, name)
+        if _NOT_WIRED_RE.search(row):
+            continue
+        if hooks_json_names is None:
+            continue
+        if name not in hooks_json_names:
+            missing.append(
+                f"{p}: docs/specs/enforcement-boundary.md claims this is a "
+                "live hook but on-the-record/hooks/hooks.json has no "
+                "command entry for it (issue #909)"
+            )
+
 if hook_scripts:
     paths_text = read_spec("docs/specs/generated-paths.md")
     paths_names = recorded_names(paths_text) if paths_text is not None else set()

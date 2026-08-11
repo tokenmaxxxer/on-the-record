@@ -125,6 +125,80 @@ def t_new_hook_script_with_wrong_classification_denies_commit(tmp_path):
     assert "classification mismatch" in r.stderr
 
 
+def t_new_hook_script_claiming_live_wiring_with_no_hooksjson_entry_denies(tmp_path):
+    """issue #909: absorbed-branch-recut-guard.sh's exact shape -- a
+    docs/specs/enforcement-boundary.md row asserting the hook is a live
+    `PreToolUse`+`Bash` trigger, with no on-the-record/hooks/hooks.json
+    command entry for it anywhere -- must be denied, not just the row
+    presence check the guard used to run alone."""
+    repo = _init_repo(tmp_path)
+    (repo / "on-the-record" / "hooks" / "new-guard.sh").write_text(
+        "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    (repo / "docs" / "specs" / "enforcement-boundary.md").write_text(
+        BOUNDARY_HEADER +
+        "| `new-guard.sh` | contract | new: `PreToolUse`+`Bash`, ships with the plugin |\n",
+        encoding="utf-8")
+    (repo / "docs" / "specs" / "generated-paths.md").write_text(
+        PATHS_HEADER + "| `new-guard.sh` | n/a | test fixture |\n",
+        encoding="utf-8")
+    (repo / "on-the-record" / "hooks" / "hooks.json").write_text(
+        json.dumps({"hooks": {"PreToolUse": [
+            {"matcher": "Bash", "hooks": [
+                {"type": "command",
+                 "command": "${CLAUDE_PLUGIN_ROOT}/hooks/contract-guard.sh"}]}
+        ]}}), encoding="utf-8")
+    _stage_all(repo)
+    r = _run(repo)
+    assert r.returncode == 2, r.stdout
+    assert "new-guard.sh" in r.stderr
+    assert "hooks.json" in r.stderr
+
+
+def t_new_hook_script_wired_in_hooksjson_same_commit_passes(tmp_path):
+    repo = _init_repo(tmp_path)
+    (repo / "on-the-record" / "hooks" / "new-guard.sh").write_text(
+        "#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    (repo / "docs" / "specs" / "enforcement-boundary.md").write_text(
+        BOUNDARY_HEADER +
+        "| `new-guard.sh` | contract | new: `PreToolUse`+`Bash`, ships with the plugin |\n",
+        encoding="utf-8")
+    (repo / "docs" / "specs" / "generated-paths.md").write_text(
+        PATHS_HEADER + "| `new-guard.sh` | n/a | test fixture |\n",
+        encoding="utf-8")
+    (repo / "on-the-record" / "hooks" / "hooks.json").write_text(
+        json.dumps({"hooks": {"PreToolUse": [
+            {"matcher": "Bash", "hooks": [
+                {"type": "command",
+                 "command": "${CLAUDE_PLUGIN_ROOT}/hooks/new-guard.sh"}]}
+        ]}}), encoding="utf-8")
+    _stage_all(repo)
+    r = _run(repo)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == ""
+
+
+def t_new_hook_script_documented_as_not_wired_skips_hooksjson_check(tmp_path):
+    """`poll-rearm.sh`/`record-scaffold.sh`'s own documented shape: a row
+    that explicitly says it is not a live hook is exempt from the
+    hooks.json cross-check."""
+    repo = _init_repo(tmp_path)
+    (repo / "on-the-record" / "hooks" / "new-lib.sh").write_text(
+        "#!/usr/bin/env bash\ntrue\n", encoding="utf-8")
+    (repo / "docs" / "specs" / "enforcement-boundary.md").write_text(
+        BOUNDARY_HEADER +
+        "| `new-lib.sh` | contract | not a hook itself -- sourced library |\n",
+        encoding="utf-8")
+    (repo / "docs" / "specs" / "generated-paths.md").write_text(
+        PATHS_HEADER + "| `new-lib.sh` | n/a | test fixture |\n",
+        encoding="utf-8")
+    (repo / "on-the-record" / "hooks" / "hooks.json").write_text(
+        json.dumps({"hooks": {}}), encoding="utf-8")
+    _stage_all(repo)
+    r = _run(repo)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout == ""
+
+
 def t_no_registration_target_change_passes_untouched(tmp_path):
     """issue #759 acceptance's stated empty-state green case: a change
     touching no new mechanism file passes untouched."""
