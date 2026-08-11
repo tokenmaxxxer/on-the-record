@@ -4151,12 +4151,46 @@ def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
         elif local_zero:
             print(f"[spawn] {br} 는 {base} 에 완전히 흡수돼 커밋이 없다 — "
                   f"로컬 브랜치를 지우고 새로 판다.", file=sys.stderr)
+            # 흡수된 브랜치는 base 대비 영원히 0-ahead 라 재컷 없이는
+            # 이 워크스페이스가 다시 PR 을 열 수 없다 (issue-732). 그런데
+            # 워크스페이스에 untracked 파일만 있으면(커밋된 고유 작업은
+            # 없음) `checkout -B` 가 그 파일들과 base 트리 사이의 경로
+            # 충돌로 실패할 수 있어 조용히 no-op 재컷으로 빠진다. 재컷
+            # 전에 untracked 파일을 stash 로 치워 뒀다가 재컷 뒤 새
+            # 브랜치 위에 다시 풀어준다 — 절대 조용히 버리지 않는다.
+            stash_marker = f"checkout_issue_branch-preserve-{br}"
+            # 이전 실행이 push 와 pop 사이에서 중단됐다면 stash 가
+            # working tree 에는 안 보이는 채로 남아있을 수 있다 (`git
+            # status --porcelain` 은 stash 를 보지 않는다) — 그 상태로
+            # clean 의 보존 가드를 통과하면 워크스페이스 전체가 지워지며
+            # 안에 숨은 작업까지 조용히 사라진다. 재컷 전에 먼저 회수한다.
+            leftover = git("stash", "list", "--grep", stash_marker)
+            if leftover.returncode == 0 and leftover.stdout.strip():
+                pop_r = git("stash", "pop", "-q")
+                if pop_r.returncode != 0:
+                    print(f"[spawn] {br} 의 이전 실행이 남긴 stash 를 "
+                          f"복구하지 못했다 — 수동 확인 필요: "
+                          f"git -C {cwd} stash list", file=sys.stderr)
+            untracked = git("ls-files", "--others", "--exclude-standard")
+            has_untracked = (
+                untracked.returncode == 0 and untracked.stdout.strip() != ""
+            )
+            if has_untracked:
+                stash_r = git("stash", "push", "-u", "-q", "-m", stash_marker)
+                has_untracked = stash_r.returncode == 0
             # -B 는 br 이 현재 체크아웃된 브랜치여도(재사용 워크스페이스가
             # 이미 그 위에 있는 경우) 지우지 않고 그대로 재설정한다 —
             # `branch -D` 는 체크아웃된 브랜치는 못 지운다.
             r = git("checkout", "-B", br, base)
             if r.returncode != 0:   # base 없음(원격 없음 등) — 현 HEAD 에서라도 재설정
                 r = git("checkout", "-B", br)
+            if has_untracked:
+                pop_r = git("stash", "pop", "-q")
+                if pop_r.returncode != 0:
+                    print(f"[spawn] {br} 재컷은 됐지만 보존해 둔 untracked "
+                          f"작업을 자동으로 못 풀었다(충돌) — 수동 확인 "
+                          f"필요: git -C {cwd} stash list / "
+                          f"git -C {cwd} stash show -p", file=sys.stderr)
         else:
             r = git("checkout", br)
     elif git("rev-parse", "--verify", "-q", f"origin/{br}").returncode == 0:

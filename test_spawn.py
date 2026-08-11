@@ -1504,6 +1504,142 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
             after = self._git(work, "rev-parse", br).stdout.strip()
             self.assertEqual(after, base_commit)
 
+    def test_checkout_recuts_absorbed_branch_and_preserves_untracked_files(self):
+        # 이슈 #732: 로컬 br 이 base 에 완전히 흡수됐고(0-ahead) 워크스페이스에
+        # untracked 파일만 있는 경우(커밋된 고유 작업 없음) — 재컷 전에
+        # 파일을 stash 로 보존했다가 재컷된 새 브랜치 위에 다시 풀어야 한다.
+        # base 트리에 이미 있는 경로와 충돌하는 untracked 파일도 포함해
+        # `checkout -B` 가 실패하는 재현 시나리오를 함께 검증한다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            (origin / "colliding.txt").write_text("from base tree")
+            self._git(origin, "add", "a.txt", "colliding.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999907, "implementation"
+            br = f"issue-{issue}/{role}"
+            self._git(work, "checkout", "-q", "-b", br, base_branch)
+            base_commit = self._git(work, "rev-parse", base_branch).stdout.strip()
+            (work / "scratch-work.txt").write_text("uncommitted, untracked")
+            (work / "colliding.txt").write_text("untracked version, collides with base")
+
+            result = spawn.checkout_issue_branch(str(work), issue, role)
+
+            self.assertEqual(result, br)
+            after = self._git(work, "rev-parse", br).stdout.strip()
+            self.assertEqual(after, base_commit,
+                             "재컷된 브랜치가 base 팁과 일치해야 한다")
+            self.assertEqual((work / "scratch-work.txt").read_text(),
+                             "uncommitted, untracked",
+                             "untracked 작업이 재컷 뒤 새 브랜치에 남아있어야 한다")
+            self.assertEqual((work / "colliding.txt").read_text(),
+                             "untracked version, collides with base",
+                             "충돌하는 untracked 파일도 보존돼야 한다")
+            status = self._git(work, "status", "--porcelain").stdout
+            self.assertIn("scratch-work.txt", status)
+            self.assertEqual(
+                self._git(work, "stash", "list").stdout.strip(), "",
+                "성공한 재컷 뒤엔 stash 가 남아있으면 안 된다")
+
+    def test_checkout_recovers_leftover_stash_from_interrupted_recut(self):
+        # 이전 실행이 stash push 와 pop 사이에서 중단됐다고 가정 — stash 는
+        # `git status --porcelain`에 안 보이므로, 이번 호출이 먼저 그걸
+        # 회수해야 다음 clean 의 보존 가드가 숨은 작업을 놓치지 않는다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999908, "implementation"
+            br = f"issue-{issue}/{role}"
+            self._git(work, "checkout", "-q", "-b", br, base_branch)
+            base_commit = self._git(work, "rev-parse", base_branch).stdout.strip()
+            (work / "leftover.txt").write_text("stashed by an interrupted prior run")
+            stash_marker = f"checkout_issue_branch-preserve-{br}"
+            stash_r = self._git(work, "stash", "push", "-u", "-q", "-m", stash_marker)
+            self.assertEqual(stash_r.returncode, 0, stash_r.stderr)
+            self.assertFalse((work / "leftover.txt").exists())
+            self.assertEqual(self._git(work, "status", "--porcelain").stdout.strip(),
+                             "", "stash 뒤엔 working tree 가 깨끗해야 한다")
+
+            result = spawn.checkout_issue_branch(str(work), issue, role)
+
+            self.assertEqual(result, br)
+            after = self._git(work, "rev-parse", br).stdout.strip()
+            self.assertEqual(after, base_commit)
+            self.assertEqual((work / "leftover.txt").read_text(),
+                             "stashed by an interrupted prior run",
+                             "중단된 실행이 남긴 stash 가 복구돼야 한다")
+            self.assertEqual(
+                self._git(work, "stash", "list").stdout.strip(), "",
+                "복구 뒤엔 stash 가 남아있으면 안 된다")
+
+    def test_checkout_preserves_workspace_unchanged_when_commits_ahead(self):
+        # empty state: 커밋된 고유 작업이 있는(base 대비 ahead) 워크스페이스는
+        # untracked 파일이 섞여 있어도 stash 왕복 없이 오늘과 동일하게
+        # 그대로 유지돼야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999909, "implementation"
+            br = f"issue-{issue}/{role}"
+            self._git(work, "checkout", "-q", "-b", br, base_branch)
+            (work / "progress.txt").write_text("real committed work")
+            self._git(work, "add", "progress.txt")
+            self._git(work, "commit", "-q", "-m", "in-progress work, ahead of base")
+            ahead_commit = self._git(work, "rev-parse", br).stdout.strip()
+            (work / "scratch.txt").write_text("also untracked, should stay untouched")
+
+            result = spawn.checkout_issue_branch(str(work), issue, role)
+
+            self.assertEqual(result, br)
+            after = self._git(work, "rev-parse", br).stdout.strip()
+            self.assertEqual(after, ahead_commit,
+                             "커밋이 앞서 있으면 브랜치가 재컷되면 안 된다")
+            self.assertEqual((work / "scratch.txt").read_text(),
+                             "also untracked, should stay untouched")
+            self.assertEqual(
+                self._git(work, "stash", "list").stdout.strip(), "",
+                "ahead 워크스페이스에선 stash 를 쓰면 안 된다")
+
 
 class WorkspaceExcludesHomeDotfiles(unittest.TestCase):
     """이슈 #289 H1: 샌드박스가 홈 dotfile 을 워크스페이스 루트에 오버레이해
