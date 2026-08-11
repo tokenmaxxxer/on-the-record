@@ -4131,7 +4131,24 @@ def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
         # 그대로 재사용한다.
         base = _base(cwd)
         ahead = git("rev-list", "--count", f"{base}..{br}")
-        if ahead.returncode == 0 and ahead.stdout.strip() == "0":
+        remote_ahead = git("rev-list", "--count", f"{base}..origin/{br}")
+        local_zero = ahead.returncode == 0 and ahead.stdout.strip() == "0"
+        # 로컬은 0-ahead 라도 origin/br 이 base 보다 앞서 있으면, 이
+        # 워크스페이스의 로컬 ref 가 그저 stale 한 것뿐이지 브랜치 자체가
+        # base 에 흡수된 게 아니다 — 그 상태에서 base 로 재설정하면 다른
+        # 워크스페이스가 이미 push 해 둔 커밋을 조용히 버린다 (이슈 #719).
+        # remote_ahead 조회가 실패하면(원격 브랜치 없음 등) 로컬 판단만으로
+        # 진행 — 오늘과 동일한 fail-open.
+        remote_stale_only = (
+            local_zero and remote_ahead.returncode == 0
+            and remote_ahead.stdout.strip() != "0"
+        )
+        if remote_stale_only:
+            print(f"[spawn] {br} 는 로컬만 {base} 에 흡수된 것처럼 보인다 — "
+                  f"origin/{br} 이 앞서 있어 재컷 대신 origin 을 따라간다.",
+                  file=sys.stderr)
+            r = git("checkout", "-B", br, f"origin/{br}")
+        elif local_zero:
             print(f"[spawn] {br} 는 {base} 에 완전히 흡수돼 커밋이 없다 — "
                   f"로컬 브랜치를 지우고 새로 판다.", file=sys.stderr)
             # -B 는 br 이 현재 체크아웃된 브랜치여도(재사용 워크스페이스가
@@ -4711,8 +4728,6 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _flush_unverified(events_path, pending_refusals)
         rc = proc.wait()
         roster_remove(roster_key)
-        if issue is not None:
-            _release_spawn_claim(cwd, os.getpid())
     finally:
         if not is_parent_return:
             os.unlink(settings)
@@ -4742,7 +4757,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                   f"같은 이슈로 재스폰하면 이 워크스페이스를 이어받아 커밋부터 "
                   f"끝낼 수 있다:\n  " + "\n  ".join(uncommitted[:10]),
                   file=sys.stderr)
-        push_result = ensure_pushed(cwd, issue, role)
+        try:
+            push_result = ensure_pushed(cwd, issue, role)
+        finally:
+            # ensure_pushed() 안의 `gh`/`git` 호출이 예외를 던져도(이슈 #719
+            # hunt: gh 바이너리 부재 등) 클레임은 반드시 풀려야 한다 — 안
+            # 그러면 release 지점을 여기로 늦춘 바로 그 변경이 클레임을
+            # stale-timeout 까지 새게 만드는 회귀가 된다.
+            _release_spawn_claim(cwd, os.getpid())
     else:
         push_result = None
     gates = gate_report(cwd) + ownership_report(cwd, role, delta)
