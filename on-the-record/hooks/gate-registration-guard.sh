@@ -23,7 +23,11 @@
 # / .github/workflows/*.yml file fires this check — editing an
 # already-registered module's internals (plain "M"), or any unrelated
 # commit, is untouched (the ambient-noise failure mode #744
-# investigates).
+# investigates). The `git commit` detection itself is a `shlex.split`
+# token check, not a substring regex (issue #876, porting the fix
+# #866 landed in spec-index-preflight.sh) — a plain `\bgit\s+commit\b`
+# substring match misses `git -c <key>=<val> commit ...`, letting a
+# global option between `git` and `commit` bypass the trigger entirely.
 #
 # Fail-open on any environment gap (missing python3/git, not a `git
 # commit` command, no newly-staged mechanism file, unreadable spec
@@ -37,7 +41,7 @@ command -v python3 >/dev/null 2>&1 || exit 0
 command -v git >/dev/null 2>&1 || exit 0
 
 IFS='' read -r -d '' GUARD <<'PY' || true
-import json, os, re, subprocess, sys
+import json, os, re, shlex, subprocess, sys
 
 def deny(msg):
     sys.stderr.write("gate-registration-guard: %s\n" % msg)
@@ -53,7 +57,19 @@ ti = e.get("tool_input") or {}
 cmd = ti.get("command") if isinstance(ti, dict) else None
 if not isinstance(cmd, str):
     sys.exit(0)
-if not re.search(r"\bgit\s+commit\b", cmd):
+
+# issue #866/#876: a plain `\bgit\s+commit\b` substring match misses an
+# ordinary `git -c <key>=<val> commit ...` (or any other global option
+# between `git` and its `commit` subcommand) -- tokenizing first and
+# checking for the two tokens survives any number of intervening
+# options, and (unlike a looser substring check) does not fire on
+# `commit` appearing inside an unrelated token (`--grep=commit`,
+# `commit-tree`) or inside a quoted string.
+try:
+    tokens = shlex.split(cmd)
+except ValueError:
+    sys.exit(0)
+if "git" not in tokens or "commit" not in tokens:
     sys.exit(0)
 
 cwd = e.get("cwd") or os.getcwd()
