@@ -7,6 +7,8 @@ code_under_review:
   - on-the-record/hooks/hooks.json
   - gates/test_batch_eligible_groups.py
   - gates/test_plan_order_blocked.py
+  - docs/specs/generated-paths.md
+  - docs/specs/enforcement-boundary.md
 type: feature
 breaking: false
 verdict: pass
@@ -114,6 +116,35 @@ writing only `implementation.md`/`implementation/**`, so the hunt finding
 and its resolution are folded into this record instead of a standalone
 hunt file — noted here so the absence of a separate hunt-record path is
 not mistaken for a hunt that never ran.
+
+## Post-merge PR-review fix (gates/test_generated_paths.py, #684 gate)
+
+The full suite (`gates/` + `on-the-record/hooks/`) was red on this branch
+against a gate this PR did not originally touch: `gates/test_generated_paths.py`'s
+completeness check failed because neither this PR's own
+`plan-order-guard.sh` nor the pre-existing `session-role-bind.sh` (landed
+by issue #698, unregistered there — main was already red before this PR's
+change) had a row in `docs/specs/generated-paths.md`. Fixed by adding both
+rows:
+
+- `plan-order-guard.sh` — issue-scoped: writes only
+  `docs/issue-<n>/decisions/spawn-refusal-<ts>.md`, `<n>` from the
+  `--issue` CLI arg it already parses.
+- `session-role-bind.sh` — out-of-tree: writes only under
+  `${OTR_ROLE_BIND_STATE_DIR:-$TMPDIR/otr-role-bind}`, never inside the
+  target repo.
+
+Re-running the full suite then surfaced a second, same-shaped gate red in
+`gates/test_boundary.py` (#441's enforcement-boundary completeness check)
+for the same two scripts having no verdict row in
+`docs/specs/enforcement-boundary.md`. Fixed by adding both as `contract`
+rows (both are zero-install, plugin-shipped hooks reachable by any
+consumer session) with their existing docstring/comment basis cited.
+
+```
+$ python3 -m pytest gates/ on-the-record/hooks/ -q
+493 passed in 20.87s
+```
 
 ## Open findings
 

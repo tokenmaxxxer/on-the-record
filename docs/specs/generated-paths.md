@@ -16,6 +16,8 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `delegated-judgment-gate.sh` | issue-scoped | safe — `docs/issue-<n>/decisions/*`, `<n>` from payload/branch |
 | `product-capture-stopgate.sh` | issue-scoped | safe — fixed #684: `docs/issue-<n>/product/<cat>.md`, `<n>` from `issue-<n>/<role>` branch name; no-ops off an issue-scoped branch |
 | `retry-loop-bound.sh` | out-of-tree | safe — `$TMPDIR`-rooted, never inside the target repo |
+| `plan-order-guard.sh` | issue-scoped | safe — `docs/issue-<n>/decisions/spawn-refusal-<ts>.md`, `<n>` from `--issue` CLI arg |
+| `session-role-bind.sh` | out-of-tree | safe — `${OTR_ROLE_BIND_STATE_DIR:-$TMPDIR/otr-role-bind}`-rooted, never inside the target repo (#698) |
 | `self-update.sh` | out-of-tree | safe — writes into the shared plugin checkout, not the target repo |
 | `directive.sh` | out-of-tree | safe — clones into the shared plugin checkout |
 | `impact-guard.sh` | out-of-tree | safe — same shared checkout clone |
