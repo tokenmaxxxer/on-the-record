@@ -74,3 +74,55 @@ single placeholder character; at minimum a length/word-count floor or a
 check for one of a small set of required tokens (e.g. a number, "no
 new", "N more") would make a one-character body fail the same way an
 empty body already does.
+
+## before-landing — stance 1: assume this change and another plugin's rule cancel each other — find the pair
+
+Verdict: NO FINDING
+Seed: `git diff main -- gates/flows.py test_flows.py test_spawn.py docs/specs/flows-schema.md` (gates/flows.py stops calling `closure_sweep.find_violations()` in `flows_payload`, `hygiene.closure_sweep` now hard-coded `[]`, `hygiene.closure_sweep_skips` built locally as one `{"subject", "reason": "not-run-in-flows"}` per board subject)
+cap_seconds: 180
+tier: default
+diff_stat_lines: >200 (4 files)
+started_at: 2026-08-11T03:10:48Z
+ended_at: 2026-08-11T03:13:02Z
+
+Searched for any other gate/hook/spec whose behavior implicitly depends on
+`hygiene.closure_sweep`/`hygiene.closure_sweep_skips` in `flows --json`
+carrying real violation data, or on `find_violations()` running inside the
+`flows` path:
+
+- `grep -rln "hygiene" on-the-record/hooks/` — zero matches. No hook (not
+  `decision-queue-stopgate.sh`, not `plan-order-guard.sh`, not
+  `pr-preflight.sh`) reads the `hygiene` key of the `flows --json` payload at
+  all; `decision-queue-stopgate.sh` only reads `decision_queue`.
+- `on-the-record/hooks/plan-order-guard.sh` calls
+  `gates/flows.py:plan_order_blocked()`, which *is* new relative to `main`,
+  but `git diff HEAD -- gates/flows.py` shows it was already committed on
+  this branch (commit `b2d913e`, issue #659, landed before the uncommitted
+  issue-674 change) — not part of this change, and it doesn't touch
+  `closure_sweep` at all. Confirmed via `git diff HEAD` (only the
+  `closure_sweep`-removal hunk is uncommitted).
+- `spawn.py:_board_wide_sweep()` (called every tick from
+  `roster_watchdog()`, spawn.py:1943-1946) does `import closure_sweep;
+  violations, skips = closure_sweep.find_violations(root)` directly, with
+  its own top-level import inside the function — completely independent of
+  `gates/flows.py:flows_payload()`. `test_spawn.py`'s
+  `test_board_wide_sweep_*` tests (mock.patch.dict on `sys.modules`) confirm
+  this call site is separate and untouched by the diff.
+- `gates/closure_sweep.py` itself imports `pr_reference`, `spawn`, `ci`,
+  `accumulation` — no import of `gates/flows.py`, no dependency on the
+  `flows` path.
+- `docs/specs/enforcement-boundary.md`'s `closure_sweep.py` row documents
+  board-wide enforcement as running via `spawn.py:roster_watchdog()`
+  (`find_violations()` call), not via `flows --json` — consistent with the
+  code.
+- Ran `on-the-record/hooks/test_decision_queue_stopgate.py` and
+  `test_pr_preflight.py` (14 tests) — all pass, confirming no hook-side
+  fixture assumed non-empty `hygiene.closure_sweep`.
+
+No consumer of `flows --json`'s `hygiene.closure_sweep`/`closure_sweep_skips`
+exists outside `gates/flows.py` itself (its own CLI print at
+gates/flows.py:499-503) and the test suite. Every other place that needs
+real violation data (`roster_watchdog`/`_board_wide_sweep`,
+`gates/closure_sweep.py --post`, `contract-guard.sh`'s single-PR case) calls
+`closure_sweep.find_violations()` (or equivalent single-PR logic) directly
+and was never routed through `flows_payload()`. No cancelling pair found.

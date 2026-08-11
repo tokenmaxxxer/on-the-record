@@ -5446,10 +5446,6 @@ class FlowsPayload(unittest.TestCase):
         self.flows = flows
         self._patch(flows, "_pr_list_all", lambda root: ([], True))
         self._patch(flows, "_issue_list_all", lambda root: ([], True))
-        import closure_sweep
-        self.closure_sweep = closure_sweep
-        self._patch(closure_sweep, "find_violations",
-                    lambda root, subjects=None, issue_states=None: ([], []))
 
     def _patch(self, obj, name, fn):
         orig = getattr(obj, name)
@@ -5607,16 +5603,18 @@ class FlowsPayload(unittest.TestCase):
         self.assertAlmostEqual(by_issue[9]["cost_usd_total"], 2.0)
 
     def test_hygiene_includes_closure_sweep_and_unapproved_prs(self):
+        """issue #674: `closure_sweep` no longer passes through
+        `find_violations()` — it stays empty and every board subject is
+        reported as not-run-in-flows instead."""
         self._write_record("issue-30", "implementation", "scope-approved")
         self._patch(self.flows, "_pr_list_all", lambda root: ([
             {"number": 55, "headRefName": "issue-30/implementation",
              "createdAt": "2026-07-30T00:00:00Z", "body": "", "reviews": []},
         ], True))
-        self._patch(self.closure_sweep, "find_violations",
-                    lambda root, subjects=None, issue_states=None: ([{"kind": "open-pr-on-closed-issue"}], []))
         payload = self.flows.flows_payload(self.root)
-        self.assertEqual(payload["hygiene"]["closure_sweep"],
-                         [{"kind": "open-pr-on-closed-issue"}])
+        self.assertEqual(payload["hygiene"]["closure_sweep"], [])
+        self.assertEqual(payload["hygiene"]["closure_sweep_skips"],
+                         [{"subject": "issue-30", "reason": "not-run-in-flows"}])
         self.assertEqual(len(payload["hygiene"]["unapproved_open_prs"]), 1)
         self.assertEqual(payload["hygiene"]["unapproved_open_prs"][0]["pr"], 55)
 

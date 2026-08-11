@@ -86,8 +86,6 @@ class FlowsStageMapping(unittest.TestCase):
         self._patch(flows, "_pr_list_all", lambda root: ([], True))
         self._issues = []
         self._patch(flows, "_issue_list_all", lambda root: (self._issues, True))
-        self._patch(closure_sweep, "find_violations",
-                    lambda root, subjects=None, issue_states=None: ([], []))
 
     def _patch(self, obj, name, fn):
         orig = getattr(obj, name)
@@ -132,16 +130,23 @@ class FlowsStageMapping(unittest.TestCase):
         self.assertTrue(payload["errors"]["issue_list"])
 
     def test_closure_sweep_skips_surface_in_hygiene(self):
-        """issue #287 S1: `find_violations` 가 못 확인한 subject 는
-        `hygiene.closure_sweep_skips` 에 남아야 한다 — 0건 위반과
-        구별된다."""
-        self._patch(closure_sweep, "find_violations",
-                    lambda root, subjects=None, issue_states=None:
-                    ([], [{"subject": "issue-99", "reason": "gh-issue-view-failed"}]))
+        """issue #674: `flows_payload` must never call
+        `closure_sweep.find_violations()` — patching it to raise turns a
+        regression back into a call into a hard failure (red); the
+        current code (green) reports every board subject as
+        not-run-in-flows instead, with `closure_sweep` staying empty."""
+        def _fail_if_called(root, subjects=None, issue_states=None):
+            raise AssertionError(
+                "find_violations() must not be called from flows_payload")
+        self._patch(closure_sweep, "find_violations", _fail_if_called)
+        self._write_record("issue-98", "implementation", "scope-approved")
+        self._write_record("issue-99", "product-discovery", "scope-proposed")
         payload = flows.flows_payload(self.root)
         self.assertEqual(payload["hygiene"]["closure_sweep"], [])
-        self.assertEqual(payload["hygiene"]["closure_sweep_skips"],
-                         [{"subject": "issue-99", "reason": "gh-issue-view-failed"}])
+        self.assertEqual(payload["hygiene"]["closure_sweep_skips"], [
+            {"subject": "issue-98", "reason": "not-run-in-flows"},
+            {"subject": "issue-99", "reason": "not-run-in-flows"},
+        ])
 
     def test_ledger_skipped_line_is_counted(self):
         """issue #287 S3: 손상된 ledger 줄은 조용히 버려지지 않고
