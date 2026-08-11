@@ -4,14 +4,19 @@
 # are ROLE WORK — the coding-rulebook lesson, enforced mechanically after
 # a live session authored a requirements doc itself despite the directive.
 #
-# Denied: writes under a target repo's src/, test/, or docs/ trees (and
-# tests/, issue #287 S5 — the far more common layout, previously never
-# matched). Also denied: an unparseable stdin payload (empty, non-JSON,
+# Denied: writes to any deliverable-shaped path in a target repo — not
+# just the src/, test(s)/, docs/-segment layout, but also a flat
+# top-level package layout with no such segment (issue #787 H1: the
+# #776 baseline fixture's `fixture_target/__init__.py` and
+# `test_fixture_target.py` sat beside each other with no src/test/docs
+# segment at all, and the old segment-only regex let both through
+# unexamined). Also denied: an unparseable stdin payload (empty, non-JSON,
 # non-dict JSON, missing file_path) — issue #287 S4: a delivery failure
 # on stdin must not silently become an ALLOW.
 # Allowed: docs/specs/approvers.md (the one file the orchestrator is
-# sanctioned to write, with the user's confirmation), and anything outside
-# those trees (scratch files, the muster checkout itself).
+# sanctioned to write, with the user's confirmation), and anything under
+# a scratch/tmp path or a .git/plugin-cache directory (the muster
+# checkout itself, scratch notes).
 # Kill switch: ORCHESTRATE_OFF=1. Fail closed on non-0/2 (now including
 # parse failure, not just crashes — the previous header claim here was
 # false for the parse-failure path; issue #287 S4).
@@ -32,7 +37,8 @@ payload="$(cat 2>/dev/null || true)"
 # that shortcut used to also skip empty/malformed payloads straight to
 # ALLOW (issue #287 S4), since those don't contain the substring either.
 # python3 below re-derives the real allow/deny decision from tool_name,
-# file_path, and the same tree regex — it is the single source of truth.
+# file_path, and the same exemption checks — it is the single source of
+# truth.
 command -v python3 >/dev/null 2>&1 || exit 2
 
 IFS='' read -r -d '' GUARD <<'PY' || true
@@ -84,15 +90,28 @@ if not isinstance(p, str) or not p:
          "through.")
 
 n = posixpath.normpath(p.replace("\\", "/"))
-m = re.search(r"(^|/)(src|tests?|docs)/", n)
-if not m:
-    sys.exit(0)
 if n.endswith("docs/specs/approvers.md"):
     sys.exit(0)
-# Only guard writes inside a git repo that is a board or plausibly a target
-# (has docs/specs/approvers.md or an issue tree); a random project the user
-# is hand-editing in the same session is not this gate's business.
-cwd = e.get("cwd") or os.getcwd()
+# issue #787 H1: the old src/tests?/docs-segment-only regex missed a flat
+# top-level package layout (no such segment at all). Widen to "everything
+# is a deliverable path" and instead exempt the narrow set of paths that
+# are never a deliverable: scratch/tmp work areas and the plugin's own
+# .git/plugin-cache internals.
+segs = [s for s in n.split("/") if s]
+if any(s in ("scratch", "tmp", ".git", "plugin-cache") for s in segs):
+    sys.exit(0)
+# Only guard writes inside a git repo reachable from cwd (issue #787 H1:
+# the target repo no longer needs to already carry docs/specs/approvers.md
+# itself — that used to be the sole activation signal, which silently
+# no-ops on an ordinary, freshly-instantiated target repo that has no
+# board files yet). A random project the user is hand-editing outside any
+# git repo is still not this gate's business.
+cwd = e.get("cwd")
+if not isinstance(cwd, str) or not cwd or not posixpath.isabs(cwd):
+    deny("PreToolUse payload is missing an absolute cwd — cannot verify "
+         "this write's target relative to the session's actual working "
+         "directory, denying rather than silently resolving a relative "
+         "cwd against the hook process's own unrelated cwd.")
 root = None
 d = n if posixpath.isabs(n) else posixpath.normpath(posixpath.join(cwd, n))
 probe = posixpath.dirname(d)
@@ -101,7 +120,7 @@ while probe and probe != "/":
         root = probe
         break
     probe = posixpath.dirname(probe)
-if root is None or not os.path.isfile(os.path.join(root, "docs", "specs", "approvers.md")):
+if root is None:
     sys.exit(0)
 
 deny("this is an orchestrator session and %s is a deliverable path in a "
