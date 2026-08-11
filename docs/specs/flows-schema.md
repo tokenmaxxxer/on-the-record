@@ -201,8 +201,10 @@ Single object, not an array.
 
 ```json
 {
-  "closure_sweep": [ /* find_violations() violations, reused verbatim */ ],
-  "closure_sweep_skips": [ /* find_violations() skip records, issue #287 S1 */ ],
+  "closure_sweep": [],
+  "closure_sweep_skips": [
+    { "subject": "issue-172", "reason": "not-run-in-flows" }
+  ],
   "unapproved_open_prs": [
     { "issue": 172, "pr": 201, "role": "implementation", "opened_at": "2026-07-30T09:12:00Z" }
   ]
@@ -211,8 +213,8 @@ Single object, not an array.
 
 | field | type | notes |
 |---|---|---|
-| `closure_sweep` | array | verbatim `violations` half of `gates.closure_sweep.find_violations()`'s `(violations, skips)` return — structure owned by that module, passed through unchanged |
-| `closure_sweep_skips` | array | additive (issue #287 S1) — verbatim `skips` half of the same call: subjects/roles `find_violations()` could not check because a `gh` call failed, each a `{"subject", "role"?, "pr"?, "reason"}` record. Non-empty here means `closure_sweep` above is a **partial** result, not a complete "no violations" — a consumer must not read an empty `closure_sweep` together with a non-empty `closure_sweep_skips` as "clean" |
+| `closure_sweep` | array | always `[]` (issue #674) — `flows_payload` no longer calls `gates.closure_sweep.find_violations()`; that call broke §4's linear-in-subjects/flat-in-roles call-count contract and had been timing out repo-status-board's 60s per-repo budget. The field is kept (removing it would be a breaking §3 change) but is never populated from the sweep |
+| `closure_sweep_skips` | array | one `{"subject", "reason": "not-run-in-flows"}` record per board subject (issue #674), built locally in `flows_payload` from the same subject set `flows[]` is built from — not sourced from `find_violations()` at all. Always non-empty whenever there is at least one board subject, meaning `closure_sweep`'s emptiness must never be read as "no violations" — it means "not checked here". A subject-by-subject sweep is still available via the separate `closure_sweep` standalone verb (out of scope for this schema) |
 | `unapproved_open_prs` | array of `{issue, pr, role, opened_at}` | open PRs past phase 1 (`loop_state` already `scope-approved` or later) with neither a matching `APPROVE issue-<n>/<role>` comment from an approvers.md account nor a PR review Approve from a different approvers.md account |
 
 ### 2.6 `errors`
@@ -269,9 +271,15 @@ For one board repo with `S` open subjects, `R` roles per subject, and
 
 - **1** call — `gh repo view` (cached)
 - **1** call — `gh pr list --state all --json number,headRefName,createdAt,state,body,reviews --limit <cap>`, repo-wide; this single call's results are matched locally (by parsing `headRefName` against `issue-<n>/<role>`) to cover `decision_queue`, `flows[].prs`, and the PR-review side of `hygiene.unapproved_open_prs`
-- **1** call — `gh issue list --state all --json number,state,body --limit 1000`, repo-wide (issue #189); results are matched locally by issue number to prefetch each subject's issue `state` (reused by `hygiene.closure_sweep`, see below) and to parse `flows[].plan` from each issue's body, and to find open issues carrying a `## 실행 계획` block with no board record yet (the union-expansion subjects)
-- **up to `S`** calls — `gh issue view`, one per subject — in the steady state this call is **not** made: `hygiene.closure_sweep` (`closure_sweep.find_violations`) is passed the issue-state map already fetched by the repo-wide `gh issue list` call above and skips its own `gh issue view` for any subject whose issue is in that map. This call is now only a fallback path, for a subject whose issue number falls outside the prefetched set (e.g. the `--limit 1000` cap)
+- **1** call — `gh issue list --state all --json number,state,body --limit 1000`, repo-wide (issue #189); results are matched locally by issue number to parse `flows[].plan` from each issue's body, and to find open issues carrying a `## 실행 계획` block with no board record yet (the union-expansion subjects)
 - **up to `S`** calls — `gh api .../comments`, one per subject, for phase-1/2 comment-approval detection
+
+`hygiene.closure_sweep` is no longer sourced from a `gh`-hitting call at
+all (issue #674): `flows_payload` never calls
+`gates.closure_sweep.find_violations()`, so its `gh issue view`
+fallback path and the sweep's own API calls are entirely outside this
+contract now — `closure_sweep_skips` is built from the already-in-memory
+subject set, no network call.
 
 Total: **linear in `S`, flat in `R`** (independent of both `R` and
 `P`). The naive per-branch approach this replaces was `O(S×R)`.
@@ -305,8 +313,8 @@ orchestrator checkout that ran the sessions being reported.
 
 ## 7. Worked example
 
-One subject, one PR, one session, one ledger entry, one hygiene
-violation:
+One subject, one PR, one session, one ledger entry, one
+not-run-in-flows hygiene skip:
 
 ```json
 {
@@ -356,12 +364,9 @@ violation:
   ],
   "unattributed": { "sessions": 0, "cost_usd_total": 0.0 },
   "hygiene": {
-    "closure_sweep": [
-      {
-        "issue": 170,
-        "violation": "closed_without_delivered_stage",
-        "detail": "issue closed while role implementation loop_state=scope-proposed"
-      }
+    "closure_sweep": [],
+    "closure_sweep_skips": [
+      { "subject": "issue-172", "reason": "not-run-in-flows" }
     ],
     "unapproved_open_prs": [
       {

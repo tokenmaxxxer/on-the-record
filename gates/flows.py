@@ -430,9 +430,14 @@ def flows_payload(root: Path) -> dict:
         agg["cost_usd_total"] += cost
         agg["outcomes"][outcome] = agg["outcomes"].get(outcome, 0) + 1
 
-    import closure_sweep
-    violations, closure_sweep_skips = closure_sweep.find_violations(
-        root, subjects=b, issue_states=issue_state_by_n)
+    # issue #674: `find_violations()` no longer runs inside the `flows`
+    # path — it broke the linear-in-subjects/flat-in-roles call-count
+    # contract (§4) and timed out repo-status-board's 60s per-repo
+    # budget. Every board subject is reported unchecked instead.
+    closure_sweep_skips = [
+        {"subject": subject, "reason": "not-run-in-flows"}
+        for subject in sorted(b)
+    ]
 
     unattributed["ledger_skipped"] = ledger_skipped
 
@@ -446,7 +451,7 @@ def flows_payload(root: Path) -> dict:
         "ledger": sorted(ledger_by_issue.values(), key=lambda d: d["issue"]),
         "unattributed": unattributed,
         "hygiene": {
-            "closure_sweep": violations,
+            "closure_sweep": [],
             "closure_sweep_skips": closure_sweep_skips,
             "unapproved_open_prs": unapproved_open_prs,
         },
