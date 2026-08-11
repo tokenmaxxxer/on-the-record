@@ -29,6 +29,11 @@
     "error": ["sample-unreachable"]
   },
   "use_when": {
-    "board_condition": "a new interaction pattern or color-token set landed on the branch AND no accessibility record exists yet for it"
+    "board_condition": "a new interaction pattern or color-token set landed on the branch AND no accessibility record exists yet for it",
+    "trigger": {
+      "path_patterns": ["**/*token*", "**/*.css", "**/*.tsx", "**/*.jsx", "**/interaction*"],
+      "content_patterns": ["aria-", "color-token", "role=\""],
+      "record_absent_for": "accessibility"
+    }
   }
 }

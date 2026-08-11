@@ -29,6 +29,11 @@
     "error": ["environment-setup-failed"]
   },
   "use_when": {
-    "board_condition": "an executable artifact landed on the branch AND no execution-observation record exists yet for this commit sha"
+    "board_condition": "an executable artifact landed on the branch AND no execution-observation record exists yet for this commit sha",
+    "trigger": {
+      "path_patterns": ["**/*.py", "**/*.js", "**/*.ts", "**/*.sh", "**/*.go"],
+      "content_patterns": [],
+      "record_absent_for": "execution-observation"
+    }
   }
 }
