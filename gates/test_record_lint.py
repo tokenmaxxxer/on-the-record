@@ -113,6 +113,33 @@ def t_non_record_path_is_reported_not_silently_skipped():
     assert bad and "레코드 경로 형태" in bad[0], bad
 
 
+def t_state_claim_without_canonical_tag_is_reported():
+    """issue #793: a state-claim line ("role X found Y") with no
+    `canonical:` tag within 3 lines above it is flagged."""
+    body = (
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "The verify role found the defect in the parser.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert any("#793" in b for b in bad), bad
+
+
+def t_state_claim_with_canonical_tag_passes():
+    body = (
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: src/parser.py:42-58\n"
+        "The verify role found the defect in the parser.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert not any("#793" in b for b in bad), bad
+
+
 def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]

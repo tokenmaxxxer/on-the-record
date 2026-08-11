@@ -106,6 +106,22 @@ def t_existing_path_reference_passes(tmp_path):
     assert r.returncode == 0
 
 
+def t_state_claim_without_canonical_tag_is_denied(tmp_path):
+    p = _record_path(tmp_path)
+    r = _run({"file_path": str(p),
+              "content": "The verify role found the defect in the parser.\n"})
+    assert r.returncode == 2
+    assert "issue #793" in r.stderr
+
+
+def t_state_claim_with_canonical_tag_passes(tmp_path):
+    p = _record_path(tmp_path)
+    content = ("canonical: src/parser.py:42-58\n"
+               "The verify role found the defect in the parser.\n")
+    r = _run({"file_path": str(p), "content": content})
+    assert r.returncode == 0
+
+
 def t_malformed_payload_is_allowed_not_denied(tmp_path):
     env = dict(os.environ)
     env["ORCHESTRATE_OFF"] = ""
@@ -153,6 +169,9 @@ def t_directive_names_all_four_record_lint_rules():
     assert "#331" in out
     # path-must-resolve (#330: a backtick-quoted path must resolve)
     assert "#330" in out
+    # canonical-source-required (#793: a state/defect claim needs a
+    # `canonical:` tag naming the source actually read)
+    assert "canonical:" in out and "#793" in out
 
 
 def t_directive_is_silent_without_claude_role():

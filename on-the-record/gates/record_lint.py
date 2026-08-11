@@ -67,6 +67,15 @@ _CLAIM_DERIVED_TAG = re.compile(r"`derived:\s*\S.*?`")
 _PATH_REF = re.compile(
     r"`((?:src|test|tests|docs|gates|on-the-record)/[^`\s]+)`")
 
+# issue #793 — verify-before-claim: a state/defect-claim marker vocabulary,
+# deliberately narrow (known bypassable by synonym choice, same tradeoff
+# `_COUNT_RATIO`/`_COUNT_NOUN` already accept — widen from real record
+# corpus usage in a later pass, not a closed set assumed complete here).
+_STATE_CLAIM_MARKER = re.compile(
+    r"(?i)\b(halted|merged|closed|found|confirms?|confirmed|"
+    r"is\s+running|is\s+gone|is\s+stale)\b")
+_CANONICAL_TAG = re.compile(r"`?canonical:\s*(\S.*?)`?\s*$", re.MULTILINE)
+
 
 def unverifiable_reason_check(text: str) -> list[str]:
     """#310/#331 mirror: an `unverifiable:` escape line needs a reason."""
@@ -136,6 +145,48 @@ def orphaned_path_reference_check(root: Path, text: str) -> list[str]:
     return bad
 
 
+def canonical_source_claim_check(text: str) -> list[str]:
+    """issue #793 mirror: a state/defect-claim line (role output "found",
+    session/PR/board state "halted|merged|closed|is running|is gone|is
+    stale", or a bare count claim) needs a `canonical: <what was read>`
+    tag within 3 lines above it, citing the actual role record/diff, raw
+    ground-truth command output, or file:line-context read — not a
+    summary/grep/watcher signal with nothing named."""
+    bad = []
+    lines = text.splitlines()
+    in_fence = [False] * len(lines)
+    fence = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            fence = not fence
+            in_fence[i] = True
+            continue
+        in_fence[i] = fence
+    for i, line in enumerate(lines):
+        if in_fence[i]:
+            continue
+        marker_claim = bool(_STATE_CLAIM_MARKER.search(line))
+        count_claim = not marker_claim and bool(
+            _COUNT_RATIO.search(line) or _COUNT_NOUN.search(line))
+        if not (marker_claim or count_claim):
+            continue
+        window = "\n".join(lines[max(0, i - 3):i + 1])
+        m = _CANONICAL_TAG.search(window)
+        has_canonical = bool(m and m.group(1).strip())
+        # A count claim already satisfying #333's `derived:` requirement
+        # names its source too — `canonical:` is a sibling tag, not a
+        # second mandatory citation for the same already-cited count.
+        has_derived = count_claim and bool(_CLAIM_DERIVED_TAG.search(window))
+        if not has_canonical and not has_derived:
+            bad.append(
+                "레코드에 canonical 소스 인용 없는 상태/결함 주장 (issue #793): "
+                f"{line.strip()!r} — role output / session·PR·board 상태 / "
+                "결함을 주장하면서 3줄 이내에 `canonical: <읽은 소스>` 태그가 "
+                "없다 — 요약이나 grep/watcher 신호가 아니라 실제 레코드/diff, "
+                "raw ground truth, 또는 file:line 컨텍스트를 인용해야 한다.")
+    return bad
+
+
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
@@ -188,6 +239,7 @@ def lint_record(path: Path) -> list[str]:
     bad += checked_claim_reason_check(text)
     bad += bare_count_claim_check(text)
     bad += orphaned_path_reference_check(root, text)
+    bad += canonical_source_claim_check(text)
     return bad
 
 
