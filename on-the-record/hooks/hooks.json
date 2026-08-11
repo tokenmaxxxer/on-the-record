@@ -3,7 +3,8 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/self-update.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/self-update.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/session-role-bind.sh" }
         ]
       }
     ],
