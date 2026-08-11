@@ -42,7 +42,8 @@
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/gate-registration-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/impact-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/plan-order-guard.sh" },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/delegated-judgment-gate.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/delegated-judgment-gate.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/merge-allow-gate.sh" }
         ]
       },
       {
