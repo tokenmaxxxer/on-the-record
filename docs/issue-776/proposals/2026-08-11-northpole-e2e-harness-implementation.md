@@ -9,6 +9,7 @@ files:
   - harness/signals.py
   - harness/run_smoke.py
   - harness/README.md
+  - docs/handbooks/northpole-harness.md
   - docs/issue-776/reports/implementation/survey.md
   - docs/issue-776/proposals/2026-08-11-northpole-e2e-harness-implementation.md
   - docs/issue-776/reports/implementation.md
@@ -42,13 +43,13 @@ signal structure — not a baseline run against a live session (issue
   delivers a runnable driver + signal checker and proves the checker's
   output shape via a smoke check against a synthetic transcript/repo
   fixture.
-- Output layout: code/tests/docs in their proper buckets; the fixture
-  repo's own pyproject.toml counts as an operational-surface file for
-  contract §21 purposes only within the fixture, but since
-  `harness/fixture-target/` is a template checked in under this repo's
-  own tree (not a live git submodule), commit it alongside
-  `harness/README.md` (a handbook-shaped doc) in the same commit to
-  satisfy contract §21's pairing rule.
+- Output layout: code/tests/docs in their proper buckets. The fixture
+  repo's own `pyproject.toml` is an operational-surface file under
+  contract §21, which requires a `docs/handbooks/` touch in the same
+  commit — `harness/README.md` does not satisfy that (it is not under
+  `docs/handbooks/`), so `docs/handbooks/northpole-harness.md` is added
+  to the write set and committed alongside `pyproject.toml` to satisfy
+  the pairing rule (per this session's own hunt finding, resolved here).
 
 ## Rationale
 
@@ -117,7 +118,12 @@ language was seriously in contention given that constraint.
 5. **`harness/README.md`** — how to run the smoke check now
    (`python3 harness/run_smoke.py`) versus how to run the real baseline
    later (step 3, wiring `driver.py` to a live session).
-6. Write this step's phase-2 record at `docs/issue-776/reports/implementation.md`
+6. **`docs/handbooks/northpole-harness.md`** — the contract-§21-required
+   handbook entry for the harness's operational surface: what
+   `harness/fixture-target/pyproject.toml` installs, how the plugin
+   pointer works, and how to run the harness — satisfying the pairing
+   rule for the operational-surface file in the same write set.
+7. Write this step's phase-2 record at `docs/issue-776/reports/implementation.md`
    once phase 2 opens.
 
 ## Out of scope
