@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixture-multimod"
+version = "0.1.0"
+description = "Northpole E2E harness fixture — multi-file/cross-module scenario (issue #895 type 3): a shared formatter drops the trailing newline in json mode for two commands"
+requires-python = ">=3.9"
+
+[project.scripts]
+fixture-multimod = "fixture_multimod.cli:main"
+
+[tool.setuptools]
+packages = ["fixture_multimod"]
