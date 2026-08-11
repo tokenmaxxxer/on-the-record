@@ -157,6 +157,82 @@ def t_single_quoted_shell_operator_in_body_does_not_trip_chain_check(tmp_path: P
     assert _decision(r.stdout) == "allow", repr(r.stdout)
 
 
+_BENIGN_HEREDOC_BODY_COMMAND = (
+    'gh issue create --title "t" --body "$(cat <<\'EOF\'\n'
+    'line one\n'
+    'line two\n'
+    'EOF\n'
+    ')"'
+)
+
+
+def t_quoted_heredoc_body_substitution_gets_allow(tmp_path: Path):
+    # issue #868: the real multi-line-body shape a session emits —
+    # `--body "$(cat <<'EOF' ... EOF)"` with a QUOTED delimiter — must be
+    # allowed, since a quoted heredoc delimiter cannot expand or execute
+    # anything inside its body.
+    r = _run(_BENIGN_HEREDOC_BODY_COMMAND)
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) == "allow", repr(r.stdout)
+
+
+def t_quoted_heredoc_body_role_session_still_not_allowed(tmp_path: Path):
+    r = _run(_BENIGN_HEREDOC_BODY_COMMAND,
+             extra_env={"CLAUDE_ROLE": "implementation"})
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_double_quoted_heredoc_delimiter_also_gets_allow(tmp_path: Path):
+    command = (
+        'gh issue comment 12 --body "$(cat <<"EOF"\n'
+        'body text\n'
+        'EOF\n'
+        ')"'
+    )
+    r = _run(command)
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) == "allow", repr(r.stdout)
+
+
+def t_unquoted_heredoc_delimiter_is_not_the_benign_shape(tmp_path: Path):
+    # An UNQUOTED heredoc delimiter (`<<EOF`, no quotes) DOES expand
+    # `$(...)`/backticks/variables inside its body — this is not the
+    # provably-benign shape, so it must fall through to the ordinary
+    # substitution rule and stay unreached (no allow).
+    command = (
+        'gh issue comment 12 --body "$(cat <<EOF\n'
+        'hi\n'
+        'EOF\n'
+        ')"'
+    )
+    r = _run(command)
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_dangerous_substitution_inside_heredoc_shape_is_still_denied(tmp_path: Path):
+    # A second, independent `$(...)` elsewhere in the command — even one
+    # that also LOOKS like it could be folded into the benign shape —
+    # means more than one substitution is present, so the whole command
+    # must not be allowed.
+    command = (
+        'gh issue create --title "$(rm -rf x)" --body "$(cat <<\'EOF\'\n'
+        'hi\n'
+        'EOF\n'
+        ')"'
+    )
+    r = _run(command)
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_plain_dangerous_command_substitution_still_denied(tmp_path: Path):
+    r = _run('gh issue create --title "t" --body "$(rm -rf x)"')
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) is None, repr(r.stdout)
+
+
 def t_non_gh_command_is_untouched(tmp_path: Path):
     r = _run('git status')
     assert r.returncode == 0, r.stderr

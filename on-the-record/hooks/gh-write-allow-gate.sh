@@ -82,6 +82,32 @@ if role:
 # operator token anywhere else in the list. No token past the verb itself
 # is ever inspected — the decision is keyed on shape, never on argument
 # text (issue #856's own stated requirement).
+#
+# issue #868 exception: `$(cat <<'DELIM' ... DELIM\n)` — a command
+# substitution whose ENTIRE content is a `cat` heredoc with a QUOTED
+# delimiter. A quoted heredoc delimiter (`<<'EOF'`/`<<"EOF"`) is a shell
+# primitive that disables ALL expansion of its body by construction — the
+# shell never looks for `$(...)`, backticks, or variables inside it,
+# regardless of what text the body contains. So `cat`'s stdout (the
+# multi-line body, verbatim) is the only thing this substitution can ever
+# produce; it cannot execute anything hidden. This is the real shape a
+# session emits for `gh issue create --body "$(cat <<'EOF' ... EOF)"`
+# (see docs/issue-868/reports/implementation/survey.md). Only this exact
+# shape is special-cased; any other `$(...)`/backtick/newline still exits
+# untouched below.
+_HEREDOC_SUB_RE = re.compile(
+    r"\$\(\s*cat\s*<<\s*(?P<q>['\"])(?P<delim>[A-Za-z_][A-Za-z0-9_]*)(?P=q)"
+    r"\s*\n(?P<body>.*?)\n(?P=delim)[ \t]*\n?\s*\)",
+    re.DOTALL,
+)
+_subs = list(_HEREDOC_SUB_RE.finditer(cmd))
+if len(_subs) == 1 and cmd.count("$(") == 1 and "`" not in cmd:
+    # Exactly one substitution, of the provably-benign shape, and nothing
+    # else in the command needs `$(` at all — collapse it to an inert
+    # single-token placeholder so the rest of the command (the actual gh
+    # verb and its other flags) can be shape-checked as normal below.
+    cmd = cmd[: _subs[0].start()] + '"__OTR_QUOTED_HEREDOC_BODY__"' + cmd[_subs[0].end():]
+
 if "`" in cmd or "$(" in cmd or "\n" in cmd:
     sys.exit(0)  # no legitimate invocation needs substitution or a newline
 
