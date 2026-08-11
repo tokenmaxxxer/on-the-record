@@ -26,6 +26,20 @@
 # documented fail-open policy on infrastructure failures), with a stderr
 # note that the check could not run.
 #
+# Standing-delegation provenance (issue #707): a second, distinct citation
+# shape — "APPROVE issue-<n>/<role> VIA DELEGATION <scope>" from an
+# approvers.md login — is also accepted, but only when a matching
+# "DELEGATE <scope> UNTIL <date>" grant (from an approvers.md login) is
+# live: unexpired, not superseded by a later "REVOKE <scope>" comment from
+# an approvers.md login, and scope == this branch's own "issue-<n>/<role>".
+# The human-typed exact-match path above stays byte-identical; the
+# delegation path is checked only when that first match fails, and empty
+# state (no DELEGATE comment at all) falls through to the exact same deny
+# as today. Self-approval via this path (a role-bound session posting its
+# own citation) is refused at the point the citation would be POSTED
+# (delegation-post-gate.sh), not re-checked here — this gate only asks
+# "does a live, in-scope grant already back this citation."
+#
 # Fails closed on any other non-0/2 exit (trap), matching this plugin's
 # house style. Kill switch: ORCHESTRATE_OFF=1.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
@@ -155,14 +169,65 @@ approved = any(
     and (c.get("author", {}) or {}).get("login") in approvers
     for c in (comments or [])
 )
+
+# --- delegation-citation provenance (issue #707) -----------------------
+_DELEGATE_RE = re.compile(r"^DELEGATE (\S+) UNTIL (\d{4}-\d{2}-\d{2})$")
+_REVOKE_RE = re.compile(r"^REVOKE (\S+)$")
+_CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
+
+def _delegation_valid(scope, all_comments, approver_set):
+    import datetime
+    grants, revokes = [], []
+    for c in all_comments:
+        b = (c.get("body") or "").strip()
+        login = (c.get("author", {}) or {}).get("login")
+        if login not in approver_set:
+            continue
+        created = c.get("createdAt") or ""
+        gm = _DELEGATE_RE.match(b)
+        if gm and gm.group(1) == scope:
+            grants.append((created, gm.group(2)))
+        rm = _REVOKE_RE.match(b)
+        if rm and rm.group(1) == scope:
+            revokes.append(created)
+    if not grants:
+        return False
+    grants.sort()
+    latest_created, expiry = grants[-1]
+    if any(rc > latest_created for rc in revokes):
+        return False  # revoked after the most recent grant — live-checked, never cached
+    try:
+        exp = datetime.date.fromisoformat(expiry)
+    except ValueError:
+        return False
+    return datetime.date.today() <= exp
+
+if not approved:
+    own_scope = "issue-%d/%s" % (issue, role)
+    for c in (comments or []):
+        b = (c.get("body") or "").strip()
+        login = (c.get("author", {}) or {}).get("login")
+        cm = _CITE_RE.match(b)
+        if not cm or login not in approvers:
+            continue
+        if int(cm.group(1)) != issue or cm.group(2) != role:
+            continue
+        cited_scope = cm.group(3)
+        if cited_scope == own_scope and _delegation_valid(cited_scope, comments, approvers):
+            approved = True
+            break
+
 if not approved:
     deny(
-        "no matching 'APPROVE issue-%d/%s' issue comment from a "
-        "docs/specs/approvers.md-listed account was found — this "
-        "phase-2-shaped write (%s) needs phase-2 approval first." % (issue, role, n),
+        "no matching 'APPROVE issue-%d/%s' issue comment (typed or a "
+        "live in-scope delegation citation) from a docs/specs/"
+        "approvers.md-listed account was found — this phase-2-shaped "
+        "write (%s) needs phase-2 approval first." % (issue, role, n),
         "post an issue comment whose entire body is exactly "
-        "'APPROVE issue-%d/%s', from an account listed in "
-        "docs/specs/approvers.md." % (issue, role),
+        "'APPROVE issue-%d/%s', or (issue #707) 'APPROVE issue-%d/%s VIA "
+        "DELEGATION issue-%d/%s' backed by a live 'DELEGATE issue-%d/%s "
+        "UNTIL <date>' grant, from an account listed in "
+        "docs/specs/approvers.md." % (issue, role, issue, role, issue, role, issue, role),
     )
 sys.exit(0)
 PY

@@ -117,6 +117,60 @@ phase2 = any(
     and (c.get("author", {}) or {}).get("login") in approvers
     for c in (comments or [])
 )
+
+# --- delegation-citation provenance (issue #707) ----------------------
+# Same distinct-shape acceptance as approval-gate.sh: a
+# "APPROVE issue-<n>/<role> VIA DELEGATION <scope>" citation from an
+# approvers.md login also flips phase to phase2, but only when backed by a
+# live (unexpired, unrevoked, in-scope) "DELEGATE <scope> UNTIL <date>"
+# grant. Empty state (no citation, no DELEGATE comment) leaves phase2
+# byte-identical to the exact-match check above.
+if not phase2:
+    _DELEGATE_RE = re.compile(r"^DELEGATE (\S+) UNTIL (\d{4}-\d{2}-\d{2})$")
+    _REVOKE_RE = re.compile(r"^REVOKE (\S+)$")
+    _CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
+
+    def _delegation_valid(scope, all_comments, approver_set):
+        import datetime
+        grants, revokes = [], []
+        for c in all_comments:
+            b = (c.get("body") or "").strip()
+            login = (c.get("author", {}) or {}).get("login")
+            if login not in approver_set:
+                continue
+            created = c.get("createdAt") or ""
+            gm = _DELEGATE_RE.match(b)
+            if gm and gm.group(1) == scope:
+                grants.append((created, gm.group(2)))
+            rm = _REVOKE_RE.match(b)
+            if rm and rm.group(1) == scope:
+                revokes.append(created)
+        if not grants:
+            return False
+        grants.sort()
+        latest_created, expiry = grants[-1]
+        if any(rc > latest_created for rc in revokes):
+            return False
+        try:
+            exp = datetime.date.fromisoformat(expiry)
+        except ValueError:
+            return False
+        return datetime.date.today() <= exp
+
+    own_scope = "issue-%d/%s" % (issue, role)
+    for c in (comments or []):
+        b = (c.get("body") or "").strip()
+        login = (c.get("author", {}) or {}).get("login")
+        cm = _CITE_RE.match(b)
+        if not cm or login not in approvers:
+            continue
+        if int(cm.group(1)) != issue or cm.group(2) != role:
+            continue
+        cited_scope = cm.group(3)
+        if cited_scope == own_scope and _delegation_valid(cited_scope, comments, approvers):
+            phase2 = True
+            break
+
 phase = "phase2" if phase2 else "phase1"
 
 # --- plan parsing (ported from gates/flows.py::_plan_from_body) ------------
