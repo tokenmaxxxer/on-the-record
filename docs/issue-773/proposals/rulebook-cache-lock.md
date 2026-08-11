@@ -5,6 +5,16 @@ files:
   - tests/test_spawn.py
 ---
 
+Hunt after this proposal's initial draft
+(docs/issue-773/reports/implementation/2026-08-11-hunt-rulebook-cache-lock.md)
+found that `core_root()` (spawn.py:3227-3265) clones into
+`runs/rulebooks/tokenmaxxxer-core` with the identical unlocked
+exists-check-then-clone race as `rulebook_checkout()`, via its own
+hand-written copy of the same logic. A lock scoped only to
+`rulebook_checkout()` would leave concurrent `core_root()` calls (every
+role session calls it during bootstrap) still colliding. This proposal
+is revised to cover both.
+
 ## Request
 
 Concurrent spawns of the same role each try to populate the shared
@@ -82,23 +92,31 @@ for the primary exclusion mechanism).
    sibling to the clone dir (not inside it — keeps `git status
    --porcelain` clean inside the clone, same reasoning already applied
    to TTL markers per #296).
-2. In `rulebook_checkout()`, before the existing `if _mkt(d).exists():`
-   check (spawn.py:235): open (creating if absent) the lock file, then
-   `fcntl.flock(lock_fd, fcntl.LOCK_EX)` — blocking acquire, no
-   timeout (a stuck acquire means another process is still cloning;
-   the OS releases the lock automatically if that process dies, so
-   there is no dedicated stale-lock code path to write for the flock
-   itself — this is the concrete form of the reclaim guarantee named
-   in Rationale).
-3. Inside the locked section, re-run the existing exists-check
-   (`_mkt(d).exists()`) and branch exactly as today: warm →
+2. Add `_locked_rulebook_dir(d, populate)` helper: opens/creates the
+   lock file, `fcntl.flock(lock_fd, fcntl.LOCK_EX)` (blocking, no
+   timeout — a stuck acquire means another process is still cloning;
+   the OS releases the lock automatically if that holder dies, so
+   there is no dedicated stale-lock code path to write — this is the
+   concrete form of the reclaim guarantee named in Rationale), then
+   calls `populate(d)` inside the lock, releasing
+   (`fcntl.flock(lock_fd, fcntl.LOCK_UN)`) and closing the fd in a
+   `finally` regardless of outcome (matters for `sys.exit`/exceptions
+   raised inside `populate`, and for tests running in-process without a
+   real process exit).
+3. `rulebook_checkout()` (spawn.py:207-251): wrap the existing
+   exists-check-through-clone body (lines 234-251, minus the
+   already-handled local-path early return) in
+   `_locked_rulebook_dir(d, populate)`, where `populate` re-runs the
+   existing exists-check and branches exactly as today: warm →
    migrate/TTL/pull path unchanged; cold → `mkdir` + `git clone` +
-   post-clone existence check, unchanged apart from now running inside
-   the lock.
-4. Release the lock (`fcntl.flock(lock_fd, fcntl.LOCK_UN)`) and close
-   the fd in a `finally`, so a clone failure (the existing `sys.exit`
-   on line 247-248) still releases before the process exits — matters
-   for tests that run this in-process without a real process exit.
+   post-clone existence check. Logic unchanged, only now serialized.
+4. `core_root()` (spawn.py:3227-3265): same treatment for its clone
+   branch (lines 3244-3261) — wrap in `_locked_rulebook_dir(d,
+   populate)` with `d = ROOT / "runs" / "rulebooks" /
+   "tokenmaxxxer-core"`, `populate` containing the existing
+   warm-pull-vs-cold-clone branch unchanged. The pre-clone local-override
+   candidate loop (`_core_candidates()`, lines 3234-3241) is untouched
+   and stays outside the lock — it never touches the shared cache dir.
 5. `tests/test_spawn.py`: new test class exercising
    `rulebook_checkout()` under simulated concurrency — spawn N threads
    calling it against a mocked `subprocess.run` for `git clone` that
@@ -112,7 +130,8 @@ for the primary exclusion mechanism).
    flock automatically — no pid marker needed for the primary lock). A
    third test asserts the warm-cache path issues zero `git` subprocess
    calls (only the existing `_pull_is_fresh` gate decides), unchanged
-   from today.
+   from today. A fourth test class repeats the concurrent-population
+   and warm-cache-unchanged assertions for `core_root()`.
 
 ## Out of scope
 
