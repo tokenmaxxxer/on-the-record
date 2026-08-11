@@ -20,6 +20,12 @@
 # candidate gates dir in turn and uses the first one that actually exposes
 # both functions, rather than hard-coding a single stale path.
 #
+# The `git commit` detection itself is a `shlex.split` token check, not
+# a substring regex (issue #876, porting the fix #866 landed in
+# spec-index-preflight.sh) — a plain `\bgit\s+commit\b` substring match
+# misses `git -c <key>=<val> commit ...`, letting a global option
+# between `git` and `commit` bypass the trigger entirely.
+#
 # Fail-open on environment gaps (missing python3/git, no candidate module
 # exposes the needed functions, not a git-commit command, no staged
 # roles/*.json): those are not a positively-determined violation. Fail-
@@ -39,7 +45,7 @@ cand2=""
 [ -d "$script_dir/../../gates" ] && cand2="$(cd "$script_dir/../../gates" && pwd)"
 
 IFS='' read -r -d '' GUARD <<'PY' || true
-import glob, importlib.util, json, os, subprocess, sys
+import glob, importlib.util, json, os, shlex, subprocess, sys
 
 def deny(msg):
     sys.stderr.write("role-axis-completeness-guard: %s\n" % msg)
@@ -57,7 +63,19 @@ if not isinstance(cmd, str):
     sys.exit(0)
 
 import re
-if not re.search(r"\bgit\s+commit\b", cmd):
+
+# issue #866/#876: a plain `\bgit\s+commit\b` substring match misses an
+# ordinary `git -c <key>=<val> commit ...` (or any other global option
+# between `git` and its `commit` subcommand) -- tokenizing first and
+# checking for the two tokens survives any number of intervening
+# options, and (unlike a looser substring check) does not fire on
+# `commit` appearing inside an unrelated token (`--grep=commit`,
+# `commit-tree`) or inside a quoted string.
+try:
+    tokens = shlex.split(cmd)
+except ValueError:
+    sys.exit(0)
+if "git" not in tokens or "commit" not in tokens:
     sys.exit(0)
 
 cwd = e.get("cwd") or os.getcwd()
