@@ -19,6 +19,10 @@
 #   - #330 mirror: a backtick-quoted relative path referenced in the new
 #     content that does not exist anywhere in the working tree — an
 #     orphaned reference caught at write time instead of PR review.
+#   - #793 mirror (verify-before-claim): a role-output / session-PR-board
+#     state / defect claim line with no `canonical: <what was read>` tag
+#     within 3 lines above it — a claim citing only a summary, grep, or
+#     watcher signal with nothing canonical named.
 #
 # Fails closed (trap remaps non-0/2 exit to 2), matching this plugin's
 # house style. Kill switch: ORCHESTRATE_OFF=1.
@@ -103,6 +107,10 @@ bad = []
 bad += record_lint.unverifiable_reason_check(content)
 bad += record_lint.checked_claim_reason_check(content)
 bad += record_lint.bare_count_claim_check(content)
+
+# issue #793 mirror: a state/defect-claim line with no `canonical:` tag
+# naming the source actually read, within 3 lines above it.
+bad += record_lint.canonical_source_claim_check(content)
 
 # #330 mirror: a backtick-quoted relative path that resolves nowhere in
 # the working tree is an orphaned reference caught at write time.
