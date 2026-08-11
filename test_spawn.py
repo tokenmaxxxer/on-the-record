@@ -743,165 +743,34 @@ class MustMcpAllowEnv(unittest.TestCase):
                           out["permissions"]["allow"], role)
 
 
-class PackageRegistryAccess(unittest.TestCase):
-    """이슈 #38: 패키지 레지스트리 접근 — 호스트 캐시 마운트 + 레지스트리 허용목록."""
+class RoleSessionSandboxRemoved(unittest.TestCase):
+    """이슈 #695: role_settings() 는 roles/*.json 이 무엇을 선언하든
+    sandbox.enabled 를 중앙에서 강제로 끈다 — 반복된 차단 버그(#38/#58/
+    #65/#72/#153)의 비용이 경계의 보호 가치를 넘어섰다는 운영자 결정."""
 
-    def test_registry_hosts_merged_into_allowed_domains(self):
-        out = spawn.role_settings("implementation")
-        domains = out["sandbox"]["network"]["allowedDomains"]
-        for host in ("proxy.golang.org", "crates.io", "repo.maven.apache.org"):
-            self.assertIn(host, domains)
-
-    def test_web_access_domain_merged_alongside_registry_hosts(self):
-        """이슈 #58: WEB_ACCESS_DOMAINS 도 같은 병합 지점에서 추가되고,
-        역할 선언 도메인·레지스트리 호스트는 여전히 남아있다(안 지워짐)."""
-        out = spawn.role_settings("implementation")
-        domains = out["sandbox"]["network"]["allowedDomains"]
-        for host in spawn.WEB_ACCESS_DOMAINS:
-            self.assertIn(host, domains)
-        # 역할이 선언한 도메인 (roles/coding.json)
-        for host in ("api.anthropic.com", "*.github.com", "github.com"):
-            self.assertIn(host, domains)
-        # 레지스트리 호스트도 지워지지 않았다
-        for host in spawn.PACKAGE_REGISTRY_HOSTS:
-            self.assertIn(host, domains)
-
-    def test_present_cache_dir_added_to_allow_read(self):
-        with tempfile.TemporaryDirectory() as td:
-            saved = os.environ.get("GOMODCACHE")
-            os.environ["GOMODCACHE"] = td
-            try:
-                out = spawn.role_settings("implementation")
-                allow_read = out["sandbox"]["filesystem"].get("allowRead", [])
-                self.assertIn(td, allow_read)
-            finally:
-                if saved is None:
-                    os.environ.pop("GOMODCACHE", None)
-                else:
-                    os.environ["GOMODCACHE"] = saved
-
-    def test_absent_cache_dir_is_skipped_without_error(self):
-        missing = "/nonexistent/path/for/muster-issue-38-test"
-        saved = os.environ.get("GOMODCACHE")
-        os.environ["GOMODCACHE"] = missing
-        try:
-            out = spawn.role_settings("implementation")  # should not raise
-            allow_read = out["sandbox"]["filesystem"].get("allowRead", [])
-            self.assertNotIn(missing, allow_read)
-        finally:
-            if saved is None:
-                os.environ.pop("GOMODCACHE", None)
-            else:
-                os.environ["GOMODCACHE"] = saved
-
-    def test_go_proxy_layer_prefers_mounted_host_cache(self):
-        with tempfile.TemporaryDirectory() as td:
-            saved = os.environ.get("GOMODCACHE")
-            os.environ["GOMODCACHE"] = td
-            try:
-                out = spawn.role_settings("implementation")
-                proxy = spawn.go_proxy_layer(out)
-                self.assertIsNotNone(proxy)
-                self.assertTrue(proxy.startswith(f"file://{td}/cache/download,"))
-            finally:
-                if saved is None:
-                    os.environ.pop("GOMODCACHE", None)
-                else:
-                    os.environ["GOMODCACHE"] = saved
-
-    def test_go_proxy_layer_none_when_cache_not_mounted(self):
-        missing = "/nonexistent/path/for/muster-issue-38-test"
-        saved = os.environ.get("GOMODCACHE")
-        os.environ["GOMODCACHE"] = missing
-        try:
-            out = spawn.role_settings("implementation")
-            self.assertIsNone(spawn.go_proxy_layer(out))
-        finally:
-            if saved is None:
-                os.environ.pop("GOMODCACHE", None)
-            else:
-                os.environ["GOMODCACHE"] = saved
-
-    def test_file_at_cache_path_is_skipped(self):
-        with tempfile.NamedTemporaryFile() as tf:
-            saved = os.environ.get("GOMODCACHE")
-            os.environ["GOMODCACHE"] = tf.name
-            try:
-                out = spawn.role_settings("implementation")  # should not raise
-                allow_read = out["sandbox"]["filesystem"].get("allowRead", [])
-                self.assertNotIn(tf.name, allow_read)
-            finally:
-                if saved is None:
-                    os.environ.pop("GOMODCACHE", None)
-                else:
-                    os.environ["GOMODCACHE"] = saved
-
-    def test_cargo_git_cache_dir_present_is_mounted(self):
-        """이슈 #406: ~/.cargo/registry 형제 항목 ~/.cargo/git 도 존재하면
-        읽기 전용으로 마운트된다."""
-        with tempfile.TemporaryDirectory() as td:
-            real_expanduser = os.path.expanduser
-
-            def fake_expanduser(p):
-                if p == "~/.cargo/git":
-                    return td
-                return real_expanduser(p)
-
-            with mock.patch("spawn.os.path.expanduser", side_effect=fake_expanduser):
-                out = spawn.role_settings("implementation")
-            allow_read = out["sandbox"]["filesystem"].get("allowRead", [])
-            self.assertIn(td, allow_read)
-
-    def test_cargo_git_cache_dir_absent_is_skipped_without_error(self):
-        missing = "/nonexistent/path/for/muster-issue-406-test"
-        real_expanduser = os.path.expanduser
-
-        def fake_expanduser(p):
-            if p == "~/.cargo/git":
-                return missing
-            return real_expanduser(p)
-
-        with mock.patch("spawn.os.path.expanduser", side_effect=fake_expanduser):
-            out = spawn.role_settings("implementation")  # should not raise
-        allow_read = out["sandbox"]["filesystem"].get("allowRead", [])
-        self.assertNotIn(missing, allow_read)
-
-
-class SandboxDefaultOpenAccess(unittest.TestCase):
-    """이슈 #72: 나머지 기본값 제한적인 샌드박스 스위치를 전부 연다. sandbox.enabled
-    와 allowUnsandboxedCommands=False 는 그대로 유지되는지도 함께 검증한다."""
-
-    def test_open_switches_set_for_every_sandboxed_role(self):
-        for role_file in (Path(spawn.ROOT) / "roles").glob("*.json"):
-            role = role_file.stem
-            spec = json.loads(role_file.read_text())
-            if not spec.get("sandbox", {}).get("enabled"):
-                continue
-            out = spawn.role_settings(role)
-            net = out["sandbox"]["network"]
-            self.assertIs(net["allowAllUnixSockets"], True, role)
-            self.assertIs(net["allowLocalBinding"], True, role)
-            self.assertEqual(net["allowMachLookup"], ["*"], role)
-            self.assertIs(out["sandbox"]["enableWeakerNetworkIsolation"], True, role)
-            self.assertIs(out["sandbox"]["allowAppleEvents"], True, role)
-            self.assertIs(out["sandbox"]["enableWeakerNestedSandbox"], True, role)
-            self.assertIs(out["sandbox"]["enabled"], True, role)
-            self.assertIs(out["sandbox"]["allowUnsandboxedCommands"], False, role)
-
-    def test_role_declared_values_not_clobbered(self):
-        """이슈 #38 의 registry-host 병합과 같은 패턴: 병합이지 교체가 아니다."""
+    def test_sandbox_never_enabled_regardless_of_role_declaration(self):
+        """이슈 #695 인수 기준: 대표 역할(implementation)에 대해
+        role_settings() 출력이 활성 샌드박스를 갖지 않고, 오늘의
+        permissions.allow 항목은 그대로 남아있다."""
         f = Path(spawn.ROOT) / "roles" / "implementation.json"
         original_text = f.read_text()
         spec = json.loads(original_text)
-        spec.setdefault("sandbox", {})["enableWeakerNetworkIsolation"] = False
-        spec["sandbox"].setdefault("network", {})["allowLocalBinding"] = False
+        spec.setdefault("sandbox", {})["enabled"] = True
         try:
             f.write_text(json.dumps(spec))
             out = spawn.role_settings("implementation")
-            self.assertIs(out["sandbox"]["enableWeakerNetworkIsolation"], False)
-            self.assertIs(out["sandbox"]["network"]["allowLocalBinding"], False)
+            self.assertFalse(out.get("sandbox", {}).get("enabled"))
+            allow = out["permissions"]["allow"]
+            for tool in ("WebSearch", "WebFetch", "Read", "Grep", "Glob"):
+                self.assertIn(tool, allow)
         finally:
             f.write_text(original_text)
+
+    def test_sandbox_disabled_for_every_role(self):
+        for role_file in (Path(spawn.ROOT) / "roles").glob("*.json"):
+            role = role_file.stem
+            out = spawn.role_settings(role)
+            self.assertFalse(out.get("sandbox", {}).get("enabled"), role)
 
 
 class BoardSnapshot(unittest.TestCase):

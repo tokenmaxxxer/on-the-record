@@ -113,96 +113,6 @@ def _migrate_legacy_ttl_marker(d: Path) -> None:
 MARKETPLACES = Path.home() / ".claude" / "plugins" / "marketplaces"
 KNOWN = MARKETPLACES.parent / "known_marketplaces.json"
 
-# 공식 공개 패키지 레지스트리 호스트 — role_settings() 가 모든 역할의
-# allowedDomains 에 병합한다(이슈 #38). 캐시 미스 시의 폴백 경로이므로
-# 미러/CDN 없이 레지스트리 본체만 좁게 유지한다.
-PACKAGE_REGISTRY_HOSTS = [
-    "registry.npmjs.org",
-    "pypi.org",
-    "files.pythonhosted.org",
-    "proxy.golang.org",
-    "sum.golang.org",
-    "crates.io",
-    "static.crates.io",
-    "repo.maven.apache.org",
-]
-
-# 호스트에 이미 있는 패키지 캐시 디렉터리 후보 — 존재하면 읽기 전용으로
-# 샌드박스에 마운트한다(이슈 #38). (env_var, default_path) 쌍이며, env_var 가
-# os.environ 에 있으면 그 값을, 없으면 default_path 를 role_settings() 와
-# 동일한 방식(os.path.expanduser/os.path.expandvars)으로 해석한다.
-PACKAGE_CACHE_DIRS = [
-    ("GOMODCACHE", "~/go/pkg/mod"),
-    ("NPM_CONFIG_CACHE", "~/.npm"),
-    ("PIP_CACHE_DIR", "~/.cache/pip"),
-    (None, "~/.cargo/registry"),
-    (None, "~/.cargo/git"),
-    ("MAVEN_REPO", "~/.m2/repository"),
-    ("PLAYWRIGHT_BROWSERS_PATH", "~/.cache/ms-playwright"),
-]
-
-# WebSearch/WebFetch 목적지는 사전에 열거할 수 없다(이슈 #58) — 모든 역할에
-# 적용된다(operator 결정: option B). Claude Code 샌드박스의 도메인 매처(Kat())는
-# 리터럴 "*" 항목을 모든 호스트에 매칭시킨다(cli.js 확인, 2.1.220) — 그래서
-# 하나짜리 와일드카드 상수로 충분하고, 등록되지 않은 호스트 목록을 만들 필요가
-# 없다.
-WEB_ACCESS_DOMAINS = ["*"]
-
-# Open every remaining default-deny sandbox switch surveyed for issue #72
-# (docs/issue-72/reports/coding/survey.md) — the sandbox itself (`enabled`)
-# and `allowUnsandboxedCommands=False` stay untouched; those two alone keep
-# the sandbox mandatory. macOS-only keys (`allowMachLookup`,
-# `allowAppleEvents`) are no-ops on Linux.
-SANDBOX_OPEN_NETWORK = {
-    "allowAllUnixSockets": True,
-    "allowLocalBinding": True,
-    "allowMachLookup": ["*"],
-}
-SANDBOX_OPEN_TOP_LEVEL = {
-    "enableWeakerNetworkIsolation": True,
-    "allowAppleEvents": True,
-    "enableWeakerNestedSandbox": True,
-}
-
-
-def go_proxy_layer(s: dict) -> str | None:
-    """호스트 GOMODCACHE 가 읽기 전용으로 마운트됐으면(이슈 #38) GOPROXY 에 그
-    캐시를 file:// 소스로 앞세운다.
-
-    role_settings() 는 캐시 디렉터리를 sandbox.filesystem.allowRead 에
-    추가할 뿐, spawn() 이 그 뒤 GOMODCACHE 를 워크스페이스로 재지정하므로
-    (spawn.py 의 .muster-cache 리다이렉션) 마운트된 호스트 캐시가 조용히
-    무시된다 — Go 는 GOMODCACHE 를 쓰기 캐시로만 쓰고 두 캐시를 겸하지
-    않기 때문. GOPROXY 는 여러 소스를 순서대로 시도하므로, 호스트 캐시를
-    읽기 전용 첫 소스로 앞세우고 GOMODCACHE 는 워크스페이스에 남겨 쓰기는
-    그대로 승인 없이 돈다.
-    """
-    env_var, default_path = next(p for p in PACKAGE_CACHE_DIRS if p[0] == "GOMODCACHE")
-    host_path = os.path.expanduser(os.path.expandvars(os.environ.get(env_var, default_path)))
-    allow_read = s.get("sandbox", {}).get("filesystem", {}).get("allowRead", [])
-    if host_path not in allow_read:
-        return None
-    return f"file://{host_path}/cache/download,https://proxy.golang.org,direct"
-
-
-def playwright_cache_layer(s: dict) -> str | None:
-    """호스트 `~/.cache/ms-playwright` 가 읽기 전용으로 마운트됐으면(이슈 #304)
-    `PLAYWRIGHT_BROWSERS_PATH` 를 그 경로로 리다이렉트한다.
-
-    go_proxy_layer() 와 같은 이유로 필요하다 — role_settings() 는 캐시를
-    allowRead 에 추가할 뿐, Playwright 자신은 그 마운트를 자동으로 쓰지
-    않는다. GOPROXY 와 달리 폴백 체인이 아니라 단일 경로 치환이다:
-    Playwright 는 브라우저 바이너리를 한 곳(PLAYWRIGHT_BROWSERS_PATH)에서만
-    찾으므로, 호스트 캐시가 있으면 그 경로를 그대로 넘긴다.
-    """
-    env_var, default_path = next(
-        p for p in PACKAGE_CACHE_DIRS if p[0] == "PLAYWRIGHT_BROWSERS_PATH")
-    host_path = os.path.expanduser(os.path.expandvars(os.environ.get(env_var, default_path)))
-    allow_read = s.get("sandbox", {}).get("filesystem", {}).get("allowRead", [])
-    if host_path not in allow_read:
-        return None
-    return host_path
-
 
 def _mkt(d: Path) -> Path:
     return d / ".claude-plugin" / "marketplace.json"
@@ -536,45 +446,15 @@ def role_settings(role: str, cwd: str | None = None) -> dict:
                 sys.exit(f"[{role}] sandbox.filesystem.{key} 의 변수를 풀 수 없다: "
                          f"{', '.join(unresolved)}")
 
-    # 패키지 레지스트리 호스트를 병합한다(이슈 #38) — 샌드박스가 켜진 역할만.
-    # 역할이 선언한 도메인은 지우지 않고, 이미 있는 호스트는 중복 추가하지 않는다.
-    if sb0 := s.get("sandbox", {}):
-        if sb0.get("enabled"):
-            net = sb0.setdefault("network", {})
-            domains = net.setdefault("allowedDomains", [])
-            for host in PACKAGE_REGISTRY_HOSTS:
-                if host not in domains:
-                    domains.append(host)
-            # 웹 접근 도메인도 같은 방식으로 병합한다(이슈 #58) — 켜져 있는
-            # 역할이 선언한 도메인이나 레지스트리 호스트를 지우지 않고,
-            # 중복 추가도 하지 않는다.
-            for host in WEB_ACCESS_DOMAINS:
-                if host not in domains:
-                    domains.append(host)
-            # 나머지 기본값이 제한적인 샌드박스 스위치를 전부 연다(이슈 #72) —
-            # sandbox.enabled 와 allowUnsandboxedCommands=False 는 그대로 둔다.
-            for key, val in SANDBOX_OPEN_NETWORK.items():
-                if key not in net:
-                    net[key] = val
-            for key, val in SANDBOX_OPEN_TOP_LEVEL.items():
-                if key not in sb0:
-                    sb0[key] = val
-
-    # 호스트 패키지 캐시를 읽기 전용으로 마운트한다(이슈 #38). 존재하는
-    # 디렉터리만 추가한다 — 없으면 조용히 건너뛴다(에러도 출력도 없음).
-    # 여기서 쓰는 GOMODCACHE 등은 호스트의 실제 캐시 소스이며, 아래
-    # .muster-cache 쓰기 리다이렉션(spawn_cmd 호출부, 별도 함수)과는
-    # 별개의 관심사다 — 섞지 않는다.
-    if sb0 := s.get("sandbox", {}):
-        if sb0.get("enabled"):
-            for env_var, default_path in PACKAGE_CACHE_DIRS:
-                raw = os.environ.get(env_var, default_path) if env_var else default_path
-                cache_path = os.path.expanduser(os.path.expandvars(raw))
-                if os.path.isdir(cache_path):
-                    fs2 = sb0.setdefault("filesystem", {})
-                    allow_read = fs2.setdefault("allowRead", [])
-                    if cache_path not in allow_read:
-                        allow_read.append(cache_path)
+    # 이슈 #695: 롤-세션 샌드박스를 role_settings() 가 중앙에서 끈다.
+    # roles/*.json 이 어떤 sandbox.enabled 값을 선언하든 여기서 무조건
+    # 거짓으로 강제한다 — 반복된 차단 버그(#38/#58/#65/#72/#153, 2026-08-11
+    # tas 리포트)의 비용이 경계의 보호 가치를 넘어섰다는 운영자 결정.
+    # 이 결과로 예전에 여기 있던 레지스트리/웹 도메인 병합(#38/#58),
+    # 기본값 스위치 개방(#72), 패키지 캐시 allowRead 마운트(#38)는 전부
+    # 도달 불가능해져 issue-695 에서 함께 제거했다.
+    if "sandbox" in s:
+        s["sandbox"]["enabled"] = False
 
     # 전역 플러그인은 전부 끈다. 켜야 할 것을 적는 게 아니라 꺼야 할 것을
     # 빠짐없이 적는 쪽이라, 전역에 플러그인이 새로 깔려도 새지 않는다.
@@ -634,17 +514,6 @@ def role_settings(role: str, cwd: str | None = None) -> dict:
     for tool in extra_mcp:
         if tool not in allow:
             allow.append(tool)
-
-    # 자격증명 마스킹은 TLS 종료가 없으면 sentinel 값만 흘러 도구 인증이 깨진다.
-    sb = s.get("sandbox", {})
-    if sb.get("credentials", {}).get("envVars") and "tlsTerminate" not in sb.get("network", {}):
-        sb.setdefault("network", {})["tlsTerminate"] = {}
-
-    # 샌드박스 밖 재실행을 막는다. 기본값이 허용이라, 명령이 경계에 막히면 에이전트가
-    # 그대로 샌드박스를 끄고 다시 돌린다 — 실측에서 denyRead 로 막은 ~/.claude 를
-    # 그렇게 읽어냈다. 그러면 경계가 아니라 권고다.
-    sb["allowUnsandboxedCommands"] = False
-    s["sandbox"] = sb
 
     # on-the-record 가 자기 자신을 대상으로 스폰할 때만, 자기 hooks.json 을
     # 병합해 넣는다 — 컨슈머 설치 경로 밖에서는 늘 inert 였다(이슈 #508).
@@ -4407,12 +4276,6 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 "PIP_CACHE_DIR": os.path.join(wcache, "pip"),
                 "CARGO_HOME": os.path.join(wcache, "cargo"),
             })
-            proxy = go_proxy_layer(s)
-            if proxy:
-                extra_env["GOPROXY"] = proxy
-            playwright_cache = playwright_cache_layer(s)
-            if playwright_cache:
-                extra_env["PLAYWRIGHT_BROWSERS_PATH"] = playwright_cache
         before = board_snapshot(cwd)
         before_head = _git_head(cwd) if issue is not None else None
         t0 = time.monotonic()
