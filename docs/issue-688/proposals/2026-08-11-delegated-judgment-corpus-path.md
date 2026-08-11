@@ -3,6 +3,7 @@ status: proposed
 files:
   - on-the-record/hooks/delegated-judgment-gate.sh
   - on-the-record/hooks/test_delegated_judgment_gate.py
+  - on-the-record/hooks/test_delegated_judgment_gate_triage.py
 ---
 
 ## Request
@@ -62,6 +63,12 @@ matching the pattern the script already uses for its decisions path.
   module — the acceptance criterion's second check), and confirm the
   existing empty-corpus escalation test continues to pass unchanged
   against the new location (first + empty-state checks).
+- In `test_delegated_judgment_gate_triage.py` (found by the after-proposal
+  warrant hunt, see `## Accumulation`/hunt record — its depth-axis-clearing
+  fixture also writes to the retired flat path, and `test_single_owner_supports_resolves`
+  would silently start failing once the reader moves), move its fixture
+  writes to the same issue-scoped path so the triage suite keeps asserting
+  the real behavior instead of a stale one.
 
 ## Out of scope
 
