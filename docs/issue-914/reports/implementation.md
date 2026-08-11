@@ -2,12 +2,15 @@
 code_under_review:
   - on-the-record/hooks/live-fire-test-guard.sh
   - on-the-record/hooks/test_live_fire_test_guard.py
+  - on-the-record/hooks/acceptance-command-real-run-guard.sh
+  - on-the-record/hooks/test_acceptance_command_real_run_guard.py
   - on-the-record/hooks/hooks.json
+  - docs/specs/acceptance-commands.md
   - docs/specs/enforcement-boundary.md
   - docs/specs/generated-paths.md
 type: feature
 breaking: false
-canonical: python3 -m pytest -q gates/test_boundary.py gates/test_generated_paths.py on-the-record/hooks/test_gate_registration_guard.py on-the-record/hooks/test_live_fire_test_guard.py
+canonical: python3 -m pytest -q gates/test_boundary.py gates/test_generated_paths.py on-the-record/hooks/test_gate_registration_guard.py on-the-record/hooks/test_live_fire_test_guard.py on-the-record/hooks/test_acceptance_command_real_run_guard.py
 verdict: pass
 loop_state: landed
 ---
@@ -134,11 +137,144 @@ inner `pytest` invocation; the corrected 8-of-8 run is fenced under
 
 None.
 
-## Next steps
+## Next steps (superseded below — mechanism (a) now landed in this same record)
 
 Stage mechanisms (a) (target-repo deliverable acceptance-command
 re-run) and (c) (general outcome-claim gate citation-shape widening)
 per the phase-1 proposal's dependency order (b) before (a) before (c).
+
+## Resolution path
+
+None open — no findings to resolve.
+
+# Addendum — issue #914 step 2, mechanism (a): target-deliverable acceptance-command real-run
+
+## What was done
+
+Implemented mechanism (a) from the approved phase-1 proposal
+(`docs/issue-914/proposals/2026-08-12-standing-real-build-and-use-verification.md`,
+"Artifact type 1"), generalizing #870 candidate-b. Enforcement point is
+`PreToolUse`+`Bash` on `git commit` (this turn's instruction — the
+sibling-to-existing-acceptance-gates/#918-live-fire-guard shape —
+rather than the phase-1 proposal's originally-sketched `Stop`/
+`SubagentStop` point; both close the same gap at commit time instead of
+turn-end).
+
+- New `on-the-record/hooks/acceptance-command-real-run-guard.sh`: for a
+  staged file whose content carries an `acceptance: <command> —
+  result: X` citation line (X one of the three tokens `#892`'s
+  `outcome_claim_citation_check` already recognizes as executed-live),
+  requires the cited command to have a row in
+  `docs/specs/acceptance-commands.md`, then actually re-runs it
+  (`shlex.split` argv, no shell interpolation, 180s bound) against the
+  real current target and refuses the commit when the real exit status
+  does not match the claimed token. The "no re-run, always allowed"
+  token is the degrade path. Escape hatch: `Acceptance-recheck-N/A:
+  <reason>` commit trailer.
+- New `docs/specs/acceptance-commands.md`: the one-time-recorded
+  acceptance-command registry, mirroring #831's remote-preflight setup
+  pattern — canonical: docs/issue-831/decisions/2026-08-11-setup-preflight-remote-gate.md
+  (re-read this session, "Decision" section, step 3's `ledger_write`
+  event). A stateless `PreToolUse` hook cannot reach spawn.py's
+  orchestrator-side `ledger_write`/`runs/ledger.jsonl`, so the setup
+  event is instead a durable, git-tracked row in this file — adding the
+  row is the one-time setup step, discoverable the same way
+  `docs/specs/approvers.md` rows already are. One row seeded for this
+  repo's own target (`self`): `python3 -m pytest -q gates/
+  on-the-record/hooks/`.
+- New `on-the-record/hooks/test_acceptance_command_real_run_guard.py`:
+  this new guard's own required live-fire test (mechanism (b),
+  `live-fire-test-guard.sh`, landed earlier this issue and dogfoods
+  itself here) — drives the guard as its own caller, real git repo
+  fixture, crafted `PreToolUse`/`Bash` stdin payloads.
+  canonical: python3 -m pytest -q on-the-record/hooks/test_acceptance_command_real_run_guard.py
+  ```
+  8 passed in 0.50s
+  ```
+  Function-name mapping, derived: python3 -m pytest -q --collect-only on-the-record/hooks/test_acceptance_command_real_run_guard.py:
+  `t_no_acceptance_citation_allows_commit` (no citation, no-op),
+  `t_unregistered_command_denies_commit` (unregistered command,
+  refused), `t_registered_command_that_actually_passes_and_claims_pass_allows_commit`
+  (real exit status matches a claimed matching-outcome token, allowed),
+  `t_registered_command_that_actually_fails_but_claims_pass_denies_commit`
+  (real exit status does NOT match a claimed matching-outcome token,
+  refused), `t_registered_command_that_actually_fails_and_claims_fail_allows_commit`
+  (real exit status matches a claimed non-matching-outcome token
+  honestly, allowed), `t_unmeasured_result_never_re_run_and_always_allowed`
+  (the no-re-run degrade token, always allowed),
+  `t_acceptance_recheck_n_a_trailer_exempts_commit` (the trailer
+  escape), `t_non_commit_command_no_ops` (a non-`git commit` command,
+  no-op). Names spell out the issue's own three required scenarios: a
+  recorded acceptance command that actually fails is refused, one that
+  actually succeeds is allowed, and no acceptance command on record
+  degrades honestly rather than a false allow.
+- Registered the new hook: `on-the-record/hooks/hooks.json` (sibling
+  entry to `live-fire-test-guard.sh`), `docs/specs/enforcement-boundary.md`
+  (new row), `docs/specs/generated-paths.md` (`n/a` row — no
+  `write_text`/`.mkdir(`/etc. call in its own staged text; it re-runs a
+  recorded command via `subprocess.run`, not a file write).
+
+## Why
+
+canonical: docs/issue-870/proposals/2026-08-11-generalized-fake-success-detection.md
+(re-cited from the phase-1 proposal's own "Evidence cited" section) —
+four independent incidents where a prior finished-implementation
+verdict did not survive fresh re-execution. #892 (candidate-a, already
+shipped) only checks that an outcome claim's citation LOOKS like an
+executed-live reference — a stale or fabricated matching-outcome
+citation satisfies it identically to a genuine one. This mechanism
+closes that gap by making the citation true: the recorded acceptance
+command is actually re-run against the real current target at commit
+time, and a mismatch between the claim and the real exit status
+refuses the commit. The phase-1 proposal's own composition note
+("(b) before (a) before (c) is meaningful") is satisfied — this
+addendum lands after mechanism (b), in the same record, same branch.
+
+## Basis
+
+- upstream: docs/issue-914/proposals/2026-08-12-standing-real-build-and-use-verification.md
+- upstream: this turn's own instruction (issue #914 step 2, mechanism
+  (a): "Enforcement at PreToolUse on git commit, sibling to the
+  existing acceptance gates and #918's live-fire guard") — the concrete
+  enforcement-point choice for this addendum, narrower than and
+  compatible with the phase-1 proposal's own artifact-type-1 design.
+- canonical: gh issue view 914 --comments
+  Approval, single-account mode: `APPROVE issue-914/implementation`
+  posted as an issue #914 comment by account `JiwonJung94`, listed in
+  `docs/specs/approvers.md` (same approval this record's earlier
+  mechanism-(b) section already cites — one phase-2 approval covers the
+  whole issue's remaining execution-plan steps).
+
+## Acceptance verification
+
+canonical: python3 -m pytest -q gates/test_boundary.py gates/test_generated_paths.py on-the-record/hooks/test_gate_registration_guard.py on-the-record/hooks/test_live_fire_test_guard.py on-the-record/hooks/test_acceptance_command_real_run_guard.py
+```
+49 passed in 2.39s
+```
+
+This session's own terminal output, re-run against the current staged
+tree (includes both this addendum's own new cases and all prior
+mechanism-(b)/registration/boundary/generated-paths suites, confirming
+no regression).
+
+## What did not work
+
+None.
+
+## Open findings
+
+None.
+
+## Next steps
+
+Stage mechanism (c): general outcome-claim gate citation-shape
+widening — recognize the `acceptance: ... — result: ...` shape this
+addendum's guard now actually verifies, and the `live-fire: <hook path>
+— result: allow|deny|log` shape mechanism (b) produces, as privileged
+executed-live citations in `gates/record_lint.py`'s accepted
+vocabulary. Per the phase-1 proposal's dependency order, (c) is
+meaningful only once (a) and (b) exist to produce the citation shapes
+it should recognize — both now do.
 
 ## Resolution path
 
