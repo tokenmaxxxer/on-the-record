@@ -23,6 +23,12 @@
 #     state / defect claim line with no `canonical: <what was read>` tag
 #     within 3 lines above it — a claim citing only a summary, grep, or
 #     watcher signal with nothing canonical named.
+#   - #870 mirror (generalized fake-success detection, candidate (a)): an
+#     OUTCOME claim ("requirement(s) met"/"done"/"PASS(es/ed)"/
+#     "complete(d)") needs its `canonical:` citation to itself be an
+#     executed-live reference (a command string, or an
+#     `acceptance: <command> — result: ...` line) — a bare file-read
+#     citation satisfies #793's own check but not this one.
 #
 # Fails closed (trap remaps non-0/2 exit to 2), matching this plugin's
 # house style. Kill switch: ORCHESTRATE_OFF=1.
@@ -111,6 +117,11 @@ bad += record_lint.bare_count_claim_check(content)
 # issue #793 mirror: a state/defect-claim line with no `canonical:` tag
 # naming the source actually read, within 3 lines above it.
 bad += record_lint.canonical_source_claim_check(content)
+
+# issue #870 mirror: an OUTCOME claim (requirement met/done/PASS/
+# complete) needs a `canonical:` tag whose cited source is itself an
+# executed-live reference, not just a file-read/summary citation.
+bad += record_lint.outcome_claim_citation_check(content)
 
 # #330 mirror: a backtick-quoted relative path that resolves nowhere in
 # the working tree is an orphaned reference caught at write time.

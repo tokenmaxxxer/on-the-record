@@ -142,6 +142,81 @@ def t_state_claim_with_canonical_tag_passes():
     assert not any("#793" in b for b in bad), bad
 
 
+def t_outcome_claim_without_executed_live_citation_is_reported():
+    """issue #870: a done-claim backed only by a file-read citation (which
+    satisfies #793's own state-claim check) is still refused — the
+    citation is not itself an executed-live reference."""
+    body = (
+        "---\n"
+        "loop_state: landed\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: docs/issue-870/reports/notes.md (read this session)\n"
+        "The requirement is met and the deliverable is done.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert any("#870" in b for b in bad), bad
+
+
+def t_outcome_claim_with_executed_live_citation_passes():
+    """issue #870: a done-claim backed by a command actually run this
+    turn passes without friction."""
+    body = (
+        "---\n"
+        "loop_state: landed\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: `pytest -q gates/test_record_lint.py` (exit 0)\n"
+        "The requirement is met and the deliverable is done.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert not any("#870" in b for b in bad), bad
+
+
+def t_outcome_claim_with_unbacked_acceptance_prose_is_still_reported():
+    """issue #870 before-landing hunt regression pin: `acceptance:` must
+    be followed by an actual `result: PASS|FAIL|UNMEASURED` shape, not
+    just the literal word — plain prose starting with "acceptance:" must
+    not silently satisfy the executed-live citation requirement."""
+    body = (
+        "---\n"
+        "loop_state: landed\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: acceptance: reviewer says it looks fine\n"
+        "All requirements met, task complete.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert any("#870" in b for b in bad), bad
+
+
+def t_outcome_claim_with_real_acceptance_result_line_passes():
+    body = (
+        "---\n"
+        "loop_state: landed\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: acceptance: ./run-tests.sh — result: PASS\n"
+        "All requirements met, task complete.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert not any("#870" in b for b in bad), bad
+
+
+def t_no_outcome_claim_is_untouched():
+    """issue #870 empty state: no outcome marker -> no #870 violation,
+    same empty-state scoping #793 already follows."""
+    body = (
+        "---\n"
+        "loop_state: coding\n"
+        "---\n\n"
+        "# record\n\n"
+        "Still investigating the parser edge case.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert not any("#870" in b for b in bad), bad
+
+
 def t_orphaned_path_reference_check_denies_genuinely_missing_path():
     """#744 item 2 regression pin — the legitimate case that must keep
     failing: a backtick path with no `:identifier()` locator suffix and
