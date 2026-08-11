@@ -43,6 +43,7 @@ if argv[:2] == ["pr", "view"]:
         "body": data["pr_body"],
         "number": int(argv[2]),
         "commits": data.get("commits", []),
+        "files": data.get("files", []),
     }))
 elif argv[:2] == ["issue", "view"]:
     print(json.dumps(data.get("issue_comments", [])))
@@ -106,6 +107,20 @@ def _repo_dir(tmp_path, name, approvers):
     return d
 
 
+def _repo_dir_on_branch(tmp_path, name, approvers, branch):
+    """Like _repo_dir, but a real git checkout on `branch` — needed for the
+    record-file half of the content gate (issue #741), which derives the
+    acting role from `git rev-parse --abbrev-ref HEAD`. `rev-parse
+    --abbrev-ref HEAD` needs at least one commit (fails on an unborn
+    branch), so this commits once with a pinned local identity."""
+    d = _repo_dir(tmp_path, name, approvers)
+    subprocess.run(["git", "init", "-q"], cwd=d, check=True)
+    subprocess.run(["git", "checkout", "-q", "-b", branch], cwd=d, check=True)
+    subprocess.run(["git", "-c", "user.name=test", "-c", "user.email=test@example.com",
+                     "commit", "-q", "--allow-empty", "-m", "init"], cwd=d, check=True)
+    return d
+
+
 def test_cross_repo_same_number_judges_target_not_cwd(tmp_path):
     """cwd repo and `cd <target>` repo both have PR #7 / issue #9,
     different bodies/approval — the hook must attach the trailer against
@@ -124,6 +139,7 @@ def test_cross_repo_same_number_judges_target_not_cwd(tmp_path):
             "target": {
                 "pr_body": "no closing keyword here, just #9",  # needs attach
                 "issue_comments": [_approve_comment(9, "bob")],
+                "files": [{"path": "src/example.py"}],
             },
         },
     }
@@ -181,6 +197,7 @@ def test_cd_prefix_reads_target_approvers_and_attaches(tmp_path):
             "target": {
                 "pr_body": "no closing keyword, just #9",
                 "issue_comments": [_approve_comment(9, "bob")],
+                "files": [{"path": "src/example.py"}],
             },
         },
     }
@@ -245,6 +262,7 @@ def test_no_repo_indicator_unchanged_cwd_behavior(tmp_path):
             "cwd": {
                 "pr_body": "no closing keyword, just #9",
                 "issue_comments": [_approve_comment(9, "alice")],
+                "files": [{"path": "src/example.py"}],
             },
         },
     }
@@ -268,6 +286,7 @@ def test_write_failure_still_denies_merge(tmp_path):
                 "pr_body": "no closing keyword, just #9",
                 "issue_comments": [_approve_comment(9, "alice")],
                 "edit_fails": True,
+                "files": [{"path": "src/example.py"}],
             },
         },
     }
@@ -312,6 +331,7 @@ def test_same_round_approval_attaches_closes_when_missing(tmp_path):
                 "pr_body": "no closing keyword here, just #9",
                 "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
                 "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+                "files": [{"path": "src/example.py"}],
             },
         },
     }
@@ -355,6 +375,132 @@ def test_cross_role_approval_still_gates_phase2(tmp_path):
                 "issue_comments": [
                     _approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z", role="architect"),
                 ],
+                "files": [{"path": "src/example.py"}],
+            },
+        },
+    }
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log)
+    assert r.returncode == 0, r.stderr
+    calls = json.loads(edit_log.read_text())
+    assert len(calls) == 1 and "Closes #9" in calls[0]["body"]
+
+
+# --- content-based phase-2 gate (issue #741) ----------------------------
+#
+# #741's actual failure: a docs-only phase-1 proposal PR (PR #747/#739-
+# shaped) merged with a same-round approval comment already on the issue —
+# the round-scoping `phase2` bool above is trivially true the moment
+# approval postdates the PR's own first commit, since phase-1 and phase-2
+# share one branch. These cases pin the second, content-based condition
+# that must also hold before Closes is attached/required.
+
+def test_docsonly_pr_with_same_round_approval_gets_no_closes(tmp_path):
+    """The #741 regression itself, PR-#747/#739-shaped: a phase-1 proposal
+    PR carrying only docs/ paths, approved in the same round, must NOT get
+    `Closes` attached — the issue must stay open for the phase-2 delivery
+    PR still to come."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "proposal(issue-9): phase-1, Refs #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+                "files": [{"path": "docs/issue-9/proposals/2026-08-01-plan.md"}],
+            },
+        },
+    }
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log)
+    assert r.returncode == 0, r.stderr
+    assert not edit_log.exists()
+
+
+def test_docsonly_pr_with_no_approval_gets_no_closes(tmp_path):
+    """Empty-state pairing: a docs-only PR with no approval comment at all
+    must also pass through untouched (unchanged from pre-#741 behavior —
+    phase2 is already False here, so the content gate is never reached)."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "proposal(issue-9): phase-1, Refs #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [],
+                "files": [{"path": "docs/issue-9/proposals/2026-08-01-plan.md"}],
+            },
+        },
+    }
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log)
+    assert r.returncode == 0, r.stderr
+    assert not edit_log.exists()
+
+
+def test_code_bearing_pr_with_same_round_approval_gets_closes(tmp_path):
+    """Regression guard, generalized to the new content-gated code path: a
+    PR that actually touches src/ still gets Closes attached on same-round
+    approval, exactly as before #741's fix."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "no closing keyword here, just #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+                "files": [{"path": "src/contract_guard.py"}],
+            },
+        },
+    }
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log)
+    assert r.returncode == 0, r.stderr
+    calls = json.loads(edit_log.read_text())
+    assert len(calls) == 1 and "Closes #9" in calls[0]["body"]
+
+
+def test_unrelated_file_under_reports_dir_gets_no_closes(tmp_path):
+    """After-proposal hunt finding, pinned as a permanent regression: a
+    file that merely lives under docs/issue-<n>/reports/ but is NOT the
+    acting role's own exact record filename (another role's record, a
+    stray note) must not be misread as phase-2-shaped — the role-agnostic
+    version of this bug must not silently return."""
+    cwd_dir = _repo_dir_on_branch(tmp_path, "cwdrepo", ["alice"], "issue-9/implementation")
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "no closing keyword here, just #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+                "files": [{"path": "docs/issue-9/reports/architect.md"}],
+            },
+        },
+    }
+    edit_log = tmp_path / "edits.json"
+    r = _run_guard("gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log)
+    assert r.returncode == 0, r.stderr
+    assert not edit_log.exists()
+
+
+def test_own_record_file_alone_gets_closes(tmp_path):
+    """A genuine docs-only phase-2 delivery (no src/tests touched) is still
+    recognized: the acting role's own exact record file
+    (docs/issue-<n>/reports/<role>.md), derived from the branch name,
+    counts as phase-2-shaped on its own."""
+    cwd_dir = _repo_dir_on_branch(tmp_path, "cwdrepo", ["alice"], "issue-9/implementation")
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "no closing keyword here, just #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+                "files": [{"path": "docs/issue-9/reports/implementation.md"}],
             },
         },
     }
