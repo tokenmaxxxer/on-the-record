@@ -131,6 +131,30 @@ def _plan_from_body(body: str) -> list[dict] | None:
     return steps
 
 
+def plan_order_blocked(plan: list[dict]) -> list[dict]:
+    """`_plan_from_body`가 낸 `[{step, roles, done}, ...]`을 받아, 아직 안
+    끝난(더 낮은 번호의) 선행 step이 있는 뒤 step을 모두 골라 `[{step,
+    prerequisite_step, prerequisite_done}, ...]`로 돌려준다 (issue #659
+    Axis 2). 같은 step 번호를 공유하는 항목(‖로 병렬 표시된 step)은 서로를
+    막지 않는다 — `<` 비교라 같은 번호끼리는 애초에 조건을 만족하지 않는다.
+    각 막힌 step에는 그 step보다 작은 번호 중 아직 안 끝난 step의 최솟값
+    하나만 근거로 붙인다(그 이후 것들은 그 하나가 풀리면 함께 풀리므로).
+    step이 하나뿐이거나 선행관계가 전혀 없으면 빈 리스트."""
+    blocked = []
+    for entry in plan:
+        n = entry["step"]
+        undone_prereqs = [p["step"] for p in plan if p["step"] < n and not p["done"]]
+        if not undone_prereqs:
+            continue
+        prereq = min(undone_prereqs)
+        blocked.append({
+            "step": n,
+            "prerequisite_step": prereq,
+            "prerequisite_done": False,
+        })
+    return blocked
+
+
 def _pr_approved(pr: dict, comments: list[dict], approvers: set[str],
                  subject: str, role: str) -> bool:
     """Two detection paths from contract v3 s19: an `APPROVE <subject>/<role>`
