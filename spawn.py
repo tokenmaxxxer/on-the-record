@@ -4188,6 +4188,17 @@ def main() -> int:
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import flows
         return flows.flows(a.cwd, a.json)
+    if a.role == "roles-due":
+        # board_condition 평가기 — 판단(judgment) 잔여만 (issue #896 step 2).
+        # 표준 발동(test-authoring 등)은 이제 항상-켜짐 훅이 맡고, 여기는
+        # 스폰 여부까지 판단이 필요한 나머지 역할만 surfaced-only 로 보고한다.
+        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+        import roles_due as _roles_due
+        due = _roles_due.roles_due(Path(a.cwd).resolve())
+        lines = _roles_due.format_report(due)
+        for line in lines:
+            print(line)
+        return 0
     if a.role == "closure-sweep":
         # 보드 전체를 훑어 이슈-PR 종결 불일치를 보고한다 — 명시적 단발 호출
         # (approve-scope 와 마찬가지로 watchdog 틱에 자동으로 안 물린다, 이슈 #135).

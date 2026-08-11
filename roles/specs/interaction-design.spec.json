@@ -27,6 +27,11 @@
     "error": ["screen-ref-unresolvable"]
   },
   "use_when": {
-    "board_condition": "a requirements-engineering record landed for a screen/flow-facing requirement AND no interaction-design record exists yet for it"
+    "board_condition": "a requirements-engineering record landed for a screen/flow-facing requirement AND no interaction-design record exists yet for it",
+    "trigger": {
+      "path_patterns": ["docs/issue-*/reports/product-discovery.md"],
+      "content_patterns": [],
+      "record_absent_for": "interaction-design"
+    }
   }
 }

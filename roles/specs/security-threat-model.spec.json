@@ -43,6 +43,11 @@
     "error": ["spec-unreadable"]
   },
   "use_when": {
-    "board_condition": "a spec or design doc landed that introduces a new trust boundary, authentication surface, or sensitive-data flow AND no security-threat-model record exists yet for it"
+    "board_condition": "a spec or design doc landed that introduces a new trust boundary, authentication surface, or sensitive-data flow AND no security-threat-model record exists yet for it",
+    "trigger": {
+      "path_patterns": ["**/auth/**", "**/*permission*", "**/*credential*", "**/*secret*"],
+      "content_patterns": ["trust boundary", "authentication", "bypassPermissions", "sudo"],
+      "record_absent_for": "security-threat-model"
+    }
   }
 }
