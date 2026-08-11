@@ -54,7 +54,10 @@ set above). Summary:
    follow-up background-daemon design, not hidden.
 2. **Merge without double-acting** — two lanes: a new completion-
    detection lane (PR opened / session ended, dedup key `(issue, role,
-   pr_number|"session-end")`) and the existing health-repair lane
+   pr_number)` or, with no PR, `(issue, role, spawn_attempt_id,
+   "session-end")` — the attempt discriminator is required to avoid a
+   respawn colliding with its predecessor's sentinel, per the
+   after-proposal hunt finding, see spec §2) and the existing health-repair lane
    (`reconcile()`'s closed `respawn`/`resume-watch`/`manual-review`/`none`
    set, dedup key `(issue, role, next_action.kind)`). Both write through
    one TTL'd ledger (`runs/reconcile_ledger.json`) before acting; whichever
@@ -105,3 +108,13 @@ session to build it without open design decisions.
 ## Accumulation
 
 Not accumulation-cost-shaped: one-time design document. N/A.
+
+## What did not work
+
+- Initial completion-detection dedup key was `(issue, role,
+  "session-end")` with no attempt discriminator — after-proposal hunt
+  (`docs/issue-782/reports/product-discovery/2026-08-11-hunt-2026-08-11-dual-channel-observation.md`)
+  found this collides across a respawn inside the TTL window, silently
+  suppressing a genuinely distinct completion. Fixed: key now includes
+  the roster entry's spawn timestamp as `spawn_attempt_id` when no PR
+  exists.
