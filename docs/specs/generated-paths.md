@@ -26,6 +26,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `approval-gate.sh` | n/a | reads/validates only, no write call |
 | `call-shape-guard.sh` | n/a | reads/validates only, no write call |
 | `claim-scan-preflight.sh` | n/a | reads/validates only, no write call |
+| `absorbed-branch-recut-guard.sh` | n/a | reads/validates only — shells out to `spawn.py recut-if-absorbed`, which git-checkouts inside the target repo's own worktree, not a generated path |
 | `contract-guard.sh` | n/a | reads/validates only, no write call |
 | `deliverable-guard.sh` | n/a | reads/validates only, no write call |
 | `delegation-post-gate.sh` | n/a | reads/validates only, no write call |
