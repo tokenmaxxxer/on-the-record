@@ -53,26 +53,26 @@ def _run(payload, state_dir, k=5):
     )
 
 
-def _post(state_dir, target=TARGET, k=5):
+def _post(state_dir, target=TARGET, k=5, tool_name=TOOL, input_key="file_path"):
     return _run(
         {
             "_mode": "post",
             "session_id": SESSION,
-            "tool_name": TOOL,
-            "tool_input": {"file_path": target},
+            "tool_name": tool_name,
+            "tool_input": {input_key: target},
             "tool_response": DENY_TOOL_RESPONSE,
         },
         state_dir, k,
     )
 
 
-def _pre(state_dir, target=TARGET, k=5):
+def _pre(state_dir, target=TARGET, k=5, tool_name=TOOL, input_key="file_path"):
     return _run(
         {
             "_mode": "pre",
             "session_id": SESSION,
-            "tool_name": TOOL,
-            "tool_input": {"file_path": target},
+            "tool_name": tool_name,
+            "tool_input": {input_key: target},
         },
         state_dir, k,
     )
@@ -143,6 +143,46 @@ def t_2k_denial_is_terminal_deny():
         r = _pre(td, k=k)
         assert r.returncode == 2
         assert TARGET in r.stderr
+
+
+# --- Bash fatigue-allow scope regression (issue #846) ---
+
+BASH_CMD = 'cd $(touch /tmp/pwned_poc_846)&&python3 spawn.py implementation "task" --issue 834'
+
+
+def t_bash_kth_denial_no_longer_carries_permission_decision():
+    """issue #846 / PR #843 3-step repro: an unrelated, state-dependent gate
+    denies an identical Bash command 5 times, then this hook's own K-tier
+    nudge must not independently supply permissionDecision: allow for a
+    Bash call -- merge-allow-gate.sh/spawn-allow-gate.sh may be withholding
+    their own allow for that exact command shape, and this hook's allow
+    would be the only permission signal left once the unrelated gate stops
+    firing. additionalContext (the corrective nudge) must still appear.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        for _ in range(5):
+            assert _post(
+                td, target=BASH_CMD, k=5, tool_name="Bash", input_key="command"
+            ).returncode == 0
+        r = _pre(td, target=BASH_CMD, k=5, tool_name="Bash", input_key="command")
+        assert r.returncode == 0
+        out = json.loads(r.stdout)
+        hso = out["hookSpecificOutput"]
+        assert "permissionDecision" not in hso
+        assert "permissionDecisionReason" not in hso
+        assert "denied 5 times" in hso["additionalContext"]
+
+
+def t_write_kth_denial_still_carries_permission_decision():
+    """Non-Bash tool_name keeps #507's shipped allow-with-context behavior
+    unchanged -- the scope-out is Bash-only, not global."""
+    with tempfile.TemporaryDirectory() as td:
+        for _ in range(5):
+            assert _post(td, k=5).returncode == 0
+        r = _pre(td, k=5)
+        assert r.returncode == 0
+        out = json.loads(r.stdout)
+        assert out["hookSpecificOutput"]["permissionDecision"] == "allow"
 
 
 # --- unset-spoof regression (issue #706) ---

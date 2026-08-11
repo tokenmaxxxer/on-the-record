@@ -125,3 +125,22 @@ unit touches (this hunt record, the survey, and the proposal) is under
 `docs/`, per the warrant directive's docs-only fast path — there is no
 code diff yet for a before-landing hunt to probe; phase 2 (once approved)
 is its own future build-and-land transition with its own hunt dispatches.
+
+## before-landing — stance 1: assume this change and another plugin's rule/hook cancel each other — find the pair
+
+Verdict: NO FINDING
+Seed: on-the-record/hooks/retry-loop-bound.sh (lines ~181-231, K-tier allow branch narrowed for tool_name=="Bash"); on-the-record/hooks/hooks.json PreToolUse groups (matcher "Write|Edit|MultiEdit|Bash" -> retry-loop-bound.sh pre; matcher "Bash" -> contract-guard.sh, pr-preflight.sh, delegation-post-gate.sh, claim-scan-preflight.sh, spec-index-preflight.sh, role-axis-completeness-guard.sh, gate-registration-guard.sh, impact-guard.sh, plan-order-guard.sh, delegated-judgment-gate.sh, merge-allow-gate.sh, spawn-allow-gate.sh)
+cap_seconds: 120
+tier: default
+diff_stat_lines: 85 (67 insertions, 18 deletions across retry-loop-bound.sh and test_retry_loop_bound.py)
+started_at: 2026-08-11T13:06:38Z
+ended_at: 2026-08-11T13:09:15Z
+
+Grepped every hook registered on the Bash-matching PreToolUse matcher groups for `permissionDecision` and for any reference to `retry-loop-bound`. Only three hooks in the whole plugin ever emit `permissionDecision` at all: retry-loop-bound.sh (now narrowed), merge-allow-gate.sh (scoped to a PR-merge invocation via gh), and spawn-allow-gate.sh (scoped to a spawn.py invocation under orchestrator identity). Neither merge-allow-gate.sh nor spawn-allow-gate.sh reads or branches on retry-loop-bound's output or state -- each independently decides allow/no-output from its own shape check, and merge-allow-gate.sh's own header comment (lines 20-27) already documents and empirically cites (docs/issue-810/reports/implementation.md) that an exit-2 deny from any other hook wins over its own JSON allow, i.e. hook outputs on the same matcher group compose by deny-wins, not by one hook's allow clobbering another's silence. The only other hook that mentions retry-loop-bound.sh at all is decision-queue-stopgate.sh (a Stop-event hook, not PreToolUse), and its own comment states it borrows only the persistence-file *pattern* (own state dir, atomic os.replace, fail-open) and is explicitly "NOT the same file/key schema" -- no functional coupling to retry-loop-bound's permissionDecision shape.
+
+Ran the actual composition scenario from the test file's issue-846 fixture (a Bash command chaining a command-substitution prefix onto a spawn.py invocation for role implementation issue 834, denied 5 times by a stand-in gate, then replayed through `pre`) against retry-loop-bound.sh, spawn-allow-gate.sh, and merge-allow-gate.sh side by side. retry-loop-bound.sh now correctly emits additionalContext-only (no permissionDecision key at all); spawn-allow-gate.sh and merge-allow-gate.sh both independently produce no output (rc=0, empty stdout) for this exact command shape, since it matches neither hook's strict-tokenized command pattern (the command-substitution prefix fails spawn-allow-gate.sh's #824-style strict shape check). All three Bash-scope allow-capable hooks agree: no permission signal for this command, letting it fall through to the normal ask/deny flow. This is consistent, not a cancellation -- and it is exactly the scenario the narrowing was written to prevent (previously retry-loop-bound's blanket Bash allow at K would have been the one dissenting "allow" signal despite spawn-allow-gate.sh's deliberate withholding for that shape).
+
+No hook in the registered Bash matcher groups, nor any sibling in the repo, branches on retry-loop-bound's presence/absence of permissionDecision for Bash, so no case was found where the narrowing flips another hook's own outcome. No reproduction of an actual cancellation was found.
+
+### Reproduce
+N/A -- no finding to reproduce. (The composition probe run showing no conflict is described in the prose above: retry-loop-bound.sh pre, spawn-allow-gate.sh, and merge-allow-gate.sh were each invoked on the same crafted Bash payload and their outputs compared.)

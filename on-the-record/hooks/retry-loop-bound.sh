@@ -14,11 +14,20 @@
 #           is equivalent to keying on (tool, target, reason) here without
 #           needing to know the reason before the gate has run).
 #   pre  -- looks up the incoming request's signature before the underlying
-#           gates run. count in [K, 2K) -> allow (exit 0) plus
-#           hookSpecificOutput.additionalContext quoting the last deny
-#           reason and any extracted expected-branch value. count >= 2K ->
-#           deny outright (exit 2), aborting that signature for the rest of
-#           the session; the underlying gate is never consulted again for it.
+#           gates run. count in [K, 2K) -> allow (exit 0; tool_name != "Bash"
+#           only -- see issue #846 below) plus hookSpecificOutput
+#           .additionalContext quoting the last deny reason and any
+#           extracted expected-branch value. count >= 2K -> deny outright
+#           (exit 2), aborting that signature for the rest of the session;
+#           the underlying gate is never consulted again for it.
+#
+# Bash scope (issue #846): the K-tier branch never emits permissionDecision
+# for tool_name == "Bash" -- only additionalContext. A content-aware Bash
+# allow-gate (merge-allow-gate.sh, spawn-allow-gate.sh) may be deliberately
+# withholding its own allow for the exact command this hook would otherwise
+# re-allow on retry count alone; this hook has no visibility into that
+# per-gate shape check, so for Bash it stays informational-only. Non-Bash
+# tool_names are unaffected (#507's original allow-with-context design).
 #
 # K (and 2K = 2*K) are tunable via OTR_RETRY_BOUND_K (default 5).
 # State: ${OTR_RETRY_BOUND_STATE_DIR:-$TMPDIR/otr-retry-bound}/<session_id>.json
@@ -213,14 +222,14 @@ if count >= K:
         "%s.%s Retrying identically will abort this action class after "
         "%d denials." % (tool_name, target, count, reason, expected, TWO_K)
     )
-    out = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "allow",
-            "permissionDecisionReason": ctx,
-            "additionalContext": ctx,
-        }
+    hook_output = {
+        "hookEventName": "PreToolUse",
+        "additionalContext": ctx,
     }
+    if tool_name != "Bash":
+        hook_output["permissionDecision"] = "allow"
+        hook_output["permissionDecisionReason"] = ctx
+    out = {"hookSpecificOutput": hook_output}
     sys.stdout.write(json.dumps(out))
     sys.exit(0)
 
