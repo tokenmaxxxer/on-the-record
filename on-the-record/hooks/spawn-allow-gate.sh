@@ -17,15 +17,15 @@
 #   (a) CLAUDE_ROLE resolves empty — orchestrator only, never a role
 #       session. Same SessionStart-snapshot identity read as
 #       merge-allow-gate.sh / approval-gate.sh.
-#   (b) the command, after stripping an optional leading `cd DIR &&`, is a
-#       single `python3 <path-ending-in-spawn.py> ...` invocation with no
-#       further shell chaining (&&, ;, |) or command/process substitution
-#       ($(...), `...`, <(...), >(...)) reachable outside single-quoted
-#       spans — only single quotes fully neutralize those in bash; double
-#       quotes still let $(...) and `...` execute, so double-quoted spans
-#       are NOT stripped before this check — so this hook never
-#       blanket-allows an arbitrary command merely because "spawn.py"
-#       appears in it somewhere.
+#   (b) the whole, unstripped command tokenizes (shlex.shlex(posix=True,
+#       punctuation_chars=True) — issue #824's design, ported here per
+#       issue #834) to exactly ["python3"|"python", SPAWN_PATH, ...tail] or
+#       ["cd", DIR, "&&", "python3"|"python", SPAWN_PATH, ...tail], with no
+#       chaining/substitution operator token anywhere else in the list —
+#       so this hook never blanket-allows an arbitrary command merely
+#       because "spawn.py" appears in it somewhere, and an unbounded `cd`
+#       directory slot can no longer swallow a command-substitution
+#       payload before any operator check ever sees it.
 #   (c) the resolved spawn.py path exists on disk inside a resolvable
 #       on-the-record checkout (reuses merge-allow-gate.sh's
 #       `_checkout_resolve`) — a path that does not resolve to a real file
@@ -65,7 +65,7 @@ CHECKOUT="$(_checkout_resolve || true)"
 [ -n "$CHECKOUT" ] || exit 0
 
 IFS='' read -r -d '' GUARD <<'PY' || true
-import json, os, re, sys
+import json, os, re, shlex, sys
 
 try:
     e = json.loads(os.environ.get("SAG_PAYLOAD", ""))
@@ -101,29 +101,53 @@ if isinstance(session_id, str) and session_id:
 if role:
     sys.exit(0)  # a role session — never this hook's target
 
-# --- command-shape resolution: strip an optional `cd DIR &&` prefix --------
-rest = cmd.strip()
-cd_m = re.match(r"^cd\s+\S+\s*&&\s*(.*)$", rest, re.DOTALL)
-if cd_m:
-    rest = cd_m.group(1).strip()
+# --- strict command-shape validation (issue #824 design, ported per #834) --
+# The whole command must tokenize (shlex.shlex(posix=True,
+# punctuation_chars=True), the only tokenizer that tracks bash's real
+# quote/escape state instead of hand-rolling a quote-pairing regex — see
+# docs/issue-824/proposals/strict-merge-allow-validation.md) to exactly
+# ["python3"|"python", SPAWN_PATH, ...tail] or ["cd", DIR, "&&",
+# "python3"|"python", SPAWN_PATH, ...tail], with no chaining/substitution
+# operator token anywhere else in the list — closing the bypass where an
+# unbounded `cd`-prefix directory slot swallowed a command-substitution
+# payload before any operator search ever saw it (issue #834).
+if "`" in cmd or "$(" in cmd or "\n" in cmd:
+    sys.exit(0)  # no legitimate invocation needs substitution or a newline
 
-# --- reject if any shell-chaining/substitution operator is reachable -------
-# The task text an orchestrator passes to spawn.py is free-form and may
-# legitimately contain &&, ;, | as literal characters — but ONLY inside
-# single quotes are those (and $(...) / `...`) neutralized by the shell;
-# double quotes still let $(...) and `...` command-substitution execute.
-# So: strip single-quoted spans only (fully inert), then check the
-# remainder — which still includes double-quoted text — for any chaining
-# or substitution operator, since all of those stay live there.
-stripped = re.sub(r"'[^']*'", "", rest)
-if re.search(r"&&|;|\||\$\(|`|<\(|>\(", stripped):
-    sys.exit(0)
+try:
+    _lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    _lexer.whitespace_split = True
+    tokens = list(_lexer)
+except ValueError:
+    sys.exit(0)  # unbalanced quoting — unreached, same fail-open posture as today
 
-# --- must be exactly a `python3 <...spawn.py> ...` invocation --------------
-m = re.match(r"^python3?\s+(\S*spawn\.py)(?:\s|$)", rest)
-if not m:
-    sys.exit(0)
-spawn_path = m.group(1)
+# shlex's own `punctuation_chars` omits `;` (it is still split into its own
+# token, just not tracked in that attribute) — add it explicitly so every
+# shell control operator this hook must catch is covered.
+OPERATOR_CHARS = set(_lexer.punctuation_chars) | {";"}
+
+
+def _is_operator_token(tok):
+    return bool(tok) and all(c in OPERATOR_CHARS for c in tok)
+
+
+def _is_pybin(tok):
+    return tok in ("python3", "python")
+
+
+if len(tokens) >= 2 and _is_pybin(tokens[0]) and tokens[1].endswith("spawn.py"):
+    spawn_path = tokens[1]
+    tail = tokens[2:]
+elif (len(tokens) >= 5 and tokens[0] == "cd" and tokens[2] == "&&"
+      and _is_pybin(tokens[3]) and tokens[4].endswith("spawn.py")):
+    spawn_path = tokens[4]
+    tail = [tokens[1]] + tokens[5:]  # DIR, then everything after SPAWN_PATH
+else:
+    sys.exit(0)  # not one of the two recognized shapes — unreached
+
+if any(_is_operator_token(t) for t in tail):
+    sys.exit(0)  # a chaining/substitution operator survives outside the
+    # one tolerated `&&` of a recognized `cd DIR &&` prefix
 
 checkout = os.environ.get("SAG_CHECKOUT", "")
 resolved = spawn_path
