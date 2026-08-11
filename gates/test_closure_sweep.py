@@ -70,7 +70,15 @@ class FindViolationsSkips(unittest.TestCase):
         self.assertEqual(skips[0]["reason"], "gh-issue-view-failed")
 
     def test_pr_view_failure_is_a_skip(self):
+        # issue #682: find_violations now resolves branch->PR via one
+        # `_pr_index_all` list call; the per-branch `_pr_for_branch`/
+        # `_pr_view_state_body` fallback only fires when that list was
+        # truncated (`(None, True)`) — force that path to still exercise
+        # the individual-lookup failure this test targets.
         closure_sweep._issue_view = lambda root, issue: ("OPEN", True)
+        orig_pr_index_all = closure_sweep._pr_index_all
+        closure_sweep._pr_index_all = lambda root: (None, True)
+        self.addCleanup(setattr, closure_sweep, "_pr_index_all", orig_pr_index_all)
         spawn._pr_for_branch = lambda root, branch: 42
         orig_pr_view = closure_sweep._pr_view_state_body
         closure_sweep._pr_view_state_body = lambda root, pr: (None, False)
