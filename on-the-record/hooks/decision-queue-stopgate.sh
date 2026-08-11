@@ -65,6 +65,20 @@ queue = flows.get("decision_queue")
 if not isinstance(queue, list) or not queue:
     sys.exit(0)
 
+
+def _name(item):
+    issue = item.get("issue")
+    pr = item.get("pr")
+    age = item.get("age_hours")
+    parts = []
+    if issue is not None:
+        parts.append(f"#{issue}")
+    if pr is not None:
+        parts.append(f"PR#{pr}")
+    label = "/".join(parts) if parts else "(unnamed)"
+    return f"{label} ({age:.1f}h)"
+
+
 # Issue #600: waiting-declaration turn-holding. A non-empty queue (any
 # age -- the incident item was age_hours=0.3, below tier 1) combined with
 # a reply that declares it is waiting but shows no sign of closing the
@@ -76,10 +90,14 @@ try:
 except ValueError:
     stdin_payload = {}
 last_msg = ""
+session_id = None
 if isinstance(stdin_payload, dict):
     last_msg = stdin_payload.get("last_assistant_message") or ""
+    session_id = stdin_payload.get("session_id")
 if not isinstance(last_msg, str):
     last_msg = ""
+if not isinstance(session_id, str) or not session_id:
+    session_id = None
 
 _WAITING_RE = re.compile(
     r"대기\s*중|기다리는\s*중|waiting for|standing by", re.IGNORECASE
@@ -87,20 +105,82 @@ _WAITING_RE = re.compile(
 _ARM_RE = re.compile(
     r"background|observation|백그라운드|옵저베이션", re.IGNORECASE
 )
+
+# Issue #692: bound the waiting-declaration block to at most one fire per
+# consecutive run in a session -- a blocked Stop forces another turn, and
+# when the only remaining work is an operator decision, the natural next
+# reply is another bare waiting declaration, which blocked again on every
+# repeat (six in a row in the reported incident). State follows
+# retry-loop-bound.sh's persistence shape (own sibling state dir, atomic
+# os.replace, silent fail-open) but is NOT the same file/key schema --
+# retry-loop-bound keys on a PreToolUse (tool, target) signature that a
+# Stop event's payload has no equivalent for.
+_STATE_DIR = os.environ.get("STOPGATE_STATE_DIR", "")
+
+
+def _state_path():
+    if not _STATE_DIR or not session_id:
+        return None
+    safe = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
+    return os.path.join(_STATE_DIR, safe + ".json")
+
+
+def _load_blocked():
+    path = _state_path()
+    if not path:
+        return False
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return bool(data.get("waiting_declaration_blocked"))
+    except (OSError, ValueError):
+        pass
+    return False
+
+
+def _save_blocked(blocked):
+    path = _state_path()
+    if not path:
+        return
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump({"waiting_declaration_blocked": blocked}, f)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
 if _WAITING_RE.search(last_msg) and not _ARM_RE.search(last_msg):
-    out = {
-        "decision": "block",
-        "reason": (
-            "decision-queue-stopgate: waiting-declaration reply over a "
-            "non-empty decision queue with no background-arm marker -- "
-            "this is turn-occupancy, not a closed turn. run.md #535 규칙 "
-            "4 (\"남은 작업이 사람의 결정뿐이면 그 자리에서 턴을 닫는다\") "
-            "requires closing the turn instead of repeating a waiting "
-            "status line; let the user's next message open the next turn."
-        ),
-    }
-    sys.stdout.write(json.dumps(out))
-    sys.exit(0)
+    if not _load_blocked():
+        names = ", ".join(_name(i) for i in queue if isinstance(i, dict))
+        out = {
+            "decision": "block",
+            "reason": (
+                "decision-queue-stopgate: waiting-declaration reply over "
+                "a non-empty decision queue with no background-arm "
+                "marker -- this is turn-occupancy, not a closed turn. "
+                "run.md #535 규칙 4 (\"남은 작업이 사람의 결정뿐이면 그 "
+                "자리에서 턴을 닫는다\") requires closing the turn instead "
+                "of repeating a waiting status line. Decision-queue items: "
+                + names + ". One-shot escape: in your next message, relay "
+                "these items by name once (issue/PR coordinates above), "
+                "then close the turn -- do not send another bare waiting "
+                "declaration; this block will not repeat this run."
+            ),
+        }
+        _save_blocked(True)
+        sys.stdout.write(json.dumps(out))
+        sys.exit(0)
+    # Already blocked once this run of consecutive waiting declarations --
+    # fall through to the age-tier logic below instead of blocking again.
+else:
+    # Non-waiting-declaration Stop (arm marker present, or no waiting
+    # pattern at all): reset the latch so a later, unrelated stall in the
+    # same session is still caught.
+    _save_blocked(False)
 
 tier1, tier2 = [], []
 for item in queue:
@@ -116,20 +196,6 @@ for item in queue:
 
 if not tier1 and not tier2:
     sys.exit(0)
-
-
-def _name(item):
-    issue = item.get("issue")
-    pr = item.get("pr")
-    age = item.get("age_hours")
-    parts = []
-    if issue is not None:
-        parts.append(f"#{issue}")
-    if pr is not None:
-        parts.append(f"PR#{pr}")
-    label = "/".join(parts) if parts else "(unnamed)"
-    return f"{label} ({age:.1f}h)"
-
 
 if tier2:
     names = ", ".join(_name(i) for i in tier2)
@@ -159,7 +225,9 @@ sys.stdout.write(json.dumps(out))
 sys.exit(0)
 PY
 
-STOPGATE_FLOWS_JSON="$FLOWS_JSON" STOPGATE_STDIN_JSON="$payload" python3 -c "$CHECK"
+STOPGATE_STATE_DIR="${OTR_DECISION_QUEUE_STOPGATE_STATE_DIR:-${TMPDIR:-/tmp}/otr-decision-queue-stopgate}"
+
+STOPGATE_FLOWS_JSON="$FLOWS_JSON" STOPGATE_STDIN_JSON="$payload" STOPGATE_STATE_DIR="$STOPGATE_STATE_DIR" python3 -c "$CHECK"
 rc=$?
 trap - EXIT
 exit "$rc"
