@@ -69,6 +69,8 @@ try:
          record_lint.checked_claim_reason_check),
         ("backtick-quoted path reference (issue #330)",
          record_lint.orphaned_path_reference_check),
+        ("state/defect claim with no canonical source (issue #793)",
+         record_lint.canonical_source_claim_check),
     ]
 
     print("<record-claim-citation-directive>")
