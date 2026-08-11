@@ -165,6 +165,70 @@ def t_non_spawn_command_is_untouched(tmp_path: Path):
     assert _allow_decision(r.stdout) is None, repr(r.stdout)
 
 
+def t_command_substitution_hidden_in_cd_prefix_dir_slot_dollar_paren_is_unreached(tmp_path: Path):
+    # issue #834's exact reproduction: an unbounded `cd DIR &&` prefix slot
+    # let a whitespace-free $(...) payload get stripped away before the
+    # (former) operator search ever inspected it, while bash still executed
+    # it. The strict tokenizer must reject this outright.
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout,
+             'cd $(touch${IFS}/tmp/PWNED_MARKER) && python3 spawn.py review "task"')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_command_substitution_hidden_in_cd_prefix_dir_slot_backtick_is_unreached(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout,
+             'cd `touch${IFS}/tmp/PWNED_MARKER` && python3 spawn.py review "task"')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_prepended_with_semicolon_is_not_allowed(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, 'evil ; python3 spawn.py review "task"')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_appended_with_semicolon_is_not_allowed(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, 'python3 spawn.py review "task" ; evil')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_appended_with_pipe_is_not_allowed(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, 'python3 spawn.py review "task" | evil')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_backslash_escaped_quote_payload_is_not_allowed(tmp_path: Path):
+    # docs/issue-824/reports/implementation/hunt-strict-merge-allow-validation.md:
+    # a naive quote-pairing regex desyncs from bash's real quote state on
+    # this exact payload shape and misses the live, unquoted `;` it hides —
+    # shlex(posix=True) must not repeat that.
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, "python3 spawn.py review 42 \\';evil;'X'")
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
 def t_kill_switch_suppresses_allow(tmp_path: Path):
     target = tmp_path / "target"
     target.mkdir()
