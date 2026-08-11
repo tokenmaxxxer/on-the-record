@@ -215,3 +215,19 @@ a follow-up commit to this record, the same two-commit convention
 `docs/issue-824/reports/implementation.md` used (`git log --oneline --
 docs/issue-824/reports/implementation.md` shows commits `64c9ed0` then
 `11a2f06`).
+
+canonical: live pytest run, this session, fence immediately below, run
+after the commit that lands this build's `code_under_review` files
+(`git status --short` returned no output at run time, i.e. a clean
+tree) —
+
+```
+$ python3 -m pytest gates/ tests/ on-the-record/hooks/ -q
+1 failed, 1215 passed, 2 skipped, 1 xfailed in 190.82s (0:03:10)
+FAILED gates/test_generated_paths.py::t_all_generators_recorded_and_disjoint
+```
+
+Zero *new* failures — the dirty-tree artifact cleared as expected once
+this build's changes landed in a commit, leaving only the pre-existing,
+out-of-scope `t_all_generators_recorded_and_disjoint`, exactly matching
+the proposal's `## How you'll know it worked` expectation.
