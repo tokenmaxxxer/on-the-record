@@ -42,3 +42,13 @@ The test writes to docs/product/priorities.md intending to clear the depth axis 
 
 ### Expected
 The proposal's write set should include on-the-record/hooks/test_delegated_judgment_gate_triage.py (or note it as a required follow-up edit), since it independently exercises the same retired flat corpus path with real assertions that break once the reader moves — not just the two files (delegated-judgment-gate.sh, test_delegated_judgment_gate.py) it lists.
+
+## before-landing — stance 0: assume the gate just touched is bypassable — find the bypass
+
+Verdict: NO FINDING
+Seed: on-the-record/hooks/delegated-judgment-gate.sh depth_match(paths, issue_n) scoping change from docs/product to docs/issue-<n>/product; call site DEPTH = depth_match(paths, issue); issue is derived at line 340-343 via `bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch); issue = int(bm.group(1))`, anchored on the current branch name and requiring digits only. issue_n is an `int`, so the f-string `TARGET / "docs" / f"issue-{issue_n}" / "product"` cannot be traversed — no attacker-controlled non-digit content reaches the path. The same `issue` variable is reused consistently for the PR comment, the depth-axis corpus lookup, and derivation_source; there is no second, independently-derived issue number anywhere in the diff that could disagree with it. Checked: (1) path traversal in the f-string — impossible, issue_n is always `int`; (2) falsy/None issue reaching an unintended glob — `if not bm: sys.exit(0)` guards before `issue` is ever assigned, so DEPTH is unreachable with issue undefined or None; (3) branch name producing an issue value diverging from the "real" issue — the branch name is the sole source of `issue` for the whole script (also used as the `gh issue comment` target), so no divergence path exists within this diff; (4) empty/absent corpus still returns False (lines 368-372, short-circuit unchanged) so the AND-composition/escalation invariant holds exactly as before. This diff narrows the corpus from a shared flat `docs/product` (matchable by ANY issue's PR) to a per-issue `docs/issue-<n>/product` — it tightens rather than loosens scope. No reproduction found letting an attacker plant `docs/issue-<n>/product/*.md` content to force a DEPTH match for an issue `n` other than the one on their own branch.
+cap_seconds: 120
+tier: default
+diff_stat_lines: ~15 (delegated-judgment-gate.sh diff hunk)
+started_at: 2026-08-11T00:04:00Z
+ended_at: 2026-08-11T00:08:30Z
