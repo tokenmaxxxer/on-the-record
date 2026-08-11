@@ -145,6 +145,78 @@ def t_no_gh_repo_flag_with_no_local_checkout_is_unreached(tmp_path: Path):
     assert _allow_decision(r.stdout) is None, repr(r.stdout)
 
 
+# --- issue #824: strict command-shape validation — a `gh pr merge <n>`
+# substring anywhere in a longer chained command must never get `allow`,
+# in either chain direction, for any of the shell chain operators, or for
+# a payload that desyncs a naive quote-stripping regex (the after-proposal
+# warrant hunt's finding, docs/issue-824/reports/implementation/
+# hunt-strict-merge-allow-validation.md).
+
+
+def t_chain_appended_with_double_ampersand_is_not_allowed(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, "gh pr merge 42 && evil",
+             ready_output="PR #42: READY")
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_prepended_with_semicolon_is_not_allowed(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, "evil ; gh pr merge 42",
+             ready_output="PR #42: READY")
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_appended_with_semicolon_is_not_allowed(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, "gh pr merge 42 ; evil",
+             ready_output="PR #42: READY")
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_appended_with_pipe_is_not_allowed(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, "gh pr merge 42 | evil",
+             ready_output="PR #42: READY")
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_backslash_escaped_quote_payload_is_not_allowed(tmp_path: Path):
+    # docs/issue-824/reports/implementation/hunt-strict-merge-allow-validation.md:
+    # a naive `re.sub(r"'[^']*'", "", rest)` quote-stripper desyncs from
+    # bash's real quote state on this exact payload shape and misses the
+    # live, unquoted `;` it hides — shlex(posix=True) must not repeat that.
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, "gh pr merge 42 \\';evil;'X'",
+             ready_output="PR #42: READY")
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_cd_prefixed_ready_pr_still_gets_allow(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, f"cd {target} && gh pr merge 42",
+             ready_output="PR #42: READY")
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) == "allow", repr(r.stdout)
+
+
 if __name__ == "__main__":
     import tempfile
     tests = [v for k, v in sorted(globals().items()) if k.startswith("t_")]

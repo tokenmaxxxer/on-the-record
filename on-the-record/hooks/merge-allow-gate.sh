@@ -26,6 +26,18 @@
 # over this hook's JSON `"allow"` when both fire — this hook cannot make a
 # bad merge easier, only a good one faster.
 #
+# issue #824: the command-shape check is strict, not a substring search —
+# the entire tool_input.command must tokenize (via shlex.shlex(posix=True,
+# punctuation_chars=True), the only tokenizer that tracks bash's real
+# quote/escape state instead of hand-rolling a quote-pairing regex — see
+# docs/issue-824/proposals/strict-merge-allow-validation.md) to exactly
+# ["gh","pr","merge",...args] or ["cd",DIR,"&&","gh","pr","merge",...args],
+# with no other chaining/substitution operator token anywhere else in the
+# list, before the PR-number/READY check ever runs — closing the
+# `gh pr merge <n> && <anything>` bypass (any position, any chain operator,
+# including a backslash-escaped-quote payload that desyncs a naive
+# quote-stripping regex).
+#
 # Kill switch: ORCHESTRATE_OFF=1 (same convention as every other gate here).
 set -uo pipefail
 
@@ -61,7 +73,7 @@ CHECKOUT="$(_checkout_resolve || true)"
 [ -f "$CHECKOUT/gates/landing_readiness.py" ] || exit 0
 
 IFS='' read -r -d '' GUARD <<'PY' || true
-import json, os, re, subprocess, sys
+import json, os, re, shlex, subprocess, sys
 
 try:
     e = json.loads(os.environ.get("MAG_PAYLOAD", ""))
@@ -75,6 +87,46 @@ if not isinstance(cmd, str):
     sys.exit(0)
 if not re.search(r"\bgh\s+pr\s+merge\b", cmd):
     sys.exit(0)
+
+# --- strict command-shape validation (issue #824) ---------------------------
+# The whole command must tokenize to exactly one of the two recognized
+# shapes below, with no other chaining/substitution operator token
+# anywhere else in the list — a substring match on "gh pr merge" is not
+# enough, since `gh pr merge 42 && evil` (or `;`, `|`, prepended instead of
+# appended, ...) contains that substring too. This runs before any
+# identity/readiness check; failing it falls through to the same plain
+# `exit 0` as every other unreached shape.
+if "`" in cmd or "$(" in cmd or "\n" in cmd:
+    sys.exit(0)  # no legitimate invocation needs substitution or a newline
+
+try:
+    _lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    _lexer.whitespace_split = True
+    tokens = list(_lexer)
+except ValueError:
+    sys.exit(0)  # unbalanced quoting — unreached, same fail-open posture as today
+
+# shlex's own `punctuation_chars` omits `;` (it is still split into its own
+# token, just not tracked in that attribute) — add it explicitly so every
+# shell control operator this hook must catch is covered.
+OPERATOR_CHARS = set(_lexer.punctuation_chars) | {";"}
+
+
+def _is_operator_token(tok):
+    return bool(tok) and all(c in OPERATOR_CHARS for c in tok)
+
+
+if len(tokens) >= 3 and tokens[0] == "gh" and tokens[1] == "pr" and tokens[2] == "merge":
+    _tail = tokens[3:]
+elif (len(tokens) >= 6 and tokens[0] == "cd" and tokens[2] == "&&"
+      and tokens[3] == "gh" and tokens[4] == "pr" and tokens[5] == "merge"):
+    _tail = [tokens[1]] + tokens[6:]  # DIR, then everything after "merge"
+else:
+    sys.exit(0)  # not one of the two recognized shapes — unreached
+
+if any(_is_operator_token(t) for t in _tail):
+    sys.exit(0)  # a chaining/substitution operator survives outside the
+    # one tolerated `&&` of a recognized `cd DIR &&` prefix
 
 # --- identity: SessionStart snapshot first, live env var fallback ----------
 # Same primitive approval-gate.sh already trusts (path:on-the-record/hooks/

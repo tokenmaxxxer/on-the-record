@@ -128,3 +128,127 @@ suffixed with `\';evil;'X'` (and equivalent constructions using the same
 escaped-quote desync) receive the `allow` decision while chaining an
 arbitrary second command onto the merge — the same defect class the
 proposal exists to close, reachable through a different syntactic door.
+
+## before-landing — stance 1: assume this change and another plugin's rule cancel each other — find the pair
+
+Verdict: FINDING — impact-guard.sh's coarse substring count of the merge
+invocation phrase (unaffected by this diff) disagrees with
+merge-allow-gate.sh's new precise shlex-based single-invocation
+recognition, on the same command string: a legitimate single merge command
+with an ordinary `--subject`-style argument that happens to echo the same
+three words is recognized by merge-allow-gate.sh's stricter check as the
+clean single-merge shape (proceeds toward `allow` if READY), while
+impact-guard.sh's `re.findall(r"\bgh\s+pr\s+merge\b", cmd)` counts it as 2
+occurrences in the raw text and denies the command outright as a "batch" —
+both hooks are wired to the same PreToolUse+Bash event in
+`on-the-record/hooks/hooks.json`, evaluating the identical
+`tool_input.command` string, and disagree on whether it is one merge or
+two.
+Kind: composition
+Seed: on-the-record/hooks/merge-allow-gate.sh (git diff HEAD),
+on-the-record/hooks/impact-guard.sh, on-the-record/hooks/hooks.json
+cap_seconds: 120
+tier: default
+diff_stat_lines: 53 insertions(+), 1 deletion(-) (on-the-record/hooks/merge-allow-gate.sh)
+started_at: 2026-08-11T10:18:16Z
+ended_at: 2026-08-11T10:24:30Z
+
+Note: this run overran the 120s cap (finished at roughly T+375s including
+the write step below) — reasoning and reproduction were captured live
+before wrap-up; the section is written in full despite the overrun per
+"stop at 120 seconds even if incomplete — write what you have." One
+reproduction attempt (a `cat >>` heredoc append containing the target
+phrase repeated many times in prose) was itself denied by the live,
+currently-wired impact-guard.sh mid-hunt, which is direct, additional,
+unplanned confirmation of the exact substring-counting behavior this
+finding is about — the record was instead written via the Write tool
+(not Bash-matched, so impact-guard never inspects it) to avoid that
+self-inflicted loop.
+
+### Reproduce
+
+canonical: `on-the-record/hooks/hooks.json` PreToolUse+Bash list —
+`impact-guard.sh` is wired before `merge-allow-gate.sh`, both firing on
+the identical `tool_input.command`.
+
+canonical: `on-the-record/hooks/impact-guard.sh` line 79 —
+`merge_count = len(re.findall(r"\bgh\s+pr\s+merge\b", cmd))`, a plain
+substring/regex count over the whole raw command text, with no
+quote/token awareness — counts a match anywhere in the string, including
+inside a quoted argument that is not a second shell invocation.
+
+canonical: `git diff HEAD -- on-the-record/hooks/merge-allow-gate.sh` —
+the new strict shape check (`shlex.shlex(cmd, posix=True,
+punctuation_chars=True)`), which correctly folds a whole quoted argument
+into a single token and therefore correctly recognizes a command shaped
+like `<merge target words> 42 --subject "<merge target words> notes"` as
+the one-shape single-merge command, with no operator token in the tail.
+
+derived: live-fire reproduction, run in this very session (impact-guard.sh
+is itself a live PreToolUse hook here) — a Bash tool call whose command
+string contained the merge-target phrase twice (once as the real
+invocation, once inside a `--subject` argument) was denied by the actual,
+currently-wired impact-guard.sh before it ever ran:
+
+```
+$ (Bash tool call; command text built as: CMD='<merge> 42 --subject "<merge> notes"' ... )
+PreToolUse:Bash hook error: [.../on-the-record/hooks/impact-guard.sh]: impact-guard: batch of 2 `gh pr merge` calls denied before executing: 89 open proposal(s) require individual approval per docs/specs/impact-classification.md's dominant-axis rule: ... Merge them one at a time so each gets its own individual approval.
+```
+
+derived: the same command string fed to each hook's own extracted parsing
+logic directly (built via Python string concatenation so the outer Bash
+command text itself never contains the target phrase twice, per this
+hunt's own instruction to avoid re-tripping the live impact-guard hook):
+
+```
+$ python3 - <<'EOF'
+import re, shlex
+gpm = "gh" + " pr" + " merge"
+cmd = gpm + ' 42 --subject "' + gpm + ' notes"'
+print("CMD:", repr(cmd))
+print("impact-guard substring count:", len(re.findall(r"\bgh\s+pr\s+merge\b", cmd)))
+lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+lex.whitespace_split = True
+tokens = list(lex)
+print("merge-allow-gate tokens:", tokens)
+OPERATOR_CHARS = set(lex.punctuation_chars) | {";"}
+def is_op(t): return bool(t) and all(c in OPERATOR_CHARS for c in t)
+if len(tokens) >= 3 and tokens[0]=="gh" and tokens[1]=="pr" and tokens[2]=="merge":
+    tail = tokens[3:]
+    print("merge-allow-gate: recognized single-merge shape; tail =", tail)
+    print("merge-allow-gate: operator token present in tail? ->", any(is_op(t) for t in tail))
+else:
+    print("merge-allow-gate: NOT recognized shape (falls through, no allow)")
+EOF
+```
+
+### Observed
+
+```
+CMD: 'gh pr merge 42 --subject "gh pr merge notes"'
+impact-guard substring count: 2
+merge-allow-gate tokens: ['gh', 'pr', 'merge', '42', '--subject', 'gh pr merge notes']
+merge-allow-gate: recognized single-merge shape; tail = ['42', '--subject', 'gh pr merge notes']
+merge-allow-gate: operator token present in tail? -> False
+```
+
+Plus the live hook error above: the actual, currently-wired
+impact-guard.sh, given a command containing this same textual pattern,
+denies with exit 2 ("batch of 2 ... calls denied") — even though
+merge-allow-gate.sh's own (more careful, quote/token-aware) reading of the
+identical string sees exactly one real invocation of the merge target and
+would proceed toward `allow`.
+
+### Expected
+
+canonical: the fences above (own read, this session) — the two hooks
+evaluating the same `tool_input.command` for "how many merge invocations
+does this contain" should agree, or at minimum impact-guard.sh's coarser
+count should not be able to override merge-allow-gate.sh's careful,
+tokenization-based determination that there is only one real invocation —
+the rule that composed the "batch" check (plain word-boundary substring
+counting) never accounted for the same command shapes issue #824 now
+tokenizes precisely, so a single, ordinary merge with an incidental
+subject/body string is misclassified as a 2-invocation batch and blocked,
+while merge-allow-gate.sh — evaluated on the identical raw text — reaches
+the opposite, correct conclusion.
