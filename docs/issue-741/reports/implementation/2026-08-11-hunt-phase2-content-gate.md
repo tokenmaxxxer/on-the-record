@@ -56,3 +56,66 @@ docs/issue-741/reports/implementation/hunt.md  approval-gate(today)= False  prop
 
 ### Expected
 The Rationale's forgeability claim ("approval-gate.sh denies any Write/Edit/MultiEdit to a src/tests?/ path or the role's record file from an un-approved session — a phase-1 session cannot legally create such a path before approval in the first place") should hold for whatever pattern contract-guard.sh actually implements. Since contract-guard.sh cannot know the acting role (per the proposal's own stated reason for going role-agnostic), the content check needs either: a role-agnostic pattern that is still no broader than the union of *all* per-role exact filenames actually protected by approval-gate.sh across the issue's known/possible roles (not a wildcard over the whole directory), or an explicit acknowledgment that this broadened match reopens a (smaller, but real) forgeable surface that the #476 forgeability judgment did not evaluate.
+
+## before-landing — stance 1: assume this change and another plugin's rule cancel each other — find the pair
+
+Verdict: FINDING — pr-preflight.sh's unscoped, exact-match phase-2 signal forces `Closes #<issue>` into a docs-only phase-1 PR's body at create/edit time, and contract-guard.sh's new content gate (issue #741) then lets that PR merge untouched because it only refuses to ADD Closes, never to STRIP one already present when its own content check says "not phase-2-shaped" — so GitHub's native keyword-closing still closes the issue on merge, exactly the premature closure the new gate exists to prevent.
+Kind: composition
+Seed: on-the-record/hooks/contract-guard.sh (new content-based phase-2 gate, issue #741), on-the-record/hooks/pr-preflight.sh (pre-existing, explicitly not unified per the proposal)
+cap_seconds: 180
+tier: size:>200
+diff_stat_lines: 434 insertions across 4 files (on-the-record/hooks/contract-guard.sh, on-the-record/hooks/test_contract_guard.py, docs/issue-741/decisions/phase2-signal-choice.md, docs/issue-741/reports/implementation.md)
+started_at: 2026-08-11T05:17:57Z
+ended_at: 2026-08-11T05:22:30Z
+
+### Reproduce
+
+Step 1 — pr-preflight.sh denies creating the exact docs-only, same-round-approved PR that contract-guard.sh's own new test (`test_docsonly_pr_with_same_round_approval_gets_no_closes`) says must NOT get Closes attached:
+
+```bash
+WD=$(mktemp -d); cd "$WD"; mkdir -p docs/specs bin
+printf -- "- alice\n" > docs/specs/approvers.md
+REALGIT=$(command -v git)
+cat > bin/git <<EOF2
+#!/usr/bin/env bash
+if [ "\$1" = "rev-parse" ] && [ "\$2" = "--abbrev-ref" ] && [ "\$3" = "HEAD" ]; then
+  echo "issue-9/implementation"; exit 0
+fi
+exec "$REALGIT" "\$@"
+EOF2
+chmod +x bin/git
+cat > bin/gh <<'PY'
+#!/usr/bin/env python3
+import json, sys
+argv = sys.argv[1:]
+if argv[:2] == ["issue", "view"] and "comments" in argv:
+    print(json.dumps([{"body": "APPROVE issue-9/implementation",
+                        "author": {"login": "alice"},
+                        "createdAt": "2026-08-05T00:00:00Z"}]))
+else:
+    sys.exit(1)
+PY
+chmod +x bin/gh
+PAYLOAD='{"tool_name":"Bash","tool_input":{"command":"gh pr create --body \"proposal(issue-9): phase-1, Refs #9\""}}'
+PATH="$WD/bin:$PATH" bash /path/to/on-the-record/hooks/pr-preflight.sh <<<"$PAYLOAD"
+echo "rc=$?"
+```
+
+Step 2 — once the author complies and adds `Closes #9` (the only way past step 1), contract-guard.sh at merge time does not strip it from this same docs-only PR (files: only `docs/issue-9/proposals/2026-08-01-plan.md`, same approve comment/round):
+
+```bash
+# fake gh returning pr_data.body = "proposal(issue-9): phase-1, already Closes #9 ..."
+# and files: [{"path": "docs/issue-9/proposals/2026-08-01-plan.md"}]
+PAYLOAD='{"tool_name":"Bash","tool_input":{"command":"gh pr merge 7 --merge"}}'
+GH_FIXTURES=fixtures.json GH_EDIT_LOG=edits.json PATH="$WD2/bin:$PATH" \
+  bash /path/to/on-the-record/hooks/contract-guard.sh <<<"$PAYLOAD"
+echo "rc=$?"; test -f edits.json && cat edits.json || echo "no edit made"
+```
+
+### Observed
+Step 1: `rc=2`, stderr: `pr-preflight: PR 본문에 'Closes #9'(또는 Fixes/Resolves)가 없다 — phase-2 인도 PR은 이슈를 명시적으로 닫아야 한다.` — pr-preflight.sh refuses to let the docs-only phase-1 PR be created/edited without a `Closes #9` in its body, because its own phase determination (exact `"APPROVE issue-9/implementation"` match, no round-scoping, no content check) says phase2.
+
+Step 2: `rc=0`, no `pr edit` call logged (edits.json absent) — contract-guard.sh's new content gate correctly recognizes the PR (docs-only, no src/tests/, no exact role-record file) is not phase-2-shaped and takes no action, but it also does not remove the `Closes #9` already sitting in the body from step 1. The PR merges with `Closes #9` intact.
+
+### Expected
+Either pr-preflight.sh's phase determination should be round-scoped/content-scoped the same way contract-guard.sh's now is (so it does not force `Closes #<issue>` into a body that isn't phase-2-shaped), or contract-guard.sh's content gate should actively strip/neutralize an already-present `Closes #<issue>` trailer when it determines the PR's own diff is not phase-2-shaped, so the two gates' notions of "is this PR allowed to close the issue" agree. As built, satisfying pr-preflight.sh's refusal (by adding Closes) defeats contract-guard.sh's new permission (to leave the issue open) — the issue is prematurely auto-closed by GitHub on a phase-1-only merge, which is precisely the #741 regression the new gate was written to fix.
