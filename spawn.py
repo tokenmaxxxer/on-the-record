@@ -3425,12 +3425,13 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
               plugins: list | None = None) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
-    --permission-mode acceptEdits: 실측 2026-07-27 — 권한 설정 없는 headless 는
-    Write 를 조용히 거부한다(permission_denials 에만 남는다). acceptEdits 는
-    대답할 사람이 없는 프롬프트를 없앨 뿐이고, 거부는 계속 게이트의 몫이다 —
-    PreToolUse exit 2 가 acceptEdits 아래서도 막는 것을 같은 날 실측했다.
-    샌드박스 Bash 는 원래 자동 허용이고, 비샌드박스 재실행은 이미
-    allowUnsandboxedCommands:false 가 막는다.
+    --permission-mode bypassPermissions (issue #700): 샌드박스 제거(#695/#697)
+    이후 모든 Bash 가 승인 분류기 앞에 서는데 headless 는 답할 사람이 없어
+    allowlist 밖 명령이 전부 죽는다(실측 2026-08-11: issue-698 세션이
+    `git add`/`gh issue view` 에서 failed-no-commit). 운영자 결정으로
+    bypassPermissions 가 기본값이다 — 집행은 훅(PreToolUse exit 2)이 계속
+    맡고, bypassPermissions 는 훅을 끄지 않는다(#697 이전의 acceptEdits
+    실측과 동일 근거).
 
     TOKENMAXXXER_SPAWNED: 스폰된 세션의 프롬프트는 오케스트레이터가 쓴
     텍스트이지 사람 턴이 아니다. core 의 mint 훅이 이 도장을 보고 발행을
@@ -3438,7 +3439,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     쓰면 attended 스폰이 깨진다.
     """
     cmd = ["claude", "-p", "--settings", settings_path,
-           "--permission-mode", "acceptEdits",
+           "--permission-mode", "bypassPermissions",
            "--output-format", "stream-json", "--verbose"]
     # 룰북도 core 와 같은 길로 붙는다 — 디렉터리로 넘긴 플러그인의 훅은
     # headless 에서 그대로 발화하고(실측 2026-07-27, CLI 2.1.220), 설치를

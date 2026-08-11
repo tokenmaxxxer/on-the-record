@@ -50,11 +50,11 @@ class SpawnCmd(unittest.TestCase):
         self.assertEqual(cmd[:2], ["claude", "-p"])
         self.assertIn("--settings", cmd)
         self.assertEqual(cmd[cmd.index("--settings") + 1], "/tmp/s.json")
-        # 실측 2026-07-27: 권한 설정 없는 headless 는 Write 를 조용히 거부한다
-        # (permission_denials 에만 남고 겉은 성공). acceptEdits 가 그 프롬프트를
-        # 없애고, PreToolUse exit 2 게이트는 acceptEdits 아래서도 여전히 막는다.
-        self.assertIn("acceptEdits", cmd)
-        self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "acceptEdits")
+        # issue #700 (2026-08-11): 샌드박스 제거 후 headless 는 승인 분류기에
+        # allowlist 밖 명령이 전부 죽는다 — bypassPermissions 가 기본값이고,
+        # 집행은 훅(PreToolUse exit 2)이 계속 맡는다.
+        self.assertIn("bypassPermissions", cmd)
+        self.assertEqual(cmd[cmd.index("--permission-mode") + 1], "bypassPermissions")
         # stream-json: 결과 이벤트 포착 + 라이브 로그 tee 둘 다 여기서 나온다.
         self.assertEqual(cmd[cmd.index("--output-format") + 1], "stream-json")
 
