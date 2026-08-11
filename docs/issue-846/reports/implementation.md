@@ -128,6 +128,102 @@ issue's fix. (`origin/main`'s higher pass count reflects the additional
 landed commits — issue #857, #858 — this branch has not rebased onto;
 this issue's write set does not overlap either of those issues' files.)
 
+### Rebase onto `origin/main` for PR #865 (2026-08-11, post-landing)
+
+PR #865 went CONFLICTING: `origin/main` had absorbed this issue's own
+phase-1 proposal commit via squash merge (`2207183`, PR #864) plus six
+further unrelated commits.
+
+derived: `git log --oneline ac9732a..origin/main`
+```
+2207183 issue-846: phase-1 survey + proposal — narrow retry-loop-bound.sh's fatigue allow to non-Bash tool calls (#864)
+e74fff1 issue-858: credential-pattern PreToolUse guard for docs records (#862)
+502981d issue-857: isolate fixture spawn.py roster/watch state via MUSTER_STATE_ROOT (#863)
+59016f0 issue-857: phase-1 survey + proposal — pin roster/watch namespace collision (#861)
+b7e2fe9 issue-858: phase-1 proposal — credential-pattern PreToolUse guard for docs records (#860)
+26f5905 issue-856: add gh-write-allow-gate.sh for orchestrator issue/pr write verbs (#859)
+a4a8d88 issue-776: steady-state re-run #2 — real GitHub host works, roster-leak + gh-permission block delegation (#855)
+```
+
+canonical: `git rebase origin/main` output, this session's direct run
+Ran `git rebase origin/main` on `issue-846/implementation`. `git rebase`
+skipped the phase-1 commit (`4783509`) automatically — its patch was
+already applied via `2207183` (same content, squash-merged) — and
+reapplied only the phase-2 fix commit cleanly on top, becoming
+`0a4bc85`.
+
+canonical: `git log --oneline -3` and `git diff origin/main --stat`,
+this session's direct run right after the rebase
+No conflict markers, no manual resolution, no code content changed:
+`git diff origin/main --stat` after the rebase shows exactly this
+issue's five already-committed files.
+
+Re-ran both acceptance-check commands on the rebased, clean working tree
+(`git status --porcelain` empty before each run):
+
+derived: `python3 -m pytest on-the-record/hooks/test_retry_loop_bound.py -q`, run on `0a4bc85` (rebased onto `origin/main`)
+```
+..........                                                               [100%]
+10 passed in 4.16s
+```
+
+derived: `python3 -m pytest gates/ tests/ on-the-record/hooks/ -q`, run on `0a4bc85` (rebased onto `origin/main`)
+```
+........................................................................ [  5%]
+........................................................................ [ 11%]
+........................................................................ [ 17%]
+..x..................................................................... [ 22%]
+........................................................................ [ 28%]
+........................................................................ [ 34%]
+........................................................................ [ 40%]
+........................................................................ [ 45%]
+........................................................................ [ 51%]
+........................................................................ [ 57%]
+........................................................................ [ 62%]
+........................................................................ [ 68%]
+.....s..s............................................................... [ 74%]
+..................F..................................................... [ 80%]
+........................................................................ [ 85%]
+........................................................................ [ 91%]
+........................................................................ [ 97%]
+....................................                                     [100%]
+=================================== FAILURES ===================================
+____________________________ t_baseline_repo_passes ____________________________
+
+    def t_baseline_repo_passes():
+        """현재 저장소 상태에서 인덱스와 실제 파일이 일치해야 한다."""
+        bad = spec_index.check(REPO_ROOT)
+>       assert bad == [], bad
+E       AssertionError: ['docs/handbooks/setup.md: 내용이 바뀌었는데 docs/specs/reconciled-index.md 의 기록된 해시와 다르다 (기록=df9c71068366…, 실제=240ea33619b4…) — 의도된 변경이면 `python3 gates/spec_index.py --update` 로 재생성하고 관련 있다면 "Resolved ambiguities" 도 갱신하라']
+E       assert ['docs/handbo...ties" 도 갱신하라'] == []
+E         
+E         Left contains one more item: 'docs/handbooks/setup.md: 내용이 바뀌었는데 docs/specs/reconciled-index.md 의 기록된 해시와 다르다 (기록=df9c71068366…, 실제=240ea33619b4…) — 의도된 변경이면 `python3 gates/spec_index.py --update` 로 재생성하고 관련 있다면 "Resolved ambiguities" 도 갱신하라'
+E         Use -v to get more diff
+
+tests/test_spec_index.py:35: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_spec_index.py::t_baseline_repo_passes - AssertionError: ['d...
+1 failed, 1256 passed, 2 skipped, 1 xfailed in 186.58s (0:03:06)
+```
+
+canonical: both pytest commands' output above, this session's direct run
+on the branch immediately after `git rebase origin/main` completed and
+before any further edits
+The single failure is `t_baseline_repo_passes` — the same pre-existing
+`docs/handbooks/setup.md`/`docs/specs/reconciled-index.md` hash-drift
+failure already documented above as present on `origin/main`,
+independent of this issue (this issue's write set never touches either
+file). This branch adds no new failure beyond that pre-existing one: the
+failure set is exactly `{t_baseline_repo_passes}`, matching
+`origin/main`'s own failure set from the earlier worktree comparison
+above. The earlier `t_rulebook_version_is_recorded` "dirty tree"
+artifact from the pre-rebase run does not recur here — the working tree
+was clean for this run.
+
+This section supersedes the "Full-suite comparison, branch vs.
+origin/main" section above for current-state purposes; that section is
+left as-is as the original phase-2 landing evidence.
+
 ## Why
 
 Implements the phase-1 proposal
