@@ -1947,7 +1947,7 @@ def ledger_stamp(dedup_key: str, now: float | None = None) -> None:
 
 
 POLL_STATE = ROOT / "runs" / "poll_state.json"
-POLL_INTERVAL_SEC = 15 * 60  # RECONCILE_LEDGER_TTL_SEC 와 같은 근거로 같은 값
+POLL_INTERVAL_SEC = 60  # 이슈 #782 스코프-확장(operator, 2026-08-11): 15분은 stall/deadlock 포착이 너무 늦다 — 1분
 
 
 def poll_due(now: float | None = None, poll_state: Path = POLL_STATE,
@@ -1955,7 +1955,7 @@ def poll_due(now: float | None = None, poll_state: Path = POLL_STATE,
     """`spawn.py poll-due` (이슈 #782 req #7): `runs/poll_state.json` 의
     마지막 폴 시각을 원자적으로 확인+갱신한다. True 를 돌려주면 그 호출이
     바로 '지금 폴링 틱을 돌려도 된다'는 허가이자 갱신 — `directive.sh`
-    가 매 턴 `UserPromptSubmit` 훅에서 부르므로, 같은 15분 창 안의 다음
+    가 매 턴 `UserPromptSubmit` 훅에서 부르므로, 같은 1분 창 안의 다음
     호출들은 False 를 받아 백그라운드 `watchdog` 를 또 띄우지 않는다."""
     now = time.time() if now is None else now
     lock_path = poll_state.with_name(poll_state.name + ".lock")
@@ -2283,6 +2283,21 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
                 # 죽는 등) dead-but-registered 엔트리를 best-effort 로 잡는다
                 # — 주 경로는 _spawn_one() 의 self-trigger 다, 이 틱이 아니다.
                 _post_session_end_comment(ROOT, issue_n, key, work, e.get("log", ""))
+            # 이슈 #782 스코프-확장(operator, 2026-08-11): 폴링 틱마다 세션별
+            # 상태 한 줄을 찍는다. diagnose_health() 는 죽은 엔트리에 한해
+            # `_pr_open_or_merged_for_branch()`(gh pr list)를 새로 부르므로,
+            # 원장(TTL=RECONCILE_LEDGER_TTL_SEC)으로 그 비싼 재확인 빈도를
+            # 60초 폴 간격과 분리한다 — dedup 은 반복 escalation 소음만
+            # 거른다는 계약은 그대로, 여기서 걸러지는 건 gh 호출 자체다
+            # (경보 전 hunt: dead-registered 엔트리가 15배 빈도로 gh 를
+            # 때리는 문제).
+            if ledger_check_and_stamp(f"poll-report-dead-check:{key}"):
+                dead_health = diagnose_health(key, e, state=state)
+                state[f"{key}:dead_report"] = dead_health
+            dead_health = state.get(f"{key}:dead_report")
+            if dead_health is not None:
+                dead_label = "COMPLETED" if dead_health["state"] is None else dead_health["state"]
+                print(f"[poll-report] {key}: {dead_label} — {dead_health['detail']}")
             if auto_respawn:
                 _auto_respawn_check(key, e, respawn_state)
             continue
@@ -2293,6 +2308,8 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
         # 이미 계산한 anomalies 를 넘겨 watchdog_check_one() 의 오프셋
         # 소비를 두 번 겪지 않는다.
         health = diagnose_health(key, e, state=state, anomalies=anomalies)
+        # 이슈 #782 스코프-확장: dedup 원장과 무관하게 매 틱 상태를 보고한다.
+        print(f"[poll-report] {key}: {health['state']} — {health['detail']}")
         if health["state"] is not None and health["state"] != "HEALTHY":
             issue_n, role_n = issue_role_key(e)
             dedup_key = f"health:{issue_n}:{role_n}:{health['state']}"

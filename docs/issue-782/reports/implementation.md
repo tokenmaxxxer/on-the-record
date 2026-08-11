@@ -143,6 +143,72 @@ proposal) must cover all four states.
   test's expected count by one to account for the new independent
   STALLED report.
 
+## Follow-up delta (2026-08-11, post-PR #802)
+
+Landed PR #802 predates two operator scope-extension comments on issue
+#782 (posted between the step-2 approval and this delta): the polling
+cadence must be 60s (not 15min), and each poll tick must emit a
+user-facing per-session report line, not just gated escalations.
+
+- `spawn.py`: `POLL_INTERVAL_SEC` changed from `15 * 60` to `60`.
+- `roster_watchdog()`: added an unconditional `[poll-report] {key}:
+  {state} — {detail}` print for every roster entry each tick (both the
+  alive branch via `diagnose_health()`, and the not-alive branch, which
+  now also calls `diagnose_health()` to label `COMPLETED` vs
+  `DEAD-ERRORED`). This report is independent of the
+  `ledger_check_and_stamp()` dedup gate — the gate still suppresses
+  repeated *escalation* (anomaly-count/`[health]`) noise across ticks,
+  but the plain status line prints every tick per the operator's "not
+  poll silently" requirement.
+- `tests/test_spawn.py`: no edit needed for the interval change — its
+  `POLL_INTERVAL_SEC` references use the symbol, not a hardcoded 900.
+  canonical: `grep -n "POLL_INTERVAL_SEC" tests/test_spawn.py`
+  derived: `grep -n "POLL_INTERVAL_SEC" tests/test_spawn.py`
+```
+9147:                now=1000.0 + spawn.POLL_INTERVAL_SEC - 1, poll_state=state))
+9154:                now=1000.0 + spawn.POLL_INTERVAL_SEC + 1, poll_state=state))
+```
+
+derived: `python3 -m pytest tests/test_spawn.py -q`
+```
+432 passed in 34.66s
+```
+
+The background-daemon-vs-turn-driven mechanism named in the
+scope-extension comment is unchanged from the already-landed design:
+`directive.sh` calls `spawn.py poll-due` on every `UserPromptSubmit`
+turn; with the interval now 60s, any turn spaced a minute apart re-arms
+the poll, and the existing backgrounded `spawn.py watchdog
+--auto-respawn` dispatch is what actually emits the per-cycle report
+above — no new daemon/timer mechanism was added, matching this delta's
+frozen write set (`spawn.py`, `tests/test_spawn.py` only).
+
+## Follow-up delta — resolved findings
+
+resolved_findings:
+  - finding: docs/issue-782/reports/implementation/2026-08-11-hunt-before-landing-poll-interval-report.md
+    summary: the not-alive branch's new `diagnose_health()` call re-ran an
+      unthrottled `gh pr list` (`_pr_open_or_merged_for_branch()`) every
+      60s tick for any dead-but-registered roster entry not yet
+      respawned — 15x call volume vs. the pre-delta 900s cadence, no
+      cache/ledger gate on the call itself.
+    resolution: gated the not-alive branch's `diagnose_health()` call
+      itself behind `ledger_check_and_stamp(f"poll-report-dead-check:{key}")`
+      (TTL = `RECONCILE_LEDGER_TTL_SEC`) and cached the result in the
+      existing `state` dict (`state[f"{key}:dead_report"]`, persisted via
+      `_watchdog_state_save()` across ticks/processes) so the `gh`
+      call/print reuse the cached label between ledger windows instead of
+      re-querying every 60s tick.
+
+closed_checks:
+  - check: hunt-before-landing-poll-interval-report (stance 3, design-error)
+    code_under_review: spawn.py
+
+derived: `python3 -m pytest tests/test_spawn.py -q`
+```
+432 passed in 33.83s
+```
+
 ## Open findings
 
 None.
