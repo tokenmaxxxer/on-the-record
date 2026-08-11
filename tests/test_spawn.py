@@ -9314,3 +9314,101 @@ class EnsureTargetRemote(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     spawn.ensure_target_remote(td, unattended=False)
             lw.assert_not_called()
+
+
+class StateRootIsolation(unittest.TestCase):
+    """이슈 #857 (PR #855 finding 5): 관측 세션과 하네스가 띄우는 fixture
+    세션이 같은 플러그인 설치를 공유해도, `MUSTER_STATE_ROOT` 를 다르게
+    주면 로스터/워크스페이스 인덱스 파일 자체가 물리적으로 갈려 서로의
+    항목을 못 본다 — 같은 --issue 번호를 써도, `-C` 가 실수로 관측 세션
+    쪽 레포를 가리켜도(#855 재현 정확히 그 모양) 마찬가지다. 두 개의
+    실제 `python3 spawn.py` 서브프로세스로 검증한다 — production 에서
+    fixture 세션과 관측 세션은 실제로 별개 인터프리터 프로세스이므로,
+    모듈 속성을 직접 바꿔치기하는 다른 테스트들과 달리 이 회귀는
+    프로세스 경계를 넘는 env var 전파가 핵심이라 서브프로세스가 필요하다."""
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        self.observer_state = str(Path(self.td) / "observer-state")
+        self.fixture_state = str(Path(self.td) / "fixture-state")
+        self.observer_repo = str(Path(self.td) / "observer-repo")
+        self.fixture_repo = str(Path(self.td) / "fixture-repo")
+        for repo in (self.observer_repo, self.fixture_repo):
+            Path(repo).mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=repo, check=True,
+                            capture_output=True)
+
+    def _register_in_subprocess(self, state_root: str, cwd: str) -> None:
+        """`state_root` 를 `MUSTER_STATE_ROOT` 로 준 별도 파이썬 프로세스에서,
+        `cwd` 를 작업 디렉터리로 이슈 776/execution-observation 항목을
+        워크스페이스 인덱스와 로스터 양쪽에 등록한다 — `roster_register()`
+        도 같이 호출해 Finding 1(로스터 자체의 bare-key 충돌)까지 같이
+        재현/검증한다."""
+        script = (
+            "import sys; sys.path.insert(0, %r)\n"
+            "import spawn\n"
+            "spawn._workspace_index_put(776, 'execution-observation', %r, 'log.txt')\n"
+            "spawn.roster_register('issue-776/execution-observation', "
+            "{'pid': 999999, 'wrapper_pid': 999999})\n"
+        ) % (str(Path(__file__).parent.parent), cwd)
+        env = {**os.environ, "MUSTER_STATE_ROOT": state_root}
+        r = subprocess.run([sys.executable, "-c", script], cwd=cwd,
+                            capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_fixture_state_root_never_resolves_observers_roster(self):
+        # 관측 세션: 자기 state root 에 이슈 776 항목을 등록한다.
+        self._register_in_subprocess(self.observer_state, self.observer_repo)
+
+        # fixture 세션: 다른 state root 에서, 같은 --issue 번호로, 그리고
+        # #855 실측처럼 -C 가 (실수로) 관측 세션의 레포를 가리켜도 관측
+        # 세션의 로스터 항목을 절대 못 본다 — watch 는 "기록 없음"으로
+        # 끝나야 한다(자기 자신의 격리된 state 에는 아무것도 없으므로).
+        watch_script = (
+            "import sys; sys.path.insert(0, %r)\n"
+            "import spawn\n"
+            "idx = spawn._workspace_index_load()\n"
+            "key, entry = spawn._lookup_roster_entry(idx, 776, "
+            "'execution-observation', repo=spawn._repo_identity(%r))\n"
+            "assert entry is None, f'fixture resolved observer entry: {entry!r}'\n"
+            "assert spawn._roster_load().get("
+            "'issue-776/execution-observation') is None, "
+            "'fixture resolved observer roster entry'\n"
+            "print('OK')\n"
+        ) % (str(Path(__file__).parent.parent), self.observer_repo)
+        env = {**os.environ, "MUSTER_STATE_ROOT": self.fixture_state}
+        r = subprocess.run([sys.executable, "-c", watch_script],
+                            cwd=self.observer_repo, capture_output=True,
+                            text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("OK", r.stdout)
+
+        # 관측 세션 쪽 파일은 fixture 가 아무것도 등록하지 않았으니 손대지
+        # 않은 채 그대로다(empty state 인수 확인).
+        observer_idx_path = Path(self.observer_state) / "workspaces.json"
+        self.assertTrue(observer_idx_path.exists())
+        observer_idx = json.loads(observer_idx_path.read_text())
+        self.assertEqual(len(observer_idx), 1)
+
+    def test_state_root_env_var_overrides_default_runs_dir(self):
+        script = (
+            "import sys; sys.path.insert(0, %r)\n"
+            "import spawn\n"
+            "print(spawn.STATE_ROOT)\n"
+            "print(spawn.ROSTER)\n"
+            "print(spawn.WORKSPACE_INDEX)\n"
+        ) % (str(Path(__file__).parent.parent),)
+        env = {**os.environ, "MUSTER_STATE_ROOT": self.fixture_state}
+        r = subprocess.run([sys.executable, "-c", script],
+                            capture_output=True, text=True, env=env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        lines = r.stdout.strip().splitlines()
+        self.assertEqual(lines[0], str(Path(self.fixture_state).resolve()))
+        self.assertEqual(lines[1], str(Path(self.fixture_state).resolve() / "active.json"))
+        self.assertEqual(lines[2],
+                          str(Path(self.fixture_state).resolve() / "workspaces.json"))
+
+
+if __name__ == "__main__":
+    unittest.main()
