@@ -265,10 +265,26 @@ def resume_orchestrator_session(session_id, nudge, cwd=None, timeout_sec=None):
     Returns {"ok": True, "result": <parsed json>} on success, or
     {"ok": False, "reason": str} when `claude` is missing, the resume
     invocation fails, or its stdout is not parseable JSON — never raises,
-    never fabricates a result."""
+    never fabricates a result.
+
+    issue #886: without `--permission-mode` (or with `acceptEdits`) this
+    resumed turn can only auto-accept file edits, not Bash — `gh pr
+    merge`, `git fetch`, and `spawn.py` invocations all get denied
+    (measured PR #885, `.permission_denials`). `bypassPermissions` is the
+    same headless default #700 already uses for real role spawns; it
+    only lifts the HOST permission prompt — PreToolUse-hooked gates
+    (gh-write-allow-gate.sh, merge-allow-gate.sh, deliverable-guard) still
+    run regardless of this mode. One precise boundary: those hooks only
+    ever emit "allow", never "deny", so any Bash shape outside their own
+    allow-lists previously fell back on the host's default-deny — under
+    bypassPermissions that default-deny is gone (issue #886 hunt,
+    docs/issue-886/reports/implementation/hunt-issue-886-permission-mode-fix.md).
+    This is an existing property of the same mode #700 already runs in
+    production role spawns, not a regression this diff introduces."""
     try:
         proc = subprocess.run(
             ["claude", "-p", nudge, "--resume", session_id,
+             "--permission-mode", "bypassPermissions",
              "--output-format", "json"],
             cwd=cwd, capture_output=True, text=True, timeout=timeout_sec,
         )

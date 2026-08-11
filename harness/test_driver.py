@@ -224,6 +224,10 @@ def test_resume_orchestrator_session_ok(monkeypatch):
     def fake_run(cmd, **kwargs):
         assert cmd[:2] == ["claude", "-p"]
         assert "--resume" in cmd
+        # issue #886: acceptEdits auto-accepts only file edits, not Bash
+        # (gh pr merge / git fetch) — the resumed turn needs bypassPermissions.
+        idx = cmd.index("--permission-mode")
+        assert cmd[idx + 1] == "bypassPermissions"
         return subprocess.CompletedProcess(
             cmd, returncode=0,
             stdout='{"final_report": {"what_broke": "x", "what_changed": "y", '
