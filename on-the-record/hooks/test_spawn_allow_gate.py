@@ -175,6 +175,78 @@ def t_kill_switch_suppresses_allow(tmp_path: Path):
     assert _allow_decision(r.stdout) is None, repr(r.stdout)
 
 
+# --- issue #834: strict command-shape validation — a command-substitution
+# payload hidden in the `cd`-prefix directory slot (this issue's exact
+# reproduction), either chain direction, `;`, `|`, and a backslash-escaped-
+# quote payload must never get `allow`, mirroring issue #824's own
+# regression set (docs/issue-824/reports/implementation/
+# hunt-strict-merge-allow-validation.md) for this file's now-identical-in-
+# shape check.
+
+
+def t_cd_prefix_dollar_paren_substitution_in_dir_slot_is_unreached(tmp_path: Path):
+    # This issue's exact reproduction: the old regex stripped the `cd DIR &&`
+    # prefix before ever searching for operators, so a substitution with no
+    # internal whitespace hidden in DIR vanished from what got checked.
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout,
+             'cd $(touch /tmp/PWNED_MARKER) && python3 spawn.py review "task"')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_cd_prefix_backtick_substitution_in_dir_slot_is_unreached(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout,
+             'cd `touch /tmp/PWNED_MARKER` && python3 spawn.py review "task"')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_prepended_with_semicolon_is_unreached(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, 'evil ; python3 spawn.py review "task"')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_appended_with_semicolon_is_unreached(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, 'python3 spawn.py review "task" ; evil')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_chain_appended_with_pipe_is_unreached(tmp_path: Path):
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, 'python3 spawn.py review "task" | evil')
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_backslash_escaped_quote_payload_is_unreached(tmp_path: Path):
+    # docs/issue-824/reports/implementation/hunt-strict-merge-allow-validation.md:
+    # a naive `re.sub(r"'[^']*'", "", rest)` quote-stripper desyncs from
+    # bash's real quote state on this exact payload shape and misses the
+    # live, unquoted `;` it hides — shlex(posix=True) must not repeat that.
+    target = tmp_path / "target"
+    target.mkdir()
+    checkout = _make_checkout(tmp_path)
+    r = _run(target, checkout, "python3 spawn.py review 42 \\';evil;'X'")
+    assert r.returncode == 0, r.stderr
+    assert _allow_decision(r.stdout) is None, repr(r.stdout)
+
+
 if __name__ == "__main__":
     import tempfile
     tests = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
