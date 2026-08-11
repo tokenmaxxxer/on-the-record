@@ -1,0 +1,6 @@
+{"ts": 1786447374, "type": "session-start", "detail": {"pid": 3177276, "ts": 1786447374.5328283}}
+{"ts": 1786447410, "type": "progress", "detail": {"kind": "tool_use", "detail": "Edit /home/jwjung/.tokenmaxxxer/work/ftarget-origin-20260811-issue-1-implementation/fixture_target/__init__.py"}}
+{"ts": 1786447416, "type": "progress", "detail": {"kind": "tool_use", "detail": "Write /home/jwjung/.tokenmaxxxer/work/ftarget-origin-20260811-issue-1-implementation/fixture_target/__main__.py"}}
+{"ts": 1786447419, "type": "progress", "detail": {"kind": "tool_use", "detail": "Edit /home/jwjung/.tokenmaxxxer/work/ftarget-origin-20260811-issue-1-implementation/test_fixture_target.py"}}
+{"ts": 1786447444, "type": "gate-refusal", "detail": {"gate": "board-gate", "reason": "PreToolUse:Bash hook error: [${CLAUDE_PLUGIN_ROOT}/hooks/board-gate.sh]: board-gate: this repository has no docs/specs/approvers.md. That file is the user's opt-in that this repo is a board AND the human-approver allowlist; without it no approval can ever be verified. Ask the human to add it (one li"}}
+{"ts": 1786447445, "type": "session-end", "detail": {"outcome": "refused", "reason": "none of the git remotes configured for this repository point to a known GitHub host. To tell gh about a new GitHub host, please use `gh auth login`"}}
