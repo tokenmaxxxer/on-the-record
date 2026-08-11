@@ -272,6 +272,67 @@ def test_spoofed_live_env_still_denied_without_matching_approval(
     assert f"APPROVE issue-{ISSUE}/{ROLE}" in r.stderr
 
 
+# --- standing-delegation citation provenance (issue #707) -------------------
+
+def _delegate_comments(scope, until, login="octocat", grant_created="2026-01-01T00:00:00Z",
+                        revoked_at=None):
+    out = [{"body": f"DELEGATE {scope} UNTIL {until}", "author": {"login": login},
+            "createdAt": grant_created}]
+    if revoked_at is not None:
+        out.append({"body": f"REVOKE {scope}", "author": {"login": login},
+                     "createdAt": revoked_at})
+    return out
+
+
+def test_in_scope_delegated_approve_passes(repo, bin_dir):
+    scope = BRANCH  # issue-608/implementation
+    comments = _delegate_comments(scope, "2099-01-01") + [
+        {"body": f"APPROVE {BRANCH} VIA DELEGATION {scope}", "author": {"login": "octocat"},
+         "createdAt": "2026-01-02T00:00:00Z"},
+    ]
+    r = _run(repo, bin_dir, RECORD_PATH, comments, approvers_present=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_out_of_scope_delegated_approve_refused(repo, bin_dir):
+    other_scope = "issue-999/implementation"
+    comments = _delegate_comments(other_scope, "2099-01-01") + [
+        {"body": f"APPROVE {BRANCH} VIA DELEGATION {other_scope}", "author": {"login": "octocat"},
+         "createdAt": "2026-01-02T00:00:00Z"},
+    ]
+    r = _run(repo, bin_dir, RECORD_PATH, comments, approvers_present=True)
+    assert r.returncode == 2, r.stderr
+
+
+def test_revoked_delegated_approve_refused(repo, bin_dir):
+    scope = BRANCH
+    comments = _delegate_comments(scope, "2099-01-01", revoked_at="2026-01-03T00:00:00Z") + [
+        {"body": f"APPROVE {BRANCH} VIA DELEGATION {scope}", "author": {"login": "octocat"},
+         "createdAt": "2026-01-04T00:00:00Z"},
+    ]
+    r = _run(repo, bin_dir, RECORD_PATH, comments, approvers_present=True)
+    assert r.returncode == 2, r.stderr
+
+
+def test_expired_delegated_approve_refused(repo, bin_dir):
+    scope = BRANCH
+    comments = _delegate_comments(scope, "2020-01-01") + [
+        {"body": f"APPROVE {BRANCH} VIA DELEGATION {scope}", "author": {"login": "octocat"},
+         "createdAt": "2026-01-02T00:00:00Z"},
+    ]
+    r = _run(repo, bin_dir, RECORD_PATH, comments, approvers_present=True)
+    assert r.returncode == 2, r.stderr
+
+
+def test_no_delegation_record_byte_identical_to_today(repo, bin_dir):
+    # empty state: no DELEGATE comment at all — falls straight through to
+    # the pre-existing human-typed-only check, same deny message shape.
+    r_no_delegation = _run(repo, bin_dir, RECORD_PATH, UNAPPROVED_COMMENTS, approvers_present=True)
+    r_baseline = _run(repo, bin_dir, RECORD_PATH, UNAPPROVED_COMMENTS, approvers_present=True)
+    assert r_no_delegation.returncode == r_baseline.returncode == 2
+    assert r_no_delegation.stderr == r_baseline.stderr
+
+
 def test_no_snapshot_falls_back_to_live_env(repo, bin_dir, tmp_path):
     # session-role-bind.sh hasn't fired (or its state dir was cleared) —
     # no snapshot file exists, so the gate falls back to the live env var,

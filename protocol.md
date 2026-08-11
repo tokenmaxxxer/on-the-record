@@ -287,3 +287,25 @@ location without updating all three together.
 
 - **What calls on-the-record** — a person directly, cron, or an issue webhook. For
   stages 1–2 a person is enough. No long-running process is being built.
+
+**Standing delegation (issue #707).** §5's `APPROVE issue-<n>/<role>` stays the
+canonical human-typed signal, byte-identical. A second, distinct provenance
+shape is now also honored: an operator-authored delegation grant — a
+`DELEGATE issue-<n>/<role> UNTIL <date>` (or a named class token) issue
+comment from an `approvers.md` login, live-checked against any later
+`REVOKE` comment, never cached — that an **orchestrator** session (never
+the bound acting role session) may cite as `APPROVE issue-<n>/<role> VIA
+DELEGATION <scope>`. This does not repeat the proposal withdrawn
+2026-07-26: that proposal's objection was an agent holding the approval
+seat itself; here the seat never moves — a human still authors the grant,
+and every delegated `APPROVE` still traces to that human utterance as
+provenance. What changes is only the *instance count* one human utterance
+now covers. Invariant 4 (an actor cannot approve its own change) is
+unweakened: `delegation-post-gate.sh` refuses any citation posted by a
+session with a bound role — checked via #698's session-role-bind
+snapshot, positively (absent a bound role, not merely "a different role")
+— so only a role-less orchestrator session may ever post one, and
+`approval-gate.sh`/`pr-preflight.sh` additionally require the cited scope,
+expiry, and revocation state to be live-valid before treating the citation
+as an approval. With no `DELEGATE` comment present, behavior is
+byte-identical to today.
