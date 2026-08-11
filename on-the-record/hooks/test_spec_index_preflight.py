@@ -12,10 +12,24 @@ Exit 0 all pass / exit 1 on any failure. Prints PASS/FAIL per case.
 from __future__ import annotations
 import hashlib
 import re
+import shlex
 import sys
 
 INDEX_REL = "docs/specs/reconciled-index.md"
 _ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*`([0-9a-f]{64})`\s*\|\s*$")
+
+
+def is_git_commit_invocation(cmd):
+    """Mirrors the GUARD python body's trigger check (issue #866): tokenize
+    first, then require both `git` and `commit` as standalone tokens —
+    survives any global option (`-c key=val`, `-C <path>`, ...) between
+    them, and does not fire on `commit` appearing inside an unrelated
+    token or a quoted string."""
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False
+    return "git" in tokens and "commit" in tokens
 
 
 def parse_rows(text):
@@ -158,6 +172,43 @@ def _t6():
 
     mismatches = find_mismatches(index_text, staged_paths, staged_bytes)
     assert mismatches == [], mismatches
+
+
+@test("trigger: plain `git commit` is recognized")
+def _t7():
+    assert is_git_commit_invocation('git commit -m "x"') is True
+
+
+@test("trigger: issue #866 regression — `git -c k=v commit` is recognized")
+def _t8():
+    # PR #863-shaped drift landed via a plain `git commit`, but the
+    # original `\bgit\s+commit\b` regex only matched when `commit`
+    # immediately followed `git` (whitespace only) — any global option in
+    # between (a completely ordinary, legitimate git invocation) skipped
+    # the check entirely with no denial. Live-reproduced (issue #866
+    # after-proposal hunt) via `git -c commit.gpgsign=false commit -m x`
+    # exiting 0 with no stderr against the exact PR #863 staged drift.
+    assert is_git_commit_invocation('git -c commit.gpgsign=false commit -m "x"') is True
+
+
+@test("trigger: `git log --grep=commit` is not a commit invocation")
+def _t9():
+    assert is_git_commit_invocation("git log --grep=commit") is False
+
+
+@test("trigger: `git commit-tree` is not `git commit`")
+def _t10():
+    assert is_git_commit_invocation("git commit-tree deadbeef") is False
+
+
+@test("trigger: 'commit' only inside a quoted string is not a commit invocation")
+def _t11():
+    assert is_git_commit_invocation('echo "please run git commit before pushing"') is False
+
+
+@test("trigger: unparseable command (unbalanced quote) fails open -> False")
+def _t12():
+    assert is_git_commit_invocation('git commit -m "unterminated') is False
 
 
 def main():
