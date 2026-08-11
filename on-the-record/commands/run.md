@@ -548,6 +548,16 @@ implemented" 류)로 쓴 부재 주장은 이 검사에 안 걸린다(warrant hu
 한다. 마커가 없는 기존 쌍(예: 마킹 전의 `core_root`/`core_version`)은
 전향적 한계로 잡히지 않는다.
 
+- **flag 모양 일관성 규칙(#726 row 7) — 새 호출부를 쓸 때 먼저 지켜라.**
+  같은 `(argv[0], argv[1])`(예: `gh api`, `gh pr`)을 부르는 호출부는
+  저장소 전체에서 같은 semantic flag 모양(`-X`/`--method`/`-f`/`--field`
+  등)을 써야 한다 — 위 (1) `subprocess_call_shape_divergence` 는 이걸
+  사후에 기계로 잡으려 시도하지만, list 리터럴 인자 형태의 호출부만
+  인식한다(tuple 리터럴 등 동등한 다른 호출 형태는 이 검사 밖일 수
+  있다 — warrant hunt 확인됨). 기존 호출부와 다른 명령을 같은 이름으로
+  새로 추가할 때는, 이 기계 검사를 믿지 말고 쓰기 전에 저장소의 기존
+  호출부 flag 모양부터 맞춰라 (`on-the-record/hooks/call-shape-guard.sh:153-165`).
+
 ## proposal 은 반복되는 변경의 축적 비용을 말한다 (#424)
 
 변경이 두 가지 알려진 축적-비용 모양 중 하나를 건드리면 — (1) 공유
