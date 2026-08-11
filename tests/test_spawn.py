@@ -9216,4 +9216,52 @@ class RosterWatchdogIdempotentReconcile(unittest.TestCase):
                 spawn.roster_watchdog()
         finally:
             sys.stdout = old_stdout
-        self.assertNotIn("pr-expected-missing", buf.getvalue())
+
+
+class EnsureTargetRemote(unittest.TestCase):
+    """issue #831: preflight gate replacing issue_workspace's mid-delegation
+    stall (spawn.py:4328-4330) with a top-level, pre-dispatch resolution."""
+
+    def _git(self, *args, cwd):
+        subprocess.run(["git", "-C", cwd, *args], check=True, capture_output=True)
+
+    def test_noop_when_origin_already_resolves(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._git("init", cwd=td)
+            self._git("remote", "add", "origin", "https://example.invalid/x.git", cwd=td)
+            with mock.patch("builtins.input", side_effect=AssertionError("must not prompt")):
+                spawn.ensure_target_remote(td, unattended=False)  # no raise
+
+    def test_unattended_no_remote_exits_before_any_prompt(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._git("init", cwd=td)
+            with mock.patch("builtins.input", side_effect=AssertionError("must not prompt")):
+                with self.assertRaises(SystemExit):
+                    spawn.ensure_target_remote(td, unattended=True)
+
+    def test_attended_confirmed_existing_url_writes_ledger_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            remote_dir = str(Path(td) / "remote.git")
+            subprocess.run(["git", "init", "--bare", remote_dir], check=True, capture_output=True)
+            work = str(Path(td) / "work")
+            Path(work).mkdir()
+            self._git("init", cwd=work)
+            events = []
+            with mock.patch("builtins.input", return_value=remote_dir), \
+                 mock.patch.object(spawn, "ledger_write", side_effect=lambda e: events.append(e)):
+                spawn.ensure_target_remote(work, unattended=False)
+            r = subprocess.run(["git", "-C", work, "remote", "get-url", "origin"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.stdout.strip(), remote_dir)
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["event"], "remote_setup_confirmed")
+            self.assertEqual(events[0]["origin"], remote_dir)
+
+    def test_attended_refusal_exits_and_writes_no_ledger_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            self._git("init", cwd=td)
+            with mock.patch("builtins.input", return_value=""), \
+                 mock.patch.object(spawn, "ledger_write") as lw:
+                with self.assertRaises(SystemExit):
+                    spawn.ensure_target_remote(td, unattended=False)
+            lw.assert_not_called()

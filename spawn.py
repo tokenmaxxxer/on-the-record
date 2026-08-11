@@ -3926,6 +3926,49 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         _append_consult_trace(trace_path, ts, role, issue, question, outcome)
 
 
+def ensure_target_remote(cwd: str, unattended: bool) -> None:
+    """`origin` 원격 유무를 역할 스폰 전에 정리한다(이슈 #831).
+
+    #830 실측: 헤드리스 top-level 세션이 `--issue` 없는 첫 스폰은 통과하고
+    (issue_workspace 를 안 거치므로), 실제 작업을 시키는 두 번째 `--issue`
+    스폰에서야 `issue_workspace`(4303행)의 무조건 `sys.exit` 에 걸렸다 —
+    사람이 답할 수 없는 프로세스 안에서 사람에게 묻는 모양(req#5 FAIL).
+    이 게이트를 `main()` 스폰 분기 앞으로 당겨, 그 질문이 원래
+    `docs/handbooks/setup.md` 가 문서화한 대로 사람이 실제로 있는
+    top-level 대화에서만 나오게 한다. `docs/issue-831/decisions/
+    2026-08-11-setup-preflight-remote-gate.md` 의 결정을 그대로 구현한다.
+    """
+    r = subprocess.run(["git", "-C", cwd, "remote", "get-url", "origin"],
+                       capture_output=True, text=True)
+    if r.stdout.strip():
+        return
+    fail_msg = (f"대상 레포에 origin 원격이 없다: {cwd} — 이슈/PR 모델은 "
+                f"GitHub 원격이 전제다 (계약 v3 s10). 최초 1회, attended "
+                f"세션(--unattended 없이)에서 먼저 설정하라.")
+    if unattended:
+        sys.exit(fail_msg)
+    print("대상 레포에 GitHub 원격(origin)이 없다. 최초 1회 설정이 필요하다:\n"
+          "  y  — gh repo create --private --source . --push 로 새로 만든다\n"
+          "  <기존 원격 URL>  — 그 원격을 origin 으로 붙인다\n"
+          "  (그 외 입력/빈 입력)  — 거절, 아무것도 안 한다")
+    answer = input("설정할까? [y/<URL>/N]: ").strip()
+    if answer.lower() == "y":
+        subprocess.run(["gh", "repo", "create", "--private", "--source", cwd,
+                        "--push"], cwd=cwd, check=True)
+    elif answer:
+        subprocess.run(["git", "-C", cwd, "remote", "add", "origin", answer],
+                       check=True)
+    else:
+        sys.exit(fail_msg)
+    r = subprocess.run(["git", "-C", cwd, "remote", "get-url", "origin"],
+                       capture_output=True, text=True)
+    origin = r.stdout.strip()
+    if not origin:
+        sys.exit(fail_msg)
+    ledger_write({"event": "remote_setup_confirmed", "cwd": str(Path(cwd).resolve()),
+                  "origin": origin, "ts": int(time.time())})
+
+
 def positive_int(s: str) -> int:
     """argparse type=: `--issue` 는 1 이상만 유효하다 — 0/음수/거대정수는
     존재할 수 없는 이슈 번호이므로 파싱 시점에 바로 거부한다(#288 N3)."""
@@ -4158,6 +4201,7 @@ def main() -> int:
         require_board(a.cwd, a.no_contract)
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_doctor()
+        ensure_target_remote(a.cwd, a.unattended)
         return drive(a.cwd, a.unattended, a.limit)
     if not a.role:
         print("\n".join(status(a.cwd)))
@@ -4202,6 +4246,7 @@ def main() -> int:
             print(f"--model {role_model}")
         return 0
     require_doctor()
+    ensure_target_remote(a.cwd, a.unattended)
     return _spawn_one(a.cwd, a.role, a.task, a.unattended, a.issue,
                       bounded=a.issue is not None,
                       stall_timeout_min=a.stall_timeout,

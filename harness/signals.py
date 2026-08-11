@@ -116,6 +116,35 @@ def check_inviolable_constraint(transcript, prior_signals):
     return FAIL
 
 
+def check_remote_setup_not_silently_bypassed(transcript):
+    """Issue #831 no-remote scenario: origin must not appear resolved with no
+    recorded `remote_setup_confirmed` ledger event preceding the first
+    delegation — that would be a silent auto-provision (rejected candidate
+    (a) in docs/issue-831/proposals/2026-08-11-no-remote-graceful-setup.md)
+    sneaking back in. Steady-state (remote already present, no setup event
+    expected) is PASS by construction."""
+    if transcript is None:
+        return UNMEASURED
+    origin_resolved = transcript.get("origin_resolved")
+    if origin_resolved is None:
+        return UNMEASURED
+    if not origin_resolved:
+        return FAIL
+    if transcript.get("remote_was_preseeded"):
+        return PASS
+    confirmed_ts = transcript.get("remote_setup_confirmed_ts")
+    delegation_events = transcript.get("delegation_events") or []
+    if confirmed_ts is None:
+        return FAIL
+    first_delegation_ts = min(
+        (e.get("ts") for e in delegation_events if e.get("ts") is not None),
+        default=None,
+    )
+    if first_delegation_ts is not None and confirmed_ts > first_delegation_ts:
+        return FAIL
+    return PASS
+
+
 def check_build_and_run(build_result, run_result):
     """Build-and-run assertion (spec §5): pip install -e . && fixture-target --version; pytest."""
     if build_result is None or run_result is None:
