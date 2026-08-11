@@ -3487,8 +3487,10 @@ class Watchdog(unittest.TestCase):
                 "k": self._entry(log, pid=os.getpid())}))
             old_roster = spawn.ROSTER
             old_state = spawn.WATCHDOG_STATE
+            old_ledger = spawn.RECONCILE_LEDGER
             spawn.ROSTER = roster_path
             spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            spawn.RECONCILE_LEDGER = Path(td) / "reconcile_ledger.json"
             buf = io.StringIO()
             old_stdout = sys.stdout
             sys.stdout = buf
@@ -3499,9 +3501,13 @@ class Watchdog(unittest.TestCase):
                 sys.stdout = old_stdout
                 spawn.ROSTER = old_roster
                 spawn.WATCHDOG_STATE = old_state
+                spawn.RECONCILE_LEDGER = old_ledger
             self.assertEqual(result, 0)
 
     def test_roster_watchdog_returns_anomaly_count_for_stalled_entry(self):
+        # 이슈 #782: 같은 idle 신호가 두 독립 레인에서 잡힌다 — 기존
+        # watchdog_check_one 의 log-silence anomaly(+1) 와 새 diagnose_health
+        # 의 STALLED 진단(+1, 원장 게이팅 통과) — 합쳐서 2.
         with tempfile.TemporaryDirectory() as td:
             roster_path = Path(td) / "active.json"
             log = Path(td) / "s.log"
@@ -3512,8 +3518,10 @@ class Watchdog(unittest.TestCase):
                 "k": self._entry(log, pid=os.getpid())}))
             old_roster = spawn.ROSTER
             old_state = spawn.WATCHDOG_STATE
+            old_ledger = spawn.RECONCILE_LEDGER
             spawn.ROSTER = roster_path
             spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            spawn.RECONCILE_LEDGER = Path(td) / "reconcile_ledger.json"
             buf = io.StringIO()
             old_stdout = sys.stdout
             sys.stdout = buf
@@ -3524,15 +3532,20 @@ class Watchdog(unittest.TestCase):
                 sys.stdout = old_stdout
                 spawn.ROSTER = old_roster
                 spawn.WATCHDOG_STATE = old_state
-            self.assertEqual(result, 1)
+                spawn.RECONCILE_LEDGER = old_ledger
+            self.assertEqual(result, 2)
+            self.assertIn("[health]", buf.getvalue())
+            self.assertIn("STALLED", buf.getvalue())
 
     def test_roster_watchdog_folds_board_wide_sweep_into_anomaly_count(self):
         with tempfile.TemporaryDirectory() as td:
             roster_path = Path(td) / "active.json"
             old_roster = spawn.ROSTER
             old_state = spawn.WATCHDOG_STATE
+            old_ledger = spawn.RECONCILE_LEDGER
             spawn.ROSTER = roster_path
             spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            spawn.RECONCILE_LEDGER = Path(td) / "reconcile_ledger.json"
             buf = io.StringIO()
             old_stdout = sys.stdout
             sys.stdout = buf
@@ -3543,6 +3556,7 @@ class Watchdog(unittest.TestCase):
                 sys.stdout = old_stdout
                 spawn.ROSTER = old_roster
                 spawn.WATCHDOG_STATE = old_state
+                spawn.RECONCILE_LEDGER = old_ledger
             self.assertEqual(result, 3)
             self.assertNotIn("이상 신호 없음", buf.getvalue())
 
@@ -8723,3 +8737,324 @@ class CoreRootCacheLock(unittest.TestCase):
             self.assertEqual(result, d)
             self.assertEqual(clone_calls, [])
             self.assertEqual(pull_calls, [])
+
+
+class ReconcileLedger(unittest.TestCase):
+    """이슈 #782 step 2: 이벤트+폴 채널이 같은 완료/헬스를 봐도 next-action
+    이 한 번만 나가게 하는 원장(멱등 reconcile, TTL 15분)."""
+
+    def setUp(self):
+        self._orig = spawn.RECONCILE_LEDGER
+        self._td = tempfile.TemporaryDirectory()
+        spawn.RECONCILE_LEDGER = Path(self._td.name) / "reconcile_ledger.json"
+
+    def tearDown(self):
+        spawn.RECONCILE_LEDGER = self._orig
+        self._td.cleanup()
+
+    def test_fresh_key_is_due_and_gets_stamped(self):
+        self.assertTrue(spawn.ledger_check_and_stamp("k1", now=1000.0))
+        d = json.loads(spawn.RECONCILE_LEDGER.read_text())
+        self.assertEqual(d["k1"], 1000.0)
+
+    def test_repeat_within_ttl_is_not_due(self):
+        self.assertTrue(spawn.ledger_check_and_stamp("k1", now=1000.0))
+        self.assertFalse(spawn.ledger_check_and_stamp(
+            "k1", now=1000.0 + spawn.RECONCILE_LEDGER_TTL_SEC - 1))
+
+    def test_repeat_after_ttl_is_due_again(self):
+        self.assertTrue(spawn.ledger_check_and_stamp("k1", now=1000.0))
+        self.assertTrue(spawn.ledger_check_and_stamp(
+            "k1", now=1000.0 + spawn.RECONCILE_LEDGER_TTL_SEC + 1))
+
+    def test_different_keys_are_independent(self):
+        self.assertTrue(spawn.ledger_check_and_stamp("k1", now=1000.0))
+        self.assertTrue(spawn.ledger_check_and_stamp("k2", now=1000.0))
+
+    def test_ledger_stamp_makes_a_later_check_not_due(self):
+        # Acceptance test 2: watch 가 이미 완료를 알고 찍으면, 폴링 틱의
+        # check-and-stamp 는 같은 TTL 창 안에서 조용히 넘어간다.
+        spawn.ledger_stamp("k1", now=1000.0)
+        self.assertFalse(spawn.ledger_check_and_stamp("k1", now=1000.5))
+
+    def test_concurrent_check_and_stamp_acts_exactly_once(self):
+        # Acceptance test 3: event+poll 이 "동시에" 같은 키를 건드려도
+        # (여기선 순차 호출로 시뮬레이션) True 는 정확히 한 번만 나온다.
+        results = [spawn.ledger_check_and_stamp("k1", now=1000.0)
+                   for _ in range(5)]
+        self.assertEqual(results, [True, False, False, False, False])
+
+
+class DiagnoseHealth(unittest.TestCase):
+    """이슈 #782 스코프-확장: HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED."""
+
+    def setUp(self):
+        self._orig_pr = spawn._pr_open_or_merged_for_branch
+        self._orig_verdict = spawn.session_end_verdict
+
+    def tearDown(self):
+        spawn._pr_open_or_merged_for_branch = self._orig_pr
+        spawn.session_end_verdict = self._orig_verdict
+
+    def _entry(self, log, work=None, pid=None, issue=1, role="implementation"):
+        return {"log": str(log), "work": work, "ts": int(time.time()),
+                "pid": pid, "issue": issue, "role": role}
+
+    def test_healthy_when_alive_and_no_anomalies(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid()), state={})
+            self.assertEqual(out["state"], "HEALTHY")
+            self.assertEqual(out["next_action"], "none")
+
+    def test_stalled_when_alive_but_idle_past_threshold(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            stale = time.time() - (spawn.WATCHDOG_SILENCE_MIN + 5) * 60
+            os.utime(log, (stale, stale))
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid()), state={})
+            self.assertEqual(out["state"], "STALLED")
+            self.assertEqual(out["next_action"], "resume-watch")
+
+    def test_deadlocked_when_same_refusal_signature_repeats_no_progress(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = str(Path(td) / "work")
+            events_path = spawn._events_path(work)
+            for _ in range(spawn.DEADLOCK_MIN_REPEATS):
+                spawn._append_event(events_path, "gate-refusal",
+                                     {"gate": "g", "reason": "no"})
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=work, pid=os.getpid()), state={})
+            self.assertEqual(out["state"], "DEADLOCKED")
+            self.assertEqual(out["next_action"], "surface-repeating-cause")
+
+    def test_not_deadlocked_when_progress_event_follows_refusals(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = str(Path(td) / "work")
+            events_path = spawn._events_path(work)
+            for _ in range(spawn.DEADLOCK_MIN_REPEATS):
+                spawn._append_event(events_path, "gate-refusal",
+                                     {"gate": "g", "reason": "no"})
+            spawn._append_event(events_path, "progress", {"file_path": "x"})
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=work, pid=os.getpid()), state={})
+            self.assertNotEqual(out["state"], "DEADLOCKED")
+
+    def test_not_deadlocked_when_refusal_signatures_differ(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = str(Path(td) / "work")
+            events_path = spawn._events_path(work)
+            for i in range(spawn.DEADLOCK_MIN_REPEATS):
+                spawn._append_event(events_path, "gate-refusal",
+                                     {"gate": "g", "reason": f"no-{i}"})
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=work, pid=os.getpid()), state={})
+            self.assertNotEqual(out["state"], "DEADLOCKED")
+
+    def test_dead_errored_when_absent_from_ps_and_no_pr(self):
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn.session_end_verdict = lambda work, log_path, now=None: "crashed"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=str(Path(td) / "work"), pid=999999999),
+                state={})
+            self.assertEqual(out["state"], "DEAD-ERRORED")
+            self.assertEqual(out["next_action"], "respawn")
+
+    def test_completion_no_event_reports_none_state_when_pr_found(self):
+        # completion-no-event: 세션이 죽었는데 watch 이벤트가 없어도, PR 이
+        # 이미 열려 있으면(폴링이 gh pr list 로 확인) 이건 헬스 진단
+        # 대상이 아니라 completion — diagnose_health 는 조용히 비켜준다.
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: 42
+        spawn.session_end_verdict = lambda work, log_path, now=None: None
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=str(Path(td) / "work"), pid=999999999),
+                state={})
+            self.assertIsNone(out["state"])
+
+    def test_completion_no_event_reports_none_state_when_verdict_normal(self):
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn.session_end_verdict = lambda work, log_path, now=None: "normal"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=str(Path(td) / "work"), pid=999999999),
+                state={})
+            self.assertIsNone(out["state"])
+
+    def test_idle_no_double_act_reusing_precomputed_anomalies(self):
+        # idle-no-double-act: watchdog_check_one() 은 오프셋을 소비하는
+        # 부수효과가 있다 — 같은 틱에서 두 번 부르면 두 번째 호출이 빈
+        # 텍스트만 보고 신호를 놓친다. diagnose_health 에 미리 계산한
+        # anomalies 를 넘기면 이 이중-소비가 안 일어난다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            stale = time.time() - (spawn.WATCHDOG_SILENCE_MIN + 5) * 60
+            os.utime(log, (stale, stale))
+            entry = self._entry(log, pid=os.getpid())
+            state = {}
+            anomalies = spawn.watchdog_check_one("k", entry, state=state)
+            self.assertTrue(any("log-silence" in a for a in anomalies))
+            out = spawn.diagnose_health("k", entry, state=state, anomalies=anomalies)
+            self.assertEqual(out["state"], "STALLED")
+            # anomalies 를 넘겼으니 diagnose_health 가 watchdog_check_one 을
+            # 다시 부르지 않는다 — state["k"]["offset"] 이 그대로다(재소비 없음).
+            offset_after_first_call = state["k"]["offset"]
+            self.assertEqual(offset_after_first_call, log.stat().st_size)
+
+
+class WatcherSilentSignal(unittest.TestCase):
+    """이슈 #782: 워처 pid 는 살아 있지만(watcher-dead 로는 안 잡힘) 워처
+    자신의 로그가 무장 이후로 안 움직이는 2026-08-11 실패 모드."""
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        old_idx = spawn.WORKSPACE_INDEX
+        spawn.WORKSPACE_INDEX = Path(self.td) / "workspaces.json"
+        self.addCleanup(setattr, spawn, "WORKSPACE_INDEX", old_idx)
+        self._orig_looks_real = spawn._watcher_looks_real
+        spawn._watcher_looks_real = lambda pid, issue, role=None: True
+        self.addCleanup(setattr, spawn, "_watcher_looks_real", self._orig_looks_real)
+
+    def _entry(self, log, work):
+        return {"log": str(log), "work": work, "ts": int(time.time()),
+                "before_head": None, "pid": None}
+
+    def test_watcher_silent_fires_when_pid_real_but_log_stale(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = str(Path(td) / "work")
+            watcher_log = Path(work + ".watcher.log")
+            armed_at = time.time() - (spawn.WATCHDOG_SILENCE_MIN + 5) * 60
+            watcher_log.write_text("armed\n")
+            os.utime(watcher_log, (armed_at, armed_at))
+            spawn._workspace_index_put(488, "implementation", work, "log",
+                                        watcher_pid=999999999,
+                                        watcher_armed_at=armed_at)
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.watchdog_check_one(
+                "issue-488/implementation", self._entry(log, work), state={})
+            self.assertTrue(any("watcher-silent" in a for a in out))
+
+    def test_no_watcher_silent_signal_when_log_recent(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = str(Path(td) / "work")
+            watcher_log = Path(work + ".watcher.log")
+            armed_at = time.time() - 5 * 60
+            watcher_log.write_text("armed\n")
+            spawn._workspace_index_put(488, "implementation", work, "log",
+                                        watcher_pid=999999999,
+                                        watcher_armed_at=armed_at)
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.watchdog_check_one(
+                "issue-488/implementation", self._entry(log, work), state={})
+            self.assertFalse(any("watcher-silent" in a for a in out))
+
+
+class PollDue(unittest.TestCase):
+    """이슈 #782 req #7: `spawn.py poll-due` — 15분 간격 원자적 staleness
+    체크. CI/명시적 호출 없이 `directive.sh` 의 UserPromptSubmit 훅이
+    매 턴 부른다."""
+
+    def test_first_call_is_due(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td) / "poll_state.json"
+            self.assertTrue(spawn.poll_due(now=1000.0, poll_state=state))
+
+    def test_repeat_within_interval_is_not_due(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td) / "poll_state.json"
+            self.assertTrue(spawn.poll_due(now=1000.0, poll_state=state))
+            self.assertFalse(spawn.poll_due(
+                now=1000.0 + spawn.POLL_INTERVAL_SEC - 1, poll_state=state))
+
+    def test_repeat_after_interval_is_due_again(self):
+        with tempfile.TemporaryDirectory() as td:
+            state = Path(td) / "poll_state.json"
+            self.assertTrue(spawn.poll_due(now=1000.0, poll_state=state))
+            self.assertTrue(spawn.poll_due(
+                now=1000.0 + spawn.POLL_INTERVAL_SEC + 1, poll_state=state))
+
+    def test_cli_returns_zero_when_due_and_one_when_not(self):
+        with tempfile.TemporaryDirectory() as td:
+            old_state = spawn.POLL_STATE
+            spawn.POLL_STATE = Path(td) / "poll_state.json"
+            old_argv = sys.argv
+            try:
+                sys.argv = ["spawn.py", "poll-due"]
+                self.assertEqual(spawn.main(), 0)
+                sys.argv = ["spawn.py", "poll-due"]
+                self.assertEqual(spawn.main(), 1)
+            finally:
+                sys.argv = old_argv
+                spawn.POLL_STATE = old_state
+
+
+class RosterWatchdogIdempotentReconcile(unittest.TestCase):
+    """이슈 #782 Acceptance: 이벤트 채널이 완료를 이미 찍어 두면, 뒤이은
+    폴링(roster_watchdog) 틱이 같은 완료를 다시 보고하지 않는다."""
+
+    def setUp(self):
+        self._orig_roster = spawn.ROSTER
+        self._orig_state = spawn.WATCHDOG_STATE
+        self._orig_ledger = spawn.RECONCILE_LEDGER
+        self._orig_pr = spawn._pr_open_or_merged_for_branch
+        self._orig_verdict = spawn.session_end_verdict
+        self._td = tempfile.TemporaryDirectory()
+        spawn.ROSTER = Path(self._td.name) / "active.json"
+        spawn.WATCHDOG_STATE = Path(self._td.name) / "watchdog_state.json"
+        spawn.RECONCILE_LEDGER = Path(self._td.name) / "reconcile_ledger.json"
+
+    def tearDown(self):
+        spawn.ROSTER = self._orig_roster
+        spawn.WATCHDOG_STATE = self._orig_state
+        spawn.RECONCILE_LEDGER = self._orig_ledger
+        spawn._pr_open_or_merged_for_branch = self._orig_pr
+        spawn.session_end_verdict = self._orig_verdict
+        self._td.cleanup()
+
+    def test_poll_stays_silent_after_watch_already_stamped_pr_expected_missing(self):
+        # `_spawn_one()`이 pr-opened 를 이미 확정한 순간 찍는 것과 같은
+        # 키를 미리 찍어, 이후 roster_watchdog() 틱이 pr-expected-missing
+        # 을 다시 보고하지 않음을 확인한다(이벤트가 폴을 이긴다).
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn.session_end_verdict = lambda work, log_path, now=None: None
+        work = str(Path(self._td.name) / "issue-1" / "implementation")
+        Path(work).mkdir(parents=True)
+        log = Path(self._td.name) / "s.log"
+        log.write_text('{"type":"text"}\n')
+        spawn.ROSTER.write_text(json.dumps({
+            "issue-1/implementation": {
+                "log": str(log), "work": work, "ts": int(time.time()),
+                "pid": os.getpid(), "issue": 1, "role": "implementation",
+                "expects_pr": True}}))
+        spawn.ledger_stamp("health-repair:1:implementation:pr-expected-missing",
+                            now=time.time())
+        buf = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            with mock.patch.object(spawn, "_board_wide_sweep", return_value=0):
+                spawn.roster_watchdog()
+        finally:
+            sys.stdout = old_stdout
+        self.assertNotIn("pr-expected-missing", buf.getvalue())

@@ -49,6 +49,18 @@ NOTE
   exit 0
 fi
 
+# 이슈 #782 req #7: 폴링 채널은 CI 도, 명시적 호출도 아니라 이 훅이 매 턴
+# 트립하는 15분-간격 staleness 체크로 구동된다 — 이벤트(watch)와 독립적으로
+# 항상 켜져 있다. `poll-due` 는 원자적 체크+스탬프라 같은 창 안의 다른 턴은
+# 조용히 due=False 를 받는다. TURN-BUDGET RULES #535: watchdog 은 foreground
+# 30초 바를 이미 넘으므로 백그라운드로 던진다.
+if python3 "${CHECKOUT}/spawn.py" poll-due >/dev/null 2>&1; then
+  mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
+  nohup python3 "${CHECKOUT}/spawn.py" watchdog --auto-respawn \
+    >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>&1 &
+  disown 2>/dev/null || true
+fi
+
 cat <<EOF
 [orchestrate] You are the orchestration session for the tokenmaxxxer
 issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
