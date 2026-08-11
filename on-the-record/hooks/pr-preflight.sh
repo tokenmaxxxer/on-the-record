@@ -49,24 +49,47 @@ if not re.search(r"\bgh\s+pr\s+(create|edit)\b", cmd):
     sys.exit(0)
 
 # --- extract PR body from the command line itself --------------------------
+# --body "$(cat <<'EOF' ... EOF)" is the dominant real-world shape (every
+# gh pr create/edit invocation found in session logs uses it) — matched
+# first via the heredoc's own delimiter line, never via quote-balance,
+# because the heredoc body routinely contains literal, unescaped '"'
+# characters (a quoted phrase, a code span) that a naive quote-balance
+# scan cannot tell apart from the argument's real closing quote. The
+# quote-balance regex below stops at the FIRST such literal '"' inside the
+# body and silently truncates everything after it — including a
+# downstream 'Closes #<n>' (issue #854: confirmed by feeding the hook the
+# exact command text a real session ran, with a literal '"무리"' partway
+# through the body and 'Closes #839' appended after it; the truncated
+# capture never reached the 'Closes' text and the phase-1 refusal below
+# never fired). Scoped to this one real-world idiom rather than a general
+# shell parser, matching this file's existing inline-port convention.
+_HEREDOC_BODY_RE = re.compile(
+    r"--body(?:=|\s+)\"\$\(\s*cat\s+<<(-?)\s*(['\"]?)(\w+)\2\s*\n(.*?)\n(?(1)[ \t]*)\3[ \t]*\n?\)\"",
+    re.DOTALL,
+)
+
 body = None
-m = re.search(r"--body(?:=|\s+)(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|\S+)", cmd)
+m = _HEREDOC_BODY_RE.search(cmd)
 if m:
-    raw = m.group(1)
-    if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
-        raw = raw[1:-1]
-    body = raw
+    body = m.group(4)
 else:
-    m = re.search(r"--body-file(?:=|\s+)(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|\S+)", cmd)
+    m = re.search(r"--body(?:=|\s+)(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|\S+)", cmd)
     if m:
         raw = m.group(1)
         if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
             raw = raw[1:-1]
-        try:
-            with open(raw, "r", encoding="utf-8") as f:
-                body = f.read()
-        except OSError:
-            sys.exit(0)  # unreadable body-file — nothing to check yet, fail-open
+        body = raw
+    else:
+        m = re.search(r"--body-file(?:=|\s+)(\"(?:[^\"\\]|\\.)*\"|'(?:[^'\\]|\\.)*'|\S+)", cmd)
+        if m:
+            raw = m.group(1)
+            if len(raw) >= 2 and raw[0] in "\"'" and raw[-1] == raw[0]:
+                raw = raw[1:-1]
+            try:
+                with open(raw, "r", encoding="utf-8") as f:
+                    body = f.read()
+            except OSError:
+                sys.exit(0)  # unreadable body-file — nothing to check yet, fail-open
 
 if body is None:
     sys.exit(0)  # no --body/--body-file on the command — nothing to check yet
