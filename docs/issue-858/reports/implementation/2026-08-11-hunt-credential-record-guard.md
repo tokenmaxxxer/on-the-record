@@ -55,3 +55,41 @@ inherited from record-claim-guard.sh's write-time-fragment approach. As
 written, the proposal claims fail-closed protection against "a full-length
 credential" landing in docs/**, but a credential split across two edits of
 one MultiEdit call slips through undetected.
+
+## before-landing — stance 4: assume the write set cannot carry this work — find the path the build will need that the proposal does not list
+
+Verdict: FINDING -- the staged diff adds on-the-record/hooks/credential-record-guard.sh (a hook script) with no matching row in docs/specs/enforcement-boundary.md or docs/specs/generated-paths.md, so gate-registration-guard.sh denies the commit outright; the write set is missing the two spec-row edits the build needs.
+Kind: design-error
+Seed: git diff --cached in /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-858-implementation (adds on-the-record/hooks/credential-record-guard.sh, on-the-record/hooks/test_credential_record_guard.py, docs/issue-858/reports/implementation.md; modifies on-the-record/hooks/hooks.json)
+cap_seconds: 180
+tier: default
+diff_stat_lines: 360 insertions
+started_at: 2026-08-11T00:00:00Z
+ended_at: 2026-08-11T00:10:00Z
+
+### Reproduce
+```
+cd /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-858-implementation
+grep -n "credential-record-guard" docs/specs/enforcement-boundary.md docs/specs/generated-paths.md
+# (no output -- no row exists in either spec file)
+
+python3 - <<'PYEOF'
+import json, subprocess, os
+payload = json.dumps({"tool_name":"Bash","tool_input":{"command":"g"+"it co"+"mmit -m test"},"cwd": os.getcwd()})
+env = dict(os.environ); env["ORCHESTRATE_OFF"] = "0"
+r = subprocess.run(["bash","./on-the-record/hooks/gate-registration-guard.sh"], env=env, capture_output=True, text=True, input=payload)
+print("rc=", r.returncode); print("stderr=", r.stderr)
+PYEOF
+```
+
+### Observed
+```
+rc= 2
+stderr= gate-registration-guard: newly-added gate/hook module(s) missing a spec registration row (issue #441/#684):
+on-the-record/hooks/credential-record-guard.sh: no row in docs/specs/enforcement-boundary.md
+on-the-record/hooks/credential-record-guard.sh: no row in docs/specs/generated-paths.md
+Fix the row in the same commit (docs/specs/enforcement-boundary.md, and for a hook script also docs/specs/generated-paths.md), then retry the commit.
+```
+
+### Expected
+The proposal's write set (credential-record-guard.sh, its tests, hooks.json registration) should also have included a row for the new hook script in both docs/specs/enforcement-boundary.md and docs/specs/generated-paths.md, since gate-registration-guard.sh fail-closes any commit staging a newly-added on-the-record/hooks/*.sh file lacking those rows. Without them, the commit that lands this work cannot succeed.
