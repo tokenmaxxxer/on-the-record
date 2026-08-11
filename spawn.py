@@ -37,6 +37,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 USER_SETTINGS = Path.home() / ".claude" / "settings.json"
 
+# 이슈 #857: 로스터(ROSTER)/워크스페이스 인덱스(WORKSPACE_INDEX)가 기본으로
+# 가리키는 상태 루트. 기본값은 기존 동작과 동일(설치 디렉터리 아래
+# runs/) — MUSTER_STATE_ROOT 를 주면 그쪽을 대신 쓴다. 하네스가 띄우는
+# fixture 세션에 관측 세션과 다른 값을 주면, 같은 플러그인 설치를
+# 공유하고 같은 --issue 번호를 써도 로스터/워크스페이스 인덱스 파일
+# 자체가 물리적으로 갈려 서로의 항목을 볼 수 없다(PR #855 finding 5).
+STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
+              if os.environ.get("MUSTER_STATE_ROOT") else ROOT / "runs")
+
 NETWORK_TIMEOUT = 60   # fetch/pull/push
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 CONSULT_TIMEOUT = 180  # consult: bounded headless run — no branch/PR to wait on
@@ -1754,14 +1763,14 @@ def _build_observed(root: Path, entry: dict) -> dict:
     }
 
 
-ROSTER = ROOT / "runs" / "active.json"
+ROSTER = STATE_ROOT / "active.json"
 
 
 @contextlib.contextmanager
 def _roster_locked():
     """runs/active.json 의 load-mutate-save 구간을 프로세스 간에 직렬화한다."""
     lock_path = ROSTER.with_name(ROSTER.name + ".lock")
-    lock_path.parent.mkdir(exist_ok=True)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
     with open(lock_path, "w") as f:
         fcntl.flock(f, fcntl.LOCK_EX)
         try:
@@ -1778,7 +1787,7 @@ def _roster_load() -> dict:
 
 
 def _roster_save(d: dict) -> None:
-    ROSTER.parent.mkdir(exist_ok=True)
+    ROSTER.parent.mkdir(parents=True, exist_ok=True)
     ROSTER.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
 
@@ -2484,7 +2493,7 @@ def roster_reconcile(issue: int | None = None, unreported: bool = False,
 
 EVENTS_SUFFIX = ".events.jsonl"
 OFFSET_SUFFIX = ".events.offset"
-WORKSPACE_INDEX = ROOT / "runs" / "workspaces.json"
+WORKSPACE_INDEX = STATE_ROOT / "workspaces.json"
 _PR_URL_RE = re.compile(r"https://github\.com/[^\s\"'\\]+/pull/\d+")
 # progress 이벤트를 세우는 Bash 명령 접두사 — 산출물 쓰기(Write/Edit)와 함께
 # "무슨 일이 있었는지"의 저비용 신호. ls/grep/cat 같은 탐색성 호출은 여기
@@ -3057,6 +3066,24 @@ def _workspace_index_load() -> dict:
     return d
 
 
+@contextlib.contextmanager
+def _workspace_index_locked():
+    """이슈 #857 finding 4(경고 발견): `WORKSPACE_INDEX` 의 load-mutate-save
+    구간에 `ROSTER`(`_roster_locked()`)와 달리 잠금이 없어, 서로 다른 키에
+    쓰는 두 프로세스가 동시에 로드-변경-저장하면 나중에 저장한 쪽이 먼저
+    저장한 쪽의 키를 조용히 지운다 — `_workspace_index_put()` 자체의
+    같은-키 충돌 가드(위)는 한 프로세스의 로드 시점 안에서만 보이므로 이
+    레이스를 못 잡는다. `ROSTER` 와 같은 fcntl 잠금 파일 패턴으로 직렬화."""
+    lock_path = WORKSPACE_INDEX.with_name(WORKSPACE_INDEX.name + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def _workspace_index_put(issue: int, role: str, work: str, log: str,
                           watcher_pid: int | None = None,
                           watcher_armed_at: float | None = None) -> None:
@@ -3069,23 +3096,27 @@ def _workspace_index_put(issue: int, role: str, work: str, log: str,
     이슈 #533: 키는 레포 정체성(`_repo_identity`)까지 포함한다 — 서로 다른
     레포가 같은 이슈 번호+역할로 충돌하면 이전 엔트리가 조용히 덮어써지던
     문제. 같은 키에 다른 `work` 값이 이미 있으면(=진짜 충돌이거나 버그)
-    조용히 덮지 않고 즉시 에러낸다."""
+    조용히 덮지 않고 즉시 에러낸다.
+
+    이슈 #857 finding 4: load-mutate-save 전체를 `_workspace_index_locked()`
+    로 감싸 동시 쓰기 레이스에서 한쪽 키가 조용히 사라지지 않게 한다."""
     WORKSPACE_INDEX.parent.mkdir(parents=True, exist_ok=True)
-    d = _workspace_index_load()
-    key = f"{_repo_identity(work)}/issue-{issue}/{role}"
-    existing = d.get(key)
-    if existing is not None and existing.get("work") != work:
-        raise RuntimeError(
-            f"workspace index collision on {key!r}: existing entry "
-            f"{existing!r} has a different work dir than {work!r} — "
-            f"refusing to overwrite silently (issue #533)")
-    entry = {"work": work, "log": log}
-    if watcher_pid is not None:
-        entry["watcher_pid"] = watcher_pid
-    if watcher_armed_at is not None:
-        entry["watcher_armed_at"] = watcher_armed_at
-    d[key] = entry
-    WORKSPACE_INDEX.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+    with _workspace_index_locked():
+        d = _workspace_index_load()
+        key = f"{_repo_identity(work)}/issue-{issue}/{role}"
+        existing = d.get(key)
+        if existing is not None and existing.get("work") != work:
+            raise RuntimeError(
+                f"workspace index collision on {key!r}: existing entry "
+                f"{existing!r} has a different work dir than {work!r} — "
+                f"refusing to overwrite silently (issue #533)")
+        entry = {"work": work, "log": log}
+        if watcher_pid is not None:
+            entry["watcher_pid"] = watcher_pid
+        if watcher_armed_at is not None:
+            entry["watcher_armed_at"] = watcher_armed_at
+        d[key] = entry
+        WORKSPACE_INDEX.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
 
 def _live_session_start_index(events_path: Path, pid) -> int | None:
