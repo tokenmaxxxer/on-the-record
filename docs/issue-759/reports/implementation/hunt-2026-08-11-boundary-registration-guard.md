@@ -86,3 +86,90 @@ directly, instead of silently no-op'ing (exit 126, permission denied)
 the first time a real `git commit` triggers it, the same gap issue #459
 already hit once and that only a before-landing hunt (not the pytest
 suite) caught.
+
+## before-landing — stance 0: assume the gate just touched is bypassable — find the bypass
+
+Verdict: FINDING — a rename/copy of an existing tracked file into a gates/*.py or on-the-record/hooks/*.sh path is never classified as git diff --cached --name-status status "A" (it reports as "R100"/"R<pct>" instead), so the guard's status == "A" filter never treats it as a target, and a genuinely new, unregistered gate module can land through two ordinary commit invocations (rename-only, then edit) without the hook ever returning non-zero.
+Kind: silent-failure
+Seed: on-the-record/hooks/gate-registration-guard.sh (lines 81-92: if status == "A": added.append(path) -- no handling of an "R100"/"C100"/"R<NN>" row, whose last tab-separated field is the destination path)
+cap_seconds: 180
+tier: size:200+
+diff_stat_lines: ~439
+started_at: 2026-08-11T06:04:53Z
+ended_at: 2026-08-11T06:16:00Z
+
+### Reproduce
+Scratch repo only, not the real repo's git state. run_test2.sh (written
+to a tmp dir, quoted here in full so the exact byte-for-byte commands are
+reproducible):
+```bash
+D=$(mktemp -d)
+GUARD=on-the-record/hooks/gate-registration-guard.sh   # this repo's copy
+rm -rf "$D/repo2"; mkdir -p "$D/repo2"; cd "$D/repo2"
+git init -q
+git config user.email t@example.com; git config user.name t
+mkdir -p gates on-the-record/hooks docs/specs
+printf "| mechanism | verdict | reason |\n|---|---|---|\n" > docs/specs/enforcement-boundary.md
+printf "| mechanism | classification | verdict |\n|---|---|---|\n" > docs/specs/generated-paths.md
+printf 'def helper():\n    return 1\n' > gates/dead_stub.py   # some pre-existing, unrelated tracked file
+git add -A
+git -c core.hooksPath=/dev/null commit -q -m seed
+
+# STEP 1: pure rename of the unrelated file into a brand-new gate module path
+git mv gates/dead_stub.py gates/new_gate.py
+git diff --cached --name-status
+# -> R100  gates/dead_stub.py  gates/new_gate.py   (NOT "A")
+
+python3 -c 'import json;print(json.dumps({"tool_name":"Bash","cwd":".","tool_input":{"command":"g""it com""mit -m step1"}}))' \
+  | ORCHESTRATE_OFF= bash "$GUARD"; echo "guard exit=$?"
+git -c core.hooksPath=/dev/null commit -q -m step1
+
+# STEP 2: now freely edit the never-registered module -- it's tracked, so this is plain "M"
+cat >> gates/new_gate.py <<'PYEOF'
+
+def new_gate_check(payload):
+    if not payload:
+        return False
+    return True
+PYEOF
+git add -A
+git diff --cached --name-status   # -> M  gates/new_gate.py
+python3 -c 'import json;print(json.dumps({"tool_name":"Bash","cwd":".","tool_input":{"command":"g""it com""mit -m step2"}}))' \
+  | ORCHESTRATE_OFF= bash "$GUARD"; echo "guard exit=$?"
+
+grep -c "new_gate" docs/specs/enforcement-boundary.md || echo "0 rows found"
+```
+
+### Observed
+Both invocations of the guard print nothing and exit 0. Concretely:
+```
+R100    gates/dead_stub.py     gates/new_gate.py
+guard exit=0
+M       gates/new_gate.py
+guard exit=0
+0 rows found
+```
+gates/new_gate.py (scratch repo only, never a path in this real repo)
+now exists on that branch with a real gate-shaped function
+(new_gate_check), reachable through two ordinary commit invocations
+that would fire under hooks.json's real PreToolUse Bash matcher, and
+it has zero rows in docs/specs/enforcement-boundary.md naming it --
+i.e. it is exactly the "newly-added, unregistered gate module" issue
+#759 says this hook exists to catch, and it landed without the hook
+ever returning non-zero or emitting a denial message. This is the
+guard's own explicit "editing an already-registered module's
+internals... is untouched" design (comment lines 21-23) misfiring on
+a module that was never registered in the first place -- the design
+assumes "already tracked" implies "already registered", which a
+rename-then-edit sequence breaks.
+
+### Expected
+The guard should treat a rename/copy whose destination basename is a
+target path (gates/*.py sans test_*/__init__, on-the-record/hooks/*.sh,
+.github/workflows/*.yml) the same as an "A" row for registration-check
+purposes -- i.e. also collect the destination path from any
+status.startswith(("R", "C")) line (using parts[-1] as it already
+does for path, since a git diff --name-status R/C row is
+<status>\t<old>\t<new>) -- so gates/new_gate.py: no row in
+docs/specs/enforcement-boundary.md is reported and the commit is
+denied at STEP 1, instead of silently succeeding at both steps.
