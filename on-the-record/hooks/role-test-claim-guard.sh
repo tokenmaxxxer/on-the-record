@@ -24,12 +24,18 @@
 # correction, not decision:"block" — a Stop hook cannot un-say what was
 # already sent; see stop-gate.sh's precedent).
 # Fails closed (trap remaps non-0/2 exit to 2). Kill switch: ORCHESTRATE_OFF=1.
+#
+# Role identity (issue #706): the CLAUDE_ROLE presence check is resolved
+# inside the Python body from the #698 session-role-bind snapshot,
+# falling back to the live env var only when no snapshot exists — a role
+# session unsetting CLAUDE_ROLE before a Stop turn can no longer flip
+# itself into the orchestrator branch and dodge this test-claim check.
+# See approval-gate.sh for the resolve pattern.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
-[ -n "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
 
 command -v python3 >/dev/null 2>&1 || exit 2
 
@@ -42,6 +48,26 @@ except ValueError:
     sys.exit(0)
 if not isinstance(e, dict):
     sys.exit(0)
+
+# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
+role = os.environ.get("CLAUDE_ROLE", "")
+session_id = e.get("session_id")
+if isinstance(session_id, str) and session_id:
+    state_dir = os.environ.get(
+        "OTR_ROLE_BIND_STATE_DIR",
+        os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
+    )
+    safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
+    snapshot_path = os.path.join(state_dir, safe_session + ".json")
+    try:
+        with open(snapshot_path, encoding="utf-8") as f:
+            snapshot = json.load(f)
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
+            role = snapshot["role"]
+    except (OSError, ValueError):
+        pass  # no snapshot yet — fall back to the live env var
+if not role:
+    sys.exit(0)  # not a role session — this test-claim check is role-only
 
 msg = e.get("last_assistant_message")
 if not isinstance(msg, str) or not msg:
