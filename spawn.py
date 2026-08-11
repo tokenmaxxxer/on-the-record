@@ -56,6 +56,28 @@ def _run_net(args: list[str], label: str, timeout: float = NETWORK_TIMEOUT,
         sys.exit(f"{label}: 시간초과({int(timeout)}s) — 네트워크를 확인하라")
 
 
+_BOOTSTRAP_TIMING: dict[str, float] = {}
+_BOOTSTRAP_PHASES = ("workspace", "branch", "rulebook", "core", "gh_token", "settings")
+
+
+@contextlib.contextmanager
+def _timed(phase: str):
+    """부트스트랩 단계 하나의 소요 시간을 `_BOOTSTRAP_TIMING`에 누적한다
+    (이슈 #711) — `_spawn_one` 제어 흐름·종료 코드는 그대로, 측정만 덧붙인다."""
+    t0 = time.monotonic()
+    try:
+        yield
+    finally:
+        _BOOTSTRAP_TIMING[phase] = _BOOTSTRAP_TIMING.get(phase, 0.0) + (time.monotonic() - t0)
+
+
+def _bootstrap_timing_line(role: str) -> str:
+    parts = [f"{p}={_BOOTSTRAP_TIMING.get(p, 0.0):.3f}" for p in _BOOTSTRAP_PHASES]
+    total = sum(_BOOTSTRAP_TIMING.get(p, 0.0) for p in _BOOTSTRAP_PHASES)
+    parts.append(f"total={total:.3f}")
+    return f"[{role}] bootstrap_timing " + " ".join(parts)
+
+
 def _rulebook_ttl_min() -> float:
     v = os.environ.get("MUSTER_RULEBOOK_TTL")
     if v is None:
@@ -3901,12 +3923,13 @@ def _resolve_gh_token() -> str:
         return _GH_TOKEN_CACHE
     token = os.environ.get("MUSTER_AGENT_GH_TOKEN")
     if not token:
-        try:
-            t = subprocess.run(["gh", "auth", "token"], capture_output=True,
-                               text=True, timeout=15)
-            token = t.stdout.strip() if t.returncode == 0 else ""
-        except Exception:
-            token = ""
+        with _timed("gh_token"):
+            try:
+                t = subprocess.run(["gh", "auth", "token"], capture_output=True,
+                                   text=True, timeout=15)
+                token = t.stdout.strip() if t.returncode == 0 else ""
+            except Exception:
+                token = ""
     _GH_TOKEN_CACHE = token
     return token
 
@@ -4315,6 +4338,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     있으면 둘이 갈라지고, 갈라진 쪽이 조용히 게이트 하나를 빠뜨린다.
     """
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
+    _BOOTSTRAP_TIMING.clear()
     if issue is not None:
         root = Path(cwd).resolve()
         blockers, ok = _undispositioned_role_prs(root, exclude_issue=issue)
@@ -4342,12 +4366,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                           "ts": int(time.time())})
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
         # 동시 스폰들이 서로의 index/브랜치를 밟지 않는다.
-        cwd = issue_workspace(cwd, issue, role)
+        with _timed("workspace"):
+            cwd = issue_workspace(cwd, issue, role)
         claim_rejection = _acquire_spawn_claim(cwd, issue, role)
         if claim_rejection is not None:
             print(f"[{role}] {claim_rejection}", file=sys.stderr)
             return 1
-        br = checkout_issue_branch(cwd, issue, role)
+        with _timed("branch"):
+            br = checkout_issue_branch(cwd, issue, role)
         print(f"[{role}] 격리 작업 디렉토리: {cwd}  (브랜치 {br})", file=sys.stderr)
         # 원본(프리픽스 붙기 전) 맡길 일을 한 번만 저장 — 재스폰(다른 spawn.py
         # 프로세스일 수 있다)이 이걸 읽어 그대로 넘기면, 아래에서 프리픽스를
@@ -4365,21 +4391,25 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"끝난다. run_in_background 로 넘긴 작업은 부모 턴이 끝나는 순간 함께\n"
                 f"죽는다(백그라운드 워커가 커밋·push 를 대신 끝내줄 것이라고 가정하지\n"
                 f"마라 — 실측된 실패 패턴이다). 모든 작업은 이 턴 안에서 직접 끝내라.\n\n") + task
-    plugins = plugin_dirs(role, spec)
+    with _timed("rulebook"):
+        plugins = plugin_dirs(role, spec)
     # core_plugin_dirs() 를 print 보다 먼저 불러 core_root() 의 관리 클론
     # pull 이 먼저 일어나게 한다 — 순서가 뒤집히면(예전처럼 print 뒤에서
     # 부르면) 로그에는 pull 전 sha, ledger 에는 pull 후 sha 가 찍혀 같은
     # run 안에서 두 기록이 어긋난다(룰북 쪽은 plugin_dirs() 가 이미 이
     # 순서로 pull 을 앞에 둔다 — core 도 같은 순서로 맞춘다).
-    core_plugins = core_plugin_dirs()
-    s = role_settings(role, cwd)
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        json.dump(s, f)
-        settings = f.name
+    with _timed("core"):
+        core_plugins = core_plugin_dirs()
+    with _timed("settings"):
+        s = role_settings(role, cwd)
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(s, f)
+            settings = f.name
     try:
         print(f"[{role}] 플러그인 {len(plugins)}개, 룰북 {checkout_version(role, spec)}, "
               f"core 플러그인 {', '.join(p.name for p in core_plugins)}, "
               f"core {core_version()}, 작업 디렉터리 {cwd}", file=sys.stderr)
+        print(_bootstrap_timing_line(role), file=sys.stderr)
         # 맡길 일은 stdin 으로 넘긴다. 인자로 주면 가변 인자 플래그가 삼키고,
         # 셸 보간을 거치면 신뢰할 수 없는 값의 $(…) 가 실행된다.
         cmd, extra_env = spawn_cmd(settings, role, unattended,
