@@ -1,4 +1,4 @@
-# Survey — issue #745: session cost-structure valuation
+# Current-state survey — issue #745: session cost-structure valuation
 
 ## Background / context
 
