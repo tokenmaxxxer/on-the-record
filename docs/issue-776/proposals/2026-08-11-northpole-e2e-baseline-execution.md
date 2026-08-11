@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: landed
 files:
   - docs/issue-776/reports/execution-observation.md
 ---
@@ -74,4 +74,14 @@ stated reason — never a silently omitted row and never a guessed verdict.
 
 ## What did not work
 
-(appended live, during phase 2, if applicable)
+- Expected `--permission-mode acceptEdits` to let the observed session
+  run its own `pytest`/CLI checks; instead every Bash invocation of
+  `pytest`/`python3 -m fixture_target`/a runner script was denied by the
+  session's own permission gate. The session worked around this by
+  reasoning about correctness from inspection rather than running its
+  own verification — the fix was still correct (confirmed independently
+  by the harness's own build/run in §5 of the record), but this means
+  signal #4's "human-legible reporting" reads as inspection-based, not
+  test-confirmed, which is now recorded as open finding 3 rather than
+  re-run under a different permission mode (re-running would no longer
+  be the same baseline).
