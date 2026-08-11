@@ -1,0 +1,8 @@
+[
+  {
+    "name": "poll-heartbeat",
+    "command": "\"${CLAUDE_PLUGIN_ROOT}/monitors/poll-heartbeat.sh\"",
+    "description": "60s poll-due/watchdog heartbeat (issue #829 poll_rearm_arm_if_due machinery, reused)",
+    "when": "always"
+  }
+]
