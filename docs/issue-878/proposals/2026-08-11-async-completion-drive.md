@@ -90,11 +90,30 @@ mechanism with two names:**
    "<the delegated PR #N is ready — verify, merge, rebuild, and report>"
    --resume "$session_id"`. The resumed turn does the same
    verify→merge→rebuild→report sequence as case 1. This composes with,
-   rather than replaces, #829/#835/#782 — it adds one field (`session_id`,
-   captured once at spawn, the same way `roster_watchdog` already tracks
-   PID/branch per entry) and one action at an EXISTING poll tick
-   (resume-invoke) instead of the current tick's sole action
-   (re-arm-watchdog).
+   rather than replaces, #829/#835/#782 — it adds one field (`session_id`)
+   and one action at an EXISTING poll tick (resume-invoke) instead of the
+   current tick's sole action (re-arm-watchdog).
+   **Ownership caveat, not per-entry** (after-proposal hunt finding,
+   `docs/issue-878/reports/product-discovery/hunt-2026-08-11-async-completion-drive.md`):
+   unlike PID/branch, `session_id` is a property of the single
+   orchestrator PROCESS that did the spawning, not of each spawned role —
+   one orchestrator turn routinely delegates more than one role (the
+   roster already supports N concurrent entries per issue by role name),
+   and every such entry shares the identical `session_id`. Reusing
+   `roster_watchdog`'s existing per-tick loop unchanged (spawn.py
+   lines ~2241-2325, iterates entries independently with nothing tying
+   two entries back to "same session") would let two entries that become
+   ready in the same poll window each fire their own
+   `--resume "$session_id"`, racing two turns against one session. The
+   resume action must therefore be keyed and claimed at `session_id`
+   granularity, not entry granularity: one session_id-scoped atomic
+   claim (the same check-and-stamp pattern `spawn.py poll-due` already
+   uses for its TTL, reused as the locking primitive rather than
+   invented fresh) gates the resume-invoke so only the first ready entry
+   under a given session_id triggers it; entries that become ready
+   afterward are folded into the SAME resumed turn's nudge text (a
+   merged "PRs #N, #M are ready") instead of triggering a second
+   `--resume`.
 
 3. **Harness measurement (`harness/driver.py` + `harness/signals.py`),
    so #1/#4 reach a real PASS.** The driver must stop observing the gap
@@ -158,12 +177,16 @@ claims to mean.
   #699 R3 goal loop already documented there (delegate → integrate →
   continue → report), not a new loop.
 - `spawn.py`: capture and persist `session_id` per roster entry at spawn
-  time (the same per-entry tracking `roster_watchdog` already does for
-  PID/branch), and add the resume-invoke action to the existing poll tick
-  path (`poll_rearm_arm_if_due`/`roster_watchdog`) for the headless case —
-  gated so it only fires when a `session_id` was actually captured
-  (never for an interactive session, which uses case-1's live
-  notification instead).
+  time (mirroring the per-entry tracking `roster_watchdog` already does
+  for PID/branch), plus a SEPARATE session_id-keyed atomic claim (per the
+  ownership caveat above — `session_id` is process-scoped, not
+  entry-scoped) that serializes the resume-invoke action across every
+  entry sharing one `session_id`. Add the resume-invoke action to the
+  existing poll tick path (`poll_rearm_arm_if_due`/`roster_watchdog`) for
+  the headless case — gated so it only fires when a `session_id` was
+  actually captured (never for an interactive session, which uses
+  case-1's live notification instead) and only once per claimed
+  `session_id` per readiness window.
 - `harness/driver.py` + `harness/signals.py`: the driver captures
   `session_id`, polls ground truth, resumes via `--resume`, and feeds the
   resumed turn's `final_report` (or an explicit UNMEASURED-reason marker
