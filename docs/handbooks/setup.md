@@ -72,6 +72,17 @@ MUSTER_AGENT_GH_TOKEN=<pat>` — 또는 GitHub App)을 두면 사람/에이전�
 `on-the-record/runs/rulebooks/` 아래에 자동으로 받아오고 ff-update 한다
 (로컬 checkout 이 있으면 그쪽이 이긴다 — 개발용 override).
 
+이슈 #857: `export MUSTER_STATE_ROOT=<dir>` 은 `spawn.py` 의 로스터
+(`active.json`)/워크스페이스 인덱스(`workspaces.json`) 상태 파일이
+사는 위치를 `<플러그인 설치>/runs/` 대신 `<dir>` 로 옮긴다. 기본은
+미설정 — 이 경우 지금까지처럼 설치 디렉터리를 공유하는 모든 세션이
+같은 로스터/인덱스 파일을 본다. 하네스가 관측 세션과 별도로 fixture
+세션을 띄울 때만 쓴다: fixture 쪽 프로세스 환경에 관측 세션과 다른
+`MUSTER_STATE_ROOT` 를 주면, 같은 `--issue` 번호를 써도(심지어 `-C`
+가 실수로 관측 세션의 레포를 가리켜도) 두 세션의 로스터/워크스페이스
+인덱스 파일 자체가 물리적으로 갈려 서로의 항목을 못 본다(PR #855
+finding 5 재발 방지).
+
 프로젝트(표적 레포)당 한 번 — 뭔가 빠진 게 있으면 오케스트레이터가
 대화 중에 알아서 다 해주겠다고 제안한다:
 
@@ -127,6 +138,17 @@ either layer is treated the same as unset — falling through to the next
 layer, terminating in the built-in `sonnet` default when both are unset
 or blank. `--dry-run` reflects the fully resolved value through the same
 precedence chain.
+
+Issue #857: `export MUSTER_STATE_ROOT=<dir>` moves where `spawn.py`'s
+roster (`active.json`)/workspace-index (`workspaces.json`) state files
+live, from `<plugin install>/runs/` to `<dir>`. Unset by default — every
+session sharing one plugin installation then sees the same roster/index
+files, as before. Use this only when a harness launches a fixture session
+alongside an observing session: giving the fixture process's environment
+a different `MUSTER_STATE_ROOT` than the observer's means the two
+sessions' roster/workspace-index files are physically separate, even when
+both use the same `--issue` number and even when `-C` mistakenly points
+at the observer's own repo (prevents PR #855 finding 5's recurrence).
 
 Rulebooks and tokenmaxxxer-core need NO manual clones: spawn fetches and
 ff-updates them under `on-the-record/runs/rulebooks/` automatically (a local

@@ -44,13 +44,15 @@
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/plan-order-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/delegated-judgment-gate.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/merge-allow-gate.sh" },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/spawn-allow-gate.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/spawn-allow-gate.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/gh-write-allow-gate.sh" }
         ]
       },
       {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-claim-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/credential-record-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-tiering-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/role-spec-reference-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/call-shape-guard.sh" },
