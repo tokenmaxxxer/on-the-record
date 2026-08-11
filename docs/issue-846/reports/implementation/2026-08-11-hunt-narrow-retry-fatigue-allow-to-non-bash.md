@@ -144,3 +144,21 @@ No hook in the registered Bash matcher groups, nor any sibling in the repo, bran
 
 ### Reproduce
 N/A -- no finding to reproduce. (The composition probe run showing no conflict is described in the prose above: retry-loop-bound.sh pre, spawn-allow-gate.sh, and merge-allow-gate.sh were each invoked on the same crafted Bash payload and their outputs compared.)
+
+## Before-landing dispatch — PR #865 rebase update (2026-08-11)
+
+canonical: this session's invoking prompt (stated PR #865 CONFLICTING)
+and `git log --oneline ac9732a..origin/main`, this session's direct run
+Skipped: docs-only, no before-landing dispatch. PR #865 was CONFLICTING
+against origin/main (origin/main had squash-merged this issue's own
+phase-1 commit as 2207183, PR #864, plus six unrelated commits). The
+branch was rebased onto origin/main (git rebase skipped the already-
+applied phase-1 commit; the phase-2 fix commit reapplied with no
+conflicts and no code content change) and the PR was updated by a
+force-push of the rebased branch. The only file staged in this
+transition's own commit is docs/issue-846/reports/implementation.md,
+per the warrant directive's docs-only fast path -- on-the-record/hooks/
+retry-loop-bound.sh's content is byte-for-byte unchanged from the prior
+stance-1 hunt above (rebase reapplies the same patch, it does not
+re-edit it), so that stance's NO FINDING still applies to the code as it
+now sits on top of origin/main.
