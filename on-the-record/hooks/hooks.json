@@ -12,7 +12,8 @@
       {
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/directive.sh" },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-claim-shape-directive.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-claim-shape-directive.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-tiering-directive.sh" }
         ]
       }
     ],
@@ -48,6 +49,7 @@
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-claim-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-tiering-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/role-spec-reference-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/call-shape-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/accumulation-claim-guard.sh" },
