@@ -257,6 +257,35 @@ if bad:
     else:
         hint = f"a plain '#{issue}' reference in the PR body (no Closes/Fixes/Resolves)"
     deny(bad[0], hint)
+
+# --- phase-1 author-written closing-keyword refusal (issue #741 round 2) ---
+# check_body's phase1 branch intentionally does not gate closing keywords
+# itself — that responsibility belongs to gates/ci.py::_phase1_mismatch
+# (tests/test_gates.py::t_pr_reference_phase1_does_not_gate_closing_
+# keywords_itself pins check_body(126, "Closes #126", "phase1") == []). But
+# _phase1_mismatch's only caller was gates/ci.py's main(), the GitHub
+# Actions runner retired with issue #460 — so nothing live ever refused an
+# author writing 'Closes #<issue>' straight into a phase-1 PR body
+# themselves (PR #763 real-world recurrence). This ports that check inline,
+# using .finditer() rather than a single .search() call — a lone .search()
+# stops at the first closing-keyword match even when it names a different
+# issue, missing a real match further in the body (the exact bypass
+# gates/ci.py::_closes_ref_for_issue's own docstring documents having
+# hunted and fixed once already; this hook's before-landing warrant hunt
+# confirmed the same bypass would apply here if implemented as a single
+# .search() call).
+if phase == "phase1":
+    closes_match = None
+    for m in _CLOSES_REF.finditer(body):
+        if int(m.group(2)) == issue:
+            closes_match = m
+            break
+    if closes_match:
+        deny(
+            f"phase-1 제안 PR 본문에 closing 키워드({closes_match.group(1)})가 "
+            f"있다 — phase-1 머지가 이슈 #{issue}를 자동으로 닫으면 안 된다.",
+            f"a plain '#{issue}' reference only — no Closes/Fixes/Resolves for #{issue}",
+        )
 PY
 
 CG_PAYLOAD="$payload" python3 -c "$GUARD"

@@ -5,6 +5,7 @@ Invokes contract-guard.sh as a subprocess with CG_PAYLOAD set, and a fake
 `-R owner/repo` flag on the argv, or from the subprocess's own cwd (mirrors
 how the real hook now calls `gh` with cwd=<target> for the `cd &&` form).
 """
+import hashlib
 import json
 import os
 import stat
@@ -77,7 +78,7 @@ def _approve_comment(issue, login, created_at=None, role="implementation"):
     return c
 
 
-def _run_guard(cmd, fixtures, tmp_path, cwd=None, edit_log=None):
+def _run_guard(cmd, fixtures, tmp_path, cwd=None, edit_log=None, extra_env=None):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     _write_fake_gh(bin_dir)
@@ -91,6 +92,8 @@ def _run_guard(cmd, fixtures, tmp_path, cwd=None, edit_log=None):
     env["ORCHESTRATE_OFF"] = ""
     if edit_log is not None:
         env["GH_EDIT_LOG"] = str(edit_log)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         ["bash", str(GUARD)],
         input=payload, capture_output=True, text=True,
@@ -509,3 +512,96 @@ def test_own_record_file_alone_gets_closes(tmp_path):
     assert r.returncode == 0, r.stderr
     calls = json.loads(edit_log.read_text())
     assert len(calls) == 1 and "Closes #9" in calls[0]["body"]
+
+
+# --- execution provenance log (issue #741 round 2) -----------------------
+#
+# PR #768 (issue-759 phase-1) recurred despite the content gate above
+# already being logically correct and unit-tested: the process that
+# executed `gh pr merge` ran a stale Claude Code plugin-cache copy of this
+# script, undetectable from git history alone. These cases pin that every
+# merge determination this script reaches writes one provenance line
+# (its own path + sha256 + the phase2/is_src_test/is_record verdict) before
+# either content gate can exit, and that a log-write failure never changes
+# the merge verdict.
+
+def test_provenance_log_records_self_path_hash_and_verdict(tmp_path):
+    """The #741/PR-#747/#739-shaped docs-only same-round-approval fixture
+    (phase2=true via round-scoping, but is_src_test=false/is_record=false
+    via the content gate) must still produce one provenance log line
+    recording this exact running script's own path/sha256 and all three
+    computed booleans — the log is unconditional on what the two gates
+    below it decide."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "proposal(issue-9): phase-1, Refs #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+                "files": [{"path": "docs/issue-9/proposals/2026-08-01-plan.md"}],
+            },
+        },
+    }
+    log_path = tmp_path / "provenance" / "hook-provenance.log"
+    r = _run_guard(
+        "gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir,
+        extra_env={"CONTRACT_GUARD_PROVENANCE_LOG": str(log_path)},
+    )
+    assert r.returncode == 0, r.stderr
+    lines = log_path.read_text().splitlines()
+    assert len(lines) == 1
+    entry = json.loads(lines[0])
+    assert entry["script_path"] == str(GUARD.resolve())
+    assert entry["script_sha256"] == hashlib.sha256(GUARD.read_bytes()).hexdigest()
+    assert entry["phase2"] is True
+    assert entry["is_src_test"] is False
+    assert entry["is_record"] is False
+    assert entry["closes_present_before"] is False
+    assert entry["issue"] == 9
+
+
+def test_provenance_log_write_failure_does_not_change_verdict(tmp_path):
+    """A CONTRACT_GUARD_PROVENANCE_LOG pointing under a path that cannot be
+    created as a directory (a regular file occupies that path segment)
+    must fail the log write silently — returncode and the recorded `gh pr
+    edit` calls must be byte-identical to the same fixture with a working
+    log path (regression: logging must never become a new deny path or
+    change what merges)."""
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd"},
+        "repos": {
+            "cwd": {
+                "pr_body": "no closing keyword here, just #9",
+                "commits": [{"committedDate": "2026-08-01T00:00:00Z"}],
+                "issue_comments": [_approve_comment(9, "alice", created_at="2026-08-05T00:00:00Z")],
+                "files": [{"path": "src/example.py"}],
+            },
+        },
+    }
+    blocked = tmp_path / "blocked"
+    blocked.write_text("not a directory")
+    unwritable_log = blocked / "sub" / "hook-provenance.log"
+
+    edit_log_a = tmp_path / "edits_a.json"
+    r_bad = _run_guard(
+        "gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log_a,
+        extra_env={"CONTRACT_GUARD_PROVENANCE_LOG": str(unwritable_log)},
+    )
+    assert not unwritable_log.exists()
+
+    edit_log_b = tmp_path / "edits_b.json"
+    working_log = tmp_path / "working" / "hook-provenance.log"
+    r_good = _run_guard(
+        "gh pr merge 7 --merge", fixtures, tmp_path, cwd=cwd_dir, edit_log=edit_log_b,
+        extra_env={"CONTRACT_GUARD_PROVENANCE_LOG": str(working_log)},
+    )
+    assert working_log.exists()
+
+    assert r_bad.returncode == r_good.returncode == 0
+    calls_a = json.loads(edit_log_a.read_text())
+    calls_b = json.loads(edit_log_b.read_text())
+    assert calls_a == calls_b
+    assert len(calls_a) == 1 and "Closes #9" in calls_a[0]["body"]
