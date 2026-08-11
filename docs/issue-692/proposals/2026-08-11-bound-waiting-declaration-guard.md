@@ -107,6 +107,16 @@ complementary fix that makes escaping on the first attempt likely.
      shows a prior block): do not block on this branch — fall through to
      the pre-existing age-tier logic below it, unchanged. This is the
      "at most once per turn chain" bound from the issue.
+   - The latch resets (state cleared) on any Stop whose message does
+     NOT hit the block condition (arm marker present, or no waiting
+     pattern at all) — i.e. the bound applies once per *run* of
+     consecutive bare waiting declarations, not once for the whole
+     session. Without this reset, a single early waiting-declaration
+     block would permanently disable the guard for every later,
+     unrelated stall in the same session — a real bypass the
+     after-proposal warrant hunt (stance: assume the gate is
+     bypassable) found in this design before the reset was added; see
+     `docs/issue-692/reports/hunt-2026-08-11-bound-waiting-declaration-guard.md`.
 4. `on-the-record/hooks/test_decision_queue_stopgate.py`: extend `_run()`
    to accept an optional `session_id` (defaulting to a fixed test value)
    and include it in the JSON stdin payload; point
