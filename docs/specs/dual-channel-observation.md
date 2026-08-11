@@ -102,7 +102,18 @@ should stay distinct rather than being forced into one:
   first: watch, by streaming the event live; poll, by finding the PR via
   `_pr_open_or_merged_for_branch()` or the session's
   `session_end_verdict()` on its next tick. Dedup key: `(issue, role,
-  pr_number)` if a PR exists, else `(issue, role, "session-end")`.
+  pr_number)` if a PR exists, else `(issue, role, spawn_attempt_id,
+  "session-end")` — the roster entry's own `ts` (spawn timestamp,
+  already recorded per `roster_register()`) serves as `spawn_attempt_id`
+  with no new field needed. A bare `(issue, role, "session-end")` key
+  (no attempt discriminator) would collide across respawns: after-
+  proposal hunt (`docs/issue-782/reports/product-discovery/2026-08-11-hunt-2026-08-11-dual-channel-observation.md`)
+  found that a role respawned inside the TTL window (exactly the
+  `crashed`→`respawn` health-repair path this same spec defines) would
+  have its genuinely distinct completion silently suppressed as a
+  duplicate of the prior attempt's session-end — a false-negative, not a
+  double-action, but equally a missed completion, which is the exact
+  failure this design exists to close.
 - **Health-repair lane**: `reconcile()`'s existing closed next-action set
   — `respawn`, `resume-watch`, `manual-review`, `none` (ADR Decision 3,
   `spawn.py:1644`). This lane does not change; it already takes pure
@@ -124,7 +135,7 @@ through one ledger (`runs/reconcile_ledger.json`, same lock discipline as
    the completion to the orchestrator's next reply; or execute the
    health-repair `next_action`).
 
-This means: watch reports a PR first → poll's next tick sees the same PR
+This means, with the attempt-discriminated key above: watch reports a PR first → poll's next tick sees the same PR
 via `_pr_open_or_merged_for_branch()`, finds the ledger key already
 stamped, and stays silent (Acceptance test 3: event+poll on the same
 completion → exactly one next-action). Poll finds a PR watch never
