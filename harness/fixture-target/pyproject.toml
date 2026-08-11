@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixture-target"
+version = "0.1.0"
+description = "Northpole E2E harness fixture target — minimal buildable CLI with a seeded defect"
+requires-python = ">=3.9"
+
+[project.scripts]
+fixture-target = "fixture_target:main"
+
+[tool.setuptools]
+packages = ["fixture_target"]
