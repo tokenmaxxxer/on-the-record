@@ -122,7 +122,7 @@ def gh_json(*args):
     except ValueError:
         return None
 
-pr_data = gh_json("pr", "view", pr, "--json", "body,number,commits")
+pr_data = gh_json("pr", "view", pr, "--json", "body,number,commits,files")
 if pr_data is None:
     sys.exit(0)  # gh lookup failed — fail-open per header note, not a verdict
 body = pr_data.get("body") or ""
@@ -176,6 +176,40 @@ phase2 = any(
 )
 if not phase2:
     sys.exit(0)  # phase-1 PR: no closing-keyword obligation (pr_reference.py phase1 path)
+
+# Content-based phase-2 gate (issue #741): the round-scoping `phase2` bool
+# above is trivially true for ANY same-round approval, including a
+# docs-only phase-1 proposal PR — approval by definition postdates
+# phase-1's first commit on a shared branch. A second, independent
+# condition confirms this PR's own diff is actually phase-2-shaped before
+# attaching/requiring Closes, using the same two path patterns
+# approval-gate.sh already gates writes on (src/tests? path, or the
+# acting role's own exact record file).
+files = [
+    f.get("path") for f in (pr_data.get("files") or [])
+    if isinstance(f, dict) and f.get("path")
+]
+is_src_test = any(re.search(r"(^|/)(src|tests?)/", f) for f in files)
+
+role = None
+try:
+    br = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, timeout=20, cwd=target_cwd or os.getcwd(),
+    )
+    if br.returncode == 0:
+        bm = re.match(r"^issue-(\d+)/([\w-]+)$", br.stdout.strip())
+        if bm and int(bm.group(1)) == issue:
+            role = bm.group(2)
+except (OSError, subprocess.SubprocessError):
+    role = None  # unreached: git ships wherever contract-guard.sh does
+
+is_record = role is not None and (
+    "docs/issue-%d/reports/%s.md" % (issue, role) in files
+)
+
+if not (is_src_test or is_record):
+    sys.exit(0)  # approved but this PR's own diff isn't phase-2-shaped (issue #741)
 
 if not closes_m or int(closes_m.group(2)) != issue:
     if closes_m:
