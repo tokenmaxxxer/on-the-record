@@ -20,6 +20,8 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `session-role-bind.sh` | out-of-tree | safe — `${OTR_ROLE_BIND_STATE_DIR:-$TMPDIR/otr-role-bind}`-rooted, never inside the target repo (#698) |
 | `self-update.sh` | out-of-tree | safe — writes into the shared plugin checkout, not the target repo |
 | `directive.sh` | out-of-tree | safe — clones into the shared plugin checkout |
+| `poll-rearm.sh` | out-of-tree | safe — shared function library sourced by `directive.sh`/`stop-poll-rearm.sh`; its checkout-clone fallback writes into the shared plugin checkout, same as `directive.sh` |
+| `stop-poll-rearm.sh` | out-of-tree | safe — same shared checkout clone via `poll-rearm.sh`'s `poll_rearm_resolve_checkout()` |
 | `impact-guard.sh` | out-of-tree | safe — same shared checkout clone |
 | `spawn-allow-gate.sh` | n/a | reads/validates only, no write call |
 | `decision-queue-stopgate.sh` | out-of-tree | safe — same shared checkout clone |
