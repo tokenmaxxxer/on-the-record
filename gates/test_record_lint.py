@@ -203,6 +203,23 @@ def t_outcome_claim_with_real_acceptance_result_line_passes():
     assert not any("#870" in b for b in bad), bad
 
 
+def t_outcome_claim_with_real_live_fire_result_line_passes():
+    """issue #914 mechanism c: a `live-fire: <path> — result:
+    allow|deny|log` citation is a sibling executed-live shape to
+    `acceptance: ... — result: PASS|FAIL|UNMEASURED`, additive to #870's
+    existing regex set."""
+    body = (
+        "---\n"
+        "loop_state: landed\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: live-fire: on-the-record/hooks/new-guard.sh — result: allow\n"
+        "All requirements met, task complete.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert not any("#870" in b for b in bad), bad
+
+
 def t_no_outcome_claim_is_untouched():
     """issue #870 empty state: no outcome marker -> no #870 violation,
     same empty-state scoping #793 already follows."""
