@@ -48,6 +48,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `role-spec-reference-guard.sh` | n/a | reads/validates only, no write call |
 | `role-test-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `spec-index-preflight.sh` | n/a | reads/validates only, no write call |
+| `test-authoring-invariant-guard.sh` | n/a | reads/validates only, no write call |
 | `stop-gate.sh` | n/a | reads/validates only, no write call |
 
 Out of scope (per docs/issue-684/proposals/2026-08-11-generated-path-disjointness.md):
