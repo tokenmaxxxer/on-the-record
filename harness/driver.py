@@ -20,10 +20,18 @@ REPRESENTATIVE_REQUIREMENT = (
 )
 
 
-def instantiate_fixture_target(dest_dir):
+def instantiate_fixture_target(dest_dir, seed_remote_dir=None):
     """Copy a clean working copy of the fixture-target template to dest_dir.
 
     dest_dir must not already exist. Returns the Path to the new copy.
+
+    seed_remote_dir (issue #831): when given, a bare repo is created at
+    that path and wired as `origin` before returning — the steady-state
+    (remote-present) scenario spec'd in
+    docs/issue-831/reports/architecture.md "Harness scenario spec". When
+    None (default, unchanged from before #831), the fixture has no
+    remote — the no-remote scenario `ensure_target_remote` (spawn.py)
+    must handle.
     """
     dest = Path(dest_dir)
     if dest.exists():
@@ -39,6 +47,11 @@ def instantiate_fixture_target(dest_dir):
          "commit", "-m", "harness fixture initial commit"],
         cwd=str(dest), check=True, capture_output=True,
     )
+    if seed_remote_dir is not None:
+        remote = Path(seed_remote_dir)
+        subprocess.run(["git", "init", "--bare", str(remote)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(dest), "remote", "add", "origin", str(remote)],
+                       check=True, capture_output=True)
     return dest
 
 
