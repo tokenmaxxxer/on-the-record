@@ -73,6 +73,17 @@ gap the issue is closing.
   it is allowed by construction, and an explicit `[REDACTED]`
   replacing the secret span is allowed by construction (no credential
   characters remain to match).
+- MultiEdit fragment-splitting guard (closes an after-proposal hunt
+  finding, `docs/issue-858/reports/implementation/2026-08-11-hunt-credential-record-guard.md`):
+  checking each `edits[].new_string` independently, as
+  `record-claim-guard.sh` does, misses a credential split across two
+  adjacent edits of one MultiEdit call (each fragment individually
+  short/no-match, but concatenated in the resulting file they form a
+  full-length token). The new hook additionally checks the
+  no-separator concatenation of all `edits[].new_string` values in a
+  MultiEdit call (in edit order) against the same patterns, alongside
+  each fragment checked independently — catching the adjacent-fragment
+  composition case without needing to re-read the post-edit file.
 - Register in `on-the-record/hooks/hooks.json`'s PreToolUse
   `Write|Edit|MultiEdit` group, alongside `record-claim-guard.sh`.
 - `on-the-record/hooks/test_credential_record_guard.py`: full-length
