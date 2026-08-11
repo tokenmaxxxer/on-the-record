@@ -52,3 +52,74 @@ Both files carry the identical `<function_results>` leaked tag on the same relat
 
 ### Expected
 Either `record_no_tool_residue`/`record_derived_counts`/`record_wellformed`/etc. scope to the same path set `_always_writable()` grants (flat `<role>.md` **and** nested `<role>/**`), or `RECORD_PATH` documents why nested-shape files are deliberately exempt from tool-residue/count-claim/frontmatter scanning — currently neither is true, so a leaked tool-transcript tag or an unbacked count claim in any nested-shape report (survey.md, scout-brief.md, hunt records, etc. — the majority shape in this repo, including the two files this proposal's implementation phase just added) passes silently through every existing gate.
+
+## before-landing — stance 1: assume this change and another plugin's rule/gate cancel each other — find the pair
+
+Verdict: NO FINDING
+Seed: gates/closure_sweep.py (new `issue_state_index_all`), spawn.py `_board_wide_sweep()` (~L1946) and the `closure-sweep` CLI subcommand (~L3719), both now prefetch `issue_states` via one `gh issue list` call instead of letting `find_violations` call `_issue_view` per subject.
+cap_seconds: 180
+tier: size:200
+diff_stat_lines: 219
+started_at: 2026-08-11T05:54:39Z
+ended_at: 2026-08-11T06:03:30Z
+
+### Investigation
+Searched for any other gate/hook/plugin rule whose behavior depends on
+`find_violations` running without `issue_states`, or on `gh issue view`
+being called per-subject (rate limiting, auth-refresh, logging side
+effects), or on `main()`'s exit code differing when
+`issue_state_index_all` itself fails.
+
+- Strongest candidate: `gates/gates.py:subprocess_call_shape_divergence`
+  (session-side mirror: `on-the-record/hooks/call-shape-guard.sh`) — a
+  repo-wide static check grouping subprocess calls by their first two
+  literal argv elements (e.g. `("gh","issue")`) and denying a write when
+  calls to "the same command" carry divergent `_SEMANTIC_FLAGS`
+  (`-X`/`--method`/`-f`/`--field`). Both `_issue_view` (issue-view-by-id)
+  and the new `issue_state_index_all` (issue-list, all states) key to the
+  same `("gh","issue")` group under this check's cmd tuple. Ran it
+  directly against the working tree as it stands right now:
+  `python3 -c "import sys; sys.path.insert(0,'gates'); import gates; from pathlib import Path; print(gates.subprocess_call_shape_divergence(Path('.')))"`
+  -> `[]` (0 findings). Reason: `_call_flag_set` requires every element of
+  the argv list literal to be a string constant; both call sites embed a
+  non-constant element (`str(issue)` / `str(_ISSUE_INDEX_LIMIT)`), so both
+  are silently excluded from grouping entirely — pre-existing behavior of
+  that checker, unaffected by this diff either direction.
+- `on-the-record/hooks/contract-guard.sh` (the merge-time contract gate,
+  issue #441/#653) re-implements its own single-PR/single-issue read-only
+  `gh` lookups directly (issue-view-by-id with a `comments` field) — it
+  never calls into `gates/closure_sweep.py`, so it cannot be affected by
+  how `find_violations`/`issue_state_index_all` are wired.
+- `gates/flows.py`'s board-status path stopped calling `find_violations()`
+  altogether back in issue #674 (its own comment says so explicitly); it
+  has its own independent bulk issue-list call for the status board. Not
+  touched by, and not sensitive to, this diff.
+- Checked `main()`'s exit-code path when `issue_state_index_all` fails
+  (`ok=False`): the caller discards `ok` and passes `issue_states=None`,
+  which is exactly `find_violations`'s pre-existing default — the
+  fallback per-subject path (with its own ok/skip handling) still runs
+  and still produces `skips` on failure, so `_board_wide_sweep`'s "gh
+  failure counts as 1 anomaly, not clean" contract (its own docstring) is
+  preserved either way. Confirmed by reading `gates/test_closure_sweep.py`'s
+  updated `test_exit_code_is_2_and_prints_could_not_check`, which now
+  stubs `issue_state_index_all` to `(None, False)` and still asserts exit
+  code 2.
+- No wrapper/log/rate-limiter around `gh` calls exists in this repo that
+  any other gate/hook depends on for a *count* of per-subject issue-view
+  invocations (searched for rate-limit/call-budget/token-refresh
+  mechanisms tied to closure_sweep or `_issue_view`; the only
+  `GH_TOKEN`/`gh auth` machinery in `spawn.py` is role-session credential
+  plumbing, unrelated to and not invoked by `gates/closure_sweep.py`'s
+  `gh` subprocess calls).
+
+No reproduction of a cancelling pair was found. Per protocol, reporting
+none found rather than a plausible-but-unverified concern.
+
+Note (incidental, out of scope for this stance): drafting this section hit
+an unrelated false-positive in the `tokenmaxxxer-core` plugin's
+`gh-guard.sh` PreToolUse hook — its role-session merge/close regex matched
+literal descriptive prose inside this Bash heredoc's body text (not an
+actual gh invocation), refusing the first append attempt. Not part of
+this repo and not connected to the issue-743 diff, so not reported as
+this stance's finding; the section above was written on retry with the
+triggering phrase reworded.

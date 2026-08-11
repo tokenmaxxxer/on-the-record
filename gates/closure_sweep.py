@@ -131,6 +131,49 @@ def _pr_index_all(root: Path) -> tuple[dict[str, dict] | None, bool]:
     return index, True
 
 
+_ISSUE_INDEX_LIMIT = 1000
+
+
+def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, bool]:
+    """이슈번호 -> state 사전, `gh` 한 번(issue #743) — `_pr_index_all` 과
+    같은 `(index, ok)`/잘림-안전 모양.
+
+    `find_violations` 는 이미 `issue_states` 를 받으면 subject 별
+    `_issue_view` 호출을 건너뛴다(issue #189) — 문제는 배포된 호출자
+    아무도 그 맵을 채워 넘기지 않아 subject 수만큼 `gh issue view` 를
+    부른다는 것이었다(watchdog 틱당 166 subject x ~0.61s ≈ 101초, issue
+    #743 측정). 이 헬퍼는 그 맵을 한 번의 `gh issue list` 로 만든다 —
+    `find_violations` 자체는 바뀌지 않는다.
+
+    `(index, ok)` — `ok=False` 는 `gh` 호출 자체가 실패했다는 뜻이고,
+    그때 `index` 는 `None` 이다: "이슈 없음"으로 읽으면 안 된다(`_pr_index_all`
+    과 같은 이유, issue #287 S1 계열).
+
+    `--limit` 상한에 정확히 걸리면 잘렸을 수 있으므로 `(None, True)` 를
+    돌려준다 — 호출부는 이를 `issue_states=None` 으로 `find_violations` 에
+    넘겨 기존 subject 별 개별 조회로 되돌아가야 한다(조용한 절단으로 위반을
+    놓치느니 느린 옛 경로가 낫다, issue #224)."""
+    r = subprocess.run(["gh", "issue", "list", "--state", "all", "--json",
+                        "number,state", "--limit", str(_ISSUE_INDEX_LIMIT)],
+                       cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, False
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None, False
+    if not isinstance(data, list):
+        return None, False
+    if len(data) >= _ISSUE_INDEX_LIMIT:
+        return None, True
+    index: dict[int, str] = {}
+    for item in data:
+        number = item.get("number")
+        if number is not None:
+            index[number] = item.get("state", "")
+    return index, True
+
+
 def find_violations(root: Path, subjects: dict | None = None,
                      issue_states: dict[int, str] | None = None) -> tuple[list[dict], list[dict]]:
     """보드의 각 subject x role 브랜치에 대해 이슈/PR 상태를 읽고 위반을 모은다.
@@ -318,7 +361,8 @@ def main() -> int:
         root = Path(argv[argv.index("--repo") + 1]).resolve()
     post = "--post" in argv
 
-    violations, skips = find_violations(root)
+    issue_states, _ = issue_state_index_all(root)
+    violations, skips = find_violations(root, issue_states=issue_states)
     if skips:
         print("종결 일관성 스윕: 확인 불가")
         print(f"{len(skips)}건 확인 못함: " +

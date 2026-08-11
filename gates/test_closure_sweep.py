@@ -100,6 +100,11 @@ class MainExitCode(unittest.TestCase):
             [], [{"subject": "issue-135", "reason": "gh-issue-view-failed"}])
         self.addCleanup(setattr, closure_sweep, "find_violations", orig_find_violations)
 
+        orig_issue_state_index_all = closure_sweep.issue_state_index_all
+        closure_sweep.issue_state_index_all = lambda root: (None, False)
+        self.addCleanup(setattr, closure_sweep, "issue_state_index_all",
+                         orig_issue_state_index_all)
+
         argv = sys.argv
         sys.argv = ["closure_sweep.py"]
         self.addCleanup(setattr, sys, "argv", argv)
