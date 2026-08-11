@@ -489,10 +489,32 @@ def role_settings(role: str, cwd: str | None = None) -> dict:
     for name in globals_:
         s.setdefault("enabledPlugins", {}).setdefault(name, False)
 
+    # 갱신 — 이슈 #742 (2026-08-11): 아래 세 문단(WebSearch/WebFetch/Read/
+    # Grep/Glob, 워크스페이스-bash 패턴, MUSTER_MCP_ALLOW)이 서술하는
+    # "permissions.allow 에 규칙이 없으면 거부된다" 는 판정 근거는 #58/#65/
+    # #153/#558 당시(headless 세션이 --permission-mode acceptEdits 로 떴던
+    # 시절)의 것이다. #700(커밋 b762681, 2026-08-11 10:38)이 실제 롤 스폰
+    # 경로(spawn_cmd()/consult_cmd())를 --permission-mode bypassPermissions
+    # 로 옮긴 뒤로는 이 permissions.allow 목록 전체가 그 경로들에서 더 이상
+    # 판정에 관여하지 않는다 — Anthropic 문서
+    # (code.claude.com/docs/en/permission-modes): "Allow rules have no
+    # effect in bypassPermissions because everything else is already
+    # approved." 이슈-742 phase-1 조사가 이 사실을 4패턴 라이브 프로브로
+    # 실측했다(거부 0건). bypassPermissions 아래서 도구 호출을 실제로
+    # 판정하는 층은 PreToolUse/PermissionRequest 훅뿐이다.
+    #
+    # 그런데도 목록을 지우지 않는 이유 둘: (1) role_settings() 는
+    # `--dry-run` 경로(main() 의 a.dry_run 분기)에서도 호출되는데 그
+    # 경로는 claude 프로세스를 아예 안 띄우므로 permission-mode 자체가
+    # 없다 — 거기 출력되는 permissions.allow 는 이 함수가 만드는 그대로다;
+    # (2) 롤 스폰이 bypassPermissions 아닌 모드로 되돌아가면(#700 이전
+    # 상태) 이 목록이 그 즉시 다시 유효한 경계가 된다 — 지금 지우면 그
+    # 되돌림이 이 항목들 없이 조용히 일어난다.
+    #
     # WebSearch/WebFetch 는 두 층에서 막힌다(이슈 #65, #58 후속). #58 은 샌드박스
-    # NETWORK 층(allowedDomains)만 열었다 — TOOL-PERMISSION 층은 별개로, headless
-    # 세션은 --permission-mode acceptEdits 로 뜨고 답할 사람이 없어서
-    # permissions.allow 에 규칙이 없는 도구는 그냥 거부된다(#58 조사가 놓친 지점).
+    # NETWORK 층(allowedDomains)만 열었다 — TOOL-PERMISSION 층은 별개로, (당시)
+    # headless 세션은 --permission-mode acceptEdits 로 뜨고 답할 사람이 없어서
+    # permissions.allow 에 규칙이 없는 도구는 그냥 거부됐다(#58 조사가 놓친 지점).
     # 모든 역할에 적용한다(#58 과 동일한 operator 결정: option B) — 샌드박스
     # 활성 여부와 무관하다, 이 층은 샌드박스가 아니라 CLI 권한 프롬프트이므로.
     # Read/Grep/Glob 도 같은 이유로 추가한다(이슈 #153) — 읽기 전용 조회이고
@@ -505,9 +527,10 @@ def role_settings(role: str, cwd: str | None = None) -> dict:
             allow.append(tool)
 
     # 이슈 #558: 격리된 워크스페이스(cwd) 안에서 정당한 venv 생성/pip
-    # install/워크스페이스 test/ 스크립트 실행은 하네스 권한(2층)에 막힌다
-    # — headless 세션은 답할 사람이 없어 permissions.allow 에 없는 명령은
-    # 그냥 거부된다(2026-08-09 soongsil-course-registration 런 실측). 위의
+    # install/워크스페이스 test/ 스크립트 실행은 하네스 권한(2층)에 막혔다
+    # (당시) — headless 세션은 답할 사람이 없어 permissions.allow 에 없는
+    # 명령은 그냥 거부됐다(2026-08-09 soongsil-course-registration 런
+    # 실측; 위 갱신 문단 참고 — #700 이후 실제 롤 스폰에는 더 안 해당). 위의
     # Bash 하위 패턴 제외 사유(바로 위 주석)는 "경로 앵커 없는" 패턴에만
     # 해당한다 — 여기 항목은 이 스폰의 cwd 로 완전히 앵커링되므로 별개다.
     # cwd 가 없으면(레지스트리 점검 등 워크스페이스 없는 호출) 아무것도
