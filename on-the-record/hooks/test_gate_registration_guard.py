@@ -235,6 +235,21 @@ def t_commit_tree_is_not_a_commit_trigger(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+def t_paren_wrapped_commit_is_still_detected(tmp_path):
+    """issue #882: plain `shlex.split` fuses an unspaced `(` onto `git`
+    (`"(git"`), so `"git" in tokens` was False and this hook's real check
+    (spec-registration presence) silently never ran for a subshell-wrapped
+    commit — issue #876's before-landing hunt reproduced the wrapped form
+    actually landing a commit (exit 0, no stderr) against this exact hook."""
+    repo = _init_repo(tmp_path)
+    (repo / "gates" / "new_gate.py").write_text("# new gate\n", encoding="utf-8")
+    _stage_all(repo)
+    r = _run(repo, command='(git commit -m "msg")')
+    assert r.returncode == 2, r.stdout
+    assert "new_gate.py" in r.stderr
+    assert "enforcement-boundary.md" in r.stderr
+
+
 def t_orchestrate_off_bypasses(tmp_path):
     repo = _init_repo(tmp_path)
     (repo / "gates" / "new_gate.py").write_text("# new gate\n", encoding="utf-8")
