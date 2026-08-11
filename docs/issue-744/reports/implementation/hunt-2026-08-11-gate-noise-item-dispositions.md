@@ -147,3 +147,49 @@ docs-only, no before-landing dispatch — every path in this commit's diff
 is under docs/ (docs/issue-744/proposals/**, docs/issue-744/reports/**),
 so the warrant plugin's docs-only fast path applies and the second
 dispatch is skipped per that rule.
+
+## before-landing — stance 1: assume this change and another plugin's rule cancel each other — find the pair
+
+Verdict: FINDING — `gates/test_record_lint.py`'s own two documented invocation methods now disagree: the new `@pytest.mark.xfail(strict=True)` test is correctly tolerated under `python3 -m pytest gates/test_record_lint.py -q` (pytest's xfail machinery catches any exception type as "expected"), but the file's own bare `__main__` runner (`_run_all()`, invoked via the file's own docstring-documented `python3 gates/test_record_lint.py`) only recognizes `except AssertionError` as an expected-and-tallied failure — it has no concept of `pytest.mark.xfail` at all, since that marker is inert metadata outside pytest's collector. The new test's body raises `FileNotFoundError` (not `AssertionError` — it writes to `d / "gates" / "real_module.py"` without first creating `d/gates`, a directory `_repo_with_record()` never creates), which propagates straight out of `_run_all()`'s try/except, aborts the whole script with an uncaught traceback, and returns exit code 1 without ever printing the promised `"N/M passed"` summary line. Each half is correct alone: pytest's broad xfail-catches-any-exception semantics is standard and correct; `_run_all()`'s narrow `except AssertionError` was sufficient for every prior test in the file, which only ever fails via a plain `assert`. Together, on the one invocation path the file itself documents as a first-class alternative to pytest, they cancel: the "this failure is expected" contract the xfail marker asserts is simply invisible to the runner that's supposed to also honor it.
+
+Note: no live CI path currently invokes either form automatically — `.github/workflows/` was retired by #460 (confirmed via `on-the-record/hooks/gate-registration-guard.sh`'s own comment: "this repo runs no CI (#460) to run that pytest suite automatically"), so nothing currently asserts a specific exit code or pass count against this file in an automated way. The defect is real and reproduces today regardless: any human (or future CI) that follows the file's own docstring (`python3 gates/test_record_lint.py`) as an equally-valid invocation gets a crash, not a report.
+
+Kind: composition
+Seed: gates/test_record_lint.py — two new pytest test functions (see dispatcher prompt); specifically the `@pytest.mark.xfail(strict=True, ...)`-decorated `t_orphaned_path_reference_check_false_positives_documented_gap`
+cap_seconds: 120
+tier: size:21-200
+diff_stat_lines: 50 (1 file changed, 50 insertions(+), per `git diff --stat origin/main -- gates/test_record_lint.py`)
+started_at: 2026-08-11T08:08:00Z
+ended_at: 2026-08-11T08:19:30Z
+
+### Reproduce
+```
+cd /Users/jk/.tokenmaxxxer/work/on-the-record-issue-744-implementation
+python3 gates/test_record_lint.py; echo "EXIT_CODE=$?"
+```
+Compare with the pytest path, which passes cleanly on the identical uncommitted working tree:
+```
+python3 -m pytest gates/test_record_lint.py -q
+```
+
+### Observed
+Bare-runner invocation (`python3 gates/test_record_lint.py`) prints 8 `ok` lines, then crashes with an uncaught traceback instead of reaching the 9th test's tallying and the final summary line:
+```
+ok t_orphaned_path_reference_check_denies_genuinely_missing_path
+Traceback (most recent call last):
+  File ".../gates/test_record_lint.py", line 210, in <module>
+    raise SystemExit(_run_all())
+  File ".../gates/test_record_lint.py", line 199, in _run_all
+    fn()
+  File ".../gates/test_record_lint.py", line 188, in t_orphaned_path_reference_check_false_positives_documented_gap
+    (d / "gates" / "real_module.py").write_text("# real file, not the ref\n")
+  ...
+FileNotFoundError: [Errno 2] No such file or directory: '.../gates/real_module.py'
+EXIT_CODE=1
+```
+The pytest invocation of the same uncommitted working tree, by contrast, reports the xfail correctly: `........x` / `8 passed, 1 xfailed in 2.95s`.
+
+### Expected
+Both of the file's own documented invocation methods (`python3 gates/test_record_lint.py` and `python3 -m pytest gates/test_record_lint.py -q`, both listed in the module docstring) should treat the new test identically: either both report it as an expected/known gap, or both report it as a plain failure. Instead the bare runner crashes the entire script (no summary, no exit-code-1-with-FAIL-line, just a raw traceback) the moment it reaches the xfail-marked test, while pytest reports it cleanly as `1 xfailed`.
+
+Closed. code_under_review: gates/test_record_lint.py, on-the-record/hooks/gate-registration-guard.sh, pytest.ini, conftest.py, gates/ci.py (grepped for any automated invoker of this file; none found — `.github/workflows/` retired per #460).

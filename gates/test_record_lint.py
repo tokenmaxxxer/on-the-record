@@ -13,6 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent))
 import record_lint
 
@@ -138,6 +140,55 @@ def t_state_claim_with_canonical_tag_passes():
     d, record = _repo_with_record(body)
     bad = record_lint.lint_record(record)
     assert not any("#793" in b for b in bad), bad
+
+
+def t_orphaned_path_reference_check_denies_genuinely_missing_path():
+    """#744 item 2 regression pin — the legitimate case that must keep
+    failing: a backtick path with no `:identifier()` locator suffix and
+    no relationship to a path this same write set will later create.
+    #744's own body places `orphaned_path_reference_check`'s logic out of
+    scope until #730's guidance-only countermeasure has been observed in
+    effect, so this only pins current behavior — it does not change it."""
+    body = (
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "See `gates/this-file-was-never-written.py` for details.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert any(
+        "#330" in b and "gates/this-file-was-never-written.py" in b
+        for b in bad), bad
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "#744 item 2, deferred by #744's own scope note until #730's "
+        "guidance-only countermeasure has been observed in effect: "
+        "orphaned_path_reference_check cannot distinguish a "
+        "`path:identifier()` locator suffix, or a reference to a path "
+        "this same write set will create later, from a genuinely "
+        "hallucinated path — all three currently deny identically. A fix "
+        "that resolves either shape should turn this xfail into an "
+        "unexpected pass (caught by strict=True), not a silent gap."
+    ),
+)
+def t_orphaned_path_reference_check_false_positives_documented_gap():
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "Locator suffix on a real file: "
+        "`gates/real_module.py:helper()`.\n\n"
+        "Reference to a path this write set creates later: "
+        "`docs/issue-744/reports/implementation.md`.\n")
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates" / "real_module.py").write_text("# real file, not the ref\n")
+    bad = record_lint.lint_record(record)
+    assert bad == [], bad
 
 
 def _run_all():
