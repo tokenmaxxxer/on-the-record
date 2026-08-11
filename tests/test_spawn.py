@@ -8994,11 +8994,14 @@ class ReconcileLedger(unittest.TestCase):
 
 
 class ResumeOrchestratorSessionPermissionMode(unittest.TestCase):
-    """이슈 #886: acceptEdits 는 파일 편집만 자동승인하고 Bash(gh pr merge,
-    git fetch)는 거부한다(PR #885 실측) — 재개 호출은 bypassPermissions 를
-    명시적으로 실어야 한다."""
+    """이슈 #894 finding #1 (security-threat-model, CVSS 9.1 EoP): 재개
+    호출은 더 이상 bypassPermissions 를 싣지 않는다 — 그 모드는
+    merge/spawn/gh-write-allow-gate.sh 가 인식 못 하는 모든 Bash 셰이프의
+    host 기본-거부 뒷단을 없앤다(issue #886 hunt). 재개 턴이 실제로 쓰는
+    `gh pr merge`/`spawn.py`/`git fetch` 는 그 세 훅(+ 신설
+    git-fetch-allow-gate.sh)이 개별 allow 한다."""
 
-    def test_popen_command_carries_bypass_permissions(self):
+    def test_popen_command_omits_permission_mode(self):
         captured = {}
 
         def fake_popen(cmd, **kwargs):
@@ -9011,8 +9014,8 @@ class ResumeOrchestratorSessionPermissionMode(unittest.TestCase):
         cmd = captured["cmd"]
         self.assertEqual(cmd[:2], ["claude", "-p"])
         self.assertIn("--resume", cmd)
-        idx = cmd.index("--permission-mode")
-        self.assertEqual(cmd[idx + 1], "bypassPermissions")
+        self.assertNotIn("--permission-mode", cmd)
+        self.assertNotIn("bypassPermissions", cmd)
 
 
 class SessionResumeClaim(unittest.TestCase):

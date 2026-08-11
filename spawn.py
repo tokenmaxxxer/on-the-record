@@ -2242,26 +2242,27 @@ def _resume_orchestrator_session(session_id: str, nudge: str,
     `claude` 실행 파일이 없거나(테스트/부분 설치 환경) Popen 자체가
     실패하면 None — 호출부가 UNMEASURED-shaped 로 보고할 신호.
 
-    이슈 #886: `--permission-mode` 를 안 주면(또는 `acceptEdits` 를 주면)
-    이 재개 턴은 파일 편집만 자동승인되고 Bash(`gh pr merge`, `git
-    fetch`, `spawn.py`)는 그대로 거부된다 — `acceptEdits` 는 편집 전용
-    이지 Bash 자동승인이 아니다(PR #885 실측, `.permission_denials`).
-    `bypassPermissions` 는 #700 이 실제 롤 스폰 경로에 이미 쓰는 것과
-    같은 헤드리스 기본값이며, 여는 것은 호스트 권한 프롬프트뿐이다 —
-    PreToolUse 훅으로 걸린 게이트(gh-write-allow-gate.sh,
-    merge-allow-gate.sh, deliverable-guard)는 이 모드와 무관하게 여전히
-    실행된다. 단, 정확한 경계 하나: 이 훅들은 "allow" 만 내고 "deny"
-    는 내지 않는 설계라, 자기 허용목록 밖의 셰이프(예: `gh repo delete`,
-    `git push --force`)에 대해서는 원래 host 기본-거부에 기대고 있었다
-    — bypassPermissions 아래서는 그 기본-거부 자체가 없다(issue #886
-    hunt 실측, docs/issue-886/reports/implementation/
-    hunt-issue-886-permission-mode-fix.md). 이는 #700 이 이미 프로덕션
-    롤 스폰에 쓰는 동일 모드의 기존 속성이며, 이 diff 가 새로 만든
-    회귀는 아니다."""
+    이슈 #894 finding #1 (security-threat-model, CVSS 9.1 EoP,
+    docs/issue-894/reports/security-threat-model.md): `bypassPermissions`
+    는 호스트 권한 프롬프트만 여는 게 아니라, gh-write-allow-gate.sh /
+    merge-allow-gate.sh / spawn-allow-gate.sh 세 훅이 인식하지 못하는
+    모든 Bash 셰이프(`gh repo delete`, `git push --force` 등)가 기대고
+    있던 host 기본-거부 그 자체를 없앤다(issue #886 hunt 실측,
+    docs/issue-886/reports/implementation/
+    hunt-issue-886-permission-mode-fix.md) — 그 세 훅은 "allow" 만
+    내고 "deny" 는 내지 않는 설계라 이 기본-거부가 유일한 뒷단이었다.
+    #894 의 mitigate 처방대로 `--permission-mode` 를 아예 주지 않는다
+    — 재개 턴은 이제 host 기본 권한 모드(기본-거부) 아래서 돌고,
+    `gh pr merge`(merge-allow-gate.sh)/`spawn.py`(spawn-allow-gate.sh)/
+    `git fetch`(git-fetch-allow-gate.sh, #894 신설)만 그 세(네) 훅이
+    정확한 셰이프로 개별 allow 한다. 이슈 #886 이 기록한 문제(파일
+    편집만 자동승인하는 `acceptEdits` 로는 이 Bash 들이 거부된다)는
+    `--permission-mode` 를 아예 생략하는 이 방식에는 해당하지 않는다 —
+    `acceptEdits` 를 다시 주는 게 아니라, 위 세 훅이 이미 이 재개 턴이
+    실제로 쓰는 Bash 셰이프를 개별 allow 하기 때문이다."""
     try:
         return subprocess.Popen(
-            ["claude", "-p", nudge, "--resume", session_id,
-             "--permission-mode", "bypassPermissions"],
+            ["claude", "-p", nudge, "--resume", session_id],
             cwd=cwd, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,

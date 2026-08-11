@@ -267,24 +267,26 @@ def resume_orchestrator_session(session_id, nudge, cwd=None, timeout_sec=None):
     invocation fails, or its stdout is not parseable JSON — never raises,
     never fabricates a result.
 
-    issue #886: without `--permission-mode` (or with `acceptEdits`) this
-    resumed turn can only auto-accept file edits, not Bash — `gh pr
-    merge`, `git fetch`, and `spawn.py` invocations all get denied
-    (measured PR #885, `.permission_denials`). `bypassPermissions` is the
-    same headless default #700 already uses for real role spawns; it
-    only lifts the HOST permission prompt — PreToolUse-hooked gates
-    (gh-write-allow-gate.sh, merge-allow-gate.sh, deliverable-guard) still
-    run regardless of this mode. One precise boundary: those hooks only
-    ever emit "allow", never "deny", so any Bash shape outside their own
-    allow-lists previously fell back on the host's default-deny — under
-    bypassPermissions that default-deny is gone (issue #886 hunt,
-    docs/issue-886/reports/implementation/hunt-issue-886-permission-mode-fix.md).
-    This is an existing property of the same mode #700 already runs in
-    production role spawns, not a regression this diff introduces."""
+    issue #894 finding #1 (security-threat-model, CVSS 9.1 EoP,
+    docs/issue-894/reports/security-threat-model.md): `bypassPermissions`
+    does not just lift the host permission prompt — it removes the host's
+    own default-deny fallback that every Bash shape outside the
+    merge/spawn/gh-write-allow-gate.sh hooks' own recognized shapes used
+    to fall back on, since those hooks only ever emit "allow", never
+    "deny" (issue #886 hunt, docs/issue-886/reports/implementation/
+    hunt-issue-886-permission-mode-fix.md). Per #894's mitigate
+    disposition, `--permission-mode` is omitted entirely here: the
+    resumed turn now runs under the host's ordinary default-deny mode,
+    and only the Bash shapes this resume genuinely needs — `gh pr merge`
+    (merge-allow-gate.sh), `spawn.py` invocations (spawn-allow-gate.sh),
+    and `git fetch` (git-fetch-allow-gate.sh, added by #894) — are
+    individually auto-allowed by those hooks' strict shape checks. This
+    is not a return to `acceptEdits` (issue #886's own report: file-edit
+    auto-accept only, insufficient for these Bash calls) — the needed
+    Bash shapes are covered by hooks, not by the permission mode."""
     try:
         proc = subprocess.run(
             ["claude", "-p", nudge, "--resume", session_id,
-             "--permission-mode", "bypassPermissions",
              "--output-format", "json"],
             cwd=cwd, capture_output=True, text=True, timeout=timeout_sec,
         )

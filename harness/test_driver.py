@@ -224,10 +224,13 @@ def test_resume_orchestrator_session_ok(monkeypatch):
     def fake_run(cmd, **kwargs):
         assert cmd[:2] == ["claude", "-p"]
         assert "--resume" in cmd
-        # issue #886: acceptEdits auto-accepts only file edits, not Bash
-        # (gh pr merge / git fetch) — the resumed turn needs bypassPermissions.
-        idx = cmd.index("--permission-mode")
-        assert cmd[idx + 1] == "bypassPermissions"
+        # issue #894 finding #1: no --permission-mode at all — bypassPermissions
+        # removed the host default-deny fallback for every Bash shape the
+        # allow-hooks don't recognize. The resumed turn now relies on
+        # merge-allow-gate.sh / spawn-allow-gate.sh / git-fetch-allow-gate.sh
+        # to individually allow exactly what it needs.
+        assert "--permission-mode" not in cmd
+        assert "bypassPermissions" not in cmd
         return subprocess.CompletedProcess(
             cmd, returncode=0,
             stdout='{"final_report": {"what_broke": "x", "what_changed": "y", '
