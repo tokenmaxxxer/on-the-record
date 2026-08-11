@@ -39,6 +39,7 @@ USER_SETTINGS = Path.home() / ".claude" / "settings.json"
 
 NETWORK_TIMEOUT = 60   # fetch/pull/push
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
+CONSULT_TIMEOUT = 180  # consult: bounded headless run — no branch/PR to wait on
 
 
 def _run_net(args: list[str], label: str, timeout: float = NETWORK_TIMEOUT,
@@ -3492,6 +3493,117 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     return cmd, env
 
 
+def _parse_consult_verdict(text: str) -> dict | None:
+    """모델 출력에서 자문 판단 JSON 을 찾는다. 마지막 줄이 아니거나 코드펜스에
+    감싸여 있어도, 텍스트 안에서 가장 나중에 나온(뒤에서부터 훑어 처음 파싱
+    되는) `{...}` 객체를 쓴다 — 모델이 답 앞에 설명을 붙여도 견딘다."""
+    if not text:
+        return None
+    for i in reversed([j for j, c in enumerate(text) if c == "{"]):
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(text, i)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and "answer" in obj:
+            return obj
+    return None
+
+
+def _consult_trace_path(issue: int | None) -> Path:
+    """이슈가 있으면 그 이슈 트리 아래, 없으면 표준 6개 버킷 중
+    `reports/` 아래 — `docs/` 는 표준 버킷과 `docs/issue-<n>/` 트리만
+    허용한다(contract v3 s10, board-gate.sh 가 강제)."""
+    if issue is not None:
+        return ROOT / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
+    return ROOT / "docs" / "reports" / "consult-log.md"
+
+
+def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
+                          question: str, outcome: str) -> None:
+    """자문 한 건마다 한 줄 — 성공/실패 가리지 않고 남긴다("no traceless
+    consults", 운영자 결정, 이슈 #699). 함수 자체가 실패해도(디렉터리를
+    못 만든다 등) 예외를 그대로 올려, 호출부의 finally 가 "트레이스 남김"을
+    조용히 거짓으로 만들지 않게 한다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = (f"- {ts} | role={role} | issue={issue if issue is not None else 'none'} "
+            f"| question={question[:200]!r} | outcome={outcome[:300]!r}\n")
+    with path.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def consult_cmd(role: str, question: str, issue: int | None = None,
+                cwd: str | None = None) -> dict:
+    """자문(consult): 역할의 룰북을 로드해 판단만 돌려받는다 — 브랜치도
+    커밋도 PR 도 만들지 않는다(이슈 #699 R1). `spawn_cmd()`/`_spawn_one()`
+    의 발급 파이프라인과는 별개의, 훨씬 작은 조립이다: 그 함수들이 여는
+    브랜치/워크스페이스/워처/roster 등록은 전부 배달물(deliverable)을
+    향한 것이고, 자문은 텍스트 하나만 되돌려주면 끝나기 때문이다.
+
+    룰북 로딩은 `role_settings()`/`plugin_dirs()` 를 그대로 재사용한다 —
+    이슈#699 phase-1 proposal 이 채택한 이유: 룰북을 켜는 코드경로가
+    두 벌로 갈라지면 spawn 경로만 고치고 consult 경로는 못 고치는 드리프트가
+    생긴다(issue #695/#700 이 이미 한 번 치운 문제류).
+
+    트레이스는 **성공/실패와 무관하게** 항상 한 줄 남는다 — `finally` 에서
+    쓰고, 그 다음에야 리턴하거나 다시 raise 한다."""
+    trace_path = _consult_trace_path(issue)
+    ts = datetime.now(timezone.utc).isoformat()
+    outcome = "error: 알 수 없는 실패"
+    verdict = None
+    settings_path = None
+    try:
+        f = ROOT / "roles" / f"{role}.json"
+        if not f.exists():
+            have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
+            raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
+        spec = json.loads(f.read_text())
+        plugins = plugin_dirs(role, spec)
+        s = role_settings(role, cwd)
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            json.dump(s, tf)
+            settings_path = tf.name
+        cmd = ["claude", "-p", "--settings", settings_path,
+              "--permission-mode", "bypassPermissions",
+              "--output-format", "json"]
+        for p in plugins:
+            cmd += ["--plugin-dir", str(p)]
+        for p in core_plugin_dirs():
+            cmd += ["--plugin-dir", str(p)]
+        role_model = resolved_role_model()
+        if role_model:
+            cmd += ["--model", role_model]
+        env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+        prompt = (
+            "당신은 자문(consult) 으로 불렸다 — 판단만 돌려주면 된다. 이 역할의 "
+            "룰북은 이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
+            "마라 — 텍스트로 답하고 끝난다. 답을 다 쓴 뒤 마지막에, 다른 어떤 "
+            "텍스트도 없이 JSON 객체 하나만 출력하라: "
+            '{"answer": "<판단>", "confidence": "low|medium|high", '
+            '"caveats": ["<유보/전제>", ...]}\n\n'
+            f"질문: {question}"
+        )
+        r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=prompt, text=True,
+                           capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
+        if r.returncode != 0:
+            outcome = f"error: 세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
+            raise RuntimeError(outcome)
+        result = session_result(r.stdout)
+        verdict = _parse_consult_verdict(result.get("result", ""))
+        if verdict is None:
+            outcome = "error: 모델 출력에서 판단 JSON 을 못 찾음"
+            raise RuntimeError(outcome)
+        outcome = f"ok: {str(verdict.get('answer', ''))[:200]}"
+        return verdict
+    except subprocess.TimeoutExpired:
+        outcome = f"error: 시간초과({CONSULT_TIMEOUT}s)"
+        raise
+    finally:
+        if settings_path:
+            with contextlib.suppress(OSError):
+                os.unlink(settings_path)
+        _append_consult_trace(trace_path, ts, role, issue, question, outcome)
+
+
 def positive_int(s: str) -> int:
     """argparse type=: `--issue` 는 1 이상만 유효하다 — 0/음수/거대정수는
     존재할 수 없는 이슈 번호이므로 파싱 시점에 바로 거부한다(#288 N3)."""
@@ -3505,6 +3617,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("role", nargs="?", help="역할. 생략하면 상태만 보여준다")
     ap.add_argument("task", nargs="?", help="맡길 일. 룰북 커맨드면 '/plugin:command 인자'")
+    ap.add_argument("consult_question", nargs="?",
+                    help="consult <역할> \"<질문>\": 세 번째 위치 인자로 질문을 받는다")
     ap.add_argument("-C", "--cwd", default=".", help="작업 디렉터리")
     ap.add_argument("--dry-run", action="store_true", help="합쳐진 설정만 보고 안 띄운다")
     ap.add_argument("--no-contract", action="store_true",
@@ -3599,6 +3713,15 @@ def main() -> int:
         if a.post:
             closure_sweep.post_sweep_comments(root, violations)
         return 1
+    if a.role == "consult":
+        if not a.task or not a.consult_question:
+            sys.exit('사용법: spawn.py consult <역할> "<질문>" [--issue <n>]')
+        try:
+            verdict = consult_cmd(a.task, a.consult_question, issue=a.issue, cwd=a.cwd)
+        except Exception as e:
+            sys.exit(f"consult 실패(트레이스는 남았다): {e}")
+        print(json.dumps(verdict, indent=2, ensure_ascii=False))
+        return 0
     if a.role == "kill":
         if not a.task or a.issue is None:
             sys.exit("사용법: spawn.py kill <역할> --issue <n>")
