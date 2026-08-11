@@ -51,20 +51,35 @@ duplicating that computation in a second function.
 
 In `checkout_issue_branch`'s `local_zero` branch (spawn.py:4151-4159):
 
-1. Before calling `git checkout -B <br> <base>`, check for untracked
-   files (`git status --porcelain --untracked-files=all` or
-   `ls-files --others --exclude-standard`).
-2. If any exist, `git stash push -u -q -m <marker>` them off first, then
-   perform the existing `checkout -B <br> <base>` re-cut.
-3. After a successful re-cut, `git stash pop` the preserved untracked
-   files back onto the fresh branch. If the stash pop reports a
+1. Before anything else, check for a leftover stash from a prior
+   interrupted run of this same re-cut: `git stash list` filtered for a
+   fixed, unique marker message (e.g.
+   `checkout_issue_branch-preserve-<br>`). If one is found, `git stash
+   pop` it first — a stash is otherwise invisible to `git status
+   --porcelain`, so `clean`'s preservation guard (spawn.py:3801-3811)
+   would see a clean tree and could `rmtree` the whole workspace with
+   the untracked work still hidden inside the stash, silently
+   reproducing the exact data loss this fix exists to prevent (found by
+   the after-proposal warrant hunt on this proposal — reproduced: `git
+   stash push -u` makes `git status --porcelain` report empty while the
+   file is still recoverable only via `git stash list`, and nothing in
+   spawn.py inspects stashes today).
+2. Then check for untracked files (`git status --porcelain
+   --untracked-files=all` or `ls-files --others --exclude-standard`).
+3. If untracked files are present, `git stash push -u -q -m
+   <same fixed marker>` them off, then perform the existing `checkout
+   -B <br> <base>` re-cut.
+4. After a successful re-cut, `git stash pop` the preserved untracked
+   files back onto the fresh branch immediately (no window where the
+   stash is left pending on success) — if the stash pop reports a
    conflict (the file collides with something now present from
    `base`'s tree), do not silently drop the stash — leave it and print a
    clear message pointing at `git stash list`/`git stash show` so a
    human/operator can resolve it manually, and continue (do not
    sys.exit) so the respawn itself doesn't hard-fail over a stash
    conflict that a plain checkout would have hard-failed on anyway
-   today.
+   today. The step-2 leftover-recovery check is what closes the window
+   for the *next* respawn if this one crashes between push and pop.
 4. If there are no untracked files, behavior is unchanged (no stash
    round-trip introduced for the common case).
 5. The fallback path when `checkout -B <br> <base>` itself still fails
@@ -126,3 +141,21 @@ base and untracked files — asserts the workspace is preserved exactly
 as today (branch unchanged, untracked files untouched, no stash
 invoked), matching the acceptance criterion's "empty state" (byte-identical
 to today).
+
+A third fixture simulates an interrupted prior run (a stash left behind
+under the fixed marker, working tree otherwise clean) and asserts
+`checkout_issue_branch` recovers it (pops it back) rather than leaving
+it invisible to `git status --porcelain` — this is the case the
+after-proposal warrant hunt found missing from the original draft of
+this proposal.
+
+Note: the after-proposal hunt dispatched for this proposal found the
+above stash-leftover gap but could not write its record to
+`docs/issue-732/reports/hunt-absorbed-branch-untracked-recut.md` — this
+session's `implementation` role is board-gated to only
+`docs/issue-732/reports/implementation.md`/`implementation/**` under
+`docs/issue-732/reports/`, and the warrant directive's hunt-record path
+convention collides with that restriction for this role. The finding is
+folded into this proposal directly instead of being lost; the path
+collision itself is a separate, out-of-scope observation worth a future
+issue against the warrant/board-gate interaction, not fixed here.
