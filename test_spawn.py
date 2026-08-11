@@ -1424,6 +1424,87 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 "0")
 
 
+    def test_checkout_tracks_origin_instead_of_recut_when_locally_stale_only(self):
+        # 이슈 #719: 로컬 `base..br` 은 0(흡수된 것처럼 보임)이지만
+        # `origin/br` 은 base 보다 앞서 있는 경우 — 다른 워크스페이스가 이미
+        # 그 브랜치에 push 해 뒀는데 이 워크스페이스의 로컬 ref 만 뒤처진
+        # 상황. base 로 재컷하면 그 커밋을 조용히 버리므로, 대신
+        # origin/br 을 따라가야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            issue, role = 999905, "implementation"
+            br = f"issue-{issue}/{role}"
+            # origin 에 br 을 만들고 base 를 앞서는 커밋을 얹는다(다른
+            # 워크스페이스가 이미 push 해 둔 상태를 흉내낸다).
+            self._git(origin, "checkout", "-q", "-b", br)
+            (origin / "other-workspace.txt").write_text("pushed elsewhere")
+            self._git(origin, "add", "other-workspace.txt")
+            self._git(origin, "commit", "-q", "-m", "pushed from another workspace")
+            self._git(origin, "checkout", "-q", base_branch)
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+            # 이 워크스페이스는 아직 원격이 br 을 갖기 전에 로컬 br 을 만들어
+            # base 와 정확히 같게(0-ahead) 남긴다 — clone 뒤 origin/br 은
+            # 이미 fetch 됐지만, 로컬 br 은 fetch 로 갱신되지 않는다.
+            self._git(work, "checkout", "-q", "-b", br, base_branch)
+            self.assertEqual(
+                self._git(work, "rev-list", "--count", f"{base_branch}..{br}")
+                .stdout.strip(), "0")
+            remote_commit = self._git(
+                work, "rev-parse", f"origin/{br}").stdout.strip()
+
+            result = spawn.checkout_issue_branch(str(work), issue, role)
+
+            self.assertEqual(result, br)
+            after = self._git(work, "rev-parse", br).stdout.strip()
+            self.assertEqual(after, remote_commit,
+                             "재컷이 origin 에 이미 push 된 커밋을 버렸다")
+
+    def test_checkout_recuts_when_truly_fully_absorbed_local_and_remote(self):
+        # empty state: 로컬·원격 모두 0-ahead(진짜 완전 흡수) → 오늘과 동일하게
+        # base 에서 새로 판다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999906, "implementation"
+            br = f"issue-{issue}/{role}"
+            self._git(work, "checkout", "-q", "-b", br, base_branch)
+            base_commit = self._git(work, "rev-parse", base_branch).stdout.strip()
+
+            result = spawn.checkout_issue_branch(str(work), issue, role)
+
+            self.assertEqual(result, br)
+            after = self._git(work, "rev-parse", br).stdout.strip()
+            self.assertEqual(after, base_commit)
+
+
 class WorkspaceExcludesHomeDotfiles(unittest.TestCase):
     """이슈 #289 H1: 샌드박스가 홈 dotfile 을 워크스페이스 루트에 오버레이해
     `git status`에 untracked 로 잡힌다 — `.muster-cache/`와 같은 방식으로
@@ -4429,6 +4510,140 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
 
             self.assertEqual(len(checkout_calls), 1, checkout_calls)
             self.assertEqual(len(results), 2)
+
+    def test_claim_still_held_during_ensure_pushed(self):
+        # 이슈 #719: `_release_spawn_claim()`이 `proc.wait()` 직후가 아니라
+        # `ensure_pushed()`(push + `gh pr create`) 이후로 밀려야, 그 사이에
+        # 끼어드는 재스폰이 클레임을 얻어 같은 브랜치에 동시에 push 하는
+        # non-fast-forward 충돌을 막는다. `ensure_pushed()`를 페이크로 갈아
+        # 끼워 호출 시점에 클레임 파일이 아직 살아 있는지 관측한다.
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+            claim_path = Path(str(work) + ".spawn-claim")
+            observed = {}
+
+            def fake_ensure_pushed(cwd, issue, role):
+                observed["held_during_push"] = claim_path.exists()
+                return None
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            old_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "ensure_pushed", fake_ensure_pushed), \
+                     mock.patch.object(spawn, "ledger_write", lambda *a, **k: None):
+                    spawn._spawn_one(str(work), "implementation", "task\n",
+                                     unattended=True, issue=719)
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
+                spawn.ROSTER = old_roster
+            self.assertTrue(observed.get("held_during_push"),
+                            "ensure_pushed() 호출 시점에 클레임이 이미 풀려 "
+                            "있었다 — 이슈 #719 가 지목한 release-before-push "
+                            "레이스")
+            self.assertFalse(claim_path.exists(),
+                             "ensure_pushed() 이후 클레임이 여전히 남아있다")
+
+    def test_second_spawn_refused_while_first_still_pushing(self):
+        # 위 테스트가 보인 "push 중엔 클레임이 살아있다"는 관측을, 실제로
+        # 그 창에서 두 번째 spawn 이 거절되는지까지 끝까지 확인한다.
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+            second_rejection = {}
+
+            def fake_ensure_pushed(cwd, issue, role):
+                second_rejection["value"] = spawn._acquire_spawn_claim(
+                    str(work), 719, "implementation")
+                return None
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            old_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "ensure_pushed", fake_ensure_pushed), \
+                     mock.patch.object(spawn, "ledger_write", lambda *a, **k: None):
+                    spawn._spawn_one(str(work), "implementation", "task\n",
+                                     unattended=True, issue=719)
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
+                spawn.ROSTER = old_roster
+            self.assertIsNotNone(second_rejection.get("value"),
+                                 "push 진행 중인데 두 번째 스폰 클레임 취득이 "
+                                 "거절되지 않았다")
+
+    def test_empty_state_no_prior_claim_acquires_unchanged(self):
+        # 이슈 #719 Acceptance 의 empty-state 요구: 이전 클레임이 없으면 오늘과
+        # 바이트 단위로 동일하게 취득이 그냥 성공한다(리그레션 핀).
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "w"
+            rejection = spawn._acquire_spawn_claim(str(work), 719, "implementation")
+            self.assertIsNone(rejection)
+            claim_path = Path(str(work) + ".spawn-claim")
+            self.assertTrue(claim_path.exists())
+
+    def test_claim_released_when_ensure_pushed_raises(self):
+        # warrant hunt (before-landing, issue-719): widening the claim's
+        # held window to cover ensure_pushed() means an uncaught exception
+        # inside ensure_pushed() (e.g. `gh` missing) must still release the
+        # claim — otherwise the wider window becomes a worse leak than the
+        # pre-fix code, which released before ensure_pushed() ran at all.
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+            claim_path = Path(str(work) + ".spawn-claim")
+
+            def raising_ensure_pushed(cwd, issue, role):
+                raise RuntimeError("gh not found")
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            old_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "ensure_pushed", raising_ensure_pushed), \
+                     mock.patch.object(spawn, "ledger_write", lambda *a, **k: None):
+                    with self.assertRaises(RuntimeError):
+                        spawn._spawn_one(str(work), "implementation", "task\n",
+                                         unattended=True, issue=719)
+            finally:
+                sys.stdout = old_stdout
+                sys.stderr = old_stderr
+                spawn.ROSTER = old_roster
+            self.assertFalse(claim_path.exists(),
+                             "ensure_pushed() 가 예외를 던졌는데 클레임이 안 풀렸다")
 
     def test_stale_claim_from_dead_pid_is_cleaned_and_retried(self):
         with tempfile.TemporaryDirectory() as td:
