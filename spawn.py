@@ -2194,7 +2194,7 @@ _PR_URL_RE = re.compile(r"https://github\.com/[^\s\"'\\]+/pull/\d+")
 # "무슨 일이 있었는지"의 저비용 신호. ls/grep/cat 같은 탐색성 호출은 여기
 # 없으니 안 걸린다 (이슈 #180).
 _PROGRESS_BASH_PREFIXES = ("git commit", "git push", "gh pr create",
-                           "python3 test_spawn.py", "python3 gates/ci.py")
+                           "python3 tests/test_spawn.py", "python3 gates/ci.py")
 
 # 이슈 #232: 도구 거부를 낸 층 판별 — 세션 로그의 tool_result 스트림에 이미
 # 있는 텍스트로 분류한다(새 계측 없음). 층 1(게이트)은 Claude Code 가 감싸는

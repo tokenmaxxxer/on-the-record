@@ -2,12 +2,12 @@
 """이슈 뭉개기 게이트 단위 테스트 — 네트워크 없음, 리터럴 문자열만
 (issue-328). `test_gates.py` 의 `pr_reference` 테스트와 같은 모양.
 
-  python3 test_issue_bundling.py
+  python3 tests/test_issue_bundling.py
 """
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "gates"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "gates"))
 import issue_bundling
 
 

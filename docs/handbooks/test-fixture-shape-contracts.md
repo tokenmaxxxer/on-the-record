@@ -4,7 +4,7 @@ Why: a hand-typed fake that isn't checked against the real external
 interface it stands in for is a second, private specification nobody
 maintains. When it drifts, the tests built on it keep passing while
 meaning less and less, and the false sense of coverage makes the area
-get looked at *less* (issue #335). `shape_contracts.py` (repo root)
+get looked at *less* (issue #335). `shape_contracts.py` (`tests/`)
 turns that drift into a loud `AssertionError` at fixture-construction
 time instead of a silent pass.
 
@@ -37,8 +37,8 @@ import shape_contracts
 # gh api leg
 shape_contracts.assert_gh_paginate_slurp_shape(payload)
 
-# stream-json leg — test_spawn.py's _event() helper builds + validates
-# in one call:
+# stream-json leg — tests/test_spawn.py's _event() helper builds +
+# validates in one call:
 event = _event("assistant", message={"content": [...]})
 ```
 

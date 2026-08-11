@@ -10,7 +10,7 @@ import json
 import os
 import re
 
-ROLES_DIR = os.path.join(os.path.dirname(__file__), "roles")
+ROLES_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "roles")
 FIELDS = ("decides", "use_when", "produces")
 ROUTING_VOCAB = re.compile(r"깨운|wakes\b|wake\b|라우팅", re.IGNORECASE)
 
