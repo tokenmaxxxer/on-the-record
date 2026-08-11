@@ -33,6 +33,7 @@
       {
         "matcher": "Bash",
         "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/absorbed-branch-recut-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/contract-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pr-preflight.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/test-authoring-invariant-guard.sh" },
