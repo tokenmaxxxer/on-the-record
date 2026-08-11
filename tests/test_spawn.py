@@ -3551,6 +3551,7 @@ class Watchdog(unittest.TestCase):
             root = Path(td)
             (root / "gates").mkdir()
             fake_cs = mock.MagicMock()
+            fake_cs.issue_state_index_all.return_value = ({}, True)
             fake_cs.find_violations.return_value = (
                 [{"issue": 1, "pr": 2, "role": "implementation",
                   "kind": "open-pr-on-closed-issue"}], [])
@@ -3576,6 +3577,7 @@ class Watchdog(unittest.TestCase):
             root = Path(td)
             (root / "gates").mkdir()
             fake_cs = mock.MagicMock()
+            fake_cs.issue_state_index_all.return_value = ({}, True)
             fake_cs.find_violations.return_value = ([], [])
             fake_sc = mock.MagicMock()
             fake_sc._list_open_issues.return_value = [
@@ -3599,6 +3601,7 @@ class Watchdog(unittest.TestCase):
             root = Path(td)
             (root / "gates").mkdir()
             fake_cs = mock.MagicMock()
+            fake_cs.issue_state_index_all.return_value = ({}, True)
             fake_cs.find_violations.return_value = ([], [])
             fake_sc = mock.MagicMock()
             fake_sc._list_open_issues.return_value = []
@@ -3614,6 +3617,7 @@ class Watchdog(unittest.TestCase):
             root = Path(td)
             (root / "gates").mkdir()
             fake_cs = mock.MagicMock()
+            fake_cs.issue_state_index_all.return_value = ({}, True)
             fake_cs.find_violations.return_value = (
                 [], [{"subject": "issue-1", "reason": "gh-issue-view-failed"}])
             fake_sc = mock.MagicMock()
@@ -3630,6 +3634,164 @@ class Watchdog(unittest.TestCase):
                     sys.stdout = old_stdout
             self.assertEqual(result, 2)
             self.assertIn("gh 실패", buf.getvalue())
+
+    def test_board_wide_sweep_issue_view_call_count_constant_across_subject_counts(self):
+        # issue #743 acceptance item 1: `_board_wide_sweep` 이 이제 한 번의
+        # `issue_state_index_all` 프리페치를 `find_violations` 에 넘기므로,
+        # subject 수가 늘어도 subject 별 `_issue_view` 호출은 늘지 않는다
+        # (프리페치가 모든 issue 를 커버하는 한 아예 0회) — 실제
+        # `gates/closure_sweep` 모듈을 `spawn._board_wide_sweep()` 을 통해
+        # 그대로 구동하고, `_issue_view` 만 스텁해 호출을 기록한다.
+        gates_dir = str(Path(__file__).parent.parent / "gates")
+        if gates_dir not in sys.path:
+            sys.path.insert(0, gates_dir)
+        import closure_sweep
+
+        calls = []
+
+        def fake_issue_view(root, issue):
+            calls.append(issue)
+            return ("OPEN", True)
+
+        def fake_run(args, **kw):
+            if args[:3] == ["gh", "issue", "list"]:
+                payload = [{"number": n, "state": "OPEN"} for n in range(1, 201)]
+                return mock.Mock(returncode=0, stdout=json.dumps(payload))
+            if args[:3] == ["gh", "pr", "list"]:
+                return mock.Mock(returncode=0, stdout="[]")
+            return mock.Mock(returncode=0, stdout="")
+
+        orig_board = spawn.board
+        orig_issue_view = closure_sweep._issue_view
+        orig_run = closure_sweep.subprocess.run
+        self.addCleanup(setattr, spawn, "board", orig_board)
+        self.addCleanup(setattr, closure_sweep, "_issue_view", orig_issue_view)
+        self.addCleanup(setattr, closure_sweep.subprocess, "run", orig_run)
+        closure_sweep._issue_view = fake_issue_view
+        closure_sweep.subprocess.run = fake_run
+
+        fake_sc = mock.MagicMock()
+        fake_sc._list_open_issues.return_value = []
+        fake_sc.find_uncovered.return_value = []
+
+        counts = []
+        for n in (0, 3, 150):
+            subjects = {f"issue-{i}": {"implementation": {}} for i in range(1, n + 1)}
+            spawn.board = lambda root, _subjects=subjects: _subjects
+            with tempfile.TemporaryDirectory() as td:
+                root = Path(td)
+                (root / "gates").mkdir()
+                with mock.patch.dict(sys.modules, {"spawn_coverage": fake_sc}):
+                    result = spawn._board_wide_sweep(root)
+            self.assertEqual(result, 0)
+            counts.append(len(calls))
+            calls.clear()
+
+        self.assertEqual(counts, [0, 0, 0])
+
+    def test_find_violations_result_unchanged_with_prebuilt_issue_states(self):
+        # issue #743 acceptance item 2: 같은 픽스처 보드에 대해 `issue_states`
+        # 없이(옛 경로, subject 별 `_issue_view`) 낸 결과와 프리페치된
+        # `issue_states` 를 넘겨서(새 경로) 낸 결과가 같아야 한다.
+        gates_dir = str(Path(__file__).parent.parent / "gates")
+        if gates_dir not in sys.path:
+            sys.path.insert(0, gates_dir)
+        import closure_sweep
+
+        subjects = {
+            "issue-1": {"implementation": {}},
+            "issue-2": {"implementation": {}},
+            "issue-3": {"implementation": {}},
+        }
+        issue_state_by_number = {1: "CLOSED", 2: "OPEN", 3: "OPEN"}
+        fake_pr_index = {
+            "issue-1/implementation": {"number": 101, "state": "OPEN",
+                                       "body": "Closes #1"},
+            "issue-2/implementation": {"number": 102, "state": "MERGED",
+                                       "body": "Closes #2"},
+            "issue-3/implementation": {"number": 103, "state": "OPEN",
+                                       "body": "no ref"},
+        }
+
+        orig_pr_index_all = closure_sweep._pr_index_all
+        orig_issue_view = closure_sweep._issue_view
+        self.addCleanup(setattr, closure_sweep, "_pr_index_all", orig_pr_index_all)
+        self.addCleanup(setattr, closure_sweep, "_issue_view", orig_issue_view)
+        closure_sweep._pr_index_all = lambda root: (dict(fake_pr_index), True)
+
+        issue_view_calls = []
+
+        def fake_issue_view(root, issue):
+            issue_view_calls.append(issue)
+            return (issue_state_by_number[issue], True)
+
+        closure_sweep._issue_view = fake_issue_view
+        violations_before, skips_before = closure_sweep.find_violations(
+            Path("."), subjects=subjects)
+        self.assertEqual(len(issue_view_calls), 3)
+
+        issue_view_calls.clear()
+        violations_after, skips_after = closure_sweep.find_violations(
+            Path("."), subjects=subjects, issue_states=dict(issue_state_by_number))
+        self.assertEqual(issue_view_calls, [])
+
+        self.assertEqual(violations_before, violations_after)
+        self.assertEqual(skips_before, skips_after)
+        self.assertTrue(violations_before)
+
+    def test_find_violations_result_unchanged_with_prebuilt_issue_states_zero_violations(self):
+        gates_dir = str(Path(__file__).parent.parent / "gates")
+        if gates_dir not in sys.path:
+            sys.path.insert(0, gates_dir)
+        import closure_sweep
+
+        subjects = {"issue-3": {"implementation": {}}}
+        issue_state_by_number = {3: "OPEN"}
+        fake_pr_index = {
+            "issue-3/implementation": {"number": 103, "state": "OPEN", "body": "no ref"},
+        }
+
+        orig_pr_index_all = closure_sweep._pr_index_all
+        orig_issue_view = closure_sweep._issue_view
+        self.addCleanup(setattr, closure_sweep, "_pr_index_all", orig_pr_index_all)
+        self.addCleanup(setattr, closure_sweep, "_issue_view", orig_issue_view)
+        closure_sweep._pr_index_all = lambda root: (dict(fake_pr_index), True)
+        closure_sweep._issue_view = lambda root, issue: (issue_state_by_number[issue], True)
+
+        violations_before, skips_before = closure_sweep.find_violations(
+            Path("."), subjects=subjects)
+        violations_after, skips_after = closure_sweep.find_violations(
+            Path("."), subjects=subjects, issue_states=dict(issue_state_by_number))
+
+        self.assertEqual(violations_before, [])
+        self.assertEqual(violations_after, [])
+        self.assertEqual(violations_before, violations_after)
+        self.assertEqual(skips_before, skips_after)
+
+
+class ClosureSweepCliWiring(unittest.TestCase):
+    """이슈 #743: `spawn.py closure-sweep` CLI 서브커맨드(3719행 부근)도
+    watchdog 경로와 같은 프리페치 배선을 쓴다 — 이 경로를 검사하는 기존
+    테스트가 없었다(제안 조사 참조)."""
+
+    def test_closure_sweep_subcommand_passes_prebuilt_issue_states(self):
+        fake_cs = mock.MagicMock()
+        fake_cs.issue_state_index_all.return_value = ({1: "OPEN"}, True)
+        fake_cs.find_violations.return_value = ([], [])
+
+        argv = sys.argv
+        with tempfile.TemporaryDirectory() as td:
+            sys.argv = ["spawn.py", "closure-sweep", "-C", td]
+            try:
+                with mock.patch.dict(sys.modules, {"closure_sweep": fake_cs}):
+                    rc = spawn.main()
+            finally:
+                sys.argv = argv
+        self.assertEqual(rc, 0)
+        fake_cs.issue_state_index_all.assert_called_once()
+        fake_cs.find_violations.assert_called_once()
+        _, kwargs = fake_cs.find_violations.call_args
+        self.assertEqual(kwargs.get("issue_states"), {1: "OPEN"})
 
 
 class SessionEndVerdict(unittest.TestCase):

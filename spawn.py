@@ -1943,7 +1943,8 @@ def _board_wide_sweep(root: Path) -> int:
     import closure_sweep
     import spawn_coverage
     count = 0
-    violations, skips = closure_sweep.find_violations(root)
+    issue_states, _ = closure_sweep.issue_state_index_all(root)
+    violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
     if violations:
         count += len(violations)
         print(f"[watchdog] closure-sweep: 위반 {len(violations)}건")
@@ -3716,7 +3717,8 @@ def main() -> int:
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import closure_sweep
         root = Path(a.cwd).resolve()
-        violations, skips = closure_sweep.find_violations(root)
+        issue_states, _ = closure_sweep.issue_state_index_all(root)
+        violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
         if skips:
             print("종결 일관성 스윕: 확인 불가")
             print(f"{len(skips)}건 확인 못함: " +
