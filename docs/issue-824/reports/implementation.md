@@ -210,9 +210,20 @@ dirty-tree check (`git status --porcelain` against this exact checkout)
 tripping on this build's own staged-but-uncommitted files, the same
 self-referential artifact `docs/issue-759/reports/implementation.md` and
 `docs/issue-741/reports/implementation.md` already documented for the
-same test — not caused by this build's actual code changes. A
-post-commit re-run, expected to show zero failures once this change is
-committed, is pasted in a follow-up commit to this record, the same
-two-commit convention issue-759 used
+same test — not caused by this build's actual code changes.
+
+canonical: live pytest run, this session, fence immediately below, run
+after the commit that lands this build's `code_under_review` files
+(`git status --short` returned no output at run time, i.e. a clean
+tree) —
+
+```
+$ python3 -m pytest gates/ tests/ on-the-record/hooks/ -q
+1204 passed, 2 skipped, 1 xfailed in 183.49s (0:03:03)
+```
+
+Zero failures, matching the expectation stated above that the
+dirty-tree artifact was the only gap and would clear once the change
+landed in a commit — the same two-commit convention issue-759 used
 (`git log --oneline -- docs/issue-759/reports/implementation.md` shows
 commits `dd651ed` then `7091f12`).
