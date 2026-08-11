@@ -19,6 +19,7 @@ files:
   - shape_contracts.py
   - spawn.py
   - docs/handbooks/operations.md
+  - docs/handbooks/test-fixture-shape-contracts.md
   - docs/specs/reconciled-index.md
   - docs/handbooks/test-layout.md
 ---
@@ -126,6 +127,12 @@ be scoped as its own follow-up issue if still wanted.
   one live (non-historical-block) path reference get updated to the new
   location; `docs/specs/reconciled-index.md`'s hash for that file gets
   regenerated afterward.
+- `docs/handbooks/test-fixture-shape-contracts.md`'s "`shape_contracts.py`
+  (repo root)" line and its `test_spawn.py`-named code-comment example
+  both get updated to the new location (after-proposal warrant hunt
+  finding, `docs/issue-729/reports/implementation/hunt-2026-08-11-consolidate-test-homes.md`
+  — this file is not reconciled-index-hashed, so no companion hash step
+  is needed for it).
 - A new docs/handbooks/test-layout.md file is added, recording: the single
   `tests/` home and why; the two colocation exceptions and why;
   `conftest.py`'s root position and why; where a new test file goes by
@@ -179,7 +186,10 @@ this PR.
 - Zero broken references: grepping `spawn.py`, every file under
   `gates/`, and every file under `on-the-record/` for each moved
   filename turns up either nothing or only the intentionally-updated
-  `spawn.py` line.
+  `spawn.py` line. Supplementally (beyond the issue's literal scope,
+  added after the after-proposal warrant hunt): `docs/handbooks/operations.md`
+  and `docs/handbooks/test-fixture-shape-contracts.md` no longer say
+  "repo root" for a file that moved.
 - `python3 gates/test_duplicate_test_basenames.py` still passes (no
   basename collision introduced by the consolidation).
 - docs/handbooks/test-layout.md exists and is the one place a new

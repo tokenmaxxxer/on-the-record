@@ -232,6 +232,21 @@ No standing doc anywhere in `docs/handbooks/` or `docs/specs/` states a
 test-placement rule today — confirmed by an empty grep for
 placement-shaped phrasing across both directories.
 
+A second live handbook also names a root-relative path: `docs/handbooks/test-fixture-shape-contracts.md`
+states "`shape_contracts.py` (repo root)" (found by the after-proposal
+warrant hunt, not the initial pass — see
+`docs/issue-729/reports/implementation/hunt-2026-08-11-consolidate-test-homes.md`).
+Moving `shape_contracts.py` into `tests/` makes that line wrong. This
+file is not one of the documents hashed in
+`docs/specs/reconciled-index.md`, so editing it needs no companion hash
+regeneration, unlike `docs/handbooks/operations.md`.
+
+derived: `grep -c "test-fixture-shape-contracts" docs/specs/reconciled-index.md`
+
+```
+0
+```
+
 ## What did not surface as a blocker
 
 - No `__init__.py` exists anywhere, so package-boundary import rules
