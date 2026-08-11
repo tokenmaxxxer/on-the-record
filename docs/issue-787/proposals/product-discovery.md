@@ -126,6 +126,22 @@ step 2 (implementation), scoped exactly as follows — this is the frozen contra
 - **Kill condition, pre-committed**: if `non_requirement_false_deny_count` is ever nonzero during the
   re-run, the widened detection is killed immediately per the decision rule above, not iterated on.
 
+## Known residual risk (after-proposal hunt)
+
+`docs/issue-787/reports/product-discovery/hunt-after-proposal.md` (stance 0, reproduced) found that
+H1 as specified inherits `deliverable-guard.sh`'s existing root-finding fallback unchanged:
+`cwd = e.get("cwd") or os.getcwd()`. When a `PreToolUse` payload omits `cwd`, a relative `file_path`
+resolves against the hook process's own unrelated working directory instead of the session's actual
+one, the `.git` walk-up finds no root, and the gate silently ALLOWs a write that is genuinely inside
+a guarded repo's source tree — a silent failure indistinguishable from a correct ALLOW on an
+out-of-scope path. This is not a defect this proposal's own changes (the tree regex, the
+`approvers.md` precondition) introduce — the fallback predates H1 — but H1's "any git repo root
+reachable from cwd" precondition depends on that same root-finding code being reliable, and it is
+not always reliable per the reproduction. Step 2 must additionally decide: fail closed when `cwd` is
+missing/empty (matching this same file's own stated philosophy elsewhere — "a delivery failure on
+stdin must not silently become an ALLOW"), or otherwise stop trusting `os.getcwd()` as a silent
+substitute. Carried forward as a fixed requirement for step 2, not reopened as a new open question.
+
 ## Deployment-surface constraint carried forward
 
 No mechanism is built in this phase. Architecture/implementation own: the exact classifier replacing
