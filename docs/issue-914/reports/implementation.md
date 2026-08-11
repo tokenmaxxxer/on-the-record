@@ -279,3 +279,126 @@ it should recognize — both now do.
 ## Resolution path
 
 None open — no findings to resolve.
+
+# Addendum — issue #914 step 2, mechanism (c): general done-claim gate composing (a)+(b)
+
+## What was done
+
+Implemented mechanism (c) from the approved phase-1 proposal
+(`docs/issue-914/proposals/2026-08-12-standing-real-build-and-use-verification.md`,
+"Artifact type 3"), composing mechanism (a)
+(`acceptance-command-real-run-guard.sh`) and mechanism (b)
+(`live-fire-test-guard.sh`) rather than duplicating either.
+
+- New `on-the-record/hooks/live-fire-claim-real-run-guard.sh`:
+  `PreToolUse`+`Bash`, sibling to the three prior guards on the same
+  `git commit` interception point. For a staged file whose content
+  carries a `live-fire: <path> — result: allow|deny|log` citation,
+  derives the cited module's live-fire test path with the same slug
+  rule `live-fire-test-guard.sh` uses, then re-runs that test via
+  `python3 -m pytest -q` (180s bound) against the real current tree and
+  refuses the commit when the cited module/test is absent or the run's
+  exit status is nonzero. Where neither an `acceptance:` nor a
+  `live-fire:` citation backs a claim, this guard stays silent —
+  presence/shape enforcement for that stays owned by
+  `record-claim-guard.sh` (#892). Escape hatch: `Live-fire-recheck-N/A:
+  <reason>` commit trailer.
+- `gates/record_lint.py` and `on-the-record/gates/record_lint.py`
+  (kept byte-identical per `gates/test_hooks_parity.py`): widened
+  `_EXECUTED_LIVE_CANONICAL` to also accept
+  `live-fire: <path> — result: allow|deny|log` as an executed-live
+  citation shape, additive alongside the existing `acceptance: ...`
+  shape — the artifact-type-3 widening the phase-1 proposal specifies.
+- `gates/test_record_lint.py`: one new pinning case for the widened
+  regex.
+- New `on-the-record/hooks/test_live_fire_claim_real_run_guard.py`:
+  this new guard's own required live-fire test (mechanism (b)
+  dogfoods itself) — real git repo fixture, crafted `PreToolUse`/
+  `Bash` stdin payloads, seven cases.
+- Registered the new hook: `on-the-record/hooks/hooks.json` (sibling
+  entry to `acceptance-command-real-run-guard.sh`),
+  `docs/specs/enforcement-boundary.md` (new row),
+  `docs/specs/generated-paths.md` (`n/a` row).
+
+## Why
+
+canonical: docs/issue-914/proposals/2026-08-12-standing-real-build-and-use-verification.md
+(re-read this session, "Artifact type 3" and "How this composes with
+#892 and #906" sections) — the proposal states (c) extends the
+executed-live citation vocabulary but leaves actual re-execution to (a)
+and (b). This turn's own instruction goes further than the proposal's
+literal text: a `live-fire` citation must reflect that a real live-fire
+run "actually happened this turn/for this claim", not only that the
+citation's shape is recognized — the identical gap #892 left open for
+`acceptance:` citations before mechanism (a) started re-running the
+cited command. This addendum's new guard supplies that same real-
+execution step for `live-fire:` citations, in addition to the regex
+widening the proposal text describes.
+
+## Basis
+
+- upstream: docs/issue-914/proposals/2026-08-12-standing-real-build-and-use-verification.md
+- upstream: this session's own instruction (issue #914 step 2,
+  mechanism (c): "strengthening #892 ... from 'the citation LOOKS like
+  a run' to 'a real live-fire (b) or acceptance-run (a) actually
+  happened this turn/for this claim'")
+- canonical: gh issue view 914 --comments
+  Approval, single-account mode: `APPROVE issue-914/implementation`
+  posted as an issue #914 comment by account `JiwonJung94`, listed in
+  `docs/specs/approvers.md` (same approval this record's earlier
+  mechanism-(a)/(b) sections already cite).
+
+## Acceptance verification
+
+canonical: python3 -m pytest -q gates/test_record_lint.py gates/test_boundary.py gates/test_generated_paths.py gates/test_hooks_parity.py on-the-record/hooks/test_gate_registration_guard.py on-the-record/hooks/test_live_fire_test_guard.py on-the-record/hooks/test_acceptance_command_real_run_guard.py on-the-record/hooks/test_live_fire_claim_real_run_guard.py
+```
+73 passed, 1 xfailed
+```
+
+This session's own terminal output, re-run against the current staged
+tree (includes this addendum's own new cases plus every prior
+mechanism-(a)/(b)/registration/boundary/generated-paths/parity suite,
+regression-clean).
+
+Per-case mapping, derived: python3 -m pytest -q --collect-only on-the-record/hooks/test_live_fire_claim_real_run_guard.py:
+`t_no_live_fire_citation_allows_commit` (no citation, no-op),
+`t_missing_cited_test_denies_commit` (cited module exists, its test
+does not, refused), `t_passing_live_fire_test_allows_commit` (cited
+test re-run exits zero, allowed), `t_failing_live_fire_test_denies_commit`
+(cited test re-run exits nonzero, refused),
+`t_live_fire_recheck_n_a_trailer_exempts_commit` (the trailer escape),
+`t_non_commit_command_no_ops` (a non-`git commit` command, no-op).
+
+## What did not work
+
+The fixture test functions in `test_live_fire_claim_real_run_guard.py`
+were first written with the repo's own `t_`-prefixed function-naming
+convention (matching every other `on-the-record/hooks/test_*.py` file
+here). The guard under test spawns `python3 -m pytest` inside a fresh
+tmp-dir git repo fixture with no `pytest.ini` of its own, so the
+`python_functions = test_* t_*` setting this repo's own root
+`pytest.ini` supplies is not in scope there — the inner run collected
+zero tests (exit 5) instead of executing the fixture module. Fixed by
+naming the two fixture modules' functions `test_ok` (the default
+pytest-recognized prefix) instead of `t_ok`.
+
+canonical: python3 -m pytest -q on-the-record/hooks/test_live_fire_claim_real_run_guard.py
+(first attempt, before the fix)
+```
+1 failed, 54 passed, 1 xfailed
+AssertionError: ... just exited 5 when actually re-run ...
+```
+
+## Open findings
+
+None.
+
+## Next steps
+
+None — this addendum ships the third and final mechanism named in the
+approved phase-1 proposal (issue #914 step 2, mechanisms a/b/c all now
+present on this branch).
+
+## Resolution path
+
+None open — no findings to resolve.

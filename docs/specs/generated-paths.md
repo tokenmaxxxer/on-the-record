@@ -52,6 +52,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `stop-gate.sh` | n/a | reads/validates only, no write call |
 | `live-fire-test-guard.sh` | n/a | reads/validates only, no write call |
 | `acceptance-command-real-run-guard.sh` | n/a | reads/validates only + re-runs a recorded command via `subprocess.run` (no `write_text`/`open(..., "w")`/`.mkdir(`/`shutil.copy`/`move` call in its own staged text) |
+| `live-fire-claim-real-run-guard.sh` | n/a | reads/validates only + re-runs a cited live-fire test via `subprocess.run(["python3", "-m", "pytest", ...])` (no `write_text`/`open(..., "w")`/`.mkdir(`/`shutil.copy`/`move` call in its own staged text) |
 
 Out of scope (per docs/issue-684/proposals/2026-08-11-generated-path-disjointness.md):
 the warrant counter / hunt-report naming (core#200); human-authored file

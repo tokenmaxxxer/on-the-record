@@ -89,7 +89,8 @@ _OUTCOME_CLAIM_MARKER = re.compile(
     r"(?i)\b(requirement(?:s)?\s+met|done|PASS(?:es|ed)?|complete[ds]?)\b")
 _EXECUTED_LIVE_CANONICAL = re.compile(
     r"(?i)^(?:gh\s|git\s|pytest\b|python3?\s|npm\s|npx\s|bash\s|sh\s|\./|"
-    r"acceptance:\s*\S.*\bresult:\s*(?:PASS|FAIL|UNMEASURED)\b)")
+    r"acceptance:\s*\S.*\bresult:\s*(?:PASS|FAIL|UNMEASURED)\b|"
+    r"live-fire:\s*\S.*\bresult:\s*(?:allow|deny|log)\b)")
 
 
 def outcome_claim_citation_check(text: str) -> list[str]:
