@@ -1054,7 +1054,7 @@ fail with exit 128 — the job sets a placeholder CI-only identity via
 ## 자체 점검
 
 ```bash
-python3 test_gates.py
+python3 tests/test_gates.py
 ```
 
 전체 스위트를 돌릴 때는 `--ignore=gates` 를 붙이지 않는다(issue #435):
@@ -1077,7 +1077,7 @@ python3 gates/skip_gate.py
 ## Self-check
 
 ```bash
-python3 test_gates.py
+python3 tests/test_gates.py
 ```
 
 `python3 -m pytest`도 `pytest.ini`(`python_functions = test_* t_*`) 덕분에
@@ -1113,7 +1113,7 @@ python3 gates/skip_gate.py
 그렇게 하듯(이슈 #247), 승인 경로도 워치독 틱을 기다리지 않는다.
 
 **사전 등록한 지표**: 위 (repo, issue, role) 유휴 갭의 중앙값/상위-8합.
-`test/test_latency_report.py`의 `PRACTICE_ADOPTED_TS`(커밋 6009fc8,
+`tests/test_latency_report.py`의 `PRACTICE_ADOPTED_TS`(커밋 6009fc8,
 2026-08-08T12:00:00Z)를 `since_ts`로 넘겨 `compute_idle_gaps()`/
 `median_idle_s()`를 돌리면 재스폰-배칭 관행 채택 이후 시작된 유휴 갭만
 골라 재계산된다 — 이번 세션의 전체-구간 수치(중앙값 85초, 상위 8합
@@ -1150,7 +1150,7 @@ does this on the crash path without waiting for a watchdog tick (issue
 #247); the approval path holds to the same rule.
 
 **Pre-registered metric**: median and top-8 sum of the same (repo, issue,
-role) idle gaps. Passing `test/test_latency_report.py`'s
+role) idle gaps. Passing `tests/test_latency_report.py`'s
 `PRACTICE_ADOPTED_TS` (commit 6009fc8, 2026-08-08T12:00:00Z) as `since_ts`
 to `compute_idle_gaps()`/`median_idle_s()` selects only gaps whose next
 session started after adoption — this session's whole-window numbers

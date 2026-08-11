@@ -4,7 +4,7 @@
 for the full six-attempt outcome table; the other five attempts are
 not-reproduced and have no runnable repro here by design.
 
-  python3 -m pytest -q test/test_side_effect_round.py
+  python3 -m pytest -q tests/test_side_effect_round.py
 """
 from __future__ import annotations
 import importlib.util
