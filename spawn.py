@@ -2240,10 +2240,28 @@ def _resume_orchestrator_session(session_id: str, nudge: str,
     틱을 블록하지 않는다는 기존 observe-only 계약과 동일).
 
     `claude` 실행 파일이 없거나(테스트/부분 설치 환경) Popen 자체가
-    실패하면 None — 호출부가 UNMEASURED-shaped 로 보고할 신호."""
+    실패하면 None — 호출부가 UNMEASURED-shaped 로 보고할 신호.
+
+    이슈 #886: `--permission-mode` 를 안 주면(또는 `acceptEdits` 를 주면)
+    이 재개 턴은 파일 편집만 자동승인되고 Bash(`gh pr merge`, `git
+    fetch`, `spawn.py`)는 그대로 거부된다 — `acceptEdits` 는 편집 전용
+    이지 Bash 자동승인이 아니다(PR #885 실측, `.permission_denials`).
+    `bypassPermissions` 는 #700 이 실제 롤 스폰 경로에 이미 쓰는 것과
+    같은 헤드리스 기본값이며, 여는 것은 호스트 권한 프롬프트뿐이다 —
+    PreToolUse 훅으로 걸린 게이트(gh-write-allow-gate.sh,
+    merge-allow-gate.sh, deliverable-guard)는 이 모드와 무관하게 여전히
+    실행된다. 단, 정확한 경계 하나: 이 훅들은 "allow" 만 내고 "deny"
+    는 내지 않는 설계라, 자기 허용목록 밖의 셰이프(예: `gh repo delete`,
+    `git push --force`)에 대해서는 원래 host 기본-거부에 기대고 있었다
+    — bypassPermissions 아래서는 그 기본-거부 자체가 없다(issue #886
+    hunt 실측, docs/issue-886/reports/implementation/
+    hunt-issue-886-permission-mode-fix.md). 이는 #700 이 이미 프로덕션
+    롤 스폰에 쓰는 동일 모드의 기존 속성이며, 이 diff 가 새로 만든
+    회귀는 아니다."""
     try:
         return subprocess.Popen(
-            ["claude", "-p", nudge, "--resume", session_id],
+            ["claude", "-p", nudge, "--resume", session_id,
+             "--permission-mode", "bypassPermissions"],
             cwd=cwd, stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,
