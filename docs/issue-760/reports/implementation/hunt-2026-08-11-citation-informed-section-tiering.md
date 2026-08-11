@@ -85,3 +85,91 @@ now names an explicit re-measurement owner/trigger (the next
 `product-discovery` round touching `#745`, or a follow-up issue against
 `#760`, once 20 post-tiering records exist) instead of leaving the 20-record
 window ownerless.
+
+## before-landing — stance 0: assume the gate/mechanism just implemented is bypassable — find the bypass
+
+Verdict: FINDING — splitting the heading and the padded "None..." body across two separate Edit tool calls bypasses record-tiering-guard.sh entirely, even though the same content submitted as one fragment is correctly denied
+Kind: composition
+Seed: on-the-record/hooks/record-tiering-guard.sh, on-the-record/hooks/test_record_tiering_directive.py (diff: 299 lines across 6 files)
+cap_seconds: 180
+tier: size:>200-lines
+diff_stat_lines: 299
+started_at: 2026-08-11T07:18:25Z
+ended_at: 2026-08-11T07:19:17Z
+
+### Reproduce
+```bash
+GUARD=on-the-record/hooks/record-tiering-guard.sh
+
+# Call 1: an Edit that inserts only the section heading (e.g. scaffolding
+# the report skeleton before filling in the body separately).
+printf '%s' '{"tool_name":"Edit","tool_input":{"file_path":"docs/issue-999/reports/implementation.md","old_string":"PLACEHOLDER_HEADING","new_string":"## What did not work\n"}}' \
+  | ORCHESTRATE_OFF= bash "$GUARD"; echo "call1 exit: $?"
+
+# Call 2: a later, separate Edit that inserts the padded "None..." body
+# against a different anchor in the file. Its new_string never contains
+# the heading text "## What did not work" at all.
+printf '%s' '{"tool_name":"Edit","tool_input":{"file_path":"docs/issue-999/reports/implementation.md","old_string":"PLACEHOLDER_BODY","new_string":"None. Actually the citation extraction failed silently for large batches and we spent two days debugging before finding the root cause.\n"}}' \
+  | ORCHESTRATE_OFF= bash "$GUARD"; echo "call2 exit: $?"
+
+# Comparison: the identical final text, submitted as one fragment (as a
+# Write), IS correctly denied by the same guard.
+printf '%s' '{"tool_name":"Write","tool_input":{"file_path":"docs/issue-999/reports/implementation.md","content":"## What did not work\n\nNone. Actually the citation extraction failed silently for large batches and we spent two days debugging before finding the root cause.\n"}}' \
+  | ORCHESTRATE_OFF= bash "$GUARD"; echo "call3 exit: $?"
+```
+
+### Observed
+```
+call1 exit: 0
+call2 exit: 0
+call3 exit: 2   (denied: "starts with \"None\" ... but is not the bare marker")
+```
+Both Edit calls exit 0 (silently pass). After both edits land on disk, the
+file contains the exact heading-plus-padded-body pair the guard exists to
+catch (`## What did not work` immediately followed by a "None..."-prefixed
+body that is not the bare marker) — but the guard's PreToolUse invocation
+never receives that combined text in a single content fragment, so it never
+fires. The gate's own comment (lines 57-60 of record-tiering-guard.sh)
+acknowledges the fragment-only view is a "write-time-approximation," but the
+guard still no-ops (exit 0) rather than either flagging cross-call
+uncertainty or deferring to a whole-file check — an author (or an agent
+scaffolding the heading first and filling the body via a later edit, with no
+adversarial intent) produces the exact denied-when-combined text on disk
+while every individual gated call reports success.
+
+### Expected
+Either the gate should refuse to no-op when it cannot see the full section
+(e.g. by reading the current on-disk file and merging the edit before
+matching, the same way it would need to for MultiEdit's edits list to be
+combined), or the guard's stated scope in the proposal/spec should
+acknowledge that per-call fragment inspection provides no enforcement
+against a body assembled across multiple Edit calls — a gap distinct from
+the single-call MultiEdit fragment-joining it already implements at lines
+68-73.
+
+### Resolution
+
+Fixed in `on-the-record/hooks/record-tiering-guard.sh`, same commit as this
+hunt record: took the first option above. For `Edit`/`MultiEdit`, the guard
+now reads the target file's current on-disk content and applies the same
+edit(s) a real Edit/MultiEdit call would apply, then checks the section
+extracted from that *reconstructed full content* instead of just the
+changed fragment. Because `PreToolUse` fires before the tool executes, by
+the time a second `Edit` call's hook runs, the first `Edit` has already
+landed on disk, so reading current content at that point correctly picks up
+state assembled across calls. Falls back to the prior fragment-only
+behavior only when the file can't be read (new file, race, permissions) —
+unchanged from before this fix for that one case.
+
+Reproduced fixed behavior with a new regression test,
+`test_record_tiering_directive.py::t_split_edit_heading_then_padded_body_is_still_denied`,
+which performs the identical two-call split against a real on-disk file and
+asserts the second call now exits 2 (a second test,
+`t_edit_falls_back_to_fragment_when_file_unreadable`, covers the
+file-can't-be-read fallback path still denying via the fragment):
+
+```
+$ python3 -m pytest -q on-the-record/hooks/test_record_tiering_directive.py
+..............                                                           [100%]
+14 passed in 0.43s
+```
