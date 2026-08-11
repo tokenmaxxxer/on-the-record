@@ -8507,3 +8507,219 @@ class PlainSessionDirectiveNorms(unittest.TestCase):
         r = self._render(env_extra={"ORCHESTRATE_OFF": "1"})
         self.assertEqual(r.returncode, 0)
         self.assertNotIn("DELEGATION IS THE DEFAULT", r.stdout)
+
+
+class RulebookCacheLock(unittest.TestCase):
+    """이슈 #773: 같은 role 을 동시에 여러 개 spawn 하면 각각
+    `rulebook_checkout()` 이 같은 `runs/rulebooks/<mkt>` 를 클론하려다
+    "target path already exists and is not empty" 로 충돌했다. 클론
+    구간을 `_locked_rulebook_dir()` 로 감싸 직렬화한다."""
+
+    def _fake_run_net(self, clone_calls, pull_calls):
+        def fake(args, label, timeout=None, **kwargs):
+            if args[:2] == ["git", "clone"]:
+                clone_calls.append(1)
+                time.sleep(0.05)
+                target = Path(args[-1])
+                target.mkdir(parents=True, exist_ok=True)
+                (target / ".claude-plugin").mkdir(exist_ok=True)
+                (target / ".claude-plugin" / "marketplace.json").write_text("{}")
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "-C"] and "pull" in args:
+                pull_calls.append(1)
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            raise AssertionError(f"unexpected _run_net call: {args}")
+        return fake
+
+    def setUp(self):
+        spawn._RULEBOOK_CACHE = {}
+
+    def tearDown(self):
+        spawn._RULEBOOK_CACHE = {}
+
+    def test_concurrent_populations_serialize_to_one_clone(self):
+        with tempfile.TemporaryDirectory() as td:
+            fake_root = Path(td) / "root"
+            clone_calls, pull_calls = [], []
+            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
+            saved_root = spawn.ROOT
+            spawn.ROOT = fake_root
+            results = []
+            errors = []
+
+            def worker():
+                # 각 스레드마다 in-process 메모를 우회하도록 캐시를 비운
+                # 채로 두지 않으면 락 경합 자체가 안 일어난다.
+                try:
+                    with unittest.mock.patch.object(
+                            spawn, "_RULEBOOK_CACHE", {}):
+                        results.append(
+                            spawn.rulebook_checkout("implementation", spec))
+                except BaseException as e:  # pragma: no cover - 진단용
+                    errors.append(e)
+
+            try:
+                with unittest.mock.patch.object(
+                        spawn, "_run_net",
+                        self._fake_run_net(clone_calls, pull_calls)):
+                    threads = [threading.Thread(target=worker)
+                               for _ in range(5)]
+                    for t in threads:
+                        t.start()
+                    for t in threads:
+                        t.join(timeout=10)
+            finally:
+                spawn.ROOT = saved_root
+
+            self.assertEqual(errors, [], errors)
+            self.assertEqual(len(results), 5)
+            self.assertEqual(len(clone_calls), 1,
+                              "정확히 한 번만 clone 이 실제로 불려야 한다")
+            self.assertTrue(all(r == results[0] for r in results))
+
+    def test_stale_lock_reclaimed_after_holder_dies(self):
+        with tempfile.TemporaryDirectory() as td:
+            fake_root = Path(td) / "root"
+            d = fake_root / "runs" / "rulebooks" / "acme-rules"
+            d.parent.mkdir(parents=True)
+            lock_path = spawn._rulebook_lock_path(d)
+
+            holder_script = (
+                "import fcntl, sys, time\n"
+                f"f = open({str(lock_path)!r}, 'w')\n"
+                "fcntl.flock(f, fcntl.LOCK_EX)\n"
+                "print('locked', flush=True)\n"
+                "time.sleep(60)\n"
+            )
+            holder = subprocess.Popen(
+                [sys.executable, "-c", holder_script],
+                stdout=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(holder.stdout.readline().strip(), "locked")
+                holder.kill()
+                holder.wait(timeout=5)
+
+                acquired = []
+
+                def acquire():
+                    with spawn._locked_rulebook_dir(d):
+                        acquired.append(True)
+
+                t = threading.Thread(target=acquire)
+                t.start()
+                t.join(timeout=5)
+                self.assertTrue(acquired, "죽은 홀더의 lock 이 회수되지 않았다")
+            finally:
+                if holder.poll() is None:
+                    holder.kill()
+                    holder.wait()
+
+    def test_warm_cache_single_spawn_issues_zero_git_calls(self):
+        with tempfile.TemporaryDirectory() as td:
+            fake_root = Path(td) / "root"
+            clone_dir = fake_root / "runs" / "rulebooks" / "acme-rules"
+            clone_dir.mkdir(parents=True)
+            (clone_dir / ".claude-plugin").mkdir()
+            (clone_dir / ".claude-plugin" / "marketplace.json").write_text("{}")
+
+            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
+            saved_root = spawn.ROOT
+            spawn.ROOT = fake_root
+            clone_calls, pull_calls = [], []
+            try:
+                spawn._ttl_marker(clone_dir).parent.mkdir(
+                    parents=True, exist_ok=True)
+                spawn._ttl_marker(clone_dir).write_text(str(time.time()))
+                with unittest.mock.patch.object(
+                        spawn, "_run_net",
+                        self._fake_run_net(clone_calls, pull_calls)):
+                    result = spawn.rulebook_checkout("implementation", spec)
+            finally:
+                spawn.ROOT = saved_root
+
+            self.assertEqual(result, clone_dir)
+            self.assertEqual(clone_calls, [])
+            self.assertEqual(pull_calls, [])
+
+
+class CoreRootCacheLock(unittest.TestCase):
+    """이슈 #773: `core_root()` 도 `rulebook_checkout()` 과 동일한 손수
+    쓴 exists-check-then-clone 경쟁을 갖고 있었다 — 같은 락으로 감싼다."""
+
+    def _fake_run_net(self, clone_calls, pull_calls):
+        def fake(args, label, timeout=None, **kwargs):
+            if args[:2] == ["git", "clone"]:
+                clone_calls.append(1)
+                time.sleep(0.05)
+                target = Path(args[-1])
+                (target / "core" / ".claude-plugin").mkdir(
+                    parents=True, exist_ok=True)
+                (target / "core" / ".claude-plugin" / "plugin.json").write_text("{}")
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            if args[:2] == ["git", "-C"] and "pull" in args:
+                pull_calls.append(1)
+                return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+            raise AssertionError(f"unexpected _run_net call: {args}")
+        return fake
+
+    def test_concurrent_core_root_serializes_to_one_clone(self):
+        with tempfile.TemporaryDirectory() as td:
+            fake_root = Path(td) / "root"
+            clone_calls, pull_calls = [], []
+            saved_root = spawn.ROOT
+            spawn.ROOT = fake_root
+            results = []
+            errors = []
+
+            def worker():
+                try:
+                    with unittest.mock.patch.object(
+                            spawn, "_core_candidates", lambda: []):
+                        results.append(spawn.core_root())
+                except BaseException as e:  # pragma: no cover - 진단용
+                    errors.append(e)
+
+            try:
+                with unittest.mock.patch.object(
+                        spawn, "_run_net",
+                        self._fake_run_net(clone_calls, pull_calls)):
+                    threads = [threading.Thread(target=worker)
+                               for _ in range(5)]
+                    for t in threads:
+                        t.start()
+                    for t in threads:
+                        t.join(timeout=10)
+            finally:
+                spawn.ROOT = saved_root
+
+            self.assertEqual(errors, [], errors)
+            self.assertEqual(len(results), 5)
+            self.assertEqual(len(clone_calls), 1,
+                              "정확히 한 번만 clone 이 실제로 불려야 한다")
+            self.assertTrue(all(r == results[0] for r in results))
+
+    def test_warm_cache_core_root_issues_zero_git_calls(self):
+        with tempfile.TemporaryDirectory() as td:
+            fake_root = Path(td) / "root"
+            d = fake_root / "runs" / "rulebooks" / "tokenmaxxxer-core"
+            (d / "core" / ".claude-plugin").mkdir(parents=True)
+            (d / "core" / ".claude-plugin" / "plugin.json").write_text("{}")
+
+            saved_root = spawn.ROOT
+            spawn.ROOT = d.parent.parent.parent
+            clone_calls, pull_calls = [], []
+            try:
+                spawn._ttl_marker(d).parent.mkdir(parents=True, exist_ok=True)
+                spawn._ttl_marker(d).write_text(str(time.time()))
+                with unittest.mock.patch.object(
+                        spawn, "_core_candidates", lambda: []), \
+                     unittest.mock.patch.object(
+                        spawn, "_run_net",
+                        self._fake_run_net(clone_calls, pull_calls)):
+                    result = spawn.core_root()
+            finally:
+                spawn.ROOT = saved_root
+
+            self.assertEqual(result, d)
+            self.assertEqual(clone_calls, [])
+            self.assertEqual(pull_calls, [])

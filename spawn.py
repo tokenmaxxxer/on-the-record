@@ -204,6 +204,36 @@ def rulebook_dir(spec: dict) -> Path | None:
 _RULEBOOK_CACHE: dict[str, Path] = {}
 
 
+def _rulebook_lock_path(d: Path) -> Path:
+    """`d` 옆에 두는 락 파일 경로 — 클론 디렉터리 안이 아니라 형제
+    (`git status --porcelain` 을 깨끗하게 유지, #296 의 TTL 마커와 같은 이유)."""
+    return d.parent / (d.name + ".lock")
+
+
+@contextlib.contextmanager
+def _locked_rulebook_dir(d: Path):
+    """`d` 를 채우는(clone/pull) 구간을 프로세스 간에 직렬화한다. `ROSTER` 의
+    lock 패턴(spawn.py:1732-1739)과 동일한 `fcntl.flock` 관용구 — 커널이
+    보유 프로세스가 죽으면 자동으로 lock 을 푼다, 그래서 별도 stale-lock
+    회수 코드가 필요 없다(issue #773)."""
+    lock_path = _rulebook_lock_path(d)
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        f = open(lock_path, "w")
+    except OSError:
+        # 부모 디렉터리를 만들거나 락 파일을 열 수 없다(예: 읽기 전용
+        # 루트) — 락 없이 진행한다. 아래 clone/pull 자체가 곧 같은 이유로
+        # 실패해 fail-closed 로 떨어진다.
+        yield
+        return
+    with f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
+
+
 def rulebook_checkout(role: str, spec: dict) -> Path:
     """세션에 **실제로 붙일** 룰북 체크아웃. 로컬이 있으면 그것, 없으면
     on-the-record 가 자기 밑에 클론해 둔다.
@@ -232,23 +262,24 @@ def rulebook_checkout(role: str, spec: dict) -> Path:
     if not repo:
         sys.exit(f"[{role}] 로컬 체크아웃도 repo 도 없다: roles/{role}.json")
     d = ROOT / "runs" / "rulebooks" / mkt
-    if _mkt(d).exists():
-        _migrate_legacy_ttl_marker(d)
-        if not _pull_is_fresh(d):
-            _run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
-                     f"[{role}] 룰북 pull")
-            _mark_pulled(d)
+    d.parent.mkdir(parents=True, exist_ok=True)
+    with _locked_rulebook_dir(d):
+        if _mkt(d).exists():
+            _migrate_legacy_ttl_marker(d)
+            if not _pull_is_fresh(d):
+                _run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
+                         f"[{role}] 룰북 pull")
+                _mark_pulled(d)
+            _RULEBOOK_CACHE[mkt] = d
+            return d
+        print(f"[{role}] 룰북을 받는 중: {repo}", file=sys.stderr)
+        r = _run_net(["git", "clone", "-q", f"https://github.com/{repo}.git", str(d)],
+                    f"[{role}] 룰북 clone", timeout=CLONE_TIMEOUT)
+        if not _mkt(d).exists():
+            sys.exit(f"[{role}] 룰북을 받지 못했다: {repo}\n  {r.stderr.strip()[:200]}")
+        _mark_pulled(d)
         _RULEBOOK_CACHE[mkt] = d
         return d
-    d.parent.mkdir(parents=True, exist_ok=True)
-    print(f"[{role}] 룰북을 받는 중: {repo}", file=sys.stderr)
-    r = _run_net(["git", "clone", "-q", f"https://github.com/{repo}.git", str(d)],
-                f"[{role}] 룰북 clone", timeout=CLONE_TIMEOUT)
-    if not _mkt(d).exists():
-        sys.exit(f"[{role}] 룰북을 받지 못했다: {repo}\n  {r.stderr.strip()[:200]}")
-    _mark_pulled(d)
-    _RULEBOOK_CACHE[mkt] = d
-    return d
 
 
 def checkout_version(role: str, spec: dict) -> str:
@@ -3242,23 +3273,27 @@ def core_root() -> Path:
     # 로컬 체크아웃이 없으면 룰북과 같은 길: on-the-record 소유 클론을 받아 쓴다.
     # 로컬 우선은 개발용 오버라이드일 뿐이다.
     d = ROOT / "runs" / "rulebooks" / "tokenmaxxxer-core"
-    if (d / "core" / ".claude-plugin" / "plugin.json").is_file():
-        _migrate_legacy_ttl_marker(d)
-        if not _pull_is_fresh(d):
-            _run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"], "[core] pull")
-            _mark_pulled(d)
-        return d
     try:
         d.parent.mkdir(parents=True, exist_ok=True)
-        print("[core] tokenmaxxxer-core 를 받는 중", file=sys.stderr)
-        _run_net(["git", "clone", "-q",
-                 "https://github.com/tokenmaxxxer/tokenmaxxxer-core.git",
-                 str(d)], "[core] clone", timeout=CLONE_TIMEOUT)
-        _mark_pulled(d)
     except OSError:
         pass
-    if (d / "core" / ".claude-plugin" / "plugin.json").is_file():
-        return d
+    with _locked_rulebook_dir(d):
+        if (d / "core" / ".claude-plugin" / "plugin.json").is_file():
+            _migrate_legacy_ttl_marker(d)
+            if not _pull_is_fresh(d):
+                _run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"], "[core] pull")
+                _mark_pulled(d)
+            return d
+        try:
+            print("[core] tokenmaxxxer-core 를 받는 중", file=sys.stderr)
+            _run_net(["git", "clone", "-q",
+                     "https://github.com/tokenmaxxxer/tokenmaxxxer-core.git",
+                     str(d)], "[core] clone", timeout=CLONE_TIMEOUT)
+            _mark_pulled(d)
+        except OSError:
+            pass
+        if (d / "core" / ".claude-plugin" / "plugin.json").is_file():
+            return d
     sys.exit(
         "tokenmaxxxer-core 를 찾지 못했고 받지도 못했다. 역할 세션은 core 없이\n"
         "  뜨지 않는다 — 프로토콜 게이트와 정본 계약이 거기 있다.\n"
