@@ -171,3 +171,163 @@ def test_seed_steady_state_github_host_unmeasured_when_absent(monkeypatch):
             capture_output=True, text=True,
         )
         assert remote_check.returncode != 0
+
+
+# issue #878: multi-turn resume-driven completion — the harness must
+# actually drive across turns (capture session_id, poll, --resume), never
+# fabricate a final_report, and mark UNMEASURED-with-reason when the loop
+# cannot complete.
+
+def test_extract_session_id_reads_first_turn_result():
+    assert driver.extract_session_id({"session_id": "abc-123"}) == "abc-123"
+
+
+def test_extract_session_id_none_when_absent():
+    assert driver.extract_session_id({}) is None
+    assert driver.extract_session_id(None) is None
+
+
+def test_poll_for_pr_ready_returns_number_when_mergeable(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        assert cmd[:3] == ["gh", "pr", "list"]
+        return subprocess.CompletedProcess(
+            cmd, returncode=0,
+            stdout='{"number": 4, "mergeable": "MERGEABLE", "state": "OPEN"}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(driver.subprocess, "run", fake_run)
+
+    result = driver.poll_for_pr_ready("owner/repo", "issue-3/implementation",
+                                       timeout_sec=5, interval_sec=1)
+
+    assert result == {"ready": True, "number": 4}
+
+
+def test_poll_for_pr_ready_unmeasured_reason_on_timeout(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    calls = []
+    monkeypatch.setattr(driver.subprocess, "run", fake_run)
+
+    result = driver.poll_for_pr_ready(
+        "owner/repo", "issue-3/implementation",
+        timeout_sec=0, interval_sec=1, sleep=calls.append)
+
+    assert result["ready"] is False
+    assert "reason" in result
+    assert calls == []  # deadline already passed on first check — never sleeps past it
+
+
+def test_resume_orchestrator_session_ok(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        assert cmd[:2] == ["claude", "-p"]
+        assert "--resume" in cmd
+        return subprocess.CompletedProcess(
+            cmd, returncode=0,
+            stdout='{"final_report": {"what_broke": "x", "what_changed": "y", '
+                   '"what_became_possible": "z", "what_limits_remain": "w"}}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(driver.subprocess, "run", fake_run)
+
+    result = driver.resume_orchestrator_session("sess-1", "PR ready — merge it")
+
+    assert result["ok"] is True
+    assert result["result"]["final_report"]["what_broke"] == "x"
+
+
+def test_resume_orchestrator_session_reason_when_claude_missing(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        raise FileNotFoundError("claude: command not found")
+
+    monkeypatch.setattr(driver.subprocess, "run", fake_run)
+
+    result = driver.resume_orchestrator_session("sess-1", "nudge")
+
+    assert result["ok"] is False
+    assert "reason" in result
+
+
+def test_resume_orchestrator_session_reason_on_nonzero_exit(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, returncode=1, stdout="", stderr="boom")
+
+    monkeypatch.setattr(driver.subprocess, "run", fake_run)
+
+    result = driver.resume_orchestrator_session("sess-1", "nudge")
+
+    assert result["ok"] is False
+    assert "boom" in result["reason"]
+
+
+def test_drive_multiturn_completion_unmeasured_when_no_session_id():
+    result = driver.drive_multiturn_completion(
+        {}, "owner/repo", "issue-3/implementation", "nudge")
+
+    assert result["final_report"] is None
+    assert result["unmeasured_reason"] is not None
+
+
+def test_drive_multiturn_completion_unmeasured_on_poll_timeout(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(driver.subprocess, "run", fake_run)
+
+    result = driver.drive_multiturn_completion(
+        {"session_id": "sess-1"}, "owner/repo", "issue-3/implementation", "nudge",
+        poll_timeout_sec=0, poll_interval_sec=1, sleep=lambda s: None)
+
+    assert result["final_report"] is None
+    assert "reason" in result["unmeasured_reason"] or result["unmeasured_reason"]
+
+
+def test_drive_multiturn_completion_never_fabricates_a_report_when_resume_fails(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_run(cmd, **kwargs):
+        calls["n"] += 1
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return subprocess.CompletedProcess(
+                cmd, returncode=0,
+                stdout='{"number": 4, "mergeable": "MERGEABLE", "state": "OPEN"}',
+                stderr="",
+            )
+        raise FileNotFoundError("claude: command not found")
+
+    monkeypatch.setattr(driver.subprocess, "run", fake_run)
+
+    result = driver.drive_multiturn_completion(
+        {"session_id": "sess-1"}, "owner/repo", "issue-3/implementation", "nudge",
+        poll_timeout_sec=5, poll_interval_sec=1, sleep=lambda s: None)
+
+    assert result["final_report"] is None
+    assert result["unmeasured_reason"] == "claude CLI not found on this host"
+
+
+def test_drive_multiturn_completion_real_final_report_on_success(monkeypatch):
+    def fake_run(cmd, **kwargs):
+        if cmd[:3] == ["gh", "pr", "list"]:
+            return subprocess.CompletedProcess(
+                cmd, returncode=0,
+                stdout='{"number": 4, "mergeable": "MERGEABLE", "state": "OPEN"}',
+                stderr="",
+            )
+        return subprocess.CompletedProcess(
+            cmd, returncode=0,
+            stdout='{"final_report": {"what_broke": "a", "what_changed": "b", '
+                   '"what_became_possible": "c", "what_limits_remain": "d"}}',
+            stderr="",
+        )
+
+    monkeypatch.setattr(driver.subprocess, "run", fake_run)
+
+    result = driver.drive_multiturn_completion(
+        {"session_id": "sess-1"}, "owner/repo", "issue-3/implementation", "nudge",
+        poll_timeout_sec=5, poll_interval_sec=1, sleep=lambda s: None)
+
+    assert result["unmeasured_reason"] is None
+    assert result["final_report"]["what_broke"] == "a"

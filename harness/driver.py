@@ -7,6 +7,7 @@ Claude Code session itself: that launch is an integration point the operator
 wires to their own session-launch mechanism (issue #776 step 3).
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -205,6 +206,128 @@ def run_tests(target_dir):
         text=True,
     )
     return {"exit_code": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+
+
+def extract_session_id(cli_result):
+    """issue #878: `cli_result` is the parsed JSON object a `claude -p
+    --output-format json` run returns. The orchestrator's own session_id is
+    only knowable AFTER that turn ends (it is not assignable up front) — this
+    is the one place the harness driver learns it, exactly like a real
+    install's `spawn.py` roster capture does for the same field. Returns
+    None (never a fabricated id) when the result carries no session_id."""
+    if not cli_result:
+        return None
+    return cli_result.get("session_id")
+
+
+def poll_for_pr_ready(repo, branch, token=None, timeout_sec=600, interval_sec=15,
+                       sleep=None):
+    """issue #878 case 3: poll ground truth (`gh pr view`, the same check
+    run5's account already performs manually per the proposal) until the
+    delegated PR on `branch` is OPEN and MERGEABLE, or `timeout_sec` elapses.
+
+    Returns {"ready": True, "number": int} on success, or
+    {"ready": False, "reason": str} on timeout — never raises on a normal
+    not-yet-ready poll (a `gh` invocation failure just counts as "not yet",
+    the timeout is what surfaces the eventual UNMEASURED-with-reason)."""
+    import time as _time
+    sleep = sleep or _time.sleep
+    env = dict(os.environ, **({"GH_TOKEN": token} if token else {}))
+    deadline = _time.monotonic() + timeout_sec
+    while True:
+        result = subprocess.run(
+            ["gh", "pr", "list", "--repo", repo, "--head", branch,
+             "--json", "number,mergeable,state", "--jq", ".[0]"],
+            capture_output=True, text=True, env=env,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            try:
+                pr = json.loads(result.stdout)
+            except ValueError:
+                pr = None
+            if pr and pr.get("state") == "OPEN" and pr.get("mergeable") == "MERGEABLE":
+                return {"ready": True, "number": pr["number"]}
+        if _time.monotonic() >= deadline:
+            return {"ready": False,
+                    "reason": f"no OPEN/MERGEABLE PR for branch {branch!r} "
+                              f"on {repo!r} within {timeout_sec}s"}
+        sleep(interval_sec)
+
+
+def resume_orchestrator_session(session_id, nudge, cwd=None, timeout_sec=None):
+    """issue #878 case 3: the harness's own `--resume`-invoke — the process
+    that ran the orchestrator's first `-p` turn has already exited
+    (`code.claude.com/docs/en/headless.md` "Background tasks at exit"; a
+    dead `-p` process cannot be revived in-process, only a NEW invocation
+    with `--resume` continues it). Runs `claude -p "<nudge>" --resume
+    "<session_id>" --output-format json` and returns the parsed JSON result.
+
+    Returns {"ok": True, "result": <parsed json>} on success, or
+    {"ok": False, "reason": str} when `claude` is missing, the resume
+    invocation fails, or its stdout is not parseable JSON — never raises,
+    never fabricates a result."""
+    try:
+        proc = subprocess.run(
+            ["claude", "-p", nudge, "--resume", session_id,
+             "--output-format", "json"],
+            cwd=cwd, capture_output=True, text=True, timeout=timeout_sec,
+        )
+    except FileNotFoundError:
+        return {"ok": False, "reason": "claude CLI not found on this host"}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "reason": f"--resume invocation exceeded {timeout_sec}s"}
+    if proc.returncode != 0:
+        return {"ok": False,
+                "reason": f"--resume invocation exited {proc.returncode}: "
+                          f"{proc.stderr.strip()[:500]}"}
+    try:
+        result = json.loads(proc.stdout)
+    except ValueError:
+        return {"ok": False, "reason": "--resume output was not valid JSON"}
+    return {"ok": True, "result": result}
+
+
+def drive_multiturn_completion(first_turn_result, repo, branch, nudge,
+                                token=None, poll_timeout_sec=600,
+                                poll_interval_sec=15, resume_timeout_sec=None,
+                                sleep=None):
+    """issue #878: the driver-side shape of the multi-turn completion loop
+    (proposal case 3) — capture session_id from the first turn, poll ground
+    truth for the delegated PR, and RESUME the orchestrator session so the
+    orchestrator itself does the merge + final_report (never the driver
+    acting on the PR itself — Rejected alternative C in the proposal, that
+    would make the signal PASS on the driver's actions, not the
+    orchestrator's).
+
+    Returns a dict always carrying "final_report" (possibly None) and
+    "unmeasured_reason" (possibly None) — exactly one of the two is
+    non-None on any path, so `harness/signals.py` either sees a genuine
+    final_report or an explicit UNMEASURED marker, never a fabricated one:
+      - no session_id captured from the first turn -> unmeasured_reason
+      - PR never becomes ready within poll_timeout_sec -> unmeasured_reason
+      - the --resume invocation itself fails/is unavailable -> unmeasured_reason
+      - --resume succeeds -> final_report := the resumed result's own
+        `final_report` field if present, else the whole resumed result
+        (the orchestrator's reply IS the report; callers reading the real
+        transcript still validate its 4 parts via signals.py unchanged).
+    """
+    session_id = extract_session_id(first_turn_result)
+    if not session_id:
+        return {"final_report": None,
+                "unmeasured_reason": "no session_id in the first turn's "
+                                      "--output-format json result"}
+    readiness = poll_for_pr_ready(repo, branch, token=token,
+                                   timeout_sec=poll_timeout_sec,
+                                   interval_sec=poll_interval_sec, sleep=sleep)
+    if not readiness["ready"]:
+        return {"final_report": None, "unmeasured_reason": readiness["reason"]}
+    resumed = resume_orchestrator_session(
+        session_id, nudge, timeout_sec=resume_timeout_sec)
+    if not resumed["ok"]:
+        return {"final_report": None, "unmeasured_reason": resumed["reason"]}
+    result = resumed["result"]
+    final_report = result.get("final_report") if isinstance(result, dict) else None
+    return {"final_report": final_report or result, "unmeasured_reason": None}
 
 
 def capture_transcript(raw_log):

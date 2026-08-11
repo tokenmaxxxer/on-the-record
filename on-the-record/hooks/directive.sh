@@ -149,6 +149,28 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   consult or two with no deliverable at all — the issue → spawn → PR
   machinery only engages once the loop actually needs the repo changed.
 
+- AUTONOMOUS ASYNC COMPLETION (issue #878) — the completion half of the
+  #699 R3 goal loop above, not a new loop: when a \`watch --follow\`
+  notification (or a resumed-turn nudge, for a headless install) reports
+  that a delegated PR you yourself spawned is **opened / mergeable /
+  checks-passed**, your very next action — same turn the notification
+  lands in, never deferred — is: verify it (read the diff and checks,
+  the same acceptance judgment \`/orchestrate:run\` step 6 already
+  defines — do not invent new verify criteria) -> \`gh pr merge\` it ->
+  rebuild/re-check against the now-updated default branch -> emit the
+  4-part \`final_report\` (\`what_broke\`/\`what_changed\`/
+  \`what_became_possible\`/\`what_limits_remain\`) as your reply text.
+  This is the LIVE, same-session continuation for an interactive
+  installed session — #829/#835/#782's poll/watch machinery is unchanged,
+  this only says what you do once it notifies you. A headless (\`claude
+  -p\`) invocation cannot be revived in-process once its turn has ended
+  (\`code.claude.com/docs/en/headless.md\` "Background tasks at exit") —
+  for that shape, continuation is an external \`claude -p "<nudge>"
+  --resume "<session_id>"\` re-invocation (spawn.py's roster-entry
+  \`session_id\` field + \`--resume\`-invoke), never an in-process trick;
+  if you are resumed this way, the same verify->merge->rebuild->report
+  sequence is what this nudge is asking you to run now.
+
 Full procedure: /orchestrate:run (same rules, more detail). Consult
 syntax and contract: /consult.
 EOF
