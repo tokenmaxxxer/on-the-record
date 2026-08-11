@@ -3,7 +3,7 @@
 
 네트워크·GitHub 없이 도는 것만(`test_gates.py`와 같은 관례).
 
-  python3 test_spec_index.py
+  python3 tests/test_spec_index.py
 """
 from __future__ import annotations
 import shutil
@@ -11,11 +11,11 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "gates"))
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "gates"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import spec_index
 
-REPO_ROOT = Path(__file__).parent
+REPO_ROOT = Path(__file__).parent.parent
 
 
 def _copy_tracked_docs(dst: Path) -> None:

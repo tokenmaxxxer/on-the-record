@@ -17,6 +17,7 @@ import unittest.mock
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn
 import shape_contracts
 
@@ -2943,7 +2944,7 @@ class ProgressEvents(unittest.TestCase):
 
     def test_verification_and_commit_commands_fire_progress(self):
         for command in ("git commit -q -m x", "git push -q", "gh pr create --title t",
-                        "python3 test_spawn.py", "python3 gates/ci.py ."):
+                        "python3 tests/test_spawn.py", "python3 gates/ci.py ."):
             with self.subTest(command=command):
                 events = self._run(tempfile.mkdtemp(), [
                     {"type": "assistant", "message": {"content": [
@@ -6139,11 +6140,11 @@ class SessionLastActivity(unittest.TestCase):
         self.log.write_text(
             json.dumps({"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Bash",
-                 "input": {"command": "pytest test_spawn.py"}},
+                 "input": {"command": "pytest tests/test_spawn.py"}},
             ]}}) + "\n", encoding="utf-8")
         la = self.flows._session_last_activity(self.log)
         self.assertEqual(la["kind"], "tool_use")
-        self.assertEqual(la["detail"], "pytest test_spawn.py 실행")
+        self.assertEqual(la["detail"], "pytest tests/test_spawn.py 실행")
 
     def test_result_record_detail(self):
         self.log.write_text(

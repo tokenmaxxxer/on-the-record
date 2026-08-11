@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """on-the-record 자체 점검. 네트워크·GitHub 없이 도는 것만.
 
-  python3 test_gates.py
+  python3 tests/test_gates.py
 """
 import re
 import json
@@ -11,8 +11,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "gates"))
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "gates"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import gates
 import spawn
 import pr_reference

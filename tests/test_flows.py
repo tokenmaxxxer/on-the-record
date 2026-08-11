@@ -7,7 +7,7 @@ issue #222 본문이 `test_spawn.py`를 명시적으로 금지한다(issue #218�
 복제한다 — `test_spawn.py`를 import하지 않으므로 그쪽이 어떻게 바뀌든
 이 파일은 영향받지 않는다.
 
-  python3 -m pytest test_flows.py
+  python3 -m pytest tests/test_flows.py
 """
 from __future__ import annotations
 import sys
@@ -16,8 +16,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).parent / "gates"))
-sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "gates"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn
 import flows
 import closure_sweep

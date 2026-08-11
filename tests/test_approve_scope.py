@@ -4,11 +4,13 @@
 GitHub 호출은 전부 monkeypatch 로 대체한다: 이 테스트는 네트워크 없이,
 frontmatter 읽기/쓰기와 승인자 매칭 로직만 실측한다.
 """
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn
 
 
