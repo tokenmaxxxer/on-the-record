@@ -33,6 +33,7 @@
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/contract-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pr-preflight.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/delegation-post-gate.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/claim-scan-preflight.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/spec-index-preflight.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/role-axis-completeness-guard.sh" },
