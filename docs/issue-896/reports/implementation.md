@@ -112,12 +112,20 @@ run below shows all five green.
   4) — a separate, later step per the issue's own execution plan.
 
 ## Open findings
-canonical: python3 -m pytest gates/ on-the-record/hooks/ -q (executed this session; no open finding recorded against this diff)
-None open yet. A warrant-hunter round runs before landing per the
-warrant-directive; a finding from it gets a `closed_checks:` entry here
-or an update to Next steps before merge.
-Resolution path: append the finding and its disposition to this record
-before the PR merges.
+canonical: docs/issue-896/reports/implementation/2026-08-12-hunt-step2-invariant-and-evaluator.md (before-landing warrant-hunt, this session)
+The before-landing warrant-hunter (stance 4, write-set completeness)
+found that this phase's own proposal frontmatter `files:` list omitted
+`docs/specs/enforcement-boundary.md` and `docs/specs/generated-paths.md`,
+which the build structurally needed once `gate-registration-guard.sh`
+denied a bare `gates/roles_due.py`/hook commit with no matching rows.
+closed_checks:
+  - check: proposal write-set completeness vs. gate-registration-guard.sh's actual requirement
+    code_under_review: docs/issue-896/reports/implementation.md
+    disposition: both files were already touched and committed in HEAD
+      (this record's own `code_under_review:` list includes them) before
+      the hunt ran; no further action needed, no gap remains open.
+Resolution path: none open — the finding's fix already shipped in the
+same commit this record describes.
 
 ## Verification run
 `derived: python3 -m pytest gates/ on-the-record/hooks/ -q`
