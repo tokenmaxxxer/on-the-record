@@ -7,12 +7,19 @@ Claude Code session itself: that launch is an integration point the operator
 wires to their own session-launch mechanism (issue #776 step 3).
 """
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
 
 HARNESS_DIR = Path(__file__).resolve().parent
 FIXTURE_TEMPLATE_DIR = HARNESS_DIR / "fixture-target"
+
+# issue #847: harness-only env vars for the steady-state faithful-GitHub-host
+# scenario. Never read by anything a normal plugin install path reads.
+NORTHPOLE_HARNESS_GH_REPO_ENV = "NORTHPOLE_HARNESS_GH_REPO"
+NORTHPOLE_HARNESS_GH_TOKEN_ENV = "NORTHPOLE_HARNESS_GH_TOKEN"
+DEFAULT_HARNESS_GH_REPO = "JiwonJung94/northpole-harness-fixture"
 
 REPRESENTATIVE_REQUIREMENT = (
     "The CLI's --version flag currently crashes with a stack trace instead "
@@ -53,6 +60,112 @@ def instantiate_fixture_target(dest_dir, seed_remote_dir=None):
         subprocess.run(["git", "-C", str(dest), "remote", "add", "origin", str(remote)],
                        check=True, capture_output=True)
     return dest
+
+
+def resolve_harness_github_token():
+    """issue #847: NORTHPOLE_HARNESS_GH_TOKEN first, else the ambient `gh`
+    CLI auth token (`gh auth token` — https://cli.github.com/manual/gh_auth_token,
+    prints the token for the account `gh auth login` already authenticated).
+    Never raises: a missing env var and a missing/failed `gh` both resolve
+    to None so the caller degrades to UNMEASURED-with-reason, not a crash.
+    """
+    token = os.environ.get(NORTHPOLE_HARNESS_GH_TOKEN_ENV, "").strip()
+    if token:
+        return token
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "token"], capture_output=True, text=True, timeout=10,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def resolve_harness_github_host():
+    """issue #847: resolve the faithful GitHub host for the steady-state
+    scenario (candidate 1: a real throwaway repo + harness-only token;
+    candidate 3: explicit empty-state branch). Returns
+    {"available": True, "repo", "token"} when both are resolvable, else
+    {"available": False, "reason"}. Never raises, and "available": False
+    must be reported by callers as UNMEASURED-with-reason — never a crash,
+    never a silent PASS against a non-GitHub stand-in.
+    """
+    repo = os.environ.get(NORTHPOLE_HARNESS_GH_REPO_ENV, DEFAULT_HARNESS_GH_REPO)
+    token = resolve_harness_github_token()
+    if not token:
+        return {
+            "available": False,
+            "reason": (
+                f"no {NORTHPOLE_HARNESS_GH_TOKEN_ENV} set and no ambient "
+                "`gh auth token` available; the steady-state faithful-"
+                "GitHub-host scenario cannot run against a real host"
+            ),
+        }
+    return {"available": True, "repo": repo, "token": token}
+
+
+def reset_and_push_fixture_to_github(dest_dir, repo, token):
+    """issue #847: reset repo (a real GitHub repo, e.g. the harness-only
+    fixture host) to a clean state and push dest_dir's current HEAD as its
+    sole default-branch history, so every steady-state run starts the
+    delegated role from the same clean slate. Deletes every other branch
+    via the GitHub REST API through `gh api`
+    (https://cli.github.com/manual/gh_api) so no prior run's
+    issue-<n>/<role> branches linger, then force-pushes dest_dir's HEAD.
+
+    Callers must only reach this after resolve_harness_github_host() has
+    already confirmed availability — a failure here is a real harness
+    defect (raises subprocess.CalledProcessError), not an expected empty
+    state.
+    """
+    remote_url = f"https://x-access-token:{token}@github.com/{repo}.git"
+    env = dict(os.environ, GH_TOKEN=token)
+
+    default_branch = subprocess.run(
+        ["gh", "api", f"repos/{repo}", "--jq", ".default_branch"],
+        capture_output=True, text=True, env=env, check=True,
+    ).stdout.strip()
+    branches = subprocess.run(
+        ["gh", "api", f"repos/{repo}/branches", "--paginate", "--jq", ".[].name"],
+        capture_output=True, text=True, env=env, check=True,
+    ).stdout.splitlines()
+    for branch in branches:
+        branch = branch.strip()
+        if branch and branch != default_branch:
+            subprocess.run(
+                ["gh", "api", "-X", "DELETE", f"repos/{repo}/git/refs/heads/{branch}"],
+                capture_output=True, text=True, env=env, check=True,
+            )
+
+    subprocess.run(
+        ["git", "-C", str(dest_dir), "push", "--force", remote_url,
+         f"HEAD:refs/heads/{default_branch}"],
+        capture_output=True, text=True, check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(dest_dir), "remote", "add", "origin", remote_url],
+        capture_output=True, text=True, check=True,
+    )
+    return {"remote_url": remote_url, "pushed_ref": default_branch}
+
+
+def seed_steady_state_github_host(dest_dir):
+    """issue #847: wire dest_dir's `origin` to the real, harness-only
+    GitHub fixture host and reset it to a clean state each run (candidate
+    1), or report UNMEASURED-with-reason when no repo/token is configured
+    (candidate 3's empty-state branch) — never raises, and never lets the
+    caller proceed against a non-GitHub stand-in silently.
+
+    Returns resolve_harness_github_host()'s dict; on success it also
+    carries "remote_url" and "pushed_ref".
+    """
+    host = resolve_harness_github_host()
+    if not host["available"]:
+        return host
+    pushed = reset_and_push_fixture_to_github(dest_dir, host["repo"], host["token"])
+    return {**host, **pushed}
 
 
 def get_representative_requirement():

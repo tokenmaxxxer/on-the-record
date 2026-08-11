@@ -24,6 +24,35 @@ own root `.claude-plugin/marketplace.json`, so an operator installing the
 fixture's marketplace gets on-the-record as a plugin exactly the way any
 other user would.
 
+## Steady-state faithful GitHub host (issue #847)
+
+The steady-state scenario needs a real GitHub host so a delegated role's
+`gh` issue/PR/merge calls succeed (a local bare `file://` remote passes
+`git remote get-url origin` but `gh` refuses it — issue #847). Two
+harness-only env vars, read by `harness/driver.py`, never by anything a
+normal plugin install reads:
+
+- `NORTHPOLE_HARNESS_GH_REPO` — `owner/repo` of the throwaway, private
+  fixture host repo. Defaults to `JiwonJung94/northpole-harness-fixture`.
+- `NORTHPOLE_HARNESS_GH_TOKEN` — a token scoped to that repo. If unset,
+  falls back to the ambient `gh auth token` (the account `gh auth login`
+  already authenticated).
+
+`driver.seed_steady_state_github_host(dest_dir)`:
+- when a repo + token resolve, deletes every non-default branch on the
+  host via `gh api` and force-pushes `dest_dir`'s current HEAD as the
+  default branch, so every run starts from the same clean slate, then
+  wires `origin` to the real GitHub remote;
+- when no repo/token resolves, returns `{"available": False, "reason":
+  ...}` and leaves `dest_dir` untouched — the scenario must report this
+  as UNMEASURED-with-reason, never a crash and never a false PASS.
+
+To run the delegated role's own `gh` calls against this host, also export
+the same token as `GH_TOKEN` (or `GITHUB_TOKEN`) in the session's own
+environment before launch — `gh` reads that var directly, with no `gh
+auth login` step needed (`gh` docs:
+https://cli.github.com/manual/gh_auth_token).
+
 ## Running it
 
 - Smoke check (signal-emission shape only, no live session):
