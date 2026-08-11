@@ -35,6 +35,18 @@
 # merge never deadlocks on a session that never wrote the trailer. Deny is
 # now the fallback: it fires only if the `gh pr edit` write itself fails,
 # never as the primary response to a missing trailer.
+#
+# Execution provenance (issue #741 round 2): every `gh pr merge` this script
+# reaches a verdict on appends one JSON line to CONTRACT_GUARD_PROVENANCE_LOG
+# (default ~/.claude/on-the-record/hook-provenance.log) — this script's own
+# absolute path and sha256, plus the phase2/is_src_test/is_record/
+# closes_present_before verdict it computed. A same-day recurrence (PR #768)
+# was traced to a stale Claude Code plugin-cache copy executing instead of
+# the checked-out main version — undetectable from git history alone, only
+# found by hand-diffing 8 cache directories against installed_plugins.json.
+# The log makes that comparison immediate next time. Log I/O failures are
+# swallowed (try/except Exception: pass) — logging must never become a new
+# deny path or change what merges.
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
@@ -42,8 +54,11 @@ payload="$(cat 2>/dev/null || true)"
 command -v python3 >/dev/null 2>&1 || exit 0
 command -v gh >/dev/null 2>&1 || exit 0
 
+CG_SELF_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
+export CG_SELF_PATH
+
 IFS='' read -r -d '' GUARD <<'PY' || true
-import json, os, re, subprocess, sys
+import datetime, hashlib, json, os, re, subprocess, sys
 
 def deny(msg):
     sys.stderr.write("contract-guard: %s\n" % msg)
@@ -146,6 +161,37 @@ issue = int(closes_m.group(2)) if closes_m else (plain_refs[0] if plain_refs els
 if issue is None:
     sys.exit(0)  # no issue reference at all — pr_reference.py's own scope, not this hook's new ground
 
+# Content-based phase-2 shape (issue #741 round 1, moved earlier in round
+# 2): computed as soon as `issue` is known — the earliest point its own
+# data dependency allows — rather than after the round-scoped `phase2`
+# bool further below, so both signals reach the provenance log
+# unconditionally on what `phase2` turns out to be. The two gates that act
+# on these values (`if not phase2` and `if not (is_src_test or
+# is_record)`, both further below) keep their original positions and
+# conditions unchanged; only this computation's position moved earlier.
+files = [
+    f.get("path") for f in (pr_data.get("files") or [])
+    if isinstance(f, dict) and f.get("path")
+]
+is_src_test = any(re.search(r"(^|/)(src|tests?)/", f) for f in files)
+
+role = None
+try:
+    br = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True, timeout=20, cwd=target_cwd or os.getcwd(),
+    )
+    if br.returncode == 0:
+        bm = re.match(r"^issue-(\d+)/([\w-]+)$", br.stdout.strip())
+        if bm and int(bm.group(1)) == issue:
+            role = bm.group(2)
+except (OSError, subprocess.SubprocessError):
+    role = None  # unreached: git ships wherever contract-guard.sh does
+
+is_record = role is not None and (
+    "docs/issue-%d/reports/%s.md" % (issue, role) in files
+)
+
 if target_repo_flag and target_cwd is None:
     # -R/--repo or a full URL with no local `cd` checkout: the target repo
     # is known, but docs/specs/approvers.md for it cannot be read from the
@@ -174,40 +220,55 @@ phase2 = any(
     and (not first_commit_at or c.get("createdAt", "") > first_commit_at)
     for c in comments
 )
+
+# Execution provenance (issue #741 round 2): phase2/is_src_test/is_record
+# are all computed now — write one log line before either gate below can
+# exit, so the log always reflects what this exact running copy of the
+# script decided, whichever way. try/except wraps everything, including
+# directory creation: a log-write failure must never become a new deny
+# path or change what merges (fail-open, matching this file's own header
+# policy).
+try:
+    self_path = os.environ.get("CG_SELF_PATH") or ""
+    script_sha256 = None
+    if self_path:
+        with open(self_path, "rb") as sf:
+            script_sha256 = hashlib.sha256(sf.read()).hexdigest()
+    log_path = os.path.expanduser(
+        os.environ.get("CONTRACT_GUARD_PROVENANCE_LOG")
+        or "~/.claude/on-the-record/hook-provenance.log"
+    )
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    entry = {
+        "ts": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "script_path": self_path,
+        "script_sha256": script_sha256,
+        "pr": pr,
+        "repo": target_repo_flag,
+        "issue": issue,
+        "phase2": phase2,
+        "is_src_test": is_src_test,
+        "is_record": is_record,
+        "closes_present_before": bool(closes_m),
+    }
+    with open(log_path, "a", encoding="utf-8") as lf:
+        lf.write(json.dumps(entry) + "\n")
+except Exception:
+    pass
+
 if not phase2:
     sys.exit(0)  # phase-1 PR: no closing-keyword obligation (pr_reference.py phase1 path)
 
 # Content-based phase-2 gate (issue #741): the round-scoping `phase2` bool
 # above is trivially true for ANY same-round approval, including a
 # docs-only phase-1 proposal PR — approval by definition postdates
-# phase-1's first commit on a shared branch. A second, independent
-# condition confirms this PR's own diff is actually phase-2-shaped before
-# attaching/requiring Closes, using the same two path patterns
-# approval-gate.sh already gates writes on (src/tests? path, or the
-# acting role's own exact record file).
-files = [
-    f.get("path") for f in (pr_data.get("files") or [])
-    if isinstance(f, dict) and f.get("path")
-]
-is_src_test = any(re.search(r"(^|/)(src|tests?)/", f) for f in files)
-
-role = None
-try:
-    br = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True, text=True, timeout=20, cwd=target_cwd or os.getcwd(),
-    )
-    if br.returncode == 0:
-        bm = re.match(r"^issue-(\d+)/([\w-]+)$", br.stdout.strip())
-        if bm and int(bm.group(1)) == issue:
-            role = bm.group(2)
-except (OSError, subprocess.SubprocessError):
-    role = None  # unreached: git ships wherever contract-guard.sh does
-
-is_record = role is not None and (
-    "docs/issue-%d/reports/%s.md" % (issue, role) in files
-)
-
+# phase-1's first commit on a shared branch. `files`/`is_src_test`/`role`/
+# `is_record` were already computed further above (right after `issue` was
+# known) so the provenance log could see them unconditionally — this gate
+# just acts on them: a second, independent condition confirming this PR's
+# own diff is actually phase-2-shaped before attaching/requiring Closes,
+# using the same two path patterns approval-gate.sh already gates writes
+# on (src/tests? path, or the acting role's own exact record file).
 if not (is_src_test or is_record):
     sys.exit(0)  # approved but this PR's own diff isn't phase-2-shaped (issue #741)
 
