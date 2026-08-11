@@ -49,6 +49,12 @@
         ]
       },
       {
+        "matcher": "Bash|WebFetch",
+        "hooks": [
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/credential-network-guard.sh" }
+        ]
+      },
+      {
         "matcher": "Write|Edit|MultiEdit",
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-claim-guard.sh" },
