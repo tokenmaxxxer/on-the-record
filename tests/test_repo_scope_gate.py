@@ -5,13 +5,13 @@
 이유는 #415 의 자체 승인된 proposal(`docs/issue-415/proposals/implementation.md`
 item 2)이 이 경로를 그대로 지정했다 — `gates/` 아래가 아니다.
 
-  python3 test_repo_scope_gate.py
+  python3 tests/test_repo_scope_gate.py
 """
 from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent / "gates"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "gates"))
 import repo_scope
 
 
