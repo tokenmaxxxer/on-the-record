@@ -76,6 +76,73 @@ _STATE_CLAIM_MARKER = re.compile(
     r"is\s+running|is\s+gone|is\s+stale)\b")
 _CANONICAL_TAG = re.compile(r"`?canonical:\s*(\S.*?)`?\s*$", re.MULTILINE)
 
+# issue #870 — generalized fake-success detection, candidate (a): an
+# OUTCOME claim ("requirement met", "done", "PASS", "complete") needs a
+# citation that is itself an EXECUTED-LIVE reference, not just any
+# `canonical:` tag — #793's own check only requires the tag be non-empty,
+# never inspects what kind of source it names (a prior transcript read
+# passes identically to a command actually run this turn). Deliberately
+# narrow, same known-bypassable-by-synonym tradeoff `_STATE_CLAIM_MARKER`
+# already accepts — widen from real record-corpus usage later, not a
+# closed set assumed complete here.
+_OUTCOME_CLAIM_MARKER = re.compile(
+    r"(?i)\b(requirement(?:s)?\s+met|done|PASS(?:es|ed)?|complete[ds]?)\b")
+_EXECUTED_LIVE_CANONICAL = re.compile(
+    r"(?i)^(?:gh\s|git\s|pytest\b|python3?\s|npm\s|npx\s|bash\s|sh\s|\./|"
+    r"acceptance:\s*\S.*\bresult:\s*(?:PASS|FAIL|UNMEASURED)\b)")
+
+
+def outcome_claim_citation_check(text: str) -> list[str]:
+    """issue #870 mirror: an OUTCOME claim ("requirement(s) met", "done",
+    "PASS(es/ed)", "complete(d)") needs a `canonical:` tag within 3 lines
+    above it whose cited source is itself an executed-live reference (a
+    command string, or an `acceptance: <command> — result: ...` line) —
+    not a bare file-read/summary citation, which satisfies #793's own
+    state-claim check but does not prove the claimed outcome was actually
+    re-run against the current state. Fail-closed: no qualifying citation
+    -> refused."""
+    bad = []
+    lines = text.splitlines()
+    in_fence = [False] * len(lines)
+    fence = False
+    for i, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            fence = not fence
+            in_fence[i] = True
+            continue
+        in_fence[i] = fence
+    for i, line in enumerate(lines):
+        if in_fence[i]:
+            continue
+        # A markdown heading ("## What was done") names a section, it
+        # does not itself assert an outcome — skip, same shape reasoning
+        # `bare_count_claim_check` uses to skip fenced code.
+        if line.lstrip().startswith("#"):
+            continue
+        if not _OUTCOME_CLAIM_MARKER.search(line):
+            continue
+        window = "\n".join(lines[max(0, i - 3):i + 1])
+        m = _CANONICAL_TAG.search(window)
+        cited = m.group(1).strip().strip("`") if m and m.group(1).strip() else ""
+        has_executed_live = bool(cited) and bool(
+            _EXECUTED_LIVE_CANONICAL.search(cited))
+        # A `derived: <command>` tag (#333's own citation for a count
+        # claim) is itself a command reference — accept it as a sibling
+        # executed-live source, same "don't double-demand a citation for
+        # what's already cited" treatment `canonical_source_claim_check`
+        # gives count claims.
+        has_derived = bool(_CLAIM_DERIVED_TAG.search(window))
+        if not has_executed_live and not has_derived:
+            bad.append(
+                "레코드에 실행-근거 없는 OUTCOME 주장 (issue #870): "
+                f"{line.strip()!r} — 'requirement met/done/PASS/complete' "
+                "류의 결과 주장을 하면서 3줄 이내에 실행-라이브 인용"
+                "(`gh ...`/`pytest ...`/`python3 ...`/"
+                "`acceptance: <command> — result: ...` 등으로 시작하는 "
+                "`canonical:` 태그)이 없다 — 파일을 읽었다는 인용만으로는 "
+                "부족하다.")
+    return bad
+
 
 def unverifiable_reason_check(text: str) -> list[str]:
     """#310/#331 mirror: an `unverifiable:` escape line needs a reason."""
@@ -240,6 +307,7 @@ def lint_record(path: Path) -> list[str]:
     bad += bare_count_claim_check(text)
     bad += orphaned_path_reference_check(root, text)
     bad += canonical_source_claim_check(text)
+    bad += outcome_claim_citation_check(text)
     return bad
 
 
