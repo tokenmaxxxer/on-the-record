@@ -127,6 +127,18 @@ needed.
      (asserting from a self-summary with nothing to name) visible and
      refusable, and is exactly the same trust model
      `record-claim-guard.sh` already uses for `derived:`.
+   - **Known limitation (after-proposal hunt, stance 0 — derived:
+     docs/issue-793/reports/product-discovery/hunt-verify-before-claim.md):**
+     a fixed marker-word regex is bypassable by synonym choice (e.g.
+     "shipped"/"died"/"wrapped up"/"present" instead of
+     "merged"/"gone"/"found"/"closed") — the same limitation
+     `bare_count_claim_check`'s fixed `_COUNT_RATIO`/`_COUNT_NOUN` regex
+     already accepts as a tradeoff in the existing gate. Phase 2 should
+     widen the marker list from real record corpus usage (grep
+     `docs/issue-*/reports/**/*.md` on `main` for verb patterns actually
+     used in state/defect assertions) rather than a hand-guessed list,
+     and treat the vocabulary as an append-only list to extend on each
+     missed case, not a closed set assumed complete at write time.
 
 3. **Empty-state**: a write with no state/defect-claim marker sentence —
    a pure log line, a plan/next-steps line, a low-stakes read-only
