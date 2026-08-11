@@ -3,7 +3,7 @@
 #
 # Auto-approves or auto-rejects a candidate decision only when BOTH the
 # depth axis (the decision follows from an operator judgment already
-# recorded under docs/product/*.md) and the impact axis (mechanical
+# recorded under docs/issue-<n>/product/*.md) and the impact axis (mechanical
 # reversibility grade, same tiers `gates/risk_report.py::classify_axes`
 # already uses) clear, AND the multi-role panel (every role with standing
 # over the changed paths that also owns an implicated judgment axis)
@@ -11,7 +11,7 @@
 # named `panel-unanimous-support-v1` rule — never a single role's solo
 # `supports`, never an orchestrator judgment call made at decision time.
 # Any missing precondition escalates (no partial credit, no OR fallback);
-# an empty/absent docs/product corpus means the depth axis never matches,
+# an empty/absent docs/issue-<n>/product corpus means the depth axis never matches,
 # so everything escalates via the same AND composition — no special-case
 # branch (issue #573 architecture proposal, sections 1-9).
 #
@@ -362,9 +362,9 @@ _gh(["issue", "comment", str(issue), "--body",
      f"Judgment opened: PR #{pr_ref} — candidate decision on branch `{branch}` "
      f"({len(paths)} path(s) changed) entered delegated-judgment evaluation."])
 
-# --- depth axis: docs/product/*.md corpus match -----------------------------
-def depth_match(paths):
-    corpus_dir = TARGET / "docs" / "product"
+# --- depth axis: docs/issue-<n>/product/*.md corpus match -------------------
+def depth_match(paths, issue_n):
+    corpus_dir = TARGET / "docs" / f"issue-{issue_n}" / "product"
     if not corpus_dir.is_dir():
         return False
     entries = list(corpus_dir.glob("*.md"))
@@ -381,7 +381,7 @@ def depth_match(paths):
     return False
 
 
-DEPTH = depth_match(paths)
+DEPTH = depth_match(paths, issue)
 
 # --- impact axis: inline port of risk_report.py's reversibility tiers ------
 # (issue #511's dominant-axis rule, reversibility axis only — this gate's
@@ -664,7 +664,7 @@ audit_path = decisions_dir / f"auto-{seq}.md"
 
 lines = [
     "---",
-    "derivation_source: docs/product corpus match",
+    f"derivation_source: docs/issue-{issue}/product corpus match",
     f"impact_grade: {IMPACT_GRADE}",
     f"eligible_roles: {eligible_roles}",
     "synthesis_rule_id: panel-unanimous-support-v1",
