@@ -55,7 +55,30 @@ p = ti.get("file_path") if isinstance(ti, dict) else None
 if not isinstance(p, str) or not p:
     sys.exit(0)
 
+# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
+# session-role-bind.sh snapshots CLAUDE_ROLE at SessionStart, before any
+# session-controlled code runs, keyed by session_id, into a state file this
+# session has no declared write path to. A later Bash-tool re-export of
+# CLAUDE_ROLE can no longer change what this gate believes the role is,
+# because the live env var is only a fallback for when no snapshot exists
+# (e.g. session-role-bind.sh hasn't run yet, or its state dir was cleared).
 role = os.environ.get("CLAUDE_ROLE", "")
+session_id = e.get("session_id")
+if isinstance(session_id, str) and session_id:
+    state_dir = os.environ.get(
+        "OTR_ROLE_BIND_STATE_DIR",
+        os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
+    )
+    safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
+    snapshot_path = os.path.join(state_dir, safe_session + ".json")
+    try:
+        with open(snapshot_path, encoding="utf-8") as f:
+            snapshot = json.load(f)
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
+            role = snapshot["role"]
+    except (OSError, ValueError):
+        pass  # no snapshot yet — fall back to the live env var
+
 n = posixpath.normpath(p.replace("\\", "/"))
 
 # --- subject issue number off the current branch ---------------------------
