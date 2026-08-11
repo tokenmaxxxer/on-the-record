@@ -116,8 +116,11 @@ Kept separate; this proposal's own new hook adds itself as one more
    mock for `closure_sweep._pr_index_all` (`lambda root: (None, True)`,
    with the matching teardown), mirroring the fix already landed for the
    sibling test in `gates/test_closure_sweep.py`.
-3. Add `on-the-record/hooks/gate-registration-guard.sh` — new
-   `PreToolUse`+`Bash` hook. On a staged `git commit` whose
+3. Add `on-the-record/hooks/gate-registration-guard.sh` (checked in with
+   the execute bit set, mode `100755`, matching every existing hook file
+   — `git ls-tree HEAD` confirms all current `on-the-record/hooks/*.sh`
+   are `100755`) — new `PreToolUse`+`Bash` hook. On a staged `git commit`
+   whose
    `git diff --cached --name-status` includes an `A` (added) entry under
    `gates/*.py` (excluding `test_*.py`/`__init__.py`, matching
    `gates/test_boundary.py`'s own `_actual_mechanisms()` exclusions),
@@ -132,8 +135,16 @@ Kept separate; this proposal's own new hook adds itself as one more
 4. Add `on-the-record/hooks/test_gate_registration_guard.py`: a red case
    (new `gates/*.py` file staged with no boundary row -> denied, exit 2),
    the acceptance criterion's required green case (a change touching no
-   new mechanism file -> passes untouched), and a case where the new
-   file's row is staged in the same commit -> passes.
+   new mechanism file -> passes untouched), a case where the new file's
+   row is staged in the same commit -> passes, and (after-proposal hunt
+   finding, stance 4) an explicit `os.access(SCRIPT, os.X_OK)` assertion
+   on the new script — `hooks.json` invokes every hook by its raw path
+   with no interpreter prefix, so a missing execute bit fails silently
+   (exit 126) at real invocation time even though every sibling test
+   drives its script via `subprocess.run(["bash", str(script)])`, which
+   is blind to the file's own execute permission; issue #459's own merge
+   commit hit and fixed this exact gap via a before-landing hunt, not
+   pytest — this assertion closes that gap mechanically this time.
 5. Wire `gate-registration-guard.sh` into `on-the-record/hooks/hooks.json`'s
    `PreToolUse`+`Bash` matcher array, next to `role-axis-completeness-guard.sh`.
 6. Add an `enforcement-boundary.md` row and a `generated-paths.md` row for
