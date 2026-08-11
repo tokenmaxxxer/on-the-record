@@ -139,16 +139,34 @@ def t_actual_tree_ci_reachable_gates_catches_writeset_and_record_enums():
     assert any("gates.record_enums" in b for b in bad), bad
 
 
-def t_actual_tree_schema_field_orphans_catches_alive():
-    """`decision_queue` was the orphaned field when this test was written,
-    but issue-466's `decision-queue-stopgate.sh` (landed on main since) now
-    reads it, so it's no longer orphaned — a real fix, not a regression.
-    `alive` (also in `docs/specs/flows-schema.md`) remains unread outside
-    its producer/test, so it stays a stable fixture for "the gate catches a
-    real orphaned field in the actual tree"."""
+def t_actual_tree_schema_field_orphans_catches_a_real_orphan():
+    """Proves the gate flags at least one real orphaned schema field in the
+    actual tree (not a synthetic fixture — the file's other four
+    `schema_field_orphans` tests already cover synthetic detection). This
+    fixture used to pin one field name and was exhausted twice by
+    legitimate new readers landing: `decision_queue` (until issue-466's
+    `decision-queue-stopgate.sh` started reading it), then `alive` (until
+    issue-811's own trigger). This version pins no field name, so that
+    exhaustion shape cannot recur: a future failure here means either every
+    documented `docs/specs/*.md` field is now read somewhere (add a fresh
+    orphaned-field case), or `schema_field_orphans()` itself regressed.
+    Known limitation (docs/issue-811/proposals/2026-08-11-schema-field-orphans-real-orphan-assertion.md):
+    `schema_field_orphans`'s producer-skip excludes a field's entire
+    producer file once any producer-shaped occurrence appears there, so a
+    field only self-consumed within its own producer file still reports as
+    orphaned — this assertion can stay green off such an entry even in a
+    hypothetical world where the gate's ability to catch a true
+    no-reader-anywhere orphan regressed to zero. Accepted, not fixed here:
+    `schema_field_orphans`'s judgment logic is out of scope for issue-811."""
     root = Path(__file__).resolve().parent.parent
     bad = gates.schema_field_orphans(root, {})
-    assert any("alive" in b for b in bad), bad
+    assert bad, (
+        "schema_field_orphans found zero orphans in the actual tree — "
+        "either every documented docs/specs/*.md field is now read "
+        "somewhere (this test needs a case retargeted) or "
+        "schema_field_orphans() itself regressed to never flagging "
+        "anything: " + repr(bad)
+    )
 
 
 def t_schema_field_orphans_ignores_reader_under_gitignored_runs_dir():
