@@ -148,20 +148,35 @@ closed_checks:
 
 ## Acceptance verification
 
-- issue #759 acceptance 1 — `main` restored to green — checked:
-  `python3 -m pytest gates/ tests/ -q` — result: pass, derived: `python3 -m pytest gates/ tests/ -q`
+- issue #759 acceptance 1 (main restored to green) — checked: gates/test_boundary.py::t_all_gates_modules_recorded — result: pass
+- issue #759 acceptance 1 (main restored to green) — checked: gates/test_generated_paths.py::t_all_generators_recorded_and_disjoint — result: pass
+- issue #759 acceptance 1 (main restored to green) — checked: tests/test_gates.py::t_find_violations_uses_record_evidence_for_keywordless_merge — result: pass
+- issue #759 acceptance 2 (unregistered new gate module denied at landing path) — checked: on-the-record/hooks/test_gate_registration_guard.py::t_new_gate_module_with_no_boundary_row_denies_commit — result: pass
+- issue #759 acceptance 2 (stated empty-state green case: a change touching no registration target passes) — checked: on-the-record/hooks/test_gate_registration_guard.py::t_no_registration_target_change_passes_untouched — result: pass
+
+## Verification run
+
+Full-suite re-run post-commit `dd651ed`, on the fully clean tree
+(`derived: python3 -m pytest gates/ tests/ -q`):
 
 ```
 $ python3 -m pytest gates/ tests/ -q
 ............................................................................ [ ...]
-911 passed, 2 skipped in ...s
+915 passed, 2 skipped in 131.94s (0:02:11)
 ```
 
-- issue #759 acceptance 2 — a fixture asserts a new gate module with no
-  boundary row is denied at the landing path, and a change touching no
-  registration target passes (the stated empty-state green case) —
-  checked: `python3 -m pytest on-the-record/hooks/test_gate_registration_guard.py -q`
-  — result: pass, derived: `python3 -m pytest on-the-record/hooks/test_gate_registration_guard.py -q`
+Pass count moved from the mid-build 911 (proposal-time baseline) to 915
+because issue-743's PR #769 landed more tests on `main` between this
+build's start and this commit — 0 failures either way, and unrelated to
+this proposal's write set. A pre-commit run on the then-dirty working
+tree also surfaced test_gates.py's t_rulebook_version_is_recorded
+failing: spawn.rulebook_version()'s own dirty-tree check (`git status
+--porcelain`) was tripping on this build's own staged, uncommitted
+files — not a pre-existing defect, and confirmed gone on this
+post-commit clean-tree re-run above.
+
+New hook's own test file, isolated
+(`derived: python3 -m pytest on-the-record/hooks/test_gate_registration_guard.py -q`):
 
 ```
 $ python3 -m pytest on-the-record/hooks/test_gate_registration_guard.py -q
