@@ -3765,6 +3765,19 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
     # session-end 도, 죽은 wrapper_pid 도 신호가 안 되기 때문이다(이슈
     # #451, #445 발견 2). `_await_bounded` 는 호출 한 번의 stall 만
     # 보장하므로, 여기서는 반복에 걸친 무진전 누적 시간을 직접 잰다.
+    # 이슈 #1043: follow 진입 시점에 이미 살아있는 워처(자동 무장이든
+    # 이전 follow 든)가 이 세션을 커버하고 있으면 그대로 두고, 없거나
+    # 죽어있을 때만 이 follow 프로세스 자신을 워처로 등록한다 — 그래야
+    # watchdog 이 살아있는 follow 를 stale 자동무장 pid 로 오인해 매
+    # 틱마다 watcher-dead 를 오탐하지 않는다.
+    follow_role_m = re.search(r"issue-\d+/([^/]+)$", key) if key else None
+    follow_role = follow_role_m.group(1) if follow_role_m else role
+    current_watcher_pid = entry.get("watcher_pid")
+    if not (current_watcher_pid is not None and
+            _watcher_looks_real(current_watcher_pid, issue, follow_role)):
+        _workspace_index_put(issue, follow_role, work, str(log_path),
+                              watcher_pid=os.getpid(),
+                              watcher_armed_at=time.time())
     stall_limit_s = stall_timeout_min * 60
     last_progress = time.monotonic()
     banner_shown = False  # 이슈 #557: --follow 반복 전체에서 배너는 한 번만

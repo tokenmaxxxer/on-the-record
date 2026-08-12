@@ -70,13 +70,35 @@ covering the session).
 - In `_watch()` (spawn.py, `follow=True` branch), immediately before the
   follow loop starts, resolve the role from the already-computed `key`
   (`re.search(r"issue-\d+/([^/]+)$", key)`, falling back to the `role`
-  parameter) and call `_workspace_index_put(issue, follow_role, work,
-  str(log_path), watcher_pid=os.getpid(), watcher_armed_at=time.time())`.
+  parameter). Read the current `watcher_pid` already on the workspace
+  index entry (if any) and check it with the existing
+  `_watcher_looks_real(watcher_pid, issue, follow_role)`. Only when that
+  check is `False` (no watcher recorded, or the recorded one is dead/not
+  a real watcher) call `_workspace_index_put(issue, follow_role, work,
+  str(log_path), watcher_pid=os.getpid(), watcher_armed_at=time.time())`
+  to register this follow process as the watcher. When the check is
+  `True` (a live watcher — auto-armed or an earlier follow — already
+  covers the session), this `_watch()` invocation does not overwrite it;
+  it still runs the follow loop normally, it just does not claim watcher
+  ownership away from the process that already holds it.
   This runs once per `_watch(..., follow=True)` invocation, before
   `_await_bounded()` is first called — the follow process is alive for
-  the whole loop, so a single registration at entry is sufficient for
-  `_watcher_looks_real()`'s liveness check to hold for the loop's
-  duration.
+  the whole loop, so a single check-and-maybe-register at entry is
+  sufficient for `_watcher_looks_real()`'s liveness check to hold for the
+  loop's duration.
+- **Guards the after-proposal hunt finding**
+  (docs/issue-1043/reports/implementation/hunt-2026-08-12-watcher-dead-follow-attribution.md,
+  stance 0, composition): an earlier draft of this proposal had `_watch()`
+  unconditionally overwrite `watcher_pid` on every follow entry. The
+  hunter reproduced that a second, short-lived manual `watch --follow`
+  invocation would then clobber a live auto-armed watcher's registration;
+  once the manual watcher exited, the (still-alive) auto-armed watcher
+  would itself be flagged `watcher-dead` — reintroducing the exact bug
+  this issue reports, via composition with a second concurrent follow.
+  The read-before-write guard above closes it: registration only ever
+  moves from "no live watcher" to "a live watcher", never from "a live
+  watcher" to a different one, so a transient follow process can no
+  longer make an already-live watcher look dead once it exits.
 - Add two regression cases to `tests/test_spawn.py` (under the existing
   `WatchFollow` class, whose `setUp()` already wires a synthetic
   `WORKSPACE_INDEX` + roster + events log), named to satisfy the
