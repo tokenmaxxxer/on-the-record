@@ -220,6 +220,46 @@ def t_outcome_claim_with_real_live_fire_result_line_passes():
     assert not any("#870" in b for b in bad), bad
 
 
+def t_outcome_claim_with_observation_transcript_citation_passes():
+    """issue #923: an observation/verdict record's own natural prose
+    `canonical:` citation naming the execution transcript/measurement it
+    just produced is a third executed-live shape, additive to #870's two
+    command-shaped ones — reproduces the #895 ambiguous-scenario
+    scoreboard record that #870 previously refused
+    (docs/issue-923/reports/defect-verification/current-state.md
+    Finding 2)."""
+    body = (
+        "---\n"
+        "loop_state: landed\n"
+        "---\n\n"
+        "# record\n\n"
+        "## Scoreboard\n\n"
+        "canonical: execution transcript for the ambiguous-scenario "
+        "run, fixture PR #15 merged 2026-08-05\n"
+        "- ambiguous-scenario requirement met: PASS\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert not any("#870" in b for b in bad), bad
+
+
+def t_outcome_claim_with_bare_file_read_citation_still_reported():
+    """issue #923 regression pin: the new observation-live shape must NOT
+    widen to a bare "read this session" file-read citation that names no
+    transcript/measurement — #870's original fabrication catch stays
+    intact."""
+    body = (
+        "---\n"
+        "loop_state: landed\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: docs/issue-895/reports/execution-observation.md "
+        "(read this session)\n"
+        "ambiguous-scenario requirement met: PASS\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.lint_record(record)
+    assert any("#870" in b for b in bad), bad
+
+
 def t_no_outcome_claim_is_untouched():
     """issue #870 empty state: no outcome marker -> no #870 violation,
     same empty-state scoping #793 already follows."""
