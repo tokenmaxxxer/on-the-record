@@ -3,6 +3,7 @@ subject: issue-930
 kind: proposal
 status: proposed
 files:
+  - docs/specs/requirements.md
   - docs/specs/requirement-digest.md
   - gates/requirement_digest.py
   - gates/test_requirement_digest.py
@@ -56,6 +57,29 @@ regeneration command, and a `--update` mode that overwrites the digest
 file. Size is O(requirement count) by construction — it derives only
 from `requirements.md`, never from the record tree — directly
 answering the survey's discriminating assumption test.
+
+**1a. Owning the `stale` transition (closes a pre-existing dead
+field).** The after-proposal warrant hunt (hunt record:
+`docs/issue-930/reports/product-discovery/2026-08-12-hunt-requirement-digest-drift-guard.md`)
+found that `requirements.md`'s own field doc claims `status: stale` is
+"computed by `gates.requirement_registry`", but that gate only appends
+a CI-failure line when a `check` path is missing — it never writes the
+`status:` field, so no entry has ever actually become `stale`. Left
+unaddressed, the digest's and drift guard's `open`/`enforced`-vs-
+`stale` filtering would depend on a value nothing produces. This
+proposal's `--update` mode closes that gap directly: before rendering,
+`gates/requirement_digest.py` re-checks each entry's `check` path
+(same existence test `requirement_registry` already runs) and, when it
+no longer resolves, rewrites that entry's `status:` line in
+`requirements.md` to `stale` in the same pass — the one write this
+design makes to the raw registry, scoped to exactly the field its own
+doc already promises is computed. The commit-time preflight hook (step
+2) then requires both the corrected `requirements.md` and the
+regenerated digest to be staged together, so a status flip and its
+digest reflection land atomically. `gates.requirement_registry`
+(`gates/gates.py`) keeps its existing CI-failure behavior unchanged;
+this only adds the missing status-write, it does not change what
+`requirement_registry` treats as a failure.
 
 **2. Auto-maintenance — commit-time regenerate-or-deny.**
 New `on-the-record/hooks/requirement-digest-preflight.sh`, wired into
@@ -129,7 +153,10 @@ Per the issue's own acceptance section, in `harness/`, a new
    `open`/`enforced` entries from the seeded registry, in a line count
    equal to the requirement count, not the record count; assert the
    commit-time hook DENIES a commit that edits `requirements.md`
-   without regenerating the digest, and ALLOWS one that does.
+   without regenerating the digest, and ALLOWS one that does. Seed one
+   entry whose `check` path is deleted; assert `--update` rewrites
+   that entry's `status:` to `stale` in `requirements.md` itself and
+   the digest excludes it — closing the hunt finding above.
 3. **Fresh session, digest-only**: spin a fresh harness session whose
    only supplied context is `requirement-digest.md` (no issue history,
    no other reports — same "zero onboarding" bar req#2 sets); assert
