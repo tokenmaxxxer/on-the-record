@@ -4,6 +4,7 @@ files:
   - gates/flows.py
   - spawn.py
   - tests/test_flows.py
+  - docs/specs/flows-schema.md
 ---
 
 ## Request
@@ -86,6 +87,12 @@ subprocess calls, not O(N).
 - `tests/test_flows.py`: three cases against `flows_payload()` —
   foreign-session aged item excluded by default; own-session aged item
   still included by default; both listed under `all_scope=True`.
+- `docs/specs/flows-schema.md`: after-proposal hunt finding — this is
+  `decision_queue`'s versioned contract doc (§2.1 documents its default
+  contents; the doc notes it is mirrored by the external
+  `repo-status-board` consumer and needs sync on change). Update §2.1
+  and any surrounding prose to state the default session-ownership
+  scoping and the `--all` escape.
 
 ## Out of scope
 - Changing `decision-queue-stopgate.sh` itself (it already reads
