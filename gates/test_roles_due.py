@@ -106,6 +106,32 @@ def _t3():
         assert due == [], due
 
 
+@case("stale record predating a new qualifying diff -> still due (issue #1088)")
+def _t3b():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = _make_repo(tmp)
+        _write_spec(repo, "security-threat-model", {"path_patterns": ["**/auth/**"]})
+        (repo / "auth").mkdir()
+        (repo / "auth" / "login.py").write_text("x = 1\n")
+        _run(["add", "auth/login.py"], repo)
+        _run(["commit", "-q", "-m", "add auth"], repo)
+
+        rep = repo / "docs" / "issue-1" / "reports"
+        rep.mkdir(parents=True)
+        (rep / "security-threat-model.md").write_text("---\nloop_state: landed\n---\n")
+        _run(["add", "-A"], repo)
+        _run(["commit", "-q", "-m", "add stale record"], repo)
+
+        # A genuinely new qualifying diff lands after the record.
+        (repo / "auth" / "login.py").write_text("x = 2\n")
+        _run(["add", "auth/login.py"], repo)
+        _run(["commit", "-q", "-m", "change auth again"], repo)
+
+        due = roles_due.roles_due(repo, base="origin/main")
+        assert len(due) == 1, due
+        assert due[0]["role"] == "security-threat-model"
+
+
 @case("content pattern match fires")
 def _t4():
     with tempfile.TemporaryDirectory() as tmp:
