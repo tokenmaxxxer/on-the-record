@@ -11,6 +11,100 @@ case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; e
 # A spawned role session is never the orchestrator, even if the plugin leaks in.
 [ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
 
+# issue #947 (northpole req#7): monitor-unavailable degradation notice.
+# Plugin Monitors (idle self-wake) run only in interactive CLI sessions
+# (docs/specs/platform-capabilities.md); in IDE-extension sessions the
+# Monitor never starts and idle self-wake silently degrades to
+# turn-driven-only. poll-heartbeat.sh touches a workspace-scoped alive
+# marker before its sleep loop; this hook reads its OWN session_id from
+# the UserPromptSubmit JSON payload (same contract retry-loop-bound.sh /
+# approval-gate.sh already read), records this session's first-seen
+# timestamp on first observation, and — past a grace window — checks
+# whether the alive marker's mtime is at or after that timestamp. An
+# mtime from before this session began cannot be this session's own
+# monitor (warrant-hunt finding,
+# docs/issue-947/reports/implementation/2026-08-12-hunt-monitor-unavailable-notice.md:
+# a session-agnostic marker check would let a live CLI session's marker
+# "prove" a later, monitor-less IDE session's monitor is alive). Fails
+# open (no notice, no crash) on any missing payload/session_id/parse
+# error, matching every other on-the-record hook's stdin-JSON handling.
+_MONITOR_NOTICE_PAYLOAD="$(cat 2>/dev/null || true)"
+if [ -n "$_MONITOR_NOTICE_PAYLOAD" ] && command -v python3 >/dev/null 2>&1; then
+  OTR_MN_PAYLOAD="$_MONITOR_NOTICE_PAYLOAD" \
+  OTR_MN_DIR="$(pwd -P)/.orchestrate-monitor-alive" \
+  OTR_MN_GRACE="${MONITOR_NOTICE_GRACE_SECONDS:-600}" \
+    python3 - <<'PY' || true
+import hashlib
+import json
+import os
+import sys
+import time
+
+payload_raw = os.environ.get("OTR_MN_PAYLOAD", "")
+marker_dir = os.environ.get("OTR_MN_DIR", "")
+try:
+    grace = int(os.environ.get("OTR_MN_GRACE", "600"))
+except ValueError:
+    grace = 600
+
+try:
+    payload = json.loads(payload_raw)
+except ValueError:
+    sys.exit(0)
+if not isinstance(payload, dict):
+    sys.exit(0)
+session_id = payload.get("session_id")
+if not isinstance(session_id, str) or not session_id or not marker_dir:
+    sys.exit(0)
+# Hash rather than char-substitute: a substitution sanitizer (e.g.
+# re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)) maps distinct ids like
+# "sess/a" and "sess?a" to the identical "sess_a", letting one session's
+# start/notified bookkeeping silently answer for a different session
+# (warrant-hunt finding,
+# docs/issue-947/reports/implementation/2026-08-12-hunt-monitor-unavailable-notice-before-landing.md).
+# A hash keeps distinct ids collision-free regardless of their characters.
+safe_session = hashlib.sha256(session_id.encode("utf-8", "surrogatepass")).hexdigest()[:24]
+
+os.makedirs(marker_dir, exist_ok=True)
+start_path = os.path.join(marker_dir, ".session-" + safe_session + "-start")
+notified_path = os.path.join(marker_dir, ".session-" + safe_session + "-notified")
+alive_path = os.path.join(marker_dir, "alive")
+
+now = time.time()
+if not os.path.exists(start_path):
+    with open(start_path, "w") as f:
+        f.write(str(now))
+    sys.exit(0)  # first observation this session: nothing to check yet
+
+if os.path.exists(notified_path):
+    sys.exit(0)  # already notified this session, never repeat
+
+try:
+    with open(start_path) as f:
+        start = float(f.read().strip())
+except (OSError, ValueError):
+    sys.exit(0)
+
+if (now - start) < grace:
+    sys.exit(0)  # still inside the grace window
+
+alive = os.path.exists(alive_path) and os.path.getmtime(alive_path) >= start
+if alive:
+    sys.exit(0)
+
+with open(notified_path, "w") as f:
+    f.write(str(now))
+
+print(
+    "[orchestrate] idle self-wake is unavailable in this session (plugin "
+    "Monitors run only in interactive CLI sessions -- "
+    "docs/decisions/2026-08-12-monitor-cli-only-fallback.md); "
+    "turn-driven wake via the UserPromptSubmit/Stop poll hooks is the "
+    "active mode."
+)
+PY
+fi
+
 # Shared checkout resolution + poll-due/watchdog arming (issue #801):
 # factored into poll-rearm.sh so UserPromptSubmit (here) and Stop
 # (stop-poll-rearm.sh) trip the exact same logic, not two forks of it.

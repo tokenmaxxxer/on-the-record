@@ -43,3 +43,34 @@ The frozen 3-file write set (roles/specs/secure-coding.spec.json,
 gates/test_secure_coding_routing.py, docs/issue-1005/reports/implementation.md)
 is sufficient for the described phase-2 change; no additional file needs
 touching to keep existing gates passing.
+
+## before-landing — stance 0: assume the gate just touched is bypassable — find the bypass.
+
+Verdict: FINDING — roles_due()'s `record_absent_for` check treats presence of ANY existing `docs/issue-<n>/reports/secure-coding.md` as "not due," so a stale/unrelated secure-coding record (e.g. from an earlier, already-closed review) permanently suppresses re-surfacing for genuinely new, later security-relevant diffs on the same issue branch — the trigger never fires again for that issue regardless of what new auth/credential code lands.
+Kind: design-error
+Seed: roles/specs/secure-coding.spec.json (use_when.trigger addition), gates/roles_due.py, gates/test_secure_coding_routing.py (uncommitted working-tree diff)
+cap_seconds: 120
+tier: default
+diff_stat_lines: ~50 (spec: +19, new test file: +99)
+started_at: 2026-08-12T16:14:16+09:00
+ended_at: 2026-08-12T16:14:40+09:00
+
+### Reproduce
+```python
+# /tmp/bypass_test.py — build scratch repo (as gates/test_secure_coding_routing.py does),
+# but seed docs/issue-1/reports/secure-coding.md BEFORE committing the new auth change:
+rd = repo / "docs" / "issue-1" / "reports"
+rd.mkdir(parents=True)
+(rd / "secure-coding.md").write_text("# secure-coding record\nverdict: pass (old, unrelated review)\n")
+# ... commit init, checkout issue-1/implementation ...
+(repo / "auth" / "login.py").write_text("def authenticate(password):\n    pass\n")
+# commit "add new auth login logic"
+due = roles_due.roles_due(repo, base="origin/main")
+```
+Run: `python3 /tmp/bypass_test.py`
+
+### Observed
+`due: []` — secure-coding is reported as not due, even though a brand-new `auth/login.py` with `authenticate(password)` just landed on the branch, because an old unrelated `secure-coding.md` record already exists for issue-1.
+
+### Expected
+A genuinely new security-relevant diff landing after a prior secure-coding record was written should re-surface the role as due (e.g. gated on record recency/commit-sha, per the spec's own `board_condition` text: "no secure-coding record exists yet for that commit sha" — but `record_absent_for` only checks file existence, never commit sha, so it can never match this condition as documented).

@@ -185,8 +185,8 @@ class DecisionQueueSessionScope(unittest.TestCase):
         }
         self._patch(spawn, "_roster_load", lambda: self._roster)
         old_env = dict(spawn.os.environ)
-        self.addCleanup(spawn.os.environ.clear)
         self.addCleanup(spawn.os.environ.update, old_env)
+        self.addCleanup(spawn.os.environ.clear)
         spawn.os.environ[spawn.ORCHESTRATOR_SESSION_ID_ENV] = "session-A"
 
     def _patch(self, obj, name, fn):

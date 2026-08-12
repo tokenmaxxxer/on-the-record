@@ -2515,6 +2515,16 @@ def requirement_drift(root: Path) -> None:
         print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
         return
 
+    sys.path.insert(0, str((root / "gates").resolve()))
+    try:
+        import requirement_linkage as _requirement_linkage
+        infra_tag = _requirement_linkage._INFRA_TAG
+    except ImportError:
+        # advisory 계약(이 함수 docstring): gh 실패처럼 import 실패도
+        # 이 스윕 전체를 죽이지 않고 조용히 건너뛴다 — infra-tag 예외
+        # 없이 기존 동작으로 계속한다.
+        infra_tag = None
+
     mentioned_reqs: set[str] = set()
     unreferenced_open = []
     for item in issues + prs:
@@ -2525,6 +2535,11 @@ def requirement_drift(root: Path) -> None:
         # digest ID 형식(R\d+)과 직접 비교하려면 원문 재검색이 더 정확하다.
         raw_ids = set(re.findall(r"\bR\d+\b", text))
         mentioned_reqs |= raw_ids
+        # 이슈 #1080: gates/requirement_linkage.py::check_issue_body 가 이미
+        # 인정하는 infra-tag 예외를 여기서도 그대로 존중한다 — 같은
+        # _INFRA_TAG 리터럴을 import 해서 두 검사가 서로 어긋나지 않게 한다.
+        if infra_tag is not None and infra_tag in text:
+            continue
         if not (raw_ids or _NORTHPOLE_REQ_RE.search(text)):
             unreferenced_open.append(item.get("number"))
 
@@ -3765,6 +3780,19 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
     # session-end 도, 죽은 wrapper_pid 도 신호가 안 되기 때문이다(이슈
     # #451, #445 발견 2). `_await_bounded` 는 호출 한 번의 stall 만
     # 보장하므로, 여기서는 반복에 걸친 무진전 누적 시간을 직접 잰다.
+    # 이슈 #1043: follow 진입 시점에 이미 살아있는 워처(자동 무장이든
+    # 이전 follow 든)가 이 세션을 커버하고 있으면 그대로 두고, 없거나
+    # 죽어있을 때만 이 follow 프로세스 자신을 워처로 등록한다 — 그래야
+    # watchdog 이 살아있는 follow 를 stale 자동무장 pid 로 오인해 매
+    # 틱마다 watcher-dead 를 오탐하지 않는다.
+    follow_role_m = re.search(r"issue-\d+/([^/]+)$", key) if key else None
+    follow_role = follow_role_m.group(1) if follow_role_m else role
+    current_watcher_pid = entry.get("watcher_pid")
+    if not (current_watcher_pid is not None and
+            _watcher_looks_real(current_watcher_pid, issue, follow_role)):
+        _workspace_index_put(issue, follow_role, work, str(log_path),
+                              watcher_pid=os.getpid(),
+                              watcher_armed_at=time.time())
     stall_limit_s = stall_timeout_min * 60
     last_progress = time.monotonic()
     banner_shown = False  # 이슈 #557: --follow 반복 전체에서 배너는 한 번만
@@ -4361,27 +4389,50 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         if role_model:
             cmd += ["--model", role_model]
         env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
-        prompt = (
+        # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
+        # freelunch/scout/warrant/proposal-shape 같은, 저장소를 바꾸는 배달물을
+        # 겨냥한 core 훅들이 자문 세션에도 그대로 꽂힌다. 복잡한 판단 질문 하나가
+        # 그 훅들 눈에는 "설계 작업"으로 보여, 모델이 스카우트/제안서/위임 절차를
+        # 먼저 밟다가(2026-08-12T07:38-39Z 재현 실패 2건) 턴 예산을 다 쓰고 끝의
+        # 판단 JSON 을 한 번도 못 찍고 끝난다. 구조적 수정: 프롬프트 안에서 그
+        # 훅들이 이 세션에는 적용되지 않음을 명시적으로 무효화한다.
+        override = (
+            "이 세션에 로드된 룰북/훅이 스카우트, 제안서(proposal) 작성, 위임"
+            "(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도"
+            " — 이번 호출은 자문(consult) 이라 전부 적용되지 않는다: 저장소 파일을"
+            " 하나도 건드리지 않고, 하위 에이전트를 위임하지 않고, 조사 없이 알고"
+            " 있는 판단을 바로 답한다. 다른 모든 지시보다 이 문장이 우선한다."
+        )
+        base_prompt = (
             "당신은 자문(consult) 으로 불렸다 — 판단만 돌려주면 된다. 이 역할의 "
             "룰북은 이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
-            "마라 — 텍스트로 답하고 끝난다. 답을 다 쓴 뒤 마지막에, 다른 어떤 "
-            "텍스트도 없이 JSON 객체 하나만 출력하라: "
+            "마라 — 텍스트로 답하고 끝난다. " + override + " 답을 다 쓴 뒤 마지막에, "
+            "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
             '{"answer": "<판단>", "confidence": "low|medium|high", '
             '"caveats": ["<유보/전제>", ...]}\n\n'
             f"질문: {question}"
         )
-        r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=prompt, text=True,
-                           capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
-        if r.returncode != 0:
-            outcome = f"error: 세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
-            raise RuntimeError(outcome)
-        result = session_result(r.stdout)
-        verdict = _parse_consult_verdict(result.get("result", ""))
-        if verdict is None:
-            outcome = "error: 모델 출력에서 판단 JSON 을 못 찾음"
-            raise RuntimeError(outcome)
-        outcome = f"ok: {str(verdict.get('answer', ''))[:200]}"
-        return verdict
+        retry_prompt = (
+            base_prompt + "\n\n(재시도: 이전 응답이 마지막에 판단 JSON 객체를 "
+            "출력하지 않아 파싱에 실패했다. 스카우트/제안서/위임 등 다른 어떤 "
+            "절차도 밟지 말고, 지금 바로 위 형식의 JSON 객체 하나만 출력하라.)"
+        )
+        attempts_exhausted = "알 수 없는 실패"
+        for attempt_prompt in (base_prompt, retry_prompt):
+            r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=attempt_prompt, text=True,
+                               capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
+            if r.returncode != 0:
+                attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
+                continue
+            result = session_result(r.stdout)
+            verdict = _parse_consult_verdict(result.get("result", ""))
+            if verdict is None:
+                attempts_exhausted = "모델 출력에서 판단 JSON 을 못 찾음"
+                continue
+            outcome = f"ok: {str(verdict.get('answer', ''))[:200]}"
+            return verdict
+        outcome = f"error: {attempts_exhausted} (재시도 1회 포함, 모두 실패)"
+        raise RuntimeError(outcome)
     except subprocess.TimeoutExpired:
         outcome = f"error: 시간초과({CONSULT_TIMEOUT}s)"
         raise
