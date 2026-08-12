@@ -323,6 +323,73 @@ def t_orphaned_path_reference_check_false_positives_documented_gap():
     assert bad == [], bad
 
 
+def t_git_tracked_path_reference_check_denies_uncommitted_present_path():
+    """issue #1085 regression pin: a backtick path that IS present in the
+    working tree (so #330's `orphaned_path_reference_check` passes it)
+    but was never added in any commit is refused — the #1062 record's
+    false-citation class (a path present at authoring time, never
+    staged, never committed)."""
+    body = (
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: `docs/issue-517/reports/panel/never-committed.md`\n")
+    d, record = _repo_with_record(body)
+    (d / "docs/issue-517/reports/panel").mkdir(parents=True, exist_ok=True)
+    (d / "docs/issue-517/reports/panel/never-committed.md").write_text(
+        "present on disk, never git add'ed or committed\n")
+    bad = record_lint.lint_record(record)
+    assert any(
+        "#1085" in b and "docs/issue-517/reports/panel/never-committed.md" in b
+        for b in bad), bad
+
+
+def t_git_tracked_path_reference_check_passes_committed_path():
+    """Sibling positive: the same shape, but the path was actually
+    committed — must not be flagged."""
+    body = (
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "canonical: `gates/real_module.py`\n")
+    d, record = _repo_with_record(body)
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates" / "real_module.py").write_text("# real, committed\n")
+    _run("add", "-A", cwd=d)
+    _run("commit", "-q", "-m", "add real_module", cwd=d)
+    bad = record_lint.lint_record(record)
+    assert not any("#1085" in b for b in bad), bad
+
+
+def t_git_tracked_path_reference_check_exempts_self_citation():
+    """The record currently being written cites its own path and is not
+    yet committed (mid-authoring, before the closing commit) — exempt,
+    since the in-progress write cannot yet have git history for
+    itself."""
+    d = Path(tempfile.mkdtemp())
+    _run("init", "-q", "-b", "main", cwd=d)
+    _run("config", "user.email", "t@example.com", cwd=d)
+    _run("config", "user.name", "t", cwd=d)
+    (d / "README.md").write_text("base")
+    _run("add", "-A", cwd=d)
+    _run("commit", "-q", "-m", "base", cwd=d)
+    _run("checkout", "-q", "-b", "issue-517/implementation", cwd=d)
+    rel = "docs/issue-517/reports/implementation.md"
+    record = d / rel
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        f"See `{rel}` for the full record.\n")
+    # deliberately not committed — pins the mid-authoring exemption
+    bad = record_lint.lint_record(record)
+    assert not any("#1085" in b for b in bad), bad
+
+
 def t_defect_claim_with_bare_grep_citation_is_reported():
     """issue #791 class 1: a defect/root-cause claim backed only by a
     bare grep-shaped `file:line` mention (no fenced multi-line quote) is

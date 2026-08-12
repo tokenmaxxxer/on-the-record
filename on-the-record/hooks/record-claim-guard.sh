@@ -141,6 +141,10 @@ while probe and probe != "/":
 if root is not None:
     bad += record_lint.orphaned_path_reference_check(
         record_lint.Path(root), content)
+    # issue #1085 mirror: a path present on disk but never committed to
+    # git history (untracked working-tree artifact) is refused too.
+    bad += record_lint.git_tracked_path_reference_check(
+        record_lint.Path(root), content)
     # issue #791 mirror: a defect/root-cause claim needs a grounded
     # citation (verbatim file:line quote or `derived:` reproduction),
     # not a bare grep/keyword hit.
