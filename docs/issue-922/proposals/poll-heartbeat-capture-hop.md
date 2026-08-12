@@ -77,14 +77,23 @@ new instance of that cost, only surfaces the one instance's output.
   this proposal does not duplicate the watchdog run, it changes
   `poll-heartbeat.sh`'s own stdout-echo step for the due branch to
   surface that same run's output instead of a static string.
-  (Exact mechanism: whether `poll-heartbeat.sh` calls the watchdog
-  itself and `poll-rearm.sh`'s existing detached launch is left as-is
-  in parallel, or `poll_rearm_arm_if_due` is given a capture-and-return
-  variant callable from `poll-heartbeat.sh`, is an implementation
-  decision made during phase 2, inside this frozen write set, per the
-  constraint that no new detection/response logic is added — either
-  shape reuses the identical `spawn.py watchdog --auto-respawn`
-  invocation and prints its stdout.)
+  (Exact mechanism, resolved to stay inside the frozen write set after
+  a warrant-hunt finding on this proposal showed the two options first
+  sketched here either required editing `poll-rearm.sh` — out of
+  scope — or would duplicate the watchdog run: `poll-heartbeat.sh`
+  stops calling the shared `poll_rearm_arm_if_due` for its own due
+  branch. Instead it inlines the identical due-check
+  `poll_rearm_arm_if_due` already performs — the same
+  `python3 spawn.py poll-due` call and return-code check, read
+  unchanged out of `poll-rearm.sh` as reference, not copied logic that
+  diverges — and, when due, itself runs
+  `python3 spawn.py watchdog --auto-respawn` in the foreground,
+  capturing its combined stdout+stderr, instead of invoking
+  `poll_rearm_arm_if_due`'s nohup-detached launch. This is a single
+  invocation per due tick, not two: `poll-rearm.sh` and its other two
+  callers — `directive.sh`, `stop-poll-rearm.sh` — are untouched and
+  keep using `poll_rearm_arm_if_due` exactly as today; only
+  `poll-heartbeat.sh`'s own due branch changes which call it makes.)
 - The quiet-tick path (`"poll tick: skipped (within TTL)"`) is
   unchanged — no watchdog run happens on a skipped tick, so there is no
   report to surface; the issue's "always report" requirement binds to
