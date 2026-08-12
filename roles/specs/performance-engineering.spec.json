@@ -25,12 +25,18 @@
         "within-budget",
         "exhausted"
       ]
+    },
+    {
+      "name": "axis_evaluation",
+      "type": "ref[]",
+      "required": false
     }
   ],
   "reference_resolution": {
-    "rule": "sli must resolve to an actual monitored metric — no orphan references (issue-515 invariant 2).",
+    "rule": "sli must resolve to an actual monitored metric — no orphan references (issue-515 invariant 2). Each axis_evaluation ref must resolve to a real entry inside this record carrying axis (must be in this role's judgment_axes), verdict (supports|contradicts|no-opinion), and citation (a docs/product/*.md entry path); when verdict is contradicts, the entry must also carry a finding object with target_path (must resolve against some role's write_scope) and a non-empty required_fix (issue-573 architecture proposal, sections 1 and 6).",
     "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh"
   },
+  "gate_c_axis_evaluation": "see docs/handbooks/architecture-methodology.md, section 'Axis evaluation procedure — performance' for the READ/EXECUTE/CRITERIA/CITATION method this role's axis_evaluation entries must follow: EXECUTE recomputes error_budget_remaining from the current sli measurement against slo_target, then recomputes verdict from that recomputed budget, per the Google SRE Workbook (implementing-slos / error-budget-policy chapters).",
   "recomputation": {
     "rule": "error_budget_remaining is recomputed from the current sli measurement against slo_target, never a standalone asserted field.",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
