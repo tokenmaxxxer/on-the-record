@@ -3421,7 +3421,7 @@ def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | No
 
 def _watch(issue: int, role: str | None, stall_timeout_min: float,
            follow: bool = False, repo: str | None = None,
-           max_wait_min: float | None = None) -> int:
+           max_wait_min: float | None = None, self_heal: bool = False) -> int:
     idx = _workspace_index_load()
     key, entry = _lookup_roster_entry(idx, issue, role, repo=repo)
     if entry is None:
@@ -3492,6 +3492,12 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
         if follow_budget_s is not None:
             remaining = follow_budget_s - (time.monotonic() - follow_start)
             if remaining <= 0:
+                if self_heal:
+                    print(f"[watch] follow wall-clock cap 도달 — self-heal: "
+                          f"예산 창을 리셋하고 재무장한다", file=sys.stderr)
+                    follow_start = time.monotonic()
+                    last_progress = time.monotonic()
+                    continue
                 print(f"[watch] follow wall-clock cap 도달 — 다시 spawn.py "
                       f"watch --follow 로 재무장하라", file=sys.stderr)
                 return WATCH_WALLCLOCK_RC
@@ -3500,6 +3506,10 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
                              session_tag=session_tag, show_banner=not banner_shown,
                              max_wait_s=call_max_wait_s)
         if rc == WATCH_WALLCLOCK_RC:
+            if self_heal:
+                follow_start = time.monotonic()
+                last_progress = time.monotonic()
+                continue
             return rc
         after = _read_offset(offset_path)
         try:
@@ -3510,7 +3520,10 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
             last_progress = time.monotonic()
         if after > before:
             lines = events_path.read_text(encoding="utf-8").splitlines()
-            ev = json.loads(lines[after - 1])
+            try:
+                ev = json.loads(lines[after - 1])
+            except ValueError:
+                ev = {}
             if ev.get("type") != "session-end":
                 banner_shown = True
             if ev.get("type") == "session-end":
@@ -3523,8 +3536,12 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
         # 소비하게 둔다.
         if events_path.exists():
             lines = events_path.read_text(encoding="utf-8").splitlines()
-            if any(json.loads(line).get("type") == "session-end"
-                   for line in lines[after:]):
+            def _ev_type(line):
+                try:
+                    return json.loads(line).get("type")
+                except ValueError:
+                    return None
+            if any(_ev_type(line) == "session-end" for line in lines[after:]):
                 continue
         # `pid`(claude 서브프로세스)가 아니라 `wrapper_pid`(호출자
         # 프로세스, roster_register() 참고)로 생존을 잰다 — `pid`는
@@ -3547,9 +3564,16 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
         if pid is not None and not _alive(pid):
             print(f"[watch] 세션 프로세스가 사라졌다(pid {pid}) — session-end "
                   f"없이 끝났다. 크래시로 보고 멈춘다", file=sys.stderr)
+            _append_event(events_path, "watcher-ended-without-session-end",
+                          {"pid": pid, "reason": "crash"})
             return WATCH_CRASH_RC
         if time.monotonic() - last_progress >= stall_limit_s:
             secs = int(time.monotonic() - last_progress)
+            if self_heal:
+                print(f"[watch] follow stall: {secs}초째 진행 없음 — "
+                      f"self-heal: 재무장한다", file=sys.stderr)
+                last_progress = time.monotonic()
+                continue
             print(f"[watch] follow stall: {secs}초째 진행 없음 — 이벤트도 "
                   f"로그 변화도 없이 멈춘다. 다시 spawn.py watch --follow 로 "
                   f"재무장하라", file=sys.stderr)
@@ -4154,6 +4178,11 @@ def main() -> int:
     ap.add_argument("--follow", action="store_true",
                     help="watch: 이벤트마다 재무장하지 않고 session-end 까지 "
                          "_await_bounded 를 반복 호출하며 스트리밍한다")
+    ap.add_argument("--self-heal", action="store_true",
+                    help="watch --follow: auto-arm 워처 전용. stall/wall-clock "
+                         "에서 리턴 대신 진행 상태를 리셋하고 루프를 계속 돌아 "
+                         "session-end 까지 스스로 재무장한다 (이슈 #927). "
+                         "대화형 호출에는 쓰지 않는다")
     ap.add_argument("--max-wait", type=float, default=None,
                     help="분 단위. watch --follow 반복 전체에 걸친 wall-clock "
                          "상한 — 활동(로그 증가)이 있어도 이 시간이 지나면 "
@@ -4271,7 +4300,8 @@ def main() -> int:
         # `watch` 에도 허용한다 — `--role` 이 이미 있으면 그게 우선한다.
         watch_role = a.watch_role or a.task
         return _watch(a.issue, watch_role, a.stall_timeout, follow=a.follow,
-                      repo=_repo_identity(a.cwd), max_wait_min=a.max_wait)
+                      repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
+                      self_heal=a.self_heal)
     if a.role == "clean":
         # 안전한 것만 지운다: 미커밋 변경 없음 + origin 에 없는 커밋 없음.
         base = os.environ.get("MUSTER_WORK_DIR")
@@ -5088,7 +5118,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                         wproc = subprocess.Popen(
                             [sys.executable, str(Path(__file__).resolve()),
                              "watch", "--issue", str(issue), "--role", role,
-                             "--follow", "--stall-timeout", str(stall_timeout_min)],
+                             "--follow", "--self-heal",
+                             "--stall-timeout", str(stall_timeout_min)],
                             stdin=subprocess.DEVNULL, stdout=wf,
                             stderr=subprocess.STDOUT, start_new_session=True,
                         )
