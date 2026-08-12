@@ -148,6 +148,31 @@ def test_approvers_md_write_still_allowed(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+# --- issue #1111: product-capture-stopgate.sh exemption ---------------
+
+def test_product_capture_priorities_write_allowed(tmp_path):
+    repo = _plain_target_repo(tmp_path)
+    r = _run(repo, "docs/reports/product/priorities.md", role_env=None)
+    assert r.returncode == 0, r.stderr
+
+
+def test_product_capture_issue_scoped_write_allowed(tmp_path):
+    repo = _plain_target_repo(tmp_path)
+    r = _run(
+        repo, "docs/issue-123/reports/product/priorities.md", role_env=None,
+    )
+    assert r.returncode == 0, r.stderr
+
+
+def test_product_capture_unrelated_file_denied(tmp_path):
+    # exemption stays scoped to the stopgate's four categories — not a
+    # general docs/reports/product/* bypass, nor a general docs/reports/*
+    # bypass.
+    repo = _plain_target_repo(tmp_path)
+    r = _run(repo, "docs/reports/product/other.md", role_env=None)
+    assert r.returncode == 2, r.stderr
+
+
 def test_scratch_path_allowed(tmp_path):
     repo = _plain_target_repo(tmp_path)
     r = _run(repo, "scratch/notes.txt", role_env=None)

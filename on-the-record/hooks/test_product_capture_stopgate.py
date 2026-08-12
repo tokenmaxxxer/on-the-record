@@ -88,7 +88,7 @@ def t_bootstrap_creates_missing_file_on_first_flag():
         transcript = _write_transcript(
             repo, ["the project must support offline mode."]
         )
-        doc = repo / "docs" / "issue-123" / "product" / "requirements.md"
+        doc = repo / "docs" / "issue-123" / "reports" / "product" / "requirements.md"
         assert not doc.exists()
         _run(repo, transcript)
         assert doc.exists()
@@ -99,12 +99,12 @@ def t_flagged_requirement_with_matching_doc_diff_is_silent():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        doc_dir = repo / "docs" / "issue-123" / "product"
+        doc_dir = repo / "docs" / "issue-123" / "reports" / "product"
         doc_dir.mkdir(parents=True)
         doc = doc_dir / "requirements.md"
         doc.write_text("# Requirements\n\nAppend-only, newest entry last.\n")
         doc.write_text(doc.read_text() + "- offline mode support\n")
-        _git(repo, "add", "docs/issue-123/product/requirements.md")
+        _git(repo, "add", "docs/issue-123/reports/product/requirements.md")
         _git(repo, "commit", "-q", "-m", "record requirement")
         transcript = _write_transcript(
             repo, ["the project must support offline mode."]
@@ -145,13 +145,13 @@ def t_off_issue_branch_falls_back_to_repo_root_doc_path():
         transcript = _write_transcript(
             repo, ["the project must support offline mode."]
         )
-        doc = repo / "docs" / "product" / "requirements.md"
+        doc = repo / "docs" / "reports" / "product" / "requirements.md"
         assert not doc.exists()
         r = _run(repo, transcript)
         assert r.returncode == 0
         out = json.loads(r.stdout)
         ctx = out["hookSpecificOutput"]["additionalContext"]
-        assert "docs/product/" in ctx
+        assert "docs/reports/product/" in ctx
         assert "docs/issue-" not in ctx
         assert doc.exists()
         assert "Requirements" in doc.read_text()
@@ -182,3 +182,18 @@ def t_missing_transcript_path_fails_closed_silently():
         )
         assert r.returncode in (0, 2)
         assert r.stdout == ""
+
+
+if __name__ == "__main__":
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
+    failed = 0
+    for t in tests:
+        try:
+            t()
+        except AssertionError as e:
+            failed += 1
+            print(f"FAIL {t.__name__}: {e}")
+        else:
+            print(f"PASS {t.__name__}")
+    print(f"{len(tests) - failed}/{len(tests)} passed")
+    raise SystemExit(1 if failed else 0)

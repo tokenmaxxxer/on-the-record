@@ -13,9 +13,12 @@
 # unexamined). Also denied: an unparseable stdin payload (empty, non-JSON,
 # non-dict JSON, missing file_path) — issue #287 S4: a delivery failure
 # on stdin must not silently become an ALLOW.
-# Allowed: docs/specs/approvers.md (the one file the orchestrator is
-# sanctioned to write, with the user's confirmation), and anything under
-# a scratch/tmp path or a .git/plugin-cache directory (the muster
+# Allowed: docs/specs/approvers.md (the file the orchestrator is
+# sanctioned to write, with the user's confirmation), the
+# product-capture-stopgate.sh category files under docs/reports/product/
+# and docs/issue-<n>/reports/product/ (issue #1111 — product capture is
+# orchestrator scribing, same category as approvers.md), and anything
+# under a scratch/tmp path or a .git/plugin-cache directory (the muster
 # checkout itself, scratch notes).
 # Kill switch: ORCHESTRATE_OFF=1. Fail closed on non-0/2 (now including
 # parse failure, not just crashes — the previous header claim here was
@@ -90,7 +93,21 @@ if not isinstance(p, str) or not p:
          "through.")
 
 n = posixpath.normpath(p.replace("\\", "/"))
-if n.endswith("docs/specs/approvers.md"):
+# Orchestrator scribing exemptions: docs/specs/approvers.md, plus the
+# product-capture-stopgate.sh categories (issue #1111) — both are the
+# orchestrator's own recognized job, not role work.
+EXEMPT_SUFFIXES = (
+    "docs/specs/approvers.md",
+    "docs/reports/product/requirements.md",
+    "docs/reports/product/priorities.md",
+    "docs/reports/product/philosophy.md",
+    "docs/reports/product/goals.md",
+)
+PRODUCT_CAPTURE_ISSUE_RE = re.compile(
+    r"docs/issue-\d+/reports/product/"
+    r"(requirements|priorities|philosophy|goals)\.md$"
+)
+if n.endswith(EXEMPT_SUFFIXES) or PRODUCT_CAPTURE_ISSUE_RE.search(n):
     sys.exit(0)
 # issue #787 H1: the old src/tests?/docs-segment-only regex missed a flat
 # top-level package layout (no such segment at all). Widen to "everything

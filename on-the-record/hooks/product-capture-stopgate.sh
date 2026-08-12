@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stop: nudge the orchestrator session to record requirements/priorities/
 # philosophy/goals stated during the conversation into
-# docs/product/<category>.md, when a category was flagged in this
+# docs/reports/product/<category>.md, when a category was flagged in this
 # session's user turns but the corresponding doc file gained no new line.
 # Issue #566, carrying architecture's design
 # (docs/issue-566/proposals/architecture.md, merged PR #569) verbatim:
@@ -23,16 +23,19 @@
 # Issue #684: docs/product/<cat>.md was keyed only by a fixed category
 # name — two concurrent issue sessions flagging the same category would
 # append to the identical path. The write target is issue-scoped,
-# docs/issue-<n>/product/<cat>.md, deriving <n> from the current branch
-# (issue-<n>/<role>), the same convention delegated-judgment-gate.sh
-# already uses, whenever the branch matches that convention.
+# docs/issue-<n>/reports/product/<cat>.md (issue #1111: retargeted one
+# directory level deeper, into the `reports` bucket board-gate.sh
+# already admits), deriving <n> from the current branch (issue-<n>/<role>),
+# the same convention delegated-judgment-gate.sh already uses, whenever
+# the branch matches that convention.
 #
 # Issue #956: capture must also work by default in TARGET-project repos,
 # which will not run on-the-record's own issue-<n>/<role> branch naming.
 # Off that branch shape there is no issue number to scope by, so the
-# hook falls back to the fixed pre-#684 path, docs/product/<cat>.md —
-# #684's collision only arises among on-the-record's own concurrent
-# role sessions, which a target-project repo does not run.
+# hook falls back to the fixed pre-#684 path, docs/reports/product/<cat>.md
+# (issue #1111: also retargeted into the `reports` bucket) — #684's
+# collision only arises among on-the-record's own concurrent role
+# sessions, which a target-project repo does not run.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
@@ -167,9 +170,9 @@ if not active:
 unrecorded = []
 for cat, sents in active.items():
     if issue_n is not None:
-        rel = os.path.join("docs", f"issue-{issue_n}", "product", f"{cat}.md")
+        rel = os.path.join("docs", f"issue-{issue_n}", "reports", "product", f"{cat}.md")
     else:
-        rel = os.path.join("docs", "product", f"{cat}.md")
+        rel = os.path.join("docs", "reports", "product", f"{cat}.md")
     doc_path = os.path.join(repo, rel)
     if not os.path.isfile(doc_path):
         os.makedirs(os.path.dirname(doc_path), exist_ok=True)
@@ -199,7 +202,10 @@ if not unrecorded:
     sys.exit(0)
 
 parts = [f"{cat}.md (e.g. \"{excerpt}\")" for cat, excerpt in unrecorded]
-product_dir = f"docs/issue-{issue_n}/product/" if issue_n is not None else "docs/product/"
+product_dir = (
+    f"docs/issue-{issue_n}/reports/product/" if issue_n is not None
+    else "docs/reports/product/"
+)
 out = {
     "hookSpecificOutput": {
         "hookEventName": "Stop",
