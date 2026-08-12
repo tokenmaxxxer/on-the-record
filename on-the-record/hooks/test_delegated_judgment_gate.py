@@ -33,6 +33,10 @@ SECURITY_ROLE = {
     "write_scope": ["docs/issue-<n>/reports/security-threat-model.md"],
     "judgment_axes": ["attack_potential"],
 }
+PERFORMANCE_ROLE = {
+    "write_scope": ["docs/issue-<n>/reports/performance-engineering.md"],
+    "judgment_axes": ["performance"],
+}
 
 
 def _stub_gh(bin_dir: Path, log: Path) -> None:
@@ -333,6 +337,80 @@ def t_partial_support_with_no_opinion_escalates_not_approves(tmp_path: Path):
     assert r.returncode == 0
     assert not (target / "docs" / "issue-42" / "decisions").exists()
     assert "escalate" in log.read_text()
+
+
+def t_three_plus_role_panel_quorum_and_unanimous_support_approves(tmp_path: Path):
+    target = _init_target(
+        tmp_path / "t12",
+        {
+            "architecture": ARCHITECTURE_ROLE,
+            "security-threat-model": SECURITY_ROLE,
+            "performance-engineering": PERFORMANCE_ROLE,
+        })
+    _commit_change(target, "docs/decisions/foo.md", "x")
+    (target / "docs" / "issue-42" / "reports").mkdir(parents=True, exist_ok=True)
+    _commit_change(target, "docs/issue-42/reports/security-threat-model.md", "seed")
+    _commit_change(target, "docs/issue-42/reports/performance-engineering.md", "seed")
+    _product_corpus(
+        target,
+        ["foo.md", "security-threat-model.md", "performance-engineering.md"])
+    arch_record = target / "docs" / "issue-42" / "reports" / "architecture.md"
+    arch_record.write_text(_axis_block("maintenance_complexity", "supports"))
+    sec_record = target / "docs" / "issue-42" / "reports" / "security-threat-model.md"
+    sec_record.write_text(_axis_block("attack_potential", "supports"))
+    perf_record = target / "docs" / "issue-42" / "reports" / "performance-engineering.md"
+    perf_record.write_text(_axis_block("performance", "supports"))
+    bin_dir, log = tmp_path / "bin12", tmp_path / "gh12.log"
+    bin_dir.mkdir()
+    _stub_gh(bin_dir, log)
+    r = _run(target, bin_dir)
+    assert r.returncode == 0
+    auto = list((target / "docs" / "issue-42" / "decisions").glob("auto-*.md"))
+    assert len(auto) == 1
+    text = auto[0].read_text()
+    assert "decision: approve" in text
+    assert "role: architecture" in text
+    assert "role: security-threat-model" in text
+    assert "role: performance-engineering" in text
+
+
+def t_three_plus_role_panel_one_contradicts_rejects_with_remediation(tmp_path: Path):
+    target = _init_target(
+        tmp_path / "t13",
+        {
+            "architecture": ARCHITECTURE_ROLE,
+            "security-threat-model": SECURITY_ROLE,
+            "performance-engineering": PERFORMANCE_ROLE,
+        })
+    _commit_change(target, "docs/decisions/foo.md", "x")
+    (target / "docs" / "issue-42" / "reports").mkdir(parents=True, exist_ok=True)
+    _commit_change(target, "docs/issue-42/reports/security-threat-model.md", "seed")
+    _commit_change(target, "docs/issue-42/reports/performance-engineering.md", "seed")
+    _product_corpus(
+        target,
+        ["foo.md", "security-threat-model.md", "performance-engineering.md"])
+    arch_record = target / "docs" / "issue-42" / "reports" / "architecture.md"
+    arch_record.write_text(_axis_block("maintenance_complexity", "supports"))
+    sec_record = target / "docs" / "issue-42" / "reports" / "security-threat-model.md"
+    sec_record.write_text(_axis_block("attack_potential", "supports"))
+    perf_record = target / "docs" / "issue-42" / "reports" / "performance-engineering.md"
+    perf_record.write_text(_axis_block(
+        "performance", "contradicts",
+        {"target_path": "docs/decisions/foo.md", "required_fix": "reduce allocations"}))
+    bin_dir, log = tmp_path / "bin13", tmp_path / "gh13.log"
+    bin_dir.mkdir()
+    _stub_gh(bin_dir, log)
+    r = _run(target, bin_dir)
+    assert r.returncode == 0
+    decisions = target / "docs" / "issue-42" / "decisions"
+    auto = list(decisions.glob("auto-*.md"))
+    assert "decision: reject" in auto[0].read_text()
+    rem = list(decisions.glob("remediation-*.md"))
+    assert len(rem) == 1
+    rem_text = rem[0].read_text()
+    assert "routed_to: architecture" in rem_text
+    assert "round: 1" in rem_text
+    assert "status: open" in rem_text
 
 
 def t_kill_switch_disables_the_gate(tmp_path: Path):
