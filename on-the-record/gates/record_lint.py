@@ -92,16 +92,33 @@ _EXECUTED_LIVE_CANONICAL = re.compile(
     r"acceptance:\s*\S.*\bresult:\s*(?:PASS|FAIL|UNMEASURED)\b|"
     r"live-fire:\s*\S.*\bresult:\s*(?:allow|deny|log)\b)")
 
+# issue #923 — third executed-live shape, additive to the two above: an
+# OBSERVATION/verdict record's own measurement citation. Neither prior
+# shape is reachable in an observation role's natural prose — it did not
+# run a command *this* turn (path 1) and the record-authoring convention
+# this session is given never instructs writing a stand-alone
+# backtick-quoted `derived:` tag (path 2, gates/record_lint.py Finding 3
+# of docs/issue-923/reports/defect-verification/current-state.md).
+# Deliberately narrow vocabulary, same known-bypassable-by-synonym
+# tradeoff `_STATE_CLAIM_MARKER`/`_OUTCOME_CLAIM_MARKER` already accept —
+# a bare file-read citation ("read this session") must NOT match this,
+# only a citation naming the transcript/measurement the observation
+# itself produced.
+_OBSERVATION_LIVE_CANONICAL = re.compile(
+    r"(?i)\b(execution\s+)?(transcript|measurement)\b")
+
 
 def outcome_claim_citation_check(text: str) -> list[str]:
     """issue #870 mirror: an OUTCOME claim ("requirement(s) met", "done",
     "PASS(es/ed)", "complete(d)") needs a `canonical:` tag within 3 lines
     above it whose cited source is itself an executed-live reference (a
-    command string, or an `acceptance: <command> — result: ...` line) —
-    not a bare file-read/summary citation, which satisfies #793's own
-    state-claim check but does not prove the claimed outcome was actually
-    re-run against the current state. Fail-closed: no qualifying citation
-    -> refused."""
+    command string, an `acceptance: <command> — result: ...` line, or —
+    issue #923 — a citation naming the transcript/measurement an
+    observation/verdict record's own live run produced) — not a bare
+    file-read/summary citation, which satisfies #793's own state-claim
+    check but does not prove the claimed outcome was actually re-run (or,
+    for an observation record, actually measured) against the current
+    state. Fail-closed: no qualifying citation -> refused."""
     bad = []
     lines = text.splitlines()
     in_fence = [False] * len(lines)
@@ -133,13 +150,17 @@ def outcome_claim_citation_check(text: str) -> list[str]:
         # what's already cited" treatment `canonical_source_claim_check`
         # gives count claims.
         has_derived = bool(_CLAIM_DERIVED_TAG.search(window))
-        if not has_executed_live and not has_derived:
+        has_observation_live = bool(cited) and bool(
+            _OBSERVATION_LIVE_CANONICAL.search(cited))
+        if not has_executed_live and not has_derived and not has_observation_live:
             bad.append(
                 "레코드에 실행-근거 없는 OUTCOME 주장 (issue #870): "
                 f"{line.strip()!r} — 'requirement met/done/PASS/complete' "
                 "류의 결과 주장을 하면서 3줄 이내에 실행-라이브 인용"
                 "(`gh ...`/`pytest ...`/`python3 ...`/"
-                "`acceptance: <command> — result: ...` 등으로 시작하는 "
+                "`acceptance: <command> — result: ...`로 시작하는 "
+                "`canonical:` 태그, 또는 관측/verdict 레코드라면 자신이 "
+                "이번 턴에 만든 transcript/measurement를 지칭하는 "
                 "`canonical:` 태그)이 없다 — 파일을 읽었다는 인용만으로는 "
                 "부족하다.")
     return bad
