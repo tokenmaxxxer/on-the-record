@@ -2310,6 +2310,68 @@ def _maybe_resume_for_ready_pr(key: str, entry: dict, pr_number: int) -> bool:
     return proc is not None
 
 
+_REQ_ID_RE = re.compile(r"\bR(\d+)\b")
+_NORTHPOLE_REQ_RE = re.compile(r"northpole\s+req\s*#\s*(\d+)", re.IGNORECASE)
+
+
+def requirement_drift(root: Path) -> None:
+    """이슈 #930 (northpole req#6): digest 에 살아있는(=stale 아닌) 요구
+    각각이 열린 이슈/PR 중 최소 하나에서 언급되는지, 그리고 열린
+    proposal/PR 이 요구 ID 를 하나라도 인용하는지 점검한다. `_board_wide_sweep`
+    의 `accumulation_trend()` 와 같은 계약 — 결과를 출력만 하고
+    `anomaly_count` 에는 절대 합산하지 않는다(advisory, non-blocking).
+    `gh` 실패는 조용히 건너뛴다(watch 계열 불가침 원칙 — 이 스윕 자체는
+    블로킹 게이트가 아니라 이 함수도 그 계약을 넘지 않는다). 틱당 비용은
+    O(열린 이슈/PR 수) + O(digest 요구 수) — `accumulation_trend()` 가 같은
+    틱에서 이미 지불하는 것과 같은 자릿수."""
+    digest_path = root / "docs" / "specs" / "requirement-digest.md"
+    if not digest_path.exists():
+        return
+    live_ids = set(re.findall(r"^- (R\d+):", digest_path.read_text(
+        encoding="utf-8", errors="replace"), re.M))
+    if not live_ids:
+        return
+
+    def _list(kind: str) -> list[dict] | None:
+        r = subprocess.run(
+            ["gh", kind, "list", "--state", "open", "--json", "number,title,body",
+             "--limit", "1000"],
+            cwd=root, capture_output=True, text=True)
+        if r.returncode != 0:
+            return None
+        try:
+            return json.loads(r.stdout)
+        except ValueError:
+            return None
+
+    issues = _list("issue")
+    prs = _list("pr")
+    if issues is None or prs is None:
+        print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
+        return
+
+    mentioned_reqs: set[str] = set()
+    unreferenced_open = []
+    for item in issues + prs:
+        text = f"{item.get('title', '')}\n{item.get('body', '') or ''}"
+        found = set(_REQ_ID_RE.findall(text)) | set(
+            f"R{n.zfill(3)}" for n in _NORTHPOLE_REQ_RE.findall(text))
+        # _REQ_ID_RE 는 "R001" 형태의 raw 캡처가 아니라 숫자만 잡으므로
+        # digest ID 형식(R\d+)과 직접 비교하려면 원문 재검색이 더 정확하다.
+        raw_ids = set(re.findall(r"\bR\d+\b", text))
+        mentioned_reqs |= raw_ids
+        if not (raw_ids or _NORTHPOLE_REQ_RE.search(text)):
+            unreferenced_open.append(item.get("number"))
+
+    unmentioned_live = sorted(live_ids - mentioned_reqs)
+    if unmentioned_live:
+        print(f"[watchdog] requirement-drift: 열린 이슈/PR 어디에서도 언급되지 "
+              f"않는 살아있는 요구 {unmentioned_live}")
+    if unreferenced_open:
+        print(f"[watchdog] requirement-drift: 요구 ID 를 전혀 인용하지 않는 "
+              f"열린 이슈/PR {sorted(unreferenced_open)}")
+
+
 def _board_wide_sweep(root: Path) -> int:
     """이슈 #464: closure_sweep/spawn_coverage 를 한 틱씩 돌려 보고만 한다
     (observe-only, roster_watchdog 계약과 동일). 위반/미커버 이슈 수를
@@ -2333,6 +2395,9 @@ def _board_wide_sweep(root: Path) -> int:
     # count 에도 합산하지 않는다 (blocking gate 가 아니다, board 에 보고만).
     trend = closure_sweep.accumulation_trend(root)
     print(f"[watchdog] {closure_sweep.format_accumulation_trend(trend)}")
+    # 이슈 #930 요구#6: requirement_drift() 도 accumulation_trend() 와 같은
+    # advisory 계약 — 출력만 하고 anomaly_count 에는 절대 합산하지 않는다.
+    requirement_drift(root)
     open_issues = spawn_coverage._list_open_issues(root)
     if open_issues is None:
         count += 1

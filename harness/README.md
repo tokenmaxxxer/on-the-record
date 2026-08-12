@@ -53,3 +53,22 @@ pytest harness/fixture-target   # one test fails for the same reason
    against the resulting repo state, and call
    `signals.evaluate_all(transcript, repo_state, build_result, run_result)`
    for the real baseline.
+
+## Requirement digest & drift guard (issue #930)
+
+`fixture-requirement-digest/scenario.py` proves the merged design's
+four acceptance points on a seeded scratch repo — no live session
+needed, since the design is a plugin/hook mechanism, not an LLM
+behavior: digest condensation stays O(requirement count) even as
+synthetic records pile up, the commit-time hook denies/allows
+correctly (including the `-a`-rewrites-status-to-stale path), a
+digest-only selection picks a still-`open` requirement, and
+`spawn.requirement_drift()` fires advisory findings without blocking
+anything.
+
+```
+python3 harness/fixture-requirement-digest/scenario.py
+```
+
+Exits 0 and prints all 5 rows PASS (4 acceptance points + the req#7
+`.github/workflows/` wiring check). Exits non-zero otherwise.
