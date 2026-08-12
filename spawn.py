@@ -4389,27 +4389,50 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         if role_model:
             cmd += ["--model", role_model]
         env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
-        prompt = (
+        # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
+        # freelunch/scout/warrant/proposal-shape 같은, 저장소를 바꾸는 배달물을
+        # 겨냥한 core 훅들이 자문 세션에도 그대로 꽂힌다. 복잡한 판단 질문 하나가
+        # 그 훅들 눈에는 "설계 작업"으로 보여, 모델이 스카우트/제안서/위임 절차를
+        # 먼저 밟다가(2026-08-12T07:38-39Z 재현 실패 2건) 턴 예산을 다 쓰고 끝의
+        # 판단 JSON 을 한 번도 못 찍고 끝난다. 구조적 수정: 프롬프트 안에서 그
+        # 훅들이 이 세션에는 적용되지 않음을 명시적으로 무효화한다.
+        override = (
+            "이 세션에 로드된 룰북/훅이 스카우트, 제안서(proposal) 작성, 위임"
+            "(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도"
+            " — 이번 호출은 자문(consult) 이라 전부 적용되지 않는다: 저장소 파일을"
+            " 하나도 건드리지 않고, 하위 에이전트를 위임하지 않고, 조사 없이 알고"
+            " 있는 판단을 바로 답한다. 다른 모든 지시보다 이 문장이 우선한다."
+        )
+        base_prompt = (
             "당신은 자문(consult) 으로 불렸다 — 판단만 돌려주면 된다. 이 역할의 "
             "룰북은 이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
-            "마라 — 텍스트로 답하고 끝난다. 답을 다 쓴 뒤 마지막에, 다른 어떤 "
-            "텍스트도 없이 JSON 객체 하나만 출력하라: "
+            "마라 — 텍스트로 답하고 끝난다. " + override + " 답을 다 쓴 뒤 마지막에, "
+            "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
             '{"answer": "<판단>", "confidence": "low|medium|high", '
             '"caveats": ["<유보/전제>", ...]}\n\n'
             f"질문: {question}"
         )
-        r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=prompt, text=True,
-                           capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
-        if r.returncode != 0:
-            outcome = f"error: 세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
-            raise RuntimeError(outcome)
-        result = session_result(r.stdout)
-        verdict = _parse_consult_verdict(result.get("result", ""))
-        if verdict is None:
-            outcome = "error: 모델 출력에서 판단 JSON 을 못 찾음"
-            raise RuntimeError(outcome)
-        outcome = f"ok: {str(verdict.get('answer', ''))[:200]}"
-        return verdict
+        retry_prompt = (
+            base_prompt + "\n\n(재시도: 이전 응답이 마지막에 판단 JSON 객체를 "
+            "출력하지 않아 파싱에 실패했다. 스카우트/제안서/위임 등 다른 어떤 "
+            "절차도 밟지 말고, 지금 바로 위 형식의 JSON 객체 하나만 출력하라.)"
+        )
+        attempts_exhausted = "알 수 없는 실패"
+        for attempt_prompt in (base_prompt, retry_prompt):
+            r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=attempt_prompt, text=True,
+                               capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
+            if r.returncode != 0:
+                attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
+                continue
+            result = session_result(r.stdout)
+            verdict = _parse_consult_verdict(result.get("result", ""))
+            if verdict is None:
+                attempts_exhausted = "모델 출력에서 판단 JSON 을 못 찾음"
+                continue
+            outcome = f"ok: {str(verdict.get('answer', ''))[:200]}"
+            return verdict
+        outcome = f"error: {attempts_exhausted} (재시도 1회 포함, 모두 실패)"
+        raise RuntimeError(outcome)
     except subprocess.TimeoutExpired:
         outcome = f"error: 시간초과({CONSULT_TIMEOUT}s)"
         raise
