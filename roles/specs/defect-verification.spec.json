@@ -37,6 +37,10 @@
     "error": ["environment-setup-failed"]
   },
   "use_when": {
-    "board_condition": "an execution-observation or conformance-review record's result is disputed by another comment on the same commit sha AND no defect-verification record exists yet for that dispute"
+    "board_condition": "an execution-observation or conformance-review record's result is disputed by another comment on the same commit sha AND no defect-verification record exists yet for that dispute",
+    "trigger": {
+      "obligation_status": ["failing"],
+      "record_absent_for": "defect-verification"
+    }
   }
 }
