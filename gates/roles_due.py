@@ -83,8 +83,8 @@ def _file_content(root: Path, path: str) -> str:
         return ""
 
 
-def _trigger_matches(trigger: dict, changed: list[str], root: Path) -> str | None:
-    """Returns a one-line reason string if the trigger matches, else None."""
+def _trigger_matches(trigger: dict, changed: list[str], root: Path) -> tuple[str, str] | None:
+    """Returns (reason, matched_path) if the trigger matches, else None."""
     path_patterns = trigger.get("path_patterns") or []
     content_patterns = trigger.get("content_patterns") or []
 
@@ -97,7 +97,7 @@ def _trigger_matches(trigger: dict, changed: list[str], root: Path) -> str | Non
             # the pattern with its leading "**/" stripped so a root-level
             # match still counts.
             if fnmatch.fnmatch(path, pat) or fnmatch.fnmatch(path, pat.lstrip("*/")):
-                return f"path matched {pat!r}: {path}"
+                return f"path matched {pat!r}: {path}", path
 
     if content_patterns:
         compiled = [re.compile(p) for p in content_patterns]
@@ -107,8 +107,42 @@ def _trigger_matches(trigger: dict, changed: list[str], root: Path) -> str | Non
                 continue
             for pat, rx in zip(content_patterns, compiled):
                 if rx.search(text):
-                    return f"content matched {pat!r} in {path}"
+                    return f"content matched {pat!r} in {path}", path
     return None
+
+
+def _last_commit_hash(root: Path, rel_path: str) -> str | None:
+    """Hash of the last commit on HEAD touching `rel_path`, or None when the
+    path has no commit history yet (untracked / working-tree only)."""
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(root), "log", "-1", "--format=%H", "--", rel_path],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    out = r.stdout.strip()
+    return out or None
+
+
+def _commit_at_or_after(root: Path, earlier: str, later: str) -> bool:
+    """True iff `earlier` is `later` itself or an ancestor of it — i.e.
+    `later` happened at the same point in history or after `earlier`.
+    Same-second commit timestamps (common in fast test/CI runs) make
+    wall-clock comparison unreliable, so this walks actual commit
+    ancestry instead."""
+    if earlier == later:
+        return True
+    try:
+        r = subprocess.run(
+            ["git", "-C", str(root), "merge-base", "--is-ancestor", earlier, later],
+            capture_output=True, text=True, timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return r.returncode == 0
 
 
 def roles_due(root: Path, base: str | None = None) -> list[dict]:
@@ -138,13 +172,28 @@ def roles_due(root: Path, base: str | None = None) -> list[dict]:
     due = []
     for role, spec in specs.items():
         trigger = spec["use_when"]["trigger"]
+        match = _trigger_matches(trigger, changed, root)
+        if not match:
+            continue
+        reason, matched_path = match
         record_role = trigger.get("record_absent_for") or role
         record_path = board_dir / f"{record_role}.md"
         if record_path.is_file():
-            continue  # record already exists — not due regardless of match
-        reason = _trigger_matches(trigger, changed, root)
-        if reason:
-            due.append({"role": role, "reason": reason, "subject": subject})
+            # A record exists, but it only counts as "not due" for a diff it
+            # actually predates — a stale record from before the triggering
+            # diff must not permanently suppress re-surfacing (issue #1088).
+            trigger_hash = _last_commit_hash(root, matched_path)
+            record_hash = _last_commit_hash(
+                root, str(record_path.relative_to(root)))
+            if trigger_hash is None:
+                covers = record_hash is None  # both uncommitted WIP: keep old behavior
+            elif record_hash is None:
+                covers = True  # record itself is uncommitted WIP — treat as fresh
+            else:
+                covers = _commit_at_or_after(root, trigger_hash, record_hash)
+            if covers:
+                continue  # record already covers this diff — not due
+        due.append({"role": role, "reason": reason, "subject": subject})
     return due
 
 
