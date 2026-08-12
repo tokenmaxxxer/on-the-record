@@ -1539,6 +1539,47 @@ def session_result(stdout: str) -> dict:
         return {}
 
 
+# issue #476 round 3, candidate E (refusal-cost-parity). 등록된 refusal/
+# null-result 어휘만 인정한다 — 자유 문장이 아니라 이 닫힌 집합과 정확히
+# 일치해야 한다("REFUSAL: <state> — <reason>" 형태), 그래야 역할 세션이
+# 임의 텍스트로 스스로를 이 경로에 밀어넣지 못한다. rounds 1-2 의
+# loop_state 어휘(H2)와 issue #983 의 role-session 변형에서 이미 쓰는
+# 이름들을 재사용한다 — 새 어휘를 이 라운드가 새로 발명하지 않는다.
+REGISTERED_NULL_RESULT_STATES = frozenset({
+    "hypothesis-not-falsifiable",
+    "evidence-log-unreadable",
+    "nothing-to-do",
+})
+
+_NULL_RESULT_RE = re.compile(
+    r"(?m)^REFUSAL:\s*(?P<state>[a-z0-9-]+)\s*—\s*(?P<reason>\S.*)$"
+)
+
+
+def _null_result_declared(result: dict) -> str | None:
+    """`result["result"]` 최종 텍스트에서 등록된 REFUSAL 선언을 찾는다.
+
+    이슈 #476 라운드 3, candidate E 의 게이밍-저항 근거: 세션이 쓸 수 있는
+    자유 텍스트가 아니라 `REGISTERED_NULL_RESULT_STATES` 라는 닫힌 집합과
+    정확히 일치하는 토큰만 인정한다 — 세션이 아무 문구나 써서 이 경로로
+    스스로를 밀어넣을 수 없다. 실패 신호: 이 집합 밖의 새 loop_state 가
+    실제로 필요해지면(다른 플러그인이 새 refusal 어휘를 등록하면) 이 상수를
+    갱신하지 않는 한 그 세션은 조용히 다시 `silent-failure` 로 떨어진다 —
+    그래서 이 목록은 코드 리뷰에서 다른 플러그인의 loop_state 어휘 변경과
+    함께 갱신 대상으로 다뤄야 한다.
+    """
+    text = result.get("result")
+    if not isinstance(text, str):
+        return None
+    m = _NULL_RESULT_RE.search(text)
+    if not m:
+        return None
+    state = m.group("state")
+    if state not in REGISTERED_NULL_RESULT_STATES:
+        return None
+    return state
+
+
 def classify(rc: int, result: dict, delta: list, blocked: list) -> str:
     """세션 하나의 처분. 판정하지 않는다 — 이름만 붙인다 (보고 전용).
 
@@ -1553,6 +1594,16 @@ def classify(rc: int, result: dict, delta: list, blocked: list) -> str:
     세션은 그 이유를 또렷이 말하고 끝났는데 분류는 '침묵-사망'이라고 했다.
     이 레포의 원칙("검사 불가와 이상 없음은 정반대 처분을 받아야 한다")이
     여기에도 그대로 적용된다.
+
+    `refused-null-result` (issue #476 round 3, candidate E): 위와 같은
+    도구-거부(permission_denials) 없이, 세션이 등록된 REFUSAL 어휘로
+    "이 작업은 애초에 할 게 없었다/검증 불가였다"를 명시적으로 선언하고
+    끝난 경우. 지금까지는 이 경로가 `silent-failure`(죽은 세션과 동일
+    라벨)로 떨어져 있었다 — 이슈 #476 이 지목한 바로 그 비대칭: "정직한
+    거부/무결과 보고가 조용한 죽음과 똑같이 실패로 읽힌다." 이 라벨은
+    별도 카운터로만 쓰인다(§ fail_closed_downgrade 는 이 라벨을 건드리지
+    않는다) — 커밋/PR 없이도 "실패"로 깎이지 않는다는 게 이 후보의
+    전부다.
     """
     if rc != 0 or result.get("is_error"):
         return "errored"
@@ -1562,6 +1613,8 @@ def classify(rc: int, result: dict, delta: list, blocked: list) -> str:
         return "waiting-on-human"
     if result.get("permission_denials"):
         return "refused"
+    if _null_result_declared(result) is not None:
+        return "refused-null-result"
     return "silent-failure"
 
 
@@ -5775,6 +5828,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         print(f"[{role}] exit 0 인데 보드도 안 바뀌고 막힌 것도 없다 — 성공이 "
               f"아니라 실측된 침묵-사망 모드다. 세션 로그를 확인하라{sid}",
               file=sys.stderr)
+    if outcome == "refused-null-result":
+        print(f"[{role}] 등록된 REFUSAL 어휘로 무결과를 선언하고 끝났다 — "
+              f"커밋/보드 델타가 없어도 이건 실패가 아니라 정직한 거부다"
+              f"(이슈 #476 round 3, candidate E){sid}", file=sys.stderr)
     if bounded and issue is not None:
         # 자식(detach 된 프로세스)만 여기 닿는다 — 부모는 이미 fork 직후
         # _await_bounded 에서 리턴했다. session-end 를 self-trigger 보다
