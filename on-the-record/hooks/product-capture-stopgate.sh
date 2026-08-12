@@ -22,11 +22,17 @@
 #
 # Issue #684: docs/product/<cat>.md was keyed only by a fixed category
 # name — two concurrent issue sessions flagging the same category would
-# append to the identical path. The write target is now issue-scoped,
+# append to the identical path. The write target is issue-scoped,
 # docs/issue-<n>/product/<cat>.md, deriving <n> from the current branch
 # (issue-<n>/<role>), the same convention delegated-judgment-gate.sh
-# already uses. Off an issue-scoped branch there is no safe path to
-# derive, so the hook no-ops.
+# already uses, whenever the branch matches that convention.
+#
+# Issue #956: capture must also work by default in TARGET-project repos,
+# which will not run on-the-record's own issue-<n>/<role> branch naming.
+# Off that branch shape there is no issue number to scope by, so the
+# hook falls back to the fixed pre-#684 path, docs/product/<cat>.md —
+# #684's collision only arises among on-the-record's own concurrent
+# role sessions, which a target-project repo does not run.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
@@ -60,10 +66,10 @@ branch_r = subprocess.run(
     ["git", "rev-parse", "--abbrev-ref", "HEAD"],
     cwd=repo, capture_output=True, text=True, timeout=10,
 )
-branch_m = re.match(r"^issue-(\d+)/([\w-]+)$", branch_r.stdout.strip())
-if branch_r.returncode != 0 or not branch_m:
+if branch_r.returncode != 0:
     sys.exit(0)
-issue_n = branch_m.group(1)
+branch_m = re.match(r"^issue-(\d+)/([\w-]+)$", branch_r.stdout.strip())
+issue_n = branch_m.group(1) if branch_m else None
 
 CATEGORIES = {
     "requirements": (
@@ -160,7 +166,10 @@ if not active:
 
 unrecorded = []
 for cat, sents in active.items():
-    rel = os.path.join("docs", f"issue-{issue_n}", "product", f"{cat}.md")
+    if issue_n is not None:
+        rel = os.path.join("docs", f"issue-{issue_n}", "product", f"{cat}.md")
+    else:
+        rel = os.path.join("docs", "product", f"{cat}.md")
     doc_path = os.path.join(repo, rel)
     if not os.path.isfile(doc_path):
         os.makedirs(os.path.dirname(doc_path), exist_ok=True)
@@ -190,12 +199,13 @@ if not unrecorded:
     sys.exit(0)
 
 parts = [f"{cat}.md (e.g. \"{excerpt}\")" for cat, excerpt in unrecorded]
+product_dir = f"docs/issue-{issue_n}/product/" if issue_n is not None else "docs/product/"
 out = {
     "hookSpecificOutput": {
         "hookEventName": "Stop",
         "additionalContext": (
             "product-capture-stopgate: statements matching these categories "
-            f"were not reflected in docs/issue-{issue_n}/product/: " + "; ".join(parts) + ". "
+            f"were not reflected in {product_dir}: " + "; ".join(parts) + ". "
             "Record them as structured entries before ending the turn."
         ),
     }

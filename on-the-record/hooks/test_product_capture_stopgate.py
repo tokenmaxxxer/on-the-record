@@ -138,13 +138,30 @@ def t_orchestrate_off_is_noop():
         assert r.stdout == ""
 
 
-def t_off_issue_branch_is_noop():
+def t_off_issue_branch_falls_back_to_repo_root_doc_path():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo, branch="main")
         transcript = _write_transcript(
             repo, ["the project must support offline mode."]
         )
+        doc = repo / "docs" / "product" / "requirements.md"
+        assert not doc.exists()
+        r = _run(repo, transcript)
+        assert r.returncode == 0
+        out = json.loads(r.stdout)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        assert "docs/product/" in ctx
+        assert "docs/issue-" not in ctx
+        assert doc.exists()
+        assert "Requirements" in doc.read_text()
+
+
+def t_off_issue_branch_empty_state_is_silent():
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo, branch="main")
+        transcript = _write_transcript(repo, ["read this file please", "run the tests"])
         r = _run(repo, transcript)
         assert r.returncode == 0
         assert r.stdout == ""
