@@ -58,3 +58,28 @@ risk-bearing. As specified, both the trace-ref and skip-tag branches are
 pure string-presence checks with no constraint tying the reason to
 triviality or the ref to a genuine consult record, so the check can be
 satisfied on every drafted issue regardless of actual consult status.
+
+## before-landing — stance 3: assume the rule as written cannot hold — find the state nothing maintains
+
+Verdict: FINDING — `validity-consult: <ref>` accepts any non-whitespace token as the "trace reference"; no store/log of actual consults exists for it to be checked against, so the gate cannot distinguish a real feasibility-consult trace from an arbitrary string typed to satisfy the regex.
+Kind: design-error
+Seed: gates/requirement_intake_consult.py (check_issue_body, _CONSULT_REF)
+cap_seconds: 120
+tier: default
+diff_stat_lines: ~150
+started_at: 2026-08-12T00:00:00Z
+ended_at: 2026-08-12T00:05:00Z
+
+### Reproduce
+```
+python3 -c "
+from gates.requirement_intake_consult import check_issue_body
+print(check_issue_body(1, 'validity-consult: asdfasdf-not-a-real-ref'))
+"
+```
+
+### Observed
+`[]` (gate passes) — no violations reported for a fabricated, meaningless reference.
+
+### Expected
+The gate's own docstring claims it checks "타당성 자문이 실행됐거나" (that a validity consult actually ran), i.e. it is meant to gate on a real trace of a consult having happened. Since no such trace store is maintained or consulted anywhere in the repo, the "trace reference" check is unenforceable as written — any string satisfies it, so the gate cannot actually verify the claimed condition.
