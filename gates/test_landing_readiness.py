@@ -138,5 +138,68 @@ class ReexecutionBlockingCause(unittest.TestCase):
             self.assertEqual(kind, lr.BLOCKED_ON_SCOPE)
 
 
+class ObligationBlockingCause(unittest.TestCase):
+    """issue #1098 — `.landing-obligations/<issue>-<role>-<pr>.json` 상태를
+    scoped blocking_cause로 바꾸는 지점. reexecution_blocking_cause와 같은
+    스코핑 규칙(ADR §6)을 따른다."""
+
+    def test_no_obligation_is_no_cause(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            cause = lr.obligation_blocking_cause(Path(td), 1098,
+                                                   "implementation", 1101)
+            self.assertIsNone(cause)
+
+    def test_resolved_obligation_is_no_cause(self):
+        import tempfile
+        import landing_obligation as lo
+        import reexecution_gate as rg
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            lo.open_obligation(root, 1098, "implementation", 1101, "deadbeef")
+            obligation = lo.read_obligation(root, 1098, "implementation", 1101)
+            v = rg.Verdict(rg.PASS, "pytest", "deadbeef", 0, "ok",
+                            obligation.opened_at + 1)
+            rg.write_verdict(root, 1098, "implementation", v)
+            lo.resolve_with_reexecution_verdict(root, 1098, "implementation",
+                                                  1101)
+            cause = lr.obligation_blocking_cause(root, 1098,
+                                                   "implementation", 1101)
+            self.assertIsNone(cause)
+
+    def test_open_obligation_scopes_to_own_record_path_not_gates(self):
+        import tempfile
+        import landing_obligation as lo
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            lo.open_obligation(root, 1098, "implementation", 1101, "deadbeef")
+            cause = lr.obligation_blocking_cause(root, 1098,
+                                                   "implementation", 1101)
+            self.assertIsNotNone(cause)
+            self.assertEqual(
+                cause["scope"],
+                frozenset({"docs/issue-1098/reports/implementation.md"}))
+
+    def test_failing_obligation_blocks_pr_whose_files_never_touch_gates(self):
+        import tempfile
+        import landing_obligation as lo
+        import reexecution_gate as rg
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            lo.open_obligation(root, 1098, "implementation", 1101, "deadbeef")
+            obligation = lo.read_obligation(root, 1098, "implementation", 1101)
+            v = rg.Verdict(rg.FAIL, "pytest", "deadbeef", 1, "boom",
+                            obligation.opened_at + 1)
+            rg.write_verdict(root, 1098, "implementation", v)
+            lo.resolve_with_reexecution_verdict(root, 1098, "implementation",
+                                                  1101)
+            cause = lr.obligation_blocking_cause(root, 1098,
+                                                   "implementation", 1101)
+            pr_files = frozenset({"docs/issue-1098/reports/implementation.md",
+                                  "src/widget.py"})
+            kind, _ = lr.classify("OPEN", "pass", True, True, pr_files, (cause,))
+            self.assertEqual(kind, lr.BLOCKED_ON_SCOPE)
+
+
 if __name__ == "__main__":
     unittest.main()
