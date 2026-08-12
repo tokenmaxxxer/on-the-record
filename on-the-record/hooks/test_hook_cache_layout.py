@@ -12,6 +12,7 @@ Covers the issue's three acceptance checks:
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -122,3 +123,72 @@ def t_rcg_fail_closed_for_owned_path(tmp_path):
     r = _run(cache / "hooks" / "record-claim-guard.sh",
               {"file_path": str(p), "content": RCG_OWNED_CONTENT}, cache.parent)
     assert r.returncode == 2, r.stderr
+
+
+# --- issue #948: a hooks.json-wired script committed without the exec
+# bit (100644) dies with "/bin/sh: Permission denied" on every
+# invocation and silently never runs -- fail-open, not fail-closed.
+# `git ls-files -s on-the-record/hooks/` is the read evidence: 4
+# scripts (delegated-judgment-gate.sh, live-fire-claim-real-run-guard.sh,
+# live-fire-test-guard.sh, test-authoring-invariant-guard.sh) were
+# committed 100644 while every other wired .sh sibling was 100755.
+
+def _wired_hook_scripts():
+    """Every ${CLAUDE_PLUGIN_ROOT}/hooks/<name>.sh basename referenced
+    anywhere in hooks.json's command strings."""
+    hooks_json = json.loads((HOOKS_DIR / "hooks.json").read_text())
+
+    def walk(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                yield from walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                yield from walk(v)
+        elif isinstance(node, str):
+            yield node
+
+    names = set()
+    for s in walk(hooks_json):
+        m = re.search(r"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/([\w.-]+\.sh)", s)
+        if m:
+            names.add(m.group(1))
+    assert names, "no ${CLAUDE_PLUGIN_ROOT}/hooks/*.sh commands found in hooks.json"
+    return sorted(names)
+
+
+def _assert_wired_scripts_executable(hooks_dir):
+    """Raises AssertionError naming every hooks.json-wired script under
+    hooks_dir that is missing the exec bit."""
+    non_exec = [
+        name for name in _wired_hook_scripts()
+        if not os.access(hooks_dir / name, os.X_OK)
+    ]
+    assert not non_exec, (
+        "hooks.json-wired script(s) committed without exec bit "
+        "(100644, dies with 'Permission denied' on invocation): "
+        + ", ".join(non_exec)
+    )
+
+
+def t_all_wired_hook_scripts_are_executable():
+    _assert_wired_scripts_executable(HOOKS_DIR)
+
+
+def t_seeded_non_exec_wired_script_is_refused(tmp_path):
+    """Live-fire proof the assertion actually catches the failure mode,
+    not just passing trivially against an already-fixed tree: seed a
+    copy of the hooks dir with one wired script stripped of its exec
+    bit and confirm the regression check refuses it."""
+    seeded = tmp_path / "hooks"
+    shutil.copytree(HOOKS_DIR, seeded)
+    target = seeded / "live-fire-test-guard.sh"
+    target.chmod(target.stat().st_mode & ~0o111)
+    assert not os.access(target, os.X_OK)
+
+    try:
+        _assert_wired_scripts_executable(seeded)
+    except AssertionError as e:
+        assert "live-fire-test-guard.sh" in str(e)
+    else:
+        raise AssertionError("expected the seeded non-exec script to be refused")
