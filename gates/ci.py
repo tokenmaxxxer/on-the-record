@@ -40,6 +40,7 @@ import flows
 import gates
 import pr_reference
 import record_lint
+import requirement_digest
 import spawn
 import spec_index
 
@@ -467,6 +468,7 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
     bad += gates.record_fulfils_diff(repo, {})
     bad += spec_index.check(repo)
     bad += gates.requirement_registry(repo, {})
+    bad += requirement_digest.check(repo)
     bad += record_lint.record_checked_claims(repo, {})
     if pr is not None:
         bad += _checked_ci_claims_bad(repo, pr)
