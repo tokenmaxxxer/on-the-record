@@ -46,9 +46,13 @@ set -uo pipefail
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
 command -v python3 >/dev/null 2>&1 || exit 2
+CNG_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, re, shlex, sys
+
+sys.path.insert(0, os.environ.get("CNG_HOOKS_DIR", ""))
+from credential_example_allowlist import EXAMPLE_ALLOWLIST
 
 def deny(msg):
     sys.stderr.write("credential-network-guard: %s\n" % msg)
@@ -79,8 +83,11 @@ def find_credentials(text):
         return []
     hits = []
     for pat, label in CRED_PATTERNS:
-        if re.search(pat, text):
+        for m in re.finditer(pat, text):
+            if m.group(0) in EXAMPLE_ALLOWLIST:
+                continue
             hits.append(label)
+            break
     return hits
 
 NETWORK_TOOLS = {"curl", "wget", "nc", "ncat", "netcat", "ssh", "scp", "sftp", "telnet"}
@@ -133,6 +140,6 @@ if hits:
 sys.exit(0)
 PY
 
-CNG_PAYLOAD="$payload" python3 -c "$GUARD"
+CNG_PAYLOAD="$payload" CNG_HOOKS_DIR="$CNG_HOOKS_DIR" python3 -c "$GUARD"
 rc=$?
 exit "$rc"

@@ -26,9 +26,13 @@ set -uo pipefail
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
 command -v python3 >/dev/null 2>&1 || exit 2
+CRG_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, posixpath, re, sys
+
+sys.path.insert(0, os.environ.get("CRG_HOOKS_DIR", ""))
+from credential_example_allowlist import EXAMPLE_ALLOWLIST
 
 def deny(msg):
     sys.stderr.write("credential-record-guard: %s\n" % msg)
@@ -64,6 +68,8 @@ def find_credentials(text):
     hits = []
     for pat, label in PATTERNS:
         for m in re.finditer(pat, text):
+            if m.group(0) in EXAMPLE_ALLOWLIST:
+                continue
             # A [REDACTED] marker immediately after the matched span
             # means the secret body was already replaced; not a leak.
             tail = text[m.end():m.end() + 11]
@@ -108,6 +114,6 @@ if hits:
 sys.exit(0)
 PY
 
-CRG_PAYLOAD="$payload" python3 -c "$GUARD"
+CRG_PAYLOAD="$payload" CRG_HOOKS_DIR="$CRG_HOOKS_DIR" python3 -c "$GUARD"
 rc=$?
 exit "$rc"
