@@ -3507,6 +3507,15 @@ class Watchdog(unittest.TestCase):
         return {"log": str(log), "work": work, "ts": ts or int(time.time()),
                 "before_head": before_head, "pid": pid}
 
+    def _denial_line(self, reason="Permission to use Write has been denied"):
+        # 이슈 #994: 구조적 거부 — `is_error` tool_result 블록의 텍스트가
+        # `_classify_refusal_text` 의 거부 형태(여기서는 층 2/harness)와
+        # 매치한다.
+        obj = {"type": "user", "message": {"content": [
+            {"type": "tool_result", "is_error": True,
+             "content": [{"type": "text", "text": reason}]}]}}
+        return json.dumps(obj) + "\n"
+
     def test_silence_signal_fires_past_threshold(self):
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
@@ -3540,14 +3549,14 @@ class Watchdog(unittest.TestCase):
     def test_denied_tool_calls_signal_fires_at_threshold(self):
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
-            log.write_text("permission_denial\n" * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            log.write_text(self._denial_line() * spawn.WATCHDOG_DENIAL_THRESHOLD)
             out = spawn.watchdog_check_one("k", self._entry(log), state={})
             self.assertTrue(any("denied-tool-calls" in a for a in out))
 
     def test_denied_tool_calls_signal_silent_below_threshold(self):
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
-            log.write_text("permission_denial\n" * (spawn.WATCHDOG_DENIAL_THRESHOLD - 1))
+            log.write_text(self._denial_line() * (spawn.WATCHDOG_DENIAL_THRESHOLD - 1))
             out = spawn.watchdog_check_one("k", self._entry(log), state={})
             self.assertFalse(any("denied-tool-calls" in a for a in out))
 
@@ -3555,7 +3564,7 @@ class Watchdog(unittest.TestCase):
         # 이미 스캔한 구간은 다음 호출에서 다시 세지 않는다 (오프셋 추적).
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
-            log.write_text("permission_denial\n" * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            log.write_text(self._denial_line() * spawn.WATCHDOG_DENIAL_THRESHOLD)
             state = {}
             first = spawn.watchdog_check_one("k", self._entry(log), state=state)
             self.assertTrue(any("denied-tool-calls" in a for a in first))
@@ -3569,15 +3578,40 @@ class Watchdog(unittest.TestCase):
         # 조용히 안 잡힌다 — 재시작 직후 첫 스캔에서 바로 잡혀야 한다.
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
-            log.write_text("permission_denial\n" * (spawn.WATCHDOG_DENIAL_THRESHOLD + 5))
+            log.write_text(self._denial_line() * (spawn.WATCHDOG_DENIAL_THRESHOLD + 5))
             state = {}
             first = spawn.watchdog_check_one("k", self._entry(log), state=state)
             self.assertTrue(any("denied-tool-calls" in a for a in first))
             self.assertGreater(state["k"]["offset"], 0)
             # respawn: 로그가 truncate 되어 이전 오프셋보다 짧아진다
-            log.write_text("permission_denial\n" * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            log.write_text(self._denial_line() * spawn.WATCHDOG_DENIAL_THRESHOLD)
             second = spawn.watchdog_check_one("k", self._entry(log), state=state)
             self.assertTrue(any("denied-tool-calls" in a for a in second))
+
+    def test_denied_tool_calls_signal_ignores_quoted_gate_source_text(self):
+        # 이슈 #994 회귀 케이스 1: 게이트 소스를 인용/읽는 세션 로그는 단어
+        # "denied" 를 몇 번이든 담을 수 있지만 (예: 옛 `_DENIAL_RE` 리터럴
+        # 자체), 구조적 tool_result 거부가 아니므로 0건이어야 한다 —
+        # issue-476 세션에서 실측된 89건(실제 거부 0건)의 원인.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            quoting = {"type": "assistant", "message": {"content": [
+                {"type": "text",
+                 "text": ("_DENIAL_RE = re.compile(r\"permission_denial|denied\", "
+                           "re.IGNORECASE) — denied denied denied")}]}}
+            log.write_text((json.dumps(quoting) + "\n")
+                            * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            out = spawn.watchdog_check_one("k", self._entry(log), state={})
+            self.assertFalse(any("denied-tool-calls" in a for a in out))
+
+    def test_denied_tool_calls_signal_fires_on_genuine_tool_result_denial(self):
+        # 이슈 #994 회귀 케이스 2: 진짜 `is_error` tool_result 거부는 (임계값
+        # 도달 시) 여전히 잡힌다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text(self._denial_line() * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            out = spawn.watchdog_check_one("k", self._entry(log), state={})
+            self.assertTrue(any("denied-tool-calls" in a for a in out))
 
     def test_no_commits_late_signal_fires(self):
         with tempfile.TemporaryDirectory() as td:

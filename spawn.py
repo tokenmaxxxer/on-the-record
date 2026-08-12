@@ -2009,7 +2009,6 @@ WATCHDOG_NO_COMMIT_MIN = 71   # 이슈 #90 proposal, signal 4 (0.5 * p90 ≈ 142
 WATCHDOG_DENIAL_THRESHOLD = 3 # 이슈 #90 proposal, signal 3
 _DELEGATION_RE = re.compile(
     r"run_in_background|백그라운드|delegate|background worker", re.IGNORECASE)
-_DENIAL_RE = re.compile(r"permission_denial|denied", re.IGNORECASE)
 
 
 def _watchdog_state_load() -> dict:
@@ -2022,6 +2021,38 @@ def _watchdog_state_load() -> dict:
 def _watchdog_state_save(d: dict) -> None:
     WATCHDOG_STATE.parent.mkdir(exist_ok=True)
     WATCHDOG_STATE.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+
+
+def _count_structural_denials(text: str) -> int:
+    """이슈 #994: 워치독 신호 3용 — 스캔 구간 텍스트를 JSONL 로 한 줄씩 파싱해
+    `type: "user"` 줄의 `is_error` `tool_result` 블록만 세고, 그 텍스트가
+    이슈 #232 의 `_classify_refusal_text` 거부 분류에 매치할 때만 센다.
+    단어 "denied" 가 assistant/file 텍스트에 나타나는 것(예: 게이트 소스를
+    읽거나 인용하는 세션)은 더 이상 세지 않는다 — issue-476 세션에서 실측된
+    89건 vs 실제 0건의 원인이 이것이었다. 라이브 스트림 루프(spawn.py:5603
+    부근)가 이미 쓰는 것과 같은 관용: 한 줄이 깨진/부분 JSON 이면(스캔 구간
+    중간에서 로그가 잘렸을 때) 그 줄만 건너뛴다, observe-only 라 치명적으로
+    만들지 않는다."""
+    count = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "user":
+            continue
+        for block in (obj.get("message") or {}).get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            if not block.get("is_error"):
+                continue
+            result_text = _tool_result_text(block.get("content"))
+            if _classify_refusal_text(result_text) is not None:
+                count += 1
+    return count
 
 
 def watchdog_check_one(key: str, entry: dict, now: float | None = None,
@@ -2065,6 +2096,19 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
             fh.seek(start_offset)
             text = fh.read()
             new_offset = fh.tell()
+        # 이슈 #994 warrant-hunt finding: 구조적 신호 3(JSONL 파싱)이 생기며
+        # 새로 문제가 된 경계 — 로그를 쓰는 프로세스가 한 JSONL 줄을 두 번에
+        # 나눠 flush 하면, 스캔이 그 사이에 걸릴 때 잘린 줄이 이번 스캔에서도
+        # `json.loads` 실패로 조용히 버려지고, 다음 스캔에서도 이미 지나친
+        # 오프셋 때문에 다시 안 읽혀 영원히 사라진다. 마지막 줄이 개행으로
+        # 끝나지 않으면(중간에 끊긴 것으로 간주) 오프셋을 그 줄 시작으로
+        # 되돌려 다음 스캔이 완성된 줄부터 다시 읽게 한다.
+        if text and not text.endswith("\n"):
+            last_nl = text.rfind("\n")
+            complete_len = last_nl + 1  # -1이면 0: 줄 전체가 미완성
+            new_offset = start_offset + len(
+                text[:complete_len].encode("utf-8", errors="replace"))
+            text = text[:complete_len]
     own_state[key] = {"offset": new_offset}
     if state is None:
         _watchdog_state_save(own_state)
@@ -2073,8 +2117,10 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     if _DELEGATION_RE.search(text):
         anomalies.append(f"background-delegation-phrasing: {log_path}")
 
-    # signal 3: 반복된 거부된 도구 호출 (이번 스캔 구간 내)
-    new_denials = len(_DENIAL_RE.findall(text))
+    # signal 3: 반복된 거부된 도구 호출 (이번 스캔 구간 내) — 이슈 #994:
+    # 구조적으로만 센다(tool_result is_error 블록이 거부 형태로 분류될 때),
+    # 텍스트 어디든 "denied" 단어가 나오는 것으로 세지 않는다.
+    new_denials = _count_structural_denials(text)
     if new_denials >= WATCHDOG_DENIAL_THRESHOLD:
         anomalies.append(
             f"denied-tool-calls: 이번 스캔 구간에 {new_denials}건")
