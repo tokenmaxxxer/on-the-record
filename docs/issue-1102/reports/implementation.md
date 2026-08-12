@@ -76,10 +76,53 @@ None.
 
 ## Open findings
 
-None open. Phase-1's after-proposal hunt finding (missing `.gitignore`
-in the write set) was already folded into the approved proposal
-(canonical: docs/issue-1102/reports/implementation/hunt-roles-due-obligation-trigger.md,
-read this session) before this phase-2 session began.
+canonical: docs/issue-1102/reports/implementation/hunt-roles-due-obligation-trigger.md (read this session)
+
+Phase-1's after-proposal hunt finding (missing `.gitignore` in the
+write set) was already folded into the approved proposal before this
+phase-2 session began.
+
+The before-landing hunt (stance 0) surfaced one new, unresolved
+finding: an uncommitted (never `git add`ed) `docs/<subject>/reports/
+<role>.md` stand-in file makes `roles_due()`'s commit-ancestry
+"covers" check treat a real `failing` `.landing-obligations/*.json`
+obligation as already resolved, because an obligation match's
+`matched_path` is always untracked (`_last_commit_hash` always returns
+`None` for it), so the `trigger_hash is None: covers = record_hash is
+None` branch — correct for the path/content predicates it was written
+for — silently defeats the new obligation predicate whenever the
+suppression record is also merely uncommitted rather than genuinely
+absent. Addressing this needs a design call (an obligation-specific
+covers rule) not specified in the approved proposal, so it stays
+outside this phase-2's frozen write set — reported here for the next
+proposal/role to act on, not built inline.
+
+## Next steps
+
+A follow-up proposal should change the obligation-status covers check
+in `gates/roles_due.py` so an uncommitted candidate record no longer
+counts as "covers" for an obligation-kind trigger (whose `matched_path`
+is inherently always untracked) — see the before-landing finding above
+for the repro.
+
+## Resolution path
+
+File as a follow-up issue referencing this record and the hunt file
+above; the fix belongs to whichever role next touches
+`gates/roles_due.py`'s obligation predicate.
+
+## Rationale for deviations
+
+The build itself followed the approved proposal's planned items
+one-for-one, with no swapped alternative and no widened write set.
+The before-landing hunt finding noted above under `## Open findings`
+surfaced a pre-existing suppression-logic gap (the `trigger_hash is
+None: covers = record_hash is None` branch, written for the
+path/content predicates) that the new obligation predicate now
+exposes; addressing it needs a design call the approved proposal did
+not make, so it is filed as a follow-up rather than built here, per
+the SCOPE-EXCEEDED rule (finish what the proposal covers, stop,
+report — never widen mid-build).
 
 ## Doc placement
 
