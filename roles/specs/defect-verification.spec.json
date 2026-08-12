@@ -27,6 +27,8 @@
     "rule": "verdict is derived from whether repro_steps, executed against the cited evidence, actually reproduces the defect — never asserted as a standalone field with no attached repro log (issue-515 invariant 4). No closed vocabulary exists for repro_steps content itself per 29119-3/Bugmon, so it stays free text.",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
+  "gate_b_contrast": "hollow instance: repro_steps textually identical (or near-identical) to the original bug report's own reproduction narrative, with no independent execution log attached, is schema-conformant but is a restatement, not a verification (issue-807 step2 audit).",
+  "gate_c_finding_method": "adversarial independent reproduction (roles/defect-verification.json use_when: '적대적 독립 재현'): repro_steps must include at least one input, environment, or ordering variation not present in the original report's own steps — a checkable diff against the source report, not a copy. This operationalizes the role's stated purpose into the spec's required content instead of leaving it as prose only in roles/defect-verification.json.",
   "write_scope": ["docs/issue-<n>/reports/defect-verification.md"],
   "loop_state": {
     "progress": ["reproducing"],
