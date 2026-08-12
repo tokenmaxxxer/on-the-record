@@ -191,7 +191,11 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
     consult-log.md\`, or \`docs/reports/consult-log.md\` with no issue) whether it
     succeeds or fails — read \`/consult\` for the full contract. Consults
     are fast enough to wait on inline; they do not need
-    run_in_background.
+    run_in_background. When two roles should judge concurrently and
+    argue it out instead of one role judging alone, the same no-branch/
+    no-PR contract has a concurrent-judgment variant: \`python3
+    \${CHECKOUT}/spawn.py panel <role_a> <role_b> "<question>" [--issue
+    <n>]\`.
   - Work whose outcome changes the repo (code, docs, specs) stays a
     DELIVERABLE and goes through the existing issue → spawn → PR path
     above — a consult never substitutes for it.
