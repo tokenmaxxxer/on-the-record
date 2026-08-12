@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixture-concurrent-judgment"
+version = "0.1.0"
+description = "Northpole harness fixture — issue #973: seeded two-judge panel_cmd() exchange (position + rebuttal + verdict), plus a degraded-path run"
+requires-python = ">=3.9"
+
+[tool.setuptools]
+packages = ["fixture_concurrent_judgment"]

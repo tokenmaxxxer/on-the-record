@@ -45,3 +45,50 @@ file — no `pyproject.toml` path — so a build following the write set literal
 uninstallable fixture package, unless pytest's own rootdir-sys.path insertion happens to make the
 bare `import fixture_concurrent_judgment` resolve without install (which the existing siblings do not
 rely on — they are pip-installed, per `pip show fixture-multirole` showing an editable install).
+
+## before-landing — stance 1: assume this change and another plugin's rule cancel each other out — find the pair
+
+Verdict: NO FINDING
+Seed: spawn.py panel_cmd()/_run_panel_session()/_panel_degrade()/_PanelMessagingUnavailable (~186 new lines, spawn.py:4166-4352), harness/fixture-concurrent-judgment/
+cap_seconds: 180
+tier: default
+diff_stat_lines: 277 (186 spawn.py + 91 fixture)
+started_at: 2026-08-12T11:54:58+09:00
+ended_at: 2026-08-12T11:58:30+09:00
+
+Avenues checked, none reproduced a collision:
+
+canonical: spawn.py:476-620 (role_settings(), read this turn) — no line removes or overwrites an
+unknown top-level settings key; `_run_panel_session()` sets `s["crossSessionInbound"] = "accept"`
+after `role_settings()` returns (spawn.py:4237-4238), so nothing downstream strips it back out.
+
+canonical: spawn.py:4097-4168 (consult_cmd(), read this turn) — no `roster_register()` call in this
+function either, so panel_cmd()'s two threads not touching `ROSTER`/`runs/active.json` matches the
+sibling function's existing behavior, not a new gap introduced by this diff.
+
+canonical: spawn.py:237-256 (`_locked_rulebook_dir()`, read this turn) — uses `fcntl.flock` per
+marketplace-dir lock file, which is the concurrency-safety mechanism that would already absorb two
+`plugin_dirs()` calls racing on the same marketplace from panel_cmd()'s two threads.
+
+canonical: on-the-record/hooks/delegated-judgment-gate.sh (read this turn) — its "panel" concept
+(`panel-unanimous-support-v1`) triggers on gh PR-lifecycle events; panel_cmd()'s spawned session
+prompt (spawn.py:4258-4260) explicitly forbids branching/committing/opening a PR, so that gate's
+trigger condition is never reached from inside a panel session.
+
+```
+$ grep -n "WATCHDOG_SILENCE_MIN\s*=\|WATCHDOG_NO_COMMIT_MIN\s*=\|PANEL_TIMEOUT\s*=" spawn.py
+2007:WATCHDOG_SILENCE_MIN = 90     # signal 1
+2008:WATCHDOG_NO_COMMIT_MIN = 71   # signal 4
+67:PANEL_TIMEOUT = 240    # panel: two judges + a rebuttal round, wider than a single consult
+```
+`WATCHDOG_SILENCE_MIN`/`WATCHDOG_NO_COMMIT_MIN` are minute-scale watchdog thresholds while
+`PANEL_TIMEOUT` is a second-scale `subprocess.run(timeout=...)` bound — different units, no shared
+resource, no interaction found.
+
+canonical: on-the-record/hooks/spawn-allow-gate.sh (read this turn) — keys its allow decision on
+orchestrator identity (CLAUDE_ROLE empty) plus Bash-command shape (`python3 spawn.py ...`); it
+governs the orchestrator's own Bash-tool invocation of spawn.py, not anything the `claude -p`
+subprocesses panel_cmd() spawns do internally (they never themselves shell out to spawn.py).
+
+Could not find, within the time budget, a rule that panel_cmd() silently violates, bypasses, or that
+cancels its effect. Stopping rather than reporting a plausible-but-unreproduced concern.
