@@ -46,6 +46,8 @@
     "rule": "outcome is recomputed from the referenced ADR's own status field, never asserted independently of the ADR text.",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
+  "gate_b_contrast": "hollow instance: considered_options listing exactly one option, or decision_drivers absent/boilerplate, is schema-conformant but not a real trade-off decision — MADR's own template (adr.github.io/madr) requires decision drivers and multiple considered options with pros/cons weighed against them, not merely named (issue-807 step2 audit).",
+  "gate_c_axis_evaluation": "see docs/handbooks/architecture-methodology.md, section 'Axis evaluation procedure — maintenance_complexity' for the READ/EXECUTE/CRITERIA/CITATION method this role's axis_evaluation entries must follow, grounded in MADR's decision-drivers/considered-options weighing method rather than field names alone.",
   "write_scope": [
     "docs/decisions/*.md",
     "docs/issue-<n>/reports/architecture.md"

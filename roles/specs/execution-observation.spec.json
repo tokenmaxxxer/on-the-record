@@ -21,6 +21,8 @@
     "rule": "overall verdict = the worst-case result across all cited test entries (failed > cantTell > inapplicable > untested > passed), never a standalone summary field asserted independently of the cited results (issue-515 invariant 4).",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
+  "gate_b_contrast": "hollow instance: a record where every result entry is untested or cantTell, with no resolvable command output behind assertedBy, is schema-conformant but asserts nothing about the artifact under observation — at least one passed or failed entry, each tied to a command actually run, is required for the record to count as a genuine observation (issue-807 step2 audit).",
+  "gate_c_status": "N/A — mechanical aggregation, not investigative finding. This role's judgment reduces to applying the worst-case recomputation rule over already-run test claims; it does not decide what to observe. Per issue-807 step1 sec4's N/A test: two independent observers re-running the same test set against the same commit sha produce the same worst-case verdict, so there is no discretionary finding step to ground a lens-based method for.",
   "write_scope": ["docs/issue-<n>/reports/execution-observation.md"],
   "loop_state": {
     "progress": ["running", "collecting-evidence"],
