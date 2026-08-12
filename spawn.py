@@ -4710,7 +4710,7 @@ def main() -> int:
     if a.role == "flows":
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import flows
-        return flows.flows(a.cwd, a.json)
+        return flows.flows(a.cwd, a.json, all_scope=a.all)
     if a.role == "roles-due":
         # board_condition 평가기 — 판단(judgment) 잔여만 (issue #896 step 2).
         # 표준 발동(test-authoring 등)은 이제 항상-켜짐 훅이 맡고, 여기는
