@@ -23,7 +23,7 @@ def _fake_checkout(tmp_path, flows_payload):
 
 def _run(flows_payload, role=None, orchestrate_off="", last_assistant_message="ok",
          session_id="test-session", state_dir=None,
-         bind_state_dir=None, bind_role=None):
+         bind_state_dir=None, bind_role=None, stop_hook_active=False):
     with tempfile.TemporaryDirectory() as td:
         checkout = _fake_checkout(Path(td), flows_payload)
         env = dict(os.environ)
@@ -47,6 +47,7 @@ def _run(flows_payload, role=None, orchestrate_off="", last_assistant_message="o
         payload = json.dumps({
             "last_assistant_message": last_assistant_message,
             "session_id": session_id,
+            "stop_hook_active": stop_hook_active,
         })
         return subprocess.run(
             ["bash", str(HOOK)],
@@ -223,3 +224,46 @@ def t_latch_resets_after_non_waiting_stop_catches_later_stall():
                    state_dir=state_dir)
         assert r3.returncode == 0
         assert json.loads(r3.stdout)["decision"] == "block"
+
+
+# --- issue #1021: bounded re-block for the tier2 (age >= 4h) branch ---
+
+def t_stop_hook_active_never_blocks_tier2():
+    with tempfile.TemporaryDirectory() as state_dir:
+        r = _run({"decision_queue": [
+            {"issue": 1021, "pr": 1022, "age_hours": 5.0},
+        ]}, state_dir=state_dir, stop_hook_active=True)
+        assert r.returncode == 0
+        out = json.loads(r.stdout)
+        assert out.get("decision") != "block"
+        assert "1021" in out["hookSpecificOutput"]["additionalContext"]
+
+
+def t_same_tier2_snapshot_twice_second_stop_not_blocked():
+    with tempfile.TemporaryDirectory() as state_dir:
+        queue = {"decision_queue": [
+            {"issue": 1021, "pr": 1022, "age_hours": 4.5},
+        ]}
+        r1 = _run(queue, session_id="s1", state_dir=state_dir)
+        assert r1.returncode == 0
+        assert json.loads(r1.stdout)["decision"] == "block"
+
+        r2 = _run(queue, session_id="s1", state_dir=state_dir)
+        assert r2.returncode == 0
+        out2 = json.loads(r2.stdout)
+        assert out2.get("decision") != "block"
+
+
+def t_tier2_content_change_may_block_again():
+    with tempfile.TemporaryDirectory() as state_dir:
+        r1 = _run({"decision_queue": [
+            {"issue": 1021, "pr": 1022, "age_hours": 4.5},
+        ]}, session_id="s1", state_dir=state_dir)
+        assert json.loads(r1.stdout)["decision"] == "block"
+
+        r2 = _run({"decision_queue": [
+            {"issue": 1021, "pr": 1022, "age_hours": 4.5},
+            {"issue": 1023, "pr": 1024, "age_hours": 4.1},
+        ]}, session_id="s1", state_dir=state_dir)
+        assert r2.returncode == 0
+        assert json.loads(r2.stdout)["decision"] == "block"
