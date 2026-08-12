@@ -90,6 +90,19 @@ any that fails to instantiate or build. Driving each scenario through a
 real session and scoring the resulting transcript is issue #895's
 execution-observation step, not yet done.
 
+## Concurrent-judgment fixture (issue #973)
+
+`harness/fixture-concurrent-judgment/` is a standalone `pyproject.toml`
+package (`fixture-concurrent-judgment`, same `setuptools`/`packages`
+shape as `fixture-multirole/`) holding `test_panel.py`: an end-to-end
+test of `spawn.py`'s `panel_cmd()` against seeded stand-ins injected
+through its `run_session` parameter (the transport-boundary
+dependency-injection point — no real `claude -p` process is spawned,
+matching every other `harness/fixture-*/` test). One test drives a live
+two-judge exchange (position + rebuttal + verdict landing in the panel
+record file); one drives the degraded-to-sequential-consult path. Run
+with `pytest harness/fixture-concurrent-judgment`.
+
 ## Running it
 
 - Smoke check (signal-emission shape only, no live session):

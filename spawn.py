@@ -18,6 +18,7 @@
 """
 from __future__ import annotations
 import argparse
+import concurrent.futures
 import contextlib
 import re
 import fcntl
@@ -63,6 +64,7 @@ STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
 NETWORK_TIMEOUT = 60   # fetch/pull/push
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 CONSULT_TIMEOUT = 180  # consult: bounded headless run — no branch/PR to wait on
+PANEL_TIMEOUT = 240    # panel: two judges + a rebuttal round, wider than a single consult
 
 
 def _run_net(args: list[str], label: str, timeout: float = NETWORK_TIMEOUT,
@@ -4163,6 +4165,190 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             with contextlib.suppress(OSError):
                 os.unlink(settings_path)
         _append_consult_trace(trace_path, ts, role, issue, question, outcome)
+
+
+class _PanelMessagingUnavailable(RuntimeError):
+    """실측: crossSessionInbound 를 못 걸었거나 SendMessage 왕복이 한 번도
+    안 잡혔다 — panel_cmd() 가 순차 consult 로 내려가는 신호."""
+
+
+def _panel_slug(question: str) -> str:
+    """질문을 파일명 조각으로 — 영숫자 외 문자는 `-`, 연속 `-`는 하나로,
+    최대 60자(파일시스템/가독성 여유)."""
+    s = re.sub(r"[^a-z0-9]+", "-", question.lower()).strip("-")
+    return (s[:60].rstrip("-")) or "question"
+
+
+def _panel_record_path(issue: int | None, slug: str) -> Path:
+    """`docs/issue-<n>/reports/panel/` — 이슈가 없으면 표준 6버킷 중
+    `reports/panel/` (`_consult_trace_path()` 와 같은 분기 이유)."""
+    if issue is not None:
+        return ROOT / "docs" / f"issue-{issue}" / "reports" / "panel" / f"{slug}.md"
+    return ROOT / "docs" / "reports" / "panel" / f"{slug}.md"
+
+
+def _append_panel_turn(path: Path, ts: str, role: str, kind: str, text: str) -> None:
+    """턴 하나당 한 줄 — 라이브 경로와 저하 경로가 이 한 헬퍼를 같이
+    쓴다(제안서 §What will be done 2) — 두 경로가 서로 다른 기록 포맷으로
+    갈라지지 않는다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = f"- {ts} | role={role} | {kind} | {text[:2000]!r}\n"
+    with path.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def _extract_sendmessage_turns(stream_lines: list[dict]) -> list[str]:
+    """`--output-format stream-json` 이벤트에서 `SendMessage` 도구 호출의
+    `message` 인자만 뽑는다 — 세션 하나가 주고받은 실제 왕복을, 최종
+    verdict 와 별개로 관찰하기 위해서다."""
+    turns = []
+    for ev in stream_lines:
+        if ev.get("type") != "assistant":
+            continue
+        for block in (ev.get("message", {}).get("content") or []):
+            if isinstance(block, dict) and block.get("type") == "tool_use" \
+                    and block.get("name") == "SendMessage":
+                msg = (block.get("input") or {}).get("message")
+                if msg:
+                    turns.append(str(msg))
+    return turns
+
+
+def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None) -> dict:
+    """판정 세션 하나를 non-bare `claude -p` 로 띄운다 — `crossSessionInbound`
+    를 걸어 `SendMessage` 를 받을 수 있게 한다(이슈#973 phase-1 조사: 공식
+    문서, ListAgents/SendMessage 은 non-bare 세션에서만 열린다). 세션
+    설정은 `consult_cmd()` 와 똑같이 `role_settings()`/`plugin_dirs()` 로
+    조립한다 — 두 코드경로가 갈라지면 한쪽만 고쳐지는 드리프트가 난다
+    (#695/#700, `consult_cmd()` 독스트링과 같은 이유).
+
+    `TOKENMAXXXER_PANEL_MESSAGING=unavailable` 이 켜져 있으면
+    `_PanelMessagingUnavailable` 을 던진다 — 크로스세션 소켓이 막힌
+    샌드박스/CI 환경이 스스로 신고하는 경로다. 호출자는 이걸 순차
+    consult 로 내리는 신호로 쓴다."""
+    if os.environ.get("TOKENMAXXXER_PANEL_MESSAGING") == "unavailable":
+        raise _PanelMessagingUnavailable(f"{role}: TOKENMAXXXER_PANEL_MESSAGING=unavailable")
+    f = ROOT / "roles" / f"{role}.json"
+    if not f.exists():
+        have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
+        raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
+    spec = json.loads(f.read_text())
+    plugins = plugin_dirs(role, spec)
+    s = role_settings(role, cwd)
+    s["crossSessionInbound"] = "accept"
+    settings_path = None
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            json.dump(s, tf)
+            settings_path = tf.name
+        cmd = ["claude", "-p", "--settings", settings_path,
+               "--permission-mode", "bypassPermissions",
+               "--output-format", "stream-json", "--verbose"]
+        for p in plugins:
+            cmd += ["--plugin-dir", str(p)]
+        for p in core_plugin_dirs():
+            cmd += ["--plugin-dir", str(p)]
+        role_model = resolved_role_model()
+        if role_model:
+            cmd += ["--model", role_model]
+        env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+        prompt = (
+            "당신은 판정단(panel) 판정자로 불렸다 — 다른 역할 판정자 "
+            f"'{peer_role}' 와 함께 아래 질문을 판정한다. 이 역할의 룰북은 "
+            "이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
+            "마라. 먼저 당신의 입장(position)을 한 문단으로 정리해 "
+            "SendMessage 로 상대에게 보내라. 상대의 응답을 받은 뒤 최소 한 "
+            "차례 반박(rebuttal)을 SendMessage 로 주고받아라. 교환이 끝나면 "
+            "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
+            '{"answer": "<판단>", "confidence": "low|medium|high", '
+            '"caveats": ["<유보/전제>", ...]}\n\n'
+            f"질문: {question}"
+        )
+        r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=prompt, text=True,
+                           capture_output=True, timeout=PANEL_TIMEOUT, env=env)
+        if r.returncode != 0:
+            raise RuntimeError(f"{role}: 세션 종료 코드 {r.returncode}: "
+                               f"{r.stderr.strip()[:300]}")
+        stream_lines = []
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            with contextlib.suppress(ValueError):
+                stream_lines.append(json.loads(line))
+        turns = _extract_sendmessage_turns(stream_lines)
+        final_text = ""
+        for ev in reversed(stream_lines):
+            if ev.get("type") == "result":
+                final_text = ev.get("result", "")
+                break
+        verdict = _parse_consult_verdict(final_text)
+        return {"turns": turns, "verdict": verdict}
+    finally:
+        if settings_path:
+            with contextlib.suppress(OSError):
+                os.unlink(settings_path)
+
+
+def _panel_degrade(path: Path, ts: str, role_a: str, role_b: str, question: str,
+                    issue: int | None, cwd: str | None, reason: str) -> dict:
+    """저하 경로 — 순차 `consult_cmd()` 두 번으로 판단을 받고, 저하했다는
+    사실과 이유를 `degraded:` 마커로 기록에 남긴다(제안서, 병합 설계
+    Open Question 4)."""
+    _append_panel_turn(path, ts, "panel", "degraded", f"sequential-consult — {reason}")
+    verdict_a = consult_cmd(role_a, question, issue, cwd)
+    verdict_b = consult_cmd(role_b, question, issue, cwd)
+    _append_panel_turn(path, ts, role_a, "verdict", str(verdict_a))
+    _append_panel_turn(path, ts, role_b, "verdict", str(verdict_b))
+    return {"degraded": True, "reason": reason,
+            "verdict_a": verdict_a, "verdict_b": verdict_b,
+            "record_path": str(path)}
+
+
+def panel_cmd(role_a: str, role_b: str, question: str, issue: int | None = None,
+              cwd: str | None = None, run_session=None) -> dict:
+    """동시-판정(concurrent judgment): 두 역할을 non-bare 세션으로 띄워
+    `SendMessage` 로 입장과 반박을 주고받게 하고, 매 턴을
+    `docs/issue-<n>/reports/panel/<question-slug>.md` 에 남긴다(req#2/#5,
+    이슈#973). `consult_cmd()` 의 형제 함수 — 브랜치/PR 없이 판단만
+    돌려받는다는 점은 같고, 판정자가 둘이고 서로 대화한다는 점이 다르다.
+
+    `run_session`: 판정 세션 하나를 실행하는 콜러블
+    `(role, peer_role, question, cwd) -> {"turns": [...], "verdict": dict|None}`,
+    기본은 `_run_panel_session()`(실제 `claude -p` 스폰). 테스트는 이
+    인자로 진짜 프로세스 없이 씨드된 응답을 주입한다 — 이 파라미터가
+    제안서의 "transport boundary" 다.
+
+    메시징이 안 되면(`_PanelMessagingUnavailable`) 순차 `consult_cmd()`
+    두 번으로 저하하고, 저하했다는 사실과 이유를 기록에 남긴다."""
+    slug = _panel_slug(question)
+    path = _panel_record_path(issue, slug)
+    launcher = run_session or _run_panel_session
+    ts = datetime.now(timezone.utc).isoformat()
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+            fut_a = ex.submit(launcher, role_a, role_b, question, cwd)
+            fut_b = ex.submit(launcher, role_b, role_a, question, cwd)
+            result_a = fut_a.result()
+            result_b = fut_b.result()
+    except _PanelMessagingUnavailable as e:
+        return _panel_degrade(path, ts, role_a, role_b, question, issue, cwd, str(e))
+    if not (result_a.get("turns") or result_b.get("turns")):
+        # 두 세션 다 SendMessage 왕복이 한 건도 안 잡혔다 — 메시징이
+        # 켜지긴 했지만 실제로는 왕복이 안 닿은 경우(제안서 §3의 두 번째
+        # 저하 트리거). 이미 스폰된 세션의 verdict 는 버리고, 순차 consult
+        # 로 다시 판단을 받아 저하했다는 사실과 함께 기록한다.
+        return _panel_degrade(path, ts, role_a, role_b, question, issue, cwd,
+                               "no SendMessage round-trip observed")
+    for role, result in ((role_a, result_a), (role_b, result_b)):
+        turns = result.get("turns") or []
+        for i, text in enumerate(turns):
+            kind = "position" if i == 0 else "rebuttal"
+            _append_panel_turn(path, ts, role, kind, text)
+        if result.get("verdict") is not None:
+            _append_panel_turn(path, ts, role, "verdict", str(result["verdict"]))
+    return {"degraded": False, "verdict_a": result_a.get("verdict"),
+            "verdict_b": result_b.get("verdict"), "record_path": str(path)}
 
 
 def ensure_target_remote(cwd: str, unattended: bool) -> None:
