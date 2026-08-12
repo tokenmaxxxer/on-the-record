@@ -98,6 +98,18 @@ rather than retrofitting `requirement_registry`.
    touches `docs/specs/requirements.md`, recompute the expected digest
    from the staged blob and deny the commit unless
    `docs/specs/requirement-digest.md` is staged with matching content.
+   The after-proposal hunt (hunt record:
+   `docs/issue-930/reports/implementation/2026-08-12-hunt-requirement-digest-drift-guard-implementation.md`)
+   found that mirroring `spec-index-preflight.sh`'s staged-only
+   detection verbatim (`git diff --cached --name-only`, evaluated
+   before the intercepted command runs) lets `git commit -a` bypass the
+   check entirely, since `-a` stages tracked changes as part of the
+   commit's own execution and the file never appears in the pre-run
+   cached-diff snapshot. This build closes that gap: when the
+   intercepted command includes `-a`/`--all`/`-am`, the detection also
+   diffs the working tree against HEAD for `docs/specs/requirements.md`
+   (not staged-only), so an `-a`-style commit is caught the same as an
+   explicit `git add` one.
 4. `on-the-record/hooks/directive.sh` — one added line naming
    `docs/specs/requirement-digest.md` as the condensed live-requirement
    pointer, delivered on `UserPromptSubmit` like the directive's other
