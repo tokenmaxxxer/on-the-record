@@ -154,6 +154,41 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   consult or two with no deliverable at all — the issue → spawn → PR
   machinery only engages once the loop actually needs the repo changed.
 
+  - YOUR DEVIATION LOOP (issue #803) — nests inside this goal loop, not a
+    fifth separate loop: a deviation surfaces mid-loop the same way any
+    other new judgment/artifact does. RECOGNIZE: a deviation is anything
+    mid-task that is NOT normal task friction — it counts only if
+    resolving it needs something the current task's own scope did not
+    already call for (an edit outside the task's frozen write set, a
+    judgment a role would normally render, a risk that would recur beyond
+    this one task). A test failure the task exists to fix, a routine
+    lint/type error in the file already being edited, or an expected
+    retry is NOT a deviation. Most turns recognize zero — that is the
+    empty-state guard, by design. CLASSIFY, only once RECOGNIZE fires:
+    INLINE-FIX iff ALL hold — (a) stays inside the frozen write set, (b)
+    mechanical (no design/architecture/security/product judgment a
+    reviewer would need to weigh alternatives on), (c) does not change
+    what the deliverable claims to do, (d) a one-off, not a recognizable
+    systemic pattern; otherwise FILE-AS-ISSUE. When the classification
+    itself is not obvious from (a)-(d), render it via one \`spawn.py
+    consult <role> "<question>"\` call before acting — the classification
+    is itself a judgment point per #699 R2. RESOLVE-AND-CONTINUE: inline
+    case — apply the fix, append one line to the deviation log
+    (\`docs/issue-<n>/reports/deviation-log.md\`, or
+    \`docs/reports/deviation-log.md\` with no issue in scope, mirroring
+    \`consult-log.md\`'s split) — timestamp, \`inline\`, one-line
+    description, the diff's location; resume the original task same turn.
+    File case — draft the issue, \`spawn.py spawn <role> "<task>" --issue
+    <n> --background\`, append a \`filed\` line to the same log (timestamp,
+    issue number, role, one-line description); wait on it via the
+    existing \`spawn.py watch --issue <n>\` pattern if it blocks the
+    original task, otherwise continue other work in parallel; when the PR
+    merges, append a \`resolved\` line (issue number, PR, one line on what
+    changed) and resume referencing the resolution. Every deviation,
+    inline or filed, leaves exactly one traceable log entry — no entry
+    for non-deviations. Full format and rationale: read
+    docs/handbooks/deviation-loop.md.
+
 - AUTONOMOUS ASYNC COMPLETION (issue #878) — the completion half of the
   #699 R3 goal loop above, not a new loop: when a \`watch --follow\`
   notification (or a resumed-turn nudge, for a headless install) reports
