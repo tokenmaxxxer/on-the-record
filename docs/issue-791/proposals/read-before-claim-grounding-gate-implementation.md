@@ -89,6 +89,16 @@ Accumulation section.
 
 ## Out of scope
 
+- Re-validating a citation after the record that grounds it lands: the
+  after-proposal hunt (docs/issue-791/reports/implementation/2026-08-12-hunt-read-before-claim-grounding-gate-implementation.md)
+  found that `lint_record()` only ever runs at write-time through
+  `record-claim-guard.sh`'s PreToolUse hook, per req#7's "no CI primary
+  path" constraint — so a citation verbatim-grounded at commit time is
+  never re-checked if the cited file later changes. This property
+  already holds for every existing full-text check in `record_lint.py`
+  (none of them get a periodic re-scan either); this build accepts the
+  same write-time-only guarantee rather than introducing a new
+  re-validation mechanism none of the existing checks have.
 - Any change to the nested `on-the-record/gates/record_lint.py` copy —
   per the survey's duplication finding, recent changes to this exact
   file only ever touch the top-level path.
