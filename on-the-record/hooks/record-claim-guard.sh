@@ -29,6 +29,10 @@
 #     executed-live reference (a command string, or an
 #     `acceptance: <command> — result: ...` line) — a bare file-read
 #     citation satisfies #793's own check but not this one.
+#   - #791 mirror (read-before-claim grounding): a defect/root-cause
+#     claim line needs a verbatim (whitespace-normalized) fenced quote
+#     matching the cited file:line range, or a `derived: <command>`
+#     reproduction — a bare grep/keyword hit is not sufficient evidence.
 #
 # Fails closed (trap remaps non-0/2 exit to 2), matching this plugin's
 # house style. Kill switch: ORCHESTRATE_OFF=1.
@@ -136,6 +140,11 @@ while probe and probe != "/":
     probe = posixpath.dirname(probe)
 if root is not None:
     bad += record_lint.orphaned_path_reference_check(
+        record_lint.Path(root), content)
+    # issue #791 mirror: a defect/root-cause claim needs a grounded
+    # citation (verbatim file:line quote or `derived:` reproduction),
+    # not a bare grep/keyword hit.
+    bad += record_lint.defect_claim_grounding_check(
         record_lint.Path(root), content)
 
 if bad:

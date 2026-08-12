@@ -73,6 +73,8 @@ try:
          record_lint.canonical_source_claim_check),
         ("outcome claim with no executed-live citation (issue #870)",
          record_lint.outcome_claim_citation_check),
+        ("defect/root-cause claim with no grounded citation (issue #791)",
+         record_lint.defect_claim_grounding_check),
     ]
 
     print("<record-claim-citation-directive>")
