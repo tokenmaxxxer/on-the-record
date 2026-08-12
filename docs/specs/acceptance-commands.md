@@ -26,3 +26,4 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | target | command | confirmed |
 |---|---|---|
 | self | `python3 -m pytest -q gates/ on-the-record/hooks/` | 2026-08-12 (issue #914) |
+| gates/test_record_lint.py | `python3 -m pytest gates/test_record_lint.py -q` | 2026-08-12 (issue #1085) |

@@ -21,6 +21,7 @@ so each rule's logic lives in exactly one place.
 from __future__ import annotations
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -249,6 +250,49 @@ def orphaned_path_reference_check(root: Path, text: str) -> list[str]:
     return bad
 
 
+def git_tracked_path_reference_check(root: Path, text: str,
+                                      record_rel: str | None = None) -> list[str]:
+    """issue #1085 mirror: a backtick-quoted path that IS present in the
+    working tree (so #330's `orphaned_path_reference_check` lets it
+    through) but was never added in any commit on any branch — a path
+    present at write time only because it is an untracked, never-staged
+    working-tree artifact. Distinct from #330's "resolves nowhere on
+    disk at all" case: this fires only for paths that exist on disk
+    right now yet have no `git log --all --diff-filter=A` history.
+    Self-citation of the record currently being written is exempt (the
+    file being authored this turn cannot yet have history for its own
+    write)."""
+    bad = []
+    seen: set[str] = set()
+    for m in _PATH_REF.finditer(text):
+        ref = m.group(1)
+        if ref in seen:
+            continue
+        if any(ch in ref for ch in ("*", "?", "<", ">")):
+            continue
+        if record_rel is not None and ref == record_rel:
+            continue
+        if not (root / ref).exists():
+            continue  # #330's job, not this check's
+        seen.add(ref)
+        try:
+            out = subprocess.run(
+                ["git", "log", "--all", "--diff-filter=A", "--name-only",
+                 "--", ref],
+                cwd=str(root), capture_output=True, text=True, timeout=10)
+        except (OSError, subprocess.SubprocessError):
+            continue  # no git available — not this check's problem
+        if out.returncode != 0:
+            continue
+        if not out.stdout.strip():
+            bad.append(
+                "레코드가 git 이력에 한 번도 커밋된 적 없는 경로를 인용한다 "
+                f"(issue #1085): `{ref}` — 작업 트리에는 존재하지만 "
+                "`git log --all --diff-filter=A` 결과가 비어 있다 — "
+                "커밋된 적 없는 임시 워킹트리 파일이다.")
+    return bad
+
+
 def canonical_source_claim_check(text: str) -> list[str]:
     """issue #793 mirror: a state/defect-claim line (role output "found",
     session/PR/board state "halted|merged|closed|is running|is gone|is
@@ -446,6 +490,7 @@ def lint_record(path: Path) -> list[str]:
     bad += checked_claim_reason_check(text)
     bad += bare_count_claim_check(text)
     bad += orphaned_path_reference_check(root, text)
+    bad += git_tracked_path_reference_check(root, text, record_rel=rel)
     bad += canonical_source_claim_check(text)
     bad += outcome_claim_citation_check(text)
     bad += defect_claim_grounding_check(root, text)
