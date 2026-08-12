@@ -7231,6 +7231,44 @@ class WatchFollow(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(len(calls), 3, calls)
 
+    def test_watcher_dead_stale_pid_cleared_by_live_follow_registration(self):
+        # 이슈 #1043: 자동 무장한 워처 pid 가 죽어 명부에 남아 있어도, 이
+        # follow 호출이 진입 시점에 자기 자신을 워처로 등록해 stale pid 를
+        # 덮어써야 한다 — 그 뒤 watchdog_check_one() 은 watcher-dead 도
+        # watcher-missing 도 신고하지 않아야 한다.
+        from unittest import mock
+        spawn._workspace_index_put(180, "implementation", str(self.work), str(self.log),
+                                    watcher_pid=999999999)  # 존재 안 할 stale pid
+        spawn._append_event(self.events, "session-end", "progressed")
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
+            seen = spawn._read_offset(offset_path)
+            lines = events_path.read_text(encoding="utf-8").splitlines()
+            if seen < len(lines):
+                spawn._write_offset(offset_path, seen + 1)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(180, "implementation", 5.0, follow=True)
+        self.assertEqual(rc, 0)
+        key = f"{spawn._repo_identity(str(self.work))}/issue-180/implementation"
+        idx_entry = spawn._workspace_index_load()[key]
+        self.assertEqual(idx_entry["watcher_pid"], os.getpid())
+        wd_entry = {"log": str(self.log), "work": str(self.work), "ts": int(time.time()),
+                    "before_head": None, "pid": None}
+        out = spawn.watchdog_check_one("issue-180/implementation", wd_entry, state={})
+        self.assertFalse(any("watcher-dead" in a for a in out))
+        self.assertFalse(any("watcher-missing" in a for a in out))
+
+    def test_watcher_dead_or_missing_still_fires_with_no_watcher_registered(self):
+        # 컨트롤 케이스: 이 수정이 너무 관대해지지 않았는지 지킨다 — 애초에
+        # 아무 워처도 등록되지 않은 세션(setUp 이 watcher_pid 없이 심은
+        # 엔트리 그대로)은 여전히 watcher-missing/watcher-dead 로 잡혀야 한다.
+        wd_entry = {"log": str(self.log), "work": str(self.work), "ts": int(time.time()),
+                    "before_head": None, "pid": None}
+        out = spawn.watchdog_check_one("issue-180/implementation", wd_entry, state={})
+        self.assertTrue(any("watcher-missing" in a or "watcher-dead" in a for a in out))
+
 
 class WatchFollowSessionScoping(unittest.TestCase):
     """이슈 #557: --follow 커서는 무장 시점에 살아있는 세션(pid+ts)에만
