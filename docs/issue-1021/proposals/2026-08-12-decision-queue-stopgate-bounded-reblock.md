@@ -27,7 +27,10 @@ up). The 1h-4h advisory tier is unchanged.
 - Advisory tier (`1 <= age_hours < 4`) behavior is unchanged — the issue
   states this explicitly.
 - `stop_hook_active=true` must never produce `decision: "block"` from
-  this hook, on any tier.
+  this hook, on any branch — the existing waiting-declaration branch
+  (issues #600/#692) included, since it emits `decision: "block"` today
+  with no `stop_hook_active` check at all and is exercised by the same
+  Stop event.
 - The "block once per snapshot" latch must key off queue *contents*
   (which issue/PR items are 4h-or-older), not `age_hours`, since
   `age_hours` changes every turn even when the queue is otherwise
@@ -69,7 +72,9 @@ given host ever omits the field.
 
 1. In `decision-queue-stopgate.sh`'s `CHECK` Python body: read
    `stop_hook_active = bool(stdin_payload.get("stop_hook_active"))`
-   alongside the existing `last_msg`/`session_id` reads.
+   alongside the existing `last_msg`/`session_id` reads, at the top of
+   the script, before either the waiting-declaration branch or the
+   age-tier branches run.
 2. Add a second persisted latch, mirroring `_state_path()` /
    `_load_blocked()` / `_save_blocked()`'s shape but keyed under a
    distinct field name (e.g. `"tier2_last_blocked_ids"`) in the same
@@ -83,8 +88,13 @@ given host ever omits the field.
    `additionalContext` advisory shape the 1h-4h branch already uses
    (naming the aged items) so the operator still sees them; otherwise
    emit `decision: "block"` as today and persist the new identity set.
-4. Leave the 1h-4h advisory branch and the waiting-declaration branch
-   untouched.
+4. Leave the 1h-4h advisory branch's trigger/wording untouched. The
+   waiting-declaration branch (issues #600/#692) gains one guard: when
+   `stop_hook_active` is true, it never emits `decision: "block"` and
+   instead falls through to the age-tier logic below it (matching what
+   the branch's own comment already says happens after its existing
+   one-shot latch fires) — its own latch state and reset semantics stay
+   otherwise unchanged.
 5. Add the three named test cases to
    `on-the-record/hooks/test_decision_queue_stopgate.py`, extending the
    existing `_run()` helper with a `stop_hook_active` parameter wired
@@ -97,8 +107,9 @@ given host ever omits the field.
 
 - Any change to the 1h-4h advisory tier's trigger condition or wording
   beyond reusing its existing output shape for the degraded case.
-- Any change to the waiting-declaration branch (issues #600/#692) or its
-  own separate latch.
+- Any change to the waiting-declaration branch's (issues #600/#692) own
+  latch semantics or reset condition, beyond adding the
+  `stop_hook_active` short-circuit described above.
 - Changing how `flows --json`/`decision_queue` is computed upstream.
 
 ## How you'll know it worked
