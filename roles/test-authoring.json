@@ -13,7 +13,7 @@
     }
   },
   "decides": "테스트 코드 자체가 격리성·fixture 전략 면에서 좋은 설계인가",
-  "use_when": "신규/기존 테스트 스위트를 설계·리뷰할 때",
+  "use_when": "신규/기존 테스트 스위트를 설계·리뷰할 때 (b) scope overlap, tentative: implementation의 write_scope가 이미 이 도메인을 inline으로 커버하는 경우 별도 record는 생략 가능 — 테스트-설계 전용 record 타입이 별도로 필요해지면 재검토 (issue #993 product-discovery diagnosis)",
   "produces": "suite architecture note, fixture strategy, smell list (Meszaros catalog refs)",
   "write_scope": [
     "docs/issue-<n>/reports/test-authoring.md"
