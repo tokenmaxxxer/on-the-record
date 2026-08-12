@@ -5246,6 +5246,195 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
             self.assertEqual(claim["pid"], os.getpid())
 
 
+class SpawnDeathBeforeRegistration(unittest.TestCase):
+    """이슈 #908: fork-child 의 setsid/dup2/Popen 구간에서 죽으면 그 이전엔
+    roster/events 에 아무 흔적도 안 남아 roster_watchdog() 이 구조적으로 못
+    봤다 — 그 구간 진입 전에 로스터 스텁 + 이른 session-start 를 먼저 남기고,
+    구간 자체는 try/except 로 감싸 spawn-death 이벤트를 덧붙이는지 확인한다."""
+
+    def _prep_repo(self, td, name="work"):
+        work = Path(td) / name
+        work.mkdir()
+        run = lambda *a: subprocess.run(a, cwd=str(work), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (work / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        return work
+
+    def _common_patches(self, work):
+        return [
+            mock.patch.object(spawn, "issue_workspace",
+                               lambda cwd, issue, role: str(work)),
+            mock.patch.object(spawn, "checkout_issue_branch",
+                               lambda cwd, issue, role: "b"),
+            mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []),
+            mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"),
+            mock.patch.object(spawn, "core_plugin_dirs", lambda: []),
+            mock.patch.object(spawn, "core_version", lambda: "v0"),
+            mock.patch.object(spawn, "spawn_cmd", lambda *a, **k: (["cat"], {})),
+            mock.patch.object(spawn, "ensure_pushed", lambda *a, **k: None),
+            mock.patch.object(spawn, "roster_remove", lambda *a, **k: None),
+            mock.patch.object(spawn, "ledger_write", lambda *a, **k: None),
+            mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None),
+            mock.patch.object(os, "fork", return_value=0),
+            mock.patch.object(os, "_exit", lambda *a: None),
+            mock.patch.object(os, "setsid", lambda: None),
+        ]
+
+    def test_setsid_death_leaves_roster_stub_and_spawn_death_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+            old_idx = spawn.WORKSPACE_INDEX
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+            saved_fds = [os.dup(0), os.dup(1), os.dup(2)]
+            try:
+                with contextlib.ExitStack() as stack:
+                    for p in self._common_patches(work):
+                        stack.enter_context(p)
+                    stack.enter_context(mock.patch.object(
+                        os, "setsid", side_effect=OSError("boom")))
+                    with self.assertRaises(OSError):
+                        spawn._spawn_one(str(work), "implementation", "task\n",
+                                         unattended=True, issue=908, bounded=True)
+            finally:
+                for fd, real in zip((0, 1, 2), saved_fds):
+                    os.dup2(real, fd)
+                    os.close(real)
+                spawn.ROSTER = old_roster
+                spawn.WORKSPACE_INDEX = old_idx
+
+            roster_key = "issue-908/implementation"
+            d = json.loads(roster.read_text()) if roster.exists() else {}
+            self.assertIn(roster_key, d)
+            self.assertEqual(d[roster_key]["pid"], os.getpid())
+
+            events_path = spawn._events_path(str(work))
+            events = [json.loads(l) for l in
+                      events_path.read_text(encoding="utf-8").splitlines()]
+            types = [e["type"] for e in events]
+            self.assertIn("session-start", types)
+            self.assertIn("spawn-death", types)
+            death = next(e for e in events if e["type"] == "spawn-death")
+            self.assertEqual(death["detail"]["stage"], "fork-setup")
+
+            self.assertEqual(spawn.session_end_verdict(str(work), None,
+                                                        alive_fn=lambda pid: False),
+                             "crashed")
+
+            buf = io.StringIO()
+            spawn.ROSTER = roster
+            try:
+                with contextlib.redirect_stdout(buf), \
+                     mock.patch.object(spawn, "_alive", lambda pid: False), \
+                     mock.patch.object(spawn, "_post_session_end_comment",
+                                       lambda *a, **k: None), \
+                     mock.patch.object(spawn, "diagnose_health",
+                                       lambda *a, **k: {"state": "DEAD-ERRORED",
+                                                         "detail": "crashed"}), \
+                     mock.patch.object(spawn, "ledger_check_and_stamp",
+                                       lambda *a, **k: True), \
+                     mock.patch.object(spawn, "_board_wide_sweep", lambda root: 0), \
+                     mock.patch.object(spawn, "reconcile", lambda *a, **k: []):
+                    spawn.roster_watchdog()
+            finally:
+                spawn.ROSTER = old_roster
+            out = buf.getvalue()
+            self.assertIn("DEAD-ERRORED", out)
+
+    def test_popen_death_leaves_roster_stub_and_spawn_death_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+            old_idx = spawn.WORKSPACE_INDEX
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+            saved_fds = [os.dup(0), os.dup(1), os.dup(2)]
+            try:
+                real_popen = spawn.subprocess.Popen
+
+                def fake_popen(cmd, *a, **k):
+                    if cmd == ["cat"]:
+                        raise OSError("no such file")
+                    return real_popen(cmd, *a, **k)
+
+                with mock.patch.object(spawn.subprocess, "Popen",
+                                       side_effect=fake_popen), \
+                     contextlib.ExitStack() as stack:
+                    for p in self._common_patches(work):
+                        stack.enter_context(p)
+                    with self.assertRaises(OSError):
+                        spawn._spawn_one(str(work), "implementation", "task\n",
+                                         unattended=True, issue=908, bounded=True)
+            finally:
+                for fd, real in zip((0, 1, 2), saved_fds):
+                    os.dup2(real, fd)
+                    os.close(real)
+                spawn.ROSTER = old_roster
+                spawn.WORKSPACE_INDEX = old_idx
+
+            events_path = spawn._events_path(str(work))
+            events = [json.loads(l) for l in
+                      events_path.read_text(encoding="utf-8").splitlines()]
+            death = next(e for e in events if e["type"] == "spawn-death")
+            self.assertEqual(death["detail"]["stage"], "popen")
+
+    def test_normal_spawn_unaffected_no_spawn_death_event(self):
+        # empty-state 가드: 안 죽는 정상 스폰은 마지막에 실제 pid 로 딱 한 번만
+        # roster_register 가 불리고, spawn-death 이벤트는 전혀 없어야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+            old_idx = spawn.WORKSPACE_INDEX
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+            register_calls = []
+            orig_register = spawn.roster_register
+
+            def spy_register(key, entry):
+                register_calls.append(dict(entry))
+                orig_register(key, entry)
+
+            saved_fds = [os.dup(0), os.dup(1), os.dup(2)]
+            try:
+                with mock.patch.object(spawn, "roster_register", spy_register), \
+                     mock.patch.object(spawn, "_self_trigger_respawn",
+                                       lambda *a, **k: None), \
+                     contextlib.ExitStack() as stack:
+                    for p in self._common_patches(work):
+                        stack.enter_context(p)
+                    spawn._spawn_one(str(work), "implementation", "task\n",
+                                     unattended=True, issue=908, bounded=True)
+            finally:
+                for fd, real in zip((0, 1, 2), saved_fds):
+                    os.dup2(real, fd)
+                    os.close(real)
+                spawn.ROSTER = old_roster
+                spawn.WORKSPACE_INDEX = old_idx
+
+            # fork-child stub write (before the risky span, keyed by
+            # os.getpid() since os.fork is mocked to 0 and no real fork
+            # happens) + the existing post-Popen overwrite (keyed by the
+            # real "cat" subprocess's own pid) = 2 calls, no crash in between.
+            self.assertEqual(len(register_calls), 2)
+            self.assertEqual(register_calls[0]["pid"], os.getpid())
+
+            events_path = spawn._events_path(str(work))
+            events = [json.loads(l) for l in
+                      events_path.read_text(encoding="utf-8").splitlines()]
+            types = [e["type"] for e in events]
+            self.assertNotIn("spawn-death", types)
+            self.assertEqual(types.count("session-start"), 2)
+
+
 class EnsurePushedStrandedComment(unittest.TestCase):
     """이슈 #326: `ensure_pushed()`의 두 침묵 dead-end(호스트 push 실패,
     PR 생성 실패)가 이제 이슈에 코멘트를 남기는지, 그리고 멱등한지."""
