@@ -13,7 +13,7 @@
     }
   },
   "decides": "기존 코드의 관찰 가능한 동작을 바꾸지 않고 안전하게 재구조화할 수 있는가",
-  "use_when": "레거시/기존 코드에 손을 대야 할 때",
+  "use_when": "레거시/기존 코드에 손을 대야 할 때 (b) scope overlap, tentative: implementation의 write_scope가 이미 이 도메인을 inline으로 커버하는 경우 별도 record는 생략 가능 — 레거시-부채 전용 record 타입이 별도로 필요해지면 재검토 (issue #993 product-discovery diagnosis)",
   "produces": "refactoring plan, characterization tests, before/after behavior-equivalence note",
   "write_scope": [
     "docs/issue-<n>/reports/refactoring-legacy.md"
