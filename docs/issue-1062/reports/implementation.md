@@ -65,11 +65,10 @@ Based on: docs/issue-1062/proposals/live-panel-round-trip-diagnosis.md
   docs/issue-1062/reports/implementation/survey.md, per the survey-first ordering this
   session followed.
 
+canonical: `python3 spawn.py panel architecture api-design ... --issue 1062` executed live this session (docs/issue-1062/reports/implementation/survey.md, "Live reproduction" item 2)
+
 ## Acceptance verification
-canonical: `python3 spawn.py panel architecture api-design ... --issue 1062` executed live
-this session (docs/issue-1062/reports/implementation/survey.md, "Live reproduction" item 2)
-- panel run round-trip — checked: docs/issue-1062/reports/implementation/survey.md, "Live
-  reproduction" section — result: pass
+- panel run round-trip — checked: docs/issue-1062/reports/implementation/survey.md — result: pass
 
 ## What did not work
 
