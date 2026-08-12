@@ -1217,9 +1217,16 @@ def _undispositioned_role_prs(root: Path, exclude_issue: int | None = None
         return [], False
     sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
     import ci as _ci
+    # 이슈 #1013 block C: 자기 세션이 소유한 로스터 엔트리의 브랜치는
+    # 게이트에서 뺀다 — `_roster_own()` 이 이미 고아 엔트리(session_id
+    # 없음)는 own-scope 에도 남겨두므로, 그런 엔트리의 브랜치는 여기서도
+    # 계속 걸린다(관측-손실 없음).
+    own_branches = {key for key in _roster_own(_roster_load(), all_scope=False)}
     blockers = []
     for pr in prs:
         if exclude_issue is not None and pr["issue"] == exclude_issue:
+            continue
+        if pr.get("headRefName") in own_branches:
             continue
         approved_roles = _ci._approved_roles_on_issue(root, pr["issue"])
         phase = "phase2" if approved_roles else "phase1"
@@ -1908,6 +1915,27 @@ def _roster_save(d: dict) -> None:
     ROSTER.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
 
+def _roster_own(d: dict, all_scope: bool) -> dict:
+    """이슈 #1013: 로스터 딕셔너리를 호출자 자신의 세션으로 좁힌다.
+    `all_scope=True` 면 그대로 돌려준다(`--all`). 그 외에는
+    `ORCHESTRATOR_SESSION_ID_ENV` 로 얻은 자기 세션 id 와 엔트리의
+    `session_id` 가 같은 것만 남긴다 — 둘 다 `None` 이면(오늘의
+    단일-세션/미설정 상태) 같다고 본다(empty-state parity). 다른
+    세션이 소유한(둘 다 `None` 이 아니고 다른) 엔트리는 걸러지지만,
+    소유자를 특정할 수 없는 고아 엔트리(`session_id` 가 `None` 인데
+    자기 세션 id 는 있는 쪽)는 계속 관측 대상에 남긴다 — 관측-손실
+    금지 불변식(observation-loss invariant)."""
+    if all_scope:
+        return d
+    own = os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None
+    out = {}
+    for key, e in d.items():
+        sid = e.get("session_id")
+        if sid == own or sid is None:
+            out[key] = e
+    return out
+
+
 def _watcher_looks_real(pid: int, issue: int | None,
                          role: str | None = None) -> bool:
     """이슈 #488 before-landing hunt 발견: `_alive()` 만으로는 워처가 죽은
@@ -1995,8 +2023,16 @@ def roster_ps() -> int:
                 armed_at = ws_entry.get("watcher_armed_at")
                 armed_mins = (int(time.time()) - int(armed_at)) // 60 \
                     if armed_at is not None else "?"
-                print(f"               워처: pid {watcher_pid}  "
-                      f"armed {armed_mins}분 전  follow=True")
+                own_sid = os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None
+                sid = e.get("session_id")
+                if sid is not None and sid != own_sid:
+                    # 이슈 #1013 block E: 워처가 살아있어도 이 워처를 무장한
+                    # 세션이 나(호출자)와 다르면 로컬 소유를 암시하지 않는다.
+                    print(f"               워처: pid {watcher_pid}  "
+                          f"armed {armed_mins}분 전  (다른 세션 소유)")
+                else:
+                    print(f"               워처: pid {watcher_pid}  "
+                          f"armed {armed_mins}분 전  follow=True")
             else:
                 print(f"               워처: DEAD(pid {watcher_pid})")
         if not alive:
@@ -2550,7 +2586,7 @@ def _board_wide_sweep(root: Path) -> int:
     return count
 
 
-def roster_watchdog(auto_respawn: bool = False) -> int:
+def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
     """`spawn.py watchdog` — 살아있는 모든 역할 세션을 한 번 스캔해서 이상
     신호를 사람이 읽을 수 있게 출력한다. observe-only: 아무 것도 고치거나
     죽이지 않는다. 오케스트레이터가 10-15분 간격으로 반복 호출한다
@@ -2574,7 +2610,23 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
     이슈는 로스터 이상 신호와 같은 모양으로 출력되고 `anomaly_count`에
     합산된다. observe-only 계약은 그대로 — 아무것도 고치거나 닫지 않는다."""
     anomaly_count = _board_wide_sweep(ROOT)
-    d = _roster_load()
+    d_all = _roster_load()
+    # 이슈 #1013 block B: 자기 세션 소유(또는 소유 미기재=empty-state)
+    # 엔트리로 스캔을 좁힌다. `--all` 이면 그대로 전체.
+    d = _roster_own(d_all, all_scope)
+    if not all_scope:
+        # 이슈 #1013 block D: 다른 세션 소유로 걸러진(own-scope 밖) 죽은
+        # 엔트리는 관측-손실 방지를 위해 [orphaned] 로 계속 보고한다 —
+        # 다만 own-scope 루프 밖이므로 아래의 `_auto_respawn_check()` 는
+        # 결코 이들에 대해 불리지 않는다(다른 세션 소유 작업을 재스폰하지
+        # 않는다).
+        for key in sorted(set(d_all) - set(d)):
+            e = d_all[key]
+            if _alive(e.get("pid", 0)):
+                continue
+            anomaly_count += 1
+            print(f"[orphaned] {key}: session {e.get('session_id')} 소유, "
+                  f"이 세션 소유 아님 — 재스폰하지 않음")
     if not d:
         print("돌고 있는 역할 세션 없음")
         if not anomaly_count:
@@ -4648,7 +4700,7 @@ def main() -> int:
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
     if a.role == "watchdog":
-        return roster_watchdog(auto_respawn=a.auto_respawn)
+        return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all)
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
     if a.role == "reconcile":
