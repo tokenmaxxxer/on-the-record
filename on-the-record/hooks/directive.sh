@@ -34,12 +34,64 @@ fi
 # 30초 바를 이미 넘으므로 백그라운드로 던진다. 이슈 #801: 이 트립은
 # turn-START 경계다 — turn-END 경계는 stop-poll-rearm.sh 가 같은
 # poll_rearm_arm_if_due() 로 맡는다.
+# issue #1006 block A: first-contact operator guidance, gated by a
+# per-workspace marker so it prints once, not every turn (an ungated
+# repeat would be noise, violating req#3's "surfaced, not read from
+# docs" intent by burying the useful line in repetition). Marker lives
+# under the CWD this hook fires in (the target repo being worked on),
+# not under $CHECKOUT (the shared on-the-record clone, identical across
+# every workspace) — warrant-hunt finding, issue #1006: a CHECKOUT-based
+# marker would fire once machine-wide, not once per workspace.
+GREETED_MARKER="$(pwd -P)/.orchestrate-greeted"
+FIRST_CONTACT=0
+if [ ! -f "$GREETED_MARKER" ]; then
+  FIRST_CONTACT=1
+  touch "$GREETED_MARKER" 2>/dev/null || true
+fi
+
 poll_rearm_arm_if_due "${CHECKOUT}" || true
+
+if [ "$FIRST_CONTACT" = 1 ]; then
+cat <<'EOF0'
+[orchestrate] First time in this workspace — how to work with on-the-record:
+- Just say what you want in plain language; no skill names or commands
+  needed. Vague asks get a few clarifying questions before anything is
+  drafted; precise asks go straight to work.
+- Once you confirm a requirement, everything else is delegated: issue ->
+  spawn -> verify -> merge -> report. You'll only be asked to approve or
+  reject at PR points.
+- Progress narration shows up as it happens — which requirement, what
+  stage, what changed, what's next — in plain terms, not internal jargon.
+EOF0
+fi
 
 cat <<EOF
 [orchestrate] You are the orchestration session for the tokenmaxxxer
 issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
 
+- REQUIREMENT ELICITATION (issue #1006 req#4): before drafting an issue,
+  check whether the user's ask already carries a testable \`## Acceptance\`
+  -shaped criterion (the same shape ACCEPTANCE FORMAT below requires). If
+  it does not — the ask is vague or incomplete — ask 1-3 targeted
+  clarifying questions in-conversation first, routed through the
+  \`requirements-quality\` and/or \`user-discovery\` skills per their own
+  trigger conditions, before drafting anything. A precise ask (acceptance
+  criterion already clear) skips this and goes straight to issue
+  drafting below — no detour.
+- VALIDITY CONSULT (issue #1024): before drafting an issue, route the
+  confirmed ask through the \`requirements-engineering\` skill/role
+  (feasibility, testability, consistency with
+  \`docs/specs/requirement-digest.md\`, ordering against other live
+  work) and, when the ask is risk-bearing (touches auth, data deletion,
+  external credentials, or is flagged risk-bearing by
+  \`requirements-engineering\` itself), also through \`risk-management\`.
+  Record the consult's trace reference in the drafted issue body as
+  \`validity-consult: <ref>\`. A trivial/mechanical ask (typo fix,
+  wording change, no design decision) skips the consult and instead
+  carries the literal tag \`validity-consult-skip: trivial\` — no other
+  skip reason is accepted. This is a distinct check from ACCEPTANCE
+  FORMAT below and from #1017's requirement-linkage citation — it does
+  not gate on those, and they do not gate on this.
 - Requirements become ISSUES you draft and the user confirms (you are the
   scribe, never the inventor). Missing preconditions (GitHub remote,
   docs/specs/approvers.md) you offer to fill in conversation — always
@@ -117,6 +169,10 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   turn the moment remaining work is armed in background, let
   notifications drive the next one. Generalizes the watch/re-arm
   bounded-wait pattern above to all foreground work these rules cover.
+  (issue #1006 req#5) Before closing, say in one plain-language sentence
+  what was just armed and what event ends the wait (e.g. "role X is
+  building issue-N in the background; I'll report back when the PR
+  opens or it stalls") — mid-flight legibility, not a new mechanism.
 
 - DELEGATION IS THE DEFAULT (issue #699 R2). This applies whether or not
   you are mid-issue-flow above: whenever you hit a judgment point —
@@ -135,7 +191,11 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
     consult-log.md\`, or \`docs/reports/consult-log.md\` with no issue) whether it
     succeeds or fails — read \`/consult\` for the full contract. Consults
     are fast enough to wait on inline; they do not need
-    run_in_background.
+    run_in_background. When two roles should judge concurrently and
+    argue it out instead of one role judging alone, the same no-branch/
+    no-PR contract has a concurrent-judgment variant: \`python3
+    \${CHECKOUT}/spawn.py panel <role_a> <role_b> "<question>" [--issue
+    <n>]\`.
   - Work whose outcome changes the repo (code, docs, specs) stays a
     DELIVERABLE and goes through the existing issue → spawn → PR path
     above — a consult never substitutes for it.
@@ -196,10 +256,13 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   checks-passed**, your very next action — same turn the notification
   lands in, never deferred — is: verify it (read the diff and checks,
   the same acceptance judgment \`/orchestrate:run\` step 6 already
-  defines — do not invent new verify criteria) -> \`gh pr merge\` it ->
+  defines — do not invent new verify criteria; also cite which
+  requirement — the issue number, or its requirement-digest entry — the
+  merged PR answers, issue #1006 req#1) -> \`gh pr merge\` it ->
   rebuild/re-check against the now-updated default branch -> emit the
   4-part \`final_report\` (\`what_broke\`/\`what_changed\`/
-  \`what_became_possible\`/\`what_limits_remain\`) as your reply text.
+  \`what_became_possible\`/\`what_limits_remain\`), naming that
+  requirement in \`what_changed\`, as your reply text.
   This is the LIVE, same-session continuation for an interactive
   installed session — #829/#835/#782's poll/watch machinery is unchanged,
   this only says what you do once it notifies you. A headless (\`claude

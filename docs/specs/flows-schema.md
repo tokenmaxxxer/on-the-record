@@ -37,7 +37,17 @@ data-contract reference for the `flows` verb output; it does not describe
 
 ### 2.1 `decision_queue[]`
 
-One entry per open PR awaiting phase 1 or phase 2 approval.
+One entry per open PR awaiting phase 1 or phase 2 approval, scoped by
+default (issue #1035) to the calling session's own items — reusing
+`spawn._roster_own`'s ownership predicate (roster entry `session_id`
+matches the caller's own session id, or either side is unattributed
+(`None`) or the roster carries no entry at all for that PR's
+`issue-<n>/<role>` key). A PR another session's roster entry owns is
+excluded; call with `--all` (`spawn.py flows --json --all`, threaded as
+`flows_payload(root, all_scope=True)`) to see every open PR repo-wide,
+unscoped. This scoping is `flows_payload()`-side, not a `decision-queue-
+stopgate.sh` hook-side filter, so every consumer of `flows --json` gets
+the same scoped view.
 
 ```json
 {

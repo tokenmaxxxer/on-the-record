@@ -158,6 +158,59 @@ class FlowsStageMapping(unittest.TestCase):
         self.assertEqual(payload["unattributed"]["ledger_skipped"], 1)
 
 
+class DecisionQueueSessionScope(unittest.TestCase):
+    """issue #1035: `decision_queue`는 기본으로 호출자 자신의 세션이
+    소유한 항목만 담는다 — 다른 세션 소유 aged 항목은 제외, 자기 소유
+    항목은 포함, `all_scope=True`면 둘 다 포함."""
+
+    def setUp(self):
+        self.td = tempfile.TemporaryDirectory()
+        self.root = Path(self.td.name)
+        self.addCleanup(self.td.cleanup)
+        self._patched = []
+        self._patch(spawn, "_repo_slug", lambda root: "acme/repo")
+        self._patch(spawn, "_issue_comments", lambda root, n: ([], True))
+        old_root = spawn.ROOT
+        spawn.ROOT = self.root
+        self.addCleanup(setattr, spawn, "ROOT", old_root)
+        self._patch(flows, "_issue_list_all", lambda root: ([], True))
+        foreign_pr = {"number": 67, "headRefName": "issue-66/implementation",
+                      "createdAt": "2020-01-01T00:00:00Z", "body": "", "reviews": []}
+        own_pr = {"number": 71, "headRefName": "issue-70/implementation",
+                  "createdAt": "2020-01-01T00:00:00Z", "body": "", "reviews": []}
+        self._patch(flows, "_pr_list_all", lambda root: ([foreign_pr, own_pr], True))
+        self._roster = {
+            "issue-66/implementation": {"session_id": "session-B"},
+            "issue-70/implementation": {"session_id": "session-A"},
+        }
+        self._patch(spawn, "_roster_load", lambda: self._roster)
+        old_env = dict(spawn.os.environ)
+        self.addCleanup(spawn.os.environ.clear)
+        self.addCleanup(spawn.os.environ.update, old_env)
+        spawn.os.environ[spawn.ORCHESTRATOR_SESSION_ID_ENV] = "session-A"
+
+    def _patch(self, obj, name, fn):
+        orig = getattr(obj, name)
+        setattr(obj, name, fn)
+        self.addCleanup(setattr, obj, name, orig)
+
+    def test_foreign_session_aged_item_excluded_by_default(self):
+        payload = flows.flows_payload(self.root)
+        issues = {d["issue"] for d in payload["decision_queue"]}
+        self.assertNotIn(66, issues)
+
+    def test_own_session_aged_item_still_included_by_default(self):
+        payload = flows.flows_payload(self.root)
+        issues = {d["issue"] for d in payload["decision_queue"]}
+        self.assertIn(70, issues)
+        self.assertEqual(len(payload["decision_queue"]), 1)
+
+    def test_all_scope_lists_both_own_and_foreign(self):
+        payload = flows.flows_payload(self.root, all_scope=True)
+        issues = {d["issue"] for d in payload["decision_queue"]}
+        self.assertEqual(issues, {66, 70})
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
     for t in tests:

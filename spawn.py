@@ -1017,6 +1017,55 @@ def require_acceptance_gate(cwd: str, issue: int | None) -> None:
         f"검증할 수 없다(issue #310, #441).")
 
 
+def require_requirement_linkage(cwd: str, issue: int | None) -> None:
+    """issue #1017 (northpole req#6): 이슈가 아직 phase-2 승인을 받지
+    않았으면(=드래프트/phase-1 단계) 요구 ID 인용 또는 명시적
+    `infrastructure/no-direct-requirement` 태그를 요구한다.
+    `require_acceptance_gate` 와 반대 방향의 phase 게이트다 — 그쪽은
+    phase-2 승인 **후에만** 발동해 Acceptance 절의 실행가능성을 검사하고,
+    이쪽은 phase-2 승인 **전에만**(=아직 새로 드래프트되는 중) 발동해
+    요구 연결을 검사한다. 이미 phase-2 승인을 받은 기존 이슈는 이 게이트가
+    절대 소급 차단하지 않는다(제안서 제약: "Advisory stays advisory for
+    existing issues (no retroactive blocking)").
+
+    두 번째 소급 방지: phase-2 승인 전이라도, 이 이슈로 `issue-<n>/*`
+    브랜치가 이미 하나라도 있으면(=이 기능이 생기기 전에 이미 최소 한 번
+    스폰돼 phase-1 이 진행 중인 기존 이슈) 새 게이트가 재스폰을 막지
+    않는다 — before-landing 워런트 헌트(stance 1)가 실측한 그대로, 이
+    조건이 없으면 phase-2 승인만으로 "기존 이슈"를 가려내다가 아직
+    미승인인 기존 phase-1 이슈까지 소급 차단해 그 이슈의 애초 phase-1
+    세션(요구 연결을 처음 정하는 바로 그 세션)조차 못 띄우는
+    닭-달걀 모순이 생긴다. `issue-<n>/*` 브랜치가 전혀 없는 이슈만 "새
+    이슈"로 보고 이 게이트를 적용한다.
+    """
+    if issue is None:
+        return
+    root = Path(cwd).resolve()
+    if not (root / MARKER).is_file():
+        return
+    sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+    import ci as _ci
+    import requirement_linkage as _requirement_linkage
+    approved_roles = _ci._approved_roles_on_issue(root, issue)
+    if approved_roles:
+        return  # phase-2: 이미 승인됐다 — 소급 차단하지 않는다
+    br = subprocess.run(
+        ["git", "for-each-ref",
+         f"refs/heads/issue-{issue}/**", f"refs/remotes/*/issue-{issue}/**"],
+        cwd=root, capture_output=True, text=True)
+    if br.returncode == 0 and br.stdout.strip():
+        return  # 이 이슈로 스폰된 적이 이미 있다(로컬 또는 원격) — 소급 차단하지 않는다
+    bad = _requirement_linkage.check(root, issue)
+    if not bad:
+        return
+    sys.exit(
+        f"이슈 #{issue} 가 요구 연결이 없다:\n"
+        + "\n".join(f"  - {b}" for b in bad)
+        + f"\n  세션을 안 띄운다 — 요구 ID(`R\\d+` 또는 'northpole req#<n>')를 "
+        f"인용하거나 'infrastructure/no-direct-requirement' 태그를 달아야 "
+        f"한다(issue #1017, northpole req#6).")
+
+
 def _approvers(root: Path) -> set[str]:
     """`docs/specs/approvers.md` 한 줄에 하나씩 적힌 GitHub 로그인."""
     p = root / MARKER
@@ -1169,9 +1218,16 @@ def _undispositioned_role_prs(root: Path, exclude_issue: int | None = None
         return [], False
     sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
     import ci as _ci
+    # 이슈 #1013 block C: 자기 세션이 소유한 로스터 엔트리의 브랜치는
+    # 게이트에서 뺀다 — `_roster_own()` 이 이미 고아 엔트리(session_id
+    # 없음)는 own-scope 에도 남겨두므로, 그런 엔트리의 브랜치는 여기서도
+    # 계속 걸린다(관측-손실 없음).
+    own_branches = {key for key in _roster_own(_roster_load(), all_scope=False)}
     blockers = []
     for pr in prs:
         if exclude_issue is not None and pr["issue"] == exclude_issue:
+            continue
+        if pr.get("headRefName") in own_branches:
             continue
         approved_roles = _ci._approved_roles_on_issue(root, pr["issue"])
         phase = "phase2" if approved_roles else "phase1"
@@ -1860,6 +1916,27 @@ def _roster_save(d: dict) -> None:
     ROSTER.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
 
+def _roster_own(d: dict, all_scope: bool) -> dict:
+    """이슈 #1013: 로스터 딕셔너리를 호출자 자신의 세션으로 좁힌다.
+    `all_scope=True` 면 그대로 돌려준다(`--all`). 그 외에는
+    `ORCHESTRATOR_SESSION_ID_ENV` 로 얻은 자기 세션 id 와 엔트리의
+    `session_id` 가 같은 것만 남긴다 — 둘 다 `None` 이면(오늘의
+    단일-세션/미설정 상태) 같다고 본다(empty-state parity). 다른
+    세션이 소유한(둘 다 `None` 이 아니고 다른) 엔트리는 걸러지지만,
+    소유자를 특정할 수 없는 고아 엔트리(`session_id` 가 `None` 인데
+    자기 세션 id 는 있는 쪽)는 계속 관측 대상에 남긴다 — 관측-손실
+    금지 불변식(observation-loss invariant)."""
+    if all_scope:
+        return d
+    own = os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None
+    out = {}
+    for key, e in d.items():
+        sid = e.get("session_id")
+        if sid == own or sid is None:
+            out[key] = e
+    return out
+
+
 def _watcher_looks_real(pid: int, issue: int | None,
                          role: str | None = None) -> bool:
     """이슈 #488 before-landing hunt 발견: `_alive()` 만으로는 워처가 죽은
@@ -1947,8 +2024,16 @@ def roster_ps() -> int:
                 armed_at = ws_entry.get("watcher_armed_at")
                 armed_mins = (int(time.time()) - int(armed_at)) // 60 \
                     if armed_at is not None else "?"
-                print(f"               워처: pid {watcher_pid}  "
-                      f"armed {armed_mins}분 전  follow=True")
+                own_sid = os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None
+                sid = e.get("session_id")
+                if sid is not None and sid != own_sid:
+                    # 이슈 #1013 block E: 워처가 살아있어도 이 워처를 무장한
+                    # 세션이 나(호출자)와 다르면 로컬 소유를 암시하지 않는다.
+                    print(f"               워처: pid {watcher_pid}  "
+                          f"armed {armed_mins}분 전  (다른 세션 소유)")
+                else:
+                    print(f"               워처: pid {watcher_pid}  "
+                          f"armed {armed_mins}분 전  follow=True")
             else:
                 print(f"               워처: DEAD(pid {watcher_pid})")
         if not alive:
@@ -2062,7 +2147,6 @@ WATCHDOG_NO_COMMIT_MIN = 71   # 이슈 #90 proposal, signal 4 (0.5 * p90 ≈ 142
 WATCHDOG_DENIAL_THRESHOLD = 3 # 이슈 #90 proposal, signal 3
 _DELEGATION_RE = re.compile(
     r"run_in_background|백그라운드|delegate|background worker", re.IGNORECASE)
-_DENIAL_RE = re.compile(r"permission_denial|denied", re.IGNORECASE)
 
 
 def _watchdog_state_load() -> dict:
@@ -2116,7 +2200,21 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
             start_offset = 0
         with log_path.open("r", encoding="utf-8", errors="replace") as fh:
             fh.seek(start_offset)
-            text = fh.read()
+            raw = fh.read()
+            # 이슈 #994 구조적 파싱은 줄 단위 JSON 이라 마지막 줄이 쓰기
+            # 도중(같은 spawn 프로세스가 다음 이벤트를 쓰는 사이) 잘려 있으면
+            # 그 스캔에서는 그냥 건너뛴다 — 하지만 offset 을 파일 끝까지
+            # 밀어버리면 다음 틱은 그 뒤부터 읽으므로 잘렸던 줄이 영영
+            # 다시 오지 않는다(실제 거부가 그 줄에 있었다면 영구 유실).
+            # 마지막 줄바꿈까지만 커밋하고 미완성 꼬리는 다음 스캔에 남긴다.
+            if raw and not raw.endswith("\n"):
+                split_at = raw.rfind("\n")
+                committed = raw[:split_at + 1] if split_at != -1 else ""
+            else:
+                committed = raw
+            text = committed
+            fh.seek(start_offset)
+            fh.read(len(committed))
             new_offset = fh.tell()
     own_state[key] = {"offset": new_offset}
     if state is None:
@@ -2126,8 +2224,9 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     if _DELEGATION_RE.search(text):
         anomalies.append(f"background-delegation-phrasing: {log_path}")
 
-    # signal 3: 반복된 거부된 도구 호출 (이번 스캔 구간 내)
-    new_denials = len(_DENIAL_RE.findall(text))
+    # signal 3: 반복된 거부된 도구 호출 (이번 스캔 구간 내) — 이슈 #994:
+    # 단어 매치가 아니라 구조적 tool_result/is_error 만 센다.
+    new_denials = _count_structural_denials(text)
     if new_denials >= WATCHDOG_DENIAL_THRESHOLD:
         anomalies.append(
             f"denied-tool-calls: 이번 스캔 구간에 {new_denials}건")
@@ -2382,8 +2481,19 @@ def requirement_drift(root: Path) -> None:
     digest_path = root / "docs" / "specs" / "requirement-digest.md"
     if not digest_path.exists():
         return
-    live_ids = set(re.findall(r"^- (R\d+):", digest_path.read_text(
-        encoding="utf-8", errors="replace"), re.M))
+    digest_text = digest_path.read_text(encoding="utf-8", errors="replace")
+    # issue #1017: 각 살아있는 요구의 (이미 파싱된) 다이제스트 줄을
+    # 통째로 잡아둔다 — id 집합만 뽑던 이전 판과 달리, 아래 next-action
+    # 출력이 paraphrase/source 를 다시 gh 로 조회하지 않고 이 메모리에서
+    # 바로 쓴다(제안서 Accumulation 절이 명시한 "이미 파싱된 다이제스트
+    # 엔트리 재사용, 새 gh 호출 없음").
+    live_entries: dict[str, tuple[str, str]] = {
+        m.group(1): (m.group(2), m.group(3))
+        for m in re.finditer(
+            r"^- (R\d+): (.+?) \[\S+\] \(source: #(\d+)\)$", digest_text, re.M)
+    }
+    live_ids = set(live_entries) or set(
+        re.findall(r"^- (R\d+):", digest_text, re.M))
     if not live_ids:
         return
 
@@ -2419,12 +2529,23 @@ def requirement_drift(root: Path) -> None:
             unreferenced_open.append(item.get("number"))
 
     unmentioned_live = sorted(live_ids - mentioned_reqs)
+    unreferenced_open = sorted(unreferenced_open)
     if unmentioned_live:
-        print(f"[watchdog] requirement-drift: 열린 이슈/PR 어디에서도 언급되지 "
-              f"않는 살아있는 요구 {unmentioned_live}")
+        # issue #1017: 바래 ID 목록 대신, 요구마다 다이제스트 paraphrase/
+        # source 와 — 있으면 — 요구 인용이 전혀 없는 열린 이슈/PR(연결
+        # 후보) 을 named next-action 으로 출력한다.
+        for rid in unmentioned_live:
+            paraphrase, source_issue = live_entries.get(rid, ("(다이제스트에 "
+                                                               "paraphrase 없음)", "?"))
+            candidates = unreferenced_open[:5]
+            cand_note = (f" 후보(요구 인용이 전혀 없는 열린 이슈/PR): {candidates}"
+                         if candidates else "")
+            print(f"[watchdog] requirement-drift: 요구 {rid} — 다이제스트: "
+                  f"\"{paraphrase}\" (source: #{source_issue}) — 열린 이슈/PR "
+                  f"어디에도 인용되지 않는다.{cand_note}")
     if unreferenced_open:
         print(f"[watchdog] requirement-drift: 요구 ID 를 전혀 인용하지 않는 "
-              f"열린 이슈/PR {sorted(unreferenced_open)}")
+              f"열린 이슈/PR {unreferenced_open}")
 
 
 def _board_wide_sweep(root: Path) -> int:
@@ -2466,7 +2587,7 @@ def _board_wide_sweep(root: Path) -> int:
     return count
 
 
-def roster_watchdog(auto_respawn: bool = False) -> int:
+def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
     """`spawn.py watchdog` — 살아있는 모든 역할 세션을 한 번 스캔해서 이상
     신호를 사람이 읽을 수 있게 출력한다. observe-only: 아무 것도 고치거나
     죽이지 않는다. 오케스트레이터가 10-15분 간격으로 반복 호출한다
@@ -2490,7 +2611,23 @@ def roster_watchdog(auto_respawn: bool = False) -> int:
     이슈는 로스터 이상 신호와 같은 모양으로 출력되고 `anomaly_count`에
     합산된다. observe-only 계약은 그대로 — 아무것도 고치거나 닫지 않는다."""
     anomaly_count = _board_wide_sweep(ROOT)
-    d = _roster_load()
+    d_all = _roster_load()
+    # 이슈 #1013 block B: 자기 세션 소유(또는 소유 미기재=empty-state)
+    # 엔트리로 스캔을 좁힌다. `--all` 이면 그대로 전체.
+    d = _roster_own(d_all, all_scope)
+    if not all_scope:
+        # 이슈 #1013 block D: 다른 세션 소유로 걸러진(own-scope 밖) 죽은
+        # 엔트리는 관측-손실 방지를 위해 [orphaned] 로 계속 보고한다 —
+        # 다만 own-scope 루프 밖이므로 아래의 `_auto_respawn_check()` 는
+        # 결코 이들에 대해 불리지 않는다(다른 세션 소유 작업을 재스폰하지
+        # 않는다).
+        for key in sorted(set(d_all) - set(d)):
+            e = d_all[key]
+            if _alive(e.get("pid", 0)):
+                continue
+            anomaly_count += 1
+            print(f"[orphaned] {key}: session {e.get('session_id')} 소유, "
+                  f"이 세션 소유 아님 — 재스폰하지 않음")
     if not d:
         print("돌고 있는 역할 세션 없음")
         if not anomaly_count:
@@ -2823,6 +2960,41 @@ def _classify_refusal_text(text: str, command: str | None = None):
             detail = " ".join(text.strip().split())[:300]
             return ("sandbox-refusal", ("sandbox", detail), detail)
     return None
+
+
+def _count_structural_denials(text: str) -> int:
+    """이슈 #994: watchdog 신호 3 이 트랜스크립트 텍스트에서 "denied" 단어를
+    세던 것(예: 게이트 소스를 인용/설명하는 세션이 실제 거부 0건인데도 카운터를
+    올림 — 이슈-476 실측: 89건 신고, 실제 0건)을 구조적 파싱으로 대체한다.
+    `text` 를 줄 단위 JSONL 로 파싱해 `type: "user"` 줄의 `tool_result` 블록 중
+    `is_error` 이고 `_classify_refusal_text` 가 실제 거부 모양으로 분류하는
+    것만 센다 — 어시스턴트/파일 텍스트에 우연히 등장하는 단어는 세지 않는다.
+
+    `watchdog_check_one` 이 보는 `text` 는 로그 스캔 구간을 바이트 오프셋으로
+    자른 슬라이스라 마지막 줄이 쓰기 도중 잘렸을 수 있다(라이브 스트림 루프가
+    이미 관용하는 것과 동일, spawn.py:5573-5575 부근) — 그런 줄은 `json.loads`
+    가 실패하므로 조용히 건너뛴다(관찰 전용 신호는 fatal 이 될 수 없다).
+    """
+    count = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "user":
+            continue
+        for block in (obj.get("message") or {}).get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            if not block.get("is_error"):
+                continue
+            result_text = _tool_result_text(block.get("content"))
+            if _classify_refusal_text(result_text) is not None:
+                count += 1
+    return count
 
 
 def _flush_correlated_refusals(events_path: Path, pending_refusals: dict,
@@ -3593,6 +3765,19 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
     # session-end 도, 죽은 wrapper_pid 도 신호가 안 되기 때문이다(이슈
     # #451, #445 발견 2). `_await_bounded` 는 호출 한 번의 stall 만
     # 보장하므로, 여기서는 반복에 걸친 무진전 누적 시간을 직접 잰다.
+    # 이슈 #1043: follow 진입 시점에 이미 살아있는 워처(자동 무장이든
+    # 이전 follow 든)가 이 세션을 커버하고 있으면 그대로 두고, 없거나
+    # 죽어있을 때만 이 follow 프로세스 자신을 워처로 등록한다 — 그래야
+    # watchdog 이 살아있는 follow 를 stale 자동무장 pid 로 오인해 매
+    # 틱마다 watcher-dead 를 오탐하지 않는다.
+    follow_role_m = re.search(r"issue-\d+/([^/]+)$", key) if key else None
+    follow_role = follow_role_m.group(1) if follow_role_m else role
+    current_watcher_pid = entry.get("watcher_pid")
+    if not (current_watcher_pid is not None and
+            _watcher_looks_real(current_watcher_pid, issue, follow_role)):
+        _workspace_index_put(issue, follow_role, work, str(log_path),
+                              watcher_pid=os.getpid(),
+                              watcher_armed_at=time.time())
     stall_limit_s = stall_timeout_min * 60
     last_progress = time.monotonic()
     banner_shown = False  # 이슈 #557: --follow 반복 전체에서 배너는 한 번만
@@ -4309,10 +4494,17 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
             "당신은 판정단(panel) 판정자로 불렸다 — 다른 역할 판정자 "
             f"'{peer_role}' 와 함께 아래 질문을 판정한다. 이 역할의 룰북은 "
             "이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
-            "마라. 먼저 당신의 입장(position)을 한 문단으로 정리해 "
-            "SendMessage 로 상대에게 보내라. 상대의 응답을 받은 뒤 최소 한 "
-            "차례 반박(rebuttal)을 SendMessage 로 주고받아라. 교환이 끝나면 "
-            "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
+            "마라. 상대 세션은 이 세션과 거의 동시에 떴다 — 아직 인박스가 "
+            "등록되지 않았을 수 있다. 먼저 ListAgents 를 호출해 상대를 "
+            f"찾아라('{peer_role}' 역할일 것이다). 안 보이면 몇 초 뒤 다시 "
+            "ListAgents 를 호출하는 식으로 몇 차례 재시도하라 — 한 번만 "
+            "확인하고 포기하지 마라. 상대가 보이면, ListAgents 가 실제로 "
+            f"반환한 이름으로 SendMessage 를 보내라('{peer_role}' 같은 "
+            "역할명이 아니라 그 이름 그대로 주소를 써라). 먼저 당신의 "
+            "입장(position)을 한 문단으로 정리해 SendMessage 로 상대에게 "
+            "보내라. 상대의 응답을 받은 뒤 최소 한 차례 반박(rebuttal)을 "
+            "SendMessage 로 주고받아라. 교환이 끝나면 다른 어떤 텍스트도 "
+            "없이 JSON 객체 하나만 출력하라: "
             '{"answer": "<판단>", "confidence": "low|medium|high", '
             '"caveats": ["<유보/전제>", ...]}\n\n'
             f"질문: {question}"
@@ -4343,18 +4535,35 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
                 os.unlink(settings_path)
 
 
+def _consult_or_record_error(path: Path, ts: str, role: str, question: str,
+                              issue: int | None, cwd: str | None) -> tuple[dict | None, str | None]:
+    """`consult_cmd()` 를 호출하되, 실패해도 밖으로 던지지 않는다 — 저하
+    경로에서 `consult_cmd()` 실패는 panel 실행 전체를 크래시시켜선 안
+    된다(#1045 결함 2). 실패하면 `consult-error` 턴으로 기록하고
+    `(None, <에러 메시지>)` 를 돌려준다."""
+    try:
+        verdict = consult_cmd(role, question, issue, cwd)
+    except Exception as e:  # noqa: BLE001 - 어떤 실패든 절대 밖으로 던지지 않는다
+        msg = str(e)
+        _append_panel_turn(path, ts, role, "consult-error", msg)
+        return None, msg
+    _append_panel_turn(path, ts, role, "verdict", str(verdict))
+    return verdict, None
+
+
 def _panel_degrade(path: Path, ts: str, role_a: str, role_b: str, question: str,
                     issue: int | None, cwd: str | None, reason: str) -> dict:
     """저하 경로 — 순차 `consult_cmd()` 두 번으로 판단을 받고, 저하했다는
     사실과 이유를 `degraded:` 마커로 기록에 남긴다(제안서, 병합 설계
-    Open Question 4)."""
+    Open Question 4). 각 `consult_cmd()` 호출은 `_consult_or_record_error()`
+    로 감싸 — 한쪽이 실패해도(#1045 결함 2) panel 실행 자체는 절대 raise
+    하지 않고, 실패는 기록에 남기고 그 쪽 verdict 만 None 이 된다."""
     _append_panel_turn(path, ts, "panel", "degraded", f"sequential-consult — {reason}")
-    verdict_a = consult_cmd(role_a, question, issue, cwd)
-    verdict_b = consult_cmd(role_b, question, issue, cwd)
-    _append_panel_turn(path, ts, role_a, "verdict", str(verdict_a))
-    _append_panel_turn(path, ts, role_b, "verdict", str(verdict_b))
+    verdict_a, error_a = _consult_or_record_error(path, ts, role_a, question, issue, cwd)
+    verdict_b, error_b = _consult_or_record_error(path, ts, role_b, question, issue, cwd)
     return {"degraded": True, "reason": reason,
             "verdict_a": verdict_a, "verdict_b": verdict_b,
+            "error_a": error_a, "error_b": error_b,
             "record_path": str(path)}
 
 
@@ -4462,6 +4671,8 @@ def main() -> int:
     ap.add_argument("task", nargs="?", help="맡길 일. 룰북 커맨드면 '/plugin:command 인자'")
     ap.add_argument("consult_question", nargs="?",
                     help="consult <역할> \"<질문>\": 세 번째 위치 인자로 질문을 받는다")
+    ap.add_argument("panel_question", nargs="?",
+                    help="panel <역할A> <역할B> \"<질문>\": 네 번째 위치 인자로 질문을 받는다")
     ap.add_argument("-C", "--cwd", default=".", help="작업 디렉터리")
     ap.add_argument("--dry-run", action="store_true", help="합쳐진 설정만 보고 안 띄운다")
     ap.add_argument("--no-contract", action="store_true",
@@ -4529,7 +4740,7 @@ def main() -> int:
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
     if a.role == "watchdog":
-        return roster_watchdog(auto_respawn=a.auto_respawn)
+        return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all)
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
     if a.role == "reconcile":
@@ -4539,7 +4750,7 @@ def main() -> int:
     if a.role == "flows":
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import flows
-        return flows.flows(a.cwd, a.json)
+        return flows.flows(a.cwd, a.json, all_scope=a.all)
     if a.role == "roles-due":
         # board_condition 평가기 — 판단(judgment) 잔여만 (issue #896 step 2).
         # 표준 발동(test-authoring 등)은 이제 항상-켜짐 훅이 맡고, 여기는
@@ -4584,6 +4795,18 @@ def main() -> int:
             verdict = consult_cmd(a.task, a.consult_question, issue=a.issue, cwd=a.cwd)
         except Exception as e:
             sys.exit(f"consult 실패(트레이스는 남았다): {e}")
+        print(json.dumps(verdict, indent=2, ensure_ascii=False))
+        return 0
+    if a.role == "panel":
+        if not a.task or not a.consult_question or not a.panel_question:
+            sys.exit('사용법: spawn.py panel <역할A> <역할B> "<질문>" [--issue <n>]')
+        if a.task == a.consult_question:
+            sys.exit("panel 은 서로 다른 두 역할이 필요하다 — 같은 역할을 두 번 줬다")
+        try:
+            verdict = panel_cmd(a.task, a.consult_question, a.panel_question,
+                                 issue=a.issue, cwd=a.cwd)
+        except Exception as e:
+            sys.exit(f"panel 실패(트레이스는 남았다): {e}")
         print(json.dumps(verdict, indent=2, ensure_ascii=False))
         return 0
     if a.role == "kill":
@@ -4718,6 +4941,7 @@ def main() -> int:
     # 전에 알아야 할 사실이지, 띄우고 나서 알 일이 아니다.
     require_no_repo_config(a.cwd, a.trust_repo_config)
     require_acceptance_gate(a.cwd, a.issue)
+    require_requirement_linkage(a.cwd, a.issue)
     if a.dry_run:
         cwd_path = Path(a.cwd)
         if not cwd_path.is_dir():
@@ -5326,7 +5550,27 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         task_path = Path(str(cwd) + ".task.txt")
         if not task_path.exists():
             task_path.write_text(task, encoding="utf-8")
+        # issue #1017 (northpole req#6): 이슈가 인용하는 요구 ID를 스폰
+        # 텍스트에 그대로 실어, 스폰된 역할 세션이 첫 턴부터 어느 요구를
+        # 섬기는지 안다. gh 조회 실패는 조용히 건너뛴다 — 이 줄이 없다고
+        # 스폰 자체를 막을 이유는 없다(require_requirement_linkage 가 이미
+        # phase-1 드래프트 시점에 구조적으로 막는다).
+        req_line = ""
+        try:
+            rv = subprocess.run(
+                ["gh", "issue", "view", str(issue), "--json", "body"],
+                cwd=cwd, capture_output=True, text=True)
+            if rv.returncode == 0:
+                sys.path.insert(0, str((ROOT / "gates").resolve()))
+                import requirement_linkage as _requirement_linkage
+                body = json.loads(rv.stdout).get("body", "") or ""
+                req_ids = _requirement_linkage.cited_requirement_ids(body)
+                if req_ids:
+                    req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
+        except Exception:
+            req_line = ""
         task = (f"당신의 이슈: #{issue} (subject issue-{issue}, 브랜치 {br}).\n"
+                + req_line +
                 f"gh issue view {issue} 로 이슈를 먼저 읽어라.\n"
                 f"완료의 정의: 변경이 이 브랜치에 **커밋**되고 push 되어 PR 로\n"
                 f"제출된 상태다. 미커밋 변경은 존재하지 않는 것과 같다 —\n"

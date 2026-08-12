@@ -66,6 +66,11 @@ except ValueError:
 if not isinstance(stdin_payload, dict):
     stdin_payload = {}
 
+# Issue #1021: honor the Stop-hook contract's stop_hook_active field --
+# true when this turn was already forced by a prior Stop block. Never
+# re-block on such a turn; the branches below degrade to advisory instead.
+stop_hook_active = bool(stdin_payload.get("stop_hook_active"))
+
 # --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
 # same resolve-with-fallback pattern as approval-gate.sh: a role session
 # that unsets CLAUDE_ROLE before a Stop turn no longer flips this hook
@@ -153,36 +158,63 @@ def _state_path():
     return os.path.join(_STATE_DIR, safe + ".json")
 
 
-def _load_blocked():
+def _load_state():
     path = _state_path()
     if not path:
-        return False
+        return {}
     try:
         with open(path, "r") as f:
             data = json.load(f)
         if isinstance(data, dict):
-            return bool(data.get("waiting_declaration_blocked"))
+            return data
     except (OSError, ValueError):
         pass
-    return False
+    return {}
 
 
-def _save_blocked(blocked):
+def _save_state(**updates):
     path = _state_path()
     if not path:
         return
+    data = _load_state()
+    data.update(updates)
     try:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp = path + ".tmp"
         with open(tmp, "w") as f:
-            json.dump({"waiting_declaration_blocked": blocked}, f)
+            json.dump(data, f)
         os.replace(tmp, path)
     except OSError:
         pass
 
 
+def _load_blocked():
+    return bool(_load_state().get("waiting_declaration_blocked"))
+
+
+def _save_blocked(blocked):
+    _save_state(waiting_declaration_blocked=blocked)
+
+
+# Issue #1021: tier2 (age_hours >= 4) re-block latch, keyed on the
+# CONTENTS of the queue's blocking-tier items (their (issue, pr)
+# identities), not age_hours -- age_hours changes every turn by
+# construction, so keying on it would never let the latch suppress a
+# repeat. Shares the same per-session state file as the
+# waiting-declaration latch above, under a distinct key.
+def _load_tier2_last_blocked_ids():
+    ids = _load_state().get("tier2_last_blocked_ids")
+    if isinstance(ids, list):
+        return [tuple(pair) for pair in ids if isinstance(pair, list) and len(pair) == 2]
+    return None
+
+
+def _save_tier2_last_blocked_ids(ids):
+    _save_state(tier2_last_blocked_ids=[list(pair) for pair in ids])
+
+
 if _WAITING_RE.search(last_msg) and not _ARM_RE.search(last_msg):
-    if not _load_blocked():
+    if not stop_hook_active and not _load_blocked():
         names = ", ".join(_name(i) for i in queue if isinstance(i, dict))
         out = {
             "decision": "block",
@@ -226,7 +258,24 @@ if not tier1 and not tier2:
     sys.exit(0)
 
 if tier2:
+    tier2_ids = sorted(
+        {(i.get("issue"), i.get("pr")) for i in tier2}, key=lambda t: repr(t)
+    )
     names = ", ".join(_name(i) for i in tier2)
+    if stop_hook_active or _load_tier2_last_blocked_ids() == tier2_ids:
+        out = {
+            "hookSpecificOutput": {
+                "hookEventName": "Stop",
+                "additionalContext": (
+                    "decision-queue-stopgate: decision-queue items have "
+                    "aged past 4h with no operator decision: " + names + ". "
+                    "Already blocked once for this queue snapshot -- "
+                    "degrading to advisory instead of repeating the block."
+                ),
+            }
+        }
+        sys.stdout.write(json.dumps(out))
+        sys.exit(0)
     out = {
         "decision": "block",
         "reason": (
@@ -236,6 +285,7 @@ if tier2:
             "not yet) before continuing new work."
         ),
     }
+    _save_tier2_last_blocked_ids(tier2_ids)
     sys.stdout.write(json.dumps(out))
     sys.exit(0)
 

@@ -7,6 +7,13 @@ from pathlib import Path
 HOOKS_DIR = Path(__file__).resolve().parent
 GUARD = HOOKS_DIR / "credential-record-guard.sh"
 
+import sys
+sys.path.insert(0, str(HOOKS_DIR))
+from credential_example_allowlist import (
+    AWS_EXAMPLE_ACCESS_KEY_ID,
+    GITHUB_EXAMPLE_CLASSIC_PAT,
+)
+
 
 def _run(tool_input, tool_name="Write", cwd=None):
     payload = json.dumps({
@@ -113,6 +120,26 @@ def t_multiedit_split_credential_is_denied(tmp_path):
             {"old_string": "b", "new_string": token[half:] + " suffix"},
         ],
     }, tool_name="MultiEdit")
+    assert r.returncode == 2
+
+
+def t_canonical_aws_example_key_is_allowed(tmp_path):
+    p = _record_path(tmp_path)
+    r = _run({"file_path": str(p),
+              "content": "example key: " + AWS_EXAMPLE_ACCESS_KEY_ID})
+    assert r.returncode == 0
+
+
+def t_canonical_github_example_pat_is_allowed(tmp_path):
+    p = _record_path(tmp_path)
+    r = _run({"file_path": str(p),
+              "content": "example token: " + GITHUB_EXAMPLE_CLASSIC_PAT})
+    assert r.returncode == 0
+
+
+def t_novel_akia_shaped_string_still_denied(tmp_path):
+    p = _record_path(tmp_path)
+    r = _run({"file_path": str(p), "content": "key: AKIA" + "H" * 16})
     assert r.returncode == 2
 
 

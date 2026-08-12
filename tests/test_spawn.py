@@ -3557,25 +3557,64 @@ class Watchdog(unittest.TestCase):
             out = spawn.watchdog_check_one("k", self._entry(log), state={})
             self.assertFalse(any("background-delegation-phrasing" in a for a in out))
 
+    @staticmethod
+    def _denial_line():
+        # 이슈 #994: 구조적 거부 — type:"user" 줄의 is_error tool_result 가
+        # _classify_refusal_text 의 층 2(하네스) 패턴에 매치한다.
+        obj = {"type": "user", "message": {"content": [
+            {"type": "tool_result", "is_error": True,
+             "content": "Permission to use Bash has been denied"}]}}
+        return json.dumps(obj, ensure_ascii=False) + "\n"
+
+    @staticmethod
+    def _non_denial_user_line():
+        obj = {"type": "user", "message": {"content": [
+            {"type": "tool_result", "is_error": False, "content": "ok"}]}}
+        return json.dumps(obj, ensure_ascii=False) + "\n"
+
     def test_denied_tool_calls_signal_fires_at_threshold(self):
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
-            log.write_text("permission_denial\n" * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            log.write_text(self._denial_line() * spawn.WATCHDOG_DENIAL_THRESHOLD)
             out = spawn.watchdog_check_one("k", self._entry(log), state={})
             self.assertTrue(any("denied-tool-calls" in a for a in out))
 
     def test_denied_tool_calls_signal_silent_below_threshold(self):
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
-            log.write_text("permission_denial\n" * (spawn.WATCHDOG_DENIAL_THRESHOLD - 1))
+            log.write_text(self._denial_line() * (spawn.WATCHDOG_DENIAL_THRESHOLD - 1))
             out = spawn.watchdog_check_one("k", self._entry(log), state={})
             self.assertFalse(any("denied-tool-calls" in a for a in out))
+
+    def test_denied_tool_calls_signal_ignores_quoted_source_text(self):
+        # 이슈-476 실측 재현: 게이트 소스를 읽거나 인용하는 세션은 "denied"
+        # 단어를 몇 번이고 담고 있어도 실제 거부가 아니면 0건이어야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            quoted = self._non_denial_user_line() * spawn.WATCHDOG_DENIAL_THRESHOLD
+            quoted += json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "text",
+                 "text": ("denied " * (spawn.WATCHDOG_DENIAL_THRESHOLD + 5)
+                          + "permission_denial permission_denial")}]}},
+                ensure_ascii=False) + "\n"
+            log.write_text(quoted)
+            out = spawn.watchdog_check_one("k", self._entry(log), state={})
+            self.assertFalse(any("denied-tool-calls" in a for a in out))
+
+    def test_denied_tool_calls_signal_fires_on_genuine_denial_tool_result(self):
+        # 위 케이스의 짝: 실제 is_error tool_result 거부는 threshold 이상이면
+        # 여전히 잡혀야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text(self._denial_line() * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            out = spawn.watchdog_check_one("k", self._entry(log), state={})
+            self.assertTrue(any("denied-tool-calls" in a for a in out))
 
     def test_only_new_log_content_is_scanned_each_call(self):
         # 이미 스캔한 구간은 다음 호출에서 다시 세지 않는다 (오프셋 추적).
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
-            log.write_text("permission_denial\n" * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            log.write_text(self._denial_line() * spawn.WATCHDOG_DENIAL_THRESHOLD)
             state = {}
             first = spawn.watchdog_check_one("k", self._entry(log), state=state)
             self.assertTrue(any("denied-tool-calls" in a for a in first))
@@ -3589,13 +3628,13 @@ class Watchdog(unittest.TestCase):
         # 조용히 안 잡힌다 — 재시작 직후 첫 스캔에서 바로 잡혀야 한다.
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
-            log.write_text("permission_denial\n" * (spawn.WATCHDOG_DENIAL_THRESHOLD + 5))
+            log.write_text(self._denial_line() * (spawn.WATCHDOG_DENIAL_THRESHOLD + 5))
             state = {}
             first = spawn.watchdog_check_one("k", self._entry(log), state=state)
             self.assertTrue(any("denied-tool-calls" in a for a in first))
             self.assertGreater(state["k"]["offset"], 0)
             # respawn: 로그가 truncate 되어 이전 오프셋보다 짧아진다
-            log.write_text("permission_denial\n" * spawn.WATCHDOG_DENIAL_THRESHOLD)
+            log.write_text(self._denial_line() * spawn.WATCHDOG_DENIAL_THRESHOLD)
             second = spawn.watchdog_check_one("k", self._entry(log), state=state)
             self.assertTrue(any("denied-tool-calls" in a for a in second))
 
@@ -4034,6 +4073,46 @@ class ClosureSweepCliWiring(unittest.TestCase):
         fake_cs.find_violations.assert_called_once()
         _, kwargs = fake_cs.find_violations.call_args
         self.assertEqual(kwargs.get("issue_states"), {1: "OPEN"})
+
+
+class PanelCliWiring(unittest.TestCase):
+    """이슈 #1044: `panel_cmd()`(#985, 동시-판정)는 main() 에 CLI 배선이
+    없어 도달 불가능했다 — consult 배선(4751행 부근)을 그대로 미러링해
+    `spawn.py panel <역할A> <역할B> "<질문>"` 경로를 연결한다."""
+
+    def test_panel_cli_subcommand_calls_panel_cmd(self):
+        argv = sys.argv
+        try:
+            sys.argv = ["spawn.py", "panel", "review", "qa", "<question>",
+                        "--issue", "1"]
+            with mock.patch.object(spawn, "panel_cmd",
+                                    return_value={"verdict": "ok"}) as m:
+                rc = spawn.main()
+        finally:
+            sys.argv = argv
+        self.assertEqual(rc, 0)
+        m.assert_called_once_with("review", "qa", "<question>",
+                                   issue=1, cwd=".")
+
+    def test_panel_cli_subcommand_missing_args_exits(self):
+        argv = sys.argv
+        try:
+            sys.argv = ["spawn.py", "panel", "review"]
+            with self.assertRaises(SystemExit):
+                spawn.main()
+        finally:
+            sys.argv = argv
+
+    def test_panel_cli_subcommand_same_role_twice_exits(self):
+        argv = sys.argv
+        try:
+            sys.argv = ["spawn.py", "panel", "review", "review", "<question>"]
+            with mock.patch.object(spawn, "panel_cmd") as m:
+                with self.assertRaises(SystemExit):
+                    spawn.main()
+            m.assert_not_called()
+        finally:
+            sys.argv = argv
 
 
 class SessionEndVerdict(unittest.TestCase):
@@ -7152,6 +7231,44 @@ class WatchFollow(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(len(calls), 3, calls)
 
+    def test_watcher_dead_stale_pid_cleared_by_live_follow_registration(self):
+        # 이슈 #1043: 자동 무장한 워처 pid 가 죽어 명부에 남아 있어도, 이
+        # follow 호출이 진입 시점에 자기 자신을 워처로 등록해 stale pid 를
+        # 덮어써야 한다 — 그 뒤 watchdog_check_one() 은 watcher-dead 도
+        # watcher-missing 도 신고하지 않아야 한다.
+        from unittest import mock
+        spawn._workspace_index_put(180, "implementation", str(self.work), str(self.log),
+                                    watcher_pid=999999999)  # 존재 안 할 stale pid
+        spawn._append_event(self.events, "session-end", "progressed")
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
+            seen = spawn._read_offset(offset_path)
+            lines = events_path.read_text(encoding="utf-8").splitlines()
+            if seen < len(lines):
+                spawn._write_offset(offset_path, seen + 1)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(180, "implementation", 5.0, follow=True)
+        self.assertEqual(rc, 0)
+        key = f"{spawn._repo_identity(str(self.work))}/issue-180/implementation"
+        idx_entry = spawn._workspace_index_load()[key]
+        self.assertEqual(idx_entry["watcher_pid"], os.getpid())
+        wd_entry = {"log": str(self.log), "work": str(self.work), "ts": int(time.time()),
+                    "before_head": None, "pid": None}
+        out = spawn.watchdog_check_one("issue-180/implementation", wd_entry, state={})
+        self.assertFalse(any("watcher-dead" in a for a in out))
+        self.assertFalse(any("watcher-missing" in a for a in out))
+
+    def test_watcher_dead_or_missing_still_fires_with_no_watcher_registered(self):
+        # 컨트롤 케이스: 이 수정이 너무 관대해지지 않았는지 지킨다 — 애초에
+        # 아무 워처도 등록되지 않은 세션(setUp 이 watcher_pid 없이 심은
+        # 엔트리 그대로)은 여전히 watcher-missing/watcher-dead 로 잡혀야 한다.
+        wd_entry = {"log": str(self.log), "work": str(self.work), "ts": int(time.time()),
+                    "before_head": None, "pid": None}
+        out = spawn.watchdog_check_one("issue-180/implementation", wd_entry, state={})
+        self.assertTrue(any("watcher-missing" in a or "watcher-dead" in a for a in out))
+
 
 class WatchFollowSessionScoping(unittest.TestCase):
     """이슈 #557: --follow 커서는 무장 시점에 살아있는 세션(pid+ts)에만
@@ -9028,6 +9145,86 @@ class ConsultCmd(unittest.TestCase):
         self.assertIn("시간초과", trace)
 
 
+class PanelDegradeErrorSafety(unittest.TestCase):
+    """이슈 #1045 결함 2 — `_panel_degrade()` 는 `consult_cmd()` 실패를
+    절대 밖으로 던지지 않는다: 실패를 `consult-error` 턴으로 기록하고
+    저하 결과를 돌려준다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.path = self.root / "docs" / "reports" / "panel" / "question.md"
+        self.ts = "2026-08-12T00:00:00+00:00"
+
+    def test_consult_error_inside_degrade_is_recorded_not_raised(self):
+        def failing_consult(role, question, issue=None, cwd=None):
+            raise RuntimeError("모델 출력에서 판단 JSON 을 못 찾음")
+
+        orig = spawn.consult_cmd
+        spawn.consult_cmd = failing_consult
+        try:
+            result = spawn._panel_degrade(
+                self.path, self.ts, "implementation", "qa", "질문",
+                None, str(self.root), "no SendMessage round-trip observed")
+        finally:
+            spawn.consult_cmd = orig
+
+        self.assertTrue(result["degraded"])
+        self.assertIsNone(result["verdict_a"])
+        self.assertIsNone(result["verdict_b"])
+        self.assertIn("모델 출력에서 판단 JSON 을 못 찾음", result["error_a"])
+        self.assertIn("모델 출력에서 판단 JSON 을 못 찾음", result["error_b"])
+
+        trace = self.path.read_text(encoding="utf-8")
+        self.assertIn("consult-error", trace)
+
+    def test_one_side_failing_still_returns_the_others_real_verdict(self):
+        def half_failing_consult(role, question, issue=None, cwd=None):
+            if role == "implementation":
+                raise RuntimeError("모델 출력에서 판단 JSON 을 못 찾음")
+            return {"answer": "가능", "confidence": "high", "caveats": []}
+
+        orig = spawn.consult_cmd
+        spawn.consult_cmd = half_failing_consult
+        try:
+            result = spawn._panel_degrade(
+                self.path, self.ts, "implementation", "qa", "질문",
+                None, str(self.root), "no SendMessage round-trip observed")
+        finally:
+            spawn.consult_cmd = orig
+
+        self.assertIsNone(result["verdict_a"])
+        self.assertIsNotNone(result["error_a"])
+        self.assertEqual(result["verdict_b"], {"answer": "가능", "confidence": "high", "caveats": []})
+        self.assertIsNone(result["error_b"])
+
+    def test_panel_cmd_no_round_trip_degrade_does_not_propagate_consult_failure(self):
+        def failing_consult(role, question, issue=None, cwd=None):
+            raise RuntimeError("모델 출력에서 판단 JSON 을 못 찾음")
+
+        orig = spawn.consult_cmd
+        spawn.consult_cmd = failing_consult
+        orig_record_path = spawn._panel_record_path
+        spawn._panel_record_path = lambda issue, slug: self.path
+
+        def no_turns_session(role, peer_role, question, cwd):
+            return {"turns": [], "verdict": None}
+
+        try:
+            result = spawn.panel_cmd(
+                "implementation", "qa", "질문", cwd=str(self.root),
+                run_session=no_turns_session)
+        finally:
+            spawn.consult_cmd = orig
+            spawn._panel_record_path = orig_record_path
+
+        self.assertTrue(result["degraded"])
+        self.assertEqual(result["reason"], "no SendMessage round-trip observed")
+        self.assertIsNone(result["verdict_a"])
+        self.assertIsNone(result["verdict_b"])
+
+
 class ConsultVerdictParsing(unittest.TestCase):
     def test_finds_trailing_json_after_prose(self):
         text = '분석했다.\n결론은 다음과 같다.\n{"answer": "가능", "confidence": "low", "caveats": []}'
@@ -9908,6 +10105,269 @@ class TestMaybeResumeForReadyPrRecordsFailureCause(unittest.TestCase):
             result = spawn._resume_orchestrator_session("sess-x", "nudge", cwd=str(self.work))
         self.assertEqual(result[0], "popen-failed")
         self.assertIn("no such file", result[1])
+
+
+class RosterOwnershipScoping(unittest.TestCase):
+    """이슈 #1013 acceptance: 두 세션이 동시에 로스터를 채운 상태에서
+    기본 스코프는 자기 세션 엔트리(+ session_id 미기재 empty-state)만
+    보고, `--all` 은 전체를, 다른 세션 소유 죽은 엔트리는 [orphaned] 로
+    계속 표면화한다 — 단일 세션/미설정 머신은 오늘과 동일하게 동작한다."""
+
+    def _entry(self, log, work=None, pid=None, issue=1, role="implementation",
+               session_id=None):
+        return {"log": str(log), "work": work, "ts": int(time.time()),
+                "before_head": None, "pid": pid, "issue": issue, "role": role,
+                "session_id": session_id}
+
+    # -- _roster_own -----------------------------------------------------
+
+    def test_roster_own_default_scope_keeps_own_and_none_sid(self):
+        d = {"a": {"session_id": "sess-mine"}, "b": {"session_id": None},
+             "c": {"session_id": "sess-other"}}
+        with mock.patch.dict(os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}):
+            out = spawn._roster_own(d, all_scope=False)
+        self.assertEqual(set(out), {"a", "b"})
+
+    def test_roster_own_all_scope_returns_everything_unchanged(self):
+        d = {"a": {"session_id": "sess-mine"}, "c": {"session_id": "sess-other"}}
+        with mock.patch.dict(os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}):
+            out = spawn._roster_own(d, all_scope=True)
+        self.assertEqual(out, d)
+
+    def test_roster_own_empty_state_parity_when_env_unset(self):
+        d = {"a": {"session_id": None}, "b": {"session_id": None}}
+        os.environ.pop(spawn.ORCHESTRATOR_SESSION_ID_ENV, None)
+        out = spawn._roster_own(d, all_scope=False)
+        self.assertEqual(set(out), {"a", "b"})
+
+    # -- roster_watchdog scoping + orphan surfacing -----------------------
+
+    def test_roster_watchdog_default_scope_sees_own_all_sees_both_orphan_surfaces(self):
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            own_log = Path(td) / "own.log"
+            own_log.write_text('{"type":"text"}\n')
+            other_log = Path(td) / "other.log"
+            other_log.write_text('{"type":"text"}\n')
+            roster_path.write_text(json.dumps({
+                "issue-1/implementation": self._entry(
+                    own_log, pid=os.getpid(), issue=1, session_id="sess-mine"),
+                "issue-2/implementation": self._entry(
+                    other_log, pid=999999999, issue=2, session_id="sess-other"),
+            }))
+            old_roster, old_state, old_ledger = (
+                spawn.ROSTER, spawn.WATCHDOG_STATE, spawn.RECONCILE_LEDGER)
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            spawn.RECONCILE_LEDGER = Path(td) / "reconcile_ledger.json"
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.dict(
+                        os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}), \
+                     mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_post_session_end_comment"), \
+                     mock.patch.object(spawn, "diagnose_health",
+                                        return_value={"state": None, "detail": "d"}):
+                    spawn.roster_watchdog()
+                default_out = buf.getvalue()
+                buf.seek(0); buf.truncate(0)
+                with mock.patch.dict(
+                        os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}), \
+                     mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_post_session_end_comment"), \
+                     mock.patch.object(spawn, "diagnose_health",
+                                        return_value={"state": None, "detail": "d"}):
+                    spawn.roster_watchdog(all_scope=True)
+                all_out = buf.getvalue()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+                spawn.RECONCILE_LEDGER = old_ledger
+            self.assertIn("[orphaned] issue-2/implementation", default_out)
+            self.assertNotIn("issue-1/implementation: session sess-mine",
+                              default_out.replace("[orphaned] ", ""))
+            self.assertIn("issue-2/implementation", all_out)
+            self.assertNotIn("[orphaned]", all_out)
+
+    # -- _undispositioned_role_prs scoping --------------------------------
+
+    def test_undispositioned_role_prs_excludes_own_roster_branch(self):
+        prs = [
+            {"number": 1, "headRefName": "issue-11/implementation",
+             "body": "", "url": "https://example/1"},
+            {"number": 2, "headRefName": "issue-22/qa",
+             "body": "", "url": "https://example/2"},
+        ]
+
+        def fake_run(cmd, **k):
+            if cmd[:2] == ["gh", "repo"]:
+                return subprocess.CompletedProcess(cmd, 0, "o/r\n", "")
+            if cmd[:3] == ["gh", "pr", "list"]:
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(prs), "")
+            raise AssertionError(cmd)
+
+        sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+        import ci as _ci
+        roster = {
+            "issue-11/implementation": {"session_id": "sess-mine"},
+            "issue-22/qa": {"session_id": "sess-other"},
+        }
+        with mock.patch.object(spawn.subprocess, "run", fake_run), \
+             mock.patch.object(spawn, "_roster_load", lambda: roster), \
+             mock.patch.dict(os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}), \
+             mock.patch.object(_ci, "_approved_roles_on_issue",
+                                lambda repo, issue: {"implementation"}):
+            blockers, ok = spawn._undispositioned_role_prs(Path("."))
+        self.assertTrue(ok)
+        self.assertEqual([b["issue"] for b in blockers], [22])
+
+    # -- roster_ps watcher identity ---------------------------------------
+
+    def test_roster_ps_labels_watcher_owned_by_other_session(self):
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            roster_path.write_text(json.dumps({
+                "issue-3/implementation": self._entry(
+                    log, work=str(Path(td) / "work"), pid=os.getpid(), issue=3,
+                    session_id="sess-other"),
+            }))
+            old_roster = spawn.ROSTER
+            old_ws_idx_load = spawn._workspace_index_load
+            spawn.ROSTER = roster_path
+            ws_entry = {"watcher_pid": os.getpid(), "watcher_armed_at": int(time.time())}
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.dict(
+                        os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}), \
+                     mock.patch.object(spawn, "_workspace_index_load",
+                                        lambda: {f"{spawn._repo_identity(str(Path(td) / 'work'))}/issue-3/implementation": ws_entry}), \
+                     mock.patch.object(spawn, "_watcher_looks_real", return_value=True):
+                    spawn.roster_ps()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+            self.assertIn("다른 세션 소유", buf.getvalue())
+
+    # -- CLI --all thread-through ------------------------------------------
+
+    def test_cli_watchdog_all_flag_threads_all_scope(self):
+        with mock.patch.object(spawn, "roster_watchdog", return_value=0) as m:
+            with mock.patch.object(sys, "argv",
+                                    ["spawn.py", "watchdog", "--all"]):
+                spawn.main()
+        m.assert_called_once_with(auto_respawn=False, all_scope=True)
+
+
+class RequirementIntakeValidityConsult(unittest.TestCase):
+    """issue-1024: intake with a validity-consult trace recorded passes;
+    intake without consult and without an explicit skip reason is
+    flagged."""
+
+    @classmethod
+    def setUpClass(cls):
+        gates_dir = str(Path(__file__).resolve().parent.parent / "gates")
+        if gates_dir not in sys.path:
+            sys.path.insert(0, gates_dir)
+        import requirement_intake_consult
+        cls.mod = requirement_intake_consult
+
+    def test_intake_with_consult_trace_passes(self):
+        body = "## Request\nAdd a thing.\n\nvalidity-consult: req-eng run, feasible.\n"
+        self.assertEqual(self.mod.check_issue_body(1024, body), [])
+
+    def test_intake_with_skip_trivial_passes(self):
+        body = "## Request\nFix a typo.\n\nvalidity-consult-skip: trivial\n"
+        self.assertEqual(self.mod.check_issue_body(1024, body), [])
+
+    def test_intake_without_consult_or_skip_is_flagged(self):
+        body = "## Request\nAdd a thing with no consult recorded.\n"
+        bad = self.mod.check_issue_body(1024, body)
+        self.assertTrue(bad)
+
+
+class RequireRequirementLinkageRemoteBranch(unittest.TestCase):
+    """issue-1042: `require_requirement_linkage` must detect a
+    remote-only `issue-N/*` branch as already-spawned (not misread as
+    never-spawned), and must still fall through to the requirement-linkage
+    check when no such branch exists at all — local or remote."""
+
+    def _git(self, cwd, *a):
+        return subprocess.run(["git", "-C", str(cwd), *a],
+                              capture_output=True, text=True)
+
+    def _init_repo(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+        self._git(path, "init", "-q")
+        self._git(path, "config", "user.email", "t@t.t")
+        self._git(path, "config", "user.name", "t")
+
+    def _make_marker(self, root):
+        (root / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "specs" / "approvers.md").write_text("- someone\n")
+
+    def test_remote_branch_only_detected_as_already_spawned(self):
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            issue = 999902
+            br = f"issue-{issue}/implementation"
+            self._git(origin, "checkout", "-q", "-b", br)
+            (origin / "b.txt").write_text("work")
+            self._git(origin, "add", "b.txt")
+            self._git(origin, "commit", "-q", "-m", "issue branch commit")
+            self._git(origin, "checkout", "-q", base_branch)
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                                capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+            self._make_marker(work)
+
+            # 사전 조건: work 저장소엔 로컬 `br` 브랜치가 없다 — 원격
+            # 트래킹 참조로만 존재한다.
+            self.assertNotEqual(
+                self._git(work, "rev-parse", "--verify", "-q", br).returncode, 0)
+
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()):
+                spawn.require_requirement_linkage(str(work), issue)  # 예외 없이 통과해야 한다
+
+    def test_no_remote_branch_no_local_falls_through_to_requirement_linkage_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "work"
+            self._init_repo(work)
+            (work / "a.txt").write_text("base")
+            self._git(work, "add", "a.txt")
+            self._git(work, "commit", "-q", "-m", "base commit")
+            self._make_marker(work)
+
+            issue = 999903
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import requirement_linkage as _requirement_linkage
+
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()), \
+                 mock.patch.object(_requirement_linkage, "check", lambda root, iss: ["no requirement id cited"]):
+                with self.assertRaises(SystemExit):
+                    spawn.require_requirement_linkage(str(work), issue)
 
 
 if __name__ == "__main__":

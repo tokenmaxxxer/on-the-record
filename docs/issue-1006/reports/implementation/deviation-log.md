@@ -1,0 +1,1 @@
+- 2026-08-12T00:00:00Z inline block A's first-contact marker used ${CHECKOUT} (shared on-the-record clone, identical machine-wide) instead of the target repo's cwd — warrant-hunter finding on the before-landing hunt; fixed to $(pwd -P)/.orchestrate-greeted in on-the-record/hooks/directive.sh
