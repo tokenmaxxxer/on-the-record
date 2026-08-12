@@ -21,6 +21,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import ci  # noqa: E402
+import landing_obligation  # noqa: E402
 import reexecution_gate  # noqa: E402
 
 READY = "READY"
@@ -71,6 +72,26 @@ def reexecution_blocking_cause(root: Path, issue: int, role: str
     record_path = f"docs/issue-{issue}/reports/{role}.md"
     return {
         "reason": f"reexecution_gate: {verdict.kind} — {verdict.detail}",
+        "scope": frozenset({record_path}),
+    }
+
+
+def obligation_blocking_cause(root: Path, issue: int, role: str, pr: int
+                               ) -> dict | None:
+    """`.landing-obligations/<issue>-<role>-<pr>.json` 의 상태를
+    `blocking_causes` 한 항목으로 바꾼다 — issue #1098 (northpole req#3,
+    req#5). obligation이 없거나 `"resolved"` 면 None(원인 없음). `"open"`
+    또는 `"failing"` 이면 그 PR 자신의 레코드 경로로 스코프된 원인 —
+    `reexecution_blocking_cause` 와 같은 스코핑(ADR §6): `gates/` 같은
+    고정 접두어가 아니라 `docs/issue-<n>/reports/<role>.md` 로 스코프해야,
+    그 파일을 이 PR이 항상 건드리기 때문에 원인이 실제로 이 PR을 덮는다."""
+    obligation = landing_obligation.read_obligation(root, issue, role, pr)
+    if obligation is None or obligation.status == landing_obligation.RESOLVED:
+        return None
+    record_path = f"docs/issue-{issue}/reports/{role}.md"
+    return {
+        "reason": f"landing_obligation: {obligation.status} — pr #{pr} "
+                  f"unverified since {obligation.opened_at}",
         "scope": frozenset({record_path}),
     }
 

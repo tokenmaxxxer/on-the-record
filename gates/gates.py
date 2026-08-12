@@ -691,9 +691,19 @@ def _terminal_loop_state(role_cfg: dict) -> str | None:
     의 scope-proposed→...→landed). 그래서 목록의 마지막 값을 터미널로 읽는다;
     단일 값 목록(예: defect-verification 의 cleared)도 그 하나가 곧 마지막이라
     같은 규칙으로 맞는다. 선언 자체가 없으면 None — 이 게이트가 그 레코드를
-    건드리지 않는다(터미널을 모르면 강제할 기준이 없다)."""
-    states = role_cfg.get("record_fields", {}).get("loop_state")
-    return states[-1] if states else None
+    건드리지 않는다(터미널을 모르면 강제할 기준이 없다).
+
+    role_cfg 가 온전한 형태라는 보장이 없다(issue #1105 — 머지 충돌 중인
+    작업 트리에서 호출되면 record_fields/loop_state 가 빈 값이거나 리스트가
+    아닌 형태일 수 있다). list/tuple 이 아니면 순서가 없으므로 "마지막"을
+    읽을 수 없다 — None."""
+    record_fields = role_cfg.get("record_fields")
+    if not isinstance(record_fields, dict):
+        return None
+    states = record_fields.get("loop_state")
+    if not isinstance(states, (list, tuple)) or not states:
+        return None
+    return states[-1]
 
 
 def parse_checked_claims(work: Path) -> list[tuple[str, str, str, str | None]]:
