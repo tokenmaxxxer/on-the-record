@@ -1,6 +1,6 @@
 {
   "role": "test-authoring",
-  "source_standard": "IEEE 829 test case specification format, https://www.stickyminds.com/article/software-test-case-specification-ieee-829-1998-format-template",
+  "source_standard": "IEEE 829-2008, Standard for Software and System Test Documentation (test case specification shape) + Gerard Meszaros, xUnit Test Patterns: Refactoring Test Code (Addison-Wesley, 2007), Test Smells catalog (part IV) for suite-design/fixture-quality judgment",
   "required_fields": [
     {
       "name": "test_id",
@@ -26,6 +26,21 @@
       "name": "environment",
       "type": "string",
       "required": false
+    },
+    {
+      "name": "smells_identified",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "fixture_strategy",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "isolation_verdict",
+      "type": "string",
+      "required": true
     }
   ],
   "reference_resolution": {
@@ -36,6 +51,8 @@
     "rule": "output_spec is recomputed by re-running test_id against input_spec, never a standalone asserted field.",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
+  "gate_b_contrast": "hollow instance: output_spec mechanically re-derived from input_spec with smells_identified left empty is schema-conformant but not a design-quality judgment — the role's own stated decides (roles/test-authoring.json) is whether the test is well-designed in isolation, not merely whether it runs (issue-807 step2 audit).",
+  "gate_c_finding_method": "enumerate the specific Meszaros Test Smells categories present (e.g. Fragile Test, Obscure Test, Test Code Duplication, Interacting Tests, per xUnit Test Patterns part IV) and evidence each named smell with the file:line that triggered it in smells_identified; fixture_strategy and isolation_verdict must each cite the specific fixture/setup lines they judge, not a bare pass/fail label.",
   "write_scope": [
     "docs/issue-<n>/reports/test-authoring.md"
   ],

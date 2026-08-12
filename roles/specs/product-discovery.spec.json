@@ -28,6 +28,8 @@
     "rule": "recommendation (go|no-go) must not be asserted before fail_condition, time_box, and decision_rule are populated — pre-registration order (rationale: rule fixed before evidence, never asserted post-hoc).",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
+  "gate_b_contrast": "hollow instance: market_size_rationale or competitive_alternatives filled with generic prose that cites no evidence_log entry is schema-conformant but not a real assessment (issue-807 step2 audit).",
+  "gate_c_finding_method": "evidence rigor floor, Mom-Test discipline (Rob Fitzpatrick, The Mom Test, 2013): each evidence_log entry must state an observation/interview count and an approximate date range, and must not rest solely on stated preference or hypothetical response ('would you use X' answers are inadmissible on their own) — the same admissibility rule already carried by this session's user-discovery/market-recon skill directives, now made part of the spec instead of living only in skill prose.",
   "write_scope": [],
   "report_only": true,
   "loop_state": {

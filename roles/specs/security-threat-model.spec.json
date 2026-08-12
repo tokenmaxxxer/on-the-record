@@ -35,6 +35,8 @@
     "rule": "overall risk verdict is derived per-threat, not asserted as one standalone summary field: each element's residual risk = severity as stated after mitigation is applied, never a role-asserted number independent of the listed threats and their mitigations (issue-515 invariant 4).",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
+  "gate_b_contrast": "hollow instance: a threat list covering only 1-2 STRIDE categories for a data flow that crosses an authentication boundary is schema-conformant but reflects incomplete elicitation, not a completed threat model (issue-807 step2 audit).",
+  "gate_c_axis_evaluation": "see docs/handbooks/architecture-methodology.md, section 'Axis evaluation procedure — attack_potential' for the READ/EXECUTE/CRITERIA/CITATION method this role's axis_evaluation entries must follow: EXECUTE walks each data-flow-diagram element against all six STRIDE categories explicitly, per Adam Shostack, Threat Modeling: Designing for Security (Wiley, 2014), ch. 3-4 — the standard's actual elicitation method, not just its category enum.",
   "write_scope": ["docs/issue-<n>/reports/security-threat-model.md"],
   "loop_state": {
     "progress": ["modeling"],
