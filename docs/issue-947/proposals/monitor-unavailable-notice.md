@@ -30,6 +30,10 @@ from "IDE, structurally unavailable."
 - Must not false-positive during a session's early startup window — the
   issue's own follow-up comment found the monitor process starting
   ~8 minutes into a session that first looked monitor-less.
+- Must not false-negative across sessions in the same workspace — a
+  marker persisting past its writing session's lifetime must never be
+  read as evidence of the *current* session's own monitor being alive
+  (warrant-hunt finding, docs/issue-947/reports/implementation/2026-08-12-hunt-monitor-unavailable-notice.md).
 - The notice must fire once per workspace, not once per prompt (matches
   the existing `GREETED_MARKER` UX in `directive.sh`).
 
@@ -57,21 +61,32 @@ pattern instead of inventing a second notice mechanism.
 ## What will be done
 
 1. `poll-heartbeat.sh`: before the `sleep`/tick loop starts, write a
-   per-workspace marker file (same `pwd -P`-keyed convention as
-   `GREETED_MARKER`, e.g. `.orchestrate-monitor-alive`), gated the same
-   way — `case "${ORCHESTRATE_OFF:-}"` short-circuit stays first, so the
-   kill switch still suppresses the marker write too.
-2. `directive.sh`: track a per-workspace prompt counter (reuse or extend
-   the existing marker-file convention). Once the counter crosses a
-   fixed grace threshold (chosen to safely exceed the observed ~8-minute
-   startup delay in turn-equivalent terms — expressed as an elapsed-time
-   check via the marker file's mtime, not a prompt count, so it is
-   robust to slow/fast turn cadence) and the monitor start-marker from
-   step 1 is still absent, and a distinct "already notified" marker is
-   not yet set: print the one-time degradation notice ("idle self-wake
-   is unavailable in this session; turn-driven wake via
-   UserPromptSubmit/Stop hooks is the active mode") and set the
-   "already notified" marker so it never repeats for this workspace.
+   session-scoped marker file, keyed by `session_id` (available the same
+   way `session-role-bind.sh` reads it from its hook payload) under a
+   per-workspace directory — e.g.
+   `.orchestrate-monitor-alive/<session_id>` — gated the same way as
+   `GREETED_MARKER` — `case "${ORCHESTRATE_OFF:-}"` short-circuit stays
+   first, so the kill switch still suppresses the marker write too. This
+   is a deliberate departure from `GREETED_MARKER`'s workspace-lifetime,
+   session-agnostic persistence: a warrant hunt against this proposal
+   (docs/issue-947/reports/implementation/2026-08-12-hunt-monitor-unavailable-notice.md)
+   found that reusing `GREETED_MARKER`'s convention verbatim lets a stale
+   marker from an earlier CLI session in the same workspace silently
+   suppress the notice in a later IDE session opened on that same
+   workspace — exactly the case #947 exists to surface. Scoping the
+   marker per-session closes that gap: a new session can never observe a
+   prior session's marker as evidence of its own monitor being alive.
+2. `directive.sh`: track elapsed wall-clock time since this session's own
+   start (via the session-scoped marker directory's own bookkeeping, not
+   a workspace-lifetime file) for a grace threshold chosen to safely
+   exceed the observed ~8-minute startup delay. Once the threshold is
+   crossed and this session's own start-marker (keyed by the same
+   `session_id`, from step 1) is still absent, and a distinct
+   session-scoped "already notified" marker is not yet set: print the
+   one-time degradation notice ("idle self-wake is unavailable in this
+   session; turn-driven wake via UserPromptSubmit/Stop hooks is the
+   active mode") and set the "already notified" marker so it never
+   repeats for this session.
 3. `on-the-record/hooks/test_monitor_notice.py` (new): unit-tests the
    grace-threshold/marker-presence decision logic in isolation (no real
    Monitor process needed) — asserts the notice fires exactly once when
