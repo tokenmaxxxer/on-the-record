@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: landed
 files:
   - docs/issue-753/reports/defect-verification.md
 ---
@@ -75,4 +75,11 @@ finding names the northpole requirement it blocks.
 
 ## What did not work
 
-None.
+- Phase-2 expected to carry forward the phase-1 survey's two `reproduced`
+  outcomes into finding blocks. Re-deriving against this session's own
+  working tree instead showed the phase-1 survey's `spawn.py` reads were
+  taken against a different, stale clone
+  (`/home/jwjung/tokenmaxxxer/on-the-record`) — this session's tree
+  matches origin/main byte-for-byte and both architecture-survey
+  citations hold. All four attempts came back not-reproduced; no
+  findings were written.
