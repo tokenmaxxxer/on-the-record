@@ -5,6 +5,7 @@ files:
   - gates/test_roles_due.py
   - roles/specs/defect-verification.spec.json
   - docs/issue-1102/decisions/2026-08-12-obligation-trigger-predicate.md
+  - .gitignore
 ---
 
 ## Request
@@ -90,6 +91,14 @@ writing that same file shape — no coupling in either direction.
    recording the file-format-coupling decision from Rationale above
    (context/decision/consequences/alternatives).
 
+5. `.gitignore` gains a `.landing-obligations/` entry (alongside the
+   existing `.reexecution/` line), so obligation record files stay
+   untracked worktree state — the same convention `.reexecution/`
+   already established — which is what the `_last_commit_hash`/
+   `_commit_at_or_after` suppression logic in `roles_due()` depends on
+   to treat an obligation file as "uncommitted, fresh" rather than
+   silently changing behavior if one were ever committed.
+
 ## Out of scope
 
 - Building `gates/landing_obligation.py` itself or the
@@ -103,6 +112,16 @@ writing that same file shape — no coupling in either direction.
 
 - `python3 gates/test_roles_due.py` — all cases pass, including the
   three new ones, with pasted output in the phase-2 record.
+
+## Open findings (after-proposal hunt)
+
+canonical: docs/issue-1102/reports/implementation/hunt-roles-due-obligation-trigger.md
+The hunt (stance 4, after-proposal) found that the original write set
+omitted `.gitignore`: the obligation-status predicate's suppression
+logic depends on `.landing-obligations/*.json` staying uncommitted
+worktree state, and nothing enforced that. Resolved in this revision
+by adding `.gitignore` to the write set and item 5 above, mirroring the
+existing `.reexecution/` entry.
 
 ## Accumulation
 
