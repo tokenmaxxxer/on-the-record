@@ -58,6 +58,7 @@ Verdict values:
 | `issue_bundling.py` | repo-local | this org's own filing hygiene; `run.md` states no such obligation on a consumer's role sessions |
 | `skip_gate.py` | repo-local | wraps this repo's own CI invocation of its own test suite |
 | `spec_index.py` | repo-local | checks this repo's own `docs/specs/` set, not a consumer's |
+| `operator_experience.py` | repo-local | issue #1006: mechanical checks for the operator-experience layer (`directive.sh` carries blocks A-D's marker strings; a seeded utterance has a testable `## Acceptance` shape) — consumed only by `harness/fixture-operator-experience/scenario.py`, not wired into any zero-install preflight or `contract-guard.sh` |
 | `risk_report.py` | contract | issue #511: `batch_blocked()`'s four-axis dominant-axis rule is enforced zero-install via `on-the-record/hooks/impact-guard.sh`, which denies a batch-merge Bash command; `classify()`/`report()` remain the non-blocking review-surface feed they always were |
 | `gates.py` | n/a (infrastructure) | router/dispatcher to the modules above |
 | `flows.py` | repo-local | feeds this repo's own status-board UI |
