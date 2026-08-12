@@ -4075,6 +4075,46 @@ class ClosureSweepCliWiring(unittest.TestCase):
         self.assertEqual(kwargs.get("issue_states"), {1: "OPEN"})
 
 
+class PanelCliWiring(unittest.TestCase):
+    """이슈 #1044: `panel_cmd()`(#985, 동시-판정)는 main() 에 CLI 배선이
+    없어 도달 불가능했다 — consult 배선(4751행 부근)을 그대로 미러링해
+    `spawn.py panel <역할A> <역할B> "<질문>"` 경로를 연결한다."""
+
+    def test_panel_cli_subcommand_calls_panel_cmd(self):
+        argv = sys.argv
+        try:
+            sys.argv = ["spawn.py", "panel", "review", "qa", "<question>",
+                        "--issue", "1"]
+            with mock.patch.object(spawn, "panel_cmd",
+                                    return_value={"verdict": "ok"}) as m:
+                rc = spawn.main()
+        finally:
+            sys.argv = argv
+        self.assertEqual(rc, 0)
+        m.assert_called_once_with("review", "qa", "<question>",
+                                   issue=1, cwd=".")
+
+    def test_panel_cli_subcommand_missing_args_exits(self):
+        argv = sys.argv
+        try:
+            sys.argv = ["spawn.py", "panel", "review"]
+            with self.assertRaises(SystemExit):
+                spawn.main()
+        finally:
+            sys.argv = argv
+
+    def test_panel_cli_subcommand_same_role_twice_exits(self):
+        argv = sys.argv
+        try:
+            sys.argv = ["spawn.py", "panel", "review", "review", "<question>"]
+            with mock.patch.object(spawn, "panel_cmd") as m:
+                with self.assertRaises(SystemExit):
+                    spawn.main()
+            m.assert_not_called()
+        finally:
+            sys.argv = argv
+
+
 class SessionEndVerdict(unittest.TestCase):
     """이슈 #132: session_end_verdict 3분법 — survey.md 사건들 + 벤인 레이스."""
 

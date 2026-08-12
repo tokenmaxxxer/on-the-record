@@ -4633,6 +4633,8 @@ def main() -> int:
     ap.add_argument("task", nargs="?", help="맡길 일. 룰북 커맨드면 '/plugin:command 인자'")
     ap.add_argument("consult_question", nargs="?",
                     help="consult <역할> \"<질문>\": 세 번째 위치 인자로 질문을 받는다")
+    ap.add_argument("panel_question", nargs="?",
+                    help="panel <역할A> <역할B> \"<질문>\": 네 번째 위치 인자로 질문을 받는다")
     ap.add_argument("-C", "--cwd", default=".", help="작업 디렉터리")
     ap.add_argument("--dry-run", action="store_true", help="합쳐진 설정만 보고 안 띄운다")
     ap.add_argument("--no-contract", action="store_true",
@@ -4755,6 +4757,18 @@ def main() -> int:
             verdict = consult_cmd(a.task, a.consult_question, issue=a.issue, cwd=a.cwd)
         except Exception as e:
             sys.exit(f"consult 실패(트레이스는 남았다): {e}")
+        print(json.dumps(verdict, indent=2, ensure_ascii=False))
+        return 0
+    if a.role == "panel":
+        if not a.task or not a.consult_question or not a.panel_question:
+            sys.exit('사용법: spawn.py panel <역할A> <역할B> "<질문>" [--issue <n>]')
+        if a.task == a.consult_question:
+            sys.exit("panel 은 서로 다른 두 역할이 필요하다 — 같은 역할을 두 번 줬다")
+        try:
+            verdict = panel_cmd(a.task, a.consult_question, a.panel_question,
+                                 issue=a.issue, cwd=a.cwd)
+        except Exception as e:
+            sys.exit(f"panel 실패(트레이스는 남았다): {e}")
         print(json.dumps(verdict, indent=2, ensure_ascii=False))
         return 0
     if a.role == "kill":
