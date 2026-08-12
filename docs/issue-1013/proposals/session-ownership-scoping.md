@@ -148,6 +148,37 @@ four times, versus four independent ad-hoc filters; phase-2 should build
 `_roster_own()` once and thread it through B-E rather than reimplementing
 the `session_id`-equality-with-`None`-match logic at each call site.
 
+## Open findings (from warrant hunt)
+
+canonical: docs/issue-1013/reports/product-discovery/2026-08-12-hunt-session-ownership-scoping.md
+(this session's own after-proposal hunt dispatch, agent a19319722a6fbe837).
+FINDING: nothing in the repository — not spawn.py, not any harness/driver
+entry point, not any hook — ever sets or exports `ORCHESTRATOR_SESSION_ID`
+before an orchestrator session runs `spawn.py`
+(`grep -rn "export ORCHESTRATOR_SESSION_ID\|ORCHESTRATOR_SESSION_ID=" .`
+found no set-point outside `docs/`, per the hunt record's own derived
+commands). `os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None`
+(spawn.py:5427, 5516) therefore evaluates to `None` for every roster entry
+on every real invocation today — not only the single-session/empty-state
+case this proposal describes at "Constraints," but the actual universal
+case. A-F as designed would degenerate to `None == None` self-matching
+for every concurrent session, i.e. no real scoping, until something
+outside this proposal's frozen write set (spawn.py, tests/test_spawn.py —
+whatever process launches a concurrent orchestrator session) starts
+minting and exporting a distinct `ORCHESTRATOR_SESSION_ID` per session.
+
+Resolution path: out of this proposal's write set by design (the set-point
+is a launcher/harness concern, not a spawn.py-internal one) — flagged here
+rather than silently assumed. Phase-2 build authorization for this
+proposal should either (a) file a companion issue for the harness-side
+`ORCHESTRATOR_SESSION_ID` set-point as a prerequisite, or (b) if the
+harness genuinely already assigns a per-session identity through some
+channel this survey did not find (e.g. a live interactive session already
+has an implicit id from its own harness), phase-2's first task is locating
+and wiring that source into the env var `spawn.py` already reads, before
+building A-F. Not actioned in this phase-1 turn — deferred to the
+build-authorization step, per this role's two-phase contract.
+
 ## What did not work
 
 None.
