@@ -89,16 +89,24 @@ documented cost-control choice.
   explicitly framed as nesting inside "YOUR GOAL LOOP" rather than a
   fifth separate loop, per the design doc's own framing instruction.
 - `on-the-record/hooks/deviation-log-guard.sh` (new file, Stop hook):
-  mirrors `stop-gate.sh`'s shape (fail-closed trap, `ORCHESTRATE_OFF`
-  kill switch, `CLAUDE_ROLE`-unset orchestrator-only gate, reads the
-  `STOP_PAYLOAD` env var) but checks for a recognized-deviation marker
-  in `last_assistant_message` with no matching same-turn append to
-  `docs/issue-<n>/reports/deviation-log.md` (or `docs/reports/deviation-log.md`)
-  — refusing session-end via `hookSpecificOutput.additionalContext`
-  the same way `stop-gate.sh` reports its own violation, not a hard
-  `decision:"block"`, matching that file's own house style rationale
-  (a heuristic misfire on unusual phrasing should not discard the whole
-  turn).
+  reuses `stop-gate.sh`'s fail-closed trap, `ORCHESTRATE_OFF` kill
+  switch, and `CLAUDE_ROLE`-unset orchestrator-only gate — but for the
+  actual check, follows `product-capture-stopgate.sh`'s mechanism, not
+  `stop-gate.sh`'s: `stop-gate.sh` only inspects `last_assistant_message`
+  text and has no file/git access, which cannot maintain a
+  "no-matching-deviation-log-append-this-turn" fact (warrant hunt
+  finding, docs/issue-803/reports/implementation/2026-08-12-hunt-implementation-deviation-loop.md,
+  dispatched after this proposal's first commit). The guard instead
+  reads `transcript_path` off the raw Stop event JSON the way
+  `product-capture-stopgate.sh` does (`e.get("transcript_path")`),
+  scans it for a recognized-deviation marker, and separately checks —
+  via `git diff` against the deviation-log path(s), the same
+  `os.path.isfile` / `git diff` pattern `product-capture-stopgate.sh`
+  already uses — whether a matching append actually landed. Refuses
+  session-end via `hookSpecificOutput.additionalContext` (not a hard
+  `decision:"block"`), matching `stop-gate.sh`'s own house-style
+  rationale that a heuristic misfire on unusual phrasing should not
+  discard the whole turn.
 - `on-the-record/hooks/hooks.json`: register `deviation-log-guard.sh` as
   a 7th entry in the `Stop` array (survey: currently 6 entries, lines
   84-95), after the existing `stop-gate.sh` entry since both inspect
@@ -128,10 +136,11 @@ documented cost-control choice.
   same `CLAUDE_ROLE`-unset way as the three existing paragraphs, and
   explicitly states it nests inside "YOUR GOAL LOOP".
 - `deviation-log-guard.sh` exists, is registered in `hooks.json`'s
-  `Stop` array, and — run once by hand against a synthetic
-  `STOP_PAYLOAD` containing a deviation marker with no matching
-  deviation-log entry — refuses (non-zero exit / `additionalContext`
-  set), and against a payload with a matching entry, passes clean
+  `Stop` array, and — run once by hand against a synthetic Stop payload
+  (`transcript_path` pointing at a fixture transcript containing a
+  deviation marker, working tree with no matching deviation-log append)
+  — refuses (non-zero exit / `additionalContext` set), and against a
+  fixture where the deviation-log append is present, passes clean
   (exit 0). This is the confirmation run no-mock's "build it, run it,
   once" calls for; it is not step 3's harness re-run.
 - `docs/handbooks/deviation-loop.md` documents the entry format and the
