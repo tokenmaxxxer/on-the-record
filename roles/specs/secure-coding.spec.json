@@ -34,6 +34,21 @@
     "error": ["target-unreachable"]
   },
   "use_when": {
-    "board_condition": "authentication or input-handling code landed on the branch AND no secure-coding record exists yet for that commit sha"
+    "board_condition": "authentication or input-handling code landed on the branch AND no secure-coding record exists yet for that commit sha",
+    "trigger": {
+      "path_patterns": [
+        "**/auth/**",
+        "**/*credential*",
+        "**/*permission*",
+        "**/*secret*",
+        "**/*password*",
+        "**/*login*",
+        "**/*input*",
+        "**/*sanitiz*",
+        "**/*validat*"
+      ],
+      "content_patterns": ["authenticate", "password", "credential", "sanitize", "validate input"],
+      "record_absent_for": "secure-coding"
+    }
   }
 }
