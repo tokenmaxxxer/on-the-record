@@ -128,3 +128,118 @@ CRITERIA FOR no-opinion: the reviewed artifact introduces no new trust
 CITATION: the security-threat-model record's own
   `docs/issue-<n>/reports/security-threat-model.md` entry plus Shostack
   (2014) ch. 3-4 for the per-element STRIDE-coverage method above.
+
+## Axis evaluation procedure — alignment
+
+READ: the conformance-review record's own `subject`/`test`/`result`
+  entries (`docs/issue-<n>/reports/conformance-review.md`) and the
+  conformance criterion each `test` field resolves to (a spec section,
+  requirement, or lint rule).
+
+EXECUTE:
+1. For each cited entry, resolve `test` to the actual conformance
+   criterion text — a `test` value that names a criterion but does not
+   quote or link its checkable condition fails this step (EARL 1.0
+   Schema, https://www.w3.org/TR/EARL10-Schema/, requires `test` to
+   reference a real `TestCriterion`, not a paraphrase).
+2. Recompute the record's overall verdict as the worst-case `result`
+   across all cited entries in the fixed EARL severity order (`failed`
+   > `cantTell` > `inapplicable` > `untested` > `passed`) and compare it
+   against any standalone summary verdict the record asserts.
+3. Check that `assertedBy` names the actual conformance-review session
+   or tool run, not a generic placeholder — EARL requires every
+   assertion to be attributable to its asserter.
+
+CRITERIA FOR supports: every cited `test` resolves to a real criterion,
+  the recomputed worst-case verdict in step 2 matches any asserted
+  summary verdict, and every entry carries a real `assertedBy`.
+CRITERIA FOR contradicts: the recomputed worst-case verdict in step 2
+  disagrees with an asserted summary verdict, or a cited `test` does
+  not resolve to a real criterion — produce a `finding.target_path`
+  inside conformance-review's own `write_scope` and a `required_fix`
+  naming the specific entry whose recomputation or reference fails.
+CRITERIA FOR no-opinion: no conformance-review record exists yet for
+  the artifact under review (this role's own `use_when.board_condition`
+  does not fire).
+
+CITATION: the conformance-review record's own
+  `docs/issue-<n>/reports/conformance-review.md` entry plus the EARL 1.0
+  Schema (W3C, https://www.w3.org/TR/EARL10-Schema/) for the
+  worst-case-recomputation method above.
+
+## Axis evaluation procedure — external_burden
+
+READ: the capacity-planning record's own `resource`/`demand_forecast`/
+  `capacity_threshold`/`verdict` entries
+  (`docs/issue-<n>/reports/capacity-planning.md`) for the resource the
+  reviewed artifact adds load to.
+
+EXECUTE:
+1. Resolve `resource` to an actual monitored resource (a named service,
+   queue, database, or external quota) — an unresolvable reference fails
+   this step (ITIL Capacity Management practice requires every capacity
+   record to name a real monitored resource, not an abstract concern).
+2. Recompute `verdict` from the record's own `demand_forecast` against
+   its own `capacity_threshold` (`within-capacity` iff forecast <=
+   threshold) rather than accepting an asserted `verdict` at face value.
+3. Check whether the artifact under review is itself a source of new
+   demand on the resource (a new caller, a new write path, a new
+   scheduled job) — if so, confirm the record's `demand_forecast`
+   actually accounts for that artifact, not just pre-existing load.
+
+CRITERIA FOR supports: `resource` resolves, the recomputed verdict in
+  step 2 matches the record's asserted `verdict`, and step 3's new-demand
+  check (when applicable) is accounted for in the forecast.
+CRITERIA FOR contradicts: the recomputed verdict in step 2 disagrees
+  with the record's asserted `verdict`, or the artifact under review adds
+  demand the forecast does not account for — produce a
+  `finding.target_path` inside capacity-planning's own `write_scope` and
+  a `required_fix` naming the unaccounted demand source or the
+  recomputation mismatch.
+CRITERIA FOR no-opinion: no capacity-planning record exists yet for the
+  resource the reviewed artifact touches (this role's own
+  `use_when.board_condition` does not fire).
+
+CITATION: the capacity-planning record's own
+  `docs/issue-<n>/reports/capacity-planning.md` entry plus the ITIL
+  Capacity Management practice (https://www.itlibrary.org/) for the
+  demand-forecast-vs-threshold recomputation method above.
+
+## Axis evaluation procedure — performance
+
+READ: the performance-engineering record's own `sli`/`slo_target`/
+  `error_budget_remaining`/`verdict` entries
+  (`docs/issue-<n>/reports/performance-engineering.md`) for the SLI the
+  reviewed artifact is latency- or throughput-sensitive against.
+
+EXECUTE:
+1. Resolve `sli` to an actual monitored metric — an unresolvable
+   reference fails this step (Google SRE Workbook,
+   https://sre.google/workbook/implementing-slos/, requires every SLO
+   record to be anchored to a real, queryable SLI).
+2. Recompute `error_budget_remaining` from the current `sli` measurement
+   against `slo_target` (per the error-budget-policy formula,
+   https://sre.google/workbook/error-budget-policy/) rather than
+   accepting an asserted remaining-budget figure at face value.
+3. Recompute `verdict` from the recomputed `error_budget_remaining`
+   (`within-budget` iff remaining budget > 0) and compare it against the
+   record's own asserted `verdict`.
+
+CRITERIA FOR supports: `sli` resolves, the recomputed
+  `error_budget_remaining` in step 2 matches the record's asserted
+  figure within the policy's stated tolerance, and the recomputed
+  `verdict` in step 3 matches the asserted `verdict`.
+CRITERIA FOR contradicts: the recomputed budget or verdict disagrees
+  with the record's asserted figures — produce a `finding.target_path`
+  inside performance-engineering's own `write_scope` and a
+  `required_fix` naming the recomputation mismatch.
+CRITERIA FOR no-opinion: no performance-engineering record exists yet
+  for the SLI the reviewed artifact touches (this role's own
+  `use_when.board_condition` does not fire).
+
+CITATION: the performance-engineering record's own
+  `docs/issue-<n>/reports/performance-engineering.md` entry plus the
+  Google SRE Workbook's SLO-implementation
+  (https://sre.google/workbook/implementing-slos/) and error-budget-policy
+  (https://sre.google/workbook/error-budget-policy/) chapters for the
+  recomputation method above.

@@ -28,6 +28,18 @@
     "rule": "status must not move past its initial value before verification_method is populated — bidirectional-traceability-before-status-change, mirroring 29148's own ordering.",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
+  "finding_method": [
+    "Grammar-fit check: for every statement, does it match its declared ears_pattern's exact template word-for-word (per Mavin et al., IEEE RE'09), or was the pattern picked because it was the closest fit rather than the actual fit?",
+    "Ambiguity sweep (29148 6.4.2): flag any statement containing a vague quantifier ('fast', 'sufficient', 'user-friendly', 'as needed') with no bound resolvable elsewhere in the statement or its downstream_link.",
+    "Bidirectional-trace check: for every statement, does downstream_link actually resolve to an artifact that implements or verifies it, and does that artifact's own record cite the statement back — a one-directional link (requirement -> code, but code carries no trace to the requirement) is an incomplete trace per 29148's bidirectional-traceability requirement.",
+    "Single-requirement check: does the statement's <response> clause contain exactly one testable outcome, or does an 'and'/'or' hide two requirements inside one statement (a classic EARS-violation smell not itself named by a pattern)?"
+  ],
+  "anti_pattern": [
+    "Compound requirement: one statement asserting two or more independently-verifiable outcomes joined by 'and'/'or', making verification_method ambiguous — split into separate statements, each with its own ears_pattern.",
+    "Solution-in-requirement: statement specifies an implementation mechanism ('THE system SHALL use a Redis cache') instead of an observable behavior — a requirement should be falsifiable independent of how it is built (EARS's own worked examples avoid mechanism nouns in the <response> clause).",
+    "Untraceable pattern claim: statement's declared ears_pattern does not match its own grammar (e.g. tagged 'event-driven' but missing a WHEN-trigger clause) — the mismatch means the required trigger/precondition analysis for that pattern was never actually done.",
+    "Orphan downstream_link: downstream_link resolves to a path that does not exist or that carries no reference back to the requirement — 29148 bidirectional traceability fails silently when only one direction is checked."
+  ],
   "write_scope": [],
   "report_only": true,
   "loop_state": {
