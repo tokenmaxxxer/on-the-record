@@ -2515,6 +2515,16 @@ def requirement_drift(root: Path) -> None:
         print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
         return
 
+    sys.path.insert(0, str((root / "gates").resolve()))
+    try:
+        import requirement_linkage as _requirement_linkage
+        infra_tag = _requirement_linkage._INFRA_TAG
+    except ImportError:
+        # advisory 계약(이 함수 docstring): gh 실패처럼 import 실패도
+        # 이 스윕 전체를 죽이지 않고 조용히 건너뛴다 — infra-tag 예외
+        # 없이 기존 동작으로 계속한다.
+        infra_tag = None
+
     mentioned_reqs: set[str] = set()
     unreferenced_open = []
     for item in issues + prs:
@@ -2525,6 +2535,11 @@ def requirement_drift(root: Path) -> None:
         # digest ID 형식(R\d+)과 직접 비교하려면 원문 재검색이 더 정확하다.
         raw_ids = set(re.findall(r"\bR\d+\b", text))
         mentioned_reqs |= raw_ids
+        # 이슈 #1080: gates/requirement_linkage.py::check_issue_body 가 이미
+        # 인정하는 infra-tag 예외를 여기서도 그대로 존중한다 — 같은
+        # _INFRA_TAG 리터럴을 import 해서 두 검사가 서로 어긋나지 않게 한다.
+        if infra_tag is not None and infra_tag in text:
+            continue
         if not (raw_ids or _NORTHPOLE_REQ_RE.search(text)):
             unreferenced_open.append(item.get("number"))
 
