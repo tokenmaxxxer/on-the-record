@@ -4481,10 +4481,17 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
             "당신은 판정단(panel) 판정자로 불렸다 — 다른 역할 판정자 "
             f"'{peer_role}' 와 함께 아래 질문을 판정한다. 이 역할의 룰북은 "
             "이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
-            "마라. 먼저 당신의 입장(position)을 한 문단으로 정리해 "
-            "SendMessage 로 상대에게 보내라. 상대의 응답을 받은 뒤 최소 한 "
-            "차례 반박(rebuttal)을 SendMessage 로 주고받아라. 교환이 끝나면 "
-            "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
+            "마라. 상대 세션은 이 세션과 거의 동시에 떴다 — 아직 인박스가 "
+            "등록되지 않았을 수 있다. 먼저 ListAgents 를 호출해 상대를 "
+            f"찾아라('{peer_role}' 역할일 것이다). 안 보이면 몇 초 뒤 다시 "
+            "ListAgents 를 호출하는 식으로 몇 차례 재시도하라 — 한 번만 "
+            "확인하고 포기하지 마라. 상대가 보이면, ListAgents 가 실제로 "
+            f"반환한 이름으로 SendMessage 를 보내라('{peer_role}' 같은 "
+            "역할명이 아니라 그 이름 그대로 주소를 써라). 먼저 당신의 "
+            "입장(position)을 한 문단으로 정리해 SendMessage 로 상대에게 "
+            "보내라. 상대의 응답을 받은 뒤 최소 한 차례 반박(rebuttal)을 "
+            "SendMessage 로 주고받아라. 교환이 끝나면 다른 어떤 텍스트도 "
+            "없이 JSON 객체 하나만 출력하라: "
             '{"answer": "<판단>", "confidence": "low|medium|high", '
             '"caveats": ["<유보/전제>", ...]}\n\n'
             f"질문: {question}"
@@ -4515,18 +4522,35 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
                 os.unlink(settings_path)
 
 
+def _consult_or_record_error(path: Path, ts: str, role: str, question: str,
+                              issue: int | None, cwd: str | None) -> tuple[dict | None, str | None]:
+    """`consult_cmd()` 를 호출하되, 실패해도 밖으로 던지지 않는다 — 저하
+    경로에서 `consult_cmd()` 실패는 panel 실행 전체를 크래시시켜선 안
+    된다(#1045 결함 2). 실패하면 `consult-error` 턴으로 기록하고
+    `(None, <에러 메시지>)` 를 돌려준다."""
+    try:
+        verdict = consult_cmd(role, question, issue, cwd)
+    except Exception as e:  # noqa: BLE001 - 어떤 실패든 절대 밖으로 던지지 않는다
+        msg = str(e)
+        _append_panel_turn(path, ts, role, "consult-error", msg)
+        return None, msg
+    _append_panel_turn(path, ts, role, "verdict", str(verdict))
+    return verdict, None
+
+
 def _panel_degrade(path: Path, ts: str, role_a: str, role_b: str, question: str,
                     issue: int | None, cwd: str | None, reason: str) -> dict:
     """저하 경로 — 순차 `consult_cmd()` 두 번으로 판단을 받고, 저하했다는
     사실과 이유를 `degraded:` 마커로 기록에 남긴다(제안서, 병합 설계
-    Open Question 4)."""
+    Open Question 4). 각 `consult_cmd()` 호출은 `_consult_or_record_error()`
+    로 감싸 — 한쪽이 실패해도(#1045 결함 2) panel 실행 자체는 절대 raise
+    하지 않고, 실패는 기록에 남기고 그 쪽 verdict 만 None 이 된다."""
     _append_panel_turn(path, ts, "panel", "degraded", f"sequential-consult — {reason}")
-    verdict_a = consult_cmd(role_a, question, issue, cwd)
-    verdict_b = consult_cmd(role_b, question, issue, cwd)
-    _append_panel_turn(path, ts, role_a, "verdict", str(verdict_a))
-    _append_panel_turn(path, ts, role_b, "verdict", str(verdict_b))
+    verdict_a, error_a = _consult_or_record_error(path, ts, role_a, question, issue, cwd)
+    verdict_b, error_b = _consult_or_record_error(path, ts, role_b, question, issue, cwd)
     return {"degraded": True, "reason": reason,
             "verdict_a": verdict_a, "verdict_b": verdict_b,
+            "error_a": error_a, "error_b": error_b,
             "record_path": str(path)}
 
 

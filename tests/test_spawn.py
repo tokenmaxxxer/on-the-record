@@ -9107,6 +9107,86 @@ class ConsultCmd(unittest.TestCase):
         self.assertIn("시간초과", trace)
 
 
+class PanelDegradeErrorSafety(unittest.TestCase):
+    """이슈 #1045 결함 2 — `_panel_degrade()` 는 `consult_cmd()` 실패를
+    절대 밖으로 던지지 않는다: 실패를 `consult-error` 턴으로 기록하고
+    저하 결과를 돌려준다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.path = self.root / "docs" / "reports" / "panel" / "question.md"
+        self.ts = "2026-08-12T00:00:00+00:00"
+
+    def test_consult_error_inside_degrade_is_recorded_not_raised(self):
+        def failing_consult(role, question, issue=None, cwd=None):
+            raise RuntimeError("모델 출력에서 판단 JSON 을 못 찾음")
+
+        orig = spawn.consult_cmd
+        spawn.consult_cmd = failing_consult
+        try:
+            result = spawn._panel_degrade(
+                self.path, self.ts, "implementation", "qa", "질문",
+                None, str(self.root), "no SendMessage round-trip observed")
+        finally:
+            spawn.consult_cmd = orig
+
+        self.assertTrue(result["degraded"])
+        self.assertIsNone(result["verdict_a"])
+        self.assertIsNone(result["verdict_b"])
+        self.assertIn("모델 출력에서 판단 JSON 을 못 찾음", result["error_a"])
+        self.assertIn("모델 출력에서 판단 JSON 을 못 찾음", result["error_b"])
+
+        trace = self.path.read_text(encoding="utf-8")
+        self.assertIn("consult-error", trace)
+
+    def test_one_side_failing_still_returns_the_others_real_verdict(self):
+        def half_failing_consult(role, question, issue=None, cwd=None):
+            if role == "implementation":
+                raise RuntimeError("모델 출력에서 판단 JSON 을 못 찾음")
+            return {"answer": "가능", "confidence": "high", "caveats": []}
+
+        orig = spawn.consult_cmd
+        spawn.consult_cmd = half_failing_consult
+        try:
+            result = spawn._panel_degrade(
+                self.path, self.ts, "implementation", "qa", "질문",
+                None, str(self.root), "no SendMessage round-trip observed")
+        finally:
+            spawn.consult_cmd = orig
+
+        self.assertIsNone(result["verdict_a"])
+        self.assertIsNotNone(result["error_a"])
+        self.assertEqual(result["verdict_b"], {"answer": "가능", "confidence": "high", "caveats": []})
+        self.assertIsNone(result["error_b"])
+
+    def test_panel_cmd_no_round_trip_degrade_does_not_propagate_consult_failure(self):
+        def failing_consult(role, question, issue=None, cwd=None):
+            raise RuntimeError("모델 출력에서 판단 JSON 을 못 찾음")
+
+        orig = spawn.consult_cmd
+        spawn.consult_cmd = failing_consult
+        orig_record_path = spawn._panel_record_path
+        spawn._panel_record_path = lambda issue, slug: self.path
+
+        def no_turns_session(role, peer_role, question, cwd):
+            return {"turns": [], "verdict": None}
+
+        try:
+            result = spawn.panel_cmd(
+                "implementation", "qa", "질문", cwd=str(self.root),
+                run_session=no_turns_session)
+        finally:
+            spawn.consult_cmd = orig
+            spawn._panel_record_path = orig_record_path
+
+        self.assertTrue(result["degraded"])
+        self.assertEqual(result["reason"], "no SendMessage round-trip observed")
+        self.assertIsNone(result["verdict_a"])
+        self.assertIsNone(result["verdict_b"])
+
+
 class ConsultVerdictParsing(unittest.TestCase):
     def test_finds_trailing_json_after_prose(self):
         text = '분석했다.\n결론은 다음과 같다.\n{"answer": "가능", "confidence": "low", "caveats": []}'
