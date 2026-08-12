@@ -287,9 +287,14 @@ def _session_last_activity(log_path: Path | None) -> dict | None:
         return None
 
 
-def flows_payload(root: Path) -> dict:
+def flows_payload(root: Path, all_scope: bool = False) -> dict:
     """Build the `flows --json` payload (issue #172) — read-only, matches
-    `status()`'s own invariant (protocol.md §1): no mutation, no posting."""
+    `status()`'s own invariant (protocol.md §1): no mutation, no posting.
+
+    이슈 #1035: `decision_queue`는 기본으로 호출자 자신의 세션이 소유한
+    항목만 담는다 — `spawn._roster_own`과 동일한 predicate(roster
+    엔트리의 `session_id`가 자기 세션과 같거나, 둘 중 하나가 `None`)를
+    재사용한다. `all_scope=True`(`--all`)면 전체를 그대로 담는다."""
     b = spawn.board(root)
     approvers = spawn._approvers(root)
     repo_slug = spawn._repo_slug(root)
@@ -347,6 +352,20 @@ def flows_payload(root: Path) -> dict:
     unapproved_open_prs = []
     flows_out = []
 
+    roster_all = spawn._roster_load()
+    roster_own_keys = set(spawn._roster_own(roster_all, all_scope=all_scope))
+
+    def _own_item(subject: str, role: str) -> bool:
+        if all_scope:
+            return True
+        key = f"{subject}/{role}"
+        # 이슈 #1035: 로스터에 아예 항목이 없으면(둘 다 관측 불가) 소유를
+        # 부정할 수 없다 — `_roster_own`의 observation-loss invariant와
+        # 동일하게 계속 노출한다. 로스터에 있는데 다른 세션 소유일 때만 뺀다.
+        if key not in roster_all:
+            return True
+        return key in roster_own_keys
+
     # `pr_by_branch`는 브랜치명만으로 (subject, role)을 뽑아내므로 보드
     # 순회(all_subjects → roles.items())와 무관하게 완전한 소스다 — 머지된
     # 레코드도 계획 블록도 없는 subject의 PR도 여기서는 보인다(issue #216).
@@ -357,7 +376,7 @@ def flows_payload(root: Path) -> dict:
         comments = comments_for(subject, pr["number"])
         approved = _pr_approved(pr, comments, approvers, subject, role)
         phase = 1 if loop_state in (None, "scope-proposed") else 2
-        if not approved:
+        if not approved and _own_item(subject, role):
             decision_queue.append({
                 "issue": issue_n, "pr": pr["number"], "phase": phase,
                 "role": role, "opened_at": pr.get("createdAt"),
@@ -473,9 +492,9 @@ def _age_hours(created_at: str | None) -> float | None:
     return round((time.time() - time.mktime(t) + time.timezone) / 3600.0, 1)
 
 
-def flows(cwd: str, as_json: bool) -> int:
+def flows(cwd: str, as_json: bool, all_scope: bool = False) -> int:
     root = Path(cwd).resolve()
-    payload = flows_payload(root)
+    payload = flows_payload(root, all_scope=all_scope)
     if as_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0
