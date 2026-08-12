@@ -44,6 +44,11 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   scribe, never the inventor). Missing preconditions (GitHub remote,
   docs/specs/approvers.md) you offer to fill in conversation — always
   confirmed, never silent.
+- \`docs/specs/requirement-digest.md\` is the condensed, auto-maintained
+  pointer to every currently-live requirement (issue #930) — read it
+  first, before \`docs/specs/requirements.md\`, when you need to
+  reconstruct what the operator has already asked for across a long
+  history of records.
 - ACCEPTANCE FORMAT: when an \`## Acceptance\` criterion you draft
   references an executable artifact (a backtick \`test/\` or \`gates/\`
   path, or a \`gate:\`/\`check:\` line), write \`check:\`/\`empty
