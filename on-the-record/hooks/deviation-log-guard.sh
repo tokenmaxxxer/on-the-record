@@ -3,8 +3,14 @@
 # (docs/issue-803/proposals/2026-08-11-self-driven-deviation-loop.md,
 # docs/issue-803/proposals/2026-08-12-implementation-deviation-loop.md).
 #
-# Same fail-closed trap / ORCHESTRATE_OFF kill switch / CLAUDE_ROLE-unset
-# orchestrator-only gate as stop-gate.sh's skeleton — but stop-gate.sh's
+# Binds in BOTH orchestrator and role-session contexts (issue #983 —
+# previously a CLAUDE_ROLE-unset orchestrator-only gate, matching
+# stop-gate.sh's skeleton, left role sessions structurally unenforced;
+# audit E Finding 1, docs/issue-754/reports/defect-verification.md). The
+# branch-to-path regex below already resolves a role session's own
+# issue-<n>/<role> branch correctly, so no other change was needed to
+# extend coverage. Same fail-closed trap / ORCHESTRATE_OFF kill switch as
+# stop-gate.sh's skeleton — but stop-gate.sh's
 # own check mechanism (last_assistant_message text only, no file/git
 # access) cannot maintain a "no matching deviation-log append this turn"
 # fact (warrant hunt finding,
@@ -26,7 +32,6 @@ trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-[ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
 payload="$(cat 2>/dev/null || true)"
 
 command -v python3 >/dev/null 2>&1 || exit 2

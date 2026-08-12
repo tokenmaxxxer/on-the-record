@@ -47,6 +47,21 @@ issue-keyed-vs-not split `consult-log.md` already uses).
 Every deviation, inline or filed, leaves exactly one traceable log entry;
 RECOGNIZE keeps this from becoming noise (no entry for non-deviations).
 
+## Role sessions (issue #983)
+
+The loop also binds inside a spawned role session, not only the
+orchestrator (audit E Finding 1,
+docs/issue-754/reports/defect-verification.md). RECOGNIZE and CLASSIFY
+are unchanged. RESOLVE differs only for the file case: a role session
+never spawns a peer role or opens an issue on its own initiative
+mid-task (role-handoff contract v3's SCOPE-EXCEEDED RULE) — it finishes
+what its frozen write set covers, STOPS, reports the deviation in its
+reply, and appends a `filed` deviation-log line noting it was reported
+rather than spawned. `on-the-record/hooks/role-deviation-directive.sh`
+injects this variant (`CLAUDE_ROLE` set gate, opposite of
+`directive.sh`'s own gate); `deviation-log-guard.sh` enforces it at Stop
+in both contexts.
+
 ## Enforcement
 
 `on-the-record/hooks/deviation-log-guard.sh` (Stop hook) reads

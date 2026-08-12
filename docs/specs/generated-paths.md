@@ -47,6 +47,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `record-tiering-guard.sh` | n/a | reads/validates only, no write call |
 | `report-framing-check.sh` | n/a | reads/validates only, no write call |
 | `role-axis-completeness-guard.sh` | n/a | reads/validates only, no write call |
+| `role-deviation-directive.sh` | n/a | reads/validates only, no write call |
 | `role-spec-reference-guard.sh` | n/a | reads/validates only, no write call |
 | `role-test-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `spec-index-preflight.sh` | n/a | reads/validates only, no write call |

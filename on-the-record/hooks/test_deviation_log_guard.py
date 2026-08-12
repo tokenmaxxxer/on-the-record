@@ -93,14 +93,51 @@ def t_logged_deviation_passes():
         assert r.stdout == ""
 
 
-def t_claude_role_set_is_noop():
+def t_role_session_traceless_deviation_is_blocked():
+    """Issue #983 (audit E Finding 1): the guard must bind in a role
+    session, not just the orchestrator — a role session with
+    CLAUDE_ROLE set that logs a recognized deviation but appends
+    nothing to the deviation log is refused, same as the orchestrator
+    case."""
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
-        _init_repo(repo)
+        _init_repo(repo, branch="issue-983/implementation")
         transcript = _write_transcript(
             repo, ["this is a deviation, classifying as inline-fix now."]
         )
-        r = _run(repo, transcript, role="qa")
+        r = _run(repo, transcript, role="implementation")
+        assert r.returncode == 0
+        out = json.loads(r.stdout)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        assert "docs/issue-983/reports/deviation-log.md" in ctx
+
+
+def t_role_session_no_deviation_is_silent():
+    """Empty state: a role session with no deviation in its transcript
+    writes no deviation log and the guard stays silent."""
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo, branch="issue-983/implementation")
+        transcript = _write_transcript(repo, ["ran the tests, all green."])
+        r = _run(repo, transcript, role="implementation")
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_role_session_logged_deviation_passes():
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo, branch="issue-983/implementation")
+        log_dir = repo / "docs" / "issue-983" / "reports"
+        log_dir.mkdir(parents=True)
+        log = log_dir / "deviation-log.md"
+        log.write_text("# Deviation log\n\n- 2026-08-12 inline-fix: swapped helper.\n")
+        _git(repo, "add", "docs/issue-983/reports/deviation-log.md")
+        _git(repo, "commit", "-q", "-m", "record deviation")
+        transcript = _write_transcript(
+            repo, ["this is a deviation, classifying as inline-fix now."]
+        )
+        r = _run(repo, transcript, role="implementation")
         assert r.returncode == 0
         assert r.stdout == ""
 
