@@ -1,0 +1,7 @@
+{
+  "label": "vague",
+  "utterances": [
+    "can you make things better around here"
+  ],
+  "expect_elicitation": true
+}
