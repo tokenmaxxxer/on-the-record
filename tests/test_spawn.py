@@ -10107,5 +10107,32 @@ class RosterOwnershipScoping(unittest.TestCase):
         m.assert_called_once_with(auto_respawn=False, all_scope=True)
 
 
+class RequirementIntakeValidityConsult(unittest.TestCase):
+    """issue-1024: intake with a validity-consult trace recorded passes;
+    intake without consult and without an explicit skip reason is
+    flagged."""
+
+    @classmethod
+    def setUpClass(cls):
+        gates_dir = str(Path(__file__).resolve().parent.parent / "gates")
+        if gates_dir not in sys.path:
+            sys.path.insert(0, gates_dir)
+        import requirement_intake_consult
+        cls.mod = requirement_intake_consult
+
+    def test_intake_with_consult_trace_passes(self):
+        body = "## Request\nAdd a thing.\n\nvalidity-consult: req-eng run, feasible.\n"
+        self.assertEqual(self.mod.check_issue_body(1024, body), [])
+
+    def test_intake_with_skip_trivial_passes(self):
+        body = "## Request\nFix a typo.\n\nvalidity-consult-skip: trivial\n"
+        self.assertEqual(self.mod.check_issue_body(1024, body), [])
+
+    def test_intake_without_consult_or_skip_is_flagged(self):
+        body = "## Request\nAdd a thing with no consult recorded.\n"
+        bad = self.mod.check_issue_body(1024, body)
+        self.assertTrue(bad)
+
+
 if __name__ == "__main__":
     unittest.main()
