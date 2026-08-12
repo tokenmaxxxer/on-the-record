@@ -29,21 +29,21 @@ def _run(flows_payload, role=None, orchestrate_off="", last_assistant_message="o
         env = dict(os.environ)
         env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
         env["ORCHESTRATE_OFF"] = orchestrate_off
-        if state_dir is not None:
-            env["OTR_DECISION_QUEUE_STOPGATE_STATE_DIR"] = str(state_dir)
-        else:
-            env.pop("OTR_DECISION_QUEUE_STOPGATE_STATE_DIR", None)
+        if state_dir is None:
+            state_dir = Path(td) / "state"
+        env["OTR_DECISION_QUEUE_STOPGATE_STATE_DIR"] = str(state_dir)
         if role:
             env["CLAUDE_ROLE"] = role
         else:
             env.pop("CLAUDE_ROLE", None)
-        if bind_state_dir is not None:
-            env["OTR_ROLE_BIND_STATE_DIR"] = str(bind_state_dir)
-            if bind_role is not None:
-                bind_state_dir.mkdir(parents=True, exist_ok=True)
-                (bind_state_dir / f"{session_id}.json").write_text(
-                    json.dumps({"role": bind_role})
-                )
+        if bind_state_dir is None:
+            bind_state_dir = Path(td) / "bind"
+        env["OTR_ROLE_BIND_STATE_DIR"] = str(bind_state_dir)
+        if bind_role is not None:
+            bind_state_dir.mkdir(parents=True, exist_ok=True)
+            (bind_state_dir / f"{session_id}.json").write_text(
+                json.dumps({"role": bind_role})
+            )
         payload = json.dumps({
             "last_assistant_message": last_assistant_message,
             "session_id": session_id,
