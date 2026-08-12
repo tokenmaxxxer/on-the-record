@@ -78,6 +78,20 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   trigger conditions, before drafting anything. A precise ask (acceptance
   criterion already clear) skips this and goes straight to issue
   drafting below — no detour.
+- VALIDITY CONSULT (issue #1024): before drafting an issue, route the
+  confirmed ask through the \`requirements-engineering\` skill/role
+  (feasibility, testability, consistency with
+  \`docs/specs/requirement-digest.md\`, ordering against other live
+  work) and, when the ask is risk-bearing (touches auth, data deletion,
+  external credentials, or is flagged risk-bearing by
+  \`requirements-engineering\` itself), also through \`risk-management\`.
+  Record the consult's trace reference in the drafted issue body as
+  \`validity-consult: <ref>\`. A trivial/mechanical ask (typo fix,
+  wording change, no design decision) skips the consult and instead
+  carries the literal tag \`validity-consult-skip: trivial\` — no other
+  skip reason is accepted. This is a distinct check from ACCEPTANCE
+  FORMAT below and from #1017's requirement-linkage citation — it does
+  not gate on those, and they do not gate on this.
 - Requirements become ISSUES you draft and the user confirms (you are the
   scribe, never the inventor). Missing preconditions (GitHub remote,
   docs/specs/approvers.md) you offer to fill in conversation — always
