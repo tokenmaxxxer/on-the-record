@@ -21,11 +21,13 @@ via bounded live reproduction of `spawn.py consult`/`spawn.py panel`, not unit s
 canonical: docs/issue-1062/reports/implementation/survey.md (this session's own live
 `spawn.py consult`/`spawn.py panel` runs, "Live reproduction" section)
 Neither failure mode reproduced. `spawn.py consult architecture ...` returned a well-formed
-verdict on the first try (trace: `docs/issue-1062/reports/consult-log.md`, panel/consult-role
-output, not staged by this commit per contract v3 s11). `spawn.py panel architecture
-api-design ...` returned `"degraded": false` with a genuine `position -> rebuttal -> verdict`
-round-trip captured for both roles (record: `docs/issue-1062/reports/panel/rest-v1-v2.md`,
-same role-output exclusion).
+verdict on the first try. `spawn.py panel architecture api-design ...` returned
+`"degraded": false` with a genuine `position -> rebuttal -> verdict` round-trip captured for
+both roles. Both raw transcripts were written to disk during the session, at
+docs/issue-1062/reports/consult-log.md and docs/issue-1062/reports/panel/rest-v1-v2.md, but
+were never committed to this repo — role-output artifacts excluded from the commit per
+contract v3 s11 — so they are not citable as committed evidence; the verdict here rests on the
+committed survey.md record of that same live run instead.
 
 canonical: docs/issue-1062/reports/implementation/survey.md, "derived: git log --all" block
 The specific prior failing run the issue cites — path spelled
@@ -37,8 +39,10 @@ recoverable for direct re-inspection.
 No `spawn.py` code change was made: the write set is docs-only, per the proposal's Rationale
 (a speculative retry/timeout change with no reproduced defect to target risks masking a real
 future regression). The issue's acceptance criterion — a live panel run whose record shows
->=1 `SendMessage` round-trip — is satisfied by the already-produced
-`docs/issue-1062/reports/panel/rest-v1-v2.md` record.
+>=1 `SendMessage` round-trip — is satisfied by the committed
+docs/issue-1062/reports/implementation/survey.md "Live reproduction" account of that same
+live panel run (the raw panel-run transcript itself was never committed, per contract v3 s11's
+role-output exclusion).
 
 ## Why
 
@@ -61,9 +65,10 @@ Based on: docs/issue-1062/proposals/live-panel-round-trip-diagnosis.md
   docs/issue-1062/reports/implementation/survey.md, per the survey-first ordering this
   session followed.
 
-canonical: `python3 spawn.py panel architecture api-design ... --issue 1062` executed live this session (survey.md "Live reproduction" item 2)
+canonical: `python3 spawn.py panel architecture api-design ... --issue 1062` executed live this session (docs/issue-1062/reports/implementation/survey.md, "Live reproduction" item 2)
+
 ## Acceptance verification
-- panel run round-trip — checked: docs/issue-1062/reports/panel/rest-v1-v2.md — result: pass
+- panel run round-trip — checked: docs/issue-1062/reports/implementation/survey.md — result: pass
 
 ## What did not work
 
