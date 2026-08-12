@@ -23,8 +23,8 @@ canonical: docs/issue-1062/reports/implementation/survey.md (this session's own 
 Neither failure mode reproduced. `spawn.py consult architecture ...` returned a well-formed
 verdict on the first try. `spawn.py panel architecture api-design ...` returned
 `"degraded": false` with a genuine `position -> rebuttal -> verdict` round-trip captured for
-both roles. Both raw transcripts were written to disk during the session
-(`docs/issue-1062/reports/consult-log.md`, `docs/issue-1062/reports/panel/rest-v1-v2.md`) but
+both roles. Both raw transcripts were written to disk during the session, at
+docs/issue-1062/reports/consult-log.md and docs/issue-1062/reports/panel/rest-v1-v2.md, but
 were never committed to this repo — role-output artifacts excluded from the commit per
 contract v3 s11 — so they are not citable as committed evidence; the verdict here rests on the
 committed survey.md record of that same live run instead.
