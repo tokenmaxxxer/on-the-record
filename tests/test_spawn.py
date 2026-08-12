@@ -9949,5 +9949,163 @@ class TestMaybeResumeForReadyPrRecordsFailureCause(unittest.TestCase):
         self.assertIn("no such file", result[1])
 
 
+class RosterOwnershipScoping(unittest.TestCase):
+    """이슈 #1013 acceptance: 두 세션이 동시에 로스터를 채운 상태에서
+    기본 스코프는 자기 세션 엔트리(+ session_id 미기재 empty-state)만
+    보고, `--all` 은 전체를, 다른 세션 소유 죽은 엔트리는 [orphaned] 로
+    계속 표면화한다 — 단일 세션/미설정 머신은 오늘과 동일하게 동작한다."""
+
+    def _entry(self, log, work=None, pid=None, issue=1, role="implementation",
+               session_id=None):
+        return {"log": str(log), "work": work, "ts": int(time.time()),
+                "before_head": None, "pid": pid, "issue": issue, "role": role,
+                "session_id": session_id}
+
+    # -- _roster_own -----------------------------------------------------
+
+    def test_roster_own_default_scope_keeps_own_and_none_sid(self):
+        d = {"a": {"session_id": "sess-mine"}, "b": {"session_id": None},
+             "c": {"session_id": "sess-other"}}
+        with mock.patch.dict(os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}):
+            out = spawn._roster_own(d, all_scope=False)
+        self.assertEqual(set(out), {"a", "b"})
+
+    def test_roster_own_all_scope_returns_everything_unchanged(self):
+        d = {"a": {"session_id": "sess-mine"}, "c": {"session_id": "sess-other"}}
+        with mock.patch.dict(os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}):
+            out = spawn._roster_own(d, all_scope=True)
+        self.assertEqual(out, d)
+
+    def test_roster_own_empty_state_parity_when_env_unset(self):
+        d = {"a": {"session_id": None}, "b": {"session_id": None}}
+        os.environ.pop(spawn.ORCHESTRATOR_SESSION_ID_ENV, None)
+        out = spawn._roster_own(d, all_scope=False)
+        self.assertEqual(set(out), {"a", "b"})
+
+    # -- roster_watchdog scoping + orphan surfacing -----------------------
+
+    def test_roster_watchdog_default_scope_sees_own_all_sees_both_orphan_surfaces(self):
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            own_log = Path(td) / "own.log"
+            own_log.write_text('{"type":"text"}\n')
+            other_log = Path(td) / "other.log"
+            other_log.write_text('{"type":"text"}\n')
+            roster_path.write_text(json.dumps({
+                "issue-1/implementation": self._entry(
+                    own_log, pid=os.getpid(), issue=1, session_id="sess-mine"),
+                "issue-2/implementation": self._entry(
+                    other_log, pid=999999999, issue=2, session_id="sess-other"),
+            }))
+            old_roster, old_state, old_ledger = (
+                spawn.ROSTER, spawn.WATCHDOG_STATE, spawn.RECONCILE_LEDGER)
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            spawn.RECONCILE_LEDGER = Path(td) / "reconcile_ledger.json"
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.dict(
+                        os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}), \
+                     mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_post_session_end_comment"), \
+                     mock.patch.object(spawn, "diagnose_health",
+                                        return_value={"state": None, "detail": "d"}):
+                    spawn.roster_watchdog()
+                default_out = buf.getvalue()
+                buf.seek(0); buf.truncate(0)
+                with mock.patch.dict(
+                        os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}), \
+                     mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_post_session_end_comment"), \
+                     mock.patch.object(spawn, "diagnose_health",
+                                        return_value={"state": None, "detail": "d"}):
+                    spawn.roster_watchdog(all_scope=True)
+                all_out = buf.getvalue()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+                spawn.RECONCILE_LEDGER = old_ledger
+            self.assertIn("[orphaned] issue-2/implementation", default_out)
+            self.assertNotIn("issue-1/implementation: session sess-mine",
+                              default_out.replace("[orphaned] ", ""))
+            self.assertIn("issue-2/implementation", all_out)
+            self.assertNotIn("[orphaned]", all_out)
+
+    # -- _undispositioned_role_prs scoping --------------------------------
+
+    def test_undispositioned_role_prs_excludes_own_roster_branch(self):
+        prs = [
+            {"number": 1, "headRefName": "issue-11/implementation",
+             "body": "", "url": "https://example/1"},
+            {"number": 2, "headRefName": "issue-22/qa",
+             "body": "", "url": "https://example/2"},
+        ]
+
+        def fake_run(cmd, **k):
+            if cmd[:2] == ["gh", "repo"]:
+                return subprocess.CompletedProcess(cmd, 0, "o/r\n", "")
+            if cmd[:3] == ["gh", "pr", "list"]:
+                return subprocess.CompletedProcess(cmd, 0, json.dumps(prs), "")
+            raise AssertionError(cmd)
+
+        sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+        import ci as _ci
+        roster = {
+            "issue-11/implementation": {"session_id": "sess-mine"},
+            "issue-22/qa": {"session_id": "sess-other"},
+        }
+        with mock.patch.object(spawn.subprocess, "run", fake_run), \
+             mock.patch.object(spawn, "_roster_load", lambda: roster), \
+             mock.patch.dict(os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}), \
+             mock.patch.object(_ci, "_approved_roles_on_issue",
+                                lambda repo, issue: {"implementation"}):
+            blockers, ok = spawn._undispositioned_role_prs(Path("."))
+        self.assertTrue(ok)
+        self.assertEqual([b["issue"] for b in blockers], [22])
+
+    # -- roster_ps watcher identity ---------------------------------------
+
+    def test_roster_ps_labels_watcher_owned_by_other_session(self):
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            roster_path.write_text(json.dumps({
+                "issue-3/implementation": self._entry(
+                    log, work=str(Path(td) / "work"), pid=os.getpid(), issue=3,
+                    session_id="sess-other"),
+            }))
+            old_roster = spawn.ROSTER
+            old_ws_idx_load = spawn._workspace_index_load
+            spawn.ROSTER = roster_path
+            ws_entry = {"watcher_pid": os.getpid(), "watcher_armed_at": int(time.time())}
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.dict(
+                        os.environ, {spawn.ORCHESTRATOR_SESSION_ID_ENV: "sess-mine"}), \
+                     mock.patch.object(spawn, "_workspace_index_load",
+                                        lambda: {f"{spawn._repo_identity(str(Path(td) / 'work'))}/issue-3/implementation": ws_entry}), \
+                     mock.patch.object(spawn, "_watcher_looks_real", return_value=True):
+                    spawn.roster_ps()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+            self.assertIn("다른 세션 소유", buf.getvalue())
+
+    # -- CLI --all thread-through ------------------------------------------
+
+    def test_cli_watchdog_all_flag_threads_all_scope(self):
+        with mock.patch.object(spawn, "roster_watchdog", return_value=0) as m:
+            with mock.patch.object(sys, "argv",
+                                    ["spawn.py", "watchdog", "--all"]):
+                spawn.main()
+        m.assert_called_once_with(auto_respawn=False, all_scope=True)
+
+
 if __name__ == "__main__":
     unittest.main()
