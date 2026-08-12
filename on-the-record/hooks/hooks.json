@@ -13,7 +13,8 @@
         "hooks": [
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/directive.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-claim-shape-directive.sh" },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-tiering-directive.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/record-tiering-directive.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/role-deviation-directive.sh" }
         ]
       }
     ],
