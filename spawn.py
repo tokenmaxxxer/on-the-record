@@ -5073,6 +5073,29 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 세션이 낸 이벤트뿐이어야 한다 (이슈 #142).
             _write_offset(offset_path, _event_count(events_path))
             child_pid = os.fork()
+            if child_pid == 0:
+                # 이슈 #908: fork-child 설정(setsid/dup2)과 Popen() 은 첫
+                # roster_register/session-start (아래, Popen 뒤) 이전에
+                # 실행된다 — 그 구간에서 죽으면(SIGKILL/segfault 포함, 예외를
+                # 던지지 않는 죽음도) roster_watchdog() 은 등록된 엔트리만
+                # 스캔하므로 구조적으로 못 본다(실측: #895/#907, 흔적 없는
+                # 사망). 이 구간에 들어가기 전에 자신의 pid 로 로스터 스텁과
+                # 이른 session-start 를 먼저 남겨, 어떻게 죽든
+                # roster_watchdog() 의 기존 dead-entry 경로가 이 엔트리를
+                # 보게 한다. try/except 는 죽음 자체를 잡는 게 아니라(신호로
+                # 죽으면 못 잡는다) 사람이 읽을 spawn-death 이벤트를 남기는
+                # 용도로만 아래에서 덧붙인다.
+                roster_register(roster_key, {
+                    "pid": os.getpid(), "role": role,
+                    "issue": issue, "ts": int(time.time()),
+                    "work": str(cwd), "log": str(log_path),
+                    "expects_pr": issue is not None,
+                    "session_id": os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None,
+                    "before_head": before_head,
+                    "wrapper_pid": os.getpid(),
+                })
+                _append_event(events_path, "session-start",
+                              {"pid": os.getpid(), "ts": time.time()})
             if child_pid > 0:
                 is_parent_return = True
                 # 이슈 #488: watch 는 여태 사람/오케스트레이터가 스폰마다 따로
@@ -5114,23 +5137,36 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     return 0
                 return _await_bounded(events_path, offset_path,
                                        stall_timeout_min, log_path)
-            _rewrite_spawn_claim_pid(cwd)
-            os.setsid()
-            # 부모(호출자)가 물려준 stdout/stderr 를 그대로 두면, 곧 띄울
-            # claude 서브프로세스가 Popen() 에서 stdout/stderr 를 안 지정해도
-            # 그 fd 를 그대로 상속해 세션 끝까지 파이프를 쥐고 있는다 —
-            # 부모가 bounded 리턴으로 먼저 나가도, 호출자가 그 파이프의 EOF
-            # 를 기다리고 있었다면 여전히 세션 끝까지 블록한다 (실측: 헌트로
-            # 발견). devnull 로 갈아치워 파이프 소유권을 끊는다.
-            devnull_fd = os.open(os.devnull, os.O_RDWR)
-            os.dup2(devnull_fd, 0)
-            os.dup2(devnull_fd, 1)
-            os.dup2(devnull_fd, 2)
-            os.close(devnull_fd)
-        proc = subprocess.Popen(
-            cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            text=True, env={**os.environ, **extra_env}, start_new_session=True,
-        )
+            try:
+                _rewrite_spawn_claim_pid(cwd)
+                os.setsid()
+                # 부모(호출자)가 물려준 stdout/stderr 를 그대로 두면, 곧 띄울
+                # claude 서브프로세스가 Popen() 에서 stdout/stderr 를 안 지정해도
+                # 그 fd 를 그대로 상속해 세션 끝까지 파이프를 쥐고 있는다 —
+                # 부모가 bounded 리턴으로 먼저 나가도, 호출자가 그 파이프의 EOF
+                # 를 기다리고 있었다면 여전히 세션 끝까지 블록한다 (실측: 헌트로
+                # 발견). devnull 로 갈아치워 파이프 소유권을 끊는다.
+                devnull_fd = os.open(os.devnull, os.O_RDWR)
+                os.dup2(devnull_fd, 0)
+                os.dup2(devnull_fd, 1)
+                os.dup2(devnull_fd, 2)
+                os.close(devnull_fd)
+            except OSError as exc:
+                _append_event(events_path, "spawn-death",
+                              {"pid": os.getpid(), "stage": "fork-setup",
+                               "error": str(exc)})
+                raise
+        try:
+            proc = subprocess.Popen(
+                cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                text=True, env={**os.environ, **extra_env}, start_new_session=True,
+            )
+        except OSError as exc:
+            if issue is not None:
+                _append_event(events_path, "spawn-death",
+                              {"pid": os.getpid(), "stage": "popen",
+                               "error": str(exc)})
+            raise
         roster_register(roster_key, {
             "pid": proc.pid, "role": role,
             "issue": issue, "ts": int(time.time()),
