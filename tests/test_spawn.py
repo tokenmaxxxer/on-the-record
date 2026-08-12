@@ -6917,6 +6917,104 @@ class WatchFollow(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(len(calls), 3, calls)
 
+    def test_self_heal_survives_stall_and_reaches_session_end(self):
+        # 이슈 #927 Acceptance: (1) 로그 정지로 stall 유발 (2) 워처(루프)
+        # 생존 확인 (3) 세션 종료 후 session-end 수신. `_await_bounded` 를
+        # 매 호출 stall_limit_s 를 넘기도록 실제로 잠깐 sleep 시켜 진짜
+        # 경과시간으로 stall 을 유발하고, self_heal=True 라면 그 stall 에서
+        # 리턴하지 않고 재무장(continue)해 이후 실제로 발화되는 session-end
+        # 까지 붙어 있어야 한다.
+        from unittest import mock
+        calls = []
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
+            calls.append(1)
+            time.sleep(0.05)  # stall_limit_s(아래 0.03s)를 매 호출 넘긴다
+            if len(calls) < 3:
+                return 0  # offset 진행 없음 — stall 유지
+            spawn._append_event(events_path, "session-end", "progressed")
+            spawn._write_offset(offset_path, spawn._read_offset(offset_path) + 1)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(180, "implementation", 0.0005, follow=True,
+                               self_heal=True)
+        self.assertEqual(rc, 0)
+        # self-heal 이 없었다면 첫 stall 초과에서 곧장 리턴해 calls==1 이다 —
+        # 3번째 호출까지 살아서 session-end 를 받았다는 것이 워처 생존의 증거.
+        self.assertEqual(len(calls), 3, calls)
+
+    def test_follow_without_self_heal_returns_on_stall_instead_of_looping(self):
+        # 위 테스트의 대조군: self_heal=False(대화형 기본값)는 여전히 첫
+        # stall 초과에서 곧장 리턴한다 — 회귀 가드가 self-heal 분기만 새로
+        # 통과시키고 기존 대화형 경로를 바꾸지 않았음을 확인한다.
+        from unittest import mock
+        calls = []
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
+            calls.append(1)
+            time.sleep(0.05)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(180, "implementation", 0.0005, follow=True,
+                               self_heal=False)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(calls), 1, calls)
+
+    def test_self_heal_crash_path_still_terminal_and_appends_ended_event(self):
+        # crash(pid 확정 소실)는 self-heal 모드에서도 여전히 종료 사유다 —
+        # 다만 session-end 없이 끝났다는 사실을 events.jsonl 에 durable
+        # event 로 남겨 오케스트레이터가 알 수 있게 한다 (이슈 #927 구조적
+        # 수정 방향 2번째 항목, #908 무성사멸 접점).
+        from unittest import mock
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        spawn.roster_register("issue-180/implementation", {
+            "pid": 999999, "wrapper_pid": dead.pid, "role": "implementation",
+            "issue": 180, "ts": int(time.time()), "work": str(self.work),
+            "log": str(self.log)})
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
+            return 0  # 매번 stall 흉내 — offset 진행 없음
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(180, "implementation", 5.0, follow=True,
+                               self_heal=True)
+        self.assertEqual(rc, spawn.WATCH_CRASH_RC)
+        lines = self.events.read_text(encoding="utf-8").splitlines()
+        types = [json.loads(line).get("type") for line in lines]
+        self.assertIn("watcher-ended-without-session-end", types)
+
+    def test_self_heal_survives_malformed_events_line_instead_of_crashing(self):
+        # before-landing warrant hunt (docs/issue-927/reports/implementation/
+        # 2026-08-12-hunt-implementation.md): a single corrupt line in
+        # events.jsonl at the offset the follow loop is about to consume
+        # used to raise an uncaught JSONDecodeError, killing the self-heal
+        # watcher outright with no crash event and no re-arm. Guard it the
+        # same way `_prior_event_details()` already does elsewhere in this
+        # file (try/except ValueError around json.loads).
+        from unittest import mock
+        with self.events.open("a", encoding="utf-8") as fh:
+            fh.write("{not valid json\n")
+        spawn._write_offset(self.offset, 0)
+        calls = []
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
+            calls.append(1)
+            if len(calls) < 2:
+                spawn._write_offset(offset_path, 1)  # 소비할 오프셋을 malformed 줄로 이동
+                return 0
+            spawn._append_event(events_path, "session-end", "progressed")
+            spawn._write_offset(offset_path, spawn._read_offset(offset_path) + 1)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(180, "implementation", 5.0, follow=True,
+                               self_heal=True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(calls), 2, calls)
+
     def test_non_follow_mode_calls_await_bounded_exactly_once(self):
         from unittest import mock
         spawn._append_event(self.events, "progress", {"kind": "tool_use", "detail": "x"})
@@ -6939,7 +7037,7 @@ class WatchFollow(unittest.TestCase):
         captured = {}
 
         def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None,
-                       max_wait_min=None):
+                       max_wait_min=None, self_heal=False):
             captured["follow"] = follow
             return 0
 
@@ -6958,7 +7056,7 @@ class WatchFollow(unittest.TestCase):
         captured = {}
 
         def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None,
-                       max_wait_min=None):
+                       max_wait_min=None, self_heal=False):
             captured["follow"] = follow
             return 0
 
@@ -6969,6 +7067,44 @@ class WatchFollow(unittest.TestCase):
             sys.argv = old_argv
         self.assertEqual(rc, 0)
         self.assertFalse(captured["follow"])
+
+    def test_main_wires_self_heal_flag_through_to_watch(self):
+        from unittest import mock
+        old_argv = sys.argv
+        sys.argv = ["spawn.py", "watch", "--issue", "180", "--follow", "--self-heal"]
+        captured = {}
+
+        def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None,
+                       max_wait_min=None, self_heal=False):
+            captured["self_heal"] = self_heal
+            return 0
+
+        try:
+            with mock.patch.object(spawn, "_watch", fake_watch):
+                rc = spawn.main()
+        finally:
+            sys.argv = old_argv
+        self.assertEqual(rc, 0)
+        self.assertTrue(captured["self_heal"])
+
+    def test_main_defaults_self_heal_to_false(self):
+        from unittest import mock
+        old_argv = sys.argv
+        sys.argv = ["spawn.py", "watch", "--issue", "180", "--follow"]
+        captured = {}
+
+        def fake_watch(issue, role, stall_timeout_min, follow=False, repo=None,
+                       max_wait_min=None, self_heal=False):
+            captured["self_heal"] = self_heal
+            return 0
+
+        try:
+            with mock.patch.object(spawn, "_watch", fake_watch):
+                rc = spawn.main()
+        finally:
+            sys.argv = old_argv
+        self.assertEqual(rc, 0)
+        self.assertFalse(captured["self_heal"])
 
     def test_follow_tolerates_roster_entry_fully_absent_before_session_end(self):
         # 이슈 #266: `_spawn_one()`의 후처리 꼬리 동안 `roster_remove(roster_key)`
