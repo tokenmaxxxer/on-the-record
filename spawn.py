@@ -1050,10 +1050,11 @@ def require_requirement_linkage(cwd: str, issue: int | None) -> None:
     if approved_roles:
         return  # phase-2: 이미 승인됐다 — 소급 차단하지 않는다
     br = subprocess.run(
-        ["git", "branch", "-a", "--list", f"issue-{issue}/*"],
+        ["git", "for-each-ref",
+         f"refs/heads/issue-{issue}/**", f"refs/remotes/*/issue-{issue}/**"],
         cwd=root, capture_output=True, text=True)
     if br.returncode == 0 and br.stdout.strip():
-        return  # 이 이슈로 스폰된 적이 이미 있다 — 소급 차단하지 않는다
+        return  # 이 이슈로 스폰된 적이 이미 있다(로컬 또는 원격) — 소급 차단하지 않는다
     bad = _requirement_linkage.check(root, issue)
     if not bad:
         return

@@ -10174,5 +10174,83 @@ class RequirementIntakeValidityConsult(unittest.TestCase):
         self.assertTrue(bad)
 
 
+class RequireRequirementLinkageRemoteBranch(unittest.TestCase):
+    """issue-1042: `require_requirement_linkage` must detect a
+    remote-only `issue-N/*` branch as already-spawned (not misread as
+    never-spawned), and must still fall through to the requirement-linkage
+    check when no such branch exists at all — local or remote."""
+
+    def _git(self, cwd, *a):
+        return subprocess.run(["git", "-C", str(cwd), *a],
+                              capture_output=True, text=True)
+
+    def _init_repo(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+        self._git(path, "init", "-q")
+        self._git(path, "config", "user.email", "t@t.t")
+        self._git(path, "config", "user.name", "t")
+
+    def _make_marker(self, root):
+        (root / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "specs" / "approvers.md").write_text("- someone\n")
+
+    def test_remote_branch_only_detected_as_already_spawned(self):
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            issue = 999902
+            br = f"issue-{issue}/implementation"
+            self._git(origin, "checkout", "-q", "-b", br)
+            (origin / "b.txt").write_text("work")
+            self._git(origin, "add", "b.txt")
+            self._git(origin, "commit", "-q", "-m", "issue branch commit")
+            self._git(origin, "checkout", "-q", base_branch)
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                                capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+            self._make_marker(work)
+
+            # 사전 조건: work 저장소엔 로컬 `br` 브랜치가 없다 — 원격
+            # 트래킹 참조로만 존재한다.
+            self.assertNotEqual(
+                self._git(work, "rev-parse", "--verify", "-q", br).returncode, 0)
+
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()):
+                spawn.require_requirement_linkage(str(work), issue)  # 예외 없이 통과해야 한다
+
+    def test_no_remote_branch_no_local_falls_through_to_requirement_linkage_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "work"
+            self._init_repo(work)
+            (work / "a.txt").write_text("base")
+            self._git(work, "add", "a.txt")
+            self._git(work, "commit", "-q", "-m", "base commit")
+            self._make_marker(work)
+
+            issue = 999903
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import requirement_linkage as _requirement_linkage
+
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()), \
+                 mock.patch.object(_requirement_linkage, "check", lambda root, iss: ["no requirement id cited"]):
+                with self.assertRaises(SystemExit):
+                    spawn.require_requirement_linkage(str(work), issue)
+
+
 if __name__ == "__main__":
     unittest.main()
