@@ -7,6 +7,7 @@ code_under_review:
   - gates/test_record_lint.py
   - on-the-record/hooks/record-claim-guard.sh
   - on-the-record/hooks/record-claim-shape-directive.sh
+  - on-the-record/gates/record_lint.py
 type: feature
 breaking: false
 verdict: pass
@@ -112,16 +113,52 @@ entry.
 
 None outstanding against this record.
 
-## Note: stale hook module (unrelated to this change)
+## Note: stale hook module, and its correction
 
 `record-claim-guard.sh`/`record-claim-shape-directive.sh` resolve
 `gates/record_lint.py` from the installed plugin copy at their own
 `BASH_SOURCE` location, not from this worktree — so during this session
 they raised `AttributeError: module 'record_lint' has no attribute
 'defect_claim_grounding_check'` against the very function this record
-adds, since the installed copy predates this branch's edit. This is a
-known plugin-sync gap (flagged by a system reminder at session start),
-out of the frozen write set for #791, and orthogonal to whether the
-check itself is correct — confirmed separately by running
-`gates/test_record_lint.py` directly against this worktree's edited
-`gates/record_lint.py` above.
+adds, since the installed copy predates this branch's edit.
+
+canonical: read `on-the-record/hooks/record-claim-guard.sh` and
+`record-claim-shape-directive.sh` in full this session. Both scripts
+resolve their gates module from `on-the-record/gates`, relative to
+their own script directory, never from repo-root `gates/`.
+
+derived: diff -rq gates on-the-record/gates (this session, current
+tree) — every tracked `.py` file in the two directories matched
+byte-for-byte except `record_lint.py`, confirming `on-the-record/gates`
+is this repo's own tracked mirror, kept in sync by convention, not an
+external plugin install outside #791's reach.
+
+A follow-up continuation in this same session therefore revised the
+prior note's "out of the frozen write set" call: it copied
+`gates/record_lint.py` over `on-the-record/gates/record_lint.py`
+(now listed in `code_under_review:` above) so the actual deployed
+enforcement path carries the same check as the root-tree copy.
+
+canonical: python3 -m pytest gates/test_record_lint.py -q (this
+session, post-sync) — 19 passed, 1 xfailed, matching the pre-sync run.
+
+canonical: two live-fire `RCG_PAYLOAD` invocations against the deployed
+`on-the-record/hooks/record-claim-guard.sh` this session, `tool_name:
+Write` targeting a scratch path under `docs/issue-791/reports/`
+(removed afterward, never committed): a bare-grep defect-claim citation
+exited 2 (refused), and a verbatim >=3-line fenced quote of the cited
+file:line range exited 0 (accepted) — the deployed gate, not just the
+root-tree module, tells the two shapes apart.
+
+## What did not work (addendum)
+
+Constructing the accepted live-fire case took two failed attempts
+first: the check's citation window only looks backward from a claim
+line, so a fenced quote placed after the claim sentence did not ground
+it — tried quote-after-claim expecting it to count, it did not.
+Retried with the quote before the claim but paraphrased one line of the
+docstring instead of copying it verbatim, so the whitespace-normalized
+match still failed — expected a close paraphrase to be enough, actual
+requires an exact substring match. Both are pre-existing behaviors of
+the already-approved check, not new defects; the third attempt, an
+exact verbatim quote placed before the claim, worked.
