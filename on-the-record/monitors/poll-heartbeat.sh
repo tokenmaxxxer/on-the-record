@@ -52,6 +52,18 @@ if [ -z "${CHECKOUT}" ]; then
   exit 0
 fi
 
+# issue #947: monitor-unavailable degradation notice. Plugin Monitors run
+# only in interactive CLI sessions (docs/specs/platform-capabilities.md);
+# directive.sh (UserPromptSubmit) infers whether THIS session's own
+# Monitor ever started by checking this marker's mtime against its own
+# recorded session-start time, so a workspace-scoped touch here is enough
+# -- no session_id is available to a Monitor command (unlike a hook, it
+# carries no documented stdin JSON contract, and blocking on one here
+# would risk hanging this loop forever). Written before the sleep loop
+# so it reflects "the monitor process launched", not "a tick completed".
+mkdir -p "$(pwd -P)/.orchestrate-monitor-alive" 2>/dev/null && \
+  touch "$(pwd -P)/.orchestrate-monitor-alive/alive" 2>/dev/null || true
+
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
 sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-60}"
