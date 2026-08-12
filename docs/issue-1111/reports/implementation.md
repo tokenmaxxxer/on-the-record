@@ -116,9 +116,29 @@ None.
 
 ## Open findings
 
-None outstanding — the after-proposal hunt finding (board-gate bucket
-conflict) was folded into the write set before this build started, per the
-proposal's own Open findings section.
+canonical: docs/issue-1111/reports/implementation/2026-08-13-hunt-before-landing.md
+
+The before-landing hunt (stance 3) found that board-gate.sh's R3 (a
+separate rule from the R1 bucket check the proposal already accounted
+for) unconditionally denies any docs/issue-<n>/... write from a
+role-less (no CLAUDE_ROLE) session, with no carve-out for the
+product-capture orchestrator-scribing exemption deliverable-guard.sh
+just added. In a repo where board-gate.sh is wired in alongside
+deliverable-guard.sh — on-the-record's own repo included — the
+issue-scoped write path docs/issue-<n>/reports/product/<cat>.md clears
+deliverable-guard.sh but is still denied by board-gate.sh, so it never
+actually lands there. The non-issue-scoped path
+(docs/reports/product/<cat>.md, used by priorities.md in this delivery)
+is unaffected — board-gate.sh's R3 only fires on the docs/issue-<n>/
+tree.
+
+Not fixed here: board-gate.sh lives in a separately-pulled core
+rulebook outside this repo's own tree (runs/ is gitignored — same
+constraint the proposal's Constraints section already states for the
+R1 bucket finding), so this repo's branch cannot durably carry a fix to
+it. This is the same class of finding as the after-proposal hunt's R1
+result, now extended to R3 — left open for the next session that owns
+board-gate.sh (or a follow-up issue against it) to resolve.
 
 ## Rationale for deviations
 
