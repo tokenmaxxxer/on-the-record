@@ -1,0 +1,7 @@
+{
+  "label": "precise",
+  "utterances": [
+    "Add a --version flag to the CLI that prints the package version. Acceptance: `mytool --version` exits 0 and prints the version from pyproject.toml."
+  ],
+  "expect_elicitation": false
+}
