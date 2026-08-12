@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import requirement_digest as rd
+import requirement_linkage as rl
 
 _REG_TWO_LIVE_ONE_STALE = """# Requirements Registry
 
@@ -143,6 +144,37 @@ def t_check_no_registry_passes_nothing_to_check():
         assert not bad, bad
     finally:
         shutil.rmtree(d)
+
+
+# issue #1017 (northpole req#6): requirement_linkage 케이스 —
+# 이슈 Acceptance 절이 named 한 세 가지: 태그 없는 새 이슈 잡힘 / 태그
+# 달린 인프라 이슈 통과 / 실제 R\d+ 인용한 이슈 통과.
+
+
+def t_linkage_flags_untagged_body_with_no_requirement_citation():
+    bad = rl.check_issue_body(1017, "아무 요구도 인용하지 않는 이슈 본문.")
+    assert bad, "요구 인용도 인프라 태그도 없는 본문은 잡혀야 한다"
+
+
+def t_linkage_passes_infrastructure_tagged_body():
+    bad = rl.check_issue_body(
+        1017, "순수 인프라 작업이다.\ninfrastructure/no-direct-requirement")
+    assert not bad, bad
+
+
+def t_linkage_passes_body_citing_real_requirement_id():
+    bad = rl.check_issue_body(1017, "이 작업은 R001 을 다룬다.")
+    assert not bad, bad
+
+
+def t_linkage_passes_body_citing_northpole_req_form():
+    bad = rl.check_issue_body(1017, "northpole req#6 이 요구하는 그대로.")
+    assert not bad, bad
+
+
+def t_linkage_cited_ids_dedupes_preserving_order():
+    ids = rl.cited_requirement_ids("R002 이야기를 하다 다시 R001, R002 로 온다.")
+    assert ids == ["R002", "R001"], ids
 
 
 def _run_all() -> int:

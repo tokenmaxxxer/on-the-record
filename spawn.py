@@ -1017,6 +1017,54 @@ def require_acceptance_gate(cwd: str, issue: int | None) -> None:
         f"검증할 수 없다(issue #310, #441).")
 
 
+def require_requirement_linkage(cwd: str, issue: int | None) -> None:
+    """issue #1017 (northpole req#6): 이슈가 아직 phase-2 승인을 받지
+    않았으면(=드래프트/phase-1 단계) 요구 ID 인용 또는 명시적
+    `infrastructure/no-direct-requirement` 태그를 요구한다.
+    `require_acceptance_gate` 와 반대 방향의 phase 게이트다 — 그쪽은
+    phase-2 승인 **후에만** 발동해 Acceptance 절의 실행가능성을 검사하고,
+    이쪽은 phase-2 승인 **전에만**(=아직 새로 드래프트되는 중) 발동해
+    요구 연결을 검사한다. 이미 phase-2 승인을 받은 기존 이슈는 이 게이트가
+    절대 소급 차단하지 않는다(제안서 제약: "Advisory stays advisory for
+    existing issues (no retroactive blocking)").
+
+    두 번째 소급 방지: phase-2 승인 전이라도, 이 이슈로 `issue-<n>/*`
+    브랜치가 이미 하나라도 있으면(=이 기능이 생기기 전에 이미 최소 한 번
+    스폰돼 phase-1 이 진행 중인 기존 이슈) 새 게이트가 재스폰을 막지
+    않는다 — before-landing 워런트 헌트(stance 1)가 실측한 그대로, 이
+    조건이 없으면 phase-2 승인만으로 "기존 이슈"를 가려내다가 아직
+    미승인인 기존 phase-1 이슈까지 소급 차단해 그 이슈의 애초 phase-1
+    세션(요구 연결을 처음 정하는 바로 그 세션)조차 못 띄우는
+    닭-달걀 모순이 생긴다. `issue-<n>/*` 브랜치가 전혀 없는 이슈만 "새
+    이슈"로 보고 이 게이트를 적용한다.
+    """
+    if issue is None:
+        return
+    root = Path(cwd).resolve()
+    if not (root / MARKER).is_file():
+        return
+    sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+    import ci as _ci
+    import requirement_linkage as _requirement_linkage
+    approved_roles = _ci._approved_roles_on_issue(root, issue)
+    if approved_roles:
+        return  # phase-2: 이미 승인됐다 — 소급 차단하지 않는다
+    br = subprocess.run(
+        ["git", "branch", "-a", "--list", f"issue-{issue}/*"],
+        cwd=root, capture_output=True, text=True)
+    if br.returncode == 0 and br.stdout.strip():
+        return  # 이 이슈로 스폰된 적이 이미 있다 — 소급 차단하지 않는다
+    bad = _requirement_linkage.check(root, issue)
+    if not bad:
+        return
+    sys.exit(
+        f"이슈 #{issue} 가 요구 연결이 없다:\n"
+        + "\n".join(f"  - {b}" for b in bad)
+        + f"\n  세션을 안 띄운다 — 요구 ID(`R\\d+` 또는 'northpole req#<n>')를 "
+        f"인용하거나 'infrastructure/no-direct-requirement' 태그를 달아야 "
+        f"한다(issue #1017, northpole req#6).")
+
+
 def _approvers(root: Path) -> set[str]:
     """`docs/specs/approvers.md` 한 줄에 하나씩 적힌 GitHub 로그인."""
     p = root / MARKER
@@ -2396,8 +2444,19 @@ def requirement_drift(root: Path) -> None:
     digest_path = root / "docs" / "specs" / "requirement-digest.md"
     if not digest_path.exists():
         return
-    live_ids = set(re.findall(r"^- (R\d+):", digest_path.read_text(
-        encoding="utf-8", errors="replace"), re.M))
+    digest_text = digest_path.read_text(encoding="utf-8", errors="replace")
+    # issue #1017: 각 살아있는 요구의 (이미 파싱된) 다이제스트 줄을
+    # 통째로 잡아둔다 — id 집합만 뽑던 이전 판과 달리, 아래 next-action
+    # 출력이 paraphrase/source 를 다시 gh 로 조회하지 않고 이 메모리에서
+    # 바로 쓴다(제안서 Accumulation 절이 명시한 "이미 파싱된 다이제스트
+    # 엔트리 재사용, 새 gh 호출 없음").
+    live_entries: dict[str, tuple[str, str]] = {
+        m.group(1): (m.group(2), m.group(3))
+        for m in re.finditer(
+            r"^- (R\d+): (.+?) \[\S+\] \(source: #(\d+)\)$", digest_text, re.M)
+    }
+    live_ids = set(live_entries) or set(
+        re.findall(r"^- (R\d+):", digest_text, re.M))
     if not live_ids:
         return
 
@@ -2433,12 +2492,23 @@ def requirement_drift(root: Path) -> None:
             unreferenced_open.append(item.get("number"))
 
     unmentioned_live = sorted(live_ids - mentioned_reqs)
+    unreferenced_open = sorted(unreferenced_open)
     if unmentioned_live:
-        print(f"[watchdog] requirement-drift: 열린 이슈/PR 어디에서도 언급되지 "
-              f"않는 살아있는 요구 {unmentioned_live}")
+        # issue #1017: 바래 ID 목록 대신, 요구마다 다이제스트 paraphrase/
+        # source 와 — 있으면 — 요구 인용이 전혀 없는 열린 이슈/PR(연결
+        # 후보) 을 named next-action 으로 출력한다.
+        for rid in unmentioned_live:
+            paraphrase, source_issue = live_entries.get(rid, ("(다이제스트에 "
+                                                               "paraphrase 없음)", "?"))
+            candidates = unreferenced_open[:5]
+            cand_note = (f" 후보(요구 인용이 전혀 없는 열린 이슈/PR): {candidates}"
+                         if candidates else "")
+            print(f"[watchdog] requirement-drift: 요구 {rid} — 다이제스트: "
+                  f"\"{paraphrase}\" (source: #{source_issue}) — 열린 이슈/PR "
+                  f"어디에도 인용되지 않는다.{cand_note}")
     if unreferenced_open:
         print(f"[watchdog] requirement-drift: 요구 ID 를 전혀 인용하지 않는 "
-              f"열린 이슈/PR {sorted(unreferenced_open)}")
+              f"열린 이슈/PR {unreferenced_open}")
 
 
 def _board_wide_sweep(root: Path) -> int:
@@ -4767,6 +4837,7 @@ def main() -> int:
     # 전에 알아야 할 사실이지, 띄우고 나서 알 일이 아니다.
     require_no_repo_config(a.cwd, a.trust_repo_config)
     require_acceptance_gate(a.cwd, a.issue)
+    require_requirement_linkage(a.cwd, a.issue)
     if a.dry_run:
         cwd_path = Path(a.cwd)
         if not cwd_path.is_dir():
@@ -5375,7 +5446,27 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         task_path = Path(str(cwd) + ".task.txt")
         if not task_path.exists():
             task_path.write_text(task, encoding="utf-8")
+        # issue #1017 (northpole req#6): 이슈가 인용하는 요구 ID를 스폰
+        # 텍스트에 그대로 실어, 스폰된 역할 세션이 첫 턴부터 어느 요구를
+        # 섬기는지 안다. gh 조회 실패는 조용히 건너뛴다 — 이 줄이 없다고
+        # 스폰 자체를 막을 이유는 없다(require_requirement_linkage 가 이미
+        # phase-1 드래프트 시점에 구조적으로 막는다).
+        req_line = ""
+        try:
+            rv = subprocess.run(
+                ["gh", "issue", "view", str(issue), "--json", "body"],
+                cwd=cwd, capture_output=True, text=True)
+            if rv.returncode == 0:
+                sys.path.insert(0, str((ROOT / "gates").resolve()))
+                import requirement_linkage as _requirement_linkage
+                body = json.loads(rv.stdout).get("body", "") or ""
+                req_ids = _requirement_linkage.cited_requirement_ids(body)
+                if req_ids:
+                    req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
+        except Exception:
+            req_line = ""
         task = (f"당신의 이슈: #{issue} (subject issue-{issue}, 브랜치 {br}).\n"
+                + req_line +
                 f"gh issue view {issue} 로 이슈를 먼저 읽어라.\n"
                 f"완료의 정의: 변경이 이 브랜치에 **커밋**되고 push 되어 PR 로\n"
                 f"제출된 상태다. 미커밋 변경은 존재하지 않는 것과 같다 —\n"
