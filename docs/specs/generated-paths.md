@@ -46,6 +46,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `record-tiering-directive.sh` | n/a | reads/validates only, no write call |
 | `record-tiering-guard.sh` | n/a | reads/validates only, no write call |
 | `report-framing-check.sh` | n/a | reads/validates only, no write call |
+| `post-landing-obligation-gate.sh` | n/a | shells out to `gates/landing_obligation.py open` for the actual `.landing-obligations/<issue>-<role>-<pr>.json` write; the hook script itself makes no write call |
 | `role-axis-completeness-guard.sh` | n/a | reads/validates only, no write call |
 | `role-deviation-directive.sh` | n/a | reads/validates only, no write call |
 | `role-spec-reference-guard.sh` | n/a | reads/validates only, no write call |
