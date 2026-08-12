@@ -47,3 +47,68 @@ The proposal should either (a) add `on-the-record/hooks/poll-rearm.sh` to its wr
 ### Proposal text updated in response
 canonical: docs/issue-922/proposals/poll-heartbeat-capture-hop.md, mechanism paragraph, read after this edit.
 The paragraph was rewritten so `poll-heartbeat.sh`'s due branch no longer calls `poll_rearm_arm_if_due`; it inlines the same `poll-due` check and, on a due tick, itself runs the watchdog CLI in the foreground. `poll-rearm.sh` and its two other callers are left as reference-only, unedited. This is proposal wording, not a code change.
+
+## before-landing — stance 0: assume the gate just touched is bypassable; find the bypass
+
+Verdict: FINDING — the rich per-tick report only surfaces on poll-heartbeat.sh's stdout when this script itself wins the shared atomic poll-due TTL race against directive.sh/stop-poll-rearm.sh; when either turn-driven hook wins instead (the common case, since they fire on every user turn vs. this script's 60s cadence), the same watchdog run happens via the unchanged nohup-background path in poll-rearm.sh, whose report lands only in poll-watchdog.log, and poll-heartbeat.sh's tick prints the bare "poll tick: skipped (within TTL)" with no report content at all.
+Kind: composition
+Seed: on-the-record/monitors/poll-heartbeat.sh, on-the-record/monitors/test_poll_heartbeat.py (diff), on-the-record/hooks/poll-rearm.sh (unchanged sibling caller of the same TTL gate)
+cap_seconds: 120
+tier: size:medium
+diff_stat_lines: 128
+started_at: 2026-08-12T00:00:00Z
+ended_at: 2026-08-12T00:15:00Z
+
+### Reproduce
+```
+T=/tmp/claude-1000/hunt/race
+rm -rf "$T"; mkdir -p "$T/checkout" "$T/home"
+cat > "$T/checkout/spawn.py" <<'PYEOF'
+import sys
+if sys.argv[1] == "poll-due":
+    sys.exit(0)
+elif sys.argv[1] == "watchdog":
+    print("[poll-report] roster: 1 entry")
+    print("issue-999/implementation: STALLED (watcher-dead)")
+    print("[resume] issue-999/implementation: respawned watcher")
+    sys.exit(0)
+PYEOF
+export HOME="$T/home"
+export TOKENMAXXXER_CHECKOUT="$T/checkout"
+
+# turn-driven hook wins the TTL race first (unchanged poll-rearm.sh path)
+source on-the-record/hooks/poll-rearm.sh
+poll_rearm_arm_if_due "$T/checkout"
+sleep 1
+
+echo "--- poll-watchdog.log ---"
+cat "$HOME/.claude/tokenmaxxxer/poll-watchdog.log"
+
+# now the Monitor heartbeat's own poll-due call on the same window: not due
+cat > "$T/checkout/spawn.py" <<'PYEOF'
+import sys
+if sys.argv[1] == "poll-due":
+    sys.exit(1)
+elif sys.argv[1] == "watchdog":
+    print("SHOULD NOT RUN")
+    sys.exit(0)
+PYEOF
+
+echo "--- poll-heartbeat.sh stdout on the SAME due window ---"
+TOKENMAXXXER_CHECKOUT="$T/checkout" POLL_HEARTBEAT_MAX_TICKS=1 POLL_HEARTBEAT_SLEEP_SECONDS=0 \
+  bash on-the-record/monitors/poll-heartbeat.sh
+```
+
+### Observed
+```
+--- poll-watchdog.log ---
+[poll-report] roster: 1 entry
+issue-999/implementation: STALLED (watcher-dead)
+[resume] issue-999/implementation: respawned watcher
+--- poll-heartbeat.sh stdout on the SAME due window ---
+poll tick: skipped (within TTL)
+```
+Monitor's stdout for that tick carries none of the STALLED/watcher-dead/[resume] content — it is only in the log file.
+
+### Expected
+Per the proposal's stated goal ("Monitor's per-tick stdout carries a rich user-facing report instead of a bare line... every due tick"), a due tick's watchdog output should be visible on Monitor stdout regardless of which of the three callers (directive.sh, stop-poll-rearm.sh, poll-heartbeat.sh) actually won the shared TTL race and ran the watchdog. As implemented, the capture-hop only fires when poll-heartbeat.sh itself is the winner, which is the minority case in an active session where user turns (driving the other two callers) vastly outnumber 60s heartbeat ticks — so the feature's own acceptance goal is satisfied only intermittently, and most due ticks still silently degrade to the pre-#922 "skipped/no report" behavior on the Monitor channel.

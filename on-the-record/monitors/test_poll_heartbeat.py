@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""issue #835 phase 2: monitors/poll-heartbeat.sh — the plugin-Monitor
-default-on ~60s poll heartbeat (docs/issue-835/proposals/technical-
-feasibility.md, candidate 1). Exercises the SAME poll_rearm_arm_if_due()
-that on-the-record/hooks/directive.sh (UserPromptSubmit) and
-on-the-record/hooks/stop-poll-rearm.sh (Stop) already call, using a fake
-spawn.py so no real watchdog/roster machinery runs. The loop is bounded
-via POLL_HEARTBEAT_MAX_TICKS and sped up via POLL_HEARTBEAT_SLEEP_SECONDS
-so the test does not wait on a real 60s cadence.
+"""issue #835 phase 2 / issue #922 phase 2: monitors/poll-heartbeat.sh —
+the plugin-Monitor default-on ~60s poll heartbeat
+(docs/issue-835/proposals/technical-feasibility.md, candidate 1;
+docs/issue-922/proposals/poll-heartbeat-capture-hop.md for the due
+branch's foreground capture-hop). Exercises the SAME
+`python3 spawn.py poll-due` atomic TTL gate that
+on-the-record/hooks/directive.sh (UserPromptSubmit) and
+on-the-record/hooks/stop-poll-rearm.sh (Stop) already call via
+poll_rearm_arm_if_due(), using a fake spawn.py so no real
+watchdog/roster machinery runs. The loop is bounded via
+POLL_HEARTBEAT_MAX_TICKS and sped up via POLL_HEARTBEAT_SLEEP_SECONDS so
+the test does not wait on a real 60s cadence.
 
   python3 on-the-record/monitors/test_poll_heartbeat.py
 """
@@ -28,9 +32,24 @@ if sys.argv[1:2] == ["poll-due"]:
 if sys.argv[1:2] == ["watchdog"]:
     with open(marker, "a", encoding="utf-8") as f:
         f.write("watchdog-ran\\n")
+    report = os.environ.get("FAKE_WATCHDOG_REPORT", "")
+    if report:
+        print(report)
     sys.exit(0)
 sys.exit(0)
 """
+
+# issue #922: mirrors roster_watchdog()'s empty-state pair verbatim
+# (docs/issue-922/reports/product-discovery/survey.md).
+EMPTY_ROSTER_REPORT = "[poll-report] roster: empty\n[poll-report] quiet, nothing in flight"
+
+# issue #922: mirrors roster_watchdog()'s STALLED/watcher-dead surfacing
+# plus a [resume] auto-respawn confirmation line for a crashed entry.
+DEAD_POLLER_REPORT = (
+    "[poll-report] roster: 1 entry\n"
+    "issue-999/implementation: STALLED (watcher-dead)\n"
+    "[resume] issue-999/implementation: respawned watcher"
+)
 
 
 def _wait_for_marker(marker: Path, timeout_s: float = 5.0) -> bool:
@@ -70,10 +89,12 @@ def t_heartbeat_arms_watchdog_when_due(tmp_path_factory=None):
         marker = tmp / "marker.log"
         home = tmp / "home"
         home.mkdir()
-        r = _run_heartbeat(checkout, marker, {"FAKE_POLL_DUE": "1", "HOME": str(home)})
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_REPORT": EMPTY_ROSTER_REPORT})
         assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
-        assert "poll tick: due, watchdog armed" in r.stdout, r.stdout
-        assert _wait_for_marker(marker), "watchdog was not spawned on a due tick"
+        assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
+        assert _wait_for_marker(marker), "watchdog was not run on a due tick"
 
 
 def t_heartbeat_skips_watchdog_when_not_due():
@@ -104,6 +125,47 @@ def t_heartbeat_respects_kill_switch():
         assert r.returncode == 0, f"poll-heartbeat.sh should exit 0 even when disabled: {r.stderr}"
         assert not (marker.exists() and marker.read_text().strip()), \
             "ORCHESTRATE_OFF=1 must suppress the Monitor heartbeat loop too"
+
+
+def t_heartbeat_surfaces_empty_roster_report():
+    """issue #922 acceptance case 1: empty roster, clean board-wide sweep
+    -> captured stdout carries the two existing empty-state lines
+    verbatim, not the old bare "poll tick: due, watchdog armed" line."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_REPORT": EMPTY_ROSTER_REPORT})
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
+        assert "poll tick: due, watchdog armed" not in r.stdout, r.stdout
+        log = (home / ".claude" / "tokenmaxxxer" / "poll-watchdog.log").read_text()
+        assert EMPTY_ROSTER_REPORT in log, log
+
+
+def t_heartbeat_surfaces_induced_dead_poller():
+    """issue #922 acceptance case 2: induced dead-poller/stalled-watch
+    fixture -> captured stdout carries the STALLED/watcher-dead/
+    [poll-report] line and the [resume] auto-respawn confirmation."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_REPORT": DEAD_POLLER_REPORT})
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "STALLED (watcher-dead)" in r.stdout, r.stdout
+        assert "[poll-report]" in r.stdout, r.stdout
+        assert "[resume]" in r.stdout, r.stdout
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
