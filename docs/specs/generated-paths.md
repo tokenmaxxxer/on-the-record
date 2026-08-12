@@ -29,6 +29,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `gh-write-allow-gate.sh` | n/a | reads/validates only, no write call, no checkout resolution needed |
 | `decision-queue-stopgate.sh` | out-of-tree | safe — same shared checkout clone |
 | `accumulation-claim-guard.sh` | n/a | reads/validates only, no write call |
+| `design-rationale-guard.sh` | n/a | reads/validates only, no write call |
 | `approval-gate.sh` | n/a | reads/validates only, no write call |
 | `call-shape-guard.sh` | n/a | reads/validates only, no write call |
 | `claim-scan-preflight.sh` | n/a | reads/validates only, no write call |
