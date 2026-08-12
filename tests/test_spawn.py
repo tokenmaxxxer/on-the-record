@@ -842,6 +842,26 @@ class Classify(unittest.TestCase):
         # **거부당한 것도 없다** — 그래서 아무도 이유를 모른다.
         self.assertEqual(spawn.classify(0, {}, [], []), "silent-failure")
 
+    def test_registered_null_result_declaration_is_not_silent_failure(self):
+        # issue #476 round 3, candidate E: a session that declares a
+        # registered refusal/null-result state, with no board delta and no
+        # permission_denials, must not read the same as a dead session.
+        result = {"result": "REFUSAL: nothing-to-do — no work warranted here"}
+        self.assertEqual(spawn.classify(0, result, [], []), "refused-null-result")
+
+    def test_unregistered_null_result_state_stays_silent_failure(self):
+        # gaming resistance: the state token must be in the registered
+        # vocabulary, not any free-text claim of refusal.
+        result = {"result": "REFUSAL: i-felt-like-it — nah"}
+        self.assertEqual(spawn.classify(0, result, [], []), "silent-failure")
+
+    def test_null_result_declaration_does_not_outrank_delta_or_denial(self):
+        result = {"result": "REFUSAL: nothing-to-do — no work warranted here",
+                  "permission_denials": [{"tool_name": "Write"}]}
+        self.assertEqual(spawn.classify(0, result, [], []), "refused")
+        self.assertEqual(
+            spawn.classify(0, result, ["records/a/qa.md"], []), "progressed")
+
 
 class FailClosedDowngrade(unittest.TestCase):
     """issue #89 phase 2: progressed self-report but no verifiable commit
