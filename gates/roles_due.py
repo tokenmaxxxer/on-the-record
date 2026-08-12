@@ -83,8 +83,41 @@ def _file_content(root: Path, path: str) -> str:
         return ""
 
 
-def _trigger_matches(trigger: dict, changed: list[str], root: Path) -> tuple[str, str] | None:
+def _obligations_dir(root: Path) -> Path:
+    return root / ".landing-obligations"
+
+
+def _matching_obligation(trigger: dict, root: Path, subject: str | None) -> tuple[str, str] | None:
+    """Returns (reason, matched_path) for the first `.landing-obligations/*.json`
+    record whose `status` is in `trigger["obligation_status"]` and whose
+    `issue` field matches `subject` — or None (no directory, no match, or no
+    subject to match against)."""
+    statuses = trigger.get("obligation_status") or []
+    if not statuses or not subject:
+        return None
+    d = _obligations_dir(root)
+    if not d.is_dir():
+        return None
+    for p in sorted(d.glob("*.json")):
+        try:
+            record = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(record, dict):
+            continue
+        if record.get("status") in statuses and record.get("issue") == subject:
+            rel = str(p.relative_to(root))
+            return f"obligation status {record.get('status')!r} matched: {rel}", rel
+    return None
+
+
+def _trigger_matches(trigger: dict, changed: list[str], root: Path,
+                      subject: str | None = None) -> tuple[str, str] | None:
     """Returns (reason, matched_path) if the trigger matches, else None."""
+    obligation_match = _matching_obligation(trigger, root, subject)
+    if obligation_match:
+        return obligation_match
+
     path_patterns = trigger.get("path_patterns") or []
     content_patterns = trigger.get("content_patterns") or []
 
@@ -172,7 +205,7 @@ def roles_due(root: Path, base: str | None = None) -> list[dict]:
     due = []
     for role, spec in specs.items():
         trigger = spec["use_when"]["trigger"]
-        match = _trigger_matches(trigger, changed, root)
+        match = _trigger_matches(trigger, changed, root, subject)
         if not match:
             continue
         reason, matched_path = match

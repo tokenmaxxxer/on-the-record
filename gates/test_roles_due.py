@@ -145,6 +145,56 @@ def _t4():
         assert len(due) == 1, due
 
 
+@case("failing obligation for the branch's subject -> mapped role due")
+def _t6():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = _make_repo(tmp)
+        _write_spec(repo, "defect-verification", {"obligation_status": ["failing"]})
+        (repo / "widget.py").write_text("x = 1\n")
+        _run(["add", "widget.py"], repo)
+        _run(["commit", "-q", "-m", "add widget"], repo)
+        d = repo / ".landing-obligations"
+        d.mkdir()
+        (d / "obl1.json").write_text(json.dumps({
+            "status": "failing", "pr": 1, "sha": "abc", "issue": "issue-1",
+            "role": "defect-verification", "opened_at": "2026-08-12T00:00:00Z",
+        }))
+        due = roles_due.roles_due(repo, base="origin/main")
+        assert len(due) == 1, due
+        assert due[0]["role"] == "defect-verification"
+        assert due[0]["subject"] == "issue-1"
+
+
+@case("resolved obligation -> not due")
+def _t7():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = _make_repo(tmp)
+        _write_spec(repo, "defect-verification", {"obligation_status": ["failing"]})
+        (repo / "widget.py").write_text("x = 1\n")
+        _run(["add", "widget.py"], repo)
+        _run(["commit", "-q", "-m", "add widget"], repo)
+        d = repo / ".landing-obligations"
+        d.mkdir()
+        (d / "obl1.json").write_text(json.dumps({
+            "status": "resolved", "pr": 1, "sha": "abc", "issue": "issue-1",
+            "role": "defect-verification", "opened_at": "2026-08-12T00:00:00Z",
+        }))
+        due = roles_due.roles_due(repo, base="origin/main")
+        assert due == [], due
+
+
+@case("no .landing-obligations/ directory at all -> not due (empty state)")
+def _t8():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = _make_repo(tmp)
+        _write_spec(repo, "defect-verification", {"obligation_status": ["failing"]})
+        (repo / "widget.py").write_text("x = 1\n")
+        _run(["add", "widget.py"], repo)
+        _run(["commit", "-q", "-m", "add widget"], repo)
+        due = roles_due.roles_due(repo, base="origin/main")
+        assert due == [], due
+
+
 @case("format_report renders one line per due role, empty list -> no lines")
 def _t5():
     assert roles_due.format_report([]) == []
