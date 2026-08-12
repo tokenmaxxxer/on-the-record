@@ -43,3 +43,32 @@ same shape the proposal's rewritten Watchdog tests need.
 No file outside {spawn.py, tests/test_spawn.py, docs/issue-994/reports/implementation.md}
 is required to deliver "How you'll know it worked". No reproduction found;
 stance yields no finding.
+
+## before-landing — stance 1: assume this change and another plugin's rule/gate cancel each other — find the pair
+
+Verdict: NO FINDING
+Seed: git diff HEAD -- spawn.py / tests/test_spawn.py (watchdog signal-3 structural denial counting + offset-commit truncation fix)
+cap_seconds: 120
+tier: default
+diff_stat_lines: 97 insertions(+), 9 deletions(-) across spawn.py (~57) and tests/test_spawn.py (~49)
+started_at: 2026-08-12T12:54:38+09:00
+ended_at: 2026-08-12T12:56:00+09:00
+
+Checked for another consumer of the same state that could cancel or duplicate
+this change's effect: grepped the whole repo (gates/, on-the-record/hooks/,
+runs/rulebooks/*/hooks) for `watchdog_state`, `watchdog_check_one`, and
+`offset` — `WATCHDOG_STATE` / `own_state[key]["offset"]` is read and written
+only inside spawn.py itself (`watchdog_check_one`, called from
+`_roster_health_diagnose` and `roster_watchdog`, both of which already pass a
+pre-computed `anomalies` to avoid the documented double-consume-offset
+footgun — that guard is untouched by this diff). `_DENIAL_RE` had exactly one
+production use site (removed) and only appears afterward in a test's log
+fixture string, not as a live reference anywhere else — `grep -rn
+"_DENIAL_RE"` confirms no other module imports or reads it. `_deadlock_signature`
+(the other "repeated denial" signal, DEADLOCKED state) reads a completely
+different source (`.events.jsonl` structured events, not the session log
+text/offset), so it neither races with nor depends on the new
+`_count_structural_denials`/offset-truncation logic. No other gate/hook file
+in the repo reads the session log by byte offset or references
+`WATCHDOG_DENIAL_THRESHOLD`. Found no pair of rules that cancel each other;
+stopping without a repro per the one-rule policy.

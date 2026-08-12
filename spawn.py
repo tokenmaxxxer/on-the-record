@@ -2062,7 +2062,6 @@ WATCHDOG_NO_COMMIT_MIN = 71   # 이슈 #90 proposal, signal 4 (0.5 * p90 ≈ 142
 WATCHDOG_DENIAL_THRESHOLD = 3 # 이슈 #90 proposal, signal 3
 _DELEGATION_RE = re.compile(
     r"run_in_background|백그라운드|delegate|background worker", re.IGNORECASE)
-_DENIAL_RE = re.compile(r"permission_denial|denied", re.IGNORECASE)
 
 
 def _watchdog_state_load() -> dict:
@@ -2116,7 +2115,21 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
             start_offset = 0
         with log_path.open("r", encoding="utf-8", errors="replace") as fh:
             fh.seek(start_offset)
-            text = fh.read()
+            raw = fh.read()
+            # 이슈 #994 구조적 파싱은 줄 단위 JSON 이라 마지막 줄이 쓰기
+            # 도중(같은 spawn 프로세스가 다음 이벤트를 쓰는 사이) 잘려 있으면
+            # 그 스캔에서는 그냥 건너뛴다 — 하지만 offset 을 파일 끝까지
+            # 밀어버리면 다음 틱은 그 뒤부터 읽으므로 잘렸던 줄이 영영
+            # 다시 오지 않는다(실제 거부가 그 줄에 있었다면 영구 유실).
+            # 마지막 줄바꿈까지만 커밋하고 미완성 꼬리는 다음 스캔에 남긴다.
+            if raw and not raw.endswith("\n"):
+                split_at = raw.rfind("\n")
+                committed = raw[:split_at + 1] if split_at != -1 else ""
+            else:
+                committed = raw
+            text = committed
+            fh.seek(start_offset)
+            fh.read(len(committed))
             new_offset = fh.tell()
     own_state[key] = {"offset": new_offset}
     if state is None:
@@ -2126,8 +2139,9 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     if _DELEGATION_RE.search(text):
         anomalies.append(f"background-delegation-phrasing: {log_path}")
 
-    # signal 3: 반복된 거부된 도구 호출 (이번 스캔 구간 내)
-    new_denials = len(_DENIAL_RE.findall(text))
+    # signal 3: 반복된 거부된 도구 호출 (이번 스캔 구간 내) — 이슈 #994:
+    # 단어 매치가 아니라 구조적 tool_result/is_error 만 센다.
+    new_denials = _count_structural_denials(text)
     if new_denials >= WATCHDOG_DENIAL_THRESHOLD:
         anomalies.append(
             f"denied-tool-calls: 이번 스캔 구간에 {new_denials}건")
@@ -2823,6 +2837,41 @@ def _classify_refusal_text(text: str, command: str | None = None):
             detail = " ".join(text.strip().split())[:300]
             return ("sandbox-refusal", ("sandbox", detail), detail)
     return None
+
+
+def _count_structural_denials(text: str) -> int:
+    """이슈 #994: watchdog 신호 3 이 트랜스크립트 텍스트에서 "denied" 단어를
+    세던 것(예: 게이트 소스를 인용/설명하는 세션이 실제 거부 0건인데도 카운터를
+    올림 — 이슈-476 실측: 89건 신고, 실제 0건)을 구조적 파싱으로 대체한다.
+    `text` 를 줄 단위 JSONL 로 파싱해 `type: "user"` 줄의 `tool_result` 블록 중
+    `is_error` 이고 `_classify_refusal_text` 가 실제 거부 모양으로 분류하는
+    것만 센다 — 어시스턴트/파일 텍스트에 우연히 등장하는 단어는 세지 않는다.
+
+    `watchdog_check_one` 이 보는 `text` 는 로그 스캔 구간을 바이트 오프셋으로
+    자른 슬라이스라 마지막 줄이 쓰기 도중 잘렸을 수 있다(라이브 스트림 루프가
+    이미 관용하는 것과 동일, spawn.py:5573-5575 부근) — 그런 줄은 `json.loads`
+    가 실패하므로 조용히 건너뛴다(관찰 전용 신호는 fatal 이 될 수 없다).
+    """
+    count = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "user":
+            continue
+        for block in (obj.get("message") or {}).get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_result":
+                continue
+            if not block.get("is_error"):
+                continue
+            result_text = _tool_result_text(block.get("content"))
+            if _classify_refusal_text(result_text) is not None:
+                count += 1
+    return count
 
 
 def _flush_correlated_refusals(events_path: Path, pending_refusals: dict,
