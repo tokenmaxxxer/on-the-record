@@ -8,6 +8,7 @@
   python3 -m pytest gates/test_record_lint.py -q
 """
 from __future__ import annotations
+import json
 import subprocess
 import sys
 import tempfile
@@ -17,6 +18,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import record_lint
+import gates
 
 
 def _run(*args, cwd):
@@ -456,6 +458,47 @@ def t_no_defect_claim_is_untouched():
     (d / "gates" / "real_module.py").write_text("def broken_thing():\n    pass\n")
     bad = record_lint.lint_record(record)
     assert not any("#791" in b for b in bad), bad
+
+
+def t_terminal_loop_state_dict_shaped_states_no_crash():
+    """issue #1105: `role_cfg['record_fields']['loop_state']` 가 리스트가
+    아니라 dict(progress/terminal/refusal/error 로 나뉜 형태 — 저장소의
+    다수 role 정의가 실제로 이 형태다)면 `states[-1]` 은 KeyError: -1 로
+    터진다(정수 -1 키가 dict 에 없으므로). 클린 트리에서도 재현되는
+    조건이지만, 오케스트레이터가 실제로 마주친 건 머지 중 작업 트리였다
+    (2026-08-12, PR #1100). `_terminal_loop_state` 는 이런 atypical 형태에
+    None 을 돌려줘야지 죽어선 안 된다."""
+    body = (
+        "---\n"
+        "loop_state: landed\n"
+        "---\n\n"
+        "# record\n\n"
+        "## Acceptance verification\n"
+        "checked: something — result: pass\n"
+    )
+    d, record = _repo_with_record(
+        body, role="architecture",
+        rel="docs/issue-517/reports/architecture.md")
+    role_cfg = json.loads(
+        (Path(__file__).parent.parent / "roles" / "architecture.json")
+        .read_text(encoding="utf-8"))
+    assert isinstance(
+        role_cfg.get("record_fields", {}).get("loop_state"), dict), (
+        "fixture assumption broke: architecture.json's loop_state is no "
+        "longer dict-shaped")
+    assert gates._terminal_loop_state(role_cfg) is None
+    bad = record_lint.lint_record(record)
+    assert isinstance(bad, list)
+
+
+def t_terminal_loop_state_empty_states_returns_none():
+    """empty state 케이스: `loop_state` 리스트가 비어 있으면(혹은 키
+    자체가 없으면) 오늘도 그랬듯 None — 정상 레코드 린트는 그대로다."""
+    assert gates._terminal_loop_state({"record_fields": {"loop_state": []}}) is None
+    assert gates._terminal_loop_state({"record_fields": {}}) is None
+    assert gates._terminal_loop_state({}) is None
+    assert gates._terminal_loop_state(
+        {"record_fields": {"loop_state": ["a", "b"]}}) == "b"
 
 
 def _run_all():
