@@ -33,3 +33,41 @@ proposal-cited sites (spawn.py's buggy call, gates/remediation_spawn.py's
 existing correct one) — no other call site of the same buggy pattern
 needing simultaneous fixing. Write set (spawn.py, tests/test_spawn.py) is
 sufficient.
+
+## before-landing — stance 0: assume the gate just touched is bypassable — find the bypass
+
+Verdict: FINDING — `git for-each-ref "refs/heads/issue-{issue}/*"` does not match branches nested more than one level below `issue-{issue}/`, unlike the old `git branch --list "issue-{issue}/*"` glob, so a prior spawn on a deeply-nested branch name is invisible to the new check and the "already spawned" retroactive-skip fails silently, causing require_requirement_linkage to wrongly treat an already-spawned issue as brand-new and block it.
+Kind: silent-failure
+Seed: spawn.py::require_requirement_linkage diff (git branch --list -> git for-each-ref), tests/test_spawn.py RequireRequirementLinkageRemoteBranch
+cap_seconds: 120
+tier: default
+diff_stat_lines: 21-200 (bucket)
+started_at: 2026-08-12T00:00:00Z
+ended_at: 2026-08-12T00:10:00Z
+
+### Reproduce
+```
+rm -rf /tmp/ferf2 && mkdir /tmp/ferf2 && cd /tmp/ferf2 && git init -q && git commit -q --allow-empty -m init
+git branch -q issue-1042/a/b/c
+git for-each-ref "refs/heads/issue-1042/*"
+echo "---"
+git branch --list "issue-1042/*"
+```
+
+### Observed
+`git for-each-ref "refs/heads/issue-1042/*"` prints nothing (no match), while
+`git branch --list "issue-1042/*"` prints `issue-1042/a/b/c`. The two commands
+disagree on whether the branch counts as a prior spawn of issue 1042. Any
+issue whose spawned branch name has more than one path segment after
+`issue-<n>/` (e.g. a role name containing a slash, or any deliberately
+nested branch scheme) will be invisible to the new for-each-ref check, so
+`require_requirement_linkage` falls through past the "already spawned"
+early-return and applies the phase-1 requirement-linkage gate retroactively
+to an issue that was, per the proposal's own stated intent, supposed to be
+exempt.
+
+### Expected
+The for-each-ref pattern should match every branch that the old
+`git branch --list "issue-{issue}/*"` glob matched (any nesting depth), since
+the proposal states this is a drop-in replacement that also adds
+remote-branch detection, not a narrowing of the local-branch match.
