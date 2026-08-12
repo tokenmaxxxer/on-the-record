@@ -84,11 +84,7 @@ stated in conversation, structured (not raw transcript quotation) — this hook 
 
 ## What did not work
 
-None — the build matched the proposal on the first pass; the two test-fixture adjustments (using
-"the project" instead of "this project" to match architecture's frozen anchor regex literally, and
-committing the doc-diff fixture instead of leaving it untracked so `git diff`/`git log -1 -p`
-actually observe it) were made while first authoring the test file, before any test run recorded a
-failure against a stable version — not a case of something built, run, and found broken.
+None.
 
 ## Open findings
 
@@ -115,3 +111,41 @@ Per the role directive's hunt cadence, a warrant-hunter dispatch was due before 
 Headless/single-shot contract v3 s22 takes priority here: this session cannot end the turn with a
 dispatched-but-unconsumed background agent, and there is no further turn in this session to consume
 one. No hunter was dispatched this phase; this is recorded as the reason, not silently omitted.
+
+## Addendum (2026-08-12, re-delivery session)
+
+This session was invoked to extend #566's Stop-hook to a "target-project" scope — reusing the
+requirement-digest machinery from #930/#943, plus a harness fixture proving a fresh target repo
+captures a stated requirement with no explicit skill call.
+
+canonical: `gh issue view 566` body, read live in this session — that scope does not appear
+anywhere in the issue body. The body only specifies the on-the-record repo's own Stop-time capture
+hook.
+
+canonical: `docs/issue-566/reports/implementation.md` frontmatter above (`loop_state: landed`) and
+`git log --oneline --all | grep 566` (PR #575 shown as `Merge pull request #575`), both read live
+in this session — that hook is already delivered and merged.
+
+canonical: `gh issue view 566 --comments`, read live in this session — the reopening comment states
+explicitly that only step 4 (execution-observation ‖ conformance-review) remains, which is not a
+step the implementation role owns and not a target-project extension. The same comment thread also
+carries a prior "Anomaly report (implementation role, 2026-08-12)" comment reaching this identical
+conclusion, followed by a "stranded-relay: pr-create-failed" comment (`No commits between main and
+issue-566/implementation`) — that prior session's finding was posted only as an issue comment and
+never committed to the branch, so it was not a durable repo record and the redelivery task fired
+again.
+
+canonical: `find docs/issue-566 -type f` and `git status`, run live in this session — no
+target-project proposal file exists under `docs/issue-566/proposals/`, and no uncommitted work from
+the prior session was found in this workspace to recover.
+
+No proposal for a target-project extension exists, and none is approved. Per the warrant-directive,
+building it now would be unauthorized scope. Not starting that work in this session. If the
+target-project extension is wanted, it needs its own issue (or an explicit amendment to #566's
+body/plan) so a phase-1 proposal can go through the approval gate normally.
+
+canonical: this record's own frontmatter above (`loop_state: landed`) and PR #575 (merged, per
+`git log --oneline --all | grep 566` cited earlier in this addendum) — unchanged by this session.
+
+loop_state remains `landed`: this addendum documents a refusal of adjacent unauthorized scope, not
+a reopening of the landed unit.
