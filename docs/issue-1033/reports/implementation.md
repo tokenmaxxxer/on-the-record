@@ -41,3 +41,7 @@ None.
 
 ## Open findings
 None.
+
+## resolved_findings
+- before-landing hunt (docs/issue-1033/reports/implementation/hunt-credential-example-allowlist.md, stance 3): both guards imported `credential_example_allowlist` before their scope checks, so a missing/unresolvable module would crash-deny every Write/Edit/MultiEdit or Bash/WebFetch call, not just scoped ones. Fixed by moving the `sys.path.insert`/`from credential_example_allowlist import EXAMPLE_ALLOWLIST` lines below the existing scope-check early-returns in both `credential-record-guard.sh` and `credential-network-guard.sh`.
+canonical: `python3 -m pytest on-the-record/hooks/ -k credential`, re-executed this turn after the fix (32 passed, 375 deselected).

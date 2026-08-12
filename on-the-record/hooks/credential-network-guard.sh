@@ -51,9 +51,6 @@ CNG_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, re, shlex, sys
 
-sys.path.insert(0, os.environ.get("CNG_HOOKS_DIR", ""))
-from credential_example_allowlist import EXAMPLE_ALLOWLIST
-
 def deny(msg):
     sys.stderr.write("credential-network-guard: %s\n" % msg)
     sys.exit(2)
@@ -67,6 +64,13 @@ if not isinstance(e, dict):
 tool_name = e.get("tool_name") or ""
 if tool_name not in ("Bash", "WebFetch"):
     sys.exit(0)
+
+# Import only after the tool_name scope check above: a missing/
+# unresolvable allowlist module must not crash-deny every Bash/WebFetch
+# call, only ones that would otherwise reach the credential scan
+# (after-proposal hunt finding, docs/issue-1033/reports/implementation/hunt-credential-example-allowlist.md).
+sys.path.insert(0, os.environ.get("CNG_HOOKS_DIR", ""))
+from credential_example_allowlist import EXAMPLE_ALLOWLIST
 ti = e.get("tool_input") or {}
 if not isinstance(ti, dict):
     sys.exit(0)

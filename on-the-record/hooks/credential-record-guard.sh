@@ -31,9 +31,6 @@ CRG_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, posixpath, re, sys
 
-sys.path.insert(0, os.environ.get("CRG_HOOKS_DIR", ""))
-from credential_example_allowlist import EXAMPLE_ALLOWLIST
-
 def deny(msg):
     sys.stderr.write("credential-record-guard: %s\n" % msg)
     sys.exit(2)
@@ -56,6 +53,13 @@ if not isinstance(p, str) or not p:
 n = posixpath.normpath(p.replace("\\", "/"))
 if not re.search(r"(^|/)docs/", n):
     sys.exit(0)
+
+# Import only after the scope checks above: a missing/unresolvable
+# allowlist module must not crash-deny every Write/Edit/MultiEdit call,
+# only ones that would otherwise reach the credential scan (after-
+# proposal hunt finding, docs/issue-1033/reports/implementation/hunt-credential-example-allowlist.md).
+sys.path.insert(0, os.environ.get("CRG_HOOKS_DIR", ""))
+from credential_example_allowlist import EXAMPLE_ALLOWLIST
 
 PATTERNS = [
     (r"gh[oprs]_[A-Za-z0-9]{36,}", "GitHub token"),
