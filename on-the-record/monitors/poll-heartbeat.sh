@@ -1,13 +1,26 @@
 #!/usr/bin/env bash
 # issue #835 phase 2: plugin Monitor heartbeat. Auto-started by Claude Code
 # for a user-scope plugin install (monitors.json, when: "always") — no
-# `/loop`, no manual setup. Loops `sleep 60` and calls the EXISTING
-# poll_rearm_arm_if_due() (on-the-record/hooks/poll-rearm.sh) that
-# directive.sh (UserPromptSubmit) and stop-poll-rearm.sh (Stop) already
-# call — this is a THIRD caller of the same poll_due() TTL gate
-# (spawn.py:1953-1978), not a new polling engine; that gate's own
+# `/loop`, no manual setup. Loops `sleep 60` and, on a due tick, calls the
+# SAME `python3 spawn.py poll-due` atomic TTL-check-and-stamp that
+# poll_rearm_arm_if_due() (on-the-record/hooks/poll-rearm.sh) uses —
+# this is a THIRD caller of the same poll_due() TTL gate
+# (spawn.py:1976-1999), not a new polling engine; that gate's own
 # lock-protected TTL check is what de-dups this tick against the two
-# turn-driven hooks, so no separate coordination code is added here.
+# turn-driven hooks (directive.sh, stop-poll-rearm.sh), which keep
+# calling poll_rearm_arm_if_due() unchanged.
+#
+# issue #922 phase 2: the due branch no longer launches the watchdog
+# detached (nohup ... &) and echoes a static "poll tick: due, watchdog
+# armed" line. Instead it runs `spawn.py watchdog --auto-respawn` in the
+# FOREGROUND, capturing its combined stdout+stderr, and echoes that
+# captured text verbatim as this tick's own stdout — so the Monitor
+# notification channel surfaces roster_watchdog()'s already-computed
+# rich per-session report (health, STALLED/watcher-dead, [resume],
+# [poll-report]) every due tick instead of a bare line
+# (docs/issue-922/proposals/poll-heartbeat-capture-hop.md). This is a
+# single watchdog invocation per due tick, not two: poll-rearm.sh and
+# its other two callers are untouched.
 #
 # Hard boundary (docs/specs/platform-capabilities.md, "Claude Code plugin
 # Monitors"): this process is SESSION-BOUND — it runs only for the
@@ -44,9 +57,24 @@ max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
 sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-60}"
 while true; do
   sleep "${sleep_seconds}"
-  if poll_rearm_arm_if_due "${CHECKOUT}"; then
-    echo "poll tick: due, watchdog armed"
+  due_out="$(python3 "${CHECKOUT}/spawn.py" poll-due 2>&1 >/dev/null)"
+  due_rc=$?
+  if [ "${due_rc}" -eq 0 ]; then
+    report="$(python3 "${CHECKOUT}/spawn.py" watchdog --auto-respawn 2>&1)"
+    watchdog_rc=$?
+    mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
+    printf '%s\n' "${report}" >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
+    if [ -n "${report}" ]; then
+      printf '%s\n' "${report}"
+    else
+      echo "poll tick: due, watchdog ran (rc=${watchdog_rc}, no output)"
+    fi
   else
+    if [ -n "${due_out}" ]; then
+      mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
+      printf '[poll-due crashed, rc=%s] %s\n' "${due_rc}" "${due_out}" \
+        >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
+    fi
     echo "poll tick: skipped (within TTL)"
   fi
   tick=$((tick + 1))
