@@ -4,6 +4,7 @@ files:
   - spawn.py
   - harness/fixture-concurrent-judgment/fixture_concurrent_judgment/__init__.py
   - harness/fixture-concurrent-judgment/test_panel.py
+  - harness/fixture-concurrent-judgment/pyproject.toml
   - docs/issue-973/reports/implementation.md
 ---
 
@@ -94,10 +95,12 @@ proposing one does not have to re-derive it.
    land, `panel_cmd()` falls back to two sequential `consult_cmd()` calls against each role with the
    same question, and prefixes the panel record with `degraded: sequential-consult — <reason>`, per
    the merged design's Open Question 4.
-4. `harness/fixture-concurrent-judgment/`: a `fixture_concurrent_judgment` package providing a
-   seeded stand-in for the message transport, plus `test_panel.py` driving `panel_cmd()` through it
-   end-to-end — asserting a position, a rebuttal, and a joint verdict all land in the panel record
-   file, and a second test asserting the degraded path records its reason.
+4. `harness/fixture-concurrent-judgment/`: a `fixture_concurrent_judgment` package (with a
+   `pyproject.toml` matching the sibling fixtures' `setuptools`/`pip install -e` layout — canonical:
+   `harness/fixture-multirole/pyproject.toml`, `harness/README.md:35`) providing a seeded stand-in
+   for the message transport, plus `test_panel.py` driving `panel_cmd()` through it end-to-end —
+   asserting a position, a rebuttal, and a joint verdict all land in the panel record file, and a
+   second test asserting the degraded path records its reason.
 5. `docs/issue-973/reports/implementation.md`: this role's phase-2 record, written once phase-2
    actually executes.
 
