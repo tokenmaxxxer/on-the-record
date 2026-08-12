@@ -107,6 +107,21 @@ _EXECUTED_LIVE_CANONICAL = re.compile(
 _OBSERVATION_LIVE_CANONICAL = re.compile(
     r"(?i)\b(execution\s+)?(transcript|measurement)\b")
 
+# issue #791 — read-before-claim grounding: a defect/root-cause assertion
+# pattern, deliberately narrow (causal/assertive shape, not a bare noun
+# mention) so "no bugs found" / "bug tracker" do not trigger — same
+# known-bypassable-by-synonym tradeoff the other trigger vocabularies in
+# this module already accept.
+_DEFECT_CLAIM_MARKER = re.compile(
+    r"(?i)\b(is|was|are|were)\s+(a\s+)?(bug|defect|broken)\b"
+    r"|\broot\s+cause\s+is\b"
+    r"|\bthe\s+(bug|issue|cause)\s+is\b"
+    r"|원인은\s*\S*\s*(이다|입니다)"
+    r"|문제는\s*\S*\s*(이다|입니다)")
+
+# A `path:line` or `path:start-end` citation, optionally backtick-quoted.
+_CITE_FILE_LINE = re.compile(r"`?([\w./\-]+\.\w+):(\d+)(?:-(\d+))?`?")
+
 
 def outcome_claim_citation_check(text: str) -> list[str]:
     """issue #870 mirror: an OUTCOME claim ("requirement(s) met", "done",
@@ -276,6 +291,109 @@ def canonical_source_claim_check(text: str) -> list[str]:
     return bad
 
 
+def _normalize_ws(s: str) -> str:
+    return " ".join(s.split())
+
+
+def _verbatim_match(file_path: Path, start: int, end: int,
+                     quote_lines: list[str]) -> bool:
+    """Does `quote_lines` (whitespace-normalized, joined) appear as a
+    contiguous substring of `file_path`'s content around lines
+    [start, end] (with a small tolerance window)? Catches a fabricated or
+    single-line-repeated-to-look-multiline excerpt — those don't appear
+    verbatim in the real file."""
+    try:
+        lines = file_path.read_text(
+            encoding="utf-8-sig", errors="replace").splitlines()
+    except OSError:
+        return False
+    lo = max(0, start - 1 - 5)
+    hi = min(len(lines), (end or start) + 5)
+    window_text = _normalize_ws("\n".join(lines[lo:hi]))
+    quote_text = _normalize_ws("\n".join(quote_lines))
+    return bool(quote_text) and quote_text in window_text
+
+
+def defect_claim_grounding_check(root: Path, text: str) -> list[str]:
+    """issue #791 mirror: a defect/root-cause claim needs grounded
+    evidence, not a bare grep/keyword hit — either (a) a fenced quote of
+    >=3 contiguous lines that verbatim-matches (whitespace-normalized)
+    the cited `file:line` range in the working tree, or (b) a
+    `derived: <command>` fenced reproduction, the same non-file citation
+    convention `bare_count_claim_check` already accepts. Grep/keyword
+    search stays legal for locating a candidate; it is not itself
+    evidence for the claim."""
+    bad = []
+    lines = text.splitlines()
+    n = len(lines)
+    in_fence = [False] * n
+    fence_id = [-1] * n
+    fence_lines: dict[int, list[str]] = {}
+    fence = False
+    fid = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            if not fence:
+                fid += 1
+                fence_lines[fid] = []
+            fence = not fence
+            in_fence[i] = True
+            continue
+        in_fence[i] = fence
+        if fence:
+            fence_id[i] = fid
+            fence_lines[fid].append(line)
+
+    for i, line in enumerate(lines):
+        if in_fence[i]:
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        if not _DEFECT_CLAIM_MARKER.search(line):
+            continue
+
+        lo = max(0, i - 8)
+        hi = i + 1
+        window_idx = range(lo, hi)
+        window_text = "\n".join(lines[lo:hi])
+        fids_in_window = {fence_id[j] for j in window_idx
+                           if in_fence[j] and fence_id[j] != -1}
+
+        # (b) derived: command reproduction — a non-file citation, same
+        # bar bare_count_claim_check already requires: the tag plus a
+        # fenced block, both present in the same window.
+        grounded = bool(_CLAIM_DERIVED_TAG.search(window_text)) and bool(
+            fids_in_window)
+
+        # (a) verbatim file:line citation
+        if not grounded:
+            for m in _CITE_FILE_LINE.finditer(window_text):
+                path_str, start_s, end_s = m.group(1), m.group(2), m.group(3)
+                fpath = root / path_str
+                if not fpath.is_file():
+                    continue
+                start = int(start_s)
+                end = int(end_s) if end_s else start
+                for fidx in fids_in_window:
+                    quote = [l for l in fence_lines.get(fidx, []) if l.strip()]
+                    if len(quote) < 3:
+                        continue
+                    if _verbatim_match(fpath, start, end, quote):
+                        grounded = True
+                        break
+                if grounded:
+                    break
+
+        if not grounded:
+            bad.append(
+                "레코드에 근거 없는 결함/원인 주장 (issue #791): "
+                f"{line.strip()!r} — 결함/원인 주장에는 인용된 file:line "
+                "범위와 축약없이(whitespace만 정규화) 일치하는 3줄 이상의 "
+                "펜스 인용, 또는 `derived: <command>` 재현이 필요하다 — "
+                "grep/키워드 히트 하나만으로는 근거가 되지 않는다.")
+    return bad
+
+
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
@@ -330,6 +448,7 @@ def lint_record(path: Path) -> list[str]:
     bad += orphaned_path_reference_check(root, text)
     bad += canonical_source_claim_check(text)
     bad += outcome_claim_citation_check(text)
+    bad += defect_claim_grounding_check(root, text)
     return bad
 
 

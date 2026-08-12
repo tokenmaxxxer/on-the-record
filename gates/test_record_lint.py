@@ -323,6 +323,74 @@ def t_orphaned_path_reference_check_false_positives_documented_gap():
     assert bad == [], bad
 
 
+def t_defect_claim_with_bare_grep_citation_is_reported():
+    """issue #791 class 1: a defect/root-cause claim backed only by a
+    bare grep-shaped `file:line` mention (no fenced multi-line quote) is
+    refused — locating a candidate is not itself evidence."""
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "grep hit: `gates/real_module.py:5` mentions broken_thing.\n"
+        "The root cause is a bug in broken_thing.\n")
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates" / "real_module.py").write_text(
+        "def helper():\n"
+        "    return 1\n\n\n"
+        "def broken_thing():\n"
+        "    x = 1\n"
+        "    raise ValueError('boom')\n")
+    bad = record_lint.lint_record(record)
+    assert any("#791" in b for b in bad), bad
+
+
+def t_defect_claim_with_verbatim_grounded_citation_passes():
+    """issue #791 class 2: a defect/root-cause claim backed by a >=3-line
+    fenced quote that verbatim-matches the cited file:line range in the
+    working tree passes without friction."""
+    body = (
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "`gates/real_module.py:5-7`\n"
+        "```\n"
+        "def broken_thing():\n"
+        "    x = 1\n"
+        "    raise ValueError('boom')\n"
+        "```\n"
+        "The root cause is a bug in broken_thing.\n")
+    d, record = _repo_with_record(body)
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates" / "real_module.py").write_text(
+        "def helper():\n"
+        "    return 1\n\n\n"
+        "def broken_thing():\n"
+        "    x = 1\n"
+        "    raise ValueError('boom')\n")
+    bad = record_lint.lint_record(record)
+    assert not any("#791" in b for b in bad), bad
+
+
+def t_no_defect_claim_is_untouched():
+    """issue #791 class 3 (empty state): a record with no defect/
+    root-cause trigger line is unaffected — additive/doc-only records
+    and legitimate locate-only references stay untouched."""
+    body = (
+        "---\n"
+        "loop_state: coding\n"
+        "---\n\n"
+        "# record\n\n"
+        "Added the new export in `gates/real_module.py:5`. "
+        "No bugs found in this pass.\n")
+    d, record = _repo_with_record(body)
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates" / "real_module.py").write_text("def broken_thing():\n    pass\n")
+    bad = record_lint.lint_record(record)
+    assert not any("#791" in b for b in bad), bad
+
+
 def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]
