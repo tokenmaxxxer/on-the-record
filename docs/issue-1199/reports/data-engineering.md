@@ -122,3 +122,13 @@ not name or reference this data-engineering unit's work, so no content
 amendment to this record is warranted — same reconciliation class
 already logged for the brand-design unit's `docs/issue-1199/reports/
 brand-design.md` (issuecomment-5276738377).
+
+amendments-reconciled: issuecomment-5277572136 ("Judgment opened: PR
+#? — candidate decision on branch `issue-1199/data-engineering` (4
+path(s) changed) entered delegated-judgment evaluation.") is an
+automated watcher notification that this unit's own push was picked up
+for delegated-judgment evaluation (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277572136`, read
+this session); it states a process transition, not a content objection
+or amendment, so no content change to this record is warranted beyond
+this acknowledgment.
