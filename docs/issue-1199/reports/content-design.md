@@ -218,3 +218,10 @@ yet to reconcile against; this record proceeds on the
 per contract v3 s19's two approval paths (this being single-account
 mode) — the delegated-judgment evaluation is a separate, additional
 mechanism this record notes but does not treat as blocking.
+
+amendments-reconciled: issuecomment-5277577397 ("Judgment opened: PR
+#? — candidate decision on branch `issue-1199/devrel` (4 path(s)
+changed) entered delegated-judgment evaluation.") names branch
+`issue-1199/devrel`, not this content-design unit (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277577397 -q
+.body`, read this session). No content amendment warranted.
