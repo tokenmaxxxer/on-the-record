@@ -176,3 +176,11 @@ and pushed this session — all three verdict levels rendered, the
 independence statement precedes them, and open findings carry
 resolution paths; nothing further is pending from this role on this
 unit.
+
+amendments-reconciled: issuecomment-5277517908 (automated
+"Judgment opened .../ Verdict: escalate (depth or impact axis did not
+clear)" pair on this role's own branch, posted after this session
+started) — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1174/comments --paginate -q '.[] | select(.id==5277517908)'`
+(this session) — result: an automated depth/impact escalation notice
+about this PR's own candidate diff, not a content amendment to
+reconcile against; no change to the verdict above is warranted by it.
