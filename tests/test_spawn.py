@@ -3979,6 +3979,67 @@ class Watchdog(unittest.TestCase):
             self.assertEqual(result, 2)
             self.assertIn("gh 실패", buf.getvalue())
 
+    def test_board_wide_sweep_all_covers_roster_repos_with_prefixed_lines_and_skips_non_board(self):
+        """이슈 #1276 acceptance: 로스터에 두 보드 레포 + 한 비-보드 레포가
+        있으면 스윕은 두 보드를 모두(각자 레포 접두 붙은 줄로) 커버하고,
+        비-보드는 틱당 한 줄만 찍고 건너뛴다."""
+        with tempfile.TemporaryDirectory() as td:
+            arm_root = Path(td) / "arm-root"
+            board_repo = Path(td) / "board-repo"
+            non_board_repo = Path(td) / "non-board-repo"
+            for p in (arm_root, board_repo, non_board_repo):
+                p.mkdir()
+            for board in (arm_root, board_repo):
+                (board / "docs" / "specs").mkdir(parents=True)
+                (board / "docs" / "specs" / "approvers.md").write_text("someone\n")
+            d_all = {
+                "issue-1/qa": {"work": str(board_repo)},
+                "issue-2/implementation": {"work": str(non_board_repo)},
+            }
+
+            def fake_sweep(r):
+                print(f"sweep-ran:{r}")
+                return 1
+
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(arm_root, d_all)
+                finally:
+                    sys.stdout = old_stdout
+            out = buf.getvalue()
+            arm_label = spawn._repo_identity(arm_root.resolve())
+            board_label = spawn._repo_identity(board_repo.resolve())
+            self.assertEqual(result, 2)
+            self.assertIn(f"[{arm_label}] sweep-ran:{arm_root.resolve()}", out)
+            self.assertIn(f"[{board_label}] sweep-ran:{board_repo.resolve()}", out)
+            self.assertIn("보드 아님", out)
+            self.assertIn(spawn._repo_identity(non_board_repo.resolve()), out)
+            self.assertNotIn(f"sweep-ran:{non_board_repo.resolve()}", out)
+
+    def test_board_wide_sweep_all_empty_roster_sweeps_arm_root_only(self):
+        """이슈 #1276 요구#2 empty-state parity: 로스터가 비어 있으면
+        오늘과 동일하게 arm-root 하나만 스윕한다."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(spawn, "_board_wide_sweep", return_value=0) as m:
+                result = spawn._board_wide_sweep_all(root, {})
+            m.assert_called_once_with(root.resolve())
+            self.assertEqual(result, 0)
+
+    def test_roster_target_repos_dedupes_by_resolved_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            repo.mkdir()
+            d_all = {
+                "issue-1/qa": {"work": str(repo)},
+                "issue-2/implementation": {"work": str(repo) + "/"},
+                "issue-3/review": {},
+            }
+            self.assertEqual(spawn._roster_target_repos(d_all), [repo.resolve()])
+
     def test_board_wide_sweep_issue_view_call_count_constant_across_subject_counts(self):
         # issue #743 acceptance item 1: `_board_wide_sweep` 이 이제 한 번의
         # `issue_state_index_all` 프리페치를 `find_violations` 에 넘기므로,
