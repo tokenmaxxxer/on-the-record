@@ -48,7 +48,7 @@ command -v python3 >/dev/null 2>&1 || exit 2
 REPO="$(pwd -P)"
 
 IFS='' read -r -d '' CHECK <<'PY' || true
-import json, os, re, subprocess, sys
+import hashlib, json, os, re, subprocess, sys
 
 try:
     e = json.loads(os.environ.get("STOP_PAYLOAD", ""))
@@ -114,19 +114,34 @@ CATEGORIES = {
 
 SENT_SPLIT = re.compile(r"[.!?\n]")
 
+# Issue #1118 Fix 2: strip harness/hook-injected wrapper blocks before
+# scanning -- injected directive text (e.g. system-reminders, the
+# UserPromptSubmit-hook echoes other plugins add to the turn) is not
+# user-authored and must not trip the category regexes below.
+INJECTED_WRAPPER_RE = re.compile(
+    r"<system-reminder>.*?</system-reminder>"
+    r"|<user-prompt-submit-hook>.*?</user-prompt-submit-hook>",
+    re.DOTALL,
+)
+
 
 def flat_text(content):
     if isinstance(content, str):
-        return content
-    if isinstance(content, list):
+        text = content
+    elif isinstance(content, list):
         parts = []
         for block in content:
             if isinstance(block, dict) and block.get("type") == "text":
                 t = block.get("text")
                 if isinstance(t, str):
                     parts.append(t)
-        return "\n".join(parts) if parts else None
-    return None
+        text = "\n".join(parts) if parts else None
+    else:
+        return None
+    if text is None:
+        return None
+    stripped = INJECTED_WRAPPER_RE.sub("", text)
+    return stripped if stripped else None
 
 
 flagged = {cat: [] for cat in CATEGORIES}
@@ -198,6 +213,53 @@ for cat, sents in active.items():
         excerpt = sents[0][:120]
         unrecorded.append((cat, excerpt))
 
+if not unrecorded:
+    sys.exit(0)
+
+# Issue #1118 Fix 3: dedup undischargeable flags across consecutive Stops,
+# reusing retry-loop-bound.sh's session-keyed state-file shape. A flag
+# that repeats unchanged (same category, same excerpt) from this
+# session's immediately preceding recorded Stop is suppressed -- not
+# silenced forever, since a category whose doc later regresses can
+# re-flag once the excerpt or the recorded state changes.
+session_id = e.get("session_id")
+state_path = None
+prior_flagged = {}
+if isinstance(session_id, str) and session_id:
+    safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
+    state_dir = os.environ.get(
+        "OTR_PRODUCT_CAPTURE_STATE_DIR",
+        os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-product-capture"),
+    )
+    state_path = os.path.join(state_dir, safe_session + ".json")
+    try:
+        with open(state_path, encoding="utf-8") as fh:
+            prior = json.load(fh)
+        if isinstance(prior, dict) and isinstance(prior.get("flagged"), dict):
+            prior_flagged = prior["flagged"]
+    except (OSError, ValueError):
+        prior_flagged = {}
+
+new_flagged = {}
+deduped = []
+for cat, excerpt in unrecorded:
+    excerpt_hash = hashlib.sha256(excerpt.encode("utf-8", "replace")).hexdigest()
+    new_flagged[cat] = excerpt_hash
+    if prior_flagged.get(cat) == excerpt_hash:
+        continue
+    deduped.append((cat, excerpt))
+
+if state_path is not None:
+    try:
+        os.makedirs(os.path.dirname(state_path), exist_ok=True)
+        tmp_path = state_path + ".tmp"
+        with open(tmp_path, "w", encoding="utf-8") as fh:
+            json.dump({"flagged": new_flagged}, fh)
+        os.replace(tmp_path, state_path)
+    except OSError:
+        pass
+
+unrecorded = deduped
 if not unrecorded:
     sys.exit(0)
 
