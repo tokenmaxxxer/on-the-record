@@ -258,6 +258,9 @@ actual diff or PR. No content amendment to this record is warranted;
 stating this plainly here per the near-miss duty, since the comment is
 otherwise verdict-shaped.
 
+canonical: `gh issue view 1199 --comments`, re-read this session for `issuecomment-5277589364`.
+Comment `issuecomment-5277589364` ("[watch] issue-1199/execution-observation: session-end: PR ... opened") is an unrelated watcher notification about a different role's session (`execution-observation`) and PR (`#1261`); it names neither this unit's branch nor its content, so no content amendment to this record is warranted.
+
 ## Open findings
 
 - The diagram-as-text-model and decision-lineage requirements added to
