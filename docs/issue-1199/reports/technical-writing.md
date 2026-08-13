@@ -74,6 +74,16 @@ its README entry from the rulebook, rewrites the four applied rules to
 drop source-repo names and `source: <url>` framing, and moves the
 evidence trail to this record's "Accuracy review evidence" section.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276957084
+issuecomment-5276957084 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is another
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this technical-writing unit — no amendment to
+this unit's scope.
+amendments-reconciled: issuecomment-5276957084 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR.
+
 # technical-writing — phase-2 record (issue #1199)
 
 ## What was done
