@@ -77,9 +77,27 @@ while true; do
     mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
     printf '%s\n' "${report}" >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
     if [ -n "${report}" ]; then
-      printf '%s\n' "${report}"
+      printed_text="${report}"
     else
-      echo "poll tick: due, watchdog ran (rc=${watchdog_rc}, no output)"
+      printed_text="poll tick: due, watchdog ran (rc=${watchdog_rc}, no output)"
+    fi
+    # issue #1117: hash the exact text this tick would print (not `report`
+    # alone — two empty-report ticks with different watchdog_rc values
+    # would otherwise hash identically, silently suppressing a
+    # watchdog-crash signal change and violating #90 watch-coverage).
+    # Persisted as a plain sibling file next to the poll TTL stamp
+    # (runs/poll_state.json) rather than inside that fcntl-locked file —
+    # see docs/issue-1117/proposals/poll-heartbeat-delta-suppression.md.
+    hash_state_file="${CHECKOUT}/runs/poll_heartbeat_last_hash"
+    new_hash="$(printf '%s' "${printed_text}" | sha256sum | cut -d' ' -f1)"
+    prev_hash=""
+    if [ -f "${hash_state_file}" ]; then
+      prev_hash="$(cat "${hash_state_file}" 2>/dev/null || true)"
+    fi
+    if [ "${new_hash}" != "${prev_hash}" ]; then
+      printf '%s\n' "${printed_text}"
+      mkdir -p "${CHECKOUT}/runs" 2>/dev/null
+      printf '%s' "${new_hash}" >"${hash_state_file}" 2>/dev/null || true
     fi
   else
     if [ -n "${due_out}" ]; then
