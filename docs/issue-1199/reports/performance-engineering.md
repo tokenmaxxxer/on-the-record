@@ -400,3 +400,8 @@ canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282887835 -
 issuecomment-5282887835 is a further instance of the same identical,
 content-free watcher pattern, covered by the stopping rule above; this
 session proceeds to PR-create immediately after this commit.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282899075 --jq '.body'`, run this session.
+issuecomment-5282899075 is a further instance of the same identical,
+content-free watcher pattern, covered by the stopping rule above; this
+session proceeds to PR-create immediately after this commit.
