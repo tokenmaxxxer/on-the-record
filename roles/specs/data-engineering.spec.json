@@ -86,19 +86,27 @@
   "quality_bar": [
     {
       "criterion": "model_contract_enforced",
-      "verification_method": "dbt contract enforcement (`config: {contract: {enforced: true}}`) present on every changed model, checked by dbt parse/compile against schema.yml"
+      "verification_method": "dbt contract enforcement (`config: {contract: {enforced: true}}`) present on every changed model, checked by dbt parse/compile against schema.yml",
+      "evidence_grade": "validated",
+      "verified_source": "dbt Developer Hub, contract config reference — https://docs.getdbt.com/reference/resource-configs/contract (primary vendor spec; `contract: {enforced: true}` requires every column name+data_type, dbt runs a preflight check and fails the build on mismatch)."
     },
     {
       "criterion": "rollback_path_declared",
-      "verification_method": "human-review-checklist: does the pipeline change state a concrete rollback path (revert migration, backfill script, or feature-flagged read path) distinct from 'redeploy previous version'?"
+      "verification_method": "human-review-checklist: does the pipeline change state a concrete rollback path (revert migration, backfill script, or feature-flagged read path) distinct from 'redeploy previous version'?",
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "No single named canonical source in the spec (source_standard covers dbt contracts, not rollback policy); this is general SRE/release-engineering practice (concrete rollback path over 'redeploy'), not a formally published normative rule. Kept as practitioner-consensus, human-review-checklist only."
     },
     {
       "criterion": "dama_data_quality_dimensions_checked",
-      "verification_method": "human-review-checklist: for each of DAMA-DMBOK's four cited dimensions (accuracy, completeness, consistency, timeliness), does the change state how that dimension is affected and, if degraded, why that is acceptable?"
+      "verification_method": "human-review-checklist: for each of DAMA-DMBOK's dimensions accuracy, completeness, consistency, and timeliness (a 4-of-8 subset of DMBOK2's full dimension set — DMBOK2 also names validity, integrity, uniqueness, and reasonability, out of scope for this criterion), does the change state how that dimension is affected and, if degraded, why that is acceptable?",
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "DAMA-DMBOK 2nd ed. lists EIGHT dimensions in its current (DMBOK2) revision — accuracy, validity, completeness, integrity, uniqueness, timeliness, reasonability, consistency (https://www.damadmbok.org/dmbok2-revisions) — not the four cited in the criterion. The four chosen (accuracy, completeness, consistency, timeliness) are a real subset of DAMA's canonical set, not an invented list, but the criterion undersells the full DMBOK2 bar. Criterion text corrected below to state explicitly that it is a 4-of-8 subset, so a reviewer does not read it as the complete DAMA bar."
     },
     {
       "criterion": "schema_drift_detection_wired",
-      "verification_method": "automated check that a schema-drift or freshness test (dbt source freshness / schema test) exists for every changed source or model"
+      "verification_method": "automated check that a schema-drift or freshness test (dbt source freshness / schema test) exists for every changed source or model",
+      "evidence_grade": "validated",
+      "verified_source": "dbt Developer Hub, freshness reference — https://docs.getdbt.com/reference/resource-properties/freshness (primary vendor spec; source freshness configured via warn_after/error_after against loaded_at_field is dbt's own documented drift-detection mechanism)."
     }
   ],
   "loop_state": {
