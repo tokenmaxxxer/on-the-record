@@ -82,3 +82,51 @@ def test_empty_tagged_items_leaves_drift_output_unchanged(tmp_path, monkeypatch,
 
     assert "전혀 인용하지 않는" not in out
     assert "다이제스트" not in out
+
+
+def _make_root_with_status(tmp_path, status):
+    digest = tmp_path / "docs" / "specs" / "requirement-digest.md"
+    digest.parent.mkdir(parents=True)
+    digest.write_text(
+        f"- R042: 요구 응축관리 [{status}] (source: #7)\n", encoding="utf-8")
+    return tmp_path
+
+
+def test_enforced_uncited_requirement_not_flagged(tmp_path, monkeypatch, capsys):
+    root = _make_root_with_status(tmp_path, "enforced")
+    uncited_issue = {
+        "number": 8, "title": "unrelated work", "body": "no requirement cited",
+    }
+    monkeypatch.setattr(
+        spawn.subprocess, "run", _fake_gh_list([uncited_issue], []))
+
+    spawn.requirement_drift(root)
+    out = capsys.readouterr().out
+
+    assert "R042" not in out
+
+
+def test_open_uncited_requirement_still_flagged(tmp_path, monkeypatch, capsys):
+    root = _make_root_with_status(tmp_path, "open")
+    uncited_issue = {
+        "number": 9, "title": "unrelated work", "body": "no requirement cited",
+    }
+    monkeypatch.setattr(
+        spawn.subprocess, "run", _fake_gh_list([uncited_issue], []))
+
+    spawn.requirement_drift(root)
+    out = capsys.readouterr().out
+
+    assert "R042" in out
+
+
+def test_empty_digest_produces_no_flags(tmp_path, monkeypatch, capsys):
+    digest = tmp_path / "docs" / "specs" / "requirement-digest.md"
+    digest.parent.mkdir(parents=True)
+    digest.write_text("", encoding="utf-8")
+    monkeypatch.setattr(spawn.subprocess, "run", _fake_gh_list([], []))
+
+    spawn.requirement_drift(tmp_path)
+    out = capsys.readouterr().out
+
+    assert out == ""
