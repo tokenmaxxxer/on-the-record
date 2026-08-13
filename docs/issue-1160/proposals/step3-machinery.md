@@ -10,6 +10,7 @@ files:
   - roles/specs/content-design.spec.json
   - roles/specs/market-analysis.spec.json
   - docs/specs/role-spec-template.schema.json
+  - docs/specs/reconciled-index.md
   - docs/issue-1160/reports/implementation/survey.md
   - docs/issue-1160/reports/implementation/scout-brief.md
   - docs/issue-1160/proposals/step3-machinery.md
@@ -126,7 +127,14 @@ constraint on callers).
    `present_patterns`/`absent_patterns` array-of-string shape under
    `use_when.need_detector` (documentation only — `role_spec_shape.py`
    is not extended to enforce it in this write set; the shape-check
-   extension is out of scope, named below).
+   extension is out of scope, named below). The three pilot spec edits
+   in step 2 change hashes `docs/specs/reconciled-index.md` pins for
+   `roles/specs/{brand-design,content-design,market-analysis}.spec.json`
+   — `spec-index-preflight` (`gates/spec_index.py`) refuses a commit
+   that leaves the index stale, so `docs/specs/reconciled-index.md` is
+   regenerated (`python3 gates/spec_index.py --update`) and staged in
+   the same commit as the spec edits (warrant-hunt finding,
+   docs/issue-1160/reports/implementation/2026-08-13-hunt-step3-machinery.md).
 4. `spawn.py`: a `needs-due` subcommand mirroring the existing
    `roles-due` subcommand (same `argparse` wiring pattern, calls
    `need_detector.needs_due` + `format_report`, prints, never spawns).
