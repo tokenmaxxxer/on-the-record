@@ -86,6 +86,22 @@ mid-flight watcher poll as issuecomment-5277489405 above, no new
 information; no separate action beyond the delivery already reported
 above.
 
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.id==5277529070)'`, this session
+issuecomment-5277529070 repeats the same watcher poll a third time.
+This session then hit the reconcile-then-retry-`gh pr create` deadlock
+already logged by the interaction-design and technical-writing units
+for issue #1199: the poll re-fires faster than each reconcile-and-
+retry cycle can clear. Logged to
+`docs/issue-1199/reports/accessibility/deviation-log.md` (commit
+a445a50).
+amendments-reconciled: issuecomment-5277529070 — same recurring
+mid-flight watcher poll, no new information; retries on `gh pr create`
+stop here per the deviation log above. Both branches
+(`tokenmaxxxer/accessibility-rulebook`'s `issue-1199/tool-landscape`,
+commit `800bb11`, and this repo's `issue-1199/accessibility`) are
+pushed to origin for external relay to open the PRs.
+
 ## Why
 
 Per issue #1199 (northpole req#1/req#5): a role's rulebook should
@@ -138,15 +154,21 @@ named target files with no blocking ambiguity.
 
 ## Next steps
 
-Push `issue-1199/tool-landscape` to `tokenmaxxxer/accessibility-rulebook`
-and open the rulebook PR; open this record's own PR against
-`on-the-record` main; issue #1199 stays open regardless (part of the
+Both branches are pushed to origin (rulebook: `issue-1199/tool-landscape`
+commit `800bb11`; this repo: `issue-1199/accessibility`) but this
+session's `gh pr create` retries stopped after hitting the recurring
+watcher-comment-race deadlock recorded in
+`docs/issue-1199/reports/accessibility/deviation-log.md`. External
+relay opens both PRs (rulebook PR against
+`tokenmaxxxer/accessibility-rulebook`, and this record's PR against
+`on-the-record` main). Issue #1199 stays open regardless (part of the
 43-role tracker, this unit is one entry in that tracker).
 
 ## Resolution path
 
-No open findings to resolve; next-steps above are delivery mechanics
-(PR opens), not unresolved judgment calls.
+No open findings to resolve; the one filed deviation (PR-open deadlock)
+resolves by external relay opening the two already-pushed branches as
+PRs — no unresolved judgment calls remain on this unit's content.
 
 ## loop_state
 
