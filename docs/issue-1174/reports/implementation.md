@@ -115,3 +115,76 @@ None open.
 
 None — build matched the approved proposal's (c)/(e) design; no
 scope-exceeded stop and no alternative swap occurred.
+
+## Follow-up: numbered-list rule blocks (2026-08-13)
+
+Pure bugfix — skip condition per the scout directive (no design decision
+open: the fix target and expected fixture format were already fully
+specified by the reported defect). No re-scout, no proposal.
+
+canonical: `gh api "repos/tokenmaxxxer/technical-writing-rulebook/
+contents/playbook/doc-type-selection.md?ref=issue-1174/operational-
+playbook"` output read this turn.
+`gates/playbook_depth_gate.py`'s `_blocks_from_text()` only split on
+Markdown headings (`## `/`### `) and `-`/`*` list items, so the first
+real playbook (tokenmaxxxer/technical-writing-rulebook#25,
+`playbook/doc-type-selection.md`, branch
+`issue-1174/operational-playbook`) — whose rules are numbered
+(`1. When ...`) — produced `accepted=5` against its declared
+`rule_count_floor: 10` even though the file has 10 genuine
+condition+choice+source rules.
+
+Fix: added `_ORDERED_LISTITEM_RE = r"^\s*\d+[.)]\s+(.*)$"` and included
+it in both the block-splitting condition and `classify_block()`'s
+first-line-stripping logic (`gates/playbook_depth_gate.py`), so `1. `
+and `1) ` styles are recognized as rule-block boundaries alongside
+headings and `-`/`*` items.
+
+Added `gates/test_playbook_depth_gate.py` fixtures
+(`NUMBERED_DECISION_RULE`, `NUMBERED_REMOVAL_RULE`, `NUMBERED_DOT_RULE`)
+transcribed from that real playbook's rules #1 and #6, plus a `1) `
+variant of rule #2, and four new tests exercising them individually and
+through `evaluate()` with a floor+axis.
+
+canonical: acceptance: python3 gates/playbook_depth_gate.py /tmp/pbcheck/doc-type-selection.md --role technical-writing --floor 10 --axes doc-type-selection — result: PASS
+Run this turn against the real downloaded fixture, output pasted
+verbatim below.
+```
+role=technical-writing accepted=10 floor=10 count_ok=True
+PASS
+```
+
+canonical: acceptance: python3 -m pytest gates/test_playbook_depth_gate.py -q — result: PASS
+Run this turn — includes the pre-existing rejection tests
+(glossary-shape, uncited, all-additive), unchanged and passing.
+```
+16 passed in 0.04s
+```
+
+canonical: acceptance: python3 -m pytest gates/ -q — result: FAIL
+Run this turn against the full gates/ suite; 5 pre-existing failures
+unrelated to this change, 510 passed, 1 xfailed — output pasted
+verbatim below.
+```
+5 failed, 510 passed, 1 xfailed in 14.95s
+```
+
+canonical: acceptance: python3 -m pytest gates/test_consult_json_parse.py gates/test_role_utilization_report.py -q — result: FAIL
+Run this turn via git stash against the pre-fix tree (stash applied,
+command re-run, stash popped), output pasted verbatim below.
+```
+FAILED gates/test_consult_json_parse.py::t_both_attempts_exhausted_raises_with_reported_symptom
+FAILED gates/test_consult_json_parse.py::t_consult_cmd_settings_never_carry_self_hosted_hooks
+FAILED gates/test_role_utilization_report.py::test_all_43_role_stems_present_as_keys_in_count_map
+3 failed, 5 passed in 0.12s
+```
+Same 3 of the full suite's 5 failure IDs reproduce on the unmodified
+tree, confirming they predate this change and are unrelated to it.
+
+### What did not work
+
+None.
+
+### Open findings
+
+None open. Held PRs #1181/#1182 can re-verify against this fix.
