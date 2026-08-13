@@ -254,3 +254,7 @@ fleet-wide comment traffic (43 parallel role sessions posting on this
 one issue; not specific to this branch). Covered by the stopping rule
 stated above; this session's final PR-create attempt follows
 immediately after this commit.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282008157 --jq '.body'`, run this session.
+issuecomment-5282008157 is a further instance of the same identical,
+content-free watcher pattern, covered by the stopping rule above.
