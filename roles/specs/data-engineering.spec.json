@@ -83,6 +83,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/data-engineering.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "model_contract_enforced",
+      "verification_method": "dbt contract enforcement (`config: {contract: {enforced: true}}`) present on every changed model, checked by dbt parse/compile against schema.yml"
+    },
+    {
+      "criterion": "rollback_path_declared",
+      "verification_method": "human-review-checklist: does the pipeline change state a concrete rollback path (revert migration, backfill script, or feature-flagged read path) distinct from 'redeploy previous version'?"
+    },
+    {
+      "criterion": "dama_data_quality_dimensions_checked",
+      "verification_method": "human-review-checklist: for each of DAMA-DMBOK's four cited dimensions (accuracy, completeness, consistency, timeliness), does the change state how that dimension is affected and, if degraded, why that is acceptable?"
+    },
+    {
+      "criterion": "schema_drift_detection_wired",
+      "verification_method": "automated check that a schema-drift or freshness test (dbt source freshness / schema test) exists for every changed source or model"
+    }
+  ],
   "loop_state": {
     "progress": [
       "contracting",
@@ -92,7 +110,8 @@
       "landed"
     ],
     "refusal": [
-      "schema-undeclared"
+      "schema-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "model-unreachable"

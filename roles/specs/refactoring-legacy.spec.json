@@ -72,6 +72,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/refactoring-legacy.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "named_code_smell_cited",
+      "verification_method": "automated check that motivation names an actual entry from Fowler's code-smell catalog, not a bare stylistic preference statement"
+    },
+    {
+      "criterion": "behavior_preservation_evidenced",
+      "verification_method": "automated check that the full test suite passes before and after mechanics is applied with unchanged assertions on unrelated tests (diff of test-file assertions outside the touched surface is empty)"
+    },
+    {
+      "criterion": "characterization_test_added_for_untested_surface",
+      "verification_method": "human-review-checklist: if the touched legacy code had no pre-existing test coverage, was a characterization test added before mechanics changed behavior, per Feathers' characterization-test-first rule?"
+    },
+    {
+      "criterion": "seam_used_not_direct_edit",
+      "verification_method": "human-review-checklist: does the refactor introduce or use a seam (per Feathers) rather than editing untestable code directly in place?"
+    }
+  ],
   "loop_state": {
     "progress": [
       "identifying",
@@ -81,7 +99,8 @@
       "landed"
     ],
     "refusal": [
-      "motivation-undeclared"
+      "motivation-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "tests-unreachable"
