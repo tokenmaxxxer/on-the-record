@@ -135,8 +135,19 @@ per this role's write scope.
 
 ## Resolution path
 
-No open finding requires further action beyond the PR creation step
-above, which runs within this same turn.
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276799867
+issuecomment-5276799867 arrived while this turn's own `gh pr create`
+attempt was in flight — the same PR-creation deadlock a prior session
+already hit and logged (commit df36363, "note PR-creation deadlock,
+stop retries"): an automated delegated-judgment verdict stream on
+sibling issue-1199 fan-out branches posts faster than the
+reconcile-record-then-retry-PR cycle can close. Per that precedent,
+retries stop here rather than looping; the branch is committed and
+pushed (commit 1fa3448 and this record's own landing commit, both on
+`issue-1199/technical-writing` at origin) so on-the-record's external
+relay can open the delivery PR. This is a filed, not inline, deviation
+per the role-deviation directive — logged in
+docs/issue-1199/reports/technical-writing/deviation-log.md.
 
 ## Open findings
 
