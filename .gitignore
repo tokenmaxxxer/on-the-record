@@ -6,3 +6,4 @@ __pycache__/
 .landing-obligations/
 .orchestrate-greeted
 .pull-check
+.orchestrate-monitor-alive/
