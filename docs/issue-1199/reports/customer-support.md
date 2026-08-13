@@ -243,8 +243,23 @@ produced a given score, rather than a score nobody can act on.
 
 ## Open findings
 
-None — the four gaps named in `docs/issue-1199/reports/customer-
-support/survey.md` are each addressed by one learning above; no
+The external rulebook branch (`tokenmaxxxer/customer-support-rulebook`,
+branch `issue-1199/customer-support`, commit `a1663e1`) is pushed to
+origin but has no PR open: this session's `upstream-defect-scope-guard.sh`
+denies any `gh pr create` call whose target repo differs from this
+session's own git origin (`tokenmaxxxer/on-the-record`), by design
+(issue #1131 req#4), and there is no cwd-override path available to this
+session to change that resolution. canonical: this turn's tool
+transcript — the denied `gh pr create --repo tokenmaxxxer/customer-
+support-rulebook ...` call and its stderr. Resolution path: the branch
+is ready for a PR (`https://github.com/tokenmaxxxer/customer-support-
+rulebook/compare/main...issue-1199/customer-support`); on-the-record
+should relay-open that PR from outside this session, per this issue's
+own instruction that on-the-record relays what a blocked session
+cannot finish on its own.
+
+Otherwise: the four gaps named in `docs/issue-1199/reports/customer-
+support/survey.md` are each addressed by one learning above; no other
 unresolved question remains for this fold-in's scope.
 
 ## What did not work
