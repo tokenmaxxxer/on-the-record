@@ -29,6 +29,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/ux-engineering.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "token_consistency",
+      "verification_method": "automated diff against the design-tokens JSON asserting every rendered_value resolves to its declared token_name (reuses reference_resolution/recomputation), no hardcoded literal standing in for a token"
+    },
+    {
+      "criterion": "wcag_aa_automated_pass",
+      "verification_method": "automated WCAG 2.2 AA scanner (axe-core or equivalent) run against the rendered component, zero violations asserted"
+    },
+    {
+      "criterion": "keyboard_navigability",
+      "verification_method": "automated keyboard-navigation test (e.g. Playwright/Testing-Library keyboard simulation) asserting focus order and Enter/Space activation, no keyboard trap"
+    },
+    {
+      "criterion": "async_surface_states",
+      "verification_method": "static scan for loading/error/empty render branches, or a component test asserting each state renders distinctly"
+    }
+  ],
   "loop_state": {
     "progress": [
       "implementing",
@@ -38,7 +56,8 @@
       "landed"
     ],
     "refusal": [
-      "token-undeclared"
+      "token-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "component-unreachable"

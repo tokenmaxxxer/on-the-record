@@ -1,0 +1,1 @@
+- 2026-08-13T00:00:00Z inline: test file for gates/quality_bar.py named gates/test_quality_bar.py instead of the proposal's gates/quality_bar_test.py, matching this repo's existing test_*.py naming convention (gates/test_acceptance_gate.py etc.) — same directory, same purpose, no behavior change.

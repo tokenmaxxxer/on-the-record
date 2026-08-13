@@ -56,6 +56,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/test-authoring.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "ieee829_case_shape",
+      "verification_method": "structural check of each authored test case's documentation/docstring against the IEEE 829 test-case fields: purpose, preconditions, inputs, expected result"
+    },
+    {
+      "criterion": "no_test_smell",
+      "verification_method": "reuses the spec's existing gate_c_finding_method smell-detection rule against the Test Smells catalog's structural smells"
+    },
+    {
+      "criterion": "coverage_of_changed_behavior",
+      "verification_method": "coverage tool run scoped to the diff's changed lines/branches, asserting every changed branch/condition has at least one asserting test"
+    },
+    {
+      "criterion": "suite_passes_clean",
+      "verification_method": "pytest (or equivalent) run, exit code and SKIPPED-line count asserted, reusing role-test-claim-guard.sh's SKIPPED-line discipline"
+    }
+  ],
   "loop_state": {
     "progress": [
       "drafting",
@@ -65,7 +83,8 @@
       "landed"
     ],
     "refusal": [
-      "items-undeclared"
+      "items-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "test-unreachable"
