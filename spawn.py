@@ -4326,6 +4326,23 @@ def _parse_consult_verdict(text: str) -> dict | None:
     return None
 
 
+def _persist_consult_raw_output(issue: int | None, ts: str, attempt: int, text: str) -> Path:
+    """파싱 실패 시 모델의 원본 출력 전체를 사이드 파일에 저장한다 —
+    트레이스 줄에는 경로 + 짧은 발췌만 남기고(#1123 제안서 Constraints:
+    "트레이스 파일 크기를 실패마다 부풀리면 안 된다"), 전체 텍스트는 여기
+    보존해 재현이 아니라 실제 원인 분석이 가능하게 한다."""
+    base = ROOT / "docs" / (f"issue-{issue}" if issue is not None else "reports")
+    if issue is not None:
+        out_dir = base / "reports" / "consult-raw-failures"
+    else:
+        out_dir = base / "consult-raw-failures"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_ts = ts.replace(":", "").replace("+", "")
+    path = out_dir / f"{safe_ts}-{attempt}.txt"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def _consult_trace_path(issue: int | None) -> Path:
     """이슈가 있으면 그 이슈 트리 아래, 없으면 표준 6개 버킷 중
     `reports/` 아래 — `docs/` 는 표준 버킷과 `docs/issue-<n>/` 트리만
@@ -4419,16 +4436,23 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             "절차도 밟지 말고, 지금 바로 위 형식의 JSON 객체 하나만 출력하라.)"
         )
         attempts_exhausted = "알 수 없는 실패"
-        for attempt_prompt in (base_prompt, retry_prompt):
+        raw_path = None
+        for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
             r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=attempt_prompt, text=True,
                                capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
             if r.returncode != 0:
                 attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
                 continue
             result = session_result(r.stdout)
-            verdict = _parse_consult_verdict(result.get("result", ""))
+            raw_text = result.get("result", "")
+            verdict = _parse_consult_verdict(raw_text)
             if verdict is None:
-                attempts_exhausted = "모델 출력에서 판단 JSON 을 못 찾음"
+                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text)
+                excerpt = raw_text[-300:].replace("\n", " ")
+                attempts_exhausted = (
+                    f"모델 출력에서 판단 JSON 을 못 찾음 (원본: `{raw_path}`, "
+                    f"끝부분: {excerpt!r})"
+                )
                 continue
             outcome = f"ok: {str(verdict.get('answer', ''))[:200]}"
             return verdict
