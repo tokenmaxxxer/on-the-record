@@ -1675,6 +1675,35 @@ def classify(rc: int, result: dict, delta: list, blocked: list) -> str:
     return "silent-failure"
 
 
+# 이슈 #1124: `spawn.py clean` 이 세션 로그를 지워도 되는지 판단할 때
+# `fail_closed_downgrade` 가 실제로 확정하는, "커밋이 origin 에 닿았다"는
+# 라벨 두 개만 "landed" 로 친다. 그 외(refused/errored/silent-failure 등)는
+# 유일한 증거인 로그를 지우지 않고 archive 한다.
+LANDED_OUTCOMES = {"progressed", "progressed-dirty-tree"}
+
+
+def _ledger_log_outcomes() -> dict[str, str]:
+    """`runs/ledger.jsonl` 을 `{log 경로: 마지막 outcome}` 으로 접는다.
+    파일이 없으면 빈 dict — clean 은 ledger 없이도 동작해야 한다(빈 상태)."""
+    p = ROOT / "runs" / "ledger.jsonl"
+    out: dict[str, str] = {}
+    if not p.is_file():
+        return out
+    for line in p.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        log = entry.get("log")
+        outcome = entry.get("outcome")
+        if log and outcome:
+            out[log] = outcome
+    return out
+
+
 def session_end_verdict(work: str, log_path: Path | None, now: float | None = None,
                         alive_fn=None) -> str:
     """워크스페이스 하나의 세션-종료 3분법: `normal` / `crashed` / `stalled` /
@@ -2754,6 +2783,12 @@ def _roster_reconcile_unreported(issue: int | None = None) -> int:
         found_any = True
         work = e.get("work")
         if not work:
+            continue
+        if not Path(work).exists():
+            # 이슈 #1124: reconcile 은 `clean` 이 이미 지운 workspace 를
+            # 회복하려고 존재한다 — 바로 그 상태에서 죽으면 안 된다.
+            print(f"[reconcile --unreported] {key}: workspace 없음(clean 됨?) "
+                  f"— 건너뜀 [{work}]")
             continue
         log = e.get("log")
         verdict = session_end_verdict(work, Path(log) if log else None)
@@ -4794,6 +4829,94 @@ def positive_int(s: str) -> int:
     return v
 
 
+def roster_clean(wb: Path, issue: int | None) -> int:
+    """`spawn.py clean [--issue N]`: 안전한 것만 지운다 — 미커밋 변경 없음 +
+    origin 에 없는 커밋 없음. 워크스페이스 디렉터리는 그 조건만 지키면
+    그대로 삭제한다(이슈 #1124 범위 밖). 형제 파일(로그 등)은 다르다 —
+    `runs/ledger.jsonl` 에 이 로그를 가리키는 엔트리가 있고 그 outcome 이
+    `LANDED_OUTCOMES` 밖이면(refused/errored/silent-failure 등) 유일한
+    증거이므로 지우지 않고 `<wb>/.archived-logs/` 로 옮긴다. ledger 에 없는
+    형제(과거 로그, `.events.jsonl` 등)와 landed 로그는 오늘처럼 그대로
+    지운다."""
+    roster = _roster_load()
+    live = {}
+    for e in roster.values():
+        if _alive(e.get("pid", 0)):
+            live[Path(e["work"]).resolve()] = e
+    log_outcomes = _ledger_log_outcomes()
+    archive_dir = wb / ".archived-logs"
+
+    def _chmod_retry(func, path, exc_info):
+        # Go 모듈 캐시 등 읽기 전용 디렉터리/파일에서 rmtree 가
+        # PermissionError 로 죽는 문제(이슈 #229). POSIX 에서 파일
+        # 삭제는 그 파일 자체가 아니라 부모 디렉터리의 쓰기 권한이
+        # 좌우하므로, 실패한 경로와 그 부모 모두에 쓰기 권한을 주고
+        # 한 번 재시도한다.
+        os.chmod(path, stat.S_IWRITE)
+        parent = os.path.dirname(path)
+        if parent:
+            os.chmod(parent, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
+        func(path)
+
+    scope = f"-issue-{issue}-" if issue is not None else None
+    removed = kept = failed = 0
+    for w in sorted(wb.glob("*")) if wb.is_dir() else []:
+        if not (w / ".git").is_dir():
+            continue
+        if scope is not None and scope not in w.name:
+            continue
+        e = live.get(w.resolve())
+        if e is not None:
+            print(f"남김 (실행 중인 세션 있음): {w.name}"
+                  f"  [issue-{e.get('issue', '?')}/{e.get('role', '?')}, "
+                  f"pid {e.get('pid', '?')}]")
+            kept += 1
+            continue
+        st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
+                            capture_output=True, text=True).stdout.strip()
+        ahead = subprocess.run(
+            ["git", "-C", str(w), "log", "--branches", "--not", "--remotes",
+             "--oneline"], capture_output=True, text=True).stdout.strip()
+        if st or ahead:
+            print(f"남김 (미보존 작업 있음): {w.name}"
+                  + (f"  [미커밋 {len(st.splitlines())}건]" if st else "")
+                  + (f"  [미push 커밋 {len(ahead.splitlines())}건]" if ahead else ""))
+            kept += 1
+            continue
+        import shutil
+        try:
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(w, onexc=_chmod_retry)
+            else:
+                shutil.rmtree(
+                    w, onerror=lambda func, path, exc_info: _chmod_retry(
+                        func, path, exc_info))
+            # 세대별 로그(`.session.<ts>.<pid>.log`, 이슈 #192)와
+            # `.events.jsonl`/`.events.offset`/`.task.txt`/
+            # `.respawn-claim-*` 같은 형제 산출 파일을 전부 글롭으로 잡는다 —
+            # 접미사를 하나씩 나열하면 다음에 하나 더 생길 때 또 빠뜨린다.
+            for sibling in w.parent.glob(w.name + ".*"):
+                if not sibling.is_file():
+                    continue
+                outcome = log_outcomes.get(str(sibling))
+                if outcome is not None and outcome not in LANDED_OUTCOMES:
+                    archive_dir.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(sibling), str(archive_dir / sibling.name))
+                else:
+                    sibling.unlink()
+        except Exception as ex:
+            print(f"실패 (삭제 중 예외): {w.name}  [{ex}]")
+            failed += 1
+            continue
+        print(f"지움: {w.name}")
+        removed += 1
+    summary = f"정리 끝 — 지움 {removed}, 남김 {kept}"
+    if failed:
+        summary += f", 실패 {failed}"
+    print(summary)
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("role", nargs="?", help="역할. 생략하면 상태만 보여준다")
@@ -4966,77 +5089,9 @@ def main() -> int:
                       repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
                       self_heal=a.self_heal)
     if a.role == "clean":
-        # 안전한 것만 지운다: 미커밋 변경 없음 + origin 에 없는 커밋 없음.
         base = os.environ.get("MUSTER_WORK_DIR")
         wb = Path(base) if base else Path.home() / ".tokenmaxxxer" / "work"
-        roster = _roster_load()
-        live = {}
-        for e in roster.values():
-            if _alive(e.get("pid", 0)):
-                live[Path(e["work"]).resolve()] = e
-        def _chmod_retry(func, path, exc_info):
-            # Go 모듈 캐시 등 읽기 전용 디렉터리/파일에서 rmtree 가
-            # PermissionError 로 죽는 문제(이슈 #229). POSIX 에서 파일
-            # 삭제는 그 파일 자체가 아니라 부모 디렉터리의 쓰기 권한이
-            # 좌우하므로, 실패한 경로와 그 부모 모두에 쓰기 권한을 주고
-            # 한 번 재시도한다.
-            os.chmod(path, stat.S_IWRITE)
-            parent = os.path.dirname(path)
-            if parent:
-                os.chmod(parent, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
-            func(path)
-
-        scope = f"-issue-{a.issue}-" if a.issue is not None else None
-        removed = kept = failed = 0
-        for w in sorted(wb.glob("*")) if wb.is_dir() else []:
-            if not (w / ".git").is_dir():
-                continue
-            if scope is not None and scope not in w.name:
-                continue
-            e = live.get(w.resolve())
-            if e is not None:
-                print(f"남김 (실행 중인 세션 있음): {w.name}"
-                      f"  [issue-{e.get('issue', '?')}/{e.get('role', '?')}, "
-                      f"pid {e.get('pid', '?')}]")
-                kept += 1
-                continue
-            st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
-                                capture_output=True, text=True).stdout.strip()
-            ahead = subprocess.run(
-                ["git", "-C", str(w), "log", "--branches", "--not", "--remotes",
-                 "--oneline"], capture_output=True, text=True).stdout.strip()
-            if st or ahead:
-                print(f"남김 (미보존 작업 있음): {w.name}"
-                      + (f"  [미커밋 {len(st.splitlines())}건]" if st else "")
-                      + (f"  [미push 커밋 {len(ahead.splitlines())}건]" if ahead else ""))
-                kept += 1
-                continue
-            import shutil
-            try:
-                if sys.version_info >= (3, 12):
-                    shutil.rmtree(w, onexc=_chmod_retry)
-                else:
-                    shutil.rmtree(
-                        w, onerror=lambda func, path, exc_info: _chmod_retry(
-                            func, path, exc_info))
-                # 세대별 로그(`.session.<ts>.<pid>.log`, 이슈 #192)와
-                # `.events.jsonl`/`.events.offset`/`.task.txt`/
-                # `.respawn-claim-*` 같은 형제 산출 파일을 전부 글롭으로 잡는다 —
-                # 접미사를 하나씩 나열하면 다음에 하나 더 생길 때 또 빠뜨린다.
-                for sibling in w.parent.glob(w.name + ".*"):
-                    if sibling.is_file():
-                        sibling.unlink()
-            except Exception as ex:
-                print(f"실패 (삭제 중 예외): {w.name}  [{ex}]")
-                failed += 1
-                continue
-            print(f"지움: {w.name}")
-            removed += 1
-        summary = f"정리 끝 — 지움 {removed}, 남김 {kept}"
-        if failed:
-            summary += f", 실패 {failed}"
-        print(summary)
-        return 0
+        return roster_clean(wb, a.issue)
     if a.role == "update":
         # 룰북을 원격 최신으로. 인자를 비우면 전부.
         return update([a.task] if a.task else list(ROLES))
