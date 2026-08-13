@@ -1561,6 +1561,111 @@ def t_ci_check_wires_record_checked_claims():
         gates.ON_THE_RECORD_ROOT = old
 
 
+def _scratch_git_clone(td: str) -> Path:
+    """git init 된 스크래치 체크아웃 — consult_cmd() 의 트레이스 커밋이
+    실제 git add/commit 을 거치는지 검증하려면 진짜 저장소가 필요하다."""
+    root = Path(td) / "repo"
+    root.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "test"], cwd=root, check=True)
+    (root / "README.md").write_text("scratch\n")
+    subprocess.run(["git", "add", "README.md"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=root, check=True)
+    return root
+
+
+def _consult_fake_run(ok: bool, orig_run):
+    """`claude` 호출만 캔에 담긴 응답으로 가로채고, 그 외(`git` 등)는
+    실제 subprocess.run 으로 통과시킨다 — _commit_consult_trace() 의
+    git add/commit 이 진짜로 돌아야 스크래치 clone 이 정말 깨끗해진다."""
+    def fake_run(cmd, **kw):
+        if cmd[0] != "claude":
+            return orig_run(cmd, **kw)
+        if ok:
+            text = '{"answer": "판단 결과", "confidence": "high", "caveats": []}'
+        else:
+            text = "판단 JSON 없이 끝남"
+        payload = json.dumps({"result": text, "is_error": False})
+        return subprocess.CompletedProcess(cmd, 0, stdout=payload, stderr="")
+    return fake_run
+
+
+def _run_consult_in_scratch_clone(ok: bool):
+    """스크래치 clone 에서 consult_cmd() 를 (모킹된 claude 로) 한 번 돌리고,
+    체크아웃 경로와 트레이스 파일 경로를 돌려준다."""
+    with tempfile.TemporaryDirectory() as td:
+        root = _scratch_git_clone(td)
+        orig_run = spawn.subprocess.run
+        orig_plugin_dirs = spawn.plugin_dirs
+        orig_core_plugin_dirs = spawn.core_plugin_dirs
+        orig_trace_path = spawn._consult_trace_path
+        orig_persist_raw = spawn._persist_consult_raw_output
+        trace_path = root / "docs" / "reports" / "consult-log.md"
+        try:
+            spawn.subprocess.run = _consult_fake_run(ok, orig_run)
+            spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+            spawn.core_plugin_dirs = lambda: []
+            spawn._consult_trace_path = lambda issue: trace_path
+
+            def _persist(issue, ts, attempt, text):
+                out_dir = root / "docs" / "reports" / "consult-raw-failures"
+                out_dir.mkdir(parents=True, exist_ok=True)
+                safe_ts = ts.replace(":", "").replace("+", "")
+                p = out_dir / f"{safe_ts}-{attempt}.txt"
+                p.write_text(text, encoding="utf-8")
+                return p
+            spawn._persist_consult_raw_output = _persist
+
+            if ok:
+                spawn.consult_cmd("implementation", "질문", cwd=str(root))
+            else:
+                try:
+                    spawn.consult_cmd("implementation", "질문", cwd=str(root))
+                except RuntimeError:
+                    pass
+
+            status = orig_run(["git", "status", "--porcelain"], cwd=root,
+                              check=True, capture_output=True, text=True).stdout
+            trace_text = trace_path.read_text(encoding="utf-8") if trace_path.exists() else ""
+            return status, trace_text
+        finally:
+            spawn.subprocess.run = orig_run
+            spawn.plugin_dirs = orig_plugin_dirs
+            spawn.core_plugin_dirs = orig_core_plugin_dirs
+            spawn._consult_trace_path = orig_trace_path
+            spawn._persist_consult_raw_output = orig_persist_raw
+
+
+def t_consult_trace_leaves_scratch_clone_clean_on_success():
+    """이슈 #1134 acceptance criterion 1: 성공 자문 후 git status --porcelain
+    이 비어 있으면서, 트레이스 줄은 트레이스 계약 형태대로 남아 있다."""
+    status, trace_text = _run_consult_in_scratch_clone(ok=True)
+    assert status == "", f"checkout must be clean after consult, got: {status!r}"
+    assert re.search(r"^- .+\| role=implementation \| issue=none \| question=.+\| outcome='ok:",
+                      trace_text, re.M), trace_text
+
+
+def t_consult_trace_leaves_scratch_clone_clean_on_failure():
+    """같은 acceptance criterion, 실패(파싱 실패) 경로 — #1110 과 달리
+    tracked-file mutation 이라 gitignore 로 못 덮는 케이스가 바로 이것."""
+    status, trace_text = _run_consult_in_scratch_clone(ok=False)
+    assert status == "", f"checkout must be clean after a failed consult, got: {status!r}"
+    assert re.search(r"^- .+\| role=implementation \| issue=none \| question=.+\| outcome=.error:",
+                      trace_text, re.M), trace_text
+
+
+def t_rulebook_version_is_recorded_after_consult_failure():
+    """이슈 #1134 acceptance criterion 2: 자문 실패로 더러워졌던 체크아웃이,
+    커밋 후에는 다시 t_rulebook_version_is_recorded 가 요구하는 깨끗한
+    상태를 만족한다 — 여기서는 git status 만으로 그 조건을 재확인한다
+    (rulebook_version() 자체는 spawn.ROOT 기준으로 동작해 스크래치 clone을
+    가리키도록 리다이렉트할 훅이 없다; git status 가 그 함수가 검사하는
+    '더러움' 신호의 원천이므로 이걸로 같은 조건을 검증한다)."""
+    status, _ = _run_consult_in_scratch_clone(ok=False)
+    assert status == "", status
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
     for t in tests:
