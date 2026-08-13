@@ -8,12 +8,16 @@ Subject: issue-1174
 
 Authored the `upstream-defect-report` role's operational playbook per
 `docs/issue-1174/proposals/operational-playbook-program.md` sections
-(c)-(e) and all posted amendments, and landed it in a new external
+(c)-(e) and all posted amendments, and pushed it to a new external
 rulebook repo `tokenmaxxxer/upstream-defect-report-rulebook` (this role
 had no prior rulebook repo — canonical: `gh repo list tokenmaxxxer
 --limit 100` read this turn, showing 43 `*-rulebook` repos and no
 `upstream-defect-report-rulebook` entry before this session created
-it).
+it), on branch `issue-1174/operational-playbook`
+(https://github.com/tokenmaxxxer/upstream-defect-report-rulebook/tree/issue-1174/operational-playbook,
+commit c8d0e50). The PR itself is not yet opened — see the
+"pr-preflight comment-race" section below for why, and for the same
+precedent this issue already logged for it.
 
 Three axis files under `playbook/`, one per decision axis named in this
 work unit's own task brief (subtraction, comprehensibility, convention):
@@ -21,13 +25,14 @@ work unit's own task brief (subtraction, comprehensibility, convention):
 `playbook/convention.md`. Each carries `axis:`/`rule_count_floor:` front
 matter (floor = 5, from proposal (a)'s sparse-tier formula `max(5,
 axes×1)` with axes=3) and six condition→choice→source rule blocks per
-file, exceeding the 5-per-axis floor — canonical: the delivered PR's
-diff, https://github.com/tokenmaxxxer/upstream-defect-report-rulebook/pull/1,
-which the `gh pr diff` output for that PR shows as the rule content of
+file, exceeding the 5-per-axis floor — canonical: commit c8d0e50 on
+`issue-1174/operational-playbook` in
+`tokenmaxxxer/upstream-defect-report-rulebook`, whose diff (`git show
+c8d0e50 --stat`, read in this session) shows the rule content of
 `playbook/subtraction.md`, `playbook/comprehensibility.md`, and
 `playbook/convention.md`. Each axis includes at least one
 removal-classified rule block (cut/drop/delete/omit or 삭제/생략/줄이다),
-satisfying proposal (c) check 6 (amendment 4) — canonical: same PR diff
+satisfying proposal (c) check 6 (amendment 4) — canonical: same commit
 as above.
 
 Research (scout-directive protocol, single-stage sweep — 3 parallel
@@ -110,6 +115,24 @@ proposal. Following that same precedent, this session stops retrying
 commits for on-the-record's outside relay to open both PRs (the
 external rulebook repo's PR and this repo's phase-2 delivery PR).
 
+## pr-preflight comment-race (why no PR is opened yet)
+
+Three `gh pr create` attempts in this session (targeting the external
+rulebook repo) were each blocked by `pr-preflight.sh` because a new
+issue comment had landed on #1174 since session start — the same
+structural race already logged for `issue-1174/issue-retrospective`
+(commit 005e2c6, "log post-approval pr-preflight comment-race, stop
+PR-create retries"). All three comments
+(issuecomment-5277524495, -5277555952, -5277559551) are reconciled
+above under `amendments-reconciled`; none changed this unit's scope.
+Following that same precedent, this session stops retrying `gh pr
+create` (for both the external rulebook repo and this repo's own
+phase-2 delivery PR) after this turn's reconciliation budget, and
+instead pushes its commits — `issue-1174/operational-playbook` (commit
+c8d0e50) on `tokenmaxxxer/upstream-defect-report-rulebook`, and
+`issue-1174/upstream-defect-report` on this repo — for on-the-record's
+outside relay to open both PRs.
+
 ## Deviation: no existing rulebook repo for this role
 
 Recognized as a deviation (role-deviation-directive): the task brief
@@ -138,18 +161,37 @@ per the directive.
 
 kind: report
 
-loop_state: landed
+loop_state: handed-off
+
+## next steps
+
+on-the-record's outside relay opens the PR from
+`issue-1174/operational-playbook` (commit c8d0e50) against
+`tokenmaxxxer/upstream-defect-report-rulebook`'s main, and the PR from
+`issue-1174/upstream-defect-report` (this branch) against this repo's
+main, once the pr-preflight comment-race window has quieted.
+
+## resolution path
+
+Once both PRs are open, a human/approver reviews the playbook content
+for depth (per proposal (c)'s split: this delivery covers shape —
+condition+choice+source+removal-category — the human spot-check for
+whether each rule is true and useful is a separate step) and merges;
+`gates/playbook_depth_gate.py` (not yet built — parent proposal's
+explicit out-of-scope item) would mechanize the shape half of that
+review once it exists.
 
 ## open findings
 
-None — canonical: the delivered PR's diff,
-https://github.com/tokenmaxxxer/upstream-defect-report-rulebook/pull/1,
-covers all three axes named in the task brief with rule counts above
-the recorded floor and at least one removal-classified rule per axis.
-The parent proposal's own out-of-scope list still defers
-`gates/playbook_depth_gate.py` and the `playbook_refs` spec-field wiring
-to a separate build step not owned by this role unit; that gap belongs
-to the program, not to this delivery.
+None — canonical: commit c8d0e50 on
+`issue-1174/operational-playbook` in
+`tokenmaxxxer/upstream-defect-report-rulebook` covers all three axes
+named in the task brief with rule counts above the recorded floor and
+at least one removal-classified rule per axis. The parent proposal's
+own out-of-scope list still defers `gates/playbook_depth_gate.py` and
+the `playbook_refs` spec-field wiring to a separate build step not
+owned by this role unit; that gap belongs to the program, not to this
+delivery.
 
 ## What did not work
 
