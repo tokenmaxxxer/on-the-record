@@ -167,3 +167,11 @@ plugins are unaffected — only the doctrine's specificity changed.
 ## Open findings
 None — the seven-item fold-in matches the proposal 1:1 and both named
 files were edited in the same delivery.
+
+amendments-reconciled: issuecomment-5282629810 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)", posted 2026-08-13T15:40:25Z)
+read this session. canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5282629810 -q .body`,
+run this session. The comment names no PR number ("PR #?") and no
+role, so it does not identify this ml-engineering delivery as its
+target; nothing in this record changes in response.
