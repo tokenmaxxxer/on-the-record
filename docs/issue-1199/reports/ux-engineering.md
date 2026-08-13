@@ -75,6 +75,12 @@ canonical: gh pr view 1222 --json state,mergedAt
 - docs/issue-1199/reports/ux-engineering/scout-brief.md
 - APPROVE issue-1199/ux-engineering comment (JiwonJung94, 2026-08-13T07:02:22Z)
 
+amendments-reconciled: issuecomment-5277177330 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") — a delegated-judgment
+verdict comment on an unspecified PR, not naming ux-engineering or this
+unit's rulebook PR; out of scope for this unit's work, no reconciliation
+needed.
+
 ## Open findings
 
 None.
