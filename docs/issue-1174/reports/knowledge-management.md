@@ -42,6 +42,18 @@ not clear)" — same generic/templated verdict shape as the entries
 above, no PR number, no specifics naming this fan-out unit, this role,
 or this branch; nothing in this unit changed in response.
 
+amendments-reconciled: issuecomment-5277517448. canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277517448` this turn —
+body "Verdict: PR #? → escalate (depth or impact axis did not clear)",
+same generic template as the entries above, no PR number, no
+specifics naming this unit; not actionable, nothing changed in
+response. canonical: five consecutive `gh pr create` attempts this
+turn, each immediately followed by a fresh copy of this same templated
+comment — a live comment-spam loop tied to PR-create itself. Stopping
+further `gh pr create` retries per this session's own instruction:
+branch `issue-1174/knowledge-management` is committed and pushed
+(commit cb6ed85) for out-of-session relay to open the PR.
+
 ## What was done
 
 canonical: `gh pr list --repo tokenmaxxxer/knowledge-management-rulebook
