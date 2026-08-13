@@ -1111,10 +1111,16 @@ def _repo_slug(root: Path) -> str | None:
     실행 내내 같은 결과이므로 호출마다 느린 재시도를 반복할 이유가 없다."""
     key = str(root)
     if key not in _REPO_SLUG_CACHE:
-        r = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
-                            "-q", ".nameWithOwner"], cwd=root, capture_output=True, text=True)
+        try:
+            r = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
+                                "-q", ".nameWithOwner"], cwd=root, capture_output=True, text=True)
+        except FileNotFoundError:
+            # 이슈 #1283: `root` 가 이미 지워진 workspace 일 수 있다(reconcile
+            # 이 clean 된 workspace 도 훑는다) — `cwd` 부재로 subprocess 가
+            # 죽는 대신 슬러그 조회 실패와 같은 `None`으로 처리한다.
+            r = None
         _REPO_SLUG_CACHE[key] = (
-            r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None)
+            r.stdout.strip() if r is not None and r.returncode == 0 and r.stdout.strip() else None)
     return _REPO_SLUG_CACHE[key]
 
 
@@ -2908,12 +2914,11 @@ def _roster_reconcile_unreported(issue: int | None = None) -> int:
         work = e.get("work")
         if not work:
             continue
-        if not Path(work).exists():
-            # 이슈 #1124: reconcile 은 `clean` 이 이미 지운 workspace 를
-            # 회복하려고 존재한다 — 바로 그 상태에서 죽으면 안 된다.
-            print(f"[reconcile --unreported] {key}: workspace 없음(clean 됨?) "
-                  f"— 건너뜀 [{work}]")
-            continue
+        # 이슈 #1283: workspace 가 이미 `clean` 에 지워졌다고 여기서
+        # 건너뛰면(구 #1124 조치), session-end(normal) 인데 아직 미보고인
+        # 세션이 영영 사라진다 — session_end_verdict/`_issue_comments`
+        # 둘 다 없는 workspace 를 이미 안전하게 다루므로(survey 참고)
+        # 여기서 따로 건너뛸 필요가 없다.
         log = e.get("log")
         verdict = session_end_verdict(work, Path(log) if log else None)
         if verdict != "normal":

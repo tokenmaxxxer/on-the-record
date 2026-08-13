@@ -6492,6 +6492,36 @@ class RosterReconcileUnreported(unittest.TestCase):
         spawn._issue_comments = lambda root, n: ([], True)
         self.assertEqual(spawn._roster_reconcile_unreported(issue=534), 1)
 
+    def test_lists_normal_session_after_workspace_cleaned(self):
+        # 이슈 #1283: workspace 가 `clean` 에 이미 지워진 뒤에도
+        # session-end(normal) 인데 [watch] 코멘트가 없으면 계속
+        # 미보고로 찍혀야 한다 — 사라진 workspace 를 이유로 통째로
+        # 건너뛰면 그 세션의 관찰이 영영 사라진다.
+        spawn._workspace_index_load = lambda: {
+            "repo/issue-534/coding": {"work": "/tmp/does-not-exist-1283", "log": "/tmp/l"},
+        }
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._issue_comments = lambda root, n: ([], True)
+        self.assertEqual(spawn._roster_reconcile_unreported(), 1)
+
+    def test_lists_normal_session_after_workspace_cleaned_no_stub(self):
+        # 이슈 #1283 hunt: `_issue_comments`를 스텁하지 않고 실제
+        # `_repo_slug` -> `subprocess.run(cwd=work)` 경로를 태워, work 가
+        # 존재하지 않을 때 FileNotFoundError 로 죽지 않고 미보고로
+        # 안전하게 처리되는지 확인한다.
+        spawn._workspace_index_load = lambda: {
+            "repo/issue-534/coding": {"work": "/tmp/does-not-exist-1283-b", "log": "/tmp/l"},
+        }
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._repo_slug_cache_clear()
+        self.assertEqual(spawn._roster_reconcile_unreported(), 1)
+
+    def test_empty_workspace_index_reports_nothing(self):
+        spawn._workspace_index_load = lambda: {}
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._issue_comments = lambda root, n: ([], True)
+        self.assertEqual(spawn._roster_reconcile_unreported(), 0)
+
     def test_skips_non_normal_verdicts(self):
         spawn._workspace_index_load = lambda: {
             "repo/issue-534/coding": {"work": "/tmp/w", "log": "/tmp/l"},
