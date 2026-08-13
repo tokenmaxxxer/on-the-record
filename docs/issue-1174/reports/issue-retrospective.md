@@ -25,3 +25,12 @@ and no specifics naming this fan-out unit, this role, or this branch. No
 content in this unit changed in response, since the comment names nothing
 actionable against the issue-retrospective work; flagging this openly
 rather than silently treating it as reconciled with a matching action.
+
+amendments-reconciled: issuecomment-5277231968 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277231968` this
+turn. Body: "Judgment opened: PR #? — candidate decision on branch
+`issue-1174/issue-retrospective` (3 path(s) changed) entered
+delegated-judgment evaluation." — an automated pre-PR watcher notice with
+no PR number yet (this PR had not been created when it posted) and no
+actionable content against this unit's record; nothing in this unit
+changed in response.
