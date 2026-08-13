@@ -43,6 +43,62 @@ amendments-reconciled: issuecomment-5276795934 — out of scope for this
 unit (verdict on a different fan-out unit's PR), no action taken on
 this record or the rulebook PR.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276871308
+issuecomment-5276871308 ("a fold-in must APPLY its upgrades, not only
+reference them ... technical-writing's landed fold-in referenced
+upgrades without applying them and needs a retrofit pass") is in
+scope: it names this unit directly and requires a retrofit — this
+session's build work described in the "What was" section is that
+retrofit.
+canonical: git -C /tmp/technical-writing-rulebook log --oneline -3
+```
+13ded01 Reconcile no-tool-attribution amendment: absorb insight natively
+d3cbd8c Retrofit tool-landscape fold-in: apply diagram/Vale rules into axis files
+3f53654 Merge pull request #26 from tokenmaxxxer/issue-1199/tool-landscape
+```
+amendments-reconciled: issuecomment-5276871308 — reconciled by commit
+d3cbd8c, which edits doc-type-selection.md, minimalism-scoping.md, and
+style-guide-compliance.md to carry the named upgrades.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276881749
+issuecomment-5276881749 ("NATIVE APPLICATION, NO TOOL-ATTRIBUTION
+CATALOGS ... retrofit the two landed fold-ins: technical-writing's
+playbook/tool-landscape.md and brand-design's edits — strip
+tool-attribution framing, keep the absorbed rules native, move any
+provenance to the on-the-record record") is in scope: it names this
+unit's landed fold-in directly and supersedes part of this session's
+first retrofit commit.
+amendments-reconciled: issuecomment-5276881749 — reconciled by commit
+13ded01 (cited above), which removes playbook/tool-landscape.md and
+its README entry from the rulebook, rewrites the four applied rules to
+drop source-repo names and `source: <url>` framing, and moves the
+evidence trail to this record's "Accuracy review evidence" section.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276957084
+issuecomment-5276957084 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is another
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this technical-writing unit — no amendment to
+this unit's scope.
+amendments-reconciled: issuecomment-5276957084 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276958317
+issuecomment-5276958317 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is another
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this technical-writing unit — no amendment to
+this unit's scope.
+amendments-reconciled: issuecomment-5276958317 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR. Same reconcile-then-retry-`gh pr
+create` deadlock already logged in this issue's history (commit
+df36363) and in this record's own "Resolution path" section — retries
+stop here; the on-the-record branch is committed and pushed (commits
+af7716f, f0e5c43 on `issue-1199/technical-writing` at origin) for
+external relay to open the delivery PR.
+
 # technical-writing — phase-2 record (issue #1199)
 
 ## What was done
@@ -148,6 +204,112 @@ pushed (commit 1fa3448 and this record's own landing commit, both on
 relay can open the delivery PR. This is a filed, not inline, deviation
 per the role-deviation directive — logged in
 docs/issue-1199/reports/technical-writing/deviation-log.md.
+
+## Retrofit — this session (apply-not-reference + no-tool-attribution)
+
+canonical: git -C /tmp/technical-writing-rulebook log --oneline -3
+```
+13ded01 Reconcile no-tool-attribution amendment: absorb insight natively
+d3cbd8c Retrofit tool-landscape fold-in: apply diagram/Vale rules into axis files
+3f53654 Merge pull request #26 from tokenmaxxxer/issue-1199/tool-landscape
+```
+
+### What was done (retrofit)
+
+Two commits on branch `issue-1199/tool-landscape-retrofit` in
+`tokenmaxxxer/technical-writing-rulebook`, pushed to origin:
+
+1. `d3cbd8c` — added `doc-type-selection.md` rules 11-12 (diagram
+   polish-vs-update-cheapness judgment; generation/style
+   separability), `minimalism-scoping.md` rule 11 (editorial-diagram
+   visual-discipline cap), and `style-guide-compliance.md` rule 11
+   (executable-check preference over prose-only compliance) — the
+   three axis-file edits `playbook/tool-landscape.md` had named as
+   upgrade targets without previously editing them.
+2. `13ded01` — reconciling issuecomment-5276881749: removed
+   `playbook/tool-landscape.md` and its README entry entirely, and
+   rewrote the four rules added in `d3cbd8c` to drop tool-repo names
+   and `source: <url>` framing, phrasing each as the role's own
+   native judgment rather than an attributed borrowing.
+
+code_under_review:
+- playbook/doc-type-selection.md (tokenmaxxxer/technical-writing-rulebook)
+- playbook/minimalism-scoping.md (tokenmaxxxer/technical-writing-rulebook)
+- playbook/style-guide-compliance.md (tokenmaxxxer/technical-writing-rulebook)
+- README.md (tokenmaxxxer/technical-writing-rulebook)
+- playbook/tool-landscape.md (tokenmaxxxer/technical-writing-rulebook, deleted)
+
+### Why (retrofit)
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276871308
+issuecomment-5276871308's stated finding: the first fold-in (PR #26)
+referenced its upgrade targets without editing them — documentation,
+not an applied implementation.
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276881749
+issuecomment-5276881749's stated finding: the retrofit's own first
+commit (d3cbd8c) still carried tool-attribution framing (repo names,
+`source:` links to external tools) inside the public rulebook, which
+the operator's amendment rules out — insight must be absorbed as
+native role judgment, with the survey/adoption evidence trail confined
+to on-the-record's own issue-side record.
+
+### Adoption evidence trail (moved here per issuecomment-5276881749)
+
+The survey underlying the four applied rules — diagram-cost tradeoff
+(editorial vs. as-code), visual-discipline caps for editorial
+diagrams, and style-rule executability — is recorded in
+`docs/issue-1199/reports/technical-writing/scout-brief.md`'s Sources
+list (phase-1 WebSearch/WebFetch trail, adoption evidence per tool:
+star counts, GitHub-trending listing, named production adopters).
+That file is the canonical evidence source; this record does not
+duplicate the tool names/URLs per the no-attribution amendment, only
+points to where they are kept.
+
+### Rulebook PR — blocked, branch pushed instead
+
+canonical: this turn's own tool transcript — the `gh pr create --repo
+tokenmaxxxer/technical-writing-rulebook ...` call and its
+`PreToolUse:Bash hook error` denial from
+`on-the-record/hooks/upstream-defect-scope-guard.sh` (citing issue
+#1171 scoping, commit 5154a3d)
+That guard denied PR creation — its cross-repo check has no exemption
+for a role's protocol-required phase-2 rulebook PR against a separate
+consuming repo. Fixing the guard is not in scope for this session
+(hooks/gates changes are outside this role's write scope and this
+task's frozen write set).
+
+canonical: git -C /tmp/technical-writing-rulebook log --oneline -1 origin/issue-1199/tool-landscape-retrofit
+```
+13ded01 Reconcile no-tool-attribution amendment: absorb insight natively
+```
+Both retrofit commits (d3cbd8c, 13ded01) reached
+`tokenmaxxxer/technical-writing-rulebook` origin on branch
+`issue-1199/tool-landscape-retrofit`, per the `git log` on
+`origin/...` cited immediately above; PR creation is left to an
+orchestrator/on-the-record external relay. Logged as a filed deviation
+in `docs/issue-1199/reports/technical-writing/deviation-log.md`.
+
+### kind / loop_state (retrofit)
+
+canonical: git -C /tmp/technical-writing-rulebook log --oneline -3 (cited at the top of this section)
+kind: report
+loop_state: phase-2-complete
+
+### Next steps (retrofit)
+
+An orchestrator/relay session needs to open the rulebook PR from
+`issue-1199/tool-landscape-retrofit` (both commits already on origin,
+cited above) against `tokenmaxxxer/technical-writing-rulebook`'s
+`main`; no further action owned by this role's write scope beyond what
+this record and that pushed branch already carry.
+
+### Resolution path (retrofit)
+
+Once the rulebook PR is opened (by relay, or by a future session after
+the guard gains a cross-repo exemption), the next technical-writing
+session on issue-1199 picks up from this record's Amendments-reconciled
+log and that PR's diff — no open blocker on this session's own branch
+otherwise.
 
 ## Open findings
 
