@@ -151,6 +151,110 @@ Commit 1b23d86, subject: issue-1199, pushed to
 origin/issue-1199/performance-engineering; PR opened against
 tokenmaxxxer/performance-engineering-rulebook main.
 
+## Rework (2026-08-14 operator amendment): Claude Code plugin-ecosystem fold-in
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments --jq '.[] | select(.body | test("SURVEY TARGET IS CLAUDE CODE PLUGINS")) | .body'`, run this session.
+The operator amendment requires the tool-landscape survey target be the
+Claude Code plugin/skill ecosystem, not general performance-domain
+tools, and applies to rework of performance-engineering explicitly.
+The prior fold-in above (k6/vegeta/FlameGraph etc.) surveyed domain
+tools only and stays landed per the amendment's own text ("Domain
+tools may appear only as secondary context") — this section adds the
+required plugin-derived learnings on top of it.
+
+Scouted the Claude Code plugin ecosystem
+(docs/issue-1199/reports/performance-engineering/scout-brief-plugins.md)
+per the adoption-evidence method.
+derived: `gh api repos/rohitg00/awesome-claude-code-toolkit repos/composio-community/awesome-claude-plugins repos/hesreallyhim/awesome-claude-code repos/anthropics/claude-plugins-official repos/borghei/Claude-Skills --jq '.full_name+" "+(.stargazers_count|tostring)'`, run this session:
+```
+rohitg00/awesome-claude-code-toolkit 2499
+composio-community/awesome-claude-plugins 1882
+hesreallyhim/awesome-claude-code 52240
+anthropics/claude-plugins-official 33491
+borghei/Claude-Skills 478
+```
+(full evidence trail, including multi-source star-count corroboration
+and the 4-angle WebSearch sweep, in scout-brief-plugins.md).
+
+Per-plugin problem/HOW/learning, each with a fetched source:
+
+1. **perf skill** (composio-community/awesome-claude-plugins, 1,882★).
+   Problem: bottleneck claims get made without evidence, or profiling
+   runs get launched with no debug symbols to make the output usable.
+   canonical: fetched https://raw.githubusercontent.com/ComposioHQ/awesome-claude-plugins/master/perf/skills/profile/SKILL.md this session.
+   HOW: a hard precondition gate — profiling is blocked until debug
+   symbols are confirmed present and a specific scenario is stated —
+   plus an evidence rule requiring file:line hotspot location and a
+   flamegraph/equivalent artifact, keeping output "minimal and
+   evidence-backed." Learning applied: added a phase-1 **Profiling
+   readiness** checklist item gating any profiling run on stated
+   symbol availability and named scenario, before the run happens (not
+   after, when the existing bottleneck-evidence-linkage item already
+   catches missing artifacts).
+
+2. **performance-engineer agent**
+   (rohitg00/awesome-claude-code-toolkit, 2,499★).
+   canonical: fetched https://raw.githubusercontent.com/rohitg00/awesome-claude-code-toolkit/main/agents/quality-assurance/performance-engineer.md this session.
+   Problem: an "improvement" gets claimed and kept on a before/after
+   delta that could be noise, or a fix that didn't actually help gets
+   kept anyway. HOW: a five-step gated workflow (measure -> profile ->
+   hypothesize -> implement -> verify) where the verify step re-runs
+   the *same* benchmark methodology and explicitly reverts the fix if
+   it doesn't clear the bar, plus a statistical-significance
+   requirement (t-test recommended) distinguishing a real improvement
+   from measurement noise. Learning applied: added two phase-2
+   checklist items — **Revert-on-no-improvement gate** and
+   **Statistical-significance claim** — neither of which the existing
+   checklist items asked for.
+   canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/performance-engineering-rulebook show 1b23d86:performance-engineering-checklist/checklist.md`, run this session — the pre-rework checklist's Exit-criteria-verdict and Percentile-evidence items check pass/fail against an SLO and percentile presence only; neither names statistical significance or a revert action.
+
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/performance-engineering-rulebook show 5b1d1f5 -- performance-engineering-checklist/checklist.md`, run this session — output below.
+derived: same command:
+```
++- [ ] **Profiling readiness** — before any profiling run is scheduled,
++      state that debug symbols/instrumentation are present and name the
++      specific scenario that justifies profiling now — a profiling run
++      with no stated scenario, or against unverified symbol availability,
++      is out of scope for this phase.
++- [ ] **Revert-on-no-improvement gate** — the fix is verified against the
++      same benchmark methodology used for the baseline measurement; if the
++      after-measurement does not clear the improvement bar, the record
++      states plainly that the fix was reverted rather than kept on
++      unproven grounds.
++- [ ] **Statistical-significance claim** — an improvement claim between
++      before/after measurements states the test used to confirm the
++      difference isn't noise (e.g. a t-test) or the run-count/variance
++      basis backing that confirmation — a raw before/after delta alone
++      does not satisfy this item.
+```
+derived: `git -C /home/jwjung/tokenmaxxxer/rulebooks/performance-engineering-rulebook show 5b1d1f5 -- performance-engineering-checklist/checklist.md | grep -c '^+- \[ \] \*\*'`:
+```
+3
+```
+No existing checklist text was deleted or altered; no tool name or
+"learned from X" attribution was added to checklist.md itself — each
+item is stated as the role's own authoring norm, with the evidence
+trail living only in this record and scout-brief-plugins.md.
+
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/performance-engineering-rulebook log --all --oneline --grep=issue-1199 -- performance-engineering-checklist/checklist.md`, run this session:
+```
+5b1d1f5 issue-1199: fold in Claude Code plugin-ecosystem learnings
+1b23d86 issue-1199: fold performance-tool design moves into authoring checklist
+```
+canonical: same command and output immediately above, run this session — commit 1b23d86 is the prior fold-in's commit, already cited in this record's "Summary of work" section above as pushed and merged via PR #1288.
+This session's commit (5b1d1f5) landed on a fresh branch,
+issue-1199/performance-engineering-plugins, because commit 1b23d86's
+branch already had its PR merged — this rework builds on top of that
+landed state.
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/performance-engineering-rulebook log -1 --format=%H`, read this session.
+Commit 5b1d1f5, subject "issue-1199: fold in Claude Code
+plugin-ecosystem learnings", pushed to
+origin/issue-1199/performance-engineering-plugins.
+canonical: `gh pr view 24 --repo tokenmaxxxer/performance-engineering-rulebook --json state,url --jq '.state+" "+.url'`, run this session:
+```
+OPEN https://github.com/tokenmaxxxer/performance-engineering-rulebook/pull/24
+```
+
 ## Why
 
 Per issue-1199 (northpole req#1/req#5): the performance-engineering
