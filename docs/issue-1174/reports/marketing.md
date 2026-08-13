@@ -192,6 +192,19 @@ no rule content was dropped.
   changed in response since the comment names nothing actionable
   against marketing's playbook work.
 - canonical: `git -C /tmp/marketing-rulebook push -u origin issue-1174/operational-playbook` output, read this turn — the push succeeded (commit f017d89 on branch issue-1174/operational-playbook), but the subsequent `gh pr create --repo tokenmaxxxer/marketing-rulebook` call was blocked by this repo's own pr-preflight comment-race gate before a PR could be confirmed opened; see next steps.
+- amendments-reconciled: issuecomment-5277582320 — read via `gh api
+  repos/tokenmaxxxer/on-the-record/issues/comments/5277582320` this
+  turn. Body: "Verdict: PR #? → escalate (depth or impact axis did not
+  clear)", posted 07:51:56Z — same generic templated-watcher-notification
+  shape as issuecomment-5277522553 above, triggered by this session's own
+  `git push` for branch issue-1174/marketing. Stopping further `gh pr
+  create` retries in this session for both target repos per the
+  documented comment-spam-loop pattern (docs/issue-1174/reports/
+  post-approval pr-preflight comment-race note, commit 005e2c6): both
+  branches (issue-1174/marketing here, commit c69d4f8; and
+  issue-1174/operational-playbook on marketing-rulebook, commit f017d89)
+  are committed and pushed, ready for out-of-session relay to open both
+  PRs.
 
 ## kind
 
