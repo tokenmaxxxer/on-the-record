@@ -100,6 +100,33 @@ board-gate.sh, refusing the original path twice before the relocation.
   chaining the directory change and the PR-create call inside one
   Bash invocation.
 
+## PR-preflight / approval-gate deadlock on this repo's own commit
+
+`gh pr create` against this repo (on-the-record) was refused by
+pr-preflight.sh, which fires on any new issue comment since session
+start regardless of relevance, here comment issuecomment-5276419253.
+canonical: PreToolUse:Bash hook output this turn from
+on-the-record/hooks/pr-preflight.sh, refusing PR creation and
+requiring an amendments-reconciled line inside
+docs/issue-1174/reports/test-authoring.md citing that comment id.
+
+That comment's body is a template verdict stub ("Verdict: PR #? ->
+escalate (depth or impact axis did not clear)") naming no PR number,
+role, or subject.
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276419253`
+output this turn.
+Reconciled as: not applicable to this unit's scope; this session's
+assigned work (test-authoring operational playbook) proceeds
+unchanged. Recorded here rather than in the gated phase-2 file because
+approval-gate.sh unconditionally refuses any write to
+docs/issue-1174/reports/test-authoring.md before an "APPROVE
+issue-1174/test-authoring" comment lands, with no carve-out for a
+reconciliation-only write — the same structural deadlock already hit
+by the market-analysis fan-out unit. Per that precedent, this session
+stops retrying PR creation here: the branch is committed and pushed
+(commit d1d12d5, branch issue-1174/test-authoring); PR creation is
+left for external relay or a later approval-gate-exempt session.
+
 ## Coverage status
 
 This unit covers the test-authoring role only. The issue's 43-item
