@@ -228,3 +228,13 @@ first pushed commit (2 paths: this record and
 docs/specs/acceptance-commands.md), carrying no instruction or finding
 to act on beyond the escalate-verdict pattern already reconciled
 above. No content in this unit changed in response.
+
+amendments-reconciled: issuecomment-5277597622 (read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277597622` this
+turn) is the identical automated "Judgment opened ... 2 path(s)
+changed" notice as issuecomment-5277592017 above, re-triggered by this
+branch's next push (each push re-triggers this same escalation comment
+on the branch's current diff — the `implementation.md` record for this
+same issue documents the identical re-trigger pattern). No new
+instruction or finding beyond what is already reconciled above; no
+content in this unit changed in response.
