@@ -4476,6 +4476,29 @@ def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
         f.write(line)
 
 
+def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
+                          outcome: str, cwd: str | None) -> None:
+    """자문 트레이스(및 이번 호출에서 쓴 원본 사이드 파일)를 커밋해
+    체크아웃을 깨끗하게 유지한다(이슈 #1134, northpole req#2 — 로컬
+    미커밋 상태만 있는 기록은 기록이 아니다). `approve-scope`
+    선례(spawn.py:1367-1387)와 같은 add-then-commit 모양이지만, 되돌릴
+    "이전 전문"이 없다(append 이지 overwrite 가 아니다) — 커밋 실패시
+    파일 쓰기는 그대로 두고 경고만 남긴다."""
+    root = Path(cwd) if cwd else ROOT
+    rels = [str(p.relative_to(root)) for p in paths]
+    outcome_word = "error" if outcome.startswith("error") else "ok"
+    message = (f"issue-{issue}: consult-trace ({outcome_word})" if issue is not None
+               else f"consult-trace ({outcome_word})")
+    try:
+        subprocess.run(["git", "-C", str(root), "add", *rels],
+                       check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(root), "commit", "-m", message],
+                       check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        print(f"consult-trace 커밋 실패 — {', '.join(rels)} 가 커밋 안 된 채 남았다: "
+              f"{e.stderr.strip() if e.stderr else e}", file=sys.stderr)
+
+
 def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None) -> tuple[list[str], dict[str, str], str]:
     """`consult_cmd()`의 argv/env/settings-file 조립만 떼어낸, subprocess 를
     직접 부르지 않는 build-then-return 헬퍼 — `spawn_cmd()` 와 같은 모양이다.
@@ -4536,6 +4559,8 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
     outcome = "error: 알 수 없는 실패"
     verdict = None
     settings_path = None
+    raw_path = None
+    raw_paths: list[Path] = []
     try:
         f = ROOT / "roles" / f"{role}.json"
         if not f.exists():
@@ -4572,7 +4597,6 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             "절차도 밟지 말고, 지금 바로 위 형식의 JSON 객체 하나만 출력하라.)"
         )
         attempts_exhausted = "알 수 없는 실패"
-        raw_path = None
         for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
             r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=attempt_prompt, text=True,
                                capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
@@ -4584,6 +4608,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             verdict = _parse_consult_verdict(raw_text)
             if verdict is None:
                 raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text)
+                raw_paths.append(raw_path)
                 excerpt = raw_text[-300:].replace("\n", " ")
                 attempts_exhausted = (
                     f"모델 출력에서 판단 JSON 을 못 찾음 (원본: `{raw_path}`, "
@@ -4602,6 +4627,8 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             with contextlib.suppress(OSError):
                 os.unlink(settings_path)
         _append_consult_trace(trace_path, ts, role, issue, question, outcome)
+        commit_paths = [trace_path] + raw_paths
+        _commit_consult_trace(commit_paths, issue, role, outcome, cwd)
 
 
 class _PanelMessagingUnavailable(RuntimeError):
