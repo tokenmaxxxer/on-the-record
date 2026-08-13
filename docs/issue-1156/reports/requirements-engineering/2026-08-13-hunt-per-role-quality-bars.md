@@ -60,3 +60,71 @@ account/session, matching the "two-account/single-account approval
 distinction" the proposal itself cites as its model) — otherwise the
 gate's refusal is defeated by re-running with a different
 `CLAUDE_ROLE` value, which the proposal never rules out.
+
+## after-proposal — stance 0: assume the gate/mechanism just touched is bypassable — find the bypass
+
+Verdict: FINDING — "phase-wise" for the 36 roles has no trigger/deadline/tracking artifact, so the self-grading gate never actually binds them; the proposal's own "applies uniformly to all 43" claim is false as written.
+Kind: design-error
+Seed: git diff docs/issue-1156/proposals/per-role-quality-bars.md (uncommitted working-tree changes, scope extended from 7 to 43 roles)
+cap_seconds: 180
+tier: size:>200-lines
+diff_stat_lines: ~200
+started_at: 2026-08-13T00:00:00Z
+ended_at: 2026-08-13T00:03:00Z
+
+### Reproduce
+grep -n "phase-wise" docs/issue-1156/proposals/per-role-quality-bars.md
+
+Six hits (lines 46, 58, 99, 288, 387, 499), none paired with an issue
+number, date, or trigger condition. Cross-check what actually gates
+self-grading:
+
+grep -n "bar-not-met\|self-grad" docs/issue-1156/proposals/per-role-quality-bars.md
+
+§0 rule 4 ("No self-grading … §4 anti-circularity design applies
+identically regardless of which of the 43 roles owns the bar") and §4/§5
+only reference the `quality_bar` array and `loop_state.refusal:
+bar-not-met` — fields that, per §1/§6/§7, only the 7 landing-order
+roles actually receive in this phase. The 36 roles in §7 get a prose
+"bar domain" + "source standard" sentence, nothing machine-checkable,
+and no `quality_bar`/`bar-not-met` field.
+
+### Observed
+The Constraints section states: "This is a decomposition principle
+applying uniformly to all 43 roles" (bar-level/no-self-grading/human-
+review-checklist rules). But for the 36 roles there is no `quality_bar`
+field, no `bar-not-met` state, and therefore §4/§5's anti-self-grading
+gate has nothing to attach to — those 36 roles' specs continue to be
+self-graded exactly as before this proposal, with no scheduled or
+enforced follow-up: "phase-wise" names no issue, no deadline, no gate
+that blocks anything if phase 2 for those 36 never lands. Nothing in
+the repo (no tracking file, no open sub-issue list) turns "tracked per
+role" (line 288) into an actual tracked artifact — it's asserted, not
+implemented or even pointed at.
+
+### Expected
+Either the uniform-applicability claim should be scoped honestly to
+"the 7 landing this phase; 36 pending, gate does not yet apply to
+them," or §0/§7 should name a concrete phase-2 tracking mechanism
+(e.g., a checklist file or per-role sub-issue enumerated now) so
+"phase-wise" isn't an open-ended promise that lets the self-grading
+gate silently not-bind 84% of roles indefinitely while the proposal
+text claims uniform coverage.
+
+## after-proposal — stance 0 (revision): assume the gate just touched is bypassable — find the bypass
+
+Verdict: FINDING — §0's "no self-grading applies uniformly to all 43" claim has nothing to attach to for the 36 roles named only at domain level in §7: they get no `quality_bar`/`bar-not-met` field, so the anti-circularity gate cannot bind them, and "phase-wise" named no tracking artifact or deadline, leaving the gap open-ended.
+Kind: design-error
+Seed: docs/issue-1156/proposals/per-role-quality-bars.md (§0, §7); uncommitted working-tree diff (scope-amendment revision, phase-1 PR #1158)
+cap_seconds: 180
+tier: size:>200-lines
+diff_stat_lines: 1 file changed, 186 insertions(+), 18 deletions(-) (docs/issue-1156/proposals/per-role-quality-bars.md)
+
+### Fix applied
+Added a "Tracking" paragraph to §7: phase 2 records all 36 roles in
+`docs/specs/role-invariant-coverage.md` with status
+`bar: domain-named, decomposition-pending` (distinct from `bar-met`
+and `out-of-scope`), and states explicitly that the anti-circularity
+gate does not yet enforce for a role until its own decomposition PR
+flips that status to a real `quality_bar` — the gap is now a recorded,
+trackable status rather than an unscoped "phase-wise" promise.
