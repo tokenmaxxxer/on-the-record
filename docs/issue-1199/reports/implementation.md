@@ -327,3 +327,17 @@ this session records the PR-open as a stop-and-report deviation rather
 than continuing to retry, since both repos' commits are already
 committed and pushed regardless of PR-open outcome.
 
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, third implementation-rulebook PR-create retry.
+
+amendments-reconciled: issuecomment-5277558661 — another repeat of the
+same automated judgment-watcher message (this time the paired "Judgment
+opened" half rather than "Verdict: escalate"), for this same
+`issue-1199/implementation` branch's now-updated commit (4 paths
+changed). Per the stated fallback above, this session stops retrying
+`gh pr create` for the implementation-rulebook repo here — see
+docs/issue-1199/reports/implementation/deviation-log.md for the filed
+deviation. Both repos' commits (this repo's 2006043, and
+implementation-rulebook's 217810f) are committed and pushed to their
+`issue-1199/implementation` branches; opening the implementation-rulebook
+PR is left to a follow-up session once the watcher's cadence settles.
+
