@@ -335,3 +335,16 @@ this unit's scope or record content.
 amendments-reconciled: issuecomment-5277255908 — out of scope for this
 unit (verdict on a different fan-out unit's PR), no action taken on
 this record or the rulebook PR.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277258599
+issuecomment-5277258599 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is another
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this interaction-design unit — no amendment to
+this unit's scope or record content.
+amendments-reconciled: issuecomment-5277258599 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR. This unit's phase-2 PR-open hit the
+reconcile-then-retry deadlock described in
+`docs/issue-1199/reports/interaction-design/deviation-log.md`; retries
+stopped after this reconciliation, branch pushed for external relay.
