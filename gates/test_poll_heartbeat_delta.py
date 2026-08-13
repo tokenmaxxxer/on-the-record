@@ -226,6 +226,33 @@ def t_watchdog_anomaly_bullets_survive_round_trip():
         assert r2.stdout.strip() == "", r2.stdout
 
 
+def t_returned_pr_line_always_emits_even_unchanged():
+    """issue #1239: a `[returned-pr]` line (the #680 spawn gate's
+    undisposed-PR surfacing) must emit every tick even when byte-identical
+    to the previous tick — it joins the #1220 always-emit set alongside
+    STALLED/CRASHED/watcher-dead."""
+    report = (
+        "[poll-report] roster: 1 entry\nissue-5/implementation: healthy\n"
+        "[returned-pr] issue #22 (phase1): age=3.2h — https://example/22"
+    )
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, report)
+        assert r1.returncode == 0, r1.stderr
+        assert "[returned-pr] issue #22" in r1.stdout, r1.stdout
+
+        r2 = _run_tick(checkout, home, report)
+        assert r2.returncode == 0, r2.stderr
+        assert "[returned-pr] issue #22" in r2.stdout, r2.stdout
+        assert "issue-5/implementation: healthy" not in r2.stdout, r2.stdout
+
+        r3 = _run_tick(checkout, home, report)
+        assert "[returned-pr] issue #22" in r3.stdout, r3.stdout
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
 
 
