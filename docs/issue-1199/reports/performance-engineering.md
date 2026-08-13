@@ -199,3 +199,13 @@ this issue's comment-race pattern
 (docs/issue-1199/reports/data-modeling.md "amendments-reconciled"
 section), this session reconciles the tail as observed at write time
 rather than retrying indefinitely against a moving comment stream.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5281907299 --jq '.body'`, run this session.
+issuecomment-5281907299 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") arrived after the two comments reconciled above,
+during this session's own PR-create attempt for this branch. It is the
+same watcher pattern (unnamed candidate PR, no specific defect named,
+no revision requested) as issuecomment-5281846314 above, and by the
+same reasoning is superseded by this session's already-landed phase-2
+commit (rulebook-repo 1b23d86) and this record; no content amendment
+is warranted.
