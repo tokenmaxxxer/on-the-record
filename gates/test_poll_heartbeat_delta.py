@@ -119,18 +119,111 @@ def t_change_after_suppression_emits():
 
 
 def t_fresh_state_first_tick_always_emits():
-    """Empty state: first-ever tick (no stored hash) must emit."""
+    """Empty state: first-ever tick (no stored state file) must emit the
+    full initial state once (issue #1220 Acceptance)."""
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         checkout = _make_checkout(tmp)
         home = tmp / "home"
         home.mkdir()
-        assert not (checkout / "runs" / "poll_heartbeat_last_hash").exists()
+        assert not (checkout / "runs" / "poll_heartbeat_last_state.json").exists()
 
         r1 = _run_tick(checkout, home, REPORT_A)
         assert r1.returncode == 0, r1.stderr
         assert REPORT_A in r1.stdout, r1.stdout
-        assert (checkout / "runs" / "poll_heartbeat_last_hash").exists()
+        assert (checkout / "runs" / "poll_heartbeat_last_state.json").exists()
+
+
+def t_only_changed_line_emitted_not_full_report():
+    """issue #1220 proposal item (a): two due ticks where only one
+    session's line changed emit ONLY that session's changed line, not
+    the full report text of the unchanged sessions."""
+    report_1 = "[poll-report] roster: 2 entries\nissue-1/implementation: healthy\nissue-2/implementation: healthy"
+    report_2 = "[poll-report] roster: 2 entries\nissue-1/implementation: healthy\nissue-2/implementation: STALLED (watcher-dead)"
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, report_1)
+        assert report_1 in r1.stdout, r1.stdout
+
+        r2 = _run_tick(checkout, home, report_2)
+        assert r2.returncode == 0, r2.stderr
+        assert "issue-2/implementation: STALLED (watcher-dead)" in r2.stdout, r2.stdout
+        assert "issue-1/implementation: healthy" not in r2.stdout, r2.stdout
+        assert "[poll-report] roster: 2 entries" not in r2.stdout, r2.stdout
+
+
+def t_dead_session_line_always_emits_even_unchanged():
+    """issue #1220 proposal item (b) / issue req #2 regression guard: a
+    dead/STALLED-labeled line must emit every tick even when byte-identical
+    to the previous tick."""
+    report = "[poll-report] roster: 1 entry\nissue-999/implementation: STALLED (watcher-dead)"
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, report)
+        assert "STALLED (watcher-dead)" in r1.stdout, r1.stdout
+
+        r2 = _run_tick(checkout, home, report)
+        assert r2.returncode == 0, r2.stderr
+        assert "STALLED (watcher-dead)" in r2.stdout, r2.stdout
+
+        r3 = _run_tick(checkout, home, report)
+        assert "STALLED (watcher-dead)" in r3.stdout, r3.stdout
+
+
+def t_non_due_tick_produces_no_output():
+    """issue #1220 proposal item (c): a non-due (within-TTL) tick must
+    produce empty stdout — no "skipped (within TTL)" line."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        env = dict(os.environ)
+        env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+        env["FAKE_SPAWN_MARKER"] = str(checkout / "marker.log")
+        env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
+        env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
+        env["FAKE_POLL_DUE"] = "0"
+        env["HOME"] = str(home)
+        env.pop("CLAUDE_ROLE", None)
+        r = subprocess.run(
+            ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
+        )
+        assert r.returncode == 0, r.stderr
+        assert r.stdout.strip() == "", r.stdout
+
+
+def t_watchdog_anomaly_bullets_survive_round_trip():
+    """issue #1220 warrant-hunt regression guard: a `[watchdog] {key}: N건`
+    header followed by multiple `  - {a}` anomaly bullet lines must
+    round-trip through the diff intact across two identical ticks — all
+    bullets present on tick 1, none dropped, and none re-emitted (since
+    unchanged) on tick 2."""
+    report = (
+        "[watchdog] issue-100/role-a: anomaly 2\n"
+        "  - anomaly one: disk full\n"
+        "  - anomaly two: stale lock\n"
+        "[watchdog] issue-200/role-b: ok"
+    )
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, report)
+        assert r1.returncode == 0, r1.stderr
+        assert "anomaly one: disk full" in r1.stdout, r1.stdout
+        assert "anomaly two: stale lock" in r1.stdout, r1.stdout
+
+        r2 = _run_tick(checkout, home, report)
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == "", r2.stdout
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
