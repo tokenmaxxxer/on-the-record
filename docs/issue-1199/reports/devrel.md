@@ -33,6 +33,20 @@ branch `issue-1199/devrel` (4 path(s) changed)" notice, re-posted after
 this record's own prior commit) — no new information, no amendment
 follows.
 
+amendments-reconciled: issuecomment-5277571584 — checked; boilerplate
+verdict ("Verdict: PR #? → escalate...") from the same external
+judgment pipeline as the two comments above, naming no PR number, no
+devrel-scoped file — no amendment follows.
+
+amendments-reconciled: issuecomment-5277577520 — checked; same
+boilerplate verdict pattern as above, no PR number, no devrel-scoped
+file — no amendment follows. This is the known pr-preflight
+comment-race (per docs/issue-1174/reports/issue-retrospective/
+deviation-log.md's 2026-08-13 entries): new issue comments keep
+arriving during each `gh pr create` attempt. Stopping retries after
+this turn's budget per that precedent; commits are pushed to
+issue-1199/devrel for on-the-record's outside relay to open the PR.
+
 ## What was done
 
 Surveyed devrel's practitioner tool landscape (adoption-evidence method:
