@@ -61,6 +61,8 @@
     "board_condition": "a market entry or strategy decision is proposed AND no market-analysis record exists yet covering all five forces",
     "need_detector": {
       "condition": "a product-discovery or pricing record exists on the branch (a market-facing decision was made) AND no market-analysis record exists yet covering all five forces",
+      "present_patterns": ["docs/issue-*/reports/product-discovery.md", "docs/issue-*/reports/pricing*.md"],
+      "absent_patterns": ["docs/issue-*/reports/market-analysis.md"],
       "advisory_only": true,
       "false_positive_bound": "a repo with no product-discovery/pricing record at all never fires — no market-facing decision on the branch -> silent, unconditionally"
     }
