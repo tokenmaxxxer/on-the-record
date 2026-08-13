@@ -145,8 +145,58 @@ the schema this batch modifies.
 
 ## What did not work
 
-None.
+canonical: `gh pr create ...` command output, this turn (denied before
+any network call, PreToolUse hook rejection).
+
+Attempted `gh pr create` against `origin` (this repo, delivering this
+issue's own branch) — denied by
+`on-the-record/hooks/upstream-defect-scope-guard.sh`, which matches any
+`gh pr create` invocation regardless of target repo. The guard's own
+stated purpose (issue #1131 req#4) is to keep the *upstream defect
+channel* issues-only, but its regex has no scoping to that channel or
+to a non-origin repo — it fires on this repo's own delivery PR too.
+Expected: PR opens against `tokenmaxxxer/on-the-record` `main`. Actual:
+denied with "the upstream defect channel files issues only, never PRs".
+
+Also attempted to persist a deviation-log entry per the role-deviation
+directive's FILE-AS-ISSUE path, at a reports-subtree path this session
+does not own — denied by `board-gate.sh` (this session's role,
+`implementation`, may write only `implementation.md`/
+`implementation/**`, never a foreign record path).
+
+canonical: `git status --short`, executed this turn (no uncommitted
+change and no stray commit from that denied attempt).
+
+No commit was produced by that attempt; the finding is recorded here
+instead, in this role's own record, since no alternate persistence
+path was available inside this session.
+
+## Rationale for deviations
+
+The approved proposal's "How you'll know it worked" implicitly assumes
+a PR gets opened (contract v3 s19's standard delivery shape: "ALL of
+your output... returns to the user as a PULL REQUEST against main").
+
+canonical: `gh pr create ...` denial output, this turn (PreToolUse hook
+rejection, cited above under "What did not work").
+
+That step was blocked this turn — not a scope or design deviation, but
+an environment/hook block outside this issue's frozen write set
+(fixing `upstream-defect-scope-guard.sh` is out of scope: it belongs to
+issue #1131's write set, not #1163's). Per the role directive's
+guidance for a push/PR-blocked ending, work stops here with commits
+landed and pushed to `origin/issue-1163/implementation`; PR creation is
+expected to be relayed externally.
 
 ## Open findings
 
-None.
+- `on-the-record/hooks/upstream-defect-scope-guard.sh` denies `gh pr
+  create` universally (no repo/session scoping), blocking this and
+  presumably every future role session's own delivery-PR creation
+  against this repo's own origin remote, not just the upstream defect
+  channel it was designed to restrict. Resolution path: a session
+  scoped to issue #1131 (or a session holding write access to
+  `on-the-record/hooks/`) should narrow the guard's match to exclude
+  `--repo`/default-remote calls targeting this repo itself, or add an
+  explicit allow-list keyed on the invoking role/branch rather than
+  matching the bare command shape everywhere.
