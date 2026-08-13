@@ -1,6 +1,40 @@
 {
   "role": "ml-engineering",
   "source_standard": "Model Cards (Mitchell et al. 2019), https://arxiv.org/pdf/1810.03993",
+  "judgment_methodology": {
+    "method": "Google's Rules of ML (\"Rule #1: Don't be afraid to launch a product without machine learning\") as the build/no-build judgment lens",
+    "source": "Zinkevich, \"Rules of Machine Learning\"; developers.google.com/machine-learning/guides/rules-of-ml"
+  },
+  "planning_methodology": {
+    "method": "CRISP-DM phases (business understanding -> data understanding -> preparation -> modeling -> evaluation -> deployment)",
+    "source": "CRISP-DM (1999)"
+  },
+  "deliverable_form": {
+    "method": "Model Card documenting intended use, training data, and evaluation metrics",
+    "source": "Mitchell et al., \"Model Cards for Model Reporting,\" FAT* 2019; research.google/blog/introducing-the-model-card-toolkit-for-easier-model-transparency-reporting"
+  },
+  "feedback_methodology": {
+    "method": "Rules-of-ML review pass (rules 1-20, the \"before machine learning\" phase) applied before approving a new model path",
+    "source": "Zinkevich, \"Rules of Machine Learning\"; developers.google.com/machine-learning/guides/rules-of-ml"
+  },
+  "review_methodology": {
+    "method": "CRISP-DM evaluation-phase sign-off against the business success criteria set at the planning phase",
+    "source": "CRISP-DM (1999)"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "Google's Rules of Machine Learning",
+      "source": "developers.google.com/machine-learning/guides/rules-of-ml"
+    },
+    {
+      "concept": "CRISP-DM process model",
+      "source": "CRISP-DM (1999)"
+    },
+    {
+      "concept": "Model Cards for transparency reporting",
+      "source": "research.google/blog/introducing-the-model-card-toolkit-for-easier-model-transparency-reporting"
+    }
+  ],
   "required_fields": [
     {
       "name": "model_id",

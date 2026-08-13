@@ -1,6 +1,40 @@
 {
   "role": "data-modeling",
   "source_standard": "Kimball dimensional-modeling conventions (fact/dimension grain), https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/ — chosen at this delivery sub-batch's own re-scout per the batch-3-plus proposal's flagged gap; the Data Contract Specification (bitol.io) was considered and rejected because it duplicates data-engineering's dbt-contract scope within this repo's family split.",
+  "judgment_methodology": {
+    "method": "Codd's normalization rules (1NF-3NF/BCNF) as the correctness lens for a schema change",
+    "source": "Codd, \"A Relational Model of Data for Large Shared Data Banks,\" CACM 1970"
+  },
+  "planning_methodology": {
+    "method": "Entity-relationship modeling before physical schema design",
+    "source": "Chen, \"The Entity-Relationship Model,\" ACM TODS 1976"
+  },
+  "deliverable_form": {
+    "method": "IDEF1X-conformant entity-relationship diagram plus a data dictionary",
+    "source": "NIST FIPS 184 IDEF1X"
+  },
+  "feedback_methodology": {
+    "method": "Pattern match against known model archetypes (party, product, transaction) before endorsing a novel structure",
+    "source": "Silverston & Agnew, The Data Model Resource Book, Vol 3 (Wiley 2008)"
+  },
+  "review_methodology": {
+    "method": "Normal-form audit: check every relation against 1NF-3NF/BCNF and justify any deliberate denormalization",
+    "source": "Codd, \"A Relational Model of Data for Large Shared Data Banks,\" CACM 1970"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "Relational normalization (1NF-3NF, BCNF)",
+      "source": "Codd, \"A Relational Model of Data for Large Shared Data Banks,\" CACM 1970"
+    },
+    {
+      "concept": "Entity-relationship modeling",
+      "source": "Chen, \"The Entity-Relationship Model,\" ACM TODS 1976"
+    },
+    {
+      "concept": "IDEF1X modeling notation",
+      "source": "NIST FIPS 184 IDEF1X"
+    }
+  ],
   "required_fields": [
     {
       "name": "table_name",

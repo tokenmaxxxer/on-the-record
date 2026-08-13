@@ -1,6 +1,40 @@
 {
   "role": "knowledge-management",
   "source_standard": "KCS (Knowledge-Centered Service) Solve loop, https://www.thekcsacademy.net/kcs/",
+  "judgment_methodology": {
+    "method": "SECI model (Socialization-Externalization-Combination-Internalization) to judge whether tacit knowledge has actually been captured",
+    "source": "Nonaka & Takeuchi, The Knowledge-Creating Company (1995)"
+  },
+  "planning_methodology": {
+    "method": "ISO 30401 knowledge-management-system planning cycle (context, leadership, planning, support)",
+    "source": "ISO 30401:2018; iso.org/standard/89436.html"
+  },
+  "deliverable_form": {
+    "method": "APQC KM maturity-level-scoped artifact (process doc, lessons-learned entry, or community-of-practice note)",
+    "source": "APQC KM-CAT and maturity levels; apqc.org/resource-library"
+  },
+  "feedback_methodology": {
+    "method": "Externalization check: does the artifact convert a named person's tacit know-how into a reusable explicit form",
+    "source": "Nonaka & Takeuchi, The Knowledge-Creating Company (1995)"
+  },
+  "review_methodology": {
+    "method": "ISO 30401 conformance check against the standard's knowledge-development and knowledge-sharing clauses",
+    "source": "ISO 30401:2018; iso.org/standard/89436.html"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "SECI knowledge-conversion model",
+      "source": "Nonaka & Takeuchi, The Knowledge-Creating Company (1995)"
+    },
+    {
+      "concept": "ISO 30401 knowledge management systems",
+      "source": "iso.org/standard/89436.html"
+    },
+    {
+      "concept": "APQC KM maturity model",
+      "source": "apqc.org/resource-library"
+    }
+  ],
   "required_fields": [
     {
       "name": "article_id",

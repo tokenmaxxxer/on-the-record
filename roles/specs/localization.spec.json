@@ -1,6 +1,44 @@
 {
   "role": "localization",
   "source_standard": "Unicode CLDR / UTS #35 (LDML), https://cldr.unicode.org/ , https://www.unicode.org/reports/tr35/",
+  "judgment_methodology": {
+    "method": "MQM (Multidimensional Quality Metrics) error typology to classify a translation defect's severity",
+    "source": "Lommel et al., MQM framework (2014); themqm.org"
+  },
+  "planning_methodology": {
+    "method": "ISO 17100 translation-project workflow (preparation, translation, revision, review, proofreading)",
+    "source": "ISO 17100:2015; iso.org/standard/59149.html"
+  },
+  "deliverable_form": {
+    "method": "XLIFF 2.1 translatable-unit package with locale metadata",
+    "source": "OASIS XLIFF 2.1; oasis-open.org/committees/xliff"
+  },
+  "feedback_methodology": {
+    "method": "MQM-scored bilingual review with per-error severity weighting",
+    "source": "Lommel et al., MQM framework (2014); themqm.org"
+  },
+  "review_methodology": {
+    "method": "ISO 17100 revision-and-review step performed by a second linguist against the source",
+    "source": "ISO 17100:2015; iso.org/standard/59149.html"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "MQM error typology",
+      "source": "themqm.org"
+    },
+    {
+      "concept": "ISO 17100 translation service requirements",
+      "source": "iso.org/standard/59149.html"
+    },
+    {
+      "concept": "XLIFF interchange format",
+      "source": "oasis-open.org/committees/xliff"
+    },
+    {
+      "concept": "Internationalization vs. localization terminology",
+      "source": "w3.org/TR/i18n-glossary"
+    }
+  ],
   "required_fields": [
     {
       "name": "locale",
