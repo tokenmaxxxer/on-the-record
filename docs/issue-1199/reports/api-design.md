@@ -139,6 +139,17 @@ scout-directive saturation check at judge point 1.
    than hand-maintaining both forms.
    Source: https://redocly.com/docs/cli/commands/bundle
 
+## Amendments reconciled
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277526812
+issuecomment-5277526812 ("Judgment opened: PR #? — candidate decision
+on branch `issue-1199/api-design` (1 path(s) changed) entered
+delegated-judgment evaluation.") is an automated pre-PR watcher
+notice, posted after this session started, with no amendment content
+of its own — no action taken on this record or the rulebook PR.
+amendments-reconciled: issuecomment-5277526812 — automated notice,
+no scope change.
+
 ## What did not work
 
 None.
