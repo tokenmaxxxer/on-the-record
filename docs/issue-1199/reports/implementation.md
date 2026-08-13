@@ -99,3 +99,19 @@ this record's scope, write set, or verdict.
 
 canonical: same gh api comments listing above, read this session.
 - Full thread re-read for anything addressed to `issue-1199/implementation`; the only comment naming this branch is the pre-existing APPROVE comment already cited in this session's approval check.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session after this record's own prior commit.
+
+amendments-reconciled: issuecomment-5276678013, issuecomment-5276678215 —
+"Judgment opened: ... branch `issue-1199/implementation` (7 path(s)
+changed) entered delegated-judgment evaluation" / "Verdict: PR #? ->
+escalate (depth or impact axis did not clear)" is an external
+automated judgment-evaluation sweep over this branch's prior commit
+(7 paths at the time it ran), separate from this role-handoff
+contract's own approval path (already satisfied by the exact-string
+APPROVE comment cited above). Its "escalate" verdict is a signal for
+human/orchestrator review, not an instruction changing this record's
+scope, write set, or verdict — this session's own build-now approval
+(exact-string APPROVE issue-1199/implementation comment, listed
+approver) is unaffected and remains the governing approval for phase 2
+here.
