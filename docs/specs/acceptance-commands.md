@@ -27,3 +27,4 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 |---|---|---|
 | self | `python3 -m pytest -q gates/ on-the-record/hooks/` | 2026-08-12 (issue #914) |
 | gates/test_record_lint.py | `python3 -m pytest gates/test_record_lint.py -q` | 2026-08-12 (issue #1085) |
+| gates/test_upstream_finding_channel.py | `python3 -m pytest gates/test_upstream_finding_channel.py on-the-record/hooks/test_upstream_defect_scope_guard.py -q` | 2026-08-13 (issue #1131) |
