@@ -16,7 +16,7 @@ issuecomment-5276849785, issuecomment-5276850014, issuecomment-5276680886
 `gh api repos/tokenmaxxxer/on-the-record/issues/1174/comments` this
 turn. This issue is under heavy concurrent multi-role automated
 traffic (other fan-out units' PR-judgment/verdict/watch notifications
-firing every few seconds); every comment through issuecomment-5276680886
+firing every few seconds); every comment through issuecomment-5276871752
 5276855631
 is a generic templated "Verdict: PR #? -> escalate" with no PR number
 or role named, a "Judgment opened" notice for a different role's
