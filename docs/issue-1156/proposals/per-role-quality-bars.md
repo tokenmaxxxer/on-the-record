@@ -276,10 +276,30 @@ the identity that produced the bar-scoped diff being graded.
 `gates/quality_bar.py` takes both identities as explicit inputs (never
 inferred from prose) and returns `BAR_NOT_MET` — same as "no record at
 all" — whenever they match, so a role cannot satisfy its own gate by
-writing its own passing verdict. This mirrors the role-handoff
-contract's own two-account/single-account approval distinction (the
-SessionStart interaction-protocol directive already in this session)
-rather than inventing a new identity model.
+writing its own passing verdict.
+
+A same-operator bypass was found and must be closed in the design, not
+left to phase 2 (after-proposal warrant hunt,
+`docs/issue-1156/reports/requirements-engineering/2026-08-13-hunt-per-role-quality-bars.md`):
+comparing bare `CLAUDE_ROLE` values (the way the sibling gate
+`merge-allow-gate.sh` already reads producing/acting identity, per its
+`os.environ.get("CLAUDE_ROLE", "")` read) is not sufficient, because
+`CLAUDE_ROLE` is a self-declared, operator-controlled env var — one
+operator can produce the diff under one `CLAUDE_ROLE`, then re-exec
+under a second `CLAUDE_ROLE` value in the same terminal/session and
+author a passing verdict, satisfying "identities differ" while being
+the same actual account. `gates/quality_bar.py`'s producer/author
+identity inputs must therefore each resolve through the same
+account-level check the role-handoff contract's own approval gate
+already performs — the two-account/single-account distinction
+(`approvers.md` account resolution, the SessionStart interaction-
+protocol directive) — not a bare env-var string compare: the producer
+identity is the account that authored the bar-scoped commit(s) (git
+author/committer identity or PR author, matching how
+`pr-preflight.sh`/`approval-gate.sh` already resolve "who authored
+this"), and the author identity is the account that authored the
+verdict record's commit — `BAR_NOT_MET` whenever those two accounts are
+the same, regardless of what `CLAUDE_ROLE` each claimed at the time.
 
 ### 5. Bounded rejection loop + escalation
 
