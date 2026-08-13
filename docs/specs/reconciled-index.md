@@ -25,6 +25,9 @@ updating "Resolved ambiguities" if the edit touches a resolved point.
 | `docs/handbooks/operations.md` | `050addd2a66a42a7c992d6f7d682de4e22499f0d55389f102f45dbf1cf60c172` |
 | `docs/handbooks/setup.md` | `240ea33619b461c7b0ca6c8f4433121249247ff5bfedd2ace39d46a940525df8` |
 | `on-the-record/commands/run.md` | `4ef2f433276d2c78002f40f7da6f1e51dba8ca6f103d15217a0c032be7685a56` |
+| `roles/specs/brand-design.spec.json` | `782f48a1b14dde46bae9d4104ac64b905a6bd52cecbc736bac12e763fb31a277` |
+| `roles/specs/content-design.spec.json` | `97c73a3dd111b98bde485c5e4c69573a49d955fceac3f9e3e56311e7a484048b` |
+| `roles/specs/market-analysis.spec.json` | `6187f09ebb705ad622341a1787fc9d6833104abc2b9bc9907eb232c211ddada0` |
 
 ## Resolved ambiguities
 

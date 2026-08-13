@@ -65,7 +65,8 @@
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
   "write_scope": [
-    "docs/issue-<n>/reports/content-design.md"
+    "docs/issue-<n>/reports/content-design.md",
+    "docs/issue-<n>/reports/content-design/*.md"
   ],
   "loop_state": {
     "progress": [
@@ -83,6 +84,23 @@
     ]
   },
   "use_when": {
-    "board_condition": "new user-facing content is proposed on the branch AND no content-design record exists yet for that content_id"
-  }
+    "board_condition": "new user-facing content is proposed on the branch AND no content-design record exists yet for that content_id",
+    "need_detector": {
+      "condition": "the target project has user-facing string literals in UI source (JSX/template text nodes matching a minimum length threshold, not single-word labels) AND no docs/**/content-design/style-guide.md exists anywhere in the repo tree",
+      "advisory_only": true,
+      "false_positive_bound": "a purely programmatic/API-only project with no rendered UI text never matches the string-literal heuristic, so it stays silent; the literal-length threshold is set deliberately conservative (favor false-silence over false-fire) and numeric tuning is phase-2 follow-up work, not decided numerically here"
+    }
+  },
+  "outcome_mission": "the target project's user-facing copy is governed by an applied voice-and-tone standard a contributor can follow without re-deriving it — not a one-off review comment.",
+  "mission_deliverables": [
+    {
+      "artifact": "docs/issue-<n>/reports/content-design/style-guide.md (voice-and-tone entry + before/after example pairs, per the spec's existing deliverable_form field)",
+      "fit_criterion": "every voice/tone rule carries at least one before/after pair drawn from real target-project copy, not a hypothetical example"
+    },
+    {
+      "artifact": "microcopy patterns for the target project's actual UI moments (error message, empty state, button label) that exist in the current codebase",
+      "fit_criterion": "each pattern names the UI moment and gives an answerable rule (exact wording or a template), checkable against the plain_language_check field already in required_fields"
+    }
+  ],
+  "verified_by": "requirements-engineering — content-design never grades its own mission_deliverables; plain-language/before-after verification is a documentation-quality check requirements-engineering already performs on records generally, and it never authors content-design's own deliverable"
 }
