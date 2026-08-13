@@ -52,6 +52,16 @@ if [ -z "${CHECKOUT}" ]; then
   exit 0
 fi
 
+# issue #1245: attachment gate. The Monitor must not register at all (no
+# alive marker, no tick loop, no state/log files) for a session whose
+# target repo is not an on-the-record board (no docs/specs/approvers.md)
+# -- the operator's widened #1219 requirement. Checked before the alive
+# marker write below, which is the earliest registration artifact.
+if [ ! -f "$(pwd -P)/docs/specs/approvers.md" ]; then
+  echo "poll tick: skipped (target repo is not an on-the-record board)"
+  exit 0
+fi
+
 # issue #947: monitor-unavailable degradation notice. Plugin Monitors run
 # only in interactive CLI sessions (docs/specs/platform-capabilities.md);
 # directive.sh (UserPromptSubmit) infers whether THIS session's own

@@ -68,7 +68,7 @@ def _make_checkout(tmp: Path) -> Path:
     return checkout
 
 
-def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict) -> subprocess.CompletedProcess:
+def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict, cwd: Path = None) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
     env["FAKE_SPAWN_MARKER"] = str(marker)
@@ -78,6 +78,7 @@ def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict) -> subprocess.
     env.update(env_extra)
     return subprocess.run(
         ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
+        cwd=str(cwd) if cwd is not None else None,
     )
 
 
@@ -169,6 +170,59 @@ def t_heartbeat_surfaces_induced_dead_poller():
         assert "STALLED (watcher-dead)" in r.stdout, r.stdout
         assert "[poll-report]" in r.stdout, r.stdout
         assert "[resume]" in r.stdout, r.stdout
+
+
+def t_heartbeat_skips_attachment_on_non_board_repo():
+    """issue #1245: a target repo with no docs/specs/approvers.md must
+    never get the Monitor attached at all -- no alive marker, no state
+    file, no watchdog log, even on a due tick."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        target_repo = tmp / "foreign_repo"
+        target_repo.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_REPORT": EMPTY_ROSTER_REPORT},
+                            cwd=target_repo)
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert not (target_repo / ".orchestrate-monitor-alive").exists(), \
+            "non-board target repo must not get an alive marker"
+        assert not (checkout / "runs" / "poll_heartbeat_last_state.json").exists(), \
+            "non-board target repo must not get a poll_heartbeat_last_state.json"
+        assert not (home / ".claude" / "tokenmaxxxer" / "poll-watchdog.log").exists(), \
+            "non-board target repo must not get a poll-watchdog.log"
+        assert not (marker.exists() and marker.read_text().strip()), \
+            "non-board target repo must not run the watchdog"
+
+
+def t_heartbeat_attaches_on_board_repo():
+    """issue #1245 counterpart: a target repo carrying
+    docs/specs/approvers.md keeps today's due-tick behavior byte-for-byte
+    -- alive marker created, watchdog invoked, captured report in stdout."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        target_repo = tmp / "board_repo"
+        (target_repo / "docs" / "specs").mkdir(parents=True)
+        (target_repo / "docs" / "specs" / "approvers.md").write_text("- someone\n", encoding="utf-8")
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_REPORT": EMPTY_ROSTER_REPORT},
+                            cwd=target_repo)
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
+        assert (target_repo / ".orchestrate-monitor-alive" / "alive").exists(), \
+            "board target repo must get an alive marker"
+        assert _wait_for_marker(marker), "watchdog was not run on a due tick for a board repo"
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
