@@ -5937,10 +5937,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 워처를 못 띄우면 스폰 자체를 완료로 치지 않는다 — 구조적으로
                 # "워처 없는 스폰"이 불가능해야 한다는 요구이기 때문이다.
                 watcher_log = Path(str(cwd) + ".watcher.log")
+                resolved_watch_cwd = str(Path(cwd).resolve())
                 try:
                     with watcher_log.open("a", encoding="utf-8") as wf:
                         wproc = subprocess.Popen(
                             [sys.executable, str(Path(__file__).resolve()),
+                             "-C", resolved_watch_cwd,
                              "watch", "--issue", str(issue), "--role", role,
                              "--follow", "--self-heal",
                              "--stall-timeout", str(stall_timeout_min)],
@@ -5956,19 +5958,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                       watcher_armed_at=time.time())
                 print(f"[{role}] 워처 자동 무장: pid {wproc.pid} "
                       f"(로그 {watcher_log})", file=sys.stderr)
-                if no_wait:
-                    # 이슈 #645: fork/detach 뒤 `_await_bounded` 를 아예
-                    # 안 거치고 즉시 리턴한다 — "항상 백그라운드로 스폰"
-                    # 규약이 harness 의 run_in_background 에만 기대지 않게,
-                    # spawn.py 자신도 인프로세스로 블록하지 않는 경로를 둔다.
-                    # 워처는 이미 무장됐으니 재개는 그대로 spawn.py watch 로.
-                    print(f"[{role}] --no-wait: 스폰은 리턴했지만 세션은 계속 "
-                          f"돈다 — 상태는 spawn.py ps, 이어보려면 "
-                          f"spawn.py watch --issue {issue} --role {role}",
-                          file=sys.stderr)
-                    return 0
-                return _await_bounded(events_path, offset_path,
-                                       stall_timeout_min, log_path)
+                # 이슈 #1154: 워처는 `start_new_session=True` 로 detach 됐지만,
+                # 아래 `_await_bounded()` 를 그대로 거치면 이 스폰 프로세스
+                # 자신이 호출자의 bounded 호출 안에 계속 살아 있는다 —
+                # `_rearm_watcher_detached()`(#1133/#1149) 가 등록 직후 바로
+                # 리턴해 살아남는 것과 달리, 여기는 그 리턴이 `no_wait` 뒤에만
+                # 있어서 기본 경로(non-`--no-wait`)의 워처가 호출자와 함께
+                # 죽는 걸로 관측됐다(이슈 #1154 8/8). 등록 직후 항상 리턴해
+                # `_rearm_watcher_detached()` 와 같은 모양으로 맞춘다.
+                # 기존 bounded 진행 대기가 필요하면 별도
+                # `spawn.py watch --issue <n> --role <role>` 호출로 이어본다.
+                print(f"[{role}] 스폰은 리턴했지만 세션은 계속 돈다 — 상태는 "
+                      f"spawn.py ps, 이어보려면 spawn.py watch --issue "
+                      f"{issue} --role {role}", file=sys.stderr)
+                return 0
             try:
                 _rewrite_spawn_claim_pid(cwd)
                 os.setsid()
