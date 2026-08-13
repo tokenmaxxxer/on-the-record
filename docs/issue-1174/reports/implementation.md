@@ -181,6 +181,8 @@ FAILED gates/test_role_utilization_report.py::test_all_43_role_stems_present_as_
 Same 3 of the full suite's 5 failure IDs reproduce on the unmodified
 tree, confirming they predate this change and are unrelated to it.
 
+amendments-reconciled: `issuecomment-5276184233` — same automated Judgment/Verdict escalate pattern as the comments above, observed across this issue's several concurrent role-session branches (ux-engineering, brand-design, etc.), unrelated to this gate fix's write set. No amendment needed.
+
 ### What did not work
 
 None.
