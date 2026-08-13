@@ -49,22 +49,34 @@ source of truth, zero new resolution logic.
 
 ## What will be done
 
-- In `spawn.py`, inside `consult_cmd()`, resolve the `core` entry from
+- In `spawn.py`, extract `consult_cmd()`'s argv/env construction
+  (currently inline, immediately followed by a same-function
+  `subprocess.run` call at spawn.py:4441) into its own return-only
+  helper — `_consult_cmd_and_env(role, spec, cwd) -> tuple[cmd, env]`
+  — mirroring the shape `spawn_cmd()` already has (build-then-return,
+  never calling subprocess itself). `consult_cmd()` calls the helper,
+  then loops `subprocess.run` over it exactly as today. This is what
+  makes the env hermetically testable without a live `claude` process
+  — a warrant hunt on this proposal (docs/issue-1141/reports/implementation/2026-08-13-hunt-consult-core-plugin-root-injection.md)
+  found that without this extraction, a test could only reimplement
+  the injection logic rather than exercise the real code path, exactly
+  the drift class this fix exists to close.
+- Inside that helper, resolve the `core` entry from
   `core_plugin_dirs()` (mirroring `spawn_cmd()`'s existing
   `core_dir = next(...)` lookup at spawn.py:4300) and inject it into
-  the subprocess `env` dict as `CLAUDE_PLUGIN_ROOT_CORE`, so `terse.sh`
+  the returned `env` dict as `CLAUDE_PLUGIN_ROOT_CORE`, so `terse.sh`
   and any other rulebook hook can locate `hooks/lib/gate-lib.sh`
   without falling back to the (broken) relative-path guess.
 - Add `gates/test_consult_gate_lib_env.py`: a hermetic test using a
   fixture layout under `tests/fixtures/rulebooks/` (already present in
-  this repo) that asserts the env `consult_cmd()` constructs for its
-  subprocess resolves `hooks/lib/gate-lib.sh` under the injected
+  this repo) that calls `_consult_cmd_and_env()` directly and asserts
+  the returned env resolves `hooks/lib/gate-lib.sh` under the injected
   `CLAUDE_PLUGIN_ROOT_CORE` path — reusing `gates/test_env_resolve.py`'s
   `resolve_core()` helper so this pins the exact same acceptance shape
-  `spawn_cmd()` already has to meet, and cannot silently re-diverge.
-  The test exercises `consult_cmd()`'s env-construction logic directly
-  (no live network clone, no live `claude` process) — hermetic per the
-  issue's acceptance criterion.
+  `spawn_cmd()` already has to meet. No live network clone, no live
+  `claude` process, no reimplementation of the injection logic under
+  test — hermetic per the issue's acceptance criterion and closed
+  against the hunt finding above.
 
 ## Out of scope
 
