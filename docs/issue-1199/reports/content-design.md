@@ -204,3 +204,17 @@ opened: PR #? — candidate decision on branch `issue-1199/accessibility`
 not name or reference this content-design unit or its rulebook-repo
 counterpart (content-design-rulebook#29), so no content amendment to
 this record is warranted.
+
+amendments-reconciled: issuecomment-5277572544 ("Judgment opened: PR
+#? — candidate decision on branch `issue-1199/content-design` (1
+path(s) changed) entered delegated-judgment evaluation.") names this
+unit's own branch (canonical: `gh issue view 1199 --json comments -q
+'.comments[-3:]'`, read this session — no verdict comment for this
+branch's judgment has landed yet as of this read; the two immediately
+following comments are a full opened/verdict pair for the unrelated
+`issue-1199/execution-observation` branch). No verdict content exists
+yet to reconcile against; this record proceeds on the
+`APPROVE issue-1199/content-design` comment already on record above,
+per contract v3 s19's two approval paths (this being single-account
+mode) — the delegated-judgment evaluation is a separate, additional
+mechanism this record notes but does not treat as blocking.
