@@ -216,3 +216,30 @@ and pushed —
 (e3cc5ae, superseded by this commit) on
 `origin/issue-1199/execution-observation` — satisfying commit+push for
 both halves of this delivery regardless of PR-open success.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments`, re-read this session, third rulebook-repo PR-create attempt.
+
+amendments-reconciled: issuecomment-5277577662 — a third repeat of the
+same automated judgment-watcher "Judgment opened" message for this
+branch, posted after the immediately-prior reconcile — the deadlock
+pattern the `docs/issue-1199/reports/implementation.md` precedent
+already named on this issue. Per that precedent's own fallback, this
+session stops retrying `gh pr create` in the
+execution-observation-rulebook repo here: the target-repo commit
+(canonical: `git -C /tmp/eo-rb log -1 --oneline
+origin/issue-1199/execution-observation`, read this session — 67049c6)
+is already committed and pushed. Opening that PR and this repo's own
+record PR is left to a follow-up attempt once the watcher's post
+cadence has settled.
+
+## Rationale for deviations
+This session's execution-plan for the phase-2 delivery did not
+anticipate `pr-preflight.sh`'s per-attempt reconcile requirement racing
+against an external judgment-watcher reposting a "Judgment opened"/
+"Verdict" pair roughly every 10-40s for this branch — each `gh pr
+create` retry hit a comment posted after the prior reconcile, three
+times in a row for the execution-observation-rulebook PR attempt. This
+mirrors the same deadlock the `implementation.md` record already
+documented and reconciled on this same issue; the fallback there
+(stop retrying once both target-repo commits are pushed, leave PR-open
+to a follow-up) is applied identically here.
