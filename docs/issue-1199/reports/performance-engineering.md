@@ -220,3 +220,10 @@ This session stops individually reconciling further instances of this
 identical, content-free verdict pattern beyond this point (per the
 same "stops chasing individual new comment ids" precedent cited above)
 and proceeds to open the PR.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5281938424 --jq '.body'`, run this session.
+issuecomment-5281938424 is another instance of the same identical,
+content-free "Verdict: PR #? → escalate" watcher pattern already
+reconciled three times above; per the stopping rule already stated,
+this session does not open a fourth individually-reasoned paragraph
+for it and proceeds directly to PR-create.
