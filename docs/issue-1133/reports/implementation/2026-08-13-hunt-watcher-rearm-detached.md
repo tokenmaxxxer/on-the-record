@@ -34,3 +34,39 @@ Both concurrent `--rearm` invocations decided (correctly, given the state each r
 
 ### Expected
 The read-decide-spawn-write sequence needs to be atomic (e.g. take `_workspace_index_locked()` for the whole check-then-act, or use a compare-and-swap on the recorded `watcher_pid`) so a second concurrent `--rearm` call that races an in-flight one either blocks/no-ops instead of spawning, or the losing spawned child is killed before the call returns — otherwise every concurrent double-invocation (plausible for the exact orchestrator-retry scenario the proposal was written to fix) leaks a permanently running, permanently untracked `--self-heal` process.
+
+## before-landing — stance 1: this change and another plugin's rule cancel each other
+
+Verdict: NO FINDING
+Seed: spawn.py diff adding `_rearm_watcher_detached()`, `--rearm` CLI flag, repointed watcher-dead/watcher-silent remediation strings; new gates/test_watch_rearm_registry.py
+cap_seconds: 120
+tier: default
+diff_stat_lines: spawn.py +75/-2 (gates/test_watch_rearm_registry.py untracked, ~150 lines)
+started_at: 2026-08-13T00:00:00Z
+ended_at: 2026-08-13T00:05:00Z
+
+Checked and ruled out:
+- No gate/hook machine-parses the changed watcher-dead/watcher-silent remediation
+  strings (`grep -rn "재무장하라"` outside spawn.py finds nothing) — text change
+  is human-facing only, so it cannot silently break a consumer.
+- `_watcher_looks_real()` (spawn.py:1941) identifies a watcher via
+  `/proc/<pid>/cmdline` containing "watch"/issue/role tokens, not parent-pid or
+  process-group ancestry — `start_new_session=True` detaching the rearmed child
+  from the caller's session does not break this check.
+- The `_workspace_index_locked()` flock fd held across the `subprocess.Popen`
+  call in `_rearm_watcher_detached()` does not leak into the child: Python's
+  `subprocess.Popen` default `close_fds=True` closes it before exec, so no
+  lock-ordering conflict with `roster_watchdog()`/`watchdog_check_one()`, which
+  also take the same lock via `_workspace_index_put()`.
+- `on-the-record/monitors/poll-heartbeat.sh`'s `spawn.py watchdog --auto-respawn`
+  path and `_auto_respawn_check()` operate on session respawn (crashed
+  wrapper_pid), a separate mechanism from watcher re-arm (`watcher_pid`) — no
+  shared state or ordering dependency found between them.
+- No `gates/gates.py` rule enforces a single specific watcher-spawn shape
+  (grepped for `start_new_session`/`Popen(`/`detached` — no hits), so there is
+  no "process-accounting gate assumes only auto-arm spawns watchers" rule to
+  conflict with.
+- `gates/test_watch_rearm_registry.py` runs standalone and passes (5/5 tests).
+
+No reproducible pair of rules found that cancel each other. Stopping per the
+no-reproduction rule.
