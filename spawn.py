@@ -2546,7 +2546,9 @@ def requirement_drift(root: Path) -> None:
         print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
         return
 
-    sys.path.insert(0, str((root / "gates").resolve()))
+    # 이슈 #1219: gates 코드는 언제나 이 체크아웃(ROOT)에서 온다 — root 가
+    # 컨슈머의 타깃 프로젝트일 때 거기엔 gates/ 가 없다.
+    sys.path.insert(0, str((ROOT / "gates").resolve()))
     try:
         import requirement_linkage as _requirement_linkage
         infra_tag = _requirement_linkage._INFRA_TAG
@@ -2607,8 +2609,12 @@ def _board_wide_sweep(root: Path) -> int:
     (observe-only, roster_watchdog 계약과 동일). 위반/미커버 이슈 수를
     합쳐서 돌려준다 — gh 실패(skips 있음 / open_issues=None)도 "깨끗함"이
     아니라 이상 신호 1건으로 센다(조용한 실패가 진행과 구분 안 되는 결함을
-    재현하지 않기 위해)."""
-    sys.path.insert(0, str(root / "gates"))
+    재현하지 않기 위해).
+
+    이슈 #1219: `root` 는 스캔 대상(보드) — 컨슈머 세션이면 타깃 프로젝트다.
+    gates 코드 자체는 언제나 이 체크아웃(ROOT)에서 임포트한다 — 타깃
+    프로젝트엔 gates/ 가 없다."""
+    sys.path.insert(0, str(ROOT / "gates"))
     import closure_sweep
     import spawn_coverage
     count = 0
@@ -2641,7 +2647,8 @@ def _board_wide_sweep(root: Path) -> int:
     return count
 
 
-def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
+def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
+                     root: Path = ROOT) -> int:
     """`spawn.py watchdog` — 살아있는 모든 역할 세션을 한 번 스캔해서 이상
     신호를 사람이 읽을 수 있게 출력한다. observe-only: 아무 것도 고치거나
     죽이지 않는다. 오케스트레이터가 10-15분 간격으로 반복 호출한다
@@ -2663,8 +2670,15 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
     spawn_coverage) 스윕도 한 번 돈다 — 로스터가 비어 있어도 건너뛰지
     않는다(로스터가 빈 상태에서 보드가 방치될 위험이 가장 크다). 위반/미커버
     이슈는 로스터 이상 신호와 같은 모양으로 출력되고 `anomaly_count`에
-    합산된다. observe-only 계약은 그대로 — 아무것도 고치거나 닫지 않는다."""
-    anomaly_count = _board_wide_sweep(ROOT)
+    합산된다. observe-only 계약은 그대로 — 아무것도 고치거나 닫지 않는다.
+
+    이슈 #1219: `root` 는 이 워치독이 보는 보드다 — CLI 는 호출자의 `-C`
+    (컨슈머 세션이면 타깃 프로젝트, dev 세션이면 이 체크아웃 자신)를 그대로
+    넘긴다. 기본값 `ROOT`(spawn.py 자신의 체크아웃)는 CLI 를 거치지 않는
+    직접 호출/테스트만을 위한 하위호환 폴백이다 — 워치독 코드(closure_sweep
+    등 gates 모듈) 임포트는 항상 `ROOT` 를 쓰고(코드는 언제나 체크아웃에서
+    온다), 보드 스캔 대상(이슈/PR/다이제스트)만 `root` 를 쓴다."""
+    anomaly_count = _board_wide_sweep(root)
     d_all = _roster_load()
     # 이슈 #1013 block B: 자기 세션 소유(또는 소유 미기재=empty-state)
     # 엔트리로 스캔을 좁힌다. `--all` 이면 그대로 전체.
@@ -2693,7 +2707,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
     for key, e in sorted(d.items()):
         # 이슈 #492: 같은 틱에서 reconcile() 도 한 번 태운다 — 새 폴러가
         # 아니라 이 기존 스캔에 올라탄다(ADR 결정 4).
-        divergences = reconcile(_build_expected(e), _build_observed(ROOT, e))
+        divergences = reconcile(_build_expected(e), _build_observed(root, e))
         if divergences:
             issue_n, role_n = issue_role_key(e)
             for div in divergences:
@@ -2710,7 +2724,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
                 # 이슈 #534: self-trigger 가 놓친(프로세스가 그 줄에 닿기 전에
                 # 죽는 등) dead-but-registered 엔트리를 best-effort 로 잡는다
                 # — 주 경로는 _spawn_one() 의 self-trigger 다, 이 틱이 아니다.
-                _post_session_end_comment(ROOT, issue_n, key, work, e.get("log", ""))
+                _post_session_end_comment(root, issue_n, key, work, e.get("log", ""))
             # 이슈 #782 스코프-확장(operator, 2026-08-11): 폴링 틱마다 세션별
             # 상태 한 줄을 찍는다. diagnose_health() 는 죽은 엔트리에 한해
             # `_pr_open_or_merged_for_branch()`(gh pr list)를 새로 부르므로,
@@ -2720,7 +2734,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
             # (경보 전 hunt: dead-registered 엔트리가 15배 빈도로 gh 를
             # 때리는 문제).
             if ledger_check_and_stamp(f"poll-report-dead-check:{key}"):
-                dead_health = diagnose_health(key, e, state=state)
+                dead_health = diagnose_health(key, e, state=state, root=root)
                 state[f"{key}:dead_report"] = dead_health
             dead_health = state.get(f"{key}:dead_report")
             if dead_health is not None:
@@ -2733,7 +2747,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
                     # 라이브 notify 로 이미 처리되므로 session_id 없는 엔트리는
                     # 그대로 통과한다(중복 트리거 없음).
                     branch = Path(work).name if work else None
-                    pr_number = _pr_open_or_merged_for_branch(ROOT, branch) if branch else None
+                    pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
                     if pr_number is not None and _maybe_resume_for_ready_pr(key, e, pr_number):
                         print(f"[resume] {key}: PR #{pr_number} ready — "
                               f"resumed session {e.get('session_id')}")
@@ -2746,7 +2760,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False) -> int:
         # (완료는 위 reconcile()/아래 죽음-분기가 이미 다룬다). 같은 틱에서
         # 이미 계산한 anomalies 를 넘겨 watchdog_check_one() 의 오프셋
         # 소비를 두 번 겪지 않는다.
-        health = diagnose_health(key, e, state=state, anomalies=anomalies)
+        health = diagnose_health(key, e, state=state, anomalies=anomalies, root=root)
         # 이슈 #782 스코프-확장: dedup 원장과 무관하게 매 틱 상태를 보고한다.
         print(f"[poll-report] {key}: {health['state']} — {health['detail']}")
         if health["state"] is not None and health["state"] != "HEALTHY":
@@ -5240,7 +5254,13 @@ def main() -> int:
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
     if a.role == "watchdog":
-        return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all)
+        # 이슈 #1219: `-C` (기본값 ".") 를 그대로 넘긴다 — 컨슈머 세션은
+        # 타깃 프로젝트를, dev 세션(cwd == 이 체크아웃)은 이 체크아웃
+        # 자신을 본다. 이전에는 이 호출이 `-C` 를 무시하고 전역 ROOT(=이
+        # 체크아웃)만 스캔해, 컨슈머 세션이 on-the-record 자신의
+        # 이슈/PR/다이제스트를 받는 원인이었다.
+        return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all,
+                                root=Path(a.cwd).resolve())
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
     if a.role == "reconcile":
