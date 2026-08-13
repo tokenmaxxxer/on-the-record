@@ -26,7 +26,8 @@ _COND_MARKERS = re.compile(
 )
 _CHOICE_VERBS = re.compile(
     r"(?i)\b(use|pick|choose|prefer|apply|select|do|add|include|keep|"
-    r"drop|cut|delete|omit|simplify|remove|avoid|split|merge)\b"
+    r"drop|cut|delete|omit|simplify|remove|avoid|split|merge|"
+    r"move|defer|extract|reject|refuse|replace|collapse|relocate)\b"
 )
 _REMOVAL_MARKERS = re.compile(
     r"(?i)\b(drop|cut|delete|omit|simplify|remove|de-layer|de-clutter|"
@@ -67,7 +68,14 @@ def _blocks_from_text(text: str) -> list[str]:
         elif current:
             current.append(line)
     flush()
-    return [b for b in blocks if b.strip()]
+    return [b for b in blocks if b.strip() and not _is_bare_header(b)]
+
+
+def _is_bare_header(block: str) -> bool:
+    """True for a heading line with no body text below it (e.g. a bare
+    '## Rules' section marker), which is not itself a rule."""
+    lines = block.strip().splitlines()
+    return bool(_HEADING_RE.match(lines[0])) and len(lines) == 1
 
 
 def classify_block(block: str) -> dict:
