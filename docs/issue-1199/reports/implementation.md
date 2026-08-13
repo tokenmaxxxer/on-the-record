@@ -86,3 +86,16 @@ issue's own execution plan, out of scope for this record.
 
 ## Resolution path
 n/a — no open findings.
+
+## Amendments reconciled
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, read this session.
+
+amendments-reconciled: issuecomment-5276677115 —
+"Verdict: PR #? -> escalate (depth or impact axis did not clear)" is a
+delegated-judgment verdict for the sibling `issue-1199/brand-design`
+branch's own candidate PR, not for this branch (`issue-1199/implementation`,
+7 paths changed) or this step-1 infra deliverable; it names no change to
+this record's scope, write set, or verdict.
+
+canonical: same gh api comments listing above, read this session.
+- Full thread re-read for anything addressed to `issue-1199/implementation`; the only comment naming this branch is the pre-existing APPROVE comment already cited in this session's approval check.
