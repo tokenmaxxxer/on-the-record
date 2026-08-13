@@ -181,6 +181,43 @@ class WatchRearmRegistry(unittest.TestCase):
         # 그 컨텍스트를 되살려주지 않으면 자식의 자체 조회가 빗나간다.
         self.assertIn("watch", argv)
 
+    def test_autoarm_returns_immediately_surviving_caller_exit(self):
+        """이슈 #1154: `_spawn_one()`의 auto-arm 분기(`if child_pid > 0:`)가
+        워처를 등록한 뒤 `no_wait` 값과 무관하게 곧장 리턴해야 한다 —
+        `_rearm_watcher_detached()`(#1133/#1149)와 같은 모양이다. 예전
+        기본 경로(비-`--no-wait`)는 등록 직후 `_await_bounded()`로 빠져
+        호출자(오케스트레이터의 bounded 호출)가 죽으면 그 안에 살아있던
+        arming 프로세스까지 함께 죽어, 이미 setsid 로 detach 된 워처
+        자체는 살아있어도 관측상 죽은 것처럼 보였다(이슈 #1154, 8/8
+        auto-arm 워처 사망 보고). OS 프로세스 그룹 신호 전달은 이
+        샌드박스에서 독립적으로 재현되지 않으므로(제안서 Out of scope),
+        여기서는 그 원인이 된 코드 구조 — 등록 다음 줄에서 곧장 리턴하고
+        `_await_bounded` 호출로 빠지지 않는다 — 를 소스 레벨로
+        고정한다: 이게 재발하면(예: `if no_wait: return 0` 뒤에 다시
+        `else: return _await_bounded(...)` 가 붙으면) 이 테스트가 잡는다."""
+        src = Path(spawn.__file__).read_text(encoding="utf-8")
+        marker = "워처 자동 무장: pid"
+        idx = src.index(marker)
+        # 다음 top-level 정의(`\ndef _spawn_one` 이후, 다음 `\ndef `)까지가
+        # 아니라, 이 분기 안에서 다음으로 나오는 `return` 문 앞부분만 본다 —
+        # 등록 직후 곧장 리턴하는지가 이 테스트의 대상이다.
+        snippet_end = src.index("return 0", idx) + len("return 0")
+        snippet = src[idx:snippet_end]
+        code_lines = "\n".join(
+            line for line in snippet.splitlines()
+            if not line.strip().startswith("#"))
+        self.assertNotIn(
+            "_await_bounded", code_lines,
+            "auto-arm 등록 직후 리턴 전에 _await_bounded 호출이 다시 끼어들면 "
+            "안 된다 (이슈 #1154 회귀)")
+        self.assertIn("return 0", snippet)
+        # 등록에 쓰인 Popen 호출부(등록 직전)에 -C <cwd> 가 살아있는지도
+        # 같은 소스 구간에서 확인한다 (제안서의 secondary hardening).
+        popen_start = src.rindex("subprocess.Popen(", 0, idx)
+        popen_region = src[popen_start:idx]
+        self.assertIn('"-C"', popen_region)
+        self.assertIn("start_new_session=True", popen_region)
+
     def test_remediation_strings_carry_no_bare_follow(self):
         src = Path(spawn.__file__).read_text(encoding="utf-8")
         for marker in ("watcher-dead:", "watcher-silent:"):
