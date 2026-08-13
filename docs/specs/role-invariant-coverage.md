@@ -83,3 +83,55 @@ approximate (rationale given).
   Every gate-now row now carries a `(landed)` marker.
 - Rows judged spawn-only carry a written rationale in the table above,
   not an empty cell, per the issue's "empty state" acceptance line.
+
+## Quality-bar status (issue #1156)
+
+Per-role `quality_bar` decomposition status, amended requirement 5 (all 43 roles in scope, the 7 below landing-order-first). Source: `docs/issue-1156/proposals/per-role-quality-bars.md` §1/§7 (approved phase-1).
+
+| # | Role | Bar status | Domain / source standard |
+|---|------|------------|---------------------------|
+| 1 | ux-engineering | **quality_bar: landed** (4 criteria, `roles/specs/ux-engineering.spec.json`, `bar-not-met` in `loop_state.refusal`) | see spec's own `quality_bar` array |
+| 2 | interaction-design | **quality_bar: landed** (4 criteria, `roles/specs/interaction-design.spec.json`, `bar-not-met` in `loop_state.refusal`) | see spec's own `quality_bar` array |
+| 3 | accessibility | **quality_bar: landed** (4 criteria, `roles/specs/accessibility.spec.json`, `bar-not-met` in `loop_state.refusal`) | see spec's own `quality_bar` array |
+| 4 | api-design | **quality_bar: landed** (4 criteria, `roles/specs/api-design.spec.json`, `bar-not-met` in `loop_state.refusal`) | see spec's own `quality_bar` array |
+| 5 | performance-engineering | **quality_bar: landed** (4 criteria, `roles/specs/performance-engineering.spec.json`, `bar-not-met` in `loop_state.refusal`) | see spec's own `quality_bar` array |
+| 6 | secure-coding | **quality_bar: landed** (4 criteria, `roles/specs/secure-coding.spec.json`, `bar-not-met` in `loop_state.refusal`) | see spec's own `quality_bar` array |
+| 7 | test-authoring | **quality_bar: landed** (4 criteria, `roles/specs/test-authoring.spec.json`, `bar-not-met` in `loop_state.refusal`) | see spec's own `quality_bar` array |
+| 8 | architecture | bar: domain-named, decomposition-pending | decision-record quality and traceability. Source: MADR (Markdown Any Decision Records), `adr.github.io/madr` |
+| 9 | brand-design | bar: domain-named, decomposition-pending | design-token consistency and cross-surface visual coherence. Source: DTCG Design Tokens Format, `designtokens.org/tr/2025.10/format` |
+| 10 | capacity-planning | bar: domain-named, decomposition-pending | forecast accuracy and headroom discipline. Source: ITIL Capacity Management practice |
+| 11 | conformance-review | bar: domain-named, decomposition-pending | machine-checkable conformance evidence completeness. Source: EARL 1.0 Schema (W3C) |
+| 12 | content-design | bar: domain-named, decomposition-pending | microcopy clarity and usability. Source: GOV.UK Content Design / GDS style guide; judgment lens NN/g 10 Usability Heuristics |
+| 13 | customer-support | bar: domain-named, decomposition-pending | support-center service quality. Source: HDI Support Center Standard + CSAT |
+| 14 | data-engineering | bar: domain-named, decomposition-pending | pipeline data-quality and contract stability. Source: dbt model contracts; judgment lens DAMA-DMBOK data-quality dimensions |
+| 15 | data-modeling | bar: domain-named, decomposition-pending | schema correctness and grain discipline. Source: Kimball dimensional-modeling conventions; judgment lens Codd's normalization rules (1NF-3NF/BCNF) |
+| 16 | defect-verification | bar: domain-named, decomposition-pending | reproducible incident-report completeness. Source: ISO/IEC/IEEE 29119-3 Incident Report (clause 7.12, Annex A.2.15) + Bugmon reproduction precedent |
+| 17 | devrel | bar: domain-named, decomposition-pending | developer-relations impact measurement. Source: Keystone DevRel metrics + DevRel-Qualified-Lead concept (convergent practice, no single ratified standard — stated as assumption per the spec's own scout-brief gap) |
+| 18 | execution-observation | bar: domain-named, decomposition-pending | machine-checkable execution-conformance evidence. Source: EARL 1.0 Schema (W3C) |
+| 19 | finance-unit-economics | bar: domain-named, decomposition-pending | unit-economics metric correctness. Source: SaaS unit-economics metric set (CAC, LTV, LTV:CAC, CAC payback, Rule of 40) — de facto convention, no single ratified standards body (stated as assumption per the spec's own scout-brief gap) |
+| 20 | growth-analytics | bar: domain-named, decomposition-pending | funnel-metric attribution soundness. Source: AARRR Pirate Metrics + North Star Metric (original source not independently fetched — stated as assumption per the spec's own scout-brief gap) |
+| 21 | implementation | bar: domain-named, decomposition-pending | commit-message and change traceability. Source: Conventional Commits v1.0.0 |
+| 22 | incident-response | bar: domain-named, decomposition-pending | postmortem completeness and blamelessness. Source: SRE Postmortem Template (Google SRE book) |
+| 23 | issue-retrospective | bar: domain-named, decomposition-pending | retrospective format completeness and blamelessness. Source: Blameless retrospective format (SRE lineage) |
+| 24 | knowledge-management | bar: domain-named, decomposition-pending | tacit-knowledge capture completeness. Source: KCS (Knowledge-Centered Service) Solve loop; judgment lens SECI model |
+| 25 | legal-compliance | bar: domain-named, decomposition-pending | privacy-impact assessment completeness. Source: GDPR Article 35(7) DPIA |
+| 26 | localization | bar: domain-named, decomposition-pending | translation quality and locale-data correctness. Source: Unicode CLDR / UTS #35 (LDML); judgment lens MQM error typology |
+| 27 | market-analysis | bar: domain-named, decomposition-pending | competitive-analysis rigor. Source: Porter's Five Forces (HBR) |
+| 28 | marketing | bar: domain-named, decomposition-pending | positioning clarity and differentiation. Source: April Dunford's positioning framework |
+| 29 | ml-engineering | bar: domain-named, decomposition-pending | model documentation and build/no-build judgment soundness. Source: Model Cards (Mitchell et al. 2019); judgment lens Google's Rules of ML |
+| 30 | observability | bar: domain-named, decomposition-pending | instrumentation completeness across the three pillars. Source: OpenTelemetry semantic conventions; judgment lens three-pillars framing (logs/metrics/traces) |
+| 31 | partnerships-bd | bar: domain-named, decomposition-pending | collaborative-relationship management discipline. Source: ISO 44001:2017 |
+| 32 | pr-communications | bar: domain-named, decomposition-pending | PR-description and evaluation rigor. Source: AMEC Integrated Evaluation Framework (Barcelona Principles); judgment lens Google eng-practices reviewer standard |
+| 33 | pricing | bar: domain-named, decomposition-pending | price-sensitivity research validity. Source: Van Westendorp Price Sensitivity Meter |
+| 34 | product-discovery | bar: domain-named, decomposition-pending | opportunity-assessment rigor and pre-registered decision rules. Source: Cagan/SVPG Opportunity Assessment + lean-startup pre-registered decision rules |
+| 35 | refactoring-legacy | bar: domain-named, decomposition-pending | refactor justification against a named code smell, not stylistic preference. Source: Fowler's Refactoring Catalog; judgment lens Fowler's code-smell catalog |
+| 36 | release-engineering | bar: domain-named, decomposition-pending | changelog completeness and format. Source: Keep a Changelog |
+| 37 | risk-management | bar: domain-named, decomposition-pending | supply-chain risk assessment completeness. Source: NIST SP 800-161r1 (C-SCRM) (NIST IR 8286 lineage cited by secondary sources only — stated as assumption per the spec's own scout-brief gap) |
+| 38 | sales | bar: domain-named, decomposition-pending | qualification-criteria completeness. Source: MEDDPICC |
+| 39 | security-threat-model | bar: domain-named, decomposition-pending | threat-model schema completeness. Source: STRIDE / OWASP Threat Dragon model schema |
+| 40 | technical-feasibility | bar: domain-named, decomposition-pending | spike-record completeness and decision traceability. Source: ADR-style spike record |
+| 41 | technical-writing | bar: domain-named, decomposition-pending | documentation-type correctness (tutorial/how-to/reference/explanation). Source: Diataxis |
+| 42 | user-discovery | bar: domain-named, decomposition-pending | interview-saturation and signal-vs-noise discipline. Source: Teresa Torres interview snapshots + Guest/Bunce/Johnson 2006 and Hennink/Kaiser/Weber 2020 saturation run-length; judgment lens The Mom Test's three failure-mode filter |
+| 43 | requirements-engineering | bar: domain-named, decomposition-pending | requirement verifiability and bidirectional traceability (this role's own domain, subject to the same bar it enforces on others). Source: EARS (Mavin et al., IEEE RE'09) + ISO/IEC/IEEE 29148 bidirectional traceability |
+
+Status values: **quality_bar: landed** — full `{criterion, verification_method}` decomposition landed and enforced by `gates/quality_bar.py`/`on-the-record/hooks/quality-bar-gate.sh`. **bar: domain-named, decomposition-pending** — domain and source standard named per amended requirement 5; full per-criterion decomposition to the landed 7's depth is phase-wise, tracked per role in a later issue/PR reusing §0's decomposition principles (top-of-industry level; non-automatable criteria become named human-review checklists, never a lowered bar) — not silently dropped and not marked out-of-scope.

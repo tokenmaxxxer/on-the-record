@@ -78,6 +78,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/performance-engineering.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "slo_declared_and_measured",
+      "verification_method": "reuses the spec's existing gate_c_axis_evaluation measurement rule: declared SLO plus a measured value against it"
+    },
+    {
+      "criterion": "error_budget_not_exhausted",
+      "verification_method": "error-budget calculation (SRE workbook policy) against the measured value for the declared SLO window"
+    },
+    {
+      "criterion": "tail_latency_bounded",
+      "verification_method": "p99 percentile latency measurement from the same load test/measurement run, stated against a bound"
+    },
+    {
+      "criterion": "capacity_headroom_stated",
+      "verification_method": "resource-utilization measurement (CPU/memory/connections, USE method) alongside the latency measurement, headroom against the current capacity ceiling stated"
+    }
+  ],
   "loop_state": {
     "progress": [
       "measuring",
@@ -87,7 +105,8 @@
       "landed"
     ],
     "refusal": [
-      "slo-undeclared"
+      "slo-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "metric-unreachable"

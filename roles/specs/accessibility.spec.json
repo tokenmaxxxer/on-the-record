@@ -80,6 +80,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/accessibility.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "wcag22_aa_automated_pass",
+      "verification_method": "ACT-Rules-conformant automated scanner run against the WCAG-EM sample, zero violations asserted"
+    },
+    {
+      "criterion": "manual_check_coverage",
+      "verification_method": "cross-reference the manual-check log against the WCAG-EM criterion list for the sample, asserting every ACT-Rules not-machine-testable criterion has a recorded pass/fail/n-a outcome"
+    },
+    {
+      "criterion": "keyboard_and_focus_visible",
+      "verification_method": "automated keyboard-nav + focus-visibility check across the sample"
+    },
+    {
+      "criterion": "name_role_value_exposed",
+      "verification_method": "automated accessibility-tree query against the sample, asserting non-empty accessible name/role (and value/state where applicable) on every interactive element"
+    }
+  ],
   "loop_state": {
     "progress": [
       "sampling",
@@ -89,7 +107,8 @@
       "landed"
     ],
     "refusal": [
-      "scope-undeterminable"
+      "scope-undeterminable",
+      "bar-not-met"
     ],
     "error": [
       "sample-unreachable"
