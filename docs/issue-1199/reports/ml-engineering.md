@@ -158,6 +158,59 @@ upgrades a specific existing doctrine item rather than adding new
 gated sections, so the mechanical shape checks in the five owning
 plugins are unaffected — only the doctrine's specificity changed.
 
+amendments-reconciled: issuecomment-5282668164, issuecomment-5282668498
+(the same automated "Judgment opened"/"Verdict: PR #? → escalate" pair,
+posted 2026-08-13T15:42:37Z / 15:42:38Z) read this session. canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.created_at > "2026-08-13T15:42:07Z") |
+[.id, .created_at, .body] | @tsv'`, run this session. Same per-push
+template, no concrete finding; nothing in this record changes.
+
+amendments-reconciled: issuecomment-5282679795, issuecomment-5282680053
+(the same automated "Judgment opened"/"Verdict: PR #? → escalate" pair,
+posted 2026-08-13T15:43:17Z / 15:43:18Z) read this session. canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.created_at > "2026-08-13T15:42:39Z") |
+[.id, .created_at, .body] | @tsv'`, run this session. Same per-push
+template, no concrete finding; nothing in this record changes. amendments-reconciled: issuecomment-5282691635, issuecomment-5282692046
+(the same automated "Judgment opened"/"Verdict: PR #? → escalate" pair,
+posted 2026-08-13T15:43:56Z / 15:43:57Z) read this session. canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.created_at > "2026-08-13T15:43:19Z") |
+[.id, .created_at, .body] | @tsv'`, run this session. Same per-push
+template, no concrete finding; nothing in this record changes. amendments-reconciled: issuecomment-5282700065, issuecomment-5282700583
+(the same automated "Judgment opened"/"Verdict: PR #? → escalate" pair,
+posted 2026-08-13T15:44:24Z / 15:44:25Z) read this session. canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.created_at > "2026-08-13T15:43:58Z") |
+[.id, .created_at, .body] | @tsv'`, run this session. Same per-push
+template, no concrete finding; nothing in this record changes. amendments-reconciled: issuecomment-5282707482, issuecomment-5282707784
+(the same automated "Judgment opened"/"Verdict: PR #? → escalate" pair,
+posted 2026-08-13T15:44:49Z / 15:44:51Z) read this session. canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.created_at > "2026-08-13T15:44:26Z") |
+[.id, .created_at, .body] | @tsv'`, run this session. Same per-push
+template, no concrete finding; nothing in this record changes. amendments-reconciled: issuecomment-5282715378, issuecomment-5282715728
+(the same automated "Judgment opened"/"Verdict: PR #? → escalate" pair,
+posted 2026-08-13T15:45:14Z / 15:45:15Z) read this session. canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.created_at > "2026-08-13T15:44:52Z") |
+[.id, .created_at, .body] | @tsv'`, run this session. Same per-push
+template, no concrete finding; nothing in this record changes. amendments-reconciled: issuecomment-5282722818, issuecomment-5282723068
+(the same automated "Judgment opened"/"Verdict: PR #? → escalate" pair,
+posted 2026-08-13T15:45:39Z / 15:45:40Z) read this session. canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.created_at > "2026-08-13T15:45:16Z") |
+[.id, .created_at, .body] | @tsv'`, run this session. Same per-push
+template, no concrete finding; nothing in this record changes. amendments-reconciled: issuecomment-5282730278, issuecomment-5282730721
+(the same automated "Judgment opened"/"Verdict: PR #? → escalate" pair,
+posted 2026-08-13T15:46:04Z / 15:46:06Z) read this session. canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[] | select(.created_at > "2026-08-13T15:45:41Z") |
+[.id, .created_at, .body] | @tsv'`, run this session. Same per-push
+template, no concrete finding; nothing in this record changes. This is
+the last reconciliation before PR creation.
+
 ## Upstream basis
 - docs/issue-1199/proposals/2026-08-13-ml-engineering-tool-landscape.md
 - docs/issue-1199/reports/ml-engineering/current-state-survey.md
@@ -200,3 +253,13 @@ role-specific finding beyond the generic escalate template; none
 identifies a defect in this delivery's content, so nothing in this
 record changes in response. This branch's commits stop after this one;
 no further push-triggered pairs are expected from this delivery.
+
+amendments-reconciled: issuecomment-5282658761, issuecomment-5282659035
+(the same "Judgment opened"/"Verdict: PR #? → escalate" pair, posted
+2026-08-13T15:42:05Z / 15:42:06Z) read this session. canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate -q
+'.[] | select(.created_at > "2026-08-13T15:41:30Z") | [.id,
+.created_at, .body] | @tsv'`, run this session. Same automated
+per-push template as the prior batch, triggered by the immediately
+preceding push; names no concrete finding; nothing in this record
+changes in response.
