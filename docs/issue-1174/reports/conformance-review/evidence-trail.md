@@ -84,3 +84,29 @@ Await human Approve on the rulebook PR (tokenmaxxxer/conformance-review-rulebook
 ## Resolution path
 
 Human review of PR #54 in the rulebook repo; merge = acceptance, close-unmerged = refusal.
+
+## Parent-repo PR blocker (amendments-reconciled)
+
+amendments-reconciled: issuecomment-5277047240 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277047240` this
+turn. Body: "Judgment opened: PR #? — candidate decision on branch
+`issue-1174/conformance-review` (1 path(s) changed) entered
+delegated-judgment evaluation." — an automated watcher notification
+about this session's own just-pushed branch, not a directive; no content
+changed in response. Same watcher-spam shape as the knowledge-management/
+api-design precedent for this issue (one new copy per `gh pr create`
+attempt).
+
+pr-preflight.sh for this parent repo (tokenmaxxxer/on-the-record) refuses
+to open a PR unless docs/issue-1174/reports/conformance-review.md itself
+carries an `amendments-reconciled:` line citing this comment — but that
+path is phase-2-gated (approval-gate.sh: no "APPROVE
+issue-1174/conformance-review" comment exists yet), so this session
+cannot write it. This is a genuine deadlock between two gates, not a
+skipped step: the reconciliation is recorded here instead, since this
+path is the only writable phase-1 home available. No further
+`gh pr create` retries run in this session per the earlier precedent's
+same instruction ("push/PR 이 네트워크로 막히면 커밋까지는 해 둬라:
+on-the-record 가 밖에서 릴레이한다"). Both branches (rulebook repo,
+commit f40311f, PR #54 open; parent repo, commit 849630a, pushed) are
+ready for out-of-session relay to open the parent-repo PR.
