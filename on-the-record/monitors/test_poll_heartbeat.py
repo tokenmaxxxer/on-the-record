@@ -68,7 +68,7 @@ def _make_checkout(tmp: Path) -> Path:
     return checkout
 
 
-def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict, cwd: Path = None) -> subprocess.CompletedProcess:
+def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict, cwd: Path | None = None) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
     env["FAKE_SPAWN_MARKER"] = str(marker)
@@ -78,7 +78,7 @@ def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict, cwd: Path = No
     env.update(env_extra)
     return subprocess.run(
         ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
-        cwd=str(cwd) if cwd is not None else None,
+        cwd=str(cwd) if cwd else None,
     )
 
 
@@ -172,10 +172,38 @@ def t_heartbeat_surfaces_induced_dead_poller():
         assert "[resume]" in r.stdout, r.stdout
 
 
+def t_heartbeat_refuses_to_arm_on_non_git_root():
+    """issue #1275 Acceptance: the Monitor itself refuses to arm (exits
+    before the tick loop) when its cwd is not a git repo — no repeating
+    per-tick gh noise, no watchdog call, no roster/watcher artifacts."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        non_git_root = tmp / "not-a-repo"
+        non_git_root.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home)},
+                            cwd=non_git_root)
+        assert r.returncode != 0, r.stdout
+        assert "[monitor-arm-refused]" in r.stderr, r.stderr
+        assert "check=git-repo" in r.stderr, r.stderr
+        assert not (marker.exists() and marker.read_text().strip()), \
+            "watchdog must never run when the monitor's own root is not a git repo"
+        assert not (non_git_root / ".orchestrate-monitor-alive").exists(), \
+            "no registration artifact should be written when arm is refused"
+
+
 def t_heartbeat_skips_attachment_on_non_board_repo():
-    """issue #1245: a target repo with no docs/specs/approvers.md must
-    never get the Monitor attached at all -- no alive marker, no state
-    file, no watchdog log, even on a due tick."""
+    """issue #1245: a target repo that IS a git repo but has no
+    docs/specs/approvers.md must never get the Monitor attached at all --
+    no alive marker, no state file, no watchdog log, even on a due tick.
+    Composes after #1275's git-repo check (this fixture is git-inited so
+    it reaches the board-registration gate, not the git-repo refusal)."""
+    import subprocess as _subprocess
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -185,6 +213,7 @@ def t_heartbeat_skips_attachment_on_non_board_repo():
         home.mkdir()
         target_repo = tmp / "foreign_repo"
         target_repo.mkdir()
+        _subprocess.run(["git", "init", "-q"], cwd=str(target_repo), check=True)
         r = _run_heartbeat(checkout, marker,
                             {"FAKE_POLL_DUE": "1", "HOME": str(home),
                              "FAKE_WATCHDOG_REPORT": EMPTY_ROSTER_REPORT},
@@ -204,6 +233,7 @@ def t_heartbeat_attaches_on_board_repo():
     """issue #1245 counterpart: a target repo carrying
     docs/specs/approvers.md keeps today's due-tick behavior byte-for-byte
     -- alive marker created, watchdog invoked, captured report in stdout."""
+    import subprocess as _subprocess
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -214,6 +244,7 @@ def t_heartbeat_attaches_on_board_repo():
         target_repo = tmp / "board_repo"
         (target_repo / "docs" / "specs").mkdir(parents=True)
         (target_repo / "docs" / "specs" / "approvers.md").write_text("- someone\n", encoding="utf-8")
+        _subprocess.run(["git", "init", "-q"], cwd=str(target_repo), check=True)
         r = _run_heartbeat(checkout, marker,
                             {"FAKE_POLL_DUE": "1", "HOME": str(home),
                              "FAKE_WATCHDOG_REPORT": EMPTY_ROSTER_REPORT},
