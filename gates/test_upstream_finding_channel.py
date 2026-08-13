@@ -31,7 +31,10 @@ SCOPE_GUARD = REPO_ROOT / "on-the-record" / "hooks" / "upstream-defect-scope-gua
 FINDINGS_DIR = REPO_ROOT / "docs" / "reports" / "upstream-findings"
 
 
-def _run_guard(command):
+NON_ORIGIN_REPO = "someorg/some-upstream"
+
+
+def _run_guard(command, extra_env=None):
     payload = json.dumps({
         "tool_name": "Bash",
         "tool_input": {"command": command},
@@ -39,10 +42,17 @@ def _run_guard(command):
     })
     env = dict(os.environ)
     env["ORCHESTRATE_OFF"] = ""
+    env.pop("CLAUDE_ROLE", None)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         ["bash", str(SCOPE_GUARD)],
         input=payload, capture_output=True, text=True, env=env, timeout=20,
     )
+
+
+def _run_guard_as_channel(command):
+    return _run_guard(command, extra_env={"CLAUDE_ROLE": "upstream-defect-report"})
 
 
 def t_command_doc_exists():
@@ -86,19 +96,46 @@ def t_unreachable_upstream_falls_back_to_local_draft():
     assert fixture.is_file()
 
 
-def t_pr_creation_denied():
-    pr_shapes = [
-        "gh pr create --repo tokenmaxxxer/on-the-record --title x --body y",
-        "GH_REPO=tokenmaxxxer/on-the-record gh pr create --title x --body y",
-        "gh api --method POST repos/tokenmaxxxer/on-the-record/pulls -f title=x",
-        "gh api graphql -f query='mutation { createPullRequest(input: {}) { pullRequest { id } } }'",
-        "hub pull-request -m 'x'",
-        "curl -X POST https://api.github.com/repos/tokenmaxxxer/on-the-record/pulls -d '{}'",
-        "curl -X POST https://api.github.com/graphql -d '{\"query\":\"mutation { createPullRequest(input: {}) { pullRequest { id } } }\"}'",
+def t_pr_creation_denied_in_channel_scope():
+    # channel-scope: a non-origin target repo, or the channel's own role,
+    # denies on every covered surface (issue #1171 — the deny scopes to
+    # the channel's own flow, not every PR-creation call universally).
+    non_origin_shapes = [
+        "gh pr create --repo %s --title x --body y" % NON_ORIGIN_REPO,
+        "GH_REPO=%s gh pr create --title x --body y" % NON_ORIGIN_REPO,
+        "gh api --method POST repos/%s/pulls -f title=x" % NON_ORIGIN_REPO,
+        "curl -X POST https://api.github.com/repos/%s/pulls -d '{}'" % NON_ORIGIN_REPO,
     ]
-    for shape in pr_shapes:
+    for shape in non_origin_shapes:
         r = _run_guard(shape)
         assert r.returncode == 2, "expected denial for: %s" % shape
+
+    # GraphQL and hub carry no extractable target repo — in-scope only via
+    # the channel's own role.
+    channel_role_shapes = [
+        "gh api graphql -f query='mutation { createPullRequest(input: {}) { pullRequest { id } } }'",
+        "hub pull-request -m 'x'",
+        "curl -X POST https://api.github.com/graphql -d '{\"query\":\"mutation { createPullRequest(input: {}) { pullRequest { id } } }\"}'",
+        "gh pr create --repo tokenmaxxxer/on-the-record --title x --body y",
+    ]
+    for shape in channel_role_shapes:
+        r = _run_guard_as_channel(shape)
+        assert r.returncode == 2, "expected denial for: %s" % shape
+
+
+def t_origin_delivery_pr_creation_allowed():
+    # issue #1171: a role session's own delivery PR against origin
+    # (tokenmaxxxer/on-the-record, this repo's own git remote) must not be
+    # denied — the live regression the issue reports.
+    origin_shapes = [
+        "gh pr create --repo tokenmaxxxer/on-the-record --title x --body y",
+        "gh pr create --title x --body y",
+        "gh api --method POST repos/tokenmaxxxer/on-the-record/pulls -f title=x",
+        "curl -X POST https://api.github.com/repos/tokenmaxxxer/on-the-record/pulls -d '{}'",
+    ]
+    for shape in origin_shapes:
+        r = _run_guard(shape)
+        assert r.returncode == 0, "expected allow for: %s" % shape
 
 
 def t_issue_creation_still_allowed():
