@@ -9,6 +9,9 @@ canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277491815` 
 amendments-reconciled: issuecomment-5277585631 ("Judgment opened: PR #? — candidate decision on branch `issue-1174/test-authoring` (1 path(s) changed) entered delegated-judgment evaluation.") is an automated watcher stub naming no concrete finding; reconciled as no-op, work proceeds unchanged.
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277585631` output this turn.
 
+amendments-reconciled: issuecomment-5277593446 ("Verdict: PR #? → escalate (depth or impact axis did not clear)") is an automated verdict-stub comment naming no PR number, role, or subject; not applicable to this unit's scope, reconciled as no-op, work proceeds unchanged.
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277593446` output this turn.
+
 ## What was done
 
 Authored this role's operational playbook (per-axis condition→choice→source decision rules for the decides: 테스트 코드 자체가 격리성·fixture 전략 면에서 좋은 설계인가) in tokenmaxxxer/test-authoring-rulebook, at that external repo's own docs/specs/playbook/isolation-and-fixture-strategy.md path — this path is in the external rulebook repo and does not resolve inside this (on-the-record) working tree.
@@ -116,3 +119,8 @@ None for this unit. The issue's 44-item tracker and remaining roles' work are ow
 ## Resolution path
 
 n/a — no open finding to resolve.
+
+## PR-creation relay note
+
+canonical: three consecutive `PreToolUse:Bash` refusals this session from pr-preflight.sh, each naming a newly-posted watcher-stub/verdict-stub issue comment (issuecomment-5277585631, issuecomment-5277593446) with no concrete finding to act on.
+This session's branch is committed and pushed (commit 9378ea7, branch issue-1174/test-authoring), matching the same pr-preflight/approval-gate race already hit and documented by this unit's own phase-1 session (evidence-trail.md, "PR-preflight / approval-gate deadlock"). Per that precedent this session stops retrying `gh pr create` here; PR creation is left for external relay or a later pr-preflight-exempt session.
