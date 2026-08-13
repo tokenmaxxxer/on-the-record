@@ -114,6 +114,20 @@
           }
         }
       }
+    },
+    "playbook_refs": {
+      "type": "array",
+      "description": "issue #1174 (e): optional pointers from this role's spec to its operational-playbook rulebook sections, one entry per decision axis. Additive to the verification-layer fields above (source_standard/finding_method/anti_pattern) — the playbook holds the decision content, the spec stays the citation address. Absent for a role whose playbook has not landed yet.",
+      "items": {
+        "type": "object",
+        "required": ["axis", "repo", "path", "section"],
+        "properties": {
+          "axis": { "type": "string", "description": "Decision-axis name, matches the axis list recorded in the target playbook file's own rule_count_floor front matter." },
+          "repo": { "type": "string", "description": "e.g. 'tokenmaxxxer/ux-engineering-rulebook', or this repo's own name when the fallback docs/playbook/ location (d) is used." },
+          "path": { "type": "string", "description": "Path within repo to the playbook file, e.g. 'playbook/control-selection.md'." },
+          "section": { "type": "string", "description": "In-file anchor a quality-bar verdict can cite, e.g. '#field-type-to-control-mapping'." }
+        }
+      }
     }
   }
 }

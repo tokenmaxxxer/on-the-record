@@ -85,6 +85,28 @@ def check(spec: dict) -> list[str]:
     if not isinstance(uw, dict) or not isinstance(uw.get("board_condition"), str) or not uw.get("board_condition"):
         bad.append("use_when.board_condition must be a non-empty string")
 
+    bad.extend(check_playbook_refs(spec.get("playbook_refs")))
+
+    return bad
+
+
+def check_playbook_refs(refs) -> list[str]:
+    """Shape of the optional `playbook_refs` array (issue #1174 (e)).
+    Absent entirely is legal (a role whose playbook hasn't landed yet) —
+    this only fires once the field is present."""
+    if refs is None:
+        return []
+    bad = []
+    if not isinstance(refs, list):
+        return ["playbook_refs must be an array"]
+    for i, entry in enumerate(refs):
+        if not isinstance(entry, dict):
+            bad.append(f"playbook_refs[{i}] is not an object")
+            continue
+        for k in ("axis", "repo", "path", "section"):
+            v = entry.get(k)
+            if not isinstance(v, str) or not v:
+                bad.append(f"playbook_refs[{i}].{k} must be a non-empty string")
     return bad
 
 
