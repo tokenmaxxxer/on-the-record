@@ -30,6 +30,13 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `decision-queue-stopgate.sh` | out-of-tree | safe — same shared checkout clone |
 | `accumulation-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `design-rationale-guard.sh` | n/a | reads/validates only, no write call |
+| `accessibility-guard.sh` | n/a | reads/validates only, no write call |
+| `api-version-guard.sh` | n/a | reads/validates only, no write call |
+| `perf-measurement-guard.sh` | n/a | reads/validates only, no write call |
+| `test-authoring-spawn-check.sh` | n/a | reads/validates only, no write call |
+| `issue-retrospective-spawn-check.sh` | n/a | reads/validates only, no write call |
+| `interaction-design-spawn-check.sh` | n/a | reads/validates only, no write call |
+| `ux-engineering-spawn-check.sh` | n/a | reads/validates only, no write call |
 | `approval-gate.sh` | n/a | reads/validates only, no write call |
 | `call-shape-guard.sh` | n/a | reads/validates only, no write call |
 | `claim-scan-preflight.sh` | n/a | reads/validates only, no write call |
