@@ -1,0 +1,1 @@
+- 2026-08-13T00:00:00Z | filed | `on-the-record/hooks/upstream-defect-scope-guard.sh` denies every `gh pr create` call universally (no repo-target scoping), including this role's normal phase-1 PR against `tokenmaxxxer/on-the-record` itself — blocks PR submission for issue-1134 (same defect logged for issue-1141, commit 7aedc79); reported, not spawned.
