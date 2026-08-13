@@ -274,3 +274,82 @@ canonical: PR #84 state read via this session's own `gh pr create`
 output this turn.
 None open. PR #84 in `implementation-rulebook` awaits human review and
 merge.
+
+## Follow-up: has_choice redesign, gate fix 3 (2026-08-13)
+
+Pure bugfix — skip condition per the scout directive (no design decision
+open: the fix target, the redesign shape (verb-lexicon OR contrast/
+threshold markers), and the acceptance bar were fully specified in the
+reported defect). No re-scout, no proposal.
+
+canonical: `gh pr diff 25 --repo tokenmaxxxer/technical-writing-rulebook`
+output read this turn (branch `issue-1174/operational-playbook`, the
+same real fixture gate fix 2 used).
+
+Reproduced the reported defect first: reconstructed the five
+`playbook/*.md` files (250 lines) from the PR diff's added lines and ran
+the pre-fix gate against them.
+
+canonical: acceptance: python3 gates/playbook_depth_gate.py /tmp/playbook --role technical-writing --floor 50 — result: FAIL (pre-fix)
+```
+REJECT #20: 'When the target reader is technically motivated and evaluating' — no choice/action verb
+REJECT #22: "When onboarding documentation is the reader's first contact, scope" — no choice/action verb
+REJECT #26: 'When documentation quality is the deciding factor being reported to' — no choice/action verb
+REJECT #27: 'When a claim about the product needs to persuade a skeptical' — no choice/action verb
+REJECT #30: 'When drafting an instructional sentence, target roughly 15-20 words —' — no choice/action verb
+REJECT #33: 'When writing for readers who may be non-native speakers, using' — no choice/action verb
+REJECT #35: '**REMOVAL**: when editing a long sentence for comprehension, first try' — no choice/action verb
+REJECT #36: 'When a procedure has more than ~7 sequential steps, group them under' — no choice/action verb
+REJECT #37: "When a sentence's syntactic subject and its main verb are separated" — no choice/action verb
+REJECT #38: 'When a draft uses a rare or highly technical word where a common' — no choice/action verb
+REJECT #44: 'When tone risks becoming either stiff/formal or overly playful,' — no choice/action verb
+REJECT #47: 'When complex material has more than ~3 parallel conditions or' — no choice/action verb
+```
+12 rejects out of 50, matching the issue's own reported count exactly.
+
+Fix (`gates/playbook_depth_gate.py`): redesigned `classify_block()`'s
+`has_choice` from a single verb-lexicon lookup into an OR of five
+signals — the existing verb lexicon (extended with the missing verbs
+these 12 blocks actually use: persuade, scope, treat, cite, target,
+bias, try, group, rewrite, substitute, restructure), a contrast-marker
+check (`rather than` / `instead of`), a numeric-target check (`~?\d+
+(-\d+)?\s*(word|character|step|minute|second|percent|%)`), an em-dash
+prescription check (an em dash followed by a contrastive word), and an
+imperative-opening-verb check on the block's first clause (stripping a
+leading `**REMOVAL**:`-style marker first). Glossary rejection and the
+removal-category requirement (amendment 4) are unchanged — neither
+touches `has_choice`.
+
+canonical: acceptance: python3 gates/playbook_depth_gate.py /tmp/playbook --role technical-writing --floor 50 — result: PASS (post-fix)
+```
+role=technical-writing accepted=50 floor=50 count_ok=True
+PASS
+```
+50/50 real technical-writing rules pass — the acceptance bar's first
+disjunct, no residual rejects to give a reason for.
+
+Added to `gates/test_playbook_depth_gate.py`: the five reconstructed
+`playbook/*.md` fixture strings verbatim from the PR diff plus
+`test_technical_writing_pr25_fixture_passes_50_of_50` asserting
+`accepted_count == 50`; three targeted tests
+(`test_numeric_target_rule_accepted_without_lexicon_verb`,
+`test_group_under_rule_accepted`, `test_scope_it_to_rule_accepted`) for
+three of the twelve previously-rejected shapes; and
+`test_negative_fixtures_still_reject_after_redesign` re-checking the
+glossary line and an uncited (but now numeric+contrast-bearing) block
+still reject on the new logic.
+
+canonical: acceptance: python3 -m pytest gates/test_playbook_depth_gate.py -q — result: PASS
+```
+24 passed in 0.05s
+```
+All 19 pre-existing tests plus 5 new ones pass — no regression on the
+prior numbered-list-block and relocation-verb fixes.
+
+### What did not work
+
+None.
+
+### Open findings
+
+None open.
