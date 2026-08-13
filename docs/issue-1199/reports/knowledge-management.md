@@ -9,11 +9,11 @@ code_under_review:
 # issue-1199 knowledge-management: tool-landscape fold-in record
 
 amendments-reconciled: issuecomment-5276799629 and issuecomment-5277551353
-and issuecomment-5277558197 (canonical: gh api
+and issuecomment-5277558197 and issuecomment-5277568294 (canonical: gh api
 repos/tokenmaxxxer/on-the-record/issues/1199/comments — automated
-judgment-loop notices about an unrelated `issue-1199/technical-writing`
-PR's evaluation, not directed at this role's work; no change required to
-this record's plan.)
+judgment-loop notices about other roles' PRs (`issue-1199/technical-writing`,
+`issue-1199/implementation`) entering delegated-judgment evaluation, not
+directed at this role's work; no change required to this record's plan.)
 
 ## What was done
 
