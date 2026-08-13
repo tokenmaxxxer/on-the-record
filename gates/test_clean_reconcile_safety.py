@@ -7,6 +7,7 @@ from __future__ import annotations
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -22,6 +23,27 @@ def _bare_workspace(wb: Path, name: str) -> Path:
     w = wb / name
     w.mkdir(parents=True)
     subprocess.run(["git", "init", "-q"], cwd=w, check=True)
+    return w
+
+
+def _pushed_workspace_with_bytes(wb: Path, origin_dir: Path, name: str,
+                                  filename: str, size: int) -> Path:
+    """커밋한 데이터가 fake origin 에 push 까지 돼서, `git log --branches
+    --not --remotes` 가 비어있는(=미push 커밋 없음) clean 워크스페이스를
+    만든다 — auto_sweep 의 크기 bound 테스트에 쓸 파일 크기를 통제하려면
+    `_bare_workspace()` 의 무커밋 상태로는(아무 파일이나 있으면 git
+    status 가 dirty 를 잡는다) 안 된다."""
+    subprocess.run(["git", "init", "-q", "--bare", str(origin_dir)], check=True)
+    w = wb / name
+    w.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", "-b", "main"], cwd=w, check=True)
+    subprocess.run(["git", "-C", str(w), "remote", "add", "origin", str(origin_dir)],
+                    check=True)
+    (w / filename).write_bytes(b"x" * size)
+    subprocess.run(["git", "-C", str(w), "add", filename], check=True)
+    subprocess.run(["git", "-C", str(w), "-c", "user.email=t@t.test",
+                    "-c", "user.name=t", "commit", "-q", "-m", "data"], check=True)
+    subprocess.run(["git", "-C", str(w), "push", "-q", "origin", "main"], check=True)
     return w
 
 
@@ -107,6 +129,105 @@ class CleanReconcileSafetyTest(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(total, 0)
         self.assertEqual(spawn._ledger_log_outcomes(), {})
+        # 빈 상태에서 auto_sweep 도 크래시 없이 no-op.
+        result = spawn.auto_sweep(self.wb, max_age_days=14, max_bytes=5 * 1024**3)
+        self.assertEqual(result, {"removed": 0, "failed": 0})
+
+
+# 이슈 #1179 — 자동(스폰-타임) 스윕: 나이/크기 bound, 살아있는/dirty 워크스페이스 예외.
+class AutoSweepTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.root = self.tmp / "repo"
+        self.root.mkdir()
+        self.state_root = self.tmp / "state"
+        self.wb = self.tmp / "work"
+        self.wb.mkdir()
+
+        self._orig_root = spawn.ROOT
+        self._orig_roster = spawn.ROSTER
+        self._orig_idx = spawn.WORKSPACE_INDEX
+        spawn.ROOT = self.root
+        spawn.ROSTER = self.state_root / "active.json"
+        spawn.WORKSPACE_INDEX = self.state_root / "workspaces.json"
+
+    def tearDown(self):
+        spawn.ROOT = self._orig_root
+        spawn.ROSTER = self._orig_roster
+        spawn.WORKSPACE_INDEX = self._orig_idx
+        self._tmp.cleanup()
+
+    def _set_mtime(self, w: Path, days_ago: float, now: float) -> None:
+        ts = now - days_ago * 86400
+        os.utime(w, (ts, ts))
+
+    def test_age_bound_reaps_older_than_max_age(self):
+        now = 2_000_000_000.0
+        old = _bare_workspace(self.wb, "on-the-record-issue-1-implementation")
+        self._set_mtime(old, days_ago=30, now=now)
+        fresh = _bare_workspace(self.wb, "on-the-record-issue-2-implementation")
+        self._set_mtime(fresh, days_ago=1, now=now)
+
+        result = spawn.auto_sweep(self.wb, max_age_days=14,
+                                   max_bytes=5 * 1024**3, now=now)
+        self.assertEqual(result["removed"], 1)
+        self.assertFalse(old.exists())
+        self.assertTrue(fresh.exists())
+
+    def test_size_bound_reaps_oldest_first(self):
+        now = 2_000_000_000.0
+        w1 = _pushed_workspace_with_bytes(
+            self.wb, self.tmp / "origin1", "on-the-record-issue-1-implementation",
+            "big.bin", 2000)
+        self._set_mtime(w1, days_ago=3, now=now)
+        w2 = _pushed_workspace_with_bytes(
+            self.wb, self.tmp / "origin2", "on-the-record-issue-2-implementation",
+            "big.bin", 2000)
+        self._set_mtime(w2, days_ago=2, now=now)
+        w3 = _pushed_workspace_with_bytes(
+            self.wb, self.tmp / "origin3", "on-the-record-issue-3-implementation",
+            "big.bin", 2000)
+        self._set_mtime(w3, days_ago=1, now=now)
+
+        one_size = spawn._dir_size_bytes(w1)
+        # bound 는 셋 다 합친 것보다 작지만 둘은 들어갈 만큼 — 가장 오래된
+        # w1 만 지워도 나머지 둘은 bound 안에 들어간다.
+        bound = int(one_size * 2.5)
+        result = spawn.auto_sweep(self.wb, max_age_days=365,
+                                   max_bytes=bound, now=now)
+        self.assertEqual(result["removed"], 1)
+        self.assertFalse(w1.exists())
+        self.assertTrue(w2.exists())
+        self.assertTrue(w3.exists())
+
+    def test_live_session_exempt_from_auto_sweep(self):
+        now = 2_000_000_000.0
+        w = _bare_workspace(self.wb, "on-the-record-issue-1-implementation")
+        self._set_mtime(w, days_ago=30, now=now)
+        spawn.ROSTER.parent.mkdir(parents=True, exist_ok=True)
+        spawn.ROSTER.write_text(json.dumps({
+            "on-the-record/issue-1/implementation": {
+                "work": str(w), "issue": 1, "role": "implementation",
+                "pid": os.getpid(),
+            },
+        }))
+
+        result = spawn.auto_sweep(self.wb, max_age_days=14,
+                                   max_bytes=5 * 1024**3, now=now)
+        self.assertEqual(result["removed"], 0)
+        self.assertTrue(w.exists())
+
+    def test_dirty_workspace_exempt_from_auto_sweep(self):
+        now = 2_000_000_000.0
+        w = _bare_workspace(self.wb, "on-the-record-issue-1-implementation")
+        (w / "uncommitted.txt").write_text("wip\n")
+        self._set_mtime(w, days_ago=30, now=now)
+
+        result = spawn.auto_sweep(self.wb, max_age_days=14,
+                                   max_bytes=5 * 1024**3, now=now)
+        self.assertEqual(result["removed"], 0)
+        self.assertTrue(w.exists())
 
 
 if __name__ == "__main__":

@@ -4891,22 +4891,59 @@ def positive_int(s: str) -> int:
     return v
 
 
-def roster_clean(wb: Path, issue: int | None) -> int:
-    """`spawn.py clean [--issue N]`: 안전한 것만 지운다 — 미커밋 변경 없음 +
-    origin 에 없는 커밋 없음. 워크스페이스 디렉터리는 그 조건만 지키면
-    그대로 삭제한다(이슈 #1124 범위 밖). 형제 파일(로그 등)은 다르다 —
-    `runs/ledger.jsonl` 에 이 로그를 가리키는 엔트리가 있고 그 outcome 이
-    `LANDED_OUTCOMES` 밖이면(refused/errored/silent-failure 등) 유일한
-    증거이므로 지우지 않고 `<wb>/.archived-logs/` 로 옮긴다. ledger 에 없는
-    형제(과거 로그, `.events.jsonl` 등)와 landed 로그는 오늘처럼 그대로
-    지운다."""
+def _workspace_base() -> Path:
+    """워크스페이스 루트: `MUSTER_WORK_DIR` 오버라이드, 기본
+    `~/.tokenmaxxxer/work` (이슈 #1179 — 이전엔 `clean` CLI 분기와
+    `issue_workspace()` 두 곳에 이 네 줄이 따로 있었다)."""
+    base = os.environ.get("MUSTER_WORK_DIR")
+    return Path(base) if base else Path.home() / ".tokenmaxxxer" / "work"
+
+
+def _live_workspaces() -> dict[Path, dict]:
+    """살아있는(pid alive) 로스터 엔트리를 워크스페이스 절대경로로 인덱싱."""
     roster = _roster_load()
     live = {}
     for e in roster.values():
         if _alive(e.get("pid", 0)):
             live[Path(e["work"]).resolve()] = e
-    log_outcomes = _ledger_log_outcomes()
-    archive_dir = wb / ".archived-logs"
+    return live
+
+
+def _workspace_clean_state(w: Path, live: dict[Path, dict]) -> tuple[str | None, str]:
+    """워크스페이스 하나가 지워도 안전한지 판정한다. `(reason, detail)` —
+    `reason` 이 `None` 이면 안전(지워도 됨), 아니면 남기는 이유
+    (`"live"`/`"dirty"`) 와 사람이 읽을 상세 문자열.
+
+    `roster_clean()`(수동)과 `auto_sweep()`(자동, 이슈 #1179)이 같은 판정을
+    쓴다 — 두 곳에 독립적으로 안전 검사를 두면 한쪽만 고치고 다른 쪽은
+    #1124 보장이 조용히 깨진다."""
+    e = live.get(w.resolve())
+    if e is not None:
+        return ("live",
+                f"실행 중인 세션 있음: issue-{e.get('issue', '?')}/"
+                f"{e.get('role', '?')}, pid {e.get('pid', '?')}")
+    st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
+                        capture_output=True, text=True).stdout.strip()
+    ahead = subprocess.run(
+        ["git", "-C", str(w), "log", "--branches", "--not", "--remotes",
+         "--oneline"], capture_output=True, text=True).stdout.strip()
+    if st or ahead:
+        detail = "미보존 작업 있음"
+        if st:
+            detail += f"  [미커밋 {len(st.splitlines())}건]"
+        if ahead:
+            detail += f"  [미push 커밋 {len(ahead.splitlines())}건]"
+        return ("dirty", detail)
+    return (None, "")
+
+
+def _delete_workspace(w: Path, wb: Path, log_outcomes: dict[str, str],
+                       archive_dir: Path) -> None:
+    """안전 판정을 이미 통과한 워크스페이스 하나를 지운다. 디렉터리는
+    그대로 삭제, 형제 파일(로그 등)은 ledger outcome 이 `LANDED_OUTCOMES`
+    밖이면(refused/errored/silent-failure 등) 유일한 증거이므로 지우지
+    않고 `<wb>/.archived-logs/` 로 옮긴다(이슈 #1124). 실패하면
+    예외를 그대로 던진다 — 호출자가 removed/failed 집계를 한다."""
 
     def _chmod_retry(func, path, exc_info):
         # Go 모듈 캐시 등 읽기 전용 디렉터리/파일에서 rmtree 가
@@ -4920,6 +4957,37 @@ def roster_clean(wb: Path, issue: int | None) -> int:
             os.chmod(parent, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
         func(path)
 
+    import shutil
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(w, onexc=_chmod_retry)
+    else:
+        shutil.rmtree(
+            w, onerror=lambda func, path, exc_info: _chmod_retry(
+                func, path, exc_info))
+    # 세대별 로그(`.session.<ts>.<pid>.log`, 이슈 #192)와
+    # `.events.jsonl`/`.events.offset`/`.task.txt`/
+    # `.respawn-claim-*` 같은 형제 산출 파일을 전부 글롭으로 잡는다 —
+    # 접미사를 하나씩 나열하면 다음에 하나 더 생길 때 또 빠뜨린다.
+    for sibling in w.parent.glob(w.name + ".*"):
+        if not sibling.is_file():
+            continue
+        outcome = log_outcomes.get(str(sibling))
+        if outcome is not None and outcome not in LANDED_OUTCOMES:
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(sibling), str(archive_dir / sibling.name))
+        else:
+            sibling.unlink()
+
+
+def roster_clean(wb: Path, issue: int | None) -> int:
+    """`spawn.py clean [--issue N]`: 안전한 것만 지운다 — 미커밋 변경 없음 +
+    origin 에 없는 커밋 없음. 워크스페이스 디렉터리는 그 조건만 지키면
+    그대로 삭제한다(이슈 #1124 범위 밖). 형제 파일(로그 등)은
+    `_delete_workspace()` 가 archive-or-delete 판정을 한다."""
+    live = _live_workspaces()
+    log_outcomes = _ledger_log_outcomes()
+    archive_dir = wb / ".archived-logs"
+
     scope = f"-issue-{issue}-" if issue is not None else None
     removed = kept = failed = 0
     for w in sorted(wb.glob("*")) if wb.is_dir() else []:
@@ -4927,45 +4995,13 @@ def roster_clean(wb: Path, issue: int | None) -> int:
             continue
         if scope is not None and scope not in w.name:
             continue
-        e = live.get(w.resolve())
-        if e is not None:
-            print(f"남김 (실행 중인 세션 있음): {w.name}"
-                  f"  [issue-{e.get('issue', '?')}/{e.get('role', '?')}, "
-                  f"pid {e.get('pid', '?')}]")
+        reason, detail = _workspace_clean_state(w, live)
+        if reason is not None:
+            print(f"남김 ({detail}): {w.name}")
             kept += 1
             continue
-        st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
-                            capture_output=True, text=True).stdout.strip()
-        ahead = subprocess.run(
-            ["git", "-C", str(w), "log", "--branches", "--not", "--remotes",
-             "--oneline"], capture_output=True, text=True).stdout.strip()
-        if st or ahead:
-            print(f"남김 (미보존 작업 있음): {w.name}"
-                  + (f"  [미커밋 {len(st.splitlines())}건]" if st else "")
-                  + (f"  [미push 커밋 {len(ahead.splitlines())}건]" if ahead else ""))
-            kept += 1
-            continue
-        import shutil
         try:
-            if sys.version_info >= (3, 12):
-                shutil.rmtree(w, onexc=_chmod_retry)
-            else:
-                shutil.rmtree(
-                    w, onerror=lambda func, path, exc_info: _chmod_retry(
-                        func, path, exc_info))
-            # 세대별 로그(`.session.<ts>.<pid>.log`, 이슈 #192)와
-            # `.events.jsonl`/`.events.offset`/`.task.txt`/
-            # `.respawn-claim-*` 같은 형제 산출 파일을 전부 글롭으로 잡는다 —
-            # 접미사를 하나씩 나열하면 다음에 하나 더 생길 때 또 빠뜨린다.
-            for sibling in w.parent.glob(w.name + ".*"):
-                if not sibling.is_file():
-                    continue
-                outcome = log_outcomes.get(str(sibling))
-                if outcome is not None and outcome not in LANDED_OUTCOMES:
-                    archive_dir.mkdir(parents=True, exist_ok=True)
-                    shutil.move(str(sibling), str(archive_dir / sibling.name))
-                else:
-                    sibling.unlink()
+            _delete_workspace(w, wb, log_outcomes, archive_dir)
         except Exception as ex:
             print(f"실패 (삭제 중 예외): {w.name}  [{ex}]")
             failed += 1
@@ -4977,6 +5013,107 @@ def roster_clean(wb: Path, issue: int | None) -> int:
         summary += f", 실패 {failed}"
     print(summary)
     return 0
+
+
+def _dir_size_bytes(w: Path) -> int:
+    """워크스페이스 디렉터리 전체 크기(바이트) — `du` 대신 순수 파이썬으로,
+    심볼릭 링크는 따라가지 않는다(순환 방지, 대부분 워크스페이스엔 없다)."""
+    total = 0
+    for p in w.rglob("*"):
+        if p.is_file() and not p.is_symlink():
+            try:
+                total += p.stat().st_size
+            except OSError:
+                pass
+    return total
+
+
+def _clean_auto_enabled() -> bool:
+    """`MUSTER_CLEAN_AUTO` — 기본 on. `MUSTER_KEEP_SSH` 와 같은 boolean
+    파싱 관례(spawn.py:5351 부근)를 따른다."""
+    return os.environ.get("MUSTER_CLEAN_AUTO", "") not in (
+        "0", "false", "no", "off")
+
+
+def _clean_max_age_days() -> float:
+    """`MUSTER_CLEAN_MAX_AGE_DAYS` — 기본 14일."""
+    return float(os.environ.get("MUSTER_CLEAN_MAX_AGE_DAYS", "14"))
+
+
+def _clean_max_bytes() -> int:
+    """`MUSTER_CLEAN_MAX_BYTES` — 기본 5GiB."""
+    return int(os.environ.get("MUSTER_CLEAN_MAX_BYTES", str(5 * 1024**3)))
+
+
+def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
+               now: float | None = None) -> dict[str, int]:
+    """이슈 #1179: 스폰-타임 자동 정리. `roster_clean()` 과 같은 안전 판정
+    (`_workspace_clean_state()`)만 지운다 — 살아있는 세션, 미커밋/미push
+    작업은 절대 건드리지 않는다(#1124 보장 유지).
+
+    두 단계 bound: 1) `max_age_days` 보다 오래된 안전 워크스페이스는
+    무조건 지운다. 2) 그러고도 안전 워크스페이스 총합 크기가
+    `max_bytes` 를 넘으면, 오래된 것부터 더 지워서 bound 아래로 낮춘다.
+    나이만으로는 스폰이 늘면 디스크가 계속 자라고, 크기만으로는 방금
+    생긴 워크스페이스도 지울 수 있다 — 두 축을 다 잡는다(각 축이 막는
+    실패 모드가 다르다).
+
+    `now`: 테스트가 `time.time()` 대신 고정 시각을 주입한다."""
+    now = now if now is not None else time.time()
+    live = _live_workspaces()
+    log_outcomes = _ledger_log_outcomes()
+    archive_dir = wb / ".archived-logs"
+    max_age_sec = max_age_days * 86400
+
+    candidates = []  # (mtime, size, path)
+    if wb.is_dir():
+        for w in sorted(wb.glob("*")):
+            if not (w / ".git").is_dir():
+                continue
+            reason, _detail = _workspace_clean_state(w, live)
+            if reason is not None:
+                continue
+            try:
+                mtime = w.stat().st_mtime
+            except OSError:
+                continue
+            candidates.append([mtime, None, w])
+
+    removed = failed = 0
+
+    def _reap(entry) -> None:
+        nonlocal removed, failed
+        try:
+            _delete_workspace(entry[2], wb, log_outcomes, archive_dir)
+            removed += 1
+        except Exception as ex:
+            print(f"[auto-sweep] 실패 (삭제 중 예외): {entry[2].name}  [{ex}]",
+                  file=sys.stderr)
+            failed += 1
+
+    remaining = []
+    for entry in candidates:
+        if now - entry[0] > max_age_sec:
+            _reap(entry)
+        else:
+            remaining.append(entry)
+
+    if max_bytes > 0 and remaining:
+        for entry in remaining:
+            entry[1] = _dir_size_bytes(entry[2])
+        remaining.sort(key=lambda e: e[0])  # 오래된 것부터
+        total = sum(e[1] for e in remaining)
+        i = 0
+        while total > max_bytes and i < len(remaining):
+            entry = remaining[i]
+            total -= entry[1]
+            _reap(entry)
+            i += 1
+
+    if removed or failed:
+        print(f"[auto-sweep] 지움 {removed}" + (f", 실패 {failed}" if failed else ""),
+              file=sys.stderr)
+    return {"removed": removed, "failed": failed}
 
 
 def main() -> int:
@@ -5163,9 +5300,7 @@ def main() -> int:
                       repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
                       self_heal=a.self_heal)
     if a.role == "clean":
-        base = os.environ.get("MUSTER_WORK_DIR")
-        wb = Path(base) if base else Path.home() / ".tokenmaxxxer" / "work"
-        return roster_clean(wb, a.issue)
+        return roster_clean(_workspace_base(), a.issue)
     if a.role == "update":
         # 룰북을 원격 최신으로. 인자를 비우면 전부.
         return update([a.task] if a.task else list(ROLES))
@@ -5362,8 +5497,7 @@ def issue_workspace(cwd: str, issue: int, role: str) -> str:
     # 경로라 역할 세션의 Write 가 전부 거부된다(실측: phase 2 가 코드 한 줄
     # 못 쓰고 $2.68 을 태웠다). 기본은 ~/.tokenmaxxxer/work, 오버라이드는
     # MUSTER_WORK_DIR.
-    base = os.environ.get("MUSTER_WORK_DIR")
-    work_base = Path(base) if base else Path.home() / ".tokenmaxxxer" / "work"
+    work_base = _workspace_base()
     # 이름은 origin 의 레포명에서 뽑는다 — 디렉토리 이름(slug)을 쓰면
     # 워크스페이스를 -C 로 다시 넘겼을 때 이름이 이중으로 붙는다(실측:
     # ...-issue-45-coding-issue-45-coding). origin 은 위에서 이미 읽었다.
@@ -5798,6 +5932,17 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                           "issue": issue,
                           "blocked_by": [b["issue"] for b in blockers],
                           "ts": int(time.time())})
+        # 이슈 #1179: 워크스페이스 하나 더 만들기 전에 먼저 안전하게
+        # 쓸어낸다(spawn-time sweep) — 정리는 사람이 `spawn.py clean` 을
+        # 기억해야만 도는 게 아니라 기본으로 켜져 있어야 한다(northpole
+        # req#7). 스윕 실패가 스폰 자체를 막으면 안 되므로 예외를 삼킨다.
+        if _clean_auto_enabled():
+            try:
+                auto_sweep(_workspace_base(), _clean_max_age_days(),
+                           _clean_max_bytes())
+            except Exception as ex:
+                print(f"[{role}] auto-sweep 실패(스폰은 계속): {ex}",
+                      file=sys.stderr)
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
         # 동시 스폰들이 서로의 index/브랜치를 밟지 않는다.
         with _timed("workspace"):
