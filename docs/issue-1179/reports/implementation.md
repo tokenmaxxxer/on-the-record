@@ -63,7 +63,13 @@ None.
 
 ## Open findings
 
-None.
+resolved_findings:
+- docs/issue-1179/reports/implementation/2026-08-13-hunt-automatic-lifecycle-cleanup.md (before-landing
+  hunt, stance 4): `docs/specs/reconciled-index.md` was touched but absent from the proposal's frozen
+  write set. Resolution: `spec-index-preflight.sh` mechanically requires regenerating this file
+  (`python3 gates/spec_index.py --update`) whenever a tracked spec/handbook file's content changes —
+  `docs/handbooks/setup.md` is one such tracked file, so the regeneration was a mandatory, gate-enforced
+  mechanical side effect of the write-set change, not an independent scope expansion. No further action.
 
 ## Doc-placement ladder (completed)
 
