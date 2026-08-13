@@ -188,3 +188,10 @@ None.
 ### Open findings
 
 None open. Held PRs #1181/#1182 can re-verify against this fix.
+
+amendments-reconciled: issuecomment-5276141633 (`[watch]
+issue-1174/ux-engineering: session-end: no PR`, read this turn) reports
+a different parallel role session's (`issue-1174/ux-engineering`)
+PR-creation failure — unrelated to this gate fix's write set
+(`gates/playbook_depth_gate.py`, `gates/test_playbook_depth_gate.py`);
+no amendment to this record's scope or claims is needed.
