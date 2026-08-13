@@ -195,3 +195,14 @@ a different parallel role session's (`issue-1174/ux-engineering`)
 PR-creation failure — unrelated to this gate fix's write set
 (`gates/playbook_depth_gate.py`, `gates/test_playbook_depth_gate.py`);
 no amendment to this record's scope or claims is needed.
+
+amendments-reconciled: issuecomment-5276159641, issuecomment-5276159741,
+issuecomment-5276162938, issuecomment-5276163100 (read this turn) are
+automated "Judgment opened" / "Verdict: escalate" bot comments reacting
+to this branch's own pushed commits ("depth or impact axis did not
+clear" against `issue-1174/implementation`, 3 path(s) changed). This
+gate fix's write set is exactly the 3 changed paths already listed in
+`code_under_review:` above (plus this record); the escalation verdict
+carries no additional finding or instruction to act on beyond what this
+record already documents — no amendment to this record's scope or
+claims is needed.
