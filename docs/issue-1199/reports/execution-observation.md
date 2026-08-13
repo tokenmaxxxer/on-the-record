@@ -187,3 +187,14 @@ the exact-string `APPROVE issue-1199/execution-observation` comment,
 cited above). It names no branch, no PR, and no instruction changing
 this record's scope, write set, or verdict; the governing approval for
 phase 2 here remains the exact-string APPROVE comment.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments`, re-read this session before the rulebook-repo PR-create attempt.
+
+amendments-reconciled: issuecomment-5277569835 — "Judgment opened: PR
+#? — candidate decision on branch `issue-1199/execution-observation`
+(1 path(s) changed) entered delegated-judgment evaluation" is the
+paired open-message from the same automated judgment-watcher described
+above, fired for this branch's prior single-file commit (67049c6's
+on-the-record-side counterpart before this record's own commit added a
+second path). It names no instruction changing this record's scope,
+write set, or verdict; same reconciliation as above applies.
