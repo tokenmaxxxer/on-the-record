@@ -271,3 +271,14 @@ this on-the-record-side PR-open outcome; opening that PR is left to a
 follow-up attempt once the watcher's post cadence has settled, per the
 deviation-log entry below.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session, fourth PR-create retry.
+
+amendments-reconciled: issuecomment-5277091650 — another repeat of the
+same automated judgment-watcher "escalate" message. This session now
+stops retrying `gh pr create` in the implementation-rulebook repo per
+docs/issue-1199/reports/implementation/deviation-log.md's entry; the
+target-repo commit is already committed and pushed there
+(canonical: `git -C /home/jwjung/implementation-rulebook log -1
+--oneline origin/issue-1199/implementation`, read this session —
+217810f).
+
