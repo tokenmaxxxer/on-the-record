@@ -1,0 +1,18 @@
+{
+  "marketplace": "tokenmaxxxer-upstream-defect-report",
+  "repo": "tokenmaxxxer/on-the-record",
+  "decides": "관측된 결함이 upstream(on-the-record 자체) 결함인가 — 그렇다면 issue 초안이 실재/재현/버전을 담고 있는가",
+  "use_when": "컨슈머 세션(target 레포에 on-the-record 설치)이 플러그인 자체의 결함을 관측했을 때 (board_condition: N/A — hooks/command 요소만 쓰는 report_only 채널, 스폰 파이프라인을 거치지 않는다, req#7)",
+  "produces": "upstream issue 초안(버전 sha + 재현 증거 + 관측 컨텍스트), dedup 체크 결과, 확인 후 filing 결과(업스트림 issue 또는 로컬 fallback 문서)",
+  "write_scope": ["docs/reports/upstream-findings/"],
+  "report_only": true,
+  "spec": "docs/specs/upstream-defect-channel.md",
+  "record_fields": {
+    "loop_state": {
+      "progress": ["drafting", "dedup-checking", "awaiting-confirmation"],
+      "terminal": ["filed", "fallback-recorded"],
+      "refusal": ["duplicate-found"],
+      "error": ["upstream-unreachable"]
+    }
+  }
+}
