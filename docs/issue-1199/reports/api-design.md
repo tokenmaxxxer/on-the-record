@@ -150,6 +150,15 @@ of its own — no action taken on this record or the rulebook PR.
 amendments-reconciled: issuecomment-5277526812 — automated notice,
 no scope change.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277529268
+issuecomment-5277529268 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is an automated delegated-judgment verdict for
+the same pre-PR watcher pass, posted after this session started, with
+no amendment content of its own — no action taken on this record or
+the rulebook PR.
+amendments-reconciled: issuecomment-5277529268 — automated verdict,
+no scope change.
+
 ## What did not work
 
 None.
