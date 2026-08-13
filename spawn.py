@@ -473,7 +473,8 @@ def _workspace_bash_allow(cwd: str) -> list[str]:
     ]
 
 
-def role_settings(role: str, cwd: str | None = None) -> dict:
+def role_settings(role: str, cwd: str | None = None,
+                   inject_self_hosted_hooks: bool = True) -> dict:
     """역할의 샌드박스 경계 + 전역 플러그인 차단.
 
     **룰북을 켜는 일은 여기서 하지 않는다.** 그건 `--plugin-dir` 이 한다
@@ -619,7 +620,7 @@ def role_settings(role: str, cwd: str | None = None) -> dict:
 
     # on-the-record 가 자기 자신을 대상으로 스폰할 때만, 자기 hooks.json 을
     # 병합해 넣는다 — 컨슈머 설치 경로 밖에서는 늘 inert 였다(이슈 #508).
-    if cwd is not None:
+    if cwd is not None and inject_self_hosted_hooks:
         injected = self_hosted_hooks(cwd)
         if injected:
             s["hooks"] = injected
@@ -4374,7 +4375,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
         spec = json.loads(f.read_text())
         plugins = plugin_dirs(role, spec)
-        s = role_settings(role, cwd)
+        s = role_settings(role, cwd, inject_self_hosted_hooks=False)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
             json.dump(s, tf)
             settings_path = tf.name
@@ -4510,7 +4511,7 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
         raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
     spec = json.loads(f.read_text())
     plugins = plugin_dirs(role, spec)
-    s = role_settings(role, cwd)
+    s = role_settings(role, cwd, inject_self_hosted_hooks=False)
     s["crossSessionInbound"] = "accept"
     settings_path = None
     try:
