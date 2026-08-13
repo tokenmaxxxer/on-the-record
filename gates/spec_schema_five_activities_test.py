@@ -88,3 +88,54 @@ def test_every_in_scope_role_still_has_source_standard():
         spec = _load(role)
         source_standard = spec.get("source_standard")
         assert isinstance(source_standard, str) and source_standard.strip(), role
+
+
+# issue #1156: the 7 landing-order-first roles from
+# docs/issue-1156/proposals/per-role-quality-bars.md §1 each carry a
+# decomposed quality_bar and a bar-not-met refusal state; no other spec
+# does (amended requirement 5 keeps the other 36 domain-named only, in
+# docs/specs/role-invariant-coverage.md, not given a quality_bar yet).
+QUALITY_BAR_ROLES = [
+    "ux-engineering",
+    "interaction-design",
+    "accessibility",
+    "api-design",
+    "performance-engineering",
+    "secure-coding",
+    "test-authoring",
+]
+
+ALL_ROLE_SPECS = sorted(p.stem.replace(".spec", "") for p in SPECS_DIR.glob("*.spec.json"))
+
+
+def test_every_quality_bar_role_has_nonempty_quality_bar_array():
+    for role in QUALITY_BAR_ROLES:
+        spec = _load(role)
+        bar = spec.get("quality_bar")
+        assert isinstance(bar, list) and len(bar) > 0, f"{role} quality_bar missing/empty"
+        for entry in bar:
+            assert isinstance(entry, dict)
+            criterion = entry.get("criterion")
+            method = entry.get("verification_method")
+            assert isinstance(criterion, str) and criterion.strip(), f"{role} quality_bar criterion empty"
+            assert isinstance(method, str) and method.strip(), f"{role} quality_bar verification_method empty"
+
+
+def test_every_quality_bar_role_has_bar_not_met_refusal_state():
+    for role in QUALITY_BAR_ROLES:
+        spec = _load(role)
+        refusal = (spec.get("loop_state") or {}).get("refusal") or []
+        assert "bar-not-met" in refusal, f"{role} loop_state.refusal missing bar-not-met"
+
+
+def test_no_other_spec_carries_a_quality_bar_yet():
+    # amended requirement 5: the other 36 roles are in scope but only
+    # domain-named (docs/specs/role-invariant-coverage.md) — full
+    # per-criterion quality_bar decomposition for them is phase-wise, not
+    # landed by this issue. Asserting absence here keeps that boundary
+    # from silently drifting.
+    for role in ALL_ROLE_SPECS:
+        if role in QUALITY_BAR_ROLES:
+            continue
+        spec = _load(role)
+        assert "quality_bar" not in spec, f"{role} unexpectedly carries a quality_bar"
