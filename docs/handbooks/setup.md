@@ -83,6 +83,24 @@ MUSTER_AGENT_GH_TOKEN=<pat>` — 또는 GitHub App)을 두면 사람/에이전�
 인덱스 파일 자체가 물리적으로 갈려 서로의 항목을 못 본다(PR #855
 finding 5 재발 방지).
 
+이슈 #1179: 워크스페이스(`~/.tokenmaxxxer/work` 아래 이슈별 클론)는
+스폰마다 하나씩 새로 생기고 아무도 자동으로 지우지 않으면 디스크가
+무한히 자란다(실측: 이 머신에서 317개, 11GB). `spawn.py clean` 은
+그대로 있지만 이제 스폰마다(spawn-time) 자동으로도 돈다 — 사람이
+기억해서 돌릴 필요가 없다. 세 env 변수로 조정한다, 전부 기본값이 있고
+아무것도 안 해도 켜져 있다:
+- `MUSTER_CLEAN_AUTO` — 자동 스윕 on/off. 기본 on. `0`/`false`/`no`/`off`
+  중 하나로 끈다(`MUSTER_KEEP_SSH` 와 같은 파싱 관례).
+- `MUSTER_CLEAN_MAX_AGE_DAYS` — 이 일수보다 오래된, 지워도 안전한
+  (미커밋/미push 없고 세션이 안 살아있는) 워크스페이스는 무조건 지운다.
+  기본 14.
+- `MUSTER_CLEAN_MAX_BYTES` — 나이 기준을 통과하고도 안전한 워크스페이스
+  총합 크기가 이 바이트 수를 넘으면, 오래된 것부터 더 지워서 이 아래로
+  낮춘다. 기본 5GiB(`5 * 1024**3`).
+자동 스윕은 `spawn.py clean` 과 똑같은 안전 판정을 쓴다(이슈 #1124
+보장: 미커밋/미push 작업이 있는 워크스페이스와 살아있는 세션은 절대
+지우지 않는다) — 안전 판정을 두 곳에 따로 두지 않고 한 곳만 공유한다.
+
 프로젝트(표적 레포)당 한 번 — 뭔가 빠진 게 있으면 오케스트레이터가
 대화 중에 알아서 다 해주겠다고 제안한다:
 
@@ -149,6 +167,25 @@ a different `MUSTER_STATE_ROOT` than the observer's means the two
 sessions' roster/workspace-index files are physically separate, even when
 both use the same `--issue` number and even when `-C` mistakenly points
 at the observer's own repo (prevents PR #855 finding 5's recurrence).
+
+Issue #1179: workspaces (per-issue clones under `~/.tokenmaxxxer/work`) are
+created fresh on every spawn and nothing removed them automatically, so
+disk usage grew unbounded (measured on one machine: 317 dirs, 11GB).
+`spawn.py clean` still exists, but now an equivalent sweep also runs
+automatically on every spawn — no manual step needed. Three env vars
+tune it, all default-on with no setup required:
+- `MUSTER_CLEAN_AUTO` — automatic sweep on/off. Default on; disable with
+  `0`/`false`/`no`/`off` (same boolean parsing as `MUSTER_KEEP_SSH`).
+- `MUSTER_CLEAN_MAX_AGE_DAYS` — safe-to-delete workspaces (no
+  uncommitted/unpushed work, no live session) older than this many days
+  are reaped unconditionally. Default 14.
+- `MUSTER_CLEAN_MAX_BYTES` — if safe workspaces that survive the age pass
+  still total more than this many bytes, the oldest are reaped further
+  until under bound. Default 5GiB (`5 * 1024**3`).
+The automatic sweep reuses `spawn.py clean`'s own safety check (issue
+#1124's guarantee: never delete a workspace with uncommitted/unpushed
+work or a live session) — one shared check, not two independently
+maintained ones.
 
 Rulebooks and tokenmaxxxer-core need NO manual clones: spawn fetches and
 ff-updates them under `on-the-record/runs/rulebooks/` automatically (a local
