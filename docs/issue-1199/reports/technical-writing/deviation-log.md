@@ -10,3 +10,20 @@
   `issue-1199/technical-writing`), reported, not spawned — an
   orchestrator/on-the-record's external relay is expected to open the
   delivery PR.
+- 2026-08-13T15:40Z (approx), filed, cross-repo PR-creation guard
+  blocks the rulebook PR: `gh pr create --repo
+  tokenmaxxxer/technical-writing-rulebook` was denied by
+  on-the-record's `hooks/upstream-defect-scope-guard.sh` (issue #1171
+  scoping, commit 5154a3d) — its `in_scope()` check treats any
+  cross-repo PR target as in-scope for denial whenever it differs from
+  the session's own git origin, with no exemption for a role's
+  protocol-required phase-2 delivery PR against a separate consuming
+  repo (contract v3's own text names "the rulebook PR against
+  tokenmaxxxer/technical-writing-rulebook" as expected role output).
+  Not an in-scope fix (a hooks/gates change is outside this role's
+  write scope and this task's frozen write set). Worked around by
+  committing and pushing both retrofit commits (d3cbd8c, 13ded01) to
+  `issue-1199/tool-landscape-retrofit` on
+  `tokenmaxxxer/technical-writing-rulebook` origin — the branch is
+  live and diffable — and leaving PR creation to an
+  orchestrator/on-the-record external relay, reported not spawned.
