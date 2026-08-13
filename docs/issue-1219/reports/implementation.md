@@ -144,16 +144,19 @@ deviations` below names the resolution path for the widened requirement.
 
 ## Rationale for deviations
 
-amendments-reconciled: issuecomment-5277047482, issuecomment-5277332780
+amendments-reconciled: issuecomment-5277047482, issuecomment-5277332780, issuecomment-5277344991, issuecomment-5277348838, issuecomment-5277349051
 
-canonical: `gh issue view 1219 --comments` (re-read this session before PR
-creation)
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1219/comments --jq '.[-3:] | .[] | .id, .body'` (re-read this session before PR creation)
 
-issuecomment-5277332780 is an automated "Verdict: PR #? → escalate (depth
-or impact axis did not clear)" delegated-judgment comment (no new
-requirement text) posted against this same branch's candidate PR — it
-carries no additional reconciliation content beyond what
-issuecomment-5277047482 already requires below.
+issuecomment-5277332780, issuecomment-5277344991, issuecomment-5277348838,
+and issuecomment-5277349051 are automated "Judgment opened: PR #? —
+candidate decision on branch `issue-1219/implementation` ... entered
+delegated-judgment evaluation" / "Verdict: PR #? → escalate (depth or
+impact axis did not clear)" delegated-judgment comment pairs (no new
+requirement text, repeating identically), posted against this branch
+before any PR existed against it — they carry no additional
+reconciliation content beyond what issuecomment-5277047482 already
+requires below.
 
 An operator "Requirement clarification" comment (issuecomment-5277047482)
 landed on issue #1219 after the phase-1 proposal here was already approved
