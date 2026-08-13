@@ -27,7 +27,28 @@ _COND_MARKERS = re.compile(
 _CHOICE_VERBS = re.compile(
     r"(?i)\b(use|pick|choose|prefer|apply|select|do|add|include|keep|"
     r"drop|cut|delete|omit|simplify|remove|avoid|split|merge|"
-    r"move|defer|extract|reject|refuse|replace|collapse|relocate)\b"
+    r"move|defer|extract|reject|refuse|replace|collapse|relocate|"
+    r"persuade|scope|treat|cite|target|bias|try|group|rewrite|"
+    r"substitute|restructure)\b"
+)
+# issue #1174 gate fix 3 — prescriptive content beyond the verb lexicon:
+# contrast/threshold markers a genuine decision rule carries even when
+# its main verb isn't on the (necessarily incomplete) lexicon above.
+_CONTRAST_MARKERS = re.compile(r"(?i)\brather than\b|\binstead of\b")
+_NUMERIC_TARGET = re.compile(
+    r"~?\d+(?:\.\d+)?(?:\s*[-–]\s*\d+(?:\.\d+)?)?\s*"
+    r"(?:word|character|char|line|step|minute|second|percent|%)s?\b",
+    re.I,
+)
+_EMDASH_PRESCRIPTION = re.compile(
+    r"[—-]\s*(?:not|never|rather|instead|only|don't|do not|prefer|avoid)\b",
+    re.I,
+)
+_IMPERATIVE_START = re.compile(
+    r"(?i)^(use|pick|choose|prefer|apply|select|do|add|include|keep|"
+    r"drop|cut|delete|omit|simplify|remove|avoid|split|merge|move|defer|"
+    r"extract|reject|refuse|replace|collapse|relocate|treat|cite|target|"
+    r"bias|group|try|rewrite|substitute|restructure|scope|persuade)\b"
 )
 _REMOVAL_MARKERS = re.compile(
     r"(?i)\b(drop|cut|delete|omit|simplify|remove|de-layer|de-clutter|"
@@ -83,7 +104,6 @@ def classify_block(block: str) -> dict:
     category is 'addition' or 'removal' when accepted, else None."""
     reasons = []
     has_cond = bool(_COND_MARKERS.search(block))
-    has_choice = bool(_CHOICE_VERBS.search(block))
     has_source = bool(_SOURCE_MARKERS.search(block))
     is_removal = bool(_REMOVAL_MARKERS.search(block))
 
@@ -96,6 +116,21 @@ def classify_block(block: str) -> dict:
     orderedmatch = _ORDERED_LISTITEM_RE.match(first_line)
     if orderedmatch:
         stripped_first = orderedmatch.group(1)
+    # strip a leading **REMOVAL**/**bold** marker before checking for an
+    # imperative opening verb, so "**REMOVAL**: when ..." isn't blinded.
+    imperative_probe = re.sub(r"^\*\*[^*]+\*\*:?\s*", "", stripped_first)
+
+    # prescriptive content = verb-lexicon hit OR a contrast/threshold
+    # marker (em-dash prescription, rather-than/instead-of, a numeric
+    # target/limit, or an imperative opening verb) — a decision rule can
+    # be genuinely prescriptive without using a lexicon verb anywhere.
+    has_choice = (
+        bool(_CHOICE_VERBS.search(block))
+        or bool(_CONTRAST_MARKERS.search(block))
+        or bool(_NUMERIC_TARGET.search(block))
+        or bool(_EMDASH_PRESCRIPTION.search(block))
+        or bool(_IMPERATIVE_START.match(imperative_probe))
+    )
 
     if not has_cond:
         reasons.append("no condition marker (when/if/under/for or ~일 때/~인 경우/~면)")
