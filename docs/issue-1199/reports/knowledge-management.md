@@ -75,6 +75,17 @@ only to future entries that adopt the new fields.
 
 None.
 
+amendments-reconciled: issuecomment-5277571415 — "Judgment opened: PR #?
+— candidate decision on branch `issue-1199/knowledge-management` (4
+path(s) changed) entered delegated-judgment evaluation." This names this
+role's own branch (an external judgment-loop process opening evaluation
+on the on-the-record PR about to be created here); no action needed
+against this record's content — the judgment loop evaluates the PR once
+opened. This record stops PR-create retries here per the precedent set
+by commit 8bf080a (issue-1174) rather than retrying indefinitely against
+a comment stream arriving faster than single-comment reconciliation can
+converge.
+
 ## Open findings
 
 None.
