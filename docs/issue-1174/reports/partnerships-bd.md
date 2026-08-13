@@ -64,14 +64,16 @@ shape requirement, each stated as not-applicable to this unit's content:
 ## amendments-reconciled
 
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277524495`
-output read this turn — body: "Verdict: PR #? → escalate (depth or
-impact axis did not clear)", posted 2026-08-13T07:45:25Z by
-JiwonJung94. This is the orchestrator's generic delegated-judgment
-comment for a *different* in-flight PR (a placeholder "PR #?"
-judgment-loop artifact, not a partnerships-bd-scoped requirement or
-amendment) — it carries no new requirement or scope change for this
-role's playbook unit. Reconciled: no action needed against this
-record's content; noted here per pr-preflight's re-read requirement.
+and `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277594777`
+output read this turn — both bodies: "Verdict: PR #? → escalate (depth
+or impact axis did not clear)", posted 2026-08-13T07:45:25Z and
+2026-08-13T07:53:23Z respectively, both by JiwonJung94. These are the
+orchestrator's generic delegated-judgment comments for *other*
+in-flight PRs (repeated placeholder "PR #?" judgment-loop artifacts,
+not partnerships-bd-scoped requirements or amendments) — they carry no
+new requirement or scope change for this role's playbook unit.
+Reconciled: no action needed against this record's content; noted here
+per pr-preflight's re-read requirement each time a new one lands.
 
 ## What was done
 
