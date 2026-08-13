@@ -242,3 +242,7 @@ issuecomment-5281953762 and issuecomment-5281961786 are two further
 instances of the same identical, content-free watcher pattern already
 reconciled repeatedly above; covered by the same stopping rule, no
 further individual entries follow.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5281969657 --jq '.body'`, run this session.
+issuecomment-5281969657 is a further instance of the same identical,
+content-free watcher pattern; covered by the stopping rule above.
