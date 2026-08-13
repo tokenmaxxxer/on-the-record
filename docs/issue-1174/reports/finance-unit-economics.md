@@ -40,6 +40,12 @@ amendments-reconciled: issuecomment-5277491815 read this turn —
 `APPROVE issue-1174/upstream-defect-report`, a different role's
 approval token, no action required against this role's own work.
 
+amendments-reconciled: issuecomment-5277537863 read this turn —
+`Verdict: PR #? → escalate (depth or impact axis did not clear)`, an
+automated judgment verdict on an unrelated sibling PR (no PR number
+resolvable to this role's work), no action required against this
+role's own work.
+
 ## Why
 
 docs/issue-1174/proposals/operational-playbook-program.md (d)/(e) place
