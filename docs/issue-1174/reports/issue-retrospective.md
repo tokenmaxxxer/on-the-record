@@ -36,6 +36,15 @@ automated "[watch] issue-1174/legal-compliance: session-end: PR ... opened"
 notice about a different fan-out unit's session, no content actionable
 against this unit's record; nothing in this unit changed in response.
 
+amendments-reconciled: issuecomment-5277367396 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277367396`. Body:
+"Verdict: PR #? → escalate (depth or impact axis did not clear)" — same
+generic/templated verdict shape as issuecomment-5277228958 above (no PR
+number, no specifics naming this fan-out unit, this role, or this
+branch); posted by JiwonJung94 at 2026-08-13T07:29:50Z, after this
+session's own APPROVE comment. No content in this unit changed in
+response.
+
 ## What was done
 
 Wrote this issue-retrospective for issue #1174 (operational-playbook
