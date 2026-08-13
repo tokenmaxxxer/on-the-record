@@ -54,8 +54,24 @@ only in this repo's phase-1 records
 this record.
 
 canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/finance-unit-economics-rulebook log -1 --stat`, run this session.
-Committed in the rulebook repo (subject: issue-1199), pushed to
-`origin/issue-1199/tool-landscape`, and opened a PR against that repo.
+Committed in the rulebook repo (subject: issue-1199).
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/finance-unit-economics-rulebook push -u origin issue-1199/tool-landscape` output this session ("issue-1199/tool-landscape -> issue-1199/tool-landscape").
+Pushed to `origin/issue-1199/tool-landscape`.
+canonical: `gh pr create` output this session, repeated attempts, each returning exactly `GraphQL: was submitted too quickly (createPullRequest)`.
+`gh pr create` against that repo was attempted repeatedly this session
+(including 20s/45s/90s/120s/60s wait-and-retry cycles) and consistently
+returned that secondary abuse-rate-limit on the createPullRequest
+mutation, plausibly shared with the many other issue-1199/* role
+sessions active on this account this session observed via the issue's
+comment flood (canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate -q '.[].id'`,
+run repeatedly this session, showing continuous new-comment arrival).
+Per this session's invocation ("push/PR 이 네트워크로 막히면 커밋까지는
+해 둬라: on-the-record 가 밖에서 릴레이한다"), this session's own
+remaining action here is the commit+push above
+(canonical: same push output cited two lines up); PR-open for the
+rulebook repo is left to an external relay. This on-the-record repo's
+own PR (for this record) hit the identical throttle and is handled the
+same way below.
 
 ## Why
 
