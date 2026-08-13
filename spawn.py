@@ -5080,6 +5080,18 @@ def main() -> int:
         for line in lines:
             print(line)
         return 0
+    if a.role == "needs-due":
+        # need-detector 평가기 — 대상 프로젝트가 이 역할의 실제 산출물을
+        # "필요로 하는지" 판정한다 (issue #1160 step 3 machinery).
+        # roles-due 와 마찬가지로 advisory-only: 절대 자동 스폰하지 않는다.
+        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+        import need_detector as _need_detector
+        due = _need_detector.needs_due(
+            Path(a.cwd).resolve(), root=Path(__file__).parent.resolve())
+        lines = _need_detector.format_report(due)
+        for line in lines:
+            print(line)
+        return 0
     if a.role == "closure-sweep":
         # 보드 전체를 훑어 이슈-PR 종결 불일치를 보고한다 — 명시적 단발 호출
         # (approve-scope 와 마찬가지로 watchdog 틱에 자동으로 안 물린다, 이슈 #135).

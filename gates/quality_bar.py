@@ -45,6 +45,42 @@ def bar_scoped_roles(pr_files, role_path_patterns):
     return frozenset(scoped)
 
 
+def mission_bar_scoped(target_files, mission_deliverable_patterns):
+    """Issue #1160 step 3 machinery: same glob-matching body as
+    `bar_scoped_roles`, applied to a role's `mission_deliverables[].artifact`
+    glob strings instead of `write_scope`/`use_when.trigger.path_patterns`
+    globs — feeds the bar-verdict linkage without changing `classify`
+    itself. `mission_deliverable_patterns`: [glob pattern, ...] for one
+    role. Returns True iff at least one pattern matches at least one file
+    in `target_files`."""
+    import fnmatch
+
+    if not mission_deliverable_patterns:
+        return False
+    return any(
+        fnmatch.fnmatch(f, pat)
+        for f in target_files
+        for pat in mission_deliverable_patterns
+    )
+
+
+def verified_by_account(spec, resolve_account_fn):
+    """Resolves a spec's `verified_by` string (e.g. "ux-engineering — ...")
+    to the resolved account for its leading role token — the slot
+    `classify`'s `record_author_account` expects. `resolve_account_fn`:
+    role name (str) -> resolved account (str | None), the same resolution
+    primitive callers already use for `CLAUDE_ROLE`-adjacent accounts
+    (module docstring constraint: never re-derive from `CLAUDE_ROLE` here).
+    Returns None when `spec` has no `verified_by` field."""
+    verified_by = spec.get("verified_by") if isinstance(spec, dict) else None
+    if not verified_by or not isinstance(verified_by, str):
+        return None
+    role = verified_by.split(" — ", 1)[0].strip()
+    if not role:
+        return None
+    return resolve_account_fn(role)
+
+
 def classify(bar_scoped: bool, verdict: str | None,
              record_author_account: str | None,
              producer_account: str | None,

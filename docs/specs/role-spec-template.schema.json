@@ -84,6 +84,34 @@
         "board_condition": {
           "type": "string",
           "description": "Mechanically evaluable predicate over board/issue state — not a prose sentence requiring LLM interpretation."
+        },
+        "need_detector": {
+          "type": "object",
+          "description": "Advisory-only predicate over a TARGET project's file tree (issue #1160 step 3 machinery), read by gates/need_detector.py's needs_due(). The prose `condition` field stays the documented human-readable contract; `present_patterns`/`absent_patterns` are its mechanical sibling.",
+          "properties": {
+            "condition": {
+              "type": "string",
+              "description": "Human-readable contract the present_patterns/absent_patterns pair approximates."
+            },
+            "present_patterns": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Glob patterns (fnmatch/pathlib, evaluated against the target repo root — role fires only when at least one matches)."
+            },
+            "absent_patterns": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Glob patterns that must NOT match anywhere in the target repo root for the role to be considered due."
+            },
+            "advisory_only": {
+              "type": "boolean",
+              "description": "Always true — a need-detector match is printed alongside roles-due, never auto-spawns a role session."
+            },
+            "false_positive_bound": {
+              "type": "string",
+              "description": "States the condition under which the detector stays silent even for a plausible-looking target project."
+            }
+          }
         }
       }
     }
