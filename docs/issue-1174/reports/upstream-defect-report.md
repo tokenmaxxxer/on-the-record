@@ -88,6 +88,15 @@ exchange, not on this role's branch or PR), not an amendment to the
 operational-playbook-program proposal this unit executes against. No
 change to this unit's scope or output follows from it.
 
+issuecomment-5277555952 (posted 2026-08-13T07:48:57Z, during this
+session) reads the same text, "Verdict: PR #? → escalate (depth or
+impact axis did not clear)" — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277555952` read this
+turn. Same source and same reconciliation as issuecomment-5277524495
+above: a recurring delegated-judgment verdict cycle on the unrelated
+`issue-1174/issue-retrospective` branch/PR, not an amendment to this
+unit's proposal. No change to this unit's scope or output follows.
+
 ## Deviation: no existing rulebook repo for this role
 
 Recognized as a deviation (role-deviation-directive): the task brief
