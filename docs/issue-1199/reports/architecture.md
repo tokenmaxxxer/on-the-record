@@ -261,6 +261,9 @@ otherwise verdict-shaped.
 canonical: `gh issue view 1199 --comments`, re-read this session for `issuecomment-5277589364`.
 Comment `issuecomment-5277589364` ("[watch] issue-1199/execution-observation: session-end: PR ... opened") is an unrelated watcher notification about a different role's session (`execution-observation`) and PR (`#1261`); it names neither this unit's branch nor its content, so no content amendment to this record is warranted.
 
+canonical: `gh issue view 1199 --comments`, re-read this session for `issuecomment-5277592420`.
+Comment `issuecomment-5277592420` ("Verdict: PR #? → escalate (depth or impact axis did not clear)") is another instance of the same generic, unresolved-placeholder "Verdict: PR #?" template already addressed above — it carries no PR number or branch name distinguishing it from the earlier instance already reconciled, so it is treated the same way: approval/verdict-shaped but not a verdict on this unit's actual diff; no content amendment warranted.
+
 ## Open findings
 
 - The diagram-as-text-model and decision-lineage requirements added to
