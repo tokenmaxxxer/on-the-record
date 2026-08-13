@@ -38,6 +38,32 @@
     "CHANGELOG.md",
     "docs/issue-<n>/reports/release-engineering.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "entry_grouped_by_change_type",
+      "verification_method": "automated check that every changelog entry's change_type is one of Keep a Changelog's six categories (Added/Changed/Deprecated/Removed/Fixed/Security) and entries are grouped under their category heading, not listed flat",
+      "evidence_grade": "validated",
+      "verified_source": "Keep a Changelog v1.1.0 — https://keepachangelog.com/en/1.1.0/ (primary, canonical spec; the six categories Added/Changed/Deprecated/Removed/Fixed/Security and grouping under category headings are the spec's own stated rules)."
+    },
+    {
+      "criterion": "version_and_date_iso8601",
+      "verification_method": "automated check that version resolves to a CHANGELOG.md heading of the form `[version] - YYYY-MM-DD`, ISO 8601 date format, per Keep a Changelog's format rule",
+      "evidence_grade": "validated",
+      "verified_source": "Keep a Changelog v1.1.0 — https://keepachangelog.com/en/1.1.0/ (primary source; `## [version] - YYYY-MM-DD` with ISO 8601 dates is the spec's own documented heading format)."
+    },
+    {
+      "criterion": "description_human_readable_not_diff_dump",
+      "verification_method": "human-review-checklist: does description explain the change for a human reader (what changed and why it matters), rather than a copy-pasted commit message or diff summary?",
+      "evidence_grade": "validated",
+      "verified_source": "Keep a Changelog v1.1.0, guiding principles — https://keepachangelog.com/en/1.1.0/ ('Changelogs are for humans, not machines' is stated verbatim as one of the spec's own core principles, directly backing the criterion rather than being an unstated practitioner add-on)."
+    },
+    {
+      "criterion": "semver_compliance_stated",
+      "verification_method": "human-review-checklist: does the version bump's magnitude (major/minor/patch) match the actual change (breaking/additive/fix) per Semantic Versioning, with any deliberate deviation stated explicitly?",
+      "evidence_grade": "validated",
+      "verified_source": "Semantic Versioning 2.0.0 — https://semver.org/spec/v2.0.0.md (primary, canonical spec; MAJOR for incompatible API changes, MINOR for backward-compatible additions, PATCH for backward-compatible fixes is the spec's own core rule)."
+    }
+  ],
   "loop_state": {
     "progress": [
       "drafting",
@@ -47,7 +73,8 @@
       "landed"
     ],
     "refusal": [
-      "version-undeclared"
+      "version-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "changelog-unreachable"

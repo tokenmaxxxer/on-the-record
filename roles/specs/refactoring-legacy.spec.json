@@ -72,6 +72,32 @@
   "write_scope": [
     "docs/issue-<n>/reports/refactoring-legacy.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "named_code_smell_cited",
+      "verification_method": "automated check that motivation names an actual entry from Fowler's code-smell catalog, not a bare stylistic preference statement",
+      "evidence_grade": "validated",
+      "verified_source": "Fowler & Beck, Refactoring: Improving the Design of Existing Code, 2nd ed (Addison-Wesley 2018) — 24-entry code-smell catalog (primary source; confirmed via secondary survey https://codesai.com/posts/2022/11/code-smells-taxonomies-and-catalogs-english). Criterion correctly requires citing an actual catalog entry, not a bare stylistic preference."
+    },
+    {
+      "criterion": "behavior_preservation_evidenced",
+      "verification_method": "automated check that the full test suite passes before and after mechanics is applied with unchanged assertions on unrelated tests (diff of test-file assertions outside the touched surface is empty)",
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "No single named canonical source in the spec; this is standard refactoring discipline stated throughout Fowler's Refactoring (the book's core definition: refactoring changes structure without changing observable behavior) but the specific mechanic (diff of test-file assertions outside the touched surface) is an implementation detail, not a quoted rule from the book. Kept as practitioner-consensus."
+    },
+    {
+      "criterion": "characterization_test_added_for_untested_surface",
+      "verification_method": "human-review-checklist: if the touched legacy code had no pre-existing test coverage, was a characterization test added before mechanics changed behavior, per Feathers' characterization-test-first rule?",
+      "evidence_grade": "validated",
+      "verified_source": "Michael Feathers, Working Effectively with Legacy Code (Prentice Hall 2004) — characterization-test-first is the book's own documented technique for getting untested code under a harness before changing it (confirmed via secondary summary https://daedtech.com/characterization-tests/)."
+    },
+    {
+      "criterion": "seam_used_not_direct_edit",
+      "verification_method": "human-review-checklist: does the refactor introduce or use a seam (per Feathers) rather than editing untestable code directly in place?",
+      "evidence_grade": "validated",
+      "verified_source": "Michael Feathers, Working Effectively with Legacy Code (Prentice Hall 2004) — seam is the book's own defined term ('a place where you can alter behavior without editing in that place'), confirmed via Fowler's bliki restatement https://martinfowler.com/bliki/LegacySeam.html."
+    }
+  ],
   "loop_state": {
     "progress": [
       "identifying",
@@ -81,7 +107,8 @@
       "landed"
     ],
     "refusal": [
-      "motivation-undeclared"
+      "motivation-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "tests-unreachable"

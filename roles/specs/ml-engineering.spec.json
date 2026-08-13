@@ -82,6 +82,32 @@
   "write_scope": [
     "docs/issue-<n>/reports/ml-engineering.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "model_card_complete",
+      "verification_method": "automated check that intended_use, training_data, and eval_data are all non-empty, plus a human-review-checklist pass confirming ethical_considerations is populated or explicitly stated as not applicable, per Mitchell et al.'s Model Cards field set",
+      "evidence_grade": "validated",
+      "verified_source": "Mitchell et al., 'Model Cards for Model Reporting' (FAT* 2019) — https://arxiv.org/abs/1810.03993 (primary source; intended_use, training_data, eval_data, and ethical_considerations are four of the paper's own nine named sections)."
+    },
+    {
+      "criterion": "rules_of_ml_before_ml_pass",
+      "verification_method": "human-review-checklist: does the proposal show a simple heuristic/non-ML baseline was considered and rejected with a stated reason, per Google Rules of ML rule #1?",
+      "evidence_grade": "validated",
+      "verified_source": "Martin Zinkevich, 'Rules of Machine Learning: Best Practices for ML Engineering,' Google — https://martin.zinkevich.org/rules_of_ml/rules_of_ml.pdf (primary source; Rule #1 'Don't be afraid to launch a product without machine learning' is verbatim in the document, with the heuristic-first rationale the criterion cites)."
+    },
+    {
+      "criterion": "eval_metrics_match_business_success_criteria",
+      "verification_method": "human-review-checklist: do eval_data's reported metrics map explicitly to the business success criteria stated at CRISP-DM's business-understanding phase, not a generic accuracy/F1 number with no stated threshold?",
+      "evidence_grade": "validated",
+      "verified_source": "CRISP-DM 1.0 Step-by-Step Data Mining Guide (SPSS/Chapman et al. 2000), business-understanding phase defines 'business success criteria' as a named deliverable distinct from a generic accuracy/F1 number — consistent secondary confirmation via multiple practitioner writeups (e.g. https://www.datascience-pm.com/crisp-dm-2/). No stronger single canonical source exists beyond the original CRISP-DM consortium document; graded validated since the phase and its success-criteria artifact are the methodology's own defined terms, not a practitioner gloss."
+    },
+    {
+      "criterion": "eval_data_disjoint_from_training_data",
+      "verification_method": "automated check (e.g. hash/ID-set comparison) that eval_data and training_data share no overlapping records",
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "No single named canonical source in the original spec; this is universal ML-methodology consensus (train/test leakage inflates reported performance), documented across many independent sources (e.g. Kapoor & Narayanan et al. lineage on leakage; https://www.nature.com/articles/s41597-022-01618-6 for a concrete inflation case). Kept as practitioner-consensus, automated hash/ID-set check as already specified."
+    }
+  ],
   "loop_state": {
     "progress": [
       "training",
@@ -91,7 +117,8 @@
       "landed"
     ],
     "refusal": [
-      "intended-use-undeclared"
+      "intended-use-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "model-unreachable"
