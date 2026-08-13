@@ -7,12 +7,13 @@ loop_state: registry-unreachable
 
 # observability record (issue-1199)
 
-amendments-reconciled: issuecomment-5281291949 read this session — body:
-"Verdict: PR #? → escalate (depth or impact axis did not clear)". This
-comment is a generic batch-review verdict template with no PR number
-filled in and no observability-specific content; it does not name or
-apply to this issue's tool-landscape survey/proposal. No amendment to
-the phase-1 proposal or survey was needed in response.
+amendments-reconciled: issuecomment-5281291949 and
+issuecomment-5281333812 read this session — both bodies identical:
+"Verdict: PR #? → escalate (depth or impact axis did not clear)". Both
+are a generic batch-review verdict template with no PR number filled
+in and no observability-specific content; neither names or applies to
+this issue's tool-landscape survey/proposal. No amendment to the
+phase-1 proposal or survey was needed in response.
 
 ## What was done
 
