@@ -55,3 +55,13 @@ branch issue-1174/operational-playbook, commit e9873d1) is pushed and
 ready; PR opening for that branch needs an out-of-session relay given
 this loop. No content changed in response to any of the five watcher
 comments reconciled above.
+
+amendments-reconciled: issuecomment-5276849785 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276849785` this
+turn. Same watcher-spam shape as the five entries above, this time
+triggered by a `gh pr create --repo tokenmaxxxer/on-the-record` attempt
+for this repo's own evidence-trail PR. Stopping PR-create retries in
+this session (loop confirmed to reproduce across both target repos);
+branch issue-1174/knowledge-management is committed and pushed
+(commit 8664aba at the time of this entry) for out-of-session relay to
+open the PR.
