@@ -29,6 +29,7 @@ import stat
 import string
 import subprocess
 import sys
+import traceback
 import tempfile
 import time
 from collections import Counter
@@ -36,6 +37,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+# 이슈 #1274: roster_watchdog() 의 반환값(anomaly count, rc>=0)과 절대 겹치지
+# 않도록 고른 예약 종료 코드 — watchdog CLI 분기가 처리 못 한 예외를 이
+# 코드로 종료해, 파이썬 기본 트레이스백 종료(exit 1)가 anomaly_count==1 과
+# 구분 안 되는 문제를 없앤다. poll-heartbeat.sh 는 rc>=128(시그널 사망) 이거나
+# rc==이 값일 때만 [watchdog-crash] 를 찍는다.
+WATCHDOG_CRASH_SENTINEL = 97
 
 # 이슈 #878: 오케스트레이터 자신의 (headless `-p`) 세션 ID를 전달하는 환경
 # 변수 이름 — 이 프로세스(spawn.py)를 부른 오케스트레이터 프로세스가 이미
@@ -2687,6 +2695,17 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     idle/deadlock/불필요한 작업이 있었는지 종료 코드만으로 알 수 있게 한다.
     `auto_respawn` 의 부작용(재스폰/상한-코멘트)은 이 변경과 무관 — 반환값만
     바뀐다.
+
+    이슈 #1274: 이 rc 는 이상 신호 "개수"이지 크래시 플래그가 아니다 —
+    poll-heartbeat.sh 등 호출부는 `rc != 0` 을 크래시로 오독하면 안 된다.
+    진짜 크래시(watchdog 프로세스 자체가 죽었다는 뜻)는 이 함수의 반환값과
+    별개의 두 경로로만 신호한다: (1) 시그널 사망 — 셸이 관측하는 종료
+    코드가 128+N (예: SIGKILL=137, SIGSEGV=139); (2) `main()` 의 watchdog
+    분기가 처리 못 한 예외를 잡아 `WATCHDOG_CRASH_SENTINEL`
+    (spawn.py 정의, 현재 97) 로 종료하는 예약 코드 — 파이썬 기본
+    트레이스백 종료(exit 1)를 그대로 두면 anomaly_count==1 과 구분이 안
+    되므로 반드시 이 센티널을 거친다. 호출부는 `rc >= 128 or rc ==
+    WATCHDOG_CRASH_SENTINEL` 일 때만 크래시로 표시해야 한다.
 
     이슈 #464: 로스터 스캔과 별도로, 매 틱마다 보드-전체(closure_sweep /
     spawn_coverage) 스윕도 한 번 돈다 — 로스터가 비어 있어도 건너뛰지
@@ -5430,8 +5449,14 @@ def main() -> int:
         # 자신을 본다. 이전에는 이 호출이 `-C` 를 무시하고 전역 ROOT(=이
         # 체크아웃)만 스캔해, 컨슈머 세션이 on-the-record 자신의
         # 이슈/PR/다이제스트를 받는 원인이었다.
-        return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all,
-                                root=Path(a.cwd).resolve())
+        # 이슈 #1274: 예약 센티널로만 진짜(파이썬 레벨) 크래시를 신호한다 —
+        # roster_watchdog() 의 정상 반환값(anomaly count)과 절대 안 겹치게.
+        try:
+            return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all,
+                                    root=Path(a.cwd).resolve())
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+            return WATCHDOG_CRASH_SENTINEL
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
     if a.role == "reconcile":
