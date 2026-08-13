@@ -196,6 +196,99 @@ if not phase2:
 
 phase = "phase2" if phase2 else "phase1"
 
+# --- amendments-reconciled check (issue #1177) ------------------------------
+# A role session that never re-reads the issue thread can open its PR
+# against pre-amendment requirements when an operator/orchestrator posts a
+# comment while the session is already running (4 round-trips on
+# 2026-08-13: PRs #1167/#1168/#1170/#1176). Compare the newest issue
+# comment's timestamp against this session's directive-load time (its last
+# `session-start` event, written by spawn.py to the workspace's sibling
+# `<work>.events.jsonl`); if a comment landed after spawn, refuse PR
+# creation until the role's own record cites that newest comment's id in
+# an amendments-reconciled line (existence check only — content judgment
+# stays with review, per the requirement).
+#
+# Fail-open on every unknown: no events file, no session-start event, an
+# unparseable timestamp — the false-positive bound (issues with no
+# post-spawn comments pass untouched) needs the newest-comment check to
+# actually run; anything short of solid evidence of a post-spawn amendment
+# must not block.
+def _last_session_start_ts(cwd):
+    events_path = cwd.rstrip("/") + ".events.jsonl"
+    if not os.path.isfile(events_path):
+        return None
+    ts = None
+    try:
+        with open(events_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    ev = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(ev, dict) or ev.get("type") != "session-start":
+                    continue
+                detail = ev.get("detail") or {}
+                cand = detail.get("ts") if isinstance(detail, dict) else None
+                if not isinstance(cand, (int, float)):
+                    cand = ev.get("ts")
+                if isinstance(cand, (int, float)):
+                    ts = float(cand)
+    except OSError:
+        return None
+    return ts
+
+def _comment_epoch(created_at):
+    if not isinstance(created_at, str) or not created_at:
+        return None
+    try:
+        import datetime
+        return datetime.datetime.fromisoformat(
+            created_at.replace("Z", "+00:00")
+        ).timestamp()
+    except ValueError:
+        return None
+
+def _comment_num_id(c):
+    url = c.get("url") or ""
+    mm = re.search(r"#issuecomment-(\d+)\s*$", url)
+    return mm.group(1) if mm else None
+
+spawn_ts = _last_session_start_ts(os.getcwd())
+if spawn_ts is not None and comments:
+    newest = None
+    for c in comments:
+        epoch = _comment_epoch(c.get("createdAt"))
+        if epoch is None:
+            continue
+        if newest is None or epoch > newest[0]:
+            newest = (epoch, c)
+    if newest is not None and newest[0] > spawn_ts:
+        newest_id = _comment_num_id(newest[1])
+        if newest_id:
+            record_path = os.path.join(os.getcwd(), "docs", f"issue-{issue}",
+                                        "reports", f"{role}.md")
+            record_text = ""
+            if os.path.isfile(record_path):
+                try:
+                    with open(record_path, "r", encoding="utf-8") as f:
+                        record_text = f.read()
+                except OSError:
+                    record_text = ""
+            reconciled = any(
+                "amendments-reconciled" in ln and newest_id in ln
+                for ln in record_text.splitlines()
+            )
+            if not reconciled:
+                deny(
+                    f"이슈 #{issue}에 세션 시작 이후 새 코멘트(issuecomment-{newest_id})가 "
+                    f"달렸다 — PR을 열기 전에 스레드를 다시 읽고 기록에 반영해야 한다.",
+                    f"{record_path} 안에 'amendments-reconciled' 줄이 "
+                    f"issuecomment-{newest_id}를 인용해야 한다",
+                )
+
 # --- plan parsing (ported from gates/flows.py::_plan_from_body) ------------
 _PLAN_STEP_RE = re.compile(r"^-\s\[([ xX])\]\s+step\s+(\d+)\s+(.+)$")
 
