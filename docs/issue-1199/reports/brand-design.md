@@ -53,3 +53,12 @@ docs/issue-1199/proposals/2026-08-13-brand-design-tool-landscape.md
 
 ## Open findings
 None.
+
+amendments-reconciled: issuecomment-5276738377 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a delegated-judgment
+verdict for a different, unnumbered candidate PR on branch
+`issue-1199/implementation` (canonical: `gh issue view 1199
+--comments`, re-read this session after the pr-preflight notice) — it
+does not name or reference this brand-design unit's PR (#1208) or its
+rulebook-repo counterpart (brand-design-rulebook#27), so no content
+amendment to this record is warranted.
