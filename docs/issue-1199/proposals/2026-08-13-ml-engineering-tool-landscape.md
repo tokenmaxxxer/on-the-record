@@ -124,3 +124,75 @@ of `WRITE_SCOPE: []` (report-only role, no pipeline/deployment code).
 The rulebook PR's diff shows the seven doctrine edits landed across the
 two named files; this repo's phase-2 record cites the rulebook-repo
 commit sha and PR URL as canonical sources.
+
+## REWORK (2026-08-14 operator amendment): survey target corrected to the Claude Code plugin/skill ecosystem
+
+The operator's 2026-08-14 comment on issue #1199 corrected this
+program's survey target: for every role, survey the most-adopted
+CLAUDE CODE PLUGINS/SKILLS relevant to that role's domain — not
+general domain tooling. The seven-item fold-in above (surveyed against
+MLflow/DVC/Great Expectations/etc, a general ML tooling survey) already
+landed on `issue-1199/ml-engineering` in the rulebook repo (commit
+3d996d5, PR tokenmaxxxer/ml-engineering-rulebook#23) and stays landed —
+it is native, sourceless doctrine text, so it does not conflict with
+the corrected target; only the survey basis for further upgrades
+changes going forward. This REWORK section is the record of that
+correction and the additional fold-in it produces.
+
+### Corrected survey
+See `docs/issue-1199/reports/ml-engineering/scout-brief.md` (rewritten
+this round): four Claude Code plugins/skills surveyed with adoption
+evidence — alirezarezvani/claude-skills (24,380 stars),
+jeremylongshore/claude-code-plugins-plus-skills (2,630 stars, its
+`ai-ml/model-evaluation-suite` skill), rohitg00/awesome-claude-code-toolkit
+(2,499 stars, its `mlops-engineer` agent), probabl-ai/skills (97 stars,
+its data-science pipeline/iteration-loop skill groups).
+
+### Additional decision (three upgrades, on top of the seven already landed)
+1. **serving design / promotion criteria** — require the promotion
+   trigger to name its own numeric minimum-improvement threshold (not
+   just the existence of an automated trigger condition).
+2. **serving design / rollback** — require rollback to carry a stated
+   time-bound recovery target, and require the record to state that
+   the rollback procedure and serving-endpoint/monitoring-dashboard
+   correctness are items a completion checklist verifies, not items a
+   design section merely describes.
+3. **ML Test Score / Model Tests** — require the staleness/degradation
+   check to be run against an explicitly later-in-time held-out data
+   slice, not a generic staleness-tolerance number with no time
+   boundary named.
+
+### Rationale
+Per the scout brief's Gap line: the rulebook's landed doctrine already
+requires a traffic-percentage rollout schedule, an automated trigger,
+and a pinned-baseline offline threshold, but does not yet require the
+trigger's own numeric bar, a time-bound rollback target verified by a
+completion checklist, or a time-boundaried staleness check — the three
+gaps the surveyed plugins/skills' design moves (a named numeric
+promotion bar and a checklist-verified rollback time target; a
+distinct stress-test-on-future-data step) structurally embody.
+
+### What will be done (REWORK)
+Edit, in `tokenmaxxxer/ml-engineering-rulebook` on branch
+`issue-1199/ml-engineering` (same branch, new commit on top of
+3d996d5):
+- `ml-engineering/hooks/directive.sh` — fold the three items above into
+  the existing serving-design and Model-Tests bullets natively (no
+  tool name, no "learned from X" framing — evidence trail stays only
+  in this repo's `docs/issue-1199/reports/ml-engineering/scout-brief.md`
+  and `.md` record).
+- `docs/specs/record-norms.md` — same three items folded into the
+  matching Phase 2 subsections.
+
+Then commit (subject: issue-1199), push to origin, and update the
+existing rulebook-repo PR #23 and this repo's phase-2 record
+(`docs/issue-1199/reports/ml-engineering.md`) to cite the new commit.
+
+### Constraints (unchanged)
+- No verbatim copying from any surveyed plugin/skill's own text.
+- No tool-attribution framing in the rulebook files themselves — the
+  evidence trail (which plugins, adoption counts, per-insight mapping)
+  lives only in this repo's issue-side records.
+- Every named upgrade target file must actually be edited in the same
+  delivery as this proposal (per the 2026-08-13 apply-not-reference
+  amendment, still binding).

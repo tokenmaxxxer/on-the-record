@@ -263,3 +263,58 @@ repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate -q
 per-push template as the prior batch, triggered by the immediately
 preceding push; names no concrete finding; nothing in this record
 changes in response.
+
+## REWORK (2026-08-14 operator amendment)
+
+Per the operator's 2026-08-14 comment on issue #1199, the survey target
+for this program is the CLAUDE CODE PLUGIN/SKILL ecosystem, not general
+ML domain tooling — the round documented above (MLflow/DVC/etc) surveyed
+the wrong target. That round's landed fold-in (commit 3d996d5) is
+native, sourceless doctrine text with no tool-attribution framing, so
+it stays landed unchanged; this section documents the corrected-target
+survey and the additional native upgrades it produced on the same
+branch.
+
+Corrected survey: `docs/issue-1199/reports/ml-engineering/scout-brief.md`
+(rewritten this round) surveyed four Claude Code plugins/skills with
+adoption evidence — alirezarezvani/claude-skills (24,380 stars),
+jeremylongshore/claude-code-plugins-plus-skills (2,630 stars, its
+`ai-ml/model-evaluation-suite` skill), rohitg00/awesome-claude-code-toolkit
+(2,499 stars, its `mlops-engineer` agent), probabl-ai/skills (97 stars,
+its data-science pipeline/iteration-loop skill groups) — each with
+{problem, how, learning} per the scout brief.
+
+Three additional native upgrades folded into the same two named target
+files (per the proposal's REWORK section,
+`docs/issue-1199/proposals/2026-08-13-ml-engineering-tool-landscape.md`):
+1. serving design / promotion criteria — the promotion trigger now
+   names its own numeric minimum-improvement bar, not just the
+   existence of a trigger.
+2. serving design / rollback — rollback now carries a stated time-bound
+   recovery target, and the rollback procedure plus serving-endpoint/
+   monitoring-dashboard correctness are now framed as items a
+   completion checklist verifies, not items a design section only
+   describes.
+3. ML Test Score / Model Tests — staleness/degradation is now checked
+   against an explicitly later-in-time held-out data slice, not a
+   generic tolerance number with no time boundary.
+
+canonical: `cd /home/jwjung/tokenmaxxxer/rulebooks/ml-engineering-rulebook && git diff 3d996d5 a2a98ae --stat`, run this session:
+```
+ docs/specs/record-norms.md        | 15 ++++++++++++---
+ ml-engineering/hooks/directive.sh |  2 +-
+ 2 files changed, 13 insertions(+), 4 deletions(-)
+```
+Both named upgrade target files were edited in the same delivery,
+committed (subject: issue-1199) as commit a2a98ae on branch
+`issue-1199/ml-engineering`, and pushed to
+`tokenmaxxxer/ml-engineering-rulebook`, landing on the same open PR
+(https://github.com/tokenmaxxxer/ml-engineering-rulebook/pull/23).
+
+No tool-attribution framing was added to either rulebook file — each
+upgrade is written as the role's own methodology bar (numeric
+promotion threshold, time-bound rollback target, time-boundaried
+staleness check); the evidence trail (which plugins, adoption counts,
+per-insight mapping) lives only in this repo's
+`docs/issue-1199/reports/ml-engineering/scout-brief.md` and this
+record, per the 2026-08-13 native-application amendment.

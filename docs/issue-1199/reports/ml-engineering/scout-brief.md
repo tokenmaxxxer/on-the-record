@@ -4,120 +4,110 @@ role: ml-engineering
 kind: scout-brief
 ---
 
-# Scout brief: ml-engineering tool landscape (issue-1199)
+# Scout brief: ml-engineering — Claude Code plugin/skill ecosystem (issue-1199, REWORK per 2026-08-14 operator amendment)
 
-Mode: parallel WebSearch fan-out (4 angles: model serving, experiment
-tracking, data/model validation, feature/data versioning), 1 sweep
-stage, 1 verification stage via `gh api repos/<org>/<repo>`
-(adoption-evidence method per tech-feasibility). The verification
-stage's star-count ranking matched the sweep's category ranking, so a
-third round was not run.
+Supersedes the prior scout-brief in this same file (which surveyed the
+general ML tooling ecosystem — MLflow/DVC/etc). Per the 2026-08-14
+operator amendment on issue #1199, the survey target for this program
+is the Claude Code plugin/skill ecosystem itself, not general domain
+tools.
 
-canonical: `echo mlflow/mlflow wandb/wandb evidentlyai/evidently treeverse/dvc feast-dev/feast kserve/kserve bentoml/BentoML fivetran/great_expectations | xargs -n1 -I{} gh api repos/{} --jq '{name:.full_name, stars:.stargazers_count, forks:.forks_count}'`, run this session (see counts below).
+Mode: parallel WebSearch fan-out (3 angles: marketplace/awesome-lists
+overview, plugin-specific search for ML/notebook/evaluation skills,
+data-science/experiment-tracking skill search), 1 sweep stage, 1
+verification stage via `gh api repos/<org>/<repo>` (adoption-evidence
+method per tech-feasibility), 2 deepening fetches of the highest-signal
+repos' actual skill/agent content. Star-count ranking from the
+verification stage matched the sweep's category ranking, so a further
+round was not run.
 
-## Surveyed tools (adoption evidence, live-fetched)
+canonical: repo star/fork counts read live via `gh api
+repos/<org>/<repo>` this session, one call per repo listed below.
 
-- **MLflow** (mlflow/mlflow): 27,496 stars / 6,147 forks, 30M+ monthly
-  package downloads and Apache-project community per an August 2026
-  DeployBase comparison (https://deploybase.ai/articles/mlflow-vs-wandb,
-  fetched this session). Problem: an ML run's code, params, metrics,
-  and artifacts are scattered across notebooks/logs with no single
-  traceable identifier. How: each run is registered as one atomic
-  record (params + metrics + artifact hash + code version), and the
-  model registry stages a specific run's artifact through named
-  lifecycle states (e.g. staging/production) rather than a floating
-  branch tag. Learning: reproducibility and provenance claims should
-  bind to one concrete run identifier that carries code+data+config
-  together, not a prose assertion that training is reproducible.
-- **Weights & Biases** (wandb/wandb): 11,231 stars / 881 forks, 21.6M+
-  monthly PyPI downloads per the same DeployBase comparison (fetched
-  this session). Problem: comparing a new model against history is
-  usually eyeballed from scattered logs. How: every run comparison is
-  plotted against a pinned baseline run, not an undefined "past
-  performance." Learning: an offline-evaluation threshold claim should
-  name the specific baseline run/model version it is measured against.
-- **Evidently** (evidentlyai/evidently): 7,800 stars / 896 forks,
-  described by its own repo description as covering "100+ metrics"
-  across tabular and GenAI systems (canonical:
-  `gh api repos/evidentlyai/evidently --jq .description`, run this
-  session). Problem: "the model looks off in production" is usually
-  one vague drift alarm with no distinction of what actually shifted.
-  How: input/feature drift, prediction drift, and target/concept drift
-  are reported as separate named metrics, each with its own statistical
-  test and threshold. Learning: a monitoring-tests section should
-  distinguish input drift, prediction drift, and label/concept drift as
-  separate checkable items, not one generic "drift" line.
-- **DVC** (treeverse/dvc — canonical: `gh api repos/treeverse/dvc --jq .full_name`,
-  run this session, confirms the current canonical org after transfer):
-  15,814 stars / 1,321 forks. Problem: large training datasets and
-  model artifacts can't live in git directly, so version history and
-  data/model lineage silently drift apart. How: DVC replaces the large
-  file with a small content-hash metafile committed to git, so the
-  hash — not a mutable filename or tag — is the version identifier.
-  Learning: a data/model version identifier should be content-derived
-  (hash-based), not a mutable label, or two records claiming the same
-  version can silently reference different bytes.
-- **Feast** (feast-dev/feast): 7,207 stars / 1,398 forks, the Linux
-  Foundation AI & Data project's feature store (canonical:
-  `gh api repos/feast-dev/feast --jq .description`, run this session).
-  Problem: a feature computed at training time can differ from the
-  same feature served at inference time (train/serve skew) when
-  freshness isn't controlled. How: point-in-time-correct feature
-  retrieval ties every feature value to the timestamp it was valid at,
-  so training and serving pull from the same time-consistent view.
-  Learning: training/serving skew detection should check feature
-  freshness/point-in-time consistency specifically, not just aggregate
-  distribution drift.
-- **KServe** (kserve/kserve): 5,787 stars / 1,616 forks, a CNCF
-  Incubating project (canonical:
-  `gh api repos/kserve/kserve --jq .description`, run this session) —
-  and **BentoML** (bentoml/BentoML): 8,784 stars / 1,009 forks.
-  Problem: promoting a new model version to production is often an
-  all-or-nothing cutover with no automatic revert path. How: both
-  standardize canary rollout as a named traffic-percentage schedule
-  with an automated promotion/rollback trigger tied to a measured
-  metric threshold, not a manual "watch and decide" step. Learning: a
-  serving design's rollout-stage requirement should force a concrete
-  traffic-percentage schedule and an automated trigger condition.
-- **Great Expectations** (fivetran/great_expectations — canonical:
-  `gh api repos/fivetran/great_expectations --jq .full_name`, run this
-  session, confirms current canonical org after transfer): 11,709
-  stars / 1,797 forks. Problem: "does this data match what the model
-  expects" is usually checked ad hoc. How: each check is a named,
-  individually-addressable expectation
-  (`expect_column_values_to_be_between`, etc.) scoped to one field, run
-  as a gate, instead of one blanket verdict line covering the whole
-  dataset. Learning: Data Tests should require expectations named per
-  field, not one blanket verdict for the section.
+## Surveyed plugins/skills (adoption evidence, live-fetched)
+
+- **alirezarezvani/claude-skills**: 24,380 stars / 3,429 forks
+  (canonical: `gh api repos/alirezarezvani/claude-skills --jq
+  '{stars:.stargazers_count,forks:.forks_count}'`, run this session). A
+  large multi-domain skill collection (330+ skills spanning
+  engineering, research, and other functions) rather than an
+  ML-specific one; included here as the ecosystem's highest-star
+  general marketplace, establishing the scale bar other ML-specific
+  entries are judged against.
+- **jeremylongshore/claude-code-plugins-plus-skills**: 2,630 stars / 386
+  forks (canonical: `gh api
+  repos/jeremylongshore/claude-code-plugins-plus-skills --jq
+  '{stars:.stargazers_count,forks:.forks_count}'`, run this session).
+  Its `ai-ml/model-evaluation-suite` plugin ships an
+  `evaluating-machine-learning-models` skill (canonical:
+  raw.githubusercontent.com/jeremylongshore/claude-code-plugins-plus-skills/main/plugins/ai-ml/model-evaluation-suite/skills/evaluating-machine-learning-models/SKILL.md,
+  fetched this session). Problem: a model-evaluation request from a
+  user is usually answered as free-form prose with whichever metric
+  the responder thinks of first. How: the skill activates on a named
+  trigger condition (a performance-analysis/validation/testing
+  request), then runs a fixed three-step shape — identify the model
+  and the metrics that apply to it, execute the evaluation, present
+  results with explicit improvement recommendations — with a
+  documented error path for missing dependencies/invalid input.
+  Learning: an evaluation deliverable should name its trigger
+  condition and its metric-selection step explicitly, not assume the
+  metric is obvious from context.
+- **rohitg00/awesome-claude-code-toolkit**: 2,499 stars / 886 forks
+  (canonical: `gh api repos/rohitg00/awesome-claude-code-toolkit --jq
+  '{stars:.stargazers_count,forks:.forks_count}'`, run this session).
+  Its `agents/data-ai/mlops-engineer.md` agent (canonical:
+  raw.githubusercontent.com/rohitg00/awesome-claude-code-toolkit/main/agents/data-ai/mlops-engineer.md,
+  fetched this session) states that a served model degrades
+  continuously and frames promotion/rollback as needing a concrete
+  bar rather than a judgment call. Its stated design: a quality gate
+  names a specific minimum-improvement threshold before a new model
+  version may promote over the production baseline (its own worked
+  example: 0.5% AUC), the promoted version routes through a bounded
+  canary monitoring window before full cutover, and rollback carries a
+  stated time target (its own worked example: 5-minute restoration)
+  that the agent's own pre-completion checklist lists as something to
+  verify live, not merely document. Learning: (a) a promotion
+  criterion should name its numeric threshold, not just the existence
+  of a trigger; (b) a rollback requirement should carry a time-bound
+  recovery target; (c) infrastructure-safety items (serving endpoint
+  correctness, rollback procedure, monitoring dashboards) should be
+  listed as items a completion checklist verifies, not items a design
+  doc merely describes.
+- **probabl-ai/skills**: 97 stars / 4 forks (canonical: `gh api
+  repos/probabl-ai/skills --jq
+  '{stars:.stargazers_count,forks:.forks_count}'`, run this session). A
+  data-science skill set organized into four groups (canonical: its
+  README, fetched this session): the ML pipeline lifecycle (explore
+  data -> build pipeline -> evaluate -> test production-readiness ->
+  stress-test on future/held-out data -> audit the finished model as a
+  structured report), an iteration loop (track multiple experiments
+  side by side, run diagnostic checks, fold user feedback into the
+  next iteration), and workspace/tooling skills that enforce project
+  structure and dependency hygiene before work starts. Problem: a "the
+  model works" claim is usually checked once, against the same data
+  slice it was built on. How: the pipeline explicitly separates
+  present-data evaluation from a distinct stress-test step against
+  data from a later time window, and closes with an audit skill whose
+  stated output shape is a structured report rather than a single
+  summary line. Learning: staleness/degradation testing should be
+  checked against an explicitly later-in-time held-out slice, not only
+  a general "staleness tolerance" number with no time-boundary named.
 
 ## Gap line (rulebook's current state vs. the surveyed field)
 
-canonical: `grep -n "Data Tests\|Monitoring Tests\|ML Infrastructure Tests\|Model Tests\|version" /tmp/claude-1000/b171/ml-engineering-rulebook/ml-engineering/hooks/directive.sh`, run this session.
+canonical: `cd /home/jwjung/tokenmaxxxer/rulebooks/ml-engineering-rulebook && git show origin/issue-1199/ml-engineering:ml-engineering/hooks/directive.sh | grep -n "rollback\|promotion\|staleness\|traffic-percentage"`, run this session.
 
-The rulebook's directive already requires all four ML Test Score rubric
-sections, a model card, paired data/model version identifiers, and
-split offline/online evaluation — matching the surveyed field's shared
-stance that these are structural requirements, not optional narrative.
-
-It does not yet require: (1) per-field named expectations in Data
-Tests; (2) a drift-type taxonomy (input/prediction/label) in Monitoring
-Tests; (3) a single traceable run identifier binding code+data+config
-in ML Infrastructure Tests; (4) content-derived (hash-based) version
-identifiers in model provenance; (5) a concrete traffic-percentage
-rollout schedule + automated trigger in serving design; (6) a minimum
-comparison-window floor in eval discipline's online decision rule; (7)
-a pinned baseline run/model version in Model Tests' offline-threshold
-comparison.
-
-## Adopt / skip
-
-Adopt: all seven items above, each folded into the existing PRODUCES
-doctrine and doctrine detail file as the role's own methodology
-language (no tool name inside the public rulebook). Skip: MLflow's/
-W&B's SaaS dashboard and UI-level features (out of `WRITE_SCOPE: []` —
-this role is report-only); Great Expectations'/Evidently's own
-execution engines (this role does not run pipeline code); Feast's/
-DVC's storage-backend mechanics (infrastructure, not doctrine
-language); KServe's/BentoML's Kubernetes deployment mechanics
-(deployment implementation, not this role's serving-design doctrine
-scope).
+The already-landed fold-in on this branch (from the prior, general-tooling
+survey round) already requires a concrete rollout traffic-percentage
+schedule and an automated promotion/rollback trigger, and already
+requires an offline threshold to be measured against a pinned prior
+run/model-version identifier. Reading that same file this session shows
+it does NOT yet require: (1) the promotion trigger to name its own
+numeric minimum-improvement threshold, (2) rollback to carry a
+time-bound recovery target that a completion checklist verifies rather
+than a design doc merely describes, or (3) the staleness/degradation
+check to be run against an explicitly later-in-time held-out data
+slice rather than a generic tolerance number. These three gaps map
+directly onto the three plugin/skill design moves above and are the
+scope of this round's fold-in (see the proposal for the exact
+target-file edits).
