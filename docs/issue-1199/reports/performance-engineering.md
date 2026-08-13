@@ -258,3 +258,7 @@ immediately after this commit.
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282008157 --jq '.body'`, run this session.
 issuecomment-5282008157 is a further instance of the same identical,
 content-free watcher pattern, covered by the stopping rule above.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282018155 --jq '.body'`, run this session.
+issuecomment-5282018155 is a further instance of the same identical,
+content-free watcher pattern, covered by the stopping rule above.
