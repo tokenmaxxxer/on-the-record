@@ -108,5 +108,34 @@ verb ("require an active drift/skew alert wired to a threshold").
 Reworded to "wire an active drift/skew alert to a threshold" in commit
 4c5f976.
 canonical: acceptance: python3 gates/playbook_depth_gate.py /home/jwjung/tokenmaxxxer/rulebooks/ml-engineering-rulebook/playbook --role ml-engineering --floor 12 --axes serving-pattern-selection,slo-definition-tradeoffs,rollout-promotion-rollback,ml-test-score-scoring,model-provenance-versioning,evaluation-discipline — result: PASS
-The re-run against that fix is the same acceptance run quoted above
-under "What was done".
+The re-run against that fix is the same acceptance run reproduced
+above in this file's earlier section.
+
+## PR not opened (main repo)
+
+canonical: `gh pr create` invocation this turn against this repo,
+blocked by pr-preflight.sh's post-spawn-comment check before any
+network call ran.
+
+The rulebook-repo PR (tokenmaxxxer/ml-engineering-rulebook#22) is open
+— canonical: this session's own `gh pr create` output this turn
+(https://github.com/tokenmaxxxer/ml-engineering-rulebook/pull/22). This
+repo's own PR for branch issue-1174/ml-engineering could not be opened:
+pr-preflight.sh detected a post-spawn issue comment
+(issuecomment-5276660531 — a `[watch]` session-end notification for the
+unrelated issue-1174/release-engineering session, reconciled above as
+requiring no content change) and requires
+docs/issue-1174/reports/ml-engineering.md to carry an
+`amendments-reconciled` line citing it before `gh pr create` will run;
+approval-gate.sh unconditionally refuses any Write/Edit/MultiEdit to
+that exact path pre-approval (it is this role's phase-2 record path),
+leaving no phase-1-legal way to satisfy pr-preflight's requirement.
+This is the same deadlock market-analysis and observability already
+hit and stopped retrying against
+(docs/issue-1174/reports/market-analysis/evidence-trail.md, commit
+cf21418; docs/issue-1174/reports/observability/evidence-trail.md,
+commit 38b0b0f). Per that precedent: the branch is committed and
+pushed (origin/issue-1174/ml-engineering) — canonical: `git push`
+output this turn, above under "What was done" — and PR creation is
+left for external relay or a later approval-gate-exempt session rather
+than retried further here.
