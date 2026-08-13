@@ -39,7 +39,8 @@
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
   "write_scope": [
-    "docs/issue-<n>/reports/market-analysis.md"
+    "docs/issue-<n>/reports/market-analysis.md",
+    "docs/issue-<n>/reports/market-analysis/*.md"
   ],
   "loop_state": {
     "progress": [
@@ -57,6 +58,23 @@
     ]
   },
   "use_when": {
-    "board_condition": "a market entry or strategy decision is proposed AND no market-analysis record exists yet covering all five forces"
-  }
+    "board_condition": "a market entry or strategy decision is proposed AND no market-analysis record exists yet covering all five forces",
+    "need_detector": {
+      "condition": "a product-discovery or pricing record exists on the branch (a market-facing decision was made) AND no market-analysis record exists yet covering all five forces",
+      "advisory_only": true,
+      "false_positive_bound": "a repo with no product-discovery/pricing record at all never fires — no market-facing decision on the branch -> silent, unconditionally"
+    }
+  },
+  "outcome_mission": "the target project's market position is assessed against real, current competitive evidence — not a template filled with placeholder judgment.",
+  "mission_deliverables": [
+    {
+      "artifact": "the five-forces record itself (docs/issue-<n>/reports/market-analysis.md), already required by required_fields",
+      "fit_criterion": "every force's evidence field names a checkable source (a tracked competitor entry, a dated external reference) — not a bare assertion; reuses the spec's own reference_resolution rule"
+    },
+    {
+      "artifact": "docs/issue-<n>/reports/market-analysis/competitor-tracking.md (a maintained list of tracked competitor entries the evidence field's reference_resolution rule resolves against)",
+      "fit_criterion": "at least one entry per force where the assessment is medium/high, so 'evidence' has something concrete to point at"
+    }
+  ],
+  "verified_by": "requirements-engineering — market-analysis never grades its own mission_deliverables, same account-differs-from-producer basis as content-design (requirements-engineering never authors a market-analysis record)"
 }
