@@ -51,6 +51,17 @@ automated `Verdict: PR #? → escalate (depth or impact axis did not
 clear)` pattern on another unrelated sibling PR, no action required
 against this role's own work.
 
+amendments-reconciled: issuecomment-5277545405 read this turn — same
+automated `Verdict: PR #? → escalate (depth or impact axis did not
+clear)` pattern, no action required against this role's own work.
+Per the identical precedent already logged in
+docs/issue-1174/reports/issue-retrospective/deviation-log.md (the
+pr-preflight.sh comment-race against this issue's high concurrent
+comment volume is structural, not a one-off), this session stops
+`gh pr create` retries after this reconciliation: commits through
+2822963 are pushed to issue-1174/finance-unit-economics for
+on-the-record's outside relay to open the PR.
+
 ## Why
 
 docs/issue-1174/proposals/operational-playbook-program.md (d)/(e) place
