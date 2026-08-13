@@ -138,3 +138,23 @@ after the preceding reconciliation commit, matching a per-commit
 reaction pattern rather than new externally-sourced content. This
 record now stops committing further reconciliation entries for this
 recurring pair and proceeds directly to PR creation.
+
+amendments-reconciled: issuecomment-5277610899 through
+issuecomment-5277620798 (every "Judgment opened"/"Verdict: PR #? →
+escalate" pair in that range). canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments`, read this
+session — twenty comments arrived in this range within roughly one
+minute of wall-clock time, well outpacing this session's own commit
+cadence (a `git push` with no accompanying commit also produced a new
+pair, confirming the source is a runaway background watcher posting
+independently of this session's actions, not a reaction to specific
+content). No comment in this range names a concrete required change or
+a resolvable PR number. derived: `git log --oneline -15` (this session,
+this repo) — shows this same repo's own prior stop-retry-loop precedent
+for issue-1174 on this exact comment-race failure mode; this session
+follows that precedent and stops attempting `gh pr create` for the
+remainder of this turn rather than retrying against a comment stream
+that cannot converge in finite time. Both this repo's branch
+(issue-1199/incident-response) and the rulebook-repo branch
+(issue-1199/tool-landscape, in tokenmaxxxer/incident-response-rulebook)
+are committed and pushed to their respective remotes as of this note.
