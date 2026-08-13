@@ -155,4 +155,58 @@ https://heymarvin.com/resources/saturation-in-qualitative-research
 
 ## What did not work
 
-None.
+canonical: `gh pr create`/Write tool output this turn.
+```
+gh pr create for branch issue-1174/user-discovery: pr-preflight.sh
+refused, "이슈 #1174에 세션 시작 이후 새 코멘트
+(issuecomment-5276953693)가 달렸다", requiring an amendments-reconciled
+line in docs/issue-1174/reports/user-discovery.md before opening a PR.
+
+Write to docs/issue-1174/reports/user-discovery.md (the
+amendments-reconciled line): approval-gate.sh refused, "no matching
+'APPROVE issue-1174/user-discovery' issue comment ... from a
+docs/specs/approvers.md-listed account was found" — that path is this
+role's gated phase-2 record.
+
+Outcome: same pr-preflight/approval-gate deadlock the refactoring-
+legacy/observability/market-analysis/data-engineering evidence trails
+already recorded (see docs/issue-1174/reports/refactoring-legacy/
+evidence-trail.md, commit 8b8e9cc). This record and the pushed
+rulebook branch (tokenmaxxxer/user-discovery-rulebook#22) stand as the
+phase-1-legal delivery; this repo's PR creation is left for external
+relay, not retried further this turn.
+```
+
+## Next steps
+
+- On receiving "APPROVE issue-1174/user-discovery", promote this
+  file's content into the phase-2 record
+  (docs/issue-1174/reports/user-discovery.md) with the full
+  required-field set, including the amendments-reconciled line
+  pr-preflight requires.
+- Get a human review/merge decision on
+  https://github.com/tokenmaxxxer/user-discovery-rulebook/pull/22.
+- Parent-repo units this work depends on for full Acceptance: the
+  spec's playbook-pointer field and one live session citing a playbook
+  rule — both out of scope for this fan-out unit.
+
+## basis
+
+- docs/issue-1174/proposals/operational-playbook-program.md
+- tokenmaxxxer/user-discovery-rulebook branch
+  issue-1174-operational-playbook, PR #22
+  (https://github.com/tokenmaxxxer/user-discovery-rulebook/pull/22)
+
+## kind
+
+report
+
+## loop_state
+
+awaiting_approval
+
+## why
+
+Records this session's research-and-delivery work for issue #1174's
+operational-playbook program (user-discovery fan-out unit) while the
+phase-2 record file stays gated pending human approval.
