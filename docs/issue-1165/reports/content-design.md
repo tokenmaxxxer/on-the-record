@@ -98,15 +98,27 @@ judgment, matching requirement 2's "automatable" framing):
    inside a user-facing surface fails — reuses the same "consecutive
    unstructured enumeration cap" shape requirement 2 already specifies
    for documents, applied to screen copy.
+5. **Pattern family named (amendment 2, added 2026-08-13).** Every
+   screen names, in a fixed metadata slot (`convention_family` note),
+   which pattern family its primary navigation/form structure follows
+   (Material/HIG/common navigation-form patterns). Structural check:
+   field non-empty, or `none-applicable` paired with a one-line stated
+   reason — the field's presence is checked, not whether the named
+   family is the "right" one (that judgment is not automatable, same
+   split as rules 1-4). See Amendment 2 below for grounding.
 
 ### Tier 2 — new-user checklist
 
 Filed as its own artifact at
 docs/issue-1165/reports/content-design/tier2-new-user-checklist.md —
-the intuitive-first-screen test, the primary-task-completion test, and
-an error-recovery test, each grounded in a named NN/g heuristic with a
-stated reject condition and accept shape (requirement 4's anti-nitpick
-bound: a verdict cites the item, not "feels confusing").
+the intuitive-first-screen test, the primary-task-completion test, an
+error-recovery test, and (amendment 2, added 2026-08-13) a
+convention-conformance test — does the primary flow match imported
+Material/HIG/common navigation-form expectations, and if it deviates,
+is the deviation stated with a reason — each grounded in a named
+source with a stated reject condition and accept shape (requirement
+4's anti-nitpick bound: a verdict cites the item, not "feels
+confusing").
 
 ### Tier 3 — sampled deep review protocol
 
@@ -150,6 +162,27 @@ to interaction-design, not a content-design content fix. This mirrors
 this role's spec's existing `HAND-OFF` line and keeps tier-1's primary-
 action rule and named-states rule as the shared structural vocabulary
 both roles' criteria can reference without redefining it twice.
+
+### Amendment 2 — convention-conformance/familiarity (2026-08-13)
+
+Per operator revision request on PR #1170: added
+convention-conformance/familiarity as a first-class screen-side
+principle, folded into tier 1 (rule 5, `pattern_family_named`) and
+tier 2 (checklist item 4) above. Full grounding and the
+convention-baseline clause are stated in
+`docs/issue-1165/proposals/content-design-screens-comprehensibility.md`
+§Amendment 2, mirroring the shape of technical-writing's own amendment
+2 (document side) for cross-role consistency, per the review comment's
+explicit instruction — canonical: `gh pr diff 1168`, read this turn,
+showing the merged document-side amendment-2 clause this section
+mirrors. Sources:
+Jakob's Law (`https://www.nngroup.com/videos/jakobs-law-internet-ux/`),
+principle of least astonishment via platform convention families
+(`https://m3.material.io/foundations`,
+`https://developer.apple.com/design/human-interface-guidelines`),
+Norman's mental models (`https://www.nngroup.com/articles/mental-models/`),
+processing fluency
+(`https://www.renascence.io/journal/fluency-heuristic-judging-by-ease-of-processing`).
 
 ## Why
 

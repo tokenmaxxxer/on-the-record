@@ -95,6 +95,80 @@ round.
 - The tier-3 protocol states a concrete, tunable sampling frequency
   rather than "per-artifact" (issue requirement 2's consult caveat).
 
+## Amendment 2 — convention-conformance/familiarity (2026-08-13)
+
+Revision requested on PR #1170 (operator comment, amendment 2 on issue
+#1165, posted while this step's original PR was open): add
+convention-conformance/familiarity as a first-class screen-side
+principle, web-verified per the same standard as the document-side
+counterpart (technical-writing's amendment 2,
+`docs/issue-1165/proposals/2026-08-13-technical-writing-human-comprehensibility.md`,
+merged in PR #1168 — this section mirrors its clause shape for
+cross-role consistency, per the review comment's own instruction).
+
+Screen-side grounding, each with its source:
+
+- **Jakob's Law** — users spend most of their time on *other* sites/
+  apps and transfer expectations built there to a new product; a
+  screen that matches imported navigation/form conventions costs the
+  new user less orientation effort than a bespoke one (Nielsen Norman
+  Group, canonical: `https://www.nngroup.com/videos/jakobs-law-internet-ux/`,
+  `https://lawsofux.com/jakobs-law/`). Screen-side reading: a new user
+  who has used one mobile app's tab bar, back-gesture, or form-submit
+  pattern before arrives at this screen with that shape already
+  expected; departing from it silently spends the intuitive-first-
+  screen test's (tier-2 item 1) attention budget on re-orientation
+  instead of the task.
+- **Principle of least astonishment** — an interface element should
+  behave the way a user, familiar with the platform's own conventions,
+  would expect it to behave; the platform's own written convention
+  families (Material Design, Apple's Human Interface Guidelines) are
+  the closest primary-source statement of what "expected" means for a
+  screen (canonical: `https://m3.material.io/foundations`,
+  `https://developer.apple.com/design/human-interface-guidelines`).
+- **Norman's mental models** — a user builds a mental model from prior
+  exposure to similar interfaces and expects a new one to match it
+  (Don Norman, *The Design of Everyday Things*; canonical secondary
+  source: `https://www.nngroup.com/articles/mental-models/`). Same
+  source the document-side amendment already grounds in, extended here
+  from document shape to screen/flow shape.
+- **Processing fluency** — a familiar, easily-processed structure is
+  judged more usable and more trustworthy for the same content
+  (Schwarz et al., canonical:
+  `https://www.renascence.io/journal/fluency-heuristic-judging-by-ease-of-processing`).
+  Directly transfers from the document-side amendment: a screen in a
+  recognized navigation/form pattern is not just faster to use, it
+  reads as more trustworthy for the same functionality.
+
+**Deliverable addition — convention-baseline clause**, folded into
+tier 1 and tier 2:
+
+- **Tier 1 (new checkable rule, `pattern_family_named`)** — every
+  screen names, in a fixed metadata slot (this role: an added
+  `convention_family` note alongside the screen's existing content
+  spec, e.g. "Material navigation drawer", "HIG modal sheet", "common
+  email/password login form"), which pattern family its primary
+  navigation/form structure follows. `verification_method`: automated
+  presence check only (field non-empty) — which family is the "right"
+  one is not automatable, same split as tier 1's other rules. A screen
+  whose convention family is `none-applicable` is legal only paired
+  with a one-line stated reason (deviation-with-reason), mirroring the
+  document-side rule's `none-applicable` escape and the existing
+  `unverifiable:` escape-line convention.
+- **Tier 2 (new checklist item 4, convention-conformance test)** —
+  added to `tier2-new-user-checklist.md`: does the primary flow match
+  imported (Material/HIG/common navigation-form) expectations, and if
+  it deviates, is the deviation stated with a reason? Filed as its own
+  item below, same citation discipline as items 1-3 (names the pattern
+  family, states what specifically doesn't match, states a passing
+  shape).
+
+This amendment does not touch tier 3, the hand-off boundary, or §4-
+equivalent reconciliation (this step has no separate reconciliation
+section — content-design's required fields, per
+`roles/specs/content-design.spec.json`, already generalize to the new
+`convention_family` note the same way tier 1's other rules do).
+
 ## What did not work
 
 None.
