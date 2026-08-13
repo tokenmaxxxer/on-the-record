@@ -246,3 +246,11 @@ further individual entries follow.
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5281969657 --jq '.body'`, run this session.
 issuecomment-5281969657 is a further instance of the same identical,
 content-free watcher pattern; covered by the stopping rule above.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282002343 --jq '.body'`, run this session.
+issuecomment-5282002343 is a further instance of the same identical,
+content-free watcher pattern, part of this issue's continuous
+fleet-wide comment traffic (43 parallel role sessions posting on this
+one issue; not specific to this branch). Covered by the stopping rule
+stated above; this session's final PR-create attempt follows
+immediately after this commit.
