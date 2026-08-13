@@ -1187,7 +1187,7 @@ def _open_role_prs(root: Path) -> tuple[list[dict], bool]:
     if not slug:
         return [], False
     r = subprocess.run(["gh", "pr", "list", "--repo", slug, "--state", "open",
-                        "--json", "number,headRefName,body,url"],
+                        "--json", "number,headRefName,body,url,createdAt"],
                        cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
         return [], False
@@ -1232,8 +1232,30 @@ def _undispositioned_role_prs(root: Path, exclude_issue: int | None = None
             continue
         approved_roles = _ci._approved_roles_on_issue(root, pr["issue"])
         phase = "phase2" if approved_roles else "phase1"
-        blockers.append({**pr, "phase": phase})
+        age_hours = None
+        created_at = pr.get("createdAt")
+        if created_at:
+            try:
+                created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                age_hours = (datetime.now(timezone.utc) - created).total_seconds() / 3600.0
+            except ValueError:
+                age_hours = None
+        blockers.append({**pr, "phase": phase, "age_hours": age_hours})
     return blockers, True
+
+
+def _print_returned_pr_surfaced(blockers: list[dict], source: str) -> None:
+    """이슈 #1239: 처분 안 된 issue-*/ PR 목록을 (issue/phase/age/URL) 로
+    찍고 `returned_pr_surfaced` 원장 이벤트를 남긴다 — #680 의 거절 게이트를
+    대체하는 무조건적(non-blocking) surfacing. `_spawn_one()` 과
+    `roster_watchdog()` 양쪽에서 같은 모양으로 쓰기 위해 뽑았다."""
+    if not blockers:
+        return
+    for b in blockers:
+        age = f"{b['age_hours']:.1f}h" if b.get("age_hours") is not None else "?"
+        print(f"[returned-pr] issue #{b['issue']} ({b['phase']}): age={age} — {b['url']}")
+    ledger_write({"event": "returned_pr_surfaced", "source": source,
+                  "issues": [b["issue"] for b in blockers], "ts": int(time.time())})
 
 
 def _issue_comments(root: Path, number: int) -> tuple[list[dict], bool]:
@@ -2679,6 +2701,13 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     등 gates 모듈) 임포트는 항상 `ROOT` 를 쓰고(코드는 언제나 체크아웃에서
     온다), 보드 스캔 대상(이슈/PR/다이제스트)만 `root` 를 쓴다."""
     anomaly_count = _board_wide_sweep(root)
+    # 이슈 #1239: 워치독 틱마다 처분 안 된 issue-*/ PR 목록을 always-emit
+    # 카테고리로 찍는다 — poll-heartbeat.sh 의 #1220 delta-suppression 이
+    # `[returned-pr]` 태그 줄을 ALWAYS_RE 로 인식해 매 틱 살아남는다. 스폰
+    # 시점뿐 아니라 매 60초 틱마다 방치를 보이게 하는 게 이 이슈의 요구다.
+    blockers, ok = _undispositioned_role_prs(root)
+    if ok:
+        _print_returned_pr_surfaced(blockers, source="watchdog")
     d_all = _roster_load()
     # 이슈 #1013 block B: 자기 세션 소유(또는 소유 미기재=empty-state)
     # 엔트리로 스캔을 좁힌다. `--all` 이면 그대로 전체.
@@ -5220,8 +5249,10 @@ def main() -> int:
                     help="spawn --issue: fork 직후 _await_bounded 없이 즉시 "
                          "리턴한다 — 재개 명령(spawn.py watch)을 찍는다 (이슈 #645)")
     ap.add_argument("--despite-returned", action="store_true",
-                    help="다른 issue-*/ PR 이 아직 처분되지 않았어도 스폰을 "
-                         "강행한다 — ledger 에 bypass 이벤트를 남긴다 (이슈 #680)")
+                    help="[DEPRECATED, 이슈 #1239] no-op — 게이트가 이제 "
+                         "항상 non-blocking surfacing 이라 스폰을 거절하지 "
+                         "않으므로 무시할 것이 없다. CLI 호환성을 위해 남아 "
+                         "있을 뿐 (이슈 #680)")
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
@@ -5974,29 +6005,22 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     _BOOTSTRAP_TIMING.clear()
     if issue is not None:
         root = Path(cwd).resolve()
+        # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
+        # — 처분 안 된 PR 이 있어도 스폰은 결코 막지 않는다(북극-요구#1,
+        # never-missed != never-spawn). `--despite-returned` 는 이제 아무
+        # 것도 바꾸지 않는 no-op (CLI 호환성 보존, deprecation 안내만 찍는다).
         blockers, ok = _undispositioned_role_prs(root, exclude_issue=issue)
         if not ok:
             print(f"[{role}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
                   f"통과시킨다 (이슈 #680)", file=sys.stderr)
             ledger_write({"event": "returned_pr_gate_fail_open", "role": role,
                           "issue": issue, "ts": int(time.time())})
-        elif blockers and not despite_returned:
-            print(f"[{role}] 다른 issue-*/ PR 이 아직 처분되지 않았다 — "
-                  f"이 스폰을 거절한다 (--despite-returned 로 무시 가능):",
-                  file=sys.stderr)
-            for b in blockers:
-                print(f"  issue #{b['issue']} ({b['phase']}): {b['url']}",
-                      file=sys.stderr)
-            ledger_write({"event": "returned_pr_gate_refused", "role": role,
-                          "issue": issue,
-                          "blocked_by": [b["issue"] for b in blockers],
-                          "ts": int(time.time())})
-            return 1
-        elif blockers and despite_returned:
-            ledger_write({"event": "returned_pr_gate_bypassed", "role": role,
-                          "issue": issue,
-                          "blocked_by": [b["issue"] for b in blockers],
-                          "ts": int(time.time())})
+        else:
+            _print_returned_pr_surfaced(blockers, source="spawn")
+        if despite_returned:
+            print(f"[{role}] --despite-returned 는 더 이상 아무 효과가 없다 "
+                  f"(deprecated, 이슈 #1239) — 게이트가 항상 non-blocking "
+                  f"surfacing 이라 무시할 거절이 없다", file=sys.stderr)
         # 이슈 #1179: 워크스페이스 하나 더 만들기 전에 먼저 안전하게
         # 쓸어낸다(spawn-time sweep) — 정리는 사람이 `spawn.py clean` 을
         # 기억해야만 도는 게 아니라 기본으로 켜져 있어야 한다(northpole
