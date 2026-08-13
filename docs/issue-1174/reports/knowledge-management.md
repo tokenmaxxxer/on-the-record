@@ -26,3 +26,11 @@ report
 ## loop_state
 
 awaiting_approval
+
+amendments-reconciled: issuecomment-5276826318 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276826318` this
+turn. Body: "Judgment opened: PR #? — candidate decision on branch
+`issue-1174/knowledge-management` (2 path(s) changed) entered
+delegated-judgment evaluation." — an automated watcher notification about
+this session's own just-pushed branch (2 paths = the two files committed
+above), not a directive; no content changed in response.
