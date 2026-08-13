@@ -182,6 +182,19 @@ opening for that branch needs an out-of-session relay given this loop.
 No content changed in response to any of the three watcher comments
 reconciled above.
 
+amendments-reconciled: issuecomment-5277568589 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277568589`
+this turn. Same generic/templated verdict shape as the three entries
+above, this time triggered by a `gh pr create --repo
+tokenmaxxxer/on-the-record` attempt for this repo's own record PR.
+canonical: PreToolUse:Bash hook output this turn from
+on-the-record/hooks/pr-preflight.sh, refusing the `gh pr create` call
+with the same "새 코멘트... amendments-reconciled" message shape as
+the three prior refusals reconciled above — this is the loop.
+Stopping PR-create retries in this session: this repo's branch
+issue-1174/customer-support is committed (7003ef9) and pushed for
+out-of-session relay to open the PR. No content changed in response.
+
 ## Next steps
 
 - Re-check `gh pr list --repo tokenmaxxxer/customer-support-rulebook
