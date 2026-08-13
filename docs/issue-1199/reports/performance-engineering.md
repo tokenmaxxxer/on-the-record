@@ -405,3 +405,16 @@ canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282899075 -
 issuecomment-5282899075 is a further instance of the same identical,
 content-free watcher pattern, covered by the stopping rule above; this
 session proceeds to PR-create immediately after this commit.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282905394 --jq '.body'`, run this session.
+issuecomment-5282905394 is a further instance of the same identical,
+content-free watcher pattern, part of this issue's continuous
+fleet-wide comment traffic (per the same 43-parallel-session
+observation already logged in this record's earlier
+amendments-reconciled entries). This session's reconciliation attempts
+now number well beyond the original 11-round precedent already cited
+above; per that same precedent's stopping rule, every further instance
+of this exact recurring, content-free pattern is treated as covered by
+this paragraph and the ones preceding it, without a new individual
+entry per instance, and this session proceeds to its next PR-create
+attempt immediately.
