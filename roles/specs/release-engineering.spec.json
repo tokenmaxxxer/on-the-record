@@ -54,6 +54,16 @@
     ]
   },
   "use_when": {
-    "board_condition": "a release is cut on the branch AND no release-engineering record exists yet for that version"
+    "board_condition": "a release is cut on the branch AND no release-engineering record exists yet for that version",
+    "trigger": {
+      "path_patterns": [
+        "CHANGELOG.md",
+        "package.json",
+        "pyproject.toml",
+        "**/VERSION"
+      ],
+      "content_patterns": [],
+      "record_absent_for": "release-engineering"
+    }
   }
 }

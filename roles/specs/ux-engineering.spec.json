@@ -45,6 +45,19 @@
     ]
   },
   "use_when": {
-    "board_condition": "a UI component consumes a design token on the branch AND no ux-engineering record exists yet for that component"
+    "board_condition": "a UI component consumes a design token on the branch AND no ux-engineering record exists yet for that component",
+    "trigger": {
+      "path_patterns": [
+        "**/*.tsx",
+        "**/*.jsx",
+        "**/*.vue",
+        "**/*.svelte"
+      ],
+      "content_patterns": [
+        "design-token",
+        "designToken"
+      ],
+      "record_absent_for": "ux-engineering"
+    }
   }
 }

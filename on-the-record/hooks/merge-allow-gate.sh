@@ -194,6 +194,60 @@ if target_repo_flag and target_cwd is None:
 
 run_cwd = target_cwd or e.get("cwd") or os.getcwd()
 
+# --- issue #1130 routing-fix: secure-coding / release-engineering ----------
+# Both roles' use_when.trigger already names record_absent_for, but nothing
+# consulted it (docs/issue-1130/reports/requirements-engineering/
+# scout-brief.md) — this merge-time chokepoint is the natural consumer
+# since it is already the universal auto-allow gate. Presence-check only:
+# when the local diff between origin/main and HEAD in run_cwd touches a
+# path matching one of these two roles' trigger.path_patterns and that
+# role's own docs/issue-<n>/reports/<role>.md is absent for the issue
+# resolved from run_cwd's current branch (issue-<n>/<role>), this hook
+# simply withholds its "allow" (falls through unreached) rather than
+# denying — an existing deny gate elsewhere still wins either way per this
+# hook's own file-header note; this only makes a bad merge no easier.
+def _routing_fix_should_withhold(cwd):
+    try:
+        branch = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return False
+    m = re.match(r"^issue-(\d+)/(secure-coding|release-engineering)$", branch)
+    if not m:
+        return False
+    issue, role = m.group(1), m.group(2)
+    try:
+        spec = json.load(open(os.path.join(cwd, "roles", "specs", role + ".spec.json")))
+    except (OSError, ValueError):
+        return False
+    trigger = (spec.get("use_when") or {}).get("trigger") if isinstance(spec.get("use_when"), dict) else None
+    if not isinstance(trigger, dict) or trigger.get("record_absent_for") != role:
+        return False
+    path_patterns = trigger.get("path_patterns") or []
+    if not path_patterns:
+        return False
+    try:
+        diff = subprocess.run(
+            ["git", "-C", cwd, "diff", "--name-only", "origin/main...HEAD"],
+            capture_output=True, text=True, timeout=15,
+        )
+        changed = [l for l in diff.stdout.splitlines() if l.strip()]
+    except (OSError, subprocess.SubprocessError):
+        return False
+    if not changed:
+        return False
+    import fnmatch
+    if not any(fnmatch.fnmatch(f, pat) for f in changed for pat in path_patterns):
+        return False
+    record_path = os.path.join(cwd, "docs", "issue-%s" % issue, "reports", role + ".md")
+    return not os.path.isfile(record_path)
+
+
+if _routing_fix_should_withhold(run_cwd):
+    sys.exit(0)  # trigger matched, role's own record absent — withhold allow
+
 # --- call the existing READY predicate, not a reimplementation -------------
 checkout = os.environ.get("MAG_CHECKOUT")
 script = os.path.join(checkout, "gates", "landing_readiness.py")

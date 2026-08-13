@@ -1,6 +1,44 @@
 {
   "role": "api-design",
   "source_standard": "Spectral ruleset (OpenAPI linting) + OpenAPI schema conformance, https://stoplight.io/open-source/spectral",
+  "judgment_methodology": {
+    "method": "Google AIP resource-oriented design principles as the correctness lens for a new endpoint or field",
+    "source": "Google's AIP series; google.aip.dev; docs.cloud.google.com/apis/design"
+  },
+  "planning_methodology": {
+    "method": "Microsoft REST API Guidelines versioning and breaking-change policy applied at design time",
+    "source": "Microsoft REST API Guidelines; github.com/microsoft/api-guidelines"
+  },
+  "deliverable_form": {
+    "method": "OpenAPI Specification document as the contract of record",
+    "source": "OpenAPI Specification; spec.openapis.org/oas/latest.html"
+  },
+  "feedback_methodology": {
+    "method": "RFC 9110 HTTP-semantics compliance check (method/status-code correctness) on review",
+    "source": "RFC 9110; rfc-editor.org/rfc/rfc9110"
+  },
+  "review_methodology": {
+    "method": "Structural OpenAPI diff (oasdiff) to catch a removed/renamed field or path with no version bump",
+    "source": "oasdiff; github.com/oasdiff/oasdiff"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "Google AIPs (resource-oriented API design)",
+      "source": "google.aip.dev"
+    },
+    {
+      "concept": "Microsoft REST API Guidelines",
+      "source": "github.com/microsoft/api-guidelines"
+    },
+    {
+      "concept": "OpenAPI Specification",
+      "source": "spec.openapis.org/oas/latest.html"
+    },
+    {
+      "concept": "RFC 9110 HTTP semantics",
+      "source": "rfc-editor.org/rfc/rfc9110"
+    }
+  ],
   "required_fields": [
     {
       "name": "endpoint_path",
