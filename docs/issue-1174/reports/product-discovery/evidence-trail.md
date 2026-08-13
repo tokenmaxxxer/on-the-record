@@ -99,6 +99,22 @@ falling back to branch + relay note:
   after the rulebook PR lands, cites one of these rules in a real
   judgment and that citation gets logged back to issue #1174.
 
+## Addendum — same deadlock recurs in this repo
+
+canonical: this turn's own tool-call error text, pasted verbatim —
+attempting `gh pr create` in this repo (on-the-record) was also refused
+by on-the-record/hooks/pr-preflight.sh, this time citing a second new
+issue comment, issuecomment-5277087571 (an automated "Judgment opened"
+notice about this branch, read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277087571` this turn),
+demanding the same amendments-reconciled line in this repo's own
+docs/issue-1174/reports/product-discovery.md — the identical
+phase-2-gated path pattern, so the identical approval-gate deadlock
+applies here too. Not retrying further PR-open attempts, since each
+retry risks surfacing yet another post-spawn comment and re-triggering
+the same block; commit+push stands as this session's completion per the
+task's own branch+relay fallback.
+
 ## Next steps
 
 - Approver posts "APPROVE issue-1174/product-discovery" on issue #1174
