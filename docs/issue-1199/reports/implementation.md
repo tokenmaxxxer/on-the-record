@@ -233,3 +233,24 @@ as the prior repeats above applies (external watcher signal, not an
 instruction changing this delivery's scope, write set, or verdict; the
 governing `APPROVE issue-1199/implementation` comment is unaffected).
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session, second PR-create retry.
+
+amendments-reconciled: issuecomment-5277065400 — another repeat of the
+same automated judgment-watcher "escalate" message; same reconciliation
+applies. See "## Rationale for deviations" below for the retry-loop
+pattern this is part of.
+
+## Rationale for deviations
+The approved proposal's execution-plan section for this fan-out unit
+did not anticipate `pr-preflight.sh`'s per-attempt reconcile
+requirement racing against an external judgment-watcher that reposts
+an "escalate" comment roughly every 10-40s — each `gh pr create` retry
+this session has hit a comment posted after the prior reconcile. Per
+the prior `issue-1199: log PR-create deadlock deviation` precedent on
+this same branch/issue, this session's fallback if the next retry
+also hits a new comment: stop retrying `gh pr create`, since the
+target-repo deliverable (the implementation-rulebook repo commit,
+`217810f`) is already committed and pushed to
+`origin/issue-1199/implementation` there, independent of whether this
+on-the-record-side PR-open call succeeds.
+
