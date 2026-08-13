@@ -154,10 +154,26 @@ amendments-reconciled line inside the phase-2 record path before
 opening a PR, but approval-gate.sh refuses any write to that exact
 path pre-approval — no phase-1-legal way to satisfy pr-preflight.
 ```
-This repo's own PR for branch issue-1174/refactoring-legacy is
-attempted next, in this same turn; if it hits the same deadlock, this
-record and the pushed rulebook branch stand as the phase-1-legal
-delivery and PR creation is left for external relay.
+canonical: `gh pr create`/Write tool output this turn.
+```
+gh pr create for branch issue-1174/refactoring-legacy: pr-preflight.sh
+refused, "이슈 #1174에 세션 시작 이후 새 코멘트
+(issuecomment-5276662051)가 달렸다", requiring an amendments-reconciled
+line in docs/issue-1174/reports/refactoring-legacy.md before opening a
+PR.
+
+Write to docs/issue-1174/reports/refactoring-legacy.md (the
+amendments-reconciled line): approval-gate.sh refused, "no matching
+'APPROVE issue-1174/refactoring-legacy' issue comment ... from a
+docs/specs/approvers.md-listed account was found" — that path is this
+role's gated phase-2 record.
+
+Outcome: same pr-preflight/approval-gate deadlock the
+observability/market-analysis/data-engineering evidence trails already
+recorded. This record and the pushed rulebook branch stand as the
+phase-1-legal delivery; this repo's PR creation is left for external
+relay, not retried further this turn.
+```
 
 ## Next steps
 
