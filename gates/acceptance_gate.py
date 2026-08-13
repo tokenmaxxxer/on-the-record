@@ -19,7 +19,7 @@ from pathlib import Path
 _SECTION_HEADING = re.compile(r"(?im)^#{1,6}\s*acceptance\b.*$")
 _NEXT_HEADING = re.compile(r"(?m)^#{1,6}\s")
 _ARTIFACT_REF = re.compile(
-    r"`[^`]*(?:test/|gates/)[^`]*`"
+    r"`[^`]*(?:tests?/|gates/)[^`]*`"
     r"|^\s*[-*]?\s*(gate|check)\s*:\s*\S+",
     re.IGNORECASE | re.MULTILINE,
 )
