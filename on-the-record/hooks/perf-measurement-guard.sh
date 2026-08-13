@@ -46,8 +46,14 @@ if not isinstance(cmd, str):
 if not re.search(r"\bgit\s+commit\b", cmd):
     sys.exit(0)
 
-if "`" in cmd or "$(" in cmd:
-    sys.exit(0)  # substitution present — unreached, same fail-open posture as merge-allow-gate.sh
+# Unlike merge-allow-gate.sh (an ALLOW-only gate, safe to fail open on a
+# substitution it can't fully parse), this is a DENY gate protecting a
+# real invariant — a command substitution present elsewhere in the string
+# must not grant a free pass just because it makes the command harder to
+# parse (issue #1130 before-landing warrant hunt:
+# `git commit -m "x" $(true)` was silently let through by an earlier
+# version of this check). shlex.split below still tokenizes fine with a
+# substitution embedded inside a token; nothing here executes it.
 
 try:
     tokens = shlex.split(cmd, posix=True)
