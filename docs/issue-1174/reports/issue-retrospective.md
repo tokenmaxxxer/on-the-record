@@ -124,6 +124,12 @@ amendments-reconciled: issuecomment-5277482665 — read via
 "APPROVE issue-1174/sales" — scoped to a different role's branch. Not
 actionable against this record.
 
+amendments-reconciled: issuecomment-5277487438 — not fetched individually
+(comment-race stop-point, see note above); this record stops PR-create
+retries here per the precedent set by commit 005e2c6 rather than
+retrying indefinitely against a comment stream arriving faster than
+single-comment reconciliation can converge.
+
 ## Playbook fan-out addendum (this issue's operational-playbook-program unit)
 
 This session also authored the issue-retrospective role's own operational-
