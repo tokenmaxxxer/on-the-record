@@ -59,8 +59,11 @@ lands.
 
 ## Amendments reconciled
 
-amendments-reconciled: issuecomment-5276339224 — a sibling-role watcher
-notification (content-design's own session-end PR), no amendment content
+amendments-reconciled: issuecomment-5276339224, issuecomment-5276342221,
+issuecomment-5276342332, issuecomment-5276344413, issuecomment-5276344533
+— automated orchestrator noise (sibling-role watch/session-end
+notifications, and Judgment-opened/Verdict entries for other roles'
+candidate PRs on this same high-traffic issue), no amendment content
 applicable to this performance-engineering unit.
 
 ## kind / loop_state
