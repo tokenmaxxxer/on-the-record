@@ -50,6 +50,7 @@ def t_both_attempts_exhausted_raises_with_reported_symptom():
     orig_plugin_dirs = spawn.plugin_dirs
     orig_core_plugin_dirs = spawn.core_plugin_dirs
     orig_trace_path = spawn._consult_trace_path
+    orig_persist_raw = spawn._persist_consult_raw_output
     tmp = tempfile.TemporaryDirectory()
     try:
         root = Path(tmp.name)
@@ -57,6 +58,7 @@ def t_both_attempts_exhausted_raises_with_reported_symptom():
         spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
         spawn.core_plugin_dirs = lambda: []
         spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        spawn._persist_consult_raw_output = _persist_raw_under(root)
 
         raised = None
         try:
@@ -76,6 +78,145 @@ def t_both_attempts_exhausted_raises_with_reported_symptom():
         spawn.plugin_dirs = orig_plugin_dirs
         spawn.core_plugin_dirs = orig_core_plugin_dirs
         spawn._consult_trace_path = orig_trace_path
+        spawn._persist_consult_raw_output = orig_persist_raw
+        tmp.cleanup()
+
+
+def _persist_raw_under(root: Path):
+    """`_persist_consult_raw_output()`과 같은 경로 규칙(이슈 있으면
+    issue 트리, 없으면 표준 reports/ 버킷)을, 실제 `ROOT` 대신 테스트
+    fixture `root` 아래로 리다이렉트한다."""
+    def _persist(issue, ts, attempt, text):
+        base = root / "docs" / (f"issue-{issue}" if issue is not None else "reports")
+        out_dir = base / "reports" / "consult-raw-failures" if issue is not None \
+            else base / "consult-raw-failures"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        safe_ts = ts.replace(":", "").replace("+", "")
+        path = out_dir / f"{safe_ts}-{attempt}.txt"
+        path.write_text(text, encoding="utf-8")
+        return path
+    return _persist
+
+
+def _fake_run_long_no_json(calls):
+    """00:35:18 재현 형태: 긴 다항 질문에 대해 설명만 길게 늘어놓고
+    끝에 판단 JSON 객체를 한 번도 안 찍는다(트렁케이션과 구분하기 위해
+    JSON 부재 자체를 재현)."""
+    def fake_run(cmd, **kw):
+        calls.append(kw.get("input", ""))
+        text = (
+            "이 트레이드오프에는 여러 축이 있습니다. 첫째, 성능과 유지보수성의 "
+            "균형을 고려해야 하고, 둘째, 팀의 숙련도와 기존 코드베이스와의 "
+            "일관성도 살펴야 합니다. 셋째, 장기적으로 이 결정이 다른 모듈에 "
+            "미칠 영향도 검토가 필요합니다. 넷째, 마이그레이션 비용과 리스크도 "
+            "무시할 수 없습니다. 이 모든 요소를 종합했을 때... "
+        ) * 20
+        payload = json.dumps({"result": text, "is_error": False})
+        return subprocess.CompletedProcess(cmd, 0, stdout=payload, stderr="")
+    return fake_run
+
+
+def t_complex_question_persists_raw_output_on_parse_failure():
+    """#1123 00:35:18 재현: 긴 다항 질문이 두 시도 모두 판단 JSON 없이
+    끝나면, RuntimeError 메시지와 트레이스 줄 모두 원본 출력이 저장된
+    사이드 파일 경로를 담고, 그 파일에는 실제 모델 출력 전문이 들어있다."""
+    calls = []
+    orig_run = spawn.subprocess.run
+    orig_plugin_dirs = spawn.plugin_dirs
+    orig_core_plugin_dirs = spawn.core_plugin_dirs
+    orig_trace_path = spawn._consult_trace_path
+    tmp = tempfile.TemporaryDirectory()
+    try:
+        root = Path(tmp.name)
+        spawn.subprocess.run = _fake_run_long_no_json(calls)
+        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.core_plugin_dirs = lambda: []
+        spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        orig_persist_raw = spawn._persist_consult_raw_output
+        spawn._persist_consult_raw_output = _persist_raw_under(root)
+
+        long_question = (
+            "다음 트레이드오프를 판단해줘: A안은 성능이 좋지만 유지보수가 "
+            "어렵고, B안은 반대다. 팀 숙련도, 마이그레이션 비용, 장기 영향을 "
+            "모두 고려했을 때 어느 쪽을 택해야 하고 그 이유는 무엇인가?"
+        )
+        raised = None
+        try:
+            spawn.consult_cmd("implementation", long_question, cwd=str(root))
+        except RuntimeError as e:
+            raised = e
+
+        assert raised is not None, "both attempts exhausted must raise RuntimeError"
+        assert "모델 출력에서 판단 JSON 을 못 찾음" in str(raised)
+        assert "원본:" in str(raised), \
+            "RuntimeError message must include the raw-output side-file path"
+
+        raw_dir = root / "docs" / "reports" / "consult-raw-failures"
+        raw_files = list(raw_dir.glob("*.txt"))
+        assert len(raw_files) == 2, f"expected one raw file per attempt, got {raw_files}"
+        assert "트레이드오프" in raw_files[0].read_text(encoding="utf-8")
+
+        trace = (root / "docs" / "consult-log.md").read_text(encoding="utf-8")
+        assert "consult-raw-failures" in trace, \
+            "trace line must point at the raw-output side file"
+    finally:
+        spawn.subprocess.run = orig_run
+        spawn.plugin_dirs = orig_plugin_dirs
+        spawn.core_plugin_dirs = orig_core_plugin_dirs
+        spawn._consult_trace_path = orig_trace_path
+        spawn._persist_consult_raw_output = orig_persist_raw
+        tmp.cleanup()
+
+
+def _fake_run_short_multi_clause_no_json(calls):
+    """01:44/01:45 재현 형태: 짧지만(~60단어) 여러 판단절을 담은 질문에
+    대해 판단 JSON 없이 끝난다 — 길이 단일 가설을 반증하는 케이스."""
+    def fake_run(cmd, **kw):
+        calls.append(kw.get("input", ""))
+        text = "우선 A를 검토하고, B도 고려하고, C와의 상충도 살펴야 한다는 점에서..."
+        payload = json.dumps({"result": text, "is_error": False})
+        return subprocess.CompletedProcess(cmd, 0, stdout=payload, stderr="")
+    return fake_run
+
+
+def t_short_multi_clause_question_persists_raw_output_on_parse_failure():
+    """#1123 두 번째 재현(길이-단일 가설 반증): 짧지만 여러 판단절을 담은
+    질문도 같은 실패 모드를 재현하고, 같은 방식으로 원본이 저장된다."""
+    calls = []
+    orig_run = spawn.subprocess.run
+    orig_plugin_dirs = spawn.plugin_dirs
+    orig_core_plugin_dirs = spawn.core_plugin_dirs
+    orig_trace_path = spawn._consult_trace_path
+    tmp = tempfile.TemporaryDirectory()
+    try:
+        root = Path(tmp.name)
+        spawn.subprocess.run = _fake_run_short_multi_clause_no_json(calls)
+        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.core_plugin_dirs = lambda: []
+        spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        orig_persist_raw = spawn._persist_consult_raw_output
+        spawn._persist_consult_raw_output = _persist_raw_under(root)
+
+        short_question = "A를 할지, B를 할지, C와 상충은 없는지 판단해줘."
+        raised = None
+        try:
+            spawn.consult_cmd("implementation", short_question, cwd=str(root))
+        except RuntimeError as e:
+            raised = e
+
+        assert raised is not None, "both attempts exhausted must raise RuntimeError"
+        assert "원본:" in str(raised), \
+            "RuntimeError message must include the raw-output side-file path"
+
+        raw_dir = root / "docs" / "reports" / "consult-raw-failures"
+        raw_files = list(raw_dir.glob("*.txt"))
+        assert len(raw_files) == 2, f"expected one raw file per attempt, got {raw_files}"
+    finally:
+        spawn.subprocess.run = orig_run
+        spawn.plugin_dirs = orig_plugin_dirs
+        spawn.core_plugin_dirs = orig_core_plugin_dirs
+        spawn._consult_trace_path = orig_trace_path
+        spawn._persist_consult_raw_output = orig_persist_raw
         tmp.cleanup()
 
 
