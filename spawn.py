@@ -2258,7 +2258,7 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
             anomalies.append(
                 f"watcher-dead: 워처 pid {watcher_pid} 가 죽어 있거나(또는 다른 "
                 f"프로세스가 그 pid 를 물려받았거나) — spawn.py watch --issue "
-                f"<n> --follow 로 재무장하라")
+                f"<n> --role <role> --rearm 로 재무장하라 (non-blocking)")
         else:
             # signal 6 (이슈 #782): 워처 pid 는 살아 있고 신원도 진짜인데
             # (_watcher_looks_real 통과) 워처 자신의 로그가 무장 이후로
@@ -2275,7 +2275,8 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
                     anomalies.append(
                         f"watcher-silent: 워처 pid {watcher_pid} 는 살아 있지만 "
                         f"{int(silence_min)}분째 로그 무응답 ({watcher_log}) — "
-                        f"spawn.py watch --issue <n> --follow 로 재무장하라")
+                        f"spawn.py watch --issue <n> --role <role> --rearm 로 "
+                        f"재무장하라 (non-blocking)")
 
     return anomalies
 
@@ -3901,6 +3902,71 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
             return 0
 
 
+def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: float,
+                             repo: str | None = None) -> int:
+    """이슈 #1133: `spawn.py watch --rearm` 의 본체 — 죽은 워처를 non-blocking
+    으로 재무장한다. `_watch(..., follow=True)`는 워처 등록 뒤에도 자기
+    자신이 blocking `--await_bounded` 루프를 돌아 호출자(오케스트레이터
+    턴, 시간제한 Bash 호출)가 죽으면 방금 무장한 워처까지 함께 죽는다
+    (실측: 2m 타임아웃으로 재무장한 워처 5/5 전원 사망) — 이 함수는 워처를
+    detached 프로세스로만 띄우고 즉시 리턴한다.
+
+    읽기(현재 워처가 죽었는가)-결정-스폰-쓰기(새 pid 등록) 전체를
+    `_workspace_index_locked()` 한 번으로 감싼다: after-proposal hunt
+    (stance 0)가 찾은 대로, 마지막 등록 write 만 잠그면 두 개의 동시
+    `--rearm` 호출이 둘 다 "죽었다" 판정을 통과한 뒤 하나만 등록되고
+    나머지 detached 자식은 추적 안 되는 채로 leak 된다. 그래서 자기
+    자신의 flock 을 잡는 `_workspace_index_put()`(non-reentrant)을 이
+    잠금 안에서 부르지 않고, 그 함수의 dict-shape/충돌 검사를 여기 안에서
+    직접 반복한다."""
+    with _workspace_index_locked():
+        idx = _workspace_index_load()
+        key, entry = _lookup_roster_entry(idx, issue, role, repo=repo)
+        if entry is None:
+            print(f"[watch] issue-{issue}{'/' + role if role else ''}: 기록 없음 — "
+                  f"재무장할 대상이 없다", file=sys.stderr)
+            return 1
+        work = entry["work"]
+        log_path = entry["log"]
+        m = re.search(r"issue-\d+/([^/]+)$", key) if key else None
+        rearm_role = m.group(1) if m else role
+        current_watcher_pid = entry.get("watcher_pid")
+        if (current_watcher_pid is not None and
+                _watcher_looks_real(current_watcher_pid, issue, rearm_role)):
+            print(f"[watch] issue-{issue}/{rearm_role}: 워처 pid "
+                  f"{current_watcher_pid} 이미 살아있다 — 재무장 안 함",
+                  file=sys.stderr)
+            return 0
+        watcher_log = Path(str(work) + ".watcher.log")
+        try:
+            with watcher_log.open("a", encoding="utf-8") as wf:
+                wproc = subprocess.Popen(
+                    [sys.executable, str(Path(__file__).resolve()),
+                     "watch", "--issue", str(issue), "--role", rearm_role,
+                     "--follow", "--self-heal",
+                     "--stall-timeout", str(stall_timeout_min)],
+                    stdin=subprocess.DEVNULL, stdout=wf,
+                    stderr=subprocess.STDOUT, start_new_session=True,
+                )
+        except OSError as exc:
+            print(f"[watch] issue-{issue}/{rearm_role}: 워처 재무장 실패 — {exc}",
+                  file=sys.stderr)
+            return 1
+        d = _workspace_index_load()
+        existing = d.get(key)
+        if existing is not None and existing.get("work") != work:
+            raise RuntimeError(
+                f"workspace index collision on {key!r}: existing entry "
+                f"{existing!r} has a different work dir than {work!r} — "
+                f"refusing to overwrite silently (issue #533)")
+        d[key] = {"work": work, "log": log_path,
+                  "watcher_pid": wproc.pid, "watcher_armed_at": time.time()}
+        WORKSPACE_INDEX.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+        print(f"[watch] issue-{issue}/{rearm_role}: 워처 재무장 pid {wproc.pid} "
+              f"(로그 {watcher_log})", file=sys.stderr)
+        return 0
+
+
 def _watch_all(stall_timeout_min: float, until_idle: bool = False) -> int:
     """`spawn.py watch --all --follow` — 이슈 #488 요구 (2): 워크스페이스
     인덱스 전체를 다중화해 하나의 장수명 호출로 스트리밍한다. 매 반복마다
@@ -4756,6 +4822,10 @@ def main() -> int:
     ap.add_argument("--follow", action="store_true",
                     help="watch: 이벤트마다 재무장하지 않고 session-end 까지 "
                          "_await_bounded 를 반복 호출하며 스트리밍한다")
+    ap.add_argument("--rearm", action="store_true",
+                    help="watch: 죽은 워처를 non-blocking 으로 재무장하고 즉시 "
+                         "리턴한다 — --follow 와 달리 호출자가 죽어도 워처는 "
+                         "살아남는다 (이슈 #1133)")
     ap.add_argument("--self-heal", action="store_true",
                     help="watch --follow: auto-arm 워처 전용. stall/wall-clock "
                          "에서 리턴 대신 진행 상태를 리셋하고 루프를 계속 돌아 "
@@ -4889,6 +4959,9 @@ def main() -> int:
         # 이슈 #554: `kill <역할> --issue N` 과 같은 위치 인자 문법을
         # `watch` 에도 허용한다 — `--role` 이 이미 있으면 그게 우선한다.
         watch_role = a.watch_role or a.task
+        if a.rearm:
+            return _rearm_watcher_detached(a.issue, watch_role, a.stall_timeout,
+                                            repo=_repo_identity(a.cwd))
         return _watch(a.issue, watch_role, a.stall_timeout, follow=a.follow,
                       repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
                       self_heal=a.self_heal)
