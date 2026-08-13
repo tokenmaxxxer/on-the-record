@@ -386,3 +386,12 @@ candidate PR, no specific defect named, no revision requested); by the
 same stopping rule this session does not open another individually-
 reasoned paragraph for it and proceeds directly to PR-create for this
 session's rework commit (938875c9).
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282879252 --jq '.body'`, run this session.
+issuecomment-5282879252 is a further instance of the same identical,
+content-free watcher pattern, part of this issue's continuous
+fleet-wide comment traffic; covered by the stopping rule stated
+repeatedly above. This session ends individual reconciliation of this
+exact recurring pattern here and proceeds to PR-create; any further
+instance arriving before PR-create succeeds is covered by this same
+paragraph, not a new one.
