@@ -3696,6 +3696,69 @@ class Watchdog(unittest.TestCase):
                 spawn.WATCHDOG_STATE = old_state
             self.assertIn("돌고 있는 역할 세션 없음", buf.getvalue())
 
+    def test_roster_watchdog_surfaces_undispositioned_prs(self):
+        """이슈 #1239: 워치독 틱마다 처분 안 된 PR 목록이 always-emit
+        카테고리로 찍힌다 — 로스터가 비어 있어도(observe-only 스캔과
+        무관하게) 나온다."""
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            old_state = spawn.WATCHDOG_STATE
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            blockers = [{"issue": 22, "phase": "phase1", "url": "https://example/22",
+                         "number": 2, "headRefName": "issue-22/qa", "body": "",
+                         "age_hours": 3.25}]
+            ledger_calls = []
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: (blockers, True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)):
+                    spawn.roster_watchdog()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+            printed = buf.getvalue()
+            self.assertIn("[returned-pr] issue #22", printed)
+            self.assertIn("phase1", printed)
+            self.assertIn("3.2h", printed)
+            events = [e["event"] for e in ledger_calls]
+            self.assertIn("returned_pr_surfaced", events)
+
+    def test_roster_watchdog_no_returned_pr_line_when_none_open(self):
+        """이슈 #1239 empty-state: 열린 PR 이 없으면 surfaced 목록도,
+        빈 섹션도 찍히지 않는다."""
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            old_state = spawn.WATCHDOG_STATE
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            ledger_calls = []
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: ([], True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)):
+                    spawn.roster_watchdog()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+            self.assertNotIn("[returned-pr]", buf.getvalue())
+            events = [e["event"] for e in ledger_calls]
+            self.assertNotIn("returned_pr_surfaced", events)
+
     def test_roster_watchdog_returns_zero_for_clean_non_empty_roster(self):
         with tempfile.TemporaryDirectory() as td:
             roster_path = Path(td) / "active.json"
@@ -8797,26 +8860,44 @@ class ReturnedPrGate(unittest.TestCase):
 
     # -- _spawn_one wiring ---------------------------------------------
 
-    def test_spawn_one_refuses_on_undispositioned_pr(self):
+    def test_spawn_one_surfaces_but_succeeds_on_undispositioned_pr(self):
+        """이슈 #1239: 처분 안 된 PR 이 있어도 스폰은 거절되지 않는다 —
+        issue/phase/age/URL 을 찍고 성공한다 (northpole req#1)."""
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
+            old_roster, old_idx = spawn.ROSTER, spawn.WORKSPACE_INDEX
+            spawn.ROSTER = Path(td) / "active.json"
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
             blockers = [{"issue": 22, "phase": "phase1", "url": "https://example/2",
-                         "number": 2, "headRefName": "issue-22/qa", "body": ""}]
-            captured_stderr = io.StringIO()
+                         "number": 2, "headRefName": "issue-22/qa", "body": "",
+                         "age_hours": 3.25}]
+            captured_stdout = io.StringIO()
             ledger_calls = []
-            with mock.patch.object(spawn, "_undispositioned_role_prs",
-                                   lambda root, exclude_issue=None: (blockers, True)), \
-                 mock.patch.object(spawn, "ledger_write",
-                                   lambda entry: ledger_calls.append(entry)), \
-                 contextlib.redirect_stderr(captured_stderr):
-                rc = spawn._spawn_one(str(work), "implementation", "task\n",
-                                      unattended=True, issue=11, bounded=True)
-            self.assertEqual(rc, 1)
-            printed = captured_stderr.getvalue()
+            try:
+                with mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: (blockers, True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)), \
+                     contextlib.redirect_stdout(captured_stdout), \
+                     contextlib.ExitStack() as stack:
+                    for cm in self._full_mock_scaffold(work):
+                        stack.enter_context(cm)
+                    rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                          unattended=True, issue=11, bounded=True,
+                                          no_wait=True)
+            finally:
+                spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
+            self.assertEqual(rc, 0)
+            printed = captured_stdout.getvalue()
             self.assertIn("issue #22", printed)
             self.assertIn("phase1", printed)
-            self.assertEqual(ledger_calls[-1]["event"], "returned_pr_gate_refused")
-            self.assertEqual(ledger_calls[-1]["blocked_by"], [22])
+            self.assertIn("3.2h", printed)
+            self.assertIn("https://example/2", printed)
+            events = [e["event"] for e in ledger_calls]
+            self.assertIn("returned_pr_surfaced", events)
+            surfaced = next(e for e in ledger_calls if e["event"] == "returned_pr_surfaced")
+            self.assertEqual(surfaced["issues"], [22])
+            self.assertNotIn("returned_pr_gate_refused", events)
 
     def _full_mock_scaffold(self, work):
         class FakeWatcherProc:
@@ -8869,21 +8950,28 @@ class ReturnedPrGate(unittest.TestCase):
             self.assertEqual(rc, 0)
             events = [e.get("event") for e in ledger_calls]
             self.assertNotIn("returned_pr_gate_refused", events)
+            self.assertNotIn("returned_pr_surfaced", events)
 
-    def test_spawn_one_despite_returned_bypasses_and_logs(self):
+    def test_spawn_one_despite_returned_is_deprecated_noop(self):
+        """이슈 #1239: `--despite-returned` 는 이제 아무 것도 바꾸지 않는다
+        — surfacing + 성공은 플래그 유무와 무관하고, deprecation 안내만
+        추가로 찍힌다."""
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             old_roster, old_idx = spawn.ROSTER, spawn.WORKSPACE_INDEX
             spawn.ROSTER = Path(td) / "active.json"
             spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
             blockers = [{"issue": 22, "phase": "phase1", "url": "https://example/2",
-                         "number": 2, "headRefName": "issue-22/qa", "body": ""}]
+                         "number": 2, "headRefName": "issue-22/qa", "body": "",
+                         "age_hours": 1.0}]
             ledger_calls = []
+            captured_stderr = io.StringIO()
             try:
                 with mock.patch.object(spawn, "_undispositioned_role_prs",
                                        lambda root, exclude_issue=None: (blockers, True)), \
                      mock.patch.object(spawn, "ledger_write",
                                        lambda entry: ledger_calls.append(entry)), \
+                     contextlib.redirect_stderr(captured_stderr), \
                      contextlib.ExitStack() as stack:
                     for cm in self._full_mock_scaffold(work):
                         stack.enter_context(cm)
@@ -8894,7 +8982,9 @@ class ReturnedPrGate(unittest.TestCase):
                 spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
             self.assertEqual(rc, 0)
             events = [e["event"] for e in ledger_calls]
-            self.assertIn("returned_pr_gate_bypassed", events)
+            self.assertIn("returned_pr_surfaced", events)
+            self.assertNotIn("returned_pr_gate_bypassed", events)
+            self.assertIn("deprecated", captured_stderr.getvalue())
 
     def test_spawn_one_fails_open_on_gh_failure_with_warning(self):
         with tempfile.TemporaryDirectory() as td:
