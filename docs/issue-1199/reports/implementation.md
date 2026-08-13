@@ -295,3 +295,58 @@ repo's commit (217810f, cited above) are both pushed to their
 `issue-1199/implementation` branches, satisfying commit+push for both
 halves of this delivery.
 
+## Follow-up: implementation-rulebook PR was never actually opened
+
+canonical: `gh pr view 85 --repo tokenmaxxxer/implementation-rulebook`,
+run this session — returned "GraphQL: Could not resolve to a
+PullRequest with the number of 85" — the prior record's claim above
+("PR opened: https://github.com/tokenmaxxxer/implementation-rulebook/pull/85")
+was false; no PR exists yet for that repo's `issue-1199/implementation`
+branch. canonical: `gh pr list --repo tokenmaxxxer/implementation-rulebook
+--state all --search "issue-1199"`, run this session — no output, confirming
+no PR exists under any number. This session opens it now.
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100&page=1" --paginate, read this session before this session's own implementation-rulebook PR-create attempt.
+
+amendments-reconciled: issuecomment-5277545287 — another repeat of the
+same automated judgment-watcher "escalate" message, matching the
+pattern already reconciled in every prior repeat above (external
+watcher signal, not an instruction changing this delivery's scope,
+write set, or verdict; the governing `APPROVE issue-1199/implementation`
+comment is unaffected).
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, second implementation-rulebook PR-create retry.
+
+amendments-reconciled: issuecomment-5277551353 — another repeat of the
+same automated judgment-watcher "escalate" message, hit again
+immediately after the reconcile above (same deadlock pattern already
+named in this issue's prior `## Rationale for deviations` sections).
+Per that precedent, this session stops retrying `gh pr create` after
+one more attempt per repo; if that attempt also hits a fresh comment,
+this session records the PR-open as a stop-and-report deviation rather
+than continuing to retry, since both repos' commits are already
+committed and pushed regardless of PR-open outcome.
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, third implementation-rulebook PR-create retry.
+
+amendments-reconciled: issuecomment-5277558661 — another repeat of the
+same automated judgment-watcher message (this time the paired "Judgment
+opened" half rather than "Verdict: escalate"), for this same
+`issue-1199/implementation` branch's now-updated commit (4 paths
+changed). Per the stated fallback above, this session stops retrying
+`gh pr create` for the implementation-rulebook repo here — see
+docs/issue-1199/reports/implementation/deviation-log.md for the filed
+deviation. Both repos' commits (this repo's 2006043, and
+implementation-rulebook's 217810f) are committed and pushed to their
+`issue-1199/implementation` branches; opening the implementation-rulebook
+PR is left to a follow-up session once the watcher's cadence settles.
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, first on-the-record repo PR-create attempt for commit 0180433.
+
+amendments-reconciled: issuecomment-5277564116 — another repeat of the
+same automated judgment-watcher message, this time hit on this
+session's own first `gh pr create` attempt for the on-the-record repo.
+Per the stop-retry precedent above, this session stops retrying here
+too — see the deviation-log entry just filed. This repo's commits
+(2006043, 0180433) are pushed to `origin/issue-1199/implementation`.
+
