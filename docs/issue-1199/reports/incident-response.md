@@ -129,3 +129,12 @@ resolvable PR number. Continuing to add one record commit per arrival
 only produces the next arrival, per the same commit 8bf080a precedent;
 this session stops reconciling further individual arrivals here and
 proceeds to open the phase-2 PR without another retry loop.
+
+amendments-reconciled: issuecomment-5277607101 and every "Judgment
+opened"/"Verdict: PR #? → escalate" pair through issuecomment-5277607380.
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments`,
+read this session — each pair's `created_at` timestamp lands 1-2 seconds
+after the preceding reconciliation commit, matching a per-commit
+reaction pattern rather than new externally-sourced content. This
+record now stops committing further reconciliation entries for this
+recurring pair and proceeds directly to PR creation.
