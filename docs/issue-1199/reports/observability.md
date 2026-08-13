@@ -7,7 +7,7 @@ loop_state: landed
 
 # observability record (issue-1199)
 
-amendments-reconciled: issuecomment-5281291949, issuecomment-5281333812, issuecomment-5281339711, issuecomment-5281340041, issuecomment-5281352072, issuecomment-5281352244, issuecomment-5281364053, issuecomment-5281364300, issuecomment-5281373577, issuecomment-5281373802, issuecomment-5281492243, issuecomment-5281599615, issuecomment-5281607749, issuecomment-5281613746, issuecomment-5282826921, issuecomment-5282915639, issuecomment-5282969941, issuecomment-5283066373, issuecomment-5283077125, issuecomment-5283088407, issuecomment-5283095155, issuecomment-5283103262, and issuecomment-5283109920 all read this
+amendments-reconciled: issuecomment-5281291949, issuecomment-5281333812, issuecomment-5281339711, issuecomment-5281340041, issuecomment-5281352072, issuecomment-5281352244, issuecomment-5281364053, issuecomment-5281364300, issuecomment-5281373577, issuecomment-5281373802, issuecomment-5281492243, issuecomment-5281599615, issuecomment-5281607749, issuecomment-5281613746, issuecomment-5282826921, issuecomment-5282915639, issuecomment-5282969941, issuecomment-5283066373, issuecomment-5283077125, issuecomment-5283088407, issuecomment-5283095155, issuecomment-5283103262, issuecomment-5283109920, and issuecomment-5283117777 all read this
 session — the first fourteen are either the identical generic
 batch-review verdict template "Verdict: PR #? → escalate (depth or
 impact axis did not clear)" or the two-line "Judgment opened"
