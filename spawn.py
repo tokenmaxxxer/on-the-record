@@ -4909,6 +4909,25 @@ def _live_workspaces() -> dict[Path, dict]:
     return live
 
 
+# 이슈 #1179 (reopen): 훅이 워크스페이스 안에 직접 심어놓는 자체 부기
+# 파일 — 사용자가 만든 내용이 아니라 harness 자신의 상태 마커라
+# untracked 로 남아도 "미보존 작업"이 아니다. 이 목록에 없는 파일은
+# 전부 그대로 dirty 취급(안전 기본값 유지) — 이름을 아는 것만 뺀다.
+_HARNESS_NOISE_BASENAMES = frozenset({
+    ".pull-check", ".shallow-check", ".orchestrate-greeted",
+    ".warrant-hunt.count", ".warrant-hunt.lock",
+    # 파이썬 바이트코드 캐시 — 어느 리포에서도 소스에서 재생성되는
+    # 순수 파생물이라 "미보존 작업"일 수가 없다(실측 최다 노이즈,
+    # 320개 워크스페이스 중 335건).
+    "__pycache__",
+    # project-rich 리포의 테스트/빌드 산출물 — `file` 로 확인한 SQLite
+    # db 와 컴파일된 JS/HTML 번들, 소스 아님(실측: project-rich-issue-*
+    # 워크스페이스 다수가 이 파일 하나 때문에만 dirty 로 잡혔다).
+    "fundamentals.db", "fundamentals.db-shm", "fundamentals.db-wal",
+    "web_out_snapshot", "web_out",
+})
+
+
 def _workspace_clean_state(w: Path, live: dict[Path, dict]) -> tuple[str | None, str]:
     """워크스페이스 하나가 지워도 안전한지 판정한다. `(reason, detail)` —
     `reason` 이 `None` 이면 안전(지워도 됨), 아니면 남기는 이유
@@ -4922,11 +4941,37 @@ def _workspace_clean_state(w: Path, live: dict[Path, dict]) -> tuple[str | None,
         return ("live",
                 f"실행 중인 세션 있음: issue-{e.get('issue', '?')}/"
                 f"{e.get('role', '?')}, pid {e.get('pid', '?')}")
-    st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
-                        capture_output=True, text=True).stdout.strip()
+    raw_st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
+                            capture_output=True, text=True).stdout.strip()
+    # untracked(`??`)이면서 harness 자체 마커 파일인 줄만 걸러낸다 —
+    # staged/tracked 변경(M/D/A 등)은 절대 걸러내지 않는다: 실측
+    # (2026-08-13, 이 머신) 잔여 320개 워크스페이스 중 293개가 이
+    # 마커 파일들 때문에 dirty 로 잘못 잡혔다.
+    st_lines = [ln for ln in raw_st.splitlines()
+                if not (ln[:2] == "??"
+                        and os.path.basename(ln[3:].rstrip("/"))
+                        in _HARNESS_NOISE_BASENAMES)]
+    st = "\n".join(st_lines)
     ahead = subprocess.run(
         ["git", "-C", str(w), "log", "--branches", "--not", "--remotes",
          "--oneline"], capture_output=True, text=True).stdout.strip()
+    if ahead:
+        # 레거시 워크스페이스는 생성 뒤 다시 fetch 된 적이 없어, 브랜치가
+        # 이미 origin 에 머지됐어도 로컬 remote-tracking ref 가 그 사실을
+        # 모른다 — "ahead" 로 영원히 오판된다(실측, accessibility-rulebook
+        # issue-19: fetch 전 2건 ahead, fetch 후 0건). 작업트리가 이미
+        # 깨끗할 때만 한 번 fetch 로 갱신하고 재판정한다 — fetch 는
+        # 로컬을 지우지 않으니 안전.
+        if not st:
+            try:
+                subprocess.run(["git", "-C", str(w), "fetch", "-q", "--all"],
+                               capture_output=True, text=True, timeout=30)
+            except (subprocess.TimeoutExpired, OSError):
+                pass
+            ahead = subprocess.run(
+                ["git", "-C", str(w), "log", "--branches", "--not",
+                 "--remotes", "--oneline"],
+                capture_output=True, text=True).stdout.strip()
     if st or ahead:
         detail = "미보존 작업 있음"
         if st:

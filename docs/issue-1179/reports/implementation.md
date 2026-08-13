@@ -59,7 +59,12 @@ functions called once per spawn.
 
 ## What did not work
 
-None.
+Reopen continuation (2026-08-13): the first attempt at the stale-remote-tracking-ref regression test
+used `git update-ref` on the bare origin repo to plant a commit object that only existed in the
+workspace's own object store — `update-ref` refused with "trying to write ref ... with nonexistent
+object" since the object was never transferred. Replaced with pushing the workspace's commit to the
+origin under a different branch name (`topic:main`) so the object lands in the bare repo for real,
+leaving the workspace's own `refs/remotes/origin/main` stale — the actual scenario being tested.
 
 ## Open findings
 
@@ -122,3 +127,86 @@ delete. The bound policy this change adds only ever touches the safe subset — 
 protected subset, by #1124's own guarantee. Left as an open note for whoever looks at residue growth
 next: most of this machine's accumulated directories fall into the protected, dirty/abandoned category,
 which sits outside this issue's automatic-sweep scope.
+
+## Reopen continuation (2026-08-13): fixing the dirty-classification false positive
+
+canonical: spawn.py `auto_sweep()` (reads `wb.glob("*")` directly, no index/roster read in its
+candidate loop) — the reopen comment's literal claim (sweep only sees indexed workspaces) does not
+match the code as it stood before this continuation. The actual cause of `removed:0` against measured
+11GB/2374 entries is different: `_workspace_clean_state()`'s dirty check was a false positive on nearly
+every legacy workspace, so the safe-to-delete set it computed was almost empty.
+
+derived: iterate every `~/.tokenmaxxxer/work/*` dir with a `.git`, running the pre-fix
+`_workspace_clean_state()`:
+```
+total 320 live 0 dirty 293 safe 27
+```
+
+Two causes, both checked directly against this machine's actual workspaces:
+
+canonical: `git branch -vv`, run directly in the accessibility-rulebook issue-19 workspace, output
+`issue-19/implementation ... [origin/main: 2개 앞]`, before fetch.
+Cause 1, stale remote-tracking refs: a legacy workspace is never `fetch`ed again after creation, so
+once its branch lands upstream (merge/squash), `git log --branches --not --remotes` reports it "ahead"
+forever; the local ref never learns the branch landed.
+derived: `git log --branches --not --remotes --oneline` in that same workspace returned 2 commits
+before `git fetch -q origin main`, 0 commits after.
+
+canonical: `file fundamentals.db`, run directly in a project-rich workspace, output `SQLite 3.x
+database`; `ls web_out_snapshot` in the same workspace, output `app.js`, `index.html`.
+Cause 2, untracked operational/build artifacts counted as "unpreserved work": `git status --porcelain`
+flags any untracked file, including files the harness's own hooks write into the workspace
+(`self-update.sh` writes `.pull-check` and `.shallow-check`; `directive.sh` writes
+`.orchestrate-greeted`; warrant-hunt dispatch writes `.warrant-hunt.count`/`.warrant-hunt.lock`),
+Python's own bytecode cache (`__pycache__`), and one target repo's (project-rich) untracked test/build
+output (`fundamentals.db` plus its `-shm`/`-wal` sidecars, and `web_out_snapshot`/`web_out`) — none of
+these are user-authored source, none were ever committed to lose.
+derived: `git status --porcelain` in `project-rich-issue-151-implementation` returned only
+`?? fundamentals.db` and `?? web_out_snapshot/`.
+
+Fix (spawn.py `_workspace_clean_state()`, new `_HARNESS_NOISE_BASENAMES`): before deciding "dirty", (a)
+drop untracked (`??`) status lines whose basename is in a fixed, narrowly-scoped allowlist —
+staged/tracked changes (`M`/`D`/`A`, anything not `??`) are never filtered, so a real
+committed-then-modified or committed-then-deleted file still counts as dirty; (b) when the only
+remaining reason to keep a workspace is "ahead" and the working tree is otherwise clean, run one
+`git fetch -q --all` (30s timeout, failures swallowed) and re-check — fetch only reads, it can never
+destroy local state.
+
+derived: same iteration as above, after the fix:
+```
+safe 254 8.938824099488556 GiB
+dirty 66 0.8356152474880219 GiB
+```
+canonical: `git status --porcelain`, run directly in two still-dirty workspaces after the fix —
+project-rich issue-178's workspace showed an untracked real report file; project-rich issue-181's
+workspace showed a staged tracked-file modification. Both correctly still kept.
+
+## Live reclaim (second acceptance check, re-run 2026-08-13 after the fix)
+
+derived: `du -sh ~/.tokenmaxxxer/work` before, then `spawn.auto_sweep(wb, spawn._clean_max_age_days(),
+spawn._clean_max_bytes())` at default bounds (14d / 5GiB), then `du -sh ~/.tokenmaxxxer/work` after:
+```
+before: 11G   /home/jwjung/.tokenmaxxxer/work
+auto_sweep() result: {'removed': 61, 'failed': 0}
+after:  6.8G  /home/jwjung/.tokenmaxxxer/work
+```
+canonical: the fenced before/after `du` output directly above — 11G to 6.8G is the terminal majority of
+what the fix newly made visible as safe (8.94GiB of the classified-safe 9.77GiB workspace-dir total,
+reclaimed down to the 5GiB bound). This session's own live workspace
+(`on-the-record-issue-1179-implementation`, uncommitted at sweep time) was correctly kept, confirming
+the live/dirty exemptions still hold under the new classification.
+
+## Regression tests
+
+`gates/test_clean_reconcile_safety.py` gained three cases: a harness-marker-only workspace is swept, a
+real untracked file alongside a marker still exempts the workspace, and a workspace with a stale
+remote-tracking ref (branch pushed to `main` under a different local branch name, simulating a
+squash-merge the workspace never fetched) is swept after the fetch-and-recheck.
+
+acceptance: `python3 -m unittest gates.test_clean_reconcile_safety` — result:
+```
+Ran 11 tests in 0.417s
+
+OK
+```
+8 pre-existing cases (4 #1124 regression + 4 original `AutoSweepTest`) unchanged, 3 new.

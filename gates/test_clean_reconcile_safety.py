@@ -229,6 +229,69 @@ class AutoSweepTest(unittest.TestCase):
         self.assertEqual(result["removed"], 0)
         self.assertTrue(w.exists())
 
+    # 이슈 #1179 재오픈: 훅이 심는 자체 부기 마커(untracked)만 있는
+    # 레거시 워크스페이스는 "미보존 작업"이 아니다 — 지워도 된다.
+    def test_harness_marker_only_workspace_is_swept(self):
+        now = 2_000_000_000.0
+        w = _bare_workspace(self.wb, "on-the-record-issue-1-implementation")
+        (w / ".warrant-hunt.count").write_text("3\n")
+        (w / ".pull-check").write_text("pull=ok\n")
+        self._set_mtime(w, days_ago=30, now=now)
+
+        result = spawn.auto_sweep(self.wb, max_age_days=14,
+                                   max_bytes=5 * 1024**3, now=now)
+        self.assertEqual(result["removed"], 1)
+        self.assertFalse(w.exists())
+
+    # 진짜 미보존 파일과 harness 마커가 같이 있으면 여전히 dirty.
+    def test_real_untracked_file_still_exempt_alongside_marker(self):
+        now = 2_000_000_000.0
+        w = _bare_workspace(self.wb, "on-the-record-issue-1-implementation")
+        (w / ".warrant-hunt.count").write_text("3\n")
+        (w / "real-work.txt").write_text("wip\n")
+        self._set_mtime(w, days_ago=30, now=now)
+
+        result = spawn.auto_sweep(self.wb, max_age_days=14,
+                                   max_bytes=5 * 1024**3, now=now)
+        self.assertEqual(result["removed"], 0)
+        self.assertTrue(w.exists())
+
+    # 레거시 워크스페이스는 생성 뒤 다시 fetch 된 적이 없어, 브랜치가
+    # origin 에 이미 머지됐어도 local remote-tracking ref 가 그걸 몰라
+    # "ahead" 로 영원히 오판된다 — auto_sweep 이 fetch 로 갱신하고
+    # 재판정해야 지워진다.
+    def test_stale_remote_tracking_ref_refreshed_before_ahead_check(self):
+        now = 2_000_000_000.0
+        origin_dir = self.tmp / "origin4"
+        subprocess.run(["git", "init", "-q", "-b", "main", "--bare",
+                        str(origin_dir)], check=True)
+        w = self.wb / "on-the-record-issue-1-implementation"
+        w.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q", "-b", "topic"], cwd=w, check=True)
+        subprocess.run(["git", "-C", str(w), "remote", "add", "origin",
+                        str(origin_dir)], check=True)
+        (w / "f.txt").write_text("x\n")
+        subprocess.run(["git", "-C", str(w), "add", "f.txt"], check=True)
+        subprocess.run(["git", "-C", str(w), "-c", "user.email=t@t.test",
+                        "-c", "user.name=t", "commit", "-q", "-m", "work"],
+                       check=True)
+        # 브랜치를 push 하지 않고, 대신 origin 쪽에서 같은 커밋이 main 으로
+        # 들어온 상태를 흉내낸다(스쿼시 머지 뒤 이 워크스페이스가 한번도
+        # fetch 되지 않은 상황) — origin bare repo 의 main 을 이 워크스페이스의
+        # HEAD 로 직접 옮긴다.
+        subprocess.run(["git", "-C", str(w), "push", "-q", "origin",
+                        "topic:main"], check=True)
+        # push 는 origin 에 객체를 올리지만 로컬 remote-tracking ref
+        # (refs/remotes/origin/main) 는 갱신 안 한다(다른 브랜치로 push
+        # 했으므로) — 스쿼시 머지 뒤 한번도 fetch 되지 않은 레거시
+        # 워크스페이스를 흉내낸다. fetch 전에는 "ahead" 로 보인다.
+        self._set_mtime(w, days_ago=30, now=now)
+
+        result = spawn.auto_sweep(self.wb, max_age_days=14,
+                                   max_bytes=5 * 1024**3, now=now)
+        self.assertEqual(result["removed"], 1)
+        self.assertFalse(w.exists())
+
 
 if __name__ == "__main__":
     unittest.main()
