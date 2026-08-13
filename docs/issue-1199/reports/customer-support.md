@@ -27,6 +27,15 @@ that timestamp — this comment is not evaluating this role's work
 product and needs no content change here; it is recorded, not acted
 on, so the thread is not silently dropped.
 
+amendments-reconciled: issuecomment-5277618420 (posted 2026-08-13T07:56:03Z
+by JiwonJung94: "Judgment opened: PR #? — candidate decision on branch
+`issue-1199/finance-unit-economics` (4 path(s) changed) entered
+delegated-judgment evaluation."). Reconciled: this comment names branch
+`issue-1199/finance-unit-economics`, a different role's branch entirely
+— not `issue-1199/customer-support` — so it evaluates finance-unit-
+economics's work product, not this role's; no content change needed
+here, recorded so the thread is not silently dropped.
+
 ## SLA table (unchanged by this fold-in, restated for reference)
 
 canonical: `git -C /tmp/csr-1199 show a1663e1 -- customer-support/handbook.md`
