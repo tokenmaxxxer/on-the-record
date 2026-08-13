@@ -42,6 +42,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `record-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `credential-record-guard.sh` | n/a | reads/validates only, no write call |
 | `credential-network-guard.sh` | n/a | reads/validates only, no write call |
+| `upstream-defect-scope-guard.sh` | n/a | reads/validates only, no write call |
 | `record-claim-shape-directive.sh` | n/a | reads/validates only, no write call |
 | `record-tiering-directive.sh` | n/a | reads/validates only, no write call |
 | `record-tiering-guard.sh` | n/a | reads/validates only, no write call |
