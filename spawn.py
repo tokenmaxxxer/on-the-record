@@ -3938,7 +3938,7 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
 
 
 def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: float,
-                             repo: str | None = None) -> int:
+                             repo: str | None = None, cwd: str | None = None) -> int:
     """이슈 #1133: `spawn.py watch --rearm` 의 본체 — 죽은 워처를 non-blocking
     으로 재무장한다. `_watch(..., follow=True)`는 워처 등록 뒤에도 자기
     자신이 blocking `--await_bounded` 루프를 돌아 호출자(오케스트레이터
@@ -3973,10 +3973,12 @@ def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: flo
                   file=sys.stderr)
             return 0
         watcher_log = Path(str(work) + ".watcher.log")
+        resolved_cwd = str(Path(cwd if cwd is not None else ".").resolve())
         try:
             with watcher_log.open("a", encoding="utf-8") as wf:
                 wproc = subprocess.Popen(
                     [sys.executable, str(Path(__file__).resolve()),
+                     "-C", resolved_cwd,
                      "watch", "--issue", str(issue), "--role", rearm_role,
                      "--follow", "--self-heal",
                      "--stall-timeout", str(stall_timeout_min)],
@@ -5084,7 +5086,7 @@ def main() -> int:
         watch_role = a.watch_role or a.task
         if a.rearm:
             return _rearm_watcher_detached(a.issue, watch_role, a.stall_timeout,
-                                            repo=_repo_identity(a.cwd))
+                                            repo=_repo_identity(a.cwd), cwd=a.cwd)
         return _watch(a.issue, watch_role, a.stall_timeout, follow=a.follow,
                       repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
                       self_heal=a.self_heal)

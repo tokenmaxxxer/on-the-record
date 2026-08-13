@@ -148,6 +148,39 @@ class WatchRearmRegistry(unittest.TestCase):
         self.assertEqual(rc, 0)
         popen.assert_not_called()
 
+    def test_rearm_passes_repo_context_for_mismatched_cwd(self):
+        """이슈 #1133 재오픈: detached 자식이 `spawn.py watch ...`를 repo
+        컨텍스트 없이 재실행하면, 실제 운영에서처럼 프로세스의 cwd 가
+        등록된 레포와 다를 때 `-lookup_roster_entry()`의 repo-prefixed
+        키 조회가 빗나가 '기록 없음'으로 즉시 죽는다. 여기서는 그 실측
+        시나리오를 흉내낸다: rearm 호출자의 cwd(`self.work_dir`, 즉
+        `self.repo` 아래)가 프로세스의 실제 cwd(`os.getcwd()`)와
+        다르다 — 자식 argv 에 그 cwd 를 되살릴 `-C <resolved cwd>` 가
+        박혀 있어야, 자식이 스스로 조회할 때도 같은 레포 컨텍스트로
+        떨어진다."""
+        self.assertNotEqual(str(self.work_dir.resolve()),
+                             str(Path(".").resolve()))
+        dead_pid = 999999996
+        self._put_entry(watcher_pid=dead_pid, watcher_armed_at=time.time())
+
+        with mock.patch.object(spawn.subprocess, "Popen") as popen:
+            fake_proc = mock.Mock()
+            fake_proc.pid = os.getpid()
+            popen.return_value = fake_proc
+            rc = spawn._rearm_watcher_detached(
+                self.issue, self.role, 5.0,
+                repo=self.repo, cwd=str(self.work_dir))
+        self.assertEqual(rc, 0)
+        popen.assert_called_once()
+        argv = popen.call_args[0][0]
+        self.assertIn("-C", argv)
+        c_idx = argv.index("-C")
+        self.assertEqual(argv[c_idx + 1], str(self.work_dir.resolve()))
+        # 재실행되는 자식 명령 자체는 여전히 repo 컨텍스트 없이
+        # `watch --issue ...`를 그대로 재구성한다 — `-C`가 그 앞에서
+        # 그 컨텍스트를 되살려주지 않으면 자식의 자체 조회가 빗나간다.
+        self.assertIn("watch", argv)
+
     def test_remediation_strings_carry_no_bare_follow(self):
         src = Path(spawn.__file__).read_text(encoding="utf-8")
         for marker in ("watcher-dead:", "watcher-silent:"):

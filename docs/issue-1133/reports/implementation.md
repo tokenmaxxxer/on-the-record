@@ -9,6 +9,50 @@ verdict: pass
 loop_state: landed
 ---
 
+## Reopen fix (2026-08-13, residual fatal defect)
+
+canonical: python3 -m pytest gates/test_watch_rearm_registry.py -v — executed live this session, pasted output in the updated Acceptance verification section below
+
+The issue reopened on live-fire evidence: the detached child spawned by
+`_rearm_watcher_detached()` re-runs `spawn.py watch --issue N --role R
+--follow` with no repo context, so the child's own
+`_lookup_roster_entry()` call misses on the repo-prefixed key (roster
+keys are `<repo>/issue-<n>/<role>`) and exits immediately with `기록
+없음 — 아직 스폰된 적이 없다` — the parent registers the child's pid
+right before this, so the registry shows a pid that is already dead.
+
+canonical: spawn.py:3940-4002 (_rearm_watcher_detached, current working
+tree, read this session)
+
+Fix applied: `_rearm_watcher_detached()` gained a `cwd` parameter,
+supplied by its only caller (`main()`'s `--rearm` branch,
+spawn.py:5085-5087) as `a.cwd` — the same cwd `main()` already resolves
+`repo=_repo_identity(a.cwd)` from for the parent's own lookup. The
+detached child's argv now carries `-C <resolved cwd>` ahead of the
+`watch` subcommand, so the child's own `_lookup_roster_entry()` call
+resolves `repo=` from the same directory the parent used, reproducing
+the same repo-prefixed key instead of missing it.
+
+Test added: gates/test_watch_rearm_registry.py, new test method
+test_rearm_passes_repo_context_for_mismatched_cwd — asserts the
+child's `Popen` argv contains `-C` followed by the resolved `cwd`
+value, using a work_dir distinct from the test process's actual cwd,
+reproducing the mismatched-cwd shape the reopen comment described.
+
+canonical: live foreign-cwd --rearm reproduction executed this session (raw session log, this turn)
+- checked: live foreign-cwd `--rearm` reproduction — result: watcher survives, no lookup-miss line
+
+Delivery proof (live, executed this session): registered a fabricated
+dead-watcher entry under a scratch `MUSTER_STATE_ROOT`, then ran the
+real `spawn.py -C <repo> watch --issue 999002 --role implementation
+--rearm` CLI from `/tmp` (a cwd with no relation to the repo, matching
+the reopen's "foreign cwd" scenario) — the detached child (pid
+2844967) stayed alive and produced no `기록 없음` line in its watcher
+log; `ps -p 2844967 -o pid,stat,etimes` at ELAPSED=32 still showed
+`STAT=Ss` (running), spanning more than 2 watchdog-tick-equivalent
+wall-clock windows, then was killed and its scratch dirs removed as
+session cleanup.
+
 ## Summary of work
 
 Implements the approved proposal
@@ -82,17 +126,18 @@ docs/issue-1133/proposals/watcher-rearm-detached.md
 
 ## Acceptance verification
 
-canonical: python3 -m pytest gates/test_watch_rearm_registry.py -v — executed live this session, output below
+canonical: python3 -m pytest gates/test_watch_rearm_registry.py -v — executed live this session, output below (reopen-fix run, includes the new mismatched-cwd test)
 - checked: `python3 -m pytest gates/test_watch_rearm_registry.py -v` — result: pass
 
 ```
 $ python3 -m pytest gates/test_watch_rearm_registry.py -v
-gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_already_alive_watcher_is_not_respawned PASSED [ 20%]
-gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_never_armed_entry_untouched_and_still_missing PASSED [ 40%]
-gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_rearm_clears_watcher_dead_and_updates_registry PASSED [ 60%]
-gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_rearmed_watcher_dying_again_is_still_flagged PASSED [ 80%]
+gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_already_alive_watcher_is_not_respawned PASSED [ 16%]
+gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_never_armed_entry_untouched_and_still_missing PASSED [ 33%]
+gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_rearm_clears_watcher_dead_and_updates_registry PASSED [ 50%]
+gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_rearm_passes_repo_context_for_mismatched_cwd PASSED [ 66%]
+gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_rearmed_watcher_dying_again_is_still_flagged PASSED [ 83%]
 gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_remediation_strings_carry_no_bare_follow PASSED [100%]
-5 passed in 0.05s
+6 passed in 0.08s
 ```
 
 ## What did not work
@@ -119,6 +164,16 @@ gates/test_watch_rearm_registry.py::WatchRearmRegistry::test_remediation_strings
   (`MagicMock` not serializable). Fixed by setting `fake_proc.pid =
   os.getpid()` on every mocked `Popen` return value the code path
   reaches.
+- Reopen fix: the first attempts to append the "Reopen fix" section via
+  `Edit` chose an anchor whose `new_string` opened on the frontmatter's
+  outcome-verdict line, kept only as unchanged match context. Expected:
+  record-claim-guard.sh's OUTCOME check (issue #870) would scan the
+  resulting full file, where the adjacent `canonical:` line sits just
+  above it; actual: the hook lints only the `Edit` tool's `new_string`
+  fragment on its own, so that outcome line landed as the fragment's
+  first line with nothing above it inside the fragment, and the write
+  was refused each time. Fixed by anchoring one line later
+  (`loop_state: landed`) so the fragment no longer opens on that line.
 
 ## Doc placement
 
