@@ -83,6 +83,42 @@ scoped to a different role's branch, not this session's own
 `issue-1174/issue-retrospective`. Not actionable against this record; no
 content changed in response beyond this citation.
 
+amendments-reconciled: issuecomment-5277473273 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277473273`. Body:
+"APPROVE issue-1174/marketing" — exact-match APPROVE string scoped to a
+different role's branch, not this session's own
+`issue-1174/issue-retrospective`. Not actionable against this record; no
+content changed in response beyond this citation.
+
+amendments-reconciled: issuecomment-5277477682 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277477682`. Body:
+"APPROVE issue-1174/partnerships-bd" — scoped to a different role's
+branch. Not actionable against this record.
+amendments-reconciled: issuecomment-5277480048 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277480048`. Body:
+"Judgment opened: PR #? — candidate decision on branch
+`issue-1174/issue-retrospective` (1 path(s) changed) entered
+delegated-judgment evaluation." — automated pre-PR watcher notice about
+this session's own not-yet-opened PR, no actionable content.
+amendments-reconciled: issuecomment-5277480277 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277480277`. Body:
+"Verdict: PR #? → escalate (depth or impact axis did not clear)" —
+generic/templated verdict shape (no PR number, no specifics), same shape
+as the two prior instances quoted earlier in this file. No content
+changed in response.
+- Note: pr-preflight.sh's amendments-reconciled requirement re-triggers
+  on every new issue comment at `gh pr create` time, and this issue is
+  receiving new APPROVE/watcher comments from ~40 parallel role sessions
+  every few seconds — this session hit the identical race documented in
+  005e2c6 ("issue-1174: log post-approval pr-preflight comment-race, stop
+  PR-create retries"). Both branches (this record's own
+  `issue-1174/issue-retrospective` and the rulebook's
+  `issue-1174/operational-playbook`) are committed and pushed as of this
+  entry; PR creation is stopped here rather than retried indefinitely,
+  per that prior commit's own precedent.
+  canonical: `git log --oneline | grep 005e2c6` this session — commit
+  005e2c6 present in this branch's history, same comment-race finding.
+
 ## Playbook fan-out addendum (this issue's operational-playbook-program unit)
 
 This session also authored the issue-retrospective role's own operational-
