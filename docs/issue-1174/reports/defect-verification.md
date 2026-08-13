@@ -8,7 +8,8 @@ docs/issue-1174/reports/defect-verification/evidence-trail.md instead,
 as phase-1 material, matching the capacity-planning/api-design
 precedent for this same issue.
 
-amendments-reconciled: issuecomment-5276945657 — read via
+amendments-reconciled: issuecomment-5276945657, issuecomment-5276951361,
+issuecomment-5276953753 — read via
 `gh api repos/tokenmaxxxer/on-the-record/issues/1174/comments` this
 turn. This issue is under heavy concurrent multi-role automated
 traffic (other fan-out units' PR-judgment/verdict/watch notifications
