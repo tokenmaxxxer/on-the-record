@@ -119,6 +119,11 @@ changed in response.
   canonical: `git log --oneline | grep 005e2c6` this session — commit
   005e2c6 present in this branch's history, same comment-race finding.
 
+amendments-reconciled: issuecomment-5277482665 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277482665`. Body:
+"APPROVE issue-1174/sales" — scoped to a different role's branch. Not
+actionable against this record.
+
 ## Playbook fan-out addendum (this issue's operational-playbook-program unit)
 
 This session also authored the issue-retrospective role's own operational-
