@@ -107,7 +107,10 @@ def t_heartbeat_skips_watchdog_when_not_due():
         home.mkdir()
         r = _run_heartbeat(checkout, marker, {"FAKE_POLL_DUE": "0", "HOME": str(home)})
         assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
-        assert "poll tick: skipped (within TTL)" in r.stdout, r.stdout
+        # issue #1220: delta-only emission — a non-due tick is now fully
+        # silent (no "skipped (within TTL)" line) instead of a constant
+        # per-minute echo.
+        assert r.stdout.strip() == "", r.stdout
         assert not (marker.exists() and marker.read_text().strip()), \
             "watchdog must not spawn when poll-due reports not-due"
 
