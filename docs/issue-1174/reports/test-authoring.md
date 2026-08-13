@@ -6,6 +6,9 @@ loop_state: landed
 amendments-reconciled: issuecomment-5277491815 ("APPROVE issue-1174/upstream-defect-report") is not applicable to this unit's scope (a different role's approval); reconciled as no-op, work proceeds unchanged.
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277491815` output this turn.
 
+amendments-reconciled: issuecomment-5277585631 ("Judgment opened: PR #? — candidate decision on branch `issue-1174/test-authoring` (1 path(s) changed) entered delegated-judgment evaluation.") is an automated watcher stub naming no concrete finding; reconciled as no-op, work proceeds unchanged.
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277585631` output this turn.
+
 ## What was done
 
 Authored this role's operational playbook (per-axis condition→choice→source decision rules for the decides: 테스트 코드 자체가 격리성·fixture 전략 면에서 좋은 설계인가) in tokenmaxxxer/test-authoring-rulebook, at that external repo's own docs/specs/playbook/isolation-and-fixture-strategy.md path — this path is in the external rulebook repo and does not resolve inside this (on-the-record) working tree.
