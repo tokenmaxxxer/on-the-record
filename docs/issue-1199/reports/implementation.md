@@ -120,3 +120,11 @@ approver) is unaffected and remains the governing approval for phase 2
 here. issuecomment-5276693160 is a distinct `[watch]` session-end
 notice for the sibling `issue-1199/brand-design` branch's own PR
 opening — it names a different branch and role, not this one.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session, tail of thread.
+
+amendments-reconciled: issuecomment-5276698548, issuecomment-5276701942 —
+further repeats of the same automated judgment-watcher "escalate"
+message described above; same reconciliation applies (external watcher
+signal, not an instruction changing this record's scope or verdict; the
+build-now APPROVE comment remains governing).
