@@ -76,6 +76,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/data-modeling.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "grain_stated_and_singular",
+      "verification_method": "automated check that `grain` names exactly one business-process-level statement (e.g. 'one row per order line'), not a compound of multiple grains joined by 'and'/'or'"
+    },
+    {
+      "criterion": "normal_form_audited",
+      "verification_method": "human-review-checklist: is every relation checked against 1NF-3NF/BCNF, and is any deliberate denormalization named with its reason?"
+    },
+    {
+      "criterion": "fact_dimension_role_unambiguous",
+      "verification_method": "automated check that `table_type` is declared and every foreign key on a fact table resolves to a table with `table_type: dimension`"
+    },
+    {
+      "criterion": "slowly_changing_dimension_type_declared",
+      "verification_method": "human-review-checklist: for a `table_type: dimension` entry, does the model state its SCD type (0-6) rather than leaving change-tracking behavior implicit?"
+    }
+  ],
   "loop_state": {
     "progress": [
       "modeling",
@@ -85,7 +103,8 @@
       "landed"
     ],
     "refusal": [
-      "grain-undeclared"
+      "grain-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "table-unreachable"

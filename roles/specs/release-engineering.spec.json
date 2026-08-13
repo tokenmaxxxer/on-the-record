@@ -38,6 +38,24 @@
     "CHANGELOG.md",
     "docs/issue-<n>/reports/release-engineering.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "entry_grouped_by_change_type",
+      "verification_method": "automated check that every changelog entry's change_type is one of Keep a Changelog's six categories (Added/Changed/Deprecated/Removed/Fixed/Security) and entries are grouped under their category heading, not listed flat"
+    },
+    {
+      "criterion": "version_and_date_iso8601",
+      "verification_method": "automated check that version resolves to a CHANGELOG.md heading of the form `[version] - YYYY-MM-DD`, ISO 8601 date format, per Keep a Changelog's format rule"
+    },
+    {
+      "criterion": "description_human_readable_not_diff_dump",
+      "verification_method": "human-review-checklist: does description explain the change for a human reader (what changed and why it matters), rather than a copy-pasted commit message or diff summary?"
+    },
+    {
+      "criterion": "semver_compliance_stated",
+      "verification_method": "human-review-checklist: does the version bump's magnitude (major/minor/patch) match the actual change (breaking/additive/fix) per Semantic Versioning, with any deliberate deviation stated explicitly?"
+    }
+  ],
   "loop_state": {
     "progress": [
       "drafting",
@@ -47,7 +65,8 @@
       "landed"
     ],
     "refusal": [
-      "version-undeclared"
+      "version-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "changelog-unreachable"

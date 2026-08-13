@@ -77,6 +77,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/observability.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "three_pillars_covered",
+      "verification_method": "automated check that a hot-path change carries at least one instrumented span, one metric, and one structured log — not just whichever pillar was easiest to add"
+    },
+    {
+      "criterion": "semconv_attribute_names_valid",
+      "verification_method": "automated validation of attribute_name against the current OpenTelemetry semantic-conventions registry (or a documented custom-extension entry), no ad hoc attribute names"
+    },
+    {
+      "criterion": "slo_or_alert_wired_to_signal",
+      "verification_method": "human-review-checklist: does the new signal feed an existing SLO/error-budget or a defined alert threshold, rather than existing with no consumer?"
+    },
+    {
+      "criterion": "cardinality_bounded",
+      "verification_method": "human-review-checklist: for each new metric/span attribute, is its label cardinality bounded (enum or capped set), avoiding unbounded high-cardinality values like raw user IDs as a metric label?"
+    }
+  ],
   "loop_state": {
     "progress": [
       "instrumenting",
@@ -86,7 +104,8 @@
       "landed"
     ],
     "refusal": [
-      "signal-undeclared"
+      "signal-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "registry-unreachable"
