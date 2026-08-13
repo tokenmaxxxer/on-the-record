@@ -1,6 +1,40 @@
 {
   "role": "content-design",
   "source_standard": "GOV.UK Content Design / GDS style guide, https://www.gov.uk/guidance/content-design/writing-for-gov-uk",
+  "judgment_methodology": {
+    "method": "Nielsen Norman Group's 10 Usability Heuristics applied to microcopy/UX writing",
+    "source": "nngroup.com/articles/ten-usability-heuristics-for-user-interface-design"
+  },
+  "planning_methodology": {
+    "method": "Content strategy quad (audience, purpose, message, structure) before drafting",
+    "source": "Halvorson, Content Strategy for the Web, 2nd ed (New Riders 2012)"
+  },
+  "deliverable_form": {
+    "method": "Voice-and-tone style guide entry with before/after example pairs",
+    "source": "uxcontent.com/how-to-create-style-guide"
+  },
+  "feedback_methodology": {
+    "method": "Plain-language review checklist (reading level, active voice, one idea per sentence)",
+    "source": "digital.gov/guides/plain-language/principles"
+  },
+  "review_methodology": {
+    "method": "Information-architecture cross-check: does the content's placement match its findability model",
+    "source": "Rosenfeld, Morville & Arango, Information Architecture, 4th ed (O'Reilly 2015)"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "Usability heuristic evaluation",
+      "source": "nngroup.com/articles/ten-usability-heuristics-for-user-interface-design"
+    },
+    {
+      "concept": "Content strategy quad model",
+      "source": "Halvorson, Content Strategy for the Web, 2nd ed (New Riders 2012)"
+    },
+    {
+      "concept": "Information architecture / findability",
+      "source": "Rosenfeld, Morville & Arango, Information Architecture, 4th ed (O'Reilly 2015)"
+    }
+  ],
   "required_fields": [
     {
       "name": "content_id",

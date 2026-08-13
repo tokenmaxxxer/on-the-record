@@ -25,8 +25,8 @@ approximate (rationale given).
 
 | # | Role | Existing standing invariant | Classification | Invariant (proposed if none exists) |
 |---|------|------------------------------|-----------------|--------------------------------------|
-| 1 | accessibility | none | gate-now | user-visible surface diff must carry an accessibility check reference (alt text / contrast / keyboard-nav note) before landing |
-| 2 | api-design | none | gate-now | removing/renaming a public field or endpoint without a version bump is refused |
+| 1 | accessibility | `accessibility-guard.sh` (issue #1130 phase 2) | **gate-now (landed)** | user-visible surface diff must carry an accessibility check reference (alt text / contrast / keyboard-nav note) before landing |
+| 2 | api-design | `api-version-guard.sh` (issue #1130 phase 2) | **gate-now (landed)** | removing/renaming a public field or endpoint without a version bump is refused |
 | 3 | architecture | `spec-index-preflight.sh`, `role-axis-completeness-guard.sh` (structural completeness, not duplication) | directive-only | no new top-level mechanism when an existing one composes — requires judging "composes" case by case, not mechanically decidable from a diff alone |
 | 4 | brand-design | none | spawn-only — visual/tone judgment has no mechanical proxy; false positives on any keyword-based check would be near-total |
 | 5 | capacity-planning | none | spawn-only — a numeric capacity projection needs live load context a gate cannot fetch |
@@ -52,7 +52,7 @@ approximate (rationale given).
 | 25 | ml-engineering | none | directive-only | training-affecting change states an eval/model-card note |
 | 26 | observability | none | directive-only | hot-path or prod-facing change states which metric/log covers it |
 | 27 | partnerships-bd | none | spawn-only — external negotiation judgment, no repo-local signal |
-| 28 | performance-engineering | none | gate-now | hot-path change carries a measurement |
+| 28 | performance-engineering | `perf-measurement-guard.sh` (issue #1130 phase 2) | **gate-now (landed)** | hot-path change carries a measurement |
 | 29 | pr-communications | none | directive-only | a PR description states the audience-facing summary distinct from the technical diff |
 | 30 | pricing | none | spawn-only — pricing judgment needs market/financial context |
 | 31 | product-discovery | `product-capture-stopgate.sh`, `requirement-digest-preflight.sh` | gate-now (already landed) | — |
@@ -74,11 +74,12 @@ approximate (rationale given).
 - Rows 18/43 (design/UX cluster) landed phase 2, issue #960: `design-rationale-guard.sh`
   (`on-the-record/hooks/design-rationale-guard.sh`), tested by
   `on-the-record/hooks/test_design_rationale_guard.py`.
-- Remaining gate-now rows without a `(landed)` marker (1, 2, 28) are the
-  next candidates per the phase-1 proposal's RICE ordering
-  (docs/issue-960/proposals/role-invariant-coverage.md), left for a
-  follow-up issue — landing every remaining gate-now cluster in one PR
-  was out of this phase's scope (one domain-cluster gate per the issue's
-  acceptance criterion).
+- Rows 1/2/28 (accessibility, api-design, performance-engineering) landed
+  phase 2, issue #1130: `accessibility-guard.sh`, `api-version-guard.sh`,
+  `perf-measurement-guard.sh` (all under `on-the-record/hooks/`), tested by
+  `on-the-record/hooks/test_accessibility_guard.py`,
+  `on-the-record/hooks/test_api_version_guard.py`,
+  `on-the-record/hooks/test_perf_measurement_guard.py` respectively.
+  Every gate-now row now carries a `(landed)` marker.
 - Rows judged spawn-only carry a written rationale in the table above,
   not an empty cell, per the issue's "empty state" acceptance line.

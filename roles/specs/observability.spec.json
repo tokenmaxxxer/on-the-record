@@ -1,6 +1,40 @@
 {
   "role": "observability",
   "source_standard": "OpenTelemetry semantic conventions, https://opentelemetry.io/docs/specs/semconv/",
+  "judgment_methodology": {
+    "method": "Three-pillars framing (logs, metrics, traces) to judge whether a system is actually observable, not merely monitored",
+    "source": "Sridharan, Distributed Systems Observability (O'Reilly 2018)"
+  },
+  "planning_methodology": {
+    "method": "SLO/error-budget planning per the Google SRE book's monitoring chapters",
+    "source": "sre.google/sre-book"
+  },
+  "deliverable_form": {
+    "method": "RED (Rate/Errors/Duration) or USE (Utilization/Saturation/Errors) dashboard instrumented via OpenTelemetry semantic conventions",
+    "source": "Gregg, the USE Method, brendangregg.com/usemethod.html; Grafana, \"The RED Method\"; opentelemetry.io/docs/specs/semconv"
+  },
+  "feedback_methodology": {
+    "method": "SLO burn-rate review against the declared error budget",
+    "source": "sre.google/sre-book"
+  },
+  "review_methodology": {
+    "method": "Postmortem-culture review pass (blameless, contributing-factors-not-blame) before closing an incident",
+    "source": "sre.google/sre-book"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "Three pillars of observability (logs/metrics/traces)",
+      "source": "Sridharan, Distributed Systems Observability (O'Reilly 2018)"
+    },
+    {
+      "concept": "SLOs and error budgets",
+      "source": "sre.google/sre-book"
+    },
+    {
+      "concept": "RED and USE instrumentation methods",
+      "source": "brendangregg.com/usemethod.html; grafana.com/blog/the-red-method-how-to-instrument-your-services"
+    }
+  ],
   "required_fields": [
     {
       "name": "signal_type",

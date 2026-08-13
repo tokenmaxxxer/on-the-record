@@ -1,6 +1,40 @@
 {
   "role": "refactoring-legacy",
   "source_standard": "Fowler's Refactoring Catalog, https://refactoring.com/catalog/",
+  "judgment_methodology": {
+    "method": "Fowler's code-smell catalog to identify what actually warrants refactoring versus stylistic preference",
+    "source": "Fowler, \"CodeSmell\"; martinfowler.com/bliki/CodeSmell.html"
+  },
+  "planning_methodology": {
+    "method": "Strangler Fig incremental-replacement plan for legacy surfaces with no test coverage",
+    "source": "Fowler, \"StranglerFigApplication\"; martinfowler.com/bliki/StranglerFigApplication.html"
+  },
+  "deliverable_form": {
+    "method": "Named refactoring from Fowler's catalog applied with before/after diff citing the catalog entry",
+    "source": "Fowler, Refactoring, 2nd ed (2018); refactoring.com/catalog"
+  },
+  "feedback_methodology": {
+    "method": "Characterization-test-first review: does a change to untested legacy code add a characterization test before altering behavior",
+    "source": "Feathers, Working Effectively with Legacy Code (Prentice Hall 2004)"
+  },
+  "review_methodology": {
+    "method": "Seam identification review: confirm the refactor introduces or uses a seam rather than editing untestable code directly",
+    "source": "Feathers, Working Effectively with Legacy Code (Prentice Hall 2004)"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "Fowler's refactoring catalog and code smells",
+      "source": "refactoring.com/catalog; martinfowler.com/bliki/CodeSmell.html"
+    },
+    {
+      "concept": "Characterization tests and seams",
+      "source": "Feathers, Working Effectively with Legacy Code (Prentice Hall 2004)"
+    },
+    {
+      "concept": "Strangler Fig migration pattern",
+      "source": "martinfowler.com/bliki/StranglerFigApplication.html"
+    }
+  ],
   "required_fields": [
     {
       "name": "refactoring_name",

@@ -53,7 +53,12 @@
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/delegated-judgment-gate.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/merge-allow-gate.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/spawn-allow-gate.sh" },
-          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/gh-write-allow-gate.sh" }
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/gh-write-allow-gate.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/perf-measurement-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/test-authoring-spawn-check.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/issue-retrospective-spawn-check.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/interaction-design-spawn-check.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/ux-engineering-spawn-check.sh" }
         ]
       },
       {
@@ -72,6 +77,8 @@
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/call-shape-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/accumulation-claim-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/design-rationale-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/accessibility-guard.sh" },
+          { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/api-version-guard.sh" },
           { "type": "command", "command": "${CLAUDE_PLUGIN_ROOT}/hooks/approval-gate.sh" }
         ]
       }

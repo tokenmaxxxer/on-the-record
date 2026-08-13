@@ -1,6 +1,40 @@
 {
   "role": "growth-analytics",
   "source_standard": "AARRR Pirate Metrics (Dave McClure) + North Star Metric — original McClure source not independently fetched this pass (scout-brief gap, stated as assumption); https://www.productcompass.pm/p/aarrr-pirate-metrics",
+  "judgment_methodology": {
+    "method": "AARRR (Acquisition-Activation-Retention-Referral-Revenue) funnel framing for which metric a change actually moves",
+    "source": "McClure, \"Startup Metrics for Pirates\" (2007); amplitude.com/blog/pirate-metrics-framework"
+  },
+  "planning_methodology": {
+    "method": "Lean Analytics one-metric-that-matters stage selection",
+    "source": "Croll & Yoskovitz, Lean Analytics (O'Reilly 2013)"
+  },
+  "deliverable_form": {
+    "method": "HEART-framework metric definition (goals -> signals -> metrics) per surface",
+    "source": "Rodden, Hutchinson & Fu, \"HEART Framework\" (Google Research 2010); research.google/pubs/pub36299"
+  },
+  "feedback_methodology": {
+    "method": "Statistical-validity review of an experiment result before it is cited as a finding",
+    "source": "Deng, \"Causal Inference — Statistical Analysis of A/B Tests\"; alexdeng.github.io/causal/abstats.html"
+  },
+  "review_methodology": {
+    "method": "Funnel-stage reconciliation: confirm the reported metric maps to a single AARRR stage, not a blended proxy",
+    "source": "McClure, \"Startup Metrics for Pirates\" (2007); amplitude.com/blog/pirate-metrics-framework"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "AARRR pirate-metrics funnel",
+      "source": "amplitude.com/blog/pirate-metrics-framework"
+    },
+    {
+      "concept": "HEART framework (goals/signals/metrics)",
+      "source": "research.google/pubs/pub36299"
+    },
+    {
+      "concept": "A/B test statistical validity",
+      "source": "alexdeng.github.io/causal/abstats.html"
+    }
+  ],
   "required_fields": [
     {
       "name": "funnel_stage",
