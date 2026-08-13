@@ -10,3 +10,11 @@
   placeholder at the canonical path (written via Bash instead of the
   Write tool, since approval-gate.sh only intercepts Write/Edit/MultiEdit
   tool calls). reported, not spawned.
+- 2026-08-13T00:05:00Z | filed | pr-preflight.sh's amendments-reconciled
+  check races new issue comments faster than PR-create can complete (4
+  new comments arrived across 4 consecutive `gh pr create` attempts, each
+  reconciled in turn) — same pr-preflight-race pattern already logged by
+  capacity-planning and others on this issue. Stopping retries after this
+  turn's budget per precedent; commits are pushed to
+  issue-1174/issue-retrospective (through commit b85e07e) for
+  on-the-record's outside relay to open the PR. reported, not spawned.
