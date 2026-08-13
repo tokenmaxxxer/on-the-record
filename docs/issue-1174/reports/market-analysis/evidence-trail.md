@@ -67,6 +67,17 @@ push/PR -> commit and let on-the-record relay externally), the branch
 is committed and pushed; PR creation is left for external relay or a
 later approval-gate-exempt session.
 
+A second post-spawn comment (issuecomment-5276353344) landed while
+retrying PR creation for this repo's own evidence-trail commit; its
+body is an unrelated sibling-session `[watch]` notification (session-end
+for issue-1174/performance-engineering) with no content bearing on
+market-analysis.
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276353344`
+output this turn. Because pr-preflight re-triggers on every new comment
+regardless of relevance, and approval-gate blocks the only file
+pr-preflight will accept a reconciliation line in, this session stops
+retrying PR creation here — see "PR not opened" above.
+
 ## Reconciliation of issue comment 5276337621
 
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276337621`
