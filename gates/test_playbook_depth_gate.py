@@ -22,6 +22,31 @@ REMOVAL_RULE = (
 )
 GLOSSARY_LINE = "- Affordance is a property of an object that suggests its own usage."
 
+# Derived from tokenmaxxxer/technical-writing-rulebook#25's actual
+# playbook format (playbook/doc-type-selection.md, issue-1174/
+# operational-playbook branch): numbered ("1. ") ordered-list rules,
+# not heading or "-"/"*" blocks.
+NUMBERED_DECISION_RULE = (
+    "1. When the reader's stated goal is \"I want to learn by doing and "
+    "have no working knowledge yet,\" choose **tutorial** — a tutorial "
+    "puts the reader \"on rails\" toward one fixed destination with "
+    "exact steps and no decision points, because a beginner cannot yet "
+    "evaluate branches. source: https://diataxis.fr/start-here/"
+)
+NUMBERED_REMOVAL_RULE = (
+    "6. When a single draft's outline mixes conceptual \"why\" prose "
+    "with numbered action steps, split it into two documents rather "
+    "than keep the mixed draft as one. **REMOVAL**: cut whichever half "
+    "doesn't match the file's own doc-type before publishing, don't "
+    "keep both halves \"for completeness.\" source: https://diataxis.fr/"
+)
+NUMBERED_DOT_RULE = (
+    "1) When the reader already has baseline competence and states a "
+    "concrete task, choose **how-to guide**, not tutorial — how-to "
+    "guides help the reader reach a destination of their choosing. "
+    "source: https://diataxis.fr/"
+)
+
 
 def test_decision_rule_accepted_as_addition():
     r = classify_block(DECISION_RULE)
@@ -97,6 +122,36 @@ def test_main_exit_code_fail(tmp_path):
 def test_main_missing_target(tmp_path):
     rc = main([str(tmp_path / "nope.md"), "--role", "x", "--floor", "1"])
     assert rc == 1
+
+
+def test_numbered_decision_rule_accepted_as_addition():
+    r = classify_block(NUMBERED_DECISION_RULE)
+    assert r["accepted"]
+    assert r["category"] == "addition"
+    assert r["reasons"] == []
+
+
+def test_numbered_removal_rule_accepted_as_removal():
+    r = classify_block(NUMBERED_REMOVAL_RULE)
+    assert r["accepted"]
+    assert r["category"] == "removal"
+
+
+def test_numbered_dot_style_rule_accepted():
+    r = classify_block(NUMBERED_DOT_RULE)
+    assert r["accepted"]
+    assert r["category"] == "addition"
+
+
+def test_evaluate_numbered_playbook_meets_floor_and_axis():
+    text = "\n\n".join(
+        [NUMBERED_DECISION_RULE] * 4 + [NUMBERED_REMOVAL_RULE]
+    )
+    report = evaluate(text, floor=5, axes=["doc-type-selection"])
+    assert report["accepted_count"] == 5
+    assert report["count_ok"]
+    assert report["missing_removal_axes"] == []
+    assert report["passed"]
 
 
 def test_main_reads_directory(tmp_path):
