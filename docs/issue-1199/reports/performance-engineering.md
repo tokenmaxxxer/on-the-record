@@ -262,3 +262,14 @@ content-free watcher pattern, covered by the stopping rule above.
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282018155 --jq '.body'`, run this session.
 issuecomment-5282018155 is a further instance of the same identical,
 content-free watcher pattern, covered by the stopping rule above.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282023950 --jq '.body'`, run this session.
+issuecomment-5282023950 is a further instance of the same identical,
+content-free watcher pattern, covered by the stopping rule above. This
+issue's comment stream has not paused across 11 reconciliation rounds
+in this session (fleet-wide traffic from other role sessions'
+concurrent units on this same issue, not specific to this branch);
+this session ends its reconciliation attempts here. Work is fully
+committed and pushed to origin/issue-1199/performance-engineering; the
+next PR-create attempt (this session's or a follow-up session's) will
+find this record already reconciled through this comment id.
