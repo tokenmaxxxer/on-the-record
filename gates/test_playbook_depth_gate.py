@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from playbook_depth_gate import evaluate, classify_block, main
+from playbook_depth_gate import evaluate, classify_block, main, _blocks_from_text
 
 
 DECISION_RULE = (
@@ -161,3 +161,41 @@ def test_main_reads_directory(tmp_path):
     (d / "b.md").write_text(REMOVAL_RULE)
     rc = main([str(d), "--role", "ux-engineering", "--floor", "2"])
     assert rc == 0
+
+
+# issue #1174 gate fix 2 — real content pulled from
+# tokenmaxxxer/technical-writing-rulebook PR #25, branch
+# issue-1174/operational-playbook, playbook/minimalism-scoping.md rule 2
+# and playbook/doc-type-selection.md's "## Rules" section marker.
+RELOCATION_RULE = (
+    "2. When a section explains background the reader does not need to "
+    "complete the immediate task, move it to an explanation doc or a "
+    "collapsed/linked aside rather than inline it — Carroll's minimalism "
+    "principle is \"the smallest amount of information necessary to "
+    "achieve the reader's goals,\" and unrequested background is exactly "
+    "the surplus that principle targets. source: "
+    "https://en.wikipedia.org/wiki/Minimalism_(technical_communication)"
+)
+BARE_SECTION_HEADER = "## Rules"
+
+
+def test_relocation_rule_accepted_via_move_verb():
+    r = classify_block(RELOCATION_RULE)
+    assert r["accepted"]
+    assert r["category"] == "addition"
+    assert r["reasons"] == []
+
+
+def test_bare_section_header_not_counted_as_block():
+    text = f"{BARE_SECTION_HEADER}\n\n{RELOCATION_RULE}"
+    blocks = _blocks_from_text(text)
+    assert len(blocks) == 1
+    assert blocks[0].strip() == RELOCATION_RULE.strip()
+
+
+def test_evaluate_real_minimalism_axis_excerpt_counts_relocation_rule():
+    text = f"{BARE_SECTION_HEADER}\n\n{RELOCATION_RULE}\n\n{REMOVAL_RULE}"
+    report = evaluate(text, floor=2, axes=["minimalism-scoping"])
+    assert report["accepted_count"] == 2
+    assert report["count_ok"]
+    assert report["passed"]
