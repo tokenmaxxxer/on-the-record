@@ -209,3 +209,14 @@ no revision requested) as issuecomment-5281846314 above, and by the
 same reasoning is superseded by this session's already-landed phase-2
 commit (rulebook-repo 1b23d86) and this record; no content amendment
 is warranted.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5281916706 --jq '.body'`, run this session.
+issuecomment-5281916706 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is the same recurring watcher pattern as the two
+comments reconciled above (unnamed candidate PR, no specific defect
+named); by the same reasoning it is superseded by this session's
+already-landed phase-2 commit (rulebook-repo 1b23d86) and this record.
+This session stops individually reconciling further instances of this
+identical, content-free verdict pattern beyond this point (per the
+same "stops chasing individual new comment ids" precedent cited above)
+and proceeds to open the PR.
