@@ -86,6 +86,12 @@ by commit 8bf080a (issue-1174) rather than retrying indefinitely against
 a comment stream arriving faster than single-comment reconciliation can
 converge.
 
+amendments-reconciled: issuecomment-5277575476 — "Verdict: PR #? →
+escalate (depth or impact axis did not clear)", the automated judgment
+loop's verdict on the PR named in issuecomment-5277571415 above. No
+action against this record's content; this is the same external
+judgment-loop stream this record already stopped retrying against.
+
 ## Open findings
 
 None.
