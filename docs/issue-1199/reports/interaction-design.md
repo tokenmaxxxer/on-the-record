@@ -303,3 +303,15 @@ next-steps/resolution-path line is required.
 
 Interaction-design row in issue #1199's 43-item tracker: checked this
 session via an issue comment/edit accompanying this record.
+
+## Amendments reconciled
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277177330`
+issuecomment-5277177330 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is a
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this interaction-design unit — no amendment to
+this unit's scope or record content.
+amendments-reconciled: issuecomment-5277177330 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR.
