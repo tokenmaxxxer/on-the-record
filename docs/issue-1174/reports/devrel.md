@@ -238,3 +238,11 @@ on the branch's current diff — the `implementation.md` record for this
 same issue documents the identical re-trigger pattern). No new
 instruction or finding beyond what is already reconciled above; no
 content in this unit changed in response.
+
+amendments-reconciled: issuecomment-5277602100 — read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277602100` this
+turn. Body: "Verdict: PR #? → escalate (depth or impact axis did not
+clear)" — the same generic/templated escalate-verdict pattern already
+reconciled above (issuecomment-5277587585), re-triggered by this
+branch's next push. No new instruction or finding; no content in this
+unit changed in response.
