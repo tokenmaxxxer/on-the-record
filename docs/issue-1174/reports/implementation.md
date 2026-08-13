@@ -197,12 +197,15 @@ PR-creation failure — unrelated to this gate fix's write set
 no amendment to this record's scope or claims is needed.
 
 amendments-reconciled: issuecomment-5276159641, issuecomment-5276159741,
-issuecomment-5276162938, issuecomment-5276163100 (read this turn) are
-automated "Judgment opened" / "Verdict: escalate" bot comments reacting
-to this branch's own pushed commits ("depth or impact axis did not
-clear" against `issue-1174/implementation`, 3 path(s) changed). This
-gate fix's write set is exactly the 3 changed paths already listed in
-`code_under_review:` above (plus this record); the escalation verdict
-carries no additional finding or instruction to act on beyond what this
-record already documents — no amendment to this record's scope or
-claims is needed.
+issuecomment-5276162938, issuecomment-5276163100, issuecomment-5276167208,
+issuecomment-5276170722 (read this turn) are automated "Judgment opened" / "Verdict: escalate"
+bot comments reacting to this branch's own pushed commits ("depth or
+impact axis did not clear" against `issue-1174/implementation`, 3
+path(s) changed). This gate fix's write set is exactly the 3 changed
+paths already listed in `code_under_review:` above (plus this record);
+each escalation verdict carries no additional finding or instruction to
+act on beyond what this record already documents — no amendment to this
+record's scope or claims is needed. (Note: each push to this branch
+re-triggers this same automated escalation comment on the unchanged 3
+paths — reconciling one round does not change the verdict on a
+following round of the identical diff.)
