@@ -44,8 +44,19 @@ with `--issue`) or silently mismatch the frozen write set (if the
 implementer improvises the extra path without it being declared).
 
 ### Expected
-The `files:` list should include `docs/issue-1123/reports/consult-log.md`
-(or explicitly generalize the entry to cover both trace-path variants),
+The `files:` list should include the issue-scoped consult-log path (or
+explicitly generalize the entry to cover both trace-path variants),
 since the phase-2 live-smoke step described in the proposal will run
 under `--issue 1123` and therefore write to the issue-scoped path, not
-the one path that is actually frozen.
+the one path that was originally frozen.
+
+### Resolution
+The issue-scoped consult-log path (not yet created — phase-2 output)
+added to the proposal's `files:` list before commit.
+
+## before-landing — docs-only fast path
+
+transition: before-landing
+tier: n/a (skipped)
+Reason: docs-only, no before-landing dispatch — every path in this
+phase-1 transition (`git diff --stat` against main) is under `docs/`.
