@@ -315,3 +315,13 @@ this unit's scope or record content.
 amendments-reconciled: issuecomment-5277177330 — out of scope for this
 unit (verdict on a different fan-out unit's PR), no action taken on
 this record or the rulebook PR.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277252348
+issuecomment-5277252348 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is another
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this interaction-design unit — no amendment to
+this unit's scope or record content.
+amendments-reconciled: issuecomment-5277252348 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR.
