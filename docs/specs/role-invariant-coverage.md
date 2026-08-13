@@ -103,8 +103,8 @@ Per-role `quality_bar` decomposition status, amended requirement 5 (all 43 roles
 | 11 | conformance-review | bar: domain-named, decomposition-pending | machine-checkable conformance evidence completeness. Source: EARL 1.0 Schema (W3C) |
 | 12 | content-design | bar: domain-named, decomposition-pending | microcopy clarity and usability. Source: GOV.UK Content Design / GDS style guide; judgment lens NN/g 10 Usability Heuristics |
 | 13 | customer-support | bar: domain-named, decomposition-pending | support-center service quality. Source: HDI Support Center Standard + CSAT |
-| 14 | data-engineering | bar: domain-named, decomposition-pending | pipeline data-quality and contract stability. Source: dbt model contracts; judgment lens DAMA-DMBOK data-quality dimensions |
-| 15 | data-modeling | bar: domain-named, decomposition-pending | schema correctness and grain discipline. Source: Kimball dimensional-modeling conventions; judgment lens Codd's normalization rules (1NF-3NF/BCNF) |
+| 14 | data-engineering | **quality_bar: landed** (4 criteria, `roles/specs/data-engineering.spec.json`, `bar-not-met` in `loop_state.refusal`, issue #1163 batch 1) | see spec's own `quality_bar` array |
+| 15 | data-modeling | **quality_bar: landed** (4 criteria, `roles/specs/data-modeling.spec.json`, `bar-not-met` in `loop_state.refusal`, issue #1163 batch 1) | see spec's own `quality_bar` array |
 | 16 | defect-verification | bar: domain-named, decomposition-pending | reproducible incident-report completeness. Source: ISO/IEC/IEEE 29119-3 Incident Report (clause 7.12, Annex A.2.15) + Bugmon reproduction precedent |
 | 17 | devrel | bar: domain-named, decomposition-pending | developer-relations impact measurement. Source: Keystone DevRel metrics + DevRel-Qualified-Lead concept (convergent practice, no single ratified standard — stated as assumption per the spec's own scout-brief gap) |
 | 18 | execution-observation | bar: domain-named, decomposition-pending | machine-checkable execution-conformance evidence. Source: EARL 1.0 Schema (W3C) |
@@ -118,14 +118,14 @@ Per-role `quality_bar` decomposition status, amended requirement 5 (all 43 roles
 | 26 | localization | bar: domain-named, decomposition-pending | translation quality and locale-data correctness. Source: Unicode CLDR / UTS #35 (LDML); judgment lens MQM error typology |
 | 27 | market-analysis | bar: domain-named, decomposition-pending | competitive-analysis rigor. Source: Porter's Five Forces (HBR) |
 | 28 | marketing | bar: domain-named, decomposition-pending | positioning clarity and differentiation. Source: April Dunford's positioning framework |
-| 29 | ml-engineering | bar: domain-named, decomposition-pending | model documentation and build/no-build judgment soundness. Source: Model Cards (Mitchell et al. 2019); judgment lens Google's Rules of ML |
-| 30 | observability | bar: domain-named, decomposition-pending | instrumentation completeness across the three pillars. Source: OpenTelemetry semantic conventions; judgment lens three-pillars framing (logs/metrics/traces) |
+| 29 | ml-engineering | **quality_bar: landed** (4 criteria, `roles/specs/ml-engineering.spec.json`, `bar-not-met` in `loop_state.refusal`, issue #1163 batch 1) | see spec's own `quality_bar` array |
+| 30 | observability | **quality_bar: landed** (4 criteria, `roles/specs/observability.spec.json`, `bar-not-met` in `loop_state.refusal`, issue #1163 batch 1) | see spec's own `quality_bar` array |
 | 31 | partnerships-bd | bar: domain-named, decomposition-pending | collaborative-relationship management discipline. Source: ISO 44001:2017 |
 | 32 | pr-communications | bar: domain-named, decomposition-pending | PR-description and evaluation rigor. Source: AMEC Integrated Evaluation Framework (Barcelona Principles); judgment lens Google eng-practices reviewer standard |
 | 33 | pricing | bar: domain-named, decomposition-pending | price-sensitivity research validity. Source: Van Westendorp Price Sensitivity Meter |
 | 34 | product-discovery | bar: domain-named, decomposition-pending | opportunity-assessment rigor and pre-registered decision rules. Source: Cagan/SVPG Opportunity Assessment + lean-startup pre-registered decision rules |
-| 35 | refactoring-legacy | bar: domain-named, decomposition-pending | refactor justification against a named code smell, not stylistic preference. Source: Fowler's Refactoring Catalog; judgment lens Fowler's code-smell catalog |
-| 36 | release-engineering | bar: domain-named, decomposition-pending | changelog completeness and format. Source: Keep a Changelog |
+| 35 | refactoring-legacy | **quality_bar: landed** (4 criteria, `roles/specs/refactoring-legacy.spec.json`, `bar-not-met` in `loop_state.refusal`, issue #1163 batch 1) | see spec's own `quality_bar` array |
+| 36 | release-engineering | **quality_bar: landed** (4 criteria, `roles/specs/release-engineering.spec.json`, `bar-not-met` in `loop_state.refusal`, issue #1163 batch 1) | see spec's own `quality_bar` array |
 | 37 | risk-management | bar: domain-named, decomposition-pending | supply-chain risk assessment completeness. Source: NIST SP 800-161r1 (C-SCRM) (NIST IR 8286 lineage cited by secondary sources only — stated as assumption per the spec's own scout-brief gap) |
 | 38 | sales | bar: domain-named, decomposition-pending | qualification-criteria completeness. Source: MEDDPICC |
 | 39 | security-threat-model | bar: domain-named, decomposition-pending | threat-model schema completeness. Source: STRIDE / OWASP Threat Dragon model schema |

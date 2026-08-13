@@ -103,6 +103,13 @@ QUALITY_BAR_ROLES = [
     "performance-engineering",
     "secure-coding",
     "test-authoring",
+    # issue #1163 batch 1 (engineering-family)
+    "data-engineering",
+    "data-modeling",
+    "ml-engineering",
+    "observability",
+    "refactoring-legacy",
+    "release-engineering",
 ]
 
 ALL_ROLE_SPECS = sorted(p.stem.replace(".spec", "") for p in SPECS_DIR.glob("*.spec.json"))

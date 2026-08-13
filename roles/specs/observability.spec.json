@@ -77,6 +77,32 @@
   "write_scope": [
     "docs/issue-<n>/reports/observability.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "three_pillars_covered",
+      "verification_method": "automated check that a hot-path change carries at least one instrumented span, one metric, and one structured log — not just whichever pillar was easiest to add",
+      "evidence_grade": "practitioner-consensus (contested framing)",
+      "verified_source": "OpenTelemetry's own docs describe traces/metrics/logs as its three signal types (https://opentelemetry.io/docs/concepts/signals/), but the 'three pillars' framing itself is explicitly disputed by a named canonical vendor: Honeycomb, 'OpenTelemetry Is Not Three Pillars' — https://www.honeycomb.io/blog/opentelemetry-is-not-three-pillars (argues pillars implies siloed signals, against OTel's actual correlated-signal design). Criterion is still defensible as a floor (at least one of each signal type on a hot path) but graded contested practitioner-consensus rather than validated, and the dissenting source is cited so a reviewer is not surprised by it later."
+    },
+    {
+      "criterion": "semconv_attribute_names_valid",
+      "verification_method": "automated validation of attribute_name against the current OpenTelemetry semantic-conventions registry (or a documented custom-extension entry), no ad hoc attribute names",
+      "evidence_grade": "validated",
+      "verified_source": "OpenTelemetry Semantic Conventions registry — https://opentelemetry.io/docs/specs/semconv/ (primary, actively maintained spec; validating attribute_name against the registry or a documented custom-extension entry is the registry's own stated extension mechanism)."
+    },
+    {
+      "criterion": "slo_or_alert_wired_to_signal",
+      "verification_method": "human-review-checklist: does the new signal feed an existing SLO/error-budget or a defined alert threshold, rather than existing with no consumer?",
+      "evidence_grade": "validated",
+      "verified_source": "Google SRE Workbook, 'Alerting on SLOs' — https://sre.google/workbook/alerting-on-slos/ (primary source; the workbook's entire premise is that SLI signals must feed an SLO/error-budget or a defined alert threshold to be actionable, matching the criterion)."
+    },
+    {
+      "criterion": "cardinality_bounded",
+      "verification_method": "human-review-checklist: for each new metric/span attribute, is its label cardinality bounded (enum or capped set), avoiding unbounded high-cardinality values like raw user IDs as a metric label?",
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "Named source strengthened: OpenTelemetry official blog, 'Metric cardinality limits in OpenTelemetry' — https://opentelemetry.io/blog/2026/cardinality-limits-in-opentelemetry/ (project-authored, more canonical than the generic vendor blogs originally implied by the spec's silence on a source) states the same rule the criterion already encodes: bounded/enumerable label sets, unbounded values (e.g. raw user IDs) excluded from metric labels."
+    }
+  ],
   "loop_state": {
     "progress": [
       "instrumenting",
@@ -86,7 +112,8 @@
       "landed"
     ],
     "refusal": [
-      "signal-undeclared"
+      "signal-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "registry-unreachable"

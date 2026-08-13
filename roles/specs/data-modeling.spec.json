@@ -76,6 +76,32 @@
   "write_scope": [
     "docs/issue-<n>/reports/data-modeling.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "grain_stated_and_singular",
+      "verification_method": "automated check that `grain` names exactly one business-process-level statement (e.g. 'one row per order line'), not a compound of multiple grains joined by 'and'/'or'",
+      "evidence_grade": "validated",
+      "verified_source": "Kimball Group, 'Grain' — https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/grain/ (primary source; grain declaration is Kimball's own stated first mandatory step, defined as a single unambiguous sentence — directly supports 'exactly one business-process-level statement, not a compound of multiple grains')."
+    },
+    {
+      "criterion": "normal_form_audited",
+      "verification_method": "human-review-checklist: is every relation checked against 1NF-3NF/BCNF, and is any deliberate denormalization named with its reason?",
+      "evidence_grade": "validated",
+      "verified_source": "Named source (1NF-3NF/BCNF) traces to Codd's original relational-model formalization; strengthened with E.F. Codd, 'A Relational Model of Data for Large Shared Data Banks' (Communications of the ACM, 1970) as the canonical primary source for normal forms, since tutorial sites are secondary restatements, not the standard itself. BCNF specifically is Boyce & Codd's later refinement (Codd's 3NF plus stricter candidate-key handling), consistent with the criterion as written — no change needed beyond citing the primary paper."
+    },
+    {
+      "criterion": "fact_dimension_role_unambiguous",
+      "verification_method": "automated check that `table_type` is declared and every foreign key on a fact table resolves to a table with `table_type: dimension`",
+      "evidence_grade": "validated",
+      "verified_source": "Kimball Group, 'Fact Tables and Dimension Tables' — https://www.kimballgroup.com/2003/01/fact-tables-and-dimension-tables/ and 'Fact Table Surrogate Key' — https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/fact-surrogate-key/ (primary source; fact-table foreign keys resolving to dimension-table primary/surrogate keys is Kimball's own documented convention)."
+    },
+    {
+      "criterion": "slowly_changing_dimension_type_declared",
+      "verification_method": "human-review-checklist: for a `table_type: dimension` entry, does the model state its SCD type (0-6) rather than leaving change-tracking behavior implicit?",
+      "evidence_grade": "validated",
+      "verified_source": "Kimball Group, Design Tip #152 'Slowly Changing Dimension Types 0, 4, 5, 6 and 7' — https://www.kimballgroup.com/2013/02/design-tip-152-slowly-changing-dimension-types-0-4-5-6-7/ (primary source; Types 0-6 as enumerated in the criterion match Kimball's own catalog, Type 7 exists but is out of the criterion's stated 0-6 range and is left out deliberately since it is a hybrid combination rather than a distinct declared type)."
+    }
+  ],
   "loop_state": {
     "progress": [
       "modeling",
@@ -85,7 +111,8 @@
       "landed"
     ],
     "refusal": [
-      "grain-undeclared"
+      "grain-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "table-unreachable"
