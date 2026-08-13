@@ -77,11 +77,17 @@ state) cannot express partial change; a keyed line diff can.
 
 - In `poll-heartbeat.sh`'s due branch, replace the whole-text SHA-256
   hash compare with: split `printed_text` into lines, extract each
-  line's leading `[tag] key:` prefix as its diff key (lines without a
-  recognized prefix — e.g. summary lines like "이상 신호 없음" — are
-  compared as a single fixed key so they still suppress/emit correctly),
-  and diff against the previous tick's `{key: line}` map (JSON, persisted
-  at `runs/poll_heartbeat_last_state.json` alongside the existing
+  line's leading `[tag] key:` prefix as its diff key. A line without a
+  recognized prefix is keyed relative to the nearest preceding tagged
+  line plus its own ordinal offset under that line (e.g. `roster_watchdog()`'s
+  `  - {a}` anomaly-detail bullets under a `[watchdog] {key}: 이상 신호
+  N건` header key as `{parent_key}#0`, `{parent_key}#1`, ... — not a
+  single shared key, since anomaly counts vary tick to tick and a shared
+  key would silently drop all but one bullet). A true singleton line with
+  no tagged parent at all (e.g. "이상 신호 없음", "돌고 있는 역할 세션
+  없음") keys to a fixed constant. Diff the resulting `{key: line}` map
+  against the previous tick's (JSON, persisted at
+  `runs/poll_heartbeat_last_state.json` alongside the existing
   `poll_heartbeat_last_hash` file — both kept during transition, old hash
   file becomes unused once the new state file lands).
   - Unchanged keys: emit nothing for that key.
@@ -106,7 +112,12 @@ state) cannot express partial change; a keyed line diff can.
   containing a dead/STALLED-labeled line emits every tick even when
   unchanged (the req #2 regression guard); (c) a test that the non-due
   branch produces empty stdout; (d) a test that the very first tick emits
-  the full initial state once.
+  the full initial state once; (e) a test that a `[watchdog] {key}: 이상
+  신호 N건` header followed by multiple `  - {a}` bullet lines round-trips
+  through the diff intact across two identical ticks (all bullets present
+  on tick 1, none dropped, none re-emitted on tick 2) — the ordinal-key
+  regression guard for the warrant-hunt finding on this proposal (variable
+  bullet counts must not collapse onto one shared key).
 
 ## Out of scope
 
