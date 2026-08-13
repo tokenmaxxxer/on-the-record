@@ -198,3 +198,21 @@ above, fired for this branch's prior single-file commit (67049c6's
 on-the-record-side counterpart before this record's own commit added a
 second path). It names no instruction changing this record's scope,
 write set, or verdict; same reconciliation as above applies.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments`, re-read this session, second rulebook-repo PR-create attempt.
+
+amendments-reconciled: issuecomment-5277573493 — another repeat of the
+same automated judgment-watcher "Judgment opened" message for this
+branch; same reconciliation as above applies (external watcher signal
+re-scanning branch commits roughly every 10-40s, not an instruction
+changing this record's scope, write set, or verdict). Per the
+`docs/issue-1199/reports/implementation.md` precedent's own
+retry-loop deviation on this same issue, if the next `gh pr create`
+attempt also hits a fresh comment posted after this reconcile, this
+session stops retrying: both target deliverables are already committed
+and pushed —
+`tokenmaxxxer/execution-observation-rulebook` commit 67049c6 on
+`origin/issue-1199/execution-observation`, and this repo's own commit
+(e3cc5ae, superseded by this commit) on
+`origin/issue-1199/execution-observation` — satisfying commit+push for
+both halves of this delivery regardless of PR-open success.
