@@ -106,6 +106,15 @@ matter, per the program's recorded-floor requirement.
 
 None.
 
+amendments-reconciled: issuecomment-5276790959 — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5276790959`, re-read
+this turn. Body: "Judgment opened: PR #? — candidate decision on branch
+`issue-1174/incident-response` (1 path(s) changed) entered
+delegated-judgment evaluation." This is the delegated-judgment watcher's
+own automated status note about this branch's not-yet-opened PR, not an
+amendment instructing a scope/content change — no reconciliation action
+needed beyond this citation.
+
 ## Scope note
 
 This unit is research + rulebook authoring only, per amendment 3's
