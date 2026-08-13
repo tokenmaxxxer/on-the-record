@@ -75,6 +75,49 @@ branch issue-1174/operational-playbook in the data-engineering-rulebook
 repo (or PR #25's diff) for the full per-rule citations (not
 reproduced here to avoid duplicating primary content across two repos).
 
+## PR not opened against the parent repo — pr-preflight / approval-gate conflict
+
+`gh pr create` against tokenmaxxxer/on-the-record was refused by
+pr-preflight.sh, which detected a new issue comment
+(issuecomment-5276418651) since session start and requires an
+`amendments-reconciled` line inside
+docs/issue-1174/reports/data-engineering.md citing it.
+canonical: PreToolUse:Bash hook output this turn from
+on-the-record/hooks/pr-preflight.sh, refusing PR creation.
+
+That requirement could not be satisfied this turn: this repo's own
+pipeline-design-gate (one of the three PRODUCES-scope gates covering
+this record path) unconditionally refuses any write to
+docs/issue-1174/reports/data-engineering.md before an
+"APPROVE issue-1174/data-engineering" comment lands, with no carve-out
+for a reconciliation-only write.
+canonical: PreToolUse:Bash hook output this turn from
+on-the-record/hooks/pipeline-design-gate.sh, refusing the same-turn
+attempt to append to that path.
+
+This is the same structural conflict the market-analysis fan-out unit
+hit (docs/issue-1174/reports/market-analysis/evidence-trail.md) between
+the two hooks, for a phase-1-only fan-out unit whose real PR target is
+an external rulebook repo. The rulebook-side PR (#25) is already open;
+this parent-repo evidence-trail PR is what remains blocked.
+
+### Reconciliation of issue comment 5276418651
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276418651`
+output this turn, body text: "Verdict: PR #? → escalate (depth or
+impact axis did not clear)".
+
+Same template-stub shape the market-analysis unit already reconciled
+for a near-identical comment: an unfilled PR-number placeholder, no
+role or subject named. Reconciled as: not applicable to this unit's
+scope; this session's assigned work (data-engineering operational
+playbook) proceeds unchanged. Recorded here rather than in
+docs/issue-1174/reports/data-engineering.md per the conflict above — a
+session with approval-gate-exempt access, or the approval event itself,
+should re-run PR creation from this branch
+(issue-1174/data-engineering, already pushed) once the record file is
+writable.
+
 ## Open findings
 
 - The parent repo's playbook-depth-gate script (proposal section (c))
@@ -99,7 +142,11 @@ reproduced here to avoid duplicating primary content across two repos).
 - On receiving "APPROVE issue-1174/data-engineering", promote this
   file's content into the phase-2 record
   (docs/issue-1174/reports/data-engineering.md) with the full
-  required-field set.
+  required-field set, including the amendments-reconciled line
+  pr-preflight requires.
+- Open the parent-repo PR from branch issue-1174/data-engineering
+  (already pushed) once the pr-preflight/approval-gate conflict is
+  resolved or an approval-gate-exempt path is used.
 - PR #25 (tokenmaxxxer/data-engineering-rulebook) awaits review/merge —
   not an action this session can take.
 - Parent-repo units this work depends on for full Acceptance: the
