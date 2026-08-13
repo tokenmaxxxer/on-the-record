@@ -35,6 +35,13 @@ turn. Identical generic verdict-template shape as issuecomment-5277480277
 above; not a directive against this unit, no content changed in
 response.
 
+amendments-reconciled: issuecomment-5277513966 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277513966`
+this turn. Body: "Verdict: PR #? → escalate (depth or impact axis did
+not clear)" — same generic/templated verdict shape as the entries
+above, no PR number, no specifics naming this fan-out unit, this role,
+or this branch; nothing in this unit changed in response.
+
 ## What was done
 
 canonical: `gh pr list --repo tokenmaxxxer/knowledge-management-rulebook
