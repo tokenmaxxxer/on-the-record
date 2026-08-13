@@ -146,3 +146,17 @@ after the second pr-preflight notice) — it names no PR number and
 does not reference this legal-compliance unit's rulebook-repo commit
 (7533f6e06f72a17b26e3078fa680af71044df9ac) or any PR opened from it,
 so no content amendment to this record is warranted.
+
+amendments-reconciled: issuecomment-5277663855 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+class of generic delegated-judgment verdict comment landing on this
+issue during this session (canonical: `gh issue view 1199 --comments`,
+re-read this session after the third pr-preflight notice) — it names
+no PR number and does not reference this legal-compliance unit. Per
+the same retry-loop precedent already logged for issue-1174 ("stop
+pr-preflight retry loop, final record state for this session") and
+this unit's own survey.md deadlock note: further `gh pr create` retries
+against a live, self-replenishing comment stream are not attempted
+again this session — the branch is committed and pushed
+(origin/issue-1199/legal-compliance); PR creation is left for external
+relay or a later retry outside this comment-arrival window.
