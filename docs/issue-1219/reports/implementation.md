@@ -144,10 +144,16 @@ deviations` below names the resolution path for the widened requirement.
 
 ## Rationale for deviations
 
-amendments-reconciled: issuecomment-5277047482
+amendments-reconciled: issuecomment-5277047482, issuecomment-5277332780
 
 canonical: `gh issue view 1219 --comments` (re-read this session before PR
 creation)
+
+issuecomment-5277332780 is an automated "Verdict: PR #? → escalate (depth
+or impact axis did not clear)" delegated-judgment comment (no new
+requirement text) posted against this same branch's candidate PR — it
+carries no additional reconciliation content beyond what
+issuecomment-5277047482 already requires below.
 
 An operator "Requirement clarification" comment (issuecomment-5277047482)
 landed on issue #1219 after the phase-1 proposal here was already approved
