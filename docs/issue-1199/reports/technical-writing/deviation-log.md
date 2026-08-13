@@ -27,3 +27,13 @@
   `tokenmaxxxer/technical-writing-rulebook` origin — the branch is
   live and diffable — and leaving PR creation to an
   orchestrator/on-the-record external relay, reported not spawned.
+- 2026-08-13T15:55Z (approx), filed, `gh pr create` deadlock on
+  `on-the-record` itself: same reconcile-then-retry-`gh pr create`
+  failure mode as the first entry above, now hit while opening this
+  session's own delivery PR (each reconcile commit drew another
+  automated escalate-verdict comment before `gh pr create` could run).
+  Stopped retrying per the documented precedent (commit df36363);
+  branch committed and pushed (commits af7716f, f0e5c43, f2d1a57 on
+  `issue-1199/technical-writing` at origin), reported, not spawned —
+  an orchestrator/on-the-record external relay is expected to open the
+  delivery PR.
