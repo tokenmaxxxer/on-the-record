@@ -9,7 +9,7 @@ as phase-1 material, matching the capacity-planning/api-design
 precedent for this same issue.
 
 amendments-reconciled: issuecomment-5276945657, issuecomment-5276951361,
-issuecomment-5276953753 — read via
+issuecomment-5276953753, issuecomment-5276956576 — read via
 `gh api repos/tokenmaxxxer/on-the-record/issues/1174/comments` this
 turn. This issue is under heavy concurrent multi-role automated
 traffic (other fan-out units' PR-judgment/verdict/watch notifications
