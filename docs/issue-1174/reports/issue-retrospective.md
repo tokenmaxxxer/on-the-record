@@ -45,6 +45,15 @@ branch); posted by JiwonJung94 at 2026-08-13T07:29:50Z, after this
 session's own APPROVE comment. No content in this unit changed in
 response.
 
+amendments-reconciled: issuecomment-5277370501 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277370501`. Body:
+"Judgment opened: PR #? — candidate decision on branch
+`issue-1174/issue-retrospective` (3 path(s) changed) entered
+delegated-judgment evaluation." — same automated pre-PR watcher notice
+shape as issuecomment-5277231968 above, no PR number yet, no actionable
+content against this unit's record; nothing in this unit changed in
+response.
+
 ## What was done
 
 Wrote this issue-retrospective for issue #1174 (operational-playbook
