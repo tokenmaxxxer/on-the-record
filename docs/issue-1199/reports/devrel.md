@@ -27,6 +27,12 @@ or a request for scope change — no amendment follows; the delegated
 judgment it names is an external evaluation of this PR once opened,
 not an instruction to act on before opening it.
 
+amendments-reconciled: issuecomment-5277567180 — checked; identical
+boilerplate to issuecomment-5277562812 above (same "Judgment opened...
+branch `issue-1199/devrel` (4 path(s) changed)" notice, re-posted after
+this record's own prior commit) — no new information, no amendment
+follows.
+
 ## What was done
 
 Surveyed devrel's practitioner tool landscape (adoption-evidence method:
