@@ -28,6 +28,4 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | self | `python3 -m pytest -q gates/ on-the-record/hooks/` | 2026-08-12 (issue #914) |
 | gates/test_record_lint.py | `python3 -m pytest gates/test_record_lint.py -q` | 2026-08-12 (issue #1085) |
 | gates/test_upstream_finding_channel.py | `python3 -m pytest gates/test_upstream_finding_channel.py on-the-record/hooks/test_upstream_defect_scope_guard.py -q` | 2026-08-13 (issue #1131) |
-| devrel-rulebook playbook/content-comprehensibility.md | `python3 gates/playbook_depth_gate.py /tmp/devrel-playbook/content-comprehensibility.md --role devrel --floor 8 --axes content-comprehensibility` | 2026-08-13 (issue #1174) |
-| devrel-rulebook playbook/program-subtraction.md | `python3 gates/playbook_depth_gate.py /tmp/devrel-playbook/program-subtraction.md --role devrel --floor 8 --axes program-subtraction` | 2026-08-13 (issue #1174) |
-| devrel-rulebook playbook/channel-convention.md | `python3 gates/playbook_depth_gate.py /tmp/devrel-playbook/channel-convention.md --role devrel --floor 8 --axes channel-convention` | 2026-08-13 (issue #1174) |
+| interaction-design/playbook/02-subtraction-comprehensibility-convention.md (tokenmaxxxer/interaction-design-rulebook) | `python3 gates/playbook_depth_gate.py /home/jwjung/.claude/plugins/marketplaces/tokenmaxxxer/runs/rulebooks/tokenmaxxxer-interaction-design/interaction-design/playbook/02-subtraction-comprehensibility-convention.md --role interaction-design --floor 4 --axes subtraction,comprehensibility,convention` | 2026-08-13 (issue #1174) |

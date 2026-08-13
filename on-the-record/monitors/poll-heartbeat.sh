@@ -110,11 +110,14 @@ now = int(now_s)
 text = os.environ.get("POLL_HEARTBEAT_TEXT", "")
 lines = text.split("\n") if text else []
 
-TAG_RE = re.compile(r"^\[(poll-report|watchdog|health|reconcile|orphaned|resume|watchdog-crash)\]\s*([^:]+):")
+TAG_RE = re.compile(r"^\[(poll-report|watchdog|health|reconcile|orphaned|resume|watchdog-crash|returned-pr)\]\s*([^:]+):")
 ENTRY_RE = re.compile(r"^([\w./-]+/[\w./-]+):\s")
 BULLET_RE = re.compile(r"^\s+-\s")
+# issue #1239: [returned-pr] joins the always-emit set — the #680 spawn
+# gate's undisposed-PR list must survive delta suppression every tick, not
+# just when it changes, so neglect stays visible (northpole req#1).
 ALWAYS_RE = re.compile(
-    r"^\[(resume|orphaned|watchdog-crash)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
+    r"^\[(resume|orphaned|watchdog-crash|returned-pr)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
     re.IGNORECASE,
 )
 

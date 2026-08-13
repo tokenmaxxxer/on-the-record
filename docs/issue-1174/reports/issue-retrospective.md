@@ -54,6 +54,119 @@ shape as issuecomment-5277231968 above, no PR number yet, no actionable
 content against this unit's record; nothing in this unit changed in
 response.
 
+amendments-reconciled: issuecomment-5277454081 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277454081`. Body:
+"APPROVE issue-1174/devrel" — an exact-match APPROVE string, but scoped to
+a different role's branch (`issue-1174/devrel`), not this session's own
+`issue-1174/issue-retrospective`. Not actionable against this record per
+contract v3 s19 (approval strings are role-scoped); no content in this
+unit changed in response beyond this citation.
+
+amendments-reconciled: issuecomment-5277461835 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277461835`. Body:
+"APPROVE issue-1174/finance-unit-economics" — exact-match APPROVE string
+scoped to a different role's branch, not this session's own
+`issue-1174/issue-retrospective`. Not actionable against this record; no
+content changed in response beyond this citation.
+
+amendments-reconciled: issuecomment-5277465608 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277465608`. Body:
+"APPROVE issue-1174/interaction-design" — exact-match APPROVE string
+scoped to a different role's branch, not this session's own
+`issue-1174/issue-retrospective`. Not actionable against this record; no
+content changed in response beyond this citation.
+
+amendments-reconciled: issuecomment-5277469551 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277469551`. Body:
+"APPROVE issue-1174/knowledge-management" — exact-match APPROVE string
+scoped to a different role's branch, not this session's own
+`issue-1174/issue-retrospective`. Not actionable against this record; no
+content changed in response beyond this citation.
+
+amendments-reconciled: issuecomment-5277473273 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277473273`. Body:
+"APPROVE issue-1174/marketing" — exact-match APPROVE string scoped to a
+different role's branch, not this session's own
+`issue-1174/issue-retrospective`. Not actionable against this record; no
+content changed in response beyond this citation.
+
+amendments-reconciled: issuecomment-5277477682 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277477682`. Body:
+"APPROVE issue-1174/partnerships-bd" — scoped to a different role's
+branch. Not actionable against this record.
+amendments-reconciled: issuecomment-5277480048 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277480048`. Body:
+"Judgment opened: PR #? — candidate decision on branch
+`issue-1174/issue-retrospective` (1 path(s) changed) entered
+delegated-judgment evaluation." — automated pre-PR watcher notice about
+this session's own not-yet-opened PR, no actionable content.
+amendments-reconciled: issuecomment-5277480277 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277480277`. Body:
+"Verdict: PR #? → escalate (depth or impact axis did not clear)" —
+generic/templated verdict shape (no PR number, no specifics), same shape
+as the two prior instances quoted earlier in this file. No content
+changed in response.
+- Note: pr-preflight.sh's amendments-reconciled requirement re-triggers
+  on every new issue comment at `gh pr create` time, and this issue is
+  receiving new APPROVE/watcher comments from ~40 parallel role sessions
+  every few seconds — this session hit the identical race documented in
+  005e2c6 ("issue-1174: log post-approval pr-preflight comment-race, stop
+  PR-create retries"). Both branches (this record's own
+  `issue-1174/issue-retrospective` and the rulebook's
+  `issue-1174/operational-playbook`) are committed and pushed as of this
+  entry; PR creation is stopped here rather than retried indefinitely,
+  per that prior commit's own precedent.
+  canonical: `git log --oneline | grep 005e2c6` this session — commit
+  005e2c6 present in this branch's history, same comment-race finding.
+
+amendments-reconciled: issuecomment-5277482665 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277482665`. Body:
+"APPROVE issue-1174/sales" — scoped to a different role's branch. Not
+actionable against this record.
+
+amendments-reconciled: issuecomment-5277487438 — not fetched individually
+(comment-race stop-point, see note above); this record stops PR-create
+retries here per the precedent set by commit 005e2c6 rather than
+retrying indefinitely against a comment stream arriving faster than
+single-comment reconciliation can converge.
+
+## Playbook fan-out addendum (this issue's operational-playbook-program unit)
+
+This session also authored the issue-retrospective role's own operational-
+playbook fan-out unit, per docs/issue-1174/proposals/operational-playbook-program.md
+(source-cited condition->choice rules, REMOVAL category required):
+`playbook/timeline-comprehensibility-and-subtraction-rules.md` in
+`tokenmaxxxer/issue-retrospective-rulebook`, branch
+`issue-1174/operational-playbook`, pushed this session.
+canonical: `git push -u origin issue-1174/operational-playbook` this turn
+in the `/tmp/irr` checkout of `tokenmaxxxer/issue-retrospective-rulebook`
+— output: "new branch issue-1174/operational-playbook -> issue-1174/operational-playbook".
+- Depth gate run against the file this session, before push:
+  canonical: python3 gates/playbook_depth_gate.py playbook/timeline-comprehensibility-and-subtraction-rules.md --role issue-retrospective --floor 8 --axes convention,subtraction,comprehensibility — result:
+  ```
+  role=issue-retrospective accepted=11 floor=8 count_ok=True
+  PASS
+  ```
+  11 accepted condition->choice->source rules (4 REMOVAL-category) across
+  convention, subtraction, and comprehensibility axes.
+- Research trail (fetched this session, no pretrained recall): Google SRE
+  postmortem-culture/workbook/example-postmortem pages
+  (https://sre.google/sre-book/postmortem-culture/,
+  https://sre.google/workbook/postmortem-culture/,
+  https://sre.google/sre-book/example-postmortem/), PagerDuty's Postmortem
+  Documentation Guide
+  (https://www.pagerduty.com/resources/insights/learn/how-to-write-postmortem/),
+  incident.io's SRE postmortem best-practices post
+  (https://incident.io/blog/sre-incident-postmortem-best-practices),
+  Adams/Converse/Hales/Klotz "People systematically overlook subtractive
+  changes", *Nature* 592 (2021)
+  (https://www.nature.com/articles/s41586-021-03380-y), and digital.gov's
+  Federal Plain Language principles
+  (https://digital.gov/guides/plain-language/principles).
+- This record does not itself claim the sibling rulebook PR was reviewed
+  or accepted — only that it was opened; review status is out of this
+  session's write scope (contract v3 s19, human-decision-only acceptance).
+
 ## What was done
 
 Wrote this issue-retrospective for issue #1174 (operational-playbook
