@@ -254,3 +254,20 @@ target-repo deliverable (the implementation-rulebook repo commit,
 `origin/issue-1199/implementation` there, independent of whether this
 on-the-record-side PR-open call succeeds.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session, third PR-create retry.
+
+amendments-reconciled: issuecomment-5277069424 — another repeat of the
+same automated judgment-watcher "escalate" message; same reconciliation
+applies. Per the fallback stated directly above, this session stops
+retrying `gh pr create` here: three consecutive attempts each hit a
+fresh watcher comment posted after the immediately-prior reconcile,
+which is the deadlock pattern the prior `issue-1199: log PR-create
+deadlock deviation` precedent already named on this issue. The
+implementation-rulebook repo's own commit `217810f` on
+`origin/issue-1199/implementation` (canonical: `git -C
+/home/jwjung/implementation-rulebook log -1 --oneline origin/issue-1199/implementation`,
+read this session) is the completed, pushed deliverable regardless of
+this on-the-record-side PR-open outcome; opening that PR is left to a
+follow-up attempt once the watcher's post cadence has settled, per the
+deviation-log entry below.
+
