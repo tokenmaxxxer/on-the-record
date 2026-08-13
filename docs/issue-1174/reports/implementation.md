@@ -212,3 +212,65 @@ record's scope or claims is needed. (Note: each push to this branch
 re-triggers this same automated escalation comment on the unchanged 3
 paths — reconciling one round does not change the verdict on a
 following round of the identical diff.)
+
+## Fan-out unit: implementation role's own operational playbook (2026-08-13)
+
+canonical: PR https://github.com/tokenmaxxxer/implementation-rulebook/pull/84
+(this session's own `gh pr create` output, read this turn) and commit
+50ac7c8 on branch `issue-1174/playbook` in `implementation-rulebook`
+(this session's own `git commit`/`git push` output, read this turn).
+
+This role's own fan-out unit under the (b-revised) full-coverage
+parallel-execution plan: one independent research-and-playbook work
+unit per role, landed in that role's own rulebook repo, per
+docs/issue-1174/proposals/operational-playbook-program.md sections
+(a)/(d)/(b-revised). implementation is tier `sparse` per (b)
+(`N_min = max(5, axes)`); 3 decision axes were derived this turn (no
+axis list was pre-named for this role in the issue body), giving
+`rule_count_floor: 6` per axis (self-imposed above the sparse-tier
+floor of 5, to keep at least one addition + one removal + margin per
+axis).
+
+Three-layer research (practitioner / named-methodology / academic),
+each rule web-verified this turn via WebSearch (no pretrained-recall
+content):
+
+1. `implementation-rulebook/playbook/design-pattern-selection.md` — 6
+   rules (condition-selection for GoF-style patterns vs. direct code),
+   2 REMOVAL-classified.
+2. `implementation-rulebook/playbook/complexity-coupling-management.md`
+   — 6 rules (CBO/LCOM thresholds, Law of Demeter), 2 REMOVAL-classified.
+3. `implementation-rulebook/playbook/performance-data-structure-choice.md`
+   — 6 rules (hash-vs-scan, time/space tradeoff, constant-factor
+   awareness, connection batching), 2 REMOVAL-classified.
+
+Each rule carries a `source:` line citing a URL actually fetched this
+turn (Chidamber & Kemerer CBO/LCOM metrics via Microsoft Learn/
+GeeksforGeeks; Ian Holland's Law of Demeter via Wikipedia/DevIQ; Robert
+C. Martin's SRP via Wikipedia; YAGNI; Big-O practitioner guides; and,
+for every REMOVAL rule per amendment 4, Adams, Converse, Hales & Klotz,
+"People systematically overlook subtractive changes," *Nature* 592
+(2021) 258-261, https://www.nature.com/articles/s41586-021-03380-y).
+Every rule block also carries a counter-example test (2 per file) per
+the depth-gate's shape requirement.
+
+README.md's "What is here" section gained one line pointing at
+`playbook/`, following the (d) convention of self-documenting layout.
+
+Out of scope for this unit (per the program's own split): running
+`gates/playbook_depth_gate.py` against these files, the per-role
+`playbook_refs` spec pointer edit, and updating the issue's completion
+tracker — those are the parent-repo verification layer's and a
+separate coordination step's responsibility, not this rulebook-side
+fan-out unit's.
+
+### What did not work
+
+None.
+
+### Open findings
+
+canonical: PR #84 state read via this session's own `gh pr create`
+output this turn.
+None open. PR #84 in `implementation-rulebook` awaits human review and
+merge.
