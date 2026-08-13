@@ -108,3 +108,13 @@ verdict carries no actionable content), this record states the verdict
 plainly here and proceeds to open the phase-2 PR rather than retrying
 indefinitely against a per-commit automated notice that this session's
 own next action already resolves (the open PR itself).
+
+amendments-reconciled: issuecomment-5277594747 — read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments`, this session;
+same auto-generated "Verdict: PR #? → escalate" pattern as
+issuecomment-5277590212, produced by this session's own commits racing
+the comment-triggered pr-preflight check. Per commit 8bf080a's
+precedent (issue-1174, same repo, same failure mode): this record stops
+PR-create retries here rather than retrying indefinitely against a
+comment stream arriving faster than single-comment reconciliation can
+converge.
