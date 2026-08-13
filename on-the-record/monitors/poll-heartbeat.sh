@@ -52,6 +52,17 @@ if [ -z "${CHECKOUT}" ]; then
   exit 0
 fi
 
+# issue #1275: refuse to arm this Monitor at all on a non-git root —
+# without this, a monitor armed with the wrong cwd would loop
+# `spawn.py watchdog` forever, each tick failing "not a git repository"
+# via spawn_coverage's `gh issue list` in that root (permanent benign
+# noise instead of one clear failure). Checked before the board-registration
+# gate below and before the marker touch — never inside the loop.
+if ! git -C "$(pwd -P)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf '[monitor-arm-refused] root=%s check=git-repo: not a git repository — refusing to arm\n' "$(pwd -P)" >&2
+  exit 1
+fi
+
 # issue #1245: attachment gate. The Monitor must not register at all (no
 # alive marker, no tick loop, no state/log files) for a session whose
 # target repo is not an on-the-record board (no docs/specs/approvers.md)
