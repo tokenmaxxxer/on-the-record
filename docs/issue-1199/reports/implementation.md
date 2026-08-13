@@ -341,3 +341,12 @@ implementation-rulebook's 217810f) are committed and pushed to their
 `issue-1199/implementation` branches; opening the implementation-rulebook
 PR is left to a follow-up session once the watcher's cadence settles.
 
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, first on-the-record repo PR-create attempt for commit 0180433.
+
+amendments-reconciled: issuecomment-5277564116 — another repeat of the
+same automated judgment-watcher message, this time hit on this
+session's own first `gh pr create` attempt for the on-the-record repo.
+Per the stop-retry precedent above, this session stops retrying here
+too — see the deviation-log entry just filed. This repo's commits
+(2006043, 0180433) are pushed to `origin/issue-1199/implementation`.
+
