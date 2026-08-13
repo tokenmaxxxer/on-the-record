@@ -133,8 +133,46 @@ a blocking finding against this change.
 
 ## Next steps
 
-None — `loop_state: landed`, terminal for this record's `type: fix`.
+None for this delivered fix — `loop_state: landed`, terminal for this
+record's `type: fix`. See `## Rationale for deviations` below for the
+widened follow-up requirement this build does not cover.
 
 ## Resolution path
 
-Not applicable — no open findings against this build.
+Not applicable to this build's own findings — `## Rationale for
+deviations` below names the resolution path for the widened requirement.
+
+## Rationale for deviations
+
+amendments-reconciled: issuecomment-5277047482
+
+canonical: `gh issue view 1219 --comments` (re-read this session before PR
+creation)
+
+An operator "Requirement clarification" comment (issuecomment-5277047482)
+landed on issue #1219 after the phase-1 proposal here was already approved
+and this build already in flight. It widens the fix from re-anchoring the
+watchdog's *output* (this build's approved, frozen write set — `spawn.py`,
+`tests/test_spawn.py`, delivered above and passing per the acceptance
+citations above) to gating whether the tokenmaxxxer board watchdog
+machinery *attaches at all* in a session whose cwd is not the plugin
+repo: (a) if the session's target repo itself has on-the-record board
+structure, a monitor for that repo's board may attach; (b) otherwise zero
+monitor, zero board directive; (c) the marketplace checkout is a valid
+board only when it is the session's own cwd. Full text: see
+docs/issue-1219/reports/implementation/deviation-log.md.
+
+This is a design decision (what counts as "has on-the-record board
+structure", where the gate lives) touching
+`on-the-record/hooks/directive.sh` and `poll-rearm.sh` — outside this
+proposal's approved write set (`spawn.py`, `tests/test_spawn.py` only) and
+requiring judgment a reviewer should weigh alternatives on, per
+SCOPE-EXCEEDED. This session finished and delivers what the approved
+proposal covers (the output re-anchoring fix already tested above) and
+stops rather than widening mid-build.
+
+Resolution path: file a new issue for the "no attachment at all in a
+non-board foreign repo" requirement (issuecomment-5277047482's full text),
+scoped to `on-the-record/hooks/directive.sh` / `poll-rearm.sh` plus a
+board-structure-detection helper, to go through its own phase-1
+proposal round.
