@@ -81,3 +81,66 @@ def test_bar_scoped_roles_ignores_role_with_no_patterns():
     patterns = {"some-role": []}
     scoped = quality_bar.bar_scoped_roles(["anything.py"], patterns)
     assert scoped == frozenset()
+
+
+# issue #1160 step 3 machinery: mission_bar_scoped / verified_by_account /
+# bar-verdict linkage anti-circularity.
+
+def test_mission_bar_scoped_matches_deliverable_glob():
+    assert quality_bar.mission_bar_scoped(
+        ["design-tokens/colors.json"], ["design-tokens/*.json"]
+    ) is True
+
+
+def test_mission_bar_scoped_false_when_no_deliverable_touched():
+    assert quality_bar.mission_bar_scoped(
+        ["src/server.py"], ["design-tokens/*.json"]
+    ) is False
+
+
+def test_mission_bar_scoped_false_when_no_patterns():
+    assert quality_bar.mission_bar_scoped(["anything.json"], []) is False
+
+
+def test_verified_by_account_resolves_leading_role_token():
+    spec = {"verified_by": "ux-engineering — brand-design never grades its own mission_deliverables"}
+    resolved = quality_bar.verified_by_account(spec, lambda role: f"acct-{role}")
+    assert resolved == "acct-ux-engineering"
+
+
+def test_verified_by_account_none_when_field_absent():
+    assert quality_bar.verified_by_account({}, lambda role: f"acct-{role}") is None
+
+
+def test_bar_verdict_linkage_anti_circular_when_verified_by_resolves_to_producer():
+    # producer role (e.g. brand-design) and the resolved verified_by
+    # account collide onto the same account -> classify must still refuse
+    # (proving mission_bar_scoped/verified_by_account feed classify's
+    # existing anti-circularity rather than bypassing it).
+    spec = {"verified_by": "brand-design — self-referential for this test"}
+    resolved_verifier_account = quality_bar.verified_by_account(
+        spec, lambda role: "acct-same"
+    )
+    bar_scoped = quality_bar.mission_bar_scoped(
+        ["design-tokens/colors.json"], ["design-tokens/*.json"]
+    )
+    status, reason = quality_bar.classify(
+        bar_scoped, "bar-met", resolved_verifier_account, "acct-same"
+    )
+    assert status == quality_bar.BAR_NOT_MET
+    assert "same account" in reason
+
+
+def test_bar_verdict_linkage_bar_met_when_verifier_differs_from_producer():
+    spec = {"verified_by": "ux-engineering — differing verifier"}
+    resolved_verifier_account = quality_bar.verified_by_account(
+        spec, lambda role: "acct-ux-engineering"
+    )
+    bar_scoped = quality_bar.mission_bar_scoped(
+        ["design-tokens/colors.json"], ["design-tokens/*.json"]
+    )
+    status, reason = quality_bar.classify(
+        bar_scoped, "bar-met", resolved_verifier_account, "acct-brand-design"
+    )
+    assert status == quality_bar.BAR_MET
+    assert reason is None
