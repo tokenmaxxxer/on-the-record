@@ -205,6 +205,14 @@ no rule content was dropped.
   issue-1174/operational-playbook on marketing-rulebook, commit f017d89)
   are committed and pushed, ready for out-of-session relay to open both
   PRs.
+- amendments-reconciled: issuecomment-5277586920 — read via `gh api
+  repos/tokenmaxxxer/on-the-record/issues/comments/5277586920` this
+  turn. Same generic-verdict watcher-spam shape as the two entries
+  immediately above (posted 07:52:28Z, one new copy per `gh pr create`
+  attempt), confirming the loop reproduces on each retry as documented
+  in the referenced commit-005e2c6 precedent. No further `gh pr create`
+  retries this session; both branches remain committed/pushed as
+  stated above.
 
 ## kind
 
