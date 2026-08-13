@@ -227,3 +227,12 @@ content-free "Verdict: PR #? → escalate" watcher pattern already
 reconciled three times above; per the stopping rule already stated,
 this session does not open a fourth individually-reasoned paragraph
 for it and proceeds directly to PR-create.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5281945830 --jq '.body'`, run this session.
+issuecomment-5281945830 is a further instance of the same identical,
+content-free watcher pattern (arriving roughly every 7-8 seconds on
+this busy issue, per this session's own observed comment-id deltas
+above) already reconciled repeatedly; per the stated stopping rule this
+session treats every further instance of this exact recurring pattern
+as reconciled by this paragraph and the ones above, and proceeds to
+PR-create without further individual entries.
