@@ -28,6 +28,12 @@ files:
   - on-the-record/hooks/test_accessibility_guard.py
   - on-the-record/hooks/test_api_version_guard.py
   - on-the-record/hooks/test_perf_measurement_guard.py
+  - on-the-record/hooks/merge-allow-gate.sh
+  - on-the-record/hooks/test-authoring-spawn-check.sh
+  - on-the-record/hooks/issue-retrospective-spawn-check.sh
+  - on-the-record/hooks/interaction-design-spawn-check.sh
+  - on-the-record/hooks/ux-engineering-spawn-check.sh
+  - on-the-record/hooks/test_routing_fix_spawn_checks.py
   - gates/spec_schema_five_activities_test.py
   - docs/specs/role-invariant-coverage.md
   - docs/specs/reconciled-index.md
@@ -139,17 +145,21 @@ never to this repo's own paths — satisfying requirement 4.
 No spec depth changes for these six. Instead, phase 2 adds a `trigger`
 object (mirroring `secure-coding.spec.json`'s existing shape) to each
 of the specs that lacks one, naming a `record_absent_for: <role>`
-check, and either extends an existing merge-time chokepoint
-(`merge-allow-gate.sh` for release-engineering, since it is already
-universal) or adds a narrowly-scoped new routing check
-(`test-authoring`, `issue-retrospective`, `interaction-design`,
-`ux-engineering`) that consults `record_absent_for` before allowing the
-triggering event (merge, or — for issue-retrospective — issue close) to
-finalize. `secure-coding`'s board_condition already names the correct
-event; only its consumer (a merge-time check) is missing. Full
-per-role diagnosis and routing_fix_proposal text is in the research
-transcript synthesized into the scout-brief's "Must-bes" section for
-this cluster.
+check, and either extends the existing merge-time chokepoint
+`on-the-record/hooks/merge-allow-gate.sh` (for release-engineering,
+since it is already universal) or adds one of four new, narrowly-scoped
+routing-check hooks — `test-authoring-spawn-check.sh`,
+`issue-retrospective-spawn-check.sh`,
+`interaction-design-spawn-check.sh`, `ux-engineering-spawn-check.sh`,
+each with a shared `test_routing_fix_spawn_checks.py` covering one
+refusal case per hook — that consults `record_absent_for` before
+allowing the triggering event (merge, or — for issue-retrospective —
+issue close) to finalize. `secure-coding`'s board_condition already
+names the correct event; only its consumer (a merge-time check) is
+missing, so it reuses `merge-allow-gate.sh` rather than a new file.
+Full per-role diagnosis and routing_fix_proposal text is in the
+research transcript synthesized into the scout-brief's "Must-bes"
+section for this cluster.
 
 ### 4. Spec-schema depth test
 
@@ -199,4 +209,10 @@ structure; nothing in phase 2 grows unboundedly with future issues.
 
 ## What did not work
 
-None.
+- After-proposal warrant-hunt found the body's routing-fix section (§3)
+  named files (`merge-allow-gate.sh`, four new routing-check hooks) that
+  the frontmatter `files:` write set did not list — a write-set/body
+  mismatch that would have given phase-2 textual cover to exceed the
+  frozen write set. Fixed same-session: added the five missing paths
+  plus their shared test file to frontmatter and named them explicitly
+  in the body.
