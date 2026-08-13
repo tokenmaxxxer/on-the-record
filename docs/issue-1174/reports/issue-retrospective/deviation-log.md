@@ -18,3 +18,15 @@
   turn's budget per precedent; commits are pushed to
   issue-1174/issue-retrospective (through commit b85e07e) for
   on-the-record's outside relay to open the PR. reported, not spawned.
+- 2026-08-13T07:31:00Z | filed | after phase 2 reopened via the
+  "APPROVE issue-1174/issue-retrospective" comment, the same
+  pr-preflight.sh comment-race recurred: 3 more new issue comments
+  (issuecomment-5277367396, -5277370501, -5277374707) arrived across 3
+  consecutive `gh pr create` attempts, the first 2 reconciled in turn
+  (commits 074f460, b62be13). Stopping retries after this turn's budget
+  per the identical precedent already logged above; commits through
+  b62be13 are pushed to issue-1174/issue-retrospective for
+  on-the-record's outside relay to open the PR. This recurrence itself
+  reconfirms the landed record's own Contributing-factors/What-we-learned
+  finding that this hook pair's collision is structural, not a one-off.
+  reported, not spawned.
