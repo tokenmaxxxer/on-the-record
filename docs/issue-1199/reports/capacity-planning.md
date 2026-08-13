@@ -204,6 +204,18 @@ a different role's PR under this same issue, posted 2026-08-13 between
 PR and carry no action for this role; recorded here as read and out of
 this role's WRITE_SCOPE, not acted on.
 
+A further comment, issuecomment-5277534838 ("Judgment opened: PR #? —
+candidate decision on branch `issue-1199/capacity-planning` (1
+path(s) changed) entered delegated-judgment evaluation.", posted by
+JiwonJung94 at 2026-08-13T07:46:34Z, read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277534838` this
+session), landed after the above. It is the same automated
+delegated-judgment bot output naming this role's own branch — no PR
+number is filled in ("PR #?"), no specific path or finding is named,
+and it requires no action beyond this acknowledgment; work continues
+under the standing APPROVE issue-1199/capacity-planning token already
+posted on the issue.
+
 ## Open findings
 
 None.
