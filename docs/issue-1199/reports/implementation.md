@@ -282,3 +282,16 @@ target-repo commit is already committed and pushed there
 --oneline origin/issue-1199/implementation`, read this session —
 217810f).
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session, this repo's own record-PR create attempt.
+
+amendments-reconciled: issuecomment-5277095572 — another repeat of the
+same automated judgment-watcher "escalate" message, this time hit on
+the first `gh pr create` attempt for this on-the-record repo's own
+record PR. Per the same stop-retrying decision recorded in
+docs/issue-1199/reports/implementation/deviation-log.md, this session
+does not retry further; this repo's own commit (canonical: `git log -1
+--oneline`, read this session — c5ea230) and the implementation-rulebook
+repo's commit (217810f, cited above) are both pushed to their
+`issue-1199/implementation` branches, satisfying commit+push for both
+halves of this delivery.
+
