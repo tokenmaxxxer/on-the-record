@@ -118,6 +118,27 @@ should re-run PR creation from this branch
 (issue-1174/data-engineering, already pushed) once the record file is
 writable.
 
+### Second post-spawn comment — stop PR-creation retries
+
+A second `gh pr create` retry against tokenmaxxxer/on-the-record hit
+the same pr-preflight refusal, this time for a newer comment
+(issuecomment-5276423923).
+canonical: PreToolUse:Bash hook output this turn from
+on-the-record/hooks/pr-preflight.sh, refusing the retry.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276423923`
+output this turn, body text: "[watch] issue-1174/test-authoring:
+session-end: PR .../1196 opened ..." — an automated watcher/bot
+notification about a different role's session, not directed at this
+unit. Matching the precedent already set on this same branch (commit
+cf21418, "note second post-spawn comment, stop PR-creation retries"):
+retrying `gh pr create` chases a moving target as long as the issue
+thread keeps receiving new automated comments, so this session stops
+here rather than looping. The branch is committed and pushed
+(issue-1174/data-engineering, commit 1abfbaf); parent-repo PR creation
+is left for external relay per the same conflict already documented
+above.
+
 ## Open findings
 
 - The parent repo's playbook-depth-gate script (proposal section (c))
