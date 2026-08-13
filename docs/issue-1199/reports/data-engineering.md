@@ -132,3 +132,12 @@ repos/tokenmaxxxer/on-the-record/issues/comments/5277572136`, read
 this session); it states a process transition, not a content objection
 or amendment, so no content change to this record is warranted beyond
 this acknowledgment.
+
+amendments-reconciled: issuecomment-5277582498 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a delegated-judgment
+verdict for a different, unnumbered candidate PR (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277582498`, read
+this session — the body names no branch); it does not name or
+reference this data-engineering unit's work, so no content amendment
+to this record is warranted — same reconciliation class already logged
+above for issuecomment-5277549292.
