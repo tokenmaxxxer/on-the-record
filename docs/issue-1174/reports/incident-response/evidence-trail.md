@@ -112,15 +112,22 @@ issuecomment-5276670305, issuecomment-5276670308, issuecomment-5276670497,
 issuecomment-5276670514, issuecomment-5276678352, issuecomment-5276680706,
 issuecomment-5276680886, issuecomment-5276682257, issuecomment-5276686443,
 issuecomment-5276790959, issuecomment-5276791251, issuecomment-5276800021,
-issuecomment-5276800442 — canonical: `gh api
+issuecomment-5276800442, issuecomment-5276805387, issuecomment-5276805576,
+issuecomment-5276808234, issuecomment-5276808540 — canonical: `gh api
 repos/tokenmaxxxer/on-the-record/issues/1174/comments --paginate`,
 re-read this turn. These are the delegated-judgment watcher's own
-automated "Judgment opened" / "Verdict: ... escalate" status-note pairs
-for this and sibling fan-out branches (ml-engineering, refactoring-legacy,
-data-modeling, incident-response), plus `[watch]` session-end notices for
-sibling branches' own PR openings — none names this branch with an
-instruction changing this evidence trail's scope, write set, or content;
-no reconciliation action needed beyond this citation.
+automated "Judgment opened" / "Verdict: ... escalate" status-note pairs,
+firing once per push on this and sibling fan-out branches (ml-engineering,
+refactoring-legacy, data-modeling, growth-analytics, incident-response —
+multiple #1174 fan-out sessions are pushing concurrently), plus `[watch]`
+session-end notices for sibling branches' own PR openings — none names
+this branch with an instruction changing this evidence trail's scope,
+write set, or content; no reconciliation action needed beyond this
+citation. Note for the next reader: because the watcher fires on every
+push to any `issue-1174/*` branch including this one's own reconciliation
+commits, a residual single-pair gap between "last comment reconciled
+here" and "PR actually opened" is expected and not a missed amendment —
+this citation covers everything posted through this commit.
 
 ## Scope note
 
