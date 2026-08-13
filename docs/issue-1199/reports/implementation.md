@@ -104,7 +104,7 @@ canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read
 
 amendments-reconciled: issuecomment-5276678013, issuecomment-5276678215,
 issuecomment-5276684665, issuecomment-5276684940, issuecomment-5276690378,
-issuecomment-5276690575 —
+issuecomment-5276690575, issuecomment-5276693160 —
 these are three repeats of the same paired
 "Judgment opened: ... branch `issue-1199/implementation` (7 path(s)
 changed) entered delegated-judgment evaluation" / "Verdict: PR #? ->
@@ -117,4 +117,6 @@ human/orchestrator review, not an instruction changing this record's
 scope, write set, or verdict — this session's own build-now approval
 (exact-string APPROVE issue-1199/implementation comment, listed
 approver) is unaffected and remains the governing approval for phase 2
-here.
+here. issuecomment-5276693160 is a distinct `[watch]` session-end
+notice for the sibling `issue-1199/brand-design` branch's own PR
+opening — it names a different branch and role, not this one.
