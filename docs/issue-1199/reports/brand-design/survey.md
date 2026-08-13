@@ -43,6 +43,22 @@ onto the phase-2 checklist. The same pattern — a bounded subsection
 layering new vocabulary onto existing checklist items, never replacing
 them — is the right home for issue-1199's tool-learnings fold-in.
 
+## PR not opened (this repo)
+
+pr-preflight.sh detected a post-spawn issue comment
+(issuecomment-5276660902, reconciled in
+docs/issue-1199/reports/brand-design/deviation-log.md) and requires
+docs/issue-1199/reports/brand-design.md to carry an
+`amendments-reconciled` line citing it before `gh pr create` runs;
+approval-gate.sh unconditionally refuses any Write/Edit/MultiEdit to
+that exact path pre-approval (it is this role's phase-2 record path),
+with no phase-1-legal way to satisfy pr-preflight's requirement. Same
+deadlock class already logged for issue-1174's observability/
+market-analysis fan-out units. Per that precedent: the branch is
+committed and pushed (origin/issue-1199/brand-design); PR creation is
+left for external relay or a later approval-gate-exempt session,
+rather than retried further here.
+
 ## No existing tool-landscape section
 No tool-learnings heading, no adoption-evidence citations, and no
 plugin README references an external tool's design move anywhere in
