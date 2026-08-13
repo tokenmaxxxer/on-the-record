@@ -157,6 +157,23 @@ def t_ux_engineering_denies_merge_when_trigger_matched_and_record_absent(tmp_pat
     assert "ux-engineering" in r.stderr
 
 
+def t_test_authoring_denies_merge_with_harmless_substitution_present(tmp_path):
+    # issue #1130 before-landing warrant hunt: an earlier version of this
+    # hook bailed out (exit 0) on ANY command containing "$(" or a
+    # backtick, letting `gh pr merge $(echo 1)` through unchecked even
+    # though it is the same violation as the plain `gh pr merge 1` case.
+    _seed_repo(tmp_path, "test-authoring", TEST_AUTHORING_SPEC)
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "new.py").write_text("def f(): pass\n")
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "commit", "-q", "-m", "add behavior"], check=True)
+
+    r = _run("test-authoring-spawn-check.sh", {"command": "gh pr merge $(echo 1)", "cwd": str(tmp_path)}, tmp_path)
+    assert r.returncode == 2
+    assert "test-authoring" in r.stderr
+
+
 def t_orchestrate_off_disables_all_four(tmp_path):
     _seed_repo(tmp_path, "test-authoring", TEST_AUTHORING_SPEC)
     src = tmp_path / "src"

@@ -44,8 +44,13 @@ ti = e.get("tool_input") or {}
 cmd = ti.get("command") if isinstance(ti, dict) else None
 if not isinstance(cmd, str) or not re.search(r"\bgh\s+issue\s+close\b", cmd):
     sys.exit(0)
-if "`" in cmd or "$(" in cmd:
-    sys.exit(0)
+# Unlike merge-allow-gate.sh (an ALLOW-only gate, safe to fail open on a
+# substitution it can't fully parse), this is a DENY gate protecting a
+# real invariant — a command substitution present elsewhere in the string
+# must not grant a free pass just because it makes the command harder to
+# parse (issue #1130 before-landing warrant hunt: a substitution-bearing
+# `gh issue close` was silently let through by an earlier version of this
+# check).
 
 m = re.search(r"\bgh\s+issue\s+close\s+(?:--\S+\s+\S+\s+)*(\d+)", cmd)
 if not m:
