@@ -218,3 +218,13 @@ branch, matching the same pattern already observed and reconciled on
 sibling roles' records (e.g. api-design.md). No content in this unit
 changed in response, since the comment names nothing actionable
 against devrel's playbook work.
+
+amendments-reconciled: issuecomment-5277592017 — read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277592017` this
+turn. Body: "Judgment opened: PR #? — candidate decision on branch
+`issue-1174/devrel` (2 path(s) changed) entered delegated-judgment
+evaluation." — an automated pre-verdict notice about this branch's own
+first pushed commit (2 paths: this record and
+docs/specs/acceptance-commands.md), carrying no instruction or finding
+to act on beyond the escalate-verdict pattern already reconciled
+above. No content in this unit changed in response.
