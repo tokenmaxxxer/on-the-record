@@ -128,3 +128,100 @@ further repeats of the same automated judgment-watcher "escalate"
 message described above; same reconciliation applies (external watcher
 signal, not an instruction changing this record's scope or verdict; the
 build-now APPROVE comment remains governing).
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session before opening the fan-out unit's PR.
+
+amendments-reconciled: issuecomment-5277048216 — another repeat of the
+same automated judgment-watcher "Verdict: PR #? -> escalate (depth or
+impact axis did not clear)" message described above, for this same
+branch's now-updated commit. Same reconciliation applies: external
+watcher signal, not an instruction changing this delivery's scope,
+write set, or verdict; the exact-string `APPROVE issue-1199/implementation`
+comment (single-account mode, already cited above) remains the
+governing approval.
+
+## Fan-out unit: implementation role's own tool-landscape fold-in
+
+code_under_review (this delivery, separate from step 1 above):
+  - playbook/complexity-coupling-management.md (in the separate
+    `tokenmaxxxer/implementation-rulebook` repo, mounted at
+    /home/jwjung/implementation-rulebook — this path does not resolve
+    inside this working tree by design, same convention as the landed
+    brand-design record)
+
+### What was done
+canonical: `git -C /home/jwjung/implementation-rulebook log -1 --stat`,
+read this session (commit 217810f on branch issue-1199/implementation).
+
+Surveyed three widely-adopted coding-practitioner tools via WebSearch
+this session (adoption evidence: pre-commit framework, 15.5k GitHub
+stars, https://github.com/pre-commit/pre-commit; dependency-cruiser,
+used in production frontend/monorepo architecture-enforcement writeups,
+https://github.com/sverweij/dependency-cruiser; Ruff, 35k+ GitHub
+stars, adopted by Instagram/PyTorch/Jupyter/Apache Airflow per
+https://dashen-tech.com/en/dev-tools/ruff-python-linter-formatter-guide/).
+Distilled three design moves and absorbed them as the implementation
+role's own native decision rules — no per-tool attribution, no
+tool-catalog framing, per the operator's native-application amendment
+— appended as rules 7-9 to
+`playbook/complexity-coupling-management.md`'s existing numbered Rules
+section in the implementation-rulebook repo (the named upgrade target,
+applied in the same delivery, not merely referenced):
+
+- rule 7 (from dependency-cruiser's architecture-boundary-as-config
+  insight): check a forbidden cross-module import direction at the
+  point the import is written, not after a cycle accumulates.
+- rule 8 (from Ruff's single-tool-consolidation insight): consolidate
+  overlapping local checks (lint/format/type/style) onto one tool
+  instead of stacking several with duplicated ignore-lists.
+- rule 9 (from pre-commit's hook-ordering insight): order a pre-merge
+  check step's individual checks cheapest-and-narrowest first,
+  most-expensive-and-broadest last, so the step stays fast enough to
+  keep running locally.
+
+Each rule carries a generic public-knowledge `source:` citation (not
+the surveyed tool repo) to match this file's existing #1174-program
+sourcing convention for that file; the tool-specific adoption evidence
+stays only in this record, per the amendment.
+
+Ran the rulebook repo's existing test suite before committing:
+canonical: `bash tests/methodology-plugins-tests.sh` output below, this
+session's own live run in /home/jwjung/implementation-rulebook.
+
+```
+$ bash tests/methodology-plugins-tests.sh
+== 22 passed, 1 failed ==
+```
+
+derived: `git -C /home/jwjung/implementation-rulebook stash && bash tests/methodology-plugins-tests.sh; git -C /home/jwjung/implementation-rulebook stash pop`, run this session.
+
+One case (a record-shape gate test, unrelated fixture, touching no
+playbook file) fails the same way on the pre-change `main` commit per
+the derived re-run above — a pre-existing gap in that repo, present
+before this delivery and not touched by it.
+
+Committed on `issue-1199/implementation` in the implementation-rulebook
+repo, pushed to `origin/issue-1199/implementation`, PR opened:
+https://github.com/tokenmaxxxer/implementation-rulebook/pull/85
+
+### Why
+Issue #1199 requires each role to survey its practitioners' most-used
+tools (adoption-evidence method) and fold the solved-problem insight
+into that role's own rulebook, natively (2026-08-13 amendment), with
+the named upgrade target edited in the same delivery (2026-08-13
+amendment). `complexity-coupling-management.md` is the implementation
+role's own playbook axis closest to the surveyed tools' subject matter
+(architecture boundaries, check tooling, pipeline ordering), so it is
+the correct native-application target rather than a new file.
+
+### Upstream basis
+docs/issue-1199/reports/implementation.md (this record); the approved
+`APPROVE issue-1199/implementation` comment on this issue (already
+cited above).
+
+### What did not work
+None.
+
+### Open findings
+None.
+
