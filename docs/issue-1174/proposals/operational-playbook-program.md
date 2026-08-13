@@ -31,6 +31,20 @@ color-combination visibility rules — each a condition, a choice, and
 - coverage sequencing must be tiered (rich/moderate/sparse), batched
   4-6 roles per PR, tracked by a 43-item checklist in the issue so the
   program cannot silently stall on a subset.
+- SUPERSEDED by amendment 3 (operator, 2026-08-13, issue #1174 comment):
+  no batch/tier prioritization — every role's research+playbook work
+  proceeds in parallel, none deferred behind another role's queue; PR
+  splitting remains allowed for reviewability only. See (b-revised)
+  below; the tier labels from (b) survive only as descriptive metadata,
+  not as a sequencing gate.
+- amendment 4 (operator, 2026-08-13, issue #1174 comment): subtraction/
+  removal decision rules are a required category per role, not optional
+  — an all-additive playbook fails the depth gate. Academic layer per
+  the amendment-1 research protocol includes subtraction-neglect
+  research (Adams, Converse, Hales & Klotz, *Nature* 594, 2021,
+  "People systematically overlook subtractive changes") plus
+  cognitive-load-reduction and minimalism-lineage literature. See
+  (c-revised) below.
 - a playbook that "reads like a glossary" fails the depth gate — the
   gate must distinguish a decision rule (condition -> choice, with a
   reason and a source) from a definition (a term and its meaning).
@@ -138,6 +152,52 @@ executing role should re-confirm a role's tier against actual source
 availability found during that batch's own scout pass, and move a role
 between tiers if the assumption above doesn't hold.
 
+## (b-revised) Full-coverage parallel execution (amendment 3)
+
+Amendment 3 replaces the batch-1-through-9 SEQUENCE above with a
+full-coverage plan. The tier labels and per-tier N-floor formula from
+(a)/(b) are kept as descriptive metadata (they still tell a role how
+rich its own source base is expected to be, and still feed the
+`rule_count_floor` computation) — what is removed is the ordering: no
+role's research+playbook work waits behind another role's batch.
+
+- **Fan-out unit**: one role = one independent research-and-playbook
+  work unit (44 units at this proposal's current count, per the (b)
+  role-count discrepancy already flagged above). Each unit is
+  self-contained — its own scout pass (per the amendment-1 three-layer
+  research protocol: practitioner knowledge, named methodology/
+  standard, academic theory), its own rulebook-repo write, its own
+  gate run — so units carry no ordering dependency on each other.
+- **Parallel dispatch**: the executing phase (step 2+) launches
+  research+playbook work for all 44 roles concurrently (bounded by
+  whatever concurrency ceiling the executing orchestration mechanism
+  imposes — e.g. a workflow's agent-slot cap — not by an artificial
+  tier queue). A role is never held back once its own research is
+  ready to land; "all 43/44 in flight together" replaces "9 batches in
+  sequence."
+- **Streaming landing**: each role's playbook lands as soon as its own
+  research+content+gate pass is complete, rather than waiting for a
+  fixed batch of 4-6 to finish together (the "landing-is-PR-sized"
+  principle amendment 3 names). A role that finishes early is not held
+  open waiting for slower siblings.
+- **PR split is reviewability-only**: a single 44-role PR is
+  unreviewable, so PRs still split — but the split is a packaging
+  decision made against what has actually landed (e.g. group by
+  whichever roles complete in the same streaming window, or one PR per
+  role if that reviews better), never a queue that defers one role's
+  work behind another's turn.
+- **Tracker semantics unchanged**: the 43/44-item completion tracker in
+  the issue still gates close, and unchecked = not yet landed, visible
+  never silently dropped — the tracker enforcement in Acceptance is
+  untouched by this amendment; only the sequencing that fills it
+  changes from "batch order" to "parallel, streaming."
+- **Tier labels demoted to annotation**: (b)'s rich/moderate/sparse
+  tiers and the batch-N-9 grouping stay in this document as the
+  source-richness signal a role's own scout pass should expect (a
+  sparse-tier role should not be surprised to find thin public
+  sourcing) — they are no longer a schedule. Batch numbers 1-9 above
+  are read as "tier group," not "landing order."
+
 ## (c) Batch depth-gate script spec
 
 New script: `gates/playbook_depth_gate.py` (parent repo, mirroring the
@@ -173,6 +233,19 @@ list item under a "## Rules" / "## Decision rules" section):
    rejection) must be >= the role's recorded `rule_count_floor` from
    (a). Exit non-zero with a per-block reason list (accepted/rejected +
    why) when short.
+6. **Removal-category presence (amendment 4)** — each rule block is
+   classified, in addition to 1-5 above, as `addition` (choice = do/add/
+   include/keep <X>) or `removal` (choice = drop/cut/delete/omit/
+   simplify/de-layer <X> — a subtractive marker, mirrored English/Korean
+   the same way condition markers are in check 1: `제거/삭제/생략/줄이다`
+   family). A playbook whose accepted rule blocks are 100% `addition`
+   fails this check even if it clears the count-vs-floor threshold in
+   5 — the gate requires at least one `removal`-classified rule per
+   decision axis recorded in that role's `rule_count_floor` axis list
+   (a role with 5 axes needs >= 1 removal rule per axis, not just >= 1
+   removal rule total, so no single axis can be all-additive by
+   omission). Exit reason for this check names which axis(es) have zero
+   removal-classified rules.
 
 Output: machine-readable pass/fail plus a human-readable per-rule table
 (reason for every rejection), so a batch PR can paste the gate's own
@@ -265,11 +338,13 @@ not the content layer).
 - This proposal itself is reviewable against the issue's five listed
   requirements (a)-(e) one-to-one — each subsection above is
   addressable to one requirement line.
-- Once approved, step 2 (implementation, batch 1) should be checkable
-  against: `python3 gates/playbook_depth_gate.py` (once built) passing
-  for all 5 batch-1 playbooks at their recorded floors, and one live
-  session transcript citing a `playbook_refs` entry (Acceptance check
-  2), exactly as spec'd in (c)/(e) above.
+- Once approved, step 2 (implementation) should be checkable against:
+  `python3 gates/playbook_depth_gate.py` (once built) passing for each
+  landing role's playbook at its recorded floor AND at >= 1
+  removal-classified rule per axis (amendment 4, (c) check 6), and one
+  live session transcript citing a `playbook_refs` entry (Acceptance
+  check 2), exactly as spec'd in (c)/(e) above — landing streams per
+  role per (b-revised), not per fixed batch.
 
 ## What did not work
 
