@@ -80,8 +80,16 @@ drop — recorded here and in the survey.
 ## What will be done
 
 - In on-the-record/monitors/poll-heartbeat.sh's due-tick branch: after
-  capturing `report`, compute a hash of it (e.g. `sha256sum`), compare
-  against the contents of a sibling state file
+  capturing `report`, build the exact text this tick would print — the
+  report itself when non-empty, else the existing rc-embedding fallback
+  line ("poll tick: due, watchdog ran (rc=${watchdog_rc}, no output)")
+  — and hash THAT combined text (e.g. `sha256sum`), not `report` alone.
+  Hashing `report` alone would make two empty-report ticks with
+  different `watchdog_rc` values hash identically even though their
+  printed fallback lines differ, silently suppressing a watchdog-crash
+  signal change and violating #90 (caught by the after-proposal warrant
+  hunt, docs/issue-1117/reports/implementation/hunt-poll-heartbeat-delta-suppression.md).
+  Compare that hash against the contents of a sibling state file
   (`$(dirname "${CHECKOUT}/runs/poll_state.json")/poll_heartbeat_last_hash`,
   i.e. `${CHECKOUT}/runs/poll_heartbeat_last_hash`). If the file is
   absent (first-ever tick) or its contents differ from the new hash:
