@@ -377,3 +377,12 @@ this session ends its reconciliation attempts here. Work is fully
 committed and pushed to origin/issue-1199/performance-engineering; the
 next PR-create attempt (this session's or a follow-up session's) will
 find this record already reconciled through this comment id.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282869867 --jq '.body'`, run this session.
+issuecomment-5282869867 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is a further instance of the same identical,
+content-free watcher pattern reconciled repeatedly above (unnamed
+candidate PR, no specific defect named, no revision requested); by the
+same stopping rule this session does not open another individually-
+reasoned paragraph for it and proceeds directly to PR-create for this
+session's rework commit (938875c9).
