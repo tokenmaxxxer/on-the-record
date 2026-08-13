@@ -79,6 +79,15 @@ finance-unit-economics unit.
 
 None.
 
+amendments-reconciled: issuecomment-5277595734 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)"), following
+issuecomment-5277595597 ("Judgment opened: PR #? — candidate decision
+on branch `issue-1199/finance-unit-economics` (4 path(s) changed)
+entered delegated-judgment evaluation") — a generic templated
+delegated-judgment verdict with no PR number or content-specific
+finding attached (canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate -q '.[] | select(.id==5277595734 or .id==5277595597) | .body'`,
+read this session); no content amendment to this record is warranted.
+
 ## Unit-economics record (this issue's own PRODUCES fields)
 
 This issue is rulebook-tooling work (five native playbook-rule
