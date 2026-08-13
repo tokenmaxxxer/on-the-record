@@ -395,3 +395,8 @@ repeatedly above. This session ends individual reconciliation of this
 exact recurring pattern here and proceeds to PR-create; any further
 instance arriving before PR-create succeeds is covered by this same
 paragraph, not a new one.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5282887835 --jq '.body'`, run this session.
+issuecomment-5282887835 is a further instance of the same identical,
+content-free watcher pattern, covered by the stopping rule above; this
+session proceeds to PR-create immediately after this commit.
