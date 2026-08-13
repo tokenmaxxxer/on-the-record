@@ -106,14 +106,21 @@ matter, per the program's recorded-floor requirement.
 
 None.
 
-amendments-reconciled: issuecomment-5276790959 — canonical: `gh api
-repos/tokenmaxxxer/on-the-record/issues/comments/5276790959`, re-read
-this turn. Body: "Judgment opened: PR #? — candidate decision on branch
-`issue-1174/incident-response` (1 path(s) changed) entered
-delegated-judgment evaluation." This is the delegated-judgment watcher's
-own automated status note about this branch's not-yet-opened PR, not an
-amendment instructing a scope/content change — no reconciliation action
-needed beyond this citation.
+amendments-reconciled: issuecomment-5276658221, issuecomment-5276658364,
+issuecomment-5276660531, issuecomment-5276661810, issuecomment-5276662051,
+issuecomment-5276670305, issuecomment-5276670308, issuecomment-5276670497,
+issuecomment-5276670514, issuecomment-5276678352, issuecomment-5276680706,
+issuecomment-5276680886, issuecomment-5276682257, issuecomment-5276686443,
+issuecomment-5276790959, issuecomment-5276791251, issuecomment-5276800021,
+issuecomment-5276800442 — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1174/comments --paginate`,
+re-read this turn. These are the delegated-judgment watcher's own
+automated "Judgment opened" / "Verdict: ... escalate" status-note pairs
+for this and sibling fan-out branches (ml-engineering, refactoring-legacy,
+data-modeling, incident-response), plus `[watch]` session-end notices for
+sibling branches' own PR openings — none names this branch with an
+instruction changing this evidence trail's scope, write set, or content;
+no reconciliation action needed beyond this citation.
 
 ## Scope note
 
