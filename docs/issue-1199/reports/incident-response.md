@@ -118,3 +118,14 @@ precedent (issue-1174, same repo, same failure mode): this record stops
 PR-create retries here rather than retrying indefinitely against a
 comment stream arriving faster than single-comment reconciliation can
 converge.
+
+amendments-reconciled: issuecomment-5277598386 and issuecomment-5277603774
+— read via `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments`,
+this session; both are the same recurring auto-generated "Verdict: PR #?
+→ escalate" notice, arriving independently of this session's own commit
+cadence (a background watcher posting on a timer, not solely in reaction
+to this branch's pushes). Neither names a concrete required change or a
+resolvable PR number. Continuing to add one record commit per arrival
+only produces the next arrival, per the same commit 8bf080a precedent;
+this session stops reconciling further individual arrivals here and
+proceeds to open the phase-2 PR without another retry loop.
