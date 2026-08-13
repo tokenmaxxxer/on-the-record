@@ -10262,7 +10262,89 @@ class RosterOwnershipScoping(unittest.TestCase):
             with mock.patch.object(sys, "argv",
                                     ["spawn.py", "watchdog", "--all"]):
                 spawn.main()
-        m.assert_called_once_with(auto_respawn=False, all_scope=True)
+        m.assert_called_once_with(auto_respawn=False, all_scope=True,
+                                   root=Path(".").resolve())
+
+    def test_cli_watchdog_no_all_flag_threads_cwd_as_root(self):
+        # 이슈 #1219: `-C` 없이(기본값 ".") 불러도 `roster_watchdog` 은
+        # 컨슈머 세션의 cwd 를 `root` 로 받아야 한다 — 전역 ROOT(체크아웃)를
+        # 암묵적으로 스캔하던 예전 경로가 이 트립을 우회하지 않는지 확인.
+        with tempfile.TemporaryDirectory() as td:
+            with mock.patch.object(spawn, "roster_watchdog", return_value=0) as m:
+                with mock.patch.object(
+                        sys, "argv",
+                        ["spawn.py", "watchdog", "-C", td]):
+                    spawn.main()
+            m.assert_called_once_with(auto_respawn=False, all_scope=False,
+                                       root=Path(td).resolve())
+
+
+class ConsumerFixtureWatchdogAnchoring(unittest.TestCase):
+    """이슈 #1219: 컨슈머(타깃) 레포에서 도는 워치독은 tokenmaxxxer/
+    on-the-record 자신의 보드나 마켓플레이스 체크아웃 경로를 노출하면
+    안 된다 — 이 체크아웃과 무관한, 보드조차 없는 "외지" 픽스처 레포로
+    hermetic 하게 검증한다(네트워크 gh 호출 없이)."""
+
+    def test_foreign_repo_watchdog_output_carries_no_marketplace_or_otr_references(self):
+        with tempfile.TemporaryDirectory() as td:
+            foreign_root = Path(td) / "foreign-target-repo"
+            foreign_root.mkdir()
+            # 컨슈머 레포다운 최소 모양 — 보드(docs/issue-*/)도, 다이제스트도
+            # 없다: "없으면 조용히" 요구사항(#1219 requirement 3)의 empty
+            # state.
+            (foreign_root / "docs").mkdir()
+
+            roster_path = foreign_root / "active.json"
+            old_roster, old_state = spawn.ROSTER, spawn.WATCHDOG_STATE
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = foreign_root / "watchdog_state.json"
+
+            fake_cs = mock.MagicMock()
+            fake_cs.issue_state_index_all.return_value = ({}, True)
+            fake_cs.find_violations.return_value = ([], [])
+            fake_cs.accumulation_trend.return_value = {}
+            fake_cs.format_accumulation_trend.return_value = "accumulation: n/a"
+            fake_sc = mock.MagicMock()
+            fake_sc._list_open_issues.return_value = []
+            fake_sc.find_uncovered.return_value = []
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.dict(sys.modules,
+                                      {"closure_sweep": fake_cs,
+                                       "spawn_coverage": fake_sc}):
+                    result = spawn.roster_watchdog(root=foreign_root)
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+
+            out = buf.getvalue()
+            self.assertEqual(result, 0)
+            self.assertNotIn(str(spawn.ROOT), out)
+            self.assertNotIn("marketplaces", out)
+            self.assertNotIn("tokenmaxxxer/on-the-record", out)
+            self.assertIn("돌고 있는 역할 세션 없음", out)
+
+    def test_dev_session_cwd_is_checkout_stays_unchanged(self):
+        # 요구사항 2: cwd 가 이 체크아웃 자신일 때(dev 세션)는 그대로
+        # ROOT 를 본다 — root 기본값이 ROOT 이므로 인자 없이 부르면
+        # 기존 dev 세션 동작과 동일하다.
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            old_roster, old_state = spawn.ROSTER, spawn.WATCHDOG_STATE
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            try:
+                with mock.patch.object(spawn, "_board_wide_sweep",
+                                        return_value=0) as sweep:
+                    spawn.roster_watchdog()
+                sweep.assert_called_once_with(spawn.ROOT)
+            finally:
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
 
 
 class RequirementIntakeValidityConsult(unittest.TestCase):
