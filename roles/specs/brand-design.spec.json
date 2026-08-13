@@ -37,7 +37,8 @@
   },
   "write_scope": [
     "design-tokens/*.json",
-    "docs/issue-<n>/reports/brand-design.md"
+    "docs/issue-<n>/reports/brand-design.md",
+    "docs/issue-<n>/reports/brand-design/logo-usage.md"
   ],
   "loop_state": {
     "progress": [
@@ -55,6 +56,27 @@
     ]
   },
   "use_when": {
-    "board_condition": "a new design token is proposed on the branch AND no brand-design record exists yet for that token_name"
-  }
+    "board_condition": "a new design token is proposed on the branch AND no brand-design record exists yet for that token_name",
+    "need_detector": {
+      "condition": "the target project has UI source files (path_patterns: **/*.tsx, **/*.jsx, **/*.vue, **/*.svelte) AND no design-tokens/*.json file exists anywhere in the repo tree",
+      "advisory_only": true,
+      "false_positive_bound": "a backend-only or CLI-only target project has no UI source files at all, so the detector never fires — zero UI surface -> silent, unconditionally"
+    }
+  },
+  "outcome_mission": "the target project has an applied, consistent visual identity a user or another contributor can see and reuse — not a description of one.",
+  "mission_deliverables": [
+    {
+      "artifact": "design-tokens/*.json (palette + type scale, DTCG format)",
+      "fit_criterion": "every token resolves to a real DTCG entry and covers at minimum color + fontFamily + fontWeight categories (reuses the spec's own reference_resolution rule)"
+    },
+    {
+      "artifact": "docs/issue-<n>/reports/brand-design/logo-usage.md (clear-space, minimum size, correct/incorrect application examples)",
+      "fit_criterion": "states a numeric clear-space value and minimum size, and shows at least one correct and one incorrect usage example — not description-only"
+    },
+    {
+      "artifact": "component theming: token consumption wired into at least one real UI component's stylesheet/theme file",
+      "fit_criterion": "a component in the target project's source resolves a token from (1) at build/render time, checkable the same way ux-engineering's reference_resolution already checks token_name -> consuming_component"
+    }
+  ],
+  "verified_by": "ux-engineering — brand-design never grades its own mission_deliverables (deliverable 3 is a UX-engineering consumption point by definition; deliverables 1-2 are checked by the same role since it already reads brand-design's token file as an input to its own reference_resolution rule)"
 }
