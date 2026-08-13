@@ -139,6 +139,24 @@ approval event itself, should re-run PR creation from this branch
 (issue-1174/data-modeling, already pushed) once the record file is
 writable.
 
+### Second post-spawn comment, stop retries
+
+A retry of `gh pr create` was refused again, this time on
+issuecomment-5276680706.
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276680706`
+output this turn, body text: "Judgment opened: PR #? — candidate
+decision on branch `issue-1174/data-modeling` (1 path(s) changed)
+entered delegated-judgment evaluation."
+
+This is bot-generated judgment-pipeline commentary reacting to this
+same branch's own pushed commits, not a human amendment — retrying
+`gh pr create` against a moving comment stream it structurally cannot
+catch up to (each retry itself may trigger the next such comment)
+would loop rather than converge. Stopping PR-creation retries here,
+matching the data-engineering/observability units' same precedent
+(docs/issue-1174/reports/data-engineering/evidence-trail.md,
+docs/issue-1174/reports/observability.md).
+
 ## Open findings
 
 - The parent repo's playbook-depth-gate script exists in this checkout
