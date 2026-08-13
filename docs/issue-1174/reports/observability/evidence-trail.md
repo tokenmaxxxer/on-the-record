@@ -110,6 +110,24 @@ duplicating primary content across two repos).
   canonical: `grep -c playbook_refs roles/specs/observability.spec.json`
   in this working tree this turn, returning 0.
 
+## PR not opened (main repo)
+
+The rulebook-repo PR (tokenmaxxxer/observability-rulebook#19) is open.
+This repo's own PR for branch issue-1174/observability could not be
+opened: pr-preflight.sh detected a post-spawn issue comment
+(issuecomment-5276431906, reconciled above) and requires
+docs/issue-1174/reports/observability.md to carry an
+`amendments-reconciled` line citing it before `gh pr create` will run;
+approval-gate.sh unconditionally refuses any Write/Edit/MultiEdit to
+that exact path pre-approval (it is this role's phase-2 record path),
+with no phase-1-legal way to satisfy pr-preflight's requirement. This
+is the same deadlock market-analysis hit and stopped retrying against
+(docs/issue-1174/reports/market-analysis/evidence-trail.md, commit
+cf21418). Per that precedent: the branch is committed and pushed
+(origin/issue-1174/observability); PR creation is left for external
+relay or a later approval-gate-exempt session, rather than retried
+further here.
+
 ## Next steps
 
 - On receiving "APPROVE issue-1174/observability", promote this file's
