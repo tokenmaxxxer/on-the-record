@@ -54,6 +54,16 @@ further `gh pr create` retries per this session's own instruction:
 branch `issue-1174/knowledge-management` is committed and pushed
 (commit cb6ed85) for out-of-session relay to open the PR.
 
+amendments-reconciled: issuecomment-5277524495. canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277524495` this turn —
+same templated "Verdict: PR #? → escalate" body, sixth consecutive copy
+across this session's `gh pr create` attempts; confirms the comment-spam
+loop, not a directive. Not actionable, nothing changed in response.
+Stopping `gh pr create` retries for this branch — final state: commit
+24cf50d (and this entry's own follow-up commit) pushed to
+`issue-1174/knowledge-management`, PR open left for out-of-session
+relay.
+
 ## What was done
 
 canonical: `gh pr list --repo tokenmaxxxer/knowledge-management-rulebook
