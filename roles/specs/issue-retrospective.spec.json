@@ -50,6 +50,11 @@
     ]
   },
   "use_when": {
-    "board_condition": "a non-incident issue closes AND no issue-retrospective record exists yet for that issue"
+    "board_condition": "a non-incident issue closes AND no issue-retrospective record exists yet for that issue",
+    "trigger": {
+      "path_patterns": [],
+      "content_patterns": [],
+      "record_absent_for": "issue-retrospective"
+    }
   }
 }

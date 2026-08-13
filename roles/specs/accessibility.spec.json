@@ -1,17 +1,73 @@
 {
   "role": "accessibility",
   "source_standard": "WCAG-EM 2.0 (W3C, https://www.w3.org/TR/wcag-em/) evaluation procedure + ACT Rules Format outcome vocabulary (W3C, https://www.w3.org/TR/act-rules-format/)",
+  "judgment_methodology": {
+    "method": "WCAG 2.2 success-criterion conformance check (A/AA/AAA) as the pass/fail lens for a UI change",
+    "source": "W3C WCAG 2.2; w3.org/TR/WCAG22"
+  },
+  "planning_methodology": {
+    "method": "Accessibility heuristics evaluation planned at the design phase, before implementation",
+    "source": "Deque, \"Accessibility Heuristics Evaluation\"; deque.com/blog/supporting-the-design-phase-with-accessibility-heuristics-evaluations"
+  },
+  "deliverable_form": {
+    "method": "VPAT/ACR (Accessibility Conformance Report) entry citing the specific WCAG success criteria addressed",
+    "source": "ITI VPAT and ACR guidance; deque.com/accessibility-compliance/vpat"
+  },
+  "feedback_methodology": {
+    "method": "WAI-ARIA authoring-practice check: does an interactive widget expose the correct role/name/state",
+    "source": "W3C WAI-ARIA; w3.org/TR/wai-aria-1.2"
+  },
+  "review_methodology": {
+    "method": "WCAG 2.2 conformance re-check against the specific success criteria the change touches (perceivable/operable/understandable/robust)",
+    "source": "W3C WCAG 2.2; w3.org/TR/WCAG22"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "WCAG 2.2 success criteria and conformance levels",
+      "source": "w3.org/TR/WCAG22"
+    },
+    {
+      "concept": "WAI-ARIA roles/states/properties",
+      "source": "w3.org/TR/wai-aria-1.2"
+    },
+    {
+      "concept": "VPAT/ACR accessibility conformance reporting",
+      "source": "deque.com/accessibility-compliance/vpat"
+    }
+  ],
   "required_fields": [
-    { "name": "scope", "type": "string", "required": true },
-    { "name": "sample", "type": "ref[]", "required": true },
-    { "name": "test", "type": "string", "required": true },
+    {
+      "name": "scope",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "sample",
+      "type": "ref[]",
+      "required": true
+    },
+    {
+      "name": "test",
+      "type": "string",
+      "required": true
+    },
     {
       "name": "result",
       "type": "enum",
-      "enum": ["inapplicable", "passed", "failed", "cantTell", "untested"],
+      "enum": [
+        "inapplicable",
+        "passed",
+        "failed",
+        "cantTell",
+        "untested"
+      ],
       "required": true
     },
-    { "name": "assertedBy", "type": "string", "required": true }
+    {
+      "name": "assertedBy",
+      "type": "string",
+      "required": true
+    }
   ],
   "reference_resolution": {
     "rule": "sample entries must resolve to real screens/components/tokens in the repo; test must be bound to a specific WCAG success-criterion ID (e.g. '1.4.3') — no orphan references (issue-515 invariant 2).",
@@ -21,18 +77,39 @@
     "rule": "overall verdict = the worst-case result across all cited sample x test outcomes (failed > cantTell > untested > inapplicable > passed), never a standalone summary field (issue-515 invariant 4). result uses ACT's 5-value outcome enum, not EARL's 4-value one, since ACT is the accessibility-specific profile and the W3C spec frames ACT-EARL compatibility as expressibility, not identity (scout-brief.md).",
     "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)"
   },
-  "write_scope": ["docs/issue-<n>/reports/accessibility.md"],
+  "write_scope": [
+    "docs/issue-<n>/reports/accessibility.md"
+  ],
   "loop_state": {
-    "progress": ["sampling", "evaluating"],
-    "terminal": ["landed"],
-    "refusal": ["scope-undeterminable"],
-    "error": ["sample-unreachable"]
+    "progress": [
+      "sampling",
+      "evaluating"
+    ],
+    "terminal": [
+      "landed"
+    ],
+    "refusal": [
+      "scope-undeterminable"
+    ],
+    "error": [
+      "sample-unreachable"
+    ]
   },
   "use_when": {
     "board_condition": "a new interaction pattern or color-token set landed on the branch AND no accessibility record exists yet for it",
     "trigger": {
-      "path_patterns": ["**/*token*", "**/*.css", "**/*.tsx", "**/*.jsx", "**/interaction*"],
-      "content_patterns": ["aria-", "color-token", "role=\""],
+      "path_patterns": [
+        "**/*token*",
+        "**/*.css",
+        "**/*.tsx",
+        "**/*.jsx",
+        "**/interaction*"
+      ],
+      "content_patterns": [
+        "aria-",
+        "color-token",
+        "role=\""
+      ],
       "record_absent_for": "accessibility"
     }
   }

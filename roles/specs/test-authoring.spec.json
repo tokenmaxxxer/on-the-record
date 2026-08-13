@@ -72,6 +72,15 @@
     ]
   },
   "use_when": {
-    "board_condition": "new testable behavior lands on the branch AND no test-authoring record exists yet for that behavior"
+    "board_condition": "new testable behavior lands on the branch AND no test-authoring record exists yet for that behavior",
+    "trigger": {
+      "path_patterns": [
+        "src/**",
+        "lib/**",
+        "app/**"
+      ],
+      "content_patterns": [],
+      "record_absent_for": "test-authoring"
+    }
   }
 }

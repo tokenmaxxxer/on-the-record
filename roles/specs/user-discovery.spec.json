@@ -1,13 +1,84 @@
 {
   "role": "user-discovery",
   "source_standard": "Teresa Torres interview snapshots (producttalk.org) + Guest/Bunce/Johnson 2006 and Hennink/Kaiser/Weber 2020 saturation run-length (extension beyond Torres's own confirmed/not-confirmed vocabulary, stated explicitly)",
+  "judgment_methodology": {
+    "method": "The Mom Test's three failure-mode filter (compliments, fluff, hypotheticals) to judge whether an interview finding is real signal",
+    "source": "Fitzpatrick, The Mom Test (2013); momtestbook.com"
+  },
+  "planning_methodology": {
+    "method": "Opportunity Solution Tree scoping from outcome to opportunities to solutions before recruiting",
+    "source": "Torres, Continuous Discovery Habits (2021); producttalk.org/opportunity-solution-trees"
+  },
+  "deliverable_form": {
+    "method": "Thematic-analysis coded finding with saturation statement",
+    "source": "Braun & Clarke, \"Using thematic analysis in psychology,\" Qualitative Research in Psychology, 2006; Guest, Bunce & Johnson, \"How Many Interviews Are Enough?,\" Field Methods, 2006"
+  },
+  "feedback_methodology": {
+    "method": "Contextual-inquiry review of interview notes for observation vs. opinion conflation",
+    "source": "Beyer & Holtzblatt, Contextual Design (Morgan Kaufmann 1998)"
+  },
+  "review_methodology": {
+    "method": "JTBD framing check: does the stated need map to a job-to-be-done, not a feature request restated as a finding",
+    "source": "Christensen and Moesta, JTBD theory; christenseninstitute.org"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "The Mom Test interview discipline",
+      "source": "momtestbook.com"
+    },
+    {
+      "concept": "Opportunity Solution Trees",
+      "source": "producttalk.org/opportunity-solution-trees"
+    },
+    {
+      "concept": "Thematic analysis and saturation",
+      "source": "Braun & Clarke, Qualitative Research in Psychology, 2006; Guest, Bunce & Johnson, Field Methods, 2006"
+    },
+    {
+      "concept": "Jobs-to-be-Done theory",
+      "source": "christenseninstitute.org"
+    }
+  ],
   "required_fields": [
-    { "name": "interview_snapshot", "type": "ref", "required": true },
-    { "name": "quote", "type": "string", "required": true },
-    { "name": "opportunity_tag", "type": "enum", "enum": ["need", "pain", "desire"], "required": true },
-    { "name": "snapshot_refs", "type": "ref[]", "required": true },
-    { "name": "saturation_run_length", "type": "string", "required": true },
-    { "name": "verdict", "type": "enum", "enum": ["pain-confirmed", "not-confirmed"], "required": true }
+    {
+      "name": "interview_snapshot",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "quote",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "opportunity_tag",
+      "type": "enum",
+      "enum": [
+        "need",
+        "pain",
+        "desire"
+      ],
+      "required": true
+    },
+    {
+      "name": "snapshot_refs",
+      "type": "ref[]",
+      "required": true
+    },
+    {
+      "name": "saturation_run_length",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "verdict",
+      "type": "enum",
+      "enum": [
+        "pain-confirmed",
+        "not-confirmed"
+      ],
+      "required": true
+    }
   ],
   "reference_resolution": {
     "rule": "snapshot_refs must resolve to a real interview_snapshot elsewhere in the record, and every opportunity must be backed by >=1 snapshot_refs entry — Torres's minimum-evidence-count rule (issue-515 invariant 2).",
@@ -20,10 +91,19 @@
   "write_scope": [],
   "report_only": true,
   "loop_state": {
-    "progress": ["interviewing"],
-    "terminal": ["pain-confirmed", "not-confirmed"],
-    "refusal": ["no-interview-access"],
-    "error": ["snapshot-unreadable"]
+    "progress": [
+      "interviewing"
+    ],
+    "terminal": [
+      "pain-confirmed",
+      "not-confirmed"
+    ],
+    "refusal": [
+      "no-interview-access"
+    ],
+    "error": [
+      "snapshot-unreadable"
+    ]
   },
   "use_when": {
     "board_condition": "a product-discovery hypothesis requires user-interview validation AND no user-discovery record with a pain-confirmed|not-confirmed verdict exists yet for that hypothesis"

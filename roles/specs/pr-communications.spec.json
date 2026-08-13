@@ -1,6 +1,44 @@
 {
   "role": "pr-communications",
   "source_standard": "AMEC Integrated Evaluation Framework (Barcelona Principles), https://amecorg.com/amecframework/",
+  "judgment_methodology": {
+    "method": "Google engineering-practices reviewer standard for what a PR description must justify",
+    "source": "google.github.io/eng-practices/review/reviewer/standard.html"
+  },
+  "planning_methodology": {
+    "method": "Conventional Commits type/scope taxonomy planned before the commit series is written",
+    "source": "Conventional Commits v1.0.0; conventionalcommits.org"
+  },
+  "deliverable_form": {
+    "method": "Keep a Changelog entry (Added/Changed/Fixed/Removed) alongside the commit series",
+    "source": "Keep a Changelog v1.1.0; keepachangelog.com/en/1.1.0"
+  },
+  "feedback_methodology": {
+    "method": "Conventional Comments labeling (praise/nitpick/issue/question) on review threads",
+    "source": "conventionalcomments.org"
+  },
+  "review_methodology": {
+    "method": "SemVer-impact check: does the change require a major/minor/patch bump per its actual API surface delta",
+    "source": "Semantic Versioning 2.0.0; semver.org"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "Conventional Commits taxonomy",
+      "source": "conventionalcommits.org"
+    },
+    {
+      "concept": "Keep a Changelog structure",
+      "source": "keepachangelog.com/en/1.1.0"
+    },
+    {
+      "concept": "Semantic Versioning rules",
+      "source": "semver.org"
+    },
+    {
+      "concept": "Commit-message craft",
+      "source": "Beams, \"How to Write a Git Commit Message\"; cbea.ms/git-commit"
+    }
+  ],
   "required_fields": [
     {
       "name": "objective",

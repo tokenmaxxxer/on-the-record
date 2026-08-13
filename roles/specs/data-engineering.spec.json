@@ -1,6 +1,40 @@
 {
   "role": "data-engineering",
   "source_standard": "dbt model contracts, https://docs.getdbt.com/docs/collaborate/govern/model-contracts",
+  "judgment_methodology": {
+    "method": "DAMA-DMBOK data quality dimensions (accuracy, completeness, consistency, timeliness) as the acceptance lens for a pipeline change",
+    "source": "DAMA-DMBOK, 2nd ed (Technics Publications 2017)"
+  },
+  "planning_methodology": {
+    "method": "Kimball dimensional-modeling lifecycle (business requirements -> dimensional design -> ETL design -> deployment)",
+    "source": "Kimball & Ross, The Data Warehouse Toolkit, 3rd ed (Wiley 2013); kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dw-bi-lifecycle-method"
+  },
+  "deliverable_form": {
+    "method": "Pipeline design doc naming source system, grain, SLA, and idempotency guarantee",
+    "source": "Reis & Housley, Fundamentals of Data Engineering (O'Reilly 2022)"
+  },
+  "feedback_methodology": {
+    "method": "Code review checklist scoped to pipeline correctness (schema drift, backfill safety, exactly-once semantics)",
+    "source": "google.github.io/eng-practices/review"
+  },
+  "review_methodology": {
+    "method": "Data-quality dimension audit against DAMA-DMBOK's six dimensions before sign-off",
+    "source": "DAMA-DMBOK, 2nd ed (Technics Publications 2017)"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "DAMA-DMBOK data quality dimensions",
+      "source": "DAMA-DMBOK, 2nd ed (Technics Publications 2017)"
+    },
+    {
+      "concept": "Kimball dimensional modeling / star schema",
+      "source": "Kimball & Ross, The Data Warehouse Toolkit, 3rd ed (Wiley 2013)"
+    },
+    {
+      "concept": "Idempotent pipeline design",
+      "source": "Reis & Housley, Fundamentals of Data Engineering (O'Reilly 2022)"
+    }
+  ],
   "required_fields": [
     {
       "name": "model_name",

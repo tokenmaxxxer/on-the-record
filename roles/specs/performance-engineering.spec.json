@@ -1,6 +1,40 @@
 {
   "role": "performance-engineering",
   "source_standard": "Google SRE SLO / error-budget, https://sre.google/workbook/implementing-slos/ , https://sre.google/workbook/error-budget-policy/",
+  "judgment_methodology": {
+    "method": "USE Method (Utilization/Saturation/Errors) as the diagnostic lens for a resource bottleneck",
+    "source": "Gregg, the USE Method; brendangregg.com/usemethod.html"
+  },
+  "planning_methodology": {
+    "method": "SLO-driven capacity planning per the Google SRE book's monitoring/SLO chapters",
+    "source": "sre.google"
+  },
+  "deliverable_form": {
+    "method": "RED-method (Rate/Errors/Duration) benchmark report with before/after latency numbers",
+    "source": "Wilkie, the RED Method; weave.works/blog/the-red-method-key-metrics-for-microservices-architecture"
+  },
+  "feedback_methodology": {
+    "method": "Tail-latency review: does the change report p99/p999, not only mean latency",
+    "source": "Dean & Barroso, \"The Tail at Scale,\" Communications of the ACM, 2013; research.google/pubs/pub40801"
+  },
+  "review_methodology": {
+    "method": "Azure Well-Architected performance-testing checklist applied before sign-off (baseline, load, soak)",
+    "source": "learn.microsoft.com/en-us/azure/well-architected/performance-efficiency/performance-test"
+  },
+  "degree_level_knowledge": [
+    {
+      "concept": "USE and RED diagnostic methods",
+      "source": "brendangregg.com/usemethod.html; weave.works/blog/the-red-method-key-metrics-for-microservices-architecture"
+    },
+    {
+      "concept": "Tail latency at scale",
+      "source": "research.google/pubs/pub40801"
+    },
+    {
+      "concept": "SLO-driven capacity planning",
+      "source": "sre.google"
+    }
+  ],
   "required_fields": [
     {
       "name": "sli",
