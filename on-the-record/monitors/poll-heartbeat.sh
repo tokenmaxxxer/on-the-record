@@ -81,23 +81,112 @@ while true; do
     else
       printed_text="poll tick: due, watchdog ran (rc=${watchdog_rc}, no output)"
     fi
-    # issue #1117: hash the exact text this tick would print (not `report`
-    # alone — two empty-report ticks with different watchdog_rc values
-    # would otherwise hash identically, silently suppressing a
-    # watchdog-crash signal change and violating #90 watch-coverage).
-    # Persisted as a plain sibling file next to the poll TTL stamp
-    # (runs/poll_state.json) rather than inside that fcntl-locked file —
-    # see docs/issue-1117/proposals/poll-heartbeat-delta-suppression.md.
-    hash_state_file="${CHECKOUT}/runs/poll_heartbeat_last_hash"
-    new_hash="$(printf '%s' "${printed_text}" | sha256sum | cut -d' ' -f1)"
-    prev_hash=""
-    if [ -f "${hash_state_file}" ]; then
-      prev_hash="$(cat "${hash_state_file}" 2>/dev/null || true)"
+    # issue #1220: a non-zero watchdog exit is a crash signal, not just an
+    # empty report — append a recognizable marker line so the line-keyed
+    # diff below (an always-emit "crash" category, issue req #3) never
+    # suppresses it even if two consecutive crash ticks carry the same
+    # rc.
+    if [ "${watchdog_rc}" -ne 0 ]; then
+      printed_text="$(printf '%s\n[watchdog-crash] watchdog exited rc=%s' "${printed_text}" "${watchdog_rc}")"
     fi
-    if [ "${new_hash}" != "${prev_hash}" ]; then
-      printf '%s\n' "${printed_text}"
-      mkdir -p "${CHECKOUT}/runs" 2>/dev/null
-      printf '%s' "${new_hash}" >"${hash_state_file}" 2>/dev/null || true
+    # issue #1220: replaced #1117's whole-text SHA-256 suppression with a
+    # line-keyed diff against the previous tick's state — unchanged lines
+    # print nothing, changed/new lines print just their delta, and a
+    # fixed always-emit category (crash/dead/orphaned/resume) prints
+    # every tick regardless of diff. Persisted as JSON at
+    # runs/poll_heartbeat_last_state.json, the #1117 sibling-file
+    # convention's successor (docs/issue-1220/proposals/delta-only-monitor-emission.md).
+    # Also emits a bounded ~30min aliveness heartbeat when a due tick would
+    # otherwise be fully suppressed for that long, so the Monitor channel
+    # never goes silent past a bound (issue req #1220).
+    diff_output="$(POLL_HEARTBEAT_TEXT="${printed_text}" python3 - "${CHECKOUT}/runs/poll_heartbeat_last_state.json" "$(date +%s)" <<'PY'
+import json
+import os
+import re
+import sys
+
+state_path, now_s = sys.argv[1], sys.argv[2]
+now = int(now_s)
+text = os.environ.get("POLL_HEARTBEAT_TEXT", "")
+lines = text.split("\n") if text else []
+
+TAG_RE = re.compile(r"^\[(poll-report|watchdog|health|reconcile|orphaned|resume|watchdog-crash)\]\s*([^:]+):")
+ENTRY_RE = re.compile(r"^([\w./-]+/[\w./-]+):\s")
+BULLET_RE = re.compile(r"^\s+-\s")
+ALWAYS_RE = re.compile(
+    r"^\[(resume|orphaned|watchdog-crash)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
+    re.IGNORECASE,
+)
+
+curr = {}
+order = []
+last_key = None
+bullet_ordinal = 0
+for line in lines:
+    m = TAG_RE.match(line)
+    if m:
+        key = f"{m.group(1)}:{m.group(2)}"
+        last_key = key
+        bullet_ordinal = 0
+    elif ENTRY_RE.match(line):
+        key = f"entry:{ENTRY_RE.match(line).group(1)}"
+        last_key = key
+        bullet_ordinal = 0
+    elif BULLET_RE.match(line) and last_key is not None:
+        key = f"{last_key}#{bullet_ordinal}"
+        bullet_ordinal += 1
+    else:
+        key = "__fixed__"
+    if key in curr:
+        # collision within one tick's text (e.g. two genuinely singleton
+        # lines) — keep both by disambiguating with an ordinal so neither
+        # is silently dropped.
+        n = 1
+        while f"{key}~{n}" in curr:
+            n += 1
+        key = f"{key}~{n}"
+    curr[key] = line
+    order.append(key)
+
+prev = {"lines": {}, "last_emit_epoch": 0}
+if os.path.exists(state_path):
+    try:
+        with open(state_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+        if isinstance(loaded, dict):
+            prev.update(loaded)
+    except (OSError, ValueError):
+        pass
+prev_lines = prev.get("lines", {})
+first_tick = not os.path.exists(state_path)
+
+to_emit = []
+for key in order:
+    line = curr[key]
+    if first_tick or prev_lines.get(key) != line or ALWAYS_RE.search(line):
+        to_emit.append(line)
+
+emitted_now = False
+if to_emit:
+    sys.stdout.write("\n".join(to_emit) + "\n")
+    emitted_now = True
+else:
+    last_emit_epoch = int(prev.get("last_emit_epoch", 0) or 0)
+    if now - last_emit_epoch >= 1800:
+        healthy = sum(1 for k in curr if "#" not in k and not k.startswith("__fixed__"))
+        sys.stdout.write(
+            f"[heartbeat] monitoring active, {healthy} session(s) tracked, no changes\n"
+        )
+        emitted_now = True
+
+new_state = {"lines": curr, "last_emit_epoch": now if emitted_now else prev.get("last_emit_epoch", 0)}
+os.makedirs(os.path.dirname(state_path), exist_ok=True)
+with open(state_path, "w", encoding="utf-8") as f:
+    json.dump(new_state, f)
+PY
+)"
+    if [ -n "${diff_output}" ]; then
+      printf '%s\n' "${diff_output}"
     fi
   else
     if [ -n "${due_out}" ]; then
@@ -105,7 +194,9 @@ while true; do
       printf '[poll-due crashed, rc=%s] %s\n' "${due_rc}" "${due_out}" \
         >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
     fi
-    echo "poll tick: skipped (within TTL)"
+    # issue #1220: non-due ticks are now fully silent (no "skipped (within
+    # TTL)" line) — delta-only emission means a normal within-TTL tick
+    # produces zero Monitor-visible output, not a constant per-minute echo.
   fi
   tick=$((tick + 1))
   if [ "${max_ticks}" != "0" ] && [ "${tick}" -ge "${max_ticks}" ]; then
