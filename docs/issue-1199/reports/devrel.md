@@ -18,6 +18,15 @@ per the preceding comment thread), carries no `#?` PR number resolvable
 to this unit, and names no devrel-scoped file or requirement — no
 amendment to this unit's scope follows from it.
 
+amendments-reconciled: issuecomment-5277562812 — checked; that comment
+("Judgment opened: PR #? — candidate decision on branch
+`issue-1199/devrel` (4 path(s) changed) entered delegated-judgment
+evaluation") is an automated orchestrator notice about this same
+branch's push (the 4-file commit 66593e4 below), not a review finding
+or a request for scope change — no amendment follows; the delegated
+judgment it names is an external evaluation of this PR once opened,
+not an instruction to act on before opening it.
+
 ## What was done
 
 Surveyed devrel's practitioner tool landscape (adoption-evidence method:
