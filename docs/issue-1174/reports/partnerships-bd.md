@@ -63,17 +63,26 @@ shape requirement, each stated as not-applicable to this unit's content:
 
 ## amendments-reconciled
 
-canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277524495`
-and `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277594777`
-output read this turn — both bodies: "Verdict: PR #? → escalate (depth
-or impact axis did not clear)", posted 2026-08-13T07:45:25Z and
-2026-08-13T07:53:23Z respectively, both by JiwonJung94. These are the
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277524495`,
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277594777`, and
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277599016`
+output read this turn — all three bodies: "Verdict: PR #? → escalate
+(depth or impact axis did not clear)", posted 2026-08-13T07:45:25Z,
+07:53:23Z, and 07:53:52Z respectively, all by JiwonJung94. These are the
 orchestrator's generic delegated-judgment comments for *other*
 in-flight PRs (repeated placeholder "PR #?" judgment-loop artifacts,
 not partnerships-bd-scoped requirements or amendments) — they carry no
 new requirement or scope change for this role's playbook unit.
-Reconciled: no action needed against this record's content; noted here
-per pr-preflight's re-read requirement each time a new one lands.
+Reconciled: no action needed against this record's content.
+
+Same pr-preflight comment-race already logged by prior role sessions on
+this issue (e.g. `docs/issue-1174/reports/issue-retrospective/deviation-log.md`):
+the race between new issue comments and `gh pr create` completing can
+outrun reconciliation indefinitely. Following that precedent: this
+record stops re-reconciling after this turn's attempts and the
+rulebook-repo branch/commit is pushed as-is for on-the-record's outside
+relay to open the PR if the next `gh pr create` attempt also loses the
+race.
 
 ## What was done
 
