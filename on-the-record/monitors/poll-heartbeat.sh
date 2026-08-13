@@ -63,27 +63,45 @@ if ! git -C "$(pwd -P)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   exit 1
 fi
 
-# issue #1245: attachment gate. The Monitor must not register at all (no
-# alive marker, no tick loop, no state/log files) for a session whose
-# target repo is not an on-the-record board (no docs/specs/approvers.md)
-# -- the operator's widened #1219 requirement. Checked before the alive
-# marker write below, which is the earliest registration artifact.
-if [ ! -f "$(pwd -P)/docs/specs/approvers.md" ]; then
-  echo "poll tick: skipped (target repo is not an on-the-record board)"
-  exit 0
+# issue #1245/#1280: attachment gate, demoted from a full exit to a
+# sweep-exclusion. A non-board arm-root (no docs/specs/approvers.md) no
+# longer kills the whole Monitor process -- plugin Monitors are armed
+# once at session start and cannot be re-armed, so exiting here
+# permanently defeats idle watch for the rest of the session, including
+# roster-derived watch (#1276) over board repos the session spawns into
+# later. `is_board` only gates `_board_wide_sweep_all`'s arm-root
+# inclusion (spawn.py); the tick loop below always runs.
+if [ -f "$(pwd -P)/docs/specs/approvers.md" ]; then
+  is_board=1
+else
+  is_board=0
 fi
 
-# issue #947: monitor-unavailable degradation notice. Plugin Monitors run
-# only in interactive CLI sessions (docs/specs/platform-capabilities.md);
-# directive.sh (UserPromptSubmit) infers whether THIS session's own
-# Monitor ever started by checking this marker's mtime against its own
-# recorded session-start time, so a workspace-scoped touch here is enough
-# -- no session_id is available to a Monitor command (unlike a hook, it
-# carries no documented stdin JSON contract, and blocking on one here
-# would risk hanging this loop forever). Written before the sleep loop
-# so it reflects "the monitor process launched", not "a tick completed".
-mkdir -p "$(pwd -P)/.orchestrate-monitor-alive" 2>/dev/null && \
-  touch "$(pwd -P)/.orchestrate-monitor-alive/alive" 2>/dev/null || true
+# issue #947/#1280: monitor-unavailable degradation notice. Plugin
+# Monitors run only in interactive CLI sessions
+# (docs/specs/platform-capabilities.md); directive.sh (UserPromptSubmit)
+# infers whether THIS session's own Monitor ever started by checking
+# this marker's mtime against its own recorded session-start time.
+# Relocated out of the target repo (workspace-keyed under
+# ~/.claude/tokenmaxxxer/, hashed by resolved arm-root path) so #1245's
+# "no registration artifacts in a non-board repo" holds even now that
+# the loop always arms there -- no session_id is available to a Monitor
+# command (unlike a hook, it carries no documented stdin JSON contract,
+# and blocking on one here would risk hanging this loop forever).
+# Written before the sleep loop so it reflects "the monitor process
+# launched", not "a tick completed". directive.sh computes the identical
+# hash from its own `pwd -P` at hook-fire time -- same cwd, no shared
+# state file, no IPC.
+_alive_dir="$(PWD_P="$(pwd -P)" python3 -c '
+import hashlib, os
+root = os.environ.get("PWD_P", "")
+h = hashlib.sha256(root.encode("utf-8", "surrogatepass")).hexdigest()[:24]
+print(os.path.join(os.path.expanduser("~/.claude/tokenmaxxxer/monitor-alive"), h))
+' 2>/dev/null)"
+if [ -n "${_alive_dir}" ]; then
+  mkdir -p "${_alive_dir}" 2>/dev/null && \
+    touch "${_alive_dir}/alive" 2>/dev/null || true
+fi
 
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"

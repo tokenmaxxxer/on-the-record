@@ -2658,9 +2658,12 @@ def _board_wide_sweep_all(root: Path, d_all: dict) -> int:
     로스터를 다시 읽으므로 새 레포로의 스폰이 재무장 없이 다음 틱부터
     잡힌다. 각 레포의 출력 줄은 그 레포 라벨로 접두된다 — 멀티보드 출력의
     귀속을 지킨다. 보드가 아닌(docs/specs/approvers.md 없는) 로스터
-    레포는 매 틱 노이즈 없이 한 줄만 찍고 건너뛴다(#1245/#1275 와 합성) —
-    arm-root 자체의 비-git/비-board 검증은 CLI 진입점(#1275)에서 이미
-    끝난 뒤라 여기서는 건드리지 않는다(arm-root 는 절대 건너뛰지 않는다)."""
+    레포는 매 틱 노이즈 없이 한 줄만 찍고 건너뛴다(#1245/#1275 와 합성).
+    이슈 #1280: arm-root 자체도 보드가 아니면(예: 비-보드 레포에서 무장된
+    세션) 스윕 대상에서 조용히 제외된다 — 라인도 찍지 않는다. 그래도
+    로스터가 가리키는 보드 타깃은 계속 스윕한다(#1276 요구를 살린다).
+    arm-root 의 비-git 검증은 CLI 진입점(#1275)에서 이미 끝난 뒤라
+    여기서는 건드리지 않는다."""
     root = root.resolve()
     targets: dict[Path, None] = {root: None}
     for repo in _roster_target_repos(d_all):
@@ -2668,7 +2671,9 @@ def _board_wide_sweep_all(root: Path, d_all: dict) -> int:
     count = 0
     for repo in targets:
         label = _repo_identity(repo)
-        if repo != root and not (repo / MARKER).exists():
+        if not (repo / MARKER).exists():
+            if repo == root:
+                continue
             print(f"[watchdog] board-sweep: {label} — 로스터 타깃 레포지만 "
                   f"보드 아님({MARKER} 없음), 건너뜀")
             continue
