@@ -8,15 +8,22 @@ loop_state: registry-unreachable
 # observability record (issue-1199)
 
 amendments-reconciled: issuecomment-5281291949,
-issuecomment-5281333812, issuecomment-5281339711, and
-issuecomment-5281340041 read this session — the first, second, and
-fourth are the identical generic batch-review verdict template
-"Verdict: PR #? → escalate (depth or impact axis did not clear)"; the
-third is a "Judgment opened" orchestrator log line naming this same
-branch's own PR-judgment pipeline, not a content-change ask. None of
-the four carries observability-specific content or names a change the
-phase-1 proposal or survey must make; no amendment was needed in
-response to any of them.
+issuecomment-5281333812, issuecomment-5281339711,
+issuecomment-5281340041, issuecomment-5281352072,
+issuecomment-5281352244, issuecomment-5281364053,
+issuecomment-5281364300, issuecomment-5281373577, and
+issuecomment-5281373802 read this session — all ten are either the
+identical generic batch-review verdict template "Verdict: PR #? →
+escalate (depth or impact axis did not clear)" or the two-line
+"Judgment opened" orchestrator log line, both naming this same
+branch's own automated PR-judgment watcher, which goes off again on
+each push with a fresh two-line log set — not a content-change ask.
+None of the ten carries observability-specific content or names a
+change the phase-1 proposal or survey must make; no amendment was
+needed in response to any of them. (Note for the human approver: this
+watcher goes off again on every push to this branch, which made
+reaching a stable amendments-reconciled state on this record take
+several extra round trips this session.)
 
 ## What was done
 
