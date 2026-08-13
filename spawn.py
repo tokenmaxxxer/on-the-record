@@ -2518,10 +2518,10 @@ def requirement_drift(root: Path) -> None:
     # 출력이 paraphrase/source 를 다시 gh 로 조회하지 않고 이 메모리에서
     # 바로 쓴다(제안서 Accumulation 절이 명시한 "이미 파싱된 다이제스트
     # 엔트리 재사용, 새 gh 호출 없음").
-    live_entries: dict[str, tuple[str, str]] = {
-        m.group(1): (m.group(2), m.group(3))
+    live_entries: dict[str, tuple[str, str, str]] = {
+        m.group(1): (m.group(2), m.group(3), m.group(4))
         for m in re.finditer(
-            r"^- (R\d+): (.+?) \[\S+\] \(source: #(\d+)\)$", digest_text, re.M)
+            r"^- (R\d+): (.+?) \[(\S+)\] \(source: #(\d+)\)$", digest_text, re.M)
     }
     live_ids = set(live_entries) or set(
         re.findall(r"^- (R\d+):", digest_text, re.M))
@@ -2575,14 +2575,22 @@ def requirement_drift(root: Path) -> None:
             unreferenced_open.append(item.get("number"))
 
     unmentioned_live = sorted(live_ids - mentioned_reqs)
+    # issue #1142: `enforced` (배송 완료, 라이브 enforcement 경로 있음) 요구는
+    # 인용 없이도 드리프트로 잡지 않는다 — `open`(미배송) 요구만 인용을
+    # 요구한다. 다이제스트 파싱 실패 등으로 상태를 못 얻은 id 는 기존처럼
+    # 보수적으로(=open 취급) 계속 플래그한다.
+    unmentioned_live = [
+        rid for rid in unmentioned_live
+        if live_entries.get(rid, (None, "open", None))[1] == "open"
+    ]
     unreferenced_open = sorted(unreferenced_open)
     if unmentioned_live:
         # issue #1017: 바래 ID 목록 대신, 요구마다 다이제스트 paraphrase/
         # source 와 — 있으면 — 요구 인용이 전혀 없는 열린 이슈/PR(연결
         # 후보) 을 named next-action 으로 출력한다.
         for rid in unmentioned_live:
-            paraphrase, source_issue = live_entries.get(rid, ("(다이제스트에 "
-                                                               "paraphrase 없음)", "?"))
+            paraphrase, _status, source_issue = live_entries.get(
+                rid, ("(다이제스트에 paraphrase 없음)", "open", "?"))
             candidates = unreferenced_open[:5]
             cand_note = (f" 후보(요구 인용이 전혀 없는 열린 이슈/PR): {candidates}"
                          if candidates else "")
