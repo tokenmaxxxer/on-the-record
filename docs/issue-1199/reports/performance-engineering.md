@@ -236,3 +236,9 @@ above) already reconciled repeatedly; per the stated stopping rule this
 session treats every further instance of this exact recurring pattern
 as reconciled by this paragraph and the ones above, and proceeds to
 PR-create without further individual entries.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5281953762 repos/tokenmaxxxer/on-the-record/issues/comments/5281961786 --jq '.body'`, run this session.
+issuecomment-5281953762 and issuecomment-5281961786 are two further
+instances of the same identical, content-free watcher pattern already
+reconciled repeatedly above; covered by the same stopping rule, no
+further individual entries follow.
