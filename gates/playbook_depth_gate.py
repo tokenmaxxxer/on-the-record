@@ -7,9 +7,10 @@ rejects glossary-shaped (definition-only) blocks, and enforces amendment
 4: an all-additive playbook (zero removal-classified rules on some
 declared axis) fails even when the raw count clears the floor.
 
-A rule block is one Markdown heading (`## `/`### `) or top-level list
-item (`- `/`* `) under a "## Rules" / "## Decision rules" section,
-together with its body text up to the next block of the same kind.
+A rule block is one Markdown heading (`## `/`### `), top-level list item
+(`- `/`* `), or ordered list item (`1. `/`1) `) under a "## Rules" /
+"## Decision rules" section, together with its body text up to the next
+block of the same kind.
 
   python3 gates/playbook_depth_gate.py <playbook-file-or-dir> --role <name> --floor <N> [--axes a,b,c]
   exit 0 pass / 1 fail; prints a per-block reason table to stdout.
@@ -39,11 +40,13 @@ _GLOSSARY_SHAPE = re.compile(
 )
 _HEADING_RE = re.compile(r"^(#{2,6})\s+(.*)$")
 _LISTITEM_RE = re.compile(r"^\s*[-*]\s+(.*)$")
+_ORDERED_LISTITEM_RE = re.compile(r"^\s*\d+[.)]\s+(.*)$")
 
 
 def _blocks_from_text(text: str) -> list[str]:
-    """Split into candidate rule blocks: each heading or top-level list
-    item plus its following non-heading/non-list body lines."""
+    """Split into candidate rule blocks: each heading, top-level list
+    item, or ordered ("1. "/"1) ") list item, plus its following
+    non-heading/non-list body lines."""
     lines = text.splitlines()
     blocks: list[str] = []
     current: list[str] = []
@@ -54,7 +57,11 @@ def _blocks_from_text(text: str) -> list[str]:
             current.clear()
 
     for line in lines:
-        if _HEADING_RE.match(line) or _LISTITEM_RE.match(line):
+        if (
+            _HEADING_RE.match(line)
+            or _LISTITEM_RE.match(line)
+            or _ORDERED_LISTITEM_RE.match(line)
+        ):
             flush()
             current.append(line)
         elif current:
@@ -78,6 +85,9 @@ def classify_block(block: str) -> dict:
     listmatch = _LISTITEM_RE.match(first_line)
     if listmatch:
         stripped_first = listmatch.group(1)
+    orderedmatch = _ORDERED_LISTITEM_RE.match(first_line)
+    if orderedmatch:
+        stripped_first = orderedmatch.group(1)
 
     if not has_cond:
         reasons.append("no condition marker (when/if/under/for or ~일 때/~인 경우/~면)")
