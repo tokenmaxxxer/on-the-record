@@ -43,7 +43,7 @@ def _make_checkout(tmp: Path) -> Path:
     return checkout
 
 
-def _run_hook(script: Path, checkout: Path, marker: Path, env_extra: dict) -> subprocess.CompletedProcess:
+def _run_hook(script: Path, checkout: Path, marker: Path, env_extra: dict, cwd: Path | None = None) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
     env["FAKE_SPAWN_MARKER"] = str(marker)
@@ -51,6 +51,7 @@ def _run_hook(script: Path, checkout: Path, marker: Path, env_extra: dict) -> su
     env.update(env_extra)
     return subprocess.run(
         ["bash", str(script)], input="", capture_output=True, text=True, env=env, timeout=15,
+        cwd=str(cwd) if cwd else None,
     )
 
 
@@ -174,6 +175,76 @@ def t_poll_due_not_due_leaves_no_crash_log():
         watchdog_log = home / ".claude" / "tokenmaxxxer" / "poll-watchdog.log"
         assert not watchdog_log.exists() or not watchdog_log.read_text().strip(), \
             "an ordinary not-due skip must not be logged as a crash"
+
+
+def t_arm_refused_on_non_git_root_no_artifacts():
+    """issue #1275 Acceptance, empty state: a fresh dir with neither git
+    nor the board marker -> arm refused, no watcher/roster artifacts
+    (poll-watchdog.log, marker) — and no gh-noise-producing watchdog
+    call at all."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        non_git_root = tmp / "not-a-repo"
+        non_git_root.mkdir()
+        r = _run_hook(STOP_POLL_REARM, checkout, marker,
+                      {"FAKE_POLL_DUE": "1", "HOME": str(home)}, cwd=non_git_root)
+        assert r.returncode == 0, r.stderr
+        assert "[monitor-arm-refused]" in r.stderr, r.stderr
+        assert "check=git-repo" in r.stderr, r.stderr
+        assert str(non_git_root) in r.stderr, r.stderr
+        time.sleep(0.5)
+        assert not (marker.exists() and marker.read_text().strip()), \
+            "watchdog must never run when root is not a git repo"
+        watchdog_log = home / ".claude" / "tokenmaxxxer" / "poll-watchdog.log"
+        assert not watchdog_log.exists(), \
+            "no registration artifact should be written on arm refusal"
+
+
+def t_arm_refused_on_git_root_without_board_marker():
+    """issue #1275: a git repo missing docs/specs/approvers.md (not a
+    registered on-the-record board) is refused with the board-registration
+    check, not the git-repo check."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        git_root = tmp / "git-no-board"
+        git_root.mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=str(git_root), check=True)
+        r = _run_hook(STOP_POLL_REARM, checkout, marker,
+                      {"FAKE_POLL_DUE": "1", "HOME": str(home)}, cwd=git_root)
+        assert r.returncode == 0, r.stderr
+        assert "[monitor-arm-refused]" in r.stderr, r.stderr
+        assert "check=board-registration" in r.stderr, r.stderr
+        time.sleep(0.5)
+        assert not (marker.exists() and marker.read_text().strip()), \
+            "watchdog must never run when root has no approvers.md"
+
+
+def t_arm_proceeds_on_board_root():
+    """issue #1275: a proper board root (git repo + docs/specs/approvers.md)
+    arms exactly as today — unchanged."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        board_root = tmp / "board"
+        (board_root / "docs" / "specs").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(board_root), check=True)
+        (board_root / "docs" / "specs" / "approvers.md").write_text("- someone\n", encoding="utf-8")
+        r = _run_hook(STOP_POLL_REARM, checkout, marker,
+                      {"FAKE_POLL_DUE": "1", "HOME": str(home)}, cwd=board_root)
+        assert r.returncode == 0, r.stderr
+        assert "[monitor-arm-refused]" not in r.stderr, r.stderr
+        assert _wait_for_marker(marker), "a valid board root must still arm the watchdog"
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
