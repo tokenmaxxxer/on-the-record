@@ -6,7 +6,7 @@ type: fix
 breaking: false
 canonical: python3 -m pytest gates/test_watch_rearm_registry.py -v — executed live this session, output in Acceptance verification below
 verdict: pass
-loop_state: committing
+loop_state: landed
 ---
 
 ## Summary of work
