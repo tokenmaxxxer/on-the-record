@@ -81,12 +81,19 @@ while true; do
     else
       printed_text="poll tick: due, watchdog ran (rc=${watchdog_rc}, no output)"
     fi
-    # issue #1220: a non-zero watchdog exit is a crash signal, not just an
-    # empty report — append a recognizable marker line so the line-keyed
-    # diff below (an always-emit "crash" category, issue req #3) never
-    # suppresses it even if two consecutive crash ticks carry the same
-    # rc.
-    if [ "${watchdog_rc}" -ne 0 ]; then
+    # issue #1274: roster_watchdog()'s contract (spawn.py) makes its exit
+    # code the ANOMALY COUNT (0=clean, N=N anomalies) — never a crash
+    # flag. A non-zero rc alone is routine anomaly reporting (the
+    # per-entry lines above already carry it); labeling it
+    # [watchdog-crash] fires a false alarm on every tick with even one
+    # benign anomaly. A real crash is only rc>=128 (the shell's
+    # signal-death encoding, e.g. SIGKILL=137) or the reserved
+    # WATCHDOG_CRASH_SENTINEL (spawn.py, currently 97) that spawn.py's
+    # watchdog CLI branch exits on an unhandled internal exception —
+    # append a recognizable marker line so the line-keyed diff below (an
+    # always-emit "crash" category, issue #1220 req #3) never suppresses
+    # it even if two consecutive crash ticks carry the same rc.
+    if [ "${watchdog_rc}" -ge 128 ] || [ "${watchdog_rc}" -eq 97 ]; then
       printed_text="$(printf '%s\n[watchdog-crash] watchdog exited rc=%s' "${printed_text}" "${watchdog_rc}")"
     fi
     # issue #1220: replaced #1117's whole-text SHA-256 suppression with a
