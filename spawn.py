@@ -4468,6 +4468,46 @@ def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
         f.write(line)
 
 
+def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None) -> tuple[list[str], dict[str, str], str]:
+    """`consult_cmd()`의 argv/env/settings-file 조립만 떼어낸, subprocess 를
+    직접 부르지 않는 build-then-return 헬퍼 — `spawn_cmd()` 와 같은 모양이다.
+    `(cmd, env, settings_path)` 를 돌려준다 — settings_path 는 호출자가
+    끝에 `os.unlink` 로 치워야 하는 임시 파일이라 별도로 넘긴다.
+
+    이슈 #1141: `CLAUDE_PLUGIN_ROOT_CORE` 를 `core_plugin_dirs()` 에서
+    주입한다 — `spawn_cmd()` 가 이슈 #182 때부터 갖고 있던 것과 똑같은
+    한 줄(spawn.py 의 `spawn_cmd()` 참조). 이 변수가 없으면 룰북 훅
+    (`terse.sh`)이 `hooks/lib/gate-lib.sh` 를 상대경로 fallback 으로
+    찾다가 자문 세션의 작업 디렉터리 밑에서는 실패해 하드블록한다 — 그
+    블록 에러 텍스트가 "모델 출력"으로 캡처되어 판단 JSON 파싱이 매번
+    실패하는 게 이 이슈의 근본원인이었다.
+
+    분리 이유: 이대로 `consult_cmd()` 안에 인라인해두면 테스트가 이
+    주입 로직을 재구현해야만 검증할 수 있다 — 실제 코드경로를 안 타는
+    테스트는 이 이슈가 닫으려는 드리프트류를 그대로 재현한다(경고 문서:
+    docs/issue-1141/reports/implementation/2026-08-13-hunt-consult-core-plugin-root-injection.md)."""
+    plugins = plugin_dirs(role, spec)
+    s = role_settings(role, cwd, inject_self_hosted_hooks=False)
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+        json.dump(s, tf)
+        settings_path = tf.name
+    cmd = ["claude", "-p", "--settings", settings_path,
+           "--permission-mode", "bypassPermissions",
+           "--output-format", "json"]
+    for p in plugins:
+        cmd += ["--plugin-dir", str(p)]
+    for p in core_plugin_dirs():
+        cmd += ["--plugin-dir", str(p)]
+    role_model = resolved_role_model()
+    if role_model:
+        cmd += ["--model", role_model]
+    env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+    core_dir = next((p for p in core_plugin_dirs() if Path(p).name == "core"), None)
+    if core_dir:
+        env["CLAUDE_PLUGIN_ROOT_CORE"] = str(core_dir)
+    return cmd, env, settings_path
+
+
 def consult_cmd(role: str, question: str, issue: int | None = None,
                 cwd: str | None = None) -> dict:
     """자문(consult): 역할의 룰북을 로드해 판단만 돌려받는다 — 브랜치도
@@ -4494,22 +4534,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
             raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
         spec = json.loads(f.read_text())
-        plugins = plugin_dirs(role, spec)
-        s = role_settings(role, cwd, inject_self_hosted_hooks=False)
-        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
-            json.dump(s, tf)
-            settings_path = tf.name
-        cmd = ["claude", "-p", "--settings", settings_path,
-              "--permission-mode", "bypassPermissions",
-              "--output-format", "json"]
-        for p in plugins:
-            cmd += ["--plugin-dir", str(p)]
-        for p in core_plugin_dirs():
-            cmd += ["--plugin-dir", str(p)]
-        role_model = resolved_role_model()
-        if role_model:
-            cmd += ["--model", role_model]
-        env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd)
         # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
         # freelunch/scout/warrant/proposal-shape 같은, 저장소를 바꾸는 배달물을
         # 겨냥한 core 훅들이 자문 세션에도 그대로 꽂힌다. 복잡한 판단 질문 하나가
