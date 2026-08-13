@@ -97,6 +97,19 @@ above: a recurring delegated-judgment verdict cycle on the unrelated
 `issue-1174/issue-retrospective` branch/PR, not an amendment to this
 unit's proposal. No change to this unit's scope or output follows.
 
+issuecomment-5277559551 (posted 2026-08-13T07:49:22Z, during this
+session) reads the same recurring text again — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277559551` read this
+turn. Same reconciliation as the two entries above: this is the
+identical pr-preflight comment-race already logged in this issue's
+history (commit 005e2c6, "log post-approval pr-preflight comment-race,
+stop PR-create retries," on `issue-1174/issue-retrospective`) —
+structural, not a one-off, and not an amendment to this unit's
+proposal. Following that same precedent, this session stops retrying
+`gh pr create` after this reconciliation and instead pushes its
+commits for on-the-record's outside relay to open both PRs (the
+external rulebook repo's PR and this repo's phase-2 delivery PR).
+
 ## Deviation: no existing rulebook repo for this role
 
 Recognized as a deviation (role-deviation-directive): the task brief
