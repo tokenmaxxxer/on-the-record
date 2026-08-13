@@ -65,15 +65,16 @@ json;print('rule_count_floor' in json.load(open('roles/specs/interaction-design.
 run this turn printed `False`.
 
 amendments-reconciled: issue #1174 comments issuecomment-5277487629
-(2026-08-13T07:41:22Z) and issuecomment-5277572519 (2026-08-13T07:50:49Z),
-both bodied "Verdict: PR #? → escalate (depth or impact axis did not
-clear)" — canonical: `gh api
-repos/tokenmaxxxer/on-the-record/issues/comments/5277487629` and `gh
-api repos/tokenmaxxxer/on-the-record/issues/comments/5277572519`, both
-run this turn. Both comments are the same generic delegated-judgment
-verdict template line with no PR number resolved and carry no content
-specific to this unit's playbook axes or rule text; nothing in either
-required a change to the rules already authored above. Treated as
+(2026-08-13T07:41:22Z), issuecomment-5277572519 (2026-08-13T07:50:49Z),
+and issuecomment-5277605201 (2026-08-13T07:54:33Z), all three bodied
+"Verdict: PR #? → escalate (depth or impact axis did not clear)" —
+canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5277605201` (and the
+same call against the other two comment IDs), all run this turn. All
+three comments are the same generic delegated-judgment verdict template
+line with no PR number resolved and carry no content specific to this
+unit's playbook axes or rule text; nothing in any of them required a
+change to the rules already authored above. Treated as
 reconciled-with-no-change: these escalate lines are workflow-status
 artifacts from a different in-flight judgment, not defect findings
 against this unit's own content.
