@@ -57,6 +57,12 @@ phase-1 reports subtree instead so the fan-out unit's landing evidence is
 not lost; the formal phase-2 record should be filed once that approval
 lands.
 
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5276339224 — a sibling-role watcher
+notification (content-design's own session-end PR), no amendment content
+applicable to this performance-engineering unit.
+
 ## kind / loop_state
 
 kind: fan-out-record
