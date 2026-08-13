@@ -10,6 +10,16 @@ siblings already reconciled this way on this issue). No content in this
 unit changed in response, since the comment names nothing actionable
 against sales's playbook work.
 
+amendments-reconciled: issuecomment-5277580489 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277580489`
+this turn. Body: "Judgment opened: PR #? — candidate decision on branch
+`issue-1174/sales` (1 path(s) changed) entered delegated-judgment
+evaluation." — an automated watcher notification about this session's
+own just-pushed branch (1 path = docs/issue-1174/reports/sales.md
+committed above), not a directive; no content changed in response,
+matching the same watcher-spam shape the knowledge-management sibling
+already documented on this issue.
+
 ## kind
 
 kind: report
