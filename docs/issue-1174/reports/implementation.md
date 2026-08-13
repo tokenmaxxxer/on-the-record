@@ -198,7 +198,8 @@ no amendment to this record's scope or claims is needed.
 
 amendments-reconciled: issuecomment-5276159641, issuecomment-5276159741,
 issuecomment-5276162938, issuecomment-5276163100, issuecomment-5276167208,
-issuecomment-5276170722 (read this turn) are automated "Judgment opened" / "Verdict: escalate"
+issuecomment-5276170722, issuecomment-5276173497, issuecomment-5276175768,
+issuecomment-5276175896 (read this turn) are automated "Judgment opened" / "Verdict: escalate"
 bot comments reacting to this branch's own pushed commits ("depth or
 impact axis did not clear" against `issue-1174/implementation`, 3
 path(s) changed). This gate fix's write set is exactly the 3 changed
