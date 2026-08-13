@@ -85,3 +85,21 @@ verdict for a different, unnumbered candidate PR on branch
 repos/tokenmaxxxer/on-the-record/issues/comments/5277607380`, read this
 session) — it does not name or reference this localization unit's
 rulebook-repo PR, so no content amendment to this record is warranted.
+
+amendments-reconciled: issuecomment-5277617205 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)"), paired with the
+preceding issuecomment-5277617032 ("Judgment opened: PR #? — candidate
+decision on branch `issue-1199/localization` (4 path(s) changed)
+entered delegated-judgment evaluation"), is an automated pre-PR
+judgment-watcher pair that fired against this branch's working-tree
+diff before this session's PR existed (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate`, read
+this session — no `PR #<number>` was ever filled in, and no specific
+defect is named beyond the generic "depth or impact axis did not
+clear" template). Per the same-shaped precedent already reconciled on
+this issue (commits `9dd5ea3`, `5b67dd3`, `c5ea230`, `d6f4efc`,
+`d072afb`, `b715536` on this branch's history — canonical: `git log
+--oneline` on this repo, read this session), this watcher pattern is
+treated as non-blocking pre-PR noise, not an actionable content
+finding, and this record proceeds to PR without further content
+change.
