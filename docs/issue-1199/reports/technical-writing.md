@@ -84,6 +84,21 @@ amendments-reconciled: issuecomment-5276957084 — out of scope for this
 unit (verdict on a different fan-out unit's PR), no action taken on
 this record or the rulebook PR.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276958317
+issuecomment-5276958317 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is another
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this technical-writing unit — no amendment to
+this unit's scope.
+amendments-reconciled: issuecomment-5276958317 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR. Same reconcile-then-retry-`gh pr
+create` deadlock already logged in this issue's history (commit
+df36363) and in this record's own "Resolution path" section — retries
+stop here; the on-the-record branch is committed and pushed (commits
+af7716f, f0e5c43 on `issue-1199/technical-writing` at origin) for
+external relay to open the delivery PR.
+
 # technical-writing — phase-2 record (issue #1199)
 
 ## What was done
