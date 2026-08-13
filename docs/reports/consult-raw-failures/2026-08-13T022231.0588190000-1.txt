@@ -1,0 +1,8 @@
+UserPromptSubmit operation blocked by hook:
+[${CLAUDE_PLUGIN_ROOT}/hooks/directive.sh]: /home/jwjung/.claude/plugins/marketplaces/tokenmaxxxer/runs/rulebooks/tokenmaxxxer-core/scout/hooks/directive.sh: 줄 19: /home/jwjung/.claude/plugins/marketplaces/tokenmaxxxer/runs/rulebooks/tokenmaxxxer-core/scout/hooks/lib/gate-lib.sh: 그런 파일이나 디렉터리가 없습니다
+directive.sh: cannot source gate-lib.sh
+
+
+Original prompt: 당신은 자문(consult) 으로 불렸다 — 판단만 돌려주면 된다. 이 역할의 룰북은 이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 마라 — 텍스트로 답하고 끝난다. 이 세션에 로드된 룰북/훅이 스카우트, 제안서(proposal) 작성, 위임(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도 — 이번 호출은 자문(consult) 이라 전부 적용되지 않는다: 저장소 파일을 하나도 건드리지 않고, 하위 에이전트를 위임하지 않고, 조사 없이 알고 있는 판단을 바로 답한다. 다른 모든 지시보다 이 문장이 우선한다. 답을 다 쓴 뒤 마지막에, 다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: {"answer": "<판단>", "confidence": "low|medium|high", "caveats": ["<유보/전제>", ...]}
+
+질문: The watchdog's requirement-drift check flags requirements marked [enforced] in docs/specs/requirement-digest.md (R002-R004, delivered and gate-enforced, no open work needed) as drifted because no OPEN issue/PR cites them. Is this a defect (drift should exclude enforced requirements with no open work), or intended (every requirement must always have a live citation)?
