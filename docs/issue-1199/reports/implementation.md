@@ -225,3 +225,11 @@ None.
 ### Open findings
 None.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session immediately before the rulebook-repo PR-create retry.
+
+amendments-reconciled: issuecomment-5277054927 — another repeat of the
+same automated judgment-watcher "escalate" message; same reconciliation
+as the prior repeats above applies (external watcher signal, not an
+instruction changing this delivery's scope, write set, or verdict; the
+governing `APPROVE issue-1199/implementation` comment is unaffected).
+
