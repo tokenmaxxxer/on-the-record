@@ -23,6 +23,7 @@ import contextlib
 import re
 import fcntl
 import hashlib
+import io
 import json
 import os
 import stat
@@ -2634,6 +2635,51 @@ def requirement_drift(root: Path) -> None:
               f"열린 이슈/PR {unreferenced_open}")
 
 
+def _roster_target_repos(d_all: dict) -> list[Path]:
+    """이슈 #1276 요구#1: 로스터 엔트리(live + returned-undisposed — 처분된
+    엔트리는 `roster_remove()`가 지우므로 `_roster_load()`가 담는 건 항상
+    이 둘뿐이다)의 `work`(각 엔트리가 등록될 때 넘겨받은 -C/cwd) 필드에서
+    distinct 타깃 레포를 뽑는다. 등장 순서를 안정적으로 유지하려고
+    `dict`(Python 3.7+ 삽입 순서 보존) 를 dedup 에 쓴다."""
+    repos: dict[Path, None] = {}
+    for e in d_all.values():
+        work = e.get("work")
+        if not work:
+            continue
+        repos.setdefault(Path(work).resolve(), None)
+    return list(repos)
+
+
+def _board_wide_sweep_all(root: Path, d_all: dict) -> int:
+    """이슈 #1276 요구#2/#3/#4: `_board_wide_sweep`(closure_sweep +
+    spawn_coverage)를 arm-root 하나가 아니라 arm-root(seed/default) +
+    로스터가 가리키는 distinct 타깃 레포마다 돈다. 로스터가 비어 있으면
+    오늘과 동일하게 arm-root 하나만 스윕한다(empty-state parity). 매 틱
+    로스터를 다시 읽으므로 새 레포로의 스폰이 재무장 없이 다음 틱부터
+    잡힌다. 각 레포의 출력 줄은 그 레포 라벨로 접두된다 — 멀티보드 출력의
+    귀속을 지킨다. 보드가 아닌(docs/specs/approvers.md 없는) 로스터
+    레포는 매 틱 노이즈 없이 한 줄만 찍고 건너뛴다(#1245/#1275 와 합성) —
+    arm-root 자체의 비-git/비-board 검증은 CLI 진입점(#1275)에서 이미
+    끝난 뒤라 여기서는 건드리지 않는다(arm-root 는 절대 건너뛰지 않는다)."""
+    root = root.resolve()
+    targets: dict[Path, None] = {root: None}
+    for repo in _roster_target_repos(d_all):
+        targets.setdefault(repo, None)
+    count = 0
+    for repo in targets:
+        label = _repo_identity(repo)
+        if repo != root and not (repo / MARKER).exists():
+            print(f"[watchdog] board-sweep: {label} — 로스터 타깃 레포지만 "
+                  f"보드 아님({MARKER} 없음), 건너뜀")
+            continue
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            count += _board_wide_sweep(repo)
+        for line in buf.getvalue().splitlines():
+            print(f"[{label}] {line}")
+    return count
+
+
 def _board_wide_sweep(root: Path) -> int:
     """이슈 #464: closure_sweep/spawn_coverage 를 한 틱씩 돌려 보고만 한다
     (observe-only, roster_watchdog 계약과 동일). 위반/미커버 이슈 수를
@@ -2719,7 +2765,11 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     직접 호출/테스트만을 위한 하위호환 폴백이다 — 워치독 코드(closure_sweep
     등 gates 모듈) 임포트는 항상 `ROOT` 를 쓰고(코드는 언제나 체크아웃에서
     온다), 보드 스캔 대상(이슈/PR/다이제스트)만 `root` 를 쓴다."""
-    anomaly_count = _board_wide_sweep(root)
+    # 이슈 #1276: 로스터를 여기서 먼저 읽는다 — 보드 스윕이 로스터가
+    # 가리키는 distinct 타깃 레포까지 커버해야 해서(요구#1), 로스터 스캔
+    # 루프가 쓰는 `d_all` 과 같은 한 번의 읽기를 그대로 재사용한다.
+    d_all = _roster_load()
+    anomaly_count = _board_wide_sweep_all(root, d_all)
     # 이슈 #1239: 워치독 틱마다 처분 안 된 issue-*/ PR 목록을 always-emit
     # 카테고리로 찍는다 — poll-heartbeat.sh 의 #1220 delta-suppression 이
     # `[returned-pr]` 태그 줄을 ALWAYS_RE 로 인식해 매 틱 살아남는다. 스폰
@@ -2727,7 +2777,6 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     blockers, ok = _undispositioned_role_prs(root)
     if ok:
         _print_returned_pr_surfaced(blockers, source="watchdog")
-    d_all = _roster_load()
     # 이슈 #1013 block B: 자기 세션 소유(또는 소유 미기재=empty-state)
     # 엔트리로 스캔을 좁힌다. `--all` 이면 그대로 전체.
     d = _roster_own(d_all, all_scope)
