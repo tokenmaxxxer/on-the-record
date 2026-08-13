@@ -7,7 +7,7 @@ loop_state: landed
 
 # observability record (issue-1199)
 
-amendments-reconciled: issuecomment-5281291949, issuecomment-5281333812, issuecomment-5281339711, issuecomment-5281340041, issuecomment-5281352072, issuecomment-5281352244, issuecomment-5281364053, issuecomment-5281364300, issuecomment-5281373577, issuecomment-5281373802, issuecomment-5281492243, issuecomment-5281599615, issuecomment-5281607749, issuecomment-5281613746, issuecomment-5282826921, issuecomment-5282915639, and issuecomment-5282969941 all read this
+amendments-reconciled: issuecomment-5281291949, issuecomment-5281333812, issuecomment-5281339711, issuecomment-5281340041, issuecomment-5281352072, issuecomment-5281352244, issuecomment-5281364053, issuecomment-5281364300, issuecomment-5281373577, issuecomment-5281373802, issuecomment-5281492243, issuecomment-5281599615, issuecomment-5281607749, issuecomment-5281613746, issuecomment-5282826921, issuecomment-5282915639, issuecomment-5282969941, issuecomment-5283066373, issuecomment-5283077125, issuecomment-5283088407, and issuecomment-5283095155 all read this
 session — the first fourteen are either the identical generic
 batch-review verdict template "Verdict: PR #? → escalate (depth or
 impact axis did not clear)" or the two-line "Judgment opened"
@@ -21,9 +21,11 @@ this one; issuecomment-5282915639 is another instance of the same
 generic "Verdict: PR #? → escalate" template already listed above.
 issuecomment-5282969941 is a "stranded-relay" watcher notice for the
 issue-1199/ml-engineering branch's own failed PR-create call — a
-different role's branch, not this one. None of the three carries
+different role's branch, not this one; issuecomment-5283066373 is
+another instance of the same generic verdict template already listed
+above. None of the four carries
 observability-specific content. None
-of the seventeen names a change the proposal, survey, or this phase-2
+of the eighteen names a change the proposal, survey, or this phase-2
 record must make; no amendment was needed in response to any of them.
 
 The two amendments this session DOES act on are the two operator
