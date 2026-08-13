@@ -458,5 +458,99 @@ def test_hook_allows_synthetic_heredoc_body_with_embedded_quote_no_closes(tmp_pa
     assert r.returncode == 0, r.stderr
 
 
+def _write_session_start(repo_dir, ts):
+    """Sibling `<work>.events.jsonl` spawn.py writes next to the worktree
+    dir — same suffix convention as spawn.py::_events_path/EVENTS_SUFFIX."""
+    events_path = Path(str(repo_dir) + ".events.jsonl")
+    events_path.write_text(
+        json.dumps({"ts": int(ts), "type": "session-start",
+                    "detail": {"pid": 1, "ts": ts}}) + "\n"
+    )
+
+
+def test_hook_denies_pr_when_post_spawn_comment_unreconciled(tmp_path):
+    """Issue #1177 acceptance bar: a comment posted after the session's
+    directive-load time (its last session-start event) must block PR
+    creation until the role's own record cites that comment's id in an
+    amendments-reconciled line."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1177/implementation")
+    _write_session_start(repo_dir, 1000.0)
+    fixtures = {
+        "issue_comments": [
+            {"author": {"login": "alice"}, "body": "please also cover X",
+             "createdAt": "1970-01-01T00:20:00Z",  # epoch 1200 > spawn 1000
+             "url": "https://github.com/o/r/issues/1177#issuecomment-999"},
+        ]
+    }
+    cmd = 'gh pr create --title "proposal" --body "#1177"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "amendments-reconciled" in r.stderr
+
+
+def test_hook_allows_pr_when_post_spawn_comment_reconciled(tmp_path):
+    """Same post-spawn comment, but the role's record already carries an
+    amendments-reconciled line citing that comment's id — must pass."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1177/implementation")
+    _write_session_start(repo_dir, 1000.0)
+    (repo_dir / "docs" / "issue-1177" / "reports").mkdir(parents=True)
+    (repo_dir / "docs" / "issue-1177" / "reports" / "implementation.md").write_text(
+        "amendments-reconciled: issuecomment-999\n"
+    )
+    fixtures = {
+        "issue_comments": [
+            {"author": {"login": "alice"}, "body": "please also cover X",
+             "createdAt": "1970-01-01T00:20:00Z",
+             "url": "https://github.com/o/r/issues/1177#issuecomment-999"},
+        ]
+    }
+    cmd = 'gh pr create --title "proposal" --body "#1177"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_allows_pr_when_no_post_spawn_comments(tmp_path):
+    """False-positive bound (requirement 3): no comment newer than spawn
+    time -> pass untouched, even with no record file at all."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1177/implementation")
+    _write_session_start(repo_dir, 2000.0)
+    fixtures = {
+        "issue_comments": [
+            {"author": {"login": "alice"}, "body": "old comment",
+             "createdAt": "1970-01-01T00:10:00Z",  # epoch 600 < spawn 2000
+             "url": "https://github.com/o/r/issues/1177#issuecomment-1"},
+        ]
+    }
+    cmd = 'gh pr create --title "proposal" --body "#1177"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_allows_pr_when_no_comments_at_all(tmp_path):
+    """Comment-less issue after spawn -> pass untouched (requirement 3)."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1177/implementation")
+    _write_session_start(repo_dir, 2000.0)
+    fixtures = {"issue_comments": []}
+    cmd = 'gh pr create --title "proposal" --body "#1177"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_allows_pr_when_no_events_file(tmp_path):
+    """No `<work>.events.jsonl` sibling at all (directive-load time
+    unknown) -> fail-open, never blocks."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1177/implementation")
+    fixtures = {
+        "issue_comments": [
+            {"author": {"login": "alice"}, "body": "late comment",
+             "createdAt": "2999-01-01T00:00:00Z",
+             "url": "https://github.com/o/r/issues/1177#issuecomment-1"},
+        ]
+    }
+    cmd = 'gh pr create --title "proposal" --body "#1177"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
 if __name__ == "__main__":
     sys.exit(run())
