@@ -7,3 +7,13 @@ canonical: `git -C /home/jwjung/implementation-rulebook log -1 --oneline origin/
 canonical: `gh pr view 85 --repo tokenmaxxxer/implementation-rulebook`, read this session — "Could not resolve to a PullRequest with the number of 85" — the prior session's claim that PR #85 was opened was false.
 
 2026-08-13T00:10:00Z filed: this session re-attempted `gh pr create` in the implementation-rulebook repo three times after committing this session's own on-the-record evidence trail (commit 2006043); each attempt hit a fresh watcher comment (issuecomment-5277545287, -5277551353, -5277558661 on issue #1199), reproducing the same systemic race the prior filed entry above already named. This session stops retrying here too; reported, not spawned, per SCOPE-EXCEEDED RULE. implementation-rulebook's commit 217810f remains pushed to `origin/issue-1199/implementation`; opening its PR is left to a follow-up session once the watcher's comment cadence settles.
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, first on-the-record repo PR-create attempt for commit 0180433.
+
+2026-08-13T00:15:00Z filed: this session's own `gh pr create` attempt for
+the on-the-record repo (this repo) hit the same watcher race
+(issuecomment-5277564116) on the first try. Per the same precedent,
+this session stops retrying here as well; this repo's commits
+(2006043, 0180433) are pushed to `origin/issue-1199/implementation`,
+satisfying commit+push for this half of the delivery even though the
+PR-open itself is deferred to a follow-up session.
