@@ -4021,13 +4021,64 @@ class Watchdog(unittest.TestCase):
 
     def test_board_wide_sweep_all_empty_roster_sweeps_arm_root_only(self):
         """이슈 #1276 요구#2 empty-state parity: 로스터가 비어 있으면
-        오늘과 동일하게 arm-root 하나만 스윕한다."""
+        오늘과 동일하게 arm-root 하나만 스윕한다(arm-root 가 보드일 때)."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
+            (root / "docs" / "specs").mkdir(parents=True)
+            (root / "docs" / "specs" / "approvers.md").write_text("someone\n")
             with mock.patch.object(spawn, "_board_wide_sweep", return_value=0) as m:
                 result = spawn._board_wide_sweep_all(root, {})
             m.assert_called_once_with(root.resolve())
             self.assertEqual(result, 0)
+
+    def test_board_wide_sweep_all_non_board_root_with_roster_board_sweeps_roster_only(self):
+        """이슈 #1280 acceptance: 비-보드 arm-root + 로스터에 보드 레포 하나
+        -> 그 레포의 접두된 watch 줄이 나오고, arm-root 자체는 라인 없이
+        조용히 제외된다."""
+        with tempfile.TemporaryDirectory() as td:
+            arm_root = Path(td) / "arm-root"
+            board_repo = Path(td) / "board-repo"
+            for p in (arm_root, board_repo):
+                p.mkdir()
+            (board_repo / "docs" / "specs").mkdir(parents=True)
+            (board_repo / "docs" / "specs" / "approvers.md").write_text("someone\n")
+            d_all = {"issue-1/qa": {"work": str(board_repo)}}
+
+            def fake_sweep(r):
+                print(f"sweep-ran:{r}")
+                return 1
+
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(arm_root, d_all)
+                finally:
+                    sys.stdout = old_stdout
+            out = buf.getvalue()
+            board_label = spawn._repo_identity(board_repo.resolve())
+            self.assertEqual(result, 1)
+            self.assertIn(f"[{board_label}] sweep-ran:{board_repo.resolve()}", out)
+            self.assertNotIn(f"sweep-ran:{arm_root.resolve()}", out)
+            self.assertNotIn(spawn._repo_identity(arm_root.resolve()), out)
+
+    def test_board_wide_sweep_all_non_board_root_empty_roster_alive_and_silent(self):
+        """이슈 #1280 empty-state: 비-보드 arm-root + 빈 로스터 -> 아무 것도
+        스윕하지 않고(_board_wide_sweep 미호출) 출력도 없다(alive, silent)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(spawn, "_board_wide_sweep") as m:
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(root, {})
+                finally:
+                    sys.stdout = old_stdout
+            m.assert_not_called()
+            self.assertEqual(result, 0)
+            self.assertEqual(buf.getvalue(), "")
 
     def test_roster_target_repos_dedupes_by_resolved_path(self):
         with tempfile.TemporaryDirectory() as td:
@@ -4039,6 +4090,72 @@ class Watchdog(unittest.TestCase):
                 "issue-3/review": {},
             }
             self.assertEqual(spawn._roster_target_repos(d_all), [repo.resolve()])
+
+
+class PollHeartbeatMarkerRelocationTest(unittest.TestCase):
+    """이슈 #1280: poll-heartbeat.sh 의 alive 마커가 타깃 레포 밖으로
+    이동했는지, directive.sh 가 같은 해시로 그 마커를 읽는지를 실제
+    쉘 스크립트를 구동해 검증한다."""
+
+    def _run_heartbeat(self, repo, home):
+        script = Path(__file__).parent.parent / "on-the-record" / "monitors" / "poll-heartbeat.sh"
+        env = dict(os.environ)
+        env.update({
+            "HOME": str(home),
+            "TOKENMAXXXER_CHECKOUT": str(Path(__file__).parent.parent),
+            "POLL_HEARTBEAT_MAX_TICKS": "1",
+            "POLL_HEARTBEAT_SLEEP_SECONDS": "0",
+        })
+        return subprocess.run(
+            ["bash", str(script)], cwd=str(repo), env=env,
+            capture_output=True, text=True, timeout=30,
+        )
+
+    def test_non_board_root_creates_no_files_and_relocates_alive_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            home = Path(td) / "home"
+            repo.mkdir()
+            home.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+            r = self._run_heartbeat(repo, home)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse((repo / ".orchestrate-monitor-alive").exists())
+            self.assertEqual([p for p in repo.glob("*") if p.name != ".git"], [])
+            import hashlib
+            expected_hash = hashlib.sha256(
+                str(repo.resolve()).encode("utf-8", "surrogatepass")
+            ).hexdigest()[:24]
+            alive_path = home / ".claude" / "tokenmaxxxer" / "monitor-alive" / expected_hash / "alive"
+            self.assertTrue(alive_path.exists())
+
+    def test_directive_sh_reads_same_relocated_marker_hash(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            home = Path(td) / "home"
+            repo.mkdir()
+            home.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+            self._run_heartbeat(repo, home)
+            import hashlib
+            expected_hash = hashlib.sha256(
+                str(repo.resolve()).encode("utf-8", "surrogatepass")
+            ).hexdigest()[:24]
+            marker_dir = home / ".claude" / "tokenmaxxxer" / "monitor-alive" / expected_hash
+            self.assertTrue((marker_dir / "alive").exists())
+
+            directive = Path(__file__).parent.parent / "on-the-record" / "hooks" / "directive.sh"
+            env = dict(os.environ)
+            env.pop("CLAUDE_ROLE", None)
+            env.update({"HOME": str(home)})
+            payload = json.dumps({"session_id": "sess-1280"})
+            r = subprocess.run(
+                ["bash", str(directive)], cwd=str(repo), env=env,
+                input=payload, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            session_hash = hashlib.sha256(b"sess-1280").hexdigest()[:24]
+            self.assertTrue((marker_dir / f".session-{session_hash}-start").exists())
 
     def test_board_wide_sweep_issue_view_call_count_constant_across_subject_counts(self):
         # issue #743 acceptance item 1: `_board_wide_sweep` 이 이제 한 번의
