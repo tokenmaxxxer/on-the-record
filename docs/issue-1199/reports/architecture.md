@@ -264,6 +264,9 @@ Comment `issuecomment-5277589364` ("[watch] issue-1199/execution-observation: se
 canonical: `gh issue view 1199 --comments`, re-read this session for `issuecomment-5277592420`.
 Comment `issuecomment-5277592420` ("Verdict: PR #? → escalate (depth or impact axis did not clear)") is another instance of the same generic, unresolved-placeholder "Verdict: PR #?" template already addressed above — it carries no PR number or branch name distinguishing it from the earlier instance already reconciled, so it is treated the same way: approval/verdict-shaped but not a verdict on this unit's actual diff; no content amendment warranted.
 
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277596197`, read this session.
+Comment `issuecomment-5277596197` ("Verdict: PR #? → escalate (depth or impact axis did not clear)") is a fourth automated delegated-judgment verdict from the same pre-PR watcher run, posted after this session started, with no amendment content of its own — no action taken on this record or the rulebook PR. This matches the pr-preflight comment-race already logged against this same watcher pattern in prior issue-1199/issue-1174 records (e.g. commit `005e2c6`, `9b6a346`): each commit reconciling one watcher comment races a fresh comment from that same watcher run. Per that precedent, this session stops retrying `gh pr create` after this reconciliation and relies on on-the-record's outside relay to open the PR from the pushed branch (`issue-1199/architecture`, commit `d9e3386` and this commit).
+
 ## Open findings
 
 - The diagram-as-text-model and decision-lineage requirements added to
