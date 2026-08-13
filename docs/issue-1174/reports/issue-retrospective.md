@@ -34,3 +34,10 @@ delegated-judgment evaluation." — an automated pre-PR watcher notice with
 no PR number yet (this PR had not been created when it posted) and no
 actionable content against this unit's record; nothing in this unit
 changed in response.
+
+amendments-reconciled: issuecomment-5277234825 — read via
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5277234825` this
+turn. Body: automated "[watch] issue-1174/legal-compliance: session-end:
+PR ... opened" notice about a different fan-out unit's session, no
+content actionable against this unit's record; nothing in this unit
+changed in response.
