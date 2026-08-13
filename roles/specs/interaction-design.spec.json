@@ -2,13 +2,46 @@
   "role": "interaction-design",
   "source_standard": "NN/g wireflows (nngroup.com/articles/wireflows) + UML state-machine notation (uml-diagrams.org) for the closed node-type enum NN/g itself leaves unspecified",
   "required_fields": [
-    { "name": "state_name", "type": "string", "required": true },
-    { "name": "entry_trigger", "type": "string", "required": true },
-    { "name": "screen_ref", "type": "ref", "required": true },
-    { "name": "node_type", "type": "enum", "enum": ["state", "choice", "terminal"], "required": true },
-    { "name": "feedback", "type": "string", "required": true },
-    { "name": "transitions", "type": "ref[]", "required": true },
-    { "name": "edge_case_variant", "type": "string", "required": true }
+    {
+      "name": "state_name",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "entry_trigger",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "screen_ref",
+      "type": "ref",
+      "required": true
+    },
+    {
+      "name": "node_type",
+      "type": "enum",
+      "enum": [
+        "state",
+        "choice",
+        "terminal"
+      ],
+      "required": true
+    },
+    {
+      "name": "feedback",
+      "type": "string",
+      "required": true
+    },
+    {
+      "name": "transitions",
+      "type": "ref[]",
+      "required": true
+    },
+    {
+      "name": "edge_case_variant",
+      "type": "string",
+      "required": true
+    }
   ],
   "reference_resolution": {
     "rule": "every transitions entry must resolve to another state's state_name elsewhere in the same record — graph reference-resolution (issue-515 invariant 2); every flow must contain at least one terminal node_type.",
@@ -20,16 +53,45 @@
   },
   "write_scope": [],
   "report_only": true,
+  "quality_bar": [
+    {
+      "criterion": "closed_node_enum",
+      "verification_method": "schema validation of every wireflow node's type against the spec's declared closed enum (screen/decision/system-action/end)"
+    },
+    {
+      "criterion": "no_orphan_transition",
+      "verification_method": "reference-resolution check (reuses the spec's own reference_resolution rule) asserting every transition edge resolves to a declared node on both ends"
+    },
+    {
+      "criterion": "error_path_modeled",
+      "verification_method": "graph traversal asserting an error-typed outgoing edge exists per user-input node"
+    },
+    {
+      "criterion": "terminal_reachability",
+      "verification_method": "graph reachability check asserting every node reaches the terminal node and is reachable from the start node"
+    }
+  ],
   "loop_state": {
-    "progress": ["sketching"],
-    "terminal": ["reviewed"],
-    "refusal": ["spec-not-confirmed"],
-    "error": ["screen-ref-unresolvable"]
+    "progress": [
+      "sketching"
+    ],
+    "terminal": [
+      "reviewed"
+    ],
+    "refusal": [
+      "spec-not-confirmed",
+      "bar-not-met"
+    ],
+    "error": [
+      "screen-ref-unresolvable"
+    ]
   },
   "use_when": {
     "board_condition": "a requirements-engineering record landed for a screen/flow-facing requirement AND no interaction-design record exists yet for it",
     "trigger": {
-      "path_patterns": ["docs/issue-*/reports/product-discovery.md"],
+      "path_patterns": [
+        "docs/issue-*/reports/product-discovery.md"
+      ],
       "content_patterns": [],
       "record_absent_for": "interaction-design"
     }

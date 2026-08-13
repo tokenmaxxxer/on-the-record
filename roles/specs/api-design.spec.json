@@ -88,6 +88,24 @@
   "write_scope": [
     "docs/issue-<n>/reports/api-design.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "spectral_ruleset_pass",
+      "verification_method": "spectral lint exit code / error count, zero errors against the project's OpenAPI ruleset"
+    },
+    {
+      "criterion": "schema_conformance",
+      "verification_method": "schema-conformance test suite run against recorded/contract responses for every documented status code"
+    },
+    {
+      "criterion": "breaking_change_versioned",
+      "verification_method": "api-version-guard.sh's existing diff check, asserting a removed/renamed public field or endpoint carries a version bump"
+    },
+    {
+      "criterion": "error_response_shape",
+      "verification_method": "schema-conformance test scoped to documented 4xx/5xx responses against the project's declared error-shape schema"
+    }
+  ],
   "loop_state": {
     "progress": [
       "linting",
@@ -97,7 +115,8 @@
       "landed"
     ],
     "refusal": [
-      "spec-undeclared"
+      "spec-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "ruleset-unreachable"
