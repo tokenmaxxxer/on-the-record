@@ -59,6 +59,8 @@
     "board_condition": "a new design token is proposed on the branch AND no brand-design record exists yet for that token_name",
     "need_detector": {
       "condition": "the target project has UI source files (path_patterns: **/*.tsx, **/*.jsx, **/*.vue, **/*.svelte) AND no design-tokens/*.json file exists anywhere in the repo tree",
+      "present_patterns": ["**/*.tsx", "**/*.jsx", "**/*.vue", "**/*.svelte"],
+      "absent_patterns": ["design-tokens/*.json"],
       "advisory_only": true,
       "false_positive_bound": "a backend-only or CLI-only target project has no UI source files at all, so the detector never fires — zero UI surface -> silent, unconditionally"
     }

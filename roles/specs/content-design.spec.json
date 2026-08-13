@@ -87,6 +87,8 @@
     "board_condition": "new user-facing content is proposed on the branch AND no content-design record exists yet for that content_id",
     "need_detector": {
       "condition": "the target project has user-facing string literals in UI source (JSX/template text nodes matching a minimum length threshold, not single-word labels) AND no docs/**/content-design/style-guide.md exists anywhere in the repo tree",
+      "present_patterns": ["**/*.tsx", "**/*.jsx", "**/*.vue", "**/*.svelte"],
+      "absent_patterns": ["docs/**/content-design/style-guide.md"],
       "advisory_only": true,
       "false_positive_bound": "a purely programmatic/API-only project with no rendered UI text never matches the string-literal heuristic, so it stays silent; the literal-length threshold is set deliberately conservative (favor false-silence over false-fire) and numeric tuning is phase-2 follow-up work, not decided numerically here"
     }

@@ -1,75 +1,143 @@
 ---
 code_under_review:
+  - gates/need_detector.py
+  - gates/test_need_detector.py
+  - gates/quality_bar.py
+  - gates/test_quality_bar.py
+  - spawn.py
   - roles/specs/brand-design.spec.json
   - roles/specs/content-design.spec.json
   - roles/specs/market-analysis.spec.json
+  - docs/specs/role-spec-template.schema.json
   - docs/specs/reconciled-index.md
+  - docs/specs/enforcement-boundary.md
 type: feature
 breaking: false
-canonical: python3 -m pytest gates/spec_schema_five_activities_test.py gates/test_role_spec_shape.py -q — result: 9 passed in 0.06s; python3 gates/spec_index.py — result: 통과 (pass)
+canonical: python3 -m pytest gates/test_need_detector.py gates/test_quality_bar.py gates/spec_schema_five_activities_test.py gates/test_role_spec_shape.py -q — result: 37 passed in 0.07s
 verdict: pass
 loop_state: landed
 ---
 
 kind: implementation
 subject: issue-1160
-Proposal: docs/issue-1160/proposals/per-role-outcome-missions.md
+Proposal: docs/issue-1160/proposals/step3-machinery.md
 
 ## What was done
 
-Building the phase-2 write set frozen by
-docs/issue-1160/proposals/per-role-outcome-missions.md (approved via the
-exact-match `APPROVE issue-1160/implementation` comment, canonical: issue
-#1160 comment thread, read this turn): `outcome_mission` +
-`mission_deliverables` ({artifact, fit_criterion}) + an advisory-first
-need-detector (`use_when.need_detector`, with an explicit false-positive
-bound) for the three pilot specs — brand-design, content-design,
-market-analysis — plus a `verified_by` line on each spec naming the
-role that records the #1156-pattern bar verdict on its mission
-deliverables (anti-circularity: producer never grades its own
-deliverable), and a `docs/specs/reconciled-index.md` refresh.
+canonical: 8348ea1 (this branch, `git show --stat 8348ea1`) — built exactly
+the frozen write set plus one mechanically-required docs row
+(`docs/specs/enforcement-boundary.md`, `gate-registration-guard.sh` refused
+the commit without it for the new `gates/need_detector.py` module):
+
+- `gates/need_detector.py` — `load_need_detector_specs(root)` +
+  `needs_due(target_root, root=None)`: evaluates each pilot spec's
+  `use_when.need_detector.present_patterns`/`absent_patterns` globs
+  (`pathlib.Path.glob`, no new dependency) against an arbitrary
+  `target_root` — a role is due iff at least one `present_patterns` glob
+  matches and no `absent_patterns` glob matches. Pure classifier, no side
+  effects, never spawns. `format_report()` prefixes `[needs-due]` (distinct
+  from `roles-due`'s `[roles-due]` stream).
+- `gates/test_need_detector.py` — hermetic `tmp_path` fixtures: a WITH-need
+  tree (`*.tsx`, no `design-tokens/*.json`) fires; a WITHOUT-need tree
+  (same plus `design-tokens/colors.json`) stays silent; a no-UI tree stays
+  silent unconditionally; a spec with no `need_detector` key is ignored;
+  plus a `..`-traversal regression test (see Rationale for deviations).
+- `spawn.py` — new `needs-due` subcommand mirroring `roles-due`'s existing
+  wiring: calls `need_detector.needs_due(target_cwd, root=<this repo>)`,
+  prints the advisory lines, returns 0, never spawns.
+- `gates/quality_bar.py` — added `mission_bar_scoped(target_files,
+  mission_deliverable_patterns)` (reuses `bar_scoped_roles`'s exact
+  glob-matching body against `mission_deliverables[].artifact` globs) and
+  `verified_by_account(spec, resolve_account_fn)` (resolves the leading
+  role token of a spec's `verified_by` string to an account via a
+  caller-supplied resolver — never re-derives from `CLAUDE_ROLE`). Neither
+  function changes `classify`'s behavior; both feed its existing inputs.
+- `gates/test_quality_bar.py` — tests for both new functions plus two
+  linkage tests proving `mission_bar_scoped`/`verified_by_account` feed
+  `classify`'s existing anti-circularity rather than bypassing it (same
+  account -> `BAR_NOT_MET` with the "same account" reason; differing
+  account -> `BAR_MET`).
+- `roles/specs/{brand-design,content-design,market-analysis}.spec.json` —
+  added `present_patterns`/`absent_patterns` array fields under each
+  spec's existing `use_when.need_detector`, prose `condition` field
+  untouched.
+- `docs/specs/role-spec-template.schema.json` — documents the new
+  `present_patterns`/`absent_patterns` shape (documentation only, per the
+  proposal's stated Out of scope — `role_spec_shape.py` not extended).
+- `docs/specs/reconciled-index.md` — regenerated via
+  `python3 gates/spec_index.py --update` in the same commit as the spec
+  edits (spec-index-preflight requirement).
+
+canonical: this turn's own Bash tool output, `python3 spawn.py needs-due
+--cwd /tmp/needs_due_smoke` — a smoke tree under
+`/tmp/needs_due_smoke/src/App.tsx` (no `design-tokens/`) produced
+`[needs-due] 프로젝트가 이 역할의 실제 산출물을 필요로 함 — advisory-only:`
+followed by `brand-design`/`content-design` lines, confirming the CLI
+resolves specs from this repo (`root=Path(__file__).parent`) against an
+arbitrary target repo and prints only — never spawns. Smoke tree removed
+after the check (not part of the write set, not committed).
+
+canonical: python3 -m pytest gates/test_need_detector.py
+gates/test_quality_bar.py gates/spec_schema_five_activities_test.py
+gates/test_role_spec_shape.py -q — result: 37 passed in 0.07s. Leg 1
+(detector fires/stays silent, proposal item 7) is mechanically exercised
+by this suite plus the manual `needs-due` run above.
+
+Legs 2-3 of proposal item 7 (a role wakes and lands a deliverable; a
+different role records the bar verdict) remain unexercised by this build,
+left for a future execution-observation session.
 
 ## Why
 
-- upstream: docs/issue-1160/proposals/per-role-outcome-missions.md
-- basis: docs/issue-1160/reports/requirements-engineering/current-state-survey.md,
-  docs/issue-1160/reports/requirements-engineering/scout-brief.md
+- upstream: docs/issue-1160/proposals/step3-machinery.md
+- basis: docs/issue-1160/reports/implementation/survey.md,
+  docs/issue-1160/reports/implementation/scout-brief.md
 
-Issue #1160 (citing northpole req#1) asks dormant roles to perform the
-profession's real work, not only review it. The proposal names the
-three pilot specs and the exact fields; this record builds exactly that
-frozen set.
-
-## Rationale for deviations
-
-The invoking task description also names a "spec-schema test extension"
-as part of this delivery. The approved phase-1 proposal's frozen
-`files:` write set is exactly `roles/specs/brand-design.spec.json`,
-`roles/specs/content-design.spec.json`,
-`roles/specs/market-analysis.spec.json`,
-`docs/specs/reconciled-index.md` — no test file is listed, and no
-existing generic spec-schema test iterates over these three roles'
-`outcome_mission`/`mission_deliverables` fields (checked:
-`grep -rln "outcome_mission" gates/` — no hit before this session, and
-`gates/spec_schema_five_activities_test.py`'s `IN_SCOPE_ROLES` list does
-not include brand-design or market-analysis). Per the SCOPE-EXCEEDED
-rule, a test file is outside the frozen write set: this record finishes
-exactly what the proposal covers and reports the gap rather than
-widening mid-build. A schema test for these two new fields is the next
-proposal's work, not this one's.
-
-The invoking task also frames "one role wakes and lands its deliverable"
-live-pilot acceptance as optionally deferrable to a phase-3/execution-
-observation step. Stating that plainly, per the task's own instruction:
-no live pilot run (fixture repo, role waking, deliverable landing) was
-performed in this session — only the spec declarations themselves were
-built and are unexecuted until a role session actually runs against
-them.
-
-## Open findings
-
-None yet raised against this record.
+canonical: docs/issue-1160/proposals/step3-machinery.md ## Request section
+(read this turn) — execution-observation's FAIL on issue #1160 step 3
+found `need_detector`, `mission_deliverables`, and `verified_by`
+declarative-only: no evaluator reads `need_detector`, nothing prints an
+advisory line from it, and nothing feeds `mission_deliverables`/
+`verified_by` into a bar-verdict check. This record's build discharges
+that FAIL by adding exactly the missing machinery the approved proposal
+names.
 
 ## What did not work
 
-None.
+canonical: docs/issue-1160/reports/implementation/2026-08-13-hunt-step3-machinery-before-landing.md
+— initial `_any_glob_matches` used `target_root.glob(pat)` directly with
+no containment check; the before-landing warrant hunt (stance 0)
+reproduced `present_patterns: ["../outside/*.txt"]` matching a file
+genuinely outside the target tree. Fixed by skipping any pattern whose
+`Path(pat).parts` contains `".."` before calling `.glob()`, with a
+regression test added (commit 8348ea1).
+
+## Rationale for deviations
+
+canonical: `git show --stat 8348ea1` (this turn) — the approved proposal's
+frozen `files:` write set did not list `docs/specs/enforcement-boundary.md`.
+`gate-registration-guard.sh` mechanically refused the commit adding
+`gates/need_detector.py` (a new gate/hook-shaped module) without a
+registration row there. Added the one row in the same commit (docs/ path,
+always-writable per the output-layout exception) rather than filing a
+separate proposal for a single mechanical row.
+
+canonical: docs/issue-1160/reports/implementation/2026-08-13-hunt-step3-machinery-before-landing.md
+— the proposal also did not anticipate the warrant-hunt's `..` traversal
+finding. The fix stays entirely inside `gates/need_detector.py`, already
+in the frozen write set, and does not change the module's declared
+contract.
+
+## Open findings
+
+None open — the one warrant-hunt finding (before-landing, stance 0,
+`..`-traversal) was resolved in commit 8348ea1; see closed_checks below.
+
+closed_checks:
+  - check: before-landing warrant hunt, stance 0 (gate bypassability) —
+    dotdot pattern traversal escape in `gates/need_detector.py`
+    code_sha: 8348ea1
+
+## Resolution path
+
+N/A — no open findings remain.
