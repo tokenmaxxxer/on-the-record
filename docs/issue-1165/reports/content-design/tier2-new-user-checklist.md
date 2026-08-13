@@ -57,5 +57,31 @@ recover from errors).
 - Accept shape: the reviewer restates the problem in plain language and
   names a concrete recovery action the screen actually offers.
 
+## Item 4 — Convention-conformance test (amendment 2, added 2026-08-13)
+
+Grounded in: Jakob's Law, principle of least astonishment, Norman's
+mental models, processing fluency (canonical:
+`docs/issue-1165/proposals/content-design-screens-comprehensibility.md`
+§Amendment 2, sources cited there).
+
+- Procedure: name the screen's stated convention family (Material/HIG/
+  common navigation-form pattern, from the screen's `convention_family`
+  metadata note). Ask the reviewer to perform the primary flow and note
+  any point where the screen's actual behavior surprised them relative
+  to that named family.
+- Reject condition: the reviewer's expectation (built from ordinary
+  Material/HIG/common-pattern exposure) is violated with no stated
+  reason on record — e.g. a back-gesture that does not go back, a
+  primary-looking button that opens a destructive action, a form-submit
+  control in an unexpected position — and the screen's own metadata
+  carries no `convention_family: none-applicable` deviation note
+  explaining why.
+- Accept shape: the reviewer's expectations hold throughout the primary
+  flow, or, where the screen deviates from the named family, the
+  deviation is stated in the screen's own metadata with a reason a new
+  user could plausibly accept (e.g. a domain-specific safety
+  interstitial that intentionally breaks the expected one-tap-submit
+  pattern).
+
 canonical: acceptance: manual plain-language self-review this turn against digital.gov/guides/plain-language/principles — result: UNMEASURED-with-reason: no acceptance command on record for this target
 plain_language_check: pass
