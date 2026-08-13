@@ -102,14 +102,17 @@ canonical: same gh api comments listing above, read this session.
 
 canonical: gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments, re-read this session after this record's own prior commit.
 
-amendments-reconciled: issuecomment-5276678013, issuecomment-5276678215 —
+amendments-reconciled: issuecomment-5276678013, issuecomment-5276678215,
+issuecomment-5276684665, issuecomment-5276684940, issuecomment-5276690378,
+issuecomment-5276690575 —
+these are three repeats of the same paired
 "Judgment opened: ... branch `issue-1199/implementation` (7 path(s)
 changed) entered delegated-judgment evaluation" / "Verdict: PR #? ->
-escalate (depth or impact axis did not clear)" is an external
-automated judgment-evaluation sweep over this branch's prior commit
-(7 paths at the time it ran), separate from this role-handoff
+escalate (depth or impact axis did not clear)" message, posted roughly
+every 30-40s by an external automated judgment-evaluation watcher
+re-scanning this branch's commits, separate from this role-handoff
 contract's own approval path (already satisfied by the exact-string
-APPROVE comment cited above). Its "escalate" verdict is a signal for
+APPROVE comment cited above). The verdict is a signal for
 human/orchestrator review, not an instruction changing this record's
 scope, write set, or verdict — this session's own build-now approval
 (exact-string APPROVE issue-1199/implementation comment, listed
