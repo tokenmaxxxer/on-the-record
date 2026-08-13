@@ -27,22 +27,42 @@ Proposal: docs/issue-1156/proposals/per-role-quality-bars.md
 
 ## Intent
 
-Give each of the 7 in-scope roles (ux-engineering, interaction-design,
-accessibility, api-design, performance-engineering, secure-coding,
-test-authoring) a decomposed, individually checkable `quality_bar`
-drawn from the standard each spec already cites in `source_standard`
+Scope is ALL 43 roles (issue body requirement 5, amended 2026-08-13:
+the operator's scope-amendment comment states the 7 are landing ORDER,
+not scope). Give the 7 landing-order-first roles (ux-engineering,
+interaction-design, accessibility, api-design,
+performance-engineering, secure-coding, test-authoring) a decomposed,
+individually checkable `quality_bar` drawn from the standard each spec
+already cites in `source_standard`
 (canonical: `docs/issue-1156/reports/requirements-engineering/current-state-survey.md`,
 "What exists today"), add a `bar-not-met` verdict/refusal state to each
 spec's `loop_state`, and design (proposal only — no landing this PR) a
 merge-blocking hooks-only gate that reads the owning role's own
 bar-met/bar-not-met record, refuses a self-graded pass, and bounds
-repeated rejection with an escalation path. Read basis:
+repeated rejection with an escalation path. For the remaining 36 roles,
+this phase-1 proposal names each role's bar domain and source standard
+(§7) so every one of the 43 ends with a declared bar per the amended
+requirement 5 — full per-criterion decomposition for those 36 is
+phase-wise, landing in later issues that reuse this proposal's
+decomposition principles (§0) rather than re-litigating them. Read
+basis:
 `docs/issue-1156/reports/requirements-engineering/current-state-survey.md`.
 
 ## Constraints stated so far
 
-- Scope is exactly the 7 roles the issue names — no blind extension to
-  the other 36 role domains this turn (issue body, requirement 5).
+- Scope is ALL 43 roles (issue body requirement 5, as amended
+  2026-08-13 — the pre-amendment "exactly the 7 roles" reading is
+  superseded). The 7 named roles are landing ORDER and full-detail
+  validation of the template; the other 36 get, at minimum, a named
+  bar domain and source standard in this phase-1 proposal (§7), with
+  full decomposition to follow phase-wise.
+- Bar level is top-of-industry for all 43, not passing-grade (issue
+  body requirement 6, amended): each criterion sits at the line a
+  top-tier practitioner in that domain would refuse below. Where a
+  domain's bar cannot be automated, the checkable form is a named
+  human-review checklist recorded in the spec, explicitly marked as
+  such — never a silently lowered bar. This is a decomposition
+  principle applying uniformly to all 43 roles, detailed in §0.
 - Every `quality_bar` entry's methodology traces to the role's already-
   cited `#1130` `source_standard` (and, for the 3 roles that already
   carry five-activity depth, its `judgment_methodology`/
@@ -72,6 +92,38 @@ repeated rejection with an escalation path. Read basis:
   approvers.md Approve.
 
 ## What will be done
+
+### 0. Decomposition principles (apply to all 43 roles)
+
+These principles govern every role's `quality_bar`, including the 36
+detailed only at domain level in §7 — they are what phase-wise
+decomposition for those 36 must follow, not new rules invented later:
+
+1. **Top-of-industry, not passing-grade** (requirement 6): each
+   criterion is set at the refuse-below line of a top-tier practitioner
+   in that domain, not a minimum-viable bar — e.g. not "has tests" but
+   coverage+mutation thresholds; not "documented" but a record a reader
+   can act on without the author (issue body requirement 6, verbatim
+   example).
+2. **Decompose the adjective**: no criterion may be the bare word
+   "high-quality"/"good"/"top-tier" — each is a named, individually
+   checkable sub-criterion with a `verification_method`, drawn from the
+   role's own already-cited `source_standard` (validity-consult finding
+   cited in the issue body).
+3. **Non-automatable → named human-review checklist, never a lowered
+   bar** (requirement 6): where a domain's bar criterion cannot be
+   automated (e.g. positioning quality, negotiation soundness, content
+   voice), the checkable form is a named checklist item requiring a
+   human verdict, recorded in the spec's `quality_bar` entry with
+   `verification_method: human-review-checklist` (or equivalent) and
+   the checklist question stated — the criterion is never dropped or
+   replaced with an easier automatable proxy.
+4. **No self-grading**: the producing role never grades its own
+   deliverable against its bar (§4 anti-circularity design applies
+   identically regardless of which of the 43 roles owns the bar).
+5. **Bounded rejection**: every role's `bar-not-met` verdict feeds the
+   same reject-cap + escalation mechanism (§5), not a per-role bespoke
+   loop.
 
 ### 1. Per-role `quality_bar` decomposition (7 specs)
 
@@ -231,10 +283,10 @@ Smells — canonical: `roles/specs/test-authoring.spec.json`
    sub-criterion). verification_method: `pytest`/equivalent run, exit
    code and SKIPPED-line count asserted.
 
-Out-of-scope roles are not silently skipped: any of the 43 role
-domains not named above is explicitly out of scope for this issue and
-carries no `quality_bar` field — a spec-schema test (see item 4 below)
-asserts this list is exhaustive against exactly the 7 named roles.
+The remaining 36 roles are not out of scope (amended requirement 5) —
+their bar domain and source standard are named in §7; full
+per-criterion decomposition to this same depth is phase-wise, tracked
+per role, not silently dropped.
 
 ### 2. `bar-not-met` verdict class
 
@@ -319,16 +371,144 @@ attention, per the issue body's requirement 4 and the existing
 ### 6. Spec-schema test extension
 
 Extend `gates/spec_schema_five_activities_test.py` (or a sibling test
-module) to assert: each of the 7 named specs carries a non-empty
-`quality_bar` array of `{criterion, verification_method}` entries and
-`bar-not-met` in its `loop_state.refusal`; every other spec is absent
-the field and is listed in `docs/specs/role-invariant-coverage.md` (or
-this proposal's own out-of-scope note) as out of scope, not silently
-skipped.
+module) to assert: each of the 7 landing-order-first specs carries a
+non-empty `quality_bar` array of `{criterion, verification_method}`
+entries and `bar-not-met` in its `loop_state.refusal`; every one of the
+other 36 specs is recorded in `docs/specs/role-invariant-coverage.md`
+(or this proposal's own §7) with at minimum a bar domain and source
+standard named — not silently skipped and not marked "out of scope",
+since amended requirement 5 puts all 43 in scope (sequencing only
+differs).
+
+### 7. Remaining 36 roles: bar domain + source standard (phase-wise decomposition)
+
+Per the amended requirement 5, every one of the other 36 role domains
+gets at minimum its bar domain and cited source standard here; full
+per-criterion decomposition to §1's depth follows phase-wise in later
+issues, applying the §0 principles unchanged (top-of-industry level;
+non-automatable criteria become named human-review checklists, never a
+lowered bar). Source standards below are each read from the role's own
+`source_standard` field this turn (canonical: `roles/specs/<role>.spec.json`).
+
+Tracking, so "phase-wise" cannot silently mean "never": phase 2 of
+this issue records all 36 in `docs/specs/role-invariant-coverage.md`
+with status `bar: domain-named, decomposition-pending` (not `bar-met`,
+not `out-of-scope`) — the same file item 4/§6 already uses to list
+scope. Until a role's own decomposition PR lands and its status flips
+to a real `quality_bar`, §0 principle 4 (no self-grading) does not yet
+have a `quality_bar`/`bar-not-met` field to attach to for that role,
+so the anti-circularity gate is not yet enforced for it either — this
+is the explicit, recorded gap for the 36, not a silent one, and
+`decomposition-pending` status is what the next phase-wise PR for each
+role is scoped against.
+
+1. **architecture** — bar domain: decision-record quality and
+   traceability. source: MADR (Markdown Any Decision Records),
+   `adr.github.io/madr`.
+2. **brand-design** — bar domain: design-token consistency and
+   cross-surface visual coherence. source: DTCG Design Tokens Format,
+   `designtokens.org/tr/2025.10/format`.
+3. **capacity-planning** — bar domain: forecast accuracy and headroom
+   discipline. source: ITIL Capacity Management practice.
+4. **conformance-review** — bar domain: machine-checkable conformance
+   evidence completeness. source: EARL 1.0 Schema (W3C).
+5. **content-design** — bar domain: microcopy clarity and usability.
+   source: GOV.UK Content Design / GDS style guide; judgment lens NN/g
+   10 Usability Heuristics.
+6. **customer-support** — bar domain: support-center service quality.
+   source: HDI Support Center Standard + CSAT.
+7. **data-engineering** — bar domain: pipeline data-quality and
+   contract stability. source: dbt model contracts; judgment lens
+   DAMA-DMBOK data-quality dimensions.
+8. **data-modeling** — bar domain: schema correctness and grain
+   discipline. source: Kimball dimensional-modeling conventions;
+   judgment lens Codd's normalization rules (1NF-3NF/BCNF).
+9. **defect-verification** — bar domain: reproducible incident-report
+   completeness. source: ISO/IEC/IEEE 29119-3 Incident Report (clause
+   7.12, Annex A.2.15) + Bugmon reproduction precedent.
+10. **devrel** — bar domain: developer-relations impact measurement.
+    source: Keystone DevRel metrics + DevRel-Qualified-Lead concept
+    (convergent practice, no single ratified standard — stated as
+    assumption per the spec's own scout-brief gap).
+11. **execution-observation** — bar domain: machine-checkable
+    execution-conformance evidence. source: EARL 1.0 Schema (W3C).
+12. **finance-unit-economics** — bar domain: unit-economics metric
+    correctness. source: SaaS unit-economics metric set (CAC, LTV,
+    LTV:CAC, CAC payback, Rule of 40) — de facto convention, no single
+    ratified standards body (stated as assumption per the spec's own
+    scout-brief gap).
+13. **growth-analytics** — bar domain: funnel-metric attribution
+    soundness. source: AARRR Pirate Metrics + North Star Metric
+    (original source not independently fetched — stated as assumption
+    per the spec's own scout-brief gap).
+14. **implementation** — bar domain: commit-message and change
+    traceability. source: Conventional Commits v1.0.0.
+15. **incident-response** — bar domain: postmortem completeness and
+    blamelessness. source: SRE Postmortem Template (Google SRE book).
+16. **issue-retrospective** — bar domain: retrospective format
+    completeness and blamelessness. source: Blameless retrospective
+    format (SRE lineage).
+17. **knowledge-management** — bar domain: tacit-knowledge capture
+    completeness. source: KCS (Knowledge-Centered Service) Solve loop;
+    judgment lens SECI model.
+18. **legal-compliance** — bar domain: privacy-impact assessment
+    completeness. source: GDPR Article 35(7) DPIA.
+19. **localization** — bar domain: translation quality and locale-data
+    correctness. source: Unicode CLDR / UTS #35 (LDML); judgment lens
+    MQM error typology.
+20. **market-analysis** — bar domain: competitive-analysis rigor.
+    source: Porter's Five Forces (HBR).
+21. **marketing** — bar domain: positioning clarity and
+    differentiation. source: April Dunford's positioning framework.
+22. **ml-engineering** — bar domain: model documentation and
+    build/no-build judgment soundness. source: Model Cards (Mitchell et
+    al. 2019); judgment lens Google's Rules of ML.
+23. **observability** — bar domain: instrumentation completeness across
+    the three pillars. source: OpenTelemetry semantic conventions;
+    judgment lens three-pillars framing (logs/metrics/traces).
+24. **partnerships-bd** — bar domain: collaborative-relationship
+    management discipline. source: ISO 44001:2017.
+25. **pr-communications** — bar domain: PR-description and evaluation
+    rigor. source: AMEC Integrated Evaluation Framework (Barcelona
+    Principles); judgment lens Google eng-practices reviewer standard.
+26. **pricing** — bar domain: price-sensitivity research validity.
+    source: Van Westendorp Price Sensitivity Meter.
+27. **product-discovery** — bar domain: opportunity-assessment rigor
+    and pre-registered decision rules. source: Cagan/SVPG Opportunity
+    Assessment + lean-startup pre-registered decision rules.
+28. **refactoring-legacy** — bar domain: refactor justification against
+    a named code smell, not stylistic preference. source: Fowler's
+    Refactoring Catalog; judgment lens Fowler's code-smell catalog.
+29. **release-engineering** — bar domain: changelog completeness and
+    format. source: Keep a Changelog.
+30. **risk-management** — bar domain: supply-chain risk assessment
+    completeness. source: NIST SP 800-161r1 (C-SCRM) (NIST IR 8286
+    lineage cited by secondary sources only — stated as assumption per
+    the spec's own scout-brief gap).
+31. **sales** — bar domain: qualification-criteria completeness.
+    source: MEDDPICC.
+32. **security-threat-model** — bar domain: threat-model schema
+    completeness. source: STRIDE / OWASP Threat Dragon model schema.
+33. **technical-feasibility** — bar domain: spike-record completeness
+    and decision traceability. source: ADR-style spike record.
+34. **technical-writing** — bar domain: documentation-type correctness
+    (tutorial/how-to/reference/explanation). source: Diataxis.
+35. **user-discovery** — bar domain: interview-saturation and
+    signal-vs-noise discipline. source: Teresa Torres interview
+    snapshots + Guest/Bunce/Johnson 2006 and Hennink/Kaiser/Weber 2020
+    saturation run-length; judgment lens The Mom Test's three
+    failure-mode filter.
+36. **requirements-engineering** — bar domain: requirement
+    verifiability and bidirectional traceability (this role's own
+    domain, subject to the same bar it enforces on others). source:
+    EARS (Mavin et al., IEEE RE'09) + ISO/IEC/IEEE 29148 bidirectional
+    traceability.
 
 ## What is out of scope
 
-- Any role domain outside the 7 named in the issue body.
+- Full per-criterion decomposition (§1-depth) of the 36 roles named in
+  §7 this PR — phase-1 names their domain and source standard only;
+  the criteria themselves land phase-wise in later issues/PRs.
 - Actually wiring the hook/gate/spec edits — phase 1 is proposal-only;
   phase 2 lands them after Approve.
 - Redesigning the existing `accessibility-guard.sh`/
