@@ -2,6 +2,7 @@
 allowed-tools: Bash(python3:*)
 description: 역할 하나에게 판단만 묻는다 — 브랜치도 커밋도 PR 도 없이, 트레이스만 남긴다
 argument-hint: "<역할> \"<질문>\" [--issue <n>] — 예: coding \"이 스키마 변경이 breaking 인가\" --issue 42"
+design-rationale: 판단 지점마다 스폰 전체 파이프라인(브랜치→커밋→PR)을 여는 비용을 치르면 세션이 스스로 판단을 내려버리는 유인이 생긴다 — consult 는 룰북 로딩만 재사용하고 배달 기계장치는 전부 건너뛰어 그 비용을 없앤다. 이슈 #1202 로 ideate/draft/review 를 같은 트랜스포트 위 형제 verb 로 얹은 이유: 판단(consult) 뿐 아니라 발산/초안/검토도 똑같이 "저장소를 안 바꾸는 도움"이라 같은 무브랜치/무커밋/무PR 계약과 같은 트레이스 파일을 그대로 쓰는 편이, 사본 코드경로를 새로 만들어 드리프트를 내는 것보다 낫다.
 ---
 
 인자: $ARGUMENTS

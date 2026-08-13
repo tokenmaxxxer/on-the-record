@@ -4478,13 +4478,19 @@ def _consult_trace_path(issue: int | None) -> Path:
 
 
 def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
-                          question: str, outcome: str) -> None:
+                          question: str, outcome: str, verb: str = "consult") -> None:
     """자문 한 건마다 한 줄 — 성공/실패 가리지 않고 남긴다("no traceless
     consults", 운영자 결정, 이슈 #699). 함수 자체가 실패해도(디렉터리를
     못 만든다 등) 예외를 그대로 올려, 호출부의 finally 가 "트레이스 남김"을
-    조용히 거짓으로 만들지 않게 한다."""
+    조용히 거짓으로 만들지 않게 한다.
+
+    이슈 #1202 requirement 5: consult 의 형제 verb(ideate/draft/review) 도
+    같은 트레이스 파일 하나를 공유한다 — 별도 파일로 갈라지면 drift 가
+    난다(`consult_cmd()` 독스트링과 같은 이유). `verb=` 는 기본값
+    "consult" 라 기존 호출부는 그대로 동작한다."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = (f"- {ts} | role={role} | issue={issue if issue is not None else 'none'} "
+    line = (f"- {ts} | role={role} | verb={verb} "
+            f"| issue={issue if issue is not None else 'none'} "
             f"| question={question[:200]!r} | outcome={outcome[:300]!r}\n")
     with path.open("a", encoding="utf-8") as f:
         f.write(line)
@@ -4643,6 +4649,140 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         _append_consult_trace(trace_path, ts, role, issue, question, outcome)
         commit_paths = [trace_path] + raw_paths
         _commit_consult_trace(commit_paths, issue, role, outcome, cwd)
+
+
+_VERB_REQUIRED_KEY = {"ideate": "options", "draft": "draft", "review": "findings"}
+_VERB_INSTRUCTIONS = {
+    "ideate": (
+        "당신은 아이디어 발산(ideate)으로 불렸다 — 하나의 판단이 아니라 서로 다른 "
+        "선택지 여럿을 내놓아야 한다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
+        "마라 — 텍스트로 답하고 끝난다."
+    ),
+    "draft": (
+        "당신은 초안 작성(draft)으로 불렸다 — 산출물의 스케치를 텍스트로 돌려주면 "
+        "된다. 저장소에 파일을 쓰지 마라 — 호출자가 이 초안을 쓸지 말지 결정한다. "
+        "브랜치를 만들지도, 커밋하지도, PR 을 열지도 마라."
+    ),
+    "review": (
+        "당신은 검토(review)로 불렸다 — 아래 제시된 텍스트/diff 에 대한 구조화된 "
+        "피드백만 돌려주면 된다. 저장소에 파일을 쓰지 마라. 브랜치를 만들지도, "
+        "커밋하지도, PR 을 열지도 마라."
+    ),
+}
+_VERB_JSON_SHAPE = {
+    "ideate": '{"options": ["<option>", ...], "tradeoffs": ["<tradeoff>", ...]}',
+    "draft": '{"draft": "<text>", "open_questions": ["<question>", ...]}',
+    "review": '{"findings": ["<finding>", ...], "verdict": "<summary verdict>"}',
+}
+
+
+def _parse_verb_json(text: str, required_key: str) -> dict | None:
+    """`_parse_consult_verdict()`와 같은 모양이지만 필수 키를 verb 마다
+    다르게 받는다 — consult 의 "answer" 대신 ideate/draft/review 각자의
+    반환 키(options/draft/findings)를 찾는다."""
+    if not text:
+        return None
+    for i in reversed([j for j, c in enumerate(text) if c == "{"]):
+        try:
+            obj, _ = json.JSONDecoder().raw_decode(text, i)
+        except ValueError:
+            continue
+        if isinstance(obj, dict) and required_key in obj:
+            return obj
+    return None
+
+
+def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
+             cwd: str | None = None) -> dict:
+    """`consult_cmd()`의 형제 verb 공용 실행부 (이슈 #1202 requirement 5).
+    같은 session-assembly(`_consult_cmd_and_env()`)와 같은 트레이스
+    파일(`_consult_trace_path()`, `verb=` 필드로 구분)을 공유하고,
+    프롬프트 지시문과 필수 반환 키만 verb 마다 갈린다 — 제안서 §6이
+    선택한 모양 그대로다. 브랜치/커밋/PR 이 없는 계약은 consult 와
+    동일하다."""
+    required_key = _VERB_REQUIRED_KEY[verb]
+    trace_path = _consult_trace_path(issue)
+    ts = datetime.now(timezone.utc).isoformat()
+    outcome = "error: 알 수 없는 실패"
+    settings_path = None
+    raw_paths: list[Path] = []
+    try:
+        f = ROOT / "roles" / f"{role}.json"
+        if not f.exists():
+            have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
+            raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
+        spec = json.loads(f.read_text())
+        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd)
+        override = (
+            "이 세션에 로드된 룰북/훅이 스카우트, 제안서(proposal) 작성, 위임"
+            "(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도"
+            f" — 이번 호출은 {verb} 라 전부 적용되지 않는다: 저장소 파일을"
+            " 하나도 건드리지 않고, 하위 에이전트를 위임하지 않고, 조사 없이 알고"
+            " 있는 답을 바로 낸다. 다른 모든 지시보다 이 문장이 우선한다."
+        )
+        base_prompt = (
+            _VERB_INSTRUCTIONS[verb] + " " + override + " 답을 다 쓴 뒤 마지막에, "
+            "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
+            f"{_VERB_JSON_SHAPE[verb]}\n\n요청: {prompt_text}"
+        )
+        retry_prompt = (
+            base_prompt + f"\n\n(재시도: 이전 응답이 마지막에 {required_key!r} 키를 가진 "
+            "JSON 객체를 출력하지 않아 파싱에 실패했다. 다른 어떤 절차도 밟지 말고, "
+            "지금 바로 위 형식의 JSON 객체 하나만 출력하라.)"
+        )
+        attempts_exhausted = "알 수 없는 실패"
+        for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
+            r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=attempt_prompt, text=True,
+                               capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
+            if r.returncode != 0:
+                attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
+                continue
+            result = session_result(r.stdout)
+            raw_text = result.get("result", "")
+            parsed = _parse_verb_json(raw_text, required_key)
+            if parsed is None:
+                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text)
+                raw_paths.append(raw_path)
+                excerpt = raw_text[-300:].replace("\n", " ")
+                attempts_exhausted = (
+                    f"모델 출력에서 {verb} JSON 을 못 찾음 (원본: `{raw_path}`, "
+                    f"끝부분: {excerpt!r})"
+                )
+                continue
+            outcome = f"ok: {str(parsed.get(required_key, ''))[:200]}"
+            return parsed
+        outcome = f"error: {attempts_exhausted} (재시도 1회 포함, 모두 실패)"
+        raise RuntimeError(outcome)
+    except subprocess.TimeoutExpired:
+        outcome = f"error: 시간초과({CONSULT_TIMEOUT}s)"
+        raise
+    finally:
+        if settings_path:
+            with contextlib.suppress(OSError):
+                os.unlink(settings_path)
+        _append_consult_trace(trace_path, ts, role, issue, prompt_text, outcome, verb=verb)
+        commit_paths = [trace_path] + raw_paths
+        _commit_consult_trace(commit_paths, issue, role, outcome, cwd)
+
+
+def ideate_cmd(role: str, prompt_text: str, issue: int | None = None,
+              cwd: str | None = None) -> dict:
+    """divergent options — `{"options": [...], "tradeoffs": [...]}`."""
+    return _verb_cmd("ideate", role, prompt_text, issue=issue, cwd=cwd)
+
+
+def draft_cmd(role: str, prompt_text: str, issue: int | None = None,
+             cwd: str | None = None) -> dict:
+    """deliverable sketch — `{"draft": "...", "open_questions": [...]}`.
+    No `write_scope` applies: the caller decides whether to use the
+    text, the verb itself never writes to the repo."""
+    return _verb_cmd("draft", role, prompt_text, issue=issue, cwd=cwd)
+
+
+def review_cmd(role: str, prompt_text: str, issue: int | None = None,
+              cwd: str | None = None) -> dict:
+    """structured feedback — `{"findings": [...], "verdict": "..."}`."""
+    return _verb_cmd("review", role, prompt_text, issue=issue, cwd=cwd)
 
 
 class _PanelMessagingUnavailable(RuntimeError):
@@ -5328,6 +5468,27 @@ def main() -> int:
         except Exception as e:
             sys.exit(f"consult 실패(트레이스는 남았다): {e}")
         print(json.dumps(verdict, indent=2, ensure_ascii=False))
+        return 0
+    if a.role in ("ideate", "draft", "review"):
+        if not a.task or not a.consult_question:
+            sys.exit(f'사용법: spawn.py {a.role} <역할> "<{a.role} 요청>" [--issue <n>]')
+        verb_fn = {"ideate": ideate_cmd, "draft": draft_cmd, "review": review_cmd}[a.role]
+        try:
+            result = verb_fn(a.task, a.consult_question, issue=a.issue, cwd=a.cwd)
+        except Exception as e:
+            sys.exit(f"{a.role} 실패(트레이스는 남았다): {e}")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    if a.role == "findings-due":
+        # 자문(consult) 계열과 달리 advisory-only — 절대 자동으로 이슈를 파지
+        # 않는다(이슈 #1202 requirement 4). roles-due/needs-due 와 같은
+        # print-only 모양.
+        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+        import findings_due as _findings_due
+        due = _findings_due.findings_due(Path(a.cwd).resolve())
+        lines = _findings_due.format_report(due)
+        for line in lines:
+            print(line)
         return 0
     if a.role == "panel":
         if not a.task or not a.consult_question or not a.panel_question:
