@@ -125,6 +125,14 @@ issue-retrospective all hit the same race). Commit
 origin/issue-1199/growth-analytics on the rulebook repo for
 on-the-record's outside relay to open the rulebook-repo PR.
 
+A 5th comment (issuecomment-5277576564 — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate`, read
+this session) then raced the on-the-record-repo `gh pr create` attempt
+itself. Per the same precedent, retries are stopped here too; commit
+d5d6136 (and this amendment) is pushed to
+origin/issue-1199/growth-analytics on the on-the-record repo for
+outside relay to open this repo's PR as well.
+
 amendments-reconciled: issuecomment-5277558036 ("Judgment opened: PR #?
 — candidate decision on branch `issue-1199/defect-verification` (1
 path(s) changed) entered delegated-judgment evaluation.") is a
