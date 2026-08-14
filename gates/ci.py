@@ -104,7 +104,7 @@ def _pr_commit_messages(repo: Path, pr: int) -> list[str] | None:
     if not slug:
         return None
     r = subprocess.run(["gh", "api", f"repos/{slug}/pulls/{pr}/commits",
-                        "--paginate", "--slurp"],
+                        "-f", "per_page=100", "--paginate", "--slurp"],
                        cwd=repo, capture_output=True, text=True)
     if r.returncode != 0:
         return None

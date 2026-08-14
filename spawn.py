@@ -1279,17 +1279,62 @@ def _print_returned_pr_surfaced(blockers: list[dict], source: str) -> None:
                   "issues": [b["issue"] for b in blockers], "ts": int(time.time())})
 
 
+def _etag_cache_path(root: Path, number: int) -> Path:
+    """이슈 #1459: `number` 스레드의 ETag 조건부-재조회 캐시 위치.
+    `.git/` 아래(레포별, 워크트리 공유)에 둔다 — 커밋되지 않고, 레포
+    삭제/재클론 시 자연히 사라진다."""
+    return root / ".git" / "gh-read-cache" / f"issue-{number}-comments.json"
+
+
+def _issue_comments_uncached(root: Path, slug: str, number: int
+                              ) -> tuple[list[dict] | None, int]:
+    """무조건(non-conditional) 전체 재조회 — fail-open 폴백 경로.
+    `per_page=100`(이슈 #1459 요구사항 1)로 페이지 수를 ~3.3배 줄인다.
+    반환: (평탄화된 원본 코멘트 리스트 또는 실패시 None, 소모한 호출 수)."""
+    r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{number}/comments",
+                        "-f", "per_page=100", "--paginate", "--slurp"],
+                       cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, 1
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None, 1
+    return [c for page in data for c in page], max(len(data), 1)
+
+
+def _issue_comments_more_pages(root: Path, slug: str, number: int) -> list[dict] | None:
+    """이슈 #1459: 1페이지 조건부 조회가 200 이고 더 있는 것으로 표시될 때
+    2페이지부터 무조건(non-conditional) `--paginate --slurp`로 나머지를
+    읽는다 — 1페이지는 이미 읽었으니 중복 없이 이어붙인다."""
+    r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{number}/comments",
+                        "-f", "per_page=100", "-f", "page=2",
+                        "--paginate", "--slurp"],
+                       cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None
+    return [c for page in data for c in page]
+
+
 def _issue_comments(root: Path, number: int) -> tuple[list[dict], bool]:
     """`number` 앞으로 달린 코멘트. GitHub 는 이슈든 PR 이든 같은
     `/issues/<n>/comments` 로 대화 코멘트를 낸다 — PR 리뷰 코멘트가 아니라
     일반 코멘트가 필요하므로 이 엔드포인트로 충분하다.
 
-    `--paginate`만 쓰면 페이지마다 별도 JSON 배열을 순차 출력해 다중
-    페이지 응답이 유효한 단일 JSON이 아니게 된다(`json.loads`가
-    `ValueError`로 죽고 아래 except 가 "코멘트 없음"으로 삼킨다) — 30개
-    넘는 스레드에서 결함이 악화되는 걸 막으려고 `--slurp`(페이지들을
-    바깥 배열 하나로 감싼다)를 같이 쓰고, 파싱 직후 평탄화한다(이슈
-    #224).
+    이슈 #1459: 첫 페이지(`per_page=100`)를 캐시된 ETag 와 함께
+    `If-None-Match` 조건부로 조회한다. GitHub 컬렉션 엔드포인트의 ETag는
+    그 쿼리가 반환할 전체 결과 집합을 반영하므로(스레드 어디에 코멘트가
+    추가되든 1페이지 ETag가 바뀐다), 1페이지 304 는 "스레드 전체가
+    안 변했다"는 신호로 쓸 수 있다 — 그러면 캐시된 전체 본문을 그대로
+    돌려주고, 이 재조회는 rate-limit 소모 호출로 세지 않는다(304 는
+    카운트되지 않는다는 GitHub 정의 그대로). 200 이면 그 페이지부터
+    나머지 페이지를 마저 무조건 읽어 캐시를 갱신한다. 캐시 파일이
+    없거나/손상됐거나/쓰기가 실패하면 무조건 전체 재조회로 폴백한다
+    (fail-open — 캐시 없이도 항상 정답을 돌려준다는 게 우선이다).
 
     `(comments, ok)` 를 돌려준다(issue #287 S6) — `ok=False` 는 `gh` 호출
     자체가 실패했다는 뜻이고, 그때 `comments` 는 빈 리스트지만 "코멘트가
@@ -1299,18 +1344,97 @@ def _issue_comments(root: Path, number: int) -> tuple[list[dict], bool]:
     slug = _repo_slug(root)
     if not slug:
         return [], False
-    r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{number}/comments",
-                        "--paginate", "--slurp"],
-                       cwd=root, capture_output=True, text=True)
-    if r.returncode != 0:
-        return [], False
+
+    cache_path = _etag_cache_path(root, number)
+    etag = None
+    cached_raw = None
     try:
-        data = json.loads(r.stdout)
-    except ValueError:
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            etag = cached.get("etag")
+            cached_raw = cached.get("raw")
+            if not isinstance(etag, str) or not isinstance(cached_raw, list):
+                etag, cached_raw = None, None
+    except (OSError, ValueError, UnicodeDecodeError):
+        etag, cached_raw = None, None
+
+    # 1페이지를 항상 -i(헤더 포함)로 조회한다 — 캐시된 ETag 가 있으면
+    # `If-None-Match` 를 실어 조건부로, 없으면(첫 조회거나 캐시가 깨졌을
+    # 때) 조건 없이 그대로 보내 이번 응답의 ETag 를 다음 호출을 위해
+    # 캐시에 심는다. 프로브 자체가 실패/파싱불가하면 무조건 전체
+    # 재조회로 폴백한다(fail-open).
+    cmd = ["gh", "api", f"repos/{slug}/issues/{number}/comments",
+           "-f", "per_page=100", "-i"]
+    if etag:
+        cmd = cmd + ["-H", f"If-None-Match: {etag}"]
+    r = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+    if r.returncode == 0:
+        status, headers, body = _split_gh_api_i_output(r.stdout)
+        if status == 304 and cached_raw is not None:
+            return [{"login": c.get("user", {}).get("login", ""),
+                      "body": c.get("body", "")} for c in cached_raw], True
+        if status == 200:
+            try:
+                page1 = json.loads(body)
+            except ValueError:
+                page1 = None
+            if isinstance(page1, list):
+                raw = page1
+                if len(page1) == 100 and "rel=\"next\"" in headers.get("link", ""):
+                    more = _issue_comments_more_pages(root, slug, number)
+                    if more is not None:
+                        raw = page1 + more
+                new_etag = headers.get("etag")
+                _write_etag_cache(cache_path, new_etag, raw)
+                return [{"login": c.get("user", {}).get("login", ""),
+                          "body": c.get("body", "")} for c in raw], True
+
+    raw, _n = _issue_comments_uncached(root, slug, number)
+    if raw is None:
         return [], False
-    data = [c for page in data for c in page]
     return [{"login": c.get("user", {}).get("login", ""), "body": c.get("body", "")}
-            for c in data], True
+            for c in raw], True
+
+
+def _split_gh_api_i_output(stdout: str) -> tuple[int | None, dict[str, str], str]:
+    """`gh api -i` 출력(상태줄 + 헤더 + 빈줄 + 바디)을 파싱한다.
+    이슈 #1459: ETag 조건부 재조회의 상태 코드/`Etag` 헤더를 읽는 데 쓴다."""
+    if "\r\n\r\n" in stdout:
+        head, body = stdout.split("\r\n\r\n", 1)
+        sep = "\r\n"
+    elif "\n\n" in stdout:
+        head, body = stdout.split("\n\n", 1)
+        sep = "\n"
+    else:
+        return None, {}, stdout
+    lines = head.split(sep)
+    status = None
+    if lines:
+        parts = lines[0].split()
+        for p in parts:
+            if p.isdigit():
+                status = int(p)
+                break
+    headers: dict[str, str] = {}
+    for line in lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+    return status, headers, body
+
+
+def _write_etag_cache(cache_path: Path, etag: str | None, raw_comments: list[dict]) -> None:
+    """이슈 #1459: 새 ETag(있으면) 와 원본 코멘트 목록을 캐시에 쓴다.
+    쓰기 실패는 다음 호출을 무조건 재조회로 되돌릴 뿐이므로 조용히
+    무시한다(fail-open)."""
+    if not etag:
+        return
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(json.dumps({"etag": etag, "raw": raw_comments}),
+                               encoding="utf-8")
+    except OSError:
+        pass
 
 
 _UPSTREAM_PATH = re.compile(r"^\s*-\s*path:\s*(\S+)", re.M)
