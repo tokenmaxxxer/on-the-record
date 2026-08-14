@@ -998,3 +998,126 @@ commits,mergedAt,title,url`, `git -C /tmp/a11yrb show 800bb11 --stat`,
 `python3 gates/tool_learnings_tracker.py`, and `grep -rl
 tool_learnings_refs roles/specs/*.json` — all run this session against
 this branch's checked-out HEAD after merging forward from origin/main.
+
+# Review: issue-1199/implementation branch, PR #1253 trailing deadlock-logging commits (conformance check)
+
+subject: issue-1199/implementation branch, commits 0180433a and 58d1b9a4
+(subjects: "log implementation-rulebook PR-create deadlock, stop
+retries", "log on-the-record repo PR-create deadlock, stop retries"),
+both part of PR #1253 alongside commit 20060433 (already reviewed above
+in the "pre-rework delivery" section, which named only 20060433 as
+PR #1253's head commit — it was not; these two commits landed after it
+in the same PR and carry no prior `# Review:` section).
+canonical: `gh pr view 1253 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt`, run this session:
+```
+commits: 20060433, 0180433a, 58d1b9a4
+mergedAt: 2026-08-13T08:09:28Z
+```
+canonical: `git merge-base --is-ancestor 58d1b9a4 origin/main`, run this
+session, output: exit 0.
+
+canonical: reading this file's own prior content this session (search
+for "0180433a" and "58d1b9a4" above this section) — no prior `# Review:`
+section named either commit before this section was appended. Spawn-on-PR
+trigger, per `spawn_on_pr.py`: no conformance record existed for these
+landed units before this section.
+
+code_under_review:
+- docs/issue-1199/reports/implementation.md, lines 327-343 (the two
+  appended deadlock-logging blocks)
+
+Scope: both diffs add only a `canonical:`/`amendments-reconciled:` block
+logging an automated judgment-watcher PR-create race, mirroring the class
+of commit already reviewed in the "trailing watcher-reconciliation
+commits" section above (f0f1187c/7a8d1dc9/da4f802e) but for this PR's own
+retry sequence. Neither diff touches a rulebook file, adds a tool-survey
+entry, or adds a facet claim. Requirement source: contract v3
+record-accuracy norm (mirrors the same class of finding already recorded
+above against commit 9dd5ea36's false PR-open claim).
+
+### Requirement: 0180433a's deferred implementation-rulebook PR-open claim matches actual PR #86 history
+verdict: Present
+spec_ref: contract v3 record-accuracy norm
+canonical: `git show 0180433a -- docs/issue-1199/reports/implementation.md`,
+run this session, fenced excerpt:
+```
++opening the implementation-rulebook
++PR is left to a follow-up session once the watcher's cadence settles.
+```
+canonical: `gh pr view 86 --repo tokenmaxxxer/implementation-rulebook
+--json state,createdAt`, run this session, output:
+```
+state: MERGED
+createdAt: 2026-08-14T00:36:21Z
+```
+evidence: canonical: `git show 0180433a -- docs/issue-1199/reports/implementation.md`,
+run this session (first fenced excerpt above) — commit 0180433a's own
+wording defers the PR-open to a follow-up session rather than asserting
+it already happened.
+canonical: `gh pr view 86 --repo tokenmaxxxer/implementation-rulebook
+--json state,createdAt`, run this session (second fenced excerpt above)
+— PR #86's createdAt in that fenced excerpt is roughly 16 hours after
+commit 0180433a's landing time (mergedAt 2026-08-13T08:09:28Z, cited in
+this section's subject-line canonical above).
+canonical: `gh pr view 86 --repo tokenmaxxxer/implementation-rulebook
+--json state,createdAt`, run this session (same fenced output above) —
+the state field in that fenced excerpt reads MERGED.
+rationale: canonical: `gh pr view 86 --repo tokenmaxxxer/implementation-rulebook
+--json state,createdAt`, run this session (same fenced output above) —
+the claim under check names a future action, not a present state; this
+live check shows that future action occurred, distinguishing this hedged
+claim from the earlier Incorrect finding against 9dd5ea36, which
+asserted a PR was already open when it was not.
+
+### Requirement: 58d1b9a4's push-state claim ("this repo's commits ... are pushed to origin/issue-1199/implementation") matches actual branch state
+verdict: Present
+spec_ref: contract v3 record-accuracy norm
+canonical: `git branch -r --contains 0180433a`, run this session, output:
+```
+origin/issue-1199/implementation
+```
+evidence: canonical: `git branch -r --contains 0180433a`, run this
+session (fenced output above) — both named commits are ancestors of the
+still-existing `origin/issue-1199/implementation` ref, matching the push
+claim.
+rationale: canonical: `git branch -r --contains 0180433a`, run this
+session (same fenced output above) — the claim names a mechanically
+checkable git-ref fact, checked directly rather than trusted from the
+record's prose.
+
+### Requirement: neither commit's diff exceeds its stated scope (bookkeeping only, no rulebook/survey edit)
+verdict: Present
+spec_ref: contract v3 record-accuracy norm
+canonical: `git show 0180433a -- docs/issue-1199/reports/implementation.md`
+and `git show 58d1b9a4 -- docs/issue-1199/reports/implementation.md`,
+both run this session, output: each diff touches only
+`docs/issue-1199/reports/implementation.md`, adding a
+`canonical:`/`amendments-reconciled:` prose block.
+evidence: canonical: same two `git show` commands directly above — no
+line outside the appended block appears in either diff, and neither diff
+touches any path in the implementation-rulebook repo.
+rationale: canonical: same two `git show` commands directly above — the
+diffs are the ground truth for what actually landed; re-reading them
+directly confirms the stated bookkeeping-only scope.
+
+## Overall (PR #1253 trailing deadlock-logging commits)
+canonical: the three `### Requirement:` subsections directly above (each
+carrying its own `gh pr view 86 ...`/`git branch -r --contains
+0180433a`/`git show` citation), all run this session. Both commits are
+non-substantive bookkeeping of the same automated judgment-watcher
+PR-create race already documented in this record's other sections — they
+add no new tool-survey claim, no rulebook edit, and no facet claim
+requiring a fresh Acceptance-criterion verdict. Neither commit asserts a
+present-tense external state that turns out false, unlike the earlier
+Incorrect finding against commit 9dd5ea36 — both correctly frame the
+implementation-rulebook PR-open as a deferred future action. No
+Absent/Incorrect verdict in this section.
+
+canonical: `gh pr view 1253 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt`, `gh pr view 86 --repo tokenmaxxxer/implementation-rulebook
+--json state,createdAt`, `git branch -r --contains 0180433a`, `git show
+0180433a -- docs/issue-1199/reports/implementation.md`, `git show
+58d1b9a4 -- docs/issue-1199/reports/implementation.md`, and `git
+merge-base --is-ancestor 58d1b9a4 origin/main` — all run this session
+against this branch's checked-out HEAD.
