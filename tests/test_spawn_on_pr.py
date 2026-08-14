@@ -63,7 +63,8 @@ def test_spawn_missing_for_pr_dry_run_returns_pairs_no_side_effects(fixture_repo
     monkeypatch.setattr(spawn_on_pr.spawn, "_spawn_one",
                          lambda *a, **k: spawned.append((a, k)))
 
-    pairs = spawn_on_pr.spawn_missing_for_pr(fixture_repo, str(fixture_repo), dry_run=True)
+    pairs = spawn_on_pr.spawn_missing_for_pr(
+        fixture_repo, str(fixture_repo), dry_run=True, issue_states={9001: "OPEN"})
 
     assert pairs == [
         ("issue-9001", "execution-observation"),
@@ -85,7 +86,8 @@ def test_spawn_missing_for_pr_live_registers_and_spawns(fixture_repo, monkeypatc
     monkeypatch.setattr(spawn_on_pr.spawn, "_spawn_one",
                          lambda *a, **k: spawned.append((a, k)))
 
-    pairs = spawn_on_pr.spawn_missing_for_pr(fixture_repo, str(fixture_repo), dry_run=False)
+    pairs = spawn_on_pr.spawn_missing_for_pr(
+        fixture_repo, str(fixture_repo), dry_run=False, issue_states={9001: "OPEN"})
 
     assert pairs == [
         ("issue-9001", "execution-observation"),
@@ -101,4 +103,93 @@ def test_missing_verification_skips_subjects_without_pr(fixture_repo, monkeypatc
         spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
         lambda root, branch: None)
 
-    assert spawn_on_pr.missing_verification(fixture_repo) == {}
+    assert spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "OPEN"}) == {}
+
+
+def test_missing_verification_skips_closed_issue(fixture_repo, monkeypatch):
+    """issue #1360 acceptance (a): closed-issue subject with a merged PR and
+    no verification record yields zero spawn pairs."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+
+    assert spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "CLOSED"}) == {}
+
+
+def test_missing_verification_open_issue_still_yields_pairs(fixture_repo, monkeypatch):
+    """issue #1360 acceptance (b)."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+
+    assert spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "OPEN"}) == {
+        "issue-9001": ["execution-observation", "conformance-review"],
+    }
+
+
+def test_missing_verification_unknown_issue_state_excluded(fixture_repo, monkeypatch):
+    """No issue_states available (gh failure) -> fail-closed, no spawn."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+
+    assert spawn_on_pr.missing_verification(fixture_repo, issue_states=None) == {}
+
+
+def test_spawn_missing_for_pr_caps_per_tick_and_defers_rest(fixture_repo, monkeypatch, capsys):
+    """issue #1360 acceptance (c): more eligible pairs than the cap ->
+    exactly `spawn_cap` pairs spawn, and one deferral line is printed."""
+    docs2 = fixture_repo / "docs" / "issue-9002" / "reports"
+    docs2.mkdir(parents=True)
+    (docs2 / "implementation.md").write_text("---\nloop_state: landed\n---\nbody\n")
+    subprocess.run(["git", "add", "."], cwd=fixture_repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "second subject"], cwd=fixture_repo, check=True)
+
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch.startswith("issue-900") else None)
+
+    registered = []
+    spawned = []
+    monkeypatch.setattr(spawn_on_pr.spawn, "roster_register",
+                         lambda key, entry: registered.append((key, entry)))
+    monkeypatch.setattr(spawn_on_pr.spawn, "_spawn_one",
+                         lambda *a, **k: spawned.append((a, k)))
+
+    pairs = spawn_on_pr.spawn_missing_for_pr(
+        fixture_repo, str(fixture_repo), dry_run=False,
+        issue_states={9001: "OPEN", 9002: "OPEN"}, spawn_cap=3)
+
+    assert len(pairs) == 3
+    assert len(spawned) == 3
+    out = capsys.readouterr().out
+    deferral_lines = [line for line in out.splitlines() if "미룸" in line]
+    assert len(deferral_lines) == 1
+    assert "1건" in deferral_lines[0]
+
+
+def test_backfill_closed_dry_run_lists_without_spawning(fixture_repo, monkeypatch):
+    """issue #1360 acceptance (d): opt-in backfill lists closed-issue pairs
+    in dry-run without spawning."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+    monkeypatch.setattr(
+        spawn_on_pr.closure_sweep, "issue_state_index_all",
+        lambda root: ({9001: "CLOSED"}, True))
+
+    registered = []
+    spawned = []
+    monkeypatch.setattr(spawn_on_pr.spawn, "roster_register",
+                         lambda key, entry: registered.append((key, entry)))
+    monkeypatch.setattr(spawn_on_pr.spawn, "_spawn_one",
+                         lambda *a, **k: spawned.append((a, k)))
+
+    pairs = spawn_on_pr.backfill_closed(fixture_repo, str(fixture_repo))
+
+    assert pairs == [
+        ("issue-9001", "execution-observation"),
+        ("issue-9001", "conformance-review"),
+    ]
+    assert registered == []
+    assert spawned == []
