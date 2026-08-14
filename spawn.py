@@ -2704,7 +2704,15 @@ def _board_wide_sweep(root: Path) -> int:
     sys.path.insert(0, str(ROOT / "gates"))
     import closure_sweep
     import spawn_coverage
+    import spawn_on_pr
     count = 0
+    try:
+        spawned = spawn_on_pr.spawn_missing_for_pr(root, str(root))
+        if spawned:
+            print(f"[watchdog] spawn-on-pr: {len(spawned)}건 스폰: {spawned}")
+    except Exception as ex:
+        count += 1
+        print(f"[watchdog] spawn-on-pr 실패: {ex}", file=sys.stderr)
     issue_states, _ = closure_sweep.issue_state_index_all(root)
     violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
     if violations:
