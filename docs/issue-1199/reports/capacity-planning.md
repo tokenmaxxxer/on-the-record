@@ -352,6 +352,16 @@ creation. It is the same automated delegated-judgment bot output shape
 as the two above, names no specific branch, path, or PR number, and
 requires no action beyond this acknowledgment.
 
+Yet another comment, issuecomment-5288140633 (same body, "Verdict: PR
+#? → escalate (depth or impact axis did not clear)", posted by
+JiwonJung94, read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288140633` this
+session), landed immediately after the prior reconciliation was pushed
+— the same pr-preflight comment-race pattern already logged in
+`docs/issue-1199/reports/capacity-planning/deviation-log.md`
+(2026-08-13T07:47:30Z entry). Same shape, no branch/path/PR named, no
+action required beyond this acknowledgment.
+
 ## Open findings
 
 The `capacity-planning-rulebook` PR for this rework's commit (95dc4b6)
