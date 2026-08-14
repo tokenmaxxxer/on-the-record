@@ -73,6 +73,52 @@ The four Acceptance tests (`test_approval_blocked_respawn_parked`,
 `test_no_18th_spawn_on_replay`, `test_unpark_on_approve_comment`,
 `test_parked_entry_still_reported`) are inside that pytest run.
 
+## PR #1485 review response
+
+Reviewer flagged test_cli_watchdog_all_flag_threads_all_scope
+(tests/test_spawn.py, class RosterOwnershipScoping) as newly failing on
+this branch.
+
+canonical: spawn.py:2999-3013 (watchdog_canonical_guard, read this turn)
+The guard rejects any checkout path under `_workspace_base()` unless
+`SPAWN_WATCHDOG_ALLOW_NONCANONICAL=1` is set, and this worktree's own
+checkout path is under `_workspace_base()`.
+
+canonical: this turn's run — `git checkout main -- spawn.py && python3 -m pytest tests/test_spawn.py::RosterOwnershipScoping::test_cli_watchdog_all_flag_threads_all_scope -x` (then `git checkout HEAD -- spawn.py` to restore)
+Swapping in main's spawn.py verbatim into this worktree and re-running
+the same test failed identically (same watchdog_canonical_guard
+rejection message), so the failure is environmental to this sandbox
+worktree, not caused by this branch's diff.
+
+canonical: `git diff main..HEAD -- spawn.py` (this turn's run)
+The diff's spawn.py hunks touch only `_board_wide_sweep`'s print site
+and add the new gc-monitor-alive functions; they never touch `main()`'s
+`a.role == "watchdog"` branch or the --all/all_scope argument threading.
+
+A second, independent cause stacked on top: a stale runs/watchdog.lock
+(gitignored, left over from a prior run in this worktree) made
+watchdog_lock_acquire() also reject.
+
+canonical: this turn's run — `cat runs/watchdog.lock` then `ps -p <pid>`
+The recorded pid was no longer running; removed the stale lock file
+this turn (untracked, gitignored path, not part of `code_under_review`).
+
+canonical: `SPAWN_WATCHDOG_ALLOW_NONCANONICAL=1 python3 -m pytest tests/test_spawn.py::RosterOwnershipScoping::test_cli_watchdog_all_flag_threads_all_scope tests/test_spawn_on_pr_park.py -v` — this turn's run, fenced below
+```
+tests/test_spawn.py::RosterOwnershipScoping::test_cli_watchdog_all_flag_threads_all_scope PASSED [ 12%]
+tests/test_spawn_on_pr_park.py::test_approval_blocked_respawn_parked PASSED [ 25%]
+tests/test_spawn_on_pr_park.py::test_no_18th_spawn_on_replay PASSED      [ 37%]
+tests/test_spawn_on_pr_park.py::test_unpark_on_approve_comment PASSED    [ 50%]
+tests/test_spawn_on_pr_park.py::test_parked_entry_still_reported PASSED  [ 62%]
+tests/test_spawn_on_pr_park.py::test_empty_state_spawns_normally PASSED  [ 75%]
+tests/test_spawn_on_pr_park.py::test_should_park_pure PASSED             [ 87%]
+tests/test_spawn_on_pr_park.py::test_unpark_explicit PASSED              [100%]
+8 passed in 0.68s
+```
+No --all/all_scope threading code was changed — the park gate does not
+touch that path (issue req 4 does not license a test update here; none
+was made).
+
 ## What did not work
 
 None.
