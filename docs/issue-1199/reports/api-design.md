@@ -175,6 +175,39 @@ amendments-reconciled: issuecomment-5277534222 — automated verdict,
 no scope change; comment-race pattern, retries stopped per issue-1174
 precedent.
 
+## 2026-08-14 amendment rework
+
+## What was done (rework)
+
+The 2026-08-14 amendment narrowed the survey target to the Claude Code
+PLUGIN/SKILL ecosystem; the earlier domain-tool survey above (Spectral/
+buf/Optic/Redocly) is domain-tool-basis, superseded by this rework.
+canonical: docs/issue-1199/reports/api-design/scout-brief.md:1-90 this
+turn — full file authored this session, WebSearch/WebFetch trail
+recorded there.
+This session added `playbook/tool-landscape.md` (4 additive rules) to
+tokenmaxxxer/api-design-rulebook, following the same
+{tool, adoption evidence, problem, how, learning→upgraded axis}
+convention the incident-response role's prior tool-landscape.md
+already established, with fetched-source citations kept in the
+on-the-record scout brief rather than duplicated in the rulebook file.
+canonical: gh pr view https://github.com/tokenmaxxxer/api-design-rulebook/pull/22 this turn — branch issue-1199/api-design, commit 4b84bf0, 1 file changed (playbook/tool-landscape.md, 56 insertions).
+
+Rulebook PR (external repo, rework): https://github.com/tokenmaxxxer/api-design-rulebook/pull/22
+
+## Why (rework)
+
+2026-08-14 amendment (issue #1199 body): the prior survey was domain-
+tool-basis and the amendment requires the surveyed entries to be
+Claude Code plugins/skills specifically.
+
+## Upstream basis (rework)
+
+Issue #1199 body, 2026-08-14 amendment section; the incident-response
+role's already-landed `playbook/tool-landscape.md` convention (bounded
+axis file, `[[axis]]`-linked rules, adoption evidence kept in the
+on-the-record scout brief) reused as this rework's fold-in shape.
+
 ## What did not work
 
 None.
