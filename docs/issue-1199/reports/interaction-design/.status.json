@@ -1,8 +1,8 @@
 {
   "issue-1199": {
-    "nielsen_heuristics": "ok",
-    "task_flow": "ok",
     "usability_test_plan": "ok",
-    "traceability": "ok"
+    "nielsen_heuristics": "ok",
+    "traceability": "ok",
+    "task_flow": "ok"
   }
 }
