@@ -1,0 +1,1 @@
+- 2026-08-14T03:34:15Z | filed | phase-2 write blocked: no `APPROVE issue-1005/execution-observation` comment exists yet (only `APPROVE issue-1005/implementation`, per proposals/execution-observation-issue-1005.md's own gate) — reported, not spawned
