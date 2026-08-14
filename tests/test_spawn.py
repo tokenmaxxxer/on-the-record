@@ -10634,8 +10634,17 @@ class RosterOwnershipScoping(unittest.TestCase):
     # -- CLI --all thread-through ------------------------------------------
 
     def test_cli_watchdog_all_flag_threads_all_scope(self):
-        with mock.patch.object(spawn, "roster_watchdog", return_value=0) as m:
-            with mock.patch.object(sys, "argv",
+        # 이슈 #1486: sibling test_cli_watchdog_no_all_flag_threads_cwd_as_root
+        # 와 같은 이유로 락 PATH 를 격리한다 — 자세한 설명은 그 테스트의
+        # 주석 참고.
+        with tempfile.TemporaryDirectory() as td:
+            tmp_lock_path = Path(td) / "watchdog.lock"
+            with mock.patch.object(spawn, "roster_watchdog", return_value=0) as m, \
+                 mock.patch.object(spawn.watchdog_lock_acquire, "__defaults__",
+                                    (tmp_lock_path, None)), \
+                 mock.patch.dict(os.environ,
+                                  {"SPAWN_WATCHDOG_ALLOW_NONCANONICAL": "1"}), \
+                 mock.patch.object(sys, "argv",
                                     ["spawn.py", "watchdog", "--all"]):
                 spawn.main()
         m.assert_called_once_with(auto_respawn=False, all_scope=True,
@@ -10645,14 +10654,34 @@ class RosterOwnershipScoping(unittest.TestCase):
         # 이슈 #1219: `-C` 없이(기본값 ".") 불러도 `roster_watchdog` 은
         # 컨슈머 세션의 cwd 를 `root` 로 받아야 한다 — 전역 ROOT(체크아웃)를
         # 암묵적으로 스캔하던 예전 경로가 이 트립을 우회하지 않는지 확인.
+        #
+        # 이슈 #1486: #1456 이 도입한 단일-인스턴스 락은 전역
+        # `WATCHDOG_LOCK_PATH` (`<STATE_ROOT>/watchdog.lock`) 에 걸리는데,
+        # 이 경로는 이 체크아웃에서 실제로 도는 Monitor 워치독과 공유된다
+        # — 락을 mock/no-op 하면 #1456 의 회귀 커버리지가 죽으므로, 대신
+        # `watchdog_lock_acquire` 의 `lock_path` 기본값만 tmp 로 바꿔치기해
+        # 진짜 flock 획득/기록 로직은 그대로 tmp 경로 위에서 돈다(sibling
+        # 유닛 테스트 tests/test_watchdog_freshness.py 가 `lock_path` 를
+        # 인자로 주입하는 것과 같은 격리 패턴 — CLI 진입점에는 그 인자를
+        # 실어 나를 통로가 없어 기본값 자체를 바꾼다). canonical-체크아웃
+        # 가드도 role-workspace 체크아웃에서 도는 이 테스트 자신이 걸리지
+        # 않도록 기존 `SPAWN_WATCHDOG_ALLOW_NONCANONICAL` 오버라이드를 쓴다
+        # — 이 역시 락과 무관한 별개 가드라 no-op 대상이 아니다.
         with tempfile.TemporaryDirectory() as td:
-            with mock.patch.object(spawn, "roster_watchdog", return_value=0) as m:
-                with mock.patch.object(
-                        sys, "argv",
-                        ["spawn.py", "watchdog", "-C", td]):
-                    spawn.main()
+            tmp_lock_path = Path(td) / "watchdog.lock"
+            with mock.patch.object(spawn, "roster_watchdog", return_value=0) as m, \
+                 mock.patch.object(spawn.watchdog_lock_acquire, "__defaults__",
+                                    (tmp_lock_path, None)), \
+                 mock.patch.dict(os.environ,
+                                  {"SPAWN_WATCHDOG_ALLOW_NONCANONICAL": "1"}), \
+                 mock.patch.object(sys, "argv",
+                                    ["spawn.py", "watchdog", "-C", td]):
+                spawn.main()
             m.assert_called_once_with(auto_respawn=False, all_scope=False,
                                        root=Path(td).resolve())
+            self.assertTrue(tmp_lock_path.exists(),
+                             "isolated lock path 에 실제로 락 파일이 기록돼야 "
+                             "한다 — 락 획득 자체는 mock 되지 않았다.")
 
 
 class ConsumerFixtureWatchdogAnchoring(unittest.TestCase):
