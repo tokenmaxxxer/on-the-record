@@ -537,11 +537,11 @@ def test_hook_allows_pr_when_no_comments_at_all(tmp_path):
 
 
 def test_hook_allows_pr_when_only_machine_comments_post_spawn(tmp_path):
-    """Issue #1310 acceptance bar (machine-stream-pass): a stream of
+    """Issue #1310/#1315 acceptance bar (machine-stream-pass): a stream of
     machine-generated comments (watchdog/poll-report/consult-trace/
-    reconcile shapes) landing after spawn must never block gh pr create,
-    with no record citation needed — they are excluded from the newest-
-    comment scan entirely."""
+    reconcile/delegated-judgment shapes) landing after spawn must never
+    block gh pr create, with no record citation needed — they are
+    excluded from the newest-comment scan entirely."""
     repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1310/implementation")
     _write_session_start(repo_dir, 1000.0)
     fixtures = {
@@ -558,6 +558,12 @@ def test_hook_allows_pr_when_only_machine_comments_post_spawn(tmp_path):
             {"author": {"login": "alice"}, "body": "[reconcile] cursor advanced",
              "createdAt": "1970-01-01T00:23:00Z",
              "url": "https://github.com/o/r/issues/1310#issuecomment-904"},
+            {"author": {"login": "alice"}, "body": "Judgment opened: PR #1310",
+             "createdAt": "1970-01-01T00:24:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-905"},
+            {"author": {"login": "alice"}, "body": "Verdict: PR #1310 → escalate (depth or impact axis did not clear)",
+             "createdAt": "1970-01-01T00:25:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-906"},
         ]
     }
     cmd = 'gh pr create --title "proposal" --body "#1310"'
