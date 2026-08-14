@@ -318,9 +318,19 @@ $ bash execution-observation/plugins/eo-directive/hooks/directive-body.sh produc
 rc=0
 ```
 
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288194557`, read this session before the PR-create attempt.
+
+amendments-reconciled: issuecomment-5288194557 — "Verdict: PR #? ->
+escalate (depth or impact axis did not clear)", the same automated
+judgment-watcher message pattern already reconciled above
+(issuecomment-5277524745 and its repeats), re-fired for this branch's
+new commit (5e62a745). It names no branch, no PR, and no instruction
+changing this record's scope, write set, or verdict; same
+reconciliation applies.
+
 This repo's own commit adding this update is on
-`issue-1199/execution-observation` here (this branch), to be pushed and
-PR-opened as the next act of this session. loop_state stays
+`issue-1199/execution-observation` here (this branch), pushed, and
+PR-open is retried next in this session. loop_state stays
 `handed-off`: both deliverables (rulebook repo commit 326ec91 + PR #71,
 this repo's record commit + PR opened below) are committed, pushed, and
 PR-opened this session, satisfying the amendment's "loop_state: landed
