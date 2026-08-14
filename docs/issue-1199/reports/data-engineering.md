@@ -152,3 +152,74 @@ to this record is warranted — same reconciliation class already logged
 above. This is the pr-preflight comment-race pattern (issue #1174
 retrospective, commit 005e2c6): a reconciliation commit here can itself
 trigger a fresh watcher comment while `gh pr create` is still pending.
+
+## Rework (2026-08-14 amendment): Claude Code plugin-ecosystem fold-in
+
+canonical: `gh issue view 1199` (read this session) — the 2026-08-14
+amendment states the prior round's survey (`docs/issue-1199/reports/
+data-engineering/survey.md`, tools: Airflow/dbt-core/DataHub/Debezium/
+Monte Carlo, surveyed as general OSS/vendor tooling) is
+domain-tool-basis and fails the amended acceptance; the amended survey
+target is the Claude Code plugin/skill ecosystem, folded into the
+rulebook's own convention, with `loop_state: landed` only once the
+named upgrade file is actually edited and pushed.
+
+Full evidence trail: `docs/issue-1199/reports/data-engineering/
+plugin-survey.md` (written this session). Summary: surveyed
+AltimateAI/data-engineering-skills (adoption evidence and corroborating
+independent source in plugin-survey.md's Sources) and extracted two
+design moves not already present in the rulebook's playbook rules:
+convention discovery before authoring/changing a transform model, and
+verifying a step's actual output rather than stopping at compile/build
+success.
+
+Applied directly in the separate rulebook repo
+(`tokenmaxxxer/data-engineering-rulebook`, mounted at
+/home/jwjung/tokenmaxxxer/rulebooks/data-engineering-rulebook), same
+branch `issue-1199/data-engineering`, new commit on top of the prior
+round's commit:
+
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/data-engineering-rulebook
+log -1 --stat issue-1199/data-engineering`, run this session:
+```
+commit 50082c5529e2dd0098d1c83699679205538c82c4
+apply(data-engineering): fold Claude Code plugin-ecosystem learnings into playbook rules (issue-1199)
+
+ playbook/data-quality.md    | 8 ++++++++
+ playbook/pipeline-design.md | 9 +++++++++
+ 2 files changed, 17 insertions(+)
+```
+- `playbook/pipeline-design.md`: new rule (convention discovery — read
+  existing sibling models before authoring/changing a transform
+  model), source AltimateAI/data-engineering-skills.
+- `playbook/data-quality.md`: new rule (verify a step's actual output,
+  not just compile/build success), source
+  AltimateAI/data-engineering-skills, independently corroborated per
+  plugin-survey.md's Sources.
+
+No "Tool learnings" section, no tool-catalog framing, and no deletion
+of existing rulebook content — both new rules follow the file's
+existing `condition → choice → source` numbered format and cite their
+evidentiary source the same way its earlier rules already do (prior
+sources include Fivetran, Airbyte, DAMA-DMBOK, dbt-core, DataHub,
+Monte Carlo — see the files themselves for the full list).
+
+canonical: `gh pr create` run this session against
+`tokenmaxxxer/data-engineering-rulebook` — result:
+`https://github.com/tokenmaxxxer/data-engineering-rulebook/pull/27`
+opened. Combined with the `git log -1 --stat` output above (edit
+committed on `issue-1199/data-engineering` and pushed to `origin`),
+the named upgrade files (`playbook/pipeline-design.md`,
+`playbook/data-quality.md`) were actually edited and pushed this
+session.
+
+loop_state: landed
+
+## Next steps
+PR #27 in the separate rulebook repo still needs human review/merge —
+that is that repo's own approval path, tracked there, not a next step
+owed by this record.
+
+## Open findings (rework)
+None beyond PR #27's own pending review in the separate rulebook repo
+(not a defect in this unit's own work).
