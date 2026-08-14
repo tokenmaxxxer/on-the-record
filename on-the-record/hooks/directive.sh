@@ -31,7 +31,7 @@ case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; e
 _MONITOR_NOTICE_PAYLOAD="$(cat 2>/dev/null || true)"
 if [ -n "$_MONITOR_NOTICE_PAYLOAD" ] && command -v python3 >/dev/null 2>&1; then
   OTR_MN_PAYLOAD="$_MONITOR_NOTICE_PAYLOAD" \
-  OTR_MN_DIR="$(pwd -P)/.orchestrate-monitor-alive" \
+  OTR_MN_ROOT="$(pwd -P)" \
   OTR_MN_GRACE="${MONITOR_NOTICE_GRACE_SECONDS:-600}" \
     python3 - <<'PY' || true
 import hashlib
@@ -41,7 +41,21 @@ import sys
 import time
 
 payload_raw = os.environ.get("OTR_MN_PAYLOAD", "")
-marker_dir = os.environ.get("OTR_MN_DIR", "")
+# issue #1280: the heartbeat's alive marker moved out of the target repo
+# to a workspace-keyed path under ~/.claude/tokenmaxxxer/monitor-alive/,
+# hashed by the resolved arm-root path (same formula poll-heartbeat.sh
+# uses) -- both sides compute the identical key from their own `pwd -P`
+# with no shared state file and no IPC, and it never collides across
+# concurrent sessions rooted in different repos.
+_otr_mn_root = os.environ.get("OTR_MN_ROOT", "")
+marker_dir = (
+    os.path.join(
+        os.path.expanduser("~/.claude/tokenmaxxxer/monitor-alive"),
+        hashlib.sha256(_otr_mn_root.encode("utf-8", "surrogatepass")).hexdigest()[:24],
+    )
+    if _otr_mn_root
+    else ""
+)
 try:
     grace = int(os.environ.get("OTR_MN_GRACE", "600"))
 except ValueError:

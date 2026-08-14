@@ -34,7 +34,7 @@ if sys.argv[1:2] == ["watchdog"]:
     report = os.environ.get("FAKE_WATCHDOG_REPORT", "")
     if report:
         print(report)
-    sys.exit(0)
+    sys.exit(int(os.environ.get("FAKE_WATCHDOG_RC", "0")))
 sys.exit(0)
 """
 
@@ -49,7 +49,7 @@ def _make_checkout(tmp: Path) -> Path:
     return checkout
 
 
-def _run_tick(checkout: Path, home: Path, report: str) -> subprocess.CompletedProcess:
+def _run_tick(checkout: Path, home: Path, report: str, watchdog_rc: int = 0) -> subprocess.CompletedProcess:
     env = dict(os.environ)
     env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
     env["FAKE_SPAWN_MARKER"] = str(checkout / "marker.log")
@@ -57,6 +57,7 @@ def _run_tick(checkout: Path, home: Path, report: str) -> subprocess.CompletedPr
     env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
     env["FAKE_POLL_DUE"] = "1"
     env["FAKE_WATCHDOG_REPORT"] = report
+    env["FAKE_WATCHDOG_RC"] = str(watchdog_rc)
     env["HOME"] = str(home)
     env.pop("CLAUDE_ROLE", None)
     return subprocess.run(
@@ -224,6 +225,89 @@ def t_watchdog_anomaly_bullets_survive_round_trip():
         r2 = _run_tick(checkout, home, report)
         assert r2.returncode == 0, r2.stderr
         assert r2.stdout.strip() == "", r2.stdout
+
+
+def t_returned_pr_line_always_emits_even_unchanged():
+    """issue #1239: a `[returned-pr]` line (the #680 spawn gate's
+    undisposed-PR surfacing) must emit every tick even when byte-identical
+    to the previous tick — it joins the #1220 always-emit set alongside
+    STALLED/CRASHED/watcher-dead."""
+    report = (
+        "[poll-report] roster: 1 entry\nissue-5/implementation: healthy\n"
+        "[returned-pr] issue #22 (phase1): age=3.2h — https://example/22"
+    )
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, report)
+        assert r1.returncode == 0, r1.stderr
+        assert "[returned-pr] issue #22" in r1.stdout, r1.stdout
+
+        r2 = _run_tick(checkout, home, report)
+        assert r2.returncode == 0, r2.stderr
+        assert "[returned-pr] issue #22" in r2.stdout, r2.stdout
+        assert "issue-5/implementation: healthy" not in r2.stdout, r2.stdout
+
+        r3 = _run_tick(checkout, home, report)
+        assert "[returned-pr] issue #22" in r3.stdout, r3.stdout
+
+
+def t_anomaly_rc_produces_no_crash_label():
+    """issue #1274 Acceptance: roster_watchdog()'s rc is an anomaly COUNT
+    by contract (0=clean, N=N anomalies) — rc=1 (one benign anomaly) must
+    NOT produce a [watchdog-crash] label."""
+    report = "[watchdog] issue-100/role-a: anomaly 1\n  - anomaly: spawn-coverage gh read failure"
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, report, watchdog_rc=1)
+        assert r1.returncode == 0, r1.stderr
+        assert "anomaly: spawn-coverage gh read failure" in r1.stdout, r1.stdout
+        assert "[watchdog-crash]" not in r1.stdout, r1.stdout
+
+
+def t_signal_death_rc_produces_crash_label():
+    """issue #1274 Acceptance: a signal-death exit code (128+N, e.g.
+    SIGKILL=137) DOES produce a [watchdog-crash] label."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, "", watchdog_rc=137)
+        assert r1.returncode == 0, r1.stderr
+        assert "[watchdog-crash] watchdog exited rc=137" in r1.stdout, r1.stdout
+
+
+def t_reserved_sentinel_rc_produces_crash_label():
+    """issue #1274: spawn.py's WATCHDOG_CRASH_SENTINEL (97) — reserved for
+    an unhandled internal exception in the watchdog CLI branch — DOES
+    produce a [watchdog-crash] label."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, "", watchdog_rc=97)
+        assert r1.returncode == 0, r1.stderr
+        assert "[watchdog-crash] watchdog exited rc=97" in r1.stdout, r1.stdout
+
+
+def t_clean_rc_produces_neither_label():
+    """issue #1274 empty-state: rc=0 clean tick -> neither anomaly nor
+    crash label (existing behavior, unchanged)."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        r1 = _run_tick(checkout, home, REPORT_A, watchdog_rc=0)
+        assert r1.returncode == 0, r1.stderr
+        assert "[watchdog-crash]" not in r1.stdout, r1.stdout
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]

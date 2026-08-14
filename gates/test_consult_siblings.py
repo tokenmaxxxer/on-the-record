@@ -30,7 +30,7 @@ def _patched(root: Path, fake_run):
     """Context-manager-less patch/restore pair, same shape
     `test_consult_json_parse.py` already uses (opt-in per test, restored
     in `finally`)."""
-    def _persist_raw_under(issue, ts, attempt, text):
+    def _persist_raw_under(issue, ts, attempt, text, cwd=None):
         base = root / "docs" / (f"issue-{issue}" if issue is not None else "reports")
         out_dir = base / "reports" / "consult-raw-failures" if issue is not None \
             else base / "consult-raw-failures"
@@ -50,7 +50,7 @@ def _patched(root: Path, fake_run):
     spawn.subprocess.run = fake_run
     spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
     spawn.core_plugin_dirs = lambda: []
-    spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+    spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
     spawn._persist_consult_raw_output = _persist_raw_under
     return orig
 

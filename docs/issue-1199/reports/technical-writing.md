@@ -4,6 +4,32 @@ doc-type: reference
 
 ## Amendments reconciled
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288005664
+issuecomment-5288005664 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is the same
+delegated-judgment verdict pattern for a different issue-1199 fan-out
+branch's implementation PR, not this technical-writing unit — no
+amendment to this unit's scope. This is the same reconcile-then-retry-
+`gh pr create` deadlock already logged in this issue's history (commit
+df36363, and this session's own prior reconciliation above) — per that
+precedent, retries stop here rather than looping; the branch is
+committed and pushed (commit b6a6b0c0 on `issue-1199/technical-writing`
+at origin) for external relay to open the delivery PR.
+amendments-reconciled: issuecomment-5288005664 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken
+beyond this reconciliation line; PR-create retries stop per the logged
+deadlock precedent.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288001972
+issuecomment-5288001972 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is a
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this technical-writing unit — no amendment to
+this unit's scope.
+amendments-reconciled: issuecomment-5288001972 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR beyond this reconciliation line.
+
 canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276711943
 issuecomment-5276711943 ("APPROVE issue-1199/brand-design", posted
 after this session started) approves the sibling issue-1199/brand-design
@@ -310,6 +336,97 @@ the guard gains a cross-repo exemption), the next technical-writing
 session on issue-1199 picks up from this record's Amendments-reconciled
 log and that PR's diff — no open blocker on this session's own branch
 otherwise.
+
+## Plugin-ecosystem rework — this session (2026-08-14 amendment)
+
+canonical: git -C /tmp/technical-writing-rulebook log --oneline -1 origin/issue-1199/tool-landscape-plugin-rework
+```
+7339910 Rework tool-landscape fold-in to Claude Code plugin ecosystem (issue #1199, 2026-08-14 amendment)
+```
+
+### What was done (plugin rework)
+
+The 2026-08-14 issue amendment supersedes the earlier domain-tool-basis
+survey with a CLAUDE CODE PLUGIN/SKILL ecosystem survey, and asks that
+`playbook/tool-landscape.md` be kept/recreated with plugin-derived
+entries (not deleted per the earlier no-attribution retrofit). This
+session:
+
+1. Ran a web/adoption-evidence sweep (`gh api repos/<owner>/<repo>
+   --jq .stargazers_count`) over Claude Code plugin/skill marketplaces
+   relevant to technical writing: cathrynlavery/diagram-design (14,471
+   stars), jeremylongshore/claude-code-plugins-plus-skills (2,630
+   stars), daymade/claude-code-skills (1,333 stars),
+   rohitg00/awesome-claude-code-toolkit (2,501 stars).
+2. Recreated `playbook/tool-landscape.md` in
+   `tokenmaxxxer/technical-writing-rulebook` (branch
+   `issue-1199/tool-landscape-plugin-rework`, commit `7339910`) with
+   three entries, each carrying {tool, adoption evidence, problem, how,
+   upgraded-rule mapping, source URL}: diagram-design's grid/color/font
+   constraint set (upgrades doc-type-selection.md rule 11 and
+   minimalism-scoping.md rule 11), diagram-design's redraw "what
+   changed" ledger (upgrades style-guide-compliance.md's
+   accuracy-review-evidence expectation to cover diagram edits), and
+   the content-consistency-validator skill's deterministic drift-check
+   shape (upgrades technical-writing.md's own accuracy-review-evidence
+   requirement).
+3. Added a matching README Layout line.
+4. Committed and pushed to origin. `gh pr create --repo
+   tokenmaxxxer/technical-writing-rulebook ...` was denied again by
+   `upstream-defect-scope-guard.sh` (same denial as the prior retrofit
+   session, issue #1131 req#4 — the upstream channel files issues, not
+   PRs) — branch is on origin for external relay to open the PR.
+
+code_under_review:
+- playbook/tool-landscape.md (tokenmaxxxer/technical-writing-rulebook)
+- README.md (tokenmaxxxer/technical-writing-rulebook)
+
+### Why (plugin rework)
+
+Issue #1199's 2026-08-14 amendment (northpole req#1): the survey target
+is the Claude Code plugin/skill ecosystem, not general domain tools —
+the prior domain-tool-basis survey fails the amended acceptance check,
+and `loop_state: landed` requires the named upgrade file to actually be
+edited and pushed.
+
+### Upstream / basis (plugin rework)
+
+- Issue #1199 body, 2026-08-14 amendment comment (Claude Code plugin
+  ecosystem survey target)
+- docs/issue-1199/proposals/2026-08-13-tool-landscape-fold-in.md
+
+### Accuracy review evidence (plugin rework)
+
+derived: cd /tmp/technical-writing-rulebook && git log -1 --format=%H origin/issue-1199/tool-landscape-plugin-rework
+```
+7339910
+```
+derived: gh api repos/cathrynlavery/diagram-design --jq .stargazers_count
+```
+14471
+```
+Star counts for all four surveyed repos were read live this session via
+`gh api .../--jq .stargazers_count`, not recalled from memory; the two
+cited plugin descriptions were read via WebFetch of the repos' own
+README content this session.
+
+### kind / loop_state (plugin rework)
+
+kind: report
+loop_state: landed
+
+### Next steps (plugin rework)
+
+An orchestrator/relay session needs to open the rulebook PR from
+`issue-1199/tool-landscape-plugin-rework` (commit `7339910`, already on
+origin) against `tokenmaxxxer/technical-writing-rulebook`'s `main` —
+`gh pr create` is refused from inside this role session by
+`upstream-defect-scope-guard.sh`.
+
+### Resolution path (plugin rework)
+
+Once the rulebook PR lands, check off the technical-writing row in
+issue #1199's 43-item tracker; no other blocker on this branch.
 
 ## Open findings
 

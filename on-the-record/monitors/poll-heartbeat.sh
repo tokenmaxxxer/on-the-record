@@ -52,17 +52,61 @@ if [ -z "${CHECKOUT}" ]; then
   exit 0
 fi
 
-# issue #947: monitor-unavailable degradation notice. Plugin Monitors run
-# only in interactive CLI sessions (docs/specs/platform-capabilities.md);
-# directive.sh (UserPromptSubmit) infers whether THIS session's own
-# Monitor ever started by checking this marker's mtime against its own
-# recorded session-start time, so a workspace-scoped touch here is enough
-# -- no session_id is available to a Monitor command (unlike a hook, it
-# carries no documented stdin JSON contract, and blocking on one here
-# would risk hanging this loop forever). Written before the sleep loop
-# so it reflects "the monitor process launched", not "a tick completed".
-mkdir -p "$(pwd -P)/.orchestrate-monitor-alive" 2>/dev/null && \
-  touch "$(pwd -P)/.orchestrate-monitor-alive/alive" 2>/dev/null || true
+# issue #1292: demoted from #1275's hard `exit 1` to the same
+# sweep-exclusion/dormancy path #1282 built for the non-board case below
+# — a non-git arm-root can never be a board, so it is simply excluded
+# from `_board_wide_sweep_all`'s arm-root inclusion (spawn.py), exactly
+# like a non-board git root. The tick loop always runs; roster-derived
+# board targets (#1276) still get swept every tick even when the
+# arm-root itself is a non-git parent folder. No `[monitor-arm-refused]`
+# error, no exit-1 "script failed" notification for this case.
+if git -C "$(pwd -P)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  is_git=1
+else
+  is_git=0
+fi
+
+# issue #1245/#1280: attachment gate, demoted from a full exit to a
+# sweep-exclusion. A non-board arm-root (no docs/specs/approvers.md) no
+# longer kills the whole Monitor process -- plugin Monitors are armed
+# once at session start and cannot be re-armed, so exiting here
+# permanently defeats idle watch for the rest of the session, including
+# roster-derived watch (#1276) over board repos the session spawns into
+# later. `is_board` only gates `_board_wide_sweep_all`'s arm-root
+# inclusion (spawn.py); the tick loop below always runs. A non-git root
+# (#1292) is forced to `is_board=0` regardless of what a stray
+# `docs/specs/approvers.md` file might say — it can never be a board.
+if [ "${is_git}" -eq 1 ] && [ -f "$(pwd -P)/docs/specs/approvers.md" ]; then
+  is_board=1
+else
+  is_board=0
+fi
+
+# issue #947/#1280: monitor-unavailable degradation notice. Plugin
+# Monitors run only in interactive CLI sessions
+# (docs/specs/platform-capabilities.md); directive.sh (UserPromptSubmit)
+# infers whether THIS session's own Monitor ever started by checking
+# this marker's mtime against its own recorded session-start time.
+# Relocated out of the target repo (workspace-keyed under
+# ~/.claude/tokenmaxxxer/, hashed by resolved arm-root path) so #1245's
+# "no registration artifacts in a non-board repo" holds even now that
+# the loop always arms there -- no session_id is available to a Monitor
+# command (unlike a hook, it carries no documented stdin JSON contract,
+# and blocking on one here would risk hanging this loop forever).
+# Written before the sleep loop so it reflects "the monitor process
+# launched", not "a tick completed". directive.sh computes the identical
+# hash from its own `pwd -P` at hook-fire time -- same cwd, no shared
+# state file, no IPC.
+_alive_dir="$(PWD_P="$(pwd -P)" python3 -c '
+import hashlib, os
+root = os.environ.get("PWD_P", "")
+h = hashlib.sha256(root.encode("utf-8", "surrogatepass")).hexdigest()[:24]
+print(os.path.join(os.path.expanduser("~/.claude/tokenmaxxxer/monitor-alive"), h))
+' 2>/dev/null)"
+if [ -n "${_alive_dir}" ]; then
+  mkdir -p "${_alive_dir}" 2>/dev/null && \
+    touch "${_alive_dir}/alive" 2>/dev/null || true
+fi
 
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
@@ -81,12 +125,19 @@ while true; do
     else
       printed_text="poll tick: due, watchdog ran (rc=${watchdog_rc}, no output)"
     fi
-    # issue #1220: a non-zero watchdog exit is a crash signal, not just an
-    # empty report — append a recognizable marker line so the line-keyed
-    # diff below (an always-emit "crash" category, issue req #3) never
-    # suppresses it even if two consecutive crash ticks carry the same
-    # rc.
-    if [ "${watchdog_rc}" -ne 0 ]; then
+    # issue #1274: roster_watchdog()'s contract (spawn.py) makes its exit
+    # code the ANOMALY COUNT (0=clean, N=N anomalies) — never a crash
+    # flag. A non-zero rc alone is routine anomaly reporting (the
+    # per-entry lines above already carry it); labeling it
+    # [watchdog-crash] fires a false alarm on every tick with even one
+    # benign anomaly. A real crash is only rc>=128 (the shell's
+    # signal-death encoding, e.g. SIGKILL=137) or the reserved
+    # WATCHDOG_CRASH_SENTINEL (spawn.py, currently 97) that spawn.py's
+    # watchdog CLI branch exits on an unhandled internal exception —
+    # append a recognizable marker line so the line-keyed diff below (an
+    # always-emit "crash" category, issue #1220 req #3) never suppresses
+    # it even if two consecutive crash ticks carry the same rc.
+    if [ "${watchdog_rc}" -ge 128 ] || [ "${watchdog_rc}" -eq 97 ]; then
       printed_text="$(printf '%s\n[watchdog-crash] watchdog exited rc=%s' "${printed_text}" "${watchdog_rc}")"
     fi
     # issue #1220: replaced #1117's whole-text SHA-256 suppression with a
@@ -110,11 +161,14 @@ now = int(now_s)
 text = os.environ.get("POLL_HEARTBEAT_TEXT", "")
 lines = text.split("\n") if text else []
 
-TAG_RE = re.compile(r"^\[(poll-report|watchdog|health|reconcile|orphaned|resume|watchdog-crash)\]\s*([^:]+):")
+TAG_RE = re.compile(r"^\[(poll-report|watchdog|health|reconcile|orphaned|resume|watchdog-crash|returned-pr)\]\s*([^:]+):")
 ENTRY_RE = re.compile(r"^([\w./-]+/[\w./-]+):\s")
 BULLET_RE = re.compile(r"^\s+-\s")
+# issue #1239: [returned-pr] joins the always-emit set — the #680 spawn
+# gate's undisposed-PR list must survive delta suppression every tick, not
+# just when it changes, so neglect stays visible (northpole req#1).
 ALWAYS_RE = re.compile(
-    r"^\[(resume|orphaned|watchdog-crash)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
+    r"^\[(resume|orphaned|watchdog-crash|returned-pr)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
     re.IGNORECASE,
 )
 
