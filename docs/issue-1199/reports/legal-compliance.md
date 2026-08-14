@@ -321,3 +321,22 @@ times") — if this attempt is also blocked by a new race comment, no
 further retry is attempted this session; the branch stays committed and
 pushed (origin/issue-1199/legal-compliance) for a later retry or
 external relay.
+
+amendments-reconciled: issuecomment-5288263309 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment, arriving after the 5th and
+final `gh pr create` attempt this turn's retry-task instruction allowed
+(canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/
+comments?per_page=100&page=7 --jq '.[] | select(.id==5288263309)'`,
+read this session per the pr-preflight notice) — it names no PR number
+and does not reference this legal-compliance unit's rulebook-repo
+commits. Per this turn's explicit cap ("retry ... up to 5 times"), no
+further `gh pr create` retry is attempted this session: the
+issue-1199/legal-compliance branch in the rulebook repo
+(tokenmaxxxer/legal-compliance-rulebook) is committed and pushed
+(origin/issue-1199/legal-compliance, rulebook-repo commit
+757907440ea0878db73b18e1cde25366e681df0f), 1 commit ahead of main, and
+carries no open PR to main as of this session's end — PR creation is
+left for a later retry outside this comment-arrival window or for
+external relay, per this session's headless-turn instruction to commit
+even when push/PR is blocked.
