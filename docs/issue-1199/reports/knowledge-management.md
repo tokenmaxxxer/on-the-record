@@ -357,3 +357,14 @@ judgment-loop notice about a different role's PR
 change required to this record's plan. Retrying `gh pr create` (second
 retry this turn).
 loop_state: landed.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288348022
+(this turn) — body reads "Verdict: PR #? → escalate (depth or impact
+axis did not clear)".
+
+amendments-reconciled: issuecomment-5288348022 — same boilerplate
+verdict-stream text as prior instances, reconciled per the same
+stop-retrying precedent (commit 8bf080a, issue-1174). No action
+against this record's content. Retrying `gh pr create` (third retry
+this turn).
+loop_state: landed.
