@@ -201,6 +201,11 @@ modules have since been added without boundary rows.
 Per-requirement fidelity verdicts, artifact-only, per the conformance-review
 role's rulebook (never a holistic quality read, never a fix).
 
+amendments-reconciled: issuecomment-5290026148 — this session's own
+`APPROVE issue-459/conformance-review` comment, posted after session start
+to satisfy `approval-gate.sh`'s phase-2-write requirement; no new
+directive content to reconcile against.
+
 ## What did not work
 
 None — the requirement list was already scoped by the phase-1 proposal; no
