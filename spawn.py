@@ -5682,7 +5682,7 @@ def roster_clean(wb: Path, issue: int | None) -> int:
 # 기본값 60초다. GC 임계값은 그 cadence 보다 안전하게 커야 한다(그렇지
 # 않으면 아직 살아있는 세션의 마커까지 지울 수 있다) — 7일로 잡아 세션이
 # 하루 이상 이어져도 안전하게 남긴다.
-MONITOR_ALIVE_TOUCH_CADENCE_SECONDS = 60
+MONITOR_ALIVE_TOUCH_CADENCE_SECONDS = 120
 MONITOR_ALIVE_STALE_THRESHOLD_SECONDS = 7 * 24 * 3600
 assert MONITOR_ALIVE_STALE_THRESHOLD_SECONDS > MONITOR_ALIVE_TOUCH_CADENCE_SECONDS
 
