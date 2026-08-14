@@ -116,3 +116,17 @@ this issue (commits `9dd5ea3`, `5b67dd3`, `c5ea230`, `d6f4efc`,
 treated as non-blocking pre-PR noise, not an actionable content
 finding, and this record proceeds to PR without further content
 change.
+
+amendments-reconciled: issuecomment-5288371026 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same generic
+pre-PR judgment-watcher template recurring again on this issue thread,
+this time fired against the 2026-08-14 plugin-ecosystem rework commit
+(canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288371026`, read this
+session — no `PR #<number>` filled in, no specific defect named beyond
+the generic template). Per the same-shaped precedent already reconciled
+above on this issue, this is non-blocking watcher noise, not an
+actionable finding; the rework's phase-1 PR (survey-plugin-rework.md,
+scout-brief-plugin-rework.md,
+2026-08-14-localization-tool-landscape-plugin-rework.md) proceeds
+without further content change.
