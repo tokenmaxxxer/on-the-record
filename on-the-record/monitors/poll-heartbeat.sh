@@ -140,11 +140,33 @@ _poll_watchdog_log_append() {
   { printf '%s\n' "${header}"; printf '%s\n' "${body}"; } >>"${log_path}" 2>/dev/null || true
 }
 
+# issue #1497 req 2: a liveness stamp, owned solely by this tick loop and
+# written on EVERY iteration regardless of the due/not-due outcome below —
+# so staleness reflects the loop's own wake cadence, not the shared
+# poll_due() TTL race (survey's "Death-vs-TTL-quiet mechanics": that race
+# already has three callers and cannot itself disambiguate "the Monitor
+# ticked" from "a hook ticked"). flock-guarded like poll_due()
+# (spawn.py:2356-2381) rather than an unlocked write, per the same
+# established atomic-file-state convention. Separate from
+# poll_heartbeat_last_state.json (the #1220 delta-suppression state) and
+# from the workspace-keyed one-shot alive marker (#1280) — neither can
+# stand in for this without reintroducing the disambiguation gap.
+_alive_stamp_path="${CHECKOUT}/runs/poll_heartbeat_alive.json"
+_alive_stamp_write() {
+  mkdir -p "${CHECKOUT}/runs" 2>/dev/null || true
+  (
+    flock -x 200
+    printf '{"last_tick": %s}' "$(date +%s)" >"${_alive_stamp_path}.tmp" 2>/dev/null \
+      && mv -f "${_alive_stamp_path}.tmp" "${_alive_stamp_path}" 2>/dev/null
+  ) 200>"${_alive_stamp_path}.lock"
+}
+
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
 sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-60}"
 while true; do
   sleep "${sleep_seconds}"
+  _alive_stamp_write
   due_out="$(python3 "${CHECKOUT}/spawn.py" poll-due 2>&1 >/dev/null)"
   due_rc=$?
   if [ "${due_rc}" -eq 0 ]; then
