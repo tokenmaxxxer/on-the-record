@@ -152,3 +152,118 @@ to this record is warranted — same reconciliation class already logged
 above. This is the pr-preflight comment-race pattern (issue #1174
 retrospective, commit 005e2c6): a reconciliation commit here can itself
 trigger a fresh watcher comment while `gh pr create` is still pending.
+
+## Rework (2026-08-14 amendment): Claude Code plugin-ecosystem fold-in
+
+canonical: `gh issue view 1199` (read this session) — the 2026-08-14
+amendment states the prior round's survey (`docs/issue-1199/reports/
+data-engineering/survey.md`, tools: Airflow/dbt-core/DataHub/Debezium/
+Monte Carlo, surveyed as general OSS/vendor tooling) is
+domain-tool-basis and fails the amended acceptance; the amended survey
+target is the Claude Code plugin/skill ecosystem, folded into the
+rulebook's own convention, with `loop_state: landed` only once the
+named upgrade file is actually edited and pushed.
+
+Full evidence trail: `docs/issue-1199/reports/data-engineering/
+plugin-survey.md` (written this session). Summary: surveyed
+AltimateAI/data-engineering-skills (adoption evidence and corroborating
+independent source in plugin-survey.md's Sources) and extracted two
+design moves not already present in the rulebook's playbook rules:
+convention discovery before authoring/changing a transform model, and
+verifying a step's actual output rather than stopping at compile/build
+success.
+
+Applied directly in the separate rulebook repo
+(`tokenmaxxxer/data-engineering-rulebook`, mounted at
+/home/jwjung/tokenmaxxxer/rulebooks/data-engineering-rulebook), same
+branch `issue-1199/data-engineering`, new commit on top of the prior
+round's commit:
+
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/data-engineering-rulebook
+log -1 --stat issue-1199/data-engineering`, run this session:
+```
+commit 50082c5529e2dd0098d1c83699679205538c82c4
+apply(data-engineering): fold Claude Code plugin-ecosystem learnings into playbook rules (issue-1199)
+
+ playbook/data-quality.md    | 8 ++++++++
+ playbook/pipeline-design.md | 9 +++++++++
+ 2 files changed, 17 insertions(+)
+```
+- `playbook/pipeline-design.md`: new rule (convention discovery — read
+  existing sibling models before authoring/changing a transform
+  model), source AltimateAI/data-engineering-skills.
+- `playbook/data-quality.md`: new rule (verify a step's actual output,
+  not just compile/build success), source
+  AltimateAI/data-engineering-skills, independently corroborated per
+  plugin-survey.md's Sources.
+
+No "Tool learnings" section, no tool-catalog framing, and no deletion
+of existing rulebook content — both new rules follow the file's
+existing `condition → choice → source` numbered format and cite their
+evidentiary source the same way its earlier rules already do (prior
+sources include Fivetran, Airbyte, DAMA-DMBOK, dbt-core, DataHub,
+Monte Carlo — see the files themselves for the full list).
+
+canonical: `gh pr create` run this session against
+`tokenmaxxxer/data-engineering-rulebook` — result:
+`https://github.com/tokenmaxxxer/data-engineering-rulebook/pull/27`
+opened. Combined with the `git log -1 --stat` output above (edit
+committed on `issue-1199/data-engineering` and pushed to `origin`),
+the named upgrade files (`playbook/pipeline-design.md`,
+`playbook/data-quality.md`) were actually edited and pushed this
+session.
+
+loop_state: landed
+
+## PR-create watcher deadlock (this session, data-engineering rework, on-the-record repo)
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288128593`
+(read this session, not yet reconciled here by name) — a third
+watcher comment landed between the second reconciliation commit's push
+and the next `gh pr create` attempt against this repo
+(`tokenmaxxxer/on-the-record`), reproducing the same pr-preflight
+comment-race pattern already documented above (issue #1174
+retrospective, commit 005e2c6). Per that precedent, this session stops
+retrying `gh pr create` against `tokenmaxxxer/on-the-record` this
+turn rather than chasing the race indefinitely; the branch
+`issue-1199/data-engineering` is committed and pushed to `origin`
+(canonical: `git push` output, commit `9e0a6a21` at push time), which
+satisfies this turn's completion floor — opening the PR against
+`tokenmaxxxer/on-the-record` is left to on-the-record's external
+relay. This is separate from `tokenmaxxxer/data-engineering-rulebook`
+PR #27 above, which opened cleanly (that repo has no watcher).
+
+## Next steps
+Opening a PR against `tokenmaxxxer/on-the-record` for branch
+`issue-1199/data-engineering` (blocked this session by the watcher
+race above — resolution path: retry `gh pr create` in a later
+session/turn once the comment stream quiesces). PR #27 in the separate
+rulebook repo still needs human review/merge —
+that is that repo's own approval path, tracked there, not a next step
+owed by this record.
+
+## Open findings (rework)
+None beyond PR #27's own pending review in the separate rulebook repo
+(not a defect in this unit's own work).
+
+amendments-reconciled: issuecomment-5288118757 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a delegated-judgment
+verdict for a different, unnumbered candidate PR (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288118757`, read
+this session — the body names no branch); it does not name or
+reference this data-engineering rework unit's work, so no content
+amendment to this record is warranted — same reconciliation class
+already logged earlier in this file for issuecomment-5277549292 and
+its siblings.
+
+amendments-reconciled: issuecomment-5288123194 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a delegated-judgment
+verdict for a different, unnumbered candidate PR (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288123194`, read
+this session — the body names no branch); it does not name or
+reference this data-engineering rework unit's work, so no content
+amendment to this record is warranted — same pr-preflight
+comment-race pattern already documented in this file (issue #1174
+retrospective, commit 005e2c6): each reconciliation commit here can
+itself trigger a fresh watcher comment while `gh pr create` is still
+pending.
