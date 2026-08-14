@@ -176,3 +176,19 @@ Finding 1 routes to a new issue or the next session touching
 re-open of #460. canonical: python3 -m pytest
 gates/test_boundary_workflow_migration.py -q, run this session (3 passed
 in 0.04s) — #460's own migration table stays intact and gate-verified.
+
+## Amendments
+
+amendments-reconciled: issuecomment-5290036491 (`APPROVE
+issue-460/conformance-review`, posted 2026-08-14T05:59:57Z, after this
+session started) and the two later automated comments on issue #460
+(issuecomment-5290062633 "Judgment opened", issuecomment-5290062732
+"Verdict: PR #? → escalate") — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/460/comments` read this session,
+listing all four. None require a content change to this record: the
+conformance-review approval targets a different role's future write (a
+conformance-review report for issue #460, not yet written by this
+session), and the delegated-judgment "escalate" verdict is this repo's
+own automation reacting to this branch's diff mid-session, not a finding
+about this record's content — this record's own claims were
+independently re-run above, not sourced from that automation.
