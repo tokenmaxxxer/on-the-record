@@ -7,20 +7,83 @@ code_under_review:
 loop_state: landed
 type: process
 breaking: false
-verdict: pass  # canonical: python3 -m pytest -q --ignore=bench -m "not slow" (this turn) — see fenced output below
+verdict: pass  # canonical: python3 -m pytest -m "not slow" -q (this turn, rework) — see fenced output below
 ---
 
 # Implementation record — issue #1490
 
-canonical: `python3 -m pytest -q --ignore=bench -m "not slow"` (this
-turn)
+## Rework (2026-08-15): conformance-review blockers on PR #1503
+
+canonical: `gh pr view 1503 --json comments` (this turn)
 ```
-run 1: 18 failed, 1824 passed, 1 xfailed in 248.92s — real 4m9.238s
-run 2: 18 failed, 1824 passed, 1 xfailed in 317.56s — real 5m17.957s
-run 3: 18 failed, 1824 passed, 1 xfailed in 288.83s — real 4m48.83s
+"body":"conformance-review phase-2 (merged record, PR #1495) returned two blockers — rework before merge: (1) Acceptance 1 Incorrect: independent clean-worktree run measured 428.76s (>300s); across 4 recorded measurements 2 exceed budget — need headroom (e.g. worker tuning, moving load-sensitive tests to slow tier) plus a re-measurement under documented conditions; (2) Requirement 2 third clause Absent: no pre-merge regression policy doc naming which tier is required per change class."
 ```
-derived: two of the three runs above land under the 300s target; the
-317.56s outlier's cause is in Open findings.
+conformance-review returned two blockers on PR #1503: (1) Acceptance 1
+Incorrect — an independent clean-worktree run measured 428.76s, over
+the 300s budget, and 2 of the prior 4 recorded measurements exceeded
+it; (2) Requirement 2 third clause Absent — no pre-merge regression
+policy doc naming which tier is required per change class.
+
+canonical: `python3 -m pytest -m "not slow" -q --durations=40` (this
+turn, before the rework fix)
+```
+105.66s call     tests/test_spawn.py::ProgressEvents::test_verification_and_commit_commands_fire_progress
+103.90s call     tests/test_spawn.py::ProgressEvents::test_exploratory_bash_does_not_fire_progress
+103.65s call     tests/test_spawn.py::EventReporting::test_harness_permission_denial_is_not_labeled_gate_refusal
+66.98s call     tests/test_spawn.py::EventReporting::test_non_error_tool_result_matching_refusal_text_fires_nothing
+17 failed, 1825 passed, 1 xfailed in 386.44s (0:06:26)
+```
+derived: the `EventReporting` and `ProgressEvents` classes in
+tests/test_spawn.py (both call `spawn._spawn_one`, which spawns a
+real `git init` subprocess plus a real `Popen(["cat"])` per test case)
+dominate the durations tail — individually 20-105s each — and were not
+previously marked `slow` despite matching the marker's own definition
+("real subprocess spawn or real git clone/checkout lifecycle tests").
+Applied `@pytest.mark.slow` to both classes in tests/test_spawn.py,
+above `class EventReporting(unittest.TestCase):` and
+`class ProgressEvents(unittest.TestCase):`.
+
+canonical: `python3 -m pytest -m "not slow" -q` (this turn, after the
+fix, three back-to-back runs)
+```
+run 1: 18 failed, 1787 passed, 1 xfailed in 33.05s — real 33.36s
+run 2: 18 failed, 1787 passed, 1 xfailed in 26.65s — real 27.09s
+run 3: 18 failed, 1787 passed, 1 xfailed in 27.14s — real 27.58s
+```
+derived: all three runs land well under the 300s target, replacing the
+prior 248.92s/317.56s/288.83s spread that had one measurement over
+budget.
+
+canonical: `grep FAILED /tmp/runv2_1.log` and `grep FAILED /tmp/run1.log`
+(this turn, before/after diff of the failure ID sets)
+```
++FAILED tests/test_gates.py::t_rulebook_version_is_recorded - AssertionError: ...
+```
+The only ID present in the after-set and absent from the before-set is
+`t_rulebook_version_is_recorded` in tests/test_gates.py (defined at
+line 95, read this turn), which asserts the checked-out repo is git
+clean via `spawn.rulebook_version()`. It fails only because this
+session's own uncommitted edit to tests/test_spawn.py made the
+checkout dirty at measurement time.
+
+canonical: `diff <(sort <(grep FAILED /tmp/run1.log)) <(sort <(grep
+FAILED /tmp/runv2_1.log) | grep -v t_rulebook_version_is_recorded)`
+(this turn)
+```
+(no output — identical after excluding the git-dirty artifact above)
+```
+derived: excluding that one git-dirty artifact, the after-set is
+identical to the 17-ID before-set — no other failure ID changed.
+
+Added the pre-merge regression policy required by Requirement 2's
+third clause to docs/handbooks/operations.md, under a new "머지 전
+회귀 정책 — 변경 종류별 필수 티어 (issue #1490)" /
+"Pre-merge regression policy — tier required per change class (issue
+#1490)" section pair: a table naming which pytest tier
+(`-m "not slow"`, `-m slow`, or none) is required for spawn-lifecycle
+code, gate scripts, docs-only changes, and other logic changes.
+
+## Original delivery
 
 ## What was done
 
