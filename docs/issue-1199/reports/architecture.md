@@ -9,6 +9,107 @@ outcome: accepted
 
 # Record: architecture tool-landscape fold-in (issue-1199)
 
+## 2026-08-14 rework amendment (Claude Code plugin ecosystem)
+
+canonical: issue-1199 body, "issue-1199 tool-landscape REWORK (2026-08-14 amendment)" section, read this session.
+The operator's 2026-08-14 amendment supersedes this record's original
+survey target: the required survey basis is the Claude Code plugin/skill
+ecosystem, not general domain architecture tools (ArchUnit, Structurizr,
+dependency-cruiser, log4brains) — the prior survey below is
+domain-tool-basis and fails the amended acceptance on its own.
+
+**What changed this session:** reworked the evidence trail only —
+`playbook/dependency-direction.md` rule 14, `playbook/coupling-
+classification.md` rule 15, and `playbook/module-boundary-definition.md`
+rule 15 keep the same native design moves (generated import graph over
+asserted rule; structural severity paired with an observed-impact
+signal; C4 diagram as one versioned text model), each now sourced to a
+Claude Code plugin/skill instead of a general domain tool. No rule text,
+numbering, or "why" reasoning changed beyond the citation swap; the
+methodology handbook's two Phase 2 requirements (diagram-as-text-model,
+decision-lineage) are unchanged.
+canonical: `docs/issue-1199/reports/architecture/scout-brief.md`,
+"Category-level check" paragraph in its "## 2026-08-14 rework addendum"
+section, read/written this session — their design moves already match
+what the newly surveyed plugins independently confirm.
+
+derived: git -C /home/jwjung/tokenmaxxxer/rulebooks/architecture-rulebook log --oneline -1 issue-1199/plugin-landscape-rework
+```
+91b6e0b issue-1199: rework tool-landscape evidence to Claude Code plugin ecosystem
+```
+canonical: git -C /home/jwjung/tokenmaxxxer/rulebooks/architecture-rulebook diff --stat main issue-1199/plugin-landscape-rework — read this session, confirms 3 files changed (the same three playbook rule files from the original fold-in), 7 insertions(+), 6 deletions(-), no other paths touched.
+
+Opened `tokenmaxxxer/architecture-rulebook#27`
+(https://github.com/tokenmaxxxer/architecture-rulebook/pull/27) against
+that repo's `main`, per contract v3 s8 (session opens, does not merge).
+
+Full rework survey: `docs/issue-1199/reports/architecture/scout-brief.md`,
+"## 2026-08-14 rework addendum" section (this repo, this session).
+
+code_under_review (rework):
+- playbook/dependency-direction.md (tokenmaxxxer/architecture-rulebook)
+- playbook/coupling-classification.md (tokenmaxxxer/architecture-rulebook)
+- playbook/module-boundary-definition.md (tokenmaxxxer/architecture-rulebook)
+- docs/issue-1199/reports/architecture/scout-brief.md (this repo)
+
+## Rework evidence trail (Claude Code plugin ecosystem, 2026-08-14 amendment)
+
+1. **blueraai `claude-code-graph`** — adoption evidence: marketplace
+   listing plus multi-source cross-listing (WebSearch this session,
+   https://lobehub.com/skills/blueraai-bluera-base-claude-code-graph);
+   exact star count not surfaced, so evidence rests on the
+   adoption-evidence method's alternative multi-source signal. Problem
+   solved: same as the earlier dependency-cruiser entry below —
+   a declared dependency-direction rule stays unverified without a
+   generated view of the real import graph. How: parses a plugin's
+   manifest/source into a directed dependency graph (DOT/Mermaid/JSON)
+   with cycle detection and orphan/unused-module identification.
+   Learning applied: unchanged design move, `dependency-direction.md`
+   rule 14 — now sourced to this Claude Code-native skill instead of
+   the general-purpose npm CLI tool.
+2. **`Egonex-AI/Understand-Anything`** — 79.2k GitHub stars (WebFetch
+   this session, https://github.com/Egonex-AI/Understand-Anything).
+   Problem solved: same as the earlier CodeScene entry below —
+   static structural coupling severity doesn't say which coupling is
+   actually costing the team time today. How: builds an interactive
+   knowledge graph across major coding agents and includes a "Diff
+   Impact Analysis" feature showing which parts of the system a change
+   ripples into before commit. Learning applied: unchanged design move,
+   `coupling-classification.md` rule 15 — pairing structural severity
+   with an observed-impact/ripple signal, now sourced to this
+   Claude Code-native, high-adoption plugin.
+3. **`cheriftj/c4-model-skill`** — 34 GitHub stars (WebFetch this
+   session, https://github.com/cheriftj/c4-model-skill), corroborated
+   by a second independently-maintained C4 skill
+   (`bitsmuggler/c4-skill`) and a dedicated architecture-skills blog
+   listing (https://skills.thicket.sh/blog/best-claude-code-skills-for-architects).
+   Problem solved: same as the earlier Structurizr entry below —
+   a hand-drawn C4 diagram (image file) can't be diffed in review.
+   How: interactive Claude Code skill generating C4 diagrams
+   (Mermaid/Structurizr DSL/PlantUML) from one text model. Learning
+   applied: unchanged design move, `module-boundary-definition.md` rule
+   15 and the methodology handbook's diagram requirement — now sourced
+   to this Claude Code-native skill.
+4. **`gauravs19/enterprise-architecture-skill`** — 7 GitHub stars
+   (WebFetch this session,
+   https://github.com/gauravs19/enterprise-architecture-skill),
+   corroborated by the same architecture-skills blog listing as #3.
+   Problem solved: same as the earlier Log4brains entry below — a
+   flat set of decision records gives no way to tell which supersedes
+   which. How: unifies C4/ArchiMate/TOGAF/arc42+ADR with a built-in
+   linter that flags "accepted ADRs not linked from any doc." Learning
+   applied: secondary confirming context for the methodology handbook's
+   existing `supersedes`/`superseded_by` decision-lineage requirement —
+   no rule change, since a Claude Code-native skill independently
+   assumes the same lineage-tracking need.
+
+canonical: `docs/issue-1199/reports/architecture/scout-brief.md`,
+"## Superseded survey" heading (this repo, this session). The original
+five-tool domain-basis evidence trail below is kept for record
+continuity (which gap each originally closed); the trail immediately
+above this line is the acceptance-qualifying basis per the 2026-08-14
+amendment.
+
 ## What was done
 
 canonical: `gh issue view 1199 --comments`, read this session — trailing comment body is exactly `APPROVE issue-1199/architecture`.
@@ -112,7 +213,7 @@ this repo carries the evidence trail and decision record; the rulebook
 repo carries only the native rule text the record justifies — no tool
 attribution crosses that boundary.
 
-## Tool-landscape evidence trail (issue-1199 requirements one through three)
+## Superseded evidence trail (pre-2026-08-14, domain-tool basis)
 
 This section is the full evidence trail; none of it is restated in the
 public rulebook (issue-1199's explicit instruction for this role: no

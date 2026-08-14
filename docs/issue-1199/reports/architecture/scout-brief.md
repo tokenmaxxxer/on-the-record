@@ -1,5 +1,81 @@
 # architecture role — tool-landscape scout brief (issue-1199)
 
+## 2026-08-14 rework addendum (Claude Code plugin ecosystem)
+
+Operator amendment (2026-08-14, issue body) redirects the survey target
+from general domain architecture tools (below, kept as superseded
+context) to the Claude Code plugin/skill ecosystem. Rework mode: 2
+parallel WebSearch angles this session (architecture/C4/ADR skills;
+dependency-graph/codebase-analysis skills), each followed by one
+WebFetch deepening call per ambiguous star count — 4 stages total,
+under the 5-stage/3min budget.
+
+1. **blueraai `claude-code-graph`** (listed on LobeHub's skills
+   marketplace; cross-listed in the same GitHub search-topic result set
+   as other maintained Claude Code skills — search this session,
+   https://lobehub.com/skills/blueraai-bluera-base-claude-code-graph;
+   exact star count not surfaced, adoption evidence rests on
+   marketplace-listing + multi-source corroboration, per the
+   adoption-evidence method's alternative signal used for Log4brains in
+   the superseded survey below). Parses a plugin's manifest/source into
+   a directed dependency graph (DOT/Mermaid + JSON), with cycle
+   detection, orphan/unused-module identification, and layer/boundary
+   discovery. Replaces dependency-cruiser as `dependency-direction.md`
+   rule 14's source: same design move (generate the graph from real
+   imports, don't assert it), now evidenced by a Claude Code-native
+   skill instead of a general npm CLI tool.
+2. **`Egonex-AI/Understand-Anything`** — 79.2k GitHub stars (WebFetch
+   this session, https://github.com/Egonex-AI/Understand-Anything).
+   Turns a codebase into an interactive knowledge graph across Claude
+   Code/Codex/Cursor/Copilot/Gemini CLI; its "Diff Impact Analysis"
+   feature shows which parts of the system a change ripples into before
+   commit. Replaces CodeScene as `coupling-classification.md` rule 15's
+   source: pairs structural coupling severity with an observed-impact
+   signal (change ripple, generalizing the git co-change-frequency
+   move) instead of a static metric alone.
+3. **`cheriftj/c4-model-skill`** — 34 GitHub stars (WebFetch this
+   session, https://github.com/cheriftj/c4-model-skill); corroborated
+   by a second, independently-maintained C4 skill
+   (`bitsmuggler/c4-skill`) and a dedicated architecture-skills blog
+   post surfacing the same category (search this session,
+   https://skills.thicket.sh/blog/best-claude-code-skills-for-architects) —
+   multi-source category corroboration, per the adoption-evidence
+   method's alternative signal. Interactive Claude Code skill generating
+   C4 diagrams (Mermaid/Structurizr DSL/PlantUML output) from Simon
+   Brown's model. Replaces Structurizr as `module-boundary-definition.md`
+   rule 15's source: same design move (one text model generates the
+   context/container/component views together), now a Claude Code-native
+   skill.
+4. **`gauravs19/enterprise-architecture-skill`** — 7 GitHub stars
+   (WebFetch this session,
+   https://github.com/gauravs19/enterprise-architecture-skill),
+   corroborated by the same architecture-skills blog listing as #3
+   above. Unifies C4/ArchIMate/TOGAF/arc42+ADR; its built-in linter
+   checks for "accepted ADRs not linked from any doc." Secondary
+   context for the methodology handbook's `supersedes`/`superseded_by`
+   decision-lineage requirement — the same underlying problem (a flat
+   set of decision records losing track of which supersede which) that
+   Log4brains addressed in the superseded survey below, now also solved
+   inside a Claude Code-native skill.
+
+Category-level check: none of the four category must-bes from the
+superseded survey below changed (executable/CI-checked rules,
+diagram-as-code, real-import-graph verification, decision-lineage
+tracking, structural-severity-plus-observed-cost pairing) — the Claude
+Code plugin ecosystem demonstrably assumes the same must-bes as the
+general domain-tool ecosystem did; only the surveyed instrument
+changed, per issue-1199's 2026-08-14 amendment.
+
+Sources (rework addendum):
+- https://lobehub.com/skills/blueraai-bluera-base-claude-code-graph
+- https://github.com/Egonex-AI/Understand-Anything
+- https://github.com/cheriftj/c4-model-skill
+- https://github.com/bitsmuggler/c4-skill
+- https://github.com/gauravs19/enterprise-architecture-skill
+- https://skills.thicket.sh/blog/best-claude-code-skills-for-architects
+
+## Superseded survey (pre-2026-08-14, domain-tool basis — kept for record continuity only)
+
 Mode: parallel WebSearch fan-out, one round, 5 angles in one turn (fitness-
 function testing, C4-diagram-as-code, dependency-graph linting, ADR
 tooling, hotspot/tech-debt analysis), followed by one targeted deepening
