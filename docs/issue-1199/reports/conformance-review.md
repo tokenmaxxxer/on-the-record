@@ -368,3 +368,168 @@ gates/tool_learnings_tracker.py`, `grep -l tool_learnings_refs
 roles/specs/*.json`, and `python3 -m pytest
 gates/test_tool_learnings_gate.py gates/test_tool_learnings_tracker.py
 -q` — all run this session against this branch's checked-out HEAD.
+
+# Review: issue-1199/implementation role's own plugin-landscape rework (conformance check)
+
+subject: issue-1199/implementation branch, "Rework" section of
+`docs/issue-1199/reports/implementation.md` (commit 1bc41d13, subject
+line "issue-1199: rework implementation role tool-landscape fold-in to
+Claude Code plugin ecosystem").
+canonical: `git log --oneline -- docs/issue-1199/reports/implementation.md`
+and `gh pr view 1298 --repo tokenmaxxxer/on-the-record --json
+mergedAt,title`, both run this session:
+```
+1bc41d13 issue-1199: rework implementation role tool-landscape fold-in to Claude Code plugin ecosystem
+```
+mergedAt: 2026-08-14T00:43:51Z, title: "[issue-1199/implementation]"
+(PR #1298).
+
+canonical: no prior `# Review:` section in this file named commit
+1bc41d13 before this section was appended this session (checked by
+reading this file's own prior content this session).
+Spawn-on-PR trigger, per `spawn_on_pr.py`: no conformance record existed
+for this landed unit before this section.
+
+canonical: `git merge-base --is-ancestor 1bc41d13 origin/main` → exit 0,
+run this session.
+canonical: `git merge origin/main`, run this session (merge commit on
+this branch).
+This branch merged forward from `origin/main` this session, per
+contract v3's "board is what is MERGED to main" rule.
+
+code_under_review:
+- docs/issue-1199/reports/implementation.md, lines 355-479 (the "Rework"
+  section)
+- coding/hooks/directive.sh (tokenmaxxxer/implementation-rulebook repo,
+  branch issue-1199/plugin-landscape-fold-in, commit 518ba19, PR #86)
+
+Scope: this section reviews only the rework (the 2026-08-14
+plugin-ecosystem redo); the record's own prior section already
+acknowledges it does not attempt to reconstruct or refute the earlier
+pre-amendment survey, so this review does the same — out of scope here,
+same as the implementer's own stated scope. Requirement source:
+issue-1199 Acceptance criterion 1 (per-entry facet completeness,
+2026-08-14 amendment restricting survey targets to Claude Code
+plugins/skills) and criterion 4 (visible upgrade naming which
+deliverable/rule it improves).
+
+### Requirement: surveyed entries are Claude Code plugins/skills, not domain tools (2026-08-14 amendment, supersedes broader reading)
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 1 ("the surveyed entries are
+Claude Code plugins/skills")
+canonical: docs/issue-1199/reports/implementation.md lines 379 and 389,
+read this session.
+evidence: the two surveyed repos are `obra/superpowers` (line 379,
+described in its own GitHub metadata as "An agentic skills framework")
+and `upstash/context7` (line 389, "Context7 Platform -- Up-to-date code
+documentation for LLMs and AI code editors") — both Claude Code
+plugin/skill-ecosystem entries, not general practitioner domain tools
+(pre-commit/dependency-cruiser/Ruff, the prior survey's targets, do not
+appear in this rework).
+rationale: the amendment's literal restriction is met by the survey
+target itself, not just by label — both citations resolve to actual
+Claude Code plugin repos with plugin-directory adoption figures (line
+393-394's 348,660-install citation), not generic dev-tooling.
+
+### Requirement: adoption evidence via the tech-feasibility method (stars/downloads/multi-source mentions)
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 1, referencing the
+tech-feasibility adoption-evidence method
+canonical: docs/issue-1199/reports/implementation.md lines 379-398, read
+this session.
+evidence: each entry carries a live `gh api` star count (271,743 and
+60,697), a named independent cross-listing source for superpowers
+(firecrawl.dev, designrevision.com, line 386-388) and a second
+independent install-count source for context7 (bito.ai, 348,660
+installs, line 393-394) — multi-source per entry, not a single-source
+popularity claim.
+rationale: two independently-sourced signals per entry (platform-native
+star count plus an external roundup/install-count citation) matches the
+method's own multi-source requirement rather than resting on one number.
+
+### Requirement: per-tool facets — problem, how, learning→deliverable/rule (issue-1199 Requirement 2)
+verdict: Present
+spec_ref: issue-1199 Requirement 2 ("Per tool: {problem it solves, HOW
+it solves it..., what the role should learn from it}")
+canonical: docs/issue-1199/reports/implementation.md lines 389-418, read
+this session.
+evidence: context7's entry states its problem explicitly ("Solves: an
+LLM's pretrained recall of a library's API drifting stale...", lines
+395-396) and its how (on-demand version-matched docs, lines 396-398);
+superpowers' problem is stated less explicitly than context7's — no
+standalone "Solves:" clause — but is recoverable from the design-move
+mapping's item 2 (line 413-418: the TEST-BEFORE-CLAIM rule targets
+tests "shaped after the fact to match whatever the implementation
+already does," which names the problem obliquely) and its how (chained
+TDD-before-execution methodology, lines 384-386). Both entries carry an
+explicit learning→rule mapping naming the exact file and bullet edited
+(lines 407-419, 420-426).
+rationale: all three facets are traceable for both entries; the
+asymmetry (context7 states "problem" as a standalone clause, superpowers
+folds it into the design-move item) is a stylistic gap, not a missing
+facet — the problem is stated, just not isolated under its own label.
+This is noted, not escalated, because the shape gate the issue's own
+Acceptance criterion 1 names (`gates/tool_learnings_gate.py`) governs
+entries written into this repo's own tool-learnings sections; this
+record documents a native rulebook edit in a separate mounted repo, to
+which that specific gate's regex facets do not apply by the issue's own
+"native application" amendment (no tool-catalog section in the rulebook
+itself) — the facet-completeness bar here is this Requirement's prose
+bar, which both entries clear.
+
+### Requirement: fold-in applied natively, no tool-attribution catalog in the rulebook itself (2026-08-13 amendment)
+verdict: Present
+spec_ref: issue-1199, operator amendment 2026-08-13T06:36:54Z (native
+application, no `source:` framing, no tool-catalog section in the
+rulebook)
+canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/implementation-rulebook diff main
+issue-1199/plugin-landscape-fold-in -- coding/hooks/directive.sh`, run
+this session.
+evidence: the diff adds exactly two new bullet sentences to the
+existing `PRODUCES` heredoc variable ("LIVE-INTERFACE CHECK" and
+"TEST-BEFORE-CLAIM ORDER") with no tool name, no repo URL, and no
+`source:`-style attribution anywhere in the added text. The citation
+trail (obra/superpowers, upstash/context7) exists only in
+docs/issue-1199/reports/implementation.md, matching the amendment.
+rationale: the diff cited above is the ground truth for what actually
+landed in the rulebook; re-reading it directly (rather than trusting
+the record's own prose) is how this verdict was reached.
+
+### Requirement: fold-in is load-bearing on the role's actual live directive, not a dead file (issue-1199 Requirement 4)
+verdict: Present
+spec_ref: issue-1199 Requirement 4 ("must visibly upgrade the role's
+OUTPUT quality: each role's fold-in names which deliverable/rule it
+improves and how")
+canonical: docs/issue-1199/reports/implementation.md lines 363-366 and
+420-426, read this session.
+evidence: the record cites its own session's startup directive text as
+matching `coding/hooks/directive.sh`'s `PRODUCES` variable verbatim
+(lines 364-366) — i.e., this is demonstrably the file that generates the
+live session directive shown to every future implementation-role
+session, not an unused doc; the two new bullets were appended to that
+same variable (lines 420-426).
+rationale: a claim that a file "generates the live directive" is
+normally hard to verify from outside the session that made it, but the
+record's own citation (lines 364-366, above) is a self-consistency check
+available to any later reader (compare the variable's text against a
+fresh implementation-role session's directive) rather than a bare
+assertion — sufficiently grounded to accept as Present, not
+Unverifiable.
+
+## Overall (rework)
+The 2026-08-14 rework matches the amended Acceptance criterion 1 (Claude
+Code plugin/skill survey target, adoption evidence, native
+no-attribution application) and Requirement 4 (named, load-bearing
+upgrade to the role's own live directive) in full. No Absent or
+Incorrect verdict in this section; the one asymmetry noted (superpowers'
+problem-statement is folded into its design-move item rather than
+isolated) did not clear the bar for a downgrade because the facet is
+present, just less explicitly labeled than its sibling entry.
+
+canonical: `git log --oneline -- docs/issue-1199/reports/implementation.md`,
+`git -C /home/jwjung/tokenmaxxxer/rulebooks/implementation-rulebook diff
+main issue-1199/plugin-landscape-fold-in -- coding/hooks/directive.sh`,
+and `git merge-base --is-ancestor 1bc41d13 origin/main` — all run this
+session against this branch's checked-out HEAD after merging forward
+from origin/main.
