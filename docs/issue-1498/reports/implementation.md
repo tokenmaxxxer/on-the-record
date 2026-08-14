@@ -130,6 +130,41 @@ canonical: `python3 -m pytest tests/test_gh_quota_guard.py::test_sweep_call_budg
 1 passed in 0.16s
 ```
 
+amendments-reconciled: issuecomment-5294696624 ("LIVE DIAGNOSIS
+CORRECTION", orchestrator, posted after this session's approval comment)
+— the reconciliation for the deviation above.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5294696624 --jq .body`,
+read this session.
+That comment independently confirmed the same per-subject site, citing a
+live sample of GraphQL burn rate and the `spawn_on_pr.py` line numbers
+for all three call sites.
+
+canonical: same comment body, third bullet ("Call graph:"), read this
+session.
+It additionally named a call site this session's own
+`test_sweep_call_budget` run had not exercised: `_missing_verification_closed()`.
+
+canonical: gates/spawn_on_pr.py, `_missing_verification_closed`'s
+docstring, read this session.
+That function backs only the opt-in backfill CLI path, never the
+automatic watchdog tick, but shares the same per-subject
+`_pr_open_or_merged_for_branch` pattern. Migrated it to the same
+bulk-index join as the other two sites for consistency, still inside the
+frozen write set (`gates/spawn_on_pr.py`).
+
+canonical: same comment body, first bullet ("Measured burn:"), read this
+session — before-state: real production GraphQL burn observed at ~111
+calls/minute with zero role-session gh calls (the sweep alone).
+
+canonical: `python3 -m pytest tests/test_gh_quota_guard.py::test_sweep_call_budget -q`,
+run this turn (same run cited above) — after-state: the full
+`_board_wide_sweep` (all three gh-calling signals, spawn_on_pr included)
+over a synthetic 400-subject board makes 5 gh calls in that one tick,
+independent of subject count (the fixture's 400 subjects are all missing
+roles, so the count is dominated by the fixed bulk-index call sites, not
+subject count).
+
 ## What did not work
 
 - First cut of `test_recheck_backoff` assumed the 3rd consecutive
