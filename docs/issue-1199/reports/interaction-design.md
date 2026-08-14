@@ -505,3 +505,19 @@ own pattern, not a new systemic issue.
 Interaction-design row in issue #1199's 43-item tracker was already
 checked from the 2026-08-13 landing; this additive rework does not
 unset it (per the proposal's own judged-by clause (c)).
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288244504`, read this session
+issuecomment-5288244504 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-14T01:09:57Z, after this record's
+own commit landed on `issue-1199/interaction-design`) is a
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+PR, not this interaction-design unit — no amendment to this unit's
+scope or record content.
+amendments-reconciled: issuecomment-5288244504 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record. This unit's own `gh pr create` against
+`tokenmaxxxer/on-the-record` is hitting the same reconcile-then-retry
+race; per the retries-stop precedent above, this session stops here —
+the record commit is already pushed to
+`origin/issue-1199/interaction-design`, and this note relays the branch
+for external PR-open.
