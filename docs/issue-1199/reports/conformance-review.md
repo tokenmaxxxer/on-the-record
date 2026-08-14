@@ -719,3 +719,112 @@ same lone failing case named by the pre-rework record's own derived
 pre-change stash re-run (docs/issue-1199/reports/implementation.md
 lines 198-203, read this session), against current HEAD rather than
 reconstructed from the record's prose alone.
+
+# Review: issue-1199/implementation branch, trailing watcher-reconciliation commits (conformance check)
+
+subject: issue-1199/implementation branch, commits f0f1187c, 7a8d1dc9,
+and da4f802e (subjects: "reconcile trailing watcher comment
+(architecture branch, not this one)", "reconcile second watcher
+comment (architecture branch)", "log PR-create watcher deadlock, stop
+retrying this turn"). canonical: `git log --oneline -3
+f0f1187c^..da4f802e -- docs/issue-1199/reports/implementation.md`, run
+this session:
+```
+da4f802e issue-1199: log PR-create watcher deadlock, stop retrying this turn
+7a8d1dc9 issue-1199: reconcile second watcher comment (architecture branch)
+f0f1187c issue-1199: reconcile trailing watcher comment (architecture branch, not this one)
+```
+canonical: `git merge-base --is-ancestor da4f802e origin/main`, run
+this session, exit 0 — all three commits are on main.
+
+canonical: reading this file's own prior content this session (search
+for "f0f1187c", "7a8d1dc9", "da4f802e" above this section) — no prior
+`# Review:` section named any of the three before this section was
+appended. Spawn-on-PR trigger, per `spawn_on_pr.py`: no conformance
+record existed for these landed units before this section.
+
+code_under_review:
+- docs/issue-1199/reports/implementation.md, lines 478-523 (the three
+  appended reconciliation blocks)
+
+canonical: `git show f0f1187c -- docs/issue-1199/reports/implementation.md`,
+`git show 7a8d1dc9 -- docs/issue-1199/reports/implementation.md`, and
+`git show da4f802e -- docs/issue-1199/reports/implementation.md`, all
+run this session. Scope: each diff adds only a
+`canonical:`/`amendments-reconciled:` block logging one automated
+judgment-watcher comment; f0f1187c and 7a8d1dc9's own appended text
+each states "no change to this delivery's scope, write set, or
+verdict"; da4f802e's appended text is a stop-retrying deadlock note.
+None of the three diffs touch a rulebook file, add a tool-survey
+entry, or add a facet claim.
+
+canonical: this file's own "### Requirement:" headings under the
+"Rework" and "pre-rework delivery" sections above, read this session —
+the substantive Acceptance criteria were already fully verdicted
+there; these three commits, per the diffs cited directly above, make
+no new claim against those criteria.
+
+### Requirement: each reconciliation entry's stated scope ("no change to ... verdict") matches its actual diff
+verdict: Present
+spec_ref: contract v3 record-accuracy norm
+canonical: `git show f0f1187c -- docs/issue-1199/reports/implementation.md`
+and `git show 7a8d1dc9 -- docs/issue-1199/reports/implementation.md`,
+both run this session.
+evidence: both diffs (canonical directly above) add prose only, naming
+a comment ID (issuecomment-5288015865, issuecomment-5288018954) on
+branch `issue-1199/architecture` — a different role/branch than this
+one — and asserting no scope/write-set/verdict change; the same diffs
+touch no line outside the appended block, so the assertion matches
+what the diff actually contains.
+canonical: `git show f0f1187c -- docs/issue-1199/reports/implementation.md`
+and `git show 7a8d1dc9 -- docs/issue-1199/reports/implementation.md`,
+both run this session — no other section of the file was altered by
+either commit.
+rationale: the claim being checked ("no change") is falsifiable
+against the diffs cited directly above, and they hold up.
+
+### Requirement: the deadlock-stop commit (da4f802e) accurately states delivery status (committed+pushed, PR-open pending)
+verdict: Present
+spec_ref: contract v3 record-accuracy norm (mirrors the Incorrect
+finding already recorded above against commit 9dd5ea36 for the same
+class of claim)
+canonical: `git show da4f802e -- docs/issue-1199/reports/implementation.md`,
+run this session; `git log --oneline -1 origin/issue-1199/implementation`,
+run this session, output `da4f802e issue-1199: log PR-create watcher
+deadlock, stop retrying this turn`.
+evidence: the added text states the branch's commits "are committed
+and pushed to `origin/issue-1199/implementation` regardless of this
+on-the-record-side PR-open outcome" and separately states the
+implementation-rulebook repo's own PR (#86) "is separately already
+open."
+canonical: `git log --oneline -1 origin/issue-1199/implementation`, run
+this session, output `da4f802e issue-1199: log PR-create watcher
+deadlock, stop retrying this turn` — the push claim is confirmed: that
+sha matches the branch's actual current tip.
+canonical: this file's own "Rework" section above (search this file
+for "PR #1298"), read this session — PR #86's open state was already
+independently checked live in that same section; this section relies
+on that prior in-file citation rather than re-fetching it. Unlike
+commit 9dd5ea36's earlier Incorrect finding, this commit does not
+claim the on-the-record PR is open — it explicitly defers that ("left
+to a follow-up attempt"), so it makes no false claim of the kind
+already caught above.
+rationale: applying the same accuracy check that caught the earlier
+Incorrect verdict, this commit's narrower, more hedged claim holds up
+against the canonicals cited directly above.
+
+## Overall (trailing watcher-reconciliation commits)
+All three commits are non-substantive bookkeeping against already-
+verdicted content (the rework and pre-rework sections above) — they
+add no new tool-survey claim, no new rulebook edit, and no new facet
+claim requiring a fresh Acceptance-criterion verdict. Both accuracy
+checks performed here (scope-match, deadlock-stop status) hold. No
+Absent/Incorrect verdict in this section.
+
+canonical: `git log --oneline -3 f0f1187c^..da4f802e --
+docs/issue-1199/reports/implementation.md`, `git show f0f1187c --
+docs/issue-1199/reports/implementation.md`, `git show 7a8d1dc9 --
+docs/issue-1199/reports/implementation.md`, `git show da4f802e --
+docs/issue-1199/reports/implementation.md`, and `git merge-base
+--is-ancestor da4f802e origin/main` — all run this session against
+this branch's checked-out HEAD.
