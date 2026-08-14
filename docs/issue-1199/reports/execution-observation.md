@@ -328,6 +328,21 @@ new commit (5e62a745). It names no branch, no PR, and no instruction
 changing this record's scope, write set, or verdict; same
 reconciliation applies.
 
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288197397`, read this session, second PR-create attempt.
+
+amendments-reconciled: issuecomment-5288197397 — another repeat of the
+same automated judgment-watcher "Verdict" message, posted after the
+immediately-prior reconcile (d81bae3c) — the same deadlock pattern
+already documented in this record's own earlier "Amendments
+reconciled" section and in `docs/issue-1199/reports/implementation.md`.
+Per that precedent's fallback, if the next `gh pr create` attempt also
+hits a fresh comment posted after this reconcile, this session stops
+retrying: this repo's commit (d81bae3c, superseded by this commit) is
+already pushed on `origin/issue-1199/execution-observation`, and the
+rulebook repo's commit 326ec91 is already pushed with PR #71 open —
+satisfying commit+push for both halves of this delivery regardless of
+this PR's open success.
+
 This repo's own commit adding this update is on
 `issue-1199/execution-observation` here (this branch), pushed, and
 PR-open is retried next in this session. loop_state stays
