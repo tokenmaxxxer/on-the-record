@@ -142,3 +142,10 @@ landed here) as an unnumbered delegated-judgment candidate; it names
 no PR number and predates this session's `gh pr create` call, so it is
 not a verdict on a PR that exists — no content amendment to this
 record is warranted, matching the same reconciliation precedent above.
+
+amendments-reconciled: issuecomment-5288019102 ("Verdict: PR #? →
+escalate ..."), preceded by issuecomment-5288018954 ("Judgment opened:
+... branch `issue-1199/architecture` (2 path(s) changed)"). canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments`, read
+this session — this pairing is for the architecture role's branch, not
+brand-design; no content amendment warranted.
