@@ -22,7 +22,7 @@ updating "Resolved ambiguities" if the edit touches a resolved point.
 | `docs/specs/approvers.md` | `bbcb4e239a5aed872956a01acc04c9431027a1f2df483b53265f72577ba16ab9` |
 | `docs/specs/flows-schema.md` | `78440f72845e44c8ed5eb6814890bff5a325d1736633365d78f8d7ceb061adbb` |
 | `docs/handbooks/on-the-record.md` | `9e314a347f6265950b2eedc791891e329255ee4adf9f6b5ffab5554f2e6e20f1` |
-| `docs/handbooks/operations.md` | `050addd2a66a42a7c992d6f7d682de4e22499f0d55389f102f45dbf1cf60c172` |
+| `docs/handbooks/operations.md` | `e7a350bf09d215dd3db1a4234b57a4df72e07edff893e8db6b5647c96f5da1ff` |
 | `docs/handbooks/setup.md` | `bd14626a298df6e5d516a49d38f59ceb14e652396462a188bb42fd4ecf565e3c` |
 | `on-the-record/commands/run.md` | `4ef2f433276d2c78002f40f7da6f1e51dba8ca6f103d15217a0c032be7685a56` |
 | `roles/specs/brand-design.spec.json` | `734165295e03715cd1c528efc36ef4f41be53e845ac8e8b628a299d3a44930d2` |
