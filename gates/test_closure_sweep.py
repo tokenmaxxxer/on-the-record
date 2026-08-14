@@ -3,6 +3,7 @@
 
   python3 -m pytest gates/test_closure_sweep.py
 """
+import json
 import shutil
 import subprocess
 import sys
@@ -14,7 +15,6 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import closure_sweep
-import spawn
 
 
 class IssueViewFailure(unittest.TestCase):
@@ -51,43 +51,127 @@ class PrViewFailure(unittest.TestCase):
 
 class FindViolationsSkips(unittest.TestCase):
     """gh 실패로 확인 못한 subject 는 skips 에 남는다 — violations 가 0건
-    이어도 "checked, clean" 이 아니다."""
+    이어도 "checked, clean" 이 아니다.
+
+    issue #1320: 스윕 경로는 O(1) gh 호출만 쓴다 — 벌크 인덱스가 실패/잘림
+    이어도 더 이상 `_issue_view`/`_pr_view_state_body` 개별 조회로
+    되돌아가지 않고, 곧장 skip 이 된다."""
 
     def setUp(self):
-        self.orig_issue_view = closure_sweep._issue_view
-        self.orig_pr_for_branch = spawn._pr_for_branch
-        self.addCleanup(setattr, closure_sweep, "_issue_view", self.orig_issue_view)
-        self.addCleanup(setattr, spawn, "_pr_for_branch", self.orig_pr_for_branch)
+        self.orig_issue_state_index_all = closure_sweep.issue_state_index_all
+        self.orig_pr_index_all = closure_sweep._pr_index_all
+        self.addCleanup(setattr, closure_sweep, "issue_state_index_all",
+                         self.orig_issue_state_index_all)
+        self.addCleanup(setattr, closure_sweep, "_pr_index_all", self.orig_pr_index_all)
 
-    def test_issue_view_failure_is_a_skip_not_a_silent_pass(self):
-        closure_sweep._issue_view = lambda root, issue: (None, False)
-        spawn._pr_for_branch = lambda root, branch: None
+    def test_issue_list_failure_is_a_skip_not_a_silent_pass(self):
+        closure_sweep.issue_state_index_all = lambda root: (None, False)
+        closure_sweep._pr_index_all = lambda root: ({}, True)
         subjects = {"issue-135": {"implementation": {}}}
         violations, skips = closure_sweep.find_violations(Path("."), subjects=subjects)
         self.assertEqual(violations, [])
         self.assertEqual(len(skips), 1)
         self.assertEqual(skips[0]["subject"], "issue-135")
-        self.assertEqual(skips[0]["reason"], "gh-issue-view-failed")
+        self.assertEqual(skips[0]["reason"], "gh-issue-list-failed")
 
-    def test_pr_view_failure_is_a_skip(self):
-        # issue #682: find_violations now resolves branch->PR via one
-        # `_pr_index_all` list call; the per-branch `_pr_for_branch`/
-        # `_pr_view_state_body` fallback only fires when that list was
-        # truncated (`(None, True)`) — force that path to still exercise
-        # the individual-lookup failure this test targets.
-        closure_sweep._issue_view = lambda root, issue: ("OPEN", True)
-        orig_pr_index_all = closure_sweep._pr_index_all
+    def test_pr_list_truncation_is_a_skip_with_no_per_item_fallback(self):
+        closure_sweep.issue_state_index_all = lambda root: ({135: "OPEN"}, True)
         closure_sweep._pr_index_all = lambda root: (None, True)
-        self.addCleanup(setattr, closure_sweep, "_pr_index_all", orig_pr_index_all)
-        spawn._pr_for_branch = lambda root, branch: 42
-        orig_pr_view = closure_sweep._pr_view_state_body
-        closure_sweep._pr_view_state_body = lambda root, pr: (None, False)
-        self.addCleanup(setattr, closure_sweep, "_pr_view_state_body", orig_pr_view)
-        subjects = {"issue-135": {"implementation": {}}}
-        violations, skips = closure_sweep.find_violations(Path("."), subjects=subjects)
+        with mock.patch.object(closure_sweep.subprocess, "run") as run:
+            subjects = {"issue-135": {"implementation": {}}}
+            violations, skips = closure_sweep.find_violations(Path("."), subjects=subjects)
+        run.assert_not_called()
         self.assertEqual(violations, [])
         self.assertEqual(len(skips), 1)
-        self.assertEqual(skips[0]["reason"], "gh-pr-view-failed")
+        self.assertEqual(skips[0]["reason"], "gh-pr-list-truncated")
+
+    def test_no_gh_issue_or_pr_view_invoked_in_sweep_path(self):
+        """issue #1320 acceptance (b): any `gh issue view`/`gh pr view`
+        call from the sweep path is a failure — assert directly on the
+        subprocess.run argv the sweep issues."""
+        closure_sweep.issue_state_index_all = lambda root: (None, False)
+        closure_sweep._pr_index_all = lambda root: (None, False)
+        with mock.patch.object(closure_sweep.subprocess, "run") as run:
+            subjects = {f"issue-{n}": {"implementation": {}} for n in range(1, 51)}
+            closure_sweep.find_violations(Path("."), subjects=subjects)
+        run.assert_not_called()
+
+    def test_sweep_gh_call_count_is_constant_in_board_size(self):
+        """issue #1320 acceptance (a): constant gh invocations for N in
+        {5, 50}."""
+        def run_stub(cmd, cwd=None, capture_output=None, text=None):
+            if cmd[:2] == ["gh", "issue"]:
+                return mock.Mock(returncode=0, stdout=json.dumps(
+                    [{"number": n, "state": "OPEN"} for n in range(1, 51)]))
+            if cmd[:2] == ["gh", "pr"]:
+                return mock.Mock(returncode=0, stdout=json.dumps([]))
+            raise AssertionError(f"unexpected gh call in sweep path: {cmd}")
+
+        for n in (5, 50):
+            subjects = {f"issue-{i}": {"implementation": {}} for i in range(1, n + 1)}
+            with mock.patch.object(closure_sweep.subprocess, "run", side_effect=run_stub) as run:
+                closure_sweep.find_violations(Path("."), subjects=subjects)
+            self.assertEqual(run.call_count, 2)
+
+
+class RateLimitGuard(unittest.TestCase):
+    """issue #1320 requirement 3/acceptance (c): pre-sweep GraphQL
+    rate-limit guard."""
+
+    def test_remaining_parsed_from_rate_limit_api(self):
+        with mock.patch.object(closure_sweep.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout=json.dumps(
+                {"resources": {"graphql": {"remaining": 42}}}))
+            remaining, ok = closure_sweep.rate_limit_remaining(Path("."))
+        self.assertTrue(ok)
+        self.assertEqual(remaining, 42)
+
+    def test_gh_failure_yields_ok_false(self):
+        with mock.patch.object(closure_sweep.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=1, stdout="")
+            remaining, ok = closure_sweep.rate_limit_remaining(Path("."))
+        self.assertFalse(ok)
+        self.assertIsNone(remaining)
+
+    def test_main_short_circuits_below_threshold(self):
+        orig_rate_limit_remaining = closure_sweep.rate_limit_remaining
+        closure_sweep.rate_limit_remaining = lambda root: (137, True)
+        self.addCleanup(setattr, closure_sweep, "rate_limit_remaining", orig_rate_limit_remaining)
+        orig_find_violations = closure_sweep.find_violations
+        called = []
+        closure_sweep.find_violations = lambda *a, **k: called.append(1)
+        self.addCleanup(setattr, closure_sweep, "find_violations", orig_find_violations)
+
+        argv = sys.argv
+        sys.argv = ["closure_sweep.py"]
+        self.addCleanup(setattr, sys, "argv", argv)
+
+        buf = []
+        with mock.patch("builtins.print", side_effect=lambda *a, **k: buf.append(" ".join(str(x) for x in a))):
+            rc = closure_sweep.main()
+        self.assertEqual(rc, 2)
+        self.assertEqual(called, [])
+        self.assertEqual(buf, ["[watchdog] board-sweep: 미집계 (rate-limit, remaining=137)"])
+
+    def test_main_proceeds_when_above_threshold(self):
+        orig_rate_limit_remaining = closure_sweep.rate_limit_remaining
+        closure_sweep.rate_limit_remaining = lambda root: (5000, True)
+        self.addCleanup(setattr, closure_sweep, "rate_limit_remaining", orig_rate_limit_remaining)
+        orig_issue_state_index_all = closure_sweep.issue_state_index_all
+        closure_sweep.issue_state_index_all = lambda root: ({}, True)
+        self.addCleanup(setattr, closure_sweep, "issue_state_index_all",
+                         orig_issue_state_index_all)
+        orig_find_violations = closure_sweep.find_violations
+        closure_sweep.find_violations = lambda root, subjects=None, issue_states=None: ([], [])
+        self.addCleanup(setattr, closure_sweep, "find_violations", orig_find_violations)
+
+        argv = sys.argv
+        sys.argv = ["closure_sweep.py"]
+        self.addCleanup(setattr, sys, "argv", argv)
+
+        with mock.patch("builtins.print"):
+            rc = closure_sweep.main()
+        self.assertEqual(rc, 0)
 
 
 class MainExitCode(unittest.TestCase):
