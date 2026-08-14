@@ -160,3 +160,85 @@ against a live, self-replenishing comment stream are not attempted
 again this session — the branch is committed and pushed
 (origin/issue-1199/legal-compliance); PR creation is left for external
 relay or a later retry outside this comment-arrival window.
+
+## Rework: Claude Code plugin ecosystem (2026-08-14 amendment)
+
+### What was done
+canonical: the issue-1199 tool-landscape REWORK amendment text
+delivered in this session's invocation prompt (2026-08-14 amendment
+paragraph, read this session). It narrows this program's survey target
+to the Claude Code plugin/skill ecosystem, superseding this unit's
+2026-08-13 round above (Klaro, REUSE, ScanCode, IAB TCF, OneTrust).
+This session ran a fresh sweep restricted to that ecosystem and folded
+the result in as an addition to, not a replacement of, the existing
+playbook rule-5 entries, per the amendment's own "ADD... into the
+rulebook's own fold-in convention" wording:
+
+- Surveyed three Claude Code plugins/skills with the tech-feasibility
+  adoption-evidence method (GitHub stars/forks and, where the source
+  states one, a benchmark figure — fetched this session): Claude Skills
+  for Governance, Risk & Compliance (826 stars, 170 forks, repo-stated
+  94%-vs-81% benchmark figure), Claude Legal Skill (408 stars,
+  CUAD-based), and Privacy & Data Protection Skills (223 stars, 52
+  forks). Full per-tool {problem, how, learning} analysis and source
+  list: canonical: docs/issue-1199/reports/legal-compliance/
+  scout-brief-plugin-rework.md (this repo, "Sources" section, written
+  this session).
+- Added a new file, docs/handbooks/legal-compliance/tool-learnings.md,
+  in the rulebook repo (tokenmaxxxer/legal-compliance-rulebook, mounted
+  at /home/jwjung/tokenmaxxxer/rulebooks/legal-compliance-rulebook),
+  following the same "Tool learnings" convention the brand-design unit
+  used for issue-1199 (canonical:
+  /home/jwjung/tokenmaxxxer/rulebooks/brand-design-rulebook/docs/
+  handbooks/brand-design/methodology.md, "## Tool learnings (issue-1199)"
+  section, read this session). Three entries, each carrying {tool,
+  adoption evidence, problem, how, learning→which existing playbook
+  rule it upgrades} with fetched-source citations:
+  - Sushegaad GRC skills → names which regime playbook/vendor-dpa.md
+    rule 5's per-vendor check must cover explicitly when more than one
+    regime applies to the same vendor.
+  - evolsb claude-legal-skill → adds a per-finding severity rating
+    (Critical/Important/Acceptable) to
+    playbook/license-compatibility.md rule 5's per-component check.
+  - mukul975 privacy-data-protection-skills → requires
+    playbook/retention-minimization.md rule 5's enforcement-mechanism
+    citation to name the specific article/section, not the regulation
+    alone.
+- This addition does not delete, reword, or renumber any existing
+  playbook rule (rules 1-5 in each of the four files, landed by the
+  2026-08-13 unit, are unchanged) — it is a new file, additive to the
+  existing rule-5 entries it names, per the amendment's explicit "ADD"
+  wording (superseding this unit's earlier session-specific
+  no-attribution instruction, which the 2026-08-14 amendment does not
+  carry forward).
+- Committed in the rulebook repo (commit
+  757907440ea0878db73b18e1cde25366e681df0f, subject: issue-1199;
+  canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/legal-compliance-rulebook
+  log -1 --stat`, read this session), pushed to
+  origin/issue-1199/legal-compliance.
+
+### Why
+canonical: docs/issue-1199/reports/legal-compliance/
+scout-brief-plugin-rework.md, "Reason for this rework" paragraph (this
+repo, written this session). The prior survey's basis was general
+legal-compliance domain tools, not Claude Code plugins/skills — the
+gap this rework closes.
+
+### Verdict
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/legal-compliance-rulebook
+show 757907440ea0878db73b18e1cde25366e681df0f --stat` (executed this
+session) — result: exactly one new file
+(docs/handbooks/legal-compliance/tool-learnings.md, 75 insertions)
+added, no existing file changed, matching the amendment's "ADD"
+wording.
+
+### loop_state
+landed — the named upgrade file
+(docs/handbooks/legal-compliance/tool-learnings.md) has been edited and
+pushed to origin/issue-1199/legal-compliance in the rulebook repo.
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/legal-compliance-rulebook
+log --oneline -1 origin/issue-1199/legal-compliance` (executed this
+session).
+
+### Open findings
+None.
