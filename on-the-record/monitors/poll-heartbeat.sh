@@ -115,6 +115,31 @@ fi
 # cleanup errors).
 python3 "${SCRIPT_DIR}/../../spawn.py" gc-monitor-alive >/dev/null 2>&1 || true
 
+# issue #1466: poll-watchdog.log gets an ISO-8601 tick-header line per
+# appended tick and single-generation size-based rotation (to `.1`), both
+# non-fatal to this loop. Confirmed (docs/issue-1466/reports/implementation/survey.md
+# "Existing-parser check") no existing tool parses this log's current
+# format before adding the header/rotation. Threshold overridable for
+# tests via POLL_WATCHDOG_LOG_MAX_BYTES; unset in production (default
+# 5MB). This only touches the on-disk log -- the Monitor stdout paths
+# below (printed_text/diff_output) are untouched.
+POLL_WATCHDOG_LOG_MAX_BYTES="${POLL_WATCHDOG_LOG_MAX_BYTES:-5242880}"
+
+_poll_watchdog_log_append() {
+  local log_path="${HOME}/.claude/tokenmaxxxer/poll-watchdog.log"
+  local body="$1"
+  mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null || true
+  local size
+  size="$(wc -c <"${log_path}" 2>/dev/null || echo 0)"
+  size="${size//[[:space:]]/}"
+  if [ -n "${size}" ] && [ "${size}" -gt "${POLL_WATCHDOG_LOG_MAX_BYTES}" ] 2>/dev/null; then
+    mv -f "${log_path}" "${log_path}.1" 2>/dev/null || true
+  fi
+  local header
+  header="[tick] $(date +'%Y-%m-%dT%H:%M:%S%z')"
+  { printf '%s\n' "${header}"; printf '%s\n' "${body}"; } >>"${log_path}" 2>/dev/null || true
+}
+
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
 sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-60}"
@@ -125,8 +150,7 @@ while true; do
   if [ "${due_rc}" -eq 0 ]; then
     report="$(python3 "${CHECKOUT}/spawn.py" watchdog --auto-respawn 2>&1)"
     watchdog_rc=$?
-    mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
-    printf '%s\n' "${report}" >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
+    _poll_watchdog_log_append "${report}"
     if [ -n "${report}" ]; then
       printed_text="${report}"
     else
@@ -251,9 +275,7 @@ PY
     fi
   else
     if [ -n "${due_out}" ]; then
-      mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
-      printf '[poll-due crashed, rc=%s] %s\n' "${due_rc}" "${due_out}" \
-        >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
+      _poll_watchdog_log_append "$(printf '[poll-due crashed, rc=%s] %s' "${due_rc}" "${due_out}")"
     fi
     # issue #1220: non-due ticks are now fully silent (no "skipped (within
     # TTL)" line) — delta-only emission means a normal within-TTL tick
