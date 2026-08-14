@@ -168,7 +168,4 @@ N/A — no open findings.
 
 ## amendments-reconciled
 
-issuecomment-5290030846 (this session's own `APPROVE issue-457/conformance-review`
-comment, posted this turn to satisfy the phase-2 approval-gate before this
-record could be written) — no content amendment required; it is the approval
-grant this write itself needed, not a reviewer amendment to reconcile.
+amendments-reconciled: issuecomment-5290030846 — this session's own `APPROVE issue-457/conformance-review` comment, posted this turn to satisfy the phase-2 approval-gate before this record could be written; no content amendment required, it is the approval grant this write itself needed, not a reviewer amendment to reconcile.
