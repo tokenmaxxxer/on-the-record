@@ -4,6 +4,22 @@ doc-type: reference
 
 ## Amendments reconciled
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288005664
+issuecomment-5288005664 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is the same
+delegated-judgment verdict pattern for a different issue-1199 fan-out
+branch's implementation PR, not this technical-writing unit — no
+amendment to this unit's scope. This is the same reconcile-then-retry-
+`gh pr create` deadlock already logged in this issue's history (commit
+df36363, and this session's own prior reconciliation above) — per that
+precedent, retries stop here rather than looping; the branch is
+committed and pushed (commit b6a6b0c0 on `issue-1199/technical-writing`
+at origin) for external relay to open the delivery PR.
+amendments-reconciled: issuecomment-5288005664 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken
+beyond this reconciliation line; PR-create retries stop per the logged
+deadlock precedent.
+
 canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288001972
 issuecomment-5288001972 ("Verdict: PR #? → escalate (depth or impact
 axis did not clear)", posted after this session started) is a
