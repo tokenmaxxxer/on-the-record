@@ -828,3 +828,173 @@ docs/issue-1199/reports/implementation.md`, `git show da4f802e --
 docs/issue-1199/reports/implementation.md`, and `git merge-base
 --is-ancestor da4f802e origin/main` — all run this session against
 this branch's checked-out HEAD.
+
+# Review: issue-1199/accessibility role's tool-landscape fold-in (conformance check)
+
+subject: issue-1199/accessibility branch, both rounds landed via PR #1248.
+canonical: `gh pr view 1248 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt,title,url`, run this session:
+```
+mergedAt: 2026-08-14T07:39:38Z
+commits: 3376b6e,5a6aed8,d725034,a445a50,0c9a76a,1d40ca42,bff9e1d,053f3e20
+```
+The first five commits are the 2026-08-13 domain-tool round (paired with
+rulebook commit 800bb11 below); the last three are the 2026-08-14
+plugin-ecosystem rework (paired with rulebook commit eb271ac below).
+
+canonical: reading this file's own prior content this session (search for
+"accessibility" above this section) — no prior `# Review:` section named
+this branch or either rulebook commit before this section was appended.
+Spawn-on-PR trigger, per `spawn_on_pr.py`: no conformance record existed
+for this landed unit before this section.
+canonical: `gh pr list --repo tokenmaxxxer/on-the-record --search
+"issue-1199" --state all --limit 30 --json number,mergedAt`, run this
+session — PR #1248's mergedAt (2026-08-14T07:39:38Z, cited above) is the
+newest mergedAt timestamp of any issue-1199 role PR in that output.
+
+canonical: `git merge origin/main`, run this session — this branch merged
+forward from `origin/main` this session to bring
+`docs/issue-1199/reports/accessibility.md` and its subdirectory into this
+branch's tree before review.
+
+code_under_review:
+- docs/issue-1199/reports/accessibility.md
+- docs/issue-1199/reports/accessibility/current-state-survey.md
+- docs/issue-1199/reports/accessibility/scout-brief.md
+- docs/issue-1199/reports/accessibility/scout-brief-plugins.md
+- docs/issue-1199/reports/accessibility/deviation-log.md
+- docs/issue-1199/proposals/2026-08-13-accessibility-tool-landscape.md
+- docs/issue-1199/proposals/2026-08-14-accessibility-plugin-tool-landscape-rework.md
+- playbook/aria-and-contrast-rules.md (tokenmaxxxer/accessibility-rulebook repo)
+- wcag-em-checklist/checklists/wcag-em.md (tokenmaxxxer/accessibility-rulebook repo)
+
+Scope: both rounds landed in the same merged PR (canonical: the commit list
+above), so this section reviews both together rather than splitting into
+two sections. Requirement source: issue-1199 Acceptance criterion 1 (Claude
+Code plugin/skill survey target for the rework round, native no-attribution
+rulebook edits per the operator's amendment), Requirement 4 (visible,
+load-bearing upgrade), and contract v3's record-accuracy norm.
+
+### Requirement: 2026-08-14 rework's surveyed entries are Claude Code plugins/skills, not domain tools
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 1 ("the surveyed entries are
+Claude Code plugins/skills")
+canonical: `curl -s https://api.github.com/repos/Community-Access/accessibility-agents`
+and `curl -s https://api.github.com/repos/Owl-Listener/inclusive-design-skills`,
+both run this session:
+```
+"stargazers_count": 390
+"stargazers_count": 93
+```
+evidence: both figures match `docs/issue-1199/reports/accessibility/scout-brief-plugins.md`'s
+cited star counts (390 and 93) exactly, and both repos are Claude Code
+plugin/skill-ecosystem entries (accessibility-agents, inclusive-design-skills),
+not the 2026-08-13 round's domain tools (axe-core, Lighthouse, Pa11y, Stark,
+Accessibility Insights for Web, none of which recur in the rework).
+rationale: canonical: same two `curl` commands cited directly above — the
+live re-fetch reproduces the exact figures cited in the survey file,
+supporting the adoption-evidence claim and the plugin-ecosystem-only
+survey target in one check.
+
+### Requirement: fold-in applied natively, no tool-attribution catalog in either rulebook file (2026-08-13 and 2026-08-14 amendment)
+verdict: Present
+spec_ref: issue-1199, operator amendment 2026-08-13T06:36:54Z (native
+application, no `source:` framing naming a surveyed tool/plugin repo)
+canonical: `git -C /tmp/a11yrb show 800bb11 -- playbook/aria-and-contrast-rules.md
+wcag-em-checklist/checklists/wcag-em.md` and `git -C /tmp/a11yrb show
+eb271ace46331c89679c4acf217ba2bfe5f4c6fb -- playbook/aria-and-contrast-rules.md
+wcag-em-checklist/checklists/wcag-em.md`, both run this session.
+evidence: rules 5.1-5.4's `Source:` lines cite WebAIM's survey, a WCAG
+Understanding page, aggregate tooling-coverage literature, and generic ADR
+convention — none names `Community-Access/accessibility-agents`,
+`Owl-Listener/inclusive-design-skills`, or any 2026-08-13-round domain tool
+(axe-core/Lighthouse/Pa11y/Stark/Accessibility Insights) by repo name; the
+checklist bullets carry no `source:`/attribution line at all.
+rationale: canonical: same two `git -C /tmp/a11yrb show` commands cited
+directly above — the diffs they produce are the ground truth for what
+actually landed in the rulebook; the surveyed-tool names and adoption
+evidence appear only in this repo's own `docs/issue-1199/reports/accessibility/`
+files, matching the amendment.
+
+### Requirement: fold-in is load-bearing (edits an existing, live rulebook file) (issue-1199 Requirement 4)
+verdict: Present
+spec_ref: issue-1199 Requirement 4
+canonical: `git -C /tmp/a11yrb show 800bb11 --stat` and `git -C /tmp/a11yrb
+show eb271ace46331c89679c4acf217ba2bfe5f4c6fb --stat`, both run this
+session — both commits touch `playbook/aria-and-contrast-rules.md` and
+`wcag-em-checklist/checklists/wcag-em.md`.
+evidence: `git -C /tmp/a11yrb log --oneline eb271ace46331c89679c4acf217ba2bfe5f4c6fb^`
+shows both files pre-existed the fold-in (earlier commit `9697b39`, "Add
+operational playbook: ARIA, naming, contrast, focus rules"); rules 5.1-5.4
+extend the same numbered-rule file rather than sitting in a new,
+unreferenced file.
+rationale: canonical: same `git -C /tmp/a11yrb show --stat` commands cited
+directly above — additive edits to an already-live rulebook file, in the
+same numbering convention the existing rules use, are load-bearing by
+construction.
+
+### Requirement: the record's claim that the accessibility row in issue #1199's 43-item tracker "stays checked" matches the tracker's actual mechanical output
+verdict: Incorrect
+spec_ref: contract v3 record-accuracy norm (a record's factual claim about
+repo/tool state must be checked, not asserted) — mirrors the same class of
+finding already recorded above against commit 9dd5ea36's false PR-open
+claim.
+canonical: `python3 gates/tool_learnings_tracker.py`, run this session
+against this branch's checked-out HEAD (post merge-forward), output line:
+```
+- [ ] accessibility
+```
+evidence: `docs/issue-1199/reports/accessibility.md`'s "2026-08-14
+plugin-ecosystem rework (phase 2 executed)" section states "The
+accessibility row in issue #1199's 43-item tracker stays checked (already
+checked from the 2026-08-13 round; this is an additive rework, not a first
+landing) — no tracker edit was made this session." canonical: same
+`python3 gates/tool_learnings_tracker.py` run cited directly above — its
+live output renders `accessibility` unchecked, not checked.
+canonical: `grep -rl tool_learnings_refs roles/specs/*.json`, run this
+session — no output, zero matching files (matching the same empty result
+already found and cited in the step-1 review section above, this file).
+canonical: `roles/specs/accessibility.spec.json`, read this session — no
+`tool_learnings_refs` key anywhere in the file.
+rationale: canonical: `gates/tool_learnings_tracker.py`'s `is_landed()`
+function, read this session — it counts a role landed only once its
+`roles/specs/<role>.spec.json` carries a non-empty `tool_learnings_refs`
+array; `accessibility.spec.json` carries none, so the tracker was never
+checked for this role at any point — not in the 2026-08-13 round and not
+now. The record's claim is not a stale-but-once-true statement; it asserts
+a state (mechanically checked) that this session's live run shows never
+held. This is the same defect class as the earlier Incorrect finding
+against commit 9dd5ea36 (a Present-shaped claim about external/mechanical
+state that does not match a live check) — unlike that finding, no later
+commit in this branch or record self-corrects this one.
+addressed_to: accessibility role — before stating a tracker/checklist row
+"stays checked," run the tracker script live (or read the exact
+`roles/specs/<role>.spec.json` key it reads) rather than asserting
+continuity from an earlier round's stated intent.
+
+## Overall (accessibility fold-in)
+Both rounds (2026-08-13 domain-tool survey, 2026-08-14 plugin-ecosystem
+rework) match issue-1199's Acceptance criterion 1 (adoption-evidenced
+Claude Code plugin survey target for the rework, native no-attribution
+application) and Requirement 4 (load-bearing edits to a live rulebook
+file) — verified live this session via `curl` against the GitHub API and
+direct `git show` reads of both rulebook commits in `/tmp/a11yrb`. One
+Incorrect verdict is recorded: the record's phase-2 section asserts the
+issue's 43-item tracker checkbox for `accessibility` "stays checked," but
+a live run of `gates/tool_learnings_tracker.py` against this branch's own
+checked-out state renders it unchecked, and no `roles/specs/*.json` file
+in this repo carries a `tool_learnings_refs` entry for any role — this
+finding is not self-resolved by any later commit on this branch, unlike
+the earlier implementation-branch Incorrect finding. addressed_to:
+accessibility role — verify the tracker's live output (or the exact
+spec.json key it reads) before asserting a checklist row's checked state,
+rather than asserting continuity from an earlier round's stated intent.
+
+canonical: `gh pr view 1248 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt,title,url`, `git -C /tmp/a11yrb show 800bb11 --stat`,
+`git -C /tmp/a11yrb show eb271ace46331c89679c4acf217ba2bfe5f4c6fb --stat`,
+`curl -s https://api.github.com/repos/Community-Access/accessibility-agents`,
+`curl -s https://api.github.com/repos/Owl-Listener/inclusive-design-skills`,
+`python3 gates/tool_learnings_tracker.py`, and `grep -rl
+tool_learnings_refs roles/specs/*.json` — all run this session against
+this branch's checked-out HEAD after merging forward from origin/main.
