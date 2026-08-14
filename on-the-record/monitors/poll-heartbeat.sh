@@ -108,6 +108,13 @@ if [ -n "${_alive_dir}" ]; then
     touch "${_alive_dir}/alive" 2>/dev/null || true
 fi
 
+# issue #1465: GC stale monitor-alive marker dirs on heartbeat startup,
+# and report (never delete) legacy .orchestrate-monitor-alive/ dirs in
+# consumer repos. Non-fatal — `|| true` so a GC failure can never take
+# down the tick loop below (observe-only machinery must never die on
+# cleanup errors).
+python3 "${SCRIPT_DIR}/../../spawn.py" gc-monitor-alive >/dev/null 2>&1 || true
+
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
 sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-60}"
