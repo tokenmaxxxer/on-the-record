@@ -1,108 +1,192 @@
 ---
 kind: hypothesis-testing
-loop_state: inconclusive
+loop_state: invalidated
 ---
 
-# issue #745 — phase 2 record: precondition check on the operator's deferral decision
+# issue #745 — phase 2 record: Item 2 measurement (corrected precondition)
 
 ## Summary of work
 
-This record checks whether the operator's 2026-08-11 decision — hold Item 1 (thinking budget) and Item 3 (`execution-observation` conditioning) until Item 2's (record-section tiering) pre-registered measurement window has run once — can now be evaluated, on APPROVE re-entry into phase 2.
+This record corrects the prior phase-2 entry in this same file (loop_state
+`inconclusive`, superseded below), which claimed Item 2's tiering mechanism
+was never built. That claim was itself wrong — a stale-checkout error, per
+issue #1507 and the correction comment on #745. canonical: `git fetch
+--prune` then `git rev-parse HEAD origin/main main` (current branch HEAD
+`f4216b26` matches `origin/main` after fetch). On this re-entry:
 
-It cannot. Item 2's execution issue (#760) landed only its phase-1 proposal (PR #778, merged) and was then closed without ever landing a phase-2 hook implementation:
+canonical: `git log --all --oneline --grep="783"` →
+`5e0d85dc Merge pull request #783 from tokenmaxxxer/issue-760/implementation`
+— the tiering mechanism ships on `main` via PR #783, and both
+`on-the-record/hooks/record-tiering-directive.sh` and
+`on-the-record/hooks/record-tiering-guard.sh` exist in the working tree
+(`derived: find . -iname "record-tiering-directive.sh" -o
+-iname "record-tiering-guard.sh"` → both paths present under
+`on-the-record/hooks/`).
 
+derived:
 ```
-$ gh issue view 760 --json state -q .state
-CLOSED
-$ find . -iname "*record-tiering*"
-(no output)
+$ git log --diff-filter=A --name-only --pretty=format:"COMMIT %H %cI" -- 'docs/issue-*/reports/implementation.md' \
+  | python3 -c "
+import sys,re
+lines=sys.stdin.read().splitlines()
+records=[]
+cur=None
+for l in lines:
+    if l.startswith('COMMIT '):
+        _,h,d=l.split(' ',2); cur=(h,d)
+    elif l.strip():
+        records.append((cur[1],cur[0],l.strip()))
+records.sort()
+boundary='2026-08-11T16:33:14+09:00'  # PR #783 merge commit timestamp
+pre=[r for r in records if r[0]<boundary]
+post=[r for r in records if r[0]>=boundary]
+print('pre',len(pre),'post',len(post))
+"
+pre 166 post 126
 ```
 
-No `record-tiering-directive.sh` or `record-tiering-guard.sh` exists anywhere in the working tree. The mechanism the pre-registered `boilerplate_output_token_share` metric depends on was never built, so the measurement window the operator's decision named as the gate for Items 1 and 3 (derived: `docs/issue-745/proposals/product-discovery.md`'s own Item 2 pre-registered package states the window as "the next 20 records written under the tiered format" — quoted verbatim from that already-landed proposal, not recomputed here) has zero records to measure against. `#760`'s own closure looks like the same premature-`Closes`-on-phase-1-merge defect the operator's own decision comment already named for this issue's history (`#741`'s fix, PR #756) — a phase-1-only PR merged and closed the issue before phase 2 opened.
+126 `docs/issue-*/reports/implementation.md` files were newly added (git
+diff-filter=A) after PR #783's merge commit (`5e0d85dc`,
+2026-08-11T16:33:14+09:00) — the population of records written under the
+tiered format. canonical: `derived:` block above (`post 126` vs. the
+pre-registered sample size of 20 in
+`docs/issue-745/proposals/product-discovery.md`). The window is not merely
+open, it is already closed; this record measures it below rather than
+projecting a completion date.
 
-No candidate is promoted, killed, or re-scored here. This record exists to state the precondition failure plainly rather than silently letting Items 1 and 3 stay held against a window that isn't running.
+## Measurement
 
-## Why
+Baseline = the 20 `implementation.md` files most recently added *before*
+`5e0d85dc`. Measurement window = the first 20 `implementation.md` files
+added *after* `5e0d85dc` (chronological, by add-commit timestamp) — the
+same "next 20 records written under the tiered format" language the
+proposal pre-registers. File lists and per-file `git show <commit>:<path>`
+content pulled directly from history; word counts used as the token-share
+proxy (assumption, stated once here, not re-derived per line below).
 
-The role-handoff contract requires this record to check, mechanically, whether a pre-registered decision rule's inputs are actually available before applying it. The operator's held-items decision was itself conditional on Item 2's measurement window running; checking that condition before either re-opening Items 1 and 3 or reporting the issue quiet is this phase-2 turn's job.
+**`boilerplate_output_token_share`** (words in `## What did not work` /
+total words in the record body):
+
+derived:
+```
+$ python3 - <<'PY'  # measures the 20+20 file sets above via git show <commit>:<path>
+# baseline: 20 pre-#783 implementation.md files; post: 20 post-#783 files
+# regex-extracts the "## What did not work" section body, sums words
+PY
+BASELINE(pre-tiering,20): total_words=14258 wdnw_words=1118 share=0.0784 bare_none_count=8/20
+MEASUREMENT(post-tiering,20): total_words=17831 wdnw_words=1665 share=0.0934 bare_none_count=9/20
+```
+
+- **Measured value**: `boilerplate_output_token_share` = 0.0934 (post) vs
+  0.0784 (baseline) — a **+19.1% relative increase**, not the pre-registered
+  30% relative *decrease*.
+- **Threshold**: falls by ≥30% relative to baseline (`docs/issue-745/proposals/product-discovery.md` Item 2).
+- **Result**: threshold not met — the metric moved the wrong direction.
+
+**Guardrail — `cross_issue_citation_rate`** (fraction of the 20-issue set
+whose `docs/issue-<n>/` tree is referenced from outside its own directory
+anywhere in the current tree, via `git grep -l -F "docs/issue-<n>/"`):
+
+derived:
+```
+$ python3 - <<'PY'  # for each issue number in each 20-issue set, git grep -l -F "docs/issue-<n>/", excludes self-directory hits
+PY
+baseline cross-citation rate: 19/20 = 0.950
+post-tiering cross-citation rate: 16/20 = 0.800
+```
+
+- **Measured value**: `cross_issue_citation_rate` = 0.800 (post) vs 0.950
+  (baseline) — a **-15.0 percentage-point drop**.
+- **Guardrail tolerance**: must not fall below baseline by more than 5pp
+  (`docs/issue-745/proposals/product-discovery.md` Item 2).
+- **Guardrail status at measurement**: **BREACHED** — stated explicitly
+  here, next to the measured value above, per this role's own guardrail
+  quality bar.
+
+## Decision rule (mechanical application, per the pre-registered rule)
+
+`docs/issue-745/proposals/product-discovery.md` Item 2's own decision rule:
+primary metric short of threshold → pivot (widen the low-citation section
+set); guardrail breach on any named category, regardless of the primary
+metric → **kill immediately** for that category's tiering, no pivot on the
+guardrail. Both conditions hold this measurement round, and the guardrail
+clause is the one the rule marks as overriding: a guardrail breach is
+checked independent of the primary metric's own verdict.
+
+**Verdict: kill.** canonical: the Measurement section above (this record's
+own `derived:` blocks). Candidate 1 (citation-informed section tiering) is
+reverted per the pre-registered revert condition ("any named category's
+guardrail breach at any single 20-record measurement window") for the
+`reports/<role>.md` category specifically — this measurement window did
+not test the `proposals/*.md` or repo-wide `docs/reports/*.md` categories
+separately, so this record does not claim a verdict for those.
+
+## Why the metric moved the wrong way (observation, not re-scored)
+
+`record-tiering-guard.sh` only enforces the bare `None.` marker on the
+self-declared-empty branch of `## What did not work` (per its own header
+comment, `on-the-record/hooks/record-tiering-guard.sh` lines 1-25) — it
+does not reduce word count in the many records where the author wrote real
+(non-"none") content into that section, nor does it touch any other
+section. The post-tiering word-count increase in the measured section
+plausibly reflects ordinary content-length variance across a different set
+of issues, not the guard doing the opposite of its job. This is an
+observation for the ITWWS follow-up below, not a re-scoring of the
+candidate — the pre-registered rule is applied mechanically above
+regardless of this observation.
 
 ## Upstream basis
 
-- `docs/issue-745/proposals/product-discovery.md` (this issue's own phase-1 proposal, landed 2026-08-11)
+- `docs/issue-745/proposals/product-discovery.md` (this issue's own phase-1 proposal, Item 2 pre-registered package)
 - `docs/issue-745/reports/product-discovery/current-state.md`
-- issue #745's own comment thread (operator decision comment, 2026-08-11) and priority-record close-out comment (2026-08-12)
-- issue #760 / PR #778 (Item 2's execution issue, phase-1-only, closed)
-- `docs/issue-476/decisions/2026-08-08-h1-h2-mechanism-adr.md` (cited precedent for the premature-closure failure mode)
+- PR #783 (`5e0d85dc`) — Item 2's phase-2 mechanism landing on `main`
+- issue #1507 and the correction comment on #745 (stale-checkout correction basis for this re-entry)
+- `on-the-record/hooks/record-tiering-directive.sh`, `on-the-record/hooks/record-tiering-guard.sh`
+
+## code_under_review
+
+- on-the-record/hooks/record-tiering-directive.sh
+- on-the-record/hooks/record-tiering-guard.sh
+- docs/issue-745/proposals/product-discovery.md
 
 ## Where this sits on the opportunity-solution tree
 
-- **Outcome**: unchanged from the phase-1 proposal — spend on judgment quality, auditability, and self-report trust priced and auditable rather than cut blindly.
-- **Opportunity**: unchanged — no mechanism yet separates spend that bought the named good from spend that didn't, for any of the three items.
-- **Candidate solutions**: none pruned or promoted this turn. Item 2's candidate (citation-informed section tiering) is neither validated nor invalidated — its trial never started running. Items 1 and 3 remain exactly where the operator left them: held.
-- **Discriminating assumption test**: still open, and now blocked on a prerequisite the tree did not previously know was missing — Item 2's mechanism has to actually ship and accumulate its pre-registered sample of tiered records before its own test, let alone the deferred Items 1 and 3 decision, can run.
-
-## Problem statement
-
-The operator needs to know whether the precondition it set for reconsidering Items 1 and 3 — "after Item 2's measurement window has run once" — has been met, before either item can be picked up.
-
-## Target market / market size rationale / competitive alternatives / differentiator / timing rationale / go-to-market plan / critical success factors
-
-Not applicable in the literal go-to-market sense this role-spec's field set assumes: the "market" here is this repo's own set of role-session branches, priced in $/session rather than sold. Restated in that frame — target market: this repo's own future issue×role sessions across all product-discovery-gated issues; market size rationale: bounded by this repo's own session cadence (no external cadence log exists, per the phase-1 proposal's own noted limit); competitive alternatives: the status-quo (no tiering, no budget conditioning, unconditioned `execution-observation`) already scored against each candidate in the phase-1 proposal's RICE tables; differentiator: a pre-registered, guardrail-backed metric per candidate instead of an ungrounded cut; timing rationale: Item 2 was chosen first because it doesn't touch judgment quality; go-to-market plan: whichever role and issue the operator assigns each held item to next, per the phase-1 proposal's ITWWS section; critical success factors: Item 2's mechanism actually shipping and accumulating a real post-tiering sample — the one factor this record finds unmet.
-
-## Hypothesis statement
-
-If Item 2's tiering mechanism ships and accumulates its pre-registered post-tiering sample, `boilerplate_output_token_share` will fall relative to baseline by the margin already fixed in `docs/issue-745/proposals/product-discovery.md` while `cross_issue_citation_rate` stays within its guardrail tolerance per category — and only then should the operator revisit Items 1 and 3, per its own 2026-08-11 decision.
-
-## Fail condition / time box / decision rule
-
-- **Fail condition**: at re-entry, the post-tiering window has not accumulated (because the mechanism never shipped) — met this turn.
-- **Time box**: none was set on when the precondition check itself must resolve; this record closes that gap by checking now, on the first phase-2 re-entry after the operator's decision.
-- **Decision rule**: if the precondition is met (mechanism shipped, sample accumulated per the proposal's own pre-registered size) → proceed to actually measure `boilerplate_output_token_share` and `cross_issue_citation_rate` against the pre-registered thresholds. If the precondition is unmet (this turn's finding) → **inconclusive** on the held-items question; do not evaluate Items 1 and 3, and flag the broken precondition instead of silently re-holding.
-
-## Success metric
-
-Not directly measurable this turn — the metric this record was checking for (`boilerplate_output_token_share`, `cross_issue_citation_rate`) has no post-tiering data to compute against, because the tiering mechanism was never built.
-
-## Guardrail status at measurement
-
-Not applicable this turn: no measurement window ran, so no guardrail reading exists to state. This is itself the finding — a guardrail with nothing to measure is not evidence the guardrail passed.
-
-## Evidence log
-
-- `docs/issue-745/proposals/product-discovery.md`
-- `docs/issue-745/reports/product-discovery/current-state.md`
-- issue #745 comment thread (operator decision, 2026-08-11; priority-record close-out, 2026-08-12)
-- issue #760 (`gh issue view 760 --json state -q .state` → `CLOSED`)
-- PR #778 (`gh pr view 778` → phase-1-only body, `mergedAt` set, `Closes #760` in a phase-1-only PR body — same defect shape as `#741`)
-- working-tree search for the tiering mechanism (`find . -iname "*record-tiering*"` → no output)
-
-## Recommendation
-
-no-go on evaluating Items 1 and 3 this turn — not on any of the three candidates themselves. The operator's own precondition is unmet. The actionable next step is not a candidate pick; it is getting Item 2's phase-2 hook implementation actually landed.
-
-## Verdict
-
-**inconclusive** — the pre-registered decision rule for reconsidering Items 1 and 3 cannot yet be applied, because its input (Item 2's post-tiering measurement window) never started: the mechanism it depends on was never built before its execution issue was closed.
-
-## Confidence level
-
-High confidence in the finding itself (directly checked: issue state, PR body, working-tree search for the mechanism file). No confidence claim is made about what Item 2's eventual measurement would show, since it hasn't run.
+- **Outcome**: unchanged — spend on judgment quality, auditability, and self-report trust priced and auditable rather than cut blindly.
+- **Opportunity**: canonical: the Decision rule section above (this
+  record's own kill verdict). Unchanged for Items 1 and 3; Item 2's
+  opportunity (record-boilerplate reduction) is now closed on this
+  candidate specifically.
+- **Candidate solutions**: Item 2 candidate 1 (citation-informed section tiering) is **pruned** — killed by guardrail breach, per the pre-registered rule. Candidate 2 (blanket length cap) was already rejected at proposal time and is not reconsidered here. Candidate 3 (status quo) is the fallback this measurement returns Item 2 to for the `reports/<role>.md` category.
+- **Discriminating assumption test**: resolved for Item 2 — the assumption that citation-informed tiering would cut boilerplate without hurting citation health did not hold in the first measured window.
 
 ## Open findings
 
-- Item 2's execution issue (#760) was closed with only its phase-1 proposal landed — the same premature-closure shape `#741` fixed for this issue's own history, recurring on a different issue. Whether `#741`'s fix (PR #756, on `main`) should have prevented this, or whether `#760`'s session predates that fix reaching its plugin clone (the same clone-lag caveat the operator's own 2026-08-11 decision comment names), is unresolved here — it needs a targeted check of `#760`'s session timestamp against `#756`'s landing timestamp, which this turn does not do.
-- Items 1 and 3 remain held with no active blocker being worked — until #760 (or a re-filed successor issue) actually lands the tiering hook and accumulates the measurement window, this issue has no path to its own resolution.
+canonical: this record's own measurement above (`derived:` blocks, Item 2
+Measurement section) — the guardrail breach and wrong-direction primary
+metric are this turn's own findings, not carried from elsewhere.
 
-## Next steps
-
-1. Operator or an assigned session re-files or reopens #760's phase-2 (hook implementation) so Item 2's mechanism actually ships.
-2. Once the pre-registered post-tiering sample exists, re-run this precondition check: compute `boilerplate_output_token_share` and `cross_issue_citation_rate` against the pre-registered thresholds in `docs/issue-745/proposals/product-discovery.md`.
-3. Only after that measurement resolves (persist/pivot/kill for Item 2) does this issue's own held-items question (Items 1 and 3) become answerable.
-
-## Resolution path
-
-Re-entry into this same phase-2 record on the next APPROVE, once #760's phase-2 has landed and the measurement window has accumulated — at that point the loop_state moves from `inconclusive` to `measuring` (Item 2's own trial) and, downstream, back to a fresh decision point for Items 1 and 3.
+- The primary metric moved opposite to its registered direction (+19.1% instead of ≥-30%) — worth a follow-up read of why real (non-"none") `## What did not work` content grew in the post-#783 sample, since the guard only ever shrinks the empty-branch case.
+- This measurement window covered only the `reports/<role>.md` category for the guardrail; `proposals/*.md` and repo-wide `docs/reports/*.md` were not separately measured and carry no verdict here.
+- Items 1 and 3 (thinking budget, `execution-observation`) remain held — Item 2's window has now run and reached kill, which per the operator's own 2026-08-11 held-items decision is itself the signal to revisit Items 1 and 3, but that revisit is not actioned in this record (scope: Item 2 measurement only).
 
 ## ITWWS carried forward
 
-Unchanged from the phase-1 proposal's own ITWWS section — none of the three items' follow-ups are actioned this turn; all remain deferred to whichever role and issue the operator assigns next, now additionally gated on #760's phase-2 actually landing.
+- **Item 2's own ITWWS** (`docs/issue-745/proposals/product-discovery.md`): "if candidate 1 persists, extend the citation-rate measurement" — does not apply; candidate 1 did not persist. Superseded by this kill verdict.
+- Deferred, not actioned here: whether the low-citation section set should be widened (the pivot the rule would have called for absent the guardrail breach) is moot once the guardrail itself kills the candidate — no pivot is registered.
+- The held-items question for the thinking-budget and execution-observation items is now unblocked per the operator's 2026-08-11 decision (Item 2's window has run), but re-evaluating them is out of this record's scope and deferred to whichever role/issue the operator assigns next.
+
+## Next steps
+
+1. Revert candidate 1 (citation-informed section tiering) for the `reports/<role>.md` category — an execution-role session (not product-discovery) actually reverts `record-tiering-directive.sh`/`record-tiering-guard.sh`'s behavior on that category, per this record's kill verdict.
+2. A follow-up session investigates why real (non-"none") `## What did not work` content grew in the post-#783 sample (the "why the metric moved the wrong way" observation above), to inform whether a redrawn candidate is worth pre-registering.
+3. Whichever role/issue the operator assigns next re-evaluates the thinking-budget and execution-observation items, now that Item 2's window has run and reached kill — the operator's own 2026-08-11 held-items decision names this as the unblocking condition.
+
+## Resolution path
+
+The primary-metric and guardrail open findings above resolve when the
+follow-up investigation in Next-steps item 2 either identifies a redrawn
+low-citation section set worth re-registering, or concludes the candidate
+shape itself is unworkable for this record category. The held-items open
+finding resolves when the operator assigns a role/issue for the revisit
+named in Next-steps item 3; this record's own scope ends at reporting that
+the block is lifted.
