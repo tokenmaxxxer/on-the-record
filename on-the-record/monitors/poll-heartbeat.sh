@@ -52,15 +52,18 @@ if [ -z "${CHECKOUT}" ]; then
   exit 0
 fi
 
-# issue #1275: refuse to arm this Monitor at all on a non-git root —
-# without this, a monitor armed with the wrong cwd would loop
-# `spawn.py watchdog` forever, each tick failing "not a git repository"
-# via spawn_coverage's `gh issue list` in that root (permanent benign
-# noise instead of one clear failure). Checked before the board-registration
-# gate below and before the marker touch — never inside the loop.
-if ! git -C "$(pwd -P)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf '[monitor-arm-refused] root=%s check=git-repo: not a git repository — refusing to arm\n' "$(pwd -P)" >&2
-  exit 1
+# issue #1292: demoted from #1275's hard `exit 1` to the same
+# sweep-exclusion/dormancy path #1282 built for the non-board case below
+# — a non-git arm-root can never be a board, so it is simply excluded
+# from `_board_wide_sweep_all`'s arm-root inclusion (spawn.py), exactly
+# like a non-board git root. The tick loop always runs; roster-derived
+# board targets (#1276) still get swept every tick even when the
+# arm-root itself is a non-git parent folder. No `[monitor-arm-refused]`
+# error, no exit-1 "script failed" notification for this case.
+if git -C "$(pwd -P)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  is_git=1
+else
+  is_git=0
 fi
 
 # issue #1245/#1280: attachment gate, demoted from a full exit to a
@@ -70,8 +73,10 @@ fi
 # permanently defeats idle watch for the rest of the session, including
 # roster-derived watch (#1276) over board repos the session spawns into
 # later. `is_board` only gates `_board_wide_sweep_all`'s arm-root
-# inclusion (spawn.py); the tick loop below always runs.
-if [ -f "$(pwd -P)/docs/specs/approvers.md" ]; then
+# inclusion (spawn.py); the tick loop below always runs. A non-git root
+# (#1292) is forced to `is_board=0` regardless of what a stray
+# `docs/specs/approvers.md` file might say — it can never be a board.
+if [ "${is_git}" -eq 1 ] && [ -f "$(pwd -P)/docs/specs/approvers.md" ]; then
   is_board=1
 else
   is_board=0

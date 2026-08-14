@@ -4157,6 +4157,81 @@ class PollHeartbeatMarkerRelocationTest(unittest.TestCase):
             session_hash = hashlib.sha256(b"sess-1280").hexdigest()[:24]
             self.assertTrue((marker_dir / f".session-{session_hash}-start").exists())
 
+    def test_non_git_root_arms_no_error_alive_marker_written(self):
+        """이슈 #1292: 비-git arm-root 는 `[monitor-arm-refused]` 에러/
+        exit 1 없이 무장한다 — alive 마커가 써지고 rc=0, 로스터가 비어
+        있으니 arm-root 밑에 아무 파일도 생기지 않는다(#1245/#1280 의
+        비-보드 empty-state 와 동일한 조용함)."""
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "not-a-repo"
+            home = Path(td) / "home"
+            repo.mkdir()
+            home.mkdir()
+            r = self._run_heartbeat(repo, home)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("monitor-arm-refused", r.stderr)
+            self.assertNotIn("monitor-arm-refused", r.stdout)
+            self.assertEqual(list(repo.glob("*")), [])
+            import hashlib
+            expected_hash = hashlib.sha256(
+                str(repo.resolve()).encode("utf-8", "surrogatepass")
+            ).hexdigest()[:24]
+            alive_path = home / ".claude" / "tokenmaxxxer" / "monitor-alive" / expected_hash / "alive"
+            self.assertTrue(alive_path.exists())
+
+    def test_non_git_root_with_roster_board_target_sweeps_roster_only(self):
+        """이슈 #1292 acceptance: 비-git arm-root + 로스터에 보드 레포
+        엔트리 하나 -> arm-root 는 스윕에서 조용히 제외되지만 로스터가
+        가리키는 보드 타깃은 계속 스윕된다(`_board_wide_sweep_all`, #1276
+        요구 보존)."""
+        with tempfile.TemporaryDirectory() as td:
+            arm_root = Path(td) / "not-a-repo"
+            board_repo = Path(td) / "board-repo"
+            arm_root.mkdir()
+            board_repo.mkdir()
+            (board_repo / "docs" / "specs").mkdir(parents=True)
+            (board_repo / "docs" / "specs" / "approvers.md").write_text("someone\n")
+            d_all = {"issue-1/qa": {"work": str(board_repo)}}
+
+            def fake_sweep(r):
+                print(f"sweep-ran:{r}")
+                return 1
+
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(arm_root, d_all)
+                finally:
+                    sys.stdout = old_stdout
+            out = buf.getvalue()
+            board_label = spawn._repo_identity(board_repo.resolve())
+            self.assertEqual(result, 1)
+            self.assertIn(f"[{board_label}] sweep-ran:{board_repo.resolve()}", out)
+            self.assertNotIn(f"sweep-ran:{arm_root.resolve()}", out)
+            self.assertNotIn(spawn._repo_identity(arm_root.resolve()), out)
+
+    def test_non_git_root_empty_roster_alive_and_silent(self):
+        """이슈 #1292 empty state: 비-git arm-root + 빈 로스터 -> alive,
+        아무 것도 스윕하지 않고(_board_wide_sweep 미호출) 출력도 없다,
+        arm-root 밑에 파일도 생기지 않는다."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "not-a-repo"
+            root.mkdir()
+            with mock.patch.object(spawn, "_board_wide_sweep") as m:
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(root, {})
+                finally:
+                    sys.stdout = old_stdout
+            m.assert_not_called()
+            self.assertEqual(result, 0)
+            self.assertEqual(buf.getvalue(), "")
+            self.assertEqual(list(root.glob("*")), [])
+
     def test_board_wide_sweep_issue_view_call_count_constant_across_subject_counts(self):
         # issue #743 acceptance item 1: `_board_wide_sweep` 이 이제 한 번의
         # `issue_state_index_all` 프리페치를 `find_violations` 에 넘기므로,
