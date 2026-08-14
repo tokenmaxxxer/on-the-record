@@ -170,6 +170,66 @@ No open findings to resolve; the one filed deviation (PR-open deadlock)
 resolves by external relay opening the two already-pushed branches as
 PRs — no unresolved judgment calls remain on this unit's content.
 
+## 2026-08-14 plugin-ecosystem rework (phase 1 only)
+
+canonical: `docs/issue-1199/proposals/2026-08-14-accessibility-plugin-tool-landscape-rework.md`
+(read this session) — the issue's 2026-08-14 amendment narrows the
+survey target to Claude Code plugins/skills; the 2026-08-13 round above
+surveyed domain tools (axe-core, Lighthouse, Pa11y, Stark, Accessibility
+Insights for Web) only, so it does not by itself satisfy the amended
+acceptance check.
+
+canonical: `docs/issue-1199/reports/accessibility/scout-brief-plugins.md`
+(read this session) — a 4-way parallel WebSearch/WebFetch sweep names
+two adoption-evidenced exemplars, Community-Access/accessibility-agents
+(390 GitHub stars) and Owl-Listener/inclusive-design-skills (93 stars),
+plus three lower-adoption plugins as secondary confirmation, each entry
+carrying its own `canonical:`/star-count citation inside that file.
+
+canonical: `git show 1d40ca42 --stat` (read this session) — this
+session's own git-show output lists exactly two files changed,
+`docs/issue-1199/proposals/2026-08-14-accessibility-plugin-tool-landscape-rework.md`
+and `docs/issue-1199/reports/accessibility/scout-brief-plugins.md`,
+305 insertions, committed as `1d40ca42` with the `Subject: issue-1199`
+trailer, on branch `issue-1199/accessibility`.
+
+canonical: `gh pr view 1248 --json number,title,state,url,headRefName`
+(read this session) — PR #1248, state OPEN, `headRefName:
+issue-1199/accessibility`, carries the above commit.
+
+canonical: `gh issue view 1199 --json comments -q '.comments[] |
+select(.body=="APPROVE issue-1199/accessibility")'` (read this
+session) returns exactly one matching comment, timestamped before the
+2026-08-14 proposal file above was written; no comment matching that
+exact string, posted after the proposal file's own commit, appears in
+that same query output. Per the rework proposal's own "Approval"
+section, canonical: `docs/issue-1199/proposals/2026-08-14-accessibility-plugin-tool-landscape-rework.md`
+(read this session, "Approval" section), this session stops after
+phase 1, holding for a new `APPROVE issue-1199/accessibility` comment
+posted after the proposal file's commit. This section is a proposal
+status note, not an outcome claim: the two additive rules named in
+the proposal's "What will be delivered" section (named-pattern manual-
+check for focus-trap/live-region; tradeoff-rationale scope notes)
+remain proposal text in this session; no edit to
+`tokenmaxxxer/accessibility-rulebook` was made or pushed this session.
+
+## Accumulation
+
+This fold-in pattern (per-role survey file + proposal file, two small
+additive files, no shared helper) repeats across all 43 roles tracked
+by issue #1199, and now a second time per role under the 2026-08-14
+plugin-ecosystem amendment. If N more rounds land this way, `docs/
+issue-1199/reports/<role>/` and `docs/issue-1199/proposals/` accumulate
+two more small files per role per round with no cross-role index or
+dedup — the per-role tracker in issue #1199 is the only place coverage
+is summarized, and nothing in this repository regenerates it
+automatically. That growth shape stays workable for this issue's own
+bounded, one-time-per-amendment survey work (each file is small,
+independently reviewable, and the issue's 43-item checklist already
+serves as the accumulation's index); it stops being workable only if a
+third or later amendment reopens the same 43 roles again without first
+folding the accumulated proposals into one per-role canonical file.
+
 ## loop_state
 
 reviewed
