@@ -4,7 +4,7 @@ code_under_review:
   - requirements-dev.txt
   - docs/handbooks/operations.md
   - tests/test_spawn.py
-loop_state: committing
+loop_state: landed
 type: process
 breaking: false
 verdict: pass  # canonical: python3 -m pytest -q --ignore=bench -m "not slow" (this turn) — see fenced output below
@@ -281,10 +281,7 @@ baseline and combined. No other line differs.
 
 ## What did not work
 
-None — no isolation approach was tried and reverted; item 2 above
-concluded, from the single-test-alone reruns cited there, that no
-narrow isolation fix was needed because no shared-mutable-state
-collision existed in the frozen write set.
+None.
 
 ## Open findings
 
