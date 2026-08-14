@@ -223,3 +223,13 @@ owed by this record.
 ## Open findings (rework)
 None beyond PR #27's own pending review in the separate rulebook repo
 (not a defect in this unit's own work).
+
+amendments-reconciled: issuecomment-5288118757 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a delegated-judgment
+verdict for a different, unnumbered candidate PR (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288118757`, read
+this session — the body names no branch); it does not name or
+reference this data-engineering rework unit's work, so no content
+amendment to this record is warranted — same reconciliation class
+already logged earlier in this file for issuecomment-5277549292 and
+its siblings.
