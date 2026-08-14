@@ -135,6 +135,54 @@ gate catch a real defect the user would have missed, and does the record
 output stay below the mute-threshold noise level. Both are observable in
 one session; no new build required.
 
+## Sources
+
+Per-claim source URLs, recovered from the underlying modality briefs (the
+synthesis text omitted them):
+
+**Role-taxonomy / verification bottleneck**
+- Indeed Hiring Lab, AI & job postings (2026): https://www.hiringlab.org/2026/07/08/ai-and-job-postings-from-destruction-to-creation/ ; https://www.hiringlab.org/2026/01/22/january-labor-market-update-jobs-mentioning-ai-are-growing-amid-broader-hiring-weakness/
+- Stack Overflow Developer Survey 2025: https://survey.stackoverflow.co/2025/
+- DORA 2025 report: https://cloud.google.com/blog/products/ai-machine-learning/announcing-the-2025-dora-report
+- Faros/Jellyfish PR-telemetry commentary (2026): https://www.faros.ai/blog/key-takeaways-from-the-dora-report-2025
+- FDE title growth: https://www.paraform.com/blog/forward-deployed-engineer-demand-quadrupled
+- LinkedIn Jobs on the Rise 2026 (via Dice): https://www.dice.com/career-advice/ai-related-jobs-top-linkedins-fastest-growing-roles-list-for-2026
+- QA market data: https://www.sqaexperts.com/is-qa-a-dying-career-what-2026-job-market-data-actually-shows
+
+**Demand / adoption pain**
+- LinearB 8M-PR dataset (2026): https://linearb.io/blog/8-million-prs-engineering-productivity ; https://www.flowverify.co/blog/ai-code-review-bottleneck-2026-data
+- METR RCT (2025): https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/
+- HN/Reddit qualitative analysis: https://www.developersdigest.tech/blog/what-hacker-news-gets-right-about-ai-coding-agents-2026
+- Auto-generated context files study (Gloaguen et al. 2026): https://arxiv.org/html/2510.21413v1
+- Enterprise rollout controls: https://northflank.com/blog/enterprise-ai-coding-agent-deployment
+- DX Q4 2025 impact report: https://getdx.com/blog/ai-assisted-engineering-q4-impact-report-2025/
+- Microsoft internal rollout study: https://arxiv.org/html/2607.01418
+- Verbose review-bot failure account: https://dev.to/leena_malhotra/i-tried-replacing-human-review-with-ai-heres-where-it-quietly-failed-4jh3
+
+**Global postings**
+- Tailscale AI Enablement: https://job-boards.greenhouse.io/tailscale/jobs/4710703005
+- Cursor AI Adoption Engineer: https://jobs.accel.com/companies/cursor-2-379534b5-1a2a-49fd-86d0-ccd3e256c4f0/jobs/83960644-ai-adoption-engineer
+- Cognition Applied AI Engineer: https://builtin.com/job/ai-enablement-engineer/7470703
+- GM Staff SWE AI Dev Productivity: https://search-careers.gm.com/en/jobs/jr-202612378/staff-software-engineer-ai-for-developer-productivity/
+- Indicium Sr FDE: https://job-boards.greenhouse.io/indiciumai/jobs/4944657101
+- Handshake Agentic Infrastructure: https://jobs.ashbyhq.com/handshake/747bd14b-b957-4fca-b5bd-12d571f6886e
+- AI platform leader spec: https://www.augmentcode.com/guides/ai-platform-engineering-leader-job-spec
+
+**Korea**
+- 크래프톤 AI FDE: https://www.sedaily.com/article/20024771
+- 무신사 AX Engineer: https://www.musinsacareers.com/ko/o/187901
+- 원티드 2026 AX report (via 테크월드): https://www.epnc.co.kr/news/articleView.html?idxno=401038
+- 잡코리아 AI-tool coding-test policy: https://www.jobkorea.co.kr/goodjob/tip/view?News_No=22546
+
+**Competitor surface**
+- Cognition/Devin: https://research.contrary.com/company/cognition
+- Factory GA: https://factory.ai/news/factory-is-ga
+- Cursor 3.2 analysis: https://futurumgroup.com/insights/cursor-3-2-reframes-the-ide-as-an-agent-execution-runtime/
+- Cursor–Graphite: https://cursor.com/blog/graphite ; https://techcrunch.com/2025/12/19/cursor-continues-acquisition-spree-with-graphite-deal
+- Review-tool comparison: https://particula.tech/blog/greptile-vs-coderabbit-vs-qodo-ai-code-review-2026
+- Governance gap notes: https://labs.cloudsecurityalliance.org/research/csa-research-note-ai-agent-governance-framework-gap-20260403/ ; https://zylos.ai/research/2026-05-01-ai-agent-governance-compliance-2026/
+- Consolidation/graveyard: https://rywalker.com/research/ai-coding-assistants
+
 ## What was done
 
 Transcribed the 2026-08-14 hiring-market recon report — the first comment
