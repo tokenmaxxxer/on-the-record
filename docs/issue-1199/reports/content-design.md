@@ -225,3 +225,99 @@ changed) entered delegated-judgment evaluation.") names branch
 `issue-1199/devrel`, not this content-design unit (canonical: `gh api
 repos/tokenmaxxxer/on-the-record/issues/comments/5277577397 -q
 .body`, read this session). No content amendment warranted.
+
+## 2026-08-14 amendment: plugin-ecosystem rework
+
+The 2026-08-14 operator amendment on issue-1199 narrowed the survey
+target to the Claude Code plugin/skill ecosystem — the fold-in above
+(rules 26-28, Vale/Ditto/Content Reel/Hemingway sourcing) was domain-
+tool-basis and does not satisfy the amended acceptance check alone.
+This section adds plugin-ecosystem coverage on top of the still-valid
+rules 26-28.
+
+Scout brief: docs/issue-1199/reports/content-design/scout-brief-plugin-rework.md
+(2 stages, parallel sweep + deepening, budget compliant).
+
+canonical: `git -C /tmp/content-design-rulebook show --stat
+issue-1199/content-design-plugin-rework`, this session
+Upgrade made: playbook/operational-playbook.md axis 7 (rules 29-31 —
+staged single-dimension revision with per-phase numeric ceilings, and
+a per-UI-element-type template distinct from axis 6's content_id
+string reuse), wired into
+docs/handbooks/content-design/methodology.md's phase-2 step order
+(`template-check` step, `Staged revision` paragraph) in the
+content-design-rulebook repo.
+
+canonical: `gh pr view 23 --repo tokenmaxxxer/content-design-rulebook
+--json url,headRefName,state`, this session
+Committed in the rulebook repo (commit a56d063, branch
+issue-1199/content-design-plugin-rework), pushed, PR opened:
+https://github.com/tokenmaxxxer/content-design-rulebook/pull/23
+
+Source (Claude Code plugin, adoption evidence): a purpose-built
+UX-writing Claude Code skill, 147 GitHub stars (canonical: `gh api
+repos/content-designer/ux-writing-skill --jq
+'{stars:.stargazers_count}'`, this session → 147), independently
+surfaced across two of three search angles run this session. No tool
+name or source repo appears in the rulebook text itself (2026-08-13
+operator amendment: native application, no tool-attribution catalogs).
+
+canonical: `gh pr view 23 --repo tokenmaxxxer/content-design-rulebook
+--json state,mergedAt`, this session → {"mergedAt":null,"state":"OPEN"}
+loop_state: awaiting-review (rulebook PR #23 open, not yet approved/merged)
+
+canonical: same `gh pr view 23 --json state,mergedAt` command above,
+this session
+next steps: rulebook-repo approver reviews and merges PR #23. The
+top-of-file `loop_state: landed` line at the head of this record
+covers only the earlier axis 6/rules 26-28 fold-in; PR #23's merge
+state is not re-asserted as landed here and needs a separate re-read
+once it merges.
+
+resolution path: track content-design-rulebook#23 to merge; if
+feedback requires rule changes, push follow-up commits to
+issue-1199/content-design-plugin-rework in the rulebook repo.
+
+amendments-reconciled: issuecomment-5288109647 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the verdict for the
+delegated-judgment evaluation opened on this content-design branch's
+own commit (canonical: `gh issue view 1199 --json comments -q
+'.comments[-3:] | .[] | .body'`, this session — the immediately
+preceding comment reads "Judgment opened: PR #? — candidate decision
+on branch `issue-1199/content-design` (2 path(s) changed) entered
+delegated-judgment evaluation."). Escalate routes this candidate
+decision to the human approval mechanism already documented above
+(contract v3 s19's two-account/single-account Approve) instead of an
+automated judgment alone — no separate content amendment beyond
+noting this here, since the escalation is procedural routing, not a
+finding about this record's content.
+
+amendments-reconciled: issuecomment-5288117582 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the verdict for the
+`issue-1199/data-modeling` branch's delegated-judgment evaluation
+(canonical: `gh issue view 1199 --json comments -q '.comments[-3:] |
+.[] | .body'`, this session — the immediately preceding comment reads
+"Judgment opened: PR #? — candidate decision on branch
+`issue-1199/data-modeling` (2 path(s) changed) entered
+delegated-judgment evaluation."), not this content-design unit. No
+content amendment warranted.
+
+amendments-reconciled: issuecomment-5288130520 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a further verdict
+in the same content-design delegated-judgment sequence already noted
+above for issuecomment-5288109647 (canonical: `gh issue view 1199
+--json comments -q '.comments[-3:] | .[] | .body'`, this session — the
+comment one position earlier in that same read is "Judgment opened: PR
+#? — candidate decision on branch `issue-1199/content-design` (2
+path(s) changed) entered delegated-judgment evaluation."). Same
+procedural-routing note as before applies; no additional content
+amendment warranted.
+
+amendments-reconciled: issuecomment-5288123194 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a further verdict
+comment in the same `issue-1199/data-modeling` delegated-judgment
+sequence reconciled immediately above (canonical: `gh issue view 1199
+--json comments -q '.comments[-4:] | .[] | .body'`, this session — the
+comment two positions earlier in that same read is the
+`issue-1199/data-modeling` "Judgment opened" line), not this
+content-design unit. No content amendment warranted.
