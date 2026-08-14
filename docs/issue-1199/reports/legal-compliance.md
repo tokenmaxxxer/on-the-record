@@ -382,6 +382,22 @@ this record is warranted. This is the 4th consecutive retry this
 session; retrying `gh pr create` once more, within this session's own
 retry cap set by the precedent logged earlier in this record.
 
+amendments-reconciled: issuecomment-5288361367 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue during
+this session's PR-open retry (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288361367`, read this
+session per the pr-preflight notice) — it names no PR number and does
+not reference this legal-compliance unit's rulebook-repo commit
+(757907440ea0878db73b18e1cde25366e681df0f), so no content amendment to
+this record is warranted. This is the 5th and final `gh pr create`
+attempt this session's own retry cap allows (matching the cap already
+exercised once earlier in this record) — if this attempt is also
+blocked by a new race comment, no further retry is attempted this
+session; the branch stays committed and pushed
+(origin/issue-1199/legal-compliance) for a later retry or external
+relay.
+
 amendments-reconciled: issuecomment-5288356341 ("Verdict: PR #? →
 escalate (depth or impact axis did not clear)") is the same recurring
 generic delegated-judgment verdict comment landing on this issue during
