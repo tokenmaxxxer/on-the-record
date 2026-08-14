@@ -119,6 +119,21 @@ None — the amended survey target is now covered; PR #24 in the
 rulebook repo awaits its own review/merge outside this record's scope.
 
 ## amendments-reconciled
+issuecomment-5288100111 ("Judgment opened: PR #? — candidate decision
+on branch `issue-1199/data-modeling` (2 path(s) changed) entered
+delegated-judgment evaluation.") and issuecomment-5288100292
+("Verdict: PR #? → escalate (depth or impact axis did not clear)")
+are the judgment-loop's automated evaluation of this session's own
+push (2 paths: data-modeling.md + scout-brief.md) to
+`issue-1199/data-modeling` before this on-the-record PR existed
+(canonical: `gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"
+--paginate --jq 'sort_by(.id) | .[-2:]'`, run this session). "Escalate"
+is that automated loop's own verdict on depth/impact, not a directive
+to this session — no separate action is defined for this role by an
+escalate verdict on its own commit, so this record proceeds to open
+the PR as planned and leaves the escalate verdict for whatever
+external process consumes judgment-loop verdicts.
+
 issuecomment-5277534993 ("Verdict: PR #? → escalate (depth or impact
 axis did not clear)") is a delegated-judgment verdict for a different,
 unnumbered candidate PR on branch `issue-1199/capacity-planning`
