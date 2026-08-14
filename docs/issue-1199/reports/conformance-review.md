@@ -533,3 +533,189 @@ main issue-1199/plugin-landscape-fold-in -- coding/hooks/directive.sh`,
 and `git merge-base --is-ancestor 1bc41d13 origin/main` — all run this
 session against this branch's checked-out HEAD after merging forward
 from origin/main.
+
+# Review: issue-1199/implementation role's own tool-landscape fold-in, pre-rework delivery (conformance check)
+
+subject: issue-1199/implementation branch, commits 9dd5ea36 (PR #1231,
+"record implementation role's tool-landscape fan-out delivery") and
+20060433 (PR #1253, "reconcile watcher amendments, open
+implementation-rulebook PR"), both landed on main before the 2026-08-14
+plugin-ecosystem rework (commit 1bc41d13, already reviewed above).
+canonical: `gh pr view 1231 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt` and `gh pr view 1253 --repo tokenmaxxxer/on-the-record
+--json commits,mergedAt`, both read this session — PR #1231 mergedAt
+2026-08-13T07:03:06Z (head commit 9dd5ea36), PR #1253 mergedAt
+2026-08-13T08:09:28Z (head commit 20060433).
+
+canonical: reading this file's own prior content this session (search
+for "9dd5ea36" and "20060433" above this section) — no prior `# Review:`
+section named either commit before this section was appended. Spawn-on-PR
+trigger, per `spawn_on_pr.py`: no conformance record existed for these
+landed units before this section.
+
+code_under_review:
+- docs/issue-1199/reports/implementation.md, lines 145-354 (the "Fan-out
+  unit" and "Follow-up" sections)
+- playbook/complexity-coupling-management.md (tokenmaxxxer/implementation-rulebook
+  repo, branch issue-1199/implementation, commit 217810f, PR #85)
+
+Scope: this section reviews the pre-rework tool-landscape delivery (the
+2026-08-13 domain-tool survey and its native fold-in), which the
+2026-08-14 rework's own review above explicitly declines to reconstruct
+or refute. Requirement source: issue-1199 Acceptance criterion 1
+(per-entry facet completeness, pre-amendment survey scope), Requirement
+4 (visible, load-bearing upgrade), and contract v3's record-accuracy
+norm (a record's factual claims about external repo/PR state must match
+that state).
+
+### Requirement: surveyed tools carry adoption evidence (stars/production-adopter citations)
+verdict: Present
+spec_ref: issue-1199 Requirement 1 (adoption-evidence method)
+canonical: docs/issue-1199/reports/implementation.md lines 158-164, read
+this session.
+evidence: each of the three surveyed tools (pre-commit, dependency-cruiser,
+Ruff) carries a star count or named-adopter citation with a source URL
+(15.5k stars for pre-commit, production architecture-enforcement
+writeup for dependency-cruiser, 35k+ stars plus named adopters
+Instagram/PyTorch/Jupyter/Apache Airflow for Ruff).
+rationale: three independent adoption signals, one per tool, each
+sourced — matches the method's evidentiary bar as it stood before the
+2026-08-14 Claude-Code-plugin-only amendment (which the separately
+reviewed rework section already covers).
+
+### Requirement: per-tool facets — problem, how, learning→rule (issue-1199 Requirement 2)
+verdict: Present
+spec_ref: issue-1199 Requirement 2
+canonical: docs/issue-1199/reports/implementation.md lines 173-182, read
+this session; `gh pr diff 85 --repo tokenmaxxxer/implementation-rulebook`,
+run this session.
+evidence: rules 7-9 as landed in `playbook/complexity-coupling-management.md`
+(diff fetched live this session via the canonical above) each state a
+triggering condition (the "how"), a design move, and an implicit
+problem (cycle-accumulation cost, config-drift risk, pipeline
+abandonment) in its own paragraph; the record's own lines 173-182
+(canonical above) map each rule back to its source tool by name.
+canonical: docs/issue-1199/reports/implementation.md lines 173-182,
+read this session (three-way rule-to-tool mapping stated inline).
+rationale: each rule traces to exactly one surveyed tool with no
+merged/dropped facet, satisfying the per-tool mapping the requirement
+names.
+
+### Requirement: fold-in applied natively, no tool-attribution catalog (2026-08-13 amendment)
+verdict: Present
+spec_ref: issue-1199, operator amendment 2026-08-13T06:36:54Z
+canonical: `gh pr diff 85 --repo tokenmaxxxer/implementation-rulebook`,
+run this session, fenced excerpt:
+```
++   source: architectural fitness-function practice, summarized at
++   https://en.wikipedia.org/wiki/Software_architecture#Architectural_quality_attributes
+```
+evidence: all three added `source:` lines cite a generic public-knowledge
+URL (Wikipedia articles on architectural quality attributes, static
+analysis, fail-fast), not the surveyed tool's own repo — pre-commit,
+dependency-cruiser, and Ruff never appear in the diff (canonical: same
+`gh pr diff 85` output, read in full this session) — matching the
+file's pre-existing sourcing convention (rule 6's own `source:` line,
+same file, cites a ScienceDirect paper, not a tool).
+canonical: `gh pr diff 85 --repo tokenmaxxxer/implementation-rulebook`,
+run this session (re-fetched directly, not trusted from the record's
+prose).
+rationale: the diff cited above is the ground truth for what actually
+landed, confirming no tool name or repo URL reached the rulebook file.
+
+### Requirement: fold-in is load-bearing (edits an existing, live playbook file) (issue-1199 Requirement 4)
+verdict: Present
+spec_ref: issue-1199 Requirement 4
+canonical: `git -C /home/jwjung/implementation-rulebook log -1 --stat`,
+run this session — `playbook/complexity-coupling-management.md | 30 +`.
+canonical: `git -C /home/jwjung/implementation-rulebook show
+217810f^:playbook/complexity-coupling-management.md | grep -c
+'^[0-9]*\.'`, run this session, output `6`.
+evidence: the target file pre-existed with six numbered rules already
+in use before this delivery (canonical above); rules 7-9 extend the
+same numbered sequence rather than sitting in a new, unreferenced file.
+rationale: an addition to an already-live numbered-rules file, in the
+same enumeration the existing rules use, is load-bearing by
+construction — a future reader of that file sees rules 7-9 in the same
+list as 1-6, not a separate dead appendix.
+
+### Requirement: the record's claims about external PR/repo state match actual GitHub state at landing time
+verdict: Incorrect
+spec_ref: contract v3 record-accuracy norm (a record's factual claim
+about external state must be checked, not asserted)
+canonical: `git show 9dd5ea36:docs/issue-1199/reports/implementation.md
+| grep -n "PR opened"`, run this session:
+```
+206:Committed on `issue-1199/implementation` in the implementation-rulebook
+207:repo, pushed to `origin/issue-1199/implementation`, PR opened:
+208:https://github.com/tokenmaxxxer/implementation-rulebook/pull/85
+```
+canonical: `gh pr view 1231 --repo tokenmaxxxer/on-the-record --json
+mergedAt`, run this session, → mergedAt 2026-08-13T07:03:06Z.
+canonical: `gh pr view 85 --repo tokenmaxxxer/implementation-rulebook
+--json createdAt`, run this session, → createdAt 2026-08-13T07:57:26Z.
+evidence: commit 9dd5ea36, merged to main via PR #1231 at the mergedAt
+timestamp cited directly above, asserted PR #85 was already open with a
+live URL; PR #85 was not actually created until the createdAt timestamp
+cited directly above, roughly 54 minutes after the claim landed on
+main.
+canonical: docs/issue-1199/reports/implementation.md lines 300-309 ("##
+Follow-up: implementation-rulebook PR was never actually opened"),
+commit 20060433, read this session.
+The same record (canonical: same lines 300-309 cited directly above)
+independently caught and corrected this exact discrepancy: that section
+runs `gh pr view 85` live, gets a GraphQL not-found error (canonical:
+same lines 300-309), and opens the real PR in the same session
+(canonical: same lines 300-309).
+rationale: this is a genuine record-accuracy defect — a Present-shaped
+claim about external state that was false at the moment it landed on
+main (canonical: the mergedAt/createdAt timestamps cited above) — not
+merely a stylistic gap; contract v3's "board is what is merged to main"
+rule means main carried a false PR-open claim for roughly 54 minutes.
+It is downgraded from a blocking finding to Incorrect-but-self-resolved
+because the same delivery's own next commit (20060433, same branch,
+same subject, landed via PR #1253 at 08:09:28Z per the mergedAt
+canonical cited in this section's subject line above, nine minutes
+after PR #85 actually opened) independently re-verified and corrected
+it before any other role or human read the false claim as final — the
+underlying rulebook change itself (rules 7-9) was never at issue, only
+the PR-open status line.
+
+## Overall (pre-rework delivery)
+The pre-rework tool-landscape survey and its native fold-in into
+`playbook/complexity-coupling-management.md` (rules 7-9, commit 217810f)
+match issue-1199's Requirements 1, 2, and 4 and the 2026-08-13
+native-application amendment: verified live this session via `gh pr
+diff 85 --repo tokenmaxxxer/implementation-rulebook` and `git -C
+/home/jwjung/implementation-rulebook log -1 --stat` (both canonicals
+above). One Incorrect verdict is recorded: commit 9dd5ea36 asserted an
+external PR was open when it was not (canonical: the mergedAt/createdAt
+comparison above), a false claim that reached main via PR #1231 before
+being self-caught and fixed by the same delivery's own follow-up commit
+(20060433, PR #1253). addressed_to: implementation role — verify `gh pr
+view <n>` (or equivalent) actually resolves before writing a "PR
+opened: <url>" line in a record, rather than asserting success
+immediately after a `gh pr create` call whose output was not itself
+captured and checked.
+
+canonical: `gh pr view 1231 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt`, `gh pr view 1253 --repo tokenmaxxxer/on-the-record
+--json commits,mergedAt`, `gh pr diff 85 --repo
+tokenmaxxxer/implementation-rulebook`, `gh pr view 85 --repo
+tokenmaxxxer/implementation-rulebook --json createdAt`, and `bash
+tests/methodology-plugins-tests.sh` (run in
+/home/jwjung/implementation-rulebook, live this session, fenced
+reproduction below) — all run this session against current live state.
+```
+$ bash tests/methodology-plugins-tests.sh
+FAIL   rs-complete                      want=allow got=deny
+== 22 passed, 1 failed ==
+```
+canonical: `bash tests/methodology-plugins-tests.sh`, run in
+/home/jwjung/implementation-rulebook this session — fenced reproduction
+directly above.
+This session's own live rerun (canonical directly above) reproduces the
+same lone failing case named by the pre-rework record's own derived
+pre-change stash re-run (docs/issue-1199/reports/implementation.md
+lines 198-203, read this session), against current HEAD rather than
+reconstructed from the record's prose alone.
