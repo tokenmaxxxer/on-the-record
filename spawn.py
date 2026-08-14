@@ -45,6 +45,12 @@ ROOT = Path(__file__).resolve().parent
 # 구분 안 되는 문제를 없앤다. poll-heartbeat.sh 는 rc>=128(시그널 사망) 이거나
 # rc==이 값일 때만 [watchdog-crash] 를 찍는다.
 WATCHDOG_CRASH_SENTINEL = 97
+# 이슈 #1456: #1360 재발(구코드를 5시간 물고 있던 워치독) 방지용 예약
+# 종료 코드 — WATCHDOG_CRASH_SENTINEL 과 마찬가지로 roster_watchdog() 의
+# 정상 반환값(anomaly count, rc>=0)과 겹치지 않게 고른 상수다.
+WATCHDOG_LOCKED_SENTINEL = 96          # 이미 다른 인스턴스가 락을 쥐고 있다
+WATCHDOG_STALE_CODE_SENTINEL = 95      # 체크아웃 HEAD 가 시작 시점과 달라졌다
+WATCHDOG_NONCANONICAL_SENTINEL = 94    # 워치독 자신이 canonical 체크아웃 밖이다
 
 # 이슈 #878: 오케스트레이터 자신의 (headless `-p`) 세션 ID를 전달하는 환경
 # 변수 이름 — 이 프로세스(spawn.py)를 부른 오케스트레이터 프로세스가 이미
@@ -2740,6 +2746,100 @@ def _board_wide_sweep(root: Path) -> int:
             count += len(uncovered)
             print(f"[watchdog] spawn-coverage: 커버되지 않은 이슈 {uncovered}")
     return count
+
+
+WATCHDOG_LOCK_PATH = STATE_ROOT / "watchdog.lock"
+
+
+def _proc_start_time(pid: int) -> str | None:
+    """`/proc/<pid>/stat` 필드 22(starttime, 부팅 이후 클럭틱)를 읽는다 (이슈
+    #1456) — pid 만으론 크래시 뒤 재사용된 pid 를 "그 프로세스가 아직
+    살아있다"고 오판한다(요구 1의 caveat 1). comm 필드가 괄호/공백을 담을 수
+    있어 마지막 ')' 뒤부터 잘라 필드 3(state)부터 다시 센다."""
+    try:
+        raw = Path(f"/proc/{pid}/stat").read_text()
+    except (FileNotFoundError, ProcessLookupError, PermissionError, OSError):
+        return None
+    rest = raw[raw.rfind(")") + 2:]
+    fields = rest.split()
+    if len(fields) < 20:
+        return None
+    return fields[19]  # starttime = 필드 22, state(필드3)부터 0-based 로 19번째
+
+
+def watchdog_lock_acquire(lock_path: Path = WATCHDOG_LOCK_PATH,
+                           pid: int | None = None) -> tuple[bool, str]:
+    """`spawn.py watchdog` 단일-인스턴스 락(이슈 #1456 요구 1). 이미 살아있는
+    인스턴스가 있으면 (False, 안내줄) — pid 재사용을 피하려 pid *와*
+    프로세스 시작 시각이 둘 다 일치해야 "살아있다"로 본다. 죽은 프로세스가
+    남긴 락(또는 pid 재사용으로 시작시각이 달라진 락)은 그대로 회수한다."""
+    my_pid = pid if pid is not None else os.getpid()
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        existing = json.loads(lock_path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        existing = None
+    if existing:
+        other_pid = existing.get("pid")
+        other_start = existing.get("start_time")
+        if (isinstance(other_pid, int) and _alive(other_pid)
+                and _proc_start_time(other_pid) == other_start):
+            return False, (f"[watchdog] 이미 실행 중: pid={other_pid} "
+                            f"start_time={other_start} — lock={lock_path}")
+    lock_path.write_text(json.dumps({"pid": my_pid,
+                                      "start_time": _proc_start_time(my_pid)}))
+    return True, ""
+
+
+def watchdog_current_head(cwd: Path = ROOT) -> str | None:
+    """워치독이 코드를 로드한 체크아웃의 현재 HEAD (이슈 #1456 요구 2)."""
+    r = subprocess.run(["git", "-C", str(cwd), "rev-parse", "HEAD"],
+                        capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None
+
+
+def watchdog_freshness_check(startup_head: str, cwd: Path = ROOT,
+                              fetched_this_tick: bool = False) -> tuple[bool, str]:
+    """틱마다 체크아웃 HEAD 를 시작 시점 HEAD 와 비교한다 (이슈 #1456 요구 2)
+    — #1360 이 재발한 원인은 merge != deploy: 장수 워치독이 구코드를 계속
+    물고 있었다. 이 틱이 아직 fetch 를 하지 않았으면(caveat 2), 비교 전에
+    한 번 fetch 해 로컬 체크아웃을 최신 origin HEAD 에 맞춘다 — 기존
+    per-spawn fetch cadence 가 이미 하는 일과 같은 모양이라 새 원격 호출
+    경로를 늘리지 않는다. git 실패는 advisory 로 두고 틱을 막지 않는다
+    (fail-open — 네트워크 문제로 매 틱을 재기동시키면 더 나쁘다)."""
+    if not fetched_this_tick:
+        subprocess.run(["git", "-C", str(cwd), "fetch", "--quiet", "origin"],
+                        capture_output=True, text=True)
+        pull = subprocess.run(["git", "-C", str(cwd), "merge", "--ff-only",
+                                "--quiet", "origin/HEAD"],
+                               capture_output=True, text=True)
+        del pull  # 실패해도(로컬 커밋 등) advisory — HEAD 비교로 판정한다
+    current = watchdog_current_head(cwd)
+    if current is None:
+        return True, ""
+    if current != startup_head:
+        return False, (f"[watchdog] 코드-신선도: 체크아웃 HEAD 가 바뀌었다 "
+                        f"(시작={startup_head[:12]} 현재={current[:12]}) — "
+                        f"재기동 필요")
+    return True, ""
+
+
+def watchdog_canonical_guard(module_path: Path = Path(__file__)) -> tuple[bool, str]:
+    """워치독 자신의 파일 경로가 canonical 보드 체크아웃 밖(예:
+    `~/.tokenmaxxxer/work/*` 역할 워크스페이스)이면 시작을 거부한다 (이슈
+    #1456 요구 3, #1360 재발 원인 그 자체 — 역할 워크스페이스에서 뜬
+    독립 워치독이 rearm 을 못 받았다). `SPAWN_WATCHDOG_ALLOW_NONCANONICAL=1`
+    로 테스트/운영 오버라이드."""
+    override = os.environ.get("SPAWN_WATCHDOG_ALLOW_NONCANONICAL", "")
+    if override not in ("", "0", "false", "no", "off"):
+        return True, ""
+    resolved = module_path.resolve()
+    try:
+        resolved.relative_to(_workspace_base().resolve())
+    except ValueError:
+        return True, ""
+    return False, (f"[watchdog] 비-canonical 체크아웃에서 시작 거부: "
+                    f"{resolved} — SPAWN_WATCHDOG_ALLOW_NONCANONICAL=1 로 재정의")
 
 
 def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
@@ -5532,12 +5632,30 @@ def main() -> int:
         # 이슈/PR/다이제스트를 받는 원인이었다.
         # 이슈 #1274: 예약 센티널로만 진짜(파이썬 레벨) 크래시를 신호한다 —
         # roster_watchdog() 의 정상 반환값(anomaly count)과 절대 안 겹치게.
+        # 이슈 #1456: 틱을 돌리기 전에 canonical-체크아웃 가드 -> 단일-인스턴스
+        # 락 -> 시작 HEAD 기록 순으로 통과해야 한다; 틱을 돌린 뒤에는
+        # 코드-신선도를 다시 확인해 구코드로 계속 도는 것을 막는다.
+        ok, msg = watchdog_canonical_guard()
+        if not ok:
+            print(msg)
+            return WATCHDOG_NONCANONICAL_SENTINEL
+        ok, msg = watchdog_lock_acquire()
+        if not ok:
+            print(msg)
+            return WATCHDOG_LOCKED_SENTINEL
+        startup_head = watchdog_current_head()
         try:
-            return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all,
-                                    root=Path(a.cwd).resolve())
+            rc = roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all,
+                                  root=Path(a.cwd).resolve())
         except Exception:
             traceback.print_exc(file=sys.stderr)
             return WATCHDOG_CRASH_SENTINEL
+        if startup_head is not None:
+            fresh, msg = watchdog_freshness_check(startup_head)
+            if not fresh:
+                print(msg)
+                return WATCHDOG_STALE_CODE_SENTINEL
+        return rc
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
     if a.role == "reconcile":
