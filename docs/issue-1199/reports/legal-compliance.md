@@ -438,3 +438,27 @@ not reference this legal-compliance unit's rulebook-repo commit
 this record is warranted. Retrying `gh pr create` immediately after this
 reconciliation, per this turn's narrow task instruction to open the PR
 without redoing the survey or fold-in content.
+
+amendments-reconciled: issuecomment-5288398830 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue during
+this session's PR-open retry (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288398830`, read this
+session per the pr-preflight notice) — it names no PR number and does
+not reference this legal-compliance unit's rulebook-repo commit
+(757907440ea0878db73b18e1cde25366e681df0f), so no content amendment to
+this record is warranted. Retrying `gh pr create` immediately after this
+reconciliation (retry 2 of this session's window).
+
+amendments-reconciled: issuecomment-5288401811 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue during
+this session's PR-open retry (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288401811`, read this
+session per the pr-preflight notice) — it names no PR number and does
+not reference this legal-compliance unit's rulebook-repo commit
+(757907440ea0878db73b18e1cde25366e681df0f), so no content amendment to
+this record is warranted. Retrying `gh pr create` immediately after this
+reconciliation (retry 3 of this session's window; this session caps
+retries at 5, matching the precedent already logged earlier in this
+record).
