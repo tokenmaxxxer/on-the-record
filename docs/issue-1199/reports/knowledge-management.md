@@ -265,3 +265,15 @@ precedent (commit 8bf080a, issue-1174) applied above. No action
 against this record's content; retrying `gh pr create` immediately
 after this reconciliation (second retry this turn, within the
 5-attempt narrow-task budget).
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288249731
+(this turn) — body reads "Verdict: PR #? → escalate (depth or impact
+axis did not clear)".
+
+amendments-reconciled: issuecomment-5288249731 — an eighth instance of
+the same boilerplate verdict text from the identical external
+judgment-loop stream, reconciled here per the same stop-retrying
+precedent (commit 8bf080a, issue-1174) applied above. No action
+against this record's content; retrying `gh pr create` immediately
+after this reconciliation (third retry this turn, within the
+5-attempt narrow-task budget).
