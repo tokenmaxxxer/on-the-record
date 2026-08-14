@@ -119,6 +119,23 @@ None — the amended survey target is now covered; PR #24 in the
 rulebook repo awaits its own review/merge outside this record's scope.
 
 ## amendments-reconciled
+PR-create watcher deadlock, stop retrying this turn: after
+issuecomment-5288118757 and issuecomment-5288120568 (both further
+"Verdict: PR #? → escalate" comments from the same sibling-role
+judgment loop, continuing to post at ~10s intervals — canonical: `gh
+api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"
+--paginate --jq 'sort_by(.id) | .[-1] | {id,body}'`, run this session,
+id 5288120568), pr-preflight's "new comment since session start" check
+cannot converge while this sibling-session comment flood continues —
+identical to the precedent already logged in this session's own git
+history (commit da4f802e, "issue-1199: log PR-create watcher deadlock,
+stop retrying this turn") and the issue-1174 retrospective precedent
+cited above. Work is committed and pushed to
+origin/issue-1199/data-modeling (commit f58d6120 and this commit); PR
+creation is left for a retry outside this comment-flood window or for
+on-the-record's external relay, per this session's own task
+instructions on network/gate-blocked PR opens.
+
 issuecomment-5288112544 ("Verdict: PR #? → escalate (depth or impact
 axis did not clear)") is a second verdict comment on the same
 `issue-1199/brand-design` "Judgment opened" (issuecomment-5288025681)
