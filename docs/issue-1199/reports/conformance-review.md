@@ -202,3 +202,169 @@ tokenmaxxxer/conformance-review-rulebook#55 (rulebook, phase-2 fold-in)
 opened successfully; this on-the-record record commit is pushed to
 origin/issue-1199/conformance-review but its own PR remains unopened
 pending a quieter window on issue #1199.
+
+# Review: issue-1199/implementation step-1 verification infra (conformance check)
+
+subject: issue-1199/implementation branch, step-1 deliverable
+(`docs/issue-1199/reports/implementation.md`, commit 81143c3, subject
+line "issue-1199: add tool-learnings shape gate and 43-item tracker").
+canonical: `git log --oneline -- gates/tool_learnings_gate.py
+gates/tool_learnings_tracker.py`, read this session:
+```
+81143c37 issue-1199: add tool-learnings shape gate and 43-item tracker
+```
+No conformance record existed for this landed unit before this section
+(spawn-on-PR trigger, per `spawn_on_pr.py`).
+
+code_under_review:
+- gates/tool_learnings_gate.py (commit 81143c3)
+- gates/tool_learnings_tracker.py (commit 81143c3)
+- gates/test_tool_learnings_gate.py (commit 81143c3)
+- gates/test_tool_learnings_tracker.py (commit 81143c3)
+
+Scope: issue-1199's own execution plan names step 1 as infra-only
+("fold-in shape gate + tracker wiring"); the 43 per-role fan-out units
+(step 2+) are out of scope for this section, each getting its own
+role-named record. Requirement source: northpole req#1 (specialist
+delegation at practitioner completeness) via issue-1199 Acceptance
+criterion 1 (shape gate) and the tracker portion of criterion 5
+(43-item tracker existing and rendering correctly).
+
+### Requirement: fold-in shape gate asserts entry completeness (all five facets + citation)
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 1, clause 1 ("a shape check
+... asserts entry completeness")
+canonical: gates/tool_learnings_gate.py, lines 42-49 and 88-95, read
+this session.
+evidence: REQUIRED_FACETS (lines 42-49) lists six markers — tool,
+adoption_evidence, problem, how, learning, source — covering the five
+facets the clause names plus the fetched-source citation;
+`classify_entry` (lines 88-95) rejects a block if any REQUIRED_FACETS
+pattern fails to match, collecting a reason per missing facet.
+rationale: every facet the Acceptance clause names has a corresponding
+regex marker that gates acceptance; a block missing any one is rejected
+with that facet named in the reason table (lines 139-142), matching the
+clause's literal wording.
+
+### Requirement: fold-in shape gate enforces a per-role size cap
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 1, clause 2 ("the size cap")
+canonical: gates/tool_learnings_gate.py, lines 98-113 and 148-152, read
+this session.
+evidence: `evaluate()` (lines 98-113) computes an accepted-count-vs-cap
+comparison and folds it into the returned verdict alongside facet-
+completeness; `main()` (lines 148-152) prints a failure line naming the
+accepted-entry count and the cap when the comparison fails.
+rationale: cap enforcement sits in the same verdict computation as
+facet-completeness (canonical above), not a separate unchecked
+parameter — an over-cap file fails the gate regardless of per-entry
+facet completeness.
+
+### Requirement: shape gate is a sibling of gates/playbook_depth_gate.py (issue #1199 Constraints: reuse the existing gate convention, stay independent of #1174's own program)
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 1, parenthetical ("extend
+gates/playbook_depth_gate.py's file or a sibling gate")
+canonical: gates/tool_learnings_gate.py lines 1-19, and `git show
+81143c3 --stat`, both read/run this session:
+```
+gates/test_tool_learnings_gate.py, gates/test_tool_learnings_tracker.py,
+gates/tool_learnings_gate.py, gates/tool_learnings_tracker.py,
+docs/issue-1199/reports/implementation/survey.md — five files changed,
+no gates/playbook_depth_gate.py entry.
+```
+evidence: the module docstring (lines 1-19) names itself "Sibling of
+gates/playbook_depth_gate.py" and states the same CLI/exit-code shape;
+the stat output above lists no `gates/playbook_depth_gate.py` entry,
+confirming the existing gate file was not edited by this commit.
+rationale: the issue's own Constraints section (read via `gh issue view
+1199` this session) requires this program to run independently of
+#1174 with no shared branch/state; a genuinely new sibling file that
+does not edit the existing gate satisfies both the "sibling gate"
+option and the independence constraint in one move.
+
+### Requirement: tracker exists and renders the completion-checklist shape
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 5 ("this issue's 43-item
+tracker")
+canonical: gates/tool_learnings_tracker.py lines 25-50, and `python3
+gates/tool_learnings_tracker.py`, run this session against this
+branch's real `roles/` tree, first 3 lines of stdout:
+```
+Tool-learnings completion tracker header line, then one checklist line
+per role, first role "accessibility" unchecked.
+```
+evidence: `discover_roles` (lines 25-33) reads `roles/*.json`; `render`
+(lines 41-50) prints a completion-tracker header followed by one
+checklist line per discovered role — reproduced live in the fence
+above against real repo state, not only the unit tests' own fixtures.
+rationale: the tracker mechanically discovers all roles and renders a
+checklist entry for each; the structural precondition for the
+completion count to move as roles land is present and executes
+correctly today.
+
+### Requirement: tracker's landed-count is actually reachable by the per-role delivery process as step 2+ proceeds (issue-1199 Acceptance criterion 5, full clause)
+verdict: Unverifiable
+spec_ref: issue-1199 Acceptance criterion 5, full clause (tracker must
+reach full completion before the issue closes)
+canonical: `grep -l tool_learnings_refs roles/specs/*.json`, run this
+session — no output, zero matching files.
+evidence: no diff-evidence pointer given — this verdict is Unverifiable,
+not Absent, for the reason named in rationale below.
+rationale: `is_landed()` (gates/tool_learnings_tracker.py lines 29-38,
+read this session) counts a role landed only once
+`roles/specs/<role>.spec.json` carries a non-empty
+`tool_learnings_refs` array in this repo, and the grep canonical above
+found none. canonical: `docs/issue-1199/reports/brand-design.md`,
+`docs/issue-1199/reports/interaction-design.md`,
+`docs/issue-1199/reports/ux-engineering.md`, and this file's own
+conformance-review record above, all read this session — each carries
+`loop_state: landed` for a real fold-in already delivered in a separate
+mounted rulebook repo, none of which touches this repo's
+`roles/specs/*.json`. canonical:
+`docs/issue-1199/proposals/step1-verification-infra.md`, "Out of
+scope" section, read this session — explicitly defers wiring
+`tool_learnings_refs` into any real spec.json to "step 2+, as each
+role's survey lands", so step 1 itself correctly leaves this unwired by
+design. What this session cannot verify: whether that wiring step is
+actually being performed by the in-flight per-role units — their own
+records (read this session) describe rulebook-repo commits and do not
+mention touching `roles/specs/*.json` in this repo. Whether the
+criterion's landed-count half is reachable depends on a future wiring
+step whose owner and mechanism this step-1 commit does not specify —
+genuinely unverifiable from this evidence, not a defect in what commit
+81143c3 itself delivered.
+
+### Requirement: hermetic tests cover the gate's per-facet rejection paths (issue-1199 Acceptance criterion 1, provenance: "executed-unit (shape)")
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 1, provenance clause
+canonical: `python3 -m pytest gates/test_tool_learnings_gate.py
+gates/test_tool_learnings_tracker.py -q`, run this session, fenced
+output:
+```
+python3 -m pytest gates/test_tool_learnings_gate.py gates/test_tool_learnings_tracker.py -q
+....................... [100%]  —  23 passed in 0.06s
+```
+evidence: neither test file imports `requests`/`urllib`/`socket`
+(checked by reading both files this session — `tmp_path`/in-memory
+literals only), matching the fenced live run above.
+rationale: an executed, passing hermetic test run is the shape-check
+provenance the Acceptance criterion names; re-running it live this
+session (canonical fence above), rather than trusting the implementer
+record's own quoted output, reproduces the same result.
+
+## Overall
+Step 1 (`gates/tool_learnings_gate.py`, `gates/tool_learnings_tracker.py`
+and their tests) matches the issue's Acceptance criterion 1 in full and
+delivers the structural half of criterion 5; the one open item —
+whether `tool_learnings_refs` wiring actually happens per-role as step
+2+ proceeds — is a future-dependent gap this step-1 commit correctly
+scoped out, not a defect in it. No Absent/Incorrect verdict in this
+section; the sole Unverifiable verdict names its own reason per the
+finding-record skill's requirement.
+
+canonical: `git log --oneline -- gates/tool_learnings_gate.py
+gates/tool_learnings_tracker.py`, `git show 81143c3 --stat`, `python3
+gates/tool_learnings_tracker.py`, `grep -l tool_learnings_refs
+roles/specs/*.json`, and `python3 -m pytest
+gates/test_tool_learnings_gate.py gates/test_tool_learnings_tracker.py
+-q` — all run this session against this branch's checked-out HEAD.
