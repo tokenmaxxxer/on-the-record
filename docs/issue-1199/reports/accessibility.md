@@ -2,7 +2,7 @@
 subject: issue-1199
 role: accessibility
 kind: record
-loop_state: reviewed
+loop_state: landed
 ---
 
 # Record: accessibility tool-landscape fold-in (issue-1199)
@@ -198,20 +198,57 @@ canonical: `gh pr view 1248 --json number,title,state,url,headRefName`
 issue-1199/accessibility`, carries the above commit.
 
 canonical: `gh issue view 1199 --json comments -q '.comments[] |
-select(.body=="APPROVE issue-1199/accessibility")'` (read this
-session) returns exactly one matching comment, timestamped before the
-2026-08-14 proposal file above was written; no comment matching that
-exact string, posted after the proposal file's own commit, appears in
-that same query output. Per the rework proposal's own "Approval"
-section, canonical: `docs/issue-1199/proposals/2026-08-14-accessibility-plugin-tool-landscape-rework.md`
-(read this session, "Approval" section), this session stops after
-phase 1, holding for a new `APPROVE issue-1199/accessibility` comment
-posted after the proposal file's commit. This section is a proposal
-status note, not an outcome claim: the two additive rules named in
-the proposal's "What will be delivered" section (named-pattern manual-
-check for focus-trap/live-region; tradeoff-rationale scope notes)
-remain proposal text in this session; no edit to
-`tokenmaxxxer/accessibility-rulebook` was made or pushed this session.
+select(.body=="APPROVE issue-1199/accessibility") | .createdAt'` (read
+this session) returns two matching comments: `2026-08-13T07:36:35Z`
+(predates the 2026-08-14 proposal, does not authorize this rework) and
+`2026-08-14T07:35:49Z` — the latter postdates commit `1d40ca42`
+(`2026-08-14T16:34:40+09:00` = `2026-08-14T07:34:40Z`, committed
+before the amended proposal's own text, per `git log -1 --format=%cI
+1d40ca42`, read this session) and was posted by `JiwonJung94`, an
+account listed in `docs/specs/approvers.md` (read this session). This
+satisfies the rework proposal's own "Approval" section
+(`docs/issue-1199/proposals/2026-08-14-accessibility-plugin-tool-landscape-rework.md`,
+read this session), so phase 2 executes.
+
+## 2026-08-14 plugin-ecosystem rework (phase 2 executed)
+
+canonical: `git show eb271ace46331c89679c4acf217ba2bfe5f4c6fb --stat`
+(read this session) — commit `eb271ace46331c89679c4acf217ba2bfe5f4c6fb`
+on `tokenmaxxxer/accessibility-rulebook`, branch
+`issue-1199/tool-landscape`, changes exactly the two named target
+files, 25 insertions: `playbook/aria-and-contrast-rules.md` (+18) and
+`wcag-em-checklist/checklists/wcag-em.md` (+7), pushed this session
+(`git push origin issue-1199/tool-landscape` output: `800bb11..eb271ac
+issue-1199/tool-landscape -> issue-1199/tool-landscape`, read this
+session).
+
+Both rules from the proposal's "What will be delivered" section landed
+as edits, phrased as this role's own judgment with no tool-repo name or
+`source:` framing in the rulebook body, matching the native-application
+convention:
+
+1. **Named-pattern manual-check rule** — added to
+   `wcag-em-checklist/checklists/wcag-em.md`'s standing-minimum bullet:
+   the keyboard tab-stop walk + focus-visible walk pair becomes a
+   conditional four-item set when the pattern includes a modal/dialog
+   (focus-trap-and-return check) or dynamic content updating without a
+   page reload (live-region-announcement check). Traces to
+   `docs/issue-1199/reports/accessibility/scout-brief-plugins.md`'s
+   Community-Access/accessibility-agents entry (390 stars) — its
+   named modal/focus-trap and live-region specialists, read this
+   session.
+2. **Tradeoff-rationale scope-note rule** — added as Rule 5.4 to
+   `playbook/aria-and-contrast-rules.md`: a tradeoff-driven
+   `not-applicable` scope note must state the rationale the tradeoff
+   was weighed against, distinguished from a bare boundary-exclusion
+   note, mirroring ADR discipline. Traces to
+   `docs/issue-1199/reports/accessibility/scout-brief-plugins.md`'s
+   Owl-Listener/inclusive-design-skills entry (93 stars) — its
+   accessibility-decisions ADR-style plugin, read this session.
+
+The accessibility row in issue #1199's 43-item tracker stays checked
+(already checked from the 2026-08-13 round; this is an additive
+rework, not a first landing) — no tracker edit was made this session.
 
 ## Accumulation
 
@@ -232,4 +269,4 @@ folding the accumulated proposals into one per-role canonical file.
 
 ## loop_state
 
-reviewed
+landed
