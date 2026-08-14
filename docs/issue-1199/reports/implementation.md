@@ -477,3 +477,12 @@ None.
 ### Resolution path (rework)
 n/a — no open findings.
 
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, before this session's own on-the-record PR-create attempt.
+
+amendments-reconciled: issuecomment-5288015865 — "Judgment opened: PR
+#? — candidate decision on branch `issue-1199/architecture` (2 path(s)
+changed) entered delegated-judgment evaluation" names a different
+branch/role (`issue-1199/architecture`), not this one
+(`issue-1199/implementation`); no change to this delivery's scope,
+write set, or verdict.
+
