@@ -81,10 +81,96 @@ for.
 ## Upstream basis
 docs/issue-1199/proposals/2026-08-13-data-modeling-tool-landscape.md
 
+## 2026-08-14 rework
+The issue's 2026-08-14 amendment redefines the survey target as the
+Claude Code plugin/skill ecosystem — the original fold-in above
+(dbt-core/great_expectations/soda-core/AutomateDV) is domain-tool-basis
+and fails the amended acceptance. Re-scouted per
+docs/issue-1199/reports/data-modeling/scout-brief.md's new "2026-08-14
+rework" section (adoption evidence, canonical `gh api` star counts,
+fetched this session): anthropics/claude-plugins-official (33,504
+stars), rohitg00/awesome-claude-code-toolkit (2,501 stars, its
+`schema-designer` plugin), the Prisma ORM Development skill
+(multi-source listing), jeremylongshore/claude-code-plugins-plus-skills
+(2,630 stars).
+
+Edited `tokenmaxxxer/data-modeling-rulebook`'s README.md to add a new,
+bounded "Tool-learnings (Claude Code plugins)" section (4 entries,
+each carrying tool/adoption-evidence/problem/how/upgraded-rule, per
+the amendment's required shape) — this time naming tools and citing
+sources directly in the section, per the amendment's acceptance
+wording, unlike the prior fold-in's no-tool-name convention. Existing
+native rules (assertion requirement, reproducible-ERD requirement, DV
+naming floor) are kept unchanged. Committed in the rulebook repo
+(commit 80bed28, subject: issue-1199; canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/data-modeling-rulebook log -1
+--format=%H`, read this session), pushed to
+origin/issue-1199/data-modeling, PR opened:
+https://github.com/tokenmaxxxer/data-modeling-rulebook/pull/24.
+
+loop_state: landed (per the amendment's own bar: landed once the named
+upgrade file is actually edited and pushed — PR #24 is open, not yet
+merged; canonical: `gh pr view 24 --repo
+tokenmaxxxer/data-modeling-rulebook --json state,url`, run this
+session).
+
 ## Open findings
-None.
+None — the amended survey target is now covered; PR #24 in the
+rulebook repo awaits its own review/merge outside this record's scope.
 
 ## amendments-reconciled
+PR-create watcher deadlock, stop retrying this turn: after
+issuecomment-5288118757 and issuecomment-5288120568 (both further
+"Verdict: PR #? → escalate" comments from the same sibling-role
+judgment loop, continuing to post at ~10s intervals — canonical: `gh
+api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"
+--paginate --jq 'sort_by(.id) | .[-1] | {id,body}'`, run this session,
+id 5288120568), pr-preflight's "new comment since session start" check
+cannot converge while this sibling-session comment flood continues —
+identical to the precedent already logged in this session's own git
+history (commit da4f802e, "issue-1199: log PR-create watcher deadlock,
+stop retrying this turn") and the issue-1174 retrospective precedent
+cited above. Work is committed and pushed to
+origin/issue-1199/data-modeling (commit f58d6120 and this commit); PR
+creation is left for a retry outside this comment-flood window or for
+on-the-record's external relay, per this session's own task
+instructions on network/gate-blocked PR opens.
+
+issuecomment-5288112544 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is a second verdict comment on the same
+`issue-1199/brand-design` "Judgment opened" (issuecomment-5288025681)
+already reconciled just above — same watcher/comment-race pattern,
+not a new event, not naming this data-modeling unit (canonical: `gh
+api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"
+--paginate --jq 'sort_by(.id) | .[-1]'`, run this session). This
+session opens the PR now.
+
+issuecomment-5288107208 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is the judgment loop's verdict for the preceding
+"Judgment opened" comment (issuecomment-5288025681, branch
+`issue-1199/brand-design`), not this data-modeling unit (canonical:
+`gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"
+--paginate --jq 'sort_by(.id) | .[-2:]'`, run this session). Per the
+same comment-race precedent already logged above and in
+docs/issue-1174/reports/issue-retrospective/deviation-log.md (commit
+005e2c6), this session stops chasing further new comment ids after
+this reconciliation round and proceeds to open the PR.
+
+issuecomment-5288100111 ("Judgment opened: PR #? — candidate decision
+on branch `issue-1199/data-modeling` (2 path(s) changed) entered
+delegated-judgment evaluation.") and issuecomment-5288100292
+("Verdict: PR #? → escalate (depth or impact axis did not clear)")
+are the judgment-loop's automated evaluation of this session's own
+push (2 paths: data-modeling.md + scout-brief.md) to
+`issue-1199/data-modeling` before this on-the-record PR existed
+(canonical: `gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"
+--paginate --jq 'sort_by(.id) | .[-2:]'`, run this session). "Escalate"
+is that automated loop's own verdict on depth/impact, not a directive
+to this session — no separate action is defined for this role by an
+escalate verdict on its own commit, so this record proceeds to open
+the PR as planned and leaves the escalate verdict for whatever
+external process consumes judgment-loop verdicts.
+
 issuecomment-5277534993 ("Verdict: PR #? → escalate (depth or impact
 axis did not clear)") is a delegated-judgment verdict for a different,
 unnumbered candidate PR on branch `issue-1199/capacity-planning`
