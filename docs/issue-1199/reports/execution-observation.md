@@ -436,4 +436,11 @@ automated judgment-watcher message already reconciled repeatedly on
 this branch's prior sections (external watcher signal, not an
 instruction changing this observation's scope, write set, or verdict).
 
+canonical: `gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"` --paginate, re-read this session, second PR-create retry.
+amendments-reconciled: issuecomment-5290818706 — another repeat of the
+same automated judgment-watcher "escalate" message, posted immediately
+after the reconcile above; same reconciliation applies (external
+watcher signal, not an instruction changing this observation's scope,
+write set, or verdict).
+
 loop_state: handed-off.
