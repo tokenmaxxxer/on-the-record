@@ -1121,3 +1121,62 @@ commits,mergedAt`, `gh pr view 86 --repo tokenmaxxxer/implementation-rulebook
 58d1b9a4 -- docs/issue-1199/reports/implementation.md`, and `git
 merge-base --is-ancestor 58d1b9a4 origin/main` — all run this session
 against this branch's checked-out HEAD.
+
+# Review: issue-1199/capacity-planning role's tool-landscape fold-in (conformance check)
+
+subject: issue-1199/capacity-planning branch, landed via PR #1303.
+canonical: `gh pr view 1303 --repo tokenmaxxxer/on-the-record --json commits,mergedAt,title,url`, run this session — commits 6a28cb2e (rework), 0ca38f0b, 78b6e97b, 03477a9b; mergedAt 2026-08-14T00:55:49Z.
+canonical: reading this file's own prior content this session (search for "capacity-planning" above this section) — no prior `# Review:` section named this branch.
+Spawn-on-PR trigger, per `spawn_on_pr.py`: no conformance record existed for this landed unit before this section.
+
+code_under_review:
+- docs/issue-1199/reports/capacity-planning.md
+- docs/issue-1199/reports/capacity-planning/deviation-log.md
+- playbook/expansion-trigger-threshold-sizing.md (tokenmaxxxer/capacity-planning-rulebook repo, commit 95dc4b6, PR #23)
+- playbook/cost-attribution-at-trigger.md (tokenmaxxxer/capacity-planning-rulebook repo, commit 95dc4b6, PR #23)
+- playbook/safety-buffer-sizing-by-criticality.md (tokenmaxxxer/capacity-planning-rulebook repo, commit 95dc4b6, PR #23)
+- playbook/headroom-band-and-degradation-risk.md (tokenmaxxxer/capacity-planning-rulebook repo, commit 95dc4b6, PR #23)
+
+Scope: reviews the 2026-08-14 Claude Code plugin-ecosystem rework only; the kept 2026-08-13 domain-tool rules are not re-litigated, matching every other reviewed rework section's scope in this file.
+Requirement source: issue-1199 Acceptance criterion 1 (Claude Code plugin/skill survey target, native no-attribution rulebook edits per the operator's 2026-08-13T06:36:54Z amendment) and contract v3's record-accuracy norm.
+
+### Requirement: the record's claim that the capacity-planning-rulebook PR "is not yet open" matches actual PR state
+verdict: Incorrect
+spec_ref: contract v3 record-accuracy norm (mirrors the same defect class already recorded above against commit 9dd5ea36's false PR-open claim)
+canonical: docs/issue-1199/reports/capacity-planning.md, "Open findings" section, read this session — quoted text: "The capacity-planning-rulebook PR for this rework's commit (95dc4b6) is not yet open".
+canonical: `gh pr view 23 --repo tokenmaxxxer/capacity-planning-rulebook --json number,state,createdAt,mergedAt,headRefOid`, run this session — result number 23 state MERGED headRefOid 95dc4b6a5952a91a81d5aa5718eb7e5623062e5d (equals commit 95dc4b6, the exact commit the quoted text above names as having no PR).
+evidence: same `gh pr view 23` result cited directly above — `state` reads MERGED, not merely open, and `headRefOid` names commit 95dc4b6, contradicting the quoted claim.
+canonical: `git log --oneline -- docs/issue-1199/reports/capacity-planning.md`, run this session — no commit after 6a28cb2e touches this file, so the "not yet open" claim above is this branch's final, never-revised state.
+canonical: `gh pr list --repo tokenmaxxxer/capacity-planning-rulebook --state all --search "1199"`, run this session — result PR #23, MERGED, createdAt 2026-08-14T00:55:31Z, confirming the `gh pr view 23` result above.
+rationale: canonical: `gh pr view 23 ... --json createdAt,mergedAt` above (createdAt 00:55:31Z, mergedAt 00:55:38Z) compared against this section's subject-line `gh pr view 1303` canonical (mergedAt 00:55:49Z) — PR #23 was created and merged before PR #1303, which carries this record, itself merged.
+canonical: this file's "pre-rework delivery" section above (search "9dd5ea36") together with the `git log --oneline` result cited above (no follow-up commit here) — that earlier Incorrect finding was self-corrected by a same-delivery follow-up commit; this one was not, so the false claim reached main unresolved.
+
+### Requirement: fold-in applied natively, no tool-attribution catalog in the rulebook itself (2026-08-13 amendment)
+verdict: Incorrect
+spec_ref: issue-1199, operator amendment 2026-08-13T06:36:54Z (native application, no `source:` framing, no tool-catalog section in the rulebook)
+canonical: `gh pr diff 23 --repo tokenmaxxxer/capacity-planning-rulebook`, run this session — result: all four new rules carry an explicit `tool:` line naming the surveyed repo plus a `source:` line linking directly to it (`ryoppippi/ccusage`, `alirezarezvani/claude-skills`, `Maciek-roboblog/Claude-Code-Usage-Monitor`, `wshobson/agents`).
+evidence: same `gh pr diff 23` result cited directly above, fenced excerpt of one block:
+```
++11. When the resource has genuine elastic on-demand provisioning ...
++    tool: `capacity-planner` skill, `alirezarezvani/claude-skills` (Claude Code skills marketplace repo; 24,392 GitHub stars).
++    source: https://github.com/alirezarezvani/claude-skills/blob/main/business-operations/skills/capacity-planner/references/capacity_anti_patterns.md
+```
+canonical: this file's "fold-in applied natively" `### Requirement:` sections above for the implementation and accessibility rework units (search "no tool-attribution catalog"), re-read this session — those units' `source:` lines cite public-knowledge URLs (WebAIM, ScienceDirect, Wikipedia), never the surveyed plugin/skill repo's own name or URL, unlike the `gh pr diff 23` result above.
+rationale: canonical: the `gh pr diff 23` result cited above — it puts the tool name and surveyed source URL directly into the public rulebook text, the shape the amendment's own wording forbids ("no `source:` framing ... tool names ... live only in this record").
+canonical: `gh pr diff 23 --repo tokenmaxxxer/capacity-planning-rulebook` (re-cited) together with docs/issue-1199/reports/capacity-planning.md's own implementation-summary section, both read this session — that section's own prose asserts no such attribution text was added beyond what it calls the required `tool:`/`source:` provenance lines; no such carve-out appears in the amendment text or in any other reviewed role's diff (canonical above), so this is a genuine deviation, not a stylistic variant.
+addressed_to: capacity-planning role — strip the `tool:`/`source:` lines naming the surveyed repo from the public rulebook rule text (matching every other reviewed role's rework diff), keeping that provenance only in `docs/issue-1199/reports/capacity-planning.md`.
+
+## Overall (capacity-planning fold-in)
+canonical: the two `### Requirement:` sections directly above (each carrying its own `gh pr view 23`/`gh pr list`/`gh pr diff 23` citation) — two Incorrect verdicts recorded against the 2026-08-14 rework, neither resolved by any later commit on this branch.
+canonical: `gh pr view 23 --repo tokenmaxxxer/capacity-planning-rulebook --json state,headRefOid`, re-cited from the first Requirement above — Finding 1: PR #23 (head commit 95dc4b6) was created and merged while the record's "Open findings" text still asserted it was not yet open.
+canonical: `gh pr diff 23 --repo tokenmaxxxer/capacity-planning-rulebook`, re-cited from the second Requirement above — Finding 2: the rework's rulebook diff names the surveyed tool and source URL directly in `tool:`/`source:` lines landed in the public rulebook, contradicting the no-attribution amendment every other reviewed role's rework satisfies.
+Neither defect touches the underlying insight-mapping content itself (the four rules target the right axis files and state a real learning); both are record-accuracy/native-application-shape defects. addressed_to: capacity-planning role.
+
+canonical: `gh pr view 1303 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt,title,url`, `gh pr view 23 --repo
+tokenmaxxxer/capacity-planning-rulebook --json
+number,state,createdAt,mergedAt,headRefOid`, `gh pr list --repo
+tokenmaxxxer/capacity-planning-rulebook --state all --search "1199"`,
+`gh pr diff 23 --repo tokenmaxxxer/capacity-planning-rulebook`, and
+`git log --oneline -- docs/issue-1199/reports/capacity-planning.md` —
+all run this session against current live state.
