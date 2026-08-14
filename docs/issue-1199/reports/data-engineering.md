@@ -233,3 +233,15 @@ reference this data-engineering rework unit's work, so no content
 amendment to this record is warranted — same reconciliation class
 already logged earlier in this file for issuecomment-5277549292 and
 its siblings.
+
+amendments-reconciled: issuecomment-5288123194 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a delegated-judgment
+verdict for a different, unnumbered candidate PR (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288123194`, read
+this session — the body names no branch); it does not name or
+reference this data-engineering rework unit's work, so no content
+amendment to this record is warranted — same pr-preflight
+comment-race pattern already documented in this file (issue #1174
+retrospective, commit 005e2c6): each reconciliation commit here can
+itself trigger a fresh watcher comment while `gh pr create` is still
+pending.
