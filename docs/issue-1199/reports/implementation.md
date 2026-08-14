@@ -4,6 +4,8 @@ code_under_review:
   - gates/test_tool_learnings_gate.py
   - gates/tool_learnings_tracker.py
   - gates/test_tool_learnings_tracker.py
+  - coding/hooks/directive.sh (tokenmaxxxer/implementation-rulebook,
+    branch issue-1199/plugin-landscape-fold-in, PR #86)
 type: infra
 breaking: false
 verdict: see Test run below
@@ -349,4 +351,173 @@ session's own first `gh pr create` attempt for the on-the-record repo.
 Per the stop-retry precedent above, this session stops retrying here
 too — see the deviation-log entry just filed. This repo's commits
 (2006043, 0180433) are pushed to `origin/issue-1199/implementation`.
+
+## Rework (2026-08-14 amendment): plugin-ecosystem survey supersedes the prior domain-tool fold-in
+
+canonical: `find /home/jwjung/tokenmaxxxer/rulebooks/implementation-rulebook -iname "*.md" -not -path "*/docs/*"`
+and `find /home/jwjung/tokenmaxxxer/rulebooks/implementation-rulebook/coding -type f`, both run this session.
+No `playbook/` directory and no `complexity-coupling-management.md`
+file exist at that path — the repo's actual role-content structure is
+topic directories with a `README.md` each (`coding/`, `blueprint/`,
+`no-mock/`, `no-footgun/`, `proposal-shape/`, `record-shape/`,
+`survey-order/`) plus `coding/hooks/directive.sh`. canonical:
+`coding/hooks/directive.sh`, read this session — its `PRODUCES`
+variable's text matches this session's own startup role-directive
+verbatim, confirming this is the file that generates the live
+directive. This session does not attempt to reconstruct or refute the
+earlier rules-7-9 claim in this record's prior section above (different
+repo path, unverifiable from the current tree) — out of scope for this
+rework — and proceeds directly to the amended target (Claude Code
+plugin ecosystem, native application into the file that actually
+exists and actually generates the live directive).
+
+### What was done (rework)
+
+Surveyed the Claude Code plugin/skill ecosystem for coding-implementation
+practitioners, adoption evidence live-pulled via `gh api`:
+
+- `obra/superpowers` — 271,743 stars.
+  canonical: `gh api repos/obra/superpowers --jq '{stars:.stargazers_count, desc:.description}'`,
+  run this session — `{"desc":"An agentic skills framework & software
+  development methodology that works.","stars":271743}`. Cross-listed
+  by multiple 2026 roundups as the most-starred Claude Code skill
+  library, describing a chained brainstorm → spec → git-worktree
+  isolation → TDD → subagent execution → code-review-before-merge
+  methodology (Sources: firecrawl.dev "Top 11 Claude Code Plugins to
+  Try in 2026", designrevision.com "Awesome Claude Code Plugins: The
+  Curated List (2026)").
+- `upstash/context7` — 60,697 stars.
+  canonical: `gh api repos/upstash/context7 --jq '{stars:.stargazers_count, desc:.description}'`,
+  run this session — `{"desc":"Context7 Platform -- Up-to-date code
+  documentation for LLMs and AI code editors","stars":60697}`. Also
+  independently reported at 348,660 installs in Anthropic's public
+  plugin directory as of June 2026 (Source: bito.ai "Best Claude Code
+  plugins in 2026"). Solves: an LLM's pretrained recall of a library's
+  API drifting stale after a version bump, by fetching up-to-date,
+  version-matched docs on demand instead of relying on training-time
+  knowledge.
+
+Design-move mapping → upgrade applied (native, no tool name/attribution
+in the rulebook itself — the citation trail lives only in this record,
+per the 2026-08-13 no-attribution amendment). canonical:
+`coding/hooks/directive.sh` (the edited `PRODUCES` variable, its final
+two bullets), read and edited this session in
+/home/jwjung/tokenmaxxxer/rulebooks/implementation-rulebook:
+
+1. Context7's on-demand-fresh-docs move, canonical: same
+   `coding/hooks/directive.sh` citation directly above → a new
+   LIVE-INTERFACE CHECK rule: before writing a call into a dependency
+   already in the manifest, confirm that dependency's current
+   installed interface (its own source, CHANGELOG, or fetched docs),
+   not pretrained recall of its API.
+2. Superpowers' chained TDD-before-execution move, same citation → a
+   new TEST-BEFORE-CLAIM ORDER rule: when the write set pairs an
+   implementation file with its test file, write the test asserting
+   the target behavior before or alongside the implementation, not
+   shaped after the fact to match whatever the implementation already
+   does.
+
+Both rules were appended to `coding/hooks/directive.sh`'s `PRODUCES`
+variable (the EXECUTION JUDGMENT section — this session's own startup
+directive's phase-2 quality-bar block), immediately after the existing
+"HUNT RESULTS ARE VERIFY'S INPUT" bullet. This is the file that
+generates the session-start directive shown to every future
+`implementation`-role session, so the upgrade is load-bearing on the
+role's actual operating prose, not a dead file.
+
+derived: `bash -n coding/hooks/directive.sh`
+```
+$ bash -n coding/hooks/directive.sh
+```
+(run in /home/jwjung/tokenmaxxxer/rulebooks/implementation-rulebook,
+this session; no output, exit 0 — the edited heredoc-quoted shell
+variable still parses.)
+
+Committed on a new branch `issue-1199/plugin-landscape-fold-in` in the
+`implementation-rulebook` repo (branched off `main` at `8e93c20`;
+commit `518ba19`), pushed to `origin`, PR opened:
+https://github.com/tokenmaxxxer/implementation-rulebook/pull/86
+
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/implementation-rulebook log --oneline -1 issue-1199/plugin-landscape-fold-in`,
+run this session — `518ba19 issue-1199: fold plugin-ecosystem learnings into coding role directive`.
+
+### code_under_review (this rework)
+- coding/hooks/directive.sh (in the `tokenmaxxxer/implementation-rulebook`
+  repo, branch `issue-1199/plugin-landscape-fold-in`, PR #86)
+
+### Why (rework)
+The 2026-08-14 operator amendment on issue #1199 states the prior
+domain-tool-basis survey (pre-commit, dependency-cruiser, Ruff — none
+of them Claude Code plugins) fails the amended acceptance criterion,
+which requires the surveyed entries to be Claude Code plugins/skills
+specifically. This rework replaces that survey target and applies the
+resulting design moves to the file that actually generates this role's
+live operating directive.
+
+### What did not work (rework)
+canonical: this session's own Bash tool-call sequence and its returned
+error/output, observed directly this session.
+
+Attempted a single chained Bash command combining `git checkout -b`
+and `git commit`; the repo's own `board-gate.sh` PreToolUse hook
+refused the first commit-message attempt (a trailing
+"docs/issue-1199/reports." parsed as an out-of-bucket path reference)
+before `checkout -b` had a chance to run, so the retried plain
+`git add && git commit` landed directly on `main` instead of the
+intended feature branch. Recovered by creating the feature branch at
+that commit and `git reset --hard HEAD~1` on `main`.
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/implementation-rulebook log --oneline -1 main`,
+run this session after the reset — `8e93c20 Merge pull request #78
+from tokenmaxxxer/issue-75/implementation`, confirming `main` is back
+at its pre-rework tip.
+
+### Open findings (rework)
+None.
+
+### Resolution path (rework)
+n/a — no open findings.
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, before this session's own on-the-record PR-create attempt.
+
+amendments-reconciled: issuecomment-5288015865 — "Judgment opened: PR
+#? — candidate decision on branch `issue-1199/architecture` (2 path(s)
+changed) entered delegated-judgment evaluation" names a different
+branch/role (`issue-1199/architecture`), not this one
+(`issue-1199/implementation`); no change to this delivery's scope,
+write set, or verdict.
+
+canonical: `git log --oneline -1 origin/issue-1199/implementation`, run
+this session — `f0f1187c issue-1199: reconcile trailing watcher
+comment (architecture branch, not this one)`, the commit already
+pushed to this branch's remote regardless of PR-open outcome.
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, second on-the-record PR-create retry.
+
+amendments-reconciled: issuecomment-5288018954 — another repeat of the
+same automated judgment-watcher message for `issue-1199/architecture`
+(a different branch/role than this one), posted again after the
+reconcile above; no change to this delivery's scope, write set, or
+verdict. This session retries `gh pr create` once more per this
+issue's already-documented deadlock precedent.
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, third on-the-record PR-create retry.
+
+amendments-reconciled: issuecomment-5288025919 — "Verdict: PR #? →
+escalate (depth or impact axis did not clear)", the same generic
+automated judgment-watcher verdict template already reconciled
+repeatedly earlier in this record, hit again immediately after the
+reconcile above. Per the same deadlock precedent already documented
+twice in this record (three consecutive `gh pr create` attempts each
+hitting a fresh comment posted after the immediately-prior reconcile),
+this session stops retrying `gh pr create` here.
+
+canonical: `git log --oneline -1 origin/issue-1199/implementation`, run
+this session — `7a8d1dc9 issue-1199: reconcile second watcher comment
+(architecture branch)`, confirming this branch's commits, including
+this rework, are committed and pushed to
+`origin/issue-1199/implementation` regardless of this on-the-record-side
+PR-open outcome; the `implementation-rulebook` repo's own PR
+(tokenmaxxxer/implementation-rulebook#86) is separately already open.
+Opening this repo's PR is left to a follow-up attempt once the
+watcher's post cadence settles.
 
