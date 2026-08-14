@@ -70,7 +70,23 @@ def _issue_is_open(issue: int, issue_states: dict[int, str] | None) -> bool:
     return issue_states.get(issue) == "OPEN"
 
 
-def missing_verification(root: Path, issue_states: dict[int, str] | None = None
+def _pr_number_for_branch(root: Path, branch: str,
+                           pr_index: dict[str, dict] | None) -> int | None:
+    """`pr_index`(있으면, `closure_sweep._pr_index_all()` 모양)에서
+    OPEN/MERGED PR 번호를 찾는다. 인덱스가 없으면(잘렸거나 실패)
+    `spawn._pr_open_or_merged_for_branch()`(브랜치당 `gh` 한 번)으로
+    되돌아간다 — 이슈 #1498 요구 5: 인덱스가 있는 정상 경로는 subject 수와
+    무관하게 O(1) gh 호출만 쓴다."""
+    if pr_index is not None:
+        entry = pr_index.get(branch)
+        if entry is not None and entry.get("state") in ("OPEN", "MERGED"):
+            return entry.get("number")
+        return None
+    return spawn._pr_open_or_merged_for_branch(root, branch)
+
+
+def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
+                          pr_index: dict[str, dict] | None = None
                           ) -> dict[str, list[str]]:
     """보드 전체를 훑어 `{subject: [빠진 role, ...]}` 을 만든다. 대상
     조건: PR 이 실제로 열려있거나 머지되어 있고(트리거는 "PR 생성"이지
@@ -82,18 +98,23 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None
     `issue_states` 는 이슈번호 -> state 사전(선택) — 주어지지 않으면
     `closure_sweep.issue_state_index_all()` 로 한 번에 가져온다(호출자가
     이미 같은 틱에서 가져온 사전이 있으면 그걸 재사용해 `gh` 중복 호출을
-    피한다, closure_sweep 의 같은 패턴)."""
+    피한다, closure_sweep 의 같은 패턴). `pr_index` 도 마찬가지 —
+    안 주면 `closure_sweep._pr_index_all()` 로 한 번에 가져온다(이슈
+    #1498 요구 5: subject 당 `gh pr list --head` 대신 벌크 인덱스 한 번 +
+    로컬 조인)."""
     out: dict[str, list[str]] = {}
     if issue_states is None:
         issue_states, ok = closure_sweep.issue_state_index_all(root)
         if not ok:
             issue_states = None
+    if pr_index is None:
+        pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
     for subject, subject_board in b.items():
         missing = applicable_roles(subject_board)
         if not missing:
             continue
-        pr_number = spawn._pr_open_or_merged_for_branch(root, f"{subject}/implementation")
+        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
         if pr_number is None:
             continue
         issue = int(subject.split("-", 1)[1])
@@ -172,7 +193,8 @@ def unpark(root: Path, subject: str, role: str) -> bool:
 
 def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
                           issue_states: dict[int, str] | None = None,
-                          spawn_cap: int = SPAWN_CAP) -> list[tuple[str, str]]:
+                          spawn_cap: int = SPAWN_CAP,
+                          backoff_state: dict | None = None) -> list[tuple[str, str]]:
     """`missing_verification()` 이 찾은 `(subject, role)` 쌍 중 최대
     `spawn_cap` 개를 등록+스폰한다. 초과분은 스폰하지 않고, 몇 건이
     미뤄졌는지 한 줄 찍는다(issue #1360 — no silent cap). `dry_run=True`
@@ -184,10 +206,27 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     blocked()`(구조화 신호)로 확인해 여전히 승인-대기면 park 하고
     스폰하지 않는다. `is_approval_blocked()`(gh 호출)는 바로 이 경우 —
     이전 park 기록이 있고 `pr_number`가 같을 때만 호출한다: 후보를 처음
-    보는 틱은 gh 를 전혀 안 건드리고 그냥 스폰한다(기존 동작 그대로)."""
+    보는 틱은 gh 를 전혀 안 건드리고 그냥 스폰한다(기존 동작 그대로).
+
+    issue #1498 요구 4: 그 재확인 자체도 매 틱 부르지 않는다 —
+    `closure_sweep.recheck_backoff()`(같은 `runs/gh_quota_backoff.json`,
+    `recheck` 네임스페이스)로 게이팅해, 연속으로 변화 없던 키는 점점 뜸하게
+    재확인한다. `backoff_state` 를 안 주면 이 함수가 직접 읽고 저장한다
+    (호출부가 여러 재확인을 한 상태 객체로 묶고 싶으면 넘겨서 공유한다 —
+    그때는 저장을 호출부가 책임진다)."""
+    owns_backoff_state = backoff_state is None
+    if backoff_state is None:
+        backoff_state = closure_sweep.load_backoff_state(root)
+
+    # issue #1498 요구 5: 벌크 PR 인덱스 한 번을 `missing_verification()` 과
+    # 아래 subject 별 조인이 함께 재사용한다 — subject 수만큼 `gh pr list
+    # --head` 를 부르지 않는다.
+    pr_index, _ = closure_sweep._pr_index_all(root)
+
     all_pairs: list[tuple[str, str, int | None]] = []
-    for subject, roles in missing_verification(root, issue_states=issue_states).items():
-        pr_number = spawn._pr_open_or_merged_for_branch(root, f"{subject}/implementation")
+    for subject, roles in missing_verification(
+            root, issue_states=issue_states, pr_index=pr_index).items():
+        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
         for role in roles:
             all_pairs.append((subject, role, pr_number))
 
@@ -199,7 +238,14 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         key = f"{subject}/{role}"
         prior = park_state.get(key)
         if prior is not None and prior.get("pr_number") == pr_number and prior.get("blocked"):
+            if not closure_sweep.recheck_backoff(backoff_state, key, False):
+                # 이번 틱은 재확인 순번이 아니다 — gh 호출 없이 park 유지.
+                parked_now.append((subject, role))
+                park_state[key] = {"blocked": True, "pr_number": pr_number, "parked": True}
+                continue
             blocked = is_approval_blocked(root, issue, role)
+            if not blocked:
+                closure_sweep.recheck_backoff(backoff_state, key, True)
             if should_park(prior, pr_number, blocked):
                 parked_now.append((subject, role))
                 park_state[key] = {"blocked": True, "pr_number": pr_number, "parked": True}
@@ -207,6 +253,9 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
             if not blocked:
                 park_state.pop(key, None)
         to_spawn.append((subject, role, pr_number, issue))
+
+    if owns_backoff_state:
+        closure_sweep.save_backoff_state(root, backoff_state)
 
     if parked_now:
         print(f"[spawn-on-pr] park={len(parked_now)}건 waiting-for-human "
