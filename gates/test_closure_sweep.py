@@ -114,6 +114,25 @@ class FindViolationsSkips(unittest.TestCase):
             self.assertEqual(run.call_count, 2)
 
 
+class OneTickOneSweep(unittest.TestCase):
+    """issue #1320 requirement 2/acceptance (d): one tick triggers
+    exactly one board-wide sweep — guards spawn.py's watchdog wiring
+    against re-invoking closure_sweep/spawn_coverage 2-4x per tick."""
+
+    def test_roster_watchdog_triggers_board_wide_sweep_exactly_once(self):
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        import spawn
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs" / "specs").mkdir(parents=True)
+            (root / "docs" / "specs" / "approvers.md").write_text("someone\n")
+            (root / "runs").mkdir()
+            with mock.patch.object(spawn, "ROSTER", root / "runs" / "roster.json"), \
+                 mock.patch.object(spawn, "_board_wide_sweep", return_value=0) as m:
+                spawn.roster_watchdog(root=root)
+            self.assertEqual(m.call_count, 1)
+
+
 class RateLimitGuard(unittest.TestCase):
     """issue #1320 requirement 3/acceptance (c): pre-sweep GraphQL
     rate-limit guard."""
