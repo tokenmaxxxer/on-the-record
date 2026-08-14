@@ -33,7 +33,76 @@ case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; e
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/poll-rearm.sh"
 CHECKOUT="$(poll_rearm_resolve_checkout "${BASH_SOURCE[0]}" || true)"
+
+# issue #1497 req 3: same staleness check and once-per-episode re-arm
+# directive as directive.sh's UserPromptSubmit copy -- duplicated
+# verbatim here (this hook does not source directive.sh) so the Stop
+# boundary also surfaces a dead Monitor, not only turn-start. Shares the
+# same stamp/state file paths and de-dup key, so a stamp already fresh
+# or an episode already notified by directive.sh this turn stays quiet
+# here too.
+_monitor_liveness_check_and_notify() {
+  local checkout="$1"
+  local stamp="${checkout}/runs/poll_heartbeat_alive.json"
+  local state="${checkout}/runs/poll_heartbeat_staleness_state.json"
+  local threshold="${MONITOR_LIVENESS_STALE_SECONDS:-180}"
+  python3 - "$stamp" "$state" "$threshold" <<'PY' 2>/dev/null || true
+import json
+import os
+import sys
+import time
+
+stamp_path, state_path, threshold = sys.argv[1], sys.argv[2], float(sys.argv[3])
+now = time.time()
+
+last_tick = None
+try:
+    with open(stamp_path) as f:
+        last_tick = json.load(f).get("last_tick")
+except (OSError, ValueError):
+    last_tick = None
+
+stale = last_tick is None or (now - float(last_tick)) >= threshold
+
+state = {}
+try:
+    with open(state_path) as f:
+        state = json.load(f)
+except (OSError, ValueError):
+    state = {}
+
+if not stale:
+    if state.get("notified_episode") is not None:
+        try:
+            os.makedirs(os.path.dirname(state_path), exist_ok=True)
+            with open(state_path, "w") as f:
+                json.dump({}, f)
+        except OSError:
+            pass
+    sys.exit(0)
+
+episode_key = "missing" if last_tick is None else str(last_tick)
+if state.get("notified_episode") == episode_key:
+    sys.exit(0)
+
+try:
+    os.makedirs(os.path.dirname(state_path), exist_ok=True)
+    with open(state_path, "w") as f:
+        json.dump({"notified_episode": episode_key}, f)
+except OSError:
+    pass
+
+since_label = (
+    time.strftime("%Y-%m-%dT%H:%M:%S%z", time.localtime(float(last_tick)))
+    if last_tick is not None
+    else "unknown (no tick ever recorded this checkout)"
+)
+print(f"[orchestrate] poll-heartbeat monitor dead since {since_label} -- re-arm via Monitor tool")
+PY
+}
+
 if [ -n "$CHECKOUT" ]; then
+  _monitor_liveness_check_and_notify "${CHECKOUT}"
   poll_rearm_arm_if_due "${CHECKOUT}" || true
 fi
 
