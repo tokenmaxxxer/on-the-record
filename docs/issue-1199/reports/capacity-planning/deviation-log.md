@@ -13,3 +13,18 @@
   budget per the identical precedent — commits through 5339bb9 are
   pushed to issue-1199/capacity-planning for on-the-record's outside
   relay to open the PR. reported, not spawned.
+
+- 2026-08-14T00:00:00Z | filed | `gh pr create --repo
+  tokenmaxxxer/capacity-planning-rulebook` was refused by this working
+  tree's own `upstream-defect-scope-guard.sh` hook ("the upstream
+  defect channel files issues only, never PRs" — issue #1131 req#4),
+  discovered while trying to open the PR for the 2026-08-14 tool-
+  landscape rework commit (95dc4b6). Also discovered: the prior unit's
+  record claimed an "External PR #23" that was never actually opened
+  (`gh pr list --repo tokenmaxxxer/capacity-planning-rulebook --state
+  all --search "1199"` returns empty) — the branch had been pushed but
+  no PR existed, so that citation was stale/incorrect; corrected in
+  this turn's record update. The rework commit is pushed to
+  `issue-1199/capacity-planning` on `capacity-planning-rulebook`; PR
+  creation there needs a session without this guard, or a human/
+  orchestrator action outside this turn. reported, not spawned.
