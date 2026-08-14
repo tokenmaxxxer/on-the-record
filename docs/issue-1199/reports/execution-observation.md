@@ -443,4 +443,17 @@ after the reconcile above; same reconciliation applies (external
 watcher signal, not an instruction changing this observation's scope,
 write set, or verdict).
 
+canonical: `gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"` --paginate, re-read this session, third PR-create retry.
+amendments-reconciled: issuecomment-5290823832 — a third consecutive
+repeat of the same automated judgment-watcher "escalate" message, hit
+immediately after the reconcile directly above. This matches the
+deadlock pattern the `implementation` role's own record already named
+on this issue (three consecutive `gh pr create` attempts each hitting a
+fresh comment posted after the immediately-prior reconcile): this
+session stops retrying `gh pr create` here. This branch's commits
+(canonical: `git log --oneline -1 origin/issue-1199/execution-observation`,
+run this session — `ad8e1505`) are already pushed regardless of this
+PR-open outcome; opening the PR is left to a follow-up attempt once the
+watcher's cadence settles.
+
 loop_state: handed-off.
