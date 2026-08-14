@@ -91,6 +91,52 @@ Out of scope for the 2026-08-14 plugin/skill rework phase-1 unit
 (docs/issue-1199/proposals/2026-08-14-ux-engineering-plugin-tool-landscape-rework.md);
 no reconciliation action needed beyond this citation.
 
+amendments-reconciled: issuecomment-5288383520, and by the same
+templated shape issuecomment-5288384... series through
+IC_kwDOTiVhs88AAAABOzZgJw (2026-08-14T01:33:56Z, "Judgment opened: PR
+#? — candidate decision on branch `issue-1199/defect-verification`").
+canonical: gh issue view 1199 --json comments -q '.comments[-8:]' — all
+are auto-posted "Judgment opened"/"Verdict: PR #?" pairs from
+delegated-judgment watchdog machinery, firing every ~30-90s against
+various roles' branches (localization, ux-engineering,
+defect-verification), none naming a resolved PR number or citing
+ux-engineering content. Out of scope for this phase-1 unit; no
+reconciliation action needed beyond this citation.
+
+amendments-reconciled: issuecomment-5288389172. canonical: gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288389172 — same
+templated watchdog "Verdict: PR #? → escalate" body as the prior
+entries above; out of scope for this phase-1 unit, no reconciliation
+action needed beyond this citation.
+
+amendments-reconciled: issuecomment-5288392464. canonical: gh issue
+view 1199 --json comments -q '.comments[-1]' — same templated watchdog
+"Verdict: PR #? → escalate" body as the prior entries above; out of
+scope for this phase-1 unit, no reconciliation action needed beyond
+this citation.
+
+gh pr create for this unit's branch hit pr-preflight's
+amendments-reconciled gate four consecutive times in this session (ids
+5288372590, 5288383520, 5288389172, 5288392464 — see entries above),
+each retry racing a new watchdog "Judgment opened"/"Verdict: PR #? →
+escalate" comment pair that lands roughly every 30-90s. canonical:
+on-the-record/hooks/pr-preflight.sh:259-267 — the hook's own
+machine-comment-cursor section (issue #1310) states this exact comment
+shape should not count as a blocking "newest comment", but
+`_MACHINE_BODY_RE` (pr-preflight.sh:266-270) does not match the
+"Judgment opened: PR #? —"/"Verdict: PR #? → escalate" body shape, so
+these watchdog comments keep racing `gh pr create`. Filing this as a
+deviation rather than editing the hook myself (out of this unit's
+write scope). Commits for this rework are pushed to origin
+(issue-1199/ux-engineering) but no PR is open — treating this the same
+as a network-blocked push per session instructions: the commit lands,
+PR creation is the open item.
+
 ## Open findings
 
-None.
+- gh pr create is blocked by an apparent gap in pr-preflight.sh's
+  machine-comment regex (issue #1310's fix) against the
+  "Judgment opened"/"Verdict: PR #? → escalate" watchdog comment
+  shape, which races indefinitely on this busy issue thread. Needs
+  either a hook fix (extend `_MACHINE_BODY_RE`) or a manual PR-open by
+  someone with a wider retry/backoff window.
