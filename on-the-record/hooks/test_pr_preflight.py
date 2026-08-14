@@ -536,6 +536,79 @@ def test_hook_allows_pr_when_no_comments_at_all(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+def test_hook_allows_pr_when_only_machine_comments_post_spawn(tmp_path):
+    """Issue #1310 acceptance bar (machine-stream-pass): a stream of
+    machine-generated comments (watchdog/poll-report/consult-trace/
+    reconcile shapes) landing after spawn must never block gh pr create,
+    with no record citation needed — they are excluded from the newest-
+    comment scan entirely."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1310/implementation")
+    _write_session_start(repo_dir, 1000.0)
+    fixtures = {
+        "issue_comments": [
+            {"author": {"login": "github-actions[bot]"}, "body": "[watch] session-end",
+             "createdAt": "1970-01-01T00:20:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-901"},
+            {"author": {"login": "alice"}, "body": "[poll-report] still running",
+             "createdAt": "1970-01-01T00:21:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-902"},
+            {"author": {"login": "alice"}, "body": "- 1970-01-01T00:22:00Z | role=implementation",
+             "createdAt": "1970-01-01T00:22:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-903"},
+            {"author": {"login": "alice"}, "body": "[reconcile] cursor advanced",
+             "createdAt": "1970-01-01T00:23:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-904"},
+        ]
+    }
+    cmd = 'gh pr create --title "proposal" --body "#1310"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_denies_pr_when_operator_comment_among_machine_comments(tmp_path):
+    """Issue #1310 acceptance bar (operator-comment-block): one operator
+    comment mixed in among machine comments must still block until the
+    record's amendments-reconciled line cites it."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1310/implementation")
+    _write_session_start(repo_dir, 1000.0)
+    fixtures = {
+        "issue_comments": [
+            {"author": {"login": "github-actions[bot]"}, "body": "[watch] session-end",
+             "createdAt": "1970-01-01T00:20:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-901"},
+            {"author": {"login": "alice"}, "body": "please also cover Y",
+             "createdAt": "1970-01-01T00:21:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-902"},
+            {"author": {"login": "alice"}, "body": "[reconcile] cursor advanced",
+             "createdAt": "1970-01-01T00:22:00Z",
+             "url": "https://github.com/o/r/issues/1310#issuecomment-903"},
+        ]
+    }
+    cmd = 'gh pr create --title "proposal" --body "#1310"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "amendments-reconciled" in r.stderr
+    assert "issuecomment-902" in r.stderr
+
+    (repo_dir / "docs" / "issue-1310" / "reports").mkdir(parents=True)
+    (repo_dir / "docs" / "issue-1310" / "reports" / "implementation.md").write_text(
+        "amendments-reconciled: issuecomment-902\n"
+    )
+    r2 = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r2.returncode == 0, r2.stderr
+
+
+def test_hook_allows_pr_when_no_comments_at_all_1310(tmp_path):
+    """Issue #1310 acceptance bar (empty-state-pass): no machine comments
+    and no operator comments -> pr-preflight passes as today."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-1310/implementation")
+    _write_session_start(repo_dir, 2000.0)
+    fixtures = {"issue_comments": []}
+    cmd = 'gh pr create --title "proposal" --body "#1310"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
 def test_hook_allows_pr_when_no_events_file(tmp_path):
     """No `<work>.events.jsonl` sibling at all (directive-load time
     unknown) -> fail-open, never blocks."""
