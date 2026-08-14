@@ -9,6 +9,9 @@ outcome: accepted
 
 # Record: architecture tool-landscape fold-in (issue-1199)
 
+amendments-reconciled: issuecomment-5288015969 read this session.
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288015969`, read this session — body is exactly "Verdict: PR #? → escalate (depth or impact axis did not clear)", the same generic delegated-judgment watcher template already reconciled against this issue's other role records (e.g. commit `d9e33865`): `PR #?` is an unresolved placeholder naming neither a concrete PR number nor this unit's branch/content, so it is not a verdict on this rework and no content amendment is warranted beyond stating that plainly here per the near-miss duty.
+
 ## 2026-08-14 rework amendment (Claude Code plugin ecosystem)
 
 canonical: issue-1199 body, "issue-1199 tool-landscape REWORK (2026-08-14 amendment)" section, read this session.
