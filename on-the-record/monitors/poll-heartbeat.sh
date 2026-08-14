@@ -163,7 +163,7 @@ _alive_stamp_write() {
 
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
-sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-60}"
+sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-120}"
 while true; do
   sleep "${sleep_seconds}"
   _alive_stamp_write
