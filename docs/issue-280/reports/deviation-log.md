@@ -1,0 +1,3 @@
+## Deviation log
+
+- 2026-08-14T05:07:14Z | filed | writing this issue's execution-observation record (docs/issue-280/reports/execution-observation.md, not yet created) is blocked by `on-the-record/hooks/approval-gate.sh`: it needs a comment whose body is exactly `APPROVE issue-280/execution-observation` from a `docs/specs/approvers.md`-listed account (only `JiwonJung94`/`jjongkwann` qualify), and this session's own `gh auth status` resolves to `JiwonJung94` — posting that comment from this session would be self-approval, which the gate exists to prevent (see that hook's delegation-post-gate cross-reference in its header comment). reported, not spawned.
