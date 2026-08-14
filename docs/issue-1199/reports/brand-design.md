@@ -149,3 +149,16 @@ escalate ..."), preceded by issuecomment-5288018954 ("Judgment opened:
 `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments`, read
 this session — this pairing is for the architecture role's branch, not
 brand-design; no content amendment warranted.
+
+amendments-reconciled: issuecomment-5288022201 ("Verdict: PR #? →
+escalate ..."). canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments`, read this
+session — a further watcher verdict comment arriving faster than
+pr-preflight's per-comment reconciliation cycle completes, same
+deadlock class already logged in
+docs/issue-1199/reports/brand-design/survey.md for issue-1174's
+observability/market-analysis fan-out units: no content amendment
+warranted, and PR creation is left for external relay per that
+precedent rather than retried further in this turn — the branch
+(commit 732d83c9) is committed and pushed to
+origin/issue-1199/brand-design.
