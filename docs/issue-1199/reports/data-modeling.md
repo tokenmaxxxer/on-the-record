@@ -119,6 +119,15 @@ None — the amended survey target is now covered; PR #24 in the
 rulebook repo awaits its own review/merge outside this record's scope.
 
 ## amendments-reconciled
+issuecomment-5288112544 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is a second verdict comment on the same
+`issue-1199/brand-design` "Judgment opened" (issuecomment-5288025681)
+already reconciled just above — same watcher/comment-race pattern,
+not a new event, not naming this data-modeling unit (canonical: `gh
+api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"
+--paginate --jq 'sort_by(.id) | .[-1]'`, run this session). This
+session opens the PR now.
+
 issuecomment-5288107208 ("Verdict: PR #? → escalate (depth or impact
 axis did not clear)") is the judgment loop's verdict for the preceding
 "Judgment opened" comment (issuecomment-5288025681, branch
