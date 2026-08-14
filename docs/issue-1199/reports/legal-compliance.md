@@ -340,3 +340,20 @@ carries no open PR to main as of this session's end — PR creation is
 left for a later retry outside this comment-arrival window or for
 external relay, per this session's headless-turn instruction to commit
 even when push/PR is blocked.
+
+amendments-reconciled: issuecomment-5288346239 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue during
+this session's narrow PR-open task (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288346239`, read this
+session per the pr-preflight notice) — it names no PR number and does
+not reference this legal-compliance unit's rulebook-repo commits, so no
+content amendment to this record is warranted. Since this session's
+prior retry-loop reconciled the machine-comment race and the pr-preflight
+machine-comment fix (#1310) has since landed, the rulebook-repo verified
+commit (757907440ea0878db73b18e1cde25366e681df0f, 1 commit ahead of
+origin/main) is unchanged and remains ready — retrying `gh pr create`
+against the rulebook repo (tokenmaxxxer/legal-compliance-rulebook,
+issue-1199/legal-compliance -> main) immediately after this
+reconciliation, per this turn's narrow task instruction to open the PR
+without redoing the survey or fold-in content.
