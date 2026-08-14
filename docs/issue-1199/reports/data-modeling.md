@@ -81,8 +81,42 @@ for.
 ## Upstream basis
 docs/issue-1199/proposals/2026-08-13-data-modeling-tool-landscape.md
 
+## 2026-08-14 rework
+The issue's 2026-08-14 amendment redefines the survey target as the
+Claude Code plugin/skill ecosystem — the original fold-in above
+(dbt-core/great_expectations/soda-core/AutomateDV) is domain-tool-basis
+and fails the amended acceptance. Re-scouted per
+docs/issue-1199/reports/data-modeling/scout-brief.md's new "2026-08-14
+rework" section (adoption evidence, canonical `gh api` star counts,
+fetched this session): anthropics/claude-plugins-official (33,504
+stars), rohitg00/awesome-claude-code-toolkit (2,501 stars, its
+`schema-designer` plugin), the Prisma ORM Development skill
+(multi-source listing), jeremylongshore/claude-code-plugins-plus-skills
+(2,630 stars).
+
+Edited `tokenmaxxxer/data-modeling-rulebook`'s README.md to add a new,
+bounded "Tool-learnings (Claude Code plugins)" section (4 entries,
+each carrying tool/adoption-evidence/problem/how/upgraded-rule, per
+the amendment's required shape) — this time naming tools and citing
+sources directly in the section, per the amendment's acceptance
+wording, unlike the prior fold-in's no-tool-name convention. Existing
+native rules (assertion requirement, reproducible-ERD requirement, DV
+naming floor) are kept unchanged. Committed in the rulebook repo
+(commit 80bed28, subject: issue-1199; canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/data-modeling-rulebook log -1
+--format=%H`, read this session), pushed to
+origin/issue-1199/data-modeling, PR opened:
+https://github.com/tokenmaxxxer/data-modeling-rulebook/pull/24.
+
+loop_state: landed (per the amendment's own bar: landed once the named
+upgrade file is actually edited and pushed — PR #24 is open, not yet
+merged; canonical: `gh pr view 24 --repo
+tokenmaxxxer/data-modeling-rulebook --json state,url`, run this
+session).
+
 ## Open findings
-None.
+None — the amended survey target is now covered; PR #24 in the
+rulebook repo awaits its own review/merge outside this record's scope.
 
 ## amendments-reconciled
 issuecomment-5277534993 ("Verdict: PR #? → escalate (depth or impact

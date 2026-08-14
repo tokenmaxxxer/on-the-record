@@ -115,3 +115,67 @@ Sources:
 - https://talkingschema.ai/blog/best-erd-database-design-tools-2026
 - https://liambx.com/blog/er-diagram-tool-trends-2025
 - https://www.holistics.io/blog/top-5-free-database-diagram-design-tools/
+
+## 2026-08-14 rework: Claude Code plugin-ecosystem sweep
+
+The section above surveys general practitioner domain tools (dbt,
+Great Expectations, soda-core, AutomateDV, dbdiagram.io/SchemaSpy) —
+the 2026-08-14 issue amendment supersedes that as the primary survey
+target: it must be the Claude Code plugin/skill ecosystem, with domain
+tools as secondary context only. This round re-surveys against that
+target.
+
+Mode: 4 parallel WebSearch angles (marketplace-by-category, skill-repo
+collections, ORM/ERD-specific, awesome-list aggregators), 1 sweep
+stage + 1 star-count verification stage. Saturation: verification star
+counts (canonical: `gh api repos/anthropics/claude-plugins-official
+repos/rohitg00/awesome-claude-code-toolkit
+repos/jeremylongshore/claude-code-plugins-plus-skills --jq
+'{repo:.full_name,stars:.stargazers_count}'`, run this session) matched
+the sweep's four strongest cross-referenced hits with no disagreement;
+a third round was not run.
+
+Surveyed (adoption evidence, live-fetched):
+- **anthropics/claude-plugins-official**: 33,504 stars (canonical:
+  `gh api repos/anthropics/claude-plugins-official --jq stargazers_count`,
+  run this session) — official Anthropic marketplace; bundles "Data
+  Engineering for Apache Airflow" and "Google Cloud Data Engineering"
+  plugins with lineage-tracing/table-profiling as first-class commands.
+- **rohitg00/awesome-claude-code-toolkit**: 2,501 stars (canonical:
+  `gh api repos/rohitg00/awesome-claude-code-toolkit --jq stargazers_count`,
+  run this session) — its `schema-designer` plugin's `generate-erd`
+  command produces a Mermaid ERD from live DB/ORM/migrations into a
+  diffable erd.md file (per its published command docs, fetched this
+  session).
+- **Prisma ORM Development skill**: multi-source listing across
+  claudedirectory.org, mcpmarket.com, superchargeclaudecode.com
+  (fetched this session) — couples schema edits to atomic type-safe
+  client regeneration.
+- **jeremylongshore/claude-code-plugins-plus-skills**: 2,630 stars
+  (canonical: `gh api repos/jeremylongshore/claude-code-plugins-plus-skills --jq stargazers_count`,
+  run this session), representative of the marketplace's paired
+  forward-migration/rollback-script skill pattern (mirrored in
+  MariaDB/skills).
+
+Gap line: the prior fold-in (assertions, reproducible ERD, DV naming
+floor) covered structural/naming gaps but named no plugin evidence and
+had no lineage-check, codegen-boundary, or paired-rollback-artifact
+rule. This round's four learnings close those three gaps (canonical:
+`tokenmaxxxer/data-modeling-rulebook` README.md, "Tool-learnings
+(Claude Code plugins)" section, commit 80bed28, read this session) —
+see that section for the folded-in rules.
+
+Adopt: all four (lineage/impact assertion, Mermaid/DBML as the default
+diffable ERD format, codegen-boundary naming, paired rollback script).
+Skip: full Airflow DAG authoring and Prisma's live Studio browsing —
+both are execution-time tooling outside `write_scope` (migrations
+only); the underlying design move (pair the artifact with its
+consumer/rollback) is adopted without the tooling.
+
+Sources:
+- https://github.com/anthropics/claude-plugins-official
+- https://github.com/rohitg00/awesome-claude-code-toolkit
+- https://www.claudedirectory.org/plugins/prisma
+- https://mcpmarket.com/tools/skills/prisma-orm-development
+- https://github.com/jeremylongshore/claude-code-plugins-plus-skills
+- https://github.com/MariaDB/skills
