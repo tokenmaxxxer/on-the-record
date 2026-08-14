@@ -277,3 +277,17 @@ once it merges.
 resolution path: track content-design-rulebook#23 to merge; if
 feedback requires rule changes, push follow-up commits to
 issue-1199/content-design-plugin-rework in the rulebook repo.
+
+amendments-reconciled: issuecomment-5288109647 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the verdict for the
+delegated-judgment evaluation opened on this content-design branch's
+own commit (canonical: `gh issue view 1199 --json comments -q
+'.comments[-3:] | .[] | .body'`, this session — the immediately
+preceding comment reads "Judgment opened: PR #? — candidate decision
+on branch `issue-1199/content-design` (2 path(s) changed) entered
+delegated-judgment evaluation."). Escalate routes this candidate
+decision to the human approval mechanism already documented above
+(contract v3 s19's two-account/single-account Approve) instead of an
+automated judgment alone — no separate content amendment beyond
+noting this here, since the escalation is procedural routing, not a
+finding about this record's content.
