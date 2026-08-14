@@ -361,3 +361,18 @@ this record. This session's own work is the separate 2026-08-14
 plugin-ecosystem rework (proposal:
 `docs/issue-1199/proposals/2026-08-14-interaction-design-plugin-tool-landscape-rework.md`,
 phase 1 only, awaiting a fresh approval comment before phase 2).
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288196278
+issuecomment-5288196278 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-14T01:02:15Z, after this session's
+prior reconciliation commit) is another delegated-judgment verdict for
+a different issue-1199 fan-out branch's PR, not this interaction-design
+unit — no amendment to this unit's scope or record content.
+amendments-reconciled: issuecomment-5288196278 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record. This unit's phase-1 PR-open is hitting the same
+reconcile-then-retry race the prior 2026-08-13 phase-2 PR-open hit
+(`docs/issue-1199/reports/interaction-design/deviation-log.md`);
+retries stop after this reconciliation per that precedent — branch
+`issue-1199/interaction-design` is pushed at commit 675a54f plus this
+commit for external relay to open the PR.
