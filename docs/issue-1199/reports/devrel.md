@@ -115,3 +115,16 @@ issue's own multi-role tracker); do not close issue-1199 from this PR.
 ## Open-finding resolution path
 
 N/A — no open findings; nothing to route.
+
+amendments-reconciled: issuecomment-5288120568, issuecomment-5288122280
+— checked; identical boilerplate verdict pattern to the two entries
+above (same pipeline, no PR number, no devrel-scoped file) — no
+amendment follows. This is the known pr-preflight comment-race
+(precedent: this same file's 2026-08-13 revision, and
+docs/issue-1174/reports/issue-retrospective/deviation-log.md's
+2026-08-13 entries): new issue comments keep arriving during each
+`gh pr create` attempt on issue-1199. Stopping retries after this
+turn's budget per that precedent; commits are pushed to
+`issue-1199/devrel` (this repo) and `issue-1199/devrel-plugin-rework`
+(tokenmaxxxer/devrel-rulebook) for on-the-record's outside relay to
+open the PR(s).
