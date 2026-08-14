@@ -345,3 +345,15 @@ against this record's content; retrying `gh pr create` once this turn
 branch issue-1199/knowledge-management, commit 5eb4f1b, against
 tokenmaxxxer/knowledge-management-rulebook main).
 loop_state: landed.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288346101
+(this turn) — body reads "Judgment opened: PR #? — candidate decision on
+branch `issue-1199/legal-compliance` (2 path(s) changed) entered
+delegated-judgment evaluation."
+
+amendments-reconciled: issuecomment-5288346101 — an automated
+judgment-loop notice about a different role's PR
+(`issue-1199/legal-compliance`), not directed at this role's work; no
+change required to this record's plan. Retrying `gh pr create` (second
+retry this turn).
+loop_state: landed.
