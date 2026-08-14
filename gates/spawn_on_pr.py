@@ -283,20 +283,25 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     return pairs
 
 
-def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None
+def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None,
+                                  pr_index: dict[str, dict] | None = None
                                   ) -> dict[str, list[str]]:
     """`missing_verification()` 의 거울 — PR 이 있고 기록이 빠진 subject
     중 이슈가 CLOSED 인 것만 돌려준다(issue #1360 req 3, opt-in
     backfill 전용). `issue_states` 가 없거나(gh 실패) 이슈가 사전에
     없으면(조회 불가) 대상에서 제외한다 — 상태를 모르는 subject 를
-    "닫혔다"고 넘겨짚지 않는다."""
+    "닫혔다"고 넘겨짚지 않는다. `pr_index` 는 `missing_verification()` 과
+    같은 벌크 인덱스 재사용(이슈 #1498 요구 5) — 안 주면 이 함수가 직접
+    가져온다."""
     out: dict[str, list[str]] = {}
+    if pr_index is None:
+        pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
     for subject, subject_board in b.items():
         missing = applicable_roles(subject_board)
         if not missing:
             continue
-        pr_number = spawn._pr_open_or_merged_for_branch(root, f"{subject}/implementation")
+        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
         if pr_number is None:
             continue
         issue = int(subject.split("-", 1)[1])
