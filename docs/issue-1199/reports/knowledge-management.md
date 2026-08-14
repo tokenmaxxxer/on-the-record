@@ -95,3 +95,91 @@ judgment-loop stream this record already stopped retrying against.
 ## Open findings
 
 None.
+
+## Rework (2026-08-14 amendment): Claude Code plugin/skill landscape
+
+### What was done
+
+The 2026-08-14 amendment to issue-1199 named the prior fold-in's survey
+target as out of scope (domain-tool basis: Obsidian, an ADR-example
+repo, Backstage TechDocs, Dendron, Notion — none a Claude Code
+plugin/skill). Ran a scout round (WebSearch, this turn) across the
+Claude Code plugin/skill marketplace, wrote the phase-1 scout brief
+(docs/issue-1199/reports/knowledge-management/scout-brief-plugins.md)
+and phase-1 proposal
+(docs/issue-1199/proposals/2026-08-14-knowledge-management-plugin-tool-landscape-rework.md),
+then applied the design directly into
+tokenmaxxxer/knowledge-management-rulebook (branch
+`issue-1199/knowledge-management`): added a second, additive "Claude
+Code plugin/skill tool learnings (issue-1199, 2026-08-14 amendment)"
+section to
+`/home/jwjung/tokenmaxxxer/rulebooks/knowledge-management-rulebook/docs/handbooks/knowledge-management.md`
+(3 entries — coleam00/claude-memory-compiler, Korni22/claude-adr
+(`ruflo-adr`), and terrylica/cc-skills — each with adoption evidence,
+problem, how, and a named upgrade), plus edited the two named upgrade
+targets in the same change: the phase-2 self-check gained two new
+manual items (`reused_by`-at-citation-time; paired supersession-link
+item) and the enforcement plugin composition table gained a "Lifecycle
+label" column. Alongside the prior 5-entry domain-tool section (kept,
+not removed — the amendment adds a plugin-sourced set, per its own
+wording domain tools remain valid secondary context).
+
+canonical: git -C /home/jwjung/tokenmaxxxer/rulebooks/knowledge-management-rulebook log --oneline -3 (this turn's tool transcript)
+
+derived:
+```
+$ git -C /home/jwjung/tokenmaxxxer/rulebooks/knowledge-management-rulebook log --oneline -3
+5eb4f1b propose+apply(knowledge-management): fold Claude Code plugin/skill landscape into handbook (issue-1199, 2026-08-14 amendment)
+0beb2fe deliver(knowledge-management): fold tool-landscape learnings into handbook (issue-1199)
+8363188 Merge pull request #23 from tokenmaxxxer/issue-21/implementation
+```
+
+### Why
+
+The 2026-08-14 amendment states plainly that a fold-in whose surveyed
+sources are domain tools alone does not satisfy the acceptance check —
+this closes that gap additively, without retracting the prior
+domain-tool entries, so this role's tracker line reflects the corrected
+survey target, and both named upgrade targets are edited in the same
+diff per the "apply-not-reference" amendment.
+
+### Upstream basis
+
+- docs/issue-1199/proposals/2026-08-14-knowledge-management-plugin-tool-landscape-rework.md
+  (this record reports that design as delivered; no deviation).
+- docs/issue-1199/reports/knowledge-management/scout-brief-plugins.md
+  (this repo).
+- tokenmaxxxer/knowledge-management-rulebook commit 5eb4f1b (proposal+
+  handbook fold-in) on branch `issue-1199/knowledge-management`.
+- Continuation of the already-approved knowledge-management unit on
+  this issue (`APPROVE issue-1199/knowledge-management`, issue #1199
+  comment, single-account mode, cited above) — this rework amends that
+  same landed unit under the issue's 2026-08-14 amendment rather than
+  opening a new approval cycle for an already-approved role line.
+
+### Accumulation
+
+Additive-only change: one new table column, two new manual self-check
+items, one new additive handbook section. No existing landed pattern
+entry is retrofitted; the accumulation cost applies only to future
+phase-2 rounds that cite an existing entry or land a supersession.
+
+### What did not work
+
+None.
+
+### Open findings
+
+None.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288192361
+(this turn) — body reads "Verdict: PR #? → escalate (depth or impact
+axis did not clear)".
+
+amendments-reconciled: issuecomment-5288192361 — the same boilerplate
+automated judgment-loop verdict text already reconciled earlier in this
+record (see the issuecomment-5277571415 and issuecomment-5277575476
+entries above), arriving from the same external judgment-loop stream on
+issue-1199 that this record already stopped retrying against per the
+commit 8bf080a (issue-1174) precedent. No action against this record's
+content.
