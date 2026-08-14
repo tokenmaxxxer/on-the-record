@@ -537,3 +537,20 @@ this record. This unit's rulebook PR-open at
 `issue-1199/plugin-tool-landscape` (commit 52084b2, already pushed)
 proceeds after this reconciliation, per the retries-stop precedent
 above.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288351079`, read this session
+issuecomment-5288351079 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after the prior reconciliation commit) is
+another delegated-judgment verdict for a different issue-1199 fan-out
+branch's PR, not this interaction-design unit — no amendment to this
+unit's scope or record content.
+amendments-reconciled: issuecomment-5288351079 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record. Per the retries-stop-after-reconciliation precedent above,
+this session stops retrying the rulebook `gh pr create` call after this
+reconciliation: the reconcile-then-retry comment stream on issue #1199
+keeps arriving faster than a single PR-create attempt runs. The
+rulebook edits remain committed and pushed
+(`tokenmaxxxer/interaction-design-rulebook` branch
+`issue-1199/plugin-tool-landscape`, commit 52084b2) — logged here for
+external relay to open the PR.
