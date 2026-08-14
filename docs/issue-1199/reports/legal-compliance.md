@@ -398,6 +398,23 @@ session; the branch stays committed and pushed
 (origin/issue-1199/legal-compliance) for a later retry or external
 relay.
 
+amendments-reconciled: issuecomment-5288364308 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment, arriving after the 5th and
+final `gh pr create` attempt this session's retry cap allowed (canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288364308`,
+read this session per the pr-preflight notice) — it names no PR number
+and does not reference this legal-compliance unit's rulebook-repo
+commit. Per this session's own stated cap, no further `gh pr create`
+retry is attempted this session: the issue-1199/legal-compliance branch
+in the rulebook repo (tokenmaxxxer/legal-compliance-rulebook) is
+committed and pushed (origin/issue-1199/legal-compliance, rulebook-repo
+commit 757907440ea0878db73b18e1cde25366e681df0f), 1 commit ahead of
+origin/main, and carries no open PR to main as of this session's end —
+PR creation is left for a later retry outside this comment-arrival
+window or for external relay, per this session's headless-turn
+instruction to commit even when push/PR is blocked.
+
 amendments-reconciled: issuecomment-5288356341 ("Verdict: PR #? →
 escalate (depth or impact axis did not clear)") is the same recurring
 generic delegated-judgment verdict comment landing on this issue during
