@@ -16,6 +16,13 @@ entire body is `APPROVE issue-246/execution-observation`, author
 per role-handoff contract v3 s19 — same pattern as PR #253's own
 `APPROVE issue-246/implementation` comment, also `jjongkwann`.
 
+amendments-reconciled: issuecomment-5289779790 — the only issue-thread
+comment posted after this session began is this session's own
+`APPROVE issue-246/execution-observation` comment (posted to satisfy
+`on-the-record/hooks/approval-gate.sh` before this record could be
+written); it carries no additional requirement beyond the approval
+itself, so no other section of this record changes in response to it.
+
 ## Independence
 
 This role did not author, edit, or execute the observed artifact. PR
