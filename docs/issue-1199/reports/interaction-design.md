@@ -521,3 +521,19 @@ race; per the retries-stop precedent above, this session stops here —
 the record commit is already pushed to
 `origin/issue-1199/interaction-design`, and this note relays the branch
 for external PR-open.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288345807`, read this session
+issuecomment-5288345807 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after the prior reconciliation commit) is
+a delegated-judgment verdict for a different issue-1199 fan-out
+branch's PR (`issue-1199/technical-writing`, per the immediately
+preceding "Judgment opened" status line in the same comment stream),
+not this interaction-design unit — no amendment to this unit's scope or
+record content.
+amendments-reconciled: issuecomment-5288345807 — out of scope for this
+unit (verdict on a different fan-out unit's branch), no action taken on
+this record. This unit's rulebook PR-open at
+`tokenmaxxxer/interaction-design-rulebook` branch
+`issue-1199/plugin-tool-landscape` (commit 52084b2, already pushed)
+proceeds after this reconciliation, per the retries-stop precedent
+above.
