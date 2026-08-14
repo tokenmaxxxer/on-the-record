@@ -200,3 +200,50 @@ attempt/finding vocabulary does not apply to this record's content.
 code_under_review:
 - (not applicable — no code-under-review sha; this record documents a
   rulebook content fold-in, not a defect-verification attempt round)
+
+## Plugin-ecosystem rework (2026-08-14 amendment)
+
+canonical: docs/issue-1199/reports/defect-verification/scout-brief-plugin-rework.md
+(this repo, written this turn) — full sweep/adopt-skip/sources detail.
+
+The 2026-08-14 amendment requires the survey target to be the Claude
+Code plugin/skill ecosystem (adoption evidence via stars/downloads/
+multi-source, tech-feasibility method), additive to — not a replacement
+of — the prior domain-tool survey above, with the named upgrade target
+edited in the same delivery (apply-not-reference, per the 2026-08-13
+requirement amendment) and natively absorbed with no tool-attribution
+catalog in the rulebook itself (per the 2026-08-13 native-application
+amendment).
+
+Three sources surveyed (full detail in the scout brief): Anthropic's
+official `claude-plugins-official` marketplace's `pr-review-toolkit`
+plugin (`pr-test-analyzer` agent: behavioral-vs-line coverage
+distinction; `silent-failure-hunter` agent: silent error-absorption as
+its own review category) — parent repo adoption evidence:
+canonical: `gh api repos/anthropics/claude-plugins-official --jq '.stargazers_count, .forks_count'` this turn -> `33504`, `3786` — and
+`awesome-skills/5-whys-skill` (per-causal-step evidence attachment
+pattern), adoption evidence:
+canonical: `gh api repos/awesome-skills/5-whys-skill --jq '.stargazers_count, .forks_count'` this turn -> `46`, `6`.
+
+Applied to `playbook/reproduction-evidence-quality.md` (rules 11-13,
+appended to the existing 10-rule axis, same file the prior round's
+tool learnings were folded into) in the rulebook repo:
+
+canonical: acceptance: `git -C /tmp/defect-verification-rulebook show --stat issue-1199/defect-verification` — result: PASS (commit `052fe46`, 1 file changed: `playbook/reproduction-evidence-quality.md`, 7 insertions/1 deletion; executed this turn).
+
+canonical: acceptance: `git -C /tmp/defect-verification-rulebook push -u origin issue-1199/defect-verification` — result: PASS (`052fe46 feat(defect-verification): add plugin-ecosystem-derived rules to reproduction-evidence-quality axis` pushed to `tokenmaxxxer/defect-verification-rulebook`; executed this turn).
+
+Rule 11: judge a Present/passing claim by behavior checked, not path
+executed. Rule 12: attach evidence per intermediate step in a
+multi-step causal verdict, not only at the chain's end. Rule 13: treat
+silent error-absorption (empty/log-only catch, silent fallback) as its
+own always-considered self-devised attempt category, regardless of
+whether qa or review named it.
+
+No tool name, product name, or "learned from X" attribution appears in
+the rulebook edit itself — the design principle is stated natively;
+provenance (which plugins were surveyed, their adoption evidence, the
+per-rule mapping) lives only in this record and the scout brief above,
+consistent with the 2026-08-13 native-application amendment.
+
+loop_state: landed
