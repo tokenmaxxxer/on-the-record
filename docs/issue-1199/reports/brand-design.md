@@ -130,3 +130,15 @@ and pushed to a non-main branch, PR open against main.
 
 ### Open findings
 None.
+
+amendments-reconciled: issuecomment-5288013676 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)"), preceded by
+issuecomment-5288013556 ("Judgment opened: PR #? — candidate decision
+on branch `issue-1199/brand-design` (1 path(s) changed)"). canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments`, read
+this session — the pairing evaluated this branch's prior single-file
+commit (the record-only edit, before this rework's second commit
+landed here) as an unnumbered delegated-judgment candidate; it names
+no PR number and predates this session's `gh pr create` call, so it is
+not a verdict on a PR that exists — no content amendment to this
+record is warranted, matching the same reconciliation precedent above.
