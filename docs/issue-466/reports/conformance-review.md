@@ -27,6 +27,11 @@ comment thread records an "APPROVE issue-466/implementation" but no
 conformance record exists yet for the landed PR #470 — this record
 closes that gap per the spawn-on-pr trigger.
 
+amendments-reconciled: issuecomment-5290042538 (this session's own
+"APPROVE issue-466/conformance-review" comment, posted this session to
+satisfy the phase-2 approval gate for this record's write) — no other
+new comment content to reconcile.
+
 ## Per-acceptance verdicts
 
 ### #466 accept line 1 — Stop-hook fires with aged decision-queue items and stays silent without them — Present
