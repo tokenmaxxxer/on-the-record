@@ -4,6 +4,16 @@ doc-type: reference
 
 ## Amendments reconciled
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288001972
+issuecomment-5288001972 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after this session started) is a
+delegated-judgment verdict for a different issue-1199 fan-out branch's
+implementation PR, not this technical-writing unit — no amendment to
+this unit's scope.
+amendments-reconciled: issuecomment-5288001972 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record or the rulebook PR beyond this reconciliation line.
+
 canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5276711943
 issuecomment-5276711943 ("APPROVE issue-1199/brand-design", posted
 after this session started) approves the sibling issue-1199/brand-design
