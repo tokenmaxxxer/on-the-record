@@ -6724,6 +6724,33 @@ class RosterConcurrency(unittest.TestCase):
                 spawn.ROSTER = old_roster
 
 
+class NoConcurrencyCap(unittest.TestCase):
+    """issue #1510: operator decision 2026-08-15 — quota safety is owned by
+    the #1498 guard and #1508 local-first observability, not by throttling
+    parallelism. spawn.spawn_cmd() builds argv/env for a role session and
+    carries no count-based gate; this locks that down as a regression test
+    so a future change cannot silently reintroduce a concurrency cap.
+    Respawn-attempt caps (RESPAWN_MAX_ATTEMPTS family) are a separate,
+    explicitly out-of-scope concern — they bound retry loops, not
+    how many sessions may run at once."""
+
+    def test_no_concurrency_cap(self):
+        n = 50
+        results = [spawn.spawn_cmd(f"/tmp/s{i}.json", "execution-observation",
+                                    unattended=False)
+                   for i in range(n)]
+        self.assertEqual(len(results), n)
+        for cmd, env in results:
+            self.assertIn("claude", cmd)
+            self.assertEqual(env["CLAUDE_ROLE"], "execution-observation")
+
+    def test_zero_running_sessions_spawns_normally(self):
+        cmd, env = spawn.spawn_cmd("/tmp/s0.json", "execution-observation",
+                                    unattended=False)
+        self.assertIn("claude", cmd)
+        self.assertEqual(env["CLAUDE_ROLE"], "execution-observation")
+
+
 class EventExitScope(unittest.TestCase):
     """이슈 #142 — 스폰은 **이 세션이 낸** 이벤트로만 리턴해야 한다.
 

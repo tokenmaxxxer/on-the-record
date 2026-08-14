@@ -177,7 +177,7 @@ _monitor_liveness_check_and_notify() {
   local checkout="$1"
   local stamp="${checkout}/runs/poll_heartbeat_alive.json"
   local state="${checkout}/runs/poll_heartbeat_staleness_state.json"
-  local threshold="${MONITOR_LIVENESS_STALE_SECONDS:-180}"
+  local threshold="${MONITOR_LIVENESS_STALE_SECONDS:-360}"
   python3 - "$stamp" "$state" "$threshold" <<'PY' 2>/dev/null || true
 import json
 import os
