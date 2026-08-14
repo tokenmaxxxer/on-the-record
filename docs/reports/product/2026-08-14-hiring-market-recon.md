@@ -1,0 +1,161 @@
+# Hiring-Market Recon: Direction Signals for tokenmaxxxer (2026-08-14)
+
+Decision this feeds: tokenmaxxxer's next roadmap direction, using the hiring
+market as the lens — what dev orgs hire for when they agentize themselves
+reveals what capability a dev-org-agentization product must supply.
+
+Method: market-recon harness, 5-modality parallel sweep (global AX postings,
+Korean AX postings, dev-org role-taxonomy data, competitor surface + their
+hiring, org-scale adoption pain signals). Stopped on budget (standard scan,
+one pass per modality), not saturation — but the headline finding recurred
+independently in 4 of 5 modalities, which is triangulation across
+non-shared origins.
+
+## Headline finding (●●●, convergent across 4 independent modalities)
+
+**Verification — not generation — is the bottleneck the market is paying
+for.**
+
+- Role-taxonomy data: median PR-review time +441%, PRs merged with no review
+  +31%, incidents per PR +242% (Faros/Jellyfish telemetry, 2026); Stack
+  Overflow 2025: trust in AI output fell to 29%, 45% lose significant time
+  debugging AI code.
+- Demand signals: agentic PRs wait 4.6–5.3x longer for pickup (LinearB, 8M
+  PRs, 2026); feature-branch throughput +15% while main-branch throughput
+  −7% — code enters faster than it lands. METR RCT: −19% actual vs +20%
+  perceived productivity.
+- Global postings: "evals & observability" and "guardrails/governance" are
+  competency clusters #3–#4 across AI-enablement JDs (Tailscale, GM,
+  Handshake, Indicium).
+- Competitor surface: Cursor bought Graphite because "review is the
+  bottleneck once AI writes the code" (Truell); analysts flag verification
+  as vendor-self-attested, not independent.
+
+## Competency clusters the market demands (ranked, global postings ●●○)
+
+1. Daily hands-on fluency with agentic coding tools (near-universal)
+2. Production agent building: orchestration, MCP, tool use
+3. Evals & observability (the trust gate for non-deterministic agents)
+4. Guardrails / governance / security (merging INTO the builder role)
+5. Measuring adoption & ROI
+6. Change management / teaching (behavior change as accountable outcome)
+7. Internal platform engineering (paved-road agent platform)
+
+What orgs are building internally: a paved-road internal agent platform +
+an eval layer as trust mechanism + a guardrailed SDLC for AI code +
+a measurement/change-management function reporting very high (IC reporting
+to a co-founder at Tailscale).
+
+## Korea-specific read (●●○)
+
+- Dominant archetype is the embedded FDE / process-discovery consultant
+  (Krafton AI FDE, Musinsa AX Engineer) targeting the *whole company's*
+  workflows, top-down, not the dev org's own SDLC.
+- **Evals are nearly absent from Korean JDs** — validation framed as "PoC
+  검증", not systematic evaluation. Korea lags global on exactly the
+  cluster the global market ranks #3.
+- Wanted 2026 AX report: 92.1% of workers use AI, 5.3% of firms completed
+  org-wide AX; #1 blocker = 전문 인력 부족 (53.1%).
+
+## Competitive whitespace (●●○)
+
+Coding (Devin/Factory/Cursor/Codex/Claude Code) and review
+(BugBot/CodeRabbit/Greptile/Qodo) are saturated and consolidating into
+vertically integrated write+review+ship stacks. Uncovered loop segments:
+
+1. **Independent verification/acceptance** (vendor self-verification has a
+   conflict of interest; Graphite's absorption into Cursor removed an
+   independent reviewer)
+2. **Process governance & per-agent audit records** (KPMG 2026: 75% of
+   large enterprises rank auditability top requirement; EU AI Act / IMDA
+   creating forced demand; no dev-org product owns it)
+3. **Requirements-to-acceptance traceability** (Kiro/Tessl attack from the
+   code side, not the org-process side)
+4. **Whole-org orchestration** — roles, handoffs, cross-team records;
+   MultiDevin/Cursor multitask are intra-task parallelism only
+
+This whitespace maps 1:1 onto tokenmaxxxer's existing architecture:
+on-the-record (issue/PR/trace records), acceptance-format gates,
+requirement-digest linkage, 43-role orchestration, hooks-enforced process.
+
+## What teams abandoned (graveyard, ●●○)
+
+- Verbose AI review bots (muted within days; 29.6 tokens/LOC vs 4.1 human)
+- LLM-auto-generated context files (measured: reduced task success, +20%
+  inference cost — human-curated AGENTS.md/CLAUDE.md is what survives)
+- Ungoverned broad rollouts (paused to retrofit controls)
+- Risk-based routing proxies for human review (tested, failed)
+- Standalone IDE-agent plays (Windsurf dismembered; Sweep dormant; Roo Code
+  shut down; Aider maintenance mode)
+
+## Direction implications for tokenmaxxxer (findings only — not adopted decisions)
+
+1. **Double down on verification/acceptance as the product's center of
+   gravity** — E2E harness-as-judge (northpole), acceptance-format gates,
+   real-build-use verification are pointed at the market's #1 revealed
+   pain. This is confirmation of current direction, not a pivot.
+2. **Records/audit layer is regulation-forced whitespace** — on-the-record's
+   trace/record discipline is close to per-agent audit-trail requirements
+   (IMDA-style identity + authorization trail); worth an explicit gap
+   check against those frameworks.
+3. **Eval literacy as a product surface** — the market's trust gate is
+   evals; tokenmaxxxer verifies per-change but has no systematic eval
+   harness for role/agent quality over time.
+4. **Anti-noise is existential** — the graveyard's clearest lesson: noisy
+   advisory output gets muted, then killed. Watch/report volume discipline
+   is a survival property, not polish.
+5. **Measurement/ROI story missing** — orgs hire someone to prove AI
+   impact; LinearB/DX can't attribute AI vs human. A product that records
+   everything is positioned to measure honestly (subject to the standing
+   no-metric-gaming principle).
+6. **Korea GTM angle**: the eval/verification gap in Korean JDs means the
+   capability tokenmaxxxer embodies is scarce locally (전문 인력 부족
+   53.1%) — the product substitutes for talent orgs can't hire.
+
+## Coverage statement
+
+Scanned: EN + KR job postings (Greenhouse/Lever/Ashby/원티드/잡코리아 via
+search; some KR pages 403'd — snippets/mirrors used), Indeed Hiring
+Lab / LinkedIn / Stack Overflow 2025 / DORA 2025 / METR / LinearB / DX
+datasets, competitor sites + careers, practitioner accounts (HN/Reddit/
+QCon/blogs). Not reached: paywalled analyst reports (Gartner full text),
+LinkedIn posting full-text corpus, JP/CN/EU-language markets, private
+salary/ATS data. Stopped on budget after one pass per modality; a deeper
+pass would chase Korean enterprise (chaebol SI) JDs and EU AI Act
+conformity tooling vendors. Data dates 2024–2026-08; hiring landscape has
+a shelf life of months.
+
+## Cheapest next test
+
+The market-derived hypothesis is "teams will adopt a tool whose value is
+enforced verification + audit records." Cheapest reversible test: the
+already-planned fresh-session real-world install (fresh-session-test
+handoff) measured against exactly two questions — does the verification
+gate catch a real defect the user would have missed, and does the record
+output stay below the mute-threshold noise level. Both are observable in
+one session; no new build required.
+
+## What was done
+
+Transcribed the 2026-08-14 hiring-market recon report — the first comment
+on issue #1314 — verbatim into this file, per the acceptance criteria on
+the issue.
+
+## Why
+
+canonical: gh issue view 1314 --comments — issue #1314's first comment is
+the report source text; the issue asks for it to be recorded as
+docs/reports/product/2026-08-14-hiring-market-recon.md.
+
+## Upstream basis
+
+Based on: issue #1314 first comment (JiwonJung94, 2026-08-14).
+
+## Kind / loop_state
+
+kind: report
+loop_state: final
+
+## Open findings
+
+None.
