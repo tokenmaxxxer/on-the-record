@@ -194,6 +194,10 @@ N1-N4 were hand-driven in this record.
 
 canonical: git show d39de19a -- spawn.py (read this session) — the origin-comparison `sys.exit` block that a future session should drive live.
 
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5289758212 — canonical: gh issue view 288 --comments (read this session) — that comment is this session's own "APPROVE issue-288/execution-observation" post required by the write-scope approval gate; it carries no new observation content to reconcile against this record's evidence.
+
 ## Resolution path
 
 Whoever next builds that scratch fixture pair (or touches
