@@ -6643,8 +6643,11 @@ class IssueComments(unittest.TestCase):
         self.assertTrue(ok)
         self.assertEqual(out, [{"login": "a", "body": "one"},
                                {"login": "b", "body": "two"}])
-        self.assertIn("--paginate", calls[0])
-        self.assertIn("--slurp", calls[0])
+        # 이슈 #1459: 1페이지는 이제 `-i` ETag 프로브로 먼저 나가고(이
+        # 스텁은 헤더 없는 순수 JSON 만 돌려주므로 프로브가 파싱 실패해
+        # 무조건 재조회로 폴백한다), 그 폴백 호출에 `--paginate --slurp`
+        # 가 실린다 — calls[0] 고정이 아니라 호출들 중 하나에 있으면 된다.
+        self.assertTrue(any("--paginate" in c and "--slurp" in c for c in calls), calls)
 
     def test_empty_slurp_response_yields_empty_list(self):
         # 실측: 코멘트 0건이면 gh api --paginate --slurp 는 [[]] (빈 페이지
