@@ -208,6 +208,15 @@ role's already-landed `playbook/tool-landscape.md` convention (bounded
 axis file, `[[axis]]`-linked rules, adoption evidence kept in the
 on-the-record scout brief) reused as this rework's fold-in shape.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288009145
+issuecomment-5288009145 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is an automated delegated-judgment verdict for
+the pre-PR watcher pass on this rework's pushed commit, posted after
+this session started, with no amendment content of its own — no
+action taken on this record or the rulebook PR.
+amendments-reconciled: issuecomment-5288009145 — automated verdict,
+no scope change.
+
 ## What did not work
 
 None.
