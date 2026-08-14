@@ -256,10 +256,35 @@ def _comment_num_id(c):
     mm = re.search(r"#issuecomment-(\d+)\s*$", url)
     return mm.group(1) if mm else None
 
+# --- machine-comment cursor auto-advance (issue #1310) ---------------------
+# The block above starves gh pr create on busy issues where watchdog/
+# delegated-judgment/consult-trace machinery posts a comment every 30-60s:
+# every role session's read-thread -> pr-create cycle loses the race
+# indefinitely. Comments produced by that machinery never carry operator
+# intent, so they must not count as the "newest comment" the block reacts
+# to; only the newest *operator* comment newer than spawn still blocks.
+_MACHINE_LOGIN_RE = re.compile(
+    r"\[bot\]$|^github-actions(\[bot\])?$|^dependabot(\[bot\])?$"
+)
+_MACHINE_BODY_RE = re.compile(
+    r"^\s*(\[(on-the-record|watch|poll-report|watchdog|watchdog-crash|"
+    r"reconcile|orphaned|resume|returned-pr|health)\]|"
+    r"## Framing snapshot —|- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*\|\s*role=)"
+)
+
+def _is_machine_comment(c):
+    login = (c.get("author", {}) or {}).get("login") or ""
+    if _MACHINE_LOGIN_RE.search(login):
+        return True
+    body = c.get("body") or ""
+    return bool(_MACHINE_BODY_RE.match(body))
+
 spawn_ts = _last_session_start_ts(os.getcwd())
 if spawn_ts is not None and comments:
     newest = None
     for c in comments:
+        if _is_machine_comment(c):
+            continue
         epoch = _comment_epoch(c.get("createdAt"))
         if epoch is None:
             continue
