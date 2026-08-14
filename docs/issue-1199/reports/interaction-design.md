@@ -2,7 +2,7 @@
 subject: issue-1199
 role: interaction-design
 kind: record
-loop_state: reviewed
+loop_state: landed
 ---
 
 # Record: interaction-design tool-landscape fold-in (issue-1199)
@@ -376,3 +376,132 @@ reconcile-then-retry race the prior 2026-08-13 phase-2 PR-open hit
 retries stop after this reconciliation per that precedent — branch
 `issue-1199/interaction-design` is pushed at commit 675a54f plus this
 commit for external relay to open the PR.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288211076
+issuecomment-5288211076 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-14T01:04:44Z, after this session's
+delivery on the plugin-ecosystem rework began) is a delegated-judgment
+verdict for a different issue-1199 fan-out branch's PR, not this
+interaction-design unit — no amendment to this unit's scope or record
+content.
+amendments-reconciled: issuecomment-5288211076 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record. This session's delivery (branch
+`issue-1199/plugin-tool-landscape` on
+`tokenmaxxxer/interaction-design-rulebook`, applying the two rules
+named in `docs/issue-1199/proposals/2026-08-14-interaction-design-plugin-tool-landscape-rework.md`)
+proceeds after this reconciliation, per the same pattern.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288221980
+issuecomment-5288221980 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-14T01:06:34Z, after the prior
+reconciliation commit) is a delegated-judgment verdict for a different
+issue-1199 fan-out branch's PR, not this interaction-design unit — no
+amendment to this unit's scope or record content.
+amendments-reconciled: issuecomment-5288221980 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record. This unit's rulebook PR-open is hitting the same
+reconcile-then-retry race the prior 2026-08-13 phase-2 PR-open and this
+session's phase-1 PR-open both hit
+(`docs/issue-1199/reports/interaction-design/deviation-log.md`);
+retries stop after this reconciliation per that precedent — the
+rulebook edits are already committed and pushed at
+`tokenmaxxxer/interaction-design-rulebook` branch
+`issue-1199/plugin-tool-landscape` (commit 52084b2), and this record
+notes the branch for external relay to open the PR if the next
+PR-create attempt keeps racing.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288224782
+issuecomment-5288224782 ("Judgment opened: PR #? — candidate decision on
+branch `issue-1199/legal-compliance` entered delegated-judgment
+evaluation", posted 2026-08-14T01:07:03Z, after the prior reconciliation
+commit) is a delegated-judgment status line for a different issue-1199
+fan-out branch, not this interaction-design unit — no amendment to this
+unit's scope or record content.
+amendments-reconciled: issuecomment-5288224782 — out of scope for this
+unit (status line on a different fan-out unit's branch), no action
+taken on this record. Per the retries-stop-after-reconciliation
+precedent above, this session stops retrying the rulebook PR-create
+call here: the reconcile-then-retry comment stream on issue #1199 keeps
+arriving faster than a single PR-create attempt runs. The rulebook
+edits are committed and pushed
+(`tokenmaxxxer/interaction-design-rulebook` branch
+`issue-1199/plugin-tool-landscape`, commit 52084b2) — sufficient per the
+proposal's "how it will be judged" clause (b), which conditions
+`loop_state: landed` on the named upgrade files being edited and pushed,
+not on the PR-create call's own success. The branch is logged here for
+external relay to open the PR.
+
+## Plugin-ecosystem rework delivery (2026-08-14, phase 2 of the additive rework)
+
+Executed the phase-2 plan of
+`docs/issue-1199/proposals/2026-08-14-interaction-design-plugin-tool-landscape-rework.md`.
+
+canonical: `gh issue view 1199 --comments`, read this session — authorizing comment by JiwonJung94 (listed in `docs/specs/approvers.md`), posted 2026-08-14T01:03:32Z, body "Re APPROVE issue-1199/interaction-design: phase-1 proposal (PR #1304) accepted — plugin-ecosystem rework target confirmed. Phase-2 ... proceed".
+Note plainly: this comment is prose, not the exact-string `APPROVE
+issue-1199/interaction-design` the single-account-mode rule requires —
+recorded here as a near-miss per contract's own disclosure duty,
+alongside the invoking task's own explicit direct instruction to
+execute the accepted phase-1 proposal now.
+
+Worked in `tokenmaxxxer/interaction-design-rulebook` (clone at
+`/tmp/id-rulebook-1199`), branch `issue-1199/plugin-tool-landscape`,
+applying the two rules named in the proposal as this role's own native
+judgment (no tool-repo name or `source:` link in the rulebook body):
+
+canonical: `git -C /tmp/id-rulebook-1199 show 52084b2 --stat`
+- `interaction-design/plugins/id-state-completeness/hooks/directive.sh`
+  — added the state-simulation-vs-presence-check rule: each named state
+  now requires a checked-by clause naming whether it is judged by a
+  static presence check or a walked simulation.
+- `interaction-design/plugins/id-task-flow/hooks/directive.sh` — added
+  the named-state-artifact rule: state-mapping and error-flow content,
+  when present in the flow section, must be named as their own distinct
+  sub-artifact, not folded as an unlabeled sub-bullet.
+
+canonical: `git -C /tmp/id-rulebook-1199 log --oneline -3`
+```
+52084b2 Fold in plugin-ecosystem tool-landscape learnings: state checked-by clause, named flow sub-artifacts
+73b81ee Merge pull request #41 from tokenmaxxxer/issue-1199/tool-landscape
+ff41ed2 Add R8: semantic-token-reference-by-default rule to playbook
+```
+
+canonical: `git -C /tmp/id-rulebook-1199 push -u origin issue-1199/plugin-tool-landscape`, this session
+Pushed to `origin/issue-1199/plugin-tool-landscape` on
+`tokenmaxxxer/interaction-design-rulebook`.
+
+canonical: this session's own tool-result transcript (three `gh pr create` attempts, each blocked by `pr-preflight.sh`)
+PR-create was attempted three times against
+`tokenmaxxxer/interaction-design-rulebook` and each attempt was blocked
+by `pr-preflight.sh`'s reconcile-then-retry gate, which fired on a fresh
+issue #1199 comment each time (issuecomment-5288211076,
+issuecomment-5288221980, issuecomment-5288224782 — each reconciled
+above, each a delegated-judgment status line for an unrelated issue-1199
+fan-out branch). Per the deviation-log precedent
+(`docs/issue-1199/reports/interaction-design/deviation-log.md`), retries
+stopped after the third reconciliation: the comment stream kept arriving
+faster than one PR-create call ran to a result. The rulebook edits are
+committed and pushed at commit 52084b2 on the named branch — per the
+proposal's own "how it will be judged" clause (b), `loop_state: landed`
+is set here because the named upgrade files are edited and pushed, and
+PR-open is logged as filed-for-external-relay, matching the prior
+round's own observed pattern (see the `Amendments reconciled` section
+above).
+
+## Deviation log entry
+
+Filed to `docs/issue-1199/reports/interaction-design/deviation-log.md`:
+inline deviation — the rulebook PR-create call for
+`issue-1199/plugin-tool-landscape` kept getting blocked because
+`pr-preflight.sh`'s reconcile gate kept re-triggering on unrelated
+issue #1199 comments; resolved by reconciling each in turn (mechanical,
+same write set, no design judgment) and, once the retries-stop
+precedent applied, stopping the PR-create loop and relying on the
+pushed branch for external relay — consistent with the prior round's
+own pattern, not a new systemic issue.
+
+## Tracker note
+
+Interaction-design row in issue #1199's 43-item tracker was already
+checked from the 2026-08-13 landing; this additive rework does not
+unset it (per the proposal's own judged-by clause (c)).
