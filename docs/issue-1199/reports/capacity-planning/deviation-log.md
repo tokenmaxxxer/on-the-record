@@ -28,3 +28,15 @@
   `issue-1199/capacity-planning` on `capacity-planning-rulebook`; PR
   creation there needs a session without this guard, or a human/
   orchestrator action outside this turn. reported, not spawned.
+
+- 2026-08-14T00:10:00Z | filed | pr-preflight.sh's amendments-reconciled
+  race repeated on this same on-the-record PR-create attempt (the
+  identical structural pattern as the 2026-08-13T07:47:30Z entry
+  above): three consecutive `gh pr create` attempts each raced a new
+  automated "Verdict: PR #? → escalate" comment
+  (issuecomment-5288135578, -5288140633, -5288145289), each
+  reconciled into the record in turn (commits 0ca38f0b, 78b6e97b).
+  Stopping retries after this turn's budget per the same precedent —
+  commits through 78b6e97b are pushed to
+  issue-1199/capacity-planning on on-the-record for the outside relay
+  to open the PR. reported, not spawned.
