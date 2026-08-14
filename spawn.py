@@ -2873,13 +2873,46 @@ def _board_wide_sweep(root: Path) -> int:
 
     이슈 #1219: `root` 는 스캔 대상(보드) — 컨슈머 세션이면 타깃 프로젝트다.
     gates 코드 자체는 언제나 이 체크아웃(ROOT)에서 임포트한다 — 타깃
-    프로젝트엔 gates/ 가 없다."""
+    프로젝트엔 gates/ 가 없다.
+
+    이슈 #1498: gh 를 부르는 세 신호(spawn-on-pr, closure-sweep,
+    spawn-coverage)는 셋 다 요구 1(쿼터 바닥) · 요구 3(스윕 백오프) ·
+    요구 5(틱당 호출 예산)의 게이팅을 받는다 — 로컬 전용 신호
+    (`accumulation_trend`, `requirement_drift`)는 게이팅 없이 항상 돈다."""
     sys.path.insert(0, str(ROOT / "gates"))
     import closure_sweep
     import spawn_coverage
     import spawn_on_pr
     count = 0
-    issue_states, _ = closure_sweep.issue_state_index_all(root)
+    call_budget = 8
+
+    def _run_local_only_signals() -> None:
+        # 이슈 #512 요구사항 4 / #930 요구#6: advisory only — 아무것도
+        # 막지 않고 anomaly count 에도 합산하지 않는다. gh 를 쓰지 않으므로
+        # 쿼터 바닥/백오프와 무관하게 항상 돈다.
+        trend = closure_sweep.accumulation_trend(root)
+        print(f"[watchdog] {closure_sweep.format_accumulation_trend(trend)}")
+        requirement_drift(root)
+
+    backoff_state = closure_sweep.load_backoff_state(root)
+    if not closure_sweep.sweep_should_run(backoff_state, "board-sweep"):
+        closure_sweep.save_backoff_state(root, backoff_state)
+        print("[watchdog] board-sweep: 건너뜀 (백오프 간격, gh 호출 없음)")
+        _run_local_only_signals()
+        return count
+
+    remaining, guard_ok = closure_sweep.rate_limit_remaining(root)
+    calls_made = 1
+    if guard_ok and remaining < closure_sweep._RATE_LIMIT_GUARD_THRESHOLD:
+        closure_sweep.record_sweep_result(backoff_state, "board-sweep", True)
+        closure_sweep.save_backoff_state(root, backoff_state)
+        count += 1
+        print(f"[watchdog] board-sweep: 미집계 (rate-limit, remaining={remaining})")
+        _run_local_only_signals()
+        return count
+
+    issue_states, issue_states_ok = closure_sweep.issue_state_index_all(root)
+    calls_made += 1
     try:
         spawned = spawn_on_pr.spawn_missing_for_pr(root, str(root), issue_states=issue_states)
         if spawned:
@@ -2893,23 +2926,21 @@ def _board_wide_sweep(root: Path) -> int:
         count += 1
         print(f"[watchdog] spawn-on-pr 실패: {ex}", file=sys.stderr)
     violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
+    calls_made += 1
     if violations:
         count += len(violations)
         print(f"[watchdog] closure-sweep: 위반 {len(violations)}건")
         print(closure_sweep.format_report(violations))
+    rate_limited_this_tick = bool(skips) and not issue_states_ok
     if skips:
         count += 1
         print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
-    # 이슈 #512 요구사항 4: advisory only — 아무것도 막지 않고, anomaly
-    # count 에도 합산하지 않는다 (blocking gate 가 아니다, board 에 보고만).
-    trend = closure_sweep.accumulation_trend(root)
-    print(f"[watchdog] {closure_sweep.format_accumulation_trend(trend)}")
-    # 이슈 #930 요구#6: requirement_drift() 도 accumulation_trend() 와 같은
-    # advisory 계약 — 출력만 하고 anomaly_count 에는 절대 합산하지 않는다.
-    requirement_drift(root)
+    _run_local_only_signals()
     open_issues = spawn_coverage._list_open_issues(root)
+    calls_made += 1
     if open_issues is None:
         count += 1
+        rate_limited_this_tick = True
         print("[watchdog] spawn-coverage: 이슈 목록을 읽을 수 없다 (gh 실패) — 판정 불가")
     else:
         uncovered = spawn_coverage.find_uncovered(
@@ -2917,6 +2948,12 @@ def _board_wide_sweep(root: Path) -> int:
         if uncovered:
             count += len(uncovered)
             print(f"[watchdog] spawn-coverage: 커버되지 않은 이슈 {uncovered}")
+
+    closure_sweep.record_sweep_result(backoff_state, "board-sweep", rate_limited_this_tick)
+    closure_sweep.save_backoff_state(root, backoff_state)
+    if calls_made > call_budget:
+        count += 1
+        print(f"[watchdog] board-sweep: 예산 초과 ({calls_made}건 > {call_budget})")
     return count
 
 
