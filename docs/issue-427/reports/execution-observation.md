@@ -14,6 +14,13 @@ paths was touched here. Evidence below comes from running the shipped
 test suite as-is and a scratch (uncommitted) guard script that only
 monkeypatches `subprocess.run` to observe whether `gh` is invoked.
 
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5290043416 — this role's own
+`APPROVE issue-427/execution-observation` posted this session to
+satisfy the phase-2 approval gate before this write; no other new
+comment on issue #427 since session start.
+
 ## Upstream basis
 
 `0080276db1c0d1a342db9fd790340f0a6c612999` (merge commit for PR #440,
