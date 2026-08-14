@@ -81,6 +81,16 @@ verdict comment on an unspecified PR, not naming ux-engineering or this
 unit's rulebook PR; out of scope for this unit's work, no reconciliation
 needed.
 
+amendments-reconciled: issuecomment-5288372590 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)"). canonical: gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288372590 — body is
+exactly that text, posted by JiwonJung94 with the PR number left as an
+unfilled `#?` placeholder; it names no PR, no role, and no
+ux-engineering artifact, same templated shape as the prior entry above.
+Out of scope for the 2026-08-14 plugin/skill rework phase-1 unit
+(docs/issue-1199/proposals/2026-08-14-ux-engineering-plugin-tool-landscape-rework.md);
+no reconciliation action needed beyond this citation.
+
 ## Open findings
 
 None.
