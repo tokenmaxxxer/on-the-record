@@ -5610,6 +5610,103 @@ def roster_clean(wb: Path, issue: int | None) -> int:
     return 0
 
 
+# 이슈 #1465: poll-heartbeat.sh 의 alive 마커는 세션 시작 시 한 번만
+# touch 된다(60초 tick 루프가 시작하기 전, monitors/poll-heartbeat.sh:100-108
+# 부근) — 그 스크립트 자신의 tick cadence 상수가 `POLL_HEARTBEAT_SLEEP_SECONDS`
+# 기본값 60초다. GC 임계값은 그 cadence 보다 안전하게 커야 한다(그렇지
+# 않으면 아직 살아있는 세션의 마커까지 지울 수 있다) — 7일로 잡아 세션이
+# 하루 이상 이어져도 안전하게 남긴다.
+MONITOR_ALIVE_TOUCH_CADENCE_SECONDS = 60
+MONITOR_ALIVE_STALE_THRESHOLD_SECONDS = 7 * 24 * 3600
+assert MONITOR_ALIVE_STALE_THRESHOLD_SECONDS > MONITOR_ALIVE_TOUCH_CADENCE_SECONDS
+
+LEGACY_MONITOR_ALIVE_DIRNAME = ".orchestrate-monitor-alive"
+
+
+def _monitor_alive_root() -> Path:
+    """`~/.claude/tokenmaxxxer/monitor-alive` — poll-heartbeat.sh 가 alive
+    마커를 쓰는 곳과 같은 해시 규약(이슈 #947/#1280 relocation).
+    `MUSTER_TOKENMAXXXER_HOME` 오버라이드는 `~/.tokenmaxxxer`용이라 여기엔
+    안 쓴다 — 대신 이 GC 전용 오버라이드로 테스트를 격리한다."""
+    override = os.environ.get("MUSTER_MONITOR_ALIVE_ROOT")
+    if override:
+        return Path(override)
+    return Path.home() / ".claude" / "tokenmaxxxer" / "monitor-alive"
+
+
+def gc_monitor_alive(root: Path | None = None,
+                      now: float | None = None,
+                      threshold_seconds: float = MONITOR_ALIVE_STALE_THRESHOLD_SECONDS
+                      ) -> dict[str, int]:
+    """`~/.claude/tokenmaxxxer/monitor-alive/<hash24>/` 아래 stale 마커
+    디렉터리를 지운다. `alive` 파일의 mtime(없으면 디렉터리 자체의 mtime)이
+    `threshold_seconds` 보다 오래됐으면 지운다. 한 항목에서 나는 오류는
+    전체 GC 를 죽이지 않는다(watch-coverage 는 observe-only 라 정리 실패로
+    죽으면 안 된다, 이슈 #1465 요구사항 4) — per-entry try/except 로 흡수하고
+    `errors` 카운트만 올린다."""
+    if root is None:
+        root = _monitor_alive_root()
+    if now is None:
+        now = time.time()
+    removed = kept = errors = 0
+    try:
+        entries = sorted(root.glob("*")) if root.is_dir() else []
+    except OSError:
+        return {"removed": 0, "kept": 0, "errors": 1}
+    for entry in entries:
+        try:
+            if not entry.is_dir():
+                continue
+            alive_marker = entry / "alive"
+            try:
+                mtime = alive_marker.stat().st_mtime
+            except OSError:
+                mtime = entry.stat().st_mtime
+            age = now - mtime
+            if age > threshold_seconds:
+                import shutil
+                shutil.rmtree(entry)
+                removed += 1
+            else:
+                kept += 1
+        except OSError:
+            errors += 1
+    return {"removed": removed, "kept": kept, "errors": errors}
+
+
+def detect_legacy_monitor_alive_dirs(repo_root: Path) -> list[Path]:
+    """`.orchestrate-monitor-alive/` 레거시 디렉터리(relocation 이전,
+    이슈 #947/#1280)를 리포트만 한다 — 절대 지우지 않는다(이슈 #1465
+    요구사항 3)."""
+    try:
+        candidate = repo_root / LEGACY_MONITOR_ALIVE_DIRNAME
+        if candidate.is_dir():
+            return [candidate]
+    except OSError:
+        pass
+    return []
+
+
+def monitor_alive_gc_cli(cwd: Path) -> int:
+    """`spawn.py gc-monitor-alive` — heartbeat 시작 시 poll-heartbeat.sh 가
+    호출한다(non-fatal, `|| true`로 감싸 호출됨). GC 자체는 위 함수들에서
+    이미 예외를 흡수하지만, 이 진입점도 한 번 더 감싸 정말로 절대 죽지
+    않게 한다."""
+    try:
+        stats = gc_monitor_alive()
+        print(f"monitor-alive gc: removed {stats['removed']}, "
+              f"kept {stats['kept']}, errors {stats['errors']}")
+    except Exception as ex:
+        print(f"monitor-alive gc: 실패 (예외, non-fatal) [{ex}]")
+    try:
+        for legacy in detect_legacy_monitor_alive_dirs(cwd):
+            print(f"[legacy-monitor-alive] {legacy} — 레거시 디렉터리, "
+                  f"수동 확인 필요 (자동 삭제 안 함)")
+    except Exception as ex:
+        print(f"monitor-alive gc: 레거시 탐지 실패 (예외, non-fatal) [{ex}]")
+    return 0
+
+
 def _dir_size_bytes(w: Path) -> int:
     """워크스페이스 디렉터리 전체 크기(바이트) — `du` 대신 순수 파이썬으로,
     심볼릭 링크는 따라가지 않는다(순환 방지, 대부분 워크스페이스엔 없다)."""
@@ -5825,6 +5922,8 @@ def main() -> int:
         return rc
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
+    if a.role == "gc-monitor-alive":
+        return monitor_alive_gc_cli(Path(a.cwd).resolve())
     if a.role == "reconcile":
         return roster_reconcile(a.issue, unreported=a.unreported,
                                  remediation_merged=a.remediation_merged,
