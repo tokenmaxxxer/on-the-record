@@ -266,3 +266,18 @@ are not attempted again this session — the branch is committed and
 pushed (origin/issue-1199/legal-compliance, commit a1a5feb0 plus this
 reconciliation); PR creation is left for external relay or a later
 retry outside this comment-arrival window.
+
+amendments-reconciled: issuecomment-5288248112 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue during
+the plugin-rework PR-open retry task (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments --jq '.[] |
+select(.id==5288248112)'`, read this session per the pr-preflight
+notice) — it is on the `issue-1199/knowledge-management` branch per its
+own preceding "Judgment opened" comment in the same thread window, not
+this legal-compliance unit, names no PR number, and does not reference
+this legal-compliance unit's rulebook-repo commits, so no content
+amendment to this record is warranted. Retrying the `gh pr create` call
+against the rulebook repo (tokenmaxxxer/legal-compliance-rulebook,
+branch issue-1199/legal-compliance -> main) immediately after this
+reconciliation, per this turn's narrow retry-task instruction.
