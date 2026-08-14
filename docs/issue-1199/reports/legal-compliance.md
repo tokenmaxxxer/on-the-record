@@ -462,3 +462,33 @@ this record is warranted. Retrying `gh pr create` immediately after this
 reconciliation (retry 3 of this session's window; this session caps
 retries at 5, matching the precedent already logged earlier in this
 record).
+
+amendments-reconciled: issuecomment-5288405510 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue during
+this session's PR-open retry (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288405510`, read this
+session per the pr-preflight notice) — it names no PR number and does
+not reference this legal-compliance unit's rulebook-repo commit
+(757907440ea0878db73b18e1cde25366e681df0f), so no content amendment to
+this record is warranted. Retrying `gh pr create` immediately after this
+reconciliation, approaching this session's stated retry cap.
+
+amendments-reconciled: issuecomment-5288409972 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue during
+this session's PR-open retry (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5288409972`, read this
+session per the pr-preflight notice) — it names no PR number and does
+not reference this legal-compliance unit's rulebook-repo commit
+(757907440ea0878db73b18e1cde25366e681df0f), so no content amendment to
+this record is warranted. This is this session's final `gh pr create`
+attempt at its stated retry cap — if this attempt is also blocked by a
+new race comment, no further retry is attempted this session: the
+issue-1199/legal-compliance branch in the rulebook repo
+(tokenmaxxxer/legal-compliance-rulebook) stays committed and pushed
+(origin/issue-1199/legal-compliance, rulebook-repo commit
+757907440ea0878db73b18e1cde25366e681df0f), ahead of origin/main, and PR
+creation is left for a later retry outside this comment-arrival window
+or for external relay, per this session's headless-turn instruction to
+commit even when push/PR is blocked.
