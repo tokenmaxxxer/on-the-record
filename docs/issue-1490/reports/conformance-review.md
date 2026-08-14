@@ -10,7 +10,117 @@ kind: review-record
 loop_state: draft-reported
 ---
 
-# Conformance review — issue-1490 parallel test-suite speedup (phase 2)
+# Conformance review — issue-1490 parallel test-suite speedup (phase 2, re-verify)
+
+## Re-verify (2026-08-15): rework on PR #1503, new head 9e16671e
+
+acceptance: gh pr view 1503 --json commits — result: a third commit
+`9e16671ed9d24cc2237a422724314f6f2e96603d`, authored
+2026-08-14T17:10:34Z, headline "issue-1490: slow-tier real-subprocess
+spawn tests, add pre-merge tier policy doc". This section
+independently re-runs the acceptance commands for the two prior
+blockers and rechecks the failure-ID lists against that new commit.
+
+### Blocker 1 — fast-tier wall-clock
+
+acceptance: python3 -m pytest -q --ignore=bench -m "not slow" — result: see fenced output below
+Run this session, independent, in fresh worktree `/tmp/wt-1490-v2`
+(clean checkout of commit `9e16671e`, no other pytest process running
+concurrently):
+```
+17 failed, 1788 passed, 1 xfailed in 28.01s
+```
+acceptance: `sed -n '55,65p' docs/issue-1490/reports/implementation.md` (git show origin/issue-1490/implementation, this turn) — result:
+```
+run 1: 18 failed, 1787 passed, 1 xfailed in 33.05s — real 33.36s
+run 2: 18 failed, 1787 passed, 1 xfailed in 26.65s — real 27.09s
+run 3: 18 failed, 1787 passed, 1 xfailed in 27.14s — real 27.58s
+```
+derived: four measurements now on record for the reworked commit (this
+session's 28.01s plus the record's 33.05s/26.65s/27.14s), all under
+300s; the largest, 33.05s, is roughly 9x under budget. Blocker 1
+resolved on this evidence, replacing the 428.76s measurement Acceptance
+1 (below) is built on.
+
+acceptance: `grep -c "@pytest.mark.slow" tests/test_spawn.py` (this session, in `/tmp/wt-1490-v2`) — result:
+```
+66
+```
+acceptance: `grep -c "@pytest.mark.slow" tests/test_spawn.py` (this session, in `/tmp/wt-1490-impl`) — result:
+```
+64
+```
+derived: 66 - 64 = 2 more marker sites on the reworked commit. This
+matches the two newly slow-tagged test classes (`EventReporting`,
+`ProgressEvents`) named in the delivery record's rework section
+(`sed -n '55,65p' docs/issue-1490/reports/implementation.md`, above),
+with no marker line removed.
+
+### Blocker 2 — pre-merge tier policy doc
+
+acceptance: `grep -n -i "regression\|pre-merge\|change class" docs/handbooks/operations.md` (this session, in `/tmp/wt-1490-v2`) — result:
+```
+1193:## Pre-merge regression policy — tier required per change class (issue #1490)
+1197:regressions in real subprocess spawn or git lifecycle paths.
+1199:| Change class | Required tier |
+```
+acceptance: `sed -n '1193,1212p' docs/handbooks/operations.md` (this session, in `/tmp/wt-1490-v2`) — result: a table naming the required pytest tier (`-m slow`, `-m "not slow"`, or none) per change class; first row: "spawn-lifecycle code -> slow tier required". Blocker 2 resolved on this
+evidence: `docs/handbooks/operations.md` now names the required tier
+per change class, matching Requirement 2's third clause wording.
+
+### Pass/fail-set counts, 18-vs-17
+
+acceptance: `sed -n '61,80p' docs/issue-1490/reports/implementation.md` (git show origin/issue-1490/implementation, this turn) — result:
+```
++FAILED tests/test_gates.py::t_rulebook_version_is_recorded - AssertionError: ...
+```
+derived: the record's own 18-failed runs (fenced under Blocker 1
+above) include one failure, `t_rulebook_version_is_recorded`, this
+same delivery-record excerpt attributes to that implementation
+session's own uncommitted edit to `tests/test_spawn.py` making its
+checkout dirty at measurement time.
+
+acceptance: `grep FAILED` output captured by this session alongside
+its own 28.01s run above (`/tmp/wt-1490-v2`, clean checkout, no edits
+made by this review session before running pytest) — result:
+`t_rulebook_version_is_recorded` does not appear in this session's
+17-ID failure list. derived: 17 (this session, clean checkout) + 1
+(`t_rulebook_version_is_recorded`, dirty-checkout artifact in the
+record's own authoring session) = 18 (record's reported count).
+
+acceptance: `sed -n '75,80p' docs/issue-1490/reports/implementation.md` (git show origin/issue-1490/implementation, this turn) — result:
+```
+diff <(sort <(grep FAILED /tmp/run1.log)) <(sort <(grep FAILED /tmp/runv2_1.log) | grep -v t_rulebook_version_is_recorded)
+(no output — identical after excluding the git-dirty artifact above)
+```
+derived: with that one dirty-checkout artifact accounted for, the
+18-vs-17 counts trace to the same 17 pre-existing failure IDs; this
+session's own 17-ID set is the same pre-existing-red class the
+Requirement 1 isolation spot-check further below characterizes as
+reproducing alone, unrelated to parallelism.
+canonical: this session's own `grep FAILED` capture cited two
+paragraphs above (`/tmp/wt-1490-v2`, this turn) — no test ID beyond the
+17 pre-existing IDs plus the one dirty-checkout artifact appears in
+either the record's or this session's failure lists.
+
+### Updated Acceptance 1 and Requirement 2 verdicts
+
+acceptance: the four fenced measurements under Blocker 1 above (28.01s,
+33.05s, 26.65s, 27.14s) — result: Acceptance 1 revised to Present
+(supersedes Incorrect further below, which was based on the
+pre-rework 428.76s measurement) — the default-tier wall-clock target
+now holds with wide headroom on the reworked commit.
+
+acceptance: `sed -n '1193,1212p' docs/handbooks/operations.md` (this
+session, cited under Blocker 2 above) — result: Requirement 2, third
+clause, revised to Present (supersedes Absent further below) — the
+policy table now names the required tier per change class.
+
+Both open findings recorded further below are resolved on the
+reworked commit per the citations above; no new open finding surfaced
+during this re-verify.
+
+## First phase-2 pass (2026-08-14, commit 49aa3161, historical — superseded above)
 
 ## Upstream / basis
 
@@ -248,3 +358,13 @@ For Requirement 2: implementation role adds an explicit statement to
 surface if one already exists elsewhere and was missed by this
 review's grep) naming which tier is required for which change class,
 per the issue's own Requirement 2 wording.
+
+## Re-verify resolution (2026-08-15)
+
+canonical: this record's own "Blocker 1", "Blocker 2", and "Updated
+Acceptance 1 and Requirement 2 verdicts" subsections under the
+"Re-verify (2026-08-15)" heading above (this turn's own pytest run at
+28.01s; this turn's own `sed`/`grep` reads of
+`docs/handbooks/operations.md`) — result: both action items above are
+resolved, Acceptance 1 and Requirement 2's third clause are Present on
+the reworked commit, and no open finding remains for this subject.
