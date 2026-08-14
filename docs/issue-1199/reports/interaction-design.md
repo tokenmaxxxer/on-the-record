@@ -575,3 +575,71 @@ branch `issue-1199/plugin-tool-landscape` — sufficient per the
 which conditions `loop_state: landed` on the named upgrade files being
 edited and pushed, not on the PR-create call's own success. The branch
 is logged here for external relay to open the PR.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288392464`, read this session
+issuecomment-5288392464 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-14T01:34:55Z, immediately after a
+"Judgment opened" line for branch `issue-1199/knowledge-management` in
+the same comment stream) is a delegated-judgment verdict for a
+different issue-1199 fan-out branch's PR, not this interaction-design
+unit — no amendment to this unit's scope or record content.
+amendments-reconciled: issuecomment-5288392464 — out of scope for this
+unit (verdict on a different fan-out unit's branch), no action taken on
+this record.
+
+## New-session rulebook PR-open attempt (2026-08-14, this turn)
+
+canonical: this turn's own tool-result transcript (two `gh pr create`
+attempts against `tokenmaxxxer/interaction-design-rulebook`, both
+blocked)
+After merging `origin/main` into this branch (to pick up the
+issue-1310/issue-1315 pr-preflight machine-comment cursor fix) and
+reconciling issuecomment-5288392464 above, `gh pr create --repo
+tokenmaxxxer/interaction-design-rulebook ...` was attempted twice more.
+Both attempts were blocked by `upstream-defect-scope-guard.sh` (issue
+#1131 req#4), not by pr-preflight.sh's reconcile gate: "`gh pr create`
+(including a GH_REPO/GH_HOST-env-var-prefixed invocation) is denied —
+the upstream defect channel files issues only, never PRs."
+
+canonical: `on-the-record/hooks/upstream-defect-scope-guard.sh`
+(`origin_repo()`/`in_scope()` functions, read this session)
+This is a structural false positive, not a role-scope violation: this
+role is not the `upstream-defect-report` channel role, and the target
+repo (`tokenmaxxxer/interaction-design-rulebook`) is this role's own
+legitimate rulebook delivery target, not the upstream `on-the-record`
+repo the #1131 guard exists to protect. The guard's `in_scope()` check
+compares the `--repo` flag's target against `ORIGIN_REPO`, resolved via
+`git -C <event.cwd> remote get-url origin`, where `event.cwd` is the
+PreToolUse event's cwd metadata captured before the command body runs —
+so an in-command `cd` to the rulebook checkout cannot change it.
+canonical: this turn's own tool-result transcript (three `cd
+.../interaction-design-rulebook && pwd` calls, each immediately
+followed by a system message "Shell cwd was reset to
+.../on-the-record-issue-1199-interaction-design")
+This session's tracked cwd resets to the `on-the-record` checkout after
+every single Bash call regardless of an in-command `cd`, so
+`ORIGIN_REPO` always resolves to `tokenmaxxxer/on-the-record` and any
+`--repo` flag naming a different repo is denied structurally,
+independent of the acting role. This reproduced on both attempts this
+turn, not intermittently — a different failure mode from the
+reconcile-then-retry race documented above.
+
+This is a FILE-AS-ISSUE deviation (judgment-bearing — the guard's own
+design intent vs. its literal scope check; outside this role's frozen
+write set — the guard script lives in `on-the-record/hooks/`, not under
+this role's `docs/issue-1199/reports/interaction-design*` write set; and
+systemic, not a one-off — it will block any role's legitimate PR to any
+non-origin repo, not just this call). Per contract v3's scope-exceeded
+rule, this session does not edit the guard or spawn a fix: it stops the
+PR-create attempt, reports the finding here, and appends the filed line
+to the deviation log.
+
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/interaction-design-rulebook log origin/main..origin/issue-1199/plugin-tool-landscape --oneline`, this session
+The rulebook edits remain committed and pushed at commit 52084b2 on
+`tokenmaxxxer/interaction-design-rulebook` branch
+`issue-1199/plugin-tool-landscape`, verified ahead of `origin/main` by
+exactly that one commit. Per the 2026-08-14 rework proposal's own "how
+it will be judged" clause (b), `loop_state: landed` is set here because
+the named upgrade files are edited and pushed; PR-open is logged as
+filed-for-external-relay, matching every prior round's own observed
+pattern in this record.
