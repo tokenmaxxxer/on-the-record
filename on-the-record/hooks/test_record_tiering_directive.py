@@ -1,4 +1,6 @@
-"""Tests for record-tiering-guard.sh + record-tiering-directive.sh (issue #760)."""
+"""Tests for record-tiering-guard.sh + record-tiering-directive.sh (issue
+#760, reverted for the `reports/<role>.md` category by issue #745 PR #1509's
+kill verdict). Both hooks are now inert no-ops; these tests assert that."""
 import json
 import os
 import subprocess
@@ -29,9 +31,9 @@ def _record_path(tmp_path):
     return p
 
 
-# --- record-tiering-guard.sh -----------------------------------------------
+# --- record-tiering-guard.sh (reverted: always a no-op) --------------------
 
-def t_padded_none_body_is_denied(tmp_path):
+def t_padded_none_body_no_longer_denied(tmp_path):
     p = _record_path(tmp_path)
     content = (
         "## What did not work\n\n"
@@ -39,20 +41,12 @@ def t_padded_none_body_is_denied(tmp_path):
         "this build; nothing failed.\n"
     )
     r = _run_guard({"file_path": str(p), "content": content})
-    assert r.returncode == 2
-    assert "issue #760" in r.stderr
+    assert r.returncode == 0
 
 
 def t_bare_none_with_period_passes(tmp_path):
     p = _record_path(tmp_path)
     content = "## What did not work\n\nNone.\n"
-    r = _run_guard({"file_path": str(p), "content": content})
-    assert r.returncode == 0
-
-
-def t_bare_none_without_period_passes(tmp_path):
-    p = _record_path(tmp_path)
-    content = "## What did not work\n\nNone\n"
     r = _run_guard({"file_path": str(p), "content": content})
     assert r.returncode == 0
 
@@ -73,69 +67,14 @@ def t_non_record_path_is_ignored(tmp_path):
     assert r.returncode == 0
 
 
-def t_non_implementation_report_is_ignored(tmp_path):
-    p = tmp_path / "docs" / "issue-999" / "reports" / "conformance-review.md"
-    p.parent.mkdir(parents=True)
-    r = _run_guard({
-        "file_path": str(p),
-        "content": "## What did not work\n\nNone padded out further.\n",
-    })
-    assert r.returncode == 0
-
-
-def t_fragment_without_section_heading_is_ignored(tmp_path):
-    p = _record_path(tmp_path)
-    r = _run_guard({"file_path": str(p), "content": "## Some other section\n\nNone padded here.\n"})
-    assert r.returncode == 0
-
-
-def t_edit_tool_uses_new_string(tmp_path):
+def t_edit_tool_no_longer_denied(tmp_path):
     p = _record_path(tmp_path)
     r = _run_guard(
         {"file_path": str(p), "old_string": "x",
          "new_string": "## What did not work\n\nNone but with extra words.\n"},
         tool_name="Edit",
     )
-    assert r.returncode == 2
-    assert "issue #760" in r.stderr
-
-
-def t_split_edit_heading_then_padded_body_is_still_denied(tmp_path):
-    # before-landing hunt (issue #760, stance 0): a fragment-only check
-    # is bypassable by splitting the section heading and the padded
-    # "None ..." body across two separate Edit calls, since each
-    # PreToolUse invocation only sees its own call's fragment. The guard
-    # must reconstruct the full resulting file (read current content +
-    # apply the edit) instead of checking only the changed fragment.
-    p = _record_path(tmp_path)
-    p.write_text("# Report\n\nsome other content\n")
-
-    r1 = _run_guard({
-        "file_path": str(p),
-        "old_string": "# Report\n\nsome other content\n",
-        "new_string": "# Report\n\nsome other content\n\n## What did not work\n\nPLACEHOLDER\n",
-    }, tool_name="Edit")
-    assert r1.returncode == 0
-    p.write_text("# Report\n\nsome other content\n\n## What did not work\n\nPLACEHOLDER\n")
-
-    r2 = _run_guard({
-        "file_path": str(p),
-        "old_string": "PLACEHOLDER",
-        "new_string": "None — actually the citation extraction failed silently and nobody noticed.",
-    }, tool_name="Edit")
-    assert r2.returncode == 2
-    assert "issue #760" in r2.stderr
-
-
-def t_edit_falls_back_to_fragment_when_file_unreadable(tmp_path):
-    p = _record_path(tmp_path)  # file does not exist on disk
-    r = _run_guard(
-        {"file_path": str(p), "old_string": "x",
-         "new_string": "## What did not work\n\nNone but padded further.\n"},
-        tool_name="Edit",
-    )
-    assert r.returncode == 2
-    assert "issue #760" in r.stderr
+    assert r.returncode == 0
 
 
 def t_malformed_payload_is_allowed_not_denied(tmp_path):
@@ -146,7 +85,7 @@ def t_malformed_payload_is_allowed_not_denied(tmp_path):
     assert r.returncode == 0
 
 
-# --- record-tiering-directive.sh --------------------------------------------
+# --- record-tiering-directive.sh (reverted: always a no-op) ----------------
 
 def _run_directive(claude_role="implementation", orchestrate_off=""):
     env = dict(os.environ)
@@ -161,13 +100,10 @@ def _run_directive(claude_role="implementation", orchestrate_off=""):
     )
 
 
-def t_directive_states_bare_marker_rule_and_real_content_exception():
+def t_directive_no_longer_emits_output(tmp_path):
     r = _run_directive(claude_role="implementation")
     assert r.returncode == 0
-    out = r.stdout
-    assert "<record-tiering-directive>" in out
-    assert "None." in out
-    assert "real entry" in out
+    assert r.stdout == ""
 
 
 def t_directive_is_silent_without_claude_role():
