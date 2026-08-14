@@ -348,3 +348,16 @@ this record or the rulebook PR. This unit's phase-2 PR-open hit the
 reconcile-then-retry deadlock described in
 `docs/issue-1199/reports/interaction-design/deviation-log.md`; retries
 stopped after this reconciliation, branch pushed for external relay.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288191088
+issuecomment-5288191088 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-14T01:01:23Z, after this new
+session started) is another delegated-judgment verdict for a different
+issue-1199 fan-out branch's PR, not this interaction-design unit — no
+amendment to this unit's scope or record content.
+amendments-reconciled: issuecomment-5288191088 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record. This session's own work is the separate 2026-08-14
+plugin-ecosystem rework (proposal:
+`docs/issue-1199/proposals/2026-08-14-interaction-design-plugin-tool-landscape-rework.md`,
+phase 1 only, awaiting a fresh approval comment before phase 2).
