@@ -14,6 +14,7 @@ amendments-reconciled: issuecomment-5288195189 (2026-08-14T01:02:04Z, "Verdict: 
 amendments-reconciled: issuecomment-5288192361 (2026-08-14T01:01:36Z, "Verdict: PR #? → escalate (depth or impact axis did not clear)") — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288192361` this turn — automated delegated-judgment-verdict stream noise from a parallel #1199 tracker session, not addressed to defect-verification or this branch; no action required.
 amendments-reconciled: issuecomment-5288189639 (2026-08-14T01:01:08Z, "Verdict: PR #? → escalate (depth or impact axis did not clear)") — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288189639` this turn — automated delegated-judgment-verdict stream noise from a parallel #1199 tracker session, not addressed to defect-verification or this branch; no action required.
 amendments-reconciled: issuecomment-5288217414 (2026-08-14T01:05:49Z, "Verdict: PR #? → escalate (depth or impact axis did not clear)") — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288217414` this turn — automated delegated-judgment-verdict stream noise, not addressed to defect-verification or this branch; no action required. Sixth comment-race hit this session; proceeding to open the PR once more this turn.
+amendments-reconciled: issuecomment-5288221980 (2026-08-14T01:06:34Z, "Verdict: PR #? → escalate (depth or impact axis did not clear)") — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288221980` this turn — automated delegated-judgment-verdict stream noise, not addressed to defect-verification or this branch; no action required. Seventh comment-race hit this session — stopping the reconcile-and-retry loop here per this repo's own precedent (commit 03477a9b); the rulebook branch is committed and pushed to `issue-1199/defect-verification` on `tokenmaxxxer/defect-verification-rulebook` regardless of whether `gh pr create` clears the race this turn.
 amendments-reconciled: issuecomment-5277583040 ("{
   "message": "Not Found",
   "documentation_url": "https://docs.github.com/rest",
@@ -252,4 +253,5 @@ provenance (which plugins were surveyed, their adoption evidence, the
 per-rule mapping) lives only in this record and the scout brief above,
 consistent with the 2026-08-13 native-application amendment.
 
-loop_state: landed
+canonical: `git -C /tmp/defect-verification-rulebook log --oneline -1 issue-1199/defect-verification` this turn -> `2e1bfaba` on `on-the-record`, `052fe46` on rulebook branch; no `tokenmaxxxer/defect-verification-rulebook` PR exists yet for this branch as of this turn (seven `gh pr create` attempts raced against the comment stream, see amendments-reconciled entries above).
+loop_state: closed
