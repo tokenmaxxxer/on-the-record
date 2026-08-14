@@ -21,6 +21,137 @@ full diff including the new-file record) and `gh pr view 1503
 turn). No file under the observed role's src/, test/, or docs/issue-1490/
 paths (outside this file) was touched this session.
 
+## Phase-2 re-observe (2026-08-15, new head)
+
+canonical: `gh pr view 1503 --json commits` (this turn) — PR #1503 now
+carries a third commit, `9e16671ed9d24cc2237a422724314f6f2e96603d`
+("issue-1490: slow-tier real-subprocess spawn tests, add pre-merge
+tier..."), authored 2026-08-14T17:10:34Z, after the two commits
+(`9c28c221`, `49aa3161`, both ~15:0x) the sections further below (the
+original "Outcome verdict" / "Step-level finding") were written
+against. canonical: `git log --oneline -3` (this turn) — `a3e84f90`
+"Merge pull request #1495 from tokenmaxxxer/issue-1490/conformance-review"
+is on `main`, ahead of this rework's authored timestamp. This is a
+rework responding to that merged conformance-review's blockers
+(`docs/issue-1490/reports/conformance-review.md`, read this turn on
+`main`): Acceptance 1 Incorrect (428.76s independent measurement, over
+budget) and Requirement 2's third clause Absent (no pre-merge tier
+policy). This section supersedes the original sections' verdicts with
+the new head's content; nothing below re-runs pytest — this session's
+mandate is unchanged (see Independence statement above).
+
+canonical: `gh pr diff 1503` (this turn, full diff of the current
+head, including the record's new "Rework (2026-08-15)" section as a
+diff hunk) — the rework commit:
+
+1. moved `EventReporting` and `ProgressEvents` in `tests/test_spawn.py`
+   into the `slow` tier (`@pytest.mark.slow` above each class), citing
+   these as the four slowest default-tier cases in a
+   `--durations=40` run (105.66s/103.90s/103.65s/66.98s), matching the
+   `slow` marker's own stated definition.
+2. added the "머지 전 회귀 정책 / Pre-merge regression policy — tier
+   required per change class" table pair to
+   `docs/handbooks/operations.md`, naming the required tier
+   (`-m "not slow"`, `-m slow`, both, or none) per change class
+   (spawn-lifecycle code, gate scripts, docs-only, other logic).
+
+mode: asserted for every number in this section — the record's own
+fenced output, unverified independently by this session, per the role
+directive's EVIDENCE MODE clause (re-running to check is prohibited by
+this role's mandate).
+
+- Req 3 (<300s default tier, measured): canonical: `gh pr diff 1503`
+  (this turn) — the rework section's fenced output shows three
+  back-to-back post-fix runs: `run 1: ... in 33.05s`, `run 2: ... in
+  26.65s`, `run 3: ... in 27.14s` (all `-m "not slow"`), replacing the
+  prior 248.92s/317.56s/288.83s spread that had one run over budget.
+  canonical: same `gh pr diff 1503` read (this turn) — all three
+  post-fix numbers land under 300s per that fenced output, content now
+  present on all three measured runs, not two-of-three as the
+  pre-rework head showed.
+- Req 2 third clause (pre-merge tier policy per change class):
+  canonical: `gh pr diff 1503` (this turn) — the
+  `docs/handbooks/operations.md` hunk in that diff adds the bilingual
+  table pair described above; content now present in this diff, absent
+  from the pre-rework head's diff.
+- Acceptance item 2 (combined-tier outcome-set matches baseline):
+  canonical: `gh pr diff 1503` (this turn) — the rework section shows
+  a before/after fix comparison of `FAILED` lines: `17 failed, 1825
+  passed` (before the `@pytest.mark.slow` fix, still on old tiering)
+  vs `18 failed, 1787 passed` x3 (after). canonical: same `gh pr diff
+  1503` read (this turn) — the one new ID in the after-set,
+  `t_rulebook_version_is_recorded` (`tests/test_gates.py`, asserted
+  line 95 per that same record text), is attributed by the record to
+  this session's own uncommitted edit making the checkout git-dirty at
+  measurement time, not a new product failure. canonical: same `gh pr
+  diff 1503` read (this turn) — the record's excluding-diff (sorted
+  before/after `FAILED` sets, `t_rulebook_version_is_recorded`
+  filtered out) shows no output, i.e. identical sets, per that fenced
+  text; this is an asserted claim only, not reproduced by this
+  session.
+
+**Updated outcome verdict:** still capped at "not yet landed" —
+canonical: `gh pr view 1503 --json state,mergedAt` (this turn) — state
+OPEN, mergedAt null; PR #1503 is not merged per that same command's
+output. canonical: `gh pr diff 1503` (this turn) — on content alone,
+worst-case across the step-level results just above: Req 3 and Req 2's
+third clause, previously partial/absent per the original section
+below, now read content-present on the new head's own asserted numbers
+cited above; the only remaining open item is the
+`t_rulebook_version_is_recorded` artifact and its un-reproduced
+excluding-diff, both mode: asserted and not independently re-run by
+this session (see the updated step-level finding immediately below).
+
+**Updated step-level finding**, superseding the original one further
+below (dated to the two-commit head): canonical: `gh pr diff 1503`
+(this turn, rework section) — that original finding ("Req 3's <300s
+target held on two of three runs, cantTell") is superseded by the new
+head's own reported numbers cited above (three-of-three under budget)
+— downgraded from a live concern to informational, since the
+underlying numbers remain mode: asserted, never independently
+reproduced by this session. A new, narrower step-level finding
+replaces it:
+
+- subject: PR #1503's rework section (`gh pr diff 1503`, this turn),
+  specifically its "no other failure ID changed" / empty-diff claim.
+- test: whether the combined-tier outcome-set, after excluding the
+  git-dirty artifact, is identical to the pre-rework baseline set.
+- result: cantTell. canonical: `gh pr diff 1503` (this turn) — the
+  record states the excluding `diff` produced no output (cited above),
+  but the underlying command was run by the implementation role, not
+  reproduced by this session (mode: asserted). canonical: `gh pr diff
+  1503` (this turn, same rework section) — an asserted-mode claim
+  supports cantTell or untested, never a passed result, per the role
+  directive's EVIDENCE MODE clause, so this finding is reported as
+  cantTell.
+- assertedBy: execution-observation (this role).
+
+Four-part blameless shape for this finding:
+- impact: canonical: `gh pr diff 1503` (this turn) — a reviewer
+  trusting the record's "no other failure ID changed" line without
+  independent reproduction could merge PR #1503 on an unverified
+  outcome-set-equality claim.
+- timeline: canonical: `gh pr view 1503 --json commits` (this turn) —
+  the rework commit is authored 2026-08-14T17:10:34Z, after the
+  original two commits (~15:0x, same command's output) and after
+  conformance-review's blockers landed on `main` (`git log --oneline
+  -3`, this turn, commit `a3e84f90`, cited above).
+- root cause: session-start role directive (this turn's system
+  context, "never re-run the observed role's code") states this role's
+  own mandate prohibits re-executing the observed role's task.
+  canonical: `gh pr diff 1503` (this turn, same rework section cited
+  throughout this update) — because of that mandate, this role can
+  only quote the outcome-set-equality claim from that diff, not
+  independently reproduce it.
+- action item: canonical: `gh pr view 1503 --json reviews` (this
+  turn) — empty result, no reviews yet on PR #1503. canonical: `gh pr
+  diff 1503` (this turn, same rework section) — before merge, a human
+  reviewer (or a fresh conformance-review pass carrying its own
+  independent-execution mandate) should reproduce that section's
+  excluding-diff once, outside the implementation role's own session.
+
+## Original head (pre-rework, two-commit) sections below
+
 **Instruction conflict, logged plainly:** this turn's invocation asked
 this session to execute PR #1503's config directly — run the non-slow
 parallel tier, record measured wall-clock, run both tiers, diff test
@@ -207,20 +338,24 @@ Four-part blameless shape:
 
 ## Open findings
 
-The step-level finding above: Req 3's <300s target held on two of
-three self-reported runs, not all three; not independently
-re-verified since re-execution is prohibited by this role's mandate.
-No other open finding.
+Superseded by the "Phase-2 re-observe (2026-08-15, new head)" section
+above: canonical: `gh pr diff 1503` (this turn) — the original
+two-of-three-runs finding no longer applies to the current head
+(three-of-three under 300s, cited above); the current open finding is
+the updated step-level finding above (outcome-set-equality claim is
+mode: asserted, not independently reproduced by this session).
 
 ## Next steps
 
 canonical: `gh pr view 1503 --json state` (this turn, still OPEN) —
-none for this role; this record is complete and cited. The action item
-above belongs to a human reviewer or the implementation role on PR
-#1503, not to a further execution-observation pass.
+none for this role beyond this update. canonical: `gh pr diff 1503`
+(this turn, "Phase-2 re-observe" section above) — the action item
+there belongs to a human reviewer or a fresh conformance-review pass
+on PR #1503, not to a further execution-observation pass.
 
 ## Resolution path
 
-Human review on PR #1503 (`gh pr view 1503`, cited above): accept the
-two-of-three timing measurement as sufficient, or request one more
-isolated-host run before merge.
+canonical: `gh pr view 1503` (this turn, cited above) — human review
+on PR #1503: accept the rework's three-of-three timing measurement and
+asserted outcome-set-equality claim as sufficient, or request one more
+independently-reproduced run before merge.
