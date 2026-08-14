@@ -254,4 +254,6 @@ per-rule mapping) lives only in this record and the scout brief above,
 consistent with the 2026-08-13 native-application amendment.
 
 canonical: `git -C /tmp/defect-verification-rulebook log --oneline -1 issue-1199/defect-verification` this turn -> `2e1bfaba` on `on-the-record`, `052fe46` on rulebook branch; no `tokenmaxxxer/defect-verification-rulebook` PR exists yet for this branch as of this turn (seven `gh pr create` attempts raced against the comment stream, see amendments-reconciled entries above).
+
+amendments-reconciled: issuecomment-5288243633 (2026-08-14T01:09:47Z, "Verdict: PR #? → escalate (depth or impact axis did not clear)") — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288243633` this turn — automated delegated-judgment-verdict stream noise from a parallel #1199 tracker session, not addressed to defect-verification or this branch; no action required. Eighth comment-race hit this session; retrying `gh pr create` on `tokenmaxxxer/defect-verification-rulebook` once more this turn.
 loop_state: closed
