@@ -429,4 +429,11 @@ role's own prose.
 ### Resolution path
 n/a — no open findings.
 
+canonical: `gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"` --paginate, re-read this session before this session's own PR-create attempt.
+amendments-reconciled: issuecomment-5290814054 — "Verdict: PR #? →
+escalate (depth or impact axis did not clear)", the same generic
+automated judgment-watcher message already reconciled repeatedly on
+this branch's prior sections (external watcher signal, not an
+instruction changing this observation's scope, write set, or verdict).
+
 loop_state: handed-off.
