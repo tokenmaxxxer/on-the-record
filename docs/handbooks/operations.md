@@ -1210,6 +1210,40 @@ against `-m slow` locally before merge. The default tier's wall-clock
 target stays <300s; keeping that target is what makes `-m "not slow"`
 viable as the default gate.
 
+## Test-tier contract for target repos (issue #1518)
+
+The pre-merge table above is this repo's own instance of the tiering
+discipline, wired through `pytest.ini` markers. Other target repos this
+plugin works on cannot share that wiring (no shared `pytest.ini`, no
+`roles/*.json` field scoped per repo) — issue #1518 generalizes the same
+discipline into a file convention a target repo declares in its own
+checkout: `.on-the-record/test-tiers.json`.
+
+```json
+{
+  "fast": {"command": "python3 -m pytest -m \"not slow\"", "budget_seconds": 300},
+  "slow": {
+    "command": "python3 -m pytest -m slow",
+    "trigger_change_classes": ["spawn.py", "tests/test_spawn.py"]
+  }
+}
+```
+
+`gates/test_tier_contract.py` reads this file: `fast.command` +
+`fast.budget_seconds` (default 300) is the tier a verification role
+(execution-observation, conformance-review, pre-merge regression) runs
+by default; `slow` runs only when the diff touches a path matching one
+of `slow.trigger_change_classes`'s globs. A missing or malformed
+contract file resolves to the **no-contract path**, never a silent full
+run: the verification role measures the full suite's wall-clock cost,
+records that measurement plus a tiering-gap note in its own record (see
+`gates/test_tier_contract.py`'s `no_contract_gap()`), and proceeds — the
+gap is a deliverable to surface for that target repo, not something to
+quietly absorb. `on-the-record/hooks/test-tier-directive.sh` states this
+policy on every prompt, observe-only for now; gating (refusing an
+over-budget silent run) waits for the convention to see real
+target-repo adoption.
+
 ## 재스폰 배칭 — 승인과 재스폰을 한 사이클에 (이슈 #501)
 
 측정(2026-08-08, `runs/ledger.jsonl` 123행): 같은 (repo, issue, role)
