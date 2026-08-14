@@ -2493,9 +2493,16 @@ class IssueScopedPrompt(unittest.TestCase):
             self.assertEqual([p for p, _ in prep].count("branch"), 1, prep)
 
 
+@pytest.mark.slow
 class EventReporting(unittest.TestCase):
     """issue #129 phase 2: `.events.jsonl` 기록의 정확성 — 실측된 오탐 3건
-    (gate-refusal 오탐 2건, pr-opened 중복 1건)을 보존된 fixture 로 재현."""
+    (gate-refusal 오탐 2건, pr-opened 중복 1건)을 보존된 fixture 로 재현.
+
+    issue #1490 rework: 각 케이스가 `_spawn_one`을 통해 실제 subprocess
+    (git init + `cat`)을 스폰한다 — 클래스당 20개 넘는 케이스가 건당
+    20~105s 걸려 기본(non-slow) 실행 시간의 대부분을 차지했다. slow
+    마커의 정의("실제 subprocess spawn ... lifecycle tests")에 그대로
+    해당해 slow 티어로 옮긴다."""
 
     def _run(self, td, task, roster_key="e", pr_for_branch=lambda *a, **k: None,
              branch="b"):
@@ -3109,9 +3116,12 @@ class EventReporting(unittest.TestCase):
         self.assertFalse([e for e in events if e["type"] == "pr-opened"], events)
 
 
+@pytest.mark.slow
 class ProgressEvents(unittest.TestCase):
     """이슈 #180 ②: 세션 진행(산출물 쓰기 + 검증/커밋/푸시)이 `events.jsonl` 에
-    `progress` 로 남는다 — 탐색성 호출은 안 남는다(입도 실패 방지)."""
+    `progress` 로 남는다 — 탐색성 호출은 안 남는다(입도 실패 방지).
+
+    issue #1490 rework: `EventReporting`과 같은 이유로 slow 티어."""
 
     def _run(self, td, lines):
         return EventReporting()._run(td, "\n".join(json.dumps(l) for l in lines) + "\n")

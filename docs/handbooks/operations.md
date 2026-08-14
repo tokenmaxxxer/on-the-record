@@ -1171,6 +1171,45 @@ tests should carry `@pytest.mark.slow` at authoring time — missing it
 at review time quietly erodes the default tier's wall-clock target
 (<300s).
 
+## 머지 전 회귀 정책 — 변경 종류별 필수 티어 (issue #1490)
+
+머지 전에 어떤 pytest 티어를 돌려야 하는지는 변경이 건드리는 표면에
+달렸다 — 기본(빠른, `-m "not slow"`) 티어만으로는 실제 subprocess
+스폰이나 git 라이프사이클 경로의 회귀를 못 잡는다.
+
+| 변경 종류 | 필수 티어 |
+|---|---|
+| spawn 라이프사이클 코드 (`spawn.py`의 `_spawn_one`, `checkout_issue_branch`, `issue_workspace`, 실제 subprocess/git 클론을 도는 `tests/test_spawn.py`의 `EventReporting`/`ProgressEvents` 등) | `python3 -m pytest -m slow` (전체 확신엔 `-m slow` + `-m "not slow"` 둘 다) |
+| gate 스크립트 (`gates/*.py`)와 그 테스트 | `python3 -m pytest -m "not slow"` — subprocess/git 라이프사이클을 직접 도는 gate 테스트가 있으면 그 파일만 추가로 `-m slow` |
+| 문서 전용 변경 (`docs/**`, `README.md`) | 없음 — 관련 gate(`gates/spec_index.py --update` 등)만 해당 시 |
+| 그 외 순수 로직/유틸 변경 | `python3 -m pytest -m "not slow"` |
+
+새 테스트가 실제 subprocess spawn 또는 실제 git clone/checkout
+라이프사이클을 돌면 작성 시점에 `@pytest.mark.slow`를 달 것 — 위 표의
+"spawn 라이프사이클" 행에 해당하는 변경은 반드시 `-m slow`도 로컬에서
+돌려 확인한 뒤 머지한다. 기본 티어의 wall-clock 목표는 <300초이고,
+이 목표를 지키는 게 `-m "not slow"`를 기본 게이트로 유지하는 전제다.
+
+## Pre-merge regression policy — tier required per change class (issue #1490)
+
+Which pytest tier to run before merge depends on the surface the change
+touches — the default (fast, `-m "not slow"`) tier alone doesn't catch
+regressions in real subprocess spawn or git lifecycle paths.
+
+| Change class | Required tier |
+|---|---|
+| Spawn-lifecycle code (`spawn.py`'s `_spawn_one`, `checkout_issue_branch`, `issue_workspace`, or `tests/test_spawn.py`'s `EventReporting`/`ProgressEvents` and other real subprocess/git-clone tests) | `python3 -m pytest -m slow` (for full confidence, both `-m slow` and `-m "not slow"`) |
+| Gate scripts (`gates/*.py`) and their tests | `python3 -m pytest -m "not slow"` — plus `-m slow` for that file alone if the gate test itself does real subprocess/git lifecycle work |
+| Docs-only change (`docs/**`, `README.md`) | None — only the relevant gate (e.g. `gates/spec_index.py --update`) when applicable |
+| Other pure logic/utility changes | `python3 -m pytest -m "not slow"` |
+
+A new test that does real subprocess spawn or real git clone/checkout
+lifecycle work must carry `@pytest.mark.slow` at authoring time — a
+change falling under the "spawn-lifecycle" row above must also be run
+against `-m slow` locally before merge. The default tier's wall-clock
+target stays <300s; keeping that target is what makes `-m "not slow"`
+viable as the default gate.
+
 ## 재스폰 배칭 — 승인과 재스폰을 한 사이클에 (이슈 #501)
 
 측정(2026-08-08, `runs/ledger.jsonl` 123행): 같은 (repo, issue, role)
