@@ -193,3 +193,55 @@ def test_backfill_closed_dry_run_lists_without_spawning(fixture_repo, monkeypatc
     ]
     assert registered == []
     assert spawned == []
+
+
+def _make_branch_with_diff(repo, branch, files):
+    """Create `branch` off current HEAD, write/commit `files` ({path: text}),
+    return to the branch that was checked out before (main)."""
+    subprocess.run(["git", "checkout", "-b", branch], cwd=repo, check=True,
+                    capture_output=True)
+    for rel, text in files.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text)
+        subprocess.run(["git", "add", rel], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "diff"], cwd=repo, check=True)
+    subprocess.run(["git", "checkout", "master", "-q"], cwd=repo, check=True,
+                    capture_output=True)
+
+
+def test_missing_verification_skips_execution_observation_for_population_s(
+        fixture_repo, monkeypatch):
+    """issue #745 Item 3 — a small, safe, claim-free diff is population S:
+    `execution-observation` is dropped from the missing-roles list, but
+    `conformance-review` (unconditioned) still shows up."""
+    _make_branch_with_diff(
+        fixture_repo, "issue-9001/implementation",
+        {"src/feature.py": "x = 1\n"})
+    monkeypatch.setattr(spawn_on_pr.skip_eligibility.gates, "BASE", "master")
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+
+    out = spawn_on_pr.missing_verification(
+        fixture_repo, issue_states={9001: "OPEN"}, pr_index=None)
+
+    assert out["issue-9001"] == ["conformance-review"]
+
+
+def test_missing_verification_keeps_execution_observation_for_population_r(
+        fixture_repo, monkeypatch):
+    """A diff touching a hard-to-revert path (`gates/*.py`) is population R:
+    `execution-observation` stays in the missing-roles list."""
+    _make_branch_with_diff(
+        fixture_repo, "issue-9001/implementation",
+        {"gates/some_gate.py": "x = 1\n"})
+    monkeypatch.setattr(spawn_on_pr.skip_eligibility.gates, "BASE", "master")
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+
+    out = spawn_on_pr.missing_verification(
+        fixture_repo, issue_states={9001: "OPEN"}, pr_index=None)
+
+    assert out["issue-9001"] == ["execution-observation", "conformance-review"]
