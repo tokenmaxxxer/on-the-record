@@ -302,6 +302,17 @@ escalate (depth or impact axis did not clear)") is the verdict for the
 delegated-judgment evaluation."), not this content-design unit. No
 content amendment warranted.
 
+amendments-reconciled: issuecomment-5288130520 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a further verdict
+in the same content-design delegated-judgment sequence already noted
+above for issuecomment-5288109647 (canonical: `gh issue view 1199
+--json comments -q '.comments[-3:] | .[] | .body'`, this session — the
+comment one position earlier in that same read is "Judgment opened: PR
+#? — candidate decision on branch `issue-1199/content-design` (2
+path(s) changed) entered delegated-judgment evaluation."). Same
+procedural-routing note as before applies; no additional content
+amendment warranted.
+
 amendments-reconciled: issuecomment-5288123194 ("Verdict: PR #? →
 escalate (depth or impact axis did not clear)") is a further verdict
 comment in the same `issue-1199/data-modeling` delegated-judgment
