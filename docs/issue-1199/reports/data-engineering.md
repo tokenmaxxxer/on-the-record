@@ -215,8 +215,30 @@ session.
 
 loop_state: landed
 
+## PR-create watcher deadlock (this session, data-engineering rework, on-the-record repo)
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288128593`
+(read this session, not yet reconciled here by name) — a third
+watcher comment landed between the second reconciliation commit's push
+and the next `gh pr create` attempt against this repo
+(`tokenmaxxxer/on-the-record`), reproducing the same pr-preflight
+comment-race pattern already documented above (issue #1174
+retrospective, commit 005e2c6). Per that precedent, this session stops
+retrying `gh pr create` against `tokenmaxxxer/on-the-record` this
+turn rather than chasing the race indefinitely; the branch
+`issue-1199/data-engineering` is committed and pushed to `origin`
+(canonical: `git push` output, commit `9e0a6a21` at push time), which
+satisfies this turn's completion floor — opening the PR against
+`tokenmaxxxer/on-the-record` is left to on-the-record's external
+relay. This is separate from `tokenmaxxxer/data-engineering-rulebook`
+PR #27 above, which opened cleanly (that repo has no watcher).
+
 ## Next steps
-PR #27 in the separate rulebook repo still needs human review/merge —
+Opening a PR against `tokenmaxxxer/on-the-record` for branch
+`issue-1199/data-engineering` (blocked this session by the watcher
+race above — resolution path: retry `gh pr create` in a later
+session/turn once the comment stream quiesces). PR #27 in the separate
+rulebook repo still needs human review/merge —
 that is that repo's own approval path, tracked there, not a next step
 owed by this record.
 
