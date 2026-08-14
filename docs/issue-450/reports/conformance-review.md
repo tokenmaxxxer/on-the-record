@@ -18,6 +18,11 @@ docs/issue-450/reports/implementation.md, both read this turn.
 Approved via `APPROVE issue-450/conformance-review` (issue #450 comment,
 account JiwonJung94, single-account mode).
 
+amendments-reconciled: issuecomment-5290030847 — this is the
+`APPROVE issue-450/conformance-review` comment cited above; no other
+new issue #450 comment appeared this session, and its content required
+no change to the verdicts already drafted.
+
 ## What was done
 
 Artifact-only re-read of `issue_workspace()`'s exclude-guard write block
