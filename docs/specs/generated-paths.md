@@ -46,6 +46,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `delegation-post-gate.sh` | n/a | reads/validates only, no write call |
 | `gate-registration-guard.sh` | n/a | reads/validates only, no write call |
 | `pr-preflight.sh` | n/a | reads/validates only, no write call |
+| `pr-base-guard.sh` | n/a | reads/validates only, no write call |
 | `record-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `credential-record-guard.sh` | n/a | reads/validates only, no write call |
 | `credential-network-guard.sh` | n/a | reads/validates only, no write call |
