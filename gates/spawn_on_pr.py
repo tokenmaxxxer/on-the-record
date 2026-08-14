@@ -32,6 +32,7 @@ sys.path.insert(0, str(ROOT / "gates"))
 import spawn  # noqa: E402
 import closure_sweep  # noqa: E402
 import ci as _ci  # noqa: E402
+import skip_eligibility  # noqa: E402
 
 PR_TRIGGERED_ROLES = ("execution-observation", "conformance-review")
 
@@ -120,8 +121,33 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
         issue = int(subject.split("-", 1)[1])
         if not _issue_is_open(issue, issue_states):
             continue
+        if "execution-observation" in missing:
+            missing = _filter_execution_observation(root, subject, missing)
+            if not missing:
+                continue
         out[subject] = missing
     return out
+
+
+def _filter_execution_observation(root: Path, subject: str,
+                                   missing: list[str]) -> list[str]:
+    """issue #745 Item 3 — `execution-observation` 스폰 자격을 세 축
+    (변경 크기/비가역성/주장 어휘, `skip_eligibility.classify_for_subject`)
+    으로 분류하고 ledger 에 population(R/S) 을 기록한다(20-PR 측정
+    윈도우 재현용). population S(모두 low-risk) 면 `missing` 에서 뺀다;
+    분류 자체가 실패하면(예: 브랜치/기록 없음) fail closed — required
+    그대로 둔다."""
+    try:
+        classification = skip_eligibility.classify_for_subject(root, subject)
+    except Exception:
+        return missing
+    spawn.ledger_write({
+        "event": "execution_observation_classification",
+        **classification,
+    })
+    if classification["skip_eligible"]:
+        return [r for r in missing if r != "execution-observation"]
+    return missing
 
 
 def _park_state_path(root: Path) -> Path:
