@@ -119,6 +119,17 @@ None — the amended survey target is now covered; PR #24 in the
 rulebook repo awaits its own review/merge outside this record's scope.
 
 ## amendments-reconciled
+issuecomment-5288107208 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is the judgment loop's verdict for the preceding
+"Judgment opened" comment (issuecomment-5288025681, branch
+`issue-1199/brand-design`), not this data-modeling unit (canonical:
+`gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"
+--paginate --jq 'sort_by(.id) | .[-2:]'`, run this session). Per the
+same comment-race precedent already logged above and in
+docs/issue-1174/reports/issue-retrospective/deviation-log.md (commit
+005e2c6), this session stops chasing further new comment ids after
+this reconciliation round and proceeds to open the PR.
+
 issuecomment-5288100111 ("Judgment opened: PR #? — candidate decision
 on branch `issue-1199/data-modeling` (2 path(s) changed) entered
 delegated-judgment evaluation.") and issuecomment-5288100292
