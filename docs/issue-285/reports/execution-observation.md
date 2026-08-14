@@ -89,6 +89,10 @@ was posted this session.
 canonical: gh issue comment 285 --body "APPROVE issue-285/execution-observation" (run this
 session) — https://github.com/tokenmaxxxer/on-the-record/issues/285#issuecomment-5289777877
 
+amendments-reconciled: issuecomment-5289777877 is this session's own approval comment (posted by
+this role, this turn, to satisfy this record's own write gate) — no other issue-thread comment
+since session start required reconciliation.
+
 ### Step
 
 - subject: spawn.py's `_await_bounded` escalating-poll fix (P1), class AwaitBoundedTiming in
