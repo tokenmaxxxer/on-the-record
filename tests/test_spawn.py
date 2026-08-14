@@ -9439,7 +9439,7 @@ class ConsultCmd(unittest.TestCase):
         self._patch(spawn, "core_plugin_dirs", lambda: [])
         root = self.root
         self._patch(spawn, "_consult_trace_path",
-                    lambda issue: (root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
+                    lambda issue, cwd=None: (root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
                                    if issue is not None else root / "docs" / "consult-log.md"))
 
     def _patch(self, obj, name, value):
@@ -9579,7 +9579,7 @@ class PanelDegradeErrorSafety(unittest.TestCase):
         orig = spawn.consult_cmd
         spawn.consult_cmd = failing_consult
         orig_record_path = spawn._panel_record_path
-        spawn._panel_record_path = lambda issue, slug: self.path
+        spawn._panel_record_path = lambda issue, slug, cwd=None: self.path
 
         def no_turns_session(role, peer_role, question, cwd):
             return {"turns": [], "verdict": None}

@@ -1606,9 +1606,9 @@ def _run_consult_in_scratch_clone(ok: bool):
             spawn.subprocess.run = _consult_fake_run(ok, orig_run)
             spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
             spawn.core_plugin_dirs = lambda: []
-            spawn._consult_trace_path = lambda issue: trace_path
+            spawn._consult_trace_path = lambda issue, cwd=None: trace_path
 
-            def _persist(issue, ts, attempt, text):
+            def _persist(issue, ts, attempt, text, cwd=None):
                 out_dir = root / "docs" / "reports" / "consult-raw-failures"
                 out_dir.mkdir(parents=True, exist_ok=True)
                 safe_ts = ts.replace(":", "").replace("+", "")
