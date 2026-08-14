@@ -243,3 +243,113 @@ mirrors the same deadlock the `implementation.md` record already
 documented and reconciled on this same issue; the fallback there
 (stop retrying once both target-repo commits are pushed, leave PR-open
 to a follow-up) is applied identically here.
+
+## Update — 2026-08-14 plugin-ecosystem rework
+
+canonical: `gh issue view 1199` (2026-08-14 amendment text), read this
+session.
+
+The 2026-08-14 amendment to issue #1199 states the prior fold-in above
+(reviewdog, Danger, in-toto/SLSA — general practitioner GitHub tools,
+not Claude Code plugins) "fails the amended acceptance" because the
+survey target is now the Claude Code plugin/skill ecosystem
+specifically. This session reworked the fold-in on that basis; the
+prior fold-in's citation-admissibility and evidence-mode rules stay
+(the amendment says KEEP existing native rules, ADD plugin-derived
+learnings), and two further design moves were added.
+
+canonical: `curl -s https://api.github.com/repos/obra/superpowers`,
+`curl -s https://api.github.com/repos/aidankinzett/claude-git-pr-skill`,
+`curl -s https://api.github.com/repos/tag1consulting/claude-comprehensive-review`,
+all run this session; full survey and sources in
+`docs/issue-1199/reports/execution-observation/scout-brief-plugin-rework.md`
+(committed this session, commit 5e35d72d).
+
+Surveyed three Claude Code plugins/skills (adoption evidence: GitHub
+stars) — obra/superpowers (`"stargazers_count": 271747`), a widely-used
+agentic skills framework whose stated philosophy is "evidence over
+claims" with a dedicated verification-before-completion skill;
+tag1consulting/claude-comprehensive-review (`"stargazers_count": 7`), a
+multi-agent PR reviewer with a zero-context "blind-hunter" agent that
+reviews the raw diff with no repo context to avoid anchoring on
+familiar framing; aidankinzett/claude-git-pr-skill
+(`"stargazers_count": 44`), a staged draft→approval→post PR-review
+workflow.
+
+canonical: `git -C /tmp/eo-rb diff main
+issue-1199/execution-observation-plugin-rework --
+execution-observation/plugins/eo-directive/hooks/directive-body.sh
+execution-observation/README.md`, run this session (commit 326ec91 on
+`issue-1199/execution-observation-plugin-rework` in the rulebook repo,
+PR https://github.com/tokenmaxxxer/execution-observation-rulebook/pull/71).
+
+Two learnings landed natively in the rulebook (no tool-catalog section
+in the public rulebook, evidence trail here only):
+
+- tag1's zero-context blind-hunter ordering → upgrades this role's own
+  RESEARCH/CURRENT-STATE-SURVEY facet (`use_when` in
+  `directive-body.sh`): a new FRESH-EYES ORDERING rule requires reading
+  the observed PR's diff and commits before reading the observed role's
+  own record narrative, so the scope statement is built from the
+  artifact rather than anchored on that role's self-framing (canonical:
+  the diff hunk adding "FRESH-EYES ORDERING" to `use_when`, cited
+  above, read this session).
+- superpowers' "evidence over claims" philosophy → upgrades this role's
+  existing `mode` field rule (`produces` in `directive-body.sh`): mode
+  discipline is no longer satisfied by the result-enum restriction
+  alone — an asserted-mode claim's verdict sentence must now say so
+  inline, not rely on a reader cross-referencing the `mode` field
+  (canonical: the diff hunk adding "EVIDENCE OVER CLAIMS IN PROSE" to
+  `produces`, cited above, read this session).
+
+acceptance: `cd /tmp/eo-rb && bash tests/parse-check.sh
+execution-observation/hooks && bash tests/stub-check.sh
+execution-observation/hooks` — result: both gates exited 0, re-run this
+session against the reworked file.
+
+```
+$ bash tests/parse-check.sh execution-observation/hooks
+ok    directive.sh
+$ bash tests/stub-check.sh execution-observation/hooks
+stub-check: ok — execution-observation/hooks/directive.sh is a role-directive stub
+$ bash execution-observation/plugins/eo-directive/hooks/directive-body.sh use_when >/dev/null; echo rc=$?
+rc=0
+$ bash execution-observation/plugins/eo-directive/hooks/directive-body.sh produces >/dev/null; echo rc=$?
+rc=0
+```
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288194557`, read this session before the PR-create attempt.
+
+amendments-reconciled: issuecomment-5288194557 — "Verdict: PR #? ->
+escalate (depth or impact axis did not clear)", the same automated
+judgment-watcher message pattern already reconciled above
+(issuecomment-5277524745 and its repeats), re-fired for this branch's
+new commit (5e62a745). It names no branch, no PR, and no instruction
+changing this record's scope, write set, or verdict; same
+reconciliation applies.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288197397`, read this session, second PR-create attempt.
+
+amendments-reconciled: issuecomment-5288197397 — another repeat of the
+same automated judgment-watcher "Verdict" message, posted after the
+immediately-prior reconcile (d81bae3c) — the same deadlock pattern
+already documented in this record's own earlier "Amendments
+reconciled" section and in `docs/issue-1199/reports/implementation.md`.
+Per that precedent's fallback, if the next `gh pr create` attempt also
+hits a fresh comment posted after this reconcile, this session stops
+retrying: this repo's commit (d81bae3c, superseded by this commit) is
+already pushed on `origin/issue-1199/execution-observation`, and the
+rulebook repo's commit 326ec91 is already pushed with PR #71 open —
+satisfying commit+push for both halves of this delivery regardless of
+this PR's open success.
+
+This repo's own commit adding this update is on
+`issue-1199/execution-observation` here (this branch), pushed, and
+PR-open is retried next in this session. loop_state stays
+`handed-off`: both deliverables (rulebook repo commit 326ec91 + PR #71,
+this repo's record commit + PR opened below) are committed, pushed, and
+PR-opened this session, satisfying the amendment's "loop_state: landed
+only after the named upgrade file is actually edited and pushed"
+requirement — the named upgrade file
+(`execution-observation/plugins/eo-directive/hooks/directive-body.sh`)
+was edited and pushed, canonical citation above.
