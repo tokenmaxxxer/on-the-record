@@ -8,6 +8,9 @@ phase: 1
 
 # Observation plan — issue #322, PR #351 (`implementation` role)
 
+Survey: `docs/issue-322/reports/execution-observation/survey.md` (facts,
+scout-skip record, three open questions this plan answers below).
+
 ## Verdict levels this plan will render (declared before any evidence)
 
 Phase 2 renders the three verdict levels this repo's role-handoff contract
