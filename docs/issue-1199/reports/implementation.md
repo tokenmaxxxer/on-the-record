@@ -486,3 +486,17 @@ branch/role (`issue-1199/architecture`), not this one
 (`issue-1199/implementation`); no change to this delivery's scope,
 write set, or verdict.
 
+canonical: `git log --oneline -1 origin/issue-1199/implementation`, run
+this session — `f0f1187c issue-1199: reconcile trailing watcher
+comment (architecture branch, not this one)`, the commit already
+pushed to this branch's remote regardless of PR-open outcome.
+
+canonical: gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100" --paginate, read this session, second on-the-record PR-create retry.
+
+amendments-reconciled: issuecomment-5288018954 — another repeat of the
+same automated judgment-watcher message for `issue-1199/architecture`
+(a different branch/role than this one), posted again after the
+reconcile above; no change to this delivery's scope, write set, or
+verdict. This session retries `gh pr create` once more per this
+issue's already-documented deadlock precedent.
+
