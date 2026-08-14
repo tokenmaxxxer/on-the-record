@@ -217,6 +217,22 @@ action taken on this record or the rulebook PR.
 amendments-reconciled: issuecomment-5288009145 — automated verdict,
 no scope change.
 
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288011646
+issuecomment-5288011646 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is a second automated delegated-judgment verdict
+for the same pre-PR watcher run, posted after this session started,
+with no amendment content of its own — no action taken on this record
+or the rulebook PR. Matches the same watcher comment-race documented
+in this record's earlier "Amendments reconciled" section and in
+issue-1174's 2026-08-13 record (commit 005e2c6): each commit
+reconciling one watcher comment races a fresh comment from that same
+watcher run. Per that precedent, this session stops retrying
+`gh pr create` after this reconciliation and relies on on-the-record's
+outside relay to open the PR from the pushed branch.
+amendments-reconciled: issuecomment-5288011646 — automated verdict,
+no scope change; comment-race pattern, retries stopped per issue-1174
+precedent.
+
 ## What did not work
 
 None.
