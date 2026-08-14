@@ -2559,9 +2559,21 @@ def _deadlock_signature(work: str | None, min_repeats: int = DEADLOCK_MIN_REPEAT
     return None
 
 
+def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
+    """이슈 #1508 요구 2: `closure_sweep._pr_index_all()`(gates/closure_sweep.py:91)
+    이 이미 만든 브랜치->{number,state} 벌크 인덱스에서 OPEN/MERGED 만
+    "배달됨"으로 센다 — `_pr_open_or_merged_for_branch()`(spawn.py:1162)와
+    같은 시맨틱을 별도 `gh` 호출 없이 재현한다."""
+    pr = pr_index.get(branch)
+    if pr is None:
+        return None
+    return pr.get("number") if pr.get("state") in ("OPEN", "MERGED") else None
+
+
 def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
-                     anomalies: list[str] | None = None) -> dict:
+                     anomalies: list[str] | None = None,
+                     pr_index: dict | None = None) -> dict:
     """이슈 #782 스코프-확장: 살아있는(또는 방금 죽은) 로스터 엔트리 하나를
     HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED 네 상태 중 하나로 진단하고
     next-action 을 매긴다. 완료(정상 session-end + PR)는 이 함수의 대상이
@@ -2580,7 +2592,14 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     돌렸으면 그 결과를 넘긴다 — `watchdog_check_one()` 은 로그 오프셋
     상태를 소비하는 부수효과가 있어(signal 2/3), 한 틱에 두 번 부르면
     두 번째 호출이 빈 텍스트만 보고 신호를 놓친다. 생략하면(단독/테스트
-    호출) 이 함수가 직접 한 번 돌린다."""
+    호출) 이 함수가 직접 한 번 돌린다.
+
+    `pr_index`: 이슈 #1508 요구 2 — 호출부가 같은 틱에서 이미
+    `closure_sweep._pr_index_all()` 벌크 조회를 돌렸으면 그 인덱스를
+    넘긴다. 넘기면 dead-entry PR 확인이 `_pr_state_from_index()`로
+    인덱스만 보고 끝나 이 호출에서 `gh`를 안 부른다. 생략하면(단독/테스트
+    호출, 또는 벌크 조회를 아직 안 도는 호출부) 기존
+    `_pr_open_or_merged_for_branch()` 개별 `gh pr list` 로 되돌아간다."""
     now = time.time() if now is None else now
     pid = entry.get("pid", 0)
     work = entry.get("work")
@@ -2590,7 +2609,12 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         verdict = session_end_verdict(
             work, Path(entry["log"]) if entry.get("log") else None, now=now) \
             if work else None
-        pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
+        if branch is None:
+            pr_number = None
+        elif pr_index is not None:
+            pr_number = _pr_state_from_index(pr_index, branch)
+        else:
+            pr_number = _pr_open_or_merged_for_branch(root, branch)
         if verdict == "normal" or pr_number is not None:
             return {"state": None, "next_action": "none",
                     "detail": "completion, not a health diagnosis"}
