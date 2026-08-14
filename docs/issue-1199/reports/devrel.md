@@ -17,6 +17,13 @@ clear)") from the same external judgment pipeline seen in the prior
 devrel record on this issue, naming no PR number and no devrel-scoped
 file — no amendment to this unit's scope follows from it.
 
+amendments-reconciled: issuecomment-5288115714 — checked; identical
+boilerplate verdict pattern (same pipeline, no PR number, no
+devrel-scoped file) — no amendment follows. Same pr-preflight
+comment-race precedent as the prior devrel record's final entries;
+continuing to reconcile each new comment as it lands rather than
+retrying indefinitely.
+
 ## What was done
 
 Per the 2026-08-14 amendment to issue-1199 (survey target corrected to
