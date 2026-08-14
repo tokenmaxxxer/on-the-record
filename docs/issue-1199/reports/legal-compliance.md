@@ -305,3 +305,19 @@ and does not reference this legal-compliance unit's rulebook-repo
 commits, so no content amendment to this record is warranted. Retrying
 `gh pr create` immediately after this reconciliation (retry 4 of the 5
 allowed by this turn's task instruction).
+
+amendments-reconciled: issuecomment-5288260002 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue during
+the plugin-rework PR-open retry task, fourth occurrence this retry
+window (canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/
+comments?per_page=100&page=7 --jq '.[] | select(.id==5288260002)'`,
+read this session per the pr-preflight notice) — it names no PR number
+and does not reference this legal-compliance unit's rulebook-repo
+commits, so no content amendment to this record is warranted. This is
+the 5th and final `gh pr create` attempt allowed by this turn's narrow
+retry-task instruction ("retry the read-then-create cycle up to 5
+times") — if this attempt is also blocked by a new race comment, no
+further retry is attempted this session; the branch stays committed and
+pushed (origin/issue-1199/legal-compliance) for a later retry or
+external relay.
