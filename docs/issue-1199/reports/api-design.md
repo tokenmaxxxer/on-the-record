@@ -175,6 +175,64 @@ amendments-reconciled: issuecomment-5277534222 — automated verdict,
 no scope change; comment-race pattern, retries stopped per issue-1174
 precedent.
 
+## 2026-08-14 amendment rework
+
+## What was done (rework)
+
+The 2026-08-14 amendment narrowed the survey target to the Claude Code
+PLUGIN/SKILL ecosystem; the earlier domain-tool survey above (Spectral/
+buf/Optic/Redocly) is domain-tool-basis, superseded by this rework.
+canonical: docs/issue-1199/reports/api-design/scout-brief.md:1-90 this
+turn — full file authored this session, WebSearch/WebFetch trail
+recorded there.
+This session added `playbook/tool-landscape.md` (4 additive rules) to
+tokenmaxxxer/api-design-rulebook, following the same
+{tool, adoption evidence, problem, how, learning→upgraded axis}
+convention the incident-response role's prior tool-landscape.md
+already established, with fetched-source citations kept in the
+on-the-record scout brief rather than duplicated in the rulebook file.
+canonical: gh pr view https://github.com/tokenmaxxxer/api-design-rulebook/pull/22 this turn — branch issue-1199/api-design, commit 4b84bf0, 1 file changed (playbook/tool-landscape.md, 56 insertions).
+
+Rulebook PR (external repo, rework): https://github.com/tokenmaxxxer/api-design-rulebook/pull/22
+
+## Why (rework)
+
+2026-08-14 amendment (issue #1199 body): the prior survey was domain-
+tool-basis and the amendment requires the surveyed entries to be
+Claude Code plugins/skills specifically.
+
+## Upstream basis (rework)
+
+Issue #1199 body, 2026-08-14 amendment section; the incident-response
+role's already-landed `playbook/tool-landscape.md` convention (bounded
+axis file, `[[axis]]`-linked rules, adoption evidence kept in the
+on-the-record scout brief) reused as this rework's fold-in shape.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288009145
+issuecomment-5288009145 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is an automated delegated-judgment verdict for
+the pre-PR watcher pass on this rework's pushed commit, posted after
+this session started, with no amendment content of its own — no
+action taken on this record or the rulebook PR.
+amendments-reconciled: issuecomment-5288009145 — automated verdict,
+no scope change.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288011646
+issuecomment-5288011646 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)") is a second automated delegated-judgment verdict
+for the same pre-PR watcher run, posted after this session started,
+with no amendment content of its own — no action taken on this record
+or the rulebook PR. Matches the same watcher comment-race documented
+in this record's earlier "Amendments reconciled" section and in
+issue-1174's 2026-08-13 record (commit 005e2c6): each commit
+reconciling one watcher comment races a fresh comment from that same
+watcher run. Per that precedent, this session stops retrying
+`gh pr create` after this reconciliation and relies on on-the-record's
+outside relay to open the PR from the pushed branch.
+amendments-reconciled: issuecomment-5288011646 — automated verdict,
+no scope change; comment-race pattern, retries stopped per issue-1174
+precedent.
+
 ## What did not work
 
 None.
