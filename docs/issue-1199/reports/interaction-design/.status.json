@@ -1,8 +1,6 @@
 {
   "issue-1199": {
-    "traceability": "ok"
-  }
-}ability_test_plan": "ok",
-    "traceability": "ok"
+    "task_flow": "ok",
+    "proposal_shape": "ok"
   }
 }
