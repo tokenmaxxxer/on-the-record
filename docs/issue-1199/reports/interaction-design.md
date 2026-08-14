@@ -554,3 +554,24 @@ rulebook edits remain committed and pushed
 (`tokenmaxxxer/interaction-design-rulebook` branch
 `issue-1199/plugin-tool-landscape`, commit 52084b2) — logged here for
 external relay to open the PR.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288353973`, read this session
+issuecomment-5288353973 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted after the prior reconciliation commit) is
+another delegated-judgment verdict for a different issue-1199 fan-out
+branch's PR, not this interaction-design unit — no amendment to this
+unit's scope or record content.
+amendments-reconciled: issuecomment-5288353973 — out of scope for this
+unit (verdict on a different fan-out unit's PR), no action taken on
+this record. This is the third reconcile-then-retry cycle this
+sub-turn on the rulebook PR-create call alone; per the
+retries-stop-after-third-reconciliation precedent
+(`docs/issue-1199/reports/interaction-design/deviation-log.md`), this
+session stops attempting `gh pr create` against
+`tokenmaxxxer/interaction-design-rulebook` for the remainder of this
+turn. The rulebook edits are committed and pushed at commit 52084b2 on
+branch `issue-1199/plugin-tool-landscape` — sufficient per the
+2026-08-14 rework proposal's own "how it will be judged" clause (b),
+which conditions `loop_state: landed` on the named upgrade files being
+edited and pushed, not on the PR-create call's own success. The branch
+is logged here for external relay to open the PR.
