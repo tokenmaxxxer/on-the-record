@@ -240,3 +240,16 @@ MERGED (canonical: same command output, this turn). The rulebook PR
 this record's loop_state: landed depends on already exists and is
 merged, so loop_state: landed above is confirmed current, not
 retracted.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288245995
+(this turn) — body reads "Verdict: PR #? → escalate (depth or impact
+axis did not clear)".
+
+amendments-reconciled: issuecomment-5288245995 — a sixth instance of
+the same boilerplate verdict text from the identical external
+judgment-loop stream, reconciled here per the same stop-retrying
+precedent (commit 8bf080a, issue-1174) applied above. No action
+against this record's content; retrying `gh pr create` for the
+rulebook PR from branch issue-1199/knowledge-management (commit
+5eb4f1b, 1 commit ahead of origin/main) immediately after this
+reconciliation.
