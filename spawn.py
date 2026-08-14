@@ -2884,6 +2884,11 @@ def _board_wide_sweep(root: Path) -> int:
         spawned = spawn_on_pr.spawn_missing_for_pr(root, str(root), issue_states=issue_states)
         if spawned:
             print(f"[watchdog] spawn-on-pr: {len(spawned)}건 스폰: {spawned}")
+        parked = spawn_on_pr.parked_report(root)
+        if parked:
+            # issue #1476: park 된 항목도 watch-coverage 는 유지한다 — 스폰만
+            # 건너뛰고 waiting-for-human 으로 계속 보인다.
+            print(f"[watchdog] spawn-on-pr: waiting-for-human {len(parked)}건: {parked}")
     except Exception as ex:
         count += 1
         print(f"[watchdog] spawn-on-pr 실패: {ex}", file=sys.stderr)
