@@ -183,3 +183,16 @@ entries above), arriving from the same external judgment-loop stream on
 issue-1199 that this record already stopped retrying against per the
 commit 8bf080a (issue-1174) precedent. No action against this record's
 content.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288201780
+(this turn) — body reads "Verdict: PR #? → escalate (depth or impact
+axis did not clear)".
+
+amendments-reconciled: issuecomment-5288201780 — the identical
+boilerplate verdict text reconciled immediately above
+(issuecomment-5288192361), arriving from the same fast-moving external
+judgment-loop comment stream on issue-1199. Per the commit 8bf080a
+(issue-1174) precedent already applied twice in this record, PR-create
+retries against this stream stop here: this turn's PR-create proceeds
+now rather than reconciling indefinitely against comments that keep
+arriving mid-attempt.
