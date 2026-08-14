@@ -301,3 +301,12 @@ escalate (depth or impact axis did not clear)") is the verdict for the
 `issue-1199/data-modeling` (2 path(s) changed) entered
 delegated-judgment evaluation."), not this content-design unit. No
 content amendment warranted.
+
+amendments-reconciled: issuecomment-5288123194 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is a further verdict
+comment in the same `issue-1199/data-modeling` delegated-judgment
+sequence reconciled immediately above (canonical: `gh issue view 1199
+--json comments -q '.comments[-4:] | .[] | .body'`, this session — the
+comment two positions earlier in that same read is the
+`issue-1199/data-modeling` "Judgment opened" line), not this
+content-design unit. No content amendment warranted.
