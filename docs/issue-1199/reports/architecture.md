@@ -9,7 +9,8 @@ outcome: accepted
 
 # Record: architecture tool-landscape fold-in (issue-1199)
 
-amendments-reconciled: issuecomment-5288015969 read this session.
+amendments-reconciled: issuecomment-5288015969, issuecomment-5288019102 read this session.
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288019102`, read this session — identical generic "Verdict: PR #? → escalate" template as issuecomment-5288015969 above, same unresolved-placeholder reconciliation; no content amendment warranted. Per the precedent already logged for this same watcher pattern against this role's original record (commit `d9e33865`), this session stops retrying `gh pr create` after this reconciliation and relies on on-the-record's outside relay to open the PR from the pushed branch.
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5288015969`, read this session — body is exactly "Verdict: PR #? → escalate (depth or impact axis did not clear)", the same generic delegated-judgment watcher template already reconciled against this issue's other role records (e.g. commit `d9e33865`): `PR #?` is an unresolved placeholder naming neither a concrete PR number nor this unit's branch/content, so it is not a verdict on this rework and no content amendment is warranted beyond stating that plainly here per the near-miss duty.
 
 ## 2026-08-14 rework amendment (Claude Code plugin ecosystem)
