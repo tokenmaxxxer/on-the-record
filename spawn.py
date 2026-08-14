@@ -2166,6 +2166,13 @@ def _watcher_looks_real(pid: int, issue: int | None,
 
 
 def _alive(pid: int) -> bool:
+    # 이슈 #1462: `os.kill(0, 0)` 은 pid 0 이 아니라 호출자 자신의 프로세스
+    # 그룹에 신호를 보내 항상 성공한다 — roster 엔트리의 `pid` 가 없거나
+    # 0(세션-종료~재스폰 갭)이면 이 함수가 거짓으로 "살아있음"을 돌려줘
+    # `ps` 가 `RUNNING pid 0` 을 그린다. 음수/0 pid 는 애초에 살아있는
+    # 프로세스를 가리킬 수 없으니 커널 호출 전에 걸러낸다.
+    if not isinstance(pid, int) or pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
         return True
@@ -2187,6 +2194,71 @@ def roster_remove(key: str) -> None:
             _roster_save(d)
 
 
+def _format_roster_row(key: str, e: dict, ws_idx: dict,
+                        now: float | None = None) -> tuple[bool, list[str]]:
+    """`key`/`e`(로스터 엔트리 하나) 를 `ps` 출력 줄 목록으로 순수하게
+    변환한다 — 부수효과(roster_remove 등) 없음, 테스트가 실제 프로세스를
+    띄우지 않고 합성 상태로 직접 부를 수 있는 지점 (이슈 #1462).
+
+    돌려주는 `bool` 은 "살아있음" — 호출자가 정리 대상 여부를 판단하는 데
+    쓴다. 행 하나는 자기 자신의 `work`/`log` 필드만 표시한다 — 다른
+    키(`ws_idx` 포함)의 값으로 대체하는 폴백은 어디에도 없다(행 격리
+    불변식, requirement 3)."""
+    now = time.time() if now is None else now
+    pid = e.get("pid")
+    pid = pid if isinstance(pid, int) else 0
+    alive = _alive(pid)
+    if "ts" in e and isinstance(e.get("ts"), (int, float)):
+        age = f"{(int(now) - int(e['ts'])) // 60}분"
+    else:
+        # 이슈 #1462: ts 가 없으면 epoch(0) 을 기준으로 나이를 계산하지
+        # 않는다 — "29778226분" 처럼 터무니없는 나이를 찍던 버그.
+        age = "unknown"
+    pid_disp = pid if pid else "unknown"
+    if alive:
+        state = "RUNNING"
+    else:
+        # 이슈 #1462 requirement 2: 세션-종료~재스폰 갭은 RUNNING/pid 0 이
+        # 아니라 truthful terminal state(마지막으로 알려진 pid 를 들고)로
+        # 보여야 한다.
+        state = "ENDED"
+    lines = [
+        f"{state:14s} {e.get('role','?'):12s} issue-{e.get('issue','?')}  "
+        f"{age}  pid {pid_disp}",
+        f"               log: {e.get('log','')}",
+        f"               work: {e.get('work','')}",
+    ]
+    work = e.get("work")
+    ws_key = f"{_repo_identity(work)}/{key}" if work else key
+    ws_entry = ws_idx.get(ws_key)
+    watcher_pid = ws_entry.get("watcher_pid") if ws_entry else None
+    role = key.split("/", 1)[1] if "/" in key else None
+    if watcher_pid is None:
+        lines.append("               워처: UNWATCHED")
+    elif not alive:
+        # 이슈 #1462 requirement 4: 세션이 정상 종료해서 이 행 자체가 이미
+        # ENDED 이면, 워처의 by-design 동반 종료를 DEAD 로 오라벨하지
+        # 않는다 — 그건 세션이 살아있는데 워처만 죽은 경우의 라벨이다.
+        lines.append(f"               워처: exited-with-session (pid {watcher_pid})")
+    elif _watcher_looks_real(watcher_pid, e.get("issue"), role):
+        armed_at = ws_entry.get("watcher_armed_at")
+        armed_mins = (int(now) - int(armed_at)) // 60 \
+            if armed_at is not None else "?"
+        own_sid = os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None
+        sid = e.get("session_id")
+        if sid is not None and sid != own_sid:
+            # 이슈 #1013 block E: 워처가 살아있어도 이 워처를 무장한
+            # 세션이 나(호출자)와 다르면 로컬 소유를 암시하지 않는다.
+            lines.append(f"               워처: pid {watcher_pid}  "
+                         f"armed {armed_mins}분 전  (다른 세션 소유)")
+        else:
+            lines.append(f"               워처: pid {watcher_pid}  "
+                         f"armed {armed_mins}분 전  follow=True")
+    else:
+        lines.append(f"               워처: DEAD(pid {watcher_pid})")
+    return alive, lines
+
+
 def roster_ps() -> int:
     """돌고 있는 역할 세션들. 죽은 항목은 표시 후 정리한다.
 
@@ -2201,38 +2273,9 @@ def roster_ps() -> int:
     ws_idx = _workspace_index_load()
     dead = []
     for key, e in sorted(d.items()):
-        pid = e.get("pid", 0)
-        alive = _alive(pid)
-        mins = (int(time.time()) - e.get("ts", 0)) // 60
-        state = "RUNNING" if alive else "DEAD(정리됨)"
-        print(f"{state:14s} {e.get('role','?'):12s} issue-{e.get('issue','?')}  "
-              f"{mins}분  pid {pid}")
-        print(f"               log: {e.get('log','')}")
-        print(f"               work: {e.get('work','')}")
-        if alive:
-            work = e.get("work")
-            ws_key = f"{_repo_identity(work)}/{key}" if work else key
-            ws_entry = ws_idx.get(ws_key)
-            watcher_pid = ws_entry.get("watcher_pid") if ws_entry else None
-            role = key.split("/", 1)[1] if "/" in key else None
-            if watcher_pid is None:
-                print("               워처: UNWATCHED")
-            elif _watcher_looks_real(watcher_pid, e.get("issue"), role):
-                armed_at = ws_entry.get("watcher_armed_at")
-                armed_mins = (int(time.time()) - int(armed_at)) // 60 \
-                    if armed_at is not None else "?"
-                own_sid = os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None
-                sid = e.get("session_id")
-                if sid is not None and sid != own_sid:
-                    # 이슈 #1013 block E: 워처가 살아있어도 이 워처를 무장한
-                    # 세션이 나(호출자)와 다르면 로컬 소유를 암시하지 않는다.
-                    print(f"               워처: pid {watcher_pid}  "
-                          f"armed {armed_mins}분 전  (다른 세션 소유)")
-                else:
-                    print(f"               워처: pid {watcher_pid}  "
-                          f"armed {armed_mins}분 전  follow=True")
-            else:
-                print(f"               워처: DEAD(pid {watcher_pid})")
+        alive, lines = _format_roster_row(key, e, ws_idx)
+        for line in lines:
+            print(line)
         if not alive:
             dead.append(key)
     for k in dead:
