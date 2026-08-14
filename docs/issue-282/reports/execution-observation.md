@@ -136,3 +136,7 @@ directly above.
 ## assertedBy
 
 execution-observation role, this session, `2026-08-14`.
+
+amendments-reconciled: issuecomment-5289720747 (this session's own `APPROVE
+issue-282/execution-observation` comment, posted and reconciled this session — no other new
+comment appeared on issue #282 after session start).
