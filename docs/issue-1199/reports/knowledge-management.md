@@ -525,3 +525,27 @@ pushed at commit 5eb4f1b (unchanged) in
 tokenmaxxxer/knowledge-management-rulebook, branch
 issue-1199/knowledge-management. Retrying gh pr create immediately.
 loop_state: landed.
+
+canonical: on-the-record/hooks/upstream-defect-scope-guard.sh (this
+session's read of the hook source, this turn) — `gh pr create --repo
+tokenmaxxxer/knowledge-management-rulebook ...` from this role session
+is refused by upstream-defect-scope-guard.sh (issue #1131 req#4: any
+cross-repo `gh pr create` whose target repo differs from this
+session's own git origin is denied unconditionally, regardless of
+role, once a target repo is extractable from the command). This is a
+structural boundary, not the earlier pr-preflight verdict-notice race
+(now separately reconciled above) — no reconciliation or retry count
+can pass it; it is not a rate-limited or racing check.
+
+Stopping `gh pr create` attempts against tokenmaxxxer/knowledge-management-rulebook
+from this session. All fold-in work is committed and pushed: branch
+issue-1199/knowledge-management at commit 5eb4f1b (unchanged this
+turn) in tokenmaxxxer/knowledge-management-rulebook, already on
+origin. on-the-record's outside relay is expected to open the PR
+titled "issue-1199: fold Claude Code plugin-derived tool-landscape
+learnings (rework)" against tokenmaxxxer/knowledge-management-rulebook
+main, body "Part of tokenmaxxxer/on-the-record#1199", from branch
+issue-1199/knowledge-management (commit 5eb4f1b). This on-the-record
+branch's own record and its own delivery are committed and pushed at
+commit a38ceaae in tokenmaxxxer/on-the-record.
+loop_state: landed.
