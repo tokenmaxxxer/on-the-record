@@ -138,6 +138,10 @@ None.
 
 kind: review-record
 loop_state: draft-reported
+amendments-reconciled: issuecomment-5290036491 (the `APPROVE
+issue-460/conformance-review` comment this same session posted to unblock
+this record's own phase-2 write; no other post-session-start issue #460
+comment exists to reconcile).
 
 ## Open findings
 
