@@ -77,7 +77,7 @@ def t_retries_once_and_recovers_when_first_attempt_has_no_json():
         spawn.subprocess.run = fake_run
         spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
         spawn.core_plugin_dirs = lambda: []
-        spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
 
         result = spawn.consult_cmd("implementation", "복잡한 설계 질문", cwd=str(root))
 
@@ -116,7 +116,7 @@ def t_prompt_overrides_repo_mutating_core_directives():
         spawn.subprocess.run = fake_run
         spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
         spawn.core_plugin_dirs = lambda: []
-        spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
 
         spawn.consult_cmd("implementation", "질문", cwd=str(root))
 

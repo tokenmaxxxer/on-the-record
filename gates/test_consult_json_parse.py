@@ -57,7 +57,7 @@ def t_both_attempts_exhausted_raises_with_reported_symptom():
         spawn.subprocess.run = _fake_run_no_json_both_attempts(calls)
         spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
         spawn.core_plugin_dirs = lambda: []
-        spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
         spawn._persist_consult_raw_output = _persist_raw_under(root)
 
         raised = None
@@ -86,7 +86,7 @@ def _persist_raw_under(root: Path):
     """`_persist_consult_raw_output()`과 같은 경로 규칙(이슈 있으면
     issue 트리, 없으면 표준 reports/ 버킷)을, 실제 `ROOT` 대신 테스트
     fixture `root` 아래로 리다이렉트한다."""
-    def _persist(issue, ts, attempt, text):
+    def _persist(issue, ts, attempt, text, cwd=None):
         base = root / "docs" / (f"issue-{issue}" if issue is not None else "reports")
         out_dir = base / "reports" / "consult-raw-failures" if issue is not None \
             else base / "consult-raw-failures"
@@ -131,7 +131,7 @@ def t_complex_question_persists_raw_output_on_parse_failure():
         spawn.subprocess.run = _fake_run_long_no_json(calls)
         spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
         spawn.core_plugin_dirs = lambda: []
-        spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
         orig_persist_raw = spawn._persist_consult_raw_output
         spawn._persist_consult_raw_output = _persist_raw_under(root)
 
@@ -193,7 +193,7 @@ def t_short_multi_clause_question_persists_raw_output_on_parse_failure():
         spawn.subprocess.run = _fake_run_short_multi_clause_no_json(calls)
         spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
         spawn.core_plugin_dirs = lambda: []
-        spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
         orig_persist_raw = spawn._persist_consult_raw_output
         spawn._persist_consult_raw_output = _persist_raw_under(root)
 
@@ -259,7 +259,7 @@ def t_consult_cmd_settings_never_carry_self_hosted_hooks():
         spawn.subprocess.run = fake_run
         spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
         spawn.core_plugin_dirs = lambda: []
-        spawn._consult_trace_path = lambda issue: root / "docs" / "consult-log.md"
+        spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
 
         spawn.consult_cmd("implementation", "질문", cwd=str(root))
 

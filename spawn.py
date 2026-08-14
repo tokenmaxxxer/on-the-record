@@ -23,12 +23,14 @@ import contextlib
 import re
 import fcntl
 import hashlib
+import io
 import json
 import os
 import stat
 import string
 import subprocess
 import sys
+import traceback
 import tempfile
 import time
 from collections import Counter
@@ -36,6 +38,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+
+# 이슈 #1274: roster_watchdog() 의 반환값(anomaly count, rc>=0)과 절대 겹치지
+# 않도록 고른 예약 종료 코드 — watchdog CLI 분기가 처리 못 한 예외를 이
+# 코드로 종료해, 파이썬 기본 트레이스백 종료(exit 1)가 anomaly_count==1 과
+# 구분 안 되는 문제를 없앤다. poll-heartbeat.sh 는 rc>=128(시그널 사망) 이거나
+# rc==이 값일 때만 [watchdog-crash] 를 찍는다.
+WATCHDOG_CRASH_SENTINEL = 97
 
 # 이슈 #878: 오케스트레이터 자신의 (headless `-p`) 세션 ID를 전달하는 환경
 # 변수 이름 — 이 프로세스(spawn.py)를 부른 오케스트레이터 프로세스가 이미
@@ -1102,10 +1111,16 @@ def _repo_slug(root: Path) -> str | None:
     실행 내내 같은 결과이므로 호출마다 느린 재시도를 반복할 이유가 없다."""
     key = str(root)
     if key not in _REPO_SLUG_CACHE:
-        r = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
-                            "-q", ".nameWithOwner"], cwd=root, capture_output=True, text=True)
+        try:
+            r = subprocess.run(["gh", "repo", "view", "--json", "nameWithOwner",
+                                "-q", ".nameWithOwner"], cwd=root, capture_output=True, text=True)
+        except FileNotFoundError:
+            # 이슈 #1283: `root` 가 이미 지워진 workspace 일 수 있다(reconcile
+            # 이 clean 된 workspace 도 훑는다) — `cwd` 부재로 subprocess 가
+            # 죽는 대신 슬러그 조회 실패와 같은 `None`으로 처리한다.
+            r = None
         _REPO_SLUG_CACHE[key] = (
-            r.stdout.strip() if r.returncode == 0 and r.stdout.strip() else None)
+            r.stdout.strip() if r is not None and r.returncode == 0 and r.stdout.strip() else None)
     return _REPO_SLUG_CACHE[key]
 
 
@@ -1187,7 +1202,7 @@ def _open_role_prs(root: Path) -> tuple[list[dict], bool]:
     if not slug:
         return [], False
     r = subprocess.run(["gh", "pr", "list", "--repo", slug, "--state", "open",
-                        "--json", "number,headRefName,body,url"],
+                        "--json", "number,headRefName,body,url,createdAt"],
                        cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
         return [], False
@@ -1232,8 +1247,30 @@ def _undispositioned_role_prs(root: Path, exclude_issue: int | None = None
             continue
         approved_roles = _ci._approved_roles_on_issue(root, pr["issue"])
         phase = "phase2" if approved_roles else "phase1"
-        blockers.append({**pr, "phase": phase})
+        age_hours = None
+        created_at = pr.get("createdAt")
+        if created_at:
+            try:
+                created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                age_hours = (datetime.now(timezone.utc) - created).total_seconds() / 3600.0
+            except ValueError:
+                age_hours = None
+        blockers.append({**pr, "phase": phase, "age_hours": age_hours})
     return blockers, True
+
+
+def _print_returned_pr_surfaced(blockers: list[dict], source: str) -> None:
+    """이슈 #1239: 처분 안 된 issue-*/ PR 목록을 (issue/phase/age/URL) 로
+    찍고 `returned_pr_surfaced` 원장 이벤트를 남긴다 — #680 의 거절 게이트를
+    대체하는 무조건적(non-blocking) surfacing. `_spawn_one()` 과
+    `roster_watchdog()` 양쪽에서 같은 모양으로 쓰기 위해 뽑았다."""
+    if not blockers:
+        return
+    for b in blockers:
+        age = f"{b['age_hours']:.1f}h" if b.get("age_hours") is not None else "?"
+        print(f"[returned-pr] issue #{b['issue']} ({b['phase']}): age={age} — {b['url']}")
+    ledger_write({"event": "returned_pr_surfaced", "source": source,
+                  "issues": [b["issue"] for b in blockers], "ts": int(time.time())})
 
 
 def _issue_comments(root: Path, number: int) -> tuple[list[dict], bool]:
@@ -2604,6 +2641,56 @@ def requirement_drift(root: Path) -> None:
               f"열린 이슈/PR {unreferenced_open}")
 
 
+def _roster_target_repos(d_all: dict) -> list[Path]:
+    """이슈 #1276 요구#1: 로스터 엔트리(live + returned-undisposed — 처분된
+    엔트리는 `roster_remove()`가 지우므로 `_roster_load()`가 담는 건 항상
+    이 둘뿐이다)의 `work`(각 엔트리가 등록될 때 넘겨받은 -C/cwd) 필드에서
+    distinct 타깃 레포를 뽑는다. 등장 순서를 안정적으로 유지하려고
+    `dict`(Python 3.7+ 삽입 순서 보존) 를 dedup 에 쓴다."""
+    repos: dict[Path, None] = {}
+    for e in d_all.values():
+        work = e.get("work")
+        if not work:
+            continue
+        repos.setdefault(Path(work).resolve(), None)
+    return list(repos)
+
+
+def _board_wide_sweep_all(root: Path, d_all: dict) -> int:
+    """이슈 #1276 요구#2/#3/#4: `_board_wide_sweep`(closure_sweep +
+    spawn_coverage)를 arm-root 하나가 아니라 arm-root(seed/default) +
+    로스터가 가리키는 distinct 타깃 레포마다 돈다. 로스터가 비어 있으면
+    오늘과 동일하게 arm-root 하나만 스윕한다(empty-state parity). 매 틱
+    로스터를 다시 읽으므로 새 레포로의 스폰이 재무장 없이 다음 틱부터
+    잡힌다. 각 레포의 출력 줄은 그 레포 라벨로 접두된다 — 멀티보드 출력의
+    귀속을 지킨다. 보드가 아닌(docs/specs/approvers.md 없는) 로스터
+    레포는 매 틱 노이즈 없이 한 줄만 찍고 건너뛴다(#1245/#1275 와 합성).
+    이슈 #1280: arm-root 자체도 보드가 아니면(예: 비-보드 레포에서 무장된
+    세션) 스윕 대상에서 조용히 제외된다 — 라인도 찍지 않는다. 그래도
+    로스터가 가리키는 보드 타깃은 계속 스윕한다(#1276 요구를 살린다).
+    arm-root 의 비-git 검증은 CLI 진입점(#1275)에서 이미 끝난 뒤라
+    여기서는 건드리지 않는다."""
+    root = root.resolve()
+    targets: dict[Path, None] = {root: None}
+    for repo in _roster_target_repos(d_all):
+        targets.setdefault(repo, None)
+    count = 0
+    for repo in targets:
+        label = _repo_identity(repo)
+        if not (repo / MARKER).exists():
+            if repo == root:
+                continue
+            print(f"[watchdog] board-sweep: {label} — 로스터 타깃 레포지만 "
+                  f"보드 아님({MARKER} 없음), 건너뜀")
+            continue
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            count += _board_wide_sweep(repo)
+        for line in buf.getvalue().splitlines():
+            print(f"[{label}] {line}")
+    return count
+
+
 def _board_wide_sweep(root: Path) -> int:
     """이슈 #464: closure_sweep/spawn_coverage 를 한 틱씩 돌려 보고만 한다
     (observe-only, roster_watchdog 계약과 동일). 위반/미커버 이슈 수를
@@ -2617,8 +2704,16 @@ def _board_wide_sweep(root: Path) -> int:
     sys.path.insert(0, str(ROOT / "gates"))
     import closure_sweep
     import spawn_coverage
+    import spawn_on_pr
     count = 0
     issue_states, _ = closure_sweep.issue_state_index_all(root)
+    try:
+        spawned = spawn_on_pr.spawn_missing_for_pr(root, str(root), issue_states=issue_states)
+        if spawned:
+            print(f"[watchdog] spawn-on-pr: {len(spawned)}건 스폰: {spawned}")
+    except Exception as ex:
+        count += 1
+        print(f"[watchdog] spawn-on-pr 실패: {ex}", file=sys.stderr)
     violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
     if violations:
         count += len(violations)
@@ -2666,6 +2761,17 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     `auto_respawn` 의 부작용(재스폰/상한-코멘트)은 이 변경과 무관 — 반환값만
     바뀐다.
 
+    이슈 #1274: 이 rc 는 이상 신호 "개수"이지 크래시 플래그가 아니다 —
+    poll-heartbeat.sh 등 호출부는 `rc != 0` 을 크래시로 오독하면 안 된다.
+    진짜 크래시(watchdog 프로세스 자체가 죽었다는 뜻)는 이 함수의 반환값과
+    별개의 두 경로로만 신호한다: (1) 시그널 사망 — 셸이 관측하는 종료
+    코드가 128+N (예: SIGKILL=137, SIGSEGV=139); (2) `main()` 의 watchdog
+    분기가 처리 못 한 예외를 잡아 `WATCHDOG_CRASH_SENTINEL`
+    (spawn.py 정의, 현재 97) 로 종료하는 예약 코드 — 파이썬 기본
+    트레이스백 종료(exit 1)를 그대로 두면 anomaly_count==1 과 구분이 안
+    되므로 반드시 이 센티널을 거친다. 호출부는 `rc >= 128 or rc ==
+    WATCHDOG_CRASH_SENTINEL` 일 때만 크래시로 표시해야 한다.
+
     이슈 #464: 로스터 스캔과 별도로, 매 틱마다 보드-전체(closure_sweep /
     spawn_coverage) 스윕도 한 번 돈다 — 로스터가 비어 있어도 건너뛰지
     않는다(로스터가 빈 상태에서 보드가 방치될 위험이 가장 크다). 위반/미커버
@@ -2678,8 +2784,18 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     직접 호출/테스트만을 위한 하위호환 폴백이다 — 워치독 코드(closure_sweep
     등 gates 모듈) 임포트는 항상 `ROOT` 를 쓰고(코드는 언제나 체크아웃에서
     온다), 보드 스캔 대상(이슈/PR/다이제스트)만 `root` 를 쓴다."""
-    anomaly_count = _board_wide_sweep(root)
+    # 이슈 #1276: 로스터를 여기서 먼저 읽는다 — 보드 스윕이 로스터가
+    # 가리키는 distinct 타깃 레포까지 커버해야 해서(요구#1), 로스터 스캔
+    # 루프가 쓰는 `d_all` 과 같은 한 번의 읽기를 그대로 재사용한다.
     d_all = _roster_load()
+    anomaly_count = _board_wide_sweep_all(root, d_all)
+    # 이슈 #1239: 워치독 틱마다 처분 안 된 issue-*/ PR 목록을 always-emit
+    # 카테고리로 찍는다 — poll-heartbeat.sh 의 #1220 delta-suppression 이
+    # `[returned-pr]` 태그 줄을 ALWAYS_RE 로 인식해 매 틱 살아남는다. 스폰
+    # 시점뿐 아니라 매 60초 틱마다 방치를 보이게 하는 게 이 이슈의 요구다.
+    blockers, ok = _undispositioned_role_prs(root)
+    if ok:
+        _print_returned_pr_surfaced(blockers, source="watchdog")
     # 이슈 #1013 block B: 자기 세션 소유(또는 소유 미기재=empty-state)
     # 엔트리로 스캔을 좁힌다. `--all` 이면 그대로 전체.
     d = _roster_own(d_all, all_scope)
@@ -2806,12 +2922,11 @@ def _roster_reconcile_unreported(issue: int | None = None) -> int:
         work = e.get("work")
         if not work:
             continue
-        if not Path(work).exists():
-            # 이슈 #1124: reconcile 은 `clean` 이 이미 지운 workspace 를
-            # 회복하려고 존재한다 — 바로 그 상태에서 죽으면 안 된다.
-            print(f"[reconcile --unreported] {key}: workspace 없음(clean 됨?) "
-                  f"— 건너뜀 [{work}]")
-            continue
+        # 이슈 #1283: workspace 가 이미 `clean` 에 지워졌다고 여기서
+        # 건너뛰면(구 #1124 조치), session-end(normal) 인데 아직 미보고인
+        # 세션이 영영 사라진다 — session_end_verdict/`_issue_comments`
+        # 둘 다 없는 workspace 를 이미 안전하게 다루므로(survey 참고)
+        # 여기서 따로 건너뛸 필요가 없다.
         log = e.get("log")
         verdict = session_end_verdict(work, Path(log) if log else None)
         if verdict != "normal":
@@ -4451,12 +4566,22 @@ def _parse_consult_verdict(text: str) -> dict | None:
     return None
 
 
-def _persist_consult_raw_output(issue: int | None, ts: str, attempt: int, text: str) -> Path:
+def _consult_root(cwd: str | None) -> Path:
+    """자문(consult) 계열 기록 경로 전부가 공유하는 앵커. `-C`/cwd 로 대상
+    레포가 주어지면 그 레포를, 없으면 플러그인 저장소(`ROOT`)를 앵커로
+    쓴다 — 트레이스/사이드파일/패널 기록 경로와 커밋 루트
+    (`_commit_consult_trace()`)가 서로 다른 앵커를 쓰면 `relative_to()` 가
+    터진다(이슈 #1313 근본원인)."""
+    return Path(cwd).resolve() if cwd else ROOT
+
+
+def _persist_consult_raw_output(issue: int | None, ts: str, attempt: int, text: str,
+                                cwd: str | None = None) -> Path:
     """파싱 실패 시 모델의 원본 출력 전체를 사이드 파일에 저장한다 —
     트레이스 줄에는 경로 + 짧은 발췌만 남기고(#1123 제안서 Constraints:
     "트레이스 파일 크기를 실패마다 부풀리면 안 된다"), 전체 텍스트는 여기
     보존해 재현이 아니라 실제 원인 분석이 가능하게 한다."""
-    base = ROOT / "docs" / (f"issue-{issue}" if issue is not None else "reports")
+    base = _consult_root(cwd) / "docs" / (f"issue-{issue}" if issue is not None else "reports")
     if issue is not None:
         out_dir = base / "reports" / "consult-raw-failures"
     else:
@@ -4468,13 +4593,15 @@ def _persist_consult_raw_output(issue: int | None, ts: str, attempt: int, text: 
     return path
 
 
-def _consult_trace_path(issue: int | None) -> Path:
+def _consult_trace_path(issue: int | None, cwd: str | None = None) -> Path:
     """이슈가 있으면 그 이슈 트리 아래, 없으면 표준 6개 버킷 중
     `reports/` 아래 — `docs/` 는 표준 버킷과 `docs/issue-<n>/` 트리만
-    허용한다(contract v3 s10, board-gate.sh 가 강제)."""
+    허용한다(contract v3 s10, board-gate.sh 가 강제). 앵커는
+    `_consult_root()` 로 대상 레포(`-C`/cwd)에 맞춘다."""
+    root = _consult_root(cwd)
     if issue is not None:
-        return ROOT / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
-    return ROOT / "docs" / "reports" / "consult-log.md"
+        return root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
+    return root / "docs" / "reports" / "consult-log.md"
 
 
 def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
@@ -4504,7 +4631,7 @@ def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
     선례(spawn.py:1367-1387)와 같은 add-then-commit 모양이지만, 되돌릴
     "이전 전문"이 없다(append 이지 overwrite 가 아니다) — 커밋 실패시
     파일 쓰기는 그대로 두고 경고만 남긴다."""
-    root = Path(cwd) if cwd else ROOT
+    root = _consult_root(cwd)
     rels = [str(p.relative_to(root)) for p in paths]
     outcome_word = "error" if outcome.startswith("error") else "ok"
     message = (f"issue-{issue}: consult-trace ({outcome_word})" if issue is not None
@@ -4574,7 +4701,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
 
     트레이스는 **성공/실패와 무관하게** 항상 한 줄 남는다 — `finally` 에서
     쓰고, 그 다음에야 리턴하거나 다시 raise 한다."""
-    trace_path = _consult_trace_path(issue)
+    trace_path = _consult_trace_path(issue, cwd)
     ts = datetime.now(timezone.utc).isoformat()
     outcome = "error: 알 수 없는 실패"
     verdict = None
@@ -4627,7 +4754,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             raw_text = result.get("result", "")
             verdict = _parse_consult_verdict(raw_text)
             if verdict is None:
-                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text)
+                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text, cwd)
                 raw_paths.append(raw_path)
                 excerpt = raw_text[-300:].replace("\n", " ")
                 attempts_exhausted = (
@@ -4701,7 +4828,7 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
     선택한 모양 그대로다. 브랜치/커밋/PR 이 없는 계약은 consult 와
     동일하다."""
     required_key = _VERB_REQUIRED_KEY[verb]
-    trace_path = _consult_trace_path(issue)
+    trace_path = _consult_trace_path(issue, cwd)
     ts = datetime.now(timezone.utc).isoformat()
     outcome = "error: 알 수 없는 실패"
     settings_path = None
@@ -4741,7 +4868,7 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
             raw_text = result.get("result", "")
             parsed = _parse_verb_json(raw_text, required_key)
             if parsed is None:
-                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text)
+                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text, cwd)
                 raw_paths.append(raw_path)
                 excerpt = raw_text[-300:].replace("\n", " ")
                 attempts_exhausted = (
@@ -4797,12 +4924,14 @@ def _panel_slug(question: str) -> str:
     return (s[:60].rstrip("-")) or "question"
 
 
-def _panel_record_path(issue: int | None, slug: str) -> Path:
+def _panel_record_path(issue: int | None, slug: str, cwd: str | None = None) -> Path:
     """`docs/issue-<n>/reports/panel/` — 이슈가 없으면 표준 6버킷 중
-    `reports/panel/` (`_consult_trace_path()` 와 같은 분기 이유)."""
+    `reports/panel/` (`_consult_trace_path()` 와 같은 분기 이유). 앵커는
+    `_consult_root()` 로 대상 레포(`-C`/cwd)에 맞춘다."""
+    root = _consult_root(cwd)
     if issue is not None:
-        return ROOT / "docs" / f"issue-{issue}" / "reports" / "panel" / f"{slug}.md"
-    return ROOT / "docs" / "reports" / "panel" / f"{slug}.md"
+        return root / "docs" / f"issue-{issue}" / "reports" / "panel" / f"{slug}.md"
+    return root / "docs" / "reports" / "panel" / f"{slug}.md"
 
 
 def _append_panel_turn(path: Path, ts: str, role: str, kind: str, text: str) -> None:
@@ -4964,7 +5093,7 @@ def panel_cmd(role_a: str, role_b: str, question: str, issue: int | None = None,
     메시징이 안 되면(`_PanelMessagingUnavailable`) 순차 `consult_cmd()`
     두 번으로 저하하고, 저하했다는 사실과 이유를 기록에 남긴다."""
     slug = _panel_slug(question)
-    path = _panel_record_path(issue, slug)
+    path = _panel_record_path(issue, slug, cwd)
     launcher = run_session or _run_panel_session
     ts = datetime.now(timezone.utc).isoformat()
     try:
@@ -5360,8 +5489,10 @@ def main() -> int:
                     help="spawn --issue: fork 직후 _await_bounded 없이 즉시 "
                          "리턴한다 — 재개 명령(spawn.py watch)을 찍는다 (이슈 #645)")
     ap.add_argument("--despite-returned", action="store_true",
-                    help="다른 issue-*/ PR 이 아직 처분되지 않았어도 스폰을 "
-                         "강행한다 — ledger 에 bypass 이벤트를 남긴다 (이슈 #680)")
+                    help="[DEPRECATED, 이슈 #1239] no-op — 게이트가 이제 "
+                         "항상 non-blocking surfacing 이라 스폰을 거절하지 "
+                         "않으므로 무시할 것이 없다. CLI 호환성을 위해 남아 "
+                         "있을 뿐 (이슈 #680)")
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
@@ -5399,8 +5530,14 @@ def main() -> int:
         # 자신을 본다. 이전에는 이 호출이 `-C` 를 무시하고 전역 ROOT(=이
         # 체크아웃)만 스캔해, 컨슈머 세션이 on-the-record 자신의
         # 이슈/PR/다이제스트를 받는 원인이었다.
-        return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all,
-                                root=Path(a.cwd).resolve())
+        # 이슈 #1274: 예약 센티널로만 진짜(파이썬 레벨) 크래시를 신호한다 —
+        # roster_watchdog() 의 정상 반환값(anomaly count)과 절대 안 겹치게.
+        try:
+            return roster_watchdog(auto_respawn=a.auto_respawn, all_scope=a.all,
+                                    root=Path(a.cwd).resolve())
+        except Exception:
+            traceback.print_exc(file=sys.stderr)
+            return WATCHDOG_CRASH_SENTINEL
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
     if a.role == "reconcile":
@@ -6135,29 +6272,22 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     _BOOTSTRAP_TIMING.clear()
     if issue is not None:
         root = Path(cwd).resolve()
+        # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
+        # — 처분 안 된 PR 이 있어도 스폰은 결코 막지 않는다(북극-요구#1,
+        # never-missed != never-spawn). `--despite-returned` 는 이제 아무
+        # 것도 바꾸지 않는 no-op (CLI 호환성 보존, deprecation 안내만 찍는다).
         blockers, ok = _undispositioned_role_prs(root, exclude_issue=issue)
         if not ok:
             print(f"[{role}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
                   f"통과시킨다 (이슈 #680)", file=sys.stderr)
             ledger_write({"event": "returned_pr_gate_fail_open", "role": role,
                           "issue": issue, "ts": int(time.time())})
-        elif blockers and not despite_returned:
-            print(f"[{role}] 다른 issue-*/ PR 이 아직 처분되지 않았다 — "
-                  f"이 스폰을 거절한다 (--despite-returned 로 무시 가능):",
-                  file=sys.stderr)
-            for b in blockers:
-                print(f"  issue #{b['issue']} ({b['phase']}): {b['url']}",
-                      file=sys.stderr)
-            ledger_write({"event": "returned_pr_gate_refused", "role": role,
-                          "issue": issue,
-                          "blocked_by": [b["issue"] for b in blockers],
-                          "ts": int(time.time())})
-            return 1
-        elif blockers and despite_returned:
-            ledger_write({"event": "returned_pr_gate_bypassed", "role": role,
-                          "issue": issue,
-                          "blocked_by": [b["issue"] for b in blockers],
-                          "ts": int(time.time())})
+        else:
+            _print_returned_pr_surfaced(blockers, source="spawn")
+        if despite_returned:
+            print(f"[{role}] --despite-returned 는 더 이상 아무 효과가 없다 "
+                  f"(deprecated, 이슈 #1239) — 게이트가 항상 non-blocking "
+                  f"surfacing 이라 무시할 거절이 없다", file=sys.stderr)
         # 이슈 #1179: 워크스페이스 하나 더 만들기 전에 먼저 안전하게
         # 쓸어낸다(spawn-time sweep) — 정리는 사람이 `spawn.py clean` 을
         # 기억해야만 도는 게 아니라 기본으로 켜져 있어야 한다(northpole

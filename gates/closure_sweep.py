@@ -191,6 +191,13 @@ def find_violations(root: Path, subjects: dict | None = None,
     """
     if subjects is None:
         subjects = spawn.board(root)
+    if issue_states is None:
+        # issue #1320: no per-item `gh issue view` fallback in the sweep
+        # path — compute the bulk index here so O(1) gh calls holds
+        # regardless of whether the caller pre-fetched it.
+        issue_states, issue_states_ok = issue_state_index_all(root)
+    else:
+        issue_states_ok = True
     violations = []
     skips = []
     pr_index, pr_index_ok = _pr_index_all(root)
@@ -199,13 +206,13 @@ def find_violations(root: Path, subjects: dict | None = None,
         if len(m) != 2 or not m[1].isdigit():
             continue
         issue = int(m[1])
-        if issue_states is not None and issue in issue_states:
-            issue_state = issue_states[issue]
-        else:
-            issue_state, ok = _issue_view(root, issue)
-            if not ok:
-                skips.append({"subject": subject, "reason": "gh-issue-view-failed"})
-                continue
+        if issue_states is None:
+            reason = "gh-issue-list-failed" if not issue_states_ok else "gh-issue-list-truncated"
+            skips.append({"subject": subject, "reason": reason})
+            continue
+        if issue not in issue_states:
+            continue
+        issue_state = issue_states[issue]
         if issue_state is None:
             continue
         for role in roles:
@@ -214,26 +221,18 @@ def find_violations(root: Path, subjects: dict | None = None,
                 skips.append({"subject": subject, "role": role,
                               "reason": "gh-pr-list-failed"})
                 continue
-            if pr_index is not None:
-                entry = pr_index.get(branch)
-                if entry is None:
-                    continue
-                pr = entry["number"]
-                pr_state, pr_body = entry["state"], entry["body"]
-            else:
-                # 목록이 --limit 에 걸려 잘렸을 수 있다 — 옛 개별 조회로
-                # 되돌아간다(`_pr_index_all` 참조).
-                pr = spawn._pr_for_branch(root, branch)
-                if pr is None:
-                    continue
-                view, ok = _pr_view_state_body(root, pr)
-                if not ok:
-                    skips.append({"subject": subject, "role": role, "pr": pr,
-                                  "reason": "gh-pr-view-failed"})
-                    continue
-                if view is None:
-                    continue
-                pr_state, pr_body = view
+            if pr_index is None:
+                # 목록이 --limit 에 걸려 잘렸다 — issue #1320: 개별
+                # `gh pr view` 조회로 되돌아가지 않는다(스윕 경로는 O(1)
+                # gh 호출만), 대신 skip 으로 남긴다.
+                skips.append({"subject": subject, "role": role,
+                              "reason": "gh-pr-list-truncated"})
+                continue
+            entry = pr_index.get(branch)
+            if entry is None:
+                continue
+            pr = entry["number"]
+            pr_state, pr_body = entry["state"], entry["body"]
             # `_phase2_record_evidence` 는 subject 마다 `gh api .../contents`
             # 한 번을 쓰는 원격 조회다(179회 · 163초, issue #682). `classify`
             # 가 그 값을 쓰는 곳은 `pr_state == MERGED and issue_state ==
@@ -354,12 +353,38 @@ def post_sweep_comments(root: Path, violations: list[dict]) -> list[int]:
     return failed
 
 
+_RATE_LIMIT_GUARD_THRESHOLD = 500
+
+
+def rate_limit_remaining(root: Path) -> tuple[int | None, bool]:
+    """(remaining, ok) — GraphQL 리소스의 남은 포인트, REST `gh api
+    rate_limit` 로 읽는다(issue #1320). REST 조회 자체는 GraphQL 포인트를
+    쓰지 않는다. `ok=False` 는 `gh` 호출/파싱 실패."""
+    r = subprocess.run(["gh", "api", "rate_limit"], cwd=root,
+                        capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, False
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None, False
+    remaining = data.get("resources", {}).get("graphql", {}).get("remaining")
+    if not isinstance(remaining, int):
+        return None, False
+    return remaining, True
+
+
 def main() -> int:
     root = Path(".").resolve()
     argv = sys.argv[1:]
     if "--repo" in argv:
         root = Path(argv[argv.index("--repo") + 1]).resolve()
     post = "--post" in argv
+
+    remaining, guard_ok = rate_limit_remaining(root)
+    if guard_ok and remaining < _RATE_LIMIT_GUARD_THRESHOLD:
+        print(f"[watchdog] board-sweep: 미집계 (rate-limit, remaining={remaining})")
+        return 2
 
     issue_states, _ = issue_state_index_all(root)
     violations, skips = find_violations(root, issue_states=issue_states)

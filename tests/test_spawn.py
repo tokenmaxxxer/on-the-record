@@ -3696,6 +3696,69 @@ class Watchdog(unittest.TestCase):
                 spawn.WATCHDOG_STATE = old_state
             self.assertIn("돌고 있는 역할 세션 없음", buf.getvalue())
 
+    def test_roster_watchdog_surfaces_undispositioned_prs(self):
+        """이슈 #1239: 워치독 틱마다 처분 안 된 PR 목록이 always-emit
+        카테고리로 찍힌다 — 로스터가 비어 있어도(observe-only 스캔과
+        무관하게) 나온다."""
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            old_state = spawn.WATCHDOG_STATE
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            blockers = [{"issue": 22, "phase": "phase1", "url": "https://example/22",
+                         "number": 2, "headRefName": "issue-22/qa", "body": "",
+                         "age_hours": 3.25}]
+            ledger_calls = []
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: (blockers, True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)):
+                    spawn.roster_watchdog()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+            printed = buf.getvalue()
+            self.assertIn("[returned-pr] issue #22", printed)
+            self.assertIn("phase1", printed)
+            self.assertIn("3.2h", printed)
+            events = [e["event"] for e in ledger_calls]
+            self.assertIn("returned_pr_surfaced", events)
+
+    def test_roster_watchdog_no_returned_pr_line_when_none_open(self):
+        """이슈 #1239 empty-state: 열린 PR 이 없으면 surfaced 목록도,
+        빈 섹션도 찍히지 않는다."""
+        with tempfile.TemporaryDirectory() as td:
+            roster_path = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            old_state = spawn.WATCHDOG_STATE
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            ledger_calls = []
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: ([], True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)):
+                    spawn.roster_watchdog()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+            self.assertNotIn("[returned-pr]", buf.getvalue())
+            events = [e["event"] for e in ledger_calls]
+            self.assertNotIn("returned_pr_surfaced", events)
+
     def test_roster_watchdog_returns_zero_for_clean_non_empty_roster(self):
         with tempfile.TemporaryDirectory() as td:
             roster_path = Path(td) / "active.json"
@@ -3915,6 +3978,259 @@ class Watchdog(unittest.TestCase):
                     sys.stdout = old_stdout
             self.assertEqual(result, 2)
             self.assertIn("gh 실패", buf.getvalue())
+
+    def test_board_wide_sweep_all_covers_roster_repos_with_prefixed_lines_and_skips_non_board(self):
+        """이슈 #1276 acceptance: 로스터에 두 보드 레포 + 한 비-보드 레포가
+        있으면 스윕은 두 보드를 모두(각자 레포 접두 붙은 줄로) 커버하고,
+        비-보드는 틱당 한 줄만 찍고 건너뛴다."""
+        with tempfile.TemporaryDirectory() as td:
+            arm_root = Path(td) / "arm-root"
+            board_repo = Path(td) / "board-repo"
+            non_board_repo = Path(td) / "non-board-repo"
+            for p in (arm_root, board_repo, non_board_repo):
+                p.mkdir()
+            for board in (arm_root, board_repo):
+                (board / "docs" / "specs").mkdir(parents=True)
+                (board / "docs" / "specs" / "approvers.md").write_text("someone\n")
+            d_all = {
+                "issue-1/qa": {"work": str(board_repo)},
+                "issue-2/implementation": {"work": str(non_board_repo)},
+            }
+
+            def fake_sweep(r):
+                print(f"sweep-ran:{r}")
+                return 1
+
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(arm_root, d_all)
+                finally:
+                    sys.stdout = old_stdout
+            out = buf.getvalue()
+            arm_label = spawn._repo_identity(arm_root.resolve())
+            board_label = spawn._repo_identity(board_repo.resolve())
+            self.assertEqual(result, 2)
+            self.assertIn(f"[{arm_label}] sweep-ran:{arm_root.resolve()}", out)
+            self.assertIn(f"[{board_label}] sweep-ran:{board_repo.resolve()}", out)
+            self.assertIn("보드 아님", out)
+            self.assertIn(spawn._repo_identity(non_board_repo.resolve()), out)
+            self.assertNotIn(f"sweep-ran:{non_board_repo.resolve()}", out)
+
+    def test_board_wide_sweep_all_empty_roster_sweeps_arm_root_only(self):
+        """이슈 #1276 요구#2 empty-state parity: 로스터가 비어 있으면
+        오늘과 동일하게 arm-root 하나만 스윕한다(arm-root 가 보드일 때)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs" / "specs").mkdir(parents=True)
+            (root / "docs" / "specs" / "approvers.md").write_text("someone\n")
+            with mock.patch.object(spawn, "_board_wide_sweep", return_value=0) as m:
+                result = spawn._board_wide_sweep_all(root, {})
+            m.assert_called_once_with(root.resolve())
+            self.assertEqual(result, 0)
+
+    def test_board_wide_sweep_all_non_board_root_with_roster_board_sweeps_roster_only(self):
+        """이슈 #1280 acceptance: 비-보드 arm-root + 로스터에 보드 레포 하나
+        -> 그 레포의 접두된 watch 줄이 나오고, arm-root 자체는 라인 없이
+        조용히 제외된다."""
+        with tempfile.TemporaryDirectory() as td:
+            arm_root = Path(td) / "arm-root"
+            board_repo = Path(td) / "board-repo"
+            for p in (arm_root, board_repo):
+                p.mkdir()
+            (board_repo / "docs" / "specs").mkdir(parents=True)
+            (board_repo / "docs" / "specs" / "approvers.md").write_text("someone\n")
+            d_all = {"issue-1/qa": {"work": str(board_repo)}}
+
+            def fake_sweep(r):
+                print(f"sweep-ran:{r}")
+                return 1
+
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(arm_root, d_all)
+                finally:
+                    sys.stdout = old_stdout
+            out = buf.getvalue()
+            board_label = spawn._repo_identity(board_repo.resolve())
+            self.assertEqual(result, 1)
+            self.assertIn(f"[{board_label}] sweep-ran:{board_repo.resolve()}", out)
+            self.assertNotIn(f"sweep-ran:{arm_root.resolve()}", out)
+            self.assertNotIn(spawn._repo_identity(arm_root.resolve()), out)
+
+    def test_board_wide_sweep_all_non_board_root_empty_roster_alive_and_silent(self):
+        """이슈 #1280 empty-state: 비-보드 arm-root + 빈 로스터 -> 아무 것도
+        스윕하지 않고(_board_wide_sweep 미호출) 출력도 없다(alive, silent)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(spawn, "_board_wide_sweep") as m:
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(root, {})
+                finally:
+                    sys.stdout = old_stdout
+            m.assert_not_called()
+            self.assertEqual(result, 0)
+            self.assertEqual(buf.getvalue(), "")
+
+    def test_roster_target_repos_dedupes_by_resolved_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            repo.mkdir()
+            d_all = {
+                "issue-1/qa": {"work": str(repo)},
+                "issue-2/implementation": {"work": str(repo) + "/"},
+                "issue-3/review": {},
+            }
+            self.assertEqual(spawn._roster_target_repos(d_all), [repo.resolve()])
+
+
+class PollHeartbeatMarkerRelocationTest(unittest.TestCase):
+    """이슈 #1280: poll-heartbeat.sh 의 alive 마커가 타깃 레포 밖으로
+    이동했는지, directive.sh 가 같은 해시로 그 마커를 읽는지를 실제
+    쉘 스크립트를 구동해 검증한다."""
+
+    def _run_heartbeat(self, repo, home):
+        script = Path(__file__).parent.parent / "on-the-record" / "monitors" / "poll-heartbeat.sh"
+        env = dict(os.environ)
+        env.update({
+            "HOME": str(home),
+            "TOKENMAXXXER_CHECKOUT": str(Path(__file__).parent.parent),
+            "POLL_HEARTBEAT_MAX_TICKS": "1",
+            "POLL_HEARTBEAT_SLEEP_SECONDS": "0",
+        })
+        return subprocess.run(
+            ["bash", str(script)], cwd=str(repo), env=env,
+            capture_output=True, text=True, timeout=30,
+        )
+
+    def test_non_board_root_creates_no_files_and_relocates_alive_marker(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            home = Path(td) / "home"
+            repo.mkdir()
+            home.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+            r = self._run_heartbeat(repo, home)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse((repo / ".orchestrate-monitor-alive").exists())
+            self.assertEqual([p for p in repo.glob("*") if p.name != ".git"], [])
+            import hashlib
+            expected_hash = hashlib.sha256(
+                str(repo.resolve()).encode("utf-8", "surrogatepass")
+            ).hexdigest()[:24]
+            alive_path = home / ".claude" / "tokenmaxxxer" / "monitor-alive" / expected_hash / "alive"
+            self.assertTrue(alive_path.exists())
+
+    def test_directive_sh_reads_same_relocated_marker_hash(self):
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "repo"
+            home = Path(td) / "home"
+            repo.mkdir()
+            home.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+            self._run_heartbeat(repo, home)
+            import hashlib
+            expected_hash = hashlib.sha256(
+                str(repo.resolve()).encode("utf-8", "surrogatepass")
+            ).hexdigest()[:24]
+            marker_dir = home / ".claude" / "tokenmaxxxer" / "monitor-alive" / expected_hash
+            self.assertTrue((marker_dir / "alive").exists())
+
+            directive = Path(__file__).parent.parent / "on-the-record" / "hooks" / "directive.sh"
+            env = dict(os.environ)
+            env.pop("CLAUDE_ROLE", None)
+            env.update({"HOME": str(home)})
+            payload = json.dumps({"session_id": "sess-1280"})
+            r = subprocess.run(
+                ["bash", str(directive)], cwd=str(repo), env=env,
+                input=payload, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            session_hash = hashlib.sha256(b"sess-1280").hexdigest()[:24]
+            self.assertTrue((marker_dir / f".session-{session_hash}-start").exists())
+
+    def test_non_git_root_arms_no_error_alive_marker_written(self):
+        """이슈 #1292: 비-git arm-root 는 `[monitor-arm-refused]` 에러/
+        exit 1 없이 무장한다 — alive 마커가 써지고 rc=0, 로스터가 비어
+        있으니 arm-root 밑에 아무 파일도 생기지 않는다(#1245/#1280 의
+        비-보드 empty-state 와 동일한 조용함)."""
+        with tempfile.TemporaryDirectory() as td:
+            repo = Path(td) / "not-a-repo"
+            home = Path(td) / "home"
+            repo.mkdir()
+            home.mkdir()
+            r = self._run_heartbeat(repo, home)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertNotIn("monitor-arm-refused", r.stderr)
+            self.assertNotIn("monitor-arm-refused", r.stdout)
+            self.assertEqual(list(repo.glob("*")), [])
+            import hashlib
+            expected_hash = hashlib.sha256(
+                str(repo.resolve()).encode("utf-8", "surrogatepass")
+            ).hexdigest()[:24]
+            alive_path = home / ".claude" / "tokenmaxxxer" / "monitor-alive" / expected_hash / "alive"
+            self.assertTrue(alive_path.exists())
+
+    def test_non_git_root_with_roster_board_target_sweeps_roster_only(self):
+        """이슈 #1292 acceptance: 비-git arm-root + 로스터에 보드 레포
+        엔트리 하나 -> arm-root 는 스윕에서 조용히 제외되지만 로스터가
+        가리키는 보드 타깃은 계속 스윕된다(`_board_wide_sweep_all`, #1276
+        요구 보존)."""
+        with tempfile.TemporaryDirectory() as td:
+            arm_root = Path(td) / "not-a-repo"
+            board_repo = Path(td) / "board-repo"
+            arm_root.mkdir()
+            board_repo.mkdir()
+            (board_repo / "docs" / "specs").mkdir(parents=True)
+            (board_repo / "docs" / "specs" / "approvers.md").write_text("someone\n")
+            d_all = {"issue-1/qa": {"work": str(board_repo)}}
+
+            def fake_sweep(r):
+                print(f"sweep-ran:{r}")
+                return 1
+
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(arm_root, d_all)
+                finally:
+                    sys.stdout = old_stdout
+            out = buf.getvalue()
+            board_label = spawn._repo_identity(board_repo.resolve())
+            self.assertEqual(result, 1)
+            self.assertIn(f"[{board_label}] sweep-ran:{board_repo.resolve()}", out)
+            self.assertNotIn(f"sweep-ran:{arm_root.resolve()}", out)
+            self.assertNotIn(spawn._repo_identity(arm_root.resolve()), out)
+
+    def test_non_git_root_empty_roster_alive_and_silent(self):
+        """이슈 #1292 empty state: 비-git arm-root + 빈 로스터 -> alive,
+        아무 것도 스윕하지 않고(_board_wide_sweep 미호출) 출력도 없다,
+        arm-root 밑에 파일도 생기지 않는다."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "not-a-repo"
+            root.mkdir()
+            with mock.patch.object(spawn, "_board_wide_sweep") as m:
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep_all(root, {})
+                finally:
+                    sys.stdout = old_stdout
+            m.assert_not_called()
+            self.assertEqual(result, 0)
+            self.assertEqual(buf.getvalue(), "")
+            self.assertEqual(list(root.glob("*")), [])
 
     def test_board_wide_sweep_issue_view_call_count_constant_across_subject_counts(self):
         # issue #743 acceptance item 1: `_board_wide_sweep` 이 이제 한 번의
@@ -6250,6 +6566,36 @@ class RosterReconcileUnreported(unittest.TestCase):
         spawn.session_end_verdict = lambda work, log_path: "normal"
         spawn._issue_comments = lambda root, n: ([], True)
         self.assertEqual(spawn._roster_reconcile_unreported(issue=534), 1)
+
+    def test_lists_normal_session_after_workspace_cleaned(self):
+        # 이슈 #1283: workspace 가 `clean` 에 이미 지워진 뒤에도
+        # session-end(normal) 인데 [watch] 코멘트가 없으면 계속
+        # 미보고로 찍혀야 한다 — 사라진 workspace 를 이유로 통째로
+        # 건너뛰면 그 세션의 관찰이 영영 사라진다.
+        spawn._workspace_index_load = lambda: {
+            "repo/issue-534/coding": {"work": "/tmp/does-not-exist-1283", "log": "/tmp/l"},
+        }
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._issue_comments = lambda root, n: ([], True)
+        self.assertEqual(spawn._roster_reconcile_unreported(), 1)
+
+    def test_lists_normal_session_after_workspace_cleaned_no_stub(self):
+        # 이슈 #1283 hunt: `_issue_comments`를 스텁하지 않고 실제
+        # `_repo_slug` -> `subprocess.run(cwd=work)` 경로를 태워, work 가
+        # 존재하지 않을 때 FileNotFoundError 로 죽지 않고 미보고로
+        # 안전하게 처리되는지 확인한다.
+        spawn._workspace_index_load = lambda: {
+            "repo/issue-534/coding": {"work": "/tmp/does-not-exist-1283-b", "log": "/tmp/l"},
+        }
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._repo_slug_cache_clear()
+        self.assertEqual(spawn._roster_reconcile_unreported(), 1)
+
+    def test_empty_workspace_index_reports_nothing(self):
+        spawn._workspace_index_load = lambda: {}
+        spawn.session_end_verdict = lambda work, log_path: "normal"
+        spawn._issue_comments = lambda root, n: ([], True)
+        self.assertEqual(spawn._roster_reconcile_unreported(), 0)
 
     def test_skips_non_normal_verdicts(self):
         spawn._workspace_index_load = lambda: {
@@ -8797,26 +9143,44 @@ class ReturnedPrGate(unittest.TestCase):
 
     # -- _spawn_one wiring ---------------------------------------------
 
-    def test_spawn_one_refuses_on_undispositioned_pr(self):
+    def test_spawn_one_surfaces_but_succeeds_on_undispositioned_pr(self):
+        """이슈 #1239: 처분 안 된 PR 이 있어도 스폰은 거절되지 않는다 —
+        issue/phase/age/URL 을 찍고 성공한다 (northpole req#1)."""
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
+            old_roster, old_idx = spawn.ROSTER, spawn.WORKSPACE_INDEX
+            spawn.ROSTER = Path(td) / "active.json"
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
             blockers = [{"issue": 22, "phase": "phase1", "url": "https://example/2",
-                         "number": 2, "headRefName": "issue-22/qa", "body": ""}]
-            captured_stderr = io.StringIO()
+                         "number": 2, "headRefName": "issue-22/qa", "body": "",
+                         "age_hours": 3.25}]
+            captured_stdout = io.StringIO()
             ledger_calls = []
-            with mock.patch.object(spawn, "_undispositioned_role_prs",
-                                   lambda root, exclude_issue=None: (blockers, True)), \
-                 mock.patch.object(spawn, "ledger_write",
-                                   lambda entry: ledger_calls.append(entry)), \
-                 contextlib.redirect_stderr(captured_stderr):
-                rc = spawn._spawn_one(str(work), "implementation", "task\n",
-                                      unattended=True, issue=11, bounded=True)
-            self.assertEqual(rc, 1)
-            printed = captured_stderr.getvalue()
+            try:
+                with mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: (blockers, True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)), \
+                     contextlib.redirect_stdout(captured_stdout), \
+                     contextlib.ExitStack() as stack:
+                    for cm in self._full_mock_scaffold(work):
+                        stack.enter_context(cm)
+                    rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                          unattended=True, issue=11, bounded=True,
+                                          no_wait=True)
+            finally:
+                spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
+            self.assertEqual(rc, 0)
+            printed = captured_stdout.getvalue()
             self.assertIn("issue #22", printed)
             self.assertIn("phase1", printed)
-            self.assertEqual(ledger_calls[-1]["event"], "returned_pr_gate_refused")
-            self.assertEqual(ledger_calls[-1]["blocked_by"], [22])
+            self.assertIn("3.2h", printed)
+            self.assertIn("https://example/2", printed)
+            events = [e["event"] for e in ledger_calls]
+            self.assertIn("returned_pr_surfaced", events)
+            surfaced = next(e for e in ledger_calls if e["event"] == "returned_pr_surfaced")
+            self.assertEqual(surfaced["issues"], [22])
+            self.assertNotIn("returned_pr_gate_refused", events)
 
     def _full_mock_scaffold(self, work):
         class FakeWatcherProc:
@@ -8869,21 +9233,28 @@ class ReturnedPrGate(unittest.TestCase):
             self.assertEqual(rc, 0)
             events = [e.get("event") for e in ledger_calls]
             self.assertNotIn("returned_pr_gate_refused", events)
+            self.assertNotIn("returned_pr_surfaced", events)
 
-    def test_spawn_one_despite_returned_bypasses_and_logs(self):
+    def test_spawn_one_despite_returned_is_deprecated_noop(self):
+        """이슈 #1239: `--despite-returned` 는 이제 아무 것도 바꾸지 않는다
+        — surfacing + 성공은 플래그 유무와 무관하고, deprecation 안내만
+        추가로 찍힌다."""
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             old_roster, old_idx = spawn.ROSTER, spawn.WORKSPACE_INDEX
             spawn.ROSTER = Path(td) / "active.json"
             spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
             blockers = [{"issue": 22, "phase": "phase1", "url": "https://example/2",
-                         "number": 2, "headRefName": "issue-22/qa", "body": ""}]
+                         "number": 2, "headRefName": "issue-22/qa", "body": "",
+                         "age_hours": 1.0}]
             ledger_calls = []
+            captured_stderr = io.StringIO()
             try:
                 with mock.patch.object(spawn, "_undispositioned_role_prs",
                                        lambda root, exclude_issue=None: (blockers, True)), \
                      mock.patch.object(spawn, "ledger_write",
                                        lambda entry: ledger_calls.append(entry)), \
+                     contextlib.redirect_stderr(captured_stderr), \
                      contextlib.ExitStack() as stack:
                     for cm in self._full_mock_scaffold(work):
                         stack.enter_context(cm)
@@ -8894,7 +9265,9 @@ class ReturnedPrGate(unittest.TestCase):
                 spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
             self.assertEqual(rc, 0)
             events = [e["event"] for e in ledger_calls]
-            self.assertIn("returned_pr_gate_bypassed", events)
+            self.assertIn("returned_pr_surfaced", events)
+            self.assertNotIn("returned_pr_gate_bypassed", events)
+            self.assertIn("deprecated", captured_stderr.getvalue())
 
     def test_spawn_one_fails_open_on_gh_failure_with_warning(self):
         with tempfile.TemporaryDirectory() as td:
@@ -9066,7 +9439,7 @@ class ConsultCmd(unittest.TestCase):
         self._patch(spawn, "core_plugin_dirs", lambda: [])
         root = self.root
         self._patch(spawn, "_consult_trace_path",
-                    lambda issue: (root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
+                    lambda issue, cwd=None: (root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
                                    if issue is not None else root / "docs" / "consult-log.md"))
 
     def _patch(self, obj, name, value):
@@ -9206,7 +9579,7 @@ class PanelDegradeErrorSafety(unittest.TestCase):
         orig = spawn.consult_cmd
         spawn.consult_cmd = failing_consult
         orig_record_path = spawn._panel_record_path
-        spawn._panel_record_path = lambda issue, slug: self.path
+        spawn._panel_record_path = lambda issue, slug, cwd=None: self.path
 
         def no_turns_session(role, peer_role, question, cwd):
             return {"turns": [], "verdict": None}
