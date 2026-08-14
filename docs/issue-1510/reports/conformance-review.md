@@ -174,9 +174,19 @@ of the 4 Requirements and 3 Acceptance items above carries its own
 evidence: tag with fenced live output.
 
 ## PR #1516 disposition
+canonical: `gh pr list --head issue-1510/conformance-review --state all`,
+this session — PR #1516 is the only PR on this branch (one branch per
+issue x role, per role-handoff contract v3); this record's commit
+lands on that same branch.
 canonical: `gh pr view 1513 --json state,mergeCommit` and `gh pr view
-1516 --json state` (fences repeated in "What was done" above), this
-session.
-PR #1516 is superseded by this record and will be closed without
-merge in this session's PR flow. Its survey file stays at
-docs/issue-1510/reports/conformance-review/survey.md, unchanged.
+1516 --json state` (fences repeated above), this session — #1513
+reached MERGED at 982e4304 while #1516 stayed OPEN.
+PR #1516's phase-1 scope (verdicts against PR #1513's diff, still
+open) is superseded, above: its approval gate never opened before
+that merge landed. Rather than closing #1516 unmerged and opening a
+second PR for the same branch x role, this record lands as a new
+commit on #1516's existing branch; #1516's title/body are updated in
+this session to carry the Closes #1510 trailer and describe the
+phase-2 delivery, so the same PR now carries both phase-1 and phase-2
+output. Its phase-1 survey file stays unchanged at
+docs/issue-1510/reports/conformance-review/survey.md.
