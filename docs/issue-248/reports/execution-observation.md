@@ -2,6 +2,7 @@
 
 kind: execution-observation
 loop_state: handed-off
+amendments-reconciled: issuecomment-5289691389 — this is this role's own `APPROVE issue-248/execution-observation` comment (posted this session, cited under "## Upstream basis"); no other new comment appeared on issue #248 since this session began.
 
 ## Independence statement
 
