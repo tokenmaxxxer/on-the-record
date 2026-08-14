@@ -17,6 +17,8 @@ import unittest.mock
 from pathlib import Path
 from unittest import mock
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn
 import shape_contracts
@@ -181,6 +183,7 @@ class SpawnCmd(unittest.TestCase):
                 if v is not None:
                     os.environ[k] = v
 
+    @pytest.mark.slow
     def test_core_version_reports_managed_clone_sha_when_sibling_also_present(self):
         # 같은 공존 셋업에서 core_version() 도 관리 클론 쪽 sha·라벨을
         # 보고해야 core_root() 가 실제로 고르는 체크아웃과 로그가 일치한다
@@ -230,6 +233,7 @@ class SpawnCmd(unittest.TestCase):
                 if val is not None:
                     os.environ[k] = val
 
+    @pytest.mark.slow
     def test_core_version_reports_sha_date_and_label_for_local_override(self):
         # 이슈#218: core_root() 는 plugin.json 존재만 보고 sha·신선도는
         # 보지도 보고도 않는다 — core_version() 은 checkout_version() 의
@@ -267,6 +271,7 @@ class SpawnCmd(unittest.TestCase):
             self.assertIn("TOKENMAXXXER_CORE", v)
             self.assertNotIn("커밋 안 된 변경", v)
 
+    @pytest.mark.slow
     def test_core_version_reports_unknown_without_network_when_nothing_found(self):
         # 로컬 후보 둘 + 관리 클론까지 전부 없을 때 core_version() 은
         # core_root() 처럼 halt 하지 않고(로깅용이라 halt 는 core_root() 의
@@ -1053,12 +1058,14 @@ class PreambleWarning(unittest.TestCase):
 
 
 class GitHead(unittest.TestCase):
+    @pytest.mark.slow
     def test_head_of_empty_repo_is_none(self):
         with tempfile.TemporaryDirectory() as td:
             import subprocess
             subprocess.run(["git", "init", "-q"], cwd=td)
             self.assertIsNone(spawn._git_head(td))
 
+    @pytest.mark.slow
     def test_head_of_repo_with_commit_is_a_sha(self):
         with tempfile.TemporaryDirectory() as td:
             import subprocess
@@ -1083,6 +1090,7 @@ class IsNewCommit(unittest.TestCase):
     def test_unchanged_head_is_not_new(self):
         self.assertFalse(spawn._is_new_commit("ignored", "abc123", "abc123"))
 
+    @pytest.mark.slow
     def test_checkout_of_preexisting_branch_is_not_new_commit(self):
         # Reproduces hunt-phase2 finding: a session that checks out an
         # unrelated pre-existing branch (no new commit created) must not be
@@ -1119,6 +1127,7 @@ class IsNewCommit(unittest.TestCase):
             self.assertNotEqual(before_head, after_head)
             self.assertFalse(spawn._is_new_commit(td, before_head, after_head))
 
+    @pytest.mark.slow
     def test_real_new_commit_is_new(self):
         with tempfile.TemporaryDirectory() as td:
             import subprocess
@@ -1205,6 +1214,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
             finally:
                 os.environ["PATH"] = old_path
 
+    @pytest.mark.slow
     def test_set_head_attempted_even_when_fresh_clone_fetch_fails(self):
         # hunt 발견(composition-regression stance): _fetch_or_halt 가 halt
         # 하기 전에 after=(remote set-head) 를 먼저 시도하지 않으면, 신규
@@ -1268,6 +1278,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 capture_output=True, text=True).stdout.strip()
             self.assertEqual(head, "origin/main")
 
+    @pytest.mark.slow
     def test_checkout_tracks_origin_only_branch(self):
         with tempfile.TemporaryDirectory() as td:
             origin = Path(td) / "origin"
@@ -1303,6 +1314,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
             log = self._git(work, "log", "--oneline", br).stdout
             self.assertIn("origin-only commit", log)
 
+    @pytest.mark.slow
     def test_checkout_preserves_existing_local_branch_with_unpushed_commit(self):
         with tempfile.TemporaryDirectory() as td:
             origin = Path(td) / "origin"
@@ -1337,6 +1349,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
             log = self._git(work, "log", "--oneline", br).stdout
             self.assertIn("local unpushed commit", log)
 
+    @pytest.mark.slow
     def test_checkout_starts_fresh_on_stale_branch_merged_into_base(self):
         # issue-441 shape: a reused workspace's local issue-<n>/<role>
         # branch is fully absorbed into base (merged + --delete-branch
@@ -1407,6 +1420,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 .stdout.strip(),
                 "0")
 
+    @pytest.mark.slow
     def test_checkout_starts_fresh_on_general_stale_zero_ahead_branch(self):
         # General mechanism case (independent of which issue first exposed
         # it, per #428 survey's own issue-999 fixture): a local branch that
@@ -1445,6 +1459,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 "0")
 
 
+    @pytest.mark.slow
     def test_checkout_tracks_origin_instead_of_recut_when_locally_stale_only(self):
         # 이슈 #719: 로컬 `base..br` 은 0(흡수된 것처럼 보임)이지만
         # `origin/br` 은 base 보다 앞서 있는 경우 — 다른 워크스페이스가 이미
@@ -1494,6 +1509,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
             self.assertEqual(after, remote_commit,
                              "재컷이 origin 에 이미 push 된 커밋을 버렸다")
 
+    @pytest.mark.slow
     def test_checkout_recuts_when_truly_fully_absorbed_local_and_remote(self):
         # empty state: 로컬·원격 모두 0-ahead(진짜 완전 흡수) → 오늘과 동일하게
         # base 에서 새로 판다.
@@ -1525,6 +1541,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
             after = self._git(work, "rev-parse", br).stdout.strip()
             self.assertEqual(after, base_commit)
 
+    @pytest.mark.slow
     def test_checkout_recuts_absorbed_branch_and_preserves_untracked_files(self):
         # 이슈 #732: 로컬 br 이 base 에 완전히 흡수됐고(0-ahead) 워크스페이스에
         # untracked 파일만 있는 경우(커밋된 고유 작업 없음) — 재컷 전에
@@ -1574,6 +1591,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 self._git(work, "stash", "list").stdout.strip(), "",
                 "성공한 재컷 뒤엔 stash 가 남아있으면 안 된다")
 
+    @pytest.mark.slow
     def test_checkout_recovers_leftover_stash_from_interrupted_recut(self):
         # 이전 실행이 stash push 와 pop 사이에서 중단됐다고 가정 — stash 는
         # `git status --porcelain`에 안 보이므로, 이번 호출이 먼저 그걸
@@ -1619,6 +1637,7 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 self._git(work, "stash", "list").stdout.strip(), "",
                 "복구 뒤엔 stash 가 남아있으면 안 된다")
 
+    @pytest.mark.slow
     def test_checkout_preserves_workspace_unchanged_when_commits_ahead(self):
         # empty state: 커밋된 고유 작업이 있는(base 대비 ahead) 워크스페이스는
         # untracked 파일이 섞여 있어도 stash 왕복 없이 오늘과 동일하게
@@ -1678,6 +1697,7 @@ class AbsorbedBranchRecutMidRun(unittest.TestCase):
         self._git(path, "config", "user.email", "t@t.t")
         self._git(path, "config", "user.name", "t")
 
+    @pytest.mark.slow
     def test_recut_absorbed_branch_preserves_untracked_files(self):
         # #732 이 spawn 시점에 검증한 것과 같은 시나리오를, 공유 헬퍼
         # `_recut_absorbed_branch`를 직접 불러 mid-run 재사용 경로에서도
@@ -1716,6 +1736,7 @@ class AbsorbedBranchRecutMidRun(unittest.TestCase):
                              "uncommitted, untracked",
                              "untracked 작업이 재컷 뒤에도 남아있어야 한다")
 
+    @pytest.mark.slow
     def test_recut_absorbed_branch_unchanged_when_ahead(self):
         # base 대비 커밋이 앞서 있으면(진짜 흡수가 아니면) 아무 것도 안
         # 건드리고 그냥 checkout br 만 해야 한다.
@@ -1751,6 +1772,7 @@ class AbsorbedBranchRecutMidRun(unittest.TestCase):
             self.assertEqual(after, ahead_commit,
                              "커밋이 앞서 있으면 브랜치가 재컷되면 안 된다")
 
+    @pytest.mark.slow
     def test_recut_if_absorbed_cli_recuts_mid_run_absorbed_branch(self):
         # 이슈 #784 인수 기준: 세션이 RUNNING 인 채로 자기 phase-1 PR 이
         # merge+delete-branch 돼 브랜치가 흡수된 상태를 흉내낸다 — origin
@@ -1836,6 +1858,7 @@ class WorkspaceExcludesHomeDotfiles(unittest.TestCase):
         self._git(path, "config", "user.email", "t@t.t")
         self._git(path, "config", "user.name", "t")
 
+    @pytest.mark.slow
     def test_fresh_workspace_excludes_dotfile_set(self):
         with tempfile.TemporaryDirectory() as td:
             github = Path(td) / "github.git"
@@ -1913,6 +1936,7 @@ class OrchestratorGitToken(unittest.TestCase):
         )
         wrapper.chmod(0o755)
 
+    @pytest.mark.slow
     def test_fetch_or_halt_injects_muster_agent_gh_token(self):
         os.environ["MUSTER_AGENT_GH_TOKEN"] = "test-token-abc"
         with tempfile.TemporaryDirectory() as td:
@@ -1938,6 +1962,7 @@ class OrchestratorGitToken(unittest.TestCase):
                 os.environ["PATH"] = old_path
             self.assertEqual(record.read_text().strip(), "test-token-abc")
 
+    @pytest.mark.slow
     def test_ensure_pushed_push_call_injects_token_too(self):
         os.environ["MUSTER_AGENT_GH_TOKEN"] = "test-token-xyz"
         with tempfile.TemporaryDirectory() as td:
@@ -2112,6 +2137,7 @@ class EnsurePushedResult(unittest.TestCase):
                 outcome = "push-rejected"
             self.assertEqual(outcome, "push-rejected")
 
+    @pytest.mark.slow
     def test_nothing_to_push_stays_silent_failure(self):
         """(c) 진짜 아무것도 안 만든 세션 — 원격에 앞선 커밋도, 브랜치
         자체도 없으면 `nothing-to-push` 이고, `_spawn_one` 의 outcome 은
@@ -2180,6 +2206,7 @@ class Ledger(unittest.TestCase):
             lines = [json.loads(l) for l in p.read_text().splitlines()]
             self.assertEqual([l["role"] for l in lines], ["execution-observation", "review"])
 
+    @pytest.mark.slow
     def test_entry_carries_the_live_log_path(self):
         # 이슈 #192 요구사항 2: ledger 엔트리의 `log` 필드가 그 세션이 실제
         # 쓴 라이브 로그(로스터에 등록된 값)와 같아야, 세션 종료 뒤 그
@@ -2240,6 +2267,7 @@ class Ledger(unittest.TestCase):
             self.assertEqual(entries[0]["log"], roster_entry["log"])
             self.assertTrue(Path(entries[0]["log"]).exists())
 
+    @pytest.mark.slow
     def test_toolchain_cache_env_redirected_into_workspace(self):
         """이슈 #406: cargo git 의존성이 홈 밖 쓰기로 승인 프롬프트에
         막히지 않도록, GOCACHE 등과 같은 자리에서 CARGO_HOME 도
@@ -2399,6 +2427,7 @@ class IssueScopedPrompt(unittest.TestCase):
     넘어간 맡길 일이 그대로 라이브 로그에 떨어진다.
     """
 
+    @pytest.mark.slow
     def test_preparation_and_preamble_happen_once(self):
         import subprocess as sp
         from unittest import mock
@@ -2464,9 +2493,16 @@ class IssueScopedPrompt(unittest.TestCase):
             self.assertEqual([p for p, _ in prep].count("branch"), 1, prep)
 
 
+@pytest.mark.slow
 class EventReporting(unittest.TestCase):
     """issue #129 phase 2: `.events.jsonl` 기록의 정확성 — 실측된 오탐 3건
-    (gate-refusal 오탐 2건, pr-opened 중복 1건)을 보존된 fixture 로 재현."""
+    (gate-refusal 오탐 2건, pr-opened 중복 1건)을 보존된 fixture 로 재현.
+
+    issue #1490 rework: 각 케이스가 `_spawn_one`을 통해 실제 subprocess
+    (git init + `cat`)을 스폰한다 — 클래스당 20개 넘는 케이스가 건당
+    20~105s 걸려 기본(non-slow) 실행 시간의 대부분을 차지했다. slow
+    마커의 정의("실제 subprocess spawn ... lifecycle tests")에 그대로
+    해당해 slow 티어로 옮긴다."""
 
     def _run(self, td, task, roster_key="e", pr_for_branch=lambda *a, **k: None,
              branch="b"):
@@ -3080,9 +3116,12 @@ class EventReporting(unittest.TestCase):
         self.assertFalse([e for e in events if e["type"] == "pr-opened"], events)
 
 
+@pytest.mark.slow
 class ProgressEvents(unittest.TestCase):
     """이슈 #180 ②: 세션 진행(산출물 쓰기 + 검증/커밋/푸시)이 `events.jsonl` 에
-    `progress` 로 남는다 — 탐색성 호출은 안 남는다(입도 실패 방지)."""
+    `progress` 로 남는다 — 탐색성 호출은 안 남는다(입도 실패 방지).
+
+    issue #1490 rework: `EventReporting`과 같은 이유로 slow 티어."""
 
     def _run(self, td, lines):
         return EventReporting()._run(td, "\n".join(json.dumps(l) for l in lines) + "\n")
@@ -3333,6 +3372,7 @@ class Clean(unittest.TestCase):
             self.assertFalse(file_sibling.exists())
             self.assertTrue(dir_sibling.is_dir())
 
+    @pytest.mark.slow
     def test_readonly_file_is_removed_via_chmod_retry(self):
         # issue #229: a read-only file (e.g. Go module cache laid down by
         # `go mod download`) used to make bare shutil.rmtree() raise
@@ -3638,6 +3678,7 @@ class Watchdog(unittest.TestCase):
             second = spawn.watchdog_check_one("k", self._entry(log), state=state)
             self.assertTrue(any("denied-tool-calls" in a for a in second))
 
+    @pytest.mark.slow
     def test_no_commits_late_signal_fires(self):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td) / "work"
@@ -3658,6 +3699,7 @@ class Watchdog(unittest.TestCase):
                 state={})
             self.assertTrue(any("no-commits-late" in a for a in out))
 
+    @pytest.mark.slow
     def test_no_commits_late_signal_silent_before_threshold(self):
         with tempfile.TemporaryDirectory() as td:
             work = Path(td) / "work"
@@ -4111,6 +4153,7 @@ class PollHeartbeatMarkerRelocationTest(unittest.TestCase):
             capture_output=True, text=True, timeout=30,
         )
 
+    @pytest.mark.slow
     def test_non_board_root_creates_no_files_and_relocates_alive_marker(self):
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td) / "repo"
@@ -4129,6 +4172,7 @@ class PollHeartbeatMarkerRelocationTest(unittest.TestCase):
             alive_path = home / ".claude" / "tokenmaxxxer" / "monitor-alive" / expected_hash / "alive"
             self.assertTrue(alive_path.exists())
 
+    @pytest.mark.slow
     def test_directive_sh_reads_same_relocated_marker_hash(self):
         with tempfile.TemporaryDirectory() as td:
             repo = Path(td) / "repo"
@@ -4901,6 +4945,7 @@ class ProgressAwareRespawnCounter(unittest.TestCase):
         Path(str(work) + ".task.txt").write_text("원래 맡길 일")
         return work, run
 
+    @pytest.mark.slow
     def test_new_commit_resets_streak_instead_of_capping(self):
         with tempfile.TemporaryDirectory() as td:
             work, run = self._prep_repo(td)
@@ -4927,6 +4972,7 @@ class ProgressAwareRespawnCounter(unittest.TestCase):
             self.assertEqual(state["issue-678/coding"]["total_attempts"],
                              spawn.RESPAWN_MAX_ATTEMPTS + 1)
 
+    @pytest.mark.slow
     def test_board_delta_resets_streak(self):
         with tempfile.TemporaryDirectory() as td:
             work, run = self._prep_repo(td)
@@ -4950,6 +4996,7 @@ class ProgressAwareRespawnCounter(unittest.TestCase):
             self.assertEqual(len(called), 1)
             self.assertEqual(state["issue-678/coding"]["attempts"], 1)
 
+    @pytest.mark.slow
     def test_consecutive_no_progress_still_hits_cap(self):
         with tempfile.TemporaryDirectory() as td:
             work, run = self._prep_repo(td)
@@ -4973,6 +5020,7 @@ class ProgressAwareRespawnCounter(unittest.TestCase):
             self.assertEqual(called[0][0], "comment")
             self.assertNotIn("absolute", called[0][2])
 
+    @pytest.mark.slow
     def test_absolute_max_fires_even_when_streak_resets(self):
         with tempfile.TemporaryDirectory() as td:
             work, run = self._prep_repo(td)
@@ -5126,6 +5174,7 @@ class SelfTriggeredRespawn(unittest.TestCase):
             events = Path(str(work) + ".events.jsonl").read_text()
             self.assertIn("respawn-attempt", events)
 
+    @pytest.mark.slow
     def test_self_trigger_and_watchdog_do_not_double_respawn(self):
         # 이 세션 자신의 self-trigger 와, 같은 워크스페이스를 보는 동시
         # 워치독 틱(`_auto_respawn_check` 이 재구성한 같은 session_start_ts)
@@ -5177,6 +5226,7 @@ class SelfTriggeredRespawn(unittest.TestCase):
         run("git", "commit", "-q", "-m", "init")
         return work
 
+    @pytest.mark.slow
     def test_spawn_one_call_site_fires_after_own_session_end_event(self):
         # 이슈 #247 통합 테스트: 실제 _spawn_one() bounded/issue 꼬리를(fork
         # 만 모킹해서) 끝까지 돌려, 세션이 미커밋 파일을 남기고 정상
@@ -5262,6 +5312,7 @@ class SpawnOneNoWait(unittest.TestCase):
         run("git", "commit", "-q", "-m", "init")
         return work
 
+    @pytest.mark.slow
     def test_no_wait_returns_promptly_without_calling_await_bounded(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
@@ -5310,6 +5361,7 @@ class SpawnOneNoWait(unittest.TestCase):
             self.assertEqual(await_calls, [])
             self.assertLess(elapsed, 1.0)
 
+    @pytest.mark.slow
     def test_resume_command_prints_and_round_trips_through_watch(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
@@ -5381,6 +5433,7 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
         run("git", "commit", "-q", "-m", "init")
         return work
 
+    @pytest.mark.slow
     def test_concurrent_spawn_one_calls_let_exactly_one_through(self):
         # 이슈 #223 증상 재현: 같은 (issue, role)로 main() 이 부르는 몸통
         # (_spawn_one) 을 두 번(스레드 두 개로) 겹쳐 부르면, 클레임이 없던
@@ -5447,6 +5500,7 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
             self.assertEqual(len(checkout_calls), 1, checkout_calls)
             self.assertEqual(len(results), 2)
 
+    @pytest.mark.slow
     def test_claim_still_held_during_ensure_pushed(self):
         # 이슈 #719: `_release_spawn_claim()`이 `proc.wait()` 직후가 아니라
         # `ensure_pushed()`(push + `gh pr create`) 이후로 밀려야, 그 사이에
@@ -5492,6 +5546,7 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
             self.assertFalse(claim_path.exists(),
                              "ensure_pushed() 이후 클레임이 여전히 남아있다")
 
+    @pytest.mark.slow
     def test_second_spawn_refused_while_first_still_pushing(self):
         # 위 테스트가 보인 "push 중엔 클레임이 살아있다"는 관측을, 실제로
         # 그 창에서 두 번째 spawn 이 거절되는지까지 끝까지 확인한다.
@@ -5541,6 +5596,7 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
             claim_path = Path(str(work) + ".spawn-claim")
             self.assertTrue(claim_path.exists())
 
+    @pytest.mark.slow
     def test_claim_released_when_ensure_pushed_raises(self):
         # warrant hunt (before-landing, issue-719): widening the claim's
         # held window to cover ensure_pushed() means an uncaught exception
@@ -5602,6 +5658,7 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
             self.assertIn(str(os.getpid()), rejection)
             self.assertIn("555", rejection)
 
+    @pytest.mark.slow
     def test_fork_child_rewrites_claim_pid_before_setsid(self):
         # 이슈 #223 착수 프롬프트가 지목한 함정: bounded 분기는 fork 후 부모가
         # 곧 리턴/종료하므로, 클레임에 fork-전 pid 를 남겨 두면 생존검사가
@@ -5700,6 +5757,7 @@ class SpawnDeathBeforeRegistration(unittest.TestCase):
             mock.patch.object(os, "setsid", lambda: None),
         ]
 
+    @pytest.mark.slow
     def test_setsid_death_leaves_roster_stub_and_spawn_death_event(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
@@ -5763,6 +5821,7 @@ class SpawnDeathBeforeRegistration(unittest.TestCase):
             out = buf.getvalue()
             self.assertIn("DEAD-ERRORED", out)
 
+    @pytest.mark.slow
     def test_popen_death_leaves_roster_stub_and_spawn_death_event(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
@@ -5801,6 +5860,7 @@ class SpawnDeathBeforeRegistration(unittest.TestCase):
             death = next(e for e in events if e["type"] == "spawn-death")
             self.assertEqual(death["detail"]["stage"], "popen")
 
+    @pytest.mark.slow
     def test_normal_spawn_unaffected_no_spawn_death_event(self):
         # empty-state 가드: 안 죽는 정상 스폰은 마지막에 실제 pid 로 딱 한 번만
         # roster_register 가 불리고, spawn-death 이벤트는 전혀 없어야 한다.
@@ -6795,6 +6855,7 @@ class EventExitScope(unittest.TestCase):
         ev = json.loads(self.events.read_text().splitlines()[0])
         self.assertEqual(ev["type"], "pr-opened")   # 이게 실측된 오보의 씨앗
 
+    @pytest.mark.slow
     def test_event_count_matches_offset_units(self):
         self.assertEqual(spawn._event_count(self.events), 0)
         spawn._append_event(self.events, "a", "1")
@@ -6812,6 +6873,7 @@ class EventExitScope(unittest.TestCase):
         self.assertEqual(self._origin("https://github.com/tokenmaxxxer/on-the-record.git"),
                          "https://github.com/tokenmaxxxer/on-the-record/pull/")
 
+    @pytest.mark.slow
     def test_pr_prefix_none_without_origin(self):
         subprocess.run(["git", "init", "-q", str(self.work)], check=False)
         self.assertIsNone(spawn._origin_pr_prefix(self.work))
@@ -8004,6 +8066,7 @@ class RulebookCheckoutMemo(unittest.TestCase):
         if self._saved_ttl is not None:
             os.environ["MUSTER_RULEBOOK_TTL"] = self._saved_ttl
 
+    @pytest.mark.slow
     def test_pull_at_most_once_per_process_across_real_call_sites(self):
         with tempfile.TemporaryDirectory() as td:
             fake_root = Path(td) / "root"
@@ -8070,6 +8133,7 @@ class RulebookCheckoutMemo(unittest.TestCase):
 
             self.assertFalse(call_count_file.exists(), "TTL 창 안인데 pull 이 불렸다")
 
+    @pytest.mark.slow
     def test_muster_rulebook_ttl_zero_forces_pull(self):
         os.environ["MUSTER_RULEBOOK_TTL"] = "0"
         with tempfile.TemporaryDirectory() as td:
@@ -8101,6 +8165,7 @@ class RulebookCheckoutMemo(unittest.TestCase):
             calls = call_count_file.read_text().splitlines() if call_count_file.exists() else []
             self.assertEqual(len(calls), 1, calls)
 
+    @pytest.mark.slow
     def test_ttl_marker_does_not_dirty_clone(self):
         """이슈 #296: TTL 마커는 클론 밖(`runs/ttl-markers/`)에 있어야
         한다 — 클론 안에 두면 `git status --porcelain` 이 영영 비지
@@ -8160,6 +8225,7 @@ class LegacyTtlMarkerMigration(unittest.TestCase):
                        "origin", str(clone_dir)], check=True)
         return fake_root, clone_dir
 
+    @pytest.mark.slow
     def test_stale_in_clone_marker_no_longer_reports_dirty(self):
         with tempfile.TemporaryDirectory() as td:
             fake_root, clone_dir = self._fake_clone(td)
@@ -8179,6 +8245,7 @@ class LegacyTtlMarkerMigration(unittest.TestCase):
             self.assertNotIn("커밋 안 된 변경 있음", version, version)
             self.assertFalse((clone_dir / ".muster-last-pull").exists())
 
+    @pytest.mark.slow
     def test_genuine_uncommitted_change_still_reports_dirty(self):
         with tempfile.TemporaryDirectory() as td:
             fake_root, clone_dir = self._fake_clone(td)
@@ -8212,6 +8279,7 @@ class FetchDedupe(unittest.TestCase):
     def tearDown(self):
         spawn._FETCHED_THIS_SPAWN = {}
 
+    @pytest.mark.slow
     def test_second_fetch_of_same_dir_is_skipped(self):
         with tempfile.TemporaryDirectory() as td:
             origin = Path(td) / "origin"
@@ -8248,6 +8316,7 @@ class FetchDedupe(unittest.TestCase):
             calls = call_count_file.read_text().splitlines() if call_count_file.exists() else []
             self.assertEqual(len(calls), 1, calls)
 
+    @pytest.mark.slow
     def test_after_callback_still_runs_on_dedupe_skip(self):
         with tempfile.TemporaryDirectory() as td:
             origin = Path(td) / "origin"
@@ -8514,6 +8583,7 @@ class WorkspaceReuseOriginMismatch(unittest.TestCase):
         run("git", "commit", "-q", "-m", "init")
         run("git", "remote", "add", "origin", origin_url)
 
+    @pytest.mark.slow
     def test_foreign_origin_at_work_path_is_refused_by_identity(self):
         with tempfile.TemporaryDirectory() as td:
             src_remote = Path(td) / "src-remote.git"
@@ -9173,6 +9243,7 @@ class ReturnedPrGate(unittest.TestCase):
 
     # -- _spawn_one wiring ---------------------------------------------
 
+    @pytest.mark.slow
     def test_spawn_one_surfaces_but_succeeds_on_undispositioned_pr(self):
         """이슈 #1239: 처분 안 된 PR 이 있어도 스폰은 거절되지 않는다 —
         issue/phase/age/URL 을 찍고 성공한다 (northpole req#1)."""
@@ -9240,6 +9311,7 @@ class ReturnedPrGate(unittest.TestCase):
             mock.patch.object(os, "fork", return_value=4321),
         ]
 
+    @pytest.mark.slow
     def test_spawn_one_passes_silently_when_no_blockers(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
@@ -9265,6 +9337,7 @@ class ReturnedPrGate(unittest.TestCase):
             self.assertNotIn("returned_pr_gate_refused", events)
             self.assertNotIn("returned_pr_surfaced", events)
 
+    @pytest.mark.slow
     def test_spawn_one_despite_returned_is_deprecated_noop(self):
         """이슈 #1239: `--despite-returned` 는 이제 아무 것도 바꾸지 않는다
         — surfacing + 성공은 플래그 유무와 무관하고, deprecation 안내만
@@ -9299,6 +9372,7 @@ class ReturnedPrGate(unittest.TestCase):
             self.assertNotIn("returned_pr_gate_bypassed", events)
             self.assertIn("deprecated", captured_stderr.getvalue())
 
+    @pytest.mark.slow
     def test_spawn_one_fails_open_on_gh_failure_with_warning(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
@@ -10330,6 +10404,7 @@ class EnsureTargetRemote(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     spawn.ensure_target_remote(td, unattended=True)
 
+    @pytest.mark.slow
     def test_attended_confirmed_existing_url_writes_ledger_event(self):
         with tempfile.TemporaryDirectory() as td:
             remote_dir = str(Path(td) / "remote.git")
@@ -10826,6 +10901,7 @@ class RequireRequirementLinkageRemoteBranch(unittest.TestCase):
         (root / "docs" / "specs").mkdir(parents=True, exist_ok=True)
         (root / "docs" / "specs" / "approvers.md").write_text("- someone\n")
 
+    @pytest.mark.slow
     def test_remote_branch_only_detected_as_already_spawned(self):
         with tempfile.TemporaryDirectory() as td:
             origin = Path(td) / "origin"
