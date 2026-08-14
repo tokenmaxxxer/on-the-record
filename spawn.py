@@ -4558,12 +4558,22 @@ def _parse_consult_verdict(text: str) -> dict | None:
     return None
 
 
-def _persist_consult_raw_output(issue: int | None, ts: str, attempt: int, text: str) -> Path:
+def _consult_root(cwd: str | None) -> Path:
+    """자문(consult) 계열 기록 경로 전부가 공유하는 앵커. `-C`/cwd 로 대상
+    레포가 주어지면 그 레포를, 없으면 플러그인 저장소(`ROOT`)를 앵커로
+    쓴다 — 트레이스/사이드파일/패널 기록 경로와 커밋 루트
+    (`_commit_consult_trace()`)가 서로 다른 앵커를 쓰면 `relative_to()` 가
+    터진다(이슈 #1313 근본원인)."""
+    return Path(cwd).resolve() if cwd else ROOT
+
+
+def _persist_consult_raw_output(issue: int | None, ts: str, attempt: int, text: str,
+                                cwd: str | None = None) -> Path:
     """파싱 실패 시 모델의 원본 출력 전체를 사이드 파일에 저장한다 —
     트레이스 줄에는 경로 + 짧은 발췌만 남기고(#1123 제안서 Constraints:
     "트레이스 파일 크기를 실패마다 부풀리면 안 된다"), 전체 텍스트는 여기
     보존해 재현이 아니라 실제 원인 분석이 가능하게 한다."""
-    base = ROOT / "docs" / (f"issue-{issue}" if issue is not None else "reports")
+    base = _consult_root(cwd) / "docs" / (f"issue-{issue}" if issue is not None else "reports")
     if issue is not None:
         out_dir = base / "reports" / "consult-raw-failures"
     else:
@@ -4575,13 +4585,15 @@ def _persist_consult_raw_output(issue: int | None, ts: str, attempt: int, text: 
     return path
 
 
-def _consult_trace_path(issue: int | None) -> Path:
+def _consult_trace_path(issue: int | None, cwd: str | None = None) -> Path:
     """이슈가 있으면 그 이슈 트리 아래, 없으면 표준 6개 버킷 중
     `reports/` 아래 — `docs/` 는 표준 버킷과 `docs/issue-<n>/` 트리만
-    허용한다(contract v3 s10, board-gate.sh 가 강제)."""
+    허용한다(contract v3 s10, board-gate.sh 가 강제). 앵커는
+    `_consult_root()` 로 대상 레포(`-C`/cwd)에 맞춘다."""
+    root = _consult_root(cwd)
     if issue is not None:
-        return ROOT / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
-    return ROOT / "docs" / "reports" / "consult-log.md"
+        return root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
+    return root / "docs" / "reports" / "consult-log.md"
 
 
 def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
@@ -4611,7 +4623,7 @@ def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
     선례(spawn.py:1367-1387)와 같은 add-then-commit 모양이지만, 되돌릴
     "이전 전문"이 없다(append 이지 overwrite 가 아니다) — 커밋 실패시
     파일 쓰기는 그대로 두고 경고만 남긴다."""
-    root = Path(cwd) if cwd else ROOT
+    root = _consult_root(cwd)
     rels = [str(p.relative_to(root)) for p in paths]
     outcome_word = "error" if outcome.startswith("error") else "ok"
     message = (f"issue-{issue}: consult-trace ({outcome_word})" if issue is not None
@@ -4681,7 +4693,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
 
     트레이스는 **성공/실패와 무관하게** 항상 한 줄 남는다 — `finally` 에서
     쓰고, 그 다음에야 리턴하거나 다시 raise 한다."""
-    trace_path = _consult_trace_path(issue)
+    trace_path = _consult_trace_path(issue, cwd)
     ts = datetime.now(timezone.utc).isoformat()
     outcome = "error: 알 수 없는 실패"
     verdict = None
@@ -4734,7 +4746,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             raw_text = result.get("result", "")
             verdict = _parse_consult_verdict(raw_text)
             if verdict is None:
-                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text)
+                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text, cwd)
                 raw_paths.append(raw_path)
                 excerpt = raw_text[-300:].replace("\n", " ")
                 attempts_exhausted = (
@@ -4808,7 +4820,7 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
     선택한 모양 그대로다. 브랜치/커밋/PR 이 없는 계약은 consult 와
     동일하다."""
     required_key = _VERB_REQUIRED_KEY[verb]
-    trace_path = _consult_trace_path(issue)
+    trace_path = _consult_trace_path(issue, cwd)
     ts = datetime.now(timezone.utc).isoformat()
     outcome = "error: 알 수 없는 실패"
     settings_path = None
@@ -4848,7 +4860,7 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
             raw_text = result.get("result", "")
             parsed = _parse_verb_json(raw_text, required_key)
             if parsed is None:
-                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text)
+                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text, cwd)
                 raw_paths.append(raw_path)
                 excerpt = raw_text[-300:].replace("\n", " ")
                 attempts_exhausted = (
@@ -4904,12 +4916,14 @@ def _panel_slug(question: str) -> str:
     return (s[:60].rstrip("-")) or "question"
 
 
-def _panel_record_path(issue: int | None, slug: str) -> Path:
+def _panel_record_path(issue: int | None, slug: str, cwd: str | None = None) -> Path:
     """`docs/issue-<n>/reports/panel/` — 이슈가 없으면 표준 6버킷 중
-    `reports/panel/` (`_consult_trace_path()` 와 같은 분기 이유)."""
+    `reports/panel/` (`_consult_trace_path()` 와 같은 분기 이유). 앵커는
+    `_consult_root()` 로 대상 레포(`-C`/cwd)에 맞춘다."""
+    root = _consult_root(cwd)
     if issue is not None:
-        return ROOT / "docs" / f"issue-{issue}" / "reports" / "panel" / f"{slug}.md"
-    return ROOT / "docs" / "reports" / "panel" / f"{slug}.md"
+        return root / "docs" / f"issue-{issue}" / "reports" / "panel" / f"{slug}.md"
+    return root / "docs" / "reports" / "panel" / f"{slug}.md"
 
 
 def _append_panel_turn(path: Path, ts: str, role: str, kind: str, text: str) -> None:
@@ -5071,7 +5085,7 @@ def panel_cmd(role_a: str, role_b: str, question: str, issue: int | None = None,
     메시징이 안 되면(`_PanelMessagingUnavailable`) 순차 `consult_cmd()`
     두 번으로 저하하고, 저하했다는 사실과 이유를 기록에 남긴다."""
     slug = _panel_slug(question)
-    path = _panel_record_path(issue, slug)
+    path = _panel_record_path(issue, slug, cwd)
     launcher = run_session or _run_panel_session
     ts = datetime.now(timezone.utc).isoformat()
     try:
