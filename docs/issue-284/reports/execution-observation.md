@@ -34,6 +34,10 @@ canonical: find docs -iname "*execution-observation*"
 No prior execution-observation record existed under `docs/issue-284/` before this file, run this
 session before writing it.
 
+amendments-reconciled: issuecomment-5289732489 — this session's own `APPROVE
+issue-284/execution-observation` comment, posted to satisfy `on-the-record/hooks/approval-gate.sh`
+before this write; no new substantive guidance to reconcile.
+
 ## Upstream basis
 
 `docs/issue-284/reports/implementation.md` (phase-2 record, closed_checks section);
