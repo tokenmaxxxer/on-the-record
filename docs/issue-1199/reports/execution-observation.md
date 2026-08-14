@@ -353,3 +353,80 @@ only after the named upgrade file is actually edited and pushed"
 requirement — the named upgrade file
 (`execution-observation/plugins/eo-directive/hooks/directive-body.sh`)
 was edited and pushed, canonical citation above.
+
+## Observation: implementation role, PR #1298 (issue-1199/implementation)
+
+loop_state: collecting-evidence (at start of this section) -> handed-off (end of section).
+
+### Independence statement
+canonical: this branch's `git status`, checked this session.
+This session did not author or edit the observed artifact — no
+docs/issue-1199/reports/implementation** path is staged or modified on
+this branch.
+
+### Scope statement
+canonical: `gh pr view 1298 --json title,body,mergeCommit,commits,files`, run this session.
+Subject: `implementation` role, issue #1199, PR
+https://github.com/tokenmaxxxer/on-the-record/pull/1298 (merge commit
+`9b62c7011646ff7f8c8c0a925f629f727bf1fc25`), sole changed file
+`docs/issue-1199/reports/implementation.md` (+171/-0).
+
+canonical: `gh pr diff 1298`, read this session, followed by `git show 9b62c7011646ff7f8c8c0a925f629f727bf1fc25:docs/issue-1199/reports/implementation.md`, read this session, third (FRESH-EYES ORDERING).
+The diff hunk adds exactly one new section, "## Rework (2026-08-14
+amendment)", appended to the bottom of that record file.
+
+canonical: `gh pr diff 1298`, cited immediately above.
+DIFF-SCOPE: only that appended section sits inside PR #1298's hunk. The
+file's earlier sections (frontmatter, step-1 infra narrative, first
+fan-out sub-section) sit outside this PR's hunk — cited below only as
+background, never as step-level evidence for this PR.
+
+### Verdict: step (evaluated first; outcome recomputes from these)
+
+canonical: `gh pr diff 86 --repo tokenmaxxxer/implementation-rulebook` and `gh pr view 86 --repo tokenmaxxxer/implementation-rulebook --json state,title,url`, both run this session.
+- subject: `tokenmaxxxer/implementation-rulebook` PR #86 (`coding/hooks/directive.sh`); test: does the diff match PR #1298's claimed rule additions.
+finding: adds exactly two `PRODUCES` bullets, "LIVE-INTERFACE CHECK" and "TEST-BEFORE-CLAIM ORDER", matching the two rules PR #1298's hunk describes; PR #86 state field = MERGED.
+canonical: `gh pr diff 86 --repo tokenmaxxxer/implementation-rulebook` and `gh pr view 86 --repo tokenmaxxxer/implementation-rulebook --json state,title,url`, both run this session.
+result: passed. assertedBy: execution-observation, this session. mode: command.
+
+canonical: `gh api repos/obra/superpowers --jq '{stars:.stargazers_count}'` -> 271906; `gh api repos/upstash/context7 --jq '{stars:.stargazers_count}'` -> 60713, both run this session.
+- subject: adoption-evidence star counts cited in PR #1298's hunk (`obra/superpowers` 271,743; `upstash/context7` 60,697); test: do live counts corroborate (not exact-match expected, counts drift daily).
+finding: both within normal week-over-week drift of the cited figures.
+canonical: `gh api repos/obra/superpowers --jq '{stars:.stargazers_count}'` -> 271906; `gh api repos/upstash/context7 --jq '{stars:.stargazers_count}'` -> 60713, both run this session.
+result: passed. assertedBy: execution-observation, this session. mode: command.
+
+canonical: `gh pr diff 1298`, cited in Scope statement above.
+- subject: the step-1 infra test-run claim (quoted count in this record file's earlier, out-of-hunk section); test: not checked this session.
+finding: outside PR #1298's diff hunk per the DIFF-SCOPE note above; re-running it would re-execute the observed role's own task, prohibited.
+canonical: `gh pr diff 1298`, cited in Scope statement above.
+result: not applicable, out of this PR's diff scope; no step-level claim is made about it here. assertedBy: execution-observation, this session. mode: n/a (not evaluated).
+
+### Verdict: outcome
+canonical: `gh pr diff 86 --repo tokenmaxxxer/implementation-rulebook` and `gh api repos/obra/superpowers --jq '{stars:.stargazers_count}'`, both run this session (the same two step verdicts directly above).
+Recomputed per the spec's worst-case-among-cited-step-level-results rule: the two decided step-level results above are both passed; the third is not-applicable and does not enter the computation. Issue #1199 acceptance criterion 1 (2026-08-14 amendment: surveyed entries must be Claude Code plugins/skills, not domain tools) is satisfied by this delivery specifically.
+result: met.
+
+### Verdict: trajectory
+
+canonical: `git ls-tree -r origin/main --name-only | grep issue-1199/reports/implementation`, run this session; `gh pr diff 1298`, cited in Scope statement above.
+- scouted-when-required: `docs/issue-1199/reports/implementation/tool-landscape-scout-brief.md` and `.../tool-landscape-survey.md` exist on `main` and predate this PR's added section.
+result: pass.
+
+canonical: `gh pr diff 1298`, read this session.
+- surveyed-before-proposing: within the diff hunk, the added section's opening paragraph runs `find`/read commands establishing the target repo's actual structure before any build-description language follows.
+result: pass.
+
+canonical: `gh api "repos/tokenmaxxxer/on-the-record/issues/1199/comments?per_page=100"`, read this session; `gh pr view 1298 --json reviews`, run this session; `docs/specs/approvers.md` line 1, read this session.
+- approved-by-human: comment id 5276630627, posted 2026-08-13T06:11:45Z by `JiwonJung94` (`author_association: MEMBER`), an exact-string approval comment naming this branch; PR-review query returned an empty reviews array (single-account mode applies); `approvers.md` line 1 lists `JiwonJung94`.
+result: pass.
+
+### Open findings
+canonical: the four step/trajectory canonical citations directly above, all run this session.
+None. Both step-level claims this session actually checked verified as
+accurate against the live upstream artifact, not merely the observed
+role's own prose.
+
+### Resolution path
+n/a — no open findings.
+
+loop_state: handed-off.
