@@ -216,3 +216,10 @@ acceptance text in full (Finding 1).
 
 Per this role's own Out of scope, no issue is filed for either finding —
 both are reported here for the human to judge and file if valid.
+
+amendments-reconciled: the sole comment posted to issue #1045 after this
+session started, https://github.com/tokenmaxxxer/on-the-record/issues/1045#issuecomment-5289170487
+(`APPROVE issue-1045/execution-observation`, posted by `JiwonJung94`,
+listed in `docs/specs/approvers.md`), is this record's own phase-2
+approval gate for this write — it carries no new evidence about the
+observed role and requires no change to the findings above.
