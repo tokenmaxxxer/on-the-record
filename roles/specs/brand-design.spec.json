@@ -56,14 +56,14 @@
     {
       "criterion": "clear_space_and_minimum_size_stated_numerically",
       "verification_method": "human-review-checklist: does the logo-usage deliverable state a numeric clear-space value and a numeric minimum size, rather than a qualitative description?",
-      "evidence_grade": "validated",
-      "verified_source": "Named source traces to standard brand-guideline practice for logo clear-space/minimum-size rules; matches the spec's own `mission_deliverables` fit_criterion requiring a stated numeric clear-space value and minimum size."
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "No checkable primary/practitioner source is cited for this criterion, and it does not trace to DTCG (this spec's source_standard, which covers token format, not logo-usage rules). The numeric clear-space/minimum-size requirement reflects widespread practitioner convention in published brand guidelines (e.g. logo clear-space expressed as a multiple of a logo's own reference dimension, minimum size in px/mm) rather than a single named primary source. Gap: no specific practitioner document is cited here; matches the spec's own `mission_deliverables` fit_criterion requiring a stated numeric clear-space value and minimum size."
     },
     {
       "criterion": "correct_and_incorrect_usage_examples_present",
       "verification_method": "automated check that the logo-usage deliverable shows at least one correct and one incorrect application example, matching the spec's own `mission_deliverables` fit_criterion",
-      "evidence_grade": "validated",
-      "verified_source": "Named source traces to standard brand-guideline practice (correct/incorrect usage pairing is the conventional documented technique for making a logo-usage rule unambiguous)."
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "No checkable primary/practitioner source is cited for this criterion, and it does not trace to DTCG (this spec's source_standard, which covers token format, not logo-usage rules). Correct/incorrect usage pairing is widespread practitioner convention across published brand guideline documents for making a logo-usage rule unambiguous, but no specific practitioner document is named. Gap: no specific practitioner document is cited here; matches the spec's own `mission_deliverables` fit_criterion."
     },
     {
       "criterion": "human_comprehensibility_verdict",

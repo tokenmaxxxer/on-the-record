@@ -108,3 +108,21 @@ None open at delivery.
 
 - check: JSON validity of all 8 edited spec files (canonical: `python3 -c "import json; json.load(open(...))"` loop, executed this turn, output above) — code_under_review: roles/specs/content-design.spec.json, roles/specs/brand-design.spec.json, roles/specs/technical-writing.spec.json, roles/specs/pr-communications.spec.json, roles/specs/devrel.spec.json, roles/specs/localization.spec.json, roles/specs/knowledge-management.spec.json, roles/specs/user-discovery.spec.json
 - check: `gates/spec_schema_five_activities_test.py` pytest run (canonical: `python3 -m pytest gates/spec_schema_five_activities_test.py -q`, executed this turn, output above, 8 collected, 8 passed) — code_under_review: gates/spec_schema_five_activities_test.py
+
+## Amendment (PR #1645 review)
+
+canonical: `gh pr view 1645 --comments` output this turn — reviewer flagged `roles/specs/brand-design.spec.json` `quality_bar` entries 3-4 (`clear_space_and_minimum_size_stated_numerically`, `correct_and_incorrect_usage_examples_present`) as claiming `evidence_grade: "validated"` with a `verified_source` naming no checkable primary/practitioner source and no trace to the spec's `source_standard` (DTCG, which covers token format only, not logo-usage rules).
+
+Fixed: downgraded both entries' `evidence_grade` to `"practitioner-consensus"` and rewrote `verified_source` to state the gap explicitly (no specific practitioner document cited; the numeric-value and correct/incorrect-pairing requirements reflect widespread practitioner convention, not a named primary source) — devrel-style, matching the existing `"practitioner-consensus"` vocabulary already used elsewhere in `roles/specs/*.spec.json`.
+
+derived: `python3 -c "import json; json.load(open('roles/specs/brand-design.spec.json'))"`
+```
+(no output — parses clean)
+```
+
+canonical: `python3 -m pytest gates/spec_schema_five_activities_test.py -q`, executed this turn after the amendment.
+derived: `python3 -m pytest gates/spec_schema_five_activities_test.py -q`
+```
+........                                                                 [100%]
+8 passed in 0.86s
+```
