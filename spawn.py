@@ -6377,6 +6377,44 @@ def _git_env() -> dict[str, str] | None:
 
 _FETCHED_THIS_SPAWN: dict[str, float] = {}
 
+# 이슈 #1507 — work_dir 별 부트스트랩 fetch 기록(origin/main sha + fetch
+# 시각). 세션이 절대-부재 주장을 쓰기 전에 이 기록이 이미 있어야 한다.
+_BOOTSTRAP_FETCH_RECORD: dict[str, dict] = {}
+
+
+def bootstrap_fetch_and_record_sha(work_dir: str,
+                                    label: str = "부트스트랩 fetch") -> dict:
+    """이슈 #1507 — 세션의 첫 verification/absence-claim 단계보다 먼저
+    `git fetch --prune`으로 origin 을 갱신하고 origin/main(또는 origin/HEAD
+    가 가리키는 기본 브랜치) 의 sha 와 fetch 시각을 기록한다.
+
+    `checkout_issue_branch()`가 부트스트랩 중 가장 먼저 이 함수를 부른다 —
+    세션이 아직 아무 검증도 하지 않은 시점이다. fail-closed: fetch 가
+    실패하면 `_fetch_or_halt`와 같은 house style 로 즉시 중단한다.
+
+    반환값 `{"sha": <40자 hex>, "fetched_at": <ISO8601 UTC>}` 은
+    `_BOOTSTRAP_FETCH_RECORD[work_dir]`에도 저장되어 이후
+    `get_bootstrap_fetch_record()`로 조회할 수 있다 — 절대-부재 주장을
+    쓰는 시점에 "verified against origin/main at <sha>, fetched
+    <timestamp>" 문구를 채우는 근거가 된다(gates/repo_scope.py 확장)."""
+    r = _run_net(["git", "-C", work_dir, "fetch", "--prune", "-q", "origin"],
+                label, env=_git_env())
+    if r.returncode != 0 or "failed to store" in r.stderr:
+        sys.exit(f"{label}: fetch 실패 — {r.stderr.strip()[:200]}")
+    base = _base(work_dir)
+    sha_r = subprocess.run(["git", "-C", work_dir, "rev-parse", base],
+                           capture_output=True, text=True)
+    sha = sha_r.stdout.strip() if sha_r.returncode == 0 else ""
+    record = {"sha": sha, "fetched_at": datetime.now(timezone.utc).isoformat()}
+    _BOOTSTRAP_FETCH_RECORD[str(Path(work_dir).resolve())] = record
+    return record
+
+
+def get_bootstrap_fetch_record(work_dir: str) -> dict | None:
+    """이슈 #1507 — `bootstrap_fetch_and_record_sha()`가 이 work_dir 에
+    이미 남긴 기록을 조회한다. 없으면 None(아직 부트스트랩 fetch 전)."""
+    return _BOOTSTRAP_FETCH_RECORD.get(str(Path(work_dir).resolve()))
+
 
 def _fetch_or_halt(work_dir: str, label: str, after=None) -> None:
     """fail-closed fetch. returncode 만 보면 놓치는 실패가 있다 — 실측:
@@ -6645,6 +6683,9 @@ def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
     br = f"issue-{issue}/{role}"
     def git(*a):
         return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    # 이슈 #1507 — 세션의 첫 verification/absence-claim 단계보다 먼저
+    # 이 fetch --prune 이 origin/main sha 를 기록해야 한다.
+    bootstrap_fetch_and_record_sha(cwd, "브랜치 체크아웃")
     _fetch_or_halt(cwd, "브랜치 체크아웃")
     if git("rev-parse", "--verify", "-q", br).returncode == 0:
         # 재사용 워크스페이스의 로컬 브랜치가 base 에 완전히 흡수된 채로

@@ -1681,6 +1681,93 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 "ahead 워크스페이스에선 stash 를 쓰면 안 된다")
 
 
+class BootstrapFetchesBeforeVerification(unittest.TestCase):
+    """issue #1507 req 1 — 세션 부트스트랩이 verification/absence-claim
+    단계보다 먼저 `git fetch --prune` 로 origin/main sha 를 기록하는지.
+
+    실 git 저장소 두 개(origin + 그걸 clone 한 work_dir)를 쓴다: origin 을
+    work_dir 이 이미 뒤처진 뒤에 한 커밋 더 진행시켜 "deliberately stale
+    clone"을 만든다."""
+
+    def _git(self, cwd, *a):
+        return subprocess.run(["git", "-C", str(cwd), *a],
+                              capture_output=True, text=True)
+
+    def _init_repo(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+        self._git(path, "init", "-q")
+        self._git(path, "config", "user.email", "t@t.t")
+        self._git(path, "config", "user.name", "t")
+
+    def test_bootstrap_fetches_before_verification(self):
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            # work 을 뒤처지게 만든다: origin 에 work 이 모르는 새 커밋을
+            # 쌓는다 (deliberately behind-origin clone).
+            (origin / "b.txt").write_text("landed after clone")
+            self._git(origin, "add", "b.txt")
+            self._git(origin, "commit", "-q", "-m", "landed after clone")
+            new_origin_sha = self._git(origin, "rev-parse", "HEAD").stdout.strip()
+
+            # 사전 조건: 아직 부트스트랩 fetch 기록이 없다 — 세션이 첫
+            # verification/absence-claim 단계를 아직 밟지 않은 상태.
+            self.assertIsNone(spawn.get_bootstrap_fetch_record(str(work)))
+            # 사전 조건: work 의 로컬 origin/main 은 아직 새 커밋을 모른다.
+            stale_sha = self._git(
+                work, "rev-parse", "refs/remotes/origin/HEAD").stdout.strip()
+            self.assertNotEqual(stale_sha, new_origin_sha)
+
+            record = spawn.bootstrap_fetch_and_record_sha(str(work), "test")
+
+            self.assertEqual(record["sha"], new_origin_sha)
+            self.assertTrue(record["fetched_at"])
+            self.assertEqual(spawn.get_bootstrap_fetch_record(str(work)), record)
+
+        # 빈 상태: 부트스트랩 fetch 를 아직 부르지 않은 새 work_dir 은
+        # 기록이 없다 — 같은 테스트 모듈에서 함께 확인한다(fresh clone도
+        # trivially 통과, 게이트 없음).
+        self.assertIsNone(spawn.get_bootstrap_fetch_record("/nonexistent/never-fetched"))
+
+    @pytest.mark.slow
+    def test_checkout_issue_branch_records_sha_before_returning(self):
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999910, "implementation"
+            result = spawn.checkout_issue_branch(str(work), issue, role)
+
+            self.assertEqual(result, f"issue-{issue}/{role}")
+            record = spawn.get_bootstrap_fetch_record(str(work))
+            self.assertIsNotNone(
+                record, "checkout_issue_branch 가 브랜치 검증 전에 부트스트랩 "
+                "fetch 기록을 남겨야 한다")
+            origin_sha = self._git(origin, "rev-parse", "HEAD").stdout.strip()
+            self.assertEqual(record["sha"], origin_sha)
+
+
 class AbsorbedBranchRecutMidRun(unittest.TestCase):
     """이슈 #784: 세션이 이미 살아있는 채로 자기 브랜치가 흡수됐을 때 —
     `checkout_issue_branch()`가 스폰 시점에만 한 번 부르는 것과 달리,
