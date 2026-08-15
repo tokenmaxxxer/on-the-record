@@ -593,3 +593,23 @@ pushed, 1 commit ahead of origin/main, carrying no open PR; PR creation
 is left for a later retry outside this comment-arrival window or for
 external relay, per this session's headless-turn instruction to commit
 even when push/PR is blocked.
+
+amendments-reconciled: issuecomment-5299588398 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment landing on this issue at the
+start of this new session's PR-open task (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5299588398`, read this
+session per the pr-preflight notice) — it names no PR number and does
+not reference this legal-compliance unit's rulebook-repo commit
+(757907440ea0878db73b18e1cde25366e681df0f), so no content amendment to
+this record is warranted. Prior session's record and rulebook-repo
+commits are unchanged and remain ready. canonical: `gh pr view 1308
+--repo tokenmaxxxer/on-the-record --json closedAt,url`, read this
+session — result: closedAt 2026-08-14T06:18:33Z, i.e. this repo's own
+PR #1308 needs re-opening this session. canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/legal-compliance-rulebook
+merge-base --is-ancestor 757907440ea0878db73b18e1cde25366e681df0f
+origin/main`, executed this session — result: non-zero exit, i.e. the
+rulebook-repo commit still needs its own PR opened. This session
+retries `gh pr create` in both repos immediately after this
+reconciliation.
