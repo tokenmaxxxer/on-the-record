@@ -62,9 +62,28 @@ how, learning→named upgrade target}, plus a one-line README pointer.
 No existing playbook/*.md file's rule text was rewritten in either
 precedent — the fold-in is additive.
 
-## Gap this proposal must close
+## Gap this proposal must close (original framing, superseded below)
 
 A `playbook/tool-landscape.md` file, sized like technical-writing's
 (`rule_count_floor` below the 10-per-axis norm, since this is a bounded
 fold-in per requirement 3), each entry naming which of the five existing
 axis files' judgment it upgrades — never a standalone tool catalog.
+
+## Addendum (re-scout turn): amendments this survey predates
+
+This survey (and the `technical-writing`/`brand-design` precedent
+described above) predates two operator amendments this repeat turn's
+invocation states explicitly: the 2026-08-14 survey-target amendment
+(survey the CLAUDE CODE PLUGIN ecosystem, not general domain tools —
+Rootly/PagerDuty/Upptime as originally scouted here do not qualify) and
+the 2026-08-13 native-application amendment (fold learnings in as
+native judgment — no standalone `tool-landscape.md` catalog file, no
+tool name in rulebook rule text). The "Prior issue-1199 fold-ins"
+pattern above (a standalone catalog file plus a README pointer) is
+therefore superseded for this role: this turn's fold-in instead adds
+one rule directly to each of two existing axis files
+(`severity-classification-scoping.md`,
+`timeline-construction.md`), with the adoption-evidence trail kept in
+`docs/issue-1199/reports/incident-response/scout-brief.md` and the
+phase-2 record rather than in rulebook text. See
+`docs/issue-1199/reports/incident-response.md` for the full account.
