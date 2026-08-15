@@ -38,6 +38,14 @@ before the approval token above, on the same generic-verdict pattern
 already reconciled as inapplicable for other roles in
 docs/issue-1199/reports/conformance-review.md.
 
+amendments-reconciled: issuecomment-5300043287 (same body text, "Verdict:
+PR #? → escalate (depth or impact axis did not clear)", posted
+2026-08-15T02:20:58Z by JiwonJung94) — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5300043287`, run this
+session — also does not apply to this delivery, for the identical
+reason as issuecomment-5300012411 above: no PR number named, no
+reference to `partnerships-bd` or this branch.
+
 ## deal-structure-verdict (applied to this delivery itself)
 
 partner_id: n/a — this delivery has no external counterpart; the
