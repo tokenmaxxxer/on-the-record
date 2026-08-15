@@ -26,6 +26,15 @@ _ACCUMULATION_TREND_STATE = "runs/accumulation_trend.json"
 
 OPEN_PR_ON_CLOSED_ISSUE = "open-pr-on-closed-issue"
 MERGED_DELIVERY_ISSUE_OPEN = "merged-delivery-issue-open"
+OUT_OF_INDEX_SUBJECT = "out-of-index-subject"
+
+# issue #1643: subjects whose issue number is absent from a *successfully*
+# fetched issue-state index (e.g. belongs to another repo) are classified
+# ONCE as out-of-scope with the distinct `OUT_OF_INDEX_SUBJECT` reason —
+# never silently `continue`d forever, and never repeated tick after tick.
+# This local, uncommitted state file (same pattern as BACKOFF_STATE_REL)
+# tracks which subjects already received that one-time classification.
+OUT_OF_INDEX_SEEN_STATE_REL = Path("runs") / "closure_sweep_out_of_index_seen.json"
 
 _SWEEP_COMMENT_MARKER = "[on-the-record] closure-sweep: {digest}"
 
@@ -257,6 +266,27 @@ def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, bool]:
     return index, True
 
 
+def _load_out_of_index_seen(root: Path) -> set[str]:
+    """이슈 #1643: 이미 out-of-scope 로 한 번 분류된 subject 집합. 없거나
+    깨졌으면 빈 집합(첫 실행과 동치)."""
+    p = root / OUT_OF_INDEX_SEEN_STATE_REL
+    if not p.is_file():
+        return set()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return set()
+    if not isinstance(data, list):
+        return set()
+    return {s for s in data if isinstance(s, str)}
+
+
+def _save_out_of_index_seen(root: Path, seen: set[str]) -> None:
+    p = root / OUT_OF_INDEX_SEEN_STATE_REL
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(sorted(seen)), encoding="utf-8")
+
+
 def find_violations(root: Path, subjects: dict | None = None,
                      issue_states: dict[int, str] | None = None) -> tuple[list[dict], list[dict]]:
     """보드의 각 subject x role 브랜치에 대해 이슈/PR 상태를 읽고 위반을 모은다.
@@ -283,6 +313,7 @@ def find_violations(root: Path, subjects: dict | None = None,
         issue_states_ok = True
     violations = []
     skips = []
+    out_of_index_seen: set[str] | None = None
     pr_index, pr_index_ok = _pr_index_all(root)
     for subject, roles in subjects.items():
         m = subject.split("-", 1)
@@ -294,6 +325,17 @@ def find_violations(root: Path, subjects: dict | None = None,
             skips.append({"subject": subject, "reason": reason})
             continue
         if issue not in issue_states:
+            # issue #1643: the index fetch succeeded but this subject's
+            # issue is not in it (e.g. cross-repo) — classify it ONCE as
+            # out-of-scope, distinct from a gh-failure skip; a subject
+            # already classified in a prior tick is not repeated.
+            if out_of_index_seen is None:
+                out_of_index_seen = _load_out_of_index_seen(root)
+            if subject not in out_of_index_seen:
+                violations.append({"issue": issue, "subject": subject,
+                                    "kind": OUT_OF_INDEX_SUBJECT})
+                out_of_index_seen.add(subject)
+                _save_out_of_index_seen(root, out_of_index_seen)
             continue
         issue_state = issue_states[issue]
         if issue_state is None:
@@ -333,12 +375,17 @@ def find_violations(root: Path, subjects: dict | None = None,
 
 
 def format_report(violations: list[dict]) -> str:
-    return "\n".join(f"issue #{v['issue']} / PR #{v['pr']}: {v['kind']}"
-                     for v in violations)
+    lines = []
+    for v in violations:
+        if v["kind"] == OUT_OF_INDEX_SUBJECT:
+            lines.append(f"issue #{v['issue']} (subject {v['subject']}): {v['kind']}")
+        else:
+            lines.append(f"issue #{v['issue']} / PR #{v['pr']}: {v['kind']}")
+    return "\n".join(lines)
 
 
 def _violations_digest(violations: list[dict]) -> str:
-    key = sorted((v["issue"], v["pr"], v["kind"]) for v in violations)
+    key = sorted((v["issue"], v.get("pr"), v["kind"]) for v in violations)
     return hashlib.sha256(json.dumps(key).encode("utf-8")).hexdigest()[:12]
 
 
