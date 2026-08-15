@@ -61,20 +61,33 @@ coupling the validity consult flagged.
   independently of `tick`, gated by its own env var
   `POLL_HEARTBEAT_PATROL_EVERY_N` (default `5`, i.e. 5 x 120s = ~10
   minutes at the default sleep interval).
+- The patrol_tick check runs unconditionally each loop iteration,
+  **outside and independent of** the `if [ "${due_rc}" -eq 0 ]` branch —
+  not folded into the due-gated `printed_text`/`diff_output`
+  delta-suppression machinery, since that machinery only exists inside
+  the due branch (warrant hunt finding, `hunt-patrol-heartbeat-wiring.md`:
+  poll-due's TTL is shared with the turn-driven `directive.sh` hook, so a
+  tick landing on the Nth patrol cadence is routinely non-due; folding
+  patrol emission into the due-gated report would silently drop
+  promotion trace lines on exactly those ticks). Patrol gets its own
+  unconditional `printf` trace line, printed directly (not routed through
+  the delta-suppression state file), so a patrol-due tick always prints
+  something regardless of `due_rc`.
 - On ticks where `patrol_tick % POLL_HEARTBEAT_PATROL_EVERY_N == 0`:
   - First check `.on-the-record/patrol-disabled` for existence; if
-    present, emit one trace line (e.g. `[patrol-poll] disabled, skipped`)
-    through the existing delta-suppressed emission path and do nothing
-    else this tick.
+    present, `printf` one trace line (e.g. `[patrol-poll] disabled,
+    skipped`) and do nothing else this tick.
   - Otherwise, for each role in `spawn.ROLES`, invoke
-    `python3 gates/patrol_promote.py run <repo-root> <role>` and fold
-    any non-empty output/trace into the tick's report text so it is
-    covered by the same delta-suppression the watchdog report already
-    gets. A role with no board issue costs the one ETag-conditional
-    lookup `patrol_promote.py` already makes internally (0 billed calls
-    in steady state); no separate skip-list is built in the shell loop,
-    since `run_patrol_promote` already no-ops correctly for that case
-    (confirmed in the survey).
+    `python3 gates/patrol_promote.py run <repo-root> <role>` and `printf`
+    a one-line summary trace (role, promotions count, api_calls) per
+    role with any promotions, plus a single `[patrol-poll] checked N
+    role(s), M promotion(s)` summary line every patrol-due tick even
+    when M is 0, so the tick is always observably distinguishable from a
+    silently-skipped one. A role with no board issue costs the one
+    ETag-conditional lookup `patrol_promote.py` already makes internally
+    (0 billed calls in steady state); no separate skip-list is built in
+    the shell loop, since `run_patrol_promote` already no-ops correctly
+    for that case (confirmed in the survey).
 - Add `gates/test_poll_heartbeat_patrol.py`: drives the real
   `poll-heartbeat.sh` (same harness pattern as
   `gates/test_poll_heartbeat_delta.py`) with a fake `patrol_promote.py`
@@ -93,6 +106,14 @@ coupling the validity consult flagged.
   ticked checkbox, `POLL_HEARTBEAT_PATROL_EVERY_N=1` and a short sleep,
   and show the tick's trace line proving promotion rode the cadence path
   (no manual `patrol_promote.py run` invocation).
+
+## Resolved findings
+
+- `hunt-patrol-heartbeat-wiring.md` (design-error, after-proposal stance
+  1): patrol emission folded into the due-gated delta-suppression
+  machinery would silently drop trace lines on non-due ticks. Resolved
+  above by giving patrol invocation its own unconditional emission path,
+  independent of `due_rc`.
 
 ## Out of scope
 
