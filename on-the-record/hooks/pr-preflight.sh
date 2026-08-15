@@ -363,11 +363,114 @@ if phase == "phase2":
     plan = _plan_from_body(issue_body)
 
 # --- check_body (ported from gates/pr_reference.py) -------------------------
+# issue #1165: first-paragraph and citation-placement rules ported inline
+# from gates/human_comprehensibility.py (same zero-install rationale as the
+# rest of this file's ports) — kept in sync by hand. gates/test_hooks_parity.py
+# does NOT cover this port (it checks hooks.json registration and a
+# spec-index-preflight.sh live-fire deny, not pr_reference/check_body
+# content); on-the-record/hooks/test_pr_preflight.py is what pins this
+# file's ported check_body/_plan_from_body/_phase1_closes_ref logic, by
+# duplicating it as plain Python and asserting against it directly (same
+# pattern as test_contract_guard.py) — drift from gates/pr_reference.py's
+# real check_body is caught only if that duplication is kept honest by
+# hand; there is no automated diff between the two.
+_HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
+_LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+\S")
+_FENCE_RE = re.compile(r"^\s*(```|~~~)")
+_FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
+_TRAILER_LINE_RE = re.compile(
+    r"^\s*(part of|closes?|fixe?[sd]?|resolves?)\s+#\d+\s*$", re.IGNORECASE
+)
+_CITATION_RE = re.compile(
+    r"(canonical:\s*\S+|derived:\s*\S+|\[[^\]]+\]\([^)]+\)|https?://\S+)"
+)
+_TRAILING_PUNCT_RE = re.compile(r"^[)\].,;:]*$")
+
+
+def _strip_frontmatter(text):
+    return _FRONTMATTER_RE.sub("", text, count=1)
+
+
+def _strip_leading_blank_lines(text):
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
+    return "\n".join(lines[i:])
+
+
+def _strip_leading_headings(text):
+    lines = text.splitlines()
+    i = 0
+    while i < len(lines) and (_HEADING_RE.match(lines[i]) or lines[i].strip() == ""):
+        i += 1
+    return "\n".join(lines[i:])
+
+
+def _first_paragraph(text):
+    text = _strip_leading_blank_lines(text)
+    lines = text.splitlines()
+    para_lines = []
+    for line in lines:
+        if line.strip() == "":
+            break
+        para_lines.append(line)
+    return "\n".join(para_lines)
+
+
+def first_paragraph_is_prose(text):
+    text = text or ""
+    text = _strip_frontmatter(text)
+    text = _strip_leading_blank_lines(text)
+    text = _strip_leading_headings(text)
+    para = _first_paragraph(text)
+    if not para.strip():
+        return False
+    lines = [l for l in para.splitlines() if l.strip()]
+    if not lines:
+        return False
+    if all(_TRAILER_LINE_RE.match(l) for l in lines):
+        return False
+    if _HEADING_RE.match(lines[0]):
+        return False
+    if _LIST_ITEM_RE.match(lines[0]):
+        return False
+    if _FENCE_RE.match(lines[0]):
+        return False
+    return True
+
+
+def citation_trailing_placement(text):
+    text = text or ""
+    text = _strip_frontmatter(text)
+    text = _strip_leading_blank_lines(text)
+    text = _strip_leading_headings(text)
+    para = _first_paragraph(text)
+    for line in para.splitlines():
+        for m in _CITATION_RE.finditer(line):
+            before = line[:m.start()].strip()
+            after = line[m.end():].strip()
+            if not before:
+                continue
+            if after and not _TRAILING_PUNCT_RE.match(after):
+                return False, "citation splits the point-stating sentence: '%s'" % line.strip()
+    return True, ""
+
+
 _PLAIN_REF = re.compile(r"(?<!\w)#(\d+)")
 _CLOSES_REF = re.compile(r"(?i)\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)")
 
 def check_body(issue, body, phase, plan=None):
     body = body or ""
+    prose_violations = []
+    if not first_paragraph_is_prose(body):
+        prose_violations.append("PR body's first paragraph is not real prose (trailer-only) — "
+                                 "a paragraph stating what/why/what's-next must come first.")
+    citation_ok, citation_reason = citation_trailing_placement(body)
+    if not citation_ok:
+        prose_violations.append("PR body's lead paragraph citation placement splits a sentence "
+                                 "(%s) — canonical:/link citations must be a trailing clause or "
+                                 "their own line." % citation_reason)
     if phase == "phase2":
         if plan:
             incomplete = [s for s in plan if not s["done"]]
@@ -378,20 +481,20 @@ def check_body(issue, body, phase, plan=None):
             if incomplete and not only_last_incomplete:
                 mm = _CLOSES_REF.search(body)
                 if mm and int(mm.group(2)) == issue:
-                    return ["계획에 미완 스텝이 남아 있다 — 마지막 스텝의 "
+                    return prose_violations + ["계획에 미완 스텝이 남아 있다 — 마지막 스텝의 "
                             "phase-2 PR에서만 Closes/Fixes/Resolves를 쓴다."]
-                return []
+                return prose_violations
         mm = _CLOSES_REF.search(body)
         if not mm or int(mm.group(2)) != issue:
-            return [f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)가 없다 — "
+            return prose_violations + [f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)가 없다 — "
                     f"phase-2 인도 PR은 이슈를 명시적으로 닫아야 한다."]
-        return []
+        return prose_violations
     refs = {int(n) for n in _PLAIN_REF.findall(body)}
     if issue not in refs:
-        return [f"PR 본문에 '#{issue}' 참조가 없다 — phase-1 제안 PR도 자기 "
+        return prose_violations + [f"PR 본문에 '#{issue}' 참조가 없다 — phase-1 제안 PR도 자기 "
                 f"이슈를 본문에서 가리켜야 한다(Closes/Fixes/Resolves는 금지: "
                 f"phase-1 머지가 이슈를 자동으로 닫으면 안 된다)."]
-    return []
+    return prose_violations
 
 bad = check_body(issue, body, phase, plan)
 if bad:
