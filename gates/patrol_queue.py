@@ -185,7 +185,26 @@ def dismissal_counts(queue: list[dict]) -> dict[str, int]:
 
 SCANNER_ID_RECORD_LINT = "record_lint"
 
+# issue #1614 — sweep-lane precision measurement (n=100 stratified,
+# 2026-08-16) found rules #791 (0%), #793 (7%), #870 (9%) all below the
+# per-rule 70% kill threshold; disabled for the SWEEP lane until fixed
+# and re-measured. The diff lane is unaffected — record_lint's checks
+# still run there unchanged (docs/issue-1614 Acceptance: diff-lane
+# behavior stays unchanged).
+SWEEP_DISABLED_RULES = ("791", "793", "870")
+
 _QUOTED_SPAN = re.compile(r"'([^']+)'|`([^`]+)`")
+_RULE_ID_RE = re.compile(r"issue #(\d+)")
+
+
+def _finding_rule_id(finding: dict) -> str | None:
+    """The `issue #<n>` rule id a record_lint violation message names —
+    read from the first context line (the full violation sentence)."""
+    ctx = finding.get("context_lines") or []
+    if not ctx:
+        return None
+    m = _RULE_ID_RE.search(ctx[0])
+    return m.group(1) if m else None
 
 
 def _quoted_excerpt(message: str) -> str | None:
@@ -245,9 +264,27 @@ def run_scan(repo_root: Path, lane: str, per_scanner_cap: int = 200) -> dict:
 
     raw_findings = scan_record_lint(repo_root)
 
+    # issue #1614 requirement 2: sweep lane excludes disabled-rule
+    # findings before enqueue and reports the exclusion count — never a
+    # silent cap. The diff lane keeps every rule.
+    sweep_disabled_excluded = 0
+    sweep_disabled_excluded_by_rule: dict[str, int] = {}
+    findings_for_lane = raw_findings
+    if lane == "sweep":
+        kept_by_rule = []
+        for f in raw_findings:
+            rid = _finding_rule_id(f)
+            if rid in SWEEP_DISABLED_RULES:
+                sweep_disabled_excluded += 1
+                sweep_disabled_excluded_by_rule[rid] = \
+                    sweep_disabled_excluded_by_rule.get(rid, 0) + 1
+            else:
+                kept_by_rule.append(f)
+        findings_for_lane = kept_by_rule
+
     verified = []
     verify_dropped = 0
-    for f in raw_findings:
+    for f in findings_for_lane:
         probe = {"path": f["path"], "excerpt": f["excerpt"]}
         if verify(probe, repo_root):
             verified.append(f)
@@ -299,6 +336,8 @@ def run_scan(repo_root: Path, lane: str, per_scanner_cap: int = 200) -> dict:
         "lane": lane,
         "scanner": SCANNER_ID_RECORD_LINT,
         "raw_findings": len(raw_findings),
+        "sweep_disabled_rules_excluded": sweep_disabled_excluded,
+        "sweep_disabled_rules_excluded_by_rule": sweep_disabled_excluded_by_rule,
         "verified": len(verified),
         "verify_dropped": verify_dropped,
         "enqueued": len(kept),
