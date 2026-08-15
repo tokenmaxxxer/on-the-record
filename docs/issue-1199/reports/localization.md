@@ -136,3 +136,16 @@ revision (issuecomment-5277607380, 5277656381, 5277617205, 5277617032,
 file), this is non-blocking pre-PR watcher noise, not an actionable
 content finding, and this record proceeds to PR without further
 content change.
+
+canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5299610035`, read
+this session.
+
+amendments-reconciled: issuecomment-5299610035 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the paired verdict
+for the judgment-watcher entry immediately above (issuecomment-5299596112),
+same generic template, no `PR #<number>` filled in, no specific defect
+named. Per the same "stop pr-preflight retry loop" precedent (commit
+e82184ec on this branch), this is non-blocking watcher noise and this
+record proceeds to PR without further content change or further
+re-reconciliation of this recurring template.
