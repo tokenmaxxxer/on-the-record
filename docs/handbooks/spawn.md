@@ -49,3 +49,64 @@ hooks.json 자체를 읽어 낸다. 같은 파일이 실제 git 저장소에서 
 ```
 python3 gates/test_hooks_parity.py
 ```
+
+# spawn.py judge — read-only budgeted role judgment over a merge diff
+
+이슈 #1587. `consult`/`ideate`/`draft`/`review`의 형제 verb지만 세션 조립이
+읽기 전용으로 구조적으로 격리된다는 점에서 다르다 — 프롬프트 문장으로
+"쓰지 마라"고 지시하는 게 아니라 `--plugin-dir`/`permissions` 자체가
+Write/Edit 를 세션에 넣지 않는다.
+
+```
+python3 spawn.py judge <역할> --merge <sha> [-C <대상 레포>]
+```
+
+## 파이프라인
+
+1. **prefilter** (하이쿠급 1콜): diff 가 이 역할의 관할에 걸리는지만
+   판단한다. 미스면 judge 본세션을 아예 안 부른다 — 가장 큰 비용 절감
+   지점.
+2. **judge** (역할 모델, `--max-turns 6`): 역할 룰북이 로드된 읽기 전용
+   세션이 diff 를 보고 위반 findings 를 낸다.
+3. **validator** (하이쿠급 1콜): findings 를 확인/반박한다. 반박된 것은
+   큐에 닿지 않는다.
+4. **verify**: `gates/patrol_queue.py`의 `verify()`가 인용된 경로/발췌를
+   작업 트리에서 실제로 다시 읽어 확인한다 — `run_scan()`이 이미 밟는
+   scan → verify → budget → enqueue 파이프라인의 그 단계. validator(모델의
+   자기평가)만으로는 환각된 path/excerpt 를 잡아내지 못하므로, 이 단계를
+   건너뛰지 않는다(2026-08-15 warrant-hunt finding).
+5. **enqueue**: verify 를 통과한 finding만 `enqueue()`로
+   `.on-the-record/findings/queue.jsonl`에 `lane="diff"`로 들어간다.
+
+## 읽기 전용 구성
+
+- `spawn._readonly_plugin_dirs(role, spec)`: 역할 룰북은 그대로 싣고,
+  core 플러그인 중 배달-지향(`freelunch`/`scout`/`warrant`)만 뺀다.
+- `spawn._readonly_settings(role, cwd)`: `permissions.allow`를
+  Read/Grep/Glob + `git show`/`git diff`/`git log`(cwd 앵커)로만 한정하고,
+  Write/Edit/`gh `는 `permissions.deny`로도 명시적으로 막는다.
+- `_judge_cmd_and_env()`는 `--permission-mode bypassPermissions`를 주지
+  않는다 — headless 세션은 허용 목록 밖 도구를 답할 사람 없이 그냥
+  거부한다(`role_settings()`가 서술하는 실측 동작을 안전장치로 쓴다).
+
+## 예산
+
+- `JUDGE_TIMEOUT = 120`(초) — prefilter/judge/validator 호출마다 각각.
+- `JUDGE_MAX_ROLES_PER_MERGE = 3` — 같은 merge sha 에 대해 실행할 수
+  있는 judge 역할 수 상한. `docs/reports/patrol-judge-log.md` 트레이스
+  로그에서 `merge=<sha>`를 세어 판정하며, **로그가 없거나(회전/최초
+  실행) 손상돼 있으면 0으로 fail(허용)** 한다 — 로그 부재가 판정을
+  막지 않는다(PR #1590 binding review note).
+
+## 트레이스
+
+모든 실행(성공/실패/캡초과/prefilter-미스 가리지 않고)이
+`docs/reports/patrol-judge-log.md`에 한 줄 남는다 — consult-log의
+`finally`-블록 관례와 같다.
+
+## 의존성
+
+`tokenmaxxxer-core#216`(scope-gate 읽기전용 세션 수정)이 아직 안 걸린
+환경에서는, 망가진 proposal 이 있는 레포를 대상으로 한 통합 테스트가
+연기된다 — #216 이 머지된 뒤에는 도달 가능해지지만 이 변경 자체의
+frozen write set 밖이라 이 이슈에서는 다루지 않는다(§Out of scope).
