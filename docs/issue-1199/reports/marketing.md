@@ -229,6 +229,33 @@ can check mechanically, versus prose that only reads as guidance.
   a follow-up session, or rely on out-of-session relay; the branch and
   commit are already pushed and require no further code changes to open.
 
+amendments-reconciled: issuecomment-5300055354 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)"), posted after this
+record's prior reconciliation entries — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate -q
+'.[-30:] | .[] | {id, body}'`, run this session — its immediately
+preceding sibling comment (id 5299663263, "Judgment opened: PR #? —
+candidate decision on branch `issue-1199/customer-support` (4 path(s)
+changed) entered delegated-judgment evaluation.") names branch
+issue-1199/customer-support, not this marketing unit; this is the
+same automated judgment-watcher generic escalate-verdict shape already
+reconciled above for other roles' branches. No content amendment to
+this record is warranted. Additionally reconciled this session: the
+rulebook-repo remediation the current task instructed — dropped the
+three evidence/record files under the proposals and reports/marketing
+subpaths of docs/issue-1199 (in the external
+tokenmaxxxer/marketing-rulebook repo, not this repo's own tree) from
+that repo's `issue-1199/marketing` branch (evidence/record material
+must live only in on-the-record, per the native-application amendment
+already recorded above), and re-pushed. canonical: `git -C
+/tmp/marketing-rulebook log -1 --stat`, run this session, showing
+commit 5c51300 ("Drop evidence/record material from marketing rulebook
+branch", subject: issue-1199) as 3 deletions only, diffing clean
+against main (canonical: `git -C /tmp/marketing-rulebook diff
+main...HEAD --stat`, run this session, showing only the marketing
+handbook's methodology doc, the messaging-gate hook, and the gate test
+suite remain changed).
+
 ## kind
 
 report
