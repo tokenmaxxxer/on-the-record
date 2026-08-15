@@ -70,6 +70,21 @@ returned empty immediately before this PR was opened, so no PR existed on
 this branch at that timestamp for a depth/impact verdict to evaluate;
 recorded, not acted on.
 
+amendments-reconciled: issuecomment-5299663425 (posted 2026-08-15T00:59:52Z
+by JiwonJung94: "Verdict: PR #? → escalate (depth or impact axis did not
+clear)", preceded at 00:59:51Z by "Judgment opened: PR #? — candidate
+decision on branch `issue-1199/customer-support` (4 path(s) changed)
+entered delegated-judgment evaluation."). Reconciled: same recurring
+automated-watcher pattern as the four prior reconciled comments above —
+canonical: `gh pr list --repo tokenmaxxxer/on-the-record --head
+issue-1199/customer-support --state all` (this turn's tool transcript)
+returned empty immediately before this PR was opened, so no PR existed on
+this branch at that timestamp for a depth/impact verdict to evaluate;
+recorded, not acted on. This watcher keeps posting a fresh instance of the
+same "Judgment opened"/"Verdict: escalate" pair on this branch roughly
+every 30-40s — see "Open findings" below for the resulting PR-open
+blocker.
+
 ## SLA table (unchanged by this fold-in, restated for reference)
 
 canonical: `git -C /tmp/csr-1199 show a1663e1 -- customer-support/handbook.md`
@@ -291,6 +306,26 @@ rulebook/compare/main...issue-1199/customer-support`); on-the-record
 should relay-open that PR from outside this session, per this issue's
 own instruction that on-the-record relays what a blocked session
 cannot finish on its own.
+
+A second blocker, this repo's own PR: this session's `pr-preflight.sh`
+refuses `gh pr create --repo tokenmaxxxer/on-the-record` whenever a new
+issue #1199 comment landed after this session's last reconciliation, and
+requires an `amendments-reconciled` line here citing it before retrying.
+canonical: this turn's tool transcript — five consecutive `gh pr create`
+denials, each citing a distinct `issuecomment-...` id
+(5277512631, 5277618420, 5299648344, 5299653705, 5299658287, 5299663425),
+all matching the same recurring "Judgment opened: PR #? — candidate
+decision on branch `issue-1199/customer-support`" / "Verdict: PR #? →
+escalate" pair from account JiwonJung94, spaced roughly 30-40s apart —
+faster than one reconcile-edit → commit → push → `gh pr create` cycle in
+this turn's tool transcript ran. Reconciling each instance individually
+therefore does not converge on an open PR within this turn. Resolution
+path: this record is committed and pushed to
+`issue-1199/customer-support` on `tokenmaxxxer/on-the-record` (commit
+citation: this branch's HEAD after this turn's final commit); on-the-record
+should open `https://github.com/tokenmaxxxer/on-the-record/compare/main...issue-1199/customer-support`
+as a PR from outside this session, the same relay path already used for
+the external rulebook branch above.
 
 Otherwise: the four gaps named in `docs/issue-1199/reports/customer-
 support/survey.md` are each addressed by one learning above; no other
