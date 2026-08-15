@@ -73,7 +73,12 @@ _PATH_REF = re.compile(
 # issue #1599 fix 1 — `_PATH_REF` captures a trailing `:line` or
 # `:start-end` suffix (e.g. `docs/specs/approvers.md:2`) as part of the
 # path; strip it before any filesystem/git existence check.
-_LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
+# issue #1620 misfire class 1 — also strip a comma-separated line list
+# (`:60,137`) and a `:name()`/`::name()` function/method locator suffix
+# (`::scan_text()`, `:_phase2_record_evidence()`) — both name a real
+# file plus a within-file locator, not a broken path.
+_LINE_SUFFIX = re.compile(r":\d+(?:[-,]\d+)*$")
+_FUNC_SUFFIX = re.compile(r":{1,2}\w+\(\)$")
 
 # issue #1599 fix 4 — a commit-pinned citation (`e7a13db:file/path:151`)
 # is itself evidence, independent of a literal `canonical:`/`derived:`
@@ -83,6 +88,7 @@ _COMMIT_PINNED_CITE = re.compile(
 
 
 def _strip_line_suffix(ref: str) -> str:
+    ref = _FUNC_SUFFIX.sub("", ref)
     return _LINE_SUFFIX.sub("", ref)
 
 # issue #793 — verify-before-claim: a state/defect-claim marker vocabulary,
@@ -131,6 +137,36 @@ _NEGATED_HYPOTHETICAL = re.compile(
 def _is_hypothetical_or_negated(line: str) -> bool:
     return bool(_COUNTERFACTUAL_LEADIN.search(line)
                 or _NEGATED_HYPOTHETICAL.search(line))
+
+
+# issue #1620 misfire class 3: an absence/negation statement ("no
+# decisions/ entry needed", "not yet measurable (0/30)") states that a
+# path or count does NOT apply / isn't required — not a live claim that
+# the path is reachable or the count is asserted fact. Distinct from
+# `_NEGATED_HYPOTHETICAL` (negates a claim MARKER like "found"/"merged")
+# — this negates the NEED for the path/count itself.
+_ABSENCE_NEGATION = re.compile(
+    r"(?i)\bno\b.{0,60}?\b(needed|required)\b|"
+    r"\bnot\s+(?:yet\s+)?(?:needed|required|applicable|measurable)\b")
+
+
+def _is_absence_negated(line: str) -> bool:
+    return bool(_ABSENCE_NEGATION.search(line))
+
+
+# issue #1620 misfire class 2: a record explicitly narrating that a path
+# was renamed away from, moved from, or deliberately not used is
+# describing history/a deviation, not asserting the old path is
+# currently reachable.
+_PATH_RENAME_NARRATION = re.compile(
+    r"(?i)\brenamed\s+(?:away\s+)?(?:from|to)\b|"
+    r"\bmoved\s+(?:away\s+)?(?:from|to)\b|"
+    r"\bdeliberately\s+not\s+used\b|"
+    r"\bno\s+longer\s+(?:used|exists?|at\b)")
+
+
+def _is_path_rename_narration(line: str) -> bool:
+    return bool(_PATH_RENAME_NARRATION.search(line))
 
 
 # issue #1614 misfire class 4: historical narration / already-fixed
@@ -358,24 +394,59 @@ def checked_claim_reason_check(text: str) -> list[str]:
     return bad
 
 
+# issue #1620 misfire class 4: a tally whose computation is spelled out
+# inline right next to it — a percentage shown alongside the raw
+# fraction (e.g. "33.3% precision (4 TP / 12)"), or an explicit
+# multiplication/sum shown with an `=` (e.g. "9 keywords x
+# (lower/capitalize/upper) = 27 cases") — is self-evidencing: the reader
+# can see how the number was derived without a separate
+# `derived:`/fence citation.
+_INLINE_COMPUTED_LEADIN = re.compile(r"\d+(?:\.\d+)?%|=")
+
+
 def bare_count_claim_check(text: str) -> list[str]:
     """#333 mirror: a bare "N of M"/"N items" count needs `derived:` or a
-    code-fence reproduction — fences are excluded."""
+    code-fence reproduction — fences are excluded. issue #1620 also
+    excludes: a count whose computation is shown inline (a percentage on
+    the same line), one backed by a fenced raw-output block shortly
+    above it, one carrying a `canonical:` citation on its own evidence
+    line, and an absence/negation statement ("not yet measurable
+    (0/30)")."""
     bad = []
     lines = text.splitlines()
     structural = _structural_skip_mask(lines)
-    in_fence = False
+    fence_flags = [False] * len(lines)
+    fence = False
     for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            in_fence = not in_fence
+        if line.strip().startswith("```"):
+            fence = not fence
+            fence_flags[i] = True
             continue
-        if in_fence or structural[i]:
+        fence_flags[i] = fence
+    for i, line in enumerate(lines):
+        if fence_flags[i] or structural[i]:
+            continue
+        wrap_window = " ".join(lines[max(0, i - 1):min(len(lines), i + 2)])
+        if _is_absence_negated(wrap_window):
             continue
         for pat in (_COUNT_RATIO, _COUNT_NOUN):
             for cm in pat.finditer(line):
                 tail = line[cm.end():]
                 if _CLAIM_DERIVED_TAG.match(tail.lstrip()):
+                    continue
+                lo = max(0, i - 6)
+                evidence_window = "\n".join(lines[lo:i + 1])
+                if _CANONICAL_TAG.search(evidence_window):
+                    continue
+                if _INLINE_COMPUTED_LEADIN.search(evidence_window):
+                    continue
+                # "backed by a fenced raw-output block above" (issue
+                # #1620 class 4) — a fenced block anywhere earlier in
+                # the same record's prose (not just the immediate
+                # window) is deliberate evidentiary output, not
+                # incidental code quoted right next to an unrelated
+                # count.
+                if any(fence_flags[:i]):
                     continue
                 bad.append(
                     "레코드에 근거 없는 개수 주장 (issue #333): "
@@ -387,9 +458,31 @@ def bare_count_claim_check(text: str) -> list[str]:
 
 def orphaned_path_reference_check(root: Path, text: str) -> list[str]:
     """#330 mirror: a backtick-quoted relative path that resolves nowhere
-    in the working tree."""
+    in the working tree. issue #1620 also excludes: a path cited while
+    explicitly narrating that it was renamed/moved away or deliberately
+    not used (deviation narration, not a live reachability claim), and
+    an absence/negation statement ("no decisions/ entry needed")."""
     bad = []
+    lines = text.splitlines()
+    structural = _structural_skip_mask(lines)
+    line_starts = []
+    pos = 0
+    for line in lines:
+        line_starts.append(pos)
+        pos += len(line) + 1
     for m in _PATH_REF.finditer(text):
+        line_idx = 0
+        for idx, start in enumerate(line_starts):
+            if start <= m.start():
+                line_idx = idx
+            else:
+                break
+        if line_idx < len(structural) and structural[line_idx]:
+            continue
+        window = " ".join(
+            lines[max(0, line_idx - 1):min(len(lines), line_idx + 2)])
+        if _is_path_rename_narration(window) or _is_absence_negated(window):
+            continue
         ref = _strip_line_suffix(m.group(1))
         if any(ch in ref for ch in ("*", "?", "<", ">")):
             continue
