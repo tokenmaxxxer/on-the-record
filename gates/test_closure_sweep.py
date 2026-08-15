@@ -98,8 +98,19 @@ class FindViolationsSkips(unittest.TestCase):
 
     def test_sweep_gh_call_count_is_constant_in_board_size(self):
         """issue #1320 acceptance (a): constant gh invocations for N in
-        {5, 50}."""
+        {5, 50}. issue #1554: `issue_state_index_all` now probes the repo
+        slug once (`gh repo view`, cached process-wide by `spawn._repo_slug`)
+        to attempt an ETag-conditional list — an empty slug here makes it
+        fall back to the pre-existing unconditional `gh issue list` path, so
+        the call count is still O(1) in board size, just one call higher
+        (3, not 2); the slug cache is cleared each iteration so both N=5 and
+        N=50 see the same probe."""
+        sys.path.insert(0, str(Path(__file__).parent.parent))
+        import spawn
+
         def run_stub(cmd, cwd=None, capture_output=None, text=None):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return mock.Mock(returncode=0, stdout="", stderr="")
             if cmd[:2] == ["gh", "issue"]:
                 return mock.Mock(returncode=0, stdout=json.dumps(
                     [{"number": n, "state": "OPEN"} for n in range(1, 51)]))
@@ -108,10 +119,11 @@ class FindViolationsSkips(unittest.TestCase):
             raise AssertionError(f"unexpected gh call in sweep path: {cmd}")
 
         for n in (5, 50):
+            spawn._repo_slug_cache_clear()
             subjects = {f"issue-{i}": {"implementation": {}} for i in range(1, n + 1)}
             with mock.patch.object(closure_sweep.subprocess, "run", side_effect=run_stub) as run:
                 closure_sweep.find_violations(Path("."), subjects=subjects)
-            self.assertEqual(run.call_count, 2)
+            self.assertEqual(run.call_count, 3)
 
 
 class OneTickOneSweep(unittest.TestCase):

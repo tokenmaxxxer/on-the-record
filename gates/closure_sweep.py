@@ -61,6 +61,68 @@ def classify(issue_state: str, pr_state: str, pr_body: str, issue: int,
     return None
 
 
+def _board_list_etag_cache_path(root: Path, name: str) -> Path:
+    """이슈 #1554 요구 5: 보드-전체 목록 호출(이슈 목록)의 ETag 캐시 위치 —
+    `spawn._etag_cache_path` 와 같은 자리(`.git/` 아래, 워크트리 로컬,
+    커밋 안 됨)."""
+    return root / ".git" / "gh-read-cache" / f"board-list-{name}.json"
+
+
+def _conditional_issue_list(root: Path, slug: str, cache_path: Path
+                             ) -> tuple[list[dict] | None, bool, int]:
+    """`repos/{slug}/issues` 1페이지(`per_page=100`, `state=all`)를 ETag
+    조건부로 부른다(issue #1554 요구 5, `spawn._issue_comments` 와 같은
+    패턴) — 캐시된 ETag 가 있으면 `If-None-Match` 를 실어 보내고, 304 면
+    캐시된 원본 목록을 그대로 돌려주며 빌링 호출 수를 0 으로 센다. 200 이면
+    새 ETag+본문을 캐시에 쓰고 1 콜로 센다. 캐시가 없거나 깨졌거나 응답
+    파싱이 실패하면 무조건 재조회로 폴백한다(fail-open). 100 건을 넘으면
+    (page 2 존재) 조건부 캐싱을 포기하고 `None, True, 1`(호출부가 무조건
+    페이지네이션 경로로 폴백하게)을 돌려준다 — 조건부 캐시는 1페이지만
+    보므로 잘린 결과를 "전체"로 캐싱하는 사고를 막는다.
+    `(raw_items, ok, billed_calls)`."""
+    etag = None
+    cached_raw = None
+    try:
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            etag = cached.get("etag")
+            cached_raw = cached.get("raw")
+            if not isinstance(etag, str) or not isinstance(cached_raw, list):
+                etag, cached_raw = None, None
+    except (OSError, ValueError, UnicodeDecodeError):
+        etag, cached_raw = None, None
+
+    cmd = ["gh", "api", f"repos/{slug}/issues", "-f", "state=all",
+           "-f", "per_page=100", "-i"]
+    if etag:
+        cmd = cmd + ["-H", f"If-None-Match: {etag}"]
+    r = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None, False, 1
+
+    status, headers, body = spawn._split_gh_api_i_output(r.stdout)
+    if status == 304 and cached_raw is not None:
+        return cached_raw, True, 0
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None, False, 1
+    if not isinstance(data, list):
+        return None, False, 1
+    if len(data) >= 100 and "rel=\"next\"" in headers.get("link", ""):
+        return None, True, 1
+
+    new_etag = headers.get("etag")
+    if new_etag:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({"etag": new_etag, "raw": data}),
+                                   encoding="utf-8")
+        except OSError:
+            pass
+    return data, True, 1
+
+
 def _issue_view(root: Path, issue: int) -> tuple[str | None, bool]:
     """(state, ok) — ok=False means the `gh` call itself failed; state is
     then meaningless and must not be read as "no such issue"."""
@@ -152,7 +214,28 @@ def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, bool]:
     `--limit` 상한에 정확히 걸리면 잘렸을 수 있으므로 `(None, True)` 를
     돌려준다 — 호출부는 이를 `issue_states=None` 으로 `find_violations` 에
     넘겨 기존 subject 별 개별 조회로 되돌아가야 한다(조용한 절단으로 위반을
-    놓치느니 느린 옛 경로가 낫다, issue #224)."""
+    놓치느니 느린 옛 경로가 낫다, issue #224).
+
+    이슈 #1554 요구 5: 보드가 100건 이하면 ETag 조건부 1페이지 조회로
+    풀린다 — 안 변했으면 304 로 캐시를 그대로 쓰고 이 함수는 gh 호출을
+    청구하지 않는다. 100건을 넘거나 slug 를 못 구하면 기존 무조건 `gh
+    issue list --limit` 경로로 폴백한다(동작 동일, 새 캐시는 안 씀)."""
+    slug = spawn._repo_slug(root)
+    if slug:
+        cache_path = _board_list_etag_cache_path(root, "issues")
+        raw, ok, _billed = _conditional_issue_list(root, slug, cache_path)
+        if ok and raw is not None:
+            index: dict[int, str] = {}
+            for item in raw:
+                number = item.get("number")
+                if number is not None:
+                    index[number] = str(item.get("state", "")).upper()
+            return index, True
+        if not ok:
+            return None, False
+        # raw is None with ok=True: >100 open+closed items — fall through
+        # to the unconditional multi-page path below.
+
     r = subprocess.run(["gh", "issue", "list", "--state", "all", "--json",
                         "number,state", "--limit", str(_ISSUE_INDEX_LIMIT)],
                        cwd=root, capture_output=True, text=True)
@@ -448,6 +531,59 @@ def recheck_backoff(state: dict, key: str, changed: bool) -> bool:
                 RECHECK_BACKOFF_MAX_TICKS, entry["interval_ticks"] * 2)
     entry["tick"] += 1
     return entry["tick"] % entry["interval_ticks"] == 0
+
+
+# 이슈 #1554 요구 1/3: 틱당 gh 호출 예산 하에서 board-sweep 카테고리를
+# 절대 드롭하지 않고 이월(carry-over)한다 — `_board_wide_sweep`(spawn.py)
+# 이 매 틱 부르는 세 카테고리의 정해진 순서.
+BOARD_SWEEP_CATEGORIES = ("spawn-on-pr", "closure-sweep", "spawn-coverage")
+
+BOARD_SWEEP_QUEUE_STATE_REL = Path("runs") / "board_sweep_queue.json"
+
+
+def _board_sweep_queue_path(root: Path) -> Path:
+    return root / BOARD_SWEEP_QUEUE_STATE_REL
+
+
+def load_board_sweep_queue(root: Path) -> list[str]:
+    """이번 틱에 아직 못 돈(이전 틱들에서 예산 초과로 밀린) 카테고리 목록.
+    없거나 깨졌으면 빈 목록(=새 라운드는 전체 카테고리로 채워진다)."""
+    p = _board_sweep_queue_path(root)
+    if not p.is_file():
+        return []
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [c for c in data if c in BOARD_SWEEP_CATEGORIES]
+
+
+def save_board_sweep_queue(root: Path, pending: list[str]) -> None:
+    p = _board_sweep_queue_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(pending), encoding="utf-8")
+
+
+def next_categories(root: Path, budget: int) -> tuple[list[str], list[str]]:
+    """이슈 #1554 요구 1/3(watch-coverage 불가침): 이번 틱에 돌릴 카테고리
+    최대 `budget` 개와, 다음 틱으로 이월할 나머지를 정하고 상태를
+    저장한다. 대기열이 비어 있으면(직전 라운드를 다 돌렸다) 새 라운드를
+    `BOARD_SWEEP_CATEGORIES` 전체로 다시 채운다 — 그래서 한 라운드가
+    끝나도 다음 라운드가 조용히 멈추지 않는다(계속 재-스윕). `budget<=0`
+    이면 이번 틱은 아무 카테고리도 안 돌고 대기열 전체가 그대로 이월된다
+    (호출 자체가 0건 — 예산 0은 "전부 미룬다"이지 "드롭한다"가 아니다).
+    돌려주는 `(this_tick, carried_over)` 는 합쳐서 항상 이월 전 대기열과
+    같은 집합이다 — 드롭이 없다는 것이 이 함수의 계약이다."""
+    pending = load_board_sweep_queue(root) or list(BOARD_SWEEP_CATEGORIES)
+    if budget <= 0:
+        save_board_sweep_queue(root, pending)
+        return [], pending
+    this_tick = pending[:budget]
+    carried_over = pending[budget:]
+    save_board_sweep_queue(root, carried_over)
+    return this_tick, carried_over
 
 
 def main() -> int:
