@@ -23,9 +23,11 @@ on-the-record 가 이슈 제목/본문을 직접 짓는 코드 호출부는 없�
 """
 from __future__ import annotations
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+import gh_rest
 
 # 인용구/코드펜스 안의 " and "/" 및 "/" 그리고 " 는 접속사가 아니라 인용된
 # 문구일 수 있다(예: 커맨드 예시, 파일명) — 백틱/큰따옴표 스팬 밖에서만 본다.
@@ -105,26 +107,15 @@ def check_body(body: str) -> list[str]:
     return []
 
 
-def _issue_view(repo: Path, issue: int) -> tuple[str, str] | None:
-    r = subprocess.run(
-        ["gh", "issue", "view", str(issue), "--json", "title,body"],
-        cwd=repo, capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    import json
-    data = json.loads(r.stdout)
-    return data.get("title", ""), data.get("body", "")
-
-
 def check(repo: Path, issue: int) -> list[str]:
-    """`gh issue view` 로 제목/본문을 읽어 `check_title`/`check_body` 에
-    위임한다. 읽기 자체가 실패하면 fail-closed 차단."""
-    got = _issue_view(repo, issue)
+    """REST(`gh api repos/.../issues/<n>`) 로 제목/본문을 읽어
+    `check_title`/`check_body` 에 위임한다. 읽기 자체가 실패하면
+    fail-closed 차단."""
+    got = gh_rest.fetch_issue(repo, issue)
     if got is None:
-        return [f"이슈 #{issue} 를 읽을 수 없다(`gh issue view` 실패) — "
+        return [f"이슈 #{issue} 를 읽을 수 없다(`gh api repos/.../issues/{issue}` 실패) — "
                 f"검사 불가는 통과가 아니다."]
-    title, body = got
-    return check_title(title) + check_body(body)
+    return check_title(got["title"]) + check_body(got["body"])
 
 
 def main() -> int:

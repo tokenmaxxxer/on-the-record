@@ -13,9 +13,11 @@ consistency/ordering)이 실행됐거나, 명시적으로 생략됐는가"만 �
 """
 from __future__ import annotations
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+import gh_rest
 
 _CONSULT_REF = re.compile(
     r"^\s*[-*]?\s*validity-consult\s*:\s*\S", re.IGNORECASE | re.MULTILINE)
@@ -46,20 +48,10 @@ def check_issue_body(issue: int, body: str) -> list[str]:
     ]
 
 
-def _issue_view_body(repo: Path, issue: int) -> str | None:
-    r = subprocess.run(["gh", "issue", "view", str(issue), "--json", "body"],
-                       cwd=repo, capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    import json
-    data = json.loads(r.stdout)
-    return data.get("body", "")
-
-
 def check(repo: Path, issue: int) -> list[str]:
-    body = _issue_view_body(repo, issue)
+    body = gh_rest.fetch_issue_body(repo, issue)
     if body is None:
-        return [f"이슈 #{issue} 본문을 읽을 수 없다(`gh issue view` 실패) — "
+        return [f"이슈 #{issue} 본문을 읽을 수 없다(`gh api repos/.../issues/{issue}` 실패) — "
                 f"검사 불가는 통과가 아니다."]
     return check_issue_body(issue, body)
 
