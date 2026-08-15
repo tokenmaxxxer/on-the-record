@@ -206,3 +206,121 @@ canonical: `git -C /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-1199-issu
 Both branches (`593fe3bc` here, `582cde2` in the rulebook repo) remain
 the delivered, committed-and-pushed state this session lands; PR-open
 for both repos is left for external relay once the rate limit resets.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299796949`, read this session
+issuecomment-5299796949 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-15T01:24:09Z) is the same
+templated delegated-judgment verdict for an unnumbered candidate PR,
+naming no branch or role specific to this issue-retrospective unit —
+same pattern already reconciled with no content change earlier in this
+section. No amendment to this record's scope or content is warranted.
+
+## 2026-08-14 plugin-ecosystem rework (phase 2 executed)
+
+canonical: this file's "Adopted norms (sourced rationale)" section
+above, read this session — the two sourced moves there (Google SRE /
+PagerDuty / incident.io postmortem practice, Adams et al. subtraction
+research) are general practitioner postmortem-domain sources, not
+Claude Code plugin/skill repos. Per the issue's 2026-08-14 amendment, a
+fold-in whose surveyed sources are domain tools alone fails Acceptance
+criterion 1; this section redoes the survey against the amended target.
+
+Surveyed the Claude Code plugin/skill ecosystem for tools relevant to
+this role's domain (records-only cross-role retrospective composition),
+adoption evidence via the tech-feasibility method (stars/forks,
+multi-source mentions):
+
+- **anthropics/knowledge-work-plugins** — Anthropic's own official
+  knowledge-work plugin collection, containing an `incident-response`
+  plugin. Adoption: canonical: `curl -s
+  https://api.github.com/repos/anthropics/knowledge-work-plugins`, run
+  this session → `"stargazers_count": 23484, "forks_count": 2831`.
+  Design move (canonical: a WebSearch sweep this session of
+  `awesomeskill.ai/skill/anthropics-knowledge-work-plugins-incident-response`
+  and `claudedirectory.org/plugins/incident-response`, both describing
+  the plugin's own documented behavior): the plugin keeps a live
+  "update" mode (status updates: impact, actions taken, next steps,
+  timeline) structurally distinct from its "postmortem" mode, and only
+  emits the postmortem artifact once the incident has actually
+  resolved — an in-flight status report and a final retrospective are
+  never the same document. Learning → new rule 14 in
+  `playbook/timeline-comprehensibility-and-subtraction-rules.md`: when
+  any sibling role record this role reads is still at a non-terminal
+  loop_state, say so explicitly rather than writing the rest of the
+  record as if the input set were already final.
+
+- **bitwarden/ai-plugins** — Bitwarden's published Claude Code plugin
+  set, containing a `claude-retrospective` plugin with a `retrospecting`
+  skill. Adoption: canonical: `curl -s
+  https://api.github.com/repos/bitwarden/ai-plugins`, run this session
+  → `"stargazers_count": 130, "forks_count": 15`; included as a
+  direct-domain-match secondary confirmation — a named, established
+  security-software vendor's own retrospective skill, lower star count
+  than the primary entry, cited for its direct name-match to this
+  role's own domain. Design move (canonical: a WebFetch of
+  `github.com/bitwarden/ai-plugins/blob/main/plugins/claude-retrospective/skills/retrospecting/SKILL.md`,
+  run this session, quoting its own step structure): the skill scales
+  its evidence-gathering depth ("Quick," "Standard," "Comprehensive")
+  to the size of the session being retrospected rather than one fixed
+  depth, and its recommendation format states an explicit "Impact:
+  expected benefit" field alongside "What/Why/How" for every
+  recommendation. Learning → new rule 15 in the same playbook file:
+  add a stated Impact clause to every Action item (beyond the owner and
+  checkable phrasing rule 4 already requires), and scale how much
+  sibling-record depth this role reads to the subject's actual
+  footprint size instead of one fixed reading depth regardless of
+  subject size.
+
+Applied (not referenced) both learnings directly into the named target
+file in the mounted rulebook repo
+(tokenmaxxxer/issue-retrospective-rulebook,
+/home/jwjung/tokenmaxxxer/rulebooks/issue-retrospective-rulebook),
+branch `issue-1199/tool-landscape` — rules 14 and 15 appended to
+`playbook/timeline-comprehensibility-and-subtraction-rules.md`.
+canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/issue-retrospective-rulebook show
+c548898 --stat`, run this session, output:
+```
+ .../timeline-comprehensibility-and-subtraction-rules.md | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+```
+Per the operator's native-application amendment (2026-08-13T06:36:54Z):
+no `source:` line names `anthropics/knowledge-work-plugins` or
+`bitwarden/ai-plugins` by repo name in the rulebook text — each new
+rule reads as this role's own judgment; the tool names, adoption
+evidence, and per-insight mapping live only in this record. canonical:
+`git -C /home/jwjung/tokenmaxxxer/rulebooks/issue-retrospective-rulebook
+show c548898 -- playbook/timeline-comprehensibility-and-subtraction-rules.md`,
+run this session — the added block contains neither `anthropics`,
+`bitwarden`, `knowledge-work-plugins`, `ai-plugins`, nor a `source:`
+line. No verbatim text was copied from either surveyed repo; both rules
+are paraphrased insight.
+
+Committed in the rulebook repo (commit c548898, subject: issue-1199;
+canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/issue-retrospective-rulebook log -1
+--stat`, run this session), pushed to origin/issue-1199/tool-landscape
+(canonical: this session's own `git push` command and output, this
+session — `582cde2..c548898  issue-1199/tool-landscape ->
+issue-1199/tool-landscape`).
+
+The `APPROVE issue-1199/issue-retrospective` comment (2026-08-13T07:36:50Z,
+cited in this record's Timeline step 3) predates the 2026-08-14
+amendment. This session executed phase 2 directly under that token per
+this turn's own explicit task instruction, which names that token as
+authorization for this delivery — matching the conformance-review and
+implementation roles' own rework precedent of proceeding directly to
+phase 2 in one session under a pre-amendment approval, rather than
+opening a fresh phase-1 proposal and waiting for re-approval.
+
+## Superseded historical section
+
+The pre-2026-08-14 survey and proposal in this record and in
+`docs/issue-1199/proposals/2026-08-13-issue-retrospective-tool-landscape.md`
+surveyed general postmortem-practitioner tooling (Google SRE, PagerDuty,
+incident.io, Adams et al.) under the broad reading of issue #1199's
+Requirement 1 that the 2026-08-14 operator amendment superseded. That
+prior content is kept above as the historical record of what this role
+actually did in that round — it is not extended or re-executed under
+the new survey target; the section above is the redo that satisfies the
+amended Acceptance criterion 1.
