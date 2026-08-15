@@ -87,8 +87,10 @@ Committed in the rulebook repo (subject: issue-1199).
 canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/pricing-rulebook push -u origin issue-1199/tool-landscape` output this session — `* [new branch] issue-1199/tool-landscape -> issue-1199/tool-landscape`.
 Pushed to `origin/issue-1199/tool-landscape`.
 
-canonical: this session's two `gh pr create --repo tokenmaxxxer/pricing-rulebook` attempts and their stderr this session.
-The first attempt returned `GraphQL: API rate limit already exceeded for user ID 87398933.` The second attempt (after a 20s wait) was blocked before it could run by this on-the-record repo's own `pr-preflight.sh`, citing an unreconciled new issue comment (`issuecomment-5300007314`) — that comment is a generic `APPROVE issue-1199/product-discovery` token for a different role's session, reconciled below. Per this session's invocation instruction ("push/PR 이 네트워크로 막히면 커밋까지는 해 둬라: on-the-record 가 밖에서 릴레이한다"), this session's own remaining action for the rulebook-repo PR is the commit+push above; PR-open for `pricing-rulebook` is left to the external relay.
+canonical: this session's `gh pr create --repo tokenmaxxxer/pricing-rulebook` attempts and their output this session.
+The first two attempts failed (a `GraphQL: API rate limit already exceeded` error, then a block by this on-the-record repo's own `pr-preflight.sh` over an unreconciled comment — reconciled below); after reconciling and this record's own PR was opened, a retry succeeded: https://github.com/tokenmaxxxer/pricing-rulebook/pull/23.
+
+canonical: this session's `gh pr create --repo tokenmaxxxer/on-the-record` output this session — https://github.com/tokenmaxxxer/on-the-record/pull/1556 (this record's own PR).
 
 ## Why
 
