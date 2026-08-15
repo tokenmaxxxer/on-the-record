@@ -1493,3 +1493,11 @@ https://api.github.com/repos/gotalab/uxaudit`, `python3
 gates/tool_learnings_tracker.py`, and `grep -rl tool_learnings_refs
 roles/specs/*.json` — all run this session against current live state
 and this branch's checked-out HEAD.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299648085`,
+run this session — issuecomment-5299648085, posted 2026-08-15T00:57:27Z,
+body "APPROVE issue-1199/incident-response".
+amendments-reconciled: issuecomment-5299648085 — an approval token for a
+different role (`incident-response`), not this conformance-review unit
+or the interaction-design unit reviewed above; no amendment to this
+record's scope or content.
