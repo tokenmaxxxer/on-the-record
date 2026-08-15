@@ -1,23 +1,23 @@
 ---
 code_under_review:
   - gates/patrol_queue.py
-  - on-the-record/hooks/test_patrol_queue.py
+  - on-the-record/hooks/test_patrol_queue_hook.py
   - gates/patrol_trigger.py
-  - on-the-record/hooks/test_patrol_trigger.py
+  - on-the-record/hooks/test_patrol_trigger_hook.py
   - gates/test_patrol_queue.py
   - gates/test_patrol_trigger.py
   - docs/specs/enforcement-boundary.md
   - docs/issue-1582/reports/implementation/patrol-measurement-2026-08-15.md
 type: feature
 breaking: false
-canonical: python3 -m pytest on-the-record/hooks/test_patrol_queue.py on-the-record/hooks/test_patrol_trigger.py -q
+canonical: python3 -m pytest on-the-record/hooks/test_patrol_queue_hook.py on-the-record/hooks/test_patrol_trigger_hook.py -q
 verdict: pass
 loop_state: landed
 ---
 
 ## What was done
 
-canonical: python3 -m pytest on-the-record/hooks/test_patrol_queue.py on-the-record/hooks/test_patrol_trigger.py -q — 23 passed, 0 failed (this session's own run).
+canonical: python3 -m pytest on-the-record/hooks/test_patrol_queue_hook.py on-the-record/hooks/test_patrol_trigger_hook.py -q — 23 passed, 0 failed (this session's own run).
 
 Built the tier-1 (mechanical-scanner-only) slice of the approved
 proposal docs/issue-1582/proposals/2026-08-15-tier1-role-patrol-pilot.md:
@@ -36,8 +36,8 @@ proposal docs/issue-1582/proposals/2026-08-15-tier1-role-patrol-pilot.md:
   report) — and run_if_eligible, a thin wrapper that only calls
   patrol_queue.run_scan when should_fire is true. Not wired into a
   git-native hook, per the proposal's Constraints.
-- on-the-record/hooks/test_patrol_queue.py and
-  on-the-record/hooks/test_patrol_trigger.py: fingerprint stability
+- on-the-record/hooks/test_patrol_queue_hook.py and
+  on-the-record/hooks/test_patrol_trigger_hook.py: fingerprint stability
   under context/line shift, dedup refresh, absence-close, lane-
   separation invariant (sweep can never be promotable), budget
   truncation and its meta-finding, verifiability drop, dismissal
@@ -112,13 +112,13 @@ required a gates/test_<stem>.py live-fire test per new gates/*.py
 module calling it in-process from >= 2 distinct scenarios (added as
 gates/test_patrol_queue.py and gates/test_patrol_trigger.py, thin
 wrappers around scenarios already covered by
-on-the-record/hooks/test_patrol_queue.py and
-on-the-record/hooks/test_patrol_trigger.py). Neither addition changes
+on-the-record/hooks/test_patrol_queue_hook.py and
+on-the-record/hooks/test_patrol_trigger_hook.py). Neither addition changes
 patrol_queue.py's or patrol_trigger.py's own design.
 
 ## Next steps
 
-canonical: python3 -m pytest on-the-record/hooks/test_patrol_queue.py on-the-record/hooks/test_patrol_trigger.py -q — 23 passed, 0 failed (this session's own run).
+canonical: python3 -m pytest on-the-record/hooks/test_patrol_queue_hook.py on-the-record/hooks/test_patrol_trigger_hook.py -q — 23 passed, 0 failed (this session's own run).
 
 None — the proposal's "What will be done" list has no remaining item,
 and both of its "How you'll know it worked" mechanical checks are
