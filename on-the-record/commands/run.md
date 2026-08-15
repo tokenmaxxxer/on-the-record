@@ -2,6 +2,7 @@
 allowed-tools: Bash(python3:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Read
 description: 보드를 읽고 역할을 띄운다. 인자 없이 부르면 보드와 누가 깨어났는지 보여준다
 argument-hint: "[역할 [맡길 일]] — 예: coding \"issue 7 진행\" | 비우면 보드만"
+design-rationale: 조율 세션의 대화형 절차를 그대로 프롬프트 텍스트로 남긴다 — 머지·승인처럼 사람의 판단이 실제로 개입하는 단계를 코드로 캡슐화하면 그 판단이 불투명해지므로, 이 파일은 스크립트가 아니라 매 스텝을 사람이 읽고 따라갈 수 있는 절차 문서로 유지한다.
 ---
 
 인자: $ARGUMENTS
@@ -303,6 +304,14 @@ running/waiting/done 세 그룹 중 하나로 정상 분류된다.
      확인된 뒤에만
      `gh pr merge <n> --merge --delete-branch` — 머지된 브랜치는 반드시
      함께 지운다. 역할별 이슈 브랜치는 PR 이 생명주기다 (이슈 #294)
+     머지가 성공한 직후, 곧바로
+     `python3 gates/patrol_wiring.py run <repo-root> <merge-sha>` 를
+     돌리고 그 트레이스 출력을 확인한다 (issue #1597 E1) — 이것이
+     patrol 의 judge+board 자동 실행을 잇는 유일한 진입점이다. 저장소
+     루트에 `.on-the-record/patrol-disabled` 파일이 있으면 이 명령은
+     `[patrol-wiring] kill-switch active, skipping` 한 줄만 남기고 즉시
+     끝난다 — 그 파일을 만드는 것만으로 judge/board 자동 실행 전체를
+     끌 수 있다.
    - 거부 → `gh pr close <n>`
    - 랜딩은 기본적으로 PR 단위다(issue #407) — 한 PR 자신의 체크·기록·
      승인이 아니라 여러 PR에 걸친 원인으로 머지를 멈출 때는, 반드시
