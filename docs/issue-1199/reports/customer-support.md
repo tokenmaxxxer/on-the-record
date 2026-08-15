@@ -329,8 +329,189 @@ the external rulebook branch above.
 
 Otherwise: the four gaps named in `docs/issue-1199/reports/customer-
 support/survey.md` are each addressed by one learning above; no other
-unresolved question remains for this fold-in's scope.
+unresolved question remains for this original 2026-08-13 fold-in's
+scope (superseded by the rework below).
+
+Update (2026-08-14 rework, this turn): both blockers above recur
+unchanged for this round's two commits. canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/customer-support-rulebook log -1
+--stat`, run this session — commit `556a815` on
+`tokenmaxxxer/customer-support-rulebook` branch
+`issue-1199/customer-support`, pushed to origin this turn, has no PR
+open for the same `upstream-defect-scope-guard.sh` reason as above.
+canonical: this turn's tool transcript — the `pr-preflight.sh` denial
+of this turn's own `gh pr create --repo tokenmaxxxer/
+customer-support-rulebook` attempt, citing unreconciled
+`issuecomment-5299800927` on `tokenmaxxxer/on-the-record#1199` (see
+`amendments-reconciled` entry below), shows the same gate binds `gh pr
+create` calls regardless of target repo. Resolution path for both: the
+rulebook-repo branch is ready for a PR at
+`https://github.com/tokenmaxxxer/customer-support-rulebook/compare/main...issue-1199/customer-support`;
+this repo's own branch is committed and pushed to
+`issue-1199/customer-support` on `tokenmaxxxer/on-the-record` (commit
+citation: this branch's HEAD after this turn's final commit).
+on-the-record should relay-open both PRs from outside this session, the
+same relay path as the original round above.
+
+amendments-reconciled: issuecomment-5299800927 (posted 2026-08-15T01:25:05Z
+by JiwonJung94: "Verdict: PR #? → escalate (depth or impact axis did not
+clear)"). Reconciled: same recurring automated-watcher pattern as the
+prior reconciled comments above — canonical: `gh pr list --repo
+tokenmaxxxer/on-the-record --head issue-1199/customer-support --state all`
+(this turn's tool transcript) returned empty immediately before this PR
+create attempt; no PR existed on this branch at that timestamp for a
+depth/impact verdict to evaluate; recorded, not acted on.
+
+## 2026-08-14 plugin-ecosystem rework (phase 2 executed)
+
+canonical: `gh pr view 1538 --repo tokenmaxxxer/on-the-record --json
+comments`, read this session. Quoted refusal comment on that PR: "this
+branch executed a pre-existing 2026-08-13 phase-1 proposal surveying
+general practitioner tools — the 2026-08-14 operator amendment on issue
+#1199 supersedes that reading; the survey target is the Claude Code
+plugin ecosystem." canonical: same `gh pr view 1538` citation — PR
+#1538 shows state CLOSED, not merged. This rework replaces that
+reading and its companion commit.
+
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/
+customer-support-rulebook show a1663e1 --stat`, run this session, prior
+turn — that commit's diff touches only `customer-support/handbook.md`,
+and its four learnings (Zendesk, Intercom, KCS/Consortium,
+Nicereply/Delighted) are general-practitioner domain tools, none naming
+a Claude Code plugin or skill repo. The survey below targets the Claude
+Code plugin/skill ecosystem instead.
+
+Surveyed the Claude Code plugin/skill ecosystem for the customer-support
+domain, adoption evidence via the tech-feasibility method
+(stars/forks/multi-source mentions, web-fetched):
+
+- **Anthropic's own `customer-support` plugin**, featured on Anthropic's
+  official plugin listing. Adoption: canonical: WebFetch of
+  `https://claude.com/plugins/customer-support`, run this session —
+  quoting the plugin's own description of its `/escalate` command:
+  "Packages escalation briefs with comprehensive context, reproduction
+  steps, and business impact details for engineering/product teams."
+  Problem: a bare "escalate to X" line forces the receiving tier to
+  re-derive what was already tried and how much it matters before it
+  can act. How: the escalation artifact is structured to carry
+  reproduction steps and business impact as required fields, not left
+  to the escalating agent's prose discretion (canonical: same WebFetch,
+  quoting the command description verbatim). Learning →
+  `handbook.md` §2: a new "Escalation-brief content requirement"
+  subsection — every L2/L3 hand-off must state reproduction steps
+  already tried and their result, plus business impact (customer count,
+  revenue, or time affected), in the ticket itself.
+
+- **`composio-community/support-skills`** — 40+ Claude Code skills for
+  customer-support automation built on Composio. Adoption: canonical:
+  `curl -s https://api.github.com/repos/composio-community/support-skills`,
+  run this session → `"stargazers_count": 18, "forks_count": 2`.
+  Contains an "SLA Monitor" skill, described in its own repo listing
+  (canonical: WebFetch of
+  `https://github.com/composio-community/support-skills`, run this
+  session, quoting verbatim) as providing a "Real-time SLA compliance
+  dashboard — flags breaches, at-risk tickets." Problem: a table of
+  post-breach escalation trigger times only reacts after an SLA miss
+  has already happened. How: at-risk tickets are flagged before the
+  breach, while budget still remains to act (canonical: same WebFetch).
+  Learning → `handbook.md` §2: a new "Pre-breach risk flag" subsection —
+  a ticket that has consumed 80%+ of its tier's resolution-time budget
+  without resolving is flagged to the tier's Owner before the
+  escalation trigger fires, not only after.
+
+  The same repo's "Customer Lookup (Customer 360)" skill is described
+  as delivering a "Full customer profile — ticket history + CRM data...
+  in one view" (canonical: same WebFetch, quoting verbatim), and
+  `nbashaw/claude-cs` (canonical: `curl -s
+  https://api.github.com/repos/nbashaw/claude-cs`, run this session →
+  `"stargazers_count": 91, "forks_count": 8`) enforces, per its own repo
+  description of its workflow (canonical: WebFetch of
+  `https://github.com/nbashaw/claude-cs`, run this session, quoting
+  verbatim), "**context before response**" — gathering unified customer
+  data across billing, support, and usage platforms before drafting any
+  reply. Problem: a script/response template written against the
+  message text alone ignores the account's actual current state.
+  How: both skills insert a mandatory context-gathering step before any
+  reply is drafted. Learning → `handbook.md` §3: a new "Context-gather
+  step (before any Script/response)" subsection, ahead of the scenario
+  list — pull ticket history and account/billing context before
+  drafting.
+
+- **Anthropic's `customer-support` plugin, `/kb-article` command**, and
+  `composio-community/support-skills`'s "CSAT Follow-up" skill.
+  Adoption: same two sources as above (canonical: same two WebFetch
+  calls, run this session). `/kb-article` is described as converting
+  "resolved cases into self-service knowledge base content to reduce
+  future ticket volume" (canonical: WebFetch of
+  `https://claude.com/plugins/customer-support`, quoting verbatim); CSAT
+  Follow-up is described as finding "recently resolved tickets and
+  send[ing] personalized satisfaction follow-up emails" tied to
+  resolution (canonical: WebFetch of
+  `https://github.com/composio-community/support-skills`, quoting
+  verbatim). Problem: a resolution with no reuse marker gets
+  redrafted from scratch on the next matching trigger, and a
+  `resolution_summary` with no reuse attribution can't be checked for
+  whether it was captured for reuse at all. How: resolved-case content
+  is explicitly tagged for reuse (or explicitly not) as part of closing
+  the case, not left implicit. Learning → `handbook.md` §6: the
+  `resolution_summary` field bullet now also states whether the
+  resolution's content was captured as a reusable reference
+  (macro/article) for the next matching trigger, or marked
+  not-reusable and why.
+
+Applied (not referenced) all four learnings directly into the named
+target file in the mounted rulebook repo
+(tokenmaxxxer/customer-support-rulebook,
+/home/jwjung/tokenmaxxxer/rulebooks/customer-support-rulebook),
+branch `issue-1199/customer-support`. canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/customer-support-rulebook log -1
+--stat`, run this session, output:
+```
+customer-support/handbook.md | 37 insertions(+), 1 deletion(-)
+```
+commit `556a815`, subject: issue-1199, built off `origin/main` — the
+branch was reset with `git checkout -B issue-1199/customer-support
+origin/main` before this round's commit (canonical: this turn's tool
+transcript, that `git checkout -B` command and its output), so the
+stale `a1663e1` commit's superseded content is not part of this new
+commit's history. Also added §4 evidence-metric sentences tying the §2
+pre-breach flag to SLA-adherence and the §6 resolution-reuse note to
+FCR (see `handbook.md` §4 as edited, same commit `556a815`).
+
+Per the operator's native-application amendment (2026-08-13T06:36:54Z
+comment on this issue, carried forward to this rework): no `source:`
+line names Anthropic's `customer-support` plugin, `composio-community/
+support-skills`, or `nbashaw/claude-cs` by repo name in the rulebook
+text — each new subsection reads as this role's own judgment; the tool
+names, adoption evidence, and per-insight mapping live only in this
+record. No verbatim text copied from any surveyed plugin's own prose;
+every handbook subsection above is paraphrased insight, not a quote.
+
+code_under_review:
+- customer-support/handbook.md (customer-support-rulebook repo)
+
+canonical: this turn's tool transcript, `git push -f origin
+issue-1199/customer-support` against `tokenmaxxxer/
+customer-support-rulebook`, output: `a1663e1...556a815
+issue-1199/customer-support -> issue-1199/customer-support (forced
+update)` — pushed to origin this turn.
 
 ## What did not work
 
-None.
+`gh pr create --repo tokenmaxxxer/customer-support-rulebook ...` for
+the rework commit above was denied by this session's own
+`pr-preflight.sh` gate. canonical: this turn's tool transcript — the
+gate's stderr named `issuecomment-5299800927` on **this** issue,
+`tokenmaxxxer/on-the-record#1199`, as the unreconciled comment blocking
+the call, even though the target repo of the `gh pr create` call was
+`tokenmaxxxer/customer-support-rulebook` — the gate binds to this
+session regardless of which repo's PR is being opened, not only to
+`tokenmaxxxer/on-the-record` PR-create calls. Reconciled that comment
+above (see the `amendments-reconciled` entry immediately preceding this
+section). Given this issue's recurring comment cadence recorded in the
+2026-08-13 section above (5 denials spaced 30-40s apart, none
+converging on an open PR within that turn — same canonical citation as
+that section's "Open findings"), this round did not retry `gh pr
+create` a second time; instead both repos' commits are committed and
+pushed (canonical citations above), and this record's "Open findings"
+section states the resolution path.

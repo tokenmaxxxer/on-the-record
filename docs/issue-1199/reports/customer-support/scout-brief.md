@@ -4,6 +4,15 @@ doc-type: reference
 
 # customer-support — issue #1199 scout brief
 
+> **Superseded (2026-08-14 operator amendment on issue #1199 requirement
+> 1):** this brief surveyed general domain practitioner tools (Zendesk,
+> Intercom, KCS, Nicereply/Delighted), which the amendment's narrower
+> reading excludes as the survey target. Kept below as historical
+> record only — not executed as the phase-2 basis. The binding
+> plugin-ecosystem survey is
+> `docs/issue-1199/reports/customer-support.md`'s "2026-08-14
+> plugin-ecosystem rework (phase 2 executed)" section.
+
 canonical: this turn's tool transcript — four WebSearch calls dispatched in one message (Zendesk, Intercom, KCS/Consortium, Nicereply/Delighted queries)
 Stages used: 1 sweep (4 parallel WebSearch angles), 0 deepening rounds.
 Judge point 1: strong cross-angle agreement — each tool/methodology is

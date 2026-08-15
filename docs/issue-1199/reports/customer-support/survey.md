@@ -4,6 +4,15 @@ doc-type: reference
 
 # customer-support — issue #1199 current-state survey
 
+> **Superseded (2026-08-14 operator amendment on issue #1199 requirement
+> 1):** this survey framed "the plugins/tools practitioners in this
+> role's domain most use" as general domain tools (Zendesk, Intercom,
+> KCS, Nicereply/Delighted). The amendment narrows the survey target to
+> the Claude Code plugin/skill ecosystem specifically. Kept below as
+> historical record only. The binding plugin-ecosystem survey is
+> `docs/issue-1199/reports/customer-support.md`'s "2026-08-14
+> plugin-ecosystem rework (phase 2 executed)" section.
+
 ## Governing basis
 
 Issue #1199 (northpole req#1/req#5): survey the plugins/tools
