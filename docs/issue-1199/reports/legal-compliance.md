@@ -613,3 +613,12 @@ origin/main`, executed this session — result: non-zero exit, i.e. the
 rulebook-repo commit still needs its own PR opened. This session
 retries `gh pr create` in both repos immediately after this
 reconciliation.
+
+amendments-reconciled: issuecomment-5299596990 ("APPROVE
+issue-1199/interaction-design") is an approval comment for a different
+role/subject (canonical: `gh api repos/tokenmaxxxer/on-the-record/
+issues/comments/5299596990 --jq '.body'`, read this session per the
+pr-preflight notice) — it does not name legal-compliance, so no content
+amendment to this record is warranted. Retrying `gh pr create` for this
+repo immediately after this reconciliation (retry 1 of this session's
+5-attempt cap, per the precedent set earlier in this record).
