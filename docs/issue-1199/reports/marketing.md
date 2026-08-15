@@ -256,6 +256,19 @@ main...HEAD --stat`, run this session, showing only the marketing
 handbook's methodology doc, the messaging-gate hook, and the gate test
 suite remain changed).
 
+amendments-reconciled: issuecomment-5300066777 ("Judgment opened: PR #? —
+candidate decision on branch `issue-1199/marketing` (1 path(s) changed)
+entered delegated-judgment evaluation.") and issuecomment-5300066883
+("Verdict: PR #? → escalate (depth or impact axis did not clear)") —
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[-2:] | .[] | {id, body}'`, run this session. This is
+the automated judgment-watcher's generic escalate-verdict run over this
+unit's own record-file commit (the 1-path commit reconciling the prior
+verdict, made this session), matching the same generic-verdict shape
+already reconciled repeatedly above — the comment names no specific
+content defect, only a process-level depth/impact-axis escalation. No
+content amendment to this record is warranted.
+
 ## kind
 
 report
