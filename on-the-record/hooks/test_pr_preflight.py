@@ -571,6 +571,45 @@ def test_hook_allows_pr_when_only_machine_comments_post_spawn(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+def test_machine_body_re_classifies_three_observed_shapes(tmp_path):
+    """Issue #1552 acceptance bar (hermetic classifier test): the three
+    observed comment shapes — watchdog 'Judgment opened: ...', watchdog
+    'Verdict: PR #? -> escalate ...', and a bare single-account approval
+    string 'APPROVE issue-N/role' — classify as machine/reconciliation-
+    exempt, while a non-templated human comment still requires
+    reconciliation (empty state). Pulls `_MACHINE_BODY_RE` straight out of
+    pr-preflight.sh's source rather than duplicating the pattern, so this
+    test tracks the real classifier instead of a copy that can drift."""
+    hook_path = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "pr-preflight.sh"
+    )
+    with open(hook_path, "r", encoding="utf-8") as f:
+        src = f.read()
+    match = re.search(
+        r"_MACHINE_BODY_RE = re\.compile\(\n(.*?)\n\)", src, re.DOTALL
+    )
+    assert match, "could not locate _MACHINE_BODY_RE in pr-preflight.sh"
+    pattern = "".join(
+        eval(line.strip())
+        for line in match.group(1).splitlines()
+        if line.strip()
+    )
+    machine_body_re = re.compile(pattern)
+
+    machine_shapes = [
+        "Judgment opened: PR #1552",
+        "Verdict: PR #1552 → escalate (depth or impact axis did not clear)",
+        "APPROVE issue-1552/implementation",
+    ]
+    for body in machine_shapes:
+        assert machine_body_re.match(body), f"expected machine shape: {body!r}"
+
+    human_body = "looks good, approving informally, ship it"
+    assert not machine_body_re.match(human_body), (
+        f"non-templated human comment must not classify as machine: {human_body!r}"
+    )
+
+
 def test_hook_denies_pr_when_operator_comment_among_machine_comments(tmp_path):
     """Issue #1310 acceptance bar (operator-comment-block): one operator
     comment mixed in among machine comments must still block until the

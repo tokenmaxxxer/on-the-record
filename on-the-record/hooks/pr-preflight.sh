@@ -270,7 +270,8 @@ _MACHINE_BODY_RE = re.compile(
     r"^\s*(\[(on-the-record|watch|poll-report|watchdog|watchdog-crash|"
     r"reconcile|orphaned|resume|returned-pr|health)\]|"
     r"## Framing snapshot —|- \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*\|\s*role=|"
-    r"Judgment opened: |Verdict: PR )"
+    r"Judgment opened: |Verdict: PR |"
+    r"APPROVE issue-\S+/\S+\s*$)"
 )
 
 def _is_machine_comment(c):
