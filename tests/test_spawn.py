@@ -3960,7 +3960,9 @@ class Watchdog(unittest.TestCase):
             old_stdout = sys.stdout
             sys.stdout = buf
             try:
-                with mock.patch.object(spawn, "_board_wide_sweep", return_value=3):
+                with mock.patch.object(spawn, "_board_wide_sweep", return_value=3), \
+                     mock.patch.object(spawn, "cross_workspace_board_sweep_lock_acquire",
+                                        return_value=(True, "")):
                     result = spawn.roster_watchdog()
             finally:
                 sys.stdout = old_stdout
@@ -4025,6 +4027,12 @@ class Watchdog(unittest.TestCase):
             (root / "gates").mkdir()
             fake_cs = mock.MagicMock()
             fake_cs.issue_state_index_all.return_value = ({}, True)
+            fake_cs.load_backoff_state.return_value = {}
+            fake_cs.sweep_should_run.return_value = True
+            fake_cs.rate_limit_remaining.return_value = (5000, True)
+            fake_cs._RATE_LIMIT_GUARD_THRESHOLD = 500
+            fake_cs.next_categories.return_value = (
+                ["closure-sweep", "spawn-coverage"], [])
             fake_cs.find_violations.return_value = (
                 [{"issue": 1, "pr": 2, "role": "implementation",
                   "kind": "open-pr-on-closed-issue"}], [])
@@ -4051,6 +4059,12 @@ class Watchdog(unittest.TestCase):
             (root / "gates").mkdir()
             fake_cs = mock.MagicMock()
             fake_cs.issue_state_index_all.return_value = ({}, True)
+            fake_cs.load_backoff_state.return_value = {}
+            fake_cs.sweep_should_run.return_value = True
+            fake_cs.rate_limit_remaining.return_value = (5000, True)
+            fake_cs._RATE_LIMIT_GUARD_THRESHOLD = 500
+            fake_cs.next_categories.return_value = (
+                ["closure-sweep", "spawn-coverage"], [])
             fake_cs.find_violations.return_value = ([], [])
             fake_sc = mock.MagicMock()
             fake_sc._list_open_issues.return_value = [
@@ -4075,6 +4089,12 @@ class Watchdog(unittest.TestCase):
             (root / "gates").mkdir()
             fake_cs = mock.MagicMock()
             fake_cs.issue_state_index_all.return_value = ({}, True)
+            fake_cs.load_backoff_state.return_value = {}
+            fake_cs.sweep_should_run.return_value = True
+            fake_cs.rate_limit_remaining.return_value = (5000, True)
+            fake_cs._RATE_LIMIT_GUARD_THRESHOLD = 500
+            fake_cs.next_categories.return_value = (
+                ["closure-sweep", "spawn-coverage"], [])
             fake_cs.find_violations.return_value = ([], [])
             fake_sc = mock.MagicMock()
             fake_sc._list_open_issues.return_value = []
@@ -4091,6 +4111,12 @@ class Watchdog(unittest.TestCase):
             (root / "gates").mkdir()
             fake_cs = mock.MagicMock()
             fake_cs.issue_state_index_all.return_value = ({}, True)
+            fake_cs.load_backoff_state.return_value = {}
+            fake_cs.sweep_should_run.return_value = True
+            fake_cs.rate_limit_remaining.return_value = (5000, True)
+            fake_cs._RATE_LIMIT_GUARD_THRESHOLD = 500
+            fake_cs.next_categories.return_value = (
+                ["closure-sweep", "spawn-coverage"], [])
             fake_cs.find_violations.return_value = (
                 [], [{"subject": "issue-1", "reason": "gh-issue-view-failed"}])
             fake_sc = mock.MagicMock()
@@ -4130,7 +4156,9 @@ class Watchdog(unittest.TestCase):
                 print(f"sweep-ran:{r}")
                 return 1
 
-            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep), \
+                 mock.patch.object(spawn, "cross_workspace_board_sweep_lock_acquire",
+                                    return_value=(True, "")):
                 buf = io.StringIO()
                 old_stdout = sys.stdout
                 sys.stdout = buf
@@ -4155,7 +4183,9 @@ class Watchdog(unittest.TestCase):
             root = Path(td)
             (root / "docs" / "specs").mkdir(parents=True)
             (root / "docs" / "specs" / "approvers.md").write_text("someone\n")
-            with mock.patch.object(spawn, "_board_wide_sweep", return_value=0) as m:
+            with mock.patch.object(spawn, "_board_wide_sweep", return_value=0) as m, \
+                 mock.patch.object(spawn, "cross_workspace_board_sweep_lock_acquire",
+                                    return_value=(True, "")):
                 result = spawn._board_wide_sweep_all(root, {})
             m.assert_called_once_with(root.resolve())
             self.assertEqual(result, 0)
@@ -4177,7 +4207,9 @@ class Watchdog(unittest.TestCase):
                 print(f"sweep-ran:{r}")
                 return 1
 
-            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep), \
+                 mock.patch.object(spawn, "cross_workspace_board_sweep_lock_acquire",
+                                    return_value=(True, "")):
                 buf = io.StringIO()
                 old_stdout = sys.stdout
                 sys.stdout = buf
@@ -4328,7 +4360,9 @@ class PollHeartbeatMarkerRelocationTest(unittest.TestCase):
                 print(f"sweep-ran:{r}")
                 return 1
 
-            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep):
+            with mock.patch.object(spawn, "_board_wide_sweep", side_effect=fake_sweep), \
+                 mock.patch.object(spawn, "cross_workspace_board_sweep_lock_acquire",
+                                    return_value=(True, "")):
                 buf = io.StringIO()
                 old_stdout = sys.stdout
                 sys.stdout = buf
