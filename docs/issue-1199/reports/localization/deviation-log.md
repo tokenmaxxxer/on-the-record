@@ -44,3 +44,25 @@
   unverifiable across a session boundary (see the two entries above).
   Did not redo the survey/fold-in (out of this task's frozen scope)
   and did not open a PR with no real diff. reported, not spawned.
+
+- 2026-08-15T00:50 filed: pr-preflight retry loop recurs on
+  issue-1199 (localization) plugin-ecosystem rework delivery — three
+  consecutive `gh pr create` attempts each raced a fresh generic
+  judgment-watcher comment (issuecomment-5299610035, 5299612623,
+  5299615055, each body exactly "Verdict: PR #? → escalate (depth or
+  impact axis did not clear)" — canonical: `gh api
+  repos/tokenmaxxxer/on-the-record/issues/comments/<id>` for each,
+  read this session). Unlike the 2026-08-14T11:20 entry above, this
+  session's push IS verified this same session: canonical: `git push`
+  output this session showed real ref updates
+  `c81eb8aa..207f1063 issue-1199/localization -> issue-1199/localization`
+  on tokenmaxxxer/on-the-record, and separately
+  `13d0b19` pushed to `issue-1199/localization` on
+  tokenmaxxxer/localization-rulebook (canonical: `git log --oneline -1`
+  in that repo, read this session). Both commits carry the actual
+  plugin-ecosystem rework diff (rulebook playbook edits;
+  docs/issue-1199/reports/localization.md delivery record). Per the
+  same-shaped "stop pr-preflight retry loop" precedent (commit
+  e82184ec and the entries above), this session stops retrying
+  `gh pr create`; PR-create for both repos is deferred to relay.
+  reported, not spawned.
