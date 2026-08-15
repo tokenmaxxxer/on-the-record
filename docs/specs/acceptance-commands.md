@@ -31,3 +31,4 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | interaction-design/playbook/02-subtraction-comprehensibility-convention.md (tokenmaxxxer/interaction-design-rulebook) | `python3 gates/playbook_depth_gate.py /home/jwjung/.claude/plugins/marketplaces/tokenmaxxxer/runs/rulebooks/tokenmaxxxer-interaction-design/interaction-design/playbook/02-subtraction-comprehensibility-convention.md --role interaction-design --floor 4 --axes subtraction,comprehensibility,convention` | 2026-08-13 (issue #1174) |
 | on-the-record/hooks/pr-base-guard.sh | `python3 -m pytest tests/test_pr_base_guard.py -v` | 2026-08-14 (issue #1461) |
 | tests/test_spawn.py::Watchdog | `python3 -m pytest 'tests/test_spawn.py::Watchdog' -q` | 2026-08-15 (issue #1550) |
+| gates/test_patrol_board.py | `python3 -m pytest gates/test_patrol_board.py -q` | 2026-08-15 (issue #1588) |
