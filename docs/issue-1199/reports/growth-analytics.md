@@ -149,6 +149,13 @@ delegated-judgment verdict pattern as issuecomment-5277561352 above;
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
 --paginate`, read this session. No content amendment warranted.
 
+amendments-reconciled: issuecomment-5299596990 ("APPROVE
+issue-1199/interaction-design") is an approval token for a different
+role's unit (interaction-design), not growth-analytics — canonical: `gh
+api repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate`,
+read this session. It does not name or reference this growth-analytics
+unit, so no content amendment to this record is warranted.
+
 amendments-reconciled: issuecomment-5277561352 ("Verdict: PR #? →
 escalate (depth or impact axis did not clear)") is a delegated-judgment
 verdict for an unnumbered candidate PR — canonical: `gh api
