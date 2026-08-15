@@ -84,3 +84,31 @@ None — record is terminal (`landed`).
 ## Resolution path
 
 N/A — no open finding.
+
+## Live end-to-end record (orchestrator, post-session — acceptance item)
+
+canonical: live runs 2026-08-15, real GitHub state; board issue #1595
+(`Patrol board: test-authoring`), promoted issue #1596 (closed after the
+demonstration; seeded demo finding, not a real defect).
+
+Sequence: seeded one diff-lane finding (scanner_id=judge:test-authoring) →
+`patrol_board.py run` created board #1595 (2 API calls, wrote=true) →
+operator ticked the checkbox → `patrol_promote.py run` created exactly one
+issue #1596 with body/labels per spec and moved the board line to
+Approved/In Progress (1 read + 1 create + 1 board edit) → second poll:
+1 conditional read, 0 writes, 0 promotions.
+
+Three defects found by this live run and fixed on this branch (each with a
+regression test):
+1. `find_board_issue` issued POST /issues (gh api -f without -X GET defaults
+   to POST — a 422-only-because-titleless near-miss); pinned `-X GET`.
+2. Failed board lookup fell through toward create (duplicate-board risk);
+   now aborts with an error result. First-create also pre-creates labels
+   (`gh label create --force`), the cause of the first promotion gh_error.
+3. Tick consumption: prior-body diff persisted the ticked body even when
+   promotion FAILED (gh_error) or was rate-capped, silently losing the
+   operator's approval; eligibility is now "checked ∧ still pending" with
+   idempotence from find_existing_promotion, prior-body kept only as a
+   no-change short-circuit. Related: gh api exits rc=1 on HTTP 304, which
+   made the ETag cached-read path unreachable — status parse now precedes
+   the returncode check.

@@ -175,7 +175,8 @@ def test_promote_tick_creates_issue_and_records_state(monkeypatch, tmp_path):
     assert result == {"promoted": True, "issue": 99}
     assert state["promotions"] == ["2026-08-15T10:00:00"]
     assert state["open_issue_numbers"] == [99]
-    assert calls[0][:3] == ["gh", "issue", "create"]
+    create_calls = [c for c in calls if c[:3] == ["gh", "issue", "create"]]
+    assert create_calls[0][:3] == ["gh", "issue", "create"]
     assert patrol_promote.LABEL_PROMOTED in calls[0]
 
 
@@ -232,6 +233,8 @@ def test_end_to_end_one_tick_promotes_exactly_once_then_zero_writes(monkeypatch,
             return _R(stdout="https://github.com/acme/repo/issues/101\n")
         if cmd[:3] == ["gh", "issue", "edit"]:
             board_state["body"] = cmd[cmd.index("--body") + 1]
+            return _R()
+        if cmd[:3] == ["gh", "label", "create"]:
             return _R()
         raise AssertionError(f"unexpected gh call: {cmd}")
 

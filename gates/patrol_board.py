@@ -227,15 +227,21 @@ def find_board_issue(root: Path, role: str) -> tuple[dict | None, bool, int]:
         etag, cached_raw = None, None
 
     labels = f"{LABEL_BOARD},role:{role}" if role else LABEL_BOARD
-    cmd = ["gh", "api", f"repos/{slug}/issues",
+    # -X GET is load-bearing: `gh api` with -f fields and no method defaults
+    # to POST, and POST /issues is issue CREATION (observed live: 422 only
+    # because the payload lacked a title — PR #1594 review).
+    cmd = ["gh", "api", "-X", "GET", f"repos/{slug}/issues",
            "-f", f"labels={labels}", "-f", "state=all", "-i"]
     if etag:
         cmd = cmd + ["-H", f"If-None-Match: {etag}"]
     r = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
-    if r.returncode != 0:
-        return None, False, 1
-
     status, headers, body = spawn._split_gh_api_i_output(r.stdout)
+    # gh api exits NON-ZERO on HTTP 304 (observed live: rc=1, stderr
+    # "gh: HTTP 304") — the returncode check must not run before the
+    # status parse, or the cached-read path is unreachable and every
+    # conditional hit reads as a lookup failure (PR #1594 review).
+    if r.returncode != 0 and status != 304:
+        return None, False, 1
     if status == 304:
         return (cached_raw[0] if cached_raw else None), True, 0
     try:
@@ -303,6 +309,11 @@ def run_patrol_board(root: Path, role: str, queue_path: Path, dry_run: bool,
         return {"dry_run": True, "api_calls": 0, "wrote": False, "body": body}
 
     issue, ok, calls = find_board_issue(root, role)
+    if not ok:
+        # A failed lookup must never fall through to create — a transient
+        # error would mint a duplicate board (PR #1594 review).
+        return {"dry_run": False, "api_calls": calls, "wrote": False,
+                "error": "board lookup failed"}
     prior_body = issue.get("body") if issue else None
     next_body = build_next_body(prior_body, role, queue)
 
@@ -316,6 +327,11 @@ def run_patrol_board(root: Path, role: str, queue_path: Path, dry_run: bool,
 
     title = f"Patrol board: {role or 'all roles'}"
     if issue is None:
+        # First-ever board for this role: labels must exist or create 422s.
+        # `gh label create --force` is idempotent; one-time cost per repo.
+        for lbl in (LABEL_BOARD, f"role:{role}"):
+            subprocess.run(["gh", "label", "create", lbl, "--force"],
+                           cwd=root, capture_output=True, text=True)
         w = subprocess.run(
             ["gh", "issue", "create", "--title", title, "--body", next_body,
              "--label", LABEL_BOARD, "--label", f"role:{role}"],

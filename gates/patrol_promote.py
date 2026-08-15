@@ -231,6 +231,11 @@ def promote_tick(root: Path, role: str, entry: dict, state: dict,
     sev = entry.get("severity", "unspecified")
     title = f"[patrol:{role or 'all'}] {entry['finding_class']}: {entry['path']}"
     body = build_finding_issue_body(entry)
+    # Labels must exist or the create 422s (same failure class as the board's
+    # first create — PR #1594 review). `gh label create --force` is idempotent.
+    for lbl in (LABEL_PROMOTED, "finding", f"role:{role}", f"severity:{sev}"):
+        subprocess.run(["gh", "label", "create", lbl, "--force"],
+                       cwd=root, capture_output=True, text=True)
     r = subprocess.run(
         ["gh", "issue", "create", "--title", title, "--body", body,
          "--label", LABEL_PROMOTED, "--label", "finding",
@@ -249,6 +254,11 @@ def promote_tick(root: Path, role: str, entry: dict, state: dict,
     return {"promoted": True, "issue": issue_number}
 
 
+def _has_checked_pending(body: str) -> bool:
+    pending = patrol_board.parse_board_body(body)[patrol_board.PENDING_HEADING]
+    return any(line.lstrip().startswith("- [x]") for line in pending)
+
+
 def run_patrol_promote(root: Path, role: str, queue_path: Path, dry_run: bool,
                         now_iso: str) -> dict:
     queue = patrol_queue.load_queue(queue_path)
@@ -261,8 +271,17 @@ def run_patrol_promote(root: Path, role: str, queue_path: Path, dry_run: bool,
     if new_body is None:
         return {"dry_run": False, "api_calls": calls, "promotions": [], "deferred": []}
 
+    # Correctness note (live E2E, PR #1594 review): the prior-body diff
+    # alone CONSUMES a tick even when its promotion fails (gh_error) or is
+    # rate-capped — the next run sees no fresh tick and the approval is
+    # silently lost. Promotion eligibility is therefore "checked AND still
+    # in Pending Approval", with idempotence guaranteed by
+    # find_existing_promotion(), not by the body diff. prior_body is kept
+    # only as a cheap short-circuit when nothing changed at all.
     prior_body = load_prior_body(root, role)
-    ticks = detect_ticks(prior_body, new_body, queue)
+    if prior_body == new_body and not _has_checked_pending(new_body):
+        return {"dry_run": False, "api_calls": calls, "promotions": [], "deferred": []}
+    ticks = detect_ticks(None, new_body, queue)
 
     if not ticks:
         save_prior_body(root, role, new_body)
