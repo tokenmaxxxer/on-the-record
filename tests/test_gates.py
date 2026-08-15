@@ -530,6 +530,47 @@ def t_record_enums_loop_state_out_of_set_blocks():
         gates.ON_THE_RECORD_ROOT = old
 
 
+def t_record_enums_bucketed_loop_state_valid_value_passes():
+    """#1635: loop_state 가 {'progress': [...], 'terminal': ['handed-off'], ...}
+    같은 버킷 dict 로 선언됐을 때, 버킷 어디에든 있으면 유효해야 한다 —
+    dict 를 flat allow-list 로 취급해 오탐내면 안 된다."""
+    old = gates.ON_THE_RECORD_ROOT
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            _enum_record_repo(
+                td, "execution-observation",
+                {"loop_state": {
+                    "progress": ["observing"],
+                    "terminal": ["handed-off"],
+                    "refusal": ["refused"],
+                    "error": ["blocked"],
+                }},
+                "loop_state: handed-off")
+            assert gates.record_enums(Path(td), {}) == []
+    finally:
+        gates.ON_THE_RECORD_ROOT = old
+
+
+def t_record_enums_bucketed_loop_state_undeclared_value_blocks():
+    """버킷 dict 형태에서도 실제로 선언되지 않은 값은 여전히 잡혀야 한다."""
+    old = gates.ON_THE_RECORD_ROOT
+    try:
+        with tempfile.TemporaryDirectory() as td:
+            _enum_record_repo(
+                td, "execution-observation",
+                {"loop_state": {
+                    "progress": ["observing"],
+                    "terminal": ["handed-off"],
+                    "refusal": ["refused"],
+                    "error": ["blocked"],
+                }},
+                "loop_state: made-up-state")
+            bad = gates.record_enums(Path(td), {})
+            assert bad and "loop_state" in bad[0], bad
+    finally:
+        gates.ON_THE_RECORD_ROOT = old
+
+
 def _record_repo(td: str, subject: str, role: str, text: str) -> Path:
     """docs/issue-<n>/reports/<role>.md 를 커밋해 둔 레포."""
     work = Path(td) / "work"
