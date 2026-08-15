@@ -679,5 +679,146 @@ def test_hook_allows_pr_when_no_events_file(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+# --- issue #1623 (finding G carry-over): real parity coverage between
+# pr-preflight.sh's ported check_body and gates/pr_reference.py's own
+# check_body ----------------------------------------------------------------
+#
+# The hand-duplicated `check_body` earlier in this file (line ~95) only
+# pins itself -- it was already caught silently drifting from the live
+# heredoc (missing the lead-paragraph/citation-placement prose checks the
+# live hook and gates/pr_reference.py both carry), which is exactly the gap
+# PR #1621 finding G named: no automated diff against the real ported
+# function. This section extracts the ACTUAL heredoc source between
+# `IFS='' read -r -d '' GUARD <<'PY'` and the `bad = check_body(...)` call
+# in pr-preflight.sh, execs it to get a live `check_body`, and runs the
+# same fixture bodies through it and through `gates/pr_reference.check_body`
+# directly (import, no subprocess) -- asserting equal output, not just
+# equal shape.
+
+GATES_DIR = HOOKS_DIR.parent.parent / "gates"
+
+
+def _extract_live_check_body():
+    """Pulls the live `check_body` out of pr-preflight.sh's embedded
+    heredoc. The heredoc is not just function defs -- it also carries the
+    module-level PreToolUse dispatch pipeline (reads `CG_PAYLOAD`, may
+    `sys.exit(0)`/`sys.exit(2)` at import time), interleaved with the
+    defs `check_body` itself needs. Execing the raw source top-to-bottom
+    hits that dispatch's early `sys.exit(0)` (no `CG_PAYLOAD` env var set
+    here) before `check_body`'s own `def` is ever reached, since it sits
+    after the dispatch code in file order. So: parse the heredoc with
+    `ast`, keep only top-level `Import`/`FunctionDef`/module-level regex
+    `Assign` nodes (the actual defs/constants `check_body` closes over),
+    drop every other top-level statement (the dispatch pipeline), and
+    exec that filtered subset."""
+    import ast
+
+    src = PREFLIGHT.read_text(encoding="utf-8")
+    start = src.index("IFS='' read -r -d '' GUARD <<'PY'")
+    start = src.index("\n", start) + 1
+    end = src.index("\nbad = check_body(issue, body, phase, plan)", start)
+    heredoc_src = src[start:end]
+
+    def _is_regex_constant_assign(node):
+        return (
+            isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+            and (node.targets[0].id.endswith("_RE") or node.targets[0].id.endswith("_REF"))
+        )
+
+    tree = ast.parse(heredoc_src, filename=str(PREFLIGHT))
+    kept = [
+        node for node in tree.body
+        if isinstance(node, (ast.Import, ast.ImportFrom, ast.FunctionDef))
+        or _is_regex_constant_assign(node)
+    ]
+    filtered = ast.Module(body=kept, type_ignores=[])
+    ast.fix_missing_locations(filtered)
+
+    ns = {}
+    exec(compile(filtered, str(PREFLIGHT), "exec"), ns)
+    return ns["check_body"]
+
+
+def _import_pr_reference():
+    if str(GATES_DIR) not in sys.path:
+        sys.path.insert(0, str(GATES_DIR))
+    import pr_reference
+    return pr_reference
+
+
+PARITY_FIXTURES = [
+    # (issue, body, phase, plan)
+    (459, "Refs #459, work in progress", "phase1", None),
+    (459, "Closes #459", "phase1", None),  # phase1 closing keyword (not check_body's job to gate)
+    (459, "no reference at all here", "phase1", None),
+    (459, "Closes #459", "phase2", None),
+    (459, "just some text, no closing keyword", "phase2", None),
+    (
+        447,
+        "Closes #447",
+        "phase2",
+        [
+            {"step": 1, "roles": ["a"], "done": True},
+            {"step": 2, "roles": ["b"], "done": False},
+            {"step": 3, "roles": ["c"], "done": True},
+        ],
+    ),
+    (
+        459,
+        "Closes #459",
+        "phase2",
+        [
+            {"step": 1, "roles": ["a"], "done": True},
+            {"step": 2, "roles": ["b"], "done": False},
+        ],
+    ),
+    # prose-shape violations (drift risk: the file's hand-duplicated
+    # check_body above does not carry these checks at all).
+    (743, "Closes #743", "phase2", None),  # trailer-only body, no lead prose
+    (
+        743,
+        "This states what changed and why in real prose, canonical: docs/foo.md, "
+        "trailing after the sentence.\n\nCloses #743",
+        "phase2",
+        None,
+    ),
+    (
+        743,
+        "canonical: docs/foo.md this splits the sentence before it even starts.\n\nCloses #743",
+        "phase2",
+        None,
+    ),
+]
+
+
+def test_ported_check_body_matches_pr_reference_check_body():
+    """gates/pr_reference.check_body and pr-preflight.sh's live embedded
+    check_body must agree on every fixture, on which rule(s) fire (deny vs
+    allow, and how many violations) -- this is the automated parity diff
+    finding G asked for, not another hand pin.
+
+    Compares violation COUNT, not exact message text: the ported hook's
+    messages are English, gates/pr_reference.py's are Korean (a pre-existing,
+    deliberate i18n split between the zero-install hook and the gates/
+    module, not something this issue's scope covers) -- so string equality
+    would fail on every fixture for a reason unrelated to the actual ported
+    logic. Count parity still catches the real drift class finding G named:
+    a rule present in one copy and silently missing in the other (exactly
+    what this file's hand-duplicated check_body above had drifted into,
+    before this test existed)."""
+    live_check_body = _extract_live_check_body()
+    pr_reference = _import_pr_reference()
+    mismatches = []
+    for fixture in PARITY_FIXTURES:
+        issue, body, phase, plan = fixture
+        live = live_check_body(issue, body, phase, plan)
+        reference = pr_reference.check_body(issue, body, phase, plan)
+        if len(live) != len(reference):
+            mismatches.append((fixture, live, reference))
+    assert not mismatches, mismatches
+
+
 if __name__ == "__main__":
     sys.exit(run())

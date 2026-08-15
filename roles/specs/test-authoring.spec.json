@@ -72,6 +72,10 @@
     {
       "criterion": "suite_passes_clean",
       "verification_method": "pytest (or equivalent) run, exit code and SKIPPED-line count asserted, reusing role-test-claim-guard.sh's SKIPPED-line discipline"
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
     }
   ],
   "loop_state": {
