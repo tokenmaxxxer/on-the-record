@@ -175,3 +175,21 @@ PR-open attempt) is the same templated delegated-judgment verdict for
 an unnumbered candidate PR, again naming no branch or role specific to
 this issue-retrospective unit. No amendment to this record's scope or
 content is warranted.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299672150` and
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299673332`, read
+this session
+Two more instances of the same templated escalate-verdict comment
+(issuecomment-5299672150, issuecomment-5299673332) landed within
+seconds of each retried `gh pr create` attempt this session — the
+reconcile-then-retry deadlock this record already names in its
+Rulebook PR section (the external watcher reposts faster than one
+reconcile-commit-retry cycle can close). No amendment to this record's
+scope or content is warranted; per that section, this session stops
+retrying `gh pr create` in a loop against this deadlock.
+
+canonical: `git -C /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-1199-issue-retrospective log --oneline origin/issue-1199/issue-retrospective -1` and `git -C /home/jwjung/tokenmaxxxer/rulebooks/issue-retrospective-rulebook log --oneline origin/issue-1199/tool-landscape -1`, run this session
+Both branches are pushed to their respective origins as of this
+session's own commits above (`32acc767` here, `582cde2` in the
+rulebook repo) — commit+push is the deliverable this session lands;
+PR-open relays externally per the same precedent.
