@@ -133,6 +133,8 @@ amendments-reconciled: issuecomment-5300059908 (generic automated-watcher "Verdi
 
 amendments-reconciled: issuecomment-5300064353 (generic automated-watcher noise, reconciled same as prior entries above).
 
+amendments-reconciled: issuecomment-5300079191 (generic automated-watcher noise burst, reconciled same as prior entries above -- storm confirmed settled via 3x-stable poll this session).
+
 ## What was done
 
 Re-surveyed the Claude Code plugin/skill ecosystem for tools relevant
