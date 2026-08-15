@@ -374,6 +374,82 @@ def rate_limit_remaining(root: Path) -> tuple[int | None, bool]:
     return remaining, True
 
 
+# issue #1498 req 3/4: 워치독 틱/재확인 루프의 백오프 상태 — 하나의 JSON
+# 파일에 스윕 백오프(sweeps)와 재확인 백오프(recheck) 두 네임스페이스를
+# 따로 둔다. `(interval_ticks, tick)` 만 있으면 되고 gh 를 전혀 안 쓴다 —
+# 순수 로컬 카운터다.
+BACKOFF_STATE_REL = Path("runs") / "gh_quota_backoff.json"
+
+SWEEP_BACKOFF_MAX_TICKS = 8
+RECHECK_NO_CHANGE_THRESHOLD = 3
+RECHECK_BACKOFF_MAX_TICKS = 16
+
+
+def load_backoff_state(root: Path) -> dict:
+    """runs/gh_quota_backoff.json 을 읽는다. 없거나 깨졌으면 빈 상태."""
+    p = root / BACKOFF_STATE_REL
+    if not p.is_file():
+        return {"sweeps": {}, "recheck": {}}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"sweeps": {}, "recheck": {}}
+    data.setdefault("sweeps", {})
+    data.setdefault("recheck", {})
+    return data
+
+
+def save_backoff_state(root: Path, state: dict) -> None:
+    p = root / BACKOFF_STATE_REL
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state), encoding="utf-8")
+
+
+def sweep_should_run(state: dict, name: str) -> bool:
+    """이슈 #1498 요구 3: `name` 스윕이 이번 틱에 돌아야 하는지 — 저장된
+    `interval_ticks` 마다 한 번만 True. 틱 카운터는 이 호출로 증가한다
+    (호출부가 저장까지 책임진다)."""
+    entry = state.setdefault("sweeps", {}).setdefault(
+        name, {"tick": 0, "interval_ticks": 1, "consecutive_rate_limit_errors": 0})
+    entry["tick"] += 1
+    return entry["tick"] % entry["interval_ticks"] == 0
+
+
+def record_sweep_result(state: dict, name: str, rate_limited: bool) -> None:
+    """이번 틱 스윕 결과를 반영해 다음 간격을 정한다 — rate-limit 에 걸렸으면
+    간격을 2배(상한 `SWEEP_BACKOFF_MAX_TICKS`), 성공하면 1로 리셋."""
+    entry = state.setdefault("sweeps", {}).setdefault(
+        name, {"tick": 0, "interval_ticks": 1, "consecutive_rate_limit_errors": 0})
+    if rate_limited:
+        entry["consecutive_rate_limit_errors"] += 1
+        entry["interval_ticks"] = min(
+            SWEEP_BACKOFF_MAX_TICKS, max(1, entry["interval_ticks"]) * 2)
+    else:
+        entry["consecutive_rate_limit_errors"] = 0
+        entry["interval_ticks"] = 1
+
+
+def recheck_backoff(state: dict, key: str, changed: bool) -> bool:
+    """이슈 #1498 요구 4: `key` 재확인 루프(issue-1163 28-재확인류)의 이번
+    틱 재확인 여부. `changed` 는 직전 재확인 결과 — 변화 없음이
+    `RECHECK_NO_CHANGE_THRESHOLD` 회 연속되면 간격이 2배(상한
+    `RECHECK_BACKOFF_MAX_TICKS`), 변화가 관측되면 즉시 1 로 리셋된다.
+    돌려주는 값은 "이번 틱에 재확인해야 하는가" — 호출부가 gh 를 부를지
+    결정하는 데 쓴다."""
+    entry = state.setdefault("recheck", {}).setdefault(
+        key, {"tick": 0, "interval_ticks": 1, "consecutive_no_change": 0})
+    if changed:
+        entry["consecutive_no_change"] = 0
+        entry["interval_ticks"] = 1
+    else:
+        entry["consecutive_no_change"] += 1
+        if entry["consecutive_no_change"] >= RECHECK_NO_CHANGE_THRESHOLD:
+            entry["interval_ticks"] = min(
+                RECHECK_BACKOFF_MAX_TICKS, entry["interval_ticks"] * 2)
+    entry["tick"] += 1
+    return entry["tick"] % entry["interval_ticks"] == 0
+
+
 def main() -> int:
     root = Path(".").resolve()
     argv = sys.argv[1:]

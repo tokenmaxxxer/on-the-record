@@ -22,6 +22,7 @@ subject 만 대상으로 하고, 틱당 스폰 개수를 `SPAWN_CAP` 으로 캡�
 """
 from __future__ import annotations
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -30,6 +31,8 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
 import spawn  # noqa: E402
 import closure_sweep  # noqa: E402
+import ci as _ci  # noqa: E402
+import skip_eligibility  # noqa: E402
 
 PR_TRIGGERED_ROLES = ("execution-observation", "conformance-review")
 
@@ -37,6 +40,17 @@ PR_TRIGGERED_ROLES = ("execution-observation", "conformance-review")
 # (subject, role) 쌍의 개수를 제한하는 예산 백스톱. 초과분은 조용히
 # 버리지 않고 몇 건이 미뤄졌는지 한 줄로 찍는다.
 SPAWN_CAP = 4
+
+# issue #1476: 승인-대기 상태에서 매 틱 재스폰하던 것을 막는 park 상태
+# 저장소 — `root`(대상 레포) 기준 상대경로. 키는 "<subject>/<role>",
+# 값은 {"blocked": bool, "pr_number": int} — 두 필드 모두 구조화 신호다:
+# `pr_number`(`_pr_open_or_merged_for_branch`가 이미 매 틱 조회하는 값)가
+# 안 바뀌었으면 브랜치에 새 커밋이 없었다는 뜻이고(요구 2의 "새 커밋"
+# 재무장 트리거), `blocked`는 `gates/ci.py:_approved_roles_on_issue()`
+# (승인자 allowlist, `APPROVE issue-<n>/<role>` 문자열 완전일치 — 프로즈
+# 매칭이 아니다)로 구한다. 두 신호가 이전 틱과 완전히 같을 때만 park —
+# 결코 경과 시간만으로 재무장하지 않는다.
+PARK_STATE_REL = Path("runs") / "spawn_on_pr_parked.json"
 
 
 def applicable_roles(subject_board: dict, roles: tuple[str, ...] = PR_TRIGGERED_ROLES) -> list[str]:
@@ -57,7 +71,23 @@ def _issue_is_open(issue: int, issue_states: dict[int, str] | None) -> bool:
     return issue_states.get(issue) == "OPEN"
 
 
-def missing_verification(root: Path, issue_states: dict[int, str] | None = None
+def _pr_number_for_branch(root: Path, branch: str,
+                           pr_index: dict[str, dict] | None) -> int | None:
+    """`pr_index`(있으면, `closure_sweep._pr_index_all()` 모양)에서
+    OPEN/MERGED PR 번호를 찾는다. 인덱스가 없으면(잘렸거나 실패)
+    `spawn._pr_open_or_merged_for_branch()`(브랜치당 `gh` 한 번)으로
+    되돌아간다 — 이슈 #1498 요구 5: 인덱스가 있는 정상 경로는 subject 수와
+    무관하게 O(1) gh 호출만 쓴다."""
+    if pr_index is not None:
+        entry = pr_index.get(branch)
+        if entry is not None and entry.get("state") in ("OPEN", "MERGED"):
+            return entry.get("number")
+        return None
+    return spawn._pr_open_or_merged_for_branch(root, branch)
+
+
+def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
+                          pr_index: dict[str, dict] | None = None
                           ) -> dict[str, list[str]]:
     """보드 전체를 훑어 `{subject: [빠진 role, ...]}` 을 만든다. 대상
     조건: PR 이 실제로 열려있거나 머지되어 있고(트리거는 "PR 생성"이지
@@ -69,48 +99,204 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None
     `issue_states` 는 이슈번호 -> state 사전(선택) — 주어지지 않으면
     `closure_sweep.issue_state_index_all()` 로 한 번에 가져온다(호출자가
     이미 같은 틱에서 가져온 사전이 있으면 그걸 재사용해 `gh` 중복 호출을
-    피한다, closure_sweep 의 같은 패턴)."""
+    피한다, closure_sweep 의 같은 패턴). `pr_index` 도 마찬가지 —
+    안 주면 `closure_sweep._pr_index_all()` 로 한 번에 가져온다(이슈
+    #1498 요구 5: subject 당 `gh pr list --head` 대신 벌크 인덱스 한 번 +
+    로컬 조인)."""
     out: dict[str, list[str]] = {}
     if issue_states is None:
         issue_states, ok = closure_sweep.issue_state_index_all(root)
         if not ok:
             issue_states = None
+    if pr_index is None:
+        pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
     for subject, subject_board in b.items():
         missing = applicable_roles(subject_board)
         if not missing:
             continue
-        pr_number = spawn._pr_open_or_merged_for_branch(root, f"{subject}/implementation")
+        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
         if pr_number is None:
             continue
         issue = int(subject.split("-", 1)[1])
         if not _issue_is_open(issue, issue_states):
             continue
+        if "execution-observation" in missing:
+            missing = _filter_execution_observation(root, subject, missing)
+            if not missing:
+                continue
         out[subject] = missing
     return out
 
 
+def _filter_execution_observation(root: Path, subject: str,
+                                   missing: list[str]) -> list[str]:
+    """issue #745 Item 3 — `execution-observation` 스폰 자격을 세 축
+    (변경 크기/비가역성/주장 어휘, `skip_eligibility.classify_for_subject`)
+    으로 분류하고 ledger 에 population(R/S) 을 기록한다(20-PR 측정
+    윈도우 재현용). population S(모두 low-risk) 면 `missing` 에서 뺀다;
+    분류 자체가 실패하면(예: 브랜치/기록 없음) fail closed — required
+    그대로 둔다."""
+    try:
+        classification = skip_eligibility.classify_for_subject(root, subject)
+    except Exception:
+        return missing
+    spawn.ledger_write({
+        "event": "execution_observation_classification",
+        **classification,
+    })
+    if classification["skip_eligible"]:
+        return [r for r in missing if r != "execution-observation"]
+    return missing
+
+
+def _park_state_path(root: Path) -> Path:
+    return root / PARK_STATE_REL
+
+
+def load_park_state(root: Path) -> dict[str, dict]:
+    """park 상태를 읽는다. 파일이 없거나(첫 틱) 깨졌으면 빈 사전 — 빈
+    사전은 "park 후보 없음"과 같은 뜻이라 이 함수 하나만으로 fail-safe
+    하다."""
+    p = _park_state_path(root)
+    if not p.is_file():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_park_state(root: Path, state: dict[str, dict]) -> None:
+    p = _park_state_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+
+
+def is_approval_blocked(root: Path, issue: int, role: str) -> bool:
+    """구조화 신호: `gates/ci.py:_approved_roles_on_issue()`(승인자
+    allowlist 계정의 `APPROVE issue-<n>/<role>` 코멘트, 문자열 완전일치)
+    에 `role` 이 없으면 아직 승인-대기(blocked)다."""
+    return role not in _ci._approved_roles_on_issue(root, issue)
+
+
+def should_park(prior: dict | None, pr_number: int | None, blocked: bool) -> bool:
+    """park 판정: 순수 함수. 이번 틱도 여전히 blocked 이고, 이전 틱
+    기록(`prior`)이 있으며, 그 기록의 `pr_number`/`blocked` 가 이번 틱과
+    완전히 같을 때만 park — 그중 하나라도 다르면(새 커밋으로 PR 번호가
+    바뀌었거나, 승인 코멘트가 새로 달려 더 이상 blocked 가 아니면)
+    재무장(park 아님)한다. `prior is None`(첫 틱 후보)은 언제나 park
+    아님 — 아직 한 번도 시도해 본 적 없는 역할을 재시도로 오인하지
+    않는다."""
+    if not blocked or prior is None:
+        return False
+    return prior.get("blocked") is True and prior.get("pr_number") == pr_number
+
+
+def parked_report(root: Path) -> list[tuple[str, str]]:
+    """현재 park 상태에서 `blocked=True` 인 `(subject, role)` 쌍을
+    돌려준다 — watchdog 출력이 park 된 항목을 waiting-for-human 으로
+    계속 보여주는 데 쓴다(요구 3, watch-coverage 불가침)."""
+    out = []
+    for key, entry in sorted(load_park_state(root).items()):
+        if entry.get("parked"):
+            subject, _, role = key.partition("/")
+            out.append((subject, role))
+    return out
+
+
+def unpark(root: Path, subject: str, role: str) -> bool:
+    """명시적 unpark(요구 2의 세 번째 재무장 트리거) — park 항목을
+    지운다. 지울 게 있었으면 True."""
+    state = load_park_state(root)
+    key = f"{subject}/{role}"
+    if key in state:
+        del state[key]
+        _save_park_state(root, state)
+        return True
+    return False
+
+
 def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
                           issue_states: dict[int, str] | None = None,
-                          spawn_cap: int = SPAWN_CAP) -> list[tuple[str, str]]:
+                          spawn_cap: int = SPAWN_CAP,
+                          backoff_state: dict | None = None) -> list[tuple[str, str]]:
     """`missing_verification()` 이 찾은 `(subject, role)` 쌍 중 최대
     `spawn_cap` 개를 등록+스폰한다. 초과분은 스폰하지 않고, 몇 건이
     미뤄졌는지 한 줄 찍는다(issue #1360 — no silent cap). `dry_run=True`
     면 등록/스폰 없이 (캡 적용된) 쌍만 돌려준다(테스트용, 실제 세션을
-    띄우지 않는다)."""
-    all_pairs: list[tuple[str, str]] = []
-    for subject, roles in missing_verification(root, issue_states=issue_states).items():
+    띄우지 않는다).
+
+    issue #1476: 후보 쌍마다 이전 park 상태(`load_park_state`)가 있고
+    이번 틱의 `pr_number`가 그 상태와 같으면(새 커밋 없음) `is_approval_
+    blocked()`(구조화 신호)로 확인해 여전히 승인-대기면 park 하고
+    스폰하지 않는다. `is_approval_blocked()`(gh 호출)는 바로 이 경우 —
+    이전 park 기록이 있고 `pr_number`가 같을 때만 호출한다: 후보를 처음
+    보는 틱은 gh 를 전혀 안 건드리고 그냥 스폰한다(기존 동작 그대로).
+
+    issue #1498 요구 4: 그 재확인 자체도 매 틱 부르지 않는다 —
+    `closure_sweep.recheck_backoff()`(같은 `runs/gh_quota_backoff.json`,
+    `recheck` 네임스페이스)로 게이팅해, 연속으로 변화 없던 키는 점점 뜸하게
+    재확인한다. `backoff_state` 를 안 주면 이 함수가 직접 읽고 저장한다
+    (호출부가 여러 재확인을 한 상태 객체로 묶고 싶으면 넘겨서 공유한다 —
+    그때는 저장을 호출부가 책임진다)."""
+    owns_backoff_state = backoff_state is None
+    if backoff_state is None:
+        backoff_state = closure_sweep.load_backoff_state(root)
+
+    # issue #1498 요구 5: 벌크 PR 인덱스 한 번을 `missing_verification()` 과
+    # 아래 subject 별 조인이 함께 재사용한다 — subject 수만큼 `gh pr list
+    # --head` 를 부르지 않는다.
+    pr_index, _ = closure_sweep._pr_index_all(root)
+
+    all_pairs: list[tuple[str, str, int | None]] = []
+    for subject, roles in missing_verification(
+            root, issue_states=issue_states, pr_index=pr_index).items():
+        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
         for role in roles:
-            all_pairs.append((subject, role))
-    pairs = all_pairs[:spawn_cap]
-    deferred = len(all_pairs) - len(pairs)
+            all_pairs.append((subject, role, pr_number))
+
+    park_state = load_park_state(root)
+    to_spawn: list[tuple[str, str, int | None, int]] = []
+    parked_now: list[tuple[str, str]] = []
+    for subject, role, pr_number in all_pairs:
+        issue = int(subject.split("-", 1)[1])
+        key = f"{subject}/{role}"
+        prior = park_state.get(key)
+        if prior is not None and prior.get("pr_number") == pr_number and prior.get("blocked"):
+            if not closure_sweep.recheck_backoff(backoff_state, key, False):
+                # 이번 틱은 재확인 순번이 아니다 — gh 호출 없이 park 유지.
+                parked_now.append((subject, role))
+                park_state[key] = {"blocked": True, "pr_number": pr_number, "parked": True}
+                continue
+            blocked = is_approval_blocked(root, issue, role)
+            if not blocked:
+                closure_sweep.recheck_backoff(backoff_state, key, True)
+            if should_park(prior, pr_number, blocked):
+                parked_now.append((subject, role))
+                park_state[key] = {"blocked": True, "pr_number": pr_number, "parked": True}
+                continue
+            if not blocked:
+                park_state.pop(key, None)
+        to_spawn.append((subject, role, pr_number, issue))
+
+    if owns_backoff_state:
+        closure_sweep.save_backoff_state(root, backoff_state)
+
+    if parked_now:
+        print(f"[spawn-on-pr] park={len(parked_now)}건 waiting-for-human "
+              f"(승인-대기 상태 변화 없음): {parked_now}")
+
+    pairs3 = to_spawn[:spawn_cap]
+    deferred = len(to_spawn) - len(pairs3)
     if deferred > 0:
         print(f"[spawn-on-pr] cap={spawn_cap} 초과로 {deferred}건 미룸 "
               f"(다음 틱 또는 backfill_closed() 로 처리)")
+
+    pairs = [(subject, role) for subject, role, _pr, _issue in pairs3]
     if dry_run:
         return pairs
-    for subject, role in pairs:
-        issue = int(subject.split("-", 1)[1])
+    for subject, role, pr_number, issue in pairs3:
         task = (f"이슈 #{issue}: {role} — {subject}/implementation 브랜치에 랜딩된 "
                 f"커밋에 대해 아직 기록이 없다. PR 생성 시 자동 스폰됨 (spawn_on_pr.py).")
         spawn.roster_register(
@@ -118,23 +304,30 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
             {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
         )
         spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True)
+        park_state[f"{subject}/{role}"] = {"blocked": True, "pr_number": pr_number, "parked": False}
+    _save_park_state(root, park_state)
     return pairs
 
 
-def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None
+def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None,
+                                  pr_index: dict[str, dict] | None = None
                                   ) -> dict[str, list[str]]:
     """`missing_verification()` 의 거울 — PR 이 있고 기록이 빠진 subject
     중 이슈가 CLOSED 인 것만 돌려준다(issue #1360 req 3, opt-in
     backfill 전용). `issue_states` 가 없거나(gh 실패) 이슈가 사전에
     없으면(조회 불가) 대상에서 제외한다 — 상태를 모르는 subject 를
-    "닫혔다"고 넘겨짚지 않는다."""
+    "닫혔다"고 넘겨짚지 않는다. `pr_index` 는 `missing_verification()` 과
+    같은 벌크 인덱스 재사용(이슈 #1498 요구 5) — 안 주면 이 함수가 직접
+    가져온다."""
     out: dict[str, list[str]] = {}
+    if pr_index is None:
+        pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
     for subject, subject_board in b.items():
         missing = applicable_roles(subject_board)
         if not missing:
             continue
-        pr_number = spawn._pr_open_or_merged_for_branch(root, f"{subject}/implementation")
+        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
         if pr_number is None:
             continue
         issue = int(subject.split("-", 1)[1])
@@ -181,6 +374,10 @@ def _main(argv: list[str] | None = None) -> int:
         help="닫힌 이슈의 검증 부채를 훑는다. 기본은 dry-run(목록만 출력).")
     backfill.add_argument("--live", action="store_true",
                            help="실제로 등록+스폰한다(기본은 dry-run).")
+    unpark_p = sub.add_parser(
+        "unpark", help="park 된 (subject, role) 을 명시적으로 재무장한다(issue #1476 요구 2).")
+    unpark_p.add_argument("--subject", required=True, help="예: issue-1163")
+    unpark_p.add_argument("--role", required=True, help="예: conformance-review")
     args = parser.parse_args(argv)
     if args.command == "backfill-closed":
         pairs = backfill_closed(ROOT, str(ROOT), dry_run=not args.live)
@@ -188,6 +385,11 @@ def _main(argv: list[str] | None = None) -> int:
         print(f"[backfill-closed] {mode}: {len(pairs)}건")
         for subject, role in pairs:
             print(f"  {subject} / {role}")
+        return 0
+    if args.command == "unpark":
+        cleared = unpark(ROOT, args.subject, args.role)
+        print(f"[unpark] {args.subject}/{args.role}: "
+              f"{'재무장됨' if cleared else 'park 기록 없음'}")
         return 0
     return 1
 
