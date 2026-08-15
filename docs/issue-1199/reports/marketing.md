@@ -124,6 +124,35 @@ comment IC_kwDOTiVhs88AAAABO-fFQg names branch
 automated judgment-watcher run over a different role's branch, so no
 content amendment to this record is warranted.
 
+amendments-reconciled: issuecomment-5300037492 ("Judgment opened: PR #? —
+candidate decision on branch `issue-1199/marketing` (2 path(s) changed)
+entered delegated-judgment evaluation.") and issuecomment-5300037554
+("Verdict: PR #? → escalate (depth or impact axis did not clear)"),
+posted 2026-08-15T02:19:32Z and 2026-08-15T02:19:33Z — canonical: `gh
+api repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate -q
+'.[-2:]'`, run this session. This is the automated judgment-watcher's
+generic escalate-verdict run over this unit's own PR #1553 (opened this
+session, canonical: `gh pr view 1553 --json url,number`, run this
+session) — the comment names no specific content defect, only a
+depth/impact-axis escalation of the delegated-judgment process itself,
+matching the same generic-verdict shape already reconciled elsewhere in
+this issue's other role records (e.g. docs/issue-1199/reports/
+conformance-review.md's own "amendments-reconciled" entries for the
+identical comment template on other branches). No content amendment to
+this record is warranted; the escalation is a process signal for a
+human/orchestrator to act on, not a defect in this delivery.
+
+amendments-reconciled: issuecomment-5300041368 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)"), posted
+2026-08-15T02:20:32Z — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[-1:]'`, run this session. Same generic-verdict
+watcher-spam shape as the two entries reconciled immediately above (one
+new copy per `gh pr create` retry in the rulebook repo, matching the
+documented comment-spam-loop pattern from docs/issue-1174/reports/
+marketing.md's own post-approval pr-preflight note). No further `gh pr
+create` retries in the rulebook repo this session; the branch and
+commit there remain pushed and ready, per "What did not work" below.
+
 Committed in the rulebook repo: `tokenmaxxxer/marketing-rulebook` commit
 204721a ("Fold Claude Code plugin-ecosystem learnings into marketing
 methodology", subject: issue-1199), branch `issue-1199/marketing`,
@@ -199,6 +228,65 @@ can check mechanically, versus prose that only reads as guidance.
   --repo tokenmaxxxer/marketing-rulebook --head issue-1199/marketing` in
   a follow-up session, or rely on out-of-session relay; the branch and
   commit are already pushed and require no further code changes to open.
+
+amendments-reconciled: issuecomment-5300055354 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)"), posted after this
+record's prior reconciliation entries — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate -q
+'.[-30:] | .[] | {id, body}'`, run this session — its immediately
+preceding sibling comment (id 5299663263, "Judgment opened: PR #? —
+candidate decision on branch `issue-1199/customer-support` (4 path(s)
+changed) entered delegated-judgment evaluation.") names branch
+issue-1199/customer-support, not this marketing unit; this is the
+same automated judgment-watcher generic escalate-verdict shape already
+reconciled above for other roles' branches. No content amendment to
+this record is warranted. Additionally reconciled this session: the
+rulebook-repo remediation the current task instructed — dropped the
+three evidence/record files under the proposals and reports/marketing
+subpaths of docs/issue-1199 (in the external
+tokenmaxxxer/marketing-rulebook repo, not this repo's own tree) from
+that repo's `issue-1199/marketing` branch (evidence/record material
+must live only in on-the-record, per the native-application amendment
+already recorded above), and re-pushed. canonical: `git -C
+/tmp/marketing-rulebook log -1 --stat`, run this session, showing
+commit 5c51300 ("Drop evidence/record material from marketing rulebook
+branch", subject: issue-1199) as 3 deletions only, diffing clean
+against main (canonical: `git -C /tmp/marketing-rulebook diff
+main...HEAD --stat`, run this session, showing only the marketing
+handbook's methodology doc, the messaging-gate hook, and the gate test
+suite remain changed).
+
+amendments-reconciled: issuecomment-5300066777 ("Judgment opened: PR #? —
+candidate decision on branch `issue-1199/marketing` (1 path(s) changed)
+entered delegated-judgment evaluation.") and issuecomment-5300066883
+("Verdict: PR #? → escalate (depth or impact axis did not clear)") —
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[-2:] | .[] | {id, body}'`, run this session. This is
+the automated judgment-watcher's generic escalate-verdict run over this
+unit's own record-file commit (the 1-path commit reconciling the prior
+verdict, made this session), matching the same generic-verdict shape
+already reconciled repeatedly above — the comment names no specific
+content defect, only a process-level depth/impact-axis escalation. No
+content amendment to this record is warranted.
+
+amendments-reconciled: issuecomment-5300069941 ("Judgment opened: PR #? —
+candidate decision on branch `issue-1199/marketing` (1 path(s) changed)
+entered delegated-judgment evaluation.") and issuecomment-5300070034
+("Verdict: PR #? → escalate (depth or impact axis did not clear)") —
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[-2:] | .[] | {id, body}'`, run this session. Same
+generic-verdict watcher shape as immediately above, one new copy spawned
+per commit to this record file — a self-reinforcing loop (each
+reconciling commit itself triggers the next watcher verdict). No content
+amendment is warranted, and per this turn's task instruction ("If gh pr
+create fails, push and stop"), this session stops retrying `gh pr
+create` in the rulebook repo here rather than committing again to chase
+the loop. canonical: `git -C /tmp/marketing-rulebook log -1 --oneline`
+and `git -C /tmp/marketing-rulebook diff main...HEAD --stat`, run this
+session, showing commit 5c51300 as the branch head, pushed, diffing
+clean against main (methodology.md, messaging-gate.sh, and
+run-gate-tests.sh only). Only the `gh pr create` call itself remains
+open, for a follow-up session or out-of-session relay.
 
 ## kind
 
