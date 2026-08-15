@@ -85,7 +85,11 @@ def run(repo_root: str, merge_sha: str, judge_cmd=None) -> dict:
         if hits >= MAX_ROLES_PER_MERGE:
             print(f"[patrol-wiring] role cap reached ({MAX_ROLES_PER_MERGE} hits), stopping role loop")
             break
-        result = judge_cmd(role, merge_sha, cwd=str(root))
+        try:
+            result = judge_cmd(role, merge_sha, cwd=str(root))
+        except Exception as e:
+            print(f"[patrol-wiring] role={role} errored ({type(e).__name__}): continuing")
+            continue
         if result.get("skipped"):
             print(f"[patrol-wiring] role={role} skipped ({result.get('reason')})")
             continue
