@@ -194,3 +194,30 @@ def test_respawn_mid_flow_does_not_reenqueue_or_bypass_artifact_guard(tmp_path):
     assert third.returncode == 0, third.stderr
     third_result = json.loads(third.stdout.strip().splitlines()[-1])
     assert third_result == {"skipped": True, "reason": "should_fire_false"}
+
+
+def test_one_role_judge_cmd_exception_does_not_abort_later_roles(tmp_path, capsys):
+    """issue #1607: judge_cmd raising for one role must not abort the
+    per-role loop -- later roles (alphabetically after the raiser) must
+    still be invoked, and an error trace line must be emitted."""
+    repo = _init_repo(tmp_path)
+    sha = _commit(repo, "src/app.py", "x = 1\n")
+
+    calls = []
+    known = pw._known_roles()
+    raiser_role = known[0]
+    later_role = known[1]
+
+    def stub(role, merge_sha, cwd=None):
+        calls.append(role)
+        if role == raiser_role:
+            raise RuntimeError("live session failure, empty stderr")
+        return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": []}
+
+    result = pw.run(str(repo), sha, judge_cmd=stub)
+
+    assert raiser_role in calls
+    assert later_role in calls
+    out = capsys.readouterr().out
+    assert f"role={raiser_role} errored (RuntimeError): continuing" in out
+    assert result["hits"] == pw.MAX_ROLES_PER_MERGE
