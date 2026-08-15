@@ -501,6 +501,158 @@ def t_terminal_loop_state_empty_states_returns_none():
         {"record_fields": {"loop_state": ["a", "b"]}}) == "b"
 
 
+def t_path_ref_with_line_suffix_existence_check_strips_suffix():
+    """issue #1599 fix 1: `docs/specs/approvers.md:2` names a real file
+    plus a `:line` suffix — the suffix must be stripped before the
+    existence check, or a genuinely-existing file is flagged broken."""
+    body = (
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "See `docs/specs/approvers.md:2` for the approver list.\n")
+    d, record = _repo_with_record(body)
+    (d / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+    (d / "docs" / "specs" / "approvers.md").write_text("line1\nline2\n")
+    bad = record_lint.lint_record(record)
+    assert not any("#330" in b for b in bad), bad
+
+
+def t_path_ref_with_range_suffix_existence_check_strips_suffix():
+    """Same fix, range-suffix form: `path.md:129-132`."""
+    body = (
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "See `docs/specs/approvers.md:1-2` for the approver list.\n")
+    d, record = _repo_with_record(body)
+    (d / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+    (d / "docs" / "specs" / "approvers.md").write_text("line1\nline2\n")
+    bad = record_lint.lint_record(record)
+    assert not any("#330" in b for b in bad), bad
+
+
+def t_sweep_mode_skips_record_authored_before_linter_birth():
+    """issue #1599 fix 2: `find_records`'s whole-repo sweep mode must not
+    grade a record last committed before the linter's own birth date
+    (2026-08-09) — retro-grading a frozen historical record against
+    rules it predates fabricates provenance if "fixed" post hoc."""
+    d = Path(tempfile.mkdtemp())
+    _run("init", "-q", "-b", "main", cwd=d)
+    _run("config", "user.email", "t@example.com", cwd=d)
+    _run("config", "user.name", "t", cwd=d)
+    (d / "README.md").write_text("base")
+    _run("add", "-A", cwd=d)
+    _run("commit", "-q", "-m", "base", cwd=d)
+    rel = "docs/issue-1/reports/implementation.md"
+    record = d / rel
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(
+        "---\nloop_state: landed\n---\n\n# record\n\nSession halted.\n")
+    env = dict(**__import__("os").environ,
+               GIT_AUTHOR_DATE="2026-07-29T10:00:00",
+               GIT_COMMITTER_DATE="2026-07-29T10:00:00")
+    subprocess.run(["git", "-C", str(d), "add", "-A"],
+                    check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(d), "commit", "-q", "-m", "pre-cutoff"],
+                    check=True, capture_output=True, env=env)
+    found_default = record_lint.find_records(d)
+    assert record not in found_default, found_default
+    found_uncapped = record_lint.find_records(d, sweep_cutoff=False)
+    assert record in found_uncapped, found_uncapped
+
+
+def t_sweep_mode_keeps_record_authored_after_linter_birth():
+    """Sibling positive: a record committed after the cutoff date stays
+    in the sweep — the cutoff excludes pre-existing history, not
+    everything."""
+    d = Path(tempfile.mkdtemp())
+    _run("init", "-q", "-b", "main", cwd=d)
+    _run("config", "user.email", "t@example.com", cwd=d)
+    _run("config", "user.name", "t", cwd=d)
+    (d / "README.md").write_text("base")
+    _run("add", "-A", cwd=d)
+    _run("commit", "-q", "-m", "base", cwd=d)
+    rel = "docs/issue-1/reports/implementation.md"
+    record = d / rel
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(
+        "---\nloop_state: landed\n---\n\n# record\n\nSession halted.\n")
+    env = dict(**__import__("os").environ,
+               GIT_AUTHOR_DATE="2026-08-10T10:00:00",
+               GIT_COMMITTER_DATE="2026-08-10T10:00:00")
+    subprocess.run(["git", "-C", str(d), "add", "-A"],
+                    check=True, capture_output=True)
+    subprocess.run(["git", "-C", str(d), "commit", "-q", "-m", "post-cutoff"],
+                    check=True, capture_output=True, env=env)
+    found = record_lint.find_records(d)
+    assert record in found, found
+
+
+def t_misfire_metadata_field_not_flagged_as_outcome_claim():
+    """issue #1599 fix 3(a): `loop_state: done` inside YAML frontmatter is
+    structural metadata, not a prose outcome claim."""
+    text = "---\nloop_state: done\nverdict: landed\n---\n\n# record\n"
+    assert record_lint.outcome_claim_citation_check(text) == []
+
+
+def t_misfire_heading_not_flagged_as_state_claim():
+    """issue #1599 fix 3(b): a section heading ("## Findings confirmed")
+    names a section, it does not itself assert a state — extend the
+    heading-skip already present in the outcome/defect checks to
+    `canonical_source_claim_check`, which lacked it."""
+    text = "## Findings confirmed\n\nSee below for detail.\n"
+    assert record_lint.canonical_source_claim_check(text) == []
+
+
+def t_misfire_blockquote_not_flagged_as_state_claim():
+    """issue #1599 fix 3(c): a blockquote quoting another document's claim
+    ("> ... was merged ...") is a quotation, not the author's own
+    assertion."""
+    text = "> The upstream PR says this was merged already.\n"
+    assert record_lint.canonical_source_claim_check(text) == []
+
+
+def t_misfire_hyphenated_name_not_flagged_as_ratio():
+    """issue #1599 fix 3(d): "layer-2/3" is a hyphenated compound name,
+    not a "2 of 3"-shaped ratio count claim."""
+    text = "The change touches the layer-2/3 boundary code.\n"
+    assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_misfire_cli_flag_pass_not_flagged_as_outcome():
+    """issue #1599 fix 3(e): "pass" inside a CLI flag name (`--pass`,
+    `--pass-through`) is not the outcome word "PASS"."""
+    text = "Run `record_lint.py --pass-through` to skip this rule.\n"
+    assert record_lint.outcome_claim_citation_check(text) == []
+
+
+def t_misfire_counterfactual_sentence_not_flagged_as_state_claim():
+    """issue #1599 fix 3(f): "Had this round found new bugs, ..." states
+    a hypothetical, not an actual finding."""
+    text = ("Had this round found new bugs, the queue would have grown "
+            "further.\n")
+    assert record_lint.canonical_source_claim_check(text) == []
+    assert record_lint.outcome_claim_citation_check(
+        "Had this been done differently, the result would differ.\n"
+    ) == []
+
+
+def t_commit_pinned_citation_recognized_as_evidence():
+    """issue #1599 fix 4: a commit-pinned citation
+    (`e7a13db:gates/record_lint.py:151`) is evidence in its own right —
+    an OUTCOME/state claim carrying one should not also be refused for
+    lacking a literal `canonical:`/`derived:` prefix."""
+    outcome_text = (
+        "Tests PASS (e7a13db1234:gates/test_record_lint.py:151).\n")
+    assert record_lint.outcome_claim_citation_check(outcome_text) == []
+    state_text = (
+        "The prior session's PR was merged "
+        "(e7a13db1234:docs/issue-1/reports/implementation.md:10).\n")
+    assert record_lint.canonical_source_claim_check(state_text) == []
+
+
 def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]
