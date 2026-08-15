@@ -193,3 +193,16 @@ Both branches are pushed to their respective origins as of this
 session's own commits above (`32acc767` here, `582cde2` in the
 rulebook repo) — commit+push is the deliverable this session lands;
 PR-open relays externally per the same precedent.
+
+canonical: `gh api graphql -f query='{ rateLimit { limit remaining resetAt } }'`, run this session
+This session's next two `gh pr create` attempts failed on a genuine
+account-level GraphQL rate limit (`remaining: 0`, `resetAt:
+2026-08-15T01:18:46Z`), not the watcher-comment deadlock above — a
+distinct external condition. Per this session's own directive not to
+retry a failing command in a sleep loop, this session stops retrying
+`gh pr create`.
+
+canonical: `git -C /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-1199-issue-retrospective log --oneline origin/issue-1199/issue-retrospective -1` and `git -C /home/jwjung/tokenmaxxxer/rulebooks/issue-retrospective-rulebook log --oneline origin/issue-1199/tool-landscape -1`, run this session (same two commands cited two paragraphs above, re-run here after this section's own commit)
+Both branches (`593fe3bc` here, `582cde2` in the rulebook repo) remain
+the delivered, committed-and-pushed state this session lands; PR-open
+for both repos is left for external relay once the rate limit resets.
