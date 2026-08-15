@@ -57,7 +57,7 @@ honest2_mod_py (dotted-function Repro): claim_scan_findings=2, wrongly_flagged_a
   `reexecution_gate.run_reexecution()` — verdict `fail` in every case,
   because the cited command (`python3 failing_test.py`) genuinely exits
   1 in the SHA-pinned worktree (`gates/reexecution_gate.py:42-69`).
-- **Honest null-result cases (H2 vocabulary)**: 0/3 wrongly flagged by
+- **Honest null-result cases (H2 vocabulary)**: 0/3 `derived: null1-3 rows above + claim_scan.py:93-96` wrongly flagged by
   `claim_scan` — `refused`/`not-needed`/`cannot-verify` records with a
   `reason:` field contain no `CLAIM_RE` hit, so they never enter the
   scan's finding path (`gates/claim_scan.py:93-96`).
@@ -87,7 +87,7 @@ registered 30-record metric — see below)
 - `fabrication_survival_rate` (pilot) = 1 not-caught / 4 fabricated-
   positive cases (case0 + fab1-3) = **25%**, driven entirely by case #0
   (claim_scan-stage bypass); fab1-3 (reexecution-stage) all caught,
-  0/3.
+  0/3 `derived: fab1-3 rows in the Raw per-case results fence above, all reexecution=fail`.
 - `false_reject_rate` (pilot) = 1 wrongly-rejected / 5 honest-shaped
   cases (honest1-2 + null1-3) = **20%**, driven entirely by `honest2`'s
   citation-form mismatch.
