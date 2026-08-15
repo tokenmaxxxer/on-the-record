@@ -42,6 +42,10 @@ def check_body(issue: int, body: str, phase: str,
     if not human_comprehensibility.first_paragraph_is_prose(body):
         violations.append("PR 본문의 첫 문단이 실질적인 산문이 아니다(트레일러 줄만 "
                            "있음) — 변경/이유/다음 단계를 서술하는 문단이 먼저 와야 한다.")
+    citation_ok, citation_reason = human_comprehensibility.citation_trailing_placement(body)
+    if not citation_ok:
+        violations.append(f"PR 본문 첫 문단의 인용 배치가 문장을 쪼갠다({citation_reason}) — "
+                           f"canonical:/링크 인용은 문장 끝의 트레일링 절이거나 별도 줄이어야 한다.")
     if phase == "phase2":
         if plan:
             incomplete = [s for s in plan if not s["done"]]

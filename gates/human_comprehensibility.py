@@ -2,21 +2,36 @@
 structure checks — pure, network-free, `quality_bar`-adjacent classifier
 module.
 
-Implements the four structural prose-shape rules from
-`docs/issue-1165/proposals/2026-08-13-technical-writing-human-comprehensibility.md`
-and `docs/issue-1165/proposals/2026-08-16-technical-writing-research-brief-addendum.md`:
+Implements the structural prose-shape rules from
+`docs/issue-1165/proposals/2026-08-13-technical-writing-human-comprehensibility.md`,
+`docs/issue-1165/proposals/2026-08-16-technical-writing-research-brief-addendum.md`,
+and `docs/issue-1165/proposals/2026-08-16-content-design-records-prbodies-reports.md`:
 
   1. `lead_paragraph_present` — whole-document scope (the one exception to
      the addendum's changed-content-only scoping decision for the other
-     three rules): a non-empty prose paragraph must exist before the first
+     rules): a non-empty prose paragraph must exist before the first
      heading/list/step block in the body.
-  2. `section_size_bound` — no prose section exceeds ~150 lines without a
+  2. `citation_trailing_placement` — whole-document scope, same reasoning
+     as (1): a `canonical:`-style or link-shaped citation inside the lead
+     paragraph must sit as a trailing clause or its own line, never split
+     the point-stating sentence (content-design PR #1616 items 1&4).
+  3. `section_size_bound` — no prose section exceeds ~150 lines without a
      sub-heading break, unless it is a single indivisible fenced code
      block (escape hatch: >=90% fenced-code-block lines).
-  3. `no_raw_dump` — a prose section may not be a raw fenced code/log block
+  4. `no_raw_dump` — a prose section may not be a raw fenced code/log block
      with no surrounding explanatory prose.
-  4. `enumeration_cap` — no more than 12 consecutive unstructured list
+  5. `enumeration_cap` — no more than 12 consecutive unstructured list
      items with no sub-heading break.
+
+Rules 3-5 are changed-content-only scoped (addendum point 1): when
+`check_record` is given `changed_ranges` (1-indexed inclusive line ranges,
+in `text`'s own line numbering, of lines touched by the diff being
+checked), a section that carries none of those lines is skipped for rules
+3-5. Rules 1-2 stay whole-document (no "changed" sub-unit to scope to —
+a lead paragraph either exists/is well-formed or it does not). When
+`changed_ranges` is None (default), rules 3-5 run over the whole document,
+same as before this scoping was added — this preserves every existing
+caller's behavior.
 
 `convention_family_named` (amendment 2, the metadata-slot rule) is
 explicitly out of scope for this pass per the issue's delivery-order note.
@@ -103,22 +118,81 @@ def first_paragraph_is_prose(text: str) -> bool:
     return True
 
 
-def _sections(body: str) -> list[list[str]]:
-    """Split `body` into sections by heading lines. Each section is the
+_CITATION_RE = re.compile(
+    r"(canonical:\s*\S+|derived:\s*\S+|\[[^\]]+\]\([^)]+\)|https?://\S+)"
+)
+_TRAILING_PUNCT_RE = re.compile(r"^[)\].,;:]*$")
+
+
+def citation_trailing_placement(text: str) -> tuple[bool, str]:
+    """True (with no reason) iff every `canonical:`/`derived:`-style or
+    link-shaped citation inside `text`'s lead paragraph (frontmatter and
+    leading headings stripped, same as `first_paragraph_is_prose`) sits as
+    a trailing clause of its line or on its own line -- never splits the
+    point-stating sentence with prose after it (content-design PR #1616
+    items 1&4). A citation with no other content on its line ("own line")
+    always passes regardless of what precedes it."""
+    text = text or ""
+    text = _strip_frontmatter(text)
+    text = _strip_leading_blank_lines(text)
+    text = _strip_leading_headings(text)
+    para = _first_paragraph(text)
+    for line in para.splitlines():
+        for m in _CITATION_RE.finditer(line):
+            before = line[:m.start()].strip()
+            after = line[m.end():].strip()
+            if not before:
+                continue  # citation opens the line -> "its own line" shape
+            if after and not _TRAILING_PUNCT_RE.match(after):
+                return False, f"citation splits the point-stating sentence: '{line.strip()}'"
+    return True, ""
+
+
+def _sections_with_offsets(body: str) -> list[tuple[int, list[str]]]:
+    """Split `body` into sections by heading lines. Each section is
+    `(start_index, lines)` where `start_index` is the 0-based index (into
+    `body.splitlines()`) of the section's first line, and `lines` is the
     list of lines from (and not including) a heading up to the next
     heading (or end of text). A leading section with no heading is
     included as-is."""
     lines = body.splitlines()
-    sections: list[list[str]] = []
+    sections: list[tuple[int, list[str]]] = []
     current: list[str] = []
-    for line in lines:
+    current_start = 0
+    for i, line in enumerate(lines):
         if _HEADING_RE.match(line):
-            sections.append(current)
+            sections.append((current_start, current))
             current = []
+            current_start = i + 1
         else:
             current.append(line)
-    sections.append(current)
+    sections.append((current_start, current))
     return sections
+
+
+def _sections(body: str) -> list[list[str]]:
+    """Split `body` into sections by heading lines (line-number-agnostic
+    view of `_sections_with_offsets`)."""
+    return [lines for _, lines in _sections_with_offsets(body)]
+
+
+def _section_touches_changes(
+    start_index: int, length: int, offset: int,
+    changed_ranges: list[tuple[int, int]] | None,
+) -> bool:
+    """True iff the section starting at `start_index` (0-based, within the
+    frontmatter-stripped body) for `length` lines overlaps any
+    `changed_ranges` range, translated back to `text`'s own 1-indexed line
+    numbering via `offset` (the count of lines `_strip_frontmatter`
+    removed from the front). `changed_ranges is None` means "no scoping
+    requested" -- always touches."""
+    if changed_ranges is None:
+        return True
+    if length == 0:
+        return False
+    sec_start = start_index + offset + 1
+    sec_end = sec_start + length - 1
+    return any(c_start <= sec_end and c_end >= sec_start for c_start, c_end in changed_ranges)
 
 
 def _fenced_line_ratio(lines: list[str]) -> float:
@@ -196,7 +270,10 @@ def _has_any_prose(body: str) -> bool:
     return False
 
 
-def check_record(text: str, doc_type: str = "tutorial") -> dict:
+def check_record(
+    text: str, doc_type: str = "tutorial",
+    changed_ranges: list[tuple[int, int]] | None = None,
+) -> dict:
     """Runs the tier-1 checks and returns:
     {"exempt": bool, "results": [{"rule": str, "passed": bool, "reason": str}, ...]}
     `exempt=True` (results=[]) when `text` has no human-facing prose
@@ -204,9 +281,18 @@ def check_record(text: str, doc_type: str = "tutorial") -> dict:
     file with no paragraph anywhere) -- per issue #1165 acceptance:
     "artifacts with no human-facing prose section are exempt and listed as
     such" (the caller lists exemption; this function just reports
-    exempt=True)."""
+    exempt=True).
+
+    `changed_ranges`: optional 1-indexed inclusive `(start, end)` line
+    ranges, in `text`'s own line numbering, of lines touched by the diff
+    being checked (addendum point 1, changed-content-only scoping). When
+    given, `section_size_bound`/`no_raw_dump`/`enumeration_cap` skip any
+    section that carries none of those lines; `lead_paragraph_present`/
+    `citation_trailing_placement` stay whole-document regardless (module
+    docstring: no "changed" sub-unit to scope a lead paragraph to)."""
     text = text or ""
     stripped_fm = _strip_frontmatter(text)
+    offset = len(text.splitlines()) - len(stripped_fm.splitlines())
 
     if not _has_any_prose(text):
         return {"exempt": True, "results": []}
@@ -224,15 +310,26 @@ def check_record(text: str, doc_type: str = "tutorial") -> dict:
         ),
     })
 
-    sections = _sections(stripped_fm)
+    # 2. citation_trailing_placement — whole-document scope (same reasoning
+    # as lead_paragraph_present; applies to the same lead paragraph).
+    citation_ok, citation_reason = citation_trailing_placement(text)
+    results.append({
+        "rule": "citation_trailing_placement",
+        "passed": citation_ok,
+        "reason": citation_reason,
+    })
+
+    sections = _sections_with_offsets(stripped_fm)
 
     size_reasons: list[str] = []
     dump_reasons: list[str] = []
     enum_reasons: list[str] = []
 
-    for section in sections:
+    for start_index, section in sections:
         non_blank_count = len([l for l in section if l.strip() != ""])
         if non_blank_count == 0:
+            continue
+        if not _section_touches_changes(start_index, len(section), offset, changed_ranges):
             continue
 
         # section_size_bound
