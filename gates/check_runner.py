@@ -15,6 +15,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+import check_run_artifact as cra  # noqa: E402
+
+ARTIFACT_PATH = Path(".on-the-record/check-run-artifact.json")
+
 # acceptance_gate.py 의 실행가능-산출물 admission 정규식과 같은 계열:
 # 백틱으로 감싼 test/gates 경로, 또는 'check:'/'gate:' 줄.
 _SECTION_HEADING = re.compile(r"(?im)^#{1,6}\s*acceptance\b.*$")
@@ -85,22 +90,23 @@ def run_checks(repo: Path, checks: list[dict]) -> list[dict]:
             r = subprocess.run(shlex.split(chk["command"]), cwd=repo,
                                 capture_output=True, text=True)
             results.append({
-                "check": chk["raw"], "type": kind,
+                "check": chk["raw"], "type": kind, "command": chk["command"],
                 "status": "pass" if r.returncode == 0 else "fail",
                 "output": (r.stdout + r.stderr)[-2000:],
             })
         elif kind == "grep":
-            r = subprocess.run(["grep", "-r", chk["pattern"], "."], cwd=repo,
-                                capture_output=True, text=True)
+            r = subprocess.run(
+                ["grep", "-r", "--exclude-dir=.on-the-record", chk["pattern"], "."],
+                cwd=repo, capture_output=True, text=True)
             results.append({
-                "check": chk["raw"], "type": kind,
+                "check": chk["raw"], "type": kind, "pattern": chk["pattern"],
                 "status": "pass" if r.returncode == 0 else "fail",
                 "output": r.stdout[-2000:],
             })
         elif kind == "file-existence":
             exists = (repo / chk["path"]).exists()
             results.append({
-                "check": chk["raw"], "type": kind,
+                "check": chk["raw"], "type": kind, "path": chk["path"],
                 "status": "pass" if exists else "fail",
                 "output": f"{chk['path']} {'exists' if exists else 'missing'}",
             })
@@ -164,7 +170,14 @@ def main() -> int:
     comment = format_comment(results)
     print(comment)
     post_comment(pr, comment, repo)
-    return 0 if all(r["status"] == "pass" for r in results) else 1
+
+    exit_code = 0 if all(r["status"] == "pass" for r in results) else 1
+    artifact = cra.build_artifact(
+        command=f"check_runner.py {pr} {issue}", tier="fast", repo=repo,
+        check_results=results, exit_code=exit_code,
+        produced_by="check_runner")
+    cra.write_artifact(repo / ARTIFACT_PATH, artifact)
+    return exit_code
 
 
 if __name__ == "__main__":
