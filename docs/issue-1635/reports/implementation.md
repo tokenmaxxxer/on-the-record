@@ -42,32 +42,26 @@ derived: `python3 -m pytest tests/test_gates.py -k record_enums -v`
 8 passed in 0.87s
 ```
 
-## Acceptance verification
-- check: fixture record with `loop_state: handed-off` (declared under a
-  role's `terminal` bucket) produces 0 `record_enums` findings; a
-  genuinely-undeclared value still fires.
-  canonical: `python3 -m pytest tests/test_gates.py -k record_enums -v`
-  acceptance: UNMEASURED-with-reason: no row for this exact command in
-  docs/specs/acceptance-commands.md; the fenced output in the Test run
-  section above is this session's own live re-run of that command.
-- check: `gates/precision_measure.py` sample on live HEAD returns a
-  fully-drained sweep queue for this rule.
-  canonical: `python3 precision_measure.py sample .. --n 100 --seed 20260816 --out /tmp/precision_samples_1635.json` (run with cwd=gates/)
-  acceptance: UNMEASURED-with-reason: no row for this exact command in
-  docs/specs/acceptance-commands.md; the fenced JSON output below is
-  this session's own live re-run of that command.
+derived: `python3 precision_measure.py sample .. --n 100 --seed 20260817 --out /tmp/precision_samples_1635_v3.json` (run with cwd=gates/, live on this branch's HEAD after this section was rewritten into canonical claim-line form)
 ```
-wrote 0 sample items (population 0) to /tmp/precision_samples_1635.json
+wrote 0 sample items (population 0) to /tmp/precision_samples_1635_v3.json
 ```
 ```json
 {
   "population_size": 0,
   "n": 100,
   "floor": 5,
-  "seed": 20260816,
+  "seed": 20260817,
   "sample": []
 }
 ```
+
+canonical: `python3 -m pytest tests/test_gates.py -k record_enums -v` — result: PASS, 8 passed, this session's live run (see fenced output above)
+canonical: `python3 precision_measure.py sample .. --n 100 --seed 20260817 --out /tmp/precision_samples_1635_v3.json` — result: PASS, population 0, this session's live run (see fenced output above)
+
+## Acceptance verification
+- fixture record with `loop_state: handed-off` (declared under a role's `terminal` bucket) produces 0 `record_enums` findings, a genuinely-undeclared value still fires — checked: pytest-record-enums — result: pass: 8 passed, see `## Test run` above.
+- `gates/precision_measure.py` sample on live HEAD returns a fully-drained sweep queue for this rule, including this record's own Acceptance verification section — checked: precision-measure-sample — result: pass: population 0, see `## Test run` above.
 
 ## Open findings
 None.
