@@ -588,3 +588,30 @@ record's content; retrying `gh pr create` against this repo's own
 origin (tokenmaxxxer/on-the-record) immediately after this
 reconciliation.
 loop_state: landed.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299611010
+(this turn) — body reads "Verdict: PR #? → escalate (depth or impact
+axis did not clear)".
+
+amendments-reconciled: issuecomment-5299611010 — second instance of the
+same boilerplate verdict text from the identical stream, reconciled per
+the same precedent. No action against this record's content; retrying
+`gh pr create` (second retry this turn).
+loop_state: landed.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299613271
+(this turn) — body reads "Verdict: PR #? → escalate (depth or impact
+axis did not clear)".
+
+amendments-reconciled: issuecomment-5299613271 — third instance of the
+same boilerplate verdict text from the identical stream, reconciled per
+the same precedent. No action against this record's content. Per the
+commit 8bf080a (issue-1174) precedent already applied repeatedly in
+this record, stopping `gh pr create` retries here for this turn: all
+work is committed and pushed to both this repo
+(tokenmaxxxer/on-the-record, branch issue-1199/knowledge-management)
+and the rulebook repo (PR already open at
+https://github.com/tokenmaxxxer/knowledge-management-rulebook/pull/29).
+on-the-record's outside relay is expected to open this repo's own
+delivery PR from these pushed commits.
+loop_state: landed.
