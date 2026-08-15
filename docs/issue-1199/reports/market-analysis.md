@@ -140,3 +140,11 @@ reconciliation, per the same precedent already logged for issue-1174's
 final-session record state (docs/issue-1174/reports/implementation.md,
 8bf080a) — further identical unnumbered-verdict comments landing after
 this point are not re-chased.
+
+amendments-reconciled: issuecomment-5299675518 ("Judgment opened: PR
+#? — candidate decision on branch `issue-1199/customer-support` (4
+path(s) changed) entered delegated-judgment evaluation.", canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299675518`,
+read this session) names branch issue-1199/customer-support, not this
+market-analysis unit or its rulebook-repo counterpart branch — no
+content amendment warranted.
