@@ -145,6 +145,58 @@ def t_third_consecutive_bar_not_met_escalates(tmp_path):
     assert "open_decision_item" in reason
 
 
+# issue #1623: fixtures for the human_comprehensibility_verdict live wiring
+# -- a raw-dump record self-declared bar-met must still be denied, a real
+# lead-summary record self-declared bar-met must be allowed.
+
+_RAW_DUMP_RECORD = (
+    "This is the lead paragraph explaining what the record covers in real "
+    "prose sentences that a human can read.\n\n"
+    "## Raw Dump\n\n"
+    "```\nline1\nline2\nline3\nline4\n```\n\n"
+    "quality_bar_verdict: bar-met\n"
+)
+
+_LEAD_SUMMARY_RECORD = (
+    "This report summarizes the key findings for the lead in plain prose "
+    "sentences that explain what happened and why it matters.\n\n"
+    "## Summary\n\n"
+    "The change fixed the bug by validating input at the boundary, which "
+    "prevents the crash reported in the original ticket.\n\n"
+    "quality_bar_verdict: bar-met\n"
+)
+
+
+def t_raw_dump_record_self_declared_bar_met_is_still_denied(tmp_path):
+    _init_repo(tmp_path)
+    _commit_record(tmp_path, 8, "ux-engineering",
+                    [_RAW_DUMP_RECORD], "acct-reviewer")
+    pr_json = {
+        "files": [{"path": "components/Widget.svelte"}],
+        "headRefName": "issue-8/ux-engineering",
+        "author": {"login": "acct-producer"},
+    }
+    r = _run("gh pr merge 8", tmp_path, pr_json)
+    assert r.returncode == 2
+    out = json.loads(r.stdout)
+    reason = out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "human_comprehensibility" in reason
+
+
+def t_lead_summary_record_self_declared_bar_met_is_allowed(tmp_path):
+    _init_repo(tmp_path)
+    _commit_record(tmp_path, 9, "ux-engineering",
+                    [_LEAD_SUMMARY_RECORD], "acct-reviewer")
+    pr_json = {
+        "files": [{"path": "components/Widget.svelte"}],
+        "headRefName": "issue-9/ux-engineering",
+        "author": {"login": "acct-producer"},
+    }
+    r = _run("gh pr merge 9", tmp_path, pr_json)
+    assert r.returncode == 0
+    assert r.stdout.strip() == ""
+
+
 def t_orchestrate_off_kill_switch(tmp_path):
     _init_repo(tmp_path)
     pr_json = {

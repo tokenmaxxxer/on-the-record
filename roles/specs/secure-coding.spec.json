@@ -64,6 +64,10 @@
     {
       "criterion": "known_vuln_dependency_free",
       "verification_method": "dependency vulnerability scan (e.g. npm audit / pip-audit or equivalent) on the diff's changed manifest, no critical/high CVE at the pinned version"
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
     }
   ],
   "loop_state": {
