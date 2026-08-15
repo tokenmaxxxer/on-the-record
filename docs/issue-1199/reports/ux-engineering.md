@@ -132,6 +132,124 @@ write scope). Commits for this rework are pushed to origin
 as a network-blocked push per session instructions: the commit lands,
 PR creation is the open item.
 
+## 2026-08-14 plugin-ecosystem rework (phase 2 executed)
+
+Redo of the tool-landscape fold-in above under issue-1199's 2026-08-14
+operator amendment (supersedes the broad reading the section above was
+authored under). canonical: this file's own upstream-work section
+above (search "five named upgrade targets"), read this session — the
+five entries there (Tokens Studio, Stark, Radix UI, Storybook, Optimal
+Workshop) are general practitioner design-tooling platforms; none
+names a Claude Code plugin repo. Per the amendment, a fold-in whose
+surveyed sources are domain tools alone fails issue-1199's Acceptance
+criterion 1.
+
+Approved via the phase-1 proposal
+(docs/issue-1199/proposals/2026-08-14-ux-engineering-plugin-tool-landscape-rework.md,
+committed cf798408) and the issue-level `APPROVE
+issue-1199/ux-engineering` comment. canonical: `gh issue view 1199
+--json comments -q '.comments[] | select(.body=="APPROVE
+issue-1199/ux-engineering")'`, run this session — two matches, author
+JiwonJung94 (an approvers.md account) both times: 2026-08-13T07:02:22Z
+(predates this amendment, already consumed by the section above) and
+2026-08-15T00:44:43Z — the second postdates the phase-1 proposal
+commit (2026-08-14T10:31:20+09:00 = 2026-08-14T01:31:20Z), so it is
+valid fresh authorization for this rework's phase-2 delivery per
+contract v3 s19.
+
+Surveyed the Claude Code plugin/skill ecosystem for tools relevant to
+this role's domain (component/token/design-system specification),
+adoption evidence via the tech-feasibility method (stars/forks/
+multi-source mentions). Full scouting trail: canonical:
+docs/issue-1199/reports/ux-engineering/scout-brief-plugins.md (this
+repo, written this session).
+
+- **storybookjs/mcp** (`@storybook/claude-code-plugin`) — an official,
+  Storybook-org-published plugin, backed by an MCP server, that lets
+  Claude query a live component library's existing stories/docs/build
+  instructions from inside a session before generating new UI.
+  Adoption: canonical: scout-brief-plugins.md's Category-must-bes
+  section (this repo, written this session), quoting
+  storybook.js.org/docs/ai/mcp/overview and the plugin's own
+  first-party-published status. Design move: source-of-truth lookup
+  runs before authoring, not after. Learning → `layout-grouping.md`
+  rule 8: before specifying a new component to fill a grouped layout's
+  slot, check the live component library rather than a stale mental
+  snapshot.
+
+- **wilwaldon/Claude-Code-Frontend-Design-Toolkit** — a curated
+  collection layering design-token (OKLCH wide-gamut color space, a
+  single derived-hue variable driving a full palette), theming, and
+  accessibility-tree-based testing tools on top of Anthropic's
+  first-party `frontend-design` skill. Adoption: canonical:
+  scout-brief-plugins.md's Sources-cited WebFetch result quoted in that
+  file (this repo, written this session) — "This repository has 636
+  stars and 79 forks." Design move: a concrete, named color-space
+  default instead of a bare "define tokens" instruction. Learning →
+  `color-visibility.md` rule 8: default new color tokens to a
+  perceptually-uniform wide-gamut space (e.g. OKLCH) with a single
+  derived-hue variable driving the ramp.
+
+- **anthropics/claude-plugins-official — `frontend-design` skill** —
+  Anthropic's own first-party, auto-invoked frontend skill. Adoption:
+  canonical: scout-brief-plugins.md's Category-must-bes section (this
+  repo, written this session), quoting a WebSearch result — "The
+  claude-plugins-official repository has 30.4k stars." Design move:
+  accessibility named as a co-equal technical-requirement constraint
+  alongside framework and performance, ahead of a later separate audit
+  step. Learning → `control-selection.md` rule 9: name accessibility
+  as a co-equal constraint at spec time.
+
+A fourth candidate, darasoba/design-engineer-plugin, was scouted but
+not carried forward — canonical: scout-brief-plugins.md's Skip record
+(this repo, written this session), quoting a WebFetch result: "The
+plugin currently has 1 star and 1 watcher on GitHub, indicating
+early-stage adoption" — below the adoption-evidence bar this round
+applied.
+
+Applied (not referenced) three native rules directly into the mounted
+rulebook repo (tokenmaxxxer/ux-engineering-rulebook,
+/home/jwjung/tokenmaxxxer/rulebooks/ux-engineering-rulebook), branch
+`issue-1199/plugin-tool-landscape` — `color-visibility.md` rule 8,
+`layout-grouping.md` rule 8, `control-selection.md` rule 9. canonical:
+`git -C /home/jwjung/tokenmaxxxer/rulebooks/ux-engineering-rulebook
+show dd569f8 --stat`, run this session, output:
+```
+ playbook/color-visibility.md  | 15 +++++++++++++++
+ playbook/control-selection.md | 14 ++++++++++++++
+ playbook/layout-grouping.md   | 15 +++++++++++++++
+ 3 files changed, 44 insertions(+)
+```
+
+Per the operator's native-application amendment (2026-08-13T06:36:54Z):
+no rule text names `storybookjs`, `wilwaldon`, `Claude-Code-Frontend-
+Design-Toolkit`, `anthropics/claude-plugins-official`, `frontend-
+design`, or a `source:` line pointing at any of them. canonical: `git
+-C /home/jwjung/tokenmaxxxer/rulebooks/ux-engineering-rulebook show
+dd569f8 -- playbook/color-visibility.md playbook/layout-grouping.md
+playbook/control-selection.md | grep -i "storybook\|wilwaldon\|toolkit\|claude-plugins\|frontend-design\|source:"`,
+run this session — no output (no match). The tool names, adoption
+evidence, and per-insight mapping live only in this record and the
+scout brief. No verbatim text was copied from any surveyed repo; all
+three rules are paraphrased insight.
+
+Committed in the rulebook repo (commit dd569f8, subject line
+"issue-1199: fold Claude Code plugin-ecosystem judgments into three
+axes"), pushed to origin/issue-1199/plugin-tool-landscape. PR link
+recorded in a follow-up entry to this section once `gh pr create`
+succeeds after this reconciliation commit is on the branch.
+
+amendments-reconciled: issuecomment-5299606020, issuecomment-5299606090,
+and issuecomment-5299606170 (posted 2026-08-15T00:48:33Z-00:48:35Z by
+JiwonJung94) — same templated auto-posted "Judgment opened: PR #? —
+candidate decision on branch `issue-1199/ux-engineering` (4 path(s)
+changed) entered delegated-judgment evaluation." / "Verdict: PR #? →
+escalate (depth or impact axis did not clear)" watchdog shape recorded
+as the same unresolved pr-preflight `_MACHINE_BODY_RE` gap named in
+this file's Open findings section below; none names a resolved PR
+number or cites ux-engineering content beyond the branch name. No
+reconciliation action needed beyond this citation.
+
 ## Open findings
 
 - gh pr create is blocked by an apparent gap in pr-preflight.sh's
