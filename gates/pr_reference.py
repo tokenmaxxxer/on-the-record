@@ -19,6 +19,7 @@ from pathlib import Path
 import acceptance_gate
 import flows
 import gh_rest
+import human_comprehensibility
 
 # phase-1 제안 PR은 `#<n>`만 있으면 된다 — 머지돼도 이슈를 닫으면 안 된다
 # (Closes 는 자동 종료를 유발한다). phase-2 인도 PR만 Closes/Fixes/Resolves 를 요구한다.
@@ -37,6 +38,14 @@ def check_body(issue: int, body: str, phase: str,
     역순(issue-197의 #197처럼)이어도 fail-closed 쪽으로 안전하다.
     """
     body = body or ""
+    violations: list[str] = []
+    if not human_comprehensibility.first_paragraph_is_prose(body):
+        violations.append("PR 본문의 첫 문단이 실질적인 산문이 아니다(트레일러 줄만 "
+                           "있음) — 변경/이유/다음 단계를 서술하는 문단이 먼저 와야 한다.")
+    citation_ok, citation_reason = human_comprehensibility.citation_trailing_placement(body)
+    if not citation_ok:
+        violations.append(f"PR 본문 첫 문단의 인용 배치가 문장을 쪼갠다({citation_reason}) — "
+                           f"canonical:/링크 인용은 문장 끝의 트레일링 절이거나 별도 줄이어야 한다.")
     if phase == "phase2":
         if plan:
             incomplete = [s for s in plan if not s["done"]]
@@ -47,20 +56,20 @@ def check_body(issue: int, body: str, phase: str,
             if incomplete and not only_last_incomplete:
                 m = _CLOSES_REF.search(body)
                 if m and int(m.group(2)) == issue:
-                    return ["계획에 미완 스텝이 남아 있다 — 마지막 스텝의 "
+                    return violations + ["계획에 미완 스텝이 남아 있다 — 마지막 스텝의 "
                             "phase-2 PR에서만 Closes/Fixes/Resolves를 쓴다."]
-                return []
+                return violations
         m = _CLOSES_REF.search(body)
         if not m or int(m.group(2)) != issue:
-            return [f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)가 없다 — "
+            return violations + [f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)가 없다 — "
                     f"phase-2 인도 PR은 이슈를 명시적으로 닫아야 한다."]
-        return []
+        return violations
     refs = {int(n) for n in _PLAIN_REF.findall(body)}
     if issue not in refs:
-        return [f"PR 본문에 '#{issue}' 참조가 없다 — phase-1 제안 PR도 자기 "
+        return violations + [f"PR 본문에 '#{issue}' 참조가 없다 — phase-1 제안 PR도 자기 "
                 f"이슈를 본문에서 가리켜야 한다(Closes/Fixes/Resolves는 금지: "
                 f"phase-1 머지가 이슈를 자동으로 닫으면 안 된다)."]
-    return []
+    return violations
 
 
 def check(repo: Path, pr: int, issue: int, phase: str) -> list[str]:
