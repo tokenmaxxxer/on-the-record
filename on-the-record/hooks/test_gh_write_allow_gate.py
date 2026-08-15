@@ -93,6 +93,26 @@ def t_orchestrator_pr_close_gets_allow(tmp_path: Path):
     assert _decision(r.stdout) == "allow", repr(r.stdout)
 
 
+def t_orchestrator_issue_edit_gets_allow(tmp_path: Path):
+    # issue #1586: patrol-board edit-in-place needs `gh issue edit`.
+    r = _run('gh issue edit 12 --body "b"')
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) == "allow", repr(r.stdout)
+
+
+def t_role_session_issue_edit_never_gets_allow(tmp_path: Path):
+    r = _run('gh issue edit 12 --body "b"',
+             extra_env={"CLAUDE_ROLE": "implementation"})
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) is None, repr(r.stdout)
+
+
+def t_issue_edit_chained_with_semicolon_is_not_allowed(tmp_path: Path):
+    r = _run('gh issue edit 12 --body "b" ; rm -rf /tmp/x')
+    assert r.returncode == 0, r.stderr
+    assert _decision(r.stdout) is None, repr(r.stdout)
+
+
 def t_cd_prefixed_invocation_gets_allow(tmp_path: Path):
     target = tmp_path / "target"
     target.mkdir()
