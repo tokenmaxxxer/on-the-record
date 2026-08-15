@@ -106,6 +106,10 @@
       "verification_method": "automated check (e.g. hash/ID-set comparison) that eval_data and training_data share no overlapping records",
       "evidence_grade": "practitioner-consensus",
       "verified_source": "No single named canonical source in the original spec; this is universal ML-methodology consensus (train/test leakage inflates reported performance), documented across many independent sources (e.g. Kapoor & Narayanan et al. lineage on leakage; https://www.nature.com/articles/s41597-022-01618-6 for a concrete inflation case). Kept as practitioner-consensus, automated hash/ID-set check as already specified."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
     }
   ],
   "loop_state": {
