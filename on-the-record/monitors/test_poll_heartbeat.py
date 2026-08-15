@@ -279,6 +279,41 @@ def t_heartbeat_attaches_on_board_repo():
         assert _wait_for_marker(marker), "watchdog was not run on a due tick for a board repo"
 
 
+def t_patrol_wiring_does_not_alter_heartbeat_tick_or_rearm_behavior():
+    """issue #1598 (patrol wiring E2) regression pin: adding the
+    independent `patrol_tick` counter and patrol invocation must not
+    change the existing `tick`/`POLL_HEARTBEAT_MAX_TICKS` bounding or the
+    watchdog/rearm due-branch output. The fake spawn.py stub used by this
+    suite has no `ROLES` constant, so the patrol block's role-list import
+    fails and yields zero roles -- exercising the "own counter fires, but
+    no roles configured" path without a live patrol_promote.py call, while
+    still proving the due-branch report is unaffected and the loop still
+    stops at MAX_TICKS."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        env = dict(os.environ)
+        env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+        env["FAKE_SPAWN_MARKER"] = str(marker)
+        env["POLL_HEARTBEAT_MAX_TICKS"] = "5"
+        env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
+        env["FAKE_POLL_DUE"] = "1"
+        env["FAKE_WATCHDOG_REPORT"] = EMPTY_ROSTER_REPORT
+        env["HOME"] = str(home)
+        env.pop("CLAUDE_ROLE", None)
+        r = subprocess.run(
+            ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
+        )
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
+        assert _wait_for_marker(marker), "watchdog was not run on a due tick"
+        assert "[patrol-poll] checked 0 role(s), 0 promotion(s)" in r.stdout, r.stdout
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
 
 
