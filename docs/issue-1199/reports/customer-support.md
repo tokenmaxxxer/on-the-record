@@ -36,6 +36,17 @@ delegated-judgment evaluation."). Reconciled: this comment names branch
 economics's work product, not this role's; no content change needed
 here, recorded so the thread is not silently dropped.
 
+amendments-reconciled: issuecomment-5299648344 (posted 2026-08-15T00:57:31Z
+by JiwonJung94: "Verdict: PR #? → escalate (depth or impact axis did not
+clear)", preceded at 00:57:29Z by "Judgment opened: PR #? — candidate
+decision on branch `issue-1199/customer-support` (4 path(s) changed)
+entered delegated-judgment evaluation."). Reconciled: same pattern as the
+first reconciled comment above — canonical: `gh pr list --repo
+tokenmaxxxer/on-the-record --head issue-1199/customer-support --state all`
+(this turn's tool transcript) returned empty immediately before this PR
+was opened, so no PR existed on this branch at that timestamp for a
+depth/impact verdict to evaluate; recorded, not acted on.
+
 ## SLA table (unchanged by this fold-in, restated for reference)
 
 canonical: `git -C /tmp/csr-1199 show a1663e1 -- customer-support/handbook.md`
