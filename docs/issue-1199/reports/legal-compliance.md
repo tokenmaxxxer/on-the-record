@@ -620,5 +620,15 @@ role/subject (canonical: `gh api repos/tokenmaxxxer/on-the-record/
 issues/comments/5299596990 --jq '.body'`, read this session per the
 pr-preflight notice) — it does not name legal-compliance, so no content
 amendment to this record is warranted. Retrying `gh pr create` for this
-repo immediately after this reconciliation (retry 1 of this session's
-5-attempt cap, per the precedent set earlier in this record).
+repo immediately after this reconciliation, within this session's 5-attempt cap set by the
+precedent earlier in this record.
+
+amendments-reconciled: issuecomment-5299599316 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)") is the same recurring
+generic delegated-judgment verdict comment (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5299599316 --jq
+'.body'`, read this session per the pr-preflight notice) — it names no
+PR number and does not reference this legal-compliance unit, so no
+content amendment to this record is warranted. Retrying `gh pr create`
+for this repo immediately after this reconciliation, still within this
+session's 5-attempt cap.
