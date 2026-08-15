@@ -724,6 +724,47 @@ def t_misfire_canonical_tag_same_line_not_flagged_as_bare_count():
     assert record_lint.bare_count_claim_check(text) == []
 
 
+def t_misfire_unrelated_fence_far_above_still_flagged_as_bare_count():
+    """PR #1622 review finding 1: a fence must CLOSE within a few lines
+    above the count — an unrelated fence far above must not blanket-
+    suppress every later bare count in the record."""
+    text = (
+        "```\n"
+        "unrelated setup output\n"
+        "```\n" +
+        "\n".join(f"filler line {n}" for n in range(20)) +
+        "\n\nWe found 4 of 12 findings to be genuine.\n")
+    bad = record_lint.bare_count_claim_check(text)
+    assert any("#333" in b for b in bad), bad
+
+
+def t_misfire_fence_close_within_proximity_not_flagged_as_bare_count():
+    """Positive twin: a fence that closes within the proximity window
+    above the count is still exempted."""
+    text = (
+        "```\n"
+        "4 passed, 0 failed\n"
+        "```\n"
+        "So 4 of 4 tests passed.\n")
+    assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_misfire_unrelated_equals_above_still_flagged_as_bare_count():
+    """PR #1622 review finding 2: an unrelated `=` above the count (e.g.
+    a config assignment) must not suppress the finding — the computed
+    signal must be on the count's own line."""
+    text = "set FOO=bar in config.\nWe found 4 of 12 findings to be genuine.\n"
+    bad = record_lint.bare_count_claim_check(text)
+    assert any("#333" in b for b in bad), bad
+
+
+def t_misfire_digits_adjacent_equals_same_line_not_flagged_as_bare_count():
+    """Positive twin: digits directly adjacent to `=` on the count's own
+    line is a genuine inline computation and stays exempted."""
+    text = "9 keywords x 3 cases = 27 cases total.\n"
+    assert record_lint.bare_count_claim_check(text) == []
+
+
 def t_bare_count_claim_check_still_fires_without_evidence():
     """Sibling negative: a bare count with none of the #1620 evidence
     shapes nearby still fires — the exemptions must not blanket-suppress
