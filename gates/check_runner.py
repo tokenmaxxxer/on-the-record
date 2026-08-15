@@ -17,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import check_run_artifact as cra  # noqa: E402
+import gh_rest  # noqa: E402
 
 ARTIFACT_PATH = Path(".on-the-record/check-run-artifact.json")
 
@@ -134,16 +135,6 @@ def post_comment(pr: int, body: str, repo: Path) -> bool:
     return r.returncode == 0
 
 
-def _issue_view_body(repo: Path, issue: int) -> str | None:
-    r = subprocess.run(["gh", "issue", "view", str(issue), "--json", "body"],
-                        cwd=repo, capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    import json
-    data = json.loads(r.stdout)
-    return data.get("body", "")
-
-
 def main() -> int:
     if len(sys.argv) < 3:
         print("usage: check_runner.py <pr-number> <issue-number> [--repo <경로>]")
@@ -153,9 +144,9 @@ def main() -> int:
     if "--repo" in sys.argv:
         repo = Path(sys.argv[sys.argv.index("--repo") + 1]).resolve()
 
-    body = _issue_view_body(repo, issue)
+    body = gh_rest.fetch_issue_body(repo, issue)
     if body is None:
-        print(f"이슈 #{issue} 본문을 읽을 수 없다(`gh issue view` 실패)")
+        print(f"이슈 #{issue} 본문을 읽을 수 없다(`gh api repos/.../issues/{issue}` 실패)")
         return 1
     section = _acceptance_section(body)
     if section is None:
