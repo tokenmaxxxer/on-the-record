@@ -204,12 +204,24 @@ if not scoped_roles or issue is None:
 
 VERDICT_RE = re.compile(r"^\s*quality_bar_verdict:\s*(bar-met|bar-not-met)\s*$", re.MULTILINE)
 
+# issue #1623: wires human_comprehensibility_verdict (gates/quality_bar.py,
+# issue #1165 tier-1 machinery) into this live per-role record read -- a
+# role's own self-declared `quality_bar_verdict: bar-met` line is downgraded
+# to bar-not-met when the same record's prose fails the tier-1 structure
+# checks (raw dump, missing lead paragraph, etc.). A record with no
+# human-facing prose section anywhere is exempt (human_comprehensibility_
+# verdict returns bar-met for it) -- none of BAR_ROLES' own record files are
+# currently no-prose (all write docs/issue-<n>/reports/<role>.md prose
+# records per the standing record-shape directive), so no role is listed
+# exempt here; the exemption path stays live for a future no-prose
+# deliverable.
 denials = []
 for role in sorted(scoped_roles):
     record_path = os.path.join(run_cwd, "docs", "issue-%s" % issue, "reports", role + ".md")
     verdict = None
     consecutive = 0
     record_author = None
+    text = ""
     if os.path.isfile(record_path):
         try:
             text = open(record_path, encoding="utf-8", errors="ignore").read()
@@ -227,9 +239,14 @@ for role in sorted(scoped_roles):
         if log is not None and log.returncode == 0:
             record_author = log.stdout.strip() or None
 
+    hc_verdict, hc_reason = quality_bar.human_comprehensibility_verdict(text)
+    effective_verdict = "bar-not-met" if hc_verdict == "bar-not-met" else verdict
+
     status, reason = quality_bar.classify(
-        True, verdict, record_author, producer_account, consecutive,
+        True, effective_verdict, record_author, producer_account, consecutive,
     )
+    if hc_verdict == "bar-not-met" and status in (quality_bar.BAR_NOT_MET, quality_bar.ESCALATE):
+        reason = "%s; human_comprehensibility: bar-not-met (%s)" % (reason, hc_reason)
     if status in (quality_bar.BAR_NOT_MET, quality_bar.ESCALATE):
         denials.append((role, status, reason))
 

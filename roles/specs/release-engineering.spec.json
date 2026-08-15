@@ -62,6 +62,10 @@
       "verification_method": "human-review-checklist: does the version bump's magnitude (major/minor/patch) match the actual change (breaking/additive/fix) per Semantic Versioning, with any deliberate deviation stated explicitly?",
       "evidence_grade": "validated",
       "verified_source": "Semantic Versioning 2.0.0 — https://semver.org/spec/v2.0.0.md (primary, canonical spec; MAJOR for incompatible API changes, MINOR for backward-compatible additions, PATCH for backward-compatible fixes is the spec's own core rule)."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
     }
   ],
   "loop_state": {
