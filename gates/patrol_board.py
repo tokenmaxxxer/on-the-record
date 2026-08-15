@@ -44,18 +44,23 @@ _SEEN_SUFFIX = re.compile(r" \(seen (\d+)x\)$")
 # ---------------------------------------------------------------------------
 
 def select_board_entries(queue: list[dict], role: str) -> list[dict]:
-    """Diff-lane, status=open, validated entries scoped to `role` — a
-    queue entry belongs to a role's board when its `path` starts with
-    `roles/<role>/` or `<role>/` (same subject-path scoping convention
-    as issue #1582's own role-patrol pilot), or unconditionally when
-    role == "" (whole-repo board)."""
+    """Diff-lane, status=open, validated entries scoped to `role`. A queue
+    entry belongs to a role's board when the judge transport authored it for
+    that role — `scanner_id == "judge:<role>"` (spawn.py judge_cmd's enqueue
+    shape) — or, for mechanical scanners with no authoring role, when its
+    `path` starts with `roles/<role>/` or `<role>/` (issue #1582's
+    subject-path convention). `role == ""` selects everything (whole-repo
+    board)."""
     out = []
     for entry in queue:
         if entry.get("lane") != "diff" or entry.get("status") != "open":
             continue
-        if role and not (entry["path"].startswith(f"roles/{role}/")
-                          or entry["path"].startswith(f"{role}/")):
-            continue
+        if role:
+            by_scanner = entry.get("scanner_id") == f"judge:{role}"
+            by_path = (entry["path"].startswith(f"roles/{role}/")
+                       or entry["path"].startswith(f"{role}/"))
+            if not (by_scanner or by_path):
+                continue
         out.append(entry)
     return out
 

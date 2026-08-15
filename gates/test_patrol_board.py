@@ -255,3 +255,23 @@ def test_dry_run_makes_zero_subprocess_calls(tmp_path, monkeypatch):
     assert result["api_calls"] == 0
     assert result["wrote"] is False
     assert ("66" * 20)[:12] in result["body"]
+
+
+def test_select_routes_judge_scanner_id_to_role_board():
+    # spawn.py judge_cmd enqueues with scanner_id="judge:<role>" and the
+    # violated file's repo path — role boards must pick these up even though
+    # the path carries no roles/<role>/ prefix (integration defect caught in
+    # PR #1592 review).
+    queue = [
+        {"fingerprint": "a" * 64, "scanner_id": "judge:secure-coding",
+         "path": "gates/foo.py", "finding_class": "x", "excerpt": "e",
+         "lane": "diff", "status": "open"},
+        {"fingerprint": "b" * 64, "scanner_id": "judge:other-role",
+         "path": "gates/foo.py", "finding_class": "x", "excerpt": "e",
+         "lane": "diff", "status": "open"},
+        {"fingerprint": "c" * 64, "scanner_id": "record_lint",
+         "path": "roles/secure-coding/thing.md", "finding_class": "x",
+         "excerpt": "e", "lane": "diff", "status": "open"},
+    ]
+    got = patrol_board.select_board_entries(queue, "secure-coding")
+    assert [e["fingerprint"][:1] for e in got] == ["a", "c"]
