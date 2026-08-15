@@ -1,12 +1,8 @@
 ---
 subject: issue-1199
 role: product-discovery
-kind: superseded
+kind: current-state-survey
 ---
-
-Superseded: renamed to `current-state.md` in this same directory (the
-methodology gate's required filename). Content moved there verbatim;
-this stub remains only so the earlier commit's history stays intact.
 
 # Current-state survey: product-discovery tool-landscape fold-in (issue-1199)
 
