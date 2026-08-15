@@ -130,14 +130,37 @@ class OutOfIndexSubjectIsNotAGhFailureSkip(unittest.TestCase):
     """issue #1613: a subject whose issue number is not present in a
     *successfully*-fetched issue-state index (e.g. it belongs to another
     repo) must not be reported as a `gh 실패` skip — only an actual `gh`
-    call failure earns that reason. `find_violations` already `continue`s
-    past such a subject; this pins that behavior so it does not regress."""
+    call failure earns that reason.
 
-    def test_subject_missing_from_successful_index_is_silently_skipped(self):
+    issue #1643: it also must not be silently `continue`d forever — it is
+    classified ONCE as out-of-scope with a distinct reason (not a
+    per-tick skip, not silence), and a subsequent tick does not repeat
+    it. Each test uses its own tmpdir as `root` since the one-time
+    classification is now tracked in local state under `root/runs/`."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+
+    def test_subject_missing_from_successful_index_is_not_a_gh_failure_skip(self):
         subjects = {"issue-9999": {"implementation": {}}}
         violations, skips = closure_sweep.find_violations(
-            Path("."), subjects=subjects, issue_states={135: "OPEN"})
-        self.assertEqual(violations, [])
+            self.root, subjects=subjects, issue_states={135: "OPEN"})
+        self.assertEqual(skips, [])
+        self.assertEqual(len(violations), 1)
+        self.assertEqual(violations[0]["kind"], closure_sweep.OUT_OF_INDEX_SUBJECT)
+        self.assertEqual(violations[0]["subject"], "issue-9999")
+        self.assertEqual(violations[0]["issue"], 9999)
+
+    def test_subsequent_tick_does_not_repeat_the_classification(self):
+        subjects = {"issue-9999": {"implementation": {}}}
+        first, _ = closure_sweep.find_violations(
+            self.root, subjects=subjects, issue_states={135: "OPEN"})
+        second, skips = closure_sweep.find_violations(
+            self.root, subjects=subjects, issue_states={135: "OPEN"})
+        self.assertEqual(len(first), 1)
+        self.assertEqual(second, [])
         self.assertEqual(skips, [])
 
     def test_mixed_board_only_flags_the_unresolved_ones(self):
@@ -147,11 +170,30 @@ class OutOfIndexSubjectIsNotAGhFailureSkip(unittest.TestCase):
         closure_sweep._pr_index_all = lambda root: ({}, True)
         try:
             violations, skips = closure_sweep.find_violations(
-                Path("."), subjects=subjects, issue_states={135: "OPEN"})
+                self.root, subjects=subjects, issue_states={135: "OPEN"})
+        finally:
+            closure_sweep._pr_index_all = orig_pr_index_all
+        self.assertEqual([s["subject"] for s in skips], [])
+        self.assertEqual(len(violations), 1)
+        self.assertEqual(violations[0]["subject"], "issue-9999")
+        self.assertEqual(violations[0]["kind"], closure_sweep.OUT_OF_INDEX_SUBJECT)
+
+    def test_all_in_index_board_is_byte_identical_to_no_out_of_scope_entries(self):
+        """acceptance empty-state: boards with all subjects in-index keep
+        today's behavior — no out-of-scope entries, no state file
+        written."""
+        subjects = {"issue-135": {"implementation": {}}}
+        orig_pr_index_all = closure_sweep._pr_index_all
+        closure_sweep._pr_index_all = lambda root: ({}, True)
+        try:
+            violations, skips = closure_sweep.find_violations(
+                self.root, subjects=subjects, issue_states={135: "OPEN"})
         finally:
             closure_sweep._pr_index_all = orig_pr_index_all
         self.assertEqual(violations, [])
-        self.assertEqual([s["subject"] for s in skips], [])
+        self.assertEqual(skips, [])
+        self.assertFalse(
+            (self.root / closure_sweep.OUT_OF_INDEX_SEEN_STATE_REL).exists())
 
 
 class ConditionalIssueListUsesExplicitGetMethod(unittest.TestCase):
