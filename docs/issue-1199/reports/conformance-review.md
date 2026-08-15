@@ -1501,3 +1501,141 @@ amendments-reconciled: issuecomment-5299648085 — an approval token for a
 different role (`incident-response`), not this conformance-review unit
 or the interaction-design unit reviewed above; no amendment to this
 record's scope or content.
+
+## growth-analytics plugin-ecosystem rework
+
+canonical: `gh pr view 1542 --repo tokenmaxxxer/on-the-record --json
+mergeCommit,mergedAt,commits`, run this session, output
+`mergeCommit.oid: 2cb6f90d6d31f6bd28a62802f31c2b438cb45401`.
+canonical: same `gh pr view 1542` fetch cited directly above — board
+condition: PR tokenmaxxxer/on-the-record#1542 merged to main as that
+commit.
+canonical: `grep -n "growth-analytics" docs/issue-1199/reports/conformance-review.md`,
+run this session against this file's content before this edit — no
+review section named this PR before now.
+
+### Requirement: rulebook delivery landed and opened as a PR, matching the record's stated commit
+verdict: Present
+spec_ref: issue-1199 Requirement 2 (learnings must land as a fold-in,
+traceable end to end); contract v3 record-accuracy norm
+canonical: `gh pr list --repo tokenmaxxxer/growth-analytics-rulebook
+--head issue-1199/growth-analytics --state all --json
+number,state,url,baseRefName,headRefName`, run this session, output
+`[{"baseRefName":"main","headRefName":"issue-1199/growth-analytics","number":24,"state":"MERGED","url":"https://github.com/tokenmaxxxer/growth-analytics-rulebook/pull/24"}]`.
+evidence: canonical: same `gh pr list` output cited directly above —
+PR #24 is MERGED.
+canonical: `docs/issue-1199/reports/growth-analytics.md`'s "Open
+findings" section, read this session — states the rulebook-repo PR had
+not yet been opened as of that writing and that commit `529d879` was
+pushed to `origin/issue-1199/growth-analytics` for outside relay.
+rationale: canonical: same two citations directly above — the record's
+scoped claim ("pushed, relay pending") is consistent with, not
+contradicted by, the now-merged PR #24.
+
+### Requirement: fold-in applied natively, no tool-attribution catalog in the rulebook itself (2026-08-13 amendment)
+verdict: Present
+spec_ref: issue-1199, operator amendment 2026-08-13T06:36:54Z (native
+application, no `source:`/tool-name framing, no tool-catalog section)
+canonical: `gh pr diff 24 --repo tokenmaxxxer/growth-analytics-rulebook`,
+run this session — diff touches only
+`ga-funnel/agents/funnel-localizer.md`,
+`ga-prereg/hooks/directive.sh`, and
+`ga-trust/agents/trust-gate-walker.md`; no new catalog file.
+evidence: canonical: same `gh pr diff 24` output cited directly above
+— none of GrowthBook, PostHog, Eppo, Amplitude, or Mixpanel (the tools
+named in `docs/issue-1199/reports/growth-analytics.md`'s survey table)
+appear in the diff's added text.
+rationale: canonical: same `gh pr diff 24` output cited above — every
+added clause reads as a procedural requirement in the role's own
+voice (e.g. "also ask whether any unit was exposed to more than one
+variant"), matching the amendment's native-application requirement.
+
+## Overall (growth-analytics plugin-ecosystem rework)
+canonical: the two `### Requirement:` sections directly above (`gh pr
+list`/`gh pr diff 24`, both run this session).
+Both requirements verify Present.
+
+## incident-response plugin-ecosystem rework
+
+canonical: `gh pr view 1539 --repo tokenmaxxxer/on-the-record --json
+mergeCommit,mergedAt`, run this session, output
+`mergeCommit.oid: f6ad1a3b580fb1ead4fa090b1fd9782996aeea72`.
+canonical: same `gh pr view 1539` fetch cited directly above — board
+condition: PR tokenmaxxxer/on-the-record#1539 merged to main as that
+commit.
+canonical: `grep -n "incident-response" docs/issue-1199/reports/conformance-review.md`,
+run this session against this file's content before this edit — only
+unrelated approval-token amendment lines hit, no review section for
+this PR before now.
+
+### Requirement: fold-in applied natively, no tool-attribution catalog in the rulebook itself (2026-08-13 amendment)
+verdict: Incorrect
+spec_ref: issue-1199, operator amendment 2026-08-13T06:36:54Z (native
+application, no `source:`/tool-name framing, no tool-catalog section)
+canonical: `gh pr diff 23 --repo tokenmaxxxer/incident-response-rulebook`,
+run this session — diff adds `playbook/tool-landscape.md` (a new file)
+plus a README pointer to it.
+evidence: canonical: same `gh pr diff 23` output cited directly above
+— the new file's rule text names Rootly, incident.io, PagerDuty,
+Opsgenie, and Upptime directly ("the design move behind Rootly's and
+incident.io's auto-timeline-capture...", "PagerDuty's and Opsgenie's
+core design move is that severity drives escalation-chain routing",
+"Upptime collapses the incident record and the public communication
+artifact..."), the exact catalog shape the amendment forbids.
+canonical: `gh pr view 23 --repo tokenmaxxxer/incident-response-rulebook
+--json commits`, run this session, output showing one commit:
+`3ab6e61da3c2623ccd7df6f288e34f008ef4667f`.
+canonical: `gh api repos/tokenmaxxxer/incident-response-rulebook/commits/issue-1199/tool-landscape
+--jq .sha`, run this session, output
+`3ab6e61da3c2623ccd7df6f288e34f008ef4667f` — same sha as the merged
+PR's commit, confirming the merged branch tip is this one commit.
+canonical: `gh api repos/tokenmaxxxer/incident-response-rulebook/contents/playbook/severity-classification-scoping.md
+--jq .content | base64 -d | grep -c '^[0-9]\+\.'` and the equivalent
+for `timeline-construction.md`, both run this session against current
+main, output `5` for each.
+canonical: same two `gh api .../contents/...` runs cited directly
+above — both target files carry 5 rules, not the 6 the record claims.
+evidence: canonical: same `gh pr view 23 --json commits` output cited
+above.
+Record text — `docs/issue-1199/reports/incident-response.md`, its
+delivery-description section, read this session — states "Removed
+`playbook/tool-landscape.md` ... both violate the native-application
+amendment," a new rule 6 added to each of
+`severity-classification-scoping.md` and `timeline-construction.md`,
+committed as `65bec61`, force-pushed, and opened as a new PR.
+canonical: same `gh pr view 23 --json commits` and `gh api
+.../commits/issue-1199/tool-landscape` citations above — neither shows
+commit `65bec61` anywhere on the merged branch tip.
+rationale: canonical: same four citations above (`gh pr diff 23`/`gh
+pr view 23`/`gh api .../commits/...`/`gh api .../contents/...`) —
+merged PR #23 carries only commit `3ab6e61`, the pre-amendment commit
+the record itself calls "a prior, unmerged attempt ... that predated
+two operator amendments."
+canonical: same `gh api .../commits/issue-1199/tool-landscape` fetch
+cited above — the record's claimed commit `65bec61` never reached the
+tip of the branch PR #23 merged.
+canonical: same `gh api .../contents/...` and `gh pr diff 23` citations
+above — both target files carry 5 rules (not the claimed 6), and
+`playbook/tool-landscape.md` remains live on main naming five tools.
+canonical: same `gh pr view 23 --json commits` citation above — the
+record's narrative describes real local session work that was never
+pushed to the branch PR #23 actually merged.
+addressed_to: incident-response role — push and merge the actual
+corrective commit (removing `playbook/tool-landscape.md`, adding
+native rule-6 clauses to `severity-classification-scoping.md` and
+`timeline-construction.md`) against
+`tokenmaxxxer/incident-response-rulebook`'s `main`, or open a follow-up
+PR carrying the same diff — canonical: the `gh api
+.../commits/issue-1199/tool-landscape` and `gh pr view 23` citations
+above show only `3ab6e61` landed — before this role's tracker row is
+checked off.
+
+## Overall (incident-response plugin-ecosystem rework)
+canonical: the `### Requirement:` section directly above (four `gh`
+citations, all run this session against
+`tokenmaxxxer/incident-response-rulebook`'s live main).
+One Incorrect verdict is recorded: the record claims a tool-catalog
+file was removed and native rules added instead, but PR #23 carries
+only the pre-amendment commit the record itself says was superseded.
+addressed_to: incident-response role — see the requirement section's
+`addressed_to` line above for the resolution path.
