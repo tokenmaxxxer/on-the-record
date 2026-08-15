@@ -653,6 +653,127 @@ def t_commit_pinned_citation_recognized_as_evidence():
     assert record_lint.canonical_source_claim_check(state_text) == []
 
 
+def t_1614_class1_pass_as_noun_not_flagged():
+    """issue #1614 misfire class 1: "scout pass" uses "pass" as a noun
+    (a round of scouting), not the outcome word PASS."""
+    text = "The scout pass surfaced four candidate exemplars.\n"
+    assert record_lint.outcome_claim_citation_check(text) == []
+
+
+def t_1614_class1_pass_as_argument_passing_not_flagged():
+    """issue #1614 misfire class 1: "passed a dict" is the verb "pass" in
+    its argument-passing sense, not a completion claim."""
+    text = "The caller passed a dict of options into the constructor.\n"
+    assert record_lint.outcome_claim_citation_check(text) == []
+
+
+def t_1614_class1_genuine_pass_claim_still_flagged():
+    """A real completion claim ("Tests PASS") with no evidence still
+    fires — the word-sense guard must not blanket-exempt the marker."""
+    text = "Tests PASS for this change.\n"
+    assert record_lint.outcome_claim_citation_check(text) != []
+
+
+def t_1614_class1_done_as_attributive_participle_not_flagged():
+    """issue #1614 misfire class 1: "once done" / "done work" are
+    participle/attributive uses of "done", not a completion claim."""
+    assert record_lint.outcome_claim_citation_check(
+        "Once done, proceed to the next stage.\n") == []
+    assert record_lint.outcome_claim_citation_check(
+        "The already-done setup work stays untouched.\n") == []
+
+
+def t_1614_class1_genuine_done_claim_still_flagged():
+    """A real completion claim ("the migration is done.") with no
+    evidence still fires."""
+    text = "The migration is done.\n"
+    assert record_lint.outcome_claim_citation_check(text) != []
+
+
+def t_1614_class2_quoted_section_title_not_flagged():
+    """issue #1614 misfire class 2: referencing the record-shape section
+    name '## What was done' / "What will be done" in prose is a literal
+    section-title mention, not a completion claim."""
+    text = ('As required by the record shape, fill in the '
+            '"What was done" section before merging.\n')
+    assert record_lint.outcome_claim_citation_check(text) == []
+    text2 = 'See "What will be done" below for the plan.\n'
+    assert record_lint.outcome_claim_citation_check(text2) == []
+
+
+def t_1614_class3_evidence_below_claim_recognized():
+    """issue #1614 misfire class 3: a `canonical:`/executed-live citation
+    up to 3 lines BELOW the claim (not just above) satisfies the
+    adjacency requirement — previously only the above direction counted."""
+    outcome_text = (
+        "Tests PASS for this change.\n"
+        "canonical: `pytest gates/test_record_lint.py -q`\n")
+    assert record_lint.outcome_claim_citation_check(outcome_text) == []
+    state_text = (
+        "The upstream PR was merged.\n"
+        "canonical: gh pr view 42\n")
+    assert record_lint.canonical_source_claim_check(state_text) == []
+
+
+def t_1614_class4_historical_narration_not_flagged():
+    """issue #1614 misfire class 4: narrating an already-fixed, prior-
+    round defect is historical narration, not a live defect claim."""
+    text = ("Previously, the parser was broken — this has since been "
+            "fixed and is no longer an issue.\n")
+    assert record_lint.canonical_source_claim_check(text) == []
+    defect_text = "Previously the root cause is a stale cache entry.\n"
+    assert record_lint.defect_claim_grounding_check(
+        Path(tempfile.mkdtemp()), defect_text) == []
+
+
+def t_1614_class5_rule_self_quotation_exempted():
+    """issue #1614 misfire class 5: a record documenting rule #870 itself
+    (filed under docs/issue-870/) quotes the rule's own marker vocabulary
+    to explain it — that quotation must not be graded as the author's own
+    unevidenced claim, since `lint_record` exempts this rule for records
+    under the rule's own issue tree."""
+    body = (
+        "---\nloop_state: landed\n---\n\n"
+        "# record\n\n"
+        "The rule fires on lines like 'the migration is done.' with no "
+        "`canonical:` tag — see the OUTCOME_CLAIM_MARKER vocabulary.\n\n"
+        "## What did not work\n\nNone.\n")
+    d, record = _repo_with_record(
+        body, rel="docs/issue-870/reports/implementation.md")
+    bad = record_lint.lint_record(record)
+    assert not any("#870" in b for b in bad), bad
+
+
+def t_1614_class5_same_marker_still_flagged_outside_rule_issue():
+    """The #870 exemption is scoped to docs/issue-870/ — an unrelated
+    issue's record making the same bare claim is still graded."""
+    body = (
+        "---\nloop_state: landed\n---\n\n"
+        "# record\n\n"
+        "The migration is done.\n\n"
+        "## What did not work\n\nNone.\n")
+    d, record = _repo_with_record(
+        body, rel="docs/issue-517/reports/implementation.md")
+    bad = record_lint.lint_record(record)
+    assert any("#870" in b for b in bad), bad
+
+
+def t_1614_class6_negated_hypothetical_not_flagged():
+    """issue #1614 misfire class 6: "cannot detect" / "would still pass"
+    are negated/hypothetical, not an actual outcome or defect claim."""
+    assert record_lint.outcome_claim_citation_check(
+        "The lint rule would still pass on a fabricated excerpt.\n") == []
+    assert record_lint.canonical_source_claim_check(
+        "This scanner cannot detect a merged PR reliably.\n") == []
+
+
+def t_1614_class6_genuine_claim_with_would_elsewhere_still_flagged():
+    """A negation word elsewhere in a different, unrelated claim sentence
+    must not blanket-exempt a real same-line completion claim."""
+    text = "The build is done and ready to ship.\n"
+    assert record_lint.outcome_claim_citation_check(text) != []
+
+
 def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]
