@@ -126,6 +126,53 @@ class FindViolationsSkips(unittest.TestCase):
             self.assertEqual(run.call_count, 3)
 
 
+class OutOfIndexSubjectIsNotAGhFailureSkip(unittest.TestCase):
+    """issue #1613: a subject whose issue number is not present in a
+    *successfully*-fetched issue-state index (e.g. it belongs to another
+    repo) must not be reported as a `gh 실패` skip — only an actual `gh`
+    call failure earns that reason. `find_violations` already `continue`s
+    past such a subject; this pins that behavior so it does not regress."""
+
+    def test_subject_missing_from_successful_index_is_silently_skipped(self):
+        subjects = {"issue-9999": {"implementation": {}}}
+        violations, skips = closure_sweep.find_violations(
+            Path("."), subjects=subjects, issue_states={135: "OPEN"})
+        self.assertEqual(violations, [])
+        self.assertEqual(skips, [])
+
+    def test_mixed_board_only_flags_the_unresolved_ones(self):
+        subjects = {"issue-135": {"implementation": {}},
+                    "issue-9999": {"implementation": {}}}
+        orig_pr_index_all = closure_sweep._pr_index_all
+        closure_sweep._pr_index_all = lambda root: ({}, True)
+        try:
+            violations, skips = closure_sweep.find_violations(
+                Path("."), subjects=subjects, issue_states={135: "OPEN"})
+        finally:
+            closure_sweep._pr_index_all = orig_pr_index_all
+        self.assertEqual(violations, [])
+        self.assertEqual([s["subject"] for s in skips], [])
+
+
+class ConditionalIssueListUsesExplicitGetMethod(unittest.TestCase):
+    """issue #1613 root cause: `gh api ... -f k=v` defaults to POST unless
+    `--method GET` is explicit (gh's own documented behavior) — that
+    silent POST is what turned every `issue_state_index_all` call into a
+    422 failure, which cascaded into every subject on the board being
+    reported as a permanent `gh-issue-list-failed` skip, not just
+    cross-repo ones. This pins the fix: the conditional list call always
+    states its method explicitly."""
+
+    def test_cmd_carries_explicit_method_get(self):
+        with mock.patch.object(closure_sweep.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=1, stdout="", stderr="")
+            closure_sweep._conditional_issue_list(
+                Path("."), "owner/repo", Path("/tmp/nonexistent-cache.json"))
+        cmd = run.call_args.args[0]
+        self.assertIn("--method", cmd)
+        self.assertEqual(cmd[cmd.index("--method") + 1], "GET")
+
+
 class OneTickOneSweep(unittest.TestCase):
     """issue #1320 requirement 2/acceptance (d): one tick triggers
     exactly one board-wide sweep — guards spawn.py's watchdog wiring
