@@ -457,3 +457,169 @@ PR-open outcome; opening the PR is left to a follow-up attempt once the
 watcher's cadence settles.
 
 loop_state: handed-off.
+
+## Observation: implementation role, PR #1231 (issue-1199/implementation)
+canonical: `gh pr view 1231 --json title,body,mergeCommit,commits,files,mergedAt`, run this session.
+canonical: `gh pr diff 1231`, read this session.
+
+code_under_review:
+  - docs/issue-1199/reports/implementation.md
+  - docs/issue-1199/reports/implementation/deviation-log.md
+
+canonical: `gh pr diff 1231`, read this session.
+Independence statement: this session did not author or edit PR #1231
+this session; the step/trajectory findings below come only from `gh pr
+diff 1231` (read this session) and `gh pr view` calls (run this
+session), never from re-executing the implementation role's task.
+
+### Scope statement
+canonical: `gh pr list --state merged --search "issue-1199/implementation" --json number,mergedAt`, run this session.
+Three PRs on `issue-1199/implementation` reached MERGED state: #1231
+(2026-08-13T07:03:06Z), #1253 (2026-08-13T08:09:28Z), #1298
+(2026-08-14T00:43:51Z). Target: PR #1231
+(https://github.com/tokenmaxxxer/on-the-record/pull/1231, merge commit
+`bfdd64f9bc8c3eb23bc7fe73a4da752f40b7680b`).
+
+canonical: `git log origin/main --all -p -- docs/issue-1199/reports/execution-observation.md`, run this session, grepped for "PR #1231" and "PR #1253".
+Zero hits for either string; this file's own text above already names
+PR #1298 as observed, so #1298 is not this section's target.
+
+canonical: `gh pr view 1253 --json files`, run this session.
+That query lists only proposal/survey/scout-brief additions under
+`docs/issue-1199/proposals/` and `docs/issue-1199/reports/implementation/`
+— a phase-1 round with no code delivery, so PR #1253 is not this
+section's target.
+
+canonical: `gh pr diff 1231`, read this session.
+PR #1231's own "What was done" text describes a tool-landscape fold-in
+commit landing in the separate `implementation-rulebook` repo — the
+actual phase-2 delivery this section targets.
+
+FRESH-EYES ORDERING: `gh pr diff 1231` (cited immediately above) was
+read before re-reading `implementation.md`'s own prose framing inside
+that same diff output.
+
+canonical: `gh pr diff 1231`, read this session.
+DIFF-SCOPE: PR #1231's diff touches only
+`docs/issue-1199/reports/implementation.md` (appended section) and adds
+`docs/issue-1199/reports/implementation/deviation-log.md` in full —
+every citation below sits inside one of those two hunks.
+
+### Verdict: step
+
+canonical: `gh pr diff 1231`, read this session — the appended
+section's line "PR opened: https://github.com/tokenmaxxxer/implementation-rulebook/pull/85".
+canonical: `gh pr view 85 --repo tokenmaxxxer/implementation-rulebook --json state,title,url,createdAt,mergedAt`, run this session.
+subject: `implementation.md`'s claim, inside PR #1231's own added hunk,
+that "PR opened: .../implementation-rulebook/pull/85". test: did that
+PR exist at the time PR #1231's commits (06:55:25Z-06:59:16Z, merge at
+07:03:06Z) asserted it as an already-opened action.
+
+canonical: `gh pr view 85 --repo tokenmaxxxer/implementation-rulebook --json createdAt`, run this session — `createdAt: 2026-08-13T08:07:20Z`.
+finding: implementation-rulebook PR #85 was created at
+2026-08-13T08:07:20Z, over an hour after PR #1231's own commits and
+after PR #1231's own merge. The claim asserted a specific PR URL as an
+already-opened fact at a time when that PR did not yet exist; nothing
+in the hunk marks the line as provisional.
+result: failed. assertedBy: execution-observation, this session. mode:
+command (the two `gh pr view` calls cited above, both run this
+session).
+
+canonical: `gh pr diff 1231`, read this session — the "`bash
+tests/methodology-plugins-tests.sh`" block ("22 passed, 1 failed") and
+its inline `derived:` stash-re-run line, both inside the diff hunk.
+subject: the record's own claim that the one failing case is a
+pre-existing gap. test: whether this session can corroborate that
+claim without re-executing the implementation role's own task
+(prohibited).
+finding: the claim carries its own `derived:` reproduction command
+(record-claim-citation convention satisfied) but this session did not
+re-run it; the claim rests on the observed role's own record prose,
+unverified independently this session.
+result: unverifiable. assertedBy: execution-observation, this session.
+mode: asserted (the observed role's own record states it, per the `gh
+pr diff 1231` citation above, unverified independently this session).
+
+### Verdict: outcome
+canonical: `gh pr diff 1231` and `gh pr view 85 --repo tokenmaxxxer/implementation-rulebook --json state`, both run this session (state: MERGED for PR #85).
+Recomputed per the spec's worst-case-among-cited-step-level-results
+rule against the two step results directly above (failed,
+unverifiable): the outcome takes the worse of the two.
+
+canonical: `gh pr view 85 --repo tokenmaxxxer/implementation-rulebook --json state`, run this session — state: MERGED.
+result: partially met. The implementation-rulebook fold-in itself
+landed for real, per the `gh pr view 85` call cited immediately above,
+but PR #1231's own record (per the `gh pr diff 1231` citation above)
+stated a false completion status at the time of writing, which is why
+this is not a clean `met`.
+
+### Verdict: trajectory
+
+canonical: `git log origin/main --oneline --before="2026-08-13T07:00:00" -- docs/issue-1199/proposals/`, run this session — no matching entry.
+scouted-when-required: no phase-1 proposal document for this specific
+fan-out unit predates PR #1231's commits on `main`; PR #1231's own
+"Upstream basis" line (per `gh pr diff 1231`, cited above) names only
+`implementation.md` itself and the APPROVE comment, unlike PR #1298's
+later round which does cite a predating scout brief and survey
+(contrast section above).
+result: fail.
+
+canonical: `gh pr diff 1231`, cited above — no proposal-shaped language precedes the build narrative.
+surveyed-before-proposing: not applicable, because no phase-1 proposal
+stage for this unit ran at all (see scouted-when-required above).
+result: not applicable.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate`, run this session; `docs/specs/approvers.md`, read this session; `gh pr view 1231 --json author`, run this session.
+approved-by-human: comment id 5276630627, posted 2026-08-13T06:11:45Z
+by `JiwonJung94`, exact-string body `APPROVE issue-1199/implementation`,
+posted before PR #1231's first commit (06:55:25Z); the PR author
+account is the same `JiwonJung94` (single-account mode); `approvers.md`
+line 1 lists `JiwonJung94`.
+
+canonical: `gh pr view 1231 --json author`, run this session — author login `JiwonJung94`, matching `approvers.md` line 1.
+result: pass.
+
+All three trajectory checks (fail / not-applicable / clears) are
+addressed above; the check that did not clear is scouted-when-required
+specifically, not all three.
+
+### Open findings
+canonical: the step-verdict `gh pr view 85`/`gh pr diff 1231` citations above, run/read this session.
+1. impact: `implementation.md`'s PR #1231 section asserted a specific
+   external PR URL as already opened before that PR existed, presenting
+   a not-yet-started action as if it had already happened.
+   timeline: claim written 2026-08-13T06:55:25Z-06:59:16Z; PR #85
+   actually created 2026-08-13T08:07:20Z (both cited in the step
+   verdict above).
+   root cause: the cross-repo delivery step was narrated in finished
+   tense before this session's evidence shows it had actually
+   succeeded, with no asserted-mode qualifier on that line.
+   canonical: the step-verdict `gh pr view 85` citation above, run this session.
+   action item: when a record's delivery step spans a second repo whose
+   PR-create call cannot be verified within the same turn, state the
+   commit-pushed fact only (as this same PR's own deviation-log entry
+   correctly does for the on-the-record-side PR) and mark the
+   cross-repo PR-open line pending/asserted, not finished, until a live
+   check corroborates it.
+2. impact: no phase-1 proposal artifact for this fan-out unit is
+   evidenced on `main`, so scouted-when-required does not clear.
+   timeline: applies to PR #1231's full commit range,
+   2026-08-13T06:55:25Z-06:59:16Z.
+   root cause: the record names only the governing APPROVE comment as
+   upstream basis, never stating which of the two phase-2-entry paths
+   (contract v3 s19 Approve, or s19a build-now bypass) applied to this
+   unit.
+   action item: a delivery record should state explicitly which
+   phase-2-entry path applied, so a later observer does not infer it
+   from an absent proposal file.
+
+### Resolution path
+canonical: the `gh pr diff 1231` / `gh pr view 85` citations used throughout this section, all run this session.
+Both findings above are process/record-quality gaps in an
+already-merged PR; independence bars this role from editing PR #1231 or
+`implementation.md` directly. A human judges these findings on this
+record's own PR and decides whether a corrective note in
+`implementation.md` is warranted, given the underlying fold-in did
+eventually land for real.
+
+loop_state: handed-off.
