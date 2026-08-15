@@ -172,10 +172,26 @@ def t_heartbeat_surfaces_induced_dead_poller():
         assert "[resume]" in r.stdout, r.stdout
 
 
+def _alive_marker_path(home: Path, arm_root: Path) -> Path:
+    """Mirrors poll-heartbeat.sh's inline python: sha256(pwd -P)[:24],
+    joined under ~/.claude/tokenmaxxxer/monitor-alive/ (issue #1280
+    relocation, docs/issue-1280/reports/implementation.md "What was
+    done" -- marker moved from `<repo>/.orchestrate-monitor-alive/alive`
+    to `~/.claude/tokenmaxxxer/monitor-alive/<sha256(pwd -P)[:24]>/alive`)."""
+    import hashlib
+    root = str(arm_root.resolve())
+    h = hashlib.sha256(root.encode("utf-8", "surrogatepass")).hexdigest()[:24]
+    return home / ".claude" / "tokenmaxxxer" / "monitor-alive" / h / "alive"
+
+
 def t_heartbeat_refuses_to_arm_on_non_git_root():
-    """issue #1275 Acceptance: the Monitor itself refuses to arm (exits
-    before the tick loop) when its cwd is not a git repo — no repeating
-    per-tick gh noise, no watchdog call, no roster/watcher artifacts."""
+    """issue #1292 (docs/issue-1292/reports/implementation.md "Summary of
+    work"): the #1275 hard `exit 1` non-git refusal is demoted to the
+    same sweep-exclusion/dormancy path #1245/#1280 built for the
+    non-board case -- a non-git arm-root no longer refuses to arm. The
+    tick loop always runs, the relocated alive marker is written
+    unconditionally, and the watchdog still runs on a due tick; no
+    `[monitor-arm-refused]` error and no exit-1 remain on this path."""
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -186,23 +202,26 @@ def t_heartbeat_refuses_to_arm_on_non_git_root():
         non_git_root = tmp / "not-a-repo"
         non_git_root.mkdir()
         r = _run_heartbeat(checkout, marker,
-                            {"FAKE_POLL_DUE": "1", "HOME": str(home)},
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_REPORT": EMPTY_ROSTER_REPORT},
                             cwd=non_git_root)
-        assert r.returncode != 0, r.stdout
-        assert "[monitor-arm-refused]" in r.stderr, r.stderr
-        assert "check=git-repo" in r.stderr, r.stderr
-        assert not (marker.exists() and marker.read_text().strip()), \
-            "watchdog must never run when the monitor's own root is not a git repo"
-        assert not (non_git_root / ".orchestrate-monitor-alive").exists(), \
-            "no registration artifact should be written when arm is refused"
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "[monitor-arm-refused]" not in r.stderr, r.stderr
+        assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
+        assert _alive_marker_path(home, non_git_root).exists(), \
+            "non-git arm-root must still get the relocated alive marker"
+        assert _wait_for_marker(marker), \
+            "watchdog must still run on a due tick when the arm-root is not a git repo"
 
 
 def t_heartbeat_skips_attachment_on_non_board_repo():
-    """issue #1245: a target repo that IS a git repo but has no
-    docs/specs/approvers.md must never get the Monitor attached at all --
-    no alive marker, no state file, no watchdog log, even on a due tick.
-    Composes after #1275's git-repo check (this fixture is git-inited so
-    it reaches the board-registration gate, not the git-repo refusal)."""
+    """issue #1280 (docs/issue-1280/reports/implementation.md "What was
+    done"): the #1245 non-board `exit 0` gate is demoted to an
+    `is_board` flag that only scopes `spawn.py`'s `_board_wide_sweep_all`
+    arm-root inclusion -- it no longer skips Monitor attachment at the
+    poll-heartbeat.sh level. A non-board git repo now attaches
+    identically to a board repo: relocated alive marker written, tick
+    loop runs, watchdog invoked on a due tick."""
     import subprocess as _subprocess
     import tempfile
     with tempfile.TemporaryDirectory() as d:
@@ -219,20 +238,22 @@ def t_heartbeat_skips_attachment_on_non_board_repo():
                              "FAKE_WATCHDOG_REPORT": EMPTY_ROSTER_REPORT},
                             cwd=target_repo)
         assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
+        assert _alive_marker_path(home, target_repo).exists(), \
+            "non-board target repo must still get the relocated alive marker"
         assert not (target_repo / ".orchestrate-monitor-alive").exists(), \
-            "non-board target repo must not get an alive marker"
-        assert not (checkout / "runs" / "poll_heartbeat_last_state.json").exists(), \
-            "non-board target repo must not get a poll_heartbeat_last_state.json"
-        assert not (home / ".claude" / "tokenmaxxxer" / "poll-watchdog.log").exists(), \
-            "non-board target repo must not get a poll-watchdog.log"
-        assert not (marker.exists() and marker.read_text().strip()), \
-            "non-board target repo must not run the watchdog"
+            "the old repo-local marker path must never be recreated"
+        assert _wait_for_marker(marker), \
+            "non-board target repo must still run the watchdog on a due tick"
 
 
 def t_heartbeat_attaches_on_board_repo():
-    """issue #1245 counterpart: a target repo carrying
-    docs/specs/approvers.md keeps today's due-tick behavior byte-for-byte
-    -- alive marker created, watchdog invoked, captured report in stdout."""
+    """issue #1245 (docs/issue-1245/reports/implementation.md "What was
+    done") + #1280's relocation: a target repo carrying
+    docs/specs/approvers.md keeps due-tick attachment -- alive marker
+    created (now at the relocated ~/.claude/tokenmaxxxer/monitor-alive/
+    path, not the old repo-local one), watchdog invoked, captured report
+    in stdout."""
     import subprocess as _subprocess
     import tempfile
     with tempfile.TemporaryDirectory() as d:
@@ -251,8 +272,10 @@ def t_heartbeat_attaches_on_board_repo():
                             cwd=target_repo)
         assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
         assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
-        assert (target_repo / ".orchestrate-monitor-alive" / "alive").exists(), \
-            "board target repo must get an alive marker"
+        assert _alive_marker_path(home, target_repo).exists(), \
+            "board target repo must get the relocated alive marker"
+        assert not (target_repo / ".orchestrate-monitor-alive").exists(), \
+            "the old repo-local marker path must never be recreated"
         assert _wait_for_marker(marker), "watchdog was not run on a due tick for a board repo"
 
 

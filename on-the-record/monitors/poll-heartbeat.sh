@@ -108,18 +108,71 @@ if [ -n "${_alive_dir}" ]; then
     touch "${_alive_dir}/alive" 2>/dev/null || true
 fi
 
+# issue #1465: GC stale monitor-alive marker dirs on heartbeat startup,
+# and report (never delete) legacy .orchestrate-monitor-alive/ dirs in
+# consumer repos. Non-fatal — `|| true` so a GC failure can never take
+# down the tick loop below (observe-only machinery must never die on
+# cleanup errors).
+python3 "${SCRIPT_DIR}/../../spawn.py" gc-monitor-alive >/dev/null 2>&1 || true
+
+# issue #1466: poll-watchdog.log gets an ISO-8601 tick-header line per
+# appended tick and single-generation size-based rotation (to `.1`), both
+# non-fatal to this loop. Confirmed (docs/issue-1466/reports/implementation/survey.md
+# "Existing-parser check") no existing tool parses this log's current
+# format before adding the header/rotation. Threshold overridable for
+# tests via POLL_WATCHDOG_LOG_MAX_BYTES; unset in production (default
+# 5MB). This only touches the on-disk log -- the Monitor stdout paths
+# below (printed_text/diff_output) are untouched.
+POLL_WATCHDOG_LOG_MAX_BYTES="${POLL_WATCHDOG_LOG_MAX_BYTES:-5242880}"
+
+_poll_watchdog_log_append() {
+  local log_path="${HOME}/.claude/tokenmaxxxer/poll-watchdog.log"
+  local body="$1"
+  mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null || true
+  local size
+  size="$(wc -c <"${log_path}" 2>/dev/null || echo 0)"
+  size="${size//[[:space:]]/}"
+  if [ -n "${size}" ] && [ "${size}" -gt "${POLL_WATCHDOG_LOG_MAX_BYTES}" ] 2>/dev/null; then
+    mv -f "${log_path}" "${log_path}.1" 2>/dev/null || true
+  fi
+  local header
+  header="[tick] $(date +'%Y-%m-%dT%H:%M:%S%z')"
+  { printf '%s\n' "${header}"; printf '%s\n' "${body}"; } >>"${log_path}" 2>/dev/null || true
+}
+
+# issue #1497 req 2: a liveness stamp, owned solely by this tick loop and
+# written on EVERY iteration regardless of the due/not-due outcome below —
+# so staleness reflects the loop's own wake cadence, not the shared
+# poll_due() TTL race (survey's "Death-vs-TTL-quiet mechanics": that race
+# already has three callers and cannot itself disambiguate "the Monitor
+# ticked" from "a hook ticked"). flock-guarded like poll_due()
+# (spawn.py:2356-2381) rather than an unlocked write, per the same
+# established atomic-file-state convention. Separate from
+# poll_heartbeat_last_state.json (the #1220 delta-suppression state) and
+# from the workspace-keyed one-shot alive marker (#1280) — neither can
+# stand in for this without reintroducing the disambiguation gap.
+_alive_stamp_path="${CHECKOUT}/runs/poll_heartbeat_alive.json"
+_alive_stamp_write() {
+  mkdir -p "${CHECKOUT}/runs" 2>/dev/null || true
+  (
+    flock -x 200
+    printf '{"last_tick": %s}' "$(date +%s)" >"${_alive_stamp_path}.tmp" 2>/dev/null \
+      && mv -f "${_alive_stamp_path}.tmp" "${_alive_stamp_path}" 2>/dev/null
+  ) 200>"${_alive_stamp_path}.lock"
+}
+
 tick=0
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
-sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-60}"
+sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-120}"
 while true; do
   sleep "${sleep_seconds}"
+  _alive_stamp_write
   due_out="$(python3 "${CHECKOUT}/spawn.py" poll-due 2>&1 >/dev/null)"
   due_rc=$?
   if [ "${due_rc}" -eq 0 ]; then
     report="$(python3 "${CHECKOUT}/spawn.py" watchdog --auto-respawn 2>&1)"
     watchdog_rc=$?
-    mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
-    printf '%s\n' "${report}" >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
+    _poll_watchdog_log_append "${report}"
     if [ -n "${report}" ]; then
       printed_text="${report}"
     else
@@ -244,9 +297,7 @@ PY
     fi
   else
     if [ -n "${due_out}" ]; then
-      mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
-      printf '[poll-due crashed, rc=%s] %s\n' "${due_rc}" "${due_out}" \
-        >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>/dev/null || true
+      _poll_watchdog_log_append "$(printf '[poll-due crashed, rc=%s] %s' "${due_rc}" "${due_out}")"
     fi
     # issue #1220: non-due ticks are now fully silent (no "skipped (within
     # TTL)" line) — delta-only emission means a normal within-TTL tick
