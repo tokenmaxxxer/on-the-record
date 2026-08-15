@@ -9149,6 +9149,72 @@ class WatchMultiRoleAmbiguity(unittest.TestCase):
         self.assertEqual(seen["log_path"], Path("log-b"))
 
 
+class WatchRosterWorkspaceIndexRace(unittest.TestCase):
+    """이슈 #1585: `watch` 는 워크스페이스 인덱스를, `ps` 는 ROSTER 를
+    본다 — 스폰 직후 워크스페이스 인덱스 쓰기가 아직 반영되지 않은 창에서
+    ROSTER 에는 이미 살아있는 세션이 등록돼 있으면 `watch` 와 `ps` 가
+    존재 여부에서 갈렸다(실측: 이슈-1582 phase-2 드라이브, 5초 지연
+    재시도로도 재현). 워크스페이스 인덱스에 엔트리가 아예 없어도 ROSTER
+    에 등록된 살아있는 세션이 있으면 `watch` 가 '기록 없음'이 아니라
+    그 세션에 붙어야 한다."""
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        old_idx = spawn.WORKSPACE_INDEX
+        spawn.WORKSPACE_INDEX = Path(self.td) / "workspaces.json"
+        self.addCleanup(setattr, spawn, "WORKSPACE_INDEX", old_idx)
+        old_roster = spawn.ROSTER
+        spawn.ROSTER = Path(self.td) / "active.json"
+        self.addCleanup(setattr, spawn, "ROSTER", old_roster)
+        self.work = Path(self.td) / "wk"
+        self.work.mkdir()
+        self.log = Path(str(self.work) + ".session.log")
+        self.log.write_text("")
+        # 워크스페이스 인덱스는 의도적으로 비워 둔다 — 이게 관측된 레이스
+        # 창이다: ROSTER 는 이미 등록돼 살아있는데 워크스페이스 인덱스는
+        # 아직 안 쓰였다.
+        spawn.roster_register("issue-1585/implementation", {
+            "pid": os.getpid(), "wrapper_pid": os.getpid(),
+            "role": "implementation", "issue": 1585, "ts": int(time.time()),
+            "work": str(self.work), "log": str(self.log)})
+
+    def test_lookup_falls_back_to_live_roster_entry_when_workspace_index_empty(self):
+        idx = spawn._workspace_index_load()
+        self.assertEqual(idx, {})
+        key, entry = spawn._lookup_roster_entry(idx, 1585, "implementation")
+        self.assertIsNotNone(entry, "ROSTER 에 살아있는 세션이 있는데도 조회가 "
+                                     "None 을 돌려줬다 — ps 와 watch 가 다시 갈렸다")
+        self.assertEqual(entry["work"], str(self.work))
+        self.assertEqual(entry["log"], str(self.log))
+
+    def test_watch_attaches_instead_of_reporting_no_record(self):
+        from unittest import mock
+        calls = []
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
+            calls.append(log_path)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(1585, "implementation", 5.0)
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, [self.log])
+
+    def test_watch_role_auto_select_also_falls_back_to_roster(self):
+        from unittest import mock
+        calls = []
+
+        def fake_await_bounded(events_path, offset_path, stall_timeout_min, log_path, **kwargs):
+            calls.append(log_path)
+            return 0
+
+        with mock.patch.object(spawn, "_await_bounded", fake_await_bounded):
+            rc = spawn._watch(1585, None, 5.0)
+        self.assertEqual(rc, 0)
+        self.assertEqual(calls, [self.log])
+
+
 class WatchAll(unittest.TestCase):
     """이슈 #488: `watch --all` — 워크스페이스 인덱스 전체를 다중화한다.
     루프 자체는 무한이라 테스트에서 직접 돌리지 않고, 그 루프 몸통이
