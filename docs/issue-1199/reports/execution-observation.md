@@ -623,3 +623,124 @@ record's own PR and decides whether a corrective note in
 eventually land for real.
 
 loop_state: handed-off.
+
+## Observation: implementation role, PR #1207 (issue-1199/implementation)
+canonical: `gh pr view 1207 --json title,body,mergeCommit,commits,files,mergedAt`, run this session.
+canonical: `gh pr diff 1207`, read this session.
+
+code_under_review:
+  - docs/issue-1199/reports/implementation.md
+  - gates/tool_learnings_gate.py
+  - gates/tool_learnings_tracker.py
+
+canonical: `gh pr diff 1207`, read this session.
+Independence statement: this session did not author or edit PR #1207
+this session; the step/trajectory findings below come only from `gh pr
+diff 1207` (read this session) and `gh pr view`/`gh issue view` calls
+(run this session), never from re-executing the implementation role's
+task.
+
+### Scope statement
+canonical: `gh pr list --state merged --search "head:issue-1199/implementation" --json number,mergedAt`, run this session.
+Four PRs on `issue-1199/implementation` reached MERGED state: #1207
+(2026-08-13T06:21:41Z), #1231 (already observed above), #1253 (already
+noted above as phase-1-only), #1298 (already observed above).
+canonical: `grep -n "PR #1207" docs/issue-1199/reports/execution-observation.md`, run this session before writing this section.
+Zero prior hits for "PR #1207" in this file before this section was
+written. Target: PR #1207
+(https://github.com/tokenmaxxxer/on-the-record/pull/1207, merge commit
+`6517c4813a43e11bbbbf2fb1a05f5ff837393c22`).
+
+canonical: `gh pr diff 1207`, read this session.
+PR #1207's diff adds four new files under `gates/` (`tool_learnings_gate.py`,
+`test_tool_learnings_gate.py`, `tool_learnings_tracker.py`,
+`test_tool_learnings_tracker.py`) plus three new docs files
+(`docs/issue-1199/proposals/step1-verification-infra.md`,
+`docs/issue-1199/reports/implementation.md`,
+`docs/issue-1199/reports/implementation/survey.md`) — all new files, no
+existing file touched, so every citation below sits inside a hunk this
+PR itself added (DIFF-SCOPE satisfied). This diff (`gh pr diff 1207`)
+was read before re-reading `implementation.md`'s prose framing inside
+that same diff output (FRESH-EYES ORDERING).
+
+### Verdict: trajectory
+canonical: `gh pr diff 1207`, read this session — `survey.md`'s content
+(added in this PR) names concrete write surfaces
+(`gates/playbook_depth_gate.py`, `gates/playbook_tracker.py`, a sample
+role spec, the sibling test files) and resolves two unknowns (cap
+mechanism, tracker denominator source), preceding any proposal-shaped
+language in the same diff.
+canonical: `gh pr diff 1207`, read this session, same survey.md content.
+scouted-when-required: pass.
+
+canonical: `gh pr diff 1207`, read this session — `step1-verification-infra.md`'s
+Rationale section (added in this PR) quotes the survey's own findings
+as its stated basis, landing in the same commit (`81143c3`) that
+precedes the code commit named in `implementation.md`'s own record.
+canonical: `gh pr diff 1207`, read this session, same step1-verification-infra.md content.
+surveyed-before-proposing: pass.
+
+canonical: `gh issue view 1199 --json comments`, run this session — exact-string comment "APPROVE issue-1199/implementation" by JiwonJung94 at 2026-08-13T06:11:45Z, no other approval-shaped comment found addressed to this branch in the same output.
+canonical: `gh pr view 1207 --json commits`, run this session — first commit at 2026-08-13T06:15:53Z, after the APPROVE timestamp above.
+`JiwonJung94` is a listed approver (per `docs/specs/approvers.md`, read
+this session) and PR author, so single-account mode applies; the
+APPROVE timestamp precedes PR #1207's first commit.
+canonical: `gh pr view 1207 --json commits`, run this session, same commit timestamp cited directly above.
+approved-by-human: pass.
+
+canonical: `gh issue view 1199 --json comments`, run this session, same output cited above.
+Trajectory verdict, recomputed from the three checks directly above: sound.
+
+### Verdict: step
+canonical: `gh pr diff 1207`, read this session — `implementation.md`'s
+"Test run" section states "23 passed in 0.05s" for the two new test
+files against commit `81143c3`.
+subject: `implementation.md`'s test-pass claim; test: whether this
+session can corroborate it without re-executing the implementation
+role's own task (prohibited); finding: the claim carries its own
+`derived:` reproduction command but this session did not re-run it.
+canonical: `gh pr diff 1207`, read this session, same test-run citation directly above.
+result: unverifiable. assertedBy: execution-observation, this session.
+mode: asserted (the observed role's own record states it, unverified
+independently this session).
+
+canonical: `python3 -c "print(open('gates/tool_learnings_tracker.py').read().splitlines()[36])"`, run this session — line 37: `refs = spec.get("tool_learnings_refs")`.
+canonical: `python3 -c "print(open('gates/playbook_tracker.py').read().splitlines()[37])"`, run this session — line 38: `refs = spec.get("playbook_refs")`.
+subject: the claim in `implementation.md` that the two tracker files
+read distinct spec fields; test: does a direct read of both files
+corroborate `tool_learnings_refs` vs `playbook_refs`.
+canonical: `python3 -c "print(open('gates/tool_learnings_tracker.py').read().splitlines()[36])"`, run this session, same output cited above.
+finding: the two `python3` reads directly above confirm distinct field
+names.
+canonical: `python3 -c "print(open('gates/playbook_tracker.py').read().splitlines()[37])"`, run this session, same output cited above.
+result: passed. assertedBy: execution-observation, this session.
+mode: read.
+
+canonical: `python3 -c "import os; print([os.path.exists(p) for p in ['gates/tool_learnings_gate.py','gates/tool_learnings_tracker.py','gates/test_tool_learnings_gate.py','gates/test_tool_learnings_tracker.py']])"`, run this session — `[True, True, True, True]`.
+subject: the four new gates files' existence as claimed by PR #1207's
+diff; test: do the paths resolve in the working tree; finding: all four
+resolved per the `python3` check directly above.
+canonical: `python3 -c "import os; print([os.path.exists(p) for p in ['gates/tool_learnings_gate.py','gates/tool_learnings_tracker.py','gates/test_tool_learnings_gate.py','gates/test_tool_learnings_tracker.py']])"`, run this session, same output cited above.
+result: passed. assertedBy: execution-observation, this session. mode:
+command.
+
+### Verdict: outcome
+canonical: `gh pr diff 1207`, read this session (test-run citation above), and the two `python3` reads above, all run/read this session.
+Recomputed per the spec's worst-case-among-cited-step-level-results
+rule: this record cites {unverifiable, passed, passed} — worst case is
+unverifiable, no step here is failed.
+
+canonical: `python3 -c "print(open('gates/tool_learnings_tracker.py').read().splitlines()[36])"` and `python3 -c "import os; print([os.path.exists(p) for p in ['gates/tool_learnings_gate.py','gates/tool_learnings_tracker.py','gates/test_tool_learnings_gate.py','gates/test_tool_learnings_tracker.py']])"`, both run this session, same outputs cited above.
+Outcome, stated with its mode inline: unverifiable-with-no-known-defect
+— the field-key-distinctness and file-existence steps this session
+independently checked both passed.
+canonical: `gh pr diff 1207`, read this session, same test-run citation used in Verdict: step above.
+The test-pass step rests on the observed role's own asserted claim,
+unverified independently this session.
+
+canonical: the Verdict: step section directly above, produced this session.
+No deficiency finding is raised for PR #1207: the unverifiable step is
+an evidentiary-mode gap under this role's own PROHIBITED-re-execution
+constraint, not a defect this session found in the observed PR itself.
+
+loop_state: handed-off.
