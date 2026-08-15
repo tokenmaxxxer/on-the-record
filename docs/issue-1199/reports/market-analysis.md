@@ -355,3 +355,14 @@ warranted for this role's rulebook-remediation work. Rulebook branch
 per the PR #23 refusal (tool-name/evidence-citation stripping),
 committed (767f734) and pushed; PR creation there is attempted next.
 
+amendments-reconciled: issuecomment-5300004464 ("APPROVE
+issue-1199/pricing", canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5300004464`, read
+this session) is a single-account-mode approval string scoped to the
+`pricing` role, not `market-analysis` — no content amendment
+warranted. Same retry-loop pattern already invoked above
+(issue-1174 pr-preflight-retry-loop precedent): these are other
+roles' unrelated approval comments landing mid-session, not
+market-analysis amendments. This session stops re-chasing further
+such comments and proceeds to PR creation for the rulebook branch.
+
