@@ -265,6 +265,16 @@ issue-1199/plugin-tool-landscape, commit dd569f8, sharing the same
 mounted pr-preflight.sh hook) hit the same race. Commits for both
 repos are pushed to origin regardless of PR-open status.
 
+amendments-reconciled: issuecomment-5299623536 (posted ~2026-08-15T00:52Z
+by JiwonJung94) — same templated watchdog shape as the entries above,
+same unresolved race. After three consecutive `gh pr create` attempts
+in this session each losing to a newly-landed watchdog comment (see
+the two prior amendments-reconciled entries above and the
+deviation-log's 2026-08-15T00:51Z entry), this session stops retrying
+per the freelunch directive's no-polling-loop guidance and logs the
+outcome below rather than continuing to grind against a thread that
+generates new comments faster than one retry cycle can reconcile.
+
 ## Open findings
 
 - gh pr create is blocked by an apparent gap in pr-preflight.sh's
@@ -273,3 +283,12 @@ repos are pushed to origin regardless of PR-open status.
   shape, which races indefinitely on this busy issue thread. Needs
   either a hook fix (extend `_MACHINE_BODY_RE`) or a manual PR-open by
   someone with a wider retry/backoff window.
+- Recurred on the 2026-08-14 plugin-ecosystem rework: three consecutive
+  `gh pr create` attempts this session (both this repo and
+  tokenmaxxxer/ux-engineering-rulebook, branch
+  issue-1199/plugin-tool-landscape, commit dd569f8) each lost to a
+  newly-landed watchdog comment mid-retry. All commits for this rework
+  are committed and pushed to origin on both repos (this repo: commits
+  06be6d4c, c2a9fa1f on issue-1199/ux-engineering; rulebook repo:
+  commit dd569f8 on issue-1199/plugin-tool-landscape) — only PR-open
+  is outstanding on both, same open item as the prior finding above.
