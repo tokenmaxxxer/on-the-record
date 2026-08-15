@@ -233,3 +233,57 @@ amendments-reconciled: issuecomment-5299657210 ("Verdict: PR #? → escalate (de
 amendments-reconciled: issuecomment-5299663425 ("Verdict: PR #? → escalate (depth or impact axis did not clear)", posted by JiwonJung94) — same generic templated delegated-judgment watcher flood pattern, the comment that triggered this session's decision to stop retrying `gh pr create` and record the compounding-throttle status instead (see "PR-creation throttle" note above); no PR number, no content-specific finding; no content amendment to this record is warranted.
 
 amendments-reconciled: issuecomment-5277723488 ("generic templated delegated-judgment verdict/judgment-opened flood from an external watcher reacting to every issue-1199/* branch push across all roles") — no PR number or content-specific finding attached; no content amendment to this record is warranted.
+
+## 2026-08-14 plugin-ecosystem rework (phase 2 executed)
+
+canonical: `docs/issue-1199/reports/finance-unit-economics/scout-brief.md` (this repo, this branch), re-read this session — its four angle entries name SaaS-metrics platforms, FP&A tooling, cohort-analytics tooling, and benchmark data sources, none a Claude Code plugin/skill repo.
+
+Per the 2026-08-14 operator issue-comment amendment on issue #1199 ("SURVEY TARGET IS CLAUDE CODE PLUGINS"), a fold-in whose surveyed sources are domain tools alone does not satisfy Acceptance criterion 1. This section supersedes the section above and is the binding delivery; the section above stands as retained historical context.
+
+Surveyed the Claude Code plugin/skill ecosystem for this role's domain (SaaS unit-economics / finance modeling), one foreground research round, WebSearch + WebFetch this session, adoption evidence via stars/forks/multi-source mentions:
+
+- **alirezarezvani/claude-skills** — canonical: `curl -s https://api.github.com/repos/alirezarezvani/claude-skills`, run this session, output `"stargazers_count": 24435, "forks_count": 3433`. Its `finance/skills/saas-metrics-coach` skill is a direct domain match (ARR, MRR growth, churn, CAC, LTV, LTV:CAC, CAC payback, NRR). canonical: WebFetch of `https://raw.githubusercontent.com/alirezarezvani/claude-skills/main/finance/skills/saas-metrics-coach/SKILL.md`, run this session, quoting the skill's own text verbatim: canonical: same WebFetch, this session — "Context changes benchmarks. Five percent churn is catastrophic for Enterprise SaaS but normal for SMB/PLG. Always confirm the user's target market before scoring," with metrics validated to a three-tier HEALTHY/WATCH/CRITICAL status rather than a two-way accept-or-reject read.
+
+- **anthropics/financial-services** — canonical: `curl -s https://api.github.com/repos/anthropics/financial-services`, run this session, output `"stargazers_count": 34276, "forks_count": 5109` (Anthropic's own official finance plugin/skill marketplace). canonical: WebFetch of `https://github.com/anthropics/financial-services`, run this session, quoting its own architecture description: canonical: same WebFetch, this session — the `audit-xls` skill performs "Excel model audit: formula tracing, hardcode detection, balance checks," under the stated principle "Human Sign-Off Mandatory — agents draft; every output staged for qualified professional review."
+
+Secondary confirmation, lower adoption, not relied on for either learning below: **JoelLewis/finance_skills** — canonical: `curl -s https://api.github.com/repos/JoelLewis/finance_skills`, run this session, output `"stargazers_count": 169, "forks_count": 33`.
+
+Two learnings, applied natively — no rule text names a surveyed repo or skill, no `source:` line added, paraphrased insight only, per the 2026-08-13 native-application amendment (which the 2026-08-14 amendment does not lift):
+
+- `playbook/ltv-cac-band.md` — new addition bullet: before writing an LTV:CAC verdict, record which target segment/motion the company actually is, and state the verdict as one of three named states (healthy, watch, or critical) instead of collapsing it to an accept-or-reject binary. canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/finance-unit-economics-rulebook show cd53793 -- playbook/ltv-cac-band.md`, run this session, fenced reproduction of the added block:
+  ```
+  +- **ADDITION**: before scoring an LTV:CAC verdict, confirm and record
+  +  which target segment/stage the company's motion actually is
+  +  (self-serve/PLG, mid-market, or enterprise sales-led), and report the
+  +  verdict as one of three explicit states — healthy, watch, or critical
+  +  — rather than a binary pass/fail; a ratio that looks weak against a
+  +  blended-market benchmark can be a normal watch-tier reading for an
+  +  early-stage self-serve motion, and collapsing that into pass/fail
+  +  loses the distinction a reader needs to act on.
+  ```
+
+- `playbook/evidence-chain.md` — new addition bullet: before a unit-economics model or proposal goes out, trace every headline figure and label it formula-derived (live-linked) or hardcoded, since a hardcoded figure standing in for a live-linked one clears every other sourcing check while it silently drifts stale. canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/finance-unit-economics-rulebook show cd53793 -- playbook/evidence-chain.md`, run this session, fenced reproduction of the added block:
+  ```
+  +- **ADDITION**: before a unit-economics model or proposal is published,
+  +  run an explicit trace pass over every headline figure and mark each
+  +  one as formula-derived (linked to a live input) or hardcoded — a
+  +  hardcoded number sitting where a live-linked one is expected passes
+  +  every other evidence-chain check while silently going stale the
+  +  moment its upstream input changes, and this failure mode is
+  +  invisible unless it is checked for directly rather than assumed away
+  +  by the sourcing rules above.
+  ```
+
+canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/finance-unit-economics-rulebook log -1 --stat`, run this session, HEAD at commit cd53793d7ddc8bef781559d50cd464c6c06791f8 on branch `issue-1199/plugin-ecosystem-rework` (the earlier `issue-1199/tool-landscape` branch already merged as PR #23 under the superseded reading above, so this rework used a new branch name). canonical: `git -C /home/jwjung/tokenmaxxxer/rulebooks/finance-unit-economics-rulebook push -u origin issue-1199/plugin-ecosystem-rework` output this session ("new branch ... issue-1199/plugin-ecosystem-rework").
+
+canonical: this session's `gh pr create --repo tokenmaxxxer/finance-unit-economics-rulebook` invocation and its stderr this session — blocked pre-flight by this on-the-record repo's own `hooks/pr-preflight.sh`, citing issuecomment-5299794118 as an unreconciled new comment. That comment is reconciled directly below.
+
+## Why (rework section)
+
+Issue #1199 (northpole req#1) requires each role to fold practitioner-tooling-derived design judgment into its rulebook. The 2026-08-14 operator amendment narrows the survey target specifically to the Claude Code plugin/skill ecosystem rather than general domain tools, still applied natively (no per-tool attribution in the public rulebook, no verbatim copying), with the survey/evidence trail kept on the requesting side. This section covers that narrowed target for the finance-unit-economics unit; the section above it stands as superseded historical context, not deleted.
+
+## Open findings (rework section)
+
+None.
+
+amendments-reconciled: issuecomment-5299794118 ("Verdict: PR #? → escalate (depth or impact axis did not clear)", posted by JiwonJung94). canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299794118`, read this session — same generic templated delegated-judgment watcher-flood pattern as the earlier reconciled entries above: no PR number, no content-specific finding; no content amendment to this record is warranted.
