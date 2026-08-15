@@ -275,3 +275,31 @@ def test_select_routes_judge_scanner_id_to_role_board():
     ]
     got = patrol_board.select_board_entries(queue, "secure-coding")
     assert [e["fingerprint"][:1] for e in got] == ["a", "c"]
+
+
+def test_find_board_issue_forces_get_method(monkeypatch, tmp_path):
+    # gh api with -f fields and no explicit method defaults to POST, and
+    # POST /issues is issue creation — the lookup must pin -X GET
+    # (PR #1594 review, observed live as a 422 near-miss).
+    seen = {}
+    def fake_run(cmd, **kw):
+        seen["cmd"] = cmd
+        class R: returncode = 1; stdout = ""; stderr = ""
+        return R()
+    monkeypatch.setattr(patrol_board.subprocess, "run", fake_run)
+    monkeypatch.setattr(patrol_board.spawn, "_repo_slug", lambda root: "o/r")
+    patrol_board.find_board_issue(tmp_path, "x")
+    i = seen["cmd"].index("-X")
+    assert seen["cmd"][i + 1] == "GET"
+
+
+def test_run_aborts_on_failed_lookup(monkeypatch, tmp_path):
+    # ok=False from find_board_issue must never fall through to create.
+    monkeypatch.setattr(patrol_board, "find_board_issue",
+                        lambda root, role: (None, False, 1))
+    called = {}
+    monkeypatch.setattr(patrol_board.subprocess, "run",
+                        lambda *a, **k: called.setdefault("create", True))
+    qp = tmp_path / "queue.jsonl"; qp.write_text("")
+    out = patrol_board.run_patrol_board(tmp_path, "x", qp, False, "2026-08-15")
+    assert out.get("error") and "create" not in called
