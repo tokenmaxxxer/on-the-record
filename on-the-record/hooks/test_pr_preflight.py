@@ -337,7 +337,16 @@ def test_hook_denies_phase1_docs_only_pr_with_author_written_closes(tmp_path):
 def test_hook_allows_legitimate_phase2_pr(tmp_path):
     """A genuine phase-2 delivery PR (approval comment present, body
     correctly carries 'Closes #<issue>') must pass through untouched —
-    the new phase-1-only check must not reach it."""
+    the new phase-1-only check must not reach it.
+
+    The body carries a lead prose paragraph ahead of the trailer: since
+    issue #1165's ported first-paragraph rule (pr-preflight.sh's
+    check_body copy of gates/pr_reference.py's check), a bare
+    trailer-only body like 'Closes #743' with no prose is blocked at
+    authoring time — this is an intentional behavior change, not a gap
+    left by this fixture update. Phase-2 PRs are not exempted from the
+    rule; they must carry real lead prose same as phase-1 PRs.
+    """
     repo_dir = _repo_dir(tmp_path, ["alice"], "issue-743/implementation")
     fixtures = {
         "issue_comments": [
@@ -345,7 +354,7 @@ def test_hook_allows_legitimate_phase2_pr(tmp_path):
         ],
         "issue_body": "some issue body, no plan section",
     }
-    body = "Closes #743"
+    body = "Delivers the fix for the reported regression.\n\nCloses #743"
     cmd = f'gh pr create --title "delivery" --body "{body}"'
     r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
     assert r.returncode == 0, r.stderr

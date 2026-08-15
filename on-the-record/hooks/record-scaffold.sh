@@ -61,6 +61,9 @@ body = f"""---
 
 upstream: PLACEHOLDER: proposal path
 
+PLACEHOLDER: lead paragraph — one short paragraph stating what changed, why,
+and what happens next, in plain prose (no heading, this is the record's lead)
+
 ## Summary of work
 
 PLACEHOLDER: summary of work
