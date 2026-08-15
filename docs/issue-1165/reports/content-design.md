@@ -272,13 +272,32 @@ brief on issue #1165.
    a reader must skip mid-sentence to recover the point. Target shape:
    state the point first, move the citation to a trailing clause or its
    own line.
-4. **PR body.** `gates/pr_reference.py`'s `check_body` (function at
-   line 29, read this turn) checks only a phase-appropriate issue-
-   reference trailer — no content-structure check exists on this
-   surface today. This round does not add one (design/spec only, no
-   gate implementation per this turn's invocation); it names the gap
-   so step 2 knows a PR-body content-structure check is currently
-   absent, not merely unenforced.
+4. **PR-body spec** (added per PR #1616 blocking review comment,
+   2026-08-15T15:53:19Z — this item was gap-naming only before that
+   comment; it now carries the actual design).
+   `gates/pr_reference.py`'s `check_body` (function at line 29, read
+   this turn) checks only a phase-appropriate issue-reference trailer
+   (`#<n>` phase-1, `Closes/Fixes/Resolves #<n>` phase-2) — no
+   content-structure check exists on this surface. Design (still no
+   gate implementation, per this round's own scope guard):
+   - **First-paragraph shape.** The PR body's first paragraph states
+     the change, why, and what happens next (what the merge unblocks
+     or what phase-2 will do) before any trailer line (`Part of #<n>`,
+     `Closes #<n>`, the sandbox-relay disclosure line). Structural
+     check: the first blank-line-delimited paragraph must contain a
+     what-changed clause and a why/next clause; a body whose first
+     paragraph is only a trailer line fails.
+   - **Citation-trailing placement.** Reuses item 1's citation-not-
+     mid-sentence structural check verbatim, applied to the PR body's
+     first paragraph: a `canonical:`-style or link-shaped citation
+     sits as a trailing clause or its own line, never splitting the
+     point-stating sentence.
+   - **Bounds.** The first paragraph stays within the same section-size
+     line bound named in item 2 (same step-2 tunable, no separate
+     number chosen here); trailer lines are exempt since they are
+     machine-checked fields, not prose.
+   - This item still names, not fixes, the gap — `check_body` gains no
+     new check this round; wiring stays step 2.
 
 ### Reconciliation with required-field record contracts
 
@@ -318,5 +337,7 @@ report shape) — both rounds are design/spec deliverables; the tier-1
 length bounds (screens and records) and the tier-3 sampling ratio are
 left as named tunables for step 2 to set with a stated reason, per each
 round's self-critique note above — configuration choices, not defects
-in either round's design. The PR-body content-structure gap (item 4
-above) is reported, not fixed, per this round's scope guard.
+in either round's design. The PR-body content-structure design (item 4
+above, added per PR #1616's blocking review comment) is designed but
+not fixed, per this round's scope guard — same design/no-gate-
+implementation split as items 1-2.
