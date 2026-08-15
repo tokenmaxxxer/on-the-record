@@ -5569,17 +5569,31 @@ def _append_judge_trace(path: Path, ts: str, role: str, merge_sha: str, outcome:
 
 
 def _judge_roles_run_today(trace_path: Path, merge_sha: str) -> int:
-    """이 merge_sha 에 대해 이미 트레이스에 남은 judge 실행 수 — 3-역할 캡
-    판정에 쓴다. **방어적으로 읽는다**: 트레이스 파일이 없거나(회전/최초
-    실행) 손상돼 있으면 0 을 돌려준다 — 로그 부재/회전이 캡 판정을 막으면
-    안 된다는 PR #1590 binding review note. 읽기 실패는 절대 캡을
-    가짜로 채우지 않는다(항상 허용 쪽으로 fail)."""
+    """이 merge_sha 에 대해 이미 트레이스에 남은 **실제 judge 세션 실행** 수 —
+    3-역할 캡 판정에 쓴다. prefilter-미스 줄(`ok: prefilter 미스`)과
+    캡-초과 거절 줄(`error: 캡 초과`)은 judge 세션이 실제로 돌지 않았으므로
+    세지 않는다(이슈 #1605 — 이 두 outcome 을 세면 처음 3역할이 미스만 내도
+    캡이 소진되고, 이후 매 역할의 거절 줄이 또 카운트를 올려 눈덩이처럼
+    불어난다). ok-findings/ok-zero-findings/실제 실행 오류(타임아웃, 파싱
+    실패 등)는 세션이 실제로 돈 것이므로 그대로 센다.
+
+    **방어적으로 읽는다**: 트레이스 파일이 없거나(회전/최초 실행) 손상돼
+    있으면 0 을 돌려준다 — 로그 부재/회전이 캡 판정을 막으면 안 된다는
+    PR #1590 binding review note. 읽기 실패는 절대 캡을 가짜로 채우지
+    않는다(항상 허용 쪽으로 fail)."""
     try:
         text = trace_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return 0
     needle = f"| merge={merge_sha} "
-    return sum(1 for line in text.splitlines() if "verb=judge" in line and needle in line)
+    count = 0
+    for line in text.splitlines():
+        if "verb=judge" not in line or needle not in line:
+            continue
+        if "prefilter 미스" in line or "캡 초과" in line:
+            continue
+        count += 1
+    return count
 
 
 _JUDGE_ROLE_EXCLUSIONS: dict[str, list[str]] = {
