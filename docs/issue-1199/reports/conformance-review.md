@@ -1292,3 +1292,212 @@ tokenmaxxxer/capacity-planning-rulebook --state all --search "1199"`,
 `gh pr diff 23 --repo tokenmaxxxer/capacity-planning-rulebook`, and
 `git log --oneline -- docs/issue-1199/reports/capacity-planning.md` —
 all run this session against current live state.
+
+# Review: issue-1199/interaction-design role's plugin-ecosystem rework (conformance check)
+
+subject: issue-1199/interaction-design branch, both the 2026-08-14
+rework delivery and its PR-open follow-up, landed via PR #1530.
+canonical: `gh pr view 1530 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt,title,url`, run this session — commits 92a6a2f2
+(rework delivery), 128e96da, 724304d6, 5a5f28ba, d7405441 (comment
+reconciliations), f327e696 (merge-forward), 18c4e429, dd6e1353
+(PR-open resolution); mergedAt 2026-08-15T00:52:08Z.
+
+canonical: reading this file's own prior content this session (search
+above this section for "interaction-design", "92a6a2f2", "dd6e1353")
+— no prior `# Review:` section named this branch or either rulebook
+commit before this section was appended. Spawn-on-PR trigger, per
+`spawn_on_pr.py`: no conformance record existed for this landed unit
+before this section.
+
+canonical: `git merge-base --is-ancestor dd6e1353 origin/main`, run
+this session, exit 0 — the branch's full commit range is on main.
+
+code_under_review:
+- docs/issue-1199/reports/interaction-design.md (the "Plugin-ecosystem
+  rework delivery" and "PR-open resolved this turn" sections)
+- docs/issue-1199/reports/interaction-design/scout-brief-plugins.md
+- docs/issue-1199/proposals/2026-08-14-interaction-design-plugin-tool-landscape-rework.md
+- interaction-design/plugins/id-state-completeness/hooks/directive.sh
+  (tokenmaxxxer/interaction-design-rulebook repo, commit 52084b2, PR #42)
+- interaction-design/plugins/id-task-flow/hooks/directive.sh
+  (tokenmaxxxer/interaction-design-rulebook repo, commit 52084b2, PR #42)
+
+Scope: this section reviews the 2026-08-14 Claude Code plugin-ecosystem
+rework only (the additive round on top of the already-landed 2026-08-13
+domain-tool round); the kept 2026-08-13 rules are not re-litigated,
+matching every other reviewed rework section's scope in this file.
+Requirement source: issue-1199 Acceptance criterion 1 (Claude Code
+plugin/skill survey target, adoption evidence, native no-attribution
+rulebook edits per the operator's 2026-08-13T06:36:54Z amendment),
+Requirement 2 (per-tool problem/how/learning facets), Requirement 4
+(visible, load-bearing upgrade), and contract v3's record-accuracy norm.
+
+### Requirement: surveyed entries are Claude Code plugins/skills, adoption evidence checked
+verdict: Present
+spec_ref: issue-1199 Acceptance criterion 1 ("the surveyed entries are
+Claude Code plugins/skills")
+canonical: `curl -s https://api.github.com/repos/Owl-Listener/designer-skills`
+and `curl -s https://api.github.com/repos/gotalab/uxaudit`, both run
+this session:
+```
+"stargazers_count": 2077
+"stargazers_count": 51
+```
+evidence: canonical: same two `curl` commands cited directly above —
+the live 2077-star figure matches the scout brief's cited "2.1k stars"
+for Owl-Listener/designer-skills exactly.
+canonical: docs/issue-1199/proposals/2026-08-14-interaction-design-plugin-tool-landscape-rework.md,
+"Problem / goal framing" section, read this session — both surveyed
+repos are Claude Code plugin/skill entries, not the 2026-08-13 round's
+domain tools (Figma, Maze, UserTesting, Tokens Studio for Figma,
+axe-core), none of which recur in this rework.
+rationale: canonical: same two `curl` commands cited above — the live
+re-fetch reproduces the exact figure the scout brief and proposal cite.
+
+### Requirement: fold-in applied natively, no tool-attribution catalog in the rulebook itself (2026-08-13 amendment)
+verdict: Present
+spec_ref: issue-1199, operator amendment 2026-08-13T06:36:54Z (native
+application, no `source:` framing, no tool-catalog section in the
+rulebook)
+canonical: `gh pr diff 42 --repo tokenmaxxxer/interaction-design-rulebook`,
+run this session.
+evidence: canonical: same `gh pr diff 42` command cited directly above
+— the diff adds one sentence each to `id-state-completeness` and
+`id-task-flow`'s `PRODUCES` variable, with no `tool:`/`source:` line
+and no mention of `Owl-Listener`, `designer-skills`, `gotalab`, or
+`uxaudit` anywhere in the added text.
+canonical: this file's capacity-planning rework's Incorrect finding on
+the same clause (search "tool:` line naming the surveyed repo" above),
+re-read this session, for contrast.
+rationale: canonical: same `gh pr diff 42` output cited above — this is
+the opposite of the capacity-planning Incorrect finding cited above
+(which put `tool:`/`source:` lines naming the surveyed repo into its
+rulebook diff); none appear here.
+
+### Requirement: per-tool facets — problem, how, learning→rule (issue-1199 Requirement 2)
+verdict: Present
+spec_ref: issue-1199 Requirement 2
+canonical: docs/issue-1199/proposals/2026-08-14-interaction-design-plugin-tool-landscape-rework.md,
+"What will be delivered" section (items 1-2), read this session.
+evidence: canonical: same proposal section cited directly above — both
+delivered rules state a problem (a flow state's correctness judged only
+by presence when some states need a walked simulation; state-mapping/
+error-flow folded as an unlabeled sub-bullet loses distinct visibility),
+a how (a checked-by clause per state; a distinct sub-artifact label),
+and a learning→target mapping naming the exact plugin file
+(`id-state-completeness`, `id-task-flow`).
+canonical: `gh pr diff 42 --repo tokenmaxxxer/interaction-design-rulebook`,
+run this session — matches the proposal's stated mapping exactly.
+rationale: canonical: same proposal section and `gh pr diff 42` output
+cited directly above — both facets and the target mapping are
+traceable end to end from proposal to landed diff.
+
+### Requirement: PR-open claim in the "PR-open resolved this turn" section matches actual PR #42 state
+verdict: Present
+spec_ref: contract v3 record-accuracy norm (mirrors the same defect
+class already recorded above against commit 9dd5ea36's false PR-open
+claim, and the capacity-planning rework's still-unresolved false
+"not yet open" claim)
+canonical: `gh pr view 42 --repo tokenmaxxxer/interaction-design-rulebook
+--json url,state,baseRefName,headRefName,title,mergedAt`, run this
+session:
+```
+state: MERGED
+url: https://github.com/tokenmaxxxer/interaction-design-rulebook/pull/42
+baseRefName: main
+headRefName: issue-1199/plugin-tool-landscape
+```
+evidence: canonical: same `gh pr view 42` command cited directly above
+— the record's claim ("PR #42 confirmed open ... base main, head
+issue-1199/plugin-tool-landscape") matches the fetch's
+baseRefName/headRefName/url fields exactly.
+canonical: same `gh pr view 42` command cited above — the PR has since
+progressed to MERGED per that same fetch's `state` field, a stronger
+state than the claimed "open," not a contradiction of it.
+rationale: canonical: this file's "pre-rework delivery" section's
+Incorrect finding against commit 9dd5ea36 and the capacity-planning
+section's Incorrect finding against its own "not yet open" claim (both
+searchable above by "false PR-open" / "not yet open"), re-read this
+session, contrasted against the `gh pr view 42` fetch cited above:
+unlike those two, this claim was checked live in the same commit that
+made it and holds up under this session's independent re-fetch.
+
+### Requirement: "Tracker note" claim that the interaction-design tracker row "was already checked" matches the tracker's actual mechanical output
+verdict: Incorrect
+spec_ref: contract v3 record-accuracy norm (mirrors the same defect
+class already recorded above against the accessibility rework's
+"stays checked" claim)
+canonical: `python3 gates/tool_learnings_tracker.py`, run this session
+against this branch's checked-out HEAD, output line:
+```
+- [ ] interaction-design
+```
+evidence: canonical: `docs/issue-1199/reports/interaction-design.md`'s
+"Tracker note" section, read this session — states "Interaction-design
+row in issue #1199's 43-item tracker was already checked from the
+2026-08-13 landing; this additive rework does not unset it."
+canonical: same `python3 gates/tool_learnings_tracker.py` run cited
+directly above — its live output renders `interaction-design`
+unchecked, not checked.
+canonical: `grep -rl tool_learnings_refs roles/specs/*.json`, run this
+session — no output, zero matching files; `roles/specs/interaction-design.spec.json`,
+read this session — no `tool_learnings_refs` key anywhere in the file.
+rationale: canonical: `gates/tool_learnings_tracker.py`'s `is_landed()`
+function (read this session, same logic already cited in the step-1
+and accessibility review sections above) — it counts a role landed
+only once its `roles/specs/<role>.spec.json` carries a non-empty
+`tool_learnings_refs` array; this role's spec.json carries none.
+canonical: this file's accessibility-rework Incorrect finding on the
+same clause (search "stays checked" above), re-read this session — the
+identical defect class: a Present-shaped claim about mechanical
+tracker state that a live run shows never held.
+canonical: `git log --oneline -- docs/issue-1199/reports/interaction-design.md`,
+run this session — no commit after dd6e1353 touches this file, so the
+claim is not self-corrected by any later commit on this branch.
+addressed_to: interaction-design role — before stating a tracker row
+"was already checked" or "stays checked," run
+`gates/tool_learnings_tracker.py` live (or read the exact
+`roles/specs/<role>.spec.json` key it reads) rather than asserting
+continuity from an earlier round's stated intent.
+
+## Overall (interaction-design plugin-ecosystem rework)
+canonical: the four `### Requirement:` sections directly above (each
+carrying its own `curl`/`gh pr diff 42`/`gh pr view 42`/`python3
+gates/tool_learnings_tracker.py` citation), all run this session.
+The rework matches issue-1199's Acceptance criterion 1 (Claude Code
+plugin/skill survey target with live-reproducible adoption evidence,
+native no-attribution rulebook edits) and Requirement 2
+(problem/how/learning facets traceable end to end into the landed
+`gh pr diff 42`) in full, and its own PR-open claim holds up against a
+live re-fetch.
+canonical: same four sections cited directly above. One Incorrect
+verdict is recorded: the record's "Tracker note" section asserts the
+tracker checkbox for `interaction-design` "was already checked," but a
+live run of `gates/tool_learnings_tracker.py` (canonical above) renders
+it unchecked, and no `roles/specs/*.json` file carries a
+`tool_learnings_refs` entry for any role (canonical above) — the same
+defect class, not self-corrected on this branch, as the earlier
+accessibility-rework finding.
+addressed_to: interaction-design role — verify the tracker's live
+output (or the exact spec.json key it reads) before asserting a
+checklist row's checked state.
+
+canonical: `gh pr view 1530 --repo tokenmaxxxer/on-the-record --json
+commits,mergedAt,title,url`, `gh pr diff 42 --repo
+tokenmaxxxer/interaction-design-rulebook`, `gh pr view 42 --repo
+tokenmaxxxer/interaction-design-rulebook --json
+url,state,baseRefName,headRefName,title,mergedAt`, `curl -s
+https://api.github.com/repos/Owl-Listener/designer-skills`, `curl -s
+https://api.github.com/repos/gotalab/uxaudit`, `python3
+gates/tool_learnings_tracker.py`, and `grep -rl tool_learnings_refs
+roles/specs/*.json` — all run this session against current live state
+and this branch's checked-out HEAD.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299648085`,
+run this session — issuecomment-5299648085, posted 2026-08-15T00:57:27Z,
+body "APPROVE issue-1199/incident-response".
+amendments-reconciled: issuecomment-5299648085 — an approval token for a
+different role (`incident-response`), not this conformance-review unit
+or the interaction-design unit reviewed above; no amendment to this
+record's scope or content.
