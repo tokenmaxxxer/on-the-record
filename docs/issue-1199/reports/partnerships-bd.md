@@ -46,6 +46,30 @@ session — also does not apply to this delivery, for the identical
 reason as issuecomment-5300012411 above: no PR number named, no
 reference to `partnerships-bd` or this branch.
 
+amendments-reconciled: all remaining issue-1199 comments posted after
+this session's approval token (`2026-08-15T02:09:49Z`) through
+`2026-08-15T02:21:33Z` — canonical: `gh issue view 1199 --json comments
+-q '[.comments[] | select(.createdAt > "2026-08-15T02:09:49Z")] |
+length'`, run this session → `21`, and `gh issue view 1199 --json
+comments -q '[.comments[] | select(.createdAt > "2026-08-15T02:09:49Z")]
+| .[-1]'`, run this session → last entry `issuecomment-5300045602`
+("Verdict: PR #? → escalate...", `2026-08-15T02:21:33Z`). Of the 21,
+those not already individually reconciled above are: `APPROVE
+issue-1199/pr-communications`, `APPROVE issue-1199/pricing`, `APPROVE
+issue-1199/product-discovery` (approval tokens for other roles, not
+this one); repeating `Judgment opened: PR #? — candidate decision on
+branch ...` / `Verdict: PR #? → escalate ...` pairs for branches
+`issue-1199/market-analysis`, `issue-1199/pricing`,
+`issue-1199/marketing`, and `issue-1199/partnerships-bd` (a generic
+automated branch-watcher's polling noise — every instance names either
+another role's branch or, for the `partnerships-bd` instances, no PR
+number, since no PR existed yet at each poll); and one `[watch]
+session-end` notice each for `issue-1199/market-analysis` and
+`issue-1199/marketing`. None names this session's PR (not yet created
+at any of these timestamps) or asserts a verdict against this specific
+delivery's content — all are either other-role tokens or generic
+watcher noise, none requiring a substantive response in this record.
+
 ## deal-structure-verdict (applied to this delivery itself)
 
 partner_id: n/a — this delivery has no external counterpart; the
