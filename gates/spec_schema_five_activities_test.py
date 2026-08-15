@@ -93,7 +93,7 @@ def test_every_in_scope_role_still_has_source_standard():
 # issue #1156: the 7 landing-order-first roles from
 # docs/issue-1156/proposals/per-role-quality-bars.md §1 each carry a
 # decomposed quality_bar and a bar-not-met refusal state; no other spec
-# does (amended requirement 5 keeps the other 36 domain-named only, in
+# does (amended requirement 5 keeps the other 22 domain-named only, in
 # docs/specs/role-invariant-coverage.md, not given a quality_bar yet).
 QUALITY_BAR_ROLES = [
     "ux-engineering",
@@ -110,6 +110,15 @@ QUALITY_BAR_ROLES = [
     "observability",
     "refactoring-legacy",
     "release-engineering",
+    # issue #1638 batch 2 (content/design/communication family)
+    "brand-design",
+    "content-design",
+    "devrel",
+    "knowledge-management",
+    "localization",
+    "pr-communications",
+    "technical-writing",
+    "user-discovery",
 ]
 
 ALL_ROLE_SPECS = sorted(p.stem.replace(".spec", "") for p in SPECS_DIR.glob("*.spec.json"))
@@ -136,7 +145,7 @@ def test_every_quality_bar_role_has_bar_not_met_refusal_state():
 
 
 def test_no_other_spec_carries_a_quality_bar_yet():
-    # amended requirement 5: the other 36 roles are in scope but only
+    # amended requirement 5: the other 22 roles are in scope but only
     # domain-named (docs/specs/role-invariant-coverage.md) — full
     # per-criterion quality_bar decomposition for them is phase-wise, not
     # landed by this issue. Asserting absence here keeps that boundary

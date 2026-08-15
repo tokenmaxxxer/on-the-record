@@ -68,6 +68,36 @@
     "docs/issue-<n>/reports/content-design.md",
     "docs/issue-<n>/reports/content-design/*.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "user_need_stated_as_a_task_not_a_topic",
+      "verification_method": "automated check that `user_need` is phrased as \"I need to know/do X\" (a task the user is trying to complete), not a topic label or the content's own title",
+      "evidence_grade": "validated",
+      "verified_source": "GOV.UK, 'Writing for GOV.UK' — https://www.gov.uk/guidance/content-design/writing-for-gov-uk (primary source; GDS's own worked examples define a user need as a task-shaped sentence, explicitly distinguished from a topic or a page title)."
+    },
+    {
+      "criterion": "plain_language_check_passes",
+      "verification_method": "automated check that `plain_language_check` is `pass`, computed by re-running content against GDS plain-language conventions per the spec's existing `recomputation` rule",
+      "evidence_grade": "validated",
+      "verified_source": "GOV.UK, 'Content design: planning, writing and managing content' — https://www.gov.uk/guidance/content-design (primary source; plain language — short sentences, active voice, no jargon — is GDS's own stated mandatory content standard)."
+    },
+    {
+      "criterion": "one_idea_per_sentence",
+      "verification_method": "human-review-checklist: does every sentence carry exactly one idea, with no comma-joined compound claims a reader must parse to separate?",
+      "evidence_grade": "validated",
+      "verified_source": "digital.gov, 'Plain Language Principles' — https://digital.gov/guides/plain-language/principles (primary source; \"write for your audience\" and \"organize information clearly\" resolve to one-idea-per-sentence as GDS's cited plain-language review checklist item)."
+    },
+    {
+      "criterion": "before_after_example_pair_present",
+      "verification_method": "automated check that every voice/tone rule in the style-guide deliverable carries at least one before/after example pair drawn from real target-project copy, matching the spec's own `mission_deliverables` fit_criterion",
+      "evidence_grade": "validated",
+      "verified_source": "uxcontent.com, 'How to Create a Style Guide' — https://uxcontent.com/how-to-create-style-guide (primary source; before/after pairing is the article's own documented technique for making a voice-and-tone rule actionable rather than abstract)."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+    }
+  ],
   "loop_state": {
     "progress": [
       "drafting",
@@ -77,7 +107,8 @@
       "landed"
     ],
     "refusal": [
-      "user-need-undeclared"
+      "user-need-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "content-unreachable"
