@@ -80,6 +80,8 @@ NETWORK_TIMEOUT = 60   # fetch/pull/push
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 CONSULT_TIMEOUT = 180  # consult: bounded headless run — no branch/PR to wait on
 PANEL_TIMEOUT = 240    # panel: two judges + a rebuttal round, wider than a single consult
+JUDGE_TIMEOUT = 120           # issue #1587: per-judge-call hard cap (prefilter/judge/validator each)
+JUDGE_MAX_ROLES_PER_MERGE = 3  # issue #1587: cost/API-strain cap — counted from the trace log
 
 
 def _run_net(args: list[str], label: str, timeout: float = NETWORK_TIMEOUT,
@@ -5430,6 +5432,328 @@ def review_cmd(role: str, prompt_text: str, issue: int | None = None,
     return _verb_cmd("review", role, prompt_text, issue=issue, cwd=cwd)
 
 
+# ---------------------------------------------------------------------------
+# issue #1587 — `judge`: read-only, budgeted role judgment over a merge diff.
+#
+# 격리는 프롬프트 문장이 아니라 세션 조립(`--plugin-dir`/`permissions`)에서
+# 난다 — consult/`_verb_cmd()`가 겪은 #1097 근본원인(공격 가능한 diff 내용이
+# 모델을 설득할 수 있는 문자열 무효화)을 judge 는 구조적으로 피한다. 그래서
+# `_consult_cmd_and_env()`를 재사용하지 않고 judge 전용 조립을 따로 둔다
+# (제안서 Rationale 참고).
+# ---------------------------------------------------------------------------
+
+# core 플러그인 중 "배달(delivery)" 지향인 것 — 제안 작성/승인 게이트/팬아웃
+# 위임을 모델에게 지시한다. judge 세션은 diff 를 읽고 판단만 돌려주면
+# 끝이라 이런 훅이 꽂히면 안 된다(이슈가 명시한 구조적 격리 지점). core 의
+# 나머지(core 자체, terse)는 무해하므로 남긴다.
+_JUDGE_EXCLUDED_CORE_PLUGINS = {"freelunch", "scout", "warrant"}
+
+
+def _readonly_plugin_dirs(role: str, spec: dict) -> list[Path]:
+    """judge 세션에 붙일 플러그인 — 역할 룰북(`plugin_dirs()`)은 그대로
+    싣는다(무엇을 위반했는지 판단하려면 룰북 전체가 필요하다), core 는
+    `_JUDGE_EXCLUDED_CORE_PLUGINS` 로 배달 지향 훅만 걸러낸다."""
+    out = list(plugin_dirs(role, spec))
+    for p in core_plugin_dirs():
+        if p.name not in _JUDGE_EXCLUDED_CORE_PLUGINS:
+            out.append(p)
+    return out
+
+
+def _readonly_bash_allow(cwd: str) -> list[str]:
+    """`git show`/`git diff`/`git log` 만 — `_workspace_bash_allow()`와 같은
+    모양으로 `cwd` 에 앵커링한다. gh, Write, Edit 을 향한 경로는 여기 없다
+    (grep-checkable 제약, 제안서 Constraints)."""
+    return [
+        f"Bash(cd {cwd} && git show *)",
+        f"Bash(cd {cwd} && git diff *)",
+        f"Bash(cd {cwd} && git log *)",
+        f"Bash(git -C {cwd} show *)",
+        f"Bash(git -C {cwd} diff *)",
+        f"Bash(git -C {cwd} log *)",
+    ]
+
+
+def _readonly_settings(role: str, cwd: str) -> dict:
+    """읽기 전용 세션 설정 — `role_settings()`의 샌드박스/전역-플러그인
+    차단은 그대로 쓰되, `permissions.allow`를 Read/Grep/Glob + git 플루밍
+    Bash 로만 한정하고 Write/Edit/`gh `를 `permissions.deny`로 명시적으로
+    막는다. `--permission-mode bypassPermissions`를 주지 않는 것과 짝을
+    이룬다 — headless 세션은 허용 목록에 없는 도구를 답할 사람 없이
+    그냥 거부한다(role_settings() #742 문단이 서술하는 바로 그 실측 동작을,
+    judge 는 위험이 아니라 안전장치로 쓴다)."""
+    s = role_settings(role, cwd, inject_self_hosted_hooks=False)
+    s["permissions"] = {
+        "allow": ["Read", "Grep", "Glob", *_readonly_bash_allow(cwd)],
+        "deny": ["Write", "Edit", "Bash(gh *)"],
+    }
+    return s
+
+
+def _judge_cmd_and_env(role: str, spec: dict, cwd: str,
+                       model: str | None = None) -> tuple[list[str], dict[str, str], str]:
+    """judge 계열(judge 본세션/prefilter/validator) 공용 argv/env/settings
+    조립. `_consult_cmd_and_env()`와 같은 build-then-return 모양이지만
+    `--permission-mode bypassPermissions`를 주지 않고(읽기전용 강제),
+    `_readonly_plugin_dirs()`/`_readonly_settings()`를 쓴다."""
+    plugins = _readonly_plugin_dirs(role, spec)
+    s = _readonly_settings(role, cwd)
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+        json.dump(s, tf)
+        settings_path = tf.name
+    cmd = ["claude", "-p", "--settings", settings_path, "--output-format", "json"]
+    for p in plugins:
+        cmd += ["--plugin-dir", str(p)]
+    cmd += ["--model", model or resolved_role_model()]
+    env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+    core_dir = next((p for p in core_plugin_dirs() if Path(p).name == "core"), None)
+    if core_dir:
+        env["CLAUDE_PLUGIN_ROOT_CORE"] = str(core_dir)
+    return cmd, env, settings_path
+
+
+def _compress_diff(diff_text: str, cap_tokens: int = 18000) -> str:
+    """PR-Agent 식 압축: 추가분을 남기고, 삭제-only 훅은 버리고, 삭제된
+    파일은 이름만 남긴다. 그래도 `cap_tokens`(대략 4문자/토큰)를 넘으면
+    실패가 아니라 파일명 목록으로 더 내려간다(제안서 Constraints:
+    "graceful degradation to name lists, not a hard failure")."""
+    cap_chars = cap_tokens * 4
+    blocks = [b for b in re.split(r"(?=^diff --git )", diff_text, flags=re.MULTILINE) if b.strip()]
+
+    def file_name(block: str) -> str:
+        m = re.match(r"diff --git a/(\S+) b/(\S+)", block)
+        return m.group(2) if m else "?"
+
+    kept, collapsed = [], []
+    for block in blocks:
+        name = file_name(block)
+        if "deleted file mode" in block:
+            collapsed.append(f"deleted: {name}")
+            continue
+        hunks = re.split(r"(?=^@@ )", block, flags=re.MULTILINE)
+        header, hunks = hunks[0], hunks[1:]
+        surviving = [h for h in hunks
+                     if any(l.startswith("+") and not l.startswith("+++") for l in h.splitlines())]
+        if not surviving:
+            collapsed.append(f"no-addition: {name}")
+            continue
+        kept.append(header + "".join(surviving))
+
+    compressed = "\n".join(kept)
+    if collapsed:
+        compressed += "\n\n[collapsed files]\n" + "\n".join(collapsed)
+    if len(compressed) <= cap_chars:
+        return compressed
+
+    names = "\n".join(file_name(b) for b in blocks)
+    degraded = "[diff 압축 후에도 상한 초과 — 파일명 목록으로 축소]\n" + names
+    return degraded[:cap_chars]
+
+
+def _judge_trace_path(cwd: str) -> Path:
+    """모든 judge 실행이 공유하는 트레이스 — `docs/reports/patrol-judge-log.md`
+    (제안서 §Constraints "trace-always", consult-log `finally` 관례와
+    같은 이유)."""
+    return _consult_root(cwd) / "docs" / "reports" / "patrol-judge-log.md"
+
+
+def _append_judge_trace(path: Path, ts: str, role: str, merge_sha: str, outcome: str) -> None:
+    """judge 실행 한 건당 한 줄 — 성공/실패/캡-초과 가리지 않는다. `merge=`
+    필드는 `_judge_roles_run_today()`가 3-역할 캡을 세는 데 쓰는 grep
+    앵커다."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = (f"- {ts} | role={role} | verb=judge | merge={merge_sha} "
+            f"| outcome={outcome[:300]!r}\n")
+    with path.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def _judge_roles_run_today(trace_path: Path, merge_sha: str) -> int:
+    """이 merge_sha 에 대해 이미 트레이스에 남은 judge 실행 수 — 3-역할 캡
+    판정에 쓴다. **방어적으로 읽는다**: 트레이스 파일이 없거나(회전/최초
+    실행) 손상돼 있으면 0 을 돌려준다 — 로그 부재/회전이 캡 판정을 막으면
+    안 된다는 PR #1590 binding review note. 읽기 실패는 절대 캡을
+    가짜로 채우지 않는다(항상 허용 쪽으로 fail)."""
+    try:
+        text = trace_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return 0
+    needle = f"| merge={merge_sha} "
+    return sum(1 for line in text.splitlines() if "verb=judge" in line and needle in line)
+
+
+_JUDGE_ROLE_EXCLUSIONS: dict[str, list[str]] = {
+    # 역할별 알려진 오탐 패턴(문자열 부분일치) — validator 가 이 목록에
+    # 걸리는 finding 은 무조건 버린다. 지금은 빈 채로 시작해, 실제 오탐이
+    # 나타나면 그때 항목을 더한다(운영 결정 없이 상상으로 채우지 않는다).
+}
+
+
+def _judge_prefilter(role: str, spec: dict, diff_summary: str, cwd: str) -> bool:
+    """관할 사전필터 — 하이쿠급 단일 호출로 "이 diff 가 이 역할의 관할에
+    조금이라도 걸리는가"만 묻는다(제안서 §5, 가장 큰 비용 절감 지점).
+    호출 자체가 실패하면(타임아웃/파싱 실패) **관련 있다고 가정**한다 —
+    사전필터는 비용 절감 장치일 뿐 판단 장치가 아니라, 실패를 놓침으로
+    바꾸면 안 된다."""
+    cmd, env, settings_path = _judge_cmd_and_env(role, spec, cwd, model="haiku")
+    prompt = (
+        f"역할 '{role}' 의 관할(rulebook jurisdiction) 안에 아래 diff 요약이 "
+        "조금이라도 걸리는지만 판단하라. 다른 텍스트 없이 JSON 객체 하나만 "
+        '출력하라: {"relevant": true|false}\n\ndiff 요약:\n' + diff_summary
+    )
+    try:
+        r = subprocess.run(cmd, cwd=cwd, input=prompt, text=True,
+                           capture_output=True, timeout=JUDGE_TIMEOUT, env=env)
+        if r.returncode != 0:
+            return True
+        result = session_result(r.stdout)
+        parsed = _parse_verb_json(result.get("result", ""), "relevant")
+        if parsed is None:
+            return True
+        return bool(parsed.get("relevant", True))
+    except subprocess.TimeoutExpired:
+        return True
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(settings_path)
+
+
+def _judge_validate(role: str, spec: dict, findings: list[dict], diff_summary: str,
+                    cwd: str) -> list[dict]:
+    """확인/반박 검증 — 하이쿠급 단일 호출로 judge 가 낸 findings 를
+    확인/기각하고, `_JUDGE_ROLE_EXCLUSIONS[role]`에 걸리는 것은 호출 전에
+    이미 버린다(Anthropic security-review 패턴, 제안서 §5). 호출 자체가
+    실패하면 **아무것도 큐에 넣지 않는다** — 검증 못 한 finding 을 큐로
+    흘리는 쪽보다, 이번 실행에서 놓치는 쪽이 patrol 큐 오염보다 싸다."""
+    exclusions = _JUDGE_ROLE_EXCLUSIONS.get(role, [])
+    candidates = [f for f in findings
+                  if not any(x in f.get("excerpt", "") for x in exclusions)]
+    if not candidates:
+        return []
+    cmd, env, settings_path = _judge_cmd_and_env(role, spec, cwd, model="haiku")
+    prompt = (
+        f"역할 '{role}' 가 낸 아래 findings 를 diff 요약과 대조해 확인(confirm)/"
+        "반박(refute)하라. 실제로 룰북을 위반하는 것만 남기고, 다른 텍스트 "
+        '없이 JSON 객체 하나만 출력하라: {"findings": [{"path": "...", '
+        '"finding_class": "...", "excerpt": "...", "promotable": true|false}, '
+        "...]}  (반박된 것은 배열에서 뺀다)\n\n"
+        f"diff 요약:\n{diff_summary}\n\nfindings:\n{json.dumps(candidates, ensure_ascii=False)}"
+    )
+    try:
+        r = subprocess.run(cmd, cwd=cwd, input=prompt, text=True,
+                           capture_output=True, timeout=JUDGE_TIMEOUT, env=env)
+        if r.returncode != 0:
+            return []
+        result = session_result(r.stdout)
+        parsed = _parse_verb_json(result.get("result", ""), "findings")
+        if parsed is None:
+            return []
+        return [f for f in parsed.get("findings", []) if isinstance(f, dict) and f.get("path")]
+    except subprocess.TimeoutExpired:
+        return []
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(settings_path)
+
+
+def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
+    """`spawn.py judge <role> --merge <sha>` 의 본체 — 읽기 전용, 4단계
+    파이프라인(prefilter -> judge -> validator -> enqueue), 트레이스는
+    성공/실패/캡초과 가리지 않고 항상 한 줄(이슈 #1587, 제안서 §What will
+    be done 6).
+
+    3-역할/머지 캡(`JUDGE_MAX_ROLES_PER_MERGE`)은 트레이스 로그에서
+    세되, `_judge_roles_run_today()`가 방어적으로 읽는다 — 로그가 없거나
+    깨져 있어도 캡을 오탐하지 않고(0으로 fail), 이 실행 자체는 트레이스에
+    한 줄을 항상 남긴다(binding review note, PR #1590)."""
+    root = str(Path(cwd).resolve()) if cwd else str(ROOT)
+    trace_path = _judge_trace_path(root)
+    ts = datetime.now(timezone.utc).isoformat()
+    outcome = "error: 알 수 없는 실패"
+    try:
+        already = _judge_roles_run_today(trace_path, merge_sha)
+        if already >= JUDGE_MAX_ROLES_PER_MERGE:
+            outcome = (f"error: 캡 초과 (merge={merge_sha} 에 이미 {already}개 역할 실행, "
+                       f"상한 {JUDGE_MAX_ROLES_PER_MERGE})")
+            return {"skipped": True, "reason": "cap_exceeded", "role": role, "merge": merge_sha}
+
+        f = ROOT / "roles" / f"{role}.json"
+        if not f.exists():
+            have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
+            raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
+        spec = json.loads(f.read_text())
+
+        show = subprocess.run(["git", "-C", root, "show", "--no-color", merge_sha],
+                              capture_output=True, text=True, timeout=JUDGE_TIMEOUT)
+        if show.returncode != 0:
+            outcome = f"error: git show 실패: {show.stderr.strip()[:300]}"
+            raise RuntimeError(outcome)
+        diff_summary = _compress_diff(show.stdout)
+
+        if not _judge_prefilter(role, spec, diff_summary, root):
+            outcome = "ok: prefilter 미스 — judge 미호출"
+            return {"skipped": True, "reason": "prefilter_miss", "role": role, "merge": merge_sha}
+
+        cmd, env, settings_path = _judge_cmd_and_env(role, spec, root)
+        prompt = (
+            f"당신은 judge 로 불렸다 — 역할 '{role}' 의 룰북 관점에서 아래 merge diff 가 "
+            "룰북을 위반하는지만 판단한다. 저장소 파일을 하나도 건드리지 말고(Write/Edit "
+            "도구 없음), 브랜치/커밋/PR 을 만들지 마라. 필요하면 `git show`/`git diff`/"
+            "`git log` 로 더 살펴봐도 된다. 답을 다 쓴 뒤 마지막에, 다른 어떤 텍스트도 "
+            '없이 JSON 객체 하나만 출력하라: {"findings": [{"path": "...", '
+            '"finding_class": "...", "excerpt": "...", "promotable": true|false}, ...]}\n\n'
+            f"merge diff ({merge_sha}):\n{diff_summary}"
+        )
+        try:
+            r = subprocess.run(cmd + ["--max-turns", "6"], cwd=root, input=prompt, text=True,
+                               capture_output=True, timeout=JUDGE_TIMEOUT, env=env)
+        finally:
+            with contextlib.suppress(OSError):
+                os.unlink(settings_path)
+        if r.returncode != 0:
+            outcome = f"error: judge 세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
+            raise RuntimeError(outcome)
+        result = session_result(r.stdout)
+        parsed = _parse_verb_json(result.get("result", ""), "findings")
+        raw_findings = parsed.get("findings", []) if parsed else []
+        if not raw_findings:
+            outcome = "ok: findings 없음"
+            return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": []}
+
+        validated = _judge_validate(role, spec, raw_findings, diff_summary, root)
+        if not validated:
+            outcome = f"ok: {len(raw_findings)}건 중 validator 통과 0건"
+            return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": []}
+
+        sys.path.insert(0, str((ROOT / "gates").resolve()))
+        import patrol_queue
+        queue_path = Path(root) / patrol_queue.QUEUE_REL_PATH
+        queue = patrol_queue.load_queue(queue_path)
+        enqueued = []
+        for vf in validated:
+            fp = patrol_queue.fingerprint(f"judge:{role}", vf["path"], [vf.get("excerpt", "")])
+            finding = {
+                "fingerprint": fp,
+                "scanner_id": f"judge:{role}",
+                "path": vf["path"],
+                "finding_class": vf.get("finding_class", "judge-finding"),
+                "excerpt": vf.get("excerpt", ""),
+                "last_seen": ts,
+                "lane": "diff",
+                "promotable": bool(vf.get("promotable", False)),
+            }
+            queue = patrol_queue.enqueue(queue, finding)
+            enqueued.append(fp)
+        patrol_queue.save_queue(queue_path, queue)
+        outcome = f"ok: {len(raw_findings)}건 중 {len(validated)}건 검증, {len(enqueued)}건 큐 반영"
+        return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": enqueued}
+    except subprocess.TimeoutExpired:
+        outcome = f"error: 시간초과({JUDGE_TIMEOUT}s)"
+        raise
+    finally:
+        _append_judge_trace(trace_path, ts, role, merge_sha, outcome)
+
+
 class _PanelMessagingUnavailable(RuntimeError):
     """실측: crossSessionInbound 를 못 걸었거나 SendMessage 왕복이 한 번도
     안 잡혔다 — panel_cmd() 가 순차 consult 로 내려가는 신호."""
@@ -6075,6 +6399,7 @@ def main() -> int:
                     help="대상 레포의 .claude/ 설정·훅을 신뢰한다. 읽어본 뒤에만")
     ap.add_argument("--issue", type=positive_int,
                     help="이 이슈 번호로 스폰한다: issue-<n>/<역할> 브랜치를 만들고 프롬프트에 명시")
+    ap.add_argument("--merge", help="judge <역할> --merge <sha>: 판단할 머지의 커밋 sha")
     ap.add_argument("--unattended", action="store_true",
                     help="사람이 없는 실행. mint 는 안 되고, 휴먼 게이트는 선다")
     ap.add_argument("--limit", type=int, default=12,
@@ -6249,6 +6574,15 @@ def main() -> int:
             result = verb_fn(a.task, a.consult_question, issue=a.issue, cwd=a.cwd)
         except Exception as e:
             sys.exit(f"{a.role} 실패(트레이스는 남았다): {e}")
+        print(json.dumps(result, indent=2, ensure_ascii=False))
+        return 0
+    if a.role == "judge":
+        if not a.task or not a.merge:
+            sys.exit('사용법: spawn.py judge <역할> --merge <sha> [-C <repo>]')
+        try:
+            result = judge_cmd(a.task, a.merge, cwd=a.cwd)
+        except Exception as e:
+            sys.exit(f"judge 실패(트레이스는 남았다): {e}")
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0
     if a.role == "findings-due":
