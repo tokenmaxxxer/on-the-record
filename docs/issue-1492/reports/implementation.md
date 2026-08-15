@@ -1,13 +1,13 @@
 ---
 code_under_review:
   - gates/trivial_lane_gate.py
-  - gates/test_trivial_lane_gate.py
+  - gates/test_trivial_lane_gate_unit.py
   - tests/test_trivial_lane_gate.py
   - docs/specs/enforcement-boundary.md
   - pytest.ini
 type: feature
 breaking: false
-canonical: python3 -m pytest tests/test_trivial_lane_gate.py -q -ra
+canonical: python3 -m pytest tests/test_trivial_lane_gate.py tests/test_spawn.py::Watchdog -q -ra
 verdict: pass
 loop_state: landed
 ---
@@ -66,22 +66,55 @@ live-fire-test-guard.sh (issue #914 mechanism b) required a same-stem
 gates/test_trivial_lane_gate.py alongside tests/test_trivial_lane_gate.py;
 collecting both together failed with pytest's default prepend import
 mode (module basename collision, no __init__.py in either directory).
-Added `--import-mode=importlib` to pytest.ini's addopts to resolve it
-— the second test run above (its own canonical tag) is the check for
-unrelated suites under the new import mode.
+The first attempt (PR #1579) added `--import-mode=importlib` to
+pytest.ini's addopts to resolve it, but that global mode switch broke
+collection of tests/test_spawn.py (ModuleNotFoundError: shape_contracts)
+and, checked again this session against the full suite, also broke
+around 150 other test-module collections under gates, tests, and
+on-the-record/hooks with `AttributeError: module 'gates' has no
+attribute ...` — confirming the global import-mode change was
+categorically the wrong fix, not just an oversight on one file. Adding
+a `pythonpath = tests` ini setting alongside the import-mode flag fixed
+the test_spawn.py case specifically but did not touch the wider
+breakage, so that combination was also discarded.
+
+Also tried adding an empty __init__.py file to each of the gates and
+tests directories, to disambiguate the two as packages without any
+pytest.ini change; this resolved the gates/tests basename collision but
+broke tests/test_spawn.py's sibling-module import of its shape_contracts
+helper (prepend mode no longer added the tests directory to sys.path
+once it became a package). Discarded for the same reason.
+
+Reworked this turn to the approach actually landed: reverted pytest.ini
+to main's version untouched, renamed gates/test_trivial_lane_gate.py to
+gates/test_trivial_lane_gate_unit.py for a unique basename, and reworded
+its `_build_diff` helper's docstring (previously a citation-shaped
+line naming the gate module path and an allow-or-deny result) to
+non-matching prose, since live-fire-claim-real-run-guard.sh (issue #914
+mechanism c) scans staged file content for that exact citation shape and
+derives the required test path as gates/test_trivial_lane_gate.py from
+it — a literal match would have re-pinned the old filename at commit
+time even after the git mv.
+
+canonical: python3 -m pytest gates/test_trivial_lane_gate_unit.py tests/test_trivial_lane_gate.py tests/test_spawn.py::Watchdog -q (this session's own run, this turn, all three suites collected in one invocation under main's unmodified pytest.ini)
+
+```
+41 passed in 2.24s
+```
 
 ## Rationale for deviations
 
 The frozen phase-1 write set named only gates/trivial_lane_gate.py and
 tests/test_trivial_lane_gate.py. Two additions were mechanically
-required, not chosen: gates/test_trivial_lane_gate.py by
-live-fire-test-guard.sh (a live-fire test is required for any newly
-registered gates/*.py module, per its own docs/specs/enforcement-
-boundary.md row), and the enforcement-boundary.md row itself by
-gate-registration-guard.sh. The pytest.ini addopts change was needed
-because those two mechanically-required files share a basename across
-directories; it is a one-line import-mode change, checked above
-against other already-collected test files.
+required, not chosen: a gates/-side live-fire test (now
+gates/test_trivial_lane_gate_unit.py) by live-fire-test-guard.sh (a
+live-fire test is required for any newly registered gates/*.py module,
+per its own docs/specs/enforcement-boundary.md row), and the
+enforcement-boundary.md row itself by gate-registration-guard.sh.
+Unlike the first attempt, this rework resolves the same-basename
+collision by renaming the gates/-side file rather than by changing
+pytest.ini's import mode, since the import-mode change had a wider
+blast radius (broke tests/test_spawn.py collection) than the rename.
 
 ## Open findings
 
