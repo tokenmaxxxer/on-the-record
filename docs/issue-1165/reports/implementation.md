@@ -3,7 +3,9 @@ code_under_review:
   - gates/human_comprehensibility.py
   - gates/test_human_comprehensibility.py
   - gates/pr_reference.py
+  - gates/quality_bar.py
   - on-the-record/hooks/record-scaffold.sh
+  - on-the-record/hooks/pr-preflight.sh
 type: feature
 breaking: false
 verdict: bar-met
@@ -16,10 +18,13 @@ upstream: docs/issue-1165/proposals/2026-08-13-technical-writing-human-comprehen
 docs/issue-1165/proposals/2026-08-16-technical-writing-research-brief-addendum.md,
 docs/issue-1165/proposals/2026-08-16-content-design-records-prbodies-reports.md
 
-This delivers the executable half of the landed #1165 designs: a new
-tier-1 structure-check module for human comprehensibility, its reuse in the
-PR-body first-paragraph check, and a lead-paragraph slot added to the
-record scaffold, landed at commit 5883cc4d.
+This delivers the executable half of the landed #1165 designs: a tier-1
+structure-check module for human comprehensibility, its reuse in the
+PR-body checks, a lead-paragraph slot added to the record scaffold
+(round 1, commit 5883cc4d), and — round 2, this amendment, responding to
+PR #1621's blocking review — changed-content-only scoping, the
+citation-trailing-placement rule, and a minimal invocation point for
+`check_record` inside `gates/quality_bar.py`.
 
 ## Summary of work
 
@@ -85,22 +90,104 @@ three map directly onto the four files changed here.
 
 None.
 
+## Round 2 amendment — PR #1621 blocking review response
+
+canonical: PR #1621 review comment "Review findings (blocking, 4)" (read
+this turn via `gh pr view 1621 --comments`)
+
+resolved_findings:
+
+finding A — Closes -> Part of #1165. canonical: `gh issue view 1165`
+"## 실행 계획" section (step 3, execution-observation, still unchecked).
+`gates/pr_reference.py`'s own plan-aware gate forbids `Closes` when an
+incomplete step is not the last one. PR #1621's body now carries
+`Part of #1165` instead of `Closes #1165` (edited via `gh pr edit 1621`).
+
+finding B — changed-content-only scoping, implemented. canonical:
+`docs/issue-1165/proposals/2026-08-16-technical-writing-research-brief-addendum.md`
+point 1 (addendum #1615). `gates/human_comprehensibility.py`'s
+`check_record` gained an optional `changed_ranges` parameter (a list of
+1-indexed inclusive line-range tuples in `text`'s own numbering);
+`section_size_bound`, `no_raw_dump`, and `enumeration_cap` now skip any
+section whose lines don't overlap `changed_ranges`, via the new
+`_sections_with_offsets`/`_section_touches_changes` helpers, while
+`lead_paragraph_present` stays whole-document per the addendum's stated
+exception. Passing no `changed_ranges` (the default) preserves the prior
+whole-document behavior for every existing caller. Fixtures added in
+`gates/test_human_comprehensibility.py`:
+`test_changed_content_only_scoping_unchanged_section_failure_passes`,
+`test_changed_content_only_scoping_changed_section_failure_fails`, and a
+default-None regression test.
+
+finding C — citation-trailing-placement, implemented. canonical:
+`docs/issue-1165/proposals/2026-08-16-content-design-records-prbodies-reports.md`
+items 1 and 4 (content-design PR #1616). New
+`citation_trailing_placement(text)` in `gates/human_comprehensibility.py`:
+a `canonical:`/`derived:`-style or markdown-link/URL citation inside the
+lead paragraph must sit as a trailing clause of its line, or its own
+line — never split the point-stating sentence with prose after it. Wired
+as a fifth `check_record` result (whole-document scope, same reasoning as
+`lead_paragraph_present`) and into `gates/pr_reference.py`'s `check_body`.
+Fixtures added: `test_citation_trailing_placement_own_line_passes`,
+`test_citation_trailing_placement_trailing_clause_passes`,
+`test_citation_trailing_placement_mid_sentence_fails`,
+`test_check_record_includes_citation_trailing_placement_rule`.
+
+finding D — minimal machinery-level invocation point, implemented in
+part, rest deferred explicitly. Added
+`quality_bar.human_comprehensibility_verdict` to `gates/quality_bar.py`:
+it calls `human_comprehensibility.check_record` and reduces the tier-1
+results to the `bar-met`/`bar-not-met` vocabulary
+`on-the-record/hooks/quality-bar-gate.sh` already reads from a role's
+`quality_bar_verdict:` line — `check_record` now has a real caller inside
+`gates/quality_bar.py` itself, closing the orphan-core gap the review
+named. Deferred, stated here rather than left silent: wiring this new
+function into `quality-bar-gate.sh`'s own live per-role record read (so a
+role's self-declared `quality_bar_verdict:` line gets cross-checked
+against `human_comprehensibility_verdict`, not just trusted) stays out of
+this round's write set — that hook already carries its own #1156 merge-
+gate contract, and widening it here would exceed the frozen scope for
+this amendment. Carried into ## Next steps below rather than filed as a
+separate issue, per the SCOPE-EXCEEDED RULE (a role session does not open
+issues on its own initiative).
+
+non-blocking, addressed — `on-the-record/hooks/pr-preflight.sh`'s ported
+`check_body` copy (canonical: `on-the-record/hooks/pr-preflight.sh` line
+365 area, read this turn) was missing the first-paragraph rule entirely,
+not merely lagging a later addition; it now carries a self-contained
+inline port of both `first_paragraph_is_prose` and
+`citation_trailing_placement`, matching that file's own documented
+zero-install "ported inline rather than importing" convention.
+
+non-blocking, deferred — extending `gates/test_hooks_parity.py` to cover
+`pr_reference`/`pr-preflight.sh` was assessed as needing a new live-fire
+fixture harness for the `gh pr create`/`edit` command-line-extraction
+path (not a copy of the existing spec-index-preflight red/green pattern),
+more than a cheap addition; left for a future round.
+
 ## Open findings
 
-None raised during this build.
+None raised during this build. The four blocking findings from PR #1621's
+review round are addressed above under `resolved_findings:`.
 
 ## Next steps
 
-Wire `human_comprehensibility.check_record` into `roles/specs/*.json`'s
-`quality_bar` arrays role-by-role as those roles land their own #1156/#1163
-batches (per the issue's delivery-order item (c)); add
-`convention_family_named` if a future round needs the metadata-slot rule;
-consider adding a dedicated pr_reference test module if `pr_reference.py`
-gains further checks (no such test module existed before this change).
+Wire `human_comprehensibility.check_record` /
+`quality_bar.human_comprehensibility_verdict` into `roles/specs/*.json`'s
+`quality_bar` arrays and into `quality-bar-gate.sh`'s live per-role record
+read, role-by-role as those roles land their own #1156/#1163 batches (per
+the issue's delivery-order item (c)); add `convention_family_named` if a
+future round needs the metadata-slot rule; add
+`pr_reference`/`pr-preflight.sh` live-fire coverage to
+`gates/test_hooks_parity.py`.
 
 ## Resolution path
 
-No open findings; nothing to resolve.
+The four blocking findings from PR #1621's review round are each answered
+in the "Round 2 amendment" section above with a `resolved_findings:`
+entry naming what changed and its canonical source; a human reviewer
+reads this record and the diff to weigh whether those answers hold — that
+read happens outside this session.
 
 ## Doc placement
 
@@ -117,10 +204,14 @@ delivery-order item (c), not a divergence introduced in this build.
 
 ## Test evidence
 
-acceptance: python3 -m pytest gates/test_human_comprehensibility.py gates/test_record_lint.py gates/test_quality_bar.py -q — result:
+acceptance: python3 -m pytest gates/test_human_comprehensibility.py gates/test_record_lint.py gates/test_quality_bar.py gates/test_hooks_parity.py -q — result:
 ```
-69 passed, 1 xfailed in 1.11s
+80 passed, 1 xfailed in 1.19s
 ```
+
+Round 2 adds `gates/test_hooks_parity.py` to the targeted set (since
+`on-the-record/hooks/pr-preflight.sh` changed) and 11 new fixtures in
+`gates/test_human_comprehensibility.py` for findings B and C above.
 
 No dedicated pr_reference test module exists in this repo pre- or
 post-change (canonical: `ls gates/` at commit 5883cc4d has no

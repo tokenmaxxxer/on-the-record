@@ -21,6 +21,8 @@ from `CLAUDE_ROLE` itself.
 """
 from __future__ import annotations
 
+import human_comprehensibility
+
 BAR_MET = "BAR_MET"
 BAR_NOT_MET = "BAR_NOT_MET"
 ESCALATE = "ESCALATE"
@@ -79,6 +81,33 @@ def verified_by_account(spec, resolve_account_fn):
     if not role:
         return None
     return resolve_account_fn(role)
+
+
+def human_comprehensibility_verdict(
+    text: str, doc_type: str = "tutorial",
+    changed_ranges: list[tuple[int, int]] | None = None,
+) -> tuple[str, str | None]:
+    """issue #1165 requirement 1: the minimal machinery-level invocation
+    point for `human_comprehensibility.check_record` in the quality_bar
+    machinery — reduces its tier-1 rule results to the same
+    `bar-met`/`bar-not-met` vocabulary `quality-bar-gate.sh` already reads
+    from a role's `quality_bar_verdict:` line (module docstring: verdict
+    values compared to `classify`'s own `verdict` parameter). An exempt
+    record (no human-facing prose section at all) reports `bar-met` -- a
+    universal criterion cannot fail an artifact that has nothing for it to
+    check. This function does not yet have a live caller wired into
+    `quality-bar-gate.sh`'s per-role record read (delivery-order (a) in
+    the issue covers adding the criterion to the machinery itself, not
+    wiring every existing bar-scoped role's gate read -- that wiring is
+    deferred, tracked as a follow-up)."""
+    result = human_comprehensibility.check_record(text, doc_type, changed_ranges)
+    if result["exempt"]:
+        return "bar-met", None
+    failed = [r for r in result["results"] if not r["passed"]]
+    if not failed:
+        return "bar-met", None
+    reason = "; ".join(f"{r['rule']}: {r['reason']}" for r in failed)
+    return "bar-not-met", reason
 
 
 def classify(bar_scoped: bool, verdict: str | None,
