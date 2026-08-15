@@ -6,7 +6,7 @@ code_under_review:
   - tests/test_spawn_judge.py
 type: feature
 breaking: false
-canonical: pytest tests/test_spawn_judge.py -v — 15 passed, run this session against e2b327ad (this branch's HEAD)
+canonical: pytest tests/test_spawn_judge.py -v — 15 passed, run this session against 92c069f2 (this branch's HEAD after the verify-gap fix)
 verdict: pass
 loop_state: landed
 ---
@@ -43,7 +43,7 @@ build-plan section, listing ten numbered items:
 7. `judge` CLI subcommand wired into `main()` plus a `--merge` argparse
    flag; the 3-roles-per-merge cap is enforced before any subprocess
    call (including `git show`) via `_judge_roles_run_today()`.
-8. `tests/test_spawn_judge.py`, committed at e2b327ad: unit tests
+8. `tests/test_spawn_judge.py`, committed at e2b327ad, later fixed at 92c069f2: unit tests
    covering read-only settings assembly, plugin-dir filtering,
    diff-compression cap behavior, prefilter-skip path, validator-drop
    path, queue append with `lane="diff"`, trace-always on both a
@@ -71,7 +71,7 @@ $ grep -rn "gh " spawn.py | grep -v "^[0-9]*://"
 1402:    """`gh api -i` 출력(상태줄 + 헤더 + 빈줄 + 바디)을 파싱한다.
 ```
 derived: `grep -rn "gh " spawn.py`
-canonical: spawn.py at e2b327ad, the block from the `# issue #1587`
+canonical: spawn.py at 92c069f2, the block from the `# issue #1587`
 comment header through `judge_cmd`'s closing `finally` — none of the
 three `gh ` hits above fall inside `judge_cmd`, `_readonly_plugin_dirs`,
 `_readonly_bash_allow`, `_readonly_settings`, `_judge_cmd_and_env`,
@@ -119,7 +119,37 @@ session's own invocation context.
 
 ## Open findings
 
-None raised against this record.
+canonical: gates/patrol_queue.py:137-148 (`verify()`), read in full this
+session — re-reads the cited path and checks the excerpt is present
+verbatim before admission; gates/patrol_queue.py:236 (`run_scan()`)
+already chains scan then this verify step then budget then enqueue.
+
+None open. One resolved this session:
+
+- warrant-hunt (2026-08-15, before phase-2 completion per hunt cadence):
+  `judge_cmd()` called `patrol_queue.enqueue()` directly on the
+  validator's output, without the `verify()` step named just above. A
+  hallucinated judge path/excerpt could have landed in the shared
+  patrol queue as `promotable: True`.
+  resolved_findings: fixed at commit 92c069f2 — `judge_cmd()` now calls
+  `patrol_queue.verify(vf, Path(root))` per validated finding and skips
+  enqueue on a verify failure; regression test
+  `JudgeVerifyDropTest::test_hallucinated_path_never_reaches_enqueue`
+  added (tests/test_spawn_judge.py).
+  canonical: pytest tests/test_spawn_judge.py -v — 16 passed, run this
+  session against 92c069f2.
+```
+$ python3 -m pytest tests/test_spawn_judge.py -v
+...
+============================== 16 passed in 0.82s ==============================
+```
+derived: `python3 -m pytest tests/test_spawn_judge.py -v`
+
+closed_checks:
+- check: warrant-hunt read-only-transport review over judge_cmd(),
+  spawn.py's new `# issue #1587` block, and gates/patrol_queue.py's
+  enqueue/verify contract
+  code_sha: 92c069f2
 
 ## Rationale for deviations
 
