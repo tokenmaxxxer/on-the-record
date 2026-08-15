@@ -381,6 +381,41 @@ def t_orphaned_path_reference_check_still_fires_on_genuinely_missing_rename():
         for b in bad), bad
 
 
+def t_orphaned_path_reference_check_exempts_untracked_out_of_scope_narration():
+    """issue #1628: a record explicitly narrating that a cited path is
+    untracked/out-of-scope must not fire — the path may legitimately no
+    longer exist on disk by the time the record is read back."""
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "This session found three untracked files, plus\n"
+        "(`gates/stray_untracked_artifact.py` and its two test files) —\n"
+        "all belonging to a separately-approved PR, not to this proposal.\n")
+    bad = record_lint.lint_record(record)
+    assert not any(
+        "#330" in b and "stray_untracked_artifact.py" in b
+        for b in bad), bad
+
+
+def t_orphaned_path_reference_check_still_fires_on_genuinely_missing_no_narration():
+    """Sibling negative for the #1628 misfire class: a citation of a
+    genuinely-missing path with no untracked/out-of-scope narration
+    around it still fires — the narration exemption must not
+    blanket-suppress the rule."""
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "See `gates/this-file-was-never-written-either.py` for details.\n")
+    bad = record_lint.lint_record(record)
+    assert any(
+        "#330" in b and "this-file-was-never-written-either.py" in b
+        for b in bad), bad
+
+
 def t_orphaned_path_reference_check_exempts_absence_negation():
     """issue #1620 misfire class 3: "no decisions/ entry needed" states
     that a path is deliberately not created, not that it should resolve
