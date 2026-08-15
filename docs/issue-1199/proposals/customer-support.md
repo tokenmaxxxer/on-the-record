@@ -6,6 +6,18 @@ files:
 
 # issue-1199 (customer-support): tool-landscape fold-in
 
+> **Superseded (2026-08-14 operator amendment on issue #1199 requirement
+> 1):** this proposal executed the general-domain-tool survey below
+> (Zendesk/Intercom/KCS/Nicereply), which the amendment's narrower
+> reading excludes as the survey target — the target is the Claude Code
+> plugin/skill ecosystem. This proposal's four edits were never merged
+> (companion PR #1538 was closed as a refusal). Kept below as historical
+> record only; the executed rework is
+> `docs/issue-1199/reports/customer-support.md`'s "2026-08-14
+> plugin-ecosystem rework (phase 2 executed)" section, delivered under
+> the same `APPROVE issue-1199/customer-support` token (re-posted
+> 2026-08-15T00:55:47Z after this proposal's PR was closed).
+
 kind: proposal
 subject: issue-1199
 
