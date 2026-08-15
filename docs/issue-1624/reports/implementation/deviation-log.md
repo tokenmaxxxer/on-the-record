@@ -1,0 +1,1 @@
+2026-08-16T00:00:00Z | filed | board-gate R4 refuses this branch's writes to docs/issue-711, docs/issue-476, docs/issue-1461 regardless of #1624's subject-issue framing; reported, not spawned. See docs/issue-1624/reports/implementation.md.
