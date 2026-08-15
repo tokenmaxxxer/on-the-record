@@ -76,7 +76,7 @@ instead of an external sweep.
 
 Computed directly from the 123 ledger rows + their 123 still-present log
 files. Full breakdown, largest term, and candidate-cut analysis are in the
-proposal (`docs/issue-501/proposals/implementation.md`) since the issue
+proposal (`docs/issue-501/proposals/2026-08-08-session-latency-breakdown.md`) since the issue
 requires "no proposal until the numbers name the biggest term" — the
 survey establishes what's measurable and from where; the proposal carries
 the actual numbers as its evidence.
