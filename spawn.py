@@ -2880,6 +2880,10 @@ def _board_wide_sweep_all(root: Path, d_all: dict) -> int:
             print(f"[watchdog] board-sweep: {label} — 로스터 타깃 레포지만 "
                   f"보드 아님({MARKER} 없음), 건너뜀")
             continue
+        got, lock_msg = cross_workspace_board_sweep_lock_acquire(repo)
+        if not got:
+            print(f"[watchdog] board-sweep: {label} 건너뜀 (다른 워크스페이스가 스윕 중) — {lock_msg}")
+            continue
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             count += _board_wide_sweep(repo)
@@ -2902,7 +2906,14 @@ def _board_wide_sweep(root: Path) -> int:
     이슈 #1498: gh 를 부르는 세 신호(spawn-on-pr, closure-sweep,
     spawn-coverage)는 셋 다 요구 1(쿼터 바닥) · 요구 3(스윕 백오프) ·
     요구 5(틱당 호출 예산)의 게이팅을 받는다 — 로컬 전용 신호
-    (`accumulation_trend`, `requirement_drift`)는 게이팅 없이 항상 돈다."""
+    (`accumulation_trend`, `requirement_drift`)는 게이팅 없이 항상 돈다.
+
+    이슈 #1554 요구 1/3: 세 신호는 `closure_sweep.next_categories()`로
+    이번 틱에 돌릴 카테고리(최대 `call_budget`개)만 골라 돈다 — 나머지는
+    드롭되지 않고 `runs/board_sweep_queue.json`에 이월되어 다음 틱(들)에
+    반드시 돈다(watch-coverage 불가침 계약). 예산=8 은 오늘의
+    call_budget 과 같은 값을 유지해 기존 관측 동작(사실상 매 틱 세
+    카테고리 다 돔)을 그대로 보존한다."""
     sys.path.insert(0, str(ROOT / "gates"))
     import closure_sweep
     import spawn_coverage
@@ -2935,43 +2946,58 @@ def _board_wide_sweep(root: Path) -> int:
         _run_local_only_signals()
         return count
 
-    issue_states, issue_states_ok = closure_sweep.issue_state_index_all(root)
-    calls_made += 1
-    try:
-        spawned = spawn_on_pr.spawn_missing_for_pr(root, str(root), issue_states=issue_states)
-        if spawned:
-            print(f"[watchdog] spawn-on-pr: {len(spawned)}건 스폰: {spawned}")
-        parked = spawn_on_pr.parked_report(root)
-        if parked:
-            # issue #1476: park 된 항목도 watch-coverage 는 유지한다 — 스폰만
-            # 건너뛰고 waiting-for-human 으로 계속 보인다.
-            print(f"[watchdog] spawn-on-pr: waiting-for-human {len(parked)}건: {parked}")
-    except Exception as ex:
-        count += 1
-        print(f"[watchdog] spawn-on-pr 실패: {ex}", file=sys.stderr)
-    violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
-    calls_made += 1
-    if violations:
-        count += len(violations)
-        print(f"[watchdog] closure-sweep: 위반 {len(violations)}건")
-        print(closure_sweep.format_report(violations))
-    rate_limited_this_tick = bool(skips) and not issue_states_ok
-    if skips:
-        count += 1
-        print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
+    this_tick, carried_over = closure_sweep.next_categories(root, call_budget)
+    if carried_over:
+        print(f"[watchdog] board-sweep: 이월 (예산) {carried_over}")
+
+    issue_states, issue_states_ok = (None, True)
+    if "spawn-on-pr" in this_tick or "closure-sweep" in this_tick:
+        issue_states, issue_states_ok = closure_sweep.issue_state_index_all(root)
+        calls_made += 1
+
+    rate_limited_this_tick = False
+
+    if "spawn-on-pr" in this_tick:
+        try:
+            spawned = spawn_on_pr.spawn_missing_for_pr(root, str(root), issue_states=issue_states)
+            if spawned:
+                print(f"[watchdog] spawn-on-pr: {len(spawned)}건 스폰: {spawned}")
+            parked = spawn_on_pr.parked_report(root)
+            if parked:
+                # issue #1476: park 된 항목도 watch-coverage 는 유지한다 — 스폰만
+                # 건너뛰고 waiting-for-human 으로 계속 보인다.
+                print(f"[watchdog] spawn-on-pr: waiting-for-human {len(parked)}건: {parked}")
+        except Exception as ex:
+            count += 1
+            print(f"[watchdog] spawn-on-pr 실패: {ex}", file=sys.stderr)
+
+    if "closure-sweep" in this_tick:
+        violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
+        calls_made += 1
+        if violations:
+            count += len(violations)
+            print(f"[watchdog] closure-sweep: 위반 {len(violations)}건")
+            print(closure_sweep.format_report(violations))
+        rate_limited_this_tick = bool(skips) and not issue_states_ok
+        if skips:
+            count += 1
+            print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
+
     _run_local_only_signals()
-    open_issues = spawn_coverage._list_open_issues(root)
-    calls_made += 1
-    if open_issues is None:
-        count += 1
-        rate_limited_this_tick = True
-        print("[watchdog] spawn-coverage: 이슈 목록을 읽을 수 없다 (gh 실패) — 판정 불가")
-    else:
-        uncovered = spawn_coverage.find_uncovered(
-            open_issues, board(root), datetime.now(timezone.utc))
-        if uncovered:
-            count += len(uncovered)
-            print(f"[watchdog] spawn-coverage: 커버되지 않은 이슈 {uncovered}")
+
+    if "spawn-coverage" in this_tick:
+        open_issues = spawn_coverage._list_open_issues(root)
+        calls_made += 1
+        if open_issues is None:
+            count += 1
+            rate_limited_this_tick = True
+            print("[watchdog] spawn-coverage: 이슈 목록을 읽을 수 없다 (gh 실패) — 판정 불가")
+        else:
+            uncovered = spawn_coverage.find_uncovered(
+                open_issues, board(root), datetime.now(timezone.utc))
+            if uncovered:
+                count += len(uncovered)
+                print(f"[watchdog] spawn-coverage: 커버되지 않은 이슈 {uncovered}")
 
     closure_sweep.record_sweep_result(backoff_state, "board-sweep", rate_limited_this_tick)
     closure_sweep.save_backoff_state(root, backoff_state)
@@ -3022,6 +3048,31 @@ def watchdog_lock_acquire(lock_path: Path = WATCHDOG_LOCK_PATH,
     lock_path.write_text(json.dumps({"pid": my_pid,
                                       "start_time": _proc_start_time(my_pid)}))
     return True, ""
+
+
+def _cross_workspace_board_sweep_lock_path(repo_root: Path) -> Path:
+    """이슈 #1554 요구 2: board-wide 스윕 락의 위치는 *실행 중인 checkout*
+    (`STATE_ROOT`, `ROOT`가 정의된 곳 — 워크스페이스마다 다르다)이 아니라
+    *스윕 대상 레포의 identity*로 정해져야 한다 — 그래야 서로 다른
+    워크스페이스에서 뜬 워치독들도 같은 파일을 놓고 경합한다(#1510
+    single-instance 정책의 cross-workspace enforcement gap). `_workspace_base()`
+    가 이미 `MUSTER_WORK_DIR`(기본 `~/.tokenmaxxxer/work`) 오버라이드를
+    존중하므로, 그 부모 아래 고정 `locks/` 디렉터리를 쓴다 — 어느 체크아웃의
+    spawn.py 가 이 코드를 실행하든 물리적으로 같은 경로가 나온다.
+    `_repo_identity()`(순수 로컬, gh 호출 없음)를 키로 쓴다."""
+    return (_workspace_base().parent / "locks" /
+            f"board-sweep-{_repo_identity(repo_root)}.lock")
+
+
+def cross_workspace_board_sweep_lock_acquire(
+        repo_root: Path, pid: int | None = None) -> tuple[bool, str]:
+    """이슈 #1554 요구 2: 레포 하나에 board-wide 스위퍼가 딱 하나만 뜨게
+    한다. 세션별 헬스 워처(`roster_watchdog` 개별 엔트리)는 이 락을 타지
+    않는다 — 여기 거치는 건 `_board_wide_sweep_all`이 부르는 board-wide
+    스윕뿐이다. 락 자체는 `watchdog_lock_acquire`와 같은 pid+시작시각
+    liveness 판정을 그대로 재사용한다(죽은 홀더의 락은 회수됨)."""
+    return watchdog_lock_acquire(
+        lock_path=_cross_workspace_board_sweep_lock_path(repo_root), pid=pid)
 
 
 def watchdog_current_head(cwd: Path = ROOT) -> str | None:
