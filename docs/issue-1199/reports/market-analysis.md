@@ -345,3 +345,13 @@ identical unnumbered-verdict comments: branch is committed and pushed
 (commit 1699967b and this commit), PR creation is left for external
 relay.
 
+amendments-reconciled: issuecomment-5300001824 ("APPROVE
+issue-1199/pr-communications", canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5300001824`, read
+this session) is a single-account-mode approval string scoped to the
+`pr-communications` role, not `market-analysis` — no content amendment
+warranted for this role's rulebook-remediation work. Rulebook branch
+`issue-1199/market-analysis` in `market-analysis-rulebook` remediated
+per the PR #23 refusal (tool-name/evidence-citation stripping),
+committed (767f734) and pushed; PR creation there is attempted next.
+
