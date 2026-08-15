@@ -17,9 +17,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import spawn_on_pr  # noqa: E402
+import check_run_artifact as cra  # noqa: E402
+import check_runner  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn  # noqa: E402
+
+ARTIFACT_PATH = Path(".on-the-record/check-run-artifact.json")
 
 _RESULT_HEADER = re.compile(
     r"^## Acceptance check-runner result:\s*(\d+)/(\d+)\s*passed", re.MULTILINE)
@@ -52,6 +56,52 @@ def latest_check_runner_comment(repo: Path, pr: int) -> str | None:
         if _RESULT_HEADER.search(body):
             return body
     return None
+
+
+def verify_artifact(repo: Path) -> dict:
+    """issue-1493 req 2 — check-run 산출물 읽기 쪽 정책.
+    `{"trust": bool, "reasons": [str, ...]}`.
+
+    Fail-closed: 산출물 없음/스키마 무효/tree_hash 불일치 -> 신뢰 안함
+    (전체 재실행 경로). tree_hash 일치 시: 스키마 검증 후
+    per_test_results 의 무작위 샘플(+non-hermetic 항목 전부)을 실제로
+    재실행해 라이브 결과와 비교 -- 하나라도 다르면 산출물 전체를
+    신뢰 안함으로 되돌린다. 이 함수는 유일하게 `check_runner.run_checks`
+    를 호출해 재실행하는 지점이다."""
+    artifact = cra.read_artifact(repo / ARTIFACT_PATH)
+    if artifact is None:
+        return {"trust": False, "reasons": ["산출물이 없거나 파싱할 수 없다"]}
+    try:
+        cra.validate(artifact)
+    except cra.ArtifactValidationError as e:
+        return {"trust": False, "reasons": [f"산출물 스키마가 유효하지 않다: {e}"]}
+
+    current_tree = cra.tree_hash(repo)
+    if current_tree is None or current_tree != artifact["tree_hash"]:
+        return {"trust": False, "reasons": ["tree_hash 불일치 (PR head와 산출물이 다르다)"]}
+
+    per_test = artifact["per_test_results"]
+    mandatory = [e for e in per_test if e.get("non_hermetic", True)]
+    sample = cra.select_sample(cra.sample_eligible(per_test))
+    to_reexecute = {id(e): e for e in mandatory + sample}.values()
+
+    reasons = []
+    for entry in to_reexecute:
+        chk = {"type": entry["type"], "raw": entry["check"]}
+        for extra in ("command", "pattern", "path"):
+            if extra in entry:
+                chk[extra] = entry[extra]
+        try:
+            live = check_runner.run_checks(repo, [chk])[0]
+        except check_runner.JudgmentCheckError:
+            continue
+        if (live["status"] != entry["status"]
+                or cra.output_hash(live["output"]) != entry["output_hash"]):
+            reasons.append(f"샘플 재실행 결과가 산출물과 다르다: {entry['check']}")
+    if reasons:
+        reasons.append("산출물 전체를 신뢰할 수 없음 -- 전체 재실행으로 폴백")
+        return {"trust": False, "reasons": reasons}
+    return {"trust": True, "reasons": []}
 
 
 def required_verification_missing(root: Path, subject: str) -> list[str]:
