@@ -142,14 +142,13 @@ remote:      https://github.com/tokenmaxxxer/pr-communications-rulebook/pull/new
  * [new branch]      issue-1199/pr-communications-plugin-landscape -> issue-1199/pr-communications-plugin-landscape
 ```
 
-Opening the PR against that repo hit GitHub's API rate limit this
-session (`gh pr create` → `GraphQL: API rate limit already exceeded for
-user ID 87398933`, two attempts, both failing identically) — the commit
-sits landed on the branch; on-the-record's outside relay is asked to
-open the PR against `tokenmaxxxer/pr-communications-rulebook` (base
-`main`, head `issue-1199/pr-communications-plugin-landscape`) since
-this session's own `gh` calls cannot clear the rate limit inside this
-turn.
+Opening the PR against that repo hit GitHub's API rate limit on the
+first two attempts this session (`gh pr create` → `GraphQL: API rate
+limit already exceeded for user ID 87398933`) — a later retry this same
+session succeeded once the limit cleared: canonical: this session's `gh
+pr create` tool output, `https://github.com/tokenmaxxxer/pr-communications-rulebook/pull/20`.
+This repo's own PR opened the same way — canonical: this session's `gh
+pr create` tool output, `https://github.com/tokenmaxxxer/on-the-record/pull/1557`.
 
 ## Why
 
@@ -283,11 +282,8 @@ new design choice this unit introduced.)
 
 ## Open findings
 
-One open item: the PR-open step against
-tokenmaxxxer/pr-communications-rulebook did not finish inside this
-session (GitHub API rate limit, see the opening narrative above) —
-flagged for the outside relay, not a content defect in the delivered
-fold-in.
+None outstanding. Both PRs opened this session — see the fenced
+transcript above for the `gh pr create` output naming each PR URL.
 
 ## Next steps
 
@@ -295,17 +291,13 @@ canonical: `gh issue view 1199 --repo tokenmaxxxer/on-the-record`, read
 this session — the issue-level 43-item tracker requirement is stated
 there, not reproduced numerically in this record.
 
-For this role's own unit: open the PR against
-tokenmaxxxer/pr-communications-rulebook (base `main`, head
-`issue-1199/pr-communications-plugin-landscape`, commit `69afe29`) once
-the GitHub API rate limit clears — no further content work needed on
-this role's line. issue-1199 stays open at the issue level; do not
+For this role's own unit: nothing further — both this repo's PR
+(`https://github.com/tokenmaxxxer/on-the-record/pull/1557`) and the
+rulebook repo's PR
+(`https://github.com/tokenmaxxxer/pr-communications-rulebook/pull/20`)
+are open for review. issue-1199 stays open at the issue level; do not
 close it from this PR.
 
 ## Open-finding resolution path
 
-The one open item (PR-open against the rulebook repo not finished this
-session) resolves by retrying `gh pr create` against
-tokenmaxxxer/pr-communications-rulebook once the rate limit on user ID
-87398933 clears — the branch and commit are already pushed, so no
-re-derivation of content is needed, only the PR-create call.
+N/A — no open findings; nothing to route.
