@@ -1365,7 +1365,7 @@ def _issue_comments(root: Path, number: int) -> tuple[list[dict], bool]:
     # 때) 조건 없이 그대로 보내 이번 응답의 ETag 를 다음 호출을 위해
     # 캐시에 심는다. 프로브 자체가 실패/파싱불가하면 무조건 전체
     # 재조회로 폴백한다(fail-open).
-    cmd = ["gh", "api", f"repos/{slug}/issues/{number}/comments",
+    cmd = ["gh", "api", f"repos/{slug}/issues/{number}/comments", "--method", "GET",
            "-f", "per_page=100", "-i"]
     if etag:
         cmd = cmd + ["-H", f"If-None-Match: {etag}"]
