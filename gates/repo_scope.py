@@ -52,8 +52,19 @@ _SCOPE_PHRASES = [
     r"\bin\s+the\s+[\w./-]+\s+repo",
     r"checked\s+`?[\w./-]+`?",
     r"as of\s+the\s+.+\s+checkout",
+    # 이슈 #1507 — freshness 확장. "as of <sha>" 계열의 특수형: origin/main
+    # 대비 fetch 시각까지 포함한다.
+    r"verified against origin/main at\s+[0-9a-f]{6,40},\s*fetched\s+\S+",
 ]
 _SCOPE_RE = re.compile("|".join(_SCOPE_PHRASES), re.IGNORECASE)
+
+# 이슈 #1507 — 절대-부재(absence) 주장 전용 freshness 문구. #415 의
+# `_SCOPE_RE` 보다 좁다: sha 만으로는 부족하고, fetch 시각까지 있어야 한다
+# ("stale checkout" 결함류 — origin/main 에 이미 올라간 걸 없다고 잘못
+# 주장하는 사고, issue #1507 본문 참고).
+_FRESHNESS_RE = re.compile(
+    r"verified against origin/main at\s+[0-9a-f]{6,40},\s*fetched\s+\S+",
+    re.IGNORECASE)
 
 # 파일 경로가 이미 문장 안에 있으면(백틱으로 감싼 경로, 또는 `foo.py:12`
 # 형태) 이미 파일-단위로 스코프된 주장 — repo-스코프 검사 대상이 아니다.
@@ -85,4 +96,33 @@ def check_repo_scope(text: str) -> list[Violation]:
             "capability/contract 부재 주장에 저장소 범위 표시(`as of <sha>`, "
             "`in <repo>`, `checked <repo path>` 등)가 없다 — 이 클론에서만 "
             "확인한 결과일 수 있다."))
+    return violations
+
+
+def check_absence_freshness(text: str) -> list[Violation]:
+    """이슈 #1507 — 절대-부재 주장에 freshness 문구가 있는지 검사한다.
+
+    `check_repo_scope()`(#415)와 같은 문장-분리·부재-어구·파일-앵커 판정을
+    재사용하되(두 소스 오브 트루스를 만들지 않으려는 목적), 통과 기준은
+    더 좁다: 일반 스코프 어구(`as of <sha>` 등) 만으로는 부족하고, "verified
+    against origin/main at <sha>, fetched <timestamp>" 형태의 freshness
+    문구가 있어야 한다. 부재 주장이 하나도 없는 텍스트는 위반 0개를
+    반환한다(게이트 없음, false positive 방지)."""
+    violations: list[Violation] = []
+    for sentence in _SENTENCE_SPLIT.split(text or ""):
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if not _ABSENCE_RE.search(sentence):
+            continue
+        if _FILE_ANCHOR_RE.search(sentence):
+            continue
+        if _FRESHNESS_RE.search(sentence):
+            continue
+        violations.append(Violation(
+            sentence,
+            "절대-부재 주장에 freshness 문구가 없다 — "
+            "'verified against origin/main at <sha>, fetched <timestamp>' "
+            "형태로 origin/main 대비 sha 와 fetch 시각을 밝혀야 한다 "
+            "(issue #1507, #415 'as of <sha>' 메커니즘 확장)."))
     return violations
