@@ -269,6 +269,25 @@ already reconciled repeatedly above — the comment names no specific
 content defect, only a process-level depth/impact-axis escalation. No
 content amendment to this record is warranted.
 
+amendments-reconciled: issuecomment-5300069941 ("Judgment opened: PR #? —
+candidate decision on branch `issue-1199/marketing` (1 path(s) changed)
+entered delegated-judgment evaluation.") and issuecomment-5300070034
+("Verdict: PR #? → escalate (depth or impact axis did not clear)") —
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[-2:] | .[] | {id, body}'`, run this session. Same
+generic-verdict watcher shape as immediately above, one new copy spawned
+per commit to this record file — a self-reinforcing loop (each
+reconciling commit itself triggers the next watcher verdict). No content
+amendment is warranted, and per this turn's task instruction ("If gh pr
+create fails, push and stop"), this session stops retrying `gh pr
+create` in the rulebook repo here rather than committing again to chase
+the loop. canonical: `git -C /tmp/marketing-rulebook log -1 --oneline`
+and `git -C /tmp/marketing-rulebook diff main...HEAD --stat`, run this
+session, showing commit 5c51300 as the branch head, pushed, diffing
+clean against main (methodology.md, messaging-gate.sh, and
+run-gate-tests.sh only). Only the `gh pr create` call itself remains
+open, for a follow-up session or out-of-session relay.
+
 ## kind
 
 report
