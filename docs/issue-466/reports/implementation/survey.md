@@ -32,7 +32,7 @@ running `spawn.py flows --json` by hand, or `spawn.py flows`'s own
 existing `Stop` entries are `stop-gate.sh` (structural check on the
 orchestrator's own last message, issue #411) and
 `role-test-claim-guard.sh` — neither touches `decision_queue`. The #374
-proposal (`docs/issue-374/proposals/2026-08-07-...md`, `status: proposed`
+proposal (`docs/issue-374/proposals/2026-08-07-decision-queue-stop-hook-nudge.md`, `status: proposed`
 in its frontmatter) designed a `decision-queue-nudge.sh` Stop hook in
 full — two age tiers (`age_hours >= 1` → non-blocking
 `additionalContext`, `age_hours >= 4` → `decision: "block"`), reusing
