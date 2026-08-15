@@ -73,6 +73,22 @@ rulebook repo is left to an external relay. This on-the-record repo's
 own PR (for this record) hit the identical throttle and is handled the
 same way below.
 
+This session's later `gh pr create` attempt for this on-the-record repo's
+own PR hit a distinct, compounding throttle: pr-preflight.sh refuses
+`gh pr create` whenever a new issue-1199 comment has landed since session
+start that this record has not yet reconciled with an
+`amendments-reconciled` line, and this session observed five such
+generic templated watcher comments
+(issuecomment-5277657398/-5277664918/-5277676899/-5277680810/-5277683575/
+-5277691056/-5277716061/-5277718713/-5277721482/-5299651362/-5299657210/
+-5299663425 — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate`,
+run repeatedly this session) arrive faster than one commit+push+retry
+cycle can complete, so each reconciliation immediately becomes stale
+before the next `gh pr create` attempt runs. Per the same invocation
+instruction, this session stops retrying `gh pr create` here: the
+commit+push above is this session's remaining action, and PR-open for
+this record is left to the external relay noted above.
+
 ## Why
 
 Issue #1199 (northpole req#1) requires each role to fold
@@ -213,5 +229,7 @@ amendments-reconciled: issuecomment-5277721482 ("generic templated delegated-jud
 amendments-reconciled: issuecomment-5299651362 ("Verdict: PR #? → escalate (depth or impact axis did not clear)", posted by JiwonJung94) — same generic templated delegated-judgment watcher flood pattern as the prior entries above: no PR number, no content-specific finding, "PR #?" placeholder unfilled; no content amendment to this record is warranted.
 
 amendments-reconciled: issuecomment-5299657210 ("Verdict: PR #? → escalate (depth or impact axis did not clear)", posted by JiwonJung94) — same generic templated delegated-judgment watcher flood pattern, arriving ahead of PR-open (throttle noted above); no PR number, no content-specific finding; no content amendment to this record is warranted.
+
+amendments-reconciled: issuecomment-5299663425 ("Verdict: PR #? → escalate (depth or impact axis did not clear)", posted by JiwonJung94) — same generic templated delegated-judgment watcher flood pattern, the comment that triggered this session's decision to stop retrying `gh pr create` and record the compounding-throttle status instead (see "PR-creation throttle" note above); no PR number, no content-specific finding; no content amendment to this record is warranted.
 
 amendments-reconciled: issuecomment-5277723488 ("generic templated delegated-judgment verdict/judgment-opened flood from an external watcher reacting to every issue-1199/* branch push across all roles") — no PR number or content-specific finding attached; no content amendment to this record is warranted.
