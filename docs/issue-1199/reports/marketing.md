@@ -124,6 +124,24 @@ comment IC_kwDOTiVhs88AAAABO-fFQg names branch
 automated judgment-watcher run over a different role's branch, so no
 content amendment to this record is warranted.
 
+amendments-reconciled: issuecomment-5300037492 ("Judgment opened: PR #? —
+candidate decision on branch `issue-1199/marketing` (2 path(s) changed)
+entered delegated-judgment evaluation.") and issuecomment-5300037554
+("Verdict: PR #? → escalate (depth or impact axis did not clear)"),
+posted 2026-08-15T02:19:32Z and 2026-08-15T02:19:33Z — canonical: `gh
+api repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate -q
+'.[-2:]'`, run this session. This is the automated judgment-watcher's
+generic escalate-verdict run over this unit's own PR #1553 (opened this
+session, canonical: `gh pr view 1553 --json url,number`, run this
+session) — the comment names no specific content defect, only a
+depth/impact-axis escalation of the delegated-judgment process itself,
+matching the same generic-verdict shape already reconciled elsewhere in
+this issue's other role records (e.g. docs/issue-1199/reports/
+conformance-review.md's own "amendments-reconciled" entries for the
+identical comment template on other branches). No content amendment to
+this record is warranted; the escalation is a process signal for a
+human/orchestrator to act on, not a defect in this delivery.
+
 Committed in the rulebook repo: `tokenmaxxxer/marketing-rulebook` commit
 204721a ("Fold Claude Code plugin-ecosystem learnings into marketing
 methodology", subject: issue-1199), branch `issue-1199/marketing`,
