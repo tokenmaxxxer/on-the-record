@@ -632,3 +632,27 @@ PR number and does not reference this legal-compliance unit, so no
 content amendment to this record is warranted. Retrying `gh pr create`
 for this repo immediately after this reconciliation, still within this
 session's 5-attempt cap.
+
+amendments-reconciled: issuecomment-5299602693 and issuecomment-5299603790
+(both "Verdict: PR #? → escalate (depth or impact axis did not clear)")
+are the same recurring generic delegated-judgment verdict comment
+(canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/
+5299602693 --jq '.body'` and `gh api repos/tokenmaxxxer/on-the-record/
+issues/comments/5299603790 --jq '.body'`, both read this session per
+consecutive pr-preflight notices — one raised while attempting `gh pr
+create` in this repo, one raised while attempting it in the rulebook
+repo) — neither names a PR number nor references this legal-compliance
+unit, so no content amendment to this record is warranted. This
+exhausts this session's 5-attempt `gh pr create` cap (matching the
+precedent already logged repeatedly earlier in this record and mirrored
+from issue-1174): no further retry is attempted this session in either
+repo. State as of this session's end: this repo's branch
+(issue-1199/legal-compliance) is committed and pushed to
+origin/issue-1199/legal-compliance with 19 commits ahead of main and no
+open PR; the rulebook repo's branch
+(tokenmaxxxer/legal-compliance-rulebook, issue-1199/legal-compliance,
+commit 757907440ea0878db73b18e1cde25366e681df0f) is unchanged from the
+prior session, still pushed and unmerged, also with no open PR. PR
+creation for both is left for a later retry outside this
+comment-arrival window or for external relay, per this session's
+headless-turn instruction to commit even when push/PR is blocked.
