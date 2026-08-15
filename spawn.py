@@ -6999,13 +6999,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # phase-1 드래프트 시점에 구조적으로 막는다).
         req_line = ""
         try:
-            rv = subprocess.run(
-                ["gh", "issue", "view", str(issue), "--json", "body"],
-                cwd=cwd, capture_output=True, text=True)
-            if rv.returncode == 0:
-                sys.path.insert(0, str((ROOT / "gates").resolve()))
-                import requirement_linkage as _requirement_linkage
-                body = json.loads(rv.stdout).get("body", "") or ""
+            sys.path.insert(0, str((ROOT / "gates").resolve()))
+            import gh_rest as _gh_rest
+            import requirement_linkage as _requirement_linkage
+            body = _gh_rest.fetch_issue_body(Path(cwd), issue)
+            if body is not None:
                 req_ids = _requirement_linkage.cited_requirement_ids(body)
                 if req_ids:
                     req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
