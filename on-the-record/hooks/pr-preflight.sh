@@ -365,8 +365,15 @@ if phase == "phase2":
 # --- check_body (ported from gates/pr_reference.py) -------------------------
 # issue #1165: first-paragraph and citation-placement rules ported inline
 # from gates/human_comprehensibility.py (same zero-install rationale as the
-# rest of this file's ports) — kept in sync by hand; drift caught by
-# gates/test_hooks_parity.py.
+# rest of this file's ports) — kept in sync by hand. gates/test_hooks_parity.py
+# does NOT cover this port (it checks hooks.json registration and a
+# spec-index-preflight.sh live-fire deny, not pr_reference/check_body
+# content); on-the-record/hooks/test_pr_preflight.py is what pins this
+# file's ported check_body/_plan_from_body/_phase1_closes_ref logic, by
+# duplicating it as plain Python and asserting against it directly (same
+# pattern as test_contract_guard.py) — drift from gates/pr_reference.py's
+# real check_body is caught only if that duplication is kept honest by
+# hand; there is no automated diff between the two.
 _HEADING_RE = re.compile(r"^(#{1,6})\s+\S")
 _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+\S")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
