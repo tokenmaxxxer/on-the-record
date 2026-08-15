@@ -121,6 +121,16 @@ this internal-tooling delivery.
    rulebook edit. If reverted, revert the single rulebook commit e9083f5
    in `partnerships-bd-rulebook`.
 
+amendments-reconciled: issuecomment-5300054226 and issuecomment-5300055354
+(both "Verdict: PR #? → escalate (depth or impact axis did not clear)",
+posted 2026-08-15T02:22:47Z-range and 2026-08-15T02:23:48Z by
+JiwonJung94) — canonical: `gh issue view 1199 --json comments -q
+'.comments[-1]'`, run this session — same generic automated-watcher
+verdict-escalate pattern already reconciled above; names no PR number,
+no reference to this role or branch.
+
+amendments-reconciled: issuecomment-5300059908 (generic automated-watcher "Verdict/Judgment-opened" pattern, posted 2026-08-15T02:24:58Z by JiwonJung94) -- canonical: `gh issue view 1199 --json comments -q '.comments[-1]'`, run this session -- same pattern already reconciled above; names no PR number, no reference to this role or branch.
+
 ## What was done
 
 Re-surveyed the Claude Code plugin/skill ecosystem for tools relevant
