@@ -158,6 +158,120 @@ per-rule kill) applied to the numbers above, the result is NO — rule
 n=7 sample's one-sided Wilson lower bound (81%) sits below the 85%
 floor. Evaluated as pre-registered, not relaxed for this run.
 
+## PR #1622 review response (2026-08-16)
+
+canonical: `gh pr view 1622 --json reviews,comments` this session (blocking
+comment, quoted findings below)
+
+Blocking findings 1 and 2 from the review comment:
+
+canonical: `gates/record_lint.py:407-456` this session (diff applied in
+this turn, quoted below)
+
+1. Fence exemption was a blanket kill switch — `any(fence_flags[:i])`
+   suppressed every count below the first fence anywhere in the file.
+   Fixed: now tracks fence-close line indices and only exempts a count
+   when a fence closed within `_FENCE_PROXIMITY_LINES` (5) lines above
+   it.
+
+canonical: `gates/record_lint.py:404-406,441` this session (diff applied
+in this turn, quoted below)
+
+2. `_INLINE_COMPUTED_LEADIN` over a 6-line window suppressed on any
+   unrelated percent/equals sign (e.g. "set FOO=bar in config" above a
+   bare tally). Fixed: the check now runs against the count's own line
+   only, and the equals-sign half of the pattern requires a digit
+   directly adjacent to it, not a bare equals sign.
+
+4 new fixture tests added, each new misfire class covered both ways
+(gates/test_record_lint.py):
+- t_misfire_unrelated_fence_far_above_still_flagged_as_bare_count
+- t_misfire_fence_close_within_proximity_not_flagged_as_bare_count
+- t_misfire_unrelated_equals_above_still_flagged_as_bare_count
+- t_misfire_digits_adjacent_equals_same_line_not_flagged_as_bare_count
+
+canonical: this session's own pytest run, quoted immediately below
+derived: `python3 -m pytest gates/test_record_lint.py -q`
+```
+..............................................................           [100%]
+62 passed in 1.05s
+```
+
+derived: `python3 -m pytest gates/test_role_spec_shape.py gates/test_patrol_queue.py gates/test_precision_measure.py -q`
+```
+........................                                                 [100%]
+24 passed in 0.98s
+```
+
+canonical: this session's own precision_measure sample/report run,
+quoted below, plus manual read of the 2 rule-333 excerpts against
+docs/issue-476/reports/execution-observation.md this session
+
+Known precision cost of the tightened same-line requirement: the re-run
+precision_measure sample surfaced 2 new rule-333 findings — a tally
+whose equals-sign computation wraps across a markdown line break onto a
+separate line reading:
+```
+0/3.
+```
+Both are judged FP under the Tricorder criterion (owner would take no
+action) — a direct, expected consequence of restricting the signal to
+the count's own line per finding 2 above. Not fixed here: doing so
+would reopen the same blanket-suppression shape finding 2 refused.
+
+canonical: PreToolUse hook output this session, board-gate refusal
+quoted below
+
+Finding 3 (acceptance bullet 3, genuine test/->tests/ citation breaks):
+attempted the fix directly in this session — editing
+docs/issue-711/reports/implementation.md and
+docs/issue-476/reports/implementation.md was refused, same boundary as
+the earlier round:
+```
+board-gate: writing docs/issue-711/ requires branch issue-711/implementation (current: issue-1620/implementation).
+```
+
+canonical: PreToolUse hook output this session, gh-guard refusal quoted
+below
+
+Attempted to file follow-up GitHub issues for those two records' own
+roles to pick up, per the review's explicit fallback instruction; this
+was refused:
+```
+gh-guard: refused for role session 'implementation': issues are the user's requirement backlog, user-authored only (contract v3 s9) — no role touches them.
+```
+
+A role session cannot author GitHub issues under this repo's own
+contract. Re-scoping explicitly here per the review's instruction:
+acceptance bullet 3 remains open on this PR. The 4 genuine
+test-to-tests citation breaks (docs/issue-711/reports/implementation.md,
+docs/issue-476/reports/implementation.md) need either (a) the user to
+file a follow-up issue for issue-711's and issue-476's own roles to fix
+from their own branches, or (b) the user's direct authorization for a
+cross-issue write. This session cannot close that gap itself.
+
+Finding 4 (acceptance bullet 2, post precision_measure to issue #1620):
+posted as an issue comment this session — see below.
+
+derived: `python3 gates/precision_measure.py sample . --n 100 --seed 20260817 --out /tmp/samples_1620b.json`
+```
+wrote 9 sample items (population 9) to /tmp/samples_1620b.json
+```
+
+derived: `python3 gates/precision_measure.py report /tmp/samples_1620b.json --judgments /tmp/judgments_1620b.json`
+```
+population=9 sampled=9
+
+| rule | sampled | TP | precision | wilson_lb_90 |
+|---|---|---|---|---|
+| issue-330 | 7 | 7 | 100.0% | 81.0% |
+| issue-333 | 2 | 0 | 0.0% | 0.0% (KILL <70%) |
+| overall | 9 | 7 | 77.8% | 56.6% |
+
+pass rule: overall point>=90% AND wilson_lb_90>=85% AND no per-rule kill(<70%)
+promote: NO
+```
+
 ## What did not work
 
 - First `_ABSENCE_NEGATION` draft used a same-line `[^.?!]{0,40}` gap
@@ -196,11 +310,20 @@ measurement ask.
 
 ## Open findings
 
-None.
+- Acceptance bullet 3 (4 genuine test/->tests/ citation breaks in
+  docs/issue-711/reports/implementation.md and
+  docs/issue-476/reports/implementation.md) remains open on this PR —
+  see "PR #1622 review response" above. Neither a direct write nor a
+  follow-up GitHub issue could be created from this session
+  (board-gate.sh and gh-guard.sh both refuse it).
 
 ## Resolution path
 
-not applicable — no open findings.
+- Acceptance bullet 3: the user files a follow-up issue for
+  issue-711's and issue-476's own implementation roles (or explicitly
+  authorizes a cross-issue write), naming the test/->tests/ citation
+  fix in docs/issue-711/reports/implementation.md and
+  docs/issue-476/reports/implementation.md.
 
 ## Next steps
 
@@ -218,6 +341,17 @@ own issues' records, but `core/hooks/board-gate.sh` refuses a write
 touching another issue's `docs/issue-<n>/` tree from
 `issue-1620/implementation`, as quoted above. Per the SCOPE-EXCEEDED
 rule this session stops at the boundary of its own write set instead
-of widening into those issues' branches; the citation fixes are
-reported here as a deviation for the respective issues' own roles, not
-spawned from inside this session.
+of widening into those issues' branches.
+
+canonical: PreToolUse hook output this session, gh-guard refusal quoted
+above under "PR #1622 review response"
+
+Per PR #1622's review, a second attempt was made this session to file
+follow-up GitHub issues for issue-711's and issue-476's own roles to
+pick the citation fix up — refused by gh-guard.sh (role sessions cannot
+author issues, contract v3 s9).
+
+canonical: this record's own "Open findings" and "Resolution path"
+sections above
+
+Bullet 3 stays open, not closed.
