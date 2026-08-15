@@ -169,6 +169,18 @@ def _is_path_rename_narration(line: str) -> bool:
     return bool(_PATH_RENAME_NARRATION.search(line))
 
 
+# issue #1628 misfire class: a record explicitly narrating that a cited
+# path is untracked / out-of-scope / not-in-repo is describing the
+# path's state, not asserting it currently resolves on disk — it may
+# legitimately no longer exist by the time the record is read back.
+_UNTRACKED_OUT_OF_SCOPE_NARRATION = re.compile(
+    r"(?i)\buntracked\b|\bout[- ]of[- ]scope\b|\bnot[- ]in[- ]repo\b")
+
+
+def _is_untracked_out_of_scope_narration(line: str) -> bool:
+    return bool(_UNTRACKED_OUT_OF_SCOPE_NARRATION.search(line))
+
+
 # issue #1614 misfire class 4: historical narration / already-fixed
 # interim defects / prior-round results — a claim embedded in a sentence
 # that is explicitly narrating the past, not asserting the record's own
@@ -495,7 +507,8 @@ def orphaned_path_reference_check(root: Path, text: str) -> list[str]:
             continue
         window = " ".join(
             lines[max(0, line_idx - 1):min(len(lines), line_idx + 2)])
-        if _is_path_rename_narration(window) or _is_absence_negated(window):
+        if (_is_path_rename_narration(window) or _is_absence_negated(window)
+                or _is_untracked_out_of_scope_narration(window)):
             continue
         ref = _strip_line_suffix(m.group(1))
         if any(ch in ref for ch in ("*", "?", "<", ">")):
