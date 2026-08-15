@@ -5,9 +5,9 @@ record-lint's path-reach check does not treat them as broken references)
 
 - gates/patrol_queue.py — new module: fingerprinting, dedup/absence-close,
   lane logic, budgets, verifiability gate, dismissal memory.
-- on-the-record/hooks/test_patrol_queue.py — unit tests.
+- on-the-record/hooks/test_patrol_queue_hook.py — unit tests.
 - gates/patrol_trigger.py — post-merge trigger entry point.
-- on-the-record/hooks/test_patrol_trigger.py — #1360-class regression
+- on-the-record/hooks/test_patrol_trigger_hook.py — #1360-class regression
   test: patrol-produced commits/artifacts must not re-trigger patrol.
 - docs/issue-1582/reports/patrol-measurement-2026-08-15.md — the
   measurement record (wall-clock, per-scanner enqueue count,

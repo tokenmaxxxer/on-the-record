@@ -2,9 +2,9 @@
 status: proposed
 files:
   - gates/patrol_queue.py
-  - on-the-record/hooks/test_patrol_queue.py
+  - on-the-record/hooks/test_patrol_queue_hook.py
   - gates/patrol_trigger.py
-  - on-the-record/hooks/test_patrol_trigger.py
+  - on-the-record/hooks/test_patrol_trigger_hook.py
   - docs/issue-1582/reports/patrol-measurement-2026-08-15.md
 ---
 
@@ -137,7 +137,7 @@ without inventing a new scanner admission process in this pilot.
    - A scanner adapter for `gates/record_lint.py`'s scan mode
      (`find_records` + `lint_record`) wired in as the pilot's one
      tier-1 scanner.
-2. `on-the-record/hooks/test_patrol_queue.py`: unit tests for
+2. `on-the-record/hooks/test_patrol_queue_hook.py`: unit tests for
    fingerprint stability under line-shift, dedup refresh, absence-close,
    lane separation (sweep entries can never be `promotable=true`),
    per-scanner cap overflow meta-finding, verifiability drop, dismissal
@@ -149,7 +149,7 @@ without inventing a new scanner admission process in this pilot.
    plus a small runner that invokes the queue scan when `should_fire`
    is true. Not wired into a git-native hook (per Constraints); exposed
    as a function meant to be called from the merge-command seam.
-4. `on-the-record/hooks/test_patrol_trigger.py`: the #1360-class
+4. `on-the-record/hooks/test_patrol_trigger_hook.py`: the #1360-class
    regression test — construct an event whose only diff is a
    patrol-produced queue/measurement-record commit and assert
    `should_fire` returns false.
@@ -182,7 +182,7 @@ without inventing a new scanner admission process in this pilot.
 
 ## How you'll know it worked
 
-- `pytest on-the-record/hooks/test_patrol_queue.py on-the-record/hooks/test_patrol_trigger.py`
+- `pytest on-the-record/hooks/test_patrol_queue_hook.py on-the-record/hooks/test_patrol_trigger_hook.py`
   passes, covering every behavior named in the issue's acceptance list.
 - The #1360-class regression test in `test_patrol_trigger.py` fails on
   a reverted `should_fire` origin-check (proving it's load-bearing, not
