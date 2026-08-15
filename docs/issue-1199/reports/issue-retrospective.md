@@ -167,3 +167,11 @@ templated-verdict pattern already reconciled with no content change in
 `docs/issue-1199/reports/brand-design.md` and
 `docs/issue-1199/reports/implementation.md`. No amendment to this
 record's scope or content is warranted.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299666966`, read this session
+issuecomment-5299666966 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-15T01:00:18Z, after this session's
+PR-open attempt) is the same templated delegated-judgment verdict for
+an unnumbered candidate PR, again naming no branch or role specific to
+this issue-retrospective unit. No amendment to this record's scope or
+content is warranted.
