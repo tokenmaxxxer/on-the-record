@@ -340,3 +340,18 @@ repos' commits above are already committed and pushed (`efb97cb9` here,
 `c548898` in the rulebook repo) — commit+push is the deliverable this
 session lands for the 2026-08-14 rework, and PR-open for either repo
 can relay externally if the deadlock persists.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299809237`, read this session
+issuecomment-5299809237 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-15T01:26:42Z, after this session's
+`gh pr create` attempt for this on-the-record-side PR) is the same
+templated delegated-judgment verdict, confirming the reconcile-then-
+retry deadlock this record already names twice above. No amendment to
+this record's scope or content is warranted. This session stops
+retrying `gh pr create` against this deadlock in either repo; the
+delivered state is: this repo's commits (`efb97cb9`, `6eb89f68`)
+pushed to origin/issue-1199/issue-retrospective, and the rulebook
+repo's commit (`c548898`) pushed to origin/issue-1199/tool-landscape —
+commit+push is the deliverable this session lands; PR-open for both
+repos is left for external relay per the precedent this record already
+documents.
