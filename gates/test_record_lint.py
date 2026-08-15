@@ -296,33 +296,104 @@ def t_orphaned_path_reference_check_denies_genuinely_missing_path():
         for b in bad), bad
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "#744 item 2, deferred by #744's own scope note until #730's "
-        "guidance-only countermeasure has been observed in effect: "
-        "orphaned_path_reference_check cannot distinguish a "
-        "`path:identifier()` locator suffix, or a reference to a path "
-        "this same write set will create later, from a genuinely "
-        "hallucinated path — all three currently deny identically. A fix "
-        "that resolves either shape should turn this xfail into an "
-        "unexpected pass (caught by strict=True), not a silent gap."
-    ),
-)
-def t_orphaned_path_reference_check_false_positives_documented_gap():
+def t_orphaned_path_reference_check_locator_suffix_resolved_issue_1620():
+    """issue #1620 misfire class 1 fixes half of #744 item 2's documented
+    gap: a `path:identifier()` locator suffix now strips before the
+    existence check (`gates/claim_scan.py::scan_text()`,
+    `gates/ci.py:_phase2_record_evidence()` shapes). The other half of
+    #744 item 2 (a path this same write set creates later) is still open
+    and out of #1620's scope — not tested here."""
     d, record = _repo_with_record(
         "---\n"
         "loop_state: in-progress\n"
         "---\n\n"
         "# record\n\n"
         "Locator suffix on a real file: "
-        "`gates/real_module.py:helper()`.\n\n"
-        "Reference to a path this write set creates later: "
-        "`docs/issue-744/reports/implementation.md`.\n")
+        "`gates/real_module.py:helper()`.\n")
     (d / "gates").mkdir(parents=True, exist_ok=True)
     (d / "gates" / "real_module.py").write_text("# real file, not the ref\n")
     bad = record_lint.lint_record(record)
-    assert bad == [], bad
+    assert not any("#330" in b for b in bad), bad
+
+
+def t_orphaned_path_reference_check_double_colon_function_suffix():
+    """issue #1620 misfire class 1: `path.py::func_name()` (double
+    colon) strips the same way as the single-colon locator form."""
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "See `gates/claim_scan.py::scan_text()` for details.\n")
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates" / "claim_scan.py").write_text("# real file\n")
+    bad = record_lint.lint_record(record)
+    assert not any("#330" in b for b in bad), bad
+
+
+def t_orphaned_path_reference_check_comma_separated_line_list():
+    """issue #1620 misfire class 1: `path.py:60,137` names two lines in
+    a real file, not a broken path — the comma-separated line list must
+    strip the same way a single `:line` or `:start-end` suffix does."""
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "See `gates/landing_readiness.py:60,137` for both call sites.\n")
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates" / "landing_readiness.py").write_text("# real file\n" * 200)
+    bad = record_lint.lint_record(record)
+    assert not any("#330" in b for b in bad), bad
+
+
+def t_orphaned_path_reference_check_exempts_rename_narration():
+    """issue #1620 misfire class 2: a record explicitly narrating that a
+    path was renamed away must not fire — it is deviation narration
+    about a former path, not a live reachability claim."""
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "`gates/old_module.py` was renamed away from during this pass; "
+        "see `gates/new_module.py` instead.\n")
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates" / "new_module.py").write_text("# real file\n")
+    bad = record_lint.lint_record(record)
+    assert not any(
+        "#330" in b and "old_module.py" in b for b in bad), bad
+
+
+def t_orphaned_path_reference_check_still_fires_on_genuinely_missing_rename():
+    """Sibling negative for misfire class 2: a citation with no rename
+    narration around it still fires on a genuinely missing path — the
+    narration exemption must not blanket-suppress the rule."""
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "See `test/test_bootstrap_timing.py` for the test.\n")
+    bad = record_lint.lint_record(record)
+    assert any(
+        "#330" in b and "test/test_bootstrap_timing.py" in b
+        for b in bad), bad
+
+
+def t_orphaned_path_reference_check_exempts_absence_negation():
+    """issue #1620 misfire class 3: "no decisions/ entry needed" states
+    that a path is deliberately not created, not that it should resolve
+    on disk."""
+    d, record = _repo_with_record(
+        "---\n"
+        "loop_state: in-progress\n"
+        "---\n\n"
+        "# record\n\n"
+        "No `docs/decisions/never-written.md` entry needed for this "
+        "change.\n")
+    bad = record_lint.lint_record(record)
+    assert not any("#330" in b for b in bad), bad
 
 
 def t_git_tracked_path_reference_check_denies_uncommitted_present_path():
@@ -619,6 +690,88 @@ def t_misfire_hyphenated_name_not_flagged_as_ratio():
     not a "2 of 3"-shaped ratio count claim."""
     text = "The change touches the layer-2/3 boundary code.\n"
     assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_misfire_absence_negation_not_flagged_as_bare_count():
+    """issue #1620 misfire class 3: "not yet measurable (0/30)" negates
+    the count claim itself, not just a claim marker word."""
+    text = "Coverage is not yet measurable (0/30).\n"
+    assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_misfire_inline_computed_percentage_not_flagged_as_bare_count():
+    """issue #1620 misfire class 4a: a tally whose computation is shown
+    inline (percentage next to the raw fraction) is self-evidencing."""
+    text = "rule 330: 33.3% precision (4 TP / 12).\n"
+    assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_misfire_fenced_output_above_not_flagged_as_bare_count():
+    """issue #1620 misfire class 4b: a tally backed by a fenced
+    raw-output block a few lines above it is already evidenced."""
+    text = (
+        "```\n"
+        "4 passed, 0 failed\n"
+        "```\n\n"
+        "So 4 of 4 tests passed.\n")
+    assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_misfire_canonical_tag_same_line_not_flagged_as_bare_count():
+    """issue #1620 misfire class 4c: a `canonical:` citation on the
+    count's own evidence line is itself the citation #333 asks for."""
+    text = "canonical: 4 of 12 findings — docs/issue-1614/reports/panel.md\n"
+    assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_misfire_unrelated_fence_far_above_still_flagged_as_bare_count():
+    """PR #1622 review finding 1: a fence must CLOSE within a few lines
+    above the count — an unrelated fence far above must not blanket-
+    suppress every later bare count in the record."""
+    text = (
+        "```\n"
+        "unrelated setup output\n"
+        "```\n" +
+        "\n".join(f"filler line {n}" for n in range(20)) +
+        "\n\nWe found 4 of 12 findings to be genuine.\n")
+    bad = record_lint.bare_count_claim_check(text)
+    assert any("#333" in b for b in bad), bad
+
+
+def t_misfire_fence_close_within_proximity_not_flagged_as_bare_count():
+    """Positive twin: a fence that closes within the proximity window
+    above the count is still exempted."""
+    text = (
+        "```\n"
+        "4 passed, 0 failed\n"
+        "```\n"
+        "So 4 of 4 tests passed.\n")
+    assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_misfire_unrelated_equals_above_still_flagged_as_bare_count():
+    """PR #1622 review finding 2: an unrelated `=` above the count (e.g.
+    a config assignment) must not suppress the finding — the computed
+    signal must be on the count's own line."""
+    text = "set FOO=bar in config.\nWe found 4 of 12 findings to be genuine.\n"
+    bad = record_lint.bare_count_claim_check(text)
+    assert any("#333" in b for b in bad), bad
+
+
+def t_misfire_digits_adjacent_equals_same_line_not_flagged_as_bare_count():
+    """Positive twin: digits directly adjacent to `=` on the count's own
+    line is a genuine inline computation and stays exempted."""
+    text = "9 keywords x 3 cases = 27 cases total.\n"
+    assert record_lint.bare_count_claim_check(text) == []
+
+
+def t_bare_count_claim_check_still_fires_without_evidence():
+    """Sibling negative: a bare count with none of the #1620 evidence
+    shapes nearby still fires — the exemptions must not blanket-suppress
+    the rule."""
+    text = "We found 4 of 12 findings to be genuine.\n"
+    bad = record_lint.bare_count_claim_check(text)
+    assert any("#333" in b for b in bad), bad
 
 
 def t_misfire_cli_flag_pass_not_flagged_as_outcome():
