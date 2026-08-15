@@ -2,13 +2,13 @@
 # PreToolUse (Bash): plugin-only default-on orchestrator gh-write-allow gate
 # — issue #856, the unbuilt half of #810 SCOPE EXTENSION 2.
 #
-# Grants `hookSpecificOutput.permissionDecision: "allow"` for the five gh
+# Grants `hookSpecificOutput.permissionDecision: "allow"` for the gh
 # issue/pr write verbs the orchestrator needs to run the on-the-record loop
 # at all (requirements -> issues, relaying decisions) but that a fresh
 # install's host permission classifier denies by default (measured #855:
 # "every gh call ... is denied by the permission mode in this session"):
 #   gh issue create, gh issue comment, gh pr comment, gh issue close,
-#   gh pr close
+#   gh pr close, gh issue edit (issue #1586: patrol-board edit-in-place)
 #
 # Same three-part design as merge-allow-gate.sh (#816) and
 # spawn-allow-gate.sh (#823):
@@ -145,6 +145,11 @@ VERB_SHAPES = (
     ("gh", "pr", "comment"),
     ("gh", "issue", "close"),
     ("gh", "pr", "close"),
+    # issue #1586: patrol-channel board-issue edit-in-place (Renovate
+    # dependencyDashboard pattern) needs `gh issue edit` — shape-only,
+    # same as every other verb here; content (which issue, cap counts)
+    # is enforced at the patrol-board implementation layer, not here.
+    ("gh", "issue", "edit"),
 )
 
 
