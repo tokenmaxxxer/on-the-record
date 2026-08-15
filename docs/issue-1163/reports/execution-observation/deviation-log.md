@@ -1,0 +1,1 @@
+2026-08-14T12:02:44Z no-new-artifact re-check: only implementation PR #1167 exists for issue-1163, already fully observed and handed-off in merged PR #1454 (commit de7a77b8/0742d927). No new implementation commits landed since; batches 2-3 not yet started per issue #1163 checklist (unchecked).

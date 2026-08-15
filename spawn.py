@@ -2166,6 +2166,13 @@ def _watcher_looks_real(pid: int, issue: int | None,
 
 
 def _alive(pid: int) -> bool:
+    # 이슈 #1462: `os.kill(0, 0)` 은 pid 0 이 아니라 호출자 자신의 프로세스
+    # 그룹에 신호를 보내 항상 성공한다 — roster 엔트리의 `pid` 가 없거나
+    # 0(세션-종료~재스폰 갭)이면 이 함수가 거짓으로 "살아있음"을 돌려줘
+    # `ps` 가 `RUNNING pid 0` 을 그린다. 음수/0 pid 는 애초에 살아있는
+    # 프로세스를 가리킬 수 없으니 커널 호출 전에 걸러낸다.
+    if not isinstance(pid, int) or pid <= 0:
+        return False
     try:
         os.kill(pid, 0)
         return True
@@ -2187,6 +2194,71 @@ def roster_remove(key: str) -> None:
             _roster_save(d)
 
 
+def _format_roster_row(key: str, e: dict, ws_idx: dict,
+                        now: float | None = None) -> tuple[bool, list[str]]:
+    """`key`/`e`(로스터 엔트리 하나) 를 `ps` 출력 줄 목록으로 순수하게
+    변환한다 — 부수효과(roster_remove 등) 없음, 테스트가 실제 프로세스를
+    띄우지 않고 합성 상태로 직접 부를 수 있는 지점 (이슈 #1462).
+
+    돌려주는 `bool` 은 "살아있음" — 호출자가 정리 대상 여부를 판단하는 데
+    쓴다. 행 하나는 자기 자신의 `work`/`log` 필드만 표시한다 — 다른
+    키(`ws_idx` 포함)의 값으로 대체하는 폴백은 어디에도 없다(행 격리
+    불변식, requirement 3)."""
+    now = time.time() if now is None else now
+    pid = e.get("pid")
+    pid = pid if isinstance(pid, int) else 0
+    alive = _alive(pid)
+    if "ts" in e and isinstance(e.get("ts"), (int, float)):
+        age = f"{(int(now) - int(e['ts'])) // 60}분"
+    else:
+        # 이슈 #1462: ts 가 없으면 epoch(0) 을 기준으로 나이를 계산하지
+        # 않는다 — "29778226분" 처럼 터무니없는 나이를 찍던 버그.
+        age = "unknown"
+    pid_disp = pid if pid else "unknown"
+    if alive:
+        state = "RUNNING"
+    else:
+        # 이슈 #1462 requirement 2: 세션-종료~재스폰 갭은 RUNNING/pid 0 이
+        # 아니라 truthful terminal state(마지막으로 알려진 pid 를 들고)로
+        # 보여야 한다.
+        state = "ENDED"
+    lines = [
+        f"{state:14s} {e.get('role','?'):12s} issue-{e.get('issue','?')}  "
+        f"{age}  pid {pid_disp}",
+        f"               log: {e.get('log','')}",
+        f"               work: {e.get('work','')}",
+    ]
+    work = e.get("work")
+    ws_key = f"{_repo_identity(work)}/{key}" if work else key
+    ws_entry = ws_idx.get(ws_key)
+    watcher_pid = ws_entry.get("watcher_pid") if ws_entry else None
+    role = key.split("/", 1)[1] if "/" in key else None
+    if watcher_pid is None:
+        lines.append("               워처: UNWATCHED")
+    elif not alive:
+        # 이슈 #1462 requirement 4: 세션이 정상 종료해서 이 행 자체가 이미
+        # ENDED 이면, 워처의 by-design 동반 종료를 DEAD 로 오라벨하지
+        # 않는다 — 그건 세션이 살아있는데 워처만 죽은 경우의 라벨이다.
+        lines.append(f"               워처: exited-with-session (pid {watcher_pid})")
+    elif _watcher_looks_real(watcher_pid, e.get("issue"), role):
+        armed_at = ws_entry.get("watcher_armed_at")
+        armed_mins = (int(now) - int(armed_at)) // 60 \
+            if armed_at is not None else "?"
+        own_sid = os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None
+        sid = e.get("session_id")
+        if sid is not None and sid != own_sid:
+            # 이슈 #1013 block E: 워처가 살아있어도 이 워처를 무장한
+            # 세션이 나(호출자)와 다르면 로컬 소유를 암시하지 않는다.
+            lines.append(f"               워처: pid {watcher_pid}  "
+                         f"armed {armed_mins}분 전  (다른 세션 소유)")
+        else:
+            lines.append(f"               워처: pid {watcher_pid}  "
+                         f"armed {armed_mins}분 전  follow=True")
+    else:
+        lines.append(f"               워처: DEAD(pid {watcher_pid})")
+    return alive, lines
+
+
 def roster_ps() -> int:
     """돌고 있는 역할 세션들. 죽은 항목은 표시 후 정리한다.
 
@@ -2201,38 +2273,9 @@ def roster_ps() -> int:
     ws_idx = _workspace_index_load()
     dead = []
     for key, e in sorted(d.items()):
-        pid = e.get("pid", 0)
-        alive = _alive(pid)
-        mins = (int(time.time()) - e.get("ts", 0)) // 60
-        state = "RUNNING" if alive else "DEAD(정리됨)"
-        print(f"{state:14s} {e.get('role','?'):12s} issue-{e.get('issue','?')}  "
-              f"{mins}분  pid {pid}")
-        print(f"               log: {e.get('log','')}")
-        print(f"               work: {e.get('work','')}")
-        if alive:
-            work = e.get("work")
-            ws_key = f"{_repo_identity(work)}/{key}" if work else key
-            ws_entry = ws_idx.get(ws_key)
-            watcher_pid = ws_entry.get("watcher_pid") if ws_entry else None
-            role = key.split("/", 1)[1] if "/" in key else None
-            if watcher_pid is None:
-                print("               워처: UNWATCHED")
-            elif _watcher_looks_real(watcher_pid, e.get("issue"), role):
-                armed_at = ws_entry.get("watcher_armed_at")
-                armed_mins = (int(time.time()) - int(armed_at)) // 60 \
-                    if armed_at is not None else "?"
-                own_sid = os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None
-                sid = e.get("session_id")
-                if sid is not None and sid != own_sid:
-                    # 이슈 #1013 block E: 워처가 살아있어도 이 워처를 무장한
-                    # 세션이 나(호출자)와 다르면 로컬 소유를 암시하지 않는다.
-                    print(f"               워처: pid {watcher_pid}  "
-                          f"armed {armed_mins}분 전  (다른 세션 소유)")
-                else:
-                    print(f"               워처: pid {watcher_pid}  "
-                          f"armed {armed_mins}분 전  follow=True")
-            else:
-                print(f"               워처: DEAD(pid {watcher_pid})")
+        alive, lines = _format_roster_row(key, e, ws_idx)
+        for line in lines:
+            print(line)
         if not alive:
             dead.append(key)
     for k in dead:
@@ -2516,9 +2559,21 @@ def _deadlock_signature(work: str | None, min_repeats: int = DEADLOCK_MIN_REPEAT
     return None
 
 
+def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
+    """이슈 #1508 요구 2: `closure_sweep._pr_index_all()`(gates/closure_sweep.py:91)
+    이 이미 만든 브랜치->{number,state} 벌크 인덱스에서 OPEN/MERGED 만
+    "배달됨"으로 센다 — `_pr_open_or_merged_for_branch()`(spawn.py:1162)와
+    같은 시맨틱을 별도 `gh` 호출 없이 재현한다."""
+    pr = pr_index.get(branch)
+    if pr is None:
+        return None
+    return pr.get("number") if pr.get("state") in ("OPEN", "MERGED") else None
+
+
 def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
-                     anomalies: list[str] | None = None) -> dict:
+                     anomalies: list[str] | None = None,
+                     pr_index: dict | None = None) -> dict:
     """이슈 #782 스코프-확장: 살아있는(또는 방금 죽은) 로스터 엔트리 하나를
     HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED 네 상태 중 하나로 진단하고
     next-action 을 매긴다. 완료(정상 session-end + PR)는 이 함수의 대상이
@@ -2537,7 +2592,14 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     돌렸으면 그 결과를 넘긴다 — `watchdog_check_one()` 은 로그 오프셋
     상태를 소비하는 부수효과가 있어(signal 2/3), 한 틱에 두 번 부르면
     두 번째 호출이 빈 텍스트만 보고 신호를 놓친다. 생략하면(단독/테스트
-    호출) 이 함수가 직접 한 번 돌린다."""
+    호출) 이 함수가 직접 한 번 돌린다.
+
+    `pr_index`: 이슈 #1508 요구 2 — 호출부가 같은 틱에서 이미
+    `closure_sweep._pr_index_all()` 벌크 조회를 돌렸으면 그 인덱스를
+    넘긴다. 넘기면 dead-entry PR 확인이 `_pr_state_from_index()`로
+    인덱스만 보고 끝나 이 호출에서 `gh`를 안 부른다. 생략하면(단독/테스트
+    호출, 또는 벌크 조회를 아직 안 도는 호출부) 기존
+    `_pr_open_or_merged_for_branch()` 개별 `gh pr list` 로 되돌아간다."""
     now = time.time() if now is None else now
     pid = entry.get("pid", 0)
     work = entry.get("work")
@@ -2547,7 +2609,12 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         verdict = session_end_verdict(
             work, Path(entry["log"]) if entry.get("log") else None, now=now) \
             if work else None
-        pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
+        if branch is None:
+            pr_number = None
+        elif pr_index is not None:
+            pr_number = _pr_state_from_index(pr_index, branch)
+        else:
+            pr_number = _pr_open_or_merged_for_branch(root, branch)
         if verdict == "normal" or pr_number is not None:
             return {"state": None, "next_action": "none",
                     "detail": "completion, not a health diagnosis"}
@@ -2830,38 +2897,74 @@ def _board_wide_sweep(root: Path) -> int:
 
     이슈 #1219: `root` 는 스캔 대상(보드) — 컨슈머 세션이면 타깃 프로젝트다.
     gates 코드 자체는 언제나 이 체크아웃(ROOT)에서 임포트한다 — 타깃
-    프로젝트엔 gates/ 가 없다."""
+    프로젝트엔 gates/ 가 없다.
+
+    이슈 #1498: gh 를 부르는 세 신호(spawn-on-pr, closure-sweep,
+    spawn-coverage)는 셋 다 요구 1(쿼터 바닥) · 요구 3(스윕 백오프) ·
+    요구 5(틱당 호출 예산)의 게이팅을 받는다 — 로컬 전용 신호
+    (`accumulation_trend`, `requirement_drift`)는 게이팅 없이 항상 돈다."""
     sys.path.insert(0, str(ROOT / "gates"))
     import closure_sweep
     import spawn_coverage
     import spawn_on_pr
     count = 0
-    issue_states, _ = closure_sweep.issue_state_index_all(root)
+    call_budget = 8
+
+    def _run_local_only_signals() -> None:
+        # 이슈 #512 요구사항 4 / #930 요구#6: advisory only — 아무것도
+        # 막지 않고 anomaly count 에도 합산하지 않는다. gh 를 쓰지 않으므로
+        # 쿼터 바닥/백오프와 무관하게 항상 돈다.
+        trend = closure_sweep.accumulation_trend(root)
+        print(f"[watchdog] {closure_sweep.format_accumulation_trend(trend)}")
+        requirement_drift(root)
+
+    backoff_state = closure_sweep.load_backoff_state(root)
+    if not closure_sweep.sweep_should_run(backoff_state, "board-sweep"):
+        closure_sweep.save_backoff_state(root, backoff_state)
+        print("[watchdog] board-sweep: 건너뜀 (백오프 간격, gh 호출 없음)")
+        _run_local_only_signals()
+        return count
+
+    remaining, guard_ok = closure_sweep.rate_limit_remaining(root)
+    calls_made = 1
+    if guard_ok and remaining < closure_sweep._RATE_LIMIT_GUARD_THRESHOLD:
+        closure_sweep.record_sweep_result(backoff_state, "board-sweep", True)
+        closure_sweep.save_backoff_state(root, backoff_state)
+        count += 1
+        print(f"[watchdog] board-sweep: 미집계 (rate-limit, remaining={remaining})")
+        _run_local_only_signals()
+        return count
+
+    issue_states, issue_states_ok = closure_sweep.issue_state_index_all(root)
+    calls_made += 1
     try:
         spawned = spawn_on_pr.spawn_missing_for_pr(root, str(root), issue_states=issue_states)
         if spawned:
             print(f"[watchdog] spawn-on-pr: {len(spawned)}건 스폰: {spawned}")
+        parked = spawn_on_pr.parked_report(root)
+        if parked:
+            # issue #1476: park 된 항목도 watch-coverage 는 유지한다 — 스폰만
+            # 건너뛰고 waiting-for-human 으로 계속 보인다.
+            print(f"[watchdog] spawn-on-pr: waiting-for-human {len(parked)}건: {parked}")
     except Exception as ex:
         count += 1
         print(f"[watchdog] spawn-on-pr 실패: {ex}", file=sys.stderr)
     violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
+    calls_made += 1
     if violations:
         count += len(violations)
         print(f"[watchdog] closure-sweep: 위반 {len(violations)}건")
         print(closure_sweep.format_report(violations))
+    rate_limited_this_tick = bool(skips) and not issue_states_ok
     if skips:
         count += 1
         print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
-    # 이슈 #512 요구사항 4: advisory only — 아무것도 막지 않고, anomaly
-    # count 에도 합산하지 않는다 (blocking gate 가 아니다, board 에 보고만).
-    trend = closure_sweep.accumulation_trend(root)
-    print(f"[watchdog] {closure_sweep.format_accumulation_trend(trend)}")
-    # 이슈 #930 요구#6: requirement_drift() 도 accumulation_trend() 와 같은
-    # advisory 계약 — 출력만 하고 anomaly_count 에는 절대 합산하지 않는다.
-    requirement_drift(root)
+    _run_local_only_signals()
     open_issues = spawn_coverage._list_open_issues(root)
+    calls_made += 1
     if open_issues is None:
         count += 1
+        rate_limited_this_tick = True
         print("[watchdog] spawn-coverage: 이슈 목록을 읽을 수 없다 (gh 실패) — 판정 불가")
     else:
         uncovered = spawn_coverage.find_uncovered(
@@ -2869,6 +2972,12 @@ def _board_wide_sweep(root: Path) -> int:
         if uncovered:
             count += len(uncovered)
             print(f"[watchdog] spawn-coverage: 커버되지 않은 이슈 {uncovered}")
+
+    closure_sweep.record_sweep_result(backoff_state, "board-sweep", rate_limited_this_tick)
+    closure_sweep.save_backoff_state(root, backoff_state)
+    if calls_made > call_budget:
+        count += 1
+        print(f"[watchdog] board-sweep: 예산 초과 ({calls_made}건 > {call_budget})")
     return count
 
 
@@ -5567,6 +5676,103 @@ def roster_clean(wb: Path, issue: int | None) -> int:
     return 0
 
 
+# 이슈 #1465: poll-heartbeat.sh 의 alive 마커는 세션 시작 시 한 번만
+# touch 된다(60초 tick 루프가 시작하기 전, monitors/poll-heartbeat.sh:100-108
+# 부근) — 그 스크립트 자신의 tick cadence 상수가 `POLL_HEARTBEAT_SLEEP_SECONDS`
+# 기본값 60초다. GC 임계값은 그 cadence 보다 안전하게 커야 한다(그렇지
+# 않으면 아직 살아있는 세션의 마커까지 지울 수 있다) — 7일로 잡아 세션이
+# 하루 이상 이어져도 안전하게 남긴다.
+MONITOR_ALIVE_TOUCH_CADENCE_SECONDS = 120
+MONITOR_ALIVE_STALE_THRESHOLD_SECONDS = 7 * 24 * 3600
+assert MONITOR_ALIVE_STALE_THRESHOLD_SECONDS > MONITOR_ALIVE_TOUCH_CADENCE_SECONDS
+
+LEGACY_MONITOR_ALIVE_DIRNAME = ".orchestrate-monitor-alive"
+
+
+def _monitor_alive_root() -> Path:
+    """`~/.claude/tokenmaxxxer/monitor-alive` — poll-heartbeat.sh 가 alive
+    마커를 쓰는 곳과 같은 해시 규약(이슈 #947/#1280 relocation).
+    `MUSTER_TOKENMAXXXER_HOME` 오버라이드는 `~/.tokenmaxxxer`용이라 여기엔
+    안 쓴다 — 대신 이 GC 전용 오버라이드로 테스트를 격리한다."""
+    override = os.environ.get("MUSTER_MONITOR_ALIVE_ROOT")
+    if override:
+        return Path(override)
+    return Path.home() / ".claude" / "tokenmaxxxer" / "monitor-alive"
+
+
+def gc_monitor_alive(root: Path | None = None,
+                      now: float | None = None,
+                      threshold_seconds: float = MONITOR_ALIVE_STALE_THRESHOLD_SECONDS
+                      ) -> dict[str, int]:
+    """`~/.claude/tokenmaxxxer/monitor-alive/<hash24>/` 아래 stale 마커
+    디렉터리를 지운다. `alive` 파일의 mtime(없으면 디렉터리 자체의 mtime)이
+    `threshold_seconds` 보다 오래됐으면 지운다. 한 항목에서 나는 오류는
+    전체 GC 를 죽이지 않는다(watch-coverage 는 observe-only 라 정리 실패로
+    죽으면 안 된다, 이슈 #1465 요구사항 4) — per-entry try/except 로 흡수하고
+    `errors` 카운트만 올린다."""
+    if root is None:
+        root = _monitor_alive_root()
+    if now is None:
+        now = time.time()
+    removed = kept = errors = 0
+    try:
+        entries = sorted(root.glob("*")) if root.is_dir() else []
+    except OSError:
+        return {"removed": 0, "kept": 0, "errors": 1}
+    for entry in entries:
+        try:
+            if not entry.is_dir():
+                continue
+            alive_marker = entry / "alive"
+            try:
+                mtime = alive_marker.stat().st_mtime
+            except OSError:
+                mtime = entry.stat().st_mtime
+            age = now - mtime
+            if age > threshold_seconds:
+                import shutil
+                shutil.rmtree(entry)
+                removed += 1
+            else:
+                kept += 1
+        except OSError:
+            errors += 1
+    return {"removed": removed, "kept": kept, "errors": errors}
+
+
+def detect_legacy_monitor_alive_dirs(repo_root: Path) -> list[Path]:
+    """`.orchestrate-monitor-alive/` 레거시 디렉터리(relocation 이전,
+    이슈 #947/#1280)를 리포트만 한다 — 절대 지우지 않는다(이슈 #1465
+    요구사항 3)."""
+    try:
+        candidate = repo_root / LEGACY_MONITOR_ALIVE_DIRNAME
+        if candidate.is_dir():
+            return [candidate]
+    except OSError:
+        pass
+    return []
+
+
+def monitor_alive_gc_cli(cwd: Path) -> int:
+    """`spawn.py gc-monitor-alive` — heartbeat 시작 시 poll-heartbeat.sh 가
+    호출한다(non-fatal, `|| true`로 감싸 호출됨). GC 자체는 위 함수들에서
+    이미 예외를 흡수하지만, 이 진입점도 한 번 더 감싸 정말로 절대 죽지
+    않게 한다."""
+    try:
+        stats = gc_monitor_alive()
+        print(f"monitor-alive gc: removed {stats['removed']}, "
+              f"kept {stats['kept']}, errors {stats['errors']}")
+    except Exception as ex:
+        print(f"monitor-alive gc: 실패 (예외, non-fatal) [{ex}]")
+    try:
+        for legacy in detect_legacy_monitor_alive_dirs(cwd):
+            print(f"[legacy-monitor-alive] {legacy} — 레거시 디렉터리, "
+                  f"수동 확인 필요 (자동 삭제 안 함)")
+    except Exception as ex:
+        print(f"monitor-alive gc: 레거시 탐지 실패 (예외, non-fatal) [{ex}]")
+    return 0
+
+
 def _dir_size_bytes(w: Path) -> int:
     """워크스페이스 디렉터리 전체 크기(바이트) — `du` 대신 순수 파이썬으로,
     심볼릭 링크는 따라가지 않는다(순환 방지, 대부분 워크스페이스엔 없다)."""
@@ -5782,6 +5988,8 @@ def main() -> int:
         return rc
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
+    if a.role == "gc-monitor-alive":
+        return monitor_alive_gc_cli(Path(a.cwd).resolve())
     if a.role == "reconcile":
         return roster_reconcile(a.issue, unreported=a.unreported,
                                  remediation_merged=a.remediation_merged,
