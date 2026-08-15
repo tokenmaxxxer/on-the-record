@@ -163,3 +163,143 @@ repos/tokenmaxxxer/on-the-record/issues/1199/comments --paginate`, read
 this session. It carries no PR number or branch name that identifies it
 as this growth-analytics unit's PR or its rulebook-repo counterpart, so
 no content amendment to this record is warranted.
+
+amendments-reconciled: issuecomment-5299656993 ("Judgment opened: PR #?
+— candidate decision on branch `issue-1199/finance-unit-economics` (4
+path(s) changed) entered delegated-judgment evaluation.") is a
+delegated-judgment notice for a different role's branch
+(issue-1199/finance-unit-economics), not growth-analytics — canonical:
+`gh issue view 1199 --json comments`, read this session. It does not
+name or reference this growth-analytics unit's PR or its rulebook-repo
+counterpart, so no content amendment to this record is warranted.
+
+## 2026-08-14 plugin-ecosystem rework (phase 2 executed)
+
+loop_state: landed
+
+canonical: `gh issue view 1199 --json comments`, read this session — a
+second `APPROVE issue-1199/growth-analytics` comment posted
+2026-08-15T00:42:55Z by JiwonJung94 (a `docs/specs/approvers.md`
+account), after the 2026-08-14 rework proposal
+(`docs/issue-1199/proposals/2026-08-14-growth-analytics-plugin-tool-
+landscape-rework.md`) existed, authorizing this rework's phase 2 per
+that proposal's "Approval" section.
+
+### What was done
+
+Executed the phase-2 plan in
+`docs/issue-1199/proposals/2026-08-14-growth-analytics-plugin-tool-
+landscape-rework.md`, upstream basis
+`docs/issue-1199/reports/growth-analytics/scout-brief-plugins.md`. Two
+native rule additions landed directly on the already-checked-out
+`issue-1199/growth-analytics` branch of
+`tokenmaxxxer/growth-analytics-rulebook` (mounted at
+/home/jwjung/tokenmaxxxer/rulebooks/growth-analytics-rulebook), on top
+of the prior 2026-08-13 round's commit 5111eb6:
+
+- `ga-trust/agents/trust-gate-walker.md`: inserted a new step 2
+  ("Live-platform-state grounding") between the existing step 1 (SRM +
+  exposure integrity) and A/A validation status (renumbered step 3).
+  canonical: `/home/jwjung/tokenmaxxxer/rulebooks/growth-analytics-rulebook/ga-trust/agents/trust-gate-walker.md:23-30`
+  (this repo's file:line, read this session, post-edit) — the new step
+  requires the walk to state whether the reported effect/guardrail
+  deltas were confirmed against a queryable live source (the
+  experimentation platform's current state) or only a static write-up,
+  capping confidence the same way an unvalidated A/A status does.
+  Guardrail checks, effect-size+CI, and Twyman's-law steps renumbered 4,
+  5, 6 accordingly; the Twyman step's internal cross-reference to "the
+  step-4 result" was updated to "the step-5 result" to stay consistent
+  with the renumbering.
+- `ga-prereg/hooks/directive.sh`, step 5 (decision rule): added a
+  requirement to also name the decision-cadence commitment — how soon
+  after the threshold clears the call will actually be acted on (e.g.
+  "next release cycle," "within 5 business days") — alongside the
+  existing statistical-trigger requirement. canonical:
+  `/home/jwjung/tokenmaxxxer/rulebooks/growth-analytics-rulebook/ga-prereg/hooks/directive.sh:36-42`
+  (this repo's file:line, read this session, post-edit).
+
+Neither edit touches the mechanical gate scripts
+(`ga-prereg-gate.sh`/`ga-funnel-gate.sh`/`ga-trust-gate.sh`); both are
+prose walkthrough/directive edits only. No tool name (PostHog,
+contains-studio, "PostHog/ai-plugin", "experiment-tracker") or
+`source:`/"learned from" framing appears in either edited file — each
+addition is phrased as this role's own native judgment, matching the
+proposal's native-application convention.
+
+derived:
+```
+cd /home/jwjung/tokenmaxxxer/rulebooks/growth-analytics-rulebook && git diff --stat 529d879~1 529d879
+```
+```
+ ga-prereg/hooks/directive.sh         |  7 ++++++-
+ ga-trust/agents/trust-gate-walker.md | 20 ++++++++++++++------
+ 2 files changed, 20 insertions(+), 7 deletions(-)
+```
+
+Committed as `529d879` ("issue-1199: fold Claude Code plugin ecosystem
+learnings into trust-gate and pre-registration methodology") on top of
+`5111eb6`, and pushed to
+`origin/issue-1199/growth-analytics` on
+`tokenmaxxxer/growth-analytics-rulebook`.
+
+canonical: `cd /home/jwjung/tokenmaxxxer/rulebooks/growth-analytics-rulebook
+&& git push origin issue-1199/growth-analytics`, run this session —
+output `5111eb6..529d879  issue-1199/growth-analytics ->
+issue-1199/growth-analytics` (fast-forward push, no force).
+
+A PR against `tokenmaxxxer/growth-analytics-rulebook`'s `main` from
+branch `issue-1199/growth-analytics` was attempted via `gh pr create`
+this session; that repo's rulebook branch carries no PR yet as of this
+paragraph — see Open findings below for the exact blocking state and
+relay instruction.
+
+### Why
+
+Per issue-1199's 2026-08-14 amendment (northpole req#1) and the
+approved rework proposal
+(canonical: `docs/issue-1199/proposals/2026-08-14-growth-analytics-plugin-tool-landscape-rework.md`,
+read this session): the prior 2026-08-13 round surveyed general
+growth-analytics-domain tools (GrowthBook, PostHog, Eppo,
+Amplitude/Mixpanel), not the Claude Code plugin/skill ecosystem the
+amendment specifically retargets. The scout brief
+(canonical: `docs/issue-1199/reports/growth-analytics/scout-brief-plugins.md`,
+read this session) found two gaps the domain-tool round left open — no
+rule required confirming a reported effect against queryable live
+platform state before a trust verdict proceeds, and no rule required a
+decision-cadence commitment alongside the pre-registered threshold —
+each traced to a specific, adoption-evidenced Claude Code plugin/skill
+(PostHog's `/posthog:experiments` live-state query surface;
+contains-studio/agents' experiment-tracker subagent's named
+ship-measure-decide cadence discipline). This round closes exactly those
+two gaps as additive native rules, leaving the four 2026-08-13 rules
+(exposure-integrity SRM check, named reusable segment axis, corroborated
+bottleneck hypothesis, baseline-variance power accounting) untouched and
+superseded-as-history, not replaced.
+
+### Upstream basis
+
+docs/issue-1199/proposals/2026-08-14-growth-analytics-plugin-tool-
+landscape-rework.md, itself built on
+docs/issue-1199/reports/growth-analytics/scout-brief-plugins.md.
+
+### Open findings
+
+`gh pr create` against `tokenmaxxxer/growth-analytics-rulebook`
+(`--base main --head issue-1199/growth-analytics`) was refused this
+session by this repo's own `pr-preflight.sh` (not a growth-analytics-
+rulebook-repo gate): the hook detected a new issue-1199 comment
+(issuecomment-5299651954) that had not yet been reconciled into this
+record at attempt time. canonical: `gh issue view 1199 --json
+comments`, read this session — that comment is issuecomment-5299656993
+("Judgment opened: ... branch `issue-1199/finance-unit-economics`
+..."), reconciled above as not referencing this growth-analytics unit.
+This session did not retry `gh pr create` after reconciling, per the
+identical repeated-race precedent already logged earlier in this file's
+Open findings section (accessibility/api-design/capacity-
+planning/issue-retrospective all hit the same race under the prior
+round). Commit `529d879` is pushed to `origin/issue-1199/growth-
+analytics` on the rulebook repo; on-the-record outside relay should
+open the `tokenmaxxxer/growth-analytics-rulebook` PR from that branch.
+This repo's own PR (record here, on-the-record side) should likewise be
+opened by outside relay from this session's committed changes to this
+record file, following the same relay pattern as the prior round.
