@@ -250,6 +250,21 @@ this file's Open findings section below; none names a resolved PR
 number or cites ux-engineering content beyond the branch name. No
 reconciliation action needed beyond this citation.
 
+amendments-reconciled: issuecomment-5299617931 (posted 2026-08-15T00:51:09Z
+by JiwonJung94) — same templated "Judgment opened: PR #? — candidate
+decision on branch `issue-1199/ux-engineering` (4 path(s) changed)
+entered delegated-judgment evaluation." watchdog shape as the entries
+above; names no resolved PR number, no reconciliation action needed
+beyond this citation. This is the same recurring PR-gate race logged
+in docs/issue-1199/reports/ux-engineering/deviation-log.md
+(2026-08-15T00:51Z entry) — issue #1199 is high-traffic enough that
+new watchdog comments land faster than a single `gh pr create` retry
+can reconcile them; both this repo's PR and the
+tokenmaxxxer/ux-engineering-rulebook PR (branch
+issue-1199/plugin-tool-landscape, commit dd569f8, sharing the same
+mounted pr-preflight.sh hook) hit the same race. Commits for both
+repos are pushed to origin regardless of PR-open status.
+
 ## Open findings
 
 - gh pr create is blocked by an apparent gap in pr-preflight.sh's
