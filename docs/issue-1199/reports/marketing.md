@@ -142,6 +142,17 @@ identical comment template on other branches). No content amendment to
 this record is warranted; the escalation is a process signal for a
 human/orchestrator to act on, not a defect in this delivery.
 
+amendments-reconciled: issuecomment-5300041368 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)"), posted
+2026-08-15T02:20:32Z — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/1199/comments
+--paginate -q '.[-1:]'`, run this session. Same generic-verdict
+watcher-spam shape as the two entries reconciled immediately above (one
+new copy per `gh pr create` retry in the rulebook repo, matching the
+documented comment-spam-loop pattern from docs/issue-1174/reports/
+marketing.md's own post-approval pr-preflight note). No further `gh pr
+create` retries in the rulebook repo this session; the branch and
+commit there remain pushed and ready, per "What did not work" below.
+
 Committed in the rulebook repo: `tokenmaxxxer/marketing-rulebook` commit
 204721a ("Fold Claude Code plugin-ecosystem learnings into marketing
 methodology", subject: issue-1199), branch `issue-1199/marketing`,
