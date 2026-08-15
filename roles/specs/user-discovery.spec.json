@@ -90,6 +90,36 @@
   },
   "write_scope": [],
   "report_only": true,
+  "quality_bar": [
+    {
+      "criterion": "opportunity_backed_by_minimum_one_snapshot_ref",
+      "verification_method": "automated check that every `opportunity_tag` entry cites at least one `snapshot_refs` entry, matching the spec's own `reference_resolution` rule",
+      "evidence_grade": "validated",
+      "verified_source": "Torres, Continuous Discovery Habits (Product Talk LLC, 2021); producttalk.org/opportunity-solution-trees (primary source; Torres's own opportunity-solution-tree method requires each opportunity to trace to observed interview evidence, not an unbacked assertion)."
+    },
+    {
+      "criterion": "quote_is_observation_not_opinion_or_hypothetical",
+      "verification_method": "human-review-checklist: does `quote` capture an observed past behavior or concrete fact, rather than a compliment, a hypothetical (\"I would...\"), or vague fluff — The Mom Test's own three failure modes?",
+      "evidence_grade": "validated",
+      "verified_source": "Fitzpatrick, The Mom Test (2013); momtestbook.com (primary source; compliments/fluff/hypotheticals are the book's own named failure modes for a bad interview finding, matching the spec's cited `judgment_methodology`)."
+    },
+    {
+      "criterion": "saturation_run_length_meets_a_stated_consecutive_null_threshold",
+      "verification_method": "automated check that `saturation_run_length` names a run of consecutive interviews (>=2, per the extension's stated minimum) that added zero new opportunity tags, before `verdict` is set to `pain-confirmed` or `not-confirmed`",
+      "evidence_grade": "practitioner-consensus (contested framing)",
+      "verified_source": "Guest, Bunce & Johnson, 'How Many Interviews Are Enough?', Field Methods (2006); Hennink, Kaiser & Weber, 'How Many Interviews Are Enough?', Qualitative Health Research (2020) — cited as an extension beyond Torres's own confirmed/not-confirmed vocabulary, per the spec's own `source_standard` note; both studies report code saturation typically reached within a run of the same few consecutive interviews adding no new codes, the run-length basis this criterion operationalizes."
+    },
+    {
+      "criterion": "opportunity_tag_maps_to_a_jobs_to_be_done_not_a_feature_request",
+      "verification_method": "human-review-checklist: does the stated need map to a job-to-be-done (the underlying progress the person is trying to make), rather than a feature request restated as a finding — the spec's own `review_methodology`?",
+      "evidence_grade": "validated",
+      "verified_source": "Christensen and Moesta, JTBD theory; christenseninstitute.org (primary source; the theory's own core claim is that customers hire products for a job, and a feature request is a solution disguised as a need, the exact conflation this checklist item guards against)."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+    }
+  ],
   "loop_state": {
     "progress": [
       "interviewing"
@@ -99,7 +129,8 @@
       "not-confirmed"
     ],
     "refusal": [
-      "no-interview-access"
+      "no-interview-access",
+      "bar-not-met"
     ],
     "error": [
       "snapshot-unreadable"

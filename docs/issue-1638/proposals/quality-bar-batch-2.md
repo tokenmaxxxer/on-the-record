@@ -106,5 +106,5 @@ existing batch-1 comment pattern).
   `test_every_quality_bar_role_has_nonempty_quality_bar_array` and
   `test_every_quality_bar_role_has_bar_not_met_refusal_state`, and
   `test_no_other_spec_carries_a_quality_bar_yet` still passes for all
-  35 non-batch roles (43 total minus the now-21 `QUALITY_BAR_ROLES`).
+  22 non-batch roles (43 total minus the now-21 `QUALITY_BAR_ROLES`).
 - `git diff --stat` confirms only the 9 listed files changed.
