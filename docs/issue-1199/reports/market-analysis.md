@@ -321,3 +321,15 @@ the top of this file.
 
 None.
 
+amendments-reconciled: issuecomment-5299825502 ("Verdict: PR #? →
+escalate (depth or impact axis did not clear)", canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5299825502`, read
+this session) is a delegated-judgment verdict for a different,
+unnumbered candidate PR — the comment body names no PR number and no
+reference to this market-analysis unit or its rulebook-repo
+counterpart branch — no content amendment warranted. Per the
+issue-1174 precedent (docs/issue-1174/reports/implementation.md,
+commit 8bf080a) for this same identical-unnumbered-verdict retry
+pattern, further such comments landing after this point are not
+re-chased.
+
