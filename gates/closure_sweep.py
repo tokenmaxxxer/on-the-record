@@ -92,8 +92,8 @@ def _conditional_issue_list(root: Path, slug: str, cache_path: Path
     except (OSError, ValueError, UnicodeDecodeError):
         etag, cached_raw = None, None
 
-    cmd = ["gh", "api", f"repos/{slug}/issues", "-f", "state=all",
-           "-f", "per_page=100", "-i"]
+    cmd = ["gh", "api", f"repos/{slug}/issues", "--method", "GET",
+           "-f", "state=all", "-f", "per_page=100", "-i"]
     if etag:
         cmd = cmd + ["-H", f"If-None-Match: {etag}"]
     r = subprocess.run(cmd, cwd=root, capture_output=True, text=True)
