@@ -324,3 +324,19 @@ prior content is kept above as the historical record of what this role
 actually did in that round — it is not extended or re-executed under
 the new survey target; the section above is the redo that satisfies the
 amended Acceptance criterion 1.
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299805253`, read this session
+issuecomment-5299805253 ("Verdict: PR #? → escalate (depth or impact
+axis did not clear)", posted 2026-08-15T01:25:59Z, after this session's
+`gh pr create` attempt for the rulebook-repo PR) is the same templated
+delegated-judgment verdict for an unnumbered candidate PR, again naming
+no branch or role specific to this issue-retrospective unit — the same
+reconcile-then-retry deadlock this record's Rulebook PR section already
+names (the external watcher reposts faster than one
+reconcile-commit-retry cycle can close). No amendment to this record's
+scope or content is warranted. Per that section's own precedent, this
+session stops retrying `gh pr create` against this deadlock; both
+repos' commits above are already committed and pushed (`efb97cb9` here,
+`c548898` in the rulebook repo) — commit+push is the deliverable this
+session lands for the 2026-08-14 rework, and PR-open for either repo
+can relay externally if the deadlock persists.
