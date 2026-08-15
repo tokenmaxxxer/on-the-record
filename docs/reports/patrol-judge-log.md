@@ -1,0 +1,2 @@
+- 2026-08-15T11:20:12.494355+00:00 | role=test-authoring | verb=judge | merge=655542ec | outcome='ok: prefilter 미스 — judge 미호출'
+- 2026-08-15T11:21:26.249727+00:00 | role=secure-coding | verb=judge | merge=f54451d7 | outcome='ok: 1건 중 validator 통과 0건'

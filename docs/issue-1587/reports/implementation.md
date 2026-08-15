@@ -159,3 +159,22 @@ divergence, documented above under "## What did not work" rather than
 treated as a scope-exceeded stop or an alternative swap — it is the one
 proposal item requiring a live, costed session rather than a build/test
 action.
+
+## Live measured runs (orchestrator, post-session, acceptance item 10)
+
+canonical: two `spawn.py judge` runs executed 2026-08-15T11:20-11:21Z in this
+workspace, trace lines in docs/reports/patrol-judge-log.md (this branch):
+
+1. `judge test-authoring --merge 655542ec` — prefilter MISS, judge not
+   invoked. Wall-clock 27.2s (dominated by rulebook fetch), $0-class cost:
+   one Haiku prefilter call only. Demonstrates the skip path live.
+2. `judge secure-coding --merge f54451d7` — full pipeline: prefilter hit ->
+   judge session -> 1 raw finding -> validator refuted -> 0 enqueued.
+   Wall-clock 101.6s, within the <=120s per-judge envelope. Demonstrates
+   prefilter-hit, judge, validator-drop, and trace-always live; queue
+   correctly untouched on validator refusal.
+
+Both outcomes traced (success paths); R2/R5 envelope held. Note: prefilter
+judged test-authoring irrelevant to a merge that added test files — borderline
+call worth watching in the go/no-go sample, recorded here rather than tuned
+ad hoc.
