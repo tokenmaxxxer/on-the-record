@@ -24,7 +24,7 @@ updating "Resolved ambiguities" if the edit touches a resolved point.
 | `docs/handbooks/on-the-record.md` | `9e314a347f6265950b2eedc791891e329255ee4adf9f6b5ffab5554f2e6e20f1` |
 | `docs/handbooks/operations.md` | `18a65866836764534c590c42af826ca160f253ae2696867bdaf8871d3e893845` |
 | `docs/handbooks/setup.md` | `bd14626a298df6e5d516a49d38f59ceb14e652396462a188bb42fd4ecf565e3c` |
-| `on-the-record/commands/run.md` | `4ef2f433276d2c78002f40f7da6f1e51dba8ca6f103d15217a0c032be7685a56` |
+| `on-the-record/commands/run.md` | `7e9fdcd272156540d61e01e6359cc9bb98e57371672abdeeb42cac4eea489bc8` |
 | `roles/specs/brand-design.spec.json` | `734165295e03715cd1c528efc36ef4f41be53e845ac8e8b628a299d3a44930d2` |
 | `roles/specs/content-design.spec.json` | `99fb355a9c6d40bb9dfd42c9c222e7d68688da7c05a3c27dd7200ca40f575e04` |
 | `roles/specs/market-analysis.spec.json` | `13ee9b2a855beacb0b25316d969a2c8b3dc14c4c373fb9dbebe0880878ccba77` |
