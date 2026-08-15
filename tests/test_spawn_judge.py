@@ -174,6 +174,58 @@ class JudgeCapTest(unittest.TestCase):
             self.fail("_judge_roles_run_today() must not raise on a corrupted log")
         self.assertEqual(count, 0)
 
+    def test_three_prefilter_misses_then_fourth_role_still_runs(self):
+        """이슈 #1605 (a): prefilter-미스 3건이 트레이스에 남아도 캡을
+        소진하지 않아야 한다 — 4번째 역할은 여전히 judge 가 실행된다(캡
+        미달로 판정)."""
+        path = self.root / "patrol-judge-log.md"
+        path.write_text(
+            "- t | role=r1 | verb=judge | merge=abc123"
+            " | outcome='ok: prefilter 미스 — judge 미호출'\n"
+            "- t | role=r2 | verb=judge | merge=abc123"
+            " | outcome='ok: prefilter 미스 — judge 미호출'\n"
+            "- t | role=r3 | verb=judge | merge=abc123"
+            " | outcome='ok: prefilter 미스 — judge 미호출'\n",
+            encoding="utf-8",
+        )
+        already = spawn._judge_roles_run_today(path, "abc123")
+        self.assertEqual(already, 0)
+        self.assertLess(already, spawn.JUDGE_MAX_ROLES_PER_MERGE)
+
+    def test_cap_exceeded_lines_do_not_increment_count(self):
+        """이슈 #1605 (b): 캡-초과 거절 줄은 트레이스에 남지만(trace-always),
+        카운트에는 절대 반영되지 않는다 — 그렇지 않으면 거절이 거절을
+        낳는 눈덩이 효과가 생긴다."""
+        path = self.root / "patrol-judge-log.md"
+        path.write_text(
+            "- t | role=r1 | verb=judge | merge=abc123"
+            " | outcome='ok: 3건 중 1건 검증, 1건 verify 통과 후 큐 반영'\n"
+            "- t | role=r2 | verb=judge | merge=abc123"
+            " | outcome='error: 캡 초과 (merge=abc123 에 이미 1개 역할 실행, 상한 3)'\n"
+            "- t | role=r3 | verb=judge | merge=abc123"
+            " | outcome='error: 캡 초과 (merge=abc123 에 이미 1개 역할 실행, 상한 3)'\n",
+            encoding="utf-8",
+        )
+        self.assertEqual(spawn._judge_roles_run_today(path, "abc123"), 1)
+
+    def test_three_genuine_runs_then_fourth_role_rejected(self):
+        """이슈 #1605 (c): 실제로 judge 세션이 돈 줄이 3개면(ok-findings,
+        ok-zero-findings, 실행 오류 각 1건) 캡에 도달하고, 4번째 역할은
+        거절돼야 한다."""
+        path = self.root / "patrol-judge-log.md"
+        path.write_text(
+            "- t | role=r1 | verb=judge | merge=abc123"
+            " | outcome='ok: findings 없음'\n"
+            "- t | role=r2 | verb=judge | merge=abc123"
+            " | outcome='ok: 2건 중 1건 검증, 1건 verify 통과 후 큐 반영'\n"
+            "- t | role=r3 | verb=judge | merge=abc123"
+            " | outcome='error: 시간초과(600s)'\n",
+            encoding="utf-8",
+        )
+        already = spawn._judge_roles_run_today(path, "abc123")
+        self.assertEqual(already, 3)
+        self.assertGreaterEqual(already, spawn.JUDGE_MAX_ROLES_PER_MERGE)
+
 
 class JudgeTraceAlwaysTest(unittest.TestCase):
     """제안서 §Constraints: trace-always — 성공/실패 가리지 않고 한 줄."""
