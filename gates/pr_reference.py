@@ -13,12 +13,12 @@ PR 번호를 몰래 스레딩해야 하고, 로컬 diff 전용이라는 두 진�
 """
 from __future__ import annotations
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 import acceptance_gate
 import flows
+import gh_rest
 
 # phase-1 제안 PR은 `#<n>`만 있으면 된다 — 머지돼도 이슈를 닫으면 안 된다
 # (Closes 는 자동 종료를 유발한다). phase-2 인도 PR만 Closes/Fixes/Resolves 를 요구한다.
@@ -63,41 +63,21 @@ def check_body(issue: int, body: str, phase: str,
     return []
 
 
-def _pr_view(repo: Path, pr: int) -> tuple[int | None, str] | None:
-    r = subprocess.run(["gh", "pr", "view", str(pr), "--json", "body,title"],
-                       cwd=repo, capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    import json
-    data = json.loads(r.stdout)
-    return data.get("body", "")
-
-
-def _issue_view_body(repo: Path, issue: int) -> str | None:
-    r = subprocess.run(["gh", "issue", "view", str(issue), "--json", "body"],
-                       cwd=repo, capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    import json
-    data = json.loads(r.stdout)
-    return data.get("body", "")
-
-
 def check(repo: Path, pr: int, issue: int, phase: str) -> list[str]:
-    """`gh pr view`로 PR 본문을 읽어 `check_body`에 위임한다.
+    """REST(`gh api repos/.../pulls/<pr>`)로 PR 본문을 읽어 `check_body`에 위임한다.
 
     phase-2 에서는 이슈 본문도 읽어 `flows._plan_from_body`로 계획을
     파싱해 넘긴다(issue-228) — 이슈 본문을 못 읽으면 계획 상태를 알 수
     없으므로 fail-closed 차단.
     """
-    body = _pr_view(repo, pr)
+    body = gh_rest.fetch_pr_body(repo, pr)
     if body is None:
-        return [f"PR #{pr} 본문을 읽을 수 없다(`gh pr view` 실패) — 검사 불가는 통과가 아니다."]
+        return [f"PR #{pr} 본문을 읽을 수 없다(`gh api repos/.../pulls/{pr}` 실패) — 검사 불가는 통과가 아니다."]
     plan = None
     if phase == "phase2":
-        issue_body = _issue_view_body(repo, issue)
+        issue_body = gh_rest.fetch_issue_body(repo, issue)
         if issue_body is None:
-            return [f"이슈 #{issue} 본문을 읽을 수 없다(`gh issue view` 실패) — "
+            return [f"이슈 #{issue} 본문을 읽을 수 없다(`gh api repos/.../issues/{issue}` 실패) — "
                     f"검사 불가는 통과가 아니다."]
         plan = flows._plan_from_body(issue_body)
         bad = check_body(issue, body, phase, plan)
