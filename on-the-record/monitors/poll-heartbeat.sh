@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # issue #835 phase 2: plugin Monitor heartbeat. Auto-started by Claude Code
 # for a user-scope plugin install (monitors.json, when: "always") — no
-# `/loop`, no manual setup. Loops `sleep 60` and, on a due tick, calls the
+# `/loop`, no manual setup. Loops `sleep 120` (env-overridable via
+# POLL_HEARTBEAT_SLEEP_SECONDS) and, on a due tick, calls the
 # SAME `python3 spawn.py poll-due` atomic TTL-check-and-stamp that
 # poll_rearm_arm_if_due() (on-the-record/hooks/poll-rearm.sh) uses —
 # this is a THIRD caller of the same poll_due() TTL gate
@@ -34,10 +35,10 @@
 #
 # Test hooks: POLL_HEARTBEAT_MAX_TICKS=<n> bounds the loop to n iterations
 # so the test suite can exercise it without a backgrounded process running
-# forever; POLL_HEARTBEAT_SLEEP_SECONDS=<n> overrides the 60s cadence so
-# the bounded run also completes quickly. Both unset in production — the
-# loop then runs a real 60s cadence for the session's lifetime as
-# designed.
+# forever; POLL_HEARTBEAT_SLEEP_SECONDS=<n> overrides the 120s default
+# cadence so the bounded run also completes quickly. Both unset in
+# production — the loop then runs the real 120s cadence for the
+# session's lifetime as designed.
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
