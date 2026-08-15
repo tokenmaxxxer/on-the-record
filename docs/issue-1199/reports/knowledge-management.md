@@ -615,3 +615,19 @@ https://github.com/tokenmaxxxer/knowledge-management-rulebook/pull/29).
 on-the-record's outside relay is expected to open this repo's own
 delivery PR from these pushed commits.
 loop_state: landed.
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299616061
+(this turn) — body reads "Verdict: PR #? → escalate (depth or impact
+axis did not clear)".
+
+amendments-reconciled: issuecomment-5299616061 — fourth instance of the
+same boilerplate verdict text from the identical stream, arriving
+against the immediately-preceding retry attempt itself. No action
+against this record's content.
+
+canonical: git log --oneline -1 (this turn, this repo) — HEAD is
+a6d1fe13 on branch issue-1199/knowledge-management, already pushed to
+origin; the rulebook PR opened earlier this turn remains at
+https://github.com/tokenmaxxxer/knowledge-management-rulebook/pull/29.
+Stopping `gh pr create` retries for this turn.
+loop_state: landed.
