@@ -400,8 +400,17 @@ def checked_claim_reason_check(text: str) -> list[str]:
 # multiplication/sum shown with an `=` (e.g. "9 keywords x
 # (lower/capitalize/upper) = 27 cases") — is self-evidencing: the reader
 # can see how the number was derived without a separate
-# `derived:`/fence citation.
-_INLINE_COMPUTED_LEADIN = re.compile(r"\d+(?:\.\d+)?%|=")
+# `derived:`/fence citation. PR #1622 review: the signal must live on
+# the count's own line — a `%` there, or digits directly adjacent to an
+# `=` (not any unrelated `=` like "set FOO=bar" or "key=value").
+_INLINE_COMPUTED_LEADIN = re.compile(
+    r"\d+(?:\.\d+)?%|\d\s*=|=\s*\d")
+
+# PR #1622 review finding 1: a fence exemption must be scoped to a fence
+# that CLOSES within a few lines above the count, not "anywhere earlier
+# in the file" (that blanket form suppressed every count below the
+# first fence in the whole record).
+_FENCE_PROXIMITY_LINES = 5
 
 
 def bare_count_claim_check(text: str) -> list[str]:
@@ -416,11 +425,15 @@ def bare_count_claim_check(text: str) -> list[str]:
     lines = text.splitlines()
     structural = _structural_skip_mask(lines)
     fence_flags = [False] * len(lines)
+    fence_close_lines = []
     fence = False
     for i, line in enumerate(lines):
         if line.strip().startswith("```"):
+            was_open = fence
             fence = not fence
             fence_flags[i] = True
+            if was_open and not fence:
+                fence_close_lines.append(i)
             continue
         fence_flags[i] = fence
     for i, line in enumerate(lines):
@@ -438,15 +451,16 @@ def bare_count_claim_check(text: str) -> list[str]:
                 evidence_window = "\n".join(lines[lo:i + 1])
                 if _CANONICAL_TAG.search(evidence_window):
                     continue
-                if _INLINE_COMPUTED_LEADIN.search(evidence_window):
+                if _INLINE_COMPUTED_LEADIN.search(line):
                     continue
                 # "backed by a fenced raw-output block above" (issue
-                # #1620 class 4) — a fenced block anywhere earlier in
-                # the same record's prose (not just the immediate
-                # window) is deliberate evidentiary output, not
-                # incidental code quoted right next to an unrelated
-                # count.
-                if any(fence_flags[:i]):
+                # #1620 class 4), scoped per PR #1622 review: the fence
+                # must CLOSE within a few lines above the count, not
+                # merely appear anywhere earlier in the record.
+                if any(
+                    0 <= i - j <= _FENCE_PROXIMITY_LINES
+                    for j in fence_close_lines if j < i
+                ):
                     continue
                 bad.append(
                     "레코드에 근거 없는 개수 주장 (issue #333): "
