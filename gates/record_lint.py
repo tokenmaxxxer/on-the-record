@@ -111,13 +111,101 @@ _OUTCOME_CLAIM_MARKER = re.compile(
     r"(?i)(?<![-\w])(requirement(?:s)?\s+met|done|PASS(?:es|ed)?|"
     r"complete[ds]?)(?![-\w])")
 
-# issue #1599 misfire class (f): a counterfactual/conditional sentence
-# ("had this round found...", "if it had been merged") states a
-# hypothetical, not an actual outcome/state — skip a line whose claim
-# marker sits inside a `had ... <marker>` or `if ... had` construction.
+# issue #1599 misfire class (f) / issue #1614 misfire class 6: a
+# counterfactual/conditional/negated sentence ("had this round found...",
+# "if it had been merged", "cannot detect", "would still pass") states a
+# hypothetical or negation, not an actual outcome/state claim.
 _COUNTERFACTUAL_LEADIN = re.compile(
     r"(?i)\bhad\b[^.?!]{0,60}\b(found|confirmed?|merged|closed|halted|"
     r"done|pass(?:es|ed)?|complete[ds]?)\b|\bif\b[^.?!]{0,60}\bhad\b")
+
+# issue #1614 misfire class 6: negated/hypothetical markers not already
+# covered by _COUNTERFACTUAL_LEADIN's "had"/"if...had" shape — "cannot",
+# "would still", "would not", "never", "might not" etc. preceding a
+# claim marker on the same line negate or hedge it into a non-claim.
+_NEGATED_HYPOTHETICAL = re.compile(
+    r"(?i)\b(cannot|can't|could\s+not|couldn't|would\s+(?:still|not|"
+    r"never)|wouldn't|won't|will\s+not|might\s+not|may\s+not|never)\b")
+
+
+def _is_hypothetical_or_negated(line: str) -> bool:
+    return bool(_COUNTERFACTUAL_LEADIN.search(line)
+                or _NEGATED_HYPOTHETICAL.search(line))
+
+
+# issue #1614 misfire class 4: historical narration / already-fixed
+# interim defects / prior-round results — a claim embedded in a sentence
+# that is explicitly narrating the past, not asserting the record's own
+# current outcome/state/defect.
+_HISTORICAL_LEADIN = re.compile(
+    r"(?i)\b(previously|historically|prior\s+round|earlier\s+round|"
+    r"used\s+to\s+be|no\s+longer|was\s+once|in\s+an\s+earlier\s+pass|"
+    r"in\s+a\s+prior\s+(?:pass|round|session)|at\s+the\s+time|"
+    r"back\s+then|before\s+the\s+fix|pre-fix|already[- ]fixed|"
+    r"since\s+fixed|has\s+since\s+been\s+fixed)\b")
+
+
+def _is_historical_narration(line: str) -> bool:
+    return bool(_HISTORICAL_LEADIN.search(line))
+
+
+# issue #1614 misfire class 2: quoted/headed section titles ("What will
+# be done" / "What was done") mentioned in prose (e.g. "as documented
+# under the '## What was done' section") are literal section-name
+# references, not completion claims — even outside a markdown heading
+# line or blockquote (those are already masked by
+# `_structural_skip_mask`).
+_SECTION_TITLE_MENTION = re.compile(
+    r"(?i)#*\s*what\s+(?:will\s+be|was)\s+done\b")
+
+# issue #1614 misfire class 1: "pass"/"passed"/"passes" used as a noun
+# ("scout pass") or in the argument-passing sense ("passed a dict",
+# "pass the result to") is not an outcome claim.
+_PASS_NOUN_COMPOUND_LEADIN = re.compile(
+    r"(?i)\b(scout|sweep|review|judge|deepening|search|lint|verify)\s*$")
+_PASS_ARGUMENT_OBJECT = re.compile(
+    r"(?i)\bpass(?:es|ed)?\s+(?:a|an|the|it|this|that|data|dict|object|"
+    r"value|values|args?|arguments?|params?|parameters?|control|"
+    r"results?|ownership|along)\b")
+
+# issue #1614 misfire class 1: "done" used as a participle attached to a
+# following noun ("done work", "the already-done setup") or introduced by
+# a temporal lead-in ("once done", "when done", "after done") is not a
+# standalone completion claim.
+_DONE_ATTRIBUTIVE_LEADIN = re.compile(
+    r"(?i)\b(once|when|after|before)\s+(?:it(?:'s|\s+is)\s+)?done\b")
+# A small, deliberately closed noun list (same bypassable-by-synonym
+# tradeoff the other marker vocabularies in this module accept) — wide
+# enough to catch "done work"/"done deal" without treating an ordinary
+# continuation ("done and ready to ship") as attributive.
+_DONE_FOLLOWED_BY_NOUN = re.compile(
+    r"(?i)^\s+(work|deal|setup|task|job|list|stage|thing|item|step)\b")
+
+
+def _outcome_marker_word_sense_exempt(line: str, m: re.Match) -> bool:
+    """Per-occurrence word-sense filter for an `_OUTCOME_CLAIM_MARKER`
+    match — distinct from the line-level hedges above because a single
+    line can carry both an exempt occurrence and a genuine claim."""
+    word = m.group(0).lower()
+    start, end = m.span()
+    if _SECTION_TITLE_MENTION.search(line[max(0, start - 20):end]):
+        return True
+    if word.startswith("pass"):
+        # Compound-noun sense ("scout pass") — a noun modifier immediately
+        # before this occurrence.
+        if _PASS_NOUN_COMPOUND_LEADIN.search(line[max(0, start - 20):start]):
+            return True
+        if _PASS_ARGUMENT_OBJECT.match(line[start:]):
+            return True
+        return False
+    if word == "done":
+        lead = line[max(0, start - 20):start]
+        if _DONE_ATTRIBUTIVE_LEADIN.search(lead + line[start:end]):
+            return True
+        if _DONE_FOLLOWED_BY_NOUN.match(line[end:end + 12]):
+            return True
+        return False
+    return False
 _EXECUTED_LIVE_CANONICAL = re.compile(
     r"(?i)^(?:gh\s|git\s|pytest\b|python3?\s|npm\s|npx\s|bash\s|sh\s|\./|"
     r"acceptance:\s*\S.*\bresult:\s*(?:PASS|FAIL|UNMEASURED)\b|"
@@ -202,11 +290,16 @@ def outcome_claim_citation_check(text: str) -> list[str]:
     for i, line in enumerate(lines):
         if in_fence[i] or structural[i]:
             continue
-        if not _OUTCOME_CLAIM_MARKER.search(line):
+        matches = [m for m in _OUTCOME_CLAIM_MARKER.finditer(line)
+                   if not _outcome_marker_word_sense_exempt(line, m)]
+        if not matches:
             continue
-        if _COUNTERFACTUAL_LEADIN.search(line):
+        if _is_hypothetical_or_negated(line) or _is_historical_narration(line):
             continue
-        window = "\n".join(lines[max(0, i - 3):i + 1])
+        # issue #1614 misfire class 3: evidence adjacency was above-only —
+        # a citation on the SAME line (already covered by ending at `i`)
+        # or up to 3 lines BELOW the claim now also counts.
+        window = "\n".join(lines[max(0, i - 3):min(len(lines), i + 4)])
         m = _CANONICAL_TAG.search(window)
         cited = m.group(1).strip().strip("`") if m and m.group(1).strip() else ""
         has_executed_live = bool(cited) and bool(
@@ -371,14 +464,15 @@ def canonical_source_claim_check(text: str) -> list[str]:
     for i, line in enumerate(lines):
         if in_fence[i] or structural[i]:
             continue
-        if _COUNTERFACTUAL_LEADIN.search(line):
+        if _is_hypothetical_or_negated(line) or _is_historical_narration(line):
             continue
         marker_claim = bool(_STATE_CLAIM_MARKER.search(line))
         count_claim = not marker_claim and bool(
             _COUNT_RATIO.search(line) or _COUNT_NOUN.search(line))
         if not (marker_claim or count_claim):
             continue
-        window = "\n".join(lines[max(0, i - 3):i + 1])
+        # issue #1614 misfire class 3: symmetric evidence-adjacency window.
+        window = "\n".join(lines[max(0, i - 3):min(len(lines), i + 4)])
         m = _CANONICAL_TAG.search(window)
         has_canonical = bool(m and m.group(1).strip())
         # A count claim already satisfying #333's `derived:` requirement
@@ -457,7 +551,7 @@ def defect_claim_grounding_check(root: Path, text: str) -> list[str]:
             continue
         if not _DEFECT_CLAIM_MARKER.search(line):
             continue
-        if _COUNTERFACTUAL_LEADIN.search(line):
+        if _is_hypothetical_or_negated(line) or _is_historical_narration(line):
             continue
 
         lo = max(0, i - 8)
@@ -506,6 +600,25 @@ def defect_claim_grounding_check(root: Path, text: str) -> list[str]:
 # Aggregation
 # ---------------------------------------------------------------------------
 
+# issue #1614 misfire class 5: a record documenting one of these rules
+# itself (e.g. this very issue's own reports under docs/issue-1614/)
+# necessarily quotes the rule's marker vocabulary ("found", "PASS",
+# "canonical:") to explain the rule — that quotation is not the record
+# author making a live claim. Exempt each rule's own check for records
+# filed under the issue(s) that define/discuss it.
+_RULE_SELF_QUOTE_EXEMPT_ISSUES = {
+    "canonical_source_claim_check": {"793", "1614"},
+    "outcome_claim_citation_check": {"870", "1614"},
+    "defect_claim_grounding_check": {"791", "1614"},
+}
+_RECORD_ISSUE_RE = re.compile(r"^docs/issue-(\d+)/")
+
+
+def _record_issue_number(rel: str) -> str | None:
+    m = _RECORD_ISSUE_RE.match(rel)
+    return m.group(1) if m else None
+
+
 def lint_record(path: Path) -> list[str]:
     """Run every record rule against one record file's full text and
     return the complete violation list — no first-failure abort.
@@ -550,14 +663,23 @@ def lint_record(path: Path) -> list[str]:
     # one — keep only violations that name this file.
     bad += [b for b in diff_scoped if rel in b]
 
+    issue_no = _record_issue_number(rel)
+
+    def _exempt(check_name: str) -> bool:
+        return issue_no is not None and \
+            issue_no in _RULE_SELF_QUOTE_EXEMPT_ISSUES.get(check_name, set())
+
     bad += unverifiable_reason_check(text)
     bad += checked_claim_reason_check(text)
     bad += bare_count_claim_check(text)
     bad += orphaned_path_reference_check(root, text)
     bad += git_tracked_path_reference_check(root, text, record_rel=rel)
-    bad += canonical_source_claim_check(text)
-    bad += outcome_claim_citation_check(text)
-    bad += defect_claim_grounding_check(root, text)
+    if not _exempt("canonical_source_claim_check"):
+        bad += canonical_source_claim_check(text)
+    if not _exempt("outcome_claim_citation_check"):
+        bad += outcome_claim_citation_check(text)
+    if not _exempt("defect_claim_grounding_check"):
+        bad += defect_claim_grounding_check(root, text)
     return bad
 
 
