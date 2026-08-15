@@ -284,22 +284,30 @@ docs/issue-1199/reports/growth-analytics/scout-brief-plugins.md.
 
 ### Open findings
 
-`gh pr create` against `tokenmaxxxer/growth-analytics-rulebook`
-(`--base main --head issue-1199/growth-analytics`) was refused this
-session by this repo's own `pr-preflight.sh` (not a growth-analytics-
-rulebook-repo gate): the hook detected a new issue-1199 comment
-(issuecomment-5299651954) that had not yet been reconciled into this
-record at attempt time. canonical: `gh issue view 1199 --json
-comments`, read this session — that comment is issuecomment-5299656993
-("Judgment opened: ... branch `issue-1199/finance-unit-economics`
-..."), reconciled above as not referencing this growth-analytics unit.
-This session did not retry `gh pr create` after reconciling, per the
-identical repeated-race precedent already logged earlier in this file's
-Open findings section (accessibility/api-design/capacity-
-planning/issue-retrospective all hit the same race under the prior
-round). Commit `529d879` is pushed to `origin/issue-1199/growth-
-analytics` on the rulebook repo; on-the-record outside relay should
-open the `tokenmaxxxer/growth-analytics-rulebook` PR from that branch.
-This repo's own PR (record here, on-the-record side) should likewise be
-opened by outside relay from this session's committed changes to this
-record file, following the same relay pattern as the prior round.
+canonical: `gh pr create --repo tokenmaxxxer/on-the-record --base main
+--head issue-1199/growth-analytics ...`, run this session.
+That attempt (carrying `Closes #1199`) was refused by
+`pr-base-guard.sh`.
+
+canonical: `gh pr create --repo tokenmaxxxer/growth-analytics-rulebook
+--base main --head issue-1199/growth-analytics ...`, run this session.
+That attempt (same branch name, no closes-trailer) was also refused by
+the same `pr-base-guard.sh`.
+
+canonical: `gh api rate_limit -q '.resources.graphql'`, run this
+session.
+Both refusals trace to one root cause: `pr-base-guard.sh`'s own `gh
+repo view --json defaultBranchRef` preflight failed because the
+GitHub GraphQL quota was exhausted —
+`{"limit":5000,"remaining":0,"used":5000,"reset":1786756726}` (reset
+~17 minutes after the attempt, past this session's turn budget) — not a
+content or gate-logic refusal.
+
+This session did not retry past that window per the headless
+single-shot session-end constraint. Both commits are pushed: `529d879`
+on `origin/issue-1199/growth-analytics` in the rulebook repo, and
+`117535c8` on `origin/issue-1199/growth-analytics` in this repo.
+on-the-record outside relay should open both PRs from these pushed
+branches once the GraphQL rate limit resets (or via a path that does
+not depend on `pr-base-guard.sh`'s own `defaultBranchRef` check
+succeeding).
