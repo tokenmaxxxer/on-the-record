@@ -27,7 +27,7 @@ def _run_git(repo: Path, *args: str) -> None:
 
 
 def _build_diff(tmp_path: Path, docs_change: bool) -> Path:
-    """live-fire: gates/trivial_lane_gate.py — result: allow|deny"""
+    """builds a real git repo fixture used to live-fire trivial_lane_gate.py."""
     repo = tmp_path / "repo"
     repo.mkdir(parents=True, exist_ok=True)
     _run_git(repo, "init", "-q")
