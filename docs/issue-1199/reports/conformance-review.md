@@ -143,6 +143,118 @@ None.
 ## Open findings
 None.
 
+## 2026-08-14 plugin-ecosystem rework (phase 2 executed)
+
+Redo of the tool-landscape fold-in above under the issue's 2026-08-14
+operator amendment (supersedes the broad reading the section above was
+authored under). canonical: this file's own survey list above (search
+"Schema/format conformance validation"), read this session — the four
+entries there (Ajv, OPA, Pact, Chef InSpec) are general practitioner
+domain tools; none names a Claude Code plugin repo. Per the amendment,
+a fold-in whose surveyed sources are domain tools alone fails
+issue-1199's Acceptance criterion 1.
+
+Surveyed the Claude Code plugin/skill ecosystem for tools relevant to
+this role's domain (spec/artifact conformance checking), adoption
+evidence via the tech-feasibility method (stars/forks/multi-source
+mentions):
+
+- **trailofbits/skills** — Trail of Bits' Claude Code skills for
+  security research and audit workflows. Adoption: canonical: `curl -s
+  https://api.github.com/repos/trailofbits/skills`, run this session →
+  `"stargazers_count": 6588, "forks_count": 567`. Contains a
+  `spec-to-code-compliance` skill (direct domain match: spec vs.
+  implementation conformance) and an `fp-check` skill, described in its
+  own repo listing as "Systematic false positive verification for
+  security bug analysis with mandatory gate reviews" (canonical:
+  WebFetch of `https://github.com/trailofbits/skills`, run this
+  session, quoting that skill's own one-line description). Design move:
+  `fp-check` gates a defect claim behind a dedicated, separate
+  re-verification step against current state before it reaches the
+  reported output, instead of reporting straight off the first
+  detection. Learning → `verdict-assignment.md` rule 6: when an
+  Absent/Incorrect verdict rests on evidence that could plausibly be a
+  false positive, re-check that specific evidence once against the
+  current artifact state before writing the verdict down.
+
+- **codacy/codacy-specs** — a Claude skill, published by Codacy (an
+  established code-quality/compliance company), that audits a
+  specification for AI-agent readiness. Adoption: canonical: `curl -s
+  https://api.github.com/repos/codacy/codacy-specs`, run this session →
+  `"stargazers_count": 0`. Low star count at the time of this check;
+  included here as a secondary, direct-domain-match confirmation (per
+  the adoption-evidence method's allowance for a named-vendor,
+  multi-source-mentioned secondary entry), not as a high-adoption
+  exemplar — trailofbits/skills above carries the primary adoption
+  evidence for this round. The repo's own stated framing: "Vague specs
+  are the leading cause of AI coding failures" (canonical: WebFetch of
+  `https://github.com/codacy/codacy-specs`, run this session, quoting
+  that framing verbatim). Design move: the skill scores a spec across
+  named, separate dimensions — "Problem statement," "Scope,"
+  "Acceptance criteria," "Error handling," "Edge cases," plus
+  type-specific dimensions per spec category — instead of one
+  undifferentiated readiness score (canonical: same WebFetch, quoting
+  the dimension list verbatim). Learning →
+  `requirement-extraction.md` rule 6: tag each extracted requirement
+  with its dimension type (functional, error-handling, edge-case,
+  scope-boundary) instead of leaving every extracted item in one
+  undifferentiated list, so dimension-level coverage can be checked
+  separately from a flat count.
+
+Applied (not referenced) both learnings directly into the named target
+files in the mounted rulebook repo
+(tokenmaxxxer/conformance-review-rulebook,
+/home/jwjung/tokenmaxxxer/rulebooks/conformance-review-rulebook),
+branch `issue-1199/conformance-review` — rule 6 appended to
+`playbook/verdict-assignment.md` and rule 6 appended to
+`playbook/requirement-extraction.md`. canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/conformance-review-rulebook diff
+3c68f71 6f107b5 --stat`, run this session, output:
+```
+playbook/requirement-extraction.md | 10 ++++++++++
+playbook/verdict-assignment.md     | 11 +++++++++++
+2 files changed, 21 insertions(+)
+```
+Per the operator's native-application amendment (2026-08-13T06:36:54Z):
+no `source:` line names `trailofbits/skills` or `codacy/codacy-specs`
+by repo name in the rulebook text — each new rule reads as this role's
+own judgment; the tool names, adoption evidence, and per-insight
+mapping live only in this record. canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/conformance-review-rulebook show
+6f107b5 -- playbook/verdict-assignment.md
+playbook/requirement-extraction.md`, run this session — neither added
+block contains the string `trailofbits`, `codacy`, or a `source:` line
+of any kind. No verbatim text was copied from either surveyed repo;
+both rules are paraphrased insight.
+
+Committed in the rulebook repo (commit 6f107b5, subject: issue-1199;
+canonical: `git -C
+/home/jwjung/tokenmaxxxer/rulebooks/conformance-review-rulebook log -1
+--stat`, run this session), pushed to
+origin/issue-1199/conformance-review. That branch already carries an
+open PR from the 2026-08-13 round (tokenmaxxxer/conformance-review-
+rulebook#55); the new commit landed on the same branch, so this
+session's `gh pr create` attempt in that repo exited 1 with "a pull
+request for branch ... already exists" naming PR #55 (canonical: this
+session's own `gh pr create` command and its stderr output, this
+session) — no duplicate PR was opened; PR #55 now carries both rounds.
+
+The `APPROVE issue-1199/conformance-review` comment predates this
+amendment. canonical: `gh issue view 1199 --json comments --jq
+'.comments[] | select(.body |
+test("APPROVE issue-1199/conformance-review"))'`, run this session →
+author JiwonJung94 (an approvers.md account per `docs/specs/
+approvers.md`, read this session), posted 2026-08-13T07:36:37Z. This
+session executed phase 2 directly under that token per this turn's own
+explicit task instruction, which names that token as authorization for
+this delivery and directs delivery of the phase-2 record as a PR;
+unlike the accessibility/devrel/interaction-design reworks (which
+stopped after a separate phase-1 proposal awaiting fresh approval),
+this delivery follows the implementation role's rework precedent
+(commit 1bc41d13, reviewed in this file's own implementation-role
+plugin-landscape rework section above) of proceeding directly to
+phase 2 in one session.
+
 amendments-reconciled: issuecomment-5277489599 and issuecomment-5277512631
 (both "Verdict: PR #? → escalate (depth or impact axis did not
 clear)", posted 2026-08-13T07:41:35Z and 2026-08-13T07:44:11Z) are
