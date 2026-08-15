@@ -3075,6 +3075,133 @@ def watchdog_canonical_guard(module_path: Path = Path(__file__)) -> tuple[bool, 
                     f"{resolved} — SPAWN_WATCHDOG_ALLOW_NONCANONICAL=1 로 재정의")
 
 
+STANDING_RED_STATE = ROOT / "runs" / "standing_red_state.json"
+# 이슈 #1491: #1490 fast-tier 예산(<=300s)에 맞춰 고른, 유한 주기(분).
+# 값 자체는 phase-1 프로포절이 phase-2로 미룬 튜닝 대상이다.
+STANDING_RED_CADENCE_MIN = 15
+_PYTEST_FAILED_RE = re.compile(r"^FAILED (\S+)")
+
+
+def _standing_red_state_load(path: Path = STANDING_RED_STATE) -> dict:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def _standing_red_state_save(d: dict, path: Path = STANDING_RED_STATE) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+
+
+def _standing_red_tree_hash(root: Path = ROOT) -> str | None:
+    r = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                        capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip()
+
+
+def _standing_red_load_contract(root: Path):
+    """이슈 #1518 계약 파서를 재사용한다 — 이 체크 자신은 tier 선택/예산
+    로직을 다시 만들지 않는다(#1491 프로포절 Constraints)."""
+    gates_dir = str(ROOT / "gates")
+    if gates_dir not in sys.path:
+        sys.path.insert(0, gates_dir)
+    import test_tier_contract
+    return test_tier_contract.load_contract(root)
+
+
+def _standing_red_parse_failed_ids(output: str) -> set[str]:
+    """pytest 요약의 `FAILED <test_id> ...` 줄에서 테스트 id 만 뽑는다.
+    매칭 없는 출력(다른 러너, 크래시 등)은 빈 set — 새 실패로 오인해
+    소음을 만들지 않는 fail-closed 파싱이다."""
+    ids: set[str] = set()
+    for line in output.splitlines():
+        m = _PYTEST_FAILED_RE.match(line.strip())
+        if m:
+            ids.add(m.group(1))
+    return ids
+
+
+def standing_red_check(state: dict | None = None, now: float | None = None,
+                        root: Path = ROOT) -> list[str]:
+    """이슈 #1491: main 위 fast tier(이슈 #1518 계약)를 유한 주기로 돌려,
+    새로 red 가 된 테스트를 관찰만 하는(observe-only) 신호 목록으로
+    돌려준다. 절대 스위트를 고치거나, 이슈를 파거나, 세션을 스폰하지
+    않는다 — 기존 watchdog 철학(watchdog_check_one) 그대로.
+
+    req 3(플레이크): 같은 tree_hash 에서 두 번 연속 실패해야 신호가
+    나간다 — 단, 이 상태 파일 자체가 처음(=이전에 `standing_red` 키가
+    없던) 이면 그 첫 스캔에서 현재 red 전부를 baseline 으로 즉시
+    한 번 보고한다(이슈 acceptance 의 empty-state 요구).
+    req 4(중복 억제): 이미 보고된 red 는 같은 tree_hash 에서 재보고하지
+    않는다 — tree_hash 가 바뀌면 그 테스트의 카운터가 리셋되며 재무장된다.
+
+    `state` 를 넘기면 그 dict 를 제자리에서 갱신하고 저장하지 않는다
+    (테스트용). 생략하면 `runs/standing_red_state.json` 을 읽고 쓴다.
+    """
+    now = time.time() if now is None else now
+    own_state = state if state is not None else _standing_red_state_load()
+
+    last_run = own_state.get("last_run")
+    if last_run is not None and (now - last_run) / 60 < STANDING_RED_CADENCE_MIN:
+        return []
+    own_state["last_run"] = now
+
+    contract = _standing_red_load_contract(root)
+    if contract is None:
+        # 이슈 #1518 no_contract_gap 경로 — 계약 없이 조용히 전체 스위트를
+        # 돌리지 않는다. 이번 틱은 신호 없이 넘어간다.
+        if state is None:
+            _standing_red_state_save(own_state)
+        return []
+
+    is_empty_state = "standing_red" not in own_state
+    standing_red = own_state.setdefault("standing_red", {})
+
+    try:
+        import shlex
+        cmd = shlex.split(contract.fast_command)
+        result = subprocess.run(cmd, cwd=str(root), capture_output=True,
+                                 text=True, timeout=contract.budget_seconds)
+        output = (result.stdout or "") + "\n" + (result.stderr or "")
+    except (OSError, subprocess.TimeoutExpired):
+        # advisory — 러너 자체가 못 뜨거나 예산을 넘겨도 틱을 막지 않는다.
+        if state is None:
+            _standing_red_state_save(own_state)
+        return []
+
+    failing_ids = _standing_red_parse_failed_ids(output)
+    tree_hash = _standing_red_tree_hash(root)
+
+    signals: list[str] = []
+    for test_id in sorted(failing_ids):
+        prev = standing_red.get(test_id)
+        same_tree = bool(prev) and prev.get("tree_hash") == tree_hash
+        consecutive = (prev.get("consecutive_count", 0) + 1) if same_tree else 1
+        reported_before = bool(same_tree and prev.get("reported"))
+        should_report = (not reported_before) and (is_empty_state or consecutive >= 2)
+        standing_red[test_id] = {
+            "tree_hash": tree_hash,
+            "consecutive_count": consecutive,
+            "reported": reported_before or should_report,
+        }
+        if should_report:
+            signals.append(
+                f"standing-red: {test_id} — 새 red, tree {(tree_hash or '?')[:8]}")
+
+    # 더 이상 실패하지 않는 테스트는 상태에서 지운다 — 재발 시 처음부터
+    # (empty-state 아님, 플레이크 규칙대로) 다시 카운트된다.
+    for test_id in list(standing_red):
+        if test_id not in failing_ids:
+            del standing_red[test_id]
+
+    if state is None:
+        _standing_red_state_save(own_state)
+    return signals
+
+
 def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                      root: Path = ROOT) -> int:
     """`spawn.py watchdog` — 살아있는 모든 역할 세션을 한 번 스캔해서 이상
@@ -3122,6 +3249,13 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # 루프가 쓰는 `d_all` 과 같은 한 번의 읽기를 그대로 재사용한다.
     d_all = _roster_load()
     anomaly_count = _board_wide_sweep_all(root, d_all)
+    # 이슈 #1491: standing-red 관찰은 살아있는 로스터와 무관하게 매 틱
+    # 시도한다(자체 유한-주기 게이트로 실제 스위트 실행은 걸러낸다) —
+    # 아래 `if not d` 조기 반환에 걸리지 않게 board-wide sweep 바로 뒤에
+    # 둔다.
+    for sr_signal in standing_red_check(root=root):
+        anomaly_count += 1
+        print(f"[standing-red] {sr_signal}")
     # 이슈 #1239: 워치독 틱마다 처분 안 된 issue-*/ PR 목록을 always-emit
     # 카테고리로 찍는다 — poll-heartbeat.sh 의 #1220 delta-suppression 이
     # `[returned-pr]` 태그 줄을 ALWAYS_RE 로 인식해 매 틱 살아남는다. 스폰
