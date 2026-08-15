@@ -3,7 +3,7 @@ code_under_review:
   - on-the-record/hooks/pr-base-guard.sh
   - on-the-record/hooks/hooks.json
   - tests/test_pr_base_guard.py
-  - on-the-record/hooks/test_pr_base_guard.py
+  - on-the-record/hooks/test_pr_base_guard_hook.py
   - docs/specs/generated-paths.md
   - docs/specs/enforcement-boundary.md
   - docs/specs/acceptance-commands.md
@@ -54,7 +54,7 @@ canonical: on-the-record/hooks/hooks.json (commit 201889d8, `git show 201889d8 -
 
 Two test files were added per this repo's live-fire-test-guard
 requirement: `tests/test_pr_base_guard.py` at the Acceptance-named path,
-and `on-the-record/hooks/test_pr_base_guard.py` (identical cases,
+and `on-the-record/hooks/test_pr_base_guard_hook.py` (identical cases,
 `HOOKS_DIR`-relative) since `live-fire-test-guard.sh` requires the
 co-located slug path for a newly-staged `on-the-record/hooks/*.sh` module.
 Both drive the real hook end-to-end via subprocess+stdin against a stub
