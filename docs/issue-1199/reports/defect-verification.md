@@ -208,6 +208,8 @@ code_under_review:
 - (not applicable — no code-under-review sha; this record documents a
   rulebook content fold-in, not a defect-verification attempt round)
 
+amendments-reconciled: issuecomment-5299582613 (2026-08-15T00:43:39Z, "Verdict: PR #? → escalate (depth or impact axis did not clear)") — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5299582613` this turn — automated delegated-judgment-verdict stream noise, not addressed to defect-verification or this branch; no action required. Retrying `gh pr create` on `tokenmaxxxer/defect-verification-rulebook` this turn.
+
 ## Plugin-ecosystem rework (2026-08-14 amendment)
 
 canonical: docs/issue-1199/reports/defect-verification/scout-brief-plugin-rework.md
