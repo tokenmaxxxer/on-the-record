@@ -61,20 +61,41 @@ _UNVERIFIABLE_LINE = re.compile(r"(?im)^\s*[-*]?\s*unverifiable\s*:\s*(.*)$")
 _CHECKED_CLAIM_LINE = re.compile(
     r"^\s*[-*]\s*.+—\s*checked:\s*(\S+)\s*—\s*"
     r"result:\s*(pass|fail|unverifiable)(?::\s*(.+))?\s*$")
-_COUNT_RATIO = re.compile(r"\d+\s*(?:of|/)\s*\d+")
+# issue #1599 misfire class (d): a hyphenated compound like "layer-2/3"
+# is not a ratio claim — a ratio's leading digit is never itself part of
+# a hyphenated word (`(?<!-)`).
+_COUNT_RATIO = re.compile(r"(?<!-)\d+\s*(?:of|/)\s*\d+")
 _COUNT_NOUN = re.compile(
     r"\d+\s+(?:detection\s+)?(?:items?|works?|checks?|cases?|tests?)\b")
 _CLAIM_DERIVED_TAG = re.compile(r"`derived:\s*\S.*?`")
 _PATH_REF = re.compile(
     r"`((?:src|test|tests|docs|gates|on-the-record)/[^`\s]+)`")
+# issue #1599 fix 1 — `_PATH_REF` captures a trailing `:line` or
+# `:start-end` suffix (e.g. `docs/specs/approvers.md:2`) as part of the
+# path; strip it before any filesystem/git existence check.
+_LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
+
+# issue #1599 fix 4 — a commit-pinned citation (`e7a13db:file/path:151`)
+# is itself evidence, independent of a literal `canonical:`/`derived:`
+# prefix — a 7-40 char hex commit sha followed by a `path:line` pointer.
+_COMMIT_PINNED_CITE = re.compile(
+    r"\b[0-9a-f]{7,40}:[\w./\-]+:\d+(?:-\d+)?\b")
+
+
+def _strip_line_suffix(ref: str) -> str:
+    return _LINE_SUFFIX.sub("", ref)
 
 # issue #793 — verify-before-claim: a state/defect-claim marker vocabulary,
 # deliberately narrow (known bypassable by synonym choice, same tradeoff
 # `_COUNT_RATIO`/`_COUNT_NOUN` already accept — widen from real record
 # corpus usage in a later pass, not a closed set assumed complete here).
+# issue #1599 misfire class (a)/(e): `(?<![-\w])`/`(?![-\w])` around the
+# alternation excludes a marker word that is actually part of a hyphenated
+# structural token (`phase-2-complete`, `--pass-through`) rather than a
+# standalone claim word.
 _STATE_CLAIM_MARKER = re.compile(
-    r"(?i)\b(halted|merged|closed|found|confirms?|confirmed|"
-    r"is\s+running|is\s+gone|is\s+stale)\b")
+    r"(?i)(?<![-\w])(halted|merged|closed|found|confirms?|confirmed|"
+    r"is\s+running|is\s+gone|is\s+stale)(?![-\w])")
 _CANONICAL_TAG = re.compile(r"`?canonical:\s*(\S.*?)`?\s*$", re.MULTILINE)
 
 # issue #870 — generalized fake-success detection, candidate (a): an
@@ -87,7 +108,16 @@ _CANONICAL_TAG = re.compile(r"`?canonical:\s*(\S.*?)`?\s*$", re.MULTILINE)
 # already accepts — widen from real record-corpus usage later, not a
 # closed set assumed complete here.
 _OUTCOME_CLAIM_MARKER = re.compile(
-    r"(?i)\b(requirement(?:s)?\s+met|done|PASS(?:es|ed)?|complete[ds]?)\b")
+    r"(?i)(?<![-\w])(requirement(?:s)?\s+met|done|PASS(?:es|ed)?|"
+    r"complete[ds]?)(?![-\w])")
+
+# issue #1599 misfire class (f): a counterfactual/conditional sentence
+# ("had this round found...", "if it had been merged") states a
+# hypothetical, not an actual outcome/state — skip a line whose claim
+# marker sits inside a `had ... <marker>` or `if ... had` construction.
+_COUNTERFACTUAL_LEADIN = re.compile(
+    r"(?i)\bhad\b[^.?!]{0,60}\b(found|confirmed?|merged|closed|halted|"
+    r"done|pass(?:es|ed)?|complete[ds]?)\b|\bif\b[^.?!]{0,60}\bhad\b")
 _EXECUTED_LIVE_CANONICAL = re.compile(
     r"(?i)^(?:gh\s|git\s|pytest\b|python3?\s|npm\s|npx\s|bash\s|sh\s|\./|"
     r"acceptance:\s*\S.*\bresult:\s*(?:PASS|FAIL|UNMEASURED)\b|"
@@ -124,6 +154,29 @@ _DEFECT_CLAIM_MARKER = re.compile(
 _CITE_FILE_LINE = re.compile(r"`?([\w./\-]+\.\w+):(\d+)(?:-(\d+))?`?")
 
 
+def _structural_skip_mask(lines: list[str]) -> list[bool]:
+    """issue #1599 misfire classes (a)/(b)/(c): a line inside YAML
+    frontmatter, a markdown heading, or a blockquote (`>`, quoting
+    another document's claim) is structure or quotation, not the
+    author's own prose claim — mask it out of every claim-marker check."""
+    mask = [False] * len(lines)
+    in_frontmatter = False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if i == 0 and stripped == "---":
+            in_frontmatter = True
+            mask[i] = True
+            continue
+        if in_frontmatter:
+            mask[i] = True
+            if stripped == "---":
+                in_frontmatter = False
+            continue
+        if line.lstrip().startswith("#") or line.lstrip().startswith(">"):
+            mask[i] = True
+    return mask
+
+
 def outcome_claim_citation_check(text: str) -> list[str]:
     """issue #870 mirror: an OUTCOME claim ("requirement(s) met", "done",
     "PASS(es/ed)", "complete(d)") needs a `canonical:` tag within 3 lines
@@ -145,15 +198,13 @@ def outcome_claim_citation_check(text: str) -> list[str]:
             in_fence[i] = True
             continue
         in_fence[i] = fence
+    structural = _structural_skip_mask(lines)
     for i, line in enumerate(lines):
-        if in_fence[i]:
-            continue
-        # A markdown heading ("## What was done") names a section, it
-        # does not itself assert an outcome — skip, same shape reasoning
-        # `bare_count_claim_check` uses to skip fenced code.
-        if line.lstrip().startswith("#"):
+        if in_fence[i] or structural[i]:
             continue
         if not _OUTCOME_CLAIM_MARKER.search(line):
+            continue
+        if _COUNTERFACTUAL_LEADIN.search(line):
             continue
         window = "\n".join(lines[max(0, i - 3):i + 1])
         m = _CANONICAL_TAG.search(window)
@@ -168,7 +219,11 @@ def outcome_claim_citation_check(text: str) -> list[str]:
         has_derived = bool(_CLAIM_DERIVED_TAG.search(window))
         has_observation_live = bool(cited) and bool(
             _OBSERVATION_LIVE_CANONICAL.search(cited))
-        if not has_executed_live and not has_derived and not has_observation_live:
+        # issue #1599 fix 4 — a commit-pinned citation is evidence in its
+        # own right, independent of a literal `canonical:`/`derived:` tag.
+        has_pinned = bool(_COMMIT_PINNED_CITE.search(window))
+        if not (has_executed_live or has_derived or has_observation_live
+                or has_pinned):
             bad.append(
                 "레코드에 실행-근거 없는 OUTCOME 주장 (issue #870): "
                 f"{line.strip()!r} — 'requirement met/done/PASS/complete' "
@@ -214,13 +269,15 @@ def bare_count_claim_check(text: str) -> list[str]:
     """#333 mirror: a bare "N of M"/"N items" count needs `derived:` or a
     code-fence reproduction — fences are excluded."""
     bad = []
+    lines = text.splitlines()
+    structural = _structural_skip_mask(lines)
     in_fence = False
-    for line in text.splitlines():
+    for i, line in enumerate(lines):
         stripped = line.strip()
         if stripped.startswith("```"):
             in_fence = not in_fence
             continue
-        if in_fence:
+        if in_fence or structural[i]:
             continue
         for pat in (_COUNT_RATIO, _COUNT_NOUN):
             for cm in pat.finditer(line):
@@ -240,7 +297,7 @@ def orphaned_path_reference_check(root: Path, text: str) -> list[str]:
     in the working tree."""
     bad = []
     for m in _PATH_REF.finditer(text):
-        ref = m.group(1)
+        ref = _strip_line_suffix(m.group(1))
         if any(ch in ref for ch in ("*", "?", "<", ">")):
             continue
         if not (root / ref).exists():
@@ -265,7 +322,7 @@ def git_tracked_path_reference_check(root: Path, text: str,
     bad = []
     seen: set[str] = set()
     for m in _PATH_REF.finditer(text):
-        ref = m.group(1)
+        ref = _strip_line_suffix(m.group(1))
         if ref in seen:
             continue
         if any(ch in ref for ch in ("*", "?", "<", ">")):
@@ -310,8 +367,11 @@ def canonical_source_claim_check(text: str) -> list[str]:
             in_fence[i] = True
             continue
         in_fence[i] = fence
+    structural = _structural_skip_mask(lines)
     for i, line in enumerate(lines):
-        if in_fence[i]:
+        if in_fence[i] or structural[i]:
+            continue
+        if _COUNTERFACTUAL_LEADIN.search(line):
             continue
         marker_claim = bool(_STATE_CLAIM_MARKER.search(line))
         count_claim = not marker_claim and bool(
@@ -325,7 +385,10 @@ def canonical_source_claim_check(text: str) -> list[str]:
         # names its source too — `canonical:` is a sibling tag, not a
         # second mandatory citation for the same already-cited count.
         has_derived = count_claim and bool(_CLAIM_DERIVED_TAG.search(window))
-        if not has_canonical and not has_derived:
+        # issue #1599 fix 4 — a commit-pinned citation is evidence in its
+        # own right, independent of a literal `canonical:` prefix.
+        has_pinned = bool(_COMMIT_PINNED_CITE.search(window))
+        if not (has_canonical or has_derived or has_pinned):
             bad.append(
                 "레코드에 canonical 소스 인용 없는 상태/결함 주장 (issue #793): "
                 f"{line.strip()!r} — role output / session·PR·board 상태 / "
@@ -388,12 +451,13 @@ def defect_claim_grounding_check(root: Path, text: str) -> list[str]:
             fence_id[i] = fid
             fence_lines[fid].append(line)
 
+    structural = _structural_skip_mask(lines)
     for i, line in enumerate(lines):
-        if in_fence[i]:
-            continue
-        if line.lstrip().startswith("#"):
+        if in_fence[i] or structural[i]:
             continue
         if not _DEFECT_CLAIM_MARKER.search(line):
+            continue
+        if _COUNTERFACTUAL_LEADIN.search(line):
             continue
 
         lo = max(0, i - 8)
@@ -497,9 +561,42 @@ def lint_record(path: Path) -> list[str]:
     return bad
 
 
-def find_records(root: Path) -> list[Path]:
+# issue #1599 fix 2 — pre-rule cutoff for whole-repo sweep mode. The
+# linter itself was born 2026-08-09 (this module's first commit,
+# 0dea23a5); a record last substantively authored before that date
+# predates every rule it's being graded against — grading it and asking
+# for retro-inserted canonical:/derived: tags would fabricate provenance
+# on a frozen historical record. One linter-wide cutoff, not a per-rule
+# birth date: the checks this module runs have each grown/changed since
+# 0dea23a5 and a per-rule date would need tracking per-check, for a
+# precision problem a single conservative cutoff already fixes.
+SWEEP_CUTOFF_DATE = "2026-08-09"
+
+
+def _last_authored_date(root: Path, rel: str) -> str | None:
+    """The most recent commit's author date (YYYY-MM-DD) touching `rel`
+    on any branch, or `None` when the path has no commit history (an
+    uncommitted/untracked file is never pre-cutoff — nothing to skip)."""
+    try:
+        out = subprocess.run(
+            ["git", "log", "-1", "--format=%cd", "--date=short",
+             "--", rel],
+            cwd=str(root), capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    date = out.stdout.strip()
+    return date or None
+
+
+def find_records(root: Path, sweep_cutoff: bool = True) -> list[Path]:
     """All `docs/issue-*/reports/*.md` record files tracked or present
-    under `root` — used by the whole-repo scan mode."""
+    under `root` — used by the whole-repo scan mode. `sweep_cutoff`
+    (default on, matching this function's only callers: `main()`'s
+    directory mode and `patrol_queue`'s sweep-lane scanner) skips a
+    record last authored before `SWEEP_CUTOFF_DATE` — the linter cannot
+    grade a record frozen before the rules it's graded against existed."""
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
         dirnames[:] = [d for d in dirnames if d != ".git"]
@@ -508,8 +605,13 @@ def find_records(root: Path) -> list[Path]:
                 continue
             full = Path(dirpath) / fn
             rel = full.relative_to(root).as_posix()
-            if RECORD_PATH.match(rel):
-                out.append(full)
+            if not RECORD_PATH.match(rel):
+                continue
+            if sweep_cutoff:
+                authored = _last_authored_date(root, rel)
+                if authored is not None and authored < SWEEP_CUTOFF_DATE:
+                    continue
+            out.append(full)
     return out
 
 
