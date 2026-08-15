@@ -1,79 +1,90 @@
 ---
 code_under_review:
-  - docs/issue-85/reports/coding.md
+  - docs/issue-466/reports/implementation/survey.md
+  - docs/issue-501/reports/implementation/survey.md
 type: fix
 breaking: false
-verdict: blocked
-loop_state: scope-undeclared
+verdict: pass
+loop_state: landed
 ---
 
 # Issue #1637 — Implementation Record
 
 ## What was done
 
-Attempted the single cross-issue Edit issue #1637 requires: fix the broken
-citation at `docs/issue-85/reports/coding.md:12` from the non-existent path
-```
-docs/issue-85/reports/current-state-survey.md
-```
-to
-`docs/issue-85/reports/coding/current-state-survey.md`, using the plain
-Edit tool directly (no heredoc/python -c/tee), from this issue's own branch
-(issue-1637/implementation), invoking the R4 maintenance-targets exception
-declared in the issue #1637 body (`maintenance-targets: docs/issue-85/`).
+Issue #1637 was re-scoped 2026-08-16 after the earlier denial recorded
+below (original target `docs/issue-85/reports/coding.md` is owned by the
+retired `coding` role — cross-ROLE write, denied by R5; see `## What did
+not work`). New scope: two genuine broken citations in records owned by
+the implementation role itself (cross-issue, same-role — R4
+maintenance-targets exception applies, R5 satisfied), fixed via plain
+`Edit` from this issue's own branch (issue-1637/implementation), no
+heredoc/python -c/tee:
 
-The Edit call was refused by the repo's `board-gate.sh` PreToolUse hook
-before any write occurred:
+1. `docs/issue-466/reports/implementation/survey.md:35` — changed the
+   literal string "docs/issue-374/proposals/2026-08-07-...md" (unresolvable,
+   literal ellipsis) to
+   `docs/issue-374/proposals/2026-08-07-decision-queue-stop-hook-nudge.md`.
+2. `docs/issue-501/reports/implementation/survey.md:79` — changed the
+   literal string "docs/issue-501/proposals/implementation.md" (does not
+   exist) to
+   `docs/issue-501/proposals/2026-08-08-session-latency-breakdown.md`.
 
-```
-board-gate: docs/issue-85/reports/coding.md belongs to another role. implementation writes only implementation.md, implementation/** — never a foreign record. (contract v3 s11)
-```
+Both `Edit` calls were allowed by the repo's `board-gate.sh` PreToolUse
+hook (same-role cross-issue write under the R4 maintenance-targets
+exception declared in issue #1637's body: `maintenance-targets:
+docs/issue-466/, docs/issue-501/`) — no denial, no bypass shape used.
 
-canonical: PreToolUse:Edit hook error returned verbatim by
-`${CLAUDE_PLUGIN_ROOT}/hooks/board-gate.sh` on the direct Edit attempt this
-session.
-
-No workaround was attempted, per issue #1637's explicit instruction to stop
-and report the denial verbatim rather than route around the gate.
+canonical: both `Edit` tool calls this session against
+`docs/issue-466/reports/implementation/survey.md` and
+`docs/issue-501/reports/implementation/survey.md`, each returning success
+with no PreToolUse hook error.
 
 ## Why
 
-Issue #1637 requires performing the fix "directly ... from your own
-issue-1637/implementation branch" and explicitly forbids any indirect-write
-workaround if the gate denies the plain Edit. The gate denied it citing
-contract v3 s11 (a role writes only its own record file), which the issue's
-R4 maintenance-targets exception language did not override at the
-mechanical-gate level.
+Issue #1637 (updated body) requires both fixes to land from this issue's
+own branch via plain `Edit`, gate-allowed under the R4 maintenance-targets
+exception (same-role, cross-issue), with the record citing the allowed
+writes — exactly what was performed.
 
 ## Upstream basis
 
-- Issue #1637 (this issue).
-- Target line: docs/issue-85/reports/coding.md:12, on branch
-  issue-1637/implementation at commit_sha 44b912f1 (`main` at session
-  start).
+- Issue #1637 (this issue), re-scoped 2026-08-16.
+- Target lines: `docs/issue-466/reports/implementation/survey.md:35` and
+  `docs/issue-501/reports/implementation/survey.md:79`, on branch
+  issue-1637/implementation at commit_sha 1076908a217b7e768bfa8afe8c5ddeef78e8f614
+  (branch tip at session start).
 
 ## What did not work
 
-- Direct `Edit` on `docs/issue-85/reports/coding.md` — expected: the R4
-  maintenance-targets allow would let this issue's session write outside
-  its own record; actual: `board-gate.sh` refused the write unconditionally
-  for any path outside `implementation.md`/`implementation/**`, citing
-  contract v3 s11, with no observed carve-out for maintenance-targets.
+- (From the prior session, original scope) Direct `Edit` on
+  `docs/issue-85/reports/coding.md` — expected: the R4 maintenance-targets
+  allow would let this issue's session write outside its own record;
+  actual: `board-gate.sh` refused the write unconditionally for any path
+  outside `implementation.md`/`implementation/**`, citing contract v3 s11
+  (R5 own-record-only), because that path is owned by a different ROLE
+  (`coding`), not a same-role cross-issue path — the exact R4∩R5 shadowing
+  tracked in #1633. That denial was recorded honestly and no bypass was
+  attempted; the docs/issue-85 defect remains open under #1633.
+- This session's two Edits (new scope) — both succeeded on the first
+  attempt; nothing failed.
 
 ## Open findings
 
-- The board gate (`board-gate.sh`) appears to have no maintenance-targets
-  carve-out for cross-role writes, even though issue #1637's body declares
-  one. Either the gate needs a maintenance-targets exception implemented,
-  or the issue's requested approach (direct cross-issue Edit from a role
-  session) is not actually permitted under the current gate and the fix
-  must be delivered a different way (e.g., by whichever role/session owns
-  `docs/issue-85/reports/coding.md`, or via an explicit gate-bypass
-  mechanism this session does not have).
+None. The original open finding (board-gate has no maintenance-targets
+carve-out for cross-ROLE writes) is superseded by the issue's own
+re-scope, which routes future cross-role record fixes through #1633
+instead of asking this gate to be changed.
 
-next steps: a human or the record's owning role (or a gate change) must
-resolve which of the two above is correct before this fix can land.
+## Acceptance verification
 
-resolution path: file/escalate to the maintainers of `board-gate.sh` (or
-the issue author) to either add the maintenance-targets carve-out to the
-gate, or reassign the fix to the record's owning role.
+acceptance: test -f docs/issue-374/proposals/2026-08-07-decision-queue-stop-hook-nudge.md && test -f docs/issue-501/proposals/2026-08-08-session-latency-breakdown.md — result:
+
+```
+$ test -f docs/issue-374/proposals/2026-08-07-decision-queue-stop-hook-nudge.md && test -f docs/issue-501/proposals/2026-08-08-session-latency-breakdown.md; echo exit=$?
+exit=0
+```
+
+acceptance: both Edits performed cross-issue from this issue's own branch by plain Edit with the gate allowing (no bypass shapes) — canonical: the two `Edit` tool calls in this session's transcript against `docs/issue-466/reports/implementation/survey.md` and `docs/issue-501/reports/implementation/survey.md`, each returning "has been updated successfully" with no PreToolUse hook error.
+
+acceptance: the record cites the allowed writes — canonical: `## What was done` above, this record's own text.
