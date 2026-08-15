@@ -5730,7 +5730,14 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
         queue_path = Path(root) / patrol_queue.QUEUE_REL_PATH
         queue = patrol_queue.load_queue(queue_path)
         enqueued = []
+        # patrol_queue.verify(): 인용된 경로/발췌를 실제로 다시 읽어 확인한다
+        # (run_scan() 이 이미 밟는 scan -> verify -> budget -> enqueue 파이프라인의
+        # 그 단계) — validator(하이쿠급 반박 콜)는 모델의 자기평가일 뿐이라,
+        # 환각된 path/excerpt 를 그대로 통과시킬 수 있다. verify() 를 건너뛰면
+        # judge 만 유일하게 검증 안 된 finding 을 큐에 넣는 경로가 된다.
         for vf in validated:
+            if not patrol_queue.verify(vf, Path(root)):
+                continue
             fp = patrol_queue.fingerprint(f"judge:{role}", vf["path"], [vf.get("excerpt", "")])
             finding = {
                 "fingerprint": fp,
@@ -5745,7 +5752,8 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
             queue = patrol_queue.enqueue(queue, finding)
             enqueued.append(fp)
         patrol_queue.save_queue(queue_path, queue)
-        outcome = f"ok: {len(raw_findings)}건 중 {len(validated)}건 검증, {len(enqueued)}건 큐 반영"
+        outcome = (f"ok: {len(raw_findings)}건 중 {len(validated)}건 검증, "
+                  f"{len(enqueued)}건 verify 통과 후 큐 반영")
         return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": enqueued}
     except subprocess.TimeoutExpired:
         outcome = f"error: 시간초과({JUDGE_TIMEOUT}s)"

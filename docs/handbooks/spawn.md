@@ -70,7 +70,12 @@ python3 spawn.py judge <역할> --merge <sha> [-C <대상 레포>]
    세션이 diff 를 보고 위반 findings 를 낸다.
 3. **validator** (하이쿠급 1콜): findings 를 확인/반박한다. 반박된 것은
    큐에 닿지 않는다.
-4. **enqueue**: 검증된 finding만 `gates/patrol_queue.py`의 `enqueue()`로
+4. **verify**: `gates/patrol_queue.py`의 `verify()`가 인용된 경로/발췌를
+   작업 트리에서 실제로 다시 읽어 확인한다 — `run_scan()`이 이미 밟는
+   scan → verify → budget → enqueue 파이프라인의 그 단계. validator(모델의
+   자기평가)만으로는 환각된 path/excerpt 를 잡아내지 못하므로, 이 단계를
+   건너뛰지 않는다(2026-08-15 warrant-hunt finding).
+5. **enqueue**: verify 를 통과한 finding만 `enqueue()`로
    `.on-the-record/findings/queue.jsonl`에 `lane="diff"`로 들어간다.
 
 ## 읽기 전용 구성

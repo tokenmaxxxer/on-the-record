@@ -361,6 +361,8 @@ class JudgeEnqueueTest(unittest.TestCase):
         self.addCleanup(lambda: setattr(obj, name, orig))
 
     def test_validated_finding_lands_in_queue_with_diff_lane(self):
+        (self.root / "x.py").write_text("context\nadded\n", encoding="utf-8")
+
         def fake_run(cmd, **kw):
             if cmd[0] == "git":
                 return subprocess.CompletedProcess(
@@ -394,6 +396,61 @@ class JudgeEnqueueTest(unittest.TestCase):
         self.assertEqual(queue[0]["lane"], "diff")
         self.assertEqual(queue[0]["scanner_id"], "judge:implementation")
         self.assertEqual(queue[0]["path"], "x.py")
+
+
+class JudgeVerifyDropTest(unittest.TestCase):
+    """warrant-hunt finding (2026-08-15): validator 통과만으로는 안 된다 —
+    `patrol_queue.verify()`가 인용 경로/발췌를 실제로 다시 읽어 확인 못하면
+    (환각된 path/excerpt) `enqueue()`에 절대 닿지 않는다. `run_scan()`이
+    이미 밟는 scan -> verify -> budget -> enqueue 파이프라인과 judge 를
+    맞춘다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self._patches = []
+        self._patch(spawn, "plugin_dirs", lambda role, spec: [Path("/fake/plugin")])
+        self._patch(spawn, "core_plugin_dirs", lambda: [])
+
+    def _patch(self, obj, name, value):
+        orig = getattr(obj, name)
+        setattr(obj, name, value)
+        self._patches.append((obj, name, orig))
+        self.addCleanup(lambda: setattr(obj, name, orig))
+
+    def test_hallucinated_path_never_reaches_enqueue(self):
+        # x.py 를 일부러 만들지 않는다 — validator 가 확인해 준 finding이라도
+        # 인용된 경로가 작업 트리에 없으면 verify() 가 거짓을 돌려준다.
+        def fake_run(cmd, **kw):
+            if cmd[0] == "git":
+                return subprocess.CompletedProcess(
+                    cmd, 0,
+                    stdout="diff --git a/x.py b/x.py\n@@ -1 +1,2 @@\n context\n+added\n",
+                    stderr="")
+            if cmd[0] == "claude":
+                prompt = kw.get("input", "")
+                if "--max-turns" in cmd:
+                    payload = json.dumps({"result": json.dumps({
+                        "findings": [{"path": "x.py", "finding_class": "violation",
+                                     "excerpt": "이 파일에는 없는 문자열", "promotable": True}]}),
+                        "is_error": False})
+                elif "relevant" in prompt:
+                    payload = json.dumps({"result": '{"relevant": true}', "is_error": False})
+                else:
+                    payload = json.dumps({"result": json.dumps({
+                        "findings": [{"path": "x.py", "finding_class": "violation",
+                                     "excerpt": "이 파일에는 없는 문자열", "promotable": True}]}),
+                        "is_error": False})
+                return subprocess.CompletedProcess(cmd, 0, stdout=payload, stderr="")
+            raise AssertionError(f"unexpected: {cmd}")
+        self._patch(spawn.subprocess, "run", fake_run)
+
+        result = spawn.judge_cmd("implementation", "deadbeef", cwd=str(self.root))
+
+        self.assertEqual(result["enqueued"], [])
+        queue_path = self.root / patrol_queue.QUEUE_REL_PATH
+        self.assertEqual(patrol_queue.load_queue(queue_path), [])
 
 
 if __name__ == "__main__":
