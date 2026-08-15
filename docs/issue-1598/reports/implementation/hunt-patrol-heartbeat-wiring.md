@@ -34,3 +34,49 @@ The proposal's "What will be done" section states patrol invocation is gated pur
 
 ### Expected
 The proposal should specify how patrol invocation and its output emission behave on a tick that is due for patrol (Nth patrol_tick) but not due per `poll-due`'s shared TTL gate — either patrol must have its own emission path independent of due_rc (contradicting "fold into the same delta-suppression the watchdog report already gets"), or the design must explicitly accept and justify that patrol promotion is silently skipped/delayed whenever poll-due happens to be false on the Nth tick, with a trace line so the skip is visible rather than indistinguishable from "nothing to promote".
+
+## after-proposal — stance: patrol emission silent-failure / injection / cadence probe
+
+Verdict: FINDING — patrol_promote.py failures (non-zero rc) are silently swallowed; captured stderr is never printed or logged
+Kind: silent-failure
+Seed: on-the-record/monitors/poll-heartbeat.sh lines 320-357 (patrol block), gates/test_poll_heartbeat_patrol.py
+cap_seconds: unknown (not provided by dispatcher)
+tier: default
+diff_stat_lines: unknown (not provided by dispatcher)
+started_at: 2026-08-15T00:00:00Z
+ended_at: 2026-08-15T00:10:00Z
+
+### Reproduce
+```bash
+cat > /tmp/repro.sh << 'SH'
+#!/bin/bash
+set -u
+CHECKOUT=/tmp/fake_checkout
+mkdir -p "$CHECKOUT/gates"
+cat > "$CHECKOUT/gates/patrol_promote.py" << 'PY'
+import sys
+print("Traceback: boom", file=sys.stderr)
+sys.exit(1)
+PY
+
+_patrol_out="$(python3 "${CHECKOUT}/gates/patrol_promote.py" run "${CHECKOUT}" myrole 2>&1)"
+_patrol_rc=$?
+echo "rc=$_patrol_rc"
+if [ "${_patrol_rc}" -eq 0 ] && [ -n "${_patrol_out}" ]; then
+  echo "would process output"
+fi
+echo "loop finished, nothing printed about the failure: [$_patrol_out] was captured but discarded"
+SH
+bash /tmp/repro.sh
+```
+This mirrors on-the-record/monitors/poll-heartbeat.sh lines 337-353 exactly: `_patrol_out="$(python3 ... 2>&1)"` captures stderr, `_patrol_rc=$?` captures the exit code, but the only branch that inspects `_patrol_out` is gated on `[ "${_patrol_rc}" -eq 0 ]`. There is no `else` branch, no log-append call (contrast with the existing due_rc-gated branch at line 313-315, which does call `_poll_watchdog_log_append` on crash), and no stderr line is ever printed for a non-zero rc. The per-role for-loop simply continues to the next role, and the final `[patrol-poll] checked N role(s), M promotion(s)` line prints as if every role succeeded.
+
+### Observed
+```
+rc=1
+loop finished, nothing printed about the failure: [Traceback: boom] was captured but discarded
+```
+In the real script, a crashing `patrol_promote.py` for a given role produces zero Monitor-visible output for that role (no `[patrol-poll] <role>: N promotion(s)` line and no error line), and the final summary line still reports success-shaped counts, masking the crash entirely.
+
+### Expected
+On `_patrol_rc != 0`, the captured stderr (`_patrol_out`) should be surfaced — e.g. via `_poll_watchdog_log_append`, matching the existing due_rc-crash handling pattern at line 313-315 — so a broken patrol_promote.py invocation for a role is not indistinguishable from a healthy tick with zero promotions.
