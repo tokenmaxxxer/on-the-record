@@ -107,6 +107,10 @@
       "verification_method": "automated check that a schema-drift or freshness test (dbt source freshness / schema test) exists for every changed source or model",
       "evidence_grade": "validated",
       "verified_source": "dbt Developer Hub, freshness reference — https://docs.getdbt.com/reference/resource-properties/freshness (primary vendor spec; source freshness configured via warn_after/error_after against loaded_at_field is dbt's own documented drift-detection mechanism)."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
     }
   ],
   "loop_state": {

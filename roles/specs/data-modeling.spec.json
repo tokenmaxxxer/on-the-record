@@ -100,6 +100,10 @@
       "verification_method": "human-review-checklist: for a `table_type: dimension` entry, does the model state its SCD type (0-6) rather than leaving change-tracking behavior implicit?",
       "evidence_grade": "validated",
       "verified_source": "Kimball Group, Design Tip #152 'Slowly Changing Dimension Types 0, 4, 5, 6 and 7' — https://www.kimballgroup.com/2013/02/design-tip-152-slowly-changing-dimension-types-0-4-5-6-7/ (primary source; Types 0-6 as enumerated in the criterion match Kimball's own catalog, Type 7 exists but is out of the criterion's stated 0-6 range and is left out deliberately since it is a hybrid combination rather than a distinct declared type)."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
     }
   ],
   "loop_state": {
