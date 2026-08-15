@@ -4374,6 +4374,41 @@ def _ambiguous_watch_exit(issue: int, matches: list, repo: str | None) -> None:
              f"(후보: {', '.join(roles)}): {cmds}")
 
 
+def _roster_fallback_entry(issue: int, role: str | None, repo: str | None):
+    """이슈 #1585: `watch`(워크스페이스 인덱스)와 `ps`(ROSTER)가 서로 다른
+    소스를 읽어, 스폰 직후 워크스페이스 인덱스 쓰기가 아직 안 보이는
+    짧은 창에서 `ps` 는 RUNNING 인데 `watch` 는 '기록 없음'을 내는 레이스가
+    있었다(실측: 이슈-1582 phase-2 드라이브, 5초 지연 재시도에도 재현).
+    ROSTER 엔트리도 `work`/`log` 필드를 들고 있으므로(roster_register 호출부
+    참고), 워크스페이스 인덱스에 없을 때 ROSTER 의 살아있는 엔트리로부터
+    같은 모양의 엔트리를 재구성해 두 소스가 존재 여부에서 일치하게 한다.
+    조회만 하고 아무것도 기다리지 않는다 — 블로킹을 새로 넣지 않는다."""
+    roster = _roster_load()
+    if role:
+        e = roster.get(f"issue-{issue}/{role}")
+        if not (e is not None and _alive(e.get("pid", 0)) and e.get("work") and e.get("log")):
+            return None, None
+        if repo is not None and _repo_identity(e["work"]) != repo:
+            return None, None
+        key = f"{_repo_identity(e['work'])}/issue-{issue}/{role}"
+        return key, {"work": e["work"], "log": e["log"]}
+    candidates = []
+    for k, e in roster.items():
+        m = re.match(rf"^issue-{issue}/([^/]+)$", k)
+        if not m:
+            continue
+        if not (_alive(e.get("pid", 0)) and e.get("work") and e.get("log")):
+            continue
+        if repo is not None and _repo_identity(e["work"]) != repo:
+            continue
+        candidates.append((m.group(1), e))
+    if len(candidates) != 1:
+        return None, None
+    found_role, e = candidates[0]
+    key = f"{_repo_identity(e['work'])}/issue-{issue}/{found_role}"
+    return key, {"work": e["work"], "log": e["log"]}
+
+
 def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | None = None):
     """이슈 #533: `repo` 가 주어지면 그 레포로만 조회를 좁힌다 — `-C` 가
     지금까지 조회에 안 먹히던 구멍을 막는다. 안 주면(기존 기본값) 모든
@@ -4384,6 +4419,15 @@ def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | No
     보고하므로 그게 유일하게 뜻이 통하는 선택이다. 0개 또는 2개 이상
     살아있으면 여전히 애매하니 `--role`을 요구한다(실행 가능한 명령까지
     같이 찍는다)."""
+    key, entry = _lookup_workspace_entry(idx, issue, role, repo=repo)
+    if entry is None:
+        fb_key, fb_entry = _roster_fallback_entry(issue, role, repo)
+        if fb_entry is not None:
+            return fb_key, fb_entry
+    return key, entry
+
+
+def _lookup_workspace_entry(idx: dict, issue: int, role: str | None, repo: str | None = None):
     if repo is not None:
         if role:
             key = f"{repo}/issue-{issue}/{role}"
