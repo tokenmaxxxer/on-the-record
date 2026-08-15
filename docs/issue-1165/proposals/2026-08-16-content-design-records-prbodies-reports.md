@@ -86,7 +86,37 @@ scout brief (both filed alongside this proposal).
    in the current-state survey above: one pass over the lead section,
    name what changed / why / what's next, flag any sentence a citation
    tag splits.
-4. **Reconciliation statement** — the template shape governs prose
+4. **PR-body spec** (added per PR #1616 blocking review comment,
+   2026-08-15T15:53:19Z): apply lead-with-the-point to PR body prose
+   itself, not just the gap-naming this round originally stopped at.
+   `gates/pr_reference.py`'s `check_body` (function at line 29) checks
+   only a phase-appropriate issue-reference trailer (`#<n>` phase-1,
+   `Closes/Fixes/Resolves #<n>` phase-2); this item adds the
+   content-structure design on top, still design/spec only:
+   - **First-paragraph shape.** A PR body's first paragraph states the
+     change, why, and what happens next (what the merge unblocks or
+     what phase-2 will do), before any trailer line (`Part of #<n>`,
+     `Closes #<n>`, the sandbox-relay disclosure line, etc.). Structural
+     check (automatable): the first blank-line-delimited paragraph
+     contains at least one clause matching a what-changed shape and one
+     matching a why/next shape; a body whose first paragraph is only a
+     trailer line fails.
+   - **Citation-trailing placement.** Same clause-placement rule as
+     item 1 above, applied to PR body prose: any `canonical:`-style or
+     link-shaped citation inside the first paragraph sits as a trailing
+     clause or its own line, never splitting the point-stating
+     sentence — reuses this round's already-stated citation-not-
+     mid-sentence structural check verbatim, one surface over.
+   - **Bounds.** The first paragraph stays within the same section-size
+     line bound named in item 2 above (left as the same step-2
+     tunable — no separate number chosen for PR bodies this round);
+     trailer lines (issue reference, phase disclosure, sandbox-relay
+     note) are exempt from the paragraph bound since they are
+     machine-checked fields, not prose.
+   - Still names, not fixes, the gap: `check_body` gains no new
+     structure check this round — wiring is step 2, unchanged from this
+     round's own scope guard.
+5. **Reconciliation statement** — the template shape governs prose
    framing only; `required_fields` frontmatter keys are unaffected and
    remain governed by each role's own `*.spec.json`.
 
