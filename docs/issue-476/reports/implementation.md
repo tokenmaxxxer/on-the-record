@@ -2,7 +2,7 @@
 code_under_review:
   - on-the-record/hooks/claim-scan-preflight.sh
   - on-the-record/hooks/hooks.json
-  - test/claim-scan-preflight.test.sh
+  - tests/claim-scan-preflight.test.sh
   - docs/specs/enforcement-boundary.md
 type: feature
 breaking: false
@@ -75,11 +75,11 @@ Basis: `docs/issue-476/proposals/implementation.md`
 
 ## What did not work
 
-- Proposed `gates/test_gates.py` collided with the pre-existing
+- Proposed `gates/test_gates.py`, later renamed to
+  `gates/test_gates_refusal.py`, collided with the pre-existing
   repo-root `test_gates.py` — same basename, no `__init__.py`
   boundary, breaks `pytest` collection (exactly the shape
   `gates.duplicate_test_basenames` exists to catch; it caught it).
-  Renamed to `gates/test_gates_refusal.py`.
 - First attempt appended the three new `loop_state` values *after*
   `landed` in `roles/implementation.json`/`architecture.json`. Broke:
   `gates.py:_terminal_loop_state()` reads the *last* declared value as
@@ -104,8 +104,8 @@ Basis: `docs/issue-476/proposals/implementation.md`
 
 ## Rationale for deviations
 
-- **File rename**: `gates/test_gates.py` (proposal's literal name) →
-  `gates/test_gates_refusal.py`. The proposal's write set predates
+- **File rename**: `gates/test_gates.py` (proposal's literal name)
+  renamed to `gates/test_gates_refusal.py`. The proposal's write set predates
   discovery of the basename collision with the pre-existing root
   `test_gates.py`; the collision is not a design choice to relitigate,
   it is a filesystem fact the proposal could not see. Renaming keeps
@@ -197,7 +197,7 @@ Decision (approved via `APPROVE issue-476/architecture`, PR #572 merged).
   immediately after the `pr-preflight.sh` entry and before
   `spec-index-preflight.sh` in the same `PreToolUse`/`Bash` matcher
   array — no new matcher group.
-- `test/claim-scan-preflight.test.sh` — new end-to-end shell test,
+- `tests/claim-scan-preflight.test.sh` — new end-to-end shell test,
   invokes the hook as a subprocess with constructed JSON payloads on
   stdin. Four cases: claim-with-adjacent-evidence exits 0 with no
   `additionalContext`; claim-with-no-evidence exits 0 with
@@ -220,7 +220,7 @@ the new hook was added — completed above, not narrated only in prose.
 
 ### Test run
 
-Repro: bash test/claim-scan-preflight.test.sh
+Repro: bash tests/claim-scan-preflight.test.sh
 
 ```
 PASS: claim-with-adjacent-evidence exits 0 with no additionalContext

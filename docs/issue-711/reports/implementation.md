@@ -1,7 +1,7 @@
 ---
 code_under_review:
   - spawn.py
-  - test/test_bootstrap_timing.py
+  - tests/test_bootstrap_timing.py
 type: feature
 breaking: false
 verdict: pass
@@ -34,12 +34,12 @@ Instrumented `spawn.py`'s per-spawn bootstrap path per the approved proposal
   `_spawn_one`, immediately after the existing "플러그인 N개, ..." status
   line — no change to `_spawn_one`'s control flow, branches, or return
   values.
-- Added `test/test_bootstrap_timing.py`: asserts all six named phases plus
+- Added `tests/test_bootstrap_timing.py`: asserts all six named phases plus
   `total` appear with numeric values, asserts untimed phases default to
   `0.000` rather than being dropped, and asserts `_timed` accumulates
   across repeated calls to the same phase.
 
-derived: `python3 -m pytest test/test_bootstrap_timing.py -q`
+derived: `python3 -m pytest tests/test_bootstrap_timing.py -q`
 ```
 ....                                                                     [100%]
 4 passed in 0.04s
@@ -63,7 +63,7 @@ docs/issue-711/proposals/spawn-bootstrap-timing.md
 path (only `role_settings()`, no `plugin_dirs`/`core_plugin_dirs`/
 `issue_workspace`) and never reaches `_spawn_one` — a fact the proposal's
 step 4 got wrong (it assumed dry-run runs bootstrap phases through
-`_spawn_one`). `test/test_bootstrap_timing.py` therefore exercises the
+`_spawn_one`). `tests/test_bootstrap_timing.py` therefore exercises the
 timing primitives directly (the "fixture" branch of the issue's acceptance
 wording), not a `--dry-run` CLI invocation. See `## What did not work`.
 
