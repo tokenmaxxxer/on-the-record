@@ -341,7 +341,15 @@ def record_enums(d: Path, cfg: dict) -> list[str]:
             if field not in fm:
                 continue
             value = fm[field]
-            if value not in allowed:
+            # allowed 가 버킷 dict({'progress': [...], 'terminal': [...], ...})
+            # 일 수 있다 — 버킷 전체 합집합이 유효값 집합이다. 어느 버킷에
+            # 속해도 유효하며, dict 를 그대로 flat allow-list 로 취급하면
+            # (in dict == in dict.keys()) 버킷된 값이 전부 오탐으로 잡힌다.
+            if isinstance(allowed, dict):
+                valid = {v for bucket in allowed.values() for v in bucket}
+            else:
+                valid = allowed
+            if value not in valid:
                 bad.append(
                     f"레코드 enum 위반: {f} 의 {field}={value!r} — "
                     f"roles/{role}.json 이 선언한 값 ({allowed}) 이 아니다")
