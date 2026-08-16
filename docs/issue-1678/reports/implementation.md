@@ -171,3 +171,75 @@ with a monkeypatched signal source, live #1660 reconstruction,
 empty-state no-action) are each covered in
 `ReconcilePrExpectedMissingRecoveryPolicy`.
 canonical: acceptance: python3 -m pytest tests/test_spawn.py -k ReconcilePrExpectedMissingRecoveryPolicy -q — result: PASS (above).
+
+## Amendment (PR #1680 review)
+
+The review's two BLOCKING findings, D1 and D2, are pasted verbatim from
+the PR thread:
+canonical: gh pr view 1680 --comments (latest comment, read this session).
+
+> D1 BLOCKING — the counter counts WATCHDOG TICKS, not respawns/deaths.
+> [...] Fix: increment only per DISTINCT death (key on session_start_ts)
+> or on an actual respawn claim.
+>
+> D2 BLOCKING — no reset on success. [...] Fix: reset state when the
+> (issue,role) reaches a healthy delivered state (PR exists / session
+> ends clean).
+
+D1 fix: `classify_from_state()` gained a `death_id` parameter. `reconcile()`
+supplies the roster entry's own `ts` (the dying session's start time,
+set once at `roster_register()` and unchanged until an actual respawn
+registers a new entry) as `death_id` via `_build_observed()`. The wrapper
+now caches the verdict for a `death_id` it has already counted, and a
+repeat call with the same `death_id` returns the cached verdict without
+touching `respawn_count` or `last_failure_signature` — only a genuinely
+new `death_id` recomputes and (if not ESCALATE) increments.
+canonical: gates/recovery_policy.py:83-119 (this session's diff, read
+after edit).
+canonical: spawn.py:2000-2013,2138-2144 (this session's diff, read after
+edit).
+
+D2 fix: `recovery_policy.reset_state()` deletes the (issue, role) state
+file. `reconcile()` calls it whenever the (issue, role) is observed
+healthy — `pr_number is not None` or `session_verdict == "normal"` —
+right after the `pr-expected-missing` branch, so a real cap-reached
+ESCALATE the same tick isn't clobbered by the reset.
+canonical: gates/recovery_policy.py:121-127 (this session's diff, read
+after edit).
+canonical: spawn.py:2083-2093 (this session's diff, read after edit).
+
+Two new tests in `ReconcilePrExpectedMissingRecoveryPolicy` cover the
+review's requested cases:
+`test_same_death_across_multiple_ticks_increments_counter_once` (4 ticks
+of the same `death_id` leave `respawn_count` at 1; a distinct second
+death increments it to 2; a distinct third death at cap ESCALATEs) and
+`test_healthy_after_flakes_resets_state_next_death_starts_fresh` (two
+distinct flake-deaths bring the counter to 2, a healthy-with-PR
+observation deletes the state file, and the next death starts at count 0).
+canonical: tests/test_spawn.py:4964-5029 (this session's diff, read
+after edit).
+
+```
+$ python3 -m pytest tests/test_spawn.py -k ReconcilePrExpectedMissingRecoveryPolicy -q
+8 passed in 0.97s
+```
+canonical: acceptance: python3 -m pytest tests/test_spawn.py -k ReconcilePrExpectedMissingRecoveryPolicy -q — result: PASS
+
+```
+$ python3 -m pytest tests/test_recovery_policy.py -q
+10 passed in 0.83s
+```
+canonical: acceptance: python3 -m pytest tests/test_recovery_policy.py -q — result: PASS
+
+```
+$ python3 -m pytest -q -m "not slow"
+2157 passed, 19 xfailed, 2 xpassed in 21.94s
+```
+canonical: acceptance: python3 -m pytest -q -m "not slow" — result: PASS
+
+Only `spawn.py`, `gates/recovery_policy.py`, and `tests/test_spawn.py`
+were touched for this amendment.
+canonical: git diff --stat main...HEAD (this session, see Confirmation
+run for spawn.py/tests/test_spawn.py from the prior commit; the two
+files touched newly this amendment are gates/recovery_policy.py and the
+same two, no other paths).

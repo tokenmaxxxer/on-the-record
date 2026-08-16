@@ -1999,6 +1999,7 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
     issue = expected.get("issue")
     has_commit = bool(observed.get("new_commit"))
     failure_signature = observed.get("failure_signature")
+    death_id = observed.get("death_id")
     base_detail = (f"role={role} branch={branch}: "
                    f"expects_pr=True pr_number=None session_verdict={verdict!r}")
 
@@ -2009,7 +2010,7 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
             kwargs["state_dir"] = recovery_state_dir
         policy_verdict = recovery_policy.classify_from_state(
             issue, role, has_commit=has_commit, has_pr=False,
-            failure_signature=failure_signature, **kwargs)
+            failure_signature=failure_signature, death_id=death_id, **kwargs)
     else:
         policy_verdict = ("RESPAWN_WITH_HANDOFF" if has_commit
                            else "RESPAWN_IDENTICAL")
@@ -2081,6 +2082,18 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
             and verdict != "in-progress"):
         return _reconcile_pr_expected_missing(expected, observed, verdict,
                                                recovery_state_dir=recovery_state_dir)
+    # 이슈 #1678 review D2: PR 이 존재하거나 세션이 정상 종료로 끝난
+    # 건강한 (issue, role) 은 재기동 카운터를 초기화한다 — 아니면 일시적
+    # flake 두 번이 이후의 진짜 죽음까지 영구히 ESCALATE 로 몰아간다.
+    _issue = expected.get("issue")
+    _role = expected.get("role")
+    if _issue is not None and _role and (
+            observed.get("pr_number") is not None or verdict == "normal"):
+        recovery_policy = _recovery_policy_module()
+        kwargs = {}
+        if recovery_state_dir is not None:
+            kwargs["state_dir"] = recovery_state_dir
+        recovery_policy.reset_state(_issue, _role, **kwargs)
     if verdict is None:
         if observed.get("loop_state") is not None:
             # loop_state 는 관측됐는데 session_verdict 가 없다 — 앞뒤가
@@ -2140,6 +2153,7 @@ def _build_observed(root: Path, entry: dict) -> dict:
         "pr_number": pr_number,
         "loop_state": loop_state,
         "new_commit": new_commit,
+        "death_id": entry.get("ts"),
     }
 
 
