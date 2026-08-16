@@ -105,9 +105,21 @@ def _hours_between(earlier: str, later: str) -> float:
 
 def fetch_delta(root: Path, slug: str, resource: str, run: Callable | None = None,
                  now: str | None = None, per_page: int = 100, max_pages: int = 20,
-                 reconcile_interval_hours: float = 24.0, path: Path | None = None
+                 reconcile_interval_hours: float = 24.0, path: Path | None = None,
+                 include_prs: bool = False
                  ) -> tuple[list[dict] | None, str | None, str]:
     """`(items, new_cursor_since, classification)`.
+
+    `include_prs` (issue #1688 PR-only-drop fix, additive default
+    `False` — existing callers see no behavior change): when `True` and
+    `resource="issues"`, the returned items are NOT filtered down to
+    non-PR issues only — both issues and PR items from the same
+    `repos/{slug}/issues` response (issue #1682 condition 3: that
+    endpoint already returns both) are returned, so a PR-only-changed
+    tick is no longer silently dropped to an empty changed-set. No
+    extra `gh` call is spent — the PR items were already in the single
+    probe response and previously discarded by the `pull_request not in
+    i` filter.
 
     `classification` in {"delta", "no-change", "full-rescan", "error"}.
     - "no-change": 304(또는 빈 목록) — 상세 조회 0회로 이어져야 한다는
@@ -191,6 +203,8 @@ def fetch_delta(root: Path, slug: str, resource: str, run: Callable | None = Non
 
     if resource == "pulls":
         filtered = [i for i in items if "pull_request" in i]
+    elif include_prs:
+        filtered = items
     else:
         filtered = [i for i in items if "pull_request" not in i]
 
