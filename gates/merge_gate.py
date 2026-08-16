@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 import spawn_on_pr  # noqa: E402
 import check_run_artifact as cra  # noqa: E402
 import check_runner  # noqa: E402
+import stale_revert_guard  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn  # noqa: E402
@@ -112,10 +113,53 @@ def required_verification_missing(root: Path, subject: str) -> list[str]:
     return spawn_on_pr.applicable_roles(subject_board)
 
 
+def pr_refs(repo: Path, pr: int) -> dict | None:
+    """PR 의 base/head 브랜치 이름을 `gh` 로 읽는다. 이 모듈에서
+    `latest_check_runner_comment` 다음으로 유일하게 `gh` 를 호출하는
+    지점 -- `stale_revert_guard.classify()`/`check_pr()` 자체는 순수
+    로컬 git 만 쓴다(제약: classify() 안에는 네트워크/`gh` 호출 없음)."""
+    r = subprocess.run(
+        ["gh", "pr", "view", str(pr), "--json", "baseRefName,headRefName"],
+        cwd=repo, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    import json
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None
+    base_ref, head_ref = data.get("baseRefName"), data.get("headRefName")
+    if not base_ref or not head_ref:
+        return None
+    return {"base_ref": base_ref, "head_ref": head_ref}
+
+
+def stale_revert_reasons(repo: Path, pr: int) -> list[str]:
+    """req#6(issue #1664) -- PR 이 stale merge-base 로 인해 base HEAD의
+    내용을 되돌리는지 검사한다. refs 를 못 읽거나 merge-base 를 계산할
+    수 없으면 (fail-open) 빈 목록 -- 이 게이트가 못 읽어서 무해한 PR을
+    막는 일은 없어야 한다; 실제 위반은 산출물이 갖춰지면 잡힌다."""
+    refs = pr_refs(repo, pr)
+    if refs is None:
+        return []
+    base_ref, head_ref = refs["base_ref"], refs["head_ref"]
+    mb = subprocess.run(
+        ["git", "merge-base", f"origin/{base_ref}", head_ref],
+        cwd=repo, capture_output=True, text=True)
+    if mb.returncode != 0:
+        mb = subprocess.run(["git", "merge-base", base_ref, head_ref],
+                             cwd=repo, capture_output=True, text=True)
+    if mb.returncode != 0:
+        return []
+    merge_base_ref = mb.stdout.strip()
+    refusals = stale_revert_guard.check_pr(repo, base_ref, merge_base_ref, head_ref)
+    return [r["reason"] for r in refusals]
+
+
 def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
-    """`{"allowed": bool, "reasons": [str, ...]}`. 셋 다 깨끗해야
+    """`{"allowed": bool, "reasons": [str, ...]}`. 넷 다 깨끗해야
     `allowed`: check-runner 코멘트 존재, `passed == total`, 필요 검증
-    기록 모두 존재."""
+    기록 모두 존재, stale-revert 없음(issue #1664)."""
     reasons: list[str] = []
     comment = latest_check_runner_comment(repo, pr)
     if comment is None:
@@ -127,6 +171,7 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     missing = required_verification_missing(root, subject)
     if missing:
         reasons.append(f"필요한 검증 기록이 없다: {missing}")
+    reasons.extend(stale_revert_reasons(repo, pr))
     return {"allowed": not reasons, "reasons": reasons}
 
 
