@@ -40,6 +40,36 @@
     "docs/issue-<n>/reports/brand-design.md",
     "docs/issue-<n>/reports/brand-design/logo-usage.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "token_type_is_a_valid_dtcg_type",
+      "verification_method": "automated check that `token_type` is one of the DTCG-defined types (color, dimension, fontFamily, fontWeight, duration, cubicBezier, number), matching the spec's own `required_fields` enum",
+      "evidence_grade": "validated",
+      "verified_source": "DTCG, 'Design Tokens Format Module' — https://www.designtokens.org/tr/2025.10/format/ (primary source; §9 enumerates the type values as the spec's own normative type list)."
+    },
+    {
+      "criterion": "value_matches_declared_type_grammar",
+      "verification_method": "automated check that `value` parses under the DTCG type-specific value grammar for its declared `token_type` (e.g. a `color` value is a valid color string, a `dimension` value carries a unit)",
+      "evidence_grade": "validated",
+      "verified_source": "DTCG, 'Design Tokens Format Module', §9 'Types' — https://www.designtokens.org/tr/2025.10/format/#types (primary source; each type section defines its own required value shape)."
+    },
+    {
+      "criterion": "clear_space_and_minimum_size_stated_numerically",
+      "verification_method": "human-review-checklist: does the logo-usage deliverable state a numeric clear-space value and a numeric minimum size, rather than a qualitative description?",
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "No checkable primary/practitioner source is cited for this criterion, and it does not trace to DTCG (this spec's source_standard, which covers token format, not logo-usage rules). The numeric clear-space/minimum-size requirement reflects widespread practitioner convention in published brand guidelines (e.g. logo clear-space expressed as a multiple of a logo's own reference dimension, minimum size in px/mm) rather than a single named primary source. Gap: no specific practitioner document is cited here; matches the spec's own `mission_deliverables` fit_criterion requiring a stated numeric clear-space value and minimum size."
+    },
+    {
+      "criterion": "correct_and_incorrect_usage_examples_present",
+      "verification_method": "automated check that the logo-usage deliverable shows at least one correct and one incorrect application example, matching the spec's own `mission_deliverables` fit_criterion",
+      "evidence_grade": "practitioner-consensus",
+      "verified_source": "No checkable primary/practitioner source is cited for this criterion, and it does not trace to DTCG (this spec's source_standard, which covers token format, not logo-usage rules). Correct/incorrect usage pairing is widespread practitioner convention across published brand guideline documents for making a logo-usage rule unambiguous, but no specific practitioner document is named. Gap: no specific practitioner document is cited here; matches the spec's own `mission_deliverables` fit_criterion."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+    }
+  ],
   "loop_state": {
     "progress": [
       "designing",
@@ -49,7 +79,8 @@
       "landed"
     ],
     "refusal": [
-      "type-undeclared"
+      "type-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "token-file-unreachable"

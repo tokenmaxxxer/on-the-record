@@ -77,6 +77,36 @@
   "write_scope": [
     "docs/issue-<n>/reports/knowledge-management.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "capture_point_is_at_resolution",
+      "verification_method": "automated check that `capture_point` equals `at-resolution`, matching the spec's own `recomputation` rule that a retroactive capture is a refusal state",
+      "evidence_grade": "validated",
+      "verified_source": "Consortium for Service Innovation, 'KCS v6 Practices Guide' — https://www.thekcsacademy.net/kcs/ (primary source; \"capture in the workflow\" — capturing knowledge at the moment of resolution rather than after — is KCS's own first stated core principle)."
+    },
+    {
+      "criterion": "article_reflects_actual_resolution_not_generic_template",
+      "verification_method": "human-review-checklist: does `article_content` describe the specific problem-and-resolution actually encountered, rather than a generic templated restatement with the specifics stripped out?",
+      "evidence_grade": "validated",
+      "verified_source": "Consortium for Service Innovation, KCS 'Solve loop' — https://www.thekcsacademy.net/kcs/ (primary source; the Solve loop's Capture step is defined as capturing the issue in the searcher's own words/context, distinct from a boilerplate template)."
+    },
+    {
+      "criterion": "reuse_status_reflects_an_actual_search_before_creation",
+      "verification_method": "automated check that `reuse_status` is `reused` or `flagged-for-review` only when a prior matching `article_id` is cited, and `new` only when no matching article was found",
+      "evidence_grade": "validated",
+      "verified_source": "Consortium for Service Innovation, KCS 'Solve loop' — https://www.thekcsacademy.net/kcs/ (primary source; \"search first\" — checking for an existing article before creating a new one — is a KCS Solve-loop step this criterion operationalizes)."
+    },
+    {
+      "criterion": "tacit_knowledge_externalized_not_just_logged",
+      "verification_method": "human-review-checklist: does the article convert a named person's tacit know-how into a reusable explicit form (the spec's own `feedback_methodology`), rather than a raw activity log?",
+      "evidence_grade": "validated",
+      "verified_source": "Nonaka & Takeuchi, The Knowledge-Creating Company (Oxford University Press, 1995) (primary source; the SECI model's Externalization mode is precisely tacit-to-explicit conversion, matching the spec's own cited judgment_methodology)."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+    }
+  ],
   "loop_state": {
     "progress": [
       "capturing"
@@ -85,7 +115,8 @@
       "landed"
     ],
     "refusal": [
-      "not-captured-at-resolution"
+      "not-captured-at-resolution",
+      "bar-not-met"
     ],
     "error": [
       "article-unreachable"
