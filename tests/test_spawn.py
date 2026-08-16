@@ -4860,6 +4860,175 @@ class Reconcile(unittest.TestCase):
         self.assertEqual(out[0]["next_action"], "respawn")
 
 
+class ReconcilePrExpectedMissingRecoveryPolicy(unittest.TestCase):
+    """이슈 #1678: `pr-expected-missing` 가지가 무조건 respawn 하지 않고
+    `recovery_policy.classify_from_state()` 판정을 따르는지 — 신호 소스는
+    `spawn._recovery_policy_module` 을 monkeypatch 해 흉내낸다(기존
+    test_spawn.py 스타일)."""
+
+    def _expected(self, issue=1660, role="implementation"):
+        return {"expects_pr": True, "role": role, "branch": "b", "issue": issue}
+
+    def _observed(self, new_commit=False, failure_signature=None):
+        return {"session_verdict": "normal", "pr_number": None,
+                "loop_state": None, "new_commit": new_commit,
+                "failure_signature": failure_signature}
+
+    def test_pre_first_commit_under_cap_respawns_identically(self):
+        fake_policy = mock.Mock()
+        fake_policy.classify_from_state.return_value = "RESPAWN_IDENTICAL"
+        with mock.patch.object(spawn, "_recovery_policy_module", return_value=fake_policy):
+            out = spawn.reconcile(self._expected(), self._observed(new_commit=False))
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["next_action"], "respawn")
+        self.assertFalse(out[0]["handoff"])
+        fake_policy.classify_from_state.assert_called_once_with(
+            1660, "implementation", has_commit=False, has_pr=False,
+            failure_signature=None, death_id=None)
+
+    def test_has_commit_no_pr_respawns_with_handoff(self):
+        fake_policy = mock.Mock()
+        fake_policy.classify_from_state.return_value = "RESPAWN_WITH_HANDOFF"
+        with mock.patch.object(spawn, "_recovery_policy_module", return_value=fake_policy):
+            out = spawn.reconcile(self._expected(), self._observed(new_commit=True))
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["next_action"], "respawn")
+        self.assertTrue(out[0]["handoff"])
+        fake_policy.classify_from_state.assert_called_once_with(
+            1660, "implementation", has_commit=True, has_pr=False,
+            failure_signature=None, death_id=None)
+
+    def test_at_cap_or_repeat_signature_escalates_no_respawn(self):
+        fake_policy = mock.Mock()
+        fake_policy.classify_from_state.return_value = "ESCALATE"
+        with mock.patch.object(spawn, "_recovery_policy_module", return_value=fake_policy):
+            out = spawn.reconcile(
+                self._expected(), self._observed(new_commit=True, failure_signature="sig-a"))
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]["next_action"], "manual-review")
+        self.assertNotIn("handoff", out[0])
+        self.assertIn("ESCALATE", out[0]["detail"])
+
+    def test_healthy_with_pr_triggers_no_action(self):
+        # 이슈 acceptance 빈 상태: PR 이 이미 있으면 pr-expected-missing 가지에
+        # 들어가지 않는다 — recovery_policy 는 아예 불리지 않는다.
+        fake_policy = mock.Mock()
+        with mock.patch.object(spawn, "_recovery_policy_module", return_value=fake_policy):
+            expected = self._expected()
+            observed = {"session_verdict": "normal", "pr_number": 42,
+                        "loop_state": "done", "new_commit": True,
+                        "failure_signature": None}
+            out = spawn.reconcile(expected, observed)
+        self.assertEqual(out, [])
+        fake_policy.classify_from_state.assert_not_called()
+
+    def test_no_issue_falls_back_to_commit_only_without_state_io(self):
+        # `issue` 가 없는 기존 호출부(492 시절 테스트)는 상태 파일을 건드리지
+        # 않고 커밋 유무만으로 즉시 판정한다.
+        fake_policy = mock.Mock()
+        with mock.patch.object(spawn, "_recovery_policy_module", return_value=fake_policy):
+            expected = {"expects_pr": True, "role": "implementation", "branch": "b"}
+            out = spawn.reconcile(expected, self._observed(new_commit=True))
+        self.assertEqual(out[0]["next_action"], "respawn")
+        self.assertTrue(out[0]["handoff"])
+        fake_policy.classify_from_state.assert_not_called()
+
+    def test_live_reconstruct_issue_1660_cap_then_escalate(self):
+        """이슈 acceptance live check: #1660(commit-no-PR) 재구성 — 첫 죽음은
+        handoff 로 respawn, 같은 실패 서명이 cap(기본 2)만큼 반복되면 3번째
+        respawn 없이 ESCALATE 한다. 실제 recovery_policy.classify_from_state
+        를 tmp 상태 디렉터리로 돌린다(진짜 상태 I/O, 격리는 `recovery_state_dir`
+        로 명시 전달 — `classify_from_state`의 `state_dir` 기본값은 import
+        시점에 바인딩되므로 모듈 속성 monkeypatch 로는 안 먹힌다)."""
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = Path(td) / "recovery-state"
+            expected = self._expected(issue=1660, role="implementation")
+
+            out1 = spawn.reconcile(
+                expected, self._observed(new_commit=True, failure_signature="sig-x"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out1[0]["next_action"], "respawn")
+            self.assertTrue(out1[0]["handoff"])
+
+            out2 = spawn.reconcile(
+                expected, self._observed(new_commit=True, failure_signature="sig-x"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out2[0]["next_action"], "manual-review")
+
+            out3 = spawn.reconcile(
+                expected, self._observed(new_commit=True, failure_signature="sig-x"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out3[0]["next_action"], "manual-review")
+
+    def _observed_with_death(self, death_id, failure_signature, new_commit=True):
+        obs = self._observed(new_commit=new_commit, failure_signature=failure_signature)
+        obs["death_id"] = death_id
+        return obs
+
+    def test_same_death_across_multiple_ticks_increments_counter_once(self):
+        # review D1: watchdog 는 같은 죽음을 여러 tick 동안 관측한다(재기동
+        # claim 이 아직 안 났으므로 로스터 엔트리, 즉 death_id 는 그대로다).
+        # 같은 death_id 로 4번 reconcile 을 태워도 respawn_count 는 한 번만
+        # 올라가야 한다. 서로 다른 death(death-2, death-3)에서만 진짜로
+        # 오르고, cap(2) 에 닿은 3번째 death 에서만 ESCALATE 한다.
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = Path(td) / "recovery-state"
+            expected = self._expected(issue=1660, role="implementation")
+            state_path = state_dir / "1660-implementation.json"
+
+            for _ in range(4):
+                out = spawn.reconcile(
+                    expected, self._observed_with_death("death-1", "sig-a"),
+                    recovery_state_dir=state_dir)
+                self.assertEqual(out[0]["next_action"], "respawn")
+                self.assertTrue(out[0]["handoff"])
+            self.assertEqual(json.loads(state_path.read_text())["respawn_count"], 1)
+
+            # 다른 death_id(실제로 새로 죽음)가 오면 카운터가 오른다 — 카운터가
+            # tick 이 아니라 죽음 신원에 묶여 있다는 걸 확인.
+            out2 = spawn.reconcile(
+                expected, self._observed_with_death("death-2", "sig-b"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out2[0]["next_action"], "respawn")
+            self.assertEqual(json.loads(state_path.read_text())["respawn_count"], 2)
+
+            # cap(2) 에 도달한 세 번째 distinct death 는 ESCALATE.
+            out3 = spawn.reconcile(
+                expected, self._observed_with_death("death-3", "sig-c"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out3[0]["next_action"], "manual-review")
+
+    def test_healthy_after_flakes_resets_state_next_death_starts_fresh(self):
+        # review D2: 두 번의 transient flake 로 카운터가 cap 근처까지 오른
+        # 뒤 (issue, role) 이 PR 있는 건강한 상태로 관측되면 상태가
+        # 리셋되고, 다음 진짜 죽음은 count 0 부터 다시 시작해야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = Path(td) / "recovery-state"
+            expected = self._expected(issue=1660, role="implementation")
+            state_path = state_dir / "1660-implementation.json"
+
+            for i in range(2):
+                out = spawn.reconcile(
+                    expected, self._observed_with_death(f"flake-{i}", f"sig-flake-{i}"),
+                    recovery_state_dir=state_dir)
+                self.assertEqual(out[0]["next_action"], "respawn")
+
+            self.assertEqual(json.loads(state_path.read_text())["respawn_count"], 2)
+
+            healthy_observed = {"session_verdict": "normal", "pr_number": 99,
+                                 "loop_state": "done", "new_commit": True,
+                                 "failure_signature": None}
+            out_healthy = spawn.reconcile(expected, healthy_observed, recovery_state_dir=state_dir)
+            self.assertEqual(out_healthy, [])
+            self.assertFalse(state_path.exists())
+
+            out_fresh = spawn.reconcile(
+                expected, self._observed_with_death("death-after-reset", "sig-fresh"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out_fresh[0]["next_action"], "respawn")
+            self.assertEqual(json.loads(state_path.read_text())["respawn_count"], 1)
+
+
 class StreamingLanding(unittest.TestCase):
     """issue-503: 팬아웃 완료 단위는 도착하는 대로 처리되지, 전부 모일 때까지
     기다리는 배치 배리어를 거치지 않는다. `spawn.roster_reconcile()`이
