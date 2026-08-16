@@ -25,7 +25,7 @@ def t_yes_with_artifact_present_in_diff_passes():
         "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
         "--- a/gates/test_requirement_met.py\n"
         "+++ b/gates/test_requirement_met.py\n"
-        "+# python3 gates/test_requirement_met.py\n"
+        "+def t_new(): assert Path('gates/test_requirement_met.py').exists()\n"
     )
     verdicts = {
         "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
@@ -119,7 +119,7 @@ def t_multiple_criteria_one_blocking_one_not():
     diff = (
         "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
         "+++ b/gates/test_requirement_met.py\n"
-        "+# python3 gates/test_requirement_met.py\n"
+        "+def t_new(): assert Path('gates/test_requirement_met.py').exists()\n"
     )
     verdicts = {
         "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
@@ -151,14 +151,14 @@ def t_red_artifact_named_only_in_diff_header_prose_fails():
 
 
 def t_green_artifact_in_added_hunk_line_passes():
-    """issue #1660 (#1651 리뷰 픽스, green case): 경로가 실제 추가된
-    코드/테스트 hunk 라인 안에 문자열로 등장하면(이 저장소 관례상 게이트
-    파일은 자신의 사용법 줄에 자기 경로를 남긴다) 통과한다."""
+    """issue #1660 (#1651/#1661 리뷰 픽스, green case): 경로가 실제
+    추가된 코드/테스트 hunk 라인 안에(주석이 아닌 진짜 코드로) 문자열로
+    등장하면 통과한다."""
     diff = (
         "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
         "--- a/gates/test_requirement_met.py\n"
         "+++ b/gates/test_requirement_met.py\n"
-        "+# usage: python3 gates/test_requirement_met.py\n"
+        "+def t_new(): assert Path('gates/test_requirement_met.py').exists()\n"
     )
     verdicts = {
         "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
@@ -166,6 +166,42 @@ def t_green_artifact_in_added_hunk_line_passes():
     result = rm.grade(_BODY, diff, verdicts)
     assert result["blocked"] is False
     assert result["blocking_reasons"] == []
+
+
+def t_red_artifact_named_only_in_added_markdown_line_fails():
+    """issue #1660 (#1661 리뷰 픽스, red case): 아티팩트 경로가 오직
+    추가된 `.md` 산문 라인에서만 이름으로 언급되고 실제 코드/테스트가
+    바뀌지 않았다면 — self-attestation theater — 여전히 블록해야
+    한다."""
+    diff = (
+        "diff --git a/docs/report.md b/docs/report.md\n"
+        "--- a/docs/report.md\n"
+        "+++ b/docs/report.md\n"
+        "+We updated `gates/test_requirement_met.py` to cover this.\n"
+    )
+    verdicts = {
+        "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
+    }
+    result = rm.grade(_BODY, diff, verdicts)
+    assert result["blocked"] is True
+    assert "gates/test_requirement_met.py" in result["blocking_reasons"][0]
+
+
+def t_red_artifact_named_only_in_added_comment_line_fails():
+    """issue #1660 (#1661 리뷰 픽스, red case): 아티팩트 경로가 코드
+    파일 안이어도 주석 전용 추가 라인에만 등장하면 여전히 블록한다."""
+    diff = (
+        "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+        "--- a/gates/test_requirement_met.py\n"
+        "+++ b/gates/test_requirement_met.py\n"
+        "+# see gates/test_requirement_met.py for details\n"
+    )
+    verdicts = {
+        "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
+    }
+    result = rm.grade(_BODY, diff, verdicts)
+    assert result["blocked"] is True
+    assert "gates/test_requirement_met.py" in result["blocking_reasons"][0]
 
 
 def t_check_surfaces_per_criterion_advisory_record():
