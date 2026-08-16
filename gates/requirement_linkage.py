@@ -17,7 +17,10 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 import gh_rest
+import closure_sweep
+import gh_budget
 
 _REQ_ID_RE = re.compile(r"\bR\d+\b")
 _NORTHPOLE_REQ_RE = re.compile(r"northpole\s+req\s*#\s*\d+", re.IGNORECASE)
@@ -58,6 +61,15 @@ def check_issue_body(issue: int, body: str) -> list[str]:
 def check(repo: Path, issue: int) -> list[str]:
     body = gh_rest.fetch_issue_body(repo, issue)
     if body is None:
+        # issue #1681: distinguish quota exhaustion from an ordinary
+        # gh failure — same message convention board-sweep already
+        # emits (gates/closure_sweep.py:645), via the shared helper.
+        try:
+            remaining, ok = closure_sweep.rate_limit_remaining(repo)
+        except OSError:
+            remaining, ok = None, False
+        if ok and remaining == 0:
+            return [gh_budget.budget_message("requirement-drift", remaining)]
         return [f"이슈 #{issue} 본문을 읽을 수 없다(`gh api repos/.../issues/{issue}` 실패) — "
                 f"검사 불가는 통과가 아니다."]
     return check_issue_body(issue, body)

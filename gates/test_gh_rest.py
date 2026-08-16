@@ -66,6 +66,54 @@ def t_fetch_issue_returns_title_and_body_together():
     assert got == {"title": "t", "body": "b"}, got
 
 
+def t_fetch_open_prs_uses_rest_never_graphql(tmp_path=None):
+    seen = []
+
+    def run(argv, cwd=None, capture_output=True, text=True):
+        seen.append(argv)
+        if argv[:2] == ["git", "remote"]:
+            return SimpleNamespace(returncode=0, stdout="git@github.com:owner/repo.git\n")
+        assert argv[:2] == ["gh", "api"], argv
+        assert "--json" not in argv, argv
+        assert "-X" in argv and "GET" in argv, argv
+        body = '[{"number": 1}, {"number": 2}]'
+        return SimpleNamespace(
+            returncode=0,
+            stdout=f'HTTP/2.0 200 OK\r\nEtag: "abc"\r\n\r\n{body}')
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        cache = Path(d) / "cache.json"
+        prs = gh_rest.fetch_open_prs(Path("."), run=run, cache_path=cache)
+        assert prs == [{"number": 1}, {"number": 2}], prs
+        api_calls = [a for a in seen if a[:2] == ["gh", "api"]]
+        assert api_calls and all("pulls" in a[4] for a in api_calls), api_calls
+        assert not any("graphql" in str(a).lower() for a in seen), seen
+
+
+def t_fetch_open_prs_304_reuses_cache_no_fresh_body():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        cache = Path(d) / "cache.json"
+        cache.write_text('{"etag": "abc", "raw": [{"number": 9}]}')
+
+        def run(argv, cwd=None, capture_output=True, text=True):
+            if argv[:2] == ["git", "remote"]:
+                return SimpleNamespace(returncode=0, stdout="git@github.com:owner/repo.git\n")
+            assert "If-None-Match: abc" in argv, argv
+            return SimpleNamespace(returncode=1, stdout="HTTP/2.0 304 Not Modified\r\n\r\n")
+
+        prs = gh_rest.fetch_open_prs(Path("."), run=run, cache_path=cache)
+        assert prs == [{"number": 9}], prs
+
+
+def t_fetch_open_prs_returns_none_on_rest_failure():
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        cache = Path(d) / "cache.json"
+        prs = gh_rest.fetch_open_prs(Path("."), run=_rest_fails(), cache_path=cache)
+        assert prs is None, prs
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:
