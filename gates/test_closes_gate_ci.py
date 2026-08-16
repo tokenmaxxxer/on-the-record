@@ -23,6 +23,7 @@ import acceptance_gate
 import ci
 import gates
 import pr_reference
+import gh_rest
 import spawn
 import shape_contracts
 
@@ -332,29 +333,29 @@ def t_ci_check_closes_only_skips_write_scope_and_protected_path_bundle():
 def t_ci_check_closes_only_still_enforces_phase1_mismatch():
     # closes_only=True 라도 계획-인지 Closes 게이트(+phase1 mismatch)는 돈다
     # — 이게 이 모드의 존재 이유다. 네트워크 없이 확인한다.
-    orig_body = pr_reference._pr_view
+    orig_body = gh_rest.fetch_pr_body
     orig_title, orig_commits = ci._pr_title, ci._pr_commit_messages
-    pr_reference._pr_view = lambda repo, pr: "Closes #245, more context"
+    gh_rest.fetch_pr_body = lambda repo, pr: "Closes #245, more context"
     ci._pr_title = lambda repo, pr: "issue-245: phase 1"
     ci._pr_commit_messages = lambda repo, pr: []
     try:
         bad = ci.check(Path("."), pr=1, issue=245, phase="phase1", closes_only=True)
     finally:
-        pr_reference._pr_view = orig_body
+        gh_rest.fetch_pr_body = orig_body
         ci._pr_title, ci._pr_commit_messages = orig_title, orig_commits
     assert any("closing 키워드" in b for b in bad), bad
 
 
 def t_ci_check_closes_only_passes_clean_phase1_body():
-    orig_body = pr_reference._pr_view
+    orig_body = gh_rest.fetch_pr_body
     orig_title, orig_commits = ci._pr_title, ci._pr_commit_messages
-    pr_reference._pr_view = lambda repo, pr: "proposal for #245, no closing keyword"
+    gh_rest.fetch_pr_body = lambda repo, pr: "proposal for #245, no closing keyword"
     ci._pr_title = lambda repo, pr: "issue-245: phase 1 proposal"
     ci._pr_commit_messages = lambda repo, pr: ["wip", "phase 1 work"]
     try:
         bad = ci.check(Path("."), pr=1, issue=245, phase="phase1", closes_only=True)
     finally:
-        pr_reference._pr_view = orig_body
+        gh_rest.fetch_pr_body = orig_body
         ci._pr_title, ci._pr_commit_messages = orig_title, orig_commits
     assert bad == [], bad
 
@@ -368,11 +369,11 @@ def t_autodetect_reachability_fix_blocks_closes_keyword_without_approval():
     # 실제로 도달해 차단한다 — 배선된 `--autodetect --closes-only` 형태
     # 그대로 증명한다.
     orig_head_ref = ci._pr_head_ref
-    orig_body = pr_reference._pr_view
+    orig_body = gh_rest.fetch_pr_body
     orig_title, orig_commits = ci._pr_title, ci._pr_commit_messages
     orig_approvers, orig_comments, orig_reviews = spawn._approvers, spawn._issue_comments, ci._pr_reviews
     ci._pr_head_ref = lambda repo, pr: "issue-245/implementation"
-    pr_reference._pr_view = lambda repo, pr: "Closes #245"
+    gh_rest.fetch_pr_body = lambda repo, pr: "Closes #245"
     ci._pr_title = lambda repo, pr: "issue-245: phase 1"
     ci._pr_commit_messages = lambda repo, pr: []
     spawn._approvers = lambda repo: {"jjongkwann"}
@@ -385,7 +386,7 @@ def t_autodetect_reachability_fix_blocks_closes_keyword_without_approval():
         bad = ci.check(Path("."), pr=1, issue=issue, phase=phase, closes_only=True)
     finally:
         ci._pr_head_ref = orig_head_ref
-        pr_reference._pr_view = orig_body
+        gh_rest.fetch_pr_body = orig_body
         ci._pr_title, ci._pr_commit_messages = orig_title, orig_commits
         spawn._approvers, spawn._issue_comments, ci._pr_reviews = orig_approvers, orig_comments, orig_reviews
     assert any("본문에" in b and "closing 키워드" in b for b in bad), bad
@@ -415,11 +416,11 @@ def t_autodetect_closes_only_blocks_commit_message_keyword_with_clean_body():
     # closing 키워드 → --autodetect --closes-only 배선 그대로 차단.
     # #245/#262/#266 관찰의 실물 사고(commit-message 벡터)를 동형 재현한다.
     orig_head_ref = ci._pr_head_ref
-    orig_body = pr_reference._pr_view
+    orig_body = gh_rest.fetch_pr_body
     orig_title, orig_commits = ci._pr_title, ci._pr_commit_messages
     orig_approvers, orig_comments, orig_reviews = spawn._approvers, spawn._issue_comments, ci._pr_reviews
     ci._pr_head_ref = lambda repo, pr: "issue-245/implementation"
-    pr_reference._pr_view = lambda repo, pr: "no closing keyword, see #245"
+    gh_rest.fetch_pr_body = lambda repo, pr: "no closing keyword, see #245"
     ci._pr_title = lambda repo, pr: "issue-245: phase 1 proposal"
     ci._pr_commit_messages = lambda repo, pr: ["proposal work", "Closes #245"]
     spawn._approvers = lambda repo: {"jjongkwann"}
@@ -432,7 +433,7 @@ def t_autodetect_closes_only_blocks_commit_message_keyword_with_clean_body():
         bad = ci.check(Path("."), pr=1, issue=issue, phase=phase, closes_only=True)
     finally:
         ci._pr_head_ref = orig_head_ref
-        pr_reference._pr_view = orig_body
+        gh_rest.fetch_pr_body = orig_body
         ci._pr_title, ci._pr_commit_messages = orig_title, orig_commits
         spawn._approvers, spawn._issue_comments, ci._pr_reviews = orig_approvers, orig_comments, orig_reviews
     assert any("커밋 메시지에" in b and "closing 키워드" in b for b in bad), bad
@@ -581,17 +582,17 @@ def t_ci_check_phase2_passes_via_record_evidence_without_body_edit():
     # `gh api` on the PR ref has a non-empty loop_state — passes without a
     # body edit.
     repo = Path(".")
-    orig_body, orig_issue_body = pr_reference._pr_view, pr_reference._issue_view_body
+    orig_body, orig_issue_body = gh_rest.fetch_pr_body, gh_rest.fetch_issue_body
     orig_head_ref = ci._pr_head_ref
     orig_fetch = ci._fetch_ref_file
-    pr_reference._pr_view = lambda repo, pr: "delivered the feature, see #245"
-    pr_reference._issue_view_body = lambda repo, issue: ""
+    gh_rest.fetch_pr_body = lambda repo, pr: "delivered the feature, see #245"
+    gh_rest.fetch_issue_body = lambda repo, issue: ""
     ci._pr_head_ref = lambda repo, pr: "issue-245/implementation"
     ci._fetch_ref_file = lambda repo, pr, branch, path: ("---\nloop_state: phase-2-complete\n---\nbody\n", None)
     try:
         bad = ci.check(repo, pr=1, issue=245, phase="phase2", closes_only=True)
     finally:
-        pr_reference._pr_view, pr_reference._issue_view_body = orig_body, orig_issue_body
+        gh_rest.fetch_pr_body, gh_rest.fetch_issue_body = orig_body, orig_issue_body
         ci._pr_head_ref = orig_head_ref
         ci._fetch_ref_file = orig_fetch
     assert bad == [], bad
@@ -601,17 +602,17 @@ def t_ci_check_phase2_blocks_and_names_both_options_when_neither_present():
     # (b) — no Closes in body, no record fetchable via `gh api`: still
     # blocked, message names both the body-edit and record-evidence paths.
     repo = Path(".")
-    orig_body, orig_issue_body = pr_reference._pr_view, pr_reference._issue_view_body
+    orig_body, orig_issue_body = gh_rest.fetch_pr_body, gh_rest.fetch_issue_body
     orig_head_ref = ci._pr_head_ref
     orig_fetch = ci._fetch_ref_file
-    pr_reference._pr_view = lambda repo, pr: "delivered the feature, see #245"
-    pr_reference._issue_view_body = lambda repo, issue: ""
+    gh_rest.fetch_pr_body = lambda repo, pr: "delivered the feature, see #245"
+    gh_rest.fetch_issue_body = lambda repo, issue: ""
     ci._pr_head_ref = lambda repo, pr: "issue-245/implementation"
     ci._fetch_ref_file = lambda repo, pr, branch, path: (None, None)
     try:
         bad = ci.check(repo, pr=1, issue=245, phase="phase2", closes_only=True)
     finally:
-        pr_reference._pr_view, pr_reference._issue_view_body = orig_body, orig_issue_body
+        gh_rest.fetch_pr_body, gh_rest.fetch_issue_body = orig_body, orig_issue_body
         ci._pr_head_ref = orig_head_ref
         ci._fetch_ref_file = orig_fetch
     assert len(bad) == 1, bad
@@ -624,22 +625,22 @@ def t_fork_issue_from_body_resolves_for_confirmed_cross_repo_pr():
     import tempfile
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
-        orig_cross, orig_body = ci._pr_is_cross_repo, pr_reference._pr_view
+        orig_cross, orig_body = ci._pr_is_cross_repo, gh_rest.fetch_pr_body
         ci._pr_is_cross_repo = lambda repo, pr: True
-        pr_reference._pr_view = lambda repo, pr: "Fixes bug, see #330"
+        gh_rest.fetch_pr_body = lambda repo, pr: "Fixes bug, see #330"
         try:
             assert ci._fork_issue_from_body(repo, 1) == 330
         finally:
-            ci._pr_is_cross_repo, pr_reference._pr_view = orig_cross, orig_body
+            ci._pr_is_cross_repo, gh_rest.fetch_pr_body = orig_cross, orig_body
 
 
 def t_autodetect_resolves_fork_pr_with_role_none():
     orig_head_ref = ci._pr_head_ref
-    orig_cross, orig_body = ci._pr_is_cross_repo, pr_reference._pr_view
+    orig_cross, orig_body = ci._pr_is_cross_repo, gh_rest.fetch_pr_body
     orig_approvers, orig_comments, orig_reviews = spawn._approvers, spawn._issue_comments, ci._pr_reviews
     ci._pr_head_ref = lambda repo, pr: "patch-1"
     ci._pr_is_cross_repo = lambda repo, pr: True
-    pr_reference._pr_view = lambda repo, pr: "Fixes bug, see #330"
+    gh_rest.fetch_pr_body = lambda repo, pr: "Fixes bug, see #330"
     spawn._approvers = lambda repo: {"jjongkwann"}
     spawn._issue_comments = lambda repo, n: ([], True)
     ci._pr_reviews = lambda repo, pr: []
@@ -647,7 +648,7 @@ def t_autodetect_resolves_fork_pr_with_role_none():
         result = ci._autodetect_issue_phase(Path("."), 1, None, None)
     finally:
         ci._pr_head_ref = orig_head_ref
-        ci._pr_is_cross_repo, pr_reference._pr_view = orig_cross, orig_body
+        ci._pr_is_cross_repo, gh_rest.fetch_pr_body = orig_cross, orig_body
         spawn._approvers, spawn._issue_comments, ci._pr_reviews = orig_approvers, orig_comments, orig_reviews
     assert result == (330, "phase1"), result
 
@@ -655,15 +656,15 @@ def t_autodetect_resolves_fork_pr_with_role_none():
 def t_autodetect_fails_closed_for_fork_shaped_branch_with_no_resolvable_ref():
     # (d) — confirmed fork PR, no #N anywhere in body: still fail closed.
     orig_head_ref = ci._pr_head_ref
-    orig_cross, orig_body = ci._pr_is_cross_repo, pr_reference._pr_view
+    orig_cross, orig_body = ci._pr_is_cross_repo, gh_rest.fetch_pr_body
     ci._pr_head_ref = lambda repo, pr: "patch-1"
     ci._pr_is_cross_repo = lambda repo, pr: True
-    pr_reference._pr_view = lambda repo, pr: "no issue reference here"
+    gh_rest.fetch_pr_body = lambda repo, pr: "no issue reference here"
     try:
         result = ci._autodetect_issue_phase(Path("."), 1, None, None)
     finally:
         ci._pr_head_ref = orig_head_ref
-        ci._pr_is_cross_repo, pr_reference._pr_view = orig_cross, orig_body
+        ci._pr_is_cross_repo, gh_rest.fetch_pr_body = orig_cross, orig_body
     assert isinstance(result, list), result
     assert any("추출할 수 없다" in b for b in result), result
 
@@ -675,15 +676,15 @@ def t_autodetect_fails_closed_for_wrong_shaped_internal_branch_despite_resolvabl
     # otherwise an internal PR could spoof an issue reference and reach
     # phase2 via the role-blind PR-review-Approve path.
     orig_head_ref = ci._pr_head_ref
-    orig_cross, orig_body = ci._pr_is_cross_repo, pr_reference._pr_view
+    orig_cross, orig_body = ci._pr_is_cross_repo, gh_rest.fetch_pr_body
     ci._pr_head_ref = lambda repo, pr: "patch-1"
     ci._pr_is_cross_repo = lambda repo, pr: False
-    pr_reference._pr_view = lambda repo, pr: "Fixes bug, see #330"
+    gh_rest.fetch_pr_body = lambda repo, pr: "Fixes bug, see #330"
     try:
         result = ci._autodetect_issue_phase(Path("."), 1, None, None)
     finally:
         ci._pr_head_ref = orig_head_ref
-        ci._pr_is_cross_repo, pr_reference._pr_view = orig_cross, orig_body
+        ci._pr_is_cross_repo, gh_rest.fetch_pr_body = orig_cross, orig_body
     assert isinstance(result, list), result
     assert any("추출할 수 없다" in b for b in result), result
 
@@ -697,14 +698,14 @@ def t_autodetect_cross_role_handoff_304_307_shape_is_phase2_no_mismatch():
     # 없다 — 옛 판정(role 정확 일치)에서는 phase1 로 오판돼 이 Closes 줄을
     # 지우라고 했을 시나리오.
     orig_head_ref = ci._pr_head_ref
-    orig_body = pr_reference._pr_view
-    orig_issue_body = pr_reference._issue_view_body
+    orig_body = gh_rest.fetch_pr_body
+    orig_issue_body = gh_rest.fetch_issue_body
     orig_title, orig_commits = ci._pr_title, ci._pr_commit_messages
     orig_approvers, orig_comments, orig_reviews = spawn._approvers, spawn._issue_comments, ci._pr_reviews
     orig_check_issue_body = acceptance_gate.check_issue_body
     ci._pr_head_ref = lambda repo, pr: "issue-304/implementation"
-    pr_reference._pr_view = lambda repo, pr: "delivers the feature.\n\nCloses #304"
-    pr_reference._issue_view_body = (
+    gh_rest.fetch_pr_body = lambda repo, pr: "delivers the feature.\n\nCloses #304"
+    gh_rest.fetch_issue_body = (
         lambda repo, issue: "no plan checklist here\n\n## Acceptance\n"
         "check: `gates/test_closes_gate_ci.py`\n")
     ci._pr_title = lambda repo, pr: "issue-304: phase 2"
@@ -727,8 +728,8 @@ def t_autodetect_cross_role_handoff_304_307_shape_is_phase2_no_mismatch():
         bad = ci.check(Path("."), pr=307, issue=issue, phase=phase, closes_only=True)
     finally:
         ci._pr_head_ref = orig_head_ref
-        pr_reference._pr_view = orig_body
-        pr_reference._issue_view_body = orig_issue_body
+        gh_rest.fetch_pr_body = orig_body
+        gh_rest.fetch_issue_body = orig_issue_body
         ci._pr_title, ci._pr_commit_messages = orig_title, orig_commits
         spawn._approvers, spawn._issue_comments, ci._pr_reviews = orig_approvers, orig_comments, orig_reviews
         acceptance_gate.check_issue_body = orig_check_issue_body
@@ -744,13 +745,13 @@ def t_autodetect_304_307_shape_still_surfaces_real_acceptance_gate_finding():
     # pr_reference.check stops calling acceptance_gate at all, this test
     # still catches that acceptance_gate has gone unreachable.
     orig_head_ref = ci._pr_head_ref
-    orig_body = pr_reference._pr_view
-    orig_issue_body = pr_reference._issue_view_body
+    orig_body = gh_rest.fetch_pr_body
+    orig_issue_body = gh_rest.fetch_issue_body
     orig_title, orig_commits = ci._pr_title, ci._pr_commit_messages
     orig_approvers, orig_comments, orig_reviews = spawn._approvers, spawn._issue_comments, ci._pr_reviews
     ci._pr_head_ref = lambda repo, pr: "issue-304/implementation"
-    pr_reference._pr_view = lambda repo, pr: "delivers the feature.\n\nCloses #304"
-    pr_reference._issue_view_body = lambda repo, issue: "no acceptance section here at all"
+    gh_rest.fetch_pr_body = lambda repo, pr: "delivers the feature.\n\nCloses #304"
+    gh_rest.fetch_issue_body = lambda repo, issue: "no acceptance section here at all"
     ci._pr_title = lambda repo, pr: "issue-304: phase 2"
     ci._pr_commit_messages = lambda repo, pr: []
     spawn._approvers = lambda repo: {"jjongkwann"}
@@ -765,8 +766,8 @@ def t_autodetect_304_307_shape_still_surfaces_real_acceptance_gate_finding():
         bad = ci.check(Path("."), pr=307, issue=issue, phase=phase, closes_only=True)
     finally:
         ci._pr_head_ref = orig_head_ref
-        pr_reference._pr_view = orig_body
-        pr_reference._issue_view_body = orig_issue_body
+        gh_rest.fetch_pr_body = orig_body
+        gh_rest.fetch_issue_body = orig_issue_body
         ci._pr_title, ci._pr_commit_messages = orig_title, orig_commits
         spawn._approvers, spawn._issue_comments, ci._pr_reviews = orig_approvers, orig_comments, orig_reviews
     assert any("Acceptance" in b for b in bad), bad
@@ -779,11 +780,11 @@ def t_autodetect_missing_approval_refusal_names_role_searched_and_approvals_pres
     # 리팩터 전에는 결론("phase-1 위반")만 말했다 — 이제는 어떤 role 을
     # 찾아봤고 이슈에 실제로 어떤 승인이 있는지도 같이 말한다.
     orig_head_ref = ci._pr_head_ref
-    orig_body = pr_reference._pr_view
+    orig_body = gh_rest.fetch_pr_body
     orig_title, orig_commits = ci._pr_title, ci._pr_commit_messages
     orig_approvers, orig_comments, orig_reviews = spawn._approvers, spawn._issue_comments, ci._pr_reviews
     ci._pr_head_ref = lambda repo, pr: "issue-245/implementation"
-    pr_reference._pr_view = lambda repo, pr: "Closes #245"
+    gh_rest.fetch_pr_body = lambda repo, pr: "Closes #245"
     ci._pr_title = lambda repo, pr: "issue-245: phase 1"
     ci._pr_commit_messages = lambda repo, pr: []
     spawn._approvers = lambda repo: {"jjongkwann"}
@@ -798,7 +799,7 @@ def t_autodetect_missing_approval_refusal_names_role_searched_and_approvals_pres
         bad = ci.check(Path("."), pr=1, issue=issue, phase=phase, closes_only=True)
     finally:
         ci._pr_head_ref = orig_head_ref
-        pr_reference._pr_view = orig_body
+        gh_rest.fetch_pr_body = orig_body
         ci._pr_title, ci._pr_commit_messages = orig_title, orig_commits
         spawn._approvers, spawn._issue_comments, ci._pr_reviews = orig_approvers, orig_comments, orig_reviews
     assert any("role(implementation)" in b and "승인 코멘트를" in b and "이슈 #245 에 있는 승인: 없음" in b
