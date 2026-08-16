@@ -7335,6 +7335,37 @@ def _release_spawn_claim(work: str, pid: int) -> None:
             pass
 
 
+_ACCEPTANCE_CHECK_LINE = re.compile(r"^\s*-\s*check\s*:\s*(.+)$", re.MULTILINE)
+
+
+def _goal_pin_block(title: str | None, body: str | None) -> str:
+    """이슈 #1652 (northpole req#6): 제목 + '## Acceptance' 의 'check:'
+    불릿을 스폰 프롬프트에 그대로(verbatim) 박아, 스폰된 역할 세션이
+    첫 턴부터 원본 목표를 본다 — 코멘트 히스토리 등 오염된 문맥은 절대
+    섞지 않는다. Acceptance 절이 없거나 check: 불릿이 하나도 없으면
+    빈 문자열을 돌려준다(오늘의 프롬프트와 바이트 단위로 동일해야
+    한다 — 빈 헤더를 주입하지 않는다).
+    """
+    title = (title or "").strip()
+    body = body or ""
+    sys.path.insert(0, str((ROOT / "gates").resolve()))
+    import acceptance_gate as _acceptance_gate
+    section = _acceptance_gate._acceptance_section(body)
+    if section is None:
+        return ""
+    checks = [c.strip() for c in _ACCEPTANCE_CHECK_LINE.findall(section)]
+    checks = [c for c in checks if c]
+    if not checks:
+        return ""
+    lines = []
+    if title:
+        lines.append(f"이슈 제목(원본 목표): {title}")
+    lines.append("Acceptance 기준(원본, verbatim):")
+    for c in checks:
+        lines.append(f"- check: {c}")
+    return "\n".join(lines) + "\n"
+
+
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
@@ -7398,19 +7429,24 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 스폰 자체를 막을 이유는 없다(require_requirement_linkage 가 이미
         # phase-1 드래프트 시점에 구조적으로 막는다).
         req_line = ""
+        goal_pin = ""
         try:
             sys.path.insert(0, str((ROOT / "gates").resolve()))
             import gh_rest as _gh_rest
             import requirement_linkage as _requirement_linkage
-            body = _gh_rest.fetch_issue_body(Path(cwd), issue)
+            issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
+            body = issue_data.get("body") if issue_data else None
+            title = issue_data.get("title") if issue_data else None
             if body is not None:
                 req_ids = _requirement_linkage.cited_requirement_ids(body)
                 if req_ids:
                     req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
+                goal_pin = _goal_pin_block(title, body)
         except Exception:
             req_line = ""
+            goal_pin = ""
         task = (f"당신의 이슈: #{issue} (subject issue-{issue}, 브랜치 {br}).\n"
-                + req_line +
+                + req_line + goal_pin +
                 f"gh issue view {issue} 로 이슈를 먼저 읽어라.\n"
                 f"완료의 정의: 변경이 이 브랜치에 **커밋**되고 push 되어 PR 로\n"
                 f"제출된 상태다. 미커밋 변경은 존재하지 않는 것과 같다 —\n"
