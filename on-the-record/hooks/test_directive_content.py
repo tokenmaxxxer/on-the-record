@@ -45,18 +45,45 @@ def t_scope_adherence_obligation_present_and_names_gate_module():
     assert "scope:" in _DIRECTIVE
 
 
+def t_verdict_asymmetry_obligation_present_and_names_gate_module():
+    assert "VERDICT-ASYMMETRY AT MERGE (issue #1669)" in _DIRECTIVE
+    assert "gates/verdict_gate.py" in _DIRECTIVE
+    assert "ALLOW_MERGE" in _DIRECTIVE
+    assert "never merge on the LLM verdict alone" in _DIRECTIVE
+
+
+def t_stale_revert_obligation_present_and_names_gate_module():
+    assert "STALE-REVERT AT MERGE (issue #1664)" in _DIRECTIVE
+    assert "gates/stale_revert_guard.py" in _DIRECTIVE
+    assert "REFUSED (rebase required)" in _DIRECTIVE
+
+
+def t_assumption_ledger_obligation_present_and_names_gate_module():
+    assert "ASSUMPTION-LEDGER INVENTED-CONFIRM AT INTAKE (issue #1665)" in _DIRECTIVE
+    assert "gates/assumption_ledger.py" in _DIRECTIVE
+    assert "invented_assumptions()" in _DIRECTIVE
+    assert "BLOCKS the" in _DIRECTIVE
+    assert "spawn" in _DIRECTIVE
+
+
 def t_new_obligations_appear_after_existing_1024_block_before_full_procedure():
-    """Ordering sanity: the three new blocks land alongside (not before)
-    the pre-existing #1024 obligation, and before the directive's closing
-    "Full procedure" line — same section of the injected text."""
+    """Ordering sanity: the six new/existing blocks land alongside (not
+    before) the pre-existing #1024 obligation, and before the directive's
+    closing "Full procedure" line — same section of the injected text."""
     idx_1024 = _DIRECTIVE.index("VALIDITY CONSULT (issue #1024)")
     idx_design = _DIRECTIVE.index("DESIGN-RESEARCH INTAKE (issue #1653)")
     idx_req_met = _DIRECTIVE.index("LANDING REQUIREMENT-MET GRADE (issue #1651)")
     idx_scope = _DIRECTIVE.index("SCOPE ADHERENCE AT LANDING (issue #1658)")
+    idx_verdict = _DIRECTIVE.index("VERDICT-ASYMMETRY AT MERGE (issue #1669)")
+    idx_stale = _DIRECTIVE.index("STALE-REVERT AT MERGE (issue #1664)")
+    idx_ledger = _DIRECTIVE.index("ASSUMPTION-LEDGER INVENTED-CONFIRM AT INTAKE (issue #1665)")
     idx_full_procedure = _DIRECTIVE.index("Full procedure: /orchestrate:run")
     assert idx_1024 < idx_design < idx_full_procedure
     assert idx_1024 < idx_req_met < idx_full_procedure
     assert idx_1024 < idx_scope < idx_full_procedure
+    assert idx_1024 < idx_verdict < idx_full_procedure
+    assert idx_1024 < idx_stale < idx_full_procedure
+    assert idx_1024 < idx_ledger < idx_full_procedure
 
 
 def _run(fn):
