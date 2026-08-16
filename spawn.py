@@ -2805,7 +2805,54 @@ _REQ_ID_RE = re.compile(r"\bR(\d+)\b")
 _NORTHPOLE_REQ_RE = re.compile(r"northpole\s+req\s*#\s*(\d+)", re.IGNORECASE)
 
 
-def requirement_drift(root: Path) -> None:
+def _requirement_drift_cache_path(root: Path) -> Path:
+    return root / "runs" / "requirement_drift_cache.json"
+
+
+def _load_requirement_drift_cache(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_requirement_drift_cache(path: Path, data: dict) -> None:
+    # issue #1688: same atomic temp+rename pattern as
+    # gates/gh_delta.py::_atomic_write_json (that helper is module-private,
+    # so this is a small local duplicate rather than reaching into it).
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".req-drift-", suffix=".tmp")
+    except OSError:
+        return
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp_name, path)
+    except OSError:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+
+
+def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
+    """issue #1688: single-number detail fetch for delta-mode
+    requirement-drift rechecks, routed through `gates.gh_cache.cached_get`
+    (shared ETag cache, #1682) rather than a bare `gh` call."""
+    slug = _repo_slug(root)
+    if not slug:
+        return None
+    sys.path.insert(0, str((ROOT / "gates").resolve()))
+    import gh_cache
+    data, ok, _billed = gh_cache.cached_get(f"repos/{slug}/issues/{number}", root=root)
+    if not ok or not isinstance(data, dict):
+        return None
+    return data
+
+
+def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> None:
     """이슈 #930 (northpole req#6): digest 에 살아있는(=stale 아닌) 요구
     각각이 열린 이슈/PR 중 최소 하나에서 언급되는지, 그리고 열린
     proposal/PR 이 요구 ID 를 하나라도 인용하는지 점검한다. `_board_wide_sweep`
@@ -2814,7 +2861,12 @@ def requirement_drift(root: Path) -> None:
     `gh` 실패는 조용히 건너뛴다(watch 계열 불가침 원칙 — 이 스윕 자체는
     블로킹 게이트가 아니라 이 함수도 그 계약을 넘지 않는다). 틱당 비용은
     O(열린 이슈/PR 수) + O(digest 요구 수) — `accumulation_trend()` 가 같은
-    틱에서 이미 지불하는 것과 같은 자릿수."""
+    틱에서 이미 지불하는 것과 같은 자릿수.
+
+    이슈 #1688: `changed_numbers` 가 주어지면(델타 모드) 그 번호들만
+    `gates.gh_cache.cached_get` 으로 다시 조회하고, 나머지는
+    `runs/requirement_drift_cache.json` 에 저장된 이전 판정용 본문을 그대로
+    재사용한다 — `None` 이면(기본) 기존처럼 열린 이슈/PR 전체를 재훑는다."""
     digest_path = root / "docs" / "specs" / "requirement-digest.md"
     if not digest_path.exists():
         return
@@ -2846,11 +2898,55 @@ def requirement_drift(root: Path) -> None:
         except ValueError:
             return None
 
-    issues = _list("issue")
-    prs = _list("pr")
-    if issues is None or prs is None:
-        print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
-        return
+    cache_path = _requirement_drift_cache_path(root)
+    if changed_numbers is None:
+        issues = _list("issue")
+        prs = _list("pr")
+        if issues is None or prs is None:
+            print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
+            return
+        all_items = issues + prs
+        # issue #1688: full-mode run also refreshes the verdict cache so a
+        # later delta-mode tick can reuse today's fetch for unchanged numbers.
+        cache = {str(item.get("number")): {"title": item.get("title", ""),
+                                            "body": item.get("body", "") or ""}
+                 for item in all_items if item.get("number") is not None}
+        _save_requirement_drift_cache(cache_path, cache)
+    else:
+        # issue #1688: delta mode — only re-fetch the changed numbers (via
+        # the shared gh_cache), reuse the on-disk verdict cache for the rest.
+        cache = _load_requirement_drift_cache(cache_path)
+        all_items = []
+        any_fetch_ok = not changed_numbers
+        failed_numbers: list[int] = []
+        for num in sorted(changed_numbers):
+            item = _fetch_issue_or_pr_via_cache(root, num)
+            if item is None:
+                failed_numbers.append(num)
+                continue
+            any_fetch_ok = True
+            all_items.append(item)
+            cache[str(num)] = {"title": item.get("title", ""),
+                                "body": item.get("body", "") or ""}
+        for key, val in cache.items():
+            try:
+                key_num = int(key)
+            except ValueError:
+                continue
+            if key_num in changed_numbers:
+                continue
+            all_items.append({"number": key_num, "title": val.get("title", ""),
+                               "body": val.get("body", "")})
+        _save_requirement_drift_cache(cache_path, cache)
+        if not any_fetch_ok:
+            print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
+            return
+        if failed_numbers:
+            # 리뷰 non-blocking 노트: 델타 모드에서 개별 번호 조회 실패는
+            # 조용히 사라지지 않고 이 한 줄로 남는다 — 해당 번호는 이번
+            # 틱에서 재평가 안 되고 캐시된 이전 판정을 그대로 쓴다.
+            print(f"[watchdog] requirement-drift: 조회 실패 {failed_numbers} — "
+                  "이전 캐시 판정 유지")
 
     # 이슈 #1219: gates 코드는 언제나 이 체크아웃(ROOT)에서 온다 — root 가
     # 컨슈머의 타깃 프로젝트일 때 거기엔 gates/ 가 없다.
@@ -2866,7 +2962,7 @@ def requirement_drift(root: Path) -> None:
 
     mentioned_reqs: set[str] = set()
     unreferenced_open = []
-    for item in issues + prs:
+    for item in all_items:
         text = f"{item.get('title', '')}\n{item.get('body', '') or ''}"
         found = set(_REQ_ID_RE.findall(text)) | set(
             f"R{n.zfill(3)}" for n in _NORTHPOLE_REQ_RE.findall(text))
@@ -2964,6 +3060,18 @@ def _board_wide_sweep_all(root: Path, d_all: dict) -> int:
     return count
 
 
+# 이슈 #1688 blocker 2: gh_budget(#1681, gates/gh_budget.py — 이미 merged,
+# PR #1685)로 워치독 클래스를 미터링한다. 계정 리저브 바닥은 closure_sweep
+# 의 기존 가드 문턱과 동일하게 맞춰 이중 가드를 만들지 않는다. 예산 값은
+# 틱당 최대 gh 호출 수(call_budget=8)의 몇 배로 넉넉히 잡아, 정상 동작에서
+# 절대 안 걸리고 실제 폭주(무한 루프성 재시도 등)에서만 백스톱으로 걸리게
+# 한다.
+_WATCHDOG_GH_BUDGET_CLASSES = {"watchdog": 200}
+
+
+_HEAD_REF_SUBJECT_RE = re.compile(r"^issue-(\d+)/")
+
+
 def _board_wide_sweep(root: Path) -> int:
     """이슈 #464: closure_sweep/spawn_coverage 를 한 틱씩 돌려 보고만 한다
     (observe-only, roster_watchdog 계약과 동일). 위반/미커버 이슈 수를
@@ -2985,21 +3093,42 @@ def _board_wide_sweep(root: Path) -> int:
     드롭되지 않고 `runs/board_sweep_queue.json`에 이월되어 다음 틱(들)에
     반드시 돈다(watch-coverage 불가침 계약). 예산=8 은 오늘의
     call_budget 과 같은 값을 유지해 기존 관측 동작(사실상 매 틱 세
-    카테고리 다 돔)을 그대로 보존한다."""
+    카테고리 다 돔)을 그대로 보존한다.
+
+    이슈 #1688: 백오프/레이트리밋 가드를 통과하면, 카테고리를 고르기 전에
+    `gates.gh_delta.fetch_delta(root, slug, "issues")` 를 틱당 정확히 1회
+    부른다 — 이 틱의 유일한 조건부 프로브. `"no-change"` 면 상세 조회를
+    전부 건너뛰고(`accumulation_trend()` 만 예외로 계속 돈다),
+    `"delta"` 면 closure-sweep/requirement-drift 를 델타의 이슈/PR 번호로만
+    좁히고, `"full-rescan"`/`"error"`/(비-GitHub 레포라 `slug` 가 없는 경우)
+    는 오늘의 전체 로직으로 그대로 떨어진다."""
     sys.path.insert(0, str(ROOT / "gates"))
     import closure_sweep
     import spawn_coverage
     import spawn_on_pr
+    import gh_delta
+    import gh_budget
     count = 0
     call_budget = 8
+    budget = gh_budget.GhBudget(root, classes=_WATCHDOG_GH_BUDGET_CLASSES,
+                                 reserve=closure_sweep._RATE_LIMIT_GUARD_THRESHOLD)
 
-    def _run_local_only_signals() -> None:
+    def _charge_watchdog_budget(source: str, cost: int = 1) -> bool:
+        result = budget.charge("watchdog", cost=cost)
+        if not result["ok"]:
+            print(gh_budget.budget_message(source, result["remaining"], result.get("until")))
+        return result["ok"]
+
+    def _run_local_only_signals(changed_numbers: set[int] | None = None,
+                                 skip_requirement_drift: bool = False) -> None:
         # 이슈 #512 요구사항 4 / #930 요구#6: advisory only — 아무것도
         # 막지 않고 anomaly count 에도 합산하지 않는다. gh 를 쓰지 않으므로
         # 쿼터 바닥/백오프와 무관하게 항상 돈다.
         trend = closure_sweep.accumulation_trend(root)
         print(f"[watchdog] {closure_sweep.format_accumulation_trend(trend)}")
-        requirement_drift(root)
+        if skip_requirement_drift:
+            return
+        requirement_drift(root, changed_numbers=changed_numbers)
 
     backoff_state = closure_sweep.load_backoff_state(root)
     if not closure_sweep.sweep_should_run(backoff_state, "board-sweep"):
@@ -3018,9 +3147,87 @@ def _board_wide_sweep(root: Path) -> int:
         _run_local_only_signals()
         return count
 
+    # 이슈 #1688: 틱당 단일 변경-커서 프로브. gh_budget(#1681, landed —
+    # gates/gh_budget.py) 미터링을 프로브 자체보다 먼저 건다 — 예산 소진이면
+    # 프로브조차 안 나가고 이번 틱은 로컬 신호만 돈다.
+    slug = _repo_slug(root)
+    delta_items: list[dict] | None = None
+    delta_classification: str | None = None
+    changed_numbers: set[int] = set()
+    if slug:
+        if not _charge_watchdog_budget("board-sweep gh_delta probe"):
+            count += 1
+            _run_local_only_signals()
+            return count
+        try:
+            delta_items, _delta_cursor, delta_classification = gh_delta.fetch_delta(
+                root, slug, "issues", include_prs=True)
+        except Exception as ex:
+            delta_classification = "error"
+            print(f"[watchdog] gh_delta 프로브 예외: {ex}", file=sys.stderr)
+
+        if delta_classification == "error":
+            print("[watchdog] board-sweep: gh_delta 프로브 실패 (error 분류) — "
+                  "보수적으로 오늘의 전체 로직으로 폴백")
+        elif delta_classification == "no-change":
+            closure_sweep.record_sweep_result(backoff_state, "board-sweep", False)
+            closure_sweep.save_backoff_state(root, backoff_state)
+            print("[watchdog] board-sweep: no-change (delta empty) — "
+                  "상세 조회/전체 재훑기 건너뜀")
+            _run_local_only_signals(skip_requirement_drift=True)
+            return count
+        elif delta_classification == "full-rescan":
+            print("[watchdog] board-sweep: full-rescan (gh_delta 분류 — 커서 "
+                  "없음/손상, 페이지 오버플로, 또는 재훑기 주기 도래 중 하나; "
+                  "gh_delta 는 구체적 사유 문자열을 노출하지 않는다) — "
+                  "오늘의 전체 로직으로 폴백")
+        elif delta_classification == "delta":
+            pr_numbers: set[int] = set()
+            for it in (delta_items or []):
+                n = it.get("number")
+                if not isinstance(n, int):
+                    continue
+                if "pull_request" in it:
+                    pr_numbers.add(n)
+                else:
+                    changed_numbers.add(n)
+            if pr_numbers:
+                # 이슈 #1688 blocker 1: PR 만 바뀐 틱은 이슈 번호가 델타에
+                # 안 잡힌다 — 각 PR 을 headRefName(issue-<n>/<role>)으로
+                # subject 이슈에 매핑해 narrowing set 에 합친다.
+                # closure_sweep._pr_index_all 은 이 파일이 이미 다른
+                # 경로(closure-sweep 처리)에서 쓰는 동일한 `gh pr list`
+                # 인덱스 — PR 변경이 있을 때만(무변경 틱엔 안 나감) 도는
+                # 추가 1회 호출이다.
+                pr_index, pr_index_ok = closure_sweep._pr_index_all(root)
+                if pr_index_ok and pr_index is not None:
+                    number_to_branch = {v.get("number"): k for k, v in pr_index.items()}
+                    for prn in sorted(pr_numbers):
+                        branch = number_to_branch.get(prn)
+                        m = _HEAD_REF_SUBJECT_RE.match(branch) if branch else None
+                        if m:
+                            changed_numbers.add(int(m.group(1)))
+                        else:
+                            print(f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
+                                  f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<role> "
+                                  "형식 아님) — 이 PR 은 narrowing 에서 무시")
+                else:
+                    print(f"[watchdog] board-sweep: PR {sorted(pr_numbers)} 변경 감지했으나 "
+                          "PR 인덱스 조회 실패 — subject 매핑 불가, 이 PR 들은 narrowing 에서 무시")
+            print(f"[watchdog] board-sweep: delta {len(changed_numbers)}건 "
+                  f"변경 {sorted(changed_numbers)} — 해당 subject/이슈만 재평가")
+    delta_mode = slug is not None and delta_classification == "delta"
+
     this_tick, carried_over = closure_sweep.next_categories(root, call_budget)
     if carried_over:
         print(f"[watchdog] board-sweep: 이월 (예산) {carried_over}")
+
+    if this_tick and not _charge_watchdog_budget("board-sweep sweep calls", cost=len(this_tick)):
+        count += 1
+        closure_sweep.record_sweep_result(backoff_state, "board-sweep", False)
+        closure_sweep.save_backoff_state(root, backoff_state)
+        _run_local_only_signals(changed_numbers=changed_numbers if delta_mode else None)
+        return count
 
     issue_states, issue_states_ok = (None, True)
     if "spawn-on-pr" in this_tick or "closure-sweep" in this_tick:
@@ -3044,7 +3251,17 @@ def _board_wide_sweep(root: Path) -> int:
             print(f"[watchdog] spawn-on-pr 실패: {ex}", file=sys.stderr)
 
     if "closure-sweep" in this_tick:
-        violations, skips = closure_sweep.find_violations(root, issue_states=issue_states)
+        # 이슈 #1688: delta 모드면 board() 를 델타의 이슈/PR 번호로 필터한
+        # subjects 만 넘겨 그 subject 만 재평가한다(전체 보드 아님).
+        sweep_subjects = None
+        if delta_mode:
+            sweep_subjects = {}
+            for subj, roles in board(root).items():
+                parts = subj.split("-", 1)
+                if len(parts) == 2 and parts[1].isdigit() and int(parts[1]) in changed_numbers:
+                    sweep_subjects[subj] = roles
+        violations, skips = closure_sweep.find_violations(
+            root, subjects=sweep_subjects, issue_states=issue_states)
         calls_made += 1
         if violations:
             count += len(violations)
@@ -3055,7 +3272,7 @@ def _board_wide_sweep(root: Path) -> int:
             count += 1
             print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
 
-    _run_local_only_signals()
+    _run_local_only_signals(changed_numbers=changed_numbers if delta_mode else None)
 
     if "spawn-coverage" in this_tick:
         open_issues = spawn_coverage._list_open_issues(root)
