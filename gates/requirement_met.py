@@ -47,20 +47,48 @@ def _cited_artifact(raw: str) -> str | None:
     return m.group(1).strip()
 
 
+_PROSE_FILE_SUFFIXES = (".md", ".markdown", ".txt")
+_COMMENT_PREFIXES = ("#", "//", "*", "/*")
+
+
+def _is_comment_only_line(content: str) -> bool:
+    """추가된 hunk 라인(선행 `+` 제거 후)이 주석/문서 텍스트로만
+    이루어졌는지 판단한다 — 코드가 실제로 아티팩트를 참조하는지와
+    아티팩트 경로를 산문으로만 언급하는지를 구별하기 위함."""
+    stripped = content.strip()
+    return stripped.startswith(_COMMENT_PREFIXES)
+
+
 def _artifact_in_diff_hunk(artifact: str, diff: str) -> bool:
-    """이슈 #1660 (northpole req#6) — #1651 리뷰 픽스: 아티팩트가 diff의
-    실제 추가/변경 hunk 라인에 등장하는지 검사한다. `diff --git a/<path>
-    b/<path>`, `--- a/<path>`, `+++ b/<path>` 같은 헤더 줄에만 경로가
-    등장하는 것(파일이 건드려졌다는 사실만 prose 로 이름 붙인 것)은
-    통과시키지 않는다 — 반드시 `+`로 시작하는(그리고 `+++` 파일 헤더가
-    아닌) 실제 추가 라인 안에 문자열로 등장해야 한다."""
+    """이슈 #1660 (northpole req#6) — #1651/#1661 리뷰 픽스: 아티팩트가
+    diff의 실제 추가/변경 hunk 라인 중 코드/콘텐츠 라인에 등장하는지
+    검사한다. 다음은 통과시키지 않는다 (파일이 건드려졌다는 사실이나
+    경로를 산문으로만 이름 붙인 것에 불과하므로):
+      - `diff --git a/<path> b/<path>`, `--- a/<path>`, `+++ b/<path>`
+        같은 파일 헤더 줄에만 경로가 등장하는 것
+      - `.md`/`.markdown`/`.txt` 같은 산문 전용 파일에 추가된 줄
+      - `#`/`//`/`*`/`/*` 로 시작하는 주석 전용 추가 줄
+    반드시 `+`로 시작하는(파일 헤더가 아닌) 실제 코드/콘텐츠 추가 라인
+    안에 문자열로 등장해야 한다."""
     if not artifact:
         return False
+    current_file = None
     for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            current_file = line[len("+++ b/"):].strip()
+            continue
         if line.startswith("+++") or line.startswith("---"):
             continue
-        if line.startswith("+") and artifact in line:
-            return True
+        if not line.startswith("+"):
+            continue
+        content = line[1:]
+        if artifact not in content:
+            continue
+        if current_file and current_file.lower().endswith(_PROSE_FILE_SUFFIXES):
+            continue
+        if _is_comment_only_line(content):
+            continue
+        return True
     return False
 
 
