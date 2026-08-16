@@ -31,6 +31,35 @@ def t_check_issue_body_allows_infrastructure_tagged_body():
     assert bad == [], bad
 
 
+def t_check_emits_distinct_budget_message_at_remaining_zero():
+    """issue #1681: a rate-limited body fetch must print the same
+    distinct budget/rate-limit line board-sweep does, not the generic
+    'body를 읽을 수 없다' failure."""
+    orig_fetch = requirement_linkage.gh_rest.fetch_issue_body
+    orig_rl = requirement_linkage.closure_sweep.rate_limit_remaining
+    requirement_linkage.gh_rest.fetch_issue_body = lambda repo, issue, run=None: None
+    requirement_linkage.closure_sweep.rate_limit_remaining = lambda root: (0, True)
+    try:
+        bad = requirement_linkage.check(Path("."), 1099)
+    finally:
+        requirement_linkage.gh_rest.fetch_issue_body = orig_fetch
+        requirement_linkage.closure_sweep.rate_limit_remaining = orig_rl
+    assert bad == ["[watchdog] requirement-drift: 미집계 (rate-limit, remaining=0)"], bad
+
+
+def t_check_reports_ordinary_failure_when_not_rate_limited():
+    orig_fetch = requirement_linkage.gh_rest.fetch_issue_body
+    orig_rl = requirement_linkage.closure_sweep.rate_limit_remaining
+    requirement_linkage.gh_rest.fetch_issue_body = lambda repo, issue, run=None: None
+    requirement_linkage.closure_sweep.rate_limit_remaining = lambda root: (None, False)
+    try:
+        bad = requirement_linkage.check(Path("."), 1099)
+    finally:
+        requirement_linkage.gh_rest.fetch_issue_body = orig_fetch
+        requirement_linkage.closure_sweep.rate_limit_remaining = orig_rl
+    assert bad and "미집계 (rate-limit" not in bad[0], bad
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:
