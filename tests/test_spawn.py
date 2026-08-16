@@ -6871,6 +6871,34 @@ class IssueComments(unittest.TestCase):
         self.assertEqual(out, [])
 
 
+class IssueCommentsEtagProbeUsesExplicitGetMethod(unittest.TestCase):
+    """issue #1644: PR #1641이 closure_sweep._conditional_issue_list에서
+    고친 것과 같은 결함 모양이 spawn.py의 _issue_comments ETag 프로브에도
+    남아 있었다 — `gh api ... -f ...`는 `--method GET`이 없으면 POST로
+    나가 comments 엔드포인트가 422를 낸다. ConditionalIssueListUsesExplicit
+    GetMethod(gates/test_closure_sweep.py)와 같은 핀 모양."""
+
+    def test_probe_cmd_carries_explicit_method_get(self):
+        orig_slug = spawn._repo_slug
+        orig_run = subprocess.run
+        spawn._repo_slug = lambda root: "acme/repo"
+        calls = []
+
+        def fake_run(cmd, *a, **k):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+
+        spawn.subprocess.run = fake_run
+        try:
+            spawn._issue_comments(Path("."), 999)
+        finally:
+            spawn._repo_slug = orig_slug
+            spawn.subprocess.run = orig_run
+        probe_cmd = calls[0]
+        self.assertIn("--method", probe_cmd)
+        self.assertEqual(probe_cmd[probe_cmd.index("--method") + 1], "GET")
+
+
 class RosterConcurrency(unittest.TestCase):
     """issue #139: 잠금 없는 read-modify-write 가 동시 등록을 잃어버렸던 문제."""
 
