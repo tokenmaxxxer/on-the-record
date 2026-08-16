@@ -21,7 +21,12 @@ _BODY = """## Acceptance
 
 
 def t_yes_with_artifact_present_in_diff_passes():
-    diff = "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n+pass\n"
+    diff = (
+        "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+        "--- a/gates/test_requirement_met.py\n"
+        "+++ b/gates/test_requirement_met.py\n"
+        "+def t_new(): assert Path('gates/test_requirement_met.py').exists()\n"
+    )
     verdicts = {
         "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
     }
@@ -75,7 +80,14 @@ def t_semantic_verdict_is_advisory_only_recorded_not_blocking_by_itself():
     """NO/UNKNOWN semantic verdicts never block on their own — only the
     deterministic artifact-presence sub-check (YES + missing artifact)
     blocks. This asserts the separation the issue requires."""
-    diff = "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n+pass\ndiff --git a/gates/requirement_met.py b/gates/requirement_met.py\n+pass\n"
+    diff = (
+        "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+        "+++ b/gates/test_requirement_met.py\n"
+        "+# python3 gates/test_requirement_met.py\n"
+        "diff --git a/gates/requirement_met.py b/gates/requirement_met.py\n"
+        "+++ b/gates/requirement_met.py\n"
+        "+# python3 gates/requirement_met.py\n"
+    )
     verdicts = {
         "unit test at `gates/test_requirement_met.py` runs and passes.": rm.NO,
         "live check at `gates/requirement_met.py` runs against a real PR.": rm.UNKNOWN,
@@ -104,7 +116,11 @@ def t_empty_state_no_acceptance_section_is_distinct_result():
 
 
 def t_multiple_criteria_one_blocking_one_not():
-    diff = "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n+pass\n"
+    diff = (
+        "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+        "+++ b/gates/test_requirement_met.py\n"
+        "+def t_new(): assert Path('gates/test_requirement_met.py').exists()\n"
+    )
     verdicts = {
         "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
         "live check at `gates/requirement_met.py` runs against a real PR.": rm.YES,
@@ -112,6 +128,100 @@ def t_multiple_criteria_one_blocking_one_not():
     result = rm.grade(_BODY, diff, verdicts)
     assert result["blocked"] is True
     assert len(result["blocking_reasons"]) == 1
+
+
+def t_red_artifact_named_only_in_diff_header_prose_fails():
+    """issue #1660 (#1651 리뷰 픽스, red case): 경로가 diff의 파일 헤더
+    줄(`diff --git`/`---`/`+++`)에만 등장하고 실제 추가 hunk 라인에는
+    등장하지 않으면 — "prose 로 경로만 이름 붙인 것" — 더 이상 통과하지
+    않는다."""
+    diff = (
+        "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+        "index abc123..def456 100644\n"
+        "--- a/gates/test_requirement_met.py\n"
+        "+++ b/gates/test_requirement_met.py\n"
+        "+pass\n"
+    )
+    verdicts = {
+        "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
+    }
+    result = rm.grade(_BODY, diff, verdicts)
+    assert result["blocked"] is True
+    assert "gates/test_requirement_met.py" in result["blocking_reasons"][0]
+
+
+def t_green_artifact_in_added_hunk_line_passes():
+    """issue #1660 (#1651/#1661 리뷰 픽스, green case): 경로가 실제
+    추가된 코드/테스트 hunk 라인 안에(주석이 아닌 진짜 코드로) 문자열로
+    등장하면 통과한다."""
+    diff = (
+        "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+        "--- a/gates/test_requirement_met.py\n"
+        "+++ b/gates/test_requirement_met.py\n"
+        "+def t_new(): assert Path('gates/test_requirement_met.py').exists()\n"
+    )
+    verdicts = {
+        "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
+    }
+    result = rm.grade(_BODY, diff, verdicts)
+    assert result["blocked"] is False
+    assert result["blocking_reasons"] == []
+
+
+def t_red_artifact_named_only_in_added_markdown_line_fails():
+    """issue #1660 (#1661 리뷰 픽스, red case): 아티팩트 경로가 오직
+    추가된 `.md` 산문 라인에서만 이름으로 언급되고 실제 코드/테스트가
+    바뀌지 않았다면 — self-attestation theater — 여전히 블록해야
+    한다."""
+    diff = (
+        "diff --git a/docs/report.md b/docs/report.md\n"
+        "--- a/docs/report.md\n"
+        "+++ b/docs/report.md\n"
+        "+We updated `gates/test_requirement_met.py` to cover this.\n"
+    )
+    verdicts = {
+        "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
+    }
+    result = rm.grade(_BODY, diff, verdicts)
+    assert result["blocked"] is True
+    assert "gates/test_requirement_met.py" in result["blocking_reasons"][0]
+
+
+def t_red_artifact_named_only_in_added_comment_line_fails():
+    """issue #1660 (#1661 리뷰 픽스, red case): 아티팩트 경로가 코드
+    파일 안이어도 주석 전용 추가 라인에만 등장하면 여전히 블록한다."""
+    diff = (
+        "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+        "--- a/gates/test_requirement_met.py\n"
+        "+++ b/gates/test_requirement_met.py\n"
+        "+# see gates/test_requirement_met.py for details\n"
+    )
+    verdicts = {
+        "unit test at `gates/test_requirement_met.py` runs and passes.": rm.YES,
+    }
+    result = rm.grade(_BODY, diff, verdicts)
+    assert result["blocked"] is True
+    assert "gates/test_requirement_met.py" in result["blocking_reasons"][0]
+
+
+def t_check_surfaces_per_criterion_advisory_record():
+    """issue #1660: `check()`가 기준별 semantic verdict 를 advisory 로
+    노출한다 — blocking_reasons 와 분리된 별도 키."""
+    import unittest.mock as mock
+
+    with mock.patch.object(rm.gh_rest, "fetch_issue_body", return_value=_BODY), \
+         mock.patch.object(rm, "_pr_diff", return_value=(
+             "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+             "+++ b/gates/test_requirement_met.py\n"
+             "+# python3 gates/test_requirement_met.py\n")):
+        result = rm.check(Path("."), 1651, 1, {
+            "unit test at `gates/test_requirement_met.py` runs and passes.": rm.NO,
+        })
+    assert result["blocked"] is False
+    assert len(result["advisory"]) == 2
+    kinds = {a["raw"]: a["verdict"] for a in result["advisory"]}
+    assert kinds["unit test at `gates/test_requirement_met.py` runs and passes."] == rm.NO
+    assert kinds["live check at `gates/requirement_met.py` runs against a real PR."] == rm.UNKNOWN
 
 
 def _run(fn):
