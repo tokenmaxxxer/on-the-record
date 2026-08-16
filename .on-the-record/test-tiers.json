@@ -1,0 +1,15 @@
+{
+  "fast": {
+    "command": "python3 -m pytest -q -m \"not slow\"",
+    "budget_seconds": 300
+  },
+  "slow": {
+    "command": "python3 -m pytest -q -m slow",
+    "trigger_change_classes": [
+      "spawn.py",
+      "tests/test_spawn.py",
+      "on-the-record/hooks/*.sh",
+      "on-the-record/hooks/test_*.py"
+    ]
+  }
+}
