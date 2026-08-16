@@ -37,3 +37,4 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | tests/test_spawn.py::Reconcile-family | `python3 -m pytest tests/test_spawn.py -k Reconcile -q` | 2026-08-16 (issue #1678) |
 | self (fast tier) | `python3 -m pytest -q -m "not slow"` | 2026-08-16 (issue #1678) |
 | self (slow tier) | `python3 -m pytest -q -m slow` | 2026-08-16 (issue #1678) |
+| gates/test_boundary.py::issue-492-reconcile-markers | `python3 -m pytest gates/test_boundary.py -q -k "492 or reconcile"` | 2026-08-16 (issue #1678) |
