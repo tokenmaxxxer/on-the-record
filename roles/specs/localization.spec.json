@@ -74,6 +74,36 @@
   "write_scope": [
     "docs/issue-<n>/reports/localization.md"
   ],
+  "quality_bar": [
+    {
+      "criterion": "pattern_value_matches_ldml_grammar_for_locale",
+      "verification_method": "automated check that `pattern_value` parses under the LDML pattern grammar for its declared `pattern_type` and `locale`, matching the spec's own `recomputation` rule",
+      "evidence_grade": "validated",
+      "verified_source": "Unicode, 'UTS #35: Unicode LDML' — https://www.unicode.org/reports/tr35/ (primary source; §Date/Time/Number Format Patterns define the exact per-type grammar a pattern_value must satisfy)."
+    },
+    {
+      "criterion": "no_source_string_concatenation_of_translated_fragments",
+      "verification_method": "human-review-checklist: is any translated string assembled by concatenating separately-translated word fragments (rather than translating a whole sentence/phrase as one unit)?",
+      "evidence_grade": "validated",
+      "verified_source": "Unicode, 'UTS #35: Unicode LDML', 'MessageFormat' section — https://www.unicode.org/reports/tr35/#Message_Format (primary source; LDML's own message-format design exists specifically to avoid fragment concatenation, since word order and inflection are not universal across locales)."
+    },
+    {
+      "criterion": "mqm_error_severity_classified_for_flagged_defects",
+      "verification_method": "human-review-checklist: is every flagged translation defect classified with an MQM error category and severity (minor/major/critical), rather than left as an unclassified note?",
+      "evidence_grade": "validated",
+      "verified_source": "Lommel et al., 'Multidimensional Quality Metrics (MQM)' — https://themqm.org (primary source; MQM's own framework requires each error to carry a typed category and severity weight, matching the spec's own `feedback_methodology`)."
+    },
+    {
+      "criterion": "second_linguist_revision_step_completed",
+      "verification_method": "automated check that a revision/review step by a second linguist (distinct from the original translator) is recorded before the pattern is marked `validating`, matching the spec's own `review_methodology`",
+      "evidence_grade": "validated",
+      "verified_source": "ISO 17100:2015, 'Translation services — Requirements for translation services' — iso.org/standard/59149.html (primary source; ISO 17100 mandates a revision step performed by a person other than the translator as a required stage, not optional QA)."
+    },
+    {
+      "criterion": "human_comprehensibility_verdict",
+      "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+    }
+  ],
   "loop_state": {
     "progress": [
       "translating",
@@ -83,7 +113,8 @@
       "landed"
     ],
     "refusal": [
-      "locale-undeclared"
+      "locale-undeclared",
+      "bar-not-met"
     ],
     "error": [
       "cldr-data-unreachable"
