@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import flows
+import gh_rest
 import gates
 import pr_reference
 import record_lint
@@ -310,7 +311,7 @@ def _fork_issue_from_body(repo: Path, pr: int) -> int | None:
     호출부(`_autodetect_issue_phase`)가 이어서 fail closed 한다."""
     if not _pr_is_cross_repo(repo, pr):
         return None
-    body = pr_reference._pr_view(repo, pr)
+    body = gh_rest.fetch_pr_body(repo, pr)
     if not body:
         return None
     refs = pr_reference._PLAIN_REF.findall(body)
@@ -426,7 +427,7 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
                                    for b in ref_bad]
             bad += ref_bad
             if phase == "phase1":
-                body = pr_reference._pr_view(repo, pr)
+                body = gh_rest.fetch_pr_body(repo, pr)
                 if body is None:
                     bad.append(f"PR #{pr} 본문을 읽을 수 없다(`gh pr view` 실패) — 검사 불가는 통과가 아니다.")
                 title = _pr_title(repo, pr)

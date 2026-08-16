@@ -1,13 +1,25 @@
 """Acceptance tests for issue #1518's test-tier contract convention."""
+import importlib.util
 import json
+from pathlib import Path
 
-from gates.test_tier_contract import (
-    DEFAULT_BUDGET_SECONDS,
-    load_contract,
-    no_contract_gap,
-    parse_contract,
-    select_tier,
-)
+# issue #1619: `gates/gates.py` is bare-imported as top-level `gates` by
+# gates/test_*.py (rootdir sys.path insertion for dirs with no
+# __init__.py), which binds sys.modules['gates'] to that flat module.
+# When gates/ collects before tests/ in a full-suite run, a later
+# `from gates.test_tier_contract import ...` here finds the same
+# sys.modules['gates'] entry and fails ("'gates' is not a package")
+# since it has no __path__ -- load by explicit file path instead of by
+# package name to sidestep the collision.
+_spec = importlib.util.spec_from_file_location(
+    "test_tier_contract", Path(__file__).resolve().parent.parent / "gates" / "test_tier_contract.py")
+_test_tier_contract = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_test_tier_contract)
+DEFAULT_BUDGET_SECONDS = _test_tier_contract.DEFAULT_BUDGET_SECONDS
+load_contract = _test_tier_contract.load_contract
+no_contract_gap = _test_tier_contract.no_contract_gap
+parse_contract = _test_tier_contract.parse_contract
+select_tier = _test_tier_contract.select_tier
 
 
 def test_contract_parse_and_budget(tmp_path):
