@@ -47,6 +47,23 @@ def _cited_artifact(raw: str) -> str | None:
     return m.group(1).strip()
 
 
+def _artifact_in_diff_hunk(artifact: str, diff: str) -> bool:
+    """이슈 #1660 (northpole req#6) — #1651 리뷰 픽스: 아티팩트가 diff의
+    실제 추가/변경 hunk 라인에 등장하는지 검사한다. `diff --git a/<path>
+    b/<path>`, `--- a/<path>`, `+++ b/<path>` 같은 헤더 줄에만 경로가
+    등장하는 것(파일이 건드려졌다는 사실만 prose 로 이름 붙인 것)은
+    통과시키지 않는다 — 반드시 `+`로 시작하는(그리고 `+++` 파일 헤더가
+    아닌) 실제 추가 라인 안에 문자열로 등장해야 한다."""
+    if not artifact:
+        return False
+    for line in diff.splitlines():
+        if line.startswith("+++") or line.startswith("---"):
+            continue
+        if line.startswith("+") and artifact in line:
+            return True
+    return False
+
+
 def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dict:
     """순수 함수. `issue_body`의 Acceptance 절에서 `- check:` 불릿을 뽑아
     각각을 채점한다.
@@ -82,7 +99,7 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
         raw = chk["raw"]
         artifact = _cited_artifact(raw)
         verdict = per_check_verdicts.get(raw, UNKNOWN)
-        artifact_in_diff = bool(artifact) and artifact in diff
+        artifact_in_diff = bool(artifact) and _artifact_in_diff_hunk(artifact, diff)
         blocking_fail = verdict == YES and not artifact_in_diff
         if blocking_fail:
             if artifact is None:
@@ -112,24 +129,39 @@ def _pr_diff(repo: Path, pr: int) -> str | None:
 
 
 def check(repo: Path, issue: int, pr: int,
-          per_check_verdicts: dict[str, str] | None = None) -> list[str]:
+          per_check_verdicts: dict[str, str] | None = None) -> dict:
     """`gh`-wrapped 버전. `per_check_verdicts`는 builder-blind 세션이 낸
     semantic verdict 매핑 — 이 함수 자체는 그 세션을 스폰하지 않는다(그건
     호출부/오케스트레이터의 몫). 생략하면 모든 기준이 UNKNOWN 으로
     채점되고, UNKNOWN 은 절대 블록하지 않는다(YES 만 아티팩트 부재 시
-    블록)."""
+    블록).
+
+    반환값은 `{"blocked": bool, "blocking_reasons": [str],
+    "advisory": [...]}"` — 이슈 #1660 (#1651 리뷰 픽스): 결정적
+    아티팩트-존재 서브체크만 `blocked`/`blocking_reasons`로 landing 을
+    막고, 기준별 semantic verdict 는 `advisory`로 그대로 노출된다(호출부
+    /오케스트레이터가 참고용으로 기록·표시할 수 있게). 각 advisory 항목:
+    `{"raw", "verdict", "artifact", "artifact_in_diff"}`."""
     body = gh_rest.fetch_issue_body(repo, issue)
     if body is None:
-        return [f"이슈 #{issue} 본문을 읽을 수 없다(`gh api repos/.../issues/{issue}` 실패) — "
-                f"검사 불가는 통과가 아니다."]
+        return {"blocked": True, "advisory": [], "blocking_reasons": [
+            f"이슈 #{issue} 본문을 읽을 수 없다(`gh api repos/.../issues/{issue}` 실패) — "
+            f"검사 불가는 통과가 아니다."]}
     diff = _pr_diff(repo, pr)
     if diff is None:
-        return [f"PR #{pr} diff 를 읽을 수 없다(`gh pr diff {pr}` 실패) — "
-                f"검사 불가는 통과가 아니다."]
+        return {"blocked": True, "advisory": [], "blocking_reasons": [
+            f"PR #{pr} diff 를 읽을 수 없다(`gh pr diff {pr}` 실패) — "
+            f"검사 불가는 통과가 아니다."]}
     result = grade(body, diff, per_check_verdicts or {})
     if result["empty_state"]:
-        return []
-    return result["blocking_reasons"]
+        return {"blocked": False, "advisory": [], "blocking_reasons": []}
+    advisory = [
+        {"raw": c["raw"], "verdict": c["verdict"], "artifact": c["artifact"],
+         "artifact_in_diff": c["artifact_in_diff"]}
+        for c in result["criteria"]
+    ]
+    return {"blocked": result["blocked"], "advisory": advisory,
+            "blocking_reasons": result["blocking_reasons"]}
 
 
 def main() -> int:
@@ -142,7 +174,10 @@ def main() -> int:
     if "--repo" in sys.argv:
         repo = Path(sys.argv[sys.argv.index("--repo") + 1]).resolve()
 
-    bad = check(repo, issue, pr)
+    result = check(repo, issue, pr)
+    for a in result["advisory"]:
+        print(f"advisory: [{a['verdict']}] {a['raw']}")
+    bad = result["blocking_reasons"]
     if not bad:
         print("게이트 통과 (또는 채점 가능한 기준 없음)")
         return 0
