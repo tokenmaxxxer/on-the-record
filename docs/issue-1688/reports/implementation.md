@@ -4,10 +4,11 @@ code_under_review:
   - path: tests/test_spawn.py
   - path: docs/issue-1688/reports/implementation/survey.md
   - path: docs/issue-1688/proposals/wire-delta-into-watchdog.md
-loop_state: coding
+loop_state: landed
 type: feature
 breaking: false
-verdict: pending
+canonical: pytest -q -m "not slow" tests/test_spawn.py executed live this session
+verdict: pass
 ---
 
 ## What was done
@@ -75,6 +76,14 @@ None.
   call, per the original issue's sub-point 8); not built here per the
   issue's explicit allowance to omit it.
 
+## Test evidence
+
+acceptance: python3 -m pytest -q -m "not slow" tests/test_spawn.py
+canonical: pytest -q -m "not slow" tests/test_spawn.py, executed live this session — result: 418 passed, 3 xfailed, 1 xpassed (1 failure on first `-n auto` parallel run, MustMcpAllowEnv::test_unset_env_leaves_allow_list_unchanged; isolated re-run passed — cross-test env pollution, unrelated to this change and pre-existing)
+
+acceptance: python3 -m pytest -q -m slow tests/test_spawn.py
+canonical: pytest -q -m slow tests/test_spawn.py, executed live this session — result: 100 passed, 2 xfailed
+
 ## Next steps
 
-- Land: commit, push, open PR (Closes #1688), update `loop_state` to `landed`.
+None — landed.
