@@ -1,4 +1,5 @@
 runs/
+.on-the-record/recovery-state/
 __pycache__/
 .router.lock
 .warrant-hunt.*
