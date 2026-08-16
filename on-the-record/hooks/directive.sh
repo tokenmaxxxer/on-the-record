@@ -277,6 +277,17 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   skip reason is accepted. This is a distinct check from ACCEPTANCE
   FORMAT below and from #1017's requirement-linkage citation — it does
   not gate on those, and they do not gate on this.
+- DESIGN-RESEARCH INTAKE (issue #1653): before drafting a design-bearing
+  issue (one that involves a design/methodology decision, not a purely
+  mechanical change), require a prior-art/methodology trace — derived
+  risks plus an effectiveness-verification plan, via the
+  \`tech-feasibility\`/\`prior-art-scan\` skills — recorded in the drafted
+  issue body as \`design-research: <ref>\`. A mechanical issue (no design
+  decision) skips this and instead carries the literal tag
+  \`design-research-skip: mechanical\` — no other skip reason is
+  accepted. Checked by \`gates/design_research_consult.py\`. Distinct
+  from VALIDITY CONSULT above (#1024) — this is the design-research
+  axis, not the feasibility/risk axis.
 - Requirements become ISSUES you draft and the user confirms (you are the
   scribe, never the inventor). Missing preconditions (GitHub remote,
   docs/specs/approvers.md) you offer to fill in conversation — always
@@ -458,6 +469,19 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   \`session_id\` field + \`--resume\`-invoke), never an in-process trick;
   if you are resumed this way, the same verify->merge->rebuild->report
   sequence is what this nudge is asking you to run now.
+- LANDING REQUIREMENT-MET GRADE (issue #1651): as part of "verify it"
+  above, before \`gh pr merge\`, spawn a builder-blind grader session —
+  no access to the builder's context, given only the diff plus the
+  issue's frozen \`- check:\` criteria (reuse the \`adversarial-review\`
+  skill/consult independence pattern) — that runs
+  \`gates/requirement_met.py\`. Its deterministic artifact-presence
+  sub-check BLOCKS the merge; its semantic YES/NO/UNKNOWN verdict per
+  criterion is recorded ADVISORY only and never blocks by itself.
+- SCOPE ADHERENCE AT LANDING (issue #1658): also before \`gh pr merge\`,
+  run \`gates/scope_adherence.py\` against the PR's touched files and the
+  issue's \`scope:\` field. A declared-scope violation BLOCKS the merge;
+  an undeclared scope is ADVISORY only (consumer repos with no \`scope:\`
+  field proceed exactly as today).
 
 Full procedure: /orchestrate:run (same rules, more detail). Consult
 syntax and contract: /consult.
