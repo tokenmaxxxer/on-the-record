@@ -1974,15 +1974,75 @@ def fail_closed_downgrade(outcome: str, issue: int | None, blocked: list,
     return "failed-no-commit"
 
 
-def reconcile(expected: dict, observed: dict) -> list[dict]:
+def _recovery_policy_module():
+    """`gates/recovery_policy.py` 를 지연 import 한다 — 다른 `gates.*` 지연
+    import 자리(예: 라인 1667)와 같은 패턴."""
+    sys.path.insert(0, str(ROOT / "gates"))
+    import recovery_policy
+    return recovery_policy
+
+
+def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str | None,
+                                    recovery_state_dir: Path | None = None) -> list[dict]:
+    """이슈 #1678: `pr-expected-missing` 죽음을 무조건 `respawn` 으로
+    이름 붙이던 걸 `recovery_policy.classify_from_state()` 의 판정으로
+    바꾼다 — cap 과 실패-서명 반복을 보고 ESCALATE 할지, 커밋 유무로
+    RESPAWN_IDENTICAL/RESPAWN_WITH_HANDOFF 를 가릴지 결정한다.
+
+    `expected["issue"]` 가 없으면(카운터를 걸 (issue, role) 이 없음) 상태
+    파일을 건드리지 않고 커밋 유무만으로 즉시 판정한다 — 기존
+    `test_expects_pr_missing_not_in_progress_is_respawn` 류처럼 `issue`
+    없이 부르는 순수-비교 호출부는 여전히 상태 I/O 없이 동작한다.
+    """
+    role = expected.get("role")
+    branch = expected.get("branch")
+    issue = expected.get("issue")
+    has_commit = bool(observed.get("new_commit"))
+    failure_signature = observed.get("failure_signature")
+    death_id = observed.get("death_id")
+    base_detail = (f"role={role} branch={branch}: "
+                   f"expects_pr=True pr_number=None session_verdict={verdict!r}")
+
+    if issue is not None and role:
+        recovery_policy = _recovery_policy_module()
+        kwargs = {}
+        if recovery_state_dir is not None:
+            kwargs["state_dir"] = recovery_state_dir
+        policy_verdict = recovery_policy.classify_from_state(
+            issue, role, has_commit=has_commit, has_pr=False,
+            failure_signature=failure_signature, death_id=death_id, **kwargs)
+    else:
+        policy_verdict = ("RESPAWN_WITH_HANDOFF" if has_commit
+                           else "RESPAWN_IDENTICAL")
+
+    if policy_verdict == "ESCALATE":
+        return [{
+            "kind": "pr-expected-missing",
+            "detail": f"{base_detail} policy=ESCALATE (cap reached or repeat failure signature)",
+            "next_action": "manual-review",
+        }]
+    return [{
+        "kind": "pr-expected-missing",
+        "detail": f"{base_detail} policy={policy_verdict}",
+        "next_action": "respawn",
+        "handoff": policy_verdict == "RESPAWN_WITH_HANDOFF",
+    }]
+
+
+def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = None) -> list[dict]:
     """이슈-492 step 2 (ADR: `docs/issue-492/decisions/2026-08-08-reconciliation-step-for-supervision.md`).
 
     순수 함수: 로스터/보드/PR/git 에서 이미 읽은 값을 받아 비교만 한다 —
-    여기서 새 `gh` 호출이나 파일 읽기를 하지 않는다.
+    여기서 새 `gh` 호출을 하지 않는다. 예외 하나(이슈 #1678): `pr-expected-missing`
+    가지에서 `expected["issue"]` 가 있으면 `recovery_policy.classify_from_state()`
+    를 불러 per-(issue, role) 재기동 카운터를 읽고 쓴다 — 이건 `gh`/git 재조회가
+    아니라 이 reconcile 자신의 판정 상태이므로 순수성 취지(외부 세계 재조회
+    없음)는 유지된다.
 
-    `expected = {"expects_pr": bool, "role": str, "branch": str}`
+    `expected = {"expects_pr": bool, "role": str, "branch": str, "issue": int|None}`
     `observed = {"session_verdict": str, "pr_number": int|None,
-                 "loop_state": str|None, "new_commit": bool}`
+                 "loop_state": str|None, "new_commit": bool,
+                 "failure_signature": str|None}`
 
     반환: `[{"kind": str, "detail": str, "next_action": str}, ...]` —
     divergence 없으면 빈 리스트. next_action 집합은 닫혀 있다: `respawn`,
@@ -2020,12 +2080,20 @@ def reconcile(expected: dict, observed: dict) -> list[dict]:
         }]
     if (expected.get("expects_pr") and observed.get("pr_number") is None
             and verdict != "in-progress"):
-        return [{
-            "kind": "pr-expected-missing",
-            "detail": f"role={expected.get('role')} branch={expected.get('branch')}: "
-                       f"expects_pr=True pr_number=None session_verdict={verdict!r}",
-            "next_action": "respawn",
-        }]
+        return _reconcile_pr_expected_missing(expected, observed, verdict,
+                                               recovery_state_dir=recovery_state_dir)
+    # 이슈 #1678 review D2: PR 이 존재하거나 세션이 정상 종료로 끝난
+    # 건강한 (issue, role) 은 재기동 카운터를 초기화한다 — 아니면 일시적
+    # flake 두 번이 이후의 진짜 죽음까지 영구히 ESCALATE 로 몰아간다.
+    _issue = expected.get("issue")
+    _role = expected.get("role")
+    if _issue is not None and _role and (
+            observed.get("pr_number") is not None or verdict == "normal"):
+        recovery_policy = _recovery_policy_module()
+        kwargs = {}
+        if recovery_state_dir is not None:
+            kwargs["state_dir"] = recovery_state_dir
+        recovery_policy.reset_state(_issue, _role, **kwargs)
     if verdict is None:
         if observed.get("loop_state") is not None:
             # loop_state 는 관측됐는데 session_verdict 가 없다 — 앞뒤가
@@ -2057,6 +2125,7 @@ def _build_expected(entry: dict) -> dict:
         "expects_pr": bool(entry.get("expects_pr")),
         "role": entry.get("role"),
         "branch": branch,
+        "issue": entry.get("issue"),
     }
 
 
@@ -2084,6 +2153,7 @@ def _build_observed(root: Path, entry: dict) -> dict:
         "pr_number": pr_number,
         "loop_state": loop_state,
         "new_commit": new_commit,
+        "death_id": entry.get("ts"),
     }
 
 
@@ -3343,7 +3413,8 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     for key, e in sorted(d.items()):
         # 이슈 #492: 같은 틱에서 reconcile() 도 한 번 태운다 — 새 폴러가
         # 아니라 이 기존 스캔에 올라탄다(ADR 결정 4).
-        divergences = reconcile(_build_expected(e), _build_observed(root, e))
+        divergences = reconcile(_build_expected(e), _build_observed(root, e),
+                                 recovery_state_dir=root / ".on-the-record" / "recovery-state")
         if divergences:
             issue_n, role_n = issue_role_key(e)
             for div in divergences:
@@ -3566,7 +3637,8 @@ def roster_reconcile(issue: int | None = None, unreported: bool = False,
         return 0
     total = 0
     for key, e in sorted(d.items()):
-        divergences = reconcile(_build_expected(e), _build_observed(ROOT, e))
+        divergences = reconcile(_build_expected(e), _build_observed(ROOT, e),
+                                 recovery_state_dir=ROOT / ".on-the-record" / "recovery-state")
         for div in divergences:
             total += 1
             print(f"[reconcile] {key}: {div['kind']}: {div['detail']} "
@@ -4925,7 +4997,8 @@ def drive(cwd: str, unattended: bool, limit: int = 12) -> int:
         return 0
     found = False
     for key, e in sorted(d.items()):
-        divergences = reconcile(_build_expected(e), _build_observed(root, e))
+        divergences = reconcile(_build_expected(e), _build_observed(root, e),
+                                 recovery_state_dir=root / ".on-the-record" / "recovery-state")
         for div in divergences:
             found = True
             print(f"[drive] {key}: {div['kind']}: {div['detail']} "
