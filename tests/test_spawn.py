@@ -4335,6 +4335,93 @@ class Watchdog(unittest.TestCase):
             # R001 is mentioned by the freshly-fetched #42 -> no drift line.
             self.assertNotIn("R001", buf.getvalue())
 
+    def _stub_gh_budget_always_ok(self):
+        fake_gb = mock.MagicMock()
+        fake_gb.GhBudget.return_value.charge.return_value = {
+            "ok": True, "class": "watchdog", "remaining": None}
+        fake_gb.budget_message.side_effect = (
+            lambda source, remaining, until=None: f"[watchdog] {source}: 미집계")
+        return fake_gb
+
+    def test_board_wide_sweep_pr_only_delta_maps_to_subject_via_head_ref(self):
+        """PR review blocker 1 (issue #1688): a delta containing ONLY a
+        changed PR whose head-ref is issue-42/implementation still
+        narrows closure-sweep to subject issue-42."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "gates").mkdir()
+            d = root / "docs" / "issue-42" / "reports"
+            d.mkdir(parents=True)
+            (d / "implementation.md").write_text(
+                "---\nloop_state: landed\n---\nbody\n")
+            fake_cs, fake_sc = self._stub_closure_sweep_for_delta()
+            fake_cs._pr_index_all.return_value = (
+                {"issue-42/implementation": {"number": 777, "state": "OPEN", "body": ""}},
+                True)
+            fake_gh_delta = mock.MagicMock()
+            fake_gh_delta.fetch_delta.return_value = (
+                [{"number": 777, "updated_at": "2026-08-16T00:00:00Z",
+                  "pull_request": {"url": "..."}}],
+                "cursor-3", "delta")
+            fake_gb = self._stub_gh_budget_always_ok()
+            with mock.patch.dict(sys.modules,
+                                  {"closure_sweep": fake_cs,
+                                   "spawn_coverage": fake_sc,
+                                   "gh_delta": fake_gh_delta,
+                                   "gh_budget": fake_gb}), \
+                 mock.patch.object(spawn, "_repo_slug", return_value="acme/widgets"), \
+                 mock.patch.object(spawn, "requirement_drift") as fake_req_drift:
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    spawn._board_wide_sweep(root)
+                finally:
+                    sys.stdout = old_stdout
+            fake_gh_delta.fetch_delta.assert_called_once_with(
+                root, "acme/widgets", "issues", include_prs=True)
+            self.assertEqual(fake_cs.find_violations.call_count, 1)
+            _args, kwargs = fake_cs.find_violations.call_args
+            subjects = kwargs.get("subjects")
+            self.assertIsNotNone(subjects)
+            self.assertEqual(set(subjects.keys()), {"issue-42"})
+            fake_req_drift.assert_called_once_with(root, changed_numbers={42})
+
+    def test_board_wide_sweep_gh_budget_exhausted_skips_probe(self):
+        """PR review blocker 2 (issue #1688): GhBudget metering gates the
+        gh_delta probe itself — exhaustion skips with its message and
+        never calls fetch_delta."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "gates").mkdir()
+            fake_cs, fake_sc = self._stub_closure_sweep_for_delta()
+            fake_gh_delta = mock.MagicMock()
+            fake_gb = mock.MagicMock()
+            fake_gb.GhBudget.return_value.charge.return_value = {
+                "ok": False, "reason": "budget-exhausted",
+                "class": "watchdog", "remaining": 0, "until": 1700000000}
+            fake_gb.budget_message.return_value = (
+                "[watchdog] board-sweep gh_delta probe: 미집계 (rate-limit, "
+                "remaining=0) (budget-exhausted until 1700000000)")
+            with mock.patch.dict(sys.modules,
+                                  {"closure_sweep": fake_cs,
+                                   "spawn_coverage": fake_sc,
+                                   "gh_delta": fake_gh_delta,
+                                   "gh_budget": fake_gb}), \
+                 mock.patch.object(spawn, "_repo_slug", return_value="acme/widgets"), \
+                 mock.patch.object(spawn, "requirement_drift") as fake_req_drift:
+                buf = io.StringIO()
+                old_stdout = sys.stdout
+                sys.stdout = buf
+                try:
+                    result = spawn._board_wide_sweep(root)
+                finally:
+                    sys.stdout = old_stdout
+            fake_gh_delta.fetch_delta.assert_not_called()
+            fake_cs.find_violations.assert_not_called()
+            self.assertEqual(result, 1)
+            self.assertIn("budget-exhausted", buf.getvalue())
+
     def test_board_wide_sweep_all_covers_roster_repos_with_prefixed_lines_and_skips_non_board(self):
         """이슈 #1276 acceptance: 로스터에 두 보드 레포 + 한 비-보드 레포가
         있으면 스윕은 두 보드를 모두(각자 레포 접두 붙은 줄로) 커버하고,
