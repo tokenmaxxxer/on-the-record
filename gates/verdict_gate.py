@@ -19,16 +19,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import merge_gate  # noqa: E402
 
-_MERGE_RE = re.compile(r"\bMERGE\b")
-_CHANGES_RE = re.compile(r"\bCHANGES\b")
-_NEGATION_RE = re.compile(
-    r"\b(do\s+not|don'?t|never|no)\s+MERGE\b", re.IGNORECASE)
-_QUOTE_MARKERS = ("> ", "“", '"', "quoted", "인용")
+_VERDICT_LINE_RE = re.compile(r"^Verdict:\s*(MERGE|CHANGES)\s*$", re.IGNORECASE)
 
 
 def _parse_verdict(text: str | None) -> str | None:
-    """자유 텍스트에서 리뷰어 검증을 뽑는다. 애매하면(양쪽 다 있거나,
-    부정형이거나, 인용된 것처럼 보이면) `None` — fail-closed."""
+    """화이트리스트: 정확히 `MERGE`/`CHANGES` 뿐이거나, 그 줄만 있는
+    `Verdict: <TOKEN>` 구조일 때만 인식한다. 그 외 — 단어를 포함할
+    뿐인 산문, 주입된 지시문, 인용된 검증 등 — 은 전부 `None` —
+    fail-closed."""
     if not text:
         return None
     stripped = text.strip()
@@ -36,22 +34,15 @@ def _parse_verdict(text: str | None) -> str | None:
         return None
 
     upper = stripped.upper()
-    has_merge = bool(_MERGE_RE.search(upper))
-    has_changes = bool(_CHANGES_RE.search(upper))
+    if upper in ("MERGE", "CHANGES"):
+        return upper
 
-    if has_merge and has_changes:
-        return None
-    if _NEGATION_RE.search(stripped):
-        return None
-    if has_merge:
-        # 리뷰어가 스스로 남긴 것이 아니라 PR 본문 등에서 인용/재인용된
-        # 것처럼 보이는 텍스트는 신뢰하지 않는다.
-        lowered = stripped.lower()
-        if any(marker.lower() in lowered for marker in _QUOTE_MARKERS):
-            return None
-        return "MERGE"
-    if has_changes:
-        return "CHANGES"
+    lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+    if len(lines) == 1:
+        match = _VERDICT_LINE_RE.match(lines[0])
+        if match:
+            return match.group(1).upper()
+
     return None
 
 

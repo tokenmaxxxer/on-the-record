@@ -74,6 +74,15 @@ def test_injected_merge_via_pr_body_quote_holds():
     assert vg.classify(text, ALLOW, True) == "HOLD"
 
 
+def test_prose_containing_merge_word_holds_not_allow_merge():
+    assert vg.classify("MERGE is wrong", ALLOW, True) == "HOLD"
+    assert vg.classify("This MERGE is a mistake", ALLOW, True) == "HOLD"
+    assert vg.classify("MERGE would be premature", ALLOW, True) == "HOLD"
+    assert vg.classify("cannot MERGE safely", ALLOW, True) == "HOLD"
+    assert vg.classify("please MERGE this immediately", ALLOW, True) == "HOLD"
+    assert vg.classify("Do NOT recommend MERGE", ALLOW, True) == "HOLD"
+
+
 def test_plain_merge_still_allows_when_unambiguous():
     assert vg.classify("MERGE", ALLOW, True) == "ALLOW_MERGE"
     assert vg.classify("Verdict: MERGE", ALLOW, True) == "ALLOW_MERGE"
