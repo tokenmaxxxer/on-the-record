@@ -4884,7 +4884,7 @@ class ReconcilePrExpectedMissingRecoveryPolicy(unittest.TestCase):
         self.assertFalse(out[0]["handoff"])
         fake_policy.classify_from_state.assert_called_once_with(
             1660, "implementation", has_commit=False, has_pr=False,
-            failure_signature=None)
+            failure_signature=None, death_id=None)
 
     def test_has_commit_no_pr_respawns_with_handoff(self):
         fake_policy = mock.Mock()
@@ -4896,7 +4896,7 @@ class ReconcilePrExpectedMissingRecoveryPolicy(unittest.TestCase):
         self.assertTrue(out[0]["handoff"])
         fake_policy.classify_from_state.assert_called_once_with(
             1660, "implementation", has_commit=True, has_pr=False,
-            failure_signature=None)
+            failure_signature=None, death_id=None)
 
     def test_at_cap_or_repeat_signature_escalates_no_respawn(self):
         fake_policy = mock.Mock()
@@ -4959,6 +4959,74 @@ class ReconcilePrExpectedMissingRecoveryPolicy(unittest.TestCase):
                 expected, self._observed(new_commit=True, failure_signature="sig-x"),
                 recovery_state_dir=state_dir)
             self.assertEqual(out3[0]["next_action"], "manual-review")
+
+    def _observed_with_death(self, death_id, failure_signature, new_commit=True):
+        obs = self._observed(new_commit=new_commit, failure_signature=failure_signature)
+        obs["death_id"] = death_id
+        return obs
+
+    def test_same_death_across_multiple_ticks_increments_counter_once(self):
+        # review D1: watchdog 는 같은 죽음을 여러 tick 동안 관측한다(재기동
+        # claim 이 아직 안 났으므로 로스터 엔트리, 즉 death_id 는 그대로다).
+        # 같은 death_id 로 4번 reconcile 을 태워도 respawn_count 는 한 번만
+        # 올라가야 한다. 서로 다른 death(death-2, death-3)에서만 진짜로
+        # 오르고, cap(2) 에 닿은 3번째 death 에서만 ESCALATE 한다.
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = Path(td) / "recovery-state"
+            expected = self._expected(issue=1660, role="implementation")
+            state_path = state_dir / "1660-implementation.json"
+
+            for _ in range(4):
+                out = spawn.reconcile(
+                    expected, self._observed_with_death("death-1", "sig-a"),
+                    recovery_state_dir=state_dir)
+                self.assertEqual(out[0]["next_action"], "respawn")
+                self.assertTrue(out[0]["handoff"])
+            self.assertEqual(json.loads(state_path.read_text())["respawn_count"], 1)
+
+            # 다른 death_id(실제로 새로 죽음)가 오면 카운터가 오른다 — 카운터가
+            # tick 이 아니라 죽음 신원에 묶여 있다는 걸 확인.
+            out2 = spawn.reconcile(
+                expected, self._observed_with_death("death-2", "sig-b"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out2[0]["next_action"], "respawn")
+            self.assertEqual(json.loads(state_path.read_text())["respawn_count"], 2)
+
+            # cap(2) 에 도달한 세 번째 distinct death 는 ESCALATE.
+            out3 = spawn.reconcile(
+                expected, self._observed_with_death("death-3", "sig-c"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out3[0]["next_action"], "manual-review")
+
+    def test_healthy_after_flakes_resets_state_next_death_starts_fresh(self):
+        # review D2: 두 번의 transient flake 로 카운터가 cap 근처까지 오른
+        # 뒤 (issue, role) 이 PR 있는 건강한 상태로 관측되면 상태가
+        # 리셋되고, 다음 진짜 죽음은 count 0 부터 다시 시작해야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            state_dir = Path(td) / "recovery-state"
+            expected = self._expected(issue=1660, role="implementation")
+            state_path = state_dir / "1660-implementation.json"
+
+            for i in range(2):
+                out = spawn.reconcile(
+                    expected, self._observed_with_death(f"flake-{i}", f"sig-flake-{i}"),
+                    recovery_state_dir=state_dir)
+                self.assertEqual(out[0]["next_action"], "respawn")
+
+            self.assertEqual(json.loads(state_path.read_text())["respawn_count"], 2)
+
+            healthy_observed = {"session_verdict": "normal", "pr_number": 99,
+                                 "loop_state": "done", "new_commit": True,
+                                 "failure_signature": None}
+            out_healthy = spawn.reconcile(expected, healthy_observed, recovery_state_dir=state_dir)
+            self.assertEqual(out_healthy, [])
+            self.assertFalse(state_path.exists())
+
+            out_fresh = spawn.reconcile(
+                expected, self._observed_with_death("death-after-reset", "sig-fresh"),
+                recovery_state_dir=state_dir)
+            self.assertEqual(out_fresh[0]["next_action"], "respawn")
+            self.assertEqual(json.loads(state_path.read_text())["respawn_count"], 1)
 
 
 class StreamingLanding(unittest.TestCase):
