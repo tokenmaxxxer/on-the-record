@@ -76,6 +76,7 @@ def t_fetch_open_prs_uses_rest_never_graphql(tmp_path=None):
         assert argv[:2] == ["gh", "api"], argv
         assert "--json" not in argv, argv
         assert "-X" in argv and "GET" in argv, argv
+        assert "per_page=100" in argv, argv
         body = '[{"number": 1}, {"number": 2}]'
         return SimpleNamespace(
             returncode=0,
@@ -88,6 +89,26 @@ def t_fetch_open_prs_uses_rest_never_graphql(tmp_path=None):
         api_calls = [a for a in seen if a[:2] == ["gh", "api"]]
         assert api_calls and all("pulls" in a[4] for a in api_calls), api_calls
         assert not any("graphql" in str(a).lower() for a in seen), seen
+
+
+def t_fetch_open_prs_requests_100_per_page():
+    seen = []
+
+    def run(argv, cwd=None, capture_output=True, text=True):
+        seen.append(argv)
+        if argv[:2] == ["git", "remote"]:
+            return SimpleNamespace(returncode=0, stdout="git@github.com:owner/repo.git\n")
+        body = "[]"
+        return SimpleNamespace(
+            returncode=0,
+            stdout=f'HTTP/2.0 200 OK\r\n\r\n{body}')
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        cache = Path(d) / "cache.json"
+        gh_rest.fetch_open_prs(Path("."), run=run, cache_path=cache)
+        api_calls = [a for a in seen if a[:2] == ["gh", "api"]]
+        assert api_calls, seen
+        assert all("per_page=100" in a for a in api_calls), api_calls
 
 
 def t_fetch_open_prs_304_reuses_cache_no_fresh_body():
