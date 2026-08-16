@@ -132,3 +132,56 @@ and wiring gh_budget into it would create a circular import, so that
 file was left unmodified rather than edited — the acceptance's
 "closure-sweep emits the distinct message" requirement was already
 true of the current-state code and needed no change here.
+
+## Amendment (PR #1685 review)
+
+canonical: `gh pr view 1685 --comments` (builder-blind independent
+review) named two fixes, applied here — touching only gates/gh_rest.py,
+gates/gh_budget.py, and their tests, per the review's own scope:
+
+1. `gh_rest.fetch_open_prs` sent no `per_page`, so `gh api
+   .../pulls?state=open` silently truncated at GitHub's default 30 —
+   exactly the watch-coverage gap this issue targets during a heavy
+   drive with >30 open PRs. Added `-f per_page=100` to the request;
+   `test_gh_rest.py::t_fetch_open_prs_requests_100_per_page` asserts
+   the param is present on every `gh api` call.
+2. `GhBudget.charge`'s exhaustion result carried no reset time, though
+   the issue's own design names `budget-exhausted until <t>`. The
+   GraphQL resource's `reset` epoch-seconds field sits next to
+   `remaining` in the same `gh api rate_limit` payload
+   `closure_sweep.rate_limit_remaining` already reads; rather than
+   widening that function's 2-tuple return (its own caller at
+   closure_sweep.py:643 is out of this amendment's scope), gh_budget.py
+   now reads the payload itself via a new `_default_fetch_snapshot`
+   returning `(remaining, ok, reset)`. `charge()`'s exhaustion dict now
+   carries `"until": <reset or None>`, and `budget_message()` gained an
+   optional `until` param appending `(budget-exhausted until <t>)`.
+   `test_gh_budget.py::test_exhausted_result_carries_reset_as_until`
+   and `::test_includes_until_when_reset_known` cover it. Also added
+   one docstring sentence on `GhBudget` naming the honor-based
+   classification trust assumption: `charge()` trusts the caller's
+   self-reported `consumer_class`, and any class absent from `classes`
+   is treated as unmetered and fails open — not enforced, only stated.
+
+derived: `python3 -m pytest -q gates/test_gh_budget.py gates/test_requirement_linkage.py gates/test_closure_sweep.py`
+```
+..........................                                                [100%]
+26 passed in 1.16s
+```
+
+derived: `python3 gates/test_gh_rest.py`
+```
+ok - t_owner_repo_parses_ssh_remote
+ok - t_fetch_issue_body_returns_body_on_success
+ok - t_fetch_issue_body_returns_none_on_rest_failure
+ok - t_fetch_issue_body_returns_none_when_no_gh
+ok - t_fetch_pr_body_returns_body_on_success
+ok - t_fetch_issue_returns_title_and_body_together
+ok - t_fetch_open_prs_uses_rest_never_graphql
+ok - t_fetch_open_prs_requests_100_per_page
+ok - t_fetch_open_prs_304_reuses_cache_no_fresh_body
+ok - t_fetch_open_prs_returns_none_on_rest_failure
+10/10 passed
+```
+(gh_rest.py uses a hand-rolled runner, not pytest collection, so it is
+run separately from the pytest invocation above.)

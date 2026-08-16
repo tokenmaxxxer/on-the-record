@@ -154,7 +154,7 @@ def fetch_open_prs(repo: Path, run: Callable | None = None,
         etag, cached_data = None, None
 
     cmd = ["gh", "api", "-X", "GET", f"repos/{owner}/{name}/pulls",
-           "-f", "state=open", "-i"]
+           "-f", "state=open", "-f", "per_page=100", "-i"]
     if etag:
         cmd = cmd + ["-H", f"If-None-Match: {etag}"]
     try:

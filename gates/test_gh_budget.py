@@ -9,12 +9,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 import gh_budget
 
 
-def _fixed_snapshot(remaining: int, ok: bool = True):
+def _fixed_snapshot(remaining: int, ok: bool = True, reset: int | None = None):
     calls = {"n": 0}
 
     def fetch(root):
         calls["n"] += 1
-        return remaining, ok
+        return remaining, ok, reset
     fetch.calls = calls
     return fetch
 
@@ -97,6 +97,24 @@ class TestPerClassBudget(unittest.TestCase):
         # the account-level snapshot is unavailable.
         self.assertTrue(budget.charge("watchdog")["ok"])
 
+    def test_exhausted_result_carries_reset_as_until(self):
+        fetch = _fixed_snapshot(1000, reset=1700000000)
+        budget = gh_budget.GhBudget(
+            Path("."), classes={"watchdog": 1}, reserve=0,
+            fetch_snapshot=fetch)
+        budget.charge("watchdog")  # consumes the only point
+        r = budget.charge("watchdog")
+        self.assertFalse(r["ok"])
+        self.assertEqual(r["until"], 1700000000)
+
+    def test_ok_result_has_no_until_key_requirement_but_ok_true(self):
+        fetch = _fixed_snapshot(1000, reset=1700000000)
+        budget = gh_budget.GhBudget(
+            Path("."), classes={"watchdog": 5}, reserve=0,
+            fetch_snapshot=fetch)
+        r = budget.charge("watchdog")
+        self.assertTrue(r["ok"])
+
 
 class TestBudgetMessage(unittest.TestCase):
     def test_matches_board_sweep_convention(self):
@@ -108,6 +126,12 @@ class TestBudgetMessage(unittest.TestCase):
         self.assertEqual(
             gh_budget.budget_message("requirement-drift", 0),
             "[watchdog] requirement-drift: 미집계 (rate-limit, remaining=0)")
+
+    def test_includes_until_when_reset_known(self):
+        self.assertEqual(
+            gh_budget.budget_message("board-sweep", 0, until=1700000000),
+            "[watchdog] board-sweep: 미집계 (rate-limit, remaining=0) "
+            "(budget-exhausted until 1700000000)")
 
 
 if __name__ == "__main__":
