@@ -32,8 +32,11 @@ def _default_fetch_snapshot(root: Path) -> tuple[int | None, bool, int | None]:
     untouched and avoids a second `gh api rate_limit` round trip."""
     import json
     import subprocess
-    r = subprocess.run(["gh", "api", "rate_limit"], cwd=root,
-                        capture_output=True, text=True)
+    try:
+        r = subprocess.run(["gh", "api", "rate_limit"], cwd=root,
+                            capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None, False, None
     if r.returncode != 0:
         return None, False, None
     try:
