@@ -88,11 +88,28 @@ def classify_from_state(
     failure_signature: str | None,
     cap: int = DEFAULT_CAP,
     state_dir: Path = DEFAULT_STATE_DIR,
+    death_id=None,
 ) -> str:
     """`classify()` 래퍼: 이 세션 자신의 (issue, role) 재기동 카운터/직전
     실패 서명을 디스크에서 읽고, 판단 후 갱신한다. 판단 자체는 여전히
-    `classify()` 가 순수하게 한다 — 상태 I/O 는 여기 래퍼에만 있다."""
+    `classify()` 가 순수하게 한다 — 상태 I/O 는 여기 래퍼에만 있다.
+
+    `death_id`(이슈 #1678 review D1): 호출자가 매 watchdog tick 마다
+    reconcile() 를 다시 태우기 때문에, 같은 죽음을 여러 번 관측해도
+    `death_id`(예: 로스터 엔트리의 세션 시작 ts) 가 바뀌지 않는 한
+    `respawn_count` 를 다시 올리지 않는다 — 그래야 한 번의 죽음이 몇 분
+    안에 cap 을 태우는 걸 막는다. `death_id=None`(기본값)이면 기존처럼
+    호출마다 카운트한다 — death 신원을 모르는 호출부와의 하위호환.
+
+    같은 death_id 로 다시 불리면(같은 죽음의 다음 tick) 상태를 전혀
+    건드리지 않고 그 죽음에 대해 이미 낸 판정을 그대로 돌려준다 —
+    재계산하면 `last_failure_signature` 가 자기 자신(방금 이 죽음이 남긴
+    서명)과 같아져 same-signature-repeat 규칙이 오발화한다."""
     state = _load_state(state_dir, issue, role)
+    is_new_death = death_id is None or state.get("current_death_id") != death_id
+    if not is_new_death and "current_verdict" in state:
+        return state["current_verdict"]
+
     verdict = classify(
         {
             "has_commit": has_commit,
@@ -106,5 +123,16 @@ def classify_from_state(
     if verdict != ESCALATE:
         state["respawn_count"] += 1
     state["last_failure_signature"] = failure_signature
+    state["current_death_id"] = death_id
+    state["current_verdict"] = verdict
     _save_state(state_dir, issue, role, state)
     return verdict
+
+
+def reset_state(issue, role: str, state_dir: Path = DEFAULT_STATE_DIR) -> None:
+    """이슈 #1678 review D2: (issue, role) 이 건강한 상태(PR 존재/세션
+    정상 종료)에 도달하면 재기동 카운터/직전 실패 서명을 지운다 — 일시적
+    flake 두 번이 이후의 진짜 죽음까지 영구히 ESCALATE 로 몰아가지
+    않도록."""
+    path = _state_path(state_dir, issue, role)
+    path.unlink(missing_ok=True)

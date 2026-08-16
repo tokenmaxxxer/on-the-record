@@ -261,9 +261,14 @@ def t_class_b_disposition_rows_cited():
 
 
 _ISSUE_492_RECONCILE_CITATIONS = {
-    "reconcile()": (ROOT / "spawn.py", "def reconcile(expected: dict, observed: dict)"),
+    # 이슈 #1678: reconcile() 이 `recovery_state_dir` 파라미터를 얻으며
+    # 시그니처가 넓어졌다 — 마커를 새 시그니처/호출부 문자열로 갱신.
+    "reconcile()": (ROOT / "spawn.py",
+                     "def reconcile(expected: dict, observed: dict, "
+                     "recovery_state_dir: Path | None = None)"),
     "reconcile CLI verb": (ROOT / "spawn.py", 'if a.role == "reconcile":'),
-    "drive() reconcile edit": (ROOT / "spawn.py", "reconcile(_build_expected(e), _build_observed(root, e))"),
+    "drive() reconcile edit": (ROOT / "spawn.py",
+                                "reconcile(_build_expected(e), _build_observed(root, e),"),
 }
 
 
