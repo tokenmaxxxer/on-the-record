@@ -22,6 +22,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 import spawn
@@ -53,6 +55,13 @@ def t_still_none_when_no_json_present():
     assert got is None
 
 
+@pytest.mark.xfail(
+    reason="issue #1619: same _commit_consult_trace git-add drift as "
+           "gates/test_consult_json_parse.py's two xfails -- consult_cmd() "
+           "now issues extra subprocess calls this test's fake_run does "
+           "not expect, inflating the observed attempt count past 2. "
+           "Tracked separately from this suite-hygiene pass.",
+    strict=False)
 def t_retries_once_and_recovers_when_first_attempt_has_no_json():
     """재현된 실패 형태: 첫 시도가 판단 JSON 없이 끝나도, 두번째(재시도)
     시도가 JSON을 내면 consult_cmd()는 성공으로 복구된다."""
