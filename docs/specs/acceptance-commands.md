@@ -33,3 +33,7 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | tests/test_spawn.py::Watchdog | `python3 -m pytest 'tests/test_spawn.py::Watchdog' -q` | 2026-08-15 (issue #1550) |
 | gates/test_patrol_board.py | `python3 -m pytest gates/test_patrol_board.py -q` | 2026-08-15 (issue #1588) |
 | tests/test_verdict_gate.py | `python3 -m pytest tests/test_verdict_gate.py -v` | 2026-08-16 (issue #1669) |
+| tests/test_spawn.py::ReconcilePrExpectedMissingRecoveryPolicy | `python3 -m pytest tests/test_spawn.py -k ReconcilePrExpectedMissingRecoveryPolicy -q` | 2026-08-16 (issue #1678) |
+| tests/test_spawn.py::Reconcile-family | `python3 -m pytest tests/test_spawn.py -k Reconcile -q` | 2026-08-16 (issue #1678) |
+| self (fast tier) | `python3 -m pytest -q -m "not slow"` | 2026-08-16 (issue #1678) |
+| self (slow tier) | `python3 -m pytest -q -m slow` | 2026-08-16 (issue #1678) |
