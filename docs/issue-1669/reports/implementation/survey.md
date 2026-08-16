@@ -1,0 +1,21 @@
+# Survey — issue-1669: verdict-asymmetry merge policy
+
+skip-condition: N/A — scouting ran (see below); this is a design-bearing gate module, not a pure bugfix and the spec leaves classify()'s exact shape open.
+
+## Current state
+
+- `gates/merge_gate.py:159` `evaluate(root, repo, pr, subject) -> {"allowed": bool, "reasons": [str,...]}` is the existing deterministic gate (issue-1323 req 4 + issue-1664 req 6 stale-revert guard). canonical: gates/merge_gate.py:159-175 (read this session). It combines check-runner status, mandatory verification records, and stale-revert refusal into one boolean — the "deterministic gate" classify() is meant to consult; reuse its return shape as-is, do not re-derive its logic.
+- No existing module parses a reviewer's MERGE/CHANGES verdict anywhere in `gates/` or `docs/`. canonical: `grep -rln "MERGE\b.*CHANGES\|verdict.*MERGE\|respawn-with-findings" --include="*.py" --include="*.md" .` (run this session) — only one unrelated doc hit (docs/issue-371/proposals/2026-08-07-status-state-vocabulary.md). classify()'s verdict-parsing side has no prior convention to reuse; it is new.
+- `gates/test_consult_verdict_parsing.py` parses a different kind of verdict (JSON judgment from `spawn._parse_consult_verdict`, `{"answer","confidence","caveats"}`) — not the MERGE/CHANGES reviewer verdict this issue is about. canonical: gates/test_consult_verdict_parsing.py:1-55 (read this session). Not reusable directly, but confirms the repo convention: a `_parse_*` pure function returning `None` on unparseable input, tested with fixture-based tests, no network.
+- `gates/check_runner.py:120` `format_comment(results)` is the pattern for a "gh/merge_gate-wrapped check" — a formatter producing a comment body, posted via `post_comment()`. canonical: gates/check_runner.py:120-138 (read this session). `gates/merge_gate.py:178` `main()` is the CLI-wrapper pattern (argv → evaluate() → print + exit code) to follow for the new check. canonical: gates/merge_gate.py:178-193 (read this session).
+- Test file convention: `gates/test_*.py`, pure-function unit tests, `if __name__ == "__main__":` runner block collecting `t_*` functions. canonical: gates/test_consult_verdict_parsing.py:142-155 (read this session).
+- `.on-the-record/test-tiers.json` not found in this repo root. canonical: `ls .on-the-record/test-tiers.json` (run this session — no such file). No test-tier config to consult for this phase-1 write, which lands no implementation code.
+
+## Scout (design research)
+
+Skip condition does not strictly apply (design decision open: exact function signature / return shape for `classify()`), but the issue body already cites its own design research inline (arXiv 2606.10315, GitHub Copilot code review at 60M+ reviews never auto-merging on judge verdict alone) — this is the field's own prior-art citation, already vetted at issue-authoring time. A repo-external scout sweep on "how should an LLM verdict gate be built" would only re-derive what the issue already states as its adopted finding (asymmetric automation: CHANGES safe, MERGE requires deterministic gate + tests). Re-scouting the same ground offers no new build decision. Treating this as the case-2 "spec leaves no design decision open" analog **for the automation-policy question specifically** (the policy itself is dictated by the issue), while the *code shape* (how classify() takes its inputs, one pure function vs a class) is decided by mirroring the repo's existing `merge_gate.evaluate()` convention instead of external research — this is an internal-consistency decision, not a market/product one, so scout's product-category sweep does not apply.
+
+## Write set (frozen)
+
+- gates/verdict_gate.py (new) — `classify(reviewer_verdict, merge_gate_result, tests_pass) -> "ALLOW_MERGE"|"RESPAWN"|"HOLD"`, a `_parse_verdict()` helper (fail-closed), and a CLI `main()` wrapping `merge_gate.evaluate()` + a check-runner-style comment, mirroring `merge_gate.py`'s `main()` shape.
+- gates/test_verdict_gate.py (new) — unit tests: CHANGES→RESPAWN, MERGE+allow+tests_pass→ALLOW_MERGE, MERGE+gate-refuse→HOLD, MERGE+tests-fail→HOLD, malformed/absent verdict→HOLD, empty-state regression (MERGE+allow+tests_pass path stays unchanged).
