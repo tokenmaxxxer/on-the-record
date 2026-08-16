@@ -32,3 +32,4 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | on-the-record/hooks/pr-base-guard.sh | `python3 -m pytest tests/test_pr_base_guard.py -v` | 2026-08-14 (issue #1461) |
 | tests/test_spawn.py::Watchdog | `python3 -m pytest 'tests/test_spawn.py::Watchdog' -q` | 2026-08-15 (issue #1550) |
 | gates/test_patrol_board.py | `python3 -m pytest gates/test_patrol_board.py -q` | 2026-08-15 (issue #1588) |
+| tests/test_verdict_gate.py | `python3 -m pytest tests/test_verdict_gate.py -v` | 2026-08-16 (issue #1669) |
