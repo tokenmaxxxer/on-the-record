@@ -90,3 +90,100 @@ def fetch_pr_title(repo: Path, pr: int, run: Callable | None = None) -> str | No
     if data is None:
         return None
     return data.get("title", "") or ""
+
+
+def _split_gh_api_i_output(stdout: str) -> tuple[int | None, dict, str]:
+    """`gh api -i` output (status line + headers + blank line + body)
+    parsed for the status code and `Etag` header — issue #1681, same
+    parse shape as `spawn._split_gh_api_i_output`, duplicated here so
+    gh_rest.py stays dependency-free of spawn.py."""
+    if "\r\n\r\n" in stdout:
+        head, body = stdout.split("\r\n\r\n", 1)
+        sep = "\r\n"
+    elif "\n\n" in stdout:
+        head, body = stdout.split("\n\n", 1)
+        sep = "\n"
+    else:
+        return None, {}, stdout
+    lines = head.split(sep)
+    status = None
+    if lines:
+        for p in lines[0].split():
+            if p.isdigit():
+                status = int(p)
+                break
+    headers: dict[str, str] = {}
+    for line in lines[1:]:
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+    return status, headers, body
+
+
+def _pr_poll_cache_path(repo: Path) -> Path:
+    return repo / ".git" / "gh-read-cache" / "pr-poll.json"
+
+
+def fetch_open_prs(repo: Path, run: Callable | None = None,
+                    cache_path: Path | None = None) -> list[dict] | None:
+    """issue #1681 hot path: the recurring PR-poll helper, REST + ETag-
+    conditional (never GraphQL — `gh pr list --json` bills GraphQL
+    quota, `gh api .../pulls` does not). Follows
+    `patrol_board.find_board_issue`'s `gh api -i` + `If-None-Match` +
+    304 pattern: an unchanged poll costs one REST call and bills no
+    fresh data transfer, reusing the cached list on a 304. Returns
+    `None` on any `gh`/git/parse failure (fail-closed, same convention
+    as the other fetch_* helpers in this module)."""
+    run = run or subprocess.run
+    owner_and_repo = owner_repo(repo, run=run)
+    if owner_and_repo is None:
+        return None
+    owner, name = owner_and_repo
+
+    cache_path = cache_path or _pr_poll_cache_path(repo)
+    etag = None
+    cached_data = None
+    try:
+        if cache_path.exists():
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+            etag = cached.get("etag")
+            cached_data = cached.get("raw")
+            if not isinstance(etag, str):
+                etag, cached_data = None, None
+    except (OSError, ValueError, UnicodeDecodeError):
+        etag, cached_data = None, None
+
+    cmd = ["gh", "api", "-X", "GET", f"repos/{owner}/{name}/pulls",
+           "-f", "state=open", "-f", "per_page=100", "-i"]
+    if etag:
+        cmd = cmd + ["-H", f"If-None-Match: {etag}"]
+    try:
+        r = run(cmd, cwd=repo, capture_output=True, text=True)
+    except OSError:
+        return None
+
+    status, headers, body = _split_gh_api_i_output(r.stdout)
+    # `gh api` exits non-zero on HTTP 304 — the status must be parsed
+    # before the returncode check, or the cache-hit path never fires
+    # (same pitfall noted at patrol_board.py:239-243).
+    if r.returncode != 0 and status != 304:
+        return None
+    if status == 304:
+        return cached_data
+
+    try:
+        data = json.loads(body)
+    except ValueError:
+        return None
+    if not isinstance(data, list):
+        return None
+
+    new_etag = headers.get("etag")
+    if new_etag:
+        try:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps({"etag": new_etag, "raw": data}),
+                                   encoding="utf-8")
+        except OSError:
+            pass
+    return data
