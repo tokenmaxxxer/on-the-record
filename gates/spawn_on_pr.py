@@ -23,6 +23,7 @@ subject 만 대상으로 하고, 틱당 스폰 개수를 `SPAWN_CAP` 으로 캡�
 from __future__ import annotations
 import argparse
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -86,6 +87,67 @@ def _pr_number_for_branch(root: Path, branch: str,
     return spawn._pr_open_or_merged_for_branch(root, branch)
 
 
+def _pr_state_for_branch(root: Path, branch: str,
+                          pr_index: dict[str, dict] | None) -> str | None:
+    """`_pr_number_for_branch` 의 거울 — 번호 대신 상태 문자열
+    (`"OPEN"`/`"MERGED"`)을 돌려준다(issue #1697 acceptance (b): merged
+    subject 는 스폰 대상에서 빼야 하므로 상태 구분이 필요하다).
+    `pr_index` 가 있으면 그 상태를 그대로 쓴다. 없으면(잘렸거나 실패)
+    `spawn._pr_open_or_merged_for_branch()`로 PR 존재/번호를 먼저 확인하고,
+    `spawn._merged_pr_for_branch()`로 그 번호가 MERGED 인지 가른다 — 두
+    번째 조회가 실패하면(예: 테스트 환경에 `gh` 없음) OPEN 으로 fail-open
+    한다: 이 함수의 목적은 merged 를 놓치지 않는 게 아니라 merged 를
+    확신할 때만 스폰을 건너뛰는 것이다(#1360 의 issue-closed fail-closed
+    와는 반대 방향 — 여기서 놓치면 그냥 오늘과 같은 스폰이지, 검증 부채가
+    영영 안 도는 게 아니다)."""
+    if pr_index is not None:
+        entry = pr_index.get(branch)
+        if entry is not None and entry.get("state") in ("OPEN", "MERGED"):
+            return entry.get("state")
+        return None
+    number = spawn._pr_open_or_merged_for_branch(root, branch)
+    if number is None:
+        return None
+    merged_number = spawn._merged_pr_for_branch(root, branch)
+    return "MERGED" if merged_number == number else "OPEN"
+
+
+def _implementation_session_active(root: Path, subject: str) -> bool:
+    """`subject` 의 `<subject>/implementation` 세션이 로스터에 살아있는
+    pid 로 남아있으면 True(issue #1697 두 번째 재현, issue-1696) — 활성
+    fix 세션 중에 옵저버를 스폰하면 옵저버 브랜치가 fix 커밋 이전 main
+    에서 잘려, 나중에 fix 가 머지되면 옵저버 record PR 이 719줄급
+    REVERT 로 보이는 stale-base 사고가 난다(#1664 계열). 로스터에 항목이
+    없거나 pid 가 이미 죽었으면 False — 오래된/고아 로스터 항목으로
+    영원히 스폰을 막지 않는다(`spawn._alive()`가 실제 프로세스 생존을
+    본다)."""
+    entry = spawn._roster_load().get(f"{subject}/implementation")
+    if entry is None:
+        return False
+    pid = entry.get("pid")
+    return spawn._alive(pid if isinstance(pid, int) else 0)
+
+
+def resolve_live_base(root: Path) -> str | None:
+    """`root` 의 `origin` 을 fetch 하고, 그 시점의 base ref(`spawn._base()`
+    가 고르는 origin/HEAD 또는 origin/main/master) 의 sha 를 돌려준다
+    (issue #1697 acceptance (a)). `missing_verification`/
+    `spawn_missing_for_pr` 는 오늘 `root` 의 로컬 git/gh 상태를 그대로
+    읽기만 하고 스스로 fetch 하지 않는다 — 이 함수는 스폰 결정 시점
+    자체를 최신 origin/main 에 앵커링해, main 이 스폰 사이에 움직인
+    경우(moved-main fixture)에도 그 시점의 실제 main sha 를 반환한다.
+    fetch 가 실패하면(오프라인 등) None — 호출부는 기존 로컬 상태로
+    fail-open 한다."""
+    r = subprocess.run(["git", "-C", str(root), "fetch", "-q", "origin"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    base = spawn._base(str(root))
+    sha_r = subprocess.run(["git", "-C", str(root), "rev-parse", base],
+                           capture_output=True, text=True)
+    return sha_r.stdout.strip() if sha_r.returncode == 0 else None
+
+
 def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
                           pr_index: dict[str, dict] | None = None
                           ) -> dict[str, list[str]]:
@@ -115,11 +177,29 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
         missing = applicable_roles(subject_board)
         if not missing:
             continue
-        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
+        branch = f"{subject}/implementation"
+        pr_number = _pr_number_for_branch(root, branch, pr_index)
         if pr_number is None:
             continue
         issue = int(subject.split("-", 1)[1])
         if not _issue_is_open(issue, issue_states):
+            continue
+        pr_state = _pr_state_for_branch(root, branch, pr_index)
+        if pr_state == "MERGED":
+            spawn.ledger_write({
+                "event": "spawn_on_pr_skip_merged",
+                "subject": subject, "missing": missing,
+            })
+            print(f"[spawn-on-pr] {subject}: subject PR 이 이미 merged — "
+                  f"옵저버 스폰 건너뜀 (missing={missing})")
+            continue
+        if _implementation_session_active(root, subject):
+            spawn.ledger_write({
+                "event": "spawn_on_pr_skip_active_implementation",
+                "subject": subject, "missing": missing,
+            })
+            print(f"[spawn-on-pr] {subject}: implementation 세션이 아직 "
+                  f"RUNNING — 옵저버 스폰 미룸 (missing={missing})")
             continue
         if "execution-observation" in missing:
             missing = _filter_execution_observation(root, subject, missing)
@@ -296,6 +376,16 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     pairs = [(subject, role) for subject, role, _pr, _issue in pairs3]
     if dry_run:
         return pairs
+    if pairs3:
+        # 이슈 #1697 acceptance (a): 실제로 스폰하기 직전에 origin/main 을
+        # 다시 fetch 해 그 시점의 sha 를 남긴다 — `missing_verification()`
+        # 의 board/PR 판정은 이미 위에서 끝났지만, 옵저버 브랜치를 실제로
+        # 자르는 건 `_spawn_one` -> `checkout_issue_branch()` 이고, 그
+        # fetch 가 이번 스폰 배치와 같은 시점의 origin/main 을 보게 하려면
+        # 여기서도 한 번 더 갱신해 둬야 워크스페이스가 오래 방치된
+        # 워크스페이스 clone 이어도 스폰 시점 main 을 보게 된다.
+        live_base_sha = resolve_live_base(root)
+        print(f"[spawn-on-pr] live base sha={live_base_sha or '조회 실패(fail-open)'}")
     for subject, role, pr_number, issue in pairs3:
         task = (f"이슈 #{issue}: {role} — {subject}/implementation 브랜치에 랜딩된 "
                 f"커밋에 대해 아직 기록이 없다. PR 생성 시 자동 스폰됨 (spawn_on_pr.py).")
