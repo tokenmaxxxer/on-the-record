@@ -858,6 +858,7 @@ ROLES = ("product-discovery", "interaction-design", "technical-feasibility",
          "technical-writing", "brand-design", "content-design", "localization", "devrel")
 BOARD = "docs"                          # v3: subject trees live at docs/issue-<n>/
 MARKER = "docs/specs/approvers.md"      # 보드 opt-in + 승인자 allowlist (v3)
+REQUIREMENT_DIGEST_MARKER = "docs/specs/requirement-digest.md"  # issue #1695
 # 계약 v1 이 쓰던 자리. 아직 v2 로 안 옮긴 레포를 **말해주기 위해서만** 본다
 LEGACY = {"conformance-review": "review-record.md",
           "technical-feasibility": "feasibility-record.md",
@@ -887,6 +888,7 @@ def init_board(cwd: str, login: str | None = None) -> int:
     dest = root / MARKER
     if dest.exists():
         print(f"이미 있다: {dest}")
+        init_requirement_digest(cwd)
         return 0
     if not login:
         r = subprocess.run(["gh", "api", "user", "--jq", ".login"],
@@ -898,7 +900,48 @@ def init_board(cwd: str, login: str | None = None) -> int:
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(f"- {login}\n", encoding="utf-8")
     print(f"보드로 선언했다: {dest}  (approver: {login})")
+    init_requirement_digest(cwd)
     return 0
+
+
+def init_requirement_digest(cwd: str) -> bool:
+    """대상 레포에 `docs/specs/requirement-digest.md` 스텁을 만든다
+    (issue #1695).
+
+    요구 연결 게이트(`require_requirement_linkage`)는 이슈 본문의 `R\\d+`
+    인용만 보고 이 파일 자체를 읽지 않는다 — 새 레포에는 인용할 R-ID가
+    아예 없어서 첫 스폰이 막힌다. 이 스텁은 사람이 첫 이슈에 R1 을 바로
+    적어 넣을 수 있는 형식 예시를 준다. `gates/requirement_digest.py` 의
+    생성기는 재사용하지 않는다 — 그건 `docs/specs/requirements.md` 레지스트리를
+    읽어야 하는데, 갓 init 된 레포엔 그 파일도 없다.
+
+    이미 있으면 절대 덮지 않는다 — approvers.md 와 같은 처분.
+    """
+    root = Path(cwd).resolve()
+    dest = root / REQUIREMENT_DIGEST_MARKER
+    if dest.exists():
+        print(f"이미 있다: {dest}")
+        return False
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        "# Requirement Digest\n"
+        "\n"
+        "이 레포가 향하는 살아있는 요구사항 목록. 요구 연결 게이트(issue #1017)는\n"
+        "새로 드래프트되는 이슈 본문이 아래 형식의 R-ID를 인용하기를 기대한다.\n"
+        "\n"
+        "## R-entry format\n"
+        "\n"
+        "  - R<n>: <한 줄 설명> [<status>] (source: #<issue-number>)\n"
+        "\n"
+        "예:\n"
+        "  - R1: 사용자가 X 를 할 수 있어야 한다 [enforced] (source: #12)\n"
+        "\n"
+        "## Entries\n"
+        "\n"
+        "(아직 없음 — 첫 이슈를 드래프트할 때 R1 부터 여기에 추가한다)\n",
+        encoding="utf-8")
+    print(f"요구 원장 스텁을 만들었다: {dest}")
+    return True
 
 
 def require_board(cwd: str, override: bool) -> None:
