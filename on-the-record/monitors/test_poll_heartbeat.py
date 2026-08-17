@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -79,6 +80,24 @@ def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict, cwd: Path | No
     return subprocess.run(
         ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
         cwd=str(cwd) if cwd else None,
+    )
+
+
+def _run_tick(checkout: Path, home: Path, report: str) -> subprocess.CompletedProcess:
+    """issue #1719: two-ticks-against-the-same-checkout harness, mirroring
+    gates/test_poll_heartbeat_delta.py's _run_tick, for the returned-pr/
+    board-sweep delta cases below."""
+    env = dict(os.environ)
+    env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+    env["FAKE_SPAWN_MARKER"] = str(checkout / "marker.log")
+    env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
+    env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
+    env["FAKE_POLL_DUE"] = "1"
+    env["FAKE_WATCHDOG_REPORT"] = report
+    env["HOME"] = str(home)
+    env.pop("CLAUDE_ROLE", None)
+    return subprocess.run(
+        ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
     )
 
 
@@ -312,6 +331,77 @@ def t_patrol_wiring_does_not_alter_heartbeat_tick_or_rearm_behavior():
         assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
         assert _wait_for_marker(marker), "watchdog was not run on a due tick"
         assert "[patrol-poll] checked 0 role(s), 0 promotion(s)" in r.stdout, r.stdout
+
+
+def t_returned_pr_unchanged_set_produces_no_output_on_due_tick():
+    """issue #1719 Acceptance check 1: an unchanged (issue, pr) returned-pr
+    set across two ticks -- same issue/phase/url, only age= advancing --
+    produces no Monitor output on the second due tick."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report_tick1 = "[returned-pr] issue #22 (phase1): age=1.0h — https://example/22"
+        r1 = _run_tick(checkout, home, report_tick1)
+        assert r1.returncode == 0, r1.stderr
+        assert "[returned-pr] issue #22" in r1.stdout, r1.stdout
+
+        report_tick2 = "[returned-pr] issue #22 (phase1): age=1.5h — https://example/22"
+        r2 = _run_tick(checkout, home, report_tick2)
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == "", r2.stdout
+
+
+def t_returned_pr_new_item_emits_on_due_tick():
+    """issue #1719 Acceptance check 1: a returned-pr set that gains a new
+    (issue, pr) item between two ticks emits the new item's line on the
+    due tick where it appears."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report_tick1 = "[returned-pr] issue #22 (phase1): age=1.0h — https://example/22"
+        r1 = _run_tick(checkout, home, report_tick1)
+        assert r1.returncode == 0, r1.stderr
+        assert "[returned-pr] issue #22" in r1.stdout, r1.stdout
+
+        report_tick2 = (
+            "[returned-pr] issue #22 (phase1): age=1.5h — https://example/22\n"
+            "[returned-pr] issue #40 (phase2): age=0.1h — https://example/40"
+        )
+        r2 = _run_tick(checkout, home, report_tick2)
+        assert r2.returncode == 0, r2.stderr
+        assert "[returned-pr] issue #40" in r2.stdout, r2.stdout
+        assert "[returned-pr] issue #22" not in r2.stdout, r2.stdout
+
+
+def t_board_sweep_lock_skip_treated_as_no_change():
+    """issue #1719 Acceptance check 2: a board-sweep lock-contention skip
+    line on tick 2, following a real sweep-result line on tick 1, is not
+    emitted -- and a tick 3 identical to tick 1's real result is also not
+    emitted, proving the previous sweep state was kept, not flapped."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        real_result = "[watchdog] board-sweep: no-change (delta empty) — cursor kept"
+        lock_skip = "[watchdog] board-sweep: repo-a 건너뜀 (다른 워크스페이스가 스윕 중) — held by pid 123"
+
+        r1 = _run_tick(checkout, home, real_result)
+        assert r1.returncode == 0, r1.stderr
+        assert real_result in r1.stdout, r1.stdout
+
+        r2 = _run_tick(checkout, home, lock_skip)
+        assert r2.returncode == 0, r2.stderr
+        assert "건너뜀" not in r2.stdout, r2.stdout
+        assert r2.stdout.strip() == "", r2.stdout
+
+        r3 = _run_tick(checkout, home, real_result)
+        assert r3.returncode == 0, r3.stderr
+        assert r3.stdout.strip() == "", r3.stdout
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
