@@ -43,9 +43,10 @@ def t_states_non_overlap_with_1006_req4():
 
 def t_states_option_block_count_and_order():
     text = _text()
-    assert "exactly 2 or 3 options" in text
-    assert "ordered by ascending scope size" in text
-    assert "narrowest-scope option first" in text
+    normalized = " ".join(text.split())
+    assert "exactly 2 or 3 options" in normalized
+    assert "ordered by ascending scope size" in normalized
+    assert "narrowest-scope option first" in normalized
 
 
 def t_states_option_fields():
@@ -69,6 +70,38 @@ def t_states_consult_trace_per_option():
     section = text[text.index("SCOPE-OPTION PROPOSAL"):text.index("VALIDITY CONSULT")]
     assert "\\`consult-trace:\\`" in section
     assert "validity/risk consult ref" in section
+
+
+def t_states_consult_runs_on_vague_ask_before_options():
+    # issue #1712: consult-ordering gap -- the validity consult runs on
+    # the vague ask FIRST, before any option exists, and options derive
+    # from its output.
+    text = _text()
+    section = text[text.index("SCOPE-OPTION PROPOSAL"):text.index("VALIDITY CONSULT")]
+    normalized = " ".join(section.split())
+    assert "ON THE VAGUE ASK ITSELF, first, before any option exists" in normalized
+    assert "Derive the OPTION BLOCK from that consult's output" in normalized
+    assert "may reference the same trace instead of re-running it" in normalized
+
+
+def t_states_neutrality_rule_forbids_korean_synonyms():
+    # issue #1712: neutrality rule additionally bars 권장 and 추천.
+    text = _text()
+    section = text[text.index("SCOPE-OPTION PROPOSAL"):text.index("VALIDITY CONSULT")]
+    assert "권장" in section
+    assert "추천" in section
+    assert "MUST NOT appear" in section
+
+
+def t_states_banner_mentions_option_path():
+    # issue #1712: first-contact banner must mention the option path, not
+    # just clarifying questions.
+    text = _text()
+    start = text.index("First time in this workspace")
+    banner = text[start:text.index("EOF0", start)]
+    assert "option block" in banner
+    assert "design-bearing" in banner
+    assert "scope-ambiguous" in banner
 
 
 def _run(fns):
