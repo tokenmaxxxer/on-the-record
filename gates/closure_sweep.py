@@ -156,49 +156,77 @@ def _pr_view_state_body(root: Path, pr: int) -> tuple[tuple[str, str] | None, bo
     return (data.get("state", ""), data.get("body", "") or ""), True
 
 
-_PR_INDEX_LIMIT = 1000
+_PR_INDEX_PER_PAGE = 100
+_PR_INDEX_SAFETY_CEILING = 5000
 
 
 def _pr_index_all(root: Path) -> tuple[dict[str, dict] | None, bool]:
-    """브랜치 이름 -> `{number, state, body}` 사전, `gh` 한 번(issue #682).
+    """브랜치 이름 -> `{number, state, body}` 사전, `gh api` 페이지네이션
+    (issue #1702).
 
     이전에는 subject x role 마다 `spawn._pr_for_branch`(브랜치->번호)와
     `_pr_view_state_body`(번호->state/body)를 각각 불러 179+179회 · 199초를
-    썼다. 두 조회가 필요로 하는 필드는 `gh pr list --state all` 하나에 다
-    들어 있다.
+    썼다(issue #682). `gh pr list --limit 1000` 한 번으로 합쳤지만, 레포가
+    1000건을 넘어서면(issue #1702, 1701 PRs) 그 상한에 항상 걸려 매번
+    `(None, True)` 로 잘림 취급되어 스윕이 영구히 개별 조회로 되돌아갔다.
+
+    `gh pr list` 대신 `gh api repos/{slug}/pulls?state=all&per_page=100`
+    를 페이지 단위로 직접 호출한다 — 각 페이지가 별도 `subprocess.run`
+    호출이라 테스트에서 "여러 페이지 호출"을 모킹으로 관찰할 수 있다(issue
+    #1702 acceptance; `gh pr list` 내부의 페이징은 gh 프로세스 안에서
+    일어나 mock 에서 안 보인다).
+
+    REST `pulls` 응답은 `gh pr list --json` 과 필드 모양이 달라
+    (`head.ref` vs `headRefName`, `merged_at` 유무 vs 3 진 `state`) 여기서
+    기존 `"OPEN"/"CLOSED"/"MERGED"` 어휘로 재구성한다.
 
     `_pr_for_branch` 의 "같은 브랜치에 PR 이 여럿이면 가장 최근 것" 시맨틱은
-    `gh pr list` 의 기본 정렬(생성 역순)에서 **첫 번째** 항목만 채택해
+    `gh api ... pulls` 의 기본 정렬(생성 역순)에서 **첫 번째** 항목만 채택해
     보존한다.
 
     `(index, ok)` — `ok=False` 는 `gh` 호출 자체가 실패했다는 뜻이고, 그때
     `index` 는 `None` 이다: 호출부가 "그 브랜치에 PR 이 없다"와 "PR 목록을
     못 읽었다"를 구별해야 한다(issue #287 S1 과 같은 이유).
 
-    `--limit` 상한에 정확히 걸리면 잘렸을 수 있으므로 `(None, True)` 를
-    돌려 호출부가 레포별 개별 조회로 되돌아가게 한다 — 조용한 절단으로
-    위반을 놓치느니 느린 옛 경로가 낫다(issue #224 가 같은 절단을 지적)."""
-    r = subprocess.run(["gh", "pr", "list", "--state", "all", "--json",
-                        "number,headRefName,state,body",
-                        "--limit", str(_PR_INDEX_LIMIT)],
-                       cwd=root, capture_output=True, text=True)
-    if r.returncode != 0:
+    누적 건수가 `_PR_INDEX_SAFETY_CEILING` 을 넘으면 `(None, True)` 를 돌려
+    호출부가 레포별 개별 조회로 되돌아가게 한다 — 조용한 절단으로 위반을
+    놓치느니 느린 옛 경로가 낫다(issue #224 가 같은 절단을 지적), 다만 이제
+    그 상한은 5000건(50페이지)으로 옛 1000건보다 훨씬 높다."""
+    slug = spawn._repo_slug(root)
+    if not slug:
         return None, False
-    try:
-        data = json.loads(r.stdout)
-    except ValueError:
-        return None, False
-    if not isinstance(data, list):
-        return None, False
-    if len(data) >= _PR_INDEX_LIMIT:
-        return None, True
     index: dict[str, dict] = {}
-    for pr in data:
-        branch = pr.get("headRefName") or ""
-        if branch and branch not in index:
-            index[branch] = {"number": pr.get("number"),
-                             "state": pr.get("state", ""),
-                             "body": pr.get("body", "") or ""}
+    total = 0
+    page = 1
+    while True:
+        r = subprocess.run(
+            ["gh", "api", f"repos/{slug}/pulls", "--method", "GET",
+             "-f", "state=all", "-F", f"per_page={_PR_INDEX_PER_PAGE}",
+             "-F", f"page={page}"],
+            cwd=root, capture_output=True, text=True)
+        if r.returncode != 0:
+            return None, False
+        try:
+            data = json.loads(r.stdout)
+        except ValueError:
+            return None, False
+        if not isinstance(data, list):
+            return None, False
+        total += len(data)
+        if total >= _PR_INDEX_SAFETY_CEILING:
+            return None, True
+        for pr in data:
+            head = pr.get("head") or {}
+            branch = head.get("ref") or ""
+            if branch and branch not in index:
+                state = "MERGED" if pr.get("merged_at") else str(
+                    pr.get("state", "")).upper()
+                index[branch] = {"number": pr.get("number"),
+                                 "state": state,
+                                 "body": pr.get("body", "") or ""}
+        if len(data) < _PR_INDEX_PER_PAGE:
+            break
+        page += 1
     return index, True
 
 
