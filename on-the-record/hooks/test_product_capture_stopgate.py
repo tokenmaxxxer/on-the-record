@@ -84,7 +84,7 @@ def t_flagged_requirement_with_no_doc_change_gets_additional_context():
         assert "requirements.md" in ctx
 
 
-def t_bootstrap_creates_missing_file_on_first_flag():
+def t_missing_doc_file_stays_absent_on_flag():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
@@ -93,9 +93,11 @@ def t_bootstrap_creates_missing_file_on_first_flag():
         )
         doc = repo / "docs" / "issue-123" / "reports" / "product" / "requirements.md"
         assert not doc.exists()
-        _run(repo, transcript)
-        assert doc.exists()
-        assert "Requirements" in doc.read_text()
+        r = _run(repo, transcript)
+        out = json.loads(r.stdout)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        assert "requirements.md" in ctx
+        assert not doc.exists()
 
 
 def t_flagged_requirement_with_matching_doc_diff_is_silent():
@@ -170,8 +172,7 @@ def t_off_issue_branch_falls_back_to_repo_root_doc_path():
         ctx = out["hookSpecificOutput"]["additionalContext"]
         assert "docs/reports/product/" in ctx
         assert "docs/issue-" not in ctx
-        assert doc.exists()
-        assert "Requirements" in doc.read_text()
+        assert not doc.exists()
 
 
 def t_off_issue_branch_empty_state_is_silent():
