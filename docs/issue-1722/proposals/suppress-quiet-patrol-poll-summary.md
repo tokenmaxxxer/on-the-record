@@ -3,6 +3,7 @@ status: proposed
 files:
   - on-the-record/monitors/poll-heartbeat.sh
   - on-the-record/monitors/test_poll_heartbeat.py
+  - gates/test_poll_heartbeat_patrol.py
 ---
 
 ## Request

@@ -108,7 +108,7 @@ def t_patrol_invoked_only_on_nth_tick():
         assert marker2.exists(), "patrol must fire once patrol_tick reaches the Nth tick"
         calls = marker2.read_text().strip().splitlines()
         assert calls == ["test-role"], calls
-        assert "[patrol-poll] checked 1 role(s), 0 promotion(s)" in r2.stdout, r2.stdout
+        assert "[patrol-poll] checked" not in r2.stdout, r2.stdout
 
 
 def t_kill_switch_suppresses_and_traces():
@@ -151,9 +151,8 @@ def t_no_board_role_zero_side_effects():
         })
         assert r.returncode == 0, r.stderr
         assert marker.read_text().strip().splitlines() == ["test-role"], marker.read_text()
-        assert "[patrol-poll] checked 1 role(s), 0 promotion(s)" in r.stdout, r.stdout
-        assert "promotion(s)" not in r.stdout.replace(
-            "[patrol-poll] checked 1 role(s), 0 promotion(s)", ""), r.stdout
+        assert "[patrol-poll] checked" not in r.stdout, r.stdout
+        assert "promotion(s)" not in r.stdout, r.stdout
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
