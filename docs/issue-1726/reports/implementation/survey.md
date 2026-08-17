@@ -1,0 +1,11 @@
+# Survey — issue #1726
+
+Write surfaces:
+- `on-the-record/hooks/product-capture-stopgate.sh` (lines 191-196 pre-fix) — inside the per-category loop, `if not os.path.isfile(doc_path): os.makedirs(...); open(doc_path, "w").write(template)` bootstraps an empty `# <Category>\n\nAppend-only, newest entry last.\n` file the moment a category regex flags any user sentence, before the operator recorded anything (bootstrap-on-first-flag, landed in #566's original design). The subsequent cross-check (`git diff --unified=0 -- rel` / `git log -1 -p -- rel`) never sees the bootstrapped file's content as an addition anyway, because a freshly-created untracked file produces no `git diff`/`git log` output — so `added_lines` stays 0 and the category still lands in `unrecorded` regardless of whether the file was created. The bootstrap write is provably inert to the cross-check outcome; it only leaves an empty template on disk as a side effect.
+- `on-the-record/hooks/test_product_capture_stopgate.py` — `t_bootstrap_creates_missing_file_on_first_flag` (asserts the file gets created) and `t_off_issue_branch_falls_back_to_repo_root_doc_path` (asserts `doc.exists()` after a run) both pin the bootstrap behavior being removed; both need rewriting to assert the file stays absent while the advisory still names the path.
+
+Fix is a straight deletion of the `if not os.path.isfile(doc_path): ...` block plus the now-unused `doc_path` binding — no other line in the loop reads `doc_path`, and the advisory's path text is already built independently from `rel`/`product_dir`, not from `doc_path`.
+
+canonical: `gh issue view 1726` output (this session, read verbatim) — issue body carries `validity-consult-skip: trivial` and `design-research-skip: mechanical` as closed-vocabulary skip tags, and its Acceptance section states the fix's full behavior (file must never be created; advisory names the path; existing-file behavior unchanged).
+
+Skip condition: pure bugfix — per the canonical citation above, the fix is fully specified by the issue's own Acceptance section and confirmed by reading the existing cross-check logic in `product-capture-stopgate.sh` above. No product/architecture decision is open; scouting/full proposal round skipped per scout-directive's bugfix skip condition.
