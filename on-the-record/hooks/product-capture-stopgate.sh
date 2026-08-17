@@ -182,18 +182,18 @@ active = {cat: sents for cat, sents in flagged.items() if sents}
 if not active:
     sys.exit(0)
 
+# Issue #1726: stopped bootstrapping an empty template file here -- the
+# cross-check below never reads a freshly-created file's content (a new
+# untracked file produces no git diff/git log output), so the write was
+# inert to the unrecorded/silent outcome and only left empty templates
+# behind as untracked junk. The advisory still names the path a missing
+# file would go to, via `rel`/`product_dir` below.
 unrecorded = []
 for cat, sents in active.items():
     if issue_n is not None:
         rel = os.path.join("docs", f"issue-{issue_n}", "reports", "product", f"{cat}.md")
     else:
         rel = os.path.join("docs", "reports", "product", f"{cat}.md")
-    doc_path = os.path.join(repo, rel)
-    if not os.path.isfile(doc_path):
-        os.makedirs(os.path.dirname(doc_path), exist_ok=True)
-        title = cat.capitalize()
-        with open(doc_path, "w", encoding="utf-8") as fh:
-            fh.write(f"# {title}\n\nAppend-only, newest entry last.\n")
 
     added_lines = 0
     for args in (
