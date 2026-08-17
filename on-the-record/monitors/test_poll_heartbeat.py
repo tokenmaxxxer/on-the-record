@@ -76,6 +76,13 @@ def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict, cwd: Path | No
     env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
     env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
     env.pop("CLAUDE_ROLE", None)
+    # issue #1724: normalize unconditionally, mirroring
+    # POLL_HEARTBEAT_SLEEP_SECONDS/POLL_HEARTBEAT_MAX_TICKS above and the
+    # CLAUDE_ROLE pop -- otherwise an ambient OTR_MONITOR_OFF=1 in the
+    # invoking shell (the very thing this proposal tells operators to set
+    # via .claude/settings.local.json) would silently mask a regression in
+    # any test that claims OTR_MONITOR_OFF is unset.
+    env["OTR_MONITOR_OFF"] = env_extra.get("OTR_MONITOR_OFF", "")
     env.update(env_extra)
     return subprocess.run(
         ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
@@ -224,6 +231,48 @@ def t_heartbeat_respects_kill_switch():
         assert r.returncode == 0, f"poll-heartbeat.sh should exit 0 even when disabled: {r.stderr}"
         assert not (marker.exists() and marker.read_text().strip()), \
             "ORCHESTRATE_OFF=1 must suppress the Monitor heartbeat loop too"
+
+
+def t_heartbeat_respects_monitor_only_kill_switch():
+    """issue #1724 acceptance check 1: OTR_MONITOR_OFF=1 exits 0 before the
+    first sleep, writes nothing to stdout, and touches no runs/ state
+    file, mirroring t_heartbeat_respects_kill_switch (ORCHESTRATE_OFF)
+    above."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home), "OTR_MONITOR_OFF": "1"})
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0 even when disabled: {r.stderr}"
+        assert r.stdout == "", r.stdout
+        assert not (marker.exists() and marker.read_text().strip()), \
+            "OTR_MONITOR_OFF=1 must suppress the Monitor heartbeat loop"
+        assert not (checkout / "runs").exists(), \
+            "OTR_MONITOR_OFF=1 must touch no runs/ state file"
+
+
+def t_heartbeat_orchestrate_off_alone_still_stops_monitor():
+    """issue #1724 empty-state clause: ORCHESTRATE_OFF=1 alone, with
+    OTR_MONITOR_OFF normalized to unset by _run_heartbeat, still stops the
+    monitor exactly as it does today -- pins that the new switch is
+    additive, not a replacement for the existing one."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home), "ORCHESTRATE_OFF": "1"})
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0 even when disabled: {r.stderr}"
+        assert r.stdout == "", r.stdout
+        assert not (marker.exists() and marker.read_text().strip()), \
+            "ORCHESTRATE_OFF=1 alone must still suppress the Monitor heartbeat loop"
 
 
 def t_heartbeat_surfaces_empty_roster_report():

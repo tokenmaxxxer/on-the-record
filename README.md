@@ -98,6 +98,30 @@ flowchart TD
     GATES --> P4[Exact approval-string match]
 ```
 
+### Monitor
+
+The plugin Monitor (`on-the-record/monitors/poll-heartbeat.sh`, `when:
+"always"`) is armed in every interactive session of any repo with the
+plugin installed — Claude Code has no per-monitor setting to turn it off
+or throttle it individually. Two env vars are the operator knobs:
+
+- `OTR_MONITOR_OFF=1` — monitor-only kill switch. Stops this Monitor
+  script alone; every other hook keeps running as before.
+- `POLL_HEARTBEAT_SLEEP_SECONDS=<n>` — overrides the default 120s tick
+  cadence.
+
+The recommended place to set either is the `env` block of
+`.claude/settings.local.json`:
+
+```json
+{
+  "env": {
+    "OTR_MONITOR_OFF": "1",
+    "POLL_HEARTBEAT_SLEEP_SECONDS": "300"
+  }
+}
+```
+
 ## Collaboration that needs no trust — the ideal tokenmaxxxer aims at
 
 ### The claim

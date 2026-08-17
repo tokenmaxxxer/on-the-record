@@ -31,7 +31,10 @@
 # existing turn-driven hooks are untouched and keep polling as before.
 #
 # Kill switch: ORCHESTRATE_OFF=1 (same convention as poll-rearm.sh's
-# other two callers).
+# other two callers). issue #1724: OTR_MONITOR_OFF=1 is the monitor-only
+# counterpart — it stops only this script, leaving every other hook
+# (directive.sh, stop-poll-rearm.sh, poll-rearm.sh, the commit-time gate
+# hooks) unaffected.
 #
 # Test hooks: POLL_HEARTBEAT_MAX_TICKS=<n> bounds the loop to n iterations
 # so the test suite can exercise it without a backgrounded process running
@@ -42,6 +45,7 @@
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
+case "${OTR_MONITOR_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 # shellcheck source=../hooks/poll-rearm.sh
