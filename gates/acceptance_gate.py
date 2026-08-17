@@ -8,6 +8,21 @@
 막는 것이 이 게이트의 목적이다. `gh` 호출이 없어 네트워크 없이
 단위테스트 가능하다(`record_enums`/`classify()` 와 같은 관례).
 
+COMMAND-IDENTITY (issue #1696): `provenance: executed-live`로 표시한
+`check:`는 커맨드 SURFACE 를 지목한다 — installed line(예: crontab
+엔트리)이나 README 에 문서화된 실행법. 그 체크를 만족시켰다는 증거는
+그 커맨드를 그대로(byte-identical, environment-independent — 결과를
+바꾸는 `PYTHONPATH=`/`cd`/venv 활성화 같은 크러치 없이) 실행한
+기록이어야 한다. 겉보기엔 동등한 커맨드(예: 체크가 지목한 installed
+`python3 -m pkg` 대신 `python3 -m pkg.cli`를 실행)로는 증명이 안 된다 —
+이는 fake-success 벡터다(pilot-devdigest PR #6 에서 실측: 다이제스트
+파일이 존재했고 기록도 정직해 보였지만, 실제 크론 라인은 무엇도
+실행하지 못했다). 이 게이트 자체는 존재-검사만 하고(값의 진실은
+검사하지 않음, 위 참고), 커맨드가 실제로 일치하는지는
+`gates/requirement_met.py`의 결정론적 레이어가 별도로 검사한다 — diff에
+기록된 `acceptance: <command> — result: ...` 커맨드가 체크가 이름 붙인
+커맨드 표면과 다르면 semantic verdict 와 무관하게 블록한다.
+
   python3 gates/acceptance_gate.py <issue-number> [--repo <경로>]
 """
 from __future__ import annotations
