@@ -48,6 +48,14 @@ except ValueError:
 if not isinstance(e, dict):
     sys.exit(2)
 
+# Issue #1725: honor the Stop-hook contract's stop_hook_active field --
+# the harness treats ANY Stop additionalContext as inject-and-resume, so
+# a forced-retry turn must emit nothing at all. Mirrors #1718's
+# decision-queue-stopgate.sh placement: before any other field of e is
+# read.
+if e.get("stop_hook_active"):
+    sys.exit(0)
+
 transcript_path = e.get("transcript_path")
 if not isinstance(transcript_path, str) or not transcript_path:
     sys.exit(0)

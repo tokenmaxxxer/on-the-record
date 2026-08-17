@@ -8,8 +8,11 @@ HOOKS_DIR = Path(__file__).resolve().parent
 GUARD = HOOKS_DIR / "role-test-claim-guard.sh"
 
 
-def _run(message, role="implementation"):
-    payload = json.dumps({"last_assistant_message": message})
+def _run(message, role="implementation", stop_hook_active=False):
+    payload = json.dumps({
+        "last_assistant_message": message,
+        "stop_hook_active": stop_hook_active,
+    })
     env = dict(os.environ)
     env["ORCHESTRATE_OFF"] = ""
     if role:
@@ -63,6 +66,15 @@ def t_hand_typed_count_mismatch_flagged():
 def t_hand_typed_count_match_passes():
     msg = "3개가 통과했습니다.\n```\n3 passed\n```"
     r = _run(msg)
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def t_stop_hook_active_emits_nothing_for_hand_count_mismatch():
+    # issue #1725: a stop_hook_active turn must emit nothing at all, even
+    # for a scenario that otherwise flags a hand-typed count mismatch.
+    msg = "5개가 통과했습니다.\n```\n3 passed\n```"
+    r = _run(msg, stop_hook_active=True)
     assert r.returncode == 0
     assert r.stdout == ""
 

@@ -36,14 +36,17 @@ def _write_transcript(repo, assistant_texts):
     return transcript
 
 
-def _run(repo, transcript, role=None, orchestrate_off=""):
+def _run(repo, transcript, role=None, orchestrate_off="", stop_hook_active=False):
     env = dict(os.environ)
     env["ORCHESTRATE_OFF"] = orchestrate_off
     if role:
         env["CLAUDE_ROLE"] = role
     else:
         env.pop("CLAUDE_ROLE", None)
-    payload = json.dumps({"transcript_path": str(transcript)})
+    payload = json.dumps({
+        "transcript_path": str(transcript),
+        "stop_hook_active": stop_hook_active,
+    })
     return subprocess.run(
         ["bash", str(HOOK)],
         input=payload, capture_output=True, text=True, env=env, timeout=20,
@@ -138,6 +141,20 @@ def t_role_session_logged_deviation_passes():
             repo, ["this is a deviation, classifying as inline-fix now."]
         )
         r = _run(repo, transcript, role="implementation")
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_stop_hook_active_emits_nothing_for_traceless_deviation():
+    # issue #1725: a stop_hook_active turn must emit nothing at all, even
+    # for a scenario that otherwise blocks on a traceless deviation.
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo)
+        transcript = _write_transcript(
+            repo, ["this is a deviation, classifying as inline-fix now."]
+        )
+        r = _run(repo, transcript, stop_hook_active=True)
         assert r.returncode == 0
         assert r.stdout == ""
 
