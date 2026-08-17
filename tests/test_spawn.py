@@ -11678,5 +11678,62 @@ class RequireRequirementLinkageRemoteBranch(unittest.TestCase):
                     spawn.require_requirement_linkage(str(work), issue)
 
 
+class RequirementDigestScaffold(unittest.TestCase):
+    """issue #1695: `spawn.py init` scaffolds
+    `docs/specs/requirement-digest.md` on a fresh repo, never overwrites."""
+
+    def test_creates_stub_when_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            wrote = spawn.init_requirement_digest(str(root))
+            self.assertTrue(wrote)
+            dest = root / spawn.REQUIREMENT_DIGEST_MARKER
+            self.assertTrue(dest.is_file())
+            text = dest.read_text(encoding="utf-8")
+            self.assertRegex(text, r"\bR\d+\b")
+            self.assertIn("R-entry format", text)
+
+    def test_second_run_does_not_overwrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dest = root / spawn.REQUIREMENT_DIGEST_MARKER
+            dest.parent.mkdir(parents=True)
+            custom = "- R1: hand-authored entry [enforced] (source: #1)\n"
+            dest.write_text(custom, encoding="utf-8")
+
+            wrote = spawn.init_requirement_digest(str(root))
+
+            self.assertFalse(wrote)
+            self.assertEqual(dest.read_text(encoding="utf-8"), custom)
+
+    def test_init_board_scaffolds_digest_alongside_approvers(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(
+                    subprocess, "run",
+                    return_value=subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="octocat\n")):
+                rc = spawn.init_board(str(root), login=None)
+            self.assertEqual(rc, 0)
+            self.assertTrue((root / spawn.MARKER).is_file())
+            self.assertTrue((root / spawn.REQUIREMENT_DIGEST_MARKER).is_file())
+
+    def test_init_board_leaves_existing_digest_untouched_on_second_call(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(
+                    subprocess, "run",
+                    return_value=subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="octocat\n")):
+                spawn.init_board(str(root), login="octocat")
+                digest = root / spawn.REQUIREMENT_DIGEST_MARKER
+                custom = "- R7: already here [enforced] (source: #7)\n"
+                digest.write_text(custom, encoding="utf-8")
+
+                spawn.init_board(str(root), login="octocat")
+
+            self.assertEqual(digest.read_text(encoding="utf-8"), custom)
+
+
 if __name__ == "__main__":
     unittest.main()
