@@ -67,9 +67,15 @@ if not isinstance(stdin_payload, dict):
     stdin_payload = {}
 
 # Issue #1021: honor the Stop-hook contract's stop_hook_active field --
-# true when this turn was already forced by a prior Stop block. Never
-# re-block on such a turn; the branches below degrade to advisory instead.
+# true when this turn was already forced by a prior Stop block.
+# Issue #1718: the harness treats ANY Stop additionalContext as
+# inject-and-resume, not passive -- so a stop_hook_active turn must emit
+# nothing at all, not just suppress decision:"block" while still writing
+# an advisory additionalContext. Exit before every later branch (role
+# check, waiting-declaration, tier1, tier2) can run.
 stop_hook_active = bool(stdin_payload.get("stop_hook_active"))
+if stop_hook_active:
+    sys.exit(0)
 
 # --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
 # same resolve-with-fallback pattern as approval-gate.sh: a role session
@@ -103,6 +109,25 @@ if not isinstance(flows, dict):
 
 queue = flows.get("decision_queue")
 if not isinstance(queue, list) or not queue:
+    sys.exit(0)
+
+# Issue #1718: surface an item only when this checkout has a local spawn
+# record for it -- either the active roster ("sessions") or the runs
+# ledger ("ledger"), both already on this same flows payload. An item
+# whose issue appears in neither was spawned from a different checkout
+# and is not this operator's decision to make.
+_local_issues = set()
+for _bucket_name in ("sessions", "ledger"):
+    _bucket = flows.get(_bucket_name)
+    if isinstance(_bucket, list):
+        for _entry in _bucket:
+            if isinstance(_entry, dict) and _entry.get("issue") is not None:
+                _local_issues.add(_entry["issue"])
+queue = [
+    item for item in queue
+    if isinstance(item, dict) and item.get("issue") in _local_issues
+]
+if not queue:
     sys.exit(0)
 
 

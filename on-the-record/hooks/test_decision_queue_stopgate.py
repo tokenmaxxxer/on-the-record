@@ -23,7 +23,22 @@ def _fake_checkout(tmp_path, flows_payload):
 
 def _run(flows_payload, role=None, orchestrate_off="", last_assistant_message="ok",
          session_id="test-session", state_dir=None,
-         bind_state_dir=None, bind_role=None, stop_hook_active=False):
+         bind_state_dir=None, bind_role=None, stop_hook_active=False,
+         spawn_record_issues=None):
+    # issue #1718: default every decision_queue issue to having a local
+    # spawn record (a matching "sessions" entry), so tests that predate
+    # the checkout-scope filter and are not about it keep passing
+    # unchanged. Pass spawn_record_issues=[] or an explicit subset to
+    # exercise the filter itself.
+    flows_payload = dict(flows_payload)
+    if spawn_record_issues is None:
+        spawn_record_issues = sorted({
+            item.get("issue") for item in flows_payload.get("decision_queue", [])
+            if isinstance(item, dict) and item.get("issue") is not None
+        })
+    flows_payload.setdefault(
+        "sessions", [{"issue": issue} for issue in spawn_record_issues]
+    )
     with tempfile.TemporaryDirectory() as td:
         checkout = _fake_checkout(Path(td), flows_payload)
         env = dict(os.environ)
@@ -228,15 +243,17 @@ def t_latch_resets_after_non_waiting_stop_catches_later_stall():
 
 # --- issue #1021: bounded re-block for the tier2 (age >= 4h) branch ---
 
-def t_stop_hook_active_never_blocks_tier2():
+def t_stop_hook_active_emits_nothing_for_tier2():
+    # issue #1718: the old advisory-degrade shape (additionalContext with
+    # no decision:"block") is gone -- a stop_hook_active turn now emits
+    # nothing at all, since the harness treats additionalContext itself
+    # as inject-and-resume.
     with tempfile.TemporaryDirectory() as state_dir:
         r = _run({"decision_queue": [
             {"issue": 1021, "pr": 1022, "age_hours": 5.0},
         ]}, state_dir=state_dir, stop_hook_active=True)
         assert r.returncode == 0
-        out = json.loads(r.stdout)
-        assert out.get("decision") != "block"
-        assert "1021" in out["hookSpecificOutput"]["additionalContext"]
+        assert r.stdout == ""
 
 
 def t_same_tier2_snapshot_twice_second_stop_not_blocked():
@@ -267,3 +284,76 @@ def t_tier2_content_change_may_block_again():
         ]}, session_id="s1", state_dir=state_dir)
         assert r2.returncode == 0
         assert json.loads(r2.stdout)["decision"] == "block"
+
+
+# --- issue #1718: stop_hook_active must suppress every branch's output ---
+
+def t_stop_hook_active_emits_nothing_for_tier1():
+    r = _run({"decision_queue": [
+        {"issue": 100, "pr": 200, "age_hours": 2.0},
+    ]}, stop_hook_active=True)
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def t_stop_hook_active_emits_nothing_for_waiting_declaration():
+    with tempfile.TemporaryDirectory() as state_dir:
+        r = _run({"decision_queue": [
+            {"issue": 600, "pr": 615, "age_hours": 0.3},
+        ]}, last_assistant_message="대기 중입니다. 사용자의 결정을 기다리는 중.",
+            state_dir=state_dir, stop_hook_active=True)
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_stop_hook_active_emits_nothing_even_with_primed_tier2_latch():
+    # A prior non-active turn primes the tier2 content latch; a later
+    # stop_hook_active turn against the same snapshot must still emit
+    # nothing, not the old advisory-degrade payload.
+    with tempfile.TemporaryDirectory() as state_dir:
+        queue = {"decision_queue": [
+            {"issue": 1021, "pr": 1022, "age_hours": 4.5},
+        ]}
+        r1 = _run(queue, session_id="s1", state_dir=state_dir)
+        assert json.loads(r1.stdout)["decision"] == "block"
+
+        r2 = _run(queue, session_id="s1", state_dir=state_dir,
+                   stop_hook_active=True)
+        assert r2.returncode == 0
+        assert r2.stdout == ""
+
+
+# --- issue #1718: checkout-scope filter on decision_queue items ---
+
+def t_unscoped_item_is_silently_skipped():
+    r = _run({"decision_queue": [
+        {"issue": 1712, "pr": 1716, "age_hours": 5.0},
+    ]}, spawn_record_issues=[])
+    assert r.returncode == 0
+    assert r.stdout == ""
+
+
+def t_ledger_only_item_still_surfaces():
+    flows_payload = {
+        "decision_queue": [
+            {"issue": 1718, "pr": 1720, "age_hours": 5.0},
+        ],
+        "ledger": [{"issue": 1718}],
+    }
+    r = _run(flows_payload, spawn_record_issues=[])
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    assert out["decision"] == "block"
+    assert "#1718" in out["reason"]
+
+
+def t_mixed_queue_surfaces_only_scoped_item():
+    r = _run({"decision_queue": [
+        {"issue": 1712, "pr": 1716, "age_hours": 5.0},
+        {"issue": 1718, "pr": 1720, "age_hours": 5.0},
+    ]}, spawn_record_issues=[1718])
+    assert r.returncode == 0
+    out = json.loads(r.stdout)
+    assert out["decision"] == "block"
+    assert "#1718" in out["reason"]
+    assert "#1712" not in out["reason"]
