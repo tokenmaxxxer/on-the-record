@@ -109,15 +109,27 @@ seeing Monitor output after `OTR_MONITOR_OFF=1` is set.
   `POLL_HEARTBEAT_SLEEP_SECONDS` as the two operator knobs, and naming
   `.claude/settings.local.json`'s `env` block as the recommended place
   to set them, with a minimal JSON snippet showing that block's shape.
-- In `on-the-record/monitors/test_poll_heartbeat.py`: add one new test,
+- In `on-the-record/monitors/test_poll_heartbeat.py`: first, extend
+  `_run_heartbeat`'s env-dict construction to unconditionally normalize
+  `OTR_MONITOR_OFF` (`env["OTR_MONITOR_OFF"] = env_extra.get("OTR_MONITOR_OFF", "")`),
+  mirroring how it already unconditionally sets
+  `POLL_HEARTBEAT_SLEEP_SECONDS`/`POLL_HEARTBEAT_MAX_TICKS` and pops
+  `CLAUDE_ROLE` — a pre-phase-2 hunt
+  (`docs/issue-1724/reports/implementation/2026-08-17-hunt-otr-monitor-off-kill-switch.md`)
+  found that without this, an ambient `OTR_MONITOR_OFF=1` in the
+  invoking shell (exactly what this proposal tells operators to set via
+  `.claude/settings.local.json`) silently masks any test that claims
+  `OTR_MONITOR_OFF` is unset, including a regression that deletes the
+  `ORCHESTRATE_OFF` check entirely. Then add one new test,
   `t_heartbeat_respects_monitor_only_kill_switch`, mirroring the
   existing `t_heartbeat_respects_kill_switch` (`ORCHESTRATE_OFF`) test
   but for `OTR_MONITOR_OFF=1` — asserting `returncode == 0`, empty
   stdout, the watchdog marker never written, and
   `${CHECKOUT}/runs/` never created; plus a second test asserting
-  `ORCHESTRATE_OFF=1` alone (with `OTR_MONITOR_OFF` unset) still stops
-  the monitor exactly as it does today, pinning the empty-state clause's
-  "identical behavior to today" requirement.
+  `ORCHESTRATE_OFF=1` alone (with `OTR_MONITOR_OFF` explicitly normalized
+  to unset by the fixed helper above) still stops the monitor exactly as
+  it does today, pinning the empty-state clause's "identical behavior to
+  today" requirement.
 
 ## Out of scope
 
