@@ -37,6 +37,95 @@ UNKNOWN = "UNKNOWN"
 
 _ARTIFACT = re.compile(r"`([^`]+)`")
 
+# issue #1696 — command-identity: an executed-live check must prove the
+# EXACT installed/documented command surface it names, not a merely
+# equivalent one (e.g. `python3 -m pkg.cli` proving a check that names
+# the installed `python3 -m pkg` line — a real fake-success vector
+# observed live, pilot-devdigest PR #6). `raw`'s own bullet text plus its
+# indented continuation lines (`provenance:`/`empty state:`, per the
+# ACCEPTANCE FORMAT convention — each metadata field on its own indented
+# line under the `check:` bullet) carry the provenance; this regex pairs
+# a `check:`/`gate:` bullet with those continuation lines so we can tell
+# which checks are executed-live without re-parsing the whole section.
+_CHECK_WITH_META = re.compile(
+    r"^[ \t]*[-*]?[ \t]*(?:check|gate)[ \t]*:[ \t]*(?P<raw>.+?)[ \t]*$\n"
+    r"(?P<meta>(?:^[ \t]+\S.*\n?)*)",
+    re.IGNORECASE | re.MULTILINE)
+_PROVENANCE_LINE = re.compile(
+    r"provenance\s*:\s*(executed-live|executed-unit|read)", re.IGNORECASE)
+# same citation shape gates/record_lint.py's _EXECUTED_LIVE_CANONICAL
+# already recognizes as executed-live proof: `acceptance: <command> —
+# result: PASS|FAIL|UNMEASURED`.
+_ACCEPTANCE_CITATION = re.compile(
+    r"acceptance\s*:\s*(.+?)\s*(?:—|-{1,2})\s*result\s*:\s*"
+    r"(?:PASS|FAIL|UNMEASURED)\b", re.IGNORECASE)
+_ENV_PREFIX = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+")
+
+
+def _strip_env_prefix(cmd: str) -> str:
+    """환경변수 접두(`PYTHONPATH=src `류)를 벗겨 커맨드 본체만 비교
+    가능하게 한다 — installed line 은 environment-independent 이어야
+    한다는 규칙(issue #1696) 자체를 이 비교가 강제하지는 않지만, 접두
+    차이만으로 오탐(false mismatch)이 나지 않게 정규화한다."""
+    return _ENV_PREFIX.sub("", cmd.strip()).strip()
+
+
+def _provenance_map(section: str) -> dict[str, str]:
+    """`raw` 체크 문구 -> provenance 값(lower-cased). 메타 줄이 없거나
+    provenance 줄이 없으면 그 raw 는 매핑에 없다(= 판정 보류)."""
+    result: dict[str, str] = {}
+    for m in _CHECK_WITH_META.finditer(section):
+        raw = m.group("raw").strip()
+        pm = _PROVENANCE_LINE.search(m.group("meta") or "")
+        if pm:
+            result[raw] = pm.group(1).lower()
+    return result
+
+
+def _recorded_commands_in_diff(diff: str) -> list[str]:
+    """diff 의 추가(`+`) 라인에서 `acceptance: <command> — result: ...`
+    인용을 뽑는다 — 빌더가 실제로 돌렸다고 기록한 커맨드 라인."""
+    cmds = []
+    for line in diff.splitlines():
+        if not line.startswith("+") or line.startswith("+++"):
+            continue
+        m = _ACCEPTANCE_CITATION.search(line[1:])
+        if m:
+            cmds.append(m.group(1).strip())
+    return cmds
+
+
+def _command_identity_mismatch(artifact: str | None, provenance: str | None,
+                                recorded_commands: list[str]) -> bool:
+    """`artifact`(체크가 이름 붙인 커맨드 표면)와 diff 에 실제로 기록된
+    `acceptance:` 커맨드가 서로 다른지 결정론적으로 판정한다. 같은 첫
+    토큰(예: `python3`)으로 시작하는 기록 커맨드가 하나라도 있는데 그중
+    어느 것도 `artifact`와 (환경변수 접두 제외) 정확히 일치하지 않으면
+    mismatch. 첫 토큰조차 일치하는 후보가 없으면 이 체크에 대한 증거가
+    diff 에 없다는 뜻이므로 판정을 보류한다(false positive 방지)."""
+    if provenance != "executed-live" or not artifact or not recorded_commands:
+        return False
+    norm_artifact = _strip_env_prefix(artifact)
+    artifact_tokens = norm_artifact.split()
+    if not artifact_tokens:
+        return False
+    # Unambiguous case first: exactly one recorded command in the whole
+    # diff is compared directly, even when its leading token differs
+    # from the artifact's (e.g. artifact names `python` but the recorded
+    # proof ran `python3 ...` — a same-first-token filter alone would
+    # find no candidate and silently miss this, warrant-hunt finding
+    # 2026-08-17). Only fall back to the same-first-token heuristic when
+    # more than one recorded command exists and a direct 1:1 pairing
+    # isn't possible.
+    if len(recorded_commands) == 1:
+        return norm_artifact != _strip_env_prefix(recorded_commands[0])
+    candidates = [c for c in recorded_commands
+                  if _strip_env_prefix(c).split()[:1] == artifact_tokens[:1]]
+    if not candidates:
+        return False
+    normalized_candidates = {_strip_env_prefix(c) for c in candidates}
+    return norm_artifact not in normalized_candidates
+
 
 def _cited_artifact(raw: str) -> str | None:
     """`- check:` 불릿 텍스트에서 인용된 아티팩트(백틱으로 감싼 경로/
@@ -121,6 +210,9 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
                           "(예: unverifiable: 로만 채워짐) — 채점 가능한 "
                           "기준이 없다"}
 
+    provenance_map = _provenance_map(section)
+    recorded_commands = _recorded_commands_in_diff(diff)
+
     criteria = []
     blocking_reasons = []
     for chk in checks:
@@ -128,8 +220,18 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
         artifact = _cited_artifact(raw)
         verdict = per_check_verdicts.get(raw, UNKNOWN)
         artifact_in_diff = bool(artifact) and _artifact_in_diff_hunk(artifact, diff)
-        blocking_fail = verdict == YES and not artifact_in_diff
-        if blocking_fail:
+        provenance = provenance_map.get(raw)
+        # issue #1696 — command-identity: this fires independent of the
+        # semantic verdict (unlike the artifact-presence check below,
+        # which only blocks a YES claim) because a command-identity
+        # mismatch is a structural fact about what was actually proven,
+        # not a judgment call the builder-blind session could still get
+        # right or wrong.
+        command_identity_mismatch = _command_identity_mismatch(
+            artifact, provenance, recorded_commands)
+        blocking_fail = (verdict == YES and not artifact_in_diff) or \
+            command_identity_mismatch
+        if verdict == YES and not artifact_in_diff:
             if artifact is None:
                 blocking_reasons.append(
                     f"기준 '{raw}'이 YES 로 채점됐지만 인용된 아티팩트가 없다 "
@@ -138,9 +240,16 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
                 blocking_reasons.append(
                     f"기준 '{raw}'이 YES 로 채점됐지만 인용된 아티팩트 "
                     f"'{artifact}'이 PR diff 에 없다")
+        if command_identity_mismatch:
+            blocking_reasons.append(
+                f"기준 '{raw}'의 executed-live 증거가 이름 붙인 커맨드 표면 "
+                f"'{artifact}'과 다르다 — diff 에 기록된 커맨드가 그와 "
+                f"동일하지 않다(command-identity mismatch, issue #1696)")
         criteria.append({
             "raw": raw, "artifact": artifact, "verdict": verdict,
             "artifact_in_diff": artifact_in_diff,
+            "provenance": provenance,
+            "command_identity_mismatch": command_identity_mismatch,
             "blocking_fail": blocking_fail,
         })
     return {"empty_state": False, "criteria": criteria,
@@ -185,7 +294,9 @@ def check(repo: Path, issue: int, pr: int,
         return {"blocked": False, "advisory": [], "blocking_reasons": []}
     advisory = [
         {"raw": c["raw"], "verdict": c["verdict"], "artifact": c["artifact"],
-         "artifact_in_diff": c["artifact_in_diff"]}
+         "artifact_in_diff": c["artifact_in_diff"],
+         "provenance": c["provenance"],
+         "command_identity_mismatch": c["command_identity_mismatch"]}
         for c in result["criteria"]
     ]
     return {"blocked": result["blocked"], "advisory": advisory,

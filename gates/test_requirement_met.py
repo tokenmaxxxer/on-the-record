@@ -224,6 +224,81 @@ def t_check_surfaces_per_criterion_advisory_record():
     assert kinds["live check at `gates/requirement_met.py` runs against a real PR."] == rm.UNKNOWN
 
 
+_COMMAND_BODY = """## Acceptance
+- check: cron job runs the installed line `python3 -m devdigest`.
+  provenance: executed-live
+"""
+
+
+def t_command_identity_mismatch_blocks_even_without_yes_verdict():
+    """issue #1696 — pilot-devdigest PR #6 shape: the recorded proof ran
+    `python3 -m devdigest.cli` (a sibling, PYTHONPATH-dependent path)
+    while the check names the installed `python3 -m devdigest` line. The
+    deterministic layer must flag this regardless of the semantic
+    verdict — it is a structural mismatch, not a judgment call."""
+    diff = (
+        "diff --git a/docs/issue-1/reports/implementation.md b/docs/issue-1/reports/implementation.md\n"
+        "+++ b/docs/issue-1/reports/implementation.md\n"
+        "+acceptance: PYTHONPATH=src python3 -m devdigest.cli — result: PASS\n"
+    )
+    result = rm.grade(_COMMAND_BODY, diff, {})
+    assert result["blocked"] is True
+    assert any("command-identity" in r for r in result["blocking_reasons"])
+    crit = result["criteria"][0]
+    assert crit["command_identity_mismatch"] is True
+
+
+def t_command_identity_match_does_not_block():
+    diff = (
+        "diff --git a/docs/issue-1/reports/implementation.md b/docs/issue-1/reports/implementation.md\n"
+        "+++ b/docs/issue-1/reports/implementation.md\n"
+        "+acceptance: python3 -m devdigest — result: PASS\n"
+    )
+    result = rm.grade(_COMMAND_BODY, diff, {})
+    assert result["blocked"] is False
+    assert result["criteria"][0]["command_identity_mismatch"] is False
+
+
+def t_command_identity_no_recorded_command_does_not_block():
+    """No `acceptance:` citation in the diff at all — nothing to compare
+    against, so the deterministic layer stays silent rather than
+    guessing (false positive prevention)."""
+    diff = "diff --git a/other.py b/other.py\n+++ b/other.py\n+pass\n"
+    result = rm.grade(_COMMAND_BODY, diff, {})
+    assert result["blocked"] is False
+    assert result["criteria"][0]["command_identity_mismatch"] is False
+
+
+def t_command_identity_ignored_for_executed_unit_provenance():
+    body = """## Acceptance
+- check: unit test runs `python3 -m devdigest`.
+  provenance: executed-unit
+"""
+    diff = (
+        "diff --git a/x.md b/x.md\n+++ b/x.md\n"
+        "+acceptance: PYTHONPATH=src python3 -m devdigest.cli — result: PASS\n"
+    )
+    result = rm.grade(body, diff, {})
+    assert result["criteria"][0]["command_identity_mismatch"] is False
+
+
+def t_command_identity_flags_leading_token_mismatch_with_single_citation():
+    """warrant-hunt finding 2026-08-17: `python` named vs `python3`
+    actually run must not slip past the same-first-token filter when
+    there is exactly one recorded citation to pair it with."""
+    body = """## Acceptance
+- check: cron job runs the installed line `python devdigest.py`.
+  provenance: executed-live
+"""
+    diff = (
+        "diff --git a/x.md b/x.md\n+++ b/x.md\n"
+        "+acceptance: python3 devdigest.py — result: PASS\n"
+    )
+    result = rm.grade(body, diff, {})
+    assert result["blocked"] is True
+    assert result["criteria"][0]["command_identity_mismatch"] is True
+
+
 def _run(fn):
     try:
         fn()

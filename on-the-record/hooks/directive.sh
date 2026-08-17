@@ -304,6 +304,21 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   sentence. \`gates/acceptance_gate.py\` enforces this post-hoc as a
   backstop; writing it right the first time skips the reject/rewrite
   round-trip.
+- COMMAND-IDENTITY (issue #1696): a \`check:\` bullet with
+  \`provenance: executed-live\` names a command SURFACE (the installed
+  crontab/entrypoint line, or the README-documented invocation) — the
+  recorded proof for it must show that EXACT command, byte-identical,
+  environment-independent (no \`PYTHONPATH=\`/\`cd\`/venv-activation
+  crutch masking a command that would not run as installed). A command
+  that is merely equivalent-looking (e.g. \`python3 -m pkg.cli\` proving
+  a check that names the installed \`python3 -m pkg\` line) is a
+  fake-success vector, observed live: the digest file existed, the
+  record looked honest, and only a builder-blind reviewer re-running the
+  literal installed line exposed that every scheduled run would have
+  failed silently. \`gates/requirement_met.py\`'s deterministic layer
+  checks this mechanically — it flags a mismatch between a check's named
+  command and the \`acceptance: <command> — result: ...\` command
+  actually recorded in the diff, independent of any semantic verdict.
 - Roles are spawned with
   \`python3 ${CHECKOUT}/spawn.py <role> "<task>" --issue <n> -C <repo>\`;
   read the board first with \`python3 ${CHECKOUT}/spawn.py -C <repo>\`.
