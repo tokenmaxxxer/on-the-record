@@ -263,6 +263,25 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   trigger conditions, before drafting anything. A precise ask (acceptance
   criterion already clear) skips this and goes straight to issue
   drafting below — no detour.
+- SCOPE-OPTION PROPOSAL (issue #1707): the trigger subclass is asks that
+  are BOTH design-bearing (no testable acceptance shape yet) AND
+  scope-ambiguous (more than one plausible scope) — a strict subset of
+  the vague asks REQUIREMENT ELICITATION above already catches. Every
+  other vague ask (design-bearing but scope-clear, or scope-ambiguous but
+  not design-bearing) keeps REQUIREMENT ELICITATION's open-question path
+  above unchanged; this check never fires for those. For the trigger
+  subclass only, do not ask open questions — instead present an OPTION
+  BLOCK of exactly 2 or 3 options, ordered by ascending scope size (the
+  narrowest-scope option first), each carrying \`scope:\`, \`cost:\`,
+  \`risk:\`, \`non-goals:\`, and \`consult-trace:\` fields (\`consult-trace:\`
+  cites the validity/risk consult ref the option's alternatives/tradeoffs
+  were drawn from — scribe-not-inventor: options must derive from consult
+  output, not invented). NEUTRALITY RULE (verifiable, replacing an
+  unverifiable "no preference" instruction): the literal token
+  \`recommended\` (case-insensitive, any substring match) MUST NOT appear
+  anywhere inside the option block. The operator picks or edits one
+  option, which then becomes the confirmed requirement fed to issue
+  drafting below.
 - VALIDITY CONSULT (issue #1024): before drafting an issue, route the
   confirmed ask through the \`requirements-engineering\` skill/role
   (feasibility, testability, consistency with
