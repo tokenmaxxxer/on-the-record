@@ -63,12 +63,35 @@ first filtering by leading token; the first-token heuristic now only
 applies when more than one citation exists to disambiguate among.
 Regression test added: `t_command_identity_flags_leading_token_mismatch_with_single_citation`.
 
+canonical: https://github.com/tokenmaxxxer/on-the-record/pull/1699#issuecomment-5311562204
+Independent builder-blind review of PR #1699 found two further defects
+in `_command_identity_mismatch` where the grader contradicted its own
+documented rule: (1) `_strip_env_prefix` normalized an env-prefix-only
+difference (`PYTHONPATH=src python3 -m devdigest` vs `python3 -m
+devdigest`) into a match, even though env-prefix is the exact crutch
+the rule forbids — probed `mismatch=False` when it should be `True`.
+(2) with >=2 recorded citations, a `cd src && ...`/`bash -c '...'`
+wrapped command's literal first token (`cd`/`bash`) never matched the
+artifact's first token, so it silently fell through the "no candidate"
+escape hatch regardless of whether the wrapped command actually
+matched — probed `(False, False)` for both a would-match and a
+would-mismatch wrapped command. Fixed: added `_strip_wrapper_head()`
+(strips a leading `cd <path> && `/`bash -c`/`sh -c` head, quote-stripped)
+used only for candidate-token matching and for the final identity
+comparison (cd/shell wrapping is not part of a command's identity);
+`_strip_env_prefix()` is now used only to find first-token candidates,
+never for the final equality check, so an env-prefix-only difference
+still flags. Regression tests added:
+`t_command_identity_flags_env_prefix_only_difference`,
+`t_command_identity_strips_cd_wrapper_head_for_candidate_matching`,
+`t_command_identity_flags_mismatch_inside_cd_wrapper_head`.
+
 ## Confirmation run
 
 canonical: python3 -m pytest gates/test_requirement_met.py -q
 acceptance: python3 -m pytest gates/test_requirement_met.py -q — result: PASS
 ```
-19 passed in 0.86s
+22 passed in 0.80s
 ```
 
 canonical: python3 -m pytest gates/test_acceptance_gate.py -q
@@ -147,3 +170,9 @@ resolved_findings:
   `_command_identity_mismatch` (single-citation case now compares
   directly) and covered by a new regression test — see "What did not
   work" above.
+- canonical: https://github.com/tokenmaxxxer/on-the-record/pull/1699#issuecomment-5311562204
+  independent builder-blind review found (1) env-prefix-only
+  differences normalized into a false match, (2) cd/wrapper-headed
+  recorded commands silently escaping the candidate filter with
+  >=2 citations; both fixed in gates/requirement_met.py and covered by
+  three new regression tests — see "What did not work" above.

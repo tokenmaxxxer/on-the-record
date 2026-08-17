@@ -60,14 +60,30 @@ _ACCEPTANCE_CITATION = re.compile(
     r"acceptance\s*:\s*(.+?)\s*(?:—|-{1,2})\s*result\s*:\s*"
     r"(?:PASS|FAIL|UNMEASURED)\b", re.IGNORECASE)
 _ENV_PREFIX = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+")
+_CD_PREFIX = re.compile(r"^cd\s+\S+\s*(?:&&|;)\s*", re.IGNORECASE)
+_WRAPPER_PREFIX = re.compile(r"^(?:bash|sh)\s+-c\s+", re.IGNORECASE)
 
 
 def _strip_env_prefix(cmd: str) -> str:
-    """환경변수 접두(`PYTHONPATH=src `류)를 벗겨 커맨드 본체만 비교
-    가능하게 한다 — installed line 은 environment-independent 이어야
-    한다는 규칙(issue #1696) 자체를 이 비교가 강제하지는 않지만, 접두
-    차이만으로 오탐(false mismatch)이 나지 않게 정규화한다."""
+    """환경변수 접두(`PYTHONPATH=src `류)를 벗겨 첫-토큰 후보 매칭에
+    쓴다 — PR #1699 리뷰 픽스(issue #1696): 최종 동일성 비교에는 이
+    정규화를 쓰지 않는다. env-prefix 는 규칙이 명시적으로 금지하는
+    크러치이므로, 접두 유무 차이 자체가 mismatch 로 잡혀야 한다."""
     return _ENV_PREFIX.sub("", cmd.strip()).strip()
+
+
+def _strip_wrapper_head(cmd: str) -> str:
+    """`cd <path> && `/`bash -c`류 헤드 크러치를 벗긴다 — PR #1699
+    리뷰 픽스(issue #1696): 이런 헤드가 있으면 첫 토큰이 `cd`/`bash`가
+    되어 후보 필터를 통째로 빠져나가 mismatch 판정이 조용히 스킵됐다.
+    env-prefix 와 달리 cd/wrapper 헤드 자체는 동일성 비교에서도 벗겨서
+    비교한다 — 실행 위치/셸 래핑은 커맨드 표면의 정체성이 아니다."""
+    s = cmd.strip()
+    s = _CD_PREFIX.sub("", s).strip()
+    s = _WRAPPER_PREFIX.sub("", s).strip()
+    if len(s) >= 2 and s[0] in "'\"" and s[-1] == s[0]:
+        s = s[1:-1].strip()
+    return s
 
 
 def _provenance_map(section: str) -> dict[str, str]:
@@ -98,15 +114,19 @@ def _recorded_commands_in_diff(diff: str) -> list[str]:
 def _command_identity_mismatch(artifact: str | None, provenance: str | None,
                                 recorded_commands: list[str]) -> bool:
     """`artifact`(체크가 이름 붙인 커맨드 표면)와 diff 에 실제로 기록된
-    `acceptance:` 커맨드가 서로 다른지 결정론적으로 판정한다. 같은 첫
-    토큰(예: `python3`)으로 시작하는 기록 커맨드가 하나라도 있는데 그중
-    어느 것도 `artifact`와 (환경변수 접두 제외) 정확히 일치하지 않으면
-    mismatch. 첫 토큰조차 일치하는 후보가 없으면 이 체크에 대한 증거가
-    diff 에 없다는 뜻이므로 판정을 보류한다(false positive 방지)."""
+    `acceptance:` 커맨드가 서로 다른지 결정론적으로 판정한다. cd/wrapper
+    헤드(`cd src && `, `bash -c '...'`)는 동일성 비교에서 벗기지만,
+    env-prefix(`PYTHONPATH=src `류)는 벗기지 않는다 — 규칙이 명시적으로
+    금지하는 크러치이므로 접두 유무 차이 자체가 mismatch 여야 한다
+    (PR #1699 리뷰 결함 1). 같은 첫 토큰(env-prefix/wrapper 제외)으로
+    시작하는 기록 커맨드가 하나라도 있는데 그중 어느 것도 `artifact`와
+    (cd/wrapper 헤드 제외) 정확히 일치하지 않으면 mismatch. 첫 토큰조차
+    일치하는 후보가 없으면 이 체크에 대한 증거가 diff 에 없다는 뜻이므로
+    판정을 보류한다(false positive 방지)."""
     if provenance != "executed-live" or not artifact or not recorded_commands:
         return False
-    norm_artifact = _strip_env_prefix(artifact)
-    artifact_tokens = norm_artifact.split()
+    norm_artifact = _strip_wrapper_head(artifact.strip())
+    artifact_tokens = _strip_env_prefix(norm_artifact).split()
     if not artifact_tokens:
         return False
     # Unambiguous case first: exactly one recorded command in the whole
@@ -118,12 +138,16 @@ def _command_identity_mismatch(artifact: str | None, provenance: str | None,
     # more than one recorded command exists and a direct 1:1 pairing
     # isn't possible.
     if len(recorded_commands) == 1:
-        return norm_artifact != _strip_env_prefix(recorded_commands[0])
+        return norm_artifact != _strip_wrapper_head(recorded_commands[0].strip())
+
+    def _candidate_token(c: str) -> list[str]:
+        return _strip_env_prefix(_strip_wrapper_head(c.strip())).split()[:1]
+
     candidates = [c for c in recorded_commands
-                  if _strip_env_prefix(c).split()[:1] == artifact_tokens[:1]]
+                  if _candidate_token(c) == artifact_tokens[:1]]
     if not candidates:
         return False
-    normalized_candidates = {_strip_env_prefix(c) for c in candidates}
+    normalized_candidates = {_strip_wrapper_head(c.strip()) for c in candidates}
     return norm_artifact not in normalized_candidates
 
 

@@ -299,6 +299,53 @@ def t_command_identity_flags_leading_token_mismatch_with_single_citation():
     assert result["criteria"][0]["command_identity_mismatch"] is True
 
 
+def t_command_identity_flags_env_prefix_only_difference():
+    """PR #1699 review defect 1: `PYTHONPATH=src python3 -m devdigest`
+    recorded against a check naming `python3 -m devdigest` must NOT be
+    normalized into a match — env-prefix is the exact crutch the
+    command-identity rule forbids, so a prefix-only difference is a
+    mismatch, even with >=2 citations in the diff (multi-citation path)."""
+    diff = (
+        "diff --git a/x.md b/x.md\n+++ b/x.md\n"
+        "+acceptance: PYTHONPATH=src python3 -m devdigest — result: PASS\n"
+        "+acceptance: other unrelated command — result: PASS\n"
+    )
+    result = rm.grade(_COMMAND_BODY, diff, {})
+    assert result["blocked"] is True
+    assert result["criteria"][0]["command_identity_mismatch"] is True
+
+
+def t_command_identity_strips_cd_wrapper_head_for_candidate_matching():
+    """PR #1699 review defect 2: with >=2 acceptance citations, a
+    `cd src && python3 -m devdigest` recorded command must not silently
+    escape the same-first-token candidate filter (its literal leading
+    token is `cd`, not `python3`) — after stripping the cd head it
+    matches the check's named command exactly, so no mismatch."""
+    diff = (
+        "diff --git a/x.md b/x.md\n+++ b/x.md\n"
+        "+acceptance: cd src && python3 -m devdigest — result: PASS\n"
+        "+acceptance: other unrelated command — result: PASS\n"
+    )
+    result = rm.grade(_COMMAND_BODY, diff, {})
+    assert result["blocked"] is False
+    assert result["criteria"][0]["command_identity_mismatch"] is False
+
+
+def t_command_identity_flags_mismatch_inside_cd_wrapper_head():
+    """Companion to the above: the cd/wrapper-head fallback must still
+    catch a genuine mismatch, not just let wrapped commands through
+    unconditionally — `cd src && python3 -m devdigest.cli` differs from
+    the named `python3 -m devdigest` even after the cd head is stripped."""
+    diff = (
+        "diff --git a/x.md b/x.md\n+++ b/x.md\n"
+        "+acceptance: cd src && python3 -m devdigest.cli — result: PASS\n"
+        "+acceptance: other unrelated command — result: PASS\n"
+    )
+    result = rm.grade(_COMMAND_BODY, diff, {})
+    assert result["blocked"] is True
+    assert result["criteria"][0]["command_identity_mismatch"] is True
+
+
 def _run(fn):
     try:
         fn()
