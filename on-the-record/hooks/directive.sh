@@ -241,7 +241,9 @@ cat <<'EOF0'
 [orchestrate] First time in this workspace — how to work with on-the-record:
 - Just say what you want in plain language; no skill names or commands
   needed. Vague asks get a few clarifying questions before anything is
-  drafted; precise asks go straight to work.
+  drafted, or — when the ask is both design-bearing and scope-ambiguous —
+  a small option block to pick from instead; precise asks go straight to
+  work.
 - Once you confirm a requirement, everything else is delegated: issue ->
   spawn -> verify -> merge -> report. You'll only be asked to approve or
   reject at PR points.
@@ -270,18 +272,27 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   other vague ask (design-bearing but scope-clear, or scope-ambiguous but
   not design-bearing) keeps REQUIREMENT ELICITATION's open-question path
   above unchanged; this check never fires for those. For the trigger
-  subclass only, do not ask open questions — instead present an OPTION
-  BLOCK of exactly 2 or 3 options, ordered by ascending scope size (the
-  narrowest-scope option first), each carrying \`scope:\`, \`cost:\`,
-  \`risk:\`, \`non-goals:\`, and \`consult-trace:\` fields (\`consult-trace:\`
-  cites the validity/risk consult ref the option's alternatives/tradeoffs
-  were drawn from — scribe-not-inventor: options must derive from consult
-  output, not invented). NEUTRALITY RULE (verifiable, replacing an
-  unverifiable "no preference" instruction): the literal token
-  \`recommended\` (case-insensitive, any substring match) MUST NOT appear
-  anywhere inside the option block. The operator picks or edits one
-  option, which then becomes the confirmed requirement fed to issue
-  drafting below.
+  subclass only, do not ask open questions — instead run the VALIDITY
+  CONSULT below (#1024) ON THE VAGUE ASK ITSELF, first, before any option
+  exists (issue #1712: closes the consult-ordering gap — options must
+  cite a consult-trace, but #1024's consult otherwise only runs on the
+  CONFIRMED ask, and at option-presentation time no confirmed ask, hence
+  no trace, would yet exist). Derive the OPTION BLOCK from that
+  consult's output — its trace is the \`consult-trace:\` cited per option,
+  never an invented one. The option block is exactly 2 or 3 options,
+  ordered by ascending scope size (the narrowest-scope option first), each carrying
+  \`scope:\`, \`cost:\`, \`risk:\`, \`non-goals:\`, and \`consult-trace:\` fields
+  (\`consult-trace:\` cites the validity/risk consult ref the option's
+  alternatives/tradeoffs were drawn from — scribe-not-inventor: options
+  must derive from consult output, not invented). Once the operator picks
+  or edits one option, that becomes the confirmed requirement fed to the
+  post-confirmation consult below (#1024); when the confirmed ask is
+  unchanged from the vague ask this consult already ran on, that consult
+  may reference the same trace instead of re-running it. NEUTRALITY RULE
+  (verifiable, replacing an unverifiable "no preference" instruction):
+  the literal token \`recommended\` (case-insensitive, any substring
+  match), and the Korean synonyms \`권장\` and \`추천\` (either, as a
+  substring match), MUST NOT appear anywhere inside the option block.
 - VALIDITY CONSULT (issue #1024): before drafting an issue, route the
   confirmed ask through the \`requirements-engineering\` skill/role
   (feasibility, testability, consistency with
