@@ -13,7 +13,7 @@ code_under_review:
 type: fix
 breaking: false
 verdict: pending
-loop_state: coding
+loop_state: landed
 ---
 
 # Implementation record — issue #1725
@@ -199,14 +199,12 @@ closed_checks (each per the same hunt report cited above):
   subprocess path, and each new stop_hook_active case reuses a scenario
   an existing sibling test already proves triggers real output.
 
-## Next steps
+## Landed
 
-Commit this change set (five hook edits, five test files, this record,
-the survey and proposal already on the branch) with the required
-Subject: issue-1725 trailer, push the branch, and check that the open
-PR carries this commit — then flip `loop_state` to `landed`.
-
-## Resolution path
-
-No external dependency blocks this — committing and pushing happen in
-this same turn.
+canonical: derived: `gh pr view 1728 --json number,state,headRefName,url,commits --jq '{number,state,headRefName,url,lastCommit:(.commits[-1].oid)}'` (this session)
+```
+{"headRefName":"issue-1725/implementation","lastCommit":"4a78d9dbc652c42ad234e7337cc77fb39ccf9102","number":1728,"state":"OPEN","url":"https://github.com/tokenmaxxxer/on-the-record/pull/1728"}
+```
+Committed on issue-1725/implementation (commit 4a78d9db, Subject:
+issue-1725 trailer present), pushed to origin, and PR #1728 already
+open against main carries this commit as its head.
