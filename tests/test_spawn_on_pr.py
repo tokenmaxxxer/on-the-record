@@ -245,3 +245,132 @@ def test_missing_verification_keeps_execution_observation_for_population_r(
         fixture_repo, issue_states={9001: "OPEN"}, pr_index=None)
 
     assert out["issue-9001"] == ["execution-observation", "conformance-review"]
+
+
+# issue #1697 -------------------------------------------------------------
+
+def test_resolve_live_base_sees_moved_main(tmp_path):
+    """acceptance (a): `resolve_live_base` fetches `origin` fresh and
+    returns the *current* origin/main sha, not whatever main pointed to
+    when the clone was made — a moved-main fixture."""
+    origin = tmp_path / "origin"
+    origin.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=origin, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=origin, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=origin, check=True)
+    subprocess.run(["git", "checkout", "-q", "-B", "main"], cwd=origin, check=True)
+    (origin / "f.txt").write_text("v1\n")
+    subprocess.run(["git", "add", "f.txt"], cwd=origin, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "v1"], cwd=origin, check=True)
+
+    clone = tmp_path / "clone"
+    subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True)
+    old_sha = subprocess.run(
+        ["git", "-C", str(clone), "rev-parse", "origin/main"],
+        capture_output=True, text=True, check=True).stdout.strip()
+
+    # main moves *after* the clone was made.
+    (origin / "f.txt").write_text("v2\n")
+    subprocess.run(["git", "add", "f.txt"], cwd=origin, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "v2"], cwd=origin, check=True)
+    new_sha = subprocess.run(
+        ["git", "-C", str(origin), "rev-parse", "main"],
+        capture_output=True, text=True, check=True).stdout.strip()
+    assert new_sha != old_sha
+
+    resolved = spawn_on_pr.resolve_live_base(clone)
+
+    assert resolved == new_sha
+
+
+def test_resolve_live_base_returns_none_on_fetch_failure(tmp_path):
+    repo = tmp_path / "no_origin"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    (repo / "f.txt").write_text("x\n")
+    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "x"], cwd=repo, check=True)
+
+    assert spawn_on_pr.resolve_live_base(repo) is None
+
+
+def test_missing_verification_skips_merged_subject_pr(fixture_repo, monkeypatch, capsys):
+    """acceptance (b): a subject whose own PR is already MERGED at spawn
+    time is skipped (and logged), even though its issue is still OPEN."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_merged_pr_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+
+    events = []
+    monkeypatch.setattr(spawn_on_pr.spawn, "ledger_write", lambda e: events.append(e))
+
+    out = spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "OPEN"})
+
+    assert out == {}
+    assert any(e.get("event") == "spawn_on_pr_skip_merged" for e in events)
+    assert "merged" in capsys.readouterr().out
+
+
+def test_missing_verification_open_pr_still_yields_pairs_via_state_check(
+        fixture_repo, monkeypatch):
+    """companion to the merged-skip test: an OPEN (not merged) subject PR
+    still spawns normally."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_merged_pr_for_branch",
+        lambda root, branch: None)
+
+    out = spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "OPEN"})
+
+    assert out == {"issue-9001": ["execution-observation", "conformance-review"]}
+
+
+def test_missing_verification_skips_active_implementation_session(
+        fixture_repo, monkeypatch, capsys):
+    """second reproduction (issue-1696, defer while the subject's own fix
+    session is still RUNNING) — a live roster entry for
+    issue-9001/implementation defers the spawn."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_merged_pr_for_branch", lambda root, branch: None)
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_roster_load",
+        lambda: {"issue-9001/implementation": {"pid": 424242}})
+    monkeypatch.setattr(spawn_on_pr.spawn, "_alive", lambda pid: pid == 424242)
+
+    events = []
+    monkeypatch.setattr(spawn_on_pr.spawn, "ledger_write", lambda e: events.append(e))
+
+    out = spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "OPEN"})
+
+    assert out == {}
+    assert any(e.get("event") == "spawn_on_pr_skip_active_implementation" for e in events)
+    assert "RUNNING" in capsys.readouterr().out
+
+
+def test_missing_verification_dead_roster_entry_does_not_defer(
+        fixture_repo, monkeypatch):
+    """a stale roster entry whose pid is no longer alive must not defer
+    forever — `spawn._alive()` says dead, spawn proceeds normally."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_merged_pr_for_branch", lambda root, branch: None)
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_roster_load",
+        lambda: {"issue-9001/implementation": {"pid": 424242}})
+    monkeypatch.setattr(spawn_on_pr.spawn, "_alive", lambda pid: False)
+
+    out = spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "OPEN"})
+
+    assert out == {"issue-9001": ["execution-observation", "conformance-review"]}
