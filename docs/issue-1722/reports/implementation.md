@@ -2,6 +2,7 @@
 code_under_review:
   - on-the-record/monitors/poll-heartbeat.sh
   - on-the-record/monitors/test_poll_heartbeat.py
+  - gates/test_poll_heartbeat_patrol.py
 type: fix
 breaking: false
 verdict: pass
@@ -64,6 +65,34 @@ derived: `git diff --stat -- on-the-record/monitors/poll-heartbeat.sh on-the-rec
  on-the-record/monitors/test_poll_heartbeat.py | 155 +++++++++++++++++++++++++-
  2 files changed, 163 insertions(+), 2 deletions(-)
 ```
+
+### Follow-up: extend the write set to `gates/test_poll_heartbeat_patrol.py`
+
+Per the operator feedback comment on issue #1722 (posted on PR #1723, "approval
+stands"), the write set is extended to `gates/test_poll_heartbeat_patrol.py`
+(issue #1598's independent sibling suite flagged as an open finding below) —
+rewrote its two pinned always-print assertions to the new quiet-tick contract,
+keeping the marker/nth-tick assertions that prove the patrol still ran:
+
+- `t_patrol_invoked_only_on_nth_tick` (was line 111): replaced
+  `assert "[patrol-poll] checked 1 role(s), 0 promotion(s)" in r2.stdout, r2.stdout`
+  with `assert "[patrol-poll] checked" not in r2.stdout, r2.stdout`. The
+  preceding `calls == ["test-role"]` assertion (proving `patrol_promote.py`
+  still ran once on tick 3) is unchanged.
+- `t_no_board_role_zero_side_effects` (was lines 154-156): replaced the same
+  always-print assertion plus its `"promotion(s)" not in r.stdout.replace(...)`
+  follow-up with `assert "[patrol-poll] checked" not in r.stdout, r.stdout` and
+  `assert "promotion(s)" not in r.stdout, r.stdout`. The preceding
+  `marker.read_text()...== ["test-role"]` assertion (proving the per-role
+  invocation still happened) is unchanged.
+
+Also added `gates/test_poll_heartbeat_patrol.py` to the proposal's frontmatter
+`files:` list (`docs/issue-1722/proposals/suppress-quiet-patrol-poll-summary.md`).
+The file itself is kept — no deletion — per the operator's instruction, as the
+#1598 cadence/kill-switch suite.
+
+canonical: gates/test_poll_heartbeat_patrol.py:110, 153-155 (working tree,
+this session's own edit, read directly).
 
 ## Why
 
@@ -156,6 +185,26 @@ Same failure, same line, on the unmodified pre-edit file — pre-existing
 macOS-sandbox gap (no `flock` binary here; `which flock` exits 1), unrelated
 to this change.
 
+Re-ran both suites for this follow-up (gates/test_poll_heartbeat_patrol.py
+edit only; no change to on-the-record/monitors/poll-heartbeat.sh or
+on-the-record/monitors/test_poll_heartbeat.py in this follow-up).
+
+canonical: acceptance: python3 gates/test_poll_heartbeat_patrol.py — result: pass
+derived: `python3 gates/test_poll_heartbeat_patrol.py` (this session, after the follow-up edit)
+```
+ok  t_kill_switch_suppresses_and_traces
+ok  t_no_board_role_zero_side_effects
+ok  t_patrol_invoked_only_on_nth_tick
+
+3/3 passed
+```
+
+canonical: acceptance: python3 on-the-record/monitors/test_poll_heartbeat.py — result: fail (pre-existing and unrelated; same flock gap as above, this follow-up)
+derived: `python3 on-the-record/monitors/test_poll_heartbeat.py` (this session, after the follow-up edit)
+```
+1/16 failed: ['t_patrol_wiring_does_not_alter_heartbeat_tick_or_rearm_behavior']
+```
+
 - check: a patrol-due tick with roles configured, zero promotions, and no
   crash writes nothing patrol-related to Monitor stdout, and the patrol
   still runs (`patrol_promote.py` invoked once per configured role) —
@@ -231,16 +280,21 @@ closed_checks:
 
 ## Open findings
 
+None outstanding. The finding below (opened by the pre-phase-2-completion
+hunt) is resolved as of this follow-up.
+
+### Resolved: `gates/test_poll_heartbeat_patrol.py` regression
+
 canonical: docs/issue-1722/reports/implementation/2026-08-17-hunt-suppress-quiet-patrol-poll-summary.md
 (committed this session, hunter's own record)
 
 `gates/test_poll_heartbeat_patrol.py` (issue #1598) is a pre-existing,
 independent test suite that drives the same `poll-heartbeat.sh` patrol
-block and pins the pre-#1722 contract (`[patrol-poll] checked N role(s),
+block and pinned the pre-#1722 contract (`[patrol-poll] checked N role(s),
 0 promotion(s)` must appear on every patrol-due tick, including a quiet
-one). It is outside this proposal's approved write set.
+one). It was outside this proposal's originally-approved write set.
 
-derived: `python3 gates/test_poll_heartbeat_patrol.py` (run with this diff applied, this session)
+derived: `python3 gates/test_poll_heartbeat_patrol.py` (run with this diff applied, prior to the follow-up below)
 ```
 ok  t_kill_switch_suppresses_and_traces
 FAIL t_no_board_role_zero_side_effects:
@@ -249,7 +303,21 @@ FAIL t_patrol_invoked_only_on_nth_tick:
 2/3 failed: ['t_no_board_role_zero_side_effects', 't_patrol_invoked_only_on_nth_tick']
 ```
 
-Resolution path: a follow-up issue/proposal deciding whether to rewrite
-`gates/test_poll_heartbeat_patrol.py`'s pinned assertions to match #1722's
-new quiet-tick-suppresses-summary contract, or retire it in favor of the
-overlapping coverage now in `on-the-record/monitors/test_poll_heartbeat.py`.
+Resolution: per the operator feedback comment on issue #1722 (PR #1723,
+"approval stands"), the write set was extended to
+`gates/test_poll_heartbeat_patrol.py` (see "Follow-up" under
+## What was done above) and its two pinned assertions were rewritten to
+the new quiet-tick-suppresses-summary contract, keeping the marker/
+nth-tick assertions that prove the patrol still ran unchanged.
+
+canonical: gates/test_poll_heartbeat_patrol.py (working tree, this
+session's own edit, read directly).
+
+derived: `python3 gates/test_poll_heartbeat_patrol.py` (run with the follow-up edit applied, this session)
+```
+ok  t_kill_switch_suppresses_and_traces
+ok  t_no_board_role_zero_side_effects
+ok  t_patrol_invoked_only_on_nth_tick
+
+3/3 passed
+```
