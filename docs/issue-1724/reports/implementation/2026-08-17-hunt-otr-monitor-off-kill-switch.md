@@ -73,3 +73,20 @@ shell happens to carry — otherwise the "ORCHESTRATE_OFF alone still works"
 test (and every other non-kill-switch test) can silently pass on any
 contributor machine that followed this proposal's own documented setup,
 proving nothing about the code it claims to pin.
+
+## before-landing — stance 2: OTR_MONITOR_OFF case-guard placement, character-for-character match with ORCHESTRATE_OFF's pattern list, and whether _run_tick/_run_patrol_tick's lack of OTR_MONITOR_OFF normalization could mask a test failure
+
+Verdict: NO FINDING
+Seed: on-the-record/monitors/poll-heartbeat.sh (new case-guard line), on-the-record/monitors/test_poll_heartbeat.py (_run_heartbeat normalization + two new tests), monitors.json description, README.md Monitor subsection
+cap_seconds: n/a (not specified by dispatcher)
+tier: default
+diff_stat_lines: ~90 (per dispatcher-supplied change summary across 4 files)
+started_at: 2026-08-17T00:00:00Z
+ended_at: 2026-08-17T00:20:00Z
+
+Checked all three angles named in the stance:
+1. Placement: the new `case "${OTR_MONITOR_OFF:-}" ...` guard sits on the line immediately after `ORCHESTRATE_OFF`'s guard (lines 47-48), both before `set -uo pipefail`'s only follow-on statement (`SCRIPT_DIR=...`), before sourcing poll-rearm.sh, and before any `echo`/state write in the script. Ran `OTR_MONITOR_OFF=1 FAKE_POLL_DUE=1 bash poll-heartbeat.sh` directly: rc=0, no output, confirming it exits before anything is touched.
+2. Character-for-character comparison via grep of both case lines: `""|0|false|no|off` in both — byte-identical, no typo, no asymmetry.
+3. `_run_tick`/`_run_patrol_tick` indeed lack the `OTR_MONITOR_OFF` normalization `_run_heartbeat` now has. Ran the full suite with `OTR_MONITOR_OFF=1` set in the ambient shell: the `_run_tick`/`_run_patrol_tick`-based tests fail LOUDLY (8/18 fail, e.g. `t_returned_pr_new_item_emits_on_due_tick`, `t_patrol_promotion_tick_still_prints_summary_line`) rather than silently passing — this is an environment-contamination gap, not a masking defect, and it is symmetric with `ORCHESTRATE_OFF`'s pre-existing identical gap in those same two helpers (neither normalizes `ORCHESTRATE_OFF` either), so it predates and is unrelated to this diff.
+
+Also re-verified the prior phase-1 finding is fixed: ran the suite with `OTR_MONITOR_OFF=1` ambient — all `t_heartbeat_*` tests (which use `_run_heartbeat`) pass, confirming the normalization added in this diff closes that masking hole.
