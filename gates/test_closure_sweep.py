@@ -98,23 +98,28 @@ class FindViolationsSkips(unittest.TestCase):
 
     def test_sweep_gh_call_count_is_constant_in_board_size(self):
         """issue #1320 acceptance (a): constant gh invocations for N in
-        {5, 50}. issue #1554: `issue_state_index_all` now probes the repo
-        slug once (`gh repo view`, cached process-wide by `spawn._repo_slug`)
-        to attempt an ETag-conditional list — an empty slug here makes it
-        fall back to the pre-existing unconditional `gh issue list` path, so
-        the call count is still O(1) in board size, just one call higher
-        (3, not 2); the slug cache is cleared each iteration so both N=5 and
-        N=50 see the same probe."""
+        {5, 50}. issue #1554: `issue_state_index_all` probes the repo slug
+        once (`gh repo view`, cached process-wide by `spawn._repo_slug`) and
+        uses it for an ETag-conditional issue list; issue #1702:
+        `_pr_index_all` now shares that same cached slug for its own
+        `gh api .../pulls` pagination instead of calling `gh pr list`
+        directly — both index builders resolve the slug once per process,
+        so a single-page issue list + single-page pr list still costs
+        exactly 3 calls total (repo view, issues page, pulls page); the
+        slug cache is cleared each iteration so both N=5 and N=50 see the
+        same probe."""
         sys.path.insert(0, str(Path(__file__).parent.parent))
         import spawn
 
         def run_stub(cmd, cwd=None, capture_output=None, text=None):
             if cmd[:3] == ["gh", "repo", "view"]:
-                return mock.Mock(returncode=0, stdout="", stderr="")
-            if cmd[:2] == ["gh", "issue"]:
-                return mock.Mock(returncode=0, stdout=json.dumps(
-                    [{"number": n, "state": "OPEN"} for n in range(1, 51)]))
-            if cmd[:2] == ["gh", "pr"]:
+                return mock.Mock(returncode=0, stdout="owner/repo\n", stderr="")
+            if cmd[:3] == ["gh", "api", "repos/owner/repo/issues"]:
+                headers = "\n".join(["HTTP/2.0 200", ""])
+                body = json.dumps(
+                    [{"number": n, "state": "OPEN"} for n in range(1, 51)])
+                return mock.Mock(returncode=0, stdout=f"{headers}\n{body}")
+            if cmd[:3] == ["gh", "api", "repos/owner/repo/pulls"]:
                 return mock.Mock(returncode=0, stdout=json.dumps([]))
             raise AssertionError(f"unexpected gh call in sweep path: {cmd}")
 
@@ -194,6 +199,134 @@ class OutOfIndexSubjectIsNotAGhFailureSkip(unittest.TestCase):
         self.assertEqual(skips, [])
         self.assertFalse(
             (self.root / closure_sweep.OUT_OF_INDEX_SEEN_STATE_REL).exists())
+
+
+class PrIndexAllPagination(unittest.TestCase):
+    """issue #1702: `_pr_index_all` must page through `gh api .../pulls`
+    instead of a single `--limit`-bounded `gh pr list` call, so a repo with
+    more PRs than the old 1000-item limit still returns a complete index."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.addCleanup(closure_sweep.spawn._repo_slug_cache_clear)
+
+    def _pr(self, n, merged=False):
+        return {"number": n, "head": {"ref": f"branch-{n}"},
+                "state": "closed" if merged else "open",
+                "merged_at": "2026-01-01T00:00:00Z" if merged else None,
+                "body": f"body-{n}"}
+
+    def test_pagination_fixture_returns_complete_index_over_1000_prs(self):
+        """mocked >1000-PR listing across multiple pages: asserts multiple
+        page calls happened and the full entry count came back."""
+        total = 1250
+        prs = [self._pr(n) for n in range(1, total + 1)]
+        pages = [prs[i:i + 100] for i in range(0, len(prs), 100)]
+
+        def run_stub(cmd, cwd=None, capture_output=None, text=None):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return mock.Mock(returncode=0, stdout="owner/repo\n")
+            if cmd[:3] == ["gh", "api", "repos/owner/repo/pulls"]:
+                page_arg = [a for a in cmd if a.startswith("page=")][0]
+                page = int(page_arg.split("=")[1])
+                data = pages[page - 1] if 1 <= page <= len(pages) else []
+                return mock.Mock(returncode=0, stdout=json.dumps(data))
+            raise AssertionError(f"unexpected call: {cmd}")
+
+        with mock.patch.object(closure_sweep.subprocess, "run", side_effect=run_stub) as run:
+            index, ok = closure_sweep._pr_index_all(self.root)
+
+        self.assertTrue(ok)
+        self.assertIsNotNone(index)
+        self.assertEqual(len(index), total)
+        page_calls = [c for c in run.call_args_list
+                      if c.args[0][:3] == ["gh", "api", "repos/owner/repo/pulls"]]
+        self.assertEqual(len(page_calls), len(pages))
+        self.assertGreater(len(page_calls), 1)
+
+    def test_repos_under_1000_prs_still_make_one_page_call(self):
+        def run_stub(cmd, cwd=None, capture_output=None, text=None):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return mock.Mock(returncode=0, stdout="owner/repo\n")
+            if cmd[:3] == ["gh", "api", "repos/owner/repo/pulls"]:
+                return mock.Mock(returncode=0, stdout=json.dumps(
+                    [self._pr(n) for n in range(1, 6)]))
+            raise AssertionError(f"unexpected call: {cmd}")
+
+        with mock.patch.object(closure_sweep.subprocess, "run", side_effect=run_stub) as run:
+            index, ok = closure_sweep._pr_index_all(self.root)
+
+        self.assertTrue(ok)
+        self.assertEqual(len(index), 5)
+        page_calls = [c for c in run.call_args_list
+                      if c.args[0][:3] == ["gh", "api", "repos/owner/repo/pulls"]]
+        self.assertEqual(len(page_calls), 1)
+
+    def test_merged_state_reconstructed_from_merged_at(self):
+        def run_stub(cmd, cwd=None, capture_output=None, text=None):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return mock.Mock(returncode=0, stdout="owner/repo\n")
+            if cmd[:3] == ["gh", "api", "repos/owner/repo/pulls"]:
+                return mock.Mock(returncode=0, stdout=json.dumps(
+                    [self._pr(1, merged=True), self._pr(2, merged=False)]))
+            raise AssertionError(f"unexpected call: {cmd}")
+
+        with mock.patch.object(closure_sweep.subprocess, "run", side_effect=run_stub):
+            index, ok = closure_sweep._pr_index_all(self.root)
+
+        self.assertTrue(ok)
+        self.assertEqual(index["branch-1"]["state"], "MERGED")
+        self.assertEqual(index["branch-2"]["state"], "OPEN")
+
+    def test_exact_saturation_of_safety_ceiling_still_returns_none_true(self):
+        """exact-saturation-of-final-safety-ceiling still returns
+        (None, True) — same truncation-safe contract as the old
+        `--limit`-hit case, just at the new, much higher ceiling."""
+        ceiling = closure_sweep._PR_INDEX_SAFETY_CEILING
+        per_page = closure_sweep._PR_INDEX_PER_PAGE
+        full_pages, remainder = divmod(ceiling, per_page)
+
+        def run_stub(cmd, cwd=None, capture_output=None, text=None):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return mock.Mock(returncode=0, stdout="owner/repo\n")
+            if cmd[:3] == ["gh", "api", "repos/owner/repo/pulls"]:
+                page_arg = [a for a in cmd if a.startswith("page=")][0]
+                page = int(page_arg.split("=")[1])
+                if page <= full_pages:
+                    data = [self._pr(page * per_page + i) for i in range(per_page)]
+                elif page == full_pages + 1 and remainder:
+                    data = [self._pr(ceiling + i) for i in range(remainder)]
+                else:
+                    data = [self._pr(ceiling + per_page + i) for i in range(per_page)]
+                return mock.Mock(returncode=0, stdout=json.dumps(data))
+            raise AssertionError(f"unexpected call: {cmd}")
+
+        with mock.patch.object(closure_sweep.subprocess, "run", side_effect=run_stub):
+            index, ok = closure_sweep._pr_index_all(self.root)
+
+        self.assertIsNone(index)
+        self.assertTrue(ok)
+
+    def test_gh_call_failure_yields_ok_false(self):
+        def run_stub(cmd, cwd=None, capture_output=None, text=None):
+            if cmd[:3] == ["gh", "repo", "view"]:
+                return mock.Mock(returncode=0, stdout="owner/repo\n")
+            return mock.Mock(returncode=1, stdout="")
+
+        with mock.patch.object(closure_sweep.subprocess, "run", side_effect=run_stub):
+            index, ok = closure_sweep._pr_index_all(self.root)
+
+        self.assertIsNone(index)
+        self.assertFalse(ok)
+
+    def test_unresolvable_slug_yields_ok_false(self):
+        with mock.patch.object(closure_sweep.subprocess, "run") as run:
+            run.return_value = mock.Mock(returncode=0, stdout="")
+            index, ok = closure_sweep._pr_index_all(self.root)
+        self.assertIsNone(index)
+        self.assertFalse(ok)
 
 
 class ConditionalIssueListUsesExplicitGetMethod(unittest.TestCase):
