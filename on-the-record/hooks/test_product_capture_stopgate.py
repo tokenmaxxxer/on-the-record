@@ -42,14 +42,17 @@ def _write_transcript(repo, user_texts):
     return transcript
 
 
-def _run(repo, transcript, role=None, orchestrate_off=""):
+def _run(repo, transcript, role=None, orchestrate_off="", stop_hook_active=False):
     env = dict(os.environ)
     env["ORCHESTRATE_OFF"] = orchestrate_off
     if role:
         env["CLAUDE_ROLE"] = role
     else:
         env.pop("CLAUDE_ROLE", None)
-    payload = json.dumps({"transcript_path": str(transcript)})
+    payload = json.dumps({
+        "transcript_path": str(transcript),
+        "stop_hook_active": stop_hook_active,
+    })
     return subprocess.run(
         ["bash", str(HOOK)],
         input=payload, capture_output=True, text=True, env=env, timeout=20,
@@ -110,6 +113,20 @@ def t_flagged_requirement_with_matching_doc_diff_is_silent():
             repo, ["the project must support offline mode."]
         )
         r = _run(repo, transcript)
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_stop_hook_active_emits_nothing_for_flagged_requirement():
+    # issue #1725: a stop_hook_active turn must emit nothing at all, even
+    # for a scenario that otherwise flags an unrecorded requirement.
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo)
+        transcript = _write_transcript(
+            repo, ["the project must support offline mode."]
+        )
+        r = _run(repo, transcript, stop_hook_active=True)
         assert r.returncode == 0
         assert r.stdout == ""
 

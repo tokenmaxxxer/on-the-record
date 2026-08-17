@@ -49,6 +49,14 @@ except ValueError:
 if not isinstance(e, dict):
     sys.exit(0)
 
+# Issue #1725: honor the Stop-hook contract's stop_hook_active field --
+# the harness treats ANY Stop additionalContext as inject-and-resume, so
+# a forced-retry turn must emit nothing at all. Placed before role
+# resolution (not after, despite this file's own post-guard read order)
+# to match #1718's decision-queue-stopgate.sh placement.
+if e.get("stop_hook_active"):
+    sys.exit(0)
+
 # --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
 role = os.environ.get("CLAUDE_ROLE", "")
 session_id = e.get("session_id")
