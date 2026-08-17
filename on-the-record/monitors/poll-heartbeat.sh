@@ -369,6 +369,7 @@ PY
     else
       _patrol_checked=0
       _patrol_promotions=0
+      _patrol_crashed=0
       for _patrol_role in "${POLL_HEARTBEAT_PATROL_ROLES[@]}"; do
         _patrol_out="$(python3 "${CHECKOUT}/gates/patrol_promote.py" run "${CHECKOUT}" "${_patrol_role}" 2>&1)"
         _patrol_rc=$?
@@ -381,6 +382,7 @@ PY
           # trace line so the failing role is identifiable per tick.
           _poll_watchdog_log_append "$(printf '[patrol-poll crashed, role=%s, rc=%s] %s' "${_patrol_role}" "${_patrol_rc}" "${_patrol_out}")"
           printf '[patrol-poll] %s: crashed (rc=%s)\n' "${_patrol_role}" "${_patrol_rc}"
+          _patrol_crashed=1
         elif [ -n "${_patrol_out}" ]; then
           _patrol_count="$(printf '%s' "${_patrol_out}" | python3 -c '
 import json, sys
@@ -396,7 +398,13 @@ print(len(d.get("promotions", [])) if isinstance(d, dict) else 0)
           fi
         fi
       done
-      printf '[patrol-poll] checked %s role(s), %s promotion(s)\n' "${_patrol_checked}" "${_patrol_promotions}"
+      # issue #1722: the summary line only fires when there's something to
+      # act on (a promotion or a crash) — a quiet tick still runs the
+      # patrol and logs it, it just stops waking the Monitor session with
+      # a "0 promotion(s)" no-op every patrol_every_n ticks.
+      if [ "${_patrol_promotions}" != "0" ] || [ "${_patrol_crashed}" = "1" ]; then
+        printf '[patrol-poll] checked %s role(s), %s promotion(s)\n' "${_patrol_checked}" "${_patrol_promotions}"
+      fi
     fi
   fi
   tick=$((tick + 1))
