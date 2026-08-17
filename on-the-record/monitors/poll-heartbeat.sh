@@ -217,6 +217,15 @@ while true; do
     # Also emits a bounded ~30min aliveness heartbeat when a due tick would
     # otherwise be fully suppressed for that long, so the Monitor channel
     # never goes silent past a bound (issue req #1220).
+    # issue #1719 (macOS stock bash 3.2 landmine): editing the comments in
+    # this heredoc body can flip `bash -n`/execution to "unexpected EOF
+    # while looking for matching \`\"'" even though the delimiter is
+    # quoted (<<'PY', fully literal per POSIX) -- bash 3.2 appears to
+    # miscount quote nesting through the body while scanning for this
+    # $(...)'s own closing paren. Empirically, changing the total count of
+    # apostrophes in this heredoc (not their content) is what flips it;
+    # if an edit here breaks parsing, try adjusting an apostrophe count
+    # before suspecting anything else.
     diff_output="$(POLL_HEARTBEAT_TEXT="${printed_text}" python3 - "${CHECKOUT}/runs/poll_heartbeat_last_state.json" "$(date +%s)" <<'PY'
 import json
 import os
@@ -231,12 +240,20 @@ lines = text.split("\n") if text else []
 TAG_RE = re.compile(r"^\[(poll-report|watchdog|health|reconcile|orphaned|resume|watchdog-crash|returned-pr)\]\s*([^:]+):")
 ENTRY_RE = re.compile(r"^([\w./-]+/[\w./-]+):\s")
 BULLET_RE = re.compile(r"^\s+-\s")
-# issue #1239: [returned-pr] joins the always-emit set — the #680 spawn
-# gate's undisposed-PR list must survive delta suppression every tick, not
-# just when it changes, so neglect stays visible (northpole req#1).
+# issue #1719: [returned-pr] no longer joins the always-emit set —
+# it is compared below with its age= token stripped instead, so an
+# unchanged set doesn't re-announce every tick (supersedes #1239 req 2).
 ALWAYS_RE = re.compile(
-    r"^\[(resume|orphaned|watchdog-crash|returned-pr)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
+    r"^\[(resume|orphaned|watchdog-crash)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
     re.IGNORECASE,
+)
+AGE_STRIP_RE = re.compile(r"age=[^ ]+")
+# issue #1719: two watchdogs contending for the cross-workspace board-sweep
+# lock make this line alternate between a real sweep result and this skip
+# text tick to tick; treat the skip text as no-change (never emitted, prior
+# sweep state kept) instead of flapping the delta state.
+BOARD_SWEEP_LOCK_SKIP_RE = re.compile(
+    r"^\[watchdog\] board-sweep:.*건너뜀 \(다른 워크스페이스가 스윕 중\)"
 )
 
 curr = {}
@@ -282,9 +299,24 @@ prev_lines = prev.get("lines", {})
 first_tick = not os.path.exists(state_path)
 
 to_emit = []
+new_lines = {}
 for key in order:
     line = curr[key]
-    if first_tick or prev_lines.get(key) != line or ALWAYS_RE.search(line):
+    if BOARD_SWEEP_LOCK_SKIP_RE.search(line):
+        # lock-contention skip is not a real state change: carry the
+        # previously known board-sweep line forward (or, if none was ever
+        # recorded, fall back to the skip text itself) and never emit it.
+        new_lines[key] = prev_lines.get(key, line)
+        continue
+    new_lines[key] = line
+    if key.startswith("returned-pr:"):
+        prev_line = prev_lines.get(key)
+        changed = prev_line is None or (
+            AGE_STRIP_RE.sub("age=", prev_line) != AGE_STRIP_RE.sub("age=", line)
+        )
+    else:
+        changed = prev_lines.get(key) != line
+    if first_tick or changed or ALWAYS_RE.search(line):
         to_emit.append(line)
 
 emitted_now = False
@@ -294,13 +326,17 @@ if to_emit:
 else:
     last_emit_epoch = int(prev.get("last_emit_epoch", 0) or 0)
     if now - last_emit_epoch >= 1800:
-        healthy = sum(1 for k in curr if "#" not in k and not k.startswith("__fixed__"))
-        sys.stdout.write(
-            f"[heartbeat] monitoring active, {healthy} session(s) tracked, no changes\n"
-        )
+        healthy = sum(1 for k in new_lines if "#" not in k and not k.startswith("__fixed__"))
+        heartbeat_lines = [
+            f"[heartbeat] monitoring active, {healthy} session(s) tracked, no changes"
+        ]
+        # issue #1719: the undisposed-PR set stays visible on this bound
+        # even while otherwise fully suppressed (northpole req#1).
+        heartbeat_lines.extend(curr[k] for k in order if k.startswith("returned-pr:"))
+        sys.stdout.write("\n".join(heartbeat_lines) + "\n")
         emitted_now = True
 
-new_state = {"lines": curr, "last_emit_epoch": now if emitted_now else prev.get("last_emit_epoch", 0)}
+new_state = {"lines": new_lines, "last_emit_epoch": now if emitted_now else prev.get("last_emit_epoch", 0)}
 os.makedirs(os.path.dirname(state_path), exist_ok=True)
 with open(state_path, "w", encoding="utf-8") as f:
     json.dump(new_state, f)

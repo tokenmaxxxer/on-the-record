@@ -227,31 +227,40 @@ def t_watchdog_anomaly_bullets_survive_round_trip():
         assert r2.stdout.strip() == "", r2.stdout
 
 
-def t_returned_pr_line_always_emits_even_unchanged():
-    """issue #1239: a `[returned-pr]` line (the #680 spawn gate's
-    undisposed-PR surfacing) must emit every tick even when byte-identical
-    to the previous tick — it joins the #1220 always-emit set alongside
-    STALLED/CRASHED/watcher-dead."""
-    report = (
-        "[poll-report] roster: 1 entry\nissue-5/implementation: healthy\n"
-        "[returned-pr] issue #22 (phase1): age=3.2h — https://example/22"
-    )
+def t_returned_pr_line_no_longer_always_emits_when_unchanged():
+    """issue #1719 (supersedes #1239 req 2's "every tick" wording): a
+    `[returned-pr]` line no longer joins the #1220 always-emit set — an
+    unchanged (issue, pr) item does not re-emit on ticks 2/3 even though
+    its rendered age= token advances tick to tick, while a genuine set
+    change (a new issue appearing) still emits."""
+    def report_for(age):
+        return (
+            "[poll-report] roster: 1 entry\nissue-5/implementation: healthy\n"
+            f"[returned-pr] issue #22 (phase1): age={age}h — https://example/22"
+        )
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         checkout = _make_checkout(tmp)
         home = tmp / "home"
         home.mkdir()
-        r1 = _run_tick(checkout, home, report)
+        r1 = _run_tick(checkout, home, report_for("3.2"))
         assert r1.returncode == 0, r1.stderr
         assert "[returned-pr] issue #22" in r1.stdout, r1.stdout
 
-        r2 = _run_tick(checkout, home, report)
+        r2 = _run_tick(checkout, home, report_for("3.7"))
         assert r2.returncode == 0, r2.stderr
-        assert "[returned-pr] issue #22" in r2.stdout, r2.stdout
-        assert "issue-5/implementation: healthy" not in r2.stdout, r2.stdout
+        assert "[returned-pr] issue #22" not in r2.stdout, r2.stdout
+        assert r2.stdout.strip() == "", r2.stdout
 
-        r3 = _run_tick(checkout, home, report)
-        assert "[returned-pr] issue #22" in r3.stdout, r3.stdout
+        r3 = _run_tick(checkout, home, report_for("4.1"))
+        assert r3.returncode == 0, r3.stderr
+        assert "[returned-pr] issue #22" not in r3.stdout, r3.stdout
+
+        report_new_item = report_for("4.5") + "\n[returned-pr] issue #40 (phase2): age=0.1h — https://example/40"
+        r4 = _run_tick(checkout, home, report_new_item)
+        assert r4.returncode == 0, r4.stderr
+        assert "[returned-pr] issue #40" in r4.stdout, r4.stdout
+        assert "[returned-pr] issue #22" not in r4.stdout, r4.stdout
 
 
 def t_anomaly_rc_produces_no_crash_label():
