@@ -245,7 +245,7 @@ class JudgeTraceAlwaysTest(unittest.TestCase):
         self.addCleanup(lambda: setattr(obj, name, orig))
 
     def _trace_lines(self):
-        p = self.root / "docs" / "reports" / "patrol-judge-log.md"
+        p = self.root / "runs" / "patrol-judge-log.md"
         return p.read_text(encoding="utf-8").splitlines() if p.is_file() else []
 
     def test_traces_on_git_show_failure(self):
@@ -265,7 +265,7 @@ class JudgeTraceAlwaysTest(unittest.TestCase):
         self.assertIn("error:", lines[0])
 
     def test_traces_on_cap_exceeded_without_dispatching_git(self):
-        trace_path = self.root / "docs" / "reports" / "patrol-judge-log.md"
+        trace_path = self.root / "runs" / "patrol-judge-log.md"
         trace_path.parent.mkdir(parents=True)
         trace_path.write_text(
             "- t | role=implementation | verb=judge | merge=deadbeef | outcome='ok'\n"
