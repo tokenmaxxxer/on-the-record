@@ -330,15 +330,16 @@ if to_emit:
 else:
     last_emit_epoch = int(prev.get("last_emit_epoch", 0) or 0)
     if now - last_emit_epoch >= 1800:
-        healthy = sum(1 for k in new_lines if "#" not in k and not k.startswith("__fixed__"))
-        heartbeat_lines = [
-            f"[heartbeat] monitoring active, {healthy} session(s) tracked, no changes"
-        ]
-        # issue #1719: the undisposed-PR set stays visible on this bound
-        # even while otherwise fully suppressed (northpole req#1).
-        heartbeat_lines.extend(curr[k] for k in order if k.startswith("returned-pr:"))
-        sys.stdout.write("\n".join(heartbeat_lines) + "\n")
-        emitted_now = True
+        # issue #1732: the periodic no-op liveness line is dropped --
+        # liveness is already covered by the alive marker
+        # (poll-heartbeat.sh:105-114). Only the undisposed-PR set #1719
+        # req#1 attached to this bound stays visible, and only when
+        # non-empty; an empty result leaves emitted_now False so
+        # last_emit_epoch (line 343) stays untouched.
+        returned_pr_lines = [curr[k] for k in order if k.startswith("returned-pr:")]
+        if returned_pr_lines:
+            sys.stdout.write("\n".join(returned_pr_lines) + "\n")
+            emitted_now = True
 
 new_state = {"lines": new_lines, "last_emit_epoch": now if emitted_now else prev.get("last_emit_epoch", 0)}
 os.makedirs(os.path.dirname(state_path), exist_ok=True)
