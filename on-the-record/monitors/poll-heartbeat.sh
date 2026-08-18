@@ -231,6 +231,7 @@ while true; do
     # if an edit here breaks parsing, try adjusting an apostrophe count
     # before suspecting anything else.
     diff_output="$(POLL_HEARTBEAT_TEXT="${printed_text}" python3 - "${CHECKOUT}/runs/poll_heartbeat_last_state.json" "$(date +%s)" <<'PY'
+import hashlib
 import json
 import os
 import re
@@ -259,6 +260,16 @@ AGE_STRIP_RE = re.compile(r"age=[^ ]+")
 BOARD_SWEEP_LOCK_SKIP_RE = re.compile(
     r"^\[watchdog\] board-sweep:.*건너뜀 \(다른 워크스페이스가 스윕 중\)"
 )
+# issue #1734: lines matching none of TAG_RE/ENTRY_RE/BULLET_RE used to
+# share one fixed placeholder key literal, disambiguated only by an
+# appearance-order ordinal -- inserting or dropping one such line shifted
+# every following line onto a different ordinal and the delta comparison
+# then compared it against a different lines previous text, emitting
+# unchanged content as "changed". FIXED_TAG_RE derives a content-carried
+# key instead: a broader bracket-tag prefix (not just TAG_REs enumerated
+# set) plus a hash of the full line, so a key travels with its own
+# content and position no longer matters.
+FIXED_TAG_RE = re.compile(r"^\[([^\]]+)\]\s*([^:]+):")
 
 curr = {}
 order = []
@@ -278,7 +289,12 @@ for line in lines:
         key = f"{last_key}#{bullet_ordinal}"
         bullet_ordinal += 1
     else:
-        key = "__fixed__"
+        line_hash = hashlib.sha256(line.encode("utf-8")).hexdigest()[:12]
+        fm = FIXED_TAG_RE.match(line)
+        if fm:
+            key = f"fixed:{fm.group(1)}:{fm.group(2).strip()}:{line_hash}"
+        else:
+            key = f"fixed:hash:{line_hash}"
     if key in curr:
         # collision within one tick's text (e.g. two genuinely singleton
         # lines) — keep both by disambiguating with an ordinal so neither
