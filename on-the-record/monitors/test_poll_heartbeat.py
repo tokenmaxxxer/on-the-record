@@ -532,6 +532,51 @@ def t_board_sweep_lock_skip_treated_as_no_change():
         assert r3.stdout.strip() == "", r3.stdout
 
 
+def t_unkeyed_line_insertion_suppresses_unchanged_lines_below():
+    """issue #1734 Acceptance check 1: inserting one new unkeyed line at the
+    top of the unkeyed-line block must not re-emit the unchanged lines
+    below it -- content-derived keys travel with each line, not its
+    position, so only the genuinely new line appears on tick 2."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        line_a = "[spawn-on-pr] issue-1701: subject PR merged, closing"
+        line_b = "watch: nothing pending, board quiet"
+        report_tick1 = f"{line_a}\n{line_b}"
+        r1 = _run_tick(checkout, home, report_tick1)
+        assert r1.returncode == 0, r1.stderr
+        assert line_a in r1.stdout, r1.stdout
+        assert line_b in r1.stdout, r1.stdout
+
+        line_new = "[spawn-on-pr] issue-1705: a different subject PR just merged"
+        report_tick2 = f"{line_new}\n{line_a}\n{line_b}"
+        r2 = _run_tick(checkout, home, report_tick2)
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == line_new, r2.stdout
+
+
+def t_unkeyed_line_content_change_still_emits():
+    """issue #1734 Acceptance check 2: an unkeyed line whose own content
+    changes between ticks is still emitted -- content-derived keying must
+    not over-suppress a genuine change."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report_tick1 = "[spawn-on-pr] issue-1701: subject PR merged, closing"
+        r1 = _run_tick(checkout, home, report_tick1)
+        assert r1.returncode == 0, r1.stderr
+        assert report_tick1 in r1.stdout, r1.stdout
+
+        report_tick2 = "[spawn-on-pr] issue-1701: subject PR merged, closing — retry succeeded"
+        r2 = _run_tick(checkout, home, report_tick2)
+        assert r2.returncode == 0, r2.stderr
+        assert report_tick2 in r2.stdout, r2.stdout
+
+
 def _force_last_emit_epoch(checkout: Path, epoch: int) -> None:
     """issue #1732: the 1800s bound can't be crossed by real wall-clock
     waiting in a test -- rewrite runs/poll_heartbeat_last_state.json's
