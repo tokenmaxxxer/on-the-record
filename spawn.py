@@ -5928,10 +5928,11 @@ def _compress_diff(diff_text: str, cap_tokens: int = 18000) -> str:
 
 
 def _judge_trace_path(cwd: str) -> Path:
-    """모든 judge 실행이 공유하는 트레이스 — `docs/reports/patrol-judge-log.md`
+    """모든 judge 실행이 공유하는 트레이스 — `runs/patrol-judge-log.md`
     (제안서 §Constraints "trace-always", consult-log `finally` 관례와
-    같은 이유)."""
-    return _consult_root(cwd) / "docs" / "reports" / "patrol-judge-log.md"
+    같은 이유). `runs/`는 git-ignored라 커밋 없이도 대상 트리를
+    더럽히지 않는다(이슈 #1730)."""
+    return _consult_root(cwd) / "runs" / "patrol-judge-log.md"
 
 
 def _append_judge_trace(path: Path, ts: str, role: str, merge_sha: str, outcome: str) -> None:
