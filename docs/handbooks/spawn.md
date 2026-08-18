@@ -93,7 +93,7 @@ python3 spawn.py judge <역할> --merge <sha> [-C <대상 레포>]
 
 - `JUDGE_TIMEOUT = 120`(초) — prefilter/judge/validator 호출마다 각각.
 - `JUDGE_MAX_ROLES_PER_MERGE = 3` — 같은 merge sha 에 대해 실행할 수
-  있는 judge 역할 수 상한. `docs/reports/patrol-judge-log.md` 트레이스
+  있는 judge 역할 수 상한. `runs/patrol-judge-log.md` 트레이스
   로그에서 `merge=<sha>`를 세어 판정하며, **로그가 없거나(회전/최초
   실행) 손상돼 있으면 0으로 fail(허용)** 한다 — 로그 부재가 판정을
   막지 않는다(PR #1590 binding review note).
@@ -101,8 +101,9 @@ python3 spawn.py judge <역할> --merge <sha> [-C <대상 레포>]
 ## 트레이스
 
 모든 실행(성공/실패/캡초과/prefilter-미스 가리지 않고)이
-`docs/reports/patrol-judge-log.md`에 한 줄 남는다 — consult-log의
-`finally`-블록 관례와 같다.
+`runs/patrol-judge-log.md`에 한 줄 남는다 — consult-log의
+`finally`-블록 관례와 같다. `runs/`는 git-ignored라 커밋 없이도
+대상 트리를 더럽히지 않는다(이슈 #1730).
 
 ## 의존성
 
