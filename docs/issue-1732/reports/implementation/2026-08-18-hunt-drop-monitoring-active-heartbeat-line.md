@@ -52,3 +52,50 @@ behavior the proposal describes, with no contradiction, no wrong output,
 and no test that fails to exercise what it claims. Restored
 on-the-record/monitors/poll-heartbeat.sh to its original committed content
 afterward (git diff / git status confirm no residual change).
+
+## after-proposal — stance 2: does the removal's own justification ("liveness is already covered by the alive marker") actually hold, given the landed diff's cross-file reference?
+
+Verdict: FINDING — the comment added by the landed diff cites the wrong (and functionally incapable) marker as covering the liveness signal it just deleted, so a fully quiet, multi-hour poll-heartbeat session now emits zero stdout ever again, making a silently-dead loop indistinguishable from a silently-healthy one on the one channel (Monitor stdout) #1220 built this line specifically to keep non-silent.
+Kind: silent-failure
+Seed: git diff on-the-record/monitors/poll-heartbeat.sh (lines ~330-341, the landed patch's new comment block)
+cap_seconds: (not specified to me — used default budget)
+tier: default
+diff_stat_lines: 71 (19 +/- in poll-heartbeat.sh, 61 added in test_poll_heartbeat.py — from `git diff --stat`)
+started_at: 2026-08-18T00:00:00Z (session-relative; wall clock not exposed to this shell)
+ended_at: 2026-08-18T00:00:00Z (session-relative; wall clock not exposed to this shell)
+
+### Reproduce
+```bash
+rm -rf /tmp/otr1732_repro; mkdir -p /tmp/otr1732_repro/checkout /tmp/otr1732_repro/home
+cat > /tmp/otr1732_repro/checkout/spawn.py <<'PY'
+#!/usr/bin/env python3
+import os, sys
+if sys.argv[1:2] == ["poll-due"]:
+    sys.exit(1)   # never due -> loop just idles every tick, report stays fully quiet
+sys.exit(0)
+PY
+env -i HOME=/tmp/otr1732_repro/home PATH="$PATH" \
+  TOKENMAXXXER_CHECKOUT=/tmp/otr1732_repro/checkout \
+  FAKE_SPAWN_MARKER=/tmp/otr1732_repro/checkout/marker.log \
+  POLL_HEARTBEAT_MAX_TICKS=4 \
+  POLL_HEARTBEAT_SLEEP_SECONDS=1 \
+  bash on-the-record/monitors/poll-heartbeat.sh \
+  > /tmp/otr1732_repro/stdout.log 2>/tmp/otr1732_repro/stderr.log
+echo "stdout-bytes=$(wc -c </tmp/otr1732_repro/stdout.log)"
+python3 -c "
+import glob, os
+for p in glob.glob('/tmp/otr1732_repro/home/.claude/tokenmaxxxer/monitor-alive/*/alive'):
+    print('one-shot alive marker mtime:', os.stat(p).st_mtime)
+p2 = '/tmp/otr1732_repro/checkout/runs/poll_heartbeat_alive.json'
+print('per-tick liveness stamp mtime:', os.stat(p2).st_mtime)
+"
+```
+
+### Observed
+- `stdout-bytes=0` across all 4 simulated ticks (a single continuous `bash poll-heartbeat.sh` process, not 4 separate invocations) — after the change, a quiet session never prints anything again, ever, once the initial state is recorded.
+- `one-shot alive marker mtime: 1787043044.67` — the marker the new comment names (`poll-heartbeat.sh:105-114`, the `~/.claude/tokenmaxxxer/monitor-alive/<hash>/alive` `touch`) is written exactly **once**, before the `while true; do` loop starts (poll-heartbeat.sh:105-114 sits above `tick=0`/`while true` at lines 169/185). It never updates again for the rest of the process's life — 4 ticks and ~4s later its mtime is unchanged.
+- `per-tick liveness stamp mtime: 1787043048.93` (~4s later, i.e. it *did* advance every tick) — but this is a *different* file, `runs/poll_heartbeat_alive.json`, written by `_alive_stamp_write()` (poll-heartbeat.sh:159-167, issue #1497 req 2) — the comment added by this diff never names it, and it is never written to stdout; it is consumed only by other hooks (`on-the-record/hooks/directive.sh:161-178` `_monitor_liveness_check_and_notify`, `on-the-record/hooks/stop-poll-rearm.sh:46`) as an internal re-arm backstop with its own 360s threshold, surfaced as a hook directive to the orchestrator — not as anything the user sees via the Monitor tool's own notification channel.
+- Cross-checked what the marker the comment *does* name is actually documented to mean: poll-heartbeat.sh:90-100 says directive.sh "infers whether THIS session's own Monitor **ever started** by checking this marker's mtime against its own recorded session-start time" — a one-shot "did it start" fact, not an ongoing "is it still ticking" signal. directive.sh:44-46 confirms the same reading ("the heartbeat's alive marker ... hashed by the resolved arm-root path").
+
+### Expected
+The new comment (poll-heartbeat.sh:332-338) asserts "liveness is already covered by the alive marker (poll-heartbeat.sh:105-114)" as the reason it's safe to delete the periodic stdout line that issue #1220 added specifically "so the Monitor channel never goes silent past a bound" (poll-heartbeat.sh:222-223, unchanged by this diff). For that claim to hold, the named marker would need to be refreshed periodically and be visible on the same channel. It is neither: it's a session-start-only touch consumed by a different hook for a different purpose, and the file that *is* refreshed per tick is never surfaced to the user at all. A fully quiet, hours-long session now produces the identical zero-stdout signature whether poll-heartbeat.sh is healthy-and-idle or has silently died — exactly the invisible-absence failure mode #1220 was written to prevent, and the comment's own cited justification does not close that gap.

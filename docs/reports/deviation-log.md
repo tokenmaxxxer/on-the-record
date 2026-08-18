@@ -23,3 +23,35 @@ on-the-record/hooks/test_product_capture_stopgate.py), so per
 SCOPE-EXCEEDED RULE the frozen write set is finished and this is
 reported, not spawned — see docs/issue-1726/reports/implementation.md's
 Open findings.
+
+canonical: hunt run this session (subagent warrant:warrant-hunter,
+agentId adab5ed76c4eb1a95), reproduction verified against the landed
+diff — a 4-tick run (POLL_HEARTBEAT_MAX_TICKS=4, spawn.py always
+reporting poll-due not-due) produced zero stdout across all 4 ticks
+while the alive marker's mtime stayed pinned at tick 0.
+2026-08-18T09:15:00Z filed implementation(issue-1732): a second
+warrant-hunter round (dispatched before phase-2 completion, after a
+phase-1 no-finding round already on record at
+docs/issue-1732/reports/implementation/2026-08-18-hunt-drop-monitoring-active-heartbeat-line.md)
+flagged a liveness gap: the alive marker
+(`on-the-record/monitors/poll-heartbeat.sh:105-114`) that this issue's
+own Resolved-problem text and the approved proposal's Rationale
+(rejected alternative #2) both cite as already covering monitor
+liveness is written once per session, before the tick loop starts, and
+never advances again — it can only show "the Monitor process launched",
+not "the tick loop is still alive N ticks later." The per-tick
+`runs/poll_heartbeat_alive.json` file does advance every tick but is
+consumed only internally by `directive.sh`'s
+`_monitor_liveness_check_and_notify` re-arm backstop, never surfaced to
+the user. This is a critique of a design trade-off already stated and
+approved in issue #1732's own body and the approved proposal
+(docs/issue-1732/proposals/2026-08-18-drop-monitoring-active-heartbeat-line.md,
+Rationale, rejected alternative #2) — not a defect in this session's
+implementation of that approved design, and resolving it needs
+product/design judgment outside issue #1732's frozen write set
+(`on-the-record/monitors/poll-heartbeat.sh`,
+`on-the-record/monitors/test_poll_heartbeat.py`) and outside this
+session's authority to re-open an already-approved decision. Per
+SCOPE-EXCEEDED RULE the frozen write set stays as-is and this is
+reported, not spawned — see docs/issue-1732/reports/implementation.md's
+Open findings.
