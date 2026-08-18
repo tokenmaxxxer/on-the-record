@@ -532,6 +532,67 @@ def t_board_sweep_lock_skip_treated_as_no_change():
         assert r3.stdout.strip() == "", r3.stdout
 
 
+def _force_last_emit_epoch(checkout: Path, epoch: int) -> None:
+    """issue #1732: the 1800s bound can't be crossed by real wall-clock
+    waiting in a test -- rewrite runs/poll_heartbeat_last_state.json's
+    last_emit_epoch directly, the same on-disk state file poll-heartbeat.sh
+    itself reads/writes (mirrors _run_tick's use of that state file)."""
+    import json
+    state_path = checkout / "runs" / "poll_heartbeat_last_state.json"
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    state["last_emit_epoch"] = epoch
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+
+def t_heartbeat_bound_with_no_returned_pr_emits_nothing():
+    """issue #1732 Acceptance check 1: an unchanged report with no
+    returned-pr entries, ticked past the 1800s last_emit_epoch bound,
+    writes nothing to stdout and leaves last_emit_epoch untouched (no
+    'monitoring active' line)."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report = EMPTY_ROSTER_REPORT
+        r1 = _run_tick(checkout, home, report)
+        assert r1.returncode == 0, r1.stderr
+        assert EMPTY_ROSTER_REPORT in r1.stdout, r1.stdout
+
+        _force_last_emit_epoch(checkout, 0)
+        r2 = _run_tick(checkout, home, report)
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout == "", r2.stdout
+        assert "monitoring active" not in r2.stdout, r2.stdout
+
+        import json
+        state_path = checkout / "runs" / "poll_heartbeat_last_state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["last_emit_epoch"] == 0, \
+            f"last_emit_epoch must stay untouched on an empty bound tick: {state}"
+
+
+def t_heartbeat_bound_with_returned_pr_emits_only_those_lines():
+    """issue #1732 Acceptance check 2: an unchanged report carrying a
+    returned-pr entry, ticked past the 1800s last_emit_epoch bound, emits
+    exactly that returned-pr line and no 'monitoring active' line."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report = "[returned-pr] issue #22 (phase1): age=1.0h — https://example/22"
+        r1 = _run_tick(checkout, home, report)
+        assert r1.returncode == 0, r1.stderr
+        assert "[returned-pr] issue #22" in r1.stdout, r1.stdout
+
+        _force_last_emit_epoch(checkout, 0)
+        r2 = _run_tick(checkout, home, report)
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == "[returned-pr] issue #22 (phase1): age=1.0h — https://example/22", r2.stdout
+        assert "monitoring active" not in r2.stdout, r2.stdout
+
+
 def t_patrol_quiet_tick_with_roles_emits_no_summary_line():
     """issue #1722 Acceptance check 1: a patrol-due tick with roles
     configured, zero promotions, and no crash writes nothing
