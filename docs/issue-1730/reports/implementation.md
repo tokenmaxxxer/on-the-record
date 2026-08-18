@@ -6,8 +6,8 @@ code_under_review:
   - docs/reports/patrol-judge-log.md
 type: fix
 breaking: false
-verdict: pending
-loop_state: coding
+verdict: accept
+loop_state: committing
 ---
 
 # Implementation record — issue #1730
@@ -135,10 +135,36 @@ $ git stash pop
 ```
 canonical: git stash reproduction output above (this turn). The identical failure reproduces with this branch's edits reverted, so it predates this change and shares Check 1's _consult_root().resolve() root cause (/private/var vs the test's own unresolved self.root string) — out of this proposal's frozen write set.
 
-Check 3 (clean-checkout patrol run) needs a clean working tree per its own
-wording, so it runs after committing this record and the code changes
-together; its real output is appended to this record in a follow-up
-commit once run.
+Check 3 (clean-checkout patrol run), run after committing this record and
+the code changes together at d1f2de85, so the checkout was genuinely clean
+per the check's own wording:
+derived: git status --porcelain immediately before this run (this turn)
+```
+$ git status --porcelain
+
+```
+canonical: git status --porcelain output above (this turn) — empty,
+confirming the clean checkout.
+```
+$ python3 gates/patrol_wiring.py run . d1f2de85
+[patrol-wiring] role=accessibility skipped (prefilter_miss)
+... (44 roles total; 3 hit the JUDGE_MAX_ROLES_PER_MERGE cap, the rest
+skipped on prefilter_miss or cap_exceeded)
+$ git status --porcelain
+
+```
+canonical: git status --porcelain output above (this turn) — empty after
+the run, no docs/reports/patrol-judge-log.md entry.
+```
+$ ls runs/patrol-judge-log.md
+runs/patrol-judge-log.md
+$ git check-ignore -v runs/patrol-judge-log.md
+.gitignore:1:runs/	runs/patrol-judge-log.md
+```
+canonical: ls and git check-ignore output above (this turn) — the trace
+file was written to runs/patrol-judge-log.md (44 role lines observed) and
+confirmed matched by the .gitignore:1 runs/ pattern, so it never entered
+git status in the first place rather than merely not showing by chance.
 
 ## What did not work
 
@@ -157,15 +183,14 @@ None.
 
 ## Next steps
 
-Run the four Acceptance commands and the test suite for real, paste their
-verbatim output into this record, flip `loop_state` to `committing`/`landed`
-and `verdict` to its final value, then commit, push, and open the phase-2
-PR carrying `Closes #1730`.
+None — all four issue Acceptance checks and the test suite ran and are
+pasted above; this branch is ready for the phase-2 delivery PR carrying
+Closes #1730.
 
 ## Resolution path
 
-No open findings exist at this point in the record; if the acceptance run
-below surfaces a mismatch against the four issue checks, it will be logged
-under `## Open findings` with the failing command's output and resolved
-before commit — this record does not land with `loop_state: coding` past
-that point.
+No open findings exist. The one pre-existing test failure documented above
+under Test suite / What did not work is out of this proposal's frozen
+write set — see the Acceptance-verification section above for the grounded
+root-cause citation — and is not a resolution-blocking finding against
+this change.
