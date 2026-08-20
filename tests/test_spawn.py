@@ -4875,7 +4875,7 @@ class PanelCliWiring(unittest.TestCase):
             sys.argv = argv
         self.assertEqual(rc, 0)
         m.assert_called_once_with("review", "qa", "<question>",
-                                   issue=1, cwd=".")
+                                   issue=1, cwd=".", model=None)
 
     def test_panel_cli_subcommand_missing_args_exits(self):
         argv = sys.argv
@@ -10396,7 +10396,7 @@ class PanelDegradeErrorSafety(unittest.TestCase):
         orig_record_path = spawn._panel_record_path
         spawn._panel_record_path = lambda issue, slug, cwd=None: self.path
 
-        def no_turns_session(role, peer_role, question, cwd):
+        def no_turns_session(role, peer_role, question, cwd, model=None):
             return {"turns": [], "verdict": None}
 
         try:
