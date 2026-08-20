@@ -23,7 +23,7 @@ def fake_root(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _seeded_live_session(role, peer_role, question, cwd):
+def _seeded_live_session(role, peer_role, question, cwd, model=None):
     """Stands in for a live judge session: one position, one rebuttal,
     then a verdict — the shape a real session's `SendMessage` exchange
     plus final JSON would produce."""
@@ -52,7 +52,7 @@ def test_panel_live_exchange_records_position_rebuttal_and_verdict(fake_root):
     assert "role=review" in text
 
 
-def _unavailable_session(role, peer_role, question, cwd):
+def _unavailable_session(role, peer_role, question, cwd, model=None):
     raise spawn._PanelMessagingUnavailable(f"{role}: seeded unavailable")
 
 

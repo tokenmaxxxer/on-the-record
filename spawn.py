@@ -5364,11 +5364,18 @@ def read_role_model_config() -> str:
         return ""
 
 
-def resolved_role_model() -> str:
+def resolved_role_model(cli_model: str | None = None) -> str:
     """이슈#93: env > config > built-in default("sonnet"). MUSTER_ROLE_MODEL 이
     (strip 후) 비어 있지 않으면 그것이 이긴다 — config 는 그때는 아예 안 읽힌
     값처럼 무시된다. 둘 다 비어 있으면 "sonnet" — --model 이 항상 붙는다,
-    호출자의(비쌀 수 있는) 세션 모델을 조용히 물려받지 않도록."""
+    호출자의(비쌀 수 있는) 세션 모델을 조용히 물려받지 않도록.
+
+    이슈#1736: `cli_model` 이(strip 후) 비어 있지 않으면 최우선으로 이긴다
+    — 단일 스폰에 대한 per-invocation 오버라이드, env/config 는 아예 안
+    읽힌 것처럼 건너뛴다. 생략하면(기본값 None) 이전 동작과 byte-identical."""
+    cli_value = (cli_model or "").strip()
+    if cli_value:
+        return cli_value
     env_value = (os.environ.get("MUSTER_ROLE_MODEL") or "").strip()
     if env_value:
         return env_value
@@ -5377,7 +5384,8 @@ def resolved_role_model() -> str:
 
 def spawn_cmd(settings_path: str, role: str, unattended: bool,
               core_plugins: list | None = None,
-              plugins: list | None = None) -> tuple[list[str], dict[str, str]]:
+              plugins: list | None = None,
+              model: str | None = None) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
     --permission-mode bypassPermissions (issue #700): 샌드박스 제거(#695/#697)
@@ -5407,7 +5415,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # 고정한다. env > config > built-in "sonnet". 둘 다 비어있어도 built-in
     # 이 이겨 --model 이 항상 붙는다 — haiku 프로브(doctor())는 이 함수를
     # 거치지 않으므로 영향 없다.
-    role_model = resolved_role_model()
+    role_model = resolved_role_model(model)
     if role_model:
         cmd += ["--model", role_model]
     env = {"CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
@@ -5543,7 +5551,8 @@ def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
               f"{e.stderr.strip() if e.stderr else e}", file=sys.stderr)
 
 
-def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None) -> tuple[list[str], dict[str, str], str]:
+def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
+                         model: str | None = None) -> tuple[list[str], dict[str, str], str]:
     """`consult_cmd()`의 argv/env/settings-file 조립만 떼어낸, subprocess 를
     직접 부르지 않는 build-then-return 헬퍼 — `spawn_cmd()` 와 같은 모양이다.
     `(cmd, env, settings_path)` 를 돌려준다 — settings_path 는 호출자가
@@ -5573,7 +5582,7 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None) -> tuple[list[s
         cmd += ["--plugin-dir", str(p)]
     for p in core_plugin_dirs():
         cmd += ["--plugin-dir", str(p)]
-    role_model = resolved_role_model()
+    role_model = resolved_role_model(model)
     if role_model:
         cmd += ["--model", role_model]
     env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
@@ -5584,7 +5593,7 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None) -> tuple[list[s
 
 
 def consult_cmd(role: str, question: str, issue: int | None = None,
-                cwd: str | None = None) -> dict:
+                cwd: str | None = None, model: str | None = None) -> dict:
     """자문(consult): 역할의 룰북을 로드해 판단만 돌려받는다 — 브랜치도
     커밋도 PR 도 만들지 않는다(이슈 #699 R1). `spawn_cmd()`/`_spawn_one()`
     의 발급 파이프라인과는 별개의, 훨씬 작은 조립이다: 그 함수들이 여는
@@ -5611,7 +5620,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
             raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
         spec = json.loads(f.read_text())
-        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd)
+        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd, model)
         # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
         # freelunch/scout/warrant/proposal-shape 같은, 저장소를 바꾸는 배달물을
         # 겨냥한 core 훅들이 자문 세션에도 그대로 꽂힌다. 복잡한 판단 질문 하나가
@@ -6203,7 +6212,8 @@ def _extract_sendmessage_turns(stream_lines: list[dict]) -> list[str]:
     return turns
 
 
-def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None) -> dict:
+def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None,
+                       model: str | None = None) -> dict:
     """판정 세션 하나를 non-bare `claude -p` 로 띄운다 — `crossSessionInbound`
     를 걸어 `SendMessage` 를 받을 수 있게 한다(이슈#973 phase-1 조사: 공식
     문서, ListAgents/SendMessage 은 non-bare 세션에서만 열린다). 세션
@@ -6237,7 +6247,7 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
             cmd += ["--plugin-dir", str(p)]
         for p in core_plugin_dirs():
             cmd += ["--plugin-dir", str(p)]
-        role_model = resolved_role_model()
+        role_model = resolved_role_model(model)
         if role_model:
             cmd += ["--model", role_model]
         env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
@@ -6319,7 +6329,8 @@ def _panel_degrade(path: Path, ts: str, role_a: str, role_b: str, question: str,
 
 
 def panel_cmd(role_a: str, role_b: str, question: str, issue: int | None = None,
-              cwd: str | None = None, run_session=None) -> dict:
+              cwd: str | None = None, run_session=None,
+              model: str | None = None) -> dict:
     """동시-판정(concurrent judgment): 두 역할을 non-bare 세션으로 띄워
     `SendMessage` 로 입장과 반박을 주고받게 하고, 매 턴을
     `docs/issue-<n>/reports/panel/<question-slug>.md` 에 남긴다(req#2/#5,
@@ -6340,8 +6351,8 @@ def panel_cmd(role_a: str, role_b: str, question: str, issue: int | None = None,
     ts = datetime.now(timezone.utc).isoformat()
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-            fut_a = ex.submit(launcher, role_a, role_b, question, cwd)
-            fut_b = ex.submit(launcher, role_b, role_a, question, cwd)
+            fut_a = ex.submit(launcher, role_a, role_b, question, cwd, model)
+            fut_b = ex.submit(launcher, role_b, role_a, question, cwd, model)
             result_a = fut_a.result()
             result_b = fut_b.result()
     except _PanelMessagingUnavailable as e:
@@ -6799,6 +6810,10 @@ def main() -> int:
                     help="대상 레포의 .claude/ 설정·훅을 신뢰한다. 읽어본 뒤에만")
     ap.add_argument("--issue", type=positive_int,
                     help="이 이슈 번호로 스폰한다: issue-<n>/<역할> 브랜치를 만들고 프롬프트에 명시")
+    ap.add_argument("--model",
+                    help="이 스폰 한 번만 쓸 모델 오버라이드: --model > "
+                         "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
+                         "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--merge", help="judge <역할> --merge <sha>: 판단할 머지의 커밋 sha")
     ap.add_argument("--unattended", action="store_true",
                     help="사람이 없는 실행. mint 는 안 되고, 휴먼 게이트는 선다")
@@ -6961,7 +6976,8 @@ def main() -> int:
         if not a.task or not a.consult_question:
             sys.exit('사용법: spawn.py consult <역할> "<질문>" [--issue <n>]')
         try:
-            verdict = consult_cmd(a.task, a.consult_question, issue=a.issue, cwd=a.cwd)
+            verdict = consult_cmd(a.task, a.consult_question, issue=a.issue, cwd=a.cwd,
+                                  model=a.model)
         except Exception as e:
             sys.exit(f"consult 실패(트레이스는 남았다): {e}")
         print(json.dumps(verdict, indent=2, ensure_ascii=False))
@@ -7003,7 +7019,7 @@ def main() -> int:
             sys.exit("panel 은 서로 다른 두 역할이 필요하다 — 같은 역할을 두 번 줬다")
         try:
             verdict = panel_cmd(a.task, a.consult_question, a.panel_question,
-                                 issue=a.issue, cwd=a.cwd)
+                                 issue=a.issue, cwd=a.cwd, model=a.model)
         except Exception as e:
             sys.exit(f"panel 실패(트레이스는 남았다): {e}")
         print(json.dumps(verdict, indent=2, ensure_ascii=False))
@@ -7086,7 +7102,7 @@ def main() -> int:
         # docs/reports/2026-07-29-hunt-muster-role-model-build.md). resolved_role_model()
         # 로 spawn_cmd 와 동일한 env > config > built-in "sonnet" 경로를 태워,
         # 둘 다 비어있어도 built-in 값을 키에 넣는다.
-        role_model = resolved_role_model()
+        role_model = resolved_role_model(a.model)
         if role_model:
             out["model"] = role_model
         print(json.dumps(out, indent=2, ensure_ascii=False))
@@ -7102,7 +7118,8 @@ def main() -> int:
                       bounded=a.issue is not None,
                       stall_timeout_min=a.stall_timeout,
                       no_wait=a.no_wait,
-                      despite_returned=a.despite_returned)
+                      despite_returned=a.despite_returned,
+                      model=a.model)
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -7703,7 +7720,7 @@ def _goal_pin_block(title: str | None, body: str | None) -> str:
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
-               despite_returned: bool = False) -> int:
+               despite_returned: bool = False, model: str | None = None) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -7812,7 +7829,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 맡길 일은 stdin 으로 넘긴다. 인자로 주면 가변 인자 플래그가 삼키고,
         # 셸 보간을 거치면 신뢰할 수 없는 값의 $(…) 가 실행된다.
         cmd, extra_env = spawn_cmd(settings, role, unattended,
-                                   core_plugins, plugins)
+                                   core_plugins, plugins, model)
         if issue is not None:
             # 툴체인 캐시를 워크스페이스 안으로 — go 등이 홈(~/Library/...)에
             # 캐시·설정을 쓰려다 샌드박스에 막혀 빌드가 승인 프롬프트로
