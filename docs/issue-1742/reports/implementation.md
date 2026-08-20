@@ -72,13 +72,14 @@ basis: docs/issue-1742/proposals/skills-mount.md (approved)
 
 ## Test run
 
-derived: `python3 -m pytest test/test_spawn_skills_mount.py -v`
+canonical: `python3 -m pytest -q test/test_spawn_skills_mount.py` — executed live this session, output below
+acceptance: python3 -m pytest -q test/test_spawn_skills_mount.py — result: pass
 ```
-11 passed in 0.86s
+11 passed in 0.85s
 ```
 
 canonical: `python3 -m pytest -q -m "not slow" test/test_spawn_model_override.py test/test_spawn_skills_mount.py` — executed live this session, output below
-acceptance: python3 -m pytest -q -m "not slow" test/test_spawn_model_override.py test/test_spawn_skills_mount.py — result: pass, no regression alongside the new tests
+acceptance: python3 -m pytest -q -m "not slow" test/test_spawn_model_override.py test/test_spawn_skills_mount.py — result: pass, no regression alongside the new tests (extra, broader regression run)
 ```
 17 passed in 0.81s
 ```
