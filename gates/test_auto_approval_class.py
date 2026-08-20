@@ -104,7 +104,12 @@ class ShadowModeTest(unittest.TestCase):
     def tearDown(self):
         self.tmpdir.cleanup()
 
+    def _write_config(self, **kwargs):
+        import json
+        self.config_path.write_text(json.dumps(kwargs))
+
     def test_shadow_verdict_never_bypasses_human_approve(self):
+        self._write_config(shadow_mode=True, quota_per_24h=5)
         # shadow_verdict() must never itself constitute an APPROVE — it
         # has no code path that touches approval-gate.sh or emits an
         # APPROVE-shaped string. Assert the module exposes no such
@@ -132,6 +137,7 @@ class ShadowModeTest(unittest.TestCase):
         self.assertIsInstance(verdict.would_auto_approve, bool)
 
     def test_shadow_verdict_writes_audit_log_line(self):
+        self._write_config(shadow_mode=True, quota_per_24h=5)
         self.assertFalse(self.audit_log_path.exists())
         aac.shadow_verdict(
             diff_paths=["docs/reports/foo.md"],
@@ -154,6 +160,7 @@ class ShadowModeTest(unittest.TestCase):
         self.assertIn("class=docs_only", content)
 
     def test_shadow_verdict_not_eligible_still_writes_audit_log(self):
+        self._write_config(shadow_mode=True, quota_per_24h=5)
         aac.shadow_verdict(
             diff_paths=["gates/foo.py"],
             gate_results={
@@ -170,6 +177,50 @@ class ShadowModeTest(unittest.TestCase):
         )
         content = self.audit_log_path.read_text()
         self.assertIn("would_auto_approve=False", content)
+
+    def test_shadow_verdict_empty_state_config_absent_records_nothing(self):
+        # PR #1741 review fix: absent config == feature off. No audit
+        # line is written and would_auto_approve is False.
+        self.assertFalse(self.config_path.exists())
+        self.assertFalse(self.audit_log_path.exists())
+        verdict = aac.shadow_verdict(
+            diff_paths=["docs/reports/foo.md"],
+            gate_results={
+                "scope_adherence": True,
+                "stale_revert_guard": True,
+                "requirement_met": True,
+            },
+            issue=1739,
+            pr=1741,
+            timestamp="2026-08-20T00:02:00Z",
+            config_path=self.config_path,
+            state_path=self.state_path,
+            audit_log_path=self.audit_log_path,
+        )
+        self.assertFalse(verdict.would_auto_approve)
+        self.assertFalse(self.audit_log_path.exists())
+
+    def test_shadow_verdict_honors_shadow_mode_flag(self):
+        # shadow_mode: false is honored, not a dead value: config present
+        # but shadow_mode disabled behaves the same as config absent.
+        self._write_config(shadow_mode=False, quota_per_24h=5)
+        self.assertFalse(self.audit_log_path.exists())
+        verdict = aac.shadow_verdict(
+            diff_paths=["docs/reports/foo.md"],
+            gate_results={
+                "scope_adherence": True,
+                "stale_revert_guard": True,
+                "requirement_met": True,
+            },
+            issue=1739,
+            pr=1741,
+            timestamp="2026-08-20T00:03:00Z",
+            config_path=self.config_path,
+            state_path=self.state_path,
+            audit_log_path=self.audit_log_path,
+        )
+        self.assertFalse(verdict.would_auto_approve)
+        self.assertFalse(self.audit_log_path.exists())
 
 
 class QuotaAndCircuitBreakerTest(unittest.TestCase):
@@ -235,6 +286,7 @@ class QuotaAndCircuitBreakerTest(unittest.TestCase):
         self.assertEqual(verdict.quota_remaining, 3)
 
     def test_recorded_revert_suspends_class(self):
+        self._write_config(shadow_mode=True, quota_per_24h=5)
         self._write_state(suspended_classes=["docs_only"])
         verdict = aac.shadow_verdict(
             diff_paths=["docs/reports/foo.md"],
@@ -255,6 +307,7 @@ class QuotaAndCircuitBreakerTest(unittest.TestCase):
         self.assertIn("suspended", verdict.reason)
 
     def test_reverts_last_28d_also_suspends(self):
+        self._write_config(shadow_mode=True, quota_per_24h=5)
         self._write_state(reverts_last_28d=["pr-999"])
         verdict = aac.shadow_verdict(
             diff_paths=["docs/reports/foo.md"],

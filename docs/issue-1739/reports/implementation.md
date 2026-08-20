@@ -54,15 +54,35 @@ canonical: pytest gates/test_auto_approval_class.py -v — result: PASS,
 this session's confirmation run below:
 
 ```
-============================== 21 passed in 0.83s ==============================
+============================== 23 passed in 0.79s ==============================
 ```
 
 The three suites in that one run cover the issue's Acceptance 1-3:
 `AdversarialBoundaryTest` (docs+code mixed diff, docs edit under
 `on-the-record/hooks/`, partially out-of-scope diff, test file editing
 production fixture), `ShadowModeTest` (gate refusal without APPROVE plus
-audit-log line presence), and `QuotaAndCircuitBreakerTest` (quota
-exhaustion and circuit-breaker suspension).
+audit-log line presence, plus the empty-state case below), and
+`QuotaAndCircuitBreakerTest` (quota exhaustion and circuit-breaker
+suspension).
+
+### PR #1741 review fix (this commit)
+
+canonical: PR #1741 review comment by JiwonJung94, `gh pr view 1741
+--json comments`, read this session — found `shadow_verdict()` wrote its
+audit-log line unconditionally even when
+`docs/specs/auto-approval-config.json` is absent (the config's own
+`shadow_mode` field was loaded but never read — a dead value). Fixed:
+`shadow_verdict()` now returns early — `would_auto_approve=False`, no
+state read, no audit-log line written — when `config["present"]` is
+False or `config["shadow_mode"]` is False. Added
+`test_shadow_verdict_empty_state_config_absent_records_nothing` and
+`test_shadow_verdict_honors_shadow_mode_flag` to `ShadowModeTest`. Two
+pre-existing methods, `test_recorded_revert_suspends_class` and
+`test_reverts_last_28d_also_suspends`, called `shadow_verdict()` without
+first writing a config file; under the new empty-state behavior that
+config-absent path now short-circuits before the circuit-breaker check
+runs, so both were updated to call `_write_config(shadow_mode=True,
+quota_per_24h=5)` first — same fix required by the review comment.
 
 ## What did not work
 

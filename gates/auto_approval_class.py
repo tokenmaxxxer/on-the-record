@@ -216,6 +216,11 @@ def shadow_verdict(
     ALLOW/YES outcome) plus quota/circuit-breaker state, and append one
     audit-log line in this same call.
 
+    Empty state: when docs/specs/auto-approval-config.json is absent, or
+    present but shadow_mode is false, this returns immediately with
+    would_auto_approve=False and records nothing — no audit-log line is
+    written and quota/circuit-breaker state is not read.
+
     This is shadow-only: the returned would_auto_approve is a recorded
     label, never an action. approval-gate.sh is not called or modified by
     this function; its human-APPROVE requirement is unaffected by
@@ -225,6 +230,16 @@ def shadow_verdict(
         diff_paths, out_of_scope_paths, production_fixture_paths)
 
     config = load_config(config_path)
+
+    if not config["present"] or not config["shadow_mode"]:
+        return ShadowVerdict(
+            would_auto_approve=False,
+            reason="feature off: config absent or shadow_mode disabled",
+            class_=class_,
+            quota_remaining=0,
+            circuit_breaker_suspended=False,
+        )
+
     state = load_state(state_path)
 
     reasons = []
