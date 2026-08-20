@@ -5126,6 +5126,54 @@ def _core_candidates() -> list[tuple[str, Path]]:
     ]
 
 
+def _skill_repo_root() -> Path | None:
+    """`--skills` 가 마운트할 skill-repository 체크아웃 루트. `MUSTER_SKILL_REPO`
+    env 우선, 없으면 `_core_candidates()` 와 같은 계열의 형제-클론 기본값
+    (`$TOKENMAXXXER_RULEBOOKS/skill-repository`). 관리 클론 fallback은 없다
+    (이슈 #1742: phase 1은 로컬 체크아웃만 다룬다) — 둘 다 없으면 `None`.
+    """
+    env_value = os.environ.get("MUSTER_SKILL_REPO")
+    if env_value:
+        p = Path(os.path.expanduser(os.path.expandvars(env_value)))
+        if p.is_dir():
+            return p
+    sibling = os.path.expandvars("$TOKENMAXXXER_RULEBOOKS/skill-repository")
+    if "$" not in sibling:
+        p = Path(os.path.expanduser(sibling))
+        if p.is_dir():
+            return p
+    return None
+
+
+def resolved_skill_dirs(skills_csv: str | None,
+                         repo_root: Path | None) -> list[Path]:
+    """`--skills a,b,c` 를 skill-repository 체크아웃 안의 디렉터리 목록으로
+    푼다. `skills_csv` 가 비면 빈 목록(마운트 없음, byte-identical 경로).
+    이름 하나라도 `<repo_root>/<name>` 으로 해석되지 않으면 워크스페이스/
+    브랜치를 건드리기 전에 fail-closed(이슈 #1742 요구사항 2)."""
+    names = [n.strip() for n in (skills_csv or "").split(",") if n.strip()]
+    if not names:
+        return []
+    if repo_root is None:
+        sys.exit("--skills: skill-repository 체크아웃을 못 찾았다 — "
+                  "MUSTER_SKILL_REPO 나 $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하라")
+    available = sorted(p.name for p in repo_root.iterdir()
+                        if p.is_dir() and not p.name.startswith("."))
+    unknown = [n for n in names if n not in available]
+    if unknown:
+        sys.exit(f"--skills: 모르는 스킬 {', '.join(unknown)} "
+                  f"— 쓸 수 있는 이름: {', '.join(available)}")
+    return [repo_root / n for n in names]
+
+
+def skill_repo_sha(repo_root: Path) -> str:
+    """`repo_root` 체크아웃이 물고 있는 커밋(짧은 sha). `rulebook_version()`
+    과 같은 shape — git 실패는 조용히 "?" 로 대체."""
+    p = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--short=7", "HEAD"],
+                        capture_output=True, text=True)
+    return p.stdout.strip() if p.returncode == 0 else "?"
+
+
 # sibling: core_version
 def core_root() -> Path:
     """tokenmaxxxer-core 체크아웃 루트. 없으면 멈춘다.
@@ -5385,7 +5433,9 @@ def resolved_role_model(cli_model: str | None = None) -> str:
 def spawn_cmd(settings_path: str, role: str, unattended: bool,
               core_plugins: list | None = None,
               plugins: list | None = None,
-              model: str | None = None) -> tuple[list[str], dict[str, str]]:
+              model: str | None = None,
+              skill_dirs: list | None = None,
+              skill_repo_sha_value: str | None = None) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
     --permission-mode bypassPermissions (issue #700): 샌드박스 제거(#695/#697)
@@ -5410,6 +5460,12 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     for p in (plugins or []):
         cmd += ["--plugin-dir", str(p)]
     for p in (core_plugins or []):
+        cmd += ["--plugin-dir", str(p)]
+    # 이슈 #1742: --skills 로 마운트한 스킬 디렉터리. rulebook/core 뒤에
+    # 붙는다 — 순서는 우선순위가 아니라 추가분(additive)이라 어디 붙어도
+    # 무방하지만, skill_dirs 가 falsy 면(기본값) 이 루프가 아무 것도 안 붙여
+    # no-flag 경로의 argv 를 바이트 단위로 그대로 둔다.
+    for p in (skill_dirs or []):
         cmd += ["--plugin-dir", str(p)]
     # MUSTER_ROLE_MODEL / role_model.txt (이슈#93): 역할 세션이 쓰는 모델을
     # 고정한다. env > config > built-in "sonnet". 둘 다 비어있어도 built-in
@@ -5437,6 +5493,9 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
         env["GIT_TERMINAL_PROMPT"] = "0"
     if unattended:
         env["TOKENMAXXXER_UNATTENDED"] = "1"
+    if skill_dirs:
+        env["MUSTER_SKILLS"] = ",".join(Path(p).name for p in skill_dirs)
+        env["MUSTER_SKILL_REPO_SHA"] = skill_repo_sha_value or "?"
     # 룰북 게이트는 core 공유 라이브러리를
     # ${CLAUDE_PLUGIN_ROOT_CORE:-<상대경로>/core} 로 참조한다(이슈#182). 이
     # 변수를 주입하지 않으면 상대 fallback 이 룰북 클론 내부를 가리켜
@@ -6814,6 +6873,10 @@ def main() -> int:
                     help="이 스폰 한 번만 쓸 모델 오버라이드: --model > "
                          "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
+    ap.add_argument("--skills", default=None,
+                    help="쉼표로 구분한 스킬 이름 목록을 skill-repository 체크아웃"
+                         "(MUSTER_SKILL_REPO 또는 형제-클론)에서 마운트한다"
+                         "(이슈 #1742). 생략하면 스폰 argv/env 는 이전과 동일")
     ap.add_argument("--merge", help="judge <역할> --merge <sha>: 판단할 머지의 커밋 sha")
     ap.add_argument("--unattended", action="store_true",
                     help="사람이 없는 실행. mint 는 안 되고, 휴먼 게이트는 선다")
@@ -7119,7 +7182,7 @@ def main() -> int:
                       stall_timeout_min=a.stall_timeout,
                       no_wait=a.no_wait,
                       despite_returned=a.despite_returned,
-                      model=a.model)
+                      model=a.model, skills=a.skills)
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -7720,7 +7783,8 @@ def _goal_pin_block(title: str | None, body: str | None) -> str:
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
-               despite_returned: bool = False, model: str | None = None) -> int:
+               despite_returned: bool = False, model: str | None = None,
+               skills: str | None = None) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -7728,6 +7792,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     """
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
     _BOOTSTRAP_TIMING.clear()
+    # 이슈 #1742: --skills 이름 검증은 워크스페이스/브랜치를 건드리기 전에
+    # 끝난다(fail-closed, 요구사항 2) — 아래 워크스페이스 생성보다 먼저 온다.
+    skill_dirs = resolved_skill_dirs(skills, _skill_repo_root())
+    skill_sha = skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None
     if issue is not None:
         root = Path(cwd).resolve()
         # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
@@ -7807,6 +7875,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"끝난다. run_in_background 로 넘긴 작업은 부모 턴이 끝나는 순간 함께\n"
                 f"죽는다(백그라운드 워커가 커밋·push 를 대신 끝내줄 것이라고 가정하지\n"
                 f"마라 — 실측된 실패 패턴이다). 모든 작업은 이 턴 안에서 직접 끝내라.\n\n") + task
+        if skill_dirs:
+            task = task + (
+                f"\n\n마운트된 스킬(--skills, 이슈 #1742): "
+                f"{', '.join(p.name for p in skill_dirs)} "
+                f"(skill-repository {skill_sha})\n")
     with _timed("rulebook"):
         plugins = plugin_dirs(role, spec)
     # core_plugin_dirs() 를 print 보다 먼저 불러 core_root() 의 관리 클론
@@ -7829,7 +7902,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 맡길 일은 stdin 으로 넘긴다. 인자로 주면 가변 인자 플래그가 삼키고,
         # 셸 보간을 거치면 신뢰할 수 없는 값의 $(…) 가 실행된다.
         cmd, extra_env = spawn_cmd(settings, role, unattended,
-                                   core_plugins, plugins, model)
+                                   core_plugins, plugins, model,
+                                   skill_dirs, skill_sha)
         if issue is not None:
             # 툴체인 캐시를 워크스페이스 안으로 — go 등이 홈(~/Library/...)에
             # 캐시·설정을 쓰려다 샌드박스에 막혀 빌드가 승인 프롬프트로
@@ -7890,7 +7964,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 보게 한다. try/except 는 죽음 자체를 잡는 게 아니라(신호로
                 # 죽으면 못 잡는다) 사람이 읽을 spawn-death 이벤트를 남기는
                 # 용도로만 아래에서 덧붙인다.
-                roster_register(roster_key, {
+                _early_roster_entry = {
                     "pid": os.getpid(), "role": role,
                     "issue": issue, "ts": int(time.time()),
                     "work": str(cwd), "log": str(log_path),
@@ -7898,7 +7972,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     "session_id": os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None,
                     "before_head": before_head,
                     "wrapper_pid": os.getpid(),
-                })
+                }
+                if skill_dirs:
+                    _early_roster_entry["skills"] = [p.name for p in skill_dirs]
+                    _early_roster_entry["skills_sha"] = skill_sha
+                roster_register(roster_key, _early_roster_entry)
                 _append_event(events_path, "session-start",
                               {"pid": os.getpid(), "ts": time.time()})
             if child_pid > 0:
@@ -8000,6 +8078,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 참조하게 한다 — `pid`(roster_kill 의 SIGTERM 대상)의 기존
             # 의미는 그대로 둔다.
             "wrapper_pid": os.getpid(),
+            # 이슈 #1742: --skills 사용 시에만 채운다 — 안 쓰면 키 자체가
+            # 없어서(빈 값이 아니라) no-flag 경로의 JSON shape 는 그대로다.
+            **({"skills": [p.name for p in skill_dirs], "skills_sha": skill_sha}
+               if skill_dirs else {}),
         })
         if issue is not None:
             # 크래시가 roster_remove/종료 이벤트 사이에서 나면 이 이전엔
