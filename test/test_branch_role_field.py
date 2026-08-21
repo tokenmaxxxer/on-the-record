@@ -227,14 +227,20 @@ class ApprovalGateDualReadTest(unittest.TestCase):
             repo = tmp / "repo"
             repo.mkdir()
             # branch role ("decoy") deliberately differs from the sidecar's
-            # role ("implementation") — CLAUDE_ROLE=implementation, so only
-            # the sidecar-read path reaches the approvers.md check at all.
+            # role ("implementation"). Since #1821, a resolvable
+            # sidecar-vs-branch disagreement is now a hard, fail-closed
+            # deny in its own right (naming both values) rather than
+            # falling through to the approvers.md check — this pins that
+            # the sidecar is still the preferred source (not silently
+            # overridden by the decoy branch) while the new mismatch
+            # guard fires first.
             _init_repo_on_branch(repo, f"issue-{self.ISSUE}/decoy")
             _write_sidecar(repo, self.ISSUE, "implementation")
             bin_dir = self._bin_dir(tmp)
             r = _run_approval_gate(repo, bin_dir, self.RECORD_PATH, "implementation", [])
             self.assertEqual(r.returncode, 2, r.stderr)
-            self.assertIn("approvers.md", r.stderr)
+            self.assertIn("issue-77/implementation", r.stderr)
+            self.assertIn("issue-77/decoy", r.stderr)
 
     def test_no_sidecar_decoy_branch_falls_open_unchanged(self):
         # same decoy branch, no sidecar: branch_role="decoy" != role
