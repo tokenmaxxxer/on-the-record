@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-localization",
-  "repo": "tokenmaxxxer/localization-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/localization-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-knowledge-management",
-  "repo": "tokenmaxxxer/knowledge-management-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/knowledge-management-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

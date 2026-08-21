@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-release-engineering",
-  "repo": "tokenmaxxxer/release-engineering-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/release-engineering-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

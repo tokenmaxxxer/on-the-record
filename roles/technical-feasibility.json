@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-technical-feasibility",
-  "repo": "tokenmaxxxer/technical-feasibility-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/technical-feasibility-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

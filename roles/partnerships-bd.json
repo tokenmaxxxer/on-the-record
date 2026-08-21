@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-partnerships-bd",
-  "repo": "tokenmaxxxer/partnerships-bd-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/partnerships-bd-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

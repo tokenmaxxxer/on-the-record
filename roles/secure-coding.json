@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-secure-coding",
-  "repo": "tokenmaxxxer/secure-coding-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/secure-coding-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
@@ -15,14 +12,25 @@
   "decides": "구현이 공격에 견디는가",
   "use_when": "인증/입력처리 코드 랜딩 후 (board_condition: authentication or input-handling code landed on the branch AND no secure-coding record exists yet for that commit sha)",
   "produces": "ASVS checklist, pentest finding list w/ severity",
-  "write_scope": ["docs/issue-<n>/reports/secure-coding.md"],
+  "write_scope": [
+    "docs/issue-<n>/reports/secure-coding.md"
+  ],
   "spec": "roles/specs/secure-coding.spec.json",
   "record_fields": {
     "loop_state": {
-      "progress": ["checklisting", "pentesting"],
-      "terminal": ["landed"],
-      "refusal": ["target-level-undeclared"],
-      "error": ["target-unreachable"]
+      "progress": [
+        "checklisting",
+        "pentesting"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "target-level-undeclared"
+      ],
+      "error": [
+        "target-unreachable"
+      ]
     }
   }
 }
