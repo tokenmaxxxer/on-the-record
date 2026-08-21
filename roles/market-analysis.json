@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-market-analysis",
-  "repo": "tokenmaxxxer/market-analysis-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/market-analysis-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

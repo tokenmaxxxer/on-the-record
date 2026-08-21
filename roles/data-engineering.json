@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-data-engineering",
-  "repo": "tokenmaxxxer/data-engineering-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/data-engineering-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

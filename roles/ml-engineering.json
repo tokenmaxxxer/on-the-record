@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-ml-engineering",
-  "repo": "tokenmaxxxer/ml-engineering-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/ml-engineering-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

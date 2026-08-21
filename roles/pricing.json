@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-pricing",
-  "repo": "tokenmaxxxer/pricing-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/pricing-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

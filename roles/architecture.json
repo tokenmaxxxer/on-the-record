@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-architecture",
-  "repo": "tokenmaxxxer/architecture-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/architecture-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
@@ -19,7 +16,9 @@
     "docs/decisions/*.md",
     "docs/issue-<n>/reports/architecture.md"
   ],
-  "judgment_axes": ["maintenance_complexity"],
+  "judgment_axes": [
+    "maintenance_complexity"
+  ],
   "record_fields": {
     "loop_state": {
       "progress": [

@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-legal-compliance",
-  "repo": "tokenmaxxxer/legal-compliance-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/legal-compliance-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

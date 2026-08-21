@@ -1,6 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-interaction-design",
-  "repo": "tokenmaxxxer/interaction-design-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
@@ -19,10 +17,18 @@
   "spec": "roles/specs/interaction-design.spec.json",
   "record_fields": {
     "loop_state": {
-      "progress": ["sketching"],
-      "terminal": ["reviewed"],
-      "refusal": ["spec-not-confirmed"],
-      "error": ["screen-ref-unresolvable"]
+      "progress": [
+        "sketching"
+      ],
+      "terminal": [
+        "reviewed"
+      ],
+      "refusal": [
+        "spec-not-confirmed"
+      ],
+      "error": [
+        "screen-ref-unresolvable"
+      ]
     }
   }
 }
