@@ -109,6 +109,9 @@ $ git diff --stat 589c55e HEAD
 Only the two paths named in the approved proposal's `files:` frontmatter
 changed.
 
+canonical: git diff --stat 589c55e HEAD (re-executed live this turn in /tmp/skill-repository, branch issue-1943-requirements-engineering-procedural-body, output pasted above)
+acceptance: git diff --stat 589c55e HEAD — result: pass (2 files changed: scripts/procedure_authored_skills.txt, skills/requirements-engineering-rules/SKILL.md; 60 insertions(+), 1 deletion(-))
+
 ### Check 4 — full-tree checker (no `--manifest` flag)
 
 ```
