@@ -131,6 +131,63 @@ def test_canonical_path_is_allowed(tmp_path, monkeypatch):
     assert msg == ""
 
 
+def test_three_ticks_changed_unchanged_changed_again_alerts_twice(tmp_path):
+    """이슈 #1755 수용: HEAD 가 바뀐 틱(1), 그대로인 틱(2), 다시 바뀐 틱(3)
+    을 시뮬레이션 — 정확히 두 번만 안내줄이 난다(state_path dedup)."""
+    repo = tmp_path / "repo"
+    _init_git_repo(repo)
+    state_path = tmp_path / "watchdog-freshness-state.json"
+    startup_head = spawn.watchdog_current_head(repo)
+
+    (repo / "f.txt").write_text("2")
+    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "second"], cwd=repo, check=True)
+
+    fresh1, msg1 = spawn.watchdog_freshness_check(
+        startup_head, cwd=repo, fetched_this_tick=True, state_path=state_path)
+    assert fresh1 is False
+    assert msg1 != ""
+
+    fresh2, msg2 = spawn.watchdog_freshness_check(
+        startup_head, cwd=repo, fetched_this_tick=True, state_path=state_path)
+    assert fresh2 is False
+    assert msg2 == ""
+
+    (repo / "f.txt").write_text("3")
+    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "third"], cwd=repo, check=True)
+
+    fresh3, msg3 = spawn.watchdog_freshness_check(
+        startup_head, cwd=repo, fetched_this_tick=True, state_path=state_path)
+    assert fresh3 is False
+    assert msg3 != ""
+
+    alerts = [msg1, msg2, msg3]
+    assert sum(1 for m in alerts if m) == 2
+
+
+def test_freshness_dedup_empty_state_alerts_and_seeds_state(tmp_path):
+    """이슈 #1755 empty-state 케이스: state 파일이 없으면 첫 관측은 알리고
+    state 를 새로 만든다."""
+    repo = tmp_path / "repo"
+    _init_git_repo(repo)
+    state_path = tmp_path / "watchdog-freshness-state.json"
+    assert not state_path.exists()
+    startup_head = spawn.watchdog_current_head(repo)
+
+    (repo / "f.txt").write_text("2")
+    subprocess.run(["git", "add", "f.txt"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "second"], cwd=repo, check=True)
+    current = spawn.watchdog_current_head(repo)
+
+    fresh, msg = spawn.watchdog_freshness_check(
+        startup_head, cwd=repo, fetched_this_tick=True, state_path=state_path)
+    assert fresh is False
+    assert msg != ""
+    assert state_path.exists()
+    assert json.loads(state_path.read_text())["last_alerted_head"] == current
+
+
 def test_empty_state_fresh_board_starts_normally_and_creates_lock(tmp_path):
     """이슈 #1456 수용 (f): 락 파일이 없는 신선한 보드는 정상 시작하며 락을
     새로 만든다."""

@@ -3340,6 +3340,7 @@ def _board_wide_sweep(root: Path) -> int:
 
 
 WATCHDOG_LOCK_PATH = STATE_ROOT / "watchdog.lock"
+WATCHDOG_FRESHNESS_STATE_PATH = STATE_ROOT / "watchdog-freshness-state.json"
 
 
 def _proc_start_time(pid: int) -> str | None:
@@ -3415,14 +3416,21 @@ def watchdog_current_head(cwd: Path = ROOT) -> str | None:
 
 
 def watchdog_freshness_check(startup_head: str, cwd: Path = ROOT,
-                              fetched_this_tick: bool = False) -> tuple[bool, str]:
+                              fetched_this_tick: bool = False,
+                              state_path: Path | None = None) -> tuple[bool, str]:
     """틱마다 체크아웃 HEAD 를 시작 시점 HEAD 와 비교한다 (이슈 #1456 요구 2)
     — #1360 이 재발한 원인은 merge != deploy: 장수 워치독이 구코드를 계속
     물고 있었다. 이 틱이 아직 fetch 를 하지 않았으면(caveat 2), 비교 전에
     한 번 fetch 해 로컬 체크아웃을 최신 origin HEAD 에 맞춘다 — 기존
     per-spawn fetch cadence 가 이미 하는 일과 같은 모양이라 새 원격 호출
     경로를 늘리지 않는다. git 실패는 advisory 로 두고 틱을 막지 않는다
-    (fail-open — 네트워크 문제로 매 틱을 재기동시키면 더 나쁘다)."""
+    (fail-open — 네트워크 문제로 매 틱을 재기동시키면 더 나쁘다).
+
+    `state_path` 가 주어지면(이슈 #1755) 같은 HEAD 전환에 대해 안내줄을
+    한 번만 낸다 — 틱마다 별도 CLI 서브프로세스로 재호출되므로(장수
+    파이썬 프로세스가 아니다) 인메모리 dedup 은 불가능하고, `state_path`
+    에 마지막으로 알린 HEAD 를 남겨 다음 서브프로세스 호출이 읽는다.
+    `state_path=None` 이면 오늘의 동작(dedup 없음, 기존 테스트) 그대로다."""
     if not fetched_this_tick:
         subprocess.run(["git", "-C", str(cwd), "fetch", "--quiet", "origin"],
                         capture_output=True, text=True)
@@ -3433,11 +3441,21 @@ def watchdog_freshness_check(startup_head: str, cwd: Path = ROOT,
     current = watchdog_current_head(cwd)
     if current is None:
         return True, ""
-    if current != startup_head:
-        return False, (f"[watchdog] 코드-신선도: 체크아웃 HEAD 가 바뀌었다 "
-                        f"(시작={startup_head[:12]} 현재={current[:12]}) — "
-                        f"재기동 필요")
-    return True, ""
+    if current == startup_head:
+        return True, ""
+    msg = (f"[watchdog] 코드-신선도: 체크아웃 HEAD 가 바뀌었다 "
+           f"(시작={startup_head[:12]} 현재={current[:12]}) — "
+           f"재기동 필요")
+    if state_path is not None:
+        try:
+            last_alerted = json.loads(state_path.read_text()).get("last_alerted_head")
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
+            last_alerted = None
+        if last_alerted == current:
+            return False, ""
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps({"last_alerted_head": current}))
+    return False, msg
 
 
 def watchdog_canonical_guard(module_path: Path = Path(__file__)) -> tuple[bool, str]:
@@ -6969,9 +6987,11 @@ def main() -> int:
             traceback.print_exc(file=sys.stderr)
             return WATCHDOG_CRASH_SENTINEL
         if startup_head is not None:
-            fresh, msg = watchdog_freshness_check(startup_head)
+            fresh, msg = watchdog_freshness_check(
+                startup_head, state_path=WATCHDOG_FRESHNESS_STATE_PATH)
             if not fresh:
-                print(msg)
+                if msg:
+                    print(msg)
                 return WATCHDOG_STALE_CODE_SENTINEL
         return rc
     if a.role == "poll-due":
