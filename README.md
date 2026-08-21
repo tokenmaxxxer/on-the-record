@@ -16,9 +16,16 @@ In your conversational session:
 /on-the-record:run
 ```
 
-No separate clone or secret setup is required. The only prerequisite is
-`gh` login. Full requirements and optional setup (agent account, model
-pinning, project init) are documented in
+No separate clone or secret setup is required for on-the-record, rulebooks,
+or tokenmaxxxer-core. **skill-repository is the exception**: all roles
+resolve their guidance from it, and it needs a manual clone with
+`MUSTER_SKILL_REPO` pointed at the checkout's `skills/` directory (or a
+sibling clone for zero-config) — see the skill-repository step in
+[`docs/handbooks/setup.md`](docs/handbooks/setup.md) (see "Getting
+started").
+
+Full requirements and optional setup (agent account, model pinning,
+project init) are documented in
 [`docs/handbooks/setup.md`](docs/handbooks/setup.md).
 
 ## Interaction flow
