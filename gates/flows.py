@@ -173,11 +173,23 @@ def plan_order_blocked(plan: list[dict]) -> list[dict]:
 
 
 def _pr_approved(pr: dict, comments: list[dict], approvers: set[str],
-                 subject: str, role: str) -> bool:
+                 subject: str, role: str, root: Path = spawn.ROOT) -> bool:
     """Two detection paths from contract v3 s19: an `APPROVE <subject>/<role>`
     comment from an approvers.md login, or a PR review Approve from a
     different approvers.md login (`pr["reviews"]`, already fetched by
-    `_pr_list_all` — no second per-PR call needed)."""
+    `_pr_list_all` — no second per-PR call needed). 이슈 #1824: 그 전에
+    #1818 구조화 승인 레코드를 먼저 확인한다 — `role`이 레코드에 있으면
+    바로 `True`(레코드는 코멘트 스캔 결과의 캐시이므로 이 role-exact
+    단축은 needle/review 스캔과 동일한 결과의 조회일 뿐이다). 레코드가
+    없거나 비었거나 `role`을 안 담고 있으면 오늘의 needle/review 스캔으로
+    그대로 넘어간다. `gates.ci`를 함수 내부에서 import 하는 이유: 모듈
+    최상단에서 임포트하면 `gates/ci.py`가 이미 `flows`를 임포트하는
+    순환 임포트가 발생한다(survey에서 확인한 gates/ci.py:1-40 imports)."""
+    import ci
+    issue_n = int(subject.split("-", 1)[1])
+    record = ci._read_approval_record(spawn._approval_record_path(root, issue_n))
+    if role in record:
+        return True
     needle = f"APPROVE {subject}/{role}"
     if any(c["body"].strip() == needle and c["login"] in approvers for c in comments):
         return True
@@ -391,7 +403,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
         issue_n = int(subject.split("-", 1)[1])
         loop_state = (b.get(subject, {}).get(role, {}) or {}).get("loop_state")
         comments = comments_for(subject, pr["number"])
-        approved = _pr_approved(pr, comments, approvers, subject, role)
+        approved = _pr_approved(pr, comments, approvers, subject, role, root)
         phase = 1 if loop_state in (None, "scope-proposed") else 2
         if not approved and _own_item(subject, role):
             decision_queue.append({
@@ -415,7 +427,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
             if not pr:
                 continue
             comments = comments_for(subject, pr["number"])
-            approved = _pr_approved(pr, comments, approvers, subject, role)
+            approved = _pr_approved(pr, comments, approvers, subject, role, root)
             if loop_state and loop_state != "scope-proposed" and not approved:
                 unapproved_open_prs.append({
                     "issue": issue_n, "pr": pr["number"], "role": role,
