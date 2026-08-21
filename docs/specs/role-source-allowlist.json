@@ -1,0 +1,7 @@
+{
+  "upstream-defect-report": [
+    "upstream-defect-report-subtraction",
+    "upstream-defect-report-comprehensibility",
+    "upstream-defect-report-convention"
+  ]
+}
