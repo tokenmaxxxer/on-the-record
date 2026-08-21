@@ -5144,12 +5144,60 @@ def _core_candidates() -> list[tuple[str, Path]]:
     ]
 
 
+def _skill_repo_valid(d: Path) -> bool:
+    """`d` 를 `resolved_skill_dirs()` 가 이미 쓰는 것과 같은 바로 그 기준으로
+    "실제 체크아웃"으로 본다: non-dot 서브디렉터리가 하나라도 있는
+    디렉터리(요구사항 2 — env/sibling/managed 세 경로 모두 같은 바)."""
+    if not d.is_dir():
+        return False
+    return any(p.is_dir() and not p.name.startswith(".") for p in d.iterdir())
+
+
+def _skill_repo_managed_root() -> Path | None:
+    """관리 클론(이슈 #1789): env 도 형제 체크아웃도 없을 때 on-the-record 가
+    직접 `https://github.com/tokenmaxxxer/skill-repository` 를 관리 영역에
+    받아 쓴다 — `core_root()`/`rulebook_checkout()` 이 이미 쓰는 다섯 단계
+    (로컬 오버라이드 확인은 호출자 쪽에서 이미 끝남 → 관리 디렉터리 유효성
+    확인 → 신선하면 재사용 → 아니면 pull-or-clone → 재확인) 를 그대로
+    따른다. 네트워크가 죽었을 때 기존 관리 클론이 있으면 그걸 그대로 쓴다
+    (오프라인 재사용, 요구사항 1).
+
+    저장소 최상위가 아니라 그 안의 `skills/` 서브디렉터리를 돌려준다 —
+    env(`MUSTER_SKILL_REPO`)와 sibling(`$TOKENMAXXXER_RULEBOOKS/
+    skill-repository`) 두 경로 모두 실측상 이미 `skills/` 를 직접 가리키고
+    있고(레포 최상위에는 skills 외에도 docs/scripts/install.sh 가 있다),
+    `resolved_skill_dirs()` 는 그 셋을 구분 없이 같은 root 로 받는다 —
+    요구사항 2 의 "env-pointed checkout 과 동일한 스킬 해석"이 성립하려면
+    관리 클론도 같은 `skills/` 레벨을 돌려줘야 한다."""
+    d = ROOT / "runs" / "rulebooks" / "skill-repository"
+    d.parent.mkdir(parents=True, exist_ok=True)
+    with _locked_rulebook_dir(d):
+        skills_dir = d / "skills"
+        if _skill_repo_valid(skills_dir):
+            if not _pull_is_fresh(d):
+                _run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
+                         "[skill-repo] pull")
+                _mark_pulled(d)
+            return skills_dir
+        try:
+            print("[skill-repo] skill-repository 를 받는 중", file=sys.stderr)
+            _run_net(["git", "clone", "-q",
+                     "https://github.com/tokenmaxxxer/skill-repository.git",
+                     str(d)], "[skill-repo] clone", timeout=CLONE_TIMEOUT)
+            _mark_pulled(d)
+        except OSError:
+            pass
+        if _skill_repo_valid(skills_dir):
+            return skills_dir
+    return None
+
+
 def _skill_repo_root() -> Path | None:
-    """`--skills` 가 마운트할 skill-repository 체크아웃 루트. `MUSTER_SKILL_REPO`
-    env 우선, 없으면 `_core_candidates()` 와 같은 계열의 형제-클론 기본값
-    (`$TOKENMAXXXER_RULEBOOKS/skill-repository`). 관리 클론 fallback은 없다
-    (이슈 #1742: phase 1은 로컬 체크아웃만 다룬다) — 둘 다 없으면 `None`.
-    """
+    """`--skills` 가 마운트할 skill-repository 체크아웃 루트. 순서:
+    `MUSTER_SKILL_REPO` env > 형제 클론 (`$TOKENMAXXXER_RULEBOOKS/
+    skill-repository`) > 관리 클론(이슈 #1789 — skill-repository가 공개된
+    뒤로는 on-the-record 소유 클론이 다른 관리 체크아웃과 같은 fallback을
+    쓸 수 있다). 셋 다 없으면 `None`."""
     env_value = os.environ.get("MUSTER_SKILL_REPO")
     if env_value:
         p = Path(os.path.expanduser(os.path.expandvars(env_value)))
@@ -5160,7 +5208,7 @@ def _skill_repo_root() -> Path | None:
         p = Path(os.path.expanduser(sibling))
         if p.is_dir():
             return p
-    return None
+    return _skill_repo_managed_root()
 
 
 def resolved_skill_dirs(skills_csv: str | None,
@@ -5174,7 +5222,8 @@ def resolved_skill_dirs(skills_csv: str | None,
         return []
     if repo_root is None:
         sys.exit("--skills: skill-repository 체크아웃을 못 찾았다 — "
-                  "MUSTER_SKILL_REPO 나 $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하라")
+                  "MUSTER_SKILL_REPO 나 $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하고, "
+                  "관리 클론도 시도했지만(네트워크나 기존 클론 없음) 실패했다")
     available = sorted(p.name for p in repo_root.iterdir()
                         if p.is_dir() and not p.name.startswith("."))
     unknown = [n for n in names if n not in available]
