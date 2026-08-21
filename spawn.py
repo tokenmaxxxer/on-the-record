@@ -1331,6 +1331,14 @@ def _etag_cache_path(root: Path, number: int) -> Path:
     return root / ".git" / "gh-read-cache" / f"issue-{number}-comments.json"
 
 
+def _approval_record_path(root: Path, number: int) -> Path:
+    """이슈 #1818: `number` 이슈의 구조화 승인 레코드 위치 — 기존
+    `_etag_cache_path`(comments 캐시)와 같은 `.git/gh-read-cache/`
+    컨벤션의 형제 파일. 커밋되지 않고, write-through 캐시로만 쓰인다
+    (`gates/ci.py._approved_roles_on_issue` 가 읽고/쓴다)."""
+    return root / ".git" / "gh-read-cache" / f"issue-{number}-approvals.json"
+
+
 def _issue_comments_uncached(root: Path, slug: str, number: int
                               ) -> tuple[list[dict] | None, int]:
     """무조건(non-conditional) 전체 재조회 — fail-open 폴백 경로.
