@@ -94,6 +94,38 @@ canonical: read spawn.py:647-842 directly (current working tree)
   already uses for `resolved_skill_dirs`. No spawn.py code currently
   reads a plugin's `skills/` subdirectory — this is new.
 
+## SCOPE EXTENSION (issue comment, before delivery): four-source model
+canonical: `gh issue view 1774 --json comments` (run this session),
+operator comment "SCOPE EXTENSION"
+
+The frozen resolution model is FOUR explicit sources, in this precedence
+*search* order (order picks where to look first; it no longer decides a
+silent winner — see below): (1) skill-repository root (unchanged), (2)
+the consumer's installed plugins' `skills/<name>/` dirs, (3)
+`~/.claude/skills/<name>/` (user-level local skills), (4) the target
+repo's own `.claude/skills/<name>/`.
+canonical: `find ~/.claude/skills -maxdepth 1` (run this session) shows
+this machine's `~/.claude/skills/` is populated (tier 3 is a real,
+present directory here); `find . -maxdepth 2 -name .claude` (run this
+session) returns no output for this repo's own tree, so tier 4 has no
+on-disk example here, but its layout is the same repo-relative
+convention #1742's proposal already named for the mount destination
+(docs/issue-1742/proposals/skills-mount.md:18,52,57).
+
+Superseding change from the original (2-source) proposal: a name
+matching in **more than one** of the four sources is a hard error naming
+**all** matches, full stop — search order no longer lets repo (or any
+tier) silently win over a later tier. Precedence only orders *where the
+search looks first when only one tier matches*; it is never a
+tie-breaker once more than one tier actually matches the same name.
+
+Source-identity consequence: tiers 3-4 carry no repo sha and no
+plugin-registry version — the record's source identity for those tiers
+is a local path + content hash (issue's own wording), not the
+sha/version identity tiers 1-2 already have. This needs a hashing
+primitive (e.g. `hashlib.sha256` over the skill dir's `SKILL.md`, or over
+a stable manifest of the dir's files) that tiers 1-2 do not need.
+
 ## Requirement-to-code mapping
 1. Resolution order (repo wins, plugin fallback, both-sources error,
    nowhere fail-closed) — extends `resolved_skill_dirs`; needs per-name
