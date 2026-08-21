@@ -4,6 +4,7 @@ code_under_review:
   - spawn.py
   - test/test_convention_equivalence.py
   - test/test_approval_role_field.py
+  - conftest.py
 loop_state: landed
 type: feature
 breaking: false
@@ -83,58 +84,104 @@ Covers dual-write shape, field-read, fallback (record-absent role),
 and the legacy token-only case (`test_legacy_token_only_issue_resolves_identically_to_today`),
 plus `_ok=False` fail-closed and corrupt-record fallback.
 
+### `python3 -m pytest gates/test_closes_gate_ci.py -q` (executed live, PR #1820 orchestrator-blocker fix)
+
+Re-run three times in a row to rule out xdist-order flakiness:
+
+```
+bringing up nodes...
+bringing up nodes...
+
+......................................................                   [100%]
+54 passed in 1.29s
+```
+```
+bringing up nodes...
+bringing up nodes...
+
+......................................................                   [100%]
+54 passed in 1.33s
+```
+```
+bringing up nodes...
+bringing up nodes...
+
+......................................................                   [100%]
+54 passed in 1.41s
+```
+
 ## What did not work
 
-Nothing in the delivered scope. See `## Open findings` below for a
-test-isolation gap surfaced outside the frozen write set.
+A snapshot/delete/restore fixture design for isolating
+`.git/gh-read-cache/*-approvals.json` across test workers — see
+`## Rationale for deviations` for why it was rejected in favor of the
+per-test `tmp_path` monkeypatch that shipped instead.
 
 ## Rationale for deviations
 
 The approved proposal's build-steps section did not anticipate that
 delivering the write-through cache would break other, pre-existing
-tests outside this issue's frozen write set. Once the cache landed,
-`gates/test_closes_gate_ci.py` (not in `files:`) started failing —
-documented fully in `## Open findings` and in
-docs/issue-1818/reports/implementation/deviation-log.md. Per the
-role-handoff contract's scope-exceeded rule, that fix was not made here
-(it requires editing `conftest.py` or `gates/test_closes_gate_ci.py`,
-outside `files:`); it is reported as a filed deviation with a
-resolution path instead, and the delivered code otherwise matches the
-approved proposal's build-steps section as written.
+tests outside this issue's original frozen write set. Once the cache
+landed, `gates/test_closes_gate_ci.py` (not in the original `files:`)
+started failing, first reported as a filed deviation with a resolution
+path (docs/issue-1818/reports/implementation/deviation-log.md). The
+PR #1820 orchestrator then amended the issue scope to include
+`gates/test_closes_gate_ci.py` and `conftest.py` (canonical: PR #1820
+orchestrator comment — "The issue scope has been amended to include
+gates/test_closes_gate_ci.py and conftest.py: add the cache-isolation
+fix ... re-run the full gates/test_closes_gate_ci.py suite live (must
+be green), and update the record"), so this revision delivers that fix
+inside the now-widened scope: `conftest.py` gained an autouse
+`_isolated_gh_read_cache_approvals` fixture that monkeypatches
+`spawn._approval_record_path` to a per-test `tmp_path`, so no test —
+under any pytest-xdist worker — ever reads or writes the real repo's
+`.git/gh-read-cache/*-approvals.json`.
+
+A snapshot/delete/restore approach was tried first and rejected:
+sibling xdist worker processes share this same working tree and raced
+on the same real cache files. That race actually deleted this repo's
+pre-existing `issue-245-approvals.json` and `issue-304-approvals.json`
+cache files (canonical: `ls .git/gh-read-cache/` immediately after
+running `gates/test_closes_gate_ci.py` with the snapshot/delete/restore
+fixture, this session — the two files were present beforehand per an
+earlier `md5sum` check in this same session and absent afterward).
+Losing them is not data loss in the durable sense: the cache is
+documented best-effort (canonical: gates/ci.py:204-209
+`_write_approval_record`, inline comment "write-through cache is
+best-effort; the comment scan stays authoritative") and self-heals from
+the next real comment scan. It does confirm per-test tmp-path
+isolation, not real-file snapshotting, is the correct fix shape, which
+is what this revision ships.
 
 ## Open findings
 
 canonical: `python3 -m pytest gates/test_closes_gate_ci.py -q` executed
-live on this branch's working tree after the implementation edits (full
-output and analysis in docs/issue-1818/reports/implementation/deviation-log.md).
-Summary: the new write-through cache persists real approval state
-across tests in that file that call `_approved_roles_on_issue` with the
-real repo checkout (`Path(".")`) and reuse the same literal issue
-number (245) across contradictory mocked scenarios within a single
-process — those tests assumed the function was memoryless, which stops
-holding once it gains a persistent cache. On `main` (pre-issue-1818,
-canonical: `git stash` + re-run of the same command on this branch),
-the same test file has no such failures. Fixing this needs
-test-isolation work in `conftest.py` or `gates/test_closes_gate_ci.py`,
-both outside this issue's frozen write set — filed as a deviation, not
-fixed here (resolution path below).
+live on this branch's working tree after the `conftest.py` isolation
+fix, three consecutive times (pasted above under `## Acceptance
+evidence`) — 54 passed on each of the three runs, no flakiness across
+xdist worker orderings. The prior finding (write-through cache leaking
+real `.git/gh-read-cache` approval state into tests that assumed
+`_approved_roles_on_issue` was memoryless when called with the real
+repo checkout `Path(".")`) is resolved by scoping the cache path to a
+per-test `tmp_path`, not by disabling or weakening any assertion in
+`gates/test_closes_gate_ci.py` itself.
 
 canonical: `python3 -m pytest tests/test_gh_quota_guard.py::test_sweep_call_budget
 tests/test_spawn.py -k test_board_wide_sweep_issue_view_call_count_constant_across_subject_counts -q`
 executed live on this branch, then repeated after `git stash` (pre-issue-1818
 main state) with the same result — both failures reproduce identically
 without this issue's changes, so they are pre-existing and unrelated to
-this delivery.
+this delivery. Not in this issue's (amended) scope.
 
-resolution path: file a follow-up issue scoped to `conftest.py`/
-`gates/test_closes_gate_ci.py` adding a `.git/gh-read-cache/*-approvals.json`
-cleanup fixture (or switching those specific tests to a tmp repo root)
-so the approval-record cache introduced here does not leak state across
-unrelated test scenarios that share the real repo checkout and literal
-issue numbers.
+resolution path: none outstanding for the amended scope — the
+cache-isolation fix is delivered and its target suite is green per the
+canonical citation above. The two pre-existing, unrelated
+`tests/test_gh_quota_guard.py`/`tests/test_spawn.py` failures remain
+open on `main` independent of this issue; no action taken on them here
+as they are out of scope.
 
 ## Next steps
 
-None for this delivery's own frozen scope — `loop_state: landed`. The
-resolution-path issue above (test isolation in `gates/test_closes_gate_ci.py`)
-is the only follow-up work identified.
+None — `loop_state: landed`, delivered scope (including the
+PR #1820-amended `gates/test_closes_gate_ci.py`/`conftest.py`
+cache-isolation fix) is green per the canonical evidence above.
