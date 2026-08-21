@@ -4580,7 +4580,7 @@ def _workspace_index_put(issue: int, role: str, work: str, log: str,
                 f"workspace index collision on {key!r}: existing entry "
                 f"{existing!r} has a different work dir than {work!r} — "
                 f"refusing to overwrite silently (issue #533)")
-        entry = {"work": work, "log": log}
+        entry = {"work": work, "log": log, "role": role}
         if watcher_pid is not None:
             entry["watcher_pid"] = watcher_pid
         if watcher_armed_at is not None:
@@ -4705,7 +4705,7 @@ def _live_roster_matches(matches: list, issue: int) -> list:
     roster = _roster_load()
     live = []
     for k, v in matches:
-        role = k.rsplit("/", 1)[1]
+        role = v.get("role") or k.rsplit("/", 1)[1]
         e = roster.get(f"issue-{issue}/{role}")
         if e is not None and _alive(e.get("pid", 0)):
             live.append((k, v))
@@ -4717,7 +4717,7 @@ def _ambiguous_watch_exit(issue: int, matches: list, repo: str | None) -> None:
     붙여넣을 수 있는 명령을 에러에 찍는다 — `--role` 없이 재시도하면 같은
     메시지가 또 나오는 죽은 재시도 구간을 없앤다."""
     cwd_flag = f" -C {repo}" if repo else ""
-    roles = [k.rsplit("/", 1)[1] for k, _ in matches]
+    roles = [v.get("role") or k.rsplit("/", 1)[1] for k, v in matches]
     cmds = "; ".join(
         f"spawn.py watch --issue {issue} --role {r}{cwd_flag}" for r in roles)
     sys.exit(f"이슈 {issue} 에 역할이 여럿 기록돼 있다 — 역할을 지정하라 "
@@ -4744,14 +4744,19 @@ def _roster_fallback_entry(issue: int, role: str | None, repo: str | None):
         return key, {"work": e["work"], "log": e["log"]}
     candidates = []
     for k, e in roster.items():
-        m = re.match(rf"^issue-{issue}/([^/]+)$", k)
-        if not m:
+        found_role = e.get("role")
+        if found_role is None:
+            m = re.match(rf"^issue-{issue}/([^/]+)$", k)
+            if not m:
+                continue
+            found_role = m.group(1)
+        elif not k.startswith(f"issue-{issue}/"):
             continue
         if not (_alive(e.get("pid", 0)) and e.get("work") and e.get("log")):
             continue
         if repo is not None and _repo_identity(e["work"]) != repo:
             continue
-        candidates.append((m.group(1), e))
+        candidates.append((found_role, e))
     if len(candidates) != 1:
         return None, None
     found_role, e = candidates[0]
