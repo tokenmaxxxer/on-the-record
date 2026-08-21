@@ -5859,8 +5859,9 @@ class SelfTriggeredRespawn(unittest.TestCase):
                                        lambda cwd, issue, role: str(work)), \
                      mock.patch.object(spawn, "checkout_issue_branch",
                                        lambda cwd, issue, role: "b"), \
-                     mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []), \
-                     mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"), \
+                     mock.patch.object(spawn, "resolve_role_source",
+                                       lambda role, repo_root: {"source": "skill-repo",
+                                           "skill_dirs": [], "skills": [], "skill_sha": None}), \
                      mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                      mock.patch.object(spawn, "core_version", lambda: "v0"), \
                      mock.patch.object(spawn, "spawn_cmd",
@@ -5937,8 +5938,9 @@ class SpawnOneNoWait(unittest.TestCase):
                                        lambda cwd, issue, role: str(work)), \
                      mock.patch.object(spawn, "checkout_issue_branch",
                                        lambda cwd, issue, role: "b"), \
-                     mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []), \
-                     mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"), \
+                     mock.patch.object(spawn, "resolve_role_source",
+                                       lambda role, repo_root: {"source": "skill-repo",
+                                           "skill_dirs": [], "skills": [], "skill_sha": None}), \
                      mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                      mock.patch.object(spawn, "core_version", lambda: "v0"), \
                      mock.patch.object(spawn, "spawn_cmd",
@@ -5986,8 +5988,9 @@ class SpawnOneNoWait(unittest.TestCase):
                                        lambda cwd, issue, role: str(work)), \
                      mock.patch.object(spawn, "checkout_issue_branch",
                                        lambda cwd, issue, role: "b"), \
-                     mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []), \
-                     mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"), \
+                     mock.patch.object(spawn, "resolve_role_source",
+                                       lambda role, repo_root: {"source": "skill-repo",
+                                           "skill_dirs": [], "skills": [], "skill_sha": None}), \
                      mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                      mock.patch.object(spawn, "core_version", lambda: "v0"), \
                      mock.patch.object(spawn, "spawn_cmd",
@@ -6084,8 +6087,9 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
                 with mock.patch.object(spawn, "issue_workspace",
                                        lambda cwd, issue, role: str(work)), \
                      mock.patch.object(spawn, "checkout_issue_branch", fake_checkout), \
-                     mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []), \
-                     mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"), \
+                     mock.patch.object(spawn, "resolve_role_source",
+                                       lambda role, repo_root: {"source": "skill-repo",
+                                           "skill_dirs": [], "skills": [], "skill_sha": None}), \
                      mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                      mock.patch.object(spawn, "core_version", lambda: "v0"), \
                      mock.patch.object(spawn, "spawn_cmd",
@@ -6297,8 +6301,9 @@ class SpawnOneIssueRoleClaim(unittest.TestCase):
                                        lambda cwd, issue, role: str(work)), \
                      mock.patch.object(spawn, "checkout_issue_branch",
                                        lambda cwd, issue, role: "b"), \
-                     mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []), \
-                     mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"), \
+                     mock.patch.object(spawn, "resolve_role_source",
+                                       lambda role, repo_root: {"source": "skill-repo",
+                                           "skill_dirs": [], "skills": [], "skill_sha": None}), \
                      mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                      mock.patch.object(spawn, "core_version", lambda: "v0"), \
                      mock.patch.object(spawn, "spawn_cmd",
@@ -6352,8 +6357,9 @@ class SpawnDeathBeforeRegistration(unittest.TestCase):
                                lambda cwd, issue, role: str(work)),
             mock.patch.object(spawn, "checkout_issue_branch",
                                lambda cwd, issue, role: "b"),
-            mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []),
-            mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"),
+            mock.patch.object(spawn, "resolve_role_source",
+                              lambda role, repo_root: {"source": "skill-repo",
+                                  "skill_dirs": [], "skills": [], "skill_sha": None}),
             mock.patch.object(spawn, "core_plugin_dirs", lambda: []),
             mock.patch.object(spawn, "core_version", lambda: "v0"),
             mock.patch.object(spawn, "spawn_cmd", lambda *a, **k: (["cat"], {})),
@@ -8678,10 +8684,11 @@ class WatchFollowWallClockCap(unittest.TestCase):
 
 
 class RulebookCheckoutMemo(unittest.TestCase):
-    """이슈 #285 P2/P4: `rulebook_checkout()` 은 한 프로세스 안에서
-    marketplace 당 최대 한 번만 `git pull` 을 실제로 부른다(in-process
-    memo), 그리고 TTL 창 안이면 새 프로세스에서도 pull 을 건너뛴다(디스크
-    마커)."""
+    """이슈 #1955: `rulebook_checkout()`/`plugin_dirs()`/`checkout_version()`
+    (이슈 #285 P2/P4 이 겨냥했던 in-process memo 대상)은 rulebook 해석
+    경로 전체와 함께 은퇴했다 — 그 함수들을 직접 부르던 케이스는 지운다.
+    남는 것은 `_mark_pulled()`/`_ttl_marker()` 같은 공유 저수준 헬퍼
+    테스트뿐이다(core/skill-repo 관리 클론이 여전히 쓴다)."""
 
     def _counting_git_wrapper(self, fake_bin, call_count_file):
         real_git = shutil.which("git")
@@ -8694,113 +8701,12 @@ class RulebookCheckoutMemo(unittest.TestCase):
         wrapper.chmod(0o755)
 
     def setUp(self):
-        spawn._RULEBOOK_CACHE = {}
         self._saved_ttl = os.environ.pop("MUSTER_RULEBOOK_TTL", None)
 
     def tearDown(self):
-        spawn._RULEBOOK_CACHE = {}
         os.environ.pop("MUSTER_RULEBOOK_TTL", None)
         if self._saved_ttl is not None:
             os.environ["MUSTER_RULEBOOK_TTL"] = self._saved_ttl
-
-    @pytest.mark.slow
-    def test_pull_at_most_once_per_process_across_real_call_sites(self):
-        with tempfile.TemporaryDirectory() as td:
-            fake_root = Path(td) / "root"
-            clone_dir = fake_root / "runs" / "rulebooks" / "acme-rules"
-            clone_dir.mkdir(parents=True)
-            (clone_dir / ".claude-plugin").mkdir()
-            (clone_dir / ".claude-plugin" / "marketplace.json").write_text(
-                json.dumps({"plugins": [{"name": "coding", "source": "./coding"}]}))
-            (clone_dir / "coding" / ".claude-plugin").mkdir(parents=True)
-            (clone_dir / "coding" / ".claude-plugin" / "plugin.json").write_text("{}")
-            subprocess.run(["git", "init", "-q", str(clone_dir)])
-            subprocess.run(["git", "-C", str(clone_dir), "commit", "-q",
-                           "--allow-empty", "-m", "init",
-                           "--author=t <t@t.t>"], capture_output=True)
-            subprocess.run(["git", "-C", str(clone_dir), "remote", "add",
-                           "origin", str(clone_dir)])
-
-            fake_bin = Path(td) / "fakebin"
-            fake_bin.mkdir()
-            call_count_file = Path(td) / "pull-calls.txt"
-            self._counting_git_wrapper(fake_bin, call_count_file)
-
-            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
-            saved_root = spawn.ROOT
-            old_path = os.environ.get("PATH", "")
-            os.environ["PATH"] = f"{fake_bin}{os.pathsep}{old_path}"
-            spawn.ROOT = fake_root
-            try:
-                spawn.plugin_dirs("implementation", spec)     # call 1
-                spawn.checkout_version("implementation", spec)  # call 2
-                spawn.checkout_version("implementation", spec)  # call 3 (ledger)
-            finally:
-                spawn.ROOT = saved_root
-                os.environ["PATH"] = old_path
-
-            calls = call_count_file.read_text().splitlines() if call_count_file.exists() else []
-            self.assertEqual(len(calls), 1, calls)
-
-    def test_ttl_marker_skips_pull_on_fresh_marker(self):
-        with tempfile.TemporaryDirectory() as td:
-            fake_root = Path(td) / "root"
-            clone_dir = fake_root / "runs" / "rulebooks" / "acme-rules"
-            clone_dir.mkdir(parents=True)
-            (clone_dir / ".claude-plugin").mkdir()
-            (clone_dir / ".claude-plugin" / "marketplace.json").write_text("{}")
-
-            fake_bin = Path(td) / "fakebin"
-            fake_bin.mkdir()
-            call_count_file = Path(td) / "pull-calls.txt"
-            self._counting_git_wrapper(fake_bin, call_count_file)
-
-            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
-            saved_root = spawn.ROOT
-            old_path = os.environ.get("PATH", "")
-            os.environ["PATH"] = f"{fake_bin}{os.pathsep}{old_path}"
-            spawn.ROOT = fake_root
-            try:
-                spawn._ttl_marker(clone_dir).parent.mkdir(parents=True, exist_ok=True)
-                spawn._ttl_marker(clone_dir).write_text(str(time.time()))
-                spawn.rulebook_checkout("implementation", spec)
-            finally:
-                spawn.ROOT = saved_root
-                os.environ["PATH"] = old_path
-
-            self.assertFalse(call_count_file.exists(), "TTL 창 안인데 pull 이 불렸다")
-
-    @pytest.mark.slow
-    def test_muster_rulebook_ttl_zero_forces_pull(self):
-        os.environ["MUSTER_RULEBOOK_TTL"] = "0"
-        with tempfile.TemporaryDirectory() as td:
-            fake_root = Path(td) / "root"
-            clone_dir = fake_root / "runs" / "rulebooks" / "acme-rules"
-            clone_dir.mkdir(parents=True)
-            (clone_dir / ".claude-plugin").mkdir()
-            (clone_dir / ".claude-plugin" / "marketplace.json").write_text("{}")
-            subprocess.run(["git", "init", "-q", str(clone_dir)])
-
-            fake_bin = Path(td) / "fakebin"
-            fake_bin.mkdir()
-            call_count_file = Path(td) / "pull-calls.txt"
-            self._counting_git_wrapper(fake_bin, call_count_file)
-
-            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
-            saved_root = spawn.ROOT
-            old_path = os.environ.get("PATH", "")
-            os.environ["PATH"] = f"{fake_bin}{os.pathsep}{old_path}"
-            spawn.ROOT = fake_root
-            try:
-                spawn._ttl_marker(clone_dir).parent.mkdir(parents=True, exist_ok=True)
-                spawn._ttl_marker(clone_dir).write_text(str(time.time()))
-                spawn.rulebook_checkout("implementation", spec)
-            finally:
-                spawn.ROOT = saved_root
-                os.environ["PATH"] = old_path
-
-            calls = call_count_file.read_text().splitlines() if call_count_file.exists() else []
-            self.assertEqual(len(calls), 1, calls)
 
     @pytest.mark.slow
     def test_ttl_marker_does_not_dirty_clone(self):
@@ -8833,73 +8739,6 @@ class RulebookCheckoutMemo(unittest.TestCase):
                 self.assertEqual(status.stdout, "", status.stdout)
             finally:
                 spawn.ROOT = saved_root
-
-
-class LegacyTtlMarkerMigration(unittest.TestCase):
-    """이슈 #313: #297 이전 코드가 클론 안에 써 둔 `.muster-last-pull` 은
-    #297 이후에도 디스크에 남아, 지우기 전까진 `checkout_version()` 의
-    dirty 접미사가 그 클론에 상시로 붙는다. `rulebook_checkout()` 이
-    관리 클론을 다시 쓸 때마다 그 레거시 마커를 지워야 한다."""
-
-    def setUp(self):
-        spawn._RULEBOOK_CACHE = {}
-
-    def tearDown(self):
-        spawn._RULEBOOK_CACHE = {}
-
-    def _fake_clone(self, td):
-        fake_root = Path(td) / "root"
-        clone_dir = fake_root / "runs" / "rulebooks" / "acme-rules"
-        clone_dir.mkdir(parents=True)
-        subprocess.run(["git", "init", "-q", str(clone_dir)], check=True)
-        (clone_dir / ".claude-plugin").mkdir()
-        (clone_dir / ".claude-plugin" / "marketplace.json").write_text("{}")
-        subprocess.run(["git", "-C", str(clone_dir), "add", "-A"], check=True)
-        subprocess.run(["git", "-C", str(clone_dir), "commit", "-q",
-                       "-m", "init",
-                       "--author=t <t@t.t>"], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(clone_dir), "remote", "add",
-                       "origin", str(clone_dir)], check=True)
-        return fake_root, clone_dir
-
-    @pytest.mark.slow
-    def test_stale_in_clone_marker_no_longer_reports_dirty(self):
-        with tempfile.TemporaryDirectory() as td:
-            fake_root, clone_dir = self._fake_clone(td)
-            # pre-#297 코드가 남긴 in-clone 마커 — untracked, gitignore 안 됨.
-            (clone_dir / ".muster-last-pull").write_text(str(time.time()))
-
-            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
-            saved_root = spawn.ROOT
-            os.environ["MUSTER_RULEBOOK_TTL"] = "0"  # 매번 pull, 마이그레이션 경로를 확실히 탄다
-            spawn.ROOT = fake_root
-            try:
-                version = spawn.checkout_version("implementation", spec)
-            finally:
-                spawn.ROOT = saved_root
-                os.environ.pop("MUSTER_RULEBOOK_TTL", None)
-
-            self.assertNotIn("커밋 안 된 변경 있음", version, version)
-            self.assertFalse((clone_dir / ".muster-last-pull").exists())
-
-    @pytest.mark.slow
-    def test_genuine_uncommitted_change_still_reports_dirty(self):
-        with tempfile.TemporaryDirectory() as td:
-            fake_root, clone_dir = self._fake_clone(td)
-            (clone_dir / ".muster-last-pull").write_text(str(time.time()))
-            (clone_dir / "real-edit.txt").write_text("uncommitted")
-
-            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
-            saved_root = spawn.ROOT
-            os.environ["MUSTER_RULEBOOK_TTL"] = "0"
-            spawn.ROOT = fake_root
-            try:
-                version = spawn.checkout_version("implementation", spec)
-            finally:
-                spawn.ROOT = saved_root
-                os.environ.pop("MUSTER_RULEBOOK_TTL", None)
-
-            self.assertIn("커밋 안 된 변경 있음", version, version)
 
 
 class FetchDedupe(unittest.TestCase):
@@ -10002,8 +9841,9 @@ class ReturnedPrGate(unittest.TestCase):
                                lambda cwd, issue, role: str(work)),
             mock.patch.object(spawn, "checkout_issue_branch",
                                lambda cwd, issue, role: "b"),
-            mock.patch.object(spawn, "plugin_dirs", lambda *a, **k: []),
-            mock.patch.object(spawn, "checkout_version", lambda *a, **k: "v0"),
+            mock.patch.object(spawn, "resolve_role_source",
+                              lambda role, repo_root: {"source": "skill-repo",
+                                  "skill_dirs": [], "skills": [], "skill_sha": None}),
             mock.patch.object(spawn, "core_plugin_dirs", lambda: []),
             mock.patch.object(spawn, "core_version", lambda: "v0"),
             mock.patch.object(spawn, "spawn_cmd", lambda *a, **k: (["cat"], {})),
@@ -10242,15 +10082,18 @@ class RepoSlugCacheTest(unittest.TestCase):
 
 class ConsultCmd(unittest.TestCase):
     """이슈 #699 R1 — consult 는 답만 돌려주고, PR 을 열지 않고, 트레이스를
-    항상 남긴다. `plugin_dirs`/`core_plugin_dirs`/`subprocess.run` 을
-    막아 실제 룰북 fetch 나 claude 세션 없이 조립만 검증한다."""
+    항상 남긴다. `resolve_role_source`/`core_plugin_dirs`/`subprocess.run`
+    을 막아 실제 skill-repo fetch 나 claude 세션 없이 조립만 검증한다."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self._patches = []
-        self._patch(spawn, "plugin_dirs", lambda role, spec: [Path("/fake/plugin")])
+        self._patch(spawn, "resolve_role_source",
+                    lambda role, repo_root: {"source": "skill-repo",
+                        "skill_dirs": [Path("/fake/plugin")],
+                        "skills": ["fake"], "skill_sha": "abc1234"})
         self._patch(spawn, "core_plugin_dirs", lambda: [])
         root = self.root
         self._patch(spawn, "_consult_trace_path",
@@ -10462,10 +10305,10 @@ class PlainSessionDirectiveNorms(unittest.TestCase):
 
 
 class RulebookCacheLock(unittest.TestCase):
-    """이슈 #773: 같은 role 을 동시에 여러 개 spawn 하면 각각
-    `rulebook_checkout()` 이 같은 `runs/rulebooks/<mkt>` 를 클론하려다
-    "target path already exists and is not empty" 로 충돌했다. 클론
-    구간을 `_locked_rulebook_dir()` 로 감싸 직렬화한다."""
+    """이슈 #773: 클론 구간을 `_locked_rulebook_dir()` 로 감싸 직렬화한다
+    (원래는 role rulebook 동시 spawn 충돌을 겨냥했지만, 그 소비자였던
+    `rulebook_checkout()` 은 이슈 #1955 로 은퇴했다 — 락 자체는 core/
+    skill-repo 관리 클론이 계속 쓰는 공유 저수준 헬퍼라 여기 남는다)."""
 
     def _fake_run_net(self, clone_calls, pull_calls):
         def fake(args, label, timeout=None, **kwargs):
@@ -10482,52 +10325,6 @@ class RulebookCacheLock(unittest.TestCase):
                 return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
             raise AssertionError(f"unexpected _run_net call: {args}")
         return fake
-
-    def setUp(self):
-        spawn._RULEBOOK_CACHE = {}
-
-    def tearDown(self):
-        spawn._RULEBOOK_CACHE = {}
-
-    def test_concurrent_populations_serialize_to_one_clone(self):
-        with tempfile.TemporaryDirectory() as td:
-            fake_root = Path(td) / "root"
-            clone_calls, pull_calls = [], []
-            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
-            saved_root = spawn.ROOT
-            spawn.ROOT = fake_root
-            results = []
-            errors = []
-
-            def worker():
-                # 각 스레드마다 in-process 메모를 우회하도록 캐시를 비운
-                # 채로 두지 않으면 락 경합 자체가 안 일어난다.
-                try:
-                    with unittest.mock.patch.object(
-                            spawn, "_RULEBOOK_CACHE", {}):
-                        results.append(
-                            spawn.rulebook_checkout("implementation", spec))
-                except BaseException as e:  # pragma: no cover - 진단용
-                    errors.append(e)
-
-            try:
-                with unittest.mock.patch.object(
-                        spawn, "_run_net",
-                        self._fake_run_net(clone_calls, pull_calls)):
-                    threads = [threading.Thread(target=worker)
-                               for _ in range(5)]
-                    for t in threads:
-                        t.start()
-                    for t in threads:
-                        t.join(timeout=10)
-            finally:
-                spawn.ROOT = saved_root
-
-            self.assertEqual(errors, [], errors)
-            self.assertEqual(len(results), 5)
-            self.assertEqual(len(clone_calls), 1,
-                              "정확히 한 번만 clone 이 실제로 불려야 한다")
-            self.assertTrue(all(r == results[0] for r in results))
 
     def test_stale_lock_reclaimed_after_holder_dies(self):
         with tempfile.TemporaryDirectory() as td:
@@ -10566,36 +10363,9 @@ class RulebookCacheLock(unittest.TestCase):
                     holder.kill()
                     holder.wait()
 
-    def test_warm_cache_single_spawn_issues_zero_git_calls(self):
-        with tempfile.TemporaryDirectory() as td:
-            fake_root = Path(td) / "root"
-            clone_dir = fake_root / "runs" / "rulebooks" / "acme-rules"
-            clone_dir.mkdir(parents=True)
-            (clone_dir / ".claude-plugin").mkdir()
-            (clone_dir / ".claude-plugin" / "marketplace.json").write_text("{}")
-
-            spec = {"marketplace": "acme-rules", "repo": "acme/acme-rules"}
-            saved_root = spawn.ROOT
-            spawn.ROOT = fake_root
-            clone_calls, pull_calls = [], []
-            try:
-                spawn._ttl_marker(clone_dir).parent.mkdir(
-                    parents=True, exist_ok=True)
-                spawn._ttl_marker(clone_dir).write_text(str(time.time()))
-                with unittest.mock.patch.object(
-                        spawn, "_run_net",
-                        self._fake_run_net(clone_calls, pull_calls)):
-                    result = spawn.rulebook_checkout("implementation", spec)
-            finally:
-                spawn.ROOT = saved_root
-
-            self.assertEqual(result, clone_dir)
-            self.assertEqual(clone_calls, [])
-            self.assertEqual(pull_calls, [])
-
-
 class CoreRootCacheLock(unittest.TestCase):
-    """이슈 #773: `core_root()` 도 `rulebook_checkout()` 과 동일한 손수
+    """이슈 #773: `core_root()` 도 옛 role-rulebook 체크아웃(이슈 #1955 로
+    은퇴)과 동일한 손수
     쓴 exists-check-then-clone 경쟁을 갖고 있었다 — 같은 락으로 감싼다."""
 
     def _fake_run_net(self, clone_calls, pull_calls):

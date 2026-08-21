@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-pr-communications",
-  "repo": "tokenmaxxxer/pr-communications-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/pr-communications-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

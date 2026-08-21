@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-refactoring-legacy",
-  "repo": "tokenmaxxxer/refactoring-legacy-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/refactoring-legacy-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-risk-management",
-  "repo": "tokenmaxxxer/risk-management-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/risk-management-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

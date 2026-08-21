@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-incident-response",
-  "repo": "tokenmaxxxer/incident-response-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/incident-response-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

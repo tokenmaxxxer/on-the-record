@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-devrel",
-  "repo": "tokenmaxxxer/devrel-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/devrel-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
