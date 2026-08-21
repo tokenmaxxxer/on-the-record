@@ -216,6 +216,23 @@ class ApprovalGateEquivalenceTest(unittest.TestCase):
         text = self.HOOK_PATH.read_text(encoding="utf-8")
         self.assertIn("if role != branch_role:", text)
 
+    def test_hook_reads_approval_record_path(self):
+        # issue #1821: dual-reads the #1818 structured approval record
+        # before the gh needle scan.
+        text = self.HOOK_PATH.read_text(encoding="utf-8")
+        self.assertIn('"gh-read-cache", "issue-%d-approvals.json" % issue', text)
+        self.assertIn("if isinstance(record, dict) and role in record:", text)
+
+    def test_hook_has_distinct_sidecar_vs_branch_mismatch_deny(self):
+        # issue #1821: a NEW comparison, distinct from the existing,
+        # untouched `if role != branch_role:` fallback-path check above —
+        # this one compares the sidecar's own role/issue against an
+        # independently branch-parsed role/issue once the sidecar has
+        # already resolved.
+        text = self.HOOK_PATH.read_text(encoding="utf-8")
+        self.assertIn("if cross_issue != issue or cross_role != branch_role:", text)
+        self.assertIn("disagrees with the", text)
+
 
 # --- consumer 4: board records (zero role-name-parse-site consumer) --------
 
