@@ -40,6 +40,19 @@
 # (delegation-post-gate.sh), not re-checked here — this gate only asks
 # "does a live, in-scope grant already back this citation."
 #
+# Dual-read carriers (issue #1821): role prefers the `.on-the-record/
+# role.json` sidecar (#1814); when it resolves, an independent branch-regex
+# parse is also attempted purely for cross-checking — a resolvable
+# disagreement between the two is a hard, fail-closed deny naming both
+# values (workspace state is inconsistent, not an infra failure). Approvals
+# prefer the structured `.git/gh-read-cache/issue-<n>-approvals.json`
+# record (#1818, a write-through cache of a past passing scan); a `role`
+# key hit skips the gh needle scan and delegation-citation scan entirely.
+# Any carrier absence/parse failure falls through unchanged to the
+# existing branch-regex/needle-scan fallback — byte-identical to
+# pre-#1821 behavior. Enforcement semantics (what is blocked/allowed) are
+# unchanged; only the data source is.
+#
 # Fails closed on any other non-0/2 exit (trap), matching this plugin's
 # house style. Kill switch: ORCHESTRATE_OFF=1.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
@@ -112,6 +125,32 @@ try:
 except (OSError, ValueError):
     pass
 
+if issue is not None:
+    # issue #1821: sidecar resolved — attempt an INDEPENDENT branch parse
+    # purely for cross-checking, never to replace the sidecar's own
+    # values. Any parse failure here (detached HEAD, non-issue branch,
+    # subprocess failure) means no comparison is possible; proceed on the
+    # sidecar values alone, byte-identical to pre-#1821 behavior.
+    try:
+        r2 = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                             capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        r2 = None
+    if r2 is not None and r2.returncode == 0:
+        bm2 = re.match(r"^issue-(\d+)/([\w-]+)$", r2.stdout.strip())
+        if bm2:
+            cross_issue = int(bm2.group(1))
+            cross_role = bm2.group(2)
+            if cross_issue != issue or cross_role != branch_role:
+                deny(
+                    "sidecar role/issue (issue-%d/%s) disagrees with the "
+                    "branch-parsed role/issue (issue-%d/%s) — workspace "
+                    "state is inconsistent." % (issue, branch_role, cross_issue, cross_role),
+                    "make .on-the-record/role.json and the current branch "
+                    "name agree on the same issue-<n>/<role>, or remove the "
+                    "stale sidecar.",
+                )
+
 if issue is None:
     try:
         r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -155,83 +194,102 @@ for line in open(approvers_path, encoding="utf-8"):
     if mm:
         approvers.add(mm.group(1))
 
+# --- approvals: prefer the #1818 structured record --------------------------
+# `.git/gh-read-cache/issue-<n>-approvals.json` (spawn._approval_record_path
+# / gates.ci._write_approval_record shape) is a write-through cache of a
+# PAST passing needle scan: a `role` key hit is a strict subset of what the
+# scan below would find, so trusting it cannot approve anything the
+# scan-only path would have refused (proposal Rationale). Any read/parse
+# failure (missing file, invalid JSON, wrong shape) falls through unchanged
+# to the gh-based needle scan and delegation-citation logic below.
+approved = False
+record_path = os.path.join(cwd, ".git", "gh-read-cache", "issue-%d-approvals.json" % issue)
+try:
+    with open(record_path, encoding="utf-8") as f:
+        record = json.load(f)
+    if isinstance(record, dict) and role in record:
+        approved = True
+except (OSError, ValueError):
+    pass
+
 # --- APPROVE comment / listed-account check ---------------------------------
-if not any(os.access(d + "/gh", os.X_OK) for d in os.environ.get("PATH", "").split(os.pathsep) if d):
-    sys.stderr.write("approval-gate: gh not found on PATH — cannot verify approval state, "
-                      "failing open (infrastructure failure, not an approval-state failure).\n")
-    sys.exit(0)
-
-def gh_json(*args):
-    try:
-        r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if r.returncode != 0:
-        return None
-    try:
-        return json.loads(r.stdout)
-    except ValueError:
-        return None
-
-comments = gh_json("issue", "view", str(issue), "--json", "comments", "-q", ".comments")
-if comments is None:
-    sys.stderr.write("approval-gate: gh issue view lookup failed — cannot verify approval state, "
-                      "failing open (infrastructure failure, not an approval-state failure).\n")
-    sys.exit(0)
-
-needle = "APPROVE issue-%d/%s" % (issue, role)
-approved = any(
-    (c.get("body") or "").strip() == needle
-    and (c.get("author", {}) or {}).get("login") in approvers
-    for c in (comments or [])
-)
-
-# --- delegation-citation provenance (issue #707) -----------------------
-_DELEGATE_RE = re.compile(r"^DELEGATE (\S+) UNTIL (\d{4}-\d{2}-\d{2})$")
-_REVOKE_RE = re.compile(r"^REVOKE (\S+)$")
-_CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
-
-def _delegation_valid(scope, all_comments, approver_set):
-    import datetime
-    grants, revokes = [], []
-    for c in all_comments:
-        b = (c.get("body") or "").strip()
-        login = (c.get("author", {}) or {}).get("login")
-        if login not in approver_set:
-            continue
-        created = c.get("createdAt") or ""
-        gm = _DELEGATE_RE.match(b)
-        if gm and gm.group(1) == scope:
-            grants.append((created, gm.group(2)))
-        rm = _REVOKE_RE.match(b)
-        if rm and rm.group(1) == scope:
-            revokes.append(created)
-    if not grants:
-        return False
-    grants.sort()
-    latest_created, expiry = grants[-1]
-    if any(rc > latest_created for rc in revokes):
-        return False  # revoked after the most recent grant — live-checked, never cached
-    try:
-        exp = datetime.date.fromisoformat(expiry)
-    except ValueError:
-        return False
-    return datetime.date.today() <= exp
-
 if not approved:
-    own_scope = "issue-%d/%s" % (issue, role)
-    for c in (comments or []):
-        b = (c.get("body") or "").strip()
-        login = (c.get("author", {}) or {}).get("login")
-        cm = _CITE_RE.match(b)
-        if not cm or login not in approvers:
-            continue
-        if int(cm.group(1)) != issue or cm.group(2) != role:
-            continue
-        cited_scope = cm.group(3)
-        if cited_scope == own_scope and _delegation_valid(cited_scope, comments, approvers):
-            approved = True
-            break
+    if not any(os.access(d + "/gh", os.X_OK) for d in os.environ.get("PATH", "").split(os.pathsep) if d):
+        sys.stderr.write("approval-gate: gh not found on PATH — cannot verify approval state, "
+                          "failing open (infrastructure failure, not an approval-state failure).\n")
+        sys.exit(0)
+
+    def gh_json(*args):
+        try:
+            r = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if r.returncode != 0:
+            return None
+        try:
+            return json.loads(r.stdout)
+        except ValueError:
+            return None
+
+    comments = gh_json("issue", "view", str(issue), "--json", "comments", "-q", ".comments")
+    if comments is None:
+        sys.stderr.write("approval-gate: gh issue view lookup failed — cannot verify approval state, "
+                          "failing open (infrastructure failure, not an approval-state failure).\n")
+        sys.exit(0)
+
+    needle = "APPROVE issue-%d/%s" % (issue, role)
+    approved = any(
+        (c.get("body") or "").strip() == needle
+        and (c.get("author", {}) or {}).get("login") in approvers
+        for c in (comments or [])
+    )
+
+    # --- delegation-citation provenance (issue #707) -----------------------
+    _DELEGATE_RE = re.compile(r"^DELEGATE (\S+) UNTIL (\d{4}-\d{2}-\d{2})$")
+    _REVOKE_RE = re.compile(r"^REVOKE (\S+)$")
+    _CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
+
+    def _delegation_valid(scope, all_comments, approver_set):
+        import datetime
+        grants, revokes = [], []
+        for c in all_comments:
+            b = (c.get("body") or "").strip()
+            login = (c.get("author", {}) or {}).get("login")
+            if login not in approver_set:
+                continue
+            created = c.get("createdAt") or ""
+            gm = _DELEGATE_RE.match(b)
+            if gm and gm.group(1) == scope:
+                grants.append((created, gm.group(2)))
+            rm = _REVOKE_RE.match(b)
+            if rm and rm.group(1) == scope:
+                revokes.append(created)
+        if not grants:
+            return False
+        grants.sort()
+        latest_created, expiry = grants[-1]
+        if any(rc > latest_created for rc in revokes):
+            return False  # revoked after the most recent grant — live-checked, never cached
+        try:
+            exp = datetime.date.fromisoformat(expiry)
+        except ValueError:
+            return False
+        return datetime.date.today() <= exp
+
+    if not approved:
+        own_scope = "issue-%d/%s" % (issue, role)
+        for c in (comments or []):
+            b = (c.get("body") or "").strip()
+            login = (c.get("author", {}) or {}).get("login")
+            cm = _CITE_RE.match(b)
+            if not cm or login not in approvers:
+                continue
+            if int(cm.group(1)) != issue or cm.group(2) != role:
+                continue
+            cited_scope = cm.group(3)
+            if cited_scope == own_scope and _delegation_valid(cited_scope, comments, approvers):
+                approved = True
+                break
 
 if not approved:
     deny(
