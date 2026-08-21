@@ -3,5 +3,67 @@
     "upstream-defect-report-subtraction",
     "upstream-defect-report-comprehensibility",
     "upstream-defect-report-convention"
+  ],
+  "accessibility": [
+    "accessibility-aria-and-contrast-rules"
+  ],
+  "api-design": [
+    "api-design-error-design",
+    "api-design-http-semantics",
+    "api-design-payload-design",
+    "api-design-resource-modeling",
+    "api-design-tool-landscape",
+    "api-design-versioning-evolution"
+  ],
+  "architecture": [
+    "architecture-coupling-classification",
+    "architecture-decomposition-strategy",
+    "architecture-dependency-direction",
+    "architecture-interface-contract-shape",
+    "architecture-module-boundary-definition"
+  ],
+  "brand-design": [
+    "brand-design-brand-consistency-governance",
+    "brand-design-brand-identity-strategy",
+    "brand-design-color-visibility",
+    "brand-design-logo-clear-space-size",
+    "brand-design-typography-pairing"
+  ],
+  "capacity-planning": [
+    "capacity-planning-cost-attribution-at-trigger",
+    "capacity-planning-demand-shape-and-forecast-method",
+    "capacity-planning-expansion-trigger-threshold-sizing",
+    "capacity-planning-headroom-band-and-degradation-risk",
+    "capacity-planning-safety-buffer-sizing-by-criticality"
+  ],
+  "content-design": [
+    "content-design-operational-playbook"
+  ],
+  "customer-support": [
+    "customer-support-escalation-path",
+    "customer-support-five-whys-recurring-scope",
+    "customer-support-kcs-article-authoring",
+    "customer-support-research-log",
+    "customer-support-sla-tier-priority",
+    "customer-support-subtraction-comprehensibility"
+  ],
+  "data-engineering": [
+    "data-engineering-data-quality",
+    "data-engineering-failure-handling",
+    "data-engineering-pipeline-design"
+  ],
+  "data-modeling": [
+    "data-modeling-datavault",
+    "data-modeling-inmon",
+    "data-modeling-kimball",
+    "data-modeling-structure"
+  ],
+  "defect-verification": [
+    "defect-verification-evidence-artifact-completeness",
+    "defect-verification-independence-from-upstream-verdicts",
+    "defect-verification-reproduction-evidence-quality",
+    "defect-verification-severity-band-assignment",
+    "verify-finding-record",
+    "verify-severity-classification"
   ]
 }
