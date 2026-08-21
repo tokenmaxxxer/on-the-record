@@ -55,3 +55,5 @@ session's authority to re-open an already-approved decision. Per
 SCOPE-EXCEEDED RULE the frozen write set stays as-is and this is
 reported, not spawned — see docs/issue-1732/reports/implementation.md's
 Open findings.
+
+- 2026-08-21T00:00:00Z, inline, shared /tmp/skill-repository checkout carried a concurrent session's uncommitted partnerships-bd edits; staged only issue-1873's 6 paths via git index/hash-object instead of git add -A to avoid touching them, skill-repository working tree during this session
