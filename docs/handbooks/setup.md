@@ -72,6 +72,36 @@ MUSTER_AGENT_GH_TOKEN=<pat>` — 또는 GitHub App)을 두면 사람/에이전�
 `on-the-record/runs/rulebooks/` 아래에 자동으로 받아오고 ff-update 한다
 (로컬 checkout 이 있으면 그쪽이 이긴다 — 개발용 override).
 
+**skill-repository 는 다르다 — 자동 clone 이 없다.** 43개 역할 전부
+가이던스를 skill-repository 에서 받는다(skill-axis 아키텍처, phase-3
+완료). 수동으로 clone 하고 `spawn.py` 가 찾을 위치를 알려줘야 한다, 둘 중
+하나:
+- **형제-clone(권장, zero-config)**: `$TOKENMAXXXER_RULEBOOKS` 옆에
+  clone 한다 — `git clone https://github.com/tokenmaxxxer/skill-repository.git
+  $TOKENMAXXXER_RULEBOOKS/skill-repository`. 이 경로면 `MUSTER_SKILL_REPO`
+  안 정해도 `spawn.py` 가 찾는다.
+- **다른 위치에 clone 했다면**: `export
+  MUSTER_SKILL_REPO=<checkout>/skills` — **checkout 루트가 아니라
+  `skills/` 하위 디렉터리를 가리켜야 한다.** 루트를 가리키면 다른(더
+  헷갈리는) 실패로 fail-closed 된다 — 아래 참고.
+
+fail-closed 증상, 자가진단용(둘 다 실측 확인):
+- `MUSTER_SKILL_REPO` 도 형제-clone 도 없으면: `--skills: skill-repository
+  체크아웃을 못 찾았다 — MUSTER_SKILL_REPO 나
+  $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하라`
+- `MUSTER_SKILL_REPO` 가 checkout **루트**를 가리키면(`skills/` 가
+  아니라): `--skills: 모르는 스킬 <role>-... — 쓸 수 있는 이름: docs,
+  skills` — 루트 아래엔 `docs`/`skills` 디렉터리만 있고 매핑된 스킬
+  이름이 루트 바로 밑에는 없기 때문이다. `MUSTER_SKILL_REPO` 를
+  `<checkout>/skills` 로 고치면 해결된다.
+
+`--skills` 플래그(이슈 #1774)는 쉼표로 구분한 스킬 이름을 네 소스에서
+차례로 찾는다: skill-repository checkout, 설치된 Claude Code 플러그인의
+`skills/<name>/`, `~/.claude/skills/<name>`, 표적 레포 자체의
+`.claude/skills/<name>`. 이름이 한 소스보다 많은 곳에서 발견되면(중복)
+fail-closed, 소스 디렉터리에 `hooks/` 하위 디렉터리가 있어도(가이던스
+전용이어야 하는데 훅을 실어 옴, 이슈 #1758) fail-closed 된다.
+
 이슈 #857: `export MUSTER_STATE_ROOT=<dir>` 은 `spawn.py` 의 로스터
 (`active.json`)/워크스페이스 인덱스(`workspaces.json`) 상태 파일이
 사는 위치를 `<플러그인 설치>/runs/` 대신 `<dir>` 로 옮긴다. 기본은
@@ -190,6 +220,38 @@ maintained ones.
 Rulebooks and tokenmaxxxer-core need NO manual clones: spawn fetches and
 ff-updates them under `on-the-record/runs/rulebooks/` automatically (a local
 checkout, if present, wins — that is the development override).
+
+**skill-repository is different — there is no automatic clone.** All 43
+roles resolve their guidance from skill-repository (the skill-axis
+architecture, phase-3 complete). You must clone it manually and tell
+`spawn.py` where to find it, one of two ways:
+- **Sibling clone (recommended, zero-config)**: clone next to
+  `$TOKENMAXXXER_RULEBOOKS` — `git clone
+  https://github.com/tokenmaxxxer/skill-repository.git
+  $TOKENMAXXXER_RULEBOOKS/skill-repository`. At this path `spawn.py` finds
+  it with no `MUSTER_SKILL_REPO` needed.
+- **Cloned elsewhere**: `export MUSTER_SKILL_REPO=<checkout>/skills` —
+  **this must point at the checkout's `skills/` subdirectory, not the
+  checkout root.** Pointing at the root fails closed with a different
+  (more confusing) error — see below.
+
+Fail-closed symptoms, for self-diagnosis (both confirmed live):
+- Neither `MUSTER_SKILL_REPO` nor a sibling clone exists: `--skills:
+  skill-repository 체크아웃을 못 찾았다 — MUSTER_SKILL_REPO 나
+  $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하라`
+- `MUSTER_SKILL_REPO` points at the checkout **root** (not `skills/`):
+  `--skills: 모르는 스킬 <role>-... — 쓸 수 있는 이름: docs, skills` —
+  only `docs`/`skills` directories exist directly under the root, so the
+  mapped skill names aren't found there. Fix by pointing
+  `MUSTER_SKILL_REPO` at `<checkout>/skills` instead.
+
+The `--skills` flag (issue #1774) resolves a comma-separated list of skill
+names across four sources in order: the skill-repository checkout,
+installed Claude Code plugins' `skills/<name>/`, `~/.claude/skills/<name>`,
+and the target repo's own `.claude/skills/<name>`. A name found in more
+than one source fails closed (duplicate), and a source directory carrying
+a `hooks/` subdirectory also fails closed (guidance-only invariant, issue
+#1758).
 
 Once, per target repo — and the orchestrator offers to do all of it in
 conversation when it finds a piece missing:
