@@ -65,5 +65,62 @@
     "defect-verification-severity-band-assignment",
     "verify-finding-record",
     "verify-severity-classification"
+  ],
+  "devrel": [
+    "devrel-channel-convention",
+    "devrel-content-comprehensibility",
+    "devrel-program-subtraction"
+  ],
+  "finance-unit-economics": [
+    "finance-unit-economics-cac-payback",
+    "finance-unit-economics-evidence-chain",
+    "finance-unit-economics-ltv-cac-band",
+    "finance-unit-economics-ltv-churn-assumption",
+    "finance-unit-economics-proposal-shape",
+    "finance-unit-economics-sensitivity-scenario"
+  ],
+  "growth-analytics": [
+    "growth-analytics-experiment-trust",
+    "growth-analytics-funnel-stage-attribution",
+    "growth-analytics-metric-selection",
+    "growth-analytics-reporting-reduction",
+    "growth-analytics-segmentation"
+  ],
+  "incident-response": [
+    "incident-response-action-item-quality",
+    "incident-response-blameless-language-editing",
+    "incident-response-rca-method-selection",
+    "incident-response-severity-classification-scoping",
+    "incident-response-timeline-construction",
+    "incident-response-tool-landscape"
+  ],
+  "interaction-design": [
+    "interaction-design-form-control-and-layout"
+  ],
+  "issue-retrospective": [
+    "issue-retrospective-timeline-comprehensibility-and-subtraction-rules"
+  ],
+  "knowledge-management": [
+    "knowledge-management-curation-pruning",
+    "knowledge-management-structure-findability",
+    "knowledge-management-taxonomy-tagging",
+    "knowledge-management-supersession-lifecycle",
+    "knowledge-management-pattern-extraction"
+  ],
+  "legal-compliance": [
+    "legal-compliance-consent-ux",
+    "legal-compliance-cross-border-transfer",
+    "legal-compliance-lawful-basis-selection",
+    "legal-compliance-license-compatibility",
+    "legal-compliance-research-log",
+    "legal-compliance-retention-minimization",
+    "legal-compliance-vendor-dpa"
+  ],
+  "localization": [
+    "localization-locale-convention-formatting",
+    "localization-pluralization-and-grammar",
+    "localization-rtl-and-script-support",
+    "localization-string-externalization",
+    "localization-text-expansion-and-layout"
   ]
 }
