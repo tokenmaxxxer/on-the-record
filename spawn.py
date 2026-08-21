@@ -5192,6 +5192,62 @@ def skill_repo_sha(repo_root: Path) -> str:
     return p.stdout.strip() if p.returncode == 0 else "?"
 
 
+def _role_source_allowlist(root: Path) -> dict:
+    """이슈 #1758: `docs/specs/role-source-allowlist.json` (`root` 아래) 를
+    읽어 {role: [skill 이름, ...]} 매핑을 돌려준다. 파일이 없으면 빈 매핑
+    (모든 역할이 이전과 동일하게 rulebook 으로 해석된다) — 이 전이 매핑은
+    phase 5 에서 사라진다."""
+    p = Path(root) / "docs" / "specs" / "role-source-allowlist.json"
+    if not p.is_file():
+        return {}
+    return json.loads(p.read_text())
+
+
+def resolve_role_source(role: str, root: Path, repo_root: Path | None) -> dict:
+    """`role` 이 매핑됐는지 보고 어느 소스(rulebook 대 skill-repo)에서
+    해석되는지 돌려준다.
+
+    매핑 안 된 역할: {"source": "rulebook", "skill_dirs": [], "skills": [],
+    "skill_sha": None} — 오늘과 byte-identical 경로임을 값으로 못박는다.
+
+    매핑된 역할: 이름을 `resolved_skill_dirs()` 로 푼다(모르는 이름은 이미
+    거기서 워크스페이스/브랜치 전에 fail-closed). 풀린 디렉터리 중
+    하나라도 `hooks/` 서브디렉터리를 들고 있으면 — skill-repository 는
+    가이던스 전용이라는 얼어붙은 프로그램 원칙 위반 — 역시 워크스페이스/
+    브랜치 전에 fail-closed. 둘 다 통과하면 {"source": "skill-repo",
+    "skill_dirs": [...], "skills": [이름...], "skill_sha": <첫 디렉터리의
+    부모 저장소 sha>} 를 돌려준다."""
+    allowlist = _role_source_allowlist(root)
+    names = allowlist.get(role)
+    if not names:
+        return {"source": "rulebook", "skill_dirs": [], "skills": [],
+                "skill_sha": None}
+    skill_dirs = resolved_skill_dirs(",".join(names), repo_root)
+    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
+    if hooked:
+        sys.exit(
+            f"role-source-allowlist: 역할 {role!r} 이 매핑한 스킬 중 "
+            f"{', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 있다 — "
+            f"skill-repository 는 가이던스 전용이다(훅 없음, 이슈 #1758)")
+    return {"source": "skill-repo", "skill_dirs": skill_dirs,
+            "skills": [d.name for d in skill_dirs],
+            "skill_sha": skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
+
+
+def _role_source_roster_fields(role_source: dict, rulebook_sha: str | None) -> dict:
+    """이슈 #1758 요구사항 3: 로스터 엔트리마다(매핑 여부와 무관하게) 항상
+    붙는 resolution 필드. #1742 의 skills/skills_sha(사용시에만 키 존재)와
+    달리 값으로 소스를 구분한다 — resolution_source 는 항상 있고, 매핑 안
+    된 역할은 resolution_rulebook_sha 를, 매핑된 역할은
+    resolution_skills/resolution_skill_sha 를 채운다."""
+    if role_source["source"] == "skill-repo":
+        return {"resolution_source": "skill-repo",
+                "resolution_skills": role_source["skills"],
+                "resolution_skill_sha": role_source["skill_sha"]}
+    return {"resolution_source": "rulebook",
+            "resolution_rulebook_sha": rulebook_sha}
+
+
 # sibling: core_version
 def core_root() -> Path:
     """tokenmaxxxer-core 체크아웃 루트. 없으면 멈춘다.
@@ -7816,6 +7872,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 끝난다(fail-closed, 요구사항 2) — 아래 워크스페이스 생성보다 먼저 온다.
     skill_dirs = resolved_skill_dirs(skills, _skill_repo_root())
     skill_sha = skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None
+    # 이슈 #1758: role-source-allowlist 해석도 같은 이유로 워크스페이스/
+    # 브랜치 생성보다 먼저 온다 — 매핑된 역할의 스킬 이름이 모르는 이름이거나
+    # hooks/ 를 들고 있으면 여기서 fail-closed.
+    role_source = resolve_role_source(role, Path(cwd), _skill_repo_root())
     if issue is not None:
         root = Path(cwd).resolve()
         # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
@@ -7900,8 +7960,18 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"\n\n마운트된 스킬(--skills, 이슈 #1742): "
                 f"{', '.join(p.name for p in skill_dirs)} "
                 f"(skill-repository {skill_sha})\n")
+        if role_source["source"] == "skill-repo":
+            task = task + (
+                f"\n\n이 역할은 role-source-allowlist(이슈 #1758)로 매핑됐다: "
+                f"룰북 대신 스킬 {', '.join(role_source['skills'])} "
+                f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
+                f"집행은 core 훅뿐이다.\n")
+    # 이슈 #1758: 매핑된 역할은 룰북을 아예 마운트하지 않는다 —
+    # plugin_dirs()/checkout_version() 자체를 건너뛴다(요구사항 2: 룰북
+    # 마운트가 "붙었지만 무시됨"이 아니라 argv 에서 통째로 빠져야 한다).
+    mapped = role_source["source"] == "skill-repo"
     with _timed("rulebook"):
-        plugins = plugin_dirs(role, spec)
+        plugins = [] if mapped else plugin_dirs(role, spec)
     # core_plugin_dirs() 를 print 보다 먼저 불러 core_root() 의 관리 클론
     # pull 이 먼저 일어나게 한다 — 순서가 뒤집히면(예전처럼 print 뒤에서
     # 부르면) 로그에는 pull 전 sha, ledger 에는 pull 후 sha 가 찍혀 같은
@@ -7914,8 +7984,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(s, f)
             settings = f.name
+    # --skills(#1742)와 role-source-allowlist(#1758) 매핑 스킬은 additive —
+    # 같은 --plugin-dir 마운트 목록에 합쳐 붙인다.
+    all_skill_dirs = list(skill_dirs) + [d for d in role_source["skill_dirs"]
+                                          if d not in skill_dirs]
     try:
-        print(f"[{role}] 플러그인 {len(plugins)}개, 룰북 {checkout_version(role, spec)}, "
+        rulebook_desc = ("skill-repo(이슈 #1758)" if mapped
+                          else checkout_version(role, spec))
+        # 이슈 #1758 요구사항 3: 로스터에 싣는 값은 checkout_version() 의
+        # 사람이 읽는 전체 문자열(sha (branch, where)dirty)이 아니라, 그
+        # 앞의 sha 토큰만 — skill_repo_sha() 와 같은 shape 로 맞춘다.
+        rulebook_sha_value = None if mapped else rulebook_desc.split(" ", 1)[0]
+        roster_resolution_fields = _role_source_roster_fields(
+            role_source, rulebook_sha_value)
+        print(f"[{role}] 플러그인 {len(plugins)}개, 룰북 {rulebook_desc}, "
               f"core 플러그인 {', '.join(p.name for p in core_plugins)}, "
               f"core {core_version()}, 작업 디렉터리 {cwd}", file=sys.stderr)
         print(_bootstrap_timing_line(role), file=sys.stderr)
@@ -7923,7 +8005,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 셸 보간을 거치면 신뢰할 수 없는 값의 $(…) 가 실행된다.
         cmd, extra_env = spawn_cmd(settings, role, unattended,
                                    core_plugins, plugins, model,
-                                   skill_dirs, skill_sha)
+                                   all_skill_dirs,
+                                   skill_sha or role_source["skill_sha"])
         if issue is not None:
             # 툴체인 캐시를 워크스페이스 안으로 — go 등이 홈(~/Library/...)에
             # 캐시·설정을 쓰려다 샌드박스에 막혀 빌드가 승인 프롬프트로
@@ -7996,6 +8079,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 if skill_dirs:
                     _early_roster_entry["skills"] = [p.name for p in skill_dirs]
                     _early_roster_entry["skills_sha"] = skill_sha
+                _early_roster_entry.update(roster_resolution_fields)
                 roster_register(roster_key, _early_roster_entry)
                 _append_event(events_path, "session-start",
                               {"pid": os.getpid(), "ts": time.time()})
@@ -8102,6 +8186,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 없어서(빈 값이 아니라) no-flag 경로의 JSON shape 는 그대로다.
             **({"skills": [p.name for p in skill_dirs], "skills_sha": skill_sha}
                if skill_dirs else {}),
+            **roster_resolution_fields,
         })
         if issue is not None:
             # 크래시가 roster_remove/종료 이벤트 사이에서 나면 이 이전엔
