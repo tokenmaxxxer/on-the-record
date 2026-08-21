@@ -64,13 +64,10 @@ class ManagedCloneFreshTest(unittest.TestCase):
         self.assertTrue((root / "example-skill").is_dir())
 
     def test_resolve_role_source_reports_skill_repo(self):
-        docroot = self.root / "target"
-        specs = docroot / "docs" / "specs"
-        specs.mkdir(parents=True)
-        (specs / "role-source-allowlist.json").write_text(
-            '{"implementation": ["example-skill"]}')
-        result = spawn.resolve_role_source("implementation", docroot,
-                                            spawn._skill_repo_root())
+        with mock.patch.object(spawn, "_ROLE_SKILLS",
+                                {"implementation": ["example-skill"]}):
+            result = spawn.resolve_role_source("implementation",
+                                                spawn._skill_repo_root())
         self.assertEqual(result["source"], "skill-repo")
         self.assertEqual(result["skills"], ["example-skill"])
         self.assertIsNotNone(result["skill_sha"])

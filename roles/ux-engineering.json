@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-ux-engineering",
-  "repo": "tokenmaxxxer/ux-engineering-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/ux-engineering-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

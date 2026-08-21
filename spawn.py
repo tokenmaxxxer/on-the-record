@@ -175,75 +175,8 @@ def _migrate_legacy_ttl_marker(d: Path) -> None:
         pass
 
 
-MARKETPLACES = Path.home() / ".claude" / "plugins" / "marketplaces"
-KNOWN = MARKETPLACES.parent / "known_marketplaces.json"
-
-
 def _mkt(d: Path) -> Path:
     return d / ".claude-plugin" / "marketplace.json"
-
-
-def _path(spec: dict) -> str:
-    """역할 파일의 `path` 를 푼다. `~` 와 `$VAR` 를 편다. 못 풀면 빈 문자열.
-
-    절대경로를 그대로 적으면 그 레포는 **한 사람의 홈 디렉터리를 담은 채로**
-    공개된다. 그리고 남의 기계에는 그 경로가 없으니 조용히 github 로 떨어지는데,
-    왜 로컬 체크아웃이 안 잡히는지는 아무 데도 안 나온다.
-
-    안 풀린 변수를 남기지 않고 빈 문자열로 돌려주는 것이 중요하다 —
-    `$TOKENMAXXXER_RULEBOOKS/...` 같은 문자열이 그대로 경로로 쓰이면 없는
-    디렉터리를 가리키고, 그건 "설정 안 함"이 아니라 "잘못 설정함"이 된다.
-    """
-    p = spec.get("path")
-    if not p:
-        return ""
-    p = os.path.expanduser(os.path.expandvars(p))
-    return "" if "$" in p else p
-
-
-def registered(name: str) -> dict:
-    """등록부에 이미 있는 마켓플레이스 항목. 없으면 {}."""
-    try:
-        return json.loads(KNOWN.read_text()).get(name, {})
-    except (OSError, ValueError):
-        return {}
-
-
-def rulebook_source(spec: dict) -> dict:
-    """룰북을 어디서 가져올지. **로컬 체크아웃이 있으면 그쪽이 이긴다.**
-
-    로컬 우선인 이유는 개발이다 — 룰북을 고치면서 on-the-record 로 돌려볼 때 커밋·푸시를
-    거치게 하면 아무도 안 쓴다. 없으면 github 에서 받는다. 비공개 레포도 된다(실측).
-    """
-    p = _path(spec)
-    if p and _mkt(Path(p)).exists():
-        return {"source": "directory", "path": p}
-    if spec.get("repo"):
-        return {"source": "github", "repo": spec["repo"]}
-    sys.exit(f"룰북을 어디서 가져올지 모른다. 역할 파일에 repo 나 path 가 필요하다: {spec}")
-
-
-def rulebook_dir(spec: dict) -> Path | None:
-    """`marketplace.json` 을 실제로 읽을 수 있는 디렉터리. 아직 없으면 None.
-
-    클론 자리를 짐작하기 전에 **등록부의 installLocation 을 먼저 본다.** 이름이
-    이미 등록돼 있으면 `--settings` 의 extraKnownMarketplaces 는 무시되고 등록된
-    쪽이 그대로 쓰인다 — on-the-record 가 github 를 달라고 해도 등록부가 directory 면
-    클론은 영영 안 생긴다. 실측 2026-07-26: 룰북 9개 중 8개는 이름만으로 받아졌고
-    coding 만 실패했는데, 원인은 레포가 아니라 어제 로컬 경로로 등록해 둔
-    `tokenmaxxxer-coding` 항목이었다.
-    """
-    p = _path(spec)
-    if p and _mkt(Path(p)).exists():
-        return Path(p)
-    loc = registered(spec["marketplace"]).get("installLocation")
-    if loc and _mkt(Path(loc)).exists():
-        return Path(loc)
-    clone = MARKETPLACES / spec["marketplace"]
-    return clone if _mkt(clone).exists() else None
-
-
-_RULEBOOK_CACHE: dict[str, Path] = {}
 
 
 def _rulebook_lock_path(d: Path) -> Path:
@@ -274,160 +207,6 @@ def _locked_rulebook_dir(d: Path):
             yield
         finally:
             fcntl.flock(f, fcntl.LOCK_UN)
-
-
-def rulebook_checkout(role: str, spec: dict) -> Path:
-    """세션에 **실제로 붙일** 룰북 체크아웃. 로컬이 있으면 그것, 없으면
-    on-the-record 가 자기 밑에 클론해 둔다.
-
-    설치를 거치지 않는다. 설치 경로에는 실측된 함정이 셋 있고 전부 조용하다:
-    캐시와 클론이 갈라지고(`claude plugin update` 는 버전 문자열만 본다),
-    캐시를 지워도 등록부에 유령 항목이 남고, 이름이 이미 등록돼 있으면
-    `--settings` 의 extraKnownMarketplaces 가 무시된다. 셋 다 결과는 같다 —
-    **의도한 것과 다른 커밋이 세션에 붙는데 아무도 모른다.** 실측
-    2026-07-27: drive 가 띄운 qa 세션이 방금 고친 보안 결함이 그대로 있는
-    e940cbe 로 돌았다(머지된 main 은 1195ace).
-
-    on-the-record 소유 클론이라 무엇이 돌았는지 sha 로 말할 수 있고, 나중에 특정
-    sha 로 고정하는 것도 여기서만 하면 된다.
-    """
-    p = _path(spec)
-    if p and _mkt(Path(p)).exists():
-        return Path(p)
-
-    mkt = spec["marketplace"]
-    cached = _RULEBOOK_CACHE.get(mkt)
-    if cached is not None:
-        return cached
-
-    repo = spec.get("repo")
-    if not repo:
-        sys.exit(f"[{role}] 로컬 체크아웃도 repo 도 없다: roles/{role}.json")
-    d = ROOT / "runs" / "rulebooks" / mkt
-    d.parent.mkdir(parents=True, exist_ok=True)
-    with _locked_rulebook_dir(d):
-        if _mkt(d).exists():
-            _migrate_legacy_ttl_marker(d)
-            if not _pull_is_fresh(d):
-                _run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
-                         f"[{role}] 룰북 pull")
-                _mark_pulled(d)
-            _RULEBOOK_CACHE[mkt] = d
-            return d
-        print(f"[{role}] 룰북을 받는 중: {repo}", file=sys.stderr)
-        r = _run_net(["git", "clone", "-q", f"https://github.com/{repo}.git", str(d)],
-                    f"[{role}] 룰북 clone", timeout=CLONE_TIMEOUT)
-        if not _mkt(d).exists():
-            sys.exit(f"[{role}] 룰북을 받지 못했다: {repo}\n  {r.stderr.strip()[:200]}")
-        _mark_pulled(d)
-        _RULEBOOK_CACHE[mkt] = d
-        return d
-
-
-def checkout_version(role: str, spec: dict) -> str:
-    """세션에 붙는 체크아웃이 **실제로 무엇인지**. 설치본이 없으니 갈라질 것도
-    없다 — 이 문자열이 그 run 이 잰 룰북이다."""
-    d = rulebook_checkout(role, spec)
-
-    def git(*a: str) -> str:
-        p = subprocess.run(["git", "-C", str(d), *a], capture_output=True, text=True)
-        return p.stdout.strip() if p.returncode == 0 else ""
-
-    sha = git("rev-parse", "--short", "HEAD") or "?"
-    branch = git("rev-parse", "--abbrev-ref", "HEAD")
-    dirty = " (커밋 안 된 변경 있음)" if git("status", "--porcelain") else ""
-    where = "로컬" if _path(spec) and _mkt(Path(_path(spec))).exists() else "on-the-record 클론"
-    return f"{sha} ({branch}, {where}){dirty}"
-
-
-def plugin_dirs(role: str, spec: dict) -> list[Path]:
-    """세션에 붙일 플러그인 디렉터리들.
-
-    `<role>-agent-env` 번들은 뺀다 — 번들의 dependencies 는 이 경로로도
-    해결되지 않고, 번들 자체에는 내용이 없다. 개별로 붙이는 이유가 그거다
-    (A/B 실측: 번들만 켠 세션은 doctrine 의 SessionStart 훅이 안 돌았다).
-    """
-    d = rulebook_checkout(role, spec)
-    out = []
-    for p in json.loads(_mkt(d).read_text())["plugins"]:
-        if p["name"].endswith("-agent-env"):
-            continue
-        src = (p.get("source") or f"./{p['name']}")
-        if not isinstance(src, str):
-            continue                      # {source: github, ...} 같은 원격 지정
-        sub = (d / src.lstrip("./")).resolve()
-        if (sub / ".claude-plugin" / "plugin.json").is_file():
-            out.append(sub)
-        else:
-            print(f"[{role}] 플러그인 디렉터리가 없다: {src} — 건너뛴다",
-                  file=sys.stderr)
-    if not out:
-        sys.exit(f"[{role}] 붙일 플러그인이 없다: {_mkt(d)}")
-    return out
-
-
-def ensure_rulebook(role: str, spec: dict) -> Path:
-    """룰북을 손에 넣는다. github 소스면 한 번 받아와야 목록을 읽을 수 있다.
-
-    닭과 달걀: `enabledPlugins` 를 쓰려면 플러그인 이름이 필요하고, 이름은
-    `marketplace.json` 에 있고, 그 파일은 클론이 있어야 읽는다. 그래서 마켓플레이스
-    등록만 담은 설정으로 한 번 돌려 받아오고, 그 다음에 목록을 읽는다.
-    """
-    d = rulebook_dir(spec)
-    if d:
-        # 등록부가 이미 다른 출처를 물고 있으면 그쪽이 이긴다. 조용히 넘어가면
-        # "github 에서 받은 룰북으로 돌렸다"고 믿으면서 실제로는 커밋 안 된
-        # 로컬 체크아웃으로 돈다 — ablation 이 어느 룰북을 쟀는지 말할 수 없게 된다.
-        want = rulebook_source(spec)
-        reg = registered(spec["marketplace"])
-        if reg.get("source") and reg["source"] != want:
-            print(f"[{role}] 등록부가 이 마켓플레이스를 다르게 물고 있다: "
-                  f"{reg['source']} (역할 파일은 {want}). 이름이 이미 등록돼 있으면 "
-                  f"등록된 쪽이 이기므로 세션에 붙는 것은 "
-                  f"{reg.get('installLocation', '?')} 다.", file=sys.stderr)
-        return d
-    print(f"[{role}] 룰북을 받는 중: {spec.get('repo')}", file=sys.stderr)
-    warm = {"extraKnownMarketplaces": {spec["marketplace"]: {"source": rulebook_source(spec)}}}
-    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-        json.dump(warm, f)
-        warm_path = f.name
-    try:
-        # 두 번 돌린다. 한 번으로 받아지는 게 보통이지만 안 받아지고 끝나는 경우를
-        # 실측했다(2026-07-26, 같은 마켓플레이스가 한 번은 되고 한 번은 안 됨).
-        # 실패가 조용해서 다음 줄이 "룰북 없음"으로 멈춰 세우는 것 말고는 표시가 없다.
-        for _ in range(2):
-            subprocess.run(["claude", "-p", "--settings", warm_path],
-                           input="ok", text=True, capture_output=True)
-            d = rulebook_dir(spec)
-            if d:
-                return d
-    finally:
-        os.unlink(warm_path)
-    sys.exit(
-        f"[{role}] 룰북을 받지 못했다: {spec.get('repo') or spec.get('path')}\n"
-        + _fetch_hint(spec))
-
-
-def _fetch_hint(spec: dict) -> str:
-    """왜 못 받았는지 on-the-record 가 실제로 알 수 있는 원인부터 말한다.
-
-    같은 이름이 사용자 전역 `~/.claude/settings.json` 의 extraKnownMarketplaces 에
-    이미 선언돼 있으면 **그쪽이 `--settings` 를 이긴다.** 그 선언이 망가져 있으면
-    (실측: `source: github` 인데 `path` 가 같이 들어 있던 항목) 클론은 몇 번을
-    돌려도 생기지 않고, 세션은 매번 정상 종료한다. 자격증명 문제로 오진하면
-    영영 못 찾는다 — 실제로 그렇게 한 시간을 썼다.
-    """
-    name = spec["marketplace"]
-    try:
-        declared = json.loads(USER_SETTINGS.read_text()).get("extraKnownMarketplaces", {})
-    except (OSError, ValueError):
-        declared = {}
-    if name in declared:
-        return (f"  전역 설정이 같은 이름을 이미 선언하고 있고, 그쪽이 이긴다:\n"
-                f"    {USER_SETTINGS} → extraKnownMarketplaces.{name}\n"
-                f"    {json.dumps(declared[name], ensure_ascii=False)}\n"
-                f"  이 항목을 지우거나 고친 뒤 다시 시도한다.")
-    return "  비공개 레포면 git 자격증명이 필요하다. `gh auth status` 로 확인한다."
 
 
 def self_hosted_hooks(cwd: str) -> dict | None:
@@ -643,203 +422,6 @@ def role_settings(role: str, cwd: str | None = None,
             s["hooks"] = injected
     return s
 
-
-def _plugin_names(spec: dict) -> list[str]:
-    d = rulebook_dir(spec)
-    if d is None:
-        return []
-    return [f"{p['name']}@{spec['marketplace']}"
-            for p in json.loads(_mkt(d).read_text())["plugins"]
-            if not p["name"].endswith("-agent-env")]
-
-
-def _installed_sha(plugin: str) -> str:
-    try:
-        e = json.loads((Path.home() / ".claude/plugins/installed_plugins.json")
-                       .read_text())["plugins"][plugin]
-        return e[0].get("gitCommitSha", "")[:7]
-    except (OSError, ValueError, KeyError, IndexError):
-        return ""
-
-
-def update(roles: list[str]) -> int:
-    """룰북을 지금 원격에 있는 것으로 갱신한다.
-
-    **지우고 다시 까는 것 말고는 길이 없다.** `claude plugin update` 는
-    plugin.json 의 `version` **문자열**만 보는데 룰북 아홉 개가 전부 0.1.0 에
-    머물러 있어서, 커밋이 몇 개 앞서 있든 "이미 최신"이라고 답한다. 마켓플레이스
-    클론을 갱신해도 설치본은 그대로다 — 그 둘은 다른 자리다(실측 2026-07-27:
-    클론 2018d54 / 설치본 7107a49, 방금 머지한 게이트 수정이 세션에 안 붙었다).
-    """
-    rc = 0
-    for role in roles:
-        spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
-        # 역할 파일에 로컬 path 가 있어도 클론을 갱신한다. 설치는 등록부가 가리키는
-        # 자리에서 이뤄지고, 등록부가 github 이면 로컬 체크아웃을 아무리 당겨도
-        # 설치본은 안 움직인다 — 그러면 "안 움직였다" 의 원인을 local scope 로
-        # 잘못 지목하게 된다(실측 2026-07-27).
-        subprocess.run(["claude", "plugin", "marketplace", "update", spec["marketplace"]],
-                       capture_output=True, text=True)
-        names = _plugin_names(spec)
-        if not names:
-            print(f"[{role}] 룰북이 없다 — 먼저 한 번 띄워서 받는다", file=sys.stderr)
-            rc = 1
-            continue
-        before = {n: _installed_sha(n) for n in names}
-        head = subprocess.run(["git", "-C", str(rulebook_dir(spec)), "rev-parse", "--short=7", "HEAD"],
-                              capture_output=True, text=True).stdout.strip()
-        for n in names:
-            subprocess.run(["claude", "plugin", "uninstall", n], capture_output=True, text=True)
-            subprocess.run(["claude", "plugin", "install", n], capture_output=True, text=True)
-            # `install` 은 전역 settings.json 의 enabledPlugins 에 그 플러그인을
-            # **켠 채로** 남긴다. 그대로 두면 사용자가 여는 보통 세션마다 룰북
-            # 아홉 개가 한꺼번에 붙는다 — on-the-record 가 막으려는 그 오염을 on-the-record 가
-            # 만드는 꼴이다(실측 2026-07-27: 갱신 한 번에 22개가 전역에 켜졌다).
-            # 필요한 것은 **설치**지 활성화가 아니다. 켜는 일은 역할 세션의
-            # `--settings` 가 한다.
-            subprocess.run(["claude", "plugin", "disable", n, "--scope", "user"],
-                           capture_output=True, text=True)
-        for n in names:
-            after = _installed_sha(n)
-            if not after:
-                print(f"[{role}] {n}: 설치 실패", file=sys.stderr)
-                rc = 1
-            elif after != before[n]:
-                print(f"[{role}] {n}: {before[n] or '없음'} -> {after}")
-            elif head and not (head.startswith(after) or after.startswith(head)):
-                # 지웠다 깔았는데 안 움직였다. 대개 그 플러그인을 물고 있는 번들이
-                # **local scope** 로 깔려 있어서다 — user scope 의 uninstall 은
-                # 성공했다고 답하고 항목은 그대로 남는다(실측 2026-07-27).
-                # "그대로"로 넘기면 고친 룰북을 못 쓰는 채로 다 됐다고 믿게 된다.
-                print(f"[{role}] {n}: {after} 에서 **안 움직였다** (클론은 {head}). "
-                      f"local scope 설치가 물고 있을 수 있다: "
-                      f"claude plugin uninstall <번들> --scope local", file=sys.stderr)
-                rc = 1
-            else:
-                print(f"[{role}] {n}: {after} (그대로)")
-    return rc
-
-
-def rulebook_version(role: str) -> str:
-    """역할이 **실제로 물고 도는** 룰북의 커밋. 못 읽으면 그렇다고 말한다.
-
-    클론이 아니라 **설치본**을 본다. 세션은 `~/.claude/plugins/cache/` 의 설치본을
-    읽고, 마켓플레이스 클론을 갱신해도 그쪽은 안 따라온다. 클론의 sha 를 보고하면
-    고쳐진 줄 알고 안 고쳐진 것을 돌린다 — 이 함수가 막으려던 바로 그 착각이다.
-
-    로컬 체크아웃이든 github 클론이든 ref 나 sha 로 고정되지 않는다 — **그 순간
-    거기 있는 것이 그대로 돈다.** 다른 브랜치든, 몇 커밋 뒤처졌든, 커밋 안 한 수정이
-    있든. 플러그인 레지스트리도 `lastUpdated` 타임스탬프만 남기고 커밋은 안 남기며,
-    github 클론은 자동 갱신되지도 않는다(실측: 클론 5faa9a7 / 로컬 6c6e358).
-
-    핀을 박을 수는 없으니 **무엇이 돌았는지 기록한다.** 이게 없으면 ablation 이
-    "룰북 켜고 끄고"를 쟀다고 하면서 어느 룰북인지 말하지 못한다. 실제로 로컬이
-    8커밋 뒤처진 채로 반대 결론을 낸 적이 있다(2026-07-26).
-    """
-    spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
-    d = rulebook_dir(spec)
-    if d is None:
-        return "버전 불명 (룰북이 아직 없다)"
-    def git(*a: str) -> str:
-        p = subprocess.run(["git", "-C", str(d), *a], capture_output=True, text=True)
-        return p.stdout.strip() if p.returncode == 0 else ""
-    sha = git("rev-parse", "--short", "HEAD")
-    if not sha:
-        return "버전 불명 (git 레포가 아니다)"
-    branch = git("rev-parse", "--abbrev-ref", "HEAD") or "?"
-    dirty = "+커밋안됨" if git("status", "--porcelain") else ""
-
-    # 도는 것은 설치본이다. 클론과 갈리면 **클론이 아니라 설치본**을 앞세운다.
-    live = {s for s in (_installed_sha(n) for n in _plugin_names(spec)) if s}
-    if not live:
-        return f"{sha}{dirty} ({branch}) — 설치본 없음"
-    if len(live) > 1:
-        return f"설치본이 서로 다르다: {', '.join(sorted(live))} / 클론 {sha} ({branch})"
-    installed = live.pop()
-    if not sha.startswith(installed) and not installed.startswith(sha):
-        return (f"{installed} (도는 것) ≠ {sha}{dirty} ({branch}, 클론) "
-                f"— `spawn.py update {role}` 로 맞춘다")
-    return f"{installed}{dirty} ({branch})"
-
-
-def _installed() -> set[str]:
-    """실제로 **디스크에 있는** 플러그인. 이름만 등록된 것은 세지 않는다.
-
-    세션은 마켓플레이스 클론이 아니라 `~/.claude/plugins/cache/<마켓>/<플러그인>/
-    <버전>/` 에서 플러그인을 읽는다. `installed_plugins.json` 은 그 installPath 를
-    적어 두는데, **디렉터리가 사라져도 항목은 남는다.** 실측 2026-07-26: 역할 9개
-    중 6개가 등록만 있고 캐시가 없었다.
-
-    이름만 세면 ensure_installed 가 "이미 설치됨"으로 통과시키고, 세션은 룰북
-    0개로 조용히 돈다 — on-the-record 는 "플러그인 1개"라고 출력하고, 에이전트는 룰북
-    없이 그럴듯한 답을 내놓는다. 이 함수가 막으려던 실패가 한 겹 아래에서 그대로
-    일어난다. 그래서 기록이 아니라 **산출물**을 확인한다.
-    """
-    try:
-        d = json.loads(
-            (Path.home() / ".claude/plugins/installed_plugins.json").read_text())["plugins"]
-    except (OSError, ValueError, KeyError):
-        return set()
-    return {name for name, entries in d.items()
-            if isinstance(entries, list)
-            and any(Path(e.get("installPath", "")).is_dir()
-                    for e in entries if isinstance(e, dict))}
-
-
-def ensure_installed(role: str, want: list[str], settings: str, cwd: str) -> None:
-    # 스폰 경로에서는 더 이상 쓰지 않는다 — 세션은 `--plugin-dir` 로 체크아웃을
-    # 직접 붙는다(plugin_dirs 참고). 마켓플레이스 설치를 여전히 쓰는 사람을
-    # 위해 `update` 쪽에 남겨 둔다.
-    """역할의 룰북이 실제로 설치되게 만든다. 안 되면 멈춘다.
-
-    첫 스폰은 마켓플레이스를 **등록만** 하고 플러그인은 다음 실행부터 붙는다(실측).
-    그 사이 세션은 룰북 0개로 조용히 돌아간다 — 겉보기엔 성공이라 ablation 결과를
-    통째로 오염시킨다.
-
-    그래서 미설치면 **워밍업 실행 한 번**으로 등록시키고 다시 확인한다. 확인만 하고
-    멈추면 등록할 기회가 영영 없어 교착이다(실제로 그렇게 만들었다가 재현했다).
-    워밍업 뒤에도 없으면 그때는 진짜로 멈춘다 — 룰북 없이 도는 것보다 낫다.
-    """
-    missing = [p for p in want if p not in _installed()]
-    if not missing:
-        return
-    print(f"[{role}] 룰북 설치 중: {', '.join(missing)}", file=sys.stderr)
-    # 처음 보는 마켓플레이스는 **두 번** 걸린다 — 1회차가 등록하고 2회차가 설치한다
-    # (실측). 한 번만 돌리고 포기하면 사용자가 같은 명령을 두 번 쳐야 한다.
-    for _ in range(2):
-        # 워밍업도 대상 레포에서 돈다. cwd 를 안 넘기면 on-the-record 자신의 디렉터리에서
-        # 돌아 노출이 역할 세션과 달라진다 — 같은 경계로 재현되어야 실측이 뜻을 갖는다.
-        subprocess.run(["claude", "-p", "--settings", settings], cwd=cwd,
-                       input="ok", text=True, capture_output=True)
-        missing = [p for p in want if p not in _installed()]
-        if not missing:
-            return
-    sys.exit(
-        f"[{role}] 룰북을 설치하지 못했다: {', '.join(missing)}\n"
-        f"  이대로 띄우면 룰북 0개로 돈다.\n" + _install_hint(missing))
-
-
-def _install_hint(missing: list[str]) -> str:
-    """설치가 왜 안 됐는지 on-the-record 가 실제로 알 수 있는 원인부터 말한다.
-
-    `installed_plugins.json` 에 항목이 남아 있으면 이미 설치된 것으로 보고
-    **재설치를 건너뛴다.** 캐시 디렉터리가 사라져도 항목은 남으므로, 그 상태는
-    스스로 풀리지 않는다 — 몇 번을 돌려도 설치되지 않고, 항목이 있으니 아무도
-    이상하다고 말하지 않는다. 실측 2026-07-26: 유령 항목 6개를 지우자 같은
-    호출이 그대로 성공했다.
-    """
-    reg = Path.home() / ".claude/plugins/installed_plugins.json"
-    try:
-        entries = json.loads(reg.read_text())["plugins"]
-    except (OSError, ValueError, KeyError):
-        entries = {}
-    ghosts = [m for m in missing if m in entries]
-    if ghosts:
-        return (f"  등록부에는 이 항목들이 **설치된 것으로 남아 있다.** 그래서 재설치를\n"
-                f"  건너뛰고, 캐시가 없으니 세션에는 아무것도 안 붙는다:\n"
-                + "".join(f"    {g}\n" for g in ghosts)
-                + f"  {reg} 에서 그 항목을 지운 뒤 다시 시도한다.")
-    return "  `claude` 세션에서 /plugin 으로 설치한 뒤 다시 시도한다."
 
 
 # 역할 순서. 보드를 읽을 때 이 순서로 보여준다.
@@ -5169,7 +4751,7 @@ def _skill_repo_valid(d: Path) -> bool:
 def _skill_repo_managed_root() -> Path | None:
     """관리 클론(이슈 #1789): env 도 형제 체크아웃도 없을 때 on-the-record 가
     직접 `https://github.com/tokenmaxxxer/skill-repository` 를 관리 영역에
-    받아 쓴다 — `core_root()`/`rulebook_checkout()` 이 이미 쓰는 다섯 단계
+    받아 쓴다 — `core_root()` 가 이미 쓰는 다섯 단계
     (로컬 오버라이드 확인은 호출자 쪽에서 이미 끝남 → 관리 디렉터리 유효성
     확인 → 신선하면 재사용 → 아니면 pull-or-clone → 재확인) 를 그대로
     따른다. 네트워크가 죽었을 때 기존 관리 클론이 있으면 그걸 그대로 쓴다
@@ -5396,41 +4978,75 @@ def skill_repo_sha(repo_root: Path) -> str:
     return p.stdout.strip() if p.returncode == 0 else "?"
 
 
-def _role_source_allowlist(root: Path) -> dict:
-    """이슈 #1758: `docs/specs/role-source-allowlist.json` (`root` 아래) 를
-    읽어 {role: [skill 이름, ...]} 매핑을 돌려준다. 파일이 없으면 빈 매핑
-    (모든 역할이 이전과 동일하게 rulebook 으로 해석된다) — 이 전이 매핑은
-    phase 5 에서 사라진다."""
-    p = Path(root) / "docs" / "specs" / "role-source-allowlist.json"
-    if not p.is_file():
-        return {}
-    return json.loads(p.read_text())
+# 이슈 #1955: 전이용 역할-소스 허용목록(#1758)/rulebook 해석 경로 은퇴 —
+# 매핑은 더 이상 대상 저장소의 선택적 파일이 아니라 여기 고정된다. 43개
+# 역할 전부가 예전 docs/specs 아래 허용목록 파일과 값이 같다(그 파일이
+# 이미 모든 역할을 매핑하고 있었다 — 이 상수는 그 내용을 그대로 옮긴 것).
+_ROLE_SKILLS = {
+    'accessibility': ['accessibility-aria-and-contrast-rules'],
+    'api-design': ['api-design-error-design', 'api-design-http-semantics', 'api-design-payload-design', 'api-design-resource-modeling', 'api-design-tool-landscape', 'api-design-versioning-evolution'],
+    'architecture': ['architecture-coupling-classification', 'architecture-decomposition-strategy', 'architecture-dependency-direction', 'architecture-interface-contract-shape', 'architecture-module-boundary-definition'],
+    'brand-design': ['brand-design-brand-consistency-governance', 'brand-design-brand-identity-strategy', 'brand-design-color-visibility', 'brand-design-logo-clear-space-size', 'brand-design-typography-pairing'],
+    'capacity-planning': ['capacity-planning-cost-attribution-at-trigger', 'capacity-planning-demand-shape-and-forecast-method', 'capacity-planning-expansion-trigger-threshold-sizing', 'capacity-planning-headroom-band-and-degradation-risk', 'capacity-planning-safety-buffer-sizing-by-criticality'],
+    'conformance-review': ['conformance-review-requirement-extraction', 'conformance-review-sampling-derivation', 'conformance-review-traceability-and-evidence', 'conformance-review-verdict-assignment', 'conformance-review-verification-method-selection', 'conformance-review-finding-record', 'conformance-review-severity-classification'],
+    'content-design': ['content-design-operational-playbook'],
+    'customer-support': ['customer-support-escalation-path', 'customer-support-five-whys-recurring-scope', 'customer-support-kcs-article-authoring', 'customer-support-research-log', 'customer-support-sla-tier-priority', 'customer-support-subtraction-comprehensibility'],
+    'data-engineering': ['data-engineering-data-quality', 'data-engineering-failure-handling', 'data-engineering-pipeline-design'],
+    'data-modeling': ['data-modeling-datavault', 'data-modeling-inmon', 'data-modeling-kimball', 'data-modeling-structure'],
+    'defect-verification': ['defect-verification-evidence-artifact-completeness', 'defect-verification-independence-from-upstream-verdicts', 'defect-verification-reproduction-evidence-quality', 'defect-verification-severity-band-assignment', 'verify-finding-record', 'verify-severity-classification'],
+    'devrel': ['devrel-channel-convention', 'devrel-content-comprehensibility', 'devrel-program-subtraction'],
+    'finance-unit-economics': ['finance-unit-economics-cac-payback', 'finance-unit-economics-evidence-chain', 'finance-unit-economics-ltv-cac-band', 'finance-unit-economics-ltv-churn-assumption', 'finance-unit-economics-proposal-shape', 'finance-unit-economics-sensitivity-scenario'],
+    'growth-analytics': ['growth-analytics-experiment-trust', 'growth-analytics-funnel-stage-attribution', 'growth-analytics-metric-selection', 'growth-analytics-reporting-reduction', 'growth-analytics-segmentation'],
+    'implementation': ['implementation-complexity-coupling-management', 'implementation-design-pattern-selection', 'implementation-performance-data-structure-choice', 'implementation-blueprint'],
+    'incident-response': ['incident-response-action-item-quality', 'incident-response-blameless-language-editing', 'incident-response-rca-method-selection', 'incident-response-severity-classification-scoping', 'incident-response-timeline-construction', 'incident-response-tool-landscape'],
+    'interaction-design': ['interaction-design-form-control-and-layout'],
+    'issue-retrospective': ['issue-retrospective-timeline-comprehensibility-and-subtraction-rules'],
+    'knowledge-management': ['knowledge-management-curation-pruning', 'knowledge-management-structure-findability', 'knowledge-management-taxonomy-tagging', 'knowledge-management-supersession-lifecycle', 'knowledge-management-pattern-extraction'],
+    'legal-compliance': ['legal-compliance-consent-ux', 'legal-compliance-cross-border-transfer', 'legal-compliance-lawful-basis-selection', 'legal-compliance-license-compatibility', 'legal-compliance-research-log', 'legal-compliance-retention-minimization', 'legal-compliance-vendor-dpa'],
+    'localization': ['localization-locale-convention-formatting', 'localization-pluralization-and-grammar', 'localization-rtl-and-script-support', 'localization-string-externalization', 'localization-text-expansion-and-layout'],
+    'market-analysis': ['market-analysis-competitor-mapping', 'market-analysis-evidence-rigor', 'market-analysis-five-forces', 'market-analysis-jtbd-fit', 'market-analysis-mece-proposal'],
+    'marketing': ['marketing-channel-selection', 'marketing-message-persuasion', 'marketing-positioning-differentiation', 'marketing-scope-pruning', 'marketing-segment-targeting'],
+    'ml-engineering': ['ml-engineering-evaluation-discipline', 'ml-engineering-ml-test-score-scoring', 'ml-engineering-model-provenance-versioning', 'ml-engineering-rollout-promotion-rollback', 'ml-engineering-serving-pattern-selection', 'ml-engineering-slo-definition-tradeoffs'],
+    'observability': ['observability-cardinality-budget', 'observability-explorability', 'observability-methodology-selection', 'observability-phase-trace', 'observability-signal-golden', 'observability-signal-red', 'observability-signal-use'],
+    'partnerships-bd': ['partnerships-bd-deal-structure-selection', 'partnerships-bd-exclusivity-and-scope-terms', 'partnerships-bd-governance-cadence-and-kpi', 'partnerships-bd-negotiation-positioning', 'partnerships-bd-term-sheet-comprehensibility-and-convention'],
+    'performance-engineering': ['performance-engineering-operational-playbook'],
+    'pr-communications': ['pr-communications-message-planning-and-evaluation-rules'],
+    'pricing': ['pricing-design-rigor', 'pricing-method-family', 'pricing-scope-gate', 'pricing-tier-structure', 'pricing-verdict-report'],
+    'product-discovery': ['product-discovery-guardrail-metric-status', 'product-discovery-hypothesis-preregistration', 'product-discovery-jtbd-problem-framing', 'product-discovery-opportunity-solution-tree-branching', 'product-discovery-rice-ice-prioritization', 'product-discovery-assumption-mapping', 'product-discovery-guardrail-metrics', 'product-discovery-hypothesis-testing', 'product-discovery-one-pager', 'product-discovery-opportunity-solution-tree'],
+    'refactoring-legacy': ['refactoring-legacy-characterization-test-scope', 'refactoring-legacy-refactoring-step-decomposition', 'refactoring-legacy-seam-selection', 'refactoring-legacy-strangler-fig-migration', 'refactoring-legacy-verification-cadence'],
+    'release-engineering': ['release-engineering-branching-release-strategy', 'release-engineering-changelog-entry-categorization', 'release-engineering-deployment-rollout-strategy', 'release-engineering-release-cadence-and-toil', 'release-engineering-rollback-and-recovery', 'release-engineering-semver-bump-selection', 'release-engineering-error-budget-policy', 'release-engineering-postmortem', 'release-engineering-readiness-checklist', 'release-engineering-rollout-plan'],
+    'requirements-engineering': ['requirements-engineering-rules'],
+    'risk-management': ['risk-management-aggregation-consolidation', 'risk-management-appetite-tolerance-threshold', 'risk-management-likelihood-impact-scale', 'risk-management-monitoring-review-cadence', 'risk-management-response-strategy-selection'],
+    'sales': ['sales-objection-handling', 'sales-pitch-scoping-and-messaging-handoff', 'sales-qualification-and-discovery'],
+    'secure-coding': ['secure-coding-authorization-access-control', 'secure-coding-cryptography-secrets-management', 'secure-coding-dependency-supply-chain-security', 'secure-coding-input-validation-injection-defense', 'secure-coding-session-authentication'],
+    'security-threat-model': ['security-threat-model-threat-modeling-decision-rules'],
+    'technical-feasibility': ['technical-feasibility-build-vs-buy-dependency-health', 'technical-feasibility-license-and-regulatory-risk', 'technical-feasibility-reversibility-and-spike-scoping', 'technical-feasibility-threat-model-disposition', 'technical-feasibility-verdict-and-timebox-selection', 'technical-feasibility-build-vs-buy', 'technical-feasibility-license-scan', 'technical-feasibility-reversibility-tag', 'technical-feasibility-spike-report', 'technical-feasibility-stride-table'],
+    'technical-writing': ['technical-writing-doc-type-selection', 'technical-writing-minimalism-scoping', 'technical-writing-persuasion-trust', 'technical-writing-structure-comprehension', 'technical-writing-style-guide-compliance', 'technical-writing-tool-landscape'],
+    'test-authoring': ['test-authoring-isolation-and-fixture-strategy'],
+    'upstream-defect-report': ['upstream-defect-report-subtraction', 'upstream-defect-report-comprehensibility', 'upstream-defect-report-convention'],
+    'user-discovery': ['user-discovery-evidence-strength-tagging', 'user-discovery-follow-up-ladder-depth', 'user-discovery-question-design-past-behavior', 'user-discovery-saturation-stopping-rule', 'user-discovery-switch-timeline-causal-forces', 'user-discovery-verdict-prevalence-reporting'],
+    'ux-engineering': ['ux-engineering-color-visibility', 'ux-engineering-control-selection', 'ux-engineering-layout-grouping', 'ux-engineering-navigation-depth', 'ux-engineering-research-log', 'ux-engineering-surface-contrast'],
+}
 
 
-def resolve_role_source(role: str, root: Path, repo_root: Path | None) -> dict:
-    """`role` 이 매핑됐는지 보고 어느 소스(rulebook 대 skill-repo)에서
-    해석되는지 돌려준다.
+def resolve_role_source(role: str, repo_root: Path | None) -> dict:
+    """`role` 을 skill-repository 가이던스로 무조건 해석한다(이슈 #1955:
+    전이용 역할-소스 허용목록/rulebook 해석 경로 은퇴, #1758 이 얼린 phase 5
+    제약 이행 — 매핑 없는 역할이라는 상태 자체가 더 이상 없다).
 
-    매핑 안 된 역할: {"source": "rulebook", "skill_dirs": [], "skills": [],
-    "skill_sha": None} — 오늘과 byte-identical 경로임을 값으로 못박는다.
-
-    매핑된 역할: 이름을 `resolved_skill_dirs()` 로 푼다(모르는 이름은 이미
-    거기서 워크스페이스/브랜치 전에 fail-closed). 풀린 디렉터리 중
-    하나라도 `hooks/` 서브디렉터리를 들고 있으면 — skill-repository 는
-    가이던스 전용이라는 얼어붙은 프로그램 원칙 위반 — 역시 워크스페이스/
-    브랜치 전에 fail-closed. 둘 다 통과하면 {"source": "skill-repo",
-    "skill_dirs": [...], "skills": [이름...], "skill_sha": <첫 디렉터리의
-    부모 저장소 sha>} 를 돌려준다."""
-    allowlist = _role_source_allowlist(root)
-    names = allowlist.get(role)
-    if not names:
-        return {"source": "rulebook", "skill_dirs": [], "skills": [],
-                "skill_sha": None}
+    이름을 `resolved_skill_dirs()` 로 푼다(모르는 이름은 이미 거기서
+    워크스페이스/브랜치 전에 fail-closed). 풀린 디렉터리 중 하나라도
+    `hooks/` 서브디렉터리를 들고 있으면 — skill-repository 는 가이던스
+    전용이라는 얼어붙은 프로그램 원칙 위반 — 역시 워크스페이스/브랜치 전에
+    fail-closed. {"source": "skill-repo", "skill_dirs": [...],
+    "skills": [이름...], "skill_sha": <첫 디렉터리의 부모 저장소 sha>} 를
+    돌려준다."""
+    names = _ROLE_SKILLS.get(role, [])
     skill_dirs = resolved_skill_dirs(",".join(names), repo_root)
     hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
     if hooked:
         sys.exit(
-            f"role-source-allowlist: 역할 {role!r} 이 매핑한 스킬 중 "
+            f"resolve_role_source: 역할 {role!r} 이 매핑한 스킬 중 "
             f"{', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 있다 — "
             f"skill-repository 는 가이던스 전용이다(훅 없음, 이슈 #1758)")
     return {"source": "skill-repo", "skill_dirs": skill_dirs,
@@ -5466,18 +5082,14 @@ def _skill_roster_fields(skill_sources: list[dict], skill_sha: str | None) -> di
     return fields
 
 
-def _role_source_roster_fields(role_source: dict, rulebook_sha: str | None) -> dict:
-    """이슈 #1758 요구사항 3: 로스터 엔트리마다(매핑 여부와 무관하게) 항상
-    붙는 resolution 필드. #1742 의 skills/skills_sha(사용시에만 키 존재)와
-    달리 값으로 소스를 구분한다 — resolution_source 는 항상 있고, 매핑 안
-    된 역할은 resolution_rulebook_sha 를, 매핑된 역할은
-    resolution_skills/resolution_skill_sha 를 채운다."""
-    if role_source["source"] == "skill-repo":
-        return {"resolution_source": "skill-repo",
-                "resolution_skills": role_source["skills"],
-                "resolution_skill_sha": role_source["skill_sha"]}
-    return {"resolution_source": "rulebook",
-            "resolution_rulebook_sha": rulebook_sha}
+def _role_source_roster_fields(role_source: dict) -> dict:
+    """이슈 #1758 요구사항 3 계승, 이슈 #1955 로 단순화: 로스터 엔트리마다
+    항상 붙는 resolution 필드. source 는 이제 언제나 skill-repo(rulebook
+    해석 경로는 은퇴했다) — resolution_source/resolution_skills/
+    resolution_skill_sha 를 채운다."""
+    return {"resolution_source": "skill-repo",
+            "resolution_skills": role_source["skills"],
+            "resolution_skill_sha": role_source["skill_sha"]}
 
 
 # sibling: core_version
@@ -5925,17 +5537,20 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
 
     이슈 #1141: `CLAUDE_PLUGIN_ROOT_CORE` 를 `core_plugin_dirs()` 에서
     주입한다 — `spawn_cmd()` 가 이슈 #182 때부터 갖고 있던 것과 똑같은
-    한 줄(spawn.py 의 `spawn_cmd()` 참조). 이 변수가 없으면 룰북 훅
-    (`terse.sh`)이 `hooks/lib/gate-lib.sh` 를 상대경로 fallback 으로
-    찾다가 자문 세션의 작업 디렉터리 밑에서는 실패해 하드블록한다 — 그
-    블록 에러 텍스트가 "모델 출력"으로 캡처되어 판단 JSON 파싱이 매번
-    실패하는 게 이 이슈의 근본원인이었다.
+    한 줄(spawn.py 의 `spawn_cmd()` 참조). 이 변수가 없으면 core 훅이
+    `hooks/lib/gate-lib.sh` 를 상대경로 fallback 으로 찾다가 자문 세션의
+    작업 디렉터리 밑에서는 실패해 하드블록한다 — 그 블록 에러 텍스트가
+    "모델 출력"으로 캡처되어 판단 JSON 파싱이 매번 실패하는 게 이 이슈의
+    근본원인이었다.
 
     분리 이유: 이대로 `consult_cmd()` 안에 인라인해두면 테스트가 이
     주입 로직을 재구현해야만 검증할 수 있다 — 실제 코드경로를 안 타는
     테스트는 이 이슈가 닫으려는 드리프트류를 그대로 재현한다(경고 문서:
-    docs/issue-1141/reports/implementation/2026-08-13-hunt-consult-core-plugin-root-injection.md)."""
-    plugins = plugin_dirs(role, spec)
+    docs/issue-1141/reports/implementation/2026-08-13-hunt-consult-core-plugin-root-injection.md).
+
+    이슈 #1955: 역할 가이던스는 이제 항상 skill-repository 에서 온다 —
+    `resolve_role_source()` 가 매핑하는 스킬 디렉터리를 그대로 붙인다."""
+    plugins = resolve_role_source(role, _skill_repo_root())["skill_dirs"]
     s = role_settings(role, cwd, inject_self_hosted_hooks=False)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(s, tf)
@@ -6201,10 +5816,11 @@ _JUDGE_EXCLUDED_CORE_PLUGINS = {"freelunch", "scout", "warrant"}
 
 
 def _readonly_plugin_dirs(role: str, spec: dict) -> list[Path]:
-    """judge 세션에 붙일 플러그인 — 역할 룰북(`plugin_dirs()`)은 그대로
-    싣는다(무엇을 위반했는지 판단하려면 룰북 전체가 필요하다), core 는
-    `_JUDGE_EXCLUDED_CORE_PLUGINS` 로 배달 지향 훅만 걸러낸다."""
-    out = list(plugin_dirs(role, spec))
+    """judge 세션에 붙일 플러그인 — 역할 가이던스(이슈 #1955: skill-repository,
+    `resolve_role_source()`)는 그대로 싣는다(무엇을 위반했는지 판단하려면
+    가이던스 전체가 필요하다), core 는 `_JUDGE_EXCLUDED_CORE_PLUGINS` 로
+    배달 지향 훅만 걸러낸다."""
+    out = list(resolve_role_source(role, _skill_repo_root())["skill_dirs"])
     for p in core_plugin_dirs():
         if p.name not in _JUDGE_EXCLUDED_CORE_PLUGINS:
             out.append(p)
@@ -6582,8 +6198,8 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
     """판정 세션 하나를 non-bare `claude -p` 로 띄운다 — `crossSessionInbound`
     를 걸어 `SendMessage` 를 받을 수 있게 한다(이슈#973 phase-1 조사: 공식
     문서, ListAgents/SendMessage 은 non-bare 세션에서만 열린다). 세션
-    설정은 `consult_cmd()` 와 똑같이 `role_settings()`/`plugin_dirs()` 로
-    조립한다 — 두 코드경로가 갈라지면 한쪽만 고쳐지는 드리프트가 난다
+    설정은 `consult_cmd()` 와 똑같이 `role_settings()`/`resolve_role_source()`
+    로 조립한다 — 두 코드경로가 갈라지면 한쪽만 고쳐지는 드리프트가 난다
     (#695/#700, `consult_cmd()` 독스트링과 같은 이유).
 
     `TOKENMAXXXER_PANEL_MESSAGING=unavailable` 이 켜져 있으면
@@ -6597,7 +6213,7 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
         have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
         raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
     spec = json.loads(f.read_text())
-    plugins = plugin_dirs(role, spec)
+    plugins = resolve_role_source(role, _skill_repo_root())["skill_dirs"]
     s = role_settings(role, cwd, inject_self_hosted_hooks=False)
     s["crossSessionInbound"] = "accept"
     settings_path = None
@@ -7420,9 +7036,6 @@ def main() -> int:
                       self_heal=a.self_heal)
     if a.role == "clean":
         return roster_clean(_workspace_base(), a.issue)
-    if a.role == "update":
-        # 룰북을 원격 최신으로. 인자를 비우면 전부.
-        return update([a.task] if a.task else list(ROLES))
     if a.role == "doctor":
         # 훅 발화 실측. 버전마다 한 번 — 룰북 집행의 전제조건이다.
         return doctor()
@@ -8148,10 +7761,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                  if skill_sources and all(m["source"] == "skill-repo"
                                            for m in skill_sources)
                  else None)
-    # 이슈 #1758: role-source-allowlist 해석도 같은 이유로 워크스페이스/
-    # 브랜치 생성보다 먼저 온다 — 매핑된 역할의 스킬 이름이 모르는 이름이거나
-    # hooks/ 를 들고 있으면 여기서 fail-closed.
-    role_source = resolve_role_source(role, Path(cwd), _skill_repo_root())
+    # 이슈 #1955(이슈 #1758 phase 5 이행): skill-repository 해석도 같은
+    # 이유로 워크스페이스/브랜치 생성보다 먼저 온다 — 역할이 매핑한 스킬
+    # 이름이 모르는 이름이거나 hooks/ 를 들고 있으면 여기서 fail-closed.
+    role_source = resolve_role_source(role, _skill_repo_root())
     if issue is not None:
         root = Path(cwd).resolve()
         # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
@@ -8238,21 +7851,18 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"\n\n마운트된 스킬(--skills, 이슈 #1742/#1774): {skill_lines}\n")
         if role_source["source"] == "skill-repo":
             task = task + (
-                f"\n\n이 역할은 role-source-allowlist(이슈 #1758)로 매핑됐다: "
-                f"룰북 대신 스킬 {', '.join(role_source['skills'])} "
+                f"\n\n이 역할은 skill-repository(이슈 #1955, #1758)로 매핑됐다: "
+                f"스킬 {', '.join(role_source['skills'])} "
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.\n")
-    # 이슈 #1758: 매핑된 역할은 룰북을 아예 마운트하지 않는다 —
-    # plugin_dirs()/checkout_version() 자체를 건너뛴다(요구사항 2: 룰북
-    # 마운트가 "붙었지만 무시됨"이 아니라 argv 에서 통째로 빠져야 한다).
-    mapped = role_source["source"] == "skill-repo"
-    with _timed("rulebook"):
-        plugins = [] if mapped else plugin_dirs(role, spec)
+    # 이슈 #1955: 역할은 룰북을 아예 마운트하지 않는다 — rulebook 해석
+    # 경로 자체가 은퇴했다(요구사항: 룰북 마운트가 "붙었지만 무시됨"이
+    # 아니라 argv 에서 통째로 빠져야 한다는 #1758 요구사항 2를 무조건화).
+    plugins: list[Path] = []
     # core_plugin_dirs() 를 print 보다 먼저 불러 core_root() 의 관리 클론
     # pull 이 먼저 일어나게 한다 — 순서가 뒤집히면(예전처럼 print 뒤에서
     # 부르면) 로그에는 pull 전 sha, ledger 에는 pull 후 sha 가 찍혀 같은
-    # run 안에서 두 기록이 어긋난다(룰북 쪽은 plugin_dirs() 가 이미 이
-    # 순서로 pull 을 앞에 둔다 — core 도 같은 순서로 맞춘다).
+    # run 안에서 두 기록이 어긋난다.
     with _timed("core"):
         core_plugins = core_plugin_dirs()
     with _timed("settings"):
@@ -8260,19 +7870,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(s, f)
             settings = f.name
-    # --skills(#1742)와 role-source-allowlist(#1758) 매핑 스킬은 additive —
-    # 같은 --plugin-dir 마운트 목록에 합쳐 붙인다.
+    # --skills(#1742)와 역할 매핑 스킬(#1758/#1955)은 additive — 같은
+    # --plugin-dir 마운트 목록에 합쳐 붙인다.
     all_skill_dirs = list(skill_dirs) + [d for d in role_source["skill_dirs"]
                                           if d not in skill_dirs]
     try:
-        rulebook_desc = ("skill-repo(이슈 #1758)" if mapped
-                          else checkout_version(role, spec))
-        # 이슈 #1758 요구사항 3: 로스터에 싣는 값은 checkout_version() 의
-        # 사람이 읽는 전체 문자열(sha (branch, where)dirty)이 아니라, 그
-        # 앞의 sha 토큰만 — skill_repo_sha() 와 같은 shape 로 맞춘다.
-        rulebook_sha_value = None if mapped else rulebook_desc.split(" ", 1)[0]
-        roster_resolution_fields = _role_source_roster_fields(
-            role_source, rulebook_sha_value)
+        rulebook_desc = "skill-repo(이슈 #1955)"
+        roster_resolution_fields = _role_source_roster_fields(role_source)
         print(f"[{role}] 플러그인 {len(plugins)}개, 룰북 {rulebook_desc}, "
               f"core 플러그인 {', '.join(p.name for p in core_plugins)}, "
               f"core {core_version()}, 작업 디렉터리 {cwd}", file=sys.stderr)
@@ -8736,7 +8340,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         "turns": result.get("num_turns"), "rc": rc, "outcome": outcome,
         "board_delta": delta, "denials": len(denials),
         "duration_s": round(time.monotonic() - t0, 1),
-        "rulebook": checkout_version(role, spec),
+        "rulebook": rulebook_desc,
         "core": core_version(),
         "gates": gates,
         "log": str(log_path),
