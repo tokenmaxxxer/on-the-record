@@ -7628,12 +7628,26 @@ def _write_role_sidecar(work: str, issue: int, role: str) -> None:
     pr-preflight.sh, contract-guard.sh)이 이미 로컬 `git rev-parse` 로
     풀던 워크스페이스에서 role 을 직접 읽게 하는 명시적 캐리어. 실패해도
     fail-open — 사이트들은 이 파일이 없으면 기존 브랜치-정규식 파싱으로
-    그대로 떨어진다."""
+    그대로 떨어진다.
+
+    이슈 #1891: 이 사이드카는 세션마다 바뀌는 워크스페이스-로컬 상태라
+    git 이 절대 스테이징하면 안 된다 — issue #1882/PR #1890 에서 실제로
+    커밋됐다가 머지 전에 걸러진 근접 사고. 스폰 시점에 워크스페이스의
+    `.git/info/exclude` 에 추가한다(레포 `.gitignore` 는 건드리지 않는다).
+    fresh-clone 경로의 자격증명 유출 방지 exclude 블록(issue_workspace()
+    쪽)과 별개의 관심사라 여기서 직접 쓴다 — 호출부 3곳 모두를 한 곳에서
+    커버한다."""
     d = Path(work) / ".on-the-record"
     try:
         d.mkdir(parents=True, exist_ok=True)
         (d / "role.json").write_text(
             json.dumps({"role": role, "issue": issue}) + "\n", encoding="utf-8")
+        ex = Path(work) / ".git" / "info" / "exclude"
+        ex.parent.mkdir(parents=True, exist_ok=True)
+        existing = ex.read_text() if ex.exists() else ""
+        if ".on-the-record/role.json" not in existing:
+            with ex.open("a") as fh:
+                fh.write(".on-the-record/role.json\n")
     except OSError as e:
         print(f"경고: {work} 에 role.json 사이드카를 쓰지 못했다 ({e})",
               file=sys.stderr)
