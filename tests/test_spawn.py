@@ -1057,6 +1057,31 @@ class PreambleWarning(unittest.TestCase):
         self.assertIn("run_in_background", preamble_src)
 
 
+class SkillInvocationNudge(unittest.TestCase):
+    """issue #1960 phase B: whenever any skill is mounted (either --skills
+    or the role-to-skill-repository mapping), the spawn task text must
+    instruct the session to check the mounted list against the task before
+    starting substantive work -- this is the single change the phase-B
+    proposal (docs/issue-1960/proposals/phase-b-skill-invocation-nudge.md)
+    approved, targeting the baseline's structural 0/38 gap."""
+
+    def test_nudge_added_when_any_skill_source_mounted(self):
+        src = Path(spawn.__file__).read_text(encoding="utf-8")
+        start = src.index('if skill_sources or role_source["skills"]:')
+        end = src.index("plugins: list[Path] = []", start)
+        nudge_src = src[start:end]
+        self.assertIn("스킬 점검", nudge_src)
+        self.assertIn("Skill", nudge_src)
+
+    def test_nudge_gated_on_a_mounted_skill_source(self):
+        src = Path(spawn.__file__).read_text(encoding="utf-8")
+        # the gating condition must cover both mount paths (issue #1742/#1774
+        # --skills, and issue #1955/#1758 role-mapped skill-repo skills) --
+        # a nudge gated on only one would silently miss sessions mounted via
+        # the other path.
+        self.assertIn('if skill_sources or role_source["skills"]:', src)
+
+
 class GitHead(unittest.TestCase):
     @pytest.mark.slow
     def test_head_of_empty_repo_is_none(self):

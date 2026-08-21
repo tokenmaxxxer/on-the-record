@@ -7855,6 +7855,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"스킬 {', '.join(role_source['skills'])} "
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.\n")
+        # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
+        # 역할 매핑이든) 실체 작업을 시작하기 전에 그 목록을 이번 과제와
+        # 대조해보라고 스폰 시점에 못박는다. 베이스라인 측정
+        # (docs/issue-1960/reports/execution-observation/baseline-measurement.md)
+        # 이 relevance-gated 세션 38개 전부에서 Skill 호출 0건을 보였다 —
+        # 스킬이 안 맞아서가 아니라 애초에 호출을 고려하지 않는 구조적
+        # 공백이라는 뜻이라, trigger 문구를 손보는 대신 이 지시문 한 줄을
+        # 추가한다(단일 변경, 순차 적용).
+        if skill_sources or role_source["skills"]:
+            task = task + (
+                "\n\n스킬 점검(이슈 #1960): 실체 작업을 시작하기 전에, 위에 "
+                "마운트된 스킬 목록을 이번 과제와 대조하라. trigger 조건이 "
+                "이번 과제에 그럴듯하게 들어맞는 스킬이 있으면 Skill 도구로 "
+                "호출하고, 없으면 검토했다는 사실만 유념하고 넘어가라.\n")
     # 이슈 #1955: 역할은 룰북을 아예 마운트하지 않는다 — rulebook 해석
     # 경로 자체가 은퇴했다(요구사항: 룰북 마운트가 "붙었지만 무시됨"이
     # 아니라 argv 에서 통째로 빠져야 한다는 #1758 요구사항 2를 무조건화).
