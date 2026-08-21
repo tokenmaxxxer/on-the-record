@@ -192,5 +192,96 @@
     "refactoring-legacy-seam-selection",
     "refactoring-legacy-strangler-fig-migration",
     "refactoring-legacy-verification-cadence"
+  ],
+  "release-engineering": [
+    "release-engineering-branching-release-strategy",
+    "release-engineering-changelog-entry-categorization",
+    "release-engineering-deployment-rollout-strategy",
+    "release-engineering-release-cadence-and-toil",
+    "release-engineering-rollback-and-recovery",
+    "release-engineering-semver-bump-selection",
+    "release-engineering-error-budget-policy",
+    "release-engineering-postmortem",
+    "release-engineering-readiness-checklist",
+    "release-engineering-rollout-plan"
+  ],
+  "requirements-engineering": [
+    "requirements-engineering-rules"
+  ],
+  "risk-management": [
+    "risk-management-aggregation-consolidation",
+    "risk-management-appetite-tolerance-threshold",
+    "risk-management-likelihood-impact-scale",
+    "risk-management-monitoring-review-cadence",
+    "risk-management-response-strategy-selection"
+  ],
+  "sales": [
+    "sales-objection-handling",
+    "sales-pitch-scoping-and-messaging-handoff",
+    "sales-qualification-and-discovery"
+  ],
+  "secure-coding": [
+    "secure-coding-authorization-access-control",
+    "secure-coding-cryptography-secrets-management",
+    "secure-coding-dependency-supply-chain-security",
+    "secure-coding-input-validation-injection-defense",
+    "secure-coding-session-authentication"
+  ],
+  "security-threat-model": [
+    "security-threat-model-threat-modeling-decision-rules"
+  ],
+  "technical-feasibility": [
+    "technical-feasibility-build-vs-buy-dependency-health",
+    "technical-feasibility-license-and-regulatory-risk",
+    "technical-feasibility-reversibility-and-spike-scoping",
+    "technical-feasibility-threat-model-disposition",
+    "technical-feasibility-verdict-and-timebox-selection",
+    "technical-feasibility-build-vs-buy",
+    "technical-feasibility-license-scan",
+    "technical-feasibility-reversibility-tag",
+    "technical-feasibility-spike-report",
+    "technical-feasibility-stride-table"
+  ],
+  "technical-writing": [
+    "technical-writing-doc-type-selection",
+    "technical-writing-minimalism-scoping",
+    "technical-writing-persuasion-trust",
+    "technical-writing-structure-comprehension",
+    "technical-writing-style-guide-compliance",
+    "technical-writing-tool-landscape"
+  ],
+  "test-authoring": [
+    "test-authoring-isolation-and-fixture-strategy"
+  ],
+  "user-discovery": [
+    "user-discovery-evidence-strength-tagging",
+    "user-discovery-follow-up-ladder-depth",
+    "user-discovery-question-design-past-behavior",
+    "user-discovery-saturation-stopping-rule",
+    "user-discovery-switch-timeline-causal-forces",
+    "user-discovery-verdict-prevalence-reporting"
+  ],
+  "ux-engineering": [
+    "ux-engineering-color-visibility",
+    "ux-engineering-control-selection",
+    "ux-engineering-layout-grouping",
+    "ux-engineering-navigation-depth",
+    "ux-engineering-research-log",
+    "ux-engineering-surface-contrast"
+  ],
+  "implementation": [
+    "implementation-complexity-coupling-management",
+    "implementation-design-pattern-selection",
+    "implementation-performance-data-structure-choice",
+    "implementation-blueprint"
+  ],
+  "conformance-review": [
+    "conformance-review-requirement-extraction",
+    "conformance-review-sampling-derivation",
+    "conformance-review-traceability-and-evidence",
+    "conformance-review-verdict-assignment",
+    "conformance-review-verification-method-selection",
+    "conformance-review-finding-record",
+    "conformance-review-severity-classification"
   ]
 }
