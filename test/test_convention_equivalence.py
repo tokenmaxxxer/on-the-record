@@ -242,6 +242,62 @@ class WatchRosterEquivalenceTest(unittest.TestCase):
         self.assertEqual(key, "repoA/issue-1792/implementation")
         self.assertEqual(entry, {"work": "/w"})
 
+    # issue #1803: field-present path equivalence — an explicit `role`
+    # field on the entry must yield the same role the legacy key-split
+    # would have derived from the same key.
+    def test_live_roster_matches_field_read_matches_key_split(self):
+        matches_field = [("repo/issue-1792/implementation",
+                           {"work": "w", "role": "implementation"})]
+        matches_split = [("repo/issue-1792/implementation", {"work": "w"})]
+        roster = {"issue-1792/implementation": {"pid": 999999999, "work": "w"}}
+        orig = spawn._roster_load
+        spawn._roster_load = lambda: roster
+        try:
+            alive_orig = spawn._alive
+            spawn._alive = lambda pid: False
+            try:
+                result_field = spawn._live_roster_matches(matches_field, 1792)
+                result_split = spawn._live_roster_matches(matches_split, 1792)
+                self.assertEqual(result_field, result_split)
+            finally:
+                spawn._alive = alive_orig
+        finally:
+            spawn._roster_load = orig
+
+    def test_roster_fallback_entry_field_read_matches_key_split(self):
+        roster_field = {"issue-1792/implementation":
+                         {"pid": 1, "work": "/w", "log": "/l", "role": "implementation"}}
+        roster_split = {"issue-1792/implementation": {"pid": 1, "work": "/w", "log": "/l"}}
+        orig_load = spawn._roster_load
+        orig_alive = spawn._alive
+        orig_repo = spawn._repo_identity
+        spawn._alive = lambda pid: True
+        spawn._repo_identity = lambda work: "repo"
+        try:
+            spawn._roster_load = lambda: roster_field
+            key_field, entry_field = spawn._roster_fallback_entry(1792, None, None)
+            spawn._roster_load = lambda: roster_split
+            key_split, entry_split = spawn._roster_fallback_entry(1792, None, None)
+            self.assertEqual(key_field, key_split)
+            self.assertEqual(entry_field, entry_split)
+        finally:
+            spawn._roster_load = orig_load
+            spawn._alive = orig_alive
+            spawn._repo_identity = orig_repo
+
+    def test_lookup_workspace_entry_ambiguous_exit_field_read_matches_key_split(self):
+        matches_field = [("repoA/issue-1792/implementation",
+                           {"work": "/wa", "role": "implementation"}),
+                          ("repoB/issue-1792/review",
+                           {"work": "/wb", "role": "review"})]
+        matches_split = [("repoA/issue-1792/implementation", {"work": "/wa"}),
+                          ("repoB/issue-1792/review", {"work": "/wb"})]
+        with self.assertRaises(SystemExit) as ctx_field:
+            spawn._ambiguous_watch_exit(1792, matches_field, None)
+        with self.assertRaises(SystemExit) as ctx_split:
+            spawn._ambiguous_watch_exit(1792, matches_split, None)
+        self.assertEqual(str(ctx_field.exception), str(ctx_split.exception))
+
 
 # --- consumer 6: rsb status board -------------------------------------------
 
