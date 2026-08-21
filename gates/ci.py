@@ -30,8 +30,11 @@ phase를 끌어낸다. 추출 실패는 fail closed(차단) — 근거와 트레
 `docs/issue-245/reports/implementation.md`의 "Rationale for deviations".
 """
 from __future__ import annotations
+import json
 import re
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -43,6 +46,10 @@ import pr_reference
 import record_lint
 import requirement_digest
 import spawn
+import auto_approval_class
+import merge_gate
+import requirement_met
+import scope_adherence
 import spec_index
 
 # `issue-<n>/<role>` 브랜치 명명 규칙(role-handoff contract v3, gates.BRANCH_ROLE
@@ -221,6 +228,87 @@ def _phase_from_approval(repo: Path, pr: int, issue: int, role: str) -> str:
     return "phase2" if (approved_roles or review_approved) else "phase1"
 
 
+_SHADOW_STATE_KEY = "shadow_wired_pairs"  # issue #1791 — recorded (issue, pr) pairs, idempotency only
+
+
+def _shadow_diff_paths(repo: Path, pr: int) -> list[str]:
+    r = subprocess.run(["gh", "pr", "diff", str(pr), "--name-only"], cwd=repo,
+                        capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"gh pr diff --name-only 실패 (PR #{pr}): {r.stderr.strip()}")
+    return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+
+
+def _shadow_state_paths(repo: Path) -> tuple[Path, Path, Path]:
+    return (repo / auto_approval_class.DEFAULT_CONFIG_PATH,
+            repo / auto_approval_class.DEFAULT_STATE_PATH,
+            repo / auto_approval_class.DEFAULT_AUDIT_LOG_PATH)
+
+
+def _shadow_already_recorded(state_path: Path, issue: int, pr: int) -> bool:
+    if not state_path.exists():
+        return False
+    try:
+        data = json.loads(state_path.read_text())
+    except (ValueError, OSError):
+        return False
+    return [issue, pr] in data.get(_SHADOW_STATE_KEY, [])
+
+
+def _shadow_record_pair(state_path: Path, issue: int, pr: int) -> None:
+    data = {}
+    if state_path.exists():
+        try:
+            data = json.loads(state_path.read_text())
+        except (ValueError, OSError):
+            data = {}
+    pairs = data.get(_SHADOW_STATE_KEY, [])
+    pairs.append([issue, pr])
+    data[_SHADOW_STATE_KEY] = pairs
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps(data))
+
+
+def _shadow_degraded_line(issue: int, pr: int, exc: Exception) -> str:
+    ts = datetime.now(timezone.utc).isoformat()
+    return (f"{ts} | issue={issue} | pr={pr} | class=degraded | "
+            f"would_auto_approve=False | reason=degraded: {exc!r}")
+
+
+def _shadow_wire_approval_observation(repo: Path, pr: int, issue: int) -> None:
+    """issue #1791: `_phase_from_approval()`이 이 (issue, pr)를 phase2로
+    처음 관찰한 지점에서 `auto_approval_class.shadow_verdict()`를 배선한다
+    — shadow-only. 이 함수 안의 어떤 예외도 호출부(`_autodetect_issue_phase`/
+    `check()`)로 새면 안 된다(요구사항 3, fault-injection 인수기준): 전체를
+    감싸고, 실패하면 shadow_verdict()를 거치지 않고 audit log 에 degraded
+    샘플 한 줄을 직접 남긴다. `on-the-record/hooks/approval-gate.sh`는
+    호출하거나 수정하지 않는다 — 반환값도 없어(None) 호출부의 phase 판정에
+    관여할 수 없다."""
+    config_path, state_path, audit_log_path = _shadow_state_paths(repo)
+    try:
+        if _shadow_already_recorded(state_path, issue, pr):
+            return
+        diff_paths = _shadow_diff_paths(repo, pr)
+        gate_results = {
+            "scope_adherence": scope_adherence.check(repo, issue, pr)[0] != scope_adherence.BLOCKED,
+            "stale_revert_guard": not merge_gate.stale_revert_reasons(repo, pr),
+            "requirement_met": not requirement_met.check(repo, issue, pr)["blocked"],
+        }
+        timestamp = datetime.now(timezone.utc).isoformat()
+        auto_approval_class.shadow_verdict(
+            diff_paths, gate_results, issue, pr, timestamp,
+            config_path=config_path, state_path=state_path,
+            audit_log_path=audit_log_path)
+        _shadow_record_pair(state_path, issue, pr)
+    except Exception as e:  # noqa: BLE001 — failure isolation is the point (req 3)
+        try:
+            audit_log_path.parent.mkdir(parents=True, exist_ok=True)
+            with audit_log_path.open("a") as f:
+                f.write(_shadow_degraded_line(issue, pr, e) + "\n")
+        except Exception:
+            pass  # degraded-sample logging itself must never raise into check()
+
+
 def _fetch_ref_file(repo: Path, pr: int, branch: str, path: str) -> str | None:
     """`ref`(PR head 브랜치)에 있는 파일의 텍스트를 `gh api ... /contents/<path>`로
     읽는다 — 로컬 워킹트리를 전혀 안 보고, PR 코드를 체크아웃/실행하지도
@@ -382,6 +470,11 @@ def _autodetect_issue_phase(repo: Path, pr: int, issue: int | None,
                 issue = detected_issue
     if phase is None:
         phase = _phase_from_approval(repo, pr, issue, role)
+        if phase == "phase2":
+            # issue #1791 — shadow_verdict() 배선 지점. 실패 격리는
+            # 함수 내부에서 끝난다: 여기 반환값(issue, phase)에는
+            # 절대 영향을 주지 않는다.
+            _shadow_wire_approval_observation(repo, pr, issue)
     return issue, phase
 
 
