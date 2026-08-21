@@ -30,6 +30,23 @@ _STAGE_MAP = {
 # 매핑 조회보다 우선한다(issue #222 rationale).
 
 _BRANCH_RE = re.compile(r"^(issue-[0-9]+)/([a-z0-9-]+)$")
+# issue #1814: explicit-carrier trailer spawn.py appends to the PR body it
+# creates ("role: <role>"), read line-by-line so a body containing the
+# literal substring elsewhere doesn't false-match.
+_ROLE_TRAILER_RE = re.compile(r"^role:\s*([a-z0-9-]+)\s*$")
+
+
+def _role_from_pr(pr: dict, branch_match: re.Match) -> str:
+    """Prefer the PR body's `role:` trailer (issue #1814); fall back to the
+    branch-regex role group, byte-identical to pre-#1814 behavior, when the
+    trailer is absent or the body isn't a string."""
+    body = pr.get("body")
+    if isinstance(body, str):
+        for line in body.splitlines():
+            m = _ROLE_TRAILER_RE.match(line.strip())
+            if m:
+                return m.group(1)
+    return branch_match.group(2)
 _BOARD_DELTA_ISSUE_RE = re.compile(r"docs/issue-([0-9]+)/")
 
 
@@ -318,7 +335,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
     for pr in prs:
         m = _BRANCH_RE.match(pr.get("headRefName") or "")
         if m:
-            pr_by_branch[(m.group(1), m.group(2))] = pr
+            pr_by_branch[(m.group(1), _role_from_pr(pr, m))] = pr
 
     # `prs_by_subject`는 `pr_by_branch`를 subject로 그룹핑한 것 — board
     # 레코드가 있는 role로 한 번 더 걸러지는 `roles` 필터와 무관하게, 브랜치명

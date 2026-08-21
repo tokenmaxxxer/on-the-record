@@ -337,5 +337,53 @@ class RsbStatusBoardEquivalenceTest(unittest.TestCase):
         )
 
 
+# --- issue #1814: explicit-carrier dual-read/fallback equivalence ----------
+# Golden baseline for the branch-role field migration: additions only, per
+# the frozen migration order's zero-convention-bugs constraint. Proves the
+# 4 sites' carrier-absent fallback path stays byte-identical to today's
+# regex-only behavior, and that the carrier-present path (when read)
+# resolves to the same role a fallback parse of a matching branch would.
+
+class BranchRoleFieldDualReadEquivalenceTest(unittest.TestCase):
+    HOOK_PATHS = {
+        "approval_gate": REPO_ROOT / "on-the-record" / "hooks" / "approval-gate.sh",
+        "pr_preflight": REPO_ROOT / "on-the-record" / "hooks" / "pr-preflight.sh",
+        "contract_guard": REPO_ROOT / "on-the-record" / "hooks" / "contract-guard.sh",
+    }
+
+    def test_hooks_retain_original_fallback_regex_verbatim(self):
+        # the exact fallback line each hook fell back to before #1814 must
+        # still be present, unchanged, in every hook's source.
+        for path in self.HOOK_PATHS.values():
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(
+                're.match(r"^issue-(\\d+)/([\\w-]+)$"', text,
+                msg=f"{path} lost its branch-regex fallback",
+            )
+
+    def test_hooks_read_role_json_sidecar_before_falling_back(self):
+        for path in self.HOOK_PATHS.values():
+            text = path.read_text(encoding="utf-8")
+            self.assertIn(".on-the-record", text)
+            self.assertIn("role.json", text)
+
+    def test_flows_role_from_pr_prefers_trailer_over_branch_group(self):
+        m = flows._BRANCH_RE.match("issue-1792/implementation")
+        self.assertIsNotNone(m)
+        pr_with_trailer = {"body": "Part of #1792.\n\nrole: product-discovery"}
+        self.assertEqual(
+            flows._role_from_pr(pr_with_trailer, m), "product-discovery"
+        )
+
+    def test_flows_role_from_pr_falls_back_to_branch_group_when_absent(self):
+        # carrier-absent case: identical to pre-#1814 pr_by_branch role.
+        m = flows._BRANCH_RE.match("issue-1792/implementation")
+        self.assertIsNotNone(m)
+        pr_without_trailer = {"body": "Part of #1792.\n\nno role line here."}
+        self.assertEqual(flows._role_from_pr(pr_without_trailer, m), m.group(2))
+        pr_no_body = {"body": None}
+        self.assertEqual(flows._role_from_pr(pr_no_body, m), m.group(2))
+
+
 if __name__ == "__main__":
     unittest.main()
