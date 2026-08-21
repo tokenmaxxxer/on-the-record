@@ -122,5 +122,75 @@
     "localization-rtl-and-script-support",
     "localization-string-externalization",
     "localization-text-expansion-and-layout"
+  ],
+  "market-analysis": [
+    "market-analysis-competitor-mapping",
+    "market-analysis-evidence-rigor",
+    "market-analysis-five-forces",
+    "market-analysis-jtbd-fit",
+    "market-analysis-mece-proposal"
+  ],
+  "marketing": [
+    "marketing-channel-selection",
+    "marketing-message-persuasion",
+    "marketing-positioning-differentiation",
+    "marketing-scope-pruning",
+    "marketing-segment-targeting"
+  ],
+  "ml-engineering": [
+    "ml-engineering-evaluation-discipline",
+    "ml-engineering-ml-test-score-scoring",
+    "ml-engineering-model-provenance-versioning",
+    "ml-engineering-rollout-promotion-rollback",
+    "ml-engineering-serving-pattern-selection",
+    "ml-engineering-slo-definition-tradeoffs"
+  ],
+  "observability": [
+    "observability-cardinality-budget",
+    "observability-explorability",
+    "observability-methodology-selection",
+    "observability-phase-trace",
+    "observability-signal-golden",
+    "observability-signal-red",
+    "observability-signal-use"
+  ],
+  "partnerships-bd": [
+    "partnerships-bd-deal-structure-selection",
+    "partnerships-bd-exclusivity-and-scope-terms",
+    "partnerships-bd-governance-cadence-and-kpi",
+    "partnerships-bd-negotiation-positioning",
+    "partnerships-bd-term-sheet-comprehensibility-and-convention"
+  ],
+  "performance-engineering": [
+    "performance-engineering-operational-playbook"
+  ],
+  "pr-communications": [
+    "pr-communications-message-planning-and-evaluation-rules"
+  ],
+  "pricing": [
+    "pricing-design-rigor",
+    "pricing-method-family",
+    "pricing-scope-gate",
+    "pricing-tier-structure",
+    "pricing-verdict-report"
+  ],
+  "product-discovery": [
+    "product-discovery-guardrail-metric-status",
+    "product-discovery-hypothesis-preregistration",
+    "product-discovery-jtbd-problem-framing",
+    "product-discovery-opportunity-solution-tree-branching",
+    "product-discovery-rice-ice-prioritization",
+    "product-discovery-assumption-mapping",
+    "product-discovery-guardrail-metrics",
+    "product-discovery-hypothesis-testing",
+    "product-discovery-one-pager",
+    "product-discovery-opportunity-solution-tree"
+  ],
+  "refactoring-legacy": [
+    "refactoring-legacy-characterization-test-scope",
+    "refactoring-legacy-refactoring-step-decomposition",
+    "refactoring-legacy-seam-selection",
+    "refactoring-legacy-strangler-fig-migration",
+    "refactoring-legacy-verification-cadence"
   ]
 }
