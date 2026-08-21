@@ -186,6 +186,29 @@ def _closes_ref_for_issue(body: str, issue: int):
     return None
 
 
+def _read_approval_record(record_path: Path) -> dict:
+    """이슈 #1818: 구조화 승인 레코드(write-through 캐시)를 읽는다.
+    없음/손상/타입 불일치는 모두 "레코드 없음"으로 fail-open — 아래
+    코멘트 스캔이 항상 진실의 원천이고, 레코드는 그 결과의 캐시일 뿐이다
+    (제안 Rationale: 레코드를 authoritative 로 승격하지 않는다)."""
+    try:
+        if record_path.exists():
+            data = json.loads(record_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
+    except (OSError, ValueError, UnicodeDecodeError):
+        pass
+    return {}
+
+
+def _write_approval_record(record_path: Path, record: dict) -> None:
+    try:
+        record_path.parent.mkdir(parents=True, exist_ok=True)
+        record_path.write_text(json.dumps(record), encoding="utf-8")
+    except OSError:
+        pass  # write-through cache is best-effort; the comment scan stays authoritative
+
+
 def _approved_roles_on_issue(repo: Path, issue: int) -> set[str]:
     """이슈-레벨 코멘트를 스캔해 `APPROVE issue-<n>/<role>`(승인자
     allowlist 계정, 문자열 정확 일치)이 있는 모든 role 토큰 집합을
@@ -193,20 +216,41 @@ def _approved_roles_on_issue(repo: Path, issue: int) -> set[str]:
     (issue #312: phase 는 role 이 아니라 이슈의 속성). `flows._pr_approved`
     (role 정확 일치, `flows.py:130`)는 상황판의 role-exact 계약을 그대로
     지켜야 해서 재사용하지 않는다 — 여기서 독립된 스캔을 짠다(제안서
-    Out of scope: `_pr_approved`/`flows.py`는 이 이슈의 쓰기범위 밖)."""
+    Out of scope: `_pr_approved`/`flows.py`는 이 이슈의 쓰기범위 밖).
+
+    이슈 #1818: 코멘트 스캔 전에 구조화 승인 레코드
+    (`.git/gh-read-cache/issue-<n>-approvals.json`, 기존 `_etag_cache_path`
+    컨벤션의 형제)를 먼저 읽어 이미 알려진 role 을 결과에 합친다. 코멘트
+    스캔은 여전히 매번 그대로 실행되고(레코드 존재가 스캔을 막지
+    않는다), 스캔에서 새로 발견된 role 은 write-through 로 레코드에
+    반영된다 — 레코드는 스캔 결과의 캐시이지 독립된 두 번째 구현이
+    아니므로, "두 경로가 동일한 결과" 요구사항은 구성상 자명하게
+    성립한다(제안 Rationale)."""
+    record_path = spawn._approval_record_path(repo, issue)
+    record = _read_approval_record(record_path)
+    roles = {role for role in record if isinstance(role, str)}
+
     approvers = spawn._approvers(repo)
     comments, _ok = spawn._issue_comments(repo, issue)
     # `_ok` 는 여기서 방향을 안 바꾼다 — gh 호출이 실패해도 comments 는
     # 안전하게 빈 리스트고, 아래는 그걸 "승인 없음"으로 읽어 phase1 로
     # fail-closed 한다(제안의 Constraints: 기존 방향 유지).
     prefix = f"APPROVE issue-{issue}/"
-    roles = set()
+    new_entries = {}
     for c in comments:
         body = (c.get("body") or "").strip()
         if body.startswith(prefix) and c.get("login") in approvers:
             role_token = body[len(prefix):]
             if role_token:  # empty suffix ("APPROVE issue-<n>/") approves no real role
                 roles.add(role_token)
+                if role_token not in record:
+                    new_entries[role_token] = {
+                        "actor": c.get("login"),
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+    if new_entries:
+        record.update(new_entries)
+        _write_approval_record(record_path, record)
     return roles
 
 
