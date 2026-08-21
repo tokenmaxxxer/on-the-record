@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-test-authoring",
-  "repo": "tokenmaxxxer/test-authoring-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/test-authoring-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

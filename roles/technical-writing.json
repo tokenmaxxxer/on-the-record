@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-technical-writing",
-  "repo": "tokenmaxxxer/technical-writing-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/technical-writing-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

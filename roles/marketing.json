@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-marketing",
-  "repo": "tokenmaxxxer/marketing-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/marketing-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

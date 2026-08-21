@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-growth-analytics",
-  "repo": "tokenmaxxxer/growth-analytics-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/growth-analytics-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-user-discovery",
-  "repo": "tokenmaxxxer/user-discovery-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/user-discovery-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
@@ -20,10 +17,19 @@
   "spec": "roles/specs/user-discovery.spec.json",
   "record_fields": {
     "loop_state": {
-      "progress": ["interviewing"],
-      "terminal": ["pain-confirmed", "not-confirmed"],
-      "refusal": ["no-interview-access"],
-      "error": ["snapshot-unreadable"]
+      "progress": [
+        "interviewing"
+      ],
+      "terminal": [
+        "pain-confirmed",
+        "not-confirmed"
+      ],
+      "refusal": [
+        "no-interview-access"
+      ],
+      "error": [
+        "snapshot-unreadable"
+      ]
     }
   }
 }

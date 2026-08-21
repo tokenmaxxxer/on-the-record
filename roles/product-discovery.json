@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-product-discovery",
-  "repo": "tokenmaxxxer/product-discovery-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/product-discovery-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
@@ -20,10 +17,20 @@
   "spec": "roles/specs/product-discovery.spec.json",
   "record_fields": {
     "loop_state": {
-      "progress": ["measuring"],
-      "terminal": ["validated", "invalidated", "inconclusive"],
-      "refusal": ["hypothesis-not-falsifiable"],
-      "error": ["evidence-log-unreadable"]
+      "progress": [
+        "measuring"
+      ],
+      "terminal": [
+        "validated",
+        "invalidated",
+        "inconclusive"
+      ],
+      "refusal": [
+        "hypothesis-not-falsifiable"
+      ],
+      "error": [
+        "evidence-log-unreadable"
+      ]
     }
   }
 }
