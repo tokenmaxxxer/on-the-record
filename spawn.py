@@ -7614,6 +7614,23 @@ def _fetch_or_halt(work_dir: str, label: str, after=None) -> None:
     _FETCHED_THIS_SPAWN[key] = time.monotonic()
 
 
+def _write_role_sidecar(work: str, issue: int, role: str) -> None:
+    """이슈 #1814: 워크스페이스 루트에 `.on-the-record/role.json` 을 남긴다 —
+    네 개의 브랜치-정규식 사이트 중 셸 훅 세 곳(approval-gate.sh,
+    pr-preflight.sh, contract-guard.sh)이 이미 로컬 `git rev-parse` 로
+    풀던 워크스페이스에서 role 을 직접 읽게 하는 명시적 캐리어. 실패해도
+    fail-open — 사이트들은 이 파일이 없으면 기존 브랜치-정규식 파싱으로
+    그대로 떨어진다."""
+    d = Path(work) / ".on-the-record"
+    try:
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "role.json").write_text(
+            json.dumps({"role": role, "issue": issue}) + "\n", encoding="utf-8")
+    except OSError as e:
+        print(f"경고: {work} 에 role.json 사이드카를 쓰지 못했다 ({e})",
+              file=sys.stderr)
+
+
 def issue_workspace(cwd: str, issue: int, role: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
 
@@ -7656,6 +7673,7 @@ def issue_workspace(cwd: str, issue: int, role: str) -> str:
     # cwd 가 이미 이 (이슈,역할)의 워크스페이스면 그대로 쓴다 — 중첩 금지.
     if src == work.resolve():
         _fetch_or_halt(str(src), "재사용 워크스페이스")
+        _write_role_sidecar(str(src), issue, role)
         return str(src)
     if (work / ".git").exists():
         # 이 경로가 우리가 만든 워크스페이스가 아니라 우연히 같은 이름으로
@@ -7679,6 +7697,7 @@ def issue_workspace(cwd: str, issue: int, role: str) -> str:
             sys.exit(f"작업 경로에 다른 레포가 있다 (origin 불일치): {work} "
                      f"— 기대: {origin}, 실제: {work_origin or '(없음)'}")
         _fetch_or_halt(str(work), "재사용 워크스페이스")
+        _write_role_sidecar(str(work), issue, role)
         return str(work)
     work.parent.mkdir(parents=True, exist_ok=True)
     c = _run_net(["git", "clone", "-q", str(src), str(work)], "작업 클론",
@@ -7723,6 +7742,7 @@ def issue_workspace(cwd: str, issue: int, role: str) -> str:
     _fetch_or_halt(str(work), "신규 워크스페이스", after=lambda: subprocess.run(
         ["git", "-C", str(work), "remote", "set-head", "origin", "-a"],
         capture_output=True, text=True))
+    _write_role_sidecar(str(work), issue, role)
     return str(work)
 
 
@@ -7931,7 +7951,7 @@ def ensure_pushed(work: str, issue: int, role: str) -> dict:
         # 때 사람의 행위다 (계약 s8).
         body = (f"Part of #{issue}.\n\nOpened by on-the-record on behalf of the "
                 f"{role} role session (sandbox egress relay); the branch "
-                f"content is the role's own work.")
+                f"content is the role's own work.\n\nrole: {role}")
         c = subprocess.run(["gh", "pr", "create", "--head", br,
                             "--title", f"[{br}]",
                             "--body", body],

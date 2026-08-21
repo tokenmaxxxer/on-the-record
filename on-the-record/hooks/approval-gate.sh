@@ -95,20 +95,37 @@ if isinstance(session_id, str) and session_id:
 
 n = posixpath.normpath(p.replace("\\", "/"))
 
-# --- subject issue number off the current branch ---------------------------
+# --- subject issue number + role: prefer the .on-the-record/role.json ------
+# sidecar (issue #1814) written by spawn.py's issue_workspace() at spawn
+# time; any absence/parse/shape failure falls back to the branch-regex
+# parse below, byte-identical to pre-#1814 behavior.
+cwd = e.get("cwd") or os.getcwd()
+issue = None
+branch_role = None
 try:
-    r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                        capture_output=True, text=True, timeout=20)
-except (OSError, subprocess.SubprocessError):
-    sys.exit(0)
-if r.returncode != 0:
-    sys.exit(0)
-branch = r.stdout.strip()
-bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
-if not bm:
-    sys.exit(0)  # unparseable branch — accepted fail-open, matches pr-preflight.sh/contract-guard.sh
-issue = int(bm.group(1))
-branch_role = bm.group(2)
+    with open(os.path.join(cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
+        sidecar = json.load(f)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+            and isinstance(sidecar.get("issue"), int)):
+        issue = sidecar["issue"]
+        branch_role = sidecar["role"]
+except (OSError, ValueError):
+    pass
+
+if issue is None:
+    try:
+        r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        sys.exit(0)
+    if r.returncode != 0:
+        sys.exit(0)
+    branch = r.stdout.strip()
+    bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
+    if not bm:
+        sys.exit(0)  # unparseable branch — accepted fail-open, matches pr-preflight.sh/contract-guard.sh
+    issue = int(bm.group(1))
+    branch_role = bm.group(2)
 if role != branch_role:
     sys.exit(0)  # branch doesn't match this role's own session — not this hook's target
 
@@ -120,7 +137,6 @@ if not (is_record or is_src_test):
     sys.exit(0)  # phase-1-legal path (proposal, survey, decisions, handbooks, approvers.md itself, ...)
 
 # --- approvers.md presence: refuse-and-instruct, never silent allow --------
-cwd = e.get("cwd") or os.getcwd()
 approvers_path = os.path.join(cwd, "docs", "specs", "approvers.md")
 if not os.path.isfile(approvers_path):
     deny(

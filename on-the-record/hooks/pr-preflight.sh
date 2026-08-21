@@ -94,20 +94,36 @@ else:
 if body is None:
     sys.exit(0)  # no --body/--body-file on the command — nothing to check yet
 
-# --- subject issue number + role from the current branch -------------------
+# --- subject issue number + role: prefer the .on-the-record/role.json ------
+# sidecar (issue #1814) written by spawn.py's issue_workspace() at spawn
+# time; any absence/parse/shape failure falls back to the branch-regex
+# parse below, byte-identical to pre-#1814 behavior.
+issue = None
+role = None
 try:
-    r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                        capture_output=True, text=True, timeout=20)
-except (OSError, subprocess.SubprocessError):
-    sys.exit(0)
-if r.returncode != 0:
-    sys.exit(0)
-branch = r.stdout.strip()
-bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
-if not bm:
-    sys.exit(0)
-issue = int(bm.group(1))
-role = bm.group(2)
+    with open(os.path.join(os.getcwd(), ".on-the-record", "role.json"), encoding="utf-8") as f:
+        sidecar = json.load(f)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+            and isinstance(sidecar.get("issue"), int)):
+        issue = sidecar["issue"]
+        role = sidecar["role"]
+except (OSError, ValueError):
+    pass
+
+if issue is None:
+    try:
+        r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                            capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        sys.exit(0)
+    if r.returncode != 0:
+        sys.exit(0)
+    branch = r.stdout.strip()
+    bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
+    if not bm:
+        sys.exit(0)
+    issue = int(bm.group(1))
+    role = bm.group(2)
 
 # --- phase determination via issue comments + approvers.md -----------------
 def gh_json(*args):
