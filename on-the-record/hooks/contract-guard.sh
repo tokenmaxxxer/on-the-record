@@ -176,17 +176,32 @@ files = [
 is_src_test = any(re.search(r"(^|/)(src|tests?)/", f) for f in files)
 
 role = None
+_role_cwd = target_cwd or os.getcwd()
+# --- prefer the .on-the-record/role.json sidecar (issue #1814) -------------
+# written by spawn.py's issue_workspace() at spawn time; any absence/parse/
+# shape/issue-mismatch falls back to the branch-regex parse below,
+# byte-identical to pre-#1814 behavior.
 try:
-    br = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        capture_output=True, text=True, timeout=20, cwd=target_cwd or os.getcwd(),
-    )
-    if br.returncode == 0:
-        bm = re.match(r"^issue-(\d+)/([\w-]+)$", br.stdout.strip())
-        if bm and int(bm.group(1)) == issue:
-            role = bm.group(2)
-except (OSError, subprocess.SubprocessError):
-    role = None  # unreached: git ships wherever contract-guard.sh does
+    with open(os.path.join(_role_cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
+        sidecar = json.load(f)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+            and isinstance(sidecar.get("issue"), int) and sidecar["issue"] == issue):
+        role = sidecar["role"]
+except (OSError, ValueError):
+    role = None
+
+if role is None:
+    try:
+        br = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=20, cwd=_role_cwd,
+        )
+        if br.returncode == 0:
+            bm = re.match(r"^issue-(\d+)/([\w-]+)$", br.stdout.strip())
+            if bm and int(bm.group(1)) == issue:
+                role = bm.group(2)
+    except (OSError, subprocess.SubprocessError):
+        role = None  # unreached: git ships wherever contract-guard.sh does
 
 is_record = role is not None and (
     "docs/issue-%d/reports/%s.md" % (issue, role) in files
