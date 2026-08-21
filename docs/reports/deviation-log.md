@@ -78,3 +78,4 @@ any PR referenced it; resolved by cherry-picking the commit onto the
 correct issue-1882 branch and resolving the resulting manifest-file
 merge conflict to keep only issue-1882's 5 entries — see
 docs/issue-1882/reports/implementation.md's Rationale for deviations.
+2026-08-21T21:20:00Z filed implementation(issue-1884): phase-1 proposal step 8 ("open a PR against tokenmaxxxer/skill-repository") could not be executed — on-the-record/hooks/upstream-defect-scope-guard.sh (issue #1131/#1171) denies gh pr create whenever the target repo differs from this session's own git origin (tokenmaxxxer/on-the-record), which also catches this legitimate cross-repo delivery PR; commit pushed to skill-repository (1f73a38555ce90507e116dfc98479e6fec2d3a8c), PR creation reported, not spawned, per docs/issue-1884/reports/implementation.md Rationale for deviations
