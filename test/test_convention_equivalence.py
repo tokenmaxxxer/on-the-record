@@ -148,6 +148,45 @@ class ApproveGrammarEquivalenceTest(unittest.TestCase):
         self.assertEqual(m.group(3), "issue-707/implementation")
         self.assertIsNone(_CITE_RE.match(self.REAL_APPROVED_707))
 
+    # issue #1818: field-present path equivalence — a structured approval
+    # record (write-through cache of the needle scan itself) must yield
+    # the same role set the comment-scan-only path derives on its own.
+    def test_approved_roles_record_present_matches_scan_only(self):
+        import tempfile
+        import ci  # noqa: PLC0415 — local import mirrors flows import style above
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            orig_approvers, orig_comments = spawn._approvers, spawn._issue_comments
+            spawn._approvers = lambda repo: {"approver1"}
+            spawn._issue_comments = lambda repo, issue: (
+                [{"login": "approver1", "body": "APPROVE issue-9101/implementation"}], True)
+            try:
+                roles_scan_only = ci._approved_roles_on_issue(root, 9101)
+                # second call: record now exists (write-through from the
+                # first call) — comment scan still runs unmodified.
+                roles_record_present = ci._approved_roles_on_issue(root, 9101)
+            finally:
+                spawn._approvers, spawn._issue_comments = orig_approvers, orig_comments
+            self.assertEqual(roles_scan_only, {"implementation"})
+            self.assertEqual(roles_record_present, roles_scan_only)
+
+    def test_approved_roles_record_absent_matches_legacy_scan(self):
+        import tempfile
+        import ci  # noqa: PLC0415
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            orig_approvers, orig_comments = spawn._approvers, spawn._issue_comments
+            spawn._approvers = lambda repo: {"approver1"}
+            spawn._issue_comments = lambda repo, issue: (
+                [{"login": "approver1", "body": "APPROVE issue-9102/implementation"},
+                 {"login": "not-an-approver", "body": "APPROVE issue-9102/review"}], True)
+            try:
+                self.assertFalse(spawn._approval_record_path(root, 9102).exists())
+                roles = ci._approved_roles_on_issue(root, 9102)
+            finally:
+                spawn._approvers, spawn._issue_comments = orig_approvers, orig_comments
+            self.assertEqual(roles, {"implementation"})
+
     def test_two_semantics_diverge_on_near_miss(self):
         # exact match rejects a role-swapped near-miss; prefix match (any
         # role) accepts it as long as the issue number matches — this is

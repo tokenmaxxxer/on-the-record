@@ -32,6 +32,31 @@ _GUARDED = [
 ]
 
 
+# issue #1818 (delivery-PR follow-up): tests that pass `Path(".")` as the
+# repo root (gates/test_closes_gate_ci.py's `_phase_from_approval`/
+# `_autodetect_issue_phase` cases) share this actual working tree's real
+# `.git/gh-read-cache/*-approvals.json` write-through cache
+# (`spawn._approval_record_path`) with this very session's own dual-write
+# approval records. A test asserting "no approval -> phase1" reads whatever
+# real approvals this repo has already accumulated (e.g. issue 245's own
+# approval) instead of a clean slate, so pass/fail depends on unrelated
+# session history. Snapshotting and restoring the real cache file is also
+# unsafe under pytest-xdist, where sibling test-worker processes share this
+# same working tree and can interleave writes to the same path. Instead,
+# scope `spawn._approval_record_path` to a per-test tmp directory so no
+# test ever touches the real `.git/gh-read-cache` at all.
+@pytest.fixture(autouse=True)
+def _isolated_gh_read_cache_approvals(tmp_path, monkeypatch):
+    import spawn
+
+    monkeypatch.setattr(
+        spawn,
+        "_approval_record_path",
+        lambda root, number: tmp_path / "gh-read-cache" / f"issue-{number}-approvals.json",
+    )
+    yield
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _no_global_state_leak():
     import spawn
