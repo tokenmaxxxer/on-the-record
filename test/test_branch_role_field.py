@@ -59,6 +59,24 @@ class SidecarWriteShapeTest(unittest.TestCase):
             data = json.loads(p.read_text(encoding="utf-8"))
             self.assertEqual(data, {"role": "implementation", "issue": 1814})
 
+    def test_write_role_sidecar_excludes_from_git_status(self):
+        """issue #1891: PR #1890 committed the sidecar by accident — the
+        sidecar write must add it to `.git/info/exclude` so it never shows
+        as untracked/staged in `git status --porcelain`."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            subprocess.run(["git", "init", "-q", tmp], check=True)
+            subprocess.run(["git", "-C", tmp, "config", "user.email", "t@t"],
+                            check=True)
+            subprocess.run(["git", "-C", tmp, "config", "user.name", "t"],
+                            check=True)
+            spawn._write_role_sidecar(tmp, 1891, "implementation")
+            r = subprocess.run(["git", "-C", tmp, "status", "--porcelain"],
+                                capture_output=True, text=True, check=True)
+            self.assertNotIn("role.json", r.stdout)
+            exclude = Path(tmp) / ".git" / "info" / "exclude"
+            self.assertIn(".on-the-record/role.json", exclude.read_text())
+
     def test_write_role_sidecar_overwrites_on_respawn(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
