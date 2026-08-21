@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: landed
 files:
   - skill-repository/skills/security-threat-model-threat-modeling-decision-rules/SKILL.md
   - skill-repository/scripts/procedure_authored_skills.txt
