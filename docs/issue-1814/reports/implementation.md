@@ -179,6 +179,16 @@ session.
 
 None.
 
+amendments-reconciled: issuecomment-5367263094 — operator note recorded
+mid-session (core has two additional branch-name-convention consumers,
+`core/hooks/board-gate.sh` R4 and `core/hooks/citation-gate.sh`, not
+covered by the #1792 inventory this issue's on-the-record-scoped dual-
+read stage draws from). No scope change to this issue: the note is
+explicit that "this issue's dual-read stage needs no core change (branch
+naming unchanged)" and defers the core-gate update to "the final sub-
+issue" (the future branch-naming-removal step). Left for that sub-issue
+to inherit, per the comment's own instruction.
+
 ## Open findings
 
 None outstanding — `test/test_convention_equivalence.py`'s
