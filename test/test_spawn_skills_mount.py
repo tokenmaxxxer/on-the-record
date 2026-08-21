@@ -7,6 +7,7 @@
 3. 로스터 엔트리와 co-injected 태스크 문자열에 스킬 목록 + skill-repository
    sha 가 실린다(플래그를 안 쓰면 그 필드/문구 자체가 없다).
 """
+import json
 import os
 import sys
 import tempfile
@@ -220,6 +221,268 @@ class RecordFieldsCarrySkillsAndShaTest(unittest.TestCase):
         finally:
             import shutil
             shutil.rmtree(empty_dir)
+
+
+class ResolvedSkillSourcesFourTierTest(unittest.TestCase):
+    """이슈 #1774: `resolved_skill_sources()` 의 네 소스 resolution order,
+    ambiguity 하드 에러(전 조합), guidance-only 거절(네 소스 모두),
+    record-fields per-source shape."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        base = Path(self._tmpdir.name)
+        self.repo_root = base / "skill-repo"
+        self.home = base / "home"
+        self.target_repo = base / "target-repo"
+        self.plugin_install = base / "plugin-install"
+        for d in (self.repo_root, self.home, self.target_repo, self.plugin_install):
+            d.mkdir()
+        (self.home / ".claude" / "skills").mkdir(parents=True)
+        (self.target_repo / ".claude" / "skills").mkdir(parents=True)
+        (self.plugin_install / "skills").mkdir()
+        self._installed_json = self.home / ".claude" / "plugins" / "installed_plugins.json"
+        self._installed_json.parent.mkdir(parents=True)
+        self._saved_home = spawn.Path.home
+        spawn.Path.home = staticmethod(lambda: self.home)
+
+    def tearDown(self):
+        spawn.Path.home = self._saved_home
+        self._tmpdir.cleanup()
+
+    def _write_installed_plugins(self, entries: dict):
+        self._installed_json.write_text(json.dumps({"plugins": entries}))
+
+    def test_no_names_reads_nothing(self):
+        # 소스 디렉터리를 아예 안 만들어도(또는 존재해도) 이름이 없으면
+        # 네 소스 중 어느 것도 조회되지 않는다 — 빈 목록만 돌아온다.
+        self.assertEqual(
+            spawn.resolved_skill_sources(None, self.repo_root, home=self.home,
+                                          target_repo_root=self.target_repo), [])
+        self.assertEqual(
+            spawn.resolved_skill_sources("", self.repo_root, home=self.home,
+                                          target_repo_root=self.target_repo), [])
+
+    def test_tier1_skill_repo_resolves_alone(self):
+        (self.repo_root / "alpha").mkdir()
+        import subprocess
+        subprocess.run(["git", "init", "-q"], cwd=self.repo_root, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                         "commit", "--allow-empty", "-q", "-m", "x"],
+                        cwd=self.repo_root, check=True)
+        result = spawn.resolved_skill_sources(
+            "alpha", self.repo_root, home=self.home, target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "skill-repo")
+        self.assertEqual(result[0]["dir"], self.repo_root / "alpha")
+        self.assertRegex(result[0]["sha"], r"^[0-9a-f]{7}$")
+
+    def test_tier2_plugin_resolves_alone(self):
+        plugin_skill = self.plugin_install / "skills" / "beta"
+        plugin_skill.mkdir()
+        self._write_installed_plugins({
+            "foo@marketplace": [{"installPath": str(self.plugin_install),
+                                  "version": "v1.2.3"}],
+        })
+        result = spawn.resolved_skill_sources(
+            "beta", None, home=self.home, target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "plugin")
+        self.assertEqual(result[0]["plugin"], "foo@marketplace")
+        self.assertEqual(result[0]["version"], "v1.2.3")
+        self.assertEqual(result[0]["dir"], plugin_skill)
+
+    def test_tier3_local_user_resolves_alone(self):
+        d = self.home / ".claude" / "skills" / "gamma"
+        d.mkdir()
+        (d / "SKILL.md").write_text("gamma content")
+        result = spawn.resolved_skill_sources(
+            "gamma", None, home=self.home, target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "local-user")
+        self.assertEqual(result[0]["path"], str(d))
+        self.assertEqual(result[0]["content_sha256"],
+                          spawn._skill_content_hash(d))
+
+    def test_tier4_local_repo_resolves_alone(self):
+        d = self.target_repo / ".claude" / "skills" / "delta"
+        d.mkdir()
+        (d / "SKILL.md").write_text("delta content")
+        result = spawn.resolved_skill_sources(
+            "delta", None, home=self.home, target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "local-repo")
+        self.assertEqual(result[0]["path"], str(d))
+
+    def test_nowhere_found_fails_closed(self):
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "ghost", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def _make_pair(self, name, tier_a, tier_b):
+        """`name` 이 두 tier 에서 동시에 잡히게 픽스처를 만든다."""
+        if "repo" == tier_a or "repo" == tier_b:
+            (self.repo_root / name).mkdir()
+        if "plugin" == tier_a or "plugin" == tier_b:
+            (self.plugin_install / "skills" / name).mkdir()
+            self._write_installed_plugins({
+                "foo@marketplace": [{"installPath": str(self.plugin_install),
+                                      "version": "v1"}],
+            })
+        if "tier3" == tier_a or "tier3" == tier_b:
+            (self.home / ".claude" / "skills" / name).mkdir()
+        if "tier4" == tier_a or "tier4" == tier_b:
+            (self.target_repo / ".claude" / "skills" / name).mkdir()
+
+    def test_ambiguity_repo_and_plugin_hard_error_names_both(self):
+        self._make_pair("shared", "repo", "plugin")
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "shared", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("skill-repository", msg)
+        self.assertIn("plugin", msg)
+
+    def test_ambiguity_repo_and_tier3_hard_error(self):
+        self._make_pair("shared", "repo", "tier3")
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "shared", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("skill-repository", msg)
+        self.assertIn(".claude/skills", msg)
+
+    def test_ambiguity_plugin_and_tier4_hard_error(self):
+        self._make_pair("shared", "plugin", "tier4")
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "shared", None, home=self.home, target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("plugin", msg)
+
+    def test_ambiguity_tier3_and_tier4_hard_error(self):
+        self._make_pair("shared", "tier3", "tier4")
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "shared", None, home=self.home, target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("~/.claude/skills", msg)
+        self.assertIn(".claude/skills", msg)
+
+    def test_ambiguity_two_distinct_plugins_within_tier2(self):
+        (self.plugin_install / "skills" / "shared").mkdir()
+        plugin_install2 = Path(self._tmpdir.name) / "plugin-install-2"
+        (plugin_install2 / "skills" / "shared").mkdir(parents=True)
+        self._write_installed_plugins({
+            "foo@marketplace": [{"installPath": str(self.plugin_install), "version": "v1"}],
+            "bar@marketplace": [{"installPath": str(plugin_install2), "version": "v2"}],
+        })
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "shared", None, home=self.home, target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("foo@marketplace", msg)
+        self.assertIn("bar@marketplace", msg)
+
+    def test_hooks_refusal_tier1_skill_repo(self):
+        d = self.repo_root / "hooked"
+        d.mkdir()
+        (d / "hooks").mkdir()
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "hooked", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        self.assertIn("hooks/", str(ctx.exception))
+
+    def test_hooks_refusal_tier2_plugin(self):
+        d = self.plugin_install / "skills" / "hooked"
+        d.mkdir()
+        (d / "hooks").mkdir()
+        self._write_installed_plugins({
+            "foo@marketplace": [{"installPath": str(self.plugin_install), "version": "v1"}],
+        })
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "hooked", None, home=self.home, target_repo_root=self.target_repo)
+        self.assertIn("hooks/", str(ctx.exception))
+
+    def test_hooks_refusal_tier3_local_user(self):
+        d = self.home / ".claude" / "skills" / "hooked"
+        d.mkdir()
+        (d / "hooks").mkdir()
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "hooked", None, home=self.home, target_repo_root=self.target_repo)
+        self.assertIn("hooks/", str(ctx.exception))
+
+    def test_hooks_refusal_tier4_local_repo(self):
+        d = self.target_repo / ".claude" / "skills" / "hooked"
+        d.mkdir()
+        (d / "hooks").mkdir()
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "hooked", None, home=self.home, target_repo_root=self.target_repo)
+        self.assertIn("hooks/", str(ctx.exception))
+
+
+class SkillRosterFieldsFourTierTest(unittest.TestCase):
+    """이슈 #1774 요구사항 3: `_skill_roster_fields()` 가 소스별 record shape
+    를 나르고, skill-repo-only 조합은 오늘의 flat `skills`/`skills_sha`
+    shape 를 그대로 유지한다는 empty-state 요구를 지킨다."""
+
+    def test_repo_only_keeps_todays_flat_shape_plus_detail(self):
+        sources = [{"name": "alpha", "source": "skill-repo",
+                    "dir": Path("/tmp/x/alpha"), "sha": "abc1234"}]
+        fields = spawn._skill_roster_fields(sources, "abc1234")
+        self.assertEqual(fields["skills"], ["alpha"])
+        self.assertEqual(fields["skills_sha"], "abc1234")
+        self.assertEqual(fields["skills_detail"],
+                          [{"name": "alpha", "source": "skill-repo", "sha": "abc1234"}])
+
+    def test_plugin_source_row_shape(self):
+        sources = [{"name": "beta", "source": "plugin", "dir": Path("/tmp/p/beta"),
+                    "plugin": "foo@marketplace", "version": "v1.2.3"}]
+        fields = spawn._skill_roster_fields(sources, None)
+        self.assertNotIn("skills", fields)
+        self.assertNotIn("skills_sha", fields)
+        self.assertEqual(fields["skills_detail"], [
+            {"name": "beta", "source": "plugin", "plugin": "foo@marketplace",
+             "version": "v1.2.3"}])
+
+    def test_local_user_and_local_repo_row_shape(self):
+        sources = [
+            {"name": "gamma", "source": "local-user", "dir": Path("/tmp/u/gamma"),
+             "path": "/tmp/u/gamma", "content_sha256": "deadbeef"},
+            {"name": "delta", "source": "local-repo", "dir": Path("/tmp/r/delta"),
+             "path": "/tmp/r/delta", "content_sha256": "cafef00d"},
+        ]
+        fields = spawn._skill_roster_fields(sources, None)
+        self.assertNotIn("skills", fields)
+        self.assertNotIn("skills_sha", fields)
+        self.assertEqual(fields["skills_detail"], [
+            {"name": "gamma", "source": "local-user", "path": "/tmp/u/gamma",
+             "content_sha256": "deadbeef"},
+            {"name": "delta", "source": "local-repo", "path": "/tmp/r/delta",
+             "content_sha256": "cafef00d"},
+        ])
+
+    def test_no_sources_yields_no_fields(self):
+        self.assertEqual(spawn._skill_roster_fields([], None), {})
+
+    def test_mixed_sources_never_add_flat_shape(self):
+        sources = [
+            {"name": "alpha", "source": "skill-repo", "dir": Path("/tmp/x/alpha"),
+             "sha": "abc1234"},
+            {"name": "beta", "source": "plugin", "dir": Path("/tmp/p/beta"),
+             "plugin": "foo@marketplace", "version": "v1"},
+        ]
+        fields = spawn._skill_roster_fields(sources, None)
+        self.assertNotIn("skills", fields)
+        self.assertNotIn("skills_sha", fields)
+        self.assertEqual(len(fields["skills_detail"]), 2)
 
 
 if __name__ == "__main__":

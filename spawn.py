@@ -5184,6 +5184,148 @@ def resolved_skill_dirs(skills_csv: str | None,
     return [repo_root / n for n in names]
 
 
+def _installed_plugin_skill_dirs() -> dict[str, list[tuple[str, Path, str]]]:
+    """`~/.claude/plugins/installed_plugins.json` (실제 shape:
+    `{"plugins": {"<name>@<marketplace>": [{"installPath":...,
+    "version"|"gitCommitSha":...}, ...]}}`, `_installed()` 와 같은 파일)을
+    읽어 설치된 각 플러그인의 `skills/<name>/` 서브디렉터리를 이름별로
+    인덱싱한다: name -> [(qualifier "<name>@<marketplace>", 디렉터리,
+    version-or-sha 문자열), ...]. 파일이 없거나 못 읽으면 빈 매핑(이슈
+    #1774 요구사항 4: 이 함수는 `--skills` 가 실제로 이름을 낼 때만
+    불린다)."""
+    p = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
+    try:
+        data = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return {}
+    plugins = data.get("plugins") if isinstance(data, dict) else None
+    if not isinstance(plugins, dict):
+        return {}
+    index: dict[str, list[tuple[str, Path, str]]] = {}
+    for qualifier, entries in plugins.items():
+        if not isinstance(entries, list):
+            continue
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            install_path = e.get("installPath")
+            if not install_path:
+                continue
+            skills_root = Path(install_path) / "skills"
+            if not skills_root.is_dir():
+                continue
+            version = e.get("version") or e.get("gitCommitSha") or "?"
+            for skill_dir in skills_root.iterdir():
+                if skill_dir.is_dir() and not skill_dir.name.startswith("."):
+                    index.setdefault(skill_dir.name, []).append(
+                        (str(qualifier), skill_dir, str(version)))
+    return index
+
+
+def _local_skill_dirs(root: Path) -> dict[str, Path]:
+    """`root` 바로 아래의 디렉터리들을 이름 -> 경로로 나열한다(이슈 #1774
+    tiers 3/4 공용 — 호출자가 어느 root 를 넘기는지로만 tier 가 갈린다).
+    `root` 가 없으면 빈 매핑."""
+    if not root.is_dir():
+        return {}
+    return {p.name: p for p in root.iterdir()
+            if p.is_dir() and not p.name.startswith(".")}
+
+
+def _skill_content_hash(skill_dir: Path) -> str:
+    """tier 3/4 소스 정체성(이슈 #1774): 저장소 sha 도 플러그인 버전도 없는
+    로컬 디렉터리라, `SKILL.md` 내용의 sha256 을 그 대신 쓴다(proposal
+    Rationale: 이 저장소의 스킬 정의 관례가 이미 `SKILL.md` 를 정식 정의
+    파일로 취급한다). `SKILL.md` 가 없으면 빈 바이트의 해시."""
+    try:
+        data = (skill_dir / "SKILL.md").read_bytes()
+    except OSError:
+        data = b""
+    return hashlib.sha256(data).hexdigest()
+
+
+def _describe_skill_match(m: dict) -> str:
+    """에러 메시지/태스크 문구에 쓸, 소스 하나를 사람이 읽는 한 줄로."""
+    if m["source"] == "skill-repo":
+        return f"skill-repository({m['sha']})"
+    if m["source"] == "plugin":
+        return f"plugin {m['plugin']}@{m['version']}"
+    if m["source"] == "local-user":
+        return f"~/.claude/skills ({m['path']})"
+    if m["source"] == "local-repo":
+        return f".claude/skills ({m['path']})"
+    return m["source"]
+
+
+def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
+                            home: Path | None = None,
+                            target_repo_root: Path | None = None) -> list[dict]:
+    """이슈 #1774: `--skills a,b,c` 를 네 소스(skill-repository, 설치된
+    플러그인, `~/.claude/skills`, 타깃 저장소 `.claude/skills`)에 걸쳐
+    푼다. `skills_csv` 가 비면 빈 목록(마운트 없음, byte-identical 경로 —
+    이 경우 네 소스 중 어느 것도 읽지 않는다, 요구사항 4).
+
+    이름 하나가 소스 하나에서만 잡히면 그 소스로 확정. 소스 두 개 이상에서
+    잡히면(같은 tier 안의 플러그인-대-플러그인 충돌 포함) 워크스페이스/
+    브랜치를 건드리기 전에 fail-closed, 잡힌 소스를 전부 이름 붙여
+    보고한다 — 어느 tier 도 다른 tier 를 조용히 가리지 않는다(이슈 #1774
+    SCOPE EXTENSION). 어디서도 안 잡히면 오늘과 같은 fail-closed.
+
+    각 소스가 가리키는 디렉터리에 `hooks/` 서브디렉터리가 있으면 —
+    스킬 마운트는 가이던스 전용이라는 원칙 위반 — 역시 워크스페이스/
+    브랜치 전에 fail-closed(네 소스 모두 동일 규칙).
+
+    반환값은 이름당 dict 하나: 최소 `name`/`source`/`dir` 를 들고, 소스별
+    정체성 필드(`sha`|`plugin`+`version`|`path`+`content_sha256`)가
+    추가된다."""
+    names = [n.strip() for n in (skills_csv or "").split(",") if n.strip()]
+    if not names:
+        return []
+    home = home or Path.home()
+    plugin_index = _installed_plugin_skill_dirs()
+    tier3 = _local_skill_dirs(home / ".claude" / "skills")
+    tier4 = (_local_skill_dirs(target_repo_root / ".claude" / "skills")
+             if target_repo_root is not None else {})
+    results = []
+    for name in names:
+        matches: list[dict] = []
+        if repo_root is not None and repo_root.is_dir():
+            cand = repo_root / name
+            if cand.is_dir() and not name.startswith("."):
+                matches.append({"source": "skill-repo", "dir": cand,
+                                 "sha": skill_repo_sha(repo_root)})
+        for qualifier, plugin_skill_dir, version in plugin_index.get(name, []):
+            matches.append({"source": "plugin", "dir": plugin_skill_dir,
+                             "plugin": qualifier, "version": version})
+        if name in tier3:
+            d = tier3[name]
+            matches.append({"source": "local-user", "dir": d, "path": str(d),
+                             "content_sha256": _skill_content_hash(d)})
+        if name in tier4:
+            d = tier4[name]
+            matches.append({"source": "local-repo", "dir": d, "path": str(d),
+                             "content_sha256": _skill_content_hash(d)})
+        if not matches:
+            sys.exit(
+                f"--skills: 모르는 스킬 {name} — skill-repository, 설치된 "
+                f"플러그인, ~/.claude/skills, 타깃 저장소 .claude/skills "
+                f"어디에도 없다")
+        if len(matches) > 1:
+            sys.exit(
+                f"--skills: {name} 가 둘 이상의 소스에서 겹친다 — "
+                f"{', '.join(_describe_skill_match(m) for m in matches)} "
+                f"(precedence 는 검색 순서일 뿐 충돌을 가리지 않는다)")
+        m = matches[0]
+        if (m["dir"] / "hooks").is_dir():
+            sys.exit(
+                f"--skills: {name} ({_describe_skill_match(m)}) 가 hooks/ "
+                f"를 들고 있다 — 스킬 마운트는 가이던스 전용이다(집행은 "
+                f"core 훅뿐)")
+        m["name"] = name
+        results.append(m)
+    return results
+
+
 def skill_repo_sha(repo_root: Path) -> str:
     """`repo_root` 체크아웃이 물고 있는 커밋(짧은 sha). `rulebook_version()`
     과 같은 shape — git 실패는 조용히 "?" 로 대체."""
@@ -5232,6 +5374,34 @@ def resolve_role_source(role: str, root: Path, repo_root: Path | None) -> dict:
     return {"source": "skill-repo", "skill_dirs": skill_dirs,
             "skills": [d.name for d in skill_dirs],
             "skill_sha": skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
+
+
+def _skill_source_roster_row(m: dict) -> dict:
+    """이슈 #1774 요구사항 3: 마운트된 스킬 한 줄의 로스터/기록용 row —
+    소스별로 정체성 필드 shape 가 다르다(proposal `## What will be done`
+    item 6)."""
+    if m["source"] == "skill-repo":
+        return {"name": m["name"], "source": "skill-repo", "sha": m["sha"]}
+    if m["source"] == "plugin":
+        return {"name": m["name"], "source": "plugin",
+                "plugin": m["plugin"], "version": m["version"]}
+    return {"name": m["name"], "source": m["source"], "path": m["path"],
+            "content_sha256": m["content_sha256"]}
+
+
+def _skill_roster_fields(skill_sources: list[dict], skill_sha: str | None) -> dict:
+    """`--skills` 로 마운트된 스킬들의 로스터/기록 필드. `skills_detail` 은
+    쓰였을 때 항상 붙어 소스별 identity(요구사항 3)를 나른다. 오늘의 flat
+    `skills`/`skills_sha` shape 는 전부 skill-repo 매치일 때만 additive 로
+    같이 붙는다(empty-state 요구: skill-repo-only 조합은 오늘 shape 유지) —
+    안 쓰면(빈 목록) 키 자체가 없다."""
+    if not skill_sources:
+        return {}
+    fields = {"skills_detail": [_skill_source_roster_row(m) for m in skill_sources]}
+    if all(m["source"] == "skill-repo" for m in skill_sources):
+        fields["skills"] = [m["name"] for m in skill_sources]
+        fields["skills_sha"] = skill_sha
+    return fields
 
 
 def _role_source_roster_fields(role_source: dict, rulebook_sha: str | None) -> dict:
@@ -7868,10 +8038,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     """
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
     _BOOTSTRAP_TIMING.clear()
-    # 이슈 #1742: --skills 이름 검증은 워크스페이스/브랜치를 건드리기 전에
-    # 끝난다(fail-closed, 요구사항 2) — 아래 워크스페이스 생성보다 먼저 온다.
-    skill_dirs = resolved_skill_dirs(skills, _skill_repo_root())
-    skill_sha = skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None
+    # 이슈 #1742/#1774: --skills 이름 검증(네 소스 모두)은 워크스페이스/
+    # 브랜치를 건드리기 전에 끝난다(fail-closed, 요구사항 2) — 아래
+    # 워크스페이스 생성보다 먼저 온다.
+    skill_sources = resolved_skill_sources(skills, _skill_repo_root(),
+                                            target_repo_root=Path(cwd))
+    skill_dirs = [m["dir"] for m in skill_sources]
+    # 오늘 shape 과 맞추기 위한 flat sha: 전부 skill-repo 매치일 때만 채운다
+    # (요구사항: skill-repo-only 조합은 오늘의 skills/skills_sha shape 를
+    # 그대로 유지한다) — 그 외 조합은 skills_detail 의 per-skill 소스로만
+    # 표현되고 이 flat 필드는 None.
+    skill_sha = (skill_sources[0]["sha"]
+                 if skill_sources and all(m["source"] == "skill-repo"
+                                           for m in skill_sources)
+                 else None)
     # 이슈 #1758: role-source-allowlist 해석도 같은 이유로 워크스페이스/
     # 브랜치 생성보다 먼저 온다 — 매핑된 역할의 스킬 이름이 모르는 이름이거나
     # hooks/ 를 들고 있으면 여기서 fail-closed.
@@ -7955,11 +8135,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"끝난다. run_in_background 로 넘긴 작업은 부모 턴이 끝나는 순간 함께\n"
                 f"죽는다(백그라운드 워커가 커밋·push 를 대신 끝내줄 것이라고 가정하지\n"
                 f"마라 — 실측된 실패 패턴이다). 모든 작업은 이 턴 안에서 직접 끝내라.\n\n") + task
-        if skill_dirs:
+        if skill_sources:
+            skill_lines = ", ".join(
+                f"{m['name']} ({_describe_skill_match(m)})" for m in skill_sources)
             task = task + (
-                f"\n\n마운트된 스킬(--skills, 이슈 #1742): "
-                f"{', '.join(p.name for p in skill_dirs)} "
-                f"(skill-repository {skill_sha})\n")
+                f"\n\n마운트된 스킬(--skills, 이슈 #1742/#1774): {skill_lines}\n")
         if role_source["source"] == "skill-repo":
             task = task + (
                 f"\n\n이 역할은 role-source-allowlist(이슈 #1758)로 매핑됐다: "
@@ -8076,9 +8256,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     "before_head": before_head,
                     "wrapper_pid": os.getpid(),
                 }
-                if skill_dirs:
-                    _early_roster_entry["skills"] = [p.name for p in skill_dirs]
-                    _early_roster_entry["skills_sha"] = skill_sha
+                _early_roster_entry.update(_skill_roster_fields(skill_sources, skill_sha))
                 _early_roster_entry.update(roster_resolution_fields)
                 roster_register(roster_key, _early_roster_entry)
                 _append_event(events_path, "session-start",
@@ -8182,10 +8360,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 참조하게 한다 — `pid`(roster_kill 의 SIGTERM 대상)의 기존
             # 의미는 그대로 둔다.
             "wrapper_pid": os.getpid(),
-            # 이슈 #1742: --skills 사용 시에만 채운다 — 안 쓰면 키 자체가
-            # 없어서(빈 값이 아니라) no-flag 경로의 JSON shape 는 그대로다.
-            **({"skills": [p.name for p in skill_dirs], "skills_sha": skill_sha}
-               if skill_dirs else {}),
+            # 이슈 #1742/#1774: --skills 사용 시에만 채운다 — 안 쓰면 키
+            # 자체가 없어서(빈 값이 아니라) no-flag 경로의 JSON shape 는
+            # 그대로다.
+            **_skill_roster_fields(skill_sources, skill_sha),
             **roster_resolution_fields,
         })
         if issue is not None:
