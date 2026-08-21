@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-requirements-engineering",
-  "repo": "tokenmaxxxer/requirements-engineering-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/requirements-engineering-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
@@ -20,10 +17,19 @@
   "spec": "roles/specs/requirements-engineering.spec.json",
   "record_fields": {
     "loop_state": {
-      "progress": ["drafting", "resolving-ambiguity"],
-      "terminal": ["landed"],
-      "refusal": ["hypothesis-not-final"],
-      "error": ["source-unresolvable"]
+      "progress": [
+        "drafting",
+        "resolving-ambiguity"
+      ],
+      "terminal": [
+        "landed"
+      ],
+      "refusal": [
+        "hypothesis-not-final"
+      ],
+      "error": [
+        "source-unresolvable"
+      ]
     }
   }
 }

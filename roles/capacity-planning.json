@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-capacity-planning",
-  "repo": "tokenmaxxxer/capacity-planning-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/capacity-planning-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
@@ -12,7 +9,9 @@
       ]
     }
   },
-  "judgment_axes": ["external_burden"],
+  "judgment_axes": [
+    "external_burden"
+  ],
   "decides": "향후 수요 성장 대비 자원이 충분하며 언제 증설해야 하는가",
   "use_when": "용량 예측/증설 시점 결정이 걸릴 때",
   "produces": "capacity forecast, expansion trigger thresholds, cost note",

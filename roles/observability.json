@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-observability",
-  "repo": "tokenmaxxxer/observability-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/observability-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

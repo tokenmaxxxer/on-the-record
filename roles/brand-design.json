@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-brand-design",
-  "repo": "tokenmaxxxer/brand-design-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/brand-design-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

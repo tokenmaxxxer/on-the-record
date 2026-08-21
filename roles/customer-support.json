@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-customer-support",
-  "repo": "tokenmaxxxer/customer-support-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/customer-support-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

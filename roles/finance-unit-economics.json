@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-finance-unit-economics",
-  "repo": "tokenmaxxxer/finance-unit-economics-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/finance-unit-economics-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {

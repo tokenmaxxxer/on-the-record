@@ -1,7 +1,4 @@
 {
-  "marketplace": "tokenmaxxxer-api-design",
-  "repo": "tokenmaxxxer/api-design-rulebook",
-  "path": "$TOKENMAXXXER_RULEBOOKS/api-design-rulebook",
   "sandbox": {
     "enabled": true,
     "network": {
