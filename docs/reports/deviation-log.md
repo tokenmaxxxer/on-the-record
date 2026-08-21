@@ -57,3 +57,14 @@ reported, not spawned — see docs/issue-1732/reports/implementation.md's
 Open findings.
 
 - 2026-08-21T00:00:00Z, inline, shared /tmp/skill-repository checkout carried a concurrent session's uncommitted partnerships-bd edits; staged only issue-1873's 6 paths via git index/hash-object instead of git add -A to avoid touching them, skill-repository working tree during this session
+2026-08-21T00:00:00Z inline implementation(issue-1874): shared
+/tmp/skill-repository checkout collision with concurrent issue-1873
+session (refactoring-legacy family WIP) — an initial `git checkout
+-b`/`git stash` sequence on the shared tree briefly intermixed this
+task's edits with that other session's uncommitted work, producing a
+merge conflict in `scripts/procedure_authored_skills.txt`. Resolved by
+restoring the shared checkout to exactly the other session's
+pre-collision state and moving this task's own work into an isolated
+`git worktree` (`/tmp/skill-repository-1874`) branched from the same
+base commit (`4b2a372`) — see
+docs/issue-1874/reports/implementation.md's Rationale for deviations.
