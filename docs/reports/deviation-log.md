@@ -68,3 +68,13 @@ pre-collision state and moving this task's own work into an isolated
 `git worktree` (`/tmp/skill-repository-1874`) branched from the same
 base commit (`4b2a372`) — see
 docs/issue-1874/reports/implementation.md's Rationale for deviations.
+2026-08-21T00:00:00Z inline implementation(issue-1882): shared
+/tmp/skill-repository checkout collision with concurrent issue-1883
+session (growth-analytics family WIP) — a mid-command branch switch by
+the other session caused this task's first commit to land on
+issue-1883's checked-out branch instead of issue-1882's. Caught via
+`gh pr list --head issue-1883-growth-analytics-wave2a` (empty) before
+any PR referenced it; resolved by cherry-picking the commit onto the
+correct issue-1882 branch and resolving the resulting manifest-file
+merge conflict to keep only issue-1882's 5 entries — see
+docs/issue-1882/reports/implementation.md's Rationale for deviations.
