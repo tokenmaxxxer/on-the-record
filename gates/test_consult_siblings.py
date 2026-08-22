@@ -42,13 +42,13 @@ def _patched(root: Path, fake_run):
 
     orig = {
         "run": spawn.subprocess.run,
-        "plugin_dirs": spawn.plugin_dirs,
+        "resolve_role_source": spawn.resolve_role_source,
         "core_plugin_dirs": spawn.core_plugin_dirs,
         "trace_path": spawn._consult_trace_path,
         "persist_raw": spawn._persist_consult_raw_output,
     }
     spawn.subprocess.run = fake_run
-    spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+    spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
     spawn.core_plugin_dirs = lambda: []
     spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
     spawn._persist_consult_raw_output = _persist_raw_under
@@ -57,7 +57,7 @@ def _patched(root: Path, fake_run):
 
 def _restore(orig):
     spawn.subprocess.run = orig["run"]
-    spawn.plugin_dirs = orig["plugin_dirs"]
+    spawn.resolve_role_source = orig["resolve_role_source"]
     spawn.core_plugin_dirs = orig["core_plugin_dirs"]
     spawn._consult_trace_path = orig["trace_path"]
     spawn._persist_consult_raw_output = orig["persist_raw"]

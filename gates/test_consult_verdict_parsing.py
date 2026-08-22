@@ -77,14 +77,14 @@ def t_retries_once_and_recovers_when_first_attempt_has_no_json():
         return subprocess.CompletedProcess(cmd, 0, stdout=payload, stderr="")
 
     orig_run = spawn.subprocess.run
-    orig_plugin_dirs = spawn.plugin_dirs
+    orig_plugin_dirs = spawn.resolve_role_source
     orig_core_plugin_dirs = spawn.core_plugin_dirs
     orig_trace_path = spawn._consult_trace_path
     tmp = tempfile.TemporaryDirectory()
     try:
         root = Path(tmp.name)
         spawn.subprocess.run = fake_run
-        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
         spawn.core_plugin_dirs = lambda: []
         spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
 
@@ -98,7 +98,7 @@ def t_retries_once_and_recovers_when_first_attempt_has_no_json():
         assert "ok:" in trace
     finally:
         spawn.subprocess.run = orig_run
-        spawn.plugin_dirs = orig_plugin_dirs
+        spawn.resolve_role_source = orig_plugin_dirs
         spawn.core_plugin_dirs = orig_core_plugin_dirs
         spawn._consult_trace_path = orig_trace_path
         tmp.cleanup()
@@ -116,14 +116,14 @@ def t_prompt_overrides_repo_mutating_core_directives():
         return subprocess.CompletedProcess(cmd, 0, stdout=payload, stderr="")
 
     orig_run = spawn.subprocess.run
-    orig_plugin_dirs = spawn.plugin_dirs
+    orig_plugin_dirs = spawn.resolve_role_source
     orig_core_plugin_dirs = spawn.core_plugin_dirs
     orig_trace_path = spawn._consult_trace_path
     tmp = tempfile.TemporaryDirectory()
     try:
         root = Path(tmp.name)
         spawn.subprocess.run = fake_run
-        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
         spawn.core_plugin_dirs = lambda: []
         spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
 
@@ -133,7 +133,7 @@ def t_prompt_overrides_repo_mutating_core_directives():
         assert "적용되지 않는다" in calls[0], "prompt must override repo-mutating core directives"
     finally:
         spawn.subprocess.run = orig_run
-        spawn.plugin_dirs = orig_plugin_dirs
+        spawn.resolve_role_source = orig_plugin_dirs
         spawn.core_plugin_dirs = orig_core_plugin_dirs
         spawn._consult_trace_path = orig_trace_path
         tmp.cleanup()

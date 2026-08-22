@@ -187,62 +187,15 @@ def t_role_files_carry_no_absolute_home_path():
                     assert marker not in v, f"{f.name}: {v}"
 
 
-def t_unresolved_path_variable_is_not_a_path():
-    """안 풀린 `$VAR` 를 경로로 넘기면 없는 디렉터리를 가리킨다 — 그건 '설정 안 함'
-    이 아니라 '잘못 설정함'이고, 로컬이 이겨야 할 자리에서 조용히 진다."""
-    assert spawn._path({"path": "$DEFINITELY_UNSET_XYZ/foo"}) == ""
-    assert spawn._path({}) == ""
-    os.environ["MUSTER_TEST_RB"] = "/tmp/rb"
-    try:
-        assert spawn._path({"path": "$MUSTER_TEST_RB/x"}) == "/tmp/rb/x"
-    finally:
-        del os.environ["MUSTER_TEST_RB"]
+# issue #1969: t_unresolved_path_variable_is_not_a_path deleted -- asserted
+# on spawn._path(), the rulebook-path-variable resolver #1955 retired along
+# with the rulebook-source fallback it served.
 
-
-def t_rulebook_falls_back_to_github():
-    """로컬 체크아웃이 있으면 그쪽, 없으면 github."""
-    import json as _json
-    spec = _json.loads((spawn.ROOT / "roles" / "execution-observation.json").read_text())
-    assert spec.get("repo"), "역할 파일에 repo 가 없으면 github 로 떨어질 수 없다"
-
-    # conftest.py가 세션 전체에 setdefault 해 둔 값(issue #204)을 이 테스트가
-    # 끝난 뒤에도 그대로 남겨야 한다 — pytest 로 test_spawn.py 와 같은
-    # 세션에서 돌 때 지워진 채로 남으면 이후 테스트들이 진짜 github clone 을
-    # 시도하게 된다(issue #222 에서 pytest.ini 로 이 파일이 처음 pytest에
-    # 수집되며 실측된 회귀).
-    saved_rulebooks = os.environ.pop("TOKENMAXXXER_RULEBOOKS", None)
-    try:
-        with tempfile.TemporaryDirectory() as td:
-            checkout = Path(td) / "execution-observation-rulebook"
-            (checkout / ".claude-plugin").mkdir(parents=True)
-            (checkout / ".claude-plugin" / "marketplace.json").write_text('{"plugins": []}')
-            os.environ["TOKENMAXXXER_RULEBOOKS"] = td
-            try:
-                local = spawn.rulebook_source(spec)
-            finally:
-                del os.environ["TOKENMAXXXER_RULEBOOKS"]
-        assert local == {"source": "directory", "path": str(checkout)}, local   # 로컬이 이긴다
-
-        # 변수가 안 잡히면 github 로 떨어진다 — 이게 남의 기계의 기본 상태다
-        assert spawn.rulebook_source(spec) == {"source": "github", "repo": spec["repo"]}
-
-        spec["path"] = "/nonexistent-checkout"
-        remote = spawn.rulebook_source(spec)
-        assert remote == {"source": "github", "repo": spec["repo"]}, remote
-
-        spec.pop("repo")
-        try:
-            spawn.rulebook_source(spec)
-        except SystemExit:
-            pass
-        else:
-            raise AssertionError("소스가 없는데 통과시켰다")
-    finally:
-        if saved_rulebooks is not None:
-            os.environ["TOKENMAXXXER_RULEBOOKS"] = saved_rulebooks
-        else:
-            os.environ.pop("TOKENMAXXXER_RULEBOOKS", None)
-
+# issue #1969: t_rulebook_falls_back_to_github deleted -- asserted on
+# spawn.rulebook_source() (removed by #1955) and on role files carrying a
+# `repo` field, a state #1955 also retired in favor of skill-repo-only
+# resolution; both the subject function and the state it asserted on are
+# gone.
 
 # v3 abolished the per-repo contract copy (commit 613a5fbced1b08b48c4c8215a
 # 241d0b8a823dbcc: "init writes approvers.md, not a contract copy; require_board
@@ -251,16 +204,10 @@ def t_rulebook_falls_back_to_github():
 # there is nothing left to drift — do not restore this test.
 
 
-def t_new_roles_resolve_without_a_local_checkout():
-    """interaction-design·defect-verification·issue-retrospective 는 로컬 체크아웃이
-    없다. github 폴백이 실제로 필요한 첫 사례이고, 없으면 on-the-record 가 계약 §3 의
-    아홉 줄 중 셋을 못 띄운다."""
-    import json as _json
-    for role in ("interaction-design", "defect-verification", "issue-retrospective"):
-        spec = _json.loads((spawn.ROOT / "roles" / f"{role}.json").read_text())
-        assert "path" not in spec, f"{role}: 로컬 경로를 박으면 다른 기계에서 깨진다"
-        assert spawn.rulebook_source(spec)["source"] == "github", role
-    assert len(spawn.ROLES) == 43, spawn.ROLES
+# issue #1969: t_new_roles_resolve_without_a_local_checkout deleted --
+# asserted on spawn.rulebook_source(), removed by #1955 in favor of
+# skill-repo-only resolution (resolve_role_source()); the github-fallback
+# path it exercised no longer exists.
 
 
 def t_board_absent_names_the_v1_location():
@@ -1670,14 +1617,14 @@ def _run_consult_in_scratch_clone(ok: bool):
     with tempfile.TemporaryDirectory() as td:
         root = _scratch_git_clone(td)
         orig_run = spawn.subprocess.run
-        orig_plugin_dirs = spawn.plugin_dirs
+        orig_plugin_dirs = spawn.resolve_role_source
         orig_core_plugin_dirs = spawn.core_plugin_dirs
         orig_trace_path = spawn._consult_trace_path
         orig_persist_raw = spawn._persist_consult_raw_output
         trace_path = root / "docs" / "reports" / "consult-log.md"
         try:
             spawn.subprocess.run = _consult_fake_run(ok, orig_run)
-            spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+            spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
             spawn.core_plugin_dirs = lambda: []
             spawn._consult_trace_path = lambda issue, cwd=None: trace_path
 
@@ -1704,7 +1651,7 @@ def _run_consult_in_scratch_clone(ok: bool):
             return status, trace_text
         finally:
             spawn.subprocess.run = orig_run
-            spawn.plugin_dirs = orig_plugin_dirs
+            spawn.resolve_role_source = orig_plugin_dirs
             spawn.core_plugin_dirs = orig_core_plugin_dirs
             spawn._consult_trace_path = orig_trace_path
             spawn._persist_consult_raw_output = orig_persist_raw

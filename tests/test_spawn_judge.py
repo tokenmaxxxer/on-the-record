@@ -45,7 +45,7 @@ class ReadonlySettingsTest(unittest.TestCase):
 
     def test_judge_cmd_and_env_omits_bypass_permissions(self):
         spec = json.loads((spawn.ROOT / "roles" / "implementation.json").read_text())
-        self._patch(spawn, "plugin_dirs", lambda role, s: [Path("/fake/plugin")])
+        self._patch(spawn, "resolve_role_source", lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None})
         self._patch(spawn, "core_plugin_dirs", lambda: [])
         cmd, env, settings_path = spawn._judge_cmd_and_env("implementation", spec, self.root)
         self.addCleanup(lambda: Path(settings_path).unlink(missing_ok=True))
@@ -67,14 +67,14 @@ class PluginDirFilterTest(unittest.TestCase):
         core_plugins = [Path("/fake/core/core"), Path("/fake/core/terse"),
                         Path("/fake/core/freelunch"), Path("/fake/core/scout"),
                         Path("/fake/core/warrant")]
-        orig_plugin_dirs = spawn.plugin_dirs
+        orig_plugin_dirs = spawn.resolve_role_source
         orig_core_plugin_dirs = spawn.core_plugin_dirs
-        spawn.plugin_dirs = lambda role, spec: [role_plugin]
+        spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [role_plugin], "skills": [], "skill_sha": None}
         spawn.core_plugin_dirs = lambda: core_plugins
         try:
             out = spawn._readonly_plugin_dirs("implementation", {})
         finally:
-            spawn.plugin_dirs = orig_plugin_dirs
+            spawn.resolve_role_source = orig_plugin_dirs
             spawn.core_plugin_dirs = orig_core_plugin_dirs
 
         names = {p.name for p in out}
@@ -235,7 +235,7 @@ class JudgeTraceAlwaysTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self._patches = []
-        self._patch(spawn, "plugin_dirs", lambda role, spec: [Path("/fake/plugin")])
+        self._patch(spawn, "resolve_role_source", lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None})
         self._patch(spawn, "core_plugin_dirs", lambda: [])
 
     def _patch(self, obj, name, value):
@@ -298,7 +298,7 @@ class JudgePrefilterSkipTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self._patches = []
-        self._patch(spawn, "plugin_dirs", lambda role, spec: [Path("/fake/plugin")])
+        self._patch(spawn, "resolve_role_source", lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None})
         self._patch(spawn, "core_plugin_dirs", lambda: [])
 
     def _patch(self, obj, name, value):
@@ -339,7 +339,7 @@ class JudgeValidatorDropTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self._patches = []
-        self._patch(spawn, "plugin_dirs", lambda role, spec: [Path("/fake/plugin")])
+        self._patch(spawn, "resolve_role_source", lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None})
         self._patch(spawn, "core_plugin_dirs", lambda: [])
 
     def _patch(self, obj, name, value):
@@ -403,7 +403,7 @@ class JudgeEnqueueTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self._patches = []
-        self._patch(spawn, "plugin_dirs", lambda role, spec: [Path("/fake/plugin")])
+        self._patch(spawn, "resolve_role_source", lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None})
         self._patch(spawn, "core_plugin_dirs", lambda: [])
 
     def _patch(self, obj, name, value):
@@ -462,7 +462,7 @@ class JudgeVerifyDropTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self._patches = []
-        self._patch(spawn, "plugin_dirs", lambda role, spec: [Path("/fake/plugin")])
+        self._patch(spawn, "resolve_role_source", lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None})
         self._patch(spawn, "core_plugin_dirs", lambda: [])
 
     def _patch(self, obj, name, value):
