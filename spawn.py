@@ -2090,6 +2090,7 @@ WATCHDOG_STATE = ROOT / "runs" / "watchdog_state.json"
 WATCHDOG_SILENCE_MIN = 90     # 이슈 #90 proposal, signal 1
 WATCHDOG_NO_COMMIT_MIN = 71   # 이슈 #90 proposal, signal 4 (0.5 * p90 ≈ 142.6)
 WATCHDOG_DENIAL_THRESHOLD = 3 # 이슈 #90 proposal, signal 3
+WATCHDOG_HEARTBEAT_ONLY_MIN = 18  # 이슈 #1966, signal 7: 하트비트만-성장 관측 창(분)
 _DELEGATION_RE = re.compile(
     r"run_in_background|백그라운드|delegate|background worker", re.IGNORECASE)
 
@@ -2104,6 +2105,53 @@ def _watchdog_state_load() -> dict:
 def _watchdog_state_save(d: dict) -> None:
     WATCHDOG_STATE.parent.mkdir(exist_ok=True)
     WATCHDOG_STATE.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+
+
+def _classify_log_lines_heartbeat_only(text: str, now: float,
+                                        window_min: float = WATCHDOG_HEARTBEAT_ONLY_MIN
+                                        ) -> str:
+    """이슈 #1966: `text`(로그 스캔 구간)를 줄 단위 JSONL 로 구조적 파싱해
+    최근 `window_min`분간의 타임스탬프 있는 활동이 `tool_progress`
+    하트비트 줄만으로 이뤄져 있는지 판정한다 — `_count_structural_denials()`
+    (spawn.py:3614)와 같은 구조적 파싱 관용(파싱 실패 줄은 조용히 건너뜀)을
+    따른다, 단어/정규식 매치가 아니다.
+
+    반환: `"heartbeat-only"`(창 안 타임스탬프 있는 활동이 하나 이상 있고
+    전부 `tool_progress`), `"healthy"`(창 안에 substantive 줄이 하나라도
+    있거나 창 안에 타임스탬프 있는 활동이 아예 없음), `"unmeasurable"`(스캔
+    구간 전체에 `tool_progress` 태그가 단 하나도 없어 — 이 트랜스크립트가
+    애초에 하트비트를 찍는 종류인지 판별할 근거가 없음 — 조용히 STALLED로
+    오판하지 않고 명시적으로 "판정 불가"를 돌려준다)."""
+    timestamped: list[tuple[float, bool]] = []
+    saw_heartbeat_tag = False
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        ts_raw = obj.get("timestamp")
+        if not isinstance(ts_raw, str):
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+        is_heartbeat = obj.get("type") == "tool_progress"
+        if is_heartbeat:
+            saw_heartbeat_tag = True
+        timestamped.append((ts, is_heartbeat))
+    if not saw_heartbeat_tag:
+        return "unmeasurable"
+    window_start = now - window_min * 60
+    in_window = [is_hb for ts, is_hb in timestamped if ts >= window_start]
+    if in_window and all(in_window):
+        return "heartbeat-only"
+    return "healthy"
 
 
 def watchdog_check_one(key: str, entry: dict, now: float | None = None,
@@ -2175,6 +2223,16 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     if new_denials >= WATCHDOG_DENIAL_THRESHOLD:
         anomalies.append(
             f"denied-tool-calls: 이번 스캔 구간에 {new_denials}건")
+
+    # signal 7 (이슈 #1966): mtime 은 계속 움직이지만(log-silence 는 안 잡힘)
+    # 최근 WATCHDOG_HEARTBEAT_ONLY_MIN 분간 tool_progress 하트비트 줄만
+    # 기록된 경우 — advisory 전용, STALLED 는 아니다(diagnose_health 에서
+    # 별도 서브상태로 분리).
+    hb_status = _classify_log_lines_heartbeat_only(text, now)
+    if hb_status == "heartbeat-only":
+        anomalies.append(
+            f"heartbeat-only-growth: 최근 {WATCHDOG_HEARTBEAT_ONLY_MIN}분간 "
+            f"tool_progress 하트비트만 기록됨 ({log_path})")
 
     # signal 4: 반환점 지났는데 커밋 없음 — 이슈 스코프 스폰만 (before_head 필요)
     before_head = entry.get("before_head")
@@ -2279,8 +2337,9 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
                      anomalies: list[str] | None = None,
                      pr_index: dict | None = None) -> dict:
-    """이슈 #782 스코프-확장: 살아있는(또는 방금 죽은) 로스터 엔트리 하나를
-    HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED 네 상태 중 하나로 진단하고
+    """이슈 #782 스코프-확장, 이슈 #1966 확장: 살아있는(또는 방금 죽은) 로스터
+    엔트리 하나를 HEALTHY/STALLED/STALLED-HEARTBEAT-ONLY(advisory)/
+    DEADLOCKED/DEAD-ERRORED 다섯 상태 중 하나로 진단하고
     next-action 을 매긴다. 완료(정상 session-end + PR)는 이 함수의 대상이
     아니다 — `roster_watchdog()`의 기존 completion 경로가 다룬다; 여기는
     "완료가 아닌데 뭐가 문제인가"만 답한다.
@@ -2336,6 +2395,15 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
            for a in anomalies):
         return {"state": "STALLED", "next_action": "resume-watch",
                 "detail": f"{key}: idle > {WATCHDOG_SILENCE_MIN}분, RUNNING"}
+    if any(a.startswith("heartbeat-only-growth") for a in anomalies):
+        # 이슈 #1966: log-silence 는 안 잡히지만(mtime 계속 갱신) 최근
+        # WATCHDOG_HEARTBEAT_ONLY_MIN 분간 tool_progress 하트비트만 관측된
+        # 경우 — advisory 전용 서브상태. next_action 은 STALLED 와 동일하게
+        # "resume-watch"(재관찰만) 로, kill/spawn-거부/게이트-블록 경로는
+        # 이 상태에서 전혀 도달 불가하다.
+        return {"state": "STALLED-HEARTBEAT-ONLY", "next_action": "resume-watch",
+                "detail": f"{key}: 최근 {WATCHDOG_HEARTBEAT_ONLY_MIN}분간 "
+                          f"tool_progress 하트비트만 관측, RUNNING (advisory)"}
     return {"state": "HEALTHY", "next_action": "none",
             "detail": f"{key}: 최근 로그 성장, RUNNING"}
 
