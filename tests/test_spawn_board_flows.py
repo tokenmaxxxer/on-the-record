@@ -1,4 +1,5 @@
 from _spawn_test_support import *  # noqa: F401,F403
+from _spawn_test_support import _event  # noqa: F401
 
 
 class BoardSnapshot(unittest.TestCase):
@@ -87,7 +88,8 @@ class EventReporting(unittest.TestCase):
         old_stderr = sys.stderr
         sys.stderr = io.StringIO()
         try:
-            with mock.patch.object(spawn, "issue_workspace",
+            with mock.patch.dict(os.environ, {"MUSTER_WORK_DIR": str(Path(td) / "sweep-base")}), \
+                 mock.patch.object(spawn, "issue_workspace",
                                    lambda cwd, issue, role: str(work)), \
                  mock.patch.object(spawn, "checkout_issue_branch",
                                    lambda cwd, issue, role: branch), \
@@ -2544,6 +2546,7 @@ class ReturnedPrGate(unittest.TestCase):
             return real_popen(cmd, *a, **k)
 
         return [
+            mock.patch.dict(os.environ, {"MUSTER_WORK_DIR": str(work.parent / "sweep-base")}),
             mock.patch.object(spawn, "issue_workspace",
                                lambda cwd, issue, role: str(work)),
             mock.patch.object(spawn, "checkout_issue_branch",
