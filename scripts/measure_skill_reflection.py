@@ -186,10 +186,39 @@ def score_skill(skill, deliverable_text, judge_fn, panel_size=3):
     return {"skill": skill, "reflected": reflected, "evidence": evidence, "votes": votes}
 
 
-def reflect_session(path, judge_fn=default_judge_fn, panel_size=3):
+def get_final_commit_diff(workspace_root):
+    """Fall back to the workspace's final commit diff for a code-shaped
+    deliverable (issue #2038). Returns None when there is no usable
+    workspace, no git history, or the diff is empty."""
+    if not workspace_root or not os.path.isdir(workspace_root):
+        return None
+    import subprocess
+    try:
+        result = subprocess.run(
+            ["git", "-C", workspace_root, "show", "HEAD"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    diff = result.stdout.strip()
+    return diff or None
+
+
+def reflect_session(path, judge_fn=default_judge_fn, panel_size=3, workspace_root=None):
     mounted, deliverable_text = extract_session(path)
     if not mounted:
         return {"path": path, "status": "not-applicable", "reason": "no-mounted-skills"}
+    if not deliverable_text.strip():
+        diff = get_final_commit_diff(workspace_root)
+        if not diff:
+            return {"path": path, "status": "no-deliverable-extracted",
+                     "reason": "empty-deliverable-and-no-workspace-diff", "rows": []}
+        deliverable_text = (
+            "[workspace final commit diff — code-shaped deliverable, no prose "
+            "extracted from the session]\n" + diff
+        )
     rows = [score_skill(skill, deliverable_text, judge_fn, panel_size) for skill in mounted]
     return {"path": path, "status": "measured", "rows": rows}
 
@@ -202,6 +231,6 @@ if __name__ == "__main__":
                          help="workspace root to score design artifacts against")
     args = parser.parse_args()
     for p in args.paths:
-        print(json.dumps(reflect_session(p)))
+        print(json.dumps(reflect_session(p, workspace_root=args.workspace)))
         if args.workspace is not None:
             print(json.dumps(reflect_artifacts(p, args.workspace)))

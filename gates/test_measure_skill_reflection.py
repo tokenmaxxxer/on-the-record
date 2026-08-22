@@ -1,4 +1,4 @@
-import os, sys
+import os, subprocess, sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 import measure_skill_reflection as msr
@@ -8,6 +8,26 @@ WITH_SKILLS = os.path.join(FIXTURE_DIR, "skill_reflection_with_skills.session.lo
 NO_SKILLS = os.path.join(FIXTURE_DIR, "skill_reflection_no_skills.session.log")
 WITH_ARTIFACTS = os.path.join(FIXTURE_DIR, "skill_reflection_artifacts_session.session.log")
 ARTIFACTS_WORKSPACE = os.path.join(FIXTURE_DIR, "skill_reflection_artifacts_workspace")
+EMPTY_DELIVERABLE = os.path.join(FIXTURE_DIR, "skill_reflection_empty_deliverable_session.session.log")
+
+
+def make_code_workspace(tmp_path):
+    """Build a throwaway git repo with one commit, for the code-shaped
+    deliverable fallback (issue #2038). Built at test time rather than
+    checked in as a fixture, since a nested .git under gates/fixtures
+    would stage as a submodule gitlink instead of real file content."""
+    workspace = str(tmp_path / "code_workspace")
+    os.makedirs(workspace)
+    run = lambda *cmd: subprocess.run(cmd, cwd=workspace, check=True,
+                                       capture_output=True, text=True)
+    run("git", "init", "-q")
+    run("git", "config", "user.email", "test@example.com")
+    run("git", "config", "user.name", "Test")
+    with open(os.path.join(workspace, "foo.py"), "w") as fh:
+        fh.write("def add(a, b):\n    return a + b\n")
+    run("git", "add", "foo.py")
+    run("git", "commit", "-q", "-m", "add foo.add helper")
+    return workspace
 
 
 def make_judge(sequence):
@@ -197,6 +217,47 @@ def test_reflect_artifacts_not_applicable_when_no_pairing_lines():
     result = msr.reflect_artifacts(NO_SKILLS, ARTIFACTS_WORKSPACE, judge_fn=make_judge([]))
     assert result == {"path": NO_SKILLS, "status": "not-applicable",
                        "reason": "no-pairing-lines"}
+
+
+def test_reflect_session_empty_deliverable_no_workspace_refuses(tmp_path):
+    calls = []
+
+    def judge_fn(skill, lens, deliverable_text):
+        calls.append((skill, lens, deliverable_text))
+        raise AssertionError("judge_fn must not be called with an empty deliverable")
+
+    result = msr.reflect_session(EMPTY_DELIVERABLE, judge_fn=judge_fn)
+    assert result["status"] == "no-deliverable-extracted"
+    assert result["rows"] == []
+    assert calls == []
+
+
+def test_reflect_session_empty_deliverable_falls_back_to_workspace_diff(tmp_path):
+    workspace = make_code_workspace(tmp_path)
+    seen = []
+
+    def judge_fn(skill, lens, deliverable_text):
+        seen.append(deliverable_text)
+        return {"verdict": "yes", "evidence": "code diff shows foo.add helper"}
+
+    result = msr.reflect_session(EMPTY_DELIVERABLE, judge_fn=judge_fn,
+                                  workspace_root=workspace)
+    assert result["status"] == "measured"
+    assert len(result["rows"]) == 1
+    assert result["rows"][0]["reflected"] == "yes"
+    assert seen, "judge_fn should have been called with the diff-backed deliverable"
+    for text in seen:
+        assert "workspace final commit diff" in text
+        assert "foo.add helper" in text
+
+
+def test_get_final_commit_diff_returns_none_for_non_git_dir(tmp_path):
+    assert msr.get_final_commit_diff(str(tmp_path)) is None
+
+
+def test_get_final_commit_diff_returns_none_for_missing_workspace():
+    assert msr.get_final_commit_diff(None) is None
+    assert msr.get_final_commit_diff("/no/such/path") is None
 
 
 if __name__ == "__main__":
