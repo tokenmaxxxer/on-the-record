@@ -1,0 +1,189 @@
+"""이슈 #1978: --single-phase 신호 → CORE_BUILD_NOW=1 + 계약 문장 주입,
+그리고 마운트된 스킬 이름 옆 "Use ..." 트리거 문장 인라인. 둘 다 신호/스킬이
+없으면 오늘의 프롬프트/env 와 바이트 단위로 동일해야 한다."""
+from _spawn_test_support import *  # noqa: F401,F403
+
+
+class DirectiveAssemblyBase(unittest.TestCase):
+    def _prep_repo(self, td, name="work"):
+        work = Path(td) / name
+        work.mkdir()
+        run = lambda *a: subprocess.run(a, cwd=str(work), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (work / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        return work
+
+    def _run(self, work, role_source, captured_env, *, single_phase=False,
+             issue=31):
+        roster_calls = []
+        real_roster_register = spawn.roster_register
+
+        def spy_roster_register(key, entry):
+            roster_calls.append((key, dict(entry)))
+            return real_roster_register(key, entry)
+
+        real_popen = spawn.subprocess.Popen
+
+        def spy_popen(cmd, **k):
+            captured_env.update(k.get("env") or {})
+            return real_popen(cmd, **k)
+
+        with mock.patch.object(spawn, "issue_workspace",
+                               lambda cwd, issue, role: str(work)), \
+             mock.patch.object(spawn, "checkout_issue_branch",
+                               lambda cwd, issue, role: "b"), \
+             mock.patch.object(spawn, "resolve_role_source",
+                               lambda role, repo_root: role_source), \
+             mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
+             mock.patch.object(spawn, "core_version", lambda: "v0"), \
+             mock.patch.object(spawn, "_clean_auto_enabled", lambda: False), \
+             mock.patch.object(spawn, "spawn_cmd",
+                               lambda *a, **k: (["cat"], {})), \
+             mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
+             mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
+             mock.patch.object(spawn.subprocess, "Popen", spy_popen), \
+             mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
+             mock.patch.object(spawn, "_undispositioned_role_prs",
+                               lambda root, exclude_issue=None: ([], True)), \
+             mock.patch.object(spawn, "roster_register", spy_roster_register), \
+             mock.patch.object(spawn, "ledger_write", lambda *a, **k: None):
+            rc = spawn._spawn_one(str(work), "implementation", "원래 맡긴 일.\n",
+                                  unattended=True, issue=issue, bounded=False,
+                                  no_wait=True, single_phase=single_phase)
+        self.assertEqual(rc, 0)
+        log_path = roster_calls[-1][1]["log"]
+        return Path(log_path).read_text()
+
+    def setUp(self):
+        self._old_roster = spawn.ROSTER
+        self._old_idx = spawn.WORKSPACE_INDEX
+        self._td = tempfile.TemporaryDirectory()
+        spawn.ROSTER = Path(self._td.name) / "active.json"
+        spawn.WORKSPACE_INDEX = Path(self._td.name) / "workspaces.json"
+
+    def tearDown(self):
+        spawn.ROSTER = self._old_roster
+        spawn.WORKSPACE_INDEX = self._old_idx
+        self._td.cleanup()
+
+
+_NO_SKILLS = {"source": "skill-repo", "skill_dirs": [], "skills": [],
+              "skill_sha": None}
+
+
+class SinglePhaseSignal(DirectiveAssemblyBase):
+    @pytest.mark.slow
+    def test_flag_produces_contract_line_and_core_build_now(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            env = {}
+            delivered = self._run(work, _NO_SKILLS, env, single_phase=True)
+        self.assertIn("Build-now bypass (contract v3 s19a)", delivered)
+        self.assertIn("CORE_BUILD_NOW=1, set by the spawner, never by you", delivered)
+        self.assertIn("skip the proposal round and deliver directly", delivered)
+        self.assertEqual(env.get("CORE_BUILD_NOW"), "1")
+
+    @pytest.mark.slow
+    def test_without_flag_is_byte_identical_to_today(self):
+        with tempfile.TemporaryDirectory() as td_a, \
+             tempfile.TemporaryDirectory() as td_b:
+            work_a = self._prep_repo(td_a)
+            env_a = {}
+            delivered_signal_off = self._run(work_a, _NO_SKILLS, env_a,
+                                             single_phase=False)
+        self.assertNotIn("Build-now bypass", delivered_signal_off)
+        self.assertNotIn("CORE_BUILD_NOW", env_a)
+
+        # 재실행 — 두 번 모두 신호 없이 만든 디렉티브가 바이트 단위로 같다.
+        with tempfile.TemporaryDirectory() as td_c:
+            work_c = self._prep_repo(td_c)
+            env_c = {}
+            delivered_again = self._run(work_c, _NO_SKILLS, env_c,
+                                        single_phase=False, issue=31)
+        self.assertEqual(delivered_signal_off, delivered_again)
+
+
+class SkillTriggerLines(DirectiveAssemblyBase):
+    def _skill_dir_with_trigger(self, root: Path) -> Path:
+        d = root / "implementation-blueprint"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            "---\n"
+            "name: implementation-blueprint\n"
+            "description: >-\n"
+            "  Situational code-architecture selection. Use whenever you are\n"
+            "  about to produce non-trivial code spanning multiple modules.\n"
+            "---\n\n# blueprint\n", encoding="utf-8")
+        return d
+
+    def _skill_dir_without_description(self, root: Path) -> Path:
+        d = root / "no-trigger-skill"
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            "---\nname: no-trigger-skill\n---\n\n# body\n", encoding="utf-8")
+        return d
+
+    @pytest.mark.slow
+    def test_mounted_skill_directive_contains_name_and_trigger_line(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            skill_dir = self._skill_dir_with_trigger(Path(td) / "skills")
+            role_source = {"source": "skill-repo", "skill_dirs": [skill_dir],
+                           "skills": ["implementation-blueprint"], "skill_sha": "abc123"}
+            delivered = self._run(work, role_source, {})
+        self.assertIn("implementation-blueprint", delivered)
+        self.assertIn(
+            "Use whenever you are about to produce non-trivial code "
+            "spanning multiple modules.", delivered)
+
+    @pytest.mark.slow
+    def test_skill_with_no_trigger_line_is_still_listed_by_name(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            skill_dir = self._skill_dir_without_description(Path(td) / "skills")
+            role_source = {"source": "skill-repo", "skill_dirs": [skill_dir],
+                           "skills": ["no-trigger-skill"], "skill_sha": "abc123"}
+            delivered = self._run(work, role_source, {})
+        self.assertIn("no-trigger-skill", delivered)
+
+    @pytest.mark.slow
+    def test_zero_mounted_skills_directive_unchanged(self):
+        with tempfile.TemporaryDirectory() as td_a, \
+             tempfile.TemporaryDirectory() as td_b:
+            work_a = self._prep_repo(td_a, "work-a")
+            delivered_a = self._run(work_a, _NO_SKILLS, {})
+            work_b = self._prep_repo(td_b, "work-b")
+            delivered_b = self._run(work_b, _NO_SKILLS, {})
+        self.assertEqual(delivered_a, delivered_b)
+        self.assertNotIn("Use ", delivered_a)
+
+
+class SkillTriggerLineHelper(unittest.TestCase):
+    def test_extracts_use_sentence_from_folded_description(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "s"
+            d.mkdir()
+            (d / "SKILL.md").write_text(
+                "---\nname: s\ndescription: >-\n"
+                "  Some intro text. Use whenever X happens or Y is true.\n"
+                "---\n", encoding="utf-8")
+            self.assertEqual(spawn._skill_trigger_line(d),
+                             "Use whenever X happens or Y is true.")
+
+    def test_returns_none_when_no_use_sentence(self):
+        with tempfile.TemporaryDirectory() as td:
+            d = Path(td) / "s"
+            d.mkdir()
+            (d / "SKILL.md").write_text(
+                "---\nname: s\ndescription: just some text.\n---\n",
+                encoding="utf-8")
+            self.assertIsNone(spawn._skill_trigger_line(d))
+
+    def test_returns_none_when_no_skill_md(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertIsNone(spawn._skill_trigger_line(Path(td)))
