@@ -382,6 +382,10 @@ _SKILL_VERDICT_LINE = re.compile(
     r"(?i)^\s*[-*]?\s*skill-verdict\s*:\s*(.+?)\s*—[ \t]*(.*?)\s*$")
 
 
+_SKILL_VERDICT_APPLIED = re.compile(r"(?i)^applied\s*:\s*(.*)$")
+_SKILL_VERDICT_INVOKED_MARKER = re.compile(r"(?i)^invoked\s*;")
+
+
 def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
     """issue #2039 mirror: a record whose spawn directive mounted N skills
     must carry one `skill-verdict: <name> — applied: ... |
@@ -389,7 +393,13 @@ def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
     content after the dash. Shape only — never judges whether the
     applied/not-applicable content is actually correct, matching
     #2039's frozen skills-guidance-only boundary. `mounted` empty is a
-    no-op (zero-mounted-skill sessions stay byte-unaffected)."""
+    no-op (zero-mounted-skill sessions stay byte-unaffected).
+
+    Issue #2062: an `applied:` line must also carry an invocation
+    marker — its free text (after the `applied:` label) must start with
+    `invoked;` — proving the Skill tool was actually called before the
+    skill was applied. `not-applicable:` lines and zero-skill sessions
+    are unaffected (shape-only, never judging the marker's truth)."""
     bad: list[str] = []
     if not mounted:
         return bad
@@ -407,11 +417,22 @@ def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
                 "마운트된 스킬에 skill-verdict 줄이 없다 (issue #2039): "
                 f"{name!r} — `skill-verdict: {name} — applied: ... | "
                 "not-applicable: ...` 줄을 레코드에 남겨야 한다.")
-        elif not found[name]:
+            continue
+        content = found[name]
+        if not content:
             bad.append(
                 "skill-verdict 줄에 이유가 없다 (issue #2039): "
                 f"{name!r} — 대시 뒤에 applied/not-applicable 내용이 비어 "
                 "있다.")
+            continue
+        applied_m = _SKILL_VERDICT_APPLIED.match(content)
+        if applied_m and not _SKILL_VERDICT_INVOKED_MARKER.match(
+                applied_m.group(1).strip()):
+            bad.append(
+                "applied: 줄에 invoke-before-apply 마커가 없다 (issue "
+                f"#2062): {name!r} — Skill 도구로 호출했다는 증거로 "
+                "`applied: invoked; ...` 형태로 자유 텍스트 맨 앞에 "
+                "`invoked;` 를 붙여야 한다.")
     return bad
 
 
