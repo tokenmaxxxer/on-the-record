@@ -2811,8 +2811,7 @@ def _board_wide_sweep(root: Path) -> int:
     import gh_budget
     count = 0
     call_budget = 8
-    budget = gh_budget.GhBudget(root, classes=_WATCHDOG_GH_BUDGET_CLASSES,
-                                 reserve=closure_sweep._RATE_LIMIT_GUARD_THRESHOLD)
+    budget: "gh_budget.GhBudget | None" = None
 
     def _charge_watchdog_budget(source: str, cost: int = 1) -> bool:
         result = budget.charge("watchdog", cost=cost)
@@ -2840,6 +2839,12 @@ def _board_wide_sweep(root: Path) -> int:
 
     remaining, guard_ok = closure_sweep.rate_limit_remaining(root)
     calls_made = 1
+    # 이슈 #1745: 방금 위에서 이미 `gh api rate_limit` 을 한 번 불렀다 —
+    # GhBudget 이 자기 스냅샷을 또 부르면 같은 틱에 같은 쿼리가 두 번
+    # 나간다. 방금 받은 결과를 preseed 해 두 번째 호출을 없앤다.
+    budget = gh_budget.GhBudget(root, classes=_WATCHDOG_GH_BUDGET_CLASSES,
+                                 reserve=closure_sweep._RATE_LIMIT_GUARD_THRESHOLD,
+                                 preseeded_snapshot=(remaining, guard_ok))
     if guard_ok and remaining < closure_sweep._RATE_LIMIT_GUARD_THRESHOLD:
         closure_sweep.record_sweep_result(backoff_state, "board-sweep", True)
         closure_sweep.save_backoff_state(root, backoff_state)
@@ -2937,9 +2942,18 @@ def _board_wide_sweep(root: Path) -> int:
 
     rate_limited_this_tick = False
 
+    # 이슈 #1745: spawn-on-pr 과 closure-sweep 이 둘 다 이번 틱에 돌면
+    # 벌크 PR 인덱스를 여기서 한 번만 가져와 공유한다 — 각자
+    # `closure_sweep._pr_index_all()` 을 따로 부르면 `gh api .../pulls`
+    # 페이지네이션이 틱당 두 번 나갔다(#1745 관측).
+    shared_pr_index: dict | None = None
+    if "spawn-on-pr" in this_tick and "closure-sweep" in this_tick:
+        shared_pr_index, _ = closure_sweep._pr_index_all(root)
+
     if "spawn-on-pr" in this_tick:
         try:
-            spawned = spawn_on_pr.spawn_missing_for_pr(root, str(root), issue_states=issue_states)
+            spawned = spawn_on_pr.spawn_missing_for_pr(
+                root, str(root), issue_states=issue_states, pr_index=shared_pr_index)
             if spawned:
                 print(f"[watchdog] spawn-on-pr: {len(spawned)}건 스폰: {spawned}")
             parked = spawn_on_pr.parked_report(root)
@@ -2962,7 +2976,8 @@ def _board_wide_sweep(root: Path) -> int:
                 if len(parts) == 2 and parts[1].isdigit() and int(parts[1]) in changed_numbers:
                     sweep_subjects[subj] = roles
         violations, skips = closure_sweep.find_violations(
-            root, subjects=sweep_subjects, issue_states=issue_states)
+            root, subjects=sweep_subjects, issue_states=issue_states,
+            pr_index=shared_pr_index)
         calls_made += 1
         if violations:
             count += len(violations)
