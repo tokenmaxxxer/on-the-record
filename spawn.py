@@ -3981,6 +3981,50 @@ def _respawn_fingerprint(work: str) -> dict:
     return {"head": _git_head(work), "board": board_hash}
 
 
+_CONTINUATION_PREAMBLE = (
+    "workspace contains uncommitted work from the previous session — "
+    "verify briefly, then commit/push/PR; do not redo"
+)
+
+_RECORD_PATH_RE = re.compile(r"docs/issue-\d+/(reports|proposals)/")
+
+
+def _classify_workspace_completion(work: str, role: str) -> str:
+    """이슈 #1982: 재스폰 시점 dirty workspace 를 "finished"/"unfinished" 로
+    분류한다. `git status --porcelain` 이 비어 있으면(clean) 바로
+    "unfinished". dirty 라도, 변경분에 이 저장소의 record-shape 규약이
+    요구하는 경로(`docs/issue-<n>/reports/**`, `docs/issue-<n>/proposals/**`)
+    아래 파일이 없으면 "unfinished". 있으면 그 파일을 읽어 frontmatter 를
+    걷어낸 본문이 비어있지 않은 경우에만(= frontmatter-only 스텁이 아닌
+    경우에만) "finished" — 프로포절의 conservative-default 결정: 신호가
+    모호하거나 얇으면 항상 "unfinished" 쪽으로 판정한다."""
+    st = subprocess.run(["git", "-C", work, "status", "--porcelain", "-uall"],
+                        capture_output=True, text=True)
+    lines = [l for l in st.stdout.splitlines() if l.strip()]
+    if not lines:
+        return "unfinished"
+    record_paths = []
+    for line in lines:
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        if _RECORD_PATH_RE.search(path):
+            record_paths.append(path)
+    for rel in record_paths:
+        full = Path(work) / rel
+        if not full.exists():
+            continue
+        text = full.read_text(encoding="utf-8", errors="replace")
+        body = text
+        if text.startswith("---"):
+            end = text.find("\n---", 3)
+            if end != -1:
+                body = text[end + 4:]
+        if body.strip():
+            return "finished"
+    return "unfinished"
+
+
 def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
                     session_start_ts, state: dict, trigger: str) -> None:
     """공유 재스폰 시퀀스: 원자적 클레임 확인, 상한(`RESPAWN_MAX_ATTEMPTS`)
@@ -4053,6 +4097,8 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
               f"— 사람이 직접 재스폰해야 한다", file=sys.stderr)
         return
     task = task_path.read_text(encoding="utf-8")
+    if _classify_workspace_completion(work, role) == "finished":
+        task = _CONTINUATION_PREAMBLE + "\n\n" + task
     attempt_n = attempts + 1
     total_attempt_n = total_attempts + 1
     _append_event(events_path, "respawn-attempt",
