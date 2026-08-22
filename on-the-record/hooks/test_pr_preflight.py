@@ -732,6 +732,53 @@ def test_hook_allows_pr_when_issue_carries_no_design_artifacts_declaration(tmp_p
     assert r.returncode == 0, r.stderr
 
 
+# --- issue #2037: malformed one-line design-artifacts declaration ----------
+
+def test_hook_denies_pr_when_design_artifacts_is_one_line_comma_form(tmp_path):
+    """A `design-artifacts: a.md, b.md` one-line declaration is not the
+    contract shape (bare tag line + bullet/fence) -> must refuse loudly,
+    quoting the required shape, instead of silently parsing as none."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2037/implementation")
+    fixtures = {
+        "issue_comments": [],
+        "issue_body": "Build the thing.\n\ndesign-artifacts: a.md, b.md, c.md\n",
+    }
+    cmd = 'gh pr create --title "proposal" --body "#2037"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "design-artifacts:" in r.stderr
+    assert "- path/one.md" in r.stderr
+
+
+def test_hook_allows_pr_when_design_artifacts_well_formed_2037(tmp_path):
+    """Byte-identical behavior for a well-formed declaration (unaffected
+    by the #2037 malformed-shape refusal)."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2037/implementation")
+    (repo_dir / "docs" / "issue-2037" / "design").mkdir(parents=True)
+    (repo_dir / "docs" / "issue-2037" / "design" / "scenarios.md").write_text("x")
+    fixtures = {
+        "issue_comments": [],
+        "issue_body": ("Build the thing.\n\ndesign-artifacts:\n"
+                        "- docs/issue-2037/design/scenarios.md\n"),
+    }
+    cmd = 'gh pr create --title "proposal" --body "#2037"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_allows_pr_when_design_artifacts_token_absent_2037(tmp_path):
+    """Byte-identical behavior for an issue body with no design-artifacts
+    token at all (unaffected by the #2037 malformed-shape refusal)."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2037/implementation")
+    fixtures = {
+        "issue_comments": [],
+        "issue_body": "Fix the watcher pid liveness check in spawn.py.",
+    }
+    cmd = 'gh pr create --title "proposal" --body "#2037"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
 def test_hook_denies_pr_when_issue_body_fetch_fails_fail_closed(tmp_path):
     """Approval amendment on #2013: if the issue body can't be fetched at
     all (fake `gh` here simulates the lookup failing), the design-artifacts
