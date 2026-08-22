@@ -5716,7 +5716,7 @@ def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
 
 
 def _skill_judge_consult(task_text: str, role: str,
-                         candidates: list[tuple[str, Path]],
+                         candidates: list[tuple[str, Path, str]],
                          issue: int | None, cwd: str | None,
                          model: str | None = None
                          ) -> tuple[list[Path], dict]:
@@ -5739,9 +5739,13 @@ def _skill_judge_consult(task_text: str, role: str,
     settings_path = None
     raw_paths: list[Path] = []
     outcome = "error: 알 수 없는 실패"
-    by_name = {name: path for name, path in candidates}
+    by_name = {name: path for name, path, _source in candidates}
+    # 이슈 #2055: 후보가 이제 네 소스에 걸쳐 있어, 질의 문구도 어느 tier
+    # 에서 왔는지 라벨을 달아 skill_judge 가 소스를 보고도 판단할 수 있게
+    # 한다(Acceptance: "source 라벨이 ... skill_judge 자문 질문 ... 까지").
     candidate_lines = "\n".join(
-        f"- {name} — {_skill_trigger_line(path) or ''}" for name, path in candidates)
+        f"- {name} [{source}] — {_skill_trigger_line(path) or ''}"
+        for name, path, source in candidates)
     question = (f"과제:\n{task_text}\n\n후보 스킬(BM25 상위 {len(candidates)}개):\n"
                 f"{candidate_lines}")
     try:
@@ -5826,7 +5830,10 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
                                              repo_root: Path | None,
                                              issue: int | None, cwd: str | None,
                                              k: int = 2,
-                                             model: str | None = None) -> list[Path]:
+                                             model: str | None = None,
+                                             home: Path | None = None,
+                                             target_repo_root: Path | None = None
+                                             ) -> list[Path]:
     """이슈 #2040: BM25 상위 `_CROSS_FAMILY_CONSULT_TOPN` 개를 자문
     (skill_judge)에 넘겨 조건-매치 여부로 좁힌다. BM25 후보가 아예 없으면
     (score>0 인 것이 없으면) 자문을 부르지 않고 빈 목록을 바로 돌려준다
@@ -5835,10 +5842,11 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     세션 실패 전부 포함)를 내면 BM25 자체의 top-`k` 로 fail-open 한다
     (`_cross_family_skill_matches()`, 제안서 Constraints — "오늘의
     raw-overlap top-2" 가 아니라 BM25 가 새 기준 프리필터이므로)."""
-    scored = _bm25_cross_family_scores(task_text, role, repo_root)
+    scored = _bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
     if not scored:
         return []
-    candidates = [(name, d) for _, name, d in scored[:_CROSS_FAMILY_CONSULT_TOPN]]
+    candidates = [(name, d, source)
+                  for _, name, d, source in scored[:_CROSS_FAMILY_CONSULT_TOPN]]
     try:
         picked, _detail = _skill_judge_consult(task_text, role, candidates, issue, cwd,
                                                model=model)
@@ -5846,7 +5854,7 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     except Exception as ex:
         print(f"[{role}] skill_judge 자문 실패 — BM25 top-{k} 로 fail-open: {ex}",
               file=sys.stderr)
-        return [d for _, _, d in scored[:k]]
+        return [d for _, _, d, _ in scored[:k]]
 
 
 def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
@@ -8131,39 +8139,108 @@ def _tokenize(text: str) -> set[str]:
     return {t for t in _TOKEN_RE.findall(text.lower()) if t not in _STOPWORDS}
 
 
+def _cross_family_candidate_corpus(role: str, repo_root: Path | None,
+                                    home: Path | None = None,
+                                    target_repo_root: Path | None = None
+                                    ) -> list[tuple[str, Path, str]]:
+    """이슈 #2055: `_bm25_cross_family_scores` 의 후보 코퍼스를 skill-repository
+    단일 소스에서 네 소스(skill-repository, 설치된 플러그인, `~/.claude/skills`,
+    타깃 저장소 `.claude/skills`)로 넓힌다 — `resolved_skill_sources()`(이슈
+    #1774)와 같은 해석 규칙을 재사용한다: 이름 하나가 소스 두 개 이상에
+    걸리면(같은 tier 안의 플러그인-대-플러그인 충돌 포함) fail-closed, 잡힌
+    소스를 전부 이름 붙여 보고한다. `hooks/` 서브디렉터리를 든 후보는
+    코퍼스에서 조용히 제외된다(스킬 마운트는 가이던스 전용 원칙 — 이건
+    사용자가 이름을 지목한 `--skills` 가 아니라 자동 탐색이라 fail-closed
+    가 아니라 그냥 후보에서 빠진다).
+
+    반환은 (name, dir, source) 튜플 목록 — source 는 `_describe_skill_match()`
+    가 아는 값(`"skill-repo"|"plugin"|"local-user"|"local-repo"`)과 같은
+    어휘를 쓴다. family 안 스킬(`_ROLE_SKILLS[role]`)은 호출자가 이미
+    걸러내던 대로 여기서도 걸러 반환에서 뺀다.
+
+    `home`/`target_repo_root` 를 생략하면(`None`) 해당 tier 는 아예 안
+    읽는다 — 기존 호출부(테스트 포함)가 skill-repository tier 만 보는
+    오늘의 동작을 그대로 유지하기 위한 명시적 opt-in 이다. 설치된 플러그인
+    tier 는 `_installed_plugin_skill_dirs()` 자체가 이름이 실제로 필요할
+    때만 파일을 읽으므로 별도 게이트가 필요 없다."""
+    family_names = set(_ROLE_SKILLS.get(role, []))
+    matches: dict[str, list[tuple[str, Path]]] = {}
+
+    def add(source: str, name: str, d: Path) -> None:
+        if (d / "hooks").is_dir():
+            return
+        matches.setdefault(name, []).append((source, d))
+
+    if repo_root is not None and repo_root.is_dir():
+        for name, d in _local_skill_dirs(repo_root).items():
+            add("skill-repo", name, d)
+    for name, entries in _installed_plugin_skill_dirs().items():
+        for _qualifier, d, _version in entries:
+            add("plugin", name, d)
+    if home is not None:
+        for name, d in _local_skill_dirs(home / ".claude" / "skills").items():
+            add("local-user", name, d)
+    if target_repo_root is not None:
+        for name, d in _local_skill_dirs(target_repo_root / ".claude" / "skills").items():
+            add("local-repo", name, d)
+
+    corpus: list[tuple[str, Path, str]] = []
+    for name, ms in matches.items():
+        if name in family_names:
+            continue
+        if len(ms) > 1 and len({_skill_content_hash(d) for _, d in ms}) == 1:
+            # 실제 운영 환경에서는 `~/.claude/skills` 가 skill-repository 를
+            # 그대로 미러링해두는 경우가 흔하다 — 같은 이름이 같은
+            # `SKILL.md` 내용을 가리키면 어느 tier 를 골라도 채점 결과가
+            # 바이트 단위로 같으므로, 이건 "가리기"가 아니라 중복이다.
+            # fail-closed 는 내용이 실제로 갈릴 때만 발동한다.
+            ms = ms[:1]
+        if len(ms) > 1:
+            described = ", ".join(f"{source}({d})" for source, d in ms)
+            sys.exit(f"cross-family 후보 스킬 {name} 가 둘 이상의 소스에서 "
+                      f"겹친다 — {described} (이슈 #2055: 네 소스 중 어느 "
+                      f"tier 도 다른 tier 를 조용히 가리지 않는다)")
+        source, d = ms[0]
+        corpus.append((name, d, source))
+    return corpus
+
+
 def _bm25_cross_family_scores(task_text: str, role: str,
-                               repo_root: Path | None
-                               ) -> list[tuple[float, str, Path]]:
+                               repo_root: Path | None,
+                               home: Path | None = None,
+                               target_repo_root: Path | None = None
+                               ) -> list[tuple[float, str, Path, str]]:
     """`task_text` 를 질의로, 역할의 family 밖 스킬 각각의 "Use ..." 트리거
     문장을 문서로 삼아 Okapi BM25(k1=1.5, b=0.75, 표준 기본값)로 채점한다
     — 트리거 문장은 집합으로 토큰화되므로 문서 내 항 빈도(f)는 항상 1
     (존재/부재만 본다, 트리거 문장 반복 서술 여부에 좌우되지 않기 위함).
     score > 0(질의와 최소 한 토큰 겹침) 인 것만 이름 오름차순 타이브레이크로
-    내림차순 정렬해 돌려준다 — floor 근거는 위 상수 주석."""
-    if repo_root is None or not (repo_root.is_dir() if hasattr(repo_root, "is_dir") else False):
-        return []
+    내림차순 정렬해 돌려준다 — floor 근거는 위 상수 주석.
+
+    이슈 #2055: 후보 코퍼스는 `_cross_family_candidate_corpus()` 가 네 소스에
+    걸쳐 해석한다 — 각 행이 source 라벨을 달고 나온다(반환 튜플의 4번째
+    자리). `home`/`target_repo_root` 를 생략하면(오늘의 호출부 호환)
+    각각 `Path.home()`, 빈 tier 로 취급된다."""
     query_tokens = _tokenize(task_text)
     if not query_tokens:
         return []
-    family_names = set(_ROLE_SKILLS.get(role, []))
-    docs: list[tuple[str, Path, set[str]]] = []
-    for d in repo_root.iterdir():
-        if not d.is_dir() or d.name.startswith(".") or d.name in family_names:
-            continue
+    corpus = _cross_family_candidate_corpus(role, repo_root, home, target_repo_root)
+    docs: list[tuple[str, Path, str, set[str]]] = []
+    for name, d, source in corpus:
         trigger = _skill_trigger_line(d)
         if not trigger:
             continue
-        docs.append((d.name, d, _tokenize(trigger)))
+        docs.append((name, d, source, _tokenize(trigger)))
     if not docs:
         return []
     n = len(docs)
-    avgdl = sum(len(toks) for _, _, toks in docs) / n
+    avgdl = sum(len(toks) for _, _, _, toks in docs) / n
     df: dict[str, int] = {}
-    for _, _, toks in docs:
+    for _, _, _, toks in docs:
         for t in toks:
             df[t] = df.get(t, 0) + 1
-    scored: list[tuple[float, str, Path]] = []
-    for name, d, toks in docs:
+    scored: list[tuple[float, str, Path, str]] = []
+    for name, d, source, toks in docs:
         dl = len(toks) or 1
         score = 0.0
         for t in query_tokens:
@@ -8172,19 +8249,22 @@ def _bm25_cross_family_scores(task_text: str, role: str,
             idf = math.log((n - df[t] + 0.5) / (df[t] + 0.5) + 1)
             score += idf * (_BM25_K1 + 1) / (1 + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl))
         if score > 0:
-            scored.append((score, name, d))
+            scored.append((score, name, d, source))
     scored.sort(key=lambda t: (-t[0], t[1]))
     return scored
 
 
 def _cross_family_skill_matches(task_text: str, role: str,
                                  repo_root: Path | None,
-                                 k: int = 2) -> list[Path]:
+                                 k: int = 2,
+                                 home: Path | None = None,
+                                 target_repo_root: Path | None = None) -> list[Path]:
     """BM25 프리필터의 상위 k 개(이슈 #2040 — 예전 raw-overlap 채점을
     대체, 호출부/시그니처는 그대로다). consult-judge 단계 없이 이 함수
     단독으로도 오늘의 fail-open 경로(자문 에러시 이 함수의 top-k)와
     동일한 모양을 낸다."""
-    return [d for _, _, d in _bm25_cross_family_scores(task_text, role, repo_root)[:k]]
+    scored = _bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
+    return [d for _, _, d, _ in scored[:k]]
 
 
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
@@ -8336,8 +8416,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 최대 자문 1회) — 소요 시간은 "cross_family" 단계로 측정해
             # 부트스트랩 타이밍 요약에 실린다(Acceptance: per-spawn latency).
             with _timed("cross_family"):
+                # 이슈 #2055: 코퍼스가 네 소스로 넓어졌다 — home/target_repo_root
+                # 를 넘겨 BM25 스코어링이 skill-repository 외 세 tier 도 본다.
                 cross_family_dirs = _cross_family_skill_matches_with_consult(
-                    _cross_family_task_text, role, _skill_repo_root(), issue, cwd)
+                    _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
+                    home=Path.home(), target_repo_root=Path(cwd))
             role_skill_lines = ", ".join(
                 d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
                 for d in role_source["skill_dirs"]
