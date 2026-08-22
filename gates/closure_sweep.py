@@ -316,7 +316,8 @@ def _save_out_of_index_seen(root: Path, seen: set[str]) -> None:
 
 
 def find_violations(root: Path, subjects: dict | None = None,
-                     issue_states: dict[int, str] | None = None) -> tuple[list[dict], list[dict]]:
+                     issue_states: dict[int, str] | None = None,
+                     pr_index: dict | None = None) -> tuple[list[dict], list[dict]]:
     """보드의 각 subject x role 브랜치에 대해 이슈/PR 상태를 읽고 위반을 모은다.
 
     `subjects` 는 `spawn.board(root)` 와 같은 모양(subject -> role -> ...) —
@@ -329,6 +330,12 @@ def find_violations(root: Path, subjects: dict | None = None,
     `(violations, skips)` 를 돌려준다 — `skips` 는 `gh` 호출이 실패해서
     끝내 확인하지 못한 subject/role 목록이다(issue #287 S1): 위반이
     0건이어도 skips 가 있으면 "위반 없음"이 아니라 "확인 불가"다.
+
+    `pr_index` 는 이슈번호 -> ... 가 아니라 브랜치 -> `{number, state,
+    body}` 사전(issue #1745) — 호출부가 같은 틱에서 이미
+    `_pr_index_all()` 을 돌렸으면 넘겨서 재조회를 없앤다(spawn-on-pr 과
+    closure-sweep 이 각자 벌크 PR 인덱스를 중복 조회하던 것을 없애기
+    위함). 생략하면(단독/테스트 호출) 기존처럼 직접 가져온다.
     """
     if subjects is None:
         subjects = spawn.board(root)
@@ -342,7 +349,10 @@ def find_violations(root: Path, subjects: dict | None = None,
     violations = []
     skips = []
     out_of_index_seen: set[str] | None = None
-    pr_index, pr_index_ok = _pr_index_all(root)
+    if pr_index is None:
+        pr_index, pr_index_ok = _pr_index_all(root)
+    else:
+        pr_index_ok = True
     for subject, roles in subjects.items():
         m = subject.split("-", 1)
         if len(m) != 2 or not m[1].isdigit():
