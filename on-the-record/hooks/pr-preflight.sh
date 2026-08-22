@@ -159,8 +159,21 @@ if os.path.isfile(approvers_path):
             approvers.add(mm.group(1))
 
 needle = "APPROVE issue-%d/%s" % (issue, role)
+
+def _first_line_matches(body, token):
+    # issue #2021 parity fix (field discovery during #2013): approval-
+    # gate.sh already line-anchors this exact match (the token must be
+    # the ENTIRE first line, whitespace-stripped, so an approver can
+    # attach rationale on subsequent lines without losing the exact-
+    # match security posture) — this file's own phase-determination copy
+    # had not been ported to the same fix, so a real APPROVE comment with
+    # trailing amendment text on later lines was silently read as phase1
+    # here while approval-gate.sh already recognized it as phase2.
+    first_line = (body or "").split("\n", 1)[0]
+    return first_line.strip() == token
+
 phase2 = any(
-    (c.get("body") or "").strip() == needle
+    _first_line_matches(c.get("body"), needle)
     and (c.get("author", {}) or {}).get("login") in approvers
     for c in (comments or [])
 )
@@ -381,7 +394,15 @@ def _plan_from_body(issue_body):
 
 plan = None
 if phase == "phase2":
-    issue_body = gh_json("issue", "view", str(issue), "--json", "body", "-q", ".body")
+    # `-q .body` returns raw (unquoted) text for a string result — not
+    # valid JSON unless the body itself happens to parse as a JSON
+    # literal, so json.loads(...) on that raw text silently returned None
+    # for every real-world issue body (issue #2013 field discovery: the
+    # design-artifacts fetch below hit this same call shape and always
+    # fail-closed against a real repo). Fetch the JSON object instead
+    # (no -q) and extract the "body" key from the parsed dict.
+    issue_body_obj = gh_json("issue", "view", str(issue), "--json", "body")
+    issue_body = issue_body_obj.get("body") if isinstance(issue_body_obj, dict) else None
     if issue_body is None:
         sys.exit(0)  # gh lookup failed — fail-open
     plan = _plan_from_body(issue_body)
@@ -442,8 +463,12 @@ def _parse_artifacts_declaration(body):
     return paths
 
 
-artifacts_issue_body = issue_body if phase == "phase2" else gh_json(
-    "issue", "view", str(issue), "--json", "body", "-q", ".body")
+if phase == "phase2":
+    artifacts_issue_body = issue_body
+else:
+    _artifacts_body_obj = gh_json("issue", "view", str(issue), "--json", "body")
+    artifacts_issue_body = (_artifacts_body_obj.get("body")
+                             if isinstance(_artifacts_body_obj, dict) else None)
 if artifacts_issue_body is None:
     deny(
         f"이슈 #{issue} 본문을 읽을 수 없다(`gh issue view` 실패) — "

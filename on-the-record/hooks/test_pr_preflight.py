@@ -269,7 +269,12 @@ if argv[:2] == ["issue", "view"]:
     if "comments" in argv:
         print(json.dumps(fixtures.get("issue_comments", [])))
     elif "body" in argv:
-        print(json.dumps(fixtures.get("issue_body", "")))
+        # real `gh ... --json body` (no -q) prints the JSON OBJECT
+        # {"body": "..."}, matching what pr-preflight.sh's gh_json() now
+        # parses (issue #2013 field discovery: `-q .body` prints raw
+        # unquoted text, not valid JSON, so json.loads on it always
+        # returned None against a real issue body).
+        print(json.dumps({"body": fixtures.get("issue_body", "")}))
     else:
         sys.exit(1)
 else:

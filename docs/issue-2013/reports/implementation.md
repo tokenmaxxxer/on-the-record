@@ -5,6 +5,8 @@ code_under_review:
   - test/test_design_artifacts_gate.py
   - on-the-record/hooks/pr-preflight.sh
   - on-the-record/hooks/test_pr_preflight.py
+  - on-the-record/hooks/test_pr_preflight_delegation.py
+  - test/test_branch_role_field.py
   - docs/specs/design-artifacts-contract.md
   - docs/specs/enforcement-boundary.md
 type: feature
@@ -63,9 +65,9 @@ cannot be fetched at `gh pr create` time.
   requirement) and extended the existing `pr-preflight.sh` row describing
   this addition.
 
-canonical: acceptance: python3 -m pytest -q -m "not slow" — result: PASS (2519 passed, 18 xfailed, 3 xpassed in 38.06s, run this session on this branch after merging origin/main and landing both commits above)
+canonical: acceptance: python3 -m pytest -q -m "not slow" — result: PASS (2519 passed, 20 xfailed, 1 xpassed in 41.16s, run this session after the two live-discovered fixes below and their fixture updates)
 
-canonical: acceptance: python3 -m pytest -q -m slow — result: UNMEASURED-with-reason: run once earlier this session (106 passed, 2 xfailed in 257.27s), too slow to re-run inside this commit's 180s recheck bound; triggered by this delivery's changes to on-the-record/hooks/*.sh and on-the-record/hooks/test_*.py per .on-the-record/test-tiers.json's trigger_change_classes.
+canonical: acceptance: python3 -m pytest -q -m slow — result: UNMEASURED-with-reason: run once earlier this session (106 passed, 2 xfailed in 358.22s, after the two live-discovered fixes below), too slow to re-run inside this commit's 180s recheck bound; triggered by this delivery's changes to on-the-record/hooks/*.sh and on-the-record/hooks/test_*.py per .on-the-record/test-tiers.json's trigger_change_classes.
 
 ## Why
 
@@ -117,6 +119,11 @@ product judgment, no scope change):
   `live-fire-test-guard.sh` does not re-check a module that isn't newly
   staged in the renaming commit.
 - **Fail-closed amendment scope**. canonical: `gh issue view 2013 --comments` (same amendment text cited at the top of "What was done"). Documented in `pr-preflight.sh`'s own header comment and `docs/specs/enforcement-boundary.md`'s row as a narrow carve-out (this one lookup only), not a change to the file's overall fail-open posture; noted here as a divergence from the merged proposal PR #2025 body's original wording.
+- **Two pre-existing defects fixed in-set, discovered live while verifying this delivery against the real repo (not against the fixture-only test suite)**. canonical: manual extraction of `pr-preflight.sh`'s embedded heredoc run standalone against issue #2013 this session (`gh pr create --body-file ... --base main` shape), output pasted into this session's own working notes.
+  1. `gh_json()`'s existing `-q .body` call shape (used both by the pre-existing phase2 plan-body fetch and by this delivery's own new fetch, copied from that same shape) prints raw unquoted text for a string result, which is not valid JSON unless the body happens to parse as a JSON literal — `json.loads()` on it silently returned `None` for every real issue body, meaning the phase2 plan-parsing body fetch (and, without this fix, the new design-artifacts fetch) never actually worked against a real `gh` invocation, only against test fixtures whose stub `gh` JSON-encoded the string. Fixed both call sites in `pr-preflight.sh` to fetch the JSON object (`--json body`, no `-q`) and extract the `"body"` key, matching the shape the `comments` fetch already used correctly. Updated the stub `gh` shims in `on-the-record/hooks/test_pr_preflight.py`, `on-the-record/hooks/test_pr_preflight_delegation.py`, and `test/test_branch_role_field.py` to emit the same `{"body": ...}` shape a real `gh --json body` call returns.
+  2. `pr-preflight.sh`'s own phase-determination `needle` check still used the pre-#2021 exact whole-body match (`.strip() == needle`), never ported to `approval-gate.sh`'s line-anchored `_first_line_matches` fix — so a real `APPROVE issue-<n>/<role>` comment carrying rationale on later lines (the exact shape #2013's own approval comment on this issue uses) was read as phase1 by `pr-preflight.sh` while `approval-gate.sh` already read it as phase2, blocking this very PR's own `Closes #2013` trailer. Ported the same `_first_line_matches` helper into `pr-preflight.sh`'s phase-determination block.
+
+  Both are mechanical (no design/architecture/security/product judgment beyond porting an already-established, already-reviewed fix pattern), stay inside `pr-preflight.sh` and its already-frozen sibling test files (the exact file this delivery's own write set already modifies), and do not change what this delivery's own design-artifacts feature claims to do — logged here per the deviation loop rather than filed separately, since fixing them was necessary for this PR to open at all.
 
 ## What did not work
 
