@@ -76,6 +76,25 @@ def parse_declaration(body: str) -> list[str] | None:
     return paths
 
 
+# issue #2037: a `design-artifacts:` tag with trailing content on the same
+# line (e.g. "design-artifacts: a.md, b.md") is not the contract shape --
+# _TAG_RE requires nothing after the colon, so parse_declaration falls
+# through to None exactly like an issue with no declaration at all. That
+# byte-inert result must instead be refused loudly (observed live,
+# tm-webfolio #5), quoting the required tag+bullet shape.
+_MALFORMED_TAG_RE = re.compile(r"^\s*[-*]?\s*design-artifacts\s*:\s*\S+", re.IGNORECASE)
+
+
+def malformed_declaration_line(body: str) -> str | None:
+    """설계-산출물 선언이 있는 태그 줄이지만 계약 형태(태그 줄 단독 +
+    불릿/펜스)에 맞지 않는 경우 그 줄을 그대로 돌려준다. 계약 형태를
+    만족하거나(태그 다음이 비어있음) 태그 자체가 없으면 None."""
+    for line in (body or "").splitlines():
+        if _MALFORMED_TAG_RE.match(line):
+            return line.strip()
+    return None
+
+
 def missing_artifacts(repo: Path, declared_paths: list[str]) -> list[str]:
     """선언된 경로 중 저장소 루트 기준으로 존재하지 않는 것만 순서대로
     돌려준다(모두 존재하면 빈 리스트)."""
@@ -89,6 +108,12 @@ def check(repo: Path, issue: int) -> list[str]:
                 f"design-artifacts 게이트는 검사 불가를 통과로 취급하지 않는다(fail-closed)."]
     declared = parse_declaration(body)
     if declared is None:
+        malformed = malformed_declaration_line(body)
+        if malformed is not None:
+            return [f"이슈 #{issue}의 design-artifacts 선언이 잘못된 형태다: {malformed!r} "
+                    f"— 태그 줄에 내용이 바로 붙어 있다. 필요한 형태: "
+                    f"'design-artifacts:' 태그 줄 다음에 '- path/one.md' 불릿 목록(또는 "
+                    f"```fenced``` 블록) — 태그 줄 자체는 콜론 뒤에 아무 것도 오면 안 된다."]
         return []
     missing = missing_artifacts(repo, declared)
     if not missing:
