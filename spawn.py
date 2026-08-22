@@ -7871,6 +7871,45 @@ def _skill_trigger_line(skill_dir: Path) -> str | None:
     return um.group(1).strip() if um else None
 
 
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_STOPWORDS = frozenset({"a", "the", "use", "when", "or", "and", "is", "an"})
+_CROSS_FAMILY_MIN_OVERLAP = 2
+
+
+def _tokenize(text: str) -> set[str]:
+    """소문자화 + 비영숫자 분리 + 작은 불용어 목록 제거. "Use when" 처럼
+    트리거 문장이면 어디에나 있는 일반 단어가 그 자체로 매치를 만들지
+    않게 한다(제안서 What will be done)."""
+    return {t for t in _TOKEN_RE.findall(text.lower()) if t not in _STOPWORDS}
+
+
+def _cross_family_skill_matches(task_text: str, role: str,
+                                 repo_root: Path | None,
+                                 k: int = 2) -> list[Path]:
+    """`task_text` 를 역할의 family 밖 스킬들의 "Use ..." 트리거 문장과
+    결정론적 키워드 겹침으로 채점해, 임계값을 넘는 것 중 상위 k 개를
+    돌려준다. 아무 것도 넘지 못하면 빈 목록 — 오늘과 바이트 단위로
+    동일한 no-match 경로(제안서 Constraints)."""
+    if repo_root is None or not (repo_root.is_dir() if hasattr(repo_root, "is_dir") else False):
+        return []
+    task_tokens = _tokenize(task_text)
+    if not task_tokens:
+        return []
+    family_names = set(_ROLE_SKILLS.get(role, []))
+    scored: list[tuple[int, str, Path]] = []
+    for d in repo_root.iterdir():
+        if not d.is_dir() or d.name.startswith(".") or d.name in family_names:
+            continue
+        trigger = _skill_trigger_line(d)
+        if not trigger:
+            continue
+        overlap = len(task_tokens & _tokenize(trigger))
+        if overlap >= _CROSS_FAMILY_MIN_OVERLAP:
+            scored.append((overlap, d.name, d))
+    scored.sort(key=lambda t: (-t[0], t[1]))
+    return [d for _, _, d in scored[:k]]
+
+
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
@@ -7883,6 +7922,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     """
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
     _BOOTSTRAP_TIMING.clear()
+    # 이슈 #2001: 크로스-패밀리 스코어링은 이 함수가 받은 원본 task 텍스트를
+    # 대상으로 한다 — 아래에서 task 에 여러 안내 문단이 계속 덧붙는데, 그
+    # 덧붙은 텍스트(스킬 목록 자체 등)가 스코어링 입력에 섞이면 결정론이
+    # 스폰마다 달라진다.
+    _cross_family_task_text = task
+    cross_family_dirs: list[Path] = []
     # 이슈 #1742/#1774: --skills 이름 검증(네 소스 모두)은 워크스페이스/
     # 브랜치를 건드리기 전에 끝난다(fail-closed, 요구사항 2) — 아래
     # 워크스페이스 생성보다 먼저 온다.
@@ -8004,15 +8049,32 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 문장을 인라인한다(#1960 의 1/9 발화율 넛지를 대체) — 트리거
             # 문장이 없는 스킬도 이름은 절대 빠뜨리지 않는다(empty-state
             # 요구).
+            # 이슈 #2001: family 밖 top-K(K=2) 크로스-패밀리 스킬을
+            # add-only 로 얹는다 — 매치가 없으면 cross_family_dirs 는 빈
+            # 목록이라 아래 줄들은 오늘과 바이트 단위로 동일하게 남는다.
+            cross_family_dirs = _cross_family_skill_matches(
+                _cross_family_task_text, role, _skill_repo_root())
             role_skill_lines = ", ".join(
                 d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
                 for d in role_source["skill_dirs"]
             ) if role_source["skill_dirs"] else ", ".join(role_source["skills"])
+            if cross_family_dirs:
+                cross_family_lines = ", ".join(
+                    d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
+                    for d in cross_family_dirs)
+                role_skill_lines = (role_skill_lines + ", " + cross_family_lines
+                                     if role_skill_lines else cross_family_lines)
+                cross_family_clause = (
+                    f" (이 중 {', '.join(d.name for d in cross_family_dirs)} 는 "
+                    f"이번 과제 텍스트와의 키워드 매치로 추가된 크로스-패밀리 "
+                    f"스킬 — 이슈 #2001)")
+            else:
+                cross_family_clause = ""
             task = task + (
                 f"\n\n이 역할은 skill-repository(이슈 #1955, #1758)로 매핑됐다: "
                 f"스킬 {role_skill_lines} "
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
-                f"집행은 core 훅뿐이다.\n")
+                f"집행은 core 훅뿐이다.{cross_family_clause}\n")
         # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
         # 역할 매핑이든) 실체 작업을 시작하기 전에 그 목록을 이번 과제와
         # 대조해보라고 스폰 시점에 못박는다. 베이스라인 측정
@@ -8046,6 +8108,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # --plugin-dir 마운트 목록에 합쳐 붙인다.
     all_skill_dirs = list(skill_dirs) + [d for d in role_source["skill_dirs"]
                                           if d not in skill_dirs]
+    all_skill_dirs = all_skill_dirs + [d for d in cross_family_dirs
+                                        if d not in all_skill_dirs]
     try:
         rulebook_desc = "skill-repo(이슈 #1955)"
         roster_resolution_fields = _role_source_roster_fields(role_source)
