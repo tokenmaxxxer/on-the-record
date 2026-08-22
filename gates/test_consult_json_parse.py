@@ -58,7 +58,7 @@ def t_both_attempts_exhausted_raises_with_reported_symptom():
     RuntimeError 를 내고, 트레이스에도 error: 줄이 남는다."""
     calls = []
     orig_run = spawn.subprocess.run
-    orig_plugin_dirs = spawn.plugin_dirs
+    orig_plugin_dirs = spawn.resolve_role_source
     orig_core_plugin_dirs = spawn.core_plugin_dirs
     orig_trace_path = spawn._consult_trace_path
     orig_persist_raw = spawn._persist_consult_raw_output
@@ -66,7 +66,7 @@ def t_both_attempts_exhausted_raises_with_reported_symptom():
     try:
         root = Path(tmp.name)
         spawn.subprocess.run = _fake_run_no_json_both_attempts(calls)
-        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
         spawn.core_plugin_dirs = lambda: []
         spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
         spawn._persist_consult_raw_output = _persist_raw_under(root)
@@ -86,7 +86,7 @@ def t_both_attempts_exhausted_raises_with_reported_symptom():
         assert "error:" in trace
     finally:
         spawn.subprocess.run = orig_run
-        spawn.plugin_dirs = orig_plugin_dirs
+        spawn.resolve_role_source = orig_plugin_dirs
         spawn.core_plugin_dirs = orig_core_plugin_dirs
         spawn._consult_trace_path = orig_trace_path
         spawn._persist_consult_raw_output = orig_persist_raw
@@ -133,14 +133,14 @@ def t_complex_question_persists_raw_output_on_parse_failure():
     사이드 파일 경로를 담고, 그 파일에는 실제 모델 출력 전문이 들어있다."""
     calls = []
     orig_run = spawn.subprocess.run
-    orig_plugin_dirs = spawn.plugin_dirs
+    orig_plugin_dirs = spawn.resolve_role_source
     orig_core_plugin_dirs = spawn.core_plugin_dirs
     orig_trace_path = spawn._consult_trace_path
     tmp = tempfile.TemporaryDirectory()
     try:
         root = Path(tmp.name)
         spawn.subprocess.run = _fake_run_long_no_json(calls)
-        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
         spawn.core_plugin_dirs = lambda: []
         spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
         orig_persist_raw = spawn._persist_consult_raw_output
@@ -172,7 +172,7 @@ def t_complex_question_persists_raw_output_on_parse_failure():
             "trace line must point at the raw-output side file"
     finally:
         spawn.subprocess.run = orig_run
-        spawn.plugin_dirs = orig_plugin_dirs
+        spawn.resolve_role_source = orig_plugin_dirs
         spawn.core_plugin_dirs = orig_core_plugin_dirs
         spawn._consult_trace_path = orig_trace_path
         spawn._persist_consult_raw_output = orig_persist_raw
@@ -195,14 +195,14 @@ def t_short_multi_clause_question_persists_raw_output_on_parse_failure():
     질문도 같은 실패 모드를 재현하고, 같은 방식으로 원본이 저장된다."""
     calls = []
     orig_run = spawn.subprocess.run
-    orig_plugin_dirs = spawn.plugin_dirs
+    orig_plugin_dirs = spawn.resolve_role_source
     orig_core_plugin_dirs = spawn.core_plugin_dirs
     orig_trace_path = spawn._consult_trace_path
     tmp = tempfile.TemporaryDirectory()
     try:
         root = Path(tmp.name)
         spawn.subprocess.run = _fake_run_short_multi_clause_no_json(calls)
-        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
         spawn.core_plugin_dirs = lambda: []
         spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
         orig_persist_raw = spawn._persist_consult_raw_output
@@ -224,7 +224,7 @@ def t_short_multi_clause_question_persists_raw_output_on_parse_failure():
         assert len(raw_files) == 2, f"expected one raw file per attempt, got {raw_files}"
     finally:
         spawn.subprocess.run = orig_run
-        spawn.plugin_dirs = orig_plugin_dirs
+        spawn.resolve_role_source = orig_plugin_dirs
         spawn.core_plugin_dirs = orig_core_plugin_dirs
         spawn._consult_trace_path = orig_trace_path
         spawn._persist_consult_raw_output = orig_persist_raw
@@ -257,7 +257,7 @@ def t_consult_cmd_settings_never_carry_self_hosted_hooks():
     calls = []
     written_settings = []
     orig_run = spawn.subprocess.run
-    orig_plugin_dirs = spawn.plugin_dirs
+    orig_plugin_dirs = spawn.resolve_role_source
     orig_core_plugin_dirs = spawn.core_plugin_dirs
     orig_trace_path = spawn._consult_trace_path
 
@@ -273,7 +273,7 @@ def t_consult_cmd_settings_never_carry_self_hosted_hooks():
     try:
         root = _make_on_the_record_checkout(Path(tmp.name))
         spawn.subprocess.run = fake_run
-        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
         spawn.core_plugin_dirs = lambda: []
         spawn._consult_trace_path = lambda issue, cwd=None: root / "docs" / "consult-log.md"
 
@@ -284,7 +284,7 @@ def t_consult_cmd_settings_never_carry_self_hosted_hooks():
             "consult_cmd() settings must not carry self-hosted hooks.json"
     finally:
         spawn.subprocess.run = orig_run
-        spawn.plugin_dirs = orig_plugin_dirs
+        spawn.resolve_role_source = orig_plugin_dirs
         spawn.core_plugin_dirs = orig_core_plugin_dirs
         spawn._consult_trace_path = orig_trace_path
         tmp.cleanup()
