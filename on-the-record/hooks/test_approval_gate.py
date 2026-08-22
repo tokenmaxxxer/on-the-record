@@ -54,7 +54,7 @@ def _init_repo(root: Path, branch: str):
     subprocess.run(["git", "checkout", "-q", "-b", branch], cwd=root, check=True)
 
 
-def _run(repo: Path, bin_dir: Path, file_path: str, comments, approvers_present):
+def _run(repo: Path, bin_dir: Path, file_path: str, comments, approvers_present, extra_env=None):
     if approvers_present:
         specs = repo / "docs" / "specs"
         specs.mkdir(parents=True, exist_ok=True)
@@ -74,6 +74,9 @@ def _run(repo: Path, bin_dir: Path, file_path: str, comments, approvers_present)
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(comments)
     env.pop("ORCHESTRATE_OFF", None)
+    env.pop("CORE_BUILD_NOW", None)
+    if extra_env:
+        env.update(extra_env)
     r = subprocess.run(
         ["bash", str(GUARD)],
         input=payload,
@@ -232,6 +235,7 @@ def _run_with_session(repo, bin_dir, state_dir, file_path, comments,
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(comments)
     env.pop("ORCHESTRATE_OFF", None)
+    env.pop("CORE_BUILD_NOW", None)
     return subprocess.run(
         ["bash", str(GUARD)],
         input=payload,
@@ -342,6 +346,33 @@ def test_no_snapshot_falls_back_to_live_env(repo, bin_dir, tmp_path):
         approvers_present=True, live_role=ROLE, bound_role=None,
     )
     assert r.returncode == 0, r.stderr
+
+
+# --- build-now bypass (issue #2007) ------------------------------------------
+
+@pytest.mark.parametrize("target", [RECORD_PATH, SRC_PATH, TEST_PATH])
+def test_build_now_bypasses_without_approve_and_logs(repo, bin_dir, target):
+    r = _run(repo, bin_dir, target, UNAPPROVED_COMMENTS, approvers_present=True,
+              extra_env={"CORE_BUILD_NOW": "1"})
+    assert r.returncode == 0, r.stderr
+    assert "CORE_BUILD_NOW=1" in r.stderr
+    assert "bypass" in r.stderr
+
+
+def test_build_now_bypasses_even_with_approvers_absent(repo, bin_dir):
+    r = _run(repo, bin_dir, RECORD_PATH, UNAPPROVED_COMMENTS, approvers_present=False,
+              extra_env={"CORE_BUILD_NOW": "1"})
+    assert r.returncode == 0, r.stderr
+    assert "CORE_BUILD_NOW=1" in r.stderr
+
+
+@pytest.mark.parametrize("value", ["0", "false", "", "yes"])
+def test_build_now_unset_or_non_one_behaves_as_today(repo, bin_dir, value):
+    r_bypass_like = _run(repo, bin_dir, RECORD_PATH, UNAPPROVED_COMMENTS, approvers_present=True,
+                          extra_env={"CORE_BUILD_NOW": value})
+    r_baseline = _run(repo, bin_dir, RECORD_PATH, UNAPPROVED_COMMENTS, approvers_present=True)
+    assert r_bypass_like.returncode == r_baseline.returncode == 2
+    assert r_bypass_like.stderr == r_baseline.stderr
 
 
 if __name__ == "__main__":
