@@ -1,4 +1,5 @@
 from _spawn_test_support import *  # noqa: F401,F403
+from _spawn_test_support import _event  # noqa: F401
 
 
 class RepoConfigRefusal(unittest.TestCase):
