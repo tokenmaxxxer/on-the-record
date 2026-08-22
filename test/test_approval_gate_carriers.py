@@ -103,6 +103,7 @@ def _run_gate(repo: Path, bin_dir: Path, comments=()):
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(list(comments))
     env.pop("ORCHESTRATE_OFF", None)
+    env.pop("CORE_BUILD_NOW", None)
     return subprocess.run(
         ["bash", str(HOOK_PATH)],
         input=payload, capture_output=True, text=True,
