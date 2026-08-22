@@ -1,7 +1,13 @@
 """이슈 #1978: --single-phase 신호 → CORE_BUILD_NOW=1 + 계약 문장 주입,
 그리고 마운트된 스킬 이름 옆 "Use ..." 트리거 문장 인라인. 둘 다 신호/스킬이
-없으면 오늘의 프롬프트/env 와 바이트 단위로 동일해야 한다."""
+없으면 오늘의 프롬프트/env 와 바이트 단위로 동일해야 한다.
+
+이슈 #1981: `_spawn_one()` 의 조립된 디렉티브에는 체크포인트-커밋 문장이
+들어가야 하고, `consult_cmd()`/`panel_cmd()` (커밋을 하지 않는 모드) 의
+조립된 프롬프트에는 들어가면 안 된다."""
 from _spawn_test_support import *  # noqa: F401,F403
+
+_CHECKPOINT_COMMIT_MARKER = "체크포인트 커밋"
 
 
 class DirectiveAssemblyBase(unittest.TestCase):
@@ -187,3 +193,85 @@ class SkillTriggerLineHelper(unittest.TestCase):
     def test_returns_none_when_no_skill_md(self):
         with tempfile.TemporaryDirectory() as td:
             self.assertIsNone(spawn._skill_trigger_line(Path(td)))
+
+
+class CheckpointCommitDirectiveLine(DirectiveAssemblyBase):
+    """이슈 #1981: 검증부터 하고 나중에 커밋하는 습관이 세션을 좌초시킨
+    사고(#1959 s2, #1978 ph2) 를 뒤집는 체크포인트-커밋 규칙 한 줄."""
+
+    @pytest.mark.slow
+    def test_spawn_one_directive_contains_checkpoint_commit_line(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            delivered = self._run(work, _NO_SKILLS, {})
+        self.assertIn(_CHECKPOINT_COMMIT_MARKER, delivered)
+        self.assertIn("검증", delivered)
+        self.assertIn("amend", delivered)
+
+
+class CheckpointCommitAbsentFromNoCommitModes(unittest.TestCase):
+    """자문(consult)/패널(panel) 은 커밋을 하지 않는 별도 조립 경로다 —
+    체크포인트-커밋 문장이 여기 새어들면 안 된다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self._patches = []
+        self._patch(spawn, "resolve_role_source",
+                    lambda role, repo_root: {"source": "skill-repo",
+                        "skill_dirs": [Path("/fake/plugin")],
+                        "skills": ["fake"], "skill_sha": "abc1234"})
+        self._patch(spawn, "core_plugin_dirs", lambda: [])
+        root = self.root
+        self._patch(spawn, "_consult_trace_path",
+                    lambda issue, cwd=None: (root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
+                                   if issue is not None else root / "docs" / "consult-log.md"))
+
+    def _patch(self, obj, name, value):
+        orig = getattr(obj, name)
+        setattr(obj, name, value)
+        self._patches.append((obj, name, orig))
+        self.addCleanup(lambda: setattr(obj, name, orig))
+
+    def test_consult_cmd_prompt_omits_checkpoint_commit_line(self):
+        captured_prompts = []
+        real_run = spawn.subprocess.run
+
+        def spy_run(cmd, **kw):
+            captured_prompts.append(kw.get("input"))
+            verdict_json = ('괜찮다.\n'
+                             '{"answer": "괜찮다", "confidence": "medium", "caveats": []}')
+            return subprocess.CompletedProcess(
+                cmd, 0,
+                stdout=json.dumps({"result": verdict_json, "is_error": False}),
+                stderr="")
+
+        self._patch(spawn.subprocess, "run", spy_run)
+        spawn.consult_cmd("implementation", "질문", cwd=str(self.root))
+        prompts = [p for p in captured_prompts if p]
+        self.assertTrue(prompts)
+        for prompt in prompts:
+            self.assertNotIn(_CHECKPOINT_COMMIT_MARKER, prompt)
+
+    def test_run_panel_session_prompt_omits_checkpoint_commit_line(self):
+        """`panel_cmd()` 기본 launcher `_run_panel_session()` 이 조립하는
+        프롬프트도 커밋을 하지 않는 판정 세션이므로 체크포인트-커밋 문장이
+        새어들면 안 된다."""
+        captured_prompts = []
+
+        def spy_run(cmd, **kw):
+            captured_prompts.append(kw.get("input"))
+            return subprocess.CompletedProcess(
+                cmd, 0,
+                stdout=json.dumps({"type": "result", "result":
+                    '{"answer": "ok", "confidence": "medium", "caveats": []}'}) + "\n",
+                stderr="")
+
+        self._patch(spawn.subprocess, "run", spy_run)
+        self._patch(spawn, "role_settings", lambda role, cwd=None, **k: {})
+        spawn._run_panel_session("implementation", "requirements-engineering",
+                                 "질문", str(self.root))
+        self.assertTrue(captured_prompts)
+        for prompt in captured_prompts:
+            self.assertNotIn(_CHECKPOINT_COMMIT_MARKER, prompt)

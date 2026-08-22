@@ -38,3 +38,4 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | self (fast tier) | `python3 -m pytest -q -m "not slow"` | 2026-08-16 (issue #1678) |
 | self (slow tier) | `python3 -m pytest -q -m slow` | 2026-08-16 (issue #1678) |
 | gates/test_boundary.py::issue-492-reconcile-markers | `python3 -m pytest gates/test_boundary.py -q -k "492 or reconcile"` | 2026-08-16 (issue #1678) |
+| tests/test_spawn_directive_assembly.py (excl. pre-existing #1981 env-flake) | `python3 -m pytest tests/test_spawn_directive_assembly.py -q -o addopts="" -k "not test_without_flag_is_byte_identical_to_today"` | 2026-08-22 (issue #1981) |
