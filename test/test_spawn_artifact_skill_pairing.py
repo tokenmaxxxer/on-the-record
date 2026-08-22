@@ -57,7 +57,8 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
             "---\n\n# body\n", encoding="utf-8")
         return d
 
-    def _run(self, work, skill_repo_root, issue_body, *, issue=2014):
+    def _run(self, work, skill_repo_root, issue_body, *, issue=2014,
+             role_skill_dirs=None):
         roster_calls = []
         real_roster_register = spawn.roster_register
 
@@ -69,7 +70,8 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
                           model, skill_dirs, skill_repo_sha_value):
             return (["cat"], {})
 
-        role_source = {"source": "skill-repo", "skill_dirs": [],
+        role_source = {"source": "skill-repo",
+                       "skill_dirs": role_skill_dirs or [],
                        "skills": [], "skill_sha": None}
 
         with mock.patch.object(spawn, "issue_workspace",
@@ -106,11 +108,12 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
              tempfile.TemporaryDirectory() as skills_td:
             work = self._prep_repo(td)
             skill_repo_root = Path(skills_td)
-            self._seed_skill(skill_repo_root)
+            skill_dir = self._seed_skill(skill_repo_root)
             body = ("Some issue text.\n\n"
                     "design-artifacts:\n"
                     "- docs/issue-2014/design/contrast-landing-page.md\n")
-            delivered = self._run(work, skill_repo_root, body)
+            delivered = self._run(work, skill_repo_root, body,
+                                  role_skill_dirs=[skill_dir])
         self.assertIn("아티팩트-스킬 짝짓기(이슈 #2014)", delivered)
         self.assertIn(
             "docs/issue-2014/design/contrast-landing-page.md ↔ "
