@@ -38,6 +38,27 @@ def extract_session(path):
     return mounted or [], "\n".join(text_parts)
 
 
+def parse_consult_output(out):
+    """`spawn.py consult` prints `json.dumps(verdict, indent=2)` — a
+    pretty-printed `{"answer", "confidence", "caveats"}` object, not the
+    plain "verdict-line / evidence-line" text default_judge_fn's own
+    prompt asks for (consult_cmd's own JSON-format instruction overrides
+    it). Parse that JSON directly instead of splitting lines, or a
+    fragment like '"answer": "no",' leaks into evidence as raw JSON
+    (issue #1999)."""
+    try:
+        obj = json.loads(out)
+    except (json.JSONDecodeError, TypeError):
+        obj = None
+    if not isinstance(obj, dict):
+        return {"verdict": "partial", "evidence": "judge-gave-no-rationale"}
+    answer = str(obj.get("answer", "")).strip().lower()
+    verdict = answer if answer in ("yes", "no", "partial") else "partial"
+    caveats = [str(c).strip() for c in (obj.get("caveats") or []) if str(c).strip()]
+    evidence = "; ".join(caveats) if caveats else "judge-gave-no-rationale"
+    return {"verdict": verdict, "evidence": evidence}
+
+
 def default_judge_fn(skill, lens, deliverable_text):
     """Default judge seam: shells to `spawn.py consult` for one lens. Not
     exercised by tests (judges are mocked there); kept as the live-run
@@ -46,17 +67,15 @@ def default_judge_fn(skill, lens, deliverable_text):
     prompt = (
         f"Rubric: {RUBRIC_PATH}\nSkill: {skill}\nLens: {lens}\n"
         f"Deliverable:\n{deliverable_text}\n"
-        "Answer with exactly one of: yes, no, partial — then one line of evidence."
+        "Judge whether the deliverable reflects this skill's rules, quoting "
+        "the deliverable or your own rationale as evidence."
     )
     spawn_py = os.path.join(os.path.dirname(__file__), "..", "spawn.py")
     out = subprocess.run(
         ["python3", spawn_py, "consult", "implementation", prompt],
         capture_output=True, text=True, timeout=180,
     ).stdout.strip()
-    first_line = out.splitlines()[0].strip().lower() if out else "partial"
-    verdict = first_line if first_line in ("yes", "no", "partial") else "partial"
-    evidence = out.splitlines()[1] if len(out.splitlines()) > 1 else "no evidence returned"
-    return {"verdict": verdict, "evidence": evidence}
+    return parse_consult_output(out)
 
 
 def majority(votes):

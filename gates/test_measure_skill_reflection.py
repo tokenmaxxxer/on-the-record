@@ -69,6 +69,35 @@ def test_reflect_session_zero_mounted_skills_yields_not_applicable_row():
                        "reason": "no-mounted-skills"}
 
 
+def test_parse_consult_output_extracts_prose_from_pretty_json():
+    import json as _json
+    raw = _json.dumps(
+        {"answer": "no", "confidence": "high",
+         "caveats": ["deliverable never cites the skill's rule"]},
+        indent=2,
+    )
+    result = msr.parse_consult_output(raw)
+    assert result["verdict"] == "no"
+    assert result["evidence"] == "deliverable never cites the skill's rule"
+    assert '"answer"' not in result["evidence"]
+    assert "{" not in result["evidence"]
+
+
+def test_parse_consult_output_no_caveats_yields_no_rationale_marker():
+    import json as _json
+    raw = _json.dumps({"answer": "yes", "confidence": "low", "caveats": []}, indent=2)
+    result = msr.parse_consult_output(raw)
+    assert result["verdict"] == "yes"
+    assert result["evidence"] == "judge-gave-no-rationale"
+
+
+def test_parse_consult_output_unparseable_falls_back_to_partial():
+    result = msr.parse_consult_output("not json at all")
+    assert result["verdict"] == "partial"
+    assert result["evidence"] == "judge-gave-no-rationale"
+    assert "{" not in result["evidence"]
+
+
 def test_score_skill_2_judge_panel_split_yields_partial():
     judge_fn = make_judge([
         {"verdict": "yes", "evidence": "e1"},
