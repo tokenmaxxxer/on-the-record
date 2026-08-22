@@ -31,7 +31,7 @@ argv = sys.argv[1:]
 if argv[:2] == ["issue", "view"] and "comments" in argv:
     print(json.dumps(comments))
 elif argv[:2] == ["issue", "view"] and "body" in argv:
-    print(json.dumps(""))
+    print(json.dumps({"body": ""}))
 else:
     sys.exit(1)
 """
