@@ -674,6 +674,104 @@ class DiagnoseHealth(unittest.TestCase):
             offset_after_first_call = state["k"]["offset"]
             self.assertEqual(offset_after_first_call, log.stat().st_size)
 
+    @staticmethod
+    def _hb_line(ts, extra=None):
+        obj = {"type": "tool_progress",
+               "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(ts))}
+        if extra:
+            obj.update(extra)
+        return json.dumps(obj)
+
+    @staticmethod
+    def _substantive_line(ts):
+        return json.dumps({"type": "assistant",
+                            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(ts)),
+                            "message": {"content": [{"type": "text", "text": "working"}]}})
+
+    def test_advisory_heartbeat_only_stall_for_observed_hang_shape(self):
+        # 이슈 #1966: 이슈-1959 실측(22분간 pytest-xdist 워커가 futex 에
+        # 걸려 tool_progress 하트비트만 계속 찍고 실질 진행은 없던 형태)을
+        # 재현하는 합성 픽스처. WATCHDOG_HEARTBEAT_ONLY_MIN(18분)보다 긴
+        # 22분간 하트비트 줄만 있으면 새 advisory 서브상태로 분류되어야
+        # 한다 — log-silence 는 mtime 이 계속 갱신되므로 안 잡힌다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            now = time.time()
+            start = now - 22 * 60
+            lines = []
+            ts = start
+            while ts <= now:
+                lines.append(self._hb_line(ts))
+                ts += 60
+            log.write_text("\n".join(lines) + "\n")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid()), state={}, now=now)
+            self.assertEqual(out["state"], "STALLED-HEARTBEAT-ONLY")
+
+    def test_healthy_when_substantive_lines_interleaved_with_heartbeats(self):
+        # 같은 22분짜리 하트비트-only 픽스처에 substantive 줄(assistant
+        # 텍스트) 하나를 최근 창 안에 섞으면 HEALTHY 로 분류돼야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            now = time.time()
+            start = now - 22 * 60
+            lines = []
+            ts = start
+            while ts <= now:
+                lines.append(self._hb_line(ts))
+                ts += 60
+            lines.append(self._substantive_line(now - 60))
+            log.write_text("\n".join(lines) + "\n")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid()), state={}, now=now)
+            self.assertEqual(out["state"], "HEALTHY")
+
+    def test_advisory_heartbeat_only_state_never_reaches_kill_refusal_or_gate_action(self):
+        # 구조적 확인: advisory 상태의 next_action 이 kill/spawn-거부/
+        # 게이트-블록 경로에 닿지 않는다 — STALLED 가 이미 속한 것과 같은
+        # 허용된 advisory 액션 집합에 속해야 한다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            now = time.time()
+            start = now - 22 * 60
+            lines = []
+            ts = start
+            while ts <= now:
+                lines.append(self._hb_line(ts))
+                ts += 60
+            log.write_text("\n".join(lines) + "\n")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid()), state={}, now=now)
+            self.assertEqual(out["state"], "STALLED-HEARTBEAT-ONLY")
+            allowed_advisory_actions = {"resume-watch"}
+            self.assertIn(out["next_action"], allowed_advisory_actions)
+            kill_refusal_gate_actions = {"respawn", "surface-repeating-cause"}
+            self.assertNotIn(out["next_action"], kill_refusal_gate_actions)
+            src = inspect.getsource(spawn)
+            self.assertNotIn("STALLED-HEARTBEAT-ONLY", "\n".join(
+                l for l in src.splitlines()
+                if any(k in l for k in ("kill", "refuse", "refusal", "gate_block",
+                                         "spawn_refusal"))))
+
+    def test_unmeasurable_log_without_heartbeat_tag_stays_healthy(self):
+        # 이슈 #1966 제약: tool_progress 태그를 아예 안 찍는(구식/다른 종류)
+        # 로그는 판정 불가 -> HEALTHY 로 남아야 한다, 조용히 STALLED 로
+        # 오판하지 않는다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            now = time.time()
+            start = now - 22 * 60
+            lines = []
+            ts = start
+            while ts <= now:
+                lines.append(self._substantive_line(ts))
+                ts += 60
+            log.write_text("\n".join(lines) + "\n")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid()), state={}, now=now)
+            self.assertEqual(out["state"], "HEALTHY")
+
+
 class RequirementIntakeValidityConsult(unittest.TestCase):
     """issue-1024: intake with a validity-consult trace recorded passes;
     intake without consult and without an explicit skip reason is
