@@ -37,6 +37,10 @@ set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
+# issue #2016 phase 2: cheap bash-level short-circuit before the python3 spawn below --
+# skip the interpreter launch entirely when the raw payload plainly can't match this
+# gate's own command-shape condition (checked again, authoritatively, in python).
+{ grep -qF 'git' <<<"$payload" && grep -qF 'commit' <<<"$payload"; } || exit 0
 command -v python3 >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: python3 not found (fail-open)" >&2; exit 0; }
 command -v git >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: git not found (fail-open)" >&2; exit 0; }
 
