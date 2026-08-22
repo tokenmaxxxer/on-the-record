@@ -221,6 +221,7 @@ def _run_approval_gate(repo: Path, bin_dir: Path, file_path: str, role_env: str,
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(comments)
     env.pop("ORCHESTRATE_OFF", None)
+    env.pop("CORE_BUILD_NOW", None)
     return subprocess.run(
         ["bash", str(HOOKS_DIR / "approval-gate.sh")],
         input=payload, capture_output=True, text=True,

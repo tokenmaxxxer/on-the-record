@@ -175,6 +175,21 @@ is_src_test = re.search(r"(^|/)(src|tests?)/", n) is not None
 if not (is_record or is_src_test):
     sys.exit(0)  # phase-1-legal path (proposal, survey, decisions, handbooks, approvers.md itself, ...)
 
+# --- build-now bypass (issue #2007, contract v3 s19a) -----------------------
+# CORE_BUILD_NOW=1 in the session env is the spawner's own operator-level
+# authorization for a single-phase delivery session — the phase-2 approval
+# precondition this gate exists to check is satisfied by that authorization
+# itself, so the write proceeds without a posted APPROVE comment. Logged to
+# stderr (not a deny) so the bypass is visible in the same place a refusal
+# would have been. Absent/unset/non-"1" leaves behavior byte-identical to
+# today: falls straight through to the approvers.md/APPROVE-comment check.
+if os.environ.get("CORE_BUILD_NOW") == "1":
+    sys.stderr.write(
+        "approval-gate: CORE_BUILD_NOW=1 — bypassing phase-2 approval check "
+        "for issue-%d/%s write (%s).\n" % (issue, role, n)
+    )
+    sys.exit(0)
+
 # --- approvers.md presence: refuse-and-instruct, never silent allow --------
 approvers_path = os.path.join(cwd, "docs", "specs", "approvers.md")
 if not os.path.isfile(approvers_path):
