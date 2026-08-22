@@ -36,7 +36,7 @@ def _make_fixture_core(tmp_path):
 def test_consult_env_injects_core_plugin_root(tmp_path, monkeypatch):
     core_dir = _make_fixture_core(tmp_path)
     monkeypatch.setattr(spawn, "core_plugin_dirs", lambda: [core_dir])
-    monkeypatch.setattr(spawn, "plugin_dirs", lambda role, spec: [])
+    monkeypatch.setattr(spawn, "resolve_role_source", lambda role, repo_root: {"skill_dirs": [], "skills": [], "skill_sha": None})
     monkeypatch.setattr(spawn, "role_settings",
                          lambda role, cwd, inject_self_hosted_hooks=False: {})
 
@@ -54,7 +54,7 @@ def test_consult_env_injects_core_plugin_root(tmp_path, monkeypatch):
 def test_consult_env_missing_core_entry_omits_var(tmp_path, monkeypatch):
     monkeypatch.delenv("CLAUDE_PLUGIN_ROOT_CORE", raising=False)
     monkeypatch.setattr(spawn, "core_plugin_dirs", lambda: [])
-    monkeypatch.setattr(spawn, "plugin_dirs", lambda role, spec: [])
+    monkeypatch.setattr(spawn, "resolve_role_source", lambda role, repo_root: {"skill_dirs": [], "skills": [], "skill_sha": None})
     monkeypatch.setattr(spawn, "role_settings",
                          lambda role, cwd, inject_self_hosted_hooks=False: {})
 

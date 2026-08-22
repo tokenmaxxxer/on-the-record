@@ -66,12 +66,12 @@ def _fake_run_no_json(orig_run):
 class ConsultTraceRootBase(unittest.TestCase):
     def setUp(self):
         self._orig_run = spawn.subprocess.run
-        self._orig_plugin_dirs = spawn.plugin_dirs
+        self._orig_plugin_dirs = spawn.resolve_role_source
         self._orig_core_plugin_dirs = spawn.core_plugin_dirs
         self.addCleanup(setattr, spawn.subprocess, "run", self._orig_run)
         self.addCleanup(setattr, spawn, "plugin_dirs", self._orig_plugin_dirs)
         self.addCleanup(setattr, spawn, "core_plugin_dirs", self._orig_core_plugin_dirs)
-        spawn.plugin_dirs = lambda role, spec: [Path("/fake/plugin")]
+        spawn.resolve_role_source = lambda role, repo_root: {"skill_dirs": [Path("/fake/plugin")], "skills": [], "skill_sha": None}
         spawn.core_plugin_dirs = lambda: []
 
 
