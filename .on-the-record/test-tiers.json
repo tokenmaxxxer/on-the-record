@@ -7,7 +7,13 @@
     "command": "python3 -m pytest -q -m slow",
     "trigger_change_classes": [
       "spawn.py",
-      "tests/test_spawn.py",
+      "tests/test_spawn_pipeline.py",
+      "tests/test_spawn_observation_recovery.py",
+      "tests/test_spawn_board_flows.py",
+      "tests/test_spawn_consult_panel.py",
+      "tests/test_spawn_checkout_network.py",
+      "tests/test_spawn_gate_wiring.py",
+      "tests/_spawn_test_support.py",
       "on-the-record/hooks/*.sh",
       "on-the-record/hooks/test_*.py"
     ]
