@@ -300,7 +300,8 @@ def unpark(root: Path, subject: str, role: str) -> bool:
 def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
                           issue_states: dict[int, str] | None = None,
                           spawn_cap: int = SPAWN_CAP,
-                          backoff_state: dict | None = None) -> list[tuple[str, str]]:
+                          backoff_state: dict | None = None,
+                          pr_index: dict | None = None) -> list[tuple[str, str]]:
     """`missing_verification()` 이 찾은 `(subject, role)` 쌍 중 최대
     `spawn_cap` 개를 등록+스폰한다. 초과분은 스폰하지 않고, 몇 건이
     미뤄졌는지 한 줄 찍는다(issue #1360 — no silent cap). `dry_run=True`
@@ -319,7 +320,13 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     `recheck` 네임스페이스)로 게이팅해, 연속으로 변화 없던 키는 점점 뜸하게
     재확인한다. `backoff_state` 를 안 주면 이 함수가 직접 읽고 저장한다
     (호출부가 여러 재확인을 한 상태 객체로 묶고 싶으면 넘겨서 공유한다 —
-    그때는 저장을 호출부가 책임진다)."""
+    그때는 저장을 호출부가 책임진다).
+
+    issue #1745: `pr_index` 를 주면(호출부가 같은 틱에서 이미
+    `closure_sweep._pr_index_all()` 을 돌렸을 때) 이 함수는 다시 부르지
+    않는다 — 한 틱 안에서 spawn-on-pr 과 closure-sweep 이 각자 같은 벌크
+    PR 인덱스를 중복 조회하던 것(#1745 관측: 틱당 `pulls` 호출 2회)을
+    없앤다. 생략하면(단독/테스트 호출) 기존처럼 직접 가져온다."""
     owns_backoff_state = backoff_state is None
     if backoff_state is None:
         backoff_state = closure_sweep.load_backoff_state(root)
@@ -327,7 +334,8 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     # issue #1498 요구 5: 벌크 PR 인덱스 한 번을 `missing_verification()` 과
     # 아래 subject 별 조인이 함께 재사용한다 — subject 수만큼 `gh pr list
     # --head` 를 부르지 않는다.
-    pr_index, _ = closure_sweep._pr_index_all(root)
+    if pr_index is None:
+        pr_index, _ = closure_sweep._pr_index_all(root)
 
     all_pairs: list[tuple[str, str, int | None]] = []
     for subject, roles in missing_verification(
