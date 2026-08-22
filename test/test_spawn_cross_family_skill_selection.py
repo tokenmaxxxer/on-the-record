@@ -165,7 +165,8 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         # 로 스텁해 오늘의 테스트 기대치(마운트 = BM25 top-k)를 그대로
         # 재사용한다. 자문 자체의 판단/트레이스/fail-open 동작은
         # ConsultJudgeStageTest 가 별도로 검증한다.
-        def stub_with_consult(task_text, role, repo_root, issue, cwd, k=2, model=None):
+        def stub_with_consult(task_text, role, repo_root, issue, cwd, k=2, model=None,
+                              home=None, target_repo_root=None):
             return spawn._cross_family_skill_matches(task_text, role, repo_root, k=k)
 
         with mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
@@ -290,7 +291,8 @@ class ConsultJudgeStageTest(unittest.TestCase):
         rejected_dir = self._skill(
             "model-routing",
             "Use this skill on EVERY non-trivial task in any domain.")
-        candidates = [(picked_dir.name, picked_dir), (rejected_dir.name, rejected_dir)]
+        candidates = [(picked_dir.name, picked_dir, "skill-repo"),
+                      (rejected_dir.name, rejected_dir, "skill-repo")]
         session_json = json.dumps({"result": json.dumps({
             "picked": ["accessibility-aria-and-contrast-rules"],
             "rejected": [{"name": "model-routing",
@@ -313,9 +315,11 @@ class ConsultJudgeStageTest(unittest.TestCase):
         self.assertIn("verb=skill_judge", trace)
         self.assertIn("accessibility-aria-and-contrast-rules", trace)
         self.assertIn("model-routing", trace)
+        # 이슈 #2055: 후보 줄이 소스 라벨을 달고 트레이스(질문 원문)에 남는다.
+        self.assertIn("[skill-repo]", trace)
 
     def test_consult_error_raises_and_still_traces(self):
-        candidates = [("some-skill", self.repo_root / "some-skill")]
+        candidates = [("some-skill", self.repo_root / "some-skill", "skill-repo")]
         with mock.patch.object(spawn, "_consult_cmd_and_env",
                                lambda role, spec, cwd, model: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run",
@@ -350,6 +354,148 @@ class ConsultJudgeStageTest(unittest.TestCase):
                 self.repo_root, 2040, str(self.work))
         m.assert_not_called()
         self.assertEqual(matches, [])
+
+
+class FourSurfaceCandidateCorpusTest(unittest.TestCase):
+    """이슈 #2055: `_bm25_cross_family_scores` 의 후보 코퍼스가 skill-repository
+    하나가 아니라 네 소스(skill-repository/설치된 플러그인/`~/.claude/skills`/
+    타깃 저장소 `.claude/skills`) 를 본다 — 각 tier 를 하나씩 심어(tier-seeded)
+    BM25 스코어링과 source 라벨을 검증한다."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self._tmpdir.name) / "skill-repo"
+        self.repo_root.mkdir()
+        self.home = Path(self._tmpdir.name) / "home"
+        self.home.mkdir()
+        self.target_repo = Path(self._tmpdir.name) / "target"
+        (self.target_repo / ".claude" / "skills").mkdir(parents=True)
+        (self.home / ".claude" / "skills").mkdir(parents=True)
+        self._plugin_install = Path(self._tmpdir.name) / "plugin-install"
+        (self._plugin_install / "skills").mkdir(parents=True)
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _skill(self, root, name, use_sentence):
+        d = root / name
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            "---\n"
+            f"name: {name}\n"
+            f"description: >-\n"
+            f"  Intro text. {use_sentence}\n"
+            "---\n\n# body\n", encoding="utf-8")
+        return d
+
+    def _installed_plugins_json(self):
+        return json.dumps({"plugins": {"acme@marketplace": [
+            {"installPath": str(self._plugin_install), "version": "1.0.0"}]}})
+
+    def test_all_four_tiers_score_and_carry_source_label(self):
+        d1 = self._skill(self.repo_root, "skill-repo-skill",
+                         "Use when a landing page needs contrast review.")
+        d2 = self._skill(self._plugin_install / "skills", "plugin-skill",
+                         "Use when a landing page needs contrast review.")
+        d3 = self._skill(self.home / ".claude" / "skills", "local-user-skill",
+                         "Use when a landing page needs contrast review.")
+        d4 = self._skill(self.target_repo / ".claude" / "skills", "local-repo-skill",
+                         "Use when a landing page needs contrast review.")
+        # 설치된 플러그인 인덱스는 `~/.claude/plugins/installed_plugins.json`
+        # 을 직접 읽으므로, home 을 임시 디렉터리로 스왑하고 그 파일을 써둔다.
+        plugins_json = self.home / ".claude" / "plugins" / "installed_plugins.json"
+        plugins_json.parent.mkdir(parents=True, exist_ok=True)
+        plugins_json.write_text(self._installed_plugins_json(), encoding="utf-8")
+        with mock.patch.object(spawn.Path, "home", lambda: self.home):
+            scored = spawn._bm25_cross_family_scores(
+                "Build a landing page and review its contrast.", "implementation",
+                self.repo_root, home=self.home, target_repo_root=self.target_repo)
+        by_name = {name: (d, source) for _, name, d, source in scored}
+        self.assertEqual(by_name["skill-repo-skill"], (d1, "skill-repo"))
+        self.assertEqual(by_name["plugin-skill"], (d2, "plugin"))
+        self.assertEqual(by_name["local-user-skill"], (d3, "local-user"))
+        self.assertEqual(by_name["local-repo-skill"], (d4, "local-repo"))
+
+    def test_same_name_two_tier_conflict_fails_closed_naming_both_sources(self):
+        self._skill(self.repo_root, "dup-skill", "Use when reviewing code quality.")
+        self._skill(self.home / ".claude" / "skills", "dup-skill",
+                   "Use when a landing page needs contrast review.")
+        with self.assertRaises(SystemExit) as ctx:
+            spawn._cross_family_candidate_corpus(
+                "implementation", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("dup-skill", msg)
+        self.assertIn("skill-repo", msg)
+        self.assertIn("local-user", msg)
+
+    def test_same_name_identical_content_across_tiers_dedupes_without_fail_closed(self):
+        # 실제 운영 환경에서는 `~/.claude/skills` 가 skill-repository 를 그대로
+        # 미러링해두는 경우가 흔하다 — 내용이 같으면 fail-closed 가 아니라
+        # 조용히 하나로 합쳐진다(어느 tier 를 골라도 채점 결과가 같다).
+        self._skill(self.repo_root, "mirrored-skill", "Use when reviewing code quality.")
+        self._skill(self.home / ".claude" / "skills", "mirrored-skill",
+                   "Use when reviewing code quality.")
+        corpus = spawn._cross_family_candidate_corpus(
+            "implementation", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len([n for n, _, _ in corpus if n == "mirrored-skill"]), 1)
+
+    def test_hooks_carrying_candidate_is_rejected_from_corpus(self):
+        d = self._skill(self.home / ".claude" / "skills", "hooked-skill",
+                        "Use when reviewing code quality.")
+        (d / "hooks").mkdir()
+        corpus = spawn._cross_family_candidate_corpus(
+            "implementation", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual([n for n, _, _ in corpus if n == "hooked-skill"], [])
+
+    def test_score_reaches_judge_question_labeled(self):
+        d1 = self._skill(self.home / ".claude" / "skills", "local-user-skill",
+                         "Use when a landing page needs contrast review.")
+        candidates = [("local-user-skill", d1, "local-user")]
+        session_json = json.dumps({"result": json.dumps({
+            "picked": ["local-user-skill"], "rejected": [], "reasons": {}})})
+        work = Path(self._tmpdir.name) / "work"
+        work.mkdir()
+        run = lambda *a: subprocess.run(a, cwd=str(work), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (work / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        captured = {}
+
+        def fake_run(*a, **k):
+            if "input" not in captured and k.get("input") is not None:
+                captured["input"] = k.get("input")
+            return subprocess.CompletedProcess(a, 0, stdout=session_json, stderr="")
+
+        with mock.patch.object(spawn, "_consult_cmd_and_env",
+                               lambda role, spec, cwd, model: (["cat"], {}, None)), \
+             mock.patch.object(spawn.subprocess, "run", fake_run):
+            spawn._skill_judge_consult(
+                "landing page contrast", "implementation", candidates, 2055,
+                str(work))
+        self.assertIn("local-user-skill [local-user]", captured["input"])
+
+    def test_timing_over_four_tier_corpus_stays_within_budget(self):
+        # 이슈 #2053 예산: 스폰당 cross_family 단계가 초 단위로 튀면 안
+        # 된다 — 로컬 fs 읽기뿐인 네 tier 스코어링은 1초 안에 끝나야 한다.
+        for i in range(20):
+            self._skill(self.repo_root, f"skill-repo-{i}",
+                       "Use when reviewing generic code quality issues.")
+            self._skill(self.home / ".claude" / "skills", f"local-user-{i}",
+                       "Use when reviewing generic code quality issues.")
+        import time
+        start = time.monotonic()
+        spawn._bm25_cross_family_scores(
+            "Review the code quality of this module.", "implementation",
+            self.repo_root, home=self.home, target_repo_root=self.target_repo)
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 1.0)
 
 
 if __name__ == "__main__":
