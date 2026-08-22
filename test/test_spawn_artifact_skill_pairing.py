@@ -95,7 +95,13 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
              mock.patch.object(spawn, "ledger_write", lambda *a, **k: None), \
              mock.patch.object(gh_rest, "fetch_issue",
                                lambda repo, issue: {"body": issue_body,
-                                                     "title": "t"}):
+                                                     "title": "t"}), \
+             mock.patch.object(spawn.Path, "home", lambda: work):
+            # 이슈 #2055: cross-family BM25 코퍼스가 이제 `~/.claude/skills`
+            # 도 본다 — 이 테스트는 그 tier 를 대상으로 하지 않으므로, 실행
+            # 환경의 실제 홈이 아니라 격리된 작업 디렉터리를 홈으로 준다
+            # (실제 `~/.claude/skills` 에 같은 이름의 스킬이 있으면 #2055
+            # 의 same-name fail-closed 가 정확히 의도대로 발동해버린다).
             rc = spawn._spawn_one(str(work), "implementation", "do the task",
                                   unattended=True, issue=issue, bounded=False,
                                   no_wait=True)
