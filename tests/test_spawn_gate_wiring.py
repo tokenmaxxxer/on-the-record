@@ -1,0 +1,836 @@
+from _spawn_test_support import *  # noqa: F401,F403
+
+
+class RepoConfigRefusal(unittest.TestCase):
+    def test_agents_and_mcp_are_rogue(self):
+        # 프로젝트 스코프 에이전트 파일은 hooks/permissionMode frontmatter 를
+        # 존중하고(sub-agents 문서), .mcp.json 은 레포가 적은 프로세스 실행
+        # 표면이다 — 실측된 레포-커밋-훅 탈출과 같은 부류.
+        for p in (".claude/agents", ".mcp.json"):
+            self.assertIn(p, spawn.REPO_CONFIG, p)
+
+    def test_refusal_fires_on_agents_dir(self):
+        with tempfile.TemporaryDirectory() as td:
+            (Path(td) / ".claude" / "agents").mkdir(parents=True)
+            with self.assertRaises(SystemExit):
+                spawn.require_no_repo_config(td, override=False)
+
+class WebToolPermissionAccess(unittest.TestCase):
+    """이슈 #65: #58 이 연 것은 샌드박스 네트워크 층(allowedDomains)뿐이었다.
+    headless 세션은 --permission-mode acceptEdits 로 뜨고 답할 사람이 없어서
+    permissions.allow 에 규칙이 없는 도구는 별개로 거부된다 — 그 TOOL-PERMISSION
+    층을 role_settings() 가 채우는지 검증한다."""
+
+    def test_web_tools_allowed_for_every_role(self):
+        for role_file in (Path(spawn.ROOT) / "roles").glob("*.json"):
+            role = role_file.stem
+            out = spawn.role_settings(role)
+            allow = out["permissions"]["allow"]
+            self.assertIn("WebSearch", allow, role)
+            self.assertIn("WebFetch", allow, role)
+
+    def test_read_only_tools_allowed_for_every_role(self):
+        """이슈 #153: Read/Grep/Glob 은 sandbox.filesystem 경계를 넓히지 않는
+        읽기 전용 조회이므로, WebSearch/WebFetch 와 같은 TOOL-PERMISSION 층에서
+        모든 역할에 대해 허용된다."""
+        for role_file in (Path(spawn.ROOT) / "roles").glob("*.json"):
+            role = role_file.stem
+            out = spawn.role_settings(role)
+            allow = out["permissions"]["allow"]
+            self.assertIn("Read", allow, role)
+            self.assertIn("Grep", allow, role)
+            self.assertIn("Glob", allow, role)
+
+    def test_role_declared_permissions_allow_entries_preserved(self):
+        """이슈 #38 의 registry-host 병합과 같은 패턴: 병합이지 교체가 아니다."""
+        f = Path(spawn.ROOT) / "roles" / "implementation.json"
+        original_text = f.read_text()
+        spec = json.loads(original_text)
+        spec["permissions"] = {"allow": ["Bash(git *)"]}
+        try:
+            f.write_text(json.dumps(spec))
+            out = spawn.role_settings("implementation")
+            allow = out["permissions"]["allow"]
+            self.assertIn("Bash(git *)", allow)
+            self.assertIn("WebSearch", allow)
+            self.assertIn("WebFetch", allow)
+        finally:
+            f.write_text(original_text)
+
+class WorkspaceBashAllowlist(unittest.TestCase):
+    """이슈 #558: 격리된 워크스페이스 안에서 정당한 venv/pip/테스트 스크립트
+    실행은 헤드리스 세션에서 답할 사람이 없어 하네스 권한 층에 거부된다
+    (2026-08-09 soongsil-course-registration 런 실측). role_settings 가
+    cwd 로 앵커링된 Bash 허용 항목을 스폰 시점에 채우는지, 그리고 그
+    항목이 전역이 아니라 그 cwd 로만 좁혀지는지 검증한다."""
+
+    def test_no_workspace_bash_allow_when_cwd_is_none(self):
+        out = spawn.role_settings("implementation")
+        allow = out["permissions"]["allow"]
+        self.assertFalse([a for a in allow if a.startswith("Bash(") and "venv" in a], allow)
+
+    def test_venv_and_pip_and_test_script_shapes_allowed_for_cwd(self):
+        cwd = "/tmp/muster-work/issue-558-implementation"
+        out = spawn.role_settings("implementation", cwd)
+        allow = out["permissions"]["allow"]
+        bash_entries = [a for a in allow if a.startswith("Bash(")]
+        self.assertTrue(any("venv" in a for a in bash_entries), bash_entries)
+        self.assertTrue(any("pip install" in a for a in bash_entries), bash_entries)
+        self.assertTrue(any("test/" in a for a in bash_entries), bash_entries)
+
+    def test_every_added_bash_entry_is_scoped_to_cwd(self):
+        cwd = "/tmp/muster-work/issue-558-implementation"
+        out = spawn.role_settings("implementation", cwd)
+        allow = out["permissions"]["allow"]
+        bash_entries = [a for a in allow if a.startswith("Bash(")]
+        for entry in bash_entries:
+            self.assertIn(cwd, entry, entry)
+
+    def test_different_cwds_produce_differently_anchored_entries(self):
+        out1 = spawn.role_settings("implementation", "/tmp/muster-work/issue-1")
+        out2 = spawn.role_settings("implementation", "/tmp/muster-work/issue-2")
+        bash1 = {a for a in out1["permissions"]["allow"] if a.startswith("Bash(")}
+        bash2 = {a for a in out2["permissions"]["allow"] if a.startswith("Bash(")}
+        self.assertTrue(bash1, bash1)
+        self.assertFalse(bash1 & bash2, bash1 & bash2)
+
+class MustMcpAllowEnv(unittest.TestCase):
+    """MUSTER_MCP_ALLOW: #58/#65 와 같은 TOOL-PERMISSION 결함이 사용자가 직접
+    붙인 MCP 서버에도 있다 — 서버는 연결되는데 도구 호출은 permissions.allow
+    에 규칙이 없어 거부된다(실측: reasona issue-3, world-data MCP,
+    permission_denials 에 mcp__world-data__korean_law__search_laws 가 남았다).
+    #58/#65 와 달리 대상 도구명을 tokenmaxxxer 코드가 미리 알 수 없으므로
+    (사용자마다 다른 이름의 개인 MCP 서버), 운영자가 스폰 시점에 콤마로
+    나열한다."""
+
+    def setUp(self):
+        self._saved = os.environ.pop("MUSTER_MCP_ALLOW", None)
+
+    def tearDown(self):
+        os.environ.pop("MUSTER_MCP_ALLOW", None)
+        if self._saved is not None:
+            os.environ["MUSTER_MCP_ALLOW"] = self._saved
+
+    def test_unset_env_leaves_allow_list_unchanged(self):
+        out = spawn.role_settings("implementation")
+        allow = out["permissions"]["allow"]
+        self.assertEqual(allow, ["WebSearch", "WebFetch", "Read", "Grep", "Glob"])
+
+    def test_single_pattern_is_merged_in(self):
+        os.environ["MUSTER_MCP_ALLOW"] = "mcp__world-data__korean_law__*"
+        out = spawn.role_settings("implementation")
+        self.assertIn("mcp__world-data__korean_law__*", out["permissions"]["allow"])
+
+    def test_multiple_patterns_with_whitespace_are_all_merged(self):
+        os.environ["MUSTER_MCP_ALLOW"] = (
+            " mcp__world-data__korean_law__* , mcp__world-data__finnhub__* ")
+        out = spawn.role_settings("implementation")
+        allow = out["permissions"]["allow"]
+        self.assertIn("mcp__world-data__korean_law__*", allow)
+        self.assertIn("mcp__world-data__finnhub__*", allow)
+
+    def test_empty_segments_between_commas_are_ignored(self):
+        os.environ["MUSTER_MCP_ALLOW"] = "mcp__world-data__korean_law__*,,  ,"
+        out = spawn.role_settings("implementation")
+        allow = out["permissions"]["allow"]
+        self.assertIn("mcp__world-data__korean_law__*", allow)
+        self.assertEqual(len(allow), 6)  # 5 고정 + 이 항목 하나뿐
+
+    def test_non_mcp_prefixed_entries_are_dropped(self):
+        """안전장치: 이 통로로 Write/Edit/Bash 처럼 board-gate/approval-gate
+        가 지키는 도구를 열 수 없다 — 운영자 실수로도, 접두사가 mcp__ 가
+        아니면 조용히 버린다."""
+        os.environ["MUSTER_MCP_ALLOW"] = "Bash,Write,Edit,mcp__world-data__korean_law__*"
+        out = spawn.role_settings("implementation")
+        allow = out["permissions"]["allow"]
+        self.assertIn("mcp__world-data__korean_law__*", allow)
+        self.assertNotIn("Bash", allow)
+        self.assertNotIn("Write", allow)
+        self.assertNotIn("Edit", allow)
+
+    def test_duplicate_within_env_var_is_not_duplicated_in_output(self):
+        os.environ["MUSTER_MCP_ALLOW"] = ("mcp__world-data__korean_law__*,"
+                                          "mcp__world-data__korean_law__*")
+        out = spawn.role_settings("implementation")
+        allow = out["permissions"]["allow"]
+        self.assertEqual(allow.count("mcp__world-data__korean_law__*"), 1)
+
+    def test_duplicate_against_role_declared_entry_is_not_duplicated(self):
+        f = Path(spawn.ROOT) / "roles" / "implementation.json"
+        original_text = f.read_text()
+        spec = json.loads(original_text)
+        spec["permissions"] = {"allow": ["mcp__world-data__korean_law__*"]}
+        os.environ["MUSTER_MCP_ALLOW"] = "mcp__world-data__korean_law__*"
+        try:
+            f.write_text(json.dumps(spec))
+            out = spawn.role_settings("implementation")
+            allow = out["permissions"]["allow"]
+            self.assertEqual(allow.count("mcp__world-data__korean_law__*"), 1)
+        finally:
+            f.write_text(original_text)
+
+    def test_applies_to_every_role_not_just_one(self):
+        os.environ["MUSTER_MCP_ALLOW"] = "mcp__world-data__korean_law__*"
+        for role_file in (Path(spawn.ROOT) / "roles").glob("*.json"):
+            role = role_file.stem
+            out = spawn.role_settings(role)
+            self.assertIn("mcp__world-data__korean_law__*",
+                          out["permissions"]["allow"], role)
+
+class RoleSessionSandboxRemoved(unittest.TestCase):
+    """이슈 #695: role_settings() 는 roles/*.json 이 무엇을 선언하든
+    sandbox.enabled 를 중앙에서 강제로 끈다 — 반복된 차단 버그(#38/#58/
+    #65/#72/#153)의 비용이 경계의 보호 가치를 넘어섰다는 운영자 결정."""
+
+    def test_sandbox_never_enabled_regardless_of_role_declaration(self):
+        """이슈 #695 인수 기준: 대표 역할(implementation)에 대해
+        role_settings() 출력이 활성 샌드박스를 갖지 않고, 오늘의
+        permissions.allow 항목은 그대로 남아있다."""
+        f = Path(spawn.ROOT) / "roles" / "implementation.json"
+        original_text = f.read_text()
+        spec = json.loads(original_text)
+        spec.setdefault("sandbox", {})["enabled"] = True
+        try:
+            f.write_text(json.dumps(spec))
+            out = spawn.role_settings("implementation")
+            self.assertFalse(out.get("sandbox", {}).get("enabled"))
+            allow = out["permissions"]["allow"]
+            for tool in ("WebSearch", "WebFetch", "Read", "Grep", "Glob"):
+                self.assertIn(tool, allow)
+        finally:
+            f.write_text(original_text)
+
+    def test_sandbox_disabled_for_every_role(self):
+        for role_file in (Path(spawn.ROOT) / "roles").glob("*.json"):
+            role = role_file.stem
+            out = spawn.role_settings(role)
+            self.assertFalse(out.get("sandbox", {}).get("enabled"), role)
+
+class Ledger(unittest.TestCase):
+    def test_appends_jsonl(self):
+        with tempfile.TemporaryDirectory() as td:
+            old = spawn.ROOT
+            spawn.ROOT = Path(td)
+            try:
+                p = spawn.ledger_write({"role": "execution-observation", "outcome": "progressed"})
+                p2 = spawn.ledger_write({"role": "review", "outcome": "errored"})
+            finally:
+                spawn.ROOT = old
+            self.assertEqual(p, p2)
+            lines = [json.loads(l) for l in p.read_text().splitlines()]
+            self.assertEqual([l["role"] for l in lines], ["execution-observation", "review"])
+
+    @pytest.mark.slow
+    def test_entry_carries_the_live_log_path(self):
+        # 이슈 #192 요구사항 2: ledger 엔트리의 `log` 필드가 그 세션이 실제
+        # 쓴 라이브 로그(로스터에 등록된 값)와 같아야, 세션 종료 뒤 그
+        # 로그를 session_id 로 되짚어 찾을 수 있다.
+        import subprocess as sp
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "issue-9-eo"
+            work.mkdir()
+            run = lambda *a: sp.run(a, cwd=str(work), capture_output=True,
+                                    text=True, check=True)
+            run("git", "init", "-q")
+            run("git", "config", "user.email", "t@example.com")
+            run("git", "config", "user.name", "t")
+            (work / "f.txt").write_text("x")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "init")
+
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+            entries = []
+            roster_calls = []
+            orig_roster_register = spawn.roster_register
+
+            def spy_roster_register(key, entry):
+                roster_calls.append((key, dict(entry)))
+                return orig_roster_register(key, entry)
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "ensure_pushed",
+                                       lambda *a, **k: None), \
+                     mock.patch.object(spawn, "roster_register",
+                                       spy_roster_register), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: ([], True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: entries.append(entry)):
+                    spawn._spawn_one(str(work), "execution-observation", "task\n",
+                                     unattended=True, issue=9)
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+
+            roster_entry = dict([e for k, e in roster_calls
+                                 if k == "issue-9/execution-observation"][0])
+            self.assertEqual(len(entries), 1, entries)
+            self.assertEqual(entries[0]["log"], roster_entry["log"])
+            self.assertTrue(Path(entries[0]["log"]).exists())
+
+    @pytest.mark.slow
+    def test_toolchain_cache_env_redirected_into_workspace(self):
+        """이슈 #406: cargo git 의존성이 홈 밖 쓰기로 승인 프롬프트에
+        막히지 않도록, GOCACHE 등과 같은 자리에서 CARGO_HOME 도
+        워크스페이스(.muster-cache) 안으로 재지정된다."""
+        import subprocess as sp
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "issue-9-eo"
+            work.mkdir()
+            run = lambda *a: sp.run(a, cwd=str(work), capture_output=True,
+                                    text=True, check=True)
+            run("git", "init", "-q")
+            run("git", "config", "user.email", "t@example.com")
+            run("git", "config", "user.name", "t")
+            (work / "f.txt").write_text("x")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "init")
+
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "ensure_pushed",
+                                       lambda *a, **k: None), \
+                     mock.patch.object(spawn, "roster_register",
+                                       lambda *a, **k: None), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: None), \
+                     mock.patch.object(spawn.subprocess, "Popen",
+                                       wraps=sp.Popen) as spied:
+                    spawn._spawn_one(str(work), "execution-observation", "task\n",
+                                     unattended=True, issue=9)
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+
+            env_calls = [c.kwargs["env"] for c in spied.call_args_list
+                         if "env" in c.kwargs]
+            self.assertTrue(env_calls, spied.call_args_list)
+            env = env_calls[0]
+            self.assertEqual(env.get("CARGO_HOME"),
+                             os.path.join(str(work), ".muster-cache", "cargo"))
+
+class RequireDoctor(unittest.TestCase):
+    def _with_root(self, td):
+        old = spawn.ROOT
+        spawn.ROOT = Path(td)
+        return old
+
+    def test_halts_without_doctor_pass(self):
+        with tempfile.TemporaryDirectory() as td:
+            old = self._with_root(td)
+            try:
+                with self.assertRaises(SystemExit):
+                    spawn.require_doctor(version="2.1.220 (Claude Code)")
+            finally:
+                spawn.ROOT = old
+
+    def test_halts_on_version_change(self):
+        # CLI 는 자동 업데이트된다. 훅이 headless 에서 도는 것은 문서가 아니라
+        # 실측이 보증한다 — 버전이 바뀌면 보증도 끝난다.
+        with tempfile.TemporaryDirectory() as td:
+            old = self._with_root(td)
+            try:
+                (Path(td) / "runs").mkdir()
+                (Path(td) / "runs" / "doctor-ok").write_text("2.1.219 (Claude Code)")
+                with self.assertRaises(SystemExit):
+                    spawn.require_doctor(version="2.1.220 (Claude Code)")
+            finally:
+                spawn.ROOT = old
+
+    def test_passes_on_match(self):
+        with tempfile.TemporaryDirectory() as td:
+            old = self._with_root(td)
+            try:
+                (Path(td) / "runs").mkdir()
+                (Path(td) / "runs" / "doctor-ok").write_text("2.1.220 (Claude Code)")
+                spawn.require_doctor(version="2.1.220 (Claude Code)")  # no raise
+            finally:
+                spawn.ROOT = old
+
+class FixtureShapeContracts(unittest.TestCase):
+    """이슈 #335: 픽스처 shape 이 실제 인터페이스에서 벗어나면 조용히
+    통과하는 대신 여기서 시끄럽게 실패해야 한다."""
+
+    GOLDEN_GH_PATH = os.path.join(
+        os.path.dirname(__file__), "fixtures", "golden",
+        "gh_paginate_slurp_sample.json")
+
+    def _golden_gh_payload(self):
+        with open(self.GOLDEN_GH_PATH, encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_gh_paginate_slurp_golden_sample_matches_own_shape_check(self):
+        # 실제 dependency(gh api)에 대해 완전히 검증되는 유일한 리그: 이
+        # 픽스처는 실측 캡처본이고(proposal 참고), 그 자체를 shape-check로
+        # 검증한다 — 체크가 자기 자신만 확인하는 게 아님을 보인다.
+        payload = self._golden_gh_payload()
+        shape_contracts.assert_gh_paginate_slurp_shape(payload)
+
+    def test_gh_paginate_slurp_shape_fails_loudly_on_missing_field(self):
+        payload = self._golden_gh_payload()
+        broken = [[dict(c) for c in page] for page in payload]
+        for page in broken:
+            for comment in page:
+                del comment["body"]
+        if not any(comment for page in broken for comment in page):
+            self.skipTest("golden sample has no comments to break")
+        with self.assertRaises(AssertionError) as cm:
+            shape_contracts.assert_gh_paginate_slurp_shape(broken)
+        self.assertIn("body", str(cm.exception))
+
+    def test_gh_paginate_slurp_shape_fails_on_non_list_page(self):
+        with self.assertRaises(AssertionError):
+            shape_contracts.assert_gh_paginate_slurp_shape([{"not": "a list"}])
+
+    def test_stream_event_shape_accepts_fixtures_spawn_py_reads(self):
+        _event("result", permission_denials=[{"tool_name": "Write"}])
+        _event("user", message={"content": [
+            {"type": "tool_result", "is_error": True, "tool_use_id": "t1",
+             "content": "boom"}]})
+        _event("assistant", message={"content": [
+            {"type": "tool_use", "id": "t1", "name": "Write", "input": {}}]})
+
+    def test_stream_event_shape_fails_when_fixture_missing_field_parser_reads(self):
+        # tool_use_id 가 spawn.py:1608 부근에서 상관관계 확인에 쓰인다 —
+        # 픽스처가 이 필드를 빠뜨리면 시끄럽게 실패해야 한다.
+        with self.assertRaises(AssertionError) as cm:
+            _event("user", message={"content": [
+                {"type": "tool_result", "is_error": True, "content": "boom"}]})
+        self.assertIn("tool_use_id", str(cm.exception))
+
+    def test_stream_event_shape_rejects_unknown_top_level_type(self):
+        # spawn.py 파서가 읽지 않는 필드를 픽스처가 선언하면(여기서는
+        # top-level type 자체가 파서 기대 밖) — 파서가 실제로 읽는 값
+        # 집합과 픽스처가 어긋났다는 뜻이므로 실패해야 한다.
+        with self.assertRaises(AssertionError):
+            shape_contracts.assert_claude_stream_event_shape({"type": "system"})
+
+
+class DryRunCwdValidation(unittest.TestCase):
+    """#288 N2: --dry-run 은 -C 를 검증하지 않고 세션 설정 JSON을 찍어
+    존재하지 않는 경로도 "검증됨"처럼 보이게 만들었다."""
+
+    def test_dry_run_rejects_nonexistent_cwd(self):
+        old_argv = sys.argv
+        sys.argv = ["spawn.py", "coding", "task", "--dry-run",
+                    "-C", "/nonexistent/path/does-not-exist-288"]
+        buf = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            with self.assertRaises(SystemExit) as cm:
+                spawn.main()
+        finally:
+            sys.stdout = old_stdout
+            sys.argv = old_argv
+        self.assertNotEqual(cm.exception.code, 0)
+        self.assertEqual(buf.getvalue(), "")
+
+    def test_dry_run_rejects_cwd_that_is_a_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            f = Path(td) / "plainfile"
+            f.write_text("x")
+            old_argv = sys.argv
+            sys.argv = ["spawn.py", "coding", "task", "--dry-run", "-C", str(f)]
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with self.assertRaises(SystemExit) as cm:
+                    spawn.main()
+            finally:
+                sys.stdout = old_stdout
+                sys.argv = old_argv
+            self.assertNotEqual(cm.exception.code, 0)
+            self.assertEqual(buf.getvalue(), "")
+
+class IssueArgValidation(unittest.TestCase):
+    """#288 N3: --issue 는 argparse type=int 라 0/음수/거대정수도 통과했다."""
+
+    def test_positive_int_accepts_valid(self):
+        self.assertEqual(spawn.positive_int("51"), 51)
+
+    def test_positive_int_rejects_zero(self):
+        with self.assertRaises(argparse.ArgumentTypeError):
+            spawn.positive_int("0")
+
+    def test_positive_int_rejects_negative(self):
+        with self.assertRaises(argparse.ArgumentTypeError):
+            spawn.positive_int("-5")
+
+    def test_issue_zero_rejected_at_parse_time_before_any_logic(self):
+        old_argv = sys.argv
+        sys.argv = ["spawn.py", "watch", "--issue", "0"]
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            with self.assertRaises(SystemExit) as cm:
+                spawn.main()
+        finally:
+            sys.stderr = old_stderr
+            sys.argv = old_argv
+        self.assertEqual(cm.exception.code, 2)
+
+    def test_issue_negative_rejected_at_parse_time(self):
+        old_argv = sys.argv
+        sys.argv = ["spawn.py", "watch", "--issue", "-5"]
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            with self.assertRaises(SystemExit) as cm:
+                spawn.main()
+        finally:
+            sys.stderr = old_stderr
+            sys.argv = old_argv
+        self.assertEqual(cm.exception.code, 2)
+
+class BoardNonNumericSubjectWarning(unittest.TestCase):
+    """#288 N4: board() 는 issue-NaN 같은 비숫자 issue-* 디렉터리를 아무
+    경고 없이 그냥 빼버렸다 — 서브젝트가 오케스트레이터 라우팅에서 조용히
+    사라졌다."""
+
+    def test_non_numeric_subject_dir_excluded_and_warned(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            docs = root / "docs"
+            good = docs / "issue-12" / "reports"
+            bad = docs / "issue-NaN" / "reports"
+            good.mkdir(parents=True)
+            bad.mkdir(parents=True)
+            role = spawn.ROLES[0]
+            (good / f"{role}.md").write_text("---\nloop_state: done\n---\nbody")
+            (bad / f"{role}.md").write_text("---\nloop_state: done\n---\nbody")
+
+            old_stderr = sys.stderr
+            sys.stderr = io.StringIO()
+            try:
+                found = spawn.board(root)
+                warned = sys.stderr.getvalue()
+            finally:
+                sys.stderr = old_stderr
+
+            self.assertIn("issue-12", found)
+            self.assertNotIn("issue-NaN", found)
+            self.assertIn("issue-NaN", warned)
+
+class DiagnoseHealth(unittest.TestCase):
+    """이슈 #782 스코프-확장: HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED."""
+
+    def setUp(self):
+        self._orig_pr = spawn._pr_open_or_merged_for_branch
+        self._orig_verdict = spawn.session_end_verdict
+
+    def tearDown(self):
+        spawn._pr_open_or_merged_for_branch = self._orig_pr
+        spawn.session_end_verdict = self._orig_verdict
+
+    def _entry(self, log, work=None, pid=None, issue=1, role="implementation"):
+        return {"log": str(log), "work": work, "ts": int(time.time()),
+                "pid": pid, "issue": issue, "role": role}
+
+    def test_healthy_when_alive_and_no_anomalies(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid()), state={})
+            self.assertEqual(out["state"], "HEALTHY")
+            self.assertEqual(out["next_action"], "none")
+
+    def test_stalled_when_alive_but_idle_past_threshold(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            stale = time.time() - (spawn.WATCHDOG_SILENCE_MIN + 5) * 60
+            os.utime(log, (stale, stale))
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid()), state={})
+            self.assertEqual(out["state"], "STALLED")
+            self.assertEqual(out["next_action"], "resume-watch")
+
+    def test_deadlocked_when_same_refusal_signature_repeats_no_progress(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = str(Path(td) / "work")
+            events_path = spawn._events_path(work)
+            for _ in range(spawn.DEADLOCK_MIN_REPEATS):
+                spawn._append_event(events_path, "gate-refusal",
+                                     {"gate": "g", "reason": "no"})
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=work, pid=os.getpid()), state={})
+            self.assertEqual(out["state"], "DEADLOCKED")
+            self.assertEqual(out["next_action"], "surface-repeating-cause")
+
+    def test_not_deadlocked_when_progress_event_follows_refusals(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = str(Path(td) / "work")
+            events_path = spawn._events_path(work)
+            for _ in range(spawn.DEADLOCK_MIN_REPEATS):
+                spawn._append_event(events_path, "gate-refusal",
+                                     {"gate": "g", "reason": "no"})
+            spawn._append_event(events_path, "progress", {"file_path": "x"})
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=work, pid=os.getpid()), state={})
+            self.assertNotEqual(out["state"], "DEADLOCKED")
+
+    def test_not_deadlocked_when_refusal_signatures_differ(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = str(Path(td) / "work")
+            events_path = spawn._events_path(work)
+            for i in range(spawn.DEADLOCK_MIN_REPEATS):
+                spawn._append_event(events_path, "gate-refusal",
+                                     {"gate": "g", "reason": f"no-{i}"})
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=work, pid=os.getpid()), state={})
+            self.assertNotEqual(out["state"], "DEADLOCKED")
+
+    def test_dead_errored_when_absent_from_ps_and_no_pr(self):
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn.session_end_verdict = lambda work, log_path, now=None: "crashed"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=str(Path(td) / "work"), pid=999999999),
+                state={})
+            self.assertEqual(out["state"], "DEAD-ERRORED")
+            self.assertEqual(out["next_action"], "respawn")
+
+    def test_completion_no_event_reports_none_state_when_pr_found(self):
+        # completion-no-event: 세션이 죽었는데 watch 이벤트가 없어도, PR 이
+        # 이미 열려 있으면(폴링이 gh pr list 로 확인) 이건 헬스 진단
+        # 대상이 아니라 completion — diagnose_health 는 조용히 비켜준다.
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: 42
+        spawn.session_end_verdict = lambda work, log_path, now=None: None
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=str(Path(td) / "work"), pid=999999999),
+                state={})
+            self.assertIsNone(out["state"])
+
+    def test_completion_no_event_reports_none_state_when_verdict_normal(self):
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn.session_end_verdict = lambda work, log_path, now=None: "normal"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=str(Path(td) / "work"), pid=999999999),
+                state={})
+            self.assertIsNone(out["state"])
+
+    def test_idle_no_double_act_reusing_precomputed_anomalies(self):
+        # idle-no-double-act: watchdog_check_one() 은 오프셋을 소비하는
+        # 부수효과가 있다 — 같은 틱에서 두 번 부르면 두 번째 호출이 빈
+        # 텍스트만 보고 신호를 놓친다. diagnose_health 에 미리 계산한
+        # anomalies 를 넘기면 이 이중-소비가 안 일어난다.
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            stale = time.time() - (spawn.WATCHDOG_SILENCE_MIN + 5) * 60
+            os.utime(log, (stale, stale))
+            entry = self._entry(log, pid=os.getpid())
+            state = {}
+            anomalies = spawn.watchdog_check_one("k", entry, state=state)
+            self.assertTrue(any("log-silence" in a for a in anomalies))
+            out = spawn.diagnose_health("k", entry, state=state, anomalies=anomalies)
+            self.assertEqual(out["state"], "STALLED")
+            # anomalies 를 넘겼으니 diagnose_health 가 watchdog_check_one 을
+            # 다시 부르지 않는다 — state["k"]["offset"] 이 그대로다(재소비 없음).
+            offset_after_first_call = state["k"]["offset"]
+            self.assertEqual(offset_after_first_call, log.stat().st_size)
+
+class RequirementIntakeValidityConsult(unittest.TestCase):
+    """issue-1024: intake with a validity-consult trace recorded passes;
+    intake without consult and without an explicit skip reason is
+    flagged."""
+
+    @classmethod
+    def setUpClass(cls):
+        gates_dir = str(Path(__file__).resolve().parent.parent / "gates")
+        if gates_dir not in sys.path:
+            sys.path.insert(0, gates_dir)
+        import requirement_intake_consult
+        cls.mod = requirement_intake_consult
+
+    def test_intake_with_consult_trace_passes(self):
+        body = "## Request\nAdd a thing.\n\nvalidity-consult: req-eng run, feasible.\n"
+        self.assertEqual(self.mod.check_issue_body(1024, body), [])
+
+    def test_intake_with_skip_trivial_passes(self):
+        body = "## Request\nFix a typo.\n\nvalidity-consult-skip: trivial\n"
+        self.assertEqual(self.mod.check_issue_body(1024, body), [])
+
+    def test_intake_without_consult_or_skip_is_flagged(self):
+        body = "## Request\nAdd a thing with no consult recorded.\n"
+        bad = self.mod.check_issue_body(1024, body)
+        self.assertTrue(bad)
+
+class RequireRequirementLinkageRemoteBranch(unittest.TestCase):
+    """issue-1042: `require_requirement_linkage` must detect a
+    remote-only `issue-N/*` branch as already-spawned (not misread as
+    never-spawned), and must still fall through to the requirement-linkage
+    check when no such branch exists at all — local or remote."""
+
+    def _git(self, cwd, *a):
+        return subprocess.run(["git", "-C", str(cwd), *a],
+                              capture_output=True, text=True)
+
+    def _init_repo(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+        self._git(path, "init", "-q")
+        self._git(path, "config", "user.email", "t@t.t")
+        self._git(path, "config", "user.name", "t")
+
+    def _make_marker(self, root):
+        (root / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "specs" / "approvers.md").write_text("- someone\n")
+
+    @pytest.mark.slow
+    def test_remote_branch_only_detected_as_already_spawned(self):
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "a.txt").write_text("base")
+            self._git(origin, "add", "a.txt")
+            self._git(origin, "commit", "-q", "-m", "base commit")
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            issue = 999902
+            br = f"issue-{issue}/implementation"
+            self._git(origin, "checkout", "-q", "-b", br)
+            (origin / "b.txt").write_text("work")
+            self._git(origin, "add", "b.txt")
+            self._git(origin, "commit", "-q", "-m", "issue branch commit")
+            self._git(origin, "checkout", "-q", base_branch)
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                                capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+            self._make_marker(work)
+
+            # 사전 조건: work 저장소엔 로컬 `br` 브랜치가 없다 — 원격
+            # 트래킹 참조로만 존재한다.
+            self.assertNotEqual(
+                self._git(work, "rev-parse", "--verify", "-q", br).returncode, 0)
+
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()):
+                spawn.require_requirement_linkage(str(work), issue)  # 예외 없이 통과해야 한다
+
+    def test_no_remote_branch_no_local_falls_through_to_requirement_linkage_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "work"
+            self._init_repo(work)
+            (work / "a.txt").write_text("base")
+            self._git(work, "add", "a.txt")
+            self._git(work, "commit", "-q", "-m", "base commit")
+            self._make_marker(work)
+
+            issue = 999903
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import requirement_linkage as _requirement_linkage
+
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()), \
+                 mock.patch.object(_requirement_linkage, "check", lambda root, iss: ["no requirement id cited"]):
+                with self.assertRaises(SystemExit):
+                    spawn.require_requirement_linkage(str(work), issue)
+
+class RequirementDigestScaffold(unittest.TestCase):
+    """issue #1695: `spawn.py init` scaffolds
+    `docs/specs/requirement-digest.md` on a fresh repo, never overwrites."""
+
+    def test_creates_stub_when_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            wrote = spawn.init_requirement_digest(str(root))
+            self.assertTrue(wrote)
+            dest = root / spawn.REQUIREMENT_DIGEST_MARKER
+            self.assertTrue(dest.is_file())
+            text = dest.read_text(encoding="utf-8")
+            self.assertRegex(text, r"\bR\d+\b")
+            self.assertIn("R-entry format", text)
+
+    def test_second_run_does_not_overwrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            dest = root / spawn.REQUIREMENT_DIGEST_MARKER
+            dest.parent.mkdir(parents=True)
+            custom = "- R1: hand-authored entry [enforced] (source: #1)\n"
+            dest.write_text(custom, encoding="utf-8")
+
+            wrote = spawn.init_requirement_digest(str(root))
+
+            self.assertFalse(wrote)
+            self.assertEqual(dest.read_text(encoding="utf-8"), custom)
+
+    def test_init_board_scaffolds_digest_alongside_approvers(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(
+                    subprocess, "run",
+                    return_value=subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="octocat\n")):
+                rc = spawn.init_board(str(root), login=None)
+            self.assertEqual(rc, 0)
+            self.assertTrue((root / spawn.MARKER).is_file())
+            self.assertTrue((root / spawn.REQUIREMENT_DIGEST_MARKER).is_file())
+
+    def test_init_board_leaves_existing_digest_untouched_on_second_call(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            with mock.patch.object(
+                    subprocess, "run",
+                    return_value=subprocess.CompletedProcess(
+                        args=[], returncode=0, stdout="octocat\n")):
+                spawn.init_board(str(root), login="octocat")
+                digest = root / spawn.REQUIREMENT_DIGEST_MARKER
+                custom = "- R7: already here [enforced] (source: #7)\n"
+                digest.write_text(custom, encoding="utf-8")
+
+                spawn.init_board(str(root), login="octocat")
+
+            self.assertEqual(digest.read_text(encoding="utf-8"), custom)
+
