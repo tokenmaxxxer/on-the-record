@@ -53,8 +53,24 @@ majority verdict wins:
 - 2 judges, agree → that verdict.
 - 2 judges, disagree (even split) → `partial`.
 
+**Mixed-vote tie rule:** any panel split with no strict majority — the
+3-judge three-way split or the 2-judge even split above — resolves to
+`partial`, never to a coin-flip or to whichever judge answered first.
+The row's evidence for a tie is the concatenation of every dissenting
+judge's own verdict and rationale (`"{verdict}: {evidence}"` per judge,
+joined by `; `), so the disagreement itself stays visible instead of
+being collapsed into one judge's opinion.
+
 Each row also carries `votes`, the raw list of per-lens verdicts, so
 the majority computation is auditable rather than opaque.
+
+## Evidence extraction
+
+A judge call returns a rationale (its `caveats`), not the raw judge
+JSON — a raw fragment like `"answer": "no",` in the evidence field is a
+defect, not evidence (issue #1999). If a judge returns no rationale at
+all, evidence is the literal string `judge-gave-no-rationale`, never an
+empty string or a JSON fragment.
 
 ## Row shape
 
