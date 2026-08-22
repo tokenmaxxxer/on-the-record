@@ -1,0 +1,2 @@
+{"subtype":"init","plugins":[{"name":"implementation-blueprint","path":"/home/x/.claude/skill-registry/skills/implementation-blueprint"}]}
+{"role":"assistant","content":[{"type":"text","text":"Following implementation-blueprint, I froze the module structure before writing code: src/foo.py owns parsing, src/bar.py owns rendering, and I documented the contract in a comment before fanning out."}]}
