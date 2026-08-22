@@ -2545,6 +2545,7 @@ class ReturnedPrGate(unittest.TestCase):
             return real_popen(cmd, *a, **k)
 
         return [
+            mock.patch.dict(os.environ, {"MUSTER_WORK_DIR": str(work.parent / "sweep-base")}),
             mock.patch.object(spawn, "issue_workspace",
                                lambda cwd, issue, role: str(work)),
             mock.patch.object(spawn, "checkout_issue_branch",
