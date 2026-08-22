@@ -37,6 +37,10 @@ set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
+# issue #2016 phase 2: cheap bash-level short-circuit before the python3 spawn below --
+# skip the interpreter launch entirely when the raw payload plainly can't match this
+# gate's own command-shape condition (checked again, authoritatively, in python).
+grep -qE 'gh[[:space:]]+pr[[:space:]]+(create|edit)' <<<"$payload" || exit 0
 command -v python3 >/dev/null 2>&1 || exit 0
 
 IFS='' read -r -d '' GUARD <<'PY' || true
