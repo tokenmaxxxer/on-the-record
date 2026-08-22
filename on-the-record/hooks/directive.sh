@@ -7,6 +7,17 @@
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
+# issue #2028: append-only fire counter -- the #2016 survey left "how
+# often does Stop/UserPromptSubmit actually fire per session" an
+# unmeasured open finding. One line per firing, written before any
+# kill-switch/role short-circuit below so the count reflects every real
+# trip of this hook, not just the ones that go on to do work. Lives under
+# the session workspace (the target repo this hook fires in, same
+# per-workspace convention GREETED_MARKER below already uses), never the
+# shared on-the-record checkout. Best-effort: a write failure here must
+# never turn into a directive failure.
+{ printf '%s UserPromptSubmit directive.sh\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$(pwd -P)/.orchestrate-hook-fires.log"; } 2>/dev/null || true
+
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 # A spawned role session is never the orchestrator, even if the plugin leaks in.
 [ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
