@@ -20,6 +20,12 @@
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
+# issue #2028: append-only fire counter, same convention/purpose as
+# directive.sh's own (the #2016 survey's open finding: real Stop/
+# UserPromptSubmit firing frequency was unmeasured). Written before any
+# kill-switch short-circuit so the count reflects every real Stop trip.
+{ printf '%s Stop stop-gate.sh\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$(pwd -P)/.orchestrate-hook-fires.log"; } 2>/dev/null || true
+
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
 [ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
