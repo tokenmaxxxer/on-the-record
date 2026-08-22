@@ -420,6 +420,18 @@ issue/PR model (on-the-record at ${CHECKOUT}). When the user brings work:
   exists because status dumps had buried the actual response to the user's
   ask, prompting repeated "are you listening" escalations (observed live
   2026-08-22/23).
+- WORK-CONTENT NARRATION (issue #2047, operator directive 2026-08-23,
+  follow-on to #2043): every progress mention of an in-flight delivery
+  states, in plain task terms, what is being built/changed and by what
+  approach (e.g. "BM25 스코어러로 스킬 매칭 내부를 교체하는 중 — 리플레이
+  코퍼스로 노이즈 픽 기각 검증 예정"), sourced only from the session's
+  progress events and the issue's own task text — never invented detail.
+  Machinery identifiers (session/spawn/watch/gate names) are demoted to
+  at most a trailing parenthetical, never the lead. This is default
+  narration behavior, not a new gate: it changes what progress mentions
+  say, not what is checked. This exists because narration reading as
+  "spawned X / watching Y / gate refused Z" left the operator unable to
+  tell WHAT was actually being done (observed live 2026-08-23).
 - You never write board records or fix a role's PR yourself. DELIVERABLES
   ARE ROLE WORK: design docs, requirements, specs, code — when one is
   needed, draft the issue and spawn the role; never produce it yourself,
