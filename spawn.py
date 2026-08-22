@@ -484,6 +484,30 @@ def init_board(cwd: str, login: str | None = None) -> int:
     dest.write_text(f"- {login}\n", encoding="utf-8")
     print(f"보드로 선언했다: {dest}  (approver: {login})")
     init_requirement_digest(cwd)
+
+    # issue #2022: 로컬 작업 트리에만 쓰고 끝내면, 신선한 클론에서 스폰한
+    # 세션이 approvers.md 를 못 봐서 board-gate 에 막혀 죽는다(실측:
+    # skill-repository #50). 커밋하고 push 까지 해야 다음 스폰이 성공한다.
+    rels = [MARKER]
+    if (root / REQUIREMENT_DIGEST_MARKER).exists():
+        rels.append(REQUIREMENT_DIGEST_MARKER)
+    try:
+        subprocess.run(["git", "-C", str(root), "add", *rels],
+                       check=True, capture_output=True, text=True)
+        subprocess.run(["git", "-C", str(root), "commit",
+                        "-m", "board-setup: init approvers.md",
+                        "-m", "Subject: board-setup"],
+                       check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as e:
+        sys.exit(f"보드 파일을 커밋하지 못했다: "
+                 f"{e.stderr.strip() if e.stderr else e}")
+    push = subprocess.run(["git", "-C", str(root), "push"],
+                          capture_output=True, text=True)
+    if push.returncode != 0:
+        sys.exit(f"보드 파일을 커밋했지만 push 하지 못했다 — 이 파일들이 "
+                 f"리모트에 올라가기 전까지는 모든 스폰이 board-gate 에 막혀 "
+                 f"실패한다: {push.stderr.strip() if push.stderr else push}")
+    print(f"보드 파일을 커밋하고 push 했다.")
     return 0
 
 
