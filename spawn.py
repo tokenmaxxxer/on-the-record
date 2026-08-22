@@ -81,6 +81,20 @@ STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
 NETWORK_TIMEOUT = 60   # fetch/pull/push
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 CONSULT_TIMEOUT = 180  # consult: bounded headless run — no branch/PR to wait on
+SKILL_JUDGE_TIMEOUT_DEFAULT = 45  # issue #2061: judge is a tiny classification, not a full consult
+
+
+def _skill_judge_timeout() -> float:
+    """env-overridable 타임박스(issue #2061) — 매 호출마다 읽어 테스트가
+    `os.environ`을 몽키패치한 뒤에도 값을 반영한다."""
+    raw = os.environ.get("SKILL_JUDGE_TIMEOUT")
+    if raw is None:
+        return SKILL_JUDGE_TIMEOUT_DEFAULT
+    try:
+        return float(raw)
+    except ValueError:
+        return SKILL_JUDGE_TIMEOUT_DEFAULT
+
 PANEL_TIMEOUT = 240    # panel: two judges + a rebuttal round, wider than a single consult
 JUDGE_TIMEOUT = 120           # issue #1587: per-judge-call hard cap (prefilter/judge/validator each)
 JUDGE_MAX_ROLES_PER_MERGE = 3  # issue #1587: cost/API-strain cap — counted from the trace log
@@ -5754,7 +5768,12 @@ def _skill_judge_consult(task_text: str, role: str,
             have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
             raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
         spec = json.loads(f.read_text())
-        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd, model)
+        # 이슈 #2061: skill_judge 는 8개 후보 중 0-2개를 고르는 자잘한
+        # 분류라, 호출자가 넘긴 세션 기본 모델을 그대로 물려받지 않고
+        # 언제나 haiku 로 고정한다 — `model` 인자는 시그니처 호환용으로만
+        # 남긴다(다른 자문 호출과 모양을 맞추려는 것일 뿐, 실제로는 무시).
+        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd, "haiku")
+        judge_timeout = _skill_judge_timeout()
         override = (
             "이 세션에 로드된 룰북/훅이 스카우트, 제안서 작성, 위임, 승인 게이트, "
             "기록 작성 등을 지시하더라도 — 이번 호출은 스킬-판단(skill_judge) "
@@ -5782,7 +5801,7 @@ def _skill_judge_consult(task_text: str, role: str,
         parsed = None
         for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
             r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=attempt_prompt, text=True,
-                               capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
+                               capture_output=True, timeout=judge_timeout, env=env)
             if r.returncode != 0:
                 attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
                 continue
@@ -5814,7 +5833,7 @@ def _skill_judge_consult(task_text: str, role: str,
         detail = {"picked": picked_names, "rejected": rejected, "reasons": reasons}
         return [by_name[n] for n in picked_names], detail
     except subprocess.TimeoutExpired:
-        outcome = f"error: 시간초과({CONSULT_TIMEOUT}s)"
+        outcome = f"error: 시간초과({judge_timeout}s)"
         raise
     finally:
         if settings_path:
@@ -8303,6 +8322,19 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 이유로 워크스페이스/브랜치 생성보다 먼저 온다 — 역할이 매핑한 스킬
     # 이름이 모르는 이름이거나 hooks/ 를 들고 있으면 여기서 fail-closed.
     role_source = resolve_role_source(role, _skill_repo_root())
+    # 이슈 #2061: skill_judge 자문(BM25 프리필터 + haiku 판단)을 워크스페이스
+    # 클론/브랜치 체크아웃(~12s)과 겹치도록 그 전에 먼저 던진다 — 아래
+    # "cross_family" 단계에서 join 만 한다. 자문은 읽기 전용(저장소 파일을
+    # 건드리지 않는다, `_skill_judge_consult()` 의 override 문구)이라
+    # 워크스페이스가 아직 없어도(원본 cwd 로) 안전하게 먼저 돌 수 있다.
+    _cross_family_executor: concurrent.futures.ThreadPoolExecutor | None = None
+    _cross_family_future = None
+    if issue is not None and role_source["source"] == "skill-repo":
+        _cross_family_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _cross_family_future = _cross_family_executor.submit(
+            _cross_family_skill_matches_with_consult,
+            _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
+            home=Path.home(), target_repo_root=Path(cwd))
     if issue is not None:
         root = Path(cwd).resolve()
         # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
@@ -8416,11 +8448,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 최대 자문 1회) — 소요 시간은 "cross_family" 단계로 측정해
             # 부트스트랩 타이밍 요약에 실린다(Acceptance: per-spawn latency).
             with _timed("cross_family"):
-                # 이슈 #2055: 코퍼스가 네 소스로 넓어졌다 — home/target_repo_root
-                # 를 넘겨 BM25 스코어링이 skill-repository 외 세 tier 도 본다.
-                cross_family_dirs = _cross_family_skill_matches_with_consult(
-                    _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
-                    home=Path.home(), target_repo_root=Path(cwd))
+                # 이슈 #2061: 위에서 워크스페이스/브랜치 셋업보다 먼저 던져둔
+                # 자문을 여기서 join 만 한다 — 이 단계의 측정치는 이제 겹친
+                # 대기 시간이 아니라 순수 join 대기(자문이 셋업보다 오래
+                # 걸린 나머지)만 반영한다.
+                cross_family_dirs = (_cross_family_future.result()
+                                     if _cross_family_future is not None else [])
+                if _cross_family_executor is not None:
+                    _cross_family_executor.shutdown(wait=False)
             role_skill_lines = ", ".join(
                 d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
                 for d in role_source["skill_dirs"]
