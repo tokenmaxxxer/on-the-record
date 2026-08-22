@@ -4734,6 +4734,13 @@ class PollHeartbeatMarkerRelocationTest(unittest.TestCase):
                 return mock.Mock(returncode=0, stdout=json.dumps(payload))
             if args[:3] == ["gh", "pr", "list"]:
                 return mock.Mock(returncode=0, stdout="[]")
+            if args[:3] == ["gh", "repo", "view"]:
+                return mock.Mock(returncode=0, stdout="owner/repo\n")
+            if args[:2] == ["gh", "api"] and len(args) > 2 and args[2].startswith("repos/") and args[2].endswith("/pulls"):
+                return mock.Mock(returncode=0, stdout="[]")
+            if args[:2] == ["gh", "api"] and len(args) > 2 and args[2].startswith("repos/") and args[2].endswith("/issues") and "-i" in args:
+                payload = [{"number": n, "state": "open"} for n in range(1, 201)]
+                return mock.Mock(returncode=0, stdout="200\n\n" + json.dumps(payload))
             return mock.Mock(returncode=0, stdout="")
 
         orig_board = spawn.board
