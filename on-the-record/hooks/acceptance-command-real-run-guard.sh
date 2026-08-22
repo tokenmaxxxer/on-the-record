@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse (Bash): deny-before-effect gate on a `git commit` staging an
-# `acceptance: <command> — result: PASS|FAIL` citation (the #870/#892
+# `acceptance: <command>` / `result: PASS|FAIL` citation (the #870/#892
 # citation shape) whose claimed result does not match an ACTUAL re-run of
 # that command against the REAL current target — issue #914 step 2,
 # mechanism (a) (generalizes #870 candidate-b), sibling to
@@ -13,7 +13,7 @@
 # result: ...` shape is already in its accepted vocabulary). What #892
 # never checks is whether the cited command actually ran, this turn,
 # against the real current tree, and actually produced the claimed
-# result — a stale or fabricated `acceptance: pytest — result: PASS`
+# result — a stale or fabricated `acceptance: pytest` / `result: PASS`
 # line satisfies #892 identically to a genuine one. This guard closes
 # that gap by re-running the cited command itself at commit time.
 #
@@ -54,6 +54,10 @@ set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
+# issue #2016 phase 2: cheap bash-level short-circuit before the python3 spawn below --
+# skip the interpreter launch entirely when the raw payload plainly can't match this
+# gate's own command-shape condition (checked again, authoritatively, in python).
+{ grep -qF 'git' <<<"$payload" && grep -qF 'commit' <<<"$payload"; } || exit 0
 command -v python3 >/dev/null 2>&1 || { trap - EXIT; exit 0; }
 command -v git >/dev/null 2>&1 || { trap - EXIT; exit 0; }
 

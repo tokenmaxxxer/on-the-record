@@ -5,12 +5,20 @@
 # design (docs/issue-374/proposals/2026-08-07-decision-queue-stop-hook-nudge.md)
 # into this issue's acceptance-named file.
 #
-# Two age tiers, read fresh every turn from `spawn.py flows --json`'s
-# decision_queue (already-correct data, per #374's survey — nothing new is
-# computed here):
+# Two age tiers, read from `spawn.py flows --json`'s decision_queue
+# (already-correct data, per #374's survey — nothing new is computed here):
 #   age_hours >= 1 -> additionalContext reminder, non-blocking.
 #   age_hours >= 4 -> decision:"block", forcing one more turn.
 # Below tier 1, or an empty queue -> silent (exit 0, no output).
+#
+# Issue #2016 phase 2: `spawn.py flows --json` is a `gh`-backed network
+# round trip (~4.6s measured, docs/issue-2016/reports/performance-
+# engineering/survey.md bucket 5) paid again on every single Stop turn.
+# The two age tiers this hook acts on are hour-granularity, so a short
+# per-repo TTL cache (default 60s, OTR_FLOWS_CACHE_TTL) trades at most
+# that many seconds of staleness -- irrelevant against 1h/4h thresholds
+# -- for skipping the network call on every Stop turn inside the window.
+# OTR_FLOWS_CACHE_TTL=0 disables caching (always fetch fresh).
 #
 # Resolves the on-the-record checkout the same way directive.sh does.
 # Kill switches: ORCHESTRATE_OFF=1, CLAUDE_ROLE set (spawned role session).
@@ -53,7 +61,26 @@ CHECKOUT="$(_checkout_resolve || true)"
 command -v python3 >/dev/null 2>&1 || exit 2
 
 REPO="$(pwd -P)"
-FLOWS_JSON="$(python3 "$CHECKOUT/spawn.py" flows --json -C "$REPO" 2>/dev/null || true)"
+
+CACHE_TTL="${OTR_FLOWS_CACHE_TTL:-60}"
+CACHE_DIR="${OTR_FLOWS_CACHE_DIR:-${TMPDIR:-/tmp}/otr-flows-cache}"
+CACHE_KEY="$(printf '%s|%s' "$REPO" "$CHECKOUT" | cksum | awk '{print $1}')"
+CACHE_FILE="$CACHE_DIR/$CACHE_KEY.json"
+FLOWS_JSON=""
+if [ "$CACHE_TTL" -gt 0 ] 2>/dev/null && [ -f "$CACHE_FILE" ]; then
+  now="$(date +%s)"
+  mtime="$(stat -c %Y "$CACHE_FILE" 2>/dev/null || stat -f %m "$CACHE_FILE" 2>/dev/null || echo 0)"
+  if [ -n "$mtime" ] && [ $(( now - mtime )) -lt "$CACHE_TTL" ]; then
+    FLOWS_JSON="$(cat "$CACHE_FILE" 2>/dev/null || true)"
+  fi
+fi
+if [ -z "$FLOWS_JSON" ]; then
+  FLOWS_JSON="$(python3 "$CHECKOUT/spawn.py" flows --json -C "$REPO" 2>/dev/null || true)"
+  if [ -n "$FLOWS_JSON" ] && [ "$CACHE_TTL" -gt 0 ] 2>/dev/null; then
+    mkdir -p "$CACHE_DIR" 2>/dev/null
+    printf '%s' "$FLOWS_JSON" > "$CACHE_FILE" 2>/dev/null || true
+  fi
+fi
 [ -n "$FLOWS_JSON" ] || { trap - EXIT; exit 0; }
 
 IFS='' read -r -d '' CHECK <<'PY' || true
