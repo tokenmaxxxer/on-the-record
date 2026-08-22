@@ -44,6 +44,26 @@ class ParseDeclarationTest(unittest.TestCase):
         body = "Build the thing.\n\ndesign-artifacts:\n\nSome other paragraph.\n"
         self.assertEqual(dag.parse_declaration(body), [])
 
+    def test_one_line_comma_form_parses_as_none(self):
+        # issue #2037: this shape falls through to None -- malformed_declaration_line
+        # is what catches it and refuses loudly, not parse_declaration itself.
+        body = "Build the thing.\n\ndesign-artifacts: a.md, b.md, c.md\n"
+        self.assertIsNone(dag.parse_declaration(body))
+
+
+class MalformedDeclarationLineTest(unittest.TestCase):
+    def test_one_line_comma_form_is_flagged(self):
+        body = "Build the thing.\n\ndesign-artifacts: a.md, b.md, c.md\n"
+        self.assertEqual(dag.malformed_declaration_line(body),
+                          "design-artifacts: a.md, b.md, c.md")
+
+    def test_well_formed_bulleted_declaration_is_not_flagged(self):
+        body = "Build.\n\ndesign-artifacts:\n- a.md\n- b.md\n"
+        self.assertIsNone(dag.malformed_declaration_line(body))
+
+    def test_no_token_is_not_flagged(self):
+        self.assertIsNone(dag.malformed_declaration_line("Fix the watcher pid liveness check."))
+
 
 class MissingArtifactsTest(unittest.TestCase):
     def test_all_present_yields_empty(self):
@@ -86,6 +106,19 @@ class CheckAcceptancePathsTest(unittest.TestCase):
             self.assertEqual(len(violations), 1)
             self.assertIn("scenarios.md", violations[0])
             self.assertIn("flow.md", violations[0])
+
+    def test_declared_one_line_comma_form_refuses_loudly(self):
+        # issue #2037 acceptance: a one-line "design-artifacts: a.md, b.md"
+        # declaration must refuse quoting the required tag+bullet shape,
+        # not silently pass as an undeclared issue.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            body = "Build.\n\ndesign-artifacts: a.md, b.md\n"
+            with mock.patch.object(dag.gh_rest, "fetch_issue_body", return_value=body):
+                violations = dag.check(repo, 5)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("design-artifacts:", violations[0])
+            self.assertIn("- path/one.md", violations[0])
 
     def test_fetch_failure_fails_closed_with_actionable_message(self):
         with tempfile.TemporaryDirectory() as tmp, \
