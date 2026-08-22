@@ -1,0 +1,2 @@
+{"subtype":"init","plugins":[{"name":"implementation-blueprint","path":"/home/x/.claude/skill-registry/skills/implementation-blueprint"}]}
+{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"src/foo.py"}}]}
