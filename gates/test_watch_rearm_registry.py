@@ -148,6 +148,80 @@ class WatchRearmRegistry(unittest.TestCase):
         self.assertEqual(rc, 0)
         popen.assert_not_called()
 
+    def test_rearm_replaces_alive_but_event_silent_watcher(self):
+        """이슈 #1975: pid 는 살아있고 신원도 진짜인데(_watcher_looks_real
+        통과) 워처 로그가 WATCHDOG_SILENCE_MIN 분 넘게 조용한 동안 세션
+        로그는 계속 자란 경우 — --rearm 이 옛 워처를 종료하고 새 워처를
+        등록해야 한다."""
+        old_proc = subprocess.Popen(
+            ["sleep", "60"], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: old_proc.poll() is None and old_proc.kill())
+        self.assertTrue(spawn._alive(old_proc.pid))
+
+        stale_armed_at = time.time() - (spawn.WATCHDOG_SILENCE_MIN + 5) * 60
+        self._put_entry(watcher_pid=old_proc.pid, watcher_armed_at=stale_armed_at)
+        watcher_log = Path(str(self.work_dir) + ".watcher.log")
+        watcher_log.write_text("old watcher output\n")
+        os.utime(watcher_log, (stale_armed_at, stale_armed_at))
+        session_log = Path(str(self.work_dir) + ".log")
+        session_log.write_text("session progressed after watcher went quiet\n")
+        self.assertGreater(session_log.stat().st_mtime, stale_armed_at)
+
+        new_proc = subprocess.Popen(
+            ["sleep", "60"], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: new_proc.poll() is None and new_proc.kill())
+        with mock.patch.object(spawn, "_watcher_looks_real", return_value=True), \
+                mock.patch.object(spawn.subprocess, "Popen") as popen:
+            fake_proc = mock.Mock()
+            fake_proc.pid = new_proc.pid
+            popen.return_value = fake_proc
+            rc = spawn._rearm_watcher_detached(
+                self.issue, self.role, 5.0, repo=self.repo)
+        self.assertEqual(rc, 0)
+        popen.assert_called_once()
+
+        # 옛 워처가 실제로 종료됐는지(SIGTERM) 살아있는 프로세스로 확인한다.
+        old_proc.wait(timeout=5)
+        self.assertFalse(spawn._alive(old_proc.pid))
+
+        # 새 워처가 등록됐고 실제로 살아있는지(=emits 가능 상태) 확인한다.
+        self.assertTrue(spawn._alive(new_proc.pid))
+        idx = json.loads(spawn.WORKSPACE_INDEX.read_text())
+        self.assertEqual(idx[self.key]["watcher_pid"], new_proc.pid)
+        self.assertNotEqual(idx[self.key]["watcher_pid"], old_proc.pid)
+
+    def test_rearm_leaves_genuinely_healthy_watcher_untouched(self):
+        """이슈 #1975 빈 상태: 워처 로그가 최근에도 계속 써지는(=건강한)
+        워처는 --rearm 이 절대 교체하면 안 된다."""
+        healthy_proc = subprocess.Popen(
+            ["sleep", "60"], stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: healthy_proc.poll() is None and healthy_proc.kill())
+        self.assertTrue(spawn._alive(healthy_proc.pid))
+
+        armed_at = time.time() - 5 * 60  # 5분 전 무장 — 침묵 한도에 한참 못 미침
+        self._put_entry(watcher_pid=healthy_proc.pid, watcher_armed_at=armed_at)
+        watcher_log = Path(str(self.work_dir) + ".watcher.log")
+        watcher_log.write_text("recent watcher output\n")  # mtime = now = 건강함
+        session_log = Path(str(self.work_dir) + ".log")
+        session_log.write_text("session progressed\n")
+
+        with mock.patch.object(spawn, "_watcher_looks_real", return_value=True), \
+                mock.patch.object(spawn.subprocess, "Popen") as popen:
+            rc = spawn._rearm_watcher_detached(
+                self.issue, self.role, 5.0, repo=self.repo)
+        self.assertEqual(rc, 0)
+        popen.assert_not_called()
+
+        # 건강한 옛 워처는 그대로 살아있어야 한다 — 교체되지 않았다.
+        self.assertTrue(spawn._alive(healthy_proc.pid))
+        idx = json.loads(spawn.WORKSPACE_INDEX.read_text())
+        self.assertEqual(idx[self.key]["watcher_pid"], healthy_proc.pid)
+        healthy_proc.kill()
+        healthy_proc.wait(timeout=5)
+
     def test_rearm_passes_repo_context_for_mismatched_cwd(self):
         """이슈 #1133 재오픈: detached 자식이 `spawn.py watch ...`를 repo
         컨텍스트 없이 재실행하면, 실제 운영에서처럼 프로세스의 cwd 가

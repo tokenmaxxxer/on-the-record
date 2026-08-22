@@ -26,6 +26,7 @@ import hashlib
 import io
 import json
 import os
+import signal
 import stat
 import string
 import subprocess
@@ -4743,10 +4744,41 @@ def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: flo
         current_watcher_pid = entry.get("watcher_pid")
         if (current_watcher_pid is not None and
                 _watcher_looks_real(current_watcher_pid, issue, rearm_role)):
+            # 이슈 #1975: pid 생존(및 신원 확인)만으로는 관측성을 보장하지
+            # 않는다 — 워처는 살아있는데 이벤트가 흐르지 않는 "alive but
+            # event-silent" 상태를 못 잡으면 --rearm 이 그 상태를 회복
+            # 불가능하게 만든다(실측: 92분 무응답). watchdog signal 6(위
+            # `_health_anomalies` 의 watcher-silent 판정)과 같은 기준으로,
+            # 워처 로그가 armed 이후로 WATCHDOG_SILENCE_MIN 분 넘게 조용한
+            # *동시에* 세션 로그가 그 이후로도 계속 자랐으면(진행은 있는데
+            # 워처만 먹통) 죽은 워처와 동일하게 취급해 교체한다. 세션 로그가
+            # 같이 멈춰 있으면(세션 자체가 정지) 오탐이라 교체하지 않는다.
+            stale = False
+            silence_min = None
+            armed_at = entry.get("watcher_armed_at")
+            watcher_log_path = Path(str(work) + ".watcher.log")
+            if armed_at is not None and watcher_log_path.exists():
+                w_mtime = watcher_log_path.stat().st_mtime
+                baseline = max(w_mtime, float(armed_at))
+                silence_min = (time.time() - baseline) / 60
+                if silence_min > WATCHDOG_SILENCE_MIN:
+                    session_log_path = Path(str(log_path)) if log_path else None
+                    if (session_log_path is not None and session_log_path.exists()
+                            and session_log_path.stat().st_mtime > baseline):
+                        stale = True
+            if not stale:
+                print(f"[watch] issue-{issue}/{rearm_role}: 워처 pid "
+                      f"{current_watcher_pid} 이미 살아있다 — 재무장 안 함",
+                      file=sys.stderr)
+                return 0
             print(f"[watch] issue-{issue}/{rearm_role}: 워처 pid "
-                  f"{current_watcher_pid} 이미 살아있다 — 재무장 안 함",
-                  file=sys.stderr)
-            return 0
+                  f"{current_watcher_pid} 는 살아있지만 {int(silence_min)}분째 "
+                  f"event-silent (세션 로그는 진행 중) — 옛 워처를 종료하고 "
+                  f"재무장한다", file=sys.stderr)
+            try:
+                os.kill(current_watcher_pid, signal.SIGTERM)
+            except OSError:
+                pass
         watcher_log = Path(str(work) + ".watcher.log")
         resolved_cwd = str(Path(cwd if cwd is not None else ".").resolve())
         try:
