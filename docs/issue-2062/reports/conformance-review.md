@@ -233,6 +233,21 @@ merely the implementer's account). R5 is Unverifiable by the issue's
 own design — not a defect, a scope boundary the issue itself names as
 checkable only after this PR lands and a future consumer spawn occurs.
 
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5381558954 (JiwonJung94,
+2026-08-22T17:00:35Z) — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5381558954`
+(this session). The comment states the change landed via PR #2063
+(+fixture finalization d0c85fec, the same commit this review's R1-R4
+evidence was gathered against) and reports a fetched-worktree fast-tier
+run as fully green; it adds no new requirement beyond issue #2062's own
+body/Acceptance text already extracted as R1-R5 above, so no additional
+requirement item is opened. Its fast-tier count claim (2588, all green)
+is the commenter's own account from a separate session, not re-verified
+by this review — this review's own R1-R4 evidence above is this
+session's independent re-run against the same commit, not a citation of
+that account.
+
 ## Next steps
 
 None from this review. R5 will need its own check once a real
