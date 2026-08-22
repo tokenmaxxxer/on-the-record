@@ -65,6 +65,13 @@ def t_response_ordering_obligation_present():
     assert "pure-status turn" in _DIRECTIVE
 
 
+def t_work_content_narration_obligation_present():
+    assert "WORK-CONTENT NARRATION (issue #2047" in _DIRECTIVE
+    assert "never invented detail" in _DIRECTIVE
+    assert "trailing parenthetical" in _DIRECTIVE
+    assert "not a new gate" in _DIRECTIVE
+
+
 def t_assumption_ledger_obligation_present_and_names_gate_module():
     assert "ASSUMPTION-LEDGER INVENTED-CONFIRM AT INTAKE (issue #1665)" in _DIRECTIVE
     assert "gates/assumption_ledger.py" in _DIRECTIVE
