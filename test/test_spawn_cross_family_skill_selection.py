@@ -1,11 +1,13 @@
-"""이슈 #2001: family 세트는 그대로 두고(add-only), 스폰 태스크 텍스트와
-크로스-패밀리 스킬의 SKILL.md "Use ..." 트리거 문장을 결정론적 키워드
-겹침으로 채점해 top-K(K=2) 를 추가로 마운트한다.
+"""이슈 #2001/#2040: family 세트는 그대로 두고(add-only), 스폰 태스크 텍스트와
+크로스-패밀리 스킬의 SKILL.md "Use ..." 트리거 문장을 BM25(이슈 #2040 —
+raw 겹침-카운트 대체)로 채점해 상위 후보를 skill_judge 자문에 넘기고,
+자문이 조건-매치로 고른 것만(최대 K=2) 추가로 마운트한다.
 
 acceptance: 매치되는 태스크는 마운트 목록이 정확히 그 스킬만큼(최대 K=2)
 늘고 디렉티브에도 실린다; 매치 안 되는 태스크는 마운트/디렉티브가 오늘과
 바이트 단위로 동일하다 — 둘 다 라이브(serial, -o addopts='')로 검증한다.
 """
+import json
 import subprocess
 import sys
 import tempfile
@@ -28,7 +30,7 @@ class TokenizeTest(unittest.TestCase):
         self.assertEqual(spawn._tokenize("a the or and is an use when"), set())
 
 
-class CrossFamilySkillMatchesTest(unittest.TestCase):
+class Bm25CrossFamilySkillMatchesTest(unittest.TestCase):
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.repo_root = Path(self._tmpdir.name)
@@ -57,11 +59,22 @@ class CrossFamilySkillMatchesTest(unittest.TestCase):
             "implementation", self.repo_root)
         self.assertEqual(matches, [d])
 
-    def test_below_threshold_single_shared_token_no_match(self):
-        self._skill("some-other-skill",
-                     "Use when reviewing generic code quality issues.")
+    def test_single_shared_token_still_scores_positive_under_bm25(self):
+        # 이슈 #2040: BM25 floor 는 score>0(질의-문서 토큰 1개 이상 겹침) —
+        # raw-overlap 시절의 고정 임계값(>=2) 은 더 이상 없다. 단어 하나
+        # 겹침으로 여기서 스코어링되는 저품질 후보를 걷어내는 건 이제
+        # skill_judge 자문 단계의 몫(ConsultJudgeStageTest 참고).
+        d = self._skill("some-other-skill",
+                        "Use when reviewing generic code quality issues.")
         matches = spawn._cross_family_skill_matches(
             "Write some code today.", "implementation", self.repo_root)
+        self.assertEqual(matches, [d])
+
+    def test_no_shared_token_no_match(self):
+        self._skill("some-other-skill",
+                     "Use when reviewing generic quality issues.")
+        matches = spawn._cross_family_skill_matches(
+            "Deploy the widget frobnicator.", "implementation", self.repo_root)
         self.assertEqual(matches, [])
 
     def test_family_skill_never_returned_as_cross_family_candidate(self):
@@ -146,7 +159,18 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         role_source = {"source": "skill-repo", "skill_dirs": [],
                        "skills": [], "skill_sha": None}
 
-        with mock.patch.object(spawn, "issue_workspace",
+        # 이슈 #2040: 크로스-패밀리 선택이 이제 BM25 + skill_judge 자문을
+        # 거친다 — 이 테스트들은 BM25 프리필터 자체(매치/비매치, 결정론)를
+        # 검증하는 게 목적이라, 자문 단계는 "BM25 상위를 그대로 받아들인다"
+        # 로 스텁해 오늘의 테스트 기대치(마운트 = BM25 top-k)를 그대로
+        # 재사용한다. 자문 자체의 판단/트레이스/fail-open 동작은
+        # ConsultJudgeStageTest 가 별도로 검증한다.
+        def stub_with_consult(task_text, role, repo_root, issue, cwd, k=2, model=None):
+            return spawn._cross_family_skill_matches(task_text, role, repo_root, k=k)
+
+        with mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
+                               stub_with_consult), \
+             mock.patch.object(spawn, "issue_workspace",
                                lambda cwd, issue, role: str(work)), \
              mock.patch.object(spawn, "checkout_issue_branch",
                                lambda cwd, issue, role: "b"), \
@@ -220,6 +244,112 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         self.assertEqual(mounted_a, mounted_b)
         self.assertEqual(mounted_a, [])
         self.assertNotIn("accessibility-aria-and-contrast-rules", delivered_a)
+
+
+class ConsultJudgeStageTest(unittest.TestCase):
+    """이슈 #2040: BM25 상위 후보를 skill_judge 자문에 넘기는 단계 —
+    picked/rejected/reasons 트레이스 로깅과, 자문 에러시 BM25 top-k
+    fail-open 을 검증한다."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.repo_root = Path(self._tmpdir.name)
+        self.work = Path(self._tmpdir.name) / "work"
+        self.work.mkdir()
+        run = lambda *a: subprocess.run(a, cwd=str(self.work), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (self.work / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def _skill(self, name, use_sentence):
+        d = self.repo_root / name
+        d.mkdir(parents=True)
+        (d / "SKILL.md").write_text(
+            "---\n"
+            f"name: {name}\n"
+            f"description: >-\n"
+            f"  Intro text. {use_sentence}\n"
+            "---\n\n# body\n", encoding="utf-8")
+        return d
+
+    def _trace_text(self, issue=2040):
+        return (self.work / "docs" / f"issue-{issue}" / "reports"
+                / "consult-log.md").read_text(encoding="utf-8")
+
+    def test_success_logs_picked_rejected_reasons_and_returns_picked_paths(self):
+        picked_dir = self._skill(
+            "accessibility-aria-and-contrast-rules",
+            "Use when deciding an ARIA role for a landing page.")
+        rejected_dir = self._skill(
+            "model-routing",
+            "Use this skill on EVERY non-trivial task in any domain.")
+        candidates = [(picked_dir.name, picked_dir), (rejected_dir.name, rejected_dir)]
+        session_json = json.dumps({"result": json.dumps({
+            "picked": ["accessibility-aria-and-contrast-rules"],
+            "rejected": [{"name": "model-routing",
+                          "reason": "trigger is deliberately maximal, no condition match"}],
+            "reasons": {"accessibility-aria-and-contrast-rules":
+                        "task literally asks for ARIA role on a landing page"},
+        })})
+        with mock.patch.object(spawn, "_consult_cmd_and_env",
+                               lambda role, spec, cwd, model: (["cat"], {}, None)), \
+             mock.patch.object(spawn.subprocess, "run",
+                               lambda *a, **k: subprocess.CompletedProcess(
+                                   a, 0, stdout=session_json, stderr="")):
+            picked, detail = spawn._skill_judge_consult(
+                "Build a landing page and fix its ARIA role.", "implementation",
+                candidates, 2040, str(self.work))
+        self.assertEqual(picked, [picked_dir])
+        self.assertEqual(detail["picked"], ["accessibility-aria-and-contrast-rules"])
+        self.assertEqual(detail["rejected"][0]["name"], "model-routing")
+        trace = self._trace_text()
+        self.assertIn("verb=skill_judge", trace)
+        self.assertIn("accessibility-aria-and-contrast-rules", trace)
+        self.assertIn("model-routing", trace)
+
+    def test_consult_error_raises_and_still_traces(self):
+        candidates = [("some-skill", self.repo_root / "some-skill")]
+        with mock.patch.object(spawn, "_consult_cmd_and_env",
+                               lambda role, spec, cwd, model: (["cat"], {}, None)), \
+             mock.patch.object(spawn.subprocess, "run",
+                               lambda *a, **k: subprocess.CompletedProcess(
+                                   a, 1, stdout="", stderr="boom")):
+            with self.assertRaises(RuntimeError):
+                spawn._skill_judge_consult(
+                    "some task", "implementation", candidates, 2040, str(self.work))
+        self.assertIn("verb=skill_judge", self._trace_text())
+
+    def test_fail_open_to_bm25_topk_on_consult_error(self):
+        d1 = self._skill("aaa-skill",
+                         "Use when a landing page needs contrast accessible review.")
+        d2 = self._skill("bbb-skill",
+                         "Use when a landing page needs contrast accessible review.")
+        with mock.patch.object(spawn, "_skill_judge_consult",
+                               side_effect=RuntimeError("consult boom")):
+            matches = spawn._cross_family_skill_matches_with_consult(
+                "Build a landing page that needs contrast accessible review.",
+                "implementation", self.repo_root, 2040, str(self.work), k=2)
+        bm25_top2 = spawn._cross_family_skill_matches(
+            "Build a landing page that needs contrast accessible review.",
+            "implementation", self.repo_root, k=2)
+        self.assertEqual(matches, bm25_top2)
+        self.assertEqual(matches, [d1, d2])
+
+    def test_no_bm25_candidates_skips_consult_entirely(self):
+        self._skill("some-skill", "Use when deploying a widget frobnicator.")
+        with mock.patch.object(spawn, "_skill_judge_consult") as m:
+            matches = spawn._cross_family_skill_matches_with_consult(
+                "Completely unrelated vocabulary here.", "implementation",
+                self.repo_root, 2040, str(self.work))
+        m.assert_not_called()
+        self.assertEqual(matches, [])
 
 
 if __name__ == "__main__":
