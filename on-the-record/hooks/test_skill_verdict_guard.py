@@ -178,7 +178,7 @@ def t_both_assembly_points_union_without_double_count():
         _write_record(
             repo,
             "---\nloop_state: landed\n---\n\n"
-            "skill-verdict: implementation-blueprint — applied: used it.\n"
+            "skill-verdict: implementation-blueprint — applied: invoked; used it.\n"
             "skill-verdict: code-architecture — not-applicable: n/a.\n\n"
             "## What did not work\nNone.\n")
         r = _run(repo, transcript)
@@ -194,7 +194,41 @@ def t_satisfied_skill_verdicts_pass():
         _write_record(
             repo,
             "---\nloop_state: landed\n---\n\n"
+            "skill-verdict: implementation-blueprint — applied: invoked; "
+            "used it at spawn.py:8181.\n\n"
+            "## What did not work\nNone.\n")
+        r = _run(repo, transcript)
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_applied_line_without_invocation_marker_is_blocked():
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo)
+        transcript = _write_transcript(repo, _MOUNTED_LINE)
+        _write_record(
+            repo,
+            "---\nloop_state: landed\n---\n\n"
             "skill-verdict: implementation-blueprint — applied: used it at spawn.py:8181.\n\n"
+            "## What did not work\nNone.\n")
+        r = _run(repo, transcript)
+        assert r.returncode == 0
+        out = json.loads(r.stdout)
+        ctx = out["hookSpecificOutput"]["additionalContext"]
+        assert "implementation-blueprint" in ctx
+        assert "invoke-before-apply" in ctx or "invoked;" in ctx
+
+
+def t_not_applicable_line_needs_no_invocation_marker():
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo)
+        transcript = _write_transcript(repo, _MOUNTED_LINE)
+        _write_record(
+            repo,
+            "---\nloop_state: landed\n---\n\n"
+            "skill-verdict: implementation-blueprint — not-applicable: n/a.\n\n"
             "## What did not work\nNone.\n")
         r = _run(repo, transcript)
         assert r.returncode == 0
