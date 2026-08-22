@@ -1222,8 +1222,6 @@ class IssueScopedPrompt(unittest.TestCase):
             self.assertEqual([p for p, _ in prep].count("branch"), 1, prep)
 
 
-@pytest.mark.slow
-
 class WorkspaceReuseOriginMismatch(unittest.TestCase):
     """#288 N5: 작업 경로에 우연히 다른 origin 을 가진 레포가 이미 있으면
     재사용 분기로 들어가 fetch 실패를 네트워크 문제로 오보했다."""

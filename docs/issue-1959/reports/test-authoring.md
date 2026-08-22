@@ -221,3 +221,67 @@ acceptance: the run above — result: one failure, `test_sweep_call_budget` in t
 
 canonical: python3 -m pytest tests/test_gh_quota_guard.py -q -o addopts="" -k test_sweep_call_budget run against a scratch worktree of `origin/main` (commit 40794c2a), this session, 2026-08-22
 acceptance: the run above — result: identical failure (1 failed, 4 deselected) and identical gh-call list, so this failure predates and is independent of this rebase/migration; out of this issue's scope (test-tiers/quota-guard behavior, not concern-split organization).
+
+## Slow-marker repair (reviewer finding on rebased PR #1973)
+
+The split dropped @pytest.mark.slow membership: two placement defects, both
+introduced in commit d3bae048 (the original split commit).
+
+canonical: python3 -m pytest tests/ -m slow --collect-only -q run against a scratch worktree of main (commit 1022baab), this session, 2026-08-22
+```
+98/920 tests collected (822 deselected) in 0.52s
+```
+
+canonical: python3 -m pytest tests/ -m slow --collect-only -q on this branch before the repair, this session, 2026-08-22
+```
+68/923 tests collected (855 deselected) in 0.17s
+```
+
+derived: diff between main's collected slow-marked IDs and this branch's pre-repair collected slow-marked IDs (file-prefix stripped, sorted), this session, 2026-08-22
+```
+$ diff /tmp/main_slow_ids.txt /tmp/branch_slow_ids.txt
+10,40d9
+< EventReporting::test_actually_opened_pr_fires_pr_opened
+  (... 29 more EventReporting:: lines omitted ...)
+88a58
+> WorkspaceReuseOriginMismatch::test_ssh_vs_https_origin_form_is_not_treated_as_mismatch
+```
+acceptance: the diff above — result: 30 EventReporting tests (20-105s subprocess tests, now in tests/test_spawn_board_flows.py) lost the class-level slow marker, and WorkspaceReuseOriginMismatch::test_ssh_vs_https_origin_form_is_not_treated_as_mismatch (tests/test_spawn_pipeline.py) gained one it never had on main.
+
+canonical: grep -n "class EventReporting\|class ProgressEvents\|class WorkspaceReuseOriginMismatch\|@pytest.mark.slow" against a scratch worktree of main's tests/test_spawn.py (commit 1022baab), this session, 2026-08-22
+```
+2583:@pytest.mark.slow
+2584:class EventReporting(unittest.TestCase):
+3206:@pytest.mark.slow
+3207:class ProgressEvents(unittest.TestCase):
+9046:class WorkspaceReuseOriginMismatch(unittest.TestCase):
+9061:    @pytest.mark.slow
+9062:    def test_foreign_origin_at_work_path_is_refused_by_identity(self):
+9094:    def test_ssh_vs_https_origin_form_is_not_treated_as_mismatch(self):
+```
+acceptance: the grep above — result: on pre-split main, EventReporting and ProgressEvents each carried their own separate class-level @pytest.mark.slow; the split preserved only the ProgressEvents one (tests/test_spawn_board_flows.py:676) and dropped EventReporting's, so EventReporting's 20-105s subprocess tests fell into the fast tier and hung it. Also on pre-split main, WorkspaceReuseOriginMismatch carries no class-level marker — only test_foreign_origin_at_work_path_is_refused_by_identity has its own method-level @pytest.mark.slow; test_ssh_vs_https_origin_form_is_not_treated_as_mismatch has none — but the split added a stray class-level @pytest.mark.slow above WorkspaceReuseOriginMismatch in tests/test_spawn_pipeline.py, over-marking the second test as slow.
+
+Fix: restored @pytest.mark.slow immediately above class EventReporting in tests/test_spawn_board_flows.py, and removed the stray class-level @pytest.mark.slow above WorkspaceReuseOriginMismatch in tests/test_spawn_pipeline.py (the method-level marker on test_foreign_origin_at_work_path_is_refused_by_identity there already covers the one test that should stay slow).
+
+The tests migrated into the split files after the rebase in commit b87c4050
+(SkillInvocationNudge's two nudge tests and the four heartbeat-classifier
+DiagnoseHealth tests) are fast unit tests with no subprocess/sleep cost and
+carry no slow marker on either side of the rebase — no reclassification
+needed for them.
+
+canonical: python3 -m pytest tests/ -m slow --collect-only -q on this branch after the repair, this session, 2026-08-22
+```
+98/923 tests collected (825 deselected) in 0.21s
+```
+
+derived: diff between main's collected slow-marked IDs and this branch's post-repair collected slow-marked IDs (file-prefix stripped, sorted), this session, 2026-08-22
+```
+$ diff /tmp/main_slow_ids.txt /tmp/branch_slow_ids2.txt
+```
+acceptance: the diff above — result: empty output, slow-marked test IDs now match pre-split main exactly.
+
+canonical: python3 -m pytest tests/test_spawn_board_flows.py tests/test_spawn_pipeline.py -m "not slow" -q, this session, 2026-08-22
+```
+138 passed in 45.22s
+```
+acceptance: the run above — result: 138 passed, fast tier for these two files no longer includes EventReporting's subprocess tests.

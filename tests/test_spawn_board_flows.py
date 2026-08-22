@@ -51,6 +51,7 @@ class OwnershipReport(unittest.TestCase):
     def test_paths_outside_the_board_are_not_its_business(self):
         self.assertEqual(spawn.ownership_report("/x", "execution-observation", ["src/app.py"]), [])
 
+@pytest.mark.slow
 class EventReporting(unittest.TestCase):
     """issue #129 phase 2: `.events.jsonl` 기록의 정확성 — 실측된 오탐 3건
     (gate-refusal 오탐 2건, pr-opened 중복 1건)을 보존된 fixture 로 재현.
