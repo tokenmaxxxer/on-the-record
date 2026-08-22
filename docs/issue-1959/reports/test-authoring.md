@@ -1,5 +1,5 @@
 ---
-code_under_review: 122c0acd7bdee7997b4698f5996536caa562326e
+code_under_review: b87c4050
 loop_state: landed
 type: refactor
 breaking: false
@@ -160,3 +160,64 @@ only the `test-tiers.json` edit and the old-monolith deletion — a
 batched `git add` with a stale pathspec silently skipped the six new
 split files and `_spawn_test_support.py`, so they landed in a required
 follow-up commit (122c0acd) instead of the intended single commit.
+
+## Rebase-onto-main repair (PR #1973 stale-revert refusal)
+
+PR #1973 (this branch's original PR) was refused by the stale-revert
+guard: deleting the pre-rebase monolith file (since removed from this
+branch by commit b1285905 and no longer present anywhere in the tree)
+would have reverted content `main` gained after this branch's
+merge-base — the `SkillInvocationNudge` class (issue-1960 phase B,
+#1965) and four new `DiagnoseHealth` heartbeat-classifier tests plus a
+`gh`-stub fixture repair in `PollHeartbeatMarkerRelocationTest`
+(issue-1966/#1968, issue-1969/#1971, issue-1745/#1974).
+
+canonical: `git rebase origin/main` on this branch, this session,
+2026-08-22 — the only conflict was modify/delete on the pre-rebase
+monolith path (main's edits vs. this branch's deletion), resolved by
+removing that path from the tree since its content already lives in the
+split files.
+
+Followed the split's own existing allocation, not a fresh judgment call:
+- `SkillInvocationNudge` landed next to `PreambleWarning` in
+  `tests/test_spawn_observation_recovery.py` (same file the pre-rebase
+  split already placed `PreambleWarning`/`GitHead` in — adjacent
+  task-preamble-source-string assertions, same concern).
+- The four `DiagnoseHealth` heartbeat-classifier tests
+  (`test_advisory_heartbeat_only_stall_for_observed_hang_shape`,
+  `test_healthy_when_substantive_lines_interleaved_with_heartbeats`,
+  `test_advisory_heartbeat_only_state_never_reaches_kill_refusal_or_gate_action`,
+  `test_unmeasurable_log_without_heartbeat_tag_stays_healthy`) landed
+  inside the existing `DiagnoseHealth` class body in
+  `tests/test_spawn_gate_wiring.py` — main's diff added them to the same
+  `DiagnoseHealth` class this split had already placed there; no new
+  class, no new file.
+- The `gh repo view`/`gh api .../pulls`/`gh api .../issues` stub branches
+  landed in the same `fake_run` closure inside
+  `PollHeartbeatMarkerRelocationTest`
+  (`tests/test_spawn_observation_recovery.py`), where main's diff added
+  them.
+
+canonical: python3 -m pytest tests/ -q -o addopts="" --collect-only (this session, 2026-08-22)
+```
+923 tests collected in 0.37s
+```
+acceptance: the collect-only run above — result: matches origin/main's post-rebase count exactly.
+
+canonical: same collect-only command run against a scratch worktree of `origin/main` (commit 40794c2a), this session, 2026-08-22
+```
+923 tests collected in 0.54s
+```
+acceptance: the worktree run above — result: 923 == 923, this branch's post-rebase count equals current main's count.
+
+canonical: python3 -m pytest tests/test_spawn_observation_recovery.py tests/test_spawn_gate_wiring.py -q -o addopts="" -k "SkillInvocationNudge or DiagnoseHealth or PollHeartbeatMarkerRelocationTest" (this session, 2026-08-22)
+acceptance: the run above — result: 21 passed, 206 deselected, 1 xfailed, 1 xpassed in 9.82s, no SKIPPED lines.
+
+canonical: python3 -m pytest tests/test_gates.py tests/test_gh_quota_guard.py tests/test_consult_trace_root.py tests/test_spawn_judge.py -q -o addopts="" (this session, 2026-08-22)
+```
+1 failed, 136 passed, 5 xfailed, 1 xpassed in 32.59s
+```
+acceptance: the run above — result: one failure, `test_sweep_call_budget` in tests/test_gh_quota_guard.py, a `10 <= 8` gh-call-count assertion.
+
+canonical: python3 -m pytest tests/test_gh_quota_guard.py -q -o addopts="" -k test_sweep_call_budget run against a scratch worktree of `origin/main` (commit 40794c2a), this session, 2026-08-22
+acceptance: the run above — result: identical failure (1 failed, 4 deselected) and identical gh-call list, so this failure predates and is independent of this rebase/migration; out of this issue's scope (test-tiers/quota-guard behavior, not concern-split organization).
