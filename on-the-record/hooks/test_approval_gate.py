@@ -138,6 +138,47 @@ def test_approvers_present_approved_allows(repo, bin_dir, target):
     assert r.returncode == 0, r.stderr
 
 
+# --- line-anchored APPROVE token (issue #2021) -------------------------------
+
+RATIONALE_COMMENTS = [
+    {"body": f"APPROVE {BRANCH}\n\nlooks good, verified the diff.", "author": {"login": "octocat"}}
+]
+LEADING_TEXT_COMMENTS = [
+    {"body": f"ok APPROVE {BRANCH}", "author": {"login": "octocat"}}
+]
+TRAILING_TEXT_SAME_LINE_COMMENTS = [
+    {"body": f"APPROVE {BRANCH} looks good", "author": {"login": "octocat"}}
+]
+NON_APPROVER_COMMENTS = [
+    {"body": f"APPROVE {BRANCH}", "author": {"login": "mallory"}}
+]
+
+
+def test_first_line_exact_token_with_rationale_below_allows(repo, bin_dir):
+    r = _run(repo, bin_dir, RECORD_PATH, RATIONALE_COMMENTS, approvers_present=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_bare_token_comment_still_allows(repo, bin_dir):
+    r = _run(repo, bin_dir, RECORD_PATH, APPROVED_COMMENTS, approvers_present=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_leading_text_before_token_denies(repo, bin_dir):
+    r = _run(repo, bin_dir, RECORD_PATH, LEADING_TEXT_COMMENTS, approvers_present=True)
+    assert r.returncode == 2, r.stderr
+
+
+def test_trailing_text_same_line_as_token_denies(repo, bin_dir):
+    r = _run(repo, bin_dir, RECORD_PATH, TRAILING_TEXT_SAME_LINE_COMMENTS, approvers_present=True)
+    assert r.returncode == 2, r.stderr
+
+
+def test_non_approver_author_denies(repo, bin_dir):
+    r = _run(repo, bin_dir, RECORD_PATH, NON_APPROVER_COMMENTS, approvers_present=True)
+    assert r.returncode == 2, r.stderr
+
+
 def test_approvers_absent_approved_still_denies(repo, bin_dir):
     # approvers.md presence is checked before the APPROVE comment lookup —
     # absence must never be bypassed by an otherwise-matching comment.
