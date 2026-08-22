@@ -1,0 +1,3 @@
+{"subtype":"init","plugins":[{"name":"implementation-blueprint","path":"/home/x/.claude/skill-registry/skills/implementation-blueprint"}]}
+{"role":"user","content":[{"type":"text","text":"design-artifacts:\n- plan/ia.md\n\n아티팩트-스킬 짝짓기(이슈 #2014): 선언된 각 아티팩트를 그것을 만드는 절차를 담은 스킬과 짝지었다.\nplan/ia.md ↔ implementation-blueprint — Use whenever you are about to produce non-trivial code spanning multiple modules or files\nplan/missing.md ↔ implementation-blueprint — Use whenever you are about to produce non-trivial code spanning multiple modules or files\n"}]}
+{"role":"assistant","content":[{"type":"text","text":"Built the IA per the paired skill."}]}
