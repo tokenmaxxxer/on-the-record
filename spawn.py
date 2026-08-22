@@ -8077,10 +8077,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # phase-1 드래프트 시점에 구조적으로 막는다).
         req_line = ""
         goal_pin = ""
+        body = None
+        _design_artifacts_gate = None
         try:
             sys.path.insert(0, str((ROOT / "gates").resolve()))
             import gh_rest as _gh_rest
             import requirement_linkage as _requirement_linkage
+            import design_artifacts_gate as _design_artifacts_gate
             issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
             body = issue_data.get("body") if issue_data else None
             title = issue_data.get("title") if issue_data else None
@@ -8167,6 +8170,46 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 "마운트된 스킬 목록을 이번 과제와 대조하라. trigger 조건이 "
                 "이번 과제에 그럴듯하게 들어맞는 스킬이 있으면 Skill 도구로 "
                 "호출하고, 없으면 검토했다는 사실만 유념하고 넘어가라.\n")
+        # 이슈 #2014 (artifact-gate phase 3): `design-artifacts:` 선언이
+        # 있으면 선언된 각 아티팩트 경로를, 그 basename 이 마운트된 스킬들의
+        # 트리거 문장과 가장 많이 겹치는 스킬 하나와 짝지어 한 줄씩 붙인다
+        # (#2013 parse_declaration + #1978B/#2001 tokenize/trigger 재사용,
+        # 새 fetch 없음 — body 는 spawn.py:8085 에서 이미 받았다). 태그가
+        # 없거나(parse_declaration 이 None) 어떤 아티팩트도 마운트된
+        # 스킬과 겹치지 않으면 이 블록은 아무 것도 안 붙인다(제안서
+        # Constraints — byte-identical on absence).
+        declared_artifacts = _design_artifacts_gate.parse_declaration(body) \
+            if body is not None and _design_artifacts_gate is not None else None
+        if declared_artifacts:
+            artifact_all_dirs = list(skill_dirs) + [
+                d for d in role_source["skill_dirs"] if d not in skill_dirs]
+            artifact_all_dirs = artifact_all_dirs + [
+                d for d in cross_family_dirs if d not in artifact_all_dirs]
+            pairing_lines = []
+            for artifact_path in declared_artifacts:
+                basename = Path(artifact_path).stem
+                artifact_tokens = _tokenize(basename)
+                if not artifact_tokens:
+                    continue
+                scored: list[tuple[int, str, Path]] = []
+                for d in artifact_all_dirs:
+                    trigger = _skill_trigger_line(d)
+                    if not trigger:
+                        continue
+                    overlap = len(artifact_tokens & _tokenize(trigger))
+                    if overlap > 0:
+                        scored.append((overlap, d.name, d))
+                if not scored:
+                    continue
+                scored.sort(key=lambda t: (-t[0], t[1]))
+                _, best_name, best_dir = scored[0]
+                pairing_lines.append(
+                    f"{artifact_path} ↔ {best_name} — {_skill_trigger_line(best_dir)}")
+            if pairing_lines:
+                task = task + (
+                    "\n\n아티팩트-스킬 짝짓기(이슈 #2014): 선언된 각 아티팩트를 "
+                    "그것을 만드는 절차를 담은 스킬과 짝지었다.\n"
+                    + "\n".join(pairing_lines) + "\n")
     # 이슈 #1955: 역할은 룰북을 아예 마운트하지 않는다 — rulebook 해석
     # 경로 자체가 은퇴했다(요구사항: 룰북 마운트가 "붙었지만 무시됨"이
     # 아니라 argv 에서 통째로 빠져야 한다는 #1758 요구사항 2를 무조건화).
