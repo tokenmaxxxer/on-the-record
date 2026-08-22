@@ -107,11 +107,25 @@ def first_user_text(path):
     return None
 
 
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+
 def extract_names(line_body):
     """`line_body` is everything after the assembly point's own colon
-    (e.g. "이슈 #1742/#1774): a, b (...), c — ..."). Split on top-level
-    commas, then take each item's leading name token before its first
-    "(" or " — "."""
+    (e.g. "이슈 #1742/#1774): a, b (...), c — Use ...trigger., ...").
+
+    Issue #2057: a naive split on every comma fragments a skill's own
+    trigger sentence -- spawn.py:8318-8361 joins entries with ", " but
+    each entry's optional trigger is itself free text that commonly
+    contains internal commas (e.g. "Use when a class's coupling ...
+    crosses a threshold, a caller chains ..."). spawn.py's own trigger
+    regex (`_SKILL_USE_SENTENCE_RE = r"(Use\\b[^.]*\\.)"`) guarantees a
+    trigger never contains a literal "." except its own terminating one,
+    so a trigger's internal commas can be told apart from a real
+    top-level, entry-separating comma: only split on a comma that sits
+    outside both parens (depth 0) AND outside an unterminated "Use ..."
+    trigger sentence.
+    """
     # Drop the leading "이슈 #.../..): " citation clause before the
     # actual comma-joined name list, if present.
     m = re.match(r"^[^:]*:\s*(.*)$", line_body)
@@ -120,13 +134,40 @@ def extract_names(line_body):
     # the actual comma-joined name list (the --skills line has no such
     # label) -- strip it so it isn't parsed as part of the first name.
     body = re.sub(r"^스킬\s+", "", body)
+
+    parts = []
+    depth = 0
+    in_use = False
+    start = 0
+    n = len(body)
+    i = 0
+    while i < n:
+        ch = body[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth = max(0, depth - 1)
+        elif not in_use and depth == 0 and body[i:i + 4] == "Use ":
+            in_use = True
+        elif in_use and ch == ".":
+            in_use = False
+        elif ch == "," and depth == 0 and not in_use:
+            parts.append(body[start:i])
+            start = i + 1
+        i += 1
+    parts.append(body[start:])
+
     names = []
-    for item in body.split(","):
+    for item in parts:
         item = item.strip()
         if not item:
             continue
         item = re.split(r"\s+—\s+|\s+\(", item, maxsplit=1)[0].strip()
-        if item:
+        # A real skill name is a bare identifier token -- discard any
+        # split remainder still carrying spaces/parens/prose (e.g. the
+        # trailing "(skill-repository <sha>) 가이던스만 붙는다 ..." tail
+        # and cross-family parenthetical, which name no new skill).
+        if item and _NAME_RE.match(item):
             names.append(item)
     return names
 
