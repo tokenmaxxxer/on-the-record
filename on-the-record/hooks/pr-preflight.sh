@@ -16,9 +16,13 @@
 #
 # Fail-open policy: any parse failure, missing tool, non-matching command,
 # absent --body/--body-file, unreadable body-file, non-issue branch, or `gh`
-# lookup failure results in exit 0 (pass through). The only path that exits
-# 2 is a positive, evidence-backed determination that the body violates the
-# phase-appropriate issue-reference rule (gates/pr_reference.py::check_body).
+# lookup failure results in exit 0 (pass through). The only paths that exit
+# 2 are a positive, evidence-backed determination that the body violates the
+# phase-appropriate issue-reference rule (gates/pr_reference.py::check_body),
+# and — narrower carve-out, issue #2013 approval amendment — a failed issue-
+# body fetch specifically for the design-artifacts existence check below,
+# which fails CLOSED rather than open (a gate that opens on broken `gh`
+# is bypassable by breaking `gh`).
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
@@ -381,6 +385,80 @@ if phase == "phase2":
     if issue_body is None:
         sys.exit(0)  # gh lookup failed — fail-open
     plan = _plan_from_body(issue_body)
+
+# --- design-artifacts existence check (issue #2013, artifact-gate phase 2) -
+# Ported inline from gates/design_artifacts_gate.py (same zero-install
+# rationale as the other ports in this file). Scoped to `gh pr create`
+# time regardless of phase, since the check is about what must exist
+# before a PR opens at all, not about phase-specific body content.
+#
+# Byte-inert when the issue body carries no `design-artifacts:`
+# declaration (parse_declaration returns None) — a mechanical issue sees
+# no new fetch beyond the one phase2 already made, and no new check at
+# all in phase1.
+#
+# Fail-CLOSED on a body-fetch failure (approval amendment on #2013,
+# replacing the proposal's original fail-open-on-infrastructure-trouble
+# constraint, per docs/decisions/2026-07-25-gate-unknown-tool-fails-closed.md
+# and this file's own pr-base-guard-style posture elsewhere): a gate that
+# opens on network trouble is bypassable by breaking `gh`. This is a
+# narrower fail-closed carve-out than the rest of this file's documented
+# fail-open policy — scoped to exactly this one lookup, not a change to
+# the file's overall posture.
+_ARTIFACTS_TAG_RE = re.compile(r"^\s*[-*]?\s*design-artifacts\s*:\s*$", re.IGNORECASE)
+_ARTIFACTS_BULLET_RE = re.compile(r"^\s*[-*]\s+(\S+)\s*$")
+_ARTIFACTS_FENCE_RE = re.compile(r"^\s*```")
+
+
+def _parse_artifacts_declaration(body):
+    lines = (body or "").splitlines()
+    tag_idx = None
+    for i, line in enumerate(lines):
+        if _ARTIFACTS_TAG_RE.match(line):
+            tag_idx = i
+            break
+    if tag_idx is None:
+        return None
+    rest = lines[tag_idx + 1:]
+    i = 0
+    while i < len(rest) and rest[i].strip() == "":
+        i += 1
+    if i < len(rest) and _ARTIFACTS_FENCE_RE.match(rest[i]):
+        i += 1
+        paths = []
+        while i < len(rest) and not _ARTIFACTS_FENCE_RE.match(rest[i]):
+            stripped = rest[i].strip()
+            if stripped:
+                paths.append(stripped)
+            i += 1
+        return paths
+    paths = []
+    while i < len(rest):
+        m = _ARTIFACTS_BULLET_RE.match(rest[i])
+        if not m:
+            break
+        paths.append(m.group(1))
+        i += 1
+    return paths
+
+
+artifacts_issue_body = issue_body if phase == "phase2" else gh_json(
+    "issue", "view", str(issue), "--json", "body", "-q", ".body")
+if artifacts_issue_body is None:
+    deny(
+        f"이슈 #{issue} 본문을 읽을 수 없다(`gh issue view` 실패) — "
+        f"design-artifacts 게이트는 검사 불가를 통과로 취급하지 않는다(fail-closed).",
+        "네트워크/gh 상태를 복구한 뒤 다시 시도한다",
+    )
+declared_artifacts = _parse_artifacts_declaration(artifacts_issue_body)
+if declared_artifacts is not None:
+    missing = [p for p in declared_artifacts if not os.path.exists(os.path.join(os.getcwd(), p))]
+    if missing:
+        listed = "\n".join(f"  - {p}" for p in missing)
+        deny(
+            f"이슈 #{issue}가 선언한 design-artifacts 중 다음 경로가 작업 트리에 없다:\n{listed}",
+            "선언된 모든 design-artifacts 경로를 작업 트리에 만든 뒤 다시 시도한다",
+        )
 
 # --- check_body (ported from gates/pr_reference.py) -------------------------
 # issue #1165: first-paragraph and citation-placement rules ported inline

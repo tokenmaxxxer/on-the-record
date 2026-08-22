@@ -679,6 +679,88 @@ def test_hook_allows_pr_when_no_events_file(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+# --- issue #2013 (artifact-gate phase 2): design-artifacts existence check,
+# driven end-to-end through the real pr-preflight.sh --------------------
+
+def test_hook_denies_pr_when_declared_design_artifacts_missing(tmp_path):
+    """A design-bearing issue declares `design-artifacts:` with a path
+    that does not exist in the working tree -> gh pr create is refused,
+    naming the missing path."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2013/implementation")
+    fixtures = {
+        "issue_comments": [],
+        "issue_body": ("Build the thing.\n\ndesign-artifacts:\n"
+                        "- docs/issue-2013/design/scenarios.md\n"),
+    }
+    cmd = 'gh pr create --title "proposal" --body "#2013"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "docs/issue-2013/design/scenarios.md" in r.stderr
+
+
+def test_hook_allows_pr_when_declared_design_artifacts_present(tmp_path):
+    """Same declaration, but the declared path exists in the working
+    tree -> gh pr create passes through unaffected."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2013/implementation")
+    (repo_dir / "docs" / "issue-2013" / "design").mkdir(parents=True)
+    (repo_dir / "docs" / "issue-2013" / "design" / "scenarios.md").write_text("x")
+    fixtures = {
+        "issue_comments": [],
+        "issue_body": ("Build the thing.\n\ndesign-artifacts:\n"
+                        "- docs/issue-2013/design/scenarios.md\n"),
+    }
+    cmd = 'gh pr create --title "proposal" --body "#2013"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_allows_pr_when_issue_carries_no_design_artifacts_declaration(tmp_path):
+    """A mechanical issue with no `design-artifacts:` tag at all sees
+    byte-identical behavior -> gh pr create passes through."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2013/implementation")
+    fixtures = {
+        "issue_comments": [],
+        "issue_body": "Fix the watcher pid liveness check in spawn.py.",
+    }
+    cmd = 'gh pr create --title "proposal" --body "#2013"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_denies_pr_when_issue_body_fetch_fails_fail_closed(tmp_path):
+    """Approval amendment on #2013: if the issue body can't be fetched at
+    all (fake `gh` here simulates the lookup failing), the design-artifacts
+    check fails CLOSED with an actionable message rather than passing
+    through silently."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2013/implementation")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir(exist_ok=True)
+    p = bin_dir / "gh"
+    p.write_text(
+        "#!/usr/bin/env python3\n"
+        "import sys\n"
+        "argv = sys.argv[1:]\n"
+        "if argv[:2] == ['issue', 'view'] and 'comments' in argv:\n"
+        "    print('[]')\n"
+        "else:\n"
+        "    sys.exit(1)\n"
+    )
+    p.chmod(p.stat().st_mode | stat.S_IEXEC)
+    payload = json.dumps({
+        "tool_name": "Bash",
+        "tool_input": {"command": 'gh pr create --title "proposal" --body "#2013"'},
+    })
+    env = dict(os.environ)
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    env["ORCHESTRATE_OFF"] = ""
+    r = subprocess.run(
+        ["bash", str(PREFLIGHT)], input=payload, capture_output=True, text=True,
+        env=env, cwd=str(repo_dir), timeout=20,
+    )
+    assert r.returncode == 2, r.stderr
+    assert "fail-closed" in r.stderr.lower() or "fail-closed" in r.stderr
+
+
 # --- issue #1623 (finding G carry-over): real parity coverage between
 # pr-preflight.sh's ported check_body and gates/pr_reference.py's own
 # check_body ----------------------------------------------------------------
