@@ -378,6 +378,68 @@ def outcome_claim_citation_check(text: str) -> list[str]:
     return bad
 
 
+_SKILL_VERDICT_LINE = re.compile(
+    r"(?i)^\s*[-*]?\s*skill-verdict\s*:\s*(.+?)\s*—[ \t]*(.*?)\s*$")
+
+
+def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
+    """issue #2039 mirror: a record whose spawn directive mounted N skills
+    must carry one `skill-verdict: <name> — applied: ... |
+    not-applicable: ...` line per mounted name, each with non-empty
+    content after the dash. Shape only — never judges whether the
+    applied/not-applicable content is actually correct, matching
+    #2039's frozen skills-guidance-only boundary. `mounted` empty is a
+    no-op (zero-mounted-skill sessions stay byte-unaffected)."""
+    bad: list[str] = []
+    if not mounted:
+        return bad
+    found: dict[str, str] = {}
+    for line in text.splitlines():
+        m = _SKILL_VERDICT_LINE.match(line)
+        if not m:
+            continue
+        name, content = m.group(1).strip(), m.group(2).strip()
+        if name not in found:
+            found[name] = content
+    for name in mounted:
+        if name not in found:
+            bad.append(
+                "마운트된 스킬에 skill-verdict 줄이 없다 (issue #2039): "
+                f"{name!r} — `skill-verdict: {name} — applied: ... | "
+                "not-applicable: ...` 줄을 레코드에 남겨야 한다.")
+        elif not found[name]:
+            bad.append(
+                "skill-verdict 줄에 이유가 없다 (issue #2039): "
+                f"{name!r} — 대시 뒤에 applied/not-applicable 내용이 비어 "
+                "있다.")
+    return bad
+
+
+def record_skill_verdicts_in(work: Path, mounted: list[str]) -> list[str]:
+    """CI/diff-scoped wrapper around `skill_verdict_reason_check`,
+    mirroring `gates.py`'s `(work, cfg)`-shaped checks — used by both
+    `gates/ci.py` and `on-the-record/hooks/skill-verdict-guard.sh`. The
+    hook is the only caller that derives `mounted` from a transcript
+    scan; `mounted` is taken as an explicit argument here because CI has
+    no transcript to read it from."""
+    if not mounted:
+        return []
+    root = work / "work" if (work / "work").exists() else work
+    try:
+        files = gates.changed_files(root)
+    except RuntimeError as e:
+        return [str(e)]
+    bad: list[str] = []
+    for f in files:
+        if not RECORD_PATH.match(f):
+            continue
+        record_file = root / f
+        text = (record_file.read_text(encoding="utf-8-sig", errors="replace")
+                if record_file.exists() else "")
+        bad += [f"{f}: {v}" for v in skill_verdict_reason_check(text, mounted)]
+    return bad
+
+
 def unverifiable_reason_check(text: str) -> list[str]:
     """#310/#331 mirror: an `unverifiable:` escape line needs a reason."""
     bad = []

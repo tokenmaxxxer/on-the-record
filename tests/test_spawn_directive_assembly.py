@@ -169,6 +169,33 @@ class SkillTriggerLines(DirectiveAssemblyBase):
         self.assertNotIn("Use ", delivered_a)
 
 
+class SkillVerdictObligationLine(SkillTriggerLines):
+    """issue #2039: next to the mounted-skill list, the directive must
+    state the per-mounted-skill skill-verdict obligation — and stay
+    silent (byte-unaffected) when no skill is mounted."""
+
+    @pytest.mark.slow
+    def test_mounted_skill_directive_states_verdict_obligation(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            skill_dir = self._skill_dir_with_trigger(Path(td) / "skills")
+            role_source = {"source": "skill-repo", "skill_dirs": [skill_dir],
+                           "skills": ["implementation-blueprint"], "skill_sha": "abc123"}
+            delivered = self._run(work, role_source, {})
+        self.assertIn("스킬-verdict 의무(이슈 #2039)", delivered)
+        self.assertIn("skill-verdict:", delivered)
+        self.assertIn("applied:", delivered)
+        self.assertIn("not-applicable:", delivered)
+
+    @pytest.mark.slow
+    def test_zero_mounted_skills_directive_omits_verdict_obligation(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            delivered = self._run(work, _NO_SKILLS, {})
+        self.assertNotIn("스킬-verdict 의무", delivered)
+        self.assertNotIn("skill-verdict:", delivered)
+
+
 class SkillTriggerLineHelper(unittest.TestCase):
     def test_extracts_use_sentence_from_folded_description(self):
         with tempfile.TemporaryDirectory() as td:

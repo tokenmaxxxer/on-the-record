@@ -962,6 +962,48 @@ def t_1614_class6_genuine_claim_with_would_elsewhere_still_flagged():
     assert record_lint.outcome_claim_citation_check(text) != []
 
 
+def t_2039_skill_verdict_missing_line_flagged():
+    """issue #2039: a mounted skill with no matching `skill-verdict:` line
+    in the record is refused, naming that skill."""
+    body = "---\nloop_state: landed\n---\n\n## What did not work\nNone.\n"
+    d, record = _repo_with_record(body)
+    bad = record_lint.record_skill_verdicts_in(d, ["implementation-blueprint"])
+    assert any("implementation-blueprint" in b for b in bad), bad
+
+
+def t_2039_skill_verdict_empty_reason_flagged():
+    """issue #2039: a `skill-verdict:` line present but with nothing after
+    the dash is refused."""
+    body = (
+        "---\nloop_state: landed\n---\n\n"
+        "skill-verdict: implementation-blueprint —\n\n"
+        "## What did not work\nNone.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.record_skill_verdicts_in(d, ["implementation-blueprint"])
+    assert any("implementation-blueprint" in b for b in bad), bad
+
+
+def t_2039_skill_verdict_satisfied_passes():
+    """issue #2039: every mounted skill has a non-empty `skill-verdict:`
+    line -> no violations."""
+    body = (
+        "---\nloop_state: landed\n---\n\n"
+        "skill-verdict: implementation-blueprint — applied: used at spawn.py:8181.\n\n"
+        "## What did not work\nNone.\n")
+    d, record = _repo_with_record(body)
+    bad = record_lint.record_skill_verdicts_in(d, ["implementation-blueprint"])
+    assert bad == []
+
+
+def t_2039_zero_mounted_skills_is_noop():
+    """issue #2039: a session with zero mounted skills gets no violations,
+    even against a record with no skill-verdict lines at all."""
+    body = "---\nloop_state: landed\n---\n\n## What did not work\nNone.\n"
+    d, record = _repo_with_record(body)
+    bad = record_lint.record_skill_verdicts_in(d, [])
+    assert bad == []
+
+
 def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]
