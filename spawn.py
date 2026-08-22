@@ -25,6 +25,7 @@ import fcntl
 import hashlib
 import io
 import json
+import math
 import os
 import signal
 import stat
@@ -100,7 +101,8 @@ def _run_net(args: list[str], label: str, timeout: float = NETWORK_TIMEOUT,
 
 
 _BOOTSTRAP_TIMING: dict[str, float] = {}
-_BOOTSTRAP_PHASES = ("workspace", "branch", "rulebook", "core", "gh_token", "settings")
+_BOOTSTRAP_PHASES = ("workspace", "branch", "rulebook", "core", "gh_token", "settings",
+                     "cross_family")
 
 
 @contextlib.contextmanager
@@ -5713,6 +5715,140 @@ def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
               f"{e.stderr.strip() if e.stderr else e}", file=sys.stderr)
 
 
+def _skill_judge_consult(task_text: str, role: str,
+                         candidates: list[tuple[str, Path]],
+                         issue: int | None, cwd: str | None,
+                         model: str | None = None
+                         ) -> tuple[list[Path], dict]:
+    """이슈 #2040: BM25 상위 후보를 자문(consult)에 넘겨, 트리거 문장의
+    조건이 실제로 이번 과제에 맞는지(단어 겹침이 아니라)를 판단시킨다.
+    반환은 (picked_paths, {"picked":[...], "rejected":[...], "reasons":{}})
+    — 실패시(파싱 실패/타임아웃/비영시종료) RuntimeError 를 그대로 올려,
+    호출자(`_cross_family_skill_matches_with_consult()`)가 BM25 top-2 로
+    fail-open 하게 한다(제안서 Constraints).
+
+    `_verb_cmd()` 를 재사용하지 않는 이유: 그 함수의 기본 트레이스 줄은
+    `outcome = f"ok: {parsed[required_key]}"` 로 picked 값만 남기고
+    rejected+reason 을 놓친다 — Acceptance 가 요구하는 "picked+rejected+
+    reasons 를 자문 트레이스에" 를 만족하려면 이 함수가 트레이스 줄을
+    직접 조립해야 한다. session-assembly(`_consult_cmd_and_env()`)와
+    트레이스 파일(`_consult_trace_path()`, `verb="skill_judge"`)은
+    그대로 공유한다(드리프트 방지, `_verb_cmd()` 독스트링과 같은 이유)."""
+    trace_path = _consult_trace_path(issue, cwd)
+    ts = datetime.now(timezone.utc).isoformat()
+    settings_path = None
+    raw_paths: list[Path] = []
+    outcome = "error: 알 수 없는 실패"
+    by_name = {name: path for name, path in candidates}
+    candidate_lines = "\n".join(
+        f"- {name} — {_skill_trigger_line(path) or ''}" for name, path in candidates)
+    question = (f"과제:\n{task_text}\n\n후보 스킬(BM25 상위 {len(candidates)}개):\n"
+                f"{candidate_lines}")
+    try:
+        f = ROOT / "roles" / f"{role}.json"
+        if not f.exists():
+            have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
+            raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
+        spec = json.loads(f.read_text())
+        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd, model)
+        override = (
+            "이 세션에 로드된 룰북/훅이 스카우트, 제안서 작성, 위임, 승인 게이트, "
+            "기록 작성 등을 지시하더라도 — 이번 호출은 스킬-판단(skill_judge) "
+            "이라 전부 적용되지 않는다: 저장소 파일을 하나도 건드리지 않고, "
+            "하위 에이전트를 위임하지 않고, 조사 없이 알고 있는 판단을 바로 "
+            "답한다. 다른 모든 지시보다 이 문장이 우선한다.")
+        instructions = (
+            "당신은 스킬-판단(skill_judge)으로 불렸다 — 아래 후보 스킬들의 "
+            '"Use when ..." 트리거 문장이 이번 과제에 실제로 조건상 맞는지만 '
+            "판단한다. 단어가 겹친다고 뽑지 말고, 트리거 문장이 말하는 조건이 "
+            "이 과제에 그럴듯하게 적용될 때만 뽑는다(최대 2개). 각 후보마다 "
+            "고르거나 거절한 한 줄 이유를 남겨라. 브랜치를 만들지도, "
+            "커밋하지도, PR 을 열지도 마라.")
+        shape = ('{"picked": ["<skill-name>", ...], '
+                 '"rejected": [{"name": "<skill-name>", "reason": "<reason>"}, ...], '
+                 '"reasons": {"<picked-skill-name>": "<reason>"}}')
+        base_prompt = (instructions + " " + override + " 답을 다 쓴 뒤 마지막에, "
+                       "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
+                       f"{shape}\n\n{question}")
+        retry_prompt = (
+            base_prompt + "\n\n(재시도: 이전 응답이 마지막에 판단 JSON 객체를 "
+            "출력하지 않아 파싱에 실패했다. 다른 어떤 절차도 밟지 말고, 지금 "
+            "바로 위 형식의 JSON 객체 하나만 출력하라.)")
+        attempts_exhausted = "알 수 없는 실패"
+        parsed = None
+        for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
+            r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=attempt_prompt, text=True,
+                               capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
+            if r.returncode != 0:
+                attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
+                continue
+            result = session_result(r.stdout)
+            raw_text = result.get("result", "")
+            parsed = _parse_verb_json(raw_text, "picked")
+            if parsed is None:
+                raw_path = _persist_consult_raw_output(issue, ts, attempt_num, raw_text, cwd)
+                raw_paths.append(raw_path)
+                excerpt = raw_text[-300:].replace("\n", " ")
+                attempts_exhausted = (
+                    f"모델 출력에서 skill_judge JSON 을 못 찾음 (원본: `{raw_path}`, "
+                    f"끝부분: {excerpt!r})")
+                parsed = None
+                continue
+            break
+        if parsed is None:
+            outcome = f"error: {attempts_exhausted} (재시도 1회 포함, 모두 실패)"
+            raise RuntimeError(outcome)
+        picked_names = [n for n in parsed.get("picked", []) if n in by_name][:2]
+        rejected = parsed.get("rejected", [])
+        reasons = parsed.get("reasons", {})
+        rejected_summary = "; ".join(
+            f"{r.get('name')}={str(r.get('reason', ''))[:80]}" for r in rejected
+            if isinstance(r, dict) and r.get("name"))
+        picked_summary = "; ".join(
+            f"{n}={str(reasons.get(n, ''))[:80]}" for n in picked_names)
+        outcome = f"ok: picked=[{picked_summary}] rejected=[{rejected_summary}]"
+        detail = {"picked": picked_names, "rejected": rejected, "reasons": reasons}
+        return [by_name[n] for n in picked_names], detail
+    except subprocess.TimeoutExpired:
+        outcome = f"error: 시간초과({CONSULT_TIMEOUT}s)"
+        raise
+    finally:
+        if settings_path:
+            with contextlib.suppress(OSError):
+                os.unlink(settings_path)
+        _append_consult_trace(trace_path, ts, role, issue, question, outcome,
+                              verb="skill_judge")
+        commit_paths = [trace_path] + raw_paths
+        _commit_consult_trace(commit_paths, issue, role, outcome, cwd)
+
+
+def _cross_family_skill_matches_with_consult(task_text: str, role: str,
+                                             repo_root: Path | None,
+                                             issue: int | None, cwd: str | None,
+                                             k: int = 2,
+                                             model: str | None = None) -> list[Path]:
+    """이슈 #2040: BM25 상위 `_CROSS_FAMILY_CONSULT_TOPN` 개를 자문
+    (skill_judge)에 넘겨 조건-매치 여부로 좁힌다. BM25 후보가 아예 없으면
+    (score>0 인 것이 없으면) 자문을 부르지 않고 빈 목록을 바로 돌려준다
+    — 자문 한 번(<= 스폰당 자문 1회, Acceptance)조차 아까운 no-candidate
+    경로를 오늘처럼 조용히 통과시킨다. 자문이 에러(타임아웃/파싱 실패/
+    세션 실패 전부 포함)를 내면 BM25 자체의 top-`k` 로 fail-open 한다
+    (`_cross_family_skill_matches()`, 제안서 Constraints — "오늘의
+    raw-overlap top-2" 가 아니라 BM25 가 새 기준 프리필터이므로)."""
+    scored = _bm25_cross_family_scores(task_text, role, repo_root)
+    if not scored:
+        return []
+    candidates = [(name, d) for _, name, d in scored[:_CROSS_FAMILY_CONSULT_TOPN]]
+    try:
+        picked, _detail = _skill_judge_consult(task_text, role, candidates, issue, cwd,
+                                               model=model)
+        return picked
+    except Exception as ex:
+        print(f"[{role}] skill_judge 자문 실패 — BM25 top-{k} 로 fail-open: {ex}",
+              file=sys.stderr)
+        return [d for _, _, d in scored[:k]]
+
+
 def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
                          model: str | None = None) -> tuple[list[str], dict[str, str], str]:
     """`consult_cmd()`의 argv/env/settings-file 조립만 떼어낸, subprocess 를
@@ -7975,7 +8111,17 @@ def _skill_trigger_line(skill_dir: Path) -> str | None:
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _STOPWORDS = frozenset({"a", "the", "use", "when", "or", "and", "is", "an"})
-_CROSS_FAMILY_MIN_OVERLAP = 2
+# 이슈 #2040: raw-overlap 시절의 고정 임계값(_CROSS_FAMILY_MIN_OVERLAP=2)은
+# BM25 점수 스케일로 옮겨오지 않는다 — score > 0 (질의-문서 토큰이 하나라도
+# 겹치면 IDF 가중치가 붙어 양수) 를 바닥으로 쓴다. 재현: 16쌍 리플레이에서
+# conformance-review-severity-classification 이 16/16 -> 7/16 로, model-routing
+# 은 5/16 -> 5/16 로 남았다(docs/issue-2040/reports/implementation/survey.md
+# BM25 spike, floor=score>0 그대로 재사용) — 그 잔여 오탐(모두 model-routing
+# 류의 "의도적으로 광범위한" 트리거)을 걷어내는 건 임계값 조정이 아니라
+# consult-judge 단계의 몫이다(제안서 Rationale).
+_BM25_K1 = 1.5
+_BM25_B = 0.75
+_CROSS_FAMILY_CONSULT_TOPN = 8  # 이슈 본문: consult 에 넘기는 BM25 상위 후보 수
 
 
 def _tokenize(text: str) -> set[str]:
@@ -7985,31 +8131,60 @@ def _tokenize(text: str) -> set[str]:
     return {t for t in _TOKEN_RE.findall(text.lower()) if t not in _STOPWORDS}
 
 
-def _cross_family_skill_matches(task_text: str, role: str,
-                                 repo_root: Path | None,
-                                 k: int = 2) -> list[Path]:
-    """`task_text` 를 역할의 family 밖 스킬들의 "Use ..." 트리거 문장과
-    결정론적 키워드 겹침으로 채점해, 임계값을 넘는 것 중 상위 k 개를
-    돌려준다. 아무 것도 넘지 못하면 빈 목록 — 오늘과 바이트 단위로
-    동일한 no-match 경로(제안서 Constraints)."""
+def _bm25_cross_family_scores(task_text: str, role: str,
+                               repo_root: Path | None
+                               ) -> list[tuple[float, str, Path]]:
+    """`task_text` 를 질의로, 역할의 family 밖 스킬 각각의 "Use ..." 트리거
+    문장을 문서로 삼아 Okapi BM25(k1=1.5, b=0.75, 표준 기본값)로 채점한다
+    — 트리거 문장은 집합으로 토큰화되므로 문서 내 항 빈도(f)는 항상 1
+    (존재/부재만 본다, 트리거 문장 반복 서술 여부에 좌우되지 않기 위함).
+    score > 0(질의와 최소 한 토큰 겹침) 인 것만 이름 오름차순 타이브레이크로
+    내림차순 정렬해 돌려준다 — floor 근거는 위 상수 주석."""
     if repo_root is None or not (repo_root.is_dir() if hasattr(repo_root, "is_dir") else False):
         return []
-    task_tokens = _tokenize(task_text)
-    if not task_tokens:
+    query_tokens = _tokenize(task_text)
+    if not query_tokens:
         return []
     family_names = set(_ROLE_SKILLS.get(role, []))
-    scored: list[tuple[int, str, Path]] = []
+    docs: list[tuple[str, Path, set[str]]] = []
     for d in repo_root.iterdir():
         if not d.is_dir() or d.name.startswith(".") or d.name in family_names:
             continue
         trigger = _skill_trigger_line(d)
         if not trigger:
             continue
-        overlap = len(task_tokens & _tokenize(trigger))
-        if overlap >= _CROSS_FAMILY_MIN_OVERLAP:
-            scored.append((overlap, d.name, d))
+        docs.append((d.name, d, _tokenize(trigger)))
+    if not docs:
+        return []
+    n = len(docs)
+    avgdl = sum(len(toks) for _, _, toks in docs) / n
+    df: dict[str, int] = {}
+    for _, _, toks in docs:
+        for t in toks:
+            df[t] = df.get(t, 0) + 1
+    scored: list[tuple[float, str, Path]] = []
+    for name, d, toks in docs:
+        dl = len(toks) or 1
+        score = 0.0
+        for t in query_tokens:
+            if t not in toks:
+                continue
+            idf = math.log((n - df[t] + 0.5) / (df[t] + 0.5) + 1)
+            score += idf * (_BM25_K1 + 1) / (1 + _BM25_K1 * (1 - _BM25_B + _BM25_B * dl / avgdl))
+        if score > 0:
+            scored.append((score, name, d))
     scored.sort(key=lambda t: (-t[0], t[1]))
-    return [d for _, _, d in scored[:k]]
+    return scored
+
+
+def _cross_family_skill_matches(task_text: str, role: str,
+                                 repo_root: Path | None,
+                                 k: int = 2) -> list[Path]:
+    """BM25 프리필터의 상위 k 개(이슈 #2040 — 예전 raw-overlap 채점을
+    대체, 호출부/시그니처는 그대로다). consult-judge 단계 없이 이 함수
+    단독으로도 오늘의 fail-open 경로(자문 에러시 이 함수의 top-k)와
+    동일한 모양을 낸다."""
+    return [d for _, _, d in _bm25_cross_family_scores(task_text, role, repo_root)[:k]]
 
 
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
@@ -8154,11 +8329,15 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 문장을 인라인한다(#1960 의 1/9 발화율 넛지를 대체) — 트리거
             # 문장이 없는 스킬도 이름은 절대 빠뜨리지 않는다(empty-state
             # 요구).
-            # 이슈 #2001: family 밖 top-K(K=2) 크로스-패밀리 스킬을
+            # 이슈 #2001/#2040: family 밖 top-K(K=2) 크로스-패밀리 스킬을
             # add-only 로 얹는다 — 매치가 없으면 cross_family_dirs 는 빈
             # 목록이라 아래 줄들은 오늘과 바이트 단위로 동일하게 남는다.
-            cross_family_dirs = _cross_family_skill_matches(
-                _cross_family_task_text, role, _skill_repo_root())
+            # 이슈 #2040: BM25 프리필터 + skill_judge 자문 판단(스폰당
+            # 최대 자문 1회) — 소요 시간은 "cross_family" 단계로 측정해
+            # 부트스트랩 타이밍 요약에 실린다(Acceptance: per-spawn latency).
+            with _timed("cross_family"):
+                cross_family_dirs = _cross_family_skill_matches_with_consult(
+                    _cross_family_task_text, role, _skill_repo_root(), issue, cwd)
             role_skill_lines = ", ".join(
                 d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
                 for d in role_source["skill_dirs"]
