@@ -6916,6 +6916,11 @@ def main() -> int:
                          "항상 non-blocking surfacing 이라 스폰을 거절하지 "
                          "않으므로 무시할 것이 없다. CLI 호환성을 위해 남아 "
                          "있을 뿐 (이슈 #680)")
+    ap.add_argument("--single-phase", action="store_true",
+                    help="스폰하는 세션에 CORE_BUILD_NOW=1 을 실어 phase-1 "
+                         "제안 라운드를 건너뛰게 한다(contract v3 s19a 우회, "
+                         "이슈 #1672/#1978). 스포너가 명시적으로 결정할 "
+                         "때만 켠다 — 세션 스스로는 절대 켤 수 없다.")
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
@@ -7186,7 +7191,8 @@ def main() -> int:
                       stall_timeout_min=a.stall_timeout,
                       no_wait=a.no_wait,
                       despite_returned=a.despite_returned,
-                      model=a.model, skills=a.skills)
+                      model=a.model, skills=a.skills,
+                      single_phase=a.single_phase)
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -7818,11 +7824,58 @@ def _goal_pin_block(title: str | None, body: str | None) -> str:
     return "\n".join(lines) + "\n"
 
 
+# 이슈 #1978: directive.sh(tokenmaxxxer-core, contract v3 s19a)가 매
+# 세션에 SessionStart 로 이미 내보내는 "Build-now bypass" 불릿을 그대로
+# 미러링한다(제안서 Rationale: 새 문구를 지어내면 두 서술이 계약 개정마다
+# 따로 드리프트한다) — 2인칭 "your issue" 프레이밍만 스폰-시점 프리픽스로
+# 조정했을 뿐, 문장 자체는 바꾸지 않는다.
+_SINGLE_PHASE_CONTRACT_LINE = (
+    "- Build-now bypass (contract v3 s19a): when the task that spawned this "
+    "session explicitly authorizes delivery-only — its environment carries "
+    "CORE_BUILD_NOW=1, set by the spawner, never by you — skip the proposal "
+    "round and deliver directly: build on issue-<n>/{role}, commit code and "
+    "your record, and open one PR carrying the work. Without "
+    "CORE_BUILD_NOW=1 the default two-phase flow is unchanged; a session "
+    "cannot grant itself this bypass by setting the variable on its own.\n"
+)
+
+_SKILL_USE_SENTENCE_RE = re.compile(r"(Use\b[^.]*\.)", re.S)
+
+
+def _skill_trigger_line(skill_dir: Path) -> str | None:
+    """`skill_dir/SKILL.md` 프론트매터의 `description:` 필드에서 "Use ..."로
+    시작하는 트리거 문장을 뽑는다. 파일/프론트매터/description/트리거 문장
+    중 무엇이든 없으면 None — 예외를 던지지 않는다(호출부가 이름만이라도
+    싣는 empty-state 처리를 하도록).
+
+    폴딩 블록 스칼라(`description: >-`)를 포함해 여러 줄 description 을
+    다루려면 전체 YAML 파서가 필요하지만, 이 함수가 필요한 건 딱 한
+    문장뿐이라(제안서 Rationale) 프론트매터 블록만 떼어내 정규식으로
+    훑는다."""
+    md = skill_dir / "SKILL.md"
+    try:
+        text = md.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    fm = re.match(r"^---\n(.*?)\n---\n", text, re.S)
+    if not fm:
+        return None
+    dm = re.search(r"(?m)^description:[ \t]*(.*(?:\n(?:[ \t]+.*)?)*)", fm.group(1))
+    if not dm:
+        return None
+    desc = dm.group(1).strip()
+    desc = desc.lstrip(">|-+").strip()
+    desc = desc.strip("\"'")
+    desc = re.sub(r"\s+", " ", desc)
+    um = _SKILL_USE_SENTENCE_RE.search(desc)
+    return um.group(1).strip() if um else None
+
+
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
                despite_returned: bool = False, model: str | None = None,
-               skills: str | None = None) -> int:
+               skills: str | None = None, single_phase: bool = False) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -7927,15 +7980,33 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"끝난다. run_in_background 로 넘긴 작업은 부모 턴이 끝나는 순간 함께\n"
                 f"죽는다(백그라운드 워커가 커밋·push 를 대신 끝내줄 것이라고 가정하지\n"
                 f"마라 — 실측된 실패 패턴이다). 모든 작업은 이 턴 안에서 직접 끝내라.\n\n") + task
+        # 이슈 #1978 (A): --single-phase 신호가 없으면 이 블록은 아무 것도
+        # 안 붙인다 — 오늘의 프롬프트와 바이트 단위로 동일해야 한다는
+        # 제안서 제약. B(스킬 트리거 줄)보다 먼저 온다(A before B, 제안서
+        # 순서).
+        if single_phase:
+            task = task + "\n\n" + _SINGLE_PHASE_CONTRACT_LINE.format(role=role)
         if skill_sources:
             skill_lines = ", ".join(
-                f"{m['name']} ({_describe_skill_match(m)})" for m in skill_sources)
+                f"{m['name']}"
+                + (f" — {_skill_trigger_line(m['dir'])}"
+                   if _skill_trigger_line(m['dir']) else "")
+                + f" ({_describe_skill_match(m)})"
+                for m in skill_sources)
             task = task + (
                 f"\n\n마운트된 스킬(--skills, 이슈 #1742/#1774): {skill_lines}\n")
         if role_source["source"] == "skill-repo":
+            # 이슈 #1978 (B): 스킬 이름 옆에 SKILL.md 의 "Use ..." 트리거
+            # 문장을 인라인한다(#1960 의 1/9 발화율 넛지를 대체) — 트리거
+            # 문장이 없는 스킬도 이름은 절대 빠뜨리지 않는다(empty-state
+            # 요구).
+            role_skill_lines = ", ".join(
+                d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
+                for d in role_source["skill_dirs"]
+            ) if role_source["skill_dirs"] else ", ".join(role_source["skills"])
             task = task + (
                 f"\n\n이 역할은 skill-repository(이슈 #1955, #1758)로 매핑됐다: "
-                f"스킬 {', '.join(role_source['skills'])} "
+                f"스킬 {role_skill_lines} "
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.\n")
         # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
@@ -7984,6 +8055,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                    core_plugins, plugins, model,
                                    all_skill_dirs,
                                    skill_sha or role_source["skill_sha"])
+        # 이슈 #1978 (A): --single-phase 신호일 때만 얹는다 — 없으면
+        # extra_env 는 오늘과 바이트 단위로 동일한 채로 남는다.
+        if single_phase:
+            extra_env["CORE_BUILD_NOW"] = "1"
         if issue is not None:
             # 툴체인 캐시를 워크스페이스 안으로 — go 등이 홈(~/Library/...)에
             # 캐시·설정을 쓰려다 샌드박스에 막혀 빌드가 승인 프롬프트로
