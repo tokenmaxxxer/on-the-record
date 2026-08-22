@@ -253,8 +253,18 @@ if not approved:
         sys.exit(0)
 
     needle = "APPROVE issue-%d/%s" % (issue, role)
+
+    def _first_line_matches(body, token):
+        # issue #2021: line-anchored match — the token must be the ENTIRE
+        # first line (whitespace-stripped), so approvers can attach
+        # rationale on subsequent lines without losing the exact-match
+        # security posture. Leading/trailing text on that same line still
+        # fails, since strip() only removes whitespace, never text.
+        first_line = (body or "").split("\n", 1)[0]
+        return first_line.strip() == token
+
     approved = any(
-        (c.get("body") or "").strip() == needle
+        _first_line_matches(c.get("body"), needle)
         and (c.get("author", {}) or {}).get("login") in approvers
         for c in (comments or [])
     )
