@@ -38,6 +38,12 @@ def _fake_run_factory(remaining: int):
             return mock.Mock(returncode=0, stdout="[]", stderr="")
         if cmd[:3] == ["gh", "pr", "list"]:
             return mock.Mock(returncode=0, stdout="[]", stderr="")
+        if cmd[:3] == ["gh", "repo", "view"]:
+            return mock.Mock(returncode=0, stdout="owner/repo\n", stderr="")
+        if cmd[:2] == ["gh", "api"] and len(cmd) > 2 and cmd[2].startswith("repos/") and cmd[2].endswith("/pulls"):
+            return mock.Mock(returncode=0, stdout="[]", stderr="")
+        if cmd[:2] == ["gh", "api"] and len(cmd) > 2 and cmd[2].startswith("repos/") and cmd[2].endswith("/issues") and "-i" in cmd:
+            return mock.Mock(returncode=0, stdout="200\n\n[]", stderr="")
         return mock.Mock(returncode=0, stdout="", stderr="")
 
     return _run, calls
