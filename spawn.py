@@ -8490,7 +8490,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 "\n\n스킬 점검(이슈 #1960): 실체 작업을 시작하기 전에, 위에 "
                 "마운트된 스킬 목록을 이번 과제와 대조하라. trigger 조건이 "
                 "이번 과제에 그럴듯하게 들어맞는 스킬이 있으면 Skill 도구로 "
-                "호출하고, 없으면 검토했다는 사실만 유념하고 넘어가라.\n")
+                "호출하고, 없으면 검토했다는 사실만 유념하고 넘어가라. "
+                "invoke-before-apply(이슈 #2062): APPLICABLE 로 판단한 "
+                "스킬은 적용하기 전에 반드시 Skill 도구로 그 스킬의 전체 "
+                "SKILL.md 를 로드해야 한다 — not-applicable 로 판단한 "
+                "스킬은 이 의무에서 면제된다(강제 로드도, 토큰 낭비도 "
+                "없다).\n")
             # 이슈 #2039: 마운트된 스킬 하나마다 레코드에 한 줄씩 verdict를
             # 남겨야 한다 — 스킬을 조용히 무시하는 걸 불가능하게 만든다.
             # 스킬이 하나도 안 마운트되면 이 블록 전체가 안 붙으므로
@@ -8501,7 +8506,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 "<어디서/어떻게> | not-applicable: <한 줄 이유>` 형태의 줄을 "
                 "정확히 하나씩 남겨야 한다 — 적용 여부 판단은 전적으로 이 "
                 "세션의 몫이지만, 그 판단을 아예 안 밝히는 것은 더 이상 "
-                "허용되지 않는다.\n")
+                "허용되지 않는다. applied: 줄은 위 invoke-before-apply "
+                "의무에 따라 실제로 Skill 도구를 호출했다는 증거로 "
+                "`invoked;` 를 자유 텍스트 맨 앞에 붙여야 한다(이슈 "
+                "#2062) — not-applicable: 줄은 이 마커가 필요 없다.\n")
         # 이슈 #2014 (artifact-gate phase 3): `design-artifacts:` 선언이
         # 있으면 선언된 각 아티팩트 경로를, 그 basename 이 마운트된 스킬들의
         # 트리거 문장과 가장 많이 겹치는 스킬 하나와 짝지어 한 줄씩 붙인다
