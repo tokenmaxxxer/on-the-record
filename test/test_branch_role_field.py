@@ -300,7 +300,7 @@ if argv[:2] == ["issue", "view"]:
     if "comments" in argv:
         print(json.dumps(fixtures.get("issue_comments", [])))
     elif "body" in argv:
-        print(json.dumps(fixtures.get("issue_body", "")))
+        print(json.dumps({"body": fixtures.get("issue_body", "")}))
     else:
         sys.exit(1)
 else:
