@@ -42,6 +42,26 @@ extractable trigger line is still listed by name — never dropped.
 A spawn with zero mounted skills produces a directive unchanged from
 today.
 
+## Checkpoint-commit line (issue #1981)
+
+Unconditional, one sentence appended to `_spawn_one()`'s existing
+preamble f-string, immediately after the push/PR paragraph and before the
+headless-single-shot warning paragraph: make a checkpoint commit BEFORE
+starting any long or backgrounded verification run, and amend it or add a
+follow-up commit after. This inverts today's verify-then-commit habit,
+which stranded two live sessions mid-verification on 2026-08-22 (#1959 s2,
+#1978 ph2 — see `docs/issue-1978/reports/implementation.md`'s
+finalization-deviation note).
+
+Unlike `--single-phase` above, this line carries no flag gate: every
+commit-capable `_spawn_one()` call gets it, always — the same audience as
+the surrounding always-on preamble it extends, not an opt-in a spawner
+must remember to request. It does NOT appear in `consult_cmd()`'s or
+`panel_cmd()`'s assembled prompts — those are separate no-commit-mode
+functions with independent prompt assembly (see their own docstrings) —
+so the line naturally stays absent from consult/panel by construction,
+not by a conditional check.
+
 ## Out of scope here
 
 `directive.sh`, `approval-gate.sh`, and the rest of the
