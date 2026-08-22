@@ -1,0 +1,2 @@
+2026-08-22T08:23:42Z inline extended MUSTER_WORK_DIR sweep-base isolation from EventReporting._run to ReturnedPrGate._full_mock_scaffold, same defect class the proposal already targeted, discovered mid-run: tests/test_spawn_board_flows.py (4a95d389)
+2026-08-22T08:23:42Z inline fixed pre-existing `_event` star-import gap (underscore names excluded by `import *`, same class of bug already fixed in test_spawn_gate_wiring.py for issue #1959) that was failing 17 EventReporting cases and blocking the 0-failed acceptance criterion: tests/test_spawn_board_flows.py (8dcb2b3a)
