@@ -80,7 +80,16 @@ class GhBudget:
     cooperative consumers but is not enforced here."""
 
     def __init__(self, root: Path, classes: dict[str, int], reserve: int = 0,
-                 fetch_snapshot: Callable[[Path], tuple[int | None, bool, int | None]] | None = None):
+                 fetch_snapshot: Callable[[Path], tuple[int | None, bool, int | None]] | None = None,
+                 preseeded_snapshot: tuple[int | None, bool] | None = None):
+        """issue #1745: `preseeded_snapshot` (`remaining, ok`) lets a
+        caller that already ran its own `gh api rate_limit` this tick
+        (e.g. `closure_sweep.rate_limit_remaining()`) hand the result in
+        directly — `_ensure_snapshot()` then skips its own fetch instead
+        of issuing a second, redundant round trip for the same tick's
+        quota snapshot. `reset` is left `None` in this path (the
+        preseeding caller's 2-tuple shape doesn't carry it); that only
+        affects the reset-epoch shown in a budget-exhausted message."""
         self.root = root
         self.classes = dict(classes)
         self.reserve = reserve
@@ -91,6 +100,11 @@ class GhBudget:
         self._snapshot_ok = True
         self._consumed: dict[str, int] = {name: 0 for name in self.classes}
         self.fetch_calls = 0
+        if preseeded_snapshot is not None:
+            remaining, ok = preseeded_snapshot
+            self._snapshot_fetched = True
+            self._snapshot_ok = ok
+            self._snapshot = remaining if ok else None
 
     def _ensure_snapshot(self) -> None:
         if self._snapshot_fetched:
