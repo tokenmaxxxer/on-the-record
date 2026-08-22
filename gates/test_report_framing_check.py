@@ -27,7 +27,7 @@ def _run_hook(msg: str | None) -> tuple[int, dict]:
     env.pop("CLAUDE_ROLE", None)
     env.pop("ORCHESTRATE_OFF", None)
     p = subprocess.run(["bash", str(HOOK)], input=payload, capture_output=True,
-                        text=True, env=env)
+                        text=True, env=env, cwd=str(ROOT))
     out = {}
     if p.stdout.strip():
         out = json.loads(p.stdout)
@@ -58,6 +58,57 @@ def t_address_only_reply_blocked():
 
 
 def t_four_element_reply_passes():
+    msg = (
+        "1단계 승인 요청: 이슈 #320. [이슈 #320] 프레이밍 추가 · "
+        "implementation → merge\n"
+        "PR 보고를 address-only 로 보내던 문제를 해결했습니다. "
+        "그동안 운영자가 매번 원문을 다시 읽어야 하는 비용을 치렀는데, "
+        "이제 report-framing-check 훅이 자동으로 검사해 새로 가능해졌습니다. "
+        "아직 hooks.json 의 다른 이벤트는 검토가 남았습니다."
+    )
+    rc, out = _run_hook(msg)
+    assert rc == 0
+    assert out == {}, out
+
+
+def t_mounted_skill_delivery_without_utilization_blocked():
+    # issue-2039's own record already carries skill-verdict: lines under
+    # docs/issue-2039/reports/ -- citing that issue makes this a
+    # >=1-mounted-skill delivery per issue #2044.
+    msg = (
+        "1단계 승인 요청: 이슈 #2039. [이슈 #2039] 스킬 검증 의무 · "
+        "implementation → merge\n"
+        "per-skill verdict 의무를 훅으로 강제하지 않던 문제를 해결했습니다. "
+        "그동안 마운트된 스킬이 실제로 쓰였는지 아무도 확인할 수 없는 "
+        "비용을 치렀는데, 이제 skill-verdict-guard 훅이 자동으로 검사해 "
+        "새로 가능해졌습니다. 아직 gates.py CI 경로 연동은 남았습니다."
+    )
+    rc, out = _run_hook(msg)
+    assert rc == 0
+    assert out.get("decision") == "block", out
+    assert "skills-utilization" in out.get("reason", "")
+
+
+def t_mounted_skill_delivery_with_utilization_passes():
+    msg = (
+        "1단계 승인 요청: 이슈 #2039. [이슈 #2039] 스킬 검증 의무 · "
+        "implementation → merge\n"
+        "per-skill verdict 의무를 훅으로 강제하지 않던 문제를 해결했습니다. "
+        "그동안 마운트된 스킬이 실제로 적용됐는지 아무도 확인할 수 없는 "
+        "비용을 치렀는데, 이제 skill-verdict-guard 훅이 자동으로 검사해 "
+        "새로 가능해졌습니다. 마운트된 스킬 implementation-blueprint 는 "
+        "설계 단계에 적용했고, tech-feasibility 는 이번 변경과 관련이 "
+        "없어 not-applicable 로 판단했습니다. 아직 gates.py CI 경로 연동은 "
+        "남았습니다."
+    )
+    rc, out = _run_hook(msg)
+    assert rc == 0
+    assert out == {}, out
+
+
+def t_zero_skill_delivery_unaffected():
+    # issue #320 itself has no skill-verdict line under its reports/ ->
+    # the fifth element must not be required.
     msg = (
         "1단계 승인 요청: 이슈 #320. [이슈 #320] 프레이밍 추가 · "
         "implementation → merge\n"
