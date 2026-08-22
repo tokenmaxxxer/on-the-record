@@ -484,6 +484,24 @@ if declared_artifacts is not None:
             f"이슈 #{issue}가 선언한 design-artifacts 중 다음 경로가 작업 트리에 없다:\n{listed}",
             "선언된 모든 design-artifacts 경로를 작업 트리에 만든 뒤 다시 시도한다",
         )
+else:
+    # issue #2037: a `design-artifacts:` tag with trailing content on the
+    # same line (e.g. "design-artifacts: a.md, b.md") is not the contract
+    # shape (a bare tag line followed by a bullet list or fence) --
+    # _parse_artifacts_declaration's tag regex requires nothing after the
+    # colon, so this shape falls through to None exactly like an issue
+    # with no declaration at all, and the existence check above goes
+    # silently byte-inert on an issue that clearly intended a declaration
+    # (observed live, tm-webfolio #5). Refuse loudly instead of parsing
+    # as none, quoting the required tag+bullet shape.
+    for _line in (artifacts_issue_body or "").splitlines():
+        if re.match(r"^\s*[-*]?\s*design-artifacts\s*:\s*\S+", _line, re.IGNORECASE):
+            deny(
+                f"이슈 #{issue}의 design-artifacts 선언이 잘못된 형태다: {_line.strip()!r} "
+                f"— 태그 줄에 내용이 바로 붙어 있다.",
+                "design-artifacts:\\n- path/one.md\\n- path/two.md  (또는 태그 다음에 "
+                "```fenced``` 블록) — 태그 줄 자체에는 콜론 뒤에 아무 것도 오면 안 된다",
+            )
 
 # --- check_body (ported from gates/pr_reference.py) -------------------------
 # issue #1165: first-paragraph and citation-placement rules ported inline
