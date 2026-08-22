@@ -58,6 +58,13 @@ def t_stale_revert_obligation_present_and_names_gate_module():
     assert "REFUSED (rebase required)" in _DIRECTIVE
 
 
+def t_response_ordering_obligation_present():
+    assert "RESPONSE ORDERING (issue #2043" in _DIRECTIVE
+    assert "OPENS with" in _DIRECTIVE
+    assert "clearly separated" in _DIRECTIVE
+    assert "pure-status turn" in _DIRECTIVE
+
+
 def t_assumption_ledger_obligation_present_and_names_gate_module():
     assert "ASSUMPTION-LEDGER INVENTED-CONFIRM AT INTAKE (issue #1665)" in _DIRECTIVE
     assert "gates/assumption_ledger.py" in _DIRECTIVE
