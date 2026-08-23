@@ -57,6 +57,12 @@ spawn_py="${CLAUDE_PLUGIN_ROOT:-}/../spawn.py"
 
 IFS='' read -r -d '' EXTRACT <<'PY' || true
 import json, os, re, sys
+# issue #2093: the shared total parser replaces this hook's own ad-hoc
+# `cd <path> &&` regex. It ships next to the hooks (never under gates/,
+# which a consumer checkout need not have) and it never raises.
+sys.path.insert(0, os.environ.get("OTR_HOOKS_DIR", ""))
+from hook_input import cd_target_dir, usable_dir  # noqa: E402
+
 
 try:
     e = json.loads(os.environ.get("ABRG_PAYLOAD", ""))
@@ -84,11 +90,13 @@ if not (re.search(r"(?:^|&&)\s*git\s+commit\b", cmd)
 # A leading `cd <path> &&` targets a different directory than the hook
 # process's own cwd — resolve it the same way contract-guard.sh does,
 # instead of assuming the session's Bash tool never wraps a `cd`.
-cd_m = re.match(r"^\s*cd\s+(\S+)\s*&&", cmd)
-print(os.path.expanduser(cd_m.group(1)) if cd_m else os.getcwd())
+# A claimed `cd` target that does not exist here is dropped, not handed
+# to a subprocess as its cwd (issue #2093).
+_target = cd_target_dir(cmd) or os.getcwd()
+print(_target if usable_dir(_target) else "")
 PY
 
-target_cwd="$(ABRG_PAYLOAD="$payload" python3 -c "$EXTRACT")"
+target_cwd="$(OTR_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" ABRG_PAYLOAD="$payload" python3 -c "$EXTRACT")"
 [ -n "$target_cwd" ] || exit 0
 
 out="$(python3 "$spawn_py" recut-if-absorbed -C "$target_cwd" 2>&1)"

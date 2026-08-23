@@ -110,7 +110,11 @@ def _spec_index_preflight_denies(repo: Path, script: str, staged_ok: bool) -> in
         "tool_name": "Bash",
         "tool_input": {"command": "git commit -m wip"},
     })
-    r = subprocess.run(["bash", script], cwd=repo, input=payload, capture_output=True,
+    # `script` is a full command string, which since issue #2093 is
+    # `fail-open-wrapper.sh <real-hook.sh>` -- split it into argv rather than
+    # handing bash one space-containing path.
+    r = subprocess.run(["bash", *script.split()], cwd=repo, input=payload,
+                       capture_output=True,
                         text=True, env=os.environ)
     return r.returncode
 
