@@ -989,23 +989,90 @@ def _skill_trigger_line(skill_dir: Path) -> str | None:
     다루려면 전체 YAML 파서가 필요하지만, 이 함수가 필요한 건 딱 한
     문장뿐이라(제안서 Rationale) 프론트매터 블록만 떼어내 정규식으로
     훑는다."""
+    desc = _skill_frontmatter_description(skill_dir)
+    if desc is None:
+        return None
+    um = _sp._SKILL_USE_SENTENCE_RE.search(desc)
+    return um.group(1).strip() if um else None
+
+
+def _skill_frontmatter(skill_dir: Path) -> str | None:
+    """`skill_dir/SKILL.md` 의 프론트매터 블록 텍스트. 없으면 None."""
     md = skill_dir / "SKILL.md"
     try:
         text = md.read_text(encoding="utf-8")
     except OSError:
         return None
     fm = re.match(r"^---\n(.*?)\n---\n", text, re.S)
-    if not fm:
+    return fm.group(1) if fm else None
+
+
+def _skill_frontmatter_description(skill_dir: Path) -> str | None:
+    """프론트매터 `description:` 필드 전체(폴딩 블록 스칼라 포함)를 공백
+    정규화해 돌려준다 — `_skill_trigger_line()` 이 쓰던 추출을 그대로
+    분리한 것(이슈 #2124: BM25 문서가 첫 "Use ..." 문장이 아니라 이 전체
+    description 을 색인해야 한다). 없으면 None."""
+    fm = _skill_frontmatter(skill_dir)
+    if fm is None:
         return None
-    dm = re.search(r"(?m)^description:[ \t]*(.*(?:\n(?:[ \t]+.*)?)*)", fm.group(1))
+    dm = re.search(r"(?m)^description:[ \t]*(.*(?:\n(?:[ \t]+.*)?)*)", fm)
     if not dm:
         return None
     desc = dm.group(1).strip()
     desc = desc.lstrip(">|-+").strip()
     desc = desc.strip("\"'")
     desc = re.sub(r"\s+", " ", desc)
-    um = _sp._SKILL_USE_SENTENCE_RE.search(desc)
-    return um.group(1).strip() if um else None
+    return desc or None
+
+
+def _skill_frontmatter_axis(skill_dir: Path) -> str | None:
+    """프론트매터 `metadata:` 블록 아래 `axis:` 값(#101 이후 위치). 없으면
+    None — 전체 YAML 파서 없이, metadata 블록 안의 들여쓴 `axis:` 줄만
+    정규식으로 집는다."""
+    fm = _skill_frontmatter(skill_dir)
+    if fm is None:
+        return None
+    mm = re.search(r"(?m)^metadata:[ \t]*\n((?:[ \t]+.*\n?)*)", fm)
+    if not mm:
+        return None
+    am = re.search(r"(?m)^[ \t]+axis:[ \t]*(.+)$", mm.group(1))
+    return am.group(1).strip().strip("\"'") or None if am else None
+
+
+def _skill_bm25_document(name: str, skill_dir: Path) -> str:
+    """이슈 #2124 part 1: `_bm25_cross_family_scores` 가 색인하는 문서 =
+    프론트매터 description 전문 + 스킬 이름 토큰(family 프리픽스는 이름의
+    선행 세그먼트라 이름 토큰에 자동 포함 — 토큰화가 집합이라 별도 반복은
+    무의미하다) + `metadata.axis` 토큰. 결정론적 문자열 조립만 한다 —
+    스코어링 입력 외에는 아무 동작도 바꾸지 않는다. description 이 없으면
+    이름+axis 만으로도 문서를 만든다(empty-state: 이름은 절대 안 빠진다)."""
+    parts = [name.replace("-", " ")]
+    desc = _skill_frontmatter_description(skill_dir)
+    if desc:
+        parts.append(desc)
+    axis = _skill_frontmatter_axis(skill_dir)
+    if axis:
+        parts.append(axis.replace("-", " "))
+    return " ".join(parts)
+
+
+_SKILL_QUOTED_PHRASE_RE = re.compile(r'["“‘]([^"“”‘’]{3,80})["”’]')
+
+
+def _skill_declared_phrases(skill_dir: Path) -> list[str]:
+    """이슈 #2124 part 2: description 안에 따옴표로 선언된 트리거 문구들
+    (#99 의 "Trigger on requests like \"...\"" 포맷). 소문자로 돌려준다.
+    한 단어짜리 흔한 토큰이 fast-path 자동 픽을 만드는 걸 막으려고,
+    공백을 포함하거나 8자 이상인 문구만 남긴다."""
+    desc = _skill_frontmatter_description(skill_dir)
+    if not desc:
+        return []
+    phrases = []
+    for m in _SKILL_QUOTED_PHRASE_RE.finditer(desc):
+        p = m.group(1).strip().lower()
+        if p and (" " in p or len(p) >= 8):
+            phrases.append(p)
+    return phrases
 
 
 def _tokenize(text: str) -> set[str]:
