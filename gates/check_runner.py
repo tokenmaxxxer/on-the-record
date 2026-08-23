@@ -40,13 +40,30 @@ def _acceptance_section(body: str) -> str | None:
     return rest[: nxt.start()] if nxt else rest
 
 
-def parse_checks(section: str) -> list[dict]:
+# 이슈 #2073: 인터프리터 허용목록. `node`/`npx`/`deno`/`bun` 이 빠져 있어
+# `check: `node --check dist/bundle.js`` 가 `file-existence` 로 분류됐다 —
+# 즉 "dist/bundle.js 라는 이름의 파일이 있는가"만 보고 명령은 한 번도
+# 실행되지 않았다. 정확히 tm-dicequest#44 가 초록으로 통과한 경로다.
+INTERPRETERS = ("python3", "python", "bash", "sh", "pytest",
+                "node", "npx", "deno", "bun")
+
+
+def parse_checks(section: str,
+                 runtime_artifacts: list[str] | None = None) -> list[dict]:
     """Acceptance 절 텍스트에서 각 `check:`/`gate:` 줄을 뽑아 분류한다.
 
-    분류: `test`(백틱 안이 실행가능 shell/pytest 명령), `grep`
-    (`grep:` 접두 패턴), `file-existence`(백틱 안이 명령이 아니라
-    맨 파일 경로), `judgment`(무엇에도 해당하지 않음 — 실행 거부 대상).
+    분류: `artifact-smoke`(이슈 #2073 — 백틱 안 명령이 허용목록 동사로
+    시작하면서 선언된 런타임 산출물 하나를 argv 에서 이름함), `test`
+    (백틱 안이 실행가능 shell/pytest/node 계열 명령), `grep`(`grep:`
+    접두 패턴), `file-existence`(백틱 안이 명령이 아니라 맨 파일 경로),
+    `judgment`(무엇에도 해당하지 않음 — 실행 거부 대상).
+
+    `runtime_artifacts` 는 이슈 본문의 `runtime-artifacts:` 선언
+    (`gates/artifact_smoke_rule.py`)이다. None/빈 목록이면
+    `artifact-smoke` 분류는 아예 일어나지 않는다 — 선언이 없는 이슈의
+    분류 결과는 오늘과 바이트 단위로 같다.
     """
+    declared = list(runtime_artifacts or [])
     checks = []
     for m in _CHECK_LINE.finditer(section):
         raw = m.group(1).strip()
@@ -58,9 +75,14 @@ def parse_checks(section: str) -> list[dict]:
         if bm:
             cmd = bm.group(1).strip()
             tokens = cmd.split()
+            artifact = _artifact_touched(cmd, declared) if declared else None
+            if artifact is not None:
+                checks.append({"type": "artifact-smoke", "raw": raw,
+                                "command": cmd, "artifact": artifact})
+                continue
             looks_like_command = bool(tokens) and (
                 "/" in tokens[0] and tokens[0].count(".") >= 1
-                or tokens[0] in ("python3", "python", "bash", "sh", "pytest")
+                or tokens[0] in INTERPRETERS
             )
             if looks_like_command:
                 checks.append({"type": "test", "raw": raw, "command": cmd})
@@ -69,6 +91,18 @@ def parse_checks(section: str) -> list[dict]:
             continue
         checks.append({"type": "judgment", "raw": raw})
     return checks
+
+
+def _artifact_touched(command: str, declared: list[str]) -> str | None:
+    """`artifact_smoke_rule` 의 판정을 그대로 쓴다 — 허용 동사/경로 매칭
+    규칙이 두 군데로 갈라지면 게이트가 거부한 형태를 러너가 실행하는
+    (혹은 그 반대의) 어긋남이 생긴다. 모듈을 못 불러오면 분류를 포기하고
+    오늘의 경로로 떨어진다(fail-open — 여기서 막을 일이 아니다)."""
+    try:
+        import artifact_smoke_rule
+    except Exception:
+        return None
+    return artifact_smoke_rule.command_touches_artifact(command, declared)
 
 
 class JudgmentCheckError(Exception):
@@ -87,14 +121,17 @@ def run_checks(repo: Path, checks: list[dict]) -> list[dict]:
         if kind == "judgment":
             raise JudgmentCheckError(
                 f"판단이 필요한 검사는 체크러너 범위 밖이다: {chk['raw']!r}")
-        if kind == "test":
+        if kind in ("test", "artifact-smoke"):
             r = subprocess.run(shlex.split(chk["command"]), cwd=repo,
                                 capture_output=True, text=True)
-            results.append({
+            entry = {
                 "check": chk["raw"], "type": kind, "command": chk["command"],
                 "status": "pass" if r.returncode == 0 else "fail",
                 "output": (r.stdout + r.stderr)[-2000:],
-            })
+            }
+            if kind == "artifact-smoke":
+                entry["artifact"] = chk["artifact"]
+            results.append(entry)
         elif kind == "grep":
             r = subprocess.run(
                 ["grep", "-r", "--exclude-dir=.on-the-record", chk["pattern"], "."],
@@ -152,7 +189,15 @@ def main() -> int:
     if section is None:
         print(f"이슈 #{issue}에 '## Acceptance' 절이 없다")
         return 1
-    checks = parse_checks(section)
+    # 이슈 #2073: 선언이 있으면 산출물을 실제로 파싱/실행하는 검사를
+    # `artifact-smoke` 로 분류해 실행한다. 선언이 없으면 None 이 넘어가
+    # 오늘과 같은 분류 결과가 나온다.
+    try:
+        import artifact_smoke_rule as _asr
+        runtime_artifacts = _asr.parse_declaration(body)
+    except Exception:
+        runtime_artifacts = None
+    checks = parse_checks(section, runtime_artifacts)
     try:
         results = run_checks(repo, checks)
     except JudgmentCheckError as e:

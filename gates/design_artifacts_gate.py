@@ -38,15 +38,26 @@ _BULLET_RE = re.compile(r"^\s*[-*]\s+(\S+)\s*$")
 _FENCE_RE = re.compile(r"^\s*```")
 
 
-def parse_declaration(body: str) -> list[str] | None:
+def _tag_re(tag: str) -> re.Pattern:
+    """이슈 #2073: 선언 태그 이름만 다른 두 번째 닫힌-어휘 선언
+    (`runtime-artifacts:`)이 생기면서, 태그별로 파서를 복사하는 대신
+    이 모듈의 계약을 넓힌다(complexity-coupling rule 4 — 새 모듈 간
+    의존 간선 대신 기존 계약 확장). 파서는 하나, 태그는 N개."""
+    if tag == "design-artifacts":
+        return _TAG_RE
+    return re.compile(rf"^\s*[-*]?\s*{re.escape(tag)}\s*:\s*$", re.IGNORECASE)
+
+
+def parse_declaration(body: str, tag: str = "design-artifacts") -> list[str] | None:
     """`design-artifacts:` 태그가 없으면 None(byte-inert 경로). 태그가
     있으면 바로 다음의 불릿 목록 또는 펜스 블록에서 경로 목록을 뽑는다
     (빈 목록이면 빈 리스트를 돌려준다 — 태그는 있되 아무 것도 선언하지
     않은 경우)."""
     lines = (body or "").splitlines()
+    tag_re = _tag_re(tag)
     tag_idx = None
     for i, line in enumerate(lines):
-        if _TAG_RE.match(line):
+        if tag_re.match(line):
             tag_idx = i
             break
     if tag_idx is None:
@@ -85,12 +96,14 @@ def parse_declaration(body: str) -> list[str] | None:
 _MALFORMED_TAG_RE = re.compile(r"^\s*[-*]?\s*design-artifacts\s*:\s*\S+", re.IGNORECASE)
 
 
-def malformed_declaration_line(body: str) -> str | None:
+def malformed_declaration_line(body: str, tag: str = "design-artifacts") -> str | None:
     """설계-산출물 선언이 있는 태그 줄이지만 계약 형태(태그 줄 단독 +
     불릿/펜스)에 맞지 않는 경우 그 줄을 그대로 돌려준다. 계약 형태를
     만족하거나(태그 다음이 비어있음) 태그 자체가 없으면 None."""
+    malformed_re = _MALFORMED_TAG_RE if tag == "design-artifacts" else re.compile(
+        rf"^\s*[-*]?\s*{re.escape(tag)}\s*:\s*\S+", re.IGNORECASE)
     for line in (body or "").splitlines():
-        if _MALFORMED_TAG_RE.match(line):
+        if malformed_re.match(line):
             return line.strip()
     return None
 
