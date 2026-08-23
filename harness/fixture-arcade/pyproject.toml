@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fixture-arcade"
+version = "0.1.0"
+description = "Quality-ablation harness fixture (issue #2130) — a small self-contained dice-battle CLI with seeded defects and a balance-parameter surface"
+requires-python = ">=3.9"
+
+[project.scripts]
+fixture-arcade = "arcade:main"
+
+[tool.setuptools]
+packages = ["arcade"]

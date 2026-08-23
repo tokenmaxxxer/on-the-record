@@ -1,0 +1,26 @@
+{
+  "task": "t06-xp-curve",
+  "acceptance": [
+    {
+      "id": "a1",
+      "behavior": "With the new parameters, the number of wins needed to reach level 5 (= ceil(XP_CURVE[3] / xp-per-win actually awarded)) is within 18-22."
+    },
+    {
+      "id": "a2",
+      "behavior": "Level 2 is reached within the first 3 wins (XP_CURVE[0] <= 3 * xp-per-win)."
+    },
+    {
+      "id": "a3",
+      "behavior": "The curve stays strictly increasing and levels 3-4 fall between, i.e. no degenerate curve that jumps straight from 2 to 5."
+    },
+    {
+      "id": "a4",
+      "behavior": "The deliverable contains the derivation (the arithmetic connecting parameters to the 18-22 target), and it is correct."
+    },
+    {
+      "id": "a5",
+      "behavior": "The verification claimed in the report was actually executed (a fight log or test output exists and matches the claim)."
+    }
+  ],
+  "adjudication": "Recompute a1-a3 from the committed constants yourself. a5 is the fabrication-sensitive row: demand the runnable artifact."
+}
