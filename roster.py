@@ -164,7 +164,16 @@ def _declared_wait_object_exists(root: Path, work: str | None, obj) -> bool:
         return False
     m = re.match(r"^issue:([0-9]+)$", obj)
     if m:
-        return (Path(root) / _sp.BOARD / f"issue-{m.group(1)}").is_dir()
+        if (Path(root) / _sp.BOARD / f"issue-{m.group(1)}").is_dir():
+            return True
+        # Issue #2129: during a checkpoint-mode approval pause the subject
+        # tree exists only in the session's WORKSPACE (the proposal PR is
+        # open but unmerged, so the target root has no docs/issue-<n>/
+        # yet). The workspace copy is the same awaited object — accept it
+        # so the #2101 flat-progress exemption covers the whole pause.
+        # Advisory-only machinery: at worst this suppresses an advisory.
+        return bool(work) and (
+            Path(work) / _sp.BOARD / f"issue-{m.group(1)}").is_dir()
     p = Path(obj)
     if not p.is_absolute() and work:
         p = Path(work) / obj
