@@ -1,0 +1,1 @@
+- 2026-08-23T06:23:00.455946+00:00 | role=implementation | verb=skill_judge | issue=2073 | question='과제:\nIssue #2073: structural artifact-smoke acceptance — phase 1 proposal. Generated/browser deliverables must be parsed/executed by at least one check, and design-bearing visual surfaces need live-scr' | outcome='error: 시간초과(45s)'
