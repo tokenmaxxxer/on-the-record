@@ -120,6 +120,53 @@ def test_open_uncited_requirement_still_flagged(tmp_path, monkeypatch, capsys):
     assert "R042" in out
 
 
+_TM_DICEQUEST_DIGEST_ENTRIES = (
+    "- R1: A browser-playable character-growth RPG (MapleStory-like level/stat/equipment/stage growth) whose progression systems benchmark Random Dice 2 — deterministic no-gacha Dice-Tree acquisition, in-match merge 1→7 pips with 7-pip Awakening, Supporter-analog companions — deliverables visually inspectable in the browser [live] (source: user directive 2026-08-23, issue #1)\n"
+    "- R2: Full vertical slice (scope option ③): playable core loop plus dice-tree economy, brand identity, a11y targets, perf budget, stage balancing, release checklist [live] (source: user directive 2026-08-23, issue #1)\n"
+)
+
+
+def test_tm_dicequest_r1_r2_multi_clause_free_form_source_parses():
+    """issue #2077: 다이제스트 파서가 문서화된 자유 형식(multi-clause
+    단일 줄, `source:` 가 `#<번호>` 로 국한되지 않는 자유 텍스트)을
+    거부하지 않고 paraphrase+source 를 추출한다 — tm-dicequest R1/R2
+    shapes verbatim (issue #2071 defect 2)."""
+    entries = spawn.parse_digest_live_entries(_TM_DICEQUEST_DIGEST_ENTRIES)
+
+    assert set(entries) == {"R1", "R2"}
+    for rid in ("R1", "R2"):
+        paraphrase, status, source = entries[rid]
+        assert paraphrase, f"{rid}: expected non-empty paraphrase"
+        assert status == "live"
+        assert source == "user directive 2026-08-23, issue #1"
+
+
+def test_tm_dicequest_r1_r2_flagged_with_paraphrase_when_open(tmp_path, monkeypatch, capsys):
+    """같은 tm-dicequest shape 이 `open` 상태일 때, drift 출력이 더 이상
+    '(다이제스트에 paraphrase 없음)' 폴백으로 떨어지지 않고 실제
+    paraphrase/source 를 낸다."""
+    root = tmp_path
+    digest = root / "docs" / "specs" / "requirement-digest.md"
+    digest.parent.mkdir(parents=True)
+    digest.write_text(
+        _TM_DICEQUEST_DIGEST_ENTRIES.replace("[live]", "[open]"),
+        encoding="utf-8")
+
+    uncited_issue = {
+        "number": 55, "title": "unrelated work", "body": "no requirement cited",
+    }
+    monkeypatch.setattr(
+        spawn.subprocess, "run", _fake_gh_list([uncited_issue], []))
+
+    spawn.requirement_drift(root)
+    out = capsys.readouterr().out
+
+    assert "다이제스트에 paraphrase 없음" not in out
+    assert "source: user directive 2026-08-23, issue #1" in out
+    assert "R1" in out
+    assert "R2" in out
+
+
 def test_empty_digest_produces_no_flags(tmp_path, monkeypatch, capsys):
     digest = tmp_path / "docs" / "specs" / "requirement-digest.md"
     digest.parent.mkdir(parents=True)

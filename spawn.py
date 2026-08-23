@@ -554,10 +554,26 @@ def init_requirement_digest(cwd: str) -> bool:
         "\n"
         "## R-entry format\n"
         "\n"
-        "  - R<n>: <한 줄 설명> [<status>] (source: #<issue-number>)\n"
+        "각 항목은 반드시 한 줄이다(줄바꿈 없음) — 그 안의 <설명> 과 <출처>는\n"
+        "여러 절로 이루어진 자유 형식 텍스트여도 된다(issue #2077). 정확한\n"
+        "문법(파서 — `spawn.py::requirement_drift` — 가 그대로 받아들이는 형태):\n"
         "\n"
-        "예:\n"
+        "  - R<n>: <설명, 자유 형식> [<status>] (source: <출처, 자유 형식>)\n"
+        "\n"
+        "<설명>과 <출처>는 쉼표·세미콜론·마침표를 포함한 여러 절이어도 되고,\n"
+        "<출처>는 `#<issue-number>` 로 국한되지 않는다 — \"user directive\n"
+        "2026-08-23, issue #1\" 처럼 issue 번호를 포함하지 않는 자유 텍스트도\n"
+        "허용된다. `[<status>]` 는 공백 없는 단일 토큰이어야 한다.\n"
+        "\n"
+        "예(한 줄 설명):\n"
         "  - R1: 사용자가 X 를 할 수 있어야 한다 [enforced] (source: #12)\n"
+        "\n"
+        "예(문서화된 자유 형식 — multi-clause, 자유 형식 source):\n"
+        "  - R1: A browser-playable character-growth RPG whose progression "
+        "systems benchmark Random Dice 2 — deterministic no-gacha "
+        "Dice-Tree acquisition, in-match merge 1→7 pips with 7-pip "
+        "Awakening, Supporter-analog companions [live] (source: user "
+        "directive 2026-08-23, issue #1)\n"
         "\n"
         "## Entries\n"
         "\n"
@@ -2594,6 +2610,26 @@ def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
     return data
 
 
+_DIGEST_LIVE_ENTRY_RE = re.compile(
+    r"^- (R\d+): (.+?) \[(\S+)\] \(source: (.+)\)$", re.M)
+
+
+def parse_digest_live_entries(digest_text: str) -> dict[str, tuple[str, str, str]]:
+    """`requirement-digest.md` 의 `- R<n>: <paraphrase> [<status>]
+    (source: <source>)` 줄들을 `id -> (paraphrase, status, source)` 로
+    파싱한다 (issue #2077).
+
+    각 항목은 한 줄(줄바꿈 없음)이어야 하지만, `<paraphrase>` 와
+    `<source>` 는 여러 절로 이루어진 자유 형식 텍스트여도 된다 —
+    `source:` 를 `#<issue-number>` 형태로 강제하지 않는다(문서화된
+    자유 형식 예: tm-dicequest R1/R2 의 "user directive 2026-08-23,
+    issue #1"). `[<status>]` 만 공백 없는 단일 토큰이어야 한다."""
+    return {
+        m.group(1): (m.group(2), m.group(3), m.group(4))
+        for m in _DIGEST_LIVE_ENTRY_RE.finditer(digest_text)
+    }
+
+
 def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> None:
     """이슈 #930 (northpole req#6): digest 에 살아있는(=stale 아닌) 요구
     각각이 열린 이슈/PR 중 최소 하나에서 언급되는지, 그리고 열린
@@ -2618,11 +2654,12 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
     # 출력이 paraphrase/source 를 다시 gh 로 조회하지 않고 이 메모리에서
     # 바로 쓴다(제안서 Accumulation 절이 명시한 "이미 파싱된 다이제스트
     # 엔트리 재사용, 새 gh 호출 없음").
-    live_entries: dict[str, tuple[str, str, str]] = {
-        m.group(1): (m.group(2), m.group(3), m.group(4))
-        for m in re.finditer(
-            r"^- (R\d+): (.+?) \[(\S+)\] \(source: #(\d+)\)$", digest_text, re.M)
-    }
+    # issue #2077: `source:` 는 `#<number>` 로만 국한되지 않는다 —
+    # 문서화된 자유 형식(tm-dicequest R1/R2)은 "user directive
+    # 2026-08-23, issue #1" 같은 multi-clause 자유 텍스트도 허용한다.
+    # 괄호 밖 마지막 ")"까지 통째로 캡처해서 그대로 보존한다(숫자
+    # 강제 파싱 없음 — 아래 next-action 출력도 원문을 그대로 쓴다).
+    live_entries = parse_digest_live_entries(digest_text)
     live_ids = set(live_entries) or set(
         re.findall(r"^- (R\d+):", digest_text, re.M))
     if not live_ids:
@@ -2735,13 +2772,13 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
         # source 와 — 있으면 — 요구 인용이 전혀 없는 열린 이슈/PR(연결
         # 후보) 을 named next-action 으로 출력한다.
         for rid in unmentioned_live:
-            paraphrase, _status, source_issue = live_entries.get(
+            paraphrase, _status, source = live_entries.get(
                 rid, ("(다이제스트에 paraphrase 없음)", "open", "?"))
             candidates = unreferenced_open[:5]
             cand_note = (f" 후보(요구 인용이 전혀 없는 열린 이슈/PR): {candidates}"
                          if candidates else "")
             print(f"[watchdog] requirement-drift: 요구 {rid} — 다이제스트: "
-                  f"\"{paraphrase}\" (source: #{source_issue}) — 열린 이슈/PR "
+                  f"\"{paraphrase}\" (source: {source}) — 열린 이슈/PR "
                   f"어디에도 인용되지 않는다.{cand_note}")
     if unreferenced_open:
         print(f"[watchdog] requirement-drift: 요구 ID 를 전혀 인용하지 않는 "
