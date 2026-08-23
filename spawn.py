@@ -4113,6 +4113,58 @@ _CONTINUATION_PREAMBLE = (
 _RECORD_PATH_RE = re.compile(r"docs/issue-\d+/(reports|proposals)/")
 
 
+def _subject_issue_state(root: Path, issue: int) -> tuple[str | None, bool]:
+    """Issue #2068: read the subject issue's CURRENT open/closed state at
+    act time (level-triggered shape — the decision derives from board state
+    read now, not from a stored event payload). Returns `(state, ok)` —
+    `ok=False` means the `gh` lookup itself failed and `state` must not be
+    read as "no such issue" (same tuple convention as
+    `closure_sweep._issue_view`, which this delegates to)."""
+    sys.path.insert(0, str(ROOT / "gates"))
+    import closure_sweep
+    try:
+        return closure_sweep._issue_view(root, issue)
+    except OSError:
+        # gh missing, or the workspace dir itself is gone — same "lookup
+        # failed" meaning as a non-zero gh exit: report ok=False so the
+        # caller fails open.
+        return None, False
+
+
+def _flag_stale_returned_branch(issue: int, role: str, branch: str,
+                                source: str) -> None:
+    """Issue #2068: a returned/stranded branch whose subject issue is
+    CLOSED must never be re-opened as a PR or respawned — flag it for
+    cleanup instead. Advisory only: no branch is deleted here (there is no
+    existing auto-delete mechanism to hook into; the ledger event plus the
+    printed line is the cleanup signal for the operator/sweeps)."""
+    print(f"[stale-branch] issue #{issue} is CLOSED — refusing to "
+          f"{'respawn' if source == 'respawn' else 're-open a PR'} from "
+          f"returned branch {branch}; branch flagged for cleanup",
+          file=sys.stderr)
+    ledger_write({"event": "stale_branch_cleanup_flagged", "issue": issue,
+                  "role": role, "branch": branch, "source": source,
+                  "ts": int(time.time())})
+
+
+def _current_issue_task_text(root: Path, issue: int) -> str | None:
+    """Issue #2068 requirement 2: a legitimate respawn must carry the
+    CURRENT task text, re-read from the issue at respawn time — not the
+    text captured at original spawn (stale stored text produced zero-output
+    sessions concluding "nothing to do"). Returns None when the fetch
+    fails, so the caller can fall back to the stored `.task.txt` — fail-open,
+    mirroring the returned-PR gate's gh-failure convention (issue #680):
+    a broken gh must not block a legitimate respawn."""
+    sys.path.insert(0, str(ROOT / "gates"))
+    import gh_rest
+    data = gh_rest.fetch_issue(root, issue)
+    if data is None:
+        return None
+    title = data.get("title", "")
+    body = data.get("body", "")
+    return f"Issue #{issue}: {title}\n\n{body}".rstrip() + "\n"
+
+
 def _classify_workspace_completion(work: str, role: str) -> str:
     """이슈 #1982: 재스폰 시점 dirty workspace 를 "finished"/"unfinished" 로
     분류한다. `git status --porcelain` 이 비어 있으면(clean) 바로
@@ -4203,6 +4255,24 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
     if prev_fingerprint is not None and cur_fingerprint != prev_fingerprint:
         attempts = 0
     root = Path(work)
+    # Issue #2068: level-triggered guard — re-read the subject issue's
+    # state at act time, before any respawn or cap-comment side effect.
+    # CLOSED => never respawn (7 stale respawns in one night came from this
+    # path trusting branch existence alone); flag the branch for cleanup
+    # instead. A failed gh lookup fails open — same convention as the
+    # returned-PR gate (issue #680): a broken gh must not silently strand a
+    # crashed-but-legitimate session, and fail-closed here would trade a
+    # noise bug for an observation-loss bug.
+    issue_state, state_ok = _subject_issue_state(root, issue)
+    if not state_ok:
+        print(f"[respawn] {key}: issue-state lookup failed — failing open "
+              f"(returned-PR gate convention, issue #680)", file=sys.stderr)
+        ledger_write({"event": "issue_state_gate_fail_open", "source": "respawn",
+                      "issue": issue, "role": role, "ts": int(time.time())})
+    elif issue_state == "CLOSED":
+        _flag_stale_returned_branch(issue, role, f"issue-{issue}/{role}",
+                                    source="respawn")
+        return
     if total_attempts >= RESPAWN_ABSOLUTE_MAX:
         _post_crash_comment(root, issue, key, work, log, trigger, absolute=True)
         return
@@ -4221,6 +4291,14 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
               f"— 사람이 직접 재스폰해야 한다", file=sys.stderr)
         return
     task = task_path.read_text(encoding="utf-8")
+    # Issue #2068 requirement 2: re-read the task from the CURRENT issue at
+    # respawn time — the stored `.task.txt` is the text captured at original
+    # spawn and can be stale (observed producing zero-output sessions that
+    # concluded "nothing to do"). Fetch failure falls back to the stored
+    # text (fail-open, issue #680 convention).
+    current_task = _current_issue_task_text(root, issue)
+    if current_task is not None:
+        task = current_task
     if _classify_workspace_completion(work, role) == "finished":
         task = _CONTINUATION_PREAMBLE + "\n\n" + task
     attempt_n = attempts + 1
@@ -8025,7 +8103,9 @@ def ensure_pushed(work: str, issue: int, role: str) -> dict:
 
     리턴은 `{"status": ..., "reason": <str|None>}` — status 는
     `nothing-to-push` / `pushed` / `push-rejected` / `pr-create-failed` /
-    `pr-opened` / `pr-already-open`. 기존 stderr 프린트는 전부 그대로 두고
+    `pr-opened` / `pr-already-open` / `issue-closed-stale-branch` (issue
+    #2068: subject issue is CLOSED — no PR is (re)opened, the branch is
+    flagged for cleanup). 기존 stderr 프린트는 전부 그대로 두고
     (사람이 로그를 tail 할 때 보는 것은 안 바뀐다), 호출자가 원격의 거부
     사유를 이벤트/원장에 실을 수 있도록 구조화된 결과를 추가로 리턴한다
     (이슈 #301 B2).
@@ -8062,6 +8142,25 @@ def ensure_pushed(work: str, issue: int, role: str) -> dict:
                         capture_output=True, text=True, cwd=work)
     has_open = pr.returncode == 0 and pr.stdout.strip() not in ("", "0")
     if not has_open:
+        # Issue #2068: before (re)creating a PR from a returned branch, read
+        # the subject issue's CURRENT state at act time (level-triggered —
+        # branch existence alone re-opened PRs for issues already closed
+        # with delivery merged; 5 stale re-opens for one closed issue in one
+        # night). CLOSED => never re-open: flag the stale branch for cleanup
+        # instead. A failed gh lookup fails open — same convention as the
+        # returned-PR gate (issue #680): a broken gh must not strand a live
+        # deliverable that genuinely needs its relay PR.
+        issue_state, state_ok = _subject_issue_state(Path(work), issue)
+        if not state_ok:
+            print(f"[{role}] relay PR gate: issue-state lookup failed — "
+                  f"failing open (returned-PR gate convention, issue #680)",
+                  file=sys.stderr)
+            ledger_write({"event": "issue_state_gate_fail_open",
+                          "source": "relay", "issue": issue, "role": role,
+                          "ts": int(time.time())})
+        elif issue_state == "CLOSED":
+            _flag_stale_returned_branch(issue, role, br, source="relay")
+            return {"status": "issue-closed-stale-branch", "reason": None}
         # 참조만 한다 — Closes 를 박으면 record PR 하나가 머지되는 순간
         # 이슈가 조기에 닫힌다(실측 직전 발견). 이슈 닫기는 라운드가 끝났을
         # 때 사람의 행위다 (계약 s8).
