@@ -954,5 +954,103 @@ def test_ported_check_body_matches_pr_reference_check_body():
     assert not mismatches, mismatches
 
 
+# --- issue #2073: screen-verified citation check, end-to-end ---------------
+#
+# The trigger is the issue's own `design-artifacts:` declaration naming a
+# storyboard, and it only binds on a phase-2 PR (the record the line lives
+# in is phase-2 output).
+
+_SB_BODY = ("Build the screen.\n\ndesign-artifacts:\n"
+            "- docs/issue-2073/_assets/storyboard.md\n")
+
+
+def _storyboard_repo(tmp_path, *, record=None, shot=False):
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2073/implementation")
+    assets = repo_dir / "docs" / "issue-2073" / "_assets"
+    assets.mkdir(parents=True)
+    (assets / "storyboard.md").write_text("frame 1\n")
+    if shot:
+        (assets / "screen.png").write_text("PNG")
+    if record is not None:
+        reports = repo_dir / "docs" / "issue-2073" / "reports"
+        reports.mkdir(parents=True)
+        (reports / "implementation.md").write_text(record)
+    return repo_dir
+
+
+_PHASE2_FIXTURES = {
+    "issue_comments": [
+        {"body": "APPROVE issue-2073/implementation", "author": {"login": "alice"}},
+    ],
+    "issue_body": _SB_BODY,
+}
+_PHASE2_CMD = ('gh pr create --title "delivery" --body '
+               '"Delivers the screen.\n\nCloses #2073"')
+
+
+def test_hook_denies_phase2_pr_when_storyboard_declared_and_no_screen_verified(tmp_path):
+    """A storyboard is declared and the phase-2 record carries no
+    `screen-verified:` line -> gh pr create is refused."""
+    repo_dir = _storyboard_repo(tmp_path, record="# record\n\nAll done.\n")
+    r = _run_preflight(_PHASE2_CMD, repo_dir, _PHASE2_FIXTURES, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "screen-verified" in r.stderr
+
+
+def test_hook_denies_phase2_pr_when_cited_screenshot_is_missing(tmp_path):
+    """The line exists but the screenshot it cites is not in the tree."""
+    record = ("# record\n\nscreen-verified: docs/issue-2073/_assets/screen.png "
+              "— matches the storyboard's three-frame layout\n")
+    repo_dir = _storyboard_repo(tmp_path, record=record, shot=False)
+    r = _run_preflight(_PHASE2_CMD, repo_dir, _PHASE2_FIXTURES, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "docs/issue-2073/_assets/screen.png" in r.stderr
+
+
+def test_hook_denies_phase2_pr_when_the_line_carries_no_verdict(tmp_path):
+    """Existence of a screenshot is not a verdict — the same line must
+    carry the one-line judgment against the storyboard."""
+    record = "# record\n\nscreen-verified: docs/issue-2073/_assets/screen.png\n"
+    repo_dir = _storyboard_repo(tmp_path, record=record, shot=True)
+    r = _run_preflight(_PHASE2_CMD, repo_dir, _PHASE2_FIXTURES, tmp_path)
+    assert r.returncode == 2, r.stderr
+    assert "판정" in r.stderr
+
+
+def test_hook_allows_phase2_pr_with_a_complete_screen_verified_line(tmp_path):
+    record = ("# record\n\nscreen-verified: docs/issue-2073/_assets/screen.png "
+              "— matches the storyboard's three-frame layout\n")
+    repo_dir = _storyboard_repo(tmp_path, record=record, shot=True)
+    r = _run_preflight(_PHASE2_CMD, repo_dir, _PHASE2_FIXTURES, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_allows_phase1_pr_even_with_a_storyboard_declared(tmp_path):
+    """Phase 1 is exempt — the record the line belongs in is phase-2
+    output, so a proposal PR must pass through untouched."""
+    repo_dir = _storyboard_repo(tmp_path)
+    fixtures = {"issue_comments": [], "issue_body": _SB_BODY}
+    cmd = 'gh pr create --title "proposal" --body "Proposal for #2073"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_allows_phase2_pr_when_declared_artifacts_have_no_storyboard(tmp_path):
+    """A design-bearing issue whose declared artifacts are not a
+    storyboard sees no new check — precision-first trigger."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2073/implementation")
+    (repo_dir / "docs" / "issue-2073" / "_assets").mkdir(parents=True)
+    (repo_dir / "docs" / "issue-2073" / "_assets" / "user-flow.md").write_text("x")
+    fixtures = {
+        "issue_comments": [
+            {"body": "APPROVE issue-2073/implementation", "author": {"login": "alice"}},
+        ],
+        "issue_body": ("Build it.\n\ndesign-artifacts:\n"
+                        "- docs/issue-2073/_assets/user-flow.md\n"),
+    }
+    r = _run_preflight(_PHASE2_CMD, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
 if __name__ == "__main__":
     sys.exit(run())

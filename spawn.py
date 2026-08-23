@@ -8182,6 +8182,73 @@ def _release_spawn_claim(work: str, pid: int) -> None:
 
 _ACCEPTANCE_CHECK_LINE = re.compile(r"^\s*-\s*check\s*:\s*(.+)$", re.MULTILINE)
 
+_STORYBOARD_RE = re.compile(r"storyboard|스토리보드", re.IGNORECASE)
+
+
+def _artifact_smoke_task_lines(body: str | None) -> str:
+    """이슈 #2073: 스폰 과제 뒤에 붙는 최대 두 줄의 조건부 코-인젝션.
+
+    (a) 본문이 `runtime-artifacts:` 를 선언했거나(또는 선언은 없지만
+        생성물/브라우저 어휘 자문 스코어러가 울리면) artifact-smoke
+        트리거 한 줄 — 선언된 경로를 그대로 이름한다.
+    (b) 이슈가 design-bearing 이면서 선언된 design-artifacts 중 하나가
+        스토리보드면 live-screen 검증 한 줄.
+
+    어느 조건도 안 걸리면 빈 문자열을 돌려준다 — 오늘의 과제 텍스트와
+    바이트 단위로 같아야 한다. 새 네트워크 호출은 하지 않는다(본문은
+    이미 받아온 것). gates 모듈을 못 불러오면 조용히 빈 문자열이다.
+    """
+    if not body:
+        return ""
+    try:
+        sys.path.insert(0, str((ROOT / "gates").resolve()))
+        import artifact_smoke_rule as _asr
+        import design_artifacts_gate as _dag
+        import design_bearing_classifier as _dbc
+    except Exception:
+        return ""
+
+    out = ""
+    try:
+        declared = _asr.parse_declaration(body)
+    except Exception:
+        declared = None
+    if declared:
+        out += (
+            "\n\nARTIFACT-SMOKE(이슈 #2073): 이 이슈는 런타임 산출물을 "
+            f"선언했다 — {', '.join(declared)}. 이 산출물 자체를 파싱하거나 "
+            "실행하는 검사가 최소 하나 있어야 한다(소스 유닛 테스트도, "
+            "재생성 diff 도 그 자리를 대신하지 못한다). 허용 동사와 계약은 "
+            "docs/specs/artifact-smoke-contract.md 에 있다.\n")
+    elif declared is None:
+        try:
+            advisory = _asr.advisory_line(0, body)
+        except Exception:
+            advisory = None
+        if advisory:
+            out += (
+                "\n\nARTIFACT-SMOKE(이슈 #2073): 이 이슈 본문이 생성물/"
+                "브라우저 산출물 어휘를 담고 있는데 `runtime-artifacts:` "
+                "선언이 없다 — 배송되는 산출물이 있으면 선언하고, 그 산출물을 "
+                "실제로 파싱/실행하는 검사를 `## Acceptance` 에 하나 둬라"
+                "(docs/specs/artifact-smoke-contract.md).\n")
+
+    try:
+        verdict = _dbc.check_issue_body(0, body)
+        design_bearing = bool(verdict and verdict.get("design_bearing"))
+        design_artifacts = _dag.parse_declaration(body) or []
+    except Exception:
+        design_bearing, design_artifacts = False, []
+    storyboards = [p for p in design_artifacts if _STORYBOARD_RE.search(p)]
+    if design_bearing and storyboards:
+        out += (
+            "\n\nVISUAL-VERIFICATION(이슈 #2073): 이 이슈는 design-bearing "
+            f"이고 스토리보드({', '.join(storyboards)})를 선언했다 — 레코드에 "
+            "`screen-verified:` 줄을 남겨라: docs/issue-<n>/_assets/ 아래의 "
+            "실화면 스크린샷 경로와, 그 스토리보드에 비춘 한 줄 판정. 판정 "
+            "내용은 네 몫이다(게이트는 줄과 파일의 존재만 본다).\n")
+    return out
+
 
 def _goal_pin_block(title: str | None, body: str | None) -> str:
     """이슈 #1652 (northpole req#6): 제목 + '## Acceptance' 의 'check:'
@@ -8677,6 +8744,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     "\n\n아티팩트-스킬 짝짓기(이슈 #2014): 선언된 각 아티팩트를 "
                     "그것을 만드는 절차를 담은 스킬과 짝지었다.\n"
                     + "\n".join(pairing_lines) + "\n")
+    # 이슈 #2073: 같은 body(새 fetch 없음, spawn.py 의 위 블록이 이미 받아온
+    # 것)에서 두 개의 조건부 줄을 붙인다 — (a) `runtime-artifacts:` 가
+    # 선언됐거나 자문 스코어러가 울리면 artifact-smoke 트리거 한 줄,
+    # (b) 이슈가 design-bearing 이면서 선언된 design-artifacts 에
+    # 스토리보드가 있으면 live-screen 검증 한 줄. 둘 다 조건이 없으면
+    # 아무 것도 안 붙는다(제안서 Constraints — byte-identical on absence).
+    # 스킬 마운트 여부와 무관하므로 위 스킬 블록 바깥에 둔다.
+    task = task + _artifact_smoke_task_lines(body if issue is not None else None)
     # 이슈 #1955: 역할은 룰북을 아예 마운트하지 않는다 — rulebook 해석
     # 경로 자체가 은퇴했다(요구사항: 룰북 마운트가 "붙었지만 무시됨"이
     # 아니라 argv 에서 통째로 빠져야 한다는 #1758 요구사항 2를 무조건화).
