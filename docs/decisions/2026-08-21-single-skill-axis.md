@@ -14,6 +14,10 @@ scope:
     - "separate role axis"
     - "new role type"
     - "role hierarchy"
+  keyword-groups:
+    - "role + manifest"
+    - "role + registry"
+    - "reintroduce + role"
 ---
 
 # Single skill axis — no separate role concept

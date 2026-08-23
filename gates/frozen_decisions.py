@@ -41,11 +41,15 @@ class Decision:
     path: Path
     globs: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
+    # AND-groups: a group hits when EVERY term in it appears in the text.
+    # Guards against paraphrase drift that exact phrases miss (issue #2104
+    # review: 'enforcement hooks beside skills' slipped past all 6 phrases).
+    keyword_groups: list[list[str]] = field(default_factory=list)
     raw: dict = field(default_factory=dict)
 
     @property
     def has_scope(self) -> bool:
-        return bool(self.globs or self.keywords)
+        return bool(self.globs or self.keywords or self.keyword_groups)
 
 
 def parse_front_matter(text: str) -> dict | None:
@@ -130,14 +134,24 @@ def load_decision(path: Path) -> Decision:
         raise ValueError(f"{path.name}: `scope:` must be a mapping")
     globs = scope.get("globs") or []
     keywords = scope.get("keywords") or []
+    # Restricted-YAML front matter has no nested lists, so each group is one
+    # string of `+`-joined terms: - "hook + skill" => all terms must appear.
+    raw_groups = scope.get("keyword-groups") or []
     if not isinstance(globs, list) or not isinstance(keywords, list):
         raise ValueError(f"{path.name}: scope.globs / scope.keywords must be lists")
+    if not isinstance(raw_groups, list) or not all(isinstance(g, str) for g in raw_groups):
+        raise ValueError(f"{path.name}: scope.keyword-groups must be a list of"
+                         " '+'-joined term strings")
+    keyword_groups = [[t.strip() for t in g.split("+") if t.strip()] for g in raw_groups]
+    if not all(keyword_groups) or (raw_groups and not keyword_groups):
+        raise ValueError(f"{path.name}: scope.keyword-groups entries need at least one term")
     return Decision(
         decision_id=str(meta.get("id", path.stem)),
         status=status,
         path=path,
         globs=[str(g) for g in globs],
         keywords=[str(k) for k in keywords],
+        keyword_groups=keyword_groups,
         raw=meta,
     )
 

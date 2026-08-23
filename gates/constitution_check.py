@@ -65,6 +65,11 @@ def scope_intersection(recommendation_text: str, touched_paths: list[str] | None
                 why = f"keyword {kw!r}"
                 break
         if why is None:
+            for group in dec.keyword_groups:
+                if all(term.lower() in text for term in group):
+                    why = f"keyword-group {group!r} (all terms present)"
+                    break
+        if why is None:
             for pattern in dec.globs:
                 hit = next((p for p in (touched_paths or []) if _glob_hit(p, pattern)), None)
                 if hit:

@@ -16,6 +16,10 @@ scope:
     - "skill-side enforcement"
     - "enforcement in skills"
     - "skill repo hook"
+  keyword-groups:
+    - "hook + skill"
+    - "enforce + skill"
+    - "gate + skill-repository"
 ---
 
 # Single enforcement surface — hooks live only in core
