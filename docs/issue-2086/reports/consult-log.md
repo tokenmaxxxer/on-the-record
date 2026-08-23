@@ -1,0 +1,1 @@
+- 2026-08-23T06:45:15.245835+00:00 | role=implementation | verb=skill_judge | issue=2086 | question='과제:\nFix issue #2086: spawn.py gate refusals must exit nonzero (successful detach stays 0), per the issue Acceptance\n\n후보 스킬(BM25 상위 8개):\n- technical-feasibility-build-vs-buy-dependency-health [skill-re' | outcome='error: 시간초과(45s)'
