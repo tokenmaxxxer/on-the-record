@@ -1585,3 +1585,71 @@ class StateRootIsolation(unittest.TestCase):
         self.assertEqual(lines[1], str(Path(self.fixture_state).resolve() / "active.json"))
         self.assertEqual(lines[2],
                           str(Path(self.fixture_state).resolve() / "workspaces.json"))
+
+
+class GateRefusalExitCodeTest(unittest.TestCase):
+    """issue #2086: a gate-refused spawn must exit nonzero — an orchestrator
+    watching only the exit code (not scraping stdout/stderr) has to be able
+    to tell a refusal from a launched session. Covers all four refusal
+    paths named in the Acceptance (no-task, requirement-link,
+    acceptance-shape, skills resolution), plus one non-refused path that
+    must stay 0."""
+
+    def _board_repo(self, td: str) -> Path:
+        root = Path(td)
+        (root / "docs" / "specs").mkdir(parents=True)
+        (root / "docs" / "specs" / "approvers.md").write_text("someone\n")
+        return root
+
+    def test_no_task_exits_nonzero(self):
+        r = subprocess.run(
+            [sys.executable, str(Path(spawn.__file__).parent / "spawn.py"), "implementation"],
+            capture_output=True, text=True)
+        self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_skills_unknown_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as td:
+            r = subprocess.run(
+                [sys.executable, str(Path(spawn.__file__).parent / "spawn.py"),
+                 "implementation", "맡길 일", "--skills", "does-not-exist-xyz",
+                 "--no-contract", "-C", td],
+                capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+
+    def test_requirement_linkage_refusal_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._board_repo(td)
+            subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+            sys.path.insert(0, str(Path(spawn.__file__).parent / "gates"))
+            import ci
+            import requirement_linkage
+            with mock.patch.object(ci, "_approved_roles_on_issue", return_value=set()), \
+                 mock.patch.object(requirement_linkage, "check",
+                                   return_value=["요구 연결 없음"]):
+                with self.assertRaises(SystemExit) as cm:
+                    spawn.require_requirement_linkage(str(root), 999999)
+            self.assertNotEqual(cm.exception.code, 0)
+
+    def test_acceptance_shape_refusal_exits_nonzero(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._board_repo(td)
+            sys.path.insert(0, str(Path(spawn.__file__).parent / "gates"))
+            import ci
+            import acceptance_gate
+            with mock.patch.object(ci, "_approved_roles_on_issue",
+                                   return_value={"implementation"}), \
+                 mock.patch.object(acceptance_gate, "check",
+                                   return_value=["Acceptance 절이 실행가능한 산출물을 안 가리킨다"]):
+                with self.assertRaises(SystemExit) as cm:
+                    spawn.require_acceptance_gate(str(root), 999999)
+            self.assertNotEqual(cm.exception.code, 0)
+
+    def test_dry_run_non_refused_spawn_exits_zero(self):
+        # 게이트를 다 통과하는(거절되지 않는) 호출은 계속 0 이어야 한다 —
+        # 이 회귀가 모든 종료 코드를 nonzero 로 뭉개버리지 않았는지 확인.
+        with tempfile.TemporaryDirectory() as td:
+            r = subprocess.run(
+                [sys.executable, str(Path(spawn.__file__).parent / "spawn.py"),
+                 "implementation", "맡길 일", "--dry-run", "--no-contract", "-C", td],
+                capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
