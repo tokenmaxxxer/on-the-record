@@ -5531,7 +5531,9 @@ def read_role_model_config() -> str:
         return ""
 
 
-def resolved_role_model(cli_model: str | None = None) -> str:
+def resolved_role_model(cli_model: str | None = None, role: str | None = None,
+                         single_phase: bool = False,
+                         design_bearing_verdict: bool | None = None) -> tuple[str, str] | str:
     """이슈#93: env > config > built-in default("sonnet"). MUSTER_ROLE_MODEL 이
     (strip 후) 비어 있지 않으면 그것이 이긴다 — config 는 그때는 아예 안 읽힌
     값처럼 무시된다. 둘 다 비어 있으면 "sonnet" — --model 이 항상 붙는다,
@@ -5539,14 +5541,29 @@ def resolved_role_model(cli_model: str | None = None) -> str:
 
     이슈#1736: `cli_model` 이(strip 후) 비어 있지 않으면 최우선으로 이긴다
     — 단일 스폰에 대한 per-invocation 오버라이드, env/config 는 아예 안
-    읽힌 것처럼 건너뛴다. 생략하면(기본값 None) 이전 동작과 byte-identical."""
+    읽힌 것처럼 건너뛴다. 생략하면(기본값 None) 이전 동작과 byte-identical.
+
+    이슈#2070: `role` 이 주어지면(기존 세 rung 이 전부 비었을 때만) built-in
+    `"sonnet"` 종착점 대신 `gates/model_routing.py`의 구조적 라우팅 계층을
+    태운다 — `--model` 과 `MUSTER_ROLE_MODEL`/`role_model.txt` 는 그대로
+    최우선으로 이긴다(회귀 없음). 반환값은 (model, rule) 튜플로 바뀌지만
+    `role` 을 생략하면(기본값 None) 이전 세 rung 은 그대로이고 반환값도
+    문자열 하나 그대로다 — byte-identical."""
     cli_value = (cli_model or "").strip()
     if cli_value:
-        return cli_value
+        return (cli_value, "cli-override") if role is not None else cli_value
     env_value = (os.environ.get("MUSTER_ROLE_MODEL") or "").strip()
     if env_value:
-        return env_value
-    return read_role_model_config() or "sonnet"
+        return (env_value, "env-override") if role is not None else env_value
+    config_value = read_role_model_config()
+    if config_value:
+        return (config_value, "config-override") if role is not None else config_value
+    if role is not None:
+        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+        import model_routing
+        policy = model_routing.load_policy(ROOT)
+        return model_routing.route_model(role, single_phase, design_bearing_verdict, policy)
+    return "sonnet"
 
 
 def spawn_cmd(settings_path: str, role: str, unattended: bool,
@@ -5554,7 +5571,9 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
               plugins: list | None = None,
               model: str | None = None,
               skill_dirs: list | None = None,
-              skill_repo_sha_value: str | None = None) -> tuple[list[str], dict[str, str]]:
+              skill_repo_sha_value: str | None = None,
+              single_phase: bool = False,
+              design_bearing_verdict: bool | None = None) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
     --permission-mode bypassPermissions (issue #700): 샌드박스 제거(#695/#697)
@@ -5590,10 +5609,16 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # 고정한다. env > config > built-in "sonnet". 둘 다 비어있어도 built-in
     # 이 이겨 --model 이 항상 붙는다 — haiku 프로브(doctor())는 이 함수를
     # 거치지 않으므로 영향 없다.
-    role_model = resolved_role_model(model)
+    role_model, model_rule = resolved_role_model(
+        model, role=role, single_phase=single_phase,
+        design_bearing_verdict=design_bearing_verdict)
     if role_model:
         cmd += ["--model", role_model]
-    env = {"CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+    env = {"CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1",
+           # 이슈 #2070: roster 기록용 — `_spawn_one()` 이 실제 subprocess env
+           # 로 넘기기 전에 이 두 내부 키를 꺼내 roster 엔트리에 옮겨 담는다.
+           "_MODEL_ROUTING_MODEL": role_model or "",
+           "_MODEL_ROUTING_RULE": model_rule}
     # Two-account model (core README): role sessions act as the AGENT
     # account. MUSTER_AGENT_GH_TOKEN, if set, becomes the session's GH_TOKEN
     # so gh in the container/sandbox authenticates as the agent — never the
@@ -8578,12 +8603,31 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
               f"core 플러그인 {', '.join(p.name for p in core_plugins)}, "
               f"core {core_version()}, 작업 디렉터리 {cwd}", file=sys.stderr)
         print(_bootstrap_timing_line(role), file=sys.stderr)
+        # 이슈 #2070: design-bearing 판정은 issue 본문에 대해서만 의미가
+        # 있다 — 없으면(adhoc 스폰) None, gates 호출이 실패해도(gh 오류 등)
+        # fail-open 으로 None 에 떨어진다(라우팅 계층 자체가 fail-open).
+        design_bearing_verdict = None
+        if issue is not None:
+            try:
+                sys.path.insert(0, str((ROOT / "gates").resolve()))
+                import design_bearing_classifier
+                _verdict = design_bearing_classifier.check(Path(cwd), issue)
+                design_bearing_verdict = bool(_verdict and _verdict.get("design_bearing"))
+            except Exception:
+                design_bearing_verdict = None
         # 맡길 일은 stdin 으로 넘긴다. 인자로 주면 가변 인자 플래그가 삼키고,
         # 셸 보간을 거치면 신뢰할 수 없는 값의 $(…) 가 실행된다.
         cmd, extra_env = spawn_cmd(settings, role, unattended,
                                    core_plugins, plugins, model,
                                    all_skill_dirs,
-                                   skill_sha or role_source["skill_sha"])
+                                   skill_sha or role_source["skill_sha"],
+                                   single_phase=single_phase,
+                                   design_bearing_verdict=design_bearing_verdict)
+        # 이슈 #2070: roster 기록용 두 내부 키를 여기서 뽑아내 실제 subprocess
+        # env 에는 안 들어가게 한다 — spawn_cmd() 가 심어준 신호일 뿐, 세션
+        # 자신의 env 표면이 아니다.
+        _model_routing_model = extra_env.pop("_MODEL_ROUTING_MODEL", "")
+        _model_routing_rule = extra_env.pop("_MODEL_ROUTING_RULE", "")
         # 이슈 #1978 (A): --single-phase 신호일 때만 얹는다 — 없으면
         # extra_env 는 오늘과 바이트 단위로 동일한 채로 남는다.
         if single_phase:
@@ -8656,6 +8700,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     "session_id": os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None,
                     "before_head": before_head,
                     "wrapper_pid": os.getpid(),
+                    "model": _model_routing_model,
+                    "model_rule": _model_routing_rule,
                 }
                 _early_roster_entry.update(_skill_roster_fields(skill_sources, skill_sha))
                 _early_roster_entry.update(roster_resolution_fields)
@@ -8742,6 +8788,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             "issue": issue, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
+            # 이슈 #2070: 이 스폰에 실제로 --model 로 붙은 값과, 그것을 고른
+            # 규칙(`cli-override`/`env-override`/`config-override`/
+            # `role-tier:<name>`/`design-bearing-override`/
+            # `single-phase-tier:<name>`/`default-tier:<name>`/
+            # `fail-open-default`) — model-vs-outcome 효율을 나중에
+            # #1991/#2015 대비 측정 가능하게.
+            "model": _model_routing_model,
+            "model_rule": _model_routing_rule,
             # 이슈 #878: 이 스폰을 무장한 오케스트레이터 자신의 세션 ID —
             # `ORCHESTRATOR_SESSION_ID_ENV` 로 호출자(인터랙티브 호스트나
             # harness driver)가 심어준 값을 그대로 옮겨 담는다. spawn.py
