@@ -137,5 +137,14 @@ None.
 
 ## Next steps
 
-None — `loop_state: landed`, terminal for this record's kind. PR carries
-`Closes #2077`.
+None for the code/record itself — `loop_state: landed`, terminal for this
+record's kind. Deviation: `on-the-record/hooks/pr-preflight.sh`'s phase
+determination requires a live GitHub `APPROVE issue-2077/implementation`
+comment from a `docs/specs/approvers.md` account before a PR body may
+carry `Closes #2077` — no such comment exists yet, and this session must
+not post one itself. The PR therefore opens phase-1-shaped (a plain
+`#2077` reference, no Closes/Fixes/Resolves), even though the build-now
+bypass instructed delivering code+record in one PR; the mechanical gate
+takes precedence over that instruction. `Closes #2077` will need adding
+once an approver comment lands (a small follow-up edit to the open PR's
+body, not new code).
