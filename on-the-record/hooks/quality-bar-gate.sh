@@ -90,6 +90,23 @@ import re
 import shlex
 import subprocess
 import sys
+# issue #2093: the shared total parser replaces this hook's own ad-hoc
+# `cd <path> &&` handling. It ships next to the hooks (never under gates/,
+# which a consumer checkout need not have) and it never raises.
+sys.path.insert(0, os.environ.get("OTR_HOOKS_DIR", ""))
+from hook_input import CdTarget, cd_target, cd_target_dir  # noqa: E402
+
+
+def expand_cd_dir(raw):
+    """A tokenised `cd DIR` target, `~`-expanded by the shared parser."""
+    result = cd_target("cd " + raw + " && true")
+    return result.path if isinstance(result, CdTarget) else raw
+
+
+def usable_cd_dir(raw):
+    """The tokenised `cd DIR` target, or None when it does not exist here."""
+    return cd_target_dir("cd " + raw + " && true")
+
 
 CHECKOUT = os.environ.get("QBG_CHECKOUT")
 sys.path.insert(0, os.path.join(CHECKOUT, "gates"))
@@ -132,8 +149,8 @@ if len(tokens) >= 3 and tokens[0] == "gh" and tokens[1] == "pr" and tokens[2] ==
     _tail = tokens[3:]
 elif (len(tokens) >= 6 and tokens[0] == "cd" and tokens[2] == "&&"
       and tokens[3] == "gh" and tokens[4] == "pr" and tokens[5] == "merge"):
-    target_cwd = tokens[1]
-    _tail = [tokens[1]] + tokens[6:]
+    target_cwd = usable_cd_dir(tokens[1])
+    _tail = [expand_cd_dir(tokens[1])] + tokens[6:]
 else:
     sys.exit(0)
 
@@ -279,6 +296,6 @@ print(json.dumps({
 sys.exit(2)
 PY
 
-QBG_PAYLOAD="$payload" QBG_CHECKOUT="$CHECKOUT" python3 -c "$GUARD"
+OTR_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" QBG_PAYLOAD="$payload" QBG_CHECKOUT="$CHECKOUT" python3 -c "$GUARD"
 rc=$?
 exit "$rc"
