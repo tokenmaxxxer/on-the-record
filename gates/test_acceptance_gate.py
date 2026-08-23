@@ -136,6 +136,21 @@ def t_all_three_violations_reported_together():
     assert len(bad) == 3, bad
 
 
+def t_issue_2085_all_three_named_in_single_refusal():
+    """issue-2085: drive an issue body missing check-grammar, empty-state,
+    AND provenance all at once, and assert the single refusal names all
+    three — reproduces the tm-dicequest#55 report where three separate
+    spawn attempts each surfaced a different lone missing element."""
+    body = """## Acceptance
+It should work correctly and users should be happy with the result.
+"""
+    bad = acceptance_gate.check_issue_body(2085, body)
+    assert len(bad) == 3, bad
+    assert any("프로즈뿐" in b for b in bad), bad
+    assert any("empty state" in b for b in bad), bad
+    assert any("provenance" in b for b in bad), bad
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:
