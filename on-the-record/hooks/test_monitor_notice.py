@@ -25,6 +25,15 @@ REPO_ROOT = HOOKS_DIR.parent.parent
 HOOK = HOOKS_DIR / "directive.sh"
 
 NOTICE_SNIPPET = "idle self-wake is unavailable in this session"
+# issue #2102 (byte-stability): the notice is never printed into the
+# per-turn injection any more -- it is written once per session to this
+# workspace file; stdout must stay byte-stable regardless of the
+# monitor-available condition.
+NOTICE_FILE = ".orchestrate-wake-notice"
+
+
+def _notice_file(cwd):
+    return Path(cwd) / NOTICE_FILE
 
 
 def _run(cwd, session_id, grace=1):
@@ -64,17 +73,23 @@ def test_no_notice_inside_grace_window(tmp_path):
     _run(tmp_path, "sess-1", grace=999)
     result = _run(tmp_path, "sess-1", grace=999)
     assert NOTICE_SNIPPET not in result.stdout
+    assert not _notice_file(tmp_path).exists()
 
 
 def test_notice_fires_once_past_grace_with_no_alive_marker(tmp_path):
     _run(tmp_path, "sess-1", grace=1)
     time.sleep(1.2)
     result = _run(tmp_path, "sess-1", grace=1)
-    assert NOTICE_SNIPPET in result.stdout
+    # issue #2102: the notice lands in the workspace file, never stdout.
+    assert NOTICE_SNIPPET not in result.stdout
+    assert NOTICE_SNIPPET in _notice_file(tmp_path).read_text()
 
-    # Second check after firing: never repeats for this session.
+    # Second check after firing: the notified marker keeps it once-only
+    # (the file is not rewritten for this session).
+    first_mtime = _notice_file(tmp_path).stat().st_mtime_ns
     result_again = _run(tmp_path, "sess-1", grace=1)
     assert NOTICE_SNIPPET not in result_again.stdout
+    assert _notice_file(tmp_path).stat().st_mtime_ns == first_mtime
 
 
 @pytest.mark.xfail(
@@ -93,7 +108,7 @@ def test_no_notice_when_alive_marker_fresh_for_this_session(tmp_path):
     (marker_dir / "alive").touch()
     time.sleep(1.2)
     result = _run(tmp_path, "sess-1", grace=1)
-    assert NOTICE_SNIPPET not in result.stdout
+    assert not _notice_file(tmp_path).exists()
 
 
 def test_stale_marker_from_earlier_session_does_not_suppress_notice(tmp_path):
@@ -110,7 +125,8 @@ def test_stale_marker_from_earlier_session_does_not_suppress_notice(tmp_path):
     _run(tmp_path, "sess-2", grace=1)
     time.sleep(1.2)
     result = _run(tmp_path, "sess-2", grace=1)
-    assert NOTICE_SNIPPET in result.stdout
+    assert NOTICE_SNIPPET not in result.stdout
+    assert NOTICE_SNIPPET in _notice_file(tmp_path).read_text()
 
 
 def test_session_ids_that_a_char_substitution_sanitizer_would_collide_stay_independent(tmp_path):
@@ -125,9 +141,15 @@ def test_session_ids_that_a_char_substitution_sanitizer_would_collide_stay_indep
     _run(tmp_path, "sess/a", grace=1)
     time.sleep(1.2)
     result_a = _run(tmp_path, "sess/a", grace=1)
-    assert NOTICE_SNIPPET in result_a.stdout
+    assert NOTICE_SNIPPET not in result_a.stdout
+    assert NOTICE_SNIPPET in _notice_file(tmp_path).read_text()
+    mtime_a = _notice_file(tmp_path).stat().st_mtime_ns
 
     _run(tmp_path, "sess?a", grace=1)
     time.sleep(1.2)
     result_b = _run(tmp_path, "sess?a", grace=1)
-    assert NOTICE_SNIPPET in result_b.stdout
+    assert NOTICE_SNIPPET not in result_b.stdout
+    # session B (substitution-collision class of A's id) still writes its
+    # OWN notice -- the file is rewritten, proving A's notified marker did
+    # not answer for B.
+    assert _notice_file(tmp_path).stat().st_mtime_ns > mtime_a

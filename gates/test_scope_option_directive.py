@@ -17,10 +17,17 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DIRECTIVE_SH = ROOT / "on-the-record" / "hooks" / "directive.sh"
+# issue #2102: the scope-option section moved verbatim from directive.sh's
+# per-turn heredoc into the on-demand section file the injected index
+# points at; the corpus is the hook (banner + index) plus that file.
+INTAKE_MD = ROOT / "on-the-record" / "directive" / "requirement-intake.md"
 
 
 def _text():
-    return DIRECTIVE_SH.read_text(encoding="utf-8")
+    return (
+        DIRECTIVE_SH.read_text(encoding="utf-8")
+        + INTAKE_MD.read_text(encoding="utf-8")
+    )
 
 
 def t_states_trigger_subclass():
@@ -52,14 +59,14 @@ def t_states_option_block_count_and_order():
 def t_states_option_fields():
     text = _text()
     section = text[text.index("SCOPE-OPTION PROPOSAL"):text.index("VALIDITY CONSULT")]
-    for field in ("\\`scope:\\`", "\\`cost:\\`", "\\`risk:\\`", "\\`non-goals:\\`"):
+    for field in ("`scope:`", "`cost:`", "`risk:`", "`non-goals:`"):
         assert field in section, field
 
 
 def t_states_neutrality_rule_forbids_recommended_token():
     text = _text()
     section = text[text.index("SCOPE-OPTION PROPOSAL"):text.index("VALIDITY CONSULT")]
-    assert "\\`recommended\\`" in section
+    assert "`recommended`" in section
     assert "case-insensitive" in section
     assert "MUST NOT appear" in section
     assert "no preference" in section
@@ -68,7 +75,7 @@ def t_states_neutrality_rule_forbids_recommended_token():
 def t_states_consult_trace_per_option():
     text = _text()
     section = text[text.index("SCOPE-OPTION PROPOSAL"):text.index("VALIDITY CONSULT")]
-    assert "\\`consult-trace:\\`" in section
+    assert "`consult-trace:`" in section
     assert "validity/risk consult ref" in section
 
 
