@@ -479,6 +479,10 @@ resolved_role_model = _pipeline_mod.resolved_role_model
 role_settings = _pipeline_mod.role_settings
 self_hosted_hooks = _pipeline_mod.self_hosted_hooks
 spawn_cmd = _pipeline_mod.spawn_cmd
+await_approval_cmd = _pipeline_mod.await_approval_cmd
+_checkpoint_poll_seconds = _pipeline_mod._checkpoint_poll_seconds
+_checkpoint_wait_max_seconds = _pipeline_mod._checkpoint_wait_max_seconds
+AWAIT_APPROVAL_TIMEOUT_RC = _pipeline_mod.AWAIT_APPROVAL_TIMEOUT_RC
 
 # 이슈 #1274: roster_watchdog() 의 반환값(anomaly count, rc>=0)과 절대 겹치지
 # 않도록 고른 예약 종료 코드 — watchdog CLI 분기가 처리 못 한 예외를 이
@@ -1131,6 +1135,22 @@ def main() -> int:
                          "제안 라운드를 건너뛰게 한다(contract v3 s19a 우회, "
                          "이슈 #1672/#1978). 스포너가 명시적으로 결정할 "
                          "때만 켠다 — 세션 스스로는 절대 켤 수 없다.")
+    ap.add_argument("--checkpoint", action="store_true",
+                    help="issue #2129: single-session propose-approve-"
+                         "implement. The session opens the proposal PR as "
+                         "today, then pauses IN-CONTEXT on `spawn.py "
+                         "await-approval` (declared wait, #2101 watchdog "
+                         "exemption) and continues to phase-2 in the same "
+                         "session on APPROVE; on timeout it exits with "
+                         "today's returned-proposal semantics. Default "
+                         "(no flag) behavior is byte-identical. Mutually "
+                         "exclusive with --single-phase")
+    ap.add_argument("--timeout", type=float, default=None,
+                    help="await-approval: total bounded wait in seconds "
+                         "(default CHECKPOINT_WAIT_MAX_SECONDS env or 1800)")
+    ap.add_argument("--poll-interval", type=float, default=None,
+                    help="await-approval: comment poll cadence in seconds "
+                         "(default CHECKPOINT_POLL_SECONDS env or 60)")
     ap.add_argument("--max-turns", type=int, default=None,
                     help="spawn: session turn budget passed through as claude "
                          "--max-turns (issue #2100 item 4). Default: "
@@ -1354,6 +1374,18 @@ def main() -> int:
     if a.role == "doctor":
         # 훅 발화 실측. 버전마다 한 번 — 룰북 집행의 전제조건이다.
         return doctor()
+    if a.role == "await-approval":
+        # Issue #2129: the deterministic in-session approval wait a
+        # checkpoint-mode session runs at its phase-1/phase-2 boundary.
+        # Positional `task` doubles as the role (same convention as
+        # kill/watch); --role wins when both are given.
+        wait_role = a.watch_role or a.task
+        if a.issue is None or not wait_role:
+            sys.exit("usage: spawn.py await-approval --issue <n> --role "
+                     "<role> [--timeout <s>] [--poll-interval <s>] [-C <dir>]")
+        return await_approval_cmd(a.cwd, a.issue, wait_role,
+                                  timeout=a.timeout,
+                                  interval=a.poll_interval)
     if a.role == "approve":
         sys.exit("v3: 승인은 파일 발행이 아니라 GitHub 행위다 — 오케스트레이터가\n"
                  "  사용자와의 대화에서 gh pr review --approve / gh pr merge 로 중계한다.")
@@ -1393,6 +1425,13 @@ def main() -> int:
         return 0
     if not a.task:
         sys.exit("맡길 일이 없다. 사용법: spawn.py <역할> \"<맡길 일>\" [-C <경로>]")
+    if a.checkpoint and a.single_phase:
+        sys.exit("--checkpoint and --single-phase are mutually exclusive: "
+                 "single-phase skips the proposal round entirely, checkpoint "
+                 "pauses on it (issue #2129)")
+    if a.checkpoint and a.issue is None:
+        sys.exit("--checkpoint requires --issue <n>: the approval needle is "
+                 "`APPROVE issue-<n>/<role>` on that issue (issue #2129)")
 
     # --dry-run 은 세션을 안 태운다. 계약 검사는 버려질 세션을 막으려는 것이므로
     # 아무것도 안 띄우는 호출까지 막을 이유가 없다.
@@ -1434,7 +1473,8 @@ def main() -> int:
                       model=a.model, skills=a.skills,
                       single_phase=a.single_phase,
                       max_turns=a.max_turns,
-                      allow_unlimited_turns=a.allow_unlimited_turns)
+                      allow_unlimited_turns=a.allow_unlimited_turns,
+                      checkpoint=a.checkpoint)
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -1658,6 +1698,52 @@ _SINGLE_PHASE_CONTRACT_LINE = (
     "cannot grant itself this bypass by setting the variable on its own.\n"
 )
 
+# Issue #2129: checkpoint mode — single-session propose-approve-implement.
+# Appended to the directive only under --checkpoint (default spawns stay
+# byte-identical). The wait loop lives HERE, in the instructions: the session
+# runs ONE deterministic helper command (`spawn.py await-approval`) for the
+# whole pause, so the wait costs no model turns. Implements the #1672
+# decision (single session with an in-context approval checkpoint dominates
+# the two-session split; Cognition/Anthropic research consensus on #1672).
+_CHECKPOINT_CONTRACT_BLOCK = (
+    "- Checkpoint mode (issue #2129, spawner-authorized via --checkpoint): "
+    "this session replaces the two-session split with ONE session that "
+    "pauses at the approval boundary.\n"
+    "  1. Produce the phase-1 artifacts (survey/proposal under "
+    "docs/issue-{issue}/) and open the proposal PR exactly as the default "
+    "two-phase contract requires. Nothing about phase-1 changes.\n"
+    "  2. Then, instead of ending the session, run EXACTLY ONE foreground "
+    "Bash command for the whole wait (one tool call — set its timeout "
+    "parameter to at least {bash_timeout_ms} ms; never poll in your own "
+    "turns):\n"
+    "     {python} {spawn_py} -C . await-approval --issue {issue} "
+    "--role {role}\n"
+    "     It writes the declared-wait file (.waiting-on.json, "
+    "`issue:{issue}` / approve-token — the #2101 watchdog exemption) and "
+    "polls `gh issue view {issue} --comments` machinery for the "
+    "`APPROVE issue-{issue}/{role}` needle every CHECKPOINT_POLL_SECONDS "
+    "(default 60, env-overridable), bounded by CHECKPOINT_WAIT_MAX_SECONDS "
+    "(default 1800, env-overridable).\n"
+    "  3. Exit code 0 = approved: continue IMMEDIATELY in this same "
+    "context into phase-2 (implementation + record + PR). Do not rebuild "
+    "context and do not respawn — the in-session approval satisfies the "
+    "phase-2 approve token; every other gate and record/format contract "
+    "is unchanged.\n"
+    "  4. Exit code 3 = timeout: end the session cleanly. The proposal PR "
+    "you already opened is the returned state, exactly as the two-session "
+    "default leaves it — a later phase-2 session picks it up.\n"
+)
+
+
+def _checkpoint_contract_block(issue: int, role: str) -> str:
+    """Render `_CHECKPOINT_CONTRACT_BLOCK` for this spawn. The Bash timeout
+    hint covers the full bounded wait plus a one-minute margin."""
+    bash_timeout_ms = int((_checkpoint_wait_max_seconds() + 60) * 1000)
+    return _CHECKPOINT_CONTRACT_BLOCK.format(
+        issue=issue, role=role, python=sys.executable,
+        spawn_py=Path(__file__).resolve(), bash_timeout_ms=bash_timeout_ms)
+
+
 _SKILL_USE_SENTENCE_RE = re.compile(r"(Use\b[^.]*\.)", re.S)
 
 
@@ -1779,7 +1865,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                despite_returned: bool = False, model: str | None = None,
                skills: str | None = None, single_phase: bool = False,
                max_turns: int | None = None,
-               allow_unlimited_turns: bool = False) -> int:
+               allow_unlimited_turns: bool = False,
+               checkpoint: bool = False) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -1797,6 +1884,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         "single_phase": single_phase, "skills": skills,
         "max_turns": resolved_max_turns,
         "allow_unlimited_turns": allow_unlimited_turns,
+        "checkpoint": checkpoint,
     })
     if _refused_item is not None:
         print(f"[{role}] admission refused: missing precondition "
@@ -1940,6 +2028,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 순서).
         if single_phase:
             task = task + "\n\n" + _SINGLE_PHASE_CONTRACT_LINE.format(role=role)
+        # Issue #2129: --checkpoint appends the single-session
+        # propose-approve-implement contract. Without the flag this block
+        # appends NOTHING — the default directive stays byte-identical
+        # (same constraint discipline as --single-phase above).
+        if checkpoint:
+            task = task + "\n\n" + _checkpoint_contract_block(issue, role)
         if skill_sources:
             skill_lines = ", ".join(
                 f"{m['name']}"
