@@ -453,6 +453,11 @@ _rulebook_lock_path = _pipeline_mod._rulebook_lock_path
 _rulebook_ttl_min = _pipeline_mod._rulebook_ttl_min
 _session_log_path = _pipeline_mod._session_log_path
 _skill_trigger_line = _pipeline_mod._skill_trigger_line
+_skill_frontmatter = _pipeline_mod._skill_frontmatter
+_skill_frontmatter_description = _pipeline_mod._skill_frontmatter_description
+_skill_frontmatter_axis = _pipeline_mod._skill_frontmatter_axis
+_skill_bm25_document = _pipeline_mod._skill_bm25_document
+_skill_declared_phrases = _pipeline_mod._skill_declared_phrases
 _timed = _pipeline_mod._timed
 _tokenize = _pipeline_mod._tokenize
 _ttl_marker = _pipeline_mod._ttl_marker
@@ -1676,8 +1681,10 @@ def _bm25_cross_family_scores(task_text: str, role: str,
                                home: Path | None = None,
                                target_repo_root: Path | None = None
                                ) -> list[tuple[float, str, Path, str]]:
-    """`task_text` 를 질의로, 역할의 family 밖 스킬 각각의 "Use ..." 트리거
-    문장을 문서로 삼아 Okapi BM25(k1=1.5, b=0.75, 표준 기본값)로 채점한다
+    """`task_text` 를 질의로, 역할의 family 밖 스킬 각각의 BM25 문서
+    (`_skill_bm25_document()` — description 전문 + 이름 토큰 + metadata.axis,
+    이슈 #2124 part 1; 예전에는 "Use ..." 트리거 문장 한 개)를 문서로 삼아
+    Okapi BM25(k1=1.5, b=0.75, 표준 기본값)로 채점한다
     — 트리거 문장은 집합으로 토큰화되므로 문서 내 항 빈도(f)는 항상 1
     (존재/부재만 본다, 트리거 문장 반복 서술 여부에 좌우되지 않기 위함).
     score > 0(질의와 최소 한 토큰 겹침) 인 것만 이름 오름차순 타이브레이크로
@@ -1693,10 +1700,14 @@ def _bm25_cross_family_scores(task_text: str, role: str,
     corpus = _cross_family_candidate_corpus(role, repo_root, home, target_repo_root)
     docs: list[tuple[str, Path, str, set[str]]] = []
     for name, d, source in corpus:
-        trigger = _skill_trigger_line(d)
-        if not trigger:
+        # 이슈 #2124 part 1: 문서 = description 전문 + 이름 토큰 + metadata.axis
+        # (예전에는 첫 "Use ..." 트리거 문장 한 개만 색인했다 — dicequest
+        # #72 골드 케이스에서 Recall@8=0 을 만든 empty-state).
+        doc = _skill_bm25_document(name, d)
+        toks = _tokenize(doc)
+        if not toks:
             continue
-        docs.append((name, d, source, _tokenize(trigger)))
+        docs.append((name, d, source, toks))
     if not docs:
         return []
     n = len(docs)

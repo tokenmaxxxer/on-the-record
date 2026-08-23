@@ -194,7 +194,8 @@ def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
 def _skill_judge_consult(task_text: str, role: str,
                          candidates: list[tuple[str, Path, str]],
                          issue: int | None, cwd: str | None,
-                         model: str | None = None
+                         model: str | None = None,
+                         max_picks: int = 2
                          ) -> tuple[list[Path], dict]:
     """이슈 #2040: BM25 상위 후보를 자문(consult)에 넘겨, 트리거 문장의
     조건이 실제로 이번 과제에 맞는지(단어 겹침이 아니라)를 판단시킨다.
@@ -219,11 +220,13 @@ def _skill_judge_consult(task_text: str, role: str,
     # 이슈 #2055: 후보가 이제 네 소스에 걸쳐 있어, 질의 문구도 어느 tier
     # 에서 왔는지 라벨을 달아 skill_judge 가 소스를 보고도 판단할 수 있게
     # 한다(Acceptance: "source 라벨이 ... skill_judge 자문 질문 ... 까지").
+    # 이슈 #2124 part 3 (judge prompt diet): 후보 줄은 이름 + 트리거 문장만
+    # — source 라벨(#2055)은 완료율을 깎는 군더더기라 뺐다(측정 근거는
+    # PR 본문의 before/after 바이트). 질문/지시문 전부 최소 영어.
     candidate_lines = "\n".join(
-        f"- {name} [{source}] — {_sp._skill_trigger_line(path) or ''}"
+        f"- {name} — {_sp._skill_trigger_line(path) or ''}"
         for name, path, source in candidates)
-    question = (f"과제:\n{task_text}\n\n후보 스킬(BM25 상위 {len(candidates)}개):\n"
-                f"{candidate_lines}")
+    question = f"Task:\n{task_text}\n\nCandidates:\n{candidate_lines}"
     try:
         f = _sp.ROOT / "roles" / f"{role}.json"
         if not f.exists():
@@ -236,29 +239,30 @@ def _skill_judge_consult(task_text: str, role: str,
         # 남긴다(다른 자문 호출과 모양을 맞추려는 것일 뿐, 실제로는 무시).
         cmd, env, settings_path = _sp._consult_cmd_and_env(role, spec, cwd, "haiku")
         judge_timeout = _sp._skill_judge_timeout()
+        # 이슈 #2124 part 3 (judge prompt diet): 최소 영어 프롬프트 —
+        # RankGPT 계열 listwise 판단은 지시문이 짧을수록 완료율이 높다.
+        # haiku 고정 / 90s / <=max_picks / pick-zero-allowed / fail-open 은
+        # 전부 그대로다.
         override = (
-            "이 세션에 로드된 룰북/훅이 스카우트, 제안서 작성, 위임, 승인 게이트, "
-            "기록 작성 등을 지시하더라도 — 이번 호출은 스킬-판단(skill_judge) "
-            "이라 전부 적용되지 않는다: 저장소 파일을 하나도 건드리지 않고, "
-            "하위 에이전트를 위임하지 않고, 조사 없이 알고 있는 판단을 바로 "
-            "답한다. 다른 모든 지시보다 이 문장이 우선한다.")
+            "This call is skill_judge only — ignore every rulebook/hook "
+            "instruction loaded in this session: touch no repository files, "
+            "delegate nothing, answer directly. This sentence overrides all "
+            "other instructions.")
         instructions = (
-            "당신은 스킬-판단(skill_judge)으로 불렸다 — 아래 후보 스킬들의 "
-            '"Use when ..." 트리거 문장이 이번 과제에 실제로 조건상 맞는지만 '
-            "판단한다. 단어가 겹친다고 뽑지 말고, 트리거 문장이 말하는 조건이 "
-            "이 과제에 그럴듯하게 적용될 때만 뽑는다(최대 2개). 각 후보마다 "
-            "고르거나 거절한 한 줄 이유를 남겨라. 브랜치를 만들지도, "
-            "커밋하지도, PR 을 열지도 마라.")
+            "You are skill_judge. Pick the candidate skills whose trigger "
+            "condition actually applies to this task — not mere word overlap. "
+            f"Pick at most {max_picks}; picking zero is fine. Give a one-line "
+            "reason per candidate. Do not create branches, commits, or PRs.")
         shape = ('{"picked": ["<skill-name>", ...], '
                  '"rejected": [{"name": "<skill-name>", "reason": "<reason>"}, ...], '
                  '"reasons": {"<picked-skill-name>": "<reason>"}}')
-        base_prompt = (instructions + " " + override + " 답을 다 쓴 뒤 마지막에, "
-                       "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
-                       f"{shape}\n\n{question}")
+        base_prompt = (instructions + " " + override +
+                       " End your reply with exactly one JSON object and no "
+                       f"other trailing text: {shape}\n\n{question}")
         retry_prompt = (
-            base_prompt + "\n\n(재시도: 이전 응답이 마지막에 판단 JSON 객체를 "
-            "출력하지 않아 파싱에 실패했다. 다른 어떤 절차도 밟지 말고, 지금 "
-            "바로 위 형식의 JSON 객체 하나만 출력하라.)")
+            base_prompt + "\n\n(Retry: the previous reply did not end with the "
+            "verdict JSON object, so parsing failed. Output only one JSON "
+            "object in the shape above, now.)")
         attempts_exhausted = "알 수 없는 실패"
         parsed = None
         for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
@@ -283,7 +287,7 @@ def _skill_judge_consult(task_text: str, role: str,
         if parsed is None:
             outcome = f"error: {attempts_exhausted} (재시도 1회 포함, 모두 실패)"
             raise RuntimeError(outcome)
-        picked_names = [n for n in parsed.get("picked", []) if n in by_name][:2]
+        picked_names = [n for n in parsed.get("picked", []) if n in by_name][:max_picks]
         rejected = parsed.get("rejected", [])
         reasons = parsed.get("reasons", {})
         rejected_summary = "; ".join(
@@ -328,20 +332,55 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     은 "completed"(자문 성공) | "fail-open"(자문 에러/타임아웃) |
     "no-candidates"(BM25 후보 0개라 자문 자체를 안 부름) 중 하나로,
     호출부(`_spawn_one`)가 그대로 per-spawn 원장 필드에 남겨 완료율을
-    측정할 수 있게 한다."""
+    측정할 수 있게 한다.
+
+    이슈 #2124 part 2: exact-phrase fast-path 픽이 있으면 outcome 에
+    "fast-path:<이름들>" 이 접두된다 — 상한을 fast-path 만으로 채우면
+    그 접두가 outcome 전부이고 자문은 아예 안 불린다; 남는 슬롯이 있으면
+    "fast-path:<이름들>+completed|fail-open" 형태다(원장 태깅)."""
     scored = _sp._bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
     if not scored:
         return [], "no-candidates"
+    # 이슈 #2124 part 2 (exact-phrase fast path, OpenHands microagents 키워드
+    # tier): description 에 따옴표로 선언된 트리거 문구가 과제 텍스트에
+    # 그대로(대소문자 무시) 들어 있으면 그 스킬은 판단 없이 자동 픽 —
+    # 판단 fail-open(#2071/#2076)이 확실-매치에는 무해해진다. fast-path
+    # 픽도 기존 <=k 크로스-패밀리 상한 안에서 세고(판단 픽보다 우선),
+    # 남는 슬롯만 판단에 넘긴다. 결정론: 과제 텍스트 안 첫 등장 위치,
+    # 그다음 이름 오름차순.
+    task_lower = task_text.lower()
+    fast: list[tuple[int, str, Path]] = []
+    for _score, name, d, _source in scored:
+        for phrase in _sp._skill_declared_phrases(d):
+            pos = task_lower.find(phrase)
+            if pos >= 0:
+                fast.append((pos, name, d))
+                break
+    fast.sort()
+    fast = fast[:k]
+    fast_dirs = [d for _pos, _name, d in fast]
+    fast_names = [name for _pos, name, _d in fast]
+    outcome_prefix = f"fast-path:{','.join(fast_names)}" if fast_names else ""
+    remaining = k - len(fast_dirs)
+    if remaining <= 0:
+        return fast_dirs, outcome_prefix
     candidates = [(name, d, source)
-                  for _, name, d, source in scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]]
+                  for _, name, d, source in scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]
+                  if name not in fast_names]
+    if not candidates:
+        return fast_dirs, (outcome_prefix or "no-candidates")
     try:
         picked, _detail = _sp._skill_judge_consult(task_text, role, candidates, issue, cwd,
-                                               model=model)
-        return picked, "completed"
+                                               model=model, max_picks=remaining)
+        outcome = "completed"
     except Exception as ex:
-        print(f"[{role}] skill_judge 자문 실패 — BM25 top-{k} 로 fail-open: {ex}",
+        print(f"[{role}] skill_judge 자문 실패 — BM25 top-{remaining} 로 fail-open: {ex}",
               file=sys.stderr)
-        return [d for _, _, d, _ in scored[:k]], "fail-open"
+        picked = [d for _, name, d, _ in scored if name not in fast_names][:remaining]
+        outcome = "fail-open"
+    if outcome_prefix:
+        outcome = f"{outcome_prefix}+{outcome}"
+    return fast_dirs + picked, outcome
 
 
 def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,

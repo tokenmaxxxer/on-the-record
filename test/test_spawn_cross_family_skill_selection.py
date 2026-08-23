@@ -316,8 +316,10 @@ class ConsultJudgeStageTest(unittest.TestCase):
         self.assertIn("verb=skill_judge", trace)
         self.assertIn("accessibility-aria-and-contrast-rules", trace)
         self.assertIn("model-routing", trace)
-        # 이슈 #2055: 후보 줄이 소스 라벨을 달고 트레이스(질문 원문)에 남는다.
-        self.assertIn("[skill-repo]", trace)
+        # 이슈 #2124 (judge prompt diet): 후보 줄은 이름 + 트리거 문장만 —
+        # #2055 의 소스 라벨은 판단 프롬프트에서 뺐다(트레이스에도 그
+        # 다이어트된 질문 원문이 그대로 남는다).
+        self.assertNotIn("[skill-repo]", trace)
 
     def test_consult_error_raises_and_still_traces(self):
         candidates = [("some-skill", self.repo_root / "some-skill", "skill-repo")]
@@ -482,7 +484,10 @@ class FourSurfaceCandidateCorpusTest(unittest.TestCase):
             spawn._skill_judge_consult(
                 "landing page contrast", "implementation", candidates, 2055,
                 str(work))
-        self.assertIn("local-user-skill [local-user]", captured["input"])
+        # 이슈 #2124 (judge prompt diet): 이름 + 트리거 문장만 — #2055 의
+        # 소스 라벨은 더 이상 판단 질문에 실리지 않는다.
+        self.assertIn("local-user-skill", captured["input"])
+        self.assertNotIn("[local-user]", captured["input"])
 
     def test_timing_over_four_tier_corpus_stays_within_budget(self):
         # 이슈 #2053 예산: 스폰당 cross_family 단계가 초 단위로 튀면 안
