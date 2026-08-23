@@ -152,7 +152,7 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
             return real_roster_register(key, entry)
 
         def spy_spawn_cmd(settings, role, unattended, core_plugins, plugins,
-                          model, skill_dirs, skill_repo_sha_value):
+                          model, skill_dirs, skill_repo_sha_value, **kwargs):
             spawn_cmd_calls.append(list(skill_dirs))
             return (["cat"], {})
 
