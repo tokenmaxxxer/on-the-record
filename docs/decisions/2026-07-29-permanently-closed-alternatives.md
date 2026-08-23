@@ -1,7 +1,8 @@
 ---
 kind: decision
 date: 2026-07-29
-status: landed
+status: active
+legacy-status: landed
 subject: issue-73
 ---
 
