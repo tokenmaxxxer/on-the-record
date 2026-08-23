@@ -11,7 +11,14 @@ the rest of this repo's directive-content coverage uses).
 from __future__ import annotations
 from pathlib import Path
 
-_DIRECTIVE = (Path(__file__).parent / "directive.sh").read_text(encoding="utf-8")
+# issue #2102: the obligations moved verbatim from directive.sh's per-turn
+# heredoc into on-demand section files under on-the-record/directive/; the
+# asserted corpus is the hook (always-on index) plus every section file.
+_HOOKS = Path(__file__).parent
+_SECTIONS = sorted((_HOOKS.parent / "directive").glob("*.md"))
+_DIRECTIVE = (_HOOKS / "directive.sh").read_text(encoding="utf-8") + "".join(
+    p.read_text(encoding="utf-8") for p in _SECTIONS
+)
 
 
 def t_existing_1024_validity_consult_block_present():
@@ -80,24 +87,23 @@ def t_assumption_ledger_obligation_present_and_names_gate_module():
     assert "spawn" in _DIRECTIVE
 
 
-def t_new_obligations_appear_after_existing_1024_block_before_full_procedure():
-    """Ordering sanity: the six new/existing blocks land alongside (not
-    before) the pre-existing #1024 obligation, and before the directive's
-    closing "Full procedure" line — same section of the injected text."""
-    idx_1024 = _DIRECTIVE.index("VALIDITY CONSULT (issue #1024)")
-    idx_design = _DIRECTIVE.index("DESIGN-RESEARCH INTAKE (issue #1653)")
-    idx_req_met = _DIRECTIVE.index("LANDING REQUIREMENT-MET GRADE (issue #1651)")
-    idx_scope = _DIRECTIVE.index("SCOPE ADHERENCE AT LANDING (issue #1658)")
-    idx_verdict = _DIRECTIVE.index("VERDICT-ASYMMETRY AT MERGE (issue #1669)")
-    idx_stale = _DIRECTIVE.index("STALE-REVERT AT MERGE (issue #1664)")
-    idx_ledger = _DIRECTIVE.index("ASSUMPTION-LEDGER INVENTED-CONFIRM AT INTAKE (issue #1665)")
-    idx_full_procedure = _DIRECTIVE.index("Full procedure: /orchestrate:run")
-    assert idx_1024 < idx_design < idx_full_procedure
-    assert idx_1024 < idx_req_met < idx_full_procedure
-    assert idx_1024 < idx_scope < idx_full_procedure
-    assert idx_1024 < idx_verdict < idx_full_procedure
-    assert idx_1024 < idx_stale < idx_full_procedure
-    assert idx_1024 < idx_ledger < idx_full_procedure
+def t_obligations_each_live_in_exactly_one_section_file():
+    """issue #2102 replacement for the pre-diet ordering check: every
+    obligation heading now lives in exactly ONE on-demand section file
+    (verbatim, not duplicated into the index or another file)."""
+    markers = [
+        "VALIDITY CONSULT (issue #1024)",
+        "DESIGN-RESEARCH INTAKE (issue #1653)",
+        "LANDING REQUIREMENT-MET GRADE (issue #1651)",
+        "SCOPE ADHERENCE AT LANDING (issue #1658)",
+        "VERDICT-ASYMMETRY AT MERGE (issue #1669)",
+        "STALE-REVERT AT MERGE (issue #1664)",
+        "ASSUMPTION-LEDGER INVENTED-CONFIRM AT INTAKE (issue #1665)",
+    ]
+    texts = {p.name: p.read_text(encoding="utf-8") for p in _SECTIONS}
+    for marker in markers:
+        holders = [n for n, txt in texts.items() if marker in txt]
+        assert len(holders) == 1, f"{marker!r} in {holders}"
 
 
 def _run(fn):

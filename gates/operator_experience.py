@@ -46,7 +46,13 @@ def directive_has_blocks_a_through_d(root: Path) -> list[str]:
     path = root / _DIRECTIVE_REL
     if not path.exists():
         return [f"{_DIRECTIVE_REL} not found"]
-    text = path.read_text(encoding="utf-8")
+    # issue #2102: blocks B-D moved verbatim from directive.sh's per-turn
+    # heredoc into on-demand section files; the marker corpus is the hook
+    # plus on-the-record/directive/*.md.
+    text = path.read_text(encoding="utf-8") + "".join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((root / "on-the-record" / "directive").glob("*.md"))
+    )
     problems = []
     for label, marker in _BLOCK_MARKERS.items():
         if marker not in text:
