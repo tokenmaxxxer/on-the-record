@@ -1,0 +1,22 @@
+{
+  "task": "t04-potion-overheal",
+  "acceptance": [
+    {
+      "id": "a1",
+      "behavior": "After the fix, `Player.drink_potion()` never leaves hp > max_hp (seeded defect arcade-d1: `self.hp = self.hp + POTION_HEAL` with no clamp)."
+    },
+    {
+      "id": "a2",
+      "behavior": "`fixture-arcade fight --seed 1 --battles 10` shows no hp/max_hp line where hp > max_hp."
+    },
+    {
+      "id": "a3",
+      "behavior": "A regression test exists that would fail on the unclamped code and passes now."
+    },
+    {
+      "id": "a4",
+      "behavior": "Healing below max still works (a potion at hp=10 raises hp; the fix is a clamp, not a no-op)."
+    }
+  ],
+  "adjudication": "Run the seed-1 gauntlet and grep the log. a4 guards against the lazy fix (disabling potions entirely)."
+}

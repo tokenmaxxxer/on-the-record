@@ -1,0 +1,1 @@
+Add a --difficulty easy|normal|hard flag to the `fight` command. normal is the default and must reproduce today's behavior exactly (same logs for the same seed). easy and hard should scale the monsters in a way you choose and justify; state the scaling rule in your report and test it.

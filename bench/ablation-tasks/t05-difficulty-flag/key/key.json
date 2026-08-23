@@ -1,0 +1,22 @@
+{
+  "task": "t05-difficulty-flag",
+  "acceptance": [
+    {
+      "id": "a1",
+      "behavior": "`fight --seed 1 --battles 5` output with --difficulty normal (and with the flag omitted) is byte-identical to the pre-change output for the same seed."
+    },
+    {
+      "id": "a2",
+      "behavior": "easy produces strictly weaker monsters and hard strictly stronger ones (by the arm's own stated rule), observable in outcomes or stats."
+    },
+    {
+      "id": "a3",
+      "behavior": "The design choice (what is scaled, by how much, and why) is explicitly stated in the deliverable/report \u2014 not implicit in the diff."
+    },
+    {
+      "id": "a4",
+      "behavior": "Tests cover at least normal-unchanged plus one non-normal difficulty, and pass."
+    }
+  ],
+  "adjudication": "a1 requires capturing pre-change output from a clean fixture copy and diffing. a3 is a design-articulation row: judge the report text."
+}
