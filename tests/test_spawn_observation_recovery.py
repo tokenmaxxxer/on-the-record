@@ -821,6 +821,57 @@ class Watchdog(unittest.TestCase):
             events = [e["event"] for e in ledger_calls]
             self.assertNotIn("returned_pr_surfaced", events)
 
+    def test_roster_watchdog_surfaces_returned_pr_same_tick_as_session_death(self):
+        """이슈 #2098: 죽은 own 로스터 엔트리의 브랜치는, 로스터 엔트리가
+        (비동기 self-trigger 로) 아직 제거되지 않은 바로 그 틱에도
+        `own_branches` 제외 대상에서 빠져야 한다 — 안 그러면 PR-open 이
+        다음 폴 틱까지 미뤄진다(재현: PR #2097 이 11분 뒤에야 발견됨).
+        `_undispositioned_role_prs()` 를 목으로 대체하지 않고 실제 경로를
+        태워 `_open_role_prs`/`ci._approved_roles_on_issue` 만 목한다."""
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "work"
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            roster_path = Path(td) / "active.json"
+            # pid 는 죽어 있지만(999999999) 로스터 엔트리는 아직 남아
+            # 있다 — self-trigger 의 roster_remove() 가 비동기라 이 틱에는
+            # 아직 안 지워진 상태를 재현한다.
+            roster_path.write_text(json.dumps({
+                "issue-2098/implementation": self._entry(
+                    log, work=str(work), pid=999999999)}))
+            fake_prs = [{"number": 2097, "headRefName": "issue-2098/implementation",
+                         "body": "", "url": "https://example/2097",
+                         "createdAt": "2026-08-23T08:37:00Z", "issue": 2098}]
+            old_roster = spawn.ROSTER
+            old_state = spawn.WATCHDOG_STATE
+            old_ledger = spawn.RECONCILE_LEDGER
+            old_pr_check = spawn._pr_open_or_merged_for_branch
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            spawn.RECONCILE_LEDGER = Path(td) / "reconcile_ledger.json"
+            spawn._pr_open_or_merged_for_branch = lambda root, branch: 2097
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(spawn, "_post_session_end_comment"), \
+                     mock.patch.object(spawn, "_open_role_prs",
+                                        return_value=(fake_prs, True)):
+                    sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+                    import ci as _ci
+                    with mock.patch.object(_ci, "_approved_roles_on_issue", return_value=[]):
+                        spawn.roster_watchdog()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+                spawn.RECONCILE_LEDGER = old_ledger
+                spawn._pr_open_or_merged_for_branch = old_pr_check
+            printed = buf.getvalue()
+            self.assertIn("[returned-pr] issue #2098", printed)
+            self.assertIn("https://example/2097", printed)
+
     def test_roster_watchdog_returns_zero_for_clean_non_empty_roster(self):
         with tempfile.TemporaryDirectory() as td:
             roster_path = Path(td) / "active.json"

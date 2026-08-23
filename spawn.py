@@ -963,7 +963,12 @@ def _undispositioned_role_prs(root: Path, exclude_issue: int | None = None
     # 게이트에서 뺀다 — `_roster_own()` 이 이미 고아 엔트리(session_id
     # 없음)는 own-scope 에도 남겨두므로, 그런 엔트리의 브랜치는 여기서도
     # 계속 걸린다(관측-손실 없음).
-    own_branches = {key for key in _roster_own(_roster_load(), all_scope=False)}
+    # 이슈 #2098: 단, 이미 죽은(pid 사라진) own 엔트리는 제외 대상에서
+    # 뺀다 — 로스터 엔트리 제거는 self-trigger 가 비동기로 하므로, 세션이
+    # 죽고 PR 이 열린 바로 그 틱에도 own_branches 가 여전히 이 브랜치를
+    # 물고 있어 `[returned-pr]` 이 다음 틱까지 미뤄지는 버그가 있었다.
+    own_branches = {key for key, e in _roster_own(_roster_load(), all_scope=False).items()
+                    if _alive(e.get("pid", 0))}
     blockers = []
     for pr in prs:
         if exclude_issue is not None and pr["issue"] == exclude_issue:
