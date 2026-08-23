@@ -6176,6 +6176,31 @@ def _parse_consult_verdict(text: str) -> dict | None:
     return None
 
 
+def _evidence_stamp_summary(answer_text: str, root: str) -> str:
+    """issue #2104: gates/evidence_check.py 의 얇은 배선 — 모든 로직은
+    게이트 모듈에 있고, 여기는 import + 호출뿐이다 (merge-conflict 최소화)."""
+    sys.path.insert(0, str(ROOT / "gates"))
+    import evidence_check
+    return evidence_check.stamp_summary(answer_text, Path(root))
+
+
+def _consult_evidence_suffix(verdict: dict, cwd: str | None) -> str:
+    """issue #2104: consult 답변의 evidence 포인터를 기계 검증해 트레이스
+    라인에 붙일 요약을 만든다. env OTR_EVIDENCE_CHECK=0 로 끈다(기본 ON).
+    검증기 자체가 죽어도 consult 는 멈추지 않는다 — fail-open, ledger 에
+    이벤트만 남긴다."""
+    if os.environ.get("OTR_EVIDENCE_CHECK", "1").strip().lower() in ("0", "false", "off"):
+        return ""
+    try:
+        return " | " + _evidence_stamp_summary(
+            str(verdict.get("answer", "")), cwd or str(ROOT))
+    except Exception as e:
+        with contextlib.suppress(Exception):
+            ledger_write({"event": "evidence_check_crash", "error": str(e)[:300],
+                          "ts": datetime.now(timezone.utc).isoformat()})
+        return " | evidence=error(fail-open)"
+
+
 def _consult_root(cwd: str | None) -> Path:
     """자문(consult) 계열 기록 경로 전부가 공유하는 앵커. `-C`/cwd 로 대상
     레포가 주어지면 그 레포를, 없으면 플러그인 저장소(`ROOT`)를 앵커로
@@ -6529,7 +6554,8 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
                     f"끝부분: {excerpt!r})"
                 )
                 continue
-            outcome = f"ok: {str(verdict.get('answer', ''))[:200]}"
+            outcome = (f"ok: {str(verdict.get('answer', ''))[:200]}"
+                       + _consult_evidence_suffix(verdict, cwd))  # issue #2104
             return verdict
         outcome = f"error: {attempts_exhausted} (재시도 1회 포함, 모두 실패)"
         raise RuntimeError(outcome)
