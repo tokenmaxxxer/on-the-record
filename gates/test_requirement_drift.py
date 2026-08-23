@@ -21,17 +21,23 @@ def _make_root(tmp_path):
 
 
 def _fake_gh_list(issues, prs):
-    def run(cmd, cwd=None, capture_output=None, text=None):
-        class _R:
-            pass
-        r = _R()
-        r.returncode = 0
-        if cmd[1] == "issue":
-            r.stdout = json.dumps(issues)
-        else:
-            r.stdout = json.dumps(prs)
-        return r
-    return run
+    """issue #2103: full-mode requirement_drift now reads via the shared
+    `spawn._board_read` (single GraphQL board query + snapshot) instead of
+    `gh issue list`/`gh pr list` — the fake fakes that boundary, keeping
+    the same (issues, prs) fixture shape the old gh-list fake took."""
+    def _item(raw):
+        item = dict(raw)
+        item.setdefault("state", "OPEN")
+        return item
+
+    def fake_board_read(root):
+        board = {
+            "issues": {str(i["number"]): _item(i) for i in issues},
+            "prs": {str(p["number"]): _item(p) for p in prs},
+        }
+        return board, {"source": "full", "api_calls": 2,
+                       "last_sweep_at": None, "error": None}
+    return fake_board_read
 
 
 def test_infra_tagged_item_excluded_from_unreferenced_open(tmp_path, monkeypatch, capsys):
@@ -45,7 +51,7 @@ def test_infra_tagged_item_excluded_from_unreferenced_open(tmp_path, monkeypatch
         "body": "no requirement cited and no infra tag either",
     }
     monkeypatch.setattr(
-        spawn.subprocess, "run",
+        spawn, "_board_read",
         _fake_gh_list([tagged_issue, untagged_issue], []))
 
     spawn.requirement_drift(root)
@@ -60,8 +66,7 @@ def test_untagged_item_still_flagged(tmp_path, monkeypatch, capsys):
     untagged_issue = {
         "number": 42, "title": "x", "body": "no requirement, no tag",
     }
-    monkeypatch.setattr(
-        spawn.subprocess, "run", _fake_gh_list([untagged_issue], []))
+    monkeypatch.setattr(spawn, "_board_read", _fake_gh_list([untagged_issue], []))
 
     spawn.requirement_drift(root)
     out = capsys.readouterr().out
@@ -74,8 +79,7 @@ def test_empty_tagged_items_leaves_drift_output_unchanged(tmp_path, monkeypatch,
     referenced_issue = {
         "number": 5, "title": "R006 covers this", "body": "cites R006",
     }
-    monkeypatch.setattr(
-        spawn.subprocess, "run", _fake_gh_list([referenced_issue], []))
+    monkeypatch.setattr(spawn, "_board_read", _fake_gh_list([referenced_issue], []))
 
     spawn.requirement_drift(root)
     out = capsys.readouterr().out
@@ -97,8 +101,7 @@ def test_enforced_uncited_requirement_not_flagged(tmp_path, monkeypatch, capsys)
     uncited_issue = {
         "number": 8, "title": "unrelated work", "body": "no requirement cited",
     }
-    monkeypatch.setattr(
-        spawn.subprocess, "run", _fake_gh_list([uncited_issue], []))
+    monkeypatch.setattr(spawn, "_board_read", _fake_gh_list([uncited_issue], []))
 
     spawn.requirement_drift(root)
     out = capsys.readouterr().out
@@ -111,8 +114,7 @@ def test_open_uncited_requirement_still_flagged(tmp_path, monkeypatch, capsys):
     uncited_issue = {
         "number": 9, "title": "unrelated work", "body": "no requirement cited",
     }
-    monkeypatch.setattr(
-        spawn.subprocess, "run", _fake_gh_list([uncited_issue], []))
+    monkeypatch.setattr(spawn, "_board_read", _fake_gh_list([uncited_issue], []))
 
     spawn.requirement_drift(root)
     out = capsys.readouterr().out
@@ -155,8 +157,7 @@ def test_tm_dicequest_r1_r2_flagged_with_paraphrase_when_open(tmp_path, monkeypa
     uncited_issue = {
         "number": 55, "title": "unrelated work", "body": "no requirement cited",
     }
-    monkeypatch.setattr(
-        spawn.subprocess, "run", _fake_gh_list([uncited_issue], []))
+    monkeypatch.setattr(spawn, "_board_read", _fake_gh_list([uncited_issue], []))
 
     spawn.requirement_drift(root)
     out = capsys.readouterr().out
@@ -198,7 +199,7 @@ def test_empty_digest_produces_no_flags(tmp_path, monkeypatch, capsys):
     digest = tmp_path / "docs" / "specs" / "requirement-digest.md"
     digest.parent.mkdir(parents=True)
     digest.write_text("", encoding="utf-8")
-    monkeypatch.setattr(spawn.subprocess, "run", _fake_gh_list([], []))
+    monkeypatch.setattr(spawn, "_board_read", _fake_gh_list([], []))
 
     spawn.requirement_drift(tmp_path)
     out = capsys.readouterr().out
