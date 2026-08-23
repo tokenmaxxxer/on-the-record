@@ -310,13 +310,15 @@ class SpawnCmd(unittest.TestCase):
         self.assertEqual(env["TOKENMAXXXER_SPAWNED"], "1")
 
     def test_role_model_unset_uses_builtin_default(self):
-        # 이슈#93: MUSTER_ROLE_MODEL/config 둘 다 미설정이면 built-in
-        # "sonnet" 이 --model 로 붙는다.
+        # 이슈#93: MUSTER_ROLE_MODEL/config 둘 다 미설정이면 이슈#2070의
+        # 구조적 라우팅 계층이 대신 이긴다 — "execution-observation" 은
+        # 어느 tier 에도 매핑돼 있지 않으므로 shipped 정책의
+        # `default_tier`("mid-design" -> "opus") 로 떨어진다.
         saved = os.environ.pop("MUSTER_ROLE_MODEL", None)
         try:
             cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
-            self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+            self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
         finally:
             if saved is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved
@@ -337,13 +339,14 @@ class SpawnCmd(unittest.TestCase):
 
     def test_role_model_whitespace_only_uses_builtin_default(self):
         # 이슈#35+#93: 공백만 있는 MUSTER_ROLE_MODEL 은 미설정과 동일하게
-        # 취급되어 built-in "sonnet" 이 붙는다 - "--model '   '" 은 안 된다.
+        # 취급되어 "--model '   '" 은 안 된다 — 이슈#2070의 라우팅 계층이
+        # 대신 이겨 shipped 정책 `default_tier`("opus") 로 떨어진다.
         saved = os.environ.get("MUSTER_ROLE_MODEL")
         try:
             os.environ["MUSTER_ROLE_MODEL"] = "   "
             cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
-            self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+            self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
         finally:
             if saved is None:
                 os.environ.pop("MUSTER_ROLE_MODEL", None)
@@ -389,14 +392,15 @@ class SpawnCmd(unittest.TestCase):
 
     def test_role_model_whitespace_only_config_uses_builtin_default(self):
         # 이슈#60+#93: 공백만 있는 config 값도 미설정과 동일하게 취급되어
-        # built-in "sonnet" 이 붙는다.
+        # 이슈#2070의 라우팅 계층이 대신 이겨 `default_tier`("opus") 로
+        # 떨어진다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
         saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
             spawn.ROLE_MODEL_CONFIG.write_text("   ")
             cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
-            self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+            self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
         finally:
             if saved_cfg is None:
                 spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
@@ -408,15 +412,15 @@ class SpawnCmd(unittest.TestCase):
     def test_role_model_non_utf8_config_uses_builtin_default(self):
         # 이슈#60+#93: role_model.txt 가 UTF-8 이 아니면 read_role_model_config()
         # 는 (docstring 대로) 미설정처럼 "" 를 돌려주고, resolved_role_model()
-        # 은 built-in "sonnet" 으로 떨어진다 — 스폰이 UnicodeDecodeError 로
-        # 죽으면 안 된다.
+        # 은 이슈#2070의 라우팅 계층으로 떨어진다(`default_tier` -> "opus")
+        # — 스폰이 UnicodeDecodeError 로 죽으면 안 된다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
         saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
             spawn.ROLE_MODEL_CONFIG.write_bytes(b"\xff\xfe\x00\x01")
             cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
-            self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+            self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
         finally:
             if saved_cfg is None:
                 spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
@@ -427,14 +431,15 @@ class SpawnCmd(unittest.TestCase):
 
     def test_role_model_no_config_file_uses_builtin_default(self):
         # 이슈#60+#93: role_model.txt 자체가 없으면 미설정과 동일하게 취급되어
-        # built-in "sonnet" 이 붙는다.
+        # 이슈#2070의 라우팅 계층이 대신 이겨 `default_tier`("opus") 로
+        # 떨어진다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
         saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
             spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
             cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
-            self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
+            self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
         finally:
             if saved_cfg is not None:
                 spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)

@@ -13,6 +13,7 @@
       "tests/test_spawn_consult_panel.py",
       "tests/test_spawn_checkout_network.py",
       "tests/test_spawn_gate_wiring.py",
+      "tests/test_model_routing.py",
       "tests/_spawn_test_support.py",
       "on-the-record/hooks/*.sh",
       "on-the-record/hooks/test_*.py"
