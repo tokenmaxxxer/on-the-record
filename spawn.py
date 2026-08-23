@@ -2204,6 +2204,263 @@ def _watchdog_state_save(d: dict) -> None:
     WATCHDOG_STATE.write_text(json.dumps(d, indent=2, ensure_ascii=False))
 
 
+# ------------------------------------------------------------- issue #2101
+# Watch-layer hardening: five self-correcting mechanisms, all ADVISORY-ONLY
+# per the watch-coverage policy (watch-class checks never block, refuse, or
+# kill — they print advisories, write ledger events, and return items to
+# dispatchable state; the requeue path is deliberately detector-free).
+#
+# Constants (module-level defaults, env-overridable at import time):
+#   OTR_LEASE_TTL_MIN            lease TTL in minutes for an in-progress
+#                                roster claim (default 90 — one missed-renewal
+#                                window, same order as WATCHDOG_SILENCE_MIN)
+#   OTR_LEASE_FLAT_RENEWALS_K    renewals with an unchanged progress indicator
+#                                before the flat-progress advisory (default 3)
+#   OTR_DEADMAN_INTERVAL_SEC     expected watchdog/monitor tick cadence
+#                                (default 120s, the poll-heartbeat Monitor
+#                                sleep cadence)
+#   OTR_DEADMAN_STALE_INTERVALS  tick intervals without a coverage-OK marker
+#                                before the dead-man advisory fires (default 5)
+LEASE_TTL_MIN = float(os.environ.get("OTR_LEASE_TTL_MIN", "90"))
+LEASE_FLAT_RENEWALS_K = int(os.environ.get("OTR_LEASE_FLAT_RENEWALS_K", "3"))
+DEADMAN_INTERVAL_SEC = float(os.environ.get("OTR_DEADMAN_INTERVAL_SEC", "120"))
+DEADMAN_STALE_INTERVALS = int(os.environ.get("OTR_DEADMAN_STALE_INTERVALS", "5"))
+# Coverage-OK marker (mechanism 4). Lives under STATE_ROOT so the checker
+# needs no knowledge of any board — it is about the watch layer itself.
+DEADMAN_MARKER = STATE_ROOT / "watch-coverage-ok"
+# Declared wait state (mechanism 5): a session records what it awaits in a
+# machine-readable file inside its workspace. Supported object forms:
+# "issue:<n>" (a board subject, checked against docs/issue-<n>/) or a
+# filesystem path (absolute, or relative to the workspace).
+DECLARED_WAIT_FILENAME = ".waiting-on.json"
+
+
+def _declared_wait(work: str | None) -> dict | None:
+    """Read the workspace's declared wait, if any (issue #2101 mechanism 5).
+    Returns the parsed dict only when it names an awaited object; anything
+    unreadable or shapeless is treated as "no declared wait" (never an
+    error — this is watch-class, advisory-only machinery)."""
+    if not work:
+        return None
+    try:
+        d = json.loads((Path(work) / DECLARED_WAIT_FILENAME).read_text())
+    except (OSError, ValueError):
+        return None
+    if isinstance(d, dict) and isinstance(d.get("object"), str) and d["object"]:
+        return d
+    return None
+
+
+def _declared_wait_object_exists(root: Path, work: str | None, obj) -> bool:
+    """Does the awaited object exist? Cheap local checks only — no gh/network
+    calls (the sweep runs every tick). Unknown/unparseable object => False,
+    which only ever produces an advisory, never a refusal."""
+    if not isinstance(obj, str) or not obj:
+        return False
+    m = re.match(r"^issue:([0-9]+)$", obj)
+    if m:
+        return (Path(root) / BOARD / f"issue-{m.group(1)}").is_dir()
+    p = Path(obj)
+    if not p.is_absolute() and work:
+        p = Path(work) / obj
+    return p.exists()
+
+
+def _declared_wait_valid(root: Path, work: str | None) -> bool:
+    """A declared wait is valid when it exists and its awaited object exists.
+    A valid wait EXEMPTS the session from the flat-progress classification
+    (issue #2101 mechanism 5 — a blocked-on-purpose session is not hung)."""
+    wait = _declared_wait(work)
+    return wait is not None and _declared_wait_object_exists(
+        root, work, wait.get("object"))
+
+
+def _lease_progress_indicator(entry: dict) -> str:
+    """Cheap monotonic progress indicator for lease renewal (issue #2101
+    mechanism 2): transcript event count (events.jsonl line count — already
+    what the watchdog reads) combined with the workspace HEAD SHA. Both are
+    local reads; no gh/network calls."""
+    work = entry.get("work")
+    if not work:
+        return ""
+    return f"{_event_count(_events_path(work))}:{_git_head(work) or ''}"
+
+
+def lease_renew(key: str, entry: dict, root: Path = None,
+                now: float | None = None) -> list[str]:
+    """Issue #2101 mechanisms 1+2: renew the roster entry's lease on behalf
+    of the live session (the watchdog tick is the entry's watcher — "the
+    owning session or its watcher renews"). Mutates `entry` in place; the
+    caller persists it (roster_register). The lease is an EXTENSION of the
+    existing roster entry (fields lease_expires_at / lease_progress /
+    lease_flat_renewals), not a new registry.
+
+    Each renewal records the progress indicator. A lease renewed
+    LEASE_FLAT_RENEWALS_K times with an unchanged indicator returns a
+    "flat-progress" anomaly string (advisory-only, consumed by
+    diagnose_health as STALLED-FLAT-PROGRESS) — unless the session has a
+    valid declared wait (mechanism 5 exemption; the OpenHands
+    false-positive lesson: a deliberately blocked session is not hung)."""
+    now = time.time() if now is None else now
+    root = ROOT if root is None else root
+    indicator = _lease_progress_indicator(entry)
+    if indicator == entry.get("lease_progress"):
+        entry["lease_flat_renewals"] = entry.get("lease_flat_renewals", 0) + 1
+    else:
+        entry["lease_progress"] = indicator
+        entry["lease_flat_renewals"] = 0
+    entry["lease_expires_at"] = now + LEASE_TTL_MIN * 60
+    flat = entry["lease_flat_renewals"]
+    if flat >= LEASE_FLAT_RENEWALS_K:
+        if _declared_wait_valid(root, entry.get("work")):
+            return []
+        return [f"flat-progress: lease renewed {flat}x with unchanged "
+                f"progress indicator {indicator!r} (advisory)"]
+    return []
+
+
+def _lease_requeue(key: str, entry: dict, now: float) -> None:
+    """Issue #2101 mechanism 1, requeue path. Deliberately DETECTOR-FREE:
+    the caller's only admission condition is `now > lease_expires_at` — no
+    log classification, no health diagnosis, no liveness heuristics execute
+    here. State change (roster entry + spawn claim removed => the item is
+    dispatchable again) + ledger event + advisory print. Nothing is killed,
+    nothing is refused."""
+    work = entry.get("work")
+    roster_remove(key)
+    if work:
+        try:
+            _spawn_claim_path(work).unlink()
+        except FileNotFoundError:
+            pass
+    ledger_write({"event": "lease_expired_requeued", "key": key,
+                  "issue": entry.get("issue"), "role": entry.get("role"),
+                  "lease_expires_at": entry.get("lease_expires_at"),
+                  "ts": now})
+    print(f"[lease] {key}: lease expired — claim released, item returned to "
+          f"dispatchable (advisory, self-correcting; no session was killed)")
+
+
+def _sweep_completion_in_flight(work: str | None) -> bool:
+    """True when the workspace's events.jsonl already records a session-end:
+    the dead claim is a completion being processed, not a lost item. Used
+    only to SUPPRESS the claim_without_live_session advisory (never in the
+    requeue path — that stays a pure timestamp comparison)."""
+    if not work:
+        return False
+    try:
+        return bool(_prior_event_details(_events_path(work), "session-end"))
+    except (OSError, TypeError):  # unhashable detail: unknown => not in flight
+        return False
+
+
+def deadman_mark(now: float | None = None, marker: Path | None = None) -> None:
+    """Issue #2101 mechanism 4: append/refresh the periodic coverage-OK
+    marker. Called from every reconcile sweep (i.e. every watchdog tick)."""
+    now = time.time() if now is None else now
+    marker = DEADMAN_MARKER if marker is None else marker
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps({"ts": now}))
+        os.utime(marker, (now, now))
+    except OSError:
+        pass  # watch-class machinery must never die on a marker write
+
+
+def deadman_check(now: float | None = None, marker: Path | None = None) -> int:
+    """Issue #2101 mechanism 4, the CHECK side: verify the last coverage-OK
+    marker is fresher than DEADMAN_STALE_INTERVALS x DEADMAN_INTERVAL_SEC.
+    Standalone and dependency-free on the watchdog process — callable from
+    the UserPromptSubmit/Stop poll hooks via `spawn.py deadman-check`
+    (that is the point: the watch layer's own death must be observable
+    from OUTSIDE it). Returns the advisory count (0 fresh / 1 stale) —
+    never raises, never blocks anything."""
+    now = time.time() if now is None else now
+    marker = DEADMAN_MARKER if marker is None else marker
+    try:
+        age = now - marker.stat().st_mtime
+    except OSError:
+        return 0  # never marked yet (fresh install / first tick): no baseline
+    threshold = DEADMAN_INTERVAL_SEC * DEADMAN_STALE_INTERVALS
+    if age <= threshold:
+        return 0
+    print(f"[deadman] WATCH LAYER ITSELF IS DEAD: last coverage-OK marker is "
+          f"{int(age)}s old (> {int(threshold)}s = {DEADMAN_STALE_INTERVALS} x "
+          f"{int(DEADMAN_INTERVAL_SEC)}s). The monitor/watchdog tick has not "
+          f"run — restart the session Monitor or run `spawn.py watchdog`. "
+          f"Advisory only: nothing is blocked or killed.")
+    ledger_write({"event": "deadman_stale", "age_sec": age,
+                  "threshold_sec": threshold, "ts": now})
+    return 1
+
+
+def lease_reconcile_sweep(root: Path = None, d_all: dict | None = None,
+                          now: float | None = None) -> int:
+    """Issue #2101 mechanism 3: level-triggered reconcile sweep, hooked into
+    the existing watchdog tick (roster_watchdog). Compares desired vs
+    actual state:
+
+      - every claimed board item (roster entry) must have a live session or
+        a valid (unexpired) lease; an EXPIRED lease on a dead entry is
+        requeued via `_lease_requeue()` (mechanism 1 — the requeue admission
+        is a pure timestamp comparison, no detector logic);
+      - a dead entry with a still-valid or absent lease is surfaced as a
+        `claim_without_live_session` advisory (dedup-gated);
+      - every declared wait must reference an existing object
+        (`declared_wait_missing_object` advisory otherwise).
+
+    Also drives the dead-man's switch (mechanism 4): checks the previous
+    coverage-OK marker at sweep start, then refreshes it. Requeued keys are
+    popped from `d_all` in place so the same tick does not re-report them
+    through the dead-entry path. Returns the advisory count; everything here
+    is advisory-only per the watch-coverage policy — nothing is blocked,
+    refused, or killed."""
+    now = time.time() if now is None else now
+    root = ROOT if root is None else root
+    count = deadman_check(now=now)
+    deadman_mark(now=now)
+    if d_all is None:
+        d_all = _roster_load()
+    requeued = []
+    for key, e in sorted(d_all.items()):
+        work = e.get("work")
+        alive = _alive(e.get("pid", 0))
+        expires_at = e.get("lease_expires_at")
+        if not alive:
+            if expires_at is not None and now > expires_at:
+                _lease_requeue(key, e, now)
+                requeued.append(key)
+                count += 1
+            elif _sweep_completion_in_flight(work):
+                # A recorded session-end means the claim is a completion in
+                # flight, not a discrepancy — the existing dead-entry
+                # poll-report path owns reporting it. Not an anomaly.
+                pass
+            elif ledger_check_and_stamp(f"reconcile-sweep-no-session:{key}"):
+                ledger_write({"event": "claim_without_live_session",
+                              "key": key, "issue": e.get("issue"),
+                              "role": e.get("role"),
+                              "lease_expires_at": expires_at, "ts": now})
+                lease_desc = ("no lease recorded" if expires_at is None
+                              else f"lease valid until {expires_at}")
+                print(f"[reconcile-sweep] {key}: claimed item has no live "
+                      f"session ({lease_desc}) — advisory only")
+                count += 1
+        wait = _declared_wait(work)
+        if wait is not None and not _declared_wait_object_exists(
+                root, work, wait.get("object")):
+            if ledger_check_and_stamp(f"declared-wait-missing:{key}"):
+                ledger_write({"event": "declared_wait_missing_object",
+                              "key": key, "object": wait.get("object"),
+                              "ts": now})
+                print(f"[reconcile-sweep] {key}: declared wait references a "
+                      f"missing object {wait.get('object')!r} — advisory only")
+                count += 1
+    for key in requeued:
+        d_all.pop(key, None)
+    return count
+
+
 def _classify_log_lines_heartbeat_only(text: str, now: float,
                                         window_min: float = WATCHDOG_HEARTBEAT_ONLY_MIN
                                         ) -> str:
@@ -2501,6 +2758,17 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         return {"state": "STALLED-HEARTBEAT-ONLY", "next_action": "resume-watch",
                 "detail": f"{key}: 최근 {WATCHDOG_HEARTBEAT_ONLY_MIN}분간 "
                           f"tool_progress 하트비트만 관측, RUNNING (advisory)"}
+    if any(a.startswith("flat-progress") for a in anomalies):
+        # Issue #2101 mechanism 2: the lease was renewed
+        # LEASE_FLAT_RENEWALS_K+ times with an unchanged progress indicator
+        # and no valid declared wait exempted it — advisory-only sub-state
+        # in the #1966 classifier vocabulary. next_action is the same
+        # "resume-watch" (re-observe only); no kill/refuse/gate-block path
+        # is reachable from this state.
+        return {"state": "STALLED-FLAT-PROGRESS", "next_action": "resume-watch",
+                "detail": f"{key}: lease renewed {LEASE_FLAT_RENEWALS_K}+ "
+                          f"times with a flat progress indicator, RUNNING "
+                          f"(advisory)"}
     return {"state": "HEALTHY", "next_action": "none",
             "detail": f"{key}: 최근 로그 성장, RUNNING"}
 
@@ -3447,6 +3715,12 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # 루프가 쓰는 `d_all` 과 같은 한 번의 읽기를 그대로 재사용한다.
     d_all = _roster_load()
     anomaly_count = _board_wide_sweep_all(root, d_all)
+    # Issue #2101 mechanisms 3+4: level-triggered reconcile sweep (expired
+    # leases requeued, claims without sessions and dangling declared waits
+    # surfaced) + dead-man coverage marker check/refresh. Advisory-only;
+    # requeued keys are popped from d_all so this tick's dead-entry loop
+    # below does not re-report them.
+    anomaly_count += lease_reconcile_sweep(root=root, d_all=d_all)
     # 이슈 #1491: standing-red 관찰은 살아있는 로스터와 무관하게 매 틱
     # 시도한다(자체 유한-주기 게이트로 실제 스위트 실행은 걸러낸다) —
     # 아래 `if not d` 조기 반환에 걸리지 않게 board-wide sweep 바로 뒤에
@@ -3537,6 +3811,12 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                 _auto_respawn_check(key, e, respawn_state)
             continue
         anomalies = watchdog_check_one(key, e, state=state)
+        # Issue #2101 mechanisms 1+2: renew this live entry's lease on the
+        # same tick (the tick is the entry's watcher), recording the progress
+        # indicator; a flat-progress anomaly (advisory) joins the same list
+        # diagnose_health consumes. Persist the mutated lease fields.
+        anomalies += lease_renew(key, e, root=root)
+        roster_register(key, e)
         # 이슈 #782 스코프-확장: HEALTHY/STALLED/DEADLOCKED/DEAD-ERRORED 네
         # 상태로 진단하고, 완료가 아닌 진단 결과만 원장으로 게이팅해 보고한다
         # (완료는 위 reconcile()/아래 죽음-분기가 이미 다룬다). 같은 틱에서
@@ -7463,6 +7743,12 @@ def main() -> int:
         return rc
     if a.role == "poll-due":
         return 0 if poll_due(poll_state=POLL_STATE) else 1
+    if a.role == "deadman-check":
+        # Issue #2101 mechanism 4: standalone freshness check of the watch
+        # layer's coverage-OK marker, callable from the UserPromptSubmit/Stop
+        # poll hooks — deliberately independent of the watchdog process.
+        # rc is the advisory count (0 fresh / 1 stale), never a block.
+        return deadman_check()
     if a.role == "gc-monitor-alive":
         return monitor_alive_gc_cli(Path(a.cwd).resolve())
     if a.role == "reconcile":
