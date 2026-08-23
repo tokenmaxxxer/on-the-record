@@ -248,8 +248,11 @@ BULLET_RE = re.compile(r"^\s+-\s")
 # issue #1719: [returned-pr] no longer joins the always-emit set —
 # it is compared below with its age= token stripped instead, so an
 # unchanged set doesn't re-announce every tick (supersedes #1239 req 2).
+# issue #2133: [awaiting-approval] joins the always-emit set — the healthy
+# approval pause must reach the Monitor relay every tick (the remaining-time
+# token changes anyway, but the always-emit membership is the contract).
 ALWAYS_RE = re.compile(
-    r"^\[(resume|orphaned|watchdog-crash)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
+    r"^\[(resume|orphaned|watchdog-crash|awaiting-approval)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
     re.IGNORECASE,
 )
 AGE_STRIP_RE = re.compile(r"age=[^ ]+")
