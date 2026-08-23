@@ -166,7 +166,7 @@ target_repo_flag = None
 
 cd_m = re.match(r"^\s*cd\s+(\S+)\s*&&", cmd)
 if cd_m:
-    target_cwd = cd_m.group(1)
+    target_cwd = os.path.expanduser(cd_m.group(1))
 
 rest = re.split(r"\bgh\s+pr\s+merge\b", cmd, maxsplit=1)[1]
 
