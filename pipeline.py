@@ -1243,8 +1243,9 @@ def _admission_check_board_validity(ctx: dict) -> bool | None:
         print(f"[admission] board-validity: the default branch of {slug} "
               f"has no {_sp.MARKER} — the session would run to completion "
               f"and then strand at its record write (board-gate is "
-              f"fail-closed). Run `spawn.py init` on the target and push, "
-              f"then dispatch again.", file=sys.stderr)
+              f"fail-closed). Run `spawn.py init --push` on the target "
+              f"(plain `init` verifies the remote and prints the exact "
+              f"push commands), then dispatch again.", file=sys.stderr)
     return verdict
 
 

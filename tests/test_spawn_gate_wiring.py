@@ -877,6 +877,34 @@ class RequireRequirementLinkageRemoteBranch(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     spawn.require_requirement_linkage(str(work), issue)
 
+    def test_refusal_message_is_self_serviceable(self):
+        """issue #2125: the refusal must carry (a) the digest path, (b) an
+        example citation line, (c) the escape-hatch tag verbatim, (d) when
+        that tag is appropriate — a first-time consumer must be able to act
+        without reading source."""
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "work"
+            self._init_repo(work)
+            (work / "a.txt").write_text("base")
+            self._git(work, "add", "a.txt")
+            self._git(work, "commit", "-q", "-m", "base commit")
+            self._make_marker(work)
+
+            issue = 999904
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import requirement_linkage as _requirement_linkage
+
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()), \
+                 mock.patch.object(_requirement_linkage, "check", lambda root, iss: ["no requirement id cited"]):
+                with self.assertRaises(SystemExit) as ctx:
+                    spawn.require_requirement_linkage(str(work), issue)
+            msg = str(ctx.exception)
+            self.assertIn("docs/specs/requirement-digest.md", msg)
+            self.assertIn("Targets R1.", msg)
+            self.assertIn("infrastructure/no-direct-requirement", msg)
+            self.assertIn("적절하다", msg)  # the when-appropriate sentence
+
 class RequirementDigestScaffold(unittest.TestCase):
     """issue #1695: `spawn.py init` scaffolds
     `docs/specs/requirement-digest.md` on a fresh repo, never overwrites."""
