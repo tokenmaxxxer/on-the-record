@@ -1,0 +1,1 @@
+- 2026-08-23T06:45:13.783792+00:00 | role=implementation | verb=skill_judge | issue=2085 | question='과제:\nFix issue #2085: acceptance-shape gate must collect and report ALL missing elements (check grammar, empty state, provenance) in one refusal, per the issue Acceptance\n\n후보 스킬(BM25 상위 8개):\n- technica' | outcome='error: 시간초과(45s)'
