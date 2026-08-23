@@ -1197,6 +1197,57 @@ def _admission_check_budget_caps(ctx: dict) -> bool | None:
     return True
 
 
+def _board_marker_probe(slug: str) -> bool | None:
+    """Probe the remote DEFAULT branch of `slug` for the board marker
+    (`docs/specs/approvers.md`) via the gh contents API — the branch the
+    workspace clone will be cut from and the record write will target.
+    Returns True (present), False (confirmed missing — HTTP 404), or None
+    (gh/network failure: the probe could not be evaluated)."""
+    try:
+        r = subprocess.run(
+            ["gh", "api", f"repos/{slug}/contents/{_sp.MARKER}",
+             "-q", ".path"],
+            capture_output=True, text=True, timeout=_sp.NETWORK_TIMEOUT)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    if r.returncode == 0:
+        return True
+    if "404" in (r.stderr or ""):
+        return False  # the API answered: the file is not there
+    return None  # gh broken / auth / network — cannot evaluate
+
+
+def _admission_check_board_validity(ctx: dict) -> bool | None:
+    """Item 5 (issue #2123): the TARGET must be a valid board — its remote
+    default branch must carry docs/specs/approvers.md — BEFORE any session
+    starts. Live incident (2026-08-23 E2E): the marker was missing on the
+    remote (operator push error), the spawn was admitted, ran 5 minutes to
+    a complete PR, then stranded at the record write on the fail-closed
+    board-gate. A deterministic, cheap, guaranteed-to-strand precondition
+    is exactly what admission exists to catch.
+
+    Pre-clone gh contents probe (implementer's choice per the issue): it
+    refuses before any workspace exists, matching the #2100 "no workspace
+    left behind" contract; the cost is one extra gh API call vs reusing a
+    checkout that would already have been made."""
+    root = Path(ctx["cwd"]).resolve()
+    slug = _sp._repo_slug(root)
+    if slug is None:
+        # No resolvable remote (local-only target, or gh cannot map one):
+        # there is no remote default branch to probe — the workspace
+        # materializes from the local checkout, where board.py's own
+        # marker check governs. Not a gh failure; nothing to fail open on.
+        return True
+    verdict = _sp._board_marker_probe(slug)
+    if verdict is False:
+        print(f"[admission] board-validity: the default branch of {slug} "
+              f"has no {_sp.MARKER} — the session would run to completion "
+              f"and then strand at its record write (board-gate is "
+              f"fail-closed). Run `spawn.py init` on the target and push, "
+              f"then dispatch again.", file=sys.stderr)
+    return verdict
+
+
 def admission_gate(ctx: dict) -> str | None:
     """Run every ADMISSION_CHECKS row against `ctx`. Returns the name of
     the first missing precondition (after writing ONE `admission_refused`
