@@ -85,7 +85,7 @@ if not (re.search(r"(?:^|&&)\s*git\s+commit\b", cmd)
 # process's own cwd — resolve it the same way contract-guard.sh does,
 # instead of assuming the session's Bash tool never wraps a `cd`.
 cd_m = re.match(r"^\s*cd\s+(\S+)\s*&&", cmd)
-print(cd_m.group(1) if cd_m else os.getcwd())
+print(os.path.expanduser(cd_m.group(1)) if cd_m else os.getcwd())
 PY
 
 target_cwd="$(ABRG_PAYLOAD="$payload" python3 -c "$EXTRACT")"
