@@ -12,3 +12,9 @@ refuses that path for this role as a foreign record (contract v3 §11).
   `skill-verdict-guard` fired. Needs a rule-level resolution (a phase-1
   home for skill verdicts, or scoping the guard to phase-2 sessions) —
   reported, not spawned.
+- 2026-08-23 — inline — `acceptance-command-real-run-guard.sh` refuses
+  any commit staging `docs/specs/enforcement-boundary.md`, because that
+  file's own row for the guard quotes verbatim the citation shape the
+  guard scans staged content for; the phase-2 write set has to add a row
+  there for the new leaf gate module. Used the guard's documented
+  `Acceptance-recheck-N/A:` trailer on the commits that touch that file.
