@@ -250,6 +250,34 @@ def test_cd_prefix_allows_when_target_pr_closes_issue(tmp_path):
     assert r.returncode == 0, r.stderr
 
 
+def test_cd_prefix_with_tilde_expands_before_use_as_cwd(tmp_path):
+    """issue #2092: a `cd ~/x && gh pr merge ...` command previously passed
+    the literal unexpanded `~/x` string to subprocess's cwd=, raising
+    FileNotFoundError. The tilde must be expanded (os.path.expanduser)
+    before use — no traceback, and the target repo's approvers/PR body
+    (not cwd's) still drive the verdict."""
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    cwd_dir = _repo_dir(tmp_path, "cwdrepo", ["alice"])
+    target_dir = _repo_dir(home_dir, "targetrepo", ["bob"])
+    fixtures = {
+        "cwd_map": {str(cwd_dir): "cwd", str(target_dir): "target"},
+        "repos": {
+            "target": {
+                "pr_body": "Closes #9",
+                "issue_comments": [_approve_comment(9, "bob")],
+            },
+        },
+    }
+    r = _run_guard(
+        "cd ~/targetrepo && gh pr merge 7 --merge", fixtures, tmp_path,
+        cwd=cwd_dir, extra_env={"HOME": str(home_dir)},
+    )
+    assert r.returncode == 0, r.stderr
+    assert "Traceback" not in r.stderr
+    assert "FileNotFoundError" not in r.stderr
+
+
 def test_repo_flag_overrides_cd_prefix_when_they_disagree(tmp_path):
     """Regression for before-landing hunt finding: `cd <path> &&` combined
     with an explicit `-R other/repo` naming a *different* repo must not
