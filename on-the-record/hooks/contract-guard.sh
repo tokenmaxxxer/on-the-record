@@ -63,6 +63,12 @@ export CG_SELF_PATH
 
 IFS='' read -r -d '' GUARD <<'PY' || true
 import datetime, hashlib, json, os, re, subprocess, sys
+# issue #2093: the shared total parser replaces this hook's own ad-hoc
+# `cd <path> &&` regex. It ships next to the hooks (never under gates/,
+# which a consumer checkout need not have) and it never raises.
+sys.path.insert(0, os.environ.get("OTR_HOOKS_DIR", ""))
+from hook_input import cd_target_dir  # noqa: E402
+
 
 def deny(msg):
     sys.stderr.write("contract-guard: %s\n" % msg)
@@ -91,9 +97,9 @@ if not re.search(r"\bgh\s+pr\s+merge\b", cmd):
 target_cwd = None
 target_repo_flag = None  # "owner/repo" string, used with gh -R when no local checkout
 
-cd_m = re.match(r"^\s*cd\s+(\S+)\s*&&", cmd)
-if cd_m:
-    target_cwd = cd_m.group(1)
+# A `cd` target that does not exist here is no target at all (issue #2093):
+# handing the claim to subprocess(cwd=...) is what crashed this guard.
+target_cwd = cd_target_dir(cmd)
 
 rest = re.split(r"\bgh\s+pr\s+merge\b", cmd, maxsplit=1)[1]
 
@@ -315,6 +321,6 @@ if not closes_m or int(closes_m.group(2)) != issue:
     sys.exit(0)
 PY
 
-CG_PAYLOAD="$payload" python3 -c "$GUARD"
+OTR_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" CG_PAYLOAD="$payload" python3 -c "$GUARD"
 rc=$?
 exit "$rc"

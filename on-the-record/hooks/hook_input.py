@@ -33,7 +33,7 @@ import json
 import os
 import re
 import shlex
-from typing import NamedTuple, Union
+from typing import NamedTuple, Optional, Union
 
 __all__ = [
     "Payload",
@@ -44,6 +44,8 @@ __all__ = [
     "parse_payload",
     "tool_command",
     "cd_target",
+    "cd_target_dir",
+    "usable_dir",
     "resolved_cwd",
 ]
 
@@ -206,6 +208,36 @@ def cd_target(command: object) -> CdResult:
     if not expanded:
         return NoCdTarget("empty-cd-path")
     return CdTarget(expanded)
+
+
+def usable_dir(path: object) -> bool:
+    """True when `path` is a string naming an existing directory.  Never raises.
+
+    A `cd` target is *claimed*, not verified: `cd ~/work/repo && ...` names a
+    directory that may not exist in this process's world at all.  Feeding that
+    claim straight to `subprocess(cwd=...)` raises `FileNotFoundError` deep
+    inside a guard -- the exact crash-then-skip-silently shape this issue
+    exists to close, and the one the conformance matrix caught in
+    `contract-guard.sh` on the tilde-cd-merge case.
+    """
+    if not isinstance(path, str) or not path:
+        return False
+    try:
+        return os.path.isdir(path)
+    except Exception:
+        return False
+
+
+def cd_target_dir(command: object) -> Optional[str]:
+    """The command's `cd` target, but only when it exists as a directory.
+
+    Returns `None` otherwise -- which every call site already handles as
+    "no target repo override, use my own cwd".  Never raises.
+    """
+    result = cd_target(command)
+    if not isinstance(result, CdTarget):
+        return None
+    return result.path if usable_dir(result.path) else None
 
 
 def resolved_cwd(command: object, default: object = None) -> str:
