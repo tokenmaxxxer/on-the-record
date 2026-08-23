@@ -114,8 +114,16 @@ def test_with_and_without_condition_render_identically(tmp_path):
 
 
 def test_always_on_injection_within_size_budget(tmp_path):
+    # issue #2111: the injection embeds CHECKOUT=<install path>, so a raw
+    # byte count is install-path-dependent (2,541B at the plugin path vs
+    # 2,587B from a long scratchpad clone). Normalize the checkout path to
+    # a fixed placeholder before counting so the budget keeps one meaning
+    # across installs; the placeholder matches the canonical install path
+    # length class rather than this clone's.
     out = _rendered(tmp_path)
-    assert 0 < len(out.encode("utf-8")) <= SIZE_BUDGET, len(out.encode("utf-8"))
+    normalized = out.replace(str(REPO_ROOT), "/home/user/.claude/plugins/marketplaces/tokenmaxxxer")
+    size = len(normalized.encode("utf-8"))
+    assert 0 < size <= SIZE_BUDGET, size
 
 
 def test_every_index_referenced_section_file_exists_and_is_non_empty(tmp_path):
