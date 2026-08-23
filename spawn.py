@@ -304,6 +304,84 @@ judge_cmd = consult.judge_cmd
 panel_cmd = consult.panel_cmd
 review_cmd = consult.review_cmd
 
+# Issue #2105 extraction 7/N (a): the skill-resolution machinery lives in
+# skills.py. Same mechanism as the six extractions above: spawn.py stays
+# the entry point and re-exports the moved names; skills.py resolves every
+# cross-module reference through the module object injected here, so
+# `mock.patch.object(spawn, ...)` patches stay visible to the moved code.
+import skills
+if skills._sp is None or __name__ in ("spawn", "__main__"):
+    skills._sp = sys.modules[__name__]
+_ROLE_SKILLS = skills._ROLE_SKILLS
+_core_candidates = skills._core_candidates
+_describe_skill_match = skills._describe_skill_match
+_installed_plugin_skill_dirs = skills._installed_plugin_skill_dirs
+_local_skill_dirs = skills._local_skill_dirs
+_role_source_roster_fields = skills._role_source_roster_fields
+_skill_content_hash = skills._skill_content_hash
+_skill_repo_managed_root = skills._skill_repo_managed_root
+_skill_repo_root = skills._skill_repo_root
+_skill_repo_valid = skills._skill_repo_valid
+_skill_roster_fields = skills._skill_roster_fields
+_skill_source_roster_row = skills._skill_source_roster_row
+resolve_role_source = skills.resolve_role_source
+resolved_skill_dirs = skills.resolved_skill_dirs
+resolved_skill_sources = skills.resolved_skill_sources
+skill_repo_sha = skills.skill_repo_sha
+
+# Issue #2105 extraction 7/N (b): the reconcile-CLI / respawn / workspace
+# clean-sweep + monitor-alive GC lifecycle machinery lives in lifecycle.py.
+# Same mechanism again. `reconcile()`, `_build_expected`/`_build_observed`
+# and `watchdog_check_one` stay here (source-pinned by gates/test_boundary.py
+# and gates/test_watch_rearm_registry.py); lifecycle.py reaches them via
+# the injected module object. Import-time constants moved with their users
+# and are re-exported by assignment below.
+import lifecycle
+if lifecycle._sp is None or __name__ in ("spawn", "__main__"):
+    lifecycle._sp = sys.modules[__name__]
+RESPAWN_STATE = lifecycle.RESPAWN_STATE
+RESPAWN_MAX_ATTEMPTS = lifecycle.RESPAWN_MAX_ATTEMPTS
+RESPAWN_ABSOLUTE_MAX = lifecycle.RESPAWN_ABSOLUTE_MAX
+MONITOR_ALIVE_TOUCH_CADENCE_SECONDS = lifecycle.MONITOR_ALIVE_TOUCH_CADENCE_SECONDS
+MONITOR_ALIVE_STALE_THRESHOLD_SECONDS = lifecycle.MONITOR_ALIVE_STALE_THRESHOLD_SECONDS
+LEGACY_MONITOR_ALIVE_DIRNAME = lifecycle.LEGACY_MONITOR_ALIVE_DIRNAME
+_ABANDONED_WORK_OUTCOMES = lifecycle._ABANDONED_WORK_OUTCOMES
+_CONTINUATION_PREAMBLE = lifecycle._CONTINUATION_PREAMBLE
+_CRASH_COMMENT_MARKER = lifecycle._CRASH_COMMENT_MARKER
+_HARNESS_NOISE_BASENAMES = lifecycle._HARNESS_NOISE_BASENAMES
+_RECORD_PATH_RE = lifecycle._RECORD_PATH_RE
+_REMEDIATION_MERGE_COMMENT_MARKER = lifecycle._REMEDIATION_MERGE_COMMENT_MARKER
+_SESSION_END_COMMENT_MARKER = lifecycle._SESSION_END_COMMENT_MARKER
+_STALL_COMMENT_MARKER = lifecycle._STALL_COMMENT_MARKER
+_auto_respawn_check = lifecycle._auto_respawn_check
+_classify_workspace_completion = lifecycle._classify_workspace_completion
+_clean_auto_enabled = lifecycle._clean_auto_enabled
+_clean_max_age_days = lifecycle._clean_max_age_days
+_clean_max_bytes = lifecycle._clean_max_bytes
+_delete_workspace = lifecycle._delete_workspace
+_dir_size_bytes = lifecycle._dir_size_bytes
+_live_workspaces = lifecycle._live_workspaces
+_monitor_alive_root = lifecycle._monitor_alive_root
+_post_crash_comment = lifecycle._post_crash_comment
+_post_session_end_comment = lifecycle._post_session_end_comment
+_post_stall_comment = lifecycle._post_stall_comment
+_pr_list_call_ok = lifecycle._pr_list_call_ok
+_remediation_merge_sweep = lifecycle._remediation_merge_sweep
+_respawn_fingerprint = lifecycle._respawn_fingerprint
+_respawn_or_cap = lifecycle._respawn_or_cap
+_respawn_state_load = lifecycle._respawn_state_load
+_respawn_state_save = lifecycle._respawn_state_save
+_roster_reconcile_unreported = lifecycle._roster_reconcile_unreported
+_self_trigger_respawn = lifecycle._self_trigger_respawn
+_workspace_base = lifecycle._workspace_base
+_workspace_clean_state = lifecycle._workspace_clean_state
+auto_sweep = lifecycle.auto_sweep
+detect_legacy_monitor_alive_dirs = lifecycle.detect_legacy_monitor_alive_dirs
+gc_monitor_alive = lifecycle.gc_monitor_alive
+monitor_alive_gc_cli = lifecycle.monitor_alive_gc_cli
+roster_clean = lifecycle.roster_clean
+roster_kill = lifecycle.roster_kill
+
 # 이슈 #1274: roster_watchdog() 의 반환값(anomaly count, rc>=0)과 절대 겹치지
 # 않도록 고른 예약 종료 코드 — watchdog CLI 분기가 처리 못 한 예외를 이
 # 코드로 종료해, 파이썬 기본 트레이스백 종료(exit 1)가 anomaly_count==1 과
@@ -1372,8 +1450,6 @@ def ownership_report(cwd: str, role: str, delta: list) -> list[str]:
             f"세션 안의 게이트가 안 돌았다는 뜻이다 (계약 §11):"] + bad
 
 
-
-
 def _is_new_commit(cwd: str, before_head: str | None, after_head: str | None) -> bool:
     """`after_head` 가 `before_head` 위에 실제로 새 커밋을 얹었는지 판단한다.
 
@@ -1818,6 +1894,57 @@ def _build_observed(root: Path, entry: dict) -> dict:
     }
 
 
+def roster_reconcile(issue: int | None = None, unreported: bool = False,
+                      remediation_merged: bool = False,
+                      root: Path | None = None) -> int:
+    """`spawn.py reconcile [--issue N] [--unreported] [--remediation-merged]`
+    — 이슈-492 step 2 CLI verb, 이슈 #534 로 `--unreported` 모드가, 이슈
+    #587 round 2 로 `--remediation-merged` 모드가 추가됐다.
+
+    `unreported=True` 면 `_roster_reconcile_unreported()` 로 위임한다 —
+    roster 가 아니라 workspace 인덱스를 보는, 다른 데이터소스/다른 질문
+    (divergence 가 아니라 "미보고 session-end")이라 별도 함수로 분리했다.
+
+    `remediation_merged=True` 면 `_remediation_merge_sweep(target_root,
+    issue)` 로 위임한다 — `target_root` 는 `root` (호출자의 `-C` 대상)가
+    주어지면 그것, 아니면 `ROOT`(spawn.py 자신의 체크아웃)다. 이슈 #587
+    round 3: `_remediation_merge_sweep` 이 항상 `ROOT` 로만 불려서 다른
+    레포를 대상으로 한 CLI 호출에서 조용히 no-op 됐던 결함의 수정 —
+    `issue` 가 없으면 대상을 특정할 수 없으므로 아무 것도 하지 않고 0 을
+    반환한다.
+
+    기본 모드(둘 다 False)는 그대로다: 로스터(살아있는 것 + 죽은 것
+    전부, `watchdog --auto-respawn` 의 스캔 범위와 같다)를 훑어 엔트리마다
+    `reconcile()` 을 한 번씩 돌린다. `--issue` 를 주면 그 이슈 번호의
+    엔트리로만 좁힌다. divergence 한 줄씩 찍고, 종료 코드는 divergence 총
+    개수(0 = 깨끗함) — `roster_watchdog` 의 반환값과 같은 관례
+    (spawn.py:1752-1755)."""
+    if unreported:
+        return _roster_reconcile_unreported(issue)
+    if remediation_merged:
+        if issue is None:
+            return 0
+        target_root = root if root is not None else ROOT
+        return _remediation_merge_sweep(target_root, issue)
+    d = _roster_load()
+    if issue is not None:
+        d = {k: e for k, e in d.items() if e.get("issue") == issue}
+    if not d:
+        print("reconcile: 대상 로스터 엔트리 없음")
+        return 0
+    total = 0
+    for key, e in sorted(d.items()):
+        divergences = reconcile(_build_expected(e), _build_observed(ROOT, e),
+                                 recovery_state_dir=ROOT / ".on-the-record" / "recovery-state")
+        for div in divergences:
+            total += 1
+            print(f"[reconcile] {key}: {div['kind']}: {div['detail']} "
+                  f"-> next_action={div['next_action']}")
+    if not total:
+        print("reconcile: divergence 없음")
+    return total
+
+
 ROSTER = STATE_ROOT / "active.json"
 
 
@@ -2072,926 +2199,6 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
                         f"재무장하라 (non-blocking)")
 
     return anomalies
-
-
-
-def _roster_reconcile_unreported(issue: int | None = None) -> int:
-    """`spawn.py reconcile --unreported [--issue N]` (이슈 #534): roster 는
-    session-end 직후 곧바로 지워지므로(`roster_remove()`, spawn.py:3988)
-    끝난 세션의 흔적을 담지 못한다 — 대신 세션이 끝나도 지워지지 않는
-    `_workspace_index_put()` 의 workspace 인덱스(`WORKSPACE_INDEX`)를
-    훑는다. `verdict == "normal"` 인데 `_SESSION_END_COMMENT_MARKER`
-    코멘트가 아직 없는 엔트리를 "미보고"로 찍는다 — self-trigger/watchdog
-    이 둘 다 놓친 경우(프로세스가 코멘트 줄에 닿기 전에 죽는 등)를
-    오케스트레이터가 아무 때나 한 번의 호출로 회복하는 창구다."""
-    idx = _workspace_index_load()
-    total = 0
-    found_any = False
-    for key, e in sorted(idx.items()):
-        m = re.search(r"(?:^|/)issue-(\d+)/", key)
-        if not m:
-            continue
-        issue_n = int(m.group(1))
-        if issue is not None and issue_n != issue:
-            continue
-        found_any = True
-        work = e.get("work")
-        if not work:
-            continue
-        # 이슈 #1283: workspace 가 이미 `clean` 에 지워졌다고 여기서
-        # 건너뛰면(구 #1124 조치), session-end(normal) 인데 아직 미보고인
-        # 세션이 영영 사라진다 — session_end_verdict/`_issue_comments`
-        # 둘 다 없는 workspace 를 이미 안전하게 다루므로(survey 참고)
-        # 여기서 따로 건너뛸 필요가 없다.
-        log = e.get("log")
-        verdict = session_end_verdict(work, Path(log) if log else None)
-        if verdict != "normal":
-            continue
-        # 이슈 #533: 마커는 `_post_session_end_comment` 가 실제로 코멘트에
-        # 박아 둔 bare `issue-<n>/<role>` 형태여야 한다 — workspace 인덱스
-        # `key` 는 이제 레포 접두사가 붙어 그대로 쓰면 마커가 영원히
-        # 안 맞아 매번 미보고로 오탐한다.
-        m2 = re.search(r"issue-\d+/[^/]+$", key)
-        roster_key = m2.group(0) if m2 else key
-        marker = _SESSION_END_COMMENT_MARKER.format(key=roster_key)
-        # `_issue_comments`가 `ok=False`(코멘트를 못 읽음)면 마커 부재를
-        # 확인할 수 없다 — "확인 못 함은 통과가 아니다"(#287) 원칙대로
-        # 미보고 쪽으로 넘어간다(중복 코멘트를 감수).
-        comments, ok = _issue_comments(Path(work), issue_n)
-        if ok and any(marker in c.get("body", "") for c in comments):
-            continue
-        total += 1
-        print(f"[reconcile --unreported] {key}: session-end(normal) 미보고 "
-              f"— issue #{issue_n}, work={work}, log={log}")
-    if not found_any:
-        print("reconcile --unreported: 대상 workspace 엔트리 없음")
-    elif not total:
-        print("reconcile --unreported: 미보고 없음")
-    return total
-
-
-_REMEDIATION_MERGE_COMMENT_MARKER = "[watch] remediation-merged: {path}"
-
-
-def _remediation_merge_sweep(root: Path, issue: int) -> int:
-    """`spawn.py reconcile --remediation-merged --issue N` (이슈 #587 §12
-    event 4): `docs/issue-<n>/decisions/remediation-*.md` 중 `status: open`
-    인 기록의 `routed_to` 역할 브랜치(`issue-<n>/<role>`, 관례는
-    `remediation_spawn.py` 의 멱등성 체크와 동일)가 머지됐으면 §12 형식의
-    한 줄 코멘트를 이슈에 남긴다.
-
-    `_roster_reconcile_unreported`와 같은 read-then-check 멱등 패턴: 고정
-    마커가 이미 있으면 건너뛴다 — 같은 remediation 기록에 두 번 코멘트를
-    달지 않는다."""
-    decisions_dir = root / BOARD / f"issue-{issue}" / "decisions"
-    if not decisions_dir.is_dir():
-        return 0
-    slug = _repo_slug(root)
-    posted = 0
-    for rem_path in sorted(decisions_dir.glob("remediation-*.md")):
-        fm = frontmatter(rem_path)
-        if fm.get("status") != "open":
-            continue
-        routed_to = fm.get("routed_to")
-        if not routed_to or routed_to == "UNRESOLVED":
-            continue
-        round_n = fm.get("round", "?")
-        candidate_pr = fm.get("candidate_pr", "?")
-        marker = _REMEDIATION_MERGE_COMMENT_MARKER.format(
-            path=f"docs/issue-{issue}/decisions/{rem_path.name}")
-        comments, ok = _issue_comments(root, issue)
-        if ok and any(marker in c.get("body", "") for c in comments):
-            continue
-        branch = f"issue-{issue}/{routed_to}"
-        merged_pr = _merged_pr_for_branch(root, branch)
-        if merged_pr is None:
-            continue
-        if not slug:
-            continue
-        body = (f"{marker}\n\n"
-                f"Remediation merged: PR #{merged_pr} resolves round {round_n} "
-                f"of PR #{candidate_pr}\n"
-                f"https://github.com/{slug}/pull/{merged_pr}")
-        r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
-                            "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
-        if r.returncode == 0:
-            posted += 1
-        else:
-            print(f"[spawn] 이슈 #{issue} remediation-merged 코멘트 게시 실패: "
-                  f"{r.stderr.strip()}", file=sys.stderr)
-    return posted
-
-
-def roster_reconcile(issue: int | None = None, unreported: bool = False,
-                      remediation_merged: bool = False,
-                      root: Path | None = None) -> int:
-    """`spawn.py reconcile [--issue N] [--unreported] [--remediation-merged]`
-    — 이슈-492 step 2 CLI verb, 이슈 #534 로 `--unreported` 모드가, 이슈
-    #587 round 2 로 `--remediation-merged` 모드가 추가됐다.
-
-    `unreported=True` 면 `_roster_reconcile_unreported()` 로 위임한다 —
-    roster 가 아니라 workspace 인덱스를 보는, 다른 데이터소스/다른 질문
-    (divergence 가 아니라 "미보고 session-end")이라 별도 함수로 분리했다.
-
-    `remediation_merged=True` 면 `_remediation_merge_sweep(target_root,
-    issue)` 로 위임한다 — `target_root` 는 `root` (호출자의 `-C` 대상)가
-    주어지면 그것, 아니면 `ROOT`(spawn.py 자신의 체크아웃)다. 이슈 #587
-    round 3: `_remediation_merge_sweep` 이 항상 `ROOT` 로만 불려서 다른
-    레포를 대상으로 한 CLI 호출에서 조용히 no-op 됐던 결함의 수정 —
-    `issue` 가 없으면 대상을 특정할 수 없으므로 아무 것도 하지 않고 0 을
-    반환한다.
-
-    기본 모드(둘 다 False)는 그대로다: 로스터(살아있는 것 + 죽은 것
-    전부, `watchdog --auto-respawn` 의 스캔 범위와 같다)를 훑어 엔트리마다
-    `reconcile()` 을 한 번씩 돌린다. `--issue` 를 주면 그 이슈 번호의
-    엔트리로만 좁힌다. divergence 한 줄씩 찍고, 종료 코드는 divergence 총
-    개수(0 = 깨끗함) — `roster_watchdog` 의 반환값과 같은 관례
-    (spawn.py:1752-1755)."""
-    if unreported:
-        return _roster_reconcile_unreported(issue)
-    if remediation_merged:
-        if issue is None:
-            return 0
-        target_root = root if root is not None else ROOT
-        return _remediation_merge_sweep(target_root, issue)
-    d = _roster_load()
-    if issue is not None:
-        d = {k: e for k, e in d.items() if e.get("issue") == issue}
-    if not d:
-        print("reconcile: 대상 로스터 엔트리 없음")
-        return 0
-    total = 0
-    for key, e in sorted(d.items()):
-        divergences = reconcile(_build_expected(e), _build_observed(ROOT, e),
-                                 recovery_state_dir=ROOT / ".on-the-record" / "recovery-state")
-        for div in divergences:
-            total += 1
-            print(f"[reconcile] {key}: {div['kind']}: {div['detail']} "
-                  f"-> next_action={div['next_action']}")
-    if not total:
-        print("reconcile: divergence 없음")
-    return total
-
-
-
-
-RESPAWN_STATE = ROOT / "runs" / "respawn_state.json"
-RESPAWN_MAX_ATTEMPTS = 2
-# 이슈 #678: no-progress 스트릭이 매 재스폰마다 진행을 인정해 리셋되더라도,
-# 토큰 비용 백스톱으로 전체 재스폰 횟수에 독립적인 절대 상한을 둔다 —
-# 진짜 진행 중인 작업(스트릭 리셋)을 방해하지 않을 만큼 넉넉히, 그러나
-# 무한하지 않게: RESPAWN_MAX_ATTEMPTS 의 4배.
-RESPAWN_ABSOLUTE_MAX = RESPAWN_MAX_ATTEMPTS * 4
-_CRASH_COMMENT_MARKER = "[on-the-record] {key}: crashed, respawn cap ({cap}) reached"
-_STALL_COMMENT_MARKER = "[on-the-record] {key}: stalled"
-
-
-def _respawn_state_load() -> dict:
-    try:
-        return json.loads(RESPAWN_STATE.read_text())
-    except (OSError, ValueError):
-        return {}
-
-
-def _respawn_state_save(d: dict) -> None:
-    RESPAWN_STATE.parent.mkdir(exist_ok=True)
-    RESPAWN_STATE.write_text(json.dumps(d, indent=2, ensure_ascii=False))
-
-
-def _post_crash_comment(root: Path, issue: int, key: str, work: str, log: str,
-                        trigger: str = "crashed", absolute: bool = False) -> None:
-    """재스폰 상한 도달 시 이슈에 남기는 코멘트. 멱등: 고정 마커 문자열을
-    기존 코멘트에서 먼저 찾는다(`_issue_comments`/`approve_scope` 와 같은
-    read-then-check 패턴) — 워치독을 반복 호출해도 두 번째 코멘트는 없다.
-
-    `trigger` (이슈 #247): 어느 경로가 상한을 채웠는지(예:
-    `watchdog-observed-crashed` / `self-triggered-abandoned`) 본문에
-    남긴다 — 마커 문자열 자체는 이슈 #132 부터 쓰던 그대로 둔다. 멱등성
-    키는 트리거 종류와 무관하게 key+상한 하나여야 두 경로가 같은
-    attempt-cap 예산을 공유한다는 프로포절의 결정이 그대로 성립한다.
-
-    `absolute` (이슈 #678): no-progress 스트릭 상한(`RESPAWN_MAX_ATTEMPTS`)
-    이 아니라 `RESPAWN_ABSOLUTE_MAX` 총 시도 상한이 찼을 때 True — 마커의
-    `cap` 값 자체가 달라지므로(2 vs `RESPAWN_ABSOLUTE_MAX`) 두 캡은 서로
-    다른 멱등성 키를 쓰고, 어느 쪽이 찼는지가 코멘트 본문에서도 구분된다."""
-    cap = RESPAWN_ABSOLUTE_MAX if absolute else RESPAWN_MAX_ATTEMPTS
-    marker = _CRASH_COMMENT_MARKER.format(key=key, cap=cap)
-    comments, ok = _issue_comments(root, issue)
-    if ok and any(marker in c.get("body", "") for c in comments):
-        return
-    slug = _repo_slug(root)
-    if not slug:
-        return
-    cap_label = "absolute total-respawn ceiling" if absolute else "no-progress respawn cap"
-    body = (f"{marker}\n\n"
-            f"trigger: {trigger}\nworkspace: {work}\nlog: {log}\n\n"
-            f"All {cap} automatic respawns exhausted ({cap_label}) — needs human intervention.")
-    r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
-                    "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
-    if r.returncode != 0:
-        print(f"[spawn] 이슈 #{issue} 크래시-캡 코멘트 게시 실패 (사람 개입 필요 경고가 "
-              f"전달되지 않았다): {r.stderr.strip()}", file=sys.stderr)
-
-
-def _post_stall_comment(root: Path, issue: int, key: str, work: str, log: str) -> None:
-    """이슈 #325: `stalled` 판정을 최초 1회 이슈 코멘트로 남긴다.
-
-    `stalled` 는 재스폰을 트리거하지 않는다(관찰-전용 정책, 이슈 #132 —
-    바뀌지 않는다) — 다만 지금까지는 그 판정이 워치독을 부른 터미널의
-    `print()` 한 줄로만 남아, 진행 중인 세션과 조용히 멈춘 세션이 밖에서
-    구분되지 않았다. `_post_crash_comment` 와 같은 read-then-check
-    멱등 패턴: 고정 마커가 이미 있으면 아무것도 하지 않는다."""
-    marker = _STALL_COMMENT_MARKER.format(key=key)
-    comments, ok = _issue_comments(root, issue)
-    if ok and any(marker in c.get("body", "") for c in comments):
-        return
-    slug = _repo_slug(root)
-    if not slug:
-        return
-    body = (f"{marker}\n\n"
-            f"workspace: {work}\nlog: {log}\n\n"
-            f"Session judged stalled — automatic respawn will not trigger "
-            f"(observation-only policy). Needs human check.")
-    subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
-                    "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
-
-
-_SESSION_END_COMMENT_MARKER = "[watch] {key}: session-end:"
-
-
-def _pr_list_call_ok(root: Path, branch: str) -> bool:
-    """`_pr_open_or_merged_for_branch()`(spawn.py:1049)와 같은 `gh pr list`
-    호출이되, PR 상태 판정 로직은 재사용하고 이건 그 밑에 깔린 `gh` 호출
-    자체가 성공했는지만 본다 — "PR 없음"과 "확인 못 함"을 구별하는 데 쓴다
-    (이슈 #534, 프로포절의 empty-state 규정: `gh` 호출이 실패하면
-    `(pr-check-failed)` 접미사를 붙인다)."""
-    r = subprocess.run(["gh", "pr", "list", "--head", branch, "--state", "all",
-                        "--json", "number,state"],
-                       cwd=root, capture_output=True, text=True)
-    return r.returncode == 0
-
-
-def _post_session_end_comment(root: Path, issue: int, key: str, work: str,
-                              log: str) -> None:
-    """이슈 #534: 세션 종료(`normal`)를 GitHub 이슈 코멘트로 durable 하게
-    남긴다 — 오케스트레이터의 대화 상태(재무장 루프)가 아니라 이 코멘트가
-    "세션이 끝났다"는 사실을 관찰할 다리가 되도록 한다.
-
-    `crashed`/`stalled` 는 이 함수의 범위가 아니다 — 이미
-    `_post_crash_comment`/`_post_stall_comment` 가 처리한다. 이 함수는
-    `verdict == "normal"` 인 세션에만 코멘트를 남긴다.
-
-    `_post_stall_comment`/`_post_crash_comment` 와 같은 멱등 read-then-check
-    패턴: 고정 마커(`{key}` 까지만 — PR 유무와 무관하게 한 번만 남긴다)가
-    이미 있으면 아무것도 하지 않는다.
-    """
-    verdict = session_end_verdict(work, Path(log) if log else None)
-    if verdict != "normal":
-        return
-    marker = _SESSION_END_COMMENT_MARKER.format(key=key)
-    comments, ok = _issue_comments(root, issue)
-    if ok and any(marker in c.get("body", "") for c in comments):
-        return
-    slug = _repo_slug(root)
-    if not slug:
-        return
-    branch = subprocess.run(["git", "-C", work, "rev-parse", "--abbrev-ref", "HEAD"],
-                            capture_output=True, text=True).stdout.strip()
-    pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
-    if pr_number is not None:
-        line = f"PR https://github.com/{slug}/pull/{pr_number} opened"
-    elif branch and not _pr_list_call_ok(root, branch):
-        line = "no PR (pr-check-failed)"
-    else:
-        line = "no PR"
-    body = f"{marker} {line}\n\nworkspace: {work}\nlog: {log}"
-    r = subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
-                        "-f", f"body={body}"], cwd=root, capture_output=True, text=True)
-    if r.returncode != 0:
-        print(f"[spawn] 이슈 #{issue} session-end 코멘트 게시 실패: {r.stderr.strip()}",
-              file=sys.stderr)
-
-
-def _respawn_fingerprint(work: str) -> dict:
-    """이슈 #678: no-progress 스트릭 판정에 쓰는 지문 — git HEAD sha 와
-    `board_snapshot()` 의 안정적 해시(정렬된 dict 를 직렬화해 해시하므로,
-    같은 내용이면 dict 순서가 달라도 같은 해시). 두 재스폰 시점의 지문이
-    같으면 "그 사이에 관측 가능한 진행이 없었다"는 뜻이다."""
-    board = board_snapshot(work)
-    board_hash = hashlib.sha256(
-        json.dumps(board, sort_keys=True).encode("utf-8")).hexdigest()
-    return {"head": _git_head(work), "board": board_hash}
-
-
-_CONTINUATION_PREAMBLE = (
-    "workspace contains uncommitted work from the previous session — "
-    "verify briefly, then commit/push/PR; do not redo"
-)
-
-_RECORD_PATH_RE = re.compile(r"docs/issue-\d+/(reports|proposals)/")
-
-
-def _classify_workspace_completion(work: str, role: str) -> str:
-    """이슈 #1982: 재스폰 시점 dirty workspace 를 "finished"/"unfinished" 로
-    분류한다. `git status --porcelain` 이 비어 있으면(clean) 바로
-    "unfinished". dirty 라도, 변경분에 이 저장소의 record-shape 규약이
-    요구하는 경로(`docs/issue-<n>/reports/**`, `docs/issue-<n>/proposals/**`)
-    아래 파일이 없으면 "unfinished". 있으면 그 파일을 읽어 frontmatter 를
-    걷어낸 본문이 비어있지 않은 경우에만(= frontmatter-only 스텁이 아닌
-    경우에만) "finished" — 프로포절의 conservative-default 결정: 신호가
-    모호하거나 얇으면 항상 "unfinished" 쪽으로 판정한다."""
-    st = subprocess.run(["git", "-C", work, "status", "--porcelain", "-uall"],
-                        capture_output=True, text=True)
-    lines = [l for l in st.stdout.splitlines() if l.strip()]
-    if not lines:
-        return "unfinished"
-    record_paths = []
-    for line in lines:
-        path = line[3:].strip()
-        if " -> " in path:
-            path = path.split(" -> ", 1)[1]
-        if _RECORD_PATH_RE.search(path):
-            record_paths.append(path)
-    for rel in record_paths:
-        full = Path(work) / rel
-        if not full.exists():
-            continue
-        text = full.read_text(encoding="utf-8", errors="replace")
-        body = text
-        if text.startswith("---"):
-            end = text.find("\n---", 3)
-            if end != -1:
-                body = text[end + 4:]
-        if body.strip():
-            return "finished"
-    return "unfinished"
-
-
-def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
-                    session_start_ts, state: dict, trigger: str) -> None:
-    """공유 재스폰 시퀀스: 원자적 클레임 확인, 상한(`RESPAWN_MAX_ATTEMPTS`)
-    확인, `.task.txt` 를 통한 `_spawn_one()` 재생, 상한 도달 시 캡-코멘트.
-
-    이슈 #678: `attempts` 는 이제 no-progress *스트릭* 이다 — 직전 재스폰
-    시점에 저장해둔 지문(`_respawn_fingerprint()`)과 지금 지문이 다르면
-    (새 커밋 또는 보드 델타) 진행이 있었다고 보고 스트릭을 0 으로 리셋한
-    뒤 이번 시도를 1 로 센다. 지문이 없으면(최초 재스폰) 비교할 것이
-    없으므로 진행/무진행 어느 쪽으로도 치지 않고 오늘처럼 스트릭을
-    1부터 시작한다. `total_attempts` 는 스트릭과 무관하게 매 재스폰마다
-    증가하는 별도 카운터로, `RESPAWN_ABSOLUTE_MAX` 총 상한과 비교한다 —
-    스트릭이 계속 리셋돼도 무한정 재스폰하지 않게 하는 토큰 비용
-    백스톱(프로포절의 명시적 결정).
-
-    이슈 #132 워치독 `crashed` 경로(`_auto_respawn_check()`)와 이슈 #247
-    self-trigger 경로(`_spawn_one()` 자신이 정상 종료하며 미커밋 작업을
-    감지한 경우, spawn.py `_self_trigger_respawn()`)가 이 시퀀스를
-    그대로 공유한다 — 재스폰 로직을 두 벌 두지 않고, attempt-cap 카운터도
-    `key` 하나로 공유해 두 경로가 같은 예산을 쓴다(프로포절의 명시적
-    결정). `trigger` 는 어느 쪽이 불렀는지 로그/코멘트에 남겨 사람이
-    나중에 구분할 수 있게 한다.
-
-    `session_start_ts` 로 세션마다 다른 클레임 키(`.respawn-claim-{ts}`)를
-    만든다 — 두 트리거가 같은 세션(같은 ts)을 동시에 관측해도, 실제 락은
-    이 원자적 파일 생성 하나뿐이다: O_CREAT|O_EXCL 은 POSIX 에서 프로세스
-    간에도 원자적이라 정확히 하나만 이 파일을 만들 수 있다(실측:
-    warrant-hunter 리포트, 이슈 #132).
-    """
-    events_path = _events_path(work)
-    events = []
-    if events_path.exists():
-        for line in events_path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                ev = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(ev, dict):
-                events.append(ev)
-    already_claimed = any(
-        ev.get("type") == "respawn-attempt"
-        and isinstance(ev.get("detail"), dict)
-        and ev["detail"].get("session_start_ts") == session_start_ts
-        for ev in events)
-    if already_claimed:
-        return
-    prior = state.get(key, {})
-    attempts = prior.get("attempts", 0)
-    total_attempts = prior.get("total_attempts", 0)
-    prev_fingerprint = prior.get("fingerprint")
-    cur_fingerprint = _respawn_fingerprint(work)
-    if prev_fingerprint is not None and cur_fingerprint != prev_fingerprint:
-        attempts = 0
-    root = Path(work)
-    # Issue #2068: level-triggered guard — re-read the subject issue's
-    # state at act time, before any respawn or cap-comment side effect.
-    # CLOSED => never respawn (7 stale respawns in one night came from this
-    # path trusting branch existence alone); flag the branch for cleanup
-    # instead. A failed gh lookup fails open — same convention as the
-    # returned-PR gate (issue #680): a broken gh must not silently strand a
-    # crashed-but-legitimate session, and fail-closed here would trade a
-    # noise bug for an observation-loss bug.
-    issue_state, state_ok = _subject_issue_state(root, issue)
-    if not state_ok:
-        print(f"[respawn] {key}: issue-state lookup failed — failing open "
-              f"(returned-PR gate convention, issue #680)", file=sys.stderr)
-        ledger_write({"event": "issue_state_gate_fail_open", "source": "respawn",
-                      "issue": issue, "role": role, "ts": int(time.time())})
-    elif issue_state == "CLOSED":
-        _flag_stale_returned_branch(issue, role, f"issue-{issue}/{role}",
-                                    source="respawn")
-        return
-    if total_attempts >= RESPAWN_ABSOLUTE_MAX:
-        _post_crash_comment(root, issue, key, work, log, trigger, absolute=True)
-        return
-    if attempts >= RESPAWN_MAX_ATTEMPTS:
-        _post_crash_comment(root, issue, key, work, log, trigger)
-        return
-    claim_path = Path(str(work) + f".respawn-claim-{session_start_ts}")
-    try:
-        fd = os.open(str(claim_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        os.close(fd)
-    except FileExistsError:
-        return
-    task_path = Path(str(work) + ".task.txt")
-    if not task_path.exists():
-        print(f"[respawn] {key}: {trigger} 인데 {task_path} 가 없어 재스폰 불가 "
-              f"— 사람이 직접 재스폰해야 한다", file=sys.stderr)
-        return
-    task = task_path.read_text(encoding="utf-8")
-    # Issue #2068 requirement 2: re-read the task from the CURRENT issue at
-    # respawn time — the stored `.task.txt` is the text captured at original
-    # spawn and can be stale (observed producing zero-output sessions that
-    # concluded "nothing to do"). Fetch failure falls back to the stored
-    # text (fail-open, issue #680 convention).
-    current_task = _current_issue_task_text(root, issue)
-    if current_task is not None:
-        task = current_task
-    if _classify_workspace_completion(work, role) == "finished":
-        task = _CONTINUATION_PREAMBLE + "\n\n" + task
-    attempt_n = attempts + 1
-    total_attempt_n = total_attempts + 1
-    _append_event(events_path, "respawn-attempt",
-                  {"session_start_ts": session_start_ts, "attempt": attempt_n})
-    state[key] = {"attempts": attempt_n, "total_attempts": total_attempt_n,
-                  "fingerprint": cur_fingerprint}
-    _respawn_state_save(state)
-    print(f"[respawn] {key}: {trigger} — 재스폰 시도 {attempt_n}/{RESPAWN_MAX_ATTEMPTS} "
-          f"(총 {total_attempt_n}/{RESPAWN_ABSOLUTE_MAX})",
-          file=sys.stderr)
-    _spawn_one(work, role, task, unattended=True, issue=issue, bounded=True)
-
-
-def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
-    """죽은 로스터 엔트리 하나에 대해 `crashed` 인지 판정하고, 그렇다면
-    `_respawn_or_cap()` 에 넘긴다. `stalled`/`normal`/`in-progress` 는
-    재스폰을 걸지 않는다(관찰-전용 계약 유지, 이슈 #132) — 다만 `stalled`
-    는 최초 1회 이슈 코멘트로 남는다(이슈 #325): 재스폰하지 않는 것과
-    아무도 모르게 재스폰하지 않는 것은 다르다."""
-    work = entry.get("work")
-    issue = entry.get("issue")
-    role = entry.get("role")
-    if not work or issue is None or not role:
-        return
-    log_path = Path(entry["log"]) if entry.get("log") else None
-    verdict = session_end_verdict(work, log_path)
-    print(f"[watchdog] {key}: {verdict}")
-    if verdict == "stalled":
-        _post_stall_comment(Path(work), issue, key, work, entry.get("log", ""))
-        return
-    if verdict != "crashed":
-        return
-    events_path = _events_path(work)
-    events = []
-    if events_path.exists():
-        for line in events_path.read_text(encoding="utf-8", errors="replace").splitlines():
-            try:
-                ev = json.loads(line)
-            except ValueError:
-                continue
-            if isinstance(ev, dict):
-                events.append(ev)
-    start_ts = None
-    for ev in reversed(events):
-        if ev.get("type") == "session-start":
-            start_ts = (ev.get("detail") or {}).get("ts")
-            break
-    _respawn_or_cap(key, work, issue, role, entry.get("log", ""), start_ts, state,
-                    "watchdog-observed-crashed")
-
-
-_ABANDONED_WORK_OUTCOMES = ("uncommitted-work", "failed-no-commit", "silent-failure")
-
-
-def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
-                          role: str, log: str, session_start_ts) -> None:
-    """이슈 #247/#675: `_spawn_one()` 자신이 정상 종료(`session-end` 가 이미
-    남는다)했지만 outcome 이 미커밋-방치 신호(`uncommitted-work`/
-    `failed-no-commit`) 이거나, 원인 없이 그냥 멈춘 `silent-failure` 일 때,
-    다음 `spawn.py watchdog` 틱을 기다리지 않고 지금 이 자리에서 바로
-    `_respawn_or_cap()` 을 부른다.
-
-    `roster_watchdog()`/`_auto_respawn_check()` 의 crashed 판정은 이
-    경우에 절대 못 걸린다 — `roster_remove()` 가 `proc.wait()` 직후
-    동기적으로 로스터 엔트리를 지우고, `session-end` 이벤트도 이미
-    남으므로(spawn.py `_spawn_one()` 끝부분), 이후 어떤 워치독 틱도
-    dead-but-registered 엔트리를 볼 수 없다(survey.md). `refused`/
-    `waiting-on-human` 은 정당한 게이트 거부/대기이지 이 결함의 모양이
-    아니라서 여기서 건드리지 않는다(프로포절의 두 번째 기각안). 다만
-    `silent-failure` 는 `fail_closed_downgrade()` 를 이미 거쳐 실제로는
-    진행됐다고 판명되면 `progressed` 로 승격되므로, 여기 도달하는
-    `silent-failure` 는 이미 원인 없는(causeless) 경우로 걸러져 있다.
-    """
-    if outcome not in _ABANDONED_WORK_OUTCOMES:
-        return
-    state = _respawn_state_load()
-    trigger = ("self-triggered-causeless" if outcome == "silent-failure"
-               else "self-triggered-abandoned")
-    _respawn_or_cap(roster_key, work, issue, role, log, session_start_ts, state,
-                    trigger)
-
-
-
-
-def roster_kill(issue: int, role: str) -> int:
-    d = _roster_load()
-    key = f"issue-{issue}/{role}"
-    e = d.get(key)
-    if not e:
-        print(f"로스터에 없다: {key}", file=sys.stderr)
-        return 1
-    pid = e.get("pid", 0)
-    if _alive(pid):
-        os.kill(pid, 15)
-        print(f"종료 신호를 보냈다: {key} (pid {pid}). 워크스페이스와 라이브 "
-              f"로그는 남는다 — 재스폰이 이어받는다.")
-    else:
-        print(f"이미 죽어 있다: {key}")
-    roster_remove(key)
-    return 0
-
-
-def _core_candidates() -> list[tuple[str, Path]]:
-    """core_root() 가 순서대로 보는 로컬 오버라이드 후보 (라벨, 경로).
-    관리 클론(runs/rulebooks/tokenmaxxxer-core)은 이 목록 밖 — 둘 다
-    없을 때만 core_root() 가 그리로 떨어지는 별도 단계라 후보가 아니다.
-    """
-    return [
-        ("TOKENMAXXXER_CORE", os.environ.get("TOKENMAXXXER_CORE")),
-        ("TOKENMAXXXER_RULEBOOKS/tokenmaxxxer-core",
-         "$TOKENMAXXXER_RULEBOOKS/tokenmaxxxer-core"),
-    ]
-
-
-def _skill_repo_valid(d: Path) -> bool:
-    """`d` 를 `resolved_skill_dirs()` 가 이미 쓰는 것과 같은 바로 그 기준으로
-    "실제 체크아웃"으로 본다: non-dot 서브디렉터리가 하나라도 있는
-    디렉터리(요구사항 2 — env/sibling/managed 세 경로 모두 같은 바)."""
-    if not d.is_dir():
-        return False
-    return any(p.is_dir() and not p.name.startswith(".") for p in d.iterdir())
-
-
-def _skill_repo_managed_root() -> Path | None:
-    """관리 클론(이슈 #1789): env 도 형제 체크아웃도 없을 때 on-the-record 가
-    직접 `https://github.com/tokenmaxxxer/skill-repository` 를 관리 영역에
-    받아 쓴다 — `core_root()` 가 이미 쓰는 다섯 단계
-    (로컬 오버라이드 확인은 호출자 쪽에서 이미 끝남 → 관리 디렉터리 유효성
-    확인 → 신선하면 재사용 → 아니면 pull-or-clone → 재확인) 를 그대로
-    따른다. 네트워크가 죽었을 때 기존 관리 클론이 있으면 그걸 그대로 쓴다
-    (오프라인 재사용, 요구사항 1).
-
-    저장소 최상위가 아니라 그 안의 `skills/` 서브디렉터리를 돌려준다 —
-    env(`MUSTER_SKILL_REPO`)와 sibling(`$TOKENMAXXXER_RULEBOOKS/
-    skill-repository`) 두 경로 모두 실측상 이미 `skills/` 를 직접 가리키고
-    있고(레포 최상위에는 skills 외에도 docs/scripts/install.sh 가 있다),
-    `resolved_skill_dirs()` 는 그 셋을 구분 없이 같은 root 로 받는다 —
-    요구사항 2 의 "env-pointed checkout 과 동일한 스킬 해석"이 성립하려면
-    관리 클론도 같은 `skills/` 레벨을 돌려줘야 한다."""
-    d = ROOT / "runs" / "rulebooks" / "skill-repository"
-    d.parent.mkdir(parents=True, exist_ok=True)
-    with _locked_rulebook_dir(d):
-        skills_dir = d / "skills"
-        if _skill_repo_valid(skills_dir):
-            if not _pull_is_fresh(d):
-                _run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
-                         "[skill-repo] pull")
-                _mark_pulled(d)
-            return skills_dir
-        try:
-            print("[skill-repo] skill-repository 를 받는 중", file=sys.stderr)
-            _run_net(["git", "clone", "-q",
-                     "https://github.com/tokenmaxxxer/skill-repository.git",
-                     str(d)], "[skill-repo] clone", timeout=CLONE_TIMEOUT)
-            _mark_pulled(d)
-        except OSError:
-            pass
-        if _skill_repo_valid(skills_dir):
-            return skills_dir
-    return None
-
-
-def _skill_repo_root() -> Path | None:
-    """`--skills` 가 마운트할 skill-repository 체크아웃 루트. 순서:
-    `MUSTER_SKILL_REPO` env > 형제 클론 (`$TOKENMAXXXER_RULEBOOKS/
-    skill-repository`) > 관리 클론(이슈 #1789 — skill-repository가 공개된
-    뒤로는 on-the-record 소유 클론이 다른 관리 체크아웃과 같은 fallback을
-    쓸 수 있다). 셋 다 없으면 `None`."""
-    env_value = os.environ.get("MUSTER_SKILL_REPO")
-    if env_value:
-        p = Path(os.path.expanduser(os.path.expandvars(env_value)))
-        if p.is_dir():
-            return p
-    sibling = os.path.expandvars("$TOKENMAXXXER_RULEBOOKS/skill-repository")
-    if "$" not in sibling:
-        p = Path(os.path.expanduser(sibling))
-        if p.is_dir():
-            return p
-    return _skill_repo_managed_root()
-
-
-def resolved_skill_dirs(skills_csv: str | None,
-                         repo_root: Path | None) -> list[Path]:
-    """`--skills a,b,c` 를 skill-repository 체크아웃 안의 디렉터리 목록으로
-    푼다. `skills_csv` 가 비면 빈 목록(마운트 없음, byte-identical 경로).
-    이름 하나라도 `<repo_root>/<name>` 으로 해석되지 않으면 워크스페이스/
-    브랜치를 건드리기 전에 fail-closed(이슈 #1742 요구사항 2)."""
-    names = [n.strip() for n in (skills_csv or "").split(",") if n.strip()]
-    if not names:
-        return []
-    if repo_root is None:
-        sys.exit("--skills: skill-repository 체크아웃을 못 찾았다 — "
-                  "MUSTER_SKILL_REPO 나 $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하고, "
-                  "관리 클론도 시도했지만(네트워크나 기존 클론 없음) 실패했다")
-    available = sorted(p.name for p in repo_root.iterdir()
-                        if p.is_dir() and not p.name.startswith("."))
-    unknown = [n for n in names if n not in available]
-    if unknown:
-        sys.exit(f"--skills: 모르는 스킬 {', '.join(unknown)} "
-                  f"— 쓸 수 있는 이름: {', '.join(available)}")
-    return [repo_root / n for n in names]
-
-
-def _installed_plugin_skill_dirs() -> dict[str, list[tuple[str, Path, str]]]:
-    """`~/.claude/plugins/installed_plugins.json` (실제 shape:
-    `{"plugins": {"<name>@<marketplace>": [{"installPath":...,
-    "version"|"gitCommitSha":...}, ...]}}`, `_installed()` 와 같은 파일)을
-    읽어 설치된 각 플러그인의 `skills/<name>/` 서브디렉터리를 이름별로
-    인덱싱한다: name -> [(qualifier "<name>@<marketplace>", 디렉터리,
-    version-or-sha 문자열), ...]. 파일이 없거나 못 읽으면 빈 매핑(이슈
-    #1774 요구사항 4: 이 함수는 `--skills` 가 실제로 이름을 낼 때만
-    불린다)."""
-    p = Path.home() / ".claude" / "plugins" / "installed_plugins.json"
-    try:
-        data = json.loads(p.read_text())
-    except (OSError, ValueError):
-        return {}
-    plugins = data.get("plugins") if isinstance(data, dict) else None
-    if not isinstance(plugins, dict):
-        return {}
-    index: dict[str, list[tuple[str, Path, str]]] = {}
-    for qualifier, entries in plugins.items():
-        if not isinstance(entries, list):
-            continue
-        for e in entries:
-            if not isinstance(e, dict):
-                continue
-            install_path = e.get("installPath")
-            if not install_path:
-                continue
-            skills_root = Path(install_path) / "skills"
-            if not skills_root.is_dir():
-                continue
-            version = e.get("version") or e.get("gitCommitSha") or "?"
-            for skill_dir in skills_root.iterdir():
-                if skill_dir.is_dir() and not skill_dir.name.startswith("."):
-                    index.setdefault(skill_dir.name, []).append(
-                        (str(qualifier), skill_dir, str(version)))
-    return index
-
-
-def _local_skill_dirs(root: Path) -> dict[str, Path]:
-    """`root` 바로 아래의 디렉터리들을 이름 -> 경로로 나열한다(이슈 #1774
-    tiers 3/4 공용 — 호출자가 어느 root 를 넘기는지로만 tier 가 갈린다).
-    `root` 가 없으면 빈 매핑."""
-    if not root.is_dir():
-        return {}
-    return {p.name: p for p in root.iterdir()
-            if p.is_dir() and not p.name.startswith(".")}
-
-
-def _skill_content_hash(skill_dir: Path) -> str:
-    """tier 3/4 소스 정체성(이슈 #1774): 저장소 sha 도 플러그인 버전도 없는
-    로컬 디렉터리라, `SKILL.md` 내용의 sha256 을 그 대신 쓴다(proposal
-    Rationale: 이 저장소의 스킬 정의 관례가 이미 `SKILL.md` 를 정식 정의
-    파일로 취급한다). `SKILL.md` 가 없으면 빈 바이트의 해시."""
-    try:
-        data = (skill_dir / "SKILL.md").read_bytes()
-    except OSError:
-        data = b""
-    return hashlib.sha256(data).hexdigest()
-
-
-def _describe_skill_match(m: dict) -> str:
-    """에러 메시지/태스크 문구에 쓸, 소스 하나를 사람이 읽는 한 줄로."""
-    if m["source"] == "skill-repo":
-        return f"skill-repository({m['sha']})"
-    if m["source"] == "plugin":
-        return f"plugin {m['plugin']}@{m['version']}"
-    if m["source"] == "local-user":
-        return f"~/.claude/skills ({m['path']})"
-    if m["source"] == "local-repo":
-        return f".claude/skills ({m['path']})"
-    return m["source"]
-
-
-def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
-                            home: Path | None = None,
-                            target_repo_root: Path | None = None) -> list[dict]:
-    """이슈 #1774: `--skills a,b,c` 를 네 소스(skill-repository, 설치된
-    플러그인, `~/.claude/skills`, 타깃 저장소 `.claude/skills`)에 걸쳐
-    푼다. `skills_csv` 가 비면 빈 목록(마운트 없음, byte-identical 경로 —
-    이 경우 네 소스 중 어느 것도 읽지 않는다, 요구사항 4).
-
-    이름 하나가 소스 하나에서만 잡히면 그 소스로 확정. 소스 두 개 이상에서
-    잡히면(같은 tier 안의 플러그인-대-플러그인 충돌 포함) 워크스페이스/
-    브랜치를 건드리기 전에 fail-closed, 잡힌 소스를 전부 이름 붙여
-    보고한다 — 어느 tier 도 다른 tier 를 조용히 가리지 않는다(이슈 #1774
-    SCOPE EXTENSION). 어디서도 안 잡히면 오늘과 같은 fail-closed.
-
-    각 소스가 가리키는 디렉터리에 `hooks/` 서브디렉터리가 있으면 —
-    스킬 마운트는 가이던스 전용이라는 원칙 위반 — 역시 워크스페이스/
-    브랜치 전에 fail-closed(네 소스 모두 동일 규칙).
-
-    반환값은 이름당 dict 하나: 최소 `name`/`source`/`dir` 를 들고, 소스별
-    정체성 필드(`sha`|`plugin`+`version`|`path`+`content_sha256`)가
-    추가된다."""
-    names = [n.strip() for n in (skills_csv or "").split(",") if n.strip()]
-    if not names:
-        return []
-    home = home or Path.home()
-    plugin_index = _installed_plugin_skill_dirs()
-    tier3 = _local_skill_dirs(home / ".claude" / "skills")
-    tier4 = (_local_skill_dirs(target_repo_root / ".claude" / "skills")
-             if target_repo_root is not None else {})
-    results = []
-    for name in names:
-        matches: list[dict] = []
-        if repo_root is not None and repo_root.is_dir():
-            cand = repo_root / name
-            if cand.is_dir() and not name.startswith("."):
-                matches.append({"source": "skill-repo", "dir": cand,
-                                 "sha": skill_repo_sha(repo_root)})
-        for qualifier, plugin_skill_dir, version in plugin_index.get(name, []):
-            matches.append({"source": "plugin", "dir": plugin_skill_dir,
-                             "plugin": qualifier, "version": version})
-        if name in tier3:
-            d = tier3[name]
-            matches.append({"source": "local-user", "dir": d, "path": str(d),
-                             "content_sha256": _skill_content_hash(d)})
-        if name in tier4:
-            d = tier4[name]
-            matches.append({"source": "local-repo", "dir": d, "path": str(d),
-                             "content_sha256": _skill_content_hash(d)})
-        if not matches:
-            sys.exit(
-                f"--skills: 모르는 스킬 {name} — skill-repository, 설치된 "
-                f"플러그인, ~/.claude/skills, 타깃 저장소 .claude/skills "
-                f"어디에도 없다")
-        if len(matches) > 1:
-            sys.exit(
-                f"--skills: {name} 가 둘 이상의 소스에서 겹친다 — "
-                f"{', '.join(_describe_skill_match(m) for m in matches)} "
-                f"(precedence 는 검색 순서일 뿐 충돌을 가리지 않는다)")
-        m = matches[0]
-        if (m["dir"] / "hooks").is_dir():
-            sys.exit(
-                f"--skills: {name} ({_describe_skill_match(m)}) 가 hooks/ "
-                f"를 들고 있다 — 스킬 마운트는 가이던스 전용이다(집행은 "
-                f"core 훅뿐)")
-        m["name"] = name
-        results.append(m)
-    return results
-
-
-def skill_repo_sha(repo_root: Path) -> str:
-    """`repo_root` 체크아웃이 물고 있는 커밋(짧은 sha). `rulebook_version()`
-    과 같은 shape — git 실패는 조용히 "?" 로 대체."""
-    p = subprocess.run(["git", "-C", str(repo_root), "rev-parse", "--short=7", "HEAD"],
-                        capture_output=True, text=True)
-    return p.stdout.strip() if p.returncode == 0 else "?"
-
-
-# 이슈 #1955: 전이용 역할-소스 허용목록(#1758)/rulebook 해석 경로 은퇴 —
-# 매핑은 더 이상 대상 저장소의 선택적 파일이 아니라 여기 고정된다. 43개
-# 역할 전부가 예전 docs/specs 아래 허용목록 파일과 값이 같다(그 파일이
-# 이미 모든 역할을 매핑하고 있었다 — 이 상수는 그 내용을 그대로 옮긴 것).
-_ROLE_SKILLS = {
-    'accessibility': ['accessibility-aria-and-contrast-rules'],
-    'api-design': ['api-design-error-design', 'api-design-http-semantics', 'api-design-payload-design', 'api-design-resource-modeling', 'api-design-tool-landscape', 'api-design-versioning-evolution'],
-    'architecture': ['architecture-coupling-classification', 'architecture-decomposition-strategy', 'architecture-dependency-direction', 'architecture-interface-contract-shape', 'architecture-module-boundary-definition'],
-    'brand-design': ['brand-design-brand-consistency-governance', 'brand-design-brand-identity-strategy', 'brand-design-color-visibility', 'brand-design-logo-clear-space-size', 'brand-design-typography-pairing'],
-    'capacity-planning': ['capacity-planning-cost-attribution-at-trigger', 'capacity-planning-demand-shape-and-forecast-method', 'capacity-planning-expansion-trigger-threshold-sizing', 'capacity-planning-headroom-band-and-degradation-risk', 'capacity-planning-safety-buffer-sizing-by-criticality'],
-    'conformance-review': ['conformance-review-requirement-extraction', 'conformance-review-sampling-derivation', 'conformance-review-traceability-and-evidence', 'conformance-review-verdict-assignment', 'conformance-review-verification-method-selection', 'conformance-review-finding-record', 'conformance-review-severity-classification'],
-    'content-design': ['content-design-operational-playbook'],
-    'customer-support': ['customer-support-escalation-path', 'customer-support-five-whys-recurring-scope', 'customer-support-kcs-article-authoring', 'customer-support-research-log', 'customer-support-sla-tier-priority', 'customer-support-subtraction-comprehensibility'],
-    'data-engineering': ['data-engineering-data-quality', 'data-engineering-failure-handling', 'data-engineering-pipeline-design'],
-    'data-modeling': ['data-modeling-datavault', 'data-modeling-inmon', 'data-modeling-kimball', 'data-modeling-structure'],
-    'defect-verification': ['defect-verification-evidence-artifact-completeness', 'defect-verification-independence-from-upstream-verdicts', 'defect-verification-reproduction-evidence-quality', 'defect-verification-severity-band-assignment', 'verify-finding-record', 'verify-severity-classification'],
-    'devrel': ['devrel-channel-convention', 'devrel-content-comprehensibility', 'devrel-program-subtraction'],
-    'finance-unit-economics': ['finance-unit-economics-cac-payback', 'finance-unit-economics-evidence-chain', 'finance-unit-economics-ltv-cac-band', 'finance-unit-economics-ltv-churn-assumption', 'finance-unit-economics-proposal-shape', 'finance-unit-economics-sensitivity-scenario'],
-    'growth-analytics': ['growth-analytics-experiment-trust', 'growth-analytics-funnel-stage-attribution', 'growth-analytics-metric-selection', 'growth-analytics-reporting-reduction', 'growth-analytics-segmentation'],
-    'implementation': ['implementation-complexity-coupling-management', 'implementation-design-pattern-selection', 'implementation-performance-data-structure-choice', 'implementation-blueprint'],
-    'incident-response': ['incident-response-action-item-quality', 'incident-response-blameless-language-editing', 'incident-response-rca-method-selection', 'incident-response-severity-classification-scoping', 'incident-response-timeline-construction', 'incident-response-tool-landscape'],
-    'interaction-design': ['interaction-design-form-control-and-layout'],
-    'issue-retrospective': ['issue-retrospective-timeline-comprehensibility-and-subtraction-rules'],
-    'knowledge-management': ['knowledge-management-curation-pruning', 'knowledge-management-structure-findability', 'knowledge-management-taxonomy-tagging', 'knowledge-management-supersession-lifecycle', 'knowledge-management-pattern-extraction'],
-    'legal-compliance': ['legal-compliance-consent-ux', 'legal-compliance-cross-border-transfer', 'legal-compliance-lawful-basis-selection', 'legal-compliance-license-compatibility', 'legal-compliance-research-log', 'legal-compliance-retention-minimization', 'legal-compliance-vendor-dpa'],
-    'localization': ['localization-locale-convention-formatting', 'localization-pluralization-and-grammar', 'localization-rtl-and-script-support', 'localization-string-externalization', 'localization-text-expansion-and-layout'],
-    'market-analysis': ['market-analysis-competitor-mapping', 'market-analysis-evidence-rigor', 'market-analysis-five-forces', 'market-analysis-jtbd-fit', 'market-analysis-mece-proposal'],
-    'marketing': ['marketing-channel-selection', 'marketing-message-persuasion', 'marketing-positioning-differentiation', 'marketing-scope-pruning', 'marketing-segment-targeting'],
-    'ml-engineering': ['ml-engineering-evaluation-discipline', 'ml-engineering-ml-test-score-scoring', 'ml-engineering-model-provenance-versioning', 'ml-engineering-rollout-promotion-rollback', 'ml-engineering-serving-pattern-selection', 'ml-engineering-slo-definition-tradeoffs'],
-    'observability': ['observability-cardinality-budget', 'observability-explorability', 'observability-methodology-selection', 'observability-phase-trace', 'observability-signal-golden', 'observability-signal-red', 'observability-signal-use'],
-    'partnerships-bd': ['partnerships-bd-deal-structure-selection', 'partnerships-bd-exclusivity-and-scope-terms', 'partnerships-bd-governance-cadence-and-kpi', 'partnerships-bd-negotiation-positioning', 'partnerships-bd-term-sheet-comprehensibility-and-convention'],
-    'performance-engineering': ['performance-engineering-operational-playbook'],
-    'pr-communications': ['pr-communications-message-planning-and-evaluation-rules'],
-    'pricing': ['pricing-design-rigor', 'pricing-method-family', 'pricing-scope-gate', 'pricing-tier-structure', 'pricing-verdict-report'],
-    'product-discovery': ['product-discovery-guardrail-metric-status', 'product-discovery-hypothesis-preregistration', 'product-discovery-jtbd-problem-framing', 'product-discovery-opportunity-solution-tree-branching', 'product-discovery-rice-ice-prioritization', 'product-discovery-assumption-mapping', 'product-discovery-guardrail-metrics', 'product-discovery-hypothesis-testing', 'product-discovery-one-pager', 'product-discovery-opportunity-solution-tree'],
-    'refactoring-legacy': ['refactoring-legacy-characterization-test-scope', 'refactoring-legacy-refactoring-step-decomposition', 'refactoring-legacy-seam-selection', 'refactoring-legacy-strangler-fig-migration', 'refactoring-legacy-verification-cadence'],
-    'release-engineering': ['release-engineering-branching-release-strategy', 'release-engineering-changelog-entry-categorization', 'release-engineering-deployment-rollout-strategy', 'release-engineering-release-cadence-and-toil', 'release-engineering-rollback-and-recovery', 'release-engineering-semver-bump-selection', 'release-engineering-error-budget-policy', 'release-engineering-postmortem', 'release-engineering-readiness-checklist', 'release-engineering-rollout-plan'],
-    'requirements-engineering': ['requirements-engineering-rules'],
-    'risk-management': ['risk-management-aggregation-consolidation', 'risk-management-appetite-tolerance-threshold', 'risk-management-likelihood-impact-scale', 'risk-management-monitoring-review-cadence', 'risk-management-response-strategy-selection'],
-    'sales': ['sales-objection-handling', 'sales-pitch-scoping-and-messaging-handoff', 'sales-qualification-and-discovery'],
-    'secure-coding': ['secure-coding-authorization-access-control', 'secure-coding-cryptography-secrets-management', 'secure-coding-dependency-supply-chain-security', 'secure-coding-input-validation-injection-defense', 'secure-coding-session-authentication'],
-    'security-threat-model': ['security-threat-model-threat-modeling-decision-rules'],
-    'technical-feasibility': ['technical-feasibility-build-vs-buy-dependency-health', 'technical-feasibility-license-and-regulatory-risk', 'technical-feasibility-reversibility-and-spike-scoping', 'technical-feasibility-threat-model-disposition', 'technical-feasibility-verdict-and-timebox-selection', 'technical-feasibility-build-vs-buy', 'technical-feasibility-license-scan', 'technical-feasibility-reversibility-tag', 'technical-feasibility-spike-report', 'technical-feasibility-stride-table'],
-    'technical-writing': ['technical-writing-doc-type-selection', 'technical-writing-minimalism-scoping', 'technical-writing-persuasion-trust', 'technical-writing-structure-comprehension', 'technical-writing-style-guide-compliance', 'technical-writing-tool-landscape'],
-    'test-authoring': ['test-authoring-isolation-and-fixture-strategy'],
-    'upstream-defect-report': ['upstream-defect-report-subtraction', 'upstream-defect-report-comprehensibility', 'upstream-defect-report-convention'],
-    'user-discovery': ['user-discovery-evidence-strength-tagging', 'user-discovery-follow-up-ladder-depth', 'user-discovery-question-design-past-behavior', 'user-discovery-saturation-stopping-rule', 'user-discovery-switch-timeline-causal-forces', 'user-discovery-verdict-prevalence-reporting'],
-    'ux-engineering': ['ux-engineering-color-visibility', 'ux-engineering-control-selection', 'ux-engineering-layout-grouping', 'ux-engineering-navigation-depth', 'ux-engineering-research-log', 'ux-engineering-surface-contrast'],
-}
-
-
-def resolve_role_source(role: str, repo_root: Path | None) -> dict:
-    """`role` 을 skill-repository 가이던스로 무조건 해석한다(이슈 #1955:
-    전이용 역할-소스 허용목록/rulebook 해석 경로 은퇴, #1758 이 얼린 phase 5
-    제약 이행 — 매핑 없는 역할이라는 상태 자체가 더 이상 없다).
-
-    이름을 `resolved_skill_dirs()` 로 푼다(모르는 이름은 이미 거기서
-    워크스페이스/브랜치 전에 fail-closed). 풀린 디렉터리 중 하나라도
-    `hooks/` 서브디렉터리를 들고 있으면 — skill-repository 는 가이던스
-    전용이라는 얼어붙은 프로그램 원칙 위반 — 역시 워크스페이스/브랜치 전에
-    fail-closed. {"source": "skill-repo", "skill_dirs": [...],
-    "skills": [이름...], "skill_sha": <첫 디렉터리의 부모 저장소 sha>} 를
-    돌려준다."""
-    names = _ROLE_SKILLS.get(role, [])
-    skill_dirs = resolved_skill_dirs(",".join(names), repo_root)
-    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
-    if hooked:
-        sys.exit(
-            f"resolve_role_source: 역할 {role!r} 이 매핑한 스킬 중 "
-            f"{', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 있다 — "
-            f"skill-repository 는 가이던스 전용이다(훅 없음, 이슈 #1758)")
-    return {"source": "skill-repo", "skill_dirs": skill_dirs,
-            "skills": [d.name for d in skill_dirs],
-            "skill_sha": skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
-
-
-def _skill_source_roster_row(m: dict) -> dict:
-    """이슈 #1774 요구사항 3: 마운트된 스킬 한 줄의 로스터/기록용 row —
-    소스별로 정체성 필드 shape 가 다르다(proposal `## What will be done`
-    item 6)."""
-    if m["source"] == "skill-repo":
-        return {"name": m["name"], "source": "skill-repo", "sha": m["sha"]}
-    if m["source"] == "plugin":
-        return {"name": m["name"], "source": "plugin",
-                "plugin": m["plugin"], "version": m["version"]}
-    return {"name": m["name"], "source": m["source"], "path": m["path"],
-            "content_sha256": m["content_sha256"]}
-
-
-def _skill_roster_fields(skill_sources: list[dict], skill_sha: str | None) -> dict:
-    """`--skills` 로 마운트된 스킬들의 로스터/기록 필드. `skills_detail` 은
-    쓰였을 때 항상 붙어 소스별 identity(요구사항 3)를 나른다. 오늘의 flat
-    `skills`/`skills_sha` shape 는 전부 skill-repo 매치일 때만 additive 로
-    같이 붙는다(empty-state 요구: skill-repo-only 조합은 오늘 shape 유지) —
-    안 쓰면(빈 목록) 키 자체가 없다."""
-    if not skill_sources:
-        return {}
-    fields = {"skills_detail": [_skill_source_roster_row(m) for m in skill_sources]}
-    if all(m["source"] == "skill-repo" for m in skill_sources):
-        fields["skills"] = [m["name"] for m in skill_sources]
-        fields["skills_sha"] = skill_sha
-    return fields
-
-
-def _role_source_roster_fields(role_source: dict) -> dict:
-    """이슈 #1758 요구사항 3 계승, 이슈 #1955 로 단순화: 로스터 엔트리마다
-    항상 붙는 resolution 필드. source 는 이제 언제나 skill-repo(rulebook
-    해석 경로는 은퇴했다) — resolution_source/resolution_skills/
-    resolution_skill_sha 를 채운다."""
-    return {"resolution_source": "skill-repo",
-            "resolution_skills": role_source["skills"],
-            "resolution_skill_sha": role_source["skill_sha"]}
 
 
 # sibling: core_version
@@ -3416,373 +2623,6 @@ def positive_int(s: str) -> int:
     if v < 1:
         raise argparse.ArgumentTypeError(f"양의 정수가 아니다: {s}")
     return v
-
-
-def _workspace_base() -> Path:
-    """워크스페이스 루트: `MUSTER_WORK_DIR` 오버라이드, 기본
-    `~/.tokenmaxxxer/work` (이슈 #1179 — 이전엔 `clean` CLI 분기와
-    `issue_workspace()` 두 곳에 이 네 줄이 따로 있었다)."""
-    base = os.environ.get("MUSTER_WORK_DIR")
-    return Path(base) if base else Path.home() / ".tokenmaxxxer" / "work"
-
-
-def _live_workspaces() -> dict[Path, dict]:
-    """살아있는(pid alive) 로스터 엔트리를 워크스페이스 절대경로로 인덱싱."""
-    roster = _roster_load()
-    live = {}
-    for e in roster.values():
-        if _alive(e.get("pid", 0)):
-            live[Path(e["work"]).resolve()] = e
-    return live
-
-
-# 이슈 #1179 (reopen): 훅이 워크스페이스 안에 직접 심어놓는 자체 부기
-# 파일 — 사용자가 만든 내용이 아니라 harness 자신의 상태 마커라
-# untracked 로 남아도 "미보존 작업"이 아니다. 이 목록에 없는 파일은
-# 전부 그대로 dirty 취급(안전 기본값 유지) — 이름을 아는 것만 뺀다.
-_HARNESS_NOISE_BASENAMES = frozenset({
-    ".pull-check", ".shallow-check", ".orchestrate-greeted",
-    ".warrant-hunt.count", ".warrant-hunt.lock",
-    # 파이썬 바이트코드 캐시 — 어느 리포에서도 소스에서 재생성되는
-    # 순수 파생물이라 "미보존 작업"일 수가 없다(실측 최다 노이즈,
-    # 320개 워크스페이스 중 335건).
-    "__pycache__",
-    # project-rich 리포의 테스트/빌드 산출물 — `file` 로 확인한 SQLite
-    # db 와 컴파일된 JS/HTML 번들, 소스 아님(실측: project-rich-issue-*
-    # 워크스페이스 다수가 이 파일 하나 때문에만 dirty 로 잡혔다).
-    "fundamentals.db", "fundamentals.db-shm", "fundamentals.db-wal",
-    "web_out_snapshot", "web_out",
-})
-
-
-def _workspace_clean_state(w: Path, live: dict[Path, dict]) -> tuple[str | None, str]:
-    """워크스페이스 하나가 지워도 안전한지 판정한다. `(reason, detail)` —
-    `reason` 이 `None` 이면 안전(지워도 됨), 아니면 남기는 이유
-    (`"live"`/`"dirty"`) 와 사람이 읽을 상세 문자열.
-
-    `roster_clean()`(수동)과 `auto_sweep()`(자동, 이슈 #1179)이 같은 판정을
-    쓴다 — 두 곳에 독립적으로 안전 검사를 두면 한쪽만 고치고 다른 쪽은
-    #1124 보장이 조용히 깨진다."""
-    e = live.get(w.resolve())
-    if e is not None:
-        return ("live",
-                f"실행 중인 세션 있음: issue-{e.get('issue', '?')}/"
-                f"{e.get('role', '?')}, pid {e.get('pid', '?')}")
-    raw_st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
-                            capture_output=True, text=True).stdout.strip()
-    # untracked(`??`)이면서 harness 자체 마커 파일인 줄만 걸러낸다 —
-    # staged/tracked 변경(M/D/A 등)은 절대 걸러내지 않는다: 실측
-    # (2026-08-13, 이 머신) 잔여 320개 워크스페이스 중 293개가 이
-    # 마커 파일들 때문에 dirty 로 잘못 잡혔다.
-    st_lines = [ln for ln in raw_st.splitlines()
-                if not (ln[:2] == "??"
-                        and os.path.basename(ln[3:].rstrip("/"))
-                        in _HARNESS_NOISE_BASENAMES)]
-    st = "\n".join(st_lines)
-    ahead = subprocess.run(
-        ["git", "-C", str(w), "log", "--branches", "--not", "--remotes",
-         "--oneline"], capture_output=True, text=True).stdout.strip()
-    if ahead:
-        # 레거시 워크스페이스는 생성 뒤 다시 fetch 된 적이 없어, 브랜치가
-        # 이미 origin 에 머지됐어도 로컬 remote-tracking ref 가 그 사실을
-        # 모른다 — "ahead" 로 영원히 오판된다(실측, accessibility-rulebook
-        # issue-19: fetch 전 2건 ahead, fetch 후 0건). 작업트리가 이미
-        # 깨끗할 때만 한 번 fetch 로 갱신하고 재판정한다 — fetch 는
-        # 로컬을 지우지 않으니 안전.
-        if not st:
-            try:
-                subprocess.run(["git", "-C", str(w), "fetch", "-q", "--all"],
-                               capture_output=True, text=True, timeout=30)
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-            ahead = subprocess.run(
-                ["git", "-C", str(w), "log", "--branches", "--not",
-                 "--remotes", "--oneline"],
-                capture_output=True, text=True).stdout.strip()
-    if st or ahead:
-        detail = "미보존 작업 있음"
-        if st:
-            detail += f"  [미커밋 {len(st.splitlines())}건]"
-        if ahead:
-            detail += f"  [미push 커밋 {len(ahead.splitlines())}건]"
-        return ("dirty", detail)
-    return (None, "")
-
-
-def _delete_workspace(w: Path, wb: Path, log_outcomes: dict[str, str],
-                       archive_dir: Path) -> None:
-    """안전 판정을 이미 통과한 워크스페이스 하나를 지운다. 디렉터리는
-    그대로 삭제, 형제 파일(로그 등)은 ledger outcome 이 `LANDED_OUTCOMES`
-    밖이면(refused/errored/silent-failure 등) 유일한 증거이므로 지우지
-    않고 `<wb>/.archived-logs/` 로 옮긴다(이슈 #1124). 실패하면
-    예외를 그대로 던진다 — 호출자가 removed/failed 집계를 한다."""
-
-    def _chmod_retry(func, path, exc_info):
-        # Go 모듈 캐시 등 읽기 전용 디렉터리/파일에서 rmtree 가
-        # PermissionError 로 죽는 문제(이슈 #229). POSIX 에서 파일
-        # 삭제는 그 파일 자체가 아니라 부모 디렉터리의 쓰기 권한이
-        # 좌우하므로, 실패한 경로와 그 부모 모두에 쓰기 권한을 주고
-        # 한 번 재시도한다.
-        os.chmod(path, stat.S_IWRITE)
-        parent = os.path.dirname(path)
-        if parent:
-            os.chmod(parent, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
-        func(path)
-
-    import shutil
-    if sys.version_info >= (3, 12):
-        shutil.rmtree(w, onexc=_chmod_retry)
-    else:
-        shutil.rmtree(
-            w, onerror=lambda func, path, exc_info: _chmod_retry(
-                func, path, exc_info))
-    # 세대별 로그(`.session.<ts>.<pid>.log`, 이슈 #192)와
-    # `.events.jsonl`/`.events.offset`/`.task.txt`/
-    # `.respawn-claim-*` 같은 형제 산출 파일을 전부 글롭으로 잡는다 —
-    # 접미사를 하나씩 나열하면 다음에 하나 더 생길 때 또 빠뜨린다.
-    for sibling in w.parent.glob(w.name + ".*"):
-        if not sibling.is_file():
-            continue
-        outcome = log_outcomes.get(str(sibling))
-        if outcome is not None and outcome not in LANDED_OUTCOMES:
-            archive_dir.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(sibling), str(archive_dir / sibling.name))
-        else:
-            sibling.unlink()
-
-
-def roster_clean(wb: Path, issue: int | None) -> int:
-    """`spawn.py clean [--issue N]`: 안전한 것만 지운다 — 미커밋 변경 없음 +
-    origin 에 없는 커밋 없음. 워크스페이스 디렉터리는 그 조건만 지키면
-    그대로 삭제한다(이슈 #1124 범위 밖). 형제 파일(로그 등)은
-    `_delete_workspace()` 가 archive-or-delete 판정을 한다."""
-    live = _live_workspaces()
-    log_outcomes = _ledger_log_outcomes()
-    archive_dir = wb / ".archived-logs"
-
-    scope = f"-issue-{issue}-" if issue is not None else None
-    removed = kept = failed = 0
-    for w in sorted(wb.glob("*")) if wb.is_dir() else []:
-        if not (w / ".git").is_dir():
-            continue
-        if scope is not None and scope not in w.name:
-            continue
-        reason, detail = _workspace_clean_state(w, live)
-        if reason is not None:
-            print(f"남김 ({detail}): {w.name}")
-            kept += 1
-            continue
-        try:
-            _delete_workspace(w, wb, log_outcomes, archive_dir)
-        except Exception as ex:
-            print(f"실패 (삭제 중 예외): {w.name}  [{ex}]")
-            failed += 1
-            continue
-        print(f"지움: {w.name}")
-        removed += 1
-    summary = f"정리 끝 — 지움 {removed}, 남김 {kept}"
-    if failed:
-        summary += f", 실패 {failed}"
-    print(summary)
-    return 0
-
-
-# 이슈 #1465: poll-heartbeat.sh 의 alive 마커는 세션 시작 시 한 번만
-# touch 된다(60초 tick 루프가 시작하기 전, monitors/poll-heartbeat.sh:100-108
-# 부근) — 그 스크립트 자신의 tick cadence 상수가 `POLL_HEARTBEAT_SLEEP_SECONDS`
-# 기본값 60초다. GC 임계값은 그 cadence 보다 안전하게 커야 한다(그렇지
-# 않으면 아직 살아있는 세션의 마커까지 지울 수 있다) — 7일로 잡아 세션이
-# 하루 이상 이어져도 안전하게 남긴다.
-MONITOR_ALIVE_TOUCH_CADENCE_SECONDS = 120
-MONITOR_ALIVE_STALE_THRESHOLD_SECONDS = 7 * 24 * 3600
-assert MONITOR_ALIVE_STALE_THRESHOLD_SECONDS > MONITOR_ALIVE_TOUCH_CADENCE_SECONDS
-
-LEGACY_MONITOR_ALIVE_DIRNAME = ".orchestrate-monitor-alive"
-
-
-def _monitor_alive_root() -> Path:
-    """`~/.claude/tokenmaxxxer/monitor-alive` — poll-heartbeat.sh 가 alive
-    마커를 쓰는 곳과 같은 해시 규약(이슈 #947/#1280 relocation).
-    `MUSTER_TOKENMAXXXER_HOME` 오버라이드는 `~/.tokenmaxxxer`용이라 여기엔
-    안 쓴다 — 대신 이 GC 전용 오버라이드로 테스트를 격리한다."""
-    override = os.environ.get("MUSTER_MONITOR_ALIVE_ROOT")
-    if override:
-        return Path(override)
-    return Path.home() / ".claude" / "tokenmaxxxer" / "monitor-alive"
-
-
-def gc_monitor_alive(root: Path | None = None,
-                      now: float | None = None,
-                      threshold_seconds: float = MONITOR_ALIVE_STALE_THRESHOLD_SECONDS
-                      ) -> dict[str, int]:
-    """`~/.claude/tokenmaxxxer/monitor-alive/<hash24>/` 아래 stale 마커
-    디렉터리를 지운다. `alive` 파일의 mtime(없으면 디렉터리 자체의 mtime)이
-    `threshold_seconds` 보다 오래됐으면 지운다. 한 항목에서 나는 오류는
-    전체 GC 를 죽이지 않는다(watch-coverage 는 observe-only 라 정리 실패로
-    죽으면 안 된다, 이슈 #1465 요구사항 4) — per-entry try/except 로 흡수하고
-    `errors` 카운트만 올린다."""
-    if root is None:
-        root = _monitor_alive_root()
-    if now is None:
-        now = time.time()
-    removed = kept = errors = 0
-    try:
-        entries = sorted(root.glob("*")) if root.is_dir() else []
-    except OSError:
-        return {"removed": 0, "kept": 0, "errors": 1}
-    for entry in entries:
-        try:
-            if not entry.is_dir():
-                continue
-            alive_marker = entry / "alive"
-            try:
-                mtime = alive_marker.stat().st_mtime
-            except OSError:
-                mtime = entry.stat().st_mtime
-            age = now - mtime
-            if age > threshold_seconds:
-                import shutil
-                shutil.rmtree(entry)
-                removed += 1
-            else:
-                kept += 1
-        except OSError:
-            errors += 1
-    return {"removed": removed, "kept": kept, "errors": errors}
-
-
-def detect_legacy_monitor_alive_dirs(repo_root: Path) -> list[Path]:
-    """`.orchestrate-monitor-alive/` 레거시 디렉터리(relocation 이전,
-    이슈 #947/#1280)를 리포트만 한다 — 절대 지우지 않는다(이슈 #1465
-    요구사항 3)."""
-    try:
-        candidate = repo_root / LEGACY_MONITOR_ALIVE_DIRNAME
-        if candidate.is_dir():
-            return [candidate]
-    except OSError:
-        pass
-    return []
-
-
-def monitor_alive_gc_cli(cwd: Path) -> int:
-    """`spawn.py gc-monitor-alive` — heartbeat 시작 시 poll-heartbeat.sh 가
-    호출한다(non-fatal, `|| true`로 감싸 호출됨). GC 자체는 위 함수들에서
-    이미 예외를 흡수하지만, 이 진입점도 한 번 더 감싸 정말로 절대 죽지
-    않게 한다."""
-    try:
-        stats = gc_monitor_alive()
-        print(f"monitor-alive gc: removed {stats['removed']}, "
-              f"kept {stats['kept']}, errors {stats['errors']}")
-    except Exception as ex:
-        print(f"monitor-alive gc: 실패 (예외, non-fatal) [{ex}]")
-    try:
-        for legacy in detect_legacy_monitor_alive_dirs(cwd):
-            print(f"[legacy-monitor-alive] {legacy} — 레거시 디렉터리, "
-                  f"수동 확인 필요 (자동 삭제 안 함)")
-    except Exception as ex:
-        print(f"monitor-alive gc: 레거시 탐지 실패 (예외, non-fatal) [{ex}]")
-    return 0
-
-
-def _dir_size_bytes(w: Path) -> int:
-    """워크스페이스 디렉터리 전체 크기(바이트) — `du` 대신 순수 파이썬으로,
-    심볼릭 링크는 따라가지 않는다(순환 방지, 대부분 워크스페이스엔 없다)."""
-    total = 0
-    for p in w.rglob("*"):
-        if p.is_file() and not p.is_symlink():
-            try:
-                total += p.stat().st_size
-            except OSError:
-                pass
-    return total
-
-
-def _clean_auto_enabled() -> bool:
-    """`MUSTER_CLEAN_AUTO` — 기본 on. `MUSTER_KEEP_SSH` 와 같은 boolean
-    파싱 관례(spawn.py:5351 부근)를 따른다."""
-    return os.environ.get("MUSTER_CLEAN_AUTO", "") not in (
-        "0", "false", "no", "off")
-
-
-def _clean_max_age_days() -> float:
-    """`MUSTER_CLEAN_MAX_AGE_DAYS` — 기본 14일."""
-    return float(os.environ.get("MUSTER_CLEAN_MAX_AGE_DAYS", "14"))
-
-
-def _clean_max_bytes() -> int:
-    """`MUSTER_CLEAN_MAX_BYTES` — 기본 5GiB."""
-    return int(os.environ.get("MUSTER_CLEAN_MAX_BYTES", str(5 * 1024**3)))
-
-
-def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
-               now: float | None = None) -> dict[str, int]:
-    """이슈 #1179: 스폰-타임 자동 정리. `roster_clean()` 과 같은 안전 판정
-    (`_workspace_clean_state()`)만 지운다 — 살아있는 세션, 미커밋/미push
-    작업은 절대 건드리지 않는다(#1124 보장 유지).
-
-    두 단계 bound: 1) `max_age_days` 보다 오래된 안전 워크스페이스는
-    무조건 지운다. 2) 그러고도 안전 워크스페이스 총합 크기가
-    `max_bytes` 를 넘으면, 오래된 것부터 더 지워서 bound 아래로 낮춘다.
-    나이만으로는 스폰이 늘면 디스크가 계속 자라고, 크기만으로는 방금
-    생긴 워크스페이스도 지울 수 있다 — 두 축을 다 잡는다(각 축이 막는
-    실패 모드가 다르다).
-
-    `now`: 테스트가 `time.time()` 대신 고정 시각을 주입한다."""
-    now = now if now is not None else time.time()
-    live = _live_workspaces()
-    log_outcomes = _ledger_log_outcomes()
-    archive_dir = wb / ".archived-logs"
-    max_age_sec = max_age_days * 86400
-
-    candidates = []  # (mtime, size, path)
-    if wb.is_dir():
-        for w in sorted(wb.glob("*")):
-            if not (w / ".git").is_dir():
-                continue
-            reason, _detail = _workspace_clean_state(w, live)
-            if reason is not None:
-                continue
-            try:
-                mtime = w.stat().st_mtime
-            except OSError:
-                continue
-            candidates.append([mtime, None, w])
-
-    removed = failed = 0
-
-    def _reap(entry) -> None:
-        nonlocal removed, failed
-        try:
-            _delete_workspace(entry[2], wb, log_outcomes, archive_dir)
-            removed += 1
-        except Exception as ex:
-            print(f"[auto-sweep] 실패 (삭제 중 예외): {entry[2].name}  [{ex}]",
-                  file=sys.stderr)
-            failed += 1
-
-    remaining = []
-    for entry in candidates:
-        if now - entry[0] > max_age_sec:
-            _reap(entry)
-        else:
-            remaining.append(entry)
-
-    if max_bytes > 0 and remaining:
-        for entry in remaining:
-            entry[1] = _dir_size_bytes(entry[2])
-        remaining.sort(key=lambda e: e[0])  # 오래된 것부터
-        total = sum(e[1] for e in remaining)
-        i = 0
-        while total > max_bytes and i < len(remaining):
-            entry = remaining[i]
-            total -= entry[1]
-            _reap(entry)
-            i += 1
-
-    if removed or failed:
-        print(f"[auto-sweep] 지움 {removed}" + (f", 실패 {failed}" if failed else ""),
-              file=sys.stderr)
-    return {"removed": removed, "failed": failed}
 
 
 def main() -> int:
