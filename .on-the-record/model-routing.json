@@ -1,0 +1,19 @@
+{
+  "tiers": {
+    "judgment": {
+      "model": "claude-fable-5",
+      "roles": ["ux-engineering", "brand-design", "content-design", "architecture"]
+    },
+    "mid-design": {
+      "model": "opus",
+      "roles": []
+    },
+    "mechanical": {
+      "model": "sonnet",
+      "roles": []
+    }
+  },
+  "design_bearing_override": "judgment",
+  "single_phase_tier": "mechanical",
+  "default_tier": "mid-design"
+}
