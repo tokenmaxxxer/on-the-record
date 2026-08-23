@@ -1,3 +1,10 @@
+---
+id: judgment-axis-matrix
+status: active
+date: 2026-08-10
+subject: issue-586
+---
+
 # ADR: judgment-axis ownership matrix completed
 
 Date: 2026-08-10

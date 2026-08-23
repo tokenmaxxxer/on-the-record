@@ -1,3 +1,10 @@
+---
+id: measured-claim-line
+status: active
+date: 2026-08-07
+subject: issue-332
+---
+
 # `fulfils: count <derivation> <N>` — extend, not a new marker
 
 Subject: issue-332

@@ -1,3 +1,10 @@
+---
+id: monitor-cli-only-fallback
+status: active
+date: 2026-08-12
+subject: issue-947
+---
+
 # Idle self-wake is CLI-only by harness constraint; IDE sessions get a one-time notice, not a fix
 
 ## Status
