@@ -31,3 +31,5 @@ refuses that path for this role as a foreign record (contract v3 §11).
   was changed. The deleted path is outside the proposal's frozen write
   set, so it is also reported in this session's reply rather than only
   logged here.
+
+

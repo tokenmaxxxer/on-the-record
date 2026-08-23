@@ -81,7 +81,9 @@ STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
 NETWORK_TIMEOUT = 60   # fetch/pull/push
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 CONSULT_TIMEOUT = 180  # consult: bounded headless run — no branch/PR to wait on
-SKILL_JUDGE_TIMEOUT_DEFAULT = 45  # issue #2061: judge is a tiny classification, not a full consult
+SKILL_JUDGE_TIMEOUT_DEFAULT = 90  # issue #2076: measured completion rate at 45s was <80% in
+# consumer dogfood (issue #2071 defect 1) — raised to give the haiku judge more room before
+# BM25 fail-open, still env-overridable via SKILL_JUDGE_TIMEOUT
 
 
 def _skill_judge_timeout() -> float:
@@ -554,10 +556,26 @@ def init_requirement_digest(cwd: str) -> bool:
         "\n"
         "## R-entry format\n"
         "\n"
-        "  - R<n>: <한 줄 설명> [<status>] (source: #<issue-number>)\n"
+        "각 항목은 반드시 한 줄이다(줄바꿈 없음) — 그 안의 <설명> 과 <출처>는\n"
+        "여러 절로 이루어진 자유 형식 텍스트여도 된다(issue #2077). 정확한\n"
+        "문법(파서 — `spawn.py::requirement_drift` — 가 그대로 받아들이는 형태):\n"
         "\n"
-        "예:\n"
+        "  - R<n>: <설명, 자유 형식> [<status>] (source: <출처, 자유 형식>)\n"
+        "\n"
+        "<설명>과 <출처>는 쉼표·세미콜론·마침표를 포함한 여러 절이어도 되고,\n"
+        "<출처>는 `#<issue-number>` 로 국한되지 않는다 — \"user directive\n"
+        "2026-08-23, issue #1\" 처럼 issue 번호를 포함하지 않는 자유 텍스트도\n"
+        "허용된다. `[<status>]` 는 공백 없는 단일 토큰이어야 한다.\n"
+        "\n"
+        "예(한 줄 설명):\n"
         "  - R1: 사용자가 X 를 할 수 있어야 한다 [enforced] (source: #12)\n"
+        "\n"
+        "예(문서화된 자유 형식 — multi-clause, 자유 형식 source):\n"
+        "  - R1: A browser-playable character-growth RPG whose progression "
+        "systems benchmark Random Dice 2 — deterministic no-gacha "
+        "Dice-Tree acquisition, in-match merge 1→7 pips with 7-pip "
+        "Awakening, Supporter-analog companions [live] (source: user "
+        "directive 2026-08-23, issue #1)\n"
         "\n"
         "## Entries\n"
         "\n"
@@ -748,6 +766,39 @@ def require_requirement_linkage(cwd: str, issue: int | None) -> None:
         + f"\n  세션을 안 띄운다 — 요구 ID(`R\\d+` 또는 'northpole req#<n>')를 "
         f"인용하거나 'infrastructure/no-direct-requirement' 태그를 달아야 "
         f"한다(issue #1017, northpole req#6).")
+
+
+def lint_issue(cwd: str, issue: int) -> list[str]:
+    """issue #2088: `require_acceptance_gate`/`require_requirement_linkage` 와
+    같은 body-only 게이트를 스폰 없이 미리 돌려본다 — 전자는 phase-2 승인
+    후 Acceptance 절의 실행가능성을, 후자는 phase-2 승인 전 요구 연결을
+    검사한다(두 게이트는 서로 반대 phase 에서만 발동한다, 위 두 함수의
+    docstring 참고). 두 함수와 달리 `sys.exit` 하지 않고 위반을 전부 모아
+    반환한다 — 스폰을 시도해 첫 게이트에서 막히고서야 두 번째 위반을
+    알게 되는 왕복(issue #2088 리포로 실측: 5회 스폰 거절)을 없앤다.
+    """
+    root = Path(cwd).resolve()
+    violations: list[str] = []
+    if not (root / MARKER).is_file():
+        return violations  # require_board 가 이미 --no-contract 없이는 여기까지 안 보낸다
+    sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+    import ci as _ci
+    import acceptance_gate as _acceptance_gate
+    import requirement_linkage as _requirement_linkage
+    approved_roles = _ci._approved_roles_on_issue(root, issue)
+    if approved_roles:
+        bad = _acceptance_gate.check(root, issue)
+        violations.extend(f"acceptance: {b}" for b in bad)
+        return violations  # phase-2: require_requirement_linkage 도 소급 차단하지 않는다
+    br = subprocess.run(
+        ["git", "for-each-ref",
+         f"refs/heads/issue-{issue}/**", f"refs/remotes/*/issue-{issue}/**"],
+        cwd=root, capture_output=True, text=True)
+    if br.returncode == 0 and br.stdout.strip():
+        return violations  # 이미 스폰된 적 있는 이슈 — 소급 차단하지 않는다
+    bad = _requirement_linkage.check(root, issue)
+    violations.extend(f"requirement-linkage: {b}" for b in bad)
+    return violations
 
 
 def _approvers(root: Path) -> set[str]:
@@ -2594,6 +2645,26 @@ def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
     return data
 
 
+_DIGEST_LIVE_ENTRY_RE = re.compile(
+    r"^- (R\d+): (.+?) \[(\S+)\] \(source: (.+)\)$", re.M)
+
+
+def parse_digest_live_entries(digest_text: str) -> dict[str, tuple[str, str, str]]:
+    """`requirement-digest.md` 의 `- R<n>: <paraphrase> [<status>]
+    (source: <source>)` 줄들을 `id -> (paraphrase, status, source)` 로
+    파싱한다 (issue #2077).
+
+    각 항목은 한 줄(줄바꿈 없음)이어야 하지만, `<paraphrase>` 와
+    `<source>` 는 여러 절로 이루어진 자유 형식 텍스트여도 된다 —
+    `source:` 를 `#<issue-number>` 형태로 강제하지 않는다(문서화된
+    자유 형식 예: tm-dicequest R1/R2 의 "user directive 2026-08-23,
+    issue #1"). `[<status>]` 만 공백 없는 단일 토큰이어야 한다."""
+    return {
+        m.group(1): (m.group(2), m.group(3), m.group(4))
+        for m in _DIGEST_LIVE_ENTRY_RE.finditer(digest_text)
+    }
+
+
 def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> None:
     """이슈 #930 (northpole req#6): digest 에 살아있는(=stale 아닌) 요구
     각각이 열린 이슈/PR 중 최소 하나에서 언급되는지, 그리고 열린
@@ -2618,11 +2689,12 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
     # 출력이 paraphrase/source 를 다시 gh 로 조회하지 않고 이 메모리에서
     # 바로 쓴다(제안서 Accumulation 절이 명시한 "이미 파싱된 다이제스트
     # 엔트리 재사용, 새 gh 호출 없음").
-    live_entries: dict[str, tuple[str, str, str]] = {
-        m.group(1): (m.group(2), m.group(3), m.group(4))
-        for m in re.finditer(
-            r"^- (R\d+): (.+?) \[(\S+)\] \(source: #(\d+)\)$", digest_text, re.M)
-    }
+    # issue #2077: `source:` 는 `#<number>` 로만 국한되지 않는다 —
+    # 문서화된 자유 형식(tm-dicequest R1/R2)은 "user directive
+    # 2026-08-23, issue #1" 같은 multi-clause 자유 텍스트도 허용한다.
+    # 괄호 밖 마지막 ")"까지 통째로 캡처해서 그대로 보존한다(숫자
+    # 강제 파싱 없음 — 아래 next-action 출력도 원문을 그대로 쓴다).
+    live_entries = parse_digest_live_entries(digest_text)
     live_ids = set(live_entries) or set(
         re.findall(r"^- (R\d+):", digest_text, re.M))
     if not live_ids:
@@ -2667,6 +2739,12 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
                 failed_numbers.append(num)
                 continue
             any_fetch_ok = True
+            # issue #2078: a live refetch may show the number merged/closed
+            # since it was last cached as open — drop it from the index
+            # entirely instead of re-flagging it as an open uncited PR.
+            if item.get("state") not in (None, "open"):
+                cache.pop(str(num), None)
+                continue
             all_items.append(item)
             cache[str(num)] = {"title": item.get("title", ""),
                                 "body": item.get("body", "") or ""}
@@ -2735,13 +2813,13 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
         # source 와 — 있으면 — 요구 인용이 전혀 없는 열린 이슈/PR(연결
         # 후보) 을 named next-action 으로 출력한다.
         for rid in unmentioned_live:
-            paraphrase, _status, source_issue = live_entries.get(
+            paraphrase, _status, source = live_entries.get(
                 rid, ("(다이제스트에 paraphrase 없음)", "open", "?"))
             candidates = unreferenced_open[:5]
             cand_note = (f" 후보(요구 인용이 전혀 없는 열린 이슈/PR): {candidates}"
                          if candidates else "")
             print(f"[watchdog] requirement-drift: 요구 {rid} — 다이제스트: "
-                  f"\"{paraphrase}\" (source: #{source_issue}) — 열린 이슈/PR "
+                  f"\"{paraphrase}\" (source: {source}) — 열린 이슈/PR "
                   f"어디에도 인용되지 않는다.{cand_note}")
     if unreferenced_open:
         print(f"[watchdog] requirement-drift: 요구 ID 를 전혀 인용하지 않는 "
@@ -5877,7 +5955,7 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
                                              model: str | None = None,
                                              home: Path | None = None,
                                              target_repo_root: Path | None = None
-                                             ) -> list[Path]:
+                                             ) -> tuple[list[Path], str]:
     """이슈 #2040: BM25 상위 `_CROSS_FAMILY_CONSULT_TOPN` 개를 자문
     (skill_judge)에 넘겨 조건-매치 여부로 좁힌다. BM25 후보가 아예 없으면
     (score>0 인 것이 없으면) 자문을 부르지 않고 빈 목록을 바로 돌려준다
@@ -5885,20 +5963,26 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     경로를 오늘처럼 조용히 통과시킨다. 자문이 에러(타임아웃/파싱 실패/
     세션 실패 전부 포함)를 내면 BM25 자체의 top-`k` 로 fail-open 한다
     (`_cross_family_skill_matches()`, 제안서 Constraints — "오늘의
-    raw-overlap top-2" 가 아니라 BM25 가 새 기준 프리필터이므로)."""
+    raw-overlap top-2" 가 아니라 BM25 가 새 기준 프리필터이므로).
+
+    이슈 #2076: 반환이 이제 `(picked_dirs, outcome)` 튜플이다 — `outcome`
+    은 "completed"(자문 성공) | "fail-open"(자문 에러/타임아웃) |
+    "no-candidates"(BM25 후보 0개라 자문 자체를 안 부름) 중 하나로,
+    호출부(`_spawn_one`)가 그대로 per-spawn 원장 필드에 남겨 완료율을
+    측정할 수 있게 한다."""
     scored = _bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
     if not scored:
-        return []
+        return [], "no-candidates"
     candidates = [(name, d, source)
                   for _, name, d, source in scored[:_CROSS_FAMILY_CONSULT_TOPN]]
     try:
         picked, _detail = _skill_judge_consult(task_text, role, candidates, issue, cwd,
                                                model=model)
-        return picked
+        return picked, "completed"
     except Exception as ex:
         print(f"[{role}] skill_judge 자문 실패 — BM25 top-{k} 로 fail-open: {ex}",
               file=sys.stderr)
-        return [d for _, _, d, _ in scored[:k]]
+        return [d for _, _, d, _ in scored[:k]], "fail-open"
 
 
 def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
@@ -7424,6 +7508,19 @@ def main() -> int:
         if a.issue is None:
             sys.exit("사용법: spawn.py approve-scope --issue <n> [-C <레포>]")
         return approve_scope(a.cwd, a.issue)
+    if a.role == "lint":
+        # issue #2088: 스폰 전에 body-only 게이트(acceptance shape, requirement
+        # linkage)만 미리 돌려본다 — 세션을 안 띄운다, 위반은 전부 찍는다.
+        if a.issue is None:
+            sys.exit("사용법: spawn.py lint --issue <n> [-C <레포>]")
+        violations = lint_issue(a.cwd, a.issue)
+        if violations:
+            print(f"이슈 #{a.issue} lint: 위반 {len(violations)}건")
+            for v in violations:
+                print(f"  - {v}")
+            return 1
+        print(f"이슈 #{a.issue} lint: 위반 없음")
+        return 0
     if a.role == "drive":
         # 보드가 지목하는 역할을 하나씩, 멈출 때까지.
         require_board(a.cwd, a.no_contract)
@@ -8396,6 +8493,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 스폰마다 달라진다.
     _cross_family_task_text = task
     cross_family_dirs: list[Path] = []
+    # 이슈 #2076: skill_judge 자문이 이번 스폰에서 완료됐는지 fail-open
+    # 했는지 — role_source 가 skill-repo 가 아니면 자문 자체가 안 불려
+    # "not-run" 으로 남는다(아래 ledger_write 필드).
+    skill_judge_outcome = "not-run"
     # 이슈 #1742/#1774: --skills 이름 검증(네 소스 모두)은 워크스페이스/
     # 브랜치를 건드리기 전에 끝난다(fail-closed, 요구사항 2) — 아래
     # 워크스페이스 생성보다 먼저 온다.
@@ -8544,8 +8645,9 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 자문을 여기서 join 만 한다 — 이 단계의 측정치는 이제 겹친
                 # 대기 시간이 아니라 순수 join 대기(자문이 셋업보다 오래
                 # 걸린 나머지)만 반영한다.
-                cross_family_dirs = (_cross_family_future.result()
-                                     if _cross_family_future is not None else [])
+                cross_family_dirs, skill_judge_outcome = (
+                    _cross_family_future.result()
+                    if _cross_family_future is not None else ([], "not-run"))
                 if _cross_family_executor is not None:
                     _cross_family_executor.shutdown(wait=False)
             role_skill_lines = ", ".join(
@@ -9175,6 +9277,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         "gates": gates,
         "log": str(log_path),
         "push_reason": push_result.get("reason") if push_result else None,
+        "skill_judge_outcome": skill_judge_outcome,
     })
 
     for line in gates:
