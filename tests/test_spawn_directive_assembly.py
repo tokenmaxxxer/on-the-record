@@ -223,6 +223,73 @@ class InvokeBeforeApplyObligation(SkillTriggerLines):
         self.assertNotIn("invoked;", delivered)
 
 
+class ArtifactSmokeCoInjection(DirectiveAssemblyBase):
+    """issue #2073: the spawn task gains at most two conditional lines,
+    derived from the issue body already in hand (no new fetch) — an
+    artifact-smoke trigger when `runtime-artifacts:` is declared (or the
+    advisory scorer fires with no declaration), and a live-screen
+    verification line when the issue is design-bearing with a declared
+    storyboard. Absent both conditions the returned text is empty, so the
+    assembled task is byte-identical to today's."""
+
+    def test_declared_runtime_artifacts_produce_the_trigger_line(self):
+        body = "runtime-artifacts:\n- dist/bundle.js\n- dist/index.html\n"
+        out = spawn._artifact_smoke_task_lines(body)
+        self.assertIn("ARTIFACT-SMOKE(이슈 #2073)", out)
+        self.assertIn("dist/bundle.js", out)
+        self.assertIn("dist/index.html", out)
+        self.assertIn("docs/specs/artifact-smoke-contract.md", out)
+        self.assertNotIn("VISUAL-VERIFICATION", out)
+
+    def test_design_bearing_storyboard_produces_the_verification_line(self):
+        body = ("design-bearing-override: yes\n\n"
+                "design-artifacts:\n- assets/storyboard.md\n")
+        out = spawn._artifact_smoke_task_lines(body)
+        self.assertIn("VISUAL-VERIFICATION(이슈 #2073)", out)
+        self.assertIn("screen-verified:", out)
+        self.assertIn("assets/storyboard.md", out)
+        self.assertNotIn("ARTIFACT-SMOKE", out)
+
+    def test_both_conditions_produce_both_lines(self):
+        body = ("runtime-artifacts:\n- dist/bundle.js\n\n"
+                "design-bearing-override: yes\n\n"
+                "design-artifacts:\n- assets/storyboard.md\n")
+        out = spawn._artifact_smoke_task_lines(body)
+        self.assertIn("ARTIFACT-SMOKE(이슈 #2073)", out)
+        self.assertIn("VISUAL-VERIFICATION(이슈 #2073)", out)
+
+    def test_design_bearing_without_a_storyboard_stays_silent(self):
+        body = ("design-bearing-override: yes\n\n"
+                "design-artifacts:\n- assets/user-flow.md\n")
+        self.assertEqual(spawn._artifact_smoke_task_lines(body), "")
+
+    def test_storyboard_without_design_bearing_stays_silent(self):
+        body = ("design-bearing-override: no\n\n"
+                "design-artifacts:\n- assets/storyboard.md\n")
+        self.assertEqual(spawn._artifact_smoke_task_lines(body), "")
+
+    def test_mechanical_issue_body_is_byte_identical(self):
+        for body in ("게이트 하나를 고친다.\n", "", None):
+            self.assertEqual(spawn._artifact_smoke_task_lines(body), "")
+
+    def test_undeclared_but_artifact_smelling_body_gets_the_advisory_line(self):
+        body = ("이 이슈는 browser 로 여는 generated single-file bundle 을 "
+                "dist/ 아래에 배송한다.\n")
+        out = spawn._artifact_smoke_task_lines(body)
+        self.assertIn("ARTIFACT-SMOKE(이슈 #2073)", out)
+        self.assertIn("`runtime-artifacts:` 선언이 없다", out)
+
+    @pytest.mark.slow
+    def test_assembled_directive_is_unchanged_when_the_body_is_unavailable(self):
+        """gh 조회가 안 되는(=body None) 스폰에서는 이 블록이 아무 것도
+        붙이지 않는다 — 조립된 과제가 오늘과 바이트 단위로 같다."""
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            delivered = self._run(work, _NO_SKILLS, {})
+        self.assertNotIn("ARTIFACT-SMOKE", delivered)
+        self.assertNotIn("VISUAL-VERIFICATION", delivered)
+
+
 class SkillTriggerLineHelper(unittest.TestCase):
     def test_extracts_use_sentence_from_folded_description(self):
         with tempfile.TemporaryDirectory() as td:
