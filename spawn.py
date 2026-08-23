@@ -2704,6 +2704,12 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
                 failed_numbers.append(num)
                 continue
             any_fetch_ok = True
+            # issue #2078: a live refetch may show the number merged/closed
+            # since it was last cached as open — drop it from the index
+            # entirely instead of re-flagging it as an open uncited PR.
+            if item.get("state") not in (None, "open"):
+                cache.pop(str(num), None)
+                continue
             all_items.append(item)
             cache[str(num)] = {"title": item.get("title", ""),
                                 "body": item.get("body", "") or ""}

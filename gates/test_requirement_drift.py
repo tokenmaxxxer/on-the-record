@@ -167,6 +167,33 @@ def test_tm_dicequest_r1_r2_flagged_with_paraphrase_when_open(tmp_path, monkeypa
     assert "R2" in out
 
 
+def test_delta_mode_merged_pr_not_flagged(tmp_path, monkeypatch, capsys):
+    """issue #2078: a PR cached as open that has since merged must be
+    dropped from the index on a delta-mode refetch, not flagged as an
+    open uncited PR — and must not linger in the on-disk cache either."""
+    root = _make_root(tmp_path)
+    cache_path = spawn._requirement_drift_cache_path(root)
+    spawn._save_requirement_drift_cache(
+        cache_path,
+        {"9": {"title": "some PR", "body": "no requirement cited"}})
+
+    merged_pr = {
+        "number": 9, "title": "some PR", "body": "no requirement cited",
+        "state": "closed",
+    }
+    monkeypatch.setattr(
+        spawn, "_fetch_issue_or_pr_via_cache",
+        lambda root, num: merged_pr if num == 9 else None)
+
+    spawn.requirement_drift(root, changed_numbers={9})
+    out = capsys.readouterr().out
+
+    assert "9" not in out
+    assert "전혀 인용하지 않는" not in out
+    refreshed = spawn._load_requirement_drift_cache(cache_path)
+    assert "9" not in refreshed
+
+
 def test_empty_digest_produces_no_flags(tmp_path, monkeypatch, capsys):
     digest = tmp_path / "docs" / "specs" / "requirement-digest.md"
     digest.parent.mkdir(parents=True)
