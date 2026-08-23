@@ -1,0 +1,14 @@
+{
+  "id": "t05-difficulty-flag",
+  "class": "feature",
+  "fixture": "harness/fixture-arcade",
+  "expected_artifacts": [
+    "--difficulty flag",
+    "scaling applied to monster stats",
+    "a stated design rationale",
+    "tests"
+  ],
+  "requirement_file": "requirement.md",
+  "issue_file": "issue.md",
+  "key_dir": "key"
+}

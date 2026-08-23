@@ -1,0 +1,22 @@
+{
+  "task": "t02-format-flag",
+  "acceptance": [
+    {
+      "id": "a1",
+      "behavior": "`fixture-feature greet World` prints `Hello, World!` (default unchanged)."
+    },
+    {
+      "id": "a2",
+      "behavior": "`fixture-feature greet World --format json` prints valid JSON exactly of shape {\"message\": \"Hello, World!\"}."
+    },
+    {
+      "id": "a3",
+      "behavior": "`--format` rejects values other than json|text (argparse choices or equivalent) rather than silently falling back."
+    },
+    {
+      "id": "a4",
+      "behavior": "Tests cover BOTH formats and pass; existing test file still passes."
+    }
+  ],
+  "adjudication": "Execute both invocations; parse the json output with json.loads. a3: try `--format xml` and expect a non-zero exit with a usage error."
+}

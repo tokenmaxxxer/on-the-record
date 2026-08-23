@@ -1,0 +1,13 @@
+{
+  "id": "t06-xp-curve",
+  "class": "derivation",
+  "fixture": "harness/fixture-arcade",
+  "expected_artifacts": [
+    "updated balance parameters",
+    "written derivation",
+    "an executed verification (fight run or computed check)"
+  ],
+  "requirement_file": "requirement.md",
+  "issue_file": "issue.md",
+  "key_dir": "key"
+}

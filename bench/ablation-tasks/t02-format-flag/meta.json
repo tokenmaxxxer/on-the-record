@@ -1,0 +1,13 @@
+{
+  "id": "t02-format-flag",
+  "class": "feature",
+  "fixture": "harness/fixture-feature",
+  "expected_artifacts": [
+    "--format flag on the greet subparser",
+    "json output path",
+    "tests for both formats"
+  ],
+  "requirement_file": "requirement.md",
+  "issue_file": "issue.md",
+  "key_dir": "key"
+}

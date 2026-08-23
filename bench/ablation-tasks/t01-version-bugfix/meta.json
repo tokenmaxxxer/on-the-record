@@ -1,0 +1,12 @@
+{
+  "id": "t01-version-bugfix",
+  "class": "bugfix",
+  "fixture": "harness/fixture-target",
+  "expected_artifacts": [
+    "code change in fixture_target/__init__.py",
+    "a test exercising --version resolution"
+  ],
+  "requirement_file": "requirement.md",
+  "issue_file": "issue.md",
+  "key_dir": "key"
+}
