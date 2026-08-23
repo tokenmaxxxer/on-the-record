@@ -5734,7 +5734,8 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
               skill_dirs: list | None = None,
               skill_repo_sha_value: str | None = None,
               single_phase: bool = False,
-              design_bearing_verdict: bool | None = None) -> tuple[list[str], dict[str, str]]:
+              design_bearing_verdict: bool | None = None,
+              max_turns: int | None = None) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
     --permission-mode bypassPermissions (issue #700): 샌드박스 제거(#695/#697)
@@ -5753,6 +5754,12 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     cmd = ["claude", "-p", "--settings", settings_path,
            "--permission-mode", "bypassPermissions",
            "--output-format", "stream-json", "--verbose"]
+    # Issue #2100 item 4: session turn budget pass-through. `None` keeps
+    # today's argv byte-identical (callers that never resolved a budget);
+    # `_spawn_one` always passes the resolved cap. <= 0 means an explicit,
+    # admission-approved unlimited run — no flag is attached.
+    if max_turns is not None and max_turns > 0:
+        cmd += ["--max-turns", str(max_turns)]
     # 룰북도 core 와 같은 길로 붙는다 — 디렉터리로 넘긴 플러그인의 훅은
     # headless 에서 그대로 발화하고(실측 2026-07-27, CLI 2.1.220), 설치를
     # 안 거치므로 캐시-클론 갈라짐도 유령 등록 항목도 이 경로엔 없다.
@@ -7378,6 +7385,17 @@ def main() -> int:
                          "제안 라운드를 건너뛰게 한다(contract v3 s19a 우회, "
                          "이슈 #1672/#1978). 스포너가 명시적으로 결정할 "
                          "때만 켠다 — 세션 스스로는 절대 켤 수 없다.")
+    ap.add_argument("--max-turns", type=int, default=None,
+                    help="spawn: session turn budget passed through as claude "
+                         "--max-turns (issue #2100 item 4). Default: "
+                         "MUSTER_SESSION_MAX_TURNS env or "
+                         f"{DEFAULT_SESSION_MAX_TURNS}. 0 or negative means "
+                         "unlimited and is refused at admission unless "
+                         "--allow-unlimited-turns is also given")
+    ap.add_argument("--allow-unlimited-turns", action="store_true",
+                    help="spawn: explicit override letting --max-turns 0 "
+                         "(unlimited) pass the budget-caps admission check "
+                         "(issue #2100 item 4)")
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
@@ -7662,7 +7680,9 @@ def main() -> int:
                       no_wait=a.no_wait,
                       despite_returned=a.despite_returned,
                       model=a.model, skills=a.skills,
-                      single_phase=a.single_phase)
+                      single_phase=a.single_phase,
+                      max_turns=a.max_turns,
+                      allow_unlimited_turns=a.allow_unlimited_turns)
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -8579,16 +8599,221 @@ def _cross_family_skill_matches(task_text: str, role: str,
     return [d for _, _, d, _ in scored[:k]]
 
 
+# --------------------------------------------------------------- admission
+# Issue #2100: deterministic pre-spawn admission checklist. Every named
+# precondition is verified BEFORE any session is created — a missing item
+# refuses the dispatch with the item's name, no session is created and no
+# workspace is left behind. The checklist is DATA: one table of
+# (name, predicate) rows driven by a single loop (`admission_gate()`) —
+# adding an item is adding a table row, never new gate code.
+#
+# Predicate contract: return True (precondition present), False (missing —
+# admission is refused, naming this item), or None (the check itself could
+# not be evaluated because of a gh/network failure — fail-open per the
+# returned-PR gate convention, issue #680: ledger event + proceed, so that
+# admission never becomes a new stall class).
+
+DEFAULT_SESSION_MAX_TURNS = 200
+
+
+def _resolve_session_max_turns(cli_value: int | None) -> int:
+    """Session turn budget: explicit CLI value > MUSTER_SESSION_MAX_TURNS
+    env > built-in default. A value <= 0 means "unlimited" and is refused
+    at admission unless explicitly overridden (issue #2100 item 4 — the
+    Claude Agent SDK default is unlimited; production guidance is to
+    always cap)."""
+    if cli_value is not None:
+        return cli_value
+    env = os.environ.get("MUSTER_SESSION_MAX_TURNS")
+    if env:
+        try:
+            return int(env)
+        except ValueError:
+            pass
+    return DEFAULT_SESSION_MAX_TURNS
+
+
+def _admission_check_approve_token(ctx: dict) -> bool | None:
+    """Item 1 (issue #2100): on a phase-2 issue the spawned role's APPROVE
+    token must already be published — checked with the same predicate the
+    consuming gate uses (`gates/ci.py._approved_roles_on_issue`, the exact
+    scan the phase-2 merge gate later reads). This reconstructs the 3x
+    APPROVE-token incident at admission time: phase-2 issue, role differs
+    from every approved role, token not yet published => refuse now
+    instead of stranding the session on the gate mid-flight."""
+    issue, role = ctx.get("issue"), ctx["role"]
+    if issue is None or ctx.get("single_phase"):
+        return True  # adhoc spawn / explicit build-now bypass: no token gate
+    root = Path(ctx["cwd"]).resolve()
+    if not (root / MARKER).is_file():
+        return True  # off-board work: no approver machinery to consult
+    # Distinguish "no approval comments" from "could not read comments":
+    # `_approved_roles_on_issue` deliberately collapses the two (it
+    # fail-closes to phase-1), but admission must fail OPEN on a gh
+    # failure — so probe the comment fetch first and fail open on error.
+    _, ok = _issue_comments(root, issue)
+    if not ok:
+        return None  # gh/network failure — fail-open (ledger event + proceed)
+    sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+    import ci as _ci
+    approved = _ci._approved_roles_on_issue(root, issue)
+    if not approved:
+        return True  # phase-1 issue: no token is required yet
+    return role in approved
+
+
+def _admission_check_directive_completeness(ctx: dict) -> bool | None:
+    """Item 2 (issue #2100): the co-injected directive items (record-format
+    contract / single-vs-two-phase signal — core#195 lineage via
+    `_SINGLE_PHASE_CONTRACT_LINE`; per-skill trigger lines — issue #1978)
+    must assemble without error BEFORE spawn. An assembly failure here is
+    an admission refusal, not a mid-flight surprise. This is deterministic
+    local work (role spec file, skill-repository checkout, SKILL.md
+    frontmatter), so a failure is a refusal — never fail-open."""
+    role = ctx["role"]
+    try:
+        if not (ROOT / "roles" / f"{role}.json").is_file():
+            return False  # role spec is the first directive ingredient
+        # Two-phase signal: the contract line must format for this role.
+        _SINGLE_PHASE_CONTRACT_LINE.format(role=role)
+        # Per-skill trigger lines (issue #1978 B): resolve every skill
+        # source the spawn body will resolve, and extract each trigger
+        # line, exactly as the assembly code does.
+        srcs = resolved_skill_sources(ctx.get("skills"), _skill_repo_root(),
+                                      target_repo_root=Path(ctx["cwd"]))
+        role_source = resolve_role_source(role, _skill_repo_root())
+        for m in srcs:
+            _skill_trigger_line(m["dir"])
+        for d in role_source["skill_dirs"]:
+            _skill_trigger_line(d)
+    except Exception:
+        # The directive cannot be assembled — refuse. SystemExit from the
+        # fail-closed resolvers (unknown/invalid skill names) is NOT
+        # caught here: `admission_gate()` records the named refusal and
+        # re-raises it so the resolver's actionable message reaches the
+        # caller unchanged (pre-#2100 behavior, still before any
+        # workspace exists).
+        return False
+    return True
+
+
+def _admission_check_watch_registration(ctx: dict) -> bool | None:
+    """Item 3 (issue #2100): a live watch/monitor registration must be able
+    to succeed for this session's terminal event — verified at admission,
+    not after the fork. The auto-armed watcher (issue #488) is
+    `sys.executable spawn.py watch --follow` plus a workspace-index /
+    roster write under STATE_ROOT; verify those exact ingredients exist
+    and the state directory accepts writes. Purely local — deterministic,
+    so a failure is a refusal, never fail-open."""
+    if ctx.get("issue") is None:
+        return True  # adhoc spawns register in-roster in-process only
+    if not Path(sys.executable).exists() or not Path(__file__).resolve().exists():
+        return False
+    try:
+        ROSTER.parent.mkdir(parents=True, exist_ok=True)
+        probe = ROSTER.parent / f".admission-watch-probe-{os.getpid()}"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink()
+    except OSError:
+        return False
+    return True
+
+
+def _admission_check_budget_caps(ctx: dict) -> bool | None:
+    """Item 4 (issue #2100): the spawn must carry a turn/budget cap. A
+    resolved max-turns is always present (default applies when nothing is
+    set); only an EXPLICIT unlimited (<= 0) without the override flag is
+    refused."""
+    max_turns = ctx.get("max_turns")
+    if max_turns is None:
+        return True  # resolver guarantees a default; None means "not plumbed here"
+    if max_turns <= 0:
+        return bool(ctx.get("allow_unlimited_turns"))
+    return True
+
+
+# The checklist table. One row per named precondition; `admission_gate()`
+# is the only loop. Tests append synthetic rows here to prove that adding
+# an item requires no new gate code (issue #2100 acceptance).
+ADMISSION_CHECKS: list[tuple] = [
+    ("approve-token", _admission_check_approve_token),
+    ("directive-completeness", _admission_check_directive_completeness),
+    ("watch-registration", _admission_check_watch_registration),
+    ("budget-caps", _admission_check_budget_caps),
+]
+
+
+def admission_gate(ctx: dict) -> str | None:
+    """Run every ADMISSION_CHECKS row against `ctx`. Returns the name of
+    the first missing precondition (after writing ONE `admission_refused`
+    ledger event naming it), or None when admission passes. A refusal is
+    deterministic and NON-RETRYABLE by the caller — the fix is publishing
+    the missing precondition, never retrying the same dispatch."""
+    for name, predicate in ADMISSION_CHECKS:
+        try:
+            verdict = predicate(ctx)
+        except SystemExit:
+            # A fail-closed resolver exits with its own actionable message
+            # (e.g. "--skills: unknown skill ..."). That IS a refusal of
+            # this item: record it under the item's name, then let the
+            # original exit propagate unchanged — still before any session
+            # or workspace exists.
+            ledger_write({"event": "admission_refused", "item": name,
+                          "role": ctx.get("role"), "issue": ctx.get("issue"),
+                          "ts": int(time.time())})
+            raise
+        except Exception as exc:
+            # A check that crashes must not become a new stall class:
+            # follow the returned-PR gate fail-open convention (issue
+            # #680) — record the fact, let the spawn proceed.
+            verdict = None
+            print(f"admission check {name!r} crashed — fail-open: {exc}",
+                  file=sys.stderr)
+        if verdict is None:
+            ledger_write({"event": "admission_gate_fail_open", "item": name,
+                          "role": ctx.get("role"), "issue": ctx.get("issue"),
+                          "ts": int(time.time())})
+            continue
+        if not verdict:
+            ledger_write({"event": "admission_refused", "item": name,
+                          "role": ctx.get("role"), "issue": ctx.get("issue"),
+                          "ts": int(time.time())})
+            return name
+    return None
+
+
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
                despite_returned: bool = False, model: str | None = None,
-               skills: str | None = None, single_phase: bool = False) -> int:
+               skills: str | None = None, single_phase: bool = False,
+               max_turns: int | None = None,
+               allow_unlimited_turns: bool = False) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
     있으면 둘이 갈라지고, 갈라진 쪽이 조용히 게이트 하나를 빠뜨린다.
     """
+    # Issue #2100: pre-spawn admission checklist. Runs before ANY side
+    # effect (workspace clone, branch, roster/index writes, session
+    # process) — a refusal names the missing precondition, writes one
+    # `admission_refused` ledger event (inside `admission_gate()`), and
+    # returns without creating anything. Deterministic and non-retryable:
+    # the caller must publish the missing precondition, not retry.
+    resolved_max_turns = _resolve_session_max_turns(max_turns)
+    _refused_item = admission_gate({
+        "cwd": cwd, "role": role, "issue": issue,
+        "single_phase": single_phase, "skills": skills,
+        "max_turns": resolved_max_turns,
+        "allow_unlimited_turns": allow_unlimited_turns,
+    })
+    if _refused_item is not None:
+        print(f"[{role}] admission refused: missing precondition "
+              f"'{_refused_item}' (issue #2100) — no session created, no "
+              f"workspace left behind. This refusal is deterministic and "
+              f"non-retryable: publish the missing precondition, then "
+              f"dispatch again.", file=sys.stderr)
+        return 1
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
     _BOOTSTRAP_TIMING.clear()
     # 이슈 #2001: 크로스-패밀리 스코어링은 이 함수가 받은 원본 task 텍스트를
@@ -8903,7 +9128,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                    all_skill_dirs,
                                    skill_sha or role_source["skill_sha"],
                                    single_phase=single_phase,
-                                   design_bearing_verdict=design_bearing_verdict)
+                                   design_bearing_verdict=design_bearing_verdict,
+                                   max_turns=resolved_max_turns)
         # 이슈 #2070: roster 기록용 두 내부 키를 여기서 뽑아내 실제 subprocess
         # env 에는 안 들어가게 한다 — spawn_cmd() 가 심어준 신호일 뿐, 세션
         # 자신의 env 표면이 아니다.
