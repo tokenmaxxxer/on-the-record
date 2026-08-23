@@ -102,3 +102,11 @@ None.
 ## Open findings
 
 None.
+
+## Skill verdicts
+
+skill-verdict: implementation-complexity-coupling-management — not-applicable: no coupling/cohesion threshold crossed, no nested-accessor chain, no cross-module import-direction change; the one new dependency (gates/model_routing.py) follows the repo's existing sys.path-insert gates/-leaf convention.
+skill-verdict: implementation-design-pattern-selection — not-applicable: route_model() is a plain rule-priority function, not a GoF pattern candidate; no Strategy/Factory/Visitor indirection under consideration.
+skill-verdict: implementation-performance-data-structure-choice — not-applicable: routing is a handful of list/dict lookups per spawn, no membership-testing loop, no perf-cliff structure choice involved.
+skill-verdict: implementation-blueprint — not-applicable: one new module wired into one existing function chain, not the multi-module non-trivial structural design this triggers on.
+skill-verdict: test-derivation — not-applicable: the issue's Acceptance line already named the exact test cases (policy file honored, override precedence, fail-open on malformed policy, ledger line records model+rule) one-to-one; no black-box technique selection (equivalence partitioning, decision tables, etc.) was needed to derive them.
