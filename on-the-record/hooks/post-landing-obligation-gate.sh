@@ -63,6 +63,23 @@ CHECKOUT="$(_checkout_resolve || true)"
 
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, re, shlex, subprocess, sys
+# issue #2093: the shared total parser replaces this hook's own ad-hoc
+# `cd <path> &&` handling. It ships next to the hooks (never under gates/,
+# which a consumer checkout need not have) and it never raises.
+sys.path.insert(0, os.environ.get("OTR_HOOKS_DIR", ""))
+from hook_input import CdTarget, cd_target, cd_target_dir  # noqa: E402
+
+
+def expand_cd_dir(raw):
+    """A tokenised `cd DIR` target, `~`-expanded by the shared parser."""
+    result = cd_target("cd " + raw + " && true")
+    return result.path if isinstance(result, CdTarget) else raw
+
+
+def usable_cd_dir(raw):
+    """The tokenised `cd DIR` target, or None when it does not exist here."""
+    return cd_target_dir("cd " + raw + " && true")
+
 
 try:
     e = json.loads(os.environ.get("PLOG_PAYLOAD", ""))
@@ -100,8 +117,8 @@ if len(tokens) >= 3 and tokens[0] == "gh" and tokens[1] == "pr" and tokens[2] ==
     target_cwd = None
 elif (len(tokens) >= 6 and tokens[0] == "cd" and tokens[2] == "&&"
       and tokens[3] == "gh" and tokens[4] == "pr" and tokens[5] == "merge"):
-    _tail = [tokens[1]] + tokens[6:]
-    target_cwd = tokens[1]
+    _tail = [expand_cd_dir(tokens[1])] + tokens[6:]
+    target_cwd = usable_cd_dir(tokens[1])
 else:
     sys.exit(0)
 
@@ -175,5 +192,5 @@ subprocess.run(
 sys.exit(0)
 PY
 
-PLOG_PAYLOAD="$payload" PLOG_CHECKOUT="$CHECKOUT" python3 -c "$GUARD"
+OTR_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" PLOG_PAYLOAD="$payload" PLOG_CHECKOUT="$CHECKOUT" python3 -c "$GUARD"
 exit 0

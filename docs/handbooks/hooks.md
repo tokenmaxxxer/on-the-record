@@ -104,3 +104,96 @@ merge` for a resolvable PR number on an `issue-<n>/<role>` branch, and is
 a no-op for every other Bash command, a failed-merge response, a
 chained-command bypass attempt, a non-issue-role branch, and an implicit
 current-PR merge.
+
+## The shared input parser, the fail-open ledger, and the wrapper (issue #2093)
+
+Three pieces close the hook-crash *class*, of which #2092 was one instance.
+
+### `hook_input.py` — one total parser
+
+Every hook that reads a Bash command used to carry its own payload decode
+and its own `cd <path> &&` regex. The decode was wrapped in a
+`try/except`; the extraction was not, so an edge input — an unexpanded
+`~`, a heredoc body, unbalanced quotes, an empty or 100KB command, a
+missing `tool_input` — raised *past* the decode, deep inside the
+filesystem calls fed from it.
+
+`on-the-record/hooks/hook_input.py` is the shared boundary. Its contract:
+
+- **No function in it raises**, for any `str`, `bytes`, `None`, or
+  arbitrary object argument. Failure is a returned value carrying a
+  machine-readable `reason`, never an exception.
+- `parse_payload(raw) -> Payload | Unparseable(reason)`.
+- `tool_command(payload) -> str` (`""` when absent).
+- `cd_target(command) -> CdTarget(path) | NoCdTarget(reason) | OpaqueCommand(reason)`,
+  with `~` expanded. `OpaqueCommand` covers a heredoc body, unbalanced
+  quotes, and an oversize command — cases where the string cannot be
+  structurally trusted at all.
+- `cd_target_dir(command) -> str | None` — the `cd` target only when it
+  exists as a directory here. A `cd` target is *claimed*, not verified;
+  handing the claim to `subprocess(cwd=...)` is what raised
+  `FileNotFoundError` inside `contract-guard.sh`.
+- `resolved_cwd(command, default=None) -> str`, `usable_dir(path) -> bool`.
+
+Entry points take a **string**, never stdin: the payload reaches python
+through an env var in most hooks.
+
+**Forbidden import direction.** `hook_input.py` imports the standard
+library only — never `gates/`, never another hook. It lives next to the
+hooks rather than under `gates/` because a zero-install hook cannot
+assume `gates/` exists in the consumer repo (`pr-preflight.sh:7-9`), and
+the consumer checkout is exactly where the crash class bites. A hook
+reaches it with
+`sys.path.insert(0, os.environ.get("OTR_HOOKS_DIR", ""))`, where the
+shell side exports
+`OTR_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"` on the
+`python3 -c` invocation line.
+
+### `fail-open-wrapper.sh` — recording what the exit-code table cannot stop
+
+The platform's table is fixed: exit 0 = allow, exit 2 = block, every
+other nonzero — including the 1 a traceback produces — is
+**non-blocking**. A crashing guard cannot be made to fail closed. What it
+can stop doing is failing *silently*.
+
+Every `hooks.json` registration is therefore wired as
+`fail-open-wrapper.sh <real-hook.sh> [args...]`. The wrapper runs the
+real hook with its original argv and stdin, re-emits the child's stdout,
+stderr and exit code **unchanged**, and appends one ledger line when the
+child exits nonzero-and-not-2, or emits a `Traceback` on stderr even at
+exit 0. It is verdict-neutral by construction; every ledger step is
+best-effort, because a wrapper that could change a verdict would be a
+worse defect than the one it records.
+
+Anything reading `hooks.json` command strings must expect this shape:
+take the *second* token as the hook under test, and `re.findall` rather
+than `re.search` when collecting wired script basenames.
+
+### The ledger
+
+`hook_ledger.record_fail_open()` appends one JSON object per line to
+`$OTR_FAIL_OPEN_LEDGER`, defaulting to
+`~/.claude/on-the-record/fail-open.jsonl` — env-overridable (hence
+testable) and outside any repo, following `contract-guard.sh`'s
+provenance-log precedent rather than a repo-relative `runs/` path that
+would scatter ledgers across every consumer checkout. Line format:
+
+```json
+{"ts": "...Z", "event": "fail-open", "hook": "x.sh", "argv": ["...", "pre"],
+ "digest": "sha256:<16 hex>", "exit_code": 1, "reason": "nonzero-exit|traceback"}
+```
+
+The input is recorded as a digest, never verbatim: a payload can carry
+anything the session typed.
+
+### Conformance coverage
+
+`on-the-record/hooks/test_hook_crash_conformance.py` is parametrized over
+every entry parsed out of `hooks.json` — the *entry*, not the script
+file, because the same script appears under different argv and argv
+selects the parse path — crossed with an edge-input corpus. It asserts
+exit code in `{0, 2}` and no traceback on stderr, in a throwaway HOME and
+cwd with `gh`/`curl` stubbed. `deliverable-guard.sh`'s deliberate
+fail-*closed* behaviour on unverifiable stdin is encoded as a declared
+expectation, not an exemption. The full matrix is `slow`-marked; a
+fast-tier smoke runs the same corpus against the five migrated hooks.

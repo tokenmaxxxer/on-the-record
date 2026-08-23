@@ -150,9 +150,12 @@ def _wired_hook_scripts():
 
     names = set()
     for s in walk(hooks_json):
-        m = re.search(r"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/([\w.-]+\.sh)", s)
-        if m:
-            names.add(m.group(1))
+        # findall, not search: since issue #2093 every registration is
+        # `fail-open-wrapper.sh <real-hook.sh> [args]`, so a first-match-only
+        # scan would check the wrapper's exec bit 58 times and the wrapped
+        # scripts' never.
+        for name in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/hooks/([\w.-]+\.sh)", s):
+            names.add(name)
     assert names, "no ${CLAUDE_PLUGIN_ROOT}/hooks/*.sh commands found in hooks.json"
     return sorted(names)
 
