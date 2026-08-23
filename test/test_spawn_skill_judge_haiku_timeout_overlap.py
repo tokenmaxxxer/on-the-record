@@ -35,10 +35,12 @@ class SkillJudgeModelTest(unittest.TestCase):
 
 
 class SkillJudgeTimeoutTest(unittest.TestCase):
-    def test_default_timeout_is_45s_when_env_unset(self):
+    def test_default_timeout_is_90s_when_env_unset(self):
+        """이슈 #2076: 45s 기본값에서 측정된 완료율이 낮아(consult-log.md
+        집계) 90s 로 올렸다 — env override 는 그대로 살아있다."""
         with mock.patch.dict("os.environ", {}, clear=False):
             spawn.os.environ.pop("SKILL_JUDGE_TIMEOUT", None)
-            self.assertEqual(spawn._skill_judge_timeout(), 45)
+            self.assertEqual(spawn._skill_judge_timeout(), 90)
 
     def test_env_override_replaces_default(self):
         with mock.patch.dict(spawn.os.environ, {"SKILL_JUDGE_TIMEOUT": "7"}):
@@ -74,9 +76,10 @@ class SkillJudgeTimeoutTest(unittest.TestCase):
                                lambda *a, **k: [(1.0, "a-skill", scored_dir, "skill-repo")]), \
              mock.patch.object(spawn, "_skill_judge_consult",
                                side_effect=subprocess.TimeoutExpired(cmd="claude", timeout=7)):
-            matches = spawn._cross_family_skill_matches_with_consult(
+            matches, outcome = spawn._cross_family_skill_matches_with_consult(
                 "task", "implementation", Path(td), 2061, td, k=2)
         self.assertEqual(matches, [scored_dir])
+        self.assertEqual(outcome, "fail-open")
 
 
 class SkillJudgeOverlapOrderingTest(unittest.TestCase):
@@ -122,7 +125,7 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
 
         def fake_matches_with_consult(*a, **k):
             events.append("judge-ran")
-            return []
+            return [], "completed"
 
         role_source = {"source": "skill-repo", "skill_dirs": [],
                        "skills": [], "skill_sha": None}
@@ -174,6 +177,95 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
                             f"judge must dispatch before branch setup: {events}")
             self.assertGreater(events.index("join"), events.index("branch"),
                                f"judge join must come after branch setup: {events}")
+
+
+class SkillJudgeLedgerFieldTest(unittest.TestCase):
+    """이슈 #2076: skill_judge 완료율을 스폰마다 측정하려면 원장
+    (runs/ledger.jsonl) 에 completed/fail-open 여부가 남아야 한다 —
+    `_spawn_one` 의 `ledger_write` 호출에 `skill_judge_outcome` 필드가
+    실제로 실리는지 검증한다."""
+
+    def _prep_repo(self, td):
+        work = Path(td) / "work"
+        work.mkdir()
+        run = lambda *a: subprocess.run(a, cwd=str(work), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (work / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        return work
+
+    def _run_spawn_one_with_outcome(self, td, work, matches_return):
+        recorded = []
+        role_source = {"source": "skill-repo", "skill_dirs": [],
+                       "skills": [], "skill_sha": None}
+        with mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
+                               lambda *a, **k: matches_return), \
+             mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, role: cwd), \
+             mock.patch.object(spawn, "checkout_issue_branch",
+                               lambda cwd, issue, role: "b"), \
+             mock.patch.object(spawn, "resolve_role_source",
+                               lambda role, repo_root: role_source), \
+             mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
+             mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
+             mock.patch.object(spawn, "core_version", lambda: "v0"), \
+             mock.patch.object(spawn, "_clean_auto_enabled", lambda: False), \
+             mock.patch.object(spawn, "spawn_cmd", lambda *a, **k: (["cat"], {})), \
+             mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
+             mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
+             mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
+             mock.patch.object(spawn, "_undispositioned_role_prs",
+                               lambda root, exclude_issue=None: ([], True)), \
+             mock.patch.object(spawn, "roster_register", lambda *a, **k: None), \
+             mock.patch.object(spawn, "ledger_write",
+                               lambda entry: recorded.append(entry)):
+            spawn._spawn_one(str(work), "implementation", "task\n",
+                             unattended=True, issue=2061, bounded=False,
+                             no_wait=True)
+        return recorded
+
+    def test_ledger_entry_records_completed_outcome(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            recorded = self._run_spawn_one_with_outcome(td, work, ([], "completed"))
+        self.assertEqual(recorded[-1]["skill_judge_outcome"], "completed")
+
+    def test_ledger_entry_records_fail_open_outcome(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            recorded = self._run_spawn_one_with_outcome(td, work, ([], "fail-open"))
+        self.assertEqual(recorded[-1]["skill_judge_outcome"], "fail-open")
+
+    def test_ledger_entry_records_not_run_when_role_source_is_not_skill_repo(self):
+        role_source = {"source": "flat", "skill_dirs": [], "skills": [], "skill_sha": None}
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            recorded = []
+            with mock.patch.object(spawn, "resolve_role_source",
+                                   lambda role, repo_root: role_source), \
+                 mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
+                 mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, role: cwd), \
+                 mock.patch.object(spawn, "checkout_issue_branch",
+                                   lambda cwd, issue, role: "b"), \
+                 mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
+                 mock.patch.object(spawn, "core_version", lambda: "v0"), \
+                 mock.patch.object(spawn, "_clean_auto_enabled", lambda: False), \
+                 mock.patch.object(spawn, "spawn_cmd", lambda *a, **k: (["cat"], {})), \
+                 mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
+                 mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
+                 mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
+                 mock.patch.object(spawn, "_undispositioned_role_prs",
+                                   lambda root, exclude_issue=None: ([], True)), \
+                 mock.patch.object(spawn, "roster_register", lambda *a, **k: None), \
+                 mock.patch.object(spawn, "ledger_write",
+                                   lambda entry: recorded.append(entry)):
+                spawn._spawn_one(str(work), "implementation", "task\n",
+                                 unattended=True, issue=2061, bounded=False,
+                                 no_wait=True)
+        self.assertEqual(recorded[-1]["skill_judge_outcome"], "not-run")
 
 
 if __name__ == "__main__":
