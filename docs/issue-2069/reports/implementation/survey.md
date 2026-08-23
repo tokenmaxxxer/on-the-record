@@ -88,6 +88,25 @@ name returns nothing beyond one doc-comment citation
   divorced from whatever the external harness actually runs, which would
   drift out of sync silently.
 
+## Skill verdicts (issue #2039 obligation)
+
+canonical: `ls docs/issue-2069/reports/` (this session, repo root)
+
+`ls docs/issue-2069/reports/` shows only the `implementation` directory
+(this survey's own home) — the phase-2 record path referenced by
+`skill-verdict-guard.sh` does not exist on disk yet, because this
+session is phase-1 only: role-handoff contract v3 s19 withholds that
+record until the human Approve, same as code. The per-skill verdict
+obligation is recorded here instead, in this issue's phase-1 survey, and
+will be restated in the phase-2 record once phase-2 opens:
+
+- skill-verdict: implementation-complexity-coupling-management — not-applicable: no coupling/cohesion metric, accessor chain, cross-module import direction, or check-ordering decision arises in this docs-only proposal round.
+- skill-verdict: implementation-design-pattern-selection — not-applicable: no code and no GoF-pattern decision; this issue produces a survey and a proposal document only.
+- skill-verdict: implementation-performance-data-structure-choice — not-applicable: no data structure, algorithm, or communication-scheme choice arises in this round.
+- skill-verdict: implementation-blueprint — not-applicable: no multi-module/file code is being structured; the deliverable is a spec-note addition to one existing markdown file.
+- skill-verdict: observability-phase-trace — not-applicable: no phase-2 implementation record exists yet for this issue to check against its phase-1 methodology; this session is the phase-1 session itself.
+- skill-verdict: model-routing — not-applicable: single-session investigation and two document writes with no delegation or model-tier decision to make.
+
 ## Skip-condition note (scout directive)
 
 This issue's own suggested direction ("resolve the survey path
