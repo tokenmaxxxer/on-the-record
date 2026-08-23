@@ -2918,6 +2918,43 @@ def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
     return data
 
 
+def _board_read(root: Path) -> tuple[dict | None, dict]:
+    """Issue #2103: the shared multi-item board read. Delegates to
+    `gates.board_read.board_read` (single GraphQL board query + delta reads
+    over a cached snapshot) and routes its fail-open signal to the ledger
+    as an advisory `board_read_fail_open` event — a gh/network failure
+    serves the stale snapshot and never crashes the calling sweep.
+
+    Returns `(board, meta)`; `board` is None only when gh failed AND no
+    snapshot exists (or the repo has no slug — non-GitHub checkout)."""
+    board_slug = _repo_slug(root)
+    if not board_slug:
+        return None, {"source": None, "api_calls": 0,
+                      "last_sweep_at": None, "error": "no repo slug"}
+    sys.path.insert(0, str(ROOT / "gates"))
+    import board_read as board_read_mod
+
+    def _fail_open(detail: str) -> None:
+        ledger_write({"event": "board_read_fail_open", "repo": board_slug,
+                      "detail": detail, "ts": time.time()})
+
+    return board_read_mod.board_read(root, board_slug, on_fail_open=_fail_open)
+
+
+def _board_pr_index(root: Path) -> dict | None:
+    """Issue #2103: `closure_sweep._pr_index_all`-shaped branch->PR index
+    served from the shared board read (snapshot/delta) — replaces per-branch
+    `gh pr list` loops in the poll tick. None when the board is unreadable
+    (caller falls back to the per-branch helper, preserving today's
+    fail-open behavior)."""
+    board, _meta = _board_read(root)
+    if board is None:
+        return None
+    sys.path.insert(0, str(ROOT / "gates"))
+    import board_read as board_read_mod
+    return board_read_mod.pr_index(board)
+
+
 _DIGEST_LIVE_ENTRY_RE = re.compile(
     r"^- (R\d+): (.+?) \[(\S+)\] \(source: (.+)\)$", re.M)
 
@@ -2973,26 +3010,21 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
     if not live_ids:
         return
 
-    def _list(kind: str) -> list[dict] | None:
-        r = subprocess.run(
-            ["gh", kind, "list", "--state", "open", "--json", "number,title,body",
-             "--limit", "1000"],
-            cwd=root, capture_output=True, text=True)
-        if r.returncode != 0:
-            return None
-        try:
-            return json.loads(r.stdout)
-        except ValueError:
-            return None
-
     cache_path = _requirement_drift_cache_path(root)
     if changed_numbers is None:
-        issues = _list("issue")
-        prs = _list("pr")
-        if issues is None or prs is None:
+        # Issue #2103: full mode reads open issues+PRs from the shared board
+        # read (snapshot + delta; was two `gh issue list`/`gh pr list` calls
+        # per full-mode tick). A stale fail-open board is still usable here —
+        # this signal is advisory and a slightly stale citation index beats
+        # no verdict (same trade the old list calls could not make).
+        full_board, _board_meta = _board_read(root)
+        if full_board is None:
             print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
             return
-        all_items = issues + prs
+        all_items = [item
+                     for group in (full_board["issues"], full_board["prs"])
+                     for item in group.values()
+                     if item.get("state") == "OPEN"]
         # issue #1688: full-mode run also refreshes the verdict cache so a
         # later delta-mode tick can reuse today's fetch for unchanged numbers.
         cache = {str(item.get("number")): {"title": item.get("title", ""),
@@ -3759,6 +3791,18 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     state = _watchdog_state_load()
     respawn_state = _respawn_state_load() if auto_respawn else {}
     issue_role_key = lambda e: (e.get("issue"), e.get("role"))
+    # Issue #2103: one shared branch->PR index per poll tick, built lazily
+    # from the cached board snapshot (delta read: 1 API call, usually) the
+    # first time a dead entry needs a PR check — replaces the per-dead-entry
+    # `gh pr list --head <branch>` calls (O(dead entries) per tick). None
+    # (board unreadable) keeps the per-branch fallback inside
+    # diagnose_health(), so failure behavior is unchanged.
+    _poll_pr_index_cache: list = []
+
+    def _poll_pr_index() -> dict | None:
+        if not _poll_pr_index_cache:
+            _poll_pr_index_cache.append(_board_pr_index(root))
+        return _poll_pr_index_cache[0]
     for key, e in sorted(d.items()):
         # 이슈 #492: 같은 틱에서 reconcile() 도 한 번 태운다 — 새 폴러가
         # 아니라 이 기존 스캔에 올라탄다(ADR 결정 4).
@@ -3790,7 +3834,11 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
             # (경보 전 hunt: dead-registered 엔트리가 15배 빈도로 gh 를
             # 때리는 문제).
             if ledger_check_and_stamp(f"poll-report-dead-check:{key}"):
-                dead_health = diagnose_health(key, e, state=state, root=root)
+                # Issue #2103: serve the dead-entry PR check from the shared
+                # per-tick index (snapshot/delta) instead of a fresh
+                # `gh pr list` per entry.
+                dead_health = diagnose_health(key, e, state=state, root=root,
+                                              pr_index=_poll_pr_index())
                 state[f"{key}:dead_report"] = dead_health
             dead_health = state.get(f"{key}:dead_report")
             if dead_health is not None:
@@ -3803,7 +3851,13 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                     # 라이브 notify 로 이미 처리되므로 session_id 없는 엔트리는
                     # 그대로 통과한다(중복 트리거 없음).
                     branch = Path(work).name if work else None
-                    pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
+                    # Issue #2103: same shared index; per-branch `gh pr list`
+                    # only as fallback when the board is unreadable.
+                    tick_index = _poll_pr_index() if branch else None
+                    if branch and tick_index is not None:
+                        pr_number = _pr_state_from_index(tick_index, branch)
+                    else:
+                        pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
                     if pr_number is not None and _maybe_resume_for_ready_pr(key, e, pr_number):
                         print(f"[resume] {key}: PR #{pr_number} ready — "
                               f"resumed session {e.get('session_id')}")
