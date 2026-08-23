@@ -370,9 +370,61 @@ def lease_reconcile_sweep(root: Path = None, d_all: dict | None = None,
                 print(f"[reconcile-sweep] {key}: declared wait references a "
                       f"missing object {wait.get('object')!r} — advisory only")
                 count += 1
+        if wait is not None and wait.get("reason") == "approve-token":
+            _sp._surface_approval_wait(key, e, wait, now)
     for key in requeued:
         d_all.pop(key, None)
     return count
+
+
+# Issue #2133: a fresh-wait line flips to [EXPIRING] when the remaining
+# time drops under this fraction of the wait budget.
+APPROVAL_WAIT_EXPIRING_FRACTION = 0.2
+# Per-wait-instance ledger dedup TTL — must exceed any plausible
+# CHECKPOINT_WAIT_MAX_SECONDS so one wait instance never re-emits its
+# `approval_wait_surfaced` event when the default 15-minute reconcile
+# TTL lapses mid-pause.
+APPROVAL_WAIT_LEDGER_TTL_SEC = 7 * 24 * 3600
+
+
+def _surface_approval_wait(key: str, entry: dict, wait: dict,
+                           now: float) -> None:
+    """Issue #2133: actively surface a HEALTHY checkpoint-mode approval
+    pause (declared wait with reason `approve-token`, written by
+    `await_approval_cmd`) on every watchdog tick. The negative cases
+    (missing object, dead session) were already advisories; the healthy
+    wait emitted nothing, so a missed approval silently degraded to the
+    two-session path at CHECKPOINT_WAIT_MAX_SECONDS.
+
+    Prints one first-class `[awaiting-approval]` line per tick (prefixed
+    `[EXPIRING]` when remaining < APPROVAL_WAIT_EXPIRING_FRACTION of the
+    budget) and writes ONE `approval_wait_surfaced` ledger event per wait
+    instance (dedup-keyed on the wait file's start timestamp, not per
+    tick). Remaining time comes from the wait file's `ts` +
+    `budget_sec` fields; a wait file predating those fields surfaces as
+    remaining=unknown rather than crashing. Advisory-only per the
+    watch-coverage policy: nothing is blocked, refused, or killed —
+    the surfacing IS the fix."""
+    issue = wait.get("issue", entry.get("issue"))
+    role = wait.get("role", entry.get("role"))
+    subject = f"issue-{issue}/{role}"
+    ts, budget = wait.get("ts"), wait.get("budget_sec")
+    prefix, remaining_desc = "[awaiting-approval]", "remaining unknown"
+    if isinstance(ts, (int, float)) and isinstance(budget, (int, float)) \
+            and not isinstance(ts, bool) and not isinstance(budget, bool) \
+            and budget > 0:
+        remaining = max(0.0, ts + budget - now)
+        remaining_desc = (f"{remaining / 60:.0f}m remaining "
+                          f"of {budget / 60:.0f}m")
+        if remaining < APPROVAL_WAIT_EXPIRING_FRACTION * budget:
+            prefix = "[awaiting-approval][EXPIRING]"
+    print(f"{prefix} {subject}: APPROVE {subject} needed, {remaining_desc}")
+    if _sp.ledger_check_and_stamp(f"approval-wait-surfaced:{key}:{ts}",
+                                  now=now,
+                                  ttl=_sp.APPROVAL_WAIT_LEDGER_TTL_SEC):
+        _sp.ledger_write({"event": "approval_wait_surfaced", "key": key,
+                          "issue": issue, "role": role, "wait_ts": ts,
+                          "budget_sec": budget, "ts": now})
 
 
 def _spawn_claim_path(work: str) -> Path:
