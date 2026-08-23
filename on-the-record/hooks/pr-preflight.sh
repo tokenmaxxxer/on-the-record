@@ -503,6 +503,76 @@ else:
                 "```fenced``` 블록) — 태그 줄 자체에는 콜론 뒤에 아무 것도 오면 안 된다",
             )
 
+# --- screen-verified citation check (issue #2073) --------------------------
+# A design-bearing surface's phase-2 record must carry a `screen-verified:`
+# line citing a live-screen screenshot plus a one-line verdict against the
+# phase-1 storyboard. Parsing proves the page is not dead (ARTIFACT-SMOKE);
+# it does not prove the page is the thing that was designed —
+# tm-dicequest#58 shipped flat placeholder tokens against a GDD whose core
+# promise was character animation, with every check green.
+#
+# Presence and existence ONLY, never content: this gate checks that the
+# line exists and that the file it cites exists. The verdict itself stays a
+# human/session judgment and is never mechanized (no pixel diff, no
+# perceptual hash, no LLM verdict inside a gate).
+#
+# Precision-first trigger: fires only when the issue's OWN
+# `design-artifacts:` declaration names a storyboard — an explicit,
+# author-written signal, not a keyword score. Phase-1 PRs are exempt: the
+# record the line belongs in is phase-2 output.
+#
+# Fail-open on everything else, including a missing record file (the
+# record-shape gates own that), consistent with this file's policy.
+if phase == "phase2" and declared_artifacts:
+    _storyboards = [p for p in declared_artifacts
+                     if re.search(r"storyboard|스토리보드", p, re.IGNORECASE)]
+    if _storyboards:
+        _reports = os.path.join(os.getcwd(), "docs", "issue-%s" % issue, "reports")
+        _record_texts = []
+        for _root, _dirs, _files in os.walk(_reports):
+            for _f in _files:
+                if not _f.endswith(".md"):
+                    continue
+                try:
+                    with open(os.path.join(_root, _f), encoding="utf-8") as _fh:
+                        _record_texts.append(_fh.read())
+                except OSError:
+                    continue
+        if _record_texts:
+            _cited = None
+            for _text in _record_texts:
+                _m = re.search(r"^\s*[-*]?\s*screen-verified\s*:\s*(\S+)(.*)$",
+                                _text, re.IGNORECASE | re.MULTILINE)
+                if _m:
+                    _cited = (_m.group(1), (_m.group(2) or "").strip())
+                    break
+            if _cited is None:
+                deny(
+                    f"이슈 #{issue}가 스토리보드({', '.join(_storyboards)})를 "
+                    f"design-artifacts 로 선언했는데, phase-2 레코드에 "
+                    f"`screen-verified:` 줄이 없다 — 실화면 스크린샷 경로와 그 "
+                    f"스토리보드에 비춘 한 줄 판정이 있어야 한다(이슈 #2073).",
+                    "레코드에 'screen-verified: docs/issue-%s/_assets/<shot>.png "
+                    "— <스토리보드 대비 한 줄 판정>' 을 추가한 뒤 다시 시도한다"
+                    % issue,
+                )
+            elif not os.path.exists(os.path.join(os.getcwd(), _cited[0])):
+                deny(
+                    f"이슈 #{issue}의 `screen-verified:` 줄이 인용한 스크린샷이 "
+                    f"작업 트리에 없다: {_cited[0]}",
+                    "실화면 스크린샷을 docs/issue-%s/_assets/ 아래에 두고 그 "
+                    "경로를 인용한 뒤 다시 시도한다" % issue,
+                )
+            elif not _cited[1]:
+                deny(
+                    f"이슈 #{issue}의 `screen-verified:` 줄이 스크린샷만 인용하고 "
+                    f"판정을 담고 있지 않다 — 스토리보드"
+                    f"({', '.join(_storyboards)}) 대비 한 줄 판정이 같은 줄에 "
+                    f"있어야 한다.",
+                    "'screen-verified: <경로> — <한 줄 판정>' 형태로 판정을 "
+                    "덧붙인 뒤 다시 시도한다",
+                )
+
 # --- check_body (ported from gates/pr_reference.py) -------------------------
 # issue #1165: first-paragraph and citation-placement rules ported inline
 # from gates/human_comprehensibility.py (same zero-install rationale as the
