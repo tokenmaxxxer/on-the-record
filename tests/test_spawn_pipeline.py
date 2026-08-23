@@ -1587,6 +1587,204 @@ class StateRootIsolation(unittest.TestCase):
                           str(Path(self.fixture_state).resolve() / "workspaces.json"))
 
 
+class LintIssueSubcommand(unittest.TestCase):
+    """issue #2088: `spawn.py lint --issue <n>` runs the same body-only
+    gates (acceptance shape incl. phase-2 state, requirement linkage) that
+    `require_acceptance_gate`/`require_requirement_linkage` run at spawn
+    time, but without spawning — collecting all violations and printing
+    them, exiting nonzero when any exist."""
+
+    def _git(self, cwd, *a):
+        return subprocess.run(["git", "-C", str(cwd), *a],
+                              capture_output=True, text=True)
+
+    def _init_repo(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+        self._git(path, "init", "-q")
+        self._git(path, "config", "user.email", "t@t.t")
+        self._git(path, "config", "user.name", "t")
+        (path / "a.txt").write_text("base")
+        self._git(path, "add", "a.txt")
+        self._git(path, "commit", "-q", "-m", "base commit")
+
+    def _make_marker(self, root):
+        (root / "docs" / "specs").mkdir(parents=True, exist_ok=True)
+        (root / "docs" / "specs" / "approvers.md").write_text("- someone\n")
+
+    def test_no_marker_no_violations(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            self.assertEqual(spawn.lint_issue(str(root), 990001), [])
+
+    def test_phase1_missing_requirement_linkage_is_reported(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            self._make_marker(root)
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import requirement_linkage as _requirement_linkage
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()), \
+                 mock.patch.object(_requirement_linkage, "check",
+                                   lambda root, iss: ["no requirement id cited"]):
+                violations = spawn.lint_issue(str(root), 990002)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("requirement-linkage:", violations[0])
+            self.assertIn("no requirement id cited", violations[0])
+
+    def test_phase1_clean_requirement_linkage_has_no_violations(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            self._make_marker(root)
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import requirement_linkage as _requirement_linkage
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()), \
+                 mock.patch.object(_requirement_linkage, "check", lambda root, iss: []):
+                violations = spawn.lint_issue(str(root), 990003)
+            self.assertEqual(violations, [])
+
+    def test_phase2_missing_acceptance_shape_is_reported(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            self._make_marker(root)
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import acceptance_gate as _acceptance_gate
+            with mock.patch.object(_ci, "_approved_roles_on_issue",
+                                    lambda root, iss: {"implementation"}), \
+                 mock.patch.object(_acceptance_gate, "check",
+                                    lambda root, iss: ["Acceptance 절이 실행가능하지 않다"]):
+                violations = spawn.lint_issue(str(root), 990004)
+            self.assertEqual(len(violations), 1)
+            self.assertIn("acceptance:", violations[0])
+
+    def test_phase2_clean_acceptance_shape_has_no_violations_and_skips_requirement_linkage(self):
+        # phase-2 approved: require_requirement_linkage never fires retroactively
+        # for an already-approved issue — lint must mirror that (only the
+        # acceptance gate runs).
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            self._make_marker(root)
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import acceptance_gate as _acceptance_gate
+            import requirement_linkage as _requirement_linkage
+            with mock.patch.object(_ci, "_approved_roles_on_issue",
+                                    lambda root, iss: {"implementation"}), \
+                 mock.patch.object(_acceptance_gate, "check", lambda root, iss: []), \
+                 mock.patch.object(_requirement_linkage, "check",
+                                    lambda root, iss: ["should never be called"]):
+                violations = spawn.lint_issue(str(root), 990005)
+            self.assertEqual(violations, [])
+
+    def test_already_spawned_phase1_issue_not_retroactively_blocked(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            self._make_marker(root)
+            issue = 990006
+            self._git(root, "checkout", "-q", "-b", f"issue-{issue}/implementation")
+            self._git(root, "checkout", "-q", "-")
+            sys.path.insert(0, str((Path(spawn.__file__).parent / "gates").resolve()))
+            import ci as _ci
+            import requirement_linkage as _requirement_linkage
+            with mock.patch.object(_ci, "_approved_roles_on_issue", lambda root, iss: set()), \
+                 mock.patch.object(_requirement_linkage, "check",
+                                    lambda root, iss: ["should never be called"]):
+                violations = spawn.lint_issue(str(root), issue)
+            self.assertEqual(violations, [])
+
+    def test_cli_exits_nonzero_and_prints_violations(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            self._make_marker(root)
+            issue = 990007
+            script = (
+                "import sys; sys.path.insert(0, %r)\n"
+                "import spawn\n"
+                "from unittest import mock\n"
+                "sys.path.insert(0, %r)\n"
+                "import ci as _ci\n"
+                "import requirement_linkage as _requirement_linkage\n"
+                "with mock.patch.object(_ci, '_approved_roles_on_issue', lambda root, iss: set()), \\\n"
+                "     mock.patch.object(_requirement_linkage, 'check', lambda root, iss: ['no requirement id cited']):\n"
+                "    sys.exit(spawn.main())\n"
+            ) % (str(Path(__file__).parent.parent),
+                 str((Path(__file__).parent.parent / "gates").resolve()))
+            r = subprocess.run(
+                [sys.executable, "-c", script, "lint", "--issue", str(issue), "-C", str(root)],
+                capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("requirement-linkage:", r.stdout)
+            self.assertIn("no requirement id cited", r.stdout)
+
+    def test_cli_exits_zero_when_clean(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            self._make_marker(root)
+            issue = 990008
+            script = (
+                "import sys; sys.path.insert(0, %r)\n"
+                "import spawn\n"
+                "from unittest import mock\n"
+                "sys.path.insert(0, %r)\n"
+                "import ci as _ci\n"
+                "import requirement_linkage as _requirement_linkage\n"
+                "with mock.patch.object(_ci, '_approved_roles_on_issue', lambda root, iss: set()), \\\n"
+                "     mock.patch.object(_requirement_linkage, 'check', lambda root, iss: []):\n"
+                "    sys.exit(spawn.main())\n"
+            ) % (str(Path(__file__).parent.parent),
+                 str((Path(__file__).parent.parent / "gates").resolve()))
+            r = subprocess.run(
+                [sys.executable, "-c", script, "lint", "--issue", str(issue), "-C", str(root)],
+                capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+            self.assertIn("위반 없음", r.stdout)
+
+    def test_cli_requires_issue(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._init_repo(root)
+            r = subprocess.run(
+                [sys.executable, str(Path(spawn.__file__).parent / "spawn.py"),
+                 "lint", "-C", str(root)],
+                capture_output=True, text=True)
+            self.assertNotEqual(r.returncode, 0)
+
+
+class OrchestrateDirectiveLintBeforeSpawn(unittest.TestCase):
+    """issue #2088: the orchestrate directive (`on-the-record/commands/run.md`)
+    documents lint-before-spawn as the standard flow."""
+
+    def setUp(self):
+        run_md = (Path(spawn.__file__).parent / "on-the-record" / "commands" / "run.md")
+        self.text = run_md.read_text(encoding="utf-8")
+
+    def test_documents_lint_subcommand(self):
+        self.assertIn("spawn.py lint --issue", self.text)
+
+    def test_documents_lint_before_spawn_as_standard_flow(self):
+        self.assertIn("lint-before-spawn", self.text)
+        self.assertIn("issue #2088", self.text)
+
+    def test_lint_instruction_precedes_spawn_call_in_text(self):
+        lint_idx = self.text.index("spawn.py lint --issue")
+        spawn_idx = self.text.index(
+            'spawn.py <역할> "<맡길 일>" --issue <n> -C <레포>`\n   를 run_in_background')
+        self.assertLess(lint_idx, spawn_idx)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
 class GateRefusalExitCodeTest(unittest.TestCase):
     """issue #2086: a gate-refused spawn must exit nonzero — an orchestrator
     watching only the exit code (not scraping stdout/stderr) has to be able

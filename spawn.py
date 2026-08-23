@@ -768,6 +768,39 @@ def require_requirement_linkage(cwd: str, issue: int | None) -> None:
         f"한다(issue #1017, northpole req#6).")
 
 
+def lint_issue(cwd: str, issue: int) -> list[str]:
+    """issue #2088: `require_acceptance_gate`/`require_requirement_linkage` 와
+    같은 body-only 게이트를 스폰 없이 미리 돌려본다 — 전자는 phase-2 승인
+    후 Acceptance 절의 실행가능성을, 후자는 phase-2 승인 전 요구 연결을
+    검사한다(두 게이트는 서로 반대 phase 에서만 발동한다, 위 두 함수의
+    docstring 참고). 두 함수와 달리 `sys.exit` 하지 않고 위반을 전부 모아
+    반환한다 — 스폰을 시도해 첫 게이트에서 막히고서야 두 번째 위반을
+    알게 되는 왕복(issue #2088 리포로 실측: 5회 스폰 거절)을 없앤다.
+    """
+    root = Path(cwd).resolve()
+    violations: list[str] = []
+    if not (root / MARKER).is_file():
+        return violations  # require_board 가 이미 --no-contract 없이는 여기까지 안 보낸다
+    sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+    import ci as _ci
+    import acceptance_gate as _acceptance_gate
+    import requirement_linkage as _requirement_linkage
+    approved_roles = _ci._approved_roles_on_issue(root, issue)
+    if approved_roles:
+        bad = _acceptance_gate.check(root, issue)
+        violations.extend(f"acceptance: {b}" for b in bad)
+        return violations  # phase-2: require_requirement_linkage 도 소급 차단하지 않는다
+    br = subprocess.run(
+        ["git", "for-each-ref",
+         f"refs/heads/issue-{issue}/**", f"refs/remotes/*/issue-{issue}/**"],
+        cwd=root, capture_output=True, text=True)
+    if br.returncode == 0 and br.stdout.strip():
+        return violations  # 이미 스폰된 적 있는 이슈 — 소급 차단하지 않는다
+    bad = _requirement_linkage.check(root, issue)
+    violations.extend(f"requirement-linkage: {b}" for b in bad)
+    return violations
+
+
 def _approvers(root: Path) -> set[str]:
     """`docs/specs/approvers.md` 한 줄에 하나씩 적힌 GitHub 로그인."""
     p = root / MARKER
@@ -7475,6 +7508,19 @@ def main() -> int:
         if a.issue is None:
             sys.exit("사용법: spawn.py approve-scope --issue <n> [-C <레포>]")
         return approve_scope(a.cwd, a.issue)
+    if a.role == "lint":
+        # issue #2088: 스폰 전에 body-only 게이트(acceptance shape, requirement
+        # linkage)만 미리 돌려본다 — 세션을 안 띄운다, 위반은 전부 찍는다.
+        if a.issue is None:
+            sys.exit("사용법: spawn.py lint --issue <n> [-C <레포>]")
+        violations = lint_issue(a.cwd, a.issue)
+        if violations:
+            print(f"이슈 #{a.issue} lint: 위반 {len(violations)}건")
+            for v in violations:
+                print(f"  - {v}")
+            return 1
+        print(f"이슈 #{a.issue} lint: 위반 없음")
+        return 0
     if a.role == "drive":
         # 보드가 지목하는 역할을 하나씩, 멈출 때까지.
         require_board(a.cwd, a.no_contract)
