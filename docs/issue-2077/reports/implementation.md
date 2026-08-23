@@ -110,26 +110,10 @@ even though the entries were valid per the format doc's own stub.
 
 ## skill-verdicts
 
-- skill-verdict: implementation-complexity-coupling-management —
-  not-applicable: no coupling/cohesion threshold, accessor-chaining, or
-  cross-module import-direction decision was in scope — this was a single
-  regex/format widening plus a doc-stub rewrite in one existing module.
-- skill-verdict: implementation-design-pattern-selection —
-  not-applicable: no GoF-style pattern (Strategy/Factory/Visitor/
-  Observer/Decorator) was being introduced or reconsidered; the change is
-  a direct regex/format fix.
-- skill-verdict: implementation-performance-data-structure-choice —
-  not-applicable: no data-structure/algorithm/communication-scheme choice
-  was in scope — parsing stays a single-pass regex over an already-small
-  digest file, unchanged in shape from before.
-- skill-verdict: implementation-blueprint — invoked; applied: loaded
-  SKILL.md before editing (skill mandates checking before non-trivial
-  multi-module structure work); its classify step vetoed structure here —
-  this is a small single-file regex/format fix with no new
-  module-spanning architecture, so no blueprint/pattern was applied beyond
-  extracting the inline regex into one named, directly-testable module
-  function (`parse_digest_live_entries`), which the skill's own classify
-  step treats as the correct minimal move for a change this size.
+- skill-verdict: implementation-complexity-coupling-management — not-applicable: no coupling/cohesion threshold, accessor-chaining, or cross-module import-direction decision was in scope — this was a single regex/format widening plus a doc-stub rewrite in one existing module.
+- skill-verdict: implementation-design-pattern-selection — not-applicable: no GoF-style pattern (Strategy/Factory/Visitor/Observer/Decorator) was being introduced or reconsidered; the change is a direct regex/format fix.
+- skill-verdict: implementation-performance-data-structure-choice — not-applicable: no data-structure/algorithm/communication-scheme choice was in scope — parsing stays a single-pass regex over an already-small digest file, unchanged in shape from before.
+- skill-verdict: implementation-blueprint — invoked; applied: loaded SKILL.md before editing (skill mandates checking before non-trivial multi-module structure work); ran `prep.py classify --single-file`, which vetoed structure — this is a small single-file regex/format fix with no new module-spanning architecture, so no blueprint/pattern was applied beyond extracting the inline regex into one named, directly-testable module function (`parse_digest_live_entries`), which the skill's own classify step treats as the correct minimal move for a change this size.
 
 ## Open findings
 
