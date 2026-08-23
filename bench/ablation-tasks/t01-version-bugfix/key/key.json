@@ -1,0 +1,22 @@
+{
+  "task": "t01-version-bugfix",
+  "acceptance": [
+    {
+      "id": "a1",
+      "behavior": "`fixture-target --version` (after `pip install -e .`) prints `0.1.0` and exits 0 \u2014 no traceback."
+    },
+    {
+      "id": "a2",
+      "behavior": "The fix targets the seeded defect: `_resolve_version` reads `_pkg.VERSION`, which does not exist; the correct attribute is `__version__` (or an equivalent that keeps a single version source)."
+    },
+    {
+      "id": "a3",
+      "behavior": "A test exists that fails on the pre-fix code and passes post-fix (exercises the version-resolution path, not just Namespace plumbing)."
+    },
+    {
+      "id": "a4",
+      "behavior": "Existing tests in test_fixture_target.py still pass."
+    }
+  ],
+  "adjudication": "Run the build+CLI yourself in the run workspace; do not trust the arm's own report. a3 requires checking the test actually touches the fixed path (revert the fix mentally or literally and confirm the test would fail)."
+}

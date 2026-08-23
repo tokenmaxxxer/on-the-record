@@ -1,0 +1,11 @@
+{
+  "id": "t07-save-underspecified",
+  "class": "underspecified",
+  "fixture": "harness/fixture-arcade",
+  "expected_artifacts": [
+    "either a clarifying question / stated-assumption record, or an implementation with assumptions flagged"
+  ],
+  "requirement_file": "requirement.md",
+  "issue_file": "issue.md",
+  "key_dir": "key"
+}

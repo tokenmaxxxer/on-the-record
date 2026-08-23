@@ -1,0 +1,12 @@
+{
+  "id": "t04-potion-overheal",
+  "class": "bugfix",
+  "fixture": "harness/fixture-arcade",
+  "expected_artifacts": [
+    "clamp in Player.drink_potion (or equivalent single point)",
+    "regression test"
+  ],
+  "requirement_file": "requirement.md",
+  "issue_file": "issue.md",
+  "key_dir": "key"
+}
