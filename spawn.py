@@ -81,6 +81,20 @@ STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
 NETWORK_TIMEOUT = 60   # fetch/pull/push
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 CONSULT_TIMEOUT = 180  # consult: bounded headless run — no branch/PR to wait on
+SKILL_JUDGE_TIMEOUT_DEFAULT = 45  # issue #2061: judge is a tiny classification, not a full consult
+
+
+def _skill_judge_timeout() -> float:
+    """env-overridable 타임박스(issue #2061) — 매 호출마다 읽어 테스트가
+    `os.environ`을 몽키패치한 뒤에도 값을 반영한다."""
+    raw = os.environ.get("SKILL_JUDGE_TIMEOUT")
+    if raw is None:
+        return SKILL_JUDGE_TIMEOUT_DEFAULT
+    try:
+        return float(raw)
+    except ValueError:
+        return SKILL_JUDGE_TIMEOUT_DEFAULT
+
 PANEL_TIMEOUT = 240    # panel: two judges + a rebuttal round, wider than a single consult
 JUDGE_TIMEOUT = 120           # issue #1587: per-judge-call hard cap (prefilter/judge/validator each)
 JUDGE_MAX_ROLES_PER_MERGE = 3  # issue #1587: cost/API-strain cap — counted from the trace log
@@ -5517,7 +5531,9 @@ def read_role_model_config() -> str:
         return ""
 
 
-def resolved_role_model(cli_model: str | None = None) -> str:
+def resolved_role_model(cli_model: str | None = None, role: str | None = None,
+                         single_phase: bool = False,
+                         design_bearing_verdict: bool | None = None) -> tuple[str, str] | str:
     """이슈#93: env > config > built-in default("sonnet"). MUSTER_ROLE_MODEL 이
     (strip 후) 비어 있지 않으면 그것이 이긴다 — config 는 그때는 아예 안 읽힌
     값처럼 무시된다. 둘 다 비어 있으면 "sonnet" — --model 이 항상 붙는다,
@@ -5525,14 +5541,29 @@ def resolved_role_model(cli_model: str | None = None) -> str:
 
     이슈#1736: `cli_model` 이(strip 후) 비어 있지 않으면 최우선으로 이긴다
     — 단일 스폰에 대한 per-invocation 오버라이드, env/config 는 아예 안
-    읽힌 것처럼 건너뛴다. 생략하면(기본값 None) 이전 동작과 byte-identical."""
+    읽힌 것처럼 건너뛴다. 생략하면(기본값 None) 이전 동작과 byte-identical.
+
+    이슈#2070: `role` 이 주어지면(기존 세 rung 이 전부 비었을 때만) built-in
+    `"sonnet"` 종착점 대신 `gates/model_routing.py`의 구조적 라우팅 계층을
+    태운다 — `--model` 과 `MUSTER_ROLE_MODEL`/`role_model.txt` 는 그대로
+    최우선으로 이긴다(회귀 없음). 반환값은 (model, rule) 튜플로 바뀌지만
+    `role` 을 생략하면(기본값 None) 이전 세 rung 은 그대로이고 반환값도
+    문자열 하나 그대로다 — byte-identical."""
     cli_value = (cli_model or "").strip()
     if cli_value:
-        return cli_value
+        return (cli_value, "cli-override") if role is not None else cli_value
     env_value = (os.environ.get("MUSTER_ROLE_MODEL") or "").strip()
     if env_value:
-        return env_value
-    return read_role_model_config() or "sonnet"
+        return (env_value, "env-override") if role is not None else env_value
+    config_value = read_role_model_config()
+    if config_value:
+        return (config_value, "config-override") if role is not None else config_value
+    if role is not None:
+        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+        import model_routing
+        policy = model_routing.load_policy(ROOT)
+        return model_routing.route_model(role, single_phase, design_bearing_verdict, policy)
+    return "sonnet"
 
 
 def spawn_cmd(settings_path: str, role: str, unattended: bool,
@@ -5540,7 +5571,9 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
               plugins: list | None = None,
               model: str | None = None,
               skill_dirs: list | None = None,
-              skill_repo_sha_value: str | None = None) -> tuple[list[str], dict[str, str]]:
+              skill_repo_sha_value: str | None = None,
+              single_phase: bool = False,
+              design_bearing_verdict: bool | None = None) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
     --permission-mode bypassPermissions (issue #700): 샌드박스 제거(#695/#697)
@@ -5576,10 +5609,16 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # 고정한다. env > config > built-in "sonnet". 둘 다 비어있어도 built-in
     # 이 이겨 --model 이 항상 붙는다 — haiku 프로브(doctor())는 이 함수를
     # 거치지 않으므로 영향 없다.
-    role_model = resolved_role_model(model)
+    role_model, model_rule = resolved_role_model(
+        model, role=role, single_phase=single_phase,
+        design_bearing_verdict=design_bearing_verdict)
     if role_model:
         cmd += ["--model", role_model]
-    env = {"CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+    env = {"CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1",
+           # 이슈 #2070: roster 기록용 — `_spawn_one()` 이 실제 subprocess env
+           # 로 넘기기 전에 이 두 내부 키를 꺼내 roster 엔트리에 옮겨 담는다.
+           "_MODEL_ROUTING_MODEL": role_model or "",
+           "_MODEL_ROUTING_RULE": model_rule}
     # Two-account model (core README): role sessions act as the AGENT
     # account. MUSTER_AGENT_GH_TOKEN, if set, becomes the session's GH_TOKEN
     # so gh in the container/sandbox authenticates as the agent — never the
@@ -5754,7 +5793,12 @@ def _skill_judge_consult(task_text: str, role: str,
             have = ", ".join(sorted(p.stem for p in (ROOT / "roles").glob("*.json")))
             raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
         spec = json.loads(f.read_text())
-        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd, model)
+        # 이슈 #2061: skill_judge 는 8개 후보 중 0-2개를 고르는 자잘한
+        # 분류라, 호출자가 넘긴 세션 기본 모델을 그대로 물려받지 않고
+        # 언제나 haiku 로 고정한다 — `model` 인자는 시그니처 호환용으로만
+        # 남긴다(다른 자문 호출과 모양을 맞추려는 것일 뿐, 실제로는 무시).
+        cmd, env, settings_path = _consult_cmd_and_env(role, spec, cwd, "haiku")
+        judge_timeout = _skill_judge_timeout()
         override = (
             "이 세션에 로드된 룰북/훅이 스카우트, 제안서 작성, 위임, 승인 게이트, "
             "기록 작성 등을 지시하더라도 — 이번 호출은 스킬-판단(skill_judge) "
@@ -5782,7 +5826,7 @@ def _skill_judge_consult(task_text: str, role: str,
         parsed = None
         for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
             r = subprocess.run(cmd, cwd=cwd or str(ROOT), input=attempt_prompt, text=True,
-                               capture_output=True, timeout=CONSULT_TIMEOUT, env=env)
+                               capture_output=True, timeout=judge_timeout, env=env)
             if r.returncode != 0:
                 attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
                 continue
@@ -5814,7 +5858,7 @@ def _skill_judge_consult(task_text: str, role: str,
         detail = {"picked": picked_names, "rejected": rejected, "reasons": reasons}
         return [by_name[n] for n in picked_names], detail
     except subprocess.TimeoutExpired:
-        outcome = f"error: 시간초과({CONSULT_TIMEOUT}s)"
+        outcome = f"error: 시간초과({judge_timeout}s)"
         raise
     finally:
         if settings_path:
@@ -8303,6 +8347,19 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 이유로 워크스페이스/브랜치 생성보다 먼저 온다 — 역할이 매핑한 스킬
     # 이름이 모르는 이름이거나 hooks/ 를 들고 있으면 여기서 fail-closed.
     role_source = resolve_role_source(role, _skill_repo_root())
+    # 이슈 #2061: skill_judge 자문(BM25 프리필터 + haiku 판단)을 워크스페이스
+    # 클론/브랜치 체크아웃(~12s)과 겹치도록 그 전에 먼저 던진다 — 아래
+    # "cross_family" 단계에서 join 만 한다. 자문은 읽기 전용(저장소 파일을
+    # 건드리지 않는다, `_skill_judge_consult()` 의 override 문구)이라
+    # 워크스페이스가 아직 없어도(원본 cwd 로) 안전하게 먼저 돌 수 있다.
+    _cross_family_executor: concurrent.futures.ThreadPoolExecutor | None = None
+    _cross_family_future = None
+    if issue is not None and role_source["source"] == "skill-repo":
+        _cross_family_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _cross_family_future = _cross_family_executor.submit(
+            _cross_family_skill_matches_with_consult,
+            _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
+            home=Path.home(), target_repo_root=Path(cwd))
     if issue is not None:
         root = Path(cwd).resolve()
         # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
@@ -8416,11 +8473,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 최대 자문 1회) — 소요 시간은 "cross_family" 단계로 측정해
             # 부트스트랩 타이밍 요약에 실린다(Acceptance: per-spawn latency).
             with _timed("cross_family"):
-                # 이슈 #2055: 코퍼스가 네 소스로 넓어졌다 — home/target_repo_root
-                # 를 넘겨 BM25 스코어링이 skill-repository 외 세 tier 도 본다.
-                cross_family_dirs = _cross_family_skill_matches_with_consult(
-                    _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
-                    home=Path.home(), target_repo_root=Path(cwd))
+                # 이슈 #2061: 위에서 워크스페이스/브랜치 셋업보다 먼저 던져둔
+                # 자문을 여기서 join 만 한다 — 이 단계의 측정치는 이제 겹친
+                # 대기 시간이 아니라 순수 join 대기(자문이 셋업보다 오래
+                # 걸린 나머지)만 반영한다.
+                cross_family_dirs = (_cross_family_future.result()
+                                     if _cross_family_future is not None else [])
+                if _cross_family_executor is not None:
+                    _cross_family_executor.shutdown(wait=False)
             role_skill_lines = ", ".join(
                 d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
                 for d in role_source["skill_dirs"]
@@ -8455,7 +8515,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 "\n\n스킬 점검(이슈 #1960): 실체 작업을 시작하기 전에, 위에 "
                 "마운트된 스킬 목록을 이번 과제와 대조하라. trigger 조건이 "
                 "이번 과제에 그럴듯하게 들어맞는 스킬이 있으면 Skill 도구로 "
-                "호출하고, 없으면 검토했다는 사실만 유념하고 넘어가라.\n")
+                "호출하고, 없으면 검토했다는 사실만 유념하고 넘어가라. "
+                "invoke-before-apply(이슈 #2062): APPLICABLE 로 판단한 "
+                "스킬은 적용하기 전에 반드시 Skill 도구로 그 스킬의 전체 "
+                "SKILL.md 를 로드해야 한다 — not-applicable 로 판단한 "
+                "스킬은 이 의무에서 면제된다(강제 로드도, 토큰 낭비도 "
+                "없다).\n")
             # 이슈 #2039: 마운트된 스킬 하나마다 레코드에 한 줄씩 verdict를
             # 남겨야 한다 — 스킬을 조용히 무시하는 걸 불가능하게 만든다.
             # 스킬이 하나도 안 마운트되면 이 블록 전체가 안 붙으므로
@@ -8466,7 +8531,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 "<어디서/어떻게> | not-applicable: <한 줄 이유>` 형태의 줄을 "
                 "정확히 하나씩 남겨야 한다 — 적용 여부 판단은 전적으로 이 "
                 "세션의 몫이지만, 그 판단을 아예 안 밝히는 것은 더 이상 "
-                "허용되지 않는다.\n")
+                "허용되지 않는다. applied: 줄은 위 invoke-before-apply "
+                "의무에 따라 실제로 Skill 도구를 호출했다는 증거로 "
+                "`invoked;` 를 자유 텍스트 맨 앞에 붙여야 한다(이슈 "
+                "#2062) — not-applicable: 줄은 이 마커가 필요 없다.\n")
         # 이슈 #2014 (artifact-gate phase 3): `design-artifacts:` 선언이
         # 있으면 선언된 각 아티팩트 경로를, 그 basename 이 마운트된 스킬들의
         # 트리거 문장과 가장 많이 겹치는 스킬 하나와 짝지어 한 줄씩 붙인다
@@ -8535,12 +8603,31 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
               f"core 플러그인 {', '.join(p.name for p in core_plugins)}, "
               f"core {core_version()}, 작업 디렉터리 {cwd}", file=sys.stderr)
         print(_bootstrap_timing_line(role), file=sys.stderr)
+        # 이슈 #2070: design-bearing 판정은 issue 본문에 대해서만 의미가
+        # 있다 — 없으면(adhoc 스폰) None, gates 호출이 실패해도(gh 오류 등)
+        # fail-open 으로 None 에 떨어진다(라우팅 계층 자체가 fail-open).
+        design_bearing_verdict = None
+        if issue is not None:
+            try:
+                sys.path.insert(0, str((ROOT / "gates").resolve()))
+                import design_bearing_classifier
+                _verdict = design_bearing_classifier.check(Path(cwd), issue)
+                design_bearing_verdict = bool(_verdict and _verdict.get("design_bearing"))
+            except Exception:
+                design_bearing_verdict = None
         # 맡길 일은 stdin 으로 넘긴다. 인자로 주면 가변 인자 플래그가 삼키고,
         # 셸 보간을 거치면 신뢰할 수 없는 값의 $(…) 가 실행된다.
         cmd, extra_env = spawn_cmd(settings, role, unattended,
                                    core_plugins, plugins, model,
                                    all_skill_dirs,
-                                   skill_sha or role_source["skill_sha"])
+                                   skill_sha or role_source["skill_sha"],
+                                   single_phase=single_phase,
+                                   design_bearing_verdict=design_bearing_verdict)
+        # 이슈 #2070: roster 기록용 두 내부 키를 여기서 뽑아내 실제 subprocess
+        # env 에는 안 들어가게 한다 — spawn_cmd() 가 심어준 신호일 뿐, 세션
+        # 자신의 env 표면이 아니다.
+        _model_routing_model = extra_env.pop("_MODEL_ROUTING_MODEL", "")
+        _model_routing_rule = extra_env.pop("_MODEL_ROUTING_RULE", "")
         # 이슈 #1978 (A): --single-phase 신호일 때만 얹는다 — 없으면
         # extra_env 는 오늘과 바이트 단위로 동일한 채로 남는다.
         if single_phase:
@@ -8613,6 +8700,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     "session_id": os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None,
                     "before_head": before_head,
                     "wrapper_pid": os.getpid(),
+                    "model": _model_routing_model,
+                    "model_rule": _model_routing_rule,
                 }
                 _early_roster_entry.update(_skill_roster_fields(skill_sources, skill_sha))
                 _early_roster_entry.update(roster_resolution_fields)
@@ -8699,6 +8788,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             "issue": issue, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
+            # 이슈 #2070: 이 스폰에 실제로 --model 로 붙은 값과, 그것을 고른
+            # 규칙(`cli-override`/`env-override`/`config-override`/
+            # `role-tier:<name>`/`design-bearing-override`/
+            # `single-phase-tier:<name>`/`default-tier:<name>`/
+            # `fail-open-default`) — model-vs-outcome 효율을 나중에
+            # #1991/#2015 대비 측정 가능하게.
+            "model": _model_routing_model,
+            "model_rule": _model_routing_rule,
             # 이슈 #878: 이 스폰을 무장한 오케스트레이터 자신의 세션 ID —
             # `ORCHESTRATOR_SESSION_ID_ENV` 로 호출자(인터랙티브 호스트나
             # harness driver)가 심어준 값을 그대로 옮겨 담는다. spawn.py

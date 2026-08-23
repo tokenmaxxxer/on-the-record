@@ -988,7 +988,7 @@ def t_2039_skill_verdict_satisfied_passes():
     line -> no violations."""
     body = (
         "---\nloop_state: landed\n---\n\n"
-        "skill-verdict: implementation-blueprint — applied: used at spawn.py:8181.\n\n"
+        "skill-verdict: implementation-blueprint — applied: invoked; used at spawn.py:8181.\n\n"
         "## What did not work\nNone.\n")
     d, record = _repo_with_record(body)
     bad = record_lint.record_skill_verdicts_in(d, ["implementation-blueprint"])
