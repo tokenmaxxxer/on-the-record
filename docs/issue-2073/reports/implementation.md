@@ -172,19 +172,13 @@ Two divergences from the proposal's plan, both inline, both logged:
 
 ## Skill verdicts
 
-- skill-verdict: implementation-complexity-coupling-management —
-  applied: invoked; rule 4 (widen an existing contract rather than add a
-  cross-module dependency edge) decided two calls — the
+- skill-verdict: implementation-complexity-coupling-management — applied: invoked; rule 4 widened an existing contract instead of adding a cross-module dependency edge.
+  It decided two calls — the
   `design_artifacts_gate.parse_declaration` tag parameter instead of a
   copied per-tag parser, and `check_runner.parse_checks` taking
   `runtime_artifacts` instead of importing a second declaration source.
-- skill-verdict: implementation-design-pattern-selection —
-  not-applicable: no GoF-shaped indirection was under consideration; the
-  gate is three module-level functions over text.
-- skill-verdict: implementation-performance-data-structure-choice —
-  not-applicable: the hot structures are a frozenset verb allowlist and
-  a declaration list of single-digit length, with no asymptotic choice
-  open.
+- skill-verdict: implementation-design-pattern-selection — not-applicable: no GoF-shaped indirection was under consideration, the gate being three module-level functions over text.
+- skill-verdict: implementation-performance-data-structure-choice — not-applicable: the hot structures are a frozenset verb allowlist and a declaration list of single-digit length, with no asymptotic choice open.
 - skill-verdict: implementation-blueprint — not-applicable: the module
   boundaries, write set and staging order were frozen by the approved
   phase-1 proposal, so no structural decision remained open for the
