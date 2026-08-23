@@ -1089,6 +1089,10 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=12,
                     help="drive: 한 번에 띄울 최대 횟수 (기본 12, 폭주 방지)")
     ap.add_argument("--login", help="init: approvers.md 에 넣을 GitHub 로그인 (기본: gh api user)")
+    ap.add_argument("--push", action="store_true",
+                    help="init: 보드 파일을 add+commit+push 까지 직접 한다 "
+                         "(issue #2125). 없으면 리모트 검증만 하고, 미푸시면 "
+                         "복붙 명령 블록을 출력하고 비0으로 끝난다")
     ap.add_argument("--stall-timeout", type=float, default=5.0,
                     help="분 단위. role task/watch 가 이벤트 없이 블록하는 최대 시간 (기본 5)")
     ap.add_argument("--role", dest="watch_role",
@@ -1159,7 +1163,7 @@ def main() -> int:
 
     if a.role == "init":
         # 보드로 선언한다(approvers.md). on-the-record 가 남의 레포에 쓰는 유일한 경우.
-        return init_board(a.cwd, a.login)
+        return init_board(a.cwd, a.login, push=a.push)
     if a.role == "ps":
         return roster_ps()
     if a.role == "recut-if-absorbed":

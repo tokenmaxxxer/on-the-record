@@ -50,20 +50,81 @@ def slug(cwd: str) -> str:
     return Path(cwd).resolve().name
 
 
-def init_board(cwd: str, login: str | None = None) -> int:
+def _current_branch(root: Path) -> str:
+    """현재 브랜치 이름 (detached HEAD 등이면 'HEAD')."""
+    r = subprocess.run(["git", "-C", str(root), "symbolic-ref", "--short", "HEAD"],
+                       capture_output=True, text=True)
+    name = r.stdout.strip() if r.returncode == 0 else ""
+    return name or "HEAD"
+
+
+def _verify_board_on_remote(root: Path, push: bool) -> int:
+    """issue #2125: init 은 파일 생성에서 멈추면 안 된다 — 모든 워크스페이스는
+    리모트에서 클론하므로, 리모트 기본 브랜치에 보드 표식이 없으면 스폰이
+    admission(#2123)에서 거부된다. 여기서 리모트를 검증하고, 없으면
+    `--push` 로 직접 올리거나 복붙 가능한 명령 블록을 출력하고 비0으로
+    끝낸다. 이미 리모트에 있으면 조용히 0."""
+    slug = _sp._repo_slug(root)
+    if slug is not None and _sp._board_marker_probe(slug) is True:
+        return 0  # 이미 리모트에 있다 — 조용히 성공
+    rels = [_sp.MARKER]
+    if (root / _sp.REQUIREMENT_DIGEST_MARKER).exists():
+        rels.append(_sp.REQUIREMENT_DIGEST_MARKER)
+    branch = _current_branch(root)
+    if push:
+        # issue #2022 의 근거 그대로: 커밋+push 까지 가야 다음 스폰이 성공한다.
+        try:
+            subprocess.run(["git", "-C", str(root), "add", *rels],
+                           check=True, capture_output=True, text=True)
+            staged = subprocess.run(
+                ["git", "-C", str(root), "diff", "--cached", "--quiet"],
+                capture_output=True, text=True)
+            if staged.returncode != 0:  # 스테이징된 변경이 있을 때만 커밋
+                subprocess.run(["git", "-C", str(root), "commit",
+                                "-m", "board-setup: init approvers.md",
+                                "-m", "Subject: board-setup"],
+                               check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as e:
+            sys.exit(f"보드 파일을 커밋하지 못했다: "
+                     f"{e.stderr.strip() if e.stderr else e}")
+        push_r = subprocess.run(
+            ["git", "-C", str(root), "push", "--set-upstream", "origin", branch],
+            capture_output=True, text=True)
+        if push_r.returncode != 0:
+            sys.exit(f"보드 파일을 커밋했지만 push 하지 못했다 — 이 파일들이 "
+                     f"리모트에 올라가기 전까지는 모든 스폰이 admission 에서 "
+                     f"거부된다: {push_r.stderr.strip() if push_r.stderr else push_r}")
+        print(f"보드 파일을 커밋하고 push 했다 (origin/{branch}).")
+        return 0
+    print(
+        f"경고: board not yet on the remote — spawns will be refused at "
+        f"admission until pushed.\n"
+        f"리모트 기본 브랜치에 {_sp.MARKER} 가 없다(또는 origin 이 없다). "
+        f"아래를 그대로 실행하거나, `spawn.py init --push` 로 다시 실행한다:\n\n"
+        f"  git add {' '.join(rels)}\n"
+        f"  git commit -m 'board-setup: init approvers.md'\n"
+        f"  git push --set-upstream origin {branch}\n",
+        file=sys.stderr)
+    return 2
+
+
+def init_board(cwd: str, login: str | None = None, push: bool = False) -> int:
     """대상 레포를 보드로 선언한다: docs/specs/approvers.md 를 만든다.
 
     v3: 계약 심기는 폐지됐다 — 정본은 core 플러그인에만 있고, 레포 사본은
     해시 검사로 강제 동일해져 정보량이 0이었다. 보드 표식이자 승인자
     allowlist 인 approvers.md 만 있으면 된다. **사용자의 파일이다** —
     이미 있으면 절대 덮지 않는다.
+
+    issue #2125: 파일을 쓴 뒤 리모트 검증까지가 init 의 일이다 —
+    `_verify_board_on_remote` 참조. `--push` 면 add+commit+push 까지 직접 한다.
     """
     root = Path(cwd).resolve()
     dest = root / _sp.MARKER
     if dest.exists():
         print(f"이미 있다: {dest}")
         _sp.init_requirement_digest(cwd)
-        return 0
+        return _verify_board_on_remote(root, push)
     if not login:
         r = subprocess.run(["gh", "api", "user", "--jq", ".login"],
                            capture_output=True, text=True)
@@ -76,30 +137,10 @@ def init_board(cwd: str, login: str | None = None) -> int:
     print(f"보드로 선언했다: {dest}  (approver: {login})")
     _sp.init_requirement_digest(cwd)
 
-    # issue #2022: 로컬 작업 트리에만 쓰고 끝내면, 신선한 클론에서 스폰한
-    # 세션이 approvers.md 를 못 봐서 board-gate 에 막혀 죽는다(실측:
-    # skill-repository #50). 커밋하고 push 까지 해야 다음 스폰이 성공한다.
-    rels = [_sp.MARKER]
-    if (root / _sp.REQUIREMENT_DIGEST_MARKER).exists():
-        rels.append(_sp.REQUIREMENT_DIGEST_MARKER)
-    try:
-        subprocess.run(["git", "-C", str(root), "add", *rels],
-                       check=True, capture_output=True, text=True)
-        subprocess.run(["git", "-C", str(root), "commit",
-                        "-m", "board-setup: init approvers.md",
-                        "-m", "Subject: board-setup"],
-                       check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        sys.exit(f"보드 파일을 커밋하지 못했다: "
-                 f"{e.stderr.strip() if e.stderr else e}")
-    push = subprocess.run(["git", "-C", str(root), "push"],
-                          capture_output=True, text=True)
-    if push.returncode != 0:
-        sys.exit(f"보드 파일을 커밋했지만 push 하지 못했다 — 이 파일들이 "
-                 f"리모트에 올라가기 전까지는 모든 스폰이 board-gate 에 막혀 "
-                 f"실패한다: {push.stderr.strip() if push.stderr else push}")
-    print(f"보드 파일을 커밋하고 push 했다.")
-    return 0
+    # issue #2022 → #2125: 로컬 작업 트리에만 쓰고 끝내면, 신선한 클론에서
+    # 스폰한 세션이 approvers.md 를 못 본다(실측: skill-repository #50).
+    # 리모트를 검증하고, --push 면 커밋+push 까지 직접 한다.
+    return _verify_board_on_remote(root, push)
 
 
 def init_requirement_digest(cwd: str) -> bool:
@@ -334,7 +375,13 @@ def require_requirement_linkage(cwd: str, issue: int | None) -> None:
         + "\n".join(f"  - {b}" for b in bad)
         + f"\n  세션을 안 띄운다 — 요구 ID(`R\\d+` 또는 'northpole req#<n>')를 "
         f"인용하거나 'infrastructure/no-direct-requirement' 태그를 달아야 "
-        f"한다(issue #1017, northpole req#6).")
+        f"한다(issue #1017, northpole req#6).\n"
+        f"  R-ID 목록은 docs/specs/requirement-digest.md 에 있다"
+        f"(없으면 `spawn.py init` 이 스텁을 만든다).\n"
+        f"  예시 — 이슈 본문에 이런 한 줄이면 된다: Targets R1.\n"
+        f"  'infrastructure/no-direct-requirement' 태그는 이슈가 어떤 제품 "
+        f"요구에도 직접 닿지 않는 순수 기반 작업(빌드·CI·게이트·리팩터링 등)일 "
+        f"때만 적절하다.")
 
 
 def lint_issue(cwd: str, issue: int) -> list[str]:
