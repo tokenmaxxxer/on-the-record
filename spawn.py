@@ -81,7 +81,9 @@ STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
 NETWORK_TIMEOUT = 60   # fetch/pull/push
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 CONSULT_TIMEOUT = 180  # consult: bounded headless run — no branch/PR to wait on
-SKILL_JUDGE_TIMEOUT_DEFAULT = 45  # issue #2061: judge is a tiny classification, not a full consult
+SKILL_JUDGE_TIMEOUT_DEFAULT = 90  # issue #2076: measured completion rate at 45s was <80% in
+# consumer dogfood (issue #2071 defect 1) — raised to give the haiku judge more room before
+# BM25 fail-open, still env-overridable via SKILL_JUDGE_TIMEOUT
 
 
 def _skill_judge_timeout() -> float:
@@ -5877,7 +5879,7 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
                                              model: str | None = None,
                                              home: Path | None = None,
                                              target_repo_root: Path | None = None
-                                             ) -> list[Path]:
+                                             ) -> tuple[list[Path], str]:
     """이슈 #2040: BM25 상위 `_CROSS_FAMILY_CONSULT_TOPN` 개를 자문
     (skill_judge)에 넘겨 조건-매치 여부로 좁힌다. BM25 후보가 아예 없으면
     (score>0 인 것이 없으면) 자문을 부르지 않고 빈 목록을 바로 돌려준다
@@ -5885,20 +5887,26 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     경로를 오늘처럼 조용히 통과시킨다. 자문이 에러(타임아웃/파싱 실패/
     세션 실패 전부 포함)를 내면 BM25 자체의 top-`k` 로 fail-open 한다
     (`_cross_family_skill_matches()`, 제안서 Constraints — "오늘의
-    raw-overlap top-2" 가 아니라 BM25 가 새 기준 프리필터이므로)."""
+    raw-overlap top-2" 가 아니라 BM25 가 새 기준 프리필터이므로).
+
+    이슈 #2076: 반환이 이제 `(picked_dirs, outcome)` 튜플이다 — `outcome`
+    은 "completed"(자문 성공) | "fail-open"(자문 에러/타임아웃) |
+    "no-candidates"(BM25 후보 0개라 자문 자체를 안 부름) 중 하나로,
+    호출부(`_spawn_one`)가 그대로 per-spawn 원장 필드에 남겨 완료율을
+    측정할 수 있게 한다."""
     scored = _bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
     if not scored:
-        return []
+        return [], "no-candidates"
     candidates = [(name, d, source)
                   for _, name, d, source in scored[:_CROSS_FAMILY_CONSULT_TOPN]]
     try:
         picked, _detail = _skill_judge_consult(task_text, role, candidates, issue, cwd,
                                                model=model)
-        return picked
+        return picked, "completed"
     except Exception as ex:
         print(f"[{role}] skill_judge 자문 실패 — BM25 top-{k} 로 fail-open: {ex}",
               file=sys.stderr)
-        return [d for _, _, d, _ in scored[:k]]
+        return [d for _, _, d, _ in scored[:k]], "fail-open"
 
 
 def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
@@ -8329,6 +8337,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 스폰마다 달라진다.
     _cross_family_task_text = task
     cross_family_dirs: list[Path] = []
+    # 이슈 #2076: skill_judge 자문이 이번 스폰에서 완료됐는지 fail-open
+    # 했는지 — role_source 가 skill-repo 가 아니면 자문 자체가 안 불려
+    # "not-run" 으로 남는다(아래 ledger_write 필드).
+    skill_judge_outcome = "not-run"
     # 이슈 #1742/#1774: --skills 이름 검증(네 소스 모두)은 워크스페이스/
     # 브랜치를 건드리기 전에 끝난다(fail-closed, 요구사항 2) — 아래
     # 워크스페이스 생성보다 먼저 온다.
@@ -8477,8 +8489,9 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 자문을 여기서 join 만 한다 — 이 단계의 측정치는 이제 겹친
                 # 대기 시간이 아니라 순수 join 대기(자문이 셋업보다 오래
                 # 걸린 나머지)만 반영한다.
-                cross_family_dirs = (_cross_family_future.result()
-                                     if _cross_family_future is not None else [])
+                cross_family_dirs, skill_judge_outcome = (
+                    _cross_family_future.result()
+                    if _cross_family_future is not None else ([], "not-run"))
                 if _cross_family_executor is not None:
                     _cross_family_executor.shutdown(wait=False)
             role_skill_lines = ", ".join(
@@ -9100,6 +9113,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         "gates": gates,
         "log": str(log_path),
         "push_reason": push_result.get("reason") if push_result else None,
+        "skill_judge_outcome": skill_judge_outcome,
     })
 
     for line in gates:

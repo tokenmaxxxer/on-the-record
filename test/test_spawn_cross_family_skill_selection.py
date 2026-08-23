@@ -167,7 +167,8 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         # ConsultJudgeStageTest 가 별도로 검증한다.
         def stub_with_consult(task_text, role, repo_root, issue, cwd, k=2, model=None,
                               home=None, target_repo_root=None):
-            return spawn._cross_family_skill_matches(task_text, role, repo_root, k=k)
+            return (spawn._cross_family_skill_matches(task_text, role, repo_root, k=k),
+                    "completed")
 
         with mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
                                stub_with_consult), \
@@ -337,7 +338,7 @@ class ConsultJudgeStageTest(unittest.TestCase):
                          "Use when a landing page needs contrast accessible review.")
         with mock.patch.object(spawn, "_skill_judge_consult",
                                side_effect=RuntimeError("consult boom")):
-            matches = spawn._cross_family_skill_matches_with_consult(
+            matches, outcome = spawn._cross_family_skill_matches_with_consult(
                 "Build a landing page that needs contrast accessible review.",
                 "implementation", self.repo_root, 2040, str(self.work), k=2)
         bm25_top2 = spawn._cross_family_skill_matches(
@@ -345,15 +346,17 @@ class ConsultJudgeStageTest(unittest.TestCase):
             "implementation", self.repo_root, k=2)
         self.assertEqual(matches, bm25_top2)
         self.assertEqual(matches, [d1, d2])
+        self.assertEqual(outcome, "fail-open")
 
     def test_no_bm25_candidates_skips_consult_entirely(self):
         self._skill("some-skill", "Use when deploying a widget frobnicator.")
         with mock.patch.object(spawn, "_skill_judge_consult") as m:
-            matches = spawn._cross_family_skill_matches_with_consult(
+            matches, outcome = spawn._cross_family_skill_matches_with_consult(
                 "Completely unrelated vocabulary here.", "implementation",
                 self.repo_root, 2040, str(self.work))
         m.assert_not_called()
         self.assertEqual(matches, [])
+        self.assertEqual(outcome, "no-candidates")
 
 
 class FourSurfaceCandidateCorpusTest(unittest.TestCase):
