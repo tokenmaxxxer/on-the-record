@@ -216,6 +216,129 @@ class ReconcileSweepDeclaredWaits(_HardeningCase):
         self.assertEqual(self.ledger.named("declared_wait_missing_object"), [])
 
 
+class ApprovalWaitSurfacing(_HardeningCase):
+    """Issue #2133: a HEALTHY checkpoint-mode approval pause is actively
+    surfaced every tick — [awaiting-approval] line with remaining time,
+    [EXPIRING] under 20% budget, one ledger event per wait instance."""
+
+    def _wait_file(self, e, **fields):
+        payload = {"object": "issue:9", "reason": "approve-token",
+                   "issue": 9, "role": "implementation"}
+        payload.update(fields)
+        (Path(e["work"]) / spawn.DECLARED_WAIT_FILENAME).write_text(
+            json.dumps(payload))
+
+    def _sweep(self, key, e, now):
+        import io, contextlib
+        buf = io.StringIO()
+        with mock.patch.object(spawn, "_alive", return_value=True), \
+             contextlib.redirect_stdout(buf):
+            count = spawn.lease_reconcile_sweep(root=self.root,
+                                                d_all={key: e}, now=now)
+        return count, buf.getvalue()
+
+    def test_healthy_wait_emits_line_with_issue_role_remaining(self):
+        now = time.time()
+        key, e = _entry(self.td, key="issue-9/implementation", issue=9)
+        (self.root / spawn.BOARD / "issue-9").mkdir(parents=True)
+        self._wait_file(e, ts=now - 300, budget_sec=1800)
+        count, out = self._sweep(key, e, now)
+        self.assertIn("[awaiting-approval] issue-9/implementation: "
+                      "APPROVE issue-9/implementation needed, "
+                      "25m remaining of 30m", out)
+        self.assertNotIn("[EXPIRING]", out)
+        self.assertEqual(count, 0)  # a healthy wait is not an anomaly
+        events = self.ledger.named("approval_wait_surfaced")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["issue"], 9)
+        self.assertEqual(events[0]["role"], "implementation")
+
+    def test_under_20_percent_budget_flips_expiring_prefix(self):
+        now = time.time()
+        key, e = _entry(self.td, key="issue-9/implementation", issue=9)
+        (self.root / spawn.BOARD / "issue-9").mkdir(parents=True)
+        self._wait_file(e, ts=now - 1500, budget_sec=1800)  # 300s < 20%
+        _, out = self._sweep(key, e, now)
+        self.assertIn("[awaiting-approval][EXPIRING] issue-9/implementation",
+                      out)
+        self.assertIn("5m remaining of 30m", out)
+
+    def test_ledger_event_once_per_wait_instance(self):
+        now = time.time()
+        key, e = _entry(self.td, key="issue-9/implementation", issue=9)
+        (self.root / spawn.BOARD / "issue-9").mkdir(parents=True)
+        stamped = set()
+
+        def once_per_key(dedup_key, *a, **k):
+            if dedup_key in stamped:
+                return False
+            stamped.add(dedup_key)
+            return True
+
+        with mock.patch.object(spawn, "ledger_check_and_stamp",
+                               once_per_key):
+            self._wait_file(e, ts=int(now - 300), budget_sec=1800)
+            self._sweep(key, e, now)
+            self._sweep(key, e, now + 60)  # same instance, second tick
+            self.assertEqual(
+                len(self.ledger.named("approval_wait_surfaced")), 1)
+            self._wait_file(e, ts=int(now + 100), budget_sec=1800)
+            self._sweep(key, e, now + 200)  # NEW wait instance (new ts)
+            self.assertEqual(
+                len(self.ledger.named("approval_wait_surfaced")), 2)
+
+    def test_wait_file_without_timestamp_fields_is_remaining_unknown(self):
+        """Compat: a pre-#2133 wait file (no ts/budget_sec) surfaces as
+        remaining unknown — never a crash."""
+        now = time.time()
+        key, e = _entry(self.td, key="issue-9/implementation", issue=9)
+        (self.root / spawn.BOARD / "issue-9").mkdir(parents=True)
+        (Path(e["work"]) / spawn.DECLARED_WAIT_FILENAME).write_text(
+            json.dumps({"object": "issue:9", "reason": "approve-token",
+                        "issue": 9, "role": "implementation"}))
+        count, out = self._sweep(key, e, now)
+        self.assertIn("[awaiting-approval] issue-9/implementation: "
+                      "APPROVE issue-9/implementation needed, "
+                      "remaining unknown", out)
+        self.assertNotIn("[EXPIRING]", out)
+        self.assertEqual(count, 0)
+
+    def test_garbage_timestamp_fields_never_crash(self):
+        now = time.time()
+        key, e = _entry(self.td, key="issue-9/implementation", issue=9)
+        (self.root / spawn.BOARD / "issue-9").mkdir(parents=True)
+        for ts, budget in [("soon", 1800), (now, "lots"), (now, 0),
+                           (True, True), (None, None)]:
+            self._wait_file(e, ts=ts, budget_sec=budget)
+            _, out = self._sweep(key, e, now)
+            self.assertIn("remaining unknown", out)
+
+    def test_non_approval_wait_emits_nothing(self):
+        now = time.time()
+        key, e = _entry(self.td)
+        awaited = Path(e["work"]) / "artifact.md"
+        awaited.write_text("x")
+        (Path(e["work"]) / spawn.DECLARED_WAIT_FILENAME).write_text(
+            json.dumps({"object": "artifact.md"}))
+        _, out = self._sweep(key, e, now)
+        self.assertNotIn("awaiting-approval", out)
+        self.assertEqual(self.ledger.named("approval_wait_surfaced"), [])
+
+    def test_negative_case_advisories_unchanged(self):
+        """Regression: an approve-token wait on a MISSING object still emits
+        the declared_wait_missing_object advisory exactly as before (the
+        healthy-wait line rides alongside, not instead)."""
+        now = time.time()
+        key, e = _entry(self.td, key="issue-404/implementation", issue=404)
+        self._wait_file(e, object="issue:404", issue=404,
+                        ts=now - 60, budget_sec=1800)
+        count, out = self._sweep(key, e, now)
+        self.assertEqual(
+            len(self.ledger.named("declared_wait_missing_object")), 1)
+        self.assertIn("missing object", out)
+        self.assertEqual(count, 1)
+
+
 class DeadMansSwitch(_HardeningCase):
     """Mechanism 4: absence of the coverage-OK marker is the alert, checked
     from outside the watchdog process."""
@@ -273,6 +396,7 @@ class WatchClassNoBlockingRegression(unittest.TestCase):
         "deadman_check", "deadman_mark", "_declared_wait",
         "_declared_wait_object_exists", "_declared_wait_valid",
         "_lease_progress_indicator", "_sweep_completion_in_flight",
+        "_surface_approval_wait",  # issue #2133
     ]
     # Constructs that would make a watch-class path blocking or lethal.
     # (Prose like "nothing is blocked" is fine — these are code constructs.)
@@ -310,6 +434,9 @@ class WatchClassNoBlockingRegression(unittest.TestCase):
                 self.assertIsNone(spawn._declared_wait("/nonexistent"))
                 self.assertFalse(spawn._declared_wait_object_exists(
                     Path(td), None, {"not": "a string"}))
+                # issue #2133: garbage wait dict never crashes the surfacer
+                spawn._surface_approval_wait(
+                    "k", {}, {"reason": "approve-token"}, time.time())
 
 
 if __name__ == "__main__":

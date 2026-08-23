@@ -1212,6 +1212,11 @@ def await_approval_cmd(cwd: str, issue: int, role: str,
         wait_path.write_text(json.dumps({
             "object": f"issue:{issue}", "reason": "approve-token",
             "issue": issue, "role": role, "ts": int(time.time()),
+            # Issue #2133: the watchdog sweep computes the remaining wait
+            # from ts + budget_sec to surface the healthy pause
+            # ([awaiting-approval] line); a wait file without budget_sec
+            # surfaces as remaining=unknown.
+            "budget_sec": timeout,
         }), encoding="utf-8")
     except OSError as exc:
         # Advisory-only machinery: a wait that cannot be declared must not
