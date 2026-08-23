@@ -1,3 +1,9 @@
+---
+id: remove-role-session-sandbox
+status: active
+date: 2026-08-11
+---
+
 # Remove the role-session sandbox
 
 ## Status
