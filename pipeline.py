@@ -1165,6 +1165,81 @@ def _resolve_session_max_turns(cli_value: int | None) -> int:
     return _sp.DEFAULT_SESSION_MAX_TURNS
 
 
+def _checkpoint_poll_seconds() -> float:
+    """Issue #2129: comment-poll cadence of the in-session approval wait.
+    Read at call time so tests and operators can override per-run."""
+    try:
+        return float(os.environ.get("CHECKPOINT_POLL_SECONDS", "60"))
+    except ValueError:
+        return 60.0
+
+
+def _checkpoint_wait_max_seconds() -> float:
+    """Issue #2129: total bounded wait of the in-session approval pause."""
+    try:
+        return float(os.environ.get("CHECKPOINT_WAIT_MAX_SECONDS", "1800"))
+    except ValueError:
+        return 1800.0
+
+
+AWAIT_APPROVAL_TIMEOUT_RC = 3
+
+
+def await_approval_cmd(cwd: str, issue: int, role: str,
+                       timeout: float | None = None,
+                       interval: float | None = None) -> int:
+    """Issue #2129 checkpoint mode: the deterministic in-session approval
+    wait. The spawned session runs this ONE command at the phase-1/phase-2
+    boundary instead of burning model turns on a poll loop.
+
+    Behavior: writes the #2101 declared-wait file (`.waiting-on.json`,
+    object `issue:<n>` — the exact format `_declared_wait` reads, so the
+    watchdog's flat-progress exemption applies for the whole pause), then
+    polls the issue comments for the `APPROVE issue-<n>/<role>` needle with
+    the SAME predicate the phase-2 merge gate reads
+    (`gates/ci.py._approved_roles_on_issue` — this call IS the approve-token
+    check at the boundary, which is why admission's approve-token row cedes
+    to checkpoint spawns). Returns 0 on approval, 3
+    (AWAIT_APPROVAL_TIMEOUT_RC) on timeout. The declared-wait file is
+    removed on both exits — the pause is over either way."""
+    root = Path(cwd).resolve()
+    interval = _sp._checkpoint_poll_seconds() if interval is None else interval
+    timeout = _sp._checkpoint_wait_max_seconds() if timeout is None else timeout
+    sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+    import ci as _ci
+    wait_path = root / _sp.DECLARED_WAIT_FILENAME
+    try:
+        wait_path.write_text(json.dumps({
+            "object": f"issue:{issue}", "reason": "approve-token",
+            "issue": issue, "role": role, "ts": int(time.time()),
+        }), encoding="utf-8")
+    except OSError as exc:
+        # Advisory-only machinery: a wait that cannot be declared must not
+        # abort the pause itself (worst case is a watchdog advisory).
+        print(f"[await-approval] could not write {wait_path}: {exc}",
+              file=sys.stderr)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            if role in _ci._approved_roles_on_issue(root, issue):
+                print(f"[await-approval] APPROVE issue-{issue}/{role} "
+                      f"observed — continue to phase-2 in this session.")
+                return 0
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                print(f"[await-approval] timeout after {timeout:.0f}s — no "
+                      f"APPROVE issue-{issue}/{role}. End the session "
+                      f"cleanly; the proposal PR is the returned state.",
+                      file=sys.stderr)
+                return _sp.AWAIT_APPROVAL_TIMEOUT_RC
+            time.sleep(min(interval, remaining))
+    finally:
+        try:
+            wait_path.unlink()
+        except OSError:
+            pass
+
+
 def _admission_check_approve_token(ctx: dict) -> bool | None:
     """Item 1 (issue #2100): on a phase-2 issue the spawned role's APPROVE
     token must already be published — checked with the same predicate the
@@ -1176,6 +1251,17 @@ def _admission_check_approve_token(ctx: dict) -> bool | None:
     issue, role = ctx.get("issue"), ctx["role"]
     if issue is None or ctx.get("single_phase"):
         return True  # adhoc spawn / explicit build-now bypass: no token gate
+    if ctx.get("checkpoint"):
+        # Issue #2129: a checkpoint-mode spawn deliberately starts BEFORE
+        # any APPROVE token exists — the session itself enforces the token
+        # at the phase-1/phase-2 boundary (`spawn.py await-approval`, the
+        # same `_approved_roles_on_issue` predicate this row consults).
+        # Without this exemption the row would double-block every
+        # checkpoint spawn on a phase-2 issue whose approved role differs,
+        # which is exactly the state a checkpoint spawn is designed to
+        # enter. The boundary check is strictly later and strictly
+        # equivalent, so admission cedes this row to it.
+        return True
     root = Path(ctx["cwd"]).resolve()
     if not (root / _sp.MARKER).is_file():
         return True  # off-board work: no approver machinery to consult
