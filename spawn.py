@@ -432,6 +432,8 @@ import pipeline as _pipeline_mod
 if _pipeline_mod._sp is None or __name__ in ("spawn", "__main__"):
     _pipeline_mod._sp = sys.modules[__name__]
 _admission_check_approve_token = _pipeline_mod._admission_check_approve_token
+_admission_check_board_validity = _pipeline_mod._admission_check_board_validity
+_board_marker_probe = _pipeline_mod._board_marker_probe
 _admission_check_budget_caps = _pipeline_mod._admission_check_budget_caps
 _admission_check_directive_completeness = _pipeline_mod._admission_check_directive_completeness
 _admission_check_watch_registration = _pipeline_mod._admission_check_watch_registration
@@ -1752,6 +1754,7 @@ ADMISSION_CHECKS: list[tuple] = [
     ("directive-completeness", _admission_check_directive_completeness),
     ("watch-registration", _admission_check_watch_registration),
     ("budget-caps", _admission_check_budget_caps),
+    ("board-validity", _admission_check_board_validity),
 ]
 
 

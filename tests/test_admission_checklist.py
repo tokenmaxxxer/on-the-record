@@ -196,6 +196,104 @@ class AdmissionGateTable(unittest.TestCase):
             {"max_turns": spawn.DEFAULT_SESSION_MAX_TURNS,
              "allow_unlimited_turns": False}), True)
 
+    # --- item 5: board validity (issue #2123) ---------------------------
+    def test_missing_board_marker_refuses_named(self):
+        """The live 2026-08-23 incident, reconstructed at admission: the
+        target's remote default branch lacks docs/specs/approvers.md =>
+        refused with item `board-validity` before any session starts,
+        instead of stranding a 5-minute session at its record write."""
+        with tempfile.TemporaryDirectory() as td:
+            work = _board_repo(td)
+            ledger = _LedgerSpy()
+            with mock.patch.object(spawn, "ledger_write", ledger), \
+                 mock.patch.object(spawn, "_repo_slug",
+                                   return_value="owner/target"), \
+                 mock.patch.object(spawn, "_board_marker_probe",
+                                   return_value=False), \
+                 mock.patch.object(spawn, "resolve_role_source",
+                                   lambda role, repo_root: _ROLE_SOURCE_STUB):
+                refused = spawn.admission_gate({
+                    "cwd": str(work), "role": "implementation", "issue": None,
+                    "single_phase": False, "skills": None,
+                    "max_turns": 200, "allow_unlimited_turns": False})
+        self.assertEqual(refused, "board-validity")
+        events = ledger.named("admission_refused")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["item"], "board-validity")
+
+    def test_present_board_marker_admits(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = _board_repo(td)
+            ledger = _LedgerSpy()
+            with mock.patch.object(spawn, "ledger_write", ledger), \
+                 mock.patch.object(spawn, "_repo_slug",
+                                   return_value="owner/target"), \
+                 mock.patch.object(spawn, "_board_marker_probe",
+                                   return_value=True), \
+                 mock.patch.object(spawn, "resolve_role_source",
+                                   lambda role, repo_root: _ROLE_SOURCE_STUB):
+                refused = spawn.admission_gate({
+                    "cwd": str(work), "role": "implementation", "issue": None,
+                    "single_phase": False, "skills": None,
+                    "max_turns": 200, "allow_unlimited_turns": False})
+        self.assertIsNone(refused)
+        self.assertEqual(ledger.named("admission_refused"), [])
+        self.assertEqual(ledger.named("admission_gate_fail_open"), [])
+
+    def test_board_probe_gh_failure_fails_open(self):
+        """gh/network failure during the contents probe follows the
+        `admission_gate_fail_open` convention (issue #680): ledger event,
+        spawn proceeds."""
+        with tempfile.TemporaryDirectory() as td:
+            work = _board_repo(td)
+            ledger = _LedgerSpy()
+            with mock.patch.object(spawn, "ledger_write", ledger), \
+                 mock.patch.object(spawn, "_repo_slug",
+                                   return_value="owner/target"), \
+                 mock.patch.object(spawn, "_board_marker_probe",
+                                   return_value=None), \
+                 mock.patch.object(spawn, "resolve_role_source",
+                                   lambda role, repo_root: _ROLE_SOURCE_STUB):
+                refused = spawn.admission_gate({
+                    "cwd": str(work), "role": "implementation", "issue": None,
+                    "single_phase": False, "skills": None,
+                    "max_turns": 200, "allow_unlimited_turns": False})
+        self.assertIsNone(refused)  # admission passes
+        events = ledger.named("admission_gate_fail_open")
+        self.assertEqual([e["item"] for e in events], ["board-validity"])
+        self.assertEqual(ledger.named("admission_refused"), [])
+
+    def test_local_only_target_skips_board_probe(self):
+        """No resolvable remote slug => nothing to probe: the workspace
+        materializes from the local checkout, where board.py's own marker
+        check governs. Not a gh failure — no fail-open event."""
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(spawn, "_repo_slug", return_value=None):
+            verdict = spawn._admission_check_board_validity({"cwd": td})
+        self.assertIs(verdict, True)
+
+    def test_board_marker_probe_verdicts(self):
+        """The gh contents probe maps: HTTP 200 => True (present),
+        HTTP 404 => False (confirmed missing), anything else => None."""
+        import pipeline
+
+        def _cp(rc, stderr=""):
+            return subprocess.CompletedProcess(
+                args=[], returncode=rc, stdout="", stderr=stderr)
+        with mock.patch.object(pipeline.subprocess, "run",
+                               return_value=_cp(0)):
+            self.assertIs(spawn._board_marker_probe("o/r"), True)
+        with mock.patch.object(pipeline.subprocess, "run",
+                               return_value=_cp(1, "gh: Not Found (HTTP 404)")):
+            self.assertIs(spawn._board_marker_probe("o/r"), False)
+        with mock.patch.object(pipeline.subprocess, "run",
+                               return_value=_cp(1, "connection reset")):
+            self.assertIsNone(spawn._board_marker_probe("o/r"))
+        with mock.patch.object(
+                pipeline.subprocess, "run",
+                side_effect=subprocess.TimeoutExpired(cmd="gh", timeout=60)):
+            self.assertIsNone(spawn._board_marker_probe("o/r"))
+
     # --- fail-open ------------------------------------------------------
     def test_gh_failure_fails_open_with_ledger_event(self):
         """Mirrors the returned-PR gate convention (issue #680): a broken
@@ -296,6 +394,37 @@ class AdmissionRefusalCreatesNothing(unittest.TestCase):
         events = ledger.named("admission_refused")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["item"], "approve-token")
+
+    def test_board_validity_refusal_creates_no_workspace_and_no_session(self):
+        """Issue #2123 acceptance: a target whose remote default branch
+        lacks the marker is refused at admission — no session started, no
+        workspace left behind."""
+        with tempfile.TemporaryDirectory() as td:
+            work = _board_repo(td)
+            ledger = _LedgerSpy()
+            workspaces, popens = [], []
+            with mock.patch.object(spawn, "ledger_write", ledger), \
+                 mock.patch.object(spawn, "_repo_slug",
+                                   return_value="owner/target"), \
+                 mock.patch.object(spawn, "_board_marker_probe",
+                                   return_value=False), \
+                 mock.patch.object(spawn, "resolve_role_source",
+                                   lambda role, repo_root: _ROLE_SOURCE_STUB), \
+                 mock.patch.object(spawn, "issue_workspace",
+                                   side_effect=lambda *a: workspaces.append(a)), \
+                 mock.patch.object(spawn, "roster_register",
+                                   side_effect=AssertionError("no roster write")), \
+                 mock.patch.object(spawn.subprocess, "Popen",
+                                   side_effect=lambda *a, **k: popens.append(a)):
+                rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                      unattended=True, issue=None,
+                                      bounded=False)
+        self.assertEqual(rc, 1)
+        self.assertEqual(workspaces, [])   # no workspace created
+        self.assertEqual(popens, [])       # no session process
+        events = ledger.named("admission_refused")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["item"], "board-validity")
 
 
 class BudgetCapPlumbing(unittest.TestCase):
