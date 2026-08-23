@@ -1,0 +1,1 @@
+- 2026-08-23T03:45:55.780443+00:00 | role=implementation | verb=skill_judge | issue=2069 | question="과제:\nIssue #2069 (infrastructure/no-direct-requirement): fix survey-order-gate's hardcoded survey path — it demands docs/issue-<n>/reports/implementation/survey.md from every phase-1 author, contradict" | outcome='error: 시간초과(45s)'
