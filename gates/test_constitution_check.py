@@ -103,13 +103,12 @@ def t_keyword_groups_catch_paraphrased_drift():
     # issue #2104 review finding: the recorded drift phrasings, lightly
     # paraphrased, slipped past all exact keyword phrases. AND-groups
     # ("hook + skill") must catch them while unrelated text still skips.
-    from pathlib import Path
-    from gates.frozen_decisions import load_registry
+    from frozen_decisions import load_registry
     reg = load_registry(Path(__file__).resolve().parent.parent / "docs" / "decisions")
-    hit = check_recommendation(
+    hit = cc.check_recommendation(
         "attach enforcement hooks beside skills in the skill-repository as a new carrier",
         [], reg)
     assert hit["status"] == "needs-disposition"
     assert "single-enforcement-surface" in hit["conflicts"]
-    miss = check_recommendation("improve the pricing consult docs", [], reg)
+    miss = cc.check_recommendation("improve the pricing consult docs", [], reg)
     assert miss["status"] == "skip"
