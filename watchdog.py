@@ -95,8 +95,6 @@ WATCHDOG_SILENCE_MIN = 90     # 이슈 #90 proposal, signal 1
 WATCHDOG_NO_COMMIT_MIN = 71   # 이슈 #90 proposal, signal 4 (0.5 * p90 ≈ 142.6)
 WATCHDOG_DENIAL_THRESHOLD = 3 # 이슈 #90 proposal, signal 3
 WATCHDOG_HEARTBEAT_ONLY_MIN = 18  # 이슈 #1966, signal 7: 하트비트만-성장 관측 창(분)
-_DELEGATION_RE = re.compile(
-    r"run_in_background|백그라운드|delegate|background worker", re.IGNORECASE)
 WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD = 3  # 이슈 #2196: 단발 gh 실패는 억제, N틱 연속이면 경보
 
 
