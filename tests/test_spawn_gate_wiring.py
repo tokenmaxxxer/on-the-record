@@ -961,3 +961,145 @@ class RequirementDigestScaffold(unittest.TestCase):
 
             self.assertEqual(digest.read_text(encoding="utf-8"), custom)
 
+
+class DesignBearingSingleFetch(unittest.TestCase):
+    """이슈 #2186: `_spawn_one`은 이슈 본문을 "issue_fetch" 단계에서 이미
+    `gh_rest.fetch_issue()`로 한 번 받아온다. design-bearing 판정이 같은
+    본문을 `gh_rest.fetch_issue_body()`로 또 받아오면(예전 동작) 스폰마다
+    똑같은 `gh api` 왕복이 중복된다 — 그 중복 fetch 가 다시는 없는지
+    검증한다(이미 있는 `body`를 `check_issue_body()`에 바로 넘긴다)."""
+
+    @pytest.mark.slow
+    def test_design_bearing_never_refetches_the_issue_body(self):
+        import subprocess as sp
+        from unittest import mock
+
+        sys.path.insert(0, str((Path(spawn.ROOT) / "gates").resolve()))
+        import gh_rest
+
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "issue-9-impl"
+            work.mkdir()
+            run = lambda *a: sp.run(a, cwd=str(work), capture_output=True,
+                                    text=True, check=True)
+            run("git", "init", "-q")
+            run("git", "config", "user.email", "t@example.com")
+            run("git", "config", "user.name", "t")
+            (work / "f.txt").write_text("x")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "init")
+
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+
+            design_bearing_body = ("design-bearing-override: yes\n\n"
+                                   "이 이슈는 새 화면을 설계한다.\n")
+            fetch_issue_body_calls = []
+
+            def spy_fetch_issue_body(*a, **k):
+                fetch_issue_body_calls.append((a, k))
+                return design_bearing_body
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "ensure_pushed",
+                                       lambda *a, **k: None), \
+                     mock.patch.object(spawn, "roster_register",
+                                       lambda *a, **k: None), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       lambda root, exclude_issue=None: ([], True)), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: None), \
+                     mock.patch.object(gh_rest, "fetch_issue",
+                                       lambda repo, issue, run=None:
+                                           {"title": "t", "body": design_bearing_body}), \
+                     mock.patch.object(gh_rest, "fetch_issue_body",
+                                       spy_fetch_issue_body):
+                    spawn._spawn_one(str(work), "execution-observation", "task\n",
+                                     unattended=True, issue=9)
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+
+            self.assertEqual(fetch_issue_body_calls, [],
+                             "design-bearing check re-fetched the issue body "
+                             "via gh_rest.fetch_issue_body() instead of reusing "
+                             "the body already fetched by issue_fetch (issue #2186)")
+
+
+class ReturnedPRGateOverlapsWorkspaceSetup(unittest.TestCase):
+    """이슈 #2186: 실측 스폰에서 프라임 서스펙트였던 returned-PR 보드
+    스윕(`gh pr list` 왕복)이 이제 워크스페이스 클론/브랜치 체크아웃과
+    겹쳐 돈다(cross_family 자문과 같은 패턴) — 겹친 만큼 "returned_pr_gate"
+    단계의 계측치(순수 join 대기)가 그 조회 자체의 소요 시간보다 훨씬
+    작아야 한다는 것으로 겹침을 증명한다."""
+
+    @pytest.mark.slow
+    def test_returned_pr_gate_join_wait_is_shorter_than_its_own_work(self):
+        import subprocess as sp
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "issue-9-impl"
+            work.mkdir()
+            run = lambda *a: sp.run(a, cwd=str(work), capture_output=True,
+                                    text=True, check=True)
+            run("git", "init", "-q")
+            run("git", "config", "user.email", "t@example.com")
+            run("git", "config", "user.name", "t")
+            (work / "f.txt").write_text("x")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "init")
+
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+
+            def slow_undispositioned_role_prs(root, exclude_issue=None):
+                time.sleep(0.3)
+                return [], True
+
+            def slow_issue_workspace(cwd, issue, role):
+                time.sleep(0.5)
+                return str(work)
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "issue_workspace",
+                                       slow_issue_workspace), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "ensure_pushed",
+                                       lambda *a, **k: None), \
+                     mock.patch.object(spawn, "roster_register",
+                                       lambda *a, **k: None), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       slow_undispositioned_role_prs), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: None):
+                    spawn._spawn_one(str(work), "execution-observation", "task\n",
+                                     unattended=True, issue=9)
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+
+            join_wait = spawn._BOOTSTRAP_TIMING.get("returned_pr_gate", 0.0)
+            self.assertLess(
+                join_wait, 0.3,
+                f"returned_pr_gate join wait ({join_wait}s) should be well "
+                f"under the gate's own 0.3s of work — the workspace setup "
+                f"(0.5s) should have already absorbed it (issue #2186)")
+
