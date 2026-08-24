@@ -126,8 +126,13 @@ def t_live_fire_deny_before_commit_lands():
     with tempfile.TemporaryDirectory() as td:
         target = _self_hosted_target(Path(td))
         injected = spawn.self_hosted_hooks(str(target))
-        script = _plugin_root_command(injected, "PreToolUse", "Bash",
-                                       "spec-index-preflight.sh")
+        # issue #2146: the PreToolUse registration is the single
+        # dispatcher; spec-index-preflight.sh runs inside it, so the
+        # live-fire deny is exercised through the real registered command.
+        script = _plugin_root_command(
+            injected, "PreToolUse",
+            "Write|Edit|MultiEdit|NotebookEdit|Bash|WebFetch",
+            "pretooluse-dispatcher.sh")
 
         repo = Path(td) / "repo"
         repo.mkdir()
