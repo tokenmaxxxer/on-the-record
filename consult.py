@@ -348,9 +348,22 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     # 픽도 기존 <=k 크로스-패밀리 상한 안에서 세고(판단 픽보다 우선),
     # 남는 슬롯만 판단에 넘긴다. 결정론: 과제 텍스트 안 첫 등장 위치,
     # 그다음 이름 오름차순.
+    #
+    # 이슈 #2166: 스캔 대상을 `scored` 전체가 아니라 판단에 넘기는 것과
+    # 같은 BM25 상위 `_CROSS_FAMILY_CONSULT_TOPN` 개로 좁힌다 — declared
+    # phrase 는 "이미 그럴듯한 후보를 확정 짓는 신호"로 설계됐지, BM25
+    # 랭킹과 무관하게 문구 하나로 판단을 통째로 건너뛰는 무제한 우회로가
+    # 아니다. 예: work-in-english 의 declared phrase 는 "이 버그 고쳐줘"/
+    # "fix this bug and open a pr" 처럼 흔한 요청 예문이라 거의 모든 한국어
+    # 과제 텍스트에 그대로 등장하는데, 고정 폭 없이 전체 `scored` 를 훑으면
+    # 그 스킬의 BM25 순위가 무관한 과제에서 47위여도(재현: 이슈-525 과제
+    # 텍스트) 판단 없이 자동 픽된다. topN 으로 좁히면 애초에 BM25로도
+    # 상위 후보가 아닌 스킬은 fast-path 대상에서 빠져 정상적으로
+    # 판단(consult) 단계로 넘어가거나(top-N 안이면) 아예 후보에서 배제된다
+    # (top-N 밖이면). 결정론적 정렬(입력 순서/타이브레이크)은 그대로다.
     task_lower = task_text.lower()
     fast: list[tuple[int, str, Path]] = []
-    for _score, name, d, _source in scored:
+    for _score, name, d, _source in scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]:
         for phrase in _sp._skill_declared_phrases(d):
             pos = task_lower.find(phrase)
             if pos >= 0:
