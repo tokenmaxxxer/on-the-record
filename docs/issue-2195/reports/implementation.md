@@ -207,12 +207,9 @@ None.
 
 ## Skill check
 
-- skill-verdict: implementation-performance-data-structure-choice —
-  applied: invoked; asked whether `threading.Thread(daemon=True)` was the
-  right primitive over `ThreadPoolExecutor` for the one-shot
-  fire-and-forget `auto_sweep` dispatch, and whether any leak/correctness
-  risk (abrupt kill of in-flight file deletes, thread pileup on rapid
-  respawns) needed flagging. The skill's six rules (hash-set-vs-list
+- skill-verdict: implementation-performance-data-structure-choice — applied: invoked; asked whether `threading.Thread(daemon=True)` was the right primitive over `ThreadPoolExecutor` for the one-shot fire-and-forget `auto_sweep` dispatch, and whether any leak/correctness risk (abrupt kill of in-flight file deletes, thread pileup on rapid respawns) needed flagging.
+
+  The skill's six rules (hash-set-vs-list
   membership testing, sorted-array space tradeoffs, algorithm-class-vs-
   measured-cost, message-batching for many small/frequent messages,
   cache-hit-rate removal, index-read-fraction removal) all target
