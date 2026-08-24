@@ -123,6 +123,16 @@ session (canonical: gh issue view 2215) — no prior docs/issue-2215/
 content existed before this session; the record skeleton itself was
 pre-written per issue #2135 and is filled in here.
 
+amendments-reconciled: issuecomment-5396777655 (canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/2215/comments`) — a live
+`git status --porcelain`/`rev-list --count` sweep across nine concurrently
+running role workspaces, posted after this session started, showing every
+one dirty and four (`commits_ahead=0`) fully unrecoverable from git today.
+This is corroborating evidence for the issue body's existing claims, not a
+scope change — no new acceptance criterion is stated in the comment beyond
+what `## Acceptance` already lists, so no adjustment to the delivered
+design was needed.
+
 ## Open findings
 
 None.
