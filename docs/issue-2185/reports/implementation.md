@@ -258,10 +258,9 @@ None.
 
 ## Skill check
 
-- skill-verdict: implementation-performance-data-structure-choice —
-  applied: invoked; used to weigh fix candidate (A) a cached
-  repo-layout hint vs (B) documented `git ls-files` guidance. The
-  skill's cache-justification framing (rule 5: don't keep/build a
+- skill-verdict: implementation-performance-data-structure-choice — applied: invoked; used to weigh fix candidate (A) a cached repo-layout hint vs (B) documented `git ls-files` guidance.
+
+  The skill's cache-justification framing (rule 5: don't keep/build a
   cache whose measured benefit doesn't cover the actual cost) applied
   in reverse to a not-yet-built cache: (A)'s claimed benefit
   (precomputed repo layout) doesn't address the measured dominant cost
