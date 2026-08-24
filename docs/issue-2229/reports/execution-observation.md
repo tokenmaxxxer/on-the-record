@@ -312,3 +312,7 @@ provenance bullet.
 
 Issue #2229's three acceptance bullets all hold, independently
 reproduced against PR #2242's branch, per the citations above.
+
+## Skill verdicts
+
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked once at session start; every scenario in the delivered-work section above (the fresh malformed/well-formed test bodies, the full-CLI empty-state path, the edge/negative paths beyond the PR's own fixtures, and the `main`-worktree flakiness control) was designed and run by this session before opening the implementation role's own report, per the skill's read-after-devise ordering.
