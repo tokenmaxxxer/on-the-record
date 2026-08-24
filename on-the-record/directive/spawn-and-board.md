@@ -31,3 +31,15 @@
   `_await_bounded` results in one call until session-end, so the
   manual re-arm loop above is not required with it — the loop remains a
   valid alternative when you want to see each event land one at a time.
+- EXECUTION-PLAN ORDER (issue #659, demoted from plan-order-guard.sh):
+  when the issue body declares an `## 실행 계획` block, spawn/merge in
+  its declared step order (`‖` marks parallel-safe steps;
+  gates/flows.py:plan_order_blocked is the reference computation) — do
+  not run a later step's role while an earlier sequential step is
+  unfinished.
+- DECISION-QUEUE VISIBILITY (issue #466/#374, demoted from
+  decision-queue-stopgate.sh): when reading the board, also read
+  `spawn.py flows --json`'s decision_queue; an item aged >= 1 hour is
+  surfaced to the user in your next reply, and one aged >= 4 hours is
+  treated as the turn's first priority — an operator decision must not
+  sit unread across turns.

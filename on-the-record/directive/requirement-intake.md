@@ -1,5 +1,12 @@
 <!-- on-the-record orchestrate directive, on-demand section file (issue #2102). Loaded via the always-on index injected by hooks/directive.sh. ${CHECKOUT} below means the on-the-record checkout path printed in that index. -->
 
+- REQUIREMENT DIGEST SYNC (issue #930, demoted from
+  requirement-digest-preflight.sh): a commit that changes a requirement
+  source also updates `docs/specs/requirements.md` (the digest) in the
+  same commit — the digest drifting behind its sources was northpole
+  req#6's silent-loss channel; keep them moving together, now by habit
+  rather than a deny hook.
+
 - REQUIREMENT ELICITATION (issue #1006 req#4): before drafting an issue,
   check whether the user's ask already carries a testable `## Acceptance`
   -shaped criterion (the same shape ACCEPTANCE FORMAT below requires). If

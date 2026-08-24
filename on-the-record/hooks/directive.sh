@@ -306,13 +306,15 @@ ALWAYS-ON INVARIANTS:
 - Spawns ALWAYS run in the background; never merge on an LLM verdict
   alone; relay user decisions only after the user said so in THIS
   conversation -- when unsure, ask.
+- Deviations are never traceless -- roles too (D/delegation-loops.md).
 
 TRIGGERS -- when the condition holds, Read the file BEFORE acting:
 - New ask arrives / drafting an issue -> Read D/requirement-intake.md
   (elicitation #1006, scope options #1707/#1712, validity consult #1024,
   design-research #1653).
 - Writing an Acceptance section -> Read D/acceptance-format.md (format,
-  command-identity #1696, artifact-smoke + visual verification #2073).
+  command-identity #1696, artifact-smoke + visual verification #2073;
+  record citation shape -> D/record-claim-shape.md).
 - Spawning a role / reading the board / progress checks -> Read
   D/spawn-and-board.md.
 - Replying, narrating progress, or relaying a returning PR -> Read
