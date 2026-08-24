@@ -212,14 +212,14 @@ def role_settings(role: str, cwd: str | None = None,
                    inject_self_hosted_hooks: bool = True) -> dict:
     """역할의 샌드박스 경계 + 전역 플러그인 차단.
 
-    **룰북을 켜는 일은 여기서 하지 않는다.** 그건 `--plugin-dir` 이 한다
-    (plugin_dirs 참고). 설정으로 켜려면 마켓플레이스를 등록하고 설치해야
+    **스킬-저장소 가이던스를 켜는 일은 여기서 하지 않는다.** 그건 `--plugin-dir` 이 한다
+    (`spawn_cmd()` 의 plugins/core_plugins/skill_dirs 참고). 설정으로 켜려면 마켓플레이스를 등록하고 설치해야
     하는데, 그 경로에는 조용한 함정이 셋 있고 전부 "의도한 것과 다른 커밋이
     붙는다"로 끝난다.
 
     남는 일은 두 가지다: 역할이 선언한 샌드박스를 펼치는 것, 그리고 사용자
     전역 플러그인을 빠짐없이 끄는 것. 후자는 `--settings` 가 교체가 아니라
-    **병합**이라 필요하다 — 안 끄면 qa 룰북만 적은 세션에 전역 17개가 딸려
+    **병합**이라 필요하다 — 안 끄면 qa 스킬-저장소 가이던스만 적은 세션에 전역 17개가 딸려
     온다.
     """
     f = _sp.ROOT / "roles" / f"{role}.json"
@@ -480,7 +480,7 @@ def _claude_version() -> str:
 def require_doctor(version: str | None = None) -> None:
     """이 CLI 버전에서 훅이 headless 로 도는 것을 doctor 가 실측했는지 본다.
 
-    룰북 집행 전체가 '플러그인 훅이 -p 세션에서 돈다'는 한 문장 위에 서
+    훅 집행 전체가 '플러그인 훅이 -p 세션에서 돈다'는 한 문장 위에 서
     있는데, 그 문장은 공식 문서에 없다 — 실측(2026-07-27, 2.1.220)뿐이다.
     CLI 는 자동 업데이트되므로, 버전이 바뀌면 게이트 전부가 소리 없이
     사라질 수 있다. 그래서 버전마다 한 번, 실측을 다시 요구한다.
@@ -599,14 +599,14 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # admission-approved unlimited run — no flag is attached.
     if max_turns is not None and max_turns > 0:
         cmd += ["--max-turns", str(max_turns)]
-    # 룰북도 core 와 같은 길로 붙는다 — 디렉터리로 넘긴 플러그인의 훅은
+    # 스킬-저장소 가이던스도 core 와 같은 길로 붙는다 — 디렉터리로 넘긴 플러그인의 훅은
     # headless 에서 그대로 발화하고(실측 2026-07-27, CLI 2.1.220), 설치를
     # 안 거치므로 캐시-클론 갈라짐도 유령 등록 항목도 이 경로엔 없다.
     for p in (plugins or []):
         cmd += ["--plugin-dir", str(p)]
     for p in (core_plugins or []):
         cmd += ["--plugin-dir", str(p)]
-    # 이슈 #1742: --skills 로 마운트한 스킬 디렉터리. rulebook/core 뒤에
+    # 이슈 #1742: --skills 로 마운트한 스킬 디렉터리. skill-repo/core 뒤에
     # 붙는다 — 순서는 우선순위가 아니라 추가분(additive)이라 어디 붙어도
     # 무방하지만, skill_dirs 가 falsy 면(기본값) 이 루프가 아무 것도 안 붙여
     # no-flag 경로의 argv 를 바이트 단위로 그대로 둔다.
