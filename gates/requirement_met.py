@@ -179,7 +179,10 @@ def _artifact_in_diff_hunk(artifact: str, diff: str) -> bool:
     경로를 산문으로만 이름 붙인 것에 불과하므로):
       - `diff --git a/<path> b/<path>`, `--- a/<path>`, `+++ b/<path>`
         같은 파일 헤더 줄에만 경로가 등장하는 것
-      - `.md`/`.markdown`/`.txt` 같은 산문 전용 파일에 추가된 줄
+      - `.md`/`.markdown`/`.txt` 같은 산문 전용 파일에 추가된 줄 — 단,
+        issue #2137(verify-at-landing) 예외: `acceptance: <command> —
+        result: ...` 모양의 실행-증거 인용 줄은 레코드 .md 안에 있어도
+        증거로 인정한다(레코드가 곧 회귀 스위트다)
       - `#`/`//`/`*`/`/*` 로 시작하는 주석 전용 추가 줄
     반드시 `+`로 시작하는(파일 헤더가 아닌) 실제 코드/콘텐츠 추가 라인
     안에 문자열로 등장해야 한다."""
@@ -198,6 +201,14 @@ def _artifact_in_diff_hunk(artifact: str, diff: str) -> bool:
         if artifact not in content:
             continue
         if current_file and current_file.lower().endswith(_PROSE_FILE_SUFFIXES):
+            # issue #2137 (verify-at-landing): a recorded EXECUTED-evidence
+            # citation (`acceptance: <command> — result: ...`) in a record
+            # .md IS the evidence under the new contract — the record is
+            # the regression suite. Only bare prose mentions stay excluded;
+            # command-identity (#1696) still checks the cited command
+            # matches byte-identically.
+            if _ACCEPTANCE_CITATION.search(content):
+                return True
             continue
         if _is_comment_only_line(content):
             continue
