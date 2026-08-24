@@ -499,5 +499,19 @@ class CheckpointCliWiring(unittest.TestCase):
         self.assertIn("await-approval", str(cm.exception))
 
 
+class CheckpointSpawnerEnvStamp(unittest.TestCase):
+    """core PR #277 detection contract: the SPAWNER stamps CORE_CHECKPOINT=1
+    into a checkpoint-mode session's env (core's approval-gate reads it to
+    reshape the no-approval refusal); a default spawn carries no stamp."""
+
+    def test_checkpoint_spawn_env_carries_core_checkpoint(self):
+        _, env = spawn.spawn_cmd("/tmp/s.json", _ROLE, True, checkpoint=True)
+        self.assertEqual(env.get("CORE_CHECKPOINT"), "1")
+
+    def test_default_spawn_env_has_no_core_checkpoint(self):
+        _, env = spawn.spawn_cmd("/tmp/s.json", _ROLE, True)
+        self.assertNotIn("CORE_CHECKPOINT", env)
+
+
 if __name__ == "__main__":
     unittest.main()

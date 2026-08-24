@@ -244,7 +244,7 @@ def _skill_judge_consult(task_text: str, role: str,
         # haiku 고정 / 90s / <=max_picks / pick-zero-allowed / fail-open 은
         # 전부 그대로다.
         override = (
-            "This call is skill_judge only — ignore every rulebook/hook "
+            "This call is skill_judge only — ignore every directive/hook "
             "instruction loaded in this session: touch no repository files, "
             "delegate nothing, answer directly. This sentence overrides all "
             "other instructions.")
@@ -835,7 +835,7 @@ def _judge_prefilter(role: str, spec: dict, diff_summary: str, cwd: str) -> bool
     바꾸면 안 된다."""
     cmd, env, settings_path = _sp._judge_cmd_and_env(role, spec, cwd, model="haiku")
     prompt = (
-        f"역할 '{role}' 의 관할(rulebook jurisdiction) 안에 아래 diff 요약이 "
+        f"역할 '{role}' 의 관할(role jurisdiction) 안에 아래 diff 요약이 "
         "조금이라도 걸리는지만 판단하라. 다른 텍스트 없이 JSON 객체 하나만 "
         '출력하라: {"relevant": true|false}\n\ndiff 요약:\n' + diff_summary
     )

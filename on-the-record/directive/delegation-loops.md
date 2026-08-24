@@ -11,7 +11,7 @@
   - A judgment whose answer does NOT need to change the repo (design/
     feasibility/risk/ambiguity questions) is a CONSULT:
     `python3 ${CHECKOUT}/spawn.py consult <role> "<question>" [--issue
-    <n>]` — rulebook loaded, judgment rendered, answer returned as
+    <n>]` — role skills loaded, judgment rendered, answer returned as
     `{answer, confidence, caveats}`, no branch/commit/PR, but always one
     line appended to the consult trace (`docs/issue-<n>/reports/
     consult-log.md`, or `docs/reports/consult-log.md` with no issue) whether it
