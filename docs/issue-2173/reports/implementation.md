@@ -13,7 +13,7 @@ code_under_review:
   - tests/test_gh_quota_guard.py
   - docs/handbooks/gh-quota-guard.md
   - docs/specs/enforcement-boundary.md
-commit_sha: c81af5af564bd52b72b6582bc110ad414a9e4a3a
+commit_sha: a3d23834e340526001d553cbf1ef644a781c8fd2
 type: feat
 breaking: false
 verdict: pass
@@ -206,6 +206,39 @@ three-category assumption now derive that number from
 $ python3 -m pytest tests/test_gh_quota_guard.py tests/test_board_sweep_budget_carryover.py -q
 ..........                                                              [100%]
 10 passed in 1.21s
+```
+
+**Before-landing warrant hunt, one fix.** A background warrant-hunter
+agent reviewed the diff before this record's first version landed. Its
+report, filed at `docs/issue-2173/reports/implementation/2026-08-24-hunt-spawn-on-approve.md`:
+when `ready_for_phase2`'s `pr_index` argument was left at its default
+(`None`), `_pr_number_for_branch` fell through to
+`spawn._pr_open_or_merged_for_branch` — one real `gh pr list` call per
+candidate branch, uncounted by `watchdog.py`'s per-tick `gh` budget
+accounting, unlike `gates/spawn_on_pr.py`'s sibling functions which
+always bulk-fetch first. The hunt's own reproduction:
+
+```
+$ grep -A2 "gh calls made" docs/issue-2173/reports/implementation/2026-08-24-hunt-spawn-on-approve.md
+gh calls made: 5
+```
+
+Fix, same session: `ready_for_phase2`/`spawn_phase2` now bulk-fetch
+`closure_sweep._pr_index_all()` once whenever `pr_index` is `None`,
+mirroring `gates/spawn_on_pr.py`'s `missing_verification` pattern; and
+`watchdog.py`'s `_board_wide_sweep` always builds the shared index when
+`spawn-on-approve` runs, even as the tick's only PR-index consumer:
+
+```
+$ sed -n '/^def ready_for_phase2/,/^    out: dict/p' gates/spawn_on_approve.py | grep -n "pr_index is None" -A1
+24:    if pr_index is None:
+25-        pr_index, _ = closure_sweep._pr_index_all(root)
+```
+
+```
+$ python3 -m pytest tests/test_spawn_on_approve.py -q
+...............                                                          [100%]
+15 passed in 0.86s
 ```
 
 skill-verdict: implementation-complexity-coupling-management — applied: invoked; used via the Skill tool before writing
