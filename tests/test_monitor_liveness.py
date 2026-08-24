@@ -151,7 +151,13 @@ def test_stale_stamp_directive():
             assert "poll-heartbeat monitor dead since" in r1.stdout, (
                 f"{script.name}: expected re-arm directive, got: {r1.stdout!r} / {r1.stderr!r}"
             )
-            assert "re-arm via Monitor tool" in r1.stdout
+            # issue #2182: distinct tag (not the routine [orchestrate] prefix
+            # shared with the always-present per-turn directive block) and an
+            # explicit persistent:true mandate, so a literal re-arm cannot
+            # silently die again after the Monitor tool's 5-minute default.
+            assert "[orchestrate][MONITOR-DEAD]" in r1.stdout
+            assert "persistent: true" in r1.stdout
+            assert str(checkout) in r1.stdout, "re-arm command must name the checkout path"
 
             r2 = _run_hook(script, checkout, checkout, {"MONITOR_LIVENESS_STALE_SECONDS": "5"})
             assert "poll-heartbeat monitor dead since" not in r2.stdout, (
@@ -179,6 +185,32 @@ def test_fresh_stamp_silent():
             assert "poll-heartbeat monitor dead" not in r.stdout, (
                 f"{script.name}: fresh stamp must stay silent: {r.stdout!r}"
             )
+
+
+def test_monitor_dead_standing_invariant_always_present():
+    # issue #2182: the standing re-arm rule lives in directive.sh's
+    # byte-stable per-turn ALWAYS-ON INVARIANTS block, so it is present
+    # on every turn (not only the turn a staleness episode is detected)
+    # -- it is what makes the [MONITOR-DEAD] tag actionable rather than
+    # a one-off line the orchestrator has to already know the meaning of.
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        _git_init(checkout)
+        (checkout / "docs" / "specs").mkdir(parents=True)
+        (checkout / "docs" / "specs" / "approvers.md").write_text("x", encoding="utf-8")
+        runs = checkout / "runs"
+        runs.mkdir()
+        (runs / "poll_heartbeat_alive.json").write_text(
+            json.dumps({"last_tick": time.time()}), encoding="utf-8",
+        )
+
+        r = _run_hook(DIRECTIVE, checkout, checkout, {"MONITOR_LIVENESS_STALE_SECONDS": "180"})
+        assert "poll-heartbeat monitor dead" not in r.stdout, "fresh stamp must stay silent on the notice itself"
+        assert "[orchestrate][MONITOR-DEAD]" in r.stdout, (
+            f"standing invariant bullet naming the tag must always be present: {r.stdout!r}"
+        )
+        assert "persistent: true" in r.stdout
 
 
 def test_missing_stamp_treated_as_stale():
