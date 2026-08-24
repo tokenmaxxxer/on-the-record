@@ -894,12 +894,20 @@ def _board_wide_sweep(root: Path) -> int:
     # 이슈 #1745: 이번 틱에 PR 인덱스가 필요한 카테고리가 둘 이상이면
     # 벌크 PR 인덱스를 여기서 한 번만 가져와 공유한다 — 각자
     # `closure_sweep._pr_index_all()` 을 따로 부르면 `gh api .../pulls`
-    # 페이지네이션이 틱당 여러 번 나간다(#1745 관측; issue #2173 은
-    # spawn-on-approve 를 이 공유 대상에 더했다).
+    # 페이지네이션이 틱당 여러 번 나간다(#1745 관측). issue #2173
+    # before-landing hunt: `spawn-on-approve` 는 소비자가 하나뿐인
+    # 틱에서도 항상 벌크 인덱스를 받아야 한다 — `pr_index=None` 이면
+    # `spawn_on_approve.ready_for_phase2()` 가 후보 브랜치마다 `gh pr
+    # list` 를 한 번씩(O(branches), watchdog 예산에 안 잡힘) 부르는
+    # 폴백으로 떨어진다. 그 폴백 자체는 `spawn_on_pr.py` 도 갖고 있는
+    # 기존 경로지만, 그쪽은 `missing_verification()` 진입 전에 이미
+    # board() 로 subject 수를 좁혀 실사용 빈도가 낮다 — 이쪽은 로컬 git
+    # 브랜치 수만큼 그대로 늘어나므로 소비자 1개짜리 틱에서도 공유
+    # 인덱스를 강제해 그 폴백이 절대 안 걸리게 한다.
     _pr_index_consumers = sum(c in this_tick for c in
                               ("spawn-on-pr", "closure-sweep", "spawn-on-approve"))
     shared_pr_index: dict | None = None
-    if _pr_index_consumers >= 2:
+    if _pr_index_consumers >= 2 or "spawn-on-approve" in this_tick:
         shared_pr_index, _ = closure_sweep._pr_index_all(root)
 
     if "spawn-on-pr" in this_tick:

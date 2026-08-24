@@ -50,6 +50,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
 import spawn  # noqa: E402
 import ci as _ci  # noqa: E402
+import closure_sweep  # noqa: E402
 
 _BRANCH_SUBJECT_ROLE_RE = re.compile(r"(?:^|/)(issue-\d+)/([A-Za-z0-9-]+)$")
 
@@ -148,7 +149,19 @@ def ready_for_phase2(root: Path, subjects: set[str] | None = None,
 
     `subjects` 를 주면(예: delta 모드에서 이번 틱에 바뀐 이슈 번호로
     좁힌 `{"issue-123", ...}` 집합) 그 서브셋의 브랜치만 본다 — 안
-    주면 로컬에 존재하는 모든 `issue-*/*` 브랜치를 본다."""
+    주면 로컬에 존재하는 모든 `issue-*/*` 브랜치를 본다.
+
+    이슈 #2173 before-landing hunt: `pr_index` 를 안 주면(호출부가 이번
+    틱에 이미 벌크 인덱스를 안 가져온 경우) 여기서 딱 한 번
+    `closure_sweep._pr_index_all()` 로 가져온다 — `spawn_on_pr.py`의
+    `missing_verification()` 과 같은 패턴. 이게 없으면
+    `_pr_number_for_branch()` 가 후보 브랜치마다
+    `spawn._pr_open_or_merged_for_branch()`(브랜치당 `gh pr list` 한
+    번)로 폴백해, watchdog 의 틱당 호출 예산 회계에 안 잡히는
+    O(브랜치 수) 실제 `gh` 호출을 낸다(실측: 브랜치 5개 -> gh 호출
+    5회)."""
+    if pr_index is None:
+        pr_index, _ = closure_sweep._pr_index_all(root)
     out: dict[str, list[str]] = {}
     b = spawn.board(root)
     attempted = load_attempted(root)
@@ -190,7 +203,15 @@ def spawn_phase2(root: Path, cwd: str, dry_run: bool = False,
     의 no-silent-cap 관례). `dry_run=True` 면 등록/스폰 없이(캡 적용된)
     쌍만 돌려준다(테스트용, 실제 세션을 안 띄운다) — 이 경우 시도-이력도
     쓰지 않는다: 드라이런이 "시도했다"로 카운트되면 다음 실제 스윕이
-    그 쌍을 영영 건너뛴다."""
+    그 쌍을 영영 건너뛴다.
+
+    이슈 #2173 before-landing hunt: `pr_index` 를 여기서도 한 번만
+    확정해 `ready_for_phase2()` 와 아래 `attempted[branch]` 기록 루프가
+    같은 인덱스를 공유하게 한다 — 안 그러면 이 함수의 로컬 `pr_index`
+    가 여전히 `None` 인 채로 두 번째 폴백(스폰된 쌍마다 `gh pr list`
+    한 번씩)을 낸다."""
+    if pr_index is None:
+        pr_index, _ = closure_sweep._pr_index_all(root)
     pairs_all: list[tuple[str, str]] = []
     for subject, roles in ready_for_phase2(
             root, subjects=subjects, issue_states=issue_states,
