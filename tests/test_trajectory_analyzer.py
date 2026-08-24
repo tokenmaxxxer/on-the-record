@@ -8,6 +8,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import trajectory_analyzer as ta  # noqa: E402
 
@@ -63,10 +65,56 @@ def test_empty_log_on_disk_analyzes_to_all_zero_metrics():
                                   "note": "advisory only — never terminates a session"}
 
 
-def test_missing_log_path_also_degrades_cleanly():
+def test_missing_log_path_also_degrades_cleanly_at_library_level():
+    # analyze()/parse_session_log() stay lenient for library callers (e.g.
+    # a batch sweep over many candidate paths) — it is main() below, not
+    # this function, that turns a missing path into a hard CLI error
+    # (issue #2214 PR #2221 review finding 1).
     report = ta.analyze("/nonexistent/path/does-not-exist.session.log")
     assert report["event_count"] == 0
     assert report["advisory"]["stalled"] is False
+
+
+# --- CLI: missing path is an error, --help is never a log path -------------
+# (issue #2214 PR #2221 review finding 1)
+
+def test_cli_missing_path_exits_nonzero_with_clear_error(capsys):
+    rc = ta.main(["/nonexistent/path/xyz.log"])
+    captured = capsys.readouterr()
+    assert rc != 0
+    assert captured.out == ""
+    assert "/nonexistent/path/xyz.log" in captured.err
+
+
+def test_cli_directory_path_is_a_clear_error_not_a_crash(capsys, tmp_path):
+    # Before-landing warrant-hunt (docs/issue-2214/reports/implementation/
+    # 2026-08-25-hunt-pr2221-fixes.md): a directory passes Path.exists()
+    # and, without the is_file() guard, reached parse_session_log()'s
+    # p.open() and crashed with an unhandled IsADirectoryError instead of
+    # the intended clean CLI error.
+    rc = ta.main([str(tmp_path)])
+    captured = capsys.readouterr()
+    assert rc != 0
+    assert captured.out == ""
+    assert str(tmp_path) in captured.err
+
+
+def test_cli_existing_path_still_exits_zero(capsys):
+    rc = ta.main([str(FIXTURES / "empty_admission_error.session.log")])
+    captured = capsys.readouterr()
+    assert rc == 0
+    report = json.loads(captured.out)
+    assert report["event_count"] == 0
+
+
+def test_cli_help_flag_is_not_consumed_as_a_log_path(capsys):
+    with pytest.raises(SystemExit) as exc:
+        ta.main(["--help"])
+    assert exc.value.code == 0
+    captured = capsys.readouterr()
+    assert "usage" in captured.out.lower()
+    # Never produced a fake all-zero analysis report for "--help".
+    assert "event_count" not in captured.out
 
 
 # --- harness-native fields --------------------------------------------------
@@ -86,10 +134,54 @@ def test_harness_fields_read_from_result_event_not_regex():
     assert len(hf["usage_iterations"]) == 2
 
 
+# --- permission_denials default summary vs opt-in verbatim -----------------
+# (issue #2214 PR #2221 review finding 2)
+
+def _denial_with_large_payload(tool_name="Edit", tool_use_id="d1"):
+    return {"tool_name": tool_name, "tool_use_id": tool_use_id,
+            "tool_input": {"file_path": "docs/issue-2214/reports/implementation.md",
+                           "old_string": "x" * 5000, "new_string": "y" * 5000}}
+
+
+def test_denials_default_to_summary_without_verbatim_tool_input():
+    lines = [_result(permission_denials=[_denial_with_large_payload("Edit", "d1"),
+                                         _denial_with_large_payload("Bash", "d2")])]
+    report = ta.analyze(_write(lines))
+    hf = report["harness_fields"]
+    assert hf["denial_count"] == 2
+    assert hf["denial_tool_counts"] == {"Edit": 1, "Bash": 1}
+    for entry in hf["permission_denials"]:
+        assert "tool_input" not in entry
+    assert hf["permission_denials"][0]["tool_name"] == "Edit"
+    # The default report must not carry the multi-KB verbatim payload.
+    assert len(json.dumps(hf)) < 1000
+
+
+def test_include_raw_denials_flag_restores_verbatim_tool_input():
+    lines = [_result(permission_denials=[_denial_with_large_payload("Edit", "d1")])]
+    report = ta.analyze(_write(lines), include_raw_denials=True)
+    hf = report["harness_fields"]
+    assert hf["permission_denials"][0]["tool_input"]["old_string"] == "x" * 5000
+
+
+def test_malformed_denial_entry_still_counted_consistently():
+    # A non-dict permission_denials entry is a known shape failure (issue
+    # #246) — the summary form must not silently drop it out of the count.
+    lines = [_result(permission_denials=[_denial_with_large_payload("Edit", "d1"),
+                                         "not-a-dict"])]
+    report = ta.analyze(_write(lines))
+    hf = report["harness_fields"]
+    assert hf["denial_count"] == 2
+    assert len(hf["permission_denials"]) == 2
+    assert sum(hf["denial_tool_counts"].values()) == 2
+    assert hf["denial_tool_counts"]["unknown"] == 1
+
+
 def test_no_result_event_yields_empty_harness_fields():
     lines = [_tool_use("t1", "Bash", {"command": "ls"})]
     report = ta.analyze(_write(lines))
     hf = report["harness_fields"]
+    assert hf["denial_tool_counts"] == {}
     assert hf["denial_count"] == 0
     assert hf["subagent_stats"] is None
     assert hf["num_turns"] is None

@@ -5,11 +5,13 @@ loop_state: landed
 upstream:
   - path: docs/issue-2214/reports/implementation/2026-08-24-hunt-trajectory-analyzer.md
     sha: 3f7d93fffd4d0ee6f048219d9cdc23c34c4ec3cc
+  - path: docs/issue-2214/reports/implementation/2026-08-25-hunt-pr2221-fixes.md
+    sha: d613f552dce863d96a0eeae81d406243454f8a1f
 code_under_review:
   - trajectory_analyzer.py
   - tests/test_trajectory_analyzer.py
   - tests/fixtures/trajectory_logs/empty_admission_error.session.log
-type: feat
+type: fix
 breaking: none
 verdict: pass
 ---
@@ -56,6 +58,52 @@ evidence below.
 
 CLI: `python3 trajectory_analyzer.py <session-log-path>` prints the
 report as JSON.
+
+### Follow-up: two blocking defects from the orchestrator's PR #2221 review
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/2221/comments`
+(this session, PR #2221 review comment,
+https://github.com/tokenmaxxxer/on-the-record/pull/2221#issuecomment-5397006661).
+Both fixed in this same session, same branch. Full commands and output
+for each are in "Acceptance verification" below.
+
+1. Nonexistent log path reported as a clean empty session, `--help`
+   consumed as a log path. canonical: `python3 trajectory_analyzer.py
+   /nonexistent/path/xyz.log >/dev/null 2>&1; echo "exit=$?"` (review
+   comment's own repro) -> `exit=0`. Root cause: `main()` fed `argv[0]`
+   into `analyze()` with no argument parsing at all.
+   canonical: `python3 trajectory_analyzer.py /nonexistent/path/xyz.log`
+   (this session, post-fix) -> exit 1, stderr `error: session log not
+   found: /nonexistent/path/xyz.log`. `main()` now uses `argparse`
+   (`-h`/`--help` handled by argparse, never mistaken for a path) and
+   checks `Path(session_log).exists()`/`.is_file()` before calling
+   `analyze()`. `analyze()`/`parse_session_log()` keep their prior
+   lenient degrade-on-missing-file behavior for library callers (only
+   the CLI enforces the strict check); the 0-byte-log empty-state case
+   is untouched.
+2. Output was 89KB for one session. canonical: review comment's own
+   repro, `python3 trajectory_analyzer.py <one real session log> | wc
+   -lc` -> `283 89657`, because `permission_denials` embedded every
+   denial's `tool_input` verbatim.
+   canonical: `python3 trajectory_analyzer.py
+   on-the-record-issue-2214-implementation.session.20260824T233348.2080038.log
+   | wc -lc` (this session, post-fix, same log referenced in the
+   original PR's own acceptance evidence below) -> `155 3709`, down from
+   the unfixed form. `harness_fields()` gained `include_raw_denials:
+   bool = False` (CLI `--include-raw-denials`); the default strips
+   `tool_input` per entry and adds `denial_tool_counts`
+   (`tool_name -> count`) — the summary form the review asked for.
+
+canonical: `docs/issue-2214/reports/implementation/2026-08-25-hunt-pr2221-fixes.md`
+(before-landing warrant-hunt, stance 0, this session) — found a third,
+self-introduced defect in fix 1 before it shipped: `Path.exists()` is
+also true for a directory, so the original `.exists()`-only guard let a
+directory argument fall through into `parse_session_log()`'s `p.open()`.
+canonical: `python3 trajectory_analyzer.py .` (this session, pre-fix
+reproduction of the hunt finding) -> unhandled `IsADirectoryError`
+traceback, not the intended clean error. Fixed in the same commit by
+adding a `.is_file()` check alongside `.exists()`; see "What did not
+work" and `docs/issue-2214/reports/implementation/deviation-log.md`.
 
 ## Why
 
@@ -118,6 +166,18 @@ terminal `result` event, which is the acceptance bullet's actual, still
   that cannot occur while suppressing one that does. Regression test:
   `test_dead_subagent_does_not_permanently_suppress_unrelated_thrash`
   in `tests/test_trajectory_analyzer.py`.
+- First cut of fix 1 (missing-path handling, this session) checked only
+  `Path(session_log).exists()`. A before-landing warrant-hunt (stance 0)
+  on this fix, canonical: `docs/issue-2214/reports/implementation/2026-08-25-hunt-pr2221-fixes.md`
+  (this session's own before-landing dispatch), found that `.exists()`
+  is also true for a directory, so a directory argument fell through the
+  guard into `parse_session_log()`'s `p.open()` and crashed with an
+  unhandled `IsADirectoryError` traceback instead of the intended clean
+  error. canonical: `python3 trajectory_analyzer.py .` (this session,
+  pre-fix reproduction) -> uncaught traceback. Fixed by adding a second
+  guard, `if not path.is_file(): ...; return 1`, alongside `.exists()`.
+  Regression test: `test_cli_directory_path_is_a_clear_error_not_a_crash`
+  in `tests/test_trajectory_analyzer.py`.
 
 ## Upstream basis
 
@@ -135,9 +195,13 @@ terminal `result` event, which is the acceptance bullet's actual, still
 
 ## Open findings
 
-None — the one issue surfaced during this delivery (dead subagent
-permanently suppressing unrelated thrash, described above) was fixed and
-regression-tested in the same commit before landing.
+None. canonical: `docs/issue-2214/reports/implementation/2026-08-24-hunt-trajectory-analyzer.md`
+and `docs/issue-2214/reports/implementation/2026-08-25-hunt-pr2221-fixes.md`
+(this session's two before-landing dispatches) — every issue either
+surfaced (dead subagent permanently suppressing unrelated thrash, and
+the directory-path crash in this round's own fix 1) was fixed and
+regression-tested in the same commit before landing, per "What did not
+work" above.
 
 ## Next steps
 
@@ -213,12 +277,65 @@ canonical: acceptance: python3 trajectory_analyzer.py /tmp/issue2214_truncated_l
 `blocked_on_subagent` is `true` and `advisory.stalled` is `false` in
 this actual output.
 
+### PR #2221 defect-fix acceptance evidence (this round)
+
+canonical: acceptance: python3 -m pytest tests/test_trajectory_analyzer.py -q — result: PASS
+```
+.............................                                            [100%]
+29 passed in 0.84s
+```
+Up from the 22-test run above; the 7 new tests are the CLI
+missing-path/`--help`/directory-path cases and the denial-summary cases.
+
+canonical: acceptance: python3 trajectory_analyzer.py /nonexistent/path/xyz.log; echo "exit=$?" — result: PASS (non-zero exit, clear stderr, matches the review's own repro shape)
+```
+error: session log not found: /nonexistent/path/xyz.log
+exit=1
+```
+
+canonical: acceptance: python3 trajectory_analyzer.py --help — result: PASS (argparse usage, not a fake analysis report)
+```
+exit=0
+usage: trajectory_analyzer.py [-h] [--include-raw-denials] session_log
+```
+
+canonical: acceptance: python3 trajectory_analyzer.py . — result: PASS (before-landing hunt regression check — clean error, not a crash)
+```
+error: session log is not a regular file: .
+exit=1
+```
+
+canonical: acceptance: python3 trajectory_analyzer.py /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2214-implementation.session.20260824T233348.2080038.log | wc -lc — result: PASS
+```
+155 3709
+```
+Same real on-disk log this issue's own delivery ran against (the
+`/home/jwjung/.tokenmaxxxer/work/` log referenced above), denial_count 5.
+`--include-raw-denials` on the same log gives `177 34084` (verbatim
+`tool_input` restored, larger by construction — see the flag's own test,
+`test_include_raw_denials_flag_restores_verbatim_tool_input`, for the
+exact byte-level assertion against a synthetic large payload).
+
 ## Skill obligations
 
-skill-verdict summary: other mounted skills — not triggered (this issue's
-spec is fully prescriptive: exact thresholds, exact gate-test path,
-established module-placement precedent already in the repo — no
-coupling/cohesion threshold, GoF-pattern trade-off, or data-structure
-performance cliff was ever an open decision to weigh, and this delivery
-is a single-file analysis script, not multi-module structure requiring
-`implementation-blueprint`).
+skill-verdict: silent-failure-audit — applied: invoked; ran this round's
+audit procedure against `main()`'s new missing-path/`--help` handling and
+`parse_session_log()`'s pre-existing lenient-degrade contract — surfaced
+one real Silently-Absorbed-shaped inconsistency (`_denial_tool_counts`/
+`_summarize_denials` dropping non-dict `permission_denials` entries while
+`denial_count` still counted them), fixed in the same commit with a
+regression test (`test_malformed_denial_entry_still_counted_consistently`).
+
+skill-verdict summary: other mounted skills — not triggered this round
+either (same reasoning as the original delivery below: a scoped two-defect
+bugfix inside one existing file has no coupling/cohesion threshold,
+GoF-pattern trade-off, data-structure performance cliff, or multi-module
+structure decision open to weigh).
+
+Original-delivery skill-verdict summary: other mounted skills — not
+triggered (this issue's spec is fully prescriptive: exact thresholds,
+exact gate-test path, established module-placement precedent already in
+the repo — no coupling/cohesion threshold, GoF-pattern trade-off, or
+data-structure performance cliff was ever an open decision to weigh, and
+this delivery is a single-file analysis script, not multi-module
+structure requiring `implementation-blueprint`).

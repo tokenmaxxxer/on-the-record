@@ -32,6 +32,7 @@ scanned over the last `MAX_EVENTS_TO_SCAN_FOR_STUCK_DETECTION` tool calls.
 Run: python3 trajectory_analyzer.py <path-to-session-log>
 """
 from __future__ import annotations
+import argparse
 import json
 import sys
 from collections import Counter
@@ -144,14 +145,44 @@ def final_result_event(events: list[dict]) -> dict | None:
     return None
 
 
-def harness_fields(events: list[dict]) -> dict:
+def _denial_tool_counts(denials: list) -> dict:
+    """`tool_name -> count` across `permission_denials` — the "counts,
+    tool names" half of the default summary form (issue #2214 PR #2221
+    review finding 2). A non-dict entry (a known `permission_denials`
+    shape failure, issue #246) counts as "unknown" rather than being
+    dropped, so this sums to exactly `denial_count`."""
+    counts = Counter(d.get("tool_name", "unknown") if isinstance(d, dict) else "unknown"
+                     for d in denials)
+    return dict(counts)
+
+
+def _summarize_denials(denials: list) -> list:
+    """`permission_denials` entries with the verbatim `tool_input` payload
+    stripped — a denied `Edit`/`Write` carries its full `old_string`/
+    `new_string`/`content` in `tool_input`, which is what inflates the
+    default report to tens of KB per denial (issue #2214 PR #2221 review
+    finding 2). Every other field (tool_name, tool_use_id, ...) is kept.
+    A non-dict entry is passed through unchanged (nothing to strip) so
+    this stays the same length as `denials`, matching `denial_count`."""
+    return [{k: v for k, v in d.items() if k != "tool_input"} if isinstance(d, dict) else d
+            for d in denials]
+
+
+def harness_fields(events: list[dict], include_raw_denials: bool = False) -> dict:
     """The free fields issue #2214 names, read straight off the terminal
     `result` event rather than re-derived from transcript text. All-empty
     defaults when no `result` event exists yet (live/truncated log) —
-    this is a `None`/`[]` state, not an error."""
+    this is a `None`/`[]` state, not an error.
+
+    `permission_denials` defaults to a summary form — each entry with its
+    verbatim `tool_input` stripped, plus `denial_tool_counts` — since a
+    denied `Edit`/`Write` reproduces its whole payload otherwise. Pass
+    `include_raw_denials=True` (CLI: `--include-raw-denials`) for the
+    verbatim form."""
     result = final_result_event(events)
     if result is None:
         return {"permission_denials": [], "denial_count": 0,
+                "denial_tool_counts": {},
                 "subagent_stats": None, "num_turns": None,
                 "usage_iterations": [], "terminal_reason": None,
                 "total_cost_usd": None, "duration_ms": None,
@@ -160,7 +191,9 @@ def harness_fields(events: list[dict]) -> dict:
     denials = denials if isinstance(denials, list) else []
     usage = result.get("usage") or {}
     iterations = usage.get("iterations")
-    return {"permission_denials": denials, "denial_count": len(denials),
+    return {"permission_denials": denials if include_raw_denials else _summarize_denials(denials),
+            "denial_count": len(denials),
+            "denial_tool_counts": _denial_tool_counts(denials),
             "subagent_stats": result.get("subagent_stats"),
             "num_turns": result.get("num_turns"),
             "usage_iterations": iterations if isinstance(iterations, list) else [],
@@ -326,10 +359,17 @@ def subagent_in_flight(events: list[dict]) -> bool:
     return False
 
 
-def analyze(path) -> dict:
+def analyze(path, include_raw_denials: bool = False) -> dict:
     """Top-level entry: parse `path` and return the full advisory report.
     Never raises — a log with zero tool calls (fresh spawn that errored at
-    admission) degrades every metric to its empty form, not an exception.
+    admission), or a path that does not exist on disk, both degrade every
+    metric to its empty form, not an exception; this lenient, non-raising
+    form is a deliberate library-level contract for callers that want to
+    treat "nothing to read" uniformly (e.g. a batch sweep over many
+    candidate paths). It is `main()` below — not this function — that
+    enforces the CLI's stricter "missing path is an error" behavior
+    (issue #2214 PR #2221 review finding 1), by checking existence before
+    ever calling this function.
 
     `blocked_on_subagent` and the thrash signals below are reported
     independently, not one gating the other — a warrant-hunter dispatched
@@ -362,7 +402,7 @@ def analyze(path) -> dict:
     return {
         "session_log": str(path),
         "event_count": len(events),
-        "harness_fields": harness_fields(events),
+        "harness_fields": harness_fields(events, include_raw_denials=include_raw_denials),
         "repeated_tool_calls": repeats,
         "repeated_read_offsets": repeated_read_offsets(events),
         "edits_per_file": edits_per_file(events),
@@ -378,12 +418,44 @@ def analyze(path) -> dict:
     }
 
 
+def _build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="trajectory_analyzer.py",
+        description="Post-hoc trajectory analyzer over a session's raw "
+                     "stream-json log (issue #2214).")
+    parser.add_argument("session_log",
+                         help="path to a <work>.session.<ts>.<pid>.log file")
+    parser.add_argument("--include-raw-denials", action="store_true",
+                         help="include verbatim tool_input payloads in "
+                              "permission_denials (large; summarized by default)")
+    return parser
+
+
 def main(argv=None) -> int:
+    """CLI entry. `argparse` owns `--help`/usage/missing-argument handling
+    (it exits the process itself on those, as it always does), so a flag
+    like `--help` can no longer be silently consumed as the log path
+    (issue #2214 PR #2221 review finding 1). A path that does not exist
+    on disk is a distinct, explicit error here — non-zero exit, message
+    on stderr — never the same all-zero report a genuinely empty (e.g.
+    0-byte) on-disk log produces; see `analyze()`'s docstring for why
+    that leniency is kept at the library level."""
     argv = argv if argv is not None else sys.argv[1:]
-    if not argv:
-        print("usage: python3 trajectory_analyzer.py <session-log-path>", file=sys.stderr)
-        return 2
-    report = analyze(argv[0])
+    args = _build_arg_parser().parse_args(argv)
+    path = Path(args.session_log)
+    if not path.exists():
+        print(f"error: session log not found: {path}", file=sys.stderr)
+        return 1
+    if not path.is_file():
+        # A directory (or other non-regular-file path, e.g. a device
+        # file) passes .exists() — without this check it reaches
+        # parse_session_log()'s p.open() and crashes with an unhandled
+        # IsADirectoryError instead of the intended clean CLI error
+        # (before-landing warrant-hunt, docs/issue-2214/reports/
+        # implementation/2026-08-25-hunt-pr2221-fixes.md).
+        print(f"error: session log is not a regular file: {path}", file=sys.stderr)
+        return 1
+    report = analyze(path, include_raw_denials=args.include_raw_denials)
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0
 
