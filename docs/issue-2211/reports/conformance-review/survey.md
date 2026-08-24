@@ -214,8 +214,21 @@ here)
   canonical: `git show 96f9e98d:docs/issue-2156/reports/conformance-review/survey.md`
   (read directly, this session), its "Notable surface for phase 2"
   section.
+- An after-proposal warrant-hunter dispatch (stance 0, hunt record at
+  docs/issue-2211/reports/conformance-review/2026-08-25-hunt-conformance-review.md)
+  reports this repo carries two files both named `approval-gate.sh` with
+  different bodies and different registered tool scopes.
+  canonical: `diff on-the-record/hooks/approval-gate.sh <(git show HEAD:on-the-record/hooks/approval-gate.sh)`
+  and a read of `pretooluse_dispatcher.py`'s `GATES` table (both executed
+  this session) — `on-the-record/hooks/approval-gate.sh` (issue #608) is
+  registered `Write|Edit|MultiEdit`-only, while
+  `runs/rulebooks/tokenmaxxxer-core/core/hooks/approval-gate.sh`
+  (contract-v3-s19) is the version whose `deny()` message shape matches
+  this session's own observed denial. Neither issue #2211's own text nor
+  R1-R14 above names this — outside this issue's scope to resolve, noted
+  here as a candidate Open Finding for a different issue/role.
 
 skill-verdict: conformance-review-requirement-extraction — applied: invoked; used to split the bundled acceptance clause into R1-R4, flag R9's undefined term under rule 2, and dimension-tag R1-R14 above.
 skill-verdict: conformance-review-sampling-derivation — applied: invoked; used to derive the full-enumeration, single-tier scope under "Sampling scope" above per rule 5.
 skill-verdict: conformance-review-verification-method-selection — applied: invoked; used to assign Inspection/Test/Demonstration/Analysis per requirement above, reusing existing tests per rule 4 instead of deriving parallel manual checks.
-other mounted skills: not triggered — traceability-and-evidence, verdict-assignment, finding-record, and severity-classification are phase-2 concerns; this session's writes stop at the phase-1 survey/proposal boundary, enforced live by approval-gate.sh (see "Board / approval state" above).
+other mounted skills: not triggered — traceability-and-evidence, verdict-assignment, finding-record, and severity-classification are phase-2 concerns; this session's writes stop at the phase-1 survey/proposal boundary, enforced live by this session's own PreToolUse hook chain (see "Board / approval state" above — the exact deny() message shape matches `runs/rulebooks/tokenmaxxxer-core/core/hooks/approval-gate.sh`'s contract-v3-s19 logic; this survey does not assert which installed dispatch path invoked it, since a same-named but functionally different `on-the-record/hooks/approval-gate.sh` also exists in this repo's own tree, registered `Write|Edit|MultiEdit`-only per the installed `pretooluse_dispatcher.py`'s `GATES` table — a naming collision worth a candidate Open Finding, not resolved here).
