@@ -31,6 +31,26 @@
   `_await_bounded` results in one call until session-end, so the
   manual re-arm loop above is not required with it — the loop remains a
   valid alternative when you want to see each event land one at a time.
+  NO REDUNDANT WATCHER, BY ANY MECHANISM (issue #2156): after `spawn.py`
+  returns, do not build a separate standing watch loop for that spawn by
+  ANY means — not a separate Agent (general-purpose or otherwise) whose
+  sole job is to poll it to completion, and not a substitute with the same
+  shape, such as a backgrounded `Bash(run_in_background: true)` sleep-and-
+  poll loop, a cron/schedule entry, or any other mechanism that re-checks
+  spawn/session status on a timer outside the sanctioned calls below. The
+  prohibition is on the PATTERN (a standing loop re-deriving status the
+  platform already pushes), not on the specific tool used to build it —
+  swapping the tool while keeping the loop is still the forbidden pattern.
+  Such a loop cannot actually block-wait for the spawn's terminal state,
+  so it self-polls, producing content-free "still waiting" notifications
+  every couple of minutes — pure duplicate overhead of what the
+  mechanisms above already provide for free: the spawn's own watcher
+  process plus the `spawn.py watch`/`--follow` poll cycle already surface
+  HEALTHY/RUNNING/anomaly/returned-PR events as notifications to this
+  session automatically. Trust those and act on them when they arrive; the
+  only sanctioned direct status checks are a one-shot `spawn.py ps` or
+  `spawn.py watch --issue <n> --role <r>` call — never a standing loop of
+  any kind.
 - EXECUTION-PLAN ORDER (issue #659, demoted from plan-order-guard.sh):
   when the issue body declares an `## 실행 계획` block, spawn/merge in
   its declared step order (`‖` marks parallel-safe steps;
