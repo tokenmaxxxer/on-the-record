@@ -2049,23 +2049,46 @@ def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
     # keys (with the enum as a YAML comment) so the session fills values,
     # not structure — observed in the first post-diet run: without these the
     # session spent turns excavating git history for a prior record's shape.
+    #
+    # issue-2190: for the two roles record-fields-gate.sh special-cases
+    # (coding, implementation), the spec's raw `commit_sha` field name never
+    # appears in an actual record — the gate checks `code_under_review:`
+    # instead (a file-list citation, not a bare sha; see
+    # docs/issue-100/decisions/2026-08-03-record-citation-format-and-kind-
+    # convention.md), and `breaking:` is universal delivery-record practice
+    # despite being marked optional in the spec. Emitting the spec's field
+    # names unrenamed left the session to re-derive both the rename and the
+    # optional-but-always-present field on every run (measured: docs/issue-45
+    # fixture, ~37s of thinking before converging on `code_under_review:` +
+    # `breaking:` across three Edit passes).
+    is_coding = role in ("coding", "implementation")
     spec_lines = ""
     try:
         spec = json.loads((ROOT / "roles" / "specs" / f"{role}.spec.json")
                           .read_text(encoding="utf-8"))
         for fld in spec.get("required_fields", []):
-            if not fld.get("required") or fld.get("name") == "loop_state":
+            name = fld.get("name")
+            if name == "loop_state":
+                continue
+            if not fld.get("required") and not (is_coding and name == "breaking"):
+                continue
+            if is_coding and name == "commit_sha":
+                spec_lines += "code_under_review:\n  - PLACEHOLDER: path/to/file\n"
                 continue
             enum = fld.get("enum")
             hint = " # one of: %s" % "|".join(enum) if enum else \
                    " # %s" % fld.get("type", "fill")
-            spec_lines += "%s:%s\n" % (fld["name"], hint)
+            spec_lines += "%s:%s\n" % (name, hint)
     except Exception:
         pass
     body = _RECORD_SKELETON.format(issue=issue, role=role,
                                    loop_state=loop_state)
     if spec_lines:
         body = body.replace("sha:\n---\n", "sha:\n" + spec_lines + "---\n", 1)
+    if is_coding:
+        body = body.replace(
+            "\n## Upstream basis\n",
+            "\n## What did not work\n\nNone.\n\n## Upstream basis\n", 1)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(body, encoding="utf-8")
     return p
