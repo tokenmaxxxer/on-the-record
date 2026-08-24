@@ -2323,16 +2323,48 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # — 처분 안 된 PR 이 있어도 스폰은 결코 막지 않는다(북극-요구#1,
         # never-missed != never-spawn). `--despite-returned` 는 이제 아무
         # 것도 바꾸지 않는 no-op (CLI 호환성 보존, deprecation 안내만 찍는다).
+        if despite_returned:
+            print(f"[{role}] --despite-returned 는 더 이상 아무 효과가 없다 "
+                  f"(deprecated, 이슈 #1239) — 게이트가 항상 non-blocking "
+                  f"surfacing 이라 무시할 거절이 없다", file=sys.stderr)
         # 이슈 #2186: 이 gh 조회(`gh pr list`)가 실측 스폰에서 un-instrumented
-        # 115s의 프라임 서스펙트였다 — non-blocking/fail-open 게이트라
-        # 아래 워크스페이스 클론/브랜치 체크아웃과 순서상 얽힐 이유가 없는데도
-        # 그 앞에서 동기로 돌고 있었다. cross_family 자문과 같은 패턴으로
-        # 워크스페이스/브랜치 셋업과 겹치도록 여기서 던지고, 그 아래에서
-        # join 만 한다 — join 이 잡는 시간은 이제 겹친 대기가 아니라 이
-        # 조회가 셋업보다 오래 걸린 나머지뿐이다.
-        _returned_pr_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        _returned_pr_future = _returned_pr_executor.submit(
-            _undispositioned_role_prs, root, exclude_issue=issue)
+        # 115s의 프라임 서스펙트였다 — 워크스페이스 클론/브랜치 체크아웃과
+        # 겹치도록 여기서 던지고 그 아래에서 join 하는 형태로 처음 옮겼다.
+        # 이슈 #2201: 그 join 자체가 실측 스폰에서 여전히 6.608s(전체의
+        # 21%)를 세션 시작 전 블로킹 경로에 남겼다 — 이 결과는
+        # `_print_returned_pr_surfaced()`/ledger 이벤트로만 쓰이고
+        # (`relay._print_returned_pr_surfaced`), cross_family 와 달리
+        # 세션에 전달되는 task 텍스트 어디에도 안 실리므로 애초에 join
+        # 할 이유가 없다 — auto_sweep(#2195)과 같은 완전 fire-and-forget
+        # 데몬 스레드로 바꾼다. `ThreadPoolExecutor` 는 안 쓴다: submit()
+        # 만 해도 concurrent.futures 의 atexit 훅(모듈 전역
+        # `_threads_queues`)이 그 워커를 인터프리터 종료까지 join 해,
+        # 이 이슈가 없애려는 블로킹이 프로세스 종료 시점으로 이름만
+        # 바뀐 채 되살아난다(#2195 의 동일 추론, daemon=True 스레드는
+        # 그 등록을 거치지 않는다).
+        def _run_returned_pr_gate() -> None:
+            t0 = time.monotonic()
+            try:
+                blockers, ok = _undispositioned_role_prs(root, exclude_issue=issue)
+            except Exception as ex:
+                print(f"[{role}] returned-pr 게이트 실패(스폰은 계속): {ex}",
+                      file=sys.stderr)
+                return
+            elapsed = time.monotonic() - t0
+            if not ok:
+                print(f"[{role}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
+                      f"통과시킨다 (이슈 #680)", file=sys.stderr)
+                ledger_write({"event": "returned_pr_gate_fail_open", "role": role,
+                              "issue": issue, "ts": int(time.time())})
+            else:
+                _print_returned_pr_surfaced(blockers, source="spawn")
+            print(f"[{role}] returned-pr 게이트(백그라운드) {elapsed:.3f}s 만에 "
+                  f"끝남 (걸린 PR {len(blockers)}개)", file=sys.stderr)
+        with _timed("returned_pr_gate"):
+            _returned_pr_gate_thread = threading.Thread(
+                target=_run_returned_pr_gate, daemon=True,
+                name="returned-pr-gate")
+            _returned_pr_gate_thread.start()
         # 이슈 #1179: 워크스페이스 하나 더 만들기 전에 먼저 안전하게
         # 쓸어낸다(spawn-time sweep) — 정리는 사람이 `spawn.py clean` 을
         # 기억해야만 도는 게 아니라 기본으로 켜져 있어야 한다(northpole
@@ -2386,26 +2418,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             cwd = issue_workspace(cwd, issue, role)
         claim_rejection = _acquire_spawn_claim(cwd, issue, role)
         if claim_rejection is not None:
-            _returned_pr_executor.shutdown(wait=False)
             print(f"[{role}] {claim_rejection}", file=sys.stderr)
             return 1
         with _timed("branch"):
             br = checkout_issue_branch(cwd, issue, role)
         print(f"[{role}] 격리 작업 디렉토리: {cwd}  (브랜치 {br})", file=sys.stderr)
-        with _timed("returned_pr_gate"):
-            blockers, ok = _returned_pr_future.result()
-            _returned_pr_executor.shutdown(wait=False)
-            if not ok:
-                print(f"[{role}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
-                      f"통과시킨다 (이슈 #680)", file=sys.stderr)
-                ledger_write({"event": "returned_pr_gate_fail_open", "role": role,
-                              "issue": issue, "ts": int(time.time())})
-            else:
-                _print_returned_pr_surfaced(blockers, source="spawn")
-            if despite_returned:
-                print(f"[{role}] --despite-returned 는 더 이상 아무 효과가 없다 "
-                      f"(deprecated, 이슈 #1239) — 게이트가 항상 non-blocking "
-                      f"surfacing 이라 무시할 거절이 없다", file=sys.stderr)
         # 원본(프리픽스 붙기 전) 맡길 일을 한 번만 저장 — 재스폰(다른 spawn.py
         # 프로세스일 수 있다)이 이걸 읽어 그대로 넘기면, 아래에서 프리픽스를
         # 다시 붙여도 중복되지 않는다 (이슈 #132).
@@ -2829,6 +2846,19 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 print(f"[{role}] 스폰은 리턴했지만 세션은 계속 돈다 — 상태는 "
                       f"spawn.py ps, 이어보려면 spawn.py watch --issue "
                       f"{issue} --role {role}", file=sys.stderr)
+                # 이슈 #2201 헌트: 여기가 bounded 부모의 유일한 리턴 지점이고,
+                # 이 함수가 끝나면 곧 `sys.exit()`(CLI 진입점)로 인터프리터가
+                # 죽는다 — 데몬 스레드는 그 시점에 join 없이 그냥 죽으므로,
+                # `returned_pr_gate` 백그라운드 스레드가 이 시점까지 못
+                # 끝냈다면 surfacing/ledger 부수효과가 통째로 사라진다(발견:
+                # docs/issue-2201/reports/implementation/2026-08-24-hunt-
+                # bootstrap-cross-family-returned-pr-gate.md). 세션 시작을
+                # 막지 않으려고 배경으로 던진 것이지 결과를 버려도 된다는
+                # 뜻은 아니었다 — 여기서 짧게(gh 조회 실측 6.608s 대비
+                # 넉넉한 상한) join 해 등록한다. 이미 끝났으면 즉시 리턴하고,
+                # 아직이면 최대 이 상한만큼만 더 기다린다 — 세션은 이미
+                # fork 로 독립했으니 이 대기는 대화형 세션에 전혀 안 보인다.
+                _returned_pr_gate_thread.join(timeout=10.0)
                 return 0
             try:
                 _rewrite_spawn_claim_pid(cwd)
