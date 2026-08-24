@@ -161,8 +161,8 @@ single-PR cutover (Option E, rejected per rule 4's mechanics and the
 issue's own #2233/#2238 evidence), and to place the deletion stage
 last per rule 13's shared-logic-consolidation-before-deletion shape.
 
-skill-verdict: architecture-module-boundary-definition — applied:
-invoked; used to justify drawing four separate concept boundaries
+skill-verdict: architecture-module-boundary-definition — applied: invoked;
+used to justify drawing four separate concept boundaries
 (rule 1 — hide each independently-changing decision inside its own
 concept) rather than merging lease and author-identity (rule 9 would
 require the boundary to no longer hide anything before merging, which
