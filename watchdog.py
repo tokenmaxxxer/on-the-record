@@ -730,10 +730,11 @@ def _board_wide_sweep(root: Path) -> int:
     gates 코드 자체는 언제나 이 체크아웃(ROOT)에서 임포트한다 — 타깃
     프로젝트엔 gates/ 가 없다.
 
-    이슈 #1498: gh 를 부르는 세 신호(spawn-on-pr, closure-sweep,
-    spawn-coverage)는 셋 다 요구 1(쿼터 바닥) · 요구 3(스윕 백오프) ·
-    요구 5(틱당 호출 예산)의 게이팅을 받는다 — 로컬 전용 신호
-    (`accumulation_trend`, `requirement_drift`)는 게이팅 없이 항상 돈다.
+    이슈 #1498: gh 를 부르는 신호들(spawn-on-pr, closure-sweep,
+    spawn-coverage, issue #2173 이 더한 spawn-on-approve)은 모두 요구
+    1(쿼터 바닥) · 요구 3(스윕 백오프) · 요구 5(틱당 호출 예산)의
+    게이팅을 받는다 — 로컬 전용 신호(`accumulation_trend`,
+    `requirement_drift`)는 게이팅 없이 항상 돈다.
 
     이슈 #1554 요구 1/3: 세 신호는 `closure_sweep.next_categories()`로
     이번 틱에 돌릴 카테고리(최대 `call_budget`개)만 골라 돈다 — 나머지는
@@ -753,6 +754,7 @@ def _board_wide_sweep(root: Path) -> int:
     import closure_sweep
     import spawn_coverage
     import spawn_on_pr
+    import spawn_on_approve
     import gh_delta
     import gh_budget
     count = 0
@@ -882,18 +884,22 @@ def _board_wide_sweep(root: Path) -> int:
         return count
 
     issue_states, issue_states_ok = (None, True)
-    if "spawn-on-pr" in this_tick or "closure-sweep" in this_tick:
+    if ("spawn-on-pr" in this_tick or "closure-sweep" in this_tick
+            or "spawn-on-approve" in this_tick):
         issue_states, issue_states_ok = closure_sweep.issue_state_index_all(root)
         calls_made += 1
 
     rate_limited_this_tick = False
 
-    # 이슈 #1745: spawn-on-pr 과 closure-sweep 이 둘 다 이번 틱에 돌면
+    # 이슈 #1745: 이번 틱에 PR 인덱스가 필요한 카테고리가 둘 이상이면
     # 벌크 PR 인덱스를 여기서 한 번만 가져와 공유한다 — 각자
     # `closure_sweep._pr_index_all()` 을 따로 부르면 `gh api .../pulls`
-    # 페이지네이션이 틱당 두 번 나갔다(#1745 관측).
+    # 페이지네이션이 틱당 여러 번 나간다(#1745 관측; issue #2173 은
+    # spawn-on-approve 를 이 공유 대상에 더했다).
+    _pr_index_consumers = sum(c in this_tick for c in
+                              ("spawn-on-pr", "closure-sweep", "spawn-on-approve"))
     shared_pr_index: dict | None = None
-    if "spawn-on-pr" in this_tick and "closure-sweep" in this_tick:
+    if _pr_index_consumers >= 2:
         shared_pr_index, _ = closure_sweep._pr_index_all(root)
 
     if "spawn-on-pr" in this_tick:
@@ -933,6 +939,25 @@ def _board_wide_sweep(root: Path) -> int:
         if skips:
             count += 1
             print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
+
+    if "spawn-on-approve" in this_tick:
+        # 이슈 #2173: APPROVE 코멘트 관측 -> phase-2 즉시 스폰 시도. delta
+        # 모드면 이번 틱에 바뀐 이슈 번호로만 좁힌다(closure-sweep 과 같은
+        # narrowing) — 승인 코멘트 자체가 이슈 코멘트 델타로 잡힌다. 후보
+        # subject 는 board() 가 아니라 로컬 issue-*/* 브랜치에서 나오므로
+        # (spawn_on_approve.py 참고) closure-sweep 처럼 board() 를 거쳐
+        # 필터하지 않고, 바뀐 이슈 번호 집합을 곧장 넘긴다.
+        approve_subjects = (
+            {f"issue-{n}" for n in changed_numbers} if delta_mode else None)
+        try:
+            spawned2 = spawn_on_approve.spawn_phase2(
+                root, str(root), subjects=approve_subjects,
+                issue_states=issue_states, pr_index=shared_pr_index)
+            if spawned2:
+                print(f"[watchdog] spawn-on-approve: {len(spawned2)}건 스폰: {spawned2}")
+        except Exception as ex:
+            count += 1
+            print(f"[watchdog] spawn-on-approve 실패: {ex}", file=sys.stderr)
 
     _run_local_only_signals(changed_numbers=changed_numbers if delta_mode else None)
 

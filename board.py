@@ -300,12 +300,20 @@ def require_acceptance_gate(cwd: str, issue: int | None) -> None:
 
     phase 판정은 `gates/ci.py._approved_roles_on_issue` 와 같은 술어를
     쓴다: 승인자 계정의 `APPROVE issue-<n>/<role>` 코멘트가 이슈에 하나라도
-    있으면 phase-2(issue #312, phase 는 role 이 아니라 이슈의 속성). phase-1
-    이슈는 Acceptance 가 아직 초안 단계이므로 건드리지 않는다.
+    있으면 phase-2(issue #312, phase 는 role 이 아니라 이슈의 속성).
+
+    issue #2173: phase-1 이슈는 Acceptance 가 아직 초안 단계이므로 스폰을
+    막지는(sys.exit) 않지만, 같은 검사를 advisory 로 한 번 돌려 지금
+    형식대로면 phase-2 스폰이 거절될 것을 stderr 에 미리 찍는다 — #2165
+    관측(승인 코멘트가 이미 달린 뒤에야 형식 거절을 만나 이슈 본문을
+    2-3회 편집-재시도한 왕복)을 승인 *전에* 드러내, 승인자가 phase-2 가
+    실제로 시작될 수 있는 상태인지 알고 승인하게 한다.
 
     `--issue` 없이 스폰하면(보드 밖 작업) 검사할 이슈가 없어 통과시킨다.
     `gh` 조회 실패는 통과가 아니라 차단이다 — 검사 불가를 통과로 읽지
-    않는다는 게이트들의 공통 원칙(`acceptance_gate.py`/`ci.py` 동일).
+    않는다는 게이트들의 공통 원칙(`acceptance_gate.py`/`ci.py` 동일);
+    phase-1 advisory 갈래는 차단이 아니므로 이 원칙 대신 조용히 넘어간다
+    (경고 자체가 조회 실패로 못 뜨는 것은 세션을 잃는 것보다 싸다).
     """
     if issue is None:
         return
@@ -317,7 +325,19 @@ def require_acceptance_gate(cwd: str, issue: int | None) -> None:
     import acceptance_gate as _acceptance_gate
     approved_roles = _ci._approved_roles_on_issue(root, issue)
     if not approved_roles:
-        return  # phase-1: Acceptance 가 아직 초안, 게이트 대상 아님
+        try:
+            bad = _acceptance_gate.check(root, issue)
+        except Exception:
+            return  # advisory 조회 실패는 침묵 — phase-1 스폰을 막지 않는다
+        if bad:
+            print(
+                f"[acceptance-gate] 경고: 이슈 #{issue} 의 'Acceptance' 절이 "
+                f"지금 형식대로면 phase-2 승인 후 스폰이 거절된다:\n"
+                + "\n".join(f"  - {b}" for b in bad)
+                + f"\n  승인자가 APPROVE 코멘트를 달기 전에 고쳐두면 phase-2 가 "
+                f"바로 스폰된다(issue #2173, #310, #441).",
+                file=sys.stderr)
+        return  # phase-1: advisory 뿐, 스폰은 막지 않는다
     bad = _acceptance_gate.check(root, issue)
     if not bad:
         return

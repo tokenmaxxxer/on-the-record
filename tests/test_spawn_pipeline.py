@@ -1852,3 +1852,79 @@ class GateRefusalExitCodeTest(unittest.TestCase):
                  "implementation", "맡길 일", "--dry-run", "--no-contract", "-C", td],
                 capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class Phase1AcceptanceGateAdvisoryTest(unittest.TestCase):
+    """issue #2173: a phase-1 (not yet approved) issue with a bad Acceptance
+    shape must not be blocked (the section is still draft), but the same
+    violation the phase-2 gate would later refuse on must be surfaced as an
+    advisory warning at phase-1 spawn time — so a human approving the
+    proposal already knows phase-2 can't start until it's fixed, instead of
+    discovering the refusal only after approving (the #2165 live finding)."""
+
+    def _board_repo(self, td: str) -> Path:
+        root = Path(td)
+        (root / "docs" / "specs").mkdir(parents=True)
+        (root / "docs" / "specs" / "approvers.md").write_text("someone\n")
+        return root
+
+    def test_phase1_bad_shape_warns_but_does_not_block(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._board_repo(td)
+            sys.path.insert(0, str(Path(spawn.__file__).parent / "gates"))
+            import ci
+            import acceptance_gate
+            with mock.patch.object(ci, "_approved_roles_on_issue", return_value=set()), \
+                 mock.patch.object(acceptance_gate, "check",
+                                   return_value=["Acceptance 절이 프로즈뿐이다"]):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    spawn.require_acceptance_gate(str(root), 999999)  # must not raise
+            self.assertIn("999999", stderr.getvalue())
+            self.assertIn("Acceptance 절이 프로즈뿐이다", stderr.getvalue())
+            self.assertIn("issue #2173", stderr.getvalue())
+
+    def test_phase1_clean_shape_prints_no_warning(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = self._board_repo(td)
+            sys.path.insert(0, str(Path(spawn.__file__).parent / "gates"))
+            import ci
+            import acceptance_gate
+            with mock.patch.object(ci, "_approved_roles_on_issue", return_value=set()), \
+                 mock.patch.object(acceptance_gate, "check", return_value=[]):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    spawn.require_acceptance_gate(str(root), 999999)
+            self.assertEqual(stderr.getvalue(), "")
+
+    def test_phase1_gh_failure_stays_silent_not_blocking(self):
+        # advisory 조회 실패(gh 접근 불가 등)는 phase-1 스폰을 막지 않는다—
+        # 검사 불가를 차단으로 읽는 phase-2 원칙과 의도적으로 다르다.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._board_repo(td)
+            sys.path.insert(0, str(Path(spawn.__file__).parent / "gates"))
+            import ci
+            import acceptance_gate
+
+            def _boom(root, issue):
+                raise RuntimeError("gh unreachable")
+
+            with mock.patch.object(ci, "_approved_roles_on_issue", return_value=set()), \
+                 mock.patch.object(acceptance_gate, "check", _boom):
+                spawn.require_acceptance_gate(str(root), 999999)  # must not raise
+
+    def test_phase2_refusal_unchanged(self):
+        # regression guard: the phase-2 blocking path (issue #441) keeps
+        # exiting nonzero — the phase-1 advisory addition must not touch it.
+        with tempfile.TemporaryDirectory() as td:
+            root = self._board_repo(td)
+            sys.path.insert(0, str(Path(spawn.__file__).parent / "gates"))
+            import ci
+            import acceptance_gate
+            with mock.patch.object(ci, "_approved_roles_on_issue",
+                                   return_value={"implementation"}), \
+                 mock.patch.object(acceptance_gate, "check",
+                                   return_value=["Acceptance 절이 프로즈뿐이다"]):
+                with self.assertRaises(SystemExit) as cm:
+                    spawn.require_acceptance_gate(str(root), 999999)
+            self.assertNotEqual(cm.exception.code, 0)
