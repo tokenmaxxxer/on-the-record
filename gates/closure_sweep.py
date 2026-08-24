@@ -620,8 +620,12 @@ def recheck_backoff(state: dict, key: str, changed: bool) -> bool:
 
 # 이슈 #1554 요구 1/3: 틱당 gh 호출 예산 하에서 board-sweep 카테고리를
 # 절대 드롭하지 않고 이월(carry-over)한다 — `_board_wide_sweep`(spawn.py)
-# 이 매 틱 부르는 세 카테고리의 정해진 순서.
-BOARD_SWEEP_CATEGORIES = ("spawn-on-pr", "closure-sweep", "spawn-coverage")
+# 이 매 틱 부르는 카테고리의 정해진 순서. issue #2173: "spawn-on-approve"
+# (APPROVE 코멘트 관측 -> phase-2 즉시 스폰 시도)가 네 번째로 합류했다 —
+# budget=8 인 오늘 기준 4개 모두 여전히 예산 안에 들어가 사실상 매 틱
+# 전부 돈다(기존 세 카테고리와 같은 관측 동작을 유지).
+BOARD_SWEEP_CATEGORIES = ("spawn-on-pr", "closure-sweep", "spawn-coverage",
+                          "spawn-on-approve")
 
 BOARD_SWEEP_QUEUE_STATE_REL = Path("runs") / "board_sweep_queue.json"
 

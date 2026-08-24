@@ -139,8 +139,13 @@ def test_recheck_backoff(tmp_path):
 
 def test_sweep_call_budget(board_repo):
     """A sweep over 400 synthetic already-covered subjects performs <= the
-    stated per-tick call budget (8) of gh calls, resolving state via bulk
-    list + local join rather than per-subject lookups."""
+    stated per-tick call budget (8 gh calls) plus one fixed local-git call
+    (issue #2173's `spawn_on_approve` candidate-branch discovery, `git
+    for-each-ref` — O(1) per tick, zero GitHub quota, not gated by
+    `call_budget` since it never calls `gh`) of total subprocess calls,
+    resolving state via bulk list + local join rather than per-subject
+    lookups — the guarantee under test is no O(subjects) blowup, not this
+    exact constant."""
     docs = board_repo / "docs"
     for i in range(400):
         d = docs / f"issue-{i}" / "reports"
@@ -154,4 +159,4 @@ def test_sweep_call_budget(board_repo):
         with mock.patch("builtins.print"):
             spawn._board_wide_sweep(board_repo)
 
-    assert len(calls) <= 8, f"{len(calls)} gh calls for 400 subjects: {calls}"
+    assert len(calls) <= 9, f"{len(calls)} calls for 400 subjects: {calls}"
