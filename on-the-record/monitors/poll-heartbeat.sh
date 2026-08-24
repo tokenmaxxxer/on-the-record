@@ -185,6 +185,28 @@ sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-120}"
 while true; do
   sleep "${sleep_seconds}"
   _alive_stamp_write
+  # issue #2163: CHECKOUT is resolved ONCE, above, at Monitor-session
+  # startup -- it is never re-resolved per tick. A mid-session
+  # `claude plugin marketplace update` (stale-directory cleanup +
+  # re-clone) removes and recreates that same directory tree while this
+  # loop is sleeping between ticks; a tick landing inside that window
+  # used to launch one `python3 .../gates/patrol_promote.py` subprocess
+  # per configured role (POLL_HEARTBEAT_PATROL_ROLES) with no existence
+  # check, and python3 itself failed to open the momentarily-missing
+  # script file (errno 2, "No such file or directory") once per role --
+  # a 43-role crash burst for one transient condition. Reuse the same
+  # existence signal poll_rearm_resolve_checkout already trusts
+  # (spawn.py present at CHECKOUT) and skip the WHOLE tick -- due-check
+  # and patrol both -- with one advisory line, instead of letting every
+  # subprocess below fail independently.
+  if [ ! -f "${CHECKOUT}/spawn.py" ]; then
+    printf '[poll-heartbeat] checkout unavailable at %s (mid-update?), skipping tick\n' "${CHECKOUT}"
+    tick=$((tick + 1))
+    if [ "${max_ticks}" != "0" ] && [ "${tick}" -ge "${max_ticks}" ]; then
+      break
+    fi
+    continue
+  fi
   due_out="$(python3 "${CHECKOUT}/spawn.py" poll-due 2>&1 >/dev/null)"
   due_rc=$?
   if [ "${due_rc}" -eq 0 ]; then
@@ -386,6 +408,16 @@ PY
   # turn-driven directive.sh hook, so a patrol-due tick is routinely
   # non-due — folding patrol emission into the due-gated report would
   # silently drop promotion trace lines on exactly those ticks).
+  # issue #2163: checking every configured role here every patrol_every_n
+  # ticks is uncapped BY DESIGN, and deliberately not
+  # gates/patrol_wiring.py's MAX_ROLES_PER_MERGE=3 — that cap protects a
+  # different, expensive call (spawn.judge_cmd's Haiku-prefiltered judge
+  # run at the merge seam); this loop's per-role call
+  # (gates/patrol_promote.py) is a cheap board-state read/tick-detect
+  # that only reaches a `gh` write when a checkbox was actually ticked,
+  # so sweeping all configured roles on a slow, fixed cadence costs one
+  # cheap read per role rather than one judge run per role. The two caps
+  # are not the same code path and must not be unified.
   patrol_tick=$((patrol_tick + 1))
   if [ "${patrol_every_n}" != "0" ] && [ "$((patrol_tick % patrol_every_n))" -eq 0 ]; then
     if [ -e "${CHECKOUT}/.on-the-record/patrol-disabled" ]; then
