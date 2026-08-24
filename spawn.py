@@ -1927,10 +1927,29 @@ def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
             loop_state = enum[0]
     except Exception:
         pass
+    # roles/specs/<role>.spec.json required_fields become empty frontmatter
+    # keys (with the enum as a YAML comment) so the session fills values,
+    # not structure — observed in the first post-diet run: without these the
+    # session spent turns excavating git history for a prior record's shape.
+    spec_lines = ""
+    try:
+        spec = json.loads((ROOT / "roles" / "specs" / f"{role}.spec.json")
+                          .read_text(encoding="utf-8"))
+        for fld in spec.get("required_fields", []):
+            if not fld.get("required") or fld.get("name") == "loop_state":
+                continue
+            enum = fld.get("enum")
+            hint = " # one of: %s" % "|".join(enum) if enum else \
+                   " # %s" % fld.get("type", "fill")
+            spec_lines += "%s:%s\n" % (fld["name"], hint)
+    except Exception:
+        pass
+    body = _RECORD_SKELETON.format(issue=issue, role=role,
+                                   loop_state=loop_state)
+    if spec_lines:
+        body = body.replace("sha:\n---\n", "sha:\n" + spec_lines + "---\n", 1)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(_RECORD_SKELETON.format(issue=issue, role=role,
-                                          loop_state=loop_state),
-                 encoding="utf-8")
+    p.write_text(body, encoding="utf-8")
     return p
 
 

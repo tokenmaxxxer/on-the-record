@@ -111,6 +111,10 @@ class RecordSkeleton(unittest.TestCase):
             text = p.read_text(encoding="utf-8")
         self.assertEqual(self._needles_check(text), [])
         self.assertIn("loop_state: in-progress", text)
+        # roles/specs required_fields surface as empty frontmatter keys
+        self.assertIn("commit_sha:", text)
+        self.assertIn("type: # one of: feat|fix|", text)
+        self.assertIn("verdict: # one of: pass|fail", text)
 
     def test_skeleton_loop_state_respects_role_enum(self):
         """A role whose record_fields enum lacks `in-progress` gets its
