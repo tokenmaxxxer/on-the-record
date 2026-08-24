@@ -32,6 +32,7 @@ import stat
 import string
 import subprocess
 import sys
+import threading
 import traceback
 import tempfile
 import time
@@ -2329,14 +2330,45 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 쓸어낸다(spawn-time sweep) — 정리는 사람이 `spawn.py clean` 을
         # 기억해야만 도는 게 아니라 기본으로 켜져 있어야 한다(northpole
         # req#7). 스윕 실패가 스폰 자체를 막으면 안 되므로 예외를 삼킨다.
+        # 이슈 #2195: 실측 스폰에서 이 스윕이 148.7s/154.3s(96%)를 먹었다.
+        # returned_pr_gate/cross_family 와 달리 이 결과를 세션 시작 전에
+        # 기다려야 할 이유가 없다 — 이번 스폰이 못 지운 워크스페이스는
+        # 다음 스폰(혹은 다음 사이클)이 마저 지우면 그만인 housekeeping
+        # 이라, join 대상 future 가 아니라 완전히 fire-and-forget 데몬
+        # 스레드로 던진다. ThreadPoolExecutor 는 안 쓴다 — concurrent.futures
+        # 는 제출된 작업을 atexit 에서 join 하므로(모듈 전역
+        # `_threads_queues`), submit() 만 해도 인터프리터 종료가 스윕
+        # 완료까지 다시 블록돼 버려 이 이슈가 없애려는 바로 그 블로킹이
+        # 프로세스 종료 시점으로 이름만 바뀐 채 되살아난다. daemon=True
+        # 스레드는 그 등록을 거치지 않아 프로세스가 스윕을 기다리지 않고
+        # 나갈 수 있다.
+        # 이슈 #2195 헌트: 이 디스패치만 재면 `bootstrap_timing`의
+        # `auto_sweep=`이 실제 스윕이 얼마나 걸리든 늘 ~0.000 으로 찍혀,
+        # 그 시간을 어디서도 볼 수 없게 된다 — #2186 이 바로 이런 "단계
+        # 사이에 숨는 시간"을 없애려고 만든 계측 취지를 이 phase 하나에서
+        # 되살려 죽이는 셈이다. 백그라운드 스레드 자신이 완료 시점에
+        # 걸린 시간/결과를 stderr 로 찍어, 세션 시작을 막지 않으면서도
+        # 그 시간이 완전히 안 보이게 되진 않게 한다 — bootstrap_timing
+        # 줄에는 안 실리지만(그 줄은 세션 시작 전 블로킹 구간만 잰다),
+        # 라이브 로그에는 남는다.
         with _timed("auto_sweep"):
             if _clean_auto_enabled():
-                try:
-                    auto_sweep(_workspace_base(), _clean_max_age_days(),
-                               _clean_max_bytes())
-                except Exception as ex:
-                    print(f"[{role}] auto-sweep 실패(스폰은 계속): {ex}",
-                          file=sys.stderr)
+                def _run_auto_sweep() -> None:
+                    t0 = time.monotonic()
+                    try:
+                        outcome = auto_sweep(_workspace_base(),
+                                              _clean_max_age_days(),
+                                              _clean_max_bytes())
+                    except Exception as ex:
+                        print(f"[{role}] auto-sweep 실패(스폰은 계속): {ex}",
+                              file=sys.stderr)
+                        return
+                    elapsed = time.monotonic() - t0
+                    print(f"[{role}] auto-sweep(백그라운드) {elapsed:.3f}s "
+                          f"만에 끝남 (지움 {outcome['removed']}, "
+                          f"실패 {outcome['failed']})", file=sys.stderr)
+                threading.Thread(target=_run_auto_sweep, daemon=True,
+                                  name="auto-sweep").start()
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
         # 동시 스폰들이 서로의 index/브랜치를 밟지 않는다. 이슈 #2159:
         # 클론 전 cwd(= origin 체크아웃)를 따로 잡아 둔다 — 아래에서
