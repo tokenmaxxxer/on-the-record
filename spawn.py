@@ -2466,7 +2466,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                    skill_sha or role_source["skill_sha"],
                                    single_phase=single_phase,
                                    design_bearing_verdict=design_bearing_verdict,
-                                   max_turns=resolved_max_turns)
+                                   max_turns=resolved_max_turns,
+                                   checkpoint=checkpoint)
         # 이슈 #2070: roster 기록용 두 내부 키를 여기서 뽑아내 실제 subprocess
         # env 에는 안 들어가게 한다 — spawn_cmd() 가 심어준 신호일 뿐, 세션
         # 자신의 env 표면이 아니다.

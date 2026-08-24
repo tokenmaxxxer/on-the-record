@@ -51,7 +51,8 @@
   reviewer verdict, run `gates/verdict_gate.py` `classify(verdict,
   merge_gate_result, tests_pass)`: CHANGES always respawns-with-findings;
   MERGE merges ONLY when `classify()` returns ALLOW_MERGE (the
-  deterministic `merge_gate.py` `evaluate()` allows AND tests pass);
+  deterministic `merge_gate.py` `evaluate()` allows AND acceptance
+  checks pass);
   every other outcome is HOLD — never merge on the LLM verdict alone. A
   correct MERGE blocked by a flaky deterministic gate surfaces to the
   human as a HOLD, not an auto-reject.

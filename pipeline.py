@@ -558,7 +558,8 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
               skill_repo_sha_value: str | None = None,
               single_phase: bool = False,
               design_bearing_verdict: bool | None = None,
-              max_turns: int | None = None) -> tuple[list[str], dict[str, str]]:
+              max_turns: int | None = None,
+              checkpoint: bool = False) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
     --permission-mode bypassPermissions (issue #700): 샌드박스 제거(#695/#697)
@@ -643,6 +644,15 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
         env["GIT_TERMINAL_PROMPT"] = "0"
     if unattended:
         env["TOKENMAXXXER_UNATTENDED"] = "1"
+    # core PR #277 detection contract: checkpoint mode = env stamp
+    # CORE_CHECKPOINT=1, set by the SPAWNER alongside CLAUDE_ROLE — never
+    # by the session (same trust model as CORE_BUILD_NOW). core's
+    # approval-gate reads it only to reshape the no-approval refusal to
+    # point at the in-session await-approval boundary; verdict machinery
+    # is unchanged. Default spawns carry no stamp — env stays
+    # byte-identical to today when checkpoint is False.
+    if checkpoint:
+        env["CORE_CHECKPOINT"] = "1"
     if skill_dirs:
         env["MUSTER_SKILLS"] = ",".join(Path(p).name for p in skill_dirs)
         env["MUSTER_SKILL_REPO_SHA"] = skill_repo_sha_value or "?"

@@ -28,13 +28,13 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | self | `python3 -m pytest -q gates/ on-the-record/hooks/` | 2026-08-12 (issue #914) |
 | gates/test_record_lint.py | `python3 -m pytest gates/test_record_lint.py -q` | 2026-08-12 (issue #1085) |
 | gates/test_upstream_finding_channel.py | `python3 -m pytest gates/test_upstream_finding_channel.py on-the-record/hooks/test_upstream_defect_scope_guard.py -q` | 2026-08-13 (issue #1131) |
-| interaction-design/playbook/02-subtraction-comprehensibility-convention.md (tokenmaxxxer/interaction-design-rulebook) | `python3 gates/playbook_depth_gate.py /home/jwjung/.claude/plugins/marketplaces/tokenmaxxxer/runs/rulebooks/tokenmaxxxer-interaction-design/interaction-design/playbook/02-subtraction-comprehensibility-convention.md --role interaction-design --floor 4 --axes subtraction,comprehensibility,convention` | 2026-08-13 (issue #1174) |
+| ~~interaction-design/playbook/02-... (rulebook checkout)~~ | SUPERSEDED 2026-08-24 (#2141): the command replayed a path inside a retired rulebook checkout (#1955) via `gates/playbook_depth_gate.py`, itself retired in the same sweep — row kept as data, never re-run | 2026-08-13 (issue #1174) |
 | on-the-record/hooks/pr-base-guard.sh | `python3 -m pytest tests/test_pr_base_guard.py -v` | 2026-08-14 (issue #1461) |
-| tests/test_spawn.py::Watchdog | `python3 -m pytest 'tests/test_spawn.py::Watchdog' -q` | 2026-08-15 (issue #1550) |
+| tests/test_spawn_observation_recovery.py::Watchdog | `python3 -m pytest 'tests/test_spawn_observation_recovery.py::Watchdog' -q` | 2026-08-24 (#2141 re-record; was tests/test_spawn.py::Watchdog, split by #2105) |
 | gates/test_patrol_board.py | `python3 -m pytest gates/test_patrol_board.py -q` | 2026-08-15 (issue #1588) |
 | tests/test_verdict_gate.py | `python3 -m pytest tests/test_verdict_gate.py -v` | 2026-08-16 (issue #1669) |
-| tests/test_spawn.py::ReconcilePrExpectedMissingRecoveryPolicy | `python3 -m pytest tests/test_spawn.py -k ReconcilePrExpectedMissingRecoveryPolicy -q` | 2026-08-16 (issue #1678) |
-| tests/test_spawn.py::Reconcile-family | `python3 -m pytest tests/test_spawn.py -k Reconcile -q` | 2026-08-16 (issue #1678) |
+| tests/test_spawn_consult_panel.py::ReconcilePrExpectedMissingRecoveryPolicy | `python3 -m pytest tests/test_spawn_consult_panel.py -k ReconcilePrExpectedMissingRecoveryPolicy -q` | 2026-08-24 (#2141 re-record; was tests/test_spawn.py, split by #2105) |
+| tests/test_spawn_consult_panel.py::Reconcile-family | `python3 -m pytest tests/test_spawn_consult_panel.py -k Reconcile -q` | 2026-08-24 (#2141 re-record; was tests/test_spawn.py, split by #2105) |
 | self (fast tier) | `python3 -m pytest -q -m "not slow"` | 2026-08-16 (issue #1678) |
 | self (slow tier) | `python3 -m pytest -q -m slow` | 2026-08-16 (issue #1678) |
 | gates/test_boundary.py::issue-492-reconcile-markers | `python3 -m pytest gates/test_boundary.py -q -k "492 or reconcile"` | 2026-08-16 (issue #1678) |

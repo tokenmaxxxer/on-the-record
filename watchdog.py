@@ -1124,7 +1124,13 @@ def _standing_red_tree_hash(root: Path = ROOT) -> str | None:
 
 def _standing_red_load_contract(root: Path):
     """이슈 #1518 계약 파서를 재사용한다 — 이 체크 자신은 tier 선택/예산
-    로직을 다시 만들지 않는다(#1491 프로포절 Constraints)."""
+    로직을 다시 만들지 않는다(#1491 프로포절 Constraints).
+
+    #2141 rescope (per #2137 verify-at-landing): the contract is read for
+    the PLUGIN'S OWN checkout only — the target-repo contract surface
+    (select_tier/no_contract_gap and the "target repos declare
+    test-tiers.json by default" framing) is retired. standing_red_check
+    enforces the scope before calling this."""
     gates_dir = str(_sp.ROOT / "gates")
     if gates_dir not in sys.path:
         sys.path.insert(0, gates_dir)
@@ -1145,7 +1151,8 @@ def _standing_red_parse_failed_ids(output: str) -> set[str]:
 
 
 def standing_red_check(state: dict | None = None, now: float | None = None,
-                        root: Path = ROOT) -> list[str]:
+                        root: Path = ROOT,
+                        own_checkout: Path | None = None) -> list[str]:
     """이슈 #1491: main 위 fast tier(이슈 #1518 계약)를 유한 주기로 돌려,
     새로 red 가 된 테스트를 관찰만 하는(observe-only) 신호 목록으로
     돌려준다. 절대 스위트를 고치거나, 이슈를 파거나, 세션을 스폰하지
@@ -1160,7 +1167,20 @@ def standing_red_check(state: dict | None = None, now: float | None = None,
 
     `state` 를 넘기면 그 dict 를 제자리에서 갱신하고 저장하지 않는다
     (테스트용). 생략하면 `runs/standing_red_state.json` 을 읽고 쓴다.
+
+    #2141 rescope (per #2137): standing-red watches the PLUGIN'S OWN
+    suite only — `root` must be the plugin checkout (`own_checkout`,
+    default `_sp.ROOT`). A consumer-board watchdog tick (root = target
+    repo) returns [] without reading any contract or running anything:
+    the target-repo default-suite half of this machinery is retired.
     """
+    own = _sp.ROOT if own_checkout is None else own_checkout
+    try:
+        in_scope = Path(root).resolve() == Path(own).resolve()
+    except OSError:
+        in_scope = False
+    if not in_scope:
+        return []
     now = time.time() if now is None else now
     own_state = state if state is not None else _sp._standing_red_state_load()
 
@@ -1171,8 +1191,10 @@ def standing_red_check(state: dict | None = None, now: float | None = None,
 
     contract = _sp._standing_red_load_contract(root)
     if contract is None:
-        # 이슈 #1518 no_contract_gap 경로 — 계약 없이 조용히 전체 스위트를
-        # 돌리지 않는다. 이번 틱은 신호 없이 넘어간다.
+        # 계약 없이 조용히 전체 스위트를 돌리지 않는다 — 이번 틱은 신호
+        # 없이 넘어간다. (#2141: the plugin's own checkout always ships
+        # `.on-the-record/test-tiers.json`; this branch survives only as
+        # the fail-quiet path for a corrupt/missing contract file.)
         if state is None:
             _sp._standing_red_state_save(own_state)
         return []
