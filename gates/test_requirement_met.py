@@ -346,6 +346,48 @@ def t_command_identity_flags_mismatch_inside_cd_wrapper_head():
     assert result["criteria"][0]["command_identity_mismatch"] is True
 
 
+def t_evidence_in_record_command_output_only_passes():
+    """issue #2137 (verify-at-landing): a record whose ONLY evidence is a
+    command + output citation (`acceptance: <cmd> — result: PASS`) inside
+    a record .md satisfies a YES-graded command check — no test file in
+    the diff at all."""
+    body = """## Acceptance
+- check: `python3 scripts/build.py --check` exits 0.
+  provenance: executed-live
+"""
+    diff = (
+        "diff --git a/docs/issue-9/reports/implementation.md "
+        "b/docs/issue-9/reports/implementation.md\n"
+        "+++ b/docs/issue-9/reports/implementation.md\n"
+        "+- acceptance: python3 scripts/build.py --check — result: PASS\n"
+        "+  output: ok (exit 0)\n"
+    )
+    verdicts = {"`python3 scripts/build.py --check` exits 0.": rm.YES}
+    result = rm.grade(body, diff, verdicts)
+    assert result["blocked"] is False, result["blocking_reasons"]
+    assert result["criteria"][0]["artifact_in_diff"] is True
+    assert result["criteria"][0]["command_identity_mismatch"] is False
+
+
+def t_evidence_in_record_bare_prose_mention_still_not_evidence():
+    """A bare prose mention of the command in a .md (no `acceptance: ... —
+    result:` shape) stays excluded — the #2137 exception is citation-shaped
+    executed evidence only."""
+    body = """## Acceptance
+- check: `python3 scripts/build.py --check` exits 0.
+  provenance: executed-live
+"""
+    diff = (
+        "diff --git a/docs/issue-9/reports/implementation.md "
+        "b/docs/issue-9/reports/implementation.md\n"
+        "+++ b/docs/issue-9/reports/implementation.md\n"
+        "+We plan to run python3 scripts/build.py --check later.\n"
+    )
+    verdicts = {"`python3 scripts/build.py --check` exits 0.": rm.YES}
+    result = rm.grade(body, diff, verdicts)
+    assert result["blocked"] is True
+
+
 def _run(fn):
     try:
         fn()

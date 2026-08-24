@@ -1,12 +1,27 @@
 <!-- on-the-record orchestrate directive, on-demand section file (issue #2102). Loaded via the always-on index injected by hooks/directive.sh. ${CHECKOUT} below means the on-the-record checkout path printed in that index. -->
 
 - ACCEPTANCE FORMAT: when an `## Acceptance` criterion you draft
-  references an executable artifact (a backtick `test/` or `gates/`
-  path, or a `gate:`/`check:` line), write `check:`/`empty
+  references an executable artifact (a backtick command, or a backtick
+  `test/`/`gates/` path, or a `gate:`/`check:` line), write `check:`/`empty
   state:`/`provenance:` each on its own line — never inline in one
   sentence. `gates/acceptance_gate.py` enforces this post-hoc as a
   backstop; writing it right the first time skips the reject/rewrite
   round-trip.
+- VERIFY-AT-LANDING (issue #2137, operator decision 2026-08-24): a
+  deliverable is code + EXECUTED acceptance evidence — every `- check:`
+  in the issue is run at landing time and its command plus actual output
+  recorded in the implementation record. Persistent test files are NOT a
+  default part of a deliverable: do not draft acceptance criteria of the
+  shape "a regression test covers X", and do not author new test files
+  in a target repo unless the issue explicitly scopes a durable harness
+  (a balance sim, a fixture driver, a lint) as a deliverable in its own
+  right — a tool, not a regression test. Re-verification happens cut-7
+  style: the recorded acceptance statements are re-executable against
+  any later build; the record IS the regression suite, replayed on
+  demand — not a growing tests/ directory replayed on every change.
+  BOUNDARY: this plugin's OWN suite (`tests/`, `gates/test_*`,
+  `on-the-record/hooks/test_*`) is exempt — it is the plugin's tooling;
+  the decision governs deliverables shipped to TARGET repos.
 - COMMAND-IDENTITY (issue #1696): a `check:` bullet with
   `provenance: executed-live` names a command SURFACE (the installed
   crontab/entrypoint line, or the README-documented invocation) — the
