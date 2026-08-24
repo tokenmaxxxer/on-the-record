@@ -654,6 +654,54 @@ class DiagnoseHealth(unittest.TestCase):
                 state={})
             self.assertIsNone(out["state"])
 
+    def test_dead_unrecovered_commits_when_commit_count_given(self):
+        # 이슈 #2193: plugin reload 등으로 워처 자신까지 죽어
+        # `ensure_pushed()` 가 못 돈 죽음은 "커밋은 있는데 PR 없음" —
+        # `commit_count` 를 넘기면 그냥 DEAD-ERRORED 로 뭉개지 않고 브랜치명
+        # + 커밋 개수를 이름 붙인 별도 상태로 갈린다.
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn.session_end_verdict = lambda work, log_path, now=None: "crashed"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            work = str(Path(td) / "issue-2193" / "implementation")
+            out = spawn.diagnose_health(
+                "issue-2193/implementation",
+                self._entry(log, work=work, pid=999999999, issue=2193),
+                state={}, commit_count=3)
+            self.assertEqual(out["state"], "DEAD-UNRECOVERED-COMMITS")
+            self.assertEqual(out["next_action"], "recover-unpushed")
+            self.assertIn("implementation", out["detail"])
+            self.assertIn("커밋 3개", out["detail"])
+
+    def test_dead_errored_when_commit_count_zero(self):
+        # empty state (이슈 본문): 커밋이 아예 없던 죽음은 여전히
+        # DEAD-ERRORED — 회복할 게 없다는 뜻이므로 새 상태로 갈리지 않는다.
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        spawn.session_end_verdict = lambda work, log_path, now=None: "crashed"
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=str(Path(td) / "work"), pid=999999999),
+                state={}, commit_count=0)
+            self.assertEqual(out["state"], "DEAD-ERRORED")
+
+    def test_completed_and_pushed_not_dead_errored_even_with_commits(self):
+        # 회귀 가드(이슈 #2180 오보 재현 방지): PR 이 실제로 존재하면(=
+        # 완료+push 됨) commit_count 가 몇이든 DEAD-ERRORED 로도
+        # DEAD-UNRECOVERED-COMMITS 로도 보고되면 안 된다 — completion 이다.
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: 2183
+        spawn.session_end_verdict = lambda work, log_path, now=None: None
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text("")
+            out = spawn.diagnose_health(
+                "k", self._entry(log, work=str(Path(td) / "work"), pid=999999999),
+                state={}, commit_count=5)
+            self.assertIsNone(out["state"])
+            self.assertNotEqual(out["state"], "DEAD-ERRORED")
+
     def test_idle_no_double_act_reusing_precomputed_anomalies(self):
         # idle-no-double-act: watchdog_check_one() 은 오프셋을 소비하는
         # 부수효과가 있다 — 같은 틱에서 두 번 부르면 두 번째 호출이 빈

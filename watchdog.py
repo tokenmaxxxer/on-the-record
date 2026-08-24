@@ -213,7 +213,8 @@ def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
 def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
                      anomalies: list[str] | None = None,
-                     pr_index: dict | None = None) -> dict:
+                     pr_index: dict | None = None,
+                     commit_count: int | None = None) -> dict:
     """이슈 #782 스코프-확장, 이슈 #1966 확장: 살아있는(또는 방금 죽은) 로스터
     엔트리 하나를 HEALTHY/STALLED/STALLED-HEARTBEAT-ONLY(advisory)/
     DEADLOCKED/DEAD-ERRORED 다섯 상태 중 하나로 진단하고
@@ -240,7 +241,17 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     넘긴다. 넘기면 dead-entry PR 확인이 `_pr_state_from_index()`로
     인덱스만 보고 끝나 이 호출에서 `gh`를 안 부른다. 생략하면(단독/테스트
     호출, 또는 벌크 조회를 아직 안 도는 호출부) 기존
-    `_pr_open_or_merged_for_branch()` 개별 `gh pr list` 로 되돌아간다."""
+    `_pr_open_or_merged_for_branch()` 개별 `gh pr list` 로 되돌아간다.
+
+    `commit_count`(이슈 #2193): 죽었는데 완료가 아닌(PR 없음) 엔트리에
+    한해, 호출부가 이미 계산해 둔 "이 세션이 남긴 새 커밋 개수"(예:
+    `_sp._session_commit_count(work, entry.get("before_head"), _sp._git_head(work))`)
+    를 넘기면 `DEAD-ERRORED` 대신 `DEAD-UNRECOVERED-COMMITS` 로 갈린다 —
+    이 함수 자신은 그 값을 구하려고 새 `git` 호출 타입을 추가하지 않는다
+    (위 원자료 제약 그대로), 호출부가 이미 쓰는 (before_head, HEAD) 랜드마크
+    위에서 계산해 건네주는 형태다. 생략하면(기본값 `None`, 기존 호출부)
+    이전과 동일하게 `DEAD-ERRORED` 하나로만 갈린다 — 순수 추가라 기존
+    동작은 안 바뀐다."""
     now = time.time() if now is None else now
     pid = entry.get("pid", 0)
     work = entry.get("work")
@@ -259,8 +270,20 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         if verdict == "normal" or pr_number is not None:
             return {"state": None, "next_action": "none",
                     "detail": "completion, not a health diagnosis"}
+        if commit_count:
+            # 이슈 #2193: 죽었고 PR 도 없지만 커밋은 남았다 — plugin
+            # reload 등으로 워처 자신이 함께 죽어 `ensure_pushed()` 가
+            # 못 돈 경우의 대표 실패 모드. 일반 DEAD-ERRORED("respawn 해도
+            # 잃을 것 없음")와 섞으면 이 커밋들이 침묵 속에 좌초한다 —
+            # 브랜치명과 커밋 개수를 이름 붙여 별도 상태로 갈라낸다.
+            return {"state": "DEAD-UNRECOVERED-COMMITS",
+                    "next_action": "recover-unpushed",
+                    "detail": f"{key}: pid {pid} 부재, PR 없음, "
+                              f"branch={branch} 에 push 안 된 커밋 "
+                              f"{commit_count}개 — 복구 필요 "
+                              f"(session_verdict={verdict!r})"}
         return {"state": "DEAD-ERRORED", "next_action": "respawn",
-                "detail": f"{key}: pid {pid} 부재, PR 없음, "
+                "detail": f"{key}: pid {pid} 부재, PR 없음, 커밋 없음, "
                           f"session_verdict={verdict!r}"}
     deadlock_sig = _sp._deadlock_signature(work)
     if deadlock_sig is not None:
@@ -1515,8 +1538,16 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                 # Issue #2103: serve the dead-entry PR check from the shared
                 # per-tick index (snapshot/delta) instead of a fresh
                 # `gh pr list` per entry.
+                # Issue #2193: name the commit count on a dead-with-commits
+                # entry — same (before_head, HEAD) landmark `_build_observed()`
+                # already reads for `reconcile()`, just counted instead of
+                # boolean.
+                commit_count = (_sp._session_commit_count(
+                    work, e.get("before_head"), _sp._git_head(work))
+                    if work else 0)
                 dead_health = _sp.diagnose_health(key, e, state=state, root=root,
-                                              pr_index=_poll_pr_index())
+                                              pr_index=_poll_pr_index(),
+                                              commit_count=commit_count)
                 state[f"{key}:dead_report"] = dead_health
             dead_health = state.get(f"{key}:dead_report")
             if dead_health is not None:

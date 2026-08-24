@@ -413,6 +413,7 @@ _pr_for_branch = _board_mod._pr_for_branch
 _pr_open_or_merged_for_branch = _board_mod._pr_open_or_merged_for_branch
 _record_upstream = _board_mod._record_upstream
 _recovery_policy_module = _board_mod._recovery_policy_module
+_session_commit_count = _board_mod._session_commit_count
 approve_scope = _board_mod.approve_scope
 board = _board_mod.board
 board_snapshot = _board_mod.board_snapshot
