@@ -101,6 +101,21 @@ None.
 None — loop_state is terminal (landed). Verification below is this
 session's own executed evidence for issue #2137.
 
+## Rationale for deviations
+
+The approved delivery flow expected a plain `#2152` reference OR a
+`Closes #2152` trailer depending on phase. `pr-preflight.sh` derives
+that phase from an actual GitHub "APPROVE issue-2152/implementation"
+comment or delegation citation (on-the-record/hooks/pr-preflight.sh:136-234,
+this session) — neither exists under the `CORE_BUILD_NOW=1` build-now
+bypass, since that bypass skips the approval round entirely. The gate
+therefore classifies this delivery as phase1 and refuses a Closes
+trailer. Same shape as issue-2153's precedent (commit 41d4b173,
+docs/reports/deviation-log.md). Resolved by using a plain "#2152"
+reference in the PR body per the gate's own hint text — the issue will
+not auto-close on merge; a human closes it manually or references the
+merge commit.
+
 ## skill-verdict
 
 skill-verdict: implementation-complexity-coupling-management — not-applicable: no coupling/cohesion metric, accessor chain, or cross-module import direction is involved — this is a single-file CLI default flip plus one new boolean flag.
