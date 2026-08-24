@@ -31,7 +31,8 @@ Fix, in `gates/record_lint.py`:
 - `_dewrap()`: collapse soft-wrapped line breaks inside an evidence window before running any label regex against it, so a wrapped sentence reads as one line for matching purposes.
 - `_CLAIM_DERIVED_TAG` widened to accept a bare (non-backtick) `derived:` label — the same leniency `canonical:` already had — and generalized as a sibling evidence tag for any claim type, not just count claims.
 - New `_acceptance_evidence_lines()` / `_ACCEPTANCE_RESULT_LEADIN`: recognizes this project's own documented executed-live convention (`on-the-record/directive/acceptance-format.md`: `` `acceptance: <command> — result:` ``) immediately followed by a fenced block as grounding in its own right, independent of any `canonical:` wrapper.
-- Every check function's rejection message now ends with a "통과하려면 ..." sentence naming the concrete evidence shape that would pass, for #310/#331/#333/#330/#793/#870/#791.
+- Every check function's rejection message now ends with a "통과하려면 ..." sentence naming the concrete evidence shape that satisfies it, for #310/#331/#333/#330/#793/#870/#791.
+- `_prose_window()`: the section-scoped evidence window excludes fenced-block lines (delimiters and content) before matching — see "What did not work" below for why.
 - Synced the fixed module to `on-the-record/gates/record_lint.py` so the deployed hook actually runs it.
 
 acceptance: `python3 -m pytest gates/test_record_lint.py -q -o addopts=` — result:
@@ -81,7 +82,15 @@ Rejected alternative: reconstructing the full file for `Edit`/`MultiEdit` fragme
 
 ## What did not work
 
-None.
+canonical: before-landing warrant-hunt dispatched against commit `ff1de0b7` (this issue's first landed commit), finding text read this session.
+
+The first cut of the section-scoped widening joined every line in `[lo, hi)` — including fenced code-block content — before matching `canonical:`/`derived:` labels. A `canonical:`/`derived:` string appearing only as illustrative example text inside a fence (e.g. documentation showing the tag format itself) then satisfied #793/#870 for an unrelated claim elsewhere in the same section — a real false-negative the warrant-hunt reproduced directly against `canonical_source_claim_check`/`outcome_claim_citation_check`. Fixed by adding `_prose_window()`, which excludes fenced lines from the window before matching; only the author's own live prose counts as evidence, never quoted/pasted fence content. Regression-pinned as `t_2219_canonical_tag_inside_fence_is_not_real_evidence` in `gates/test_record_lint.py`, and re-verified live through the deployed hook.
+
+acceptance: `python3 -m pytest gates/test_record_lint.py -q -o addopts=` (re-run after the fence-exclusion fix) — result:
+```
+76 passed in 4.04s
+```
+derived: per the fenced re-run above, the suite count rose from 75 to 76 (the one new regression-pin test), still all green — the fence-exclusion fix did not disturb either verbatim repro (re-checked directly against `/tmp/repro1.md`/`/tmp/repro2.md`, both still resolve clean) or any pre-existing case.
 
 ## Upstream basis
 

@@ -144,6 +144,18 @@ def _dewrap(text: str) -> str:
     return re.sub(r"\n+", " ", text)
 
 
+def _prose_window(lines: list[str], in_fence: list[bool], lo: int, hi: int) -> str:
+    """Dewrapped [lo, hi) text with fenced lines (delimiters and their
+    content) excluded — a widened section-scope search must not let a
+    `canonical:`/`derived:` string that appears only as illustrative
+    example text inside a fenced code block (e.g. documentation of the
+    tag format itself) count as a real citation for an unrelated claim
+    elsewhere in the section. Only the author's own live prose, never
+    quoted/pasted fence content, is evidence."""
+    prose = [line for j, line in enumerate(lines[lo:hi]) if not in_fence[lo + j]]
+    return _dewrap("\n".join(prose))
+
+
 # issue #2219 — the project's own documented executed-live convention
 # (on-the-record/directive/acceptance-format.md: "acceptance: <command>
 # — result: ...") is grounding in its own right when paired with an
@@ -460,7 +472,7 @@ def outcome_claim_citation_check(text: str) -> list[str]:
         # issue #2219: the evidence search scope is the claim's whole
         # enclosing section, not a fixed line count — see module note.
         lo, hi = _section_bounds(lines, i)
-        window = _dewrap("\n".join(lines[lo:hi]))
+        window = _prose_window(lines, in_fence, lo, hi)
         m = _CANONICAL_TAG.search(window)
         cited = m.group(1).strip().strip("`") if m and m.group(1).strip() else ""
         has_executed_live = bool(cited) and bool(
@@ -818,7 +830,7 @@ def canonical_source_claim_check(text: str) -> list[str]:
         # issue #2219: the evidence search scope is the claim's whole
         # enclosing section, not a fixed line count — see module note.
         lo, hi = _section_bounds(lines, i)
-        window = _dewrap("\n".join(lines[lo:hi]))
+        window = _prose_window(lines, in_fence, lo, hi)
         m = _CANONICAL_TAG.search(window)
         has_canonical = bool(m and m.group(1).strip())
         # issue #2219 — `derived:` is now a general sibling tag to

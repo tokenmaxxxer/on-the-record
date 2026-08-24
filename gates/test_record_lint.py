@@ -1106,6 +1106,35 @@ def t_2219_acceptance_leadin_without_adjacent_fence_does_not_count():
     assert any("#870" in b for b in bad), bad
 
 
+def t_2219_canonical_tag_inside_fence_is_not_real_evidence():
+    """before-landing warrant-hunt finding: a `canonical:`/`derived:`
+    string that appears only as illustrative example text INSIDE a
+    fenced code block (e.g. documentation showing the tag format
+    itself) must not count as a real citation for an unrelated claim
+    elsewhere in the section — the widened section-scope search must
+    only read the author's own live prose, never quoted/pasted fence
+    content."""
+    body_793 = (
+        "## Some section\n\n"
+        "Example of the tag format:\n"
+        "```\n"
+        "canonical: docs/some/unrelated/example.md\n"
+        "```\n\n"
+        "The verify role found the defect in the parser.\n")
+    assert any("#793" in b for b in
+               record_lint.canonical_source_claim_check(body_793)), body_793
+
+    body_870 = (
+        "## Some section\n\n"
+        "Example:\n"
+        "```\n"
+        "derived: pytest -q\n"
+        "```\n\n"
+        "The requirement is met and the deliverable is done.\n")
+    assert any("#870" in b for b in
+               record_lint.outcome_claim_citation_check(body_870)), body_870
+
+
 def t_2219_derived_and_canonical_tags_evidence_a_claim_across_a_different_section_never_leak():
     """A `derived:`/`canonical:` tag in one section must not vouch for a
     claim in an UNRELATED later section — the widened search is
