@@ -409,8 +409,10 @@ class CheckpointDirectiveAssembly(unittest.TestCase):
         # And the default portion is a strict prefix-superset relation:
         # removing the block reproduces the default prompt byte-for-byte.
         base = self._delivered_prompt(checkpoint=False)
+        # Issue #2135: the inline appendage is the condensed index block;
+        # the full contract prose is materialized as a workspace file.
         stripped = delivered.replace(
-            "\n\n" + spawn._checkpoint_contract_block(_ISSUE, _ROLE), "")
+            "\n\n" + spawn._checkpoint_index_block(_ISSUE, _ROLE), "")
         self.assertEqual(stripped, base)
 
 

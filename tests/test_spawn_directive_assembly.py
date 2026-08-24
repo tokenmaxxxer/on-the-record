@@ -176,16 +176,22 @@ class SkillVerdictObligationLine(SkillTriggerLines):
 
     @pytest.mark.slow
     def test_mounted_skill_directive_states_verdict_obligation(self):
+        # Issue #2135 diet: the inline text is the condensed obligation
+        # index; the full #2039 prose is materialized as a workspace file.
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             skill_dir = self._skill_dir_with_trigger(Path(td) / "skills")
             role_source = {"source": "skill-repo", "skill_dirs": [skill_dir],
                            "skills": ["implementation-blueprint"], "skill_sha": "abc123"}
             delivered = self._run(work, role_source, {})
-        self.assertIn("스킬-verdict 의무(이슈 #2039)", delivered)
+            section = (work / ".on-the-record" / "directive"
+                       / "skill-obligations.md").read_text(encoding="utf-8")
         self.assertIn("skill-verdict:", delivered)
         self.assertIn("applied:", delivered)
         self.assertIn("not-applicable:", delivered)
+        self.assertIn(".on-the-record/directive/skill-obligations.md", delivered)
+        self.assertIn("스킬-verdict 의무(이슈 #2039)", section)
+        self.assertIn("정확히 하나씩 남겨야 한다", section)
 
     @pytest.mark.slow
     def test_zero_mounted_skills_directive_omits_verdict_obligation(self):
@@ -205,14 +211,19 @@ class InvokeBeforeApplyObligation(SkillTriggerLines):
 
     @pytest.mark.slow
     def test_mounted_skill_directive_states_invoke_before_apply(self):
+        # Issue #2135 diet: full #2062 prose in the workspace section file;
+        # the inline index keeps the invocation-marker invariant.
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             skill_dir = self._skill_dir_with_trigger(Path(td) / "skills")
             role_source = {"source": "skill-repo", "skill_dirs": [skill_dir],
                            "skills": ["implementation-blueprint"], "skill_sha": "abc123"}
             delivered = self._run(work, role_source, {})
-        self.assertIn("invoke-before-apply(이슈 #2062)", delivered)
+            section = (work / ".on-the-record" / "directive"
+                       / "skill-obligations.md").read_text(encoding="utf-8")
         self.assertIn("invoked;", delivered)
+        self.assertIn("invoke-before-apply(이슈 #2062)", section)
+        self.assertIn("SKILL.md 를 로드해야 한다", section)
 
     @pytest.mark.slow
     def test_zero_mounted_skills_directive_omits_invoke_before_apply(self):
@@ -322,12 +333,18 @@ class CheckpointCommitDirectiveLine(DirectiveAssemblyBase):
 
     @pytest.mark.slow
     def test_spawn_one_directive_contains_checkpoint_commit_line(self):
+        # Issue #2135 diet: inline is the trigger line naming the rule; the
+        # full prose (검증/amend detail) is the workspace section file.
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             delivered = self._run(work, _NO_SKILLS, {})
+            section = (work / ".on-the-record" / "directive"
+                       / "completion-and-landing.md").read_text(encoding="utf-8")
         self.assertIn(_CHECKPOINT_COMMIT_MARKER, delivered)
         self.assertIn("검증", delivered)
-        self.assertIn("amend", delivered)
+        self.assertIn(_CHECKPOINT_COMMIT_MARKER, section)
+        self.assertIn("검증", section)
+        self.assertIn("amend", section)
 
 
 class CheckpointCommitAbsentFromNoCommitModes(unittest.TestCase):
