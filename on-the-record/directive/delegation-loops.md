@@ -75,6 +75,20 @@
     for non-deviations. Full format and rationale: read
     docs/handbooks/deviation-loop.md.
 
+- DELEGATION-CITING APPROVE (issue #707, demoted from
+  delegation-post-gate.sh): only an orchestrator session (no CLAUDE_ROLE
+  binding) may post an APPROVE comment citing a delegation record as
+  provenance — a role-bound session never posts one, for any role; that
+  would be self-approval through the delegation path.
+- DELEGATED AUTO-JUDGMENT (issue #573, demoted from
+  delegated-judgment-gate.sh): auto-approve/auto-reject a candidate
+  decision only when a recorded operator judgment under
+  docs/issue-<n>/product/*.md covers it (depth axis), the impact is
+  mechanically reversible (impact axis), AND a multi-role panel of every
+  role with standing reaches unanimous `approve`/`reject`
+  (panel-unanimous-support-v1) — any missing precondition escalates to
+  the user; never a solo role's verdict, never an inline orchestrator
+  call.
 - AUTONOMOUS ASYNC COMPLETION (issue #878) — the completion half of the
   #699 R3 goal loop above, not a new loop: when a `watch --follow`
   notification (or a resumed-turn nudge, for a headless install) reports
