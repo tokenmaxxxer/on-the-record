@@ -319,6 +319,7 @@ def _run_preflight(cmd, repo_dir, fixtures, tmp_path):
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["GH_FIXTURES"] = str(fixtures_path)
     env["ORCHESTRATE_OFF"] = ""
+    env.pop("CORE_BUILD_NOW", None)
     return subprocess.run(
         ["bash", str(HOOKS_DIR / "pr-preflight.sh")],
         input=payload, capture_output=True, text=True,

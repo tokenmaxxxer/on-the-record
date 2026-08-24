@@ -30,6 +30,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 HOOKS_DIR = Path(__file__).resolve().parent
 PREFLIGHT = HOOKS_DIR / "pr-preflight.sh"
 
@@ -305,7 +307,7 @@ def _repo_dir(tmp_path, approvers, branch):
     return d
 
 
-def _run_preflight(cmd, repo_dir, fixtures, tmp_path):
+def _run_preflight(cmd, repo_dir, fixtures, tmp_path, extra_env=None):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir(exist_ok=True)
     _write_fake_gh(bin_dir)
@@ -317,6 +319,9 @@ def _run_preflight(cmd, repo_dir, fixtures, tmp_path):
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["GH_FIXTURES"] = str(fixtures_path)
     env["ORCHESTRATE_OFF"] = ""
+    env.pop("CORE_BUILD_NOW", None)
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         ["bash", str(PREFLIGHT)],
         input=payload, capture_output=True, text=True,
@@ -363,6 +368,67 @@ def test_hook_allows_legitimate_phase2_pr(tmp_path):
     cmd = f'gh pr create --title "delivery" --body "{body}"'
     r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
     assert r.returncode == 0, r.stderr
+
+
+# --- build-now bypass (issue #2158, contract v3 s19a) ----------------------
+#
+# CORE_BUILD_NOW=1 sessions skip the proposal round by design (#2155 made
+# single-phase the default), so no APPROVE comment or delegation citation
+# ever exists for them — before this fix, pr-preflight.sh classified every
+# such delivery PR as phase1 and refused a normal 'Closes #<n>' trailer.
+
+def test_hook_allows_build_now_pr_with_closes_and_no_approval(tmp_path):
+    """CORE_BUILD_NOW=1, no approval comment at all, body carries lead prose
+    plus 'Closes #<issue>' -> must be treated as phase-2-equivalent and
+    pass, without the plain-'#<n>'-reference workaround."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2158/implementation")
+    fixtures = {"issue_comments": []}  # no APPROVE comment -> would be phase1 today
+    body = "Delivers the CORE_BUILD_NOW phase determination fix.\n\nCloses #2158"
+    cmd = f'gh pr create --title "delivery" --body "{body}"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path, extra_env={"CORE_BUILD_NOW": "1"})
+    assert r.returncode == 0, r.stderr
+
+
+def test_hook_denies_same_pr_without_build_now_stamp(tmp_path):
+    """Regression guard: the identical command/fixtures, but with no
+    CORE_BUILD_NOW stamp, must still be refused as phase1 (today's
+    behavior for a plain two-phase session) -- the bypass only fires when
+    the env carries the stamp."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2158/implementation")
+    fixtures = {"issue_comments": []}
+    body = "Delivers the CORE_BUILD_NOW phase determination fix.\n\nCloses #2158"
+    cmd = f'gh pr create --title "delivery" --body "{body}"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 2, r.stderr
+
+
+def test_hook_two_phase_approval_flow_unaffected_by_build_now_check(tmp_path):
+    """Regression guard: a genuine two-phase session (no CORE_BUILD_NOW,
+    real APPROVE comment) retains today's approval-comment requirement --
+    the new check is additive, never a replacement for the existing path."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2158/implementation")
+    fixtures = {
+        "issue_comments": [
+            {"body": "APPROVE issue-2158/implementation", "author": {"login": "alice"}},
+        ],
+        "issue_body": "some issue body, no plan section",
+    }
+    body = "Delivers the fix via the normal two-phase approval flow.\n\nCloses #2158"
+    cmd = f'gh pr create --title "delivery" --body "{body}"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path)
+    assert r.returncode == 0, r.stderr
+
+
+@pytest.mark.parametrize("value", ["0", "false", "", "yes"])
+def test_hook_build_now_unset_or_non_one_behaves_as_today(tmp_path, value):
+    """Absent/unset/non-'1' CORE_BUILD_NOW values must leave phase
+    determination byte-identical to today (still phase1, still refused)."""
+    repo_dir = _repo_dir(tmp_path, ["alice"], "issue-2158/implementation")
+    fixtures = {"issue_comments": []}
+    body = "Delivers the CORE_BUILD_NOW phase determination fix.\n\nCloses #2158"
+    cmd = f'gh pr create --title "delivery" --body "{body}"'
+    r = _run_preflight(cmd, repo_dir, fixtures, tmp_path, extra_env={"CORE_BUILD_NOW": value})
+    assert r.returncode == 2, r.stderr
 
 
 # --- issue #854: heredoc --body extraction truncated at an embedded quote --
@@ -805,6 +871,7 @@ def test_hook_denies_pr_when_issue_body_fetch_fails_fail_closed(tmp_path):
     env = dict(os.environ)
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["ORCHESTRATE_OFF"] = ""
+    env.pop("CORE_BUILD_NOW", None)
     r = subprocess.run(
         ["bash", str(PREFLIGHT)], input=payload, capture_output=True, text=True,
         env=env, cwd=str(repo_dir), timeout=20,
