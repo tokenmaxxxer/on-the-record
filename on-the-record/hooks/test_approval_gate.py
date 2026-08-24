@@ -416,5 +416,89 @@ def test_build_now_unset_or_non_one_behaves_as_today(repo, bin_dir, value):
     assert r_bypass_like.stderr == r_baseline.stderr
 
 
+# --- observer role write on a merge-auto-closed issue (issue #2187) ---------
+#
+# on-the-record's approval-gate.sh, unlike core's copy of the same-named
+# hook, has never queried the subject issue's open/closed state at all --
+# it checks only for a matching APPROVE comment (or a live delegation
+# citation) from a docs/specs/approvers.md-listed account (confirmed by
+# reading this file: no `gh issue view ... state` / `stateReason` call
+# anywhere, only `--json comments -q .comments`). core's issue-295/PR-#296
+# observer exemption (execution-observation/conformance-review exempted
+# from ITS OWN closed-issue deny when closedByPullRequestsReferences
+# names a MERGED PR on issue-<n>/implementation) has nothing to port here
+# -- core's own already-landed implementation record (docs/issue-295 on
+# tokenmaxxxer-core, commit f69b1cf) independently diffed the two files
+# and reached the identical conclusion: "design divergence, not drift...
+# on-the-record's approval-gate.sh has no issue-open/closed precondition
+# at all." These tests lock in, as an explicit regression guard, the
+# behavior issue #2187's acceptance criteria actually needs: an observer
+# role's phase-2 record write succeeds on a subject issue that
+# auto-closed via its implementation PR's Closes trailer (reproducing
+# issue #2180's real shape), with no manual reopening -- and still
+# requires a genuine Approve signal, since the issue's closed state
+# neither grants nor blocks approval on its own in this gate's design.
+
+OBSERVER_ISSUE = 2180
+OBSERVER_ROLE = "execution-observation"
+OBSERVER_BRANCH = f"issue-{OBSERVER_ISSUE}/{OBSERVER_ROLE}"
+OBSERVER_RECORD_PATH = f"docs/issue-{OBSERVER_ISSUE}/reports/{OBSERVER_ROLE}.md"
+OBSERVER_APPROVED_COMMENTS = [{"body": f"APPROVE {OBSERVER_BRANCH}", "author": {"login": "octocat"}}]
+OBSERVER_UNAPPROVED_COMMENTS = [{"body": "looks good", "author": {"login": "octocat"}}]
+
+
+@pytest.fixture
+def observer_repo(tmp_path):
+    r = tmp_path / "observer_target"
+    r.mkdir()
+    _init_repo(r, OBSERVER_BRANCH)
+    return r
+
+
+def _run_observer(repo, bin_dir, comments, approvers_present):
+    if approvers_present:
+        specs = repo / "docs" / "specs"
+        specs.mkdir(parents=True, exist_ok=True)
+        (specs / "approvers.md").write_text("- octocat\n")
+    payload = json.dumps({
+        "tool_name": "Write",
+        "tool_input": {"file_path": OBSERVER_RECORD_PATH, "content": "x"},
+        "cwd": str(repo),
+    })
+    env = dict(os.environ)
+    env["CLAUDE_ROLE"] = OBSERVER_ROLE
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    env["FAKE_GH_COMMENTS"] = json.dumps(comments)
+    env.pop("ORCHESTRATE_OFF", None)
+    env.pop("CORE_BUILD_NOW", None)
+    return subprocess.run(
+        ["bash", str(GUARD)], input=payload, capture_output=True, text=True,
+        cwd=repo, env=env, timeout=30,
+    )
+
+
+def test_observer_role_record_write_succeeds_on_merge_auto_closed_issue(observer_repo, bin_dir):
+    # Reproduces issue #2180's real shape (execution-observation's
+    # phase-2 record write, subject issue auto-closed via its own
+    # implementation PR's Closes trailer) with no manual reopening
+    # anywhere in this test. Succeeds because this gate never consulted
+    # issue state to begin with -- not because of a ported exemption
+    # (there is no base closed-issue deny here to exempt from).
+    r = _run_observer(observer_repo, bin_dir, OBSERVER_APPROVED_COMMENTS, approvers_present=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_observer_role_still_denied_without_approve_on_closed_issue(observer_repo, bin_dir):
+    # Regression guard for the other half of core's exemption semantics
+    # ("only lifts the closed-issue precondition, the real Approve-signal
+    # check still runs after it"): even on the same closed-issue subject,
+    # a missing APPROVE comment still denies an observer role exactly
+    # like any other role -- the issue's closed state neither grants nor
+    # blocks approval on its own in this gate's design.
+    r = _run_observer(observer_repo, bin_dir, OBSERVER_UNAPPROVED_COMMENTS, approvers_present=True)
+    assert r.returncode == 2, r.stderr
+    assert f"APPROVE {OBSERVER_BRANCH}" in r.stderr
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))
