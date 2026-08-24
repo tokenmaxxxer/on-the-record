@@ -99,3 +99,11 @@ rather than recomputed (which would itself contradict the role spec's
 "never a standalone summary field asserted independently of the cited
 results" clause) — not silently perform the 1:1 swap the record's own
 governing skill names and disclaims as unsound.
+
+## before-landing — docs-only, no before-landing dispatch
+
+This phase-2 session's only write was
+`docs/issue-2166/reports/conformance-review.md` — every touched path is
+under `docs/`, so the warrant protocol's docs-only fast path applies
+and the before-landing warrant-hunter dispatch is skipped for this
+landing (commit `90fbf9e3`, PR #2175).
