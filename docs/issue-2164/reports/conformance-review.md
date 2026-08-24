@@ -308,8 +308,8 @@ its field list (`requirement`/`spec_ref`/`verdict`/`evidence`/
 REQ-1..REQ-8, each carrying an evidence pointer and a `spec_ref` per the
 skill's own refusal rule.
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every evidence citation above pins a `sha:path:line` triple
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+every evidence citation above pins a `sha:path:line` triple
 (rule 1), `consult.py` and `pipeline.py` are cited as separate
 contributing files for REQ-1/REQ-2 vs REQ-3 rather than bundled (rule
 2), and REQ-1..REQ-8 were each backward-traced to a named issue-#2164
