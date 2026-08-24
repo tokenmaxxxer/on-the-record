@@ -64,12 +64,12 @@ def test_new_red_reported_once(tmp_path):
 
     state = {}
     # empty-state: 상태 파일이 처음이면 현재 red 를 baseline 으로 즉시 보고
-    signals1 = spawn.standing_red_check(state=state, now=0, root=root)
+    signals1 = spawn.standing_red_check(state=state, own_checkout=root, now=0, root=root)
     assert signals1 == [f"standing-red: tests/test_x.py::test_y — 새 red, tree {tree_hash[:8]}"]
 
     # 같은 tree, 다음 틱 — 이미 보고된 red 는 재보고하지 않는다
     signals2 = spawn.standing_red_check(
-        state=state, now=spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
+        state=state, own_checkout=root, now=spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
     assert signals2 == []
 
 
@@ -79,12 +79,12 @@ def test_flake_needs_two_consecutive(tmp_path):
     _write_contract(root, _fake_pytest_script(root, ["tests/test_x.py::test_y"]))
 
     state = {"standing_red": {}}  # non-empty state -> 정상 플레이크 게이트 적용
-    signals1 = spawn.standing_red_check(state=state, now=0, root=root)
+    signals1 = spawn.standing_red_check(state=state, own_checkout=root, now=0, root=root)
     assert signals1 == [], "same-tree 첫 실패는 아직 보고하지 않는다"
     assert state["standing_red"]["tests/test_x.py::test_y"]["consecutive_count"] == 1
 
     signals2 = spawn.standing_red_check(
-        state=state, now=spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
+        state=state, own_checkout=root, now=spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
     assert len(signals2) == 1, "같은 tree 에서 두 번째 연속 실패는 보고한다"
 
 
@@ -96,9 +96,9 @@ def test_observe_only(tmp_path):
     state = {}
     with mock.patch("spawn._post_session_end_comment") as post_comment, \
          mock.patch.object(spawn, "_maybe_resume_for_ready_pr") as resume:
-        spawn.standing_red_check(state=state, now=0, root=root)
+        spawn.standing_red_check(state=state, own_checkout=root, now=0, root=root)
         spawn.standing_red_check(
-            state=state, now=spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
+            state=state, own_checkout=root, now=spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
     post_comment.assert_not_called()
     resume.assert_not_called()
     # 관측 대상 저장소의 커밋된 트리 자체는 건드려지지 않았다 — HEAD 불변
@@ -116,13 +116,13 @@ def test_rearm_on_tree_change(tmp_path):
     _write_contract(root, _fake_pytest_script(root, ["tests/test_x.py::test_y"]))
 
     state = {}
-    spawn.standing_red_check(state=state, now=0, root=root)  # empty-state baseline report
+    spawn.standing_red_check(state=state, own_checkout=root, now=0, root=root)  # empty-state baseline report
     assert state["standing_red"]["tests/test_x.py::test_y"]["reported"] is True
 
     # tree 가 바뀌면 카운터가 리셋되고 재무장된다
     new_hash = _bump_commit(root)
     spawn.standing_red_check(
-        state=state, now=spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
+        state=state, own_checkout=root, now=spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
     entry = state["standing_red"]["tests/test_x.py::test_y"]
     assert entry["tree_hash"] == new_hash
     assert entry["consecutive_count"] == 1
@@ -130,7 +130,7 @@ def test_rearm_on_tree_change(tmp_path):
 
     # 새 tree 에서 두 번째 연속 실패 -> 재보고
     signals = spawn.standing_red_check(
-        state=state, now=2 * spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
+        state=state, own_checkout=root, now=2 * spawn.STANDING_RED_CADENCE_MIN * 60, root=root)
     assert len(signals) == 1
 
 
@@ -140,7 +140,7 @@ def test_no_contract_no_run(tmp_path):
 
     state = {}
     with mock.patch("subprocess.run", wraps=subprocess.run) as run_spy:
-        signals = spawn.standing_red_check(state=state, now=0, root=root)
+        signals = spawn.standing_red_check(state=state, own_checkout=root, now=0, root=root)
     assert signals == []
     called_cmds = [c.args[0] for c in run_spy.call_args_list]
     assert not any("fake_test_run" in " ".join(map(str, c)) for c in called_cmds)
@@ -152,9 +152,9 @@ def test_cadence_gate_skips_before_interval(tmp_path):
     _write_contract(root, _fake_pytest_script(root, ["tests/test_x.py::test_y"]))
 
     state = {}
-    spawn.standing_red_check(state=state, now=0, root=root)
+    spawn.standing_red_check(state=state, own_checkout=root, now=0, root=root)
     with mock.patch("subprocess.run", wraps=subprocess.run) as run_spy:
-        signals = spawn.standing_red_check(state=state, now=60, root=root)  # 1분 후, 15분 미만
+        signals = spawn.standing_red_check(state=state, own_checkout=root, now=60, root=root)  # 1분 후, 15분 미만
     assert signals == []
     assert not any("fake_test_run" in " ".join(map(str, c.args[0]))
                    for c in run_spy.call_args_list)
@@ -200,3 +200,21 @@ def test_observation_loss_regression_guard(tmp_path):
     assert "STALLED" in printed, (
         "standing-red 신호가 섞여도 기존 poll-report/health 신호는 유실되지 않는다")
     assert rc >= 1  # standing-red 신호가 anomaly_count 에 반영된다
+
+
+def test_target_repo_root_is_out_of_scope(tmp_path):
+    """#2141 rescope (per #2137): standing-red watches the PLUGIN'S OWN
+    suite only. A watchdog tick whose board root is a target repo — even
+    one that declares its own test-tiers.json — runs nothing and signals
+    nothing: the target-repo default-suite half is retired."""
+    target = tmp_path / "target-repo"
+    _init_git_repo(target)
+    _write_contract(target, _fake_pytest_script(target, ["tests/test_x.py::test_y"]))
+    plugin_checkout = tmp_path / "plugin-checkout"
+    plugin_checkout.mkdir()
+
+    state = {}
+    signals = spawn.standing_red_check(
+        state=state, own_checkout=plugin_checkout, now=0, root=target)
+    assert signals == []
+    assert state == {}  # not even last_run touched — fully out of scope

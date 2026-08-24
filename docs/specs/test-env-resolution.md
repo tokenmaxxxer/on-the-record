@@ -1,5 +1,13 @@
 # Test-env resolution convention (issue #551)
 
+> **SUPERSEDED (2026-08-24, #2141):** this spec is written against the
+> retired rulebook-repo model (#1955 retired the rulebook checkouts this
+> convention targeted) and the test-default verification framing that
+> #2137 (verify-at-landing) replaced. The resolution order below is kept
+> only as historical reference for any script that still uses it; do not
+> adopt it in new work. New gate tests live in this repo's own suite and
+> resolve core via `CLAUDE_PLUGIN_ROOT_CORE` directly.
+
 ## Problem
 Rulebook gate-test scripts assume the spawn-session environment
 (`CLAUDE_PLUGIN_ROOT_CORE` set, core plugin reachable) so they can source

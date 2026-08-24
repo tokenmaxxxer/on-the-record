@@ -101,8 +101,25 @@ print(f"[orchestrate] poll-heartbeat monitor dead since {since_label} -- re-arm 
 PY
 }
 
+# Issue #2140 (#2101 mechanism 4): external dead-man check. The watch
+# layer's own death must be observable from OUTSIDE it — this Stop hook
+# is that outside caller. Cheap (one bounded python invocation reading a
+# single marker file's mtime), advisory-only (spawn.py deadman-check
+# never blocks or kills anything; its stdout is the advisory, surfaced
+# in the Stop hook output), and recorded in the fires-log like the
+# other observation hooks. Any failure mode (timeout, missing python,
+# import error) is swallowed — watch-class machinery never blocks Stop.
+_deadman_check() {
+  local checkout="$1"
+  { printf '%s Stop stop-poll-rearm.sh deadman-check\n' \
+      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      >>"$(pwd -P)/.orchestrate-hook-fires.log"; } 2>/dev/null || true
+  timeout 20 python3 "${checkout}/spawn.py" deadman-check 2>/dev/null || true
+}
+
 if [ -n "$CHECKOUT" ]; then
   _monitor_liveness_check_and_notify "${CHECKOUT}"
+  _deadman_check "${CHECKOUT}"
   poll_rearm_arm_if_due "${CHECKOUT}" || true
 fi
 
