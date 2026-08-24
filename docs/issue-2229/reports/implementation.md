@@ -117,6 +117,13 @@ proposal doc exists for this build-now delivery):
 
 None.
 
+## Skill verdicts
+
+skill-verdict: implementation-blueprint — applied: invoked via `prep.py classify --surface backend --external yes --logic crud --asynchronous no` (routed to archetype `library`) then `prep.py recommend library --team 1`; checked retroactively against the diff this record's `code_under_review` covers.
+canonical: git show HEAD -- gates/acceptance_gate.py spawn.py — public surface added is exactly `sweep_issue_bodies`/`_list_open_issue_bodies`/`sweep`/`format_sweep_report` (no internal type in a public signature), matching sibling `gates/spawn_coverage.py`/`gates/closure_sweep.py`'s injectable-pure-function-plus-thin-CLI shape, no `utils`-named module added.
+
+other mounted skills (implementation-complexity-coupling-management, implementation-design-pattern-selection, implementation-performance-data-structure-choice): not triggered.
+
 ## Acceptance evidence (verify-at-landing)
 
 - gate: ran the plugin's own acceptance-gate unit suite named in the
