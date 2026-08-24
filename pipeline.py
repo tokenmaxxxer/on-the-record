@@ -577,6 +577,21 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     cmd = ["claude", "-p", "--settings", settings_path,
            "--permission-mode", "bypassPermissions",
            "--output-format", "stream-json", "--verbose"]
+    # Issue #2135 (measured composition): a role session inheriting the
+    # operator's USER-scope settings mounts the operator's entire personal
+    # skill registry (273 skills / ~410KB of trigger descriptions on the
+    # measured machine) into its standing system prompt — the dominant
+    # share of the ~55K-token session-start context, none of it addressed
+    # to the role (role skills mount explicitly via --plugin-dir above).
+    # Restrict setting sources to the target project. Everything the role
+    # session needs rides on explicit flags: --settings (generated file),
+    # --plugin-dir (core + role skills), --model, env (GH_TOKEN, CLAUDE_ROLE).
+    # Kill switch / override: MUSTER_SETTING_SOURCES ("user,project,local"
+    # restores the old behavior; empty string omits the flag entirely).
+    setting_sources = os.environ.get("MUSTER_SETTING_SOURCES",
+                                     "project,local")
+    if setting_sources:
+        cmd += ["--setting-sources", setting_sources]
     # Issue #2100 item 4: session turn budget pass-through. `None` keeps
     # today's argv byte-identical (callers that never resolved a budget);
     # `_spawn_one` always passes the resolved cap. <= 0 means an explicit,
