@@ -559,7 +559,9 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
               single_phase: bool = False,
               design_bearing_verdict: bool | None = None,
               max_turns: int | None = None,
-              checkpoint: bool = False) -> tuple[list[str], dict[str, str]]:
+              checkpoint: bool = False,
+              append_system_prompt: str | None = None
+              ) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
     --permission-mode bypassPermissions (issue #700): 샌드박스 제거(#695/#697)
@@ -574,10 +576,33 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     텍스트이지 사람 턴이 아니다. core 의 mint 훅이 이 도장을 보고 발행을
     거른다. UNATTENDED 와 별개다 — 그쪽은 "사람이 없다"는 사실이고, 겹쳐
     쓰면 attended 스폰이 깨진다.
+
+    이슈 #2204: `--exclude-dynamic-system-prompt-sections` 를 무조건 얹는다
+    — 매 스폰이 서로 다른 격리 워크스페이스 cwd 로 뜨는 한, 그 cwd/git
+    상태/OS 정보가 시스템 프롬프트 안에 박혀 있으면 세션마다 프리픽스가
+    달라져 프롬프트 캐시가 절대 히트하지 않는다(공식 문서: 두 세션이
+    같은 preset 을 써도 cwd 가 다르면 캐시를 공유할 수 없다). 이 플래그는
+    그 가변 섹션을 시스템 프롬프트 밖(첫 유저 메시지)으로 옮겨 시스템
+    프롬프트 프리픽스를 세션 간에 안정시킨다 — `--system-prompt`(전체
+    교체)를 안 쓰는 한 no-op 위험이 없다(help: "ignored with
+    --system-prompt"). `ENABLE_PROMPT_CACHING_1H=1` 은 같은 문서가 명시한
+    1시간 TTL 옵트인 — 기본 TTL 보다 스폰 간격이 넓을 때도 캐시 적중을
+    유지한다. `append_system_prompt`(있으면): 이슈 #2204 대응 두 번째 축 —
+    스폰 시점에 계산된, 세션에 항상 적용되는 규범(완료의 정의, 저장소
+    탐색, 스킬 의무, 체크포인트 계약 전문)을 `--append-system-prompt` 로
+    시스템 프롬프트에 직접 얹는다. 예전에는 이 내용을 워크스페이스
+    파일로 써 두고 "조건이 맞을 때 Read 하라"고만 지시했는데, 실측
+    결과 세션이 그 지시를 "지금 바로 Read"로 해석해 매 스폰마다 순차
+    Read 호출들로 ~46초를 태웠다(이슈 #2204 측정) — 이 플래그는 그
+    라운드트립 자체를 없앤다: 세션이 시작하는 순간부터 이미 컨텍스트에
+    있다.
     """
     cmd = ["claude", "-p", "--settings", settings_path,
            "--permission-mode", "bypassPermissions",
-           "--output-format", "stream-json", "--verbose"]
+           "--output-format", "stream-json", "--verbose",
+           "--exclude-dynamic-system-prompt-sections"]
+    if append_system_prompt:
+        cmd += ["--append-system-prompt", append_system_prompt]
     # Issue #2135 (measured composition): a role session inheriting the
     # operator's USER-scope settings mounts the operator's entire personal
     # skill registry (273 skills / ~410KB of trigger descriptions on the
@@ -622,6 +647,11 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     if role_model:
         cmd += ["--model", role_model]
     env = {"CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1",
+           # 이슈 #2204: 1시간 프롬프트 캐시 TTL 옵트인 — 위
+           # `--exclude-dynamic-system-prompt-sections` 로 안정된 시스템
+           # 프롬프트 프리픽스가 기본 TTL 보다 넓은 스폰 간격에서도 캐시에
+           # 남아 있게 한다.
+           "ENABLE_PROMPT_CACHING_1H": "1",
            # 이슈 #2070: roster 기록용 — `_spawn_one()` 이 실제 subprocess env
            # 로 넘기기 전에 이 두 내부 키를 꺼내 roster 엔트리에 옮겨 담는다.
            "_MODEL_ROUTING_MODEL": role_model or "",
