@@ -25,7 +25,7 @@ class DirectiveAssemblyBase(unittest.TestCase):
         return work
 
     def _run(self, work, role_source, captured_env, *, single_phase=False,
-             issue=31):
+             issue=31, captured_spawn_cmd=None):
         roster_calls = []
         real_roster_register = spawn.roster_register
 
@@ -39,6 +39,15 @@ class DirectiveAssemblyBase(unittest.TestCase):
             captured_env.update(k.get("env") or {})
             return real_popen(cmd, **k)
 
+        # Issue #2204: spawn_cmd's kwargs (notably `append_system_prompt`)
+        # carry the content that used to be an inline "Read <file>" pointer
+        # in the stdin task text — callers that need to assert on it pass
+        # a dict here instead of reading it out of `delivered`.
+        def spy_spawn_cmd(*a, **k):
+            if captured_spawn_cmd is not None:
+                captured_spawn_cmd.update(k)
+            return (["cat"], {})
+
         with mock.patch.object(spawn, "issue_workspace",
                                lambda cwd, issue, role: str(work)), \
              mock.patch.object(spawn, "checkout_issue_branch",
@@ -48,8 +57,7 @@ class DirectiveAssemblyBase(unittest.TestCase):
              mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
              mock.patch.object(spawn, "core_version", lambda: "v0"), \
              mock.patch.object(spawn, "_clean_auto_enabled", lambda: False), \
-             mock.patch.object(spawn, "spawn_cmd",
-                               lambda *a, **k: (["cat"], {})), \
+             mock.patch.object(spawn, "spawn_cmd", spy_spawn_cmd), \
              mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
              mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
              mock.patch.object(spawn.subprocess, "Popen", spy_popen), \
@@ -178,18 +186,27 @@ class SkillVerdictObligationLine(SkillTriggerLines):
     def test_mounted_skill_directive_states_verdict_obligation(self):
         # Issue #2135 diet: the inline text is the condensed obligation
         # index; the full #2039 prose is materialized as a workspace file.
+        # Issue #2204: no inline "Read <file>" pointer any more — the full
+        # prose instead rides --append-system-prompt (zero Read round
+        # trips), still backed by the same workspace file for reference.
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             skill_dir = self._skill_dir_with_trigger(Path(td) / "skills")
             role_source = {"source": "skill-repo", "skill_dirs": [skill_dir],
                            "skills": ["implementation-blueprint"], "skill_sha": "abc123"}
-            delivered = self._run(work, role_source, {})
+            captured = {}
+            delivered = self._run(work, role_source, {},
+                                  captured_spawn_cmd=captured)
             section = (work / ".on-the-record" / "directive"
                        / "skill-obligations.md").read_text(encoding="utf-8")
         self.assertIn("skill-verdict:", delivered)
         self.assertIn("applied:", delivered)
         self.assertIn("not-applicable:", delivered)
-        self.assertIn(".on-the-record/directive/skill-obligations.md", delivered)
+        self.assertNotIn(".on-the-record/directive/skill-obligations.md",
+                         delivered)
+        system_prompt = captured["append_system_prompt"]
+        self.assertIn("스킬-verdict 의무(이슈 #2039)", system_prompt)
+        self.assertIn("정확히 하나씩 남겨야 한다", system_prompt)
         self.assertIn("스킬-verdict 의무(이슈 #2039)", section)
         self.assertIn("정확히 하나씩 남겨야 한다", section)
 
@@ -333,15 +350,19 @@ class CheckpointCommitDirectiveLine(DirectiveAssemblyBase):
 
     @pytest.mark.slow
     def test_spawn_one_directive_contains_checkpoint_commit_line(self):
-        # Issue #2135 diet: inline is the trigger line naming the rule; the
-        # full prose (검증/amend detail) is the workspace section file.
+        # Issue #2204: the rule's full prose (검증/amend detail) no longer
+        # has an inline "Read <file>" pointer in the stdin task — it rides
+        # --append-system-prompt (zero Read round trips) instead, still
+        # backed by the same workspace section file for reference.
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
-            delivered = self._run(work, _NO_SKILLS, {})
+            captured = {}
+            self._run(work, _NO_SKILLS, {}, captured_spawn_cmd=captured)
             section = (work / ".on-the-record" / "directive"
                        / "completion-and-landing.md").read_text(encoding="utf-8")
-        self.assertIn(_CHECKPOINT_COMMIT_MARKER, delivered)
-        self.assertIn("검증", delivered)
+        system_prompt = captured["append_system_prompt"]
+        self.assertIn(_CHECKPOINT_COMMIT_MARKER, system_prompt)
+        self.assertIn("검증", system_prompt)
         self.assertIn(_CHECKPOINT_COMMIT_MARKER, section)
         self.assertIn("검증", section)
         self.assertIn("amend", section)

@@ -1858,7 +1858,9 @@ def _checkpoint_index_block(issue: int, role: str) -> str:
     """Issue #2135: the condensed inline checkpoint invariant. The
     actionable wait command and exit-code semantics stay inline; the full
     contract prose (`_CHECKPOINT_CONTRACT_BLOCK`) is materialized verbatim
-    as `{DIRECTIVE_DIR}/checkpoint-mode.md` in the workspace."""
+    as `{DIRECTIVE_DIR}/checkpoint-mode.md` in the workspace AND (issue
+    #2204) delivered via `--append-system-prompt` — no inline "Read that
+    file" pointer here any more (see `_directive_system_prompt_block`)."""
     bash_timeout_ms = int((_checkpoint_wait_max_seconds() + 60) * 1000)
     return (
         f"- Checkpoint mode (issue #2129, spawner-authorized via "
@@ -1870,9 +1872,7 @@ def _checkpoint_index_block(issue: int, role: str) -> str:
         f"await-approval --issue {issue} --role {role}\n"
         f"  exit 0 = approved: continue IMMEDIATELY into phase-2 in "
         f"this same context; exit 3 = timeout: end cleanly (the "
-        f"proposal PR is the returned state). 전문은 "
-        f"{DIRECTIVE_DIR}/checkpoint-mode.md 가 정본이다 — phase-1 "
-        f"산출 전에 먼저 Read 하라.\n")
+        f"proposal PR is the returned state).\n")
 
 
 # ------------------------------------------------ directive diet (issue #2135)
@@ -1983,6 +1983,28 @@ def materialize_directive_sections(cwd: str, files: dict[str, str]) -> None:
     d.mkdir(parents=True, exist_ok=True)
     for name, text in files.items():
         (d / name).write_text(text, encoding="utf-8")
+
+
+# Issue #2204: platform-native injection for the on-demand section files.
+# `directive_section_files()` used to be paired with an inline "Read <file>
+# when <condition>" pointer in the stdin task text (issue #2135's design) —
+# a live-spawn session log showed sessions read every pointed-at file
+# sequentially before their first task action (~46s), because "read it
+# when the condition holds" reads, in practice, as "read it now to be
+# safe." The section files are still materialized into the workspace
+# (`materialize_directive_sections()`, unchanged — a durable, inspectable
+# copy), but their content also rides `--append-system-prompt`
+# (`spawn_cmd(..., append_system_prompt=...)`) so it is already in the
+# session's context at turn 1 — no Read tool call, no round trip.
+def _directive_system_prompt_block(files: dict[str, str]) -> str:
+    """Join the on-demand section files' full prose for
+    `--append-system-prompt`. Empty input (adhoc spawns, which keep the
+    full prose inline in `task` instead — no workspace to materialize
+    into) returns "" so `spawn_cmd()` adds no flag, byte-identical to a
+    pre-#2204 spawn."""
+    if not files:
+        return ""
+    return "\n\n".join(f"# {name}\n\n{body}" for name, body in files.items())
 
 
 # Issue #2135 item 3: record skeleton pre-generation. The session fills
@@ -2280,6 +2302,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     def _dp(label: str, text: str) -> str:
         _directive_parts.append((label, text))
         return text
+    # Issue #2204: the on-demand section files (populated below, issue
+    # spawns only) delivered via --append-system-prompt instead of a
+    # workspace-file + inline "Read X when Y" pointer — see
+    # `_directive_system_prompt_block()`.
+    _directive_section_texts: dict[str, str] = {}
     cross_family_dirs: list[Path] = []
     # 이슈 #2076: skill_judge 자문이 이번 스폰에서 완료됐는지 fail-open
     # 했는지 — role_source 가 skill-repo 가 아니면 자문 자체가 안 불려
@@ -2421,10 +2448,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # the record skeleton into the workspace BEFORE assembling the
         # index — the trigger lines below reference files that must exist.
         with _timed("directive_write"):
-            materialize_directive_sections(cwd, directive_section_files(
+            _directive_section_texts = directive_section_files(
                 skills_mounted=bool(skill_sources or role_source["skills"]),
                 checkpoint_block=(_checkpoint_contract_block(issue, role)
-                                  if checkpoint else None)))
+                                  if checkpoint else None))
+            materialize_directive_sections(cwd, _directive_section_texts)
             write_record_skeleton(cwd, issue, role)
         req_line = ""
         goal_pin = ""
@@ -2450,8 +2478,15 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # Issue #2135 directive diet: the always-on preamble is a compact
         # invariant index. The long prose it used to carry (완료의 정의
         # full text, 체크포인트 커밋 rule, headless/run_in_background
-        # warning, landing batching) lives VERBATIM in
-        # {DIRECTIVE_DIR}/completion-and-landing.md, materialized above.
+        # warning, landing batching, repo-discovery guidance) lives
+        # VERBATIM in {DIRECTIVE_DIR}/*.md, materialized above.
+        # Issue #2204: those files no longer carry an inline "Read <file>
+        # when <condition>" pointer here — a live-spawn measurement showed
+        # sessions treat that pointer as "Read it now," burning ~46s of
+        # sequential Read round trips before the first task action. Their
+        # full text instead rides `--append-system-prompt`
+        # (`_directive_system_prompt_block()`, wired into `spawn_cmd()`
+        # below) — already in context at session start, zero round trips.
         task = _dp("issue-preamble-index",
                 f"당신의 이슈: #{issue} (subject issue-{issue}, 브랜치 {br}).\n"
                 + req_line + goal_pin +
@@ -2461,16 +2496,6 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"레코드 스켈레톤: docs/issue-{issue}/reports/{role}.md 가 "
                 f"미리 쓰여 있다 — 구조를 새로 만들지 말고 스켈레톤의 "
                 f"섹션을 채워라(이슈 #2135).\n"
-                f"디렉티브 인덱스(이슈 #2135): 규범 전문은 이 워크스페이스의 "
-                f"{DIRECTIVE_DIR}/ 파일들이 정본이다 — 조건이 맞을 때 Read "
-                f"하라:\n"
-                f"- {DIRECTIVE_DIR}/completion-and-landing.md — 긴/"
-                f"백그라운드 검증을 시작하기 전과 랜딩(커밋·push·PR) 직전에 "
-                f"Read. 체크포인트 커밋 규칙, headless 단발-턴 경고("
-                f"run_in_background 작업은 턴 끝에 죽는다), 배치 랜딩 "
-                f"절차가 들어 있다.\n"
-                f"- {DIRECTIVE_DIR}/repo-discovery.md — 경로 모르는 파일을 "
-                f"찾기 전에 Read(이슈 #2185): `find` 대신 `git ls-files`.\n"
                 f"\n") + task
         # 이슈 #1978 (A), 이슈 #2152 로 기본값 반전: `single_phase` 는 이제
         # CLI 기본값이 True 인 effective 값이다 — --two-phase 나
@@ -2558,17 +2583,18 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # apply(#2062)/스킬-verdict(#2039, #2153) prose lives
                 # verbatim in {DIRECTIVE_DIR}/skill-obligations.md
                 # (materialized above); inline stays the condensed
-                # invariant + Skill-tool trigger.
+                # invariant + Skill-tool trigger. Issue #2204: no inline
+                # "Read that file" pointer — the same full prose already
+                # rides `--append-system-prompt` (zero round trips).
                 task = task + _dp("skill-obligations-index",
-                    f"\n\n스킬 의무(이슈 #1960/#2039/#2062/#2153 — 전문은 "
-                    f"{DIRECTIVE_DIR}/skill-obligations.md, 실체 작업 전에 "
-                    f"Read 하라): 스킬 점검 — 마운트된 스킬 목록을 이번 "
-                    f"과제와 대조하고, applicable 로 판단한 스킬은 적용 전에 "
-                    f"반드시 Skill 도구로 로드하라. 이번 세션에서 실제로 "
-                    f"호출한 스킬 이름마다 레코드에 `skill-verdict: <스킬명> "
-                    f"— applied: invoked; <어디서/어떻게> | not-applicable: "
-                    f"<한 줄 이유>` 줄을 정확히 하나씩 남겨야 한다 (마운트만 "
-                    f"되고 호출하지 않은 스킬은 이 줄이 필요 없다).\n")
+                    f"\n\n스킬 의무(이슈 #1960/#2039/#2062/#2153): 스킬 점검 "
+                    f"— 마운트된 스킬 목록을 이번 과제와 대조하고, "
+                    f"applicable 로 판단한 스킬은 적용 전에 반드시 Skill "
+                    f"도구로 로드하라. 이번 세션에서 실제로 호출한 스킬 "
+                    f"이름마다 레코드에 `skill-verdict: <스킬명> — applied: "
+                    f"invoked; <어디서/어떻게> | not-applicable: <한 줄 "
+                    f"이유>` 줄을 정확히 하나씩 남겨야 한다 (마운트만 되고 "
+                    f"호출하지 않은 스킬은 이 줄이 필요 없다).\n")
             else:
                 # Adhoc spawn: no workspace to materialize into — keep the
                 # full prose inline (byte-identical to the pre-#2135 text).
@@ -2687,7 +2713,9 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                        single_phase=single_phase,
                                        design_bearing_verdict=design_bearing_verdict,
                                        max_turns=resolved_max_turns,
-                                       checkpoint=checkpoint)
+                                       checkpoint=checkpoint,
+                                       append_system_prompt=_directive_system_prompt_block(
+                                           _directive_section_texts))
         # 이슈 #2070: roster 기록용 두 내부 키를 여기서 뽑아내 실제 subprocess
         # env 에는 안 들어가게 한다 — spawn_cmd() 가 심어준 신호일 뿐, 세션
         # 자신의 env 표면이 아니다.
