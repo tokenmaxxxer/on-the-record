@@ -15,12 +15,13 @@ import closure_sweep  # noqa: E402
 
 
 def test_budget_one_needs_three_ticks_no_drop(tmp_path):
-    """3 categories, budget=1 per tick: each tick runs exactly one category,
-    and across 3 ticks every category ran exactly once — no drops, no
+    """N categories, budget=1 per tick: each tick runs exactly one category,
+    and across N ticks every category ran exactly once — no drops, no
     repeats before the round is exhausted."""
     root = tmp_path
+    total = len(closure_sweep.BOARD_SWEEP_CATEGORIES)
     seen: list[str] = []
-    for _tick in range(3):
+    for _tick in range(total):
         this_tick, carried_over = closure_sweep.next_categories(root, budget=1)
         assert len(this_tick) == 1
         seen.extend(this_tick)
@@ -34,7 +35,7 @@ def test_carry_over_persists_across_process_boundary(tmp_path):
     carried-over remainder."""
     root = tmp_path
     this_tick, carried_over = closure_sweep.next_categories(root, budget=1)
-    assert len(carried_over) == 2
+    assert len(carried_over) == len(closure_sweep.BOARD_SWEEP_CATEGORIES) - 1
 
     reloaded = closure_sweep.load_board_sweep_queue(root)
     assert reloaded == carried_over

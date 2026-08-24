@@ -53,6 +53,15 @@ SPAWN_CAP = 4
 # 결코 경과 시간만으로 재무장하지 않는다.
 PARK_STATE_REL = Path("runs") / "spawn_on_pr_parked.json"
 
+# issue #2165: subject 의 `<subject>/implementation` PR 이 MERGED 로
+# 확인된 사실은 종결적이다 — 한 번 확인되면 이후 틱에서 다시 확인할
+# 필요가 없다(오히려 `gh` 호출이 그 틱에 실패해 fail-open 으로 OPEN 을
+# 돌려주면 재스폰 위험이 생긴다). `closure_sweep.py`의
+# out-of-index-seen 캐시(issue #1643)와 같은 모양: 한 번 확인된 subject
+# 집합을 repo-local, gitignored JSON 파일에 남기고, 이후 틱은 `gh` 를
+# 부르기 전에 이 집합부터 확인한다.
+MERGED_SEEN_STATE_REL = Path("runs") / "spawn_on_pr_merged_seen.json"
+
 
 def applicable_roles(subject_board: dict, roles: tuple[str, ...] = PR_TRIGGERED_ROLES) -> list[str]:
     """`subject_board`(`board(root)[subject]`, `{role: frontmatter}`) 에서
@@ -173,9 +182,17 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     if pr_index is None:
         pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
+    merged_seen: set[str] | None = None
     for subject, subject_board in b.items():
         missing = applicable_roles(subject_board)
         if not missing:
+            continue
+        if merged_seen is None:
+            merged_seen = load_merged_seen(root)
+        if subject in merged_seen:
+            # issue #2165: 이미 이전 틱에서 MERGED 로 확인됐다 — merge
+            # 는 종결적 사실이라 이후 틱의 (혹은 fail-open 하는) 재확인을
+            # 기다리지 않고 바로 건너뛴다.
             continue
         branch = f"{subject}/implementation"
         pr_number = _pr_number_for_branch(root, branch, pr_index)
@@ -186,6 +203,8 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
             continue
         pr_state = _pr_state_for_branch(root, branch, pr_index)
         if pr_state == "MERGED":
+            merged_seen.add(subject)
+            _save_merged_seen(root, merged_seen)
             spawn.ledger_write({
                 "event": "spawn_on_pr_skip_merged",
                 "subject": subject, "missing": missing,
@@ -251,6 +270,28 @@ def _save_park_state(root: Path, state: dict[str, dict]) -> None:
     p = _park_state_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n")
+
+
+def load_merged_seen(root: Path) -> set[str]:
+    """issue #2165: 이미 `pr_state == "MERGED"` 로 확인된 subject 집합.
+    없거나(첫 실행) 깨졌으면 빈 집합 — `closure_sweep._load_out_of_index_seen`
+    과 같은 fail-safe 모양."""
+    p = root / MERGED_SEEN_STATE_REL
+    if not p.is_file():
+        return set()
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError, UnicodeDecodeError):
+        return set()
+    if not isinstance(data, list):
+        return set()
+    return {s for s in data if isinstance(s, str)}
+
+
+def _save_merged_seen(root: Path, seen: set[str]) -> None:
+    p = root / MERGED_SEEN_STATE_REL
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(sorted(seen)), encoding="utf-8")
 
 
 def is_approval_blocked(root: Path, issue: int, role: str) -> bool:

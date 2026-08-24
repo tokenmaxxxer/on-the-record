@@ -34,9 +34,10 @@ backoff and a re-check subject's backoff never collide on key names.
 ## Where the floor applies
 
 `spawn.py::_board_wide_sweep` (the watchdog tick path) calls
-`closure_sweep.rate_limit_remaining()` first. Below the floor, all three
+`closure_sweep.rate_limit_remaining()` first. Below the floor, all
 gh-calling signals (`spawn_on_pr.spawn_missing_for_pr`,
-`closure_sweep.find_violations`, `spawn_coverage._list_open_issues`) are
+`closure_sweep.find_violations`, `spawn_coverage._list_open_issues`,
+`spawn_on_approve.spawn_phase2` since issue #2173) are
 skipped and exactly one report line is printed
 (`[watchdog] board-sweep: 미집계 (rate-limit, remaining=<n>)`). Local-only
 signals (`closure_sweep.accumulation_trend`, `requirement_drift`) always
