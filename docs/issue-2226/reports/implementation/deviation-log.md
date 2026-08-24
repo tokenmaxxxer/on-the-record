@@ -1,0 +1,3 @@
+# Deviation log — issue-2226 / implementation
+
+- 2026-08-25T00:00:00Z | inline | first fix attempt (evict `sys.modules["gates"]` before the bare `import gates` in each of `gates/record_lint.py`/`claims.py`/`risk_report.py`/`ci.py`) repaired each file's own `-m gates.<X>` invocation but left `sys.modules["gates"]` pointed at a flat module with no `__path__`, breaking a later `-m gates.<other>` resolution in the same interpreter — surfaced by a before-landing warrant-hunter dispatch, not part of the issue's own reproduction steps. Replaced with an `importlib`-by-path load under a private cache key in the same four files, same commit, before opening the PR; see docs/issue-2226/reports/implementation.md, "What did not work".
