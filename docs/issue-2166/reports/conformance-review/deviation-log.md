@@ -36,3 +36,23 @@
   judgment; does not change any of REQ-1..REQ-8's own individual
   verdicts, only how the top-level `result` is derived from them;
   one-off.
+
+- 2026-08-24T08:42:00Z | inline | the phase-2 write to
+  `docs/issue-2166/reports/conformance-review.md` revised REQ-7's
+  verdict from the approved phase-1 proposal's `Surface` to `Incorrect`.
+  canonical: python3 -m pytest, this session's own reruns of the
+  implementation record's combined 4-file acceptance command against
+  `origin/main` (`b9cd89af`), quoted in full in the record's own REQ-7
+  finding block and Deviations section. This phase-2 session's
+  environment (`CORE_BUILD_NOW=1`, set by the spawner) does not hit the
+  `approval-gate.sh` `gh --json state_reason` failure that limited the
+  phase-1 survey session's reach, so the command ran against all 4
+  files and did not match the implementation record's own cited count.
+
+  Stays inside this session's frozen write set (the record file
+  itself); mechanical application of
+  `conformance-review-verdict-assignment` rule 2 (Incorrect for an
+  active, reproducible contradiction) to new evidence, not a novel
+  design/architecture/security judgment; does not change the record's
+  overall `result` field (`failed` either way, per the proposal's own
+  verdict-to-result mapping); one-off.

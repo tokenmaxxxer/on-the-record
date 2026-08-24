@@ -291,8 +291,8 @@ field list (`requirement`/`spec_ref`/`verdict`/`evidence`/`rationale`,
 plus `spec_vs_built` for REQ-7 and REQ-8's `Incorrect` verdicts) shaped
 every block, one per REQ-1..REQ-6b, REQ-7, REQ-8.
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; loaded this session; every evidence citation above pins a
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+loaded this session; every evidence citation above pins a
 `sha:path:line` pointer against `b9cd89af` — canonical: gh pr view 2171 --json state,mergedAt,mergeCommit,headRefName,url, pasted live near the top of this record (executed-unit, this session) — rather than a bare path, and `consult.py` and `tests/test_retrieval_eval.py` are cited as separate contributing files for REQ-3/REQ-8 rather than bundled.
 
 skill-verdict: conformance-review-verdict-assignment — applied: invoked;
