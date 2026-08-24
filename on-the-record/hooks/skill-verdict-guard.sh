@@ -14,8 +14,17 @@
 # shape check to gates/record_lint.py's record_skill_verdicts_in (the
 # same canonical function a future gates.py/CI caller would use).
 #
-# Zero mounted skills -> exit 0 immediately, no output (byte-inert per
-# the proposal's Constraints). Refuses via hookSpecificOutput.additionalContext,
+# issue #2138 (gate retirement): this hook is the MERGED OBLIGATIONS
+# Stop gate — deviation-log-guard.sh (issue #803/#983, no-traceless-
+# deviation) and product-capture-stopgate.sh (issue #566, product-
+# statement capture) were demoted from standalone Stop hooks and their
+# normative content folded here as a once-per-session advisory reminder
+# (additionalContext, never blocking), keyed on the Stop payload's
+# session_id under ~/.claude/tokenmaxxxer/obligations-noted/.
+#
+# Zero mounted skills -> the skill-verdict check is skipped (byte-inert
+# per the proposal's Constraints); the folded obligations reminder can
+# still emit once. Refuses via hookSpecificOutput.additionalContext,
 # never decision:"block" -- same house style as deviation-log-guard.sh.
 # Same fail-closed trap / ORCHESTRATE_OFF kill switch as its sibling hooks.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
@@ -172,6 +181,42 @@ def extract_names(line_body):
     return names
 
 
+# issue #2138: folded obligations reminder (deviation-log #803/#983 +
+# product-capture #566, both demoted from standalone Stop hooks). Emitted
+# at most once per session, advisory only.
+def obligations_reminder(session_id):
+    if not isinstance(session_id, str) or not session_id:
+        return None
+    import hashlib
+    marker_dir = os.path.expanduser("~/.claude/tokenmaxxxer/obligations-noted")
+    marker = os.path.join(
+        marker_dir,
+        hashlib.sha256(session_id.encode("utf-8", "surrogatepass")).hexdigest()[:24],
+    )
+    if os.path.exists(marker):
+        return None
+    try:
+        os.makedirs(marker_dir, exist_ok=True)
+        with open(marker, "w") as fh:
+            fh.write("noted")
+    except OSError:
+        return None
+    return (
+        "obligations (advisory, issue #2138 merged Stop gate): "
+        "(1) no traceless deviation — every mid-task deviation, inline or "
+        "filed, leaves exactly one line in the deviation log "
+        "(docs/issue-<n>/reports/deviation-log.md, or "
+        "docs/reports/deviation-log.md with no issue; issue #803/#983, "
+        "docs/handbooks/deviation-loop.md). "
+        "(2) product capture — requirements/priorities/philosophy/goals "
+        "the user stated this session are recorded into "
+        "docs/reports/product/<category>.md before the session ends "
+        "(issue #566)."
+    )
+
+
+reminder = obligations_reminder(e.get("session_id"))
+
 text = first_user_text(transcript_path)
 mounted = []
 seen = set()
@@ -186,8 +231,21 @@ if text:
                         mounted.append(name)
                 break
 
-if not mounted:
+def finish(*parts):
+    parts = [p for p in parts if p]
+    if not parts:
+        sys.exit(0)
+    sys.stdout.write(json.dumps({
+        "hookSpecificOutput": {
+            "hookEventName": "Stop",
+            "additionalContext": "\n".join(parts),
+        }
+    }))
     sys.exit(0)
+
+
+if not mounted:
+    finish(reminder)
 
 if not gates_dir:
     sys.exit(2)
@@ -204,7 +262,7 @@ branch_r = subprocess.run(
 branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
 branch_m = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
 if not branch_m:
-    sys.exit(0)
+    finish(reminder)
 role = branch_m.group(2)
 rel = os.path.join("docs", f"issue-{branch_m.group(1)}", "reports", f"{role}.md")
 
@@ -216,23 +274,16 @@ if os.path.isfile(record_file):
 
 violations = record_lint.skill_verdict_reason_check(record_text, mounted)
 
-if not violations:
-    sys.exit(0)
-
-out = {
-    "hookSpecificOutput": {
-        "hookEventName": "Stop",
-        "additionalContext": (
-            "skill-verdict-guard: 이 세션에 마운트된 스킬 "
-            + ", ".join(mounted) + " 마다 " + rel + " 에 "
-            "`skill-verdict: <name> — applied: ... | not-applicable: ...` "
-            "줄이 하나씩 필요하다 -- " + " / ".join(violations) + " "
-            "-- 자세한 형태는 docs/handbooks/skill-verdict-obligation.md 참고."
-        ),
-    }
-}
-sys.stdout.write(json.dumps(out))
-sys.exit(0)
+verdict_text = None
+if violations:
+    verdict_text = (
+        "skill-verdict-guard: 이 세션에 마운트된 스킬 "
+        + ", ".join(mounted) + " 마다 " + rel + " 에 "
+        "`skill-verdict: <name> — applied: ... | not-applicable: ...` "
+        "줄이 하나씩 필요하다 -- " + " / ".join(violations) + " "
+        "-- 자세한 형태는 docs/handbooks/skill-verdict-obligation.md 참고."
+    )
+finish(verdict_text, reminder)
 PY
 
 SVG_PAYLOAD="$payload" SVG_REPO="$REPO" SVG_GATES_DIR="$gates_dir" python3 -c "$CHECK"

@@ -1,5 +1,5 @@
 """Tests for issue #556: gate cache-layout resolution and ownership-check
-order in role-spec-reference-guard.sh and record-claim-guard.sh.
+order in record-claim-guard.sh (role-spec-reference-guard.sh retired, issue #2138).
 
 Covers the issue's three acceptance checks:
 1. Each hook resolves its gates/ module from the plugin cache layout
@@ -20,8 +20,6 @@ from pathlib import Path
 HOOKS_DIR = Path(__file__).resolve().parent
 ON_THE_RECORD = HOOKS_DIR.parent
 
-RSRG_OWNED_PATH = "docs/issue-999/reports/security-threat-model.md"
-RSRG_OWNED_CONTENT = "See `src/real.py` for details.\n"
 RCG_OWNED_PATH = "docs/issue-999/reports/implementation.md"
 RCG_OWNED_CONTENT = "unverifiable:\n"
 
@@ -65,16 +63,6 @@ def _make_broken_gates_cache(tmp_path):
 
 # --- check 1: resolves gates/ from the packaged cache layout, no crash ---
 
-def t_rsrg_resolves_from_cache_layout(tmp_path):
-    cache = _make_cache_dir(tmp_path)
-    p = tmp_path / RSRG_OWNED_PATH
-    p.parent.mkdir(parents=True)
-    r = _run(cache / "hooks" / "role-spec-reference-guard.sh",
-              {"file_path": str(p), "content": RSRG_OWNED_CONTENT}, cache.parent)
-    assert "ModuleNotFoundError" not in r.stderr
-    assert r.returncode in (0, 2)
-
-
 def t_rcg_resolves_from_cache_layout(tmp_path):
     cache = _make_cache_dir(tmp_path)
     p = tmp_path / RCG_OWNED_PATH
@@ -87,15 +75,6 @@ def t_rcg_resolves_from_cache_layout(tmp_path):
 
 # --- check 2: ownership check precedes import; outside-surface passes ---
 
-def t_rsrg_ownership_check_precedes_import(tmp_path):
-    cache = _make_broken_gates_cache(tmp_path)
-    outside = tmp_path / "outside" / "note.md"
-    outside.parent.mkdir(parents=True)
-    r = _run(cache / "hooks" / "role-spec-reference-guard.sh",
-              {"file_path": str(outside), "content": "irrelevant content"}, cache.parent)
-    assert r.returncode == 0, r.stderr
-
-
 def t_rcg_ownership_check_precedes_import(tmp_path):
     cache = _make_broken_gates_cache(tmp_path)
     outside = tmp_path / "outside" / "note.md"
@@ -106,15 +85,6 @@ def t_rcg_ownership_check_precedes_import(tmp_path):
 
 
 # --- check 3: fail-closed preserved for owned paths ---
-
-def t_rsrg_fail_closed_for_owned_path(tmp_path):
-    cache = _make_broken_gates_cache(tmp_path)
-    p = tmp_path / RSRG_OWNED_PATH
-    p.parent.mkdir(parents=True)
-    r = _run(cache / "hooks" / "role-spec-reference-guard.sh",
-              {"file_path": str(p), "content": RSRG_OWNED_CONTENT}, cache.parent)
-    assert r.returncode == 2, r.stderr
-
 
 def t_rcg_fail_closed_for_owned_path(tmp_path):
     cache = _make_broken_gates_cache(tmp_path)
@@ -185,13 +155,13 @@ def t_seeded_non_exec_wired_script_is_refused(tmp_path):
     bit and confirm the regression check refuses it."""
     seeded = tmp_path / "hooks"
     shutil.copytree(HOOKS_DIR, seeded)
-    target = seeded / "live-fire-test-guard.sh"
+    target = seeded / "record-claim-guard.sh"
     target.chmod(target.stat().st_mode & ~0o111)
     assert not os.access(target, os.X_OK)
 
     try:
         _assert_wired_scripts_executable(seeded)
     except AssertionError as e:
-        assert "live-fire-test-guard.sh" in str(e)
+        assert "record-claim-guard.sh" in str(e)
     else:
         raise AssertionError("expected the seeded non-exec script to be refused")
