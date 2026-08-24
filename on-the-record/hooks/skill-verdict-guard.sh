@@ -27,6 +27,15 @@
 # still emit once. Refuses via hookSpecificOutput.additionalContext,
 # never decision:"block" -- same house style as deviation-log-guard.sh.
 # Same fail-closed trap / ORCHESTRATE_OFF kill switch as its sibling hooks.
+#
+# issue #2153: the required set narrows from "every mounted skill" to
+# "every skill this session actually invoked via the Skill tool" -- a
+# mounted-but-never-invoked skill needs no skill-verdict line at all (a
+# 'not-applicable' row for it answered no audit question; see the issue's
+# live measurement). Invocation is detected by scanning the FULL
+# transcript (not just the first user message) for assistant tool_use
+# blocks named "Skill", intersected against the mounted-name set so a
+# stray/typo'd tool call can't manufacture a new requirement.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
@@ -181,6 +190,49 @@ def extract_names(line_body):
     return names
 
 
+# issue #2153: only a skill actually invoked via the Skill tool this
+# session owes a skill-verdict line. Scans every assistant transcript
+# entry (not just the first user message) for a tool_use block named
+# "Skill", pulling the invoked name out of its input.skill argument.
+def invoked_skill_names(path, mounted_set):
+    names = []
+    seen = set()
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(entry, dict) or entry.get("type") != "assistant":
+                    continue
+                message = entry.get("message")
+                if not isinstance(message, dict):
+                    continue
+                content = message.get("content")
+                if not isinstance(content, list):
+                    continue
+                for block in content:
+                    if not isinstance(block, dict):
+                        continue
+                    if block.get("type") != "tool_use" or block.get("name") != "Skill":
+                        continue
+                    tool_input = block.get("input")
+                    if not isinstance(tool_input, dict):
+                        continue
+                    name = tool_input.get("skill")
+                    if (isinstance(name, str) and name in mounted_set
+                            and name not in seen):
+                        seen.add(name)
+                        names.append(name)
+    except OSError:
+        return []
+    return names
+
+
 # issue #2138: folded obligations reminder (deviation-log #803/#983 +
 # product-capture #566, both demoted from standalone Stop hooks). Emitted
 # at most once per session, advisory only.
@@ -247,6 +299,13 @@ def finish(*parts):
 if not mounted:
     finish(reminder)
 
+invoked = invoked_skill_names(transcript_path, set(mounted))
+
+# issue #2153: a mounted skill this session never actually invoked owes
+# no skill-verdict line -- byte-unaffected same as the zero-mounted path.
+if not invoked:
+    finish(reminder)
+
 if not gates_dir:
     sys.exit(2)
 try:
@@ -272,15 +331,16 @@ if os.path.isfile(record_file):
     with open(record_file, "r", encoding="utf-8-sig", errors="replace") as fh:
         record_text = fh.read()
 
-violations = record_lint.skill_verdict_reason_check(record_text, mounted)
+violations = record_lint.skill_verdict_reason_check(record_text, invoked)
 
 verdict_text = None
 if violations:
     verdict_text = (
-        "skill-verdict-guard: 이 세션에 마운트된 스킬 "
-        + ", ".join(mounted) + " 마다 " + rel + " 에 "
+        "skill-verdict-guard: 이 세션에서 실제로 호출한(invoked) 스킬 "
+        + ", ".join(invoked) + " 마다 " + rel + " 에 "
         "`skill-verdict: <name> — applied: ... | not-applicable: ...` "
-        "줄이 하나씩 필요하다 -- " + " / ".join(violations) + " "
+        "줄이 하나씩 필요하다 (마운트만 되고 호출하지 않은 스킬은 이 "
+        "줄이 필요 없다 — 이슈 #2153) -- " + " / ".join(violations) + " "
         "-- 자세한 형태는 docs/handbooks/skill-verdict-obligation.md 참고."
     )
 finish(verdict_text, reminder)

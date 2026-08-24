@@ -1,15 +1,23 @@
-# Per-mounted-skill verdict obligation (issue #2039)
+# Per-invoked-skill verdict obligation (issue #2039, scoped by issue #2153)
 
 When a spawn directive mounts one or more skills — via `--skills`
 (spawn.py's `마운트된 스킬(--skills, ...)` line) or the role→skill-repository
 mapping (spawn.py's `이 역할은 skill-repository(...)로 매핑됐다` line) — the
-session's own record must carry one line per mounted skill name:
+session's own record must carry one line per skill it actually **invoked**
+via the Skill tool this session:
 
 ```
 skill-verdict: <name> — applied: <where/how> | not-applicable: <one-line reason>
 ```
 
-One line per mounted name, each with non-empty content after the dash.
+One line per invoked name, each with non-empty content after the dash.
+A mounted skill the session never invoked owes no line at all — a
+"not-applicable" row for a skill that was never even considered closely
+enough to invoke answers no audit question (issue #2153's live
+measurement: 17 of 19 mounted skills got a ceremonial "not used" row
+though only 1-2 ever fired). Optionally, one summary line covering the
+rest is fine: `other mounted skills: not triggered`.
+
 This is a shape check only: `skill-verdict-guard.sh` (Stop hook) and
 `gates/record_lint.py`'s `record_skill_verdicts_in`/`skill_verdict_reason_check`
 never judge whether the stated applied/not-applicable content is
@@ -17,5 +25,7 @@ actually correct — that judgment stays entirely the session's own, per
 the frozen skills-guidance-only principle (guidance only; enforcement is
 core hooks only).
 
-A session with zero mounted skills is unaffected — no line is required,
-no hook output is produced.
+Invocation is detected from the full session transcript: an assistant
+`tool_use` block named `Skill` whose `input.skill` names a mounted
+skill. A session with zero mounted skills, or zero invoked skills, is
+unaffected — no line is required, no hook output is produced.
