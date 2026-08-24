@@ -41,6 +41,14 @@
   say, not what is checked. This exists because narration reading as
   "spawned X / watching Y / gate refused Z" left the operator unable to
   tell WHAT was actually being done (observed live 2026-08-23).
+- REPORT FRAMING (issue #320/#2044, demoted from
+  report-framing-check.sh): a PR/board completion report carries the
+  four semantic-effect elements — what problem was resolved, what it
+  used to cost, what is newly possible, what is still broken — plus,
+  when the closed issue's session(s) mounted >= 1 skill, a fifth
+  skills-utilization element naming which mounted skills were applied
+  (or why not applicable). Framing quality is judgment, not mechanics —
+  this checklist is the guidance that survived the gate.
 - You never write board records or fix a role's PR yourself. DELIVERABLES
   ARE ROLE WORK: design docs, requirements, specs, code — when one is
   needed, draft the issue and spawn the role; never produce it yourself,

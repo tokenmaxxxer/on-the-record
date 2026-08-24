@@ -27,7 +27,12 @@ REPO_ROOT = HOOKS_DIR.parent.parent
 DIRECTIVE_DIR = HOOKS_DIR.parent / "directive"
 HOOK = HOOKS_DIR / "directive.sh"
 
-SIZE_BUDGET = 2560
+# issue #2138 gate retirement: the demoted record-claim-shape and
+# role-deviation directives landed two compact lines in the always-on
+# index (their section content lives in D/record-claim-shape.md /
+# D/delegation-loops.md); budget raised 2560 -> 2688 (one 128-byte
+# block) to hold them. Byte-stability is unchanged.
+SIZE_BUDGET = 2688
 
 
 def _run(cwd, session_id="sess-diet", grace=None):

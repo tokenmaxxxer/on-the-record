@@ -1,5 +1,39 @@
 <!-- on-the-record orchestrate directive, on-demand section file (issue #2102). Loaded via the always-on index injected by hooks/directive.sh. ${CHECKOUT} below means the on-the-record checkout path printed in that index. -->
 
+<!-- Guidance landings for gates demoted from blocking hooks (issue #2138 dispositions; each bullet was previously a PreToolUse deny hook). -->
+- ABSORBED-BRANCH RECUT (issue #784, demoted from
+  absorbed-branch-recut-guard.sh): when a concurrent merge absorbs a
+  still-running session's own `issue-<n>/<role>` branch into base
+  (deleted at merge), the session's next `git commit`/`gh pr create`
+  surfaces as "No commits between main and issue-<n>". Recut the branch
+  off updated base (`spawn.py`'s `_recut_absorbed_branch` shape) before
+  committing — never force-push over the absorbed history.
+- PR-BODY CLAIM SCAN (issue #476, demoted from claim-scan-preflight.sh):
+  a `gh pr create`/`gh pr edit` body making outcome claims carries an
+  adjacent evidence marker (command output fence, `derived:`,
+  `acceptance: ... — result: ...`) within ~5 lines of each claim —
+  gates/claim_scan.py's shape, now advisory.
+- LIVE-FIRE TEST FOR NEW GATES (issue #914, demoted from
+  live-fire-test-guard.sh): a newly-staged plugin gate/hook lands with a
+  test that actually fires it as a real lifecycle event with a crafted
+  payload and asserts its allow/deny outcome — a test file merely
+  existing is not proof the capability fires. The executed-evidence
+  backbone stays mechanically enforced by
+  acceptance-command-real-run-guard.sh and
+  live-fire-claim-real-run-guard.sh (#2137 verify-at-landing).
+- PER-ROLE QUALITY BAR (issue #1156, demoted from quality-bar-gate.sh):
+  before merging a PR whose diff falls in a bar-scoped role's paths,
+  read that role's `quality_bar` in roles/specs/<role>.spec.json and
+  check the bar is met (gates/quality_bar.py: classify — BAR_MET /
+  BAR_NOT_MET / ESCALATE); an unmet bar is a reason to send the PR back,
+  now by judgment rather than a deny hook.
+- SUBPROCESS CALL-SHAPE CONSISTENCY (issue #419/#512, demoted from
+  call-shape-guard.sh): a `.py` write that adds a subprocess call keeps
+  its call shape (list-argv vs shell-string, check/capture kwargs)
+  consistent with the sibling call sites already grouping in the tree,
+  and a sibling file named in a module docstring stays in sync when the
+  named counterpart changes.
+
 - LANDING REQUIREMENT-MET GRADE (issue #1651): as part of "verify it"
   above, before `gh pr merge`, spawn a builder-blind grader session —
   no access to the builder's context, given only the diff plus the

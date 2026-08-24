@@ -33,8 +33,14 @@ matching enforcement entry under `on-the-record/hooks/**` instead — see
 porting-order rationale this list implements.
 
 Ported (NOT listed as unenforced — see `on-the-record/hooks/**`):
-`#310`, `#330`, `#331`, `#332`, `#333` (`record-claim-guard.sh`); `#334`,
-`#435` (`role-test-claim-guard.sh`).
+`#310`, `#330`, `#331`, `#332`, `#333` (`record-claim-guard.sh`).
+
+### Justified — gate retired by operator disposition (issue #2138)
+
+| issue | source | reason |
+|---|---|---|
+| #334 | `gates/ci.py` | operator decision (#2138 evidence table row 55): its port `role-test-claim-guard.sh` was retired as #2137-superseded with zero firings ever observed in either log corpus; test-claim evidence discipline survives in `record-claim-guard.sh`'s #333/#870 checks. |
+| #435 | `gates/ci.py` | operator decision (same #2138 retirement, row 55); the SKIPPED-line discipline remains guidance in role specs, not a blocking Stop hook. |
 
 ### Justified — GitHub-board state unreachable from a local session
 
