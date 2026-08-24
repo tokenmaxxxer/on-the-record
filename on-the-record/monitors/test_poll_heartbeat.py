@@ -16,6 +16,7 @@ the test does not wait on a real 60s cadence.
 """
 from __future__ import annotations
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -710,6 +711,61 @@ def t_patrol_kill_switch_still_prints_disabled_line_only():
         assert "[patrol-poll] checked" not in r.stdout, r.stdout
         assert not patrol_marker.exists(), \
             "the kill-switch must short-circuit before patrol_promote.py runs"
+
+
+def t_patrol_tick_skips_when_checkout_vanishes_mid_sleep():
+    """issue #2163 regression: CHECKOUT is resolved once at Monitor
+    startup; this test runs the script as a background subprocess and
+    deletes the checkout dir while it sleeps between ticks, simulating a
+    marketplace reclone's stale-dir cleanup mid-session. Before the fix,
+    a tick landing in that window spawned one gates/patrol_promote.py
+    subprocess per configured role, each dying rc=2 ("can't open file",
+    errno 2) --
+    a crash-line burst sized to the role count. After the fix, the tick
+    detects the missing checkout up front and prints exactly one skip
+    line, spawning no per-role subprocess at all (proven via the marker
+    file staying absent, mirroring the kill-switch test above)."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = tmp / "checkout"
+        checkout.mkdir()
+        (checkout / "spawn.py").write_text(FAKE_SPAWN_PY_WITH_ROLES, encoding="utf-8")
+        gates_dir = checkout / "gates"
+        gates_dir.mkdir()
+        (gates_dir / "patrol_promote.py").write_text(FAKE_PATROL_PROMOTE_PY, encoding="utf-8")
+        home = tmp / "home"
+        home.mkdir()
+        patrol_marker = tmp / "patrol_marker.log"
+        env = dict(os.environ)
+        env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+        env["FAKE_SPAWN_MARKER"] = str(checkout / "marker.log")
+        env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
+        env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "1"
+        env["POLL_HEARTBEAT_PATROL_EVERY_N"] = "1"
+        env["FAKE_POLL_DUE"] = "0"
+        env["FAKE_PATROL_MARKER"] = str(patrol_marker)
+        env["HOME"] = str(home)
+        env.pop("CLAUDE_ROLE", None)
+        proc = subprocess.Popen(
+            ["bash", str(POLL_HEARTBEAT)], stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, env=env,
+        )
+        try:
+            # Startup (CHECKOUT resolution, the ROLES read, GC) happens
+            # before the loop's first `sleep 1` -- this window lets that
+            # settle before the reclone simulation removes the dir.
+            time.sleep(0.3)
+            shutil.rmtree(checkout)
+            out, err = proc.communicate(timeout=15)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            raise
+        assert proc.returncode == 0, f"poll-heartbeat.sh should exit 0: {err}"
+        assert "[poll-heartbeat] checkout unavailable" in out, out
+        assert "crashed" not in out, out
+        assert "[patrol-poll]" not in out, out
+        assert not patrol_marker.exists(), \
+            "no per-role patrol_promote.py subprocess should run when checkout is missing"
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
