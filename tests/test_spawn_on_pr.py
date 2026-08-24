@@ -316,6 +316,81 @@ def test_missing_verification_skips_merged_subject_pr(fixture_repo, monkeypatch,
     assert "merged" in capsys.readouterr().out
 
 
+def test_missing_verification_sticky_merged_cache_survives_flaky_reconfirm(
+        fixture_repo, monkeypatch):
+    """issue #2165 (#513 shape): once a subject's PR is confirmed MERGED on
+    one tick, later ticks must not re-derive that fact live -- even when
+    the underlying gh call flakes back to OPEN (the exact failure
+    `_pr_state_for_branch` fails *open* to per its own docstring), the
+    sticky cache excludes the subject without calling the flaky
+    gh-backed helper again."""
+    calls = []
+
+    def counted_pr_number(root, branch):
+        calls.append(branch)
+        return 42 if branch == "issue-9001/implementation" else None
+
+    monkeypatch.setattr(spawn_on_pr.spawn, "_pr_open_or_merged_for_branch", counted_pr_number)
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_merged_pr_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+
+    # Tick 1: confirmed MERGED -> excluded, sticky cache written. (Two
+    # calls: `_pr_number_for_branch` plus `_pr_state_for_branch`'s own
+    # fallback re-derivation of the PR number -- both pre-existing,
+    # unrelated to this fix.)
+    out1 = spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "OPEN"})
+    assert out1 == {}
+    assert calls == ["issue-9001/implementation", "issue-9001/implementation"]
+
+    # Ticks 2-4: the merged-check flakes back to "not merged" -- must
+    # still exclude the subject, and must not even re-call the flaky
+    # gh-backed helper for it (the cache short-circuits before that call).
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_merged_pr_for_branch", lambda root, branch: None)
+    calls.clear()
+    for _ in range(3):
+        out = spawn_on_pr.missing_verification(fixture_repo, issue_states={9001: "OPEN"})
+        assert out == {}
+    assert calls == []
+
+
+def test_spawn_missing_for_pr_sticky_merged_cache_zero_spawns_across_ticks(
+        fixture_repo, monkeypatch):
+    """end-to-end companion driving the actual watchdog entrypoint
+    (`spawn_missing_for_pr`) across a confirmed-merge tick followed by
+    several flaky-reconfirm ticks -- reproduces #2165's reported #513
+    shape (50+ respawns after merge) and asserts zero spawns throughout."""
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_pr_open_or_merged_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_merged_pr_for_branch",
+        lambda root, branch: 42 if branch == "issue-9001/implementation" else None)
+
+    spawned = []
+    monkeypatch.setattr(spawn_on_pr.spawn, "roster_register", lambda key, entry: None)
+    monkeypatch.setattr(spawn_on_pr.spawn, "_spawn_one",
+                         lambda *a, **k: spawned.append((a, k)))
+
+    # Tick 1: merged, confirmed -> zero pairs, zero spawns.
+    pairs1 = spawn_on_pr.spawn_missing_for_pr(
+        fixture_repo, str(fixture_repo), dry_run=False, issue_states={9001: "OPEN"})
+    assert pairs1 == []
+    assert spawned == []
+
+    # Ticks 2-11: merged-check flakes back to "not merged" on every tick --
+    # pre-fix this reproduced the reported shape (respawn every flaky
+    # tick); must stay at zero now.
+    monkeypatch.setattr(
+        spawn_on_pr.spawn, "_merged_pr_for_branch", lambda root, branch: None)
+    for _ in range(10):
+        pairs = spawn_on_pr.spawn_missing_for_pr(
+            fixture_repo, str(fixture_repo), dry_run=False, issue_states={9001: "OPEN"})
+        assert pairs == []
+    assert spawned == []
+
+
 def test_missing_verification_open_pr_still_yields_pairs_via_state_check(
         fixture_repo, monkeypatch):
     """companion to the merged-skip test: an OPEN (not merged) subject PR
