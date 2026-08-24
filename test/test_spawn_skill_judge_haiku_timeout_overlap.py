@@ -18,7 +18,7 @@ class SkillJudgeModelTest(unittest.TestCase):
     def test_model_is_forced_to_haiku_even_when_caller_passes_a_different_model(self):
         seen = {}
 
-        def spy_consult_cmd_and_env(role, spec, cwd, model):
+        def spy_consult_cmd_and_env(role, spec, cwd, model, **kw):
             seen["model"] = model
             return (["cat"], {}, None)
 
@@ -58,7 +58,7 @@ class SkillJudgeTimeoutTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, \
              mock.patch.dict(spawn.os.environ, {"SKILL_JUDGE_TIMEOUT": "7"}), \
              mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model: (["cat"], {}, None)), \
+                               lambda role, spec, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run", spy_run):
             spawn._skill_judge_consult("some task", "implementation", [], 2061, td)
         timed_calls = [t for t in seen_timeouts if t is not None]

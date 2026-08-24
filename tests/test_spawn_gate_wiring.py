@@ -1084,15 +1084,19 @@ class DesignBearingSingleFetch(unittest.TestCase):
                              "the body already fetched by issue_fetch (issue #2186)")
 
 
-class ReturnedPRGateOverlapsWorkspaceSetup(unittest.TestCase):
-    """이슈 #2186: 실측 스폰에서 프라임 서스펙트였던 returned-PR 보드
-    스윕(`gh pr list` 왕복)이 이제 워크스페이스 클론/브랜치 체크아웃과
-    겹쳐 돈다(cross_family 자문과 같은 패턴) — 겹친 만큼 "returned_pr_gate"
-    단계의 계측치(순수 join 대기)가 그 조회 자체의 소요 시간보다 훨씬
-    작아야 한다는 것으로 겹침을 증명한다."""
+class ReturnedPRGateIsNonBlocking(unittest.TestCase):
+    """이슈 #2201: #2186 의 "겹쳐서 join" 설계는 실측 스폰에서도 여전히
+    6.608s(전체의 21%)를 세션 시작 전 블로킹 경로에 남겼다 — 그 결과
+    (`_print_returned_pr_surfaced()`/ledger 이벤트)는 세션에 전달되는
+    task 텍스트 어디에도 안 쓰이므로, auto_sweep(#2195)과 같은 완전
+    fire-and-forget 데몬 스레드로 바꿨다. 이 스위트는 (1) gh 조회가
+    느려도(워크스페이스 셋업이 그만큼 안 겹쳐도) "returned_pr_gate"
+    단계가 그 완료를 기다리지 않는다, (2) 조회 자체는 실제로 백그라운드
+    에서 실행된다(회귀 가드)를 함께 확인한다
+    (`test_auto_sweep_nonblocking.py` 와 같은 패턴)."""
 
     @pytest.mark.slow
-    def test_returned_pr_gate_join_wait_is_shorter_than_its_own_work(self):
+    def test_slow_gh_lookup_does_not_block_spawn_or_its_timed_phase(self):
         import subprocess as sp
         from unittest import mock
 
@@ -1112,20 +1116,27 @@ class ReturnedPRGateOverlapsWorkspaceSetup(unittest.TestCase):
             old_roster = spawn.ROSTER
             spawn.ROSTER = roster
 
+            started = threading.Event()
+            release = threading.Event()
+            _SLOW_LOOKUP_SECONDS = 2.0
+
             def slow_undispositioned_role_prs(root, exclude_issue=None):
-                time.sleep(0.3)
+                started.set()
+                # 워크스페이스 셋업이 이 시간을 전혀 겹쳐주지 않아도(아래
+                # issue_workspace 는 즉시 리턴한다) 여전히 안 기다려야
+                # 한다는 것을 보이려고, 겹칠 다른 작업 없이 그냥 오래 잡는다.
+                release.wait(_SLOW_LOOKUP_SECONDS)
                 return [], True
 
-            def slow_issue_workspace(cwd, issue, role):
-                time.sleep(0.5)
-                return str(work)
-
             buf = io.StringIO()
+            stderr_buf = io.StringIO()
             old_stdout = sys.stdout
             sys.stdout = buf
+            spawn._BOOTSTRAP_TIMING.clear()
             try:
-                with mock.patch.object(spawn, "issue_workspace",
-                                       slow_issue_workspace), \
+                with contextlib.redirect_stderr(stderr_buf), \
+                     mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
                      mock.patch.object(spawn, "checkout_issue_branch",
                                        lambda cwd, issue, role: "b"), \
                      mock.patch.object(spawn, "spawn_cmd",
@@ -1140,14 +1151,126 @@ class ReturnedPRGateOverlapsWorkspaceSetup(unittest.TestCase):
                                        lambda entry: None):
                     spawn._spawn_one(str(work), "execution-observation", "task\n",
                                      unattended=True, issue=9)
+
+                # (1) 블로킹 경로에서 빠졌다: gh 조회가 2s 를 쥐고 있어도
+                # "returned_pr_gate" bootstrap phase(디스패치만 잰다)는
+                # 짧다.
+                join_wait = spawn._BOOTSTRAP_TIMING.get("returned_pr_gate", 0.0)
+                self.assertLess(
+                    join_wait, _SLOW_LOOKUP_SECONDS / 2,
+                    f"returned_pr_gate phase 가 gh 조회 완료를 기다린 것으로 "
+                    f"보인다 (phase={join_wait})")
+
+                # (2) 회귀 가드: 조회 자체는 실제로(백그라운드에서) 여전히
+                # 실행된다.
+                self.assertTrue(started.wait(_SLOW_LOOKUP_SECONDS),
+                                "returned-PR 게이트가 백그라운드에서도 "
+                                "호출되지 않았다")
+                release.set()
+
+                # (3) 회귀 가드: 백그라운드 완료가 stderr 에서 완전히 안
+                # 보이게 되진 않는다 — 걸린 시간이 찍힌다.
+                deadline = time.monotonic() + _SLOW_LOOKUP_SECONDS
+                while ("returned-pr 게이트(백그라운드)" not in stderr_buf.getvalue()
+                       and time.monotonic() < deadline):
+                    time.sleep(0.02)
             finally:
                 sys.stdout = old_stdout
                 spawn.ROSTER = old_roster
 
-            join_wait = spawn._BOOTSTRAP_TIMING.get("returned_pr_gate", 0.0)
-            self.assertLess(
-                join_wait, 0.3,
-                f"returned_pr_gate join wait ({join_wait}s) should be well "
-                f"under the gate's own 0.3s of work — the workspace setup "
-                f"(0.5s) should have already absorbed it (issue #2186)")
+        self.assertIn("returned-pr 게이트(백그라운드)", stderr_buf.getvalue())
+
+    @pytest.mark.slow
+    def test_bounded_fork_parent_join_still_captures_a_slow_lookup(self):
+        """이슈 #2201 헌트(docs/issue-2201/reports/implementation/2026-08-24-
+        hunt-bootstrap-cross-family-returned-pr-gate.md): `--issue` 로 도는
+        실제 CLI 경로는 `bounded=True` 다 — 그 parent 는 워처를 무장한 뒤
+        곧장 `return 0` 하고, 곧이어 `sys.exit()` 로 인터프리터가 죽는다.
+        데몬 스레드는 join 없이 그 시점에 그냥 죽으므로, 이 join 이 없으면
+        gh 조회가 그 짧은 창을 못 맞출 때 surfacing/ledger 부수효과가
+        통째로 사라진다(헌트가 mock 스캐폴딩으로 재현). 이 테스트는
+        `os.fork()` 를 실제로 하지 않고 parent 분기를 흉내내(기존
+        `test_spawn_board_flows.py::_full_mock_scaffold` 와 같은 패턴)
+        gh 조회가 join 상한(10s) 안에서 끝나면 `_spawn_one()` 자신의
+        리턴 시점에 이미 완료돼 있음을 확인한다."""
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "issue-9-impl"
+            work.mkdir()
+            run = lambda *a: subprocess.run(a, cwd=str(work), capture_output=True,
+                                            text=True, check=True)
+            run("git", "init", "-q")
+            run("git", "config", "user.email", "t@example.com")
+            run("git", "config", "user.name", "t")
+            (work / "f.txt").write_text("x")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "init")
+
+            old_roster, old_idx = spawn.ROSTER, spawn.WORKSPACE_INDEX
+            spawn.ROSTER = Path(td) / "active.json"
+            spawn.WORKSPACE_INDEX = Path(td) / "workspaces.json"
+
+            ledger_calls = []
+            _LOOKUP_SECONDS = 1.0  # < 10s join 상한 — 끝났어야 정상
+
+            def slow_undispositioned_role_prs(root, exclude_issue=None):
+                time.sleep(_LOOKUP_SECONDS)
+                return [], False  # fail-open 경로 — ledger 이벤트로 관측한다
+
+            class FakeWatcherProc:
+                pid = 424242
+
+            real_popen = subprocess.Popen
+
+            def selective_popen(cmd, *a, **k):
+                if isinstance(cmd, list) and "watch" in cmd:
+                    return FakeWatcherProc()
+                return real_popen(cmd, *a, **k)
+
+            try:
+                with mock.patch.object(os, "fork", return_value=4321), \
+                     mock.patch.object(spawn, "issue_workspace",
+                                       lambda cwd, issue, role: str(work)), \
+                     mock.patch.object(spawn, "checkout_issue_branch",
+                                       lambda cwd, issue, role: "b"), \
+                     mock.patch.object(spawn, "resolve_role_source",
+                                       lambda role, repo_root: {
+                                           "source": "skill-repo", "skill_dirs": [],
+                                           "skills": [], "skill_sha": None}), \
+                     mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
+                     mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
+                                       lambda *a, **k: ([], "no-candidates")), \
+                     mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
+                     mock.patch.object(spawn, "core_version", lambda: "v0"), \
+                     mock.patch.object(spawn, "_clean_auto_enabled", lambda: False), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
+                     mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
+                     mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
+                     mock.patch.object(spawn, "_undispositioned_role_prs",
+                                       slow_undispositioned_role_prs), \
+                     mock.patch.object(spawn, "roster_register", lambda *a, **k: None), \
+                     mock.patch.object(spawn.subprocess, "Popen", selective_popen), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda entry: ledger_calls.append(entry)):
+                    t0 = time.monotonic()
+                    rc = spawn._spawn_one(str(work), "implementation", "task\n",
+                                          unattended=True, issue=9, bounded=True,
+                                          no_wait=True)
+                    elapsed = time.monotonic() - t0
+            finally:
+                spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
+
+            self.assertEqual(rc, 0)
+            # 스폰 자신의 리턴 시점에 이미 gh 조회(1s)가 끝나 있어야 한다 —
+            # join 이 없다면(헌트가 재현한 회귀) ledger 에 아무 것도 안 남는다.
+            events = [e.get("event") for e in ledger_calls]
+            self.assertIn(
+                "returned_pr_gate_fail_open", events,
+                f"bounded parent 가 리턴하기 전에 returned_pr_gate 백그라운드 "
+                f"스레드를 join 하지 않은 것으로 보인다 (ledger={ledger_calls})")
+            # join 상한이 실제로 걸려 있다는 방향 증거 — 1s 조회가 1s 근처에서
+            # 끝났지, 10s 상한을 다 채우지 않았다.
+            self.assertLess(elapsed, _LOOKUP_SECONDS + 5.0,
+                            f"join 이 예상보다 훨씬 오래 걸렸다 (elapsed={elapsed:.3f}s)")
 
