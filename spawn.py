@@ -150,7 +150,6 @@ WATCHDOG_SILENCE_MIN = watchdog.WATCHDOG_SILENCE_MIN
 WATCHDOG_NO_COMMIT_MIN = watchdog.WATCHDOG_NO_COMMIT_MIN
 WATCHDOG_DENIAL_THRESHOLD = watchdog.WATCHDOG_DENIAL_THRESHOLD
 WATCHDOG_HEARTBEAT_ONLY_MIN = watchdog.WATCHDOG_HEARTBEAT_ONLY_MIN
-_DELEGATION_RE = watchdog._DELEGATION_RE
 _watchdog_state_load = watchdog._watchdog_state_load
 _watchdog_state_save = watchdog._watchdog_state_save
 _classify_log_lines_heartbeat_only = watchdog._classify_log_lines_heartbeat_only
@@ -230,6 +229,7 @@ _ambiguous_watch_exit = events._ambiguous_watch_exit
 _append_event = events._append_event
 _await_bounded = events._await_bounded
 _classify_refusal_text = events._classify_refusal_text
+_count_structural_delegations = events._count_structural_delegations
 _count_structural_denials = events._count_structural_denials
 _event_count = events._event_count
 _events_path = events._events_path
@@ -931,8 +931,10 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     if state is None:
         _watchdog_state_save(own_state)
 
-    # signal 2: 백그라운드-위임 언급 — 시점 무관, 매치 즉시 신고
-    if _DELEGATION_RE.search(text):
+    # signal 2 (이슈 #2217): 구조적 background-delegation tool_use 만 센다 —
+    # 단어 매치는 우리 자신이 주입하는 headless 경고 프롬프트에도 걸려
+    # 100% 세션에서 오탐했다. 시점 무관, 매치 즉시 신고.
+    if _count_structural_delegations(text) > 0:
         anomalies.append(f"background-delegation-phrasing: {log_path}")
 
     # signal 3: 반복된 거부된 도구 호출 (이번 스캔 구간 내) — 이슈 #994:
