@@ -47,6 +47,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import checkpoint
+
 # The spawn module object; set by spawn.py on import. All cross-module lookups
 # resolve through it at call time so monkeypatches on spawn attributes are seen.
 _sp = None
@@ -251,11 +253,24 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     (위 원자료 제약 그대로), 호출부가 이미 쓰는 (before_head, HEAD) 랜드마크
     위에서 계산해 건네주는 형태다. 생략하면(기본값 `None`, 기존 호출부)
     이전과 동일하게 `DEAD-ERRORED` 하나로만 갈린다 — 순수 추가라 기존
-    동작은 안 바뀐다."""
+    동작은 안 바뀐다.
+
+    이슈 #2215: `work` 가 있으면 매 판정에 `dirty_files`(raw `git status
+    --porcelain` 개수)와 `minutes_since_checkpoint`(마지막 체크포인트 ref
+    커밋 이후 경과 분, ref 가 아직 없으면 `None`)를 얹는다 —
+    `checkpoint.checkpoint_health()` 위임, 이 함수 자신은 새 `git` 호출을
+    추가하지 않는다. 어느 분기로 빠지든(completion 포함) 이 두 필드는
+    항상 붙는다 — 호출부가 균일한 shape 을 기대할 수 있게."""
     now = time.time() if now is None else now
     pid = entry.get("pid", 0)
     work = entry.get("work")
     branch = Path(work).name if work else None
+    ckpt_fields = (checkpoint.checkpoint_health(work, now=now) if work
+                   else {"dirty_files": 0, "minutes_since_checkpoint": None})
+
+    def _diagnosis(d: dict) -> dict:
+        return {**d, **ckpt_fields}
+
     alive = _sp._alive(pid)
     if not alive:
         verdict = _sp.session_end_verdict(
@@ -268,42 +283,42 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         else:
             pr_number = _sp._pr_open_or_merged_for_branch(root, branch)
         if verdict == "normal" or pr_number is not None:
-            return {"state": None, "next_action": "none",
-                    "detail": "completion, not a health diagnosis"}
+            return _diagnosis({"state": None, "next_action": "none",
+                    "detail": "completion, not a health diagnosis"})
         if commit_count:
             # 이슈 #2193: 죽었고 PR 도 없지만 커밋은 남았다 — plugin
             # reload 등으로 워처 자신이 함께 죽어 `ensure_pushed()` 가
             # 못 돈 경우의 대표 실패 모드. 일반 DEAD-ERRORED("respawn 해도
             # 잃을 것 없음")와 섞으면 이 커밋들이 침묵 속에 좌초한다 —
             # 브랜치명과 커밋 개수를 이름 붙여 별도 상태로 갈라낸다.
-            return {"state": "DEAD-UNRECOVERED-COMMITS",
+            return _diagnosis({"state": "DEAD-UNRECOVERED-COMMITS",
                     "next_action": "recover-unpushed",
                     "detail": f"{key}: pid {pid} 부재, PR 없음, "
                               f"branch={branch} 에 push 안 된 커밋 "
                               f"{commit_count}개 — 복구 필요 "
-                              f"(session_verdict={verdict!r})"}
-        return {"state": "DEAD-ERRORED", "next_action": "respawn",
+                              f"(session_verdict={verdict!r})"})
+        return _diagnosis({"state": "DEAD-ERRORED", "next_action": "respawn",
                 "detail": f"{key}: pid {pid} 부재, PR 없음, 커밋 없음, "
-                          f"session_verdict={verdict!r}"}
+                          f"session_verdict={verdict!r}"})
     deadlock_sig = _sp._deadlock_signature(work)
     if deadlock_sig is not None:
-        return {"state": "DEADLOCKED", "next_action": "surface-repeating-cause",
-                "detail": f"{key}: 같은 거부 signature 반복, 새 진행 없음 — {deadlock_sig[:200]}"}
+        return _diagnosis({"state": "DEADLOCKED", "next_action": "surface-repeating-cause",
+                "detail": f"{key}: 같은 거부 signature 반복, 새 진행 없음 — {deadlock_sig[:200]}"})
     if anomalies is None:
         anomalies = _sp.watchdog_check_one(key, entry, now=now, state=state)
     if any(a.startswith("log-silence") or a.startswith("watcher-silent")
            for a in anomalies):
-        return {"state": "STALLED", "next_action": "resume-watch",
-                "detail": f"{key}: idle > {_sp.WATCHDOG_SILENCE_MIN}분, RUNNING"}
+        return _diagnosis({"state": "STALLED", "next_action": "resume-watch",
+                "detail": f"{key}: idle > {_sp.WATCHDOG_SILENCE_MIN}분, RUNNING"})
     if any(a.startswith("heartbeat-only-growth") for a in anomalies):
         # 이슈 #1966: log-silence 는 안 잡히지만(mtime 계속 갱신) 최근
         # WATCHDOG_HEARTBEAT_ONLY_MIN 분간 tool_progress 하트비트만 관측된
         # 경우 — advisory 전용 서브상태. next_action 은 STALLED 와 동일하게
         # "resume-watch"(재관찰만) 로, kill/spawn-거부/게이트-블록 경로는
         # 이 상태에서 전혀 도달 불가하다.
-        return {"state": "STALLED-HEARTBEAT-ONLY", "next_action": "resume-watch",
+        return _diagnosis({"state": "STALLED-HEARTBEAT-ONLY", "next_action": "resume-watch",
                 "detail": f"{key}: 최근 {_sp.WATCHDOG_HEARTBEAT_ONLY_MIN}분간 "
-                          f"tool_progress 하트비트만 관측, RUNNING (advisory)"}
+                          f"tool_progress 하트비트만 관측, RUNNING (advisory)"})
     if any(a.startswith("flat-progress") for a in anomalies):
         # Issue #2101 mechanism 2: the lease was renewed
         # LEASE_FLAT_RENEWALS_K+ times with an unchanged progress indicator
@@ -311,12 +326,12 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         # in the #1966 classifier vocabulary. next_action is the same
         # "resume-watch" (re-observe only); no kill/refuse/gate-block path
         # is reachable from this state.
-        return {"state": "STALLED-FLAT-PROGRESS", "next_action": "resume-watch",
+        return _diagnosis({"state": "STALLED-FLAT-PROGRESS", "next_action": "resume-watch",
                 "detail": f"{key}: lease renewed {_sp.LEASE_FLAT_RENEWALS_K}+ "
                           f"times with a flat progress indicator, RUNNING "
-                          f"(advisory)"}
-    return {"state": "HEALTHY", "next_action": "none",
-            "detail": f"{key}: 최근 로그 성장, RUNNING"}
+                          f"(advisory)"})
+    return _diagnosis({"state": "HEALTHY", "next_action": "none",
+            "detail": f"{key}: 최근 로그 성장, RUNNING"})
 
 
 def _session_resume_claim(session_id: str, now: float | None = None) -> bool:
@@ -1573,6 +1588,13 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
             if auto_respawn:
                 _sp._auto_respawn_check(key, e, respawn_state)
             continue
+        # 이슈 #2215: harness-decided, unconditional — 이 라이브 엔트리의
+        # 워크스페이스를 매 폴 틱(POLL_INTERVAL_SEC)마다 체크포인트한다.
+        # dura 처럼 HEAD/브랜치/인덱스를 건드리지 않는다; 역할 세션이
+        # 커밋을 잊어도 이 스냅샷은 남는다.
+        work = e.get("work")
+        if work:
+            checkpoint.checkpoint_workspace(work)
         anomalies = _sp.watchdog_check_one(key, e, state=state)
         # Issue #2101 mechanisms 1+2: renew this live entry's lease on the
         # same tick (the tick is the entry's watcher), recording the progress
