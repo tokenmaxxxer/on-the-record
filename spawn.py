@@ -1747,6 +1747,221 @@ def _checkpoint_contract_block(issue: int, role: str) -> str:
         spawn_py=Path(__file__).resolve(), bash_timeout_ms=bash_timeout_ms)
 
 
+def _checkpoint_index_block(issue: int, role: str) -> str:
+    """Issue #2135: the condensed inline checkpoint invariant. The
+    actionable wait command and exit-code semantics stay inline; the full
+    contract prose (`_CHECKPOINT_CONTRACT_BLOCK`) is materialized verbatim
+    as `{DIRECTIVE_DIR}/checkpoint-mode.md` in the workspace."""
+    bash_timeout_ms = int((_checkpoint_wait_max_seconds() + 60) * 1000)
+    return (
+        f"- Checkpoint mode (issue #2129, spawner-authorized via "
+        f"--checkpoint): after opening the phase-1 proposal PR, do "
+        f"NOT end the session — run EXACTLY ONE foreground Bash call "
+        f"(timeout parameter >= {bash_timeout_ms} ms) for the whole "
+        f"wait:\n"
+        f"     {sys.executable} {Path(__file__).resolve()} -C . "
+        f"await-approval --issue {issue} --role {role}\n"
+        f"  exit 0 = approved: continue IMMEDIATELY into phase-2 in "
+        f"this same context; exit 3 = timeout: end cleanly (the "
+        f"proposal PR is the returned state). 전문은 "
+        f"{DIRECTIVE_DIR}/checkpoint-mode.md 가 정본이다 — phase-1 "
+        f"산출 전에 먼저 Read 하라.\n")
+
+
+# ------------------------------------------------ directive diet (issue #2135)
+# The spawned-session directive follows the #2102 index+sections pattern:
+# always-on = task text + a compact invariant index; the long contract prose
+# moves VERBATIM into on-demand files materialized into the workspace at
+# bootstrap (`.on-the-record/directive/<section>.md`), each referenced by
+# exactly one "Read <file> when <condition>" trigger line. Zero normative
+# loss: every removed sentence lives verbatim in a section file; the inline
+# lines are condensed invariants whose full text the file carries. Adhoc
+# spawns (no issue, hence no isolated workspace to materialize into) keep
+# the full prose inline — their assembly is byte-identical to before.
+DIRECTIVE_DIR = ".on-the-record/directive"
+
+# Moved verbatim from the issue-workspace preamble (issues #132/#1981 and
+# the headless/run_in_background warning). The inline index keeps the
+# one-line 완료의 정의 invariant plus a trigger line; this file is canon.
+_COMPLETION_PROSE = (
+    "완료의 정의: 변경이 이 브랜치에 **커밋**되고 push 되어 PR 로\n"
+    "제출된 상태다. 미커밋 변경은 존재하지 않는 것과 같다 —\n"
+    "세션을 끝내기 전에 반드시 커밋하라. push/PR 이 네트워크로\n"
+    "막히면 커밋까지는 해 둬라: on-the-record 가 밖에서 릴레이한다.\n"
+    "체크포인트 커밋: 길거나 백그라운드로 넘기는 검증을 시작하기\n"
+    "전에 먼저 체크포인트 커밋을 해 두고, 검증이 끝난 뒤 amend 하거나\n"
+    "후속 커밋을 추가하라 — 검증부터 하고 나중에 커밋하는 습관은\n"
+    "세션이 검증 도중 끊길 때 미커밋 변경을 그대로 좌초시킨다.\n"
+    "경고: 이 턴은 headless 이고 단발이다 — 세션이 끝나면 이 프로세스도\n"
+    "끝난다. run_in_background 로 넘긴 작업은 부모 턴이 끝나는 순간 함께\n"
+    "죽는다(백그라운드 워커가 커밋·push 를 대신 끝내줄 것이라고 가정하지\n"
+    "마라 — 실측된 실패 패턴이다). 모든 작업은 이 턴 안에서 직접 끝내라.\n")
+
+# Issue #2135 item 4: landing batching — guidance only, no gate enforces it.
+_LANDING_BATCHING_PROSE = (
+    "\nLanding batching (issue #2135, guidance only — no gate): when the "
+    "work is ready to land, run the landing sequence as ONE composite Bash "
+    "call (or the fewest calls possible):\n"
+    "  git add <paths> && git commit -m <msg> && git push -u origin "
+    "<branch> && gh pr create ...\n"
+    "Five separate single-command turns for add/commit/push/pr-create were "
+    "the measured pattern this guidance retires.\n")
+
+# Moved verbatim: the mounted-skill inspection nudge (issue #1960 phase B)
+# + invoke-before-apply (issue #2062).
+_SKILL_CHECK_PROSE = (
+    "스킬 점검(이슈 #1960): 실체 작업을 시작하기 전에, 위에 "
+    "마운트된 스킬 목록을 이번 과제와 대조하라. trigger 조건이 "
+    "이번 과제에 그럴듯하게 들어맞는 스킬이 있으면 Skill 도구로 "
+    "호출하고, 없으면 검토했다는 사실만 유념하고 넘어가라. "
+    "invoke-before-apply(이슈 #2062): APPLICABLE 로 판단한 "
+    "스킬은 적용하기 전에 반드시 Skill 도구로 그 스킬의 전체 "
+    "SKILL.md 를 로드해야 한다 — not-applicable 로 판단한 "
+    "스킬은 이 의무에서 면제된다(강제 로드도, 토큰 낭비도 "
+    "없다).\n")
+
+# Moved verbatim: the per-mounted-skill verdict obligation (issue #2039,
+# invocation marker per issue #2062).
+_SKILL_VERDICT_PROSE = (
+    "스킬-verdict 의무(이슈 #2039): 위에 마운트된 스킬 "
+    "이름마다, 레코드에 `skill-verdict: <스킬명> — applied: "
+    "<어디서/어떻게> | not-applicable: <한 줄 이유>` 형태의 줄을 "
+    "정확히 하나씩 남겨야 한다 — 적용 여부 판단은 전적으로 이 "
+    "세션의 몫이지만, 그 판단을 아예 안 밝히는 것은 더 이상 "
+    "허용되지 않는다. applied: 줄은 위 invoke-before-apply "
+    "의무에 따라 실제로 Skill 도구를 호출했다는 증거로 "
+    "`invoked;` 를 자유 텍스트 맨 앞에 붙여야 한다(이슈 "
+    "#2062) — not-applicable: 줄은 이 마커가 필요 없다.\n")
+
+
+def directive_section_files(*, skills_mounted: bool = False,
+                            checkpoint_block: str | None = None) -> dict[str, str]:
+    """The on-demand section files for one spawn: name -> full prose.
+
+    `completion-and-landing.md` is always materialized; the skill and
+    checkpoint sections only when their condition holds (their trigger
+    lines are equally conditional, so index and files stay a bijection)."""
+    files = {"completion-and-landing.md":
+             _COMPLETION_PROSE + _LANDING_BATCHING_PROSE}
+    if skills_mounted:
+        files["skill-obligations.md"] = (_SKILL_CHECK_PROSE + "\n"
+                                          + _SKILL_VERDICT_PROSE)
+    if checkpoint_block:
+        files["checkpoint-mode.md"] = checkpoint_block
+    return files
+
+
+def materialize_directive_sections(cwd: str, files: dict[str, str]) -> None:
+    """Write the section files into `<cwd>/.on-the-record/directive/`."""
+    d = Path(cwd) / ".on-the-record" / "directive"
+    d.mkdir(parents=True, exist_ok=True)
+    for name, text in files.items():
+        (d / name).write_text(text, encoding="utf-8")
+
+
+# Issue #2135 item 3: record skeleton pre-generation. The session fills
+# judgment content instead of authoring structure. The skeleton satisfies
+# core's record-fields-gate structure checks as it stands: what-was-done /
+# why / upstream-basis headings, a `loop_state:` line (non-terminal, so the
+# next-steps + resolution-path spellings are present too), an open-findings
+# heading, and a value-less `sha:` frontmatter line (the gate's issue-153 F2
+# carve-out — never a placeholder string, which the gate denies).
+_RECORD_SKELETON = """\
+---
+issue: {issue}
+role: {role}
+loop_state: {loop_state}
+upstream:
+  - path: <docs/issue-{issue}/... or code path this record builds on>
+    sha:
+---
+
+# issue-{issue} — {role} record
+
+## What was done
+
+<!-- fill: the delivered work, concretely -->
+
+## Why
+
+<!-- fill: rationale for the approach taken -->
+
+## Upstream basis
+
+<!-- fill: the concrete upstream inputs (docs/issue-{issue}/ paths or commit
+shas); per contract §1, frontmatter `sha:` is `same-commit` when the cited
+path lands in this same commit, else the real 40-char sha -->
+
+## Open findings
+
+<!-- fill: each open finding with its resolution path, or "none" -->
+
+## Next steps
+
+<!-- fill while loop_state is non-terminal; set loop_state to the terminal
+value for this record kind when done -->
+"""
+
+
+def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
+    """Pre-write the role's own record skeleton at bootstrap; never
+    overwrite an existing record (a respawn into the same workspace)."""
+    p = Path(cwd) / "docs" / f"issue-{issue}" / "reports" / f"{role}.md"
+    if p.exists():
+        return None
+    # Initial loop_state: the role's own record_fields enum is authoritative
+    # (record_lint treats an out-of-enum value as a violation) — prefer
+    # `in-progress` when the enum carries it, else the enum's first value.
+    loop_state = "in-progress"
+    try:
+        enum = (json.loads((ROOT / "roles" / f"{role}.json")
+                           .read_text(encoding="utf-8"))
+                .get("record_fields", {}).get("loop_state"))
+        if isinstance(enum, dict):
+            # grouped shape {progress: [...], terminal: [...], ...} —
+            # prefer the progress group's first value
+            flat = [v for vs in enum.values() for v in vs]
+            if "in-progress" not in flat:
+                loop_state = (enum.get("progress") or [flat[0]])[0]
+        elif enum and "in-progress" not in enum:
+            loop_state = enum[0]
+    except Exception:
+        pass
+    # roles/specs/<role>.spec.json required_fields become empty frontmatter
+    # keys (with the enum as a YAML comment) so the session fills values,
+    # not structure — observed in the first post-diet run: without these the
+    # session spent turns excavating git history for a prior record's shape.
+    spec_lines = ""
+    try:
+        spec = json.loads((ROOT / "roles" / "specs" / f"{role}.spec.json")
+                          .read_text(encoding="utf-8"))
+        for fld in spec.get("required_fields", []):
+            if not fld.get("required") or fld.get("name") == "loop_state":
+                continue
+            enum = fld.get("enum")
+            hint = " # one of: %s" % "|".join(enum) if enum else \
+                   " # %s" % fld.get("type", "fill")
+            spec_lines += "%s:%s\n" % (fld["name"], hint)
+    except Exception:
+        pass
+    body = _RECORD_SKELETON.format(issue=issue, role=role,
+                                   loop_state=loop_state)
+    if spec_lines:
+        body = body.replace("sha:\n---\n", "sha:\n" + spec_lines + "---\n", 1)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(body, encoding="utf-8")
+    return p
+
+
+def composition_breakdown(parts: list[tuple[str, str]]) -> str:
+    """One-line byte breakdown of the assembled directive by source —
+    issue #2135's measure-first instrument, printed at every spawn."""
+    total = sum(len(t.encode("utf-8")) for _, t in parts)
+    cells = ", ".join(f"{label}={len(text.encode('utf-8'))}B"
+                      for label, text in parts if text)
+    return f"directive composition: total={total}B ({cells})"
+
+
 _SKILL_USE_SENTENCE_RE = re.compile(r"(Use\b[^.]*\.)", re.S)
 
 
@@ -1903,6 +2118,15 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 덧붙은 텍스트(스킬 목록 자체 등)가 스코어링 입력에 섞이면 결정론이
     # 스폰마다 달라진다.
     _cross_family_task_text = task
+    # Issue #2135: labeled directive parts for the composition breakdown —
+    # every append below registers itself via `_dp()` so the assembled
+    # directive's per-source byte counts are printed at each spawn and
+    # unit-testable through `composition_breakdown()`.
+    _directive_parts: list[tuple[str, str]] = [("base-task", task)]
+
+    def _dp(label: str, text: str) -> str:
+        _directive_parts.append((label, text))
+        return text
     cross_family_dirs: list[Path] = []
     # 이슈 #2076: skill_judge 자문이 이번 스폰에서 완료됐는지 fail-open
     # 했는지 — role_source 가 skill-repo 가 아니면 자문 자체가 안 불려
@@ -1990,6 +2214,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 섬기는지 안다. gh 조회 실패는 조용히 건너뛴다 — 이 줄이 없다고
         # 스폰 자체를 막을 이유는 없다(require_requirement_linkage 가 이미
         # phase-1 드래프트 시점에 구조적으로 막는다).
+        # Issue #2135: materialize the on-demand directive section files and
+        # the record skeleton into the workspace BEFORE assembling the
+        # index — the trigger lines below reference files that must exist.
+        materialize_directive_sections(cwd, directive_section_files(
+            skills_mounted=bool(skill_sources or role_source["skills"]),
+            checkpoint_block=(_checkpoint_contract_block(issue, role)
+                              if checkpoint else None)))
+        write_record_skeleton(cwd, issue, role)
         req_line = ""
         goal_pin = ""
         body = None
@@ -2010,33 +2242,45 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         except Exception:
             req_line = ""
             goal_pin = ""
-        task = (f"당신의 이슈: #{issue} (subject issue-{issue}, 브랜치 {br}).\n"
+        # Issue #2135 directive diet: the always-on preamble is a compact
+        # invariant index. The long prose it used to carry (완료의 정의
+        # full text, 체크포인트 커밋 rule, headless/run_in_background
+        # warning, landing batching) lives VERBATIM in
+        # {DIRECTIVE_DIR}/completion-and-landing.md, materialized above.
+        task = _dp("issue-preamble-index",
+                f"당신의 이슈: #{issue} (subject issue-{issue}, 브랜치 {br}).\n"
                 + req_line + goal_pin +
                 f"gh issue view {issue} 로 이슈를 먼저 읽어라.\n"
-                f"완료의 정의: 변경이 이 브랜치에 **커밋**되고 push 되어 PR 로\n"
-                f"제출된 상태다. 미커밋 변경은 존재하지 않는 것과 같다 —\n"
-                f"세션을 끝내기 전에 반드시 커밋하라. push/PR 이 네트워크로\n"
-                f"막히면 커밋까지는 해 둬라: on-the-record 가 밖에서 릴레이한다.\n"
-                f"체크포인트 커밋: 길거나 백그라운드로 넘기는 검증을 시작하기\n"
-                f"전에 먼저 체크포인트 커밋을 해 두고, 검증이 끝난 뒤 amend 하거나\n"
-                f"후속 커밋을 추가하라 — 검증부터 하고 나중에 커밋하는 습관은\n"
-                f"세션이 검증 도중 끊길 때 미커밋 변경을 그대로 좌초시킨다.\n"
-                f"경고: 이 턴은 headless 이고 단발이다 — 세션이 끝나면 이 프로세스도\n"
-                f"끝난다. run_in_background 로 넘긴 작업은 부모 턴이 끝나는 순간 함께\n"
-                f"죽는다(백그라운드 워커가 커밋·push 를 대신 끝내줄 것이라고 가정하지\n"
-                f"마라 — 실측된 실패 패턴이다). 모든 작업은 이 턴 안에서 직접 끝내라.\n\n") + task
+                f"완료의 정의: 변경이 이 브랜치에 커밋되고 push 되어 PR 로 "
+                f"제출된 상태다 — 미커밋 변경은 존재하지 않는 것과 같다.\n"
+                f"레코드 스켈레톤: docs/issue-{issue}/reports/{role}.md 가 "
+                f"미리 쓰여 있다 — 구조를 새로 만들지 말고 스켈레톤의 "
+                f"섹션을 채워라(이슈 #2135).\n"
+                f"디렉티브 인덱스(이슈 #2135): 규범 전문은 이 워크스페이스의 "
+                f"{DIRECTIVE_DIR}/ 파일들이 정본이다 — 조건이 맞을 때 Read "
+                f"하라:\n"
+                f"- {DIRECTIVE_DIR}/completion-and-landing.md — 긴/"
+                f"백그라운드 검증을 시작하기 전과 랜딩(커밋·push·PR) 직전에 "
+                f"Read. 체크포인트 커밋 규칙, headless 단발-턴 경고("
+                f"run_in_background 작업은 턴 끝에 죽는다), 배치 랜딩 "
+                f"절차가 들어 있다.\n\n") + task
         # 이슈 #1978 (A): --single-phase 신호가 없으면 이 블록은 아무 것도
         # 안 붙인다 — 오늘의 프롬프트와 바이트 단위로 동일해야 한다는
         # 제안서 제약. B(스킬 트리거 줄)보다 먼저 온다(A before B, 제안서
         # 순서).
         if single_phase:
-            task = task + "\n\n" + _SINGLE_PHASE_CONTRACT_LINE.format(role=role)
+            task = task + _dp("single-phase-contract",
+                "\n\n" + _SINGLE_PHASE_CONTRACT_LINE.format(role=role))
         # Issue #2129: --checkpoint appends the single-session
         # propose-approve-implement contract. Without the flag this block
         # appends NOTHING — the default directive stays byte-identical
         # (same constraint discipline as --single-phase above).
         if checkpoint:
-            task = task + "\n\n" + _checkpoint_contract_block(issue, role)
+            # Issue #2135: condensed inline invariant (the actionable wait
+            # command stays inline); full contract prose verbatim in
+            # {DIRECTIVE_DIR}/checkpoint-mode.md (materialized above).
+            task = task + _dp("checkpoint-mode-index",
+                              "\n\n" + _checkpoint_index_block(issue, role))
         if skill_sources:
             skill_lines = ", ".join(
                 f"{m['name']}"
@@ -2044,8 +2288,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                    if _skill_trigger_line(m['dir']) else "")
                 + f" ({_describe_skill_match(m)})"
                 for m in skill_sources)
-            task = task + (
-                f"\n\n마운트된 스킬(--skills, 이슈 #1742/#1774): {skill_lines}\n")
+            task = task + _dp("mounted-skills", (
+                f"\n\n마운트된 스킬(--skills, 이슈 #1742/#1774): {skill_lines}\n"))
         if role_source["source"] == "skill-repo":
             # 이슈 #1978 (B): 스킬 이름 옆에 SKILL.md 의 "Use ..." 트리거
             # 문장을 인라인한다(#1960 의 1/9 발화율 넛지를 대체) — 트리거
@@ -2083,11 +2327,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     f"스킬 — 이슈 #2001)")
             else:
                 cross_family_clause = ""
-            task = task + (
+            task = task + _dp("role-skill-triggers", (
                 f"\n\n이 역할은 skill-repository(이슈 #1955, #1758)로 매핑됐다: "
                 f"스킬 {role_skill_lines} "
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
-                f"집행은 core 훅뿐이다.{cross_family_clause}\n")
+                f"집행은 core 훅뿐이다.{cross_family_clause}\n"))
         # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
         # 역할 매핑이든) 실체 작업을 시작하기 전에 그 목록을 이번 과제와
         # 대조해보라고 스폰 시점에 못박는다. 베이스라인 측정
@@ -2097,30 +2341,30 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 공백이라는 뜻이라, trigger 문구를 손보는 대신 이 지시문 한 줄을
         # 추가한다(단일 변경, 순차 적용).
         if skill_sources or role_source["skills"]:
-            task = task + (
-                "\n\n스킬 점검(이슈 #1960): 실체 작업을 시작하기 전에, 위에 "
-                "마운트된 스킬 목록을 이번 과제와 대조하라. trigger 조건이 "
-                "이번 과제에 그럴듯하게 들어맞는 스킬이 있으면 Skill 도구로 "
-                "호출하고, 없으면 검토했다는 사실만 유념하고 넘어가라. "
-                "invoke-before-apply(이슈 #2062): APPLICABLE 로 판단한 "
-                "스킬은 적용하기 전에 반드시 Skill 도구로 그 스킬의 전체 "
-                "SKILL.md 를 로드해야 한다 — not-applicable 로 판단한 "
-                "스킬은 이 의무에서 면제된다(강제 로드도, 토큰 낭비도 "
-                "없다).\n")
             # 이슈 #2039: 마운트된 스킬 하나마다 레코드에 한 줄씩 verdict를
             # 남겨야 한다 — 스킬을 조용히 무시하는 걸 불가능하게 만든다.
             # 스킬이 하나도 안 마운트되면 이 블록 전체가 안 붙으므로
             # (위 조건과 동일), 무-스킬 세션은 오늘과 바이트 단위로 같다.
-            task = task + (
-                "\n\n스킬-verdict 의무(이슈 #2039): 위에 마운트된 스킬 "
-                "이름마다, 레코드에 `skill-verdict: <스킬명> — applied: "
-                "<어디서/어떻게> | not-applicable: <한 줄 이유>` 형태의 줄을 "
-                "정확히 하나씩 남겨야 한다 — 적용 여부 판단은 전적으로 이 "
-                "세션의 몫이지만, 그 판단을 아예 안 밝히는 것은 더 이상 "
-                "허용되지 않는다. applied: 줄은 위 invoke-before-apply "
-                "의무에 따라 실제로 Skill 도구를 호출했다는 증거로 "
-                "`invoked;` 를 자유 텍스트 맨 앞에 붙여야 한다(이슈 "
-                "#2062) — not-applicable: 줄은 이 마커가 필요 없다.\n")
+            if issue is not None:
+                # Issue #2135 diet: the full 스킬 점검(#1960)/invoke-before-
+                # apply(#2062)/스킬-verdict(#2039) prose lives verbatim in
+                # {DIRECTIVE_DIR}/skill-obligations.md (materialized above);
+                # inline stays the condensed invariant + Skill-tool trigger.
+                task = task + _dp("skill-obligations-index",
+                    f"\n\n스킬 의무(이슈 #1960/#2039/#2062 — 전문은 "
+                    f"{DIRECTIVE_DIR}/skill-obligations.md, 실체 작업 전에 "
+                    f"Read 하라): 스킬 점검 — 마운트된 스킬 목록을 이번 "
+                    f"과제와 대조하고, applicable 로 판단한 스킬은 적용 전에 "
+                    f"반드시 Skill 도구로 로드하라. 마운트된 스킬 이름마다 "
+                    f"레코드에 `skill-verdict: <스킬명> — applied: invoked; "
+                    f"<어디서/어떻게> | not-applicable: <한 줄 이유>` 줄을 "
+                    f"정확히 하나씩 남겨야 한다.\n")
+            else:
+                # Adhoc spawn: no workspace to materialize into — keep the
+                # full prose inline (byte-identical to the pre-#2135 text).
+                task = task + _dp("skill-obligations-full",
+                                  "\n\n" + _SKILL_CHECK_PROSE
+                                  + "\n\n" + _SKILL_VERDICT_PROSE)
         # 이슈 #2014 (artifact-gate phase 3): `design-artifacts:` 선언이
         # 있으면 선언된 각 아티팩트 경로를, 그 basename 이 마운트된 스킬들의
         # 트리거 문장과 가장 많이 겹치는 스킬 하나와 짝지어 한 줄씩 붙인다
@@ -2157,10 +2401,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 pairing_lines.append(
                     f"{artifact_path} ↔ {best_name} — {_skill_trigger_line(best_dir)}")
             if pairing_lines:
-                task = task + (
+                task = task + _dp("artifact-skill-pairing", (
                     "\n\n아티팩트-스킬 짝짓기(이슈 #2014): 선언된 각 아티팩트를 "
                     "그것을 만드는 절차를 담은 스킬과 짝지었다.\n"
-                    + "\n".join(pairing_lines) + "\n")
+                    + "\n".join(pairing_lines) + "\n"))
     # 이슈 #2073: 같은 body(새 fetch 없음, spawn.py 의 위 블록이 이미 받아온
     # 것)에서 두 개의 조건부 줄을 붙인다 — (a) `runtime-artifacts:` 가
     # 선언됐거나 자문 스코어러가 울리면 artifact-smoke 트리거 한 줄,
@@ -2168,7 +2412,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 스토리보드가 있으면 live-screen 검증 한 줄. 둘 다 조건이 없으면
     # 아무 것도 안 붙는다(제안서 Constraints — byte-identical on absence).
     # 스킬 마운트 여부와 무관하므로 위 스킬 블록 바깥에 둔다.
-    task = task + _artifact_smoke_task_lines(body if issue is not None else None)
+    task = task + _dp("artifact-smoke",
+                      _artifact_smoke_task_lines(body if issue is not None else None))
+    # Issue #2135: measure-first instrument — per-source byte counts of the
+    # assembled directive, at every spawn.
+    print(f"[{role}] {composition_breakdown(_directive_parts)}",
+          file=sys.stderr)
     # 이슈 #1955: 역할은 룰북을 아예 마운트하지 않는다 — rulebook 해석
     # 경로 자체가 은퇴했다(요구사항: 룰북 마운트가 "붙었지만 무시됨"이
     # 아니라 argv 에서 통째로 빠져야 한다는 #1758 요구사항 2를 무조건화).
