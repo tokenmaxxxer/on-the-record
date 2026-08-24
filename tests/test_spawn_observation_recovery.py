@@ -3619,6 +3619,107 @@ class WatcherPs(unittest.TestCase):
         self.assertIn("DEAD", out)
         self.assertIn(str(dead.pid), out)
 
+class KilledMidRunWithCommitIsRecoverable(unittest.TestCase):
+    """이슈 #2193: plugin reload 가 스폰된 세션(과 그 워처)을 함께 죽이면
+    `ensure_pushed()`(spawn.py:3073, 세션 자신의 proc.wait() 뒤에서만 도는
+    경로)가 못 돈다 — 커밋은 워크스페이스에 남았는데 push/PR 도 없이
+    아무 신호 없이 사라졌다(실측: 이슈 #2185/#2186/#2187). `spawn.py ps`
+    가 그 죽은 엔트리를 지우기 전에 diagnose_health() 로 한 번 더 진단해
+    브랜치명+커밋개수를 이름 붙인 recovery 신호를 찍어야 한다."""
+
+    def setUp(self):
+        self.td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.td, ignore_errors=True)
+        old_idx = spawn.WORKSPACE_INDEX
+        spawn.WORKSPACE_INDEX = Path(self.td) / "workspaces.json"
+        self.addCleanup(setattr, spawn, "WORKSPACE_INDEX", old_idx)
+        old_roster = spawn.ROSTER
+        spawn.ROSTER = Path(self.td) / "active.json"
+        self.addCleanup(setattr, spawn, "ROSTER", old_roster)
+        self.work = Path(self.td) / "issue-9001-implementation"
+        self.work.mkdir()
+        self._git(self.work, "init", "-q")
+        self._git(self.work, "config", "user.email", "t@t.t")
+        self._git(self.work, "config", "user.name", "t")
+        (self.work / "seed.txt").write_text("seed")
+        self._git(self.work, "add", "seed.txt")
+        self._git(self.work, "commit", "-q", "-m", "seed")
+        self.before_head = self._git(
+            self.work, "rev-parse", "HEAD").stdout.strip()
+        self._orig_pr = spawn._pr_open_or_merged_for_branch
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: None
+        self.addCleanup(setattr, spawn, "_pr_open_or_merged_for_branch", self._orig_pr)
+
+    def _git(self, cwd, *a):
+        return subprocess.run(["git", "-C", str(cwd), *a],
+                              capture_output=True, text=True)
+
+    def _capture_ps(self) -> str:
+        buf = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = buf
+        try:
+            spawn.roster_ps()
+        finally:
+            sys.stdout = old_stdout
+        return buf.getvalue()
+
+    def test_kill_after_commit_produces_recovery_signal_naming_branch_and_count(self):
+        # 스폰을 흉내낸다: 실제 프로세스가 워크스페이스에 커밋 하나를
+        # 남기고 나서(before_head 이후 새 커밋 1개), reload 가 그러듯
+        # 죽는다(kill).
+        script = ("echo work > file.txt && git add file.txt && "
+                   "git commit -q -m 'session work' && sleep 30")
+        proc = subprocess.Popen(["sh", "-c", script], cwd=str(self.work))
+        deadline = time.time() + 10
+        after_head = None
+        while time.time() < deadline:
+            r = self._git(self.work, "rev-parse", "HEAD")
+            if r.returncode == 0 and r.stdout.strip() != self.before_head:
+                after_head = r.stdout.strip()
+                break
+            time.sleep(0.1)
+        proc.kill()
+        proc.wait()
+        self.assertIsNotNone(after_head, "spawned process never committed")
+
+        # session-start 이벤트만 남고 session-end 는 없다 — kill 로 죽은
+        # 세션의 실측 이벤트 로그 모양(session_end_verdict -> "crashed").
+        events_path = spawn._events_path(str(self.work))
+        spawn._append_event(events_path, "session-start", {"pid": proc.pid})
+
+        spawn.roster_register("issue-9001/implementation", {
+            "pid": proc.pid, "role": "implementation", "issue": 9001,
+            "ts": int(time.time()), "work": str(self.work),
+            "log": str(self.work) + ".session.log",
+            "before_head": self.before_head})
+
+        out = self._capture_ps()
+        self.assertIn("DEAD-UNRECOVERED-COMMITS", out)
+        self.assertIn("커밋 1개", out)  # 커밋 개수(문자열 우연 일치 방지 —
+                                          # "issue-9001" 의 "1" 과 구분)
+        self.assertIn("issue-9001-implementation", out)  # branch(=work 이름)
+
+    def test_completed_and_pushed_session_not_reported_dead_errored(self):
+        # 회귀 가드(이슈 #2180 오보 재현 방지): 세션이 정상 종료하고 실제로
+        # push+PR 까지 됐으면(_pr_open_or_merged_for_branch 가 PR 을 찾음)
+        # DEAD-ERRORED 로도 DEAD-UNRECOVERED-COMMITS 로도 찍히면 안 된다.
+        dead = subprocess.Popen(["true"])
+        dead.wait()
+        spawn._pr_open_or_merged_for_branch = lambda root, branch: 2183
+        events_path = spawn._events_path(str(self.work))
+        spawn._append_event(events_path, "session-start", {"pid": dead.pid})
+        spawn._append_event(events_path, "session-end", {})
+        spawn.roster_register("issue-9001/implementation", {
+            "pid": dead.pid, "role": "implementation", "issue": 9001,
+            "ts": int(time.time()), "work": str(self.work),
+            "log": str(self.work) + ".session.log",
+            "before_head": self.before_head})
+        out = self._capture_ps()
+        self.assertNotIn("DEAD-ERRORED", out)
+        self.assertNotIn("DEAD-UNRECOVERED-COMMITS", out)
+
+
 class WatcherSilentSignal(unittest.TestCase):
     """이슈 #782: 워처 pid 는 살아 있지만(watcher-dead 로는 안 잡힘) 워처
     자신의 로그가 무장 이후로 안 움직이는 2026-08-11 실패 모드."""

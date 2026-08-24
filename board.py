@@ -798,6 +798,28 @@ def _is_new_commit(cwd: str, before_head: str | None, after_head: str | None) ->
     return c.returncode == 0
 
 
+def _session_commit_count(cwd: str, before_head: str | None, after_head: str | None) -> int:
+    """`before_head`~`after_head` 사이에 실제로 쌓인 커밋 개수 —
+    `_is_new_commit()` 과 같은 (before_head, after_head) 랜드마크를 쓰지만
+    bool 이 아니라 count (이슈 #2193). dead 세션이 committed-but-unpushed
+    상태로 죽었을 때 복구 신호에 "커밋 몇 개"를 실어 보내는 용도 — PR 이
+    없는 죽은 세션은 push 자체가 안 됐다는 뜻이라, 이 새 커밋 개수가 곧
+    unpushed 커밋 개수와 같다."""
+    if not _is_new_commit(cwd, before_head, after_head):
+        return 0
+    rng = f"{before_head}..{after_head}" if before_head else after_head
+    c = subprocess.run(
+        ["git", "-C", cwd, "rev-list", "--count", rng],
+        capture_output=True, text=True,
+    )
+    if c.returncode != 0:
+        return 0
+    try:
+        return int(c.stdout.strip())
+    except ValueError:
+        return 0
+
+
 def board_snapshot(cwd: str) -> dict[str, str]:
     """보드 파일들의 내용 해시. 세션 전후를 비교해 §6 의 '바뀐 보드'를 잰다.
 
@@ -1105,6 +1127,25 @@ def roster_ps() -> int:
             print(line)
         if not alive:
             dead.append(key)
+            work = e.get("work")
+            # 이슈 #2193: 이 엔트리는 이 루프가 끝나면 아래 roster_remove()
+            # 로 지워진다 — plugin reload 로 워처 자신까지 함께 죽어
+            # `ensure_pushed()`(spawn.py:3073)가 못 돈 세션은, 그 삭제가
+            # 곧 "커밋은 있는데 push/PR 도 없이 흔적도 없이 사라짐"이었다
+            # (실측: 이슈 #2185/#2186/#2187). `_format_roster_row()`
+            # 자신은 순수-무부수효과 계약이 있어(이슈 #1462,
+            # test_ps_state_rows.py 가 합성 work 경로로 그 계약을 지킨다)
+            # git/gh 호출을 못 넣는다 — 지우기 직전인 여기서, 실제
+            # 워크스페이스가 있을 때만 diagnose_health() 로 한 번 더
+            # 진단해 recovery 신호를 찍는다.
+            if work and Path(work).is_dir():
+                commit_count = _sp._session_commit_count(
+                    work, e.get("before_head"), _sp._git_head(work))
+                health = _sp.diagnose_health(key, e, root=Path(work),
+                                          commit_count=commit_count)
+                if health["state"] not in (None, "DEAD-ERRORED"):
+                    print(f"               health: {health['state']} — "
+                          f"{health['detail']}")
     for k in dead:
         _sp.roster_remove(k)
     return 0
