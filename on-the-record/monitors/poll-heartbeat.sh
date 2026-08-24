@@ -278,6 +278,9 @@ ALWAYS_RE = re.compile(
     re.IGNORECASE,
 )
 AGE_STRIP_RE = re.compile(r"age=[^ ]+")
+# issue #2180: short "#<issue>" label extracted for the collapsed
+# still-pending summary line and the distinct new-item marker below.
+ISSUE_TOKEN_RE = re.compile(r"#\d+")
 # issue #1719: two watchdogs contending for the cross-workspace board-sweep
 # lock make this line alternate between a real sweep result and this skip
 # text tick to tick; treat the skip text as no-change (never emitted, prior
@@ -342,9 +345,21 @@ if os.path.exists(state_path):
         pass
 prev_lines = prev.get("lines", {})
 first_tick = not os.path.exists(state_path)
+# issue #2180 warrant-hunt finding: the returned-pr diff key
+# (`returned-pr:issue #N (phaseX)`) bakes in the phase label, so a
+# phase1->phase2 transition on the SAME still-open PR (relay.py's
+# _undispositioned_role_prs reclassifies one gh-pr-list entry's phase in
+# place -- same url/number, new phase label once approved) is a brand
+# new diff key even though it is not a brand new PR. Using that key
+# directly for "is this PR new" would re-fire the [new-returned-pr]
+# marker on every phase transition of an already-surfaced PR. Tracked
+# separately here, keyed by the bare issue number (stable across phase
+# relabeling), persisted across ticks in the same state file.
+surfaced_issues = set(prev.get("surfaced_returned_pr_issues", []))
 
 to_emit = []
 new_lines = {}
+new_pr_markers = []
 for key in order:
     line = curr[key]
     if BOARD_SWEEP_LOCK_SKIP_RE.search(line):
@@ -359,14 +374,38 @@ for key in order:
         changed = prev_line is None or (
             AGE_STRIP_RE.sub("age=", prev_line) != AGE_STRIP_RE.sub("age=", line)
         )
+        m1 = ISSUE_TOKEN_RE.search(line)
+        issue_token = m1.group(0) if m1 else key
+        if issue_token not in surfaced_issues:
+            # issue #2180: a returned-pr entry whose issue number has
+            # never been surfaced before gets its own distinctly-tagged
+            # line, prepended ahead of the rest of this tick's body
+            # below, so it reads as its own event instead of blending
+            # into the routine heartbeat around it. The original
+            # [returned-pr] line is kept too (still appended to to_emit
+            # below, unchanged) for any existing consumer of that exact
+            # tag. Keyed by issue number, not the phase-qualified diff
+            # key above, so a later phase transition on the same PR
+            # does not re-fire this marker.
+            new_pr_markers.append(line.replace("[returned-pr]", "[new-returned-pr]", 1))
+            surfaced_issues.add(issue_token)
     else:
         changed = prev_lines.get(key) != line
     if first_tick or changed or ALWAYS_RE.search(line):
         to_emit.append(line)
 
+# issue #2180: drop surfaced-issue bookkeeping for issues no longer
+# present in this tick's returned-pr set (closed/merged/disposed) -- so
+# a later, genuinely new PR reusing that issue number surfaces fresh
+# instead of inheriting stale suppression.
+surfaced_issues &= {
+    (ISSUE_TOKEN_RE.search(curr[k]).group(0) if ISSUE_TOKEN_RE.search(curr[k]) else k)
+    for k in order if k.startswith("returned-pr:")
+}
+
 emitted_now = False
 if to_emit:
-    sys.stdout.write("\n".join(to_emit) + "\n")
+    sys.stdout.write("\n".join(new_pr_markers + to_emit) + "\n")
     emitted_now = True
 else:
     last_emit_epoch = int(prev.get("last_emit_epoch", 0) or 0)
@@ -377,12 +416,28 @@ else:
         # req#1 attached to this bound stays visible, and only when
         # non-empty; an empty result leaves emitted_now False so
         # last_emit_epoch (line 343) stays untouched.
-        returned_pr_lines = [curr[k] for k in order if k.startswith("returned-pr:")]
-        if returned_pr_lines:
-            sys.stdout.write("\n".join(returned_pr_lines) + "\n")
+        # issue #2180: this used to re-print every current [returned-pr]
+        # line verbatim, which is exactly the "already-surfaced PR
+        # repeats forever" complaint -- collapsed into one summary line
+        # instead, so an already-surfaced PR's full line never reappears
+        # here, only its continued presence as a count plus short label.
+        returned_pr_keys = [k for k in order if k.startswith("returned-pr:")]
+        if returned_pr_keys:
+            labels = []
+            for k in returned_pr_keys:
+                m2 = ISSUE_TOKEN_RE.search(curr[k])
+                labels.append(m2.group(0) if m2 else k.split(":", 1)[1].strip())
+            sys.stdout.write(
+                "[returned-pr-pending] %d PR(s) still awaiting review: %s\n"
+                % (len(returned_pr_keys), ", ".join(labels))
+            )
             emitted_now = True
 
-new_state = {"lines": new_lines, "last_emit_epoch": now if emitted_now else prev.get("last_emit_epoch", 0)}
+new_state = {
+    "lines": new_lines,
+    "last_emit_epoch": now if emitted_now else prev.get("last_emit_epoch", 0),
+    "surfaced_returned_pr_issues": sorted(surfaced_issues),
+}
 os.makedirs(os.path.dirname(state_path), exist_ok=True)
 with open(state_path, "w", encoding="utf-8") as f:
     json.dump(new_state, f)
