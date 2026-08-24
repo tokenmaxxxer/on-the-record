@@ -184,6 +184,40 @@ class FlatProgressRenewal(_HardeningCase):
         self.assertEqual(health["state"], "STALLED-FLAT-PROGRESS")
         self.assertEqual(health["next_action"], "resume-watch")
 
+    def test_tool_call_activity_without_commits_is_not_flat(self):
+        """Issue #2188: a session issuing tool calls (reading source, no
+        commits) across several lease renewals must not trip
+        STALLED-FLAT-PROGRESS -- regression for the issue-2186 shape
+        (`sed -n '190,235p' tests/...` mid-investigation: transcript log
+        growing every tick, events.jsonl/HEAD untouched because reads
+        never hit a Write/Edit or a commit-shaped Bash prefix)."""
+        now = time.time()
+        key, e = _entry(self.td)
+        log_path = Path(e["log"])
+        anomalies = []
+        for i in range(spawn.LEASE_FLAT_RENEWALS_K + 2):
+            # Each tick appends a transcript line, as a live session's tool
+            # calls (Read/Grep/sed/TaskOutput/...) would -- events.jsonl and
+            # HEAD stay flat the whole time.
+            with log_path.open("a") as fh:
+                fh.write(json.dumps({"type": "tool_use", "n": i}) + "\n")
+            anomalies = spawn.lease_renew(key, e, root=self.root, now=now + i)
+        self.assertEqual(anomalies, [])
+        self.assertEqual(e["lease_flat_renewals"], 0)
+
+    def test_true_stall_with_no_log_growth_still_flags(self):
+        """Regression guard (issue #2188): widening the indicator to cover
+        tool-call activity must not blind the check entirely -- a session
+        that genuinely issues no tool calls (log never grows, no commits)
+        across K renewals is still reported."""
+        now = time.time()
+        key, e = _entry(self.td)  # log.jsonl path named but never written
+        anomalies = []
+        for i in range(spawn.LEASE_FLAT_RENEWALS_K + 1):
+            anomalies = spawn.lease_renew(key, e, root=self.root, now=now + i)
+        self.assertEqual(len(anomalies), 1)
+        self.assertTrue(anomalies[0].startswith("flat-progress"))
+
 
 class ReconcileSweepDeclaredWaits(_HardeningCase):
     """Mechanism 3+5: the sweep verifies declared waits reference existing

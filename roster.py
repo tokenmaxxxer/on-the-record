@@ -191,13 +191,34 @@ def _declared_wait_valid(root: Path, work: str | None) -> bool:
 
 def _lease_progress_indicator(entry: dict) -> str:
     """Cheap monotonic progress indicator for lease renewal (issue #2101
-    mechanism 2): transcript event count (events.jsonl line count — already
-    what the watchdog reads) combined with the workspace HEAD SHA. Both are
-    local reads; no gh/network calls."""
+    mechanism 2, widened issue #2188): transcript event count (events.jsonl
+    line count) + workspace HEAD SHA + the session transcript log's byte
+    size. All three are local reads; no gh/network calls.
+
+    Issue #2188: events.jsonl only grows on Write/Edit or a handful of
+    commit-shaped Bash prefixes (`_PROGRESS_BASH_PREFIXES` in events.py) —
+    a session that is actively investigating (Read, Grep, `sed`, a blocking
+    `TaskOutput` wait, ...) issues tool calls every lease renewal without
+    ever touching that narrow stream, so the indicator sat flat and tripped
+    STALLED-FLAT-PROGRESS on demonstrably healthy sessions (observed 5+
+    times across issues #2156, #2164-#2166, #2185, #2186). The session's
+    own transcript log (`entry["log"]`) is append-only and grows on every
+    tool call regardless of kind, so folding its size into the indicator
+    makes any tool-call activity count as progress — while a session that
+    truly issues no tool calls still leaves the log size (and the rest of
+    the indicator) unchanged, so genuine stalls are still caught."""
     work = entry.get("work")
     if not work:
         return ""
-    return f"{_sp._event_count(_sp._events_path(work))}:{_sp._git_head(work) or ''}"
+    log_size = ""
+    log_path = entry.get("log")
+    if log_path:
+        try:
+            log_size = str(Path(log_path).stat().st_size)
+        except OSError:
+            pass
+    return (f"{_sp._event_count(_sp._events_path(work))}:"
+            f"{_sp._git_head(work) or ''}:{log_size}")
 
 
 def lease_renew(key: str, entry: dict, root: Path = None,
