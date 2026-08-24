@@ -31,6 +31,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `heredoc-command-refusal-gate.sh` | n/a | reads/validates only, no write call |
 | `decision-queue-stopgate.sh` | out-of-tree | safe — same shared checkout clone |
 | `accumulation-claim-guard.sh` | n/a | reads/validates only, no write call |
+| `pretooluse-dispatcher.sh` | n/a | dispatch shim only (issue #2146) — no write call of its own; every write a dispatched gate body performs is that gate's own row above |
 | `design-rationale-guard.sh` | n/a | reads/validates only, no write call |
 | `accessibility-guard.sh` | n/a | reads/validates only, no write call |
 | `api-version-guard.sh` | n/a | reads/validates only, no write call |

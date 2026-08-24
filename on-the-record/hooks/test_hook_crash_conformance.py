@@ -45,7 +45,9 @@ TRACEBACK_MARKER = "Traceback (most recent call last)"
 
 # Hooks whose declared behaviour on an unverifiable input is to fail CLOSED.
 # Listed so the expectation is visible, not so the check is skipped.
-FAIL_CLOSED_HOOKS = {"deliverable-guard.sh"}
+# pretooluse-dispatcher.sh (#2146) inherits deliverable-guard.sh's
+# fail-closed-on-unverifiable-stdin contract, which it runs in-process.
+FAIL_CLOSED_HOOKS = {"deliverable-guard.sh", "pretooluse-dispatcher.sh"}
 
 # The five sites migrated onto hook_input in this issue.  The fast-tier smoke
 # below covers exactly these, so the default suite is not blind to the class
@@ -114,9 +116,10 @@ ENTRY_IDS = [e[0] for e in ENTRIES]
 
 def test_the_registry_is_non_empty_and_every_script_exists():
     """A matrix built from an empty or broken registry proves nothing."""
-    # issue #2138 gate retirement: 58 registrations -> 28 (KEEP set,
-    # pinned exactly by test_gate_registry.py).
-    assert len(ENTRIES) >= 25, "hooks.json parsed to %d entries" % len(ENTRIES)
+    # issue #2138 gate retirement: 58 registrations -> 28; issue #2146
+    # single-dispatcher: 28 -> 9 (the 20 PreToolUse rows now run inside
+    # pretooluse-dispatcher.sh; exact set pinned by test_gate_registry.py).
+    assert len(ENTRIES) >= 9, "hooks.json parsed to %d entries" % len(ENTRIES)
     for ident, _event, _matcher, argv in ENTRIES:
         subject = argv[1] if Path(argv[0]).name == "fail-open-wrapper.sh" \
             and len(argv) > 1 else argv[0]
