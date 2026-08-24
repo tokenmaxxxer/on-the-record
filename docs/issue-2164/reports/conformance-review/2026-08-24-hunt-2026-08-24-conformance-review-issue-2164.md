@@ -42,3 +42,16 @@ directive's hunter-dispatch mandate, and repeated dispatch was not
 converging, this session stopped retrying rather than loop indefinitely.
 No hunter finding was produced for this transition. This gap is named
 in the phase-1 proposal's Constraints section rather than left silent.
+
+## before-landing dispatch — skipped, docs-only fast path
+
+canonical: `git diff --stat HEAD~1 HEAD` (this phase-2 landing
+transition) — the sole changed path is
+`docs/issue-2164/reports/conformance-review.md`, one file, entirely
+under `docs/`.
+
+Skip, docs-only, no before-landing dispatch (warrant-directive
+DOCS-ONLY FAST PATH): every touched path in this landing commit
+(`d334d68c`) sits under `docs/`, so the before-landing hunter dispatch
+is skipped per the directive's own rule rather than attempted and
+left to fail like the after-proposal dispatch above.
