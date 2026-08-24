@@ -97,6 +97,7 @@ WATCHDOG_DENIAL_THRESHOLD = 3 # 이슈 #90 proposal, signal 3
 WATCHDOG_HEARTBEAT_ONLY_MIN = 18  # 이슈 #1966, signal 7: 하트비트만-성장 관측 창(분)
 _DELEGATION_RE = re.compile(
     r"run_in_background|백그라운드|delegate|background worker", re.IGNORECASE)
+WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD = 3  # 이슈 #2196: 단발 gh 실패는 억제, N틱 연속이면 경보
 
 
 def _watchdog_state_load() -> dict:
@@ -425,6 +426,78 @@ def _save_requirement_drift_cache(path: Path, data: dict) -> None:
             pass
 
 
+def _watchdog_noise_state_path(root: Path) -> Path:
+    return root / "runs" / "watchdog_noise_state.json"
+
+
+def _load_watchdog_noise_state(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_watchdog_noise_state(path: Path, data: dict) -> None:
+    # 이슈 #2196: _save_requirement_drift_cache 와 같은 atomic temp+rename
+    # 관용의 작은 로컬 사본 — 소비자가 이 둘뿐이라 공유 헬퍼로 뽑지 않는다.
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent),
+                                         prefix=".watchdog-noise-", suffix=".tmp")
+    except OSError:
+        return
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        os.replace(tmp_name, path)
+    except OSError:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+
+
+def _watchdog_note_gh_failure(root: Path, signal: str, failed: bool) -> bool:
+    """이슈 #2196: `signal` 이름별 연속 gh 실패 틱 수를 `root` 스코프
+    영속 상태에 누적하고, 이번 틱에 경고 줄을 찍어야 하는지 돌려준다.
+    성공(failed=False)이면 스트릭을 0 으로 리셋하고 항상 False. 실패면
+    +1 하고, 연속 실패 수가 WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD 이상일
+    때만 True — 단발 blip 은 억제하고(카테고리 2), 계속되는 실패는
+    (진짜 액셔너블이므로) 매 틱 계속 경고한다."""
+    path = _sp._watchdog_noise_state_path(root)
+    state = _sp._load_watchdog_noise_state(path)
+    streaks = state.setdefault("gh_failure_streaks", {})
+    if not failed:
+        changed = streaks.get(signal, 0) != 0
+        streaks[signal] = 0
+        if changed:
+            _sp._save_watchdog_noise_state(path, state)
+        return False
+    streaks[signal] = streaks.get(signal, 0) + 1
+    should_warn = streaks[signal] >= _sp.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+    _sp._save_watchdog_noise_state(path, state)
+    return should_warn
+
+
+def _watchdog_note_unmappable_pr(root: Path, pr_number: int) -> bool:
+    """이슈 #2196: 브랜치명이 issue-<n>/<role> 형식이 아니라 영구적으로
+    subject 매핑이 안 되는 PR 을, `root` 스코프 영속 상태에 이미 한 번
+    보고했는지로 판별한다. 처음 보는 PR 이면 True(=이번 틱에 개별 줄을
+    찍어라)를 돌려주고 상태에 기록, 이미 본 PR 이면 False(=저장소 상태가
+    그대로면 같은 사실을 매 틱 반복 보고하지 않는다) — #2165 sticky-cache/
+    #2173 spawn_on_approve 와 같은 one-shot 마커 관용."""
+    path = _sp._watchdog_noise_state_path(root)
+    state = _sp._load_watchdog_noise_state(path)
+    seen = state.setdefault("unmappable_prs_reported", {})
+    key = str(pr_number)
+    if key in seen:
+        return False
+    seen[key] = True
+    _sp._save_watchdog_noise_state(path, state)
+    return True
+
+
 def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
     """issue #1688: single-number detail fetch for delta-mode
     requirement-drift rechecks, routed through `gates.gh_cache.cached_get`
@@ -541,8 +614,12 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
         # no verdict (same trade the old list calls could not make).
         full_board, _board_meta = _sp._board_read(root)
         if full_board is None:
-            print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
+            # 이슈 #2196: 단발 gh blip 은 조용히 넘어간다 — 연속 N틱 실패면
+            # (진짜 액셔너블) 그때부터 경고한다.
+            if _sp._watchdog_note_gh_failure(root, "requirement-drift:full", True):
+                print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
             return
+        _sp._watchdog_note_gh_failure(root, "requirement-drift:full", False)
         all_items = [item
                      for group in (full_board["issues"], full_board["prs"])
                      for item in group.values()
@@ -586,8 +663,12 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
                                "body": val.get("body", "")})
         _sp._save_requirement_drift_cache(cache_path, cache)
         if not any_fetch_ok:
-            print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
+            # 이슈 #2196: 단발 gh blip 은 조용히 넘어간다 — 연속 N틱
+            # 실패면 그때부터 경고한다.
+            if _sp._watchdog_note_gh_failure(root, "requirement-drift:delta", True):
+                print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
             return
+        _sp._watchdog_note_gh_failure(root, "requirement-drift:delta", False)
         if failed_numbers:
             # 리뷰 non-blocking 노트: 델타 모드에서 개별 번호 조회 실패는
             # 조용히 사라지지 않고 이 한 줄로 남는다 — 해당 번호는 이번
@@ -855,19 +936,34 @@ def _board_wide_sweep(root: Path) -> int:
                 # 추가 1회 호출이다.
                 pr_index, pr_index_ok = closure_sweep._pr_index_all(root)
                 if pr_index_ok and pr_index is not None:
+                    _sp._watchdog_note_gh_failure(root, "board-sweep:pr-index", False)
                     number_to_branch = {v.get("number"): k for k, v in pr_index.items()}
+                    already_reported = 0
                     for prn in sorted(pr_numbers):
                         branch = number_to_branch.get(prn)
                         m = _sp._HEAD_REF_SUBJECT_RE.match(branch) if branch else None
                         if m:
                             changed_numbers.add(int(m.group(1)))
-                        else:
+                        elif _sp._watchdog_note_unmappable_pr(root, prn):
+                            # 이슈 #2196: 처음 보는 매핑-불가 PR — 개별 줄로
+                            # 리포트하고 상태에 기록, 다음 틱부터는 억제.
                             print(f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
                                   f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<role> "
                                   "형식 아님) — 이 PR 은 narrowing 에서 무시")
+                        else:
+                            already_reported += 1
+                    if already_reported:
+                        # 이슈 #2196: 이전에 이미 개별 보고된 매핑-불가 PR
+                        # 들은 저장소 상태가 그대로면 반복하지 않고, 한
+                        # 줄짜리 카운트로 접는다.
+                        print(f"[watchdog] board-sweep: {already_reported}건 "
+                              "이전에 보고된 매핑-불가 PR — 계속 무시 (반복 안 찍음)")
                 else:
-                    print(f"[watchdog] board-sweep: PR {sorted(pr_numbers)} 변경 감지했으나 "
-                          "PR 인덱스 조회 실패 — subject 매핑 불가, 이 PR 들은 narrowing 에서 무시")
+                    # 이슈 #2196: PR 인덱스 조회 실패는 단발 gh blip 일 수
+                    # 있다 — 연속 N틱 실패면 그때부터 경고한다.
+                    if _sp._watchdog_note_gh_failure(root, "board-sweep:pr-index", True):
+                        print(f"[watchdog] board-sweep: PR {sorted(pr_numbers)} 변경 감지했으나 "
+                              "PR 인덱스 조회 실패 — subject 매핑 불가, 이 PR 들은 narrowing 에서 무시")
             print(f"[watchdog] board-sweep: delta {len(changed_numbers)}건 "
                   f"변경 {sorted(changed_numbers)} — 해당 subject/이슈만 재평가")
     delta_mode = slug is not None and delta_classification == "delta"
@@ -946,7 +1042,12 @@ def _board_wide_sweep(root: Path) -> int:
         rate_limited_this_tick = bool(skips) and not issue_states_ok
         if skips:
             count += 1
-            print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
+            # 이슈 #2196: 단발 gh blip 은 조용히 넘어간다 — 연속 N틱
+            # 실패면 그때부터 경고한다.
+            if _sp._watchdog_note_gh_failure(root, "closure-sweep", True):
+                print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
+        else:
+            _sp._watchdog_note_gh_failure(root, "closure-sweep", False)
 
     if "spawn-on-approve" in this_tick:
         # 이슈 #2173: APPROVE 코멘트 관측 -> phase-2 즉시 스폰 시도. delta
