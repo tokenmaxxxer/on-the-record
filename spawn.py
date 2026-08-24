@@ -529,8 +529,19 @@ CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 
 
 _BOOTSTRAP_TIMING: dict[str, float] = {}
-_BOOTSTRAP_PHASES = ("workspace", "branch", "rulebook", "core", "gh_token", "settings",
-                     "cross_family")
+# 이슈 #2186: 예전에는 workspace/branch/rulebook/core/gh_token/settings/
+# cross_family 일곱 단계만 쟀다 — 그 사이(admission_gate, --skills 검증,
+# returned-PR 보드 스윕, auto-sweep, 이슈 본문 fetch, 디렉티브/레코드
+# 스켈레톤 쓰기, design-bearing 판정, spawn_cmd 조립, board_snapshot)에
+# 아무 계측도 없는 구간이 있었고, 그 구간이 실측 스폰 하나에서 115s를
+# 먹었다(스폰 발행 epoch 대비 events.jsonl 의 session-start epoch). 아래
+# 아홉 단계가 그 구간을 마저 덮어, `total`이 spawn-entry-to-session-start
+# 전체 구간을 (겹친 백그라운드 대기를 이중 계산하지 않고) 설명하게 한다.
+_BOOTSTRAP_PHASES = ("admission", "skill_resolve", "workspace", "branch",
+                     "returned_pr_gate", "auto_sweep", "rulebook", "core",
+                     "gh_token", "settings", "cross_family", "issue_fetch",
+                     "directive_write", "design_bearing", "spawn_cmd",
+                     "board_snapshot")
 
 
 
@@ -2188,14 +2199,19 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # `admission_refused` ledger event (inside `admission_gate()`), and
     # returns without creating anything. Deterministic and non-retryable:
     # the caller must publish the missing precondition, not retry.
+    # 이슈 #2186: admission_gate 자체가 첫 계측 대상이라, 클리어는 그 앞에서
+    # 한 번만 — 여기서 안 하면 admission 을 잰 뒤 아래 옛 clear() 가 그
+    # 기록을 지워버린다.
+    _BOOTSTRAP_TIMING.clear()
     resolved_max_turns = _resolve_session_max_turns(max_turns)
-    _refused_item = admission_gate({
-        "cwd": cwd, "role": role, "issue": issue,
-        "single_phase": single_phase, "skills": skills,
-        "max_turns": resolved_max_turns,
-        "allow_unlimited_turns": allow_unlimited_turns,
-        "checkpoint": checkpoint,
-    })
+    with _timed("admission"):
+        _refused_item = admission_gate({
+            "cwd": cwd, "role": role, "issue": issue,
+            "single_phase": single_phase, "skills": skills,
+            "max_turns": resolved_max_turns,
+            "allow_unlimited_turns": allow_unlimited_turns,
+            "checkpoint": checkpoint,
+        })
     if _refused_item is not None:
         print(f"[{role}] admission refused: missing precondition "
               f"'{_refused_item}' (issue #2100) — no session created, no "
@@ -2204,7 +2220,6 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
               f"dispatch again.", file=sys.stderr)
         return 1
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
-    _BOOTSTRAP_TIMING.clear()
     # 이슈 #2001: 크로스-패밀리 스코어링은 이 함수가 받은 원본 task 텍스트를
     # 대상으로 한다 — 아래에서 task 에 여러 안내 문단이 계속 덧붙는데, 그
     # 덧붙은 텍스트(스킬 목록 자체 등)가 스코어링 입력에 섞이면 결정론이
@@ -2227,21 +2242,22 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 이슈 #1742/#1774: --skills 이름 검증(네 소스 모두)은 워크스페이스/
     # 브랜치를 건드리기 전에 끝난다(fail-closed, 요구사항 2) — 아래
     # 워크스페이스 생성보다 먼저 온다.
-    skill_sources = resolved_skill_sources(skills, _skill_repo_root(),
-                                            target_repo_root=Path(cwd))
-    skill_dirs = [m["dir"] for m in skill_sources]
-    # 오늘 shape 과 맞추기 위한 flat sha: 전부 skill-repo 매치일 때만 채운다
-    # (요구사항: skill-repo-only 조합은 오늘의 skills/skills_sha shape 를
-    # 그대로 유지한다) — 그 외 조합은 skills_detail 의 per-skill 소스로만
-    # 표현되고 이 flat 필드는 None.
-    skill_sha = (skill_sources[0]["sha"]
-                 if skill_sources and all(m["source"] == "skill-repo"
-                                           for m in skill_sources)
-                 else None)
-    # 이슈 #1955(이슈 #1758 phase 5 이행): skill-repository 해석도 같은
-    # 이유로 워크스페이스/브랜치 생성보다 먼저 온다 — 역할이 매핑한 스킬
-    # 이름이 모르는 이름이거나 hooks/ 를 들고 있으면 여기서 fail-closed.
-    role_source = resolve_role_source(role, _skill_repo_root())
+    with _timed("skill_resolve"):
+        skill_sources = resolved_skill_sources(skills, _skill_repo_root(),
+                                                target_repo_root=Path(cwd))
+        skill_dirs = [m["dir"] for m in skill_sources]
+        # 오늘 shape 과 맞추기 위한 flat sha: 전부 skill-repo 매치일 때만 채운다
+        # (요구사항: skill-repo-only 조합은 오늘의 skills/skills_sha shape 를
+        # 그대로 유지한다) — 그 외 조합은 skills_detail 의 per-skill 소스로만
+        # 표현되고 이 flat 필드는 None.
+        skill_sha = (skill_sources[0]["sha"]
+                     if skill_sources and all(m["source"] == "skill-repo"
+                                               for m in skill_sources)
+                     else None)
+        # 이슈 #1955(이슈 #1758 phase 5 이행): skill-repository 해석도 같은
+        # 이유로 워크스페이스/브랜치 생성보다 먼저 온다 — 역할이 매핑한 스킬
+        # 이름이 모르는 이름이거나 hooks/ 를 들고 있으면 여기서 fail-closed.
+        role_source = resolve_role_source(role, _skill_repo_root())
     # 이슈 #2061: skill_judge 자문(BM25 프리필터 + haiku 판단)을 워크스페이스
     # 클론/브랜치 체크아웃(~12s)과 겹치도록 그 전에 먼저 던진다 — 아래
     # "cross_family" 단계에서 join 만 한다. 자문은 읽기 전용(저장소 파일을
@@ -2261,29 +2277,28 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # — 처분 안 된 PR 이 있어도 스폰은 결코 막지 않는다(북극-요구#1,
         # never-missed != never-spawn). `--despite-returned` 는 이제 아무
         # 것도 바꾸지 않는 no-op (CLI 호환성 보존, deprecation 안내만 찍는다).
-        blockers, ok = _undispositioned_role_prs(root, exclude_issue=issue)
-        if not ok:
-            print(f"[{role}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
-                  f"통과시킨다 (이슈 #680)", file=sys.stderr)
-            ledger_write({"event": "returned_pr_gate_fail_open", "role": role,
-                          "issue": issue, "ts": int(time.time())})
-        else:
-            _print_returned_pr_surfaced(blockers, source="spawn")
-        if despite_returned:
-            print(f"[{role}] --despite-returned 는 더 이상 아무 효과가 없다 "
-                  f"(deprecated, 이슈 #1239) — 게이트가 항상 non-blocking "
-                  f"surfacing 이라 무시할 거절이 없다", file=sys.stderr)
+        # 이슈 #2186: 이 gh 조회(`gh pr list`)가 실측 스폰에서 un-instrumented
+        # 115s의 프라임 서스펙트였다 — non-blocking/fail-open 게이트라
+        # 아래 워크스페이스 클론/브랜치 체크아웃과 순서상 얽힐 이유가 없는데도
+        # 그 앞에서 동기로 돌고 있었다. cross_family 자문과 같은 패턴으로
+        # 워크스페이스/브랜치 셋업과 겹치도록 여기서 던지고, 그 아래에서
+        # join 만 한다 — join 이 잡는 시간은 이제 겹친 대기가 아니라 이
+        # 조회가 셋업보다 오래 걸린 나머지뿐이다.
+        _returned_pr_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _returned_pr_future = _returned_pr_executor.submit(
+            _undispositioned_role_prs, root, exclude_issue=issue)
         # 이슈 #1179: 워크스페이스 하나 더 만들기 전에 먼저 안전하게
         # 쓸어낸다(spawn-time sweep) — 정리는 사람이 `spawn.py clean` 을
         # 기억해야만 도는 게 아니라 기본으로 켜져 있어야 한다(northpole
         # req#7). 스윕 실패가 스폰 자체를 막으면 안 되므로 예외를 삼킨다.
-        if _clean_auto_enabled():
-            try:
-                auto_sweep(_workspace_base(), _clean_max_age_days(),
-                           _clean_max_bytes())
-            except Exception as ex:
-                print(f"[{role}] auto-sweep 실패(스폰은 계속): {ex}",
-                      file=sys.stderr)
+        with _timed("auto_sweep"):
+            if _clean_auto_enabled():
+                try:
+                    auto_sweep(_workspace_base(), _clean_max_age_days(),
+                               _clean_max_bytes())
+                except Exception as ex:
+                    print(f"[{role}] auto-sweep 실패(스폰은 계속): {ex}",
+                          file=sys.stderr)
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
         # 동시 스폰들이 서로의 index/브랜치를 밟지 않는다. 이슈 #2159:
         # 클론 전 cwd(= origin 체크아웃)를 따로 잡아 둔다 — 아래에서
@@ -2294,11 +2309,26 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             cwd = issue_workspace(cwd, issue, role)
         claim_rejection = _acquire_spawn_claim(cwd, issue, role)
         if claim_rejection is not None:
+            _returned_pr_executor.shutdown(wait=False)
             print(f"[{role}] {claim_rejection}", file=sys.stderr)
             return 1
         with _timed("branch"):
             br = checkout_issue_branch(cwd, issue, role)
         print(f"[{role}] 격리 작업 디렉토리: {cwd}  (브랜치 {br})", file=sys.stderr)
+        with _timed("returned_pr_gate"):
+            blockers, ok = _returned_pr_future.result()
+            _returned_pr_executor.shutdown(wait=False)
+            if not ok:
+                print(f"[{role}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
+                      f"통과시킨다 (이슈 #680)", file=sys.stderr)
+                ledger_write({"event": "returned_pr_gate_fail_open", "role": role,
+                              "issue": issue, "ts": int(time.time())})
+            else:
+                _print_returned_pr_surfaced(blockers, source="spawn")
+            if despite_returned:
+                print(f"[{role}] --despite-returned 는 더 이상 아무 효과가 없다 "
+                      f"(deprecated, 이슈 #1239) — 게이트가 항상 non-blocking "
+                      f"surfacing 이라 무시할 거절이 없다", file=sys.stderr)
         # 원본(프리픽스 붙기 전) 맡길 일을 한 번만 저장 — 재스폰(다른 spawn.py
         # 프로세스일 수 있다)이 이걸 읽어 그대로 넘기면, 아래에서 프리픽스를
         # 다시 붙여도 중복되지 않는다 (이슈 #132).
@@ -2313,31 +2343,33 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # Issue #2135: materialize the on-demand directive section files and
         # the record skeleton into the workspace BEFORE assembling the
         # index — the trigger lines below reference files that must exist.
-        materialize_directive_sections(cwd, directive_section_files(
-            skills_mounted=bool(skill_sources or role_source["skills"]),
-            checkpoint_block=(_checkpoint_contract_block(issue, role)
-                              if checkpoint else None)))
-        write_record_skeleton(cwd, issue, role)
+        with _timed("directive_write"):
+            materialize_directive_sections(cwd, directive_section_files(
+                skills_mounted=bool(skill_sources or role_source["skills"]),
+                checkpoint_block=(_checkpoint_contract_block(issue, role)
+                                  if checkpoint else None)))
+            write_record_skeleton(cwd, issue, role)
         req_line = ""
         goal_pin = ""
         body = None
         _design_artifacts_gate = None
-        try:
-            sys.path.insert(0, str((ROOT / "gates").resolve()))
-            import gh_rest as _gh_rest
-            import requirement_linkage as _requirement_linkage
-            import design_artifacts_gate as _design_artifacts_gate
-            issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
-            body = issue_data.get("body") if issue_data else None
-            title = issue_data.get("title") if issue_data else None
-            if body is not None:
-                req_ids = _requirement_linkage.cited_requirement_ids(body)
-                if req_ids:
-                    req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
-                goal_pin = _goal_pin_block(title, body)
-        except Exception:
-            req_line = ""
-            goal_pin = ""
+        with _timed("issue_fetch"):
+            try:
+                sys.path.insert(0, str((ROOT / "gates").resolve()))
+                import gh_rest as _gh_rest
+                import requirement_linkage as _requirement_linkage
+                import design_artifacts_gate as _design_artifacts_gate
+                issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
+                body = issue_data.get("body") if issue_data else None
+                title = issue_data.get("title") if issue_data else None
+                if body is not None:
+                    req_ids = _requirement_linkage.cited_requirement_ids(body)
+                    if req_ids:
+                        req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
+                    goal_pin = _goal_pin_block(title, body)
+            except Exception:
+                req_line = ""
+                goal_pin = ""
         # Issue #2135 directive diet: the always-on preamble is a compact
         # invariant index. The long prose it used to carry (완료의 정의
         # full text, 체크포인트 커밋 rule, headless/run_in_background
@@ -2543,29 +2575,39 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         print(f"[{role}] 플러그인 {len(plugins)}개, 룰북 {rulebook_desc}, "
               f"core 플러그인 {', '.join(p.name for p in core_plugins)}, "
               f"core {core_version()}, 작업 디렉터리 {cwd}", file=sys.stderr)
-        print(_bootstrap_timing_line(role), file=sys.stderr)
         # 이슈 #2070: design-bearing 판정은 issue 본문에 대해서만 의미가
         # 있다 — 없으면(adhoc 스폰) None, gates 호출이 실패해도(gh 오류 등)
         # fail-open 으로 None 에 떨어진다(라우팅 계층 자체가 fail-open).
         design_bearing_verdict = None
-        if issue is not None:
-            try:
-                sys.path.insert(0, str((ROOT / "gates").resolve()))
-                import design_bearing_classifier
-                _verdict = design_bearing_classifier.check(Path(cwd), issue)
-                design_bearing_verdict = bool(_verdict and _verdict.get("design_bearing"))
-            except Exception:
-                design_bearing_verdict = None
+        with _timed("design_bearing"):
+            if issue is not None:
+                try:
+                    sys.path.insert(0, str((ROOT / "gates").resolve()))
+                    import design_bearing_classifier
+                    # 이슈 #2186: `body`는 위 "issue_fetch" 단계에서 이미
+                    # `gh api repos/.../issues/{issue}`로 한 번 받아왔다 —
+                    # 예전에는 여기서 `design_bearing_classifier.check()`가
+                    # 같은 본문을 또 `gh_rest.fetch_issue_body()`로 받아와,
+                    # 스폰마다 똑같은 REST 왕복을 두 번 태웠다. 이미 있는
+                    # `body`를 `check_issue_body()`에 바로 넘겨 그 두 번째
+                    # 왕복을 아예 없앤다(검사 불가 시 fail-open 하는 원래
+                    # 의미는 그대로: `body`가 None 이면 판정도 None).
+                    _verdict = (design_bearing_classifier.check_issue_body(issue, body)
+                                if body is not None else None)
+                    design_bearing_verdict = bool(_verdict and _verdict.get("design_bearing"))
+                except Exception:
+                    design_bearing_verdict = None
         # 맡길 일은 stdin 으로 넘긴다. 인자로 주면 가변 인자 플래그가 삼키고,
         # 셸 보간을 거치면 신뢰할 수 없는 값의 $(…) 가 실행된다.
-        cmd, extra_env = spawn_cmd(settings, role, unattended,
-                                   core_plugins, plugins, model,
-                                   all_skill_dirs,
-                                   skill_sha or role_source["skill_sha"],
-                                   single_phase=single_phase,
-                                   design_bearing_verdict=design_bearing_verdict,
-                                   max_turns=resolved_max_turns,
-                                   checkpoint=checkpoint)
+        with _timed("spawn_cmd"):
+            cmd, extra_env = spawn_cmd(settings, role, unattended,
+                                       core_plugins, plugins, model,
+                                       all_skill_dirs,
+                                       skill_sha or role_source["skill_sha"],
+                                       single_phase=single_phase,
+                                       design_bearing_verdict=design_bearing_verdict,
+                                       max_turns=resolved_max_turns,
+                                       checkpoint=checkpoint)
         # 이슈 #2070: roster 기록용 두 내부 키를 여기서 뽑아내 실제 subprocess
         # env 에는 안 들어가게 한다 — spawn_cmd() 가 심어준 신호일 뿐, 세션
         # 자신의 env 표면이 아니다.
@@ -2595,8 +2637,16 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 이슈 #2159: origin 체크아웃에만 있는 node_modules/.venv 를
             # 가리키는 env var — 파일은 옮기지 않는다(위 주석 참고).
             extra_env.update(local_dependency_env(origin_cwd, cwd))
-        before = board_snapshot(cwd)
+        with _timed("board_snapshot"):
+            before = board_snapshot(cwd)
         before_head = _git_head(cwd) if issue is not None else None
+        # 이슈 #2186: 이 지점이 fork/session-start 직전 — 로그로 나가는
+        # bootstrap_timing 줄은 예전에 core/settings 단계 직후(더 위)에서
+        # 찍혀, 그 뒤로 이어지는 (지금은 계측된) design_bearing/spawn_cmd/
+        # board_snapshot 구간이 그 줄의 `total`에 전혀 안 실렸다 — 실제
+        # session-start 이벤트 바로 앞으로 옮겨, `total`이 spawn 진입부터
+        # session-start까지 전체 구간을 담게 한다.
+        print(_bootstrap_timing_line(role), file=sys.stderr)
         t0 = time.monotonic()
         # stream-json 을 줄 단위로 받아 라이브 로그에 tee 한다 — "지금 뭐
         # 하는 중인가"가 세션이 끝나기 전에도 보이게. 최종 result 이벤트가
