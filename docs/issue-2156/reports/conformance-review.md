@@ -226,30 +226,13 @@ plan; every requirement kept the method and scope the proposal set out.
 
 ## Skill verdicts
 
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; loaded this session before executing R8's independent
-grep (rule 4 — Test method, not re-deriving a fresh manual check where
-the acceptance criterion already names an executable check) and before
-treating R1-R7 as Inspection (rule 1 — structural text-presence).
-canonical: R1-R8 finding blocks above, this session.
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; used rule 4 (Test method for R8's independent grep, not re-deriving a fresh manual check where the acceptance criterion already names an executable check) and rule 1 (Inspection for R1-R7, structural text-presence). See R1-R8 finding blocks above, this session.
 
-skill-verdict: conformance-review-verdict-assignment — applied:
-invoked; loaded this session to confirm every requirement's evidence
-shows the guidance both present and reachable (the directive file's own
-header states it is loaded via the always-on index, so `Present` rather
-than `Surface` applies per rule 1) before rendering the 8 verdicts.
-canonical: R1-R8 finding blocks above, this session.
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; used rule 1 (Present, not Surface, since the directive file's own header states it is loaded via the always-on index — reachable, not merely matching text) to check every requirement's evidence before rendering the 8 verdicts. See R1-R8 finding blocks above, this session.
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; loaded this session; every evidence citation above pins a
-`sha:path:line` pointer against `b47a2abf`, not a bare path, per rule 1.
-canonical: R1-R8 finding blocks above, this session.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; used rule 1 (`sha:path:line` pointer against `b47a2abf`, not a bare path) for every evidence citation above. See R1-R8 finding blocks above, this session.
 
-skill-verdict: conformance-review-finding-record — applied: invoked;
-loaded this session before writing the Findings section above; its
-field list (`requirement`/`spec_ref`/`verdict`/`evidence`/`rationale`)
-shaped every block, one per R1..R8.
-canonical: R1-R8 finding blocks above, this session.
+skill-verdict: conformance-review-finding-record — applied: invoked; used the field list (`requirement`/`spec_ref`/`verdict`/`evidence`/`rationale`) to shape every block, one per R1..R8. See the Findings section above, this session.
 
 other mounted skills: not triggered — conformance-review-requirement-extraction
 was the phase-1 session's job
