@@ -275,8 +275,7 @@ PR for issue #2205.
 
 ## Skill check
 
-skill-verdict: implementation-performance-data-structure-choice — applied:
-invoked; reviewed the added full-corpus BM25 rescore
+skill-verdict: implementation-performance-data-structure-choice — applied: invoked; reviewed the added full-corpus BM25 rescore
 (`_bm25_cross_family_scores` over ~269 skills) inside the fast-path's
 declared-phrase-match branch against the skill's Rule 3 (measure actual
 per-element cost, not asymptotic class alone).
