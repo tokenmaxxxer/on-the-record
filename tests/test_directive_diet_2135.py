@@ -50,9 +50,20 @@ class SectionFileMapping(unittest.TestCase):
         self.assertIn("gh pr create", body)
         self.assertIn("guidance only", body)
 
+    def test_repo_discovery_file_carries_the_git_ls_files_guidance(self):
+        # Issue #2185: spawned sessions burned ~90s/spawn re-discovering
+        # repo layout via unscoped `find`; the always-on section file
+        # points them at `git ls-files` instead.
+        files = spawn.directive_section_files()
+        body = files["repo-discovery.md"]
+        self.assertIn(spawn._REPO_DISCOVERY_PROSE, body)
+        self.assertIn("git ls-files", body)
+        self.assertIn("find", body)
+
     def test_skill_and_checkpoint_sections_are_conditional(self):
         base = spawn.directive_section_files()
-        self.assertEqual(set(base), {"completion-and-landing.md"})
+        self.assertEqual(set(base),
+                         {"completion-and-landing.md", "repo-discovery.md"})
         with_skills = spawn.directive_section_files(skills_mounted=True)
         self.assertIn("skill-obligations.md", with_skills)
         self.assertIn(spawn._SKILL_CHECK_PROSE,
