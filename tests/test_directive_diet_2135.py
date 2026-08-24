@@ -111,10 +111,21 @@ class RecordSkeleton(unittest.TestCase):
             text = p.read_text(encoding="utf-8")
         self.assertEqual(self._needles_check(text), [])
         self.assertIn("loop_state: in-progress", text)
-        # roles/specs required_fields surface as empty frontmatter keys
-        self.assertIn("commit_sha:", text)
+        # roles/specs required_fields surface as empty frontmatter keys —
+        # issue-2190: commit_sha realizes as code_under_review (the field
+        # record-fields-gate.sh actually checks for coding/implementation),
+        # and breaking surfaces despite being optional in the spec, since
+        # every real delivery record carries it.
+        self.assertIn("code_under_review:\n  - PLACEHOLDER: path/to/file",
+                      text)
+        self.assertNotIn("commit_sha:", text)
         self.assertIn("type: # one of: feat|fix|", text)
+        self.assertIn("breaking: # string", text)
         self.assertIn("verdict: # one of: pass|fail", text)
+        # issue-2190: `## What did not work` present-but-empty, matching
+        # the near-universal convention across landed implementation
+        # records (record-shape-directive, issue-2135's follow-on).
+        self.assertIn("## What did not work\n\nNone.\n", text)
 
     def test_skeleton_loop_state_respects_role_enum(self):
         """A role whose record_fields enum lacks `in-progress` gets its
