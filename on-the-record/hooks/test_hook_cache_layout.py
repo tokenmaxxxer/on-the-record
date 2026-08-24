@@ -155,13 +155,17 @@ def t_seeded_non_exec_wired_script_is_refused(tmp_path):
     bit and confirm the regression check refuses it."""
     seeded = tmp_path / "hooks"
     shutil.copytree(HOOKS_DIR, seeded)
-    target = seeded / "record-claim-guard.sh"
+    # stop-gate.sh: still a direct hooks.json registration after #2146
+    # collapsed the PreToolUse rows into the dispatcher (record-claim-
+    # guard.sh, the previous target, is now dispatcher-sourced, so its
+    # exec bit no longer decides whether it runs).
+    target = seeded / "stop-gate.sh"
     target.chmod(target.stat().st_mode & ~0o111)
     assert not os.access(target, os.X_OK)
 
     try:
         _assert_wired_scripts_executable(seeded)
     except AssertionError as e:
-        assert "record-claim-guard.sh" in str(e)
+        assert "stop-gate.sh" in str(e)
     else:
         raise AssertionError("expected the seeded non-exec script to be refused")
