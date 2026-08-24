@@ -429,14 +429,14 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
 
 def consult_cmd(role: str, question: str, issue: int | None = None,
                 cwd: str | None = None, model: str | None = None) -> dict:
-    """자문(consult): 역할의 룰북을 로드해 판단만 돌려받는다 — 브랜치도
+    """자문(consult): 역할의 스킬-저장소 가이던스를 로드해 판단만 돌려받는다 — 브랜치도
     커밋도 PR 도 만들지 않는다(이슈 #699 R1). `spawn_cmd()`/`_spawn_one()`
     의 발급 파이프라인과는 별개의, 훨씬 작은 조립이다: 그 함수들이 여는
     브랜치/워크스페이스/워처/roster 등록은 전부 배달물(deliverable)을
     향한 것이고, 자문은 텍스트 하나만 되돌려주면 끝나기 때문이다.
 
-    룰북 로딩은 `role_settings()`/`plugin_dirs()` 를 그대로 재사용한다 —
-    이슈#699 phase-1 proposal 이 채택한 이유: 룰북을 켜는 코드경로가
+    스킬-저장소 가이던스 로딩은 `role_settings()`/`resolve_role_source()` 를 그대로 재사용한다 —
+    이슈#699 phase-1 proposal 이 채택한 이유: 가이던스를 켜는 코드경로가
     두 벌로 갈라지면 spawn 경로만 고치고 consult 경로는 못 고치는 드리프트가
     생긴다(issue #695/#700 이 이미 한 번 치운 문제류).
 
@@ -464,7 +464,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         # 판단 JSON 을 한 번도 못 찍고 끝난다. 구조적 수정: 프롬프트 안에서 그
         # 훅들이 이 세션에는 적용되지 않음을 명시적으로 무효화한다.
         override = (
-            "이 세션에 로드된 룰북/훅이 스카우트, 제안서(proposal) 작성, 위임"
+            "이 세션에 로드된 스킬-저장소 가이던스/훅이 스카우트, 제안서(proposal) 작성, 위임"
             "(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도"
             " — 이번 호출은 자문(consult) 이라 전부 적용되지 않는다: 저장소 파일을"
             " 하나도 건드리지 않고, 하위 에이전트를 위임하지 않고, 조사 없이 알고"
@@ -472,7 +472,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         )
         base_prompt = (
             "당신은 자문(consult) 으로 불렸다 — 판단만 돌려주면 된다. 이 역할의 "
-            "룰북은 이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
+            "스킬-저장소 가이던스는 이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
             "마라 — 텍스트로 답하고 끝난다. " + override + " 답을 다 쓴 뒤 마지막에, "
             "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
             '{"answer": "<판단>", "confidence": "low|medium|high", '
@@ -583,7 +583,7 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
         spec = json.loads(f.read_text())
         cmd, env, settings_path = _sp._consult_cmd_and_env(role, spec, cwd)
         override = (
-            "이 세션에 로드된 룰북/훅이 스카우트, 제안서(proposal) 작성, 위임"
+            "이 세션에 로드된 스킬-저장소 가이던스/훅이 스카우트, 제안서(proposal) 작성, 위임"
             "(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도"
             f" — 이번 호출은 {verb} 라 전부 적용되지 않는다: 저장소 파일을"
             " 하나도 건드리지 않고, 하위 에이전트를 위임하지 않고, 조사 없이 알고"
@@ -871,7 +871,7 @@ def _judge_validate(role: str, spec: dict, findings: list[dict], diff_summary: s
     cmd, env, settings_path = _sp._judge_cmd_and_env(role, spec, cwd, model="haiku")
     prompt = (
         f"역할 '{role}' 가 낸 아래 findings 를 diff 요약과 대조해 확인(confirm)/"
-        "반박(refute)하라. 실제로 룰북을 위반하는 것만 남기고, 다른 텍스트 "
+        "반박(refute)하라. 실제로 스킬-저장소 가이던스를 위반하는 것만 남기고, 다른 텍스트 "
         '없이 JSON 객체 하나만 출력하라: {"findings": [{"path": "...", '
         '"finding_class": "...", "excerpt": "...", "promotable": true|false}, '
         "...]}  (반박된 것은 배열에서 뺀다)\n\n"
@@ -934,8 +934,8 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
 
         cmd, env, settings_path = _sp._judge_cmd_and_env(role, spec, root)
         prompt = (
-            f"당신은 judge 로 불렸다 — 역할 '{role}' 의 룰북 관점에서 아래 merge diff 가 "
-            "룰북을 위반하는지만 판단한다. 저장소 파일을 하나도 건드리지 말고(Write/Edit "
+            f"당신은 judge 로 불렸다 — 역할 '{role}' 의 스킬-저장소 가이던스 관점에서 아래 merge diff 가 "
+            "그 가이던스를 위반하는지만 판단한다. 저장소 파일을 하나도 건드리지 말고(Write/Edit "
             "도구 없음), 브랜치/커밋/PR 을 만들지 마라. 필요하면 `git show`/`git diff`/"
             "`git log` 로 더 살펴봐도 된다. 답을 다 쓴 뒤 마지막에, 다른 어떤 텍스트도 "
             '없이 JSON 객체 하나만 출력하라: {"findings": [{"path": "...", '
@@ -1090,7 +1090,7 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
         env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
         prompt = (
             "당신은 판정단(panel) 판정자로 불렸다 — 다른 역할 판정자 "
-            f"'{peer_role}' 와 함께 아래 질문을 판정한다. 이 역할의 룰북은 "
+            f"'{peer_role}' 와 함께 아래 질문을 판정한다. 이 역할의 스킬-저장소 가이던스는 "
             "이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
             "마라. 상대 세션은 이 세션과 거의 동시에 떴다 — 아직 인박스가 "
             "등록되지 않았을 수 있다. 먼저 ListAgents 를 호출해 상대를 "
