@@ -1437,6 +1437,22 @@ def main() -> int:
             return 1
         print(f"이슈 #{a.issue} lint: 위반 없음")
         return 0
+    if a.role == "acceptance-sweep":
+        # issue #2229: lint 는 이슈 하나씩만 검사한다 — 필지 후 아무도 그
+        # 이슈에 lint 를 안 돌리면 조용히 스폰불가 상태로 남는다(#2229 관측:
+        # 다섯 건이 우연한 발견으로만 잡혔다). 이 커맨드는 열린 이슈 전체를
+        # 한 번에 훑어 지금 스폰 불가능한 것을 전부 보고한다(closure-sweep,
+        # needs-due 와 같은 단발 스윕 커맨드 관례).
+        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+        import acceptance_gate as _acceptance_gate
+        root = Path(a.cwd).resolve()
+        bad_by_issue = _acceptance_gate.sweep(root)
+        if bad_by_issue is None:
+            print("acceptance-sweep: 이슈 목록을 읽을 수 없다 (gh 실패) — 판정 불가",
+                  file=sys.stderr)
+            return 1
+        print(_acceptance_gate.format_sweep_report(bad_by_issue))
+        return 1 if bad_by_issue else 0
     if a.role == "drive":
         # 보드가 지목하는 역할을 하나씩, 멈출 때까지.
         require_board(a.cwd, a.no_contract)
