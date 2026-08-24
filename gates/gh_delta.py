@@ -29,11 +29,16 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Callable
 
+import state_paths
+
 _VALID_RESOURCES = ("issues", "pulls")
 
 
-def cursor_path(root: Path, resource: str) -> Path:
-    return root / "runs" / f"gh_delta_cursor_{resource}.json"
+def cursor_path(resource: str) -> Path:
+    """issue #2240: the cursor is orchestrator cross-tick memory (which gh
+    items we've already seen), not target-repo state — anchored via
+    state_paths, never `root / "runs"`."""
+    return state_paths.orchestrator_state_path(f"gh_delta_cursor_{resource}.json")
 
 
 def _split_gh_api_i_output(stdout: str) -> tuple[int | None, dict[str, str], str]:
@@ -133,7 +138,7 @@ def fetch_delta(root: Path, slug: str, resource: str, run: Callable | None = Non
         raise ValueError(f"unknown resource: {resource!r}")
     run = run or subprocess.run
     now = now or datetime.now(timezone.utc).isoformat()
-    cpath = path or cursor_path(root, resource)
+    cpath = path or cursor_path(resource)
 
     cur = _load_cursor(cpath)
     forced_rescan = False

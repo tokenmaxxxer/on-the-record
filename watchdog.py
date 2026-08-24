@@ -59,6 +59,9 @@ ROOT = Path(__file__).resolve().parent
 STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
               if os.environ.get("MUSTER_STATE_ROOT") else ROOT / "runs")
 
+sys.path.insert(0, str(ROOT / "gates"))
+import state_paths  # noqa: E402
+
 
 POLL_STATE = ROOT / "runs" / "poll_state.json"
 POLL_INTERVAL_SEC = 60  # 이슈 #782 스코프-확장(operator, 2026-08-11): 15분은 stall/deadlock 포착이 너무 늦다 — 1분
@@ -433,7 +436,11 @@ _NORTHPOLE_REQ_RE = re.compile(r"northpole\s+req\s*#\s*(\d+)", re.IGNORECASE)
 
 
 def _requirement_drift_cache_path(root: Path) -> Path:
-    return root / "runs" / "requirement_drift_cache.json"
+    """issue #2240: orchestrator cross-tick memory, not target-repo state —
+    anchored via state_paths, never `root`. `root` is accepted for
+    call-site symmetry with the rest of this module's `root`-scoped
+    helpers; it is not used here."""
+    return state_paths.orchestrator_state_path("requirement_drift_cache.json")
 
 
 def _load_requirement_drift_cache(path: Path) -> dict:
@@ -465,7 +472,11 @@ def _save_requirement_drift_cache(path: Path, data: dict) -> None:
 
 
 def _watchdog_noise_state_path(root: Path) -> Path:
-    return root / "runs" / "watchdog_noise_state.json"
+    """issue #2240: orchestrator cross-tick memory, not target-repo state —
+    anchored via state_paths, never `root`. `root` is accepted for
+    call-site symmetry with the rest of this module's `root`-scoped
+    helpers; it is not used here."""
+    return state_paths.orchestrator_state_path("watchdog_noise_state.json")
 
 
 def _load_watchdog_noise_state(path: Path) -> dict:
@@ -621,8 +632,10 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
 
     이슈 #1688: `changed_numbers` 가 주어지면(델타 모드) 그 번호들만
     `gates.gh_cache.cached_get` 으로 다시 조회하고, 나머지는
-    `runs/requirement_drift_cache.json` 에 저장된 이전 판정용 본문을 그대로
-    재사용한다 — `None` 이면(기본) 기존처럼 열린 이슈/PR 전체를 재훑는다."""
+    `requirement_drift_cache.json`(이슈 #2240: 오케스트레이터 틱간 기억이라
+    `gates/state_paths.py` 로 앵커링 — `root` 기준이 아니다)에 저장된 이전
+    판정용 본문을 그대로 재사용한다 — `None` 이면(기본) 기존처럼 열린
+    이슈/PR 전체를 재훑는다."""
     digest_path = root / "docs" / "specs" / "requirement-digest.md"
     if not digest_path.exists():
         return
