@@ -129,14 +129,27 @@ None.
 
 ## Rationale for deviations
 
-None. No divergence from an approved phase-1 proposal occurred — this
+No divergence from an approved phase-1 proposal occurred — this
 session ran under the `CORE_BUILD_NOW=1` build-now bypass (contract v3
 s19a), which skips the phase-1 proposal round entirely, so there is no
-approved proposal to diverge from. This heading is present only
-because the record-shape gate's keyword check reads the hook-name
+approved proposal to diverge from. This heading was first triggered
+only because the record-shape gate's keyword check reads the hook-name
 citations above (the existing sibling hook this fix's shape mirrors,
-whose own name contains that keyword) as a deviation signal — not
-because any scope-exceeded stop or plan swap happened in this session.
+whose own name contains that keyword) as a deviation signal.
+
+One real, small deviation did occur at landing: `pr-preflight.sh`
+determines phase strictly from an actual `APPROVE issue-<n>/<role>`
+GitHub comment (or a valid delegation citation), neither of which
+exists under the `CORE_BUILD_NOW=1` bypass — so the gate classified
+this single-phase delivery as phase1 and refused a `Closes #2153`
+PR-body trailer, denying with its own hint: "a plain '#2153' reference
+in the PR body (no Closes/Fixes/Resolves)". Resolved inline, staying
+inside the frozen write set (the PR body itself, no code change): used
+a plain `#2153` reference instead of the closing keyword the
+phase-2-delivery convention otherwise calls for — the issue will not
+auto-close on merge as a result. Logged in
+`docs/reports/deviation-log.md` (2026-08-24T05:05:09Z entry); PR:
+https://github.com/tokenmaxxxer/on-the-record/pull/2154.
 
 ## Doc placement
 
