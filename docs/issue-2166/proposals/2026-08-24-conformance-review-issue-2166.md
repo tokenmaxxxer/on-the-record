@@ -33,7 +33,8 @@ file outside its own report area.
   role's own record under `docs/issue-2166/reports/implementation.md`/
   `implementation/` may issue from this session.
 - **Small, fully-enumerable scope.** Two commits, three touched files,
-  seven issue-named line items plus one reviewer-surfaced finding — the
+  REQ-1 through REQ-7 (REQ-6 split into REQ-6a/REQ-6b, one verdict per
+  finding) plus one reviewer-surfaced finding (REQ-8) — the
   sampling-derivation skill does not apply (survey §7).
 - **`record-claim-guard.sh` governs everything written under
   `docs/issue-2166/reports/**`** — count claims need a `derived:` citation
@@ -100,14 +101,15 @@ verdict would misrepresent which part of the delivery is actually wrong.
 1. **The record** (`docs/issue-2166/reports/conformance-review.md`):
    contract §20 fields plus the role spec's `subject`/`test`/`result`/
    `assertedBy` frontmatter, one `---`-delimited finding block per
-   REQ-1..REQ-7 plus REQ-8 (survey §2, §6) carrying `requirement`/
+   REQ-1..REQ-5, REQ-6a, REQ-6b, REQ-7, and REQ-8 (survey §2, §6) carrying
+   `requirement`/
    `spec_ref`/`verdict`/`evidence`/`rationale` per
    `conformance-review-finding-record`'s field list, each evidence pointer
    citing file:line plus the relevant commit sha per
    `conformance-review-traceability-and-evidence`.
-2. **Verdicts**: REQ-1, REQ-3, REQ-4, REQ-5, and REQ-6's issue-525 leg —
+2. **Verdicts**: REQ-1, REQ-3, REQ-4, REQ-5, and REQ-6a —
    `Present` (survey §3-4, independently re-derived, not taken on trust).
-   REQ-2 and REQ-6's issue-527 leg — `Unverifiable` (survey §4, issue #527
+   REQ-2 and REQ-6b — `Unverifiable` (survey §4, issue #527
    unresolvable in either repository checked). REQ-7 — `Surface` (survey
    §5, partial independent reproduction — 2 of the 4 cited evidence
    commands re-executed cleanly, the other 2 blocked by the environment
@@ -122,14 +124,32 @@ verdict would misrepresent which part of the delivery is actually wrong.
    note — each with the resolution path already stated in the survey,
    carried into the record largely verbatim.
 4. **Overall `result`**: recomputed per the role spec's own worst-case
-   rule (`failed > cantTell > inapplicable > untested > passed`) rather
-   than asserted independently. REQ-8's confirmed `Incorrect` verdict —
-   an actively-wrong claim, not merely an unverified one — drives this to
-   `failed`; the record will state plainly, next to that value, that the
-   functional fix itself (REQ-1/REQ-3/REQ-4/REQ-5/REQ-6's issue-525 leg)
-   is independently verified correct, so `failed` reflects the citation
-   defect specifically and is not a claim that the delivered behavior is
-   broken.
+   rule (`failed > cantTell > inapplicable > untested > passed`), applied
+   to a per-finding value each finding's own `verdict` maps to — not a
+   direct substitution of any one finding's `verdict` for the
+   frontmatter's `result`. `conformance-review-finding-record` rule 3.3
+   is explicit that the two five-value sets "do not map 1:1, this is
+   vocabulary alignment, not a swap" (a design error a background
+   warrant-hunter caught in this proposal's own first draft — see
+   docs/issue-2166/reports/conformance-review/deviation-log.md). The
+   mapping this record uses, argued once here rather than left implicit:
+   `Present` conforms outright, so it maps to the value meaning the check
+   ran and held. `Unverifiable` names its own missing-evidence location
+   rather than asserting either a hold or a violation, so it maps to the
+   value meaning insufficient information to tell. `Surface`, `Absent`,
+   and `Incorrect` each describe the requirement not actually holding —
+   present-but-wrong, nothing-found, and actively-contradicts
+   respectively — so each maps to the value meaning the check ran and did
+   not hold. Applying this per finding: REQ-1/REQ-3/REQ-4/REQ-5/REQ-6a
+   map to the held-value; REQ-2/REQ-6b map to the insufficient-
+   information-value; REQ-7 (`Surface`) and REQ-8 (`Incorrect`) both map
+   to the did-not-hold-value. The worst-case across those mapped values is
+   the did-not-hold-value — the record's `result` frontmatter field takes
+   that value, stated next to a plain note that the functional fix itself
+   (REQ-1/REQ-3/REQ-4/REQ-5/REQ-6a) independently verifies as holding, so
+   the overall value reflects REQ-7's partial-verification gap and REQ-8's
+   citation defect specifically, not a claim that the delivered behavior
+   is broken.
 5. **Skill verdicts**: the five skills already invoked this session for
    the survey (requirement-extraction, verification-method-selection,
    verdict-assignment, traceability-and-evidence, finding-record) get
@@ -160,11 +180,13 @@ verdict would misrepresent which part of the delivery is actually wrong.
 
 ## How you'll know it worked
 
-- Every REQ line item in the survey's requirement list (§2), plus REQ-8,
-  appears as exactly one `---`-delimited finding block in the record,
-  with a verdict, a method, and a file:line+sha evidence citation.
-- The record's overall `result` is the recomputed worst-case across all
-  eight finding blocks, not a value asserted independently of them.
+- Every REQ line item in the survey's requirement list (§2, REQ-6 split
+  into REQ-6a/REQ-6b), plus REQ-8, appears as exactly one `---`-delimited
+  finding block in the record, with a verdict, a method, and a
+  file:line+sha evidence citation.
+- The record's overall `result` is the recomputed worst-case across the
+  per-finding values step 4's mapping assigns every finding block, not a
+  direct substitution of any single finding's own `verdict`.
 - The four open findings from the survey (§6) appear in the record's
   "Open findings" section with their resolution paths intact.
 - `loop_state` reaches this role's terminal value, `reported`.
@@ -214,9 +236,10 @@ commits to write per REQ item in phase 2; no verdict is written to the
 record itself in phase 1.
 
 skill-verdict: conformance-review-sampling-derivation — not-applicable:
-full enumeration of the issue's own seven named line items plus one
-reviewer-surfaced finding is feasible at this size (survey §7) — no
-stratified sample is needed.
+full enumeration of the issue's own named line items (REQ-1 through
+REQ-7, REQ-6 split into REQ-6a/REQ-6b) plus one reviewer-surfaced finding
+(REQ-8) is feasible at this size (survey §7) — no stratified sample is
+needed.
 
 skill-verdict: conformance-review-severity-classification —
 not-applicable: this review's scope was not explicitly extended into

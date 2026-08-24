@@ -79,14 +79,18 @@ under that number, see §4):
    `market-analysis-mece-proposal`'s description, OR strengthen the
    skill-judge second-pass filter; if a naming/description problem: reword
    the description. Source: "Fix" section, both bullets.
-6. **REQ-6** (functional/scope-boundary) — acceptance: a regression using
-   issue #525's and issue #527's actual task text through the retrieval
-   pipeline shows `market-analysis-mece-proposal` no longer mounts (or the
-   investigation concludes it's correct and closes with reasoning — no
-   forced fix if unwarranted). Source: "Acceptance", first bullet. Kept as
-   one item — the issue's own acceptance text names only this one skill by
-   string, even though the live-finding paragraph raises `work-in-english`
-   too (see §5's REQ-5 note on this asymmetry).
+6. **REQ-6a/REQ-6b** (functional/scope-boundary) — acceptance: a
+   regression using issue #525's (6a) and issue #527's (6b) actual task
+   text through the retrieval pipeline shows `market-analysis-mece-proposal`
+   no longer mounts (or the investigation concludes it's correct and
+   closes with reasoning — no forced fix if unwarranted). Source:
+   "Acceptance", first bullet. Split in two — one verdict per finding,
+   matching `conformance-review-finding-record`'s own "exactly one of
+   five verdicts per requirement" rule — rather than kept as the single
+   item this survey originally extracted it as; the issue's own
+   acceptance text names only `market-analysis-mece-proposal` by string,
+   even though the live-finding paragraph raises `work-in-english` too
+   (see §5's REQ-5 note on this asymmetry).
 7. **REQ-7** (error-handling/traceability) — executed acceptance evidence
    in the record. Source: "Acceptance", second bullet, referencing #2137.
 
@@ -184,9 +188,9 @@ Issue #527, as named in issue #2166's own live-finding paragraph, is not a
 resolvable GitHub issue in either repository checked. **REQ-2: Unverifiable**
 — missing evidence location: issue #527 in `tokenmaxxxer/on-the-record` or
 `tokenmaxxxer/tm-dicequest`; neither names the interaction-design-role
-session the issue describes. REQ-6's issue-527 leg is Unverifiable for the
-same reason; REQ-6's issue-525 leg is **Present** (§3's replay already
-establishes `market-analysis-mece-proposal` does not mount for that text, so
+session the issue describes. **REQ-6b: Unverifiable** for the same reason.
+**REQ-6a: Present** (§3's replay already establishes
+`market-analysis-mece-proposal` does not mount for issue #525's text, so
 the acceptance's own no-forced-fix branch applies).
 
 **REQ-5: Present**, with a scope-interpretation note. The shipped fix
@@ -304,7 +308,7 @@ record's cited combined count.
 
 Full enumeration, not sampling: two commits, three touched files
 (`consult.py`, `tests/test_retrieval_eval.py`, plus the record/deviation-log
-doc pair), seven issue-named requirement line items plus one
-reviewer-surfaced finding. conformance-review-sampling-derivation does not
-apply at this size — see its own skill-verdict line in the phase-1
-proposal.
+doc pair), issue-named requirement line items REQ-1 through REQ-7 (REQ-6
+split into REQ-6a/REQ-6b, §2) plus one reviewer-surfaced finding (REQ-8,
+§6). conformance-review-sampling-derivation does not apply at this size —
+see its own skill-verdict line in the phase-1 proposal.
