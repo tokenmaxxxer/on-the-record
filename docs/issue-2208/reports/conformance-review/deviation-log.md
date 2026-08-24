@@ -37,3 +37,25 @@ write for the rest of the session — recorded as a hunt finding too
 (docs/issue-2208/reports/conformance-review/2026-08-25-hunt-conformance-review.md,
 after-proposal section) since the version divergence itself is a real
 repo-scoping gap, not just a one-off mistake this session made.
+
+- 2026-08-25T15:45:00Z | inline | pushed the branch's one remaining
+unpushed commit (958c0a47, already committed by the prior session) and
+left two working-tree items uncommitted.
+canonical: `git push origin issue-2208/conformance-review`, executed
+this session — result: `97b1c90b..958c0a47  issue-2208/conformance-review -> issue-2208/conformance-review`.
+canonical: `git status -sb`, executed this session — result:
+```
+## issue-2208/conformance-review...origin/issue-2208/conformance-review
+ M .orchestrate-hook-fires.log
+?? .on-the-record/directive/
+```
+Reason for the deviation: `.orchestrate-hook-fires.log` is repo-root hook
+telemetry modified by this session's own hook fires, no docs/issue-2208
+content; `.on-the-record/directive/` is untracked local directive-cache
+output, the same shape as the already-untracked `.on-the-record/role.json`.
+Role-handoff contract v3 scopes this role's writes to
+docs/issue-2208/reports/conformance-review.md and explicitly warns
+against a blanket `git add -A/.`; neither stray item is docs/issue-2208
+content or a deliverable this role owns, so committing them would exceed
+write_scope on a guess rather than a call this role's task actually
+required.
