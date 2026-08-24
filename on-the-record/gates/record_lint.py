@@ -67,13 +67,23 @@ _CHECKED_CLAIM_LINE = re.compile(
 _COUNT_RATIO = re.compile(r"(?<!-)\d+\s*(?:of|/)\s*\d+")
 _COUNT_NOUN = re.compile(
     r"\d+\s+(?:detection\s+)?(?:items?|works?|checks?|cases?|tests?)\b")
-_CLAIM_DERIVED_TAG = re.compile(r"`derived:\s*\S.*?`")
+# issue #2219 — a `derived:` citation does not require backtick-wrapping
+# to be genuine evidence any more than `canonical:` does (that
+# inconsistency was itself part of the false-rejection defect: a bare
+# paragraph-lead-in "derived: per the two fenced runs above, ..." is the
+# same citation shape as `` `derived: pytest -q` ``, just unquoted).
+_CLAIM_DERIVED_TAG = re.compile(r"`?derived:\s*\S")
 _PATH_REF = re.compile(
     r"`((?:src|test|tests|docs|gates|on-the-record)/[^`\s]+)`")
 # issue #1599 fix 1 — `_PATH_REF` captures a trailing `:line` or
 # `:start-end` suffix (e.g. `docs/specs/approvers.md:2`) as part of the
 # path; strip it before any filesystem/git existence check.
-_LINE_SUFFIX = re.compile(r":\d+(?:-\d+)?$")
+# issue #1620 misfire class 1 — also strip a comma-separated line list
+# (`:60,137`) and a `:name()`/`::name()` function/method locator suffix
+# (`::scan_text()`, `:_phase2_record_evidence()`) — both name a real
+# file plus a within-file locator, not a broken path.
+_LINE_SUFFIX = re.compile(r":\d+(?:[-,]\d+)*$")
+_FUNC_SUFFIX = re.compile(r":{1,2}\w+\(\)$")
 
 # issue #1599 fix 4 — a commit-pinned citation (`e7a13db:file/path:151`)
 # is itself evidence, independent of a literal `canonical:`/`derived:`
@@ -83,7 +93,110 @@ _COMMIT_PINNED_CITE = re.compile(
 
 
 def _strip_line_suffix(ref: str) -> str:
+    ref = _FUNC_SUFFIX.sub("", ref)
     return _LINE_SUFFIX.sub("", ref)
+
+
+# issue #2219 — evidence-resolution fix: a `canonical:`/`derived:`-tagged
+# check used to require the tag within a fixed 3-8 PHYSICAL line window
+# of the claim. Two false-rejection shapes that window misses, both
+# reproduced verbatim from a live session (docs/issue-2219 record):
+#   (1) the record's own evidence lives further away in the same
+#       record — under an earlier `### N. <item>` subsection heading,
+#       still describing the same claim, just not within a few lines.
+#   (2) markdown soft-wraps one prose sentence across several physical
+#       lines ("derived: per the two fenced runs directly above, ...
+#       \n...with the full suite still passing 9/9." spans 4 lines) —
+#       a same-line-anchored regex never sees the label and the count
+#       claim it introduces as connected.
+# Fix: (1) scope the evidence search to the claim's enclosing markdown
+# section (bounded by the nearest headings, not a fixed line count) —
+# still narrower than "the whole record" (PR #1622 already found that
+# too permissive for bare fences), and (2) dewrap the window before
+# running any label regex against it, so a soft-wrapped sentence reads
+# as one line for matching purposes.
+_HEADING_LINE = re.compile(r"^\s{0,3}#{1,6}\s")
+
+
+def _section_bounds(lines: list[str], i: int) -> tuple[int, int]:
+    """[lo, hi) bounding the markdown section claim-line `i` sits in:
+    from the nearest heading at-or-above `i` (or the top of the record)
+    to the next heading after `i` (or the end of the record)."""
+    lo = 0
+    for j in range(i, -1, -1):
+        if _HEADING_LINE.match(lines[j]):
+            lo = j
+            break
+    hi = len(lines)
+    for j in range(i + 1, len(lines)):
+        if _HEADING_LINE.match(lines[j]):
+            hi = j
+            break
+    return lo, hi
+
+
+def _dewrap(text: str) -> str:
+    """Collapse markdown soft-wrap line breaks so a `canonical:`/
+    `derived:`/`acceptance: ... result:` label and the sentence it
+    introduces match a single-line-oriented regex even when the
+    record's own prose wraps that sentence across several physical
+    lines (see the #2219 note above)."""
+    return re.sub(r"\n+", " ", text)
+
+
+# issue #2219 — the project's own documented executed-live convention
+# (on-the-record/directive/acceptance-format.md: "acceptance: <command>
+# — result: ...") is grounding in its own right when paired with an
+# actual fenced raw-output block, independent of any `canonical:`
+# wrapper — the record corpus overwhelmingly writes evidence this way,
+# not by wrapping every citation in a literal `canonical:` tag.
+# Deliberately narrower than "any acceptance: line": `result:` must be
+# the last thing on the (dewrapped) line — inline content after
+# `result:` is #870's own stricter PASS/FAIL/UNMEASURED path instead
+# (t_outcome_claim_with_unbacked_acceptance_prose_is_still_reported
+# pins that unbacked "acceptance: ... — result: <prose>" must NOT pass
+# through this looser path).
+_ACCEPTANCE_RESULT_LEADIN = re.compile(
+    r"(?i)\bacceptance:\s*\S.*\bresult:\s*$")
+
+
+def _prose_paragraphs(lines: list[str], in_fence: list[bool],
+                       structural: list[bool]) -> list[tuple[int, int]]:
+    """[start, end) index pairs for each maximal run of consecutive
+    prose lines — outside a fence, not a fence delimiter itself, not
+    blank, not structural (heading/frontmatter/blockquote) — the unit a
+    single markdown-wrapped sentence occupies."""
+    paras = []
+    start = None
+    for i, line in enumerate(lines):
+        is_prose = (not in_fence[i] and not structural[i]
+                    and line.strip() != ""
+                    and not line.strip().startswith("```"))
+        if is_prose:
+            if start is None:
+                start = i
+        elif start is not None:
+            paras.append((start, i))
+            start = None
+    if start is not None:
+        paras.append((start, len(lines)))
+    return paras
+
+
+def _acceptance_evidence_lines(lines: list[str], in_fence: list[bool],
+                                structural: list[bool]) -> set[int]:
+    """Line indices belonging to a prose paragraph that ends in an
+    `acceptance: ... result:` lead-in AND is immediately followed by a
+    fenced block — the raw-output pairing this project's acceptance
+    convention actually uses."""
+    out: set[int] = set()
+    for start, end in _prose_paragraphs(lines, in_fence, structural):
+        joined = " ".join(lines[start:end])
+        if not _ACCEPTANCE_RESULT_LEADIN.search(joined):
+            continue
+        if end < len(lines) and lines[end].strip().startswith("```"):
+            out.update(range(start, end))
+    return out
 
 # issue #793 — verify-before-claim: a state/defect-claim marker vocabulary,
 # deliberately narrow (known bypassable by synonym choice, same tradeoff
@@ -111,13 +224,143 @@ _OUTCOME_CLAIM_MARKER = re.compile(
     r"(?i)(?<![-\w])(requirement(?:s)?\s+met|done|PASS(?:es|ed)?|"
     r"complete[ds]?)(?![-\w])")
 
-# issue #1599 misfire class (f): a counterfactual/conditional sentence
-# ("had this round found...", "if it had been merged") states a
-# hypothetical, not an actual outcome/state — skip a line whose claim
-# marker sits inside a `had ... <marker>` or `if ... had` construction.
+# issue #1599 misfire class (f) / issue #1614 misfire class 6: a
+# counterfactual/conditional/negated sentence ("had this round found...",
+# "if it had been merged", "cannot detect", "would still pass") states a
+# hypothetical or negation, not an actual outcome/state claim.
 _COUNTERFACTUAL_LEADIN = re.compile(
     r"(?i)\bhad\b[^.?!]{0,60}\b(found|confirmed?|merged|closed|halted|"
     r"done|pass(?:es|ed)?|complete[ds]?)\b|\bif\b[^.?!]{0,60}\bhad\b")
+
+# issue #1614 misfire class 6: negated/hypothetical markers not already
+# covered by _COUNTERFACTUAL_LEADIN's "had"/"if...had" shape — "cannot",
+# "would still", "would not", "never", "might not" etc. preceding a
+# claim marker on the same line negate or hedge it into a non-claim.
+_NEGATED_HYPOTHETICAL = re.compile(
+    r"(?i)\b(cannot|can't|could\s+not|couldn't|would\s+(?:still|not|"
+    r"never)|wouldn't|won't|will\s+not|might\s+not|may\s+not|never)\b")
+
+
+def _is_hypothetical_or_negated(line: str) -> bool:
+    return bool(_COUNTERFACTUAL_LEADIN.search(line)
+                or _NEGATED_HYPOTHETICAL.search(line))
+
+
+# issue #1620 misfire class 3: an absence/negation statement ("no
+# decisions/ entry needed", "not yet measurable (0/30)") states that a
+# path or count does NOT apply / isn't required — not a live claim that
+# the path is reachable or the count is asserted fact. Distinct from
+# `_NEGATED_HYPOTHETICAL` (negates a claim MARKER like "found"/"merged")
+# — this negates the NEED for the path/count itself.
+_ABSENCE_NEGATION = re.compile(
+    r"(?i)\bno\b.{0,60}?\b(needed|required)\b|"
+    r"\bnot\s+(?:yet\s+)?(?:needed|required|applicable|measurable)\b")
+
+
+def _is_absence_negated(line: str) -> bool:
+    return bool(_ABSENCE_NEGATION.search(line))
+
+
+# issue #1620 misfire class 2: a record explicitly narrating that a path
+# was renamed away from, moved from, or deliberately not used is
+# describing history/a deviation, not asserting the old path is
+# currently reachable.
+_PATH_RENAME_NARRATION = re.compile(
+    r"(?i)\brenamed\s+(?:away\s+)?(?:from|to)\b|"
+    r"\bmoved\s+(?:away\s+)?(?:from|to)\b|"
+    r"\bdeliberately\s+not\s+used\b|"
+    r"\bno\s+longer\s+(?:used|exists?|at\b)")
+
+
+def _is_path_rename_narration(line: str) -> bool:
+    return bool(_PATH_RENAME_NARRATION.search(line))
+
+
+# issue #1628 misfire class: a record explicitly narrating that a cited
+# path is untracked / out-of-scope / not-in-repo is describing the
+# path's state, not asserting it currently resolves on disk — it may
+# legitimately no longer exist by the time the record is read back.
+_UNTRACKED_OUT_OF_SCOPE_NARRATION = re.compile(
+    r"(?i)\buntracked\b|\bout[- ]of[- ]scope\b|\bnot[- ]in[- ]repo\b")
+
+
+def _is_untracked_out_of_scope_narration(line: str) -> bool:
+    return bool(_UNTRACKED_OUT_OF_SCOPE_NARRATION.search(line))
+
+
+# issue #1614 misfire class 4: historical narration / already-fixed
+# interim defects / prior-round results — a claim embedded in a sentence
+# that is explicitly narrating the past, not asserting the record's own
+# current outcome/state/defect.
+_HISTORICAL_LEADIN = re.compile(
+    r"(?i)\b(previously|historically|prior\s+round|earlier\s+round|"
+    r"used\s+to\s+be|no\s+longer|was\s+once|in\s+an\s+earlier\s+pass|"
+    r"in\s+a\s+prior\s+(?:pass|round|session)|at\s+the\s+time|"
+    r"back\s+then|before\s+the\s+fix|pre-fix|already[- ]fixed|"
+    r"since\s+fixed|has\s+since\s+been\s+fixed)\b")
+
+
+def _is_historical_narration(line: str) -> bool:
+    return bool(_HISTORICAL_LEADIN.search(line))
+
+
+# issue #1614 misfire class 2: quoted/headed section titles ("What will
+# be done" / "What was done") mentioned in prose (e.g. "as documented
+# under the '## What was done' section") are literal section-name
+# references, not completion claims — even outside a markdown heading
+# line or blockquote (those are already masked by
+# `_structural_skip_mask`).
+_SECTION_TITLE_MENTION = re.compile(
+    r"(?i)#*\s*what\s+(?:will\s+be|was)\s+done\b")
+
+# issue #1614 misfire class 1: "pass"/"passed"/"passes" used as a noun
+# ("scout pass") or in the argument-passing sense ("passed a dict",
+# "pass the result to") is not an outcome claim.
+_PASS_NOUN_COMPOUND_LEADIN = re.compile(
+    r"(?i)\b(scout|sweep|review|judge|deepening|search|lint|verify)\s*$")
+_PASS_ARGUMENT_OBJECT = re.compile(
+    r"(?i)\bpass(?:es|ed)?\s+(?:a|an|the|it|this|that|data|dict|object|"
+    r"value|values|args?|arguments?|params?|parameters?|control|"
+    r"results?|ownership|along)\b")
+
+# issue #1614 misfire class 1: "done" used as a participle attached to a
+# following noun ("done work", "the already-done setup") or introduced by
+# a temporal lead-in ("once done", "when done", "after done") is not a
+# standalone completion claim.
+_DONE_ATTRIBUTIVE_LEADIN = re.compile(
+    r"(?i)\b(once|when|after|before)\s+(?:it(?:'s|\s+is)\s+)?done\b")
+# A small, deliberately closed noun list (same bypassable-by-synonym
+# tradeoff the other marker vocabularies in this module accept) — wide
+# enough to catch "done work"/"done deal" without treating an ordinary
+# continuation ("done and ready to ship") as attributive.
+_DONE_FOLLOWED_BY_NOUN = re.compile(
+    r"(?i)^\s+(work|deal|setup|task|job|list|stage|thing|item|step)\b")
+
+
+def _outcome_marker_word_sense_exempt(line: str, m: re.Match) -> bool:
+    """Per-occurrence word-sense filter for an `_OUTCOME_CLAIM_MARKER`
+    match — distinct from the line-level hedges above because a single
+    line can carry both an exempt occurrence and a genuine claim."""
+    word = m.group(0).lower()
+    start, end = m.span()
+    if _SECTION_TITLE_MENTION.search(line[max(0, start - 20):end]):
+        return True
+    if word.startswith("pass"):
+        # Compound-noun sense ("scout pass") — a noun modifier immediately
+        # before this occurrence.
+        if _PASS_NOUN_COMPOUND_LEADIN.search(line[max(0, start - 20):start]):
+            return True
+        if _PASS_ARGUMENT_OBJECT.match(line[start:]):
+            return True
+        return False
+    if word == "done":
+        lead = line[max(0, start - 20):start]
+        if _DONE_ATTRIBUTIVE_LEADIN.search(lead + line[start:end]):
+            return True
+        if _DONE_FOLLOWED_BY_NOUN.match(line[end:end + 12]):
+            return True
+        return False
+    return False
 _EXECUTED_LIVE_CANONICAL = re.compile(
     r"(?i)^(?:gh\s|git\s|pytest\b|python3?\s|npm\s|npx\s|bash\s|sh\s|\./|"
     r"acceptance:\s*\S.*\bresult:\s*(?:PASS|FAIL|UNMEASURED)\b|"
@@ -179,15 +422,20 @@ def _structural_skip_mask(lines: list[str]) -> list[bool]:
 
 def outcome_claim_citation_check(text: str) -> list[str]:
     """issue #870 mirror: an OUTCOME claim ("requirement(s) met", "done",
-    "PASS(es/ed)", "complete(d)") needs a `canonical:` tag within 3 lines
-    above it whose cited source is itself an executed-live reference (a
-    command string, an `acceptance: <command> — result: ...` line, or —
-    issue #923 — a citation naming the transcript/measurement an
-    observation/verdict record's own live run produced) — not a bare
-    file-read/summary citation, which satisfies #793's own state-claim
-    check but does not prove the claimed outcome was actually re-run (or,
-    for an observation record, actually measured) against the current
-    state. Fail-closed: no qualifying citation -> refused."""
+    "PASS(es/ed)", "complete(d)") needs, somewhere in its enclosing
+    markdown section (issue #2219 — was a fixed 3-line window; see the
+    module note above `_section_bounds`), a `canonical:`/`derived:` tag
+    whose cited source is itself an executed-live reference (a command
+    string, an `acceptance: <command> — result: ...` line, or — issue
+    #923 — a citation naming the transcript/measurement an
+    observation/verdict record's own live run produced), or an
+    `acceptance: ... — result:` lead-in immediately followed by a fenced
+    block (issue #2219 — the project's own acceptance-format convention
+    is executed-live evidence in its own right) — not a bare file-read/
+    summary citation, which satisfies #793's own state-claim check but
+    does not prove the claimed outcome was actually re-run (or, for an
+    observation record, actually measured) against the current state.
+    Fail-closed: no qualifying citation -> refused."""
     bad = []
     lines = text.splitlines()
     in_fence = [False] * len(lines)
@@ -199,14 +447,20 @@ def outcome_claim_citation_check(text: str) -> list[str]:
             continue
         in_fence[i] = fence
     structural = _structural_skip_mask(lines)
+    acceptance_evidence = _acceptance_evidence_lines(lines, in_fence, structural)
     for i, line in enumerate(lines):
         if in_fence[i] or structural[i]:
             continue
-        if not _OUTCOME_CLAIM_MARKER.search(line):
+        matches = [m for m in _OUTCOME_CLAIM_MARKER.finditer(line)
+                   if not _outcome_marker_word_sense_exempt(line, m)]
+        if not matches:
             continue
-        if _COUNTERFACTUAL_LEADIN.search(line):
+        if _is_hypothetical_or_negated(line) or _is_historical_narration(line):
             continue
-        window = "\n".join(lines[max(0, i - 3):i + 1])
+        # issue #2219: the evidence search scope is the claim's whole
+        # enclosing section, not a fixed line count — see module note.
+        lo, hi = _section_bounds(lines, i)
+        window = _dewrap("\n".join(lines[lo:hi]))
         m = _CANONICAL_TAG.search(window)
         cited = m.group(1).strip().strip("`") if m and m.group(1).strip() else ""
         has_executed_live = bool(cited) and bool(
@@ -222,18 +476,25 @@ def outcome_claim_citation_check(text: str) -> list[str]:
         # issue #1599 fix 4 — a commit-pinned citation is evidence in its
         # own right, independent of a literal `canonical:`/`derived:` tag.
         has_pinned = bool(_COMMIT_PINNED_CITE.search(window))
+        # issue #2219 — an `acceptance: ... — result:` lead-in paired
+        # with an immediately-following fence, anywhere in this section.
+        has_acceptance_result = any(
+            lo <= j < hi for j in acceptance_evidence)
         if not (has_executed_live or has_derived or has_observation_live
-                or has_pinned):
+                or has_pinned or has_acceptance_result):
             bad.append(
                 "레코드에 실행-근거 없는 OUTCOME 주장 (issue #870): "
                 f"{line.strip()!r} — 'requirement met/done/PASS/complete' "
-                "류의 결과 주장을 하면서 3줄 이내에 실행-라이브 인용"
+                "류의 결과 주장을 하면서 같은 섹션 안에 실행-라이브 인용"
                 "(`gh ...`/`pytest ...`/`python3 ...`/"
                 "`acceptance: <command> — result: ...`로 시작하는 "
                 "`canonical:` 태그, 또는 관측/verdict 레코드라면 자신이 "
                 "이번 턴에 만든 transcript/measurement를 지칭하는 "
                 "`canonical:` 태그)이 없다 — 파일을 읽었다는 인용만으로는 "
-                "부족하다.")
+                "부족하다. 통과하려면 같은 섹션(가장 가까운 헤딩 사이) 안에 "
+                "실행-라이브 `canonical:`/`derived:` 태그, `acceptance: "
+                "<command> — result:` 바로 다음의 코드펜스, 또는 커밋-고정 "
+                "인용(`<sha>:<path>:<line>`)을 두면 된다.")
     return bad
 
 
@@ -246,13 +507,18 @@ _SKILL_VERDICT_INVOKED_MARKER = re.compile(r"(?i)^invoked\s*;")
 
 
 def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
-    """issue #2039 mirror: a record whose spawn directive mounted N skills
-    must carry one `skill-verdict: <name> — applied: ... |
-    not-applicable: ...` line per mounted name, each with non-empty
-    content after the dash. Shape only — never judges whether the
-    applied/not-applicable content is actually correct, matching
-    #2039's frozen skills-guidance-only boundary. `mounted` empty is a
-    no-op (zero-mounted-skill sessions stay byte-unaffected).
+    """issue #2039 mirror: a record must carry one `skill-verdict: <name>
+    — applied: ... | not-applicable: ...` line per name in `mounted`,
+    each with non-empty content after the dash. Shape only — never judges
+    whether the applied/not-applicable content is actually correct,
+    matching #2039's frozen skills-guidance-only boundary. `mounted`
+    empty is a no-op (zero-mounted-skill sessions stay byte-unaffected).
+
+    Issue #2153: despite the parameter's name, `skill-verdict-guard.sh`
+    (the only session-side caller) now passes the subset of mounted
+    skills this session actually invoked via the Skill tool, not every
+    mounted name — a mounted-but-never-invoked skill owes no line. This
+    function itself stays generic over whatever name list it is given.
 
     Issue #2062: an `applied:` line must also carry an invocation
     marker — its free text (after the `applied:` label) must start with
@@ -328,7 +594,9 @@ def unverifiable_reason_check(text: str) -> list[str]:
             bad.append(
                 "`unverifiable:` 줄에 이유가 없다 (issue #310) — "
                 "`unverifiable: <이유>` 형태로 왜 기계 검사가 불가능한지 "
-                "적어야 한다.")
+                "적어야 한다. 통과하려면 콜론 뒤에 구체적인 이유 문구를 "
+                "채우면 된다 (예: `unverifiable: 주관적 UX 판단이라 기계로 "
+                "검사할 수 없다`).")
     return bad
 
 
@@ -344,49 +612,130 @@ def checked_claim_reason_check(text: str) -> list[str]:
         if result == "unverifiable" and not (reason and reason.strip()):
             bad.append(
                 "Acceptance verification 의 `unverifiable` 항목에 이유가 "
-                f"없다 (issue #331): {ln.strip()!r}")
+                f"없다 (issue #331): {ln.strip()!r} — 통과하려면 "
+                "`— checked: X — result: unverifiable: <이유>` 형태로 "
+                "콜론 뒤에 이유를 붙이면 된다.")
     return bad
+
+
+# issue #1620 misfire class 4: a tally whose computation is spelled out
+# inline right next to it — a percentage shown alongside the raw
+# fraction (e.g. "33.3% precision (4 TP / 12)"), or an explicit
+# multiplication/sum shown with an `=` (e.g. "9 keywords x
+# (lower/capitalize/upper) = 27 cases") — is self-evidencing: the reader
+# can see how the number was derived without a separate
+# `derived:`/fence citation. PR #1622 review: the signal must live on
+# the count's own line — a `%` there, or digits directly adjacent to an
+# `=` (not any unrelated `=` like "set FOO=bar" or "key=value").
+_INLINE_COMPUTED_LEADIN = re.compile(
+    r"\d+(?:\.\d+)?%|\d\s*=|=\s*\d")
+
+# PR #1622 review finding 1: a fence exemption must be scoped to a fence
+# that CLOSES within a few lines above the count, not "anywhere earlier
+# in the file" (that blanket form suppressed every count below the
+# first fence in the whole record).
+_FENCE_PROXIMITY_LINES = 5
 
 
 def bare_count_claim_check(text: str) -> list[str]:
     """#333 mirror: a bare "N of M"/"N items" count needs `derived:` or a
-    code-fence reproduction — fences are excluded."""
+    code-fence reproduction — fences are excluded. issue #1620 also
+    excludes: a count whose computation is shown inline (a percentage on
+    the same line), one backed by a fenced raw-output block shortly
+    above it, one carrying a `canonical:` citation on its own evidence
+    line, and an absence/negation statement ("not yet measurable
+    (0/30)")."""
     bad = []
     lines = text.splitlines()
     structural = _structural_skip_mask(lines)
-    in_fence = False
+    fence_flags = [False] * len(lines)
+    fence_close_lines = []
+    fence = False
     for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            in_fence = not in_fence
+        if line.strip().startswith("```"):
+            was_open = fence
+            fence = not fence
+            fence_flags[i] = True
+            if was_open and not fence:
+                fence_close_lines.append(i)
             continue
-        if in_fence or structural[i]:
+        fence_flags[i] = fence
+    for i, line in enumerate(lines):
+        if fence_flags[i] or structural[i]:
+            continue
+        wrap_window = " ".join(lines[max(0, i - 1):min(len(lines), i + 2)])
+        if _is_absence_negated(wrap_window):
             continue
         for pat in (_COUNT_RATIO, _COUNT_NOUN):
             for cm in pat.finditer(line):
                 tail = line[cm.end():]
                 if _CLAIM_DERIVED_TAG.match(tail.lstrip()):
                     continue
+                lo = max(0, i - 6)
+                evidence_window = "\n".join(lines[lo:i + 1])
+                if _CANONICAL_TAG.search(evidence_window):
+                    continue
+                if _INLINE_COMPUTED_LEADIN.search(line):
+                    continue
+                # "backed by a fenced raw-output block above" (issue
+                # #1620 class 4), scoped per PR #1622 review: the fence
+                # must CLOSE within a few lines above the count, not
+                # merely appear anywhere earlier in the record.
+                if any(
+                    0 <= i - j <= _FENCE_PROXIMITY_LINES
+                    for j in fence_close_lines if j < i
+                ):
+                    continue
                 bad.append(
                     "레코드에 근거 없는 개수 주장 (issue #333): "
                     f"{line.strip()!r} — 숫자가 코드펜스 재현이나 "
-                    "`derived: ...` 인용 없이 그냥 타이핑되어 있다.")
+                    "`derived: ...` 인용 없이 그냥 타이핑되어 있다. "
+                    "통과하려면 숫자 바로 뒤에 `derived: <command>`(백틱 "
+                    "유무 무관)를 붙이거나, 위 5줄 이내에 닫히는 코드펜스를 "
+                    "두거나, 같은 줄에 `%`/`=` 계산식을 보이거나, 가까이에 "
+                    "`canonical: ...` 태그를 두면 된다.")
                 break
     return bad
 
 
 def orphaned_path_reference_check(root: Path, text: str) -> list[str]:
     """#330 mirror: a backtick-quoted relative path that resolves nowhere
-    in the working tree."""
+    in the working tree. issue #1620 also excludes: a path cited while
+    explicitly narrating that it was renamed/moved away or deliberately
+    not used (deviation narration, not a live reachability claim), and
+    an absence/negation statement ("no decisions/ entry needed")."""
     bad = []
+    lines = text.splitlines()
+    structural = _structural_skip_mask(lines)
+    line_starts = []
+    pos = 0
+    for line in lines:
+        line_starts.append(pos)
+        pos += len(line) + 1
     for m in _PATH_REF.finditer(text):
+        line_idx = 0
+        for idx, start in enumerate(line_starts):
+            if start <= m.start():
+                line_idx = idx
+            else:
+                break
+        if line_idx < len(structural) and structural[line_idx]:
+            continue
+        window = " ".join(
+            lines[max(0, line_idx - 1):min(len(lines), line_idx + 2)])
+        if (_is_path_rename_narration(window) or _is_absence_negated(window)
+                or _is_untracked_out_of_scope_narration(window)):
+            continue
         ref = _strip_line_suffix(m.group(1))
         if any(ch in ref for ch in ("*", "?", "<", ">")):
             continue
         if not (root / ref).exists():
             bad.append(
                 "레코드가 존재하지 않는 경로를 참조한다 (issue #330): "
-                f"`{ref}` — 리치(reach)가 끊긴 참조다.")
+                f"`{ref}` — 리치(reach)가 끊긴 참조다. 통과하려면 실제로 "
+                "존재하는 경로를 인용하거나, 이름이 바뀌었다는 서술(`renamed "
+                "from/to`, `moved from/to`, `untracked`)을 근처에 남기면 "
+                "된다.")
     return bad
 
 
@@ -436,10 +785,14 @@ def git_tracked_path_reference_check(root: Path, text: str,
 def canonical_source_claim_check(text: str) -> list[str]:
     """issue #793 mirror: a state/defect-claim line (role output "found",
     session/PR/board state "halted|merged|closed|is running|is gone|is
-    stale", or a bare count claim) needs a `canonical: <what was read>`
-    tag within 3 lines above it, citing the actual role record/diff, raw
-    ground-truth command output, or file:line-context read — not a
-    summary/grep/watcher signal with nothing named."""
+    stale", or a bare count claim) needs, somewhere in its enclosing
+    markdown section (issue #2219 — was a fixed 3-line window; see the
+    module note above `_section_bounds`), a `canonical:`/`derived:
+    <what was read>` tag citing the actual role record/diff, raw
+    ground-truth command output, or file:line-context read, or an
+    `acceptance: ... — result:` lead-in immediately followed by a
+    fenced block (issue #2219) — not a summary/grep/watcher signal with
+    nothing named."""
     bad = []
     lines = text.splitlines()
     in_fence = [False] * len(lines)
@@ -451,33 +804,48 @@ def canonical_source_claim_check(text: str) -> list[str]:
             continue
         in_fence[i] = fence
     structural = _structural_skip_mask(lines)
+    acceptance_evidence = _acceptance_evidence_lines(lines, in_fence, structural)
     for i, line in enumerate(lines):
         if in_fence[i] or structural[i]:
             continue
-        if _COUNTERFACTUAL_LEADIN.search(line):
+        if _is_hypothetical_or_negated(line) or _is_historical_narration(line):
             continue
         marker_claim = bool(_STATE_CLAIM_MARKER.search(line))
         count_claim = not marker_claim and bool(
             _COUNT_RATIO.search(line) or _COUNT_NOUN.search(line))
         if not (marker_claim or count_claim):
             continue
-        window = "\n".join(lines[max(0, i - 3):i + 1])
+        # issue #2219: the evidence search scope is the claim's whole
+        # enclosing section, not a fixed line count — see module note.
+        lo, hi = _section_bounds(lines, i)
+        window = _dewrap("\n".join(lines[lo:hi]))
         m = _CANONICAL_TAG.search(window)
         has_canonical = bool(m and m.group(1).strip())
-        # A count claim already satisfying #333's `derived:` requirement
-        # names its source too — `canonical:` is a sibling tag, not a
-        # second mandatory citation for the same already-cited count.
-        has_derived = count_claim and bool(_CLAIM_DERIVED_TAG.search(window))
+        # issue #2219 — `derived:` is now a general sibling tag to
+        # `canonical:` for any claim type, not just a count claim's own
+        # citation (it was already treated as evidence-equivalent for
+        # counts; a state/defect claim citing the same command deserves
+        # the same treatment).
+        has_derived = bool(_CLAIM_DERIVED_TAG.search(window))
         # issue #1599 fix 4 — a commit-pinned citation is evidence in its
         # own right, independent of a literal `canonical:` prefix.
         has_pinned = bool(_COMMIT_PINNED_CITE.search(window))
-        if not (has_canonical or has_derived or has_pinned):
+        # issue #2219 — an `acceptance: ... — result:` lead-in paired
+        # with an immediately-following fence, anywhere in this section.
+        has_acceptance_result = any(
+            lo <= j < hi for j in acceptance_evidence)
+        if not (has_canonical or has_derived or has_pinned
+                or has_acceptance_result):
             bad.append(
                 "레코드에 canonical 소스 인용 없는 상태/결함 주장 (issue #793): "
                 f"{line.strip()!r} — role output / session·PR·board 상태 / "
-                "결함을 주장하면서 3줄 이내에 `canonical: <읽은 소스>` 태그가 "
-                "없다 — 요약이나 grep/watcher 신호가 아니라 실제 레코드/diff, "
-                "raw ground truth, 또는 file:line 컨텍스트를 인용해야 한다.")
+                "결함을 주장하면서 같은 섹션 안에 `canonical: <읽은 소스>` "
+                "태그가 없다 — 요약이나 grep/watcher 신호가 아니라 실제 "
+                "레코드/diff, raw ground truth, 또는 file:line 컨텍스트를 "
+                "인용해야 한다. 통과하려면 같은 섹션(가장 가까운 헤딩 사이) "
+                "안에 `canonical: ...` 또는 `derived: ...` 태그를 두거나, "
+                "`acceptance: <command> — result:` 바로 다음에 코드펜스로 "
+                "실행 결과를 붙이면 된다.")
     return bad
 
 
@@ -540,7 +908,7 @@ def defect_claim_grounding_check(root: Path, text: str) -> list[str]:
             continue
         if not _DEFECT_CLAIM_MARKER.search(line):
             continue
-        if _COUNTERFACTUAL_LEADIN.search(line):
+        if _is_hypothetical_or_negated(line) or _is_historical_narration(line):
             continue
 
         lo = max(0, i - 8)
@@ -581,13 +949,35 @@ def defect_claim_grounding_check(root: Path, text: str) -> list[str]:
                 f"{line.strip()!r} — 결함/원인 주장에는 인용된 file:line "
                 "범위와 축약없이(whitespace만 정규화) 일치하는 3줄 이상의 "
                 "펜스 인용, 또는 `derived: <command>` 재현이 필요하다 — "
-                "grep/키워드 히트 하나만으로는 근거가 되지 않는다.")
+                "grep/키워드 히트 하나만으로는 근거가 되지 않는다. 통과하려면 "
+                "인용한 file:line 범위와 일치하는 3줄 이상의 코드펜스를 "
+                "근처(8줄 이내)에 두거나, `derived: <command>` 태그와 "
+                "코드펜스를 함께 두면 된다.")
     return bad
 
 
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
+
+# issue #1614 misfire class 5: a record documenting one of these rules
+# itself (e.g. this very issue's own reports under docs/issue-1614/)
+# necessarily quotes the rule's marker vocabulary ("found", "PASS",
+# "canonical:") to explain the rule — that quotation is not the record
+# author making a live claim. Exempt each rule's own check for records
+# filed under the issue(s) that define/discuss it.
+_RULE_SELF_QUOTE_EXEMPT_ISSUES = {
+    "canonical_source_claim_check": {"793", "1614"},
+    "outcome_claim_citation_check": {"870", "1614"},
+    "defect_claim_grounding_check": {"791", "1614"},
+}
+_RECORD_ISSUE_RE = re.compile(r"^docs/issue-(\d+)/")
+
+
+def _record_issue_number(rel: str) -> str | None:
+    m = _RECORD_ISSUE_RE.match(rel)
+    return m.group(1) if m else None
+
 
 def lint_record(path: Path) -> list[str]:
     """Run every record rule against one record file's full text and
@@ -633,14 +1023,23 @@ def lint_record(path: Path) -> list[str]:
     # one — keep only violations that name this file.
     bad += [b for b in diff_scoped if rel in b]
 
+    issue_no = _record_issue_number(rel)
+
+    def _exempt(check_name: str) -> bool:
+        return issue_no is not None and \
+            issue_no in _RULE_SELF_QUOTE_EXEMPT_ISSUES.get(check_name, set())
+
     bad += unverifiable_reason_check(text)
     bad += checked_claim_reason_check(text)
     bad += bare_count_claim_check(text)
     bad += orphaned_path_reference_check(root, text)
     bad += git_tracked_path_reference_check(root, text, record_rel=rel)
-    bad += canonical_source_claim_check(text)
-    bad += outcome_claim_citation_check(text)
-    bad += defect_claim_grounding_check(root, text)
+    if not _exempt("canonical_source_claim_check"):
+        bad += canonical_source_claim_check(text)
+    if not _exempt("outcome_claim_citation_check"):
+        bad += outcome_claim_citation_check(text)
+    if not _exempt("defect_claim_grounding_check"):
+        bad += defect_claim_grounding_check(root, text)
     return bad
 
 
