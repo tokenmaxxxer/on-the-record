@@ -327,33 +327,15 @@ plan; every requirement kept the method and scope the proposal set out.
 
 ## Skill verdicts
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; loaded and applied during this same session's phase-1 survey
-write (docs/issue-2208/reports/conformance-review/survey.md),
-extracting and dimension-tagging R1-R12 from issue #2208's own text.
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; loaded and applied during this same session's phase-1 survey write (docs/issue-2208/reports/conformance-review/survey.md), extracting and dimension-tagging R1-R12 from issue #2208's own text.
 
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; loaded during this session's phase-1 proposal write
-and applied per requirement above (Inspection for R3/R5/R7/R8/R11's
-presence check, Test for R1/R4/R6/R9/R10/R12's re-runnable claims).
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; loaded during this session's phase-1 proposal write and applied per requirement above (Inspection for R3/R5/R7/R8/R11's presence check, Test for R1/R4/R6/R9/R10/R12's re-runnable claims).
 
-skill-verdict: conformance-review-verdict-assignment — applied:
-invoked; loaded this session before writing the Findings section —
-its Present/Surface/Absent/Incorrect/Unverifiable set and its
-carry-forward/re-check rules shaped every verdict above, including R7's
-own scope reasoning (rule 5's "name the specific clause" discipline,
-applied in reverse to explain why the open-ended clause is satisfied
-rather than failed).
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; loaded this session before writing the Findings section — its Present/Surface/Absent/Incorrect/Unverifiable set and its carry-forward/re-check rules shaped every verdict above, including R7's own scope reasoning.
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; loaded this session before writing the Findings section — its
-file:line-plus-commit-sha citation shape is used in every evidence
-field above.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; loaded this session before writing the Findings section — its file:line-plus-commit-sha citation shape is used in every evidence field above.
 
-skill-verdict: conformance-review-finding-record — applied: invoked;
-loaded this session before writing the Findings section above; its
-field list (requirement/spec_ref/verdict/evidence/rationale) shaped
-every block, one per R1..R12.
+skill-verdict: conformance-review-finding-record — applied: invoked; loaded this session before writing the Findings section above; its field list (requirement/spec_ref/verdict/evidence/rationale) shaped every block, one per R1..R12.
 
 other mounted skills: not triggered —
 conformance-review-sampling-derivation (full enumeration of R1-R12 was
