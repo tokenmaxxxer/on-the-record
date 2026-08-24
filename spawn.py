@@ -1506,6 +1506,77 @@ _FETCHED_THIS_SPAWN: dict[str, float] = {}
 # 시각). 세션이 절대-부재 주장을 쓰기 전에 이 기록이 이미 있어야 한다.
 _BOOTSTRAP_FETCH_RECORD: dict[str, dict] = {}
 
+# 이슈 #2159: gitignore 돼 클론에 안 실리는 로컬 전용 의존성 디렉터리의
+# 초기 집합.
+_LOCAL_DEP_DIR_NAMES = ("node_modules", ".venv", "vendor")
+
+
+def _find_local_dep_dirs(origin: str) -> dict[str, list[Path]]:
+    """`origin` 루트와 그 바로 아래 한 단계 하위 디렉터리에서
+    `_LOCAL_DEP_DIR_NAMES` 를 찾는다. 읽기만 한다 — 아무것도 쓰지 않는다."""
+    root = Path(origin)
+    found: dict[str, list[Path]] = {name: [] for name in _LOCAL_DEP_DIR_NAMES}
+    candidates = [root]
+    try:
+        candidates += [p for p in root.iterdir()
+                       if p.is_dir() and not p.name.startswith(".")]
+    except OSError:
+        pass
+    for base in candidates:
+        for name in _LOCAL_DEP_DIR_NAMES:
+            d = base / name
+            if d.is_dir():
+                found[name].append(d)
+    return found
+
+
+def local_dependency_env(origin: str, work: str) -> dict[str, str]:
+    """이슈 #2159: `work`(격리 작업 클론)에는 없고 `origin`(스폰을 부른
+    체크아웃)에만 있는 로컬 전용 의존성 디렉터리를 가리키는 env var 를
+    만든다. `work` 안으로 파일을 복사하거나 심볼릭링크하지 않는다 — 격리
+    보장(이슈 #513)은 그대로 두고, 세션 env 에 원격 조회용 포인터만
+    심는다.
+
+    node_modules -> `NODE_PATH` (후보가 여럿이면 `os.pathsep` 로 이어
+    붙인다 — Node 자신이 NODE_PATH 를 그렇게 파싱한다).
+    .venv -> `VIRTUAL_ENV`, 그리고 site-packages 를 유일하게 특정할 수
+    있을 때만 `PYTHONPATH` 도 함께. .venv 후보가 둘 이상이면 어느
+    인터프리터가 맞는지 알 수 없으므로 통째로 건너뛴다.
+    vendor/ 는 생태계마다(Go/PHP/Ruby/...) 쓰는 lookup var 가 서로 달라
+    하나로 정할 수 없다 — 탐지는 하되 env 는 절대 만들지 않는다.
+
+    `origin` 과 `work` 가 같은 경로면(자기 자신을 스폰 대상으로 재사용)
+    빈 dict. `work` 의 같은 상대경로에 이미 그 디렉터리가 있으면(트래킹된
+    vendored 디렉터리였거나, 이전 재스폰이 이미 그 자리에 설치해 뒀거나)
+    그 항목은 만들지 않는다 — 이미 있는 걸 다른 경로로 덮어쓰면 버전이
+    갈릴 수 있다."""
+    origin_p = Path(origin).resolve()
+    work_p = Path(work).resolve()
+    if origin_p == work_p:
+        return {}
+    found = _find_local_dep_dirs(str(origin_p))
+
+    def _not_in_work(d: Path) -> bool:
+        try:
+            rel = d.relative_to(origin_p)
+        except ValueError:
+            return True
+        return not (work_p / rel).exists()
+
+    env: dict[str, str] = {}
+    node_dirs = [d for d in found["node_modules"] if _not_in_work(d)]
+    if node_dirs:
+        env["NODE_PATH"] = os.pathsep.join(str(d) for d in node_dirs)
+    venvs = [d for d in found[".venv"] if _not_in_work(d)]
+    if len(venvs) == 1:
+        venv = venvs[0]
+        env["VIRTUAL_ENV"] = str(venv)
+        site_pkgs = sorted(venv.glob("lib/python*/site-packages"))
+        if len(site_pkgs) == 1:
+            env["PYTHONPATH"] = str(site_pkgs[0])
+    # vendor/: 탐지만 하고 env 는 만들지 않는다(생태계별 lookup var 불명).
+    return env
+
 
 def issue_workspace(cwd: str, issue: int, role: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
@@ -2214,7 +2285,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 print(f"[{role}] auto-sweep 실패(스폰은 계속): {ex}",
                       file=sys.stderr)
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
-        # 동시 스폰들이 서로의 index/브랜치를 밟지 않는다.
+        # 동시 스폰들이 서로의 index/브랜치를 밟지 않는다. 이슈 #2159:
+        # 클론 전 cwd(= origin 체크아웃)를 따로 잡아 둔다 — 아래에서
+        # cwd 가 격리 작업 경로로 덮어써지면 origin 쪽 경로는 이 변수로만
+        # 남는다.
+        origin_cwd = cwd
         with _timed("workspace"):
             cwd = issue_workspace(cwd, issue, role)
         claim_rejection = _acquire_spawn_claim(cwd, issue, role)
@@ -2517,6 +2592,9 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 "PIP_CACHE_DIR": os.path.join(wcache, "pip"),
                 "CARGO_HOME": os.path.join(wcache, "cargo"),
             })
+            # 이슈 #2159: origin 체크아웃에만 있는 node_modules/.venv 를
+            # 가리키는 env var — 파일은 옮기지 않는다(위 주석 참고).
+            extra_env.update(local_dependency_env(origin_cwd, cwd))
         before = board_snapshot(cwd)
         before_head = _git_head(cwd) if issue is not None else None
         t0 = time.monotonic()
