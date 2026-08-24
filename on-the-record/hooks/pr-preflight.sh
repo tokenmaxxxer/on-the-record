@@ -231,6 +231,23 @@ if not phase2:
             phase2 = True
             break
 
+# --- build-now bypass (issue #2158, contract v3 s19a) -----------------------
+# CORE_BUILD_NOW=1 in the session env is the spawner's own operator-level
+# authorization for a single-phase delivery session (mirrors approval-
+# gate.sh's identical check, issue #2007) — a build-now session skips the
+# proposal round by design, so there is no separate approval round left to
+# gate here: its delivery PR is phase-2-equivalent by construction, with or
+# without an actual APPROVE comment or delegation citation. Absent/unset/
+# non-"1" leaves phase2 (and every downstream phase-1/phase-2 check) byte-
+# identical to today.
+if not phase2 and os.environ.get("CORE_BUILD_NOW") == "1":
+    phase2 = True
+    sys.stderr.write(
+        "pr-preflight: CORE_BUILD_NOW=1 — treating issue-%d/%s as phase-2-equivalent "
+        "(build-now single-phase delivery, no separate approval round to gate).\n"
+        % (issue, role)
+    )
+
 phase = "phase2" if phase2 else "phase1"
 
 # --- amendments-reconciled check (issue #1177) ------------------------------

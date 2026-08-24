@@ -79,6 +79,7 @@ def _run(repo, bin_dir, body, comments):
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(comments)
     env.pop("ORCHESTRATE_OFF", None)
+    env.pop("CORE_BUILD_NOW", None)
     return subprocess.run(
         ["bash", str(GUARD)], input=payload, capture_output=True, text=True,
         cwd=repo, env=env, timeout=30,
