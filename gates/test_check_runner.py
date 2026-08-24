@@ -128,6 +128,41 @@ def t_format_comment_names_the_artifact_smoke_type():
     assert "1/1 passed" in out, out
 
 
+# --- issue-2233: bare `.py` gate path runs through pytest, doesn't crash --
+
+
+def t_bare_py_gate_path_is_wrapped_to_run_through_pytest():
+    """이 저장소가 실제로 가장 흔히 쓰는 `gate: \\`tests/test_x.py\\`` 형태
+    (인터프리터 접두 없음) — 직접 exec 하면 실행권한이 없어 크래시하거나
+    (issue #2233, PR #2223 라이브 실행에서 실측), 있어도 셔뱅 없인 뜻대로
+    안 돈다. `python3 -m pytest`로 감싼다."""
+    section = "\n- check: `tests/test_workspace_checkpoint.py`\n"
+    checks = check_runner.parse_checks(section)
+    assert checks == [{"type": "test", "raw": "`tests/test_workspace_checkpoint.py`",
+                        "command": "python3 -m pytest tests/test_workspace_checkpoint.py"}]
+
+
+def t_py_gate_path_with_explicit_interpreter_is_left_alone():
+    section = "\n- check: `python3 -m pytest gates/test_x.py -q`\n"
+    checks = check_runner.parse_checks(section)
+    assert checks[0]["command"] == "python3 -m pytest gates/test_x.py -q"
+
+
+def t_run_checks_records_a_failure_instead_of_crashing_on_unexecutable_command():
+    """`OSError`(예: 실행권한 없음)를 잡아 FAIL 결과로 기록한다 — 검사
+    하나를 못 돌린다고 러너 전체가 죽으면 안 된다(issue #2233)."""
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        target = repo / "not_executable.py"
+        target.write_text("print(1)\n")
+        # 실행권한을 명시적으로 뺀다 (checkout 직후엔 보통 이 상태다).
+        target.chmod(0o644)
+        checks = [{"type": "test", "raw": "r", "command": "./not_executable.py"}]
+        results = check_runner.run_checks(repo, checks)
+    assert results[0]["status"] == "fail", results
+    assert "실행할 수 없다" in results[0]["output"], results
+
+
 # --- issue-1323 req 2 (원래 tests/test_check_runner.py) --------------------
 
 

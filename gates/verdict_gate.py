@@ -74,7 +74,10 @@ def main() -> int:
     tests_pass = False
     if comment is not None:
         result = merge_gate.parse_check_runner_result(comment)
-        tests_pass = bool(result and result["passed"] == result["total"])
+        # issue #2233 empty-state: `{"no_checks": True}` 에는 passed/total
+        # 이 없다 — "검사가 없다"를 "전부 pass"로 잘못 읽지 않는다.
+        tests_pass = bool(result and not result.get("no_checks")
+                           and result.get("passed") == result.get("total"))
 
     action = classify(verdict_text, gate_result, tests_pass)
     print(f"판정: PR #{pr} ({subject}) -> {action}")
