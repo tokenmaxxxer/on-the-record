@@ -352,39 +352,16 @@ verdict the proposal set out, and no new file outside the proposal's
 
 ## Skill verdicts
 
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; used rule 4 (Test method for REQ-4/REQ-5's independent
-pytest re-run, not re-deriving a fresh manual check where an executable
-test already exists), rule 1 (Inspection for REQ-7/REQ-8/REQ-10/REQ-12's
-static CLI-help/file-existence/code-signature checks), and Analysis/live
-reproduction for REQ-1/REQ-2/REQ-3, which only a real spawn could settle
-(see Findings above, this session).
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; produced the REQ-1..REQ-12 split in docs/issue-2204/reports/conformance-review/survey.md §2 (this session's own phase-1 half) — one obligation per line, dimension-tagged, backward-traced to issue #2204's own `## Acceptance`/`## Fix` text.
 
-skill-verdict: conformance-review-verdict-assignment — applied: invoked;
-used rule 1 (Surface, not Present, for REQ-1/REQ-3: matching evidence
-exists but does not establish the requirement's literal full condition),
-rule 5 (REQ-8/REQ-10's Absent verdicts each name their own failing
-clause rather than a bare label), and rule 4 (REQ-9's Present verdict
-via a cited substitute mechanism rather than the literal one named). See
-Findings above, this session.
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; used rule 4 (Test method for REQ-4/REQ-5's independent pytest re-run, not re-deriving a fresh manual check where an executable test already exists), rule 1 (Inspection for REQ-7/REQ-8/REQ-10/REQ-12's static CLI-help/file-existence/code-signature checks), and Analysis/live reproduction for REQ-1/REQ-2/REQ-3, which only a real spawn could settle (see Findings above, this session).
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; used rule 1 (`sha:path` pointer via `924efed8:<path>` or an
-explicit `git show issue-2204/implementation:<path>` command, since none
-of the implementation branch's own record paths exist on this review
-branch's tree) and rule 2 (`pipeline.py` and `spawn.py` cited
-separately per requirement rather than bundled). See Findings above,
-this session.
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; used rule 1 (Surface, not Present, for REQ-1/REQ-3: matching evidence exists but does not establish the requirement's literal full condition), rule 5 (REQ-8/REQ-10's Absent verdicts each name their own failing clause rather than a bare label), and rule 4 (REQ-9's Present verdict via a cited substitute mechanism rather than the literal one named). See Findings above, this session.
 
-skill-verdict: conformance-review-finding-record — applied: invoked;
-used the field list (`requirement`/`spec_ref`/`verdict`/`evidence`/
-`rationale`) to shape every block, one per REQ-1..REQ-12. See the
-Findings section above, this session.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; used rule 1 (`sha:path` pointer via `924efed8:<path>` or an explicit `git show issue-2204/implementation:<path>` command, since none of the implementation branch's own record paths exist on this review branch's tree) and rule 2 (`pipeline.py` and `spawn.py` cited separately per requirement rather than bundled). See Findings above, this session.
 
-other mounted skills: not triggered — conformance-review-requirement-extraction
-was this session's own phase-1 job (its skill-verdict line already
-carried in `docs/issue-2204/proposals/2026-08-24-conformance-review-issue-2204.md`);
-conformance-review-sampling-derivation (full enumeration of REQ-1..REQ-12
-was feasible at this size) and conformance-review-severity-classification
-(no severity-weighting was requested) stay `not-applicable` this session
-too.
+skill-verdict: conformance-review-finding-record — applied: invoked; used the field list (`requirement`/`spec_ref`/`verdict`/`evidence`/`rationale`) to shape every block, one per REQ-1..REQ-12. See the Findings section above, this session.
+
+skill-verdict: conformance-review-sampling-derivation — not-applicable: full enumeration of REQ-1..REQ-12 was feasible at this size (three commits, twelve requirement line items) — no stratified sample was needed.
+
+skill-verdict: conformance-review-severity-classification — not-applicable: this review's scope was not explicitly extended into risk-weighting a recorded finding; no severity band was requested.
