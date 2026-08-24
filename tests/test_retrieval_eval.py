@@ -221,6 +221,41 @@ class HermeticEnrichmentAndFastPathTest(unittest.TestCase):
         # Judge consulted only for the remaining slot, without the fast pick.
         self.assertEqual(calls, [["other-skill"]])
 
+    def test_fast_path_ignores_declared_phrase_outside_bm25_topn(self):
+        """Issue #2166: a declared phrase must not auto-pick a skill whose
+        overall BM25 relevance falls outside the judge's top-N slate — the
+        fast path is a confirming signal for an already-plausible candidate,
+        not an unranked judge bypass. Repro: work-in-english's declared
+        phrases are generic request examples ("fix this bug and open a pr")
+        that appear verbatim in almost any task text while its own BM25 rank
+        is low/irrelevant (measured rank 47 of 269 for a real on-the-record
+        task) — pre-fix, the fast path scanned the full unranked `scored`
+        list and auto-picked it anyway."""
+        self._skill("high-rank-skill",
+                    "Use when handling database connection pool exhaustion "
+                    "under load.")
+        self._skill("low-rank-skill",
+                    'Use for something entirely unrelated to this task. '
+                    'Trigger on "fix this bug and open a pr".')
+        calls = []
+
+        def judge(task_text, role, candidates, issue, cwd, model=None,
+                  max_picks=2):
+            calls.append([n for n, _d, _s in candidates])
+            return [], {"picked": [], "rejected": [], "reasons": {}}
+        with mock.patch.object(spawn, "_skill_judge_consult", judge), \
+                mock.patch.object(spawn, "_CROSS_FAMILY_CONSULT_TOPN", 1):
+            picked, outcome = spawn._cross_family_skill_matches_with_consult(
+                "Diagnose database connection pool exhaustion under load. "
+                "fix this bug and open a pr afterward.",
+                "implementation", self.root, None, None, k=2)
+        # low-rank-skill's declared phrase matches verbatim, but it is not
+        # BM25 top-1 (patched _CROSS_FAMILY_CONSULT_TOPN=1) — it must be
+        # excluded from both the fast path and the judge's candidate slate.
+        self.assertEqual([d.name for d in picked], [])
+        self.assertEqual(outcome, "completed")
+        self.assertEqual(calls, [["high-rank-skill"]])
+
     def test_fast_path_filling_cap_skips_judge_entirely(self):
         self._skill("skill-a", 'Trigger on "alpha beta gamma".')
         self._skill("skill-b", 'Trigger on "delta epsilon zeta".')
