@@ -619,9 +619,13 @@ def t_heartbeat_bound_with_no_returned_pr_emits_nothing():
 
 
 def t_heartbeat_bound_with_returned_pr_emits_only_those_lines():
-    """issue #1732 Acceptance check 2: an unchanged report carrying a
-    returned-pr entry, ticked past the 1800s last_emit_epoch bound, emits
-    exactly that returned-pr line and no 'monitoring active' line."""
+    """issue #1732 Acceptance check 2, updated by issue #2180: an
+    unchanged report carrying a returned-pr entry, ticked past the 1800s
+    last_emit_epoch bound, no longer re-prints the full [returned-pr]
+    line verbatim (that repeat-forever shape is exactly what #2180
+    reports as noise) -- it now emits a single collapsed
+    [returned-pr-pending] count+label line, and still no 'monitoring
+    active' line."""
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         checkout = _make_checkout(tmp)
@@ -635,8 +639,107 @@ def t_heartbeat_bound_with_returned_pr_emits_only_those_lines():
         _force_last_emit_epoch(checkout, 0)
         r2 = _run_tick(checkout, home, report)
         assert r2.returncode == 0, r2.stderr
-        assert r2.stdout.strip() == "[returned-pr] issue #22 (phase1): age=1.0h — https://example/22", r2.stdout
+        assert r2.stdout.strip() == "[returned-pr-pending] 1 PR(s) still awaiting review: #22", r2.stdout
         assert "monitoring active" not in r2.stdout, r2.stdout
+
+
+def t_returned_pr_new_item_gets_distinct_marker_ahead_of_routine_line():
+    """issue #2180 acceptance check 1: a newly-returned PR produces a
+    distinct, unmistakable [new-returned-pr] signal on the tick it first
+    appears -- a different bracket tag from the routine [returned-pr]
+    line (and from any other heartbeat body line), placed ahead of the
+    rest of that tick's output so it doesn't blend into routine noise.
+    The original [returned-pr] line is still present too, unchanged, for
+    any existing consumer of that exact tag."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report = (
+            "[watchdog] some-repo: board-sweep: no-change\n"
+            "[returned-pr] issue #40 (phase2): age=0.1h — https://example/40"
+        )
+        r = _run_tick(checkout, home, report)
+        assert r.returncode == 0, r.stderr
+        lines = r.stdout.splitlines()
+        assert lines, r.stdout
+        assert lines[0] == "[new-returned-pr] issue #40 (phase2): age=0.1h — https://example/40", r.stdout
+        assert "[returned-pr] issue #40 (phase2): age=0.1h — https://example/40" in r.stdout, r.stdout
+
+
+def t_returned_pr_new_marker_does_not_repeat_on_later_tick():
+    """issue #2180 acceptance check 2 (regression, two-tick sequence): an
+    already-surfaced PR does not re-emit the same full [returned-pr] line
+    -- nor its one-shot [new-returned-pr] marker -- on a later tick where
+    nothing but its age= token changed."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report_tick1 = "[returned-pr] issue #22 (phase1): age=1.0h — https://example/22"
+        r1 = _run_tick(checkout, home, report_tick1)
+        assert r1.returncode == 0, r1.stderr
+        assert "[new-returned-pr] issue #22" in r1.stdout, r1.stdout
+        assert "[returned-pr] issue #22" in r1.stdout, r1.stdout
+
+        report_tick2 = "[returned-pr] issue #22 (phase1): age=1.5h — https://example/22"
+        r2 = _run_tick(checkout, home, report_tick2)
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == "", r2.stdout
+
+
+def t_returned_pr_phase_transition_does_not_refire_new_marker():
+    """issue #2180 warrant-hunt regression: the diff key
+    (`returned-pr:issue #N (phaseX)`) bakes in the phase label, so a
+    phase1->phase2 transition on the SAME still-open PR used to be
+    treated as a brand-new sighting and re-fire [new-returned-pr]. The
+    plain [returned-pr] line still legitimately re-emits (the phase text
+    really did change), but the one-shot marker must not repeat for a
+    PR whose issue number was already surfaced."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report_phase1 = "[returned-pr] issue #999 (phase1): age=1.0h — https://example/999"
+        r1 = _run_tick(checkout, home, report_phase1)
+        assert r1.returncode == 0, r1.stderr
+        assert "[new-returned-pr] issue #999" in r1.stdout, r1.stdout
+
+        report_phase2 = "[returned-pr] issue #999 (phase2): age=1.2h — https://example/999"
+        r2 = _run_tick(checkout, home, report_phase2)
+        assert r2.returncode == 0, r2.stderr
+        assert "[returned-pr] issue #999 (phase2)" in r2.stdout, r2.stdout
+        assert "[new-returned-pr]" not in r2.stdout, r2.stdout
+
+
+def t_returned_pr_first_ever_tick_treats_every_open_pr_as_new():
+    """issue #2180 empty-state clause: a first-ever tick with no prior
+    surfaced-marker file (no runs/poll_heartbeat_last_state.json yet)
+    treats every currently-open returned-pr entry as new -- each gets its
+    own [new-returned-pr] marker exactly once, then is suppressed on the
+    very next tick even though nothing changed."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        assert not (checkout / "runs" / "poll_heartbeat_last_state.json").exists()
+
+        report = (
+            "[returned-pr] issue #22 (phase1): age=1.0h — https://example/22\n"
+            "[returned-pr] issue #40 (phase2): age=0.1h — https://example/40"
+        )
+        r1 = _run_tick(checkout, home, report)
+        assert r1.returncode == 0, r1.stderr
+        assert "[new-returned-pr] issue #22" in r1.stdout, r1.stdout
+        assert "[new-returned-pr] issue #40" in r1.stdout, r1.stdout
+
+        r2 = _run_tick(checkout, home, report)
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == "", r2.stdout
 
 
 def t_patrol_quiet_tick_with_roles_emits_no_summary_line():
