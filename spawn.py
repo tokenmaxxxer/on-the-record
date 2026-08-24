@@ -1906,6 +1906,19 @@ _LANDING_BATCHING_PROSE = (
     "Five separate single-command turns for add/commit/push/pr-create were "
     "the measured pattern this guidance retires.\n")
 
+# Issue #2185: measured cost — spawned sessions run `find` (including
+# unscoped `find /` whole-tree traversals) to locate files whose path they
+# don't already know, burning tens of seconds per spawn (58s single gap on
+# the issue's fixture measurement). `git ls-files` covers the repo-local
+# case: faster, respects .gitignore, no full traversal.
+_REPO_DISCOVERY_PROSE = (
+    "저장소 파일 탐색(이슈 #2185): 이름은 알지만 정확한 경로를 모르는 "
+    "파일/디렉토리를 찾을 때는 `find`(특히 `find /`처럼 저장소 밖이나 "
+    "전체 트리를 훑는 호출)보다 `git ls-files`를 먼저 써라 — .gitignore "
+    "를 존중하고 훨씬 빠르다. 예: `git ls-files | grep -i readme`, "
+    "`git ls-files docs/ test/`. 위 디렉티브 인덱스에 이미 전체 경로가 "
+    "적힌 파일은 다시 찾지 말고 그 경로 그대로 Read 하라.\n")
+
 # Moved verbatim: the mounted-skill inspection nudge (issue #1960 phase B)
 # + invoke-before-apply (issue #2062).
 _SKILL_CHECK_PROSE = (
@@ -1941,11 +1954,13 @@ def directive_section_files(*, skills_mounted: bool = False,
                             checkpoint_block: str | None = None) -> dict[str, str]:
     """The on-demand section files for one spawn: name -> full prose.
 
-    `completion-and-landing.md` is always materialized; the skill and
-    checkpoint sections only when their condition holds (their trigger
-    lines are equally conditional, so index and files stay a bijection)."""
+    `completion-and-landing.md` and `repo-discovery.md` are always
+    materialized; the skill and checkpoint sections only when their
+    condition holds (their trigger lines are equally conditional, so index
+    and files stay a bijection)."""
     files = {"completion-and-landing.md":
-             _COMPLETION_PROSE + _LANDING_BATCHING_PROSE}
+             _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
+             "repo-discovery.md": _REPO_DISCOVERY_PROSE}
     if skills_mounted:
         files["skill-obligations.md"] = (_SKILL_CHECK_PROSE + "\n"
                                           + _SKILL_VERDICT_PROSE)
@@ -2391,7 +2406,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"백그라운드 검증을 시작하기 전과 랜딩(커밋·push·PR) 직전에 "
                 f"Read. 체크포인트 커밋 규칙, headless 단발-턴 경고("
                 f"run_in_background 작업은 턴 끝에 죽는다), 배치 랜딩 "
-                f"절차가 들어 있다.\n\n") + task
+                f"절차가 들어 있다.\n"
+                f"- {DIRECTIVE_DIR}/repo-discovery.md — 경로 모르는 파일을 "
+                f"찾기 전에 Read(이슈 #2185): `find` 대신 `git ls-files`.\n"
+                f"\n") + task
         # 이슈 #1978 (A), 이슈 #2152 로 기본값 반전: `single_phase` 는 이제
         # CLI 기본값이 True 인 effective 값이다 — --two-phase 나
         # --checkpoint 가 없으면 이 블록이 기본으로 붙는다. B(스킬 트리거
