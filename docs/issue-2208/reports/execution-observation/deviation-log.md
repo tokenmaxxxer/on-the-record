@@ -74,3 +74,37 @@
   Role-handoff contract v3 scopes this role's writes to
   `docs/issue-2208/reports/execution-observation.md` and explicitly warns
   against a blanket `git add -A/.`.
+
+- 2026-08-25T00:00:00Z | inline | issue-2208/execution-observation | a
+  further follow-on session opened on this branch and re-confirmed the
+  identical already-landed state, making no further changes.
+  canonical: acceptance: `head -14 docs/issue-2208/reports/execution-observation.md`,
+  this session — result:
+  ```
+  loop_state: handed-off
+  ...
+  result: passed
+  ```
+  canonical: acceptance: `git status -sb`, this session — result:
+  ```
+  ## issue-2208/execution-observation...origin/issue-2208/execution-observation
+   M .orchestrate-hook-fires.log
+  ?? .on-the-record/directive/
+  ```
+  canonical: acceptance: `git log origin/issue-2208/execution-observation..HEAD --oneline`
+  and `git log HEAD..origin/issue-2208/execution-observation --oneline`,
+  this session — result: both empty (no unpushed commits, not behind
+  origin).
+  canonical: acceptance: `gh pr list --head issue-2208/execution-observation --state all`,
+  this session — result: PR #2224, `OPEN`.
+  canonical: acceptance: `gh pr view 2224 --json state,title,body`, this
+  session — result: body already carries a "## Phase 2 (this update)"
+  section.
+  Given the record's frontmatter, the branch being fully pushed and not
+  behind origin, the PR already open with Phase 2 content, and the same
+  two stray working-tree items (`.orchestrate-hook-fires.log` modified,
+  `.on-the-record/directive/` untracked) present unchanged from the
+  prior session's entry above, this session made no code or record
+  changes — only this log line — to avoid redundant re-verification
+  churn across repeated follow-on session spawns landing on an already
+  fully-handed-off branch.
