@@ -61,6 +61,24 @@ def _acceptance_section(body: str) -> str | None:
 INTERPRETERS = ("python3", "python", "bash", "sh", "pytest",
                 "node", "npx", "deno", "bun")
 
+# issue #2231 residual gap (from #2233's closing comment, PR #2222 live
+# case): a `check:` bullet naming a script in backticks incidentally,
+# while the actual criterion is a comparative/quantitative MEASUREMENT
+# ("an 8KB heredoc write ... completes in a time comparable to a 1KB
+# one — measured, with both numbers in the record", issue #2210) is not
+# a file-existence check — the file existing proves nothing about the
+# claim. Falling through to `file-existence` mechanically asserted a
+# claim the bullet never made and FAILed a correct PR (PR #2222) for a
+# reason unrelated to its substance. When this language is present
+# alongside a backtick that doesn't already look like an executable
+# command, classify as `judgment` instead — the measurement is real but
+# not mechanically checkable; requirement_met.py's semantic layer grades
+# it now that prose criteria reach it (issue #2231 defect 1).
+_MEASUREMENT_LANGUAGE = re.compile(
+    r"(?i)\b(measured?|measuring|comparable\s+to|completes?\s+in\s+a?\s*"
+    r"time|regression\s+guard|unchanged\s+on|latency|throughput|duration|"
+    r"benchmark(?:ed)?|median|percentile)\b")
+
 
 def parse_checks(section: str,
                  runtime_artifacts: list[str] | None = None) -> list[dict]:
@@ -110,6 +128,8 @@ def parse_checks(section: str,
                         and tokens[0] not in INTERPRETERS):
                     cmd = f"python3 -m pytest {cmd}"
                 checks.append({"type": "test", "raw": raw, "command": cmd})
+            elif _MEASUREMENT_LANGUAGE.search(raw):
+                checks.append({"type": "judgment", "raw": raw})
             else:
                 checks.append({"type": "file-existence", "raw": raw, "path": cmd})
             continue
@@ -191,34 +211,66 @@ def run_checks(repo: Path, checks: list[dict]) -> list[dict]:
     return results
 
 
-def format_comment(results: list[dict]) -> str:
+def format_comment(results: list[dict], skipped: list[dict] | None = None) -> str:
     """구조화된 마크다운 PR 코멘트 본문 하나를 만든다.
 
-    `results`가 빈 목록이면(파싱된 `check:`/`gate:` 줄이 하나도 없음)
-    `format_no_checks_comment()`로 위임한다 — 예전엔 여기서 `0/0 passed`를
-    찍었는데, `passed == total`(0==0)이 참이라 `merge_gate.evaluate()`가
-    이걸 통과로 읽었다(issue #2233 empty-state 결함). 빈 검사 목록은 이제
-    숫자 헤더 자체를 안 찍어 그 우연한 통과를 구조적으로 막는다."""
+    `results`가 빈 목록이면(파싱된 `check:`/`gate:` 줄이 하나도 없음, 또는
+    이슈 #2231 — 있었지만 전부 `judgment` 로 분류돼 기계적으로 돌릴 게
+    없음) `format_no_checks_comment()`로 위임한다 — 예전엔 여기서
+    `0/0 passed`를 찍었는데, `passed == total`(0==0)이 참이라
+    `merge_gate.evaluate()`가 이걸 통과로 읽었다(issue #2233 empty-state
+    결함). 빈 검사 목록은 이제 숫자 헤더 자체를 안 찍어 그 우연한 통과를
+    구조적으로 막는다.
+
+    `skipped`(issue #2231 잔여 결함 (a), #2233 종료 코멘트): `judgment`
+    로 분류된 항목들 — 기계적으로 실행하지 않았지만 존재는 밝힌다.
+    숫자 헤더의 분모/분자에는 안 들어간다(이 러너의 범위 밖이라
+    pass/fail 판정 자체가 없다) — 채점은
+    `gates/requirement_met.py`의 semantic 레이어 몫이다."""
+    skipped = skipped or []
     if not results:
-        return format_no_checks_comment()
+        return format_no_checks_comment(skipped)
     total = len(results)
     passed = sum(1 for r in results if r["status"] == "pass")
     lines = [f"## Acceptance check-runner result: {passed}/{total} passed", ""]
     for r in results:
         mark = "PASS" if r["status"] == "pass" else "FAIL"
         lines.append(f"- [{mark}] ({r['type']}) {r['check']}")
+    if skipped:
+        lines.append("")
+        lines.append(f"judgment (기계 실행 범위 밖, {len(skipped)}개 — "
+                      "semantic 채점은 requirement_met.py 몫):")
+        for s in skipped:
+            lines.append(f"- {s['raw']}")
     return "\n".join(lines)
 
 
-def format_no_checks_comment() -> str:
-    """이슈의 `## Acceptance` 절에 실행가능한 검사가 하나도 없을 때 남기는
-    코멘트(issue #2233 empty-state). `NO_CHECKS_MARKER`로 시작해
-    `merge_gate.parse_check_runner_result()`가 숫자 헤더와 구조적으로
-    구분해 감지한다 — 이 결과를 통과로 취급하지 않는다."""
-    return (f"{NO_CHECKS_MARKER}\n\n"
-            "이 이슈의 `## Acceptance` 절에 기계적으로 실행 가능한 "
-            "`check:`/`gate:` 줄이 없다. 이것은 통과가 아니라 별개의 결과다 "
-            "— 머지 게이트는 이걸 만족으로 취급하면 안 된다.")
+def format_no_checks_comment(judgment: list[dict] | None = None) -> str:
+    """이슈의 `## Acceptance` 절에 기계적으로 실행 가능한 검사가 하나도
+    없을 때 남기는 코멘트(issue #2233 empty-state). `NO_CHECKS_MARKER`로
+    시작해 `merge_gate.parse_check_runner_result()`가 숫자 헤더와
+    구조적으로 구분해 감지한다 — 이 결과를 통과로 취급하지 않는다.
+
+    `judgment`(issue #2231 잔여 결함 (a)): `check:`/`gate:` 줄이 있긴
+    있었지만 전부 `judgment` 로 분류된 경우 — 이 러너가 무엇을 왜 못
+    돌렸는지 밝힌다. 생략하면(진짜로 줄이 0개) 예전과 바이트 단위로
+    같은 문구를 낸다."""
+    if not judgment:
+        return (f"{NO_CHECKS_MARKER}\n\n"
+                "이 이슈의 `## Acceptance` 절에 기계적으로 실행 가능한 "
+                "`check:`/`gate:` 줄이 없다. 이것은 통과가 아니라 별개의 결과다 "
+                "— 머지 게이트는 이걸 만족으로 취급하면 안 된다.")
+    lines = [
+        NO_CHECKS_MARKER, "",
+        f"이 이슈의 `## Acceptance` 절에 있는 {len(judgment)}개 `check:`/"
+        "`gate:` 항목이 전부 판단이 필요한(judgment) 기준이라 기계적으로 "
+        "실행할 검사가 없다. 이것은 통과가 아니라 별개의 결과다 — 머지 "
+        "게이트는 이걸 만족으로 취급하면 안 된다. semantic 채점은 "
+        "`gates/requirement_met.py`가 담당한다:",
+    ]
+    for j in judgment:
+        lines.append(f"- {j['raw']}")
+    return "\n".join(lines)
 
 
 def _pr_head_ref(repo: Path, pr: int) -> str | None:
@@ -309,12 +361,25 @@ def main() -> int:
     except Exception:
         runtime_artifacts = None
     checks = parse_checks(section, runtime_artifacts)
+    # issue #2231 residual gap (a), from #2233's closing comment: a
+    # judgment-type check used to make `run_checks` raise and abort the
+    # ENTIRE run before anything was executed or any comment posted — an
+    # Acceptance section with even one judgment-shaped bullet alongside
+    # otherwise-mechanical ones got zero PR feedback (PRs #2228/#2218
+    # live examples). Judgment checks are out of this runner's scope by
+    # design (that's the whole point of the type), so split them out
+    # BEFORE calling `run_checks` — it only ever sees checks it can
+    # actually run, and mechanical checks still get graded and posted
+    # even when judgment ones are present.
+    mechanical = [c for c in checks if c["type"] != "judgment"]
+    judgment = [c for c in checks if c["type"] == "judgment"]
 
-    # issue #2233 empty-state: 실행가능한 검사가 하나도 없으면 PR 코드를
-    # 체크아웃할 것도 없다 — 별개의 결과를 남기고 fail-closed(0/0 이
-    # "통과"로 읽히던 예전 경로를 없앤다).
-    if not checks:
-        comment = format_no_checks_comment()
+    # issue #2233 empty-state (issue #2231 확장: 있었지만 전부 judgment
+    # 여도 같은 결과): 기계적으로 실행 가능한 검사가 하나도 없으면 PR
+    # 코드를 체크아웃할 것도 없다 — 별개의 결과를 남기고 fail-closed
+    # (0/0 이 "통과"로 읽히던 예전 경로를 없앤다).
+    if not mechanical:
+        comment = format_no_checks_comment(judgment)
         print(comment)
         post_comment(pr, comment, repo)
         return 1
@@ -327,12 +392,8 @@ def main() -> int:
         print(f"거부: PR #{pr} 코드를 체크아웃할 수 없다 — {err}")
         return 1
     try:
-        try:
-            results = run_checks(worktree, checks)
-        except JudgmentCheckError as e:
-            print(f"거부: {e}")
-            return 1
-        comment = format_comment(results)
+        results = run_checks(worktree, mechanical)
+        comment = format_comment(results, judgment)
         print(comment)
         post_comment(pr, comment, repo)
 
