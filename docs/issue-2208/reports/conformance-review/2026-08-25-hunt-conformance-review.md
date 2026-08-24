@@ -67,3 +67,55 @@ outside this role's write_scope (docs/issue-2208/reports/conformance-review.md
 only, per roles/specs/conformance-review.spec.json) — resolution path is
 a follow-up issue against the on-the-record plugin's own hook scoping,
 outside what issue #2208 itself asks this session to check.
+
+## before-landing — stance 1: assume this change and another plugin's rule cancel each other out — find the pair
+
+Verdict: FINDING — approval-gate.sh (which gated this session's Write of docs/issue-2208/reports/conformance-review.md) accepts an APPROVE comment with no round-scoping check, while contract-guard.sh's own explicit round-scoping rule (issue #577) would classify that exact same comment as a stale prior-round approval that must not authorize this round's phase-2 work — the two hooks disagree on whether the same signal authorizes the same act.
+Kind: composition
+Seed: docs/issue-2208/reports/conformance-review.md (NEW), docs/issue-2208/proposals/conformance-review.md (status proposed->approved)
+cap_seconds: 60
+tier: size:docs-only
+diff_stat_lines: 333 (332 new + 1 changed)
+started_at: 2026-08-25T00:30:00+09:00
+ended_at: 2026-08-25T00:55:00+09:00
+
+### Reproduce
+```
+git log --format='%H %ad %s' --date=iso-strict origin/main..HEAD
+# -> 08a56a57... 2026-08-25T00:14:27+09:00 issue-2208: conformance-review phase-1 -- survey + proposal
+#    (this branch's/PR's own first commit)
+
+grep -n 'APPROVE issue-2208/conformance-review' -A2 docs/issue-2208/reports/conformance-review.md
+# record cites: "posted 2026-08-24T15:11:40Z" (= before 2026-08-25T00:14:27+09:00 == 2026-08-24T15:14:27Z)
+
+sed -n '236,247p' on-the-record/hooks/contract-guard.sh
+# phase2 = any(... and (not first_commit_at or c.get("createdAt","") > first_commit_at) ...)
+# comment "APPROVE issue-2208/conformance-review" createdAt=2026-08-24T15:11:40Z is NOT > first_commit_at=2026-08-24T15:14:27Z
+
+grep -n 'createdAt' on-the-record/hooks/approval-gate.sh
+# only hit is inside _delegation_valid() (delegation-citation path); the plain
+# typed-comment match (_first_line_matches + login-in-approvers, lines ~255-270)
+# has zero recency/round-scoping check
+```
+
+### Observed
+approval-gate.sh let this session's Write of the phase-2 record proceed on the
+strength of the "APPROVE issue-2208/conformance-review" comment (2026-08-24T15:11:40Z)
+even though that comment predates this PR's own first commit
+(08a56a57, 2026-08-24T15:14:27Z) — the record itself documents this ("already
+existed... before this session's phase-1 commit landed"). contract-guard.sh's
+round-scoping condition (`createdAt > first_commit_at`), built specifically
+per its own header comment "a prior-round approval (older than the new
+round's first commit) must not gate a new round's phase-1 proposal PR"
+(issue #577), would evaluate `phase2=False` for this identical comment on
+this identical PR at merge time — the exact same signal that already bought
+the phase-2 write past approval-gate.sh is one contract-guard.sh's own
+explicit anti-staleness logic is designed to reject.
+
+### Expected
+Either both hooks apply the same round-scoping rule to the same
+"APPROVE issue-<n>/<role>" signal, or approval-gate.sh's header/behavior
+should not claim parity with contract-guard.sh's phase-2 approval
+determination while omitting the recency check contract-guard.sh treats as
+load-bearing for exactly this scenario (a stale, pre-first-commit approval
+comment reused for a new round).

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: approved
 files:
   - docs/issue-2208/reports/conformance-review.md
 ---
