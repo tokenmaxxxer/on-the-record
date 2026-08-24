@@ -387,13 +387,18 @@ _SKILL_VERDICT_INVOKED_MARKER = re.compile(r"(?i)^invoked\s*;")
 
 
 def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
-    """issue #2039 mirror: a record whose spawn directive mounted N skills
-    must carry one `skill-verdict: <name> — applied: ... |
-    not-applicable: ...` line per mounted name, each with non-empty
-    content after the dash. Shape only — never judges whether the
-    applied/not-applicable content is actually correct, matching
-    #2039's frozen skills-guidance-only boundary. `mounted` empty is a
-    no-op (zero-mounted-skill sessions stay byte-unaffected).
+    """issue #2039 mirror: a record must carry one `skill-verdict: <name>
+    — applied: ... | not-applicable: ...` line per name in `mounted`,
+    each with non-empty content after the dash. Shape only — never judges
+    whether the applied/not-applicable content is actually correct,
+    matching #2039's frozen skills-guidance-only boundary. `mounted`
+    empty is a no-op (zero-mounted-skill sessions stay byte-unaffected).
+
+    Issue #2153: despite the parameter's name, `skill-verdict-guard.sh`
+    (the only session-side caller) now passes the subset of mounted
+    skills this session actually invoked via the Skill tool, not every
+    mounted name — a mounted-but-never-invoked skill owes no line. This
+    function itself stays generic over whatever name list it is given.
 
     Issue #2062: an `applied:` line must also carry an invocation
     marker — its free text (after the `applied:` label) must start with

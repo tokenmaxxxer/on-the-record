@@ -82,13 +82,36 @@ def _init_repo(repo, branch="issue-2039/implementation"):
     _git(repo, "checkout", "-q", "-B", branch)
 
 
-def _write_transcript(repo, first_user_text):
+def _skill_tool_use_entry(skill_name):
+    """issue #2153: one assistant transcript entry simulating an actual
+    Skill-tool invocation for `skill_name`, the shape
+    `invoked_skill_names` scans for."""
+    return {
+        "type": "assistant",
+        "message": {
+            "role": "assistant",
+            "content": [{
+                "type": "tool_use",
+                "id": "toolu_" + skill_name,
+                "name": "Skill",
+                "input": {"skill": skill_name},
+            }],
+        },
+    }
+
+
+def _write_transcript(repo, first_user_text, invoked=()):
+    """`invoked`: skill names to simulate as actually Skill-tool-invoked
+    this session (issue #2153) -- absent by default, matching a session
+    that considered its mounted skills but called none of them."""
     transcript = repo / "transcript.jsonl"
     with transcript.open("w", encoding="utf-8") as fh:
         fh.write(json.dumps({
             "type": "user",
             "message": {"role": "user", "content": first_user_text},
         }) + "\n")
+        for name in invoked:
+            fh.write(json.dumps(_skill_tool_use_entry(name)) + "\n")
         fh.write(json.dumps({
             "type": "assistant",
             "message": {"role": "assistant", "content": "did the work."},
@@ -140,11 +163,28 @@ def t_zero_mounted_skills_is_noop():
         assert r.stdout == ""
 
 
-def t_missing_skill_verdict_line_is_blocked():
+def t_mounted_but_not_invoked_needs_no_verdict():
+    """issue #2153: a mounted skill this session never called via the
+    Skill tool owes no skill-verdict line at all -- a record with none
+    still passes clean, closing the ceremonial-'not used'-row gap."""
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        transcript = _write_transcript(repo, _MOUNTED_LINE)
+        transcript = _write_transcript(repo, _MOUNTED_LINE)  # no invoked=
+        _write_record(repo, "---\nloop_state: landed\n---\n\n## What did not work\nNone.\n")
+        r = _run(repo, transcript)
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_missing_skill_verdict_line_is_blocked():
+    """issue #2153: the guard's real catch survives -- a skill the
+    session DID invoke still needs its verdict line."""
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo)
+        transcript = _write_transcript(repo, _MOUNTED_LINE,
+                                        invoked=["implementation-blueprint"])
         _write_record(repo, "---\nloop_state: landed\n---\n\n## What did not work\nNone.\n")
         r = _run(repo, transcript)
         assert r.returncode == 0
@@ -157,7 +197,8 @@ def t_empty_reason_skill_verdict_line_is_blocked():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        transcript = _write_transcript(repo, _MOUNTED_LINE)
+        transcript = _write_transcript(repo, _MOUNTED_LINE,
+                                        invoked=["implementation-blueprint"])
         _write_record(
             repo,
             "---\nloop_state: landed\n---\n\n"
@@ -174,7 +215,9 @@ def t_both_assembly_points_union_without_double_count():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        transcript = _write_transcript(repo, _MOUNTED_LINE + "\n" + _ROLE_MAPPED_LINE)
+        transcript = _write_transcript(
+            repo, _MOUNTED_LINE + "\n" + _ROLE_MAPPED_LINE,
+            invoked=["implementation-blueprint", "code-architecture"])
         _write_record(
             repo,
             "---\nloop_state: landed\n---\n\n"
@@ -190,7 +233,29 @@ def t_satisfied_skill_verdicts_pass():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        transcript = _write_transcript(repo, _MOUNTED_LINE)
+        transcript = _write_transcript(repo, _MOUNTED_LINE,
+                                        invoked=["implementation-blueprint"])
+        _write_record(
+            repo,
+            "---\nloop_state: landed\n---\n\n"
+            "skill-verdict: implementation-blueprint — applied: invoked; "
+            "used it at spawn.py:8181.\n\n"
+            "## What did not work\nNone.\n")
+        r = _run(repo, transcript)
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_invoked_skill_verdicts_only_for_invoked_subset_pass():
+    """issue #2153 acceptance: a record carrying verdicts only for the
+    skills actually invoked -- not the other mounted-but-unused one --
+    passes the Stop-hook obligation check."""
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo)
+        transcript = _write_transcript(
+            repo, _MOUNTED_LINE + "\n" + _ROLE_MAPPED_LINE,
+            invoked=["implementation-blueprint"])  # code-architecture NOT invoked
         _write_record(
             repo,
             "---\nloop_state: landed\n---\n\n"
@@ -206,7 +271,8 @@ def t_applied_line_without_invocation_marker_is_blocked():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        transcript = _write_transcript(repo, _MOUNTED_LINE)
+        transcript = _write_transcript(repo, _MOUNTED_LINE,
+                                        invoked=["implementation-blueprint"])
         _write_record(
             repo,
             "---\nloop_state: landed\n---\n\n"
@@ -224,7 +290,8 @@ def t_not_applicable_line_needs_no_invocation_marker():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        transcript = _write_transcript(repo, _MOUNTED_LINE)
+        transcript = _write_transcript(repo, _MOUNTED_LINE,
+                                        invoked=["implementation-blueprint"])
         _write_record(
             repo,
             "---\nloop_state: landed\n---\n\n"
@@ -239,7 +306,8 @@ def t_stop_hook_active_emits_nothing():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        transcript = _write_transcript(repo, _MOUNTED_LINE)
+        transcript = _write_transcript(repo, _MOUNTED_LINE,
+                                        invoked=["implementation-blueprint"])
         _write_record(repo, "---\nloop_state: landed\n---\n\n## What did not work\nNone.\n")
         r = _run(repo, transcript, stop_hook_active=True)
         assert r.returncode == 0
@@ -297,15 +365,44 @@ def t_issue_2044_line_yields_exactly_six_real_names():
 
 def t_issue_2044_line_with_all_six_verdicts_passes():
     """End-to-end: a record carrying exactly one skill-verdict line per
-    the issue-2044 session's 6 real mounted skills passes clean -- the
-    fabricated per-fragment demand issue #2057 reports never fires."""
+    the issue-2044 session's 6 real mounted skills -- all 6 actually
+    invoked -- passes clean; the fabricated per-fragment demand issue
+    #2057 reports never fires."""
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo, branch="issue-2044/implementation")
-        transcript = _write_transcript(repo, _ISSUE_2044_ROLE_MAPPED_LINE)
+        transcript = _write_transcript(repo, _ISSUE_2044_ROLE_MAPPED_LINE,
+                                        invoked=_ISSUE_2044_REAL_NAMES)
         verdict_lines = "\n".join(
             f"skill-verdict: {name} — not-applicable: no fresh decision was open."
             for name in _ISSUE_2044_REAL_NAMES
+        )
+        d = repo / "docs" / "issue-2044" / "reports"
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "implementation.md").write_text(
+            "---\nloop_state: landed\n---\n\n"
+            + verdict_lines
+            + "\n\n## What did not work\nNone.\n"
+        )
+        r = _run(repo, transcript)
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_issue_2044_line_with_two_of_six_invoked_needs_only_those_two():
+    """issue #2153: of the issue-2044 session's 6 real mounted skills,
+    only 2 were ever actually invoked -- a record carrying verdicts for
+    just those 2 (none for the other 4 unfired ones) passes clean, the
+    exact ceremony this issue's live measurement flagged."""
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo, branch="issue-2044/implementation")
+        invoked = _ISSUE_2044_REAL_NAMES[:2]
+        transcript = _write_transcript(repo, _ISSUE_2044_ROLE_MAPPED_LINE,
+                                        invoked=invoked)
+        verdict_lines = "\n".join(
+            f"skill-verdict: {name} — applied: invoked; used it."
+            for name in invoked
         )
         d = repo / "docs" / "issue-2044" / "reports"
         d.mkdir(parents=True, exist_ok=True)
