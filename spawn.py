@@ -1927,6 +1927,27 @@ _REPO_DISCOVERY_PROSE = (
     "`git ls-files docs/ test/`. 위 디렉티브 인덱스에 이미 전체 경로가 "
     "적힌 파일은 다시 찾지 말고 그 경로 그대로 Read 하라.\n")
 
+# Issue #2211: #2185's `git ls-files` guidance only covers the repo the
+# session is IN — it says nothing about where the on-the-record plugin
+# checkout, core plugin, skill-repository, or sibling role workspaces are
+# installed. Measured (issue-2201 session, 2026-08-24): a session that
+# needed exactly those four burned 126s on unscoped `find /` /
+# `find /home` scans because it had no other way to learn the paths. The
+# spawner already knows them at spawn time (`spawn_cmd()`, issue #2211) —
+# this section tells the session they exist as env vars instead of a
+# filesystem search.
+_KNOWN_PATHS_PROSE = (
+    "알려진 경로 환경변수(이슈 #2211): 저장소 밖 경로를 찾을 때 `find /`나 "
+    "`find /home`으로 전체 파일시스템을 훑지 마라 — 스포너가 스폰 시점에 "
+    "이미 아는 경로 넷을 env var 로 심어 뒀다. `$ON_THE_RECORD`(on-the-record "
+    "플러그인 체크아웃 루트 — 훅 스크립트, harness fixture 템플릿이 여기 "
+    "있다), `$CLAUDE_PLUGIN_ROOT_CORE`(core 플러그인 루트), "
+    "`$MUSTER_WORKSPACE_ROOT`(역할 워크스페이스들의 루트 — 다른 세션의 "
+    "작업 디렉토리나 상태 파일을 찾을 때 이 아래를 `ls`/`git ls-files`로 "
+    "좁혀라), `$MUSTER_SKILL_REGISTRY_ROOT`(skill-repository 체크아웃 — "
+    "마운트된 skill-repository 가 없으면 이 변수 자체가 없다, 빈 문자열이 "
+    "아니라 unset). 넷 다 `printenv`로 바로 읽을 수 있다.\n")
+
 # Moved verbatim: the mounted-skill inspection nudge (issue #1960 phase B)
 # + invoke-before-apply (issue #2062).
 _SKILL_CHECK_PROSE = (
@@ -1962,13 +1983,14 @@ def directive_section_files(*, skills_mounted: bool = False,
                             checkpoint_block: str | None = None) -> dict[str, str]:
     """The on-demand section files for one spawn: name -> full prose.
 
-    `completion-and-landing.md` and `repo-discovery.md` are always
-    materialized; the skill and checkpoint sections only when their
-    condition holds (their trigger lines are equally conditional, so index
-    and files stay a bijection)."""
+    `completion-and-landing.md`, `repo-discovery.md`, and
+    `known-paths.md` are always materialized; the skill and checkpoint
+    sections only when their condition holds (their trigger lines are
+    equally conditional, so index and files stay a bijection)."""
     files = {"completion-and-landing.md":
              _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
-             "repo-discovery.md": _REPO_DISCOVERY_PROSE}
+             "repo-discovery.md": _REPO_DISCOVERY_PROSE,
+             "known-paths.md": _KNOWN_PATHS_PROSE}
     if skills_mounted:
         files["skill-obligations.md"] = (_SKILL_CHECK_PROSE + "\n"
                                           + _SKILL_VERDICT_PROSE)
@@ -2330,7 +2352,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 이슈 #1955(이슈 #1758 phase 5 이행): skill-repository 해석도 같은
         # 이유로 워크스페이스/브랜치 생성보다 먼저 온다 — 역할이 매핑한 스킬
         # 이름이 모르는 이름이거나 hooks/ 를 들고 있으면 여기서 fail-closed.
-        role_source = resolve_role_source(role, _skill_repo_root())
+        skill_registry_root = _skill_repo_root()
+        role_source = resolve_role_source(role, skill_registry_root)
     # 이슈 #2061: skill_judge 자문(BM25 프리필터 + haiku 판단)을 워크스페이스
     # 클론/브랜치 체크아웃(~12s)과 겹치도록 그 전에 먼저 던진다 — 아래
     # "cross_family" 단계에서 join 만 한다. 자문은 읽기 전용(저장소 파일을
@@ -2732,7 +2755,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                        max_turns=resolved_max_turns,
                                        checkpoint=checkpoint,
                                        append_system_prompt=_directive_system_prompt_block(
-                                           _directive_section_texts))
+                                           _directive_section_texts),
+                                       skill_registry_root=skill_registry_root)
         # 이슈 #2070: roster 기록용 두 내부 키를 여기서 뽑아내 실제 subprocess
         # env 에는 안 들어가게 한다 — spawn_cmd() 가 심어준 신호일 뿐, 세션
         # 자신의 env 표면이 아니다.
