@@ -302,7 +302,7 @@ class ConsultJudgeStageTest(unittest.TestCase):
                         "task literally asks for ARIA role on a landing page"},
         })})
         with mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model: (["cat"], {}, None)), \
+                               lambda role, spec, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run",
                                lambda *a, **k: subprocess.CompletedProcess(
                                    a, 0, stdout=session_json, stderr="")):
@@ -324,7 +324,7 @@ class ConsultJudgeStageTest(unittest.TestCase):
     def test_consult_error_raises_and_still_traces(self):
         candidates = [("some-skill", self.repo_root / "some-skill", "skill-repo")]
         with mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model: (["cat"], {}, None)), \
+                               lambda role, spec, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run",
                                lambda *a, **k: subprocess.CompletedProcess(
                                    a, 1, stdout="", stderr="boom")):
@@ -479,7 +479,7 @@ class FourSurfaceCandidateCorpusTest(unittest.TestCase):
             return subprocess.CompletedProcess(a, 0, stdout=session_json, stderr="")
 
         with mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model: (["cat"], {}, None)), \
+                               lambda role, spec, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run", fake_run):
             spawn._skill_judge_consult(
                 "landing page contrast", "implementation", candidates, 2055,

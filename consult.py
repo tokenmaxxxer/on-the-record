@@ -237,7 +237,16 @@ def _skill_judge_consult(task_text: str, role: str,
         # 분류라, 호출자가 넘긴 세션 기본 모델을 그대로 물려받지 않고
         # 언제나 haiku 로 고정한다 — `model` 인자는 시그니처 호환용으로만
         # 남긴다(다른 자문 호출과 모양을 맞추려는 것일 뿐, 실제로는 무시).
-        cmd, env, settings_path = _sp._consult_cmd_and_env(role, spec, cwd, "haiku")
+        # 이슈 #2201: `_JUDGE_EXCLUDED_CORE_PLUGINS`(issue #1587 이 이미
+        # judge 계열에 쓰던 필터, freelunch/scout/warrant)를 그대로
+        # 재사용한다 — 이 판정도 판단만 돌려주면 끝이라 델리버리 지향
+        # 훅(제안서 작성/게이트/팬아웃 위임을 지시)이 꽂힐 이유가 없고,
+        # 실측상 그 훅들을 로드하는 자체가 스폰당 수 초를 먹는다
+        # (`_consult_cmd_and_env()` 독스트링의 10.5s vs 15.6s 실측).
+        # core/terse 는 그대로 남긴다(#1587 과 같은 이유: 무해하다).
+        cmd, env, settings_path = _sp._consult_cmd_and_env(
+            role, spec, cwd, "haiku",
+            exclude_core_plugins=_sp._JUDGE_EXCLUDED_CORE_PLUGINS)
         judge_timeout = _sp._skill_judge_timeout()
         # 이슈 #2124 part 3 (judge prompt diet): 최소 영어 프롬프트 —
         # RankGPT 계열 listwise 판단은 지시문이 짧을수록 완료율이 높다.
@@ -397,7 +406,9 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
 
 
 def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
-                         model: str | None = None) -> tuple[list[str], dict[str, str], str]:
+                         model: str | None = None,
+                         exclude_core_plugins: frozenset[str] = frozenset()
+                         ) -> tuple[list[str], dict[str, str], str]:
     """`consult_cmd()`의 argv/env/settings-file 조립만 떼어낸, subprocess 를
     직접 부르지 않는 build-then-return 헬퍼 — `spawn_cmd()` 와 같은 모양이다.
     `(cmd, env, settings_path)` 를 돌려준다 — settings_path 는 호출자가
@@ -417,7 +428,19 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
     docs/issue-1141/reports/implementation/2026-08-13-hunt-consult-core-plugin-root-injection.md).
 
     이슈 #1955: 역할 가이던스는 이제 항상 skill-repository 에서 온다 —
-    `resolve_role_source()` 가 매핑하는 스킬 디렉터리를 그대로 붙인다."""
+    `resolve_role_source()` 가 매핑하는 스킬 디렉터리를 그대로 붙인다.
+
+    이슈 #2201: `exclude_core_plugins` 는 `_JUDGE_EXCLUDED_CORE_PLUGINS`
+    (issue #1587) 와 같은 모양의 opt-in 필터 — 기본값(빈 집합)은 오늘의
+    모든 호출부(consult_cmd/panel/judge 계열)를 바이트 단위로 그대로
+    둔다. `--plugin-dir` 로 붙는 core 마켓플레이스 플러그인(core/terse/
+    freelunch/scout/warrant) 은 저마다 SessionStart 훅을 달고 있어,
+    "판단 하나만 돌려주면 끝"인 좁은 판정 호출(예: skill_judge)에도
+    무조건 전부 로드된다 — 실측(이 함수와 같은 argv 모양, `--plugin-dir`
+    5개 vs 0개, /tmp 빈 디렉터리): 0개일 때 real 10.5s, 5개일 때 real
+    15.6s(둘 다 haiku, 동일 트리비얼 프롬프트) — 델리버리 지향 훅
+    (freelunch/scout/warrant) 을 제외하는 것만으로 세션당 수 초가
+    빠진다."""
     plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]
     s = _sp.role_settings(role, cwd, inject_self_hosted_hooks=False)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
@@ -429,7 +452,8 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
     for p in plugins:
         cmd += ["--plugin-dir", str(p)]
     for p in _sp.core_plugin_dirs():
-        cmd += ["--plugin-dir", str(p)]
+        if p.name not in exclude_core_plugins:
+            cmd += ["--plugin-dir", str(p)]
     role_model = _sp.resolved_role_model(model)
     if role_model:
         cmd += ["--model", role_model]

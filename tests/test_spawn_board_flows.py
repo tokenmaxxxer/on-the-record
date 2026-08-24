@@ -2520,6 +2520,16 @@ class ReturnedPrGate(unittest.TestCase):
                     rc = spawn._spawn_one(str(work), "implementation", "task\n",
                                           unattended=True, issue=11, bounded=True,
                                           no_wait=True)
+                    # 이슈 #2201: returned-PR 게이트가 이제 fire-and-forget
+                    # 데몬 스레드다(#2195 의 auto_sweep 과 같은 모양) —
+                    # `_spawn_one()` 리턴이 그 완료를 보장하지 않으므로,
+                    # ledger 이벤트가 찍힐 때까지 짧게 폴링한다
+                    # (`test_auto_sweep_nonblocking.py` 와 같은 패턴).
+                    deadline = time.monotonic() + 2.0
+                    while (not any(e.get("event") == "returned_pr_surfaced"
+                                   for e in ledger_calls)
+                           and time.monotonic() < deadline):
+                        time.sleep(0.02)
             finally:
                 spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
             self.assertEqual(rc, 0)
@@ -2583,6 +2593,11 @@ class ReturnedPrGate(unittest.TestCase):
                     rc = spawn._spawn_one(str(work), "implementation", "task\n",
                                           unattended=True, issue=11, bounded=True,
                                           no_wait=True)
+                    # 이슈 #2201: returned-PR 게이트가 fire-and-forget 데몬
+                    # 스레드다 — 잘못 찍힐 이벤트가 있다면 이미 돌았을
+                    # 시간을 준다(`test_auto_sweep_disabled_flag_still_
+                    # skips_dispatch` 와 같은 negative-assertion 패턴).
+                    time.sleep(0.2)
             finally:
                 spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
             self.assertEqual(rc, 0)
@@ -2617,6 +2632,14 @@ class ReturnedPrGate(unittest.TestCase):
                     rc = spawn._spawn_one(str(work), "implementation", "task\n",
                                           unattended=True, issue=11, bounded=True,
                                           no_wait=True, despite_returned=True)
+                    # 이슈 #2201: returned-PR 게이트가 이제 fire-and-forget
+                    # 데몬 스레드다 — ledger 이벤트가 찍힐 때까지 짧게
+                    # 폴링한다.
+                    deadline = time.monotonic() + 2.0
+                    while (not any(e.get("event") == "returned_pr_surfaced"
+                                   for e in ledger_calls)
+                           and time.monotonic() < deadline):
+                        time.sleep(0.02)
             finally:
                 spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
             self.assertEqual(rc, 0)
@@ -2646,6 +2669,14 @@ class ReturnedPrGate(unittest.TestCase):
                     rc = spawn._spawn_one(str(work), "implementation", "task\n",
                                           unattended=True, issue=11, bounded=True,
                                           no_wait=True)
+                    # 이슈 #2201: returned-PR 게이트가 이제 fire-and-forget
+                    # 데몬 스레드다 — ledger 이벤트가 찍힐 때까지 짧게
+                    # 폴링한다.
+                    deadline = time.monotonic() + 2.0
+                    while (not any(e.get("event") == "returned_pr_gate_fail_open"
+                                   for e in ledger_calls)
+                           and time.monotonic() < deadline):
+                        time.sleep(0.02)
             finally:
                 spawn.ROSTER, spawn.WORKSPACE_INDEX = old_roster, old_idx
             self.assertEqual(rc, 0)
