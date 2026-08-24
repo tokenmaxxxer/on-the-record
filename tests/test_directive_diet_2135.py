@@ -212,28 +212,39 @@ class DietIntegration(DirectiveAssemblyBase):
         return d
 
     @pytest.mark.slow
-    def test_moved_prose_absent_inline_present_in_files_bijection(self):
+    def test_moved_prose_absent_inline_present_via_system_prompt(self):
+        # Issue #2204: the #2135 design paired every materialized section
+        # file with an inline "Read <file> when <condition>" pointer in
+        # the stdin task text — a live-spawn measurement showed sessions
+        # read every pointed-at file sequentially before their first task
+        # action (~46s), because the pointer reads as "read it now." The
+        # fix drops the pointer entirely: the same full prose instead
+        # rides --append-system-prompt, already in context at turn 1.
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             skill_dir = self._skill_dir(Path(td) / "skills")
             role_source = {"source": "skill-repo", "skill_dirs": [skill_dir],
                            "skills": ["implementation-blueprint"],
                            "skill_sha": "abc123"}
-            delivered = self._run(work, role_source, {})
+            captured = {}
+            delivered = self._run(work, role_source, {},
+                                  captured_spawn_cmd=captured)
             d = work / ".on-the-record" / "directive"
             on_disk = {p.name for p in d.iterdir()}
             # moved prose is NOT inline any more
             self.assertNotIn("모든 작업은 이 턴 안에서 직접 끝내라", delivered)
             self.assertNotIn("스킬-verdict 의무(이슈 #2039)", delivered)
-            # bijection: every materialized file is referenced inline
-            # exactly once, and every referenced name exists on disk
-            referenced = set(re.findall(
-                r"\.on-the-record/directive/([a-z-]+\.md)", delivered))
-            self.assertEqual(referenced, on_disk)
+            # nor is there any "Read <file>" pointer left in the stdin task
+            self.assertNotIn(".on-the-record/directive/", delivered)
+            # every materialized file's exact content is present in the
+            # --append-system-prompt blob exactly once (zero Read round
+            # trips: it's already there at session start)
+            system_prompt = captured["append_system_prompt"]
+            self.assertTrue(on_disk)
             for name in on_disk:
-                self.assertEqual(
-                    delivered.count(f".on-the-record/directive/{name}"), 1)
-            # record skeleton pre-written and announced
+                body = (d / name).read_text(encoding="utf-8")
+                self.assertEqual(system_prompt.count(body), 1)
+            # record skeleton pre-written and announced (inline, unaffected)
             self.assertTrue((work / "docs" / "issue-31" / "reports" /
                              "implementation.md").is_file())
             self.assertIn("레코드 스켈레톤", delivered)

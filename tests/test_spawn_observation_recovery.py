@@ -204,22 +204,26 @@ class PriorEventDetails(unittest.TestCase):
                 {"https://github.com/o/r/pull/124"})
 
 class PreambleWarning(unittest.TestCase):
-    """The issue-workspace task preamble in `_spawn_one` (spawn.py source,
-    not a re-implementation) must warn that the turn is headless/single-turn
-    and that run_in_background work dies at turn end."""
+    """The spawned session must be warned that the turn is
+    headless/single-turn and that run_in_background work dies at turn
+    end — somewhere it actually reaches the session with zero Read round
+    trips, not necessarily inline in the stdin task text."""
 
-    def test_issue_preamble_source_warns_about_headless_background_death(self):
-        # Issue #2135: the preamble is now the index appendage built via
-        # `_dp("issue-preamble-index", ...)`; the warning must survive both
-        # inline (trigger line) and in the canonical section prose.
-        src = Path(spawn.__file__).read_text(encoding="utf-8")
-        start = src.index('task = _dp("issue-preamble-index"')
-        end = src.index(") + task", start)
-        preamble_src = src[start:end]
-        self.assertIn("headless", preamble_src)
-        self.assertIn("run_in_background", preamble_src)
+    def test_completion_prose_warns_about_headless_background_death(self):
+        # Issue #2204: the inline "issue-preamble-index" task text no
+        # longer carries a "Read <file> when <condition>" pointer (a
+        # live-spawn measurement showed sessions treat that pointer as
+        # "read it now," burning ~46s of sequential Read round trips
+        # before the first task action) — the warning's full prose
+        # instead rides `--append-system-prompt` via
+        # `_directive_system_prompt_block()`, already in context at
+        # session start.
         self.assertIn("headless", spawn._COMPLETION_PROSE)
         self.assertIn("run_in_background", spawn._COMPLETION_PROSE)
+        block = spawn._directive_system_prompt_block(
+            spawn.directive_section_files())
+        self.assertIn("headless", block)
+        self.assertIn("run_in_background", block)
 
 
 class SkillInvocationNudge(unittest.TestCase):
