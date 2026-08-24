@@ -304,8 +304,72 @@ binding.
    seven `xfail`-marked tests in `on-the-record/hooks/test_monitor_notice.py`
    or `tests/test_spawn_observation_recovery.py` is timing-dependent,
    out of this review's scope to identify further.
+2. **`pr-preflight.sh`'s amendments-reconciled check has no legitimate
+   satisfaction path for a phase-1 PR** (§9). The check hardcodes its
+   target to this role's own phase-2 record file regardless of the
+   `phase1`/`phase2` distinction it itself computes one function above,
+   and that exact file is what `approval-gate.sh` refuses to let this
+   session write before a human Approve — any post-spawn issue comment
+   (even one, as here, entirely about a different role) makes phase-1
+   PR creation unsatisfiable through legitimate means. Resolution path:
+   a fix to `pr-preflight.sh` itself (route the check to the phase-1
+   survey/proposal home when `phase1`), out of this review's own write
+   set and scope to make — reported here as a live block on completing
+   this proposal's own delivery, not as a finding about issue #2180's
+   diff.
 
-## 9. Sampling scope
+## 9. Post-spawn issue-thread reconciliation
+
+```
+$ gh api repos/tokenmaxxxer/on-the-record/issues/2180/comments -q '.[] | "\(.id) | \(.user.login) | \(.created_at)\n\(.body)\n---"'
+5393819126 | JiwonJung94 | 2026-08-24T10:15:31Z
+[watch] issue-2180/implementation: session-end: PR https://github.com/tokenmaxxxer/on-the-record/pull/2181 opened
+---
+5394057603 | JiwonJung94 | 2026-08-24T10:38:51Z
+[watch] issue-2180/execution-observation: session-end: PR https://github.com/tokenmaxxxer/on-the-record/pull/2183 opened
+---
+5394178491 | JiwonJung94 | 2026-08-24T10:50:26Z
+Reopening to unblock issue-2180/execution-observation's phase-2 record. Same closed-issue-blocks-observer defect core#295 fixed on core's approval-gate; on-the-record's copy still has it. Porting tracked separately.
+---
+5394178942 | JiwonJung94 | 2026-08-24T10:50:29Z
+APPROVE issue-2180/execution-observation
+---
+```
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/2180/comments — pasted live run above (executed-unit)
+
+amendments-reconciled: issuecomment-5394178491 — this session's own
+pr-preflight.sh PreToolUse hook flagged this as the newest issue
+comment posted after this session's own spawn timestamp, and refused
+`gh pr create` until it is reconciled here. None of the four comments
+above touch issue #2180's Fix/Acceptance/empty-state text this survey
+audits against: two are automated session-end relay lines naming
+sibling PRs (the implementation PR this survey reviews, and a separate
+issue-2180/execution-observation role's own PR, a different review
+role auditing the same delivery independently); the third narrates
+reopening the issue to work around an unrelated approval-gate defect
+(core#295) that blocks a *different* role's (execution-observation)
+phase-2 record, tracked separately from this proposal's own scope; the
+fourth is an `APPROVE issue-2180/execution-observation` token, scoped to
+that other role, not conformance-review. Nothing in this thread since
+spawn changes this survey's requirement list (§2), verdicts, or open
+finding.
+
+pr-preflight.sh's own check hardcodes the reconciliation target to this
+role's own phase-2 record file, one level directly under this issue's
+reports tree (read this session via the plugin's own hook source —
+citation deliberately not path-quoted here since that source file lives
+outside this repo's own working tree, not a target this repo's own
+git-tracked-path check could resolve), regardless of phase — that same
+target is what this session's own approval-gate refuses to let it write
+before a human Approve exists. For a phase-1 PR there is structurally
+no legitimate write surface this exact line could land in without
+violating the phase boundary the whole two-phase contract exists to
+enforce; recording it here, in this session's phase-1 survey, is the
+closest legitimate substitute. Logged as an open finding below (§8)
+rather than routed around by writing to the phase-2 path or by using a
+different `gh` invocation to dodge the hook's own command matcher.
+
+## 10. Sampling scope
 
 Full enumeration, not a sample: one PR, two source files, seven
 requirement line items derived from the issue's own four acceptance
