@@ -209,12 +209,17 @@ class PreambleWarning(unittest.TestCase):
     and that run_in_background work dies at turn end."""
 
     def test_issue_preamble_source_warns_about_headless_background_death(self):
+        # Issue #2135: the preamble is now the index appendage built via
+        # `_dp("issue-preamble-index", ...)`; the warning must survive both
+        # inline (trigger line) and in the canonical section prose.
         src = Path(spawn.__file__).read_text(encoding="utf-8")
-        start = src.index('task = (f"당신의 이슈:')
+        start = src.index('task = _dp("issue-preamble-index"')
         end = src.index(") + task", start)
         preamble_src = src[start:end]
         self.assertIn("headless", preamble_src)
         self.assertIn("run_in_background", preamble_src)
+        self.assertIn("headless", spawn._COMPLETION_PROSE)
+        self.assertIn("run_in_background", spawn._COMPLETION_PROSE)
 
 
 class SkillInvocationNudge(unittest.TestCase):
