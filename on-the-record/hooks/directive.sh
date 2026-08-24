@@ -200,13 +200,13 @@ _monitor_liveness_check_and_notify() {
   local stamp="${checkout}/runs/poll_heartbeat_alive.json"
   local state="${checkout}/runs/poll_heartbeat_staleness_state.json"
   local threshold="${MONITOR_LIVENESS_STALE_SECONDS:-360}"
-  python3 - "$stamp" "$state" "$threshold" <<'PY' 2>/dev/null || true
+  python3 - "$stamp" "$state" "$threshold" "$checkout" <<'PY' 2>/dev/null || true
 import json
 import os
 import sys
 import time
 
-stamp_path, state_path, threshold = sys.argv[1], sys.argv[2], float(sys.argv[3])
+stamp_path, state_path, threshold, checkout = sys.argv[1], sys.argv[2], float(sys.argv[3]), sys.argv[4]
 now = time.time()
 
 last_tick = None
@@ -251,7 +251,13 @@ since_label = (
     if last_tick is not None
     else "unknown (no tick ever recorded this checkout)"
 )
-print(f"[orchestrate] poll-heartbeat monitor dead since {since_label} -- re-arm via Monitor tool")
+print(
+    f"[orchestrate][MONITOR-DEAD] poll-heartbeat monitor dead since {since_label} "
+    "-- ACTION REQUIRED before anything else this turn: re-arm it via the Monitor "
+    f"tool with persistent: true (command: {checkout}/on-the-record/monitors/"
+    "poll-heartbeat.sh) -- a re-arm without persistent: true dies again in 5 "
+    "minutes, the Monitor tool's own default timeout_ms"
+)
 PY
 }
 _monitor_liveness_check_and_notify "${CHECKOUT}"
@@ -307,6 +313,11 @@ ALWAYS-ON INVARIANTS:
   alone; relay user decisions only after the user said so in THIS
   conversation -- when unsure, ask.
 - Deviations are never traceless -- roles too (D/delegation-loops.md).
+- Monitor liveness (#1497/#2182): a \`[orchestrate][MONITOR-DEAD]\` line
+  above is not routine noise -- your very next action this turn, before
+  anything else, is to re-arm poll-heartbeat via the Monitor tool with
+  \`persistent: true\` (a re-arm without it dies again in 5 minutes, the
+  tool's own default timeout).
 
 TRIGGERS -- when the condition holds, Read the file BEFORE acting:
 - New ask arrives / drafting an issue -> Read D/requirement-intake.md
