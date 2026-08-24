@@ -1821,16 +1821,20 @@ _SKILL_CHECK_PROSE = (
     "없다).\n")
 
 # Moved verbatim: the per-mounted-skill verdict obligation (issue #2039,
-# invocation marker per issue #2062).
+# invocation marker per issue #2062, scoped to invoked skills only per
+# issue #2153).
 _SKILL_VERDICT_PROSE = (
-    "스킬-verdict 의무(이슈 #2039): 위에 마운트된 스킬 "
+    "스킬-verdict 의무(이슈 #2039) — 대상 범위는 이슈 #2153 갱신: 위에 "
+    "마운트된 스킬 중 이번 세션에서 실제로 Skill 도구로 호출한 스킬 "
     "이름마다, 레코드에 `skill-verdict: <스킬명> — applied: "
     "<어디서/어떻게> | not-applicable: <한 줄 이유>` 형태의 줄을 "
     "정확히 하나씩 남겨야 한다 — 적용 여부 판단은 전적으로 이 "
     "세션의 몫이지만, 그 판단을 아예 안 밝히는 것은 더 이상 "
-    "허용되지 않는다. applied: 줄은 위 invoke-before-apply "
-    "의무에 따라 실제로 Skill 도구를 호출했다는 증거로 "
-    "`invoked;` 를 자유 텍스트 맨 앞에 붙여야 한다(이슈 "
+    "허용되지 않는다. 마운트만 되고 호출하지 않은 스킬은 이 줄이 "
+    "필요 없다 — 선택적으로 요약 한 줄만 남겨도 된다: "
+    "`other mounted skills: not triggered`. applied: 줄은 위 "
+    "invoke-before-apply 의무에 따라 실제로 Skill 도구를 호출했다는 "
+    "증거로 `invoked;` 를 자유 텍스트 맨 앞에 붙여야 한다(이슈 "
     "#2062) — not-applicable: 줄은 이 마커가 필요 없다.\n")
 
 
@@ -2347,18 +2351,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # (위 조건과 동일), 무-스킬 세션은 오늘과 바이트 단위로 같다.
             if issue is not None:
                 # Issue #2135 diet: the full 스킬 점검(#1960)/invoke-before-
-                # apply(#2062)/스킬-verdict(#2039) prose lives verbatim in
-                # {DIRECTIVE_DIR}/skill-obligations.md (materialized above);
-                # inline stays the condensed invariant + Skill-tool trigger.
+                # apply(#2062)/스킬-verdict(#2039, #2153) prose lives
+                # verbatim in {DIRECTIVE_DIR}/skill-obligations.md
+                # (materialized above); inline stays the condensed
+                # invariant + Skill-tool trigger.
                 task = task + _dp("skill-obligations-index",
-                    f"\n\n스킬 의무(이슈 #1960/#2039/#2062 — 전문은 "
+                    f"\n\n스킬 의무(이슈 #1960/#2039/#2062/#2153 — 전문은 "
                     f"{DIRECTIVE_DIR}/skill-obligations.md, 실체 작업 전에 "
                     f"Read 하라): 스킬 점검 — 마운트된 스킬 목록을 이번 "
                     f"과제와 대조하고, applicable 로 판단한 스킬은 적용 전에 "
-                    f"반드시 Skill 도구로 로드하라. 마운트된 스킬 이름마다 "
-                    f"레코드에 `skill-verdict: <스킬명> — applied: invoked; "
-                    f"<어디서/어떻게> | not-applicable: <한 줄 이유>` 줄을 "
-                    f"정확히 하나씩 남겨야 한다.\n")
+                    f"반드시 Skill 도구로 로드하라. 이번 세션에서 실제로 "
+                    f"호출한 스킬 이름마다 레코드에 `skill-verdict: <스킬명> "
+                    f"— applied: invoked; <어디서/어떻게> | not-applicable: "
+                    f"<한 줄 이유>` 줄을 정확히 하나씩 남겨야 한다 (마운트만 "
+                    f"되고 호출하지 않은 스킬은 이 줄이 필요 없다).\n")
             else:
                 # Adhoc spawn: no workspace to materialize into — keep the
                 # full prose inline (byte-identical to the pre-#2135 text).
