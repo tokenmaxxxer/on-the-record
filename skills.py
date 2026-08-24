@@ -298,7 +298,14 @@ _ROLE_SKILLS = {
     'devrel': ['devrel-channel-convention', 'devrel-content-comprehensibility', 'devrel-program-subtraction'],
     'finance-unit-economics': ['finance-unit-economics-cac-payback', 'finance-unit-economics-evidence-chain', 'finance-unit-economics-ltv-cac-band', 'finance-unit-economics-ltv-churn-assumption', 'finance-unit-economics-proposal-shape', 'finance-unit-economics-sensitivity-scenario'],
     'growth-analytics': ['growth-analytics-experiment-trust', 'growth-analytics-funnel-stage-attribution', 'growth-analytics-metric-selection', 'growth-analytics-reporting-reduction', 'growth-analytics-segmentation'],
-    'implementation': ['implementation-complexity-coupling-management', 'implementation-design-pattern-selection', 'implementation-performance-data-structure-choice', 'implementation-blueprint'],
+    # 이슈 #2208: work-in-english 는 태스크별 트리거가 아니라 이 저장소의
+    # 모든 코딩 작업(코드/커밋/PR/문서)에 적용되는 언어 정책 스킬 — 실측
+    # 판단 로그(docs/issue-2073, issue-2093 의 consult-log.md, 둘 다
+    # role=implementation) 상 실제로 마운트된 건 언제나 implementation
+    # 역할이었다. cross-family 후보 풀에서는 `_STATIC_POLICY_SKILLS`(아래)
+    # 로 전 역할에서 조용히 빠진다 — 여기 family 목록에 있는 건 마운트
+    # 경로(resolve_role_source)만을 위한 것.
+    'implementation': ['implementation-complexity-coupling-management', 'implementation-design-pattern-selection', 'implementation-performance-data-structure-choice', 'implementation-blueprint', 'work-in-english'],
     'incident-response': ['incident-response-action-item-quality', 'incident-response-blameless-language-editing', 'incident-response-rca-method-selection', 'incident-response-severity-classification-scoping', 'incident-response-timeline-construction', 'incident-response-tool-landscape'],
     'interaction-design': ['interaction-design-form-control-and-layout'],
     'issue-retrospective': ['issue-retrospective-timeline-comprehensibility-and-subtraction-rules'],
@@ -328,6 +335,20 @@ _ROLE_SKILLS = {
     'user-discovery': ['user-discovery-evidence-strength-tagging', 'user-discovery-follow-up-ladder-depth', 'user-discovery-question-design-past-behavior', 'user-discovery-saturation-stopping-rule', 'user-discovery-switch-timeline-causal-forces', 'user-discovery-verdict-prevalence-reporting'],
     'ux-engineering': ['ux-engineering-color-visibility', 'ux-engineering-control-selection', 'ux-engineering-layout-grouping', 'ux-engineering-navigation-depth', 'ux-engineering-research-log', 'ux-engineering-surface-contrast'],
 }
+
+# 이슈 #2208: POLICY 스킬 — 특정 task family 를 겨냥한 트리거가 아니라
+# 세션 전체에 걸쳐 적용되는 규칙(언어 정책, 모델 라우팅 등)이라 cross-family
+# 후보 풀에서 경쟁할 이유가 없다. 여기 이름은 역할과 무관하게(`_ROLE_SKILLS`
+# 에 실제로 매핑돼 있든 아니든) `_cross_family_candidate_corpus()` 가 항상
+# 걸러낸다 — declared-phrase self-inflation(work-in-english 의 예시 문구가
+# 코드와 무관한 태스크에 verbatim 매치되는 문제, 골드 케이스
+# `work-in-english-declared-phrase-self-inflation-fp`)처럼 판정 없이 BM25만
+# 으로 마운트되는 경로를 원천 차단한다. 감사 결과(이슈 #2208 report) 이
+# 모양의 다른 스킬은 model-routing 뿐이었으나, model-routing 은 현재
+# 어떤 역할에도 정적으로 매핑돼 있지 않고(family 목록 없음) 실측 로그에서
+# 반복적으로 옳게 골라지고 있어 이번 변경 범위에서는 제외했다 — 리포트의
+# 감사 섹션 참고.
+_STATIC_POLICY_SKILLS = {'work-in-english'}
 
 
 def resolve_role_source(role: str, repo_root: Path | None) -> dict:
