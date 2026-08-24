@@ -311,6 +311,15 @@ def _skill_judge_consult(task_text: str, role: str,
         _sp._commit_consult_trace(commit_paths, issue, role, outcome, cwd)
 
 
+# 이슈 #2205: 과제 텍스트에서 매치된 declared-phrase 를 지운 나머지가 이
+# 토큰 수 미만이면(=과제가 사실상 그 문구 자체뿐이면) fast-path 재검증을
+# 건너뛰고 원래 설계대로 문구를 그대로 신뢰한다 — 5토큰짜리 synthetic
+# "문구 두 개만 이어붙인" 과제와, 실제 이슈 재현(수십 토큰의 무관한
+# 기술 내용)을 가르는 문턱. 값 10 은 두 극단(관측 5 vs 26/51) 사이의
+# 여유 있는 중간값.
+_FAST_PATH_CORROBORATION_MIN_TOKENS = 10
+
+
 def _cross_family_skill_matches_with_consult(task_text: str, role: str,
                                              repo_root: Path | None,
                                              issue: int | None, cwd: str | None,
@@ -366,9 +375,40 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     for _score, name, d, _source in scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]:
         for phrase in _sp._skill_declared_phrases(d):
             pos = task_lower.find(phrase)
-            if pos >= 0:
-                fast.append((pos, name, d))
-                break
+            if pos < 0:
+                continue
+            # 이슈 #2205: BM25 문서 자체가 같은 따옴표 문구를 담고 있어
+            # (`_skill_bm25_document`, 이슈 #2124 part 1), 과제 텍스트에
+            # 그 문구가 그대로 들어 있으면 스킬 자신의 topN 순위가 그
+            # 문구 하나만으로 부풀려질 수 있다 — "이미 topN 안이라 그럴듯
+            # 하다"는 전제가 문구 자신에 의해 자기증명되어버려 독립
+            # 신호가 아니게 된다(재현: work-in-english 의 예시 문구 "fix
+            # this bug and open a pr" 는 무관한 DB 인덱싱 버그 과제에서도
+            # 269개 중 1위로 올라간다). 과제가 사실상 그 문구 자체뿐이면
+            # (다른 판단 근거가 없는 것 자체가 정상 — synthetic
+            # 테스트/실제 "이 문구 그대로만 요청" 케이스 둘 다) 문구를
+            # 신뢰하고 그대로 픽한다: 문구를 지운 나머지 텍스트의
+            # 불용어-제외 토큰 수가 `_FAST_PATH_CORROBORATION_MIN_TOKENS`
+            # 미만이면 재검증 없이 통과. 그 문턱을 넘는(=이 스킬과 무관한
+            # 실질 내용이 따로 있는) 과제에서만 문구를 지우고 다시
+            # 스코어링해 이 스킬이 그래도 topN 안에 남는지 확인한다 —
+            # 남으면 문구 외의 내용도 독립적으로 관련 있다는 뜻이라
+            # fast-path 를 허용하고, 문구 제거만으로 topN 밖으로 빠지면
+            # 문구 자체가 유일한 근거였다는 뜻이라 이 문구는 건너뛴다
+            # (판단 단계로 넘기지 않고 다음 후보로 넘어간다 — 이미 topN
+            # 밖일 리스크가 있는 스킬을 판단에 넘기는 것도 원래 설계
+            # 의도가 아니다).
+            stripped_task = re.sub(re.escape(phrase), " ", task_text,
+                                    flags=re.I)
+            if len(_sp._tokenize(stripped_task)) >= _FAST_PATH_CORROBORATION_MIN_TOKENS:
+                stripped_scored = _sp._bm25_cross_family_scores(
+                    stripped_task, role, repo_root, home, target_repo_root)
+                stripped_names = [n for _s, n, _d, _src in
+                                   stripped_scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]]
+                if name not in stripped_names:
+                    continue
+            fast.append((pos, name, d))
+            break
     fast.sort()
     fast = fast[:k]
     fast_dirs = [d for _pos, _name, d in fast]

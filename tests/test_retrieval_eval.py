@@ -11,6 +11,12 @@ judgment behind its expected set). Two measured stages:
 - Final-pick stage: `_cross_family_skill_matches_with_consult` with the judge
   mocked as an oracle (picks expected∩candidates) — exercises the
   exact-phrase fast path + cap plumbing; precision/recall over final picks.
+  On an `expected: []` (negative) case the oracle always picks nothing, so
+  a non-empty `picked` there can only come from the real, non-oracle
+  exact-phrase fast path — precision@mount on these rows is the metric
+  Recall@8 structurally cannot see (issue #2205; two live false positives,
+  issue-525's market-analysis-mece-proposal mount and work-in-english's
+  own-declared-phrase BM25 self-inflation, are frozen in as negatives).
 
 Runs against the real skill-repository checkout (`spawn._skill_repo_root()`);
 skipped when no checkout is installed (keeps CI hermetic). The installed-
@@ -114,16 +120,34 @@ class RetrievalEvalTest(unittest.TestCase):
         print(f"macro (non-empty n={nonempty}): "
               f"Recall@8={recall_sum / nonempty:.3f} "
               f"MRR={mrr_sum / nonempty:.3f} | "
-              f"final-pick precision (all n={len(rows)})="
+              f"precision@mount (all n={len(rows)})="
               f"{prec_sum / len(rows):.3f}")
 
         # Frozen assertions: every non-empty gold case is fully recalled in
         # the judge's top-8 slate, and the oracle-judged final picks recall
         # every expected skill (cap K=2 >= max expected-set size).
-        for cid, r8, _mrr, _p, r, _o in rows:
+        #
+        # Issue #2205: recall alone is structurally blind to a mount that
+        # shouldn't have happened — an oracle judge only ever picks from
+        # `expected`, so on an `expected: []` case the ONLY way `picked` can
+        # be non-empty is the real (non-oracle) exact-phrase fast path, which
+        # is exactly the mechanism both live false positives (issue-525's
+        # market-analysis-mece-proposal mount, work-in-english's declared-
+        # phrase self-inflation) went through. Assert precision@mount == 1.0
+        # on every negative case — this is the check the old loop never ran
+        # (it iterated `if r8 is not None`, silently skipping every
+        # `expected: []` row) and is the one that would have caught both
+        # known incidents.
+        for cid, r8, _mrr, p, r, _o in rows:
             if r8 is not None:
                 self.assertEqual(r8, 1.0, f"Recall@8 < 1.0 for {cid}")
                 self.assertEqual(r, 1.0, f"final-pick recall < 1.0 for {cid}")
+            else:
+                self.assertEqual(
+                    p, 1.0,
+                    f"precision@mount < 1.0 for negative case {cid} — "
+                    "the real pipeline mounted a skill that should not "
+                    "apply")
 
     def test_fast_path_verbatim_phrase_autopicks_without_judge(self):
         """Acceptance (b): a task text carrying a skill's declared quoted
