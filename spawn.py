@@ -1134,10 +1134,19 @@ def main() -> int:
                          "않으므로 무시할 것이 없다. CLI 호환성을 위해 남아 "
                          "있을 뿐 (이슈 #680)")
     ap.add_argument("--single-phase", action="store_true",
-                    help="스폰하는 세션에 CORE_BUILD_NOW=1 을 실어 phase-1 "
-                         "제안 라운드를 건너뛰게 한다(contract v3 s19a 우회, "
-                         "이슈 #1672/#1978). 스포너가 명시적으로 결정할 "
-                         "때만 켠다 — 세션 스스로는 절대 켤 수 없다.")
+                    help="[DEPRECATED, 이슈 #2152: single-phase 가 이제 "
+                         "기본값이라 이 플래그는 no-op 별칭이다 — 한 릴리스 "
+                         "동안만 유지] 스폰하는 세션에 CORE_BUILD_NOW=1 을 "
+                         "실어 phase-1 제안 라운드를 건너뛰게 한다(contract "
+                         "v3 s19a 우회, 이슈 #1672/#1978). 스포너가 명시적으로 "
+                         "결정할 때만 켠다 — 세션 스스로는 절대 켤 수 없다.")
+    ap.add_argument("--two-phase", action="store_true",
+                    help="이슈 #2152: design-bearing 작업을 위해 proposal-"
+                         "first 두-단계 흐름으로 명시적으로 opt-in 한다 — "
+                         "CORE_BUILD_NOW=1 스탬프와 build-now 계약 줄을 "
+                         "생략하고 오늘까지의 기본 프리앰블을 그대로 "
+                         "복원한다. 플래그가 없으면 기본값은 이제 "
+                         "single-phase(build-now) 다.")
     ap.add_argument("--checkpoint", action="store_true",
                     help="issue #2129: single-session propose-approve-"
                          "implement. The session opens the proposal PR as "
@@ -1468,13 +1477,21 @@ def main() -> int:
         return 0
     require_doctor()
     ensure_target_remote(a.cwd, a.unattended)
+    # 이슈 #2152: 기본값 반전 — 아무 플래그도 없으면 이제 single-phase
+    # (build-now) 다. --two-phase 가 명시적으로 오늘까지의 proposal-first
+    # 흐름으로 되돌린다. --checkpoint 는 phase-1 제안에서 멈춰야 하므로
+    # (그 경계가 곧 승인 검사다) 다른 플래그와 무관하게 언제나 two-phase로
+    # 취급한다 — 안 그러면 체크포인트 세션이 멈출 제안 라운드 자체가
+    # build-now 로 건너뛰어져 버린다. --single-phase 는 이제 no-op
+    # 별칭이다: 기본값이 이미 같은 결과이므로 값 자체는 계산에 넣지 않는다.
+    effective_single_phase = not a.two_phase and not a.checkpoint
     return _spawn_one(a.cwd, a.role, a.task, a.unattended, a.issue,
                       bounded=a.issue is not None,
                       stall_timeout_min=a.stall_timeout,
                       no_wait=a.no_wait,
                       despite_returned=a.despite_returned,
                       model=a.model, skills=a.skills,
-                      single_phase=a.single_phase,
+                      single_phase=effective_single_phase,
                       max_turns=a.max_turns,
                       allow_unlimited_turns=a.allow_unlimited_turns,
                       checkpoint=a.checkpoint)
@@ -2268,10 +2285,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"Read. 체크포인트 커밋 규칙, headless 단발-턴 경고("
                 f"run_in_background 작업은 턴 끝에 죽는다), 배치 랜딩 "
                 f"절차가 들어 있다.\n\n") + task
-        # 이슈 #1978 (A): --single-phase 신호가 없으면 이 블록은 아무 것도
-        # 안 붙인다 — 오늘의 프롬프트와 바이트 단위로 동일해야 한다는
-        # 제안서 제약. B(스킬 트리거 줄)보다 먼저 온다(A before B, 제안서
-        # 순서).
+        # 이슈 #1978 (A), 이슈 #2152 로 기본값 반전: `single_phase` 는 이제
+        # CLI 기본값이 True 인 effective 값이다 — --two-phase 나
+        # --checkpoint 가 없으면 이 블록이 기본으로 붙는다. B(스킬 트리거
+        # 줄)보다 먼저 온다(A before B, 제안서 순서).
         if single_phase:
             task = task + _dp("single-phase-contract",
                 "\n\n" + _SINGLE_PHASE_CONTRACT_LINE.format(role=role))
@@ -2479,8 +2496,9 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 자신의 env 표면이 아니다.
         _model_routing_model = extra_env.pop("_MODEL_ROUTING_MODEL", "")
         _model_routing_rule = extra_env.pop("_MODEL_ROUTING_RULE", "")
-        # 이슈 #1978 (A): --single-phase 신호일 때만 얹는다 — 없으면
-        # extra_env 는 오늘과 바이트 단위로 동일한 채로 남는다.
+        # 이슈 #1978 (A), 이슈 #2152 로 기본값 반전: effective single_phase
+        # 가 참일 때만 얹는다 — 기본은 이제 참이므로 CORE_BUILD_NOW=1 은
+        # 기본 스폰에 실린다; --two-phase/--checkpoint 면 빠진다.
         if single_phase:
             extra_env["CORE_BUILD_NOW"] = "1"
         if issue is not None:
