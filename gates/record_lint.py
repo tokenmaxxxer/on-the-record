@@ -26,7 +26,31 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-import gates
+# issue #2226: under `python3 -m gates.record_lint`, Python has already
+# bound `sys.modules["gates"]` to the implicit namespace package for this
+# directory (no `gates/__init__.py`) before this line runs — a namespace
+# package has no `__file__`. A bare `import gates` below would then hit
+# that cache and silently resolve to the namespace package instead of the
+# sibling `gates/gates.py` module (AttributeError on `gates.RECORD_PATH`).
+# Evicting `sys.modules["gates"]` to force re-resolution was tried and
+# rejected: it fixes this file's own import but leaves "gates" bound to a
+# flat module with no `__path__`, so a LATER `gates.<other-submodule>`
+# dotted resolution in the same process then breaks instead — reproduced
+# via `runpy.run_module("gates.claims")` right after
+# `runpy.run_module("gates.record_lint")` in one interpreter. Load the
+# sibling file directly by path instead, so neither `sys.modules["gates"]`
+# nor `sys.path` resolution is ever disturbed; cache it under a private
+# key so every gates/*.py file using this same shape shares one instance
+# rather than re-executing gates.py per file.
+import importlib.util as _importlib_util
+_GATES_IMPL_KEY = "_on_the_record_gates_sibling_impl"
+if _GATES_IMPL_KEY not in sys.modules:
+    _spec = _importlib_util.spec_from_file_location(
+        _GATES_IMPL_KEY, str(Path(__file__).parent / "gates.py"))
+    _impl = _importlib_util.module_from_spec(_spec)
+    sys.modules[_GATES_IMPL_KEY] = _impl
+    _spec.loader.exec_module(_impl)
+gates = sys.modules[_GATES_IMPL_KEY]
 
 RECORD_PATH = gates.RECORD_PATH  # docs/issue-<n>/reports/<role>.md
 
