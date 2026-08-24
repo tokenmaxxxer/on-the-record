@@ -45,19 +45,19 @@ def test_route_model_single_phase_tier():
 
 def test_route_model_default_tier():
     model, rule = route_model("some-unmapped-role")
-    assert (model, rule) == ("opus", "default-tier:mid-design")
+    assert (model, rule) == ("sonnet", "default-tier:mid-design")
 
 
 def test_route_model_design_bearing_override_wins_over_role_tier():
     model, rule = route_model("some-unmapped-role", design_bearing_verdict=True)
-    assert (model, rule) == ("claude-fable-5", "design-bearing-override")
+    assert (model, rule) == ("sonnet", "design-bearing-override")
 
 
 def test_route_model_fail_open_on_malformed_policy():
     assert route_model("any-role", policy={"garbage": True}) == (
         "sonnet", "fail-open-default")
     assert route_model("any-role", policy=None) == (
-        "opus", "default-tier:mid-design")
+        "sonnet", "default-tier:mid-design")
     assert route_model("any-role", policy="not-even-a-dict") == (
         "sonnet", "fail-open-default")
 
@@ -87,7 +87,7 @@ def test_resolved_role_model_routes_when_chain_empty(monkeypatch, tmp_path):
     monkeypatch.setattr(spawn, "ROLE_MODEL_CONFIG", tmp_path / "role_model.txt")
     monkeypatch.setattr(spawn, "ROOT", tmp_path)
     model, rule = spawn.resolved_role_model(None, role="ux-engineering")
-    assert (model, rule) == ("claude-fable-5", "role-tier:judgment")
+    assert (model, rule) == ("sonnet", "role-tier:judgment")
 
 
 def test_resolved_role_model_no_role_returns_plain_string(monkeypatch):
@@ -102,7 +102,7 @@ def test_spawn_cmd_env_carries_model_and_rule(monkeypatch, tmp_path):
     monkeypatch.setattr(spawn, "ROLE_MODEL_CONFIG", tmp_path / "role_model.txt")
     monkeypatch.setattr(spawn, "ROOT", tmp_path)
     cmd, env = spawn.spawn_cmd("settings.json", "ux-engineering", True)
-    assert env["_MODEL_ROUTING_MODEL"] == "claude-fable-5"
+    assert env["_MODEL_ROUTING_MODEL"] == "sonnet"
     assert env["_MODEL_ROUTING_RULE"] == "role-tier:judgment"
     assert "--model" in cmd
-    assert cmd[cmd.index("--model") + 1] == "claude-fable-5"
+    assert cmd[cmd.index("--model") + 1] == "sonnet"

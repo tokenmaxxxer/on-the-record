@@ -9,6 +9,14 @@ raise 하지 않는다 — 항상 (model, rule) 튜플을 돌려준다. 정책�
 test-tiers.json #1518 선례와 동일한 모양) — 소비 레포가 spawn.py를 건드리지
 않고 오버라이드할 수 있게.
 
+issue #2148 — operator pin (2026-08-24): DEFAULT_POLICY의 모든 tier
+model 값이 "sonnet"으로 고정되어 있다. #2070의 구조적 tier
+분리(judgment=claude-fable-5, mid-design=opus)는 SUSPENDED — 삭제가
+아니라 값만 눌러놓은 것이다. tier 이름·roles 매핑·
+design_bearing_override·single_phase_tier·default_tier 구조는 그대로다.
+해제하려면 (a) 소비 레포에 `.on-the-record/model-routing.json`을 두어
+tier별 model을 오버라이드하거나 (b) 이 DEFAULT_POLICY의 값을 되돌린다.
+
   from gates.model_routing import load_policy, route_model
 """
 from __future__ import annotations
@@ -18,10 +26,10 @@ from pathlib import Path
 DEFAULT_POLICY = {
     "tiers": {
         "judgment": {
-            "model": "claude-fable-5",
+            "model": "sonnet",
             "roles": ["ux-engineering", "brand-design", "content-design", "architecture"],
         },
-        "mid-design": {"model": "opus", "roles": []},
+        "mid-design": {"model": "sonnet", "roles": []},
         "mechanical": {"model": "sonnet", "roles": []},
     },
     "design_bearing_override": "judgment",

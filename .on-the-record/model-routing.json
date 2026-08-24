@@ -1,11 +1,11 @@
 {
   "tiers": {
     "judgment": {
-      "model": "claude-fable-5",
+      "model": "sonnet",
       "roles": ["ux-engineering", "brand-design", "content-design", "architecture"]
     },
     "mid-design": {
-      "model": "opus",
+      "model": "sonnet",
       "roles": []
     },
     "mechanical": {
