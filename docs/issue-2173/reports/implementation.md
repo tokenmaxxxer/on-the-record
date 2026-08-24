@@ -208,8 +208,7 @@ $ python3 -m pytest tests/test_gh_quota_guard.py tests/test_board_sweep_budget_c
 10 passed in 1.21s
 ```
 
-skill-verdict: implementation-complexity-coupling-management — applied:
-invoked; used via the Skill tool before writing
+skill-verdict: implementation-complexity-coupling-management — applied: invoked; used via the Skill tool before writing
 `gates/spawn_on_approve.py` to decide (a) its PR lookup should call
 `spawn.py`'s already-public `_pr_open_or_merged_for_branch` function
 (rule 4: widen/reuse an existing contract) rather than import
