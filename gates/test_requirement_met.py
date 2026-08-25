@@ -388,6 +388,133 @@ def t_evidence_in_record_bare_prose_mention_still_not_evidence():
     assert result["blocked"] is True
 
 
+# --- issue #2231: grade prose bullets and bare empty state:/provenance:
+# lines, not only check:/gate: bullets ---------------------------------
+
+_PROSE_BODY = """## Acceptance
+- Kill a role session mid-edit with uncommitted changes; the edits are
+  recoverable from the checkpoint ref afterward.
+- Checkpointing leaves the session's branch, HEAD, and index unchanged.
+- Untracked files are captured, not just tracked modifications.
+
+gate: `tests/test_workspace_checkpoint.py`
+empty state: a workspace with a clean tree and no edits yet.
+provenance: executed-live — the kill-mid-edit recovery must be real.
+"""
+
+
+def t_prose_bullets_and_bare_labels_are_all_graded():
+    """issue #2231 repro: issue #2215's shape parsed 1/8 items before this
+    fix. This trimmed fixture is 3 prose bullets + gate: + empty state: +
+    provenance: = 6 items, all reachable now."""
+    result = rm.grade(_PROSE_BODY, "diff --git a/x b/x\n+pass\n", {})
+    assert result["empty_state"] is False
+    assert len(result["criteria"]) == 6
+    raws = {c["raw"] for c in result["criteria"]}
+    assert "Untracked files are captured, not just tracked modifications." in raws
+    assert "a workspace with a clean tree and no edits yet." in raws
+    assert any(r.startswith("executed-live") for r in raws)
+
+
+def t_prose_bullet_graded_yes_without_artifact_does_not_block():
+    """A non-structural item (prose bullet, no check:/gate: label) is
+    never required to cite an artifact — ACCEPTANCE FORMAT only demands
+    that structure for criteria that reference an executable artifact.
+    Blocking these would turn 'grade more' into 'block more than the
+    format ever asked for' (the issue's own non-goal)."""
+    diff = "diff --git a/x b/x\n+pass\n"
+    verdicts = {
+        "Untracked files are captured, not just tracked modifications.": rm.YES,
+    }
+    result = rm.grade(_PROSE_BODY, diff, verdicts)
+    assert result["blocked"] is False, result["blocking_reasons"]
+    crit = next(c for c in result["criteria"]
+                if c["raw"] == "Untracked files are captured, "
+                               "not just tracked modifications.")
+    assert crit["structural"] is False
+    assert crit["blocking_fail"] is False
+
+
+def t_structural_check_bullet_among_prose_still_blocks_on_missing_artifact():
+    """The check:/gate: item in a mixed section keeps the old, stricter
+    behavior — only non-structural items get the new leniency."""
+    diff = "diff --git a/other.py b/other.py\n+pass\n"
+    verdicts = {"`tests/test_workspace_checkpoint.py`": rm.YES}
+    result = rm.grade(_PROSE_BODY, diff, verdicts)
+    assert result["blocked"] is True
+    assert any("tests/test_workspace_checkpoint.py" in r
+               for r in result["blocking_reasons"])
+
+
+def t_no_gradable_criteria_is_distinguishable_from_a_real_pass_via_check():
+    """issue #2231 defect 2: `check()`'s empty_state key lets a caller
+    tell 'nothing was gradable' apart from 'graded and nothing blocked' —
+    both have blocked=False but must not be reported the same way."""
+    import unittest.mock as mock
+    body = "## Acceptance\nunverifiable: this is a subjective UX judgment.\n"
+    with mock.patch.object(rm.gh_rest, "fetch_issue_body", return_value=body), \
+         mock.patch.object(rm, "_pr_diff", return_value="diff --git a/x b/x\n"):
+        empty_result = rm.check(Path("."), 1, 1)
+    with mock.patch.object(rm.gh_rest, "fetch_issue_body", return_value=_BODY), \
+         mock.patch.object(rm, "_pr_diff", return_value=(
+             "diff --git a/gates/test_requirement_met.py b/gates/test_requirement_met.py\n"
+             "+++ b/gates/test_requirement_met.py\n"
+             "+# python3 gates/test_requirement_met.py\n")):
+        real_pass_result = rm.check(Path("."), 1, 1, {})
+    assert empty_result["blocked"] is False
+    assert real_pass_result["blocked"] is False
+    assert empty_result["empty_state"] is True
+    assert real_pass_result["empty_state"] is False
+    assert empty_result != real_pass_result
+
+
+def t_unverifiable_only_section_stays_empty_state_not_a_new_criterion():
+    """`unverifiable:` is issue #310's explicit escape for 'no gradable
+    criteria, here's why' — it must not itself become a gradable prose
+    item under the new bullet parser."""
+    body = "## Acceptance\nunverifiable: this is a subjective UX judgment.\n"
+    result = rm.grade(body, "diff --git a/x b/x\n", {})
+    assert result["empty_state"] is True
+    assert result["criteria"] == []
+
+
+# --- issue #2231 defect 3: citation-FORMAT false-block on the artifact-
+# presence sub-check (PR #2223 live case: the record cited its evidence
+# via a `canonical:` tag, not `acceptance: ... — result: ...`) ----------
+
+
+def t_evidence_in_record_canonical_tag_citation_passes():
+    body = "## Acceptance\ngate: `tests/test_workspace_checkpoint.py`\n"
+    diff = (
+        "diff --git a/docs/issue-9/reports/implementation.md "
+        "b/docs/issue-9/reports/implementation.md\n"
+        "+++ b/docs/issue-9/reports/implementation.md\n"
+        "+canonical: `python3 -m pytest tests/test_workspace_checkpoint.py -v` — "
+        "run against a live spawned workspace, all green.\n"
+    )
+    verdicts = {"`tests/test_workspace_checkpoint.py`": rm.YES}
+    result = rm.grade(body, diff, verdicts)
+    assert result["blocked"] is False, result["blocking_reasons"]
+    assert result["criteria"][0]["artifact_in_diff"] is True
+
+
+def t_bare_prose_mention_still_not_evidence_even_with_canonical_fix():
+    """The canonical: fix stays narrow — a bare prose mention of the
+    artifact (no citation tag at all) must keep blocking, exactly as
+    t_red_artifact_named_only_in_added_markdown_line_fails already
+    requires for the acceptance: shape."""
+    body = "## Acceptance\ngate: `tests/test_workspace_checkpoint.py`\n"
+    diff = (
+        "diff --git a/docs/issue-9/reports/implementation.md "
+        "b/docs/issue-9/reports/implementation.md\n"
+        "+++ b/docs/issue-9/reports/implementation.md\n"
+        "+We touched `tests/test_workspace_checkpoint.py` for this.\n"
+    )
+    verdicts = {"`tests/test_workspace_checkpoint.py`": rm.YES}
+    result = rm.grade(body, diff, verdicts)
+    assert result["blocked"] is True
+
+
 def _run(fn):
     try:
         fn()
