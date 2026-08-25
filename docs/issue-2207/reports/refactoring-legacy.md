@@ -96,6 +96,54 @@ test `test_bm25_scoring_makes_no_network_or_consult_call`, in
 the test file itself). Updated it to scan `directive_assembly.py` — the
 function's new home — rather than relaxing or deleting the check.
 
+### Operator-frozen constraint reconciliation
+
+amendments-reconciled: https://github.com/tokenmaxxxer/on-the-record/issues/2207#issuecomment-5403812267
+(2026-08-25T01:28:08Z) — "must hold systemically for every session ...
+against any target repo", "no added per-spawn overhead or steady-state
+load, no new conflict surfaces ..., no stall/deadlock modes, no
+consumer-tree pollution", trade-offs measured and stated, not discovered
+later.
+
+- Systemic scope: canonical: `directive_assembly.py` and `spawn.py` both
+  live in the on-the-record plugin's own checkout (this repo), never in a
+  target/consumer repo — `ROOT = Path(__file__).resolve().parent`
+  (`spawn.py` line 43, unchanged by this move) is the plugin root, not
+  the target repo a session is spawned against. The move is target-repo-
+  agnostic by construction: every function moved reads/writes only
+  plugin-relative or spawned-workspace-relative paths (`_sp.ROOT`,
+  `cwd`/`work` parameters), never something specific to this self-hosted
+  checkout.
+- No added per-spawn overhead: derived: `python3 -c "import time; t=time.time(); import spawn; print(time.time()-t)"`
+  — result: `0.0143` s cold-import (dominated by `pipeline`/`consult`/etc.
+  imports already present; `directive_assembly` adds one more module
+  parse of the same shape as the other 9 already-extracted siblings).
+  This cost is paid once per process start, not per spawn call — the
+  functions themselves execute identical bytecode to before the move
+  (verbatim copy, no wrapper/indirection added beyond the existing
+  `_sp.<name>()` pattern every one of the other 9 extractions already
+  uses at the same call sites).
+- No new conflict/stall surface: canonical: `directive_assembly.py`
+  (this commit) introduces no new file writes, locks, subprocess calls,
+  or background threads — `materialize_directive_sections`/
+  `write_record_skeleton` write exactly the same paths
+  (`<cwd>/.on-the-record/directive/*`, `<cwd>/docs/issue-<n>/reports/
+  <role>.md`) they wrote before the move, from the same call sites.
+- No consumer-tree pollution: canonical: `git status --short` (this
+  session, post-move) shows only `directive_assembly.py`, `spawn.py`,
+  `tests/test_perf_budget_issue_2053.py`, and the docs record changed —
+  no file under a spawned workspace or target repo is touched by this
+  commit.
+- Trade-off stated: the acceptance benefit (fewer `spawn.py` partial
+  reads) accrues only to sessions reading `spawn.py`'s remaining
+  concerns; a session whose task lands specifically in
+  `directive_assembly.py`'s new concern gets no read-cost change from
+  this move alone (it now pages a 462-line file — `wc -l
+  directive_assembly.py` — instead of finding the same content inside a
+  3,347-line one — strictly smaller, never worse).
+  See Open findings for the post-landing re-measurement this trade-off
+  still needs.
+
 acceptance: `python3 -m pytest -q` (full suite, default `-n auto` from
 `pytest.ini`) — result:
 ```
