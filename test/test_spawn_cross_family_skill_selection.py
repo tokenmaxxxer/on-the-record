@@ -282,8 +282,9 @@ class ConsultJudgeStageTest(unittest.TestCase):
         return d
 
     def _trace_text(self, issue=2040):
-        return (self.work / "docs" / f"issue-{issue}" / "reports"
-                / "consult-log.md").read_text(encoding="utf-8")
+        # issue #2333: 트레이스는 이제 세션별 샤드 파일에 있다 — 애그리게이터가
+        # 재구성하는 오늘까지의 단일-뷰를 읽는다.
+        return spawn._consult_log_aggregate(issue, cwd=str(self.work))
 
     def test_success_logs_picked_rejected_reasons_and_returns_picked_paths(self):
         picked_dir = self._skill(

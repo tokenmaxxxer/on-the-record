@@ -13,9 +13,13 @@
     `python3 ${CHECKOUT}/spawn.py consult <role> "<question>" [--issue
     <n>]` — role skills loaded, judgment rendered, answer returned as
     `{answer, confidence, caveats}`, no branch/commit/PR, but always one
-    line appended to the consult trace (`docs/issue-<n>/reports/
-    consult-log.md`, or `docs/reports/consult-log.md` with no issue) whether it
-    succeeds or fails — read `/consult` for the full contract. Consults
+    line appended to this session's own consult-trace shard
+    (`docs/issue-<n>/reports/consult-log/<session-ts-pid>.md`, or
+    `docs/reports/consult-log/<session-ts-pid>.md` with no issue — issue
+    #2333: sharded per session so concurrent consults never fight over one
+    path; `spawn.py consult-log --issue <n>` reconstructs the single
+    chronological view) whether it succeeds or fails — read `/consult` for
+    the full contract. Consults
     are fast enough to wait on inline; they do not need
     run_in_background. When two roles should judge concurrently and
     argue it out instead of one role judging alone, the same no-branch/
