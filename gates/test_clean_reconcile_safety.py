@@ -8,15 +8,18 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import lifecycle
 import spawn
 
 
@@ -142,6 +145,70 @@ class CleanReconcileSafetyTest(unittest.TestCase):
         # 빈 상태에서 auto_sweep 도 크래시 없이 no-op.
         result = spawn.auto_sweep(self.wb, max_age_days=14, max_bytes=5 * 1024**3)
         self.assertEqual(result, {"removed": 0, "failed": 0})
+
+
+# 이슈 #2383 REQ-2b — `lifecycle._prune_worktrees()`는 existence(디렉터리가
+# 이미 사라짐) 축과 age(디렉터리는 남아있지만 오래됨) 축을 둘 다 지운다.
+class PruneWorktreesTest(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmp.name)
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=self.repo, check=True)
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.email=t@t.test",
+                        "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"],
+                       check=True)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _add_worktree(self, name: str) -> Path:
+        wt = self.tmp / name
+        subprocess.run(["git", "-C", str(self.repo), "worktree", "add", "--detach", str(wt)],
+                       check=True, capture_output=True)
+        return wt
+
+    def _worktree_listing(self) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), "worktree", "list"],
+                              capture_output=True, text=True).stdout
+
+    def test_orphaned_registration_pruned_by_existence(self):
+        wt = self._add_worktree("orphan")
+        shutil.rmtree(wt)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            lifecycle._prune_worktrees(self.repo)
+        self.assertNotIn(str(wt), self._worktree_listing())
+
+    def test_still_present_but_old_worktree_pruned_by_age(self):
+        # issue #2383 conformance review (PR #2398) 재현: 디렉터리가 90일
+        # 전으로 backdate 됐지만 여전히 존재하면, existence 축만으로는
+        # 안 걸린다 — age 축이 이 케이스를 잡아야 한다.
+        wt = self._add_worktree("old-but-present")
+        old = time.time() - 90 * 86400
+        os.utime(wt, (old, old))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            lifecycle._prune_worktrees(self.repo, max_age_hours=24)
+        self.assertNotIn(str(wt), self._worktree_listing())
+        self.assertFalse(wt.exists())
+
+    def test_recent_worktree_survives(self):
+        wt = self._add_worktree("fresh")
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            lifecycle._prune_worktrees(self.repo, max_age_hours=24)
+        self.assertIn(str(wt), self._worktree_listing())
+        self.assertTrue(wt.exists())
+
+    def test_primary_worktree_never_touched_regardless_of_age(self):
+        old = time.time() - 365 * 86400
+        os.utime(self.repo, (old, old))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            lifecycle._prune_worktrees(self.repo, max_age_hours=24)
+        self.assertTrue((self.repo / ".git").exists())
 
 
 # 이슈 #1179 — 자동(스폰-타임) 스윕: 나이/크기 bound, 살아있는/dirty 워크스페이스 예외.

@@ -691,14 +691,34 @@ def _delete_workspace(w: Path, wb: Path, log_outcomes: dict[str, str],
             sibling.unlink()
 
 
-def _prune_worktrees(repo: Path) -> None:
+def _worktree_max_age_hours() -> float:
+    """`MUSTER_WORKTREE_MAX_AGE_HOURS` — 기본 24시간. `check_runner.py`/
+    `reexecution_gate.py`가 만드는 임시 worktree 는 검사 하나(분 단위)
+    동안만 살아야 정상이다 — 워크스페이스의 `MUSTER_CLEAN_MAX_AGE_DAYS`
+    (기본 14일)보다 훨씬 짧은 게 맞다: 그 값은 사람이 며칠씩 붙들고 있는
+    워크스페이스용이고, 이 worktree 는 한 프로세스의 생애 동안만 존재할
+    임시물이다."""
+    return float(os.environ.get("MUSTER_WORKTREE_MAX_AGE_HOURS", "24"))
+
+
+def _prune_worktrees(repo: Path, max_age_hours: float | None = None,
+                      now: float | None = None) -> None:
     """`spawn.py clean`이 워크스페이스 삭제와 같은 지나가는 길에 `repo`(호출
     시점의 orchestrator 체크아웃, 보통 `-C`/cwd)에 등록된 `git worktree`
     항목도 훑는다 — issue #2383: `check_runner.py`/`reexecution_gate.py`가
     만드는 임시 worktree 는 각자 try/finally 로 지우지만, 프로세스가
     죽으면(타임아웃/OOM) 그 finally 는 안 돈다. 이 정기 스윕이 그 잔재의
     유일한 안전망이다. `repo`가 git 체크아웃이 아니면 조용히 건너뛴다 —
-    이 정리는 있으면 좋은 것이지 실패해야 할 전제조건이 아니다."""
+    이 정리는 있으면 좋은 것이지 실패해야 할 전제조건이 아니다.
+
+    두 단계로 훑는다(issue #2383 Acceptance check 2 — count 뿐 아니라
+    age 도 monitored/pruned 여야 한다): 1) `git worktree prune`은 디렉터리가
+    이미 사라진 등록 항목만 지운다(existence 축). 2) 그러고도 디렉터리가
+    여전히 남아있는 항목은 나이만으로는 안 걸린다 — 하드-킬된 프로세스가
+    지우다 만 게 아니라 아예 못 지운 경우 디렉터리 자체가 그대로 남기
+    때문이다. 그 잔재를 잡으려면 별도로 각 worktree 디렉터리의 mtime을
+    `max_age_hours`와 비교해 오래된 것을 `git worktree remove --force`로
+    지운다(age 축) — 두 축이 잡는 실패 모드가 다르다."""
     if not (repo / ".git").exists():
         return
     before = subprocess.run(["git", "-C", str(repo), "worktree", "list"],
@@ -711,6 +731,36 @@ def _prune_worktrees(repo: Path) -> None:
                             capture_output=True, text=True)
     if pruned.stdout.strip():
         print(f"worktree prune: {pruned.stdout.strip()}")
+
+    max_age_hours = _worktree_max_age_hours() if max_age_hours is None else max_age_hours
+    now = time.time() if now is None else now
+    max_age_sec = max_age_hours * 3600
+    listing = subprocess.run(["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+                             capture_output=True, text=True).stdout
+    repo_resolved = repo.resolve()
+    for i, block in enumerate(listing.split("\n\n")):
+        lines = block.splitlines()
+        if not lines or not lines[0].startswith("worktree "):
+            continue
+        if i == 0:
+            continue  # 첫 항목은 항상 이 `repo` 자신(주 체크아웃) — 절대 안 건드린다.
+        wt_path = Path(lines[0][len("worktree "):])
+        try:
+            if wt_path.resolve() == repo_resolved:
+                continue
+            age_sec = now - wt_path.stat().st_mtime
+        except OSError:
+            continue  # 디렉터리가 이미 없다 — existence 축(위)이 이미 처리했다.
+        if age_sec <= max_age_sec:
+            continue
+        print(f"worktree age-prune: {wt_path} ({age_sec / 3600:.1f}h > "
+              f"{max_age_hours}h) — 지운다")
+        removed = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "remove", "--force", str(wt_path)],
+            capture_output=True, text=True)
+        if removed.returncode != 0:
+            print(f"worktree age-prune 실패 (non-fatal): {wt_path}  "
+                  f"[{removed.stderr.strip()}]")
 
 
 def roster_clean(wb: Path, issue: int | None, repo: Path | None = None) -> int:
