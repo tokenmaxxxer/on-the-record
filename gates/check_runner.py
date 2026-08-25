@@ -6,13 +6,22 @@
 LLM 세션이 아니라 기계 단계다 — 판단(judgment)이 필요한 검사는 이
 러너의 범위 밖이며, 조용히 건너뛰지 않고 명시적으로 거부한다.
 
+issue #2233: 검사는 `--repo`(기본 `.`)가 아니라 **PR 의 head 커밋**을
+기준으로 실행된다 — `--repo`는 여전히 `gh` 호출(코멘트 게시, PR 메타데이터
+조회)이 도는 오케스트레이터 체크아웃일 뿐이다. `checkout_pr_worktree()`가
+그 체크아웃에서 PR head 를 fetch 해 임시 `git worktree` 로 떼어내고,
+검사는 거기서 돈다 — 오케스트레이터 체크아웃 자체를 건드리지(브랜치를
+바꾸지) 않는다.
+
   python3 gates/check_runner.py <pr-number> <issue-number> [--repo <경로>]
 """
 from __future__ import annotations
 import re
 import shlex
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -20,6 +29,11 @@ import check_run_artifact as cra  # noqa: E402
 import gh_rest  # noqa: E402
 
 ARTIFACT_PATH = Path(".on-the-record/check-run-artifact.json")
+
+# issue #2233: check-runner 결과 코멘트의 "실행가능한 검사가 없다" 마커.
+# 숫자 헤더(`_RESULT_HEADER`, merge_gate.py)와 겹치지 않는 별도 문구라야
+# `0/0 passed`(빈 목록의 우연한 통과)와 구조적으로 구분된다.
+NO_CHECKS_MARKER = "## Acceptance check-runner result: no checks declared"
 
 # acceptance_gate.py 의 실행가능-산출물 admission 정규식과 같은 계열:
 # 백틱으로 감싼 test/gates 경로, 또는 'check:'/'gate:' 줄.
@@ -46,6 +60,24 @@ def _acceptance_section(body: str) -> str | None:
 # 실행되지 않았다. 정확히 tm-dicequest#44 가 초록으로 통과한 경로다.
 INTERPRETERS = ("python3", "python", "bash", "sh", "pytest",
                 "node", "npx", "deno", "bun")
+
+# issue #2231 residual gap (from #2233's closing comment, PR #2222 live
+# case): a `check:` bullet naming a script in backticks incidentally,
+# while the actual criterion is a comparative/quantitative MEASUREMENT
+# ("an 8KB heredoc write ... completes in a time comparable to a 1KB
+# one — measured, with both numbers in the record", issue #2210) is not
+# a file-existence check — the file existing proves nothing about the
+# claim. Falling through to `file-existence` mechanically asserted a
+# claim the bullet never made and FAILed a correct PR (PR #2222) for a
+# reason unrelated to its substance. When this language is present
+# alongside a backtick that doesn't already look like an executable
+# command, classify as `judgment` instead — the measurement is real but
+# not mechanically checkable; requirement_met.py's semantic layer grades
+# it now that prose criteria reach it (issue #2231 defect 1).
+_MEASUREMENT_LANGUAGE = re.compile(
+    r"(?i)\b(measured?|measuring|comparable\s+to|completes?\s+in\s+a?\s*"
+    r"time|regression\s+guard|unchanged\s+on|latency|throughput|duration|"
+    r"benchmark(?:ed)?|median|percentile)\b")
 
 
 def parse_checks(section: str,
@@ -85,7 +117,19 @@ def parse_checks(section: str,
                 or tokens[0] in INTERPRETERS
             )
             if looks_like_command:
+                # issue #2233: 이 저장소가 실제로 가장 흔히 쓰는 형태 —
+                # 인터프리터 접두 없는 bare `.py` 경로 하나짜리
+                # (`gate: \`tests/test_x.py\``, 이슈 #2215/#2214/#2217이
+                # 전부 이 모양). 셔뱅/실행권한 없는 게 정상인 테스트
+                # 파일을 직접 exec 하면 실행권한 오류로 항상 FAIL 처리되고
+                # 실제로는 한 번도 실행되지 않는다 — PR #2223 라이브
+                # 실행에서 실측됨. `pytest`로 감싸 진짜로 돈다.
+                if (len(tokens) == 1 and cmd.endswith(".py")
+                        and tokens[0] not in INTERPRETERS):
+                    cmd = f"python3 -m pytest {cmd}"
                 checks.append({"type": "test", "raw": raw, "command": cmd})
+            elif _MEASUREMENT_LANGUAGE.search(raw):
+                checks.append({"type": "judgment", "raw": raw})
             else:
                 checks.append({"type": "file-existence", "raw": raw, "path": cmd})
             continue
@@ -122,12 +166,25 @@ def run_checks(repo: Path, checks: list[dict]) -> list[dict]:
             raise JudgmentCheckError(
                 f"판단이 필요한 검사는 체크러너 범위 밖이다: {chk['raw']!r}")
         if kind in ("test", "artifact-smoke"):
-            r = subprocess.run(shlex.split(chk["command"]), cwd=repo,
-                                capture_output=True, text=True)
+            # issue #2233: PR 워크트리에 실제로 있는 파일이라도 실행권한이
+            # 없는 `.py` 검사 파일(인터프리터 접두 없는 bare 경로, 이
+            # 저장소의 흔한 `gate: \`tests/test_x.py\`` 관용구)을 직접
+            # exec 하면 `PermissionError`가 난다 — 블로커 2를 고친 뒤
+            # 실제 PR(issue-2215/#2223)에 대해 돌려보다가 실측한 두 번째
+            # 크래시 경로. 이런 OS 레벨 실행 실패는 "이 검사가 실패했다"는
+            # 결과일 뿐 러너 전체가 죽을 이유가 아니다.
+            try:
+                r = subprocess.run(shlex.split(chk["command"]), cwd=repo,
+                                    capture_output=True, text=True)
+                status = "pass" if r.returncode == 0 else "fail"
+                output = (r.stdout + r.stderr)[-2000:]
+            except OSError as e:
+                status = "fail"
+                output = f"검사 명령을 실행할 수 없다: {e}"
             entry = {
                 "check": chk["raw"], "type": kind, "command": chk["command"],
-                "status": "pass" if r.returncode == 0 else "fail",
-                "output": (r.stdout + r.stderr)[-2000:],
+                "status": status,
+                "output": output,
             }
             if kind == "artifact-smoke":
                 entry["artifact"] = chk["artifact"]
@@ -154,15 +211,121 @@ def run_checks(repo: Path, checks: list[dict]) -> list[dict]:
     return results
 
 
-def format_comment(results: list[dict]) -> str:
-    """구조화된 마크다운 PR 코멘트 본문 하나를 만든다."""
+def format_comment(results: list[dict], skipped: list[dict] | None = None) -> str:
+    """구조화된 마크다운 PR 코멘트 본문 하나를 만든다.
+
+    `results`가 빈 목록이면(파싱된 `check:`/`gate:` 줄이 하나도 없음, 또는
+    이슈 #2231 — 있었지만 전부 `judgment` 로 분류돼 기계적으로 돌릴 게
+    없음) `format_no_checks_comment()`로 위임한다 — 예전엔 여기서
+    `0/0 passed`를 찍었는데, `passed == total`(0==0)이 참이라
+    `merge_gate.evaluate()`가 이걸 통과로 읽었다(issue #2233 empty-state
+    결함). 빈 검사 목록은 이제 숫자 헤더 자체를 안 찍어 그 우연한 통과를
+    구조적으로 막는다.
+
+    `skipped`(issue #2231 잔여 결함 (a), #2233 종료 코멘트): `judgment`
+    로 분류된 항목들 — 기계적으로 실행하지 않았지만 존재는 밝힌다.
+    숫자 헤더의 분모/분자에는 안 들어간다(이 러너의 범위 밖이라
+    pass/fail 판정 자체가 없다) — 채점은
+    `gates/requirement_met.py`의 semantic 레이어 몫이다."""
+    skipped = skipped or []
+    if not results:
+        return format_no_checks_comment(skipped)
     total = len(results)
     passed = sum(1 for r in results if r["status"] == "pass")
     lines = [f"## Acceptance check-runner result: {passed}/{total} passed", ""]
     for r in results:
         mark = "PASS" if r["status"] == "pass" else "FAIL"
         lines.append(f"- [{mark}] ({r['type']}) {r['check']}")
+    if skipped:
+        lines.append("")
+        lines.append(f"judgment (기계 실행 범위 밖, {len(skipped)}개 — "
+                      "semantic 채점은 requirement_met.py 몫):")
+        for s in skipped:
+            lines.append(f"- {s['raw']}")
     return "\n".join(lines)
+
+
+def format_no_checks_comment(judgment: list[dict] | None = None) -> str:
+    """이슈의 `## Acceptance` 절에 기계적으로 실행 가능한 검사가 하나도
+    없을 때 남기는 코멘트(issue #2233 empty-state). `NO_CHECKS_MARKER`로
+    시작해 `merge_gate.parse_check_runner_result()`가 숫자 헤더와
+    구조적으로 구분해 감지한다 — 이 결과를 통과로 취급하지 않는다.
+
+    `judgment`(issue #2231 잔여 결함 (a)): `check:`/`gate:` 줄이 있긴
+    있었지만 전부 `judgment` 로 분류된 경우 — 이 러너가 무엇을 왜 못
+    돌렸는지 밝힌다. 생략하면(진짜로 줄이 0개) 예전과 바이트 단위로
+    같은 문구를 낸다."""
+    if not judgment:
+        return (f"{NO_CHECKS_MARKER}\n\n"
+                "이 이슈의 `## Acceptance` 절에 기계적으로 실행 가능한 "
+                "`check:`/`gate:` 줄이 없다. 이것은 통과가 아니라 별개의 결과다 "
+                "— 머지 게이트는 이걸 만족으로 취급하면 안 된다.")
+    lines = [
+        NO_CHECKS_MARKER, "",
+        f"이 이슈의 `## Acceptance` 절에 있는 {len(judgment)}개 `check:`/"
+        "`gate:` 항목이 전부 판단이 필요한(judgment) 기준이라 기계적으로 "
+        "실행할 검사가 없다. 이것은 통과가 아니라 별개의 결과다 — 머지 "
+        "게이트는 이걸 만족으로 취급하면 안 된다. semantic 채점은 "
+        "`gates/requirement_met.py`가 담당한다:",
+    ]
+    for j in judgment:
+        lines.append(f"- {j['raw']}")
+    return "\n".join(lines)
+
+
+def _pr_head_ref(repo: Path, pr: int) -> str | None:
+    """PR 의 head 브랜치 이름 — `gh pr view`, `gates/ci.py:_pr_head_ref`와
+    같은 모양(issue #2233). 여기서 별도로 두는 이유는 `ci.py`가
+    `check_runner`를 불러오지 않아(순환 임포트 없음) 공유할 얇은 모듈이
+    아직 없기 때문 — 두 곳 모두 이 정도로 작은 함수다."""
+    r = subprocess.run(["gh", "pr", "view", str(pr), "--json", "headRefName"],
+                        cwd=repo, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    import json
+    try:
+        return json.loads(r.stdout).get("headRefName")
+    except ValueError:
+        return None
+
+
+def worktree_for_ref(repo: Path, ref: str) -> tuple[Path | None, str | None]:
+    """`ref`(예: `origin/issue-<n>/<role>`, `repo`에 이미 존재하는 로컬
+    git ref)를 임시 `git worktree`로 떼어낸다(issue #2233 블로커 2 — 검사가
+    PR 코드가 아니라 오케스트레이터 체크아웃을 상대로 돌던 결함). 순수
+    로컬 git 만 쓴다 — fetch 는 호출부(`checkout_pr_worktree`) 책임.
+    `(worktree_path, None)` 또는 `(None, 에러메시지)`."""
+    tmpdir = tempfile.mkdtemp(prefix="check-runner-pr-")
+    r = subprocess.run(["git", "worktree", "add", "--detach", tmpdir, ref],
+                        cwd=repo, capture_output=True, text=True)
+    if r.returncode != 0:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+        return None, f"git worktree add 실패({ref}): {r.stderr.strip()}"
+    return Path(tmpdir), None
+
+
+def remove_worktree(repo: Path, worktree: Path) -> None:
+    """`worktree_for_ref`가 만든 임시 worktree 를 되돌린다 — 실패해도
+    조용히 넘어간다(정리 실패가 검사 결과를 뒤집으면 안 된다); 디렉터리는
+    `git worktree remove`가 못 지워도 `shutil.rmtree`로 한 번 더 지운다."""
+    subprocess.run(["git", "worktree", "remove", "--force", str(worktree)],
+                    cwd=repo, capture_output=True, text=True)
+    shutil.rmtree(worktree, ignore_errors=True)
+
+
+def checkout_pr_worktree(repo: Path, pr: int) -> tuple[Path | None, str | None]:
+    """PR #`pr`의 head 커밋을 `repo`(오케스트레이터 체크아웃, `origin`
+    리모트를 가짐)에서 fetch 해 임시 worktree 로 체크아웃한다(issue #2233).
+    `(worktree_path, None)` 또는 `(None, 에러메시지)` — 에러는 항상
+    fail-closed(호출부가 검사를 실행하지 않고 거부)로 다뤄진다."""
+    head_ref = _pr_head_ref(repo, pr)
+    if head_ref is None:
+        return None, f"PR #{pr} 의 head 브랜치를 읽을 수 없다(`gh pr view` 실패)"
+    fetch = subprocess.run(["git", "fetch", "origin", head_ref], cwd=repo,
+                            capture_output=True, text=True)
+    if fetch.returncode != 0:
+        return None, f"origin/{head_ref} fetch 실패: {fetch.stderr.strip()}"
+    return worktree_for_ref(repo, f"origin/{head_ref}")
 
 
 def post_comment(pr: int, body: str, repo: Path) -> bool:
@@ -198,22 +361,51 @@ def main() -> int:
     except Exception:
         runtime_artifacts = None
     checks = parse_checks(section, runtime_artifacts)
-    try:
-        results = run_checks(repo, checks)
-    except JudgmentCheckError as e:
-        print(f"거부: {e}")
-        return 1
-    comment = format_comment(results)
-    print(comment)
-    post_comment(pr, comment, repo)
+    # issue #2231 residual gap (a), from #2233's closing comment: a
+    # judgment-type check used to make `run_checks` raise and abort the
+    # ENTIRE run before anything was executed or any comment posted — an
+    # Acceptance section with even one judgment-shaped bullet alongside
+    # otherwise-mechanical ones got zero PR feedback (PRs #2228/#2218
+    # live examples). Judgment checks are out of this runner's scope by
+    # design (that's the whole point of the type), so split them out
+    # BEFORE calling `run_checks` — it only ever sees checks it can
+    # actually run, and mechanical checks still get graded and posted
+    # even when judgment ones are present.
+    mechanical = [c for c in checks if c["type"] != "judgment"]
+    judgment = [c for c in checks if c["type"] == "judgment"]
 
-    exit_code = 0 if all(r["status"] == "pass" for r in results) else 1
-    artifact = cra.build_artifact(
-        command=f"check_runner.py {pr} {issue}", tier="fast", repo=repo,
-        check_results=results, exit_code=exit_code,
-        produced_by="check_runner")
-    cra.write_artifact(repo / ARTIFACT_PATH, artifact)
-    return exit_code
+    # issue #2233 empty-state (issue #2231 확장: 있었지만 전부 judgment
+    # 여도 같은 결과): 기계적으로 실행 가능한 검사가 하나도 없으면 PR
+    # 코드를 체크아웃할 것도 없다 — 별개의 결과를 남기고 fail-closed
+    # (0/0 이 "통과"로 읽히던 예전 경로를 없앤다).
+    if not mechanical:
+        comment = format_no_checks_comment(judgment)
+        print(comment)
+        post_comment(pr, comment, repo)
+        return 1
+
+    # issue #2233 블로커 2: PR 의 head 커밋을 임시 worktree 로 떼어내
+    # 거기서 검사를 돈다 — `repo`(오케스트레이터 체크아웃)를 상대로 돌면
+    # PR 이 새로 추가한 파일이 없어 `FileNotFoundError`로 죽는다.
+    worktree, err = checkout_pr_worktree(repo, pr)
+    if err is not None:
+        print(f"거부: PR #{pr} 코드를 체크아웃할 수 없다 — {err}")
+        return 1
+    try:
+        results = run_checks(worktree, mechanical)
+        comment = format_comment(results, judgment)
+        print(comment)
+        post_comment(pr, comment, repo)
+
+        exit_code = 0 if all(r["status"] == "pass" for r in results) else 1
+        artifact = cra.build_artifact(
+            command=f"check_runner.py {pr} {issue}", tier="fast", repo=worktree,
+            check_results=results, exit_code=exit_code,
+            produced_by="check_runner")
+        cra.write_artifact(repo / ARTIFACT_PATH, artifact)
+        return exit_code
+    finally:
+        remove_worktree(repo, worktree)
 
 
 if __name__ == "__main__":

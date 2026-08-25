@@ -150,7 +150,6 @@ WATCHDOG_SILENCE_MIN = watchdog.WATCHDOG_SILENCE_MIN
 WATCHDOG_NO_COMMIT_MIN = watchdog.WATCHDOG_NO_COMMIT_MIN
 WATCHDOG_DENIAL_THRESHOLD = watchdog.WATCHDOG_DENIAL_THRESHOLD
 WATCHDOG_HEARTBEAT_ONLY_MIN = watchdog.WATCHDOG_HEARTBEAT_ONLY_MIN
-_DELEGATION_RE = watchdog._DELEGATION_RE
 _watchdog_state_load = watchdog._watchdog_state_load
 _watchdog_state_save = watchdog._watchdog_state_save
 _classify_log_lines_heartbeat_only = watchdog._classify_log_lines_heartbeat_only
@@ -230,6 +229,7 @@ _ambiguous_watch_exit = events._ambiguous_watch_exit
 _append_event = events._append_event
 _await_bounded = events._await_bounded
 _classify_refusal_text = events._classify_refusal_text
+_count_structural_delegations = events._count_structural_delegations
 _count_structural_denials = events._count_structural_denials
 _event_count = events._event_count
 _events_path = events._events_path
@@ -931,8 +931,10 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     if state is None:
         _watchdog_state_save(own_state)
 
-    # signal 2: 백그라운드-위임 언급 — 시점 무관, 매치 즉시 신고
-    if _DELEGATION_RE.search(text):
+    # signal 2 (이슈 #2217): 구조적 background-delegation tool_use 만 센다 —
+    # 단어 매치는 우리 자신이 주입하는 headless 경고 프롬프트에도 걸려
+    # 100% 세션에서 오탐했다. 시점 무관, 매치 즉시 신고.
+    if _count_structural_delegations(text) > 0:
         anomalies.append(f"background-delegation-phrasing: {log_path}")
 
     # signal 3: 반복된 거부된 도구 호출 (이번 스캔 구간 내) — 이슈 #994:
@@ -1437,6 +1439,22 @@ def main() -> int:
             return 1
         print(f"이슈 #{a.issue} lint: 위반 없음")
         return 0
+    if a.role == "acceptance-sweep":
+        # issue #2229: lint 는 이슈 하나씩만 검사한다 — 필지 후 아무도 그
+        # 이슈에 lint 를 안 돌리면 조용히 스폰불가 상태로 남는다(#2229 관측:
+        # 다섯 건이 우연한 발견으로만 잡혔다). 이 커맨드는 열린 이슈 전체를
+        # 한 번에 훑어 지금 스폰 불가능한 것을 전부 보고한다(closure-sweep,
+        # needs-due 와 같은 단발 스윕 커맨드 관례).
+        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
+        import acceptance_gate as _acceptance_gate
+        root = Path(a.cwd).resolve()
+        bad_by_issue = _acceptance_gate.sweep(root)
+        if bad_by_issue is None:
+            print("acceptance-sweep: 이슈 목록을 읽을 수 없다 (gh 실패) — 판정 불가",
+                  file=sys.stderr)
+            return 1
+        print(_acceptance_gate.format_sweep_report(bad_by_issue))
+        return 1 if bad_by_issue else 0
     if a.role == "drive":
         # 보드가 지목하는 역할을 하나씩, 멈출 때까지.
         require_board(a.cwd, a.no_contract)

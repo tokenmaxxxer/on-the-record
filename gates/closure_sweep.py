@@ -21,8 +21,12 @@ import pr_reference  # noqa: E402
 import spawn  # noqa: E402
 import ci  # noqa: E402
 import accumulation  # noqa: E402
+import state_paths  # noqa: E402
 
-_ACCUMULATION_TREND_STATE = "runs/accumulation_trend.json"
+# issue #2240: orchestrator cross-tick memory (sweep counters, seen-sets,
+# queues), not target-repo state — every filename below is anchored via
+# state_paths, never `root`.
+_ACCUMULATION_TREND_STATE = "accumulation_trend.json"
 
 OPEN_PR_ON_CLOSED_ISSUE = "open-pr-on-closed-issue"
 MERGED_DELIVERY_ISSUE_OPEN = "merged-delivery-issue-open"
@@ -32,9 +36,9 @@ OUT_OF_INDEX_SUBJECT = "out-of-index-subject"
 # fetched issue-state index (e.g. belongs to another repo) are classified
 # ONCE as out-of-scope with the distinct `OUT_OF_INDEX_SUBJECT` reason —
 # never silently `continue`d forever, and never repeated tick after tick.
-# This local, uncommitted state file (same pattern as BACKOFF_STATE_REL)
-# tracks which subjects already received that one-time classification.
-OUT_OF_INDEX_SEEN_STATE_REL = Path("runs") / "closure_sweep_out_of_index_seen.json"
+# tracks which subjects already received that one-time classification —
+# orchestrator cross-tick memory (issue #2240), anchored via state_paths.
+OUT_OF_INDEX_SEEN_STATE_FILENAME = "closure_sweep_out_of_index_seen.json"
 
 _SWEEP_COMMENT_MARKER = "[on-the-record] closure-sweep: {digest}"
 
@@ -297,7 +301,7 @@ def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, bool]:
 def _load_out_of_index_seen(root: Path) -> set[str]:
     """이슈 #1643: 이미 out-of-scope 로 한 번 분류된 subject 집합. 없거나
     깨졌으면 빈 집합(첫 실행과 동치)."""
-    p = root / OUT_OF_INDEX_SEEN_STATE_REL
+    p = state_paths.orchestrator_state_path(OUT_OF_INDEX_SEEN_STATE_FILENAME)
     if not p.is_file():
         return set()
     try:
@@ -310,7 +314,7 @@ def _load_out_of_index_seen(root: Path) -> set[str]:
 
 
 def _save_out_of_index_seen(root: Path, seen: set[str]) -> None:
-    p = root / OUT_OF_INDEX_SEEN_STATE_REL
+    p = state_paths.orchestrator_state_path(OUT_OF_INDEX_SEEN_STATE_FILENAME)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(sorted(seen)), encoding="utf-8")
 
@@ -455,10 +459,9 @@ def accumulation_trend(root: Path) -> dict:
     트리를 훑어 모양 1/5 인스턴스 수를 세고, 직전 틱과 비교한 변화량을
     보고한다. 아무것도 막지 않는다(count report, blocking gate 아님).
 
-    직전 틱 데이터가 없으면(첫 실행, 또는 `runs/` 이 비어있는 새 fixture
-    저장소) `has_prior: False`인 유효한 "no data" artifact 를 낸다 — 예외를
-    던지지 않는다."""
-    state_path = root / _ACCUMULATION_TREND_STATE
+    직전 틱 데이터가 없으면(첫 실행) `has_prior: False`인 유효한 "no data"
+    artifact 를 낸다 — 예외를 던지지 않는다."""
+    state_path = state_paths.orchestrator_state_path(_ACCUMULATION_TREND_STATE)
     prior = None
     if state_path.is_file():
         try:
@@ -545,8 +548,9 @@ def rate_limit_remaining(root: Path) -> tuple[int | None, bool]:
 # issue #1498 req 3/4: 워치독 틱/재확인 루프의 백오프 상태 — 하나의 JSON
 # 파일에 스윕 백오프(sweeps)와 재확인 백오프(recheck) 두 네임스페이스를
 # 따로 둔다. `(interval_ticks, tick)` 만 있으면 되고 gh 를 전혀 안 쓴다 —
-# 순수 로컬 카운터다.
-BACKOFF_STATE_REL = Path("runs") / "gh_quota_backoff.json"
+# 순수 로컬 카운터다. issue #2240: 오케스트레이터 틱간 기억이라 state_paths
+# 로 앵커링된다 — `root` 기준이 아니다.
+BACKOFF_STATE_FILENAME = "gh_quota_backoff.json"
 
 SWEEP_BACKOFF_MAX_TICKS = 8
 RECHECK_NO_CHANGE_THRESHOLD = 3
@@ -554,8 +558,8 @@ RECHECK_BACKOFF_MAX_TICKS = 16
 
 
 def load_backoff_state(root: Path) -> dict:
-    """runs/gh_quota_backoff.json 을 읽는다. 없거나 깨졌으면 빈 상태."""
-    p = root / BACKOFF_STATE_REL
+    """gh_quota_backoff.json 을 읽는다. 없거나 깨졌으면 빈 상태."""
+    p = state_paths.orchestrator_state_path(BACKOFF_STATE_FILENAME)
     if not p.is_file():
         return {"sweeps": {}, "recheck": {}}
     try:
@@ -568,7 +572,7 @@ def load_backoff_state(root: Path) -> dict:
 
 
 def save_backoff_state(root: Path, state: dict) -> None:
-    p = root / BACKOFF_STATE_REL
+    p = state_paths.orchestrator_state_path(BACKOFF_STATE_FILENAME)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(state), encoding="utf-8")
 
@@ -627,11 +631,15 @@ def recheck_backoff(state: dict, key: str, changed: bool) -> bool:
 BOARD_SWEEP_CATEGORIES = ("spawn-on-pr", "closure-sweep", "spawn-coverage",
                           "spawn-on-approve")
 
-BOARD_SWEEP_QUEUE_STATE_REL = Path("runs") / "board_sweep_queue.json"
+BOARD_SWEEP_QUEUE_STATE_FILENAME = "board_sweep_queue.json"
 
 
 def _board_sweep_queue_path(root: Path) -> Path:
-    return root / BOARD_SWEEP_QUEUE_STATE_REL
+    """issue #2240: orchestrator cross-tick memory, not target-repo state —
+    anchored via state_paths, never `root`. `root` is accepted for
+    call-site symmetry with the rest of this module's `root`-scoped
+    helpers; it is not used here."""
+    return state_paths.orchestrator_state_path(BOARD_SWEEP_QUEUE_STATE_FILENAME)
 
 
 def load_board_sweep_queue(root: Path) -> list[str]:
