@@ -11,6 +11,8 @@ code_under_review:
   - lifecycle.py
   - spawn.py
   - tests/test_spawn_pipeline.py
+  - tests/test_spawn_gate_wiring.py
+  - gates/test_clean_reconcile_safety.py
 type: fix
 breaking: none
 verdict: pass
@@ -207,6 +209,19 @@ session's final user-facing turn summary is in Korean.
   moment it's caught mid-write — static grepping across every test file in
   both repos found no candidate, so the next lead has to come from a live
   capture rather than more grepping.
+  **Resolved in the PR #2398 CHANGES round (2026-08-25) — see "CHANGES
+  round" below for the fix and evidence.** The earlier grep pattern above
+  (`roles.*write_text\|ROOT / "roles"\|Path("roles"`) missed
+  `tests/test_spawn_gate_wiring.py`'s three offending methods because
+  they spell the path as `Path(spawn.ROOT) / "roles" /
+  "implementation.json"` on one line and call `.write_text()` on it
+  several lines later, not matching any single-line substring in that
+  pattern. canonical: `grep -n "implementation\.json" tests/test_spawn_gate_wiring.py`
+  this session, 2026-08-25, output lines 47, 160, 190 — each a
+  `f = Path(spawn.ROOT) / "roles" / "implementation.json"` assignment
+  immediately preceding a `try: ... f.write_text(json.dumps(spec)) ...
+  finally: f.write_text(original_text)` block, this session's own
+  working directory.
 - **`/tmp/claude-*/scratchpad/*` worktrees have no known source.**
   Grepped `muster` (`spawn.py`, `gates/gates.py`, `gates/ci.py`) and this
   repo (`spawn.py`, `lifecycle.py`, `board.py`, `pipeline.py`, every
@@ -243,10 +258,113 @@ session's final user-facing turn summary is in Korean.
   same-shape fix to slot in alongside the three landed above without its
   own dedicated review.
 
+## CHANGES round (2026-08-25) — response to PR #2398 conformance review
+
+The conformance review (PR #2398, merged as `e97be75c`) found requirements
+unmet in the PR #2389 head this record originally described.
+derived: `gh pr view 2398 --json body -q .body`, this session, 2026-08-25:
+```
+5 of 7 verify Present: the audit itself, the gitignore-scratch remedy,
+the git worktree prune wiring into spawn.py clean's routine-cleanup
+path, and both halves of the #2379 determine-and-fix check.
+2 of 7 do not verify Present:
+- Absent — the issue's own named example, roles/implementation.json's
+  corrupting process, was never found or fixed
+- Incorrect — the worktree-prune fix only removes registrations whose
+  backing directory is already gone; it does not monitor/prune by age
+```
+The two non-Present items are REQ-1c (Absent, `roles/implementation.json`'s
+corrupting process never found) and REQ-2b (Incorrect, worktree prune
+covers existence but not age). Both are fixed in this round; the branch
+was also rebased onto current `origin/main` (was 4 commits behind with
+overlapping `spawn.py` regions touched by an unrelated issue-2293
+landing).
+canonical: `gh pr view 2398 --json body,state`, this session, 2026-08-25,
+`state: MERGED`; `gh pr view 2389 --json body`, this session, 2026-08-25,
+for the two named unmet requirements.
+
+1. **REQ-1c fixed — `roles/implementation.json`'s corrupting process,
+   root-caused and fixed.** `tests/test_spawn_gate_wiring.py` had three
+   test methods (`test_role_declared_permissions_allow_entries_preserved`,
+   `test_duplicate_against_role_declared_entry_is_not_duplicated`,
+   `test_sandbox_never_enabled_regardless_of_role_declaration`) that
+   wrote directly to the real, tracked `roles/implementation.json` with a
+   save-before/restore-in-`finally` pattern — the same anti-pattern this
+   PR already fixed for `role_model.txt` in `tests/test_spawn_pipeline.py`,
+   but missed in this sibling file. Under pytest-xdist (`-n auto`,
+   `pytest.ini`), a worker killed between the write and the `finally`
+   leaves the real checkout-root file in exactly the near-empty state the
+   issue names. canonical: `pytest.ini` line 4, `addopts = -n auto`
+   (applies repo-wide, this file included), this session's own working
+   directory.
+   Fix: added a `_role_settings_over_patched_spec(role, mutate)` helper
+   (`tests/test_spawn_gate_wiring.py`) that reads the real spec, applies
+   the mutation to an in-memory copy, writes that copy into an isolated
+   `tempfile.TemporaryDirectory()`, and monkeypatches `spawn.ROOT` to
+   point there for the duration of the `role_settings()` call — the real
+   tracked file is never opened for writing. This is safe specifically
+   because all three call sites invoke `spawn.role_settings(role)` with
+   `cwd=None`: `pipeline.role_settings()`'s only other `ROOT`-dependent
+   branch (`self_hosted_hooks()`/core-rulebook clone under
+   `_sp.ROOT / "runs" / "rulebooks"`) is gated on `cwd is not None`, so
+   redirecting `ROOT` cannot trigger a real network clone in these tests.
+   canonical: `pipeline.py:358` `if cwd is not None and
+   inject_self_hosted_hooks:`, this session's own working directory,
+   2026-08-25.
+   acceptance: `git diff --stat -- roles/implementation.json` after
+   running the full suite (including this file) under `-n auto` — result:
+   ```
+   (no output — file untouched)
+   ```
+2. **REQ-2b fixed — worktree pruning now covers age, not just
+   existence.** `lifecycle._prune_worktrees()` gained a second sweep
+   after the existing `git worktree prune -v` call: it lists all
+   registered worktrees (`git worktree list --porcelain`), skips index 0
+   (the primary checkout itself, matched by path as a second guard), and
+   for every other entry whose directory is still present, compares the
+   directory's mtime against `MUSTER_WORKTREE_MAX_AGE_HOURS` (new env
+   var, default 24h — much shorter than workspace `auto_sweep`'s 14-day
+   default, since these `check_runner.py`/`reexecution_gate.py` worktrees
+   are meant to live for one check run, not days). Anything older is
+   removed with `git worktree remove --force`; a removal failure (e.g. a
+   locked worktree) is printed and treated as non-fatal, matching this
+   function's existing "cleanup is nice-to-have, not a hard
+   precondition" stance.
+   canonical: `lifecycle.py` `_worktree_max_age_hours()` and the age-sweep
+   block in `_prune_worktrees()`, this commit, this session's own working
+   directory.
+
+Regression tests for both fixes are committed (not just inline smoke
+tests) since this is a second gap found in the same area by the same
+review process — `gates/test_clean_reconcile_safety.py` gained a new
+`PruneWorktreesTest` class (4 methods: existence-prune, age-prune
+reproducing the reviewer's 90-day-backdated case, fresh-worktree
+survives, primary worktree never touched) and 3 methods in
+`tests/test_spawn_gate_wiring.py` were rewritten to use the
+`spawn.ROOT`-redirect helper above.
+acceptance: `python3 -m pytest gates/test_clean_reconcile_safety.py -q -n auto` — result:
+```
+.............x.                                                          [100%]
+14 passed, 1 xfailed in 17.23s
+```
+acceptance: `python3 -m pytest tests/test_spawn_pipeline.py test/test_spawn_model_override.py gates/test_clean_reconcile_safety.py tests/test_spawn_gate_wiring.py -q -n auto -m "not slow"` — result:
+```
+........................................................................ [ 45%]
+...........................................................x............ [ 91%]
+..............                                                           [100%]
+157 passed, 1 xfailed in 1.26s
+```
+acceptance: `git log --oneline HEAD..origin/main | wc -l` after rebase — result:
+```
+0
+```
+
 ## Next steps
 
-None — `loop_state: landed`. The three follow-ups above are filed as open
-findings for a future session, not left implicit.
+None — `loop_state: landed`. The open findings above are filed for a
+future session where still open, not left implicit — REQ-1c's
+`roles/implementation.json` corruption open finding is resolved by this
+CHANGES round.
 
 amendments-reconciled: issuecomment-5407528172 reports the same mechanism
 as item 2 under What was done above, quoted verbatim: "reproduced this
