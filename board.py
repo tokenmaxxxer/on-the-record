@@ -199,6 +199,50 @@ def init_requirement_digest(cwd: str) -> bool:
     return True
 
 
+def require_repo_root(cwd: str, issue: int | None) -> None:
+    """issue #2395: cwd 가 구조적으로 깨진 세 경우 -- 존재하지 않음, git
+    레포 안이 아님, git 레포이지만 레포 루트가 아님(하위 디렉터리) --
+    를 그 원인 그대로 이름 붙여 멈춘다. 이 검사가 없으면 세 경우 모두
+    `require_board` 의 `approvers.md 없다`(또는 그 이후 게이트의 다른
+    증상)로 떨어져, "cwd 가 생각하는 그 레포가 아니다"라는 실제 원인이
+    안 보이는 다운스트림 증상만 남는다(이슈 실측: on-the-record 서브
+    디렉터리, 존재하지 않는 경로, 아예 다른 레포 각각 다른 오탐 메시지).
+
+    정상 호출 모양(`cd repo && spawn.py <역할> "<일>" --issue N`, cwd
+    기본값 `.`)에서는 cwd 가 언제나 레포 루트이므로 이 세 조건 중
+    무엇에도 걸리지 않고 그대로 지나간다 -- 이 게이트가 새로 막는
+    스폰은 오늘 이미(더 늦게, 더 헷갈리는 메시지로) 막히던 것들뿐이다.
+
+    `issue is None` 이면 통과시킨다: 이 게이트가 지키는 것은 `--issue N`
+    이 엉뚱한 레포로 풀리는 사고뿐이다(이슈 제목 그대로) — 이슈 번호가
+    아예 없는 ad-hoc 스폰은 지킬 "N" 이 없고, git 레포가 아닌 디렉터리를
+    향한 ad-hoc/--no-contract/--dry-run 호출은 오늘도 유효한 모양이다
+    (require_acceptance_gate/require_requirement_linkage 와 같은
+    `if issue is None: return` 관례).
+    """
+    if issue is None:
+        return
+    p = Path(cwd)
+    if not p.is_dir():
+        sys.exit(
+            f"-C 가 존재하지 않는 디렉터리다: {cwd}\n"
+            f"  cwd 는 레포 루트를 가리켜야 한다 — 경로를 다시 확인해라.")
+    resolved = p.resolve()
+    r = subprocess.run(["git", "-C", str(resolved), "rev-parse", "--show-toplevel"],
+                        capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(
+            f"-C 가 git 레포 안이 아니다: {cwd}\n"
+            f"  cwd 는 레포 루트를 가리켜야 한다 — 클론된 레포로 다시 잡아라.")
+    toplevel = Path(r.stdout.strip()).resolve()
+    if toplevel != resolved:
+        sys.exit(
+            f"-C 가 레포 루트가 아니라 그 하위 디렉터리다: {cwd}\n"
+            f"  실제 레포 루트: {toplevel}\n"
+            f"  cwd 가 생각하는 그 레포가 맞는지부터 확인해라 — -C {toplevel} 로 "
+            f"다시 잡거나, 그 루트에서 -C 없이 불러라(이슈 #2395).")
+
+
 def require_board(cwd: str, override: bool) -> None:
     """대상 레포가 보드인지(approvers.md 가 있는지) 본다. 없으면 멈춘다.
 

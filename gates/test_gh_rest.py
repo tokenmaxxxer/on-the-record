@@ -63,7 +63,8 @@ def t_fetch_pr_body_returns_body_on_success():
 def t_fetch_issue_returns_title_and_body_together():
     got = gh_rest.fetch_issue(Path("."), 1550,
                                run=_ok('{"title": "t", "body": "b"}'))
-    assert got == {"title": "t", "body": "b"}, got
+    assert got == {"title": "t", "body": "b",
+                    "owner": "owner", "repo": "repo"}, got
 
 
 def t_fetch_open_prs_uses_rest_never_graphql(tmp_path=None):

@@ -451,6 +451,7 @@ ownership_report = _board_mod.ownership_report
 require_acceptance_gate = _board_mod.require_acceptance_gate
 require_board = _board_mod.require_board
 require_no_repo_config = _board_mod.require_no_repo_config
+require_repo_root = _board_mod.require_repo_root
 require_requirement_linkage = _board_mod.require_requirement_linkage
 roster_ps = _board_mod.roster_ps
 session_end_verdict = _board_mod.session_end_verdict
@@ -1760,13 +1761,14 @@ def main() -> int:
         # 드라이런은 막는다: 레포가 자기 훅을 들고 있으면 그건 세션을 띄우기
         # 전에 알아야 할 사실이지, 띄우고 나서 알 일이 아니다. attempt 기록
         # 대상이 아니므로(세션을 안 태움) 아래 non-dry-run 분기와 따로 돈다.
+        # 이슈 #2395: cwd 가 존재하지 않음/git 레포 아님/레포 루트 아님 세
+        # 경우를 require_board 의 "approvers.md 없다" 증상보다 먼저, 원인
+        # 그대로 이름 붙여 멈춘다.
+        require_repo_root(a.cwd, a.issue)
         require_board(a.cwd, a.no_contract or a.dry_run)
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_acceptance_gate(a.cwd, a.issue)
         require_requirement_linkage(a.cwd, a.issue)
-        cwd_path = Path(a.cwd)
-        if not cwd_path.is_dir():
-            sys.exit(f"-C 가 디렉터리가 아니다: {a.cwd}")
         out = role_settings(a.role, a.cwd)
         # MUSTER_ROLE_MODEL / role_model.txt (이슈#93): spawn_cmd 는 이
         # dry-run 경로를 안 타므로(세션을 안 띄우니까) --model 부착 여부가
@@ -1798,6 +1800,10 @@ def main() -> int:
     attempt_id = (_record_spawn_attempt(a.issue, a.role, os.getpid())
                   if a.issue is not None else None)
     try:
+        # 이슈 #2395: 위 dry-run 분기와 같은 이유로 네 계약 게이트보다
+        # 먼저 — 이 게이트도 attempt_id 기록 뒤(traceless halt 방지)에
+        # 있어야 한다.
+        require_repo_root(a.cwd, a.issue)
         require_board(a.cwd, a.no_contract)
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_acceptance_gate(a.cwd, a.issue)
@@ -2469,7 +2475,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 직렬로 얹혔다. 여기서 먼저 던지고(cross_family 와 같은 패턴),
         # directive_write 가 메인 스레드에서 겹쳐 도는 동안 배경에서
         # 돈다 — 아래 "issue_fetch" 단계는 이제 순수 join 대기만 잰다.
-        def _run_issue_fetch() -> tuple[str, str, str | None, object | None]:
+        def _run_issue_fetch() -> tuple[str, str, str | None, object | None,
+                                         str | None, str | None, str | None]:
             try:
                 sys.path.insert(0, str((ROOT / "gates").resolve()))
                 import gh_rest as _gh_rest
@@ -2478,6 +2485,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
                 _body = issue_data.get("body") if issue_data else None
                 _title = issue_data.get("title") if issue_data else None
+                # 이슈 #2395: owner/repo 는 이 같은 `fetch_issue()` 응답에
+                # 이미 실려 있다 — echo 를 위해 gh 를 또 부르지 않는다.
+                _owner = issue_data.get("owner") if issue_data else None
+                _repo = issue_data.get("repo") if issue_data else None
                 _req_line = ""
                 _goal_pin = ""
                 if _body is not None:
@@ -2485,11 +2496,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     if req_ids:
                         _req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
                     _goal_pin = _goal_pin_block(_title, _body)
-                return _req_line, _goal_pin, _body, _design_artifacts_gate_mod
+                return _req_line, _goal_pin, _body, _design_artifacts_gate_mod, _title, _owner, _repo
             except Exception:
-                return "", "", None, None
-        _issue_fetch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-        _issue_fetch_future = _issue_fetch_executor.submit(_run_issue_fetch)
+                return "", "", None, None, None, None, None
+        # 이슈 #2395 CHANGES: `main()`이 게이트 앞에서 이미
+        # `_resolve_and_echo_issue()`로 fetch-and-echo 를 끝냈으면
+        # (`issue_data`가 `_ISSUE_NOT_PRE_RESOLVED`가 아니면) 이 async
+        # fetch 자체를 던지지 않는다 — 안 그러면 성공 경로에서 gh 왕복이
+        # 또 하나 늘어난다(acceptance check 2 위반). 아직 아무도 안
+        # 찍었으면(`_respawn_or_cap()` 등 `main()`을 안 거친 호출) 오늘
+        # 까지처럼 여기서 직접 async fetch 하고 echo 도 직접 찍는다.
+        pre_resolved = issue_data is not _ISSUE_NOT_PRE_RESOLVED
+        if not pre_resolved:
+            _issue_fetch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            _issue_fetch_future = _issue_fetch_executor.submit(_run_issue_fetch)
         # Issue #2135: materialize the on-demand directive section files and
         # the record skeleton into the workspace BEFORE assembling the
         # index — the trigger lines below reference files that must exist.
@@ -2502,9 +2522,47 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             materialize_directive_sections(cwd, _directive_section_texts)
             write_record_skeleton(cwd, issue, role)
         with _timed("issue_fetch"):
-            req_line, goal_pin, body, _design_artifacts_gate = (
-                _issue_fetch_future.result())
-            _issue_fetch_executor.shutdown(wait=False)
+            if pre_resolved:
+                body = issue_data.get("body") if issue_data else None
+                title = issue_data.get("title") if issue_data else None
+                resolved_owner = issue_data.get("owner") if issue_data else None
+                resolved_repo = issue_data.get("repo") if issue_data else None
+                req_line = ""
+                goal_pin = ""
+                _design_artifacts_gate = None
+                try:
+                    sys.path.insert(0, str((ROOT / "gates").resolve()))
+                    import requirement_linkage as _requirement_linkage
+                    import design_artifacts_gate as _design_artifacts_gate
+                    if body is not None:
+                        req_ids = _requirement_linkage.cited_requirement_ids(body)
+                        if req_ids:
+                            req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
+                        goal_pin = _goal_pin_block(title, body)
+                except Exception:
+                    req_line = ""
+                    goal_pin = ""
+            else:
+                (req_line, goal_pin, body, _design_artifacts_gate,
+                 title, resolved_owner, resolved_repo) = _issue_fetch_future.result()
+                _issue_fetch_executor.shutdown(wait=False)
+        # 이슈 #2395: cwd 가 어느 레포로 해석됐는지(owner/repo#n) + 이슈
+        # 제목을, 오케스트레이터 stdout 과 역할 세션에 주입되는 지시문
+        # 양쪽에 같은 문구로 찍는다 — 같은 이슈 번호가 레포마다 다른
+        # 이슈를 가리키는 사고를 "조용한 오해"가 아니라 "눈에 보이는
+        # 사실"로 바꾼다. gh 조회 실패(fetch_issue 가 None)는 조용히
+        # 건너뛰지 않고, 확인 실패라고 그대로 말한다 — 확인 불가를
+        # 확인됨으로 읽지 않는다.
+        if resolved_owner and resolved_repo:
+            resolved_line = (f"해석된 레포/이슈: {resolved_owner}/{resolved_repo}#{issue}"
+                              + (f" — {title}" if title else "") + "\n")
+        else:
+            resolved_line = (f"해석된 레포/이슈: 확인 실패 — cwd({cwd})가 가리키는 "
+                              f"레포에서 이슈 #{issue} 를 못 읽었다(gh 조회 실패).\n")
+        if not pre_resolved:
+            # 이슈 #2395 CHANGES: pre-resolved 면 `main()`이 게이트 앞에서
+            # 이미 이 줄을 찍었다 — 여기서 또 찍으면 stdout 에 중복된다.
+            print(f"[{role}] {resolved_line.strip()}")
         # Issue #2135 directive diet: the always-on preamble is a compact
         # invariant index. The long prose it used to carry (완료의 정의
         # full text, 체크포인트 커밋 rule, headless/run_in_background
@@ -2519,6 +2577,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # below) — already in context at session start, zero round trips.
         task = _dp("issue-preamble-index",
                 f"당신의 이슈: #{issue} (subject issue-{issue}, 브랜치 {br}).\n"
+                + resolved_line
                 + req_line + goal_pin +
                 f"gh issue view {issue} 로 이슈를 먼저 읽어라.\n"
                 f"완료의 정의: 변경이 이 브랜치에 커밋되고 push 되어 PR 로 "
