@@ -633,8 +633,20 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # today's argv byte-identical (callers that never resolved a budget);
     # `_spawn_one` always passes the resolved cap. <= 0 means an explicit,
     # admission-approved unlimited run — no flag is attached.
+    #
+    # Issue #2262: the actual `--max-turns` ceiling handed to the CLI is
+    # the resolved cap PLUS a wrap-up allowance (SWE-agent autosubmit
+    # shape) — a small grace buffer so a session that crosses the
+    # approach-cap warning threshold (env below) still has real turns
+    # left to converge (commit/PR/record) instead of being hard-killed
+    # exactly at the nominal cap. `DEFAULT_SESSION_MAX_TURNS` itself is
+    # untouched: six sessions measured in #2262 spent the budget on
+    # non-looping serial exploration, not runaway looping, so raising
+    # the advertised cap would only make the same shape more expensive —
+    # the allowance is landing room, not more exploration room.
+    wrap_up_allowance = _resolve_wrap_up_allowance_turns()
     if max_turns is not None and max_turns > 0:
-        cmd += ["--max-turns", str(max_turns)]
+        cmd += ["--max-turns", str(max_turns + wrap_up_allowance)]
     # 스킬-저장소 가이던스도 core 와 같은 길로 붙는다 — 디렉터리로 넘긴 플러그인의 훅은
     # headless 에서 그대로 발화하고(실측 2026-07-27, CLI 2.1.220), 설치를
     # 안 거치므로 캐시-클론 갈라짐도 유령 등록 항목도 이 경로엔 없다.
@@ -667,6 +679,15 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
            # 로 넘기기 전에 이 두 내부 키를 꺼내 roster 엔트리에 옮겨 담는다.
            "_MODEL_ROUTING_MODEL": role_model or "",
            "_MODEL_ROUTING_RULE": model_rule}
+    # Issue #2262: the nominal cap (never the allowance-widened CLI value
+    # above) and the warning threshold ride as env so the in-session
+    # approach-cap-warning.sh hook can compute "turns remaining" against
+    # the SAME budget the session was told about, not the padded one.
+    # Unset (max_turns None/<=0, unlimited) -> the hook is a no-op, same
+    # as today: no cap known, nothing to warn against.
+    if max_turns is not None and max_turns > 0:
+        env["MUSTER_SESSION_MAX_TURNS_RESOLVED"] = str(max_turns)
+        env["MUSTER_APPROACH_WARNING_TURNS"] = str(_resolve_approach_warning_turns())
     # Two-account model (core README): role sessions act as the AGENT
     # account. MUSTER_AGENT_GH_TOKEN, if set, becomes the session's GH_TOKEN
     # so gh in the container/sandbox authenticates as the agent — never the
@@ -1267,6 +1288,45 @@ def _resolve_session_max_turns(cli_value: int | None) -> int:
         except ValueError:
             pass
     return _sp.DEFAULT_SESSION_MAX_TURNS
+
+
+# Issue #2262: two independent knobs on top of the resolved cap above —
+# neither one is the cap itself. Both default to 20 (the issue's own
+# example number) and both are read at spawn time so tests/operators can
+# override without touching code.
+DEFAULT_APPROACH_WARNING_TURNS = 20
+DEFAULT_WRAP_UP_ALLOWANCE_TURNS = 20
+
+
+def _resolve_approach_warning_turns() -> int:
+    """Turns-remaining threshold at which the in-session hook injects the
+    converge-now warning (issue #2262). MUSTER_APPROACH_WARNING_TURNS env
+    overrides; a non-negative int only, else the built-in default."""
+    env = os.environ.get("MUSTER_APPROACH_WARNING_TURNS")
+    if env:
+        try:
+            value = int(env)
+            if value >= 0:
+                return value
+        except ValueError:
+            pass
+    return DEFAULT_APPROACH_WARNING_TURNS
+
+
+def _resolve_wrap_up_allowance_turns() -> int:
+    """Extra turns added on top of the resolved cap before it becomes the
+    real `--max-turns` ceiling (issue #2262's wrap-up allowance).
+    MUSTER_WRAP_UP_ALLOWANCE_TURNS env overrides; a non-negative int only,
+    else the built-in default."""
+    env = os.environ.get("MUSTER_WRAP_UP_ALLOWANCE_TURNS")
+    if env:
+        try:
+            value = int(env)
+            if value >= 0:
+                return value
+        except ValueError:
+            pass
+    return DEFAULT_WRAP_UP_ALLOWANCE_TURNS
 
 
 def _checkpoint_poll_seconds() -> float:

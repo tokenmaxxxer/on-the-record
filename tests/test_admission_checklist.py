@@ -431,8 +431,13 @@ class BudgetCapPlumbing(unittest.TestCase):
     """Item 4 plumbing: max-turns pass-through with a default."""
 
     def test_spawn_cmd_carries_max_turns_flag(self):
-        cmd, _ = spawn.spawn_cmd("/tmp/s.json", "implementation",
-                                 unattended=False, max_turns=37)
+        # Issue #2262: the actual --max-turns flag is the resolved cap
+        # plus a wrap-up allowance (see tests/test_session_turn_budget.py
+        # for that widening itself) -- pinned to 0 here so this test keeps
+        # covering only the original item-4 pass-through concern.
+        with mock.patch.dict(os.environ, {"MUSTER_WRAP_UP_ALLOWANCE_TURNS": "0"}):
+            cmd, _ = spawn.spawn_cmd("/tmp/s.json", "implementation",
+                                     unattended=False, max_turns=37)
         self.assertEqual(cmd[cmd.index("--max-turns") + 1], "37")
 
     def test_spawn_cmd_without_max_turns_is_unchanged(self):

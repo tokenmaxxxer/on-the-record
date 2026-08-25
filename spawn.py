@@ -1906,6 +1906,11 @@ def _checkpoint_index_block(issue: int, role: str) -> str:
 # the full prose inline — their assembly is byte-identical to before.
 DIRECTIVE_DIR = ".on-the-record/directive"
 
+# Issue #2100 item 4 (moved up from the admission section, issue #2262):
+# needed by _TURN_BUDGET_PROSE below at module-eval time, so this constant
+# has to exist before that string literal is built, not after.
+DEFAULT_SESSION_MAX_TURNS = 200
+
 # Moved verbatim from the issue-workspace preamble (issues #132/#1981 and
 # the headless/run_in_background warning). The inline index keeps the
 # one-line 완료의 정의 invariant plus a trigger line; this file is canon.
@@ -1932,6 +1937,26 @@ _LANDING_BATCHING_PROSE = (
     "<branch> && gh pr create ...\n"
     "Five separate single-command turns for add/commit/push/pr-create were "
     "the measured pattern this guidance retires.\n")
+
+# Issue #2262: turn-efficiency guidance. Measured (six 2026-08-24/25
+# sessions, issues 2173/2186/2193/2204/2208/2240): all six died at the
+# 200-turn `--max-turns` cap, and #2240's own anatomy (230 tool calls) was
+# 69 grep commands, 68 of them unique — not a loop, serial one-grep-per-
+# turn exploration that alone burned roughly a third of the whole budget.
+# The session previously had no way to know a cap existed at all.
+_TURN_BUDGET_PROSE = (
+    "턴 예산(이슈 #2262): 이 세션은 --max-turns 상한 안에서 돈다(기본값 "
+    f"{DEFAULT_SESSION_MAX_TURNS}, 스포너가 다르게 줬으면 "
+    "$MUSTER_SESSION_MAX_TURNS_RESOLVED 로 실측치를 알 수 있다). 남은 턴이 "
+    "적어지면(기본 20턴 전) 지금 이 채널로 수렴하라는 경고가 한 번 더 "
+    "온다 — 그 경고가 오면 새 탐색을 시작하지 말고 커밋/PR/기록으로 "
+    "수렴하라; 상한을 넘긴 뒤에도 수렴 전용의 소진 유예(wrap-up "
+    "allowance)가 조금 있을 뿐, 탐색을 더 할 여유가 아니다. 측정 결과 "
+    "(이슈 #2240): 캡에 걸린 세션 하나가 한 턴에 grep 하나씩 69번 실행했고 "
+    "그중 68번이 서로 다른 검색이었다 — 루프가 아니라 예산을 선형으로 "
+    "쓰는 직렬 탐색이 원인이었다. 이걸 줄이려면: 관련된 grep 여러 개를 "
+    "한 Bash 호출에 `&&`나 `|`로 묶어서 한 턴에 실행하고, 파일 전체를 "
+    "여러 번 나눠 읽기(paging)보다 필요한 범위만 짚어 Read 하라.\n")
 
 # Issue #2185: measured cost — spawned sessions run `find` (including
 # unscoped `find /` whole-tree traversals) to locate files whose path they
@@ -2002,14 +2027,16 @@ def directive_section_files(*, skills_mounted: bool = False,
                             checkpoint_block: str | None = None) -> dict[str, str]:
     """The on-demand section files for one spawn: name -> full prose.
 
-    `completion-and-landing.md`, `repo-discovery.md`, and
-    `known-paths.md` are always materialized; the skill and checkpoint
-    sections only when their condition holds (their trigger lines are
-    equally conditional, so index and files stay a bijection)."""
+    `completion-and-landing.md`, `repo-discovery.md`, `known-paths.md`,
+    and `turn-budget.md` are always materialized; the skill and
+    checkpoint sections only when their condition holds (their trigger
+    lines are equally conditional, so index and files stay a
+    bijection)."""
     files = {"completion-and-landing.md":
              _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
              "repo-discovery.md": _REPO_DISCOVERY_PROSE,
-             "known-paths.md": _KNOWN_PATHS_PROSE}
+             "known-paths.md": _KNOWN_PATHS_PROSE,
+             "turn-budget.md": _TURN_BUDGET_PROSE}
     if skills_mounted:
         files["skill-obligations.md"] = (_SKILL_CHECK_PROSE + "\n"
                                           + _SKILL_VERDICT_PROSE)
@@ -2273,8 +2300,6 @@ def _cross_family_skill_matches(task_text: str, role: str,
 # not be evaluated because of a gh/network failure — fail-open per the
 # returned-PR gate convention, issue #680: ledger event + proceed, so that
 # admission never becomes a new stall class).
-
-DEFAULT_SESSION_MAX_TURNS = 200
 
 
 # The checklist table. One row per named precondition; `admission_gate()`
