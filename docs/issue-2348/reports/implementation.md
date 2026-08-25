@@ -32,6 +32,40 @@ verdict: pass
 
 # issue-2348 — implementation record
 
+amendments-reconciled: issuecomment-5407297407 — operator-frozen
+constraint (2026-08-25: fix must hold systemically for every installing
+session/target repo, and land with no added per-spawn overhead/
+steady-state load, no new conflict surfaces, no stall/deadlock, no
+consumer-tree pollution). Addressed: (1) systemic — `hook_fires.py`/
+`deviation_log.py` both resolve their root via `Path(cwd).resolve()`
+(the target repo `-C`/cwd passed in), never this checkout's own path;
+`hook-fires.sh`/`deviation-log-guard.sh` both operate on `$(pwd -P)` of
+whatever workspace the hook fires in, same as every other on-the-record
+hook. (2) no added per-spawn overhead — `hook-fires.sh`'s
+`hook_fires_record()` is deliberately pure bash+coreutils
+(`sha256sum`/`shasum`/`openssl`, never python3) specifically because these
+three hooks fire on every UserPromptSubmit/Stop event fleet-wide; a
+python3 interpreter start on that path would have been a real new
+steady-state cost the old plain `printf >>` never paid (see the
+hook-fires.sh section below for the exact fallback chain). `deviation_log.py`'s
+per-append cost is one `glob()` over a handful of small shard files inside
+an already-running `spawn.py` process — no new process, matching
+`consult-log.md`'s own #2333 precedent exactly. (3) no new conflict
+surfaces — sharding is the mechanism that *removes* the shared-path
+conflict surface both artifacts had; no new shared path is introduced (the
+`hook-fires.sh` source file itself is edited only by developers, never
+appended to at runtime). (4) no stall/deadlock — the one behavior change
+with stall potential, `stop-poll-rearm.sh` now reading its own stdin via
+`cat` for the first time, matches `directive.sh`'s/`stop-gate.sh`'s
+already-existing `cat`-on-stdin pattern; the harness always pipes and
+closes the hook payload for these event types, so `cat` returns on EOF
+the same way it already does for the other two hooks — verified live via
+the deadman-check test suite passing with the `input=""` case
+(`test_stop_poll_rearm_deadman.py`, see Executed evidence). (5) no
+consumer-tree pollution — the sharded paths replace the flat files inside
+the exact same tracked-workspace-relative convention the flat files
+already used; no new top-level path category is introduced.
+
 ## What was done
 
 Implements the append-log conflict elimination #2333 deferred, per its
@@ -50,8 +84,11 @@ canonical: commit `927079c9c77c26a428bd56ebe2ff3d57aaccb08a` (`git show
   `_consult_log_aggregate()` uses).
 - New `on-the-record/hooks/hook-fires.sh`, a shared library (mirrors the
   existing `poll-rearm.sh` precedent for cross-hook logic) exposing
-  `hook_fires_record <label> <payload-json>`, embedding the same hash
-  formula so the write and read sides can't drift.
+  `hook_fires_record <label> <payload-json>`. Deliberately pure
+  bash+coreutils (`grep`/`sed` to pull `session_id` out of the JSON
+  payload; `sha256sum`, falling back to `shasum -a 256` then `openssl
+  dgst -sha256`, for the hash) rather than shelling out to python3 for
+  every firing — see the amendment reconciliation below.
 - `directive.sh`/`stop-gate.sh`/`stop-poll-rearm.sh`: each now captures
   its own stdin exactly once, before any kill-switch/role short-circuit
   (preserving the existing "count every real trip" invariant), and calls
