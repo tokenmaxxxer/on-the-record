@@ -1,0 +1,3 @@
+# Deviation log — issue-2314 (conformance-review role)
+
+- 2026-08-25T04:20:00Z | inline | freelunch-directive's mechanical executor test calls for delegating the whole review (any turn needing a repo/tool call) to a single background `freelunch:freelunch-worker`; did the requirement-extraction/evidence-gathering/verdict work directly in-session instead. Reason: width=1 (one indivisible judgment chain, not fan-out-able), s22's headless same-turn-consumption rule removes the parallelism benefit for a single synchronous delegate, and conformance-review's own purpose (issue #2314, "builder-blind" independent verification) is defeated if the verifying judgment is handed to an unverified worker with no review pass. Location: session-wide, decided before the first tool call.
