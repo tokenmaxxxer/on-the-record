@@ -288,11 +288,89 @@ session.
 
 None. Resolution path: not applicable — no open findings to resolve.
 
+## CHANGES round (PR #2418) — missing-`ts` gap
+
+canonical: python3 -c "..." invocations of `spawn._prune_spawn_attempts()`
+against a dead-pid record with no `ts` key at all, run against both the
+pre-fix and post-fix code in this session (`git stash`/`git stash pop`
+around the same repro script) — transcripts quoted verbatim below. Plus
+`python3 -m pytest tests/test_watch_hardening.py -v` re-run after the
+fix.
+
+Execution-observation (PR #2424, merged) reproduced a real remaining gap
+in the landed fix: the `outcome is None` branch computed
+`ts = a.get("ts", now)`. A record whose `ts` key is entirely absent (not
+just malformed — genuinely missing) always defaults to `now`, so
+`now - ts` is always `0`, `aged_out` never trips (the `isinstance` guard
+also passes, since the default `now` is a float), and the record is kept
+forever regardless of pid liveness — the exact "kept forever" failure
+class this issue exists to fix, for a different missing field than the
+pid-as-string bug the before-landing warrant-hunter already caught.
+
+Fix: `spawn.py`, changed `ts = a.get("ts", now)` to `ts = a.get("ts")`
+(default `None`). A missing `ts` now fails the existing
+`not isinstance(ts, (int, float))` check the same way a malformed `ts`
+already did, making it immediately `aged_out = True` — i.e. immediately
+eligible for pruning (subject to the same `_pid_is_alive(pid)` override
+as every other record in this branch: a live pid is still never pruned,
+regardless of `ts`). No new branch, no new knob — reuses the check
+already sitting there for the sibling case.
+
+```
+$ python3 -c "... UNFIXED: dead-pid record, missing ts, 3 simulated-year ticks ..."
+tick 0 (+0 years, UNFIXED): dropped=0, remaining=1
+tick 1 (+1 years, UNFIXED): dropped=0, remaining=1
+tick 2 (+2 years, UNFIXED): dropped=0, remaining=1
+```
+
+```
+$ python3 -c "... FIXED: same record/script, fixed code ..."
+tick 0 (+0 years): dropped=1, remaining=0
+tick 1 (+1 years): dropped=0, remaining=0
+tick 2 (+2 years): dropped=0, remaining=0
+```
+
+Unfixed: the record survives all three simulated years (0 dropped every
+tick, matching the execution-observer's finding that it "survives 3
+simulated years"). Fixed: dropped on the very first tick, once, and the
+file stays empty afterward.
+
+Also checked the adjacent `halted` branch for the identical pattern
+(`outcome_ts = outcome.get("ts", now)`, line ~1072): left unchanged,
+out of scope for this CHANGES round — `_record_spawn_outcome()` (the
+only writer of `spawn_attempt_outcome` events, spawn.py ~line 947)
+unconditionally sets `"ts": time.time()` on every write, so a real
+`halted` outcome can never have a missing `ts` the way a hand-written or
+legacy-corrupted `spawn_attempt` record could. No reproduction attempted
+against it; noted here so a future reader doesn't have to re-derive why
+it wasn't touched.
+
+Added two tests to `SpawnAttemptPruneLiveness` in
+`tests/test_watch_hardening.py`:
+`test_missing_ts_with_dead_pid_is_pruned` (dead pid + no `ts` key →
+dropped) and `test_missing_ts_with_live_pid_still_kept` (live pid + no
+`ts` key → still kept, confirming the liveness override still dominates
+even though `aged_out` is now `True` from the missing-`ts` default).
+Full suite re-run green:
+
+```
+$ python3 -m pytest tests/test_watch_hardening.py -v
+...
+============================== 34 passed in 0.90s ==============================
+```
+34 = the prior 32 plus these two new cases. Also re-ran the collateral
+suites:
+
+```
+$ python3 -m pytest tests/test_spawn_pipeline.py tests/test_standing_red_watch.py
+============================== 97 passed in 1.86s ==============================
+```
+
 ## Next steps
 
-None remain for this fix — implementation, the live-pid demonstration,
-the before/after measurement, the before-landing warrant-hunter dispatch
-and its follow-up fix, and the test runs are all finished.
+None remain — the missing-`ts` gap from the CHANGES round is fixed,
+demonstrated before/after, covered by two new tests, and the full and
+collateral suites are green.
 
 ## Skill verdicts
 
@@ -303,9 +381,17 @@ half English/half Korean), kept commits, PR title/body, branch name, and
 all code identifiers in English per this repo's own recent commit
 history convention.
 
+skill-verdict: work-in-english — applied: invoked (CHANGES round); kept the
+new `spawn.py` comment and the new test docstrings in the same
+English-code/Korean-comment split the file already uses (per the skill's own
+"project convention conflicts — follow the project" edge case), and wrote
+this record section and commit/PR text in English, reserving Korean only for
+this turn's final chat summary.
+
 other mounted skills: not triggered (implementation-complexity-coupling-management,
 implementation-design-pattern-selection,
 implementation-performance-data-structure-choice, implementation-blueprint
-— this is a self-contained fix inside one existing function plus one
-existing watchdog loop, no new module boundary, coupling change, or
-design-pattern decision was in scope).
+— this CHANGES round is a one-line default-value fix inside an
+already-reviewed function plus two new tests in an existing test class, no
+new module boundary, coupling change, or design-pattern decision was in
+scope).

@@ -1062,8 +1062,17 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
             # sweep 이 보고할 기회를 뺏지 않으려고), 새 knob 을 만드는
             # 대신 halted 분기와 같은 7일 재보고 가시성 창을 그대로
             # 재사용한다.
+            #
+            # CHANGES round (PR #2418, execution-observation follow-up):
+            # `ts` 가 아예 없는 레코드에서 `a.get("ts", now)`로 기본값을
+            # `now`를 쓰면 `now - ts`가 항상 0이라 절대 retention 을 못
+            # 넘는다 — pid-as-string 버그와 같은 "kept forever" 클래스를
+            # 다른 누락 필드로 재현한 것. 기본값을 `None`으로 바꿔 아래
+            # `isinstance` 체크가 "ts 필드 자체가 없음"과 "ts 가 숫자가
+            # 아님"을 똑같이 "바로 aged_out"으로 잡게 한다 — 이미 있던
+            # malformed-ts 분기와 동일한 취급이라 별도 분기가 필요 없다.
             pid = a.get("pid")
-            ts = a.get("ts", now)
+            ts = a.get("ts")
             aged_out = (not isinstance(ts, (int, float))
                         or now - ts >= SPAWN_ATTEMPTS_RETENTION_SEC)
             if _pid_is_alive(pid) or not aged_out:

@@ -574,6 +574,35 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertEqual(dropped, 0)
         self.assertIn("a4", self._remaining_ids())
 
+    def test_missing_ts_with_dead_pid_is_pruned(self):
+        """CHANGES round (PR #2418, execution-observation follow-up): a
+        record with no `ts` key at all used to default to `now` inside
+        `_prune_spawn_attempts()`, making `now - ts` always 0 and the
+        record un-ageable — kept forever, the same failure class as this
+        issue exists to fix, for a different missing field than the
+        pid-as-string bug. A dead-pid record missing `ts` entirely must be
+        immediately eligible for pruning, not preserved forever."""
+        now = time.time()
+        dead_pid = self._dead_pid()
+        self._write([{"event": "spawn_attempt", "attempt_id": "a5",
+                      "issue": 5, "role": "implementation", "pid": dead_pid}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 1)
+        self.assertNotIn("a5", self._remaining_ids())
+
+    def test_missing_ts_with_live_pid_still_kept(self):
+        """The missing-`ts` default must not override the liveness
+        invariant: even with `ts` absent, a genuinely live pid is kept
+        (aged_out=True from the missing ts, but `_pid_is_alive` still
+        wins the OR)."""
+        now = time.time()
+        self._write([{"event": "spawn_attempt", "attempt_id": "a6",
+                      "issue": 6, "role": "implementation",
+                      "pid": os.getpid()}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 0)
+        self.assertIn("a6", self._remaining_ids())
+
 
 class SpawnAttemptSweepDedup(unittest.TestCase):
     """Issue #2413: many attempt_ids for the same (issue, role) subject
