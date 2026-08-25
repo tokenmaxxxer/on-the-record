@@ -281,6 +281,38 @@ def t_bare_artifact_path_without_measurement_language_stays_file_existence():
     assert _types(section) == ["file-existence"]
 
 
+def t_cross_family_bare_identifier_classifies_as_judgment_not_file_existence():
+    """issue #2278 regression pin — issue #2213 / PR #2255 live FAIL: a
+    per-spawn measurement description backticks a bare identifier
+    (`cross_family`), not a path. The old default (file-existence) FAILed
+    a correct, execution-verified PR because no file named `cross_family`
+    exists in the tree."""
+    section = ("\n- check: per-spawn `cross_family` timing is recorded "
+               "for 10+ spawns\n")
+    assert _types(section) == ["judgment"], check_runner.parse_checks(section)
+
+
+def t_work_in_english_skill_name_classifies_as_judgment_not_file_existence():
+    """issue #2278 regression pin — issue #2208 / PR #2218 live FAIL: the
+    backtick names a skill, not a path — old default FAILed 1/2 and
+    blocked the merge gate until manually overridden."""
+    section = ("\n- check: `work-in-english` is bound statically and "
+               "verified by re-running the retrieval pipeline\n")
+    assert _types(section) == ["judgment"], check_runner.parse_checks(section)
+
+
+def t_genuinely_missing_path_shaped_artifact_still_classifies_as_file_existence_and_fails():
+    """issue #2278: the inversion is narrow — a backtick that DOES look
+    like a path (known extension, here `.json`) stays file-existence and
+    genuinely FAILs when the file is actually absent."""
+    section = "\n- check: the report lands at `missing_report.json`\n"
+    checks = check_runner.parse_checks(section)
+    assert [c["type"] for c in checks] == ["file-existence"], checks
+    with tempfile.TemporaryDirectory() as td:
+        results = check_runner.run_checks(Path(td), checks)
+    assert results[0]["status"] == "fail", results
+
+
 def t_all_judgment_checks_do_not_abort_run_checks_when_pre_filtered():
     """issue #2231 gap (a): main() must partition judgment out BEFORE
     calling run_checks, not discover the abort via JudgmentCheckError —
