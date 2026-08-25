@@ -134,6 +134,54 @@ prose. Regression test:
 `AdhocIsolationAndLogPath.test_stale_pid_keyed_workspace_is_wiped_not_reused`
 in `tests/test_spawn_pipeline.py`.
 
+## CHANGES-round fix (PR #2368 conformance review, merged docs PR #2376)
+
+canonical: `git show 5ff9ecd9:docs/issue-2293/reports/conformance-review.md`
+(commit `5ff9ecd9`, on `origin/main` via merged PR #2376) — lines 551
+("**REQ-B** (Incorrect) — fix the f-string at `pipeline.py:1548`") and
+581 ("REQ-B is the repeat finding ... same defect flagged once"
+against prior closed PR #2306). Also `gh pr view 2376 --json body`,
+read live at the start of this fix: "REQ-B: Incorrect (did-you-mean
+message prints literal \"<task>\" placeholder) ... not merging
+implementation PR #2368 — a CHANGES-round respawn follows carrying
+REQ-B."
+
+The review found REQ-B Incorrect: `_admission_check_degenerate_task`
+(`pipeline.py`) correctly substituted the role and the derived issue
+number into the did-you-mean suggestion, but the task slot still
+printed the literal 4-character placeholder string `"<task>"` instead
+of the caller's actual task value — so the suggested command was not
+copy-pasteable, it had to be hand-edited before rerunning. It was
+untested by PR #2368's own suite: no test asserted anything about the
+message's content, only that a refusal happened.
+
+Fix: `pipeline.py`, `_admission_check_degenerate_task` — bind
+`task.strip()` once to `stripped` and interpolate `{stripped}` into
+the f-string in place of the literal `"<task>"`. Added
+`test_refusal_message_substitutes_actual_task_not_placeholder` in
+`tests/test_admission_checklist.py`, which captures stderr via
+`contextlib.redirect_stderr` around a direct
+`_admission_check_degenerate_task` call and asserts the message
+contains `"538"` (the real task value) and does not contain the
+literal string `<task>`.
+
+acceptance: `python3 spawn.py implementation 538; echo "RC=$?"` — result:
+```
+[admission] degenerate-task: task '538' looks like an issue number; did you mean: spawn.py implementation "538" --issue 538? Pass --force-adhoc-task to admit this literal task anyway.
+[implementation] admission refused: missing precondition 'degenerate-task' (issue #2100) — no session created, no workspace left behind. This refusal is deterministic and non-retryable: publish the missing precondition, then dispatch again.
+RC=1
+```
+(The did-you-mean suggestion now reads `"538"`, the caller's actual
+task, not the literal placeholder `"<task>"` from the acceptance
+evidence recorded before this fix.)
+
+acceptance: `python3 -m pytest tests/test_admission_checklist.py -n0 -q` — result:
+```
+................................
+32 passed in 3.22s
+```
+(31 prior + 1 new: `test_refusal_message_substitutes_actual_task_not_placeholder`.)
+
 ## Upstream basis
 
 canonical: `gh issue view 2293 --comments` (issue body + 4 comments,

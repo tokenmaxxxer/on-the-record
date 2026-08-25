@@ -6,6 +6,8 @@ item's name, creates no session and no workspace, and writes exactly one
 `admission_refused` ledger event. The checklist is a data table — a test
 appends a synthetic row to prove no new gate code is needed per item.
 """
+import contextlib
+import io
 import os
 import subprocess
 import sys
@@ -321,6 +323,21 @@ class AdmissionGateTable(unittest.TestCase):
             with self.subTest(task=shaped_task):
                 self.assertIs(spawn._admission_check_degenerate_task(
                     {"issue": None, "task": shaped_task}), False)
+
+    def test_refusal_message_substitutes_actual_task_not_placeholder(self):
+        # PR #2306 and PR #2368 both printed the literal 4-character
+        # placeholder string "<task>" in the did-you-mean suggestion
+        # instead of the real task value -- untested by either PR's own
+        # suite. The suggested command must be copy-pasteable with the
+        # caller's actual (typo'd) task text, not a placeholder.
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            result = spawn._admission_check_degenerate_task(
+                {"issue": None, "task": "538", "role": "implementation"})
+        self.assertIs(result, False)
+        message = stderr.getvalue()
+        self.assertIn('"538"', message)
+        self.assertNotIn("<task>", message)
 
     def test_real_task_text_admits(self):
         self.assertIs(spawn._admission_check_degenerate_task(

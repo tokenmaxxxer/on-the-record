@@ -1544,8 +1544,9 @@ def _admission_check_degenerate_task(ctx: dict) -> bool | None:
         return True
     digits = m.group(0).lstrip("#-")
     role = ctx.get("role")
-    print(f"[admission] degenerate-task: task {task.strip()!r} looks like "
-          f"an issue number; did you mean: spawn.py {role} \"<task>\" "
+    stripped = task.strip()
+    print(f"[admission] degenerate-task: task {stripped!r} looks like "
+          f"an issue number; did you mean: spawn.py {role} \"{stripped}\" "
           f"--issue {digits}? Pass --force-adhoc-task to admit this "
           f"literal task anyway.", file=sys.stderr)
     return False
