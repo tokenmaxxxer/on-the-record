@@ -122,7 +122,26 @@ is required of anyone else.
   regression test: `gates/test_acceptance_gate.py`, test
   `t_issue_2414_mechanism_trigger_catches_past_tense_and_passive_voice`
   — acceptance: python3 gates/test_acceptance_gate.py — result: PASS
-  (`27/27 passed`, re-run after the fix, pasted in full below).
+  (27/27 derived: python3 gates/test_acceptance_gate.py passed, re-run
+  after the fix, pasted in full below).
+- CHANGES round (PR #2422, commit `6640246f`): `gates/acceptance_gate.py:75-76`
+  and `on-the-record/directive/acceptance-format.md:28` both still cited
+  "8 of 45 (18%)" as the narrow-trigger design's backlog cost — the
+  pre-fix number from before the `_MECHANISM_TRIGGER` regex fix above —
+  canonical: PR #2426 conformance review, `gh pr view 2426 --json body
+  -q .body`. Measurement 3 below already says 14/45 (31%); only these
+  two out-of-record prose citations were stale. Fixed in commit
+  `6640246f`, full trace:
+  `docs/issue-2414/reports/implementation/deviation-log/20260825T125742270437-c9a06a3b41ac.md`
+  (same commit). No functional change (comment/prose only) — derived:
+  `git show 6640246f --stat` shows only comment/prose lines touched;
+  regression re-run:
+
+  ```
+  $ python3 -m pytest gates/test_acceptance_gate.py tests/test_acceptance_gate_tests_dir.py -q
+  32 passed in 0.87s
+  ```
+  acceptance: python3 -m pytest gates/test_acceptance_gate.py tests/test_acceptance_gate_tests_dir.py -q — result: PASS
 
 ## Upstream basis
 
