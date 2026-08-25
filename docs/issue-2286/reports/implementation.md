@@ -134,8 +134,53 @@ this stage reads actually contains today.
   these same two gates) opens the actual PR from that branch.
 - **Migration doc filed under this issue's own tree, not the path the
   proposal names.** See Deviations for the full citation. canonical:
-  the same live `Write`-tool R4 refusal cited there.
+  the same live `Write`-tool R4 refusal cited there. Re-probed in the
+  2026-08-25 CHANGES-round fix below — still blocked, unchanged.
 - none beyond the two above.
+
+## CHANGES-round fix attempt (2026-08-25, PR #2390 conformance finding)
+
+PR #2390's conformance review "Secondary finding" asks to relocate this
+doc from the actually-tracked
+`docs/issue-2286/reports/implementation/board-gate-r5-migration.md`
+(present on this branch, see Deviations above) to the proposal-named
+path (untracked, never created on this branch — see the proposal's own
+files: list cited in Upstream basis). canonical: `gh pr view 2390` read
+live this session — body text: "The migration doc lands at
+`docs/issue-2286/reports/implementation/board-gate-r5-migration.md`
+instead of the spec-named [proposal path]. Content is correct and the
+relocation is disclosed ..., but the spec's frozen path is not what
+exists anywhere." That same review's headline finding (core PR #312
+missing `test_board_gate.py` cases) was already fixed independently in
+`tokenmaxxxer-core` PR #319 per this fix round's own task brief — no
+core-repo action taken here.
+
+Re-probed the move live this session: `git mv` from the tracked path
+to the proposal-named path (untracked), from branch
+`issue-2286/implementation`. canonical: refusal produced live this
+turn by this session's own `board-gate.sh` R4, verbatim (the target
+path quoted is the same untracked proposal path named above):
+```
+board-gate: writing docs/issue-2241/ requires branch
+issue-2241/implementation (current: issue-2286/implementation), and
+issue #2286's body declares no matching `maintenance-targets:` entry
+for issue-2241. Every role output reaches main only through a PR the
+human merges — never a direct write from another branch. (contract v3
+s10)
+```
+Same R4 branch-scope shape as the original deviation — this session's
+write scope has not changed and still cannot reach the untracked
+proposal-named path. `board-gate.sh`'s own `maintenance-targets:`
+exception (issue-222) exists for exactly this shape (a stage issue
+also maintaining its parent program issue's tree) but requires a line
+in issue #2286's own GitHub issue body; `gh-guard` denies a role
+session's `gh issue edit` (canonical: gh-guard.sh's own deny list,
+read live this session — `gh issue (create|close|reopen|edit|...)` is
+denied, `gh issue comment` is not), so this session cannot self-grant
+that exception either. Filed as a comment on issue #2286 instead
+(derived: `gh issue comment 2286 ...` run live this session — see the
+PR/issue links in this record's closing summary) naming both unblock
+paths, so a human or a differently-scoped session can act on it.
 
 ## Next steps
 
@@ -150,6 +195,16 @@ this stage reads actually contains today.
   judges the pushed-branch state sufficient — the proposal's Rollback
   section makes clear reverting it is a single, safe, byte-identical
   operation either way).
+- The migration doc's path fix (moved from the tracked
+  `docs/issue-2286/reports/implementation/board-gate-r5-migration.md`
+  to the proposal-named path, untracked) needs either: (a) a session
+  spawned on branch `issue-2241/implementation` performing the `git
+  mv` and its own PR, or (b) a human adding `maintenance-targets:
+  issue-2241` to issue #2286's body, after which a session on
+  `issue-2286/implementation` clears `board-gate.sh`'s own R4
+  exception and can perform the move directly. Filed as a comment on
+  issue #2286 this turn (see the CHANGES-round fix attempt section
+  above).
 
 ## Deviations
 
