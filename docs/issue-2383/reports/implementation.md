@@ -172,7 +172,17 @@ nobody located.
 skill-verdict: work-in-english — applied: invoked; this record, the code
 comments, and commit messages are written in English per the skill even
 though the task/operator instructions arrived in Korean; only this
-session's final user-facing turn summary is in Korean.
+session's final user-facing turn summary is in Korean. Re-invoked and
+re-applied in the CHANGES round above (same convention, no change).
+
+other mounted skills: not triggered — this CHANGES round is a small,
+same-shape bugfix (root-cause a known test anti-pattern, extend an
+existing sweep function's condition) with no GoF-pattern decision, no
+coupling/cohesion threshold crossed, no performance-cliff data-structure
+choice, no multi-module architecture decision, and no conformance-review
+role output to record (conformance-review-finding-record targets
+`docs/issue-<n>/reports/conformance-review.md`, not this implementation
+record).
 
 ## Upstream basis
 
