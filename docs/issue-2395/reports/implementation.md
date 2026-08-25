@@ -357,3 +357,23 @@ None.
 ## Next steps
 
 None — `loop_state: landed`.
+
+## Skill verdicts
+
+skill-verdict: work-in-english — applied: invoked; this record, the
+commit message, and the PR title/body were written in English, matching
+this repo's own existing convention for records/commits.
+canonical: `docs/issue-2293/reports/implementation.md` (English record
+body) and `git log -1 --format=%B` on `HEAD` before this delivery (English
+commit subject/body), both read this session. Code comments stay Korean
+matching each file's existing surrounding style (per the skill's own
+"match surrounding style" guard) — no convention conflict to flag.
+other mounted skills: not triggered (implementation-blueprint,
+implementation-complexity-coupling-management,
+implementation-design-pattern-selection,
+implementation-performance-data-structure-choice) — this delivery is a
+small, mechanical addition to three files, each following that file's own
+existing pattern (a `require_board`-shaped gate function, a
+title/body-shaped dict field), with no new architecture/module-boundary
+decision, coupling threshold, GoF-pattern question, or data-structure/
+algorithm choice to evaluate.
