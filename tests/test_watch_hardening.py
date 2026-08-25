@@ -10,6 +10,7 @@ asserts no watch-class path gained blocking behavior.
 """
 import inspect
 import json
+import os
 import sys
 import tempfile
 import time
@@ -19,6 +20,7 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn
+import roster
 
 from _spawn_test_support import *  # noqa: F401,F403
 
@@ -471,6 +473,181 @@ class WatchClassNoBlockingRegression(unittest.TestCase):
                 # issue #2133: garbage wait dict never crashes the surfacer
                 spawn._surface_approval_wait(
                     "k", {}, {"reason": "approve-token"}, time.time())
+
+
+class SpawnAttemptPruneLiveness(unittest.TestCase):
+    """Issue #2413: an unresolved spawn-attempt record (`outcome is None`)
+    used to be kept forever, so a dead-pid orphan (SIGKILL/OOM/hard crash,
+    or — before #2393's pytest-origin guard — a synthetic test fixture
+    record) never aged out and was re-reported on every watchdog tick. The
+    fix pairs a cheap on-demand liveness probe (`_pid_is_alive`, signal-0
+    `os.kill`) with the same `SPAWN_ATTEMPTS_RETENTION_SEC` window the
+    adjacent `halted` branch already uses, instead of inventing a new
+    knob."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.path = Path(self._td.name) / "spawn-attempts.jsonl"
+        patch = mock.patch.object(spawn, "SPAWN_ATTEMPTS_PATH", self.path)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def _write(self, records):
+        with self.path.open("w", encoding="utf-8") as fh:
+            for rec in records:
+                fh.write(json.dumps(rec) + "\n")
+
+    def _dead_pid(self):
+        """A pid guaranteed not to be alive: fork, exit immediately, reap."""
+        pid = os.fork()
+        if pid == 0:
+            os._exit(0)
+        os.waitpid(pid, 0)
+        return pid
+
+    def _remaining_ids(self):
+        return {json.loads(l)["attempt_id"]
+                for l in self.path.read_text().splitlines()}
+
+    def test_live_pid_survives_regardless_of_age(self):
+        """A genuinely in-flight attempt must never be pruned out from
+        under a running spawn — even once it's older than the retention
+        window, as long as its pid is still alive."""
+        now = time.time()
+        old_ts = now - spawn.SPAWN_ATTEMPTS_RETENTION_SEC - 3600
+        self._write([{"event": "spawn_attempt", "attempt_id": "a1",
+                      "issue": 1, "role": "implementation",
+                      "pid": os.getpid(), "ts": old_ts}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 0)
+        self.assertIn("a1", self._remaining_ids())
+
+    def test_dead_pid_within_retention_is_kept(self):
+        """A pid that died recently (inside the retention window) is kept
+        — spawn_attempt_sweep() must still get its chance to report it as
+        a halt once SPAWN_ATTEMPT_GRACE_SEC elapses, and to keep
+        re-surfacing it for the rest of the retention window."""
+        now = time.time()
+        dead_pid = self._dead_pid()
+        recent_ts = now - 3600  # 1 hour old — well inside the 7-day window
+        self._write([{"event": "spawn_attempt", "attempt_id": "a2",
+                      "issue": 2, "role": "implementation",
+                      "pid": dead_pid, "ts": recent_ts}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 0)
+        self.assertIn("a2", self._remaining_ids())
+
+    def test_dead_pid_past_retention_is_pruned(self):
+        """The bug: a dead-pid, no-outcome record older than the retention
+        window used to be kept forever. Now it's dropped."""
+        now = time.time()
+        dead_pid = self._dead_pid()
+        old_ts = now - spawn.SPAWN_ATTEMPTS_RETENTION_SEC - 3600
+        self._write([{"event": "spawn_attempt", "attempt_id": "a3",
+                      "issue": 31, "role": "implementation",
+                      "pid": dead_pid, "ts": old_ts}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 1)
+        self.assertNotIn("a3", self._remaining_ids())
+
+    def test_pid_is_alive_helper(self):
+        self.assertTrue(spawn._pid_is_alive(os.getpid()))
+        self.assertTrue(spawn._pid_is_alive(str(os.getpid())))
+        self.assertFalse(spawn._pid_is_alive(self._dead_pid()))
+        self.assertFalse(spawn._pid_is_alive(None))
+        self.assertFalse(spawn._pid_is_alive(-1))
+        self.assertFalse(spawn._pid_is_alive("not-an-int"))
+
+    def test_string_encoded_live_pid_survives_past_retention(self):
+        """Warrant-hunter finding (before-landing, stance 0): a pid
+        serialized as a numeric string (ledger corruption/drift, cf.
+        commit cea0f583) must still be probed via the OS, not assumed
+        dead by the isinstance(pid, int) check alone — a live spawn must
+        never be pruned just because its pid was stored as str."""
+        now = time.time()
+        old_ts = now - spawn.SPAWN_ATTEMPTS_RETENTION_SEC - 3600
+        self._write([{"event": "spawn_attempt", "attempt_id": "a4",
+                      "issue": 4, "role": "implementation",
+                      "pid": str(os.getpid()), "ts": old_ts}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 0)
+        self.assertIn("a4", self._remaining_ids())
+
+    def test_missing_ts_with_dead_pid_is_pruned(self):
+        """CHANGES round (PR #2418, execution-observation follow-up): a
+        record with no `ts` key at all used to default to `now` inside
+        `_prune_spawn_attempts()`, making `now - ts` always 0 and the
+        record un-ageable — kept forever, the same failure class as this
+        issue exists to fix, for a different missing field than the
+        pid-as-string bug. A dead-pid record missing `ts` entirely must be
+        immediately eligible for pruning, not preserved forever."""
+        now = time.time()
+        dead_pid = self._dead_pid()
+        self._write([{"event": "spawn_attempt", "attempt_id": "a5",
+                      "issue": 5, "role": "implementation", "pid": dead_pid}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 1)
+        self.assertNotIn("a5", self._remaining_ids())
+
+    def test_missing_ts_with_live_pid_still_kept(self):
+        """The missing-`ts` default must not override the liveness
+        invariant: even with `ts` absent, a genuinely live pid is kept
+        (aged_out=True from the missing ts, but `_pid_is_alive` still
+        wins the OR)."""
+        now = time.time()
+        self._write([{"event": "spawn_attempt", "attempt_id": "a6",
+                      "issue": 6, "role": "implementation",
+                      "pid": os.getpid()}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 0)
+        self.assertIn("a6", self._remaining_ids())
+
+
+class SpawnAttemptSweepDedup(unittest.TestCase):
+    """Issue #2413: many attempt_ids for the same (issue, role) subject
+    (e.g. hundreds of orphaned pytest-fixture records) each independently
+    pass the per-attempt_id ledger dedup gate and used to print one line
+    apiece in a single watchdog tick — up to 5x repeats reported at filing
+    time. Collapse to at most one printed line per subject per tick."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        td = Path(self._td.name)
+        self.addCleanup(self._td.cleanup)
+        self.path = td / "spawn-attempts.jsonl"
+        patches = [
+            mock.patch.object(spawn, "SPAWN_ATTEMPTS_PATH", self.path),
+            mock.patch.object(spawn, "ledger_write", lambda e: None),
+            mock.patch.object(spawn, "ledger_check_and_stamp",
+                              lambda *a, **k: True),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _write(self, records):
+        with self.path.open("w", encoding="utf-8") as fh:
+            for rec in records:
+                fh.write(json.dumps(rec) + "\n")
+
+    def test_many_attempt_ids_same_subject_prints_once_per_tick(self):
+        import io
+        import contextlib
+        now = time.time()
+        old_ts = now - roster.SPAWN_ATTEMPT_GRACE_SEC - 10
+        records = [{"event": "spawn_attempt",
+                    "attempt_id": f"31:implementation:1:{i}",
+                    "issue": 31, "role": "implementation", "pid": 1,
+                    "ts": old_ts - i} for i in range(50)]
+        self._write(records)
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            count = roster.spawn_attempt_sweep(d_all={}, now=now)
+        lines = [l for l in buf.getvalue().splitlines() if l.strip()]
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(count, 1)
+        self.assertIn("issue-31/implementation", lines[0])
 
 
 if __name__ == "__main__":
