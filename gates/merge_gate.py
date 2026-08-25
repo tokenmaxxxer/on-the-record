@@ -27,7 +27,8 @@ import spawn  # noqa: E402
 ARTIFACT_PATH = Path(".on-the-record/check-run-artifact.json")
 
 _RESULT_HEADER = re.compile(
-    r"^## Acceptance check-runner result:\s*(\d+)/(\d+)\s*passed", re.MULTILINE)
+    r"^## Acceptance check-runner result:\s*(?:(\d+)/(\d+)\s*passed|no checks declared)",
+    re.MULTILINE)
 
 
 def parse_check_runner_result(comment_body: str) -> dict | None:

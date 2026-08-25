@@ -178,6 +178,87 @@ def t_edit_tool_uses_new_string(tmp_path):
     assert "issue #333" in r.stderr
 
 
+# --- issue #2219: evidence-resolution false-rejection fix -----------------
+#
+# record-claim-guard fired in 46% of all sessions ever run (375/815);
+# some of those denials landed on records that DID carry evidence, just
+# not within the guard's old fixed few-line window. These reproduce the
+# two verbatim rejections quoted in issue #2219's own body, recovered
+# from docs/issue-2208's live session log
+# (on-the-record-issue-2208-implementation.session.20260824T231045.
+# 1590418.log), through the actual deployed hook (not just the
+# record_lint.py functions it calls).
+
+def t_2219_outcome_claim_evidenced_earlier_in_section_no_longer_denied(tmp_path):
+    """issue #870 verbatim repro: before this fix, the hook denied
+    'acceptance: diff of the two fenced runs above — result: both
+    negative cases read `completed`' even though the two
+    `acceptance: ... — result:` + fence pairs it refers to are present
+    a few lines earlier in the same section."""
+    p = _record_path(tmp_path)
+    content = (
+        "### 2. Strip negative clauses\n\n"
+        "acceptance: pytest tests/test_retrieval_eval.py -v (BEFORE) "
+        "— result:\n```\n9 passed in 0.7s\n```\n"
+        "acceptance: same command (AFTER) — result:\n```\n"
+        "9 passed in 14.12s\n```\n"
+        "acceptance: diff of the two fenced runs above — result: both "
+        "negative cases read `completed` in both runs.\n")
+    r = _run({"file_path": str(p), "content": content})
+    assert "diff of the two fenced runs above" not in r.stderr, r.stderr
+
+
+def t_2219_soft_wrapped_derived_paragraph_no_longer_denied(tmp_path):
+    """issue #333 verbatim repro: before this fix, the hook denied
+    '`fail-open`, with the full suite still passing 9/9.' even though a
+    bare (non-backtick) `derived:` paragraph lead-in three physical
+    lines above it — soft-wrapped across the same sentence — names the
+    two fenced reproductions the count is drawn from."""
+    p = _record_path(tmp_path)
+    content = (
+        "acceptance: `pytest -q` re-run after this fix — result:\n"
+        "```\n9 passed in 14.12s\n```\n"
+        "derived: per the two fenced results directly above, the "
+        "leaked phrase is\n"
+        "gone and the fast-path auto-pick outcome flips to\n"
+        "`fail-open`, with the full suite still passing 9/9.\n")
+    r = _run({"file_path": str(p), "content": content})
+    assert "9/9" not in r.stderr, r.stderr
+
+
+def t_2219_genuinely_unevidenced_claim_still_denied(tmp_path):
+    """The fix must not weaken what the guard enforces: an outcome/
+    count claim with no fence, no `canonical:`/`derived:` tag, and no
+    `acceptance: ... — result:` pairing anywhere in its section is
+    still refused."""
+    p = _record_path(tmp_path)
+    content = ("## Some section\n\n"
+               "The migration is done and the requirement is met.\n"
+               "We found 4 of 12 findings to be genuine.\n")
+    r = _run({"file_path": str(p), "content": content})
+    assert r.returncode == 2
+    assert "issue #870" in r.stderr
+    assert "issue #333" in r.stderr
+
+
+def t_2219_rejection_names_the_passing_shape(tmp_path):
+    """issue #2219 ask 2: a rejection must say what shape would pass."""
+    p = _record_path(tmp_path)
+    r = _run({"file_path": str(p),
+              "content": "We found 4 of 12 findings to be genuine.\n"})
+    assert r.returncode == 2
+    assert "통과하려면" in r.stderr
+
+
+def t_2219_empty_record_denies_nothing(tmp_path):
+    """issue #2219 Acceptance — empty state: an empty record file with
+    no claims at all must pass all guards cleanly, producing no
+    denial."""
+    p = _record_path(tmp_path)
+    r = _run({"file_path": str(p), "content": ""})
+    assert r.returncode == 0, r.stderr
+
+
 # --- record-claim-shape-directive.sh (issue #730) -------------------------
 
 DIRECTIVE = HOOKS_DIR / "record-claim-shape-directive.sh"
