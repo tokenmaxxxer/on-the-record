@@ -226,6 +226,13 @@ the filesystem layer.
 
 ## Why
 
+skill-verdict: defect-verification-independence-from-upstream-verdicts —
+applied: canonical: Claim 5 above, this same record — the two open
+findings were re-derived via this session's own fresh `grep` commands
+rather than cited from docs/issue-2383/reports/implementation.md's
+"not found" framing, and Claims 3/4's own smoke tests each add an edge
+case beyond the PR's own script.
+
 canonical: ef762a9fd5e1b4d1424f2bdf168b887a2d369a43:docs/issue-2383/reports/implementation.md:11
 (`verdict: pass`, `loop_state: landed`) — the record this session set out
 to independently test rather than accept on the strength of that
