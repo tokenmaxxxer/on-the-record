@@ -466,9 +466,54 @@ weakened:
   implementation-performance-data-structure-choice (no data-structure/
   algorithm/communication-scheme choice involved).
 
+## Amendment reconciliation
+
+amendments-reconciled: issuecomment-5410051718 — canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5410051718 -q .body`,
+read live after this record's measurements and code were already
+committed. The comment states #2414 is "Superseded by #2415, which
+catalogues all five friction shapes measured today (this issue covered
+two of them) and reframes the work as deriving the format from what it
+must guarantee rather than appending rules per incident." canonical:
+`gh api repos/tokenmaxxxer/on-the-record/issues/comments/5410051718`.
+
+#2415's own text (canonical: `gh issue view 2415 --json body -q .body`)
+explicitly names "appending rules per incident" as the anti-pattern
+that produced today's 5-rule, 73-line `acceptance-format.md`, and this
+delivery's Failure-A/B fix is, in that exact shape, one more rule
+appended to that same document. That critique is correct and I am not
+disputing it. What I am NOT doing in response: silently discarding the
+measurement work, which #2415's own body treats as carried-over input
+("the architecture consult logged under #2413 and the measure-first
+constraint carry over into #2415") — Measurements 1 and 2 above
+directly answer #2414's own first two Acceptance checks (confirm A/B,
+measure frequency) and #2415 does not re-ask either question, it
+inherits the answer.
+
+What this changes about the delivery, stated here rather than left
+implicit (canonical: this record's own frontmatter and PR trailer, both
+in this same commit): the PR this record ships in does NOT carry a
+`Closes #2414` trailer. #2414 is superseded, not something this PR
+declares finished on its own terms — closing it is the operator's own
+call to make, not this session's (contract v3 s9: role sessions never
+close/reassign issues). The code changes above (Measurements 3 and 4,
+the two new fields) are real, tested, and measured, not hypothetical —
+offered as input to #2415's redesign, not as something a future #2415
+session is bound to keep. A #2415 session should weigh `must not:`/
+`population:` exactly as it weighs the five existing rules named in its
+own body: kept, merged, or dropped against "what an Acceptance section
+is FOR," not grandfathered in for having arrived in a separate PR.
+
 ## Next steps
 
-None for this delivery — `loop_state: terminal`. Follow-up (not this
-session, per gh-guard): the operator adding a one-line `must not:`
-escape or declaration to the 14 currently-open issues Measurement 3
-identifies, so they can spawn again.
+None further from this session — `loop_state: terminal`. Two distinct
+follow-ups, neither this session's to do (gh-guard: role sessions never
+author issues or reassign scope):
+- If the operator keeps this PR's code: the 14 currently-open issues
+  Measurement 3 identifies (canonical: same list, Measurement 3 above)
+  need a one-line `must not:` escape or declaration added to their body
+  before they can spawn again.
+- Either way: a #2415 session should read this record's Measurements
+  1-4 as already-answered input per the amendment reconciliation above,
+  and weigh `must not:`/`population:` alongside #2415's own five named
+  rules in whatever keep/merge/drop pass it runs.
