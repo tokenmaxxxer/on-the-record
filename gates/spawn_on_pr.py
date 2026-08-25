@@ -34,6 +34,7 @@ import spawn  # noqa: E402
 import closure_sweep  # noqa: E402
 import ci as _ci  # noqa: E402
 import skip_eligibility  # noqa: E402
+import state_paths  # noqa: E402
 
 PR_TRIGGERED_ROLES = ("execution-observation", "conformance-review")
 
@@ -43,24 +44,27 @@ PR_TRIGGERED_ROLES = ("execution-observation", "conformance-review")
 SPAWN_CAP = 4
 
 # issue #1476: 승인-대기 상태에서 매 틱 재스폰하던 것을 막는 park 상태
-# 저장소 — `root`(대상 레포) 기준 상대경로. 키는 "<subject>/<role>",
-# 값은 {"blocked": bool, "pr_number": int} — 두 필드 모두 구조화 신호다:
-# `pr_number`(`_pr_open_or_merged_for_branch`가 이미 매 틱 조회하는 값)가
-# 안 바뀌었으면 브랜치에 새 커밋이 없었다는 뜻이고(요구 2의 "새 커밋"
-# 재무장 트리거), `blocked`는 `gates/ci.py:_approved_roles_on_issue()`
-# (승인자 allowlist, `APPROVE issue-<n>/<role>` 문자열 완전일치 — 프로즈
-# 매칭이 아니다)로 구한다. 두 신호가 이전 틱과 완전히 같을 때만 park —
-# 결코 경과 시간만으로 재무장하지 않는다.
-PARK_STATE_REL = Path("runs") / "spawn_on_pr_parked.json"
+# 저장소. 키는 "<subject>/<role>", 값은 {"blocked": bool, "pr_number": int}
+# — 두 필드 모두 구조화 신호다: `pr_number`(`_pr_open_or_merged_for_branch`가
+# 이미 매 틱 조회하는 값)가 안 바뀌었으면 브랜치에 새 커밋이 없었다는
+# 뜻이고(요구 2의 "새 커밋" 재무장 트리거), `blocked`는
+# `gates/ci.py:_approved_roles_on_issue()`(승인자 allowlist, `APPROVE
+# issue-<n>/<role>` 문자열 완전일치 — 프로즈 매칭이 아니다)로 구한다. 두
+# 신호가 이전 틱과 완전히 같을 때만 park — 결코 경과 시간만으로
+# 재무장하지 않는다.
+# issue #2240: 이건 오케스트레이터의 틱간 기억이지 대상 레포 상태가
+# 아니다 — `root`(대상 레포) 기준이 아니라 state_paths 를 통해 앵커링된다.
+PARK_STATE_FILENAME = "spawn_on_pr_parked.json"
 
 # issue #2165: subject 의 `<subject>/implementation` PR 이 MERGED 로
 # 확인된 사실은 종결적이다 — 한 번 확인되면 이후 틱에서 다시 확인할
 # 필요가 없다(오히려 `gh` 호출이 그 틱에 실패해 fail-open 으로 OPEN 을
 # 돌려주면 재스폰 위험이 생긴다). `closure_sweep.py`의
 # out-of-index-seen 캐시(issue #1643)와 같은 모양: 한 번 확인된 subject
-# 집합을 repo-local, gitignored JSON 파일에 남기고, 이후 틱은 `gh` 를
-# 부르기 전에 이 집합부터 확인한다.
-MERGED_SEEN_STATE_REL = Path("runs") / "spawn_on_pr_merged_seen.json"
+# 집합을 남기고, 이후 틱은 `gh` 를 부르기 전에 이 집합부터 확인한다.
+# issue #2240: 이건 오케스트레이터 틱간 기억이다 — repo-local 이 아니라
+# state_paths 로 앵커링된다(대상 레포는 절대 아니다).
+MERGED_SEEN_STATE_FILENAME = "spawn_on_pr_merged_seen.json"
 
 
 def applicable_roles(subject_board: dict, roles: tuple[str, ...] = PR_TRIGGERED_ROLES) -> list[str]:
@@ -250,7 +254,11 @@ def _filter_execution_observation(root: Path, subject: str,
 
 
 def _park_state_path(root: Path) -> Path:
-    return root / PARK_STATE_REL
+    """issue #2240: orchestrator cross-tick memory, not target-repo state —
+    anchored via state_paths, never `root`. `root` is accepted for
+    call-site symmetry with the rest of this module's `root`-scoped
+    helpers; it is not used here."""
+    return state_paths.orchestrator_state_path(PARK_STATE_FILENAME)
 
 
 def load_park_state(root: Path) -> dict[str, dict]:
@@ -276,7 +284,7 @@ def load_merged_seen(root: Path) -> set[str]:
     """issue #2165: 이미 `pr_state == "MERGED"` 로 확인된 subject 집합.
     없거나(첫 실행) 깨졌으면 빈 집합 — `closure_sweep._load_out_of_index_seen`
     과 같은 fail-safe 모양."""
-    p = root / MERGED_SEEN_STATE_REL
+    p = state_paths.orchestrator_state_path(MERGED_SEEN_STATE_FILENAME)
     if not p.is_file():
         return set()
     try:
@@ -289,7 +297,7 @@ def load_merged_seen(root: Path) -> set[str]:
 
 
 def _save_merged_seen(root: Path, seen: set[str]) -> None:
-    p = root / MERGED_SEEN_STATE_REL
+    p = state_paths.orchestrator_state_path(MERGED_SEEN_STATE_FILENAME)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(sorted(seen)), encoding="utf-8")
 
