@@ -91,16 +91,17 @@ task text, role, and candidate set constant, rather than trusting the
 historical 19s/74s issue samples alone — isolating the one variable (cache
 flags) that changed between batches.
 
-skill-verdict: performance-engineering-operational-playbook — applied:
-invoked; used rule 1.2 (report p50/p90, never the mean — every stat below
-is a percentile, min, or max) to shape how the results are reported, and
-the USE-method framing behind rules 1.1 and 2.8 (measure the named
-resource path directly — wall time, model-reported duration, cache
-tokens — before attributing cause) to shape the measurement harness
-itself. Rule 1.7 (prefer a removal-shaped fix) was considered and does not
-apply cleanly here: this fix is a consistency fix (propagating an
-already-adopted flag pair to a call site PR #2212 missed), not a
-removal/addition choice between two candidate fixes.
+skill-verdict: performance-engineering-operational-playbook — applied: invoked; rule 1.2 and the USE-method framing behind rules 1.1 and 2.8, detailed below.
+
+Rule 1.2 (report p50/p90, never the mean — every stat below is a
+percentile, min, or max) shaped how the results are reported; the
+USE-method framing behind rules 1.1 and 2.8 (measure the named resource
+path directly — wall time, model-reported duration, cache tokens —
+before attributing cause) shaped the measurement harness itself. Rule 1.7
+(prefer a removal-shaped fix) was considered and does not apply cleanly
+here: this fix is a consistency fix (propagating an already-adopted flag
+pair to a call site PR #2212 missed), not a removal/addition choice
+between two candidate fixes.
 
 ## Investigation results
 
