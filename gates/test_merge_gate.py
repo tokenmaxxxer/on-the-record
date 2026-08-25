@@ -319,6 +319,60 @@ def t_merge_gate_evaluate_refuses_no_checks_as_a_pass(monkeypatch):
     assert any("no checks" in r or "없다" in r for r in result["reasons"]), result["reasons"]
 
 
+def t_finder_reaches_no_checks_branch_through_evaluate(monkeypatch, fixture_repo):
+    """issue-2268 — `_RESULT_HEADER` (the finder `latest_check_runner_comment`
+    searches with) 는 예전에 숫자 헤더만 맞춰서 no-checks 코멘트를 영영
+    못 찾았다(#2231 이 추가한 브랜치가 죽은 코드였다). 이 테스트는 그 파서를
+    직접 부르는 게 아니라 `gh pr view` 를 흉내낸 `subprocess.run` 위로
+    `latest_check_runner_comment` -> `parse_check_runner_result` ->
+    `evaluate()` 를 실제로 다 통과시킨다."""
+    import json
+    no_checks_body = check_runner.format_no_checks_comment()
+
+    def fake_run(argv, cwd, capture_output, text):
+        class R:
+            returncode = 0
+            stdout = json.dumps({"comments": [
+                {"body": "unrelated comment"},
+                {"body": no_checks_body},
+            ]})
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr(merge_gate, "required_verification_missing",
+                         lambda root, subject, repo=None, pr=None: [])
+    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr: [])
+
+    found = merge_gate.latest_check_runner_comment(fixture_repo, 2228)
+    assert found == no_checks_body
+
+    result = merge_gate.evaluate(fixture_repo, fixture_repo, 2228, "issue-9002")
+    assert result["allowed"] is False
+    assert not any("코멘트를 찾을 수 없다" in r for r in result["reasons"]), result["reasons"]
+    assert any("no checks" in r or "없다" in r for r in result["reasons"]), result["reasons"]
+
+
+def t_finder_empty_state_still_reports_comment_missing(monkeypatch, fixture_repo):
+    """양쪽 헤더 모양 다 없는 PR — finder 는 여전히 `None`, `evaluate()` 는
+    여전히 comment-not-found 로 막힌다(#2231 이전과 같은 동작)."""
+    import json
+
+    def fake_run(argv, cwd, capture_output, text):
+        class R:
+            returncode = 0
+            stdout = json.dumps({"comments": [{"body": "unrelated comment"}]})
+        return R()
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    found = merge_gate.latest_check_runner_comment(fixture_repo, 2228)
+    assert found is None
+
+    result = merge_gate.evaluate(fixture_repo, fixture_repo, 2228, "issue-9002")
+    assert result["allowed"] is False
+    assert any("코멘트" in r for r in result["reasons"])
+
+
 def t_exempt_own_role_drops_only_the_supplying_prs_own_role():
     missing = ["execution-observation", "conformance-review"]
 
