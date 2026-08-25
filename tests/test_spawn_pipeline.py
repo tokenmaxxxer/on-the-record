@@ -340,7 +340,8 @@ class SpawnCmd(unittest.TestCase):
         # 모델 값은 "sonnet"이다.
         saved = os.environ.pop("MUSTER_ROLE_MODEL", None)
         try:
-            cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
+            with isolated_role_model_config():
+                cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         finally:
@@ -368,7 +369,8 @@ class SpawnCmd(unittest.TestCase):
         saved = os.environ.get("MUSTER_ROLE_MODEL")
         try:
             os.environ["MUSTER_ROLE_MODEL"] = "   "
-            cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
+            with isolated_role_model_config():
+                cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         finally:
@@ -381,34 +383,26 @@ class SpawnCmd(unittest.TestCase):
         # 이슈#60: MUSTER_ROLE_MODEL 미설정, role_model.txt 만 있으면
         # --model <config value> 가 argv 에 붙는다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
-        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
-            spawn.ROLE_MODEL_CONFIG.write_text("sonnet")
-            cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
+            with isolated_role_model_config():
+                spawn.ROLE_MODEL_CONFIG.write_text("sonnet")
+                cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         finally:
-            if saved_cfg is None:
-                spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
-            else:
-                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
     def test_role_model_env_overrides_config(self):
         # 이슈#60: 둘 다 설정되면 env 값이 이긴다.
         saved_env = os.environ.get("MUSTER_ROLE_MODEL")
-        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
-            spawn.ROLE_MODEL_CONFIG.write_text("haiku")
-            os.environ["MUSTER_ROLE_MODEL"] = "opus"
-            cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
+            with isolated_role_model_config():
+                spawn.ROLE_MODEL_CONFIG.write_text("haiku")
+                os.environ["MUSTER_ROLE_MODEL"] = "opus"
+                cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertEqual(cmd[cmd.index("--model") + 1], "opus")
         finally:
-            if saved_cfg is None:
-                spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
-            else:
-                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved_env is None:
                 os.environ.pop("MUSTER_ROLE_MODEL", None)
             else:
@@ -419,17 +413,13 @@ class SpawnCmd(unittest.TestCase):
         # 이슈#2070의 라우팅 계층이 대신 이겨 `default_tier`("sonnet") 로
         # 떨어진다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
-        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
-            spawn.ROLE_MODEL_CONFIG.write_text("   ")
-            cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
+            with isolated_role_model_config():
+                spawn.ROLE_MODEL_CONFIG.write_text("   ")
+                cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         finally:
-            if saved_cfg is None:
-                spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
-            else:
-                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
@@ -439,17 +429,13 @@ class SpawnCmd(unittest.TestCase):
         # 은 이슈#2070의 라우팅 계층으로 떨어진다(`default_tier` -> "sonnet")
         # — 스폰이 UnicodeDecodeError 로 죽으면 안 된다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
-        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
-            spawn.ROLE_MODEL_CONFIG.write_bytes(b"\xff\xfe\x00\x01")
-            cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
+            with isolated_role_model_config():
+                spawn.ROLE_MODEL_CONFIG.write_bytes(b"\xff\xfe\x00\x01")
+                cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         finally:
-            if saved_cfg is None:
-                spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
-            else:
-                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
@@ -458,15 +444,12 @@ class SpawnCmd(unittest.TestCase):
         # 이슈#2070의 라우팅 계층이 대신 이겨 `default_tier`("sonnet") 로
         # 떨어진다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
-        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
-            spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
-            cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
+            with isolated_role_model_config():
+                cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         finally:
-            if saved_cfg is not None:
-                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
@@ -474,13 +457,11 @@ class SpawnCmd(unittest.TestCase):
         # 이슈#93: env, config 둘 다 없으면 resolved_role_model() 은 "sonnet"
         # 을 직접 돌려준다 — never no --model.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
-        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
-            spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
-            self.assertEqual(spawn.resolved_role_model(), "sonnet")
+            with isolated_role_model_config():
+                result = spawn.resolved_role_model()
+            self.assertEqual(result, "sonnet")
         finally:
-            if saved_cfg is not None:
-                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
@@ -552,16 +533,12 @@ class DryRunModelReflection(unittest.TestCase):
     def test_config_only_output_reflects_model(self):
         # 이슈#60: env 없이 role_model.txt 만 있어도 dry-run 출력이 반영한다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
-        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
-            spawn.ROLE_MODEL_CONFIG.write_text("sonnet")
-            out = self._dry_run_output("execution-observation")
+            with isolated_role_model_config():
+                spawn.ROLE_MODEL_CONFIG.write_text("sonnet")
+                out = self._dry_run_output("execution-observation")
             self.assertEqual(out.get("model"), "sonnet")
         finally:
-            if saved_cfg is None:
-                spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
-            else:
-                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 

@@ -394,6 +394,12 @@ def _skill_judge_consult(task_text: str, role: str,
         for name, path, source in candidates)
     question = f"Task:\n{task_text}\n\nCandidates:\n{candidate_lines}"
     try:
+        # 이슈 #2241 stage 2 (docs/issue-2241/proposals/2026-08-25-stage-2-
+        # consult-skill-source-confirmation.md): 이 존재-확인과 `_ROLE_SKILLS`
+        # 자체는 여기서 그대로 둔다 — 키를 role 에서 skill 이름으로 옮기는
+        # 건 stage 4, `roles/*.json` 자체가 은퇴하며 이 확인이 없어지는 건
+        # stage 6 이다. 이 스테이지가 확인하는 건 가이던스 *내용* 해석
+        # (`resolve_role_source()`)이 이미 무조건 skill-repo 라는 것뿐.
         f = _sp.ROOT / "roles" / f"{role}.json"
         if not f.exists():
             have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))

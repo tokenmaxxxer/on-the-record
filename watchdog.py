@@ -1495,6 +1495,10 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # requeued keys are popped from d_all so this tick's dead-entry loop
     # below does not re-report them.
     anomaly_count += _sp.lease_reconcile_sweep(root=root, d_all=d_all)
+    # 이슈 #2291: 워크스페이스/로스터가 아직 없던 부트스트랩 구간에서 halt 한
+    # spawn 시도를 보고한다 — roster 대조 대상이 아예 없어(그 구간엔 로스터
+    # 엔트리 자체가 없다) 오늘까지는 이 워치독이 완전히 못 보던 상태.
+    anomaly_count += _sp.spawn_attempt_sweep(d_all=d_all)
     # 이슈 #1491: standing-red 관찰은 살아있는 로스터와 무관하게 매 틱
     # 시도한다(자체 유한-주기 게이트로 실제 스위트 실행은 걸러낸다) —
     # 아래 `if not d` 조기 반환에 걸리지 않게 board-wide sweep 바로 뒤에
