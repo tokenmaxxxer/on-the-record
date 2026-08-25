@@ -33,7 +33,7 @@ PR 조회는 `spawn._pr_open_or_merged_for_branch()`(spawn.py 가 이미
 대신 이 얕은 조회 하나만 인라인한다(구현-복잡도 스킬 rule 4/7 판단,
 issue #2173 레코드 참고).
 
-시도-이력은 `spawn_on_pr.py` 의 PARK_STATE_REL 을 재사용/일반화하지
+시도-이력은 `spawn_on_pr.py` 의 PARK_STATE_FILENAME 을 재사용/일반화하지
 않고 별도 파일에 둔다 — park 상태는 "승인 대기중 재확인 빈도"를 위한
 전혀 다른 상태 기계이고, 이 모듈의 "이미 한 번 시도했다"는 그와
 합쳐두면 두 의미가 한 파일에 섞인다(구현-복잡도 스킬 rule 6).
@@ -51,6 +51,7 @@ sys.path.insert(0, str(ROOT / "gates"))
 import spawn  # noqa: E402
 import ci as _ci  # noqa: E402
 import closure_sweep  # noqa: E402
+import state_paths  # noqa: E402
 
 _BRANCH_SUBJECT_ROLE_RE = re.compile(r"(?:^|/)(issue-\d+)/([A-Za-z0-9-]+)$")
 
@@ -59,11 +60,17 @@ SPAWN_CAP = 4
 
 # {subject}/{role} -> {"pr_number": int|None} 시도-이력. 값이 있으면 이
 # (subject, role) 은 이미 한 번 자동 스폰됐다 — 다시 시도하지 않는다.
-ATTEMPTED_STATE_REL = Path("runs") / "spawn_on_approve_attempted.json"
+# issue #2240: 오케스트레이터 틱간 기억이다 — state_paths 로 앵커링된다
+# (`root`, 즉 대상 레포 기준이 아니다).
+ATTEMPTED_STATE_FILENAME = "spawn_on_approve_attempted.json"
 
 
 def _attempted_state_path(root: Path) -> Path:
-    return root / ATTEMPTED_STATE_REL
+    """issue #2240: orchestrator cross-tick memory, not target-repo state —
+    anchored via state_paths, never `root`. `root` is accepted for
+    call-site symmetry with the rest of this module's `root`-scoped
+    helpers; it is not used here."""
+    return state_paths.orchestrator_state_path(ATTEMPTED_STATE_FILENAME)
 
 
 def load_attempted(root: Path) -> dict[str, dict]:

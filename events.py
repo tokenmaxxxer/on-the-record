@@ -189,6 +189,36 @@ def _count_structural_denials(text: str) -> int:
     return count
 
 
+def _count_structural_delegations(text: str) -> int:
+    """이슈 #2217: watchdog 신호 2("background-delegation-phrasing")가
+    `run_in_background`/`delegate` 같은 단어를 세던 것을 구조적 파싱으로
+    대체한다 — 우리 자신이 매 세션에 주입하는 headless 경고 프롬프트가
+    바로 그 단어들로 배경 위임을 하지 말라고 경고하는 바람에, 단어 매치는
+    100% 세션에서 오탐했다(이슈 #2217 실측). `_count_structural_denials`
+    (이슈 #994)와 같은 관용: `text` 를 줄 단위 JSONL 로 파싱해
+    `type: "assistant"` 줄의 `tool_use` 블록 중 `input.run_in_background`
+    가 참인 것만 센다 — 지시문 텍스트(`type: "system"`)나 어시스턴트가
+    인용/설명하는 단어는 세지 않는다.
+    """
+    count = 0
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant":
+            continue
+        for block in (obj.get("message") or {}).get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            if (block.get("input") or {}).get("run_in_background"):
+                count += 1
+    return count
+
+
 def _flush_correlated_refusals(events_path: Path, pending_refusals: dict,
                                 denials: list) -> None:
     """이슈 #246 결함 3: 확정된 `permission_denials`(리스트, 비었을 수도 있음)와

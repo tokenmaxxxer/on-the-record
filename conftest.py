@@ -57,6 +57,22 @@ def _isolated_gh_read_cache_approvals(tmp_path, monkeypatch):
     yield
 
 
+# issue #2240: gh_delta cursors, the watchdog drift/noise caches, and
+# spawn_on_pr's park state are orchestrator cross-tick memory now routed
+# through gates/state_paths.py's STATE_ROOT rather than through whatever
+# `root` (target repo) a caller happens to pass in. Point STATE_ROOT at a
+# per-test tmp dir so tests stay hermetic — no test writes into this
+# checkout's own runs/ directory, and no state leaks between tests.
+@pytest.fixture(autouse=True)
+def _isolated_orchestrator_state_root(tmp_path, monkeypatch):
+    import sys
+    sys.path.insert(0, str(Path(__file__).parent / "gates"))
+    import state_paths
+
+    monkeypatch.setattr(state_paths, "STATE_ROOT", tmp_path / "runs")
+    yield
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _no_global_state_leak():
     import spawn

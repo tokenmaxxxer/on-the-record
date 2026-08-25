@@ -1,22 +1,35 @@
 #!/usr/bin/env python3
 """requirement-met verification — issue #1651 (northpole req#6).
 
-이슈의 `## Acceptance` 절 `- check:` 불릿을 등급 매긴다. 파서는
-`check_runner.parse_checks`(acceptance_gate 와 같은 계열의 section
-추출 + check/gate 줄 파서)를 재사용한다 — 새로 만들지 않는다.
+이슈의 `## Acceptance` 절에서 채점 대상 항목을 전부 뽑는다(issue #2231
+전까지는 `- check:`/`- gate:` 불릿만 봤다 — 8개 중 1개만 채점되던 결함).
+이제 세 갈래를 다 본다:
+1. `check:`/`gate:` 불릿(불릿형 또는 최상위 bare 줄) — `structural`.
+   `check_runner.parse_checks` 를 그대로 재사용한다.
+2. 라벨 없는 산문 불릿(`- ...`) — `advisory`.
+3. 최상위(들여쓰기 없는) `empty state:`/`provenance:` 줄 — `advisory`.
+`unverifiable:` 줄은 "채점 가능한 기준이 없다"는 명시적 이유(issue #310
+escape)이므로 항목으로 세지 않는다.
 
 두 겹의 판정이 섞이지 않게 분리한다:
-- **결정적** 아티팩트-존재 서브체크(artifact_in_diff)만 블록한다: 기준이
-  YES 로 채점됐는데 그 기준이 인용한 아티팩트(백틱 경로/커맨드)가 PR
-  diff 안에 없으면 실패. 이건 LLM 판단이 아니라 문자열 포함 검사다.
+- **결정적** 아티팩트-존재 서브체크(artifact_in_diff)는 `structural`
+  항목만 블록한다: 기준이 YES 로 채점됐는데 그 기준이 인용한 아티팩트
+  (백틱 경로/커맨드)가 PR diff 안에 없으면 실패. 이건 LLM 판단이 아니라
+  문자열 포함 검사다. `advisory` 항목(산문 불릿/empty state:/
+  provenance:)은 ACCEPTANCE FORMAT 관례상 애초에 아티팩트를 인용하도록
+  요구되지 않으므로 이 서브체크의 블록 대상이 아니다 — 걸면 "더 많이
+  채점한다"는 목표가 "더 많이 (부당하게) 막는다"로 뒤집힌다.
 - **의미론적** verdict(YES/NO/UNKNOWN, builder-blind 세션이 매긴 것)는
   advisory 로만 기록된다 — 그 자체로는 절대 블록하지 않는다(연구 근거:
   LLM judge 는 게임 가능/편향 — 토큰 하나로 35% FP, 모듈 docstring 참고
   대신 이슈 본문에 있음).
 
-`- check:` 불릿이 0개인 이슈(예: `unverifiable:` 로만 채워진 절)는
-'no gradable criteria' 로 구분되는 결과를 낸다 — 크래시도 아니고 기존
-게이트들의 결과와 바이트 단위로 같지도 않은, 별도 상태다.
+채점 가능한 항목이 0개인 이슈(예: `unverifiable:` 로만 채워진 절, 또는
+`## Acceptance` 절 자체가 없음)는 'no gradable criteria' 로 구분되는
+결과를 낸다 — 크래시도 아니고 "채점됐고 통과"와 바이트 단위로 같지도
+않은 별도 상태다. `check()`/`main()` 까지 이 구분을 그대로 들고 간다 —
+이슈 #2231 두 번째 결함: 예전엔 이 둘이 똑같이 "게이트 통과"로 찍혀
+아무도 살펴보지 않은 PR 이 승인된 것처럼 읽혔다.
 
   python3 gates/requirement_met.py <issue-number> <pr-number> [--repo <경로>]
 """
@@ -59,6 +72,18 @@ _PROVENANCE_LINE = re.compile(
 _ACCEPTANCE_CITATION = re.compile(
     r"acceptance\s*:\s*(.+?)\s*(?:—|-{1,2})\s*result\s*:\s*"
     r"(?:PASS|FAIL|UNMEASURED)\b", re.IGNORECASE)
+# issue #2231 defect 3 (PR #2223 live false-block): the record that
+# actually proved `gate: \`tests/test_workspace_checkpoint.py\`` cited it
+# via a `canonical: <command>` tag (gates/record_lint.py's own
+# `_CANONICAL_TAG` — the citation shape #793/#870's outcome-claim checks
+# already accept elsewhere in this codebase), not the narrower
+# `acceptance: ... — result: ...` shape above. Treating only the latter
+# as evidence made a byte-for-byte correct citation false-block on
+# citation FORMAT rather than substance. Any citation-tag line naming the
+# artifact counts now — the artifact-presence check below still requires
+# the string to appear in an added line, so a bare untagged prose mention
+# (t_red_artifact_named_only_in_added_markdown_line_fails) still doesn't.
+_CANONICAL_CITATION = re.compile(r"canonical\s*:\s*\S", re.IGNORECASE)
 _ENV_PREFIX = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+")
 _CD_PREFIX = re.compile(r"^cd\s+\S+\s*(?:&&|;)\s*", re.IGNORECASE)
 _WRAPPER_PREFIX = re.compile(r"^(?:bash|sh)\s+-c\s+", re.IGNORECASE)
@@ -202,12 +227,14 @@ def _artifact_in_diff_hunk(artifact: str, diff: str) -> bool:
             continue
         if current_file and current_file.lower().endswith(_PROSE_FILE_SUFFIXES):
             # issue #2137 (verify-at-landing): a recorded EXECUTED-evidence
-            # citation (`acceptance: <command> — result: ...`) in a record
+            # citation (`acceptance: <command> — result: ...` or, issue
+            # #2231 defect 3, a `canonical: <command>` tag) in a record
             # .md IS the evidence under the new contract — the record is
             # the regression suite. Only bare prose mentions stay excluded;
             # command-identity (#1696) still checks the cited command
             # matches byte-identically.
-            if _ACCEPTANCE_CITATION.search(content):
+            if _ACCEPTANCE_CITATION.search(content) or \
+                    _CANONICAL_CITATION.search(content):
                 return True
             continue
         if _is_comment_only_line(content):
@@ -216,19 +243,81 @@ def _artifact_in_diff_hunk(artifact: str, diff: str) -> bool:
     return False
 
 
-def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dict:
-    """순수 함수. `issue_body`의 Acceptance 절에서 `- check:` 불릿을 뽑아
-    각각을 채점한다.
+# issue #2231 defect 1 — grade the criteria that actually exist, not only
+# `check:`/`gate:` bullets. A top-level (unindented) bullet line, whatever
+# its text, is a criterion; ACCEPTANCE FORMAT only mandates the
+# check:/empty state:/provenance: structure for criteria that reference
+# an executable artifact, so a plain prose bullet ("Untracked files are
+# captured, not just tracked modifications.", issue #2215) is exactly as
+# valid a criterion and just as ungraded today.
+_BULLET_LINE = re.compile(r"^[ \t]*[-*][ \t]+(.+)$", re.MULTILINE)
+# A bulleted item already covered structurally (check:/gate:, via
+# check_runner.parse_checks below) or explicitly excused from grading
+# (unverifiable:, issue #310 escape) — skip it here to avoid double
+# counting or turning an escape into a fake criterion.
+_LABELED_OR_EXCUSED_PREFIX = re.compile(
+    r"^(?:check|gate|unverifiable)\s*:\s*", re.IGNORECASE)
+# The trailing `empty state:`/`provenance:` lines the issue's own count
+# treats as checkable items (2215: "five prose bullets plus the trailing
+# gate:/empty state:/provenance: lines" = 8) — always top-level (column
+# 0), never indented, which is what distinguishes them from a check:/
+# gate: bullet's own indented provenance/empty-state METADATA
+# continuation line (`_CHECK_WITH_META` above) — that continuation stays
+# metadata, not a separate criterion. `check:`/`gate:` bare lines are
+# already reached by check_runner.parse_checks (its `[-*]?` bullet marker
+# is optional), so they're deliberately not repeated here.
+_BARE_LABEL_LINE = re.compile(
+    r"^(?:empty state|provenance)\s*:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 
-    `per_check_verdicts`: 불릿의 원문(`raw`, `check_runner.parse_checks`가
-    돌려주는 그대로)을 키로 하는 YES/NO/UNKNOWN 매핑 — builder-blind
-    세션이 낸 semantic verdict. 없는 키는 UNKNOWN 취급한다.
+
+def _parse_acceptance_items(section: str) -> list[dict]:
+    """Acceptance 절에서 채점 대상 항목을 전부 뽑는다. 반환: 각
+    `{"raw": str, "structural": bool}` — `structural=True`는
+    `check:`/`gate:` 라벨 항목(결정적 아티팩트-존재 서브체크 대상),
+    `structural=False`는 산문 불릿/`empty state:`/`provenance:` 줄
+    (advisory 전용, 이슈 docstring 상단 참고)."""
+    items: list[dict] = []
+    seen: set[str] = set()
+
+    for chk in check_runner.parse_checks(section):
+        raw = chk["raw"]
+        if raw in seen:
+            continue
+        seen.add(raw)
+        items.append({"raw": raw, "structural": True})
+
+    for m in _BULLET_LINE.finditer(section):
+        text = m.group(1).strip()
+        if _LABELED_OR_EXCUSED_PREFIX.match(text) or text in seen:
+            continue
+        seen.add(text)
+        items.append({"raw": text, "structural": False})
+
+    for m in _BARE_LABEL_LINE.finditer(section):
+        raw = m.group(1).strip()
+        if raw in seen:
+            continue
+        seen.add(raw)
+        items.append({"raw": raw, "structural": False})
+
+    return items
+
+
+def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dict:
+    """순수 함수. `issue_body`의 Acceptance 절에서 채점 대상 항목을 전부
+    뽑아(`_parse_acceptance_items` — check:/gate: 불릿, 산문 불릿,
+    최상위 empty state:/provenance: 줄) 각각을 채점한다.
+
+    `per_check_verdicts`: 항목의 원문(`raw` — check:/gate: 항목은
+    `check_runner.parse_checks`가 돌려주는 그대로, 그 외는 항목 텍스트
+    자체)을 키로 하는 YES/NO/UNKNOWN 매핑 — builder-blind 세션이 낸
+    semantic verdict. 없는 키는 UNKNOWN 취급한다.
 
     반환값:
       {"empty_state": bool, "criteria": [...], "blocked": bool,
        "blocking_reasons": [str]}
     각 criterion: {"raw", "artifact", "verdict", "artifact_in_diff",
-                   "blocking_fail"}.
+                   "structural", "blocking_fail"}.
     """
     issue_body = issue_body or ""
     diff = diff or ""
@@ -237,11 +326,11 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
         return {"empty_state": True, "criteria": [], "blocked": False,
                 "blocking_reasons": [],
                 "reason": "이슈 본문에 '## Acceptance' 절이 없다"}
-    checks = check_runner.parse_checks(section)
-    if not checks:
+    items = _parse_acceptance_items(section)
+    if not items:
         return {"empty_state": True, "criteria": [], "blocked": False,
                 "blocking_reasons": [],
-                "reason": "Acceptance 절에 '- check:' 불릿이 0개다 "
+                "reason": "Acceptance 절에 채점 가능한 항목이 0개다 "
                           "(예: unverifiable: 로만 채워짐) — 채점 가능한 "
                           "기준이 없다"}
 
@@ -250,8 +339,9 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
 
     criteria = []
     blocking_reasons = []
-    for chk in checks:
-        raw = chk["raw"]
+    for item in items:
+        raw = item["raw"]
+        structural = item["structural"]
         artifact = _cited_artifact(raw)
         verdict = per_check_verdicts.get(raw, UNKNOWN)
         artifact_in_diff = bool(artifact) and _artifact_in_diff_hunk(artifact, diff)
@@ -264,9 +354,16 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
         # right or wrong.
         command_identity_mismatch = _command_identity_mismatch(
             artifact, provenance, recorded_commands)
-        blocking_fail = (verdict == YES and not artifact_in_diff) or \
-            command_identity_mismatch
-        if verdict == YES and not artifact_in_diff:
+        # issue #2231: only `structural` (check:/gate:-labeled) items are
+        # subject to the deterministic artifact-presence sub-check. A
+        # non-structural item (prose bullet, or a bare empty state:/
+        # provenance: line) is never required by ACCEPTANCE FORMAT to
+        # cite an artifact at all — blocking those on a missing citation
+        # would turn "grade more" into "block more than the format ever
+        # asked for."
+        artifact_block = structural and verdict == YES and not artifact_in_diff
+        blocking_fail = artifact_block or command_identity_mismatch
+        if artifact_block:
             if artifact is None:
                 blocking_reasons.append(
                     f"기준 '{raw}'이 YES 로 채점됐지만 인용된 아티팩트가 없다 "
@@ -285,6 +382,7 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
             "artifact_in_diff": artifact_in_diff,
             "provenance": provenance,
             "command_identity_mismatch": command_identity_mismatch,
+            "structural": structural,
             "blocking_fail": blocking_fail,
         })
     return {"empty_state": False, "criteria": criteria,
@@ -309,33 +407,39 @@ def check(repo: Path, issue: int, pr: int,
     블록).
 
     반환값은 `{"blocked": bool, "blocking_reasons": [str],
-    "advisory": [...]}"` — 이슈 #1660 (#1651 리뷰 픽스): 결정적
-    아티팩트-존재 서브체크만 `blocked`/`blocking_reasons`로 landing 을
-    막고, 기준별 semantic verdict 는 `advisory`로 그대로 노출된다(호출부
-    /오케스트레이터가 참고용으로 기록·표시할 수 있게). 각 advisory 항목:
-    `{"raw", "verdict", "artifact", "artifact_in_diff"}`."""
+    "advisory": [...], "empty_state": bool}` — 이슈 #1660 (#1651 리뷰
+    픽스): 결정적 아티팩트-존재 서브체크만 `blocked`/`blocking_reasons`로
+    landing 을 막고, 기준별 semantic verdict 는 `advisory`로 그대로
+    노출된다(호출부/오케스트레이터가 참고용으로 기록·표시할 수 있게).
+    각 advisory 항목: `{"raw", "verdict", "artifact", "artifact_in_diff",
+    "structural"}`. `empty_state`(issue #2231 defect 2)는 "채점 가능한
+    기준이 0개였다"와 "채점했고 차단 사유가 없었다"를 호출부가 구분할 수
+    있게 한다 — 둘 다 `blocked=False`지만 의미가 다르다."""
     body = gh_rest.fetch_issue_body(repo, issue)
     if body is None:
         return {"blocked": True, "advisory": [], "blocking_reasons": [
             f"이슈 #{issue} 본문을 읽을 수 없다(`gh api repos/.../issues/{issue}` 실패) — "
-            f"검사 불가는 통과가 아니다."]}
+            f"검사 불가는 통과가 아니다."], "empty_state": False}
     diff = _pr_diff(repo, pr)
     if diff is None:
         return {"blocked": True, "advisory": [], "blocking_reasons": [
             f"PR #{pr} diff 를 읽을 수 없다(`gh pr diff {pr}` 실패) — "
-            f"검사 불가는 통과가 아니다."]}
+            f"검사 불가는 통과가 아니다."], "empty_state": False}
     result = grade(body, diff, per_check_verdicts or {})
     if result["empty_state"]:
-        return {"blocked": False, "advisory": [], "blocking_reasons": []}
+        return {"blocked": False, "advisory": [], "blocking_reasons": [],
+                "empty_state": True, "reason": result.get("reason", "")}
     advisory = [
         {"raw": c["raw"], "verdict": c["verdict"], "artifact": c["artifact"],
          "artifact_in_diff": c["artifact_in_diff"],
          "provenance": c["provenance"],
-         "command_identity_mismatch": c["command_identity_mismatch"]}
+         "command_identity_mismatch": c["command_identity_mismatch"],
+         "structural": c["structural"]}
         for c in result["criteria"]
     ]
     return {"blocked": result["blocked"], "advisory": advisory,
-            "blocking_reasons": result["blocking_reasons"]}
+            "blocking_reasons": result["blocking_reasons"],
+            "empty_state": False}
 
 
 def main() -> int:
@@ -352,8 +456,16 @@ def main() -> int:
     for a in result["advisory"]:
         print(f"advisory: [{a['verdict']}] {a['raw']}")
     bad = result["blocking_reasons"]
+    # issue #2231 defect 2: "no gradable criteria" and "criteria graded,
+    # nothing blocked" print distinct messages — the old single message
+    # ("게이트 통과 (또는 채점 가능한 기준 없음)") made an unexamined PR
+    # read as approved.
+    if result.get("empty_state"):
+        print("채점 가능한 기준 없음 — 이건 통과가 아니라 별개의 결과다 "
+              f"({result.get('reason', '')})")
+        return 0
     if not bad:
-        print("게이트 통과 (또는 채점 가능한 기준 없음)")
+        print(f"게이트 통과 ({len(result['advisory'])}개 기준 채점, 차단 사유 없음)")
         return 0
     print("게이트 차단:")
     for b in bad:

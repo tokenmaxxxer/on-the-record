@@ -108,6 +108,7 @@
   changes — only this log line — to avoid redundant re-verification
   churn across repeated follow-on session spawns landing on an already
   fully-handed-off branch.
+<<<<<<< HEAD
 
 - 2026-08-25T16:10:00Z | inline | issue-2208/execution-observation | a
   third follow-on session opened on this branch and re-confirmed the
@@ -132,3 +133,5 @@
   `.on-the-record/directive/` untracked) remain present, unchanged from
   the prior sessions' entries, and out of this role's write_scope for
   the same reason previously given.
+=======
+>>>>>>> origin/main
