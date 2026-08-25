@@ -166,6 +166,17 @@ nobody located.
   spawned this session or produced PR #2372/#2376 (#2379's subject).
   Re-traced the same question against this repo's own branch-cut code
   instead and found the narrower, real gap described in item 4 above.
+- CHANGES round (2026-08-25): the first cut of the REQ-2b age-prune fix
+  used the worktree's own top-level directory mtime as its "last
+  activity" signal. A background warrant-hunter run before landing (per
+  the warrant protocol's before-landing check) found this was wrong —
+  git only bumps a directory's own mtime on entry add/remove/rename, not
+  on writes to files already inside it, so a still-actively-used worktree
+  could be force-removed. canonical:
+  `docs/issue-2383/reports/implementation/2026-08-25-hunt-worktree-age-prune.md`,
+  this session, 2026-08-25. Fixed by walking the whole tree
+  (`_worktree_last_activity()`) instead of trusting the top directory
+  alone — see item 2's follow-up note above.
 
 ## Skill verdicts
 
@@ -331,8 +342,8 @@ for the two named unmet requirements.
    after the existing `git worktree prune -v` call: it lists all
    registered worktrees (`git worktree list --porcelain`), skips index 0
    (the primary checkout itself, matched by path as a second guard), and
-   for every other entry whose directory is still present, compares the
-   directory's mtime against `MUSTER_WORKTREE_MAX_AGE_HOURS` (new env
+   for every other entry whose directory is still present, compares its
+   last-activity time against `MUSTER_WORKTREE_MAX_AGE_HOURS` (new env
    var, default 24h — much shorter than workspace `auto_sweep`'s 14-day
    default, since these `check_runner.py`/`reexecution_gate.py` worktrees
    are meant to live for one check run, not days). Anything older is
@@ -343,26 +354,46 @@ for the two named unmet requirements.
    canonical: `lifecycle.py` `_worktree_max_age_hours()` and the age-sweep
    block in `_prune_worktrees()`, this commit, this session's own working
    directory.
+   **Follow-up fix within the same round — a background warrant-hunter
+   run before landing found a real bug in the first cut of this fix**:
+   "last-activity time" was originally just the worktree's own top-level
+   directory mtime, which git only updates when a directory *entry* is
+   added/removed/renamed — a process that keeps writing into files that
+   already exist inside the worktree (the normal shape of a running
+   check, e.g. appending to a log or overwriting an already-gitignored
+   artifact file) never bumps that mtime, so a still-actively-used
+   worktree could be force-removed once its checkout time alone crossed
+   24h. canonical: `docs/issue-2383/reports/implementation/2026-08-25-hunt-worktree-age-prune.md`
+   (warrant-hunter's report, this session, 2026-08-25) — includes a
+   standalone repro script that creates a real worktree, appends to an
+   existing nested file, then shows `_prune_worktrees` deleting it
+   anyway under the pre-fix code.
+   Fixed by adding `_worktree_last_activity(path)`, which takes the max
+   mtime across the worktree's top directory **and every file/subdirectory
+   under it** (`path.rglob("*")`), not just the top directory alone — a
+   fresh write anywhere in the tree now correctly resets the clock.
+   canonical: `lifecycle.py` `_worktree_last_activity()`, this commit.
 
 Regression tests for both fixes are committed (not just inline smoke
 tests) since this is a second gap found in the same area by the same
 review process — `gates/test_clean_reconcile_safety.py` gained a new
-`PruneWorktreesTest` class (4 methods: existence-prune, age-prune
-reproducing the reviewer's 90-day-backdated case, fresh-worktree
-survives, primary worktree never touched) and 3 methods in
-`tests/test_spawn_gate_wiring.py` were rewritten to use the
-`spawn.ROOT`-redirect helper above.
+`PruneWorktreesTest` class (5 methods: existence-prune, age-prune
+reproducing the reviewer's 90-day-backdated case, actively-written
+worktree survives despite an old top-dir mtime (reproducing the
+warrant-hunter's finding above), fresh-worktree survives, primary
+worktree never touched) and 3 methods in `tests/test_spawn_gate_wiring.py`
+were rewritten to use the `spawn.ROOT`-redirect helper above.
 acceptance: `python3 -m pytest gates/test_clean_reconcile_safety.py -q -n auto` — result:
 ```
-.............x.                                                          [100%]
-14 passed, 1 xfailed in 17.23s
+....x...........                                                         [100%]
+15 passed, 1 xfailed in 0.92s
 ```
 acceptance: `python3 -m pytest tests/test_spawn_pipeline.py test/test_spawn_model_override.py gates/test_clean_reconcile_safety.py tests/test_spawn_gate_wiring.py -q -n auto -m "not slow"` — result:
 ```
-........................................................................ [ 45%]
-...........................................................x............ [ 91%]
-..............                                                           [100%]
-157 passed, 1 xfailed in 1.26s
+.....................................................................x.. [ 45%]
+........................................................................ [ 90%]
+...............                                                          [100%]
+158 passed, 1 xfailed in 1.25s
 ```
 acceptance: `git log --oneline HEAD..origin/main | wc -l` after rebase — result:
 ```
