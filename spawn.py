@@ -92,6 +92,7 @@ _sweep_completion_in_flight = roster._sweep_completion_in_flight
 deadman_mark = roster.deadman_mark
 deadman_check = roster.deadman_check
 lease_reconcile_sweep = roster.lease_reconcile_sweep
+spawn_attempt_sweep = roster.spawn_attempt_sweep
 _surface_approval_wait = roster._surface_approval_wait
 APPROVAL_WAIT_EXPIRING_FRACTION = roster.APPROVAL_WAIT_EXPIRING_FRACTION
 APPROVAL_WAIT_LEDGER_TTL_SEC = roster.APPROVAL_WAIT_LEDGER_TTL_SEC
@@ -840,6 +841,81 @@ ROSTER = STATE_ROOT / "active.json"
 
 RECONCILE_LEDGER = ROOT / "runs" / "reconcile_ledger.json"
 
+# 이슈 #2291: 부트스트랩(워크스페이스/로스터/세션 로그가 아직 없는) 구간의
+# spawn-attempt 흔적. `STATE_ROOT`(#2240)에 앵커링 — ROSTER/DEADMAN_MARKER
+# 와 같은 관례로, 이 모듈 자신의(캐치아웃) STATE_ROOT 이지 호출자가 넘긴
+# 대상 레포 경로가 아니다. append-only JSONL: 프로세스가 이 구간 중
+# 어디서든 죽어도(halt 든 하드 크래시든) 이미 쓴 줄은 그대로 남는다 —
+# load-modify-save 였다면 그 창에서 죽었을 때 파일 자체가 손상될 수 있다.
+SPAWN_ATTEMPTS_PATH = STATE_ROOT / "spawn-attempts.jsonl"
+
+
+def _append_spawn_attempt_event(entry: dict) -> None:
+    SPAWN_ATTEMPTS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with SPAWN_ATTEMPTS_PATH.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _record_spawn_attempt(issue: int | None, role: str, pid: int) -> str:
+    """이슈 #2291: 네트워크/워크스페이스 작업 전, spawn 시도를 durable 하게
+    남긴다 — `_fetch_or_halt()`(pipeline.py) 류의 fail-closed halt 가
+    stdout/stderr 로만 나가 컨슈머가 파이프(`2>&1 | tail`)로 삼켜버리면
+    그 halt 는 오늘 어디에도 흔적이 없다(실측: 이슈 #2291 컨슈머 리포트).
+    반환하는 attempt_id 를 `_record_spawn_outcome()`에 넘겨 이 시도의
+    처분(halt 사유 또는 세션 로그 경로)을 잇는다."""
+    ts = time.time()
+    attempt_id = f"{issue}:{role}:{pid}:{int(ts * 1000)}"
+    _append_spawn_attempt_event({"event": "spawn_attempt", "attempt_id": attempt_id,
+                                  "issue": issue, "role": role, "pid": pid, "ts": ts})
+    return attempt_id
+
+
+# 이슈 #2291: 한 attempt_id 당 이 프로세스 안에서 처분은 한 번만 — 세션
+# 로그 경로가 정해진(성공) 뒤 `_spawn_one()` 안에서 무관한 예외가 나도
+# (예: Popen 실패) main() 의 halt-catch 가 그걸 halt 로 덮어써 이미 로스터/
+# 세션-로그가 존재하기 시작한 시도를 "부트스트랩 halt"로 오분류하면 안 된다
+# — 그 이후 실패는 기존 dead-entry 워치독 보고(diagnose_health 등)의 몫이다.
+_SPAWN_ATTEMPT_OUTCOME_WRITTEN: set[str] = set()
+
+
+def _record_spawn_outcome(attempt_id: str, outcome: str, detail: str) -> None:
+    """이슈 #2291: `attempt_id`(위)의 처분을 남긴다 — `outcome` 은
+    `"halted"`(halt 사유 문자열을 `detail`에) 또는 `"session-log"`
+    (세션 로그 경로를 `detail`에, 성공 경로). 같은 attempt_id 로 두 번째
+    호출은 no-op(위 주석)."""
+    if attempt_id in _SPAWN_ATTEMPT_OUTCOME_WRITTEN:
+        return
+    _SPAWN_ATTEMPT_OUTCOME_WRITTEN.add(attempt_id)
+    _append_spawn_attempt_event({"event": "spawn_attempt_outcome",
+                                  "attempt_id": attempt_id, "outcome": outcome,
+                                  "detail": detail, "ts": time.time()})
+
+
+def _load_spawn_attempts() -> tuple[dict, dict]:
+    """`SPAWN_ATTEMPTS_PATH`를 읽어 (attempts, outcomes) — 둘 다
+    attempt_id 로 키가 잡힌 dict. 워치독의 `spawn_attempt_sweep()`
+    (roster.py)이 소비한다."""
+    attempts: dict = {}
+    outcomes: dict = {}
+    try:
+        lines = SPAWN_ATTEMPTS_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return attempts, outcomes
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(ev, dict):
+            continue
+        aid = ev.get("attempt_id")
+        if not aid:
+            continue
+        if ev.get("event") == "spawn_attempt":
+            attempts[aid] = ev
+        elif ev.get("event") == "spawn_attempt_outcome":
+            outcomes[aid] = ev
+    return attempts, outcomes
 
 
 # ------------------------------------------------------------- issue #2101
@@ -1513,26 +1589,48 @@ def main() -> int:
             # sonnet 을 보여준다")가 겨냥하는 문구 그대로.
             print(f"--model {role_model}")
         return 0
-    require_doctor()
-    ensure_target_remote(a.cwd, a.unattended)
-    # 이슈 #2152: 기본값 반전 — 아무 플래그도 없으면 이제 single-phase
-    # (build-now) 다. --two-phase 가 명시적으로 오늘까지의 proposal-first
-    # 흐름으로 되돌린다. --checkpoint 는 phase-1 제안에서 멈춰야 하므로
-    # (그 경계가 곧 승인 검사다) 다른 플래그와 무관하게 언제나 two-phase로
-    # 취급한다 — 안 그러면 체크포인트 세션이 멈출 제안 라운드 자체가
-    # build-now 로 건너뛰어져 버린다. --single-phase 는 이제 no-op
-    # 별칭이다: 기본값이 이미 같은 결과이므로 값 자체는 계산에 넣지 않는다.
-    effective_single_phase = not a.two_phase and not a.checkpoint
-    return _spawn_one(a.cwd, a.role, a.task, a.unattended, a.issue,
-                      bounded=a.issue is not None,
-                      stall_timeout_min=a.stall_timeout,
-                      no_wait=a.no_wait,
-                      despite_returned=a.despite_returned,
-                      model=a.model, skills=a.skills,
-                      single_phase=effective_single_phase,
-                      max_turns=a.max_turns,
-                      allow_unlimited_turns=a.allow_unlimited_turns,
-                      checkpoint=a.checkpoint)
+    # 이슈 #2291: 여기부터 (require_doctor/ensure_target_remote 의 네트워크
+    # 호출을 포함해) _spawn_one() 전체 — 워크스페이스/로스터/세션 로그가
+    # 실제로 생기기 전 구간 — 가 "부트스트랩 halt 는 흔적이 없다"던 창이다.
+    # `--issue` 없는 ad-hoc 스폰은 애초에 로스터에 등록되지 않으므로(워치독이
+    # 대조할 대상이 없다) 추적하지 않는다.
+    attempt_id = (_record_spawn_attempt(a.issue, a.role, os.getpid())
+                  if a.issue is not None else None)
+    try:
+        require_doctor()
+        ensure_target_remote(a.cwd, a.unattended)
+        # 이슈 #2152: 기본값 반전 — 아무 플래그도 없으면 이제 single-phase
+        # (build-now) 다. --two-phase 가 명시적으로 오늘까지의 proposal-first
+        # 흐름으로 되돌린다. --checkpoint 는 phase-1 제안에서 멈춰야 하므로
+        # (그 경계가 곧 승인 검사다) 다른 플래그와 무관하게 언제나 two-phase로
+        # 취급한다 — 안 그러면 체크포인트 세션이 멈출 제안 라운드 자체가
+        # build-now 로 건너뛰어져 버린다. --single-phase 는 이제 no-op
+        # 별칭이다: 기본값이 이미 같은 결과이므로 값 자체는 계산에 넣지 않는다.
+        effective_single_phase = not a.two_phase and not a.checkpoint
+        return _spawn_one(a.cwd, a.role, a.task, a.unattended, a.issue,
+                          bounded=a.issue is not None,
+                          stall_timeout_min=a.stall_timeout,
+                          no_wait=a.no_wait,
+                          despite_returned=a.despite_returned,
+                          model=a.model, skills=a.skills,
+                          single_phase=effective_single_phase,
+                          max_turns=a.max_turns,
+                          allow_unlimited_turns=a.allow_unlimited_turns,
+                          checkpoint=a.checkpoint,
+                          attempt_id=attempt_id)
+    except (SystemExit, Exception) as e:
+        # 이슈 #2291: `_fetch_or_halt()`류의 fail-closed halt(sys.exit)와,
+        # 이 구간의 아무 uncaught exception 이나 — 컨슈머가 stdout/stderr 를
+        # 파이프로 삼켜도(`2>&1 | tail`) durable 하게 남긴다. 이미
+        # `_record_spawn_outcome()`을 (성공으로) 쓴 시도는 그 지점 이후에
+        # 다른 예외가 나도 여기서 다시 안 건드린다 — halt 이든 아니든 한
+        # attempt_id 에는 처분이 하나뿐이어야 sweep 쪽 판정이 단순하다.
+        if attempt_id is not None:
+            reason = (e.code if isinstance(e, SystemExit) else
+                      f"{type(e).__name__}: {e}")
+            reason = reason if isinstance(reason, str) else str(reason)
+            _record_spawn_outcome(attempt_id, "halted", reason)
+        raise
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -2296,12 +2394,23 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                skills: str | None = None, single_phase: bool = False,
                max_turns: int | None = None,
                allow_unlimited_turns: bool = False,
-               checkpoint: bool = False) -> int:
+               checkpoint: bool = False,
+               attempt_id: str | None = None) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
     있으면 둘이 갈라지고, 갈라진 쪽이 조용히 게이트 하나를 빠뜨린다.
-    """
+
+    `attempt_id`(이슈 #2291, 옵션): main() 의 CLI 진입점이 네트워크/워크스페이스
+    작업 전에 이미 `_record_spawn_attempt()`로 남긴 durable 시도 id — 세션
+    로그 경로가 정해지는 시점(아래)에 그 시도의 성공 처분을 잇는다. halt
+    처분은 이 함수가 아니라 호출자(main())가 SystemExit/Exception 을 잡아
+    남긴다 — halt 는 이 함수 안 어디서든(admission_gate, 스킬 해석,
+    `issue_workspace()`/`checkout_issue_branch()`의 `_fetch_or_halt` 등)
+    일어날 수 있어, 그 지점들 하나하나를 계측하는 대신 호출부를 감싸는 쪽이
+    새 halt 지점이 생겨도 놓치지 않는다. `None`(다른 호출부 — 예: 워치독
+    자동-재스폰의 `_respawn_or_cap()`)이면 이 인자와 관련된 아무 것도 안
+    쓴다 — 오늘의 동작 그대로."""
     # Issue #2100: pre-spawn admission checklist. Runs before ANY side
     # effect (workspace clone, branch, roster/index writes, session
     # process) — a refusal names the missing precondition, writes one
@@ -2823,6 +2932,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     else ROOT / "runs" / "last-session.log")
         log_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"[{role}] 라이브 로그: {log_path}", file=sys.stderr)
+        if attempt_id is not None:
+            # 이슈 #2291: 이 지점 이후로는 세션 로그/로스터가 곧 존재한다 —
+            # 부트스트랩 halt 구간을 이 시도의 성공으로 확정한다. roster_register
+            # (아래, Popen 뒤)보다 먼저지만 몇 줄 차이라 워치독 틱(60초 간격)
+            # 기준으로는 동시다.
+            _record_spawn_outcome(attempt_id, "session-log", str(log_path))
         result = {}
         roster_key = f"issue-{issue}/{role}" if issue is not None else f"adhoc/{role}/{os.getpid()}"
         events_path = _events_path(cwd)
