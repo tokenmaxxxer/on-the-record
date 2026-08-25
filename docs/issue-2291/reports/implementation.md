@@ -76,11 +76,31 @@ duration) has elapsed with no matching roster entry. Dedup-gated per
 
 canonical: pipeline.py:810 (`_fetch_or_halt`, verified in this checkout before writing code), spawn.py's `main()`/`_spawn_one()` bootstrap-ordering (workspace/roster/session-log all created inside `_spawn_one()`, after `require_doctor()`/`ensure_target_remote()`)
 
-The issue named two structural defects, both verified in this checkout
-before writing any code: (1) `_fetch_or_halt()` (pipeline.py:810) and the
-rest of workspace preparation run before the session log, roster entry, and
-workspace directory exist, so a fail-closed halt there reports only to
-stdout/stderr; (2) a spawn that dies pre-roster leaves no roster entry, so
+amendments-reconciled: issuecomment-5403883219 — the issue's original
+"Consumer report" section attributed the issue-538 incident to
+`_fetch_or_halt`; the author's follow-up comment corrects this: the
+consumer ran `spawn.py implementation 538` with `538` as the positional
+*task* text, not `--issue 538`, so an **adhoc** session spawned, wrote to
+`runs/last-session.log`, and stayed alive (watchdog correctly HEALTHY) —
+it never touched `_fetch_or_halt`/workspace machinery at all. The 538
+incident is explicitly **not** cited below as the motivating failure for
+that reason; its actual defect (silent degenerate-task admission) is a
+separate, out-of-scope issue per the comment. `issue-538`/`pid …` in the
+"Provenance" acceptance evidence further below is this record's own
+arbitrary synthetic issue number for the live-fire reproduction the
+comment asked for — not a reference to the real incident's issue.
+
+The issue named two structural defects that stand independently of that
+misattribution, both verified in this checkout before writing any code and
+both reaffirmed by the comment ("this issue's ask stands on its own merits
+regardless: the pre-log bootstrap window IS traceless … and a genuine
+`_fetch_or_halt` halt through a piped stdout would still vanish"): (1)
+`_fetch_or_halt()` (pipeline.py:810) and the rest of workspace preparation
+run before the session log, roster entry, and workspace directory exist, so
+a fail-closed halt there reports only to stdout/stderr — the issue's own
+cited prior sighting (spawn.py:3004, "events.jsonl 에 아무 흔적도 안
+남았다", survey.md incident #2) is the actual motivating precedent, not the
+538 incident; (2) a spawn that dies pre-roster leaves no roster entry, so
 the watchdog has nothing to report for that (issue, role) and can mislead
 by surfacing an unrelated entry as HEALTHY instead.
 
@@ -150,14 +170,19 @@ acceptance: python3 -c with `spawn._record_spawn_attempt`/`_record_spawn_outcome
 empty-state anomaly count (expect 0): 0
 ```
 
-**Provenance (executed-live)** — forced a real `_fetch_or_halt` halt
-(unreachable remote, same technique as the `WorkspaceSyncFailClosed` test
-class in tests/test_spawn_pipeline.py: a real local git repo with `git
-remote add origin /no/such/path-xyz`), with the spawn-attempt script's
-stdout piped through `tail -15` exactly as the consumer's report
-describes, in an isolated clone of this checkout (`MUSTER_STATE_ROOT`
-pointed at a scratch dir outside the target repo). Two real,
-separately-executed steps:
+**Provenance (executed-live)** — a synthetic reproduction (per
+amendments-reconciled above: the 538 incident itself never reached
+`_fetch_or_halt`, so this forces a genuine one directly, as the comment
+asked) of a real `_fetch_or_halt` halt: unreachable remote, same technique
+as the `WorkspaceSyncFailClosed` test class in tests/test_spawn_pipeline.py
+(a real local git repo with `git remote add origin /no/such/path-xyz`),
+with the spawn-attempt script's stdout piped through `tail -15` — the same
+shell pattern (`2>&1 | tail`) the consumer's report used, which is what
+made the original halt traceless — in an isolated clone of this checkout
+(`MUSTER_STATE_ROOT` pointed at a scratch dir outside the target repo). The
+issue number used below (538, matching the consumer's task-string digits
+purely for readability) is this reproduction's own arbitrary choice, not a
+claim about the real incident's issue. Two real, separately-executed steps:
 
 acceptance: python3 script calling `spawn._record_spawn_attempt` then the real `spawn._fetch_or_halt(str(work), "신규 워크스페이스")` against a real unreachable git remote, piped `2>&1 | tail -15` — result:
 
