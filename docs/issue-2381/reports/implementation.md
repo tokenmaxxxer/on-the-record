@@ -8,11 +8,13 @@ upstream:
     sha: same-commit
 code_under_review:
   - path: gates/check_runner.py
-    sha: same-commit
+    sha: 5a41d0d7a6126ce76e29ba2739be01e66553a470
   - path: on-the-record/directive/merge-gates.md
-    sha: same-commit
+    sha: 8da6f0094b906b5726f980df85596b727f3d3003
   - path: .gitignore
-    sha: same-commit
+    sha: 8da6f0094b906b5726f980df85596b727f3d3003
+  - path: docs/issue-2381/reports/implementation/2026-08-26-hunt-orchestrator-fetch-all-branches.md
+    sha: 5a41d0d7a6126ce76e29ba2739be01e66553a470
 type: fix
 breaking: none
 verdict: pass
@@ -98,7 +100,17 @@ a caller that forgets to invoke the wrapper.
 
 ## What did not work
 
-None.
+- The first cut of `fetch_all_role_branches()` used a plain wildcard
+  mirror fetch with no `--prune`. The before-landing warrant hunter
+  (stance 0) found this silently broke `checkout_pr_worktree()`'s
+  fail-closed contract: a branch deleted upstream after an earlier
+  fetch left a stale local `origin/<head_ref>` ref resolvable, so the
+  gate checked it out with no error instead of failing the way the old
+  single-branch fetch did. Fixed in commit `5a41d0d7` by adding
+  `--prune` to the fetch call, so a deleted upstream branch prunes its
+  stale local ref and the gate fails closed again.
+
+canonical: commit `5a41d0d7`:`docs/issue-2381/reports/implementation/2026-08-26-hunt-orchestrator-fetch-all-branches.md` (repro, fix, and re-verification), `5a41d0d7`:`gates/check_runner.py:410-412` (the `--prune` fix)
 
 ## Upstream basis
 
