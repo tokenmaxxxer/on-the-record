@@ -357,37 +357,43 @@ canonical: this session's own Skill tool-call transcript (the six
 `Skill` invocations preceding this file's authorship) and the Findings
 section above (where each skill's rules were actually applied).
 
-skill-verdict: conformance-review-requirement-extraction — applied: invoked; used to split issue #2431's Acceptance bullet 2 (reasoning
+skill-verdict: conformance-review-requirement-extraction — applied:
+invoked; used to split issue #2431's Acceptance bullet 2 (reasoning
 stated + live-pid-never-pruned invariant) into A2a/A2b before any
 verdict was rendered, and to dimension-tag each of the five resulting
 requirement blocks in "## Findings".
 
-skill-verdict: conformance-review-verification-method-selection — applied: invoked; selected Inspection for the structural claims (A1's
+skill-verdict: conformance-review-verification-method-selection —
+applied: invoked; selected Inspection for the structural claims (A1's
 branch-separation, A5's byte-identical halted block) and Demonstration
 for the functional claims requiring live execution against real state
 (A2b, A3, A4), reusing the repo's own existing
 `test_live_pid_survives_regardless_of_age` as Test-method
 corroboration for A2b per rule 4 rather than only a self-built fixture.
 
-skill-verdict: conformance-review-verdict-assignment — applied: invoked; all five findings assigned Present (implemented and reachable
+skill-verdict: conformance-review-verdict-assignment — applied:
+invoked; all five findings assigned Present (implemented and reachable
 on the actual code path, not merely matching vocabulary), each with an
 evidence pointer independently re-derived this session rather than
 carried forward from any prior verdict (no prior conformance-review
 record exists for issue #2431).
 
-skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every evidence block cites file:line-range plus the exact
+skill-verdict: conformance-review-traceability-and-evidence — applied:
+invoked; every evidence block cites file:line-range plus the exact
 commit sha read (`c5851224` for the pre-fix baseline, `6531f56f` for
 the PR head), and A1/A5's evidence spans two files' worth of
 comparison (both citing the same sha pair) rather than being
 collapsed into one bare path.
 
-skill-verdict: conformance-review-finding-record — applied: invoked; wrote the five requirement blocks above into this file with the full
+skill-verdict: conformance-review-finding-record — applied: invoked;
+wrote the five requirement blocks above into this file with the full
 field list (requirement, spec_ref, verdict, evidence, rationale) —
 canonical: the Findings section above; no Incorrect/Absent verdict
 arose, so no `spec_vs_built` field was needed, and no write was
 refused since evidence was located for every bullet.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; built every demonstration in this record from
+skill-verdict: defect-verification-independence-from-upstream-verdicts
+— applied: invoked; built every demonstration in this record from
 scratch (own worktrees, own fixtures, own live pid, own fresh copy of
 the real backlog) rather than citing the implementation record's own
 transcripts, deliberately included the edge case the builder's own
