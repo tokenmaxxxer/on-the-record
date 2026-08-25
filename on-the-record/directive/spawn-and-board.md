@@ -51,6 +51,30 @@
   only sanctioned direct status checks are a one-shot `spawn.py ps` or
   `spawn.py watch --issue <n> --role <r>` call — never a standing loop of
   any kind.
+- SPAWN INDEPENDENT WORK TOGETHER, NOT ONE-THEN-WAIT (issue #2382): before
+  spawning, check whether more than one pending role has no data dependency
+  on another pending role's output. If so, dispatch ALL of them as
+  background spawns in the SAME reply/turn — never spawn one, wait for its
+  completion notification, and only then spawn the next, when nothing about
+  running either session actually requires the other's result first.
+  Concrete example (the observer-pair case, issue #2380): a same-issue
+  conformance-review and execution-observation are independent siblings —
+  both read the same merged commit, produce independent records, and
+  neither's session needs the other's output to run (the only real
+  dependency between them is at MERGE time, via `merge_gate`'s cross-check,
+  which #2380 handles separately). Launch both together:
+  `spawn.py conformance-review "<task>" --issue <n> -C <repo>` and
+  `spawn.py execution-observation "<task>" --issue <n> -C <repo>` go out
+  back-to-back in the same turn, both backgrounded, before returning to the
+  user — not one spawned and awaited before the other is even issued.
+  Measured (issue #2382, docs/issue-2382/reports/implementation.md): a
+  same-issue conformance-review + execution-observation pair run
+  concurrently finished faster than the same pair run sequentially — see
+  that record for the wall-clock numbers. Reserve one-then-wait for spawns
+  that genuinely consume a prior spawn's output (e.g. a role reviewing
+  another role's just-opened PR, or a later `## 실행 계획` step per the
+  EXECUTION-PLAN ORDER rule below) — the default for anything else is
+  together, not serial.
 - EXECUTION-PLAN ORDER (issue #659, demoted from plan-order-guard.sh):
   when the issue body declares an `## 실행 계획` block, spawn/merge in
   its declared step order (`‖` marks parallel-safe steps;
