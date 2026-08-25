@@ -105,6 +105,7 @@ deadman_mark = roster.deadman_mark
 deadman_check = roster.deadman_check
 lease_reconcile_sweep = roster.lease_reconcile_sweep
 spawn_attempt_sweep = roster.spawn_attempt_sweep
+SPAWN_ATTEMPT_GRACE_SEC = roster.SPAWN_ATTEMPT_GRACE_SEC
 _surface_approval_wait = roster._surface_approval_wait
 APPROVAL_WAIT_EXPIRING_FRACTION = roster.APPROVAL_WAIT_EXPIRING_FRACTION
 APPROVAL_WAIT_LEDGER_TTL_SEC = roster.APPROVAL_WAIT_LEDGER_TTL_SEC
@@ -1088,11 +1089,49 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
             # 성립한다. halted 분기의 7일 창은 이 변경으로 전혀 건드리지
             # 않는다(아래 elif, 여전히 SPAWN_ATTEMPTS_RETENTION_SEC 그대로;
             # issuecomment-5410865516 이 명시적으로 요구한 그대로).
+            #
+            # CHANGES 라운드(execution-observation, PR #2438 merged로 지적):
+            # 위 "나이 계산을 아예 안 한다"는 결론에는 구멍이 있었다 —
+            # `SPAWN_ATTEMPT_GRACE_SEC`(300초, roster.py) 이내에 pid 가 죽는
+            # 빠른 크래시는, 바로 그 틱에서 `spawn_attempt_sweep()` 의 보고
+            # 루프 자신이 "아직 부트스트랩 유예 중"이라며 보고를 건너뛰는데
+            # (그 루프의 게이트가 정확히 `now - ts < SPAWN_ATTEMPT_GRACE_SEC`),
+            # 뒤이어 같은 호출이 부르는 이 prune 은 나이를 전혀 안 보고 pid
+            # 죽음만으로 바로 지워버려 — 그 시도는 단 한 번도 보고되지 않고
+            # 사라진다. #2291/#2393/#2413/#2431 전체 체인이 없애려는 바로 그
+            # "무보고 침묵 halt" 클래스를 그대로 재도입하는 회귀였다.
+            #
+            # 고쳐서: pid 죽음 확인과 별개로 `SPAWN_ATTEMPT_GRACE_SEC` 를
+            # 넘기기 전에는 지우지 않는다 — 보고 루프가 reportable 여부를
+            # 판정하는 것과 정확히 같은 문턱이라, 한 시도가 처음 prune
+            # 대상 나이에 닿는 바로 그 틱은 늘 보고 루프가 먼저 그 시도를
+            # 검토하는 바로 그 틱이기도 하다(report 루프가 먼저 돌고 나서
+            # prune 이 도는 같은 `spawn_attempt_sweep()` 호출 안이므로) —
+            # "지우기 전 최소 한 번 보고"가 report 루프의 성공 여부에
+            # 기대는 게 아니라 이 문턱을 공유하는 것 자체로 보장된다. 이
+            # 문턱은 halted 분기의 7일 `SPAWN_ATTEMPTS_RETENTION_SEC`과는
+            # 다른, 훨씬 짧은 `SPAWN_ATTEMPT_GRACE_SEC`(300초 =
+            # CLONE_TIMEOUT+NETWORK_TIMEOUT+60) 이다 — 근거가 다르다: halted
+            # 쪽은 "오케스트레이터가 알아채고 조치할 시간"이고, 여기는
+            # "이 워치독 틱의 보고 루프가 이 레코드를 검토할 기회를 최소
+            # 한 번 갖게 하는 것"뿐이다. 이미 살아있는 spawn을 나이로
+            # 보호하려는 목적이 전혀 아니므로 — 살아있는 pid 는 위에서
+            # 나이와 무관하게 항상 keep 이고, 이 문턱은 "죽은 pid" 시도에만
+            # 적용된다. `ts` 가 없거나 숫자가 아니면(레저 손상/드리프트)
+            # 유예를 계산할 근거 자체가 없어 즉시 prune 대상으로 본다
+            # (missing-ts 에 대한 기존 동작 유지).
             pid = a.get("pid")
             if _pid_is_alive(pid):
                 keep_ids.add(aid)
-            # else: 죽었다고 확인됨 — 나이/ts 와 무관하게 즉시 prune 대상
-            # (keep_ids 에 안 넣는다).
+            else:
+                ts = a.get("ts")
+                if isinstance(ts, (int, float)) and \
+                        now - ts < SPAWN_ATTEMPT_GRACE_SEC:
+                    keep_ids.add(aid)
+                # else: 죽었다고 확인됐고, 보고 루프가 이 시도를 검토할 수
+                # 있었던 문턱(SPAWN_ATTEMPT_GRACE_SEC)도 이미 넘겼다(또는
+                # ts 가 없어 유예를 계산할 수 없다) — prune 대상
+                # (keep_ids 에 안 넣는다).
         elif outcome.get("outcome") == "halted":
             outcome_ts = outcome.get("ts", now)
             if not isinstance(outcome_ts, (int, float)) or \

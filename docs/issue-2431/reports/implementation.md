@@ -12,7 +12,7 @@ code_under_review:
   - path: tests/test_watch_hardening.py
     sha: same-commit
 type: fix
-breaking: "no — advisory-only watch-layer behavior change; no public API, CLI flag, or on-disk schema changed. Effect is immediate pruning of one internal jsonl trace category (dead-pid, no-outcome spawn attempts) instead of a 7-day wait, and unchanged behavior for the halted-outcome category."
+breaking: "no — advisory-only watch-layer behavior change; no public API, CLI flag, or on-disk schema changed. Effect (post-CHANGES-round, see bottom section): a dead-pid, no-outcome spawn attempt is pruned once its ts clears SPAWN_ATTEMPT_GRACE_SEC (~5 min, the same threshold the watchdog report loop already uses) rather than the fully-unconditional immediate prune this branch's earlier commits had landed, and unchanged behavior for the halted-outcome category."
 verdict: pass
 ---
 
@@ -391,3 +391,141 @@ implementation-performance-data-structure-choice, implementation-blueprint
 in the removal of the one new module-level constant this session's own
 first draft had briefly added; no new module boundary, coupling change,
 GoF-pattern decision, or multi-module structural choice was in scope).
+
+## CHANGES round (PR #2434 / PR #2438 execution-observation) — reporting gap closed
+
+canonical: the CHANGES-round task prompt itself (this turn's own input,
+quoting PR #2438's execution-observation finding verbatim: "a dead-pid
+record younger than SPAWN_ATTEMPT_GRACE_SEC (300s) can now be pruned
+with ZERO reports ever fired"), plus `git log --oneline -5` and direct
+reads of `spawn.py` `_prune_spawn_attempts()` and `roster.py`
+`spawn_attempt_sweep()` done this session, confirming the pre-round code
+on this branch (commits `278c0d7c`..`6531f56f`, described in the
+sections above) pruned a confirmed-dead pid unconditionally with no age
+gate at all, while `spawn_attempt_sweep()`'s own report loop (`roster.py`
+~line 487) skips a no-outcome record whose age is still under
+`SPAWN_ATTEMPT_GRACE_SEC`.
+
+The gap: a dead-pid, no-outcome record younger than
+`roster.SPAWN_ATTEMPT_GRACE_SEC` (300s) could be pruned with zero
+watchdog reports ever fired — reopening the exact silent-failure class
+#2291/#2393/#2413/#2431 exist to close. The sections above (this same
+file, written before this round) describe the design that had this gap;
+this section supersedes their "no calendar bound at all" conclusion with
+the correction below, per this round's explicit operator instruction.
+
+**Fix** (`spawn.py`, `_prune_spawn_attempts()`, `outcome is None`
+branch): reintroduced an age check for the confirmed-dead-pid case,
+bound to `SPAWN_ATTEMPT_GRACE_SEC` (~5 minutes —
+`CLONE_TIMEOUT + NETWORK_TIMEOUT + 60`, `roster.py`), not the 7-day
+`SPAWN_ATTEMPTS_RETENTION_SEC` #2413 originally reused:
+
+- pid alive → kept, at any age (unchanged).
+- pid dead, `ts` still within `SPAWN_ATTEMPT_GRACE_SEC` → kept (the new
+  gate — this is exactly the case the prior round's unconditional prune
+  got wrong).
+- pid dead, `ts` past `SPAWN_ATTEMPT_GRACE_SEC` (or missing/invalid
+  `ts`, no basis to compute a window) → pruned.
+
+Reusing the report loop's own threshold, rather than inventing a new
+constant, is what closes the gap: a record can only become
+prune-eligible once it has also become report-eligible under the exact
+same test, and `spawn_attempt_sweep()` runs its report loop *before*
+calling `_prune_spawn_attempts()` within the same call (`roster.py`
+~line 510, read this session) — so the tick that first crosses the
+threshold is always a tick where the report loop already reviewed that
+record. No new steady-state cost: the same single
+`isinstance`/comparison per dead-pid record the prior round's commit had
+removed.
+
+acceptance: `python3 -m pytest tests/test_watch_hardening.py -q` — result:
+```
+37 passed in 1.17s
+```
+acceptance: `python3 -m pytest tests/test_spawn_pipeline.py -q` — result:
+```
+89 passed in 1.91s
+```
+derived: `grep -rl '_prune_spawn_attempts\|spawn_attempt_sweep\|_load_spawn_attempts\|SPAWN_ATTEMPT_GRACE_SEC\|SPAWN_ATTEMPTS_RETENTION_SEC' test/ tests/ on-the-record/` run this session returned only `tests/test_watch_hardening.py` — the two suites above are this change's full blast radius.
+
+New test added this session:
+`SpawnAttemptSweepReportsBeforePrune.test_fast_dying_halt_reported_before_it_is_pruned`
+(`tests/test_watch_hardening.py`) drives the real
+`roster.spawn_attempt_sweep()` (not a mock of the prune function alone)
+across two ticks with a genuinely dead pid (`os.fork()` + immediate
+`os._exit(0)` + reap): tick 1 (1s after death, inside the grace window)
+asserts zero reports printed and the record still present; tick 2 (past
+the grace window) asserts exactly one report line printed *and* the
+record pruned in that same call — both included in the `37 passed`
+fence above. Also split the prior round's
+`test_dead_pid_pruned_immediately_even_when_ts_is_fresh` (which asserted
+the now-fixed buggy behavior) into
+`test_dead_pid_with_fresh_ts_is_kept_until_grace_window` (new
+expectation: kept) and `test_dead_pid_pruned_once_past_grace_window`
+(pruned once past the shared threshold) — same file, same fence.
+
+**Live demonstration**, this session, real dead pid via `os.fork()`,
+against this checkout's own gitignored `runs/spawn-attempts.jsonl` (not
+a mock):
+
+canonical: `python3 -c "..."` run directly in this session (transcript
+below verbatim, only the pid number varies run to run):
+```
+=== tick 1: 1s after death (well inside SPAWN_ATTEMPT_GRACE_SEC=300s) ===
+reports printed this tick: 0
+record still present after tick 1: True
+
+=== tick 2: past SPAWN_ATTEMPT_GRACE_SEC ===
+[spawn-attempt] issue-9991/implementation: spawn halted pre-workspace: no outcome recorded 301s after spawn attempt (pid 983038) — process likely died before it could report why
+reports printed this tick: 1
+record still present after tick 2: False
+```
+Confirms the guarantee directly: the record is never pruned before its
+one report fires, and once it does fire, the prune happens in that same
+tick (not a week later, not never).
+
+derived: `python3 -c "import spawn; print(spawn._load_spawn_attempts())"`
+against this checkout's own `spawn.STATE_ROOT` (`runs/`, this session)
+returned an empty file — the 434-record backlog the issue was filed
+against was already fully pruned by this branch's earlier commits before
+this CHANGES round started (`git log --oneline -5`, this session, shows
+`278c0d7c`/`791856c7` predate this round), so there is no live
+434-shaped backlog left in this workspace to re-run the "434 →
+near-zero" acceptance check against directly. That check was already
+satisfied and demonstrated in this file's "Live demonstration against
+the REAL current backlog" section above (199-record sibling-workspace
+backlog, `dropped: 199`, quoted there with its own canonical tag) before
+this CHANGES round began. This round only closes the
+report-before-prune gap PR #2438 found in that already-landed fix, and
+does not need to re-run that prior demonstration: every record in that
+199-record backlog was already 1.4–3.4 hours old (per that section's own
+fence), far past the new 5-minute `SPAWN_ATTEMPT_GRACE_SEC` gate added
+this round — the new gate only changes the outcome for records younger
+than 5 minutes, which that backlog never contained.
+
+derived: `git diff main -- spawn.py` (this session) shows this round's
+edits confined to the `if outcome is None:` branch of
+`_prune_spawn_attempts()` and its comment; the `elif outcome.get(...) ==
+"halted":` branch and its `SPAWN_ATTEMPTS_RETENTION_SEC` check are
+byte-identical to the prior round's diff against `main`.
+`test_halted_branch_retention_is_unchanged` (pre-existing, unmodified
+this round) is included in the `37 passed` fence above.
+
+### What did not work (this round)
+
+Nothing discarded. The one design question this round faced — whether to
+track "already reported" via a new persistent marker (either a
+reconcile-ledger read or a new event type appended to
+`SPAWN_ATTEMPTS_PATH` itself) versus reusing the report loop's existing
+`SPAWN_ATTEMPT_GRACE_SEC` age threshold as a shared gate — was resolved
+by inspection before writing any code: a persistent-marker design would
+have made `_prune_spawn_attempts()` depend on `RECONCILE_LEDGER` state
+that most existing tests (e.g. `SpawnAttemptSweepDedup`,
+`_HardeningCase`) mock around without ever populating, silently
+reading/touching real ledger files in tests that do not expect a new
+filesystem dependency, and would have left genuinely-old backlog records
+un-prunable on their very first post-fix tick until a first "reported"
+marker got written for them — directly reopening the "434 must drop in
+one tick" requirement this whole issue chain is about. The shared-age-
+threshold design avoids both problems with no new state at all, so it
+was adopted directly rather than tried and reverted.
