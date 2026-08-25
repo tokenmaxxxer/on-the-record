@@ -1519,6 +1519,38 @@ def _admission_check_budget_caps(ctx: dict) -> bool | None:
     return True
 
 
+_DEGENERATE_TASK_RE = re.compile(r"^[#-]?\d+$")
+
+
+def _admission_check_degenerate_task(ctx: dict) -> bool | None:
+    """Item 6 (issue #2293): refuse admission when the positional task is
+    itself shaped like an issue number (`538`, `#538`, or `-538` — the
+    last via argparse's own negative-number handling, which lets a
+    leading-dash digit string through as a plain positional when no
+    option string looks like a negative number) and `--issue` was not
+    given. Consumer incident (2026-08-25): `spawn.py implementation 538`
+    — a typo for `--issue 538` — silently spawned a live agent whose
+    entire mission was the string "538"; the watchdog reported it
+    HEALTHY throughout the run. Deterministic local string check — never
+    fail-open. `--force-adhoc-task` is the named override for the rare
+    legitimate numeric-task case."""
+    if ctx.get("issue") is not None or ctx.get("force_adhoc_task"):
+        return True
+    task = ctx.get("task")
+    if task is None:
+        return True
+    m = _DEGENERATE_TASK_RE.match(task.strip())
+    if m is None:
+        return True
+    digits = m.group(0).lstrip("#-")
+    role = ctx.get("role")
+    print(f"[admission] degenerate-task: task {task.strip()!r} looks like "
+          f"an issue number; did you mean: spawn.py {role} \"<task>\" "
+          f"--issue {digits}? Pass --force-adhoc-task to admit this "
+          f"literal task anyway.", file=sys.stderr)
+    return False
+
+
 def _board_marker_probe(slug: str) -> bool | None:
     """Probe the remote DEFAULT branch of `slug` for the board marker
     (`docs/specs/approvers.md`) via the gh contents API — the branch the

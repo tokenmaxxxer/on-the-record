@@ -827,6 +827,37 @@ class DiagnoseHealth(unittest.TestCase):
                 "k", self._entry(log, pid=os.getpid()), state={}, now=now)
             self.assertEqual(out["state"], "HEALTHY")
 
+    # --- issue #2293: adhoc-visibility tag on every diagnosis -----------
+    def test_adhoc_entry_tags_detail_with_task(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            entry = self._entry(log, pid=os.getpid(), issue=None)
+            entry["task"] = "538"
+            out = spawn.diagnose_health("k", entry, state={})
+            self.assertEqual(out["state"], "HEALTHY")
+            self.assertTrue(out["detail"].startswith('ADHOC task="538"'),
+                            out["detail"])
+
+    def test_adhoc_entry_without_task_field_uses_placeholder(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            entry = self._entry(log, pid=os.getpid(), issue=None)
+            out = spawn.diagnose_health("k", entry, state={})
+            self.assertTrue(
+                out["detail"].startswith("ADHOC (no task recorded)"),
+                out["detail"])
+
+    def test_issue_scoped_entry_has_no_adhoc_tag(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            entry = self._entry(log, pid=os.getpid(), issue=7)
+            entry["task"] = "538"
+            out = spawn.diagnose_health("k", entry, state={})
+            self.assertNotIn("ADHOC", out["detail"])
+
 
 class RequirementIntakeValidityConsult(unittest.TestCase):
     """issue-1024: intake with a validity-consult trace recorded passes;
