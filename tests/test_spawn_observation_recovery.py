@@ -965,6 +965,54 @@ class Watchdog(unittest.TestCase):
             self.assertEqual(result, 3)
             self.assertNotIn("이상 신호 없음", buf.getvalue())
 
+    def test_roster_watchdog_survives_checkpoint_workspace_oserror(self):
+        # 이슈 #2417: tempdir 이 꽉 찼거나 못 쓰면
+        # checkpoint.checkpoint_workspace() 가 OSError(FileNotFoundError
+        # 포함)를 던진다 — 이전에는 이 예외가 roster_watchdog() 밖의
+        # try/except 까지 뚫고 나가 전체 틱을 WATCHDOG_CRASH_SENTINEL
+        # (rc=97)로 끝냈다. 지금은 이상 신호로 보고하고 같은 엔트리의 나머지
+        # 진단([watchdog] 정상 라인)까지 같은 틱 안에서 계속 돈다.
+        import checkpoint
+        with tempfile.TemporaryDirectory() as td:
+            work = Path(td) / "work"
+            work.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=work, check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=work, check=True)
+            (work / "f").write_text("x")
+            subprocess.run(["git", "add", "f"], cwd=work, check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=work, check=True)
+
+            roster_path = Path(td) / "active.json"
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            roster_path.write_text(json.dumps({
+                "k": self._entry(log, work=str(work), pid=os.getpid())}))
+            old_roster = spawn.ROSTER
+            old_state = spawn.WATCHDOG_STATE
+            old_ledger = spawn.RECONCILE_LEDGER
+            spawn.ROSTER = roster_path
+            spawn.WATCHDOG_STATE = Path(td) / "watchdog_state.json"
+            spawn.RECONCILE_LEDGER = Path(td) / "reconcile_ledger.json"
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "_board_wide_sweep", return_value=0), \
+                     mock.patch.object(checkpoint, "checkpoint_workspace",
+                                        side_effect=FileNotFoundError(
+                                            "[Errno 2] No usable temporary directory")):
+                    result = spawn.roster_watchdog()
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+                spawn.WATCHDOG_STATE = old_state
+                spawn.RECONCILE_LEDGER = old_ledger
+            out = buf.getvalue()
+            self.assertIn("[checkpoint]", out)
+            self.assertIn("k: 정상", out)  # 나머지 진단이 같은 틱에서 계속 돈다
+            self.assertGreaterEqual(result, 1)
+
     def test_roster_watchdog_reports_completed_for_session_end_written_after_arming_turn(self):
         # 이슈 #848: #849 이 핀한 결함은 "부모 턴이 끝난 뒤에 날아온 종료
         # 이벤트를 놓친다"는 모양이다 — CLI 의 run_in_background watch 는

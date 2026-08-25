@@ -594,6 +594,69 @@ STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
 NETWORK_TIMEOUT = plumbing.NETWORK_TIMEOUT   # fetch/pull/push (moved with _run_net)
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
 
+# 이슈 #2417: 호스트 디스크/inode 고갈은 on-the-record 소관 밖이다 — 실측
+# 워크스페이스 25개, 50~121MB (평균 ~60MB, 이슈에 적힌 ~119MB 는 상한 근처
+# 값). clone 을 실제로 시도하기 전에 여유 바이트/inode 를 한 번 확인해,
+# 실패가 "origin 불일치"/파묻힌 git 에러/watchdog rc=97 로 흩어지는 대신
+# 바로 원인을 이름 붙여 거부한다. 임계값 = 워크스페이스 하나 상한(~119MB)
+# 의 3배 — 동시 스폰 여러 개가 같은 틱에 클론해도 헤드룸이 남게. 알고
+# 진행하려는 컨슈머는 MUSTER_SKIP_SPACE_CHECK=1 로 끄거나
+# MUSTER_MIN_FREE_BYTES/MUSTER_MIN_FREE_INODES 로 임계값 자체를 바꾼다.
+MIN_FREE_BYTES_DEFAULT = 3 * 119 * 1024 * 1024   # ~357MB
+MIN_FREE_INODES_DEFAULT = 1000
+
+
+def _spawn_capacity_check(path) -> None:
+    """`path` 아래 clone 을 시도하기 전에 여유 바이트/inode 를 확인한다
+    (이슈 #2417). 부족하면 clone 근처도 안 가고 거부한다 — 메시지는 여유량과
+    임계값을 이름으로 남긴다. `path` 자체가 아직 없으면(신규 워크스페이스
+    디렉터리) 존재하는 조상 디렉터리로 올라가서 잰다."""
+    if os.environ.get("MUSTER_SKIP_SPACE_CHECK", "") not in ("", "0", "false", "no", "off"):
+        return
+    probe = Path(path)
+    while not probe.exists():
+        probe = probe.parent
+    try:
+        usage = shutil.disk_usage(probe)
+    except OSError:
+        return  # 못 재면 예전처럼 fail-open — clone 자체의 에러 경로가 처리한다
+    min_bytes = int(os.environ.get("MUSTER_MIN_FREE_BYTES", MIN_FREE_BYTES_DEFAULT))
+    if usage.free < min_bytes:
+        sys.exit(
+            f"스폰을 거부한다: {probe} 에 여유 공간이 부족하다 "
+            f"({usage.free // (1024 * 1024)}MB 가용, 임계값 {min_bytes // (1024 * 1024)}MB) "
+            f"— clone 을 시도하기 전에 미리 막는다. 정책: 워크스페이스 상한 "
+            f"실측치(~119MB)의 3배를 동시-스폰 헤드룸으로 둔다. 알고 진행하려면 "
+            f"MUSTER_SKIP_SPACE_CHECK=1."
+        )
+    try:
+        st = os.statvfs(probe)
+    except (OSError, AttributeError):
+        return
+    free_inodes = st.f_favail
+    min_inodes = int(os.environ.get("MUSTER_MIN_FREE_INODES", MIN_FREE_INODES_DEFAULT))
+    if free_inodes and free_inodes < min_inodes:
+        sys.exit(
+            f"스폰을 거부한다: {probe} 에 여유 inode 가 부족하다 "
+            f"({free_inodes}개 가용, 임계값 {min_inodes}개) — clone 을 시도하기 전에 "
+            f"미리 막는다. 알고 진행하려면 MUSTER_SKIP_SPACE_CHECK=1."
+        )
+
+
+def _workspace_clone_incomplete(work: Path) -> bool:
+    """`work` 에 `.git` 은 있지만 clone 이 끝까지 못 간 상태인지(ENOSPC 등으로
+    중간에 죽어 partial tree 만 남은 경우) 판별한다 (이슈 #2417). HEAD 가
+    가리키는 커밋이 없거나 `git status` 자체가 에러면 — 남의 레포가 아니라
+    미완성 클론이다; 그 다음에 오는 origin-mismatch 판정은 여기를 통과한,
+    완결된(그러나 진짜 다른) 레포에만 적용된다."""
+    head = subprocess.run(["git", "-C", str(work), "rev-parse", "--verify", "-q", "HEAD"],
+                          capture_output=True, text=True)
+    if head.returncode != 0:
+        return True
+    status = subprocess.run(["git", "-C", str(work), "status", "--porcelain"],
+                            capture_output=True, text=True)
+    return status.returncode != 0
+
 
 _BOOTSTRAP_TIMING: dict[str, float] = {}
 # 이슈 #2186: 예전에는 workspace/branch/rulebook/core/gh_token/settings/
@@ -2115,6 +2178,13 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     repo_name = re.sub(r"\.git$", "", origin.rstrip("/").rsplit("/", 1)[-1]) or slug(cwd)
     work = (work_base / f"{repo_name}-issue-{issue}-{role}" if issue is not None
             else work_base / f"{repo_name}-adhoc-{role}-{os.getpid()}")
+    # 이슈 #2417 (before-landing hunt): fresh-clone 분기 앞에만 두면 재사용
+    # 분기(cwd==work 자기 재사용, 기존 .git 재사용) 두 곳은 여전히
+    # `_fetch_or_halt` 로 바로 들어가 디스크가 거의 다 찼을 때 clone 이 아니라
+    # fetch 에서 파묻힌 에러로 실패한다 — 같은 실패가 경로만 바뀐 것. 여기
+    # 최상단에서 한 번 확인하면 세 분기(자기 재사용/기존 워크스페이스
+    # 재사용/신규 clone) 모두 clone 이든 fetch든 쓰기 전에 걸린다.
+    _spawn_capacity_check(work)
     # cwd 가 이미 이 (이슈,역할)의 워크스페이스면 그대로 쓴다 — 중첩 금지.
     if src == work.resolve():
         _fetch_or_halt(str(src), "재사용 워크스페이스",
@@ -2131,6 +2201,16 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
         # own docstring claim that adhoc always takes it.
         shutil.rmtree(work, ignore_errors=True)
     if (work / ".git").exists():
+        # 이슈 #2417: origin 비교보다 먼저 — 여기 있는 `.git` 이 이전 clone
+        # 이 ENOSPC 등으로 중간에 죽어 남긴 partial tree 일 수 있다. 그
+        # 경우를 "남의 레포다(origin 불일치)"로 오판하면 실제 원인(디스크
+        # 부족)도, 해법(지우고 재시도)도 안 보인다.
+        if _workspace_clone_incomplete(work):
+            sys.exit(
+                f"워크스페이스가 불완전하다: {work} — 이전 clone 이 도중에 실패해 "
+                f"(디스크 공간/inode 부족 등) 남의 레포가 아니라 partial 상태의 "
+                f"미완성 클론으로 남아 있다. 해결: 지우고 재시도하라 — rm -rf {work}"
+            )
         # 이 경로가 우리가 만든 워크스페이스가 아니라 우연히 같은 이름으로
         # 미리 놓인 남의 레포일 수 있다(#288 N5) — origin 이 다르면 그건
         # 네트워크 문제가 아니라 신원 불일치이므로 fetch 를 시도하기 전에
