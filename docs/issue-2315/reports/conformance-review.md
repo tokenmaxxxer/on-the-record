@@ -316,14 +316,14 @@ commit; no gap surfaced beyond the frozen scope. resolution path: none
 `loop_state` is `reported` (terminal for a review-record per the session
 protocol's kind table) — nothing pending from this record itself.
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; split the Ask's two sentences into R1/R2 and Acceptance's
-`provenance` line into R5/R6/R7 (rule 1), kept the separately-frozen
-operator constraint as its own item R8, and excluded the
+skill-verdict: conformance-review-requirement-extraction — applied: invoked;
+split the Ask's two sentences into R1/R2 and Acceptance's `provenance`
+line into R5/R6/R7 (rule 1), kept the separately-frozen operator
+constraint as its own item R8, and excluded the
 `infrastructure/no-direct-requirement` tag from the checkable list as an
 issue-classification tag with no observable success condition (rule 2).
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; routed R2/R3 to Test (existing coverage reused per rule
+skill-verdict: conformance-review-verification-method-selection — applied: invoked;
+routed R2/R3 to Test (existing coverage reused per rule
 4), R1/R4(shape)/R7 to Inspection (rule 1), R4(comparison)/R5/R6 to
 Analysis/Demonstration against the real repo, R8 to Analysis (rule 2 —
 production load isn't reproducible under review-session conditions).
@@ -331,8 +331,8 @@ skill-verdict: conformance-review-verdict-assignment — applied: invoked;
 all eight requirements independently re-verified and assigned Present;
 no Incorrect/Absent/Unverifiable verdict was needed, so no
 `spec_vs_built` field or missing-evidence naming was required.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every evidence citation above is pinned to file:line plus the
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+every evidence citation above is pinned to file:line plus the
 PR's head sha `2d3c38a42625cb2c3afcf6baf84690ba8d56847e` (or `main`'s for
 the pre-fix baseline), re-executed this session rather than paraphrased
 from the builder's record.
