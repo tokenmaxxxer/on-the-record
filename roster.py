@@ -491,6 +491,11 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
         _sp.ledger_write({"event": "spawn_attempt_halt_reported",
                           "attempt_id": attempt_id, "issue": a.get("issue"),
                           "role": a.get("role"), "reason": reason, "ts": now})
+    # 이슈 #2393 (R8): 매 틱 이 sweep 이 이미 전체 파일을 읽으므로, 같은
+    # 틱에서 프루닝도 해치운다 — 별도 스케줄/상태 없이, 이 함수 하나가
+    # "swept" 시점 자체를 쥐고 있다. `_prune_spawn_attempts()`는 지울 게
+    # 없으면 파일을 건드리지 않는다.
+    _sp._prune_spawn_attempts(now=now)
     return count
 
 
