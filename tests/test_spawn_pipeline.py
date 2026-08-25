@@ -330,6 +330,7 @@ class SpawnCmd(unittest.TestCase):
         self.assertEqual(env["TOKENMAXXXER_UNATTENDED"], "1")
         self.assertEqual(env["TOKENMAXXXER_SPAWNED"], "1")
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_role_model_unset_uses_builtin_default(self):
         # 이슈#93: MUSTER_ROLE_MODEL/config 둘 다 미설정이면 이슈#2070의
         # 구조적 라우팅 계층이 대신 이긴다 — "execution-observation" 은
@@ -337,14 +338,19 @@ class SpawnCmd(unittest.TestCase):
         # `default_tier`("mid-design") 로 떨어지며 issue #2148 pin 으로
         # 모델 값은 "sonnet"이다.
         saved = os.environ.pop("MUSTER_ROLE_MODEL", None)
+        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
+            spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
             cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         finally:
+            if saved_cfg is not None:
+                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_role_model_set_appends_flag(self):
         # MUSTER_ROLE_MODEL 설정 시 --model <value> 가 argv 에 붙는다.
         saved = os.environ.get("MUSTER_ROLE_MODEL")
@@ -359,22 +365,28 @@ class SpawnCmd(unittest.TestCase):
             else:
                 os.environ["MUSTER_ROLE_MODEL"] = saved
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_role_model_whitespace_only_uses_builtin_default(self):
         # 이슈#35+#93: 공백만 있는 MUSTER_ROLE_MODEL 은 미설정과 동일하게
         # 취급되어 "--model '   '" 은 안 된다 — 이슈#2070의 라우팅 계층이
         # 대신 이겨 shipped 정책 `default_tier`("sonnet") 로 떨어진다.
         saved = os.environ.get("MUSTER_ROLE_MODEL")
+        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
             os.environ["MUSTER_ROLE_MODEL"] = "   "
+            spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
             cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "sonnet")
         finally:
+            if saved_cfg is not None:
+                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved is None:
                 os.environ.pop("MUSTER_ROLE_MODEL", None)
             else:
                 os.environ["MUSTER_ROLE_MODEL"] = saved
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_role_model_config_only_appends_flag(self):
         # 이슈#60: MUSTER_ROLE_MODEL 미설정, role_model.txt 만 있으면
         # --model <config value> 가 argv 에 붙는다.
@@ -393,6 +405,7 @@ class SpawnCmd(unittest.TestCase):
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_role_model_env_overrides_config(self):
         # 이슈#60: 둘 다 설정되면 env 값이 이긴다.
         saved_env = os.environ.get("MUSTER_ROLE_MODEL")
@@ -412,6 +425,7 @@ class SpawnCmd(unittest.TestCase):
             else:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_role_model_whitespace_only_config_uses_builtin_default(self):
         # 이슈#60+#93: 공백만 있는 config 값도 미설정과 동일하게 취급되어
         # 이슈#2070의 라우팅 계층이 대신 이겨 `default_tier`("sonnet") 로
@@ -431,6 +445,7 @@ class SpawnCmd(unittest.TestCase):
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_role_model_non_utf8_config_uses_builtin_default(self):
         # 이슈#60+#93: role_model.txt 가 UTF-8 이 아니면 read_role_model_config()
         # 는 (docstring 대로) 미설정처럼 "" 를 돌려주고, resolved_role_model()
@@ -451,6 +466,7 @@ class SpawnCmd(unittest.TestCase):
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_role_model_no_config_file_uses_builtin_default(self):
         # 이슈#60+#93: role_model.txt 자체가 없으면 미설정과 동일하게 취급되어
         # 이슈#2070의 라우팅 계층이 대신 이겨 `default_tier`("sonnet") 로
@@ -468,6 +484,7 @@ class SpawnCmd(unittest.TestCase):
             if saved_env is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved_env
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_resolved_role_model_builtin_default_is_sonnet(self):
         # 이슈#93: env, config 둘 다 없으면 resolved_role_model() 은 "sonnet"
         # 을 직접 돌려준다 — never no --model.
@@ -512,15 +529,21 @@ class DryRunModelReflection(unittest.TestCase):
             out["model"] = role_model
         return out
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_unset_output_reflects_builtin_default(self):
         saved = os.environ.pop("MUSTER_ROLE_MODEL", None)
+        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
+            spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
             out = self._dry_run_output("execution-observation")
             self.assertEqual(out.get("model"), "sonnet")
         finally:
+            if saved_cfg is not None:
+                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved is not None:
                 os.environ["MUSTER_ROLE_MODEL"] = saved
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_set_output_reflects_model(self):
         saved = os.environ.get("MUSTER_ROLE_MODEL")
         try:
@@ -533,20 +556,26 @@ class DryRunModelReflection(unittest.TestCase):
             else:
                 os.environ["MUSTER_ROLE_MODEL"] = saved
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_whitespace_only_output_reflects_builtin_default(self):
         # 이슈#35+#93: --dry-run 경로도 공백만 있는 값을 미설정처럼 취급해
         # built-in "sonnet" 을 반영한다.
         saved = os.environ.get("MUSTER_ROLE_MODEL")
+        saved_cfg = spawn.ROLE_MODEL_CONFIG.read_text() if spawn.ROLE_MODEL_CONFIG.is_file() else None
         try:
             os.environ["MUSTER_ROLE_MODEL"] = "   "
+            spawn.ROLE_MODEL_CONFIG.unlink(missing_ok=True)
             out = self._dry_run_output("execution-observation")
             self.assertEqual(out.get("model"), "sonnet")
         finally:
+            if saved_cfg is not None:
+                spawn.ROLE_MODEL_CONFIG.write_text(saved_cfg)
             if saved is None:
                 os.environ.pop("MUSTER_ROLE_MODEL", None)
             else:
                 os.environ["MUSTER_ROLE_MODEL"] = saved
 
+    @pytest.mark.xdist_group(name="role_model_config")
     def test_config_only_output_reflects_model(self):
         # 이슈#60: env 없이 role_model.txt 만 있어도 dry-run 출력이 반영한다.
         saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)

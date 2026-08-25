@@ -11,6 +11,8 @@ code_under_review:
   - watchdog.py
   - tests/test_admission_checklist.py
   - tests/test_spawn_gate_wiring.py
+  - tests/test_spawn_pipeline.py
+  - pytest.ini
 type: feat
 breaking: none
 verdict: pass
@@ -121,6 +123,95 @@ item 6 below).
 not match a leading-minus numeric task — replaced with
 `re.compile(r"^[#-]?\d+$")` after the before-landing hunt reproduced the
 gap (see above).
+
+CHANGES round: adding `@pytest.mark.xdist_group(...)` to the role-model
+tests alone did not fix the race — `pytest-xdist`'s default `--dist=load`
+ignores the `xdist_group` marker entirely; it only takes effect under
+`--dist=loadgroup`, added to `pytest.ini` in the same fix (see "CHANGES
+round" section below).
+
+## CHANGES round — test_spawn_pipeline.py role-model flag composition
+
+PR #2306 review reported `SpawnCmd::test_role_model_config_only_appends_flag`
+and `SpawnCmd::test_role_model_env_overrides_config` passing on `main` but
+failing on this branch. Reproduced with `python3 -m pytest
+tests/test_spawn_pipeline.py -q` (repeated runs) and root-caused — **not**
+a logic bug in `spawn_cmd`'s flag composition: this issue's diff never
+touches `spawn.ROLE_MODEL_CONFIG`, `spawn_cmd`, or `resolved_role_model`.
+canonical: `git diff main...HEAD -- spawn.py` — the touched surface is only
+`ADMISSION_CHECKS`/`_spawn_one`/`--force-adhoc-task` argparse wiring (see
+"What was done" above for the full itemized diff); no role-model-resolution
+line appears in it.
+
+Two compounding, pre-existing test-isolation gaps, both present on `main`
+too (reproduced there identically via a scratch `git worktree`, same class
+of failures under repeated full-file runs):
+
+1. Ten `SpawnCmd`/`DryRunModelReflection` tests read/write the real,
+   repo-root `role_model.txt` file (`spawn.ROLE_MODEL_CONFIG`) with no
+   locking. Under `pytest.ini`'s prior default `-n auto` (no
+   `--dist=loadgroup`), `pytest-xdist` schedules these across independent
+   worker *processes* that share the same physical file — concurrent
+   writers interleave and produce torn reads (e.g. `'haikut'` instead of
+   `'sonnet'`), a different subset of the ten failing each run.
+2. Four of those tests (`test_role_model_unset_uses_builtin_default`,
+   `test_role_model_whitespace_only_uses_builtin_default`,
+   `test_unset_output_reflects_builtin_default`,
+   `test_whitespace_only_output_reflects_builtin_default`) assert the
+   "nothing configured" default (`"sonnet"`) but never save/clear
+   `ROLE_MODEL_CONFIG` themselves, unlike every sibling test in the same
+   file. This checkout's real `role_model.txt` (an operator-facing config,
+   not test-generated) currently holds `"haiku"`, so these four fail
+   deterministically whenever the file is present with real content,
+   independent of any race.
+   canonical: `cat role_model.txt` — result:
+```
+haiku
+```
+   canonical: `docs/issue-2070/proposals/model-routing.md:15,71` — documents
+   `role_model.txt` as a real operator/orchestrator-facing config file in
+   the `--model` > `MUSTER_ROLE_MODEL` > `role_model.txt` > built-in-default
+   precedence chain, not a test fixture.
+
+Fix, entirely in `tests/test_spawn_pipeline.py` and `pytest.ini` — no
+`spawn.py`/`pipeline.py` change, confirming the composition logic itself
+was never broken:
+
+- Added `@pytest.mark.xdist_group(name="role_model_config")` to all
+  fourteen tests in `SpawnCmd`/`DryRunModelReflection` that read or depend
+  on `ROLE_MODEL_CONFIG`'s state, so `pytest-xdist` schedules them onto one
+  worker (serialized, no cross-process race). Made effective by
+  `pytest.ini`'s `addopts` gaining `--dist=loadgroup` (xdist only honors
+  `xdist_group` under this dist mode — ungrouped tests keep today's
+  load-balanced parallelism, byte-identical).
+- Gave the four "unset" tests the same save/unlink/restore-in-`finally`
+  pattern their siblings already use, so they no longer depend on the real
+  `role_model.txt` happening to be absent or empty.
+
+`role_model.txt` itself (real operator state) was left untouched by this
+fix — read in each test's `try`, restored in `finally`, never deleted
+outright.
+
+acceptance: `python3 -m pytest tests/test_spawn_pipeline.py -q` x5 — result:
+```
+86 passed in 18.23s
+86 passed in 5.23s
+86 passed in 3.51s
+86 passed in 2.50s
+86 passed in 1.60s
+```
+
+acceptance: `python3 -m pytest tests/test_admission_checklist.py tests/test_spawn_gate_wiring.py -q` — result:
+```
+30 passed
+1 failed, 69 passed
+```
+   canonical: the one failure,
+   `test_spawn_gate_wiring.py::Ledger::test_toolchain_cache_env_redirected_into_workspace`,
+   is the same pre-existing-on-`main` failure already documented in
+   Provenance item 5 above — reproduced again identically on `main` via the
+   same scratch worktree used for item 1's race repro, unrelated to this
+   fix.
 
 ## Upstream basis
 
