@@ -256,6 +256,69 @@ def test_post_comment_builds_expected_gh_argv(monkeypatch, fixture_pr_branch):
     assert captured["cwd"] == fixture_pr_branch
 
 
+# --- issue #2231 residual gaps (from #2233's closing comment) ----------
+
+
+def t_measurement_language_prose_bullet_classifies_as_judgment_not_file_existence():
+    """PR #2222 live repro (issue #2210's Acceptance): a backtick names a
+    script incidentally while the actual criterion is a comparative
+    timing measurement. Falling through to file-existence mechanically
+    FAILed a correct PR for a reason unrelated to its substance."""
+    section = (
+        "\n- check: an 8KB heredoc write through the real "
+        "`pretooluse-dispatcher.sh` completes in a time comparable to a "
+        "1KB one — measured, with both numbers in the record\n"
+    )
+    assert _types(section) == ["judgment"], check_runner.parse_checks(section)
+
+
+def t_bare_artifact_path_without_measurement_language_stays_file_existence():
+    """The fix is narrow: a bare artifact citation (no measurement
+    language) is unaffected — t_bare_path_still_classifies_as_file_existence
+    already pins the base case; this pins a slightly fuller sentence that
+    still describes plain presence, not a measured comparison."""
+    section = "\n- check: the generated digest lands at `digest.json`\n"
+    assert _types(section) == ["file-existence"]
+
+
+def t_all_judgment_checks_do_not_abort_run_checks_when_pre_filtered():
+    """issue #2231 gap (a): main() must partition judgment out BEFORE
+    calling run_checks, not discover the abort via JudgmentCheckError —
+    otherwise an Acceptance section that is entirely judgment-shaped
+    (PRs #2228/#2218) gets zero checks run and, historically, zero PR
+    comment posted. This test pins the partition contract main() relies
+    on: filtering type != 'judgment' always yields a run_checks-safe
+    list, even when that list is empty."""
+    section = "\n- check: the page looks right to a human\n"
+    checks = check_runner.parse_checks(section)
+    mechanical = [c for c in checks if c["type"] != "judgment"]
+    judgment = [c for c in checks if c["type"] == "judgment"]
+    assert mechanical == []
+    assert len(judgment) == 1
+    # run_checks is never called with judgment items by main() — nothing
+    # to assert-not-raise here beyond the partition itself, since calling
+    # run_checks([]) trivially returns [].
+    assert check_runner.run_checks(Path("."), mechanical) == []
+
+
+def t_format_no_checks_comment_reports_judgment_items_distinctly():
+    j = [{"raw": "the page looks right to a human"}]
+    out = check_runner.format_no_checks_comment(j)
+    assert check_runner.NO_CHECKS_MARKER in out
+    assert "the page looks right to a human" in out
+    # byte-identical to the original empty-state text when there's
+    # genuinely nothing (issue #2233's existing contract, unchanged):
+    assert check_runner.format_no_checks_comment() == check_runner.format_no_checks_comment(None)
+
+
+def t_format_comment_lists_skipped_judgment_items_outside_the_pass_total():
+    results = [{"check": "`a`", "type": "test", "status": "pass", "output": ""}]
+    skipped = [{"raw": "reviewers agree this reads well"}]
+    out = check_runner.format_comment(results, skipped)
+    assert "1/1 passed" in out
+    assert "reviewers agree this reads well" in out
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:
