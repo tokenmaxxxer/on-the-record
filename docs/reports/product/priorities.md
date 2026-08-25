@@ -31,3 +31,14 @@ Append-only, newest entry last.
   applies to this issue's delivery and its review... Reviewers grade
   against this: a delivery that works here but adds overhead, a new
   contention point, or consumer-visible residue elsewhere is NOT met.").
+- 2026-08-25: operator froze a standing acceptance bar for issue #2278 and
+  its review (stated as applying to "this issue's delivery and its
+  review", worded as a general grading rule rather than issue-2278-only):
+  a fix must hold systemically for every session installing on-the-record
+  against any target repo, not just the self-hosted checkout, and must
+  land with no added per-spawn/steady-state overhead, no new conflict
+  surfaces, no stall/deadlock modes, and no consumer-tree pollution — an
+  unavoidable trade-off must be measured and stated in the record, not
+  discovered later. Source: issue #2278 comment by JiwonJung94,
+  2026-08-25T01:28:13Z ("Operator-frozen constraint (2026-08-25), applies
+  to this issue's delivery and its review").
