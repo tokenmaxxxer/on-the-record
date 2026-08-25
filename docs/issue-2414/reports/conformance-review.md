@@ -12,6 +12,10 @@ upstream:
     sha: 2019bf3be0f0404e6b05e753eba5f1991bb54c34
   - path: on-the-record/directive/acceptance-format.md
     sha: 2019bf3be0f0404e6b05e753eba5f1991bb54c34
+  - path: docs/issue-2414/reports/conformance-review/deviation-log/20260825T125345186260-ddf09ecd52f19b23.md
+    sha: same-commit
+  - path: docs/issue-2414/reports/conformance-review/2026-08-25-hunt-conformance-review-record.md
+    sha: f545150cd2ac652aa20f82279d34512e21c188a9
 subject: PR #2422 (branch issue-2414/implementation, head 2019bf3b)
 test: builder-blind conformance review against issue #2414's own six `## Acceptance` checks, plus independent re-derivation of the PR's 12.5% frequency figure and 76%/31% backlog-impact figures
 result: failed
@@ -66,6 +70,14 @@ stated in Open findings rather than treated as independently re-derived.
   `on-the-record/directive/acceptance-format.md` (same sha) — the shipped
   code and doc, read and executed directly out of the PR #2422 worktree
   (`/tmp/pr2422-wt`), not trusted from the PR's prose description.
+- `docs/issue-2414/reports/conformance-review/deviation-log/20260825T125345186260-ddf09ecd52f19b23.md`
+  (same-commit) — the one deviation this review's own PR-opening step hit
+  (a `Closes #2414` trailer forced by `pr-preflight`); this file, not
+  `conformance-review.md`, is the second file this review wrote — see the
+  finding-record skill-verdict correction below.
+- `docs/issue-2414/reports/conformance-review/2026-08-25-hunt-conformance-review-record.md`
+  (sha `f545150c`) — canonical: the before-landing warrant-hunt this review
+  spawned on itself; its FINDING is the source of the correction below.
 - Issue #2414 (this issue), #2415, #2291, #2383, #2389, #2393, #2400, #2411,
   #2413 — read live this session via `gh issue view <n>` / `gh pr view <n>`.
 
@@ -322,6 +334,13 @@ finding above.
   check-2 finding above, canonical: the 38-item mechanical superset pasted
   there) — flagged as a residual verification gap, not asserted as wrong;
   the builder's own record discloses the same limitation.
+- Self-correction, canonical: `docs/issue-2414/reports/conformance-review/2026-08-25-hunt-conformance-review-record.md`
+  (this review's own before-landing warrant-hunt) — an earlier draft of the
+  finding-record skill-verdict below asserted this record was "the only
+  file this review wrote to"; the hunt's FINDING shows a second file (the
+  deviation-log entry cited in "Upstream basis" above) was written in a
+  separate commit on this same branch and was invisible from the original
+  text. Corrected in place below rather than left standing.
 
 ## Skill verdicts
 
@@ -330,7 +349,7 @@ finding above.
 - skill-verdict: conformance-review-verification-method-selection — applied: invoked; Test for the two shipped regression suites (rerun live against the PR worktree), Analysis for re-executing the frequency/backlog-impact measurements against current repository state, Inspection for the diff/comment/doc consistency check that surfaced the Incorrect finding.
 - skill-verdict: conformance-review-verdict-assignment — applied: invoked; six Present verdicts and one Incorrect verdict, the Incorrect one naming its failing clause and citing spec_vs_built; re-checked its evidence twice (grep against both code and doc, plus a fresh live backlog re-run) before finalizing.
 - skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every evidence field cites file:line plus the PR head sha (`2019bf3be0f0404e6b05e753eba5f1991bb54c34`) or a live, re-runnable command with pasted output.
-- skill-verdict: conformance-review-finding-record — applied: invoked; this file is the only file this review wrote to, using the five-value verdict set, and evidence was locatable for all seven requirement blocks (no refusal needed).
+- skill-verdict: conformance-review-finding-record — applied: invoked; this record file, `docs/issue-2414/reports/conformance-review.md`, is the only file this skill's own writes touched, using the five-value verdict set, and evidence was locatable for all seven requirement blocks (no refusal needed). Correction, canonical: `docs/issue-2414/reports/conformance-review/2026-08-25-hunt-conformance-review-record.md` — this review session separately wrote a second file, the deviation-log entry cited in "Upstream basis" above, per the Stop-hook deviation-log obligation (a distinct write path from this skill's own scope, not a violation of it) — an earlier draft of this line said "the only file this review wrote to" without that carve-out, which the self-hunt above shows is inaccurate.
 - skill-verdict: conformance-review-severity-classification — not-applicable: this review's scope is ordinary fidelity-checking against issue #2414's own six checks, not an explicit extension into risk-banding a finding.
 - skill-verdict: adversarial-review — not-applicable: this session already holds the full spec (issue #2414), the builder's own record, and PR history — the structurally-blind separate-evaluator setup that skill sets up is not what this review does; the conformance-review role itself already serves that function per contract v3.
 
