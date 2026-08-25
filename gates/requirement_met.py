@@ -446,8 +446,14 @@ def main() -> int:
     if len(sys.argv) < 3:
         print("usage: requirement_met.py <issue-number> <pr-number> [--repo <경로>]")
         return 1
-    issue = int(sys.argv[1])
-    pr = int(sys.argv[2])
+    try:
+        issue = int(sys.argv[1])
+        pr = int(sys.argv[2])
+    except ValueError:
+        print(f"usage: requirement_met.py <issue-number> <pr-number> [--repo <경로>] "
+              f"— issue-number and pr-number must be integers, got "
+              f"{sys.argv[1]!r} {sys.argv[2]!r}")
+        return 1
     repo = Path(".").resolve()
     if "--repo" in sys.argv:
         repo = Path(sys.argv[sys.argv.index("--repo") + 1]).resolve()
