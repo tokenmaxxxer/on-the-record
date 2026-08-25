@@ -267,6 +267,29 @@ names as taking priority over its own dispatch instructions in exactly
 this situation, resolves the conflict as "do not dispatch the hunter
 at all."
 
+CHANGES-loop follow-up session (R5 citation fix) skill checks:
+
+skill-verdict: work-in-english — applied: invoked; loaded before
+writing this session's commit, PR comment, and record edits above.
+No new Korean-convention code/comments were added this session (only
+`docs/specs/consult-guidance-source.md` and this record changed), so
+the skill's guidance reduces to: keep the fix in English, which this
+session's commit message and PR comment do.
+
+skill-verdict: conformance-review-traceability-and-evidence —
+not-applicable: this skill governs authoring a conformance-review
+role's own verdict evidence; this session is the implementation role
+reacting to an already-written review (`main:docs/issue-2285/reports/conformance-review.md`,
+R5), not producing a new review record. This record's file:line/sha
+citations above follow this repo's existing implementation-record
+citation convention (already enforced by `gates/record_lint.py`
+checks run this session), not this skill's procedure.
+
+other mounted skills: not triggered — no coupling/cohesion threshold
+crossed, no GoF pattern decision, no data-structure/perf tradeoff, and
+no multi-module structure decision; the fix is a citation-only doc
+correction plus a record update.
+
 ## Next steps
 
 None — stage 2 is delivered. Stage 3 under the issue #2241 program is
