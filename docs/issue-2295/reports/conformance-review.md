@@ -367,30 +367,11 @@ as the other three).
    close — a separate, already-tracked condition this review has no new
    information on.
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; used to decompose issue #2295's `## Acceptance` text into the
-four discrete, checkable requirement blocks (R1-R4) above before
-rendering any verdict.
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; selected Test (re-running the PR's own pytest gate and
-CLI commands in an isolated worktree at the PR's exact commit) over
-Inspection for all four requirements, since each had an existing,
-replayable command rather than only a static property to read.
-skill-verdict: conformance-review-verdict-assignment — applied: invoked;
-used the Incorrect-vs-Absent distinction (rule 2) to score the
-`check_runner.py` citation defect (R4) as Incorrect — the citations point
-at real, wrong content rather than omitting a citation — and re-checked
-that evidence once against the artifact (rule 6) before finalizing.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every requirement's evidence is pinned to file:line-range plus
-the exact commit sha read (rule 1); its rule 1 is specifically what
-surfaced R4 — re-deriving the record's own citations against the
-artifact rather than accepting them as written.
-skill-verdict: conformance-review-finding-record — applied: invoked;
-wrote the four requirement blocks (R1-R4) above with
-requirement/spec_ref/verdict/evidence/rationale (+`spec_vs_built` for
-R4's `Incorrect` verdict) fields; no verdict was written without both an
-evidence pointer and a `spec_ref`.
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; used to decompose issue #2295's `## Acceptance` text into the four discrete, checkable requirement blocks (R1-R4) above before rendering any verdict.
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; selected Test (re-running the PR's own pytest gate and CLI commands in an isolated worktree at the PR's exact commit) over Inspection for all four requirements, since each had an existing, replayable command rather than only a static property to read.
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; used the Incorrect-vs-Absent distinction (rule 2) to score the `check_runner.py` citation defect (R4) as Incorrect — the citations point at real, wrong content rather than omitting a citation — and re-checked that evidence once against the artifact (rule 6) before finalizing.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every requirement's evidence is pinned to file:line-range plus the exact commit sha read (rule 1); its rule 1 is specifically what surfaced R4 — re-deriving the record's own citations against the artifact rather than accepting them as written.
+skill-verdict: conformance-review-finding-record — applied: invoked; wrote the four requirement blocks (R1-R4) above with requirement/spec_ref/verdict/evidence/rationale (+`spec_vs_built` for R4's `Incorrect` verdict) fields; no verdict was written without both an evidence pointer and a `spec_ref`.
 other mounted skills: not triggered — conformance-review-sampling-
 derivation (full enumeration of the frozen Acceptance's clauses plus PR
 #2307's own two findings was directly feasible; no sampling scope was
