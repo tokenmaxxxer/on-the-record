@@ -214,7 +214,32 @@ existing `poll-rearm.sh`-style shared-library precedent on the bash side
 
 ## What did not work
 
-None.
+PR #2388 drifted into `mergeable: CONFLICTING` against `main` (ordinary
+unrebased drift — two independent observer-record commits landed on
+`main` for this same issue while this branch sat open, and one of them
+appended to `.orchestrate-hook-fires.log`, the exact append-only file
+this delivery is retiring). Fixed by rebasing
+`issue-2348/implementation` onto `origin/main`
+(`git rebase origin/main`); the only conflict was that log file itself —
+resolved by a plain chronological union of both sides' lines (both were
+independent hook-fire timestamp appends, no semantic conflict), then
+`git rebase --continue`. Force-pushed with `--force-with-lease`.
+
+acceptance: `python3 -m pytest tests/test_spawn_consult_panel.py -q` (re-run
+after the rebase, on `e9ad25f3`) — result:
+
+```
+.............................................................x.......... [ 98%]
+.                                                                        [100%]
+72 passed, 1 xfailed in 1.17s
+```
+
+acceptance: `gh pr view 2388 --json mergeable,mergeStateStatus` (after the
+force-push) — result:
+
+```
+{"mergeStateStatus":"UNKNOWN","mergeable":"MERGEABLE"}
+```
 
 ## Upstream basis
 
