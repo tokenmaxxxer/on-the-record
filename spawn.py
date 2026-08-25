@@ -907,13 +907,28 @@ def _append_spawn_attempt_event(entry: dict) -> None:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _record_spawn_attempt(issue: int | None, role: str, pid: int) -> str:
+def _record_spawn_attempt(issue: int | None, role: str, pid: int) -> str | None:
     """이슈 #2291: 네트워크/워크스페이스 작업 전, spawn 시도를 durable 하게
     남긴다 — `_fetch_or_halt()`(pipeline.py) 류의 fail-closed halt 가
     stdout/stderr 로만 나가 컨슈머가 파이프(`2>&1 | tail`)로 삼켜버리면
     그 halt 는 오늘 어디에도 흔적이 없다(실측: 이슈 #2291 컨슈머 리포트).
     반환하는 attempt_id 를 `_record_spawn_outcome()`에 넘겨 이 시도의
-    처분(halt 사유 또는 세션 로그 경로)을 잇는다."""
+    처분(halt 사유 또는 세션 로그 경로)을 잇는다.
+
+    이슈 #2393: `PYTEST_CURRENT_TEST` 가 서 있으면(pytest 가 테스트 하나를
+    도는 동안 자동으로 세팅/해제 — xdist 워커에서도 마찬가지) 아예 안
+    남긴다. 단위 테스트가 issue=31/7 같은 합성 값으로 `main()`/`_spawn_one()`
+    을 직접 호출해(`tests/test_auto_sweep_nonblocking.py` 등, main() 은
+    `MUSTER_STATE_ROOT` 격리 없이 in-process 호출됨) 이 모듈 자신의(캐치아웃)
+    STATE_ROOT — 이 체크아웃의 `runs/` — 를 오염시켰다(실측: 이슈 #2393,
+    285 건 중 282 건이 이 경로). 테스트가 halt 하면 pytest 자신의 출력이 이미
+    그 실패를 보여주므로 durable 부트스트랩-halt 트레이스가 여기서 낼 추가
+    정보가 없다 — 매 테스트 호출마다 개별 isolation(예:
+    `tests/_spawn_test_support.py`의 `isolated_role_model_config()`류
+    컨텍스트 매니저)을 요구하는 대신, 근원에서 한 번에 막는다: 그러면 이
+    가드를 놓친 새 테스트가 미래에 같은 홍수를 재현할 길이 없다."""
+    if os.environ.get("PYTEST_CURRENT_TEST") is not None:
+        return None
     ts = time.time()
     attempt_id = f"{issue}:{role}:{pid}:{int(ts * 1000)}"
     _append_spawn_attempt_event({"event": "spawn_attempt", "attempt_id": attempt_id,
@@ -967,6 +982,67 @@ def _load_spawn_attempts() -> tuple[dict, dict]:
         elif ev.get("event") == "spawn_attempt_outcome":
             outcomes[aid] = ev
     return attempts, outcomes
+
+
+# 이슈 #2393 (R8, #2291 conformance review, "Surface" — 이 파일은 append-only
+# 로만 자라고 오늘까지 rotation 이 없었다): PR #2371 이 남긴 해법 그대로 —
+# "prune spawn-attempts.jsonl 는 한 엔트리의 처분이 sweep 되어 보고까지 끝난
+# 뒤" 이되, `spawn_attempt_sweep()`(roster.py)의 실제 보고 규칙을 그대로
+# 따른다: outcome 이 `"session-log"` 인 시도는 애초에 절대 보고되지 않으므로
+# (성공 — 그 뒤론 기존 dead-entry 워치독의 몫) 나이와 무관하게 바로 지워도
+# 된다; outcome 이 `"halted"` 인 시도는 `ledger_check_and_stamp` TTL 주기마다
+# 반복 재보고되는 게 의도된 동작이라(미해결 halt 를 계속 상기) 그 재보고
+# 창을 죽이지 않도록 보존 기간을 둔다 — `APPROVAL_WAIT_LEDGER_TTL_SEC`
+# 와 같은 7일(roster.py); outcome 이 아직 없는(sweep 이 아직 판정 중일 수
+# 있는) 시도는 나이와 무관하게 항상 남긴다 — 지우면 늦게 오는 진짜 halt
+# 판정을 sweep 이 영영 놓친다.
+SPAWN_ATTEMPTS_RETENTION_SEC = 7 * 24 * 3600
+
+
+def _prune_spawn_attempts(now: float | None = None) -> int:
+    """`SPAWN_ATTEMPTS_PATH`를 다시 써서 위 정책에 안 걸리는 이벤트만
+    남긴다. 돌려주는 값은 지운 줄 수(0 이면 파일을 건드리지 않는다 —
+    watchdog 틱마다 매번 재쓰기하지 않는다). 파일 append 자체는 부트스트랩
+    구간의 크래시 안전성 때문에 append-only 로 유지되지만(위
+    `SPAWN_ATTEMPTS_PATH` 주석), 이 prune 은 그 창 밖에서(watchdog 틱마다,
+    `spawn_attempt_sweep()` 이 호출) 별도로 도는 유지보수 동작이라 통짜
+    재쓰기로 해도 그 크래시-안전성 근거를 안 건드린다."""
+    now = time.time() if now is None else now
+    try:
+        lines = SPAWN_ATTEMPTS_PATH.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    attempts, outcomes = _load_spawn_attempts()
+    keep_ids = set()
+    for aid, a in attempts.items():
+        outcome = outcomes.get(aid)
+        if outcome is None:
+            keep_ids.add(aid)  # 미해결 — 항상 유지
+        elif outcome.get("outcome") == "halted":
+            outcome_ts = outcome.get("ts", now)
+            if not isinstance(outcome_ts, (int, float)) or \
+                    now - outcome_ts < SPAWN_ATTEMPTS_RETENTION_SEC:
+                keep_ids.add(aid)  # halted — 재보고 TTL 창 동안 유지
+        # outcome == "session-log": 절대 보고 안 됨 — 유지 대상 아님(바로 정리)
+    kept_lines = []
+    dropped = 0
+    for line in lines:
+        try:
+            ev = json.loads(line)
+        except ValueError:
+            dropped += 1
+            continue
+        aid = ev.get("attempt_id") if isinstance(ev, dict) else None
+        if aid in keep_ids:
+            kept_lines.append(line)
+        else:
+            dropped += 1
+    if dropped:
+        tmp_path = SPAWN_ATTEMPTS_PATH.with_suffix(".jsonl.tmp")
+        tmp_path.write_text(
+            "".join(line + "\n" for line in kept_lines), encoding="utf-8")
+        tmp_path.replace(SPAWN_ATTEMPTS_PATH)
+    return dropped
 
 
 # ------------------------------------------------------------- issue #2101
