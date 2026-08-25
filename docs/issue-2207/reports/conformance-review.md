@@ -523,8 +523,8 @@ above draws on that pre-existing independent re-derivation instead.
 
 ## Skill verdicts
 
-skill-verdict: conformance-review-verdict-assignment — applied:
-invoked; used to choose Incorrect for REQ-1 (rule 2 — the record's
+skill-verdict: conformance-review-verdict-assignment — applied: invoked;
+used to choose Incorrect for REQ-1 (rule 2 — the record's
 per-session read-count distribution is reproducibly wrong for 2 of the
 7 rows it reports, per REQ-1's own evidence block above — not merely
 missing evidence), Unverifiable for REQ-5 (rule 3 — the missing evidence
@@ -532,8 +532,8 @@ is future post-landing session logs that do not yet exist), and Present
 for the remaining twelve REQ items, each naming its satisfied clause per
 rule 5.
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every finding above cites a `sha:path:line` triple rather than
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+every finding above cites a `sha:path:line` triple rather than
 a bare path (rule 1), REQ-8 and REQ-13 each cite the specific
 contributing files separately rather than bundled (rule 2), and every
 REQ item was backward-traced to a named clause of either issue #2207's
