@@ -481,9 +481,38 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
     or — before #2393's pytest-origin guard — a synthetic test fixture
     record) never aged out and was re-reported on every watchdog tick. The
     fix pairs a cheap on-demand liveness probe (`_pid_is_alive`, signal-0
-    `os.kill`) with the same `SPAWN_ATTEMPTS_RETENTION_SEC` window the
-    adjacent `halted` branch already uses, instead of inventing a new
-    knob."""
+    `os.kill`) with an aging bound.
+
+    Issue #2431: that bound was originally the same
+    `SPAWN_ATTEMPTS_RETENTION_SEC` (7 days) the adjacent `halted` branch
+    uses — which meant a dead-pid orphan waited a full week before it
+    aged out, same as a genuine unresolved halt. That 7-day grace exists
+    so the orchestrator has time to notice and act on a `halted` outcome;
+    a confirmed-dead pid with no outcome has nothing to notice-and-act on.
+    Per operator guidance mid-flight on issue #2431
+    (issuecomment-5411038089): once `_pid_is_alive()` returns `False` that
+    conclusion is already final, so no 7-day calendar bound applies for
+    this case.
+
+    CHANGES round (execution-observation on PR #2434, PR #2438 merged)
+    caught that the first cut of that fix went too far: it dropped the
+    age check entirely, so a pid that died inside
+    `SPAWN_ATTEMPT_GRACE_SEC` of its spawn attempt could be pruned on the
+    very tick `_pid_is_alive()` first saw it dead — before
+    `spawn_attempt_sweep()`'s own report loop (which treats that same
+    age as "still bootstrapping, not reportable yet") ever got a chance
+    to report it. Zero reports, silent disappearance — exactly the
+    failure class #2291/#2393/#2413/#2431 exist to eliminate. The fix
+    shares the report loop's own `SPAWN_ATTEMPT_GRACE_SEC` threshold for
+    the prune gate too: a dead-pid record is kept until that same age,
+    so the tick that first makes it prune-eligible is always a tick
+    where the report loop (which runs first, in the same
+    `spawn_attempt_sweep()` call) already reviewed it. See
+    `SpawnAttemptSweepReportsBeforePrune` below for the full
+    report-then-prune demonstration through `spawn_attempt_sweep()`. The
+    `halted` branch's own 7-day `SPAWN_ATTEMPTS_RETENTION_SEC` window is
+    untouched throughout (issuecomment-5410865516 required this
+    explicitly)."""
 
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -523,24 +552,44 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertEqual(dropped, 0)
         self.assertIn("a1", self._remaining_ids())
 
-    def test_dead_pid_within_retention_is_kept(self):
-        """A pid that died recently (inside the retention window) is kept
-        — spawn_attempt_sweep() must still get its chance to report it as
-        a halt once SPAWN_ATTEMPT_GRACE_SEC elapses, and to keep
-        re-surfacing it for the rest of the retention window."""
+    def test_dead_pid_with_fresh_ts_is_kept_until_grace_window(self):
+        """CHANGES round (issue #2431, PR #2438 finding): a dead pid whose
+        `ts` is still inside `SPAWN_ATTEMPT_GRACE_SEC` must NOT be pruned
+        yet. Pruning it here would race ahead of
+        `spawn_attempt_sweep()`'s own report loop, which treats a record
+        this young as still-bootstrapping (not reportable) — deleting it
+        now would mean zero reports ever fire for it."""
         now = time.time()
         dead_pid = self._dead_pid()
-        recent_ts = now - 3600  # 1 hour old — well inside the 7-day window
         self._write([{"event": "spawn_attempt", "attempt_id": "a2",
                       "issue": 2, "role": "implementation",
-                      "pid": dead_pid, "ts": recent_ts}])
+                      "pid": dead_pid, "ts": now - 1}])
         dropped = spawn._prune_spawn_attempts(now=now)
         self.assertEqual(dropped, 0)
         self.assertIn("a2", self._remaining_ids())
 
-    def test_dead_pid_past_retention_is_pruned(self):
-        """The bug: a dead-pid, no-outcome record older than the retention
-        window used to be kept forever. Now it's dropped."""
+    def test_dead_pid_pruned_once_past_grace_window(self):
+        """Once a dead-pid record's `ts` clears `SPAWN_ATTEMPT_GRACE_SEC`
+        — the same threshold `spawn_attempt_sweep()`'s report loop uses
+        to decide reportability — prune drops it. No further calendar
+        bound applies beyond that: issue #2431 explicitly removed the old
+        7-day `SPAWN_ATTEMPTS_RETENTION_SEC` reuse for this case."""
+        now = time.time()
+        dead_pid = self._dead_pid()
+        old_ts = now - spawn.SPAWN_ATTEMPT_GRACE_SEC - 1
+        self._write([{"event": "spawn_attempt", "attempt_id": "a2b",
+                      "issue": 2, "role": "implementation",
+                      "pid": dead_pid, "ts": old_ts}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 1)
+        self.assertNotIn("a2b", self._remaining_ids())
+
+    def test_dead_pid_pruned_regardless_of_old_retention_window(self):
+        """Regression guard for the bug this issue fixes: an age well
+        under the old 7-day SPAWN_ATTEMPTS_RETENTION_SEC (so #2418's code
+        would have kept it) must now be dropped — same as any other
+        dead-pid record, since #2431 removed the age check for this case
+        entirely."""
         now = time.time()
         dead_pid = self._dead_pid()
         old_ts = now - spawn.SPAWN_ATTEMPTS_RETENTION_SEC - 3600
@@ -550,6 +599,25 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         dropped = spawn._prune_spawn_attempts(now=now)
         self.assertEqual(dropped, 1)
         self.assertNotIn("a3", self._remaining_ids())
+
+    def test_halted_branch_retention_is_unchanged(self):
+        """Issue #2431 explicitly leaves the `halted`-outcome branch's
+        7-day SPAWN_ATTEMPTS_RETENTION_SEC grace period untouched — a
+        `halted` outcome recorded a moment ago is still kept, even though
+        a bare dead-pid record with the same age (no outcome at all) would
+        now be pruned immediately by the sibling branch above."""
+        now = time.time()
+        recent_ts = now - 1
+        self._write([
+            {"event": "spawn_attempt", "attempt_id": "a3c",
+             "issue": 9, "role": "implementation",
+             "pid": self._dead_pid(), "ts": recent_ts},
+            {"event": "spawn_attempt_outcome", "attempt_id": "a3c",
+             "outcome": "halted", "detail": "x", "ts": recent_ts},
+        ])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 0)
+        self.assertIn("a3c", self._remaining_ids())
 
     def test_pid_is_alive_helper(self):
         self.assertTrue(spawn._pid_is_alive(os.getpid()))
@@ -575,13 +643,11 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertIn("a4", self._remaining_ids())
 
     def test_missing_ts_with_dead_pid_is_pruned(self):
-        """CHANGES round (PR #2418, execution-observation follow-up): a
-        record with no `ts` key at all used to default to `now` inside
-        `_prune_spawn_attempts()`, making `now - ts` always 0 and the
-        record un-ageable — kept forever, the same failure class as this
-        issue exists to fix, for a different missing field than the
-        pid-as-string bug. A dead-pid record missing `ts` entirely must be
-        immediately eligible for pruning, not preserved forever."""
+        """A dead-pid record with no `ts` key at all has no basis to
+        compute a `SPAWN_ATTEMPT_GRACE_SEC` grace window from (ledger
+        corruption/drift), so it is pruned immediately rather than kept
+        forever — same outcome as any other dead-pid record whose age
+        already clears the grace window."""
         now = time.time()
         dead_pid = self._dead_pid()
         self._write([{"event": "spawn_attempt", "attempt_id": "a5",
@@ -591,10 +657,9 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertNotIn("a5", self._remaining_ids())
 
     def test_missing_ts_with_live_pid_still_kept(self):
-        """The missing-`ts` default must not override the liveness
-        invariant: even with `ts` absent, a genuinely live pid is kept
-        (aged_out=True from the missing ts, but `_pid_is_alive` still
-        wins the OR)."""
+        """A missing `ts` must not override the liveness invariant: a
+        genuinely live pid is kept regardless — this branch checks
+        liveness only, `ts` is never consulted."""
         now = time.time()
         self._write([{"event": "spawn_attempt", "attempt_id": "a6",
                       "issue": 6, "role": "implementation",
@@ -602,6 +667,87 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         dropped = spawn._prune_spawn_attempts(now=now)
         self.assertEqual(dropped, 0)
         self.assertIn("a6", self._remaining_ids())
+
+
+class SpawnAttemptSweepReportsBeforePrune(unittest.TestCase):
+    """CHANGES round (execution-observation on PR #2434, PR #2438 merged):
+    #2431's first cut of the dead-pid prune fix dropped the age check
+    entirely, so a pid that died inside `SPAWN_ATTEMPT_GRACE_SEC` of its
+    spawn attempt could be pruned on the very tick `_pid_is_alive()` first
+    saw it dead — before `spawn_attempt_sweep()`'s own report loop (which
+    treats that same age as "still bootstrapping, not reportable yet")
+    ever got a chance to report it. A genuine fast-dying halt vanished
+    with zero reports ever fired — reintroducing exactly the silent
+    failure class #2291/#2393/#2413/#2431 exist to eliminate.
+
+    Drives `roster.spawn_attempt_sweep()` end to end (report loop +
+    prune, the real per-tick call site) across two ticks to demonstrate
+    the guarantee holds: still-within-grace produces neither a report nor
+    a prune, and past-grace produces both a report and a prune in the
+    same call — not a report now and a prune days later, and never a
+    prune with no report at all."""
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        td = Path(self._td.name)
+        self.addCleanup(self._td.cleanup)
+        self.path = td / "spawn-attempts.jsonl"
+        patches = [
+            mock.patch.object(spawn, "SPAWN_ATTEMPTS_PATH", self.path),
+            mock.patch.object(spawn, "ledger_write", lambda e: None),
+            mock.patch.object(spawn, "ledger_check_and_stamp",
+                              lambda *a, **k: True),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _write(self, records):
+        with self.path.open("w", encoding="utf-8") as fh:
+            for rec in records:
+                fh.write(json.dumps(rec) + "\n")
+
+    def _remaining_ids(self):
+        return {json.loads(l)["attempt_id"]
+                for l in self.path.read_text().splitlines()}
+
+    def _dead_pid(self):
+        pid = os.fork()
+        if pid == 0:
+            os._exit(0)
+        os.waitpid(pid, 0)
+        return pid
+
+    def test_fast_dying_halt_reported_before_it_is_pruned(self):
+        import contextlib
+        import io
+        start = 1_000_000.0
+        dead_pid = self._dead_pid()
+        self._write([{"event": "spawn_attempt", "attempt_id": "fast1",
+                      "issue": 41, "role": "implementation",
+                      "pid": dead_pid, "ts": start}])
+
+        # Tick 1: one second after the pid died — well inside
+        # SPAWN_ATTEMPT_GRACE_SEC. Must NOT be reported yet (still
+        # inside the legitimate bootstrap window per the report loop's
+        # own gate) and must NOT be pruned either.
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            count = roster.spawn_attempt_sweep(d_all={}, now=start + 1)
+        self.assertEqual(count, 0)
+        self.assertEqual(buf.getvalue().strip(), "")
+        self.assertIn("fast1", self._remaining_ids())
+
+        # Tick 2: past SPAWN_ATTEMPT_GRACE_SEC. The report fires AND the
+        # record is pruned in this same call — one report guaranteed,
+        # then gone, not a silent disappearance and not a week-long wait.
+        now2 = start + roster.SPAWN_ATTEMPT_GRACE_SEC + 1
+        buf2 = io.StringIO()
+        with contextlib.redirect_stdout(buf2):
+            count2 = roster.spawn_attempt_sweep(d_all={}, now=now2)
+        self.assertEqual(count2, 1)
+        self.assertIn("issue-41/implementation", buf2.getvalue())
+        self.assertNotIn("fast1", self._remaining_ids())
 
 
 class SpawnAttemptSweepDedup(unittest.TestCase):

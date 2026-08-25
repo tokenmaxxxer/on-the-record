@@ -105,6 +105,7 @@ deadman_mark = roster.deadman_mark
 deadman_check = roster.deadman_check
 lease_reconcile_sweep = roster.lease_reconcile_sweep
 spawn_attempt_sweep = roster.spawn_attempt_sweep
+SPAWN_ATTEMPT_GRACE_SEC = roster.SPAWN_ATTEMPT_GRACE_SEC
 _surface_approval_wait = roster._surface_approval_wait
 APPROVAL_WAIT_EXPIRING_FRACTION = roster.APPROVAL_WAIT_EXPIRING_FRACTION
 APPROVAL_WAIT_LEDGER_TTL_SEC = roster.APPROVAL_WAIT_LEDGER_TTL_SEC
@@ -1060,28 +1061,77 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
             # 31/7 의 orphan — #2393 origin guard 이전에 쌓인 것들).
             # 살아있는 spawn(pid 생존)은 나이와 무관하게 절대 안 지운다
             # — "in-flight 시도가 실행 중인 spawn 밑에서 지워지면 안
-            # 된다"는 요구사항 그대로. pid 가 죽었어도, halted 분기가
-            # 쓰는 것과 같은 SPAWN_ATTEMPTS_RETENTION_SEC 창 안이면
-            # 유지한다 — 갓 죽은 시도가 SPAWN_ATTEMPT_GRACE_SEC 경과를
-            # 못 채워 아직 한 번도 보고되지 못했을 수 있어서(다음 틱들에
-            # sweep 이 보고할 기회를 뺏지 않으려고), 새 knob 을 만드는
-            # 대신 halted 분기와 같은 7일 재보고 가시성 창을 그대로
-            # 재사용한다.
+            # 된다"는 요구사항 그대로.
             #
-            # CHANGES round (PR #2418, execution-observation follow-up):
-            # `ts` 가 아예 없는 레코드에서 `a.get("ts", now)`로 기본값을
-            # `now`를 쓰면 `now - ts`가 항상 0이라 절대 retention 을 못
-            # 넘는다 — pid-as-string 버그와 같은 "kept forever" 클래스를
-            # 다른 누락 필드로 재현한 것. 기본값을 `None`으로 바꿔 아래
-            # `isinstance` 체크가 "ts 필드 자체가 없음"과 "ts 가 숫자가
-            # 아님"을 똑같이 "바로 aged_out"으로 잡게 한다 — 이미 있던
-            # malformed-ts 분기와 동일한 취급이라 별도 분기가 필요 없다.
+            # 이슈 #2431: pid 가 죽었을 때 #2413 은 halted 분기와 같은
+            # SPAWN_ATTEMPTS_RETENTION_SEC(7일) 창을 그대로 재사용했다 —
+            # "새 knob 을 만들지 않는다"는 의도는 맞았지만, 그 7일 창은
+            # halted 분기 고유의 이유(미해결 halt 를 오케스트레이터가
+            # 알아채고 조치할 시간을 준다)로 존재하는 것이라 여기엔
+            # 적용되지 않는다: pid 가 이미 죽었다고 확인된 순간부터는
+            # "알아채고 조치할" 대상 자체가 없다 — 기다림은 순수 비용이다
+            # (실측: 라이브 백로그 434건이 전부 7일 미만의 죽은 pid라
+            # #2418 은 0건을 지웠다). 오퍼레이터 가이던스(이슈 #2431,
+            # issuecomment-5411038089, 2026-08-25 mid-flight)로 확정: 애초에
+            # 달력 기반 유예 자체가 불필요하다 — `_pid_is_alive()`가 False를
+            # 반환한 순간 그 결론(진짜 죽었다)은 이미 확정이라 더 기다려도
+            # 새로 알아낼 게 없다. 시간이 걸려야 하는 유일한 케이스는
+            # `_pid_is_alive()` 자신이 판정을 확신 못 하는 경우(모호한
+            # `OSError`)뿐인데, 그건 이미 그 함수 안에서 "확신 없으면
+            # 살아있다고 본다"로 보수적으로 처리돼 있어(docstring 참고)
+            # 여기까지 내려오지 않는다. 그래서 이 분기는 나이 계산을 아예
+            # 하지 않는다: pid 가 죽었다고 확인되면 바로 다음 prune pass
+            # (이 watchdog 틱)에 지운다. `spawn_attempt_sweep()`(roster.py)
+            # 은 이 함수를 호출하기 전에 같은 호출 안에서 먼저 보고 루프를
+            # 돌리므로(그 시점에 이미 `SPAWN_ATTEMPT_GRACE_SEC` 를 넘겼다면)
+            # 지우기 전에 보고할 기회를 여전히 얻는다 — 별도 유예 없이도
+            # "지우기 전에 최소 한 번은 보고"가 정상 호출 경로에서 그대로
+            # 성립한다. halted 분기의 7일 창은 이 변경으로 전혀 건드리지
+            # 않는다(아래 elif, 여전히 SPAWN_ATTEMPTS_RETENTION_SEC 그대로;
+            # issuecomment-5410865516 이 명시적으로 요구한 그대로).
+            #
+            # CHANGES 라운드(execution-observation, PR #2438 merged로 지적):
+            # 위 "나이 계산을 아예 안 한다"는 결론에는 구멍이 있었다 —
+            # `SPAWN_ATTEMPT_GRACE_SEC`(300초, roster.py) 이내에 pid 가 죽는
+            # 빠른 크래시는, 바로 그 틱에서 `spawn_attempt_sweep()` 의 보고
+            # 루프 자신이 "아직 부트스트랩 유예 중"이라며 보고를 건너뛰는데
+            # (그 루프의 게이트가 정확히 `now - ts < SPAWN_ATTEMPT_GRACE_SEC`),
+            # 뒤이어 같은 호출이 부르는 이 prune 은 나이를 전혀 안 보고 pid
+            # 죽음만으로 바로 지워버려 — 그 시도는 단 한 번도 보고되지 않고
+            # 사라진다. #2291/#2393/#2413/#2431 전체 체인이 없애려는 바로 그
+            # "무보고 침묵 halt" 클래스를 그대로 재도입하는 회귀였다.
+            #
+            # 고쳐서: pid 죽음 확인과 별개로 `SPAWN_ATTEMPT_GRACE_SEC` 를
+            # 넘기기 전에는 지우지 않는다 — 보고 루프가 reportable 여부를
+            # 판정하는 것과 정확히 같은 문턱이라, 한 시도가 처음 prune
+            # 대상 나이에 닿는 바로 그 틱은 늘 보고 루프가 먼저 그 시도를
+            # 검토하는 바로 그 틱이기도 하다(report 루프가 먼저 돌고 나서
+            # prune 이 도는 같은 `spawn_attempt_sweep()` 호출 안이므로) —
+            # "지우기 전 최소 한 번 보고"가 report 루프의 성공 여부에
+            # 기대는 게 아니라 이 문턱을 공유하는 것 자체로 보장된다. 이
+            # 문턱은 halted 분기의 7일 `SPAWN_ATTEMPTS_RETENTION_SEC`과는
+            # 다른, 훨씬 짧은 `SPAWN_ATTEMPT_GRACE_SEC`(300초 =
+            # CLONE_TIMEOUT+NETWORK_TIMEOUT+60) 이다 — 근거가 다르다: halted
+            # 쪽은 "오케스트레이터가 알아채고 조치할 시간"이고, 여기는
+            # "이 워치독 틱의 보고 루프가 이 레코드를 검토할 기회를 최소
+            # 한 번 갖게 하는 것"뿐이다. 이미 살아있는 spawn을 나이로
+            # 보호하려는 목적이 전혀 아니므로 — 살아있는 pid 는 위에서
+            # 나이와 무관하게 항상 keep 이고, 이 문턱은 "죽은 pid" 시도에만
+            # 적용된다. `ts` 가 없거나 숫자가 아니면(레저 손상/드리프트)
+            # 유예를 계산할 근거 자체가 없어 즉시 prune 대상으로 본다
+            # (missing-ts 에 대한 기존 동작 유지).
             pid = a.get("pid")
-            ts = a.get("ts")
-            aged_out = (not isinstance(ts, (int, float))
-                        or now - ts >= SPAWN_ATTEMPTS_RETENTION_SEC)
-            if _pid_is_alive(pid) or not aged_out:
+            if _pid_is_alive(pid):
                 keep_ids.add(aid)
+            else:
+                ts = a.get("ts")
+                if isinstance(ts, (int, float)) and \
+                        now - ts < SPAWN_ATTEMPT_GRACE_SEC:
+                    keep_ids.add(aid)
+                # else: 죽었다고 확인됐고, 보고 루프가 이 시도를 검토할 수
+                # 있었던 문턱(SPAWN_ATTEMPT_GRACE_SEC)도 이미 넘겼다(또는
+                # ts 가 없어 유예를 계산할 수 없다) — prune 대상
+                # (keep_ids 에 안 넣는다).
         elif outcome.get("outcome") == "halted":
             outcome_ts = outcome.get("ts", now)
             if not isinstance(outcome_ts, (int, float)) or \
