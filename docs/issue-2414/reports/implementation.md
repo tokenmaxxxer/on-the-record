@@ -476,6 +476,10 @@ weakened:
 - skill-verdict: work-in-english — applied: invoked; all code, comments,
   tests, commit messages, and this record were written in English; this
   turn's user-facing summary is in Korean per the user's own language.
+  Re-invoked in the CHANGES-round session (commits `6640246f`,
+  `d026f852`): same policy held — commit messages, this addendum, and
+  the deviation-log entry are English; the closing user-facing summary
+  for that round is Korean.
 - other mounted skills: not triggered — implementation-blueprint (two
   small additive changes inside existing single-purpose gate files,
   reusing their own established idiom; no new module/class structure
