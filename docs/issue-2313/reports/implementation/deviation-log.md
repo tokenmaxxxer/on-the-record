@@ -1,0 +1,5 @@
+# Deviation log — issue-2313 / implementation
+
+canonical: gates/check_runner.py:169 (`artifact = _artifact_touched(classify_cmd, declared)` in this commit); derived: python3 gates/test_check_runner.py::t_compound_cd_command_with_declared_artifact_still_classifies_as_artifact_smoke
+
+- 2026-08-25T04:20:00Z | inline | pre-landing warrant-hunter pass found `_artifact_touched(cmd, declared)` in `gates/check_runner.py` still passed the un-split full compound command while the classification fix already switched every sibling branch (`test`, bare-`.py`-through-pytest, `file-existence` fallback) to `classify_cmd` (final segment) — same first-token blind spot the issue itself targets, in the same function already inside this task's frozen write set, mechanical (no design/architecture judgment), and doesn't change what the deliverable claims (it's the same "classify by final command" behavior extended to a branch that had been missed). Fixed by passing `classify_cmd` to `_artifact_touched()` too and pinned with the test cited above. Diff location: `gates/check_runner.py` (the `artifact = _artifact_touched(...)` line inside `parse_checks()`).
