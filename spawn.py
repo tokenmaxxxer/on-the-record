@@ -286,8 +286,11 @@ _commit_consult_trace = consult._commit_consult_trace
 _compress_diff = consult._compress_diff
 _consult_cmd_and_env = consult._consult_cmd_and_env
 _consult_evidence_suffix = consult._consult_evidence_suffix
+_consult_log_aggregate = consult._consult_log_aggregate
 _consult_or_record_error = consult._consult_or_record_error
 _consult_root = consult._consult_root
+_consult_session_shard_id = consult._consult_session_shard_id
+_consult_trace_dir = consult._consult_trace_dir
 _consult_trace_path = consult._consult_trace_path
 _cross_family_skill_matches_with_consult = consult._cross_family_skill_matches_with_consult
 _evidence_stamp_summary = consult._evidence_stamp_summary
@@ -1382,6 +1385,12 @@ def main() -> int:
         except Exception as e:
             sys.exit(f"consult 실패(트레이스는 남았다): {e}")
         print(json.dumps(verdict, indent=2, ensure_ascii=False))
+        return 0
+    if a.role == "consult-log":
+        # 이슈 #2333: consult-log.md 는 이제 세션마다 다른 샤드 파일이라,
+        # 오늘까지의 "파일 하나 cat" 만큼 쉬운 사람용/게이트용 단일-뷰가
+        # 없어지면 안 된다 — 이 서브커맨드가 그 자리를 대신한다.
+        print(_consult_log_aggregate(a.issue, cwd=a.cwd), end="")
         return 0
     if a.role in ("ideate", "draft", "review"):
         if not a.task or not a.consult_question:
