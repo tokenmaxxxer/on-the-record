@@ -61,6 +61,39 @@ verdict: pass
      exited first with the misleading "approvers.md 없다" message (the
      case-(c) bug named in the issue).
 
+4. **CHANGES round (PR #2404 conformance review, REQ-REPRO/REQ-CWD-WRONGREPO):**
+   the echo from item 2 above used to live entirely inside `_spawn_one()`,
+   which `spawn.py:main()` calls only *after*
+   `require_acceptance_gate`/`require_requirement_linkage` — so for a
+   wrong-repo cwd whose resolved issue fails either gate (the consumer's
+   own real incident: their `#574` respawn was rejected as "no requirement
+   linkage", same cause), the spawn was refused before the echo ever
+   printed, and the orchestrator still saw the same undifferentiated
+   downstream symptom this issue exists to eliminate. The review's own
+   live re-run of the real `spawn.py` CLI (not `_spawn_one()` called
+   directly, which is what the prior record's evidence had used) for the
+   exact repo/issue pair the prior record chose reproduced this: `exit=1`
+   at `require_requirement_linkage`, no repo-mismatch content anywhere in
+   the message.
+   - `spawn._resolve_and_echo_issue(role, cwd, issue)` (`spawn.py`, new,
+     module-level) extracts the fetch-and-print logic from item 2 into a
+     standalone function. `main()` now calls it right after
+     `require_repo_root()` and *before*
+     `require_board`/`require_acceptance_gate`/`require_requirement_linkage`,
+     in both the `--dry-run` and real-spawn branches — the echo now prints
+     on the refusing path too.
+   - Its return value (`issue_data`: the `fetch_issue()` dict, or `None` on
+     a failed lookup) is threaded into `_spawn_one()` through a new
+     `issue_data` parameter (default sentinel `_ISSUE_NOT_PRE_RESOLVED`).
+     `_spawn_one()` reuses that value instead of calling `fetch_issue()` a
+     second time, and skips re-printing the echo — avoiding both a second
+     `gh` round trip and a duplicate stdout line on the success path.
+     Callers that bypass `main()` (`lifecycle.py`'s `_respawn_or_cap()`,
+     which calls `_spawn_one()` directly with no `issue_data` argument)
+     keep today's behavior unchanged: the sentinel default means
+     `_spawn_one()` fetches and echoes itself, exactly as before this
+     CHANGES round.
+
 ## Why
 
 The issue's Direction section already resolved the main design question
@@ -93,6 +126,29 @@ Scoping `require_repo_root` to `issue is not None` (matching
 `if issue is None: return` convention, `board.py:318`/`board.py:373`) was
 not in the original plan — see "What did not work".
 
+**CHANGES round.** The issue's Acceptance check 3 asks for a "live
+reproduction of the consumer's exact failure ... shows the wrong-repo
+resolution named in the output." The prior record's transcript for that
+check was produced by calling `_spawn_one()` directly — a function
+`main()` only reaches after four gates, two of which
+(`require_acceptance_gate`, `require_requirement_linkage`) can refuse the
+spawn outright. Calling `_spawn_one()` directly skips those two gates, so
+that transcript could not show what the real CLI entry point does for
+the same repo/issue pair.
+canonical: `python3 spawn.py implementation "test" --issue 1 --dry-run`,
+BEFORE (`git stash`, this session, 2026-08-25) vs. AFTER, under
+"Evidence" -> "Acceptance check — live reproduction ..." below — BEFORE
+prints no repo/issue line at all before `exit=1`; AFTER prints
+`해석된 레포/이슈: tokenmaxxxer/on-the-record#1 — ...` before the same
+`exit=1`.
+
+Moving the echo into `main()`, ahead of the two blocking gates, ties the
+echo's timing to "cwd + issue resolved" instead of "the resolved issue's
+gate outcome." No new exit path is added — the pre-existing print
+statement now simply executes earlier, before pre-existing gates that
+already existed and already refused in this same shape before this
+delivery.
+
 ## What did not work
 
 acceptance: `python3 -m pytest tests/test_spawn_pipeline.py::GateRefusalExitCodeTest::test_dry_run_non_refused_spawn_exits_zero -q` — result:
@@ -106,6 +162,26 @@ early-out (`board.py`, top of `require_repo_root`). Rerun after the fix:
 ```
 1 passed in 26.92s
 ```
+
+**CHANGES round.** An attempt to reproduce the success path (echo in
+stdout + injected directive) by driving `spawn.main()` itself (not
+`_spawn_one()` directly) with `spawn_cmd` mocked to `["cat"]` — the same
+mock shape the prior record used, but through the real CLI argument
+parser via `--unattended` — hung indefinitely past the "격리 작업
+디렉토리" (workspace/branch setup) print and had to be killed
+(`pkill -9`). Root cause not chased down (a `main()`-only code path,
+e.g. `require_doctor()`/`ensure_target_remote()`, likely doing something
+`_spawn_one()`-direct calls skip). Not needed: the CHANGES round's actual
+finding (REQ-REPRO/REQ-CWD-WRONGREPO) is about the *refusal* path, which
+`--dry-run` reproduces faithfully through the real `main()` entry point
+(identical four-gate sequence, no session launch) without this hang risk
+— used for the before/after evidence instead. The success-path
+echo-in-stdout/echo-in-directive claims (REQ-STDOUT/REQ-DIRECTIVE) were
+already independently re-verified Present by the conformance review and
+are not disputed by this CHANGES round; re-confirmed here via
+`_spawn_one()` called directly (same shape as the original, undisputed
+evidence) with the new pre-resolved `issue_data` hand-off from
+`_resolve_and_echo_issue()` — see "Evidence" below.
 
 ## Upstream basis
 
@@ -350,9 +426,161 @@ exists in `spawn.py` (see "Why", `grep` result) to conflict-check against;
 adding refusal there would require guessing intent from nothing, which the
 issue's own Direction rules out.
 
+## CHANGES round evidence (PR #2404 conformance review)
+
+The `acceptance:` blocks below re-run through `spawn.py`'s actual
+`main()` CLI entry point (`python3 spawn.py ...`, or `spawn.main()` with
+`sys.argv` patched), per the review's REQ-REPRO finding about the prior
+`_spawn_one()`-direct evidence.
+
+### Wrong-repo cwd, BEFORE/AFTER, real CLI entry point
+
+acceptance: `git stash push -- spawn.py && python3 spawn.py implementation "test" --issue 1 --dry-run` (BEFORE, `a76df56f`, this session, 2026-08-25) — result:
+
+```
+[acceptance-gate] 경고: 이슈 #1 의 'Acceptance' 절이 지금 형식대로면 phase-2 승인 후 스폰이 거절된다:
+  - 이슈 #1 본문에 '## Acceptance' 절이 없다 — 수용기준 없이는 실행가능성을 검사할 수 없고, 검사 불가는 통과가 아니다. 통과하는 형식은 on-the-record/directive/acceptance-format.md 를 봐라.
+  승인자가 APPROVE 코멘트를 달기 전에 고쳐두면 phase-2 가 바로 스폰된다(issue #2173, #310, #441).
+이슈 #1 가 요구 연결이 없다:
+  - 이슈 #1 본문이 요구 ID(`R\d+` 또는 'northpole req#<n>')를 하나도 인용하지 않고, 명시적 태그 'infrastructure/no-direct-requirement' 도 없다 — 이 작업이 어느 요구를 향하는지 구조적으로 알 수 없다 (issue #1017, northpole req#6).
+  세션을 안 띄운다 — 요구 ID(`R\d+` 또는 'northpole req#<n>')를 인용하거나 'infrastructure/no-direct-requirement' 태그를 달아야 한다(issue #1017, northpole req#6).
+exit=1
+```
+
+acceptance: `git stash pop && python3 spawn.py implementation "test" --issue 1 --dry-run` (AFTER, this delivery, this session, 2026-08-25) — result:
+
+```
+[acceptance-gate] 경고: 이슈 #1 의 'Acceptance' 절이 지금 형식대로면 phase-2 승인 후 스폰이 거절된다:
+  - 이슈 #1 본문에 '## Acceptance' 절이 없다 ...
+[implementation] 해석된 레포/이슈: tokenmaxxxer/on-the-record#1 — Stop reporting a rulebook as loaded when the session has none
+이슈 #1 가 요구 연결이 없다:
+  - 이슈 #1 본문이 요구 ID(`R\d+` 또는 'northpole req#<n>')를 하나도 인용하지 않고 ...
+exit=1
+```
+
+canonical: the two `acceptance:` blocks directly above, this session,
+2026-08-25 — same `exit=1`/same refusing gate in both, `해석된 레포/이슈:
+...` present only in AFTER.
+
+### Cross-repo reproduction (two real repos, same issue number), real CLI entry point
+
+`/tmp/eo2395-clean-arcade` = `tokenmaxxxer/arcade-dodger`,
+`/tmp/eo2395-clean-otr` = a second clean clone of
+`tokenmaxxxer/on-the-record` — both real, freshly-cloned local checkouts,
+both real `gh` network lookups.
+
+acceptance: `python3 spawn.py implementation "test" --issue 1 -C /tmp/eo2395-clean-arcade --dry-run` (this delivery, this session, 2026-08-25) — result:
+
+```
+[implementation] 해석된 레포/이슈: tokenmaxxxer/arcade-dodger#1 — Deterministic dodger engine + curses UI (MVP)
+{
+  "sandbox": { ...
+exit=0
+```
+
+acceptance: `python3 spawn.py implementation "test" --issue 1 -C /tmp/eo2395-clean-otr --dry-run` (this delivery, this session, 2026-08-25) — result:
+
+```
+[acceptance-gate] 경고: 이슈 #1 의 'Acceptance' 절이 지금 형식대로면 phase-2 승인 후 스폰이 거절된다: ...
+[implementation] 해석된 레포/이슈: tokenmaxxxer/on-the-record#1 — Stop reporting a rulebook as loaded when the session has none
+이슈 #1 가 요구 연결이 없다: ...
+exit=1
+```
+
+acceptance: `git stash push -- spawn.py && python3 spawn.py implementation "test" --issue 1 -C /tmp/eo2395-clean-otr --dry-run && git stash pop` (BEFORE, `a76df56f`, this session, 2026-08-25) — result: byte-identical refusal text to the "Wrong-repo cwd" BEFORE block above, no repo/issue line, `exit=1`.
+
+canonical: the three `acceptance:` blocks directly above, this session,
+2026-08-25 — issue `1` resolves against two different real repos in one
+run: `arcade-dodger` clears all four gates (echo + `exit=0`),
+`on-the-record` is refused by a pre-existing gate and is still named by
+the echo before that refusal.
+
+### issue_data hand-off: no added `gh` round trip, no duplicate echo
+
+acceptance: a script driving `_resolve_and_echo_issue()` then `_spawn_one(..., issue_data=<that result>)` — the call shape `main()`'s real-spawn branch now uses — with `gh_rest.fetch_issue` wrapped to count calls and `spawn_cmd` swapped for `["cat"]` (same mock shape as the original record's live-spawn evidence) — result:
+
+```
+[fetch_issue call count: 1]
+[echo occurrences in stdout: 1]
+[exit code 0]
+----- directive -----
+당신의 이슈: #1 (subject issue-1, 브랜치 issue-1/implementation).
+해석된 레포/이슈: tokenmaxxxer/arcade-dodger#1 — Deterministic dodger engine + curses UI (MVP)
+이슈 제목(원본 목표): Deterministic dodger engine + curses UI (MVP)
+Acceptance 기준(원본, verbatim):
+- check: `python3 -m dodger --headless 42 200` runs 200 frames fr...
+```
+
+canonical: the `acceptance:` block directly above, this session,
+2026-08-25 — one `fetch_issue()` call, one echo line, directive still
+carries the resolved line.
+
+### Regression + full suite re-run, post-rebase onto current `main`
+
+canonical: `git log --oneline -6` (this session, 2026-08-25) — `c52ff6f1`
+(this CHANGES-round commit) through `f3bfe220` (the conformance-review
+record being addressed), showing the rebase onto `origin/main`
+(`cea0f583`, 16 commits of divergence including an unrelated
+async-overlap refactor of the same `_spawn_one()` issue-fetch block from
+issue #2382) completed with commits applied in order and no leftover
+conflict-marker lines (`grep -n '^<<<<<<<\|^=======\|^>>>>>>>' spawn.py`
+— this session, empty output after the rebase).
+
+acceptance: `python3 -c "import ast; ast.parse(open('spawn.py').read())"` (post-rebase, this session) — result:
+
+```
+SYNTAX_OK
+```
+
+acceptance: `python3 gates/test_gh_rest.py` (post-rebase, this session) — result:
+
+```
+10/10 passed
+```
+
+acceptance: `python3 -m pytest tests/test_spawn_pipeline.py::GateRefusalExitCodeTest::test_dry_run_non_refused_spawn_exits_zero -q` (post-rebase, this session) — result:
+
+```
+1 passed in 0.88s
+```
+
+acceptance: `python3 -m pytest tests/test_spawn_gate_wiring.py tests/test_spawn_board_flows.py tests/test_spawn_pipeline.py tests/test_directive_diet_2135.py tests/test_spawn_observation_recovery.py -q` (post-rebase, this session) — result:
+
+```
+8 failed, 465 passed, 4 xfailed, 1 xpassed in 478.34s (0:07:58)
+```
+
+acceptance: `git stash push -- spawn.py && python3 -m pytest <those 8 failing node IDs> -q; git stash pop` (baseline, no CHANGES-round edit present, this session) — result:
+
+```
+8 failed in 44.33s
+```
+
+canonical: the two `acceptance:` blocks directly above (patched vs.
+baseline, same 8 node IDs: `Watchdog::test_delegation_phrasing_signal`,
+`Ledger::test_toolchain_cache_env_redirected_into_workspace`,
+`RosterOwnershipScoping::test_undispositioned_role_prs_excludes_own_roster_branch`,
+`Watchdog::test_roster_watchdog_returns_zero_for_clean_non_empty_roster`,
+`Watchdog::test_roster_watchdog_folds_board_wide_sweep_into_anomaly_count`,
+`Watchdog::test_roster_watchdog_reports_completed_for_session_end_written_after_arming_turn`,
+`Watchdog::test_roster_watchdog_returns_anomaly_count_for_stalled_entry`,
+`ConsumerFixtureWatchdogAnchoring::test_foreign_repo_watchdog_output_carries_no_marketplace_or_otr_references`),
+this session, 2026-08-25 — same 8 names fail on both the patched tree and
+the unmodified baseline, matching the prior conformance review's own
+documented pattern for a smaller overlapping set (5 of these names) and
+its own diagnosis (`roster_watchdog()` returning a nonzero, run-varying
+anomaly count — 171 in one run above, 186 on the baseline rerun above —
+rather than a fixed wrong number). `test_dry_run_non_refused_spawn_exits_zero`
+is not among these 8 and passes individually, per the `acceptance:` block
+above it.
+
 ## Open findings
 
-None.
+None. The prior conformance review's two Incorrect findings
+(REQ-REPRO/REQ-CWD-WRONGREPO, one root cause) are addressed by moving the
+echo ahead of the two blocking gates.
+canonical: "What was done" item 4, "Why" (CHANGES round paragraph), and
+"CHANGES round evidence" above, this session, 2026-08-25.
 
 ## Next steps
 
@@ -377,3 +605,11 @@ existing pattern (a `require_board`-shaped gate function, a
 title/body-shaped dict field), with no new architecture/module-boundary
 decision, coupling threshold, GoF-pattern question, or data-structure/
 algorithm choice to evaluate.
+
+**CHANGES round.** Same not-applicable verdict re-checked against this
+round's own diff: extracting `_resolve_and_echo_issue()` and adding an
+`issue_data` reuse parameter is a call-order change plus a parameter
+threaded through one existing function pair, not a new architecture/
+module-boundary/coupling/pattern/data-structure decision — no skill in
+the mounted set was invoked this round.
+canonical: `git show c52ff6f1 --stat` (this round's commit, this session, 2026-08-25) — `spawn.py | 66 +++...--- 1 file changed, 63 insertions(+), 3 deletions(-)`, no other file touched.
