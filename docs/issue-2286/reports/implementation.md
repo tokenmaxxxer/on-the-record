@@ -184,17 +184,27 @@ paths, so a human or a differently-scoped session can act on it.
 
 ## Next steps
 
-- A human (or non-role session) opens the PR from
-  `tokenmaxxxer/tokenmaxxxer-core`'s pushed
-  `issue-2286-board-gate-r5-author-identity` branch and merges it —
-  this stage's core-repo half is not landed until that PR merges,
-  independent of this repo's own PR for this record. canonical: commit
-  `a4bb55f` on that branch, pushed live this turn (`git push -u origin
-  issue-2286-board-gate-r5-author-identity` succeeded).
-- issue #2286 can close once that cross-repo PR merges (or the human
-  judges the pushed-branch state sufficient — the proposal's Rollback
-  section makes clear reverting it is a single, safe, byte-identical
-  operation either way).
+- Superseded — the cross-repo half is now landed via
+  `tokenmaxxxer/tokenmaxxxer-core` PR #319, a clean cherry-pick of the
+  same commit `a4bb55f` this record originally pushed (both files,
+  unmodified), opened after this issue's own execution-observation
+  (PR #2391) caught that the earlier core PR #312 had dropped
+  `core/hooks/test_board_gate.py`'s 5 new cases. canonical: `gh pr view
+  319 --repo tokenmaxxxer/tokenmaxxxer-core` this turn — `state:
+  MERGED`; acceptance: `python3 -m pytest core/hooks/test_board_gate.py -q`
+  — result:
+  ```
+  13 passed
+  ```
+  (pasted verbatim from PR #319's own test-plan checkbox, cited in its
+  body). No further cross-repo action is needed.
+- canonical: `gh issue view 2286` this turn — `state: CLOSED`. This
+  rebase (this session, this turn: `git rebase origin/main` on branch
+  `issue-2286/implementation`, conflicts in
+  `.orchestrate-hook-fires.log` and `docs/reports/deviation-log.md`
+  resolved keeping both sides' append-only entries) lands this repo's
+  own docs-only half onto current `main`; it does not reopen or
+  re-litigate the closed issue.
 - The migration doc's path fix (moved from the tracked
   `docs/issue-2286/reports/implementation/board-gate-r5-migration.md`
   to the proposal-named path, untracked) needs either: (a) a session
@@ -300,6 +310,52 @@ is that proof.
   (untracked path) from branch `issue-2286/implementation` — checked: R4
   still refuses a foreign-issue write after this stage's R5-only change
   — result: pass (refused as expected, R4 message unchanged in shape)
+
+## Rebase onto current main (2026-08-25)
+
+PR #2387 had drifted behind `main` (ordinary unrebased staleness, not a
+design conflict). canonical: `git rebase origin/main` this turn on
+branch `issue-2286/implementation` — 4 commits replayed, 2 conflicts,
+both in append-only log files where both sides' entries are
+independent and non-overlapping:
+- `.orchestrate-hook-fires.log` — both sides added timestamped
+  hook-fire lines; resolved by keeping both, chronologically ordered.
+- `docs/reports/deviation-log.md` (twice, across 2 of the 4 replayed
+  commits) — main had gained new sessions' deviation entries
+  (issue-2291, issue-2266, etc., via the issue-2348 log-sharding
+  commit `96513f8c`) while this branch's own issue-2286 entries were
+  independent appends; resolved by keeping both sets of entries.
+
+No conflict touched this record, the migration doc, or any code —
+this repo's PR carries docs only (`git ls-files | grep -i board.gate`
+this turn — no `board-gate.sh`/`test_board_gate.py` path exists in
+this repo; that code lives in `tokenmaxxxer-core`, see the Next steps
+section above for its landed state as PR #319).
+
+acceptance: `python3 -m pytest on-the-record/hooks/test_record_claim_guard.py -q`
+(the gate this issue's own acceptance names) — result:
+```
+27 passed
+```
+
+acceptance: `timeout 180 python3 -m pytest on-the-record/hooks -q -m "not slow"`
+— result:
+```
+FAILED on-the-record/hooks/test_directive_diet.py::test_injection_byte_identical_across_turns_monitor_unavailable
+FAILED on-the-record/hooks/test_directive_diet.py::test_always_on_injection_within_size_budget
+FAILED on-the-record/hooks/test_hook_cache_layout.py::test_packaged_gates_copy_matches_source_of_truth
+3 failed, 926 passed, 2 xfailed in 158.61s
+```
+derived: same 3 failures reproduced against unmodified `origin/main`
+in an isolated `git worktree` (`test_directive_diet.py`,
+`test_hook_cache_layout.py` only, for speed) — result:
+```
+FAILED on-the-record/hooks/test_hook_cache_layout.py::test_packaged_gates_copy_matches_source_of_truth
+FAILED on-the-record/hooks/test_directive_diet.py::test_always_on_injection_within_size_budget
+2 failed, 10 passed
+```
+— pre-existing on `main`, unrelated to this issue's docs-only diff;
+not caused by this rebase.
 
 ## skill-verdict
 
