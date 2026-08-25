@@ -422,6 +422,78 @@ def lease_reconcile_sweep(root: Path = None, d_all: dict | None = None,
     return count
 
 
+# Issue #2291: worst-case legitimate duration of the pre-roster bootstrap
+# window a spawn attempt may spend with no roster entry yet — clone
+# (`CLONE_TIMEOUT`) + branch-checkout fetch (`NETWORK_TIMEOUT`) + slack for
+# admission/skill-resolution overhead. An unresolved attempt (no outcome
+# recorded at all — harder than a `_fetch_or_halt`-class sys.exit, e.g.
+# SIGKILL/OOM) is only reportable past this, so a spawn still legitimately
+# mid-bootstrap is never flagged.
+SPAWN_ATTEMPT_GRACE_SEC = 180 + 60 + 60  # CLONE_TIMEOUT + NETWORK_TIMEOUT + 60
+
+
+def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> int:
+    """Issue #2291 mechanism: level-triggered advisory, hooked into the same
+    watchdog tick as `lease_reconcile_sweep` (mechanism 3 above) — a spawn
+    attempt that halted before a workspace/roster entry/session log existed
+    left, until this issue, zero durable trace anywhere a consumer piping
+    spawn stdout through `tail` could ever see. `spawn.py`'s
+    `_record_spawn_attempt()`/`_record_spawn_outcome()` now append that
+    trace (STATE_ROOT-scoped, issue #2240) from the first line of spawn
+    entry; this sweep is what makes it VISIBLE — the watchdog reports
+    "spawn halted pre-workspace: <reason>" instead of silently having
+    nothing to say about a (issue, role) whose spawn never registered.
+
+    Two ways an attempt becomes reportable:
+      - its outcome is recorded as `"halted"` (the common case — a
+        `_fetch_or_halt`-class fail-closed halt, or any other uncaught
+        exception in the bootstrap window, both caught and durably logged
+        by `spawn.py`'s CLI entry point): reported immediately, the
+        recorded reason as detail;
+      - no outcome was ever recorded (harder than sys.exit — SIGKILL, OOM,
+        a hard interpreter crash) AND `SPAWN_ATTEMPT_GRACE_SEC` has elapsed
+        AND no roster entry exists for its (issue, role): reported with a
+        generic "no outcome recorded" detail, since none is available.
+    An attempt whose outcome is `"session-log"` (it reached the point where
+    a workspace/session log exist) is never reported here — from that point
+    on, a crash is the existing dead-entry watchdog reporting's job
+    (`diagnose_health` et al.), not this pre-bootstrap trace's.
+
+    Dedup-gated per attempt_id via the same reconcile ledger every other
+    watchdog advisory uses (`ledger_check_and_stamp`) — one attempt_id
+    re-surfaces at most once per `RECONCILE_LEDGER_TTL_SEC` window, same
+    cadence as e.g. the `health:` dedup key."""
+    now = time.time() if now is None else now
+    d_all = _sp._roster_load() if d_all is None else d_all
+    attempts, outcomes = _sp._load_spawn_attempts()
+    count = 0
+    for attempt_id, a in sorted(attempts.items()):
+        outcome = outcomes.get(attempt_id)
+        if outcome is not None:
+            if outcome.get("outcome") != "halted":
+                continue  # "session-log": bootstrap succeeded, not our concern
+            reason = outcome.get("detail", "")
+        else:
+            ts = a.get("ts", now)
+            if not isinstance(ts, (int, float)) or now - ts < SPAWN_ATTEMPT_GRACE_SEC:
+                continue  # still within the legitimate pre-roster window
+            roster_key = lease_key(a.get('issue'), a.get('role'))
+            if roster_key in d_all:
+                continue  # a roster entry eventually showed up
+            reason = (f"no outcome recorded {int(now - ts)}s after spawn "
+                      f"attempt (pid {a.get('pid')}) — process likely died "
+                      f"before it could report why")
+        if not _sp.ledger_check_and_stamp(f"spawn-attempt-halt:{attempt_id}", now=now):
+            continue
+        count += 1
+        subject = lease_key(a.get('issue'), a.get('role'))
+        print(f"[spawn-attempt] {subject}: spawn halted pre-workspace: {reason}")
+        _sp.ledger_write({"event": "spawn_attempt_halt_reported",
+                          "attempt_id": attempt_id, "issue": a.get("issue"),
+                          "role": a.get("role"), "reason": reason, "ts": now})
+    return count
+
+
 # Issue #2133: a fresh-wait line flips to [EXPIRING] when the remaining
 # time drops under this fraction of the wait budget.
 APPROVAL_WAIT_EXPIRING_FRACTION = 0.2
