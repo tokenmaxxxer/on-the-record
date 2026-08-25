@@ -341,7 +341,15 @@ def record_enums(d: Path, cfg: dict) -> list[str]:
             if field not in fm:
                 continue
             value = fm[field]
-            if value not in allowed:
+            # allowed 가 버킷 dict({'progress': [...], 'terminal': [...], ...})
+            # 일 수 있다 — 버킷 전체 합집합이 유효값 집합이다. 어느 버킷에
+            # 속해도 유효하며, dict 를 그대로 flat allow-list 로 취급하면
+            # (in dict == in dict.keys()) 버킷된 값이 전부 오탐으로 잡힌다.
+            if isinstance(allowed, dict):
+                valid = {v for bucket in allowed.values() for v in bucket}
+            else:
+                valid = allowed
+            if value not in valid:
                 bad.append(
                     f"레코드 enum 위반: {f} 의 {field}={value!r} — "
                     f"roles/{role}.json 이 선언한 값 ({allowed}) 이 아니다")
@@ -691,9 +699,19 @@ def _terminal_loop_state(role_cfg: dict) -> str | None:
     의 scope-proposed→...→landed). 그래서 목록의 마지막 값을 터미널로 읽는다;
     단일 값 목록(예: defect-verification 의 cleared)도 그 하나가 곧 마지막이라
     같은 규칙으로 맞는다. 선언 자체가 없으면 None — 이 게이트가 그 레코드를
-    건드리지 않는다(터미널을 모르면 강제할 기준이 없다)."""
-    states = role_cfg.get("record_fields", {}).get("loop_state")
-    return states[-1] if states else None
+    건드리지 않는다(터미널을 모르면 강제할 기준이 없다).
+
+    role_cfg 가 온전한 형태라는 보장이 없다(issue #1105 — 머지 충돌 중인
+    작업 트리에서 호출되면 record_fields/loop_state 가 빈 값이거나 리스트가
+    아닌 형태일 수 있다). list/tuple 이 아니면 순서가 없으므로 "마지막"을
+    읽을 수 없다 — None."""
+    record_fields = role_cfg.get("record_fields")
+    if not isinstance(record_fields, dict):
+        return None
+    states = record_fields.get("loop_state")
+    if not isinstance(states, (list, tuple)) or not states:
+        return None
+    return states[-1]
 
 
 def parse_checked_claims(work: Path) -> list[tuple[str, str, str, str | None]]:
@@ -825,7 +843,8 @@ _WRITE_SCOPE_OVERRIDE = re.compile(
 def _always_writable(role: str) -> list[str]:
     return [f"docs/issue-*/reports/{role}.md",
             f"docs/issue-*/reports/{role}/**",
-            "docs/issue-*/proposals/**"]
+            "docs/issue-*/proposals/**",
+            "docs/issue-*/decisions/**"]
 
 
 def _write_scope_overrides(work: Path) -> dict[str, list[str]]:
@@ -1227,6 +1246,30 @@ def schema_field_orphans(d: Path, cfg: dict) -> list[str]:
     return bad
 
 
+def ui_evidence_gate_gate(d: Path, cfg: dict) -> list[str]:
+    """변경된 `docs/issue-<n>/reports/<role>.md` 가 `verdict: pass` 를
+    주장하는데 diff 가 UI 표면을 건드리면 `provenance: executed-live`
+    증거를 요구한다 (issue-685). `ui_evidence_gate.py` 는 순수 함수라
+    여기서 diff-scoped 배선만 한다 — `claims`/`_claims_gate` 와 같은
+    순환 임포트 회피를 위해 지연 임포트한다."""
+    import ui_evidence_gate
+    root = d / "work" if (d / "work").exists() else d
+    try:
+        files = changed_files(root)
+    except RuntimeError as e:
+        return [str(e)]
+    bad = []
+    for f in files:
+        m = RECORD_PATH.match(f)
+        if not m:
+            continue
+        record_file = root / f
+        text = (record_file.read_text(encoding="utf-8-sig", errors="replace")
+                if record_file.exists() else "")
+        bad += ui_evidence_gate.check_record(root, f, text, files)
+    return bad
+
+
 ALL = {"writeset": writeset, "deps": deps,
        "record_enums": record_enums,
        "record_refusal_reasoned": record_refusal_reasoned,
@@ -1240,7 +1283,8 @@ ALL = {"writeset": writeset, "deps": deps,
        "subprocess_call_shape_divergence": subprocess_call_shape_divergence_gate,
        "sibling_mention_check": sibling_mention_check_gate,
        "ci_reachable_gates": ci_reachable_gates,
-       "schema_field_orphans": schema_field_orphans}
+       "schema_field_orphans": schema_field_orphans,
+       "ui_evidence_gate": ui_evidence_gate_gate}
 
 
 def _claims_gate(d: Path, cfg: dict) -> list[str]:

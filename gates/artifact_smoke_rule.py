@@ -219,7 +219,12 @@ def main() -> int:
     if len(sys.argv) < 2:
         print("usage: artifact_smoke_rule.py <issue-number> [--repo <경로>]")
         return 1
-    issue = int(sys.argv[1])
+    try:
+        issue = int(sys.argv[1])
+    except ValueError:
+        print(f"usage: artifact_smoke_rule.py <issue-number> [--repo <경로>] "
+              f"— issue-number must be an integer, got {sys.argv[1]!r}")
+        return 1
     repo = Path(".").resolve()
     if "--repo" in sys.argv:
         repo = Path(sys.argv[sys.argv.index("--repo") + 1]).resolve()
