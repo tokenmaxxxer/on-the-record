@@ -351,3 +351,10 @@ from this record. For a future record only: once genuine
 `skill_judge_perf` volume crosses 50, the next natural check is
 confirming the *observed* fail-open rate lands near the ~10% predicted
 here, and re-deriving the cutoff if the distribution has shifted.
+
+skill-verdict: performance-engineering-operational-playbook — applied:
+invoked; rule 1.2 (percentile, not mean — the p90 cutoff derivation
+under Why) and rule 1.7 (prefer the removal/reuse-shaped fix — reusing
+the existing #2040 fail-open path instead of adding a second one, also
+under Why).
+other mounted skills: not triggered.
