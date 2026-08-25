@@ -515,6 +515,7 @@ get_bootstrap_fetch_record = _pipeline_mod.get_bootstrap_fetch_record
 positive_int = _pipeline_mod.positive_int
 read_role_model_config = _pipeline_mod.read_role_model_config
 recut_if_absorbed_cli = _pipeline_mod.recut_if_absorbed_cli
+recut_corrupted_cli = _pipeline_mod.recut_corrupted_cli
 require_doctor = _pipeline_mod.require_doctor
 resolved_role_model = _pipeline_mod.resolved_role_model
 role_settings = _pipeline_mod.role_settings
@@ -1521,7 +1522,9 @@ def main() -> int:
     ap.add_argument("--stall-timeout", type=float, default=5.0,
                     help="분 단위. role task/watch 가 이벤트 없이 블록하는 최대 시간 (기본 5)")
     ap.add_argument("--role", dest="watch_role",
-                    help="watch: 같은 이슈에 역할이 여럿 기록돼 있을 때 지정")
+                    help="watch: 같은 이슈에 역할이 여럿 기록돼 있을 때 지정. "
+                         "recut-corrupted: --issue 와 함께 대상 issue-<n>/<role> "
+                         "브랜치를 고른다")
     ap.add_argument("--follow", action="store_true",
                     help="watch: 이벤트마다 재무장하지 않고 session-end 까지 "
                          "_await_bounded 를 반복 호출하며 스트리밍한다")
@@ -1651,6 +1654,10 @@ def main() -> int:
         return roster_ps()
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
+    if a.role == "recut-corrupted":
+        if not a.issue or not a.watch_role:
+            sys.exit("사용법: spawn.py recut-corrupted --issue <n> --role <role> [-C cwd]")
+        return recut_corrupted_cli(str(Path(a.cwd).resolve()), a.issue, a.watch_role)
     if a.role == "watchdog":
         # 이슈 #1219: `-C` (기본값 ".") 를 그대로 넘긴다 — 컨슈머 세션은
         # 타깃 프로젝트를, dev 세션(cwd == 이 체크아웃)은 이 체크아웃
@@ -2355,6 +2362,35 @@ def _recut_absorbed_branch(cwd: str, br: str):
                       f"git -C {cwd} stash show -p", file=sys.stderr)
         return r
     return git("checkout", br)
+
+
+def _recut_corrupted_branch(cwd: str, br: str, base: str):
+    """`br`(예: `issue-<n>/<role>`)을 같은 이름을 유지한 채, 지금 잡힌
+    `merge-base(br, base)`를 새 base 로 밀어 재컷한다 (issue #2402).
+
+    `_recut_absorbed_branch`(issue #784)와는 정반대 상황을 다룬다: 그쪽은
+    "content 가 이미 base 에 흡수돼 버려도 되는" 브랜치라 base 로
+    리셋하고, 여기는 "content 는 유효한데 spawn 시점 branch-cut 이 잘못된
+    (오래된/무관한) parent 에서 갈라져 나온"(issue #2379) 브랜치라 그
+    content(브랜치 자신의 커밋들)를 버리지 않고 올바른 base 위로
+    옮겨 심는다 — `git rebase --onto`. 브랜치 이름이 그대로이므로 이
+    함수가 끝난 뒤 호출자가 같은 이름으로 origin 에 force-push 하면 기존
+    PR 은 (새로 열 필요 없이) 그 자리에서 깨끗한 merge-base 를 얻는다.
+
+    반환값은 최종 git 호출(checkout 실패 시 checkout, 아니면 rebase)의
+    CompletedProcess — returncode 로 성공 여부를 본다."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    checkout = git("checkout", "-B", br, f"origin/{br}")
+    if checkout.returncode != 0:
+        return checkout
+    merge_base = git("merge-base", br, base)
+    if merge_base.returncode != 0:
+        return merge_base
+    old_base = merge_base.stdout.strip()
+    if not old_base:
+        return merge_base
+    return git("rebase", "--onto", base, old_base, br)
 
 
 _ACCEPTANCE_CHECK_LINE = re.compile(r"^\s*-\s*check\s*:\s*(.+)$", re.MULTILINE)

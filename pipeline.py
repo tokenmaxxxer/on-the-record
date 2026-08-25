@@ -975,6 +975,57 @@ def _checkout_named_branch(cwd: str, br: str) -> str:
     return br
 
 
+def recut_corrupted_cli(cwd: str, issue: int, role: str) -> int:
+    """`spawn.py recut-corrupted --issue <n> --role <role> -C <cwd>`
+    (issue #2402): issue #2379 의 corrupted-merge-base 브랜치(branch-cut
+    시점에 오래된/무관한 parent 에서 갈라진 `issue-<n>/<role>`)를 새
+    `fix/...` 브랜치로 옮기는 대신, **같은 이름을 유지한 채** 올바른 base
+    위로 재컷하고 그 이름으로 force-push 한다 — board-sweep/spawn_on_pr/
+    spawn_on_approve 등 저장소 전역의 모든 `issue-<n>/<role>` 매핑
+    (`_HEAD_REF_SUBJECT_RE` 류 정규식들)이 브랜치 이름을 그대로 계속
+    인식하므로, 어느 쪽 매핑 코드도 고칠 필요가 없다 — 이것이 "대안
+    브랜치 패턴을 sweep 이 추가로 인식하게 만드는" 안 대신 이 방식을
+    고른 이유(issue #2402 rationale)다.
+
+    #784 의 `_recut_absorbed_branch`(흡수된, 즉 버려도 되는 content 를
+    다루는 함수)와 안전 근거가 다르다: 여기서 force-push 하는 커밋들은
+    branch-cut 시점에 막 갈라진 것이라(issue #2379), 다른 워크스페이스가
+    그 사이에 그 브랜치 위에서 파생 작업을 했을 리 없다 — 그래서
+    merge-gates.md 의 "절대 force-push 로 흡수된 이력을 덮지 말 것"
+    금지는 #784 케이스에 대한 것이고 이 케이스에는 적용되지 않는다.
+
+    origin 에 이미 있는 브랜치를 대상으로 하므로(진행 중인 세션의 로컬
+    워크스페이스가 아니라, 오케스트레이터가 아무 체크아웃에서나 실행하는
+    사후 복구 커맨드) 먼저 그 브랜치와 base 를 origin 에서 받아온다."""
+    br = f"issue-{issue}/{role}"
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    fetch_br = git("fetch", "origin", br)
+    if fetch_br.returncode != 0:
+        print(f"[recut-corrupted] origin/{br} fetch 실패: "
+              f"{fetch_br.stderr.strip()[:200]}", file=sys.stderr)
+        return 1
+    base = _sp._base(cwd)
+    fetch_base = git("fetch", "origin", base.removeprefix("origin/"))
+    if fetch_base.returncode != 0:
+        print(f"[recut-corrupted] {base} fetch 실패: "
+              f"{fetch_base.stderr.strip()[:200]}", file=sys.stderr)
+        return 1
+    r = _sp._recut_corrupted_branch(cwd, br, base)
+    if r.returncode != 0:
+        print(f"[recut-corrupted] {br} 재컷 실패: {r.stderr.strip()[:200]}",
+              file=sys.stderr)
+        return 1
+    push = git("push", "--force-with-lease", "origin", f"{br}:{br}")
+    if push.returncode != 0:
+        print(f"[recut-corrupted] {br} push 실패: {push.stderr.strip()[:200]}",
+              file=sys.stderr)
+        return 1
+    print(f"[recut-corrupted] {br} 를 {base} 위로 재컷하고 push 했다 — "
+          "브랜치 이름/PR 은 그대로라 subject 매핑이 유지된다.")
+    return 0
+
+
 def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
     """대상 레포에서 issue-<n>/<역할> 브랜치를 만든다(있으면 갈아탄다).
 

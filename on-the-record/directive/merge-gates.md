@@ -8,6 +8,31 @@
   surfaces as "No commits between main and issue-<n>". Recut the branch
   off updated base (`spawn.py`'s `_recut_absorbed_branch` shape) before
   committing — never force-push over the absorbed history.
+- CORRUPTED-MERGE-BASE RECUT STAYS ON-NAME (issue #2402, repair path for
+  #2379): when a branch-cut produced a corrupted merge-base (an
+  `issue-<n>/<role>` branch that forked from a stale/unrelated ancient
+  commit — #2379's 1572-file phantom diff), the sanctioned repair is
+  `spawn.py recut-corrupted --issue <n> --role <role> [-C <cwd>]`
+  (`pipeline.py:recut_corrupted_cli`, `spawn.py:_recut_corrupted_branch`):
+  it `git rebase --onto`s the branch's own commits from the corrupted
+  merge-base onto the current base, **under the same branch name**, then
+  `git push --force-with-lease` under that same name. Never invent a
+  `fix/...` (or any other) alternate branch name for this repair — every
+  `issue-<n>/<role>` subject-mapping site in this repo
+  (`watchdog.py:_HEAD_REF_SUBJECT_RE`,
+  `gates/spawn_on_approve.py:_BRANCH_SUBJECT_ROLE_RE`,
+  `gates/ci.py:_ISSUE_ROLE_BRANCH`, `gates/flows.py:_BRANCH_RE`,
+  `gates/roles_due.py:_subject_from_branch`, …) keys on that exact name,
+  so renaming the branch is what makes board-sweep/spawn-on-approve/
+  spawn-on-pr lose track of it and re-spawn an already-satisfied role
+  (issue-304 duplicate-spawn, `tokenmaxxxer-core#316`) — rejected the
+  alternative of teaching the sweep a second accepted branch pattern
+  because it would require touching every one of those sites and still
+  leaves a distinct "which pattern is this" mapping question open. The
+  force-push here is **not** the absorbed-branch case's forbidden
+  force-push above: those commits already have real history other
+  workspaces may depend on, while a just-corrupted branch-cut has no
+  legitimate downstream fork yet, so replacing its bad parent is safe.
 - PR-BODY CLAIM SCAN (issue #476, demoted from claim-scan-preflight.sh):
   a `gh pr create`/`gh pr edit` body making outcome claims carries an
   adjacent evidence marker (command output fence, `derived:`,
