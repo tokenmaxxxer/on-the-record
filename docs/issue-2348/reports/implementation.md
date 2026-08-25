@@ -412,3 +412,8 @@ shared sourced bash library vs. duplicated per hook script — see the Why
 section above for how the `data-centric` archetype's principles resolved
 both.
 other mounted skills: not triggered.
+
+skill-verdict: work-in-english — applied: invoked; loaded during the
+mergeability-fix follow-up (see "What did not work") to keep the commit
+message and this addendum in English with the turn's final summary in
+Korean. canonical: 799365de (this commit's own message and diff).
