@@ -18,6 +18,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `deviation-log-guard.sh` | n/a | reads/checks only (`git diff`/`git log -p`), no write call — the actual `docs/issue-<n>/reports/deviation-log.md`/`docs/reports/deviation-log.md` append is made by the session, not this hook |
 | `skill-verdict-guard.sh` | n/a | reads/checks only (transcript scan + a direct read of the current branch's role record file), no write call — the actual `skill-verdict:` lines are appended by the session, not this hook |
 | `retry-loop-bound.sh` | out-of-tree | safe — `$TMPDIR`-rooted, never inside the target repo |
+| `approach-cap-warning.sh` | out-of-tree | safe — `$TMPDIR`-rooted (`${OTR_APPROACH_CAP_STATE_DIR:-$TMPDIR/otr-approach-cap}`), never inside the target repo, same pattern as `retry-loop-bound.sh` |
 | `plan-order-guard.sh` | issue-scoped | safe — `docs/issue-<n>/decisions/spawn-refusal-<ts>.md`, `<n>` from `--issue` CLI arg |
 | `session-role-bind.sh` | out-of-tree | safe — `${OTR_ROLE_BIND_STATE_DIR:-$TMPDIR/otr-role-bind}`-rooted, never inside the target repo (#698) |
 | `self-update.sh` | out-of-tree | safe — writes into the shared plugin checkout, not the target repo |
