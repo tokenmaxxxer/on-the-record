@@ -464,8 +464,8 @@ delivered.
 
 ## skill-verdict
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-  invoked; used to split issue #2291's `## Ask`/`## Acceptance`/Frozen
+skill-verdict: conformance-review-requirement-extraction — applied: invoked;
+  used to split issue #2291's `## Ask`/`## Acceptance`/Frozen
   constraint prose into the requirement list in `## Findings` above
   (count and derivation already stated under "What was done") — rule 1:
   split "before any network..." and "every halt..." into separate
@@ -476,8 +476,8 @@ skill-verdict: conformance-review-requirement-extraction — applied:
 skill-verdict: conformance-review-sampling-derivation — not-applicable:
   full enumeration of both issue #2291 mechanisms and all 7 changed
   files was feasible at this scope; no sampling scope was derived.
-skill-verdict: conformance-review-verification-method-selection —
-  applied: invoked; Test method reused for the gate (rerunning
+skill-verdict: conformance-review-verification-method-selection — applied: invoked;
+  Test method reused for the gate (rerunning
   `tests/test_spawn_pipeline.py`), Demonstration for empty-state/
   provenance (own live scratch reproductions), Inspection for
   structural claims (STATE_ROOT placement, watchdog call ordering),
@@ -494,8 +494,8 @@ skill-verdict: conformance-review-verdict-assignment — applied: invoked;
   no finding above was carried forward from PR #2365's record by
   citation alone (different commit/PR) — every finding was
   independently re-derived against #2366's own code this session.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-  invoked; every verdict above cites file:line plus the commit sha
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+  every verdict above cites file:line plus the commit sha
   actually read (3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d); R1 collapses
   the Ask-bullet-1 STATE_ROOT clause and the Frozen-constraint
   "nothing written into the consumer's tree" clause into one entry per
