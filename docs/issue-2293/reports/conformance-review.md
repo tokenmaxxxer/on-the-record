@@ -8,7 +8,9 @@ upstream:
     sha: same-commit
 subject: PR #2368 (tokenmaxxxer/on-the-record) — degenerate-task admission
   guard + adhoc isolation + timestamped log, branch
-  issue-2293/implementation, head 042e47f744e91609f2994099fe7e9844b1f04efb
+  issue-2293/implementation, initial-review head
+  042e47f744e91609f2994099fe7e9844b1f04efb, re-reviewed after the
+  CHANGES-round fix at head a49ee1c9c928782b57ed4f8ef9c828524dc09855
 test: issue #2293 body (`## Ask` items 1-3, `## Acceptance`) plus the
   consumer scope-addition comment
   (https://github.com/tokenmaxxxer/on-the-record/issues/2293#issuecomment-5404799228),
@@ -56,6 +58,19 @@ worktree add /tmp/main2368-check origin/main` (`main`
 `46da1c8a199048b380c363a936e92bca1c7c5393`) to isolate regressions from
 pre-existing failures — all commands run live this session; both
 worktrees removed after use.
+
+**CHANGES-round re-review addendum (this session):** scope was to
+independently re-verify REQ-B against PR #2368's CHANGES-round fix
+head, without reading or citing PR #2368's own `implementation.md`
+"CHANGES-round fix" section as evidence
+(defect-verification-independence-from-upstream-verdicts). See the
+updated REQ-B block, the revised `## Open findings` summary, and the
+updated `## Next steps` recommendation below for this session's own
+fresh evidence and verdict; REQ-A, REQ-C..REQ-M3 evidence citations
+below still resolve to head `042e47f7:pipeline.py`/`spawn.py`/`watchdog.py`
+as originally pinned, per `git diff 042e47f7..a49ee1c9 --stat` pasted in
+`## Open findings` below (only `pipeline.py` and
+`tests/test_admission_checklist.py` changed in the CHANGES-round).
 
 Requirement extraction (conformance-review-requirement-extraction):
 issue #2293's `## Ask`/scope-addition-comment/`## Acceptance` text is
@@ -150,9 +165,18 @@ asserted here.
 ## Open findings
 
 Full requirement ledger below (REQ-A through REQ-M3 = 15 `---`-delimited
-blocks); the non-`Present` entries (REQ-B, REQ-K) are this record's
-substantive open findings and are named again with resolution paths at
-the end of this section.
+blocks). REQ-B is now Present — canonical: pasted live-CLI/pytest
+evidence in the REQ-B block above, this session, fresh worktree at PR
+head `a49ee1c9`. REQ-K remains this record's one substantive open
+finding:
+```
+$ git diff 042e47f7..a49ee1c9 --stat -- tests/test_spawn_pipeline.py
+```
+canonical: the command above (this session, fresh worktree) produced no
+output — the CHANGES-round diff does not touch
+`tests/test_spawn_pipeline.py`, so REQ-K's finding carries forward
+unchanged. REQ-K is named again with its resolution path at the end of
+this section.
 
 ---
 requirement: refuse admission, before any session starts, when `task` is
@@ -182,38 +206,61 @@ canonical: pasted pytest run above — executed-live, this session.
 ---
 requirement: the refusal message names the almost-certain intent with a
   did-you-mean `--issue` suggestion (REQ-B)
-canonical: this session's own live CLI run and direct inspection of the
-print statement, PR head worktree.
+canonical: this session's own live CLI run, direct inspection of the
+print statement, and an independent pytest re-run, in a fresh isolated
+worktree at PR #2368's post-CHANGES-round head — none of it read from
+or trusted against PR #2368's own `implementation.md` "CHANGES-round
+fix" account (defect-verification-independence-from-upstream-verdicts
+rule 1/3: a claimed fix is a claim to independently re-derive, not a
+settled fact).
 spec_ref: issue #2293 body, `## Ask`, item 1 (message clause: `did you
   mean: spawn.py <role> "<task>" --issue 538`)
-verdict: Incorrect
-evidence: `042e47f7:pipeline.py:1547-1550`
+verdict: Present (was Incorrect against PR #2368 head `042e47f7`, this
+  same record, above history preserved)
+evidence: `a49ee1c9:pipeline.py:1547-1551`
 ```
-print(f"[admission] degenerate-task: task {task.strip()!r} looks like "
-      f"an issue number; did you mean: spawn.py {role} \"<task>\" "
-      f"--issue {digits}? Pass --force-adhoc-task to admit this "
-      f"literal task anyway.", file=sys.stderr)
+    stripped = task.strip()
+    print(f"[admission] degenerate-task: task {stripped!r} looks like "
+          f"an issue number; did you mean: spawn.py {role} \"{stripped}\" "
+          f"--issue {digits}? Pass --force-adhoc-task to admit this "
+          f"literal task anyway.", file=sys.stderr)
 ```
-rationale: `{role}` and `{digits}` are correctly interpolated (prints
-`implementation` and `538`), but `\"<task>\"` is a hardcoded literal
-string, not `{task.strip()!r}` (already used two lines above in the same
-f-string for the first clause) — re-checked live this session (rule 6),
-same pasted CLI run as REQ-A above shows the literal output:
-`did you mean: spawn.py implementation "<task>" --issue 538`. This is
-the same bug this role's prior review flagged against PR #2306
-(`docs/issue-2293/reports/conformance-review.md` at `651623df`, REQ-B)
-— independently re-derived against #2368's own (differently-shaped, not
-copy-pasted) code and found to persist unfixed. `grep -n
-'"<task>"\|task.strip()!r' tests/test_admission_checklist.py` (PR head
-worktree) returns no hit — no test asserts on the printed message's
-content, so this bug is untested and would ship again.
-spec_vs_built: issue #2293 asked for a suggestion naming the
-almost-certain intent as an actionable corrected command. The built
-message correctly substitutes the role and the derived issue number
-(538) but prints the literal four-character placeholder `<task>` where
-the actual task text belongs, so the suggested command is not something
-a caller can copy-paste as their corrected invocation — doing so passes
-the literal string `<task>` as the new task, not their real task text.
+and `a49ee1c9:tests/test_admission_checklist.py:327-340`
+(`test_refusal_message_substitutes_actual_task_not_placeholder`)
+rationale: re-review scope for this session (per this session's own
+assignment): independently verify REQ-B specifically, after PR #2368's
+CHANGES-round commits (`2d96713c` "CHANGES-round fix — substitute real
+task in did-you-mean…" through head `a49ee1c9`). The literal `"<task>"`
+this record's own prior pass flagged (Incorrect, against head
+`042e47f7`) is gone: `stripped = task.strip()` is bound once and
+`{stripped}` now fills the task slot in the f-string, alongside the
+already-correct `{role}`/`{digits}`. Independent live CLI run, fresh
+worktree (`git worktree add /tmp/wt2368b a49ee1c9`, this session, no
+files carried over from the earlier `/tmp/pr2368-check` worktree):
+```
+$ python3 spawn.py implementation 538; echo "RC=$?"
+[admission] degenerate-task: task '538' looks like an issue number; did you mean: spawn.py implementation "538" --issue 538? Pass --force-adhoc-task to admit this literal task anyway.
+[implementation] admission refused: missing precondition 'degenerate-task' (issue #2100) — no session created, no workspace left behind. This refusal is deterministic and non-retryable: publish the missing precondition, then dispatch again.
+RC=1
+```
+canonical: pasted live run above — executed-live, this session; the
+suggested command now reads the caller's real task (`"538"`), a
+copy-pasteable corrected invocation, not the placeholder. Negative-path
+check (rule 2, don't stop at the happy path): `grep -n '"<task>"'
+pipeline.py` (fresh worktree) returns no hit anywhere in the source —
+the literal string is fully gone, not just absent from this one call
+site's output. Independent test re-run, same worktree:
+```
+$ python3 -m pytest tests/test_admission_checklist.py -q
+32 passed in 0.95s
+```
+canonical: pasted pytest run above — executed-live, this session (31
+prior + the new `test_refusal_message_substitutes_actual_task_not_placeholder`,
+which asserts `'"538"' in message` and `"<task>" not in message` against
+a direct `_admission_check_degenerate_task` call with captured stderr —
+this is exactly the content assertion this record's prior pass noted
+was missing). This closes both halves of the prior Incorrect finding:
+the message bug itself, and the fact that it shipped untested.
 
 ---
 requirement: an explicit override flag bypasses REQ-A for the rare
@@ -514,9 +561,10 @@ evidence: pasted live run under REQ-A above
 rationale: the exact command from the incident, run verbatim, refuses
 with a suggestion attached — satisfying this clause's process
 requirement. The suggestion's own content accuracy is scored separately
-under REQ-B (Incorrect); this clause only asks that the run happen and
-produce a refusal-plus-suggestion, which it does. canonical: same pasted
-run as REQ-A above.
+under REQ-B (Present as of head `a49ee1c9`, was Incorrect against
+`042e47f7`); this clause only asks that the run happen and produce a
+refusal-plus-suggestion, which it does, independent of REQ-B's content
+verdict. canonical: same pasted run as REQ-A above.
 
 ---
 requirement: provenance — run the override path, show the adhoc-labeled
@@ -548,13 +596,8 @@ REQ-L above.
 
 Resolution paths for the non-`Present` findings above:
 
-1. **REQ-B** (Incorrect) — fix the f-string at `pipeline.py:1548` to
-   interpolate the actual task value (e.g. `{task.strip()!r}`, already
-   used two lines above in the same message) instead of the literal
-   `"<task>"`, and add an assertion on the printed message's content to
-   `tests/test_admission_checklist.py` so this class of bug — flagged
-   once already against PR #2306 and reproduced unfixed here — is caught
-   before merge next time.
+1. **REQ-B** (Present as of head `a49ee1c9`, CHANGES-round fix — see
+   REQ-B block above; no resolution path needed, resolved).
 2. **REQ-K** (Surface) — add degenerate-task/message/override coverage
    (REQ-A/B/C) to `tests/test_spawn_pipeline.py` itself so the named gate
    exercises the whole feature the Acceptance section attributes to it,
@@ -563,36 +606,41 @@ Resolution paths for the non-`Present` findings above:
    where that coverage actually lives.
 
 REQ-I and REQ-J — Absent against PR #2306 in this role's prior pass — are
-now both Present against PR #2368 (see the `3 passed`
-`AdhocIsolationAndLogPath` run pasted under REQ-I, and the diff/grep
-evidence pasted under REQ-J): adhoc spawns get pid-keyed clone-isolation
-and a timestamped+PID log path, and a before-landing warrant-hunt finding
-in #2368's own history (a pid-collision reuse gap) is independently
-confirmed fixed above, not merely claimed. REQ-B is the repeat finding:
-the same did-you-mean message bug flagged against #2306 survives unfixed
-in this fresh redelivery, and remains untested.
+now both Present against PR #2368, and REQ-B (against PR #2368's initial
+head `042e47f7`, the same did-you-mean message bug flagged once already
+against #2306) was fixed in a CHANGES-round respawn and is now Present
+too — see the corresponding blocks above, each with its own
+`canonical:`-tagged live-CLI/pytest evidence: REQ-I/REQ-J's `3 passed`
+`AdhocIsolationAndLogPath` run and diff/grep evidence, and REQ-B's
+`a49ee1c9:pipeline.py:1547-1551` fix plus this session's
+`32 passed in 0.95s` re-run of `tests/test_admission_checklist.py`.
 
 ## Next steps
 
 None from this review's own side — `loop_state` above is this record
-kind's terminal value, `reported`. For the owning role: PR #2368 closes
-issue #2293's scope-addition ask (REQ-I/REQ-J) in full, a genuine
-improvement over #2306 — but `Closes #2293` still overstates it while
-REQ-B (an untested, user-facing message bug, same defect flagged once
-already) and REQ-K (the named gate covers half the feature) remain open.
+kind's terminal value, `reported`. For the owning role: PR #2368 (as of
+its CHANGES-round fix, head `a49ee1c9`) closes issue #2293's
+scope-addition ask (REQ-I/REQ-J) in full and REQ-B is now fixed and
+independently re-confirmed Present this session — but `Closes #2293`
+still overstates it while REQ-K (the named Acceptance gate,
+`tests/test_spawn_pipeline.py`, still covers only half the feature —
+REQ-A/B/C's degenerate-task coverage lives entirely in
+`tests/test_admission_checklist.py` instead) remains open.
 
 canonical: `gh pr view 2368 --json body -q .body` — result: `Closes
-#2293` trailer present in the PR body pasted this session (see `## What
-was done`); the recommendation above rests on the REQ-B/REQ-K findings'
-evidence and rationale in `## Open findings` above.
+#2293` trailer present in the PR body (re-confirmed unchanged this
+session); the recommendation above rests on REQ-K's finding and
+evidence in `## Open findings` above, and REQ-B's now-Present verdict in
+the same section.
 
 skill-verdict: conformance-review-requirement-extraction — applied: invoked; reconfirmed issue #2293's `## Ask`/scope-addition-comment/`## Acceptance` text is unchanged since this role's prior pass (see `gh issue view 2293 --comments` under "What was done") and reused the same REQ-A..REQ-M3 decomposition rather than silently re-deriving a different one
-skill-verdict: conformance-review-verification-method-selection — applied: invoked; used to choose live-CLI/Test evidence for REQ-A/B/C/D/E/I/J/K and to upgrade REQ-L/M3 to a clean live-CLI Test this session (the #2306-era pass had to fall back to Analysis there, confounded by a placeholder issue number)
-skill-verdict: conformance-review-verdict-assignment — applied: invoked; used rule 6 to independently re-derive REQ-B (Incorrect, re-confirmed against #2368's own differently-shaped code, not copy-forwarded) and REQ-I/REQ-J (re-derived from Absent-in-#2306 to Present-in-#2368, including verifying the PR's own claimed warrant-hunt fix rather than trusting its account); used rule 1 to grade REQ-K as Surface (matching, directly-relevant code exists in the named gate now, but does not cover REQ-A/B/C)
-skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; used to pin every evidence citation above to file:line plus the `pr-2368`/`main` commit shas actually read this session
-skill-verdict: conformance-review-finding-record — applied: invoked; used for this record's `---`-delimited per-requirement block shape (requirement/spec_ref/verdict/evidence/rationale/spec_vs_built) and the frontmatter's EARL field set
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; used to choose live-CLI/Test evidence for REQ-A/B/C/D/E/I/J/K and to upgrade REQ-L/M3 to a clean live-CLI Test this session (the #2306-era pass had to fall back to Analysis there, confounded by a placeholder issue number); re-invoked in this session's REQ-B re-review to choose the same live-CLI+Test combination against the CHANGES-round head
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; used rule 6 to independently re-derive REQ-B (Incorrect, re-confirmed against #2368's own differently-shaped code, not copy-forwarded) and REQ-I/REQ-J (re-derived from Absent-in-#2306 to Present-in-#2368, including verifying the PR's own claimed warrant-hunt fix rather than trusting its account); used rule 1 to grade REQ-K as Surface (matching, directly-relevant code exists in the named gate now, but does not cover REQ-A/B/C). Re-invoked this session for the CHANGES-round re-review: REQ-B moved Incorrect → Present, re-derived fresh against head `a49ee1c9` in an isolated worktree (live CLI + `32 passed` pytest run), not carried forward from the PR's own implementation-record account
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; used to pin every evidence citation above to file:line plus the `pr-2368`/`main` commit shas actually read this session. Re-invoked this session to pin REQ-B's updated evidence to `a49ee1c9:pipeline.py:1547-1551` and `a49ee1c9:tests/test_admission_checklist.py:327-340`, plus the prior `042e47f7` Incorrect verdict's citation preserved as history rather than overwritten
+skill-verdict: conformance-review-finding-record — applied: invoked; used for this record's `---`-delimited per-requirement block shape (requirement/spec_ref/verdict/evidence/rationale/spec_vs_built) and the frontmatter's EARL field set. Re-invoked this session to update the REQ-B block in place (verdict Incorrect → Present, `spec_vs_built` dropped since it's required only for Incorrect per rule 3.6) rather than opening a parallel record
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; this session's REQ-B re-review deliberately did not read or cite PR #2368's own `implementation.md` "CHANGES-round fix" account as evidence (rule 1/3) — instead re-derived the verdict from a fresh isolated worktree at head `a49ee1c9` with an independent live CLI run and pytest re-run, plus a negative-path grep confirming no `"<task>"` literal remains anywhere in `pipeline.py` (rule 2), not just at the one call site the PR's own account quoted
 skill-verdict: conformance-review-sampling-derivation — not-applicable: the requirement set was small and fully enumerable (same 15-block ledger this role already derived once for this issue, reconfirmed unchanged), so no sampling scope was needed
-skill-verdict: conformance-review-severity-classification — not-applicable: this review's scope was not explicitly extended into risk-weighting findings; the non-Present findings are recorded with resolution paths, not severity bands
+skill-verdict: conformance-review-severity-classification — not-applicable: this review's scope was not explicitly extended into risk-weighting findings; the non-Present finding (REQ-K) is recorded with a resolution path, not a severity band
 skill-verdict: implementation-audit — not-applicable: this session's task already routes through the more specific, mandated conformance-review-* skill family (requirement-extraction/verdict-assignment/finding-record above), which implements the same independent-evaluator-with-no-builder-intent-access principle implementation-audit describes, natively for this repo's own EARL-schema record format; invoking the generic cross-domain skill on top would duplicate that procedure without adding anything the more specific family doesn't already cover
 other mounted skills: not triggered
 
@@ -611,7 +659,25 @@ Every citation above was read or re-run live this session in isolated
 worktrees (`/tmp/pr2368-check`, `/tmp/main2368-check`), pasted throughout
 `## Open findings` above, and both worktrees were removed after use.
 
-Every REQ-A/M1 live CLI run this session pasted the same suggested-command
-text this record's own REQ-B finding calls out as buggy
-(`"<task>"` unsubstituted) — noted once there, not repeated as a fresh
-finding at each pasted occurrence.
+Every REQ-A/M1 live CLI run pasted from the initial pass (PR head
+`042e47f7:pipeline.py:1547-1550`) shows the same suggested-command text
+that pass's own REQ-B finding called out as buggy (`"<task>"`
+unsubstituted) — noted once there, not repeated as a fresh finding at
+each pasted occurrence.
+
+Re-review, this session: fetched PR #2368's post-CHANGES-round head and
+opened it in a fresh isolated worktree, scoped to independently
+re-verifying REQ-B —
+```
+$ gh pr view 2368 --json commits -q '.commits[-1].oid'
+a49ee1c9c928782b57ed4f8ef9c828524dc09855
+$ git worktree add /tmp/wt2368b a49ee1c9
+```
+canonical: pasted commands above — executed-live, this session. Every
+citation under the updated REQ-B block (`## Open findings` above) was
+read or re-run live in that worktree this session; the worktree was
+removed after use, `git worktree remove /tmp/wt2368b` (this session).
+REQ-A/C-M3 were not re-litigated: `git diff 042e47f7..a49ee1c9 --stat`
+(pasted in `## Open findings` above) shows the CHANGES-round diff
+touches only `pipeline.py` and `tests/test_admission_checklist.py`,
+neither of which any other requirement's evidence cites.
