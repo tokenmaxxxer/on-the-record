@@ -5,17 +5,17 @@ author: conformance-review
 loop_state: reported
 upstream:
   - path: spawn.py
-    sha: 3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d
+    sha: 300a07249b9032fe56ef684f2a2e86374a681c2a
   - path: roster.py
-    sha: 3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d
+    sha: 300a07249b9032fe56ef684f2a2e86374a681c2a
   - path: watchdog.py
-    sha: 3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d
+    sha: 300a07249b9032fe56ef684f2a2e86374a681c2a
   - path: board.py
-    sha: 3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d
-subject: PR #2366 (issue-2291, durable spawn-attempt trace + watchdog pre-workspace halt visibility), head commit 3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d, base main d27977b77c10c9515a11c9a4a86cc0c3dda16d84
-test: issue #2291 `## Ask` (3 bullets), `## Acceptance` (gate/empty-state/provenance), and its Frozen constraint paragraph
+    sha: 300a07249b9032fe56ef684f2a2e86374a681c2a
+subject: PR #2366 (issue-2291, durable spawn-attempt trace + watchdog pre-workspace halt visibility), re-review round after CHANGES-round fix commit 300a07249b9032fe56ef684f2a2e86374a681c2a (prior reviewed head 3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d, this record's own PR #2371, MERGED), base main 46da1c8a199048b380c363a936e92bca1c7c5393
+test: this record's own prior R2/R4 `Incorrect` findings (PR #2371), re-derived independently against PR #2366's fix commit rather than cited
 result: failed
-assertedBy: conformance-review (issue-2291/conformance-review session, builder-blind)
+assertedBy: conformance-review (issue-2291/conformance-review session, builder-blind re-verification of R2/R4 only; R1/R3/R5/R6/R9-R12 carried forward per verdict-assignment rule 4, evidence unchanged by this commit)
 ---
 
 # issue-2291 — conformance-review record
@@ -42,8 +42,14 @@ own branch — see below), `docs/reports/deviation-log.md`.
 
 **Result: `failed` (12, derived: counted directly from the 12
 `---`-delimited blocks in `## Findings` below, requirements R1-R12).**
-Summary: R1, R3, R5, R6, R9, R10, R11, R12 `Present`; R2, R4 `Incorrect`;
-R7, R8 `Surface`.
+Summary (post-CHANGES-round-fix, this round): R1-R6, R9-R12 `Present`
+(R2/R4 corrected from round 1's `Incorrect` — see `## CHANGES round`
+below); R7, R8 `Surface`, unchanged and still open — `result` stays
+`failed` per this repo's own convention (Surface findings, not only
+Incorrect ones, keep a record `failed`; derived: `grep -c "^verdict:
+Surface" docs/*/reports/conformance-review.md` across this repo's
+records this session showed every record with ≥1 `Surface` verdict
+also carries `result: failed`, none `passed`).
 
 **Process context, not itself a requirement verdict:** PR #2366's own
 record states it read prior review PR #2365's terminal state but not
@@ -102,6 +108,63 @@ state,mergedAt` (this session) — result
 --json state,mergedAt` (this session) — result
 `{"mergedAt":null,"state":"CLOSED"}`.
 
+## CHANGES round — re-review of R2/R4 after PR #2366's fix
+
+This record's own PR #2371 (the round above, reviewed head
+3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d) merged with `result: failed`
+on R2/R4 `Incorrect` plus R7/R8 `Surface`. PR #2366 then took a
+CHANGES-round fix, commit
+300a07249b9032fe56ef684f2a2e86374a681c2a ("issue-2291: CHANGES-round
+fix — record spawn attempt before phase gates (#2371 R2/R4)"): moved
+`_record_spawn_attempt()` to the top of `main()`'s non-dry-run branch
+and moved all four gate calls (`require_board`,
+`require_no_repo_config`, `require_acceptance_gate`,
+`require_requirement_linkage`) inside the same
+`try/except (SystemExit, Exception)` already wrapping
+`require_doctor()`/`ensure_target_remote()`/`_spawn_one()`.
+
+canonical: `gh pr view 2366 --json headRefOid` (this session) — result
+`300a07249b9032fe56ef684f2a2e86374a681c2a`; `git show 300a0724 --stat`
+(this session, `git worktree` at `/tmp/wt-2366b`) — 2 files changed,
+`docs/issue-2291/reports/implementation.md` (present on PR #2366's own
+branch, untracked on this record's own branch, same situation as `##
+Upstream basis` above) and `spawn.py` (36 insertions, 15 deletions).
+
+Per `defect-verification-independence-from-upstream-verdicts` rule 1 (a
+prior verdict — including this record's own round-1 verdict — is a
+claim to re-test, not a settled fact) and rule 3 (re-derive rather than
+cite against a stale sha): this round re-derived R2 and R4 directly
+against the fix commit's own code and three fresh live reproductions in
+a fresh `git worktree` of PR #2366's new head, rather than citing the
+fix commit's message or the builder's own CHANGES-round narrative in
+`docs/issue-2291/reports/implementation.md` (untracked on this
+record's own branch, same as above) as evidence.
+
+canonical: `MUSTER_STATE_ROOT=/tmp/otr-2371review-state/linkage`
+(own scratch state root, this session), three fresh synthetic issue
+numbers (77002, 88003, 99009) chosen ad hoc for the three
+reproductions below — derived: none collide with round 1's own issue
+numbers (`grep -oE "3[0-9]{4}|9[0-9]{3}" docs/issue-2291/reports/conformance-review.md`
+against this file's own round-1 text above, this session) or the
+untracked `docs/issue-2291/reports/implementation.md`'s issue numbers
+(as above, read via `git show pr-2366:...`, this session), confirmed
+before choosing them.
+
+Per rule 2 (deliberately include an edge case/negative path, not only
+the path the fix commit's own repro covers): the fix commit's own
+evidence exercises only a halt from `require_requirement_linkage` (a
+`gh api`-backed gate — the same one round 1's R4 reproduction used).
+This round additionally forced a halt from `require_board` — the
+*first* gate in the chain, purely local, no network call — to confirm
+the durable record now precedes the earliest possible halt point, not
+only the `gh api`-backed gates R2/R4 originally named. This round also
+re-confirmed `--dry-run` remains unaffected (no attempt record
+written), since `--dry-run` never spawns a session and was never in
+R2/R4's own scope.
+
+canonical: reproduction commands and raw output pasted verbatim in the
+updated R2/R4 finding blocks below, this session, this turn.
+
 ## Findings (R1-R12)
 
 ---
@@ -131,29 +194,44 @@ requirement: The spawn-attempt record is appended before any network or
   workspace work.
 spec_ref: issue-2291 `## Ask` bullet 1, clause 1 ("before any network or
   workspace work, append a spawn-attempt record...")
-verdict: Incorrect
-evidence: 3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d:spawn.py:1619
-  (`require_board`), :1622 (`require_no_repo_config`), :1623
-  (`require_acceptance_gate`), :1624 (`require_requirement_linkage`) —
-  all four execute before `_record_spawn_attempt()` at :1652-1653.
-  3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d:board.py:295-351
-  (`require_acceptance_gate`, `sys.exit` at :344, calls `gh api` via
-  `gates/ci.py`/`gates/acceptance_gate.py`) and :352-410
-  (`require_requirement_linkage`, `sys.exit` at :393, calls `gh api` via
-  `gates/requirement_linkage.py`).
-rationale: A halt inside either network-calling gate necessarily
-  precedes attempt-record creation, so the record is not created before
-  all network work — it is created after two of the four pre-existing
-  gates have already run and could already have halted.
-spec_vs_built: Spec requires the durable record before any network or
-  workspace work in the spawn path. Built: the record is created only
-  after `require_board`/`require_no_repo_config`/
-  `require_acceptance_gate`/`require_requirement_linkage` have already
-  run — the latter two already having made a `gh api` call and being
-  capable of halting first.
-canonical: source lines above, read in this session's `git worktree` of
-  PR #2366 head; live reproduction confirming this ordering is real
-  (not merely line-order coincidence) is under R4 below.
+verdict: Present
+evidence: 300a07249b9032fe56ef684f2a2e86374a681c2a:spawn.py:1658-1659
+  (`attempt_id = (_record_spawn_attempt(...) if a.issue is not None else
+  None)`) now precedes the `try:` block at :1660 that wraps
+  `require_board()` (:1661), `require_no_repo_config()` (:1662),
+  `require_acceptance_gate()` (:1663), `require_requirement_linkage()`
+  (:1664), `require_doctor()` (:1665), and `ensure_target_remote()`
+  (:1666) — all six now run after the attempt record, inside the same
+  `try/except (SystemExit, Exception)` at :1686. Diff:
+  `git show 300a0724 -- spawn.py` (this session) — the pre-fix ordering
+  (round-1 R2/R4's own evidence, `require_board` through
+  `require_requirement_linkage` before `_record_spawn_attempt()`) is
+  replaced with attempt-record-first.
+rationale: Independently re-verified this session, not cited from the
+  fix commit's message: an end-to-end `spawn.main()` invocation forced
+  through `require_board` — the first gate, purely local, no network
+  call — with no `docs/specs/approvers.md` marker in the target repo,
+  showed the attempt record exists (`before main(): False` /
+  `after halt, file exists: True`) even though the halting gate is the
+  very first line of the non-dry-run branch and makes no network call
+  at all — a stronger confirmation than the fix commit's own repro
+  (which only exercised the `gh api`-backed
+  `require_requirement_linkage`). `--dry-run` re-confirmed unaffected
+  (own copy of the four gates outside the attempt-record path,
+  `spawn.py:1617-1626`, no attempt file written).
+spec_vs_built: Spec required the durable record before any network or
+  workspace work. Pre-fix built: record created only after two
+  `gh api`-backed gates had already run (round-1 finding). Post-fix
+  built: record now created before all four contract gates and before
+  `require_doctor()`/`ensure_target_remote()` — matches the spec
+  clause; this record's own round-1 `Incorrect` verdict against this
+  same requirement is superseded, not silently dropped (see `## CHANGES
+  round` above and `## Open findings` below).
+canonical: `git show 300a0724 -- spawn.py` (this session,
+  `/tmp/wt-2366b`); end-to-end reproduction command and raw output
+  pasted verbatim under R4 below (same reproduction covers both R2 and
+  R4 — one live spawn.main() invocation demonstrates both the ordering,
+  R2, and the durable capture, R4).
 
 ---
 requirement: Append the outcome (halt reason or session-log path) when
@@ -180,37 +258,75 @@ requirement: Every `_fetch_or_halt`-class halt (issue's own
 spec_ref: issue-2291 `## Ask` bullet 1, clause 3, read with the issue's
   own "## Consumer report" framing ("`_fetch_or_halt()`... and the rest
   of workspace preparation run before the session log... exist")
-verdict: Incorrect
-evidence: 'This session, own scratch dir, synthetic issue 99001,
-  `MUSTER_STATE_ROOT=/tmp/otr-2366review-state/linkage`, `gates/ci.py`''s
-  `_approved_roles_on_issue` and `gates/requirement_linkage.py`''s
-  `check` monkeypatched to force the same `bad`-list branch
-  `board.py:352-410` takes in production:'
-acceptance: 'python3 -c "board.require_requirement_linkage(''.'', 99001)"
-  against a monkeypatched `gates.requirement_linkage.check` — result:'
+verdict: Present
+evidence: 'This session, own scratch clone/state root, three fresh
+  synthetic issue numbers (own choice this round, distinct from every
+  prior round''s — see `## CHANGES round` above), fix commit
+  300a07249b9032fe56ef684f2a2e86374a681c2a, two independent end-to-end
+  `spawn.main()` invocations (not a monkeypatched direct gate call like
+  round 1''s R4 reproduction — this round drives the real CLI entry
+  point):'
+acceptance: 'Reproduction 1 — `require_requirement_linkage` halt
+  (`gh api`-backed gate, the same one the fix commit''s own repro
+  covers), `gates.requirement_linkage.check` and
+  `gates.ci._approved_roles_on_issue` monkeypatched to force the halt
+  branch, `MUSTER_STATE_ROOT=/tmp/otr-2371review-state/linkage`, issue
+  88003, target repo `/tmp/otr-2371review-repo` (fresh scratch git
+  init, `docs/specs/approvers.md` present so `require_board` passes and
+  the halt is isolated to `require_requirement_linkage`) — `spawn.main()`
+  invoked directly with `sys.argv` set, this session — result:'
 ```
-SystemExit raised by require_requirement_linkage (spawn.py:1624 call site, board.py:393 sys.exit) — BEFORE _record_spawn_attempt at spawn.py:1652:
-  이슈 #99001 가 요구 연결이 없다:
-  - 이슈 #99001 본문이 요구 ID를 인용하지 않는다 (synthetic, this review's own monkeypatch)
-  세션을 안 띄운다 — 요구 ID(`R\d+` 또는 'northpole req#<n>')를 인용하거나 'infrastructure/no-direct-requirement' 태그를 달아야 한다(issue #1017, northpole req#6).
-  R-ID 목록은 docs/specs/requirement-digest.md 에 있다(없으면 `spawn.py init` 이 스텁을 만든다).
-  예시 — 이슈 본문에 이런 한 줄이면 된다: Targets R1.
-  'infrastructure/no-direct-requirement' 태그는 이슈가 어떤 제품 요구에도 직접 닿지 않는 순수 기반 작업(빌드·CI·게이트·리팩터링 등)일 때만 적절하다.
-spawn-attempts.jsonl existed before this halt: False / after: False
+before main(): False
+main() raised SystemExit as expected: '이슈 #88003 가 요구 연결이 없다:\n  - 이슈 #88003 가 요구 연결이 없다 (synthetic, end-to-end main() re-verify)\n  세션을 안 띄운다 — 요구 ID(`R\\d+`
+after main() halt, file exists: True
+{"event": "spawn_attempt", "attempt_id": "88003:implementation:3150871:1787644748905", "issue": 88003, "role": "implementation", "pid": 3150871, "ts": 1787644748.905134}
+{"event": "spawn_attempt_outcome", "attempt_id": "88003:implementation:3150871:1787644748905", "outcome": "halted", "detail": "이슈 #88003 가 요구 연결이 없다:\n  - 이슈 #88003 가 요구 연결이 없다 (synthetic, end-to-end main() re-verify)\n  세션을 안 띄운다 — 요구 ID(`R\\d+` 또는 'northpole req#<n>')를 인용하거나 'infrastructure/no-direct-requirement' 태그를 달아야 한다(issue #1017, northpole req#6).\n  R-ID 목록은 docs/specs/requirement-digest.md 에 있다(없으면 `spawn.py init` 이 스텁을 만든다).\n  예시 — 이슈 본문에 이런 한 줄이면 된다: Targets R1.\n  'infrastructure/no-direct-requirement' 태그는 이슈가 어떤 제품 요구에도 직접 닿지 않는 순수 기반 작업(빌드·CI·게이트·리팩터링 등)일 때만 적절하다.", "ts": 1787644748.9079735}
 ```
-rationale: The durable trace file was never created by this halt (`False
-  / False` above) — a halt from `require_requirement_linkage` (or the
-  other three gates at the same ordering) produces zero bytes anywhere,
-  reproducing live the exact swallowed-stdout/zero-trace failure class
-  issue #2291 was filed to fix.
-spec_vs_built: Spec requires every fail-closed halt in the pre-log
-  bootstrap window to land its reason durably. Built: only halts from
-  `require_doctor()` onward (spawn.py:1654-1688) are caught and
-  recorded; a halt from any of the four gates at spawn.py:1619-1624 is
-  outside any try/except that knows `attempt_id` and leaves no trace at
-  all, confirmed by direct execution above.
-canonical: reproduction command and raw output pasted verbatim above,
-  this session, this turn.
+acceptance: 'Reproduction 2 — `require_board` halt (the *first* gate,
+  purely local, no `gh api`/network call — an edge case the fix
+  commit''s own repro did not cover, added this round per
+  `defect-verification-independence-from-upstream-verdicts` rule 2),
+  fresh scratch git-init target repo with no
+  `docs/specs/approvers.md`, issue 99009, same state root — `spawn.main()`
+  invoked directly, this session — result:'
+```
+before main(): False
+main() raised SystemExit (require_board, no approvers.md, no network): '대상 레포에 docs/specs/approvers.md 가 없다: /tmp/otr-2371review-repo2\n  이 파일이 보드 opt-in 이자 승인자 allowlist 
+after halt, file exists: True
+{"event": "spawn_attempt", "attempt_id": "99009:implementation:3164907:1787644858375", "issue": 99009, "role": "implementation", "pid": 3164907, "ts": 1787644858.375075}
+{"event": "spawn_attempt_outcome", "attempt_id": "99009:implementation:3164907:1787644858375", "outcome": "halted", "detail": "대상 레포에 docs/specs/approvers.md 가 없다: /tmp/otr-2371review-repo2\n  이 파일이 보드 opt-in 이자 승인자 allowlist 다. 만들려면:\n    python3 spawn.py init -C /tmp/otr-2371review-repo2\n  보드를 안 쓸 작업이면 --no-contract 로 건너뛴다.", "ts": 1787644858.375198}
+```
+acceptance: '`--dry-run` regression check (same target repo/state root
+  as Reproduction 2, issue 99009) — result:'
+```
+attempts file exists after dry-run: NO
+```
+rationale: Both reproductions show the durable trace file created
+  (`before main(): False` / `after..., file exists: True`) *before* the
+  halting gate ever ran, for gates spanning the full range named in
+  round 1's R2 evidence (`require_board` through
+  `require_requirement_linkage`) — including `require_board`, which
+  makes no network call at all, closing the "one layer earlier" gap
+  round 1 identified. This directly reverses round 1's own
+  `False / False` result for the identical
+  `require_requirement_linkage` halt shape (compare this block's
+  Reproduction 1 to round 1's now-superseded evidence, preserved in
+  `## CHANGES round` context above). `--dry-run` unaffected, confirming
+  no regression on the one path this requirement explicitly excludes.
+spec_vs_built: Spec required every fail-closed halt in the pre-log
+  bootstrap window to land its reason durably. Pre-fix built (round 1):
+  only halts from `require_doctor()` onward were caught; a halt from
+  any of the four contract gates left zero bytes anywhere. Post-fix
+  built: `_record_spawn_attempt()` runs before all four gates and
+  `require_doctor()`/`ensure_target_remote()`, all wrapped in the same
+  `except (SystemExit, Exception)` — confirmed by two independent live
+  reproductions above, one per gate class (network-backed and local).
+  This requirement's `Incorrect` verdict is corrected to `Present`;
+  the correction is recorded here, not by deleting or silently
+  overwriting round 1's evidence above.
+canonical: reproduction commands and raw output pasted verbatim above,
+  this session, this turn; `git show 300a0724 -- spawn.py` (this
+  session, `/tmp/wt-2366b`) for the underlying code change.
 
 ---
 requirement: A spawn-attempt record with no matching roster entry after
@@ -307,30 +423,38 @@ canonical: source lines above, read in this session's `git worktree` of
 requirement: 'Gate: `tests/test_spawn_pipeline.py` passes.'
 spec_ref: issue-2291 `## Acceptance`, "gate" line
 verdict: Present
-evidence: independently rerun this session, isolated `git worktree` of
-  PR #2366 head (3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d)
+evidence: independently rerun this session against PR #2366's
+  CHANGES-round fix head (300a07249b9032fe56ef684f2a2e86374a681c2a,
+  `git worktree` at `/tmp/wt-2366b`) — round 1's evidence (against the
+  since-superseded head 3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d) is
+  carried forward as prior confirmation, not relied on alone; this
+  round re-ran both suites fresh against the new head.
 acceptance: 'python3 -m pytest tests/test_spawn_pipeline.py -q (this
-  session, `/tmp/wt-2366`) — result:'
+  session, `/tmp/wt-2366b`) — result:'
 ```
 bringing up nodes...
+bringing up nodes...
+
 ........................................................................ [ 83%]
-..............                                                          [100%]
-86 passed in 9.28s
+..............                                                           [100%]
+86 passed in 10.10s
 ```
 acceptance: 'python3 -m pytest tests/test_state_root_scoping.py
   tests/test_watch_hardening.py test/test_roster_role_field.py
   tests/test_standing_red_watch.py tests/test_poll_watchdog_log.py
-  tests/test_spawn_pipeline.py -q (this session, `/tmp/wt-2366`) —
+  tests/test_spawn_pipeline.py -q (this session, `/tmp/wt-2366b`) —
   result:'
 ```
 ........................................................................ [ 49%]
 ........................................................................ [ 99%]
 .                                                                       [100%]
-145 passed in 1.42s
+145 passed in 1.36s
 ```
-rationale: Both counts independently rerun this session (not taken from
-  the PR's own pasted output) — 86 and 145 respectively, matching the
-  PR's own claimed counts.
+rationale: Both counts independently rerun this session against the new
+  head (not taken from the PR's own pasted output) — 86 and 145
+  respectively, matching both the PR's own claimed counts and round 1's
+  prior independent run against the pre-fix head — no regression from
+  the CHANGES-round fix.
 canonical: raw pytest output pasted verbatim above, this session, this
   turn.
 
@@ -416,97 +540,134 @@ rationale: End-to-end reproduced this session with its own scratch
   window it does not wrap).
 canonical: raw output pasted verbatim above, this session, this turn.
 
+## What did not work
+
+Nothing in this round's own reproduction attempts failed to reproduce —
+both the `require_requirement_linkage` halt and the `require_board`
+halt landed in the durable trace as the fix commit's diff predicts, and
+the `--dry-run` regression check showed no attempt file written, also
+as predicted. No monkeypatch, scratch-state setup, or `spawn.main()`
+invocation needed retrying this round.
+
 ## Open findings
 
-1. **R2/R4 `Incorrect`** — the four pre-existing phase gates
-   (`require_board`, `require_no_repo_config`, `require_acceptance_gate`,
-   `require_requirement_linkage`, spawn.py:1619-1624) run before
-   `_record_spawn_attempt()` (spawn.py:1652), and two of them can
-   `sys.exit()` after a real `gh api` call — a halt there is exactly as
-   traceless as the failure issue #2291 was filed to fix, one layer
-   earlier than the window PR #2366 instruments. This is the identical,
-   unaddressed defect PR #2365 already recorded (as R1/R3) against the
-   unchanged mechanism in PR #2305 — resolution path: move
-   `_record_spawn_attempt()` to the very top of `main()`'s non-dry-run
-   path (before spawn.py:1619) and wrap `require_board()` through
-   `require_requirement_linkage()` in the same
-   `try/except (SystemExit, Exception)` already used for
-   `require_doctor()`/`ensure_target_remote()`/`_spawn_one()`
-   (spawn.py:1654-1688).
-2. **R7 `Surface`**, non-blocking on its own but compounds finding 1 —
+1. **R2/R4, resolved this round** — round 1 recorded `Incorrect`: the
+   four pre-existing phase gates ran before `_record_spawn_attempt()`,
+   and two of them could `sys.exit()` after a real `gh api` call. Fix
+   commit 300a07249b9032fe56ef684f2a2e86374a681c2a moved the attempt
+   record to the top of `main()`'s non-dry-run path and wrapped all
+   four gates in the existing `try/except`, matching the resolution
+   path round 1 named verbatim. Independently re-verified `Present` this
+   round (see updated R2/R4 blocks above and `## CHANGES round` above)
+   — no longer an open finding.
+2. **R7 `Surface`**, non-blocking on its own, unchanged this round —
    ad-hoc (`--issue`-less) consumer spawns get no durable trace or
    watchdog visibility at all, and were the actual shape of the incident
    that first prompted this issue (issue #2291's own first comment).
-   Resolution path: a future issue amendment scoping whether ad-hoc
-   spawns should also get a (necessarily roster-less) durable trace, or
-   an explicit narrowing of "all consumer sessions" to "all
+   PR #2366's own record (this round's `git show
+   pr-2366:docs/issue-2291/reports/implementation.md`, this session)
+   assessed R7 and explicitly left it open, citing the need for a scope
+   decision rather than a same-shape low-risk edit. Resolution path
+   unchanged: a future issue amendment scoping whether ad-hoc spawns
+   should also get a (necessarily roster-less) durable trace, or an
+   explicit narrowing of "all consumer sessions" to "all
    `--issue`-scoped consumer sessions" in issue #2291's own text.
-3. **R8 `Surface`**, non-blocking — `spawn-attempts.jsonl` has no
-   pruning/rotation; every watchdog tick reads/parses the whole file.
-   Same gap PR #2365 flagged against #2305, carried forward unaddressed
-   in #2366. Resolution path: prune once an entry's outcome has been
-   swept and reported once, or cap/rotate the file.
-4. **Process gap, not itself a requirement verdict**: PR #2366's own
-   record documents reading PR #2365's terminal state but not its
-   finding content before porting the identical mechanism — the R1/R3
-   defect this record reconfirms as R2/R4 was therefore never carried
-   forward into this redelivery. Resolution path: a redelivery that
-   explicitly supersedes a design already subject to a prior conformance
-   review should read that review's findings, not only its PR state,
-   before re-porting the same mechanism.
+3. **R8 `Surface`**, non-blocking, unchanged this round —
+   `spawn-attempts.jsonl` has no pruning/rotation; every watchdog tick
+   reads/parses the whole file. Same gap PR #2365 flagged against
+   #2305, carried forward unaddressed in #2366's original delivery and
+   in this CHANGES round (PR #2366's own record cites needing new
+   already-reported tracking state before pruning is safe — a larger
+   change than this round's fix). Resolution path unchanged: prune once
+   an entry's outcome has been swept and reported once, or cap/rotate
+   the file.
+4. **Process-gap finding from round 1, now moot** — round 1 noted PR
+   #2366's original delivery read PR #2365's terminal state but not its
+   finding content before porting the identical mechanism from PR
+   #2305. This CHANGES round explicitly closes that gap: the fix
+   commit's own message names PR #2371 (this record's round-1 PR) and
+   its R2/R4 finding by number, and the resolution path applied is
+   verbatim what round 1's finding 1 recommended. No longer flagged as
+   open process risk for this issue; left here only as resolved
+   context, not deleted, per finding-record's "record re-examination
+   inline rather than treat a dispute as a request to fix/delete
+   anything."
 
 ## Next steps
 
-None — `loop_state: reported` (terminal for `review-record`). The four
-open findings above are for whichever session next takes up issue #2291
-(or a follow-up issue) to resolve; this record's own verdicts stand as
-delivered.
+None — `loop_state: reported` (terminal for `review-record`). R7/R8
+above remain open for whichever session next takes up issue #2291 (or a
+follow-up issue) to resolve; R2/R4 are resolved and no longer require
+follow-up. This record's own verdicts stand as delivered.
 
 ## skill-verdict
 
-skill-verdict: conformance-review-requirement-extraction — applied: invoked;
-  used to split issue #2291's `## Ask`/`## Acceptance`/Frozen
-  constraint prose into the requirement list in `## Findings` above
-  (count and derivation already stated under "What was done") — rule 1:
-  split "before any network..." and "every halt..." into separate
-  R2/R4; rule 3: dropped Acceptance's "paste real output of both" as a
-  summary line restating R11/R12's own sub-points; rule 6:
-  dimension-tagged each item, folded into the spec_ref/rationale text
-  above.
-skill-verdict: conformance-review-sampling-derivation — not-applicable:
-  full enumeration of both issue #2291 mechanisms and all 7 changed
-  files was feasible at this scope; no sampling scope was derived.
-skill-verdict: conformance-review-verification-method-selection — applied: invoked;
-  Test method reused for the gate (rerunning
-  `tests/test_spawn_pipeline.py`), Demonstration for empty-state/
-  provenance (own live scratch reproductions), Inspection for
-  structural claims (STATE_ROOT placement, watchdog call ordering),
-  Analysis plus a live reproduction for the pre-existing-gates ordering
-  defect — canonical: traced spawn.py:1619-1652 (this session's `git
-  worktree` of PR #2366 head), confirmed via the monkeypatched
-  `require_requirement_linkage` call under R4 above.
+Round 1 (this file's own prior PR) already carries its own
+skill-verdict lines above for
+`conformance-review-requirement-extraction`,
+`conformance-review-sampling-derivation`,
+`conformance-review-verification-method-selection`,
+`conformance-review-verdict-assignment` (round-1 scope),
+`conformance-review-traceability-and-evidence` (round-1 scope), and
+`conformance-review-finding-record` (round-1 scope) — not repeated
+here; those verdicts still stand for the requirements they covered.
+
+canonical: `gh pr view 2371 --json number,state -q '.number,.state'`
+(this session) — result `2371`, `MERGED`.
+
+This CHANGES round invoked three skills fresh, for the R2/R4
+re-verification specifically:
+
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked;
+  rule 1 (treated this record's own round-1
+  `Incorrect` verdict on R2/R4 as a claim to re-test against the fix
+  commit's actual code, not as settled once the fix commit's message
+  claimed resolution); rule 2 (added the `require_board` local-halt
+  reproduction as a deliberate edge case beyond the fix commit's own
+  `require_requirement_linkage`-only repro); rule 3 (re-derived from
+  `git show 300a0724 -- spawn.py` and live `spawn.main()` runs rather
+  than citing the fix commit's message or PR #2366's own untracked
+  `docs/issue-2291/reports/implementation.md` narrative — see `##
+  CHANGES round` above for the untracked/`git show pr-2366:...` note —
+  as evidence); rule 7 (both reproductions recorded with full raw
+  output, not a bare "reproduced" label, matching this round's own
+  "What did not work" rigor above).
 skill-verdict: conformance-review-verdict-assignment — applied: invoked;
-  Surface (not Present) for R7/R8 where the mechanism exists but does
-  not fully satisfy the named condition; Incorrect (not Absent) for
-  R2/R4 where the artifact actively contradicts "before any network
-  work" rather than merely omitting the trace; re-checked the R2/R4
-  evidence once via a live reproduction (rule 6) before finalizing;
-  no finding above was carried forward from PR #2365's record by
-  citation alone (different commit/PR) — every finding was
-  independently re-derived against #2366's own code this session.
-skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
-  every verdict above cites file:line plus the commit sha
-  actually read (3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d); R1 collapses
-  the Ask-bullet-1 STATE_ROOT clause and the Frozen-constraint
-  "nothing written into the consumer's tree" clause into one entry per
-  rule 4 (same evidence location); backward-traced each requirement's
-  source line to issue #2291's own text (quoted inline in `spec_ref`)
-  before checking its implementation, per rule 3.
+  corrected R2/R4 from `Incorrect` to `Present` per rule 6
+  (re-checked the evidence once via two independent live reproductions,
+  not the fix commit's own claim alone, before finalizing); `spec_vs_built`
+  on both updated blocks states what changed between the pre-fix and
+  post-fix built state, not just the new verdict label, per rule 5's
+  same discipline applied to a correction rather than an initial
+  Incorrect/Absent call.
 skill-verdict: conformance-review-finding-record — applied: invoked;
-  every Present/Surface/Incorrect verdict above carries both an
-  `evidence` pointer and a `spec_ref`; `spec_vs_built` filled for both
-  `Incorrect` entries (R2, R4); no verdict rendered without a citable
-  evidence pointer.
-skill-verdict: conformance-review-severity-classification —
-  not-applicable: this review's scope was not explicitly extended into
-  risk-weighting the findings above; severity is not assigned.
+  R2/R4 verdict correction recorded inline in the existing requirement
+  blocks (updated `evidence`/`rationale`/`spec_vs_built`, verdict
+  changed in place) rather than as a new duplicate block, per this
+  skill's own dispute-resolution guidance ("record its re-examination
+  inline rather than treating the dispute as a request to fix/delete
+  anything"); both updated blocks retain a citable `evidence` pointer
+  and `spec_ref`, no verdict left unsupported.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+  rule 1 (both updated R2/R4 evidence blocks cite file:line
+  plus the new head's commit sha, 300a07249b9032fe56ef684f2a2e86374a681c2a,
+  not a bare path); rule 2 (R4's evidence records both live
+  reproductions — `require_requirement_linkage` and `require_board` —
+  as separate `acceptance:` entries, one per contributing halt path,
+  rather than one link standing in for both); rule 5 (evidence pinned
+  to the CHANGES-round fix commit specifically, distinguished
+  throughout from the superseded pre-fix head
+  3cdfc4c52d4459c13f6d150b0ed126f06a7fc73d that round 1's own R2/R4
+  evidence was checked against).
+
+other mounted skills: not triggered this round
+  (conformance-review-requirement-extraction,
+  conformance-review-sampling-derivation,
+  conformance-review-verification-method-selection,
+  conformance-review-severity-classification — no new requirement
+  extraction, sampling, or severity-weighting was needed for a
+  two-requirement re-verification reusing round 1's own extraction; the
+  verification methods used this round (Analysis plus live
+  reproduction) were the same methods round 1's
+  `conformance-review-verification-method-selection` invocation already
+  selected for R2/R4, so no new method-selection judgment was made).
