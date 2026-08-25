@@ -29,9 +29,14 @@ python3 $ON_THE_RECORD/spawn.py consult <역할> "<질문>" [--issue <n>] [-C <�
 - `<역할>`: `spawn.py` 가 아는 역할 이름 (인자 없이 `spawn.py` 를 부르면 목록이 뜬다).
 - `<질문>`: 판단이 필요한 질문 하나. 여러 판단이 필요하면 여러 번 부른다 —
   한 번의 자문은 한 판단이다.
-- `--issue <n>`: 이 판단이 특정 이슈에 속하면 붙인다. 트레이스 파일이
-  `docs/issue-<n>/reports/consult-log.md` 로 간다 — 빠지면
-  `docs/reports/consult-log.md`.
+- `--issue <n>`: 이 판단이 특정 이슈에 속하면 붙인다. 트레이스는
+  `docs/issue-<n>/reports/consult-log/<session-ts-pid>.md` 로 간다 — 빠지면
+  `docs/reports/consult-log/<session-ts-pid>.md` (이슈 #2333: 세션마다
+  다른 샤드 파일이라 동시 자문끼리 절대 같은 경로를 두고 다투지 않는다 —
+  예전 단일 파일은 동시 세션마다 100% 예측 가능한 git merge 충돌이었다).
+  오늘까지의 단일-파일 뷰가 필요하면
+  `spawn.py consult-log --issue <n> [-C <레포>]` 로 모든 샤드를
+  시간순으로 이어 붙인 텍스트를 본다.
 
 ## 무엇이 돌아오나
 

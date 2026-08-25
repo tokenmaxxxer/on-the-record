@@ -244,15 +244,63 @@ def _persist_consult_raw_output(issue: int | None, ts: str, attempt: int, text: 
     return path
 
 
-def _consult_trace_path(issue: int | None, cwd: str | None = None) -> Path:
+_CONSULT_SESSION_SHARD_ID: str | None = None
+
+
+def _consult_session_shard_id() -> str:
+    """issue #2333: 이 프로세스(=하나의 자문 세션)를 식별하는 `<session-ts-pid>`
+    조각 — 첫 호출에서 한 번 계산해 프로세스 수명 내내 캐시한다. 같은
+    세션 안에서 여러 번 자문(consult/verb/skill_judge)을 불러도 전부 같은
+    샤드 파일에 쌓이고, 서로 다른 프로세스(=동시에 도는 다른 세션)는
+    타임스탬프나 pid 둘 중 하나만 같아도(같은 초에 뜬 서로 다른 세션,
+    또는 재시작으로 재사용된 pid) 절대 같은 파일을 안 쓴다 — 결합이
+    충돌을 만드는 유일한 경로였다(이슈 #2333 본문의 append-only +
+    concurrent-writers + one-path 3요소)."""
+    global _CONSULT_SESSION_SHARD_ID
+    if _CONSULT_SESSION_SHARD_ID is None:
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        _CONSULT_SESSION_SHARD_ID = f"{ts}-{os.getpid()}"
+    return _CONSULT_SESSION_SHARD_ID
+
+
+def _consult_trace_dir(issue: int | None, cwd: str | None = None) -> Path:
     """이슈가 있으면 그 이슈 트리 아래, 없으면 표준 6개 버킷 중
     `reports/` 아래 — `docs/` 는 표준 버킷과 `docs/issue-<n>/` 트리만
     허용한다(contract v3 s10, board-gate.sh 가 강제). 앵커는
-    `_consult_root()` 로 대상 레포(`-C`/cwd)에 맞춘다."""
+    `_consult_root()` 로 대상 레포(`-C`/cwd)에 맞춘다.
+
+    이슈 #2333: 파일 하나가 아니라 세션당 샤드 파일을 담는 디렉터리를
+    돌려준다 — `consult-log.md`(단일 append-only 파일)를 여러 세션이
+    동시에 자문하면 100% 예측 가능한 git merge 충돌을 만들었다(이슈
+    본문 "6+ manual conflict resolutions in one session"). 경로 하나에
+    쓰던 것을 세션마다 다른 경로에 쓰게 바꾸면 그 충돌 클래스 자체가
+    구조적으로 사라진다 — 해소가 아니라 제거."""
     root = _sp._consult_root(cwd)
     if issue is not None:
-        return root / "docs" / f"issue-{issue}" / "reports" / "consult-log.md"
-    return root / "docs" / "reports" / "consult-log.md"
+        return root / "docs" / f"issue-{issue}" / "reports" / "consult-log"
+    return root / "docs" / "reports" / "consult-log"
+
+
+def _consult_trace_path(issue: int | None, cwd: str | None = None) -> Path:
+    """이슈 #2333: 이 세션이 쓸 샤드 파일 — `_consult_trace_dir()` 아래
+    `_consult_session_shard_id()`.md. 다른 세션은 절대 이 경로를 쓰지
+    않는다(pid+타임스탬프가 같은 두 프로세스는 없다)."""
+    return _sp._consult_trace_dir(issue, cwd) / f"{_sp._consult_session_shard_id()}.md"
+
+
+def _consult_log_aggregate(issue: int | None, cwd: str | None = None) -> str:
+    """이슈 #2333: 오늘까지의 단일-파일 뷰를 재구성하는 리더/애그리게이터
+    — `_consult_trace_dir()` 아래 모든 세션 샤드를 파일명(=`<타임스탬프>-
+    <pid>`, 타임스탬프가 고정 폭이라 사전순 정렬이 곧 시간순) 순으로 이어
+    붙인다. 각 샤드 파일 자체가 `_append_consult_trace()`가 쓰던 것과
+    바이트 단위로 같은 줄 형식이라, 결과는 예전 `consult-log.md` 를 그대로
+    읽은 것과 동일한 텍스트다(사람이 보거나 게이트가 파싱하는 쪽 모두
+    변경 없음). 디렉터리가 아직 없으면(자문이 한 번도 없었으면) 빈 문자열
+    — 예전의 "파일 없음"과 같은 empty state."""
+    d = _sp._consult_trace_dir(issue, cwd)
+    if not d.is_dir():
+        return ""
+    return "".join(p.read_text(encoding="utf-8") for p in sorted(d.glob("*.md")))
 
 
 def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,

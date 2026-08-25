@@ -5,10 +5,15 @@ from types import SimpleNamespace
 import gh_delta
 
 
-def _response(status: int, headers: dict, body: str) -> SimpleNamespace:
+def _response(status: int, headers: dict, body: str, returncode: int | None = None) -> SimpleNamespace:
+    """issue #2315: real `gh api` exits 1 on any non-2xx status, 304
+    included — `returncode` defaults to that real behavior (0 for 2xx,
+    1 otherwise) unless a caller overrides it."""
     head_lines = [f"HTTP/2 {status}"] + [f"{k}: {v}" for k, v in headers.items()]
     stdout = "\r\n".join(head_lines) + "\r\n\r\n" + body
-    return SimpleNamespace(returncode=0, stdout=stdout)
+    if returncode is None:
+        returncode = 0 if 200 <= status < 300 else 1
+    return SimpleNamespace(returncode=returncode, stdout=stdout)
 
 
 def _page_response(items, etag=None, has_next=False):
@@ -69,6 +74,28 @@ def test_no_change_tick_makes_exactly_one_probe_and_zero_detail_fetches(tmp_path
     assert classification == "no-change"
     assert items == []
     assert len(calls) == 1
+    assert new_cursor == "2026-08-15T00:00:00+00:00"
+
+
+def test_genuine_non_304_error_still_classifies_error(tmp_path):
+    """issue #2315 regression guard: the 304-before-returncode reorder
+    must not swallow real failures (bad token / 5xx) into no-change —
+    only page-1 status 304 short-circuits the returncode check."""
+    cursor_file = tmp_path / "cursor.json"
+    cursor_file.write_text(json.dumps({"since": "2026-08-15T00:00:00+00:00",
+                                        "etag": '"cached-etag"',
+                                        "last_reconciliation": "2026-08-15T00:00:00+00:00"}),
+                            encoding="utf-8")
+
+    def fake_run(cmd, cwd=None, capture_output=True, text=True):
+        return _response(401, {}, '{"message": "Bad credentials"}')
+
+    items, new_cursor, classification = gh_delta.fetch_delta(
+        tmp_path, "acme/widget", "issues", run=fake_run,
+        now="2026-08-15T01:00:00+00:00", path=cursor_file)
+
+    assert classification == "error"
+    assert items is None
     assert new_cursor == "2026-08-15T00:00:00+00:00"
 
 
@@ -177,6 +204,8 @@ def test_pulls_resource_hits_issues_endpoint_no_since_symmetry_bug(tmp_path):
         calls.append(cmd)
         assert "repos/acme/widget/issues" in cmd
         assert "repos/acme/widget/pulls" not in " ".join(cmd)
+        assert "since=" not in " ".join(cmd)
+        assert "If-None-Match" not in " ".join(cmd)
         items = [
             {"number": 1, "updated_at": "2026-08-10T00:00:00+00:00"},
             {"number": 2, "updated_at": "2026-08-11T00:00:00+00:00",

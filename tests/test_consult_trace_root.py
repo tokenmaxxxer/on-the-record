@@ -86,7 +86,10 @@ class ConsultTraceRootTargetRepo(ConsultTraceRootBase):
             verdict = spawn.consult_cmd("requirements-engineering", "질문", issue=None, cwd=str(target))
 
             self.assertEqual(verdict["answer"], "판단 결과")
-            trace = target / "docs" / "reports" / "consult-log.md"
+            # issue #2333: 이 세션의 트레이스는 이제 `consult-log/` 아래
+            # 세션별 샤드 파일에 있다 — 정확한 파일명은 실제 경로 조립
+            # 함수로 물어본다(하드코딩된 단일 파일 경로는 더 이상 없다).
+            trace = spawn._consult_trace_path(None, str(target))
             self.assertTrue(trace.exists())
             self.assertIn("outcome='ok:", trace.read_text())
             status = subprocess.run(["git", "-C", str(target), "status", "--porcelain"],
@@ -96,9 +99,10 @@ class ConsultTraceRootTargetRepo(ConsultTraceRootBase):
                                  capture_output=True, text=True, check=True)
             self.assertIn("consult-trace (ok)", log.stdout)
             # plugin repo must NOT have received the trace line
-            plugin_trace = ROOT / "docs" / "reports" / "consult-log.md"
-            if plugin_trace.exists():
-                self.assertNotIn(str(target), plugin_trace.read_text())
+            plugin_trace_dir = ROOT / "docs" / "reports" / "consult-log"
+            if plugin_trace_dir.is_dir():
+                for shard in plugin_trace_dir.glob("*.md"):
+                    self.assertNotIn(str(target), shard.read_text())
 
     def test_trace_and_commit_land_under_target_repo_issue_tree(self):
         with tempfile.TemporaryDirectory() as td:
@@ -107,7 +111,7 @@ class ConsultTraceRootTargetRepo(ConsultTraceRootBase):
 
             spawn.consult_cmd("requirements-engineering", "질문", issue=9999, cwd=str(target))
 
-            trace = target / "docs" / "issue-9999" / "reports" / "consult-log.md"
+            trace = spawn._consult_trace_path(9999, str(target))
             self.assertTrue(trace.exists())
             status = subprocess.run(["git", "-C", str(target), "status", "--porcelain"],
                                     capture_output=True, text=True, check=True)
@@ -118,10 +122,15 @@ class ConsultTraceRootNoTarget(ConsultTraceRootBase):
     """(2) no explicit target keeps anchoring at the plugin repo (no regression)."""
 
     def test_no_cwd_anchors_at_plugin_root(self):
-        self.assertEqual(spawn._consult_trace_path(None, None),
-                         ROOT / "docs" / "reports" / "consult-log.md")
-        self.assertEqual(spawn._consult_trace_path(9999, None),
-                         ROOT / "docs" / "issue-9999" / "reports" / "consult-log.md")
+        # issue #2333: 파일 하나가 아니라 세션-샤드 디렉터리가 앵커다.
+        self.assertEqual(spawn._consult_trace_dir(None, None),
+                         ROOT / "docs" / "reports" / "consult-log")
+        self.assertEqual(spawn._consult_trace_dir(9999, None),
+                         ROOT / "docs" / "issue-9999" / "reports" / "consult-log")
+        self.assertEqual(spawn._consult_trace_path(None, None).parent,
+                         ROOT / "docs" / "reports" / "consult-log")
+        self.assertEqual(spawn._consult_trace_path(9999, None).parent,
+                         ROOT / "docs" / "issue-9999" / "reports" / "consult-log")
         self.assertEqual(spawn._panel_record_path(None, "q", None),
                          ROOT / "docs" / "reports" / "panel" / "q.md")
 
@@ -137,7 +146,8 @@ class ConsultTraceRootSharedAnchor(ConsultTraceRootBase):
             commit_root = spawn._consult_root(str(target))
             # this is exactly what _commit_consult_trace() does internally
             rel = trace_path.relative_to(commit_root)
-            self.assertEqual(str(rel), "docs/reports/consult-log.md")
+            self.assertEqual(str(rel.parent), "docs/reports/consult-log")
+            self.assertTrue(rel.name.endswith(".md"))
 
     def test_consult_with_target_cwd_does_not_raise_or_report_error(self):
         with tempfile.TemporaryDirectory() as td:

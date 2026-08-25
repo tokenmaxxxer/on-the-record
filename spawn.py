@@ -80,6 +80,7 @@ _roster_save = roster._roster_save
 _roster_own = roster._roster_own
 _watcher_looks_real = roster._watcher_looks_real
 _alive = roster._alive
+lease_key = roster.lease_key
 roster_register = roster.roster_register
 roster_remove = roster.roster_remove
 _declared_wait = roster._declared_wait
@@ -286,8 +287,11 @@ _commit_consult_trace = consult._commit_consult_trace
 _compress_diff = consult._compress_diff
 _consult_cmd_and_env = consult._consult_cmd_and_env
 _consult_evidence_suffix = consult._consult_evidence_suffix
+_consult_log_aggregate = consult._consult_log_aggregate
 _consult_or_record_error = consult._consult_or_record_error
 _consult_root = consult._consult_root
+_consult_session_shard_id = consult._consult_session_shard_id
+_consult_trace_dir = consult._consult_trace_dir
 _consult_trace_path = consult._consult_trace_path
 _cross_family_skill_matches_with_consult = consult._cross_family_skill_matches_with_consult
 _evidence_stamp_summary = consult._evidence_stamp_summary
@@ -1383,6 +1387,12 @@ def main() -> int:
             sys.exit(f"consult 실패(트레이스는 남았다): {e}")
         print(json.dumps(verdict, indent=2, ensure_ascii=False))
         return 0
+    if a.role == "consult-log":
+        # 이슈 #2333: consult-log.md 는 이제 세션마다 다른 샤드 파일이라,
+        # 오늘까지의 "파일 하나 cat" 만큼 쉬운 사람용/게이트용 단일-뷰가
+        # 없어지면 안 된다 — 이 서브커맨드가 그 자리를 대신한다.
+        print(_consult_log_aggregate(a.issue, cwd=a.cwd), end="")
+        return 0
     if a.role in ("ideate", "draft", "review"):
         if not a.task or not a.consult_question:
             sys.exit(f'사용법: spawn.py {a.role} <역할> "<{a.role} 요청>" [--issue <n>]')
@@ -2075,20 +2085,51 @@ _SKILL_VERDICT_PROSE = (
     "#2062) — not-applicable: 줄은 이 마커가 필요 없다.\n")
 
 
+# Issue #2227 (REQ-10, carried forward from #2204's unaddressed `## Fix`
+# bullet 2): `known-paths.md` covers cross-repo/plugin/sibling-workspace
+# path discovery ($ON_THE_RECORD, $CLAUDE_PLUGIN_ROOT_CORE,
+# $MUSTER_WORKSPACE_ROOT, $MUSTER_SKILL_REGISTRY_ROOT) — a concern that
+# only arises for a role whose write_scope reaches the code/test buckets
+# the role-handoff contract's own Layout line names ("code src/, tests
+# test/, docs/ six buckets"). Of the 44 `roles/*.json` specs, only
+# `implementation` (`write_scope: ["src/**", "test/**", "tests/**"]`)
+# does; the other 43 are report-only (`docs/issue-<n>/reports/<role>.md`,
+# `docs/decisions/*.md`, `CHANGELOG.md`, `design-tokens/*.json` — none
+# under src/**|test/**|tests/**) — their whole task IS that one file, no
+# sibling-workspace/plugin-path lookup in their task shape (several
+# roles' own JSON even say so: "implementation의 write_scope가 이미 이
+# 도메인을 inline으로 커버"). This reuses `write_scope`, already-declared
+# per-role data the gates (`gates/gates.py::role_scope`) already enforce
+# post-hoc — no new classifier, no new field.
+def _role_touches_code(write_scope: list) -> bool:
+    """True when a role's write_scope reaches src/**, test/**, or
+    tests/** — the code/test buckets, not the docs-only report path
+    every role's write_scope carries by default."""
+    return any(g.startswith(("src/", "test/", "tests/"))
+               for g in write_scope)
+
+
 def directive_section_files(*, skills_mounted: bool = False,
-                            checkpoint_block: str | None = None) -> dict[str, str]:
+                            checkpoint_block: str | None = None,
+                            code_scoped: bool = True) -> dict[str, str]:
     """The on-demand section files for one spawn: name -> full prose.
 
-    `completion-and-landing.md`, `repo-discovery.md`, `known-paths.md`,
-    and `turn-budget.md` are always materialized; the skill and
-    checkpoint sections only when their condition holds (their trigger
-    lines are equally conditional, so index and files stay a
-    bijection)."""
+    `completion-and-landing.md`, `repo-discovery.md`, and
+    `turn-budget.md` are always materialized — the invariant baseline
+    every task gets regardless of path scope (Acceptance 'empty state':
+    never an empty directive). `known-paths.md` is scoped to
+    `code_scoped` callers (issue #2227 REQ-10, see `_role_touches_code()`
+    above); the skill and checkpoint sections only when their own
+    condition holds. Default `code_scoped=True` keeps every caller that
+    does not pass the kwarg (adhoc spawns with no role write_scope to
+    check) on today's full bundle — the safe, over-inclusive default,
+    never a narrower directive than before by omission."""
     files = {"completion-and-landing.md":
              _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
-             "repo-discovery.md": _REPO_DISCOVERY_PROSE,
-             "known-paths.md": _KNOWN_PATHS_PROSE,
-             "turn-budget.md": _TURN_BUDGET_PROSE}
+             "repo-discovery.md": _REPO_DISCOVERY_PROSE}
+    if code_scoped:
+        files["known-paths.md"] = _KNOWN_PATHS_PROSE
+    files["turn-budget.md"] = _TURN_BUDGET_PROSE
     if skills_mounted:
         files["skill-obligations.md"] = (_SKILL_CHECK_PROSE + "\n"
                                           + _SKILL_VERDICT_PROSE)
@@ -2138,7 +2179,7 @@ _RECORD_SKELETON = """\
 ---
 issue: {issue}
 role: {role}
-loop_state: {loop_state}
+{author_line}loop_state: {loop_state}
 upstream:
   - path: <docs/issue-{issue}/... or code path this record builds on>
     sha:
@@ -2169,6 +2210,25 @@ path lands in this same commit, else the real 40-char sha -->
 <!-- fill while loop_state is non-terminal; set loop_state to the terminal
 value for this record kind when done -->
 """
+
+
+def _stamp_additive_record_fields(issue: int, role: str) -> str:
+    """Issue #2241 stage 1 (Accumulation note in the stage-1 proposal): the
+    single call site every additive record-field stamp goes through —
+    `author:` today; a later stage's new stamped field extends this same
+    helper rather than adding another inline write in
+    `write_record_skeleton`. `author:` is the session's stable identity —
+    not the lease key, which expires and renews
+    (docs/decisions/2026-08-25-retire-role-axis-staging.md Option D
+    explains why those stay separate fields). Roles are still fully in
+    place at this stage, so the only session-scoped identity available is
+    the role itself; a later stage may widen what populates this line
+    once a non-role-shaped identity axis exists. Returns a trailing-
+    newline-terminated frontmatter line, written once at skeleton
+    creation — `write_record_skeleton` already refuses to touch a record
+    file that exists, so a respawn into the same workspace can never
+    rewrite a prior session's `author:` line (append-only)."""
+    return f"author: {role}\n"
 
 
 def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
@@ -2232,7 +2292,8 @@ def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
     except Exception:
         pass
     body = _RECORD_SKELETON.format(issue=issue, role=role,
-                                   loop_state=loop_state)
+                                   loop_state=loop_state,
+                                   author_line=_stamp_additive_record_fields(issue, role))
     if spec_lines:
         body = body.replace("sha:\n---\n", "sha:\n" + spec_lines + "---\n", 1)
     if is_coding:
@@ -2587,7 +2648,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _directive_section_texts = directive_section_files(
                 skills_mounted=bool(skill_sources or role_source["skills"]),
                 checkpoint_block=(_checkpoint_contract_block(issue, role)
-                                  if checkpoint else None))
+                                  if checkpoint else None),
+                code_scoped=_role_touches_code(spec.get("write_scope", [])))
             materialize_directive_sections(cwd, _directive_section_texts)
             write_record_skeleton(cwd, issue, role)
         req_line = ""
@@ -2901,7 +2963,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         log_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"[{role}] 라이브 로그: {log_path}", file=sys.stderr)
         result = {}
-        roster_key = f"issue-{issue}/{role}" if issue is not None else f"adhoc/{role}/{os.getpid()}"
+        roster_key = lease_key(issue, role) if issue is not None else f"adhoc/{role}/{os.getpid()}"
         events_path = _events_path(cwd)
         offset_path = _offset_path(cwd)
         is_parent_return = False

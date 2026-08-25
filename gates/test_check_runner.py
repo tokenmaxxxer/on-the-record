@@ -18,6 +18,7 @@ issue-1323 req 2 의 단위테스트도 여기 있다 — 원래 `tests/test_che
 검사 대상 모듈 옆(`gates/`)에 한 파일로 합쳤다.
 """
 from __future__ import annotations
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -325,6 +326,80 @@ def t_bare_conventional_filename_and_dotfile_still_classify_as_file_existence_an
         with tempfile.TemporaryDirectory() as td:
             results = check_runner.run_checks(Path(td), checks)
         assert results[0]["status"] == "fail", (token, results)
+
+
+# --- issue #2313: compound `cd X && CMD` classifies by the final command --
+
+
+def t_compound_cd_command_classifies_as_test_not_file_existence():
+    """Consumer live repro: `cd frontend && node scripts/check-hex-tokens.mjs`
+    was classified file-existence (the full compound string contains `/`,
+    so `_looks_like_path` fired on it) though the real command — the part
+    after `&&` — passes by hand. Classification must key off the final
+    segment."""
+    section = "\n- check: `cd frontend && node scripts/check-hex-tokens.mjs`\n"
+    checks = check_runner.parse_checks(section)
+    assert [c["type"] for c in checks] == ["test"], checks
+    assert checks[0]["command"] == "cd frontend && node scripts/check-hex-tokens.mjs"
+
+
+def t_compound_semicolon_command_classifies_as_test_not_file_existence():
+    section = "\n- check: `cd frontend; node scripts/check-hex-tokens.mjs`\n"
+    assert _types(section) == ["test"], check_runner.parse_checks(section)
+
+
+def t_compound_cd_command_actually_runs_through_a_shell_and_passes():
+    """The classification fix is only half the story — `run_checks` must
+    also execute the compound command through a shell (`cd` is a shell
+    builtin, not exec-able via `shlex.split`+argv) for the consumer's
+    exact check to PASS post-fix."""
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        (repo / "frontend" / "scripts").mkdir(parents=True)
+        (repo / "frontend" / "scripts" / "check-hex-tokens.mjs").write_text(
+            "process.exit(0)\n")
+        checks = [{"type": "test", "raw": "r",
+                   "command": "cd frontend && node scripts/check-hex-tokens.mjs"}]
+        node = shutil.which("node")
+        if node is None:
+            checks = [{"type": "test", "raw": "r",
+                       "command": "cd frontend && true"}]
+        results = check_runner.run_checks(repo, checks)
+    assert results[0]["status"] == "pass", results
+
+
+def t_compound_command_final_bare_py_segment_is_wrapped_through_pytest():
+    """The bare-`.py`-through-pytest wrap (issue #2233) applies to the
+    final segment of a compound command too, not the whole string."""
+    section = "\n- check: `cd repo && tests/test_workspace_checkpoint.py`\n"
+    checks = check_runner.parse_checks(section)
+    assert checks == [{
+        "type": "test", "raw": "`cd repo && tests/test_workspace_checkpoint.py`",
+        "command": "cd repo && python3 -m pytest tests/test_workspace_checkpoint.py",
+    }], checks
+
+
+def t_compound_cd_command_with_declared_artifact_still_classifies_as_artifact_smoke():
+    """warrant-hunter finding: `_artifact_touched` keys off the first
+    token too (`cd` defeats its verb allowlist) — the same compound blind
+    spot as the classifier itself, so it needs the same final-segment
+    fix, or a declared-artifact compound check silently downgrades to
+    plain `test` and loses its `artifact` field."""
+    section = "\n- check: `cd frontend && node dist/bundle.js`\n"
+    checks = check_runner.parse_checks(section, ["dist/bundle.js"])
+    assert [c["type"] for c in checks] == ["artifact-smoke"], checks
+    assert checks[0]["artifact"] == "dist/bundle.js", checks
+    assert checks[0]["command"] == "cd frontend && node dist/bundle.js"
+
+
+def t_simple_noncompound_command_classification_is_unchanged():
+    """Acceptance empty state: a simple, non-compound command classifies
+    exactly as before the fix — the split is a no-op when there's nothing
+    to split."""
+    section = "\n- check: `node --check dist/bundle.js`\n"
+    assert _types(section) == ["test"], check_runner.parse_checks(section)
+    checks = check_runner.parse_checks(section)
+    assert checks[0]["command"] == "node --check dist/bundle.js"
 
 
 def t_all_judgment_checks_do_not_abort_run_checks_when_pre_filtered():
