@@ -167,12 +167,17 @@ def test_bm25_scoring_makes_no_network_or_consult_call():
     network call, and only at spawn -- never inside the per-occurrence
     BM25 scoring stage itself. `_bm25_cross_family_scores` must not call
     `subprocess` at all (pure in-process tokenizing/scoring over
-    already-read SKILL.md files)."""
-    src = (REPO_ROOT / "spawn.py").read_text(encoding="utf-8")
+    already-read SKILL.md files).
+
+    Issue #2207: `_bm25_cross_family_scores`/`_cross_family_skill_matches`
+    moved from `spawn.py` into `directive_assembly.py` (directive/skill-
+    assembly extraction) — the source-pin below follows the move rather
+    than merely relaxing it, per that issue's acceptance criteria."""
+    src = (REPO_ROOT / "directive_assembly.py").read_text(encoding="utf-8")
     m = re.search(
         r"def _bm25_cross_family_scores\(.*?\n(?=\ndef _cross_family_skill_matches\()",
         src, re.S)
-    assert m, "could not locate _bm25_cross_family_scores body in spawn.py"
+    assert m, "could not locate _bm25_cross_family_scores body in directive_assembly.py"
     body = m.group(0)
     assert "subprocess" not in body, (
         "_bm25_cross_family_scores must not shell out -- any network/"
