@@ -52,3 +52,13 @@ Append-only, newest entry last.
   constraint applies (2026-08-25): systemic for every consumer session;
   the fix REDUCES load by construction — state that measured in the
   record.").
+
+- 2026-08-25: operator restated the same standing systemic/no-side-effects
+  acceptance bar on issue #2285 (role retirement stage 2), applying it
+  to that issue's delivery and its review specifically — same wording as
+  the #2278 entry above, reapplied per-issue rather than superseding it.
+  Source: issue #2285 comment by JiwonJung94, 2026-08-25T01:27:57Z
+  ("Operator-frozen constraint (2026-08-25), applies to this issue's
+  delivery and its review... Reviewers grade against this: a delivery
+  that works here but adds overhead, a new contention point, or
+  consumer-visible residue elsewhere is NOT met.").
