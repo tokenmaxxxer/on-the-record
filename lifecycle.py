@@ -701,6 +701,27 @@ def _worktree_max_age_hours() -> float:
     return float(os.environ.get("MUSTER_WORKTREE_MAX_AGE_HOURS", "24"))
 
 
+def _worktree_last_activity(path: Path) -> float:
+    """`path`(worktree 루트) 자신의 mtime 이 아니라, 그 아래 모든
+    파일/서브디렉터리 mtime 중 최댓값을 본다. warrant-hunt 실측(이슈
+    #2383, 2026-08-25): git 은 디렉터리 엔트리가 추가/삭제/rename 될 때만
+    그 디렉터리 자체의 mtime 을 갱신한다 — 이미 있는 파일에 계속
+    append/overwrite 하는(체크 실행 중 로그·아티팩트를 쓰는 것과 같은)
+    프로세스는 최상위 디렉터리의 mtime 을 전혀 안 건드린다. 최상위
+    mtime 만 보면, 체크아웃 직후로 고정된 그 값이 24시간을 넘기는 순간
+    지금 실제로 쓰는 중인 worktree 도 '오래됨'으로 오판해 지운다 —
+    재현: 디렉터리를 backdate 하고 그 안 기존 파일 하나만 방금 건드린
+    뒤 `_prune_worktrees`를 부르면, 고쳐지기 전 코드는 그 worktree를
+    지웠다."""
+    latest = path.stat().st_mtime
+    for p in path.rglob("*"):
+        try:
+            latest = max(latest, p.stat().st_mtime)
+        except OSError:
+            continue
+    return latest
+
+
 def _prune_worktrees(repo: Path, max_age_hours: float | None = None,
                       now: float | None = None) -> None:
     """`spawn.py clean`이 워크스페이스 삭제와 같은 지나가는 길에 `repo`(호출
@@ -716,9 +737,11 @@ def _prune_worktrees(repo: Path, max_age_hours: float | None = None,
     이미 사라진 등록 항목만 지운다(existence 축). 2) 그러고도 디렉터리가
     여전히 남아있는 항목은 나이만으로는 안 걸린다 — 하드-킬된 프로세스가
     지우다 만 게 아니라 아예 못 지운 경우 디렉터리 자체가 그대로 남기
-    때문이다. 그 잔재를 잡으려면 별도로 각 worktree 디렉터리의 mtime을
-    `max_age_hours`와 비교해 오래된 것을 `git worktree remove --force`로
-    지운다(age 축) — 두 축이 잡는 실패 모드가 다르다."""
+    때문이다. 그 잔재를 잡으려면 별도로 각 worktree 의 마지막 활동 시각
+    (`_worktree_last_activity()` — 트리 전체에서 가장 최근 mtime, 최상위
+    디렉터리 자신의 mtime 만으로는 안 된다)을 `max_age_hours`와 비교해
+    오래된 것을 `git worktree remove --force`로 지운다(age 축) — 두
+    축이 잡는 실패 모드가 다르다."""
     if not (repo / ".git").exists():
         return
     before = subprocess.run(["git", "-C", str(repo), "worktree", "list"],
@@ -748,7 +771,7 @@ def _prune_worktrees(repo: Path, max_age_hours: float | None = None,
         try:
             if wt_path.resolve() == repo_resolved:
                 continue
-            age_sec = now - wt_path.stat().st_mtime
+            age_sec = now - _worktree_last_activity(wt_path)
         except OSError:
             continue  # 디렉터리가 이미 없다 — existence 축(위)이 이미 처리했다.
         if age_sec <= max_age_sec:
