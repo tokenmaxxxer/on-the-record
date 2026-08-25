@@ -30,10 +30,10 @@ upstream:
 subject: PR #2452 (`issue-2403/implementation` -> `main`, head
   a6ffa970f74e143aebc09a1c5adf7dbc3f1175e5, base
   3b4da51834b3908f4b8124c8bad9269c11c36f30, OPEN)
-test: issue #2403 Acceptance section — 5 check bullets, split into 8
-  requirement items per conformance-review-requirement-extraction
-  (derived: counting the 8 `requirement:` blocks under "## Findings"
-  below — 1a, 1b, 2, 3a, 3b, 4, 5a, 5b)
+test: issue #2403 Acceptance section, split into requirement items per
+  conformance-review-requirement-extraction — see the `requirement:`
+  blocks under "## Findings" below for the full list (1a, 1b, 2, 3a,
+  3b, 4, 5a, 5b)
 result: failed
 verdict: failed
 assertedBy: conformance-review session for issue-2403, review of PR #2452
@@ -174,13 +174,14 @@ verdict: Present
 evidence: |
   `a6ffa970:gates/merge_gate.py:169-187` (`staleness()`, pure local
   `git rev-list` + `merge-tree`, no `gh`), `:189-213`
-  (`staleness_for_pr()`, resolves refs then delegates), `:264-278`
-  (`evaluate()` — computes `stale = staleness_for_pr(...)` and attaches
-  `result["staleness"] = stale` at line 278, unconditionally, before
-  `evaluate()` returns — not inside any `gh pr merge` failure handler).
-  `a6ffa970:gates/verdict_gate.py:75,90-96` — `main()` calls
-  `merge_gate.evaluate()` at line 75 and prints `stale: behind by N,
-  conflicting: yes/no` at lines 90-96, both before `main()`'s final
+  (`staleness_for_pr()`, resolves refs then delegates), `:242,271,281`
+  (`evaluate()` — defined at `:242`, computes `stale =
+  staleness_for_pr(...)` at `:271`, and attaches `result["staleness"] =
+  stale` at `:281`, unconditionally, before `evaluate()` returns at
+  `:282` — not inside any `gh pr merge` failure handler).
+  `a6ffa970:gates/verdict_gate.py:62` (`main()`) calls
+  `merge_gate.evaluate()` at `:75` and prints `stale: behind by N,
+  conflicting: yes/no` at `:90-96`, both before `main()`'s final
   `return 0 if action == "ALLOW_MERGE" else 1` — no `gh pr merge`
   invocation appears anywhere in `verdict_gate.py` or `merge_gate.py`
   (derived: `grep -n "pr merge" a6ffa970:gates/verdict_gate.py
@@ -311,7 +312,7 @@ evidence: |
   session). The `rule` key states precisely when the field is set
   (`result: failed` driven solely by a mergeability/staleness entry, no
   other failed entry) and that it does not change the worst-case-result
-  recomputation rule at `:22-25` of the same file — `result: failed`
+  recomputation rule at `:26-29` of the same file — `result: failed`
   still stands and the merge is still blocked. The `orchestrator_rule`
   key states how a reader routes on seeing the field (mechanical rebase
   instead of a fresh implementation session). `checked_by: "TBD --
@@ -442,17 +443,19 @@ rationale: The requirement's narrow literal clause (the rebase operation itself 
    blocking finding.
 4. **Cosmetic count mismatch in the phase-1 survey's own skill-verdict
    line.** `docs/issue-2403/reports/conformance-review/survey.md` (sha
-   `80044a0f`) "## Skill verdicts" states the extraction split the 5
-   acceptance bullets into "9 one-obligation line items" — derived:
-   counting the survey's own "## Requirement extraction" list this
-   session: 1a, 1b, 2, 3a, 3b, 4, 5a, 5b = 8 items, not 9 (derived:
-   1+1+1+1+1+1+1+1 = 8, one count per listed id). This record's own
-   frontmatter `test:` field and "## Findings" header above use the
-   correct count (8). Resolution path: none required — does not change
-   any of the 8 verdicts rendered above or below; a one-word fix ("9"
-   → "8") in the survey's own skill-verdict line would remove this
-   cosmetic mismatch but is not required for any acceptance item to
-   pass or fail.
+   `80044a0f`) "## Skill verdicts" — derived: reading that line this
+   session — states the extraction split the acceptance bullets into
+   "9 one-obligation line items" (survey's own count, unverified by
+   this session beyond quoting it verbatim). derived: counting the
+   survey's own "## Requirement extraction" list this session gives
+   1a, 1b, 2, 3a, 3b, 4, 5a, 5b — 1+1+1+1+1+1+1+1 = 8, not the survey's
+   own quoted 9. This record's own frontmatter `test:` field and
+   "## Findings" header above use the session-counted total (8).
+   Resolution path: none required — does not change any of the 8
+   verdicts rendered above or below; a one-word fix in the survey's own
+   skill-verdict line (its "9" corrected to match an 8-item count) would
+   remove this cosmetic mismatch but is not required for any acceptance
+   item to pass or fail.
 
 ## Next steps
 
@@ -460,7 +463,7 @@ None required for this review itself — it is read-only
 (`conformance-review-finding-record`: this skill never fixes or patches
 what it finds). `loop_state` set to `reported`, terminal for this
 record. Overall `result`/`verdict: failed` per EARL worst-case
-recomputation (`a6ffa970:roles/specs/execution-observation.spec.json:22-25`)
+recomputation (`a6ffa970:roles/specs/execution-observation.spec.json:26-29`)
 — derived: counting the 8 verdict blocks under "## Findings" above, 6
 verdict Present (1a, 1b, 2, 3a, 4, 5a), 1 verdicts Surface (5b), and 1
 verdicts Absent (3b) — 6+1+1=8. Per this same PR's own new
