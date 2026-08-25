@@ -16,9 +16,15 @@ upstream:
     sha: same-commit
   - path: docs/issue-2414/reports/conformance-review/2026-08-25-hunt-conformance-review-record.md
     sha: f545150cd2ac652aa20f82279d34512e21c188a9
-subject: PR #2422 (branch issue-2414/implementation, head 2019bf3b)
-test: builder-blind conformance review against issue #2414's own six `## Acceptance` checks, plus independent re-derivation of the PR's 12.5% frequency figure and 76%/31% backlog-impact figures
-result: failed
+  - path: gates/acceptance_gate.py
+    sha: 6640246f668d751927c85fda1903c53202643feb
+  - path: on-the-record/directive/acceptance-format.md
+    sha: 6640246f668d751927c85fda1903c53202643feb
+subject: PR #2422 (branch issue-2414/implementation), initial-review head
+  2019bf3be0f0404e6b05e753eba5f1991bb54c34, re-reviewed after the
+  CHANGES-round stale-figure fix at head bd9350cdc79c3b57c34c0a207320c460e5aff276
+test: builder-blind conformance review against issue #2414's own six `## Acceptance` checks, plus independent re-derivation of the PR's 12.5% frequency figure and 76%/31% backlog-impact figures; re-review, this session — independently re-verified the CHANGES-round fix to the stale figure, canonical: `6640246f668d751927c85fda1903c53202643feb:gates/acceptance_gate.py:75-76` and `6640246f668d751927c85fda1903c53202643feb:on-the-record/directive/acceptance-format.md:28`, plus a live re-run of both regression suites in a fresh worktree
+result: passed
 assertedBy: conformance-review
 ---
 
@@ -246,39 +252,71 @@ rationale: |
 ---
 requirement: "the shipped narrow-trigger design's migration cost is accurately reported, since 'measured, not asserted' is the standard issue #2414 itself sets for any addition — verifying the 76%/31% backlog-impact figures this task asked for"
 spec_ref: "issue #2414 body, `## Acceptance` check 5 (accuracy of the stated measurement); PR #2422 description's headline figure '14/45 (31%)'"
-verdict: Incorrect
-evidence: "gates/acceptance_gate.py:75-76 and on-the-record/directive/acceptance-format.md:28 — PR #2422 branch sha `2019bf3b`"
+verdict: Present
+evidence: "6640246f668d751927c85fda1903c53202643feb:gates/acceptance_gate.py:75-76 and 6640246f668d751927c85fda1903c53202643feb:on-the-record/directive/acceptance-format.md:28 — PR #2422 branch, CHANGES-round fix commit `6640246f`, head `bd9350cd`"
 rationale: |
-  canonical: `grep -n "8 of 45\|18%\|blocks 8" gates/acceptance_gate.py
-  on-the-record/directive/acceptance-format.md` against the PR #2422
-  worktree this session:
+  Was Incorrect against PR #2422's initial head `2019bf3b` (this role's
+  own prior pass, this same record file, same session — canonical: the
+  original finding text this block replaces, preserved in this file's own
+  git history): the code comment and directive doc both cited a stale
+  "8 of 45 (18%)" while the record's own Measurement 3 and the PR
+  description's headline figure both already said 14/45 (31% —
+  14/45=0.311). PR #2426 (a separately merged conformance-review)
+  surfaced the same finding; the builder landed a CHANGES-round fix,
+  commit `6640246f`, on this PR's branch.
+
+  Re-review, this session: fetched PR #2422's current head fresh into a
+  new isolated worktree, independent of the fix commit's own
+  deviation-log account —
   ```
-  on-the-record/directive/acceptance-format.md:28:  one blocks 8).
-  gates/acceptance_gate.py:75:# backlog, this bounds the one-time migration cost to 8 of 45 open
-  gates/acceptance_gate.py:76:# issues (18%) while still catching all three real incidents (#2291,
+  $ gh pr view 2422 --json commits -q '.commits[-5:] | .[] | .oid + " " + .messageHeadline'
+  6640246f668d751927c85fda1903c53202643feb issue-2414: fix stale 8/45 (18%) backlog-cost figure to 14/45 (31%)
+  ...
+  $ git worktree add /tmp/pr2422-wt2 pr-2422-review-2   # HEAD bd9350cd
   ```
-  This contradicts the builder's implementation record's `## Measurements`
-  section 3 ("narrow-trigger (shipped) design = 14/45 = 31% newly blocked")
-  and the PR #2422 description's own headline figure. Independently
-  re-executed both the narrow-trigger and universal-design backlog sweeps
-  against the live repository this session (44 currently-open issues, one
-  fewer than the record's 45 because #2413 has since closed — #2413 is
-  itself one of the marginally-blocked issues in both designs):
+  canonical: `git show 6640246f -- gates/acceptance_gate.py on-the-record/directive/acceptance-format.md`
+  against that worktree, this session:
   ```
-  $ python3 -c "..." # narrow-trigger sweep, PR #2422 worktree's own acceptance_gate module
-  total=44 baseline_blocked=11 narrow_blocked=24 narrow_marginal_new=13
-  issues=[1633, 1656, 2136, 2138, 2139, 2297, 2334, 2357, 2360, 2409, 2412, 2415, 2417]
-  $ python3 -c "..." # universal-design sweep (trigger unconditional), same module
-  total=44 baseline_blocked=11 universal_blocked=44 universal_marginal_new=33
+  -# backlog, this bounds the one-time migration cost to 8 of 45 open
+  -# issues (18%) while still catching all three real incidents (#2291,
+  +# backlog, this bounds the one-time migration cost to 14 of 45 open
+  +# issues (31%) while still catching all three real incidents (#2291,
+  ...
+  -  one blocks 8).
+  +  one blocks 14).
   ```
-  derived: 13/44 (narrow) and 33/44 (universal) — each exactly one fewer
-  than the record's 14/45 and 34/45 (accounted for by #2413's closure since
-  the PR's own measurement was taken), and neither consistent with the code
-  comment's "8 of 45". The two figures this task asked to verify — 76%
-  (34/45 universal) and 31% (14/45 narrow) — are BOTH independently
-  reproduced and accurate; the "8 of 45 (18%)" figure shipped in the code
-  comment and the directive doc is the inaccurate one.
-spec_vs_built: "Spec (issue #2414 check 5, and this PR's own stated discipline): the migration cost of any addition must be measured and accurately stated, not asserted. Built: the correct, re-derivable number (14/45, 31%) exists in the builder's implementation record and the PR description, but a stale, lower, unfixed number (8/45, 18%) ships live in both the enforcing code's own comment (gates/acceptance_gate.py:75-76) and the directive doc future authors read (on-the-record/directive/acceptance-format.md:28). canonical: the builder's own `## What did not work` section (PR #2422 branch) states `_MECHANISM_TRIGGER` was missing past-tense/passive verb forms until a background warrant-hunter caught it before landing, and that Measurement 3 was re-run against the fixed regex afterward ('all fenced outputs above are post-fix') — the fixed, broader regex trips on more of the backlog, which is why the true count moved from roughly 8 to 14, but the code comment and directive doc committed in that same fix commit were never updated to match."
+  Both cited lines now read 14/45 (31%), matching the record's own
+  Measurement 3 and the PR description's headline figure. Swept for any
+  other remaining stale occurrence, this session, in the same worktree —
+  canonical:
+  ```
+  $ grep -rn "8 of 45\|18%\|8/45" gates/ on-the-record/ docs/issue-2414/
+  docs/issue-2414/reports/implementation.md:129:  "8 of 45 (18%)" as the narrow-trigger design's backlog cost — the
+  ```
+  derived: the one remaining hit is historical narration inside the
+  implementation record's own `## What did not work` section, describing
+  the now-fixed bug in past tense ("CHANGES round (PR #2422, commit
+  `6640246f`): ... both still cited '8 of 45 (18%)' ... Fixed in commit
+  `6640246f`") — not a live stale claim, and this review does not treat a
+  historical account of an already-fixed defect as itself a defect. No
+  other file under `gates/`, `on-the-record/`, or `docs/issue-2414/`
+  carries the stale figure. Re-ran both shipped regression suites live
+  against the same worktree after the fix, confirming the fix is
+  comment/prose-only with no functional regression:
+  ```
+  $ python3 gates/test_acceptance_gate.py 2>&1 | tail -1
+  27/27 passed
+  $ python3 -m pytest tests/test_acceptance_gate_tests_dir.py -q 2>&1 | tail -1
+  5 passed in 14.97s
+  $ python3 gates/test_requirement_met.py 2>&1 | tail -1
+  35/35 passed
+  ```
+  derived: 27+5+35=67/67 combined, all green, post-fix. The fix is
+  complete: both of the two out-of-record prose citations the prior pass
+  flagged are corrected, no other stale figure exists anywhere the prior
+  pass's own grep scope covered, and no regression was introduced.
+  Worktree removed after use, this session
+  (`git worktree remove /tmp/pr2422-wt2`).
 ---
 
 ---
@@ -314,21 +352,37 @@ rationale: |
 None on this review's own part — the verification approach (checking out
 the PR into a worktree and re-executing its measurements rather than
 reading its prose) worked as intended and is what surfaced the Incorrect
-finding above.
+finding below (now corrected — see the migration-cost-accuracy block and
+the re-review note immediately below).
+
+Re-review, this session: independently re-checked PR #2422's
+CHANGES-round fix (commit `6640246f668d751927c85fda1903c53202643feb`) to
+the migration-cost-accuracy finding, in a fresh isolated worktree
+(`/tmp/pr2422-wt2`, head `bd9350cdc79c3b57c34c0a207320c460e5aff276`),
+deliberately not trusting the fix commit's own deviation-log account per
+`defect-verification-independence-from-upstream-verdicts` — re-read
+`6640246f668d751927c85fda1903c53202643feb:gates/acceptance_gate.py:75-76`
+and `6640246f668d751927c85fda1903c53202643feb:on-the-record/directive/acceptance-format.md:28`
+directly, re-ran the same `grep -rn "8 of 45\|18%\|8/45" gates/
+on-the-record/ docs/issue-2414/` the prior round's own evidence used (not
+just the two known lines), and re-ran both shipped regression suites
+live. Full trace in the migration-cost-accuracy requirement block above
+(now Present); no other requirement block was re-litigated this round,
+since `git diff 2019bf3b..bd9350cd --stat` (this session, same worktree)
+shows the CHANGES-round diff touches only the two files that finding
+already covers, plus this record's own deviation-log/hunt files.
 
 ## Open findings
 
-- The stale "8 of 45 (18%)" figure in `gates/acceptance_gate.py:75-76` and
-  `on-the-record/directive/acceptance-format.md:28` (Incorrect finding
-  above, canonical: grep output pasted in that finding's evidence) —
-  resolution path: not this review's to fix (conformance-review writes only
-  its own record); since PR #2422 explicitly does not land as permanent
-  (its own "Amendment reconciliation" section states it is offered as
-  candidate input to #2415, not landed), whichever session next decides
-  `must not:`'s fate — a #2415 keep/merge/drop review round, or a direct
-  edit to PR #2422 before any merge — should correct both citations to the
-  record's own 14/45 (31%) figure or re-measure fresh against the backlog
-  at that time.
+- The stale "8 of 45 (18%)" figure (previously Incorrect, canonical: the
+  prior-round evidence preserved in the migration-cost-accuracy
+  requirement block's rationale above) — corrected this session: PR
+  #2422's CHANGES-round commit `6640246f668d751927c85fda1903c53202643feb`
+  fixed both citations to 14/45 (31%), independently re-checked against
+  the PR's current head (`bd9350cdc79c3b57c34c0a207320c460e5aff276`)
+  rather than carried forward from the fix's own account; see the
+  requirement block above (now Present) for the full re-run. No
+  resolution path remains open for this item.
 - The PR-classification judgment call behind the frequency figure could not
   be fully re-derived at PR-by-PR granularity within this review (see the
   check-2 finding above, canonical: the 38-item mechanical superset pasted
@@ -344,18 +398,20 @@ finding above.
 
 ## Skill verdicts
 
-- skill-verdict: conformance-review-requirement-extraction — applied: invoked; used to split issue #2414's six `## Acceptance` bullets into the discrete requirement blocks above, and to pull the migration-cost-accuracy check out as its own item (implied by check 5's "measured, not asserted" clause and this task's explicit ask to verify 76%/31%) rather than folding it silently into check 5's Present verdict.
-- skill-verdict: conformance-review-sampling-derivation — applied: invoked; the open backlog was enumerated fully rather than sampled (small enough — see the check-5/Incorrect-finding blocks above for the exact re-run), while the merged-PR-window classification was checked by an exact-count reproduction plus a mechanical superset plausibility check rather than full re-classification, with that limitation stated in Open findings rather than treated as exact.
-- skill-verdict: conformance-review-verification-method-selection — applied: invoked; Test for the two shipped regression suites (rerun live against the PR worktree), Analysis for re-executing the frequency/backlog-impact measurements against current repository state, Inspection for the diff/comment/doc consistency check that surfaced the Incorrect finding.
-- skill-verdict: conformance-review-verdict-assignment — applied: invoked; six Present verdicts and one Incorrect verdict, the Incorrect one naming its failing clause and citing spec_vs_built; re-checked its evidence twice (grep against both code and doc, plus a fresh live backlog re-run) before finalizing.
-- skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every evidence field cites file:line plus the PR head sha (`2019bf3be0f0404e6b05e753eba5f1991bb54c34`) or a live, re-runnable command with pasted output.
-- skill-verdict: conformance-review-finding-record — applied: invoked; this record file, `docs/issue-2414/reports/conformance-review.md`, is the only file this skill's own writes touched, using the five-value verdict set, and evidence was locatable for all seven requirement blocks (no refusal needed). Correction, canonical: `docs/issue-2414/reports/conformance-review/2026-08-25-hunt-conformance-review-record.md` — this review session separately wrote a second file, the deviation-log entry cited in "Upstream basis" above, per the Stop-hook deviation-log obligation (a distinct write path from this skill's own scope, not a violation of it) — an earlier draft of this line said "the only file this review wrote to" without that carve-out, which the self-hunt above shows is inaccurate.
+- skill-verdict: conformance-review-requirement-extraction — applied: invoked (prior session); used to split issue #2414's six `## Acceptance` bullets into the discrete requirement blocks above, and to pull the migration-cost-accuracy check out as its own item (implied by check 5's "measured, not asserted" clause and this task's explicit ask to verify 76%/31%) rather than folding it silently into check 5's Present verdict. Not re-invoked this session — the re-review reused the same requirement decomposition, no new bullet was added.
+- skill-verdict: conformance-review-sampling-derivation — applied: invoked (prior session); the open backlog was enumerated fully rather than sampled (small enough — see the check-5/Incorrect-finding blocks above for the exact re-run), while the merged-PR-window classification was checked by an exact-count reproduction plus a mechanical superset plausibility check rather than full re-classification, with that limitation stated in Open findings rather than treated as exact. Not re-invoked this session — the re-review's scope (two files, fully enumerable) needed no sampling decision.
+- skill-verdict: conformance-review-verification-method-selection — applied: invoked; Test for the two shipped regression suites (rerun live against the PR worktree), Analysis for re-executing the frequency/backlog-impact measurements against current repository state, Inspection for the diff/comment/doc consistency check that surfaced the Incorrect finding. Re-invoked this session for the re-review: Inspection (`git show 6640246f`) to confirm the fixed lines, Test (regression suites re-run in the fresh worktree) to confirm no functional regression.
+- skill-verdict: conformance-review-verdict-assignment — applied: invoked; canonical: the seven requirement blocks above — six Present verdicts and, at the prior pass, one Incorrect verdict naming its failing clause; re-checked its evidence twice (grep against both code and doc, plus a fresh live backlog re-run) before finalizing. Re-invoked this session: the migration-cost-accuracy verdict moved Incorrect → Present, re-derived fresh against head `bd9350cd` in an isolated worktree — canonical: the `git show` diff and regression re-run pasted in that block above — not carried forward from the fix commit's own deviation-log account.
+- skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every evidence field cites file:line plus the PR head sha (`2019bf3be0f0404e6b05e753eba5f1991bb54c34`) or a live, re-runnable command with pasted output. Re-invoked this session: the updated finding's evidence is pinned per contributing file (`6640246f:gates/acceptance_gate.py:75-76` and `6640246f:on-the-record/directive/acceptance-format.md:28`, one link each), plus the prior Incorrect verdict's citation preserved as history in the same block's rationale rather than overwritten.
+- skill-verdict: conformance-review-finding-record — applied: invoked; this record file, `docs/issue-2414/reports/conformance-review.md`, is the only file this skill's own writes touched, using the five-value verdict set, and evidence was locatable for all seven requirement blocks (no refusal needed). Correction, canonical: `docs/issue-2414/reports/conformance-review/2026-08-25-hunt-conformance-review-record.md` — this review session separately wrote a second file, the deviation-log entry cited in "Upstream basis" above, per the Stop-hook deviation-log obligation (a distinct write path from this skill's own scope, not a violation of it) — an earlier draft of this line said "the only file this review wrote to" without that carve-out, which the self-hunt above shows is inaccurate. Re-invoked this session to update the migration-cost-accuracy block in place (verdict Incorrect → Present, `spec_vs_built` dropped since it's required only for Incorrect) rather than opening a parallel record.
 - skill-verdict: conformance-review-severity-classification — not-applicable: this review's scope is ordinary fidelity-checking against issue #2414's own six checks, not an explicit extension into risk-banding a finding.
+- skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; this session's re-review deliberately did not read or cite PR #2422's own CHANGES-round deviation-log account (`20260825T130144037066-0b23939226b07fc9.md`) as evidence — instead re-derived the verdict from a fresh isolated worktree at head `bd9350cd` with an independent `git show`/grep re-run and a fresh regression-suite re-run, plus a negative-path sweep across all three directories the prior round's own grep scope covered (not just the two known lines) confirming no other stale figure remains.
 - skill-verdict: adversarial-review — not-applicable: this session already holds the full spec (issue #2414), the builder's own record, and PR history — the structurally-blind separate-evaluator setup that skill sets up is not what this review does; the conformance-review role itself already serves that function per contract v3.
 
 ## Next steps
 
-None further from this session — `loop_state: terminal`. Whichever session
-next touches `must not:`/`population:` (a #2415 keep/merge/drop review
-round, or a direct edit to PR #2422) should correct the stale citations
-named in Open findings above.
+None further from this session — `loop_state: terminal`. The
+migration-cost-accuracy finding (previously the sole non-Present verdict)
+is now Present, corrected and independently re-checked this session
+against PR #2422's CHANGES-round commit `6640246f`; no open item remains
+in `## Open findings` above.
