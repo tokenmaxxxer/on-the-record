@@ -440,6 +440,45 @@ def t_format_comment_lists_skipped_judgment_items_outside_the_pass_total():
     assert "reviewers agree this reads well" in out
 
 
+# --- issue #2463: angle-bracket placeholder backticks classify as judgment -
+
+def t_angle_bracket_placeholder_path_classifies_as_judgment_not_file_existence():
+    """issue #2463 live repro — issue #2402 / PR #2446 & #2456's actual
+    Acceptance text: a descriptive bullet backticks a naming-convention
+    placeholder (`issue-<n>/<role>`), not a real path. The literal string
+    `issue-<n>/<role>` can never exist on disk, so the old default
+    (file-existence because the backtick contains `/`) mechanically FAILed
+    two correct, execution-verified PRs for a reason unrelated to their
+    substance."""
+    section = (
+        "\n- check: there is a supported way to recut a corrupted branch's "
+        "content that remains mapped to its `issue-<n>/<role>` subject\n"
+    )
+    assert _types(section) == ["judgment"], check_runner.parse_checks(section)
+
+
+def t_angle_bracket_placeholder_variants_all_classify_as_judgment():
+    """The 9 misclassifications this session covered more than one
+    placeholder shape — pin `<n>` alone and a doubled placeholder too,
+    not just the `issue-<n>/<role>` compound."""
+    for token in ("issue-<n>", "issue-<n>/<role>/notes", "<role>/<n>"):
+        section = f"\n- check: the record path follows `{token}`\n"
+        assert _types(section) == ["judgment"], (token, check_runner.parse_checks(section))
+
+
+def t_genuinely_missing_literal_path_without_placeholder_still_fails():
+    """Regression fixture: a backticked token with a real `/`-shaped path
+    and no angle-bracket placeholder must still classify as
+    file-existence and genuinely FAIL when absent — the placeholder
+    exclusion must not blanket-disable the check."""
+    section = "\n- check: the report lands at `reports/genuinely-missing-report`\n"
+    checks = check_runner.parse_checks(section)
+    assert [c["type"] for c in checks] == ["file-existence"], checks
+    with tempfile.TemporaryDirectory() as td:
+        results = check_runner.run_checks(Path(td), checks)
+    assert results[0]["status"] == "fail", results
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:

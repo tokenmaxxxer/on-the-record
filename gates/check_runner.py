@@ -120,6 +120,17 @@ _BARE_PATH_NAMES = {
 # 없는 셸 내장이라 shlex.split 인자열로는 절대 성공하지 않는다.
 _COMPOUND_SEP = re.compile(r"&&|;")
 
+# issue #2463: `issue-<n>/<role>` 류 각괄호 placeholder. 서술문
+# ("~is mapped to `issue-<n>/<role>` subject" 같은 naming-convention
+# 언급)이 우연히 `/`를 담은 백틱을 갖고 있으면 `_looks_like_path`가 그걸
+# 실재 경로로 오인해 file-existence 로 떨어뜨렸다 — 리터럴 `issue-<n>`은
+# 디스크에 있을 수 없는 문자열이니 항상 FAIL 한다(이 세션에서 9번 실측:
+# 이슈 #2402 PR #2446/#2456의 진짜 Acceptance 문장 포함). `<...>` placeholder
+# 를 담은 토큰은 절대 실재 파일명일 수 없으므로 무조건 judgment 로
+# 내린다 — 진짜 존재하는 경로 백틱(placeholder 없음)의 FAIL 판정은
+# 그대로 유지된다.
+_ANGLE_PLACEHOLDER = re.compile(r"<[^\s<>]+>")
+
 
 def _final_segment(cmd: str) -> str:
     parts = _COMPOUND_SEP.split(cmd)
@@ -127,6 +138,8 @@ def _final_segment(cmd: str) -> str:
 
 
 def _looks_like_path(token: str) -> bool:
+    if _ANGLE_PLACEHOLDER.search(token):
+        return False
     if "/" in token:
         return True
     if token in _BARE_PATH_NAMES:
