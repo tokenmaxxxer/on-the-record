@@ -131,9 +131,9 @@ spec_ref: issue #2293 body, `## Ask`, item 1 (refusal clause)
 verdict: Present
 evidence: `760390cc:pipeline.py:1462` (`_DEGENERATE_TASK_RE =
 re.compile(r"^[#-]?\d+$")`) and `pipeline.py:1465-1496`
-(`_admission_check_degenerate_task`); `spawn.py:2313`
+(`_admission_check_degenerate_task`); `spawn.py:2293-2294`
 (`ADMISSION_CHECKS` row `("degenerate-task",
-_admission_check_degenerate_task)`); `spawn.py:2330`
+_admission_check_degenerate_task)`); `spawn.py:2329-2336`
 (`admission_gate({..., "task": task, ...})`)
 rationale: independent live CLI run, PR head worktree:
 ```
@@ -159,7 +159,7 @@ print statement, PR head worktree.
 spec_ref: issue #2293 body, `## Ask`, item 1 (message clause: `did you
   mean: spawn.py <role> "<task>" --issue 538`)
 verdict: Incorrect
-evidence: `760390cc:pipeline.py:1491-1494`
+evidence: `760390cc:pipeline.py:1491-1495`
 ```
 print(f"[admission] degenerate-task: task {task!r} looks like an issue "
       f"number; did you mean: spawn.py {ctx.get('role')} \"<task>\" "
@@ -281,7 +281,7 @@ canonical: this session's own inspection of the call sites, PR head
 worktree.
 spec_ref: issue #2293 body, `## Ask`, item 3 (frozen constraint, clause 1)
 verdict: Present
-evidence: `760390cc:pipeline.py:2313` (`ADMISSION_CHECKS` row, run
+evidence: `760390cc:spawn.py:2293-2294` (`ADMISSION_CHECKS` row, run
 unconditionally for every `spawn.py <role> <task>` invocation);
 `760390cc:watchdog.py:271-282` (`_diagnosis()` applied unconditionally
 inside `diagnose_health()`, the single code path used for every roster
@@ -348,7 +348,7 @@ spec_ref: issue #2293 comment `issuecomment-5404799228` ("adhoc/no-issue
 verdict: Absent
 evidence: `760390cc:spawn.py:1105`
 (`ap.add_argument("-C", "--cwd", default=".", ...)`) — unconditional
-default, no branch on `a.issue`; `760390cc:spawn.py:1536-1545`
+default, no branch on `a.issue`; `760390cc:spawn.py:1535-1545`
 (`_spawn_one(a.cwd, a.role, a.task, ..., a.issue, ...)`) passes the
 caller's cwd through unchanged whether or not `--issue` was given
 rationale: `git diff main...pr-2306 -- spawn.py pipeline.py watchdog.py`
@@ -448,7 +448,7 @@ canonical: this session's own structural diff of the admission-gate call
 site plus a targeted unit-test re-run, PR head worktree.
 spec_ref: issue #2293 body, `## Acceptance`, `empty state` line
 verdict: Present
-evidence: `760390cc:spawn.py:2330-2336` (`admission_gate({..., "task":
+evidence: `760390cc:spawn.py:2329-2336` (`admission_gate({..., "task":
 task, ..., "force_adhoc_task": force_adhoc_task})` — two new keys added
 to the ctx dict passed to every admission check)
 rationale: none of the pre-existing `ADMISSION_CHECKS` rows
@@ -565,11 +565,35 @@ other mounted skills: not triggered
 
 ## What did not work
 
-None for this review's own execution — every citation above was read or
-re-run live this session in isolated worktrees, and both worktrees were
-removed after use. Noted as an evidence/coverage gap in the artifact
-under review, not a review-process failure: PR #2306's own record cites
+Before-landing warrant hunt, stance 0:
+`docs/issue-2293/reports/conformance-review/2026-08-25-hunt-conformance-review.md`
+(committed `1cc65b14`).
+```
+$ git show 760390cc:spawn.py | sed -n '2290,2296p'
+ADMISSION_CHECKS: list[tuple] = [
+    ("degenerate-task", _admission_check_degenerate_task),
+    ("approve-token", _admission_check_approve_token),
+$ git show 760390cc:spawn.py | grep -n "return _spawn_one("
+1535:    return _spawn_one(a.cwd, a.role, a.task, a.unattended, a.issue,
+```
+canonical: pasted `sed`/`grep -n` output above — executed-live, this
+session. REQ-A/REQ-F's `ADMISSION_CHECKS` citation above reads
+`spawn.py:2293-2294` (the hunt's target — the first draft had
+`pipeline.py:2313`/`spawn.py:2313`, neither resolving to this
+construct); REQ-I's `_spawn_one()` call-site range above reads
+`1535-1545` (the first draft had `1536-1545`, omitting line 1535
+itself); REQ-B's print-statement range above reads `1491-1495` (the
+first draft had `1491-1494`, omitting the closing `"adhoc session)"`
+line already visible in the code block pasted in REQ-B's own finding).
+
+Every remaining citation was read or re-run live this session in
+isolated worktrees, pasted throughout `## Open findings` above, and all
+worktrees were removed after use.
+
+Noted as an evidence/coverage gap in the artifact under review, not a
+review-process failure: PR #2306's own record cites
 `tests/test_spawn_pipeline.py` as passing without noting that file
-contains no coverage of the feature it's named as the gate for (REQ-K),
-and its did-you-mean message has an unasserted content bug (REQ-B) that
-its own test suite would not have caught.
+contains no coverage of the feature it's named as the gate for (REQ-K,
+see the `grep` result pasted there), and its did-you-mean message has an
+unasserted content bug (REQ-B, see the live runs pasted there) that its
+own test suite would not have caught.
