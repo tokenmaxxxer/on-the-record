@@ -27,6 +27,7 @@ import io
 import json
 import math
 import os
+import shutil
 import signal
 import stat
 import string
@@ -1730,6 +1731,15 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
         _fetch_or_halt(str(src), "재사용 워크스페이스")
         _write_role_sidecar(str(src), issue, role)
         return str(src)
+    if issue is None and (work / ".git").exists():
+        # Issue #2293 (before-landing warrant hunt): an adhoc task has no
+        # identity to resume across respawns -- unlike the issue-scoped
+        # reuse branch below, a leftover directory at this pid-keyed path
+        # (a crashed prior adhoc spawn, or the OS reusing the pid once
+        # its number wraps) must never be silently inherited. Wipe it and
+        # fall through to the fresh-clone path, matching this function's
+        # own docstring claim that adhoc always takes it.
+        shutil.rmtree(work, ignore_errors=True)
     if (work / ".git").exists():
         # 이 경로가 우리가 만든 워크스페이스가 아니라 우연히 같은 이름으로
         # 미리 놓인 남의 레포일 수 있다(#288 N5) — origin 이 다르면 그건

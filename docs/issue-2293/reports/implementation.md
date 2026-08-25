@@ -58,7 +58,10 @@ after PR #2306 landed, so it covers all three asks in one PR:
    `if` level). Keyed by pid rather than issue number, since an adhoc
    task has no stable identity to resume across respawns — it always
    takes the fresh-clone path, never the two reuse branches
-   `issue_workspace()` already had.
+   `issue_workspace()` already had: a stale leftover directory found at
+   the pid-keyed path (e.g. a crashed prior adhoc spawn, or a reused
+   pid) is wiped before the fresh clone runs. See "What did not work"
+   for the shape this took before this record's final revision.
 
 3. **Timestamped+PID fallback log** (`spawn.py`): removed the
    `ROOT / "runs" / "last-session.log"` shared fallback and unified
@@ -113,7 +116,23 @@ fifth near-duplicate branch.
 
 ## What did not work
 
-None.
+The first version of the adhoc isolation (item 2 above) claimed in its
+own docstring that an adhoc spawn "always takes the fresh-clone path
+... rather than the reuse branches" in `issue_workspace()`, but the
+code did not actually skip the reuse-by-existing-directory branch for
+`issue is None` — only the naming differed. A before-landing
+warrant-hunt agent (record:
+`docs/issue-2293/reports/implementation/2026-08-25-hunt-2293-implementation.md`)
+reproduced the gap: with `os.getpid()` mocked to collide across two
+calls (simulating the OS reusing a pid once its number wraps, or a
+crashed prior adhoc spawn leaving its clone behind), the second adhoc
+spawn silently inherited the first one's committed branch and leftover
+file — no error, no divergent log line. Fixed by wiping any stale
+directory at the pid-keyed adhoc path before falling through to the
+fresh-clone code, so the docstring's claim now holds in code, not just
+prose. Regression test:
+`AdhocIsolationAndLogPath.test_stale_pid_keyed_workspace_is_wiped_not_reused`
+in `tests/test_spawn_pipeline.py`.
 
 ## Upstream basis
 
@@ -150,17 +169,17 @@ Gate: `tests/test_spawn_pipeline.py` (per issue's Acceptance line),
 plus the two suites that carry the admission-table and watchdog
 coverage for this change.
 
-acceptance: `python3 -m pytest tests/test_admission_checklist.py -n0 -q` — result:
+acceptance: `python3 -m pytest tests/test_admission_checklist.py -n0 -q` — result (re-run after the warrant-hunt fix below):
 ```
 ...............................
-31 passed in 7.93s
+31 passed in 0.44s
 ```
 
-acceptance: `python3 -m pytest tests/test_spawn_pipeline.py -n0 -q` — result:
+acceptance: `python3 -m pytest tests/test_spawn_pipeline.py -n0 -q` — result (re-run after the warrant-hunt fix below, +1 test vs the pre-fix run: the new stale-workspace regression test):
 ```
 ........................................................................
-................
-88 passed in 57.20s
+.................
+89 passed in 4.90s
 ```
 
 acceptance: `python3 -m pytest tests/test_spawn_gate_wiring.py -n0 -q` — result:

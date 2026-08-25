@@ -1290,7 +1290,43 @@ class AdhocIsolationAndLogPath(unittest.TestCase):
             # local dir name -- same derivation issue-scoped workspaces use.
             self.assertEqual(Path(adhoc_work).name,
                              f"somerepo-adhoc-implementation-{os.getpid()}")
-            self.assertNotIn("issue-None", adhoc_work)
+
+    def test_stale_pid_keyed_workspace_is_wiped_not_reused(self):
+        # Before-landing warrant hunt (issue #2293): a leftover directory
+        # at the pid-keyed adhoc path -- a crashed prior adhoc spawn, or
+        # the OS reusing a pid once its number wraps -- must never be
+        # silently inherited by a new, unrelated adhoc task. Same `pid`
+        # for both calls simulates the collision without needing to wait
+        # for a real OS pid wraparound.
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "caller-cwd"
+            self._repo(src)
+            work_base = Path(td) / "work"
+            work_base.mkdir()
+            old_environ = dict(os.environ)
+            os.environ["MUSTER_WORK_DIR"] = str(work_base)
+            fake_pid = 4242
+            try:
+                with mock.patch.object(spawn, "_fetch_or_halt"), \
+                     mock.patch.object(spawn.os, "getpid", return_value=fake_pid):
+                    w1 = spawn.issue_workspace(str(src), None, "implementation")
+                    stale = Path(w1) / "STALE_MARKER.txt"
+                    stale.write_text("leftover from a prior adhoc task\n")
+                    subprocess.run(["git", "-C", w1, "add", "STALE_MARKER.txt"],
+                                   check=True)
+                    subprocess.run(["git", "-C", w1, "commit", "-q", "-m", "stale"],
+                                   check=True)
+                    subprocess.run(["git", "-C", w1, "checkout", "-q", "-b",
+                                    "stale-branch-from-task-1"], check=True)
+                    w2 = spawn.issue_workspace(str(src), None, "implementation")
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environ)
+            self.assertEqual(w1, w2)  # same pid-keyed path
+            self.assertFalse((Path(w2) / "STALE_MARKER.txt").exists())
+            branch = subprocess.run(["git", "-C", w2, "branch", "--show-current"],
+                                    capture_output=True, text=True).stdout.strip()
+            self.assertNotEqual(branch, "stale-branch-from-task-1")
 
     @pytest.mark.slow
     def test_adhoc_spawn_runs_isolated_with_timestamped_pid_log(self):
