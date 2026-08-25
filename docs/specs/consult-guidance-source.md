@@ -24,14 +24,15 @@ read in that path today.
   skills against the skill-repository, and unconditionally returns
   `{"source": "skill-repo", ...}`. There is no second branch: an
   unmapped role resolves to zero skills, not to a different source.
-- `consult.py:636` — `consult_cmd()` builds its plugin list with
-  `plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]`.
-- `consult.py:910` — `_readonly_plugin_dirs()` (used by the judge path)
-  does the same: `out = list(_sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"])`.
-- `consult.py:1303` — `_run_panel_session()` does the same again, with
-  its docstring (`consult.py:1288-1290`) noting the call is
-  deliberately identical to `consult_cmd()`'s to avoid the two paths
-  drifting apart.
+- `consult.py:642` — `plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]`,
+  the line consult_cmd() builds its plugin list with.
+- `consult.py:916` — `out = list(_sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"])`,
+  the same call inside _readonly_plugin_dirs() (used by the judge path).
+- `consult.py:1309` — `plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]`,
+  the same call again inside _run_panel_session(); its docstring
+  (`consult.py:1294` mentions `resolve_role_source()`, through line
+  1296) notes the call is deliberately identical to consult_cmd()'s to
+  avoid the two paths drifting apart.
 
 This is the state issue #1955 (phase 2, commit `ac4d56a0`) put in
 place — it deleted `rulebook_checkout`, `_role_source_allowlist`,
@@ -47,8 +48,8 @@ unconditionally in this stage:
 
 - `_ROLE_SKILLS` (`skills.py:286-336`) — keyed by role name, not skill
   name.
-- The `roles/<role>.json` existence check (`consult.py:349`, `684`,
-  `810`, `1149`, `1298`) — still validates that a `role` string names a
+- The roles/*.json existence check (`consult.py:355`, `690`,
+  `816`, `1155`, `1304`) — still validates that a `role` string names a
   known `roles/*.json` file before doing anything else.
 
 Neither is this stage's defect to fix. Per the frozen decision

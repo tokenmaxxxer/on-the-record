@@ -30,8 +30,8 @@ the authoritative proposal (three paths, no more): `consult.py`,
 
 - `docs/specs/consult-guidance-source.md` (new): documents that every
   plugin-directory assembly call site in `consult.py`
-  (`consult_cmd()` at `consult.py:636`, `_readonly_plugin_dirs()` at
-  `consult.py:910`, `_run_panel_session()` at `consult.py:1303`)
+  (`consult_cmd()` at `consult.py:642`, `_readonly_plugin_dirs()` at
+  `consult.py:916`, `_run_panel_session()` at `consult.py:1309`)
   resolves guidance content through `skills.resolve_role_source()`
   (`skills.py:354-375`) with no allowlist branch. It also states,
   explicitly, that `role` staying exposed as a lookup key in
@@ -46,12 +46,12 @@ the authoritative proposal (three paths, no more): `consult.py`,
   `resolve_role_source()` the same way for a role present in
   `_ROLE_SKILLS` and one that is not.
 - `consult.py`: one code comment (no logic change) at the first
-  `roles/<role>.json` existence-check call site (`consult.py:349`,
+  `roles/<role>.json` existence-check call site (`consult.py:355`,
   inside `_skill_judge_consult()`), pointing at the proposal and
   naming which later stages own `_ROLE_SKILLS`'s key shape and this
   existence check. The other existence-check call sites
-  (`consult.py:684`, `consult.py:810`, `consult.py:1149`,
-  `consult.py:1298`) are the same pattern and are cited from the
+  (`consult.py:690`, `consult.py:816`, `consult.py:1155`,
+  `consult.py:1304`) are the same pattern and are cited from the
   comment/spec rather than each carrying its own copy.
 
 ## Why
@@ -94,6 +94,54 @@ the actual current locations instead of copying the proposal's
 numbers verbatim. The underlying claim (unconditional skill-repo
 resolution, no allowlist branch) is unchanged from what the proposal
 described.
+
+CHANGES-loop correction (conformance review R5, PR #2344): the
+paragraph above was itself wrong. Every `consult.py` line number this
+record originally cited for the spec doc's citations was six lines
+stale — computed before this same delivery commit's own six-line
+Korean comment insertion at the first existence-check call site, and
+never recomputed afterward. The stale set this record originally
+wrote:
+
+```
+consult.py:636, 910, 1303 (call sites)
+consult.py:349, 684, 810, 1149, 1298 (existence-check sites)
+```
+
+derived: `main:docs/issue-2285/reports/conformance-review.md`
+(untracked on this branch — landed on `main` via #2356, not yet
+merged into `issue-2285/implementation`), requirement R5, independently
+re-grepped the true lines via `git show
+0baac6010bb12baf3adb42d025f51885e8433892:consult.py | grep -n`; this
+session re-verified the same eight lines against branch head
+`f50e689f` (unchanged for `consult.py` since `0baac601` per that
+review's R1 `diff --stat`):
+
+canonical: `git show HEAD:consult.py | grep -n
+'_sp.resolve_role_source(role\|f = _sp.ROOT / "roles"'` (this session)
+— result:
+```
+355:        f = _sp.ROOT / "roles" / f"{role}.json"
+642:    plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]
+690:        f = _sp.ROOT / "roles" / f"{role}.json"
+816:        f = _sp.ROOT / "roles" / f"{role}.json"
+916:    out = list(_sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"])
+1155:        f = _sp.ROOT / "roles" / f"{role}.json"
+1304:    f = _sp.ROOT / "roles" / f"{role}.json"
+1309:    plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]
+```
+
+`docs/specs/consult-guidance-source.md` and this record's "What was
+done" section above now cite these eight recomputed lines (355, 642,
+690, 816, 916, 1155, 1304, 1309) instead of the six-line-stale set.
+Also reworded the spec doc's bullets so the quoted code excerpt sits
+immediately after each `path:line` citation, before any function-name
+mention, so the not-yet-landed `gates/record_lint.py`
+`citation_line_content_check` (issue #2331,
+`origin/issue-2331/implementation`, unmerged into this branch) does
+not mis-associate a nearby identifier's own definition line with the
+cited call-site line — validated below without merging that branch's
+changes into this one.
 
 ## Upstream basis
 
@@ -165,6 +213,36 @@ $ python3 gates/spec_index.py
 curated rows the "Tracked documents" table already lists, so
 `--update` produced no working-tree diff — correct, since no tracked
 document's content changed.
+
+Recomputed-citation validation (CHANGES-loop fix for R5), run against
+the not-yet-landed `gates/record_lint.py` `citation_line_bounds_check`/
+`citation_line_content_check` from `origin/issue-2331/implementation`
+(fetched read-only into `/tmp` for this check, never merged into this
+branch or written into the repo tree):
+
+canonical: this session, `python3 /tmp/validate_citations.py` (a
+throwaway script loading `citation_line_bounds_check`/
+`citation_line_content_check` from a copy of
+`origin/issue-2331/implementation:gates/record_lint.py` and running
+both over `docs/specs/consult-guidance-source.md`) — result:
+```
+bounds findings: 0
+content findings: 0
+```
+
+Also reran the gates already in this branch's tree, unaffected by the
+doc-only fix:
+```
+$ python3 gates/spec_index.py
+통과: 모든 spec 문서가 기록된 해시와 일치한다
+$ python3 -m pytest test/test_consult_no_rulebook_identity_regression.py -v
+created: 10/10 workers
+[gw3] [ 33%] PASSED test/test_consult_no_rulebook_identity_regression.py::ReadonlyPluginDirsUnconditionalSkillRepo::test_unmapped_role_still_resolves_through_resolve_role_source
+[gw1] [ 66%] PASSED test/test_consult_no_rulebook_identity_regression.py::ReadonlyPluginDirsUnconditionalSkillRepo::test_mapped_role_takes_the_same_single_path
+[gw0] [100%] PASSED test/test_consult_no_rulebook_identity_regression.py::NoRulebookIdentityInSource::test_consult_py_carries_no_forbidden_rulebook_identifiers
+
+3 passed in 0.79s
+```
 
 skill-verdict: work-in-english — applied: invoked; loaded before
 writing this record and the new code comment/test docstrings. This
