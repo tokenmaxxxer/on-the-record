@@ -128,6 +128,19 @@ def _alive(pid: int) -> bool:
         return False
 
 
+def lease_key(issue: int, disambiguator: str) -> str:
+    """Issue #2241 stage 1: generalizes the roster/lease key's second half
+    from a role name to any session-scoped disambiguator string. Every
+    existing caller still passes its role string through this — same
+    `issue-{issue}/{role}` shape, byte-identical key, byte-identical lease
+    behavior (renewal/expiry/requeue never inspect the key's structure,
+    only compare it as an opaque dict key) — this only proves a
+    non-role disambiguator works identically before any caller stops
+    passing role (docs/issue-2241/proposals/2026-08-25-stage-1-lease-
+    identity-record-kind.md)."""
+    return f"issue-{issue}/{disambiguator}"
+
+
 def roster_register(key: str, entry: dict) -> None:
     with _sp._roster_locked():
         d = _sp._roster_load()

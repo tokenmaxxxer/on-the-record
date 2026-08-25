@@ -80,6 +80,7 @@ _roster_save = roster._roster_save
 _roster_own = roster._roster_own
 _watcher_looks_real = roster._watcher_looks_real
 _alive = roster._alive
+lease_key = roster.lease_key
 roster_register = roster.roster_register
 roster_remove = roster.roster_remove
 _declared_wait = roster._declared_wait
@@ -2138,7 +2139,7 @@ _RECORD_SKELETON = """\
 ---
 issue: {issue}
 role: {role}
-loop_state: {loop_state}
+{author_line}loop_state: {loop_state}
 upstream:
   - path: <docs/issue-{issue}/... or code path this record builds on>
     sha:
@@ -2169,6 +2170,25 @@ path lands in this same commit, else the real 40-char sha -->
 <!-- fill while loop_state is non-terminal; set loop_state to the terminal
 value for this record kind when done -->
 """
+
+
+def _stamp_additive_record_fields(issue: int, role: str) -> str:
+    """Issue #2241 stage 1 (Accumulation note in the stage-1 proposal): the
+    single call site every additive record-field stamp goes through —
+    `author:` today; a later stage's new stamped field extends this same
+    helper rather than adding another inline write in
+    `write_record_skeleton`. `author:` is the session's stable identity —
+    not the lease key, which expires and renews
+    (docs/decisions/2026-08-25-retire-role-axis-staging.md Option D
+    explains why those stay separate fields). Roles are still fully in
+    place at this stage, so the only session-scoped identity available is
+    the role itself; a later stage may widen what populates this line
+    once a non-role-shaped identity axis exists. Returns a trailing-
+    newline-terminated frontmatter line, written once at skeleton
+    creation — `write_record_skeleton` already refuses to touch a record
+    file that exists, so a respawn into the same workspace can never
+    rewrite a prior session's `author:` line (append-only)."""
+    return f"author: {role}\n"
 
 
 def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
@@ -2232,7 +2252,8 @@ def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
     except Exception:
         pass
     body = _RECORD_SKELETON.format(issue=issue, role=role,
-                                   loop_state=loop_state)
+                                   loop_state=loop_state,
+                                   author_line=_stamp_additive_record_fields(issue, role))
     if spec_lines:
         body = body.replace("sha:\n---\n", "sha:\n" + spec_lines + "---\n", 1)
     if is_coding:
@@ -2901,7 +2922,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         log_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"[{role}] 라이브 로그: {log_path}", file=sys.stderr)
         result = {}
-        roster_key = f"issue-{issue}/{role}" if issue is not None else f"adhoc/{role}/{os.getpid()}"
+        roster_key = lease_key(issue, role) if issue is not None else f"adhoc/{role}/{os.getpid()}"
         events_path = _events_path(cwd)
         offset_path = _offset_path(cwd)
         is_parent_return = False
