@@ -36,10 +36,16 @@
 
 - ACCEPTANCE CHECK-RUNNER AT LANDING (issue #2233): before any of the
   landing steps below, run the check-runner explicitly as an orchestrator
-  step — `python3 gates/check_runner.py <pr> <issue> --repo ${CHECKOUT}` —
-  so its PR comment exists for `gates/merge_gate.py`'s `evaluate()` to
-  read. This is manual, not CI-wired: this repo carries no
-  `.github/workflows/` surface (`merge_gate.py`'s own docstring), so the
+  step — `python3 gates/check_runner.py <pr> <issue> --repo <repo>` — so
+  its PR comment exists for `gates/merge_gate.py`'s `evaluate()` to read.
+  issue #2313: `--repo` is the checkout of the repo the PR/issue actually
+  belongs to (`check_runner.py:381`'s `gh` calls use it as `cwd`) — when
+  orchestrating on-the-record's own landing that repo is `${CHECKOUT}`,
+  but for **target-repo** (consumer) work `--repo` must be that target
+  repo's checkout, never `${CHECKOUT}` — passing `${CHECKOUT}` there
+  fetches the plugin repo's own same-numbered issue instead and fails
+  with "Acceptance 절이 없다". This is manual, not CI-wired: this repo
+  carries no `.github/workflows/` surface (`merge_gate.py`'s own docstring), so the
   orchestrator session runs it by hand, same as the other landing steps
   here — nothing else in this repo invokes it. An issue whose
   `## Acceptance` section declares no runnable `check:`/`gate:` line gets

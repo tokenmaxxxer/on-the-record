@@ -13,7 +13,16 @@ issue #2233: 검사는 `--repo`(기본 `.`)가 아니라 **PR 의 head 커밋**�
 검사는 거기서 돈다 — 오케스트레이터 체크아웃 자체를 건드리지(브랜치를
 바꾸지) 않는다.
 
-  python3 gates/check_runner.py <pr-number> <issue-number> [--repo <경로>]
+issue #2313: `--repo`는 "**이 PR/이슈가 속한** 저장소의 체크아웃"이다 —
+`gh_rest.fetch_issue_body()`도 `post_comment()`도 그 경로를 `cwd`로 `gh`를
+부르므로, `gh`가 원격을 그 경로의 git remote 에서 읽는다. on-the-record
+자신의 PR을 orchestrate 할 땐 그게 이 플러그인 체크아웃(directive 색인이
+`${CHECKOUT}`로 부르는 경로)과 같지만, **target-repo**(소비 저장소) 작업을
+orchestrate 할 땐 절대 `${CHECKOUT}`이 아니라 그 소비 저장소의 체크아웃이어야
+한다 — `${CHECKOUT}`을 그대로 쓰면 이 플러그인 저장소에서 같은 번호의(대개
+없거나 무관한) 이슈를 읽어 "Acceptance 절이 없다"로 잘못 거부한다.
+
+  python3 gates/check_runner.py <pr-number> <issue-number> [--repo <이슈/PR이 속한 저장소 체크아웃, 기본 '.'>]
 """
 from __future__ import annotations
 import re
@@ -100,6 +109,22 @@ _BARE_PATH_NAMES = {
     "Procfile", "Gemfile", "Rakefile", "Vagrantfile", "Jenkinsfile",
 }
 
+# issue #2313: `cd frontend && node scripts/check-hex-tokens.mjs` 류 compound
+# 셸 명령. 분류는 마지막 세그먼트(실제로 실행되는 명령)로 해야 한다 — 앞
+# 세그먼트의 첫 토큰(`cd`)은 인터프리터 허용목록에도 없고 경로 확장자도
+# 없어, 예전엔 전체 문자열이 `_looks_like_path`(안에 `/`가 있으니)로
+# 떨어져 file-existence 오분류를 냈다: 명령이 한 번도 실행되지 않고
+# "그 이름의 파일이 있는가"만 봤다(#2278 의 non-path 반전은 토큰 자체가
+# `/`를 담은 이 모양을 못 잡는다). `run_checks`도 같은 정규식으로 compound
+# 여부를 봐서 `shell=True`로 돈다 — `cd`는 별도 프로세스로 exec 할 수
+# 없는 셸 내장이라 shlex.split 인자열로는 절대 성공하지 않는다.
+_COMPOUND_SEP = re.compile(r"&&|;")
+
+
+def _final_segment(cmd: str) -> str:
+    parts = _COMPOUND_SEP.split(cmd)
+    return parts[-1].strip() if len(parts) > 1 else cmd
+
 
 def _looks_like_path(token: str) -> bool:
     if "/" in token:
@@ -139,8 +164,13 @@ def parse_checks(section: str,
         bm = _BACKTICK_CMD.search(raw)
         if bm:
             cmd = bm.group(1).strip()
-            tokens = cmd.split()
-            artifact = _artifact_touched(cmd, declared) if declared else None
+            classify_cmd = _final_segment(cmd)
+            tokens = classify_cmd.split()
+            # issue #2313: the artifact-touch check keys off the first
+            # token too (`artifact_smoke_rule.command_touches_artifact`) —
+            # same compound-command blind spot as the classifier below, so
+            # it gets the same final-segment fix.
+            artifact = _artifact_touched(classify_cmd, declared) if declared else None
             if artifact is not None:
                 checks.append({"type": "artifact-smoke", "raw": raw,
                                 "command": cmd, "artifact": artifact})
@@ -157,14 +187,19 @@ def parse_checks(section: str,
                 # 파일을 직접 exec 하면 실행권한 오류로 항상 FAIL 처리되고
                 # 실제로는 한 번도 실행되지 않는다 — PR #2223 라이브
                 # 실행에서 실측됨. `pytest`로 감싸 진짜로 돈다.
-                if (len(tokens) == 1 and cmd.endswith(".py")
+                if (len(tokens) == 1 and classify_cmd.endswith(".py")
                         and tokens[0] not in INTERPRETERS):
-                    cmd = f"python3 -m pytest {cmd}"
+                    wrapped = f"python3 -m pytest {classify_cmd}"
+                    if classify_cmd != cmd:
+                        prefix = cmd[: cmd.rfind(classify_cmd)]
+                        cmd = f"{prefix}{wrapped}"
+                    else:
+                        cmd = wrapped
                 checks.append({"type": "test", "raw": raw, "command": cmd})
             elif _MEASUREMENT_LANGUAGE.search(raw):
                 checks.append({"type": "judgment", "raw": raw})
-            elif _looks_like_path(cmd):
-                checks.append({"type": "file-existence", "raw": raw, "path": cmd})
+            elif _looks_like_path(classify_cmd):
+                checks.append({"type": "file-existence", "raw": raw, "path": classify_cmd})
             else:
                 checks.append({"type": "judgment", "raw": raw})
             continue
@@ -209,8 +244,16 @@ def run_checks(repo: Path, checks: list[dict]) -> list[dict]:
             # 크래시 경로. 이런 OS 레벨 실행 실패는 "이 검사가 실패했다"는
             # 결과일 뿐 러너 전체가 죽을 이유가 아니다.
             try:
-                r = subprocess.run(shlex.split(chk["command"]), cwd=repo,
-                                    capture_output=True, text=True)
+                # issue #2313: `cd X && CMD`/`cd X; CMD` — `cd`는 셸 내장이라
+                # argv 로 직접 exec 할 수 없다. compound 명령만 `shell=True`로
+                # 돈다; 단순 명령은 지금까지처럼 shlex 로 토큰화해 셸을 거치지
+                # 않는다(범위를 넓히지 않는다).
+                if _COMPOUND_SEP.search(chk["command"]):
+                    r = subprocess.run(chk["command"], shell=True, cwd=repo,
+                                        capture_output=True, text=True)
+                else:
+                    r = subprocess.run(shlex.split(chk["command"]), cwd=repo,
+                                        capture_output=True, text=True)
                 status = "pass" if r.returncode == 0 else "fail"
                 output = (r.stdout + r.stderr)[-2000:]
             except OSError as e:
@@ -372,7 +415,8 @@ def post_comment(pr: int, body: str, repo: Path) -> bool:
 
 def main() -> int:
     if len(sys.argv) < 3:
-        print("usage: check_runner.py <pr-number> <issue-number> [--repo <경로>]")
+        print("usage: check_runner.py <pr-number> <issue-number> "
+              "[--repo <이슈/PR이 속한 저장소 체크아웃, 기본 '.'>]")
         return 1
     pr, issue = int(sys.argv[1]), int(sys.argv[2])
     repo = Path(".").resolve()
