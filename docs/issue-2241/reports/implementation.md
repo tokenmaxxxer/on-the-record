@@ -176,3 +176,9 @@ the 3 touch `spawn.py`'s CLI dispatch or `skills.py`.
 None — `loop_state: landed` is terminal for this stage. Stages 1-6 of the
 issue #2241 program are separate future work, each with its own proposal and
 acceptance, per the issue's own staging order.
+
+amendments-reconciled: issuecomment-5403806594 (canonical: `gh issue view
+2241 --json comments`) — operator filed tracking issues for stages 1-6
+(#2284-#2289) and confirmed stage 0 runs in-session under issue #2241 itself,
+matching this record. No change to stage 0's scope, write set, or
+acceptance; nothing to reconcile beyond acknowledging the comment.
