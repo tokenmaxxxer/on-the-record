@@ -126,17 +126,74 @@ $ time git rebase origin/main    # deliberate conflict, detect+abort
 real  0m0.042s
 ```
 
-No token-cost figure exists to compare against: `spawn.py`'s spawn-attempt
-ledger (`SPAWN_ATTEMPTS_PATH`) stores two epoch timestamps per attempt and no
-token field (canonical: `spawn.py` `_record_spawn_attempt`/
-`_record_spawn_outcome`, read this session) — a real gap, not an elided
-number. The closest concrete proxy this codebase defines is
-`DEFAULT_SESSION_MAX_TURNS = 200` (canonical: `directive_assembly.py:118`,
-`pipeline.py::_admission_check_budget_caps`, read this session): every full
-role session is admitted with up to 200 LLM turns of budget; the mechanical
-path costs 0 LLM turns. The wall-clock table above (minutes-to-hours vs.
-sub-second, derived: `time` output pasted above) is the number the
-acceptance check asks for.
+**Token cost measured (this CHANGES round — closes the acceptance check 3
+gap conformance-review PR #2462 found Absent).** `spawn.py`'s
+spawn-attempt ledger (`SPAWN_ATTEMPTS_PATH`) still stores only two epoch
+timestamps per attempt and no token field (canonical: `spawn.py`
+`_record_spawn_attempt`/`_record_spawn_outcome`, read this session) — that
+part of the prior draft was accurate but incomplete: the ledger isn't the
+only place token data lives. Each of the four rebase-only role sessions
+named above left its own JSONL transcript on disk under
+`$MUSTER_WORKSPACE_ROOT` (canonical: `ls $MUSTER_WORKSPACE_ROOT`, this
+session), and every assistant turn in those transcripts carries a real
+`usage` object (`input_tokens`/`cache_creation_input_tokens`/
+`cache_read_input_tokens`/`output_tokens`). Summing those fields per file
+is a real number, not an estimate:
+
+| case | rebase-session transcript (canonical path) | wall-clock (session start→end, turns) | token cost (sum of every `usage` object in the transcript) |
+|---|---|---|---|
+| #2293 / PR #2368 | `on-the-record-issue-2293-implementation.session.20260825T172328.3835094.log` | 08:23:57Z→08:51:44Z = 27m47s, 62 turns | 3,876,383 (in 124 / cache-write 94,032 / cache-read 3,781,931 / out 296) |
+| core#304 / PR #307 | `tokenmaxxxer-core-issue-304-implementation.session.20260825T174136.748252.log` | 08:41:48Z→08:44:17Z = 2m29s, 41 turns | 2,366,213 (in 82 / cache-write 88,187 / cache-read 2,277,809 / out 135) |
+| #2383 / PR #2389 | `on-the-record-issue-2383-implementation.session.20260825T185820.3373535.log` | 09:58:48Z→10:23:32Z = 24m44s, 61 turns | 3,594,684 (in 120 / cache-write 92,789 / cache-read 3,501,533 / out 242) |
+| #2348 / PR #2388 | `on-the-record-issue-2348-implementation.session.20260825T191124.3830152.log` | 10:11:44Z→10:16:29Z = 4m45s, 70 turns | 4,204,745 (in 140 / cache-write 83,716 / cache-read 4,120,467 / out 422) |
+| **total, 4 incidents** | | **~59m45s** LLM wall-clock | **14,042,025 tokens** |
+
+(All four sessions were independently identified as the rebase-only
+session for their case by matching each transcript's own timestamp span
+against the commit timestamps already cited in the wall-clock table above
+— e.g. #2293's fix commit at `08:26:27Z` falls inside this transcript's
+`08:23:57Z`-`08:51:44Z` span — not by assumption.)
+
+Reproduced this session with (canonical: run against each path above,
+figures in the table are this command's actual output):
+
+```
+$ python3 - <<'EOF'
+import json
+tot = dict(input_tokens=0, cache_creation_input_tokens=0,
+           cache_read_input_tokens=0, output_tokens=0)
+for line in open("<transcript path>", errors="replace"):
+    line = line.strip()
+    if not line:
+        continue
+    obj = json.loads(line)
+    if obj.get("type") == "assistant":
+        u = obj["message"].get("usage") or {}
+        for k in tot:
+            tot[k] += u.get(k, 0)
+print(tot, sum(tot.values()))
+EOF
+```
+
+The mechanical `spawn.py rebase` path (item 2 above) makes zero calls into
+any LLM: `_mechanical_rebase()`'s only subprocess calls are
+`symbolic-ref`/`fetch`/`rev-list`/`rebase`/`push` (canonical:
+`spawn.py::_mechanical_rebase`, this commit) — no `claude`/API invocation
+anywhere in that function or its callers. Its token cost for the same four
+rebases is exactly **0**, by inspection of the code path actually run, not
+an estimate.
+
+**The acceptance check 3 comparison, in numbers**: 14,042,025 tokens and
+~59m45s of live LLM session time were spent on the four historical
+rebase-only sessions this issue names, against 0 tokens and well under one
+second of `git` time (mechanical-cost codefence above) for doing the same
+four rebases through `spawn.py rebase`. `DEFAULT_SESSION_MAX_TURNS = 200`
+(canonical: `directive_assembly.py:118`,
+`pipeline.py::_admission_check_budget_caps`, read this session) is the
+budget each of those four sessions was admitted against — a ceiling, not
+what they actually spent — so the measured token table above supersedes it
+as evidence; it's kept here only as the pre-existing admission-time budget
+figure for context.
 
 Why a sibling field, not a 6th `result` enum value: `execution-observation`
 records use an EARL 1.0 (W3C) `result` enum
@@ -149,10 +206,23 @@ reader tells the two apart").
 
 ## What did not work
 
-None this session — the two design choices (rebase vs. also mechanizing
-conflict resolution; sibling field vs. new enum value) were each settled by
-reading existing precedent/constraints before writing code, not by trying
-something and reverting it.
+None in the original session — the two design choices (rebase vs. also
+mechanizing conflict resolution; sibling field vs. new enum value) were
+each settled by reading existing precedent/constraints before writing
+code, not by trying something and reverting it.
+
+This CHANGES round: the original cost-measurement paragraph looked only at
+`spawn.py`'s persistent spawn-attempt ledger (canonical: `spawn.py`
+`_record_spawn_attempt`/`_record_spawn_outcome`, read prior session),
+found no token field there, and stopped — concluding "no token-cost
+figure exists" instead of also checking the four rebase sessions' own
+JSONL transcripts under `$MUSTER_WORKSPACE_ROOT`, which carried real
+per-turn `usage` data all along (canonical: conformance-review PR #2462's
+body, `gh pr view 2462 --json body`, this session, citing the Absent
+verdict on acceptance check 3). Fixed by reading those transcripts
+directly and summing their `usage` objects (derived: this session's
+`python3` sums over the four transcript files) — see the "Why" section's
+token-cost table.
 
 ## Open findings
 
@@ -214,8 +284,13 @@ this commit, pytest output above — result: PASS) — the
 the `test_aborts_and_reports_conflict_when_not_mechanical` case asserts
 `origin` is untouched and the working tree is byte-identical to before.
 
-**Check 3 — cost measurement.** See "Why" section's table and `time`
-codefence above — real timestamps and real timed commands, this session.
+**Check 3 — cost measurement.** See "Why" section's wall-clock table,
+`time` codefence, and (added this CHANGES round) the token-cost table —
+real timestamps, real timed commands, and real per-turn `usage` sums
+pulled from the four rebase sessions' own transcripts, all this session.
+14,042,025 tokens / ~59m45s across the four historical rebase sessions vs.
+0 tokens / sub-second `git` time for the same four rebases via
+`spawn.py rebase` — numbers, not an assertion of speed.
 
 **Check 4 — distinct expression for observer-only staleness blocks.** See
 "What was done" item 3.
@@ -282,3 +357,26 @@ output, this session — result: FAIL, byte-identical to the failure above).
   directly-adjacent existing precedent in the same files
   (`_recut_absorbed_branch`, `pr_refs()`'s fail-open convention) rather than
   requiring a fresh architecture decision.
+
+**This CHANGES round (bullet-3 addendum, no code touched):**
+
+- `conformance-review-traceability-and-evidence` — applied: invoked; used
+  rule 1 (cite file:line/path plus the exact source read, not a bare
+  claim) to attach `canonical`/`derived` tags to every new figure in the
+  token-cost table and to the "What did not work" entry above — each of
+  the four token-cost rows cites its own transcript path as the one
+  contributing evidence file per case (rule 2), and the record-claim-guard
+  hook enforced the same requirement mechanically on this round's first
+  edit attempt (canonical: hook error text returned to this session on
+  that attempt).
+- `work-in-english` — applied: invoked; this round's record additions are
+  English exhaust, matching the rest of the file; the final summary to the
+  user stays Korean per the skill's routing rule.
+- `implementation-complexity-coupling-management`,
+  `implementation-design-pattern-selection`,
+  `implementation-performance-data-structure-choice`,
+  `implementation-blueprint` — not-applicable this round: no code file
+  changed, only this record's cost-measurement evidence — bullets 1-2's
+  mechanisms are out of scope this round per the CHANGES request
+  (canonical: issue #2403 comment "this is scoped narrowly to bullet 3",
+  `gh issue view 2403 --comments`, this session).
