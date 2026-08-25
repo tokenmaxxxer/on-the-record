@@ -9,6 +9,8 @@ code_under_review:
   - spawn.py
   - roster.py
   - watchdog.py
+  - tests/_spawn_test_support.py
+  - tests/test_spawn_pipeline.py
 type: feat
 breaking: "no"
 verdict: pass
@@ -139,7 +141,127 @@ halt wherever in that window it originates, present or future.
 
 ## What did not work
 
-None.
+None on the original delivery. See `## Rationale for deviations` below for
+a CHANGES-round correction: the original delivery's diagnosis of the
+`role_model.txt` flake as "not touched by this change" was right about
+causation but wrong to leave unfixed, since it kept the PR's own acceptance
+gate (`tests/test_spawn_pipeline.py`) unreliable.
+
+## Rationale for deviations
+
+CHANGES round on PR #2305: a reviewer reported
+`SpawnCmd::test_role_model_env_overrides_config` passing on `main` but
+failing on this branch, reading as a regression from this change.
+
+acceptance: python3 -m pytest tests/test_spawn_pipeline.py -q -k test_role_model_env_overrides_config (isolated) — result:
+
+```
+1 passed in 1.21s
+```
+
+acceptance: python3 -m pytest tests/test_spawn_pipeline.py -q (full file, this branch, pre-fix) — result:
+
+```
+2 failed, 84 passed in 1.29s
+```
+(`test_role_model_env_overrides_config` and `test_resolved_role_model_builtin_default_is_sonnet`, both `UnicodeDecodeError: 'utf-8' codec can't decode byte 0xff in position 0`.)
+
+To isolate cause from this branch's own diff, the same full-file run was
+repeated against unmodified `main` (`git worktree add --detach
+/tmp/otr-main-check main`, base `831c31dc`) three separate times:
+
+acceptance: cd /tmp/otr-main-check && python3 -m pytest tests/test_spawn_pipeline.py -q (first repeat run) — result:
+
+```
+3 failed, 83 passed in 9.82s
+```
+(`test_role_model_env_overrides_config`, `test_role_model_config_only_appends_flag`, `test_role_model_whitespace_only_config_uses_builtin_default` — same `UnicodeDecodeError`.)
+
+acceptance: same command (second repeat run) — result:
+
+```
+1 failed, 85 passed in 2.03s
+```
+(`test_role_model_env_overrides_config` alone.)
+
+acceptance: same command (third repeat run) — result:
+
+```
+86 passed in 2.16s
+```
+
+canonical: `git diff main...HEAD -- spawn.py`, this session — the diff touches only a `_sweep_completion_in_flight`-adjacent re-export (spawn.py:92-95) and the new `SPAWN_ATTEMPTS_PATH`/`_record_spawn_attempt` block (from spawn.py:841); no `role_model`/`ROLE_MODEL_CONFIG`/`--model` line anywhere.
+
+The repeat runs above reproduce `test_role_model_env_overrides_config`
+failing, with the same `UnicodeDecodeError`, on the unmodified branch tip —
+confirming the original record's diagnosis of cause was correct (this
+branch's feature diff does not touch role-model code, so it cannot be the
+cause) — but the failure is real, reviewer-blocking on PR #2305, and was
+left as an open flake in the original delivery instead of fixed.
+
+Root cause: `spawn.ROLE_MODEL_CONFIG` (`ROOT / "role_model.txt"`) is a
+single fixed path shared by every `pytest-xdist` worker process (`pytest.ini`
+sets `addopts = -n auto`).
+
+canonical: spawn.py:1169 (`ROLE_MODEL_CONFIG = ROOT / "role_model.txt"`), pytest.ini `addopts = -n auto`, tests/test_spawn_pipeline.py (pre-fix state — tests reading/writing `spawn.ROLE_MODEL_CONFIG` directly with no per-test isolation)
+
+Several `SpawnCmd`/`DryRunModelReflection` tests read and/or write that real
+file directly, or depend on it being empty/absent, with no isolation: when
+two land in different xdist workers at the same wall-clock moment their
+writes/reads race — torn writes, or one test's non-UTF-8 fixture bytes
+observed mid-write by another test's `read_text()`.
+
+Fix, scoped to the two test files only (`spawn.py`/`roster.py`/`watchdog.py`
+production code untouched by this round): added
+`isolated_role_model_config()`, a context manager in
+`tests/_spawn_test_support.py` (patches `spawn.ROLE_MODEL_CONFIG` to a
+private `tempfile.mkdtemp()` path for the test's duration — removes the
+shared mutable file instead of narrowing the race window) and applied it to
+every affected test: `test_role_model_unset_uses_builtin_default`,
+`test_role_model_whitespace_only_uses_builtin_default`,
+`test_role_model_config_only_appends_flag`,
+`test_role_model_env_overrides_config`,
+`test_role_model_whitespace_only_config_uses_builtin_default`,
+`test_role_model_non_utf8_config_uses_builtin_default`,
+`test_role_model_no_config_file_uses_builtin_default`,
+`test_resolved_role_model_builtin_default_is_sonnet`,
+`test_config_only_output_reflects_model`. The first two only pass a
+whitespace/absent env value through to `resolved_role_model()`'s config-file
+rung (per pipeline.py:518-547, `read_role_model_config()` is only reached
+when the env value is empty after `.strip()`) and were latent races the
+reviewer's report didn't name individually, but share the same
+unisolated-file cause.
+
+canonical: pipeline.py:518-547 (`resolved_role_model()` — `env_value` checked and returned before `_sp.read_role_model_config()` is ever called)
+
+Rejected alternative: an `fcntl.flock` around each read/write — would only
+serialize access, not remove the shared-state coupling, and these tests'
+own save/restore-real-file `finally` blocks would still leave one worker's
+in-progress fixture value visible to another worker's concurrently-running
+test in the gap between lock release and assertion. Per-test isolation
+removes the coupling outright and is a smaller diff (deletes the
+save/restore boilerplate rather than adding locking around it).
+
+Not touched: `test_role_model_set_appends_flag` (sets `MUSTER_ROLE_MODEL` to
+a non-empty value, which `resolved_role_model()` returns before ever calling
+`read_role_model_config()`) and `test_role_model_does_not_affect_haiku_probe`
+(reads `spawn.py`'s own source text, not the config file) — neither's
+outcome can be affected by config-file state.
+
+Post-fix verification: the full-file run was repeated several more times,
+plus the broader regression sweep from the original delivery, this session:
+
+acceptance: python3 -m pytest tests/test_spawn_pipeline.py -q, repeated back-to-back — result (each repetition):
+
+```
+86 passed
+```
+
+acceptance: python3 -m pytest tests/test_state_root_scoping.py tests/test_watch_hardening.py test/test_roster_role_field.py tests/test_standing_red_watch.py tests/test_poll_watchdog_log.py tests/test_spawn_pipeline.py -q — result:
+
+```
+145 passed in 30.31s
+```
 
 ## Upstream basis
 
@@ -231,6 +353,12 @@ exact state the issue says the system could not previously express.
 
 **Gate**: `tests/test_spawn_pipeline.py`
 
+Historical, as of the original delivery — superseded by the CHANGES-round
+fix in `## Rationale for deviations` above, which made this gate
+deterministic (`isolated_role_model_config()` in
+`tests/_spawn_test_support.py`); the flake diagnosed just below is the one
+that round fixed.
+
 acceptance: python3 -m pytest tests/test_spawn_pipeline.py -q — result:
 
 ```
@@ -286,3 +414,14 @@ data-structure/algorithm performance cliff was in play (append-only JSONL
 `work-in-english` — not invoked as a skill call, but followed throughout
 (all code, comments, commit messages, and this record in English; only the
 final chat summary to the user will be in Korean).
+
+CHANGES round (this session): no mounted skill invoked. The reviewer's
+report already named the failing test and its cause category
+(role-model flag composition); the work was reproduce-and-fix against a
+concretely diagnosed test-isolation bug, not an open architecture/pattern/
+coupling/data-structure decision, so none of
+`implementation-blueprint`/`implementation-complexity-coupling-management`/
+`implementation-design-pattern-selection`/
+`implementation-performance-data-structure-choice` applied — other mounted
+skills: not triggered. `work-in-english` followed throughout (fix, tests,
+this record in English).

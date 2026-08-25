@@ -33,3 +33,22 @@ def _event(type_, **kw):
     return event
 
 
+@contextlib.contextmanager
+def isolated_role_model_config():
+    """Patch spawn.ROLE_MODEL_CONFIG to a private per-test temp path.
+
+    The real path (ROOT / "role_model.txt") is a single fixed file shared
+    by every pytest-xdist worker process; tests that read/write it directly
+    race each other (torn writes, UnicodeDecodeError from another test's
+    in-flight non-UTF-8 fixture) whenever two of them land in different
+    workers at the same time. Isolating each test to its own tmp path
+    removes the shared mutable state instead of just narrowing the race.
+    """
+    tmp_dir = tempfile.mkdtemp(prefix="role_model_config_")
+    try:
+        with mock.patch.object(spawn, "ROLE_MODEL_CONFIG", Path(tmp_dir) / "role_model.txt"):
+            yield
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+
