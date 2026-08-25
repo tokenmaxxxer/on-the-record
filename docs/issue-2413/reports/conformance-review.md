@@ -8,10 +8,12 @@ upstream:
     sha: 335a0c8e4e8b8eff6b9997ce517d879f6b72f2f8
   - path: docs/issue-2413/reports/implementation/2026-08-25-hunt-issue-2413-prune-fix.md
     sha: 335a0c8e4e8b8eff6b9997ce517d879f6b72f2f8
-subject: PR #2418 (issue-2413/implementation, head 335a0c8e4e8b8eff6b9997ce517d879f6b72f2f8) — spawn.py, roster.py, tests/test_watch_hardening.py
+  - path: docs/issue-2413/reports/implementation.md
+    sha: bd3036dba91db953184f484bc9381eb8ed0b617f
+subject: PR #2418 (issue-2413/implementation, head bd3036dba91db953184f484bc9381eb8ed0b617f, prior review pinned 335a0c8e4e8b8eff6b9997ce517d879f6b72f2f8) — spawn.py, roster.py, tests/test_watch_hardening.py
 test: issue #2413 Acceptance section, five bulleted checks
 result: passed
-assertedBy: conformance-review session for issue-2413, builder-blind review of PR #2418, 2026-08-25 — CORE_BUILD_NOW=1 build-now bypass, delivered directly
+assertedBy: conformance-review session for issue-2413, builder-blind review of PR #2418, 2026-08-25 — CORE_BUILD_NOW=1 build-now bypass, delivered directly; re-review of the CHANGES-round missing-ts fix, 2026-08-25, same bypass
 ---
 
 # issue-2413 — conformance-review record
@@ -47,6 +49,26 @@ conformance-review-verdict-assignment,
 conformance-review-traceability-and-evidence,
 conformance-review-finding-record. See "## Skill verdicts" at the
 bottom.
+
+**CHANGES-round re-review addendum (this session, same conversation,
+new turn):** PR #2418's builder pushed a fix after the check-runner's
+first-pass comment (`gh pr view 2418` comments) surfaced a remaining
+gap: `_prune_spawn_attempts()`'s `outcome is None` branch computed
+`ts = a.get("ts", now)`, so a record with no `ts` key at all (not
+malformed — genuinely absent) always defaulted to `now`, making
+`now - ts == 0` and `aged_out` never trip, regardless of pid liveness
+— a second instance of the exact "kept forever" failure class this
+issue exists to fix, distinct from the string-encoded-pid bypass the
+before-landing warrant-hunter already caught. Fix commit
+`bd3036dba91db953184f484bc9381eb8ed0b617f`: default `ts` to `None`
+instead of `now`, so a missing `ts` fails the existing
+`not isinstance(ts, (int, float))` guard the same way a malformed
+`ts` already did. This addendum independently re-verifies that fix
+per `defect-verification-independence-from-upstream-verdicts`
+(skill-repository issue #2001 cross-family addition) — built from
+scratch rather than trusting the fix commit's own repro transcript in
+`bd3036db:docs/issue-2413/reports/implementation.md`. See the new
+finding block "A1a-2" below.
 
 ## Why
 
@@ -119,6 +141,78 @@ evidence: |
   431-line fixture below (305 issue-31 + 114 issue-7 dead/aged orphans
   fully pruned).
 rationale: Code path, an independently re-run existing test, and an independently-built (not the builder's own) fixture all agree a dead-pid-plus-aged-out record is pruned.
+---
+requirement: "A1a-2 (CHANGES round) — a record with no `ts` key at all (not just malformed) whose process is provably gone is pruned rather than kept forever" [dimension: functional behavior / edge case; verification method: Test + independent Demonstration, per defect-verification-independence-from-upstream-verdicts rule 2 (deliberate edge case, not only happy path)]
+spec_ref: issue #2413, Acceptance bullet 1, clause 1 (missing-`ts` sub-case, not covered by A1a's original evidence — A1a's own fixture always wrote a numeric `ts`)
+verdict: Present
+evidence: |
+  bd3036dba9:spawn.py:1067-1069 (`ts = a.get("ts")`, no default —
+  changed from the pre-fix `a.get("ts", now)` at
+  335a0c8e:spawn.py:1063, which this review's own A1a pass did not
+  independently exercise with a `ts`-less record). A missing `ts`
+  yields `None`, which fails `isinstance(ts, (int, float))`, forcing
+  `aged_out = True` immediately, subject to the same
+  `_pid_is_alive(pid)` override as every other record in the branch.
+
+  canonical: `cd /tmp/pr2418-review2 && python3 -m pytest
+  tests/test_watch_hardening.py -v` (this session, PR head
+  `bd3036dba9`) —
+  `SpawnAttemptPruneLiveness::test_missing_ts_with_dead_pid_is_pruned`
+  and
+  `SpawnAttemptPruneLiveness::test_missing_ts_with_live_pid_still_kept`
+  both `PASSED`, full run `34 passed in 0.87s` (32 prior + 2 new).
+
+  derived: independent from-scratch repro this session (own script,
+  not the builder's — different attempt_id naming
+  `review-missing-ts-*` vs. the builder's `a5`/`a6`, dead pids obtained
+  by this session's own fork+reap rather than a hardcoded pid number,
+  tested at 4 simulated ages instead of the builder's 3, plus a
+  separate live-pid-with-missing-ts case): built two isolated worktrees
+  (`/tmp/pr2418-review2` at `bd3036dba9`, `/tmp/pre-fix-review2` at the
+  prior reviewed head `335a0c8e`) and ran `spawn._prune_spawn_attempts()`
+  against a record with the `ts` key entirely absent (`assert "ts" not
+  in record` in the script itself, not just "no value set") —
+  ```
+  POST-FIX (bd3036dba9):
+  dead pid +0y: dropped=1 remaining_lines=0
+  dead pid +1y: dropped=1 remaining_lines=0
+  dead pid +3y: dropped=1 remaining_lines=0
+  dead pid +10y: dropped=1 remaining_lines=0
+  live pid +10y, missing ts: dropped=0 remaining_lines=1
+
+  PRE-FIX (335a0c8e, the prior review's own pinned commit):
+  dead pid +0y: dropped=0 remaining_lines=1
+  dead pid +1y: dropped=0 remaining_lines=1
+  dead pid +3y: dropped=0 remaining_lines=1
+  dead pid +10y: dropped=0 remaining_lines=1
+  live pid +10y, missing ts: dropped=0 remaining_lines=1
+  ```
+  Also confirmed the fix's stated out-of-scope claim: `grep -n
+  'outcome_ts = outcome.get' bd3036dba9:spawn.py` still shows
+  `outcome.get("ts", now)` unchanged on the sibling `halted` branch (a
+  different, out-of-scope code path per the fix commit's own
+  reasoning — `_record_spawn_outcome()` always writes a real `ts`, so
+  that branch cannot hit this failure class in practice). Collateral
+  suites re-run: `python3 -m pytest tests/test_spawn_pipeline.py
+  tests/test_standing_red_watch.py` — `97 passed`. Diff scope check:
+  `git diff --stat 335a0c8e4e bd3036dba9 -- . ':!docs'
+  ':!.orchestrate-hook-fires'` — `spawn.py` (+10/-1) and
+  `tests/test_watch_hardening.py` (+29) only, no other production file
+  touched.
+rationale: |
+  Independently confirms, against this reviewer's own prior pinned
+  commit (`335a0c8e`, which this same record marked A1a Present without
+  ever testing a `ts`-less record), that a genuinely-missing `ts` key
+  used to defeat aging entirely (0 dropped across 4 simulated ages up
+  to +10 years) and now ages out on the very first prune pass at any
+  simulated age, while a live pid with the same missing `ts` is still
+  correctly kept — satisfying defect-verification-independence rule 2
+  (edge case, not just the dead-pid happy path) and rule 1 (treating
+  the fix commit's own "34 passed" claim as a claim to re-derive, not a
+  settled fact). Present, not a revision of A1a's prior Present verdict
+  — A1a covered the malformed/aged-numeric-`ts` case correctly at the
+  time; this is additional coverage for a distinct sub-case the fix
+  commit itself identified and this review independently corroborates.
 ---
 requirement: "A1b — the liveness test used is stated with the reasoning" [dimension: functional behavior / documentation]
 spec_ref: issue #2413, Acceptance bullet 1, clause 2
@@ -311,6 +405,21 @@ rationale: Both the independently re-run existing test and the independent fixtu
 
 None. All five acceptance checks verdict Present, independently
 re-derived this session (canonical tags under each finding above).
+The CHANGES-round missing-`ts` fix (commit `bd3036dba9`) is
+independently re-verified in finding A1a-2 — the gap the check-runner
+flagged is closed, corroborated by an independently-authored repro,
+not just the fix commit's own transcript.
+
+canonical: this session's own run, `/tmp/pr2418-review2` worktree at
+`bd3036dba9` — `python3 my_missing_ts_repro2.py /tmp/pr2418-review2` —
+`dead pid +0y: dropped=1 remaining_lines=0` through `+10y` (all four
+simulated ages dropped=1), `live pid +10y, missing ts: dropped=0
+remaining_lines=1`; same script against `/tmp/pre-fix-review2` at
+`335a0c8e` (this review's own prior pinned head) — `dead pid +0y..+10y:
+dropped=0 remaining_lines=1` every time, confirming the gap existed at
+the commit this record previously marked Present and is now closed at
+`bd3036dba9`. Full transcript under finding A1a-2 above.
+
 loop_state set to `reported` (terminal for a review-record).
 
 ## Skill verdicts
@@ -321,3 +430,21 @@ skill-verdict: conformance-review-verdict-assignment — applied: invoked; assig
 skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; cited file:line ranges pinned to the PR head sha (335a0c8e4e8b8eff6b9997ce517d879f6b72f2f8) for every finding's evidence, and recorded roster.py and spawn.py as separate evidence lines per contributing file (rule 2) rather than one bundled citation.
 skill-verdict: conformance-review-finding-record — applied: invoked; wrote the five `---`-delimited requirement blocks above with the full field list (requirement, spec_ref, verdict, evidence, rationale), sourced every verdict from this session's own artifact reads and independently-run reproductions rather than the builder's account.
 other mounted skills: not triggered (conformance-review-sampling-derivation — full enumeration of all five acceptance bullets was feasible, no sampling needed; conformance-review-severity-classification — review scope was not extended into risk-weighting, and no finding here needed a severity band since all five checks verdict Present).
+
+### Skill verdicts — CHANGES-round re-review (this turn)
+
+canonical: this session's own run — `cd /tmp/pr2418-review2 && python3
+-m pytest tests/test_watch_hardening.py -v` — `34 passed in 0.87s`,
+including `SpawnAttemptPruneLiveness::test_missing_ts_with_dead_pid_is_pruned
+PASSED` and
+`SpawnAttemptPruneLiveness::test_missing_ts_with_live_pid_still_kept
+PASSED`; and `python3 my_missing_ts_repro2.py /tmp/pr2418-review2` /
+`python3 my_missing_ts_repro2.py /tmp/pre-fix-review2` transcripts
+quoted in full under finding A1a-2 and under "## Next steps" above —
+the basis for every skill-verdict line below.
+
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; treated the fix commit's own "34 passed" / "dropped=1 remaining=0" transcript in `bd3036db:docs/issue-2413/reports/implementation.md` as a claim to re-derive (rule 1), not a settled fact — built an independently-authored repro script (own attempt_id naming, own fork+reap dead-pid source, 4 simulated ages instead of the builder's 3) and deliberately added the live-pid-with-missing-`ts` negative case (rule 2) alongside re-running the builder's own two new tests independently rather than citing them.
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; reused the two new `test_missing_ts_with_*` cases in `tests/test_watch_hardening.py` as Test-method evidence per rule 4, and additionally ran an independently-authored Demonstration (fresh worktree, fresh script) per rule 3 rather than trusting Test evidence alone for a requirement the original A1a finding had not exercised.
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; assigned Present to the new A1a-2 finding as additional coverage rather than editing A1a's existing Present verdict, since A1a's original evidence (malformed/aged-numeric `ts`) was and remains correct — the missing-`ts` case is a distinct sub-case the CHANGES round introduced coverage for, not a correction of a prior wrong verdict (rule 5 — named the specific missing sub-case rather than a bare re-affirmation).
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; cited the new evidence against the new head sha `bd3036dba91db953184f484bc9381eb8ed0b617f` (rule 1), and added a second `upstream:` frontmatter entry for `implementation.md` pinned to that sha alongside the original 335a0c8e-pinned entries rather than overwriting them (preserves both review passes' basis shas).
+skill-verdict: conformance-review-finding-record — applied: invoked; wrote finding A1a-2 as a new `---`-delimited block with the full field list (requirement, spec_ref, verdict, evidence, rationale) rather than mutating A1a's existing block, per finding-record's dispute/re-examination guidance to record re-examination inline rather than silently editing a prior entry.
