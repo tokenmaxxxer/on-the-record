@@ -248,6 +248,22 @@ session's final user-facing turn summary is in Korean.
 None — `loop_state: landed`. The three follow-ups above are filed as open
 findings for a future session, not left implicit.
 
+amendments-reconciled: issuecomment-5407528172 reports the same mechanism
+as item 2 under What was done above, quoted verbatim: "reproduced this
+session: `tests/test_spawn_pipeline.py`'s `DryRunModelReflection`
+class, method `test_config_only_output_reflects_model`, failed with a
+UnicodeDecodeError (garbage/partial bytes) under `-n auto` full-suite
+run, passed cleanly in isolation." canonical: `gh issue view 2383
+--comments`, this session. Already covered by the same
+`tempfile.TemporaryDirectory()` isolation applied to that test's class.
+The comment's suggested alternative (make `ROLE_MODEL_CONFIG` itself
+per-worktree/per-session) was not taken — isolating the test suite is the
+narrower, zero-runtime-overhead fix consistent with the issue's
+operator-frozen constraint (no added per-spawn overhead, no
+consumer-tree pollution); the file staying a single shared path is
+intentional per its own issue #60 design and out of this issue's scope to
+redesign.
+
 ## Acceptance evidence
 
 acceptance: `python3 -m pytest tests/test_spawn_pipeline.py test/test_spawn_model_override.py gates/test_clean_reconcile_safety.py -q -n auto` — result:
