@@ -2075,20 +2075,51 @@ _SKILL_VERDICT_PROSE = (
     "#2062) — not-applicable: 줄은 이 마커가 필요 없다.\n")
 
 
+# Issue #2227 (REQ-10, carried forward from #2204's unaddressed `## Fix`
+# bullet 2): `known-paths.md` covers cross-repo/plugin/sibling-workspace
+# path discovery ($ON_THE_RECORD, $CLAUDE_PLUGIN_ROOT_CORE,
+# $MUSTER_WORKSPACE_ROOT, $MUSTER_SKILL_REGISTRY_ROOT) — a concern that
+# only arises for a role whose write_scope reaches the code/test buckets
+# the role-handoff contract's own Layout line names ("code src/, tests
+# test/, docs/ six buckets"). Of the 44 `roles/*.json` specs, only
+# `implementation` (`write_scope: ["src/**", "test/**", "tests/**"]`)
+# does; the other 43 are report-only (`docs/issue-<n>/reports/<role>.md`,
+# `docs/decisions/*.md`, `CHANGELOG.md`, `design-tokens/*.json` — none
+# under src/**|test/**|tests/**) — their whole task IS that one file, no
+# sibling-workspace/plugin-path lookup in their task shape (several
+# roles' own JSON even say so: "implementation의 write_scope가 이미 이
+# 도메인을 inline으로 커버"). This reuses `write_scope`, already-declared
+# per-role data the gates (`gates/gates.py::role_scope`) already enforce
+# post-hoc — no new classifier, no new field.
+def _role_touches_code(write_scope: list) -> bool:
+    """True when a role's write_scope reaches src/**, test/**, or
+    tests/** — the code/test buckets, not the docs-only report path
+    every role's write_scope carries by default."""
+    return any(g.startswith(("src/", "test/", "tests/"))
+               for g in write_scope)
+
+
 def directive_section_files(*, skills_mounted: bool = False,
-                            checkpoint_block: str | None = None) -> dict[str, str]:
+                            checkpoint_block: str | None = None,
+                            code_scoped: bool = True) -> dict[str, str]:
     """The on-demand section files for one spawn: name -> full prose.
 
-    `completion-and-landing.md`, `repo-discovery.md`, `known-paths.md`,
-    and `turn-budget.md` are always materialized; the skill and
-    checkpoint sections only when their condition holds (their trigger
-    lines are equally conditional, so index and files stay a
-    bijection)."""
+    `completion-and-landing.md`, `repo-discovery.md`, and
+    `turn-budget.md` are always materialized — the invariant baseline
+    every task gets regardless of path scope (Acceptance 'empty state':
+    never an empty directive). `known-paths.md` is scoped to
+    `code_scoped` callers (issue #2227 REQ-10, see `_role_touches_code()`
+    above); the skill and checkpoint sections only when their own
+    condition holds. Default `code_scoped=True` keeps every caller that
+    does not pass the kwarg (adhoc spawns with no role write_scope to
+    check) on today's full bundle — the safe, over-inclusive default,
+    never a narrower directive than before by omission."""
     files = {"completion-and-landing.md":
              _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
-             "repo-discovery.md": _REPO_DISCOVERY_PROSE,
-             "known-paths.md": _KNOWN_PATHS_PROSE,
-             "turn-budget.md": _TURN_BUDGET_PROSE}
+             "repo-discovery.md": _REPO_DISCOVERY_PROSE}
+    if code_scoped:
+        files["known-paths.md"] = _KNOWN_PATHS_PROSE
+    files["turn-budget.md"] = _TURN_BUDGET_PROSE
     if skills_mounted:
         files["skill-obligations.md"] = (_SKILL_CHECK_PROSE + "\n"
                                           + _SKILL_VERDICT_PROSE)
@@ -2587,7 +2618,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _directive_section_texts = directive_section_files(
                 skills_mounted=bool(skill_sources or role_source["skills"]),
                 checkpoint_block=(_checkpoint_contract_block(issue, role)
-                                  if checkpoint else None))
+                                  if checkpoint else None),
+                code_scoped=_role_touches_code(spec.get("write_scope", [])))
             materialize_directive_sections(cwd, _directive_section_texts)
             write_record_skeleton(cwd, issue, role)
         req_line = ""
