@@ -2151,6 +2151,17 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
               f"non-retryable: publish the missing precondition, then "
               f"dispatch again.", file=sys.stderr)
         return 1
+    # 이슈 #2382: `core_plugin_dirs()` 는 인자가 없다 — role/cwd/issue 어느
+    # 것에도 안 걸리는, core 마켓플레이스 관리 클론(core_root()) pull 하나뿐
+    # 이라 admission 만 넘으면(부수효과는 admission 뒤부터, 위 주석) 바로
+    # 던져도 안전하다. 예전에는 이 pull 이 skill_resolve/workspace/branch/
+    # directive_write/issue_fetch/board_snapshot 을 전부 기다린 뒤 "core"
+    # 단계에서 처음 불렸다 — 그 사이 아무 것도 core_plugins 를 안 쓰므로
+    # 순수 직렬 대기였다. 여기서 먼저 던지고 아래 "core" 단계에서는 join 만
+    # 한다(cross_family 와 같은 패턴) — 그 사이의 거의 전체 부트스트랩과
+    # 겹친다.
+    _core_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    _core_future = _core_executor.submit(core_plugin_dirs)
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
     # 이슈 #2001: 크로스-패밀리 스코어링은 이 함수가 받은 원본 task 텍스트를
     # 대상으로 한다 — 아래에서 task 에 여러 안내 문단이 계속 덧붙는데, 그
@@ -2219,6 +2230,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         with _timed("adhoc_workspace"):
             cwd = issue_workspace(cwd, issue, role)
         print(f"[{role}] adhoc 격리 작업 디렉토리: {cwd}", file=sys.stderr)
+    # 이슈 #2382: adhoc 스폰(issue is None)은 아래 issue-스코프 블록 전체를
+    # 건너뛰어 directive_write 가 없다 — 그런 스폰의 board_snapshot 은
+    # cwd 가 애초에 안 바뀌므로 아무 것도 기다릴 필요가 없어, 이 두 변수가
+    # 여전히 None 이면 (composition_breakdown 직전) 거기서 바로 던진다.
+    _board_snapshot_executor: concurrent.futures.ThreadPoolExecutor | None = None
+    _board_snapshot_future = None
     if issue is not None:
         root = Path(cwd).resolve()
         # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
@@ -2321,6 +2338,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         claim_rejection = _acquire_spawn_claim(cwd, issue, role)
         if claim_rejection is not None:
             print(f"[{role}] {claim_rejection}", file=sys.stderr)
+            # 이슈 #2382 컨포먼스 리뷰 발견: 이 리턴은 위에서 이미 던진
+            # `_core_future`(core_plugin_dirs) 의 join 지점(아래 "core"
+            # 단계) 보다 먼저다 — join 없이 그냥 리턴하면 future 가 갈 곳을
+            # 잃는다. `ThreadPoolExecutor`는 daemon 스레드가 아니라
+            # 인터프리터 종료를 그 워커가 끝날 때까지 블록한다(#2195/#2061
+            # 의 그 이유로 auto_sweep/returned_pr_gate 는 raw daemon
+            # 스레드를 쓴다) — join 없이 나가면 그 블로킹이 조용히
+            # 되살아난다. 여기서 join 해 결과를 받는다: core_plugin_dirs()
+            # 는 선언된 core 플러그인이 없으면 `sys.exit()`로 죽는
+            # fail-loud 계약이라(pipeline.py, 이슈 #282) 그 예외는 삼키지
+            # 않고 그대로 전파한다 — claim 거절 여부와 무관하게 core
+            # 설정이 깨졌으면 시끄럽게 죽어야 한다는 원래 계약 그대로다.
+            core_plugins = _core_future.result()
+            _core_executor.shutdown(wait=False)
             return 1
         with _timed("branch"):
             br = checkout_issue_branch(cwd, issue, role)
@@ -2336,6 +2367,35 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 섬기는지 안다. gh 조회 실패는 조용히 건너뛴다 — 이 줄이 없다고
         # 스폰 자체를 막을 이유는 없다(require_requirement_linkage 가 이미
         # phase-1 드래프트 시점에 구조적으로 막는다).
+        # 이슈 #2382: 이 gh 조회(`_gh_rest.fetch_issue`)는 아래 directive_write
+        # 의 로컬 디스크 쓰기(섹션 파일/레코드 스켈레톤) 어느 쪽 결과에도
+        # 안 걸린다 — 둘 다 br/cwd 만 있으면 되고 서로의 출력을 안 읽는다.
+        # 예전에는 issue_fetch 가 directive_write **뒤에** 완전히 끝난
+        # 다음에야 시작해, 순수 네트워크 왕복이 로컬 I/O 뒤에 그대로
+        # 직렬로 얹혔다. 여기서 먼저 던지고(cross_family 와 같은 패턴),
+        # directive_write 가 메인 스레드에서 겹쳐 도는 동안 배경에서
+        # 돈다 — 아래 "issue_fetch" 단계는 이제 순수 join 대기만 잰다.
+        def _run_issue_fetch() -> tuple[str, str, str | None, object | None]:
+            try:
+                sys.path.insert(0, str((ROOT / "gates").resolve()))
+                import gh_rest as _gh_rest
+                import requirement_linkage as _requirement_linkage
+                import design_artifacts_gate as _design_artifacts_gate_mod
+                issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
+                _body = issue_data.get("body") if issue_data else None
+                _title = issue_data.get("title") if issue_data else None
+                _req_line = ""
+                _goal_pin = ""
+                if _body is not None:
+                    req_ids = _requirement_linkage.cited_requirement_ids(_body)
+                    if req_ids:
+                        _req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
+                    _goal_pin = _goal_pin_block(_title, _body)
+                return _req_line, _goal_pin, _body, _design_artifacts_gate_mod
+            except Exception:
+                return "", "", None, None
+        _issue_fetch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _issue_fetch_future = _issue_fetch_executor.submit(_run_issue_fetch)
         # Issue #2135: materialize the on-demand directive section files and
         # the record skeleton into the workspace BEFORE assembling the
         # index — the trigger lines below reference files that must exist.
@@ -2347,27 +2407,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 code_scoped=_role_touches_code(spec.get("write_scope", [])))
             materialize_directive_sections(cwd, _directive_section_texts)
             write_record_skeleton(cwd, issue, role)
-        req_line = ""
-        goal_pin = ""
-        body = None
-        _design_artifacts_gate = None
         with _timed("issue_fetch"):
-            try:
-                sys.path.insert(0, str((ROOT / "gates").resolve()))
-                import gh_rest as _gh_rest
-                import requirement_linkage as _requirement_linkage
-                import design_artifacts_gate as _design_artifacts_gate
-                issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
-                body = issue_data.get("body") if issue_data else None
-                title = issue_data.get("title") if issue_data else None
-                if body is not None:
-                    req_ids = _requirement_linkage.cited_requirement_ids(body)
-                    if req_ids:
-                        req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
-                    goal_pin = _goal_pin_block(title, body)
-            except Exception:
-                req_line = ""
-                goal_pin = ""
+            req_line, goal_pin, body, _design_artifacts_gate = (
+                _issue_fetch_future.result())
+            _issue_fetch_executor.shutdown(wait=False)
         # Issue #2135 directive diet: the always-on preamble is a compact
         # invariant index. The long prose it used to carry (완료의 정의
         # full text, 체크포인트 커밋 rule, headless/run_in_background
@@ -2494,6 +2537,26 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 task = task + _dp("skill-obligations-full",
                                   "\n\n" + _SKILL_CHECK_PROSE
                                   + "\n\n" + _SKILL_VERDICT_PROSE)
+        # 이슈 #2382: board_snapshot(cwd) 는 docs/issue-*/ 아래 파일 내용을
+        # 해시한다 — 이 지점은 두 가지를 모두 지킨다: (a)
+        # write_record_skeleton() 이 이미 그 트리 밑에 스켈레톤을 썼다(진짜
+        # 의존성, "before" 스냅샷이 세션이 안 쓴 스켈레톤을 세션이 바꾼
+        # 것으로 잘못 셀 수 있다), (b) 위 cross_family join
+        # (`_cross_family_future.result()`) 이 이미 끝나 skill_judge 자문이
+        # `docs/issue-<n>/reports/consult-log/`(consult.py) 에 남길 로그
+        # 파일도 이미 다 써졌다 — 여기보다 일찍(예: directive_write 직후)
+        # 던기면 그 consult-log 쓰기가 board_snapshot 의 "before"/"after"
+        # 스냅샷 중 어느 쪽에 들어갈지 스레드 스케줄링에 따라 갈려, 세션이
+        # 안 건드린 파일이 "다른 역할의 기록을 건드렸다"(계약 §11)로
+        # 오탐될 수 있다(실측: 이 재배치 전 시도가
+        # test_spawn_one_call_site_fires_after_own_session_end_event 를
+        # 깼다). board_snapshot 은 issue_fetch/core/settings/
+        # design_bearing/spawn_cmd 결과 중 어느 것도 안 읽는다 — 예전에는
+        # 이 다섯을 전부 기다린 뒤(함수 맨 끝, session Popen 직전) 처음
+        # 불렸다. 여기서 먼저 던지고 실제 사용 지점(맨 아래)에서 join 만
+        # 한다.
+        _board_snapshot_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _board_snapshot_future = _board_snapshot_executor.submit(board_snapshot, cwd)
         # 이슈 #2014 (artifact-gate phase 3): `design-artifacts:` 선언이
         # 있으면 선언된 각 아티팩트 경로를, 그 basename 이 마운트된 스킬들의
         # 트리거 문장과 가장 많이 겹치는 스킬 하나와 짝지어 한 줄씩 붙인다
@@ -2543,6 +2606,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 스킬 마운트 여부와 무관하므로 위 스킬 블록 바깥에 둔다.
     task = task + _dp("artifact-smoke",
                       _artifact_smoke_task_lines(body if issue is not None else None))
+    # 이슈 #2382: adhoc 스폰(issue is None, 위 issue-스코프 블록을 안 탄
+    # 경로)은 directive_write 가 없어 여태 못 던졌다 — cwd 가 이미 최종값
+    # (안 바뀜)이므로 여기서 바로 던진다.
+    if _board_snapshot_future is None:
+        _board_snapshot_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _board_snapshot_future = _board_snapshot_executor.submit(board_snapshot, cwd)
     # Issue #2135: measure-first instrument — per-source byte counts of the
     # assembled directive, at every spawn.
     print(f"[{role}] {composition_breakdown(_directive_parts)}",
@@ -2554,9 +2623,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # core_plugin_dirs() 를 print 보다 먼저 불러 core_root() 의 관리 클론
     # pull 이 먼저 일어나게 한다 — 순서가 뒤집히면(예전처럼 print 뒤에서
     # 부르면) 로그에는 pull 전 sha, ledger 에는 pull 후 sha 가 찍혀 같은
-    # run 안에서 두 기록이 어긋난다.
+    # run 안에서 두 기록이 어긋난다. (이슈 #2382: pull 자체는 이미 admission
+    # clear 직후 던져졌다 — 이 시점보다 훨씬 먼저다. 이 순서 요구는 여전히
+    # 지켜진다.) 이 단계는 이제 순수 join 대기만 잰다(겹친 시간은 제외,
+    # cross_family 와 같은 계측 관례).
     with _timed("core"):
-        core_plugins = core_plugin_dirs()
+        core_plugins = _core_future.result()
+        _core_executor.shutdown(wait=False)
     with _timed("settings"):
         s = role_settings(role, cwd)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -2639,8 +2712,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 이슈 #2159: origin 체크아웃에만 있는 node_modules/.venv 를
             # 가리키는 env var — 파일은 옮기지 않는다(위 주석 참고).
             extra_env.update(local_dependency_env(origin_cwd, cwd))
+        # 이슈 #2382: dispatch 는 위(directive_write 직후, 또는 adhoc 스폰이면
+        # composition_breakdown 직전)에서 이미 던졌다 — 여기는 순수 join 만
+        # 잰다. core/settings/design_bearing/spawn_cmd 를 거치는 동안 배경
+        # 에서 겹쳐 돈다.
         with _timed("board_snapshot"):
-            before = board_snapshot(cwd)
+            before = _board_snapshot_future.result()
+            _board_snapshot_executor.shutdown(wait=False)
         before_head = _git_head(cwd) if issue is not None else None
         # 이슈 #2186: 이 지점이 fork/session-start 직전 — 로그로 나가는
         # bootstrap_timing 줄은 예전에 core/settings 단계 직후(더 위)에서
