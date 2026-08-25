@@ -336,6 +336,7 @@ _skill_repo_valid = skills._skill_repo_valid
 _skill_roster_fields = skills._skill_roster_fields
 _skill_source_roster_row = skills._skill_source_roster_row
 resolve_role_source = skills.resolve_role_source
+resolve_skill_source = skills.resolve_skill_source
 resolved_skill_dirs = skills.resolved_skill_dirs
 resolved_skill_sources = skills.resolved_skill_sources
 skill_repo_sha = skills.skill_repo_sha
@@ -1117,6 +1118,11 @@ def main() -> int:
                     help="쉼표로 구분한 스킬 이름 목록을 skill-repository 체크아웃"
                          "(MUSTER_SKILL_REPO 또는 형제-클론)에서 마운트한다"
                          "(이슈 #1742). 생략하면 스폰 argv/env 는 이전과 동일")
+    ap.add_argument("--skill", default=None,
+                    help="이슈 #2241 stage 0: 역할 대신 스킬 이름(콤마로 여러 개 가능)으로 "
+                         "곧장 가이던스를 해석한다. 사용: spawn.py --skill <스킬명> "
+                         "\"<맡길 일>\" --issue <n>. 세션은 안 띄운다 — 해석 결과 JSON만 "
+                         "찍는다. --role 경로는 이 옵션과 무관하게 그대로다")
     ap.add_argument("--merge", help="judge <역할> --merge <sha>: 판단할 머지의 커밋 sha")
     ap.add_argument("--unattended", action="store_true",
                     help="사람이 없는 실행. mint 는 안 되고, 휴먼 게이트는 선다")
@@ -1219,6 +1225,39 @@ def main() -> int:
     ap.add_argument("--json", action="store_true",
                     help="flows: 사람용 표 대신 flows-schema.md 계약대로 JSON 을 stdout 에 찍는다")
     a = ap.parse_args()
+
+    if a.skill:
+        # 이슈 #2241 stage 0: 역할 axis 밖의 additive 경로. positional 은
+        # `role`/`task` 순인데 `--skill` 을 쓰면 남는 positional 은 하나뿐이라
+        # argparse 가 그걸 `a.role`(첫 positional)에 묶는다 — 그래서 여기서는
+        # `a.role` 을 태스크 문구로 읽는다. 아래 role 분기(`a.role == "init"`
+        # 등)보다 먼저 검사해야, 태스크 문구가 우연히 그 이름들과 겹쳐도
+        # 잘못 걸리지 않는다. 세션을 안 띄우므로 roster/lease/board-gate/
+        # merge_gate 는 이 스테이지에서 손대지 않는다(스테이지 1/3/5).
+        task_text = a.role
+        if not task_text:
+            sys.exit('사용법: spawn.py --skill <스킬명>[,<스킬명>...] "<맡길 일>" --issue <n>')
+        # before-landing warrant hunt (이슈 #2241 stage 0): `--skill " "` 나
+        # `--skill ",,,"` 는 truthy 라 이 분기에 들어오지만, 쉼표로 쪼갠 뒤
+        # 남는 이름이 없다 — `resolved_skill_dirs()`의 "이름 없으면 빈 목록"
+        # 단축 경로(--skills 의 "생략하면 마운트 없음" 의미론)를 여기서 그대로
+        # 타면 존재하지 않는 스킬을 요청한 게 조용히 "성공"(skills: [])으로
+        # 보여 fail-closed 원칙을 깬다. `--skill` 은 `--skills` 와 달리
+        # 이 분기 자체를 여는 필수 식별자이므로, 빈 이름은 여기서 명시적으로
+        # 거절한다.
+        skill_names = [n.strip() for n in a.skill.split(",") if n.strip()]
+        if not skill_names:
+            sys.exit(f"--skill: 빈 스킬 이름이다 — {a.skill!r}")
+        skill_registry_root = _skill_repo_root()
+        skill_source = resolve_skill_source(",".join(skill_names), skill_registry_root)
+        print(json.dumps({
+            "task": task_text,
+            "issue": a.issue,
+            "source": skill_source["source"],
+            "skills": skill_source["skills"],
+            "skill_sha": skill_source["skill_sha"],
+        }, indent=2, ensure_ascii=False))
+        return 0
 
     if a.role == "init":
         # 보드로 선언한다(approvers.md). on-the-record 가 남의 레포에 쓰는 유일한 경우.
