@@ -200,3 +200,8 @@ row.
    asymmetry). Per SCOPE-EXCEEDED handling, the frozen write set stays as
    delivered — this record plus the issue comment — and the file move
    itself is reported, not performed.
+
+amendments-reconciled: issuecomment-5411258350 — this is this session's
+own comment (filed above, same turn), naming the two unblock paths for
+the frozen gate-file path; no further action needed beyond what this
+record already discloses.
