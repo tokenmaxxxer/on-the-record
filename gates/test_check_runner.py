@@ -313,6 +313,20 @@ def t_genuinely_missing_path_shaped_artifact_still_classifies_as_file_existence_
     assert results[0]["status"] == "fail", results
 
 
+def t_bare_conventional_filename_and_dotfile_still_classify_as_file_existence_and_fail():
+    """issue #2278 hunt finding: an extensionless conventional filename
+    (`LICENSE`) or a dotfile (`.gitignore`) is still a real path — must
+    stay file-existence and genuinely FAIL when absent, not silently
+    downgrade to judgment (which would never mechanically check it)."""
+    for token in ("LICENSE", ".gitignore"):
+        section = f"\n- check: `{token}` is present at the repo root\n"
+        checks = check_runner.parse_checks(section)
+        assert [c["type"] for c in checks] == ["file-existence"], (token, checks)
+        with tempfile.TemporaryDirectory() as td:
+            results = check_runner.run_checks(Path(td), checks)
+        assert results[0]["status"] == "fail", (token, results)
+
+
 def t_all_judgment_checks_do_not_abort_run_checks_when_pre_filtered():
     """issue #2231 gap (a): main() must partition judgment out BEFORE
     calling run_checks, not discover the abort via JudgmentCheckError —

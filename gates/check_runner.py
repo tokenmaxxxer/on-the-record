@@ -92,9 +92,21 @@ _PATH_EXTENSIONS = {
     "hpp", "css", "html", "xml", "sql", "csv", "lock", "env",
 }
 
+# issue #2278 hunt finding: bare conventional filenames have no extension
+# but are still real paths — without this, `check: \`LICENSE\`` would
+# wrongly downgrade to judgment instead of genuinely FAILing when absent.
+_BARE_PATH_NAMES = {
+    "LICENSE", "README", "CHANGELOG", "Makefile", "Dockerfile",
+    "Procfile", "Gemfile", "Rakefile", "Vagrantfile", "Jenkinsfile",
+}
+
 
 def _looks_like_path(token: str) -> bool:
     if "/" in token:
+        return True
+    if token in _BARE_PATH_NAMES:
+        return True
+    if token.startswith(".") and len(token) > 1:
         return True
     if "." in token:
         return token.rsplit(".", 1)[-1].lower() in _PATH_EXTENSIONS

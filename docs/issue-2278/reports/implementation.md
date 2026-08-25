@@ -30,14 +30,21 @@ Inverted `check_runner.parse_checks()`'s default classification for a
   missing); everything else (bare identifiers, skill names, prose)
   downgrades to `judgment`, scored by `requirement_met.py`'s semantic
   layer instead of the file-existence gate.
-- Added three regression tests to `gates/test_check_runner.py`:
+- Added four regression tests to `gates/test_check_runner.py`:
   `t_cross_family_bare_identifier_classifies_as_judgment_not_file_existence`,
   `t_work_in_english_skill_name_classifies_as_judgment_not_file_existence`,
-  `t_genuinely_missing_path_shaped_artifact_still_classifies_as_file_existence_and_fails`.
+  `t_genuinely_missing_path_shaped_artifact_still_classifies_as_file_existence_and_fails`,
+  `t_bare_conventional_filename_and_dotfile_still_classify_as_file_existence_and_fail`.
+- A before-landing warrant hunt (see `## What did not work` below) found
+  that the first cut of `_looks_like_path` missed bare, extensionless
+  conventional filenames (`LICENSE`, `Makefile`, ...) and dotfiles
+  (`.gitignore`, ...) — added `_BARE_PATH_NAMES` and a leading-`.` check
+  to `_looks_like_path` to close that gap before landing.
 
-canonical: gates/check_runner.py:79-101, 151-158 (this commit's diff, see
-`git show` on the commit landing alongside this record) — the helper and
-the inverted branch.
+canonical: gates/check_runner.py (this commit's diff, see `git show` on
+the commit landing alongside this record) — `_PATH_EXTENSIONS`,
+`_BARE_PATH_NAMES`, `_looks_like_path`, and the inverted `parse_checks`
+branch.
 
 Completed-items list (doc-placement ladder):
 - [x] code change lands under `gates/` (not `src/`/`test/`) — matches the
@@ -71,7 +78,23 @@ still genuinely FAILs when the file is actually absent.
 
 ## What did not work
 
-None.
+The first cut of `_looks_like_path(token)` was `"/" in token` or a
+`.`-delimited known extension — nothing else. A before-landing warrant
+hunt (stance 0, "find the bypass") caught that this has no fallback for
+bare, extensionless conventional filenames (`LICENSE`, `Makefile`,
+`Dockerfile`, `Procfile`, `CHANGELOG`, ...) or dotfiles (`.gitignore`,
+...): a criterion like `` check: `LICENSE` file is added `` would
+silently downgrade to `judgment` and never be mechanically checked at
+all, even though `LICENSE` unambiguously names a real file — exactly the
+class of genuine-missing-artifact FAIL this issue's Acceptance section
+requires to keep failing. Full reproduction and the chain through
+`requirement_met.py`'s weak `_artifact_in_diff_hunk` fallback is in this
+same commit's accompanying warrant-hunt record, under this issue's
+`reports/implementation/` subdirectory. Fixed by adding a
+`_BARE_PATH_NAMES` allowlist plus a leading-`.` check to
+`_looks_like_path`, with a regression test
+(`t_bare_conventional_filename_and_dotfile_still_classify_as_file_existence_and_fail`)
+pinning both `LICENSE` and `.gitignore`.
 
 ## Upstream basis
 
@@ -93,12 +116,16 @@ None — `loop_state: landed`.
 
 Gate: `gates/test_check_runner.py`.
 
-acceptance: `python3 gates/test_check_runner.py` — result:
+acceptance: `python3 gates/test_check_runner.py` — result (re-run after
+the `_BARE_PATH_NAMES` hunt-finding fix, includes the new
+`t_bare_conventional_filename_and_dotfile_still_classify_as_file_existence_and_fail`
+test):
 ```
 ok - t_all_judgment_checks_do_not_abort_run_checks_when_pre_filtered
 ok - t_artifact_smoke_check_actually_runs_and_fails_on_a_broken_artifact
 ok - t_artifact_smoke_check_passes_when_the_artifact_parses
 ok - t_bare_artifact_path_without_measurement_language_stays_file_existence
+ok - t_bare_conventional_filename_and_dotfile_still_classify_as_file_existence_and_fail
 ok - t_bare_path_still_classifies_as_file_existence
 ok - t_bare_py_gate_path_is_wrapped_to_run_through_pytest
 ok - t_classification_is_byte_identical_without_a_declaration
@@ -116,27 +143,27 @@ ok - t_run_checks_records_a_failure_instead_of_crashing_on_unexecutable_command
 ok - t_source_level_command_stays_test_even_with_a_declaration
 ok - t_unclassifiable_check_is_still_judgment_and_refused_by_the_runner
 ok - t_work_in_english_skill_name_classifies_as_judgment_not_file_existence
-21/21 passed
+22/22 passed
 ```
 
-acceptance: `python3 -m pytest gates/test_check_runner.py -q` — result:
+acceptance: `python3 -m pytest gates/test_check_runner.py gates/test_merge_gate.py gates/test_requirement_met.py -q` — result (combined re-run, post-fix):
 ```
-............................                                             [100%]
-28 passed in 30.17s
+........................................................................ [ 86%]
+...........                                                              [100%]
+83 passed in 63.52s (0:01:03)
 ```
-derived: 28 = 21 + 7 (the `t_`-prefixed cases enumerated in the fenced
-run just above, plus the file's `test_`-prefixed pytest-fixture cases);
-both fenced runs report 0 SKIPPED.
+derived: 0 SKIPPED reported by either run above.
 
-Downstream consumers unaffected (`gates/requirement_met.py` reuses
-`check_runner.parse_checks` directly; `gates/merge_gate.py` reuses
-`check_runner.run_checks`/`format_comment`):
-
-acceptance: `python3 -m pytest gates/test_merge_gate.py gates/test_requirement_met.py -q` — result:
+acceptance: reproduction of the hunt finding's own fix, live — result:
 ```
-......................................................                   [100%]
-54 passed in 1.08s
+LICENSE -> [{'type': 'file-existence', 'raw': '`LICENSE` is present at the repo root', 'path': 'LICENSE'}]
+  run: fail
+.gitignore -> [{'type': 'file-existence', 'raw': '`.gitignore` is present at the repo root', 'path': '.gitignore'}]
+  run: fail
 ```
+derived: both tokens now classify `file-existence` (not `judgment`) and
+genuinely FAIL when absent from a fresh temp dir, matching the
+regression test above.
 
 Provenance requirement: re-ran `check_runner`'s classifier live against
 the **current, real** `## Acceptance` sections of issue #2213 and issue
