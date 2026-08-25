@@ -205,3 +205,27 @@ amendments-reconciled: issuecomment-5411258350 — this is this session's
 own comment (filed above, same turn), naming the two unblock paths for
 the frozen gate-file path; no further action needed beyond what this
 record already discloses.
+
+## Post-PR-open live re-check
+
+acceptance: `gh pr list --state open --json number,headRefName,title`,
+run again this session immediately after PR #2436 opened — result:
+```json
+[{"headRefName":"issue-2432/implementation","number":2436,"title":"issue-2432: branch/record naming to skill axis + lease disambiguator (dual-scheme, stage 4)"},{"headRefName":"issue-2431/implementation","number":2434,"title":"issue-2431: drop the calendar bound for confirmed-dead-pid spawn-attempt orphans"},{"headRefName":"issue-2409/conformance-review","number":2420,"title":"issue-2409: conformance-review phase-1 (survey + proposal)"},{"headRefName":"issue-2409/execution-observation","number":2419,"title":"issue-2409: execution-observation phase-1 (survey + proposal)"},{"headRefName":"issue-2409/implementation","number":2416,"title":"issue-2409: attack exploratory-Bash, hook-refusal, and redundant-read waste"}]
+```
+
+Diffed against the before-list pasted in "What was done"/the workaround
+doc: PR #2436 (this stage's own PR) is a new 6th entry, as expected. PR
+#2435 (`issue-2414/conformance-review`) is no longer in the open list —
+canonical: `gh pr view 2435 --json state,headRefName,title`, this
+session — result: `{"headRefName":"issue-2414/conformance-review",
+"state":"CLOSED","title":"issue-2414: re-review PR #2422's CHANGES-round
+stale-figure fix"}`. That PR was closed by unrelated concurrent activity
+in this shared repo, not by anything in this stage's diff — this stage's
+branch never touched `issue-2414/conformance-review` or issue #2414 in
+any commit, and nothing in `pipeline.py`/`board.py`/`roster.py`/
+`spawn.py`'s diff can close a PR (no `gh pr close`/`gh pr merge`
+invocation anywhere in this session's command history). The other 4
+pre-existing PRs (#2434, #2420, #2419, #2416) are present, unchanged, in
+both the before- and after-lists. Confirms: no existing open PR's branch
+name or content changed as a result of this stage landing.
