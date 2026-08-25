@@ -33,6 +33,15 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse-dispatcher.sh"
           }
         ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/fail-open-wrapper.sh ${CLAUDE_PLUGIN_ROOT}/hooks/approach-cap-warning.sh pre"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -46,6 +55,14 @@
           {
             "type": "command",
             "command": "${CLAUDE_PLUGIN_ROOT}/hooks/fail-open-wrapper.sh ${CLAUDE_PLUGIN_ROOT}/hooks/post-landing-obligation-gate.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/fail-open-wrapper.sh ${CLAUDE_PLUGIN_ROOT}/hooks/approach-cap-warning.sh post"
           }
         ]
       }

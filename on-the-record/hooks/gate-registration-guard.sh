@@ -292,8 +292,19 @@ if hook_scripts:
                 for group in group_list:
                     for h in group.get("hooks", []):
                         cmd_text = h.get("command", "")
-                        script_token = cmd_text.split()[0] if cmd_text.split() else ""
-                        hooks_json_names.add(os.path.basename(script_token))
+                        # issue #2262: a wrapped registration
+                        # ("fail-open-wrapper.sh <script>.sh <mode>")
+                        # previously only ever contributed the wrapper's
+                        # own basename here (`.split()[0]`) -- the
+                        # wrapped script's name never entered this set,
+                        # so any newly-added *wrapped* hook script failed
+                        # this cross-check unconditionally regardless of
+                        # its real hooks.json entry. Every `.sh` token in
+                        # the command (wrapper AND wrapped script alike)
+                        # now counts.
+                        for tok in cmd_text.split():
+                            if tok.endswith(".sh"):
+                                hooks_json_names.add(os.path.basename(tok))
         except ValueError:
             hooks_json_names = None
     for p in hook_scripts:

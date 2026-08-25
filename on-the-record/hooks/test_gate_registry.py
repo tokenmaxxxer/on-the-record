@@ -58,10 +58,15 @@ DISPATCHED_KEEP = {
     "approval-gate.sh",
 }
 
-# Directly-registered KEEP rows: 9 registrations / 9 unique scripts
+# Directly-registered KEEP rows: 10 registrations / 10 unique scripts
 # (#2138 KEEP set minus the 20 dispatched PreToolUse gates, plus the
 # #2146 dispatcher; retry-loop-bound.sh keeps its PostToolUse "post"
-# registration).
+# registration). approach-cap-warning.sh (#2262) added deliberately: a
+# standalone PreToolUse+PostToolUse pair, not folded into the dispatcher
+# (see docs/issue-2262/reports/implementation.md's coupling-management
+# call) — its own PreToolUse leg counts separately from
+# pretooluse-dispatcher.sh's registration, same shape as
+# retry-loop-bound.sh's split "pre" (dispatched)/"post" (direct) legs.
 KEEP = {
     "self-update.sh",
     "session-role-bind.sh",
@@ -72,6 +77,7 @@ KEEP = {
     "stop-poll-rearm.sh",
     "stop-gate.sh",
     "skill-verdict-guard.sh",
+    "approach-cap-warning.sh",
 }
 
 # RETIRE 15 (#2138 evidence table): registration rows removed AND script
@@ -191,15 +197,22 @@ def test_registration_set_is_exactly_the_keep_set():
     )
     # #2146: 28 registrations -> 9 (20 PreToolUse rows collapsed into the
     # dispatcher; retry-loop-bound.sh keeps only its PostToolUse leg).
+    # #2262 adds one more direct PreToolUse+PostToolUse pair
+    # (approach-cap-warning.sh, deliberately NOT folded into the
+    # dispatcher — see KEEP's comment above) -> 11.
     assert registered.count("retry-loop-bound.sh") == 1
-    assert len(registered) == 9
-    # hooks.json has exactly ONE PreToolUse row: the dispatcher.
+    assert len(registered) == 11
+    # hooks.json has exactly TWO PreToolUse rows: the dispatcher, and
+    # approach-cap-warning.sh's standalone "pre" registration.
     data = json.loads(HOOKS_JSON.read_text(encoding="utf-8"))
     pre_rows = data["hooks"]["PreToolUse"]
-    assert len(pre_rows) == 1
+    assert len(pre_rows) == 2
     assert len(pre_rows[0]["hooks"]) == 1
     assert pre_rows[0]["hooks"][0]["command"].endswith(
         "pretooluse-dispatcher.sh")
+    assert len(pre_rows[1]["hooks"]) == 1
+    assert pre_rows[1]["hooks"][0]["command"].endswith(
+        "approach-cap-warning.sh pre")
 
 
 def test_demoted_scripts_are_not_registered():

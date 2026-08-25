@@ -76,11 +76,26 @@ class SectionFileMapping(unittest.TestCase):
         self.assertIn("MUSTER_SKILL_REGISTRY_ROOT", body)
         self.assertIn("find", body)
 
+    def test_turn_budget_file_carries_the_approach_cap_guidance(self):
+        # Issue #2262: turn budget + grep-batching guidance is always-on,
+        # same tier as completion-and-landing/repo-discovery/known-paths.
+        files = spawn.directive_section_files()
+        body = files["turn-budget.md"]
+        self.assertIn(spawn._TURN_BUDGET_PROSE, body)
+        self.assertIn(str(spawn.DEFAULT_SESSION_MAX_TURNS), body)
+        self.assertIn("MUSTER_SESSION_MAX_TURNS_RESOLVED", body)
+        self.assertIn("grep", body)
+        # issue #2262 operator comment (2026-08-25, issuecomment-5403942012):
+        # parallel subagent fan-out named explicitly alongside grep batching.
+        self.assertIn("Task", body)
+        self.assertIn("Explore", body)
+        self.assertIn("run_in_background", body)
+
     def test_skill_and_checkpoint_sections_are_conditional(self):
         base = spawn.directive_section_files()
         self.assertEqual(set(base),
                          {"completion-and-landing.md", "repo-discovery.md",
-                          "known-paths.md"})
+                          "known-paths.md", "turn-budget.md"})
         with_skills = spawn.directive_section_files(skills_mounted=True)
         self.assertIn("skill-obligations.md", with_skills)
         self.assertIn(spawn._SKILL_CHECK_PROSE,
