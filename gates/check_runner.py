@@ -406,9 +406,16 @@ def fetch_all_role_branches(repo: Path) -> subprocess.CompletedProcess:
     `checkout_pr_worktree()`(check_runner.py 가 fetch 하는 유일한 지점)가
     호출하므로, 뒤이어 같은 `--repo` 체크아웃을 재사용하는
     `gates/merge_gate.py`(자체 fetch 없음)도 별도 처리 없이 최신
-    `origin/*` 참조를 그대로 쓴다."""
+    `origin/*` 참조를 그대로 쓴다. `--prune` 필수(hunt finding, before-landing
+    stance 0): prune 없이는 origin 에서 삭제된 브랜치의 로컬 `origin/<branch>`
+    ref 가 stale 상태로 남아 fetch 가 exit 0 을 반환하고, 뒤이은
+    `worktree_for_ref`/`git worktree add` 도 그 stale ref 로 조용히 성공해
+    `checkout_pr_worktree()`의 fail-closed 계약(에러는 항상 거부)을 깬다 —
+    `--prune` 은 삭제된 브랜치의 로컬 ref 를 제거해, 사라진 head 는 다시
+    "fatal: invalid reference" 로 fail-closed 하게 만든다."""
     return subprocess.run(
-        ["git", "fetch", "origin", "+refs/heads/*:refs/remotes/origin/*"],
+        ["git", "fetch", "--prune", "origin",
+         "+refs/heads/*:refs/remotes/origin/*"],
         cwd=repo, capture_output=True, text=True)
 
 
