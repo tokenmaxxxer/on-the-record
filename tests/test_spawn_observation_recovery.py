@@ -3990,3 +3990,126 @@ class ConsumerFixtureWatchdogAnchoring(unittest.TestCase):
             finally:
                 spawn.ROSTER = old_roster
                 spawn.WATCHDOG_STATE = old_state
+
+
+class MechanicalRebase(unittest.TestCase):
+    """issue #2403 acceptance 2/4 — `_mechanical_rebase()`/`mechanical_rebase_cli()`:
+    a role branch that is merely behind current main gets rebased and pushed
+    with no LLM session; a branch whose rebase would need real conflict
+    resolution is left alone (rebase aborted) and told a role session is
+    required."""
+
+    def _git(self, cwd, *args):
+        return subprocess.run(["git", "-C", str(cwd), *args],
+                               capture_output=True, text=True)
+
+    def _init_repo(self, path):
+        path.mkdir(parents=True, exist_ok=True)
+        self._git(path, "init", "-q", "-b", "main")
+        self._git(path, "config", "user.email", "t@t.t")
+        self._git(path, "config", "user.name", "t")
+
+    def _commit(self, path, name, content, msg):
+        (path / name).write_text(content)
+        self._git(path, "add", name)
+        self._git(path, "commit", "-q", "-m", msg)
+
+    @pytest.mark.slow
+    def test_rebases_and_pushes_when_stale_but_conflict_free(self):
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin.git"
+            work = Path(td) / "work"
+            subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)],
+                            check=True, capture_output=True)
+            subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                            check=True, capture_output=True)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+            self._commit(work, "f.txt", "line1\n", "init")
+            self._git(work, "push", "-q", "origin", "main")
+
+            self._git(work, "checkout", "-q", "-b", "issue-99001/implementation")
+            self._commit(work, "role.txt", "role work\n", "role work")
+            self._git(work, "push", "-q", "-u", "origin", "issue-99001/implementation")
+
+            self._git(work, "checkout", "-q", "main")
+            self._commit(work, "unrelated.txt", "main moved on\n", "main moved on")
+            self._git(work, "push", "-q", "origin", "main")
+            self._git(work, "checkout", "-q", "issue-99001/implementation")
+
+            result = spawn._mechanical_rebase(str(work))
+
+            self.assertEqual(result["status"], "rebased", result)
+            self.assertEqual(result["behind"], 1, result)
+            behind_after = self._git(work, "rev-list", "--count",
+                                      "HEAD..origin/main").stdout.strip()
+            self.assertEqual(behind_after, "0",
+                              "rebase 뒤에는 origin/main 대비 뒤처진 커밋이 없어야 한다")
+            remote_head = self._git(work, "rev-parse",
+                                     "origin/issue-99001/implementation").stdout.strip()
+            local_head = self._git(work, "rev-parse", "HEAD").stdout.strip()
+            self.assertEqual(remote_head, local_head,
+                              "rebase 결과가 origin 에도 push 돼 있어야 한다")
+
+    @pytest.mark.slow
+    def test_reports_up_to_date_without_touching_anything(self):
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin.git"
+            work = Path(td) / "work"
+            subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)],
+                            check=True, capture_output=True)
+            subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                            check=True, capture_output=True)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+            self._commit(work, "f.txt", "line1\n", "init")
+            self._git(work, "push", "-q", "origin", "main")
+            self._git(work, "checkout", "-q", "-b", "issue-99002/implementation")
+            self._commit(work, "role.txt", "role work\n", "role work")
+            self._git(work, "push", "-q", "-u", "origin", "issue-99002/implementation")
+
+            before = self._git(work, "rev-parse", "HEAD").stdout.strip()
+            result = spawn._mechanical_rebase(str(work))
+            after = self._git(work, "rev-parse", "HEAD").stdout.strip()
+
+            self.assertEqual(result, {"status": "up-to-date", "behind": 0,
+                                       "detail": result["detail"]})
+            self.assertEqual(before, after, "이미 최신이면 아무 것도 건드리지 않아야 한다")
+
+    @pytest.mark.slow
+    def test_aborts_and_reports_conflict_when_not_mechanical(self):
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin.git"
+            work = Path(td) / "work"
+            subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(origin)],
+                            check=True, capture_output=True)
+            subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                            check=True, capture_output=True)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+            self._commit(work, "f.txt", "line1\nline2\n", "init")
+            self._git(work, "push", "-q", "origin", "main")
+
+            self._git(work, "checkout", "-q", "-b", "issue-99003/implementation")
+            self._commit(work, "f.txt", "ROLE-CHANGE\nline2\n", "role edits line1")
+            self._git(work, "push", "-q", "-u", "origin", "issue-99003/implementation")
+
+            self._git(work, "checkout", "-q", "main")
+            self._commit(work, "f.txt", "MAIN-CHANGE\nline2\n", "main edits line1 too")
+            self._git(work, "push", "-q", "origin", "main")
+            self._git(work, "checkout", "-q", "issue-99003/implementation")
+
+            before = self._git(work, "rev-parse", "HEAD").stdout.strip()
+            result = spawn._mechanical_rebase(str(work))
+            after = self._git(work, "rev-parse", "HEAD").stdout.strip()
+            status = self._git(work, "status", "--porcelain=v1").stdout.strip()
+
+            self.assertEqual(result["status"], "conflict", result)
+            self.assertEqual(result["behind"], 1, result)
+            self.assertEqual(before, after,
+                              "충돌 rebase 는 abort 돼 브랜치가 손대지지 않아야 한다")
+            self.assertEqual(status, "", "충돌 rebase abort 뒤 워킹트리는 clean 해야 한다")
+            remote_head = self._git(work, "rev-parse",
+                                     "origin/issue-99003/implementation").stdout.strip()
+            self.assertEqual(remote_head, before,
+                              "충돌 시엔 origin 에 아무것도 push 되면 안 된다")

@@ -138,7 +138,7 @@ def test_evaluate_all_clear(monkeypatch, fixture_repo):
     body = check_runner.format_comment([
         {"check": "`a`", "type": "test", "status": "pass", "output": ""}])
     monkeypatch.setattr(merge_gate, "latest_check_runner_comment", lambda repo, pr: body)
-    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr: [])
+    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr, refs=None: [])
     result = merge_gate.evaluate(fixture_repo, fixture_repo, 42, "issue-9002")
     assert result == {"allowed": True, "reasons": []}
 
@@ -150,7 +150,7 @@ def test_evaluate_refuses_on_stale_revert(monkeypatch, fixture_repo):
         {"check": "`a`", "type": "test", "status": "pass", "output": ""}])
     monkeypatch.setattr(merge_gate, "latest_check_runner_comment", lambda repo, pr: body)
     monkeypatch.setattr(merge_gate, "stale_revert_reasons",
-                         lambda repo, pr: ["app.py: stale revert"])
+                         lambda repo, pr, refs=None: ["app.py: stale revert"])
     result = merge_gate.evaluate(fixture_repo, fixture_repo, 42, "issue-9002")
     assert result["allowed"] is False
     assert any("app.py" in r for r in result["reasons"])
@@ -224,7 +224,8 @@ def test_live_pr_1662_vs_1661_reconstruction(monkeypatch, tmp_path):
     monkeypatch.setattr(merge_gate, "pr_refs", lambda r, pr: {
         "base_ref": "main", "head_ref": "issue-1662-rebased"})
     result2 = merge_gate.evaluate(repo, repo, 1662, "issue-1662")
-    assert result2 == {"allowed": True, "reasons": []}
+    assert result2 == {"allowed": True, "reasons": [],
+                        "staleness": {"behind": 0, "conflicting": False}}
 
 
 # ---- issue-2233 ------------------------------------------------------------
@@ -312,7 +313,7 @@ def t_merge_gate_evaluate_refuses_no_checks_as_a_pass(monkeypatch):
                          lambda repo, pr: check_runner.format_no_checks_comment())
     monkeypatch.setattr(merge_gate, "required_verification_missing",
                          lambda root, subject, repo=None, pr=None: [])
-    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr: [])
+    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr, refs=None: [])
 
     result = merge_gate.evaluate(Path("."), Path("."), 999, "issue-999")
     assert result["allowed"] is False
@@ -341,7 +342,7 @@ def t_finder_reaches_no_checks_branch_through_evaluate(monkeypatch, fixture_repo
     monkeypatch.setattr(subprocess, "run", fake_run)
     monkeypatch.setattr(merge_gate, "required_verification_missing",
                          lambda root, subject, repo=None, pr=None: [])
-    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr: [])
+    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr, refs=None: [])
 
     found = merge_gate.latest_check_runner_comment(fixture_repo, 2228)
     assert found == no_checks_body
@@ -443,7 +444,7 @@ def t_full_sequence_reaches_allow_merge_once_every_precondition_holds(monkeypatc
                                           "- [PASS] (test) `tests/test_x.py`")
     monkeypatch.setattr(merge_gate, "required_verification_missing",
                          lambda root, subject, repo=None, pr=None: [])
-    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr: [])
+    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr, refs=None: [])
 
     gate_result = merge_gate.evaluate(Path("."), Path("."), 2223, "issue-2215")
     assert gate_result == {"allowed": True, "reasons": []}, gate_result
@@ -452,6 +453,95 @@ def t_full_sequence_reaches_allow_merge_once_every_precondition_holds(monkeypatc
     # `evaluate()`가 만든 진짜 결과를 그대로 넣는다(issue #1669).
     action = verdict_gate.classify("Verdict: MERGE", gate_result, tests_pass=True)
     assert action == "ALLOW_MERGE", action
+
+
+# ---- issue-2403: pre-merge staleness probe -------------------------------
+
+
+def test_staleness_up_to_date():
+    """merge_base_ref 와 base_head_ref 가 같으면(behind=0) merge-tree 를
+    부르지도 않고 곧장 non-stale 을 돌려준다."""
+    result = merge_gate.staleness(Path("."), "HEAD", "HEAD", "HEAD")
+    assert result == {"behind": 0, "conflicting": False}
+
+
+def test_staleness_behind_but_not_conflicting(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "t")
+    _commit(repo, "f.txt", "line1\nline2\n", "init")
+    _git(repo, "checkout", "-q", "-b", "issue-9001/implementation")
+    _commit(repo, "role.txt", "role work\n", "role work")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, "unrelated.txt", "main moved on\n", "main moved on")
+    merge_base = _git_out(repo, "merge-base", "main", "issue-9001/implementation")
+
+    result = merge_gate.staleness(repo, merge_base, "main", "issue-9001/implementation")
+    assert result == {"behind": 1, "conflicting": False}
+
+
+def test_staleness_behind_and_conflicting(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "t")
+    _commit(repo, "f.txt", "line1\nline2\n", "init")
+    _git(repo, "checkout", "-q", "-b", "issue-9002/implementation")
+    _commit(repo, "f.txt", "ROLE-CHANGE\nline2\n", "role edits line1")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, "f.txt", "MAIN-CHANGE\nline2\n", "main edits line1 too")
+    merge_base = _git_out(repo, "merge-base", "main", "issue-9002/implementation")
+
+    result = merge_gate.staleness(repo, merge_base, "main", "issue-9002/implementation")
+    assert result == {"behind": 1, "conflicting": True}
+
+
+def test_staleness_for_pr_fail_open_when_refs_missing(monkeypatch, fixture_repo):
+    monkeypatch.setattr(merge_gate, "pr_refs", lambda repo, pr: None)
+    assert merge_gate.staleness_for_pr(fixture_repo, 42) is None
+
+
+def test_evaluate_reports_staleness_distinctly_from_code_defect(monkeypatch, tmp_path):
+    """issue #2403 acceptance 1/4 — deliberately-stale, conflicting branch:
+    `evaluate()` reports `behind by N, conflicting: yes` via the
+    `staleness` key BEFORE any `gh pr merge` attempt, and the blocking
+    reason it adds is worded as a stale-branch condition, distinct from
+    the check-runner/verification-record reasons that mean an actual code
+    defect."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    _git(repo, "config", "user.email", "t@example.com")
+    _git(repo, "config", "user.name", "t")
+    _commit(repo, "f.txt", "line1\nline2\n", "init")
+    _git(repo, "checkout", "-q", "-b", "issue-9003/implementation")
+    _commit(repo, "f.txt", "ROLE-CHANGE\nline2\n", "role edits line1")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, "f.txt", "MAIN-CHANGE\nline2\n", "main edits line1 too")
+    _git(repo, "checkout", "-q", "issue-9003/implementation")
+
+    monkeypatch.setattr(merge_gate, "pr_refs", lambda r, pr: {
+        "base_ref": "main", "head_ref": "issue-9003/implementation"})
+    monkeypatch.setattr(merge_gate, "latest_check_runner_comment",
+                         lambda r, pr: check_runner.format_comment(
+                             [{"check": "`a`", "type": "test", "status": "pass", "output": ""}]))
+    monkeypatch.setattr(merge_gate, "required_verification_missing",
+                         lambda root, subject, repo=None, pr=None: [])
+    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr, refs=None: [])
+
+    result = merge_gate.evaluate(repo, repo, 9003, "issue-9003")
+    assert result["allowed"] is False
+    assert result["staleness"] == {"behind": 1, "conflicting": True}
+    assert any(r.startswith("stale-branch:") for r in result["reasons"])
+    assert not any("check-runner" in r or "검증 기록" in r for r in result["reasons"])
+
+
+def _git_out(cwd, *args):
+    r = subprocess.run(["git", "-C", str(cwd), *args], capture_output=True, text=True, check=True)
+    return r.stdout.strip()
 
 
 def _run(fns):
