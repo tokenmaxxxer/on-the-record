@@ -5,28 +5,27 @@ author: execution-observation
 loop_state: handed-off
 upstream:
   - path: docs/issue-2414/reports/implementation.md
-    sha: 2019bf3be0f0404e6b05e753eba5f1991bb54c34
+    sha: bd9350cdc79c3b57c34c0a207320c460e5aff276
   - path: gates/acceptance_gate.py
-    sha: 2019bf3be0f0404e6b05e753eba5f1991bb54c34
-  - path: gates/requirement_met.py
-    sha: 2019bf3be0f0404e6b05e753eba5f1991bb54c34
-subject: PR #2422 (issue-2414/implementation, "measure same-shape
-  follow-up defect rate, offer scoped negative-criteria/
-  convergence-evidence checks (superseded by #2415)"), commit 2019bf3b
-  (HEAD), branch issue-2414/implementation, checked out into an
-  independent git worktree at /tmp/wt-2414-impl (untracked in this tree,
-  removed after this observation)
-test: independent re-derivation of issue-2414's Acceptance checks 1
-  (A/B distinct-shape confirmation), 2 (measured frequency), and 3/4
-  (backlog-impact and live demonstrations of the two shipped checks) --
-  fresh `gh issue view`/`gh pr view` fetches of every cited issue/PR,
-  fresh measurement scripts against the live GitHub tracker and the real
-  current open backlog, and the two shipped regression suites re-run
-  from an independent worktree, none of it taken from the PR's own
-  pasted transcripts
+    sha: bd9350cdc79c3b57c34c0a207320c460e5aff276
+  - path: on-the-record/directive/acceptance-format.md
+    sha: bd9350cdc79c3b57c34c0a207320c460e5aff276
+subject: PR #2422 (issue-2414/implementation), round 2 -- re-review of
+  commit bd9350cd (HEAD), branch issue-2414/implementation, covering the
+  CHANGES round (commits 6640246f..bd9350cd) that PR #2426's merged
+  conformance review triggered and that landed after round 1 (commit
+  2019bf3b, body below) had already merged as PR #2425; checked out
+  into an independent git worktree at /tmp/wt-2414-reverify (untracked
+  in this tree, removed after this observation)
+test: round 1 (unchanged, see body below) plus round 2 -- independent
+  re-verification of the CHANGES-round fix, see "CHANGES-round
+  re-verification (round 2)" below for the executed commands and pasted
+  output
 result: passed
 assertedBy: execution-observation session for issue-2414, independent of
-  PR #2422's authoring (implementation) session
+  PR #2422's authoring (implementation) session -- round 2 is also
+  independent of PR #2426's conformance-review session that found the
+  defect this round re-verifies as fixed
 ---
 
 # issue-2414 — execution-observation record
@@ -48,6 +47,66 @@ describe.
 canonical: `gh issue view 2411` / `gh pr view 2411` (this session) --
 both resolve to the same PR (state: MERGED), confirming #2411 is not a
 standalone GitHub issue distinct from #2393/#2413 -- see Open findings.
+
+**CHANGES-round re-verification (round 2).** canonical: `gh pr view
+2426 --json body,state -q .` (this session, live) -- state: MERGED;
+body confirms PR #2426's merged builder-blind conformance review filed
+an `Incorrect` finding that `gates/acceptance_gate.py:75-76` and
+`on-the-record/directive/acceptance-format.md:28` still said the
+narrow-trigger design costs "8 of 45 (18%)" of the backlog, a stale
+pre-fix number contradicting the shipped record's own 14/45 (31%)
+figure. PR #2422's author fixed this in commit `6640246f`. Round 1
+above (commit `2019bf3b`) had already flagged this same stale figure as
+an Open finding before the fix landed; this round independently
+re-verifies the fix itself from a fresh worktree at the new HEAD, not
+by re-reading the author's or PR #2426's own claim that it is fixed:
+
+```
+$ grep -rn "8 of 45\|18%\|blocks 8" gates/ on-the-record/ docs/issue-2414/
+docs/issue-2414/reports/implementation.md:129:...(historical narration of the now-fixed defect, inside quoted prose)
+docs/issue-2414/reports/implementation/deviation-log/...-0b23939226b07fc9.md:1:...(same historical narration, deviation-log entry)
+$ sed -n '75,76p' gates/acceptance_gate.py
+# backlog, this bounds the one-time migration cost to 14 of 45 open
+# issues (31%) while still catching all three real incidents (#2291,
+$ sed -n '27,28p' on-the-record/directive/acceptance-format.md
+  block 34 of 45 open issues that mostly add no mechanism at all; this
+  one blocks 14).
+$ git -C /tmp/wt-2414-reverify show 6640246f --stat
+ .../deviation-log/20260825T125742270437-c9a06a3b41ac.md               | 1 +
+ gates/acceptance_gate.py                                              | 4 ++--
+ on-the-record/directive/acceptance-format.md                          | 2 +-
+ 3 files changed, 4 insertions(+), 3 deletions(-)
+$ python3 gates/test_acceptance_gate.py
+27/27 passed
+$ python3 gates/test_requirement_met.py
+35/35 passed
+$ python3 -m pytest -q tests/test_acceptance_gate_tests_dir.py
+5 passed in 21.97s
+```
+canonical: `grep -rn "8 of 45\|18%\|blocks 8" gates/ on-the-record/
+docs/issue-2414/`, `sed -n '75,76p' gates/acceptance_gate.py`, `sed -n
+'27,28p' on-the-record/directive/acceptance-format.md`, `git -C
+/tmp/wt-2414-reverify show 6640246f --stat`, `python3
+gates/test_acceptance_gate.py`, `python3 gates/test_requirement_met.py`,
+`python3 -m pytest -q tests/test_acceptance_gate_tests_dir.py` (this
+session, real independent worktree `/tmp/wt-2414-reverify` at commit
+`bd9350cd`, pasted output above) -- all commands exit 0. The only
+remaining "8 of 45"/"18%" hits are the record's own historical
+narration of the already-fixed defect, not a live stale citation; both
+code and doc now read 14/31%; the fix commit's `--stat` confirms it
+touched only the two prose citations plus its own deviation-log entry,
+no functional code path; and the regression count 27+5=32,
+independently re-run this round rather than re-read from the fix
+commit's own message.
+
+derived: also spot-checked the two follow-on admin commits in the same
+CHANGES round -- `git -C /tmp/wt-2414-reverify show 3cf938a8 --stat`
+shows the deviation-log shard `git mv`d from a hand-picked filename to
+the canonical `spawn.py deviation-log-path` hash with one line added;
+`git -C /tmp/wt-2414-reverify show bd9350cd` shows the record's own
+"What did not work" citation updated in the same diff to point at the
+renamed path -- both consistent with their own commit messages, no
+orphaned reference left behind.
 
 **Frequency (Measurement 2).** canonical: `gh pr list --state merged
 --json number,title,mergedAt --limit 300`, filtered
@@ -166,35 +225,47 @@ check of arithmetic against a list already seen.
 ## Upstream basis
 
 - `docs/issue-2414/reports/implementation.md`, untracked in this tree --
-  lives on branch `issue-2414/implementation` at commit
-  `2019bf3be0f0404e6b05e753eba5f1991bb54c34`, PR #2422 -- the record
-  whose Measurements 1-3 and live demonstrations this session
-  independently re-derived above.
-- `gates/acceptance_gate.py`, `gates/requirement_met.py` at the same
-  commit (independent worktree `/tmp/wt-2414-impl`, removed after this
-  observation) -- the two changed modules this session ran tests and
+  lives on branch `issue-2414/implementation`, PR #2422 -- the record
+  whose Measurements 1-3 and live demonstrations round 1 (commit
+  `2019bf3be0f0404e6b05e753eba5f1991bb54c34`) independently re-derived,
+  and whose CHANGES-round fix round 2 (commit
+  `bd9350cdc79c3b57c34c0a207320c460e5aff276`, current HEAD)
+  independently re-verified.
+- `gates/acceptance_gate.py`, `gates/requirement_met.py`,
+  `on-the-record/directive/acceptance-format.md` at the commits noted
+  above (independent worktrees `/tmp/wt-2414-impl` round 1 and
+  `/tmp/wt-2414-reverify` round 2, both removed after their respective
+  observation) -- the changed modules/docs this session ran tests and
   fresh measurement scripts against directly.
 - #2291, #2383, #2393, #2411, #2413 read live via `gh issue view`/`gh pr
   view` this session, independent of both issue #2414's own summary and
   PR #2422's citations.
+- canonical: `gh pr view 2426 --json state -q .state` (this session) --
+  result `MERGED` -- PR #2426, the independent builder-blind conformance
+  review whose `Incorrect` finding triggered the CHANGES round round 2
+  re-verifies.
 
 ## Open findings
 
-- canonical: `gates/acceptance_gate.py:75-77` (independent worktree,
-  commit `2019bf3b`, this session) -- the module's own inline comment
-  states the narrow-trigger design costs "8 of 45 open issues (18%)" --
-  contradicts the shipped record's own `breaking:` frontmatter and
-  Measurement 3 (14/45, 31%), and this session's independent
-  reproduction above (13-14 of 44-45, ~30%, `derived:` from
-  `/tmp/measure_backlog_eo.py`'s pasted output above). Likely stale: the
-  warrant-hunt fix documented in the record's "What did not work"
-  (adding past-tense/passive verb inflections to `_MECHANISM_TRIGGER`)
-  would mechanically increase the trigger's match rate, and the comment
-  reads as written before that fix and never updated after. Resolution
-  path: PR #2422 itself states this code is offered as candidate input
-  to #2415's redesign rather than landed as permanent, so no separate
-  fix is proposed here -- a #2415 session picking up this code should
-  not carry the stale comment forward.
+- RESOLVED in round 2. canonical: `gates/acceptance_gate.py:75-77`
+  (independent worktree, commit `2019bf3b`, round 1, this session) --
+  the module's own inline comment stated the narrow-trigger design
+  costs "8 of 45 open issues (18%)" -- contradicted the shipped
+  record's own `breaking:` frontmatter and Measurement 3 (14/45, 31%),
+  and round 1's independent reproduction above (13-14 of 44-45, ~30%,
+  `derived:` from `/tmp/measure_backlog_eo.py`'s pasted output above).
+  Round 1 judged this "likely stale" but proposed no separate fix,
+  since PR #2422 offers this code as candidate input to #2415's
+  redesign rather than landing it as permanent. PR #2426's independent
+  builder-blind conformance review then filed the same finding as
+  `Incorrect`, and PR #2422's author fixed it in commit `6640246f`.
+  Round 2 above ("CHANGES-round re-verification") independently
+  re-verified the fix from a fresh worktree at the new HEAD (`bd9350cd`)
+  -- both citations now read 14/45 (31%), `git show 6640246f --stat`
+  confirms only the two prose lines and a deviation-log entry changed,
+  and the two shipped regression suites plus the `tests/` pytest file
+  re-run clean. No further action needed against PR #2422 itself; a
+  #2415 session picking up this code inherits the corrected comment.
 - canonical: `gh issue view 2413 --json createdAt -q .createdAt` (this
   session) -- result `2026-08-25T11:52:55Z`, cited above in "What was
   done" -> Frequency. The record's stated measurement window
