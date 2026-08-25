@@ -25,7 +25,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
-import gates  # noqa: E402
+# issue #2226: same sibling-import collision and fix shape as
+# `gates/record_lint.py` (see its comment for the full rationale, incl.
+# why evicting `sys.modules["gates"]` was tried and rejected) — load
+# `gates/gates.py` by explicit path under a private, process-shared key
+# instead of a bare `import gates`, which under
+# `python3 -m gates.skip_eligibility` would silently resolve to the
+# namespace package instead.
+import importlib.util as _importlib_util
+_GATES_IMPL_KEY = "_on_the_record_gates_sibling_impl"
+if _GATES_IMPL_KEY not in sys.modules:
+    _spec = _importlib_util.spec_from_file_location(
+        _GATES_IMPL_KEY, str(ROOT / "gates" / "gates.py"))
+    _impl = _importlib_util.module_from_spec(_spec)
+    sys.modules[_GATES_IMPL_KEY] = _impl
+    _spec.loader.exec_module(_impl)
+gates = sys.modules[_GATES_IMPL_KEY]  # noqa: E402
 from claim_scan import CLAIM_RE  # noqa: E402
 
 NON_DOCS_LINE_THRESHOLD = 50

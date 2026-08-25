@@ -12,9 +12,28 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
-import gates
+# issue #2226: same sibling-import collision and fix shape as
+# `gates/record_lint.py` (see its comment for the full rationale, incl.
+# why evicting `sys.modules["gates"]` was tried and rejected) — load
+# `gates/gates.py` by explicit path under a private, process-shared key
+# instead of a bare `import gates`, which under `python3 -m gates.risk_report`
+# would silently resolve to this directory's implicit namespace package.
+# Loading by explicit path also sidesteps this file's other pre-existing
+# gap: unlike its siblings, it never put its own directory on `sys.path`,
+# so a bare `import gates` here only ever worked via direct-script
+# invocation's automatic script-directory insertion.
+import importlib.util as _importlib_util
+_GATES_IMPL_KEY = "_on_the_record_gates_sibling_impl"
+if _GATES_IMPL_KEY not in sys.modules:
+    _spec = _importlib_util.spec_from_file_location(
+        _GATES_IMPL_KEY, str(Path(__file__).parent / "gates.py"))
+    _impl = _importlib_util.module_from_spec(_spec)
+    sys.modules[_GATES_IMPL_KEY] = _impl
+    _spec.loader.exec_module(_impl)
+gates = sys.modules[_GATES_IMPL_KEY]
 
 # gates.py의 warrant 훅 크기 등급(20/200줄)과 같은 근거로 고정한 단일 임계값.
 # 그 등급의 하한(20)보다 살짝 높게 잡아, 딱 그 경계에 걸리는 "한 줄 마커

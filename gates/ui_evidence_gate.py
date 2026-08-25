@@ -79,7 +79,23 @@ def check_record(root: Path, record_path: str, record_text: str,
                   changed_paths: list[str]) -> list[str]:
     """레코드가 `verdict: pass` 를 주장하는데 diff 가 UI-facing 이면
     `provenance: executed-live` + 증거 참조를 요구한다."""
-    import gates
+    # issue #2226: same sibling-import collision and fix shape as
+    # `gates/record_lint.py` (see its comment for the full rationale) —
+    # load `gates/gates.py` by explicit path under a private,
+    # process-shared key instead of a bare `import gates`, which under
+    # `python3 -m gates.<X>` (e.g. via `gates.py`'s ALL['ui_evidence_gate']
+    # dispatch) would silently resolve to the namespace package instead.
+    import importlib.util as _importlib_util
+    import sys
+    from pathlib import Path as _Path
+    _GATES_IMPL_KEY = "_on_the_record_gates_sibling_impl"
+    if _GATES_IMPL_KEY not in sys.modules:
+        _spec = _importlib_util.spec_from_file_location(
+            _GATES_IMPL_KEY, str(_Path(__file__).parent / "gates.py"))
+        _impl = _importlib_util.module_from_spec(_spec)
+        sys.modules[_GATES_IMPL_KEY] = _impl
+        _spec.loader.exec_module(_impl)
+    gates = sys.modules[_GATES_IMPL_KEY]
     fm = gates.record_frontmatter(record_text)
     if fm.get("verdict") != "pass":
         return []
