@@ -694,23 +694,30 @@ def frontmatter(p: Path) -> dict[str, str]:
 def _skill_axis_report_names(rep: Path) -> list[str]:
     """이슈 #2432 (role retirement stage 4): `reports/` 바로 아래에 있지만
     `_sp.ROLES`(고정 역할 enum) 에는 없는 `.md` 파일 중, 실제 레코드처럼
-    보이는(frontmatter 블록이 있는) 파일 이름만 돌려준다.
+    보이는(frontmatter 에 `loop_state` 키가 있는) 파일 이름만 돌려준다.
 
     새 스킬 축 네이밍은 `single-skill-axis` 동결 결정 때문에 고정 enum이
     없다 — `checkout_issue_branch_for_skill`이 만드는 브랜치 이름 세그먼트
     (`<skill>-<lease-disambiguator>`) 는 임의 문자열이라, 이름 모양으로
-    "새 스킬 축 레코드인지" 판별할 수 없다. 대신 `frontmatter()`가 이미 쓰는
-    "맨 앞 `---` 블록" 자체를 판별 기준으로 삼는다 — 레코드가 아닌 잡파일이
-    우연히 reports/ 밑에 놓여도 frontmatter 블록이 없으면 보드에 안 잡힌다.
-    `rep.iterdir()`는 한 단계만 보므로 `reports/<role>/` 같은 중첩 디렉터리
-    (예: docs/issue-2241/reports/architecture/survey.md) 의 파일들은 여기
-    걸리지 않는다."""
+    "새 스킬 축 레코드인지" 판별할 수 없다. `loop_state` 존재 여부를 쓰는
+    이유: `write_record_skeleton()`(모든 진짜 role/skill 레코드가 거치는
+    유일한 생성 경로)이 항상 이 키를 찍는다 — before-landing warrant hunt
+    발견(이슈 #2432): 단순 "frontmatter 블록 있음"만 보면, hunt/감사 레코드
+    (`---\\nproposal: ...\\n---`처럼 frontmatter 는 있지만 `loop_state` 는
+    없는 `docs/issue-1077/reports/hunt-implementation.md` 같은 파일)까지
+    쓸려 들어와 `_front_role()`의 "rootless 레코드는 하나뿐" 불변식을 깨고
+    `approve_scope()`(실제 커밋을 쓴다)의 판정을 바꿔 버렸다 — 29개 기존
+    subject 에서 실측(`issue-1077`이 그 중 하나, `_front_role`이
+    `implementation` 대신 `None`을 반환하게 됨). `rep.iterdir()`는 한 단계만
+    보므로 `reports/<role>/` 같은 중첩 디렉터리(예:
+    docs/issue-2241/reports/architecture/survey.md)의 파일들은 여기 걸리지
+    않는다."""
     if not rep.is_dir():
         return []
     known = {f"{r}.md" for r in _sp.ROLES}
     return sorted(p.stem for p in rep.iterdir()
                   if p.is_file() and p.suffix == ".md" and p.name not in known
-                  and _sp.frontmatter(p))
+                  and "loop_state" in _sp.frontmatter(p))
 
 
 def board(root: Path) -> dict[str, dict[str, dict[str, str]]]:
