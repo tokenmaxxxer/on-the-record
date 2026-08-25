@@ -447,6 +447,7 @@ _admission_check_approve_token = _pipeline_mod._admission_check_approve_token
 _admission_check_board_validity = _pipeline_mod._admission_check_board_validity
 _board_marker_probe = _pipeline_mod._board_marker_probe
 _admission_check_budget_caps = _pipeline_mod._admission_check_budget_caps
+_admission_check_degenerate_task = _pipeline_mod._admission_check_degenerate_task
 _admission_check_directive_completeness = _pipeline_mod._admission_check_directive_completeness
 _admission_check_watch_registration = _pipeline_mod._admission_check_watch_registration
 _artifact_smoke_task_lines = _pipeline_mod._artifact_smoke_task_lines
@@ -1196,6 +1197,14 @@ def main() -> int:
                     help="spawn: explicit override letting --max-turns 0 "
                          "(unlimited) pass the budget-caps admission check "
                          "(issue #2100 item 4)")
+    ap.add_argument("--force-adhoc-task", action="store_true",
+                    help="spawn: explicit override letting a bare-numeric "
+                         "or '#<n>'-shaped task pass admission without "
+                         "--issue — for the rare legitimate numeric-task "
+                         "adhoc spawn (issue #2293). Without --issue AND "
+                         "without this flag, a numeric-shaped task is "
+                         "refused at admission with a did-you-mean "
+                         "--issue suggestion.")
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
@@ -1532,7 +1541,8 @@ def main() -> int:
                       single_phase=effective_single_phase,
                       max_turns=a.max_turns,
                       allow_unlimited_turns=a.allow_unlimited_turns,
-                      checkpoint=a.checkpoint)
+                      checkpoint=a.checkpoint,
+                      force_adhoc_task=a.force_adhoc_task)
 
 
 _GH_TOKEN_CACHE: str | None = None
@@ -2281,6 +2291,7 @@ DEFAULT_SESSION_MAX_TURNS = 200
 # is the only loop. Tests append synthetic rows here to prove that adding
 # an item requires no new gate code (issue #2100 acceptance).
 ADMISSION_CHECKS: list[tuple] = [
+    ("degenerate-task", _admission_check_degenerate_task),
     ("approve-token", _admission_check_approve_token),
     ("directive-completeness", _admission_check_directive_completeness),
     ("watch-registration", _admission_check_watch_registration),
@@ -2296,7 +2307,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                skills: str | None = None, single_phase: bool = False,
                max_turns: int | None = None,
                allow_unlimited_turns: bool = False,
-               checkpoint: bool = False) -> int:
+               checkpoint: bool = False,
+               force_adhoc_task: bool = False) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -2315,11 +2327,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     resolved_max_turns = _resolve_session_max_turns(max_turns)
     with _timed("admission"):
         _refused_item = admission_gate({
-            "cwd": cwd, "role": role, "issue": issue,
+            "cwd": cwd, "role": role, "issue": issue, "task": task,
             "single_phase": single_phase, "skills": skills,
             "max_turns": resolved_max_turns,
             "allow_unlimited_turns": allow_unlimited_turns,
             "checkpoint": checkpoint,
+            "force_adhoc_task": force_adhoc_task,
         })
     if _refused_item is not None:
         print(f"[{role}] admission refused: missing precondition "
@@ -2859,7 +2872,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 용도로만 아래에서 덧붙인다.
                 _early_roster_entry = {
                     "pid": os.getpid(), "role": role,
-                    "issue": issue, "ts": int(time.time()),
+                    "issue": issue, "task": task, "ts": int(time.time()),
                     "work": str(cwd), "log": str(log_path),
                     "expects_pr": issue is not None,
                     "session_id": os.environ.get(ORCHESTRATOR_SESSION_ID_ENV) or None,
@@ -2963,7 +2976,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             raise
         roster_register(roster_key, {
             "pid": proc.pid, "role": role,
-            "issue": issue, "ts": int(time.time()),
+            "issue": issue, "task": task, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
             # 이슈 #2070: 이 스폰에 실제로 --model 로 붙은 값과, 그것을 고른

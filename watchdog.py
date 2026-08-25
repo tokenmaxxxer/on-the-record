@@ -268,9 +268,18 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     branch = Path(work).name if work else None
     ckpt_fields = (checkpoint.checkpoint_health(work, now=now) if work
                    else {"dirty_files": 0, "minutes_since_checkpoint": None})
+    # issue #2293: a session with no --issue must never let a HEALTHY line
+    # read as "your issue-N spawn is fine" — every diagnosis for an adhoc
+    # entry is tagged ADHOC with the task's first words, so `[poll-report]`
+    # (which prints on every tick, HEALTHY included) can't hide it.
+    adhoc_prefix = ""
+    if entry.get("issue") is None:
+        task_preview = " ".join((entry.get("task") or "").split()[:8])
+        adhoc_prefix = (f"ADHOC task=\"{task_preview}\" — " if task_preview
+                        else "ADHOC (no task recorded) — ")
 
     def _diagnosis(d: dict) -> dict:
-        return {**d, **ckpt_fields}
+        return {**d, **ckpt_fields, "detail": adhoc_prefix + d["detail"]}
 
     alive = _sp._alive(pid)
     if not alive:

@@ -1459,6 +1459,43 @@ def _admission_check_budget_caps(ctx: dict) -> bool | None:
     return True
 
 
+_DEGENERATE_TASK_RE = re.compile(r"^[#-]?\d+$")
+
+
+def _admission_check_degenerate_task(ctx: dict) -> bool | None:
+    """Item 6 (issue #2293): refuse admission when the positional `task` is
+    bare-numeric (optionally `#`- or `-`-prefixed) and `--issue` was not
+    given. Live incident: `spawn.py implementation 538` meant `--issue 538`
+    but was typed without the flag, so argparse bound "538" to `task` — the
+    CLI accepted it silently and spawned a live agent whose entire mission
+    was the three-character string "538". Deterministic and purely local
+    (no gh/network call), so a failure here is a real refusal, never
+    fail-open.
+
+    Before-landing warrant hunt (issue #2293,
+    docs/issue-2293/reports/implementation/2026-08-25-hunt-degenerate-task-admission-refusal.md):
+    the original `^#?\\d+$` missed a negative-shaped task like `"-538"` —
+    argparse's own "a lone `-<digits>` token is not treated as an option"
+    special-case lets it reach `task` exactly like the bare "538" case,
+    reproducing the incident unrefused. The `-` prefix is included in the
+    character class for exactly this reason.
+
+    `ctx["force_adhoc_task"]` is the explicit override (`--force-adhoc-task`)
+    for the rare legitimate case of a genuinely numeric task string."""
+    if ctx.get("force_adhoc_task") or ctx.get("issue") is not None:
+        return True
+    task = (ctx.get("task") or "").strip()
+    if not task or not _DEGENERATE_TASK_RE.match(task):
+        return True
+    number = task.lstrip("#-")
+    print(f"[admission] degenerate-task: task {task!r} looks like an issue "
+          f"number; did you mean: spawn.py {ctx.get('role')} \"<task>\" "
+          f"--issue {number}\n"
+          f"(pass --force-adhoc-task to spawn a genuinely numeric-task "
+          f"adhoc session)", file=sys.stderr)
+    return False
+
+
 def _board_marker_probe(slug: str) -> bool | None:
     """Probe the remote DEFAULT branch of `slug` for the board marker
     (`docs/specs/approvers.md`) via the gh contents API — the branch the

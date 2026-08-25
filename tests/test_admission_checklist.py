@@ -294,6 +294,64 @@ class AdmissionGateTable(unittest.TestCase):
                 side_effect=subprocess.TimeoutExpired(cmd="gh", timeout=60)):
             self.assertIsNone(spawn._board_marker_probe("o/r"))
 
+    # --- item 6: degenerate task (issue #2293) ---------------------------
+    def test_bare_numeric_task_without_issue_refuses_named(self):
+        """Live incident: `spawn.py implementation 538` meant --issue 538
+        but no --issue was given, so argparse bound "538" to the positional
+        `task` — a live agent was spawned whose entire mission was the
+        string "538". Admission must catch this before any session or
+        workspace exists."""
+        ledger = _LedgerSpy()
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(spawn, "ledger_write", ledger):
+            refused = spawn.admission_gate({
+                "cwd": td, "role": "implementation", "issue": None,
+                "task": "538", "single_phase": False, "skills": None,
+                "max_turns": 200, "allow_unlimited_turns": False,
+                "force_adhoc_task": False})
+        self.assertEqual(refused, "degenerate-task")
+        events = ledger.named("admission_refused")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["item"], "degenerate-task")
+
+    def test_hash_prefixed_numeric_task_also_refuses(self):
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None, "task": "#538", "force_adhoc_task": False}),
+            False)
+
+    def test_negative_numeric_task_also_refuses(self):
+        # Before-landing warrant hunt (issue #2293): argparse's own
+        # "a lone -<digits> token is not treated as an option" special-case
+        # lets `spawn.py implementation -538` reach `task="-538"` exactly
+        # like the bare "538" incident — must be caught too.
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None, "task": "-538", "force_adhoc_task": False}),
+            False)
+
+    def test_force_adhoc_task_override_admits(self):
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None, "task": "538", "force_adhoc_task": True}), True)
+
+    def test_issue_given_skips_degenerate_task_check(self):
+        # A caller who DID pass --issue is never second-guessed here, even
+        # if the task text happens to also be numeric.
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": 538, "task": "538", "force_adhoc_task": False}), True)
+
+    def test_ordinary_task_text_admits(self):
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None, "task": 'PR 12 를 리뷰해라',
+             "force_adhoc_task": False}), True)
+
+    def test_empty_or_missing_task_admits(self):
+        # No task at all is the CLI's "맡길 일이 없다" exit / item 2's
+        # concern, not this row's — and ctx built before this issue never
+        # carried a "task" key at all (byte-identical empty state).
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None, "task": "", "force_adhoc_task": False}), True)
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None, "force_adhoc_task": False}), True)
+
     # --- fail-open ------------------------------------------------------
     def test_gh_failure_fails_open_with_ledger_event(self):
         """Mirrors the returned-PR gate convention (issue #680): a broken

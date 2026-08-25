@@ -572,6 +572,29 @@ class DiagnoseHealth(unittest.TestCase):
             self.assertEqual(out["state"], "HEALTHY")
             self.assertEqual(out["next_action"], "none")
 
+    def test_adhoc_entry_detail_is_tagged_and_names_task(self):
+        """Issue #2293: a no-issue (adhoc) entry's detail must say ADHOC
+        prominently and name the task's first words, so a `[poll-report]`
+        HEALTHY line can never read as "your issue-N spawn is fine"."""
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            entry = self._entry(log, pid=os.getpid(), issue=None)
+            entry["task"] = "538"
+            out = spawn.diagnose_health("k", entry, state={})
+            self.assertEqual(out["state"], "HEALTHY")
+            self.assertIn("ADHOC", out["detail"])
+            self.assertIn("538", out["detail"])
+
+    def test_issue_scoped_entry_detail_has_no_adhoc_tag(self):
+        with tempfile.TemporaryDirectory() as td:
+            log = Path(td) / "s.log"
+            log.write_text('{"type":"text"}\n')
+            out = spawn.diagnose_health(
+                "k", self._entry(log, pid=os.getpid(), issue=1), state={})
+            self.assertEqual(out["state"], "HEALTHY")
+            self.assertNotIn("ADHOC", out["detail"])
+
     def test_stalled_when_alive_but_idle_past_threshold(self):
         with tempfile.TemporaryDirectory() as td:
             log = Path(td) / "s.log"
