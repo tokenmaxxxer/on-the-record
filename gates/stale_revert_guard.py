@@ -47,17 +47,23 @@ def _added_lines(merge_base_content: str, base_head_content: str) -> list[str]:
 def _merge_file(current: str, base: str, other: str) -> tuple[bool, str]:
     """`git merge-file` 로 로컬 3-way 병합 시뮬레이션. 반환:
     `(clean: bool, merged_or_conflict_text: str)`. 네트워크 없음 — 임시
-    파일에 대한 로컬 git 서브프로세스 호출뿐."""
+    파일에 대한 로컬 git 서브프로세스 호출뿐.
+
+    `_git_show()`가 issue #2314 이후 `surrogateescape`로 디코드한 문자열을
+    넘길 수 있다(non-UTF-8, git-non-binary 콘텐츠) -- 그 문자열은 lone
+    surrogate 를 담고 있어 기본 `write_text()`/`text=True`(둘 다 strict
+    UTF-8)로 왕복하면 여기서 다시 크래시한다(warrant-hunt 검증 중 실측).
+    같은 인코딩(`surrogateescape`)으로 바이트 왕복해 그 크래시를 막는다."""
     with tempfile.TemporaryDirectory() as td:
         tdp = Path(td)
         cur_p, base_p, other_p = tdp / "current", tdp / "base", tdp / "other"
-        cur_p.write_text(current)
-        base_p.write_text(base)
-        other_p.write_text(other)
+        cur_p.write_bytes(current.encode("utf-8", errors="surrogateescape"))
+        base_p.write_bytes(base.encode("utf-8", errors="surrogateescape"))
+        other_p.write_bytes(other.encode("utf-8", errors="surrogateescape"))
         r = subprocess.run(
             ["git", "merge-file", "-p", str(cur_p), str(base_p), str(other_p)],
-            capture_output=True, text=True)
-        return r.returncode == 0, r.stdout
+            capture_output=True)
+        return r.returncode == 0, r.stdout.decode("utf-8", errors="surrogateescape")
 
 
 def _conflict_blocks(merged: str) -> list[tuple[list[str], list[str]]]:
@@ -116,18 +122,41 @@ def classify(base_head_content: str, merge_base_content: str, head_content: str,
 
 
 def _git_show(repo: Path, ref: str, path: str) -> str:
+    """`text=True` 로 디코드하면 바이너리 blob(PNG 등)에서
+    UnicodeDecodeError 로 죽는다(issue #2314) -- 바이트로 받아
+    `errors="surrogateescape"`로 디코드한다(defense in depth; 주 방어선은
+    changed_paths()의 바이너리 경로 제외). 디코드 실패시 빈 문자열로
+    폴백하는 방식은 검증 중 발견된 회귀였다: git 이 바이너리로 보지
+    않는(NUL 바이트 없는) 파일에 non-UTF-8 바이트 하나만 섞여 있어도
+    내용 전체가 ""로 사라져 classify()가 "추가된 줄 없음"으로 오판하고
+    진짜 stale revert 를 조용히 ALLOW 해버렸다(silent fail-open, 크래시보다
+    나쁘다). surrogateescape 는 절대 실패하지 않고 바이트 단위로 구분
+    가능한 문자열을 돌려주므로 diff/merge 비교가 그대로 동작한다."""
     r = subprocess.run(["git", "show", f"{ref}:{path}"], cwd=repo,
-                        capture_output=True, text=True)
-    return r.stdout if r.returncode == 0 else ""
+                        capture_output=True)
+    if r.returncode != 0:
+        return ""
+    return r.stdout.decode("utf-8", errors="surrogateescape")
 
 
 def changed_paths(repo: Path, merge_base_ref: str, head_ref: str) -> list[str]:
+    """`--numstat`으로 바이너리 경로를 제외한다 -- git 은 바이너리 파일의
+    추가/삭제 줄 수 칸에 `-`를 찍는다("-\t-\t<path>"), 그 자체가 "이
+    경로는 line-diff 대상이 아니다"라는 신호다(issue #2314)."""
     r = subprocess.run(
-        ["git", "diff", "--name-only", f"{merge_base_ref}..{head_ref}"],
+        ["git", "diff", "--numstat", f"{merge_base_ref}..{head_ref}"],
         cwd=repo, capture_output=True, text=True)
     if r.returncode != 0:
         return []
-    return [p for p in r.stdout.splitlines() if p]
+    paths = []
+    for line in r.stdout.splitlines():
+        if not line:
+            continue
+        added, deleted, path = line.split("\t", 2)
+        if added == "-" and deleted == "-":
+            continue
+        paths.append(path)
+    return paths
 
 
 def check_pr(repo: Path, base_ref: str, pr_merge_base_ref: str, pr_head_ref: str) -> list[dict]:

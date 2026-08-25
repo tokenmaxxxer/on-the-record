@@ -42,3 +42,13 @@ Append-only, newest entry last.
   discovered later. Source: issue #2278 comment by JiwonJung94,
   2026-08-25T01:28:13Z ("Operator-frozen constraint (2026-08-25), applies
   to this issue's delivery and its review").
+
+- 2026-08-25: operator froze a load-reduction acceptance bar for issue
+  #2315's gh_delta 304-classification fix, worded as systemic rather than
+  issue-2315-only: the fix must reduce load by construction for every
+  consumer session, not just fix the classification, and that reduction
+  must be measured and stated in the delivery's record rather than
+  assumed. Source: issue #2315 body, read 2026-08-25 ("Operator-frozen
+  constraint applies (2026-08-25): systemic for every consumer session;
+  the fix REDUCES load by construction — state that measured in the
+  record.").
