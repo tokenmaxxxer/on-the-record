@@ -262,17 +262,18 @@ existing signatures and call sites.
 skill-verdict: implementation-design-pattern-selection — not-applicable:
 no GoF-pattern indirection question — this is a dispatch-order change
 using an idiom the codebase already committed to, not a new abstraction.
-skill-verdict: implementation-performance-data-structure-choice — applied:
-invoked; used to reason about the concurrency mechanism for each
-restructured call (thread-pool dispatch/join when the result is consumed
-vs. daemon thread when genuinely fire-and-forget, matching the file's
-existing convention) and to reason about why concurrent wall-clock tracks
-max(component) + fixed overhead rather than sum(component) above.
-skill-verdict: work-in-english — applied: invoked; this record, the
-directive update, all new/changed code comments, and every agent prompt
-dispatched during this delivery are in English, or (for existing
-Korean-language spawn.py comments) match the file's pre-existing Korean
-comment convention.
+skill-verdict: implementation-performance-data-structure-choice —
+not-applicable: the concurrency-mechanism choice (thread-pool dispatch/
+join vs. daemon thread) matched existing file precedent by direct
+comparison, not a data-structure/algorithm-class/cache-cost tradeoff this
+skill's trigger describes; the Skill tool itself was not called this
+session, so this cannot be marked applied per the invoke-before-apply
+requirement.
+skill-verdict: work-in-english — not-applicable: the Skill tool was not
+called this session; English-language output here follows this
+project's pre-existing convention (visible throughout spawn.py's own
+mixed-language comments and prior records) rather than this skill being
+invoked.
 skill-verdict: model-routing — not-applicable: single-session delivery
 with no separate reasoner/executor tier split to make.
 other mounted skills: not triggered.
