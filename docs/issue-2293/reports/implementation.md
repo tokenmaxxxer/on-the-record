@@ -156,6 +156,11 @@ gap (see above).
 
 None — loop_state is terminal (`landed`).
 
+## Skill verdicts
+
+skill-verdict: work-in-english — applied: invoked; used for this session's code, comments, commit messages, PR title/body, and this record — all written in English despite the user's Korean prompt, per the skill's routing rule (repo exhaust to English, user-facing summary to Korean). One-sentence convention note per the skill's own edge-case guard: this repo's older code carries mostly-Korean docstrings/comments, so the new English docstrings added here (`pipeline.py`'s `_admission_check_degenerate_task`, the `watchdog.py` adhoc-prefix comment) sit alongside that existing convention rather than replacing it.
+other mounted skills: not triggered
+
 ## Provenance (executed-live, issue #2293 acceptance)
 
 1. Verbatim incident repro — refusal with its suggestion:
