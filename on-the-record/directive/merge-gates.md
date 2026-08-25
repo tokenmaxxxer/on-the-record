@@ -51,6 +51,16 @@
   `## Acceptance` section declares no runnable `check:`/`gate:` line gets
   a distinct "no checks declared" result, not a `0/0 passed` — the merge
   gate refuses to read that as satisfied.
+  issue #2381: you do NOT need to `git fetch` `--repo` yourself before
+  this step — `check_runner.py`'s `checkout_pr_worktree()` now fetches
+  ALL of origin's branches (`fetch_all_role_branches()`, the full
+  `+refs/heads/*:refs/remotes/origin/*` refspec) before its `git
+  worktree add`, not just the one PR's head branch, so a role branch
+  pushed minutes earlier resolves without the old "fatal: invalid
+  reference" — `gates/merge_gate.py` (no fetch of its own) then reuses
+  the same refreshed `--repo` checkout. A plain `git fetch origin` in a
+  checkout whose `remote.origin.fetch` was narrowed to `main` only used
+  to leave newly-pushed role branches unresolvable regardless.
 - LANDING REQUIREMENT-MET GRADE (issue #1651): as part of "verify it"
   above, before `gh pr merge`, spawn a builder-blind grader session —
   no access to the builder's context, given only the diff plus the

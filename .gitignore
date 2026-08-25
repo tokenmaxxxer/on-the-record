@@ -11,3 +11,10 @@ __pycache__/
 .orchestrate-greeted
 .pull-check
 .orchestrate-monitor-alive/
+# issue #2381: pre-#2348 flat hook-fires counter. Issue #2348 replaced it
+# with per-session shards under .orchestrate-hook-fires/ (hook_fires.py /
+# on-the-record/hooks/hook-fires.sh) specifically to stop every session's
+# local edits to this one shared tracked path from diverging local main
+# from origin/main. Nothing writes this exact filename anymore; ignored
+# so no stray pre-#2348 branch/script can reintroduce that drift.
+.orchestrate-hook-fires.log
