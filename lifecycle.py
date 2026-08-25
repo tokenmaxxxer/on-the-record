@@ -691,11 +691,39 @@ def _delete_workspace(w: Path, wb: Path, log_outcomes: dict[str, str],
             sibling.unlink()
 
 
-def roster_clean(wb: Path, issue: int | None) -> int:
+def _prune_worktrees(repo: Path) -> None:
+    """`spawn.py clean`이 워크스페이스 삭제와 같은 지나가는 길에 `repo`(호출
+    시점의 orchestrator 체크아웃, 보통 `-C`/cwd)에 등록된 `git worktree`
+    항목도 훑는다 — issue #2383: `check_runner.py`/`reexecution_gate.py`가
+    만드는 임시 worktree 는 각자 try/finally 로 지우지만, 프로세스가
+    죽으면(타임아웃/OOM) 그 finally 는 안 돈다. 이 정기 스윕이 그 잔재의
+    유일한 안전망이다. `repo`가 git 체크아웃이 아니면 조용히 건너뛴다 —
+    이 정리는 있으면 좋은 것이지 실패해야 할 전제조건이 아니다."""
+    if not (repo / ".git").exists():
+        return
+    before = subprocess.run(["git", "-C", str(repo), "worktree", "list"],
+                            capture_output=True, text=True).stdout.splitlines()
+    if len(before) > 1:
+        print(f"worktree 목록 (정리 전 {len(before)}개):")
+        for line in before:
+            print(f"  {line}")
+    pruned = subprocess.run(["git", "-C", str(repo), "worktree", "prune", "-v"],
+                            capture_output=True, text=True)
+    if pruned.stdout.strip():
+        print(f"worktree prune: {pruned.stdout.strip()}")
+
+
+def roster_clean(wb: Path, issue: int | None, repo: Path | None = None) -> int:
     """`spawn.py clean [--issue N]`: 안전한 것만 지운다 — 미커밋 변경 없음 +
     origin 에 없는 커밋 없음. 워크스페이스 디렉터리는 그 조건만 지키면
     그대로 삭제한다(이슈 #1124 범위 밖). 형제 파일(로그 등)은
-    `_delete_workspace()` 가 archive-or-delete 판정을 한다."""
+    `_delete_workspace()` 가 archive-or-delete 판정을 한다.
+
+    `repo`(주어지면, 보통 호출 시점의 `-C`/cwd)에 등록된 stale `git
+    worktree` 항목도 같이 정리한다(issue #2383 — 누적된 채 방치되지 않게
+    routine landing/cleanup 의 일부로 만든다)."""
+    if repo is not None:
+        _prune_worktrees(repo)
     live = _sp._live_workspaces()
     log_outcomes = _sp._ledger_log_outcomes()
     archive_dir = wb / ".archived-logs"
