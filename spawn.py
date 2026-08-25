@@ -999,6 +999,36 @@ def _load_spawn_attempts() -> tuple[dict, dict]:
 SPAWN_ATTEMPTS_RETENTION_SEC = 7 * 24 * 3600
 
 
+def _pid_is_alive(pid) -> bool:
+    """이슈 #2413: `_prune_spawn_attempts()`의 prune 패스 중에만 하는
+    on-demand 체크(signal 0 kill) — 지속 폴링이 아니라 watchdog 틱마다
+    prune 이 도는 그 순간에만 값을 묻는다(추가 steady-state 부하 없음).
+    `ProcessLookupError` 만 "죽었다"로 본다: `PermissionError`(다른
+    유저 소유 pid — 그래도 존재)나 그 밖의 `OSError` 는 생사를 확신할
+    수 없다는 뜻이라 보수적으로 "살아있다"로 취급한다 — 판정이 불확실할
+    때 실행 중인 spawn 을 실수로 지우는 쪽보다, 안 지워질 orphan 레코드가
+    하루이틀 더 남는 쪽이 낫다. `pid` 가 숫자 문자열로 직렬화돼 있어도
+    (레저 손상/드리프트로 실제 있었던 사례 — commit cea0f583) int 로
+    변환해 실제로 OS 에 물어본다: 변환 없이 non-int 를 바로 죽었다고
+    보면, 살아있는 pid 가 문자열로만 인코딩된 레코드를 오검사로
+    지워버릴 수 있다."""
+    if isinstance(pid, str) and pid.strip().lstrip("-").isdigit():
+        try:
+            pid = int(pid)
+        except ValueError:
+            return False
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    else:
+        return True
+
+
 def _prune_spawn_attempts(now: float | None = None) -> int:
     """`SPAWN_ATTEMPTS_PATH`를 다시 써서 위 정책에 안 걸리는 이벤트만
     남긴다. 돌려주는 값은 지운 줄 수(0 이면 파일을 건드리지 않는다 —
@@ -1017,7 +1047,27 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
     for aid, a in attempts.items():
         outcome = outcomes.get(aid)
         if outcome is None:
-            keep_ids.add(aid)  # 미해결 — 항상 유지
+            # 이슈 #2413: outcome 이 없다고 무조건 영원히 유지하면(원래
+            # 동작) 프로세스가 진작 죽어 다시는 outcome 을 못 쓸 시도
+            # (SIGKILL/OOM/하드 크래시)까지 매 틱 그대로 남아
+            # spawn_attempt_sweep() 이 "no outcome recorded"를 영원히
+            # 재보고한다(실측: 434건 중 419건이 pytest fixture 이슈
+            # 31/7 의 orphan — #2393 origin guard 이전에 쌓인 것들).
+            # 살아있는 spawn(pid 생존)은 나이와 무관하게 절대 안 지운다
+            # — "in-flight 시도가 실행 중인 spawn 밑에서 지워지면 안
+            # 된다"는 요구사항 그대로. pid 가 죽었어도, halted 분기가
+            # 쓰는 것과 같은 SPAWN_ATTEMPTS_RETENTION_SEC 창 안이면
+            # 유지한다 — 갓 죽은 시도가 SPAWN_ATTEMPT_GRACE_SEC 경과를
+            # 못 채워 아직 한 번도 보고되지 못했을 수 있어서(다음 틱들에
+            # sweep 이 보고할 기회를 뺏지 않으려고), 새 knob 을 만드는
+            # 대신 halted 분기와 같은 7일 재보고 가시성 창을 그대로
+            # 재사용한다.
+            pid = a.get("pid")
+            ts = a.get("ts", now)
+            aged_out = (not isinstance(ts, (int, float))
+                        or now - ts >= SPAWN_ATTEMPTS_RETENTION_SEC)
+            if _pid_is_alive(pid) or not aged_out:
+                keep_ids.add(aid)
         elif outcome.get("outcome") == "halted":
             outcome_ts = outcome.get("ts", now)
             if not isinstance(outcome_ts, (int, float)) or \
