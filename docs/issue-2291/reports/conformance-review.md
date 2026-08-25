@@ -618,8 +618,8 @@ canonical: `gh pr view 2371 --json number,state -q '.number,.state'`
 This CHANGES round invoked three skills fresh, for the R2/R4
 re-verification specifically:
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts
-  — applied: invoked; rule 1 (treated this record's own round-1
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked;
+  rule 1 (treated this record's own round-1
   `Incorrect` verdict on R2/R4 as a claim to re-test against the fix
   commit's actual code, not as settled once the fix commit's message
   claimed resolution); rule 2 (added the `require_board` local-halt
@@ -632,8 +632,8 @@ skill-verdict: defect-verification-independence-from-upstream-verdicts
   as evidence); rule 7 (both reproductions recorded with full raw
   output, not a bare "reproduced" label, matching this round's own
   "What did not work" rigor above).
-skill-verdict: conformance-review-verdict-assignment — applied:
-  invoked; corrected R2/R4 from `Incorrect` to `Present` per rule 6
+skill-verdict: conformance-review-verdict-assignment — applied: invoked;
+  corrected R2/R4 from `Incorrect` to `Present` per rule 6
   (re-checked the evidence once via two independent live reproductions,
   not the fix commit's own claim alone, before finalizing); `spec_vs_built`
   on both updated blocks states what changed between the pre-fix and
@@ -648,8 +648,8 @@ skill-verdict: conformance-review-finding-record — applied: invoked;
   inline rather than treating the dispute as a request to fix/delete
   anything"); both updated blocks retain a citable `evidence` pointer
   and `spec_ref`, no verdict left unsupported.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-  invoked; rule 1 (both updated R2/R4 evidence blocks cite file:line
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+  rule 1 (both updated R2/R4 evidence blocks cite file:line
   plus the new head's commit sha, 300a07249b9032fe56ef684f2a2e86374a681c2a,
   not a bare path); rule 2 (R4's evidence records both live
   reproductions — `require_requirement_linkage` and `require_board` —
