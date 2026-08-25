@@ -481,9 +481,21 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
     or — before #2393's pytest-origin guard — a synthetic test fixture
     record) never aged out and was re-reported on every watchdog tick. The
     fix pairs a cheap on-demand liveness probe (`_pid_is_alive`, signal-0
-    `os.kill`) with the same `SPAWN_ATTEMPTS_RETENTION_SEC` window the
-    adjacent `halted` branch already uses, instead of inventing a new
-    knob."""
+    `os.kill`) with an aging bound.
+
+    Issue #2431: that bound was originally the same
+    `SPAWN_ATTEMPTS_RETENTION_SEC` (7 days) the adjacent `halted` branch
+    uses — which meant a dead-pid orphan waited a full week before it
+    aged out, same as a genuine unresolved halt. That 7-day grace exists
+    so the orchestrator has time to notice and act on a `halted` outcome;
+    a confirmed-dead pid with no outcome has nothing to notice-and-act on,
+    so waiting is pure cost. The bound for this case is now
+    `SPAWN_DEAD_PID_PRUNE_SEC` — `roster.SPAWN_ATTEMPT_GRACE_SEC` (the
+    point spawn_attempt_sweep() can first report the attempt at all) plus
+    one `DEADMAN_INTERVAL_SEC` watchdog tick, so sweep always gets at
+    least one chance to report before the record is pruned out from under
+    it. The `halted` branch's own 7-day `SPAWN_ATTEMPTS_RETENTION_SEC`
+    window is untouched."""
 
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -523,14 +535,14 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertEqual(dropped, 0)
         self.assertIn("a1", self._remaining_ids())
 
-    def test_dead_pid_within_retention_is_kept(self):
-        """A pid that died recently (inside the retention window) is kept
-        — spawn_attempt_sweep() must still get its chance to report it as
-        a halt once SPAWN_ATTEMPT_GRACE_SEC elapses, and to keep
-        re-surfacing it for the rest of the retention window."""
+    def test_dead_pid_within_dead_pid_bound_is_kept(self):
+        """A pid that died very recently (inside SPAWN_DEAD_PID_PRUNE_SEC)
+        is kept — spawn_attempt_sweep() must still get its chance to
+        report it as a halt once SPAWN_ATTEMPT_GRACE_SEC elapses, within
+        that first watchdog tick."""
         now = time.time()
         dead_pid = self._dead_pid()
-        recent_ts = now - 3600  # 1 hour old — well inside the 7-day window
+        recent_ts = now - (spawn.SPAWN_DEAD_PID_PRUNE_SEC / 2)
         self._write([{"event": "spawn_attempt", "attempt_id": "a2",
                       "issue": 2, "role": "implementation",
                       "pid": dead_pid, "ts": recent_ts}])
@@ -538,18 +550,57 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertEqual(dropped, 0)
         self.assertIn("a2", self._remaining_ids())
 
-    def test_dead_pid_past_retention_is_pruned(self):
-        """The bug: a dead-pid, no-outcome record older than the retention
-        window used to be kept forever. Now it's dropped."""
+    def test_dead_pid_past_dead_pid_bound_is_pruned(self):
+        """Issue #2431: a dead-pid, no-outcome record only needs to clear
+        SPAWN_DEAD_PID_PRUNE_SEC (one grace window plus one watchdog
+        tick), not the 7-day SPAWN_ATTEMPTS_RETENTION_SEC the `halted`
+        branch uses — this is the real-backlog shape (hours old, not
+        days)."""
         now = time.time()
         dead_pid = self._dead_pid()
-        old_ts = now - spawn.SPAWN_ATTEMPTS_RETENTION_SEC - 3600
+        old_ts = now - spawn.SPAWN_DEAD_PID_PRUNE_SEC - 3600
         self._write([{"event": "spawn_attempt", "attempt_id": "a3",
                       "issue": 31, "role": "implementation",
                       "pid": dead_pid, "ts": old_ts}])
         dropped = spawn._prune_spawn_attempts(now=now)
         self.assertEqual(dropped, 1)
         self.assertNotIn("a3", self._remaining_ids())
+
+    def test_dead_pid_past_old_retention_but_before_new_bound_is_pruned(self):
+        """Direct regression guard for the bug this issue fixes: an age
+        well under the old 7-day SPAWN_ATTEMPTS_RETENTION_SEC (so #2418's
+        code would have kept it) but past the new, much shorter
+        SPAWN_DEAD_PID_PRUNE_SEC must now be dropped."""
+        now = time.time()
+        dead_pid = self._dead_pid()
+        self.assertLess(spawn.SPAWN_DEAD_PID_PRUNE_SEC,
+                         spawn.SPAWN_ATTEMPTS_RETENTION_SEC)
+        old_ts = now - spawn.SPAWN_DEAD_PID_PRUNE_SEC - 60
+        self._write([{"event": "spawn_attempt", "attempt_id": "a3b",
+                      "issue": 31, "role": "implementation",
+                      "pid": dead_pid, "ts": old_ts}])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 1)
+        self.assertNotIn("a3b", self._remaining_ids())
+
+    def test_halted_branch_retention_is_unchanged(self):
+        """Issue #2431 explicitly leaves the `halted`-outcome branch's
+        7-day SPAWN_ATTEMPTS_RETENTION_SEC grace period untouched — an
+        outcome of "halted" younger than that window is still kept
+        regardless of the new, shorter dead-pid bound."""
+        now = time.time()
+        recent_ts = now - (spawn.SPAWN_DEAD_PID_PRUNE_SEC * 2)
+        self.assertLess(recent_ts, now - spawn.SPAWN_DEAD_PID_PRUNE_SEC)
+        self._write([
+            {"event": "spawn_attempt", "attempt_id": "a3c",
+             "issue": 9, "role": "implementation",
+             "pid": self._dead_pid(), "ts": recent_ts},
+            {"event": "spawn_attempt_outcome", "attempt_id": "a3c",
+             "outcome": "halted", "detail": "x", "ts": recent_ts},
+        ])
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 0)
+        self.assertIn("a3c", self._remaining_ids())
 
     def test_pid_is_alive_helper(self):
         self.assertTrue(spawn._pid_is_alive(os.getpid()))

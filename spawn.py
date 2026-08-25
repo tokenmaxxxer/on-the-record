@@ -1060,13 +1060,30 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
             # 31/7 의 orphan — #2393 origin guard 이전에 쌓인 것들).
             # 살아있는 spawn(pid 생존)은 나이와 무관하게 절대 안 지운다
             # — "in-flight 시도가 실행 중인 spawn 밑에서 지워지면 안
-            # 된다"는 요구사항 그대로. pid 가 죽었어도, halted 분기가
-            # 쓰는 것과 같은 SPAWN_ATTEMPTS_RETENTION_SEC 창 안이면
-            # 유지한다 — 갓 죽은 시도가 SPAWN_ATTEMPT_GRACE_SEC 경과를
-            # 못 채워 아직 한 번도 보고되지 못했을 수 있어서(다음 틱들에
-            # sweep 이 보고할 기회를 뺏지 않으려고), 새 knob 을 만드는
-            # 대신 halted 분기와 같은 7일 재보고 가시성 창을 그대로
-            # 재사용한다.
+            # 된다"는 요구사항 그대로.
+            #
+            # 이슈 #2431: pid 가 죽었을 때 #2413 은 halted 분기와 같은
+            # SPAWN_ATTEMPTS_RETENTION_SEC(7일) 창을 그대로 재사용했다 —
+            # "새 knob 을 만들지 않는다"는 의도는 맞았지만, 그 7일 창은
+            # halted 분기 고유의 이유(미해결 halt 를 오케스트레이터가
+            # 알아채고 조치할 시간을 준다)로 존재하는 것이라 여기엔
+            # 적용되지 않는다: pid 가 이미 죽었다고 확인된 순간부터는
+            # "알아채고 조치할" 대상 자체가 없다 — 기다림은 순수 비용이다
+            # (실측: 라이브 백로그 434건이 전부 7일 미만의 죽은 pid라
+            # #2418 은 0건을 지웠다). 그래도 즉시 지우면 안 되는 이유는
+            # 하나 남는다: 이 레코드의 유일한 소비자인
+            # spawn_attempt_sweep()(roster.py) 이 `SPAWN_ATTEMPT_GRACE_SEC`
+            # 경과 전에는 이 시도를 "no outcome recorded"로 아예 보고
+            # 대상으로도 안 본다(정상 부트스트랩 창) — 그 창을 못 채운
+            # 채로 지우면 sweep 이 한 번도 보고할 기회를 못 얻는다. 그래서
+            # 새 knob 을 만드는 대신 이미 있는 두 상수를 그대로 합성한다:
+            # `roster.SPAWN_ATTEMPT_GRACE_SEC`(sweep 이 보고 가능해지는
+            # 시점) + `DEADMAN_INTERVAL_SEC`(watchdog 한 틱) — sweep 이
+            # 그 시점 이후 실제로 한 번은 돌아 보고할 시간을 보장한 뒤
+            # 지운다. 7일 대비 대략 7분: pid 가 이미 죽어 조치할 게 없는
+            # 케이스엔 이 정도로 충분하고, halted 분기의 7일 창은 이
+            # 변경으로 전혀 건드리지 않는다(아래 elif, 여전히
+            # SPAWN_ATTEMPTS_RETENTION_SEC 그대로).
             #
             # CHANGES round (PR #2418, execution-observation follow-up):
             # `ts` 가 아예 없는 레코드에서 `a.get("ts", now)`로 기본값을
@@ -1078,10 +1095,13 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
             # malformed-ts 분기와 동일한 취급이라 별도 분기가 필요 없다.
             pid = a.get("pid")
             ts = a.get("ts")
-            aged_out = (not isinstance(ts, (int, float))
-                        or now - ts >= SPAWN_ATTEMPTS_RETENTION_SEC)
-            if _pid_is_alive(pid) or not aged_out:
+            if _pid_is_alive(pid):
                 keep_ids.add(aid)
+            else:
+                aged_out = (not isinstance(ts, (int, float))
+                            or now - ts >= SPAWN_DEAD_PID_PRUNE_SEC)
+                if not aged_out:
+                    keep_ids.add(aid)
         elif outcome.get("outcome") == "halted":
             outcome_ts = outcome.get("ts", now)
             if not isinstance(outcome_ts, (int, float)) or \
@@ -1130,6 +1150,14 @@ LEASE_TTL_MIN = float(os.environ.get("OTR_LEASE_TTL_MIN", "90"))
 LEASE_FLAT_RENEWALS_K = int(os.environ.get("OTR_LEASE_FLAT_RENEWALS_K", "3"))
 DEADMAN_INTERVAL_SEC = float(os.environ.get("OTR_DEADMAN_INTERVAL_SEC", "120"))
 DEADMAN_STALE_INTERVALS = int(os.environ.get("OTR_DEADMAN_STALE_INTERVALS", "5"))
+# 이슈 #2431: `_prune_spawn_attempts()`의 dead-pid, no-outcome 케이스
+# 전용 prune 경계 — SPAWN_ATTEMPTS_RETENTION_SEC(7일, halted 분기 고유)
+# 재사용 대신, 이미 있는 두 상수를 합성한다: `roster.SPAWN_ATTEMPT_GRACE_SEC`
+# (spawn_attempt_sweep() 이 이 시도를 "no outcome recorded"로 보고 가능
+# 해지는 시점) + 이 파일의 `DEADMAN_INTERVAL_SEC`(watchdog 한 틱) — sweep
+# 이 그 시점 이후 실제로 한 번은 돌아 보고할 기회를 보장한 뒤에만 지운다.
+# 자세한 근거는 `_prune_spawn_attempts()`의 해당 분기 주석 참고.
+SPAWN_DEAD_PID_PRUNE_SEC = roster.SPAWN_ATTEMPT_GRACE_SEC + DEADMAN_INTERVAL_SEC
 # Coverage-OK marker (mechanism 4). Lives under STATE_ROOT so the checker
 # needs no knowledge of any board — it is about the watch layer itself.
 DEADMAN_MARKER = STATE_ROOT / "watch-coverage-ok"
