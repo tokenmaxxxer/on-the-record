@@ -235,46 +235,17 @@ action is required from this review role on issue #2266.
 
 ## Skill verdicts
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; split issue #2266's Ask + Acceptance section into the 8
-requirement blocks above (rule 1: split the bundled provenance sentence
-into 3 clauses; rule 5: kept the bash-3.2-reachability clause as its own
-conditional item with the dependency stated inline; rule 6:
-dimension-tagged each requirement inline in its own summary).
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; split issue #2266's Ask + Acceptance section into the 8 requirement blocks above (rule 1: split the bundled provenance sentence into 3 clauses; rule 5: kept the bash-3.2-reachability clause as its own conditional item with the dependency stated inline; rule 6: dimension-tagged each requirement inline in its own summary).
 
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; selected Inspection for the two static-shape
-requirements and Test for the six requirements with an existing
-executable check, each independently re-run this session rather than
-re-derived by hand (rule 4).
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; selected Inspection for the two static-shape requirements and Test for the six requirements with an existing executable check, each independently re-run this session rather than re-derived by hand (rule 4).
 
-skill-verdict: conformance-review-verdict-assignment — applied:
-invoked; all 8 requirements assigned Present per rule 1's bar
-(implemented AND independently reproduced as reachable/active, not
-merely present in the diff) — none qualified for Surface, Absent,
-Incorrect, or Unverifiable.
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; all 8 requirements assigned Present per rule 1's bar (implemented AND independently reproduced as reachable/active, not merely present in the diff) — none qualified for Surface, Absent, Incorrect, or Unverifiable.
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every Finding above cites a commit-pinned `416009c6:file:line`
-location plus a `canonical:` command with its actual fenced output;
-the repo-wide-sweep requirement's evidence spans two independent runs
-(the file-count command and the scanner re-implementation), both cited
-as separate `canonical:` links per rule 2.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every Finding above cites a commit-pinned `416009c6:file:line` location plus a `canonical:` command with its actual fenced output; the repo-wide-sweep requirement's evidence spans two independent runs (the file-count command and the scanner re-implementation), both cited as separate `canonical:` links per rule 2.
 
-skill-verdict: conformance-review-finding-record — applied: invoked;
-wrote all 8 requirement blocks into this file (and only this file) with
-the full requirement/spec_ref/verdict/evidence/rationale field set; no
-block needed spec_vs_built since none verdicted Incorrect.
+skill-verdict: conformance-review-finding-record — applied: invoked; wrote all 8 requirement blocks into this file (and only this file) with the full requirement/spec_ref/verdict/evidence/rationale field set; no block needed spec_vs_built since none verdicted Incorrect.
 
-skill-verdict: implementation-audit — not-applicable: this repo's own
-conformance-review-* skill family (requirement-extraction,
-verification-method-selection, verdict-assignment,
-traceability-and-evidence, finding-record) already governs this exact
-task with repo-specific mechanics (record path, five-verdict vocabulary,
-skill-verdict logging) that implementation-audit's generic two-session
-protocol would only duplicate, not add to — there is also no separate
-builder session here to hand claims to; this single review session
-re-executes every check itself against the already-merged commit.
+skill-verdict: implementation-audit — not-applicable: this repo's own conformance-review-* skill family (requirement-extraction, verification-method-selection, verdict-assignment, traceability-and-evidence, finding-record) already governs this exact task with repo-specific mechanics (record path, five-verdict vocabulary, skill-verdict logging) that implementation-audit's generic two-session protocol would only duplicate, not add to — there is also no separate builder session here to hand claims to; this single review session re-executes every check itself against the already-merged commit.
 
 other mounted skills: dataviz, run, code-review, simplify,
 security-review, update-config, keybindings-help, claude-api, init,
