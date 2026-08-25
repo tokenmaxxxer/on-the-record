@@ -79,6 +79,39 @@ _MEASUREMENT_LANGUAGE = re.compile(
     r"time|regression\s+guard|unchanged\s+on|latency|throughput|duration|"
     r"benchmark(?:ed)?|median|percentile)\b")
 
+# issue #2278: check_runner 의 classifier 기본값 반전. 백틱 안 내용이 명령도
+# 아니고 measurement 언어도 아니면 예전엔 무조건 file-existence 로 떨어져
+# `cross_family`(이슈 #2213/PR #2255), `work-in-english`(이슈 #2208/PR #2218)
+# 같은 맨 식별자/스킬명까지 "그 이름의 파일이 없다"며 FAIL 시켰다 — 둘 다
+# 기록에서 실행으로 검증된 정답 PR이었다. `/`를 포함하거나 알려진 확장자로
+# 끝나는(경로 '모양'인) 백틱만 file-existence 로 남긴다 — 진짜로 없는
+# 경로모양 산출물은 여전히 FAIL 한다; 아니면 judgment 로 강등한다.
+_PATH_EXTENSIONS = {
+    "py", "js", "jsx", "ts", "tsx", "md", "json", "yml", "yaml", "toml",
+    "txt", "sh", "cfg", "ini", "go", "rs", "rb", "java", "c", "cpp", "h",
+    "hpp", "css", "html", "xml", "sql", "csv", "lock", "env",
+}
+
+# issue #2278 hunt finding: bare conventional filenames have no extension
+# but are still real paths — without this, `check: \`LICENSE\`` would
+# wrongly downgrade to judgment instead of genuinely FAILing when absent.
+_BARE_PATH_NAMES = {
+    "LICENSE", "README", "CHANGELOG", "Makefile", "Dockerfile",
+    "Procfile", "Gemfile", "Rakefile", "Vagrantfile", "Jenkinsfile",
+}
+
+
+def _looks_like_path(token: str) -> bool:
+    if "/" in token:
+        return True
+    if token in _BARE_PATH_NAMES:
+        return True
+    if token.startswith(".") and len(token) > 1:
+        return True
+    if "." in token:
+        return token.rsplit(".", 1)[-1].lower() in _PATH_EXTENSIONS
+    return False
+
 
 def parse_checks(section: str,
                  runtime_artifacts: list[str] | None = None) -> list[dict]:
@@ -130,8 +163,10 @@ def parse_checks(section: str,
                 checks.append({"type": "test", "raw": raw, "command": cmd})
             elif _MEASUREMENT_LANGUAGE.search(raw):
                 checks.append({"type": "judgment", "raw": raw})
-            else:
+            elif _looks_like_path(cmd):
                 checks.append({"type": "file-existence", "raw": raw, "path": cmd})
+            else:
+                checks.append({"type": "judgment", "raw": raw})
             continue
         checks.append({"type": "judgment", "raw": raw})
     return checks
