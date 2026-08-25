@@ -1,3 +1,9 @@
 # Deviation log — issue-2285 (conformance-review role)
 
 - 2026-08-25T00:00:00Z | inline | chose in-session review over delegating verification (git worktree checkout, line-number re-derivation, pytest reruns, `gh`/`git` reads) to a background `freelunch:freelunch-worker`. Builder-blind conformance review's own mandate is that this session independently re-derive every claim itself rather than accept a report from another agent — delegating the verification step to a worker would reintroduce exactly the "trust another party's account" gap this review exists to close, and this session is headless/single-shot (contract v3 s22): a `run_in_background` worker's completion notification would arrive after this turn's process has already exited, so it could not be consumed within the turn either. Matches the precedent already recorded at `docs/issue-2314/reports/conformance-review/deviation-log.md` for the same role on a prior issue.
+- 2026-08-25T00:00:00Z | inline | same choice repeated for this issue's second review cycle (PR #2367, the redelivery after PR #2344 was closed unmerged) — worktree checkout, citation re-derivation, and pytest reruns done in-session rather than delegated. Same reasoning as the entry above applies unchanged: independent re-derivation is this role's own mandate, and the session remains headless/single-shot.
+  acceptance: `git worktree add /tmp/review-2367 28b45e2fca97995a39eb0f7e3bde48c427611e63` (this session) — result:
+  ```
+  HEAD의 현재 위치는 28b45e2f입니다 issue-2285: implementation record for redelivered issue #2241 stage 2
+  ```
+  (the worktree this session created and used directly for `git show`/`grep -n`/`pytest` — the same in-session commands cited under `docs/issue-2285/reports/conformance-review.md`'s R1-R8 acceptance blocks; removed via `git worktree remove` once the review's own commands finished.)
