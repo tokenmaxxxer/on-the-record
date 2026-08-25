@@ -216,6 +216,18 @@ def _skill_judge_consult(task_text: str, role: str,
     settings_path = None
     raw_paths: list[Path] = []
     outcome = "error: 알 수 없는 실패"
+    # 이슈 #2213: 이 함수가 곧 "cross_family" 단계의 실측 비용이다
+    # (`_spawn_one` 이 이 호출을 감싼 future 를 join 만 재는 이유는
+    # `_cross_family_skill_matches_with_consult()` 독스트링 참고) —
+    # per-spawn wall time / 모델 자체 duration_ms / cache_read_input_tokens
+    # / 동시 스폰 수를 여기서 직접 재 runs/ledger.jsonl 에 남긴다
+    # (Acceptance: 스폰 10건+ 계측). `result`/`call_wall_s` 는 실패
+    # 경로(타임아웃/파싱실패/비영시종료)에서도 finally 가 안전하게 읽도록
+    # 미리 초기화한다 — 실패해도 무계측 스폰을 만들지 않는다("no traceless
+    # consults"과 같은 이유, `_append_consult_trace()` 독스트링).
+    result: dict = {}
+    call_wall_s: float | None = None
+    concurrency = len(_sp._live_workspaces())
     by_name = {name: path for name, path, _source in candidates}
     # 이슈 #2055: 후보가 이제 네 소스에 걸쳐 있어, 질의 문구도 어느 tier
     # 에서 왔는지 라벨을 달아 skill_judge 가 소스를 보고도 판단할 수 있게
@@ -274,9 +286,11 @@ def _skill_judge_consult(task_text: str, role: str,
             "object in the shape above, now.)")
         attempts_exhausted = "알 수 없는 실패"
         parsed = None
+        _call_t0 = time.monotonic()
         for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
             r = subprocess.run(cmd, cwd=cwd or str(_sp.ROOT), input=attempt_prompt, text=True,
                                capture_output=True, timeout=judge_timeout, env=env)
+            call_wall_s = time.monotonic() - _call_t0
             if r.returncode != 0:
                 attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
                 continue
@@ -308,6 +322,7 @@ def _skill_judge_consult(task_text: str, role: str,
         detail = {"picked": picked_names, "rejected": rejected, "reasons": reasons}
         return [by_name[n] for n in picked_names], detail
     except subprocess.TimeoutExpired:
+        call_wall_s = time.monotonic() - _call_t0
         outcome = f"error: 시간초과({judge_timeout}s)"
         raise
     finally:
@@ -318,6 +333,17 @@ def _skill_judge_consult(task_text: str, role: str,
                               verb="skill_judge")
         commit_paths = [trace_path] + raw_paths
         _sp._commit_consult_trace(commit_paths, issue, role, outcome, cwd)
+        usage = result.get("usage") or {}
+        _sp.ledger_write({
+            "event": "skill_judge_perf", "ts": int(time.time()), "role": role,
+            "issue": issue, "wall_s": (round(call_wall_s, 3)
+                                        if call_wall_s is not None else None),
+            "duration_ms": result.get("duration_ms"),
+            "cache_read_input_tokens": usage.get("cache_read_input_tokens"),
+            "cache_creation_input_tokens": usage.get("cache_creation_input_tokens"),
+            "concurrency": concurrency,
+            "outcome_ok": outcome.startswith("ok:"),
+        })
 
 
 # 이슈 #2205: 과제 텍스트에서 매치된 declared-phrase 를 지운 나머지가 이
@@ -480,7 +506,27 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
     5개 vs 0개, /tmp 빈 디렉터리): 0개일 때 real 10.5s, 5개일 때 real
     15.6s(둘 다 haiku, 동일 트리비얼 프롬프트) — 델리버리 지향 훅
     (freelunch/scout/warrant) 을 제외하는 것만으로 세션당 수 초가
-    빠진다."""
+    빠진다.
+
+    이슈 #2213: PR #2212 이 바깥 역할 스폰(`spawn_cmd()`, pipeline.py)에
+    얹은 `--exclude-dynamic-system-prompt-sections` +
+    `ENABLE_PROMPT_CACHING_1H=1` 를 이 함수는 그동안 물려받지 않았다 —
+    consult/skill_judge/verb/judge 계열이 전부 이 함수 하나로 조립되는데
+    (독스트링 "재사용" 절 참고), cwd 가 매 호출(특히 매 스폰의
+    `_skill_judge_consult`)마다 격리 워크스페이스로 바뀌면 그 가변 cwd/
+    git 상태가 시스템 프롬프트 프리픽스에 박혀 프롬프트 캐시가 절대
+    히트하지 않는다 — cross_family 단계의 19s-74s 스프레드로 실측된
+    바로 그 증상(이슈 #2213 본문의 강한 가설). 두 플래그 모두 바깥
+    스폰과 동일한 근거(위 `spawn_cmd()` 독스트링)로 무조건 얹는다 —
+    `--system-prompt` 전체 교체를 안 쓰는 한 no-op 위험이 없고, 1h 캐시
+    TTL 옵트인도 부작용이 없다. 실측(이슈 #2213 계측 18건, 아래 기록):
+    cache 관련 플래그가 붙으면 매 호출 cache_read_input_tokens 가
+    18140->21937 로 오르고 cache_creation_input_tokens 는
+    ~11.6k->~7.7k 로 줄어 — 캐시 자체는 실제로 개선된다. 하지만 wall
+    time p50 만 53.1s->39.9s 로 줄고 p90/max(66-70s대)는 거의 그대로다
+    — 이 플래그 하나로 19s-74s 스프레드 전체가 설명되지는 않는다(기록
+    본문 "Investigate" 절 참고, 잔여 변동은 모델 자체
+    duration_ms 변동과 거의 1:1 로 움직인다)."""
     plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]
     s = _sp.role_settings(role, cwd, inject_self_hosted_hooks=False)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
@@ -488,7 +534,8 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
         settings_path = tf.name
     cmd = ["claude", "-p", "--settings", settings_path,
            "--permission-mode", "bypassPermissions",
-           "--output-format", "json"]
+           "--output-format", "json",
+           "--exclude-dynamic-system-prompt-sections"]
     for p in plugins:
         cmd += ["--plugin-dir", str(p)]
     for p in _sp.core_plugin_dirs():
@@ -497,7 +544,8 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
     role_model = _sp.resolved_role_model(model)
     if role_model:
         cmd += ["--model", role_model]
-    env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+    env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1",
+           "ENABLE_PROMPT_CACHING_1H": "1"}
     core_dir = next((p for p in _sp.core_plugin_dirs() if Path(p).name == "core"), None)
     if core_dir:
         env["CLAUDE_PLUGIN_ROOT_CORE"] = str(core_dir)

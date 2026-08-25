@@ -278,9 +278,16 @@ class Ledger(unittest.TestCase):
 
             roster_entry = dict([e for k, e in roster_calls
                                  if k == "issue-9/execution-observation"][0])
-            self.assertEqual(len(entries), 1, entries)
-            self.assertEqual(entries[0]["log"], roster_entry["log"])
-            self.assertTrue(Path(entries[0]["log"]).exists())
+            # 이슈 #2213: `_skill_judge_consult()`가 이제 자신의 몫으로
+            # `skill_judge_perf` ledger 이벤트를 하나 더 남긴다(per-spawn
+            # cross_family 계측, Acceptance) — 스폰당 ledger 엔트리가
+            # 1개에서 2개로 늘었다. `log` 필드는 그 이벤트에 없고 스폰
+            # 마무리 엔트리에만 있으므로, 그 엔트리를 이벤트 태그로
+            # 골라서 검사한다.
+            spawn_entries = [e for e in entries if e.get("event") != "skill_judge_perf"]
+            self.assertEqual(len(spawn_entries), 1, entries)
+            self.assertEqual(spawn_entries[0]["log"], roster_entry["log"])
+            self.assertTrue(Path(spawn_entries[0]["log"]).exists())
 
     @pytest.mark.slow
     def test_toolchain_cache_env_redirected_into_workspace(self):
