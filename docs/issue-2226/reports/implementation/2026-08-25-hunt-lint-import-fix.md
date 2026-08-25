@@ -70,3 +70,41 @@ in the same interpreter. The eviction should restore/preserve enough
 package-shaped state (e.g. re-establish `__path__` on the substituted module,
 or restore the original namespace-package object afterward) so a second
 `-m gates.<other>` in the same process does not hard-crash.
+
+## before-landing — stance: assume the gate/fix just touched is bypassable or has a related composition bug — find it
+
+Verdict: FINDING — `roles_due.py`'s `_gates.BASE = base` mutates the process-wide shared `gates.py` singleton (`sys.modules["_on_the_record_gates_sibling_impl"]`), so calling `roles_due.roles_due(root, base=X)` silently changes the default diff base every other gate module (`skip_eligibility.py`, `risk_report.py`, ...) reads via `gates.BASE`/`_gates.BASE` for the rest of the process, with no restore.
+Kind: composition
+Seed: git diff HEAD -- gates/ui_evidence_gate.py gates/roles_due.py gates/skip_eligibility.py (issue-2226, 3-site sibling-import-collision fix, same shape as 71bfa6de)
+cap_seconds: n/a (no explicit cap given by dispatcher for this dispatch)
+tier: default
+diff_stat_lines: 3 files changed (roles_due.py +15/-1, skip_eligibility.py +16/-1, ui_evidence_gate.py +17/-1)
+started_at: 2026-08-25T00:00:00Z
+ended_at: 2026-08-25T00:40:00Z
+
+Note on novelty: verified with git-stash that the identical leak (same shared module object, same unguarded write) was already reachable pre-fix whenever both files were imported without `-m` (both bound to `sys.modules["gates"]`) — so the *sharing* is not new. What the fix changes is only which key the shared object lives under; it does not add a guard, so the fix is a place this composition bug could have been closed (e.g. scoping the mutation, or not sharing mutable globals across gate modules) and wasn't. No caller in the current tree passes a non-default `base` to `roles_due.roles_due()` (spawn.py:1285 always calls it with no `base`; both test files only ever pass `base="origin/main"`, which equals the default), so it is currently dormant/invisible rather than actively wrong today — but it is a live, reproducible landmine directly involving the touched code (`roles_due.py:204`) and the shared singleton the three new fixes were just wired into.
+
+### Reproduce
+```
+cd /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2226-implementation
+python3 - <<'PYEOF'
+import runpy
+rd_ns = runpy.run_module('gates.roles_due', run_name='not_main', alter_sys=True)
+se_ns = runpy.run_module('gates.skip_eligibility', run_name='not_main', alter_sys=True)
+print("shared singleton object?", rd_ns['_gates'] is se_ns['gates'])
+print("skip_eligibility default BASE before:", se_ns['gates'].BASE)
+rd_ns['roles_due'](__import__('pathlib').Path('.'), base='refs/some-other-ref')
+print("skip_eligibility default BASE after roles_due(base=...):", se_ns['gates'].BASE)
+PYEOF
+```
+
+### Observed
+```
+shared singleton object? True
+skip_eligibility default BASE before: origin/main
+skip_eligibility default BASE after roles_due(base=...): refs/some-other-ref
+```
+`skip_eligibility.classify_for_subject()`'s `base = base or gates.BASE` (gates/skip_eligibility.py:153) and `risk_report.py`'s `gates.BASE` (gates/risk_report.py:248) would now silently diff against `refs/some-other-ref` instead of `origin/main` for any call in the same process that omits an explicit `base`, with nothing signalling the change.
+
+### Expected
+`roles_due()`'s temporary override of the comparison base should not be observable by unrelated gate modules that happen to share the same cached `gates.py` singleton — either scope the override (pass `base` through instead of mutating global state, or save/restore `_gates.BASE` around the call), or stop treating `BASE` as a shared mutable global once multiple gate files hold references to the same module object.

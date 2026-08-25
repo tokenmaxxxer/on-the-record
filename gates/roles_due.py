@@ -29,7 +29,21 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-import gates as _gates  # changed_files(), record_frontmatter()
+# issue #2226: same sibling-import collision and fix shape as
+# `gates/record_lint.py` (see its comment for the full rationale, incl.
+# why evicting `sys.modules["gates"]` was tried and rejected) — load
+# `gates/gates.py` by explicit path under a private, process-shared key
+# instead of a bare `import gates`, which under `python3 -m gates.roles_due`
+# would silently resolve to the namespace package instead.
+import importlib.util as _importlib_util
+_GATES_IMPL_KEY = "_on_the_record_gates_sibling_impl"
+if _GATES_IMPL_KEY not in sys.modules:
+    _spec = _importlib_util.spec_from_file_location(
+        _GATES_IMPL_KEY, str(Path(__file__).parent / "gates.py"))
+    _impl = _importlib_util.module_from_spec(_spec)
+    sys.modules[_GATES_IMPL_KEY] = _impl
+    _spec.loader.exec_module(_impl)
+_gates = sys.modules[_GATES_IMPL_KEY]  # changed_files(), record_frontmatter()
 
 
 def _specs_dir(root: Path) -> Path:
