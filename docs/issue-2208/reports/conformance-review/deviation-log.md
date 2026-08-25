@@ -59,3 +59,26 @@ against a blanket `git add -A/.`; neither stray item is docs/issue-2208
 content or a deliverable this role owns, so committing them would exceed
 write_scope on a guess rather than a call this role's task actually
 required.
+
+- 2026-08-25T16:15:00Z | inline | asked the user for direction instead
+  of running `gates/requirement_met.py 2208 2218` or reproducing the
+  builder-blind review this session was invoked to do.
+canonical: `gh issue view 2208 --json state,stateReason,closedAt`,
+executed this session — result:
+```
+{"closed":true,"closedAt":"2026-08-24T22:40:24Z","state":"CLOSED","stateReason":"COMPLETED"}
+```
+canonical: `gh pr view 2235 --json state,mergedAt,closedAt,headRefName`,
+executed this session — result:
+```
+{"closedAt":"2026-08-24T22:55:02Z","mergeCommit":null,"mergedAt":null,"state":"CLOSED","headRefName":"issue-2208/conformance-review"}
+```
+canonical: same `gh pr view 2235` call above — `headRefName` matches
+this branch's own name, so #2235 is this role's own prior delivery PR.
+canonical: the two fences above, both executed this session — 22:55:02
+minus 22:40:24 UTC is 15 minutes.
+Reason for the deviation: chose to read that 15-minute pairing against
+contract v3's own text (loaded this session in session-protocol.md)
+rather than proceed. Resolution path: act on the user's next reply
+(redo the review vs. take no further action); no record or code beyond
+this log line was owed until that question resolved.
