@@ -1185,6 +1185,205 @@ def t_2219_empty_record_passes_every_claim_guard_cleanly():
         Path(tempfile.mkdtemp()), text) == []
 
 
+# --- issue #2331: machine-verified derived figures -------------------------
+#
+# Four live instances cost a full observer round each in one day because a
+# session TYPED a number/line into its record instead of re-deriving it.
+# Each test below replays one instance's own exact record fragment (sourced
+# from the real commit/PR named in its docstring) against a controlled
+# working-tree fixture, and pins that the new checks now refuse it, naming
+# the real figure.
+
+def t_2331_replay_2207_wc_l_after_figure_off_by_eleven():
+    """Replay of issue #2207 (PR #2308, docs/issue-2207/reports/
+    refactoring-legacy.md at commit 85a9611f6809183fa49ec9c270c2fbcae7079d8a,
+    verbatim): "derived: `wc -l spawn.py` before = 3347, after = 2929
+    (424 lines moved, ...)" — independent re-execution
+    (docs/issue-2207/reports/execution-observation.md) found the real
+    post-change `spawn.py` at 2940 lines, 11 more than claimed. The
+    working-tree fixture's `spawn.py` stands in for that real file at the
+    committed line count."""
+    spawn_py = "\n".join(f"line{i}" for i in range(2940)) + "\n"
+    body = (
+        "---\nloop_state: in-progress\n---\n\n# record\n\n"
+        "derived: `wc -l spawn.py` before = 3347, after = 2929 "
+        "(424 lines moved, `git diff --stat spawn.py directive_assembly.py` "
+        "shows the same delta).\n")
+    d, record = _repo_with_record(body)
+    (d / "spawn.py").write_text(spawn_py)
+    bad = record_lint.wc_l_recompute_check(d, body)
+    assert any("2929" in b and "2940" in b for b in bad), bad
+
+
+def t_2331_replay_2244_pytest_fenced_count_wrong_by_three_recomputations():
+    """Replay of issue #2244 (PR #2244 branch issue-2231/implementation,
+    docs/issue-2231/reports/implementation.md at commit
+    b38ef7e3033c9a013b93d416eeab18f050c0295f, verbatim): a fenced
+    "$ python3 -m pytest gates/test_requirement_met.py
+    gates/test_check_runner.py gates/test_merge_gate.py -q" /
+    "93 passed in 41.73s" transcript. Independent re-execution
+    (docs/issue-2231/reports/execution-observation.md Open finding 1)
+    reconfirmed 79 by three routes: the live pytest re-run, a module-level
+    `def test_`/`def t_` grep count (31+25+23), and diff arithmetic against
+    main (24+20+23=67, +12 new). The fixture's three files carry exactly
+    31/25/23 such definitions, matching the real diff's own tallies."""
+    def defs(prefix, n):
+        return "\n".join(f"def {prefix}{i}():\n    pass\n" for i in range(n))
+    body = (
+        "---\nloop_state: in-progress\n---\n\n# record\n\n"
+        "Targeted suites for the two changed modules:\n\n"
+        "```\n"
+        "$ python3 -m pytest gates/test_requirement_met.py "
+        "gates/test_check_runner.py gates/test_merge_gate.py -q\n"
+        "93 passed in 41.73s\n"
+        "```\n")
+    d, record = _repo_with_record(body)
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates/test_requirement_met.py").write_text(defs("test_a", 31))
+    (d / "gates/test_check_runner.py").write_text(defs("test_b", 25))
+    (d / "gates/test_merge_gate.py").write_text(defs("test_c", 23))
+    bad = record_lint.pytest_count_recompute_check(d, body)
+    assert any("93" in b and "79" in b for b in bad), bad
+
+
+def t_2331_replay_2295_four_check_runner_citations_shifted_by_35():
+    """Replay of issue #2295 (PR #2307, docs/issue-2295/reports/
+    observability.md at commit e8b949219046d58d52a29a877be4015c22189e43,
+    verbatim): "canonical: gates/check_runner.py:179 and
+    gates/check_runner.py:198 — `"status": "pass" if r.returncode == 0
+    else "fail"`, read directly ...; captured output is `(r.stdout +
+    r.stderr)[-2000:]` at gates/check_runner.py:180." Independent
+    conformance review (docs/issue-2295/reports/conformance-review.md
+    Open finding 1) found a consistent +35-line shift across all four
+    citations against the file actually committed. This fixture's
+    `gates/check_runner.py` places the same three quoted fragments at
+    214/215/233 — the real corrected lines — so all three citations
+    (179, 198, 180) resolve to the wrong line."""
+    src_lines = [f"# line {i}" for i in range(1, 214)]
+    src_lines.append(
+        '                status = "pass" if r.returncode == 0 else "fail"')
+    src_lines.append("                output = (r.stdout + r.stderr)[-2000:]")
+    src_lines += [f"# filler {i}" for i in range(216, 233)]
+    src_lines.append(
+        '                "status": "pass" if r.returncode == 0 else "fail",')
+    src = "\n".join(src_lines) + "\n"
+    body = (
+        "---\nloop_state: in-progress\n---\n\n# record\n\n"
+        "canonical: gates/check_runner.py:179 and "
+        "gates/check_runner.py:198 — "
+        '`"status": "pass" if r.returncode == 0 else "fail"`, read '
+        "directly (not modified this session) as the concrete example of "
+        "a consumer that classifies on exit code alone; captured output "
+        "is `(r.stdout + r.stderr)[-2000:]` at gates/check_runner.py:180.\n")
+    d, record = _repo_with_record(body)
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates/check_runner.py").write_text(src)
+    bad = record_lint.citation_line_content_check(d, body)
+    assert any(":179" in b and "233" in b for b in bad), bad
+    assert any(":198" in b and "233" in b for b in bad), bad
+    assert any(":180" in b and "215" in b for b in bad), bad
+
+
+def t_2331_replay_spawn_py_3930_phantom_citation():
+    """Replay of the orchestrator's own stale line citation
+    (docs/reports/2026-08-09-hunt-repo-scoped-workspace-index-keys.md,
+    verbatim: "built at spawn.py:3930 as `f\"issue-{issue}/{role}\"`") —
+    issue #2214's own Acceptance text later confirmed line 3930 already
+    did not exist on `spawn.py` (docs/issue-2214/reports/
+    execution-observation.md: "spawn.py's own line count (3304) is below
+    both 3930 and 4007"). The fixture's `spawn.py` stands in for a real
+    working-tree file short enough that the citation cannot resolve."""
+    spawn_py = "\n".join(f"line{i}" for i in range(3424)) + "\n"
+    body = (
+        "---\nloop_state: in-progress\n---\n\n# record\n\n"
+        "canonical: built at spawn.py:3930 as "
+        '`f"issue-{issue}/{role}"`, read directly this session.\n')
+    d, record = _repo_with_record(body)
+    (d / "spawn.py").write_text(spawn_py)
+    bad = record_lint.citation_line_bounds_check(d, body)
+    assert any("spawn.py:3930" in b and "3424" in b for b in bad), bad
+
+
+def t_2331_correct_derived_figures_pass_unchanged():
+    """A record whose `wc -l` figure, fenced pytest count, and file:line
+    citations are all correct must not be touched by any of the four new
+    checks — the recompute only refuses a genuine mismatch."""
+    spawn_py = "\n".join(f"line{i}" for i in range(2940)) + "\n"
+    src = ['                status = "pass"  # line 1'] + \
+        [f"# filler {i}" for i in range(2, 50)]
+    src_text = "\n".join(src) + "\n"
+
+    def defs(prefix, n):
+        return "\n".join(f"def {prefix}{i}():\n    pass\n" for i in range(n))
+    body = (
+        "---\nloop_state: in-progress\n---\n\n# record\n\n"
+        "derived: `wc -l spawn.py` after = 2940 (real count).\n\n"
+        "```\n"
+        "$ python3 -m pytest gates/test_ok.py -q\n"
+        "5 passed in 0.1s\n"
+        "```\n\n"
+        "canonical: gates/check_runner.py:1 — `status = \"pass\"`, "
+        "read directly.\n")
+    d, record = _repo_with_record(body)
+    (d / "spawn.py").write_text(spawn_py)
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates/test_ok.py").write_text(defs("test_", 5))
+    (d / "gates/check_runner.py").write_text(src_text)
+    assert record_lint.wc_l_recompute_check(d, body) == []
+    assert record_lint.pytest_count_recompute_check(d, body) == []
+    assert record_lint.citation_line_bounds_check(d, body) == []
+    assert record_lint.citation_line_content_check(d, body) == []
+
+
+def t_2331_derived_unverified_escape_is_visible_not_silent():
+    """issue #2331 ask 3: a `derived-unverified: <why>` line in the same
+    section opts a genuinely wrong `wc -l` figure out of recomputation —
+    but the escape itself must be present and non-empty; this test pins
+    that the escape actually suppresses the check (the visible-marker
+    requirement itself is enforced by `unverifiable_reason_check`'s
+    established convention for the sibling `unverifiable:` tag, not
+    duplicated here)."""
+    spawn_py = "\n".join(f"line{i}" for i in range(2940)) + "\n"
+    body = (
+        "---\nloop_state: in-progress\n---\n\n# record\n\n"
+        "derived: `wc -l spawn.py` after = 2929 (stale, hand-counted).\n\n"
+        "derived-unverified: counted from a paginated editor view, not "
+        "re-run this session.\n")
+    d, record = _repo_with_record(body)
+    (d / "spawn.py").write_text(spawn_py)
+    assert record_lint.wc_l_recompute_check(d, body) == []
+
+
+def t_2331_empty_record_fires_zero_new_checks():
+    """issue #2331 Acceptance — empty state: a record with no derived
+    figures at all must not trip any of the four new checks."""
+    text = ""
+    d = Path(tempfile.mkdtemp())
+    assert record_lint.wc_l_recompute_check(d, text) == []
+    assert record_lint.pytest_count_recompute_check(d, text) == []
+    assert record_lint.citation_line_bounds_check(d, text) == []
+    assert record_lint.citation_line_content_check(d, text) == []
+
+
+def t_2331_pytest_count_check_skips_parametrized_files():
+    """A test file using `@pytest.mark.parametrize` makes a flat
+    `def test_`/`def t_` count diverge from pytest's real collection
+    count — the check must stay silent rather than mis-grade it."""
+    body = (
+        "---\nloop_state: in-progress\n---\n\n# record\n\n"
+        "```\n"
+        "$ python3 -m pytest gates/test_param.py -q\n"
+        "20 passed in 0.5s\n"
+        "```\n")
+    d, record = _repo_with_record(body)
+    (d / "gates").mkdir(parents=True, exist_ok=True)
+    (d / "gates/test_param.py").write_text(
+        "import pytest\n\n"
+        "@pytest.mark.parametrize('n', range(20))\n"
+        "def test_thing(n):\n    pass\n")
+    assert record_lint.pytest_count_recompute_check(d, body) == []
+
+
 def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]

@@ -993,6 +993,359 @@ def defect_claim_grounding_check(root: Path, text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# issue #2331 — machine-verified derived figures. Four live instances in one
+# day (#2207: `wc -l` claim off by 11; #2244: a fenced pytest transcript's
+# "N passed" tally wrong by 93-vs-79; #2295: four `path:line` citations all
+# shifted +35 lines; the orchestrator's own stale `spawn.py:3930` citation)
+# each cost a full observer round to catch a number a session TYPED instead
+# of re-deriving. The checks below re-run/re-compute a narrow, explicitly
+# hermetic (no side effects, no shell, no arbitrary code execution) subset
+# of derived-figure shapes and a path:line citation's bounds/content,
+# refusing on mismatch and naming the actual value — never silently, an
+# `derived-unverified: <why>` line anywhere in the same markdown section
+# (issue #2219's own section-scoping convention, `_section_bounds` above)
+# opts a specific claim out.
+# ---------------------------------------------------------------------------
+
+def _safe_repo_path(root: Path, path_str: str) -> Path | None:
+    """A relative, in-repo path only — never an absolute path or one that
+    escapes `root` via `..`. Recomputing a derived figure must stay
+    hermetic to the record's own committed working tree, not follow a
+    citation out to arbitrary filesystem state (an absolute-path
+    `` `wc -l /tmp/...` `` citation would otherwise resolve against
+    whatever happens to be at that path on the machine running the gate,
+    a real leak this issue's own replay fixture surfaced against a live
+    repo record: `/tmp/pr2308-review/branch/spawn.py`, a leftover
+    execution-observation worktree, not this repo)."""
+    if path_str.startswith("/") or ".." in Path(path_str).parts:
+        return None
+    candidate = (root / path_str).resolve()
+    try:
+        candidate.relative_to(root.resolve())
+    except ValueError:
+        return None
+    return candidate
+
+
+_DERIVED_UNVERIFIED_MARK = re.compile(r"(?i)derived-unverified\s*:\s*\S")
+
+
+def _is_derived_unverified(lines: list[str], in_fence: list[bool],
+                            line_idx: int) -> bool:
+    """issue #2331 ask 3: a `derived-unverified: <why>` line anywhere in
+    the claim's enclosing markdown section opts that section's figures out
+    of recomputation — visible (the reader sees the escape and the reason)
+    rather than the check silently never having existed."""
+    lo, hi = _section_bounds(lines, line_idx)
+    window = _prose_window(lines, in_fence, lo, hi)
+    return bool(_DERIVED_UNVERIFIED_MARK.search(window))
+
+
+def _index_fences(lines: list[str]):
+    """Shared fence scan for the two recompute checks below: `in_fence[i]`
+    (delimiters included), and `fence_content[fid]` -> that fence's inner
+    lines (delimiters excluded), keyed by an id assigned in document
+    order. Deliberately not merged into the several near-identical inline
+    scans elsewhere in this module (`outcome_claim_citation_check` et al.)
+    — those are pre-existing and out of this issue's scope."""
+    in_fence = [False] * len(lines)
+    fence_content: dict[int, list[str]] = {}
+    fence = False
+    fid = -1
+    for i, line in enumerate(lines):
+        if line.strip().startswith("```"):
+            if not fence:
+                fid += 1
+                fence_content[fid] = []
+            fence = not fence
+            in_fence[i] = True
+            continue
+        in_fence[i] = fence
+        if fence:
+            fence_content[fid].append(line)
+    return in_fence, fence_content
+
+
+def _offset_to_line(line_starts: list[int], offset: int) -> int:
+    lo = 0
+    for idx, start in enumerate(line_starts):
+        if start <= offset:
+            lo = idx
+        else:
+            break
+    return lo
+
+
+# issue #2331 replay 1 (#2207): `derived: \`wc -l spawn.py\` before = 3347,
+# after = 2929 ...` — the record's own re-derivable "after" figure (the
+# "before" figure names a different git ref's content, not the working
+# tree, and is out of this hermetic check's scope) was off by 11 against
+# the file actually committed.
+_WC_L_CMD = re.compile(r"`wc -l ([\w./\-]+)`")
+_WC_L_AFTER = re.compile(r"(?i)after\s*=\s*(\d+)")
+_WC_L_BARE_EQ = re.compile(r"=\s*(\d+)")
+
+
+def wc_l_recompute_check(root: Path, text: str) -> list[str]:
+    """issue #2331: a `` `wc -l <path>` `` derived-figure claim is cheap
+    and hermetic — re-count the file actually in the working tree and
+    refuse if the claimed ("after ="/bare "=") figure disagrees, naming
+    the real count. A path this check cannot resolve, or a claim with no
+    parseable number nearby, is silently out of scope (not this check's
+    finding)."""
+    bad = []
+    lines = text.splitlines()
+    in_fence, _ = _index_fences(lines)
+    structural = _structural_skip_mask(lines)
+    line_starts, pos = [], 0
+    for line in lines:
+        line_starts.append(pos)
+        pos += len(line) + 1
+    for m in _WC_L_CMD.finditer(text):
+        line_idx = _offset_to_line(line_starts, m.start())
+        if in_fence[line_idx] or structural[line_idx]:
+            continue
+        if _is_derived_unverified(lines, in_fence, line_idx):
+            continue
+        path_str = m.group(1)
+        fpath = _safe_repo_path(root, path_str)
+        if fpath is None or not fpath.is_file():
+            continue  # #330's job (or an out-of-repo path), not this check's
+        # Same physical line only (issue #2331 hunt finding): a wider
+        # forward window can cross into a LATER, unrelated sentence — this
+        # repo's own docs/issue-2207/reports/execution-observation.md
+        # quotes "after = 2929" several lines below an unrelated `wc -l`
+        # citation while narrating that PR's own defect, and a 200-char
+        # lookahead wrongly paired the two.
+        col = m.end() - line_starts[line_idx]
+        tail = lines[line_idx][col:]
+        num_m = _WC_L_AFTER.search(tail) or _WC_L_BARE_EQ.search(tail)
+        if not num_m:
+            continue
+        claimed = int(num_m.group(1))
+        try:
+            actual = sum(1 for _ in fpath.open(
+                encoding="utf-8-sig", errors="replace"))
+        except OSError:
+            continue
+        if claimed != actual:
+            bad.append(
+                "레코드의 `wc -l` 파생 수치가 실제와 다르다 (issue #2331): "
+                f"`{path_str}` 에 대해 {claimed}로 주장했지만 지금 작업 "
+                f"트리를 다시 세면 {actual}이다 — 통과하려면 숫자를 "
+                f"{actual}로 고치거나, 같은 섹션에 `derived-unverified: "
+                "<이유>` 를 남기면 된다.")
+    return bad
+
+
+# issue #2331 replay 2 (#2244): a fenced `$ ... pytest ...` transcript
+# whose "N passed" summary line was typed as 93 when the targeted files
+# actually collect 79 tests — reproduced here via the same cheap proxy the
+# real observer used (module-level `def test_`/`def t_` count), not a
+# live pytest re-run (a full suite run is neither cheap nor within this
+# gate's <1s budget). Deliberately narrow: skipped whenever `parametrize`
+# or a unittest-style `class ...Test` appears in a named file, since
+# either can make the collected count diverge from a flat function count
+# — that shape stays ungraded rather than mis-graded.
+_FENCE_PYTEST_CMD_LINE = re.compile(
+    r"^\$\s*(?:python3?\s+-m\s+)?pytest\s+(.+)$")
+_FENCE_PASSED_SUMMARY = re.compile(r"(?:^|\s)(\d+)\s+passed\b")
+_PARAMETRIZE_OR_CLASS = re.compile(
+    r"@pytest\.mark\.parametrize|^\s*class\s+\w*[Tt]est", re.MULTILINE)
+_MODULE_TEST_DEF = re.compile(r"(?m)^def\s+(?:t_|test_)\w*\s*\(")
+
+
+def pytest_count_recompute_check(root: Path, text: str) -> list[str]:
+    """issue #2331: a fenced `$ pytest <files...>` transcript's own
+    "N passed" summary is cheap and hermetic to re-derive from the named
+    files' module-level test-function count — refuse a mismatch, naming
+    the real count."""
+    bad = []
+    lines = text.splitlines()
+    in_fence, fence_content = _index_fences(lines)
+    for fid, flines in fence_content.items():
+        cmd = None
+        for fl in flines:
+            m = _FENCE_PYTEST_CMD_LINE.match(fl.strip())
+            if m:
+                cmd = m.group(1)
+                break
+        if cmd is None:
+            continue
+        block_text = "\n".join(flines)
+        summary_m = _FENCE_PASSED_SUMMARY.search(block_text)
+        if not summary_m:
+            continue
+        claimed = int(summary_m.group(1))
+        targets = [tok for tok in cmd.split() if tok.endswith(".py")]
+        if not targets:
+            continue
+        contents = []
+        for tok in targets:
+            fp = _safe_repo_path(root, tok)
+            if fp is None or not fp.is_file():
+                contents = None
+                break
+            src = fp.read_text(encoding="utf-8-sig", errors="replace")
+            if _PARAMETRIZE_OR_CLASS.search(src):
+                contents = None
+                break
+            contents.append(src)
+        if not contents:
+            continue
+        # Scope the derived-unverified exemption to this fence's own
+        # opening line, same section-window convention as the other
+        # checks in this module.
+        open_idx = next(
+            (i for i, ln in enumerate(lines)
+             if ln.strip().startswith("```") and in_fence[i]
+             and i > 0 and not in_fence[i - 1]), 0)
+        if _is_derived_unverified(lines, in_fence, open_idx):
+            continue
+        actual = sum(len(_MODULE_TEST_DEF.findall(c)) for c in contents)
+        if actual != claimed:
+            bad.append(
+                "레코드의 펜스 pytest 결과 수치가 실제와 다르다 (issue "
+                f"#2331): `{cmd.strip()}` 결과로 {claimed} passed 를 "
+                f"주장했지만, 인용된 파일들의 모듈-레벨 테스트 함수를 다시 "
+                f"세면 {actual}개다 — 통과하려면 숫자를 {actual}로 고치거나, "
+                "같은 섹션에 `derived-unverified: <이유>` 를 남기면 된다.")
+    return bad
+
+
+# issue #2331 replay 4 (orchestrator's own `spawn.py:3930` citation,
+# docs/reports/2026-08-09-hunt-repo-scoped-workspace-index-keys.md: "built
+# at spawn.py:3930"): a `path:line`/`path:line-range` citation whose line
+# number(s) exceed the file's actual current line count in the working
+# tree never resolves to anything — a phantom citation, cheap to catch
+# without running the cited command at all.
+def citation_line_bounds_check(root: Path, text: str) -> list[str]:
+    bad = []
+    lines = text.splitlines()
+    in_fence, _ = _index_fences(lines)
+    structural = _structural_skip_mask(lines)
+    line_starts, pos = [], 0
+    for line in lines:
+        line_starts.append(pos)
+        pos += len(line) + 1
+    for m in _CITE_FILE_LINE.finditer(text):
+        line_idx = _offset_to_line(line_starts, m.start())
+        if in_fence[line_idx] or structural[line_idx]:
+            continue
+        if _is_derived_unverified(lines, in_fence, line_idx):
+            continue
+        path_str, start_s, end_s = m.group(1), m.group(2), m.group(3)
+        fpath = _safe_repo_path(root, _strip_line_suffix(path_str))
+        if fpath is None or not fpath.is_file():
+            continue  # #330's job (or an out-of-repo path), not this check's
+        try:
+            total = sum(1 for _ in fpath.open(
+                encoding="utf-8-sig", errors="replace"))
+        except OSError:
+            continue
+        start, end = int(start_s), int(end_s) if end_s else int(start_s)
+        if start > total or end > total:
+            cited = f"{path_str}:{start_s}" + (f"-{end_s}" if end_s else "")
+            bad.append(
+                "레코드가 파일의 실제 줄 수를 넘는 file:line 을 인용한다 "
+                f"(issue #2331): `{cited}` — `{path_str}` 는 지금 {total}줄"
+                "뿐이라 이 인용은 애초에 존재하지 않는 줄을 가리키는 "
+                "phantom citation 이다 — 통과하려면 실제 존재하는 줄 "
+                "번호로 고치거나, 같은 섹션에 `derived-unverified: <이유>` "
+                "를 남기면 된다.")
+    return bad
+
+
+# issue #2331 replay 3 (#2295): four `gates/check_runner.py:N` citations,
+# each paired with a literal backtick-quoted code excerpt, all shifted by
+# the same +35 lines against the file actually committed at the cited
+# commit — caught here by re-deriving the citation's own quoted content
+# against the working tree.
+_SINGLE_LINE_CITE = re.compile(r"`?([\w./\-]+\.\w+):(\d+)(?!-)`?")
+_BACKTICK_SPAN = re.compile(r"`([^`\n]+)`")
+_QUOTE_CODE_CHARS = re.compile(r"[()\[\]{}=+<>\"']")
+
+
+def _looks_like_bare_path(s: str) -> bool:
+    return bool(re.fullmatch(r"[\w./\-]+(:\d+(?:-\d+)?)?", s))
+
+
+def _nearest_code_quote(text: str, in_fence_at, pos: int,
+                         max_dist: int = 100) -> str | None:
+    """The nearest (by character distance, either direction) backtick
+    span to `pos` that reads as a code excerpt rather than a bare path or
+    another `path:line` citation — the "quoted fragment" a `path:line`
+    citation is claiming lives at that line."""
+    best, best_dist = None, None
+    for bm in _BACKTICK_SPAN.finditer(text):
+        content = bm.group(1)
+        if _looks_like_bare_path(content) or _CITE_FILE_LINE.fullmatch(
+                content.strip("`")):
+            continue
+        if not _QUOTE_CODE_CHARS.search(content):
+            continue
+        if in_fence_at(bm.start()):
+            continue
+        dist = min(abs(bm.start() - pos), abs(bm.end() - pos))
+        if dist <= max_dist and (best_dist is None or dist < best_dist):
+            best, best_dist = content, dist
+    return best
+
+
+def citation_line_content_check(root: Path, text: str) -> list[str]:
+    bad = []
+    lines = text.splitlines()
+    in_fence, _ = _index_fences(lines)
+    structural = _structural_skip_mask(lines)
+    line_starts, pos = [], 0
+    for line in lines:
+        line_starts.append(pos)
+        pos += len(line) + 1
+
+    def _in_fence_at(offset: int) -> bool:
+        return in_fence[_offset_to_line(line_starts, offset)]
+
+    for m in _SINGLE_LINE_CITE.finditer(text):
+        line_idx = _offset_to_line(line_starts, m.start())
+        if in_fence[line_idx] or structural[line_idx]:
+            continue
+        if _is_derived_unverified(lines, in_fence, line_idx):
+            continue
+        path_str, line_s = m.group(1), m.group(2)
+        fpath = _safe_repo_path(root, path_str)
+        if fpath is None or not fpath.is_file():
+            continue  # #330's job (or an out-of-repo path), not this check's
+        quote = _nearest_code_quote(text, _in_fence_at, m.end())
+        if quote is None:
+            continue
+        try:
+            file_lines = fpath.read_text(
+                encoding="utf-8-sig", errors="replace").splitlines()
+        except OSError:
+            continue
+        cited_line_no = int(line_s)
+        quote_norm = _normalize_ws(quote)
+        if not quote_norm:
+            continue
+        if 1 <= cited_line_no <= len(file_lines) and \
+                quote_norm in _normalize_ws(file_lines[cited_line_no - 1]):
+            continue  # cited line genuinely contains the quoted fragment
+        actual_lines = [i + 1 for i, ln in enumerate(file_lines)
+                        if quote_norm in _normalize_ws(ln)]
+        if not actual_lines:
+            continue  # fragment not found anywhere — not this check's job
+        if cited_line_no not in actual_lines:
+            bad.append(
+                "레코드의 file:line 인용 내용이 실제와 다르다 (issue "
+                f"#2331): `{path_str}:{line_s}` 이 인용한 조각 "
+                f"`{quote}` 는 실제로 {path_str}의 {actual_lines[0]}번째 "
+                f"줄에 있다, {line_s}번째 줄이 아니다 — 통과하려면 인용 "
+                f"줄 번호를 {actual_lines[0]}로 고치거나, 같은 섹션에 "
+                "`derived-unverified: <이유>` 를 남기면 된다.")
+    return bad
+
+
+# ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
 
@@ -1070,6 +1423,10 @@ def lint_record(path: Path) -> list[str]:
     bad += bare_count_claim_check(text)
     bad += orphaned_path_reference_check(root, text)
     bad += git_tracked_path_reference_check(root, text, record_rel=rel)
+    bad += wc_l_recompute_check(root, text)
+    bad += pytest_count_recompute_check(root, text)
+    bad += citation_line_bounds_check(root, text)
+    bad += citation_line_content_check(root, text)
     if not _exempt("canonical_source_claim_check"):
         bad += canonical_source_claim_check(text)
     if not _exempt("outcome_claim_citation_check"):
