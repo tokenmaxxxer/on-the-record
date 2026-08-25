@@ -29,9 +29,17 @@ acting.
 
 ## RESOLVE AND CONTINUE
 
-Both cases append to a deviation log — `docs/issue-<n>/reports/deviation-log.md`
-when an issue is in scope, else `docs/reports/deviation-log.md` (same
-issue-keyed-vs-not split `consult-log.md` already uses).
+Both cases append to a deviation log — sharded per session (issue #2348,
+same conflict-elimination shape issue #2333 shipped for `consult-log.md`):
+run `python3 spawn.py deviation-log-path --issue <n>` (no `--issue` when no
+issue is in scope) and append your entry to the path it prints. Never
+compute the shard path by hand — the command resolves it consistently with
+what `deviation-log-guard.sh` checks and what `spawn.py deviation-log`
+reads back. Role-scoped under `$CLAUDE_ROLE` when set (a role session's own
+subtree, e.g. `docs/issue-<n>/reports/implementation/deviation-log/`) so
+two different roles working the same issue never share a path either; no
+role component for the orchestrator. Read the merged, chronological view
+with `python3 spawn.py deviation-log --issue <n>`.
 
 - **Inline**: apply the fix, append one line — timestamp, `inline`,
   one-line description, the diff's location. Resume the original task
@@ -66,10 +74,13 @@ in both contexts.
 
 `on-the-record/hooks/deviation-log-guard.sh` (Stop hook) reads
 `transcript_path` off the raw Stop event, scans it for a recognized-
-deviation marker, and cross-checks via `git diff`/`git log -p` against the
-deviation-log path(s) whether a matching append landed this turn. It
-refuses session-end via `hookSpecificOutput.additionalContext` (not a hard
-block) when a marker exists with no matching append.
+deviation marker, and cross-checks via `git diff`/`git log -p`/`git status
+--porcelain` (the last one needed since issue #2348: a session's first
+shard is a brand-new untracked file, which `git diff`/`git log -p` alone
+never report) against the deviation-log shard directory whether a matching
+append landed this turn. It refuses session-end via
+`hookSpecificOutput.additionalContext` (not a hard block) when a marker
+exists with no matching append.
 
 ## Dependencies
 

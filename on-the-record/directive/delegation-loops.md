@@ -62,12 +62,13 @@
     systemic pattern; otherwise FILE-AS-ISSUE. When the classification
     itself is not obvious from (a)-(d), render it via one `spawn.py
     consult <role> "<question>"` call before acting — the classification
-    is itself a judgment point per #699 R2. RESOLVE-AND-CONTINUE: inline
-    case — apply the fix, append one line to the deviation log
-    (`docs/issue-<n>/reports/deviation-log.md`, or
-    `docs/reports/deviation-log.md` with no issue in scope, mirroring
-    `consult-log.md`'s split) — timestamp, `inline`, one-line
-    description, the diff's location; resume the original task same turn.
+    is itself a judgment point per #699 R2. RESOLVE-AND-CONTINUE: run
+    `spawn.py deviation-log-path --issue <n>` (issue #2348: sharded per
+    session, role-scoped under `$CLAUDE_ROLE` when set, mirroring
+    `consult-log.md`'s own sharding) and append your entry to the path it
+    prints. Inline case — apply the fix, append one line — timestamp,
+    `inline`, one-line description, the diff's location; resume the
+    original task same turn.
     File case — draft the issue, `spawn.py spawn <role> "<task>" --issue
     <n> --background`, append a `filed` line to the same log (timestamp,
     issue number, role, one-line description); wait on it via the

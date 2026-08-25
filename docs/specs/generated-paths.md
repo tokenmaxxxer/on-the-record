@@ -15,7 +15,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `record-scaffold.sh` | issue-scoped | safe — `docs/issue-<n>/reports/<role>.md`, `<n>` from CLI arg |
 | `delegated-judgment-gate.sh` | issue-scoped | safe — `docs/issue-<n>/decisions/*`, `<n>` from payload/branch |
 | `product-capture-stopgate.sh` | issue-scoped | safe — fixed #684: `docs/issue-<n>/product/<cat>.md`, `<n>` from `issue-<n>/<role>` branch name; no-ops off an issue-scoped branch |
-| `deviation-log-guard.sh` | n/a | reads/checks only (`git diff`/`git log -p`), no write call — the actual `docs/issue-<n>/reports/deviation-log.md`/`docs/reports/deviation-log.md` append is made by the session, not this hook |
+| `deviation-log-guard.sh` | n/a | reads/checks only (`git diff`/`git log -p`/`git status --porcelain`, issue #2348 added the last one), no write call — the actual `docs/issue-<n>/reports/<role>/deviation-log/<shard>.md` (or the no-role/no-issue variants) append is made by the session via `spawn.py deviation-log-path`, not this hook |
 | `skill-verdict-guard.sh` | n/a | reads/checks only (transcript scan + a direct read of the current branch's role record file), no write call — the actual `skill-verdict:` lines are appended by the session, not this hook |
 | `retry-loop-bound.sh` | out-of-tree | safe — `$TMPDIR`-rooted, never inside the target repo |
 | `approach-cap-warning.sh` | out-of-tree | safe — `$TMPDIR`-rooted (`${OTR_APPROACH_CAP_STATE_DIR:-$TMPDIR/otr-approach-cap}`), never inside the target repo, same pattern as `retry-loop-bound.sh` |
@@ -24,7 +24,8 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `self-update.sh` | out-of-tree | safe — writes into the shared plugin checkout, not the target repo |
 | `directive.sh` | out-of-tree | safe — clones into the shared plugin checkout |
 | `poll-rearm.sh` | out-of-tree | safe — shared function library sourced by `directive.sh`/`stop-poll-rearm.sh`; its checkout-clone fallback writes into the shared plugin checkout, same as `directive.sh` |
-| `stop-poll-rearm.sh` | n/a | reads/validates only in its own file — no write call greppable in this file itself; the actual write happens via the sourced `poll-rearm.sh`'s `poll_rearm_arm_if_due()`, already recorded out-of-tree on that row |
+| `stop-poll-rearm.sh` | n/a | reads/validates only in its own file — no write call greppable in this file itself; the actual write happens via the sourced `poll-rearm.sh`'s `poll_rearm_arm_if_due()`, already recorded out-of-tree on that row, and (issue #2348) the sourced `hook-fires.sh`'s `hook_fires_record()`, recorded below |
+| `hook-fires.sh` | n/a | issue #2348: shared library sourced by `directive.sh`/`stop-gate.sh`/`stop-poll-rearm.sh` — its embedded-python write is an append (`open(..., "a")`), which this gate's `open\([^)]*['"]w` pattern does not match (append-mode is not `"w"`-mode), so it lands in the n/a bucket the same way the `.orchestrate-hook-fires.log` `printf >>` write it replaces always has (a raw bash `>>` redirect was never matched by this gate either). The write itself (`.orchestrate-hook-fires/<sha256(session_id)[:24]>.log`, workspace-root-relative) is neither out-of-tree nor issue-scoped in this table's two-bucket sense — it is session-scoped: safe because two sessions never hash to the same shard, not because the path is outside the repo or carries an issue number |
 | `impact-guard.sh` | out-of-tree | safe — same shared checkout clone |
 | `spawn-allow-gate.sh` | n/a | reads/validates only, no write call |
 | `merge-allow-gate.sh` | out-of-tree | safe — same `_checkout_resolve` shared-checkout-clone pattern as `impact-guard.sh`/`decision-queue-stopgate.sh` below, never inside the target repo |

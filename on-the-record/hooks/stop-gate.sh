@@ -24,10 +24,16 @@ set -uo pipefail
 # directive.sh's own (the #2016 survey's open finding: real Stop/
 # UserPromptSubmit firing frequency was unmeasured). Written before any
 # kill-switch short-circuit so the count reflects every real Stop trip.
-{ printf '%s Stop stop-gate.sh\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$(pwd -P)/.orchestrate-hook-fires.log"; } 2>/dev/null || true
+#
+# issue #2348: sharded per session (hook-fires.sh's hook_fires_record()),
+# same shape as directive.sh's own change and issue #2333's consult-log
+# precedent. Stdin captured HERE, once, before the counter write, so it
+# can be reused below as `payload` without a second read.
+payload="$(cat 2>/dev/null || true)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/hook-fires.sh"
+hook_fires_record "Stop stop-gate.sh" "$payload"
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-payload="$(cat 2>/dev/null || true)"
 [ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
 
 command -v python3 >/dev/null 2>&1 || exit 2

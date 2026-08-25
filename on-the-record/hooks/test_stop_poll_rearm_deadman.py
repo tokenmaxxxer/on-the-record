@@ -53,7 +53,7 @@ def test_stale_marker_surfaces_dead_advisory_and_fires_log(tmp_path):
     r = _run_hook(tmp_path, state_root)
     assert r.returncode == 0, r.stderr
     assert DEAD_NEEDLE in r.stdout
-    fires = (tmp_path / "cwd" / ".orchestrate-hook-fires.log").read_text()
+    fires = (tmp_path / "cwd" / ".orchestrate-hook-fires" / "unknown.log").read_text()
     assert FIRES_NEEDLE in fires
 
 
@@ -63,7 +63,7 @@ def test_fresh_marker_stays_quiet_but_still_recorded(tmp_path):
     r = _run_hook(tmp_path, state_root)
     assert r.returncode == 0, r.stderr
     assert DEAD_NEEDLE not in r.stdout
-    fires = (tmp_path / "cwd" / ".orchestrate-hook-fires.log").read_text()
+    fires = (tmp_path / "cwd" / ".orchestrate-hook-fires" / "unknown.log").read_text()
     assert FIRES_NEEDLE in fires
 
 

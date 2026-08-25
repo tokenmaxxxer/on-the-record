@@ -75,19 +75,44 @@ def t_traceless_deviation_is_blocked():
         assert r.returncode == 0
         out = json.loads(r.stdout)
         ctx = out["hookSpecificOutput"]["additionalContext"]
-        assert "deviation-log.md" in ctx
+        # issue #2348: no CLAUDE_ROLE in this scenario -> issue-scoped, no
+        # role component -- the sharded directory, not a flat .md path.
+        assert "docs/issue-803/reports/deviation-log" in ctx
+        assert "deviation-log.md" not in ctx
 
 
 def t_logged_deviation_passes():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo)
-        log_dir = repo / "docs" / "issue-803" / "reports"
+        log_dir = repo / "docs" / "issue-803" / "reports" / "deviation-log"
         log_dir.mkdir(parents=True)
-        log = log_dir / "deviation-log.md"
-        log.write_text("# Deviation log\n\n- 2026-08-12 inline-fix: swapped helper.\n")
-        _git(repo, "add", "docs/issue-803/reports/deviation-log.md")
+        shard = log_dir / "20260812T000000-deadbeefdeadbeef.md"
+        shard.write_text("- 2026-08-12T00:00:00Z | inline | swapped helper.\n")
+        _git(repo, "add", str(shard.relative_to(repo)))
         _git(repo, "commit", "-q", "-m", "record deviation")
+        transcript = _write_transcript(
+            repo, ["this is a deviation, classifying as inline-fix now."]
+        )
+        r = _run(repo, transcript)
+        assert r.returncode == 0
+        assert r.stdout == ""
+
+
+def t_untracked_new_shard_passes():
+    """issue #2348: sharding makes a session's FIRST deviation-log entry
+    the common case, not a one-time-ever event -- every session mints a
+    brand-new, still-UNTRACKED shard file. `git diff`/`git log -p` never
+    report untracked paths; the guard must fall back to `git status` so
+    this common case is not silently treated as traceless."""
+    with tempfile.TemporaryDirectory() as td:
+        repo = Path(td)
+        _init_repo(repo)
+        log_dir = repo / "docs" / "issue-803" / "reports" / "deviation-log"
+        log_dir.mkdir(parents=True)
+        shard = log_dir / "20260812T000000-deadbeefdeadbeef.md"
+        shard.write_text("- 2026-08-12T00:00:00Z | inline | swapped helper.\n")
+        # deliberately left untracked -- no `git add`, no commit.
         transcript = _write_transcript(
             repo, ["this is a deviation, classifying as inline-fix now."]
         )
@@ -112,7 +137,10 @@ def t_role_session_traceless_deviation_is_blocked():
         assert r.returncode == 0
         out = json.loads(r.stdout)
         ctx = out["hookSpecificOutput"]["additionalContext"]
-        assert "docs/issue-983/reports/deviation-log.md" in ctx
+        # issue #2348: role-scoped, sharded directory, not the flat
+        # role-less .md path.
+        assert "docs/issue-983/reports/implementation/deviation-log" in ctx
+        assert "deviation-log.md" not in ctx
 
 
 def t_role_session_no_deviation_is_silent():
@@ -131,11 +159,11 @@ def t_role_session_logged_deviation_passes():
     with tempfile.TemporaryDirectory() as td:
         repo = Path(td)
         _init_repo(repo, branch="issue-983/implementation")
-        log_dir = repo / "docs" / "issue-983" / "reports"
+        log_dir = repo / "docs" / "issue-983" / "reports" / "implementation" / "deviation-log"
         log_dir.mkdir(parents=True)
-        log = log_dir / "deviation-log.md"
-        log.write_text("# Deviation log\n\n- 2026-08-12 inline-fix: swapped helper.\n")
-        _git(repo, "add", "docs/issue-983/reports/deviation-log.md")
+        shard = log_dir / "20260812T000000-deadbeefdeadbeef.md"
+        shard.write_text("- 2026-08-12T00:00:00Z | inline | swapped helper.\n")
+        _git(repo, "add", str(shard.relative_to(repo)))
         _git(repo, "commit", "-q", "-m", "record deviation")
         transcript = _write_transcript(
             repo, ["this is a deviation, classifying as inline-fix now."]
@@ -198,4 +226,5 @@ def t_off_issue_branch_uses_docs_reports_path():
         assert r.returncode == 0
         out = json.loads(r.stdout)
         ctx = out["hookSpecificOutput"]["additionalContext"]
-        assert "docs/reports/deviation-log.md" in ctx
+        assert "docs/reports/deviation-log" in ctx
+        assert "deviation-log.md" not in ctx

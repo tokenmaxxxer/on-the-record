@@ -21,9 +21,28 @@
 # git diff / git log -p against the deviation-log path(s) whether a
 # matching append actually landed.
 #
-# Deviation-log path split mirrors consult-log.md's existing split exactly
-# (docs/issue-<n>/reports/deviation-log.md when issue-scoped, else
-# docs/reports/deviation-log.md).
+# issue #2348: deviation-log.md sharded per session, same conflict-
+# elimination shape issue #2333 shipped for consult-log.md -- see
+# deviation_log.py's module docstring for the shard-id/aggregation
+# reasoning. This guard does not need to compute a session's own shard id
+# to verify one landed: it checks whether the shard DIRECTORY gained any
+# added line this turn (git diff/log -p accept a directory pathspec the
+# same way they accept a file one), which is exactly as precise as the
+# old single-file check was in a single-workspace-per-session model --
+# `git diff` only ever shows this session's own working-tree changes, so a
+# directory-level hit cannot be another session's shard.
+#
+# Path also now folds in the pre-existing, previously unenforced role-
+# scoped convention many role sessions already use
+# (docs/issue-<n>/reports/<role>/deviation-log/ instead of the flat
+# docs/issue-<n>/reports/deviation-log/) -- role comes ONLY from
+# $CLAUDE_ROLE (same signal board-gate's R4 already treats as
+# authoritative for a role session's own subtree), never re-derived from
+# the branch name: a role session is defined by CLAUDE_ROLE being set, not
+# by what its branch happens to look like, and the branch is already
+# required to equal issue-<n>/<CLAUDE_ROLE> for a role session (board-gate
+# R4) rather than being an independent source for it. No CLAUDE_ROLE (the
+# orchestrator) means no role component, same as before this issue.
 #
 # Refuses via hookSpecificOutput.additionalContext, never decision:"block"
 # — matching stop-gate.sh's own house-style rationale that a heuristic
@@ -124,10 +143,12 @@ branch_r = subprocess.run(
 )
 branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
 branch_m = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
+role = os.environ.get("CLAUDE_ROLE") or None
 if branch_m:
-    rel = os.path.join("docs", f"issue-{branch_m.group(1)}", "reports", "deviation-log.md")
+    base = os.path.join("docs", f"issue-{branch_m.group(1)}", "reports")
+    rel = os.path.join(base, role, "deviation-log") if role else os.path.join(base, "deviation-log")
 else:
-    rel = os.path.join("docs", "reports", "deviation-log.md")
+    rel = os.path.join("docs", "reports", "deviation-log")
 
 added_lines = 0
 for args in (
@@ -144,6 +165,26 @@ for args in (
         if out_line.startswith("+") and not out_line.startswith("+++"):
             added_lines += 1
 
+# issue #2348: sharding means a session's FIRST deviation-log entry for a
+# given issue+role is now the common case, not a one-time-ever event --
+# every session mints its own new shard file, and a brand-new file is
+# untracked until something stages it. `git diff`/`git log -p` never
+# report untracked paths at all, so relying on them alone would make the
+# guard blind to exactly the case sharding makes common. `git status
+# --porcelain` reports untracked ("??"), staged, and unstaged-modified
+# paths alike, so it closes that gap regardless of which of the three
+# states this turn's new/changed shard is currently in.
+if added_lines == 0:
+    try:
+        st = subprocess.run(
+            ["git", "status", "--porcelain", "--", rel],
+            cwd=repo, capture_output=True, text=True, timeout=10,
+        )
+        if st.returncode == 0 and st.stdout.strip():
+            added_lines = 1
+    except (OSError, subprocess.SubprocessError):
+        pass
+
 if added_lines > 0:
     sys.exit(0)
 
@@ -153,9 +194,10 @@ out = {
         "additionalContext": (
             "deviation-log-guard: this turn's transcript names a recognized "
             "deviation (inline-fix or file-as-issue) but " + rel + " gained "
-            "no new line. Append the deviation-log entry (timestamp, "
+            "no new shard. Append the deviation-log entry (timestamp, "
             "inline/filed/resolved, description, and for filed/resolved the "
-            "issue number/role/PR) before ending the turn — see "
+            "issue number/role/PR) to the path `spawn.py deviation-log-path "
+            "--issue <n>` prints, before ending the turn — see "
             "docs/handbooks/deviation-loop.md."
         ),
     }

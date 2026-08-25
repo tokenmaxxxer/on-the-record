@@ -27,6 +27,14 @@
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
+# issue #2348: stdin captured HERE, once, before any short-circuit below,
+# purely to carry session_id into the sharded hook-fires counter write
+# inside _deadman_check() -- this hook has never otherwise needed its own
+# stdin payload. Same shard formula (hook-fires.sh's hook_fires_record())
+# as directive.sh/stop-gate.sh's own #2348 change.
+_HOOK_PAYLOAD="$(cat 2>/dev/null || true)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/hook-fires.sh"
+
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 # A spawned role session is never the orchestrator, even if the plugin leaks in.
 [ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
@@ -117,9 +125,7 @@ PY
 # import error) is swallowed — watch-class machinery never blocks Stop.
 _deadman_check() {
   local checkout="$1"
-  { printf '%s Stop stop-poll-rearm.sh deadman-check\n' \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-      >>"$(pwd -P)/.orchestrate-hook-fires.log"; } 2>/dev/null || true
+  hook_fires_record "Stop stop-poll-rearm.sh deadman-check" "$_HOOK_PAYLOAD"
   timeout 20 python3 "${checkout}/spawn.py" deadman-check 2>/dev/null || true
 }
 
