@@ -1070,38 +1070,29 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
             # 적용되지 않는다: pid 가 이미 죽었다고 확인된 순간부터는
             # "알아채고 조치할" 대상 자체가 없다 — 기다림은 순수 비용이다
             # (실측: 라이브 백로그 434건이 전부 7일 미만의 죽은 pid라
-            # #2418 은 0건을 지웠다). 그래도 즉시 지우면 안 되는 이유는
-            # 하나 남는다: 이 레코드의 유일한 소비자인
-            # spawn_attempt_sweep()(roster.py) 이 `SPAWN_ATTEMPT_GRACE_SEC`
-            # 경과 전에는 이 시도를 "no outcome recorded"로 아예 보고
-            # 대상으로도 안 본다(정상 부트스트랩 창) — 그 창을 못 채운
-            # 채로 지우면 sweep 이 한 번도 보고할 기회를 못 얻는다. 그래서
-            # 새 knob 을 만드는 대신 이미 있는 두 상수를 그대로 합성한다:
-            # `roster.SPAWN_ATTEMPT_GRACE_SEC`(sweep 이 보고 가능해지는
-            # 시점) + `DEADMAN_INTERVAL_SEC`(watchdog 한 틱) — sweep 이
-            # 그 시점 이후 실제로 한 번은 돌아 보고할 시간을 보장한 뒤
-            # 지운다. 7일 대비 대략 7분: pid 가 이미 죽어 조치할 게 없는
-            # 케이스엔 이 정도로 충분하고, halted 분기의 7일 창은 이
-            # 변경으로 전혀 건드리지 않는다(아래 elif, 여전히
-            # SPAWN_ATTEMPTS_RETENTION_SEC 그대로).
-            #
-            # CHANGES round (PR #2418, execution-observation follow-up):
-            # `ts` 가 아예 없는 레코드에서 `a.get("ts", now)`로 기본값을
-            # `now`를 쓰면 `now - ts`가 항상 0이라 절대 retention 을 못
-            # 넘는다 — pid-as-string 버그와 같은 "kept forever" 클래스를
-            # 다른 누락 필드로 재현한 것. 기본값을 `None`으로 바꿔 아래
-            # `isinstance` 체크가 "ts 필드 자체가 없음"과 "ts 가 숫자가
-            # 아님"을 똑같이 "바로 aged_out"으로 잡게 한다 — 이미 있던
-            # malformed-ts 분기와 동일한 취급이라 별도 분기가 필요 없다.
+            # #2418 은 0건을 지웠다). 오퍼레이터 가이던스(이슈 #2431,
+            # issuecomment-5411038089, 2026-08-25 mid-flight)로 확정: 애초에
+            # 달력 기반 유예 자체가 불필요하다 — `_pid_is_alive()`가 False를
+            # 반환한 순간 그 결론(진짜 죽었다)은 이미 확정이라 더 기다려도
+            # 새로 알아낼 게 없다. 시간이 걸려야 하는 유일한 케이스는
+            # `_pid_is_alive()` 자신이 판정을 확신 못 하는 경우(모호한
+            # `OSError`)뿐인데, 그건 이미 그 함수 안에서 "확신 없으면
+            # 살아있다고 본다"로 보수적으로 처리돼 있어(docstring 참고)
+            # 여기까지 내려오지 않는다. 그래서 이 분기는 나이 계산을 아예
+            # 하지 않는다: pid 가 죽었다고 확인되면 바로 다음 prune pass
+            # (이 watchdog 틱)에 지운다. `spawn_attempt_sweep()`(roster.py)
+            # 은 이 함수를 호출하기 전에 같은 호출 안에서 먼저 보고 루프를
+            # 돌리므로(그 시점에 이미 `SPAWN_ATTEMPT_GRACE_SEC` 를 넘겼다면)
+            # 지우기 전에 보고할 기회를 여전히 얻는다 — 별도 유예 없이도
+            # "지우기 전에 최소 한 번은 보고"가 정상 호출 경로에서 그대로
+            # 성립한다. halted 분기의 7일 창은 이 변경으로 전혀 건드리지
+            # 않는다(아래 elif, 여전히 SPAWN_ATTEMPTS_RETENTION_SEC 그대로;
+            # issuecomment-5410865516 이 명시적으로 요구한 그대로).
             pid = a.get("pid")
-            ts = a.get("ts")
             if _pid_is_alive(pid):
                 keep_ids.add(aid)
-            else:
-                aged_out = (not isinstance(ts, (int, float))
-                            or now - ts >= SPAWN_DEAD_PID_PRUNE_SEC)
-                if not aged_out:
-                    keep_ids.add(aid)
+            # else: 죽었다고 확인됨 — 나이/ts 와 무관하게 즉시 prune 대상
+            # (keep_ids 에 안 넣는다).
         elif outcome.get("outcome") == "halted":
             outcome_ts = outcome.get("ts", now)
             if not isinstance(outcome_ts, (int, float)) or \
@@ -1150,14 +1141,6 @@ LEASE_TTL_MIN = float(os.environ.get("OTR_LEASE_TTL_MIN", "90"))
 LEASE_FLAT_RENEWALS_K = int(os.environ.get("OTR_LEASE_FLAT_RENEWALS_K", "3"))
 DEADMAN_INTERVAL_SEC = float(os.environ.get("OTR_DEADMAN_INTERVAL_SEC", "120"))
 DEADMAN_STALE_INTERVALS = int(os.environ.get("OTR_DEADMAN_STALE_INTERVALS", "5"))
-# 이슈 #2431: `_prune_spawn_attempts()`의 dead-pid, no-outcome 케이스
-# 전용 prune 경계 — SPAWN_ATTEMPTS_RETENTION_SEC(7일, halted 분기 고유)
-# 재사용 대신, 이미 있는 두 상수를 합성한다: `roster.SPAWN_ATTEMPT_GRACE_SEC`
-# (spawn_attempt_sweep() 이 이 시도를 "no outcome recorded"로 보고 가능
-# 해지는 시점) + 이 파일의 `DEADMAN_INTERVAL_SEC`(watchdog 한 틱) — sweep
-# 이 그 시점 이후 실제로 한 번은 돌아 보고할 기회를 보장한 뒤에만 지운다.
-# 자세한 근거는 `_prune_spawn_attempts()`의 해당 분기 주석 참고.
-SPAWN_DEAD_PID_PRUNE_SEC = roster.SPAWN_ATTEMPT_GRACE_SEC + DEADMAN_INTERVAL_SEC
 # Coverage-OK marker (mechanism 4). Lives under STATE_ROOT so the checker
 # needs no knowledge of any board — it is about the watch layer itself.
 DEADMAN_MARKER = STATE_ROOT / "watch-coverage-ok"

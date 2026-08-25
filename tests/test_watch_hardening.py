@@ -488,14 +488,18 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
     uses — which meant a dead-pid orphan waited a full week before it
     aged out, same as a genuine unresolved halt. That 7-day grace exists
     so the orchestrator has time to notice and act on a `halted` outcome;
-    a confirmed-dead pid with no outcome has nothing to notice-and-act on,
-    so waiting is pure cost. The bound for this case is now
-    `SPAWN_DEAD_PID_PRUNE_SEC` — `roster.SPAWN_ATTEMPT_GRACE_SEC` (the
-    point spawn_attempt_sweep() can first report the attempt at all) plus
-    one `DEADMAN_INTERVAL_SEC` watchdog tick, so sweep always gets at
-    least one chance to report before the record is pruned out from under
-    it. The `halted` branch's own 7-day `SPAWN_ATTEMPTS_RETENTION_SEC`
-    window is untouched."""
+    a confirmed-dead pid with no outcome has nothing to notice-and-act on.
+    Per operator guidance mid-flight on issue #2431
+    (issuecomment-5411038089): once `_pid_is_alive()` returns `False` that
+    conclusion is already final, so no calendar bound applies at all for
+    this case — a dead pid is pruned on the very next `_prune_spawn_attempts()`
+    pass regardless of its `ts`. `spawn_attempt_sweep()` (`roster.py`)
+    still gets its report chance for free: within one call, it runs its
+    report loop before it calls `_prune_spawn_attempts()`, so a record
+    already past `SPAWN_ATTEMPT_GRACE_SEC` is reported in that same tick,
+    just before it's pruned. The `halted` branch's own 7-day
+    `SPAWN_ATTEMPTS_RETENTION_SEC` window is untouched (issuecomment-5410865516
+    required this explicitly)."""
 
     def setUp(self):
         self._td = tempfile.TemporaryDirectory()
@@ -535,30 +539,30 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertEqual(dropped, 0)
         self.assertIn("a1", self._remaining_ids())
 
-    def test_dead_pid_within_dead_pid_bound_is_kept(self):
-        """A pid that died very recently (inside SPAWN_DEAD_PID_PRUNE_SEC)
-        is kept — spawn_attempt_sweep() must still get its chance to
-        report it as a halt once SPAWN_ATTEMPT_GRACE_SEC elapses, within
-        that first watchdog tick."""
+    def test_dead_pid_pruned_immediately_even_when_ts_is_fresh(self):
+        """Issue #2431 (operator guidance, issuecomment-5411038089): a
+        dead pid gets no calendar grace at all — even a record whose `ts`
+        is one second old is pruned the moment `_pid_is_alive()` confirms
+        the pid is gone, not just records old enough to clear some
+        window."""
         now = time.time()
         dead_pid = self._dead_pid()
-        recent_ts = now - (spawn.SPAWN_DEAD_PID_PRUNE_SEC / 2)
         self._write([{"event": "spawn_attempt", "attempt_id": "a2",
                       "issue": 2, "role": "implementation",
-                      "pid": dead_pid, "ts": recent_ts}])
+                      "pid": dead_pid, "ts": now - 1}])
         dropped = spawn._prune_spawn_attempts(now=now)
-        self.assertEqual(dropped, 0)
-        self.assertIn("a2", self._remaining_ids())
+        self.assertEqual(dropped, 1)
+        self.assertNotIn("a2", self._remaining_ids())
 
-    def test_dead_pid_past_dead_pid_bound_is_pruned(self):
-        """Issue #2431: a dead-pid, no-outcome record only needs to clear
-        SPAWN_DEAD_PID_PRUNE_SEC (one grace window plus one watchdog
-        tick), not the 7-day SPAWN_ATTEMPTS_RETENTION_SEC the `halted`
-        branch uses — this is the real-backlog shape (hours old, not
-        days)."""
+    def test_dead_pid_pruned_regardless_of_old_retention_window(self):
+        """Regression guard for the bug this issue fixes: an age well
+        under the old 7-day SPAWN_ATTEMPTS_RETENTION_SEC (so #2418's code
+        would have kept it) must now be dropped — same as any other
+        dead-pid record, since #2431 removed the age check for this case
+        entirely."""
         now = time.time()
         dead_pid = self._dead_pid()
-        old_ts = now - spawn.SPAWN_DEAD_PID_PRUNE_SEC - 3600
+        old_ts = now - spawn.SPAWN_ATTEMPTS_RETENTION_SEC - 3600
         self._write([{"event": "spawn_attempt", "attempt_id": "a3",
                       "issue": 31, "role": "implementation",
                       "pid": dead_pid, "ts": old_ts}])
@@ -566,31 +570,14 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertEqual(dropped, 1)
         self.assertNotIn("a3", self._remaining_ids())
 
-    def test_dead_pid_past_old_retention_but_before_new_bound_is_pruned(self):
-        """Direct regression guard for the bug this issue fixes: an age
-        well under the old 7-day SPAWN_ATTEMPTS_RETENTION_SEC (so #2418's
-        code would have kept it) but past the new, much shorter
-        SPAWN_DEAD_PID_PRUNE_SEC must now be dropped."""
-        now = time.time()
-        dead_pid = self._dead_pid()
-        self.assertLess(spawn.SPAWN_DEAD_PID_PRUNE_SEC,
-                         spawn.SPAWN_ATTEMPTS_RETENTION_SEC)
-        old_ts = now - spawn.SPAWN_DEAD_PID_PRUNE_SEC - 60
-        self._write([{"event": "spawn_attempt", "attempt_id": "a3b",
-                      "issue": 31, "role": "implementation",
-                      "pid": dead_pid, "ts": old_ts}])
-        dropped = spawn._prune_spawn_attempts(now=now)
-        self.assertEqual(dropped, 1)
-        self.assertNotIn("a3b", self._remaining_ids())
-
     def test_halted_branch_retention_is_unchanged(self):
         """Issue #2431 explicitly leaves the `halted`-outcome branch's
-        7-day SPAWN_ATTEMPTS_RETENTION_SEC grace period untouched — an
-        outcome of "halted" younger than that window is still kept
-        regardless of the new, shorter dead-pid bound."""
+        7-day SPAWN_ATTEMPTS_RETENTION_SEC grace period untouched — a
+        `halted` outcome recorded a moment ago is still kept, even though
+        a bare dead-pid record with the same age (no outcome at all) would
+        now be pruned immediately by the sibling branch above."""
         now = time.time()
-        recent_ts = now - (spawn.SPAWN_DEAD_PID_PRUNE_SEC * 2)
-        self.assertLess(recent_ts, now - spawn.SPAWN_DEAD_PID_PRUNE_SEC)
+        recent_ts = now - 1
         self._write([
             {"event": "spawn_attempt", "attempt_id": "a3c",
              "issue": 9, "role": "implementation",
@@ -626,13 +613,11 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertIn("a4", self._remaining_ids())
 
     def test_missing_ts_with_dead_pid_is_pruned(self):
-        """CHANGES round (PR #2418, execution-observation follow-up): a
-        record with no `ts` key at all used to default to `now` inside
-        `_prune_spawn_attempts()`, making `now - ts` always 0 and the
-        record un-ageable — kept forever, the same failure class as this
-        issue exists to fix, for a different missing field than the
-        pid-as-string bug. A dead-pid record missing `ts` entirely must be
-        immediately eligible for pruning, not preserved forever."""
+        """CHANGES round (PR #2418) originally fixed a `ts`-defaulting bug
+        here; issue #2431 later removed the age check for this branch
+        entirely, which subsumes it — a dead-pid record with no `ts` key
+        at all is pruned the same as any other dead-pid record, `ts`
+        never being read for this branch anymore."""
         now = time.time()
         dead_pid = self._dead_pid()
         self._write([{"event": "spawn_attempt", "attempt_id": "a5",
@@ -642,10 +627,9 @@ class SpawnAttemptPruneLiveness(unittest.TestCase):
         self.assertNotIn("a5", self._remaining_ids())
 
     def test_missing_ts_with_live_pid_still_kept(self):
-        """The missing-`ts` default must not override the liveness
-        invariant: even with `ts` absent, a genuinely live pid is kept
-        (aged_out=True from the missing ts, but `_pid_is_alive` still
-        wins the OR)."""
+        """A missing `ts` must not override the liveness invariant: a
+        genuinely live pid is kept regardless — this branch checks
+        liveness only, `ts` is never consulted."""
         now = time.time()
         self._write([{"event": "spawn_attempt", "attempt_id": "a6",
                       "issue": 6, "role": "implementation",
