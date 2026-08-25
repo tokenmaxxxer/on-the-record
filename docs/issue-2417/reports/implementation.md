@@ -381,6 +381,29 @@ $ python3 -m pytest tests/test_spawn_observation_recovery.py -k test_roster_watc
 171-deselected count in the third run is pytest's own report of
 non-matching tests in that file under the `-k` filter, not a failure).
 
+## Skill verdicts
+
+skill-verdict: work-in-english — applied: invoked; matched the existing
+Korean docstring/comment convention already used throughout spawn.py,
+watchdog.py, and the test files' Korean class docstrings for the new
+code and tests added this session, while keeping commit subject/body and
+PR title/body in English, matching this repo's own commit-history
+convention
+canonical: `git log -5 --format=%s` before this session's commit, run
+this session —
+```
+issue-2409: consult-trace (error)
+issue-2431: drop the calendar bound for confirmed-dead-pid spawn-attempt orphans (#2434)
+issue-2431: re-review PR #2434's CHANGES-round report-before-prune fix (#2442)
+```
+no project-convention conflict to flag.
+skill-verdict: implementation-complexity-coupling-management — not-applicable: no coupling/cohesion metric threshold, accessor-chain, cross-module import direction, or check-pipeline ordering involved — two small new functions added to an already-imported module.
+skill-verdict: implementation-design-pattern-selection — not-applicable: no GoF-pattern decision; plain guard-clause functions, no indirection introduced.
+skill-verdict: implementation-performance-data-structure-choice — not-applicable: no data-structure/algorithm choice or cache/index tradeoff; a single one-shot syscall probe per spawn (measured 1.8µs/call, see Acceptance evidence), not a loop or per-message cost.
+skill-verdict: implementation-blueprint — not-applicable: a small, localized fix inside two existing functions in two existing files, not a new multi-module structure decision; freelunch's own width/solo tally (start of this session) already covers the fan-out-vs-solo call.
+skill-verdict: silent-failure-audit — not-applicable: the one new error-handling path (watchdog.py's `try/except OSError` around `checkpoint_workspace()`) was itself live-tested before/after (see Acceptance evidence — the caught exception is reported via `[checkpoint] ...` and counted in `anomaly_count`, not swallowed), not a broad diff needing a systematic Handled/Silently-Absorbed/Unreachable enumeration.
+skill-verdict: observability-signal-use — not-applicable: no metrics/dashboard Utilization/Saturation/Errors signal placement on a monitored resource — a one-shot CLI pre-flight refusal with a human-readable message naming free space/threshold, not instrumentation feeding a monitoring system.
+
 ## Open findings
 
 None outstanding — the one before-landing hunt finding (capacity check
