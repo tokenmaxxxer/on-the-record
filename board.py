@@ -691,11 +691,44 @@ def frontmatter(p: Path) -> dict[str, str]:
     return out
 
 
+def _skill_axis_report_names(rep: Path) -> list[str]:
+    """이슈 #2432 (role retirement stage 4): `reports/` 바로 아래에 있지만
+    `_sp.ROLES`(고정 역할 enum) 에는 없는 `.md` 파일 중, 실제 레코드처럼
+    보이는(frontmatter 에 `loop_state` 키가 있는) 파일 이름만 돌려준다.
+
+    새 스킬 축 네이밍은 `single-skill-axis` 동결 결정 때문에 고정 enum이
+    없다 — `checkout_issue_branch_for_skill`이 만드는 브랜치 이름 세그먼트
+    (`<skill>-<lease-disambiguator>`) 는 임의 문자열이라, 이름 모양으로
+    "새 스킬 축 레코드인지" 판별할 수 없다. `loop_state` 존재 여부를 쓰는
+    이유: `write_record_skeleton()`(모든 진짜 role/skill 레코드가 거치는
+    유일한 생성 경로)이 항상 이 키를 찍는다 — before-landing warrant hunt
+    발견(이슈 #2432): 단순 "frontmatter 블록 있음"만 보면, hunt/감사 레코드
+    (`---\\nproposal: ...\\n---`처럼 frontmatter 는 있지만 `loop_state` 는
+    없는 `docs/issue-1077/reports/hunt-implementation.md` 같은 파일)까지
+    쓸려 들어와 `_front_role()`의 "rootless 레코드는 하나뿐" 불변식을 깨고
+    `approve_scope()`(실제 커밋을 쓴다)의 판정을 바꿔 버렸다 — 29개 기존
+    subject 에서 실측(`issue-1077`이 그 중 하나, `_front_role`이
+    `implementation` 대신 `None`을 반환하게 됨). `rep.iterdir()`는 한 단계만
+    보므로 `reports/<role>/` 같은 중첩 디렉터리(예:
+    docs/issue-2241/reports/architecture/survey.md)의 파일들은 여기 걸리지
+    않는다."""
+    if not rep.is_dir():
+        return []
+    known = {f"{r}.md" for r in _sp.ROLES}
+    return sorted(p.stem for p in rep.iterdir()
+                  if p.is_file() and p.suffix == ".md" and p.name not in known
+                  and "loop_state" in _sp.frontmatter(p))
+
+
 def board(root: Path) -> dict[str, dict[str, dict[str, str]]]:
     """Read the board: subject (issue-<n>) -> role -> frontmatter (v3 s10).
 
     A subject is a docs/issue-<n>/ tree; role records sit in its reports/.
-    """
+
+    이슈 #2432 (stage 4): dual-scheme coexistence 기간 동안, `_sp.ROLES`
+    고정 이름(옛 역할 축 브랜치가 쓰는 이름)과 그 밖의 frontmatter 있는
+    파일(새 스킬 축 브랜치가 쓰는 이름) 을 함께 walk 해서 합친다 — 어느
+    쪽 네이밍으로 만들어진 레코드든 이 dict 하나에 같이 나온다."""
     docs = root / _sp.BOARD
     if not docs.is_dir():
         return {}
@@ -710,6 +743,8 @@ def board(root: Path) -> dict[str, dict[str, dict[str, str]]]:
         rep = d / "reports"
         roles = {r: _sp.frontmatter(rep / f"{r}.md") for r in _sp.ROLES
                  if (rep / f"{r}.md").is_file()}
+        for name in _sp._skill_axis_report_names(rep):
+            roles[name] = _sp.frontmatter(rep / f"{name}.md")
         if roles:
             found[d.name] = roles
     return found
@@ -738,6 +773,16 @@ def status(cwd: str) -> list[str]:
                     continue
                 bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
                 if fm.get("verdict"):          # feasibility. coding 이 여기 깨어난다(§3)
+                    bits.append(f"verdict: {fm['verdict']}")
+                out.append(f"  [{r}] " + "   ".join(bits))
+            # 이슈 #2432: 스킬 축 네이밍으로 만들어진 레코드(_sp.ROLES 밖
+            # 이름) 도 같은 줄 형식으로 보여준다 — 안 그러면 새 스킬 축
+            # 스폰이 `board()` 에는 잡히는데 사람이 읽는 이 목록에서는
+            # 조용히 사라진다.
+            for r in sorted(r for r in roles if r not in _sp.ROLES):
+                fm = roles[r]
+                bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
+                if fm.get("verdict"):
                     bits.append(f"verdict: {fm['verdict']}")
                 out.append(f"  [{r}] " + "   ".join(bits))
             missing = [r for r in _sp.ROLES if r not in roles]

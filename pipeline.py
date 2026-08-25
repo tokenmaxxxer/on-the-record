@@ -928,14 +928,20 @@ def recut_if_absorbed_cli(cwd: str) -> int:
     return 0
 
 
-def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
-    """대상 레포에서 issue-<n>/<역할> 브랜치를 만든다(있으면 갈아탄다).
+def _checkout_named_branch(cwd: str, br: str) -> str:
+    """`br`(이미 완성된 `issue-<n>/<...>` 브랜치 이름)로 갈아탄다(없으면 만든다).
+
+    이슈 #2432(stage 4): `checkout_issue_branch`와
+    `checkout_issue_branch_for_skill` 둘 다 이 함수 하나로 수렴한다 — 브랜치
+    *이름을 어떻게 짓는지*(역할 축 대 스킬+lease-disambiguator 축)만 두 함수가
+    각자 결정하고, 실제 checkout/재사용/흡수-재절단 로직은 여기 한 곳에만
+    있다(제안서 Accumulation: "하나의 새 네이밍 함수, per-call-site 특수화는
+    없다").
 
     core 의 board-gate R4 가 보드 쓰기를 이 브랜치에서만 허용하므로, 스폰
     전에 서 있어야 세션이 첫 쓰기부터 막히지 않는다. base 는 원격 기본
     브랜치 — 역할 산출물은 main 에서 갈라져 PR 로만 돌아간다 (계약 v3 s10).
     """
-    br = f"issue-{issue}/{role}"
     def git(*a):
         return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
     # 이슈 #1507 — 세션의 첫 verification/absence-claim 단계보다 먼저
@@ -967,6 +973,32 @@ def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
     if r.returncode != 0:
         sys.exit(f"브랜치 {br} 로 못 갈아탔다: {r.stderr.strip()[:200]}")
     return br
+
+
+def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
+    """대상 레포에서 issue-<n>/<역할> 브랜치를 만든다(있으면 갈아탄다).
+
+    옛 역할 축 네이밍. 이슈 #2432 이후로도 역할 인자를 넘기는 모든 호출자에게
+    오늘과 바이트-동일한 출력을 낸다(제안서 dual-scheme coexistence — 기존
+    브랜치는 강제 rename 하지 않는다)."""
+    return _sp._checkout_named_branch(cwd, f"issue-{issue}/{role}")
+
+
+def checkout_issue_branch_for_skill(cwd: str, issue: int, skill: str,
+                                     disambiguator: str | None = None) -> str:
+    """이슈 #2432 (role retirement stage 4): 새 스킬 축 네이밍 —
+    `issue-<n>/<skill>-<lease-disambiguator>`.
+
+    `disambiguator`(생략 시 `roster.new_lease_disambiguator()`로 새로 뽑는다)는
+    `roster.lease_key()`에 그대로 넘겨 같은 문자열이 브랜치 이름과 로스터/lease
+    키 둘 다의 두 번째 세그먼트가 되게 한다 — 스킬 이름 하나는 세션마다
+    유일하지 않으므로(같은 이슈에 같은 스킬을 두 세션이 동시에 물 수 있다,
+    docs/decisions/2026-08-25-retire-role-axis-staging.md) 이 disambiguator가
+    실제 충돌-방지 키다. 대칭적으로 `checkout_issue_branch`와 마찬가지로 실제
+    checkout 은 `_checkout_named_branch`로 위임한다 — 네이밍 함수 자신은
+    이름만 짓는다."""
+    disambiguator = disambiguator or _sp.new_lease_disambiguator()
+    return _sp._checkout_named_branch(cwd, f"issue-{issue}/{skill}-{disambiguator}")
 
 
 def _session_log_path(cwd: str) -> Path:

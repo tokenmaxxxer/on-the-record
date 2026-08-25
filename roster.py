@@ -25,6 +25,7 @@ import fcntl
 import json
 import os
 import re
+import secrets
 import tempfile
 import time
 from pathlib import Path
@@ -139,6 +140,20 @@ def lease_key(issue: int, disambiguator: str) -> str:
     passing role (docs/issue-2241/proposals/2026-08-25-stage-1-lease-
     identity-record-kind.md)."""
     return f"issue-{issue}/{disambiguator}"
+
+
+def new_lease_disambiguator() -> str:
+    """Issue #2432 (role retirement stage 4): mint a fresh per-session
+    disambiguator for the skill-axis naming scheme. A skill name alone is
+    not unique per session — two sessions may legitimately mount the same
+    skill on the same issue (docs/decisions/2026-08-25-retire-role-axis-
+    staging.md, job (a)/(d) split) — so, unlike the old role string, it
+    cannot double as the collision-safety key on its own. 8 hex chars of
+    `secrets.token_hex` keeps the branch name short while making an
+    accidental collision between two concurrently-spawned sessions on the
+    same issue+skill astronomically unlikely; the roster claim (not this
+    string) is still what actually enforces exclusivity."""
+    return secrets.token_hex(4)
 
 
 def roster_register(key: str, entry: dict) -> None:
