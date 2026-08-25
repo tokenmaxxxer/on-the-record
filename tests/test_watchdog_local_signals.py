@@ -142,8 +142,16 @@ class TestSignalCoverageNoRegression(unittest.TestCase):
                 {"type": "tool_result", "is_error": True,
                  "content": "Permission to use Bash has been denied"}]}},
                 ensure_ascii=False) + "\n"
+            # 이슈 #2217: signal 2 는 이제 구조적 tool_use(run_in_background)
+            # 만 센다 — 단어가 든 텍스트 줄이 아니라 실제 tool_use 블록이어야
+            # 신호가 뜬다.
+            delegation_line = json.dumps({"type": "assistant", "message": {
+                "content": [{"type": "tool_use", "name": "Bash",
+                             "input": {"command": "sleep 999",
+                                       "run_in_background": True}}]}},
+                ensure_ascii=False) + "\n"
             log.write_text(
-                '{"type":"text","text":"run_in_background 로 넘겼다"}\n'
+                delegation_line
                 + denial_line * spawn.WATCHDOG_DENIAL_THRESHOLD)
             os.utime(log, (stale, stale))
             work = Path(td) / "issue-3/implementation"
@@ -185,6 +193,86 @@ class TestSignalCoverageNoRegression(unittest.TestCase):
     def _tmp():
         import tempfile
         return tempfile.TemporaryDirectory()
+
+
+class TestBackgroundDelegationStructural(unittest.TestCase):
+    """이슈 #2217: signal 2("background-delegation-phrasing")가 어휘가
+    아니라 구조적 tool_use(run_in_background) 를 세는지 검증한다."""
+
+    def _entry(self, log, work=None, ts=None, before_head=None, pid=None):
+        return {"log": str(log), "work": work, "ts": ts or int(time.time()),
+                "before_head": before_head, "pid": pid}
+
+    @staticmethod
+    def _tmp():
+        import tempfile
+        return tempfile.TemporaryDirectory()
+
+    def test_injected_directive_text_alone_yields_zero_anomalies(self):
+        """수용 기준(empty state): 주입된 지시문과 그 외 아무것도 없는
+        (막 스폰돼 아직 assistant 턴이 없는) 세션 로그는 anomaly 0건이어야
+        한다."""
+        with self._tmp() as td:
+            log = Path(td) / "s.log"
+            system_line = json.dumps(
+                {"type": "system", "subtype": "hook_started",
+                 "text": spawn._COMPLETION_PROSE},
+                ensure_ascii=False) + "\n"
+            log.write_text(system_line)
+            out = spawn.watchdog_check_one("k", self._entry(log), state={})
+            self.assertEqual(out, [])
+
+    def test_own_injected_warning_in_assistant_text_does_not_trigger(self):
+        """지시문 어휘가 assistant 의 평범한 텍스트 블록(도구 호출이 아닌)
+        안에 나타나도 신호는 뜨지 않는다 — 문자열 매치가 아니라 구조적
+        tool_use 여부만 본다."""
+        with self._tmp() as td:
+            log = Path(td) / "s.log"
+            text_line = json.dumps({"type": "assistant", "message": {
+                "content": [{"type": "text", "text": spawn._COMPLETION_PROSE}]}},
+                ensure_ascii=False) + "\n"
+            log.write_text(text_line)
+            out = spawn.watchdog_check_one("k", self._entry(log), state={})
+            self.assertFalse(
+                any("background-delegation-phrasing" in a for a in out),
+                f"word-match false positive; got {out}")
+
+    def test_genuine_bash_run_in_background_tool_use_still_trips_signal(self):
+        with self._tmp() as td:
+            log = Path(td) / "s.log"
+            line = json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "Bash",
+                 "input": {"command": "sleep 999",
+                           "run_in_background": True}}]}},
+                ensure_ascii=False) + "\n"
+            log.write_text(line)
+            out = spawn.watchdog_check_one("k", self._entry(log), state={})
+            self.assertTrue(any("background-delegation-phrasing" in a for a in out))
+
+    def test_genuine_agent_run_in_background_tool_use_still_trips_signal(self):
+        with self._tmp() as td:
+            log = Path(td) / "s.log"
+            line = json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "Agent",
+                 "input": {"description": "background work",
+                           "run_in_background": True}}]}},
+                ensure_ascii=False) + "\n"
+            log.write_text(line)
+            out = spawn.watchdog_check_one("k", self._entry(log), state={})
+            self.assertTrue(any("background-delegation-phrasing" in a for a in out))
+
+    def test_count_structural_delegations_ignores_non_assistant_types(self):
+        system_line = json.dumps(
+            {"type": "system", "text": spawn._COMPLETION_PROSE},
+            ensure_ascii=False)
+        self.assertEqual(spawn._count_structural_delegations(system_line), 0)
+
+    def test_count_structural_delegations_counts_tool_use_run_in_background(self):
+        line = json.dumps({"type": "assistant", "message": {"content": [
+            {"type": "tool_use", "name": "Bash",
+             "input": {"command": "x", "run_in_background": True}}]}},
+            ensure_ascii=False)
+        self.assertEqual(spawn._count_structural_delegations(line), 1)
 
 
 class TestGhOnlyForPrState(unittest.TestCase):

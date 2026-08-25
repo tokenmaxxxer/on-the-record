@@ -51,7 +51,9 @@ def _mock_common(monkeypatch, pr_number=42):
 
 def _seed_parked(root, subject, role, pr_number, blocked=True):
     state = {f"{subject}/{role}": {"blocked": blocked, "pr_number": pr_number, "parked": False}}
-    path = root / spawn_on_pr.PARK_STATE_REL
+    # issue #2240: park state is orchestrator-scoped, not `root`-scoped —
+    # go through the real accessor rather than reconstructing the path.
+    path = spawn_on_pr._park_state_path(root)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state))
 

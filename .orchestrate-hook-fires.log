@@ -1803,3 +1803,27 @@
 2026-08-24T11:51:20Z UserPromptSubmit directive.sh
 2026-08-24T11:51:20Z Stop stop-poll-rearm.sh deadman-check
 2026-08-24T12:07:47Z Stop stop-gate.sh
+2026-08-24T14:23:07Z UserPromptSubmit directive.sh
+2026-08-24T14:38:20Z Stop stop-poll-rearm.sh deadman-check
+2026-08-24T14:38:20Z UserPromptSubmit directive.sh
+2026-08-24T14:38:21Z Stop stop-poll-rearm.sh deadman-check
+2026-08-24T14:38:22Z Stop stop-gate.sh
+2026-08-24T14:40:31Z Stop stop-poll-rearm.sh deadman-check
+2026-08-24T14:40:31Z UserPromptSubmit directive.sh
+2026-08-24T14:40:32Z Stop stop-poll-rearm.sh deadman-check
+2026-08-24T14:40:33Z Stop stop-gate.sh
+2026-08-24T14:46:04Z UserPromptSubmit directive.sh
+2026-08-24T14:46:07Z Stop stop-poll-rearm.sh deadman-check
+2026-08-24T14:46:08Z Stop stop-poll-rearm.sh deadman-check
+2026-08-24T14:46:09Z Stop stop-poll-rearm.sh deadman-check
+2026-08-24T14:47:00Z Stop stop-gate.sh
+2026-08-24T14:47:01Z Stop stop-gate.sh
+2026-08-24T14:55:27Z Stop stop-gate.sh
+2026-08-24T15:19:32Z UserPromptSubmit directive.sh
+2026-08-24T15:38:51Z Stop stop-gate.sh
+2026-08-24T15:39:52Z Stop stop-gate.sh
+2026-08-24T15:43:24Z UserPromptSubmit directive.sh
+2026-08-24T15:45:43Z Stop stop-gate.sh
+2026-08-24T15:46:26Z Stop stop-gate.sh
+2026-08-24T23:05:41Z UserPromptSubmit directive.sh
+2026-08-25T00:13:05Z UserPromptSubmit directive.sh

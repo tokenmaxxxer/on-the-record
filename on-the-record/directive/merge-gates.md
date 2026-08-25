@@ -34,6 +34,17 @@
   and a sibling file named in a module docstring stays in sync when the
   named counterpart changes.
 
+- ACCEPTANCE CHECK-RUNNER AT LANDING (issue #2233): before any of the
+  landing steps below, run the check-runner explicitly as an orchestrator
+  step — `python3 gates/check_runner.py <pr> <issue> --repo ${CHECKOUT}` —
+  so its PR comment exists for `gates/merge_gate.py`'s `evaluate()` to
+  read. This is manual, not CI-wired: this repo carries no
+  `.github/workflows/` surface (`merge_gate.py`'s own docstring), so the
+  orchestrator session runs it by hand, same as the other landing steps
+  here — nothing else in this repo invokes it. An issue whose
+  `## Acceptance` section declares no runnable `check:`/`gate:` line gets
+  a distinct "no checks declared" result, not a `0/0 passed` — the merge
+  gate refuses to read that as satisfied.
 - LANDING REQUIREMENT-MET GRADE (issue #1651): as part of "verify it"
   above, before `gh pr merge`, spawn a builder-blind grader session —
   no access to the builder's context, given only the diff plus the

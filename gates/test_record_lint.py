@@ -1004,6 +1004,187 @@ def t_2039_zero_mounted_skills_is_noop():
     assert bad == []
 
 
+# --- issue #2219: evidence-resolution false-rejection fix ------------------
+#
+# 815 recorded sessions hit 2,543 gate denials; record-claim-guard alone
+# fired in 46% of sessions. Some of those denials landed on records that
+# DID carry evidence — the guard only looked a fixed few PHYSICAL lines
+# away from the claim, so evidence living earlier in the same markdown
+# section (a different "### N. <item>" subsection), or split across a
+# soft-wrapped multi-line sentence, was invisible to it. Verbatim
+# reproductions below, from docs/issue-2208's live session log
+# (on-the-record-issue-2208-implementation.session.20260824T231045.
+# 1590418.log) — recovered as directed by this issue's own Acceptance
+# section.
+
+def t_2219_outcome_claim_evidenced_earlier_in_same_section_passes():
+    """issue #2219 repro 1 (issue #870 verbatim): a done/PASS-shaped
+    outcome-summary line citing "the two fenced runs above" is grounded
+    by two earlier `acceptance: <cmd> — result:` + fence pairs in the
+    SAME section, several physical lines away — well outside the old
+    3-4 line window. Before this fix, `outcome_claim_citation_check`
+    denied this exact line (record-claim-guard: 레코드에 실행-근거 없는
+    OUTCOME 주장 (issue #870): 'acceptance: diff of the two fenced runs
+    above — result: both negative cases read `completed`')."""
+    body = (
+        "### 2. Strip negative clauses from the BM25 field\n\n"
+        "`pipeline.py`: added the guard, cutting the negative clause "
+        "before indexing.\n\n"
+        "acceptance: pytest tests/test_retrieval_eval.py -v (BEFORE) "
+        "— result:\n"
+        "```\n"
+        "9 passed in 0.7s\n"
+        "```\n"
+        "acceptance: same command (AFTER) — result:\n"
+        "```\n"
+        "9 passed in 14.12s\n"
+        "```\n"
+        "acceptance: diff of the two fenced runs above — result: both "
+        "negative cases read `completed` in both runs, so neither "
+        "changed outcome.\n")
+    bad = record_lint.outcome_claim_citation_check(body)
+    assert not any("diff of the two fenced runs above" in b for b in bad), bad
+
+
+def t_2219_bare_derived_paragraph_wrapped_across_lines_satisfies_count():
+    """issue #2219 repro 2 (issue #333 verbatim): a `derived:` citation
+    written as a bare (non-backtick) paragraph lead-in, soft-wrapped
+    across 4 physical lines, with the count claim itself on the LAST
+    line of that same sentence. Before this fix,
+    `bare_count_claim_check` denied this exact line (record-claim-guard:
+    레코드에 근거 없는 개수 주장 (issue #333): '`fail-open`, with the full
+    suite still passing 9/9.') because the same-line tail check never
+    saw a `derived:` label three lines above, and the label itself
+    lacked the backticks the old regex required."""
+    body = (
+        "acceptance: hunter's reproduction script, re-run after the "
+        "fix — result:\n"
+        "```\n"
+        "outcome: fail-open\n"
+        "```\n"
+        "acceptance: `pytest -q` re-run after this fix — result:\n"
+        "```\n"
+        "9 passed in 14.12s\n"
+        "```\n"
+        "derived: per the two fenced results directly above, the "
+        "leaked phrase is\n"
+        "gone and the fast-path auto-pick outcome flips to\n"
+        "`fail-open`, with the full suite still passing 9/9.\n")
+    bad = record_lint.bare_count_claim_check(body)
+    assert not any("9/9" in b for b in bad), bad
+
+
+def t_2219_genuinely_unevidenced_claim_still_refused():
+    """The fix must not weaken what the guards enforce: an outcome/
+    state/count claim with NO fenced block, NO `canonical:`/`derived:`
+    tag, and NO `acceptance: ... — result:` pairing anywhere in its
+    section is still refused by all three rules."""
+    body = (
+        "## Some section\n\n"
+        "The migration is done and the requirement is met.\n"
+        "We found 4 of 12 findings to be genuine.\n")
+    assert any("#870" in b for b in
+               record_lint.outcome_claim_citation_check(body))
+    assert any("#793" in b for b in
+               record_lint.canonical_source_claim_check(body))
+    assert any("#333" in b for b in
+               record_lint.bare_count_claim_check(body))
+
+
+def t_2219_acceptance_leadin_without_adjacent_fence_does_not_count():
+    """Negative control: an `acceptance: ... — result:` lead-in that is
+    NOT immediately followed by a fenced block is prose, not proof — it
+    must not satisfy #793/#870 on its own (distinguishes the new
+    acceptance+fence pairing from a blanket "any acceptance: line
+    anywhere" exemption)."""
+    body = (
+        "## Some section\n\n"
+        "acceptance: reviewer says it looks fine — result:\n\n"
+        "Not a fenced block, just more prose here.\n\n"
+        "The requirement is met and the deliverable is done.\n")
+    bad = record_lint.outcome_claim_citation_check(body)
+    assert any("#870" in b for b in bad), bad
+
+
+def t_2219_canonical_tag_inside_fence_is_not_real_evidence():
+    """before-landing warrant-hunt finding: a `canonical:`/`derived:`
+    string that appears only as illustrative example text INSIDE a
+    fenced code block (e.g. documentation showing the tag format
+    itself) must not count as a real citation for an unrelated claim
+    elsewhere in the section — the widened section-scope search must
+    only read the author's own live prose, never quoted/pasted fence
+    content."""
+    body_793 = (
+        "## Some section\n\n"
+        "Example of the tag format:\n"
+        "```\n"
+        "canonical: docs/some/unrelated/example.md\n"
+        "```\n\n"
+        "The verify role found the defect in the parser.\n")
+    assert any("#793" in b for b in
+               record_lint.canonical_source_claim_check(body_793)), body_793
+
+    body_870 = (
+        "## Some section\n\n"
+        "Example:\n"
+        "```\n"
+        "derived: pytest -q\n"
+        "```\n\n"
+        "The requirement is met and the deliverable is done.\n")
+    assert any("#870" in b for b in
+               record_lint.outcome_claim_citation_check(body_870)), body_870
+
+
+def t_2219_derived_and_canonical_tags_evidence_a_claim_across_a_different_section_never_leak():
+    """A `derived:`/`canonical:` tag in one section must not vouch for a
+    claim in an UNRELATED later section — the widened search is
+    section-scoped, not whole-record (PR #1622 already found the
+    whole-record form too permissive for bare_count_claim_check's fence
+    exemption; this pins the same boundary for #2219's widened
+    canonical/derived/acceptance search)."""
+    body = (
+        "## Section 1\n\n"
+        "canonical: `pytest -q gates/test_record_lint.py` (exit 0)\n"
+        "derived: per the fenced run above, everything passed.\n\n"
+        "## Section 2\n\n"
+        "The requirement is met and the deliverable is done.\n")
+    bad = record_lint.outcome_claim_citation_check(body)
+    assert any("#870" in b and "deliverable is done" in b for b in bad), bad
+
+
+def t_2219_rejection_message_names_the_passing_shape():
+    """issue #2219 ask 2: a rejection must say what shape would pass,
+    not just why it failed — cheap enough that the fix is one edit
+    instead of a guess-and-retry loop."""
+    body = "We found 4 of 12 findings to be genuine.\n"
+    bad = record_lint.bare_count_claim_check(body)
+    assert any("통과하려면" in b for b in bad), bad
+    bad2 = record_lint.canonical_source_claim_check(
+        "The verify role found the defect in the parser.\n")
+    assert any("통과하려면" in b for b in bad2), bad2
+    bad3 = record_lint.outcome_claim_citation_check(
+        "The requirement is met and the deliverable is done.\n")
+    assert any("통과하려면" in b for b in bad3), bad3
+
+
+def t_2219_empty_record_passes_every_claim_guard_cleanly():
+    """issue #2219 Acceptance — empty state: an empty record file with
+    no claims at all must pass all guards cleanly, producing no denial.
+    Scoped to the claim-shape checks record-claim-guard.sh runs
+    (unlike `lint_record`'s full aggregate, this does not also run
+    gates.py's unrelated frontmatter-wellformedness/tool-residue
+    checks, which reject an empty file for a different, pre-existing
+    reason that #2219 is not about)."""
+    text = ""
+    assert record_lint.unverifiable_reason_check(text) == []
+    assert record_lint.checked_claim_reason_check(text) == []
+    assert record_lint.bare_count_claim_check(text) == []
+    assert record_lint.canonical_source_claim_check(text) == []
+    assert record_lint.outcome_claim_citation_check(text) == []
+    assert record_lint.defect_claim_grounding_check(
+        Path(tempfile.mkdtemp()), text) == []
+
+
 def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]
