@@ -2,7 +2,7 @@
 issue: 2443
 role: implementation
 author: implementation
-loop_state: committing
+loop_state: landed
 upstream:
   - path: docs/issue-2443/reports/implementation.md
     sha: same-commit
