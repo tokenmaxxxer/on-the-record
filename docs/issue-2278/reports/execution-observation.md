@@ -122,6 +122,50 @@ requirement is about a backtick that isn't a path being wrongly demoted,
 and PR #2283's own regression test correctly used a bare (no `/`)
 filename that does exercise the branch it actually changed.
 
+## Operator-frozen constraint reconciliation
+
+amendments-reconciled: issuecomment-5403812868 ("Operator-frozen
+constraint (2026-08-25)", posted to issue #2278 after this session
+started, read this session via `gh api
+repos/tokenmaxxxer/on-the-record/issues/2278/comments`) — the fix must
+hold systemically for every session installing on-the-record against
+any target repo, not just this self-hosted checkout, and must land
+without side effects: no added per-spawn overhead or steady-state load,
+no new conflict surfaces, no stall/deadlock modes, no consumer-tree
+pollution.
+
+Checked PR #2283's diff (`gh pr diff 2283`, re-read this session)
+against each named condition:
+
+- **Systemic, not self-hosted-only:** `gates/check_runner.py` is shipped
+  generic classifier code (this repo's own `gates/` directory — 177
+  git-tracked files under `gates/`, canonical: `git ls-files gates/ | wc
+  -l`), invoked uniformly on any target repo's `## Acceptance` section
+  text; `_looks_like_path()` and the inverted branch carry no
+  repo-specific conditionals, hostnames, or checkout-specific paths.
+- **No added per-spawn/steady-state overhead:** `_looks_like_path()` is
+  a pure function — one `"/" in token` check and, at most, one
+  `str.rsplit` plus a `set` membership test against a 25-entry fixed
+  set. It replaces an `else` branch that already ran unconditionally;
+  no new loop, no new call, no I/O added to the classification path.
+- **No new conflict surfaces:** no new file writes, no append-log, no
+  shared mutable state — `parse_checks` remains a pure function of its
+  `section` argument, confirmed by re-reading the full diff (no touched
+  line outside `parse_checks`'s own branch and the new helper/constant).
+- **No stall/deadlock modes:** no new synchronization, subprocess call,
+  or blocking I/O introduced — the changed code path is in-memory string
+  classification only.
+- **No consumer-tree pollution:** no new file lands in a consuming
+  repo's tree; the diff only edits two files already shipped in
+  `gates/` (`check_runner.py`, `test_check_runner.py`).
+
+No trade-off requiring measurement was found — the change is a pure
+conditional-branch inversion with no resource cost, consistent with
+implementation record's own `breaking:` line
+("none — narrows a false-FAIL, no callers depended on the old
+default"), independently confirmed by this diff re-read rather than
+taken on that record's word.
+
 ## Why
 
 Per this role's governing skill
