@@ -169,7 +169,70 @@ _TURN_BUDGET_PROSE = (
     "남길 수 있다(운영자 지시, 이슈 #2262 코멘트: run_in_background "
     "워커는 headless 세션에서 금지 — 부모 턴이 끝나면 죽는다 — 하지만 "
     "foreground Task 배치는 된다). 마운트된 스킬은 서브에이전트에도 "
-    "보인다.\n")
+    "보인다. (3) 이슈 #2409 실측: 세션당 spawn.py 재-Read 105회, 자기 "
+    "레코드 파일 재-Read 96회. spawn.py/directive_assembly.py 를 열어 "
+    "프로세/env var 이름을 다시 찾지 마라 — 그 내용은 이미 "
+    "`.on-the-record/directive/*.md` 로 시스템 프롬프트에 그대로 들어와 "
+    "있다(이슈 #2204). 자기 레코드 파일(docs/issue-<n>/reports/<role>.md)도 "
+    "Edit 직후마다 다시 Read 하지 마라 — 이미 쓴 내용은 대화 맥락에 있고 "
+    "Edit 은 실패하면 에러를 낸다; 남은 섹션을 채우기 직전처럼 정말 "
+    "상태를 재확인해야 할 때만 한 번 읽어라.\n")
+
+# Issue #2409: exploratory-Bash reduction. Measured (177 sessions,
+# 2026-08-25): 62% of all Bash calls are neither pytest/git/gh — grep/
+# find/python3 -c probing to locate files a task touches. A single
+# supported lookup (scripts/related_files.py) returns what N ad-hoc
+# greps currently return: the issue's own docs/issue-<n>/ tree plus every
+# code/test/spec file that already mentions the issue number, in one call.
+_TASK_LOOKUP_PROSE = (
+    "작업 파일 사전탐색(이슈 #2409): 이번 작업이 건드릴 파일을 찾으려고 "
+    "grep/find 를 여러 번 반복하지 마라 — 177개 세션 실측에서 Bash 호출의 "
+    "62%가 pytest/git/gh 가 아닌 탐색성 호출이었다. "
+    "`python3 scripts/related_files.py <issue-number> [--keyword <word> "
+    "...]` 를 먼저 한 번 실행하라: docs/issue-<n>/ 트리, 이슈 번호/제목을 "
+    "이미 언급하는 코드·테스트·스펙 파일, (준 경우) 키워드가 들어간 파일을 "
+    "한 호출로 돌려준다 — 지금까지 grep 여러 번으로 하던 일을 lookup "
+    "하나로 대체한다. 이걸로도 못 찾은 파일만 개별 grep/git ls-files 로 "
+    "좁혀라.\n")
+
+# Issue #2409: hook-refusal-as-upfront-contract. Measured (177 sessions):
+# 6.9 tool_result errors/session (~10% of turns), largely this repo's own
+# PreToolUse gates refusing a write/command that was one shape detail off
+# — the refusal is correct, but it arrives one at a time, after the fact.
+# This section states the shape up front instead. Content is a direct
+# summary of the real gates in on-the-record/hooks/pretooluse_dispatcher.py
+# (GATES list) most likely to trip a role session's own writes/commands —
+# not invented rules.
+_HOOK_CONTRACT_PROSE = (
+    "훅 거부 계약(이슈 #2409): 아래는 세션을 자주 막는 PreToolUse 게이트가 "
+    "요구하는 형태다 — 하나씩 거부당하며 알아내지 말고 미리 맞춰라.\n"
+    "1. 커밋/PR/이슈 본문에 heredoc(`$(cat <<EOF ... EOF)`)을 쓰지 마라 — "
+    "역할 세션(CLAUDE_ROLE 설정됨)의 heredoc 형태 `git commit`/`gh pr "
+    "create`/`gh issue create`/`gh pr comment`/`gh issue comment` 는 매번 "
+    "거부된다(이슈 #1976, heredoc-command-refusal-gate.sh). 대신 "
+    "`git commit -m \"title\" -m \"body\"`(두 개의 -m) 와 "
+    "`gh ... --body-file <path>` 를 써라.\n"
+    "2. docs/** 에 상태/결함 주장을 쓸 때는 바로 위 3줄 안에 `canonical:` "
+    "또는 `derived:` 태그로 실제로 읽은 근거를 대라(record-claim-"
+    "guard.sh). \"완료/동작함/PASS/충족\" 같은 결과 주장은 그 canonical: "
+    "인용이 실제로 지금 실행한(executed-live) 근거여야 한다 — 파일만 읽고 "
+    "요약한 인용으로는 안 된다. 백틱으로 인용한 경로는 git 에 커밋된 "
+    "경로여야 하고(작업 트리에만 있는 파일은 거부), 개수만 대는 주장에는 "
+    "그 개수를 어떻게 셌는지 근거가 필요하다.\n"
+    "3. `acceptance:`/`live-fire:` 로 인용한 명령·결과는 지금 다시 실행한 "
+    "결과와 일치해야 한다(acceptance-command-real-run-guard.sh, "
+    "live-fire-claim-real-run-guard.sh) — 과거 실행 결과를 재사용해 적으면 "
+    "거부된다.\n"
+    "4. docs/specs/* 를 건드리는 커밋은 같은 커밋 안에서 "
+    "`python3 gates/spec_index.py --update` 를 먼저 돌려 "
+    "reconciled-index.md 를 갱신해야 한다(spec-index-preflight.sh).\n"
+    "5. 새 gate/hook 스크립트를 스테이징하면 "
+    "docs/specs/enforcement-boundary.md(on-the-record/hooks/*.sh 라면 "
+    "generated-paths.md 도)에 매칭되는 행이 있어야 한다"
+    "(gate-registration-guard.sh).\n"
+    "6. CORE_BUILD_NOW=1 세션은 phase-2 승인 게이트(approval-gate.sh, "
+    "pr-preflight.sh)가 이미 우회되어 있다 — APPROVE 코멘트를 따로 만들 "
+    "필요 없다.\n")
 
 # Issue #2185: measured cost — spawned sessions run `find` (including
 # unscoped `find /` whole-tree traversals) to locate files whose path they
@@ -265,11 +328,12 @@ def directive_section_files(*, skills_mounted: bool = False,
                             code_scoped: bool = True) -> dict[str, str]:
     """The on-demand section files for one spawn: name -> full prose.
 
-    `completion-and-landing.md`, `repo-discovery.md`, and
-    `turn-budget.md` are always materialized — the invariant baseline
-    every task gets regardless of path scope (Acceptance 'empty state':
-    never an empty directive). `known-paths.md` is scoped to
-    `code_scoped` callers (issue #2227 REQ-10, see `_role_touches_code()`
+    `completion-and-landing.md`, `repo-discovery.md`, `turn-budget.md`,
+    and `hook-contract.md` (issue #2409) are always materialized — the
+    invariant baseline every task gets regardless of path scope
+    (Acceptance 'empty state': never an empty directive). `known-paths.md`
+    and `task-lookup.md` (issue #2409) are scoped to `code_scoped` callers
+    (issue #2227 REQ-10, see `_role_touches_code()`
     above); the skill and checkpoint sections only when their own
     condition holds. Default `code_scoped=True` keeps every caller that
     does not pass the kwarg (adhoc spawns with no role write_scope to
@@ -280,7 +344,9 @@ def directive_section_files(*, skills_mounted: bool = False,
              "repo-discovery.md": _REPO_DISCOVERY_PROSE}
     if code_scoped:
         files["known-paths.md"] = _KNOWN_PATHS_PROSE
+        files["task-lookup.md"] = _TASK_LOOKUP_PROSE
     files["turn-budget.md"] = _TURN_BUDGET_PROSE
+    files["hook-contract.md"] = _HOOK_CONTRACT_PROSE
     if skills_mounted:
         files["skill-obligations.md"] = (_SKILL_CHECK_PROSE + "\n"
                                           + _SKILL_VERDICT_PROSE)
