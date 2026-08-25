@@ -529,3 +529,23 @@ marker got written for them — directly reopening the "434 must drop in
 one tick" requirement this whole issue chain is about. The shared-age-
 threshold design avoids both problems with no new state at all, so it
 was adopted directly rather than tried and reverted.
+
+### Skill verdicts (this round)
+
+canonical: `Skill(work-in-english)` invoked this session (this turn),
+full SKILL.md content returned and read; `git diff` (this session) of
+`spawn.py`'s new comment block and `tests/test_watch_hardening.py`'s new
+test names/docstrings, both written this session, confirm the language
+split described in the verdict below.
+
+skill-verdict: work-in-english — applied: invoked; loaded the skill this
+round and confirmed the choices already in progress matched it —
+Korean comments in `spawn.py` matching that file's own pre-existing
+Korean comment-style convention (edge case: "project convention
+conflicts — follow the project"), English for the new test
+names/docstrings, this record, the commit message, and the PR comment.
+
+other mounted skills: not triggered (implementation-blueprint et al. —
+this round is a two-line logic change confined to one existing branch
+of one existing function, no new module structure or GoF-pattern
+decision in scope, same reasoning as the prior round's verdict above).
