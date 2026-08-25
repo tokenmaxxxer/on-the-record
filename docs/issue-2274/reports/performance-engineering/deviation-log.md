@@ -1,0 +1,4 @@
+# issue-2274 — performance-engineering deviation log
+
+- Expected: filtering `skill_judge_perf` events on `duration_ms is not None` alone would be a safe "real call" marker. Actual: before-landing `warrant-hunter` (stance 0) showed a mocked `subprocess.run` can fabricate `duration_ms` while `wall_s` stays ~0, collapsing the derived cutoff to ~0s. Replaced the filter with `duration_ms is not None AND wall_s >= 1.0` before landing.
+- Expected: a straightforward full-file scan of `runs/ledger.jsonl` per `_skill_judge_timeout()` call was fine since the file is small today. Actual: an operator-frozen constraint posted on the issue mid-session (`issuecomment-5403812060`) required no added per-spawn/steady-state overhead — a full scan of an append-only, never-rotated log grows unboundedly over an installation's lifetime. Replaced with a bounded 512KiB tail-read before landing.
