@@ -49,6 +49,19 @@ cmd = ti.get("command") if isinstance(ti, dict) else None
 if not isinstance(cmd, str):
     sys.exit(0)
 
+# issue #2210: tokenize a heredoc-body-blanked skeleton, not the raw
+# command — a heredoc body is DATA the shell never parses as syntax, so
+# scanning it for "git"/"commit" tokens both false-triggers on a
+# heredoc-shaped record append that merely mentions those words in
+# prose, and makes shlex's per-character cost scale with the appended
+# body's size for no reason — profiled in issue #2210 against the exact
+# 7KB command that case's session log recorded, this shlex call alone
+# dropped from ~2ms to ~0.08ms (~26x), redone across 4 gates every
+# dispatch of a heredoc-shaped Bash call (record).
+sys.path.insert(0, os.environ.get("OTR_HOOKS_DIR", ""))
+from heredoc_scope import strip_heredoc_bodies
+cmd_skeleton = strip_heredoc_bodies(cmd)
+
 # issue #866: a plain `\bgit\s+commit\b` substring match misses an
 # ordinary `git -c <key>=<val> commit ...` (or any other global option
 # between `git` and its `commit` subcommand) — tokenizing first and
@@ -68,7 +81,7 @@ if not isinstance(cmd, str):
 # is required alongside it, or unquoted characters like `@`/`.` also
 # get split out of tokens such as `user.email=b@e`.
 try:
-    _lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    _lexer = shlex.shlex(cmd_skeleton, posix=True, punctuation_chars=True)
     _lexer.whitespace_split = True
     tokens = list(_lexer)
 except ValueError:
@@ -146,6 +159,6 @@ if mismatches:
          f"the updated index, and retry the commit.")
 PY
 
-CG_PAYLOAD="$payload" python3 -c "$GUARD"
+OTR_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" CG_PAYLOAD="$payload" python3 -c "$GUARD"
 rc=$?
 exit "$rc"
