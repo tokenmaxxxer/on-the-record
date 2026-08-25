@@ -256,6 +256,17 @@ covered at the next branch-cut — the issue's operator-frozen constraint
 (comment on this issue, 2026-08-25) explicitly rules out added
 per-spawn/steady-state overhead.
 
+skill-verdict: work-in-english — applied: invoked; commit/PR text in
+English, new code comments in Korean matching this repo's existing file
+convention, no project-convention conflict to flag. Other mounted
+skills (implementation-complexity-coupling-management,
+implementation-design-pattern-selection,
+implementation-performance-data-structure-choice, implementation-blueprint):
+not triggered — this change is a single guard function added to one
+existing branch-cut choke point, not a coupling/cohesion threshold, a
+GoF-pattern decision, a data-structure/performance-cliff choice, or a
+multi-module architecture decision.
+
 ## What did not work
 
 None.
