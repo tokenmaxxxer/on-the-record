@@ -23,6 +23,23 @@ verdict: pass
 
 # issue-2250 — ml-engineering record
 
+amendments-reconciled: issuecomment-5403812705
+
+canonical: https://github.com/tokenmaxxxer/on-the-record/issues/2250#issuecomment-5403812705
+— operator-frozen constraint (2026-08-25): any fix must hold systemically for
+every session/target-repo installing on-the-record, land without added
+per-spawn overhead or steady-state load, without a new conflict surface
+(append-log or otherwise), without a stall/deadlock mode, and without
+consumer-tree pollution; any unavoidable trade-off must be measured and
+stated in the record. This record's remedy (dominant class correct-abstain,
+per issue #2250's own Ask #3) is to file a missing-skill gap as
+documentation — no code, no new mechanism, no new append-log writer, and no
+change to `spawn.py`/`pipeline.py`/`skills.py` ships in this delivery
+(`code_under_review: none` in frontmatter above). The constraint is
+satisfied trivially: zero runtime footprint means zero added overhead, zero
+new conflict surfaces, zero stall modes, and zero consumer-tree residue —
+there is no trade-off to measure because nothing ships that runs.
+
 ## What was done
 
 canonical: docs/issue-2208/reports/consult-log.md (sha bd497d02, lines 1-21)
