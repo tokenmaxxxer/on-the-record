@@ -274,38 +274,18 @@ follow-up issue itself.
 
 ## Skill verdicts
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; split issue #2383's two multi-clause Acceptance checks (1 and
-2) into 5 line items plus check 3's conditional pair, tagged each with a
-dimension, in "Requirement findings" above.
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; Analysis for the audit/determination items (REQ-1a,
-REQ-3a — historical/unreproducible), Inspection for the gitignore item
-(REQ-1b — structural), Demonstration/re-run for the worktree-prune and
-origin/HEAD items (REQ-2a, REQ-2b, REQ-3b — this session's own
-`acceptance:` smoke-test re-derivations rather than a read-only code
-inspection), Test-reuse for the pytest suite (`acceptance:` block,
-re-running the PR's own cited test command rather than deriving a
-parallel check).
-skill-verdict: conformance-review-verdict-assignment — applied: invoked;
-Absent (not Incorrect) for REQ-1c since no fix was attempted, only
-disclosed as unresolved; Incorrect (not Surface or Absent) for REQ-2b
-since a real, functioning-but-wrong-scope check was added; named the
-failing clause via `spec_vs_built` for both non-Present verdicts.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; all evidence citations pinned to `ef762a9f:<path>:<line>`
-rather than a bare working-tree path (this session's own checkout HEAD
-is a different branch), with a `canonical:`/`acceptance:` tag per claim
-naming the exact command run.
-skill-verdict: conformance-review-finding-record — applied: invoked; all
-seven requirement blocks carry the full field list (requirement,
-spec_ref, verdict, evidence, rationale, plus spec_vs_built on the two
-non-Present verdicts), written only into this file.
-skill-verdict: conformance-review-sampling-derivation — not-applicable:
-issue #2383's Acceptance section names exactly 3 checks over 4 changed
-files; full enumeration was feasible, no sampling scope was needed.
-skill-verdict: conformance-review-severity-classification —
-not-applicable: no request to risk-weight the two findings beyond their
-Present/Absent/Incorrect verdicts was made; ordinary fidelity-checking
-only.
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; split issue #2383's two multi-clause Acceptance checks (1 and 2) into 5 line items plus check 3's conditional pair, tagged each with a dimension, in "Requirement findings" above.
+
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; Analysis for the audit/determination items (REQ-1a, REQ-3a — historical/unreproducible), Inspection for the gitignore item (REQ-1b — structural), Demonstration/re-run for the worktree-prune and origin/HEAD items (REQ-2a, REQ-2b, REQ-3b — this session's own `acceptance:` smoke-test re-derivations rather than a read-only code inspection), Test-reuse for the pytest suite (`acceptance:` block, re-running the PR's own cited test command rather than deriving a parallel check).
+
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; Absent (not Incorrect) for REQ-1c since no fix was attempted, only disclosed as unresolved; Incorrect (not Surface or Absent) for REQ-2b since a real, functioning-but-wrong-scope check was added; named the failing clause via `spec_vs_built` for both non-Present verdicts.
+
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; all evidence citations pinned to `ef762a9f:<path>:<line>` rather than a bare working-tree path (this session's own checkout HEAD is a different branch), with a `canonical:`/`acceptance:` tag per claim naming the exact command run.
+
+skill-verdict: conformance-review-finding-record — applied: invoked; all seven requirement blocks carry the full field list (requirement, spec_ref, verdict, evidence, rationale, plus spec_vs_built on the two non-Present verdicts), written only into this file.
+
+skill-verdict: conformance-review-sampling-derivation — not-applicable: issue #2383's Acceptance section names exactly 3 checks over 4 changed files; full enumeration was feasible, no sampling scope was needed.
+
+skill-verdict: conformance-review-severity-classification — not-applicable: no request to risk-weight the two findings beyond their Present/Absent/Incorrect verdicts was made; ordinary fidelity-checking only.
+
 other mounted skills: not triggered.
