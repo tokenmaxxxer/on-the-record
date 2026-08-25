@@ -1104,6 +1104,103 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 self._git(work, "stash", "list").stdout.strip(), "",
                 "ahead 워크스페이스에선 stash 를 쓰면 안 된다")
 
+    @pytest.mark.slow
+    def test_checkout_refuses_branch_with_corrupted_merge_base(self):
+        # 이슈 #2379 회귀: 실측 사고(#2372, #2384, tokenmaxxxer-core #311)의
+        # 재현 모양은 "브랜치가 이미 무관한 옛 조상에서 갈라진 채로
+        # 재사용된다"였다 — 세션이 파일 하나만 커밋해도 merge-base 가 그
+        # 무관한 조상이라 PR diff 가 수백~수천 파일로 부풀었다. 여기선 그
+        # 조상 자체를 만든다: origin 의 `main` 과, `main` 이랑 root 커밋만
+        # 공유하고 그 뒤로 독자적으로(320개 파일) 갈라진 `stale-lineage` —
+        # `br` 을 `stale-lineage` 에서 잘라 자기 몫 커밋 하나만 더 얹으면,
+        # merge-base(br, main) 은 root 커밋이고 diff(root, br) 은
+        # stale-lineage 의 320 파일 + 자기 몫 1 파일 = 321 파일로, 기본
+        # 상한(300 파일) 을 넘는다. `checkout_issue_branch` 는 이 상태를
+        # 거부해야 한다 — 조용히 손상된 PR 을 여는 대신.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "root.txt").write_text("root")
+            self._git(origin, "add", "root.txt")
+            self._git(origin, "commit", "-q", "-m", "root commit")
+            root_sha = self._git(origin, "rev-parse", "HEAD").stdout.strip()
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            self._git(origin, "checkout", "-q", "-b", "stale-lineage", root_sha)
+            for i in range(320):
+                (origin / f"legacy-{i}.txt").write_text(f"legacy content {i}")
+            self._git(origin, "add", "-A")
+            self._git(origin, "commit", "-q", "-m", "independent 320-file lineage")
+            stale_tip = self._git(origin, "rev-parse", "stale-lineage").stdout.strip()
+            self._git(origin, "checkout", "-q", base_branch)
+            (origin / "current.txt").write_text("real ongoing main work")
+            self._git(origin, "add", "current.txt")
+            self._git(origin, "commit", "-q", "-m", "main keeps moving")
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999910, "implementation"
+            br = f"issue-{issue}/{role}"
+            # 브랜치-컷 자체가 아니라, 이미 잘못 컷된 브랜치가 재사용되는
+            # 시나리오(코멘트 #2 의 재발 모양)를 시뮬레이션한다 — 로컬에
+            # stale-lineage 에서 갈라진 br 을 role 자신의 커밋 하나와 함께
+            # 미리 만들어 둔다.
+            self._git(work, "checkout", "-q", "-b", br, stale_tip)
+            (work / "own-work.txt").write_text("this session's own file")
+            self._git(work, "add", "own-work.txt")
+            self._git(work, "commit", "-q", "-m", "role's own commit")
+
+            with self.assertRaises(SystemExit) as ctx:
+                spawn.checkout_issue_branch(str(work), issue, role)
+            self.assertIn("merge-base", str(ctx.exception))
+            self.assertIn(br, str(ctx.exception))
+
+    @pytest.mark.slow
+    def test_checkout_accepts_branch_with_bounded_diff_from_old_merge_base(self):
+        # 위 테스트의 대조군: merge-base 가 달력상/커밋수로 오래됐어도(여러
+        # 세션에 걸친 승인 대기 등 이 레포의 정상 워크플로), br 자신이 실제
+        # 건드린 파일 수가 상한 아래면 거부하면 안 된다 — 신선도 신호가
+        # 나이가 아니라 diff 크기라는 설계를 검사한다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "root.txt").write_text("root")
+            self._git(origin, "add", "root.txt")
+            self._git(origin, "commit", "-q", "-m", "root commit")
+            root_sha = self._git(origin, "rev-parse", "HEAD").stdout.strip()
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            for i in range(50):
+                (origin / f"main-{i}.txt").write_text(f"main content {i}")
+                self._git(origin, "add", f"main-{i}.txt")
+                self._git(origin, "commit", "-q", "-m", f"main commit {i}")
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999911, "implementation"
+            br = f"issue-{issue}/{role}"
+            self._git(work, "checkout", "-q", "-b", br, root_sha)
+            (work / "own-work.txt").write_text("this session's own file")
+            self._git(work, "add", "own-work.txt")
+            self._git(work, "commit", "-q", "-m", "role's own commit, honestly old base")
+
+            result = spawn.checkout_issue_branch(str(work), issue, role)
+            self.assertEqual(result, br)
+
 class WorkspaceExcludesHomeDotfiles(unittest.TestCase):
     """이슈 #289 H1: 샌드박스가 홈 dotfile 을 워크스페이스 루트에 오버레이해
     `git status`에 untracked 로 잡힌다 — `.muster-cache/`와 같은 방식으로

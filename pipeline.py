@@ -928,6 +928,76 @@ def recut_if_absorbed_cli(cwd: str) -> int:
     return 0
 
 
+_DIFF_SHORTSTAT_RE = re.compile(
+    r"(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?")
+
+
+def _branch_base_max_files() -> int:
+    """이슈 #2379: `_verify_branch_base_sane()`의 파일-수 상한.
+
+    consumer 레포마다 정상 PR 크기가 다르므로 오버라이드 가능 — 기본값은
+    이 레포의 실측 사고 두 건(1572파일/571파일)보다 한참 아래이면서, 정상
+    이슈 하나가 건드리는 파일 수보다는 한참 위인 값."""
+    v = os.environ.get("MUSTER_BRANCH_BASE_MAX_FILES", "")
+    try:
+        return int(v) if v else 300
+    except ValueError:
+        return 300
+
+
+def _branch_base_max_lines() -> int:
+    """이슈 #2379: `_verify_branch_base_sane()`의 변경-라인-수 상한
+    (insertions+deletions 합). 파일 수 상한과 같은 근거."""
+    v = os.environ.get("MUSTER_BRANCH_BASE_MAX_LINES", "")
+    try:
+        return int(v) if v else 30000
+    except ValueError:
+        return 30000
+
+
+def _verify_branch_base_sane(cwd: str, br: str, base: str) -> str | None:
+    """이슈 #2379: `br`의 merge-base 가 `base`와 어긋나 있는지 검사한다.
+
+    실측 사고(#2372, #2384, tokenmaxxxer-core #311): 브랜치가 `origin/HEAD`
+    오염 등으로 무관한 옛 조상에서 갈라지면, 그 뒤로는 세션이 파일 하나만
+    커밋해도 PR diff 가 merge-base 와 `br` 사이의 트리 전체 차이(수백~수천
+    파일)로 열린다 — "며칠간 approval 대기로 오래된 merge-base" 와는 다른
+    현상이다: 정상 브랜치는 merge-base 가 달력상 오래돼도 자기가 실제로
+    건드린 파일만큼만 diff 가 커진다(같은 계보를 그냥 늦게 이어받았을
+    뿐이므로). 그래서 나이나 커밋 수 대신 diff 크기(파일 수 / 변경 라인
+    수) 를 신선도 신호로 쓴다 — 커밋 빈도가 다른 consumer 레포에서도,
+    다단계 승인으로 세션이 며칠 쉬는 이 레포의 정상 워크플로에서도 오탐이
+    없다.
+
+    이상 없으면 None, 이상하면 사람이 읽을 진단 문자열(merge-base sha +
+    파일/라인 수)을 반환한다 — merge-base 자체를 못 구하면(얕은 clone 등)
+    검사 불가로 보고 기존과 동일하게 통과시킨다(fail-open, 계산 불가와
+    이상 없음을 구분 못 하는 신호를 만들지 않기 위해)."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    mb = git("merge-base", br, base)
+    if mb.returncode != 0 or not mb.stdout.strip():
+        return None
+    merge_base_sha = mb.stdout.strip()
+    base_sha_r = git("rev-parse", "-q", "--verify", base)
+    base_sha = base_sha_r.stdout.strip() if base_sha_r.returncode == 0 else None
+    if base_sha is not None and merge_base_sha == base_sha:
+        return None                # 완전 최신 — 방금 그 지점에서 갈라졌다
+    stat_r = git("diff", "--shortstat", merge_base_sha, br)
+    if stat_r.returncode != 0 or not stat_r.stdout.strip():
+        return None
+    m = _DIFF_SHORTSTAT_RE.search(stat_r.stdout)
+    if not m:
+        return None
+    files = int(m.group(1))
+    lines = int(m.group(2) or 0) + int(m.group(3) or 0)
+    if files > _branch_base_max_files() or lines > _branch_base_max_lines():
+        return (f"merge-base {merge_base_sha[:12]} vs {br}: {files} files changed, "
+                f"{lines} lines (한도 {_branch_base_max_files()}파일/"
+                f"{_branch_base_max_lines()}라인)")
+    return None
+
+
 def _checkout_named_branch(cwd: str, br: str) -> str:
     """`br`(이미 완성된 `issue-<n>/<...>` 브랜치 이름)로 갈아탄다(없으면 만든다).
 
@@ -972,6 +1042,29 @@ def _checkout_named_branch(cwd: str, br: str) -> str:
             r = git("checkout", "-b", br)
     if r.returncode != 0:
         sys.exit(f"브랜치 {br} 로 못 갈아탔다: {r.stderr.strip()[:200]}")
+    # 이슈 #2379: 위 세 경로(재컷/origin 추적/신규 base 컷/흡수 없이 기존
+    # 재사용) 전부를 여기 한 곳에서 커버해야 PR 이 열리기 전에 무조건
+    # 걸린다 — 개별 경로에 흩어 넣으면 다음 다섯 번째 경로가 또 새로
+    # 생겼을 때 또 빠뜨린다.
+    base = _sp._base(cwd)
+    diag = _sp._verify_branch_base_sane(cwd, br, base)
+    if diag is not None:
+        # 한 번만 재시도: origin/HEAD 재계산 + 강제 재-fetch(--prune) 뒤
+        # base 를 다시 구해 재검사한다 — origin/HEAD 심볼릭 참조가 일시적으로
+        # 틀어져 있었을 뿐이면 여기서 회복된다. `br` 에 이미 커밋된 내용
+        # 자체가 무관한 조상에서 나왔으면(진짜 손상) 재-fetch 로는 못
+        # 고친다 — 그때는 거부한다.
+        git("remote", "set-head", "origin", "-a")
+        git("fetch", "--prune", "-q", "origin")
+        base = _sp._base(cwd)
+        diag = _sp._verify_branch_base_sane(cwd, br, base)
+    if diag is not None:
+        sys.exit(f"브랜치 {br} 의 merge-base 가 base({base})와 크게 어긋나 "
+                 f"있다 (이슈 #2379 가드) — {diag}. origin/HEAD 오염이나 "
+                 f"잘못된 조상에서 갈라졌을 가능성이 크다 — 조용히 진행하면 "
+                 f"무관한 파일 수백~수천개짜리 손상된 PR 을 연다. 수동 확인: "
+                 f"git -C {cwd} log --oneline {br} | tail -20 — 정말 손상됐으면 "
+                 f"로컬 브랜치를 지우고(git -C {cwd} branch -D {br}) 다시 스폰한다.")
     return br
 
 
