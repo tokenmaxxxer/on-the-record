@@ -459,8 +459,7 @@ favorable guess from missing evidence.
 
 ## Skill verdicts
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; extracted issue #2402's four `check:` bullets as R1-R4 and
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; extracted issue #2402's four `check:` bullets as R1-R4 and
 folded the 2026-08-25 operator-frozen comment in as R5 (rule 6:
 dimension-tagged all five), kept R4 as its own conditional item per
 rule 5 rather than treating "if the chosen approach leaves any
@@ -468,16 +467,14 @@ unmapped-branch case" as moot, and did not bundle R1/R5 despite their
 shared "same-name" rationale since they test distinct clauses (a
 supported repair path exists, vs. that path's own constraint
 compliance).
-skill-verdict: conformance-review-sampling-derivation — applied:
-invoked; stated the 4-of-5 mapping-site sampling derivation explicitly
+skill-verdict: conformance-review-sampling-derivation — applied: invoked; stated the 4-of-5 mapping-site sampling derivation explicitly
 (see "## Sampling derivation" above, with canonical citations for each
 of the 4 read and a derived: line for why the 5th was not) rather than
 silently checking a subset and citing the record's full five-site claim
 as if independently confirmed; reported the zero-discrepancy result
 from the 4 checked sites as-is without extending the sample to
 manufacture a finding (rule 4).
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; used Demonstration for R2 (a fresh, independently
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; used Demonstration for R2 (a fresh, independently
 built sandbox exercising the real CLI and the real regex — rule 3),
 explicitly scoped to function-level rather than a full networked sweep
 per rule 2 (a live `gh`-networked sweep against a real open PR is a
@@ -485,8 +482,7 @@ condition this review session cannot reproduce without an unwanted
 side effect — opening a throwaway real PR); reused the existing test
 suite as Test-method evidence for R1/R4 per rule 4 rather than
 re-deriving a parallel manual check.
-skill-verdict: conformance-review-verdict-assignment — applied:
-invoked; assigned Present (not Unverifiable) to R3 per the distinction
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; assigned Present (not Unverifiable) to R3 per the distinction
 in rule 3 — the evidence (the dedup guard's source, and the record's
 own executed transcript) is fully readable and was directly inspected
 this session, so the gap is in this session's own demonstration depth
@@ -496,8 +492,7 @@ requires; no requirement here was a candidate for Surface or Incorrect
 since no matching-but-unreachable code or contradicting behavior was
 found in any of the five (canonical: the per-requirement evidence
 blocks above).
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; cited every PR-branch-only path as `f7398a96:<path>` (code) or
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; cited every PR-branch-only path as `f7398a96:<path>` (code) or
 `6adf70c0:<path>` (the two doc files, present at PR head) per rule 1,
 rather than a bare path; recorded `gates/spawn_on_approve.py`'s two
 contributing functions (`_candidate_branches`, `ready_for_phase2`) as
