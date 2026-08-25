@@ -406,45 +406,14 @@ canonical: `gh issue view 2227` — result: `## Ask`/`## Non-goals`/
 executed-unit this session; the skill-verdict lines below summarize how
 that decomposition and the Findings above were produced.
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; used to split issue #2227's `## Ask` into REQ-D/REQ-E, keep
-`## Non-goals`' two bullets as separate scope-boundary items, and
-dimension-tag the full REQ-A..REQ-G list before any verdict was rendered.
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; routed REQ-A/REQ-E/REQ-G to Test (reusing/re-running
-the existing suite) and REQ-D's structural "does this primitive exist"
-claim to Inspection — over a second, more direct artifact (the CLI
-binary) after recognizing the PR's own Inspection target (`--help`) was
-the wrong one for a file-convention feature.
-skill-verdict: conformance-review-verdict-assignment — applied: invoked;
-used rule 2 to assign REQ-D `Incorrect` rather than `Absent` (a decision
-was made and recorded, and it is wrong, not merely missing) and rule 6 to
-re-check that verdict against a second independent evidence source before
-finalizing it.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every Findings-block evidence line above cites file/section plus
-the exact PR head sha (`b2b9c748979a3ab3a59093af569dfbf7d30d58bd`) or the
-independently-run command, and REQ-C's finding applies rule 1 to flag the
-builder's own record for the same citation gap this skill guards against.
-skill-verdict: conformance-review-finding-record — applied: invoked; each
-Findings block carries the full field list (requirement, spec_ref,
-verdict, evidence, rationale, and `spec_vs_built` for the one `Incorrect`
-verdict), and no verdict above was written without an evidence pointer
-and a spec_ref.
-skill-verdict: conformance-review-sampling-derivation — not-applicable:
-full enumeration of this issue's requirement set (2+2+3=7 items, see
-"What was done") against one PR was feasible; no sampling scope was
-needed.
-skill-verdict: conformance-review-severity-classification — not-
-applicable: this review's scope was not explicitly extended into
-risk-weighting a recorded finding; REQ-D's `Incorrect` verdict and its
-`Closes #2227`-overstatement consequence are stated in the finding itself,
-not banded.
-skill-verdict: implementation-audit — not-applicable: this task is
-already the more specific `conformance-review` role/skill family
-(builder-blind structural independence already satisfied by this being a
-separate reviewing session with no access to the builder session); no
-separate builder/evaluator claim-extraction split was layered on top.
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; used to split issue #2227's `## Ask` into REQ-D/REQ-E, keep `## Non-goals`' two bullets as separate scope-boundary items, and dimension-tag the full REQ-A..REQ-G list before any verdict was rendered.
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; routed REQ-A/REQ-E/REQ-G to Test (reusing/re-running the existing suite) and REQ-D's structural "does this primitive exist" claim to Inspection, over a second more direct artifact (the CLI binary) after recognizing the PR's own Inspection target (`--help`) was the wrong one for a file-convention feature.
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; used rule 2 to assign REQ-D `Incorrect` rather than `Absent` (a decision was made and recorded, and it is wrong, not merely missing) and rule 6 to re-check that verdict against a second independent evidence source before finalizing it.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every Findings-block evidence line above cites file/section plus the exact PR head sha (`b2b9c748979a3ab3a59093af569dfbf7d30d58bd`) or the independently-run command, and REQ-C's finding applies rule 1 to flag the builder's own record for the same citation gap this skill guards against.
+skill-verdict: conformance-review-finding-record — applied: invoked; each Findings block carries the full field list (requirement, spec_ref, verdict, evidence, rationale, and `spec_vs_built` for the one `Incorrect` verdict), and no verdict above was written without an evidence pointer and a spec_ref.
+skill-verdict: conformance-review-sampling-derivation — not-applicable: `## Ask`(2)+`## Non-goals`(2)+`## Acceptance`(3) = 2+2+3 = 7 items total, full enumeration against one PR, no sampling scope needed — derived: counted in `## What was done` above, canonical: `gh issue view 2227`, executed-unit this session.
+skill-verdict: conformance-review-severity-classification — not-applicable: this review's scope was not explicitly extended into risk-weighting a recorded finding; REQ-D's `Incorrect` verdict and its `Closes #2227`-overstatement consequence are stated in the finding itself, not banded.
+skill-verdict: implementation-audit — not-applicable: this task is already the more specific `conformance-review` role/skill family (builder-blind structural independence already satisfied by this being a separate reviewing session with no access to the builder session); no separate builder/evaluator claim-extraction split was layered on top.
 other mounted skills (freelunch, terse, scout, warrant, dataviz,
 code-review, etc.): not triggered — this task's own directives route
 delegation/style/scouting through the core rulebook hooks referenced at
