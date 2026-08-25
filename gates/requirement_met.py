@@ -88,6 +88,26 @@ _ENV_PREFIX = re.compile(r"^(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)+")
 _CD_PREFIX = re.compile(r"^cd\s+\S+\s*(?:&&|;)\s*", re.IGNORECASE)
 _WRAPPER_PREFIX = re.compile(r"^(?:bash|sh)\s+-c\s+", re.IGNORECASE)
 
+# issue-2414 (Failure B — missing convergence criteria, #2413): a `check:`
+# bullet may opt in to a `population:` metadata line (same indented-
+# continuation shape as `provenance:`, under `_CHECK_WITH_META`) naming
+# the corpus the mechanism acts on, e.g. `population:
+# runs/spawn-attempts.jsonl`. Opt-in, not required — #2393's Acceptance
+# ("the 285 existing junk records are pruned or the file is rotated")
+# already reads as population-shaped prose; an author drafting a check
+# like that is exactly who this field is for. Declaring it changes
+# nothing for a `check:` that isn't about a population. When declared
+# AND provenance is executed-live, landing requires a before/after
+# numeric pair (`341 -> 41`, `341 to 41`, `341 → 41`) somewhere in the
+# PR diff's added lines — existence-only, like empty state:/provenance:
+# elsewhere in this file: "the prune command ran with exit 0" is not
+# evidence that it reached its target population; #2400's fix stopped
+# the *inflow* but left 419 records exempt from the very prune it
+# added, and "ran successfully" would have said nothing about that.
+_POPULATION_LINE = re.compile(r"population\s*:\s*(\S.*)", re.IGNORECASE)
+_BEFORE_AFTER_EVIDENCE = re.compile(
+    r"\d[\d,]*\s*(?:->|-{1,2}>|→|\bto\b|\bdown to\b)\s*\d[\d,]*")
+
 
 def _strip_env_prefix(cmd: str) -> str:
     """환경변수 접두(`PYTHONPATH=src `류)를 벗겨 첫-토큰 후보 매칭에
@@ -120,6 +140,18 @@ def _provenance_map(section: str) -> dict[str, str]:
         pm = _PROVENANCE_LINE.search(m.group("meta") or "")
         if pm:
             result[raw] = pm.group(1).lower()
+    return result
+
+
+def _population_map(section: str) -> dict[str, str]:
+    """`raw` 체크 문구 -> `population:` 값. issue-2414 Failure B — opt-in
+    필드이므로 대부분의 체크는 매핑에 없다(= convergence 증거 요구 없음)."""
+    result: dict[str, str] = {}
+    for m in _CHECK_WITH_META.finditer(section):
+        raw = m.group("raw").strip()
+        pm = _POPULATION_LINE.search(m.group("meta") or "")
+        if pm:
+            result[raw] = pm.group(1).strip()
     return result
 
 
@@ -174,6 +206,24 @@ def _command_identity_mismatch(artifact: str | None, provenance: str | None,
         return False
     normalized_candidates = {_strip_wrapper_head(c.strip()) for c in candidates}
     return norm_artifact not in normalized_candidates
+
+
+def _convergence_evidence_missing(population: str | None, provenance: str | None,
+                                   diff: str) -> bool:
+    """issue-2414 Failure B: `population` is only set when the `check:`
+    opted in (see `_POPULATION_LINE` above). When it did, and the check
+    claims `executed-live`, the PR diff's added lines must show a
+    before/after numeric pair somewhere — not paired to this specific
+    check line-by-line (existence-only, same coarseness as empty state:/
+    provenance: elsewhere in this codebase), just present in the diff at
+    all. A prune/retire/rotate mechanism that merely exited 0 says
+    nothing about whether it reached the population it was built for."""
+    if not population or provenance != "executed-live":
+        return False
+    added_lines = "\n".join(
+        line[1:] for line in diff.splitlines()
+        if line.startswith("+") and not line.startswith("+++"))
+    return not _BEFORE_AFTER_EVIDENCE.search(added_lines)
 
 
 def _cited_artifact(raw: str) -> str | None:
@@ -335,6 +385,7 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
                           "기준이 없다"}
 
     provenance_map = _provenance_map(section)
+    population_map = _population_map(section)
     recorded_commands = _recorded_commands_in_diff(diff)
 
     criteria = []
@@ -354,6 +405,9 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
         # right or wrong.
         command_identity_mismatch = _command_identity_mismatch(
             artifact, provenance, recorded_commands)
+        population = population_map.get(raw)
+        convergence_evidence_missing = _convergence_evidence_missing(
+            population, provenance, diff)
         # issue #2231: only `structural` (check:/gate:-labeled) items are
         # subject to the deterministic artifact-presence sub-check. A
         # non-structural item (prose bullet, or a bare empty state:/
@@ -362,7 +416,8 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
         # would turn "grade more" into "block more than the format ever
         # asked for."
         artifact_block = structural and verdict == YES and not artifact_in_diff
-        blocking_fail = artifact_block or command_identity_mismatch
+        blocking_fail = (artifact_block or command_identity_mismatch
+                          or convergence_evidence_missing)
         if artifact_block:
             if artifact is None:
                 blocking_reasons.append(
@@ -377,11 +432,20 @@ def grade(issue_body: str, diff: str, per_check_verdicts: dict[str, str]) -> dic
                 f"기준 '{raw}'의 executed-live 증거가 이름 붙인 커맨드 표면 "
                 f"'{artifact}'과 다르다 — diff 에 기록된 커맨드가 그와 "
                 f"동일하지 않다(command-identity mismatch, issue #1696)")
+        if convergence_evidence_missing:
+            blocking_reasons.append(
+                f"기준 '{raw}'이 population: '{population}' 을 선언하고 "
+                f"executed-live 라고 주장하지만, PR diff 에 before/after "
+                f"수치 증거(예: '341 -> 41')가 없다 — 메커니즘이 실행됐다는 "
+                f"것과 대상 모집단에 도달했다는 것은 다르다(issue #2414 "
+                f"Failure B, #2413)")
         criteria.append({
             "raw": raw, "artifact": artifact, "verdict": verdict,
             "artifact_in_diff": artifact_in_diff,
             "provenance": provenance,
             "command_identity_mismatch": command_identity_mismatch,
+            "population": population,
+            "convergence_evidence_missing": convergence_evidence_missing,
             "structural": structural,
             "blocking_fail": blocking_fail,
         })
@@ -434,6 +498,8 @@ def check(repo: Path, issue: int, pr: int,
          "artifact_in_diff": c["artifact_in_diff"],
          "provenance": c["provenance"],
          "command_identity_mismatch": c["command_identity_mismatch"],
+         "population": c["population"],
+         "convergence_evidence_missing": c["convergence_evidence_missing"],
          "structural": c["structural"]}
         for c in result["criteria"]
     ]

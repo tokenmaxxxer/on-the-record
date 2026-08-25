@@ -30,6 +30,7 @@ def t_artifact_reference_passes():
 - `gates/test_acceptance_gate.py` run and shown passing.
 - empty state: not applicable — regression test, no empty-state case.
 - provenance: executed-unit
+- must not: not applicable — pure regression test, adds no mechanism.
 """
     assert acceptance_gate.check_issue_body(310, body) == []
 
@@ -50,6 +51,7 @@ def t_gate_colon_line_passes():
 - gate: acceptance_gate
 - empty state: not applicable — gate invocation has no empty-state case.
 - provenance: executed-unit
+- must not: not applicable — pure gate invocation, adds no mechanism.
 """
     assert acceptance_gate.check_issue_body(310, body) == []
 
@@ -72,6 +74,7 @@ def t_acceptance_heading_case_and_level_insensitive():
 - `test/foo.py` passes.
 - empty state: not applicable — regression test, no empty-state case.
 - provenance: executed-unit
+- must not: not applicable — pure regression test, adds no mechanism.
 """
     assert acceptance_gate.check_issue_body(310, body) == []
 
@@ -102,6 +105,7 @@ def t_empty_state_and_provenance_present_passes():
 - `gates/test_acceptance_gate.py` run and shown passing.
 - empty state: `gates/test_acceptance_gate.py::t_missing_acceptance_section_blocks`
 - provenance: executed-unit
+- must not: not applicable — pure regression test, adds no mechanism.
 """
     assert acceptance_gate.check_issue_body(416, body) == []
 
@@ -118,13 +122,18 @@ def t_empty_state_not_applicable_passes():
 - `gates/test_acceptance_gate.py` run and shown passing.
 - empty state: not applicable — pure read-only query, no "nothing exists yet" case.
 - provenance: executed-unit
+- must not: not applicable — pure read-only query, adds no mechanism.
 """
     assert acceptance_gate.check_issue_body(416, body) == []
 
 
 def t_all_three_violations_reported_together():
     """issue-555: prose-only + no empty state + no provenance, all at
-    once, must appear in the SAME refusal, not one per round-trip."""
+    once, must appear in the SAME refusal, not one per round-trip. Stays
+    at 3 under issue-2414: this prose has no mechanism-trigger verb, so
+    the new must not: field never fires (see
+    t_issue_2414_mechanism_adding_missing_must_not_blocks for that
+    case)."""
     body = """## Acceptance
 - It should work correctly and users should be happy.
 """
@@ -133,6 +142,7 @@ def t_all_three_violations_reported_together():
     assert any("empty state" in b for b in bad), bad
     assert any("provenance" in b for b in bad), bad
     assert any("executed-live|executed-unit|read" in b for b in bad), bad
+    assert not any("must not" in b for b in bad), bad
     assert len(bad) == 3, bad
 
 
@@ -140,7 +150,8 @@ def t_issue_2085_all_three_named_in_single_refusal():
     """issue-2085: drive an issue body missing check-grammar, empty-state,
     AND provenance all at once, and assert the single refusal names all
     three — reproduces the tm-dicequest#55 report where three separate
-    spawn attempts each surfaced a different lone missing element."""
+    spawn attempts each surfaced a different lone missing element. Stays
+    at 3 under issue-2414 (no mechanism-trigger verb in this prose)."""
     body = """## Acceptance
 It should work correctly and users should be happy with the result.
 """
@@ -163,6 +174,65 @@ def t_other_three_violation_messages_point_at_format_doc():
         2229, "## Acceptance\nIt should work.\n")
     assert len(bad) == 3, bad
     assert all(acceptance_gate._FORMAT_DOC in b for b in bad), bad
+
+
+def t_issue_2414_mechanism_adding_missing_must_not_blocks():
+    """issue-2414 Failure A repro: an Acceptance section that names what
+    a new mechanism must DO (prune stale records) and has empty
+    state/provenance, but never states what it must NOT do — exactly
+    #2291's and #2383's original shape, both of which birthed a
+    same-shape follow-up defect (#2393, #2411)."""
+    body = """## Acceptance
+- check: prune stale spawn-attempt records older than 7 days.
+- empty state: `runs/spawn-attempts.jsonl` with zero records.
+- provenance: executed-live
+"""
+    bad = acceptance_gate.check_issue_body(2414, body)
+    assert any("must not" in b for b in bad), bad
+
+
+def t_issue_2414_mechanism_adding_with_must_not_spawns_normally():
+    """issue-2414 Failure A fix: the same mechanism-adding issue, now
+    naming what the prune must never do — passes."""
+    body = """## Acceptance
+- check: prune stale spawn-attempt records older than 7 days.
+- empty state: `runs/spawn-attempts.jsonl` with zero records.
+- provenance: executed-live
+- must not: remove a record with no recorded outcome whose process is
+  still alive (an in-flight spawn attempt).
+"""
+    assert acceptance_gate.check_issue_body(2414, body) == []
+
+
+def t_issue_2414_mechanism_trigger_catches_past_tense_and_passive_voice():
+    """Warrant-hunt finding (before landing, this session): the first cut
+    of _MECHANISM_TRIGGER covered append/force-remove's inflections but
+    not prune/purge/retire/rotate/refuse/reject/deny's past-tense or
+    passive forms — 'expired sessions are pruned' silently never
+    triggered while 'the mechanism prunes expired sessions' correctly
+    did, for the same underlying mechanism. Fixed; this pins the
+    passive-voice phrasing specifically."""
+    body = """## Acceptance
+- check: expired sessions are pruned from the roster on every tick.
+- empty state: `roster.json` with zero entries.
+- provenance: executed-live
+"""
+    bad = acceptance_gate.check_issue_body(2414, body)
+    assert any("must not" in b for b in bad), bad
+
+
+def t_issue_2414_non_mechanism_issue_escapes_with_not_applicable():
+    """issue-2414: an issue that adds no mechanism (e.g. a pure bugfix)
+    escapes the same way empty state: already does — 'not applicable —
+    <reason>', not a blank line."""
+    body = """## Acceptance
+- check: `gates/test_merge_gate.py` shows the regex now matches.
+- empty state: not applicable — regex fix, no corpus.
+- provenance: executed-unit
+- must not: not applicable — pure bugfix, restores existing intended
+  matching behavior, adds no new write/delete/refuse/report mechanism.
+"""
+    assert acceptance_gate.check_issue_body(2414, body) == []
 
 
 def t_issue_2229_own_repro_shape_caught_at_authoring_time():
@@ -190,6 +260,7 @@ def t_well_formed_test_issue_passes_at_authoring_time():
         "- `gates/test_acceptance_gate.py` run and shown passing.\n"
         "- empty state: repo with zero open issues sweeps cleanly.\n"
         "- provenance: executed-unit\n"
+        "- must not: not applicable — pure regression test, adds no mechanism.\n"
     )
     assert acceptance_gate.check_issue_body(999902, well_formed_body) == []
 
@@ -203,7 +274,8 @@ def t_sweep_empty_open_issues_returns_empty_dict():
 def t_sweep_reports_only_violating_issues():
     open_issues = [
         {"number": 1, "body": "## Acceptance\n- `gates/x.py` covers this\n"
-                               "empty state: n/a\nprovenance: executed-unit\n"},
+                               "empty state: n/a\nprovenance: executed-unit\n"
+                               "must not: n/a — pure regression test.\n"},
         {"number": 2, "body": "## What happened\nno acceptance here\n"},
     ]
     result = acceptance_gate.sweep_issue_bodies(open_issues)

@@ -74,3 +74,27 @@ Append-only, newest entry last.
   scope, thinning the record itself is not. Source: issue #2382 body and
   its two comments (issuecomment-5407296989, issuecomment-5407303268) by
   JiwonJung94, 2026-08-25.
+
+- 2026-08-25: operator standing directive, restated across #2414 and its
+  successor #2415: measure a defect/friction rate before adding any new
+  gate or authoring/landing check, and adding nothing is an acceptable,
+  explicitly sanctioned delivery when the measured rate doesn't justify
+  it — "do not add a gate to be seen doing something." When a check IS
+  justified, #2415 additionally warns against the specific failure mode
+  of appending one more rule per incident onto a shared format document
+  (the pattern that produced acceptance-format.md's 5-rule, 73-line
+  accretion) rather than periodically re-deriving the format from first
+  principles ("what an Acceptance section is FOR") and judging existing
+  rules keep/merge/drop against that. Any authoring-time or landing-time
+  check must be measured, not asserted, to not lengthen the normal path
+  for work that doesn't need it — verified against the real open-issue
+  backlog or closed-issue corpus, not argued from design intent alone.
+  Source: issue #2414 body ("If measurement shows this is infrequent
+  enough that the observer layer catching it is the cheaper equilibrium,
+  the correct delivery is to say so and add nothing... Do not add a gate
+  to be seen doing something") and issue #2415 body, both read 2026-08-25
+  ("The operator's standing directive is to CUT overhead. A redesign
+  that adds authoring burden to every issue... is a failure even if it
+  prevents defects" / "Nobody has ever asked what an Acceptance section
+  is for and derived the format from that... that is how the document
+  got here").
