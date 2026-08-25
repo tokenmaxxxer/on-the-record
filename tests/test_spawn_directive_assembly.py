@@ -25,7 +25,7 @@ class DirectiveAssemblyBase(unittest.TestCase):
         return work
 
     def _run(self, work, role_source, captured_env, *, single_phase=False,
-             issue=31, captured_spawn_cmd=None):
+             issue=31, captured_spawn_cmd=None, role="implementation"):
         roster_calls = []
         real_roster_register = spawn.roster_register
 
@@ -66,7 +66,7 @@ class DirectiveAssemblyBase(unittest.TestCase):
                                lambda root, exclude_issue=None: ([], True)), \
              mock.patch.object(spawn, "roster_register", spy_roster_register), \
              mock.patch.object(spawn, "ledger_write", lambda *a, **k: None):
-            rc = spawn._spawn_one(str(work), "implementation", "원래 맡긴 일.\n",
+            rc = spawn._spawn_one(str(work), role, "원래 맡긴 일.\n",
                                   unattended=True, issue=issue, bounded=False,
                                   no_wait=True, single_phase=single_phase)
         self.assertEqual(rc, 0)
@@ -434,3 +434,103 @@ class CheckpointCommitAbsentFromNoCommitModes(unittest.TestCase):
         self.assertTrue(captured_prompts)
         for prompt in captured_prompts:
             self.assertNotIn(_CHECKPOINT_COMMIT_MARKER, prompt)
+
+
+_KNOWN_PATHS_MARKER = "알려진 경로 환경변수"
+_COMPLETION_MARKER = "완료의 정의"
+
+
+class RoleTouchesCode(unittest.TestCase):
+    """이슈 #2227 REQ-10: `roles/*.json` 의 write_scope 가 src/**|test/**|
+    tests/** 에 닿는 역할만 code_scoped — 나머지 43개는 자기 report 파일
+    하나만 건드리는 docs-only 역할이다."""
+
+    def test_code_write_scope_is_code_scoped(self):
+        self.assertTrue(spawn._role_touches_code(
+            ["src/**", "test/**", "tests/**"]))
+
+    def test_docs_only_report_write_scope_is_not_code_scoped(self):
+        self.assertFalse(spawn._role_touches_code(
+            ["docs/issue-<n>/reports/market-analysis.md"]))
+
+    def test_empty_write_scope_is_not_code_scoped(self):
+        # Acceptance 'empty state': a role with no declared write_scope
+        # (requirements-engineering, product-discovery, user-discovery)
+        # matches no code path, so it is not code_scoped either — it
+        # still gets the invariant baseline from directive_section_files.
+        self.assertFalse(spawn._role_touches_code([]))
+
+    def test_every_role_json_write_scope_classifies(self):
+        # Live inventory check, not a hardcoded guess: implementation is
+        # the sole code_scoped role among the 44 shipped roles/*.json
+        # specs today (see spawn.py's issue #2227 comment for the full
+        # rationale) — a future role adding src/**/test/** to its own
+        # write_scope should flip to code_scoped automatically, with no
+        # change needed here.
+        code_scoped_roles = []
+        for f in sorted((spawn.ROOT / "roles").glob("*.json")):
+            spec = json.loads(f.read_text())
+            if spawn._role_touches_code(spec.get("write_scope", [])):
+                code_scoped_roles.append(f.stem)
+        self.assertEqual(code_scoped_roles, ["implementation"])
+
+
+class DirectiveSectionFilesCodeScoping(unittest.TestCase):
+    """이슈 #2227 REQ-10: `known-paths.md` 만 `code_scoped` 로 조건화된다 —
+    나머지 baseline 셋(completion-and-landing/repo-discovery/turn-budget)
+    은 Acceptance 'empty state' 대로 항상 남는다."""
+
+    def test_code_scoped_true_includes_known_paths(self):
+        files = spawn.directive_section_files(code_scoped=True)
+        self.assertIn("known-paths.md", files)
+
+    def test_code_scoped_false_omits_known_paths_but_keeps_baseline(self):
+        files = spawn.directive_section_files(code_scoped=False)
+        self.assertNotIn("known-paths.md", files)
+        self.assertIn("completion-and-landing.md", files)
+        self.assertIn("repo-discovery.md", files)
+        self.assertIn("turn-budget.md", files)
+
+    def test_default_is_code_scoped_true_unchanged_from_pre_2227(self):
+        # No caller that omits the new kwarg (adhoc spawns with no role
+        # write_scope resolved) sees a narrower bundle than before this
+        # issue landed.
+        self.assertIn("known-paths.md", spawn.directive_section_files())
+
+    def test_docs_only_block_is_strictly_smaller(self):
+        code_block = spawn._directive_system_prompt_block(
+            spawn.directive_section_files(code_scoped=True))
+        docs_block = spawn._directive_system_prompt_block(
+            spawn.directive_section_files(code_scoped=False))
+        self.assertLess(len(docs_block.encode()), len(code_block.encode()))
+
+
+class PerPathContextScopingEndToEnd(DirectiveAssemblyBase):
+    """이슈 #2227 REQ-10: `_spawn_one()` 이 실제로 role → write_scope →
+    code_scoped 를 엮어 넘기는지 — 순수 함수 테스트만으로는 #2204
+    conformance-review 가 지적한 배선 부재("함수 시그니처에
+    path/task-shape 파라미터가 없다")를 못 잡는다."""
+
+    @pytest.mark.slow
+    def test_implementation_spawn_carries_known_paths_section(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            captured = {}
+            self._run(work, _NO_SKILLS, {}, role="implementation",
+                      captured_spawn_cmd=captured)
+        system_prompt = captured["append_system_prompt"]
+        self.assertIn(_KNOWN_PATHS_MARKER, system_prompt)
+        self.assertIn(_COMPLETION_MARKER, system_prompt)
+
+    @pytest.mark.slow
+    def test_docs_only_role_spawn_omits_known_paths_but_keeps_baseline(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = self._prep_repo(td)
+            captured = {}
+            self._run(work, _NO_SKILLS, {}, role="market-analysis",
+                      captured_spawn_cmd=captured)
+        system_prompt = captured["append_system_prompt"]
+        self.assertNotIn(_KNOWN_PATHS_MARKER, system_prompt)
+        # empty state 은 "매치되는 path scope 가 전혀 없어도" 이지 절대
+        # 빈 디렉티브가 아니다 — baseline 세 개는 role 과 무관하게 남는다.
+        self.assertIn(_COMPLETION_MARKER, system_prompt)
