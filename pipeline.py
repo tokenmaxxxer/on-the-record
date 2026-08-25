@@ -560,7 +560,8 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
               design_bearing_verdict: bool | None = None,
               max_turns: int | None = None,
               checkpoint: bool = False,
-              append_system_prompt: str | None = None
+              append_system_prompt: str | None = None,
+              skill_registry_root: Path | None = None
               ) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
@@ -596,6 +597,16 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     Read 호출들로 ~46초를 태웠다(이슈 #2204 측정) — 이 플래그는 그
     라운드트립 자체를 없앤다: 세션이 시작하는 순간부터 이미 컨텍스트에
     있다.
+
+    이슈 #2211: `ON_THE_RECORD`(플러그인 체크아웃 루트, `_sp.ROOT`) 와
+    `MUSTER_WORKSPACE_ROOT`(역할 워크스페이스 루트, `_sp._workspace_base()`)
+    는 스포너가 스폰 시점에 이미 아는 값이라 무조건 심는다.
+    `skill_registry_root`(있으면, 호출자가 이미 해석해 넘긴 skill-repository
+    checkout)는 `MUSTER_SKILL_REGISTRY_ROOT` 로 심는다 — `CLAUDE_PLUGIN_ROOT_CORE`
+    와 같은 근거: 세션이 알 수 없는 경로는 없는 경로와 같다(실측: issue-2201
+    세션이 이 넷을 몰라 `find /` 로 126초를 태웠다). skill-repository 가
+    없으면(빈 상태) 변수도 만들지 않는다 — 없는 값을 빈 문자열로 심으면
+    "존재하지만 비어 있다"와 "아예 없다"가 구분이 안 된다.
     """
     cmd = ["claude", "-p", "--settings", settings_path,
            "--permission-mode", "bypassPermissions",
@@ -701,6 +712,12 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
         print("spawn_cmd: core_plugins 에 'core' 엔트리가 없다 — "
               "CLAUDE_PLUGIN_ROOT_CORE 미주입, 게이트가 fallback 경로로 "
               "빠질 수 있다", file=sys.stderr)
+    # 이슈 #2211: 스포너가 이미 아는 경로 넷 중 플러그인 체크아웃 루트와
+    # 워크스페이스 루트는 항상 있다 — find / 로 찾게 두는 대신 무조건 심는다.
+    env["ON_THE_RECORD"] = str(_sp.ROOT)
+    env["MUSTER_WORKSPACE_ROOT"] = str(_sp._workspace_base())
+    if skill_registry_root:
+        env["MUSTER_SKILL_REGISTRY_ROOT"] = str(skill_registry_root)
     return cmd, env
 
 
