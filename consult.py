@@ -346,6 +346,12 @@ def _skill_judge_consult(task_text: str, role: str,
         for name, path, source in candidates)
     question = f"Task:\n{task_text}\n\nCandidates:\n{candidate_lines}"
     try:
+        # 이슈 #2241 stage 2 (docs/specs/consult-guidance-source.md): 이
+        # `roles/<role>.json` existence-check — 이 파일의 다른 네 호출부도
+        # 동일 패턴 — 는 `role` 을 여전히 lookup key 로 노출한다. 이 스테이지는
+        # 그걸 손대지 않는다: 키 모양 이관은 stage 4, `roles/*.json` 자체가
+        # 은퇴한 뒤 이 검사를 없애는 건 stage 6 몫이다(`_ROLE_SKILLS`,
+        # skills.py:286-336, 도 마찬가지로 이 스테이지에서 손대지 않는다).
         f = _sp.ROOT / "roles" / f"{role}.json"
         if not f.exists():
             have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
