@@ -108,3 +108,30 @@
   changes — only this log line — to avoid redundant re-verification
   churn across repeated follow-on session spawns landing on an already
   fully-handed-off branch.
+<<<<<<< HEAD
+
+- 2026-08-25T16:10:00Z | inline | issue-2208/execution-observation | a
+  third follow-on session opened on this branch and re-confirmed the
+  identical already-landed state, making no further changes.
+  canonical: acceptance: `diff <(git show origin/main:docs/issue-2208/reports/execution-observation.md)
+  docs/issue-2208/reports/execution-observation.md`, this session —
+  result: `IDENTICAL` (byte-for-byte match, `result: passed`,
+  `loop_state: handed-off`).
+  canonical: acceptance: `gh pr view 2224 --json state,mergedAt`, this
+  session — result: `MERGED`, `2026-08-24T22:40:23Z`.
+  canonical: acceptance: `gh issue view 2208 --json state`, this
+  session — result: `CLOSED`.
+  canonical: acceptance: `git fetch origin issue-2208/execution-observation`,
+  this session — result: `fatal: couldn't find remote ref` (branch
+  deleted post-merge, the normal GitHub squash-and-delete outcome).
+  Given the deliverable (docs/issue-2208/reports/execution-observation.md)
+  is already merged to main verbatim and the issue is closed, this
+  session made no record or code changes — only this log line — for the
+  same reason the prior two follow-on sessions gave: avoiding redundant
+  re-verification churn on an already fully-handed-off branch. The two
+  stray working-tree items (`.orchestrate-hook-fires.log` modified,
+  `.on-the-record/directive/` untracked) remain present, unchanged from
+  the prior sessions' entries, and out of this role's write_scope for
+  the same reason previously given.
+=======
+>>>>>>> origin/main
