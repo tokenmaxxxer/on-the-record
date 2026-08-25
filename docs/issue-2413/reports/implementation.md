@@ -293,3 +293,19 @@ None. Resolution path: not applicable — no open findings to resolve.
 None remain for this fix — implementation, the live-pid demonstration,
 the before/after measurement, the before-landing warrant-hunter dispatch
 and its follow-up fix, and the test runs are all finished.
+
+## Skill verdicts
+
+skill-verdict: work-in-english — applied: invoked; matched this file's own
+pre-existing Korean docstring/comment style when adding new comments to
+spawn.py/roster.py (project-convention guard — avoids leaving those files
+half English/half Korean), kept commits, PR title/body, branch name, and
+all code identifiers in English per this repo's own recent commit
+history convention.
+
+other mounted skills: not triggered (implementation-complexity-coupling-management,
+implementation-design-pattern-selection,
+implementation-performance-data-structure-choice, implementation-blueprint
+— this is a self-contained fix inside one existing function plus one
+existing watchdog loop, no new module boundary, coupling change, or
+design-pattern decision was in scope).
