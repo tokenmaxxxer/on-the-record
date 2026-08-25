@@ -7,6 +7,41 @@
   sentence. `gates/acceptance_gate.py` enforces this post-hoc as a
   backstop; writing it right the first time skips the reject/rewrite
   round-trip.
+- NEGATIVE CRITERIA (issue #2414, Failure A): if your issue's body uses
+  a mechanism-shaped verb (append/prune/purge/retire/rotate/refuse/
+  reject/deny — the exact list is `gates/acceptance_gate.py`'s
+  `_MECHANISM_TRIGGER`), also write a `must not:` line under Acceptance
+  — what the mechanism you are adding must NEVER do, or what it must
+  leave working. Three same-day incidents (#2291→#2393, #2383/PR
+  #2389→#2411) landed an Acceptance that said what a new mechanism must
+  DO and never what it must NOT do; a background warrant-hunter or the
+  orchestrator caught each one only after merge, costing a full extra
+  spawn→observe→land cycle. If the trigger fires on your issue but it
+  adds no mechanism (e.g. describing a bug's symptoms in the same
+  vocabulary), write `must not: not applicable — <reason>` — the same
+  escape shape `empty state:` already uses. Two things this does NOT
+  do: it does not close the gap completely (an author who cannot
+  imagine the counter-example still passes), and it does not catch a
+  mechanism-adding issue that never uses any of the trigger verbs (the
+  trigger is deliberately narrow — a broader one was measured to newly
+  block 34 of 45 open issues that mostly add no mechanism at all; this
+  one blocks 8).
+- CONVERGENCE EVIDENCE (issue #2414, Failure B, opt-in): when a `check:`
+  is about a mechanism reaching a target population (prune, retire,
+  rotate, clear a backlog — not just "ran without error"), add a
+  `population: <corpus>` line under it (same indented shape as
+  `provenance:`). Declaring it is optional and changes nothing for
+  checks that aren't population-shaped. Once declared, a check claiming
+  `provenance: executed-live` needs a before/after numeric pair (`341 ->
+  41`) somewhere in the PR diff's added lines — `gates/requirement_met.py`
+  enforces this deterministically at landing, existence-only (it does not
+  verify the numbers are true, same as every other field on this page).
+  #2400 stopped new junk from arriving in `runs/spawn-attempts.jsonl` and
+  proved it with real before/after counts for the one-time cleanup, but
+  its Acceptance never asked the *ongoing* rotation policy to prove it
+  could reach the pre-existing backlog — 419 of 434 records turned out
+  permanently exempt (#2413), caught live 15 minutes after merge instead
+  of at landing.
 - VERIFY-AT-LANDING (issue #2137, operator decision 2026-08-24): a
   deliverable is code + EXECUTED acceptance evidence — every `- check:`
   in the issue is run at landing time and its command plus actual output
