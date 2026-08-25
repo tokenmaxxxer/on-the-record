@@ -1614,15 +1614,16 @@ def main() -> int:
         sys.exit("--checkpoint requires --issue <n>: the approval needle is "
                  "`APPROVE issue-<n>/<role>` on that issue (issue #2129)")
 
-    # --dry-run 은 세션을 안 태운다. 계약 검사는 버려질 세션을 막으려는 것이므로
-    # 아무것도 안 띄우는 호출까지 막을 이유가 없다.
-    require_board(a.cwd, a.no_contract or a.dry_run)
-    # 드라이런도 막는다 — 레포가 자기 훅을 들고 있으면 그건 세션을 띄우기
-    # 전에 알아야 할 사실이지, 띄우고 나서 알 일이 아니다.
-    require_no_repo_config(a.cwd, a.trust_repo_config)
-    require_acceptance_gate(a.cwd, a.issue)
-    require_requirement_linkage(a.cwd, a.issue)
     if a.dry_run:
+        # --dry-run 은 세션을 안 태운다. 계약 검사는 버려질 세션을 막으려는
+        # 것이므로 아무것도 안 띄우는 호출까지 막을 이유가 없다 — 그래도
+        # 드라이런은 막는다: 레포가 자기 훅을 들고 있으면 그건 세션을 띄우기
+        # 전에 알아야 할 사실이지, 띄우고 나서 알 일이 아니다. attempt 기록
+        # 대상이 아니므로(세션을 안 태움) 아래 non-dry-run 분기와 따로 돈다.
+        require_board(a.cwd, a.no_contract or a.dry_run)
+        require_no_repo_config(a.cwd, a.trust_repo_config)
+        require_acceptance_gate(a.cwd, a.issue)
+        require_requirement_linkage(a.cwd, a.issue)
         cwd_path = Path(a.cwd)
         if not cwd_path.is_dir():
             sys.exit(f"-C 가 디렉터리가 아니다: {a.cwd}")
@@ -1644,14 +1645,23 @@ def main() -> int:
             # sonnet 을 보여준다")가 겨냥하는 문구 그대로.
             print(f"--model {role_model}")
         return 0
-    # 이슈 #2291: 여기부터 (require_doctor/ensure_target_remote 의 네트워크
-    # 호출을 포함해) _spawn_one() 전체 — 워크스페이스/로스터/세션 로그가
-    # 실제로 생기기 전 구간 — 가 "부트스트랩 halt 는 흔적이 없다"던 창이다.
-    # `--issue` 없는 ad-hoc 스폰은 애초에 로스터에 등록되지 않으므로(워치독이
-    # 대조할 대상이 없다) 추적하지 않는다.
+    # 이슈 #2291 CHANGES(PR #2371 conformance review R2/R4): require_board()
+    # 부터 require_requirement_linkage() 까지 네 계약 게이트 — 그중 둘
+    # (require_acceptance_gate/require_requirement_linkage)은 gh api 를
+    # 불러 sys.exit() 로 fail-closed 할 수 있다 — 가 attempt 기록보다 앞에
+    # 있으면, 이 이슈가 고치려던 바로 그 traceless halt 를 한 겹 더 이르게
+    # 재현한다(#2305 의 같은 결함이 #2365 에도 R1/R3 로 이미 기록됨). 그래서
+    # attempt 기록을 이 네 게이트보다도 앞으로, "여기부터 _spawn_one() 전체가
+    # 부트스트랩(워크스페이스/로스터/세션 로그가 아직 없는) 구간"이라는
+    # 이 분기의 맨 위로 옮긴다. `--issue` 없는 ad-hoc 스폰은 애초에
+    # 로스터에 등록되지 않으므로(워치독이 대조할 대상이 없다) 추적하지 않는다.
     attempt_id = (_record_spawn_attempt(a.issue, a.role, os.getpid())
                   if a.issue is not None else None)
     try:
+        require_board(a.cwd, a.no_contract)
+        require_no_repo_config(a.cwd, a.trust_repo_config)
+        require_acceptance_gate(a.cwd, a.issue)
+        require_requirement_linkage(a.cwd, a.issue)
         require_doctor()
         ensure_target_remote(a.cwd, a.unattended)
         # 이슈 #2152: 기본값 반전 — 아무 플래그도 없으면 이제 single-phase

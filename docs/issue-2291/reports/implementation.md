@@ -99,6 +99,90 @@ to a private `tempfile.mkdtemp()` path per test; applied to the nine
 affected tests in `tests/test_spawn_pipeline.py`. No production code in
 this bullet.
 
+## CHANGES round — conformance-review follow-up
+
+canonical: PR #2371 (builder-blind conformance review of PR #2366, this
+issue's redelivery), read via `gh pr view 2371 --json body` this session
+— result quoted in full below since it is the dispatching finding for
+this round.
+
+> **R2, R4 (Ask bullet 1 — "before any network or workspace work" /
+> "every halt... must land its reason there"): `Incorrect`.** The four
+> pre-existing phase gates (`require_board`, `require_no_repo_config`,
+> `require_acceptance_gate`, `require_requirement_linkage`) still run
+> before `_record_spawn_attempt()`, and two of them call `gh api` and
+> can `sys.exit()` — a halt there reproduces the exact traceless-halt
+> failure class issue #2291 was filed to fix, one layer earlier than the
+> window this PR instruments. Live-reproduced this session (monkeypatched
+> `require_requirement_linkage` to force its `sys.exit` branch — the
+> durable trace file was never created). **This is the identical defect
+> PR #2365 already recorded (as R1/R3) against the unchanged mechanism in
+> PR #2305** — PR #2366's own record discloses it read #2365's terminal
+> state but not its finding content before re-porting the same mechanism.
+
+Confirmed the finding by reading the pre-fix code directly: `require_board`
+(then at spawn.py:1619), `require_no_repo_config` (1622),
+`require_acceptance_gate` (1623, `gh api`-backed), and
+`require_requirement_linkage` (1624, `gh api`-backed) all ran before
+`attempt_id = _record_spawn_attempt(...)` (was at spawn.py:1652) and its
+enclosing `try/except (SystemExit, Exception)` (was at spawn.py:1654) —
+so any `sys.exit()` from the two `gh api`-backed gates was never wrapped,
+and the trace this issue exists to make durable was never written for
+that halt.
+
+Fix, matching the resolution path PR #2371 itself named: moved
+`attempt_id = _record_spawn_attempt(...)` to the top of `main()`'s
+non-dry-run branch, and moved all four gate calls
+(`require_board`/`require_no_repo_config`/`require_acceptance_gate`/
+`require_requirement_linkage`) inside the same `try:` that already wraps
+`require_doctor()`/`ensure_target_remote()`/`_spawn_one()`, so the
+existing `except (SystemExit, Exception) as e:` handler (which calls
+`_record_spawn_outcome(attempt_id, "halted", reason)`) now catches a halt
+from any of the six calls in this window, not just the last two.
+`--dry-run` doesn't spawn a session and was never in scope for attempt
+recording, so its own copy of the same four gate calls stays outside this
+`try`, in the `if a.dry_run:` branch, ahead of the (unaffected) dry-run
+output logic — `--dry-run`'s `require_board(a.cwd, a.no_contract or
+a.dry_run)` call keeps its original second argument; the non-dry-run
+branch simplifies it to `require_board(a.cwd, a.no_contract)` since
+`a.dry_run` is always `False` there, which is behavior-identical (`X or
+False == X`).
+
+canonical: spawn.py:1617 (`if a.dry_run:`, gates duplicated inside for
+the dry-run branch), spawn.py:1650-1665 (attempt recording moved above
+the `try:`, all four gates moved inside it alongside
+`require_doctor()`/`ensure_target_remote()`/`_spawn_one()`), spawn.py:1686
+(`except (SystemExit, Exception) as e:`, unchanged) — all read directly
+in this checkout, this session, after writing the change.
+
+R7 and R8 (both graded `Surface`, non-blocking, in the same PR #2371
+review) were assessed and left unaddressed this round:
+
+- **R7** ("`--issue`-less ad-hoc spawns get no durable trace/watchdog
+  visibility") — PR #2371's own stated resolution path is "a future issue
+  amendment scoping whether ad-hoc spawns should also get a durable
+  trace, or narrowing 'all consumer sessions' explicitly" — a scope
+  decision on what "systemic" should mean for issue-less spawns, not a
+  code change this record can make unilaterally without either widening
+  the Frozen constraint's reading or narrowing it, so it is left for that
+  amendment rather than decided here.
+- **R8** (`spawn-attempts.jsonl` has no pruning/rotation, read in full
+  every watchdog tick) — PR #2371's own stated resolution path is "prune
+  `spawn-attempts.jsonl` once an entry's outcome has been swept and
+  reported once, or cap/rotate the file." Doing this correctly needs new
+  state (tracking which attempt_ids `spawn_attempt_sweep()`
+  (roster.py:435) has already reported, so a prune doesn't erase an
+  attempt before its one-time watchdog report) and touches the JSONL's
+  append-only crash-survival property this issue's own design relies on
+  (`## Why` below) — not a same-shape, low-risk edit like R2/R4's
+  reordering, so left out of this CHANGES round rather than rushed.
+
+Acceptance evidence for this round's fix is under `## CHANGES round —
+acceptance evidence` below (after the original delivery's own Acceptance
+section) — reproducing R2/R4's defect against the pre-fix commit
+(`3cdfc4c5`, this branch's tip before this round) first, then showing the
+fix.
+
 ## Why
 
 canonical: pipeline.py:831 (`_fetch_or_halt`), spawn.py's `main()`
@@ -222,11 +306,17 @@ numbers/states/titles in this paragraph.
 
 ## Open findings
 
-None.
+R2/R4 from PR #2371 (traceless gate-halt window, see `## CHANGES round —
+conformance-review follow-up` above): resolved this round. R7/R8 from the
+same review (`Surface`, non-blocking): still open, deliberately left
+unaddressed this round — see the same section above for why each needs
+either a scope decision (R7) or new state design (R8) rather than a
+same-shape edit.
 
 ## Next steps
 
-None — `loop_state: landed`. Acceptance evidence below.
+R7/R8 (above) if a future round picks them up. Otherwise none —
+`loop_state: landed`. Acceptance evidence below.
 
 ### Acceptance (issue #2291)
 
@@ -355,6 +445,83 @@ acceptance: `python3 -c "import spawn"` and `python3 -m py_compile
 spawn.py roster.py watchdog.py tests/_spawn_test_support.py
 tests/test_spawn_pipeline.py` — result: both exit 0, no output.
 
+## CHANGES round — acceptance evidence
+
+Reproduction method: monkeypatch `require_board`/`require_no_repo_config`/
+`require_acceptance_gate` to no-ops and `require_requirement_linkage` to
+force `sys.exit("forced-gate-halt-repro-2291-changes")` (matching PR
+#2371's own stated repro method, quoted above), then call `spawn.main()`
+with a real `--issue` and scratch `MUSTER_STATE_ROOT`/`-C` cwd, and check
+whether `SPAWN_ATTEMPTS_PATH` exists afterward. Run via `python3 -u -c
+"..."` rather than a script file — a script file invocation
+(`python3 -u /tmp/....py`) hit an unrelated sandbox artifact in this
+session (the process hung until killed by `timeout`, reproduced
+identically on trivial scripts with no `spawn` import at all, and on both
+the pre-fix and post-fix code — a harness/sandbox property of this
+session, not a property of this issue's fix); `python3 -c` with the same
+logic inline ran and returned immediately every time, so all evidence
+below uses that form.
+
+canonical: this session's own live execution, exact commands and raw
+output quoted verbatim below.
+
+**Before fix** (`git stash` back to this branch's pre-round tip,
+`3cdfc4c5`, then restored via `git stash pop` immediately after
+capturing output — `git diff --stat HEAD -- spawn.py` confirmed empty
+during the stash and restored to the round's diff after the pop):
+
+acceptance: `git stash && python3 -u -c "<repro above, issue 424242>" && git stash pop` — result:
+
+```
+caught SystemExit: forced-gate-halt-repro-2291-changes
+--- trace file exists: False ---
+```
+
+derived: the pre-fix code reproduces PR #2371's R2/R4 finding directly —
+`require_requirement_linkage`'s forced `sys.exit` is never inside the
+window `_record_spawn_attempt()`/`except (SystemExit, Exception)` covers,
+so `SPAWN_ATTEMPTS_PATH` is never even created.
+
+**After fix** (this round's `spawn.py`, same repro):
+
+acceptance: `python3 -u -c "<repro above, issue 424242>"` — result:
+
+```
+caught SystemExit: forced-gate-halt-repro-2291-changes
+--- trace file exists: True ---
+{"event": "spawn_attempt", "attempt_id": "424242:implementation:3115555:1787644355823", "issue": 424242, "role": "implementation", "pid": 3115555, "ts": 1787644355.8237648}
+{"event": "spawn_attempt_outcome", "attempt_id": "424242:implementation:3115555:1787644355823", "outcome": "halted", "detail": "forced-gate-halt-repro-2291-changes", "ts": 1787644355.823852}
+```
+
+derived: same forced halt, same gate, now durable — attempt recorded
+before the gate ran, outcome recorded when it raised, matching this
+issue's original acceptance shape one window earlier.
+
+**Dry-run regression check** (the four gates now have two call sites —
+`if a.dry_run:` and the non-dry-run `try:` — confirming `--dry-run`
+itself still works and still records nothing):
+
+acceptance: `python3 -u -c "<same mocks, --dry-run appended, issue
+424243>"` — result: `rc= 0`, dry-run JSON printed (role settings +
+`--model sonnet`, unchanged from pre-round shape), `trace file exists
+(should be False, dry-run never records): False`.
+
+**Full gate + regression re-run** on this round's `spawn.py`:
+
+acceptance: `python3 -m pytest tests/test_spawn_pipeline.py -q` — result:
+
+```
+86 passed in 10.11s
+```
+
+acceptance: `python3 -m pytest tests/test_state_root_scoping.py tests/test_watch_hardening.py test/test_roster_role_field.py tests/test_standing_red_watch.py tests/test_poll_watchdog_log.py tests/test_spawn_pipeline.py -q` — result:
+
+```
+145 passed in 1.39s
+```
+
+acceptance: `python3 -m py_compile spawn.py` — result: exit 0, no output.
+
 ## Rationale for deviations
 
 No deviation from this session's own plan (ported the #2305 design
@@ -419,6 +586,28 @@ session), not a new direction or a threshold crossing.
 `implementation-design-pattern-selection`: no GoF pattern decision was in
 play. `implementation-performance-data-structure-choice`: append-only
 JSONL + dict lookups, no cliff.
+
+CHANGES round: this round invoked two skills.
+skill-verdict: work-in-english — applied: invoked; this round's commit
+message, this record's addenda, and the PR description are written in
+English per the skill, matching the prior round's own (non-invoked,
+standing-convention) choice to do the same.
+skill-verdict: silent-failure-audit — applied: invoked; this round's own
+diff adds exactly one error-handling site to the existing shape (the
+`except (SystemExit, Exception) as e:` block at spawn.py:1686 now also
+covers the four gate calls, previously outside it) — traced it per the
+skill's Step 1-3: catch site spawn.py:1686, guards the `try:` at
+spawn.py:1660 (now six calls: four gates + `require_doctor()` +
+`ensure_target_remote()` + `_spawn_one()`); classified **Handled** (not
+Silently Absorbed) — the handler records the outcome durably
+(`_record_spawn_outcome`, propagation-adjacent per the skill's criterion
+(a)/(e): observable durable state change) and then unconditionally
+`raise`s, so the exception still propagates to the CLI's own top-level
+exit-code handling exactly as it did before this round widened the
+`try`'s scope; no new silent-failure site was introduced. Other three
+mounted skills not re-evaluated this round: unchanged from the prior
+round's verdicts above (no new structural, GoF-pattern, or
+data-structure decision in a four-line reordering of existing calls).
 
 ## Build-now bypass note
 
