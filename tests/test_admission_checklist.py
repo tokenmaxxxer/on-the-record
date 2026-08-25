@@ -6,6 +6,8 @@ item's name, creates no session and no workspace, and writes exactly one
 `admission_refused` ledger event. The checklist is a data table — a test
 appends a synthetic row to prove no new gate code is needed per item.
 """
+import contextlib
+import io
 import os
 import subprocess
 import sys
@@ -294,6 +296,84 @@ class AdmissionGateTable(unittest.TestCase):
                 side_effect=subprocess.TimeoutExpired(cmd="gh", timeout=60)):
             self.assertIsNone(spawn._board_marker_probe("o/r"))
 
+    # --- item 6: degenerate task (issue #2293) ---------------------------
+    def test_bare_numeric_task_without_issue_refuses_named(self):
+        """Consumer incident (2026-08-25): `spawn.py implementation 538` —
+        a typo for `--issue 538` — silently spawned a live agent whose
+        entire mission was the string "538"."""
+        ledger = _LedgerSpy()
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(spawn, "ledger_write", ledger), \
+             mock.patch.object(spawn, "resolve_role_source",
+                               lambda role, repo_root: _ROLE_SOURCE_STUB):
+            refused = spawn.admission_gate({
+                "cwd": td, "role": "implementation", "issue": None,
+                "task": "538", "single_phase": False, "skills": None,
+                "max_turns": 200, "allow_unlimited_turns": False})
+        self.assertEqual(refused, "degenerate-task")
+        events = ledger.named("admission_refused")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["item"], "degenerate-task")
+
+    def test_hash_and_negative_shaped_tasks_also_refuse(self):
+        # `-538` is the before-landing-warrant-hunt bypass in the prior
+        # delivery (PR #2306): argparse's own negative-number handling
+        # lets a leading-dash digit string through as a plain positional.
+        for shaped_task in ("#538", "-538", "  538  "):
+            with self.subTest(task=shaped_task):
+                self.assertIs(spawn._admission_check_degenerate_task(
+                    {"issue": None, "task": shaped_task}), False)
+
+    def test_refusal_message_substitutes_actual_task_not_placeholder(self):
+        # PR #2306 and PR #2368 both printed the literal 4-character
+        # placeholder string "<task>" in the did-you-mean suggestion
+        # instead of the real task value -- untested by either PR's own
+        # suite. The suggested command must be copy-pasteable with the
+        # caller's actual (typo'd) task text, not a placeholder.
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            result = spawn._admission_check_degenerate_task(
+                {"issue": None, "task": "538", "role": "implementation"})
+        self.assertIs(result, False)
+        message = stderr.getvalue()
+        self.assertIn('"538"', message)
+        self.assertNotIn("<task>", message)
+
+    def test_real_task_text_admits(self):
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None, "task": "fix the login bug"}), True)
+
+    def test_issue_scoped_numeric_task_admits(self):
+        # --issue was given -- whatever the task text looks like is not
+        # this check's concern.
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": 538, "task": "538"}), True)
+
+    def test_force_adhoc_task_overrides(self):
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None, "task": "538", "force_adhoc_task": True}), True)
+
+    def test_no_task_key_admits(self):
+        # Ctx dicts built before this item existed (older callers/tests)
+        # carry no "task" key at all -- must not refuse on absence.
+        self.assertIs(spawn._admission_check_degenerate_task(
+            {"issue": None}), True)
+
+    def test_force_adhoc_task_admits_and_no_workspace_change(self):
+        with tempfile.TemporaryDirectory() as td:
+            work = _board_repo(td)
+            ledger = _LedgerSpy()
+            with mock.patch.object(spawn, "ledger_write", ledger), \
+                 mock.patch.object(spawn, "resolve_role_source",
+                                   lambda role, repo_root: _ROLE_SOURCE_STUB):
+                refused = spawn.admission_gate({
+                    "cwd": str(work), "role": "implementation", "issue": None,
+                    "task": "538", "force_adhoc_task": True,
+                    "single_phase": False, "skills": None,
+                    "max_turns": 200, "allow_unlimited_turns": False})
+        self.assertIsNone(refused)
+        self.assertEqual(ledger.named("admission_refused"), [])
+
     # --- fail-open ------------------------------------------------------
     def test_gh_failure_fails_open_with_ledger_event(self):
         """Mirrors the returned-PR gate convention (issue #680): a broken
@@ -425,6 +505,34 @@ class AdmissionRefusalCreatesNothing(unittest.TestCase):
         events = ledger.named("admission_refused")
         self.assertEqual(len(events), 1)
         self.assertEqual(events[0]["item"], "board-validity")
+
+    def test_degenerate_task_refusal_creates_no_workspace_and_no_session(self):
+        """Issue #2293 acceptance: a bare-numeric adhoc task is refused at
+        admission -- no isolated workspace, no session, before an adhoc
+        spawn ever reaches its (new, issue #2293) isolation step."""
+        with tempfile.TemporaryDirectory() as td:
+            work = _board_repo(td)
+            ledger = _LedgerSpy()
+            workspaces, popens = [], []
+            with mock.patch.object(spawn, "ledger_write", ledger), \
+                 mock.patch.object(spawn, "resolve_role_source",
+                                   lambda role, repo_root: _ROLE_SOURCE_STUB), \
+                 mock.patch.object(spawn, "_repo_slug", return_value=None), \
+                 mock.patch.object(spawn, "issue_workspace",
+                                   side_effect=lambda *a: workspaces.append(a)), \
+                 mock.patch.object(spawn, "roster_register",
+                                   side_effect=AssertionError("no roster write")), \
+                 mock.patch.object(spawn.subprocess, "Popen",
+                                   side_effect=lambda *a, **k: popens.append(a)):
+                rc = spawn._spawn_one(str(work), "implementation", "538",
+                                      unattended=True, issue=None,
+                                      bounded=False)
+        self.assertEqual(rc, 1)
+        self.assertEqual(workspaces, [])   # no workspace created
+        self.assertEqual(popens, [])       # no session process
+        events = ledger.named("admission_refused")
+        self.assertEqual(len(events), 1)
+        self.assertEqual(events[0]["item"], "degenerate-task")
 
 
 class BudgetCapPlumbing(unittest.TestCase):

@@ -268,9 +268,24 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     branch = Path(work).name if work else None
     ckpt_fields = (checkpoint.checkpoint_health(work, now=now) if work
                    else {"dirty_files": 0, "minutes_since_checkpoint": None})
+    # Issue #2293: a no-`--issue` (adhoc) roster entry's watchdog line must
+    # say `adhoc` prominently -- otherwise the always-printed
+    # `[poll-report]` HEALTHY line reads exactly like a normal issue-N
+    # spawn's, which is how the consumer's diagnosis cycle burned real
+    # time on a degenerate-task session that looked fine. Every diagnosis
+    # this function returns goes through `_diagnosis()`, so tagging here
+    # covers HEALTHY/STALLED/DEADLOCKED/DEAD-*/completion uniformly.
+    adhoc_prefix = None
+    if entry.get("issue") is None:
+        task_hint = (entry.get("task") or "").strip()[:60]
+        adhoc_prefix = (f'ADHOC task="{task_hint}"' if task_hint
+                        else "ADHOC (no task recorded)")
 
     def _diagnosis(d: dict) -> dict:
-        return {**d, **ckpt_fields}
+        merged = {**d, **ckpt_fields}
+        if adhoc_prefix and merged.get("detail"):
+            merged["detail"] = f"{adhoc_prefix} — {merged['detail']}"
+        return merged
 
     alive = _sp._alive(pid)
     if not alive:

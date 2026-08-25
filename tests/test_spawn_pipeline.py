@@ -1,3 +1,5 @@
+import re
+
 from _spawn_test_support import *  # noqa: F401,F403
 
 
@@ -1224,6 +1226,148 @@ class IssueScopedPrompt(unittest.TestCase):
             self.assertEqual(delivered.count("원래 맡긴 일."), 1, delivered)
             self.assertEqual([p for p, _ in prep].count("workspace"), 1, prep)
             self.assertEqual([p for p, _ in prep].count("branch"), 1, prep)
+
+
+class AdhocIsolationAndLogPath(unittest.TestCase):
+    """Issue #2293 scope addition (consumer incident 2026-08-25): an adhoc
+    (no --issue) spawn used to run directly in the caller's `-C` cwd,
+    leaving untracked files inside a shared checkout, and fell back to a
+    single shared `runs/last-session.log` a second mistake could
+    overwrite mid-session. Both are now the same per-spawn isolation an
+    issue-scoped spawn already gets."""
+
+    def _repo(self, path: Path, origin_url: str = "https://github.com/someorg/somerepo.git") -> None:
+        path.mkdir(parents=True)
+        run = lambda *a: subprocess.run(a, cwd=str(path), capture_output=True,
+                                        text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (path / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        run("git", "remote", "add", "origin", origin_url)
+
+    def test_issue_workspace_isolates_adhoc_by_pid_not_by_issue_none(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "caller-cwd"
+            self._repo(src)
+            work_base = Path(td) / "work"
+            work_base.mkdir()
+            old_environ = dict(os.environ)
+            os.environ["MUSTER_WORK_DIR"] = str(work_base)
+            try:
+                with mock.patch.object(spawn, "_fetch_or_halt"):
+                    adhoc_work = spawn.issue_workspace(str(src), None, "implementation")
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environ)
+            self.assertNotEqual(Path(adhoc_work).resolve(), src.resolve())
+            # repo_name comes from the origin remote's basename, not the
+            # local dir name -- same derivation issue-scoped workspaces use.
+            self.assertEqual(Path(adhoc_work).name,
+                             f"somerepo-adhoc-implementation-{os.getpid()}")
+
+    def test_stale_pid_keyed_workspace_is_wiped_not_reused(self):
+        # Before-landing warrant hunt (issue #2293): a leftover directory
+        # at the pid-keyed adhoc path -- a crashed prior adhoc spawn, or
+        # the OS reusing a pid once its number wraps -- must never be
+        # silently inherited by a new, unrelated adhoc task. Same `pid`
+        # for both calls simulates the collision without needing to wait
+        # for a real OS pid wraparound.
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "caller-cwd"
+            self._repo(src)
+            work_base = Path(td) / "work"
+            work_base.mkdir()
+            old_environ = dict(os.environ)
+            os.environ["MUSTER_WORK_DIR"] = str(work_base)
+            fake_pid = 4242
+            try:
+                with mock.patch.object(spawn, "_fetch_or_halt"), \
+                     mock.patch.object(spawn.os, "getpid", return_value=fake_pid):
+                    w1 = spawn.issue_workspace(str(src), None, "implementation")
+                    stale = Path(w1) / "STALE_MARKER.txt"
+                    stale.write_text("leftover from a prior adhoc task\n")
+                    subprocess.run(["git", "-C", w1, "add", "STALE_MARKER.txt"],
+                                   check=True)
+                    subprocess.run(["git", "-C", w1, "commit", "-q", "-m", "stale"],
+                                   check=True)
+                    subprocess.run(["git", "-C", w1, "checkout", "-q", "-b",
+                                    "stale-branch-from-task-1"], check=True)
+                    w2 = spawn.issue_workspace(str(src), None, "implementation")
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environ)
+            self.assertEqual(w1, w2)  # same pid-keyed path
+            self.assertFalse((Path(w2) / "STALE_MARKER.txt").exists())
+            branch = subprocess.run(["git", "-C", w2, "branch", "--show-current"],
+                                    capture_output=True, text=True).stdout.strip()
+            self.assertNotEqual(branch, "stale-branch-from-task-1")
+
+    @pytest.mark.slow
+    def test_adhoc_spawn_runs_isolated_with_timestamped_pid_log(self):
+        with tempfile.TemporaryDirectory() as td:
+            caller_cwd = Path(td) / "caller-cwd"
+            self._repo(caller_cwd)
+            isolated = Path(td) / "isolated-clone"
+            self._repo(isolated)
+
+            prep = []
+
+            def fake_workspace(cwd, issue, role):
+                prep.append(str(cwd))
+                return str(isolated)
+
+            roster = Path(td) / "active.json"
+            old_roster = spawn.ROSTER
+            spawn.ROSTER = roster
+            roster_calls = []
+            orig_roster_register = spawn.roster_register
+
+            def spy_roster_register(key, entry):
+                roster_calls.append((key, dict(entry)))
+                return orig_roster_register(key, entry)
+
+            popen_calls = []
+            orig_popen = spawn.subprocess.Popen
+
+            def spy_popen(cmd, **kwargs):
+                popen_calls.append((cmd, kwargs.get("cwd")))
+                return orig_popen(cmd, **kwargs)
+
+            buf = io.StringIO()
+            old_stdout = sys.stdout
+            sys.stdout = buf
+            try:
+                with mock.patch.object(spawn, "issue_workspace", fake_workspace), \
+                     mock.patch.object(spawn, "spawn_cmd",
+                                       lambda *a, **k: (["cat"], {})), \
+                     mock.patch.object(spawn, "roster_register",
+                                       spy_roster_register), \
+                     mock.patch.object(spawn.subprocess, "Popen", spy_popen), \
+                     mock.patch.object(spawn, "ledger_write",
+                                       lambda *a, **k: None):
+                    rc = spawn._spawn_one(str(caller_cwd), "implementation",
+                                          "맡길 일.\n", unattended=True,
+                                          issue=None)
+            finally:
+                sys.stdout = old_stdout
+                spawn.ROSTER = old_roster
+
+            self.assertEqual(rc, 0)
+            # issue_workspace() was consulted -- the adhoc block ran.
+            self.assertEqual(prep, [str(caller_cwd)])
+            # the actual session subprocess ran in the isolated clone, not
+            # the caller's `-C` cwd.
+            session_cwds = [cwd for cmd, cwd in popen_calls if cmd == ["cat"]]
+            self.assertEqual(session_cwds, [str(isolated)])
+            adhoc_key = [k for k, _ in roster_calls if k.startswith("adhoc/")][0]
+            log_path = dict(roster_calls)[adhoc_key]["log"]
+            self.assertNotIn("last-session.log", log_path)
+            self.assertRegex(
+                Path(log_path).name,
+                re.escape(Path(isolated).name) + r"\.session\.\d{8}T\d{6}\.\d+\.log$")
 
 
 class WorkspaceReuseOriginMismatch(unittest.TestCase):

@@ -27,6 +27,7 @@ import io
 import json
 import math
 import os
+import shutil
 import signal
 import stat
 import string
@@ -459,6 +460,7 @@ _admission_check_approve_token = _pipeline_mod._admission_check_approve_token
 _admission_check_board_validity = _pipeline_mod._admission_check_board_validity
 _board_marker_probe = _pipeline_mod._board_marker_probe
 _admission_check_budget_caps = _pipeline_mod._admission_check_budget_caps
+_admission_check_degenerate_task = _pipeline_mod._admission_check_degenerate_task
 _admission_check_directive_completeness = _pipeline_mod._admission_check_directive_completeness
 _admission_check_watch_registration = _pipeline_mod._admission_check_watch_registration
 _artifact_smoke_task_lines = _pipeline_mod._artifact_smoke_task_lines
@@ -1225,6 +1227,12 @@ def main() -> int:
                     help="대상 레포의 .claude/ 설정·훅을 신뢰한다. 읽어본 뒤에만")
     ap.add_argument("--issue", type=positive_int,
                     help="이 이슈 번호로 스폰한다: issue-<n>/<역할> 브랜치를 만들고 프롬프트에 명시")
+    ap.add_argument("--force-adhoc-task", action="store_true",
+                    help="issue #2293: admit a task that looks like a bare "
+                         "issue number (`538`, `#538`, `-538`) with no "
+                         "--issue, instead of the default admission "
+                         "refusal -- for the rare legitimate numeric-task "
+                         "case")
     ap.add_argument("--model",
                     help="이 스폰 한 번만 쓸 모델 오버라이드: --model > "
                          "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
@@ -1711,6 +1719,7 @@ def main() -> int:
                           max_turns=a.max_turns,
                           allow_unlimited_turns=a.allow_unlimited_turns,
                           checkpoint=a.checkpoint,
+                          force_adhoc_task=a.force_adhoc_task,
                           attempt_id=attempt_id)
     except (SystemExit, Exception) as e:
         # 이슈 #2291: `_fetch_or_halt()`류의 fail-closed halt(sys.exit)와,
@@ -1808,7 +1817,7 @@ def local_dependency_env(origin: str, work: str) -> dict[str, str]:
     return env
 
 
-def issue_workspace(cwd: str, issue: int, role: str) -> str:
+def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
 
     산출물이 PR 로만 돌아오는 모델에서 역할 세션이 사용자의 체크아웃을
@@ -1817,6 +1826,12 @@ def issue_workspace(cwd: str, issue: int, role: str) -> str:
     트리에서 충돌 직전까지 갔다). 로컬에서 클론하고 origin 을 실제 원격으로
     되돌려 push/gh 가 GitHub 로 가게 한다. 재스폰이면 기존 작업 디렉토리를
     fetch 로 재사용한다 — 진행 중이던 브랜치 작업을 버리지 않는다.
+
+    Issue #2293 (scope addition, consumer incident 2026-08-25): an adhoc
+    (`issue is None`) caller gets the same clone-isolation, keyed by pid
+    instead of an issue number — there is no (issue, role) identity to
+    resume across respawns for an adhoc task, so it always takes the
+    fresh-clone path below rather than the reuse branches.
     """
     src = Path(cwd).resolve()
     r = subprocess.run(["git", "-C", str(src), "remote", "get-url", "origin"],
@@ -1846,12 +1861,22 @@ def issue_workspace(cwd: str, issue: int, role: str) -> str:
     # 워크스페이스를 -C 로 다시 넘겼을 때 이름이 이중으로 붙는다(실측:
     # ...-issue-45-coding-issue-45-coding). origin 은 위에서 이미 읽었다.
     repo_name = re.sub(r"\.git$", "", origin.rstrip("/").rsplit("/", 1)[-1]) or slug(cwd)
-    work = work_base / f"{repo_name}-issue-{issue}-{role}"
+    work = (work_base / f"{repo_name}-issue-{issue}-{role}" if issue is not None
+            else work_base / f"{repo_name}-adhoc-{role}-{os.getpid()}")
     # cwd 가 이미 이 (이슈,역할)의 워크스페이스면 그대로 쓴다 — 중첩 금지.
     if src == work.resolve():
         _fetch_or_halt(str(src), "재사용 워크스페이스")
         _write_role_sidecar(str(src), issue, role)
         return str(src)
+    if issue is None and (work / ".git").exists():
+        # Issue #2293 (before-landing warrant hunt): an adhoc task has no
+        # identity to resume across respawns -- unlike the issue-scoped
+        # reuse branch below, a leftover directory at this pid-keyed path
+        # (a crashed prior adhoc spawn, or the OS reusing the pid once
+        # its number wraps) must never be silently inherited. Wipe it and
+        # fall through to the fresh-clone path, matching this function's
+        # own docstring claim that adhoc always takes it.
+        shutil.rmtree(work, ignore_errors=True)
     if (work / ".git").exists():
         # 이 경로가 우리가 만든 워크스페이스가 아니라 우연히 같은 이름으로
         # 미리 놓인 남의 레포일 수 있다(#288 N5) — origin 이 다르면 그건
@@ -2043,6 +2068,7 @@ ADMISSION_CHECKS: list[tuple] = [
     ("watch-registration", _admission_check_watch_registration),
     ("budget-caps", _admission_check_budget_caps),
     ("board-validity", _admission_check_board_validity),
+    ("degenerate-task", _admission_check_degenerate_task),
 ]
 
 
@@ -2054,6 +2080,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                max_turns: int | None = None,
                allow_unlimited_turns: bool = False,
                checkpoint: bool = False,
+               force_adhoc_task: bool = False,
                attempt_id: str | None = None) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
@@ -2083,11 +2110,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     resolved_max_turns = _resolve_session_max_turns(max_turns)
     with _timed("admission"):
         _refused_item = admission_gate({
-            "cwd": cwd, "role": role, "issue": issue,
+            "cwd": cwd, "role": role, "issue": issue, "task": task,
             "single_phase": single_phase, "skills": skills,
             "max_turns": resolved_max_turns,
             "allow_unlimited_turns": allow_unlimited_turns,
             "checkpoint": checkpoint,
+            "force_adhoc_task": force_adhoc_task,
         })
     if _refused_item is not None:
         print(f"[{role}] admission refused: missing precondition "
@@ -2154,6 +2182,16 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _cross_family_skill_matches_with_consult,
             _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
             home=Path.home(), target_repo_root=Path(cwd))
+    if issue is None:
+        # Issue #2293 (scope addition, consumer incident 2026-08-25): an
+        # adhoc (no --issue) spawn used to run directly in the caller's
+        # `-C` cwd -- a degenerate task there left 40 untracked files
+        # inside the target repo's checkout and broke an unrelated PR's
+        # build. Give it the same clone-isolation an issue-scoped spawn
+        # already gets (`issue_workspace()`, keyed by pid here).
+        with _timed("adhoc_workspace"):
+            cwd = issue_workspace(cwd, issue, role)
+        print(f"[{role}] adhoc 격리 작업 디렉토리: {cwd}", file=sys.stderr)
     if issue is not None:
         root = Path(cwd).resolve()
         # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
@@ -2588,8 +2626,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # stream-json 을 줄 단위로 받아 라이브 로그에 tee 한다 — "지금 뭐
         # 하는 중인가"가 세션이 끝나기 전에도 보이게. 최종 result 이벤트가
         # 옛 --output-format json 의 결과 오브젝트와 같은 필드를 든다.
-        log_path = (_session_log_path(cwd) if issue is not None
-                    else ROOT / "runs" / "last-session.log")
+        # Issue #2293 (scope addition): adhoc spawns now clone into their
+        # own pid-keyed workspace above, so they get the same
+        # timestamped+PID log path issue-scoped spawns already do
+        # (pipeline.py `_session_log_path()`, issue #192) instead of a
+        # single shared `runs/last-session.log` that a second mistake
+        # could overwrite mid-session.
+        log_path = _session_log_path(cwd)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         print(f"[{role}] 라이브 로그: {log_path}", file=sys.stderr)
         if attempt_id is not None:
@@ -2741,6 +2784,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             "issue": issue, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
+            # Issue #2293: the raw task text, adhoc spawns only -- lets
+            # watchdog.diagnose_health() tag every poll line for a
+            # no-issue entry with the task it is actually running, so
+            # HEALTHY can never read as "your issue-N spawn is fine".
+            "task": task if issue is None else None,
             # 이슈 #2070: 이 스폰에 실제로 --model 로 붙은 값과, 그것을 고른
             # 규칙(`cli-override`/`env-override`/`config-override`/
             # `role-tier:<name>`/`design-bearing-override`/

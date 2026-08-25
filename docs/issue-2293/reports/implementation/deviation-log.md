@@ -1,0 +1,3 @@
+# Deviation log — issue-2293 / implementation
+
+- 2026-08-25T15:00:00+09:00 | inline | Acceptance's "run the override path" evidence was gathered via a direct `_admission_check_degenerate_task(..., force_adhoc_task=True)` call plus an `admission_gate()` integration test, not a full live `spawn.py implementation 538 --force-adhoc-task` CLI run — that path forks a real nested live session with no bounded way to observe and tear it down cleanly from this session. Same substitution PR #2361's independent execution-observation made for the same reason. Documented explicitly in `docs/issue-2293/reports/implementation.md`'s "Live CLI repro 2" section rather than silently swapped in.
