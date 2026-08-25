@@ -1765,6 +1765,12 @@ def main() -> int:
         # 경우를 require_board 의 "approvers.md 없다" 증상보다 먼저, 원인
         # 그대로 이름 붙여 멈춘다.
         require_repo_root(a.cwd, a.issue)
+        # 이슈 #2395 CHANGES(PR #2404 conformance review, REQ-CWD-WRONGREPO):
+        # require_acceptance_gate/require_requirement_linkage 는 이슈
+        # 리서치 결과에 따라 여기서 거절할 수 있다 — 레포/이슈 해석 echo
+        # 를 그 두 게이트보다 앞으로 옮겨, 거절되는 경우에도 오케스트레
+        # 이터가 어느 레포/이슈로 해석됐는지 본다.
+        _resolve_and_echo_issue(a.role, a.cwd, a.issue)
         require_board(a.cwd, a.no_contract or a.dry_run)
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_acceptance_gate(a.cwd, a.issue)
@@ -1804,6 +1810,12 @@ def main() -> int:
         # 먼저 — 이 게이트도 attempt_id 기록 뒤(traceless halt 방지)에
         # 있어야 한다.
         require_repo_root(a.cwd, a.issue)
+        # 이슈 #2395 CHANGES: 위 dry-run 분기와 같은 이유로 이 게이트도
+        # require_acceptance_gate/require_requirement_linkage 보다 먼저
+        # — 그 두 게이트가 거절해도 echo 는 이미 찍혀 있다. 결과
+        # (issue_data, 또는 조회 실패 시 None)를 아래 `_spawn_one()`에
+        # 그대로 넘겨 gh 재조회를 피한다(acceptance check 2).
+        _issue_data = _resolve_and_echo_issue(a.role, a.cwd, a.issue)
         require_board(a.cwd, a.no_contract)
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_acceptance_gate(a.cwd, a.issue)
@@ -1829,7 +1841,8 @@ def main() -> int:
                           allow_unlimited_turns=a.allow_unlimited_turns,
                           checkpoint=a.checkpoint,
                           force_adhoc_task=a.force_adhoc_task,
-                          attempt_id=attempt_id)
+                          attempt_id=attempt_id,
+                          issue_data=_issue_data)
     except (SystemExit, Exception) as e:
         # 이슈 #2291: `_fetch_or_halt()`류의 fail-closed halt(sys.exit)와,
         # 이 구간의 아무 uncaught exception 이나 — 컨슈머가 stdout/stderr 를
@@ -2199,6 +2212,44 @@ ADMISSION_CHECKS: list[tuple] = [
 ]
 
 
+_ISSUE_NOT_PRE_RESOLVED = object()
+
+
+def _resolve_and_echo_issue(role: str, cwd: str, issue: int | None) -> dict | None:
+    """이슈 #2395 CHANGES(PR #2404 conformance review, REQ-REPRO/REQ-CWD-WRONGREPO):
+    레포/이슈 해석 echo 를 `main()`이 `require_acceptance_gate`/
+    `require_requirement_linkage` 를 부르기 *전에* 찍는다 — 그 두 게이트가
+    거절해도(예: 이슈의 원인 사례인 "요구 연결 없음") 오케스트레이터는
+    여전히 어느 레포/이슈로 해석됐는지 본다. 이전에는 이 echo 가
+    `_spawn_one()` 안에서만 돌아, 그 두 게이트보다 뒤에 있었다(게이트가
+    막으면 echo 자체가 안 찍힘).
+
+    `--issue` 없는 호출은 검사 대상이 없다 — `None` 을 그대로 돌려준다.
+    `gh` 조회 실패는 조용히 넘기지 않고 "확인 실패"라고 그대로 찍는다
+    (확인 불가를 확인됨으로 읽지 않는다, 아래 `_spawn_one()`과 동일 원칙).
+    """
+    if issue is None:
+        return None
+    issue_data = None
+    try:
+        sys.path.insert(0, str((ROOT / "gates").resolve()))
+        import gh_rest as _gh_rest
+        issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
+    except Exception:
+        issue_data = None
+    resolved_owner = issue_data.get("owner") if issue_data else None
+    resolved_repo = issue_data.get("repo") if issue_data else None
+    title = issue_data.get("title") if issue_data else None
+    if resolved_owner and resolved_repo:
+        resolved_line = (f"해석된 레포/이슈: {resolved_owner}/{resolved_repo}#{issue}"
+                          + (f" — {title}" if title else "") + "\n")
+    else:
+        resolved_line = (f"해석된 레포/이슈: 확인 실패 — cwd({cwd})가 가리키는 "
+                          f"레포에서 이슈 #{issue} 를 못 읽었다(gh 조회 실패).\n")
+    print(f"[{role}] {resolved_line.strip()}")
+    return issue_data
+
+
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
@@ -2208,7 +2259,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                allow_unlimited_turns: bool = False,
                checkpoint: bool = False,
                force_adhoc_task: bool = False,
-               attempt_id: str | None = None) -> int:
+               attempt_id: str | None = None,
+               issue_data=_ISSUE_NOT_PRE_RESOLVED) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -2223,7 +2275,15 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     일어날 수 있어, 그 지점들 하나하나를 계측하는 대신 호출부를 감싸는 쪽이
     새 halt 지점이 생겨도 놓치지 않는다. `None`(다른 호출부 — 예: 워치독
     자동-재스폰의 `_respawn_or_cap()`)이면 이 인자와 관련된 아무 것도 안
-    쓴다 — 오늘의 동작 그대로."""
+    쓴다 — 오늘의 동작 그대로.
+
+    `issue_data`(이슈 #2395 CHANGES, 옵션): `main()`이 게이트 앞에서 이미
+    `_resolve_and_echo_issue()`로 fetch-and-echo 를 끝냈으면 그 결과
+    (dict 또는 조회 실패 시 `None`)를 여기로 넘긴다 — 이 함수는 그 값을
+    재사용하고 echo 를 다시 찍지 않는다(gh 왕복 중복 방지). 기본값
+    `_ISSUE_NOT_PRE_RESOLVED` 는 "아직 아무도 안 찍었다"는 뜻으로, 이
+    함수가 직접 fetch 하고 echo 도 직접 찍는다 — `_respawn_or_cap()` 등
+    `main()`을 거치지 않는 호출부의 오늘까지 동작 그대로."""
     # Issue #2100: pre-spawn admission checklist. Runs before ANY side
     # effect (workspace clone, branch, roster/index writes, session
     # process) — a refusal names the missing precondition, writes one
