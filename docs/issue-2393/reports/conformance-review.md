@@ -291,8 +291,8 @@ overall: passed
 
 ## skill-verdict
 
-skill-verdict: conformance-review-verification-method-selection — applied:
-invoked; used Test/Demonstration (independent re-execution, this session's
+skill-verdict: conformance-review-verification-method-selection — applied: invoked;
+used Test/Demonstration (independent re-execution, this session's
 own commands) for bullets 2-4 per rule 4 (reused the existing reproduction
 shape rather than a fresh derivation) and rule 3 (bullet 3 is a
 qualitative functional claim, exercised live with a fresh issue number);
@@ -305,8 +305,8 @@ of each (rule 1 — checked the guard fires on the stated condition, not
 just that matching code exists); backward-traced R8 to its source record
 before checking its resolution (rule 3-adjacent, shared with the
 traceability skill).
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every evidence line cites file:line-range plus commit sha
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+every evidence line cites file:line-range plus commit sha
 (`512eec2c`/`f6487073`/`1addbe9e`); R8 backward-traced to its source line
 (`docs/issue-2291/reports/conformance-review.md:575-583`) before verifying
 its resolution, per rule 3.
