@@ -363,7 +363,44 @@ session.
 
 ## Open findings
 
-None. Resolution path: not applicable.
+canonical: before-landing `warrant:warrant-hunter` background check run this
+session against this round's uncommitted diff, returned finding written to
+`docs/issue-2431/reports/implementation/2026-08-25-hunt-spawn-attempt-dead-pid-grace-gate.md`;
+independently reproduced this session with a standalone script (two
+`os.fork()`-dead pids, same `(issue=41, role=implementation)` subject, both
+`ts` already past `SPAWN_ATTEMPT_GRACE_SEC`, one `roster.spawn_attempt_sweep()`
+call): `count reported: 1`, one report line printed, and `remaining: set()`
+afterward — both records gone, so the second attempt_id's own pid/detail
+never appears in any report.
+
+One open finding, not fixed in this round: `_prune_spawn_attempts()`'s new
+grace-window gate has no visibility into `roster.py`'s per-tick
+`reported_subjects` dedup (`spawn_attempt_sweep()` ~line 478-500, #2413) —
+when two dead-pid attempt_ids share the same `(issue, role)` subject and
+both cross `SPAWN_ATTEMPT_GRACE_SEC` in the same tick, the report loop
+prints only one line for the subject (by design, per #2413's
+`test_many_attempt_ids_same_subject_prints_once_per_tick`, which asserts
+exactly this collapsing for up to 50 attempt_ids), and the trailing
+`_prune_spawn_attempts()` call then drops every crossed-threshold
+attempt_id for that subject regardless of which one was actually printed.
+
+Resolution path: not fixed here — verified this is pre-existing behavior,
+unchanged by this round, not a regression this round introduced. derived:
+`git show 6531f56f:spawn.py` (the commit immediately before this round)
+shows the prior `outcome is None` branch had no age check at all — a dead
+pid was pruned unconditionally the instant it was processed, so two
+already-old dead-pid attempt_ids sharing a subject were *already* both
+pruned in one tick behind the same one-line-per-subject dedup, before this
+round touched the function. This round's grace-window gate only changes
+the outcome for a record still *within* `SPAWN_ATTEMPT_GRACE_SEC` (kept
+instead of wrongly pruned — the gap this round was scoped to close); it
+does not change, worsen, or fix the separate one-report-line-per-subject
+design #2413 already shipped and tested. Fixing the per-attempt_id
+visibility gap would need `_prune_spawn_attempts()` to know which specific
+attempt_id the report loop actually printed this tick (not just the
+subject), a larger design change outside this round's scope (guarantee a
+report before pruning a fast-dying record) — worth a follow-up issue if
+per-attempt_id (not per-subject) report guarantees are wanted.
 
 ## Next steps
 
