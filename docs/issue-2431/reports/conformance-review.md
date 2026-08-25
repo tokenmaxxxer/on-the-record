@@ -5,11 +5,11 @@ author: conformance-review
 loop_state: reported
 upstream:
   - path: docs/issue-2431/reports/implementation.md
-    sha: 6531f56fde8d5ea9199819c4d6f97227232d405f
-subject: PR #2434 (issue-2431/implementation, head 6531f56fde8d5ea9199819c4d6f97227232d405f, base c5851224 = the merged #2413 fix this PR corrects) — spawn.py, tests/test_watch_hardening.py, docs/reports/product/quality-bar.md
-test: issue #2431 Acceptance section, five bulleted checks
+    sha: 8300137eff6c21abd2d62af99041c55e6191c907
+subject: PR #2434 (issue-2431/implementation, head 8300137eff6c21abd2d62af99041c55e6191c907, base c5851224 = the merged #2413 fix this PR corrects) — spawn.py, tests/test_watch_hardening.py, docs/reports/product/quality-bar.md — round 2 adds the CHANGES-round report-before-prune-gap fix (cd708d98) on top of the round-1-reviewed 6531f56f
+test: issue #2431 Acceptance section, five bulleted checks (round 1); this session's own core-safety-property re-check (round 2, no new acceptance bullet — a regression risk on an already-Present requirement)
 result: passed
-assertedBy: conformance-review session for issue-2431, builder-blind review of PR #2434, 2026-08-25 — CORE_BUILD_NOW=1 build-now bypass, delivered directly
+assertedBy: conformance-review session for issue-2431, builder-blind review of PR #2434, 2026-08-25 — CORE_BUILD_NOW=1 build-now bypass, delivered directly (round 1); round 2 same session/day, after PR #2438's execution-observation surfaced the report-before-prune gap and PR #2434 (cd708d98) closed it
 ---
 
 # issue-2431 — conformance-review record
@@ -52,6 +52,25 @@ conformance-review-traceability-and-evidence,
 conformance-review-finding-record,
 defect-verification-independence-from-upstream-verdicts (cross-family,
 skill-repository issue #2001). See "## Skill verdicts" at the bottom.
+
+Round 2 (this turn, same day): re-review of PR #2434 after its
+CHANGES-round commit closed the report-before-prune gap that PR
+#2438's execution-observation found in round 1's reviewed state.
+Re-invoked `defect-verification-independence-from-upstream-verdicts`
+and `conformance-review-finding-record` for the new A6 requirement
+block and the pre-existing-vs-regression check on the warrant-hunter's
+open finding (see "## Round 2" sections below) — did not carry round
+1's Present verdicts forward by assumption for the code path this
+round's diff actually touches (`_prune_spawn_attempts`'s dead-pid
+branch), only for the paths independently re-confirmed byte-identical
+this round too (halted branch, `roster.py`).
+
+canonical: `gh pr view 2434` (description + comments), `git log
+pr-2434-latest --oneline -8` (`cd708d98 issue-2431: close
+report-before-prune gap for fast-dying spawn attempts`, head now
+`8300137e`), `gh pr diff 2434`, `git diff c5851224 pr-2434-latest
+--stat -- spawn.py roster.py` — all run this session; full transcripts
+under A6 and "## Round 2 — pre-existing-vs-regression check" below.
 
 ## Why
 
@@ -332,17 +351,129 @@ evidence: |
 rationale: Byte-identical code plus an independently-built two-record fixture exercising both sides of the 7-day boundary confirm the halted branch's retention behavior is unchanged, and the "left as-is" claim is stated explicitly in three places, not merely implied.
 ---
 
+---
+requirement: "A6 (round 2) — CHANGES-round fix does not regress the core safety property: a fast-dying spawn attempt (pid dies within SPAWN_ATTEMPT_GRACE_SEC of the spawn attempt) must still get at least one watchdog report before it is ever pruned" [dimension: regression / edge case; verification method: independent Demonstration, per defect-verification-independence-from-upstream-verdicts rule 1 (round-1's A1 Present verdict is not treated as settling round 2 — this is new code on top of it)]
+spec_ref: PR #2434 CHANGES-round comment (execution-observation on PR #2438, merged) — "Gap: ... A pid dying within SPAWN_ATTEMPT_GRACE_SEC (300s) of its spawn attempt could be deleted with zero watchdog reports ever fired ... Fix: _prune_spawn_attempts()'s dead-pid branch now keeps the record until ts clears SPAWN_ATTEMPT_GRACE_SEC"
+verdict: Present
+evidence: |
+  `8300137e:spawn.py` dead-pid branch (`_prune_spawn_attempts`,
+  `outcome is None` case): now `if _pid_is_alive(pid): keep_ids.add(aid)
+  else: ts = a.get("ts"); if isinstance(ts, (int, float)) and now - ts <
+  SPAWN_ATTEMPT_GRACE_SEC: keep_ids.add(aid)` — full diff against the
+  round-1-reviewed `6531f56f` inspected this session via `gh pr diff
+  2434` and `git show 8300137e:spawn.py`; the unconditional
+  `_pid_is_alive(pid)`-only drop from round 1 is gone, replaced by the
+  grace-gated keep above. `8300137e:roster.py:435-511`
+  (`spawn_attempt_sweep`) confirmed unchanged from round 1 (`git diff
+  c5851224 pr-2434-latest --stat -- roster.py` this session: no output,
+  i.e. zero diff) — the report loop's own reportability gate (`now -
+  ts < SPAWN_ATTEMPT_GRACE_SEC: continue`) is the same threshold the
+  prune branch now shares, and `_sp._prune_spawn_attempts(now=now)` still
+  runs once, after the report loop, inside the same
+  `spawn_attempt_sweep()` call — the only call site of
+  `_prune_spawn_attempts` in the tree (`grep -rn
+  "_prune_spawn_attempts(" --include="*.py"` this session, non-test
+  hits: roster.py:510 only).
+
+  derived: independent from-scratch fixture, this session, not reusing
+  the PR's own `SpawnAttemptSweepReportsBeforePrune` test — a real
+  `os.fork()`-then-`os._exit(0)`-then-`os.waitpid()` dead pid, in a
+  `pr-2434-latest` worktree checked out separately from this review
+  branch:
+  ```
+  # tick at +5s (well inside SPAWN_ATTEMPT_GRACE_SEC=300s): must NOT report, must NOT prune
+  tick1 count= 0 output= '' remaining= {'indep1'}
+  # tick at +301s (just past SPAWN_ATTEMPT_GRACE_SEC): must report AND prune, same call
+  tick2 count= 1 output= '[spawn-attempt] issue-77/implementation: spawn halted pre-workspace: no outcome recorded 301s after spawn attempt (pid ...) — process likely died before it could report why\n' remaining= set()
+  ```
+  Both assertions (`c1 == 0` / `'indep1' in remaining()` /
+  `buf.getvalue().strip() == ''` at tick 1; `c2 == 1` /
+  `'issue-77/implementation' in buf2.getvalue()` / `'indep1' not in
+  remaining()` at tick 2) held — canonical: inline `python3` script run
+  this session in `/tmp/pr2434-wt` (worktree of `pr-2434-latest`,
+  fetched via `git fetch origin pull/2434/head:pr-2434-latest`),
+  transcript above is the actual stdout captured.
+
+  Full regression suite, same worktree, this session:
+  ```
+  $ python3 -m pytest tests/test_watch_hardening.py tests/test_spawn_pipeline.py -q -n0
+  126 passed in 11.87s
+  ```
+  (37 + 89 = 126, matching the CHANGES-round PR comment's claimed
+  counts exactly — independently re-run, not read from the comment.)
+rationale: The core safety property this re-review was scoped to (fast-dying attempt gets >=1 report before ever being pruned) holds on independent re-derivation — own fork-based fixture, own worktree, own assertions — not merely by re-reading the PR's test or its prose claim; no regression from round 1's reviewed behavior for the already-verified acceptance bullets (A1-A5 above), since roster.py is untouched and the halted branch's SPAWN_ATTEMPTS_RETENTION_SEC bound is still byte-identical to c5851224 (re-confirmed this round, same diff command as A1/A5, still empty).
+---
+
+## Round 2 — pre-existing-vs-regression check on the warrant-hunter's open finding
+
+canonical: `git show
+8300137e:docs/issue-2431/reports/implementation/2026-08-25-hunt-spawn-attempt-dead-pid-grace-gate.md`
+(this session — not present on this review branch,
+`issue-2431/conformance-review`; it lives on the PR's own
+`issue-2431/implementation` history, read via `git show <sha>:<path>`
+same as this record's round-1 citations of `implementation.md`) — the
+before-landing warrant-hunter finding cited in PR #2434's CHANGES-round
+comment; this session's own independent repro, below.
+
+The CHANGES-round comment reports one open, unfixed finding: when two
+distinct dead-pid, no-outcome `attempt_id`s share the same `(issue,
+role)` subject and both cross `SPAWN_ATTEMPT_GRACE_SEC` in the same
+tick, `roster.py`'s per-tick `reported_subjects` dedup (issue #2413)
+suppresses the report for the second one, but the new grace-gate has
+no visibility into that suppression and prunes both anyway — the
+second attempt vanishes with zero reports. The comment characterizes
+this as pre-existing, not a regression introduced by this round;
+independence rule 1 (treat an upstream claim as something to test, not
+a settled fact) applies here even though the claim comes from a
+warrant-hunter finding rather than a review Present verdict, so this
+was re-derived rather than cited.
+
+Re-ran the hunt record's own reproduction script against a separate
+`c5851224` worktree (the merged #2413 fix, i.e. before any of this
+PR's commits), with the two attempt_ids' `ts` set 8 days in the past
+(past the *old* 7-day `SPAWN_ATTEMPTS_RETENTION_SEC`, since that
+worktree's code has no `SPAWN_ATTEMPT_GRACE_SEC` gate in this branch
+at all yet):
+```
+count reported: 1
+stdout: '[spawn-attempt] issue-41/implementation: spawn halted pre-workspace: no outcome recorded 691200s after spawn attempt (pid ...) — process likely died before it could report why\n'
+remaining attempt_ids after sweep: set()
+```
+Identical shape to the hunt record's own result against the fixed
+code (`count reported: 1`, both attempt_ids gone). Confirms the gap is
+in the interaction between `reported_subjects` (added by #2413, years
+before this PR existed) and unconditional per-attempt_id deletion in
+`_prune_spawn_attempts` — orthogonal to whether the age bound is 7
+days, `SPAWN_ATTEMPT_GRACE_SEC`, or nothing at all — so it is not
+something this round's fix introduced or could have introduced by
+choosing a different bound. Left open, correctly scoped out of this
+round: fixing it would require either per-`attempt_id` (not
+per-subject) report guarantees or having `_prune_spawn_attempts` share
+`reported_subjects` state with the report loop, both larger changes
+than "guarantee >=1 report before pruning a record that dies fast."
+
 ## Open findings
 
 canonical: the five Findings blocks above (this session's own
-independently re-derived evidence, transcripts quoted there).
+independently re-derived evidence, transcripts quoted there), plus A6
+and the "Round 2" section above.
 
-None — all five acceptance checks verdict Present on independent
-re-derivation (canonical: Findings A1-A5 above). The one procedural
-discrepancy found (A4's tick2 report count, caused by ledger
-pre-warming state differing between the builder's session and this
-review's fresh run, per A4's evidence above) does not indicate a
+Round 1: none — all five acceptance checks verdict Present on
+independent re-derivation (canonical: Findings A1-A5 above). The one
+procedural discrepancy found (A4's tick2 report count, caused by
+ledger pre-warming state differing between the builder's session and
+this review's fresh run, per A4's evidence above) does not indicate a
 functional defect. Resolution path: not applicable.
+
+Round 2: none new. The report-before-prune gap flagged by PR #2438's
+execution-observation is closed and independently re-verified (A6,
+Present). The warrant-hunter's per-subject-dedup double-delete finding
+remains open but is confirmed pre-existing (present identically in
+`c5851224`, before this PR's chain started) and out of scope for this
+round's narrower goal — tracked as a candidate follow-up issue per the
+PR's own comment, not a defect in the change under review here.
+Resolution path: not applicable to this round; a follow-up issue is a
+decision for the issue's owner, not this review.
 
 ## Next steps
 
@@ -385,7 +516,10 @@ skill-verdict: conformance-review-finding-record — applied: invoked; wrote the
 field list (requirement, spec_ref, verdict, evidence, rationale) —
 canonical: the Findings section above; no Incorrect/Absent verdict
 arose, so no `spec_vs_built` field was needed, and no write was
-refused since evidence was located for every bullet.
+refused since evidence was located for every bullet. Round 2:
+re-invoked to write A6 (full field list, Present) with the same
+refusal rule applied — not written until the from-scratch fork-based
+demonstration actually produced a passing transcript.
 
 skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; built every demonstration in this record from
 scratch (own worktrees, own fixtures, own live pid, own fresh copy of
@@ -396,7 +530,20 @@ alive pid at extreme age, run from this session's own process), and
 recorded the one not-fully-matching outcome (A4's tick2 count) with
 the same rigor as the matching ones rather than smoothing it into
 agreement with the builder's numbers — canonical: A2b and A4 evidence
-blocks above.
+blocks above. Round 2: re-invoked per rule 1 (an upstream claim —
+whether A1's own round-1 Present verdict, or the CHANGES-round PR
+comment's prose claim about the fix, or the warrant-hunter's
+pre-existing-not-regression characterization — is a claim to test, not
+a settled fact); built A6's fork-based two-tick fixture from scratch
+in a separately-fetched `pr-2434-latest` worktree rather than running
+the PR's own `SpawnAttemptSweepReportsBeforePrune` test file, included
+the negative/edge tick (still-within-grace, must produce zero report
+and zero prune) per rule 2 rather than only the positive
+report-then-prune tick, and independently re-ran the warrant-hunter's
+own dedup-double-delete repro against a separate `c5851224` worktree
+(pre-dating this entire PR) rather than citing its "pre-existing"
+characterization at face value — canonical: A6 evidence block and the
+"## Round 2 — pre-existing-vs-regression check" section above.
 
 skill-verdict: conformance-review-sampling-derivation — not-applicable:
 full enumeration was feasible — canonical: issue #2431's Acceptance
