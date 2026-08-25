@@ -25,7 +25,7 @@
   mechanism-adding issue that never uses any of the trigger verbs (the
   trigger is deliberately narrow — a broader one was measured to newly
   block 34 of 45 open issues that mostly add no mechanism at all; this
-  one blocks 8).
+  one blocks 14).
 - CONVERGENCE EVIDENCE (issue #2414, Failure B, opt-in): when a `check:`
   is about a mechanism reaching a target population (prune, retire,
   rotate, clear a backlog — not just "ran without error"), add a

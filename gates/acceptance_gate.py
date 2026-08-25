@@ -72,8 +72,8 @@ _PROVENANCE = re.compile(
 # corpus, appear near-exclusively in a mechanism's own description
 # (append/prune/purge/retire/rotate/refuse/reject/deny/force-remove), not
 # in prose describing a bug's symptoms. Measured against the same
-# backlog, this bounds the one-time migration cost to 8 of 45 open
-# issues (18%) while still catching all three real incidents (#2291,
+# backlog, this bounds the one-time migration cost to 14 of 45 open
+# issues (31%) while still catching all three real incidents (#2291,
 # #2383, #2393) on their own original text. This is intentionally
 # lower-recall than a "does this add a mechanism" classifier would be —
 # an issue whose mechanism verbs aren't in this list is not required to
