@@ -1577,8 +1577,30 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                 state[f"{key}:dead_report"] = dead_health
             dead_health = state.get(f"{key}:dead_report")
             if dead_health is not None:
-                dead_label = "COMPLETED" if dead_health["state"] is None else dead_health["state"]
-                print(f"[poll-report] {key}: {dead_label} — {dead_health['detail']}")
+                # 이슈 #2312: 위 dead_report 캐시는 ledger TTL 마다만
+                # 재계산되지만, 이 print 자체는 원래 그 TTL 밖에 있어(주석
+                # 그대로) 죽은 엔트리 하나가 COMPLETED/DEAD-* 를 매 틱
+                # 무한 재출력했다 — active.json 엔트리가 절대 은퇴하지
+                # 않는 근본 원인. pid 로 스코프한 `reported_terminal` 로
+                # 이 터미널 상태를 한 번만 찍고, `pid` 는 재스폰마다
+                # 바뀌므로 같은 key 가 재사용돼도(재스폰) 새 인스턴스는
+                # 다시 한 번 보고된다.
+                terminal_key = f"{key}:{e.get('pid', 0)}:reported_terminal"
+                already_reported = state.get(terminal_key, False)
+                if not already_reported:
+                    dead_label = "COMPLETED" if dead_health["state"] is None else dead_health["state"]
+                    print(f"[poll-report] {key}: {dead_label} — {dead_health['detail']}")
+                    state[terminal_key] = True
+                    # before-landing hunt (issue #2312): persist this flag
+                    # right away instead of waiting for the end-of-tick
+                    # save — another entry raising later in this same loop
+                    # must not un-report an already-reported terminal state
+                    # on the next tick.
+                    _sp._watchdog_state_save(state)
+                    if not e.get("expects_pr") and issue_n is None:
+                        # 관찰할 것이 없다(PR 도 안 기대하고 이슈도 없음) —
+                        # 지금 바로 은퇴시킨다.
+                        _sp.roster_remove(key)
                 if dead_health["state"] is None:
                     # 이슈 #878 케이스 2: 완료(PR 존재) 이면서 이 엔트리를
                     # 무장한 오케스트레이터가 headless(session_id 있음) 였다면
