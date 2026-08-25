@@ -1055,3 +1055,118 @@ class ReconcileLedger(unittest.TestCase):
         results = [spawn.ledger_check_and_stamp("k1", now=1000.0)
                    for _ in range(5)]
         self.assertEqual(results, [True, False, False, False, False])
+
+
+class ConsultLogSharding(unittest.TestCase):
+    """이슈 #2333: `docs/issue-<n>/reports/consult-log.md` 는 append-only +
+    concurrent-writers + one-path 조합이라 동시 자문마다 100% 예측 가능한
+    git merge 충돌을 냈다("6+ manual conflict resolutions in one session",
+    이슈 본문). 세션마다 다른 샤드 파일(`consult-log/<session-ts-pid>.md`)
+    에 쓰게 해 그 충돌 표면 자체를 없앤다 — `_consult_log_aggregate()` 가
+    오늘까지의 단일-파일 뷰를 사람/게이트용으로 재구성한다."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self._patches = []
+        self._patch(spawn, "resolve_role_source",
+                    lambda role, repo_root: {"source": "skill-repo",
+                        "skill_dirs": [Path("/fake/plugin")],
+                        "skills": ["fake"], "skill_sha": "abc1234"})
+        self._patch(spawn, "core_plugin_dirs", lambda: [])
+
+    def _patch(self, obj, name, value):
+        orig = getattr(obj, name)
+        setattr(obj, name, value)
+        self._patches.append((obj, name, orig))
+        self.addCleanup(lambda: setattr(obj, name, orig))
+
+    def _fake_run(self, stdout_result_text, returncode=0):
+        def run(cmd, **kw):
+            payload = json.dumps({"result": stdout_result_text, "is_error": False})
+            return subprocess.CompletedProcess(cmd, returncode, stdout=payload, stderr="")
+        return run
+
+    def _consult(self, question, shard_id, answer="ok", issue=2333, cwd=None):
+        self._patch(spawn.subprocess, "run",
+                    self._fake_run(json.dumps({"answer": answer, "confidence": "high",
+                                                "caveats": []})))
+        self._patch(spawn, "_consult_session_shard_id", lambda: shard_id)
+        return spawn.consult_cmd("implementation", question, issue=issue,
+                                  cwd=cwd or str(self.root))
+
+    def test_two_sessions_write_distinct_shard_files_not_the_old_single_path(self):
+        self._consult("질문 A", "20260101T000000000000-111")
+        self._consult("질문 B", "20260101T000000000001-222")
+
+        d = self.root / "docs" / "issue-2333" / "reports" / "consult-log"
+        shard_names = sorted(p.name for p in d.glob("*.md"))
+        self.assertEqual(shard_names,
+                          ["20260101T000000000000-111.md", "20260101T000000000001-222.md"])
+        # 예전 단일 파일 경로는 더 이상 쓰지 않는다 — 그 경로 자체가
+        # 충돌면이었다.
+        old_single_path = self.root / "docs" / "issue-2333" / "reports" / "consult-log.md"
+        self.assertFalse(old_single_path.exists())
+
+    def test_aggregate_reconstructs_chronological_single_file_view(self):
+        self._consult("먼저 온 질문", "20260101T000000000000-111", answer="먼저")
+        self._consult("나중 온 질문", "20260101T000000000009-222", answer="나중")
+
+        aggregate = spawn._consult_log_aggregate(2333, cwd=str(self.root))
+        self.assertIn("먼저 온 질문", aggregate)
+        self.assertIn("나중 온 질문", aggregate)
+        self.assertLess(aggregate.index("먼저 온 질문"), aggregate.index("나중 온 질문"))
+        # 두 세션이 각자 쓴 원본 줄과 바이트 단위로 같아야 한다 — 애그리게이터가
+        # 새 포맷을 발명하지 않고 오늘의 트레이스 줄 형식을 그대로 이어붙인다.
+        d = self.root / "docs" / "issue-2333" / "reports" / "consult-log"
+        expected = "".join(p.read_text(encoding="utf-8") for p in sorted(d.glob("*.md")))
+        self.assertEqual(aggregate, expected)
+
+    def test_empty_state_no_prior_consults_is_empty_string(self):
+        self.assertEqual(spawn._consult_log_aggregate(424242, cwd=str(self.root)), "")
+
+    def test_single_session_issue_layout_reads_identically_to_the_one_shard(self):
+        # Acceptance "empty state": 단일 세션 이슈는 샤드가 하나뿐이라
+        # 애그리게이트가 그 샤드 내용과 완전히 같다 — 충돌이 나올 수도
+        # 없다(파일이 하나뿐이니 겹칠 상대가 없다).
+        self._consult("단일 세션 질문", "20260101T000000000000-333", issue=9999)
+        d = self.root / "docs" / "issue-9999" / "reports" / "consult-log"
+        self.assertEqual([p.name for p in d.glob("*.md")],
+                          ["20260101T000000000000-333.md"])
+        shard_text = (d / "20260101T000000000000-333.md").read_text(encoding="utf-8")
+        self.assertEqual(spawn._consult_log_aggregate(9999, cwd=str(self.root)), shard_text)
+
+    def test_two_concurrent_sessions_merge_without_conflict(self):
+        """이슈 acceptance 재구성: 두 실제(시뮬레이션된) 동시 세션이 같은
+        이슈에 자문을 남겨도, 서로 다른 샤드 경로에 쓰니 브랜치를 나눠
+        커밋하고 merge 해도 절대 충돌하지 않는다(예전에는 같은
+        `consult-log.md` 줄을 두 세션이 append 해 100% 충돌이었다)."""
+        run = lambda *a, **k: subprocess.run(*a, cwd=str(self.root), check=True,
+                                              capture_output=True, text=True, **k)
+        run(["git", "init", "-q", "."])
+        run(["git", "config", "user.email", "t@example.com"])
+        run(["git", "config", "user.name", "t"])
+        (self.root / "README.md").write_text("seed\n", encoding="utf-8")
+        run(["git", "add", "README.md"])
+        run(["git", "commit", "-q", "-m", "seed"])
+        run(["git", "branch", "-M", "main"])
+
+        run(["git", "checkout", "-q", "-b", "issue-2333/session-a"])
+        self._consult("세션 A 질문", "20260101T000000000000-111", answer="a")
+
+        run(["git", "checkout", "-q", "main"])
+        run(["git", "checkout", "-q", "-b", "issue-2333/session-b"])
+        self._consult("세션 B 질문", "20260101T000000000000-222", answer="b")
+
+        run(["git", "checkout", "-q", "main"])
+        run(["git", "merge", "-q", "--no-edit", "issue-2333/session-a"])
+        merge_b = subprocess.run(
+            ["git", "merge", "--no-edit", "issue-2333/session-b"],
+            cwd=str(self.root), capture_output=True, text=True)
+        self.assertEqual(merge_b.returncode, 0,
+                          msg=f"session-b merge conflicted: {merge_b.stdout}\n{merge_b.stderr}")
+
+        aggregate = spawn._consult_log_aggregate(2333, cwd=str(self.root))
+        self.assertIn("세션 A 질문", aggregate)
+        self.assertIn("세션 B 질문", aggregate)

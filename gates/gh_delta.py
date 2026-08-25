@@ -173,13 +173,13 @@ def fetch_delta(root: Path, slug: str, resource: str, run: Callable | None = Non
             r = run(cmd, cwd=root, capture_output=True, text=True)
         except OSError:
             return None, (cur["since"] if cur else None), "error"
-        if r.returncode != 0:
-            return None, (cur["since"] if cur else None), "error"
 
         status, headers, body = _split_gh_api_i_output(r.stdout)
         if page == 1 and status == 304:
             got_304 = True
             break
+        if r.returncode != 0:
+            return None, (cur["since"] if cur else None), "error"
         try:
             data = json.loads(body)
         except ValueError:

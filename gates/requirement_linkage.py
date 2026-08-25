@@ -79,7 +79,12 @@ def main() -> int:
     if len(sys.argv) < 2:
         print(__doc__)
         return 2
-    issue = int(sys.argv[1])
+    try:
+        issue = int(sys.argv[1])
+    except ValueError:
+        print(f"usage: requirement_linkage.py <issue-number> [--repo <경로>] "
+              f"— issue-number must be an integer, got {sys.argv[1]!r}")
+        return 2
     repo = Path(".")
     if "--repo" in sys.argv:
         repo = Path(sys.argv[sys.argv.index("--repo") + 1])
