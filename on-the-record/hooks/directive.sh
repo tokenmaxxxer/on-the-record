@@ -16,7 +16,16 @@ set -uo pipefail
 # per-workspace convention GREETED_MARKER below already uses), never the
 # shared on-the-record checkout. Best-effort: a write failure here must
 # never turn into a directive failure.
-{ printf '%s UserPromptSubmit directive.sh\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >>"$(pwd -P)/.orchestrate-hook-fires.log"; } 2>/dev/null || true
+#
+# issue #2348: sharded per session (hook-fires.sh's hook_fires_record())
+# instead of one shared append-only path -- same conflict-elimination
+# shape issue #2333 shipped for consult-log.md. Stdin is captured HERE,
+# once, before the counter write, so the payload can be reused below for
+# the monitor-notice check without a second read (stdin can only be
+# consumed once).
+_HOOK_PAYLOAD="$(cat 2>/dev/null || true)"
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/hook-fires.sh"
+hook_fires_record "UserPromptSubmit directive.sh" "$_HOOK_PAYLOAD"
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 # A spawned role session is never the orchestrator, even if the plugin leaks in.
@@ -39,7 +48,7 @@ case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; e
 # "prove" a later, monitor-less IDE session's monitor is alive). Fails
 # open (no notice, no crash) on any missing payload/session_id/parse
 # error, matching every other on-the-record hook's stdin-JSON handling.
-_MONITOR_NOTICE_PAYLOAD="$(cat 2>/dev/null || true)"
+_MONITOR_NOTICE_PAYLOAD="$_HOOK_PAYLOAD"
 if [ -n "$_MONITOR_NOTICE_PAYLOAD" ] && command -v python3 >/dev/null 2>&1; then
   OTR_MN_PAYLOAD="$_MONITOR_NOTICE_PAYLOAD" \
   OTR_MN_ROOT="$(pwd -P)" \

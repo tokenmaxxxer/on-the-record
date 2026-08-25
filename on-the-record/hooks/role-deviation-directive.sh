@@ -41,19 +41,18 @@ security/product judgment), (c) does not change what the deliverable
 claims to do, (d) a one-off, not a recognizable systemic pattern.
 Otherwise FILE-AS-ISSUE.
 
-RESOLVE-AND-CONTINUE:
-- Inline: apply the fix, append one line to the deviation log
-  (docs/issue-<n>/reports/deviation-log.md when this session is
-  issue-scoped, else docs/reports/deviation-log.md) — timestamp,
-  `inline`, one-line description, the diff's location; resume the
-  original task same turn.
+RESOLVE-AND-CONTINUE: run `spawn.py deviation-log-path --issue <n>` (issue
+#2348: sharded per session, role-scoped under your own $CLAUDE_ROLE) and
+append your entry to the path it prints — never compute the path by hand.
+- Inline: apply the fix, append one line — timestamp, `inline`, one-line
+  description, the diff's location; resume the original task same turn.
 - File case: a role session never spawns a peer role or opens an issue
   mid-task on its own initiative (SCOPE-EXCEEDED RULE) — finish what the
   frozen write set covers, STOP, report the deviation plainly in this
   turn's reply for the orchestrator/next role to act on, and append one
-  `filed` line to the same deviation log — timestamp, `filed`, one-line
-  description, "reported, not spawned". Do not call spawn.py from inside
-  this session for this purpose.
+  `filed` line — timestamp, `filed`, one-line description, "reported, not
+  spawned". Do not call spawn.py spawn/consult from inside this session
+  for this purpose (deviation-log-path is fine — it never spawns).
 
 Every deviation, inline or filed, leaves exactly one traceable log
 entry — no entry for non-deviations. Enforced at Stop by

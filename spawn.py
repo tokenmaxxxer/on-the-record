@@ -43,6 +43,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 
+# issue #2348: hook-fires/deviation-log per-session sharding -- both are
+# standalone leaf modules (no callback into spawn.py), so no `_sp`
+# injection is needed the way consult.py/roster.py/lifecycle.py require.
+import deviation_log
+import hook_fires
+_hook_fires_aggregate = hook_fires._hook_fires_aggregate
+_deviation_log_aggregate = deviation_log._deviation_log_aggregate
+_deviation_log_path = deviation_log._deviation_log_path
+
 # Issue #2105 extraction 1/N: relay / returned-PR machinery lives in relay.py.
 # spawn.py stays the entry point and re-exports the moved names so external
 # callers and the test suite keep addressing them as `spawn.<name>`. relay
@@ -1505,6 +1514,24 @@ def main() -> int:
         # 오늘까지의 "파일 하나 cat" 만큼 쉬운 사람용/게이트용 단일-뷰가
         # 없어지면 안 된다 — 이 서브커맨드가 그 자리를 대신한다.
         print(_consult_log_aggregate(a.issue, cwd=a.cwd), end="")
+        return 0
+    if a.role == "hook-fires":
+        # issue #2348: same reader shape as consult-log -- reconstructs the
+        # pre-sharding single-file .orchestrate-hook-fires.log view.
+        print(_hook_fires_aggregate(cwd=a.cwd), end="")
+        return 0
+    if a.role == "deviation-log":
+        # issue #2348: same reader shape as consult-log -- reconstructs the
+        # pre-sharding single-file deviation-log.md view for this issue
+        # (+role, when this session's own $CLAUDE_ROLE names one).
+        print(_deviation_log_aggregate(a.issue, role=os.environ.get("CLAUDE_ROLE"),
+                                        cwd=a.cwd), end="")
+        return 0
+    if a.role == "deviation-log-path":
+        # issue #2348: prints the exact shard path this session's own
+        # deviation-log append belongs in -- a session never computes the
+        # shard id itself, so two sessions' formulas can never drift apart.
+        print(_deviation_log_path(a.issue, role=os.environ.get("CLAUDE_ROLE"), cwd=a.cwd))
         return 0
     if a.role in ("ideate", "draft", "review"):
         if not a.task or not a.consult_question:

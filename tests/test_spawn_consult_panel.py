@@ -1,5 +1,7 @@
 from _spawn_test_support import *  # noqa: F401,F403
 
+import deviation_log
+
 
 class ClosureSweepCliWiring(unittest.TestCase):
     """이슈 #743: `spawn.py closure-sweep` CLI 서브커맨드(3719행 부근)도
@@ -1170,3 +1172,191 @@ class ConsultLogSharding(unittest.TestCase):
         aggregate = spawn._consult_log_aggregate(2333, cwd=str(self.root))
         self.assertIn("세션 A 질문", aggregate)
         self.assertIn("세션 B 질문", aggregate)
+
+
+HOOKS_DIR = Path(__file__).resolve().parent.parent / "on-the-record" / "hooks"
+
+
+class HookFiresSharding(unittest.TestCase):
+    """이슈 #2348: `.orchestrate-hook-fires.log` 는 issue #2333의
+    consult-log.md 와 같은 append-only + concurrent-writers + one-path
+    조합이었다 — 매 UserPromptSubmit/Stop 이벤트마다 세 훅
+    (directive.sh/stop-gate.sh/stop-poll-rearm.sh) 이 같은 경로에 썼다.
+    세션마다 다른 샤드 파일(`.orchestrate-hook-fires/<sha256(session_id)
+    [:24]>.log`)에 쓰게 해 그 충돌면 자체를 없앤다 — `_hook_fires_aggregate()`
+    가 오늘까지의 단일-파일 시간순 뷰를 재구성한다."""
+
+    def _fire(self, session_id, root):
+        env = dict(os.environ)
+        env["ORCHESTRATE_OFF"] = "1"
+        env.pop("CLAUDE_ROLE", None)
+        payload = json.dumps({"session_id": session_id})
+        r = subprocess.run(
+            ["bash", str(HOOKS_DIR / "directive.sh")], input=payload,
+            capture_output=True, text=True, env=env, cwd=str(root), timeout=20,
+        )
+        self.assertEqual(r.returncode, 0)
+
+    def test_two_sessions_write_distinct_shard_files_not_the_old_single_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._fire("session-a", root)
+            self._fire("session-b", root)
+            d = root / ".orchestrate-hook-fires"
+            self.assertEqual(len(list(d.glob("*.log"))), 2)
+            # 예전 단일 파일 경로는 더 이상 쓰지 않는다 — 그 경로 자체가
+            # 충돌면이었다.
+            self.assertFalse((root / ".orchestrate-hook-fires.log").exists())
+
+    def test_aggregate_reconstructs_chronological_single_file_view(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self._fire("session-a", root)
+            self._fire("session-b", root)
+            aggregate = spawn._hook_fires_aggregate(cwd=str(root))
+            lines = [l for l in aggregate.splitlines() if l]
+            self.assertEqual(len(lines), 2)
+            self.assertEqual(lines, sorted(lines))
+
+    def test_empty_state_no_prior_firing_is_empty_string(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(spawn._hook_fires_aggregate(cwd=td), "")
+
+    def test_two_concurrent_sessions_merge_without_conflict(self):
+        """두 실제(시뮬레이션된) 동시 세션이 같은 워크스페이스에서 훅을
+        트립해도, 서로 다른 샤드 경로에 쓰니 브랜치를 나눠 커밋하고 merge
+        해도 절대 충돌하지 않는다(예전에는 같은 `.orchestrate-hook-fires.log`
+        줄을 두 세션이 append 해 100% 충돌이었다)."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = lambda *a, **k: subprocess.run(*a, cwd=str(root), check=True,
+                                                  capture_output=True, text=True, **k)
+            run(["git", "init", "-q", "."])
+            run(["git", "config", "user.email", "t@example.com"])
+            run(["git", "config", "user.name", "t"])
+            (root / "README.md").write_text("seed\n", encoding="utf-8")
+            run(["git", "add", "README.md"])
+            run(["git", "commit", "-q", "-m", "seed"])
+            run(["git", "branch", "-M", "main"])
+
+            run(["git", "checkout", "-q", "-b", "session-a"])
+            self._fire("session-a", root)
+            run(["git", "add", "-A"])
+            run(["git", "commit", "-q", "-m", "session-a fires"])
+
+            run(["git", "checkout", "-q", "main"])
+            run(["git", "checkout", "-q", "-b", "session-b"])
+            self._fire("session-b", root)
+            run(["git", "add", "-A"])
+            run(["git", "commit", "-q", "-m", "session-b fires"])
+
+            run(["git", "checkout", "-q", "main"])
+            run(["git", "merge", "-q", "--no-edit", "session-a"])
+            merge_b = subprocess.run(
+                ["git", "merge", "--no-edit", "session-b"],
+                cwd=str(root), capture_output=True, text=True)
+            self.assertEqual(merge_b.returncode, 0,
+                              msg=f"session-b merge conflicted: {merge_b.stdout}\n{merge_b.stderr}")
+
+            aggregate = spawn._hook_fires_aggregate(cwd=str(root))
+            self.assertEqual(len([l for l in aggregate.splitlines() if l]), 2)
+
+
+class DeviationLogSharding(unittest.TestCase):
+    """이슈 #2348: 배포전 스케치대로 deviation-log.md 도 consult-log.md 와
+    같은 방식으로 샤딩한다. 두 가지가 hook-fires/consult-log 와 다르다:
+    (1) role 스코프까지 접는다 — `$CLAUDE_ROLE` 이 있으면
+    `docs/issue-<n>/reports/<role>/deviation-log/` 아래, (2) 엔트리가
+    여러 줄로 감길 수 있어 애그리게이터는 줄 단위가 아니라 샤드 파일
+    통째로 이어붙인다."""
+
+    def test_two_sessions_write_distinct_shard_files_role_scoped(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            p1 = deviation_log._deviation_log_path(2348, role="implementation",
+                                                    cwd=str(root), session_id="session-a")
+            p1.write_text("- 2026-08-25T00:00:00Z | inline | first.\n", encoding="utf-8")
+            p2 = deviation_log._deviation_log_path(2348, role="implementation",
+                                                    cwd=str(root), session_id="session-b")
+            p2.write_text("- 2026-08-25T00:01:00Z | inline | second.\n", encoding="utf-8")
+
+            self.assertNotEqual(p1, p2)
+            d = root / "docs" / "issue-2348" / "reports" / "implementation" / "deviation-log"
+            self.assertEqual(len(list(d.glob("*.md"))), 2)
+            # 예전 role-less flat 경로는 더 이상 쓰지 않는다.
+            self.assertFalse(
+                (root / "docs" / "issue-2348" / "reports" / "deviation-log.md").exists())
+
+    def test_repeat_append_within_one_session_reuses_the_same_shard(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            p1 = deviation_log._deviation_log_path(2348, role="implementation",
+                                                    cwd=str(root), session_id="session-a")
+            p1.write_text("- 2026-08-25T00:00:00Z | inline | first.\n", encoding="utf-8")
+            p2 = deviation_log._deviation_log_path(2348, role="implementation",
+                                                    cwd=str(root), session_id="session-a")
+            self.assertEqual(p1, p2)
+
+    def test_aggregate_preserves_multi_line_entries_whole_not_line_scrambled(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            p1 = deviation_log._deviation_log_path(2348, role="conformance-review",
+                                                    cwd=str(root), session_id="session-a")
+            p1.write_text(
+                "- 2026-08-25T00:00:00Z, filed (reported, not spawned):\n"
+                "  this entry wraps across several physical lines, the way\n"
+                "  a real deviation-log entry does.\n", encoding="utf-8")
+            p2 = deviation_log._deviation_log_path(2348, role="conformance-review",
+                                                    cwd=str(root), session_id="session-b")
+            p2.write_text("- 2026-08-25T00:01:00Z | inline | one-liner.\n", encoding="utf-8")
+
+            aggregate = deviation_log._deviation_log_aggregate(
+                2348, role="conformance-review", cwd=str(root))
+            self.assertIn(p1.read_text(encoding="utf-8"), aggregate)
+            self.assertIn(p2.read_text(encoding="utf-8"), aggregate)
+
+    def test_empty_state_no_prior_deviation_is_empty_string(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(
+                deviation_log._deviation_log_aggregate(424242, role="implementation", cwd=td), "")
+
+    def test_two_concurrent_sessions_merge_without_conflict(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            run = lambda *a, **k: subprocess.run(*a, cwd=str(root), check=True,
+                                                  capture_output=True, text=True, **k)
+            run(["git", "init", "-q", "."])
+            run(["git", "config", "user.email", "t@example.com"])
+            run(["git", "config", "user.name", "t"])
+            (root / "README.md").write_text("seed\n", encoding="utf-8")
+            run(["git", "add", "README.md"])
+            run(["git", "commit", "-q", "-m", "seed"])
+            run(["git", "branch", "-M", "main"])
+
+            run(["git", "checkout", "-q", "-b", "issue-2348/session-a"])
+            pa = deviation_log._deviation_log_path(2348, role="implementation",
+                                                     cwd=str(root), session_id="session-a")
+            pa.write_text("- 2026-08-25T00:00:00Z | inline | session a.\n", encoding="utf-8")
+            run(["git", "add", "-A"])
+            run(["git", "commit", "-q", "-m", "session-a deviation"])
+
+            run(["git", "checkout", "-q", "main"])
+            run(["git", "checkout", "-q", "-b", "issue-2348/session-b"])
+            pb = deviation_log._deviation_log_path(2348, role="implementation",
+                                                     cwd=str(root), session_id="session-b")
+            pb.write_text("- 2026-08-25T00:01:00Z | inline | session b.\n", encoding="utf-8")
+            run(["git", "add", "-A"])
+            run(["git", "commit", "-q", "-m", "session-b deviation"])
+
+            run(["git", "checkout", "-q", "main"])
+            run(["git", "merge", "-q", "--no-edit", "issue-2348/session-a"])
+            merge_b = subprocess.run(
+                ["git", "merge", "--no-edit", "issue-2348/session-b"],
+                cwd=str(root), capture_output=True, text=True)
+            self.assertEqual(merge_b.returncode, 0,
+                              msg=f"session-b merge conflicted: {merge_b.stdout}\n{merge_b.stderr}")
+
+            aggregate = deviation_log._deviation_log_aggregate(
+                2348, role="implementation", cwd=str(root))
+            self.assertIn("session a", aggregate)
+            self.assertIn("session b", aggregate)
