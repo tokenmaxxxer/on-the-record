@@ -291,16 +291,35 @@ rationale: |
   canonical:
   ```
   $ grep -rn "8 of 45\|18%\|8/45" gates/ on-the-record/ docs/issue-2414/
+  docs/issue-2414/reports/implementation/deviation-log/20260825T130144037066-0b23939226b07fc9.md:1:...
   docs/issue-2414/reports/implementation.md:129:  "8 of 45 (18%)" as the narrow-trigger design's backlog cost — the
   ```
-  derived: the one remaining hit is historical narration inside the
-  implementation record's own `## What did not work` section, describing
-  the now-fixed bug in past tense ("CHANGES round (PR #2422, commit
-  `6640246f`): ... both still cited '8 of 45 (18%)' ... Fixed in commit
-  `6640246f`") — not a live stale claim, and this review does not treat a
-  historical account of an already-fixed defect as itself a defect. No
-  other file under `gates/`, `on-the-record/`, or `docs/issue-2414/`
-  carries the stale figure. Re-ran both shipped regression suites live
+  derived: re-run this session in a fresh worktree against PR #2422's
+  current head `bd9350cd` (`/tmp/pr2422-verify3`, `git fetch origin
+  pull/2422/head:pr-2422-verify3` this session); both cited paths exist
+  only on the PR #2422 branch, PR-only, untracked on this
+  `issue-2414/conformance-review` checkout.
+
+  Correction to an earlier draft of this rationale, caught by this
+  session's own before-landing warrant-hunt (canonical:
+  `docs/issue-2414/reports/conformance-review/2026-08-25-hunt-re-review-conformance-record.md`,
+  its FINDING): an earlier draft pasted only the `implementation.md:129`
+  hit and asserted "no other file ... carries the stale figure," which
+  the grep's own full output above contradicts — a second hit exists in
+  the deviation-log path cited above. Both of the two remaining hits are
+  historical narration, not a live stale claim: the `implementation.md:129`
+  hit is inside the implementation record's own `## What did not work`
+  section, describing the now-fixed bug in past tense ("CHANGES round (PR
+  #2422, commit `6640246f`): ... both still cited '8 of 45 (18%)' ...
+  Fixed in commit `6640246f`"); the deviation-log hit is the CHANGES-round
+  deviation-log entry itself, dated `2026-08-25T12:57:42Z`, narrating the
+  same already-fixed defect and its own fix in past tense ("Fixed by
+  editing both to 14 of 45 (31%)"). Neither is a live citation of the
+  stale number — this review does not treat a historical account of an
+  already-fixed defect as itself a defect — but the corrected count is
+  two remaining hits, not one, and no other file under `gates/`,
+  `on-the-record/`, or `docs/issue-2414/` carries the stale figure beyond
+  these two. Re-ran both shipped regression suites live
   against the same worktree after the fix, confirming the fix is
   comment/prose-only with no functional regression:
   ```
@@ -349,9 +368,19 @@ rationale: |
 
 ## What did not work
 
-None on this review's own part — the verification approach (checking out
-the PR into a worktree and re-executing its measurements rather than
-reading its prose) worked as intended and is what surfaced the Incorrect
+This session's own before-landing warrant-hunt (canonical:
+`docs/issue-2414/reports/conformance-review/2026-08-25-hunt-re-review-conformance-record.md`)
+caught a drafting mistake in the migration-cost-accuracy block's
+re-review rationale below: an earlier draft pasted only one line of its
+own `grep -rn "8 of 45\|18%\|8/45"` output and asserted "no other file
+... carries the stale figure," which the same grep's own full output
+contradicts (a second hit exists in a deviation-log path). Corrected in
+place in that block — see its "Correction to an earlier draft" paragraph
+— rather than left standing.
+
+Otherwise: the verification approach (checking out the PR into a
+worktree and re-executing its measurements rather than reading its
+prose) worked as intended and is what surfaced the original Incorrect
 finding below (now corrected — see the migration-cost-accuracy block and
 the re-review note immediately below).
 
@@ -395,6 +424,14 @@ already covers, plus this record's own deviation-log/hunt files.
   deviation-log entry cited in "Upstream basis" above) was written in a
   separate commit on this same branch and was invisible from the original
   text. Corrected in place below rather than left standing.
+- Self-correction (re-review round), canonical:
+  `docs/issue-2414/reports/conformance-review/2026-08-25-hunt-re-review-conformance-record.md`
+  (this session's own before-landing warrant-hunt) — an earlier draft of
+  the migration-cost-accuracy block's re-review rationale pasted only one
+  line of its own `grep` sweep output and asserted "no other file ...
+  carries the stale figure," contradicted by the same grep's full output
+  (a second hit in a deviation-log path). Corrected in place in that
+  block and in "What did not work" above, rather than left standing.
 
 ## Skill verdicts
 
