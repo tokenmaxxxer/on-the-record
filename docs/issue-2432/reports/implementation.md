@@ -227,5 +227,38 @@ any commit, and nothing in `pipeline.py`/`board.py`/`roster.py`/
 `spawn.py`'s diff can close a PR (no `gh pr close`/`gh pr merge`
 invocation anywhere in this session's command history). The other 4
 pre-existing PRs (#2434, #2420, #2419, #2416) are present, unchanged, in
-both the before- and after-lists. Confirms: no existing open PR's branch
-name or content changed as a result of this stage landing.
+both the before- and after-lists — canonical: the two `gh pr list`
+result blocks pasted above in this same section. Confirms: no existing
+open PR's branch name or content changed as a result of this stage
+landing.
+
+## Skill verdicts
+
+acceptance: `python3 -m pytest test/test_branch_naming_dual_scheme.py -q`
+— result:
+```
+9 passed in 1.12s
+```
+
+skill-verdict: implementation-blueprint — applied: invoked; `python3
+prep.py classify --surface backend --external no --logic transform
+--asynchronous no` routed to the "pipeline" archetype (a loose fit — this
+is a small naming/discovery addition, not an ETL pipeline) — its fan-out
+threshold guidance (<=5 units, build solo) matched the actual structure
+built: 3 new functions across `pipeline.py`/`board.py`/`roster.py`, no
+fan-out needed, each independently unit-tested above.
+
+skill-verdict: work-in-english — applied: invoked; matched each edited
+file's existing per-file docstring convention (Korean for the new
+docstrings in `pipeline.py`/`board.py` and for
+`docs/handbooks/branch-naming.md`, matching those files' existing house
+style; English for `roster.new_lease_disambiguator()`, matching
+`roster.lease_key()`'s own stage-1 English-docstring precedent already
+in that file; English for the test file and this record, matching their
+existing English precedents) instead of a uniform English rewrite; the
+final user-facing chat summary was given in Korean.
+
+other mounted skills: not triggered
+(implementation-complexity-coupling-management,
+implementation-design-pattern-selection,
+implementation-performance-data-structure-choice)
