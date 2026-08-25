@@ -236,8 +236,8 @@ applied: split issue #2382's Acceptance check 2 into REQ-2/REQ-2b (rule
 line rather than merging it into REQ-1 or dropping it (rule 5), and
 dimension-tagged each requirement inline (rule 6: REQ-1/REQ-4 functional
 + scope-boundary, REQ-2/REQ-2b functional, REQ-3 functional).
-skill-verdict: conformance-review-verification-method-selection —
-invoked; applied: Inspection for REQ-2/REQ-2b's static text-presence
+skill-verdict: conformance-review-verification-method-selection — invoked;
+applied: Inspection for REQ-2/REQ-2b's static text-presence
 claim; Test for REQ-1's regression, re-run fresh against a worktree
 rather than re-quoted (rule 4); Analysis for REQ-3's unreproducible past
 timing trial (rule 2).
