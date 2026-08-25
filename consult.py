@@ -53,17 +53,123 @@ SKILL_JUDGE_TIMEOUT_DEFAULT = 90  # issue #2076: measured completion rate at 45s
 # consumer dogfood (issue #2071 defect 1) — raised to give the haiku judge more room before
 # BM25 fail-open, still env-overridable via SKILL_JUDGE_TIMEOUT
 
+# issue #2274: below this many genuine `skill_judge_perf` samples, the
+# p90-derived cutoff below stays off (empty state — current fixed-default
+# behavior unchanged); a fresh/low-volume ledger has too few points for a
+# percentile to mean anything.
+_SKILL_JUDGE_PERF_MIN_EVENTS = 50
+
+# issue #2274 (warrant-hunt before-landing, stance 0 "gate is bypassable"):
+# a nested `claude -p` classify call cannot plausibly finish in under a
+# second — process spawn plus a haiku network round trip. `duration_ms`
+# alone isn't a safe "this is a real call" marker: a mocked `subprocess.run`
+# in any unit test (this file's own included) can echo back a fabricated
+# `duration_ms` while `wall_s` truly is ~0, and 50+ of those landing in the
+# shared ledger would collapse the p90 cutoff — and with it
+# `_skill_judge_timeout()` — to ~0s, making every real call fail open.
+# Requiring `wall_s` above this floor closes that regardless of what
+# `duration_ms` claims.
+_MIN_PLAUSIBLE_JUDGE_WALL_S = 1.0
+
+# issue #2274 (operator-frozen constraint, 2026-08-25: "no added per-spawn
+# overhead or steady-state load"): `runs/ledger.jsonl` is append-only and
+# never rotated, so a full-file scan on every `_skill_judge_timeout()` call
+# would grow with the installation's *total lifetime* event count, not with
+# anything bounded — the exact steady-state-cost regression the constraint
+# forbids. Reading only the last `_LEDGER_TAIL_READ_BYTES` bytes makes the
+# read cost constant regardless of how large the ledger has grown; that
+# window is generously sized to hold several times
+# `_SKILL_JUDGE_PERF_MIN_EVENTS` recent lines even under heavy noise (each
+# observed `skill_judge_perf` line is ~150-250 bytes).
+_LEDGER_TAIL_READ_BYTES = 512 * 1024
+
+
+def _skill_judge_perf_samples(ledger_path: Path | None = None) -> list[float]:
+    """issue #2274: 실측 skill_judge 호출 지연(초) 목록 —
+    `runs/ledger.jsonl` 의 마지막 `_LEDGER_TAIL_READ_BYTES` 바이트 안
+    `skill_judge_perf` 이벤트 중 (1) `duration_ms` 가 있고 (2) `wall_s`
+    가 `_MIN_PLAUSIBLE_JUDGE_WALL_S` 이상인 것만 쓴다. 전체 대신 꼬리만
+    읽는 이유는 성능(위 상수 독스트링) — 필터 자체의 이유는 이 파일을
+    공유하는 다른 세션들의 유닛테스트가 `subprocess.run` 을 몽키패치해
+    남기는, 진짜 모델 호출이 아닌 잡음을 걸러내는 것이다: 그 잡음을
+    그대로 퍼센타일에 넣으면 p90 이 0에 가깝게 무너져 사실상 모든 실제
+    호출이 타임아웃되어 fail-open 해버린다. 두 조건 다 걸어야 안전하다:
+    `duration_ms` 단독으로는 몽키패치가 그 값도 함께 꾸며낼 수 있어(가짜
+    완료 응답에 `duration_ms` 필드를 얹는 것만으로 통과), `wall_s` 하한이
+    최후 방어선이다."""
+    path = ledger_path or (_sp.ROOT / "runs" / "ledger.jsonl")
+    samples: list[float] = []
+    if not path.exists():
+        return samples
+    with path.open("rb") as f:
+        f.seek(0, os.SEEK_END)
+        size = f.tell()
+        truncated = size > _sp._LEDGER_TAIL_READ_BYTES
+        f.seek(max(0, size - _sp._LEDGER_TAIL_READ_BYTES), os.SEEK_SET)
+        chunk = f.read()
+    lines = chunk.split(b"\n")
+    if truncated:
+        lines = lines[1:]  # 앞쪽 한 줄은 중간에서 잘렸을 수 있어 버린다
+    for raw in lines:
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            obj = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("event") != "skill_judge_perf":
+            continue
+        if obj.get("duration_ms") is None:
+            continue
+        wall = obj.get("wall_s")
+        if wall is None or wall < _sp._MIN_PLAUSIBLE_JUDGE_WALL_S:
+            continue
+        samples.append(float(wall))
+    return samples
+
+
+def _percentile(sorted_data: list[float], p: float) -> float:
+    """선형보간 퍼센타일(예: numpy 기본 'linear' 방식과 동일) — `sorted_data`
+    는 이미 오름차순이어야 한다."""
+    if not sorted_data:
+        raise ValueError("empty data")
+    k = (len(sorted_data) - 1) * p
+    f = int(k)
+    c = min(f + 1, len(sorted_data) - 1)
+    if f == c:
+        return sorted_data[f]
+    return sorted_data[f] * (c - k) + sorted_data[c] * (k - f)
+
+
+def _skill_judge_p90_cutoff(ledger_path: Path | None = None) -> float | None:
+    """issue #2274: 원장에 쌓인 실측 지연의 p90 — `_SKILL_JUDGE_PERF_MIN_EVENTS`
+    개 미만이면 None(호출부가 고정 기본값으로 떨어진다)."""
+    samples = sorted(_sp._skill_judge_perf_samples(ledger_path))
+    if len(samples) < _sp._SKILL_JUDGE_PERF_MIN_EVENTS:
+        return None
+    return _sp._percentile(samples, 0.9)
+
 
 def _skill_judge_timeout() -> float:
     """env-overridable 타임박스(issue #2061) — 매 호출마다 읽어 테스트가
-    `os.environ`을 몽키패치한 뒤에도 값을 반영한다."""
+    `os.environ`을 몽키패치한 뒤에도 값을 반영한다.
+
+    issue #2274: env override 가 없으면 실측 원장의 p90 컷오프를 쓴다
+    (`_skill_judge_p90_cutoff()`) — 표본이 `_SKILL_JUDGE_PERF_MIN_EVENTS`
+    미만이면 그 함수가 None 을 돌려줘 기존 고정 기본값으로 그대로
+    떨어진다(empty state, 오늘의 동작 그대로). 타임아웃 초과는 이미
+    `_cross_family_skill_matches_with_consult()` 의 일반 `except Exception`
+    이 BM25 top-k 로 fail-open 하므로(#2040) — 새 fail-open 경로가 아니라
+    기존 error fail-open 을 느림에도 그대로 적용하는 것뿐이다."""
     raw = os.environ.get("SKILL_JUDGE_TIMEOUT")
-    if raw is None:
-        return _sp.SKILL_JUDGE_TIMEOUT_DEFAULT
-    try:
-        return float(raw)
-    except ValueError:
-        return _sp.SKILL_JUDGE_TIMEOUT_DEFAULT
+    if raw is not None:
+        try:
+            return float(raw)
+        except ValueError:
+            pass
+    cutoff = _sp._skill_judge_p90_cutoff()
+    return cutoff if cutoff is not None else _sp.SKILL_JUDGE_TIMEOUT_DEFAULT
 
 PANEL_TIMEOUT = 240    # panel: two judges + a rebuttal round, wider than a single consult
 JUDGE_TIMEOUT = 120           # issue #1587: per-judge-call hard cap (prefilter/judge/validator each)
