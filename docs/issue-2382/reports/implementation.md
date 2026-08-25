@@ -248,6 +248,79 @@ measurements actually taken — 877.93s sequential vs. 139.49s concurrent,
 each checked against its own component sum above — confirm acceptance
 check 3: the parallel path was faster in both trials run.
 
+## Rebase reconciliation (landing turn)
+
+PR #2392 drifted to `CONFLICTING` against `main` after #2348 (log sharding)
+and #2293 (adhoc-spawn workspace isolation) landed. Rebased
+`issue-2382/implementation` onto `origin/main` (96513f8c).
+
+One real conflict, in `spawn.py`, both sides adding code at the same
+insertion point right after the `cross_family` dispatch: main's side
+(03cb97e1's parent-diff base did not yet have it) added the `if issue is
+None: cwd = issue_workspace(...)` adhoc-isolation block (#2293); this
+branch's 03cb97e1 added the `_board_snapshot_executor = None;
+_board_snapshot_future = None` initialization (#2382). The two additions
+are independent statements with no shared state or ordering dependency —
+resolved by keeping both, adhoc-isolation block first (unchanged from
+main), board_snapshot initialization immediately after (unchanged from
+this branch). acceptance: `python3 -m ast` parse and `grep -c
+"<<<<<<<"` both after resolution — result:
+```
+syntax OK
+0
+```
+No other files conflicted (the diffstat pre- and post-rebase is
+byte-identical: 3 files touched by 03cb97e1, 427 insertions / 23
+deletions total across the four issue-2382 commits).
+
+acceptance: `git push --force-with-lease origin issue-2382/implementation`
+then `gh pr view 2392 --json state,mergeable` — result:
+```
+{"baseRefName":"main","headRefName":"issue-2382/implementation","mergeable":"MERGEABLE","state":"OPEN"}
+```
+
+acceptance: `python3 -m pytest test/ tests/ -m "not slow" -q` (full suite,
+post-rebase) — result:
+```
+FAILED test/test_local_dependency_env.py::CallSiteWiringTest::test_origin_captured_before_workspace_reassignment
+FAILED tests/test_perf_budget_issue_2053.py::test_skill_verdict_guard_standalone_budget
+FAILED tests/test_perf_budget_issue_2053.py::test_report_framing_check_standalone_budget
+FAILED tests/test_spawn_observation_recovery.py::Watchdog::test_delegation_phrasing_signal
+FAILED tests/test_spawn_observation_recovery.py::ConsumerFixtureWatchdogAnchoring::test_foreign_repo_watchdog_output_carries_no_marketplace_or_otr_references
+FAILED tests/test_spawn_observation_recovery.py::Watchdog::test_roster_watchdog_reports_completed_for_session_end_written_after_arming_turn
+FAILED tests/test_spawn_board_flows.py::RosterOwnershipScoping::test_undispositioned_role_prs_excludes_own_roster_branch
+FAILED tests/test_spawn_observation_recovery.py::Watchdog::test_roster_watchdog_returns_anomaly_count_for_stalled_entry
+8 failed, 1339 passed, 9 xfailed, 2 xpassed in 394.83s (0:06:34)
+```
+derived: checked all 8 against a clean `git worktree add
+/tmp/otr-main-check origin/main --detach` (no issue-2382 changes at all).
+5 of 8 reproduced identically under the same `-n auto` run. The remaining
+3 (all in `test_spawn_observation_recovery.py::Watchdog`) passed under
+`-n auto` on plain `origin/main` but failed when re-run there without
+xdist (`-n0`) too — `test_roster_watchdog_returns_anomaly_count_for_stalled_entry`
+asserted `37 != 2` and, on a second `-n0` run, `16 != 2` (both on
+unmodified `origin/main`, in this environment). acceptance: `cd
+/tmp/otr-main-check && python3 -m pytest
+tests/test_spawn_observation_recovery.py::Watchdog::test_delegation_phrasing_signal
+tests/test_spawn_observation_recovery.py::ConsumerFixtureWatchdogAnchoring::test_foreign_repo_watchdog_output_carries_no_marketplace_or_otr_references
+tests/test_spawn_observation_recovery.py::Watchdog::test_roster_watchdog_reports_completed_for_session_end_written_after_arming_turn
+tests/test_spawn_observation_recovery.py::Watchdog::test_roster_watchdog_returns_anomaly_count_for_stalled_entry
+-n0 -q` — result:
+```
+FAILED tests/test_spawn_observation_recovery.py::Watchdog::test_delegation_phrasing_signal
+FAILED tests/test_spawn_observation_recovery.py::ConsumerFixtureWatchdogAnchoring::test_foreign_repo_watchdog_output_carries_no_marketplace_or_otr_references
+FAILED tests/test_spawn_observation_recovery.py::Watchdog::test_roster_watchdog_reports_completed_for_session_end_written_after_arming_turn
+FAILED tests/test_spawn_observation_recovery.py::Watchdog::test_roster_watchdog_returns_anomaly_count_for_stalled_entry
+4 failed in 53.76s
+```
+Root cause: `roster_watchdog()` reads live process/roster state from this
+shared host, which runs many concurrent orchestrator sessions (same
+class of shared-host contention already recorded above under "What did
+not work" for the aborted third timing trial) — the anomaly count varies
+run to run (2, 16, 37 all observed) independent of which branch is
+checked out. All 8 failures are pre-existing/environmental, not
+introduced by this rebase; the rebase changed no test outcome.
+
 ## skill-verdict
 
 skill-verdict: implementation-blueprint — not-applicable: no new module
