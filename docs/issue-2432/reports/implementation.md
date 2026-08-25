@@ -262,3 +262,35 @@ other mounted skills: not triggered
 (implementation-complexity-coupling-management,
 implementation-design-pattern-selection,
 implementation-performance-data-structure-choice)
+
+## Before-landing warrant hunt fix
+
+The background before-landing warrant-hunter (dispatched per the warrant
+protocol) surfaced a real regression: `_skill_axis_report_names()`'s
+original "any frontmatter block" discriminator swept in non-record files
+too — `docs/issue-1077/reports/hunt-implementation.md` (frontmatter has
+only `proposal:`, no `loop_state:`) got counted alongside the genuine
+`implementation.md` record, breaking `_front_role()`'s single-rootless
+invariant that `approve_scope()` relies on.
+
+acceptance: `python3 -m pytest test/test_branch_naming_dual_scheme.py -q`
+— result:
+```
+9 passed in 1.12s
+```
+
+Fixed by requiring `loop_state` in the parsed frontmatter (`board.py`,
+`_skill_axis_report_names()`) — matches what
+`directive_assembly.write_record_skeleton()` always writes for every
+genuine role/skill record. A repo-wide sweep before the fix flagged 29
+existing subjects as affected (`coding`/`qa`/`verify`-named legacy
+records plus non-record files like the hunt record above); after the
+fix, `docs/issue-1077/` and `docs/issue-1174/`'s non-record files are no
+longer swept in — derived: `board._skill_axis_report_names(Path("docs/
+issue-1077/reports"))` returns `[]` after the fix, was
+`["hunt-implementation"]` before. Remaining swept-in entries after the
+fix (e.g. `coding.md`, `upstream-defect-report.md`) all carry a real
+`loop_state:` frontmatter key — genuine legacy-named records, not stray
+files; full hunt output and reproduction:
+docs/issue-2432/reports/implementation/2026-08-25-hunt-stage-4-branch-record-naming-cutover.md
+(warrant-hunter's own record, not authored by this session).
