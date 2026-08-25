@@ -60,10 +60,27 @@ class SectionFileMapping(unittest.TestCase):
         self.assertIn("git ls-files", body)
         self.assertIn("find", body)
 
+    def test_known_paths_file_carries_the_exported_env_var_names(self):
+        # Issue #2211: #2185's git-ls-files guidance only covers the repo
+        # the session is in — it says nothing about the on-the-record
+        # plugin checkout, core plugin, skill-repository, or sibling role
+        # workspaces. The always-on section file names the four env vars
+        # spawn_cmd() now injects so a session reads them instead of
+        # running `find /`.
+        files = spawn.directive_section_files()
+        body = files["known-paths.md"]
+        self.assertIn(spawn._KNOWN_PATHS_PROSE, body)
+        self.assertIn("ON_THE_RECORD", body)
+        self.assertIn("CLAUDE_PLUGIN_ROOT_CORE", body)
+        self.assertIn("MUSTER_WORKSPACE_ROOT", body)
+        self.assertIn("MUSTER_SKILL_REGISTRY_ROOT", body)
+        self.assertIn("find", body)
+
     def test_skill_and_checkpoint_sections_are_conditional(self):
         base = spawn.directive_section_files()
         self.assertEqual(set(base),
-                         {"completion-and-landing.md", "repo-discovery.md"})
+                         {"completion-and-landing.md", "repo-discovery.md",
+                          "known-paths.md"})
         with_skills = spawn.directive_section_files(skills_mounted=True)
         self.assertIn("skill-obligations.md", with_skills)
         self.assertIn(spawn._SKILL_CHECK_PROSE,

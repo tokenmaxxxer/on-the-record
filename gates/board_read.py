@@ -11,8 +11,9 @@ cursor inside one gh process; the two invocations exist because gh's
 issues and pullRequests are two connections).
 
 Layer 2 — delta reads over a cached snapshot. The board is persisted as a
-JSON snapshot (under MUSTER_STATE_ROOT when set, else <root>/runs, same
-anchoring as gates/gh_delta.py cursors) together with `last_sweep_at` —
+JSON snapshot (issue #2240: orchestrator-scoped state, anchored via
+gates/state_paths.py — the same accessor gates/gh_delta.py's cursors use,
+never `root`) together with `last_sweep_at` —
 the max `updatedAt` observed in GitHub's own responses, never a local
 clock (skew, gh_delta condition 2). The steady-state read is ONE GraphQL
 search call `repo:<slug> updated:>=<last_sweep_at>` merged into the
@@ -40,6 +41,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 from typing import Callable
+
+import state_paths
 
 SNAPSHOT_VERSION = 1
 _PAGE_SIZE = 100
@@ -97,12 +100,12 @@ query($q: String!) {
 
 
 def snapshot_path(root: Path) -> Path:
-    """Snapshot location. Anchored to MUSTER_STATE_ROOT when set (the same
-    override spawn.py's STATE_ROOT honors), else <root>/runs — the same
-    anchoring gates/gh_delta.py uses for its cursors."""
-    env = os.environ.get("MUSTER_STATE_ROOT")
-    base = Path(env).resolve() if env else (root / "runs")
-    return base / "board_snapshot.json"
+    """Snapshot location. Orchestrator-scoped state (issue #2240) — routed
+    through gates/state_paths.py, the single accessor gates/gh_delta.py's
+    cursors also use, so `root` (the target repo) never determines where
+    our own cross-tick memory lives. `root` is accepted for call-site
+    symmetry with every other board-read helper; it is not used here."""
+    return state_paths.orchestrator_state_path("board_snapshot.json")
 
 
 def _atomic_write_json(path: Path, data: dict) -> None:

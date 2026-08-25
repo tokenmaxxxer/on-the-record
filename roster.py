@@ -29,6 +29,8 @@ import tempfile
 import time
 from pathlib import Path
 
+import checkpoint
+
 # The spawn module object; set by spawn.py on import. All cross-module lookups
 # resolve through it at call time so monkeypatches on spawn attributes are seen.
 _sp = None
@@ -136,8 +138,17 @@ def roster_register(key: str, entry: dict) -> None:
 def roster_remove(key: str) -> None:
     with _sp._roster_locked():
         d = _sp._roster_load()
-        if d.pop(key, None) is not None:
+        entry = d.pop(key, None)
+        if entry is not None:
             _sp._roster_save(d)
+    # 이슈 #2215: 세션 종료 시 체크포인트 ref 정리 — push/PR 에 새지 않게
+    # (ref 네임스페이스 자체로 이미 안 새지만) 워크스페이스에도 안 남긴다.
+    # 락 밖에서: 이 정리는 워크스페이스 자신의 git 상태만 건드리고 roster
+    # 파일과는 무관하므로, roster 락을 그만큼 오래 쥐고 있을 이유가 없다.
+    if entry is not None:
+        work = entry.get("work")
+        if work:
+            checkpoint.cleanup_checkpoint_ref(work)
 
 
 def _declared_wait(work: str | None) -> dict | None:

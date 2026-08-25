@@ -15,6 +15,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import closure_sweep
+import state_paths
 
 
 class IssueViewFailure(unittest.TestCase):
@@ -197,8 +198,10 @@ class OutOfIndexSubjectIsNotAGhFailureSkip(unittest.TestCase):
             closure_sweep._pr_index_all = orig_pr_index_all
         self.assertEqual(violations, [])
         self.assertEqual(skips, [])
-        self.assertFalse(
-            (self.root / closure_sweep.OUT_OF_INDEX_SEEN_STATE_REL).exists())
+        # issue #2240: this state is orchestrator-scoped now, not
+        # `self.root`-scoped — assert against the real accessor.
+        self.assertFalse(state_paths.orchestrator_state_path(
+            closure_sweep.OUT_OF_INDEX_SEEN_STATE_FILENAME).exists())
 
 
 class PrIndexAllPagination(unittest.TestCase):
