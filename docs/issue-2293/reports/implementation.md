@@ -205,6 +205,19 @@ no commit landed on `main`).
 
 None.
 
+## Skill verdicts
+
+skill-verdict: work-in-english — applied: invoked; commit message, PR
+comment, and this record are all written in English per the skill's
+routing rule; the end-of-turn user-facing summary is in Korean.
+
+other mounted skills: not triggered (implementation-complexity-coupling-management,
+implementation-design-pattern-selection,
+implementation-performance-data-structure-choice,
+implementation-blueprint — this is a one-line f-string interpolation
+fix with no coupling/cohesion, design-pattern, data-structure, or
+multi-module architecture decision involved).
+
 ## Next steps
 
 None — `loop_state: landed`. Acceptance evidence (live CLI refusal,
