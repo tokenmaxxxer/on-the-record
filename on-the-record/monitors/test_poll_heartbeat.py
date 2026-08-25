@@ -16,6 +16,7 @@ the test does not wait on a real 60s cadence.
 """
 from __future__ import annotations
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -869,6 +870,105 @@ def t_patrol_tick_skips_when_checkout_vanishes_mid_sleep():
         assert "[patrol-poll]" not in out, out
         assert not patrol_marker.exists(), \
             "no per-role patrol_promote.py subprocess should run when checkout is missing"
+
+
+# issue #2266: bash 3.2-compatibility regression smoke. #1719 documented
+# that a `python3 - <<'PY' ... PY` heredoc nested inside a `$( )` command
+# substitution makes bash 3.2 miscount quote nesting while scanning for
+# the $( )'s own closing paren -- and #2181's comment edits flipped the
+# heredoc body's total apostrophe count from even to odd, reviving the
+# exact failure #1719 had worked around. The fix (extracting the Python
+# to on-the-record/monitors/poll_heartbeat_delta.py) removes the shape
+# entirely rather than re-balancing the count, so this pins the shape's
+# absence structurally instead of pinning a specific apostrophe count.
+#
+# warrant-hunt finding (docs/issue-2266/reports/implementation/2026-08-25-
+# hunt-poll-heartbeat-bash32-heredoc-fix.md): a same-line-only regex
+# (`\$\(.*<<DELIM$`) misses a `$( )` and its heredoc opener split across a
+# `\`-continued or otherwise multi-line command substitution -- confirmed
+# against a real bash 3.2 container that this shape reproduces the
+# identical parse failure while the naive regex stays silent. Replaced
+# with a depth-tracking scan: count unmatched `$(` opens across the whole
+# file (heredoc bodies excluded from counting, since their content isn't
+# what the bash 3.2 parser miscounts) and flag any heredoc opener seen
+# while that count is still positive, regardless of line span.
+_HEREDOC_OPEN_RE = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1")
+
+
+def _find_command_substitution_wrapped_heredocs(text: str) -> list[tuple[int, str]]:
+    lines = text.split("\n")
+    open_depth = 0
+    in_heredoc = False
+    heredoc_delim = None
+    heredoc_strip_tabs = False
+    findings = []
+    for lineno, line in enumerate(lines, 1):
+        if in_heredoc:
+            probe = line.lstrip("\t") if heredoc_strip_tabs else line
+            if probe == heredoc_delim:
+                in_heredoc = False
+            continue
+        if line.lstrip().startswith("#"):
+            continue
+        j = 0
+        while j < len(line):
+            if line[j:j + 2] == "$(":
+                open_depth += 1
+                j += 2
+                continue
+            if line[j] == ")" and open_depth > 0:
+                open_depth -= 1
+                j += 1
+                continue
+            j += 1
+        m = _HEREDOC_OPEN_RE.search(line)
+        if m:
+            if open_depth > 0:
+                findings.append((lineno, line.strip()))
+            heredoc_delim = m.group(2)
+            heredoc_strip_tabs = "<<-" in line
+            in_heredoc = True
+    return findings
+
+
+def t_no_command_substitution_wrapped_heredoc_in_script():
+    """issue #2266 acceptance check: poll-heartbeat.sh opens no heredoc
+    while a `$( ... )` command substitution from the same or an earlier
+    line is still unclosed -- the structural shape #1719/#2181 hit,
+    checked directly rather than by counting apostrophes in a heredoc
+    body that no longer exists."""
+    text = POLL_HEARTBEAT.read_text(encoding="utf-8")
+    hits = _find_command_substitution_wrapped_heredocs(text)
+    assert not hits, f"command-substitution-wrapped heredoc(s) found: {hits}"
+
+
+def t_command_substitution_wrapped_heredoc_detector_catches_multiline_shape():
+    """issue #2266 warrant-hunt finding, detector self-check: the earlier
+    same-line-only regex passed silently on a `$( )` and its heredoc
+    opener split across a `\\`-continued line (confirmed against a real
+    bash 3.2 container to be the identical parse failure). Pins that the
+    depth-tracking detector above still flags that shape, using a
+    synthetic sample -- never the real poll-heartbeat.sh -- so this test
+    cannot pass merely because the file happens to be clean."""
+    sample = (
+        "out=\"$(printf 'hi' | \\\n"
+        "python3 - <<'PY'\n"
+        "print('hi')\n"
+        "PY\n"
+        ")\"\n"
+    )
+    hits = _find_command_substitution_wrapped_heredocs(sample)
+    assert hits, "detector must flag a multi-line command-substitution-wrapped heredoc"
+
+
+def t_poll_heartbeat_bash_syntax_is_clean():
+    """issue #2266 acceptance check: `bash -n` parses poll-heartbeat.sh
+    cleanly under whatever bash the test host ships -- the minimal proxy
+    for a bash 3.2 binary when one isn't reachable in CI (the structural
+    check above is the primary regression pin; this catches any other
+    parse-time break)."""
+    r = subprocess.run(["bash", "-n", str(POLL_HEARTBEAT)], capture_output=True, text=True)
+    assert r.returncode == 0, f"bash -n failed: {r.stderr}"
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
