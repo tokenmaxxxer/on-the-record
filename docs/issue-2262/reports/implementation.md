@@ -141,6 +141,47 @@ None.
 
 None — loop_state is terminal (`landed`).
 
+## Amendments
+
+canonical: gh api repos/tokenmaxxxer/on-the-record/issues/2262/comments
+
+amendments-reconciled: issuecomment-5403942012 (operator, 2026-08-25, subagent fan-out as a turn-economy lever) and issuecomment-5403812487 (operator, 2026-08-25, systemic no-side-effects constraint) — both posted after this session's initial pass and read before the PR was opened.
+
+- **issuecomment-5403942012** asked for parallel foreground subagent
+  fan-out to be named explicitly, alongside grep batching, as a lever
+  for the exploration-turn cost this issue measured — spawned sessions
+  have `Task`, mounted skills are visible to their subagents, and
+  `run_in_background` workers are the one forbidden shape in headless
+  sessions (parent-turn death). `_TURN_BUDGET_PROSE`
+  (`spawn.py`) was extended with a second guidance item: delegate wide
+  exploration to 3-4 parallel `Explore`-shaped subagents via a
+  foreground `Task` batch, keeping the main session's turns for editing
+  and verification; `run_in_background` is called out by name as the
+  forbidden shape. `tests/test_directive_diet_2135.py`'s
+  `test_turn_budget_file_carries_the_approach_cap_guidance` gained
+  matching assertions (`Task`, `Explore`, `run_in_background`
+  substrings).
+- **issuecomment-5403812487** froze a systemic, no-side-effects
+  constraint on this issue's delivery: it must hold for any target repo
+  installing on-the-record, add no per-spawn overhead or steady-state
+  load when unused, and introduce no new conflict/stall surface. This
+  delivery already satisfies it by construction, not by retrofit:
+  `MUSTER_SESSION_MAX_TURNS_RESOLVED`/`MUSTER_APPROACH_WARNING_TURNS`
+  are plain env vars set by `pipeline.py:spawn_cmd` for any target repo
+  a role is spawned against, not special-cased to this checkout; the
+  wrap-up allowance and warning threshold are both additive and
+  independently zero-able via env; `approach-cap-warning.sh`'s state
+  lives under `$TMPDIR` (never inside the target repo, same convention
+  `retry-loop-bound.sh` already uses — see the `generated-paths.md` row
+  added for it), and both hook legs no-op immediately (a single env-var
+  string check before touching python3) on any session with no resolved
+  cap, adding no measurable per-spawn cost to the unmodified default
+  path. No trade-off needed stating: the two new PreToolUse/PostToolUse
+  processes only run when a Bash/Write/Edit/NotebookEdit/WebFetch tool
+  fires, matching `pretooluse-dispatcher.sh`'s own existing matcher —
+  one more short-lived subprocess per matched tool call, not a
+  standing/steady-state load.
+
 ## Rationale for deviations
 
 canonical: cat /tmp/otr-2262-livefire/session2.log

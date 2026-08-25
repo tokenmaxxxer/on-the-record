@@ -85,6 +85,11 @@ class SectionFileMapping(unittest.TestCase):
         self.assertIn(str(spawn.DEFAULT_SESSION_MAX_TURNS), body)
         self.assertIn("MUSTER_SESSION_MAX_TURNS_RESOLVED", body)
         self.assertIn("grep", body)
+        # issue #2262 operator comment (2026-08-25, issuecomment-5403942012):
+        # parallel subagent fan-out named explicitly alongside grep batching.
+        self.assertIn("Task", body)
+        self.assertIn("Explore", body)
+        self.assertIn("run_in_background", body)
 
     def test_skill_and_checkpoint_sections_are_conditional(self):
         base = spawn.directive_section_files()

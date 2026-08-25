@@ -1954,9 +1954,16 @@ _TURN_BUDGET_PROSE = (
     "allowance)가 조금 있을 뿐, 탐색을 더 할 여유가 아니다. 측정 결과 "
     "(이슈 #2240): 캡에 걸린 세션 하나가 한 턴에 grep 하나씩 69번 실행했고 "
     "그중 68번이 서로 다른 검색이었다 — 루프가 아니라 예산을 선형으로 "
-    "쓰는 직렬 탐색이 원인이었다. 이걸 줄이려면: 관련된 grep 여러 개를 "
-    "한 Bash 호출에 `&&`나 `|`로 묶어서 한 턴에 실행하고, 파일 전체를 "
-    "여러 번 나눠 읽기(paging)보다 필요한 범위만 짚어 Read 하라.\n")
+    "쓰는 직렬 탐색이 원인이었다. 이걸 줄이려면 두 가지를 같이 써라: "
+    "(1) 관련된 grep 여러 개를 한 Bash 호출에 `&&`나 `|`로 묶어서 한 "
+    "턴에 실행하고, 파일 전체를 여러 번 나눠 읽기(paging)보다 필요한 "
+    "범위만 짚어 Read 하라. (2) 폭넓은 탐색은 Task 도구로 3-4개 병렬 "
+    "Explore 형 서브에이전트에 위임하라 — foreground 배치로 한 턴에 N개 "
+    "탐색을 동시에 돌리면, 직렬로 N턴을 쓰는 대신 그 턴들을 편집/검증에 "
+    "남길 수 있다(운영자 지시, 이슈 #2262 코멘트: run_in_background "
+    "워커는 headless 세션에서 금지 — 부모 턴이 끝나면 죽는다 — 하지만 "
+    "foreground Task 배치는 된다). 마운트된 스킬은 서브에이전트에도 "
+    "보인다.\n")
 
 # Issue #2185: measured cost — spawned sessions run `find` (including
 # unscoped `find /` whole-tree traversals) to locate files whose path they
