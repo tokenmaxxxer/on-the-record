@@ -132,8 +132,10 @@ is required of anyone else.
   -q .body`. Measurement 3 below already says 14/45 (31%); only these
   two out-of-record prose citations were stale. Fixed in commit
   `6640246f`, full trace:
-  `docs/issue-2414/reports/implementation/deviation-log/20260825T125742270437-c9a06a3b41ac.md`
-  (same commit). No functional change (comment/prose only) — derived:
+  `docs/issue-2414/reports/implementation/deviation-log/20260825T130144037066-0b23939226b07fc9.md`
+  (renamed to the canonical `spawn.py deviation-log-path` shard in
+  commit `3cf938a8`, that file's own second entry has detail). No
+  functional change (comment/prose only) — derived:
   `git show 6640246f --stat` shows only comment/prose lines touched;
   regression re-run:
 
