@@ -376,6 +376,25 @@ def resolve_role_source(role: str, repo_root: Path | None) -> dict:
             "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
 
 
+def resolve_skill_source(skill_name: str, repo_root: Path | None) -> dict:
+    """이슈 #2241 stage 0: `spawn.py --skill` 경로용. `skill_name`(콤마로
+    여러 개 가능)을 role→skill 표(`_ROLE_SKILLS`)를 거치지 않고 곧장
+    skill-repository 가이던스로 해석한다 — `resolve_role_source()`와 반환
+    shape 은 같지만("source"/"skill_dirs"/"skills"/"skill_sha"), 입력이
+    role 이 아니라 스킬 이름 자체다. `resolve_role_source()`는 이 스테이지에서
+    손대지 않는다(role 경로 byte-identical 요구)."""
+    skill_dirs = _sp.resolved_skill_dirs(skill_name, repo_root)
+    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
+    if hooked:
+        sys.exit(
+            f"resolve_skill_source: {skill_name!r} 이 지정한 스킬 중 "
+            f"{', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 있다 — "
+            f"skill-repository 는 가이던스 전용이다(훅 없음, 이슈 #1758)")
+    return {"source": "skill-repo", "skill_dirs": skill_dirs,
+            "skills": [d.name for d in skill_dirs],
+            "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
+
+
 def _skill_source_roster_row(m: dict) -> dict:
     """이슈 #1774 요구사항 3: 마운트된 스킬 한 줄의 로스터/기록용 row —
     소스별로 정체성 필드 shape 가 다르다(proposal `## What will be done`
