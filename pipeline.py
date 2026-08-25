@@ -560,7 +560,8 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
               design_bearing_verdict: bool | None = None,
               max_turns: int | None = None,
               checkpoint: bool = False,
-              append_system_prompt: str | None = None
+              append_system_prompt: str | None = None,
+              skill_registry_root: Path | None = None
               ) -> tuple[list[str], dict[str, str]]:
     """세션 argv 와 env **추가분**. 호출자가 os.environ 위에 얹는다.
 
@@ -596,6 +597,16 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     Read 호출들로 ~46초를 태웠다(이슈 #2204 측정) — 이 플래그는 그
     라운드트립 자체를 없앤다: 세션이 시작하는 순간부터 이미 컨텍스트에
     있다.
+
+    이슈 #2211: `ON_THE_RECORD`(플러그인 체크아웃 루트, `_sp.ROOT`) 와
+    `MUSTER_WORKSPACE_ROOT`(역할 워크스페이스 루트, `_sp._workspace_base()`)
+    는 스포너가 스폰 시점에 이미 아는 값이라 무조건 심는다.
+    `skill_registry_root`(있으면, 호출자가 이미 해석해 넘긴 skill-repository
+    checkout)는 `MUSTER_SKILL_REGISTRY_ROOT` 로 심는다 — `CLAUDE_PLUGIN_ROOT_CORE`
+    와 같은 근거: 세션이 알 수 없는 경로는 없는 경로와 같다(실측: issue-2201
+    세션이 이 넷을 몰라 `find /` 로 126초를 태웠다). skill-repository 가
+    없으면(빈 상태) 변수도 만들지 않는다 — 없는 값을 빈 문자열로 심으면
+    "존재하지만 비어 있다"와 "아예 없다"가 구분이 안 된다.
     """
     cmd = ["claude", "-p", "--settings", settings_path,
            "--permission-mode", "bypassPermissions",
@@ -701,6 +712,12 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
         print("spawn_cmd: core_plugins 에 'core' 엔트리가 없다 — "
               "CLAUDE_PLUGIN_ROOT_CORE 미주입, 게이트가 fallback 경로로 "
               "빠질 수 있다", file=sys.stderr)
+    # 이슈 #2211: 스포너가 이미 아는 경로 넷 중 플러그인 체크아웃 루트와
+    # 워크스페이스 루트는 항상 있다 — find / 로 찾게 두는 대신 무조건 심는다.
+    env["ON_THE_RECORD"] = str(_sp.ROOT)
+    env["MUSTER_WORKSPACE_ROOT"] = str(_sp._workspace_base())
+    if skill_registry_root:
+        env["MUSTER_SKILL_REGISTRY_ROOT"] = str(skill_registry_root)
     return cmd, env
 
 
@@ -1094,17 +1111,39 @@ def _skill_frontmatter_axis(skill_dir: Path) -> str | None:
     return am.group(1).strip().strip("\"'") or None if am else None
 
 
+_NEGATIVE_SCOPE_RE = re.compile(r"(?i)\s*Do NOT use\b.*$")
+
+
+def _strip_negative_scope(desc: str) -> str:
+    """이슈 #2208: description 의 "Do NOT use for X (use other-skill)." 부정
+    스코프 절은 관례상 항상 description 의 마지막 문장이다(271개 실제 스킬
+    description 표본 확인 — "Do NOT use" 뒤에 문장이 더 오는 경우는 없고,
+    세미콜론/"nor" 로 이어지는 같은 문장의 연속절뿐). 그 절은 다른 스킬의
+    이름(예: "use ux-engineering-color-visibility")을 문자 그대로 담고
+    있어서, BM25 색인에 그대로 들어가면 그 절이 가리키는 다른 스킬 쪽으로
+    엉뚱하게 스코어가 새거나(교차 스킬 이름 토큰 오염) 스킬 자신의 여러
+    부정 사례 나열이 색인을 부풀린다. "Do NOT use" 이후 전부를 잘라낸 사본만
+    BM25 색인에 쓴다 — 원본 description(judge/사용자가 읽는 전체 텍스트)은
+    그대로 둔다."""
+    return _NEGATIVE_SCOPE_RE.sub("", desc).strip()
+
+
 def _skill_bm25_document(name: str, skill_dir: Path) -> str:
     """이슈 #2124 part 1: `_bm25_cross_family_scores` 가 색인하는 문서 =
-    프론트매터 description 전문 + 스킬 이름 토큰(family 프리픽스는 이름의
-    선행 세그먼트라 이름 토큰에 자동 포함 — 토큰화가 집합이라 별도 반복은
-    무의미하다) + `metadata.axis` 토큰. 결정론적 문자열 조립만 한다 —
-    스코어링 입력 외에는 아무 동작도 바꾸지 않는다. description 이 없으면
-    이름+axis 만으로도 문서를 만든다(empty-state: 이름은 절대 안 빠진다)."""
+    프론트매터 description 전문(단, 이슈 #2208: "Do NOT use for X" 부정
+    스코프 절은 색인 사본에서만 제거 — `_skill_frontmatter_description()` 이
+    돌려주는 원본은 그대로라 judge/화면에 보이는 description 은 안 바뀐다)
+    + 스킬 이름 토큰(family 프리픽스는 이름의 선행 세그먼트라 이름 토큰에
+    자동 포함 — 토큰화가 집합이라 별도 반복은 무의미하다) + `metadata.axis`
+    토큰. 결정론적 문자열 조립만 한다 — 스코어링 입력 외에는 아무 동작도
+    바꾸지 않는다. description 이 없으면 이름+axis 만으로도 문서를
+    만든다(empty-state: 이름은 절대 안 빠진다)."""
     parts = [name.replace("-", " ")]
     desc = _skill_frontmatter_description(skill_dir)
     if desc:
-        parts.append(desc)
+        desc = _strip_negative_scope(desc)
+        if desc:
+            parts.append(desc)
     axis = _skill_frontmatter_axis(skill_dir)
     if axis:
         parts.append(axis.replace("-", " "))
@@ -1118,10 +1157,16 @@ def _skill_declared_phrases(skill_dir: Path) -> list[str]:
     """이슈 #2124 part 2: description 안에 따옴표로 선언된 트리거 문구들
     (#99 의 "Trigger on requests like \"...\"" 포맷). 소문자로 돌려준다.
     한 단어짜리 흔한 토큰이 fast-path 자동 픽을 만드는 걸 막으려고,
-    공백을 포함하거나 8자 이상인 문구만 남긴다."""
+    공백을 포함하거나 8자 이상인 문구만 남긴다. 이슈 #2208 (before-landing
+    hunt finding): "Do NOT use for \"X\"" 부정 스코프 절 안의 따옴표 문구가
+    그대로 걸리면 스킬 자신이 명시적으로 배제한 문구가 fast-path 자동
+    픽(judge 리뷰 없이)을 만들어버린다 — `_strip_negative_scope()` 로 그
+    절을 먼저 잘라낸 텍스트에서만 문구를 스캔한다(BM25 문서와 동일한
+    처리)."""
     desc = _skill_frontmatter_description(skill_dir)
     if not desc:
         return []
+    desc = _strip_negative_scope(desc)
     phrases = []
     for m in _SKILL_QUOTED_PHRASE_RE.finditer(desc):
         p = m.group(1).strip().lower()
@@ -1154,14 +1199,18 @@ def _cross_family_candidate_corpus(role: str, repo_root: Path | None,
     반환은 (name, dir, source) 튜플 목록 — source 는 `_describe_skill_match()`
     가 아는 값(`"skill-repo"|"plugin"|"local-user"|"local-repo"`)과 같은
     어휘를 쓴다. family 안 스킬(`_ROLE_SKILLS[role]`)은 호출자가 이미
-    걸러내던 대로 여기서도 걸러 반환에서 뺀다.
+    걸러내던 대로 여기서도 걸러 반환에서 뺀다. 이슈 #2208: 정적으로
+    바인딩되는 POLICY 스킬(`_STATIC_POLICY_SKILLS`, 예: work-in-english)도
+    역할에 상관없이 여기서 항상 빠진다 — judge/BM25 는 이 스킬들을 후보로도
+    보지 않는다(정적으로 마운트되므로 경쟁할 이유가 없다).
 
     `home`/`target_repo_root` 를 생략하면(`None`) 해당 tier 는 아예 안
     읽는다 — 기존 호출부(테스트 포함)가 skill-repository tier 만 보는
     오늘의 동작을 그대로 유지하기 위한 명시적 opt-in 이다. 설치된 플러그인
     tier 는 `_installed_plugin_skill_dirs()` 자체가 이름이 실제로 필요할
     때만 파일을 읽으므로 별도 게이트가 필요 없다."""
-    family_names = set(_sp._ROLE_SKILLS.get(role, []))
+    family_names = (set(_sp._ROLE_SKILLS.get(role, []))
+                     | set(_sp._STATIC_POLICY_SKILLS))
     matches: dict[str, list[tuple[str, Path]]] = {}
 
     def add(source: str, name: str, d: Path) -> None:

@@ -294,6 +294,27 @@ class SpawnCmd(unittest.TestCase):
                                   core_plugins=["/x/tokenmaxxxer-core/terse"])
         self.assertNotIn("CLAUDE_PLUGIN_ROOT_CORE", env)
 
+    def test_on_the_record_and_workspace_root_always_set(self):
+        # 이슈 #2211: 스포너가 이미 아는 플러그인 체크아웃 루트와 워크스페이스
+        # 루트를 무조건 심는다 — 세션이 `find /` 로 이 둘을 찾게 두지 않는다.
+        _, env = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
+        self.assertEqual(env["ON_THE_RECORD"], str(spawn.ROOT))
+        self.assertEqual(env["MUSTER_WORKSPACE_ROOT"], str(spawn._workspace_base()))
+
+    def test_skill_registry_root_set_when_provided(self):
+        # 이슈 #2211: skill-repository checkout 이 있으면 그 루트를
+        # MUSTER_SKILL_REGISTRY_ROOT 로 심는다.
+        _, env = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False,
+                                  skill_registry_root=Path("/x/skill-repository/skills"))
+        self.assertEqual(env["MUSTER_SKILL_REGISTRY_ROOT"], "/x/skill-repository/skills")
+
+    def test_skill_registry_root_unset_when_absent(self):
+        # 빈 상태(이슈 본문): skill-repository 가 없으면(None) 변수도 안 만든다
+        # — 없는 값을 빈 문자열로 심지 않는다.
+        _, env = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False,
+                                  skill_registry_root=None)
+        self.assertNotIn("MUSTER_SKILL_REGISTRY_ROOT", env)
+
     def test_env_stamps(self):
         # D1: 스폰된 세션의 UserPromptSubmit 은 오케스트레이터가 쓴 텍스트다.
         # 그 턴이 사람 턴으로 오인되어 mint 되는 일이 없도록 도장을 찍는다.
