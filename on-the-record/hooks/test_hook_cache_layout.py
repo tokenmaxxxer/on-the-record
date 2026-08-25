@@ -19,9 +19,53 @@ from pathlib import Path
 
 HOOKS_DIR = Path(__file__).resolve().parent
 ON_THE_RECORD = HOOKS_DIR.parent
+REPO_ROOT = ON_THE_RECORD.parent
 
 RCG_OWNED_PATH = "docs/issue-999/reports/implementation.md"
 RCG_OWNED_CONTENT = "unverifiable:\n"
+
+# issue #2295: the packaged copy under on-the-record/gates/ (what a real
+# installed plugin session actually resolves per issue #556) is a
+# hand-maintained duplicate of these three files under the repo-root
+# gates/ (the source of truth developed against). Nothing before this
+# test enforced the two stay in sync — gates/role_spec_shape.py picked up
+# playbook_refs/judgment_axes checks (issues #1174, #573) and
+# gates/record_lint.py picked up the sibling-import-collision fix (issue
+# #2226) while the packaged copies silently kept serving the old,
+# incomplete/buggy behavior to every hook session that resolves gates
+# from the plugin cache layout — no error, no warning, tests still green,
+# because nothing compared the two trees. This pins the invariant.
+_SYNCED_GATE_FILES = ("gates.py", "record_lint.py", "role_spec_shape.py")
+
+
+def test_packaged_gates_copy_matches_source_of_truth():
+    mismatched = []
+    for name in _SYNCED_GATE_FILES:
+        src = (REPO_ROOT / "gates" / name).read_text(encoding="utf-8")
+        packaged = (ON_THE_RECORD / "gates" / name).read_text(encoding="utf-8")
+        if src != packaged:
+            mismatched.append(name)
+    assert not mismatched, (
+        f"on-the-record/gates/{{{', '.join(mismatched)}}} has drifted from "
+        f"gates/{{{', '.join(mismatched)}}} — sync the packaged copy (it is "
+        f"what a real installed hook session resolves per issue #556, not "
+        f"the repo-root file)."
+    )
+
+
+def test_packaged_gates_copy_drift_check_actually_catches_drift(tmp_path):
+    """Live-fire proof: seed a packaged copy one byte off from its source
+    and confirm the comparison above would refuse it, not pass trivially."""
+    seeded_root = tmp_path / "seeded"
+    seeded_gates = seeded_root / "on-the-record" / "gates"
+    seeded_gates.mkdir(parents=True)
+    (seeded_gates / "role_spec_shape.py").write_text(
+        (REPO_ROOT / "gates" / "role_spec_shape.py").read_text(encoding="utf-8")
+        + "\n# drifted\n", encoding="utf-8")
+
+    src = (REPO_ROOT / "gates" / "role_spec_shape.py").read_text(encoding="utf-8")
+    packaged = (seeded_gates / "role_spec_shape.py").read_text(encoding="utf-8")
+    assert src != packaged, "seeded fixture failed to introduce drift"
 
 
 def _run(script, tool_input, plugin_root, tool_name="Write"):

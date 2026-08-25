@@ -218,7 +218,13 @@ def main() -> int:
     if len(sys.argv) < 3:
         print("usage: merge_gate.py <pr> <subject> [--repo <경로>]")
         return 1
-    pr, subject = int(sys.argv[1]), sys.argv[2]
+    try:
+        pr = int(sys.argv[1])
+    except ValueError:
+        print(f"usage: merge_gate.py <pr> <subject> [--repo <경로>] "
+              f"— pr must be an integer, got {sys.argv[1]!r}")
+        return 1
+    subject = sys.argv[2]
     repo = Path(".").resolve()
     if "--repo" in sys.argv:
         repo = Path(sys.argv[sys.argv.index("--repo") + 1]).resolve()

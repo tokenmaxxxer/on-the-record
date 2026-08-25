@@ -101,8 +101,14 @@ def main() -> int:
     if len(sys.argv) < 3:
         print("usage: pr_reference.py <pr-number> <issue-number> [phase1|phase2] [--repo <경로>]")
         return 1
-    pr = int(sys.argv[1])
-    issue = int(sys.argv[2])
+    try:
+        pr = int(sys.argv[1])
+        issue = int(sys.argv[2])
+    except ValueError:
+        print(f"usage: pr_reference.py <pr-number> <issue-number> [phase1|phase2] [--repo <경로>] "
+              f"— pr-number and issue-number must be integers, got "
+              f"{sys.argv[1]!r} {sys.argv[2]!r}")
+        return 1
     phase = sys.argv[3] if len(sys.argv) > 3 and not sys.argv[3].startswith("--") else "phase1"
     repo = Path(".").resolve()
     if "--repo" in sys.argv:
