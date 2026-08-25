@@ -203,3 +203,9 @@ The PR diff includes 141 added lines in `.orchestrate-hook-fires/unknown.log` an
 Scout (web/best-in-class) skip: this is an internal infra/process fix with no external product category to benchmark against. The relevant prior art is this repo's own precedent (the EARL `result` vocabulary, `_recut_absorbed_branch` as the existing "mechanical git op, no LLM" pattern `_mechanical_rebase` was modeled on) — both already read and cited above while verifying checks 2 and 4, not a separate external sweep. No web search was run this session; stating that plainly rather than fabricating exemplars, per the scout directive's own "never fabricate" rule.
 
 `conformance-review-sampling-derivation`: not-applicable — full enumeration of the PR's 6 touched files was feasible (stated above).
+
+## Skill verdicts
+
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; used in "Requirement extraction" above to split the issue's 5 bundled acceptance bullets into 9 one-obligation line items with dimension tags, before any verdict was rendered.
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; used in "Verification method selection" above to pick Test/Demonstration/Analysis/Inspection per item before checking it, including reusing existing tests per rule 4 and requiring a fresh Demonstration for the acceptance text's own "live" mandate per rule 3.
+other mounted skills: not triggered — conformance-review-sampling-derivation judged not-applicable (full enumeration feasible); conformance-review-traceability-and-evidence, conformance-review-verdict-assignment, conformance-review-finding-record, and conformance-review-severity-classification apply once the record itself is written in phase 2, not during this phase-1 survey/proposal.
