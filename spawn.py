@@ -1675,7 +1675,7 @@ def main() -> int:
                       repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
                       self_heal=a.self_heal)
     if a.role == "clean":
-        return roster_clean(_workspace_base(), a.issue)
+        return roster_clean(_workspace_base(), a.issue, Path(a.cwd).resolve())
     if a.role == "doctor":
         # 훅 발화 실측. 버전마다 한 번 — 룰북 집행의 전제조건이다.
         return doctor()
@@ -1920,6 +1920,23 @@ def local_dependency_env(origin: str, work: str) -> dict[str, str]:
     return env
 
 
+def _set_origin_head(work_dir: str) -> subprocess.CompletedProcess:
+    """`origin/HEAD` 를 원격의 실제 기본 브랜치로 다시 계산한다.
+
+    issue #2383 (#2379 근본원인 추적): `_base()`(board.py)는 `origin/HEAD`
+    가 **존재하기만 하면** 그 값을 그대로 신뢰하고, 없을 때만
+    `origin/main`/`origin/master` 로 폴백한다 — 존재하지만 오래된 값은
+    걸러내지 않는다. 신규 클론 경로는 clone 직후 이 재계산을 이미
+    거치지만(issue #221), **재사용** 경로(cwd 가 이미 이 워크스페이스이거나
+    기존 워크스페이스를 fetch 만 하는 두 분기)는 `fetch`만 하고 이 재계산을
+    건너뛰어 왔다 — 원격 기본 브랜치가 바뀌었거나 최초 set-head 가 조용히
+    실패했던 워크스페이스는 재사용될 때마다 오염된 `origin/HEAD` 를 계속
+    물고 간다. `_fetch_or_halt`의 `after=` 로 세 경로(신규/재사용 2곳)
+    모두에서 fetch 직후 매번 호출한다."""
+    return subprocess.run(["git", "-C", work_dir, "remote", "set-head", "origin", "-a"],
+                          capture_output=True, text=True)
+
+
 def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
 
@@ -1968,7 +1985,8 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
             else work_base / f"{repo_name}-adhoc-{role}-{os.getpid()}")
     # cwd 가 이미 이 (이슈,역할)의 워크스페이스면 그대로 쓴다 — 중첩 금지.
     if src == work.resolve():
-        _fetch_or_halt(str(src), "재사용 워크스페이스")
+        _fetch_or_halt(str(src), "재사용 워크스페이스",
+                       after=lambda: _set_origin_head(str(src)))
         _write_role_sidecar(str(src), issue, role)
         return str(src)
     if issue is None and (work / ".git").exists():
@@ -2001,7 +2019,8 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
         if _norm(work_origin) != _norm(origin):
             sys.exit(f"작업 경로에 다른 레포가 있다 (origin 불일치): {work} "
                      f"— 기대: {origin}, 실제: {work_origin or '(없음)'}")
-        _fetch_or_halt(str(work), "재사용 워크스페이스")
+        _fetch_or_halt(str(work), "재사용 워크스페이스",
+                       after=lambda: _set_origin_head(str(work)))
         _write_role_sidecar(str(work), issue, role)
         return str(work)
     work.parent.mkdir(parents=True, exist_ok=True)
@@ -2044,9 +2063,8 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     # origin 을 실제 원격으로 바꿨으니 origin/HEAD 도 그 원격 기준으로
     # 다시 계산해야 `_base()`가 오염된 기본 브랜치를 읽지 않는다. `after=`
     # 로 넘겨서 fetch 가 fail-closed 로 halt 하더라도 먼저 시도되게 한다.
-    _fetch_or_halt(str(work), "신규 워크스페이스", after=lambda: subprocess.run(
-        ["git", "-C", str(work), "remote", "set-head", "origin", "-a"],
-        capture_output=True, text=True))
+    _fetch_or_halt(str(work), "신규 워크스페이스",
+                   after=lambda: _set_origin_head(str(work)))
     _write_role_sidecar(str(work), issue, role)
     return str(work)
 

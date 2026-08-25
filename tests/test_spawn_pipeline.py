@@ -4,6 +4,25 @@ from _spawn_test_support import *  # noqa: F401,F403
 
 
 class SpawnCmd(unittest.TestCase):
+    def setUp(self):
+        # issue #2383: this class's role_model.txt tests used to
+        # save/restore around `spawn.ROLE_MODEL_CONFIG` (the real
+        # checkout-root file) — safe sequentially, but pytest.ini's
+        # `addopts = -n auto` (xdist) can run this file's tests
+        # concurrently with other workers touching the same real path,
+        # and any crash between write and restore leaves the checkout's
+        # role_model.txt corrupted/near-empty (matching the issue's
+        # observed symptom). Same isolation `test/test_spawn_model_override.py`
+        # already uses; harmless for the tests here that never touch
+        # ROLE_MODEL_CONFIG.
+        self._role_model_tmpdir = tempfile.TemporaryDirectory()
+        self._saved_role_model_config = spawn.ROLE_MODEL_CONFIG
+        spawn.ROLE_MODEL_CONFIG = Path(self._role_model_tmpdir.name) / "role_model.txt"
+
+    def tearDown(self):
+        spawn.ROLE_MODEL_CONFIG = self._saved_role_model_config
+        self._role_model_tmpdir.cleanup()
+
     def test_flags(self):
         cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
         self.assertEqual(cmd[:2], ["claude", "-p"])
@@ -486,6 +505,19 @@ class DryRunModelReflection(unittest.TestCase):
     얹는지에 달려 있다 — 여기서 그 분기를 직접 재현해 검사한다
     (docs/reports/2026-07-29-hunt-muster-role-model-build.md).
     """
+
+    def setUp(self):
+        # issue #2383: isolate ROLE_MODEL_CONFIG the same way SpawnCmd's
+        # setUp does — this class's one test that writes to it used to
+        # target the real checkout-root role_model.txt, racy under
+        # pytest-xdist parallel workers.
+        self._role_model_tmpdir = tempfile.TemporaryDirectory()
+        self._saved_role_model_config = spawn.ROLE_MODEL_CONFIG
+        spawn.ROLE_MODEL_CONFIG = Path(self._role_model_tmpdir.name) / "role_model.txt"
+
+    def tearDown(self):
+        spawn.ROLE_MODEL_CONFIG = self._saved_role_model_config
+        self._role_model_tmpdir.cleanup()
 
     @staticmethod
     def _dry_run_output(role: str) -> dict:

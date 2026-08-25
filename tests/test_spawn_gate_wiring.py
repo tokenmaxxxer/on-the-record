@@ -2,6 +2,30 @@ from _spawn_test_support import *  # noqa: F401,F403
 from _spawn_test_support import _event  # noqa: F401
 
 
+def _role_settings_over_patched_spec(role, mutate):
+    """`role_settings(role)`을 실제 `roles/<role>.json`이 아니라 `mutate()`가
+    바꾼 사본에 대해 실행한다. issue #2383: 이 사본 대신 실제 트래킹된 role
+    스펙 파일을 `write_text`로 직접 덮어쓰고 `finally`에서 복원하는 예전
+    패턴은, pytest-xdist(`-n auto`, pytest.ini) 아래 프로세스가 write와
+    restore 사이에 죽으면(타임아웃/OOM) 그 파일을 근-빈 상태로 체크아웃에
+    남긴다 — 이슈가 이름 붙인 `roles/implementation.json`이 비는 증상과
+    같은 메커니즘이다(`test/test_spawn_model_override.py`가 `role_model.txt`에
+    대해 이미 고친 것과 같은 클래스의 경합)."""
+    real = Path(spawn.ROOT) / "roles" / f"{role}.json"
+    spec = json.loads(real.read_text())
+    mutate(spec)
+    with tempfile.TemporaryDirectory() as td:
+        tmp_roles = Path(td) / "roles"
+        tmp_roles.mkdir()
+        (tmp_roles / f"{role}.json").write_text(json.dumps(spec))
+        old_root = spawn.ROOT
+        spawn.ROOT = Path(td)
+        try:
+            return spawn.role_settings(role)
+        finally:
+            spawn.ROOT = old_root
+
+
 class RepoConfigRefusal(unittest.TestCase):
     def test_agents_and_mcp_are_rogue(self):
         # 프로젝트 스코프 에이전트 파일은 hooks/permissionMode frontmatter 를
@@ -44,19 +68,13 @@ class WebToolPermissionAccess(unittest.TestCase):
 
     def test_role_declared_permissions_allow_entries_preserved(self):
         """이슈 #38 의 registry-host 병합과 같은 패턴: 병합이지 교체가 아니다."""
-        f = Path(spawn.ROOT) / "roles" / "implementation.json"
-        original_text = f.read_text()
-        spec = json.loads(original_text)
-        spec["permissions"] = {"allow": ["Bash(git *)"]}
-        try:
-            f.write_text(json.dumps(spec))
-            out = spawn.role_settings("implementation")
-            allow = out["permissions"]["allow"]
-            self.assertIn("Bash(git *)", allow)
-            self.assertIn("WebSearch", allow)
-            self.assertIn("WebFetch", allow)
-        finally:
-            f.write_text(original_text)
+        def mutate(spec):
+            spec["permissions"] = {"allow": ["Bash(git *)"]}
+        out = _role_settings_over_patched_spec("implementation", mutate)
+        allow = out["permissions"]["allow"]
+        self.assertIn("Bash(git *)", allow)
+        self.assertIn("WebSearch", allow)
+        self.assertIn("WebFetch", allow)
 
 class WorkspaceBashAllowlist(unittest.TestCase):
     """이슈 #558: 격리된 워크스페이스 안에서 정당한 venv/pip/테스트 스크립트
@@ -157,18 +175,12 @@ class MustMcpAllowEnv(unittest.TestCase):
         self.assertEqual(allow.count("mcp__world-data__korean_law__*"), 1)
 
     def test_duplicate_against_role_declared_entry_is_not_duplicated(self):
-        f = Path(spawn.ROOT) / "roles" / "implementation.json"
-        original_text = f.read_text()
-        spec = json.loads(original_text)
-        spec["permissions"] = {"allow": ["mcp__world-data__korean_law__*"]}
+        def mutate(spec):
+            spec["permissions"] = {"allow": ["mcp__world-data__korean_law__*"]}
         os.environ["MUSTER_MCP_ALLOW"] = "mcp__world-data__korean_law__*"
-        try:
-            f.write_text(json.dumps(spec))
-            out = spawn.role_settings("implementation")
-            allow = out["permissions"]["allow"]
-            self.assertEqual(allow.count("mcp__world-data__korean_law__*"), 1)
-        finally:
-            f.write_text(original_text)
+        out = _role_settings_over_patched_spec("implementation", mutate)
+        allow = out["permissions"]["allow"]
+        self.assertEqual(allow.count("mcp__world-data__korean_law__*"), 1)
 
     def test_applies_to_every_role_not_just_one(self):
         os.environ["MUSTER_MCP_ALLOW"] = "mcp__world-data__korean_law__*"
@@ -187,19 +199,13 @@ class RoleSessionSandboxRemoved(unittest.TestCase):
         """이슈 #695 인수 기준: 대표 역할(implementation)에 대해
         role_settings() 출력이 활성 샌드박스를 갖지 않고, 오늘의
         permissions.allow 항목은 그대로 남아있다."""
-        f = Path(spawn.ROOT) / "roles" / "implementation.json"
-        original_text = f.read_text()
-        spec = json.loads(original_text)
-        spec.setdefault("sandbox", {})["enabled"] = True
-        try:
-            f.write_text(json.dumps(spec))
-            out = spawn.role_settings("implementation")
-            self.assertFalse(out.get("sandbox", {}).get("enabled"))
-            allow = out["permissions"]["allow"]
-            for tool in ("WebSearch", "WebFetch", "Read", "Grep", "Glob"):
-                self.assertIn(tool, allow)
-        finally:
-            f.write_text(original_text)
+        def mutate(spec):
+            spec.setdefault("sandbox", {})["enabled"] = True
+        out = _role_settings_over_patched_spec("implementation", mutate)
+        self.assertFalse(out.get("sandbox", {}).get("enabled"))
+        allow = out["permissions"]["allow"]
+        for tool in ("WebSearch", "WebFetch", "Read", "Grep", "Glob"):
+            self.assertIn(tool, allow)
 
     def test_sandbox_disabled_for_every_role(self):
         for role_file in (Path(spawn.ROOT) / "roles").glob("*.json"):

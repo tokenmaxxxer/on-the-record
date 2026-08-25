@@ -1,5 +1,8 @@
 runs/
 .on-the-record/recovery-state/
+.on-the-record/check-run-artifact.json
+.on-the-record/directive/
+role_model.txt
 __pycache__/
 .router.lock
 .warrant-hunt.*
