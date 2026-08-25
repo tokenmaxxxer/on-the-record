@@ -26,16 +26,18 @@ single function's inverted branch plus three pinned regression tests,
 well within one review pass (conformance-review-sampling-derivation:
 not applicable, see skill-verdict below).
 
-Extracted eight checkable requirements — R1-R4 from the Ask section's
+Extracted nine checkable requirements — R1-R4 from the Ask section's
 substantive behavior, R5-R8 from the Acceptance section's gate /
-empty-state / provenance lines — picked a verification method for
-each, and independently re-executed every piece of evidence PR #2283's
-own record claims, in a clean worktree at the PR's actual head commit,
-rather than relying on the pasted transcripts in
-docs/issue-2278/reports/implementation.md (out-of-scope in this
-worktree — that record lives only on branch issue-2278/implementation).
-All eight requirements verdict Present; two non-blocking notes are
-recorded under Open findings.
+empty-state / provenance lines, R9 from issue #2278's own
+operator-frozen amendment comment (issuecomment-5403812868, posted
+after this session started — see Amendments reconciled below) — picked
+a verification method for each, and independently re-executed every
+piece of evidence PR #2283's own record claims, in a clean worktree at
+the PR's actual head commit, rather than relying on the pasted
+transcripts in docs/issue-2278/reports/implementation.md (out-of-scope
+in this worktree — that record lives only on branch
+issue-2278/implementation). All nine requirements verdict Present; two
+non-blocking notes are recorded under Open findings.
 
 ### R1 — invert the default to `judgment` for non-path backticks
 
@@ -146,6 +148,36 @@ recorded under Open findings.
   pre-existing `looks_like_command` bare-`.py` branch (unmodified by
   this PR), not through the new `_looks_like_path`/`file-existence`
   branch this PR actually touched — see Open finding 1.
+
+### R9 — operator-frozen constraint: systemic, no side effects across any target repo
+
+- spec_ref: issue #2278, comment issuecomment-5403812868 (2026-08-25
+  operator-frozen amendment) — "must hold systemically for every
+  session that installs on-the-record and works against any target
+  repo... and must land without side effects: no added per-spawn
+  overhead or steady-state load, no new conflict surfaces..., no
+  stall/deadlock modes, no consumer-tree pollution"
+- verdict: Present
+- evidence: 41be748d4d6a7dd2cd0a10039b004a0cb84f06b8:gates/check_runner.py:89-101,154-157
+  — the diff adds one module-level constant set (`_PATH_EXTENSIONS`,
+  built once at import) and one pure string-predicate function
+  (`_looks_like_path`, no I/O, no filesystem writes, no new files); the
+  only change to `parse_checks()`'s control flow is swapping one
+  unconditional `else` branch for an `elif`/`else` pair over
+  already-in-memory strings.
+- rationale: this reasoning stays confined inside `check_runner.py`'s
+  own classifier — it never writes to a target repo's tree, never
+  touches `.on-the-record/`'s append-log or any other shared state,
+  and adds no loop or wait construct (so no new stall/deadlock
+  surface). Its per-call cost is one set-membership lookup on a fixed
+  small extension set plus a string `rsplit`/`in` check — the same
+  order of cost the pre-existing `_MEASUREMENT_LANGUAGE` regex check
+  right next to it already pays every classifier call, so there is no
+  added per-spawn overhead or steady-state load beyond what the
+  classifier already did. Nothing in the diff is specific to this
+  checkout — the extension set and the path-shape rule are generic —
+  so the behavior holds identically against any target repo
+  `check_runner.py` is pointed at.
 
 ## Executed evidence (independently reproduced by this review, not copied from the PR)
 
@@ -316,6 +348,17 @@ actually runs.
    `same-commit` applies when the cited path lands in *this* record's
    own commit, not the PR-under-review's commit. Noted only for
    traceability precision; does not change any verdict above.
+
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5403812868 — the operator-frozen
+constraint posted on issue #2278 after this session started (systemic
+across any target repo, no added per-spawn overhead, no new conflict
+surface, no stall/deadlock mode, no consumer-tree pollution) is graded
+above as requirement R9, verdict Present. No trade-off needed stating,
+since the diff this review inspected is a pure, generic classifier
+branch with no filesystem writes, no shared-state touch, and no added
+control-flow loop.
 
 ## Next steps
 
