@@ -207,3 +207,16 @@ set: the literal patch under this issue's own tree
 committed separately this session), plus a `gh issue comment 2241`
 naming the fix and both unblock paths for whichever session or human
 can actually apply it.
+
+## Skill verdicts
+
+skill-verdict: work-in-english — applied: invoked; this session's own
+record, commit messages, PR title/body, and the `gh issue comment 2241`
+text are all authored in English per the skill's routing rule, since the
+task-assigning turn was in Korean. other mounted skills
+(implementation-complexity-coupling-management,
+implementation-design-pattern-selection,
+implementation-performance-data-structure-choice,
+implementation-blueprint): not triggered — this issue is a docs-only
+write-scope/path decision, not a code-structure or data-structure
+choice.
