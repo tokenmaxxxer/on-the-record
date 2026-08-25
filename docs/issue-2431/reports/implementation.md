@@ -20,6 +20,11 @@ verdict: pass
 
 ## amendments-reconciled
 
+amendments-reconciled: issuecomment-5410865516 and issuecomment-5411038089
+— both posted after this session's initial issue read, both read via `gh
+api` before this PR was opened, both reconciled into the delivered design
+below (and into the "Why" section's design-history explanation).
+
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/2431/comments`,
 run this session, returned two operator comments posted after this
 session started (both dated 2026-08-25, after the session's initial issue
