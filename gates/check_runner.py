@@ -131,6 +131,37 @@ _COMPOUND_SEP = re.compile(r"&&|;")
 # 그대로 유지된다.
 _ANGLE_PLACEHOLDER = re.compile(r"<[^\s<>]+>")
 
+# issue #2509 (#2463 의 잔여 결함): #2463 는 각괄호 placeholder 만 뺐다 —
+# 백틱 토큰이 *다른 어딘가*(설치된 플러그인 자신의 디렉터리, target/소비
+# 저장소의 로컬 레이아웃)에 있는 실재 경로를 가리켜도 진짜 `/`를 담고
+# 있어 여전히 "이 저장소에 이 경로가 있어야 한다"로 읽혔다. 라이브
+# 재현(이슈 #2488, PR #2497/#2499/#2500): "설치된 플러그인의 `skills/`"에서
+# 스킬 이름이 풀리는지를 묻는 불릿과 "target repo 의 로컬 `.claude/skills`"를
+# 언급하는 불릿 둘 다, 두 경로 어느 쪽도 있다고 주장한 적 없는 저장소에서
+# 기계적으로 FAIL 했다. 신호는 텍스트 기반이어야지 존재-여부 기반이면 안
+# 된다(존재 여부로 판정하면 분류기가 자기참조적이 되고, "진짜로 없는
+# in-repo 경로는 여전히 FAIL 해야 한다"는 non-goal 을 깬다) — 백틱 바로
+# 앞의 명시적 foreign-owner 소유격("installed plugin's", "target repo's" 등)은
+# 그 불릿이 "여기 있다"를 주장하는 게 아니라 "다른 곳에 있다"를 설명하고
+# 있다는 뜻이다.
+_FOREIGN_OWNER = re.compile(
+    r"(?i)\b(?:installed|target|another|other|downstream|external|"
+    r"consuming|third-party)\s+(?:plugin|repo(?:sitory)?)'s\b")
+# 창을 일부러 짧게 잡는다 — 백틱 *바로 앞*에서 그 토큰의 소유자를 이름하는
+# 소유격만 쳐준다. 긴 불릿 앞부분에서 다른 대상을 두고 언급한 foreign-owner
+# 구절이 뒤로 새어나가 문장 뒤쪽의 무관한, 진짜 로컬 경로를 삼키면 안 된다.
+_FOREIGN_OWNER_WINDOW = 60
+
+# issue #2509: 불릿 텍스트가 stating/demonstrating 동사로 시작하면 그건
+# 실행할 명령이 아니라 무엇을 보여주거나 문서화해야 하는지를 말하는
+# 서술문이다 — 같은 불릿 뒤쪽 백틱이 무엇처럼 생겼든 상관없다
+# (`.claude/skills` 는 아래 `looks_like_command`엔 compound 경로형 명령
+# 토큰으로 읽힌다). 라이브 재현: "state explicitly what trust distinction
+# ... a target repo's local `.claude/skills`"가 `test`로 분류돼, 원래
+# 실행할 뜻이 전혀 없던 셸 명령으로 돌아갔다.
+_STATING_VERB_PREFIX = re.compile(
+    r"(?i)^\s*(?:state\s+explicitly|demonstrate\s+live|document)\b")
+
 
 def _final_segment(cmd: str) -> str:
     parts = _COMPOUND_SEP.split(cmd)
@@ -192,6 +223,14 @@ def parse_checks(section: str,
                 "/" in tokens[0] and tokens[0].count(".") >= 1
                 or tokens[0] in INTERPRETERS
             )
+            # issue #2509: stating/demonstrating 불릿은 서술문이지 실행할
+            # 명령이 아니다 — 그 안 백틱이 명령 토큰 모양(`dir/name`)이라도
+            # 마찬가지다(위 looks_like_command 는 `cd` 없는 compound 상대
+            # 경로 명령과 이 모양을 구별 못 한다).
+            if _STATING_VERB_PREFIX.match(raw):
+                looks_like_command = False
+            is_foreign_owned = bool(_FOREIGN_OWNER.search(
+                raw[:bm.start()][-_FOREIGN_OWNER_WINDOW:]))
             if looks_like_command:
                 # issue #2233: 이 저장소가 실제로 가장 흔히 쓰는 형태 —
                 # 인터프리터 접두 없는 bare `.py` 경로 하나짜리
@@ -211,7 +250,16 @@ def parse_checks(section: str,
                 checks.append({"type": "test", "raw": raw, "command": cmd})
             elif _MEASUREMENT_LANGUAGE.search(raw):
                 checks.append({"type": "judgment", "raw": raw})
-            elif _looks_like_path(classify_cmd):
+            elif is_foreign_owned:
+                checks.append({"type": "judgment", "raw": raw})
+            elif len(tokens) == 1 and _looks_like_path(classify_cmd):
+                # issue #2509: file-existence 판정은 원래 경로 하나에 대한
+                # 것이지 여러 단어짜리 문자열이 아니다 — 이 분기가 다중
+                # 토큰 `classify_cmd`로 오는 경우는 위 stating-verb 억제가
+                # 명령 모양의 첫 토큰을 `test`에서 빼낸 경우뿐이다. 토큰
+                # 개수 가드가 없으면 그 남은 다중 단어 문자열("gates/x.py
+                # --flag" 같은)이 하나의 가짜 리터럴 경로로 기계적으로
+                # "검사"돼 버린다.
                 checks.append({"type": "file-existence", "raw": raw, "path": classify_cmd})
             else:
                 checks.append({"type": "judgment", "raw": raw})

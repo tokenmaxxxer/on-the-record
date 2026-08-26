@@ -479,6 +479,92 @@ def t_genuinely_missing_literal_path_without_placeholder_still_fails():
     assert results[0]["status"] == "fail", results
 
 
+# --- issue #2509 (residual of #2463): foreign-owned `/`-shaped tokens ------
+
+
+def t_installed_plugin_owned_directory_classifies_as_judgment_not_file_existence():
+    """issue #2488 live repro (PR #2497/#2499/#2500): the bullet names a
+    directory that lives inside an *installed plugin*, not this repo —
+    the old default (any backtick with `/` reads as an in-repo path)
+    mechanically FAILed it though it never claimed `skills/` exists here."""
+    section = (
+        "\n- check: a skill name that exists only in an installed "
+        "plugin's `skills/` (not present in the target repo) resolves "
+        "successfully via `--skills`\n"
+    )
+    assert _types(section) == ["judgment"], check_runner.parse_checks(section)
+
+
+def t_target_repo_owned_path_classifies_as_judgment_not_file_existence():
+    """issue #2488 live repro: ".claude/skills" belongs to a *target
+    repo*, described in a stating bullet — old behaviour classified this
+    `test` (looks_like_command fires on the `/` + `.` shape) and ran it
+    as a shell command that was never meant to execute."""
+    section = (
+        "\n- check: state explicitly what trust distinction (if any) is "
+        "applied between the curated skill-repository and a target "
+        "repo's local `.claude/skills`\n"
+    )
+    assert _types(section) == ["judgment"], check_runner.parse_checks(section)
+
+
+def t_foreign_owner_phrase_far_from_the_backtick_does_not_leak_forward():
+    """The foreign-owner exclusion is scoped to a short window immediately
+    before the backtick — a foreign-owner phrase describing something
+    else earlier in a long bullet must not swallow an unrelated, later,
+    genuinely-local path assertion."""
+    filler = "x " * 40
+    section = (
+        f"\n- check: an installed plugin's thing is unrelated here, {filler}"
+        "the report lands at `reports/genuinely-missing-report`\n"
+    )
+    checks = check_runner.parse_checks(section)
+    assert [c["type"] for c in checks] == ["file-existence"], checks
+
+
+def t_generic_module_or_tool_possessive_does_not_downgrade_a_real_in_repo_path():
+    """warrant-hunter finding: the foreign-owner noun list must stay
+    narrow to `plugin`/`repo(sitory)` — a generic noun like `module` or
+    `tool` doesn't inherently mean "not in this repo" (a bullet can say
+    "unlike another module's `x`, this repo's own `y`" about two things
+    both local to this repo), so including it would silently downgrade
+    a genuinely-missing in-repo path assertion to unenforced judgment,
+    which the issue's non-goal explicitly forbids."""
+    for phrase in ("another module's", "other tool's", "another project's",
+                   "other package's"):
+        section = f"\n- check: {phrase} `gates/definitely_missing_dir_xyz` is present\n"
+        checks = check_runner.parse_checks(section)
+        assert [c["type"] for c in checks] == ["file-existence"], (phrase, checks)
+        with tempfile.TemporaryDirectory() as td:
+            results = check_runner.run_checks(Path(td), checks)
+        assert results[0]["status"] == "fail", (phrase, results)
+
+
+def t_demonstrate_live_prefixed_bullet_never_classifies_as_test():
+    section = (
+        "\n- check: demonstrate live that the skill resolves via "
+        "`gates/check_runner.py --skills`\n"
+    )
+    assert _types(section) == ["judgment"], check_runner.parse_checks(section)
+
+
+def t_document_prefixed_bullet_never_classifies_as_test():
+    """`bin/run.sh` is a genuine single-token path shape, so it still
+    lands on file-existence, not judgment — the acceptance only forbids
+    the runnable `test` classification for a stating/demonstrating
+    bullet, it does not force every such bullet to `judgment`."""
+    section = "\n- check: document the behavior of `bin/run.sh`\n"
+    assert _types(section) == ["file-existence"], check_runner.parse_checks(section)
+
+
+def t_stating_verb_prefix_does_not_suppress_test_for_a_non_stating_bullet():
+    """The fix is narrow: only a bullet whose text *begins* with a
+    stating/demonstrating verb is affected — a bullet that names a real
+    runnable command must still classify as `test`."""
+    section = "\n- check: `python3 -m pytest tests/test_ok.py`\n"
+    assert _types(section) == ["test"], check_runner.parse_checks(section)
+
+
 def _run(fns):
     ok = 0
     for name, fn in fns:
