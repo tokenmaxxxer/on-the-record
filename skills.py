@@ -279,75 +279,12 @@ def skill_repo_sha(repo_root: Path) -> str:
     return p.stdout.strip() if p.returncode == 0 else "?"
 
 
-# 이슈 #1955: 전이용 역할-소스 허용목록(#1758)/rulebook 해석 경로 은퇴 —
-# 매핑은 더 이상 대상 저장소의 선택적 파일이 아니라 여기 고정된다. 43개
-# 역할 전부가 예전 docs/specs 아래 허용목록 파일과 값이 같다(그 파일이
-# 이미 모든 역할을 매핑하고 있었다 — 이 상수는 그 내용을 그대로 옮긴 것).
-#
-# 이슈 #2507 스코프 노트: `spawn.py`의 스폰 마운트 경로는 이 표를 더 이상
-# 읽지 않는다(`resolve_static_policy_source()` + 과제-텍스트 매치로 이동).
-# 이 표는 아직 `consult.py`의 5개 자문 세션 호출부와 `pipeline.py` preflight
-# 가 `resolve_role_source()`를 통해 쓴다 — 그 4곳을 옮기지 못한 이유는
-# `resolve_role_source` 독스트링의 이슈 #2507 노트 참고.
-_ROLE_SKILLS = {
-    'accessibility': ['accessibility-aria-and-contrast-rules'],
-    'api-design': ['api-design-error-design', 'api-design-http-semantics', 'api-design-payload-design', 'api-design-resource-modeling', 'api-design-tool-landscape', 'api-design-versioning-evolution'],
-    'architecture': ['architecture-coupling-classification', 'architecture-decomposition-strategy', 'architecture-dependency-direction', 'architecture-interface-contract-shape', 'architecture-module-boundary-definition'],
-    'brand-design': ['brand-design-brand-consistency-governance', 'brand-design-brand-identity-strategy', 'brand-design-color-visibility', 'brand-design-logo-clear-space-size', 'brand-design-typography-pairing'],
-    'capacity-planning': ['capacity-planning-cost-attribution-at-trigger', 'capacity-planning-demand-shape-and-forecast-method', 'capacity-planning-expansion-trigger-threshold-sizing', 'capacity-planning-headroom-band-and-degradation-risk', 'capacity-planning-safety-buffer-sizing-by-criticality'],
-    'conformance-review': ['conformance-review-requirement-extraction', 'conformance-review-sampling-derivation', 'conformance-review-traceability-and-evidence', 'conformance-review-verdict-assignment', 'conformance-review-verification-method-selection', 'conformance-review-finding-record', 'conformance-review-severity-classification'],
-    'content-design': ['content-design-operational-playbook'],
-    'customer-support': ['customer-support-escalation-path', 'customer-support-five-whys-recurring-scope', 'customer-support-kcs-article-authoring', 'customer-support-research-log', 'customer-support-sla-tier-priority', 'customer-support-subtraction-comprehensibility'],
-    'data-engineering': ['data-engineering-data-quality', 'data-engineering-failure-handling', 'data-engineering-pipeline-design'],
-    'data-modeling': ['data-modeling-datavault', 'data-modeling-inmon', 'data-modeling-kimball', 'data-modeling-structure'],
-    'defect-verification': ['defect-verification-evidence-artifact-completeness', 'defect-verification-independence-from-upstream-verdicts', 'defect-verification-reproduction-evidence-quality', 'defect-verification-severity-band-assignment', 'verify-finding-record', 'verify-severity-classification'],
-    'devrel': ['devrel-channel-convention', 'devrel-content-comprehensibility', 'devrel-program-subtraction'],
-    'finance-unit-economics': ['finance-unit-economics-cac-payback', 'finance-unit-economics-evidence-chain', 'finance-unit-economics-ltv-cac-band', 'finance-unit-economics-ltv-churn-assumption', 'finance-unit-economics-proposal-shape', 'finance-unit-economics-sensitivity-scenario'],
-    'growth-analytics': ['growth-analytics-experiment-trust', 'growth-analytics-funnel-stage-attribution', 'growth-analytics-metric-selection', 'growth-analytics-reporting-reduction', 'growth-analytics-segmentation'],
-    # 이슈 #2208: work-in-english 는 태스크별 트리거가 아니라 이 저장소의
-    # 모든 코딩 작업(코드/커밋/PR/문서)에 적용되는 언어 정책 스킬 — 실측
-    # 판단 로그(docs/issue-2073, issue-2093 의 consult-log.md, 둘 다
-    # role=implementation) 상 실제로 마운트된 건 언제나 implementation
-    # 역할이었다. cross-family 후보 풀에서는 `_STATIC_POLICY_SKILLS`(아래)
-    # 로 전 역할에서 조용히 빠진다 — 여기 family 목록에 있는 건 마운트
-    # 경로(resolve_role_source)만을 위한 것.
-    'implementation': ['implementation-complexity-coupling-management', 'implementation-design-pattern-selection', 'implementation-performance-data-structure-choice', 'implementation-blueprint', 'work-in-english'],
-    'incident-response': ['incident-response-action-item-quality', 'incident-response-blameless-language-editing', 'incident-response-rca-method-selection', 'incident-response-severity-classification-scoping', 'incident-response-timeline-construction', 'incident-response-tool-landscape'],
-    'interaction-design': ['interaction-design-form-control-and-layout'],
-    'issue-retrospective': ['issue-retrospective-timeline-comprehensibility-and-subtraction-rules'],
-    'knowledge-management': ['knowledge-management-curation-pruning', 'knowledge-management-structure-findability', 'knowledge-management-taxonomy-tagging', 'knowledge-management-supersession-lifecycle', 'knowledge-management-pattern-extraction'],
-    'legal-compliance': ['legal-compliance-consent-ux', 'legal-compliance-cross-border-transfer', 'legal-compliance-lawful-basis-selection', 'legal-compliance-license-compatibility', 'legal-compliance-research-log', 'legal-compliance-retention-minimization', 'legal-compliance-vendor-dpa'],
-    'localization': ['localization-locale-convention-formatting', 'localization-pluralization-and-grammar', 'localization-rtl-and-script-support', 'localization-string-externalization', 'localization-text-expansion-and-layout'],
-    'market-analysis': ['market-analysis-competitor-mapping', 'market-analysis-evidence-rigor', 'market-analysis-five-forces', 'market-analysis-jtbd-fit', 'market-analysis-mece-proposal'],
-    'marketing': ['marketing-channel-selection', 'marketing-message-persuasion', 'marketing-positioning-differentiation', 'marketing-scope-pruning', 'marketing-segment-targeting'],
-    'ml-engineering': ['ml-engineering-evaluation-discipline', 'ml-engineering-ml-test-score-scoring', 'ml-engineering-model-provenance-versioning', 'ml-engineering-rollout-promotion-rollback', 'ml-engineering-serving-pattern-selection', 'ml-engineering-slo-definition-tradeoffs'],
-    'observability': ['observability-cardinality-budget', 'observability-explorability', 'observability-methodology-selection', 'observability-phase-trace', 'observability-signal-golden', 'observability-signal-red', 'observability-signal-use'],
-    'partnerships-bd': ['partnerships-bd-deal-structure-selection', 'partnerships-bd-exclusivity-and-scope-terms', 'partnerships-bd-governance-cadence-and-kpi', 'partnerships-bd-negotiation-positioning', 'partnerships-bd-term-sheet-comprehensibility-and-convention'],
-    'performance-engineering': ['performance-engineering-operational-playbook'],
-    'pr-communications': ['pr-communications-message-planning-and-evaluation-rules'],
-    'pricing': ['pricing-design-rigor', 'pricing-method-family', 'pricing-scope-gate', 'pricing-tier-structure', 'pricing-verdict-report'],
-    'product-discovery': ['product-discovery-guardrail-metric-status', 'product-discovery-hypothesis-preregistration', 'product-discovery-jtbd-problem-framing', 'product-discovery-opportunity-solution-tree-branching', 'product-discovery-rice-ice-prioritization', 'product-discovery-assumption-mapping', 'product-discovery-guardrail-metrics', 'product-discovery-hypothesis-testing', 'product-discovery-one-pager', 'product-discovery-opportunity-solution-tree'],
-    'refactoring-legacy': ['refactoring-legacy-characterization-test-scope', 'refactoring-legacy-refactoring-step-decomposition', 'refactoring-legacy-seam-selection', 'refactoring-legacy-strangler-fig-migration', 'refactoring-legacy-verification-cadence'],
-    'release-engineering': ['release-engineering-branching-release-strategy', 'release-engineering-changelog-entry-categorization', 'release-engineering-deployment-rollout-strategy', 'release-engineering-release-cadence-and-toil', 'release-engineering-rollback-and-recovery', 'release-engineering-semver-bump-selection', 'release-engineering-error-budget-policy', 'release-engineering-postmortem', 'release-engineering-readiness-checklist', 'release-engineering-rollout-plan'],
-    'requirements-engineering': ['requirements-engineering-rules'],
-    'risk-management': ['risk-management-aggregation-consolidation', 'risk-management-appetite-tolerance-threshold', 'risk-management-likelihood-impact-scale', 'risk-management-monitoring-review-cadence', 'risk-management-response-strategy-selection'],
-    'sales': ['sales-objection-handling', 'sales-pitch-scoping-and-messaging-handoff', 'sales-qualification-and-discovery'],
-    'secure-coding': ['secure-coding-authorization-access-control', 'secure-coding-cryptography-secrets-management', 'secure-coding-dependency-supply-chain-security', 'secure-coding-input-validation-injection-defense', 'secure-coding-session-authentication'],
-    'security-threat-model': ['security-threat-model-threat-modeling-decision-rules'],
-    'technical-feasibility': ['technical-feasibility-build-vs-buy-dependency-health', 'technical-feasibility-license-and-regulatory-risk', 'technical-feasibility-reversibility-and-spike-scoping', 'technical-feasibility-threat-model-disposition', 'technical-feasibility-verdict-and-timebox-selection', 'technical-feasibility-build-vs-buy', 'technical-feasibility-license-scan', 'technical-feasibility-reversibility-tag', 'technical-feasibility-spike-report', 'technical-feasibility-stride-table'],
-    'technical-writing': ['technical-writing-doc-type-selection', 'technical-writing-minimalism-scoping', 'technical-writing-persuasion-trust', 'technical-writing-structure-comprehension', 'technical-writing-style-guide-compliance', 'technical-writing-tool-landscape'],
-    'test-authoring': ['test-authoring-isolation-and-fixture-strategy'],
-    'upstream-defect-report': ['upstream-defect-report-subtraction', 'upstream-defect-report-comprehensibility', 'upstream-defect-report-convention'],
-    'user-discovery': ['user-discovery-evidence-strength-tagging', 'user-discovery-follow-up-ladder-depth', 'user-discovery-question-design-past-behavior', 'user-discovery-saturation-stopping-rule', 'user-discovery-switch-timeline-causal-forces', 'user-discovery-verdict-prevalence-reporting'],
-    'ux-engineering': ['ux-engineering-color-visibility', 'ux-engineering-control-selection', 'ux-engineering-layout-grouping', 'ux-engineering-navigation-depth', 'ux-engineering-research-log', 'ux-engineering-surface-contrast'],
-}
-
 # 이슈 #2208: POLICY 스킬 — 특정 task family 를 겨냥한 트리거가 아니라
 # 세션 전체에 걸쳐 적용되는 규칙(언어 정책, 모델 라우팅 등)이라 cross-family
-# 후보 풀에서 경쟁할 이유가 없다. 여기 이름은 역할과 무관하게(`_ROLE_SKILLS`
-# 에 실제로 매핑돼 있든 아니든) `_cross_family_candidate_corpus()` 가 항상
-# 걸러낸다 — declared-phrase self-inflation(work-in-english 의 예시 문구가
-# 코드와 무관한 태스크에 verbatim 매치되는 문제, 골드 케이스
+# 후보 풀에서 경쟁할 이유가 없다. 여기 이름은 역할과 무관하게
+# `_cross_family_candidate_corpus()` 가 항상 걸러낸다 — declared-phrase
+# self-inflation(work-in-english 의 예시 문구가 코드와 무관한 태스크에
+# verbatim 매치되는 문제, 골드 케이스
 # `work-in-english-declared-phrase-self-inflation-fp`)처럼 판정 없이 BM25만
 # 으로 마운트되는 경로를 원천 차단한다. 감사 결과(이슈 #2208 report) 이
 # 모양의 다른 스킬은 model-routing 뿐이었으나, model-routing 은 현재
@@ -357,50 +294,13 @@ _ROLE_SKILLS = {
 _STATIC_POLICY_SKILLS = {'work-in-english'}
 
 
-def resolve_role_source(role: str, repo_root: Path | None) -> dict:
-    """`role` 을 skill-repository 가이던스로 무조건 해석한다(이슈 #1955:
-    전이용 역할-소스 허용목록/rulebook 해석 경로 은퇴, #1758 이 얼린 phase 5
-    제약 이행 — 매핑 없는 역할이라는 상태 자체가 더 이상 없다).
-
-    이슈 #2507 스코프 노트: `spawn.py`의 스폰 마운트 경로는 이 함수를 더
-    이상 부르지 않는다 — `resolve_static_policy_source()` +
-    `merge_composed_skill_source()`(과제-텍스트 매치)로 옮겼다. 이 함수
-    자체(그리고 `_ROLE_SKILLS`)는 아직 `consult.py`의 5개 호출부(consult/
-    skill_judge/verb/judge/panel 세션 — 스폰이 아니라 독립 자문
-    subprocess)와 `pipeline.py`의 preflight 검사가 여전히 쓰므로 남아있다
-    — 그 4곳은 과제 텍스트가 공유 헬퍼(`_consult_cmd_and_env` 등)에 안
-    뚫려 있어 이번 이슈에서 같이 옮기면 자문 세션의 가이던스 품질을
-    검증 없이 흔드는 위험이 있다(레코드 "Open findings" 참고, 재스코프
-    사유).
-
-    이름을 `resolved_skill_dirs()` 로 푼다(모르는 이름은 이미 거기서
-    워크스페이스/브랜치 전에 fail-closed). 풀린 디렉터리 중 하나라도
-    `hooks/` 서브디렉터리를 들고 있으면 — skill-repository 는 가이던스
-    전용이라는 얼어붙은 프로그램 원칙 위반 — 역시 워크스페이스/브랜치 전에
-    fail-closed. {"source": "skill-repo", "skill_dirs": [...],
-    "skills": [이름...], "skill_sha": <첫 디렉터리의 부모 저장소 sha>} 를
-    돌려준다."""
-    names = _sp._ROLE_SKILLS.get(role, [])
-    skill_dirs = _sp.resolved_skill_dirs(",".join(names), repo_root)
-    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
-    if hooked:
-        sys.exit(
-            f"resolve_role_source: 역할 {role!r} 이 매핑한 스킬 중 "
-            f"{', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 있다 — "
-            f"skill-repository 는 가이던스 전용이다(훅 없음, 이슈 #1758)")
-    return {"source": "skill-repo", "skill_dirs": skill_dirs,
-            "skills": [d.name for d in skill_dirs],
-            "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
-
-
 def resolve_static_policy_source(repo_root: Path | None) -> dict:
     """이슈 #2507 (role retirement stage 6): 역할과 무관하게 항상 적용되는
     POLICY 스킬(`_STATIC_POLICY_SKILLS`, 예: work-in-english)을 무조건
-    해석한다. 이전에는 이 스킬들이 `_ROLE_SKILLS[role]`에 우연히 들어있는
-    역할에서만 마운트됐다(이슈 #2208 감사가 지적한 gap — 실측 로그상 항상
-    role=implementation 뿐이었다) — `resolve_role_source()`가 은퇴하면서
-    그 우연한 경로도 같이 없어지므로, 여기서 역할 조회 없이 직접 붙인다.
-    반환 shape 는 `resolve_role_source()`와 같다."""
+    해석한다. 스폰 마운트 경로의 role 축 없는 기준선 — 과제별 스킬은 전부
+    task-text 매치(BM25+judge, add-only)가 그 위에 얹는다. 반환 shape 는
+    `{"source": "skill-repo", "skill_dirs": [...], "skills": [이름...],
+    "skill_sha": ...}`."""
     skill_dirs = _sp.resolved_skill_dirs(
         ",".join(sorted(_STATIC_POLICY_SKILLS)), repo_root)
     hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
@@ -409,6 +309,49 @@ def resolve_static_policy_source(repo_root: Path | None) -> dict:
             f"resolve_static_policy_source: POLICY 스킬 중 "
             f"{', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 있다 — "
             f"skill-repository 는 가이던스 전용이다(훅 없음, 이슈 #1758)")
+    return {"source": "skill-repo", "skill_dirs": skill_dirs,
+            "skills": [d.name for d in skill_dirs],
+            "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
+
+
+def resolve_role_family_source(role: str, repo_root: Path | None) -> dict:
+    """이슈 #2561: `consult.py`(consult/verb/skill_judge/panel 세션)와
+    judge 세션의 role 축 기준선 — `_ROLE_SKILLS` 정적 표 없이, 실제
+    skill-repository 디렉터리 이름이 `f"{role}-"` 로 시작하는 스킬 전부를
+    매 호출마다 기계적으로 유도한다(표가 아니라 저장소 내용 자체를
+    읽으므로 드리프트가 없다) + `_STATIC_POLICY_SKILLS`.
+
+    실측 근거(이 세션 레코드 "Evidence" 참고): `resolve_static_policy_source()`
+    (POLICY 스킬만) 를 이 두 소비부의 기준선으로 그대로 쓰면, cross-family
+    task-text 매치가 role 특유 스킬을 못 건지는 실제 과제 문구에서 세션이
+    이전보다 스킬을 덜 갖고 도착한다(측정: 이슈 #2561 세션이 실제
+    skill-repository 로 재현, before=5/after=4) — acceptance 가 명시적으로
+    금지하는 실패 모드. 접두어 유도는 43개 역할 중 41개에서 옛
+    `_ROLE_SKILLS[role]` 과 정확히 같은 집합을 낸다(유일한 예외:
+    `defect-verification` 이 매핑했던 `verify-finding-record`/
+    `verify-severity-classification` 은 role 접두어를 안 따르는 두 스킬 —
+    이 세션 레코드 "Open findings" 참고). 이름 하나를 두 소스(예: 역할
+    접두어와 정책 스킬)가 같이 낼 수 있으므로 합집합으로 중복을 없앤 뒤
+    `resolved_skill_dirs()` 로 해석한다(모르는 이름은 이미 있을 수
+    없다 — 디렉터리 목록 자체에서 유도했으므로).
+
+    이름을 `resolved_skill_dirs()` 로 푼다. 풀린 디렉터리 중 하나라도
+    `hooks/` 서브디렉터리를 들고 있으면(skill-repository 는 가이던스
+    전용) fail-closed. 반환 shape 는 `resolve_static_policy_source()`와
+    같다."""
+    prefix = f"{role}-"
+    family_names = (sorted(p.name for p in repo_root.iterdir()
+                            if p.is_dir() and p.name.startswith(prefix))
+                     if repo_root is not None and repo_root.is_dir() else [])
+    names = sorted(set(family_names) | _STATIC_POLICY_SKILLS)
+    skill_dirs = _sp.resolved_skill_dirs(",".join(names), repo_root)
+    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
+    if hooked:
+        sys.exit(
+            f"resolve_role_family_source: 역할 {role!r} 접두어로 유도한 "
+            f"스킬 중 {', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 "
+            f"있다 — skill-repository 는 가이던스 전용이다(훅 없음, "
+            f"이슈 #1758)")
     return {"source": "skill-repo", "skill_dirs": skill_dirs,
             "skills": [d.name for d in skill_dirs],
             "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
@@ -431,11 +374,10 @@ def merge_composed_skill_source(role_source: dict, matched_dirs: list) -> dict:
 
 def resolve_skill_source(skill_name: str, repo_root: Path | None) -> dict:
     """이슈 #2241 stage 0: `spawn.py --skill` 경로용. `skill_name`(콤마로
-    여러 개 가능)을 role→skill 표(`_ROLE_SKILLS`)를 거치지 않고 곧장
-    skill-repository 가이던스로 해석한다 — `resolve_role_source()`와 반환
-    shape 은 같지만("source"/"skill_dirs"/"skills"/"skill_sha"), 입력이
-    role 이 아니라 스킬 이름 자체다. `resolve_role_source()`는 이 스테이지에서
-    손대지 않는다(role 경로 byte-identical 요구)."""
+    여러 개 가능)을 role 축 없이 곧장 skill-repository 가이던스로 해석한다
+    — `resolve_static_policy_source()`와 반환 shape 은 같지만
+    ("source"/"skill_dirs"/"skills"/"skill_sha"), 입력이 role 이 아니라
+    스킬 이름 자체다."""
     skill_dirs = _sp.resolved_skill_dirs(skill_name, repo_root)
     hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
     if hooked:

@@ -72,9 +72,9 @@ class JudgeModelGuardTest(unittest.TestCase):
         self._saved_config_path = spawn.ROLE_MODEL_CONFIG
         self._tmpdir = tempfile.TemporaryDirectory()
         spawn.ROLE_MODEL_CONFIG = Path(self._tmpdir.name) / "role_model.txt"
-        self._orig_resolve_role_source = spawn.resolve_role_source
+        self._orig_resolve_role_family_source = spawn.resolve_role_family_source
         self._orig_core_plugin_dirs = spawn.core_plugin_dirs
-        spawn.resolve_role_source = lambda role, repo_root: {
+        spawn.resolve_role_family_source = lambda role, repo_root: {
             "source": "skill-repo", "skill_dirs": [Path("/fake/plugin")],
             "skills": ["fake"], "skill_sha": "abc1234"}
         spawn.core_plugin_dirs = lambda: []
@@ -86,7 +86,7 @@ class JudgeModelGuardTest(unittest.TestCase):
             os.environ["MUSTER_ROLE_MODEL"] = self._saved_env
         spawn.ROLE_MODEL_CONFIG = self._saved_config_path
         self._tmpdir.cleanup()
-        spawn.resolve_role_source = self._orig_resolve_role_source
+        spawn.resolve_role_family_source = self._orig_resolve_role_family_source
         spawn.core_plugin_dirs = self._orig_core_plugin_dirs
 
     def test_judge_guard_ignores_env_and_cli_style_override(self):
