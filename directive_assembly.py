@@ -169,7 +169,70 @@ _TURN_BUDGET_PROSE = (
     "남길 수 있다(운영자 지시, 이슈 #2262 코멘트: run_in_background "
     "워커는 headless 세션에서 금지 — 부모 턴이 끝나면 죽는다 — 하지만 "
     "foreground Task 배치는 된다). 마운트된 스킬은 서브에이전트에도 "
-    "보인다.\n")
+    "보인다. (3) 이슈 #2409 실측: 세션당 spawn.py 재-Read 105회, 자기 "
+    "레코드 파일 재-Read 96회. spawn.py/directive_assembly.py 를 열어 "
+    "프로세/env var 이름을 다시 찾지 마라 — 그 내용은 이미 "
+    "`.on-the-record/directive/*.md` 로 시스템 프롬프트에 그대로 들어와 "
+    "있다(이슈 #2204). 자기 레코드 파일(docs/issue-<n>/reports/<role>.md)도 "
+    "Edit 직후마다 다시 Read 하지 마라 — 이미 쓴 내용은 대화 맥락에 있고 "
+    "Edit 은 실패하면 에러를 낸다; 남은 섹션을 채우기 직전처럼 정말 "
+    "상태를 재확인해야 할 때만 한 번 읽어라.\n")
+
+# Issue #2409: exploratory-Bash reduction. Measured (177 sessions,
+# 2026-08-25): 62% of all Bash calls are neither pytest/git/gh — grep/
+# find/python3 -c probing to locate files a task touches. A single
+# supported lookup (scripts/related_files.py) returns what N ad-hoc
+# greps currently return: the issue's own docs/issue-<n>/ tree plus every
+# code/test/spec file that already mentions the issue number, in one call.
+_TASK_LOOKUP_PROSE = (
+    "작업 파일 사전탐색(이슈 #2409): 이번 작업이 건드릴 파일을 찾으려고 "
+    "grep/find 를 여러 번 반복하지 마라 — 177개 세션 실측에서 Bash 호출의 "
+    "62%가 pytest/git/gh 가 아닌 탐색성 호출이었다. "
+    "`python3 scripts/related_files.py <issue-number> [--keyword <word> "
+    "...]` 를 먼저 한 번 실행하라: docs/issue-<n>/ 트리, 이슈 번호/제목을 "
+    "이미 언급하는 코드·테스트·스펙 파일, (준 경우) 키워드가 들어간 파일을 "
+    "한 호출로 돌려준다 — 지금까지 grep 여러 번으로 하던 일을 lookup "
+    "하나로 대체한다. 이걸로도 못 찾은 파일만 개별 grep/git ls-files 로 "
+    "좁혀라.\n")
+
+# Issue #2409: hook-refusal-as-upfront-contract. Measured (177 sessions):
+# 6.9 tool_result errors/session (~10% of turns), largely this repo's own
+# PreToolUse gates refusing a write/command that was one shape detail off
+# — the refusal is correct, but it arrives one at a time, after the fact.
+# This section states the shape up front instead. Content is a direct
+# summary of the real gates in on-the-record/hooks/pretooluse_dispatcher.py
+# (GATES list) most likely to trip a role session's own writes/commands —
+# not invented rules.
+_HOOK_CONTRACT_PROSE = (
+    "훅 거부 계약(이슈 #2409): 아래는 세션을 자주 막는 PreToolUse 게이트가 "
+    "요구하는 형태다 — 하나씩 거부당하며 알아내지 말고 미리 맞춰라.\n"
+    "1. 커밋/PR/이슈 본문에 heredoc(`$(cat <<EOF ... EOF)`)을 쓰지 마라 — "
+    "역할 세션(CLAUDE_ROLE 설정됨)의 heredoc 형태 `git commit`/`gh pr "
+    "create`/`gh issue create`/`gh pr comment`/`gh issue comment` 는 매번 "
+    "거부된다(이슈 #1976, heredoc-command-refusal-gate.sh). 대신 "
+    "`git commit -m \"title\" -m \"body\"`(두 개의 -m) 와 "
+    "`gh ... --body-file <path>` 를 써라.\n"
+    "2. docs/** 에 상태/결함 주장을 쓸 때는 바로 위 3줄 안에 `canonical:` "
+    "또는 `derived:` 태그로 실제로 읽은 근거를 대라(record-claim-"
+    "guard.sh). \"완료/동작함/PASS/충족\" 같은 결과 주장은 그 canonical: "
+    "인용이 실제로 지금 실행한(executed-live) 근거여야 한다 — 파일만 읽고 "
+    "요약한 인용으로는 안 된다. 백틱으로 인용한 경로는 git 에 커밋된 "
+    "경로여야 하고(작업 트리에만 있는 파일은 거부), 개수만 대는 주장에는 "
+    "그 개수를 어떻게 셌는지 근거가 필요하다.\n"
+    "3. `acceptance:`/`live-fire:` 로 인용한 명령·결과는 지금 다시 실행한 "
+    "결과와 일치해야 한다(acceptance-command-real-run-guard.sh, "
+    "live-fire-claim-real-run-guard.sh) — 과거 실행 결과를 재사용해 적으면 "
+    "거부된다.\n"
+    "4. docs/specs/* 를 건드리는 커밋은 같은 커밋 안에서 "
+    "`python3 gates/spec_index.py --update` 를 먼저 돌려 "
+    "reconciled-index.md 를 갱신해야 한다(spec-index-preflight.sh).\n"
+    "5. 새 gate/hook 스크립트를 스테이징하면 "
+    "docs/specs/enforcement-boundary.md(on-the-record/hooks/*.sh 라면 "
+    "generated-paths.md 도)에 매칭되는 행이 있어야 한다"
+    "(gate-registration-guard.sh).\n"
+    "6. CORE_BUILD_NOW=1 세션은 phase-2 승인 게이트(approval-gate.sh, "
+    "pr-preflight.sh)가 이미 우회되어 있다 — APPROVE 코멘트를 따로 만들 "
+    "필요 없다.\n")
 
 # Issue #2185: measured cost — spawned sessions run `find` (including
 # unscoped `find /` whole-tree traversals) to locate files whose path they
@@ -213,8 +276,17 @@ _KNOWN_PATHS_PROSE = (
 # watchdog then respawned it from scratch as if it were dead. Neither
 # gate's refusal logic changes here — this only tells the passing shape
 # up front, before the first write that could trip either one.
+#
+# Item 3 (issue #2508): pr-preflight.sh's phase-2 linkage requirement used
+# to force a session delivering a deliberate partial into a false `Closes`
+# claim — observed live on PR #2495 (issue #2289), where the session added
+# the trailer and then had to invent its own disclosure paragraph stating
+# the trailer was false. pr-preflight.sh's mechanism now accepts a
+# non-closing `Advances`/`Part of` trailer for exactly this case; this
+# item states the choice up front so the next partial-delivery session
+# picks the right trailer instead of reaching for Closes-plus-disclaimer.
 _HOOK_CONTRACT_PROSE = (
-    "게이트 통과 모양(이슈 #2479): 아래 두 게이트는 거절되면 커밋을 못 "
+    "게이트 통과 모양(이슈 #2479): 아래 게이트들은 거절되면 커밋을 못 "
     "닫은 채 PR 만 열려 있는 상태로 좌초할 수 있다(progressed-dirty-"
     "tree) — 거절을 겪고 나서 배우지 말고 첫 시도부터 이 모양을 써라. "
     "두 게이트의 거절 로직 자체는 안 바뀐다, 더 일찍 알려줄 뿐이다.\n"
@@ -259,7 +331,60 @@ _HOOK_CONTRACT_PROSE = (
     "   git commit -m \"issue-2479: add gate passing-shape to spawn "
     "directive\" -m \"fixes progressed-dirty-tree stall from undocumented "
     "gate shape\"\n"
+    "   ```\n"
+    "\n"
+    "3. pr-preflight.sh (이슈 #2508, `gh pr create`/`gh pr edit` on a "
+    "phase-2 delivery PR): 이슈를 실제로 완결하면 지금처럼 "
+    "`Closes`/`Fixes`/`Resolves #<n>`을 쓴다. 의도적 partial delivery라서 "
+    "이 PR이 이슈를 닫으면 안 될 때는 `Advances #<n>` 또는 `Part of #<n>`을 "
+    "대신 쓴다 — 게이트는 이 형태도 링크 요건을 만족한 것으로 받아들이고, "
+    "머지돼도 이슈를 자동으로 닫지 않는다. 어느 쪽도 없으면(이슈 참조 "
+    "자체가 없으면) 여전히 거절된다. 트레일러를 고르는 것은 세션 자신의 "
+    "판단이다 — Closes를 써 놓고 본문에 \"사실 안 닫혔다\"는 disclaimer "
+    "문단을 따로 지어낼 필요가 없다.\n"
+    "   worked example (partial delivery, pr-preflight.sh 통과 확인됨):\n"
+    "   ```\n"
+    "   Advances #2289\n"
     "   ```\n")
+
+# Issue #2527: measured live (issue-2516 implementation session,
+# 2026-08-26, 11.2 min total): the record-to-PR phase alone cost 28% of
+# the session's wall clock. The record's first write landed at +6.9 min,
+# 2.9 minutes BEFORE the first code Edit/Write at +9.8 min — the record
+# was written with nothing yet done to cite, so all 5 record-claim-guard
+# refusals in that session fell inside that 3-minute window. After the
+# first write, the record was assembled across 11 separate Write/Edit
+# calls, each one re-entering record-claim-guard.sh from scratch, plus 9
+# redundant git diff/status/log calls re-checking what the session had
+# just done. Guidance only — record-claim-guard.sh's refusal logic does
+# not change; the fix is arriving at the record with citable results
+# already in hand, never accepting less from the gate.
+_RECORD_ORDER_PROSE = (
+    "\nRecord ordering (issue #2527, guidance only — no gate; does NOT "
+    "loosen record-claim-guard.sh or any citation gate): change the code, "
+    "run the acceptance checks, THEN write the record from those executed "
+    "results — never the reverse. A record written before the code exists "
+    "has nothing to cite yet, and every Write/Edit under "
+    "docs/issue-*/reports/** re-enters record-claim-guard.sh — an uncited "
+    "number there is refused on the spot. Measured live (issue-2516 "
+    "implementation session, 2026-08-26): the record's first write landed "
+    "3 minutes before the first code edit, and all 5 refusals that session "
+    "hit fell inside that window.\n"
+    "Assemble the record ONCE, after the checks have run, from the "
+    "finished results — not grown across many small edits as you go. Each "
+    "Write/Edit is a separate gate entry; the same session wrote its "
+    "record in 11 separate pieces, each one re-checked from scratch, plus "
+    "9 redundant git diff/status/log calls re-inspecting work already "
+    "done. One assembled write with the executed evidence already in hand "
+    "passes once instead of eleven times.\n"
+    "This batching covers the record's RESULT content only — it does NOT "
+    "defer deviation logging. A deviation (a scope-exceeded stop, an "
+    "alternative swap from the approved proposal, something you wrote and "
+    "then undid or replaced, something you expected to hold that did "
+    "not) is still appended to `## What did not work` / `## Rationale for "
+    "deviations` the moment it happens, per the warrant and record-shape "
+    "directives — never saved up for the single end-of-session record "
+    "write.\n")
 
 # Moved verbatim: the mounted-skill inspection nudge (issue #1960 phase B)
 # + invoke-before-apply (issue #2062).
@@ -321,15 +446,20 @@ def directive_section_files(*, skills_mounted: bool = False,
                             code_scoped: bool = True) -> dict[str, str]:
     """The on-demand section files for one spawn: name -> full prose.
 
-    `completion-and-landing.md`, `repo-discovery.md`, `hook-contract.md`,
-    and `turn-budget.md` are always materialized — the invariant baseline
-    every task gets regardless of path scope (Acceptance 'empty state':
-    never an empty directive). `hook-contract.md` (issue #2479) is
-    unconditional because both gates it documents fire for every role:
-    record-claim-guard.sh on any docs/issue-*/reports/** write, heredoc-
-    command-refusal-gate.sh on any role-session commit/PR Bash call.
-    `known-paths.md` is scoped to
-    `code_scoped` callers (issue #2227 REQ-10, see `_role_touches_code()`
+    `completion-and-landing.md`, `repo-discovery.md`, `turn-budget.md`,
+    `hook-contract.md`, and `record-order.md` are always materialized —
+    the invariant baseline every task gets regardless of path scope
+    (Acceptance 'empty state': never an empty directive). `hook-contract.md`
+    (issue #2479) is unconditional because both gates it documents fire
+    for every role: record-claim-guard.sh on any docs/issue-*/reports/**
+    write, heredoc-command-refusal-gate.sh on any role-session commit/PR
+    Bash call. `record-order.md` (issue #2527) is unconditional for the
+    same reason: every role writes its own record through
+    record-claim-guard.sh, so the code-then-checks-then-record ordering
+    and single-assembly guidance apply regardless of write_scope.
+    `known-paths.md` and `task-lookup.md` (issue #2409) are
+    scoped to `code_scoped` callers
+    (issue #2227 REQ-10, see `_role_touches_code()`
     above); the skill and checkpoint sections only when their own
     condition holds. Default `code_scoped=True` keeps every caller that
     does not pass the kwarg (adhoc spawns with no role write_scope to
@@ -338,10 +468,13 @@ def directive_section_files(*, skills_mounted: bool = False,
     files = {"completion-and-landing.md":
              _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
              "repo-discovery.md": _REPO_DISCOVERY_PROSE,
-             "hook-contract.md": _HOOK_CONTRACT_PROSE}
+             "hook-contract.md": _HOOK_CONTRACT_PROSE,
+             "record-order.md": _RECORD_ORDER_PROSE}
     if code_scoped:
         files["known-paths.md"] = _KNOWN_PATHS_PROSE
+        files["task-lookup.md"] = _TASK_LOOKUP_PROSE
     files["turn-budget.md"] = _TURN_BUDGET_PROSE
+    files["hook-contract.md"] = _HOOK_CONTRACT_PROSE
     if skills_mounted:
         files["skill-obligations.md"] = (_SKILL_CHECK_PROSE + "\n"
                                           + _SKILL_VERDICT_PROSE)

@@ -8,7 +8,7 @@ files:
   - board.py
   - roster.py
   - docs/handbooks/branch-naming.md
-  - docs/issue-2241/reports/architecture/in-flight-branch-migration.md
+  - docs/issue-2432/reports/implementation/in-flight-branch-migration.md
   - test/test_branch_naming_dual_scheme.py
 ---
 
@@ -66,12 +66,16 @@ orphan or break open PRs mid-review.
 - `docs/handbooks/branch-naming.md`: documents both schemes, the
   coexistence window's start (this stage's landing commit) and
   intended end (stage 6, once no old-scheme branch remains open).
-- `docs/issue-2241/reports/architecture/in-flight-branch-migration.md`:
-  states plainly — every branch open at this stage's landing time keeps
-  its `issue-<n>/<role>` name and finishes its lifecycle unchanged
-  (reviewed, merged or closed, exactly as today); only newly spawned
-  sessions after this stage lands use the new naming; no existing PR is
-  renamed, re-pointed, or force-pushed by this stage.
+- `docs/issue-2432/reports/implementation/in-flight-branch-migration.md`
+  (delivering child issue's own tree, per the same R4/R5 reasoning as
+  stage 3 above — see issue #2412): states plainly — every branch open
+  at this stage's landing time keeps its `issue-<n>/<role>` name and
+  finishes its lifecycle unchanged (reviewed, merged or closed, exactly
+  as today); only newly spawned sessions after this stage lands use the
+  new naming; no existing PR is renamed, re-pointed, or force-pushed by
+  this stage. Already landed at this path. (Path correction per
+  issue #2412; pure post-landing path fix, no open design decision —
+  survey skipped.)
 - `roster.py`'s lease key (generalized in stage 1) supplies the
   `<lease-disambiguator>` segment for the new naming scheme.
 

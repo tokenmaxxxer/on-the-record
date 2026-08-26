@@ -692,6 +692,7 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(s, tf)
         settings_path = tf.name
+    _sp._record_tmp_resource(settings_path, os.getpid(), "settings")  # issue #2468
     cmd = ["claude", "-p", "--settings", settings_path,
            "--permission-mode", "bypassPermissions",
            "--output-format", "json",
@@ -1009,6 +1010,7 @@ def _judge_cmd_and_env(role: str, spec: dict, cwd: str,
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(s, tf)
         settings_path = tf.name
+    _sp._record_tmp_resource(settings_path, os.getpid(), "settings")  # issue #2468
     cmd = ["claude", "-p", "--settings", settings_path, "--output-format", "json"]
     for p in plugins:
         cmd += ["--plugin-dir", str(p)]
@@ -1362,6 +1364,7 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
             json.dump(s, tf)
             settings_path = tf.name
+        _sp._record_tmp_resource(settings_path, os.getpid(), "settings")  # issue #2468
         cmd = ["claude", "-p", "--settings", settings_path,
                "--permission-mode", "bypassPermissions",
                "--output-format", "stream-json", "--verbose"]

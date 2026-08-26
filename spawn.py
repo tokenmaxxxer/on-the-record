@@ -359,6 +359,8 @@ _skill_repo_valid = skills._skill_repo_valid
 _skill_roster_fields = skills._skill_roster_fields
 _skill_source_roster_row = skills._skill_source_roster_row
 resolve_role_source = skills.resolve_role_source
+resolve_static_policy_source = skills.resolve_static_policy_source
+merge_composed_skill_source = skills.merge_composed_skill_source
 resolve_skill_source = skills.resolve_skill_source
 resolved_skill_dirs = skills.resolved_skill_dirs
 resolved_skill_sources = skills.resolved_skill_sources
@@ -543,6 +545,8 @@ _LANDING_BATCHING_PROSE = directive_assembly._LANDING_BATCHING_PROSE
 _TURN_BUDGET_PROSE = directive_assembly._TURN_BUDGET_PROSE
 _REPO_DISCOVERY_PROSE = directive_assembly._REPO_DISCOVERY_PROSE
 _KNOWN_PATHS_PROSE = directive_assembly._KNOWN_PATHS_PROSE
+_TASK_LOOKUP_PROSE = directive_assembly._TASK_LOOKUP_PROSE
+_HOOK_CONTRACT_PROSE = directive_assembly._HOOK_CONTRACT_PROSE
 _SKILL_CHECK_PROSE = directive_assembly._SKILL_CHECK_PROSE
 _SKILL_VERDICT_PROSE = directive_assembly._SKILL_VERDICT_PROSE
 _role_touches_code = directive_assembly._role_touches_code
@@ -556,6 +560,11 @@ _SKILL_USE_SENTENCE_RE = directive_assembly._SKILL_USE_SENTENCE_RE
 _TOKEN_RE = directive_assembly._TOKEN_RE
 _STOPWORDS = directive_assembly._STOPWORDS
 _CROSS_FAMILY_CONSULT_TOPN = directive_assembly._CROSS_FAMILY_CONSULT_TOPN
+# 이슈 #2507: 고정 role->skill 표 은퇴 이후 cross_family 매치가 스폰의
+# 유일한 과제-맞춤 스킬 소스가 됐다 — 예전 add-only 층의 기본값(k=2)은
+# "표 위에 조금 더 얹는" 용도였지, "표를 대체하는" 용도가 아니었다. 옛
+# `_ROLE_SKILLS` 항목 길이 분포(1~10, 중앙값 근처)에 맞춰 5로 올린다.
+_COMPOSED_SKILLS_TOPK = 5
 _bm25_cross_family_scores = directive_assembly._bm25_cross_family_scores
 _cross_family_skill_matches = directive_assembly._cross_family_skill_matches
 
@@ -1103,6 +1112,74 @@ def _pid_is_alive(pid) -> bool:
         return True
 
 
+# 이슈 #2468: check_runner.py 의 임시 PR worktree(`tempfile.mkdtemp`)와
+# consult.py/spawn.py 의 settings.json(`tempfile.NamedTemporaryFile`)는
+# 정상 종료 경로에서만 지워진다 — SIGKILL/하드크래시는 try/finally 로도
+# 못 잡는다(파이썬이 신호를 볼 기회 자체가 없다). 생성 시점에 소유 PID 를
+# 여기 남겨 두면, 나중에 `_pid_is_alive()`(위, #2413 에서 이미 증명된
+# 패턴)로 그 PID 가 죽었는지만 물어 지운다 — 살아있는 소유자의 자원은
+# 나이와 무관하게 항상 보존한다(그 함수 자신의 보수적 정책을 그대로
+# 물려받는다: 판정이 불확실하면 살아있다고 본다). append-only(줄을 쓰는
+# 도중 죽어도 이미 쓴 줄은 안전하다 — SPAWN_ATTEMPTS_PATH 와 같은 이유).
+TMP_RESOURCE_LEDGER_PATH = STATE_ROOT / "tmp-resources.jsonl"
+
+
+def _record_tmp_resource(path, pid: int, kind: str) -> None:
+    """`path`(worktree 디렉터리 또는 settings.json 파일)를 소유 `pid`와
+    함께 남긴다. 호출부는 실제 정리 책임을 지는 프로세스가 자기 자신의
+    `os.getpid()`로 불러야 한다 — spawn.py 의 `bounded` 스폰처럼 만든
+    프로세스(부모)와 실제로 쓰고 지우는 프로세스(fork 자식)가 갈리는
+    경우, 부모 pid 를 남기면 부모가 정상 리턴한 직후 `_pid_is_alive()`가
+    바로 False 를 돌려줘 아직 자식이 쓰고 있는 자원을 오삭제하게 된다
+    (이슈 #2468 설계 검토에서 실측)."""
+    if os.environ.get("PYTEST_CURRENT_TEST") is not None:
+        return
+    TMP_RESOURCE_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TMP_RESOURCE_LEDGER_PATH.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"path": str(path), "pid": pid, "kind": kind,
+                              "ts": time.time()}, ensure_ascii=False) + "\n")
+
+
+def tmp_resource_sweep(ledger_path: Path | None = None) -> int:
+    """이슈 #2468 GC 스윕 — `_prune_spawn_attempts()`와 같은 자세(통짜
+    재쓰기, PID 생존만으로 판정)로 orphan worktree/settings.json 을
+    지운다. 이미 정상 경로로 지워진 자원(레저에는 있지만 디스크엔 없음)은
+    그냥 레저에서 빠진다 — 지운 걸로 세지 않는다. 반환값은 이번 호출에서
+    실제로 지운 자원 개수(워치독 로그용 — anomaly_count 에는 안 얹는다:
+    이건 이상 신호가 아니라 정상적인 자기치유다)."""
+    ledger_path = ledger_path or TMP_RESOURCE_LEDGER_PATH
+    try:
+        lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    kept = []
+    removed = 0
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        path = entry.get("path")
+        if not path:
+            continue
+        p = Path(path)
+        if not p.exists():
+            continue  # 이미 정상 경로로 지워졌다 — 레저에서도 조용히 뺀다
+        if _pid_is_alive(entry.get("pid")):
+            kept.append(line)
+            continue
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+        else:
+            with contextlib.suppress(OSError):
+                p.unlink()
+        removed += 1
+    if len(kept) != len(lines):
+        ledger_path.write_text(
+            "".join(ln + "\n" for ln in kept), encoding="utf-8")
+    return removed
+
+
 def _prune_spawn_attempts(now: float | None = None) -> int:
     """`SPAWN_ATTEMPTS_PATH`를 다시 써서 위 정책에 안 걸리는 이벤트만
     남긴다. 돌려주는 값은 지운 줄 수(0 이면 파일을 건드리지 않는다 —
@@ -1505,9 +1582,14 @@ def main() -> int:
                          "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--skills", default=None,
-                    help="쉼표로 구분한 스킬 이름 목록을 skill-repository 체크아웃"
-                         "(MUSTER_SKILL_REPO 또는 형제-클론)에서 마운트한다"
-                         "(이슈 #1742). 생략하면 스폰 argv/env 는 이전과 동일")
+                    help="쉼표로 구분한 스킬 이름 목록을 네 소스 — "
+                         "skill-repository 체크아웃(MUSTER_SKILL_REPO 또는 "
+                         "형제-클론), 설치된 플러그인의 skills/, "
+                         "~/.claude/skills, 타깃 저장소 .claude/skills — "
+                         "에 걸쳐 해석해 마운트한다(이슈 #1742/#1774/#2488). "
+                         "이름이 둘 이상의 소스에서 겹치면 fail-closed(우선순위 "
+                         "없음, docs/decisions/2026-08-26-skills-resolver-source-priority-and-trust.md). "
+                         "생략하면 스폰 argv/env 는 이전과 동일")
     ap.add_argument("--skill", default=None,
                     help="이슈 #2241 stage 0: 역할 대신 스킬 이름(콤마로 여러 개 가능)으로 "
                          "곧장 가이던스를 해석한다. 사용: spawn.py --skill <스킬명> "
@@ -1658,6 +1740,12 @@ def main() -> int:
         return roster_ps()
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
+    if a.role == "rebase":
+        # Issue #2403: mechanical rebase of the role branch already checked
+        # out at `-C <cwd>` onto current main -- no LLM session. Only the
+        # conflict-free case is mechanical; a conflict aborts and asks for
+        # a real role session (conflict resolution needs judgment).
+        return mechanical_rebase_cli(str(Path(a.cwd).resolve()))
     if a.role == "recut-corrupted":
         if not a.issue or not a.watch_role:
             sys.exit("사용법: spawn.py recut-corrupted --issue <n> --role <role> [-C cwd]")
@@ -1722,18 +1810,6 @@ def main() -> int:
         import roles_due as _roles_due
         due = _roles_due.roles_due(Path(a.cwd).resolve())
         lines = _roles_due.format_report(due)
-        for line in lines:
-            print(line)
-        return 0
-    if a.role == "needs-due":
-        # need-detector 평가기 — 대상 프로젝트가 이 역할의 실제 산출물을
-        # "필요로 하는지" 판정한다 (issue #1160 step 3 machinery).
-        # roles-due 와 마찬가지로 advisory-only: 절대 자동 스폰하지 않는다.
-        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
-        import need_detector as _need_detector
-        due = _need_detector.needs_due(
-            Path(a.cwd).resolve(), root=Path(__file__).parent.resolve())
-        lines = _need_detector.format_report(due)
         for line in lines:
             print(line)
         return 0
@@ -2368,6 +2444,62 @@ def _recut_absorbed_branch(cwd: str, br: str):
     return git("checkout", br)
 
 
+def _mechanical_rebase(cwd: str, push: bool = True) -> dict:
+    """Issue #2403 — bring the branch already checked out at `cwd` current
+    with `_base(cwd)` via plain git, no LLM session. Only the conflict-free
+    case is handled mechanically: a rebase that needs conflict resolution
+    is aborted and reported so the caller falls back to a real role
+    session (conflict resolution is a judgment call, not mechanical --
+    rationale in docs/issue-2403/reports/implementation.md).
+
+    Returns `{"status": "up-to-date"|"rebased"|"conflict"|"error",
+    "behind": int, "detail": str}`. `push` uses `--force-with-lease`, safe
+    against a concurrent push this process didn't see."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    br_r = git("symbolic-ref", "--short", "-q", "HEAD")
+    if br_r.returncode != 0 or not br_r.stdout.strip():
+        return {"status": "error", "behind": 0,
+                "detail": "HEAD 가 브랜치를 가리키지 않는다(분리 HEAD) — rebase 대상 아님"}
+    branch = br_r.stdout.strip()
+    fetch = git("fetch", "origin")
+    if fetch.returncode != 0:
+        return {"status": "error", "behind": 0,
+                "detail": f"git fetch origin 실패: {fetch.stderr.strip()}"}
+    base = _base(cwd)
+    behind = git("rev-list", "--count", f"HEAD..{base}")
+    behind_n = (int(behind.stdout.strip())
+                if behind.returncode == 0 and behind.stdout.strip().isdigit() else 0)
+    if behind_n == 0:
+        return {"status": "up-to-date", "behind": 0,
+                "detail": f"{branch} 는 이미 {base} 기준 최신이다"}
+    rb = git("rebase", base)
+    if rb.returncode != 0:
+        git("rebase", "--abort")
+        return {"status": "conflict", "behind": behind_n,
+                "detail": (f"{branch} 를 {base} 위로 rebase 하다 충돌 — 기계적으로 "
+                            f"처리할 수 없다(rebase 는 abort 했다). 충돌 해소는 판단이 "
+                            f"필요해 role 세션이 있어야 한다.")}
+    if push:
+        pushed = git("push", "--force-with-lease", "origin", f"HEAD:{branch}")
+        if pushed.returncode != 0:
+            return {"status": "error", "behind": behind_n,
+                    "detail": f"rebase 는 됐지만 push 실패: {pushed.stderr.strip()}"}
+    return {"status": "rebased", "behind": behind_n,
+            "detail": f"{branch} 를 {base} 위로 rebase" + (" 하고 push 했다" if push else " 했다(push 안 함)")}
+
+
+def mechanical_rebase_cli(cwd: str) -> int:
+    """`spawn.py rebase -C <cwd>` — issue #2403 진입점. `_mechanical_rebase()`
+    결과를 사람이 읽을 한 줄로 찍고, `up-to-date`/`rebased` 는 0, `conflict`
+    는 (role 세션이 필요하다는 신호로) 2, 그 외 오류는 1 을 돌려준다."""
+    result = _mechanical_rebase(cwd)
+    print(f"[rebase] status={result['status']} behind={result['behind']} — {result['detail']}")
+    if result["status"] in ("up-to-date", "rebased"):
+        return 0
+    if result["status"] == "conflict":
+        return 2
+    return 1
 def _recut_corrupted_branch(cwd: str, br: str, base: str):
     """`br`(예: `issue-<n>/<role>`)을 같은 이름을 유지한 채, 지금 잡힌
     `merge-base(br, base)`를 새 base 로 밀어 재컷한다 (issue #2402).
@@ -2595,23 +2727,31 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                      if skill_sources and all(m["source"] == "skill-repo"
                                                for m in skill_sources)
                      else None)
-        # 이슈 #1955(이슈 #1758 phase 5 이행): skill-repository 해석도 같은
-        # 이유로 워크스페이스/브랜치 생성보다 먼저 온다 — 역할이 매핑한 스킬
-        # 이름이 모르는 이름이거나 hooks/ 를 들고 있으면 여기서 fail-closed.
+        # 이슈 #2507 (role retirement stage 6): 고정 role->skill 표
+        # (`_ROLE_SKILLS`)이 아니라, 역할과 무관하게 항상 적용되는 POLICY
+        # 스킬만 여기서 동기로 붙인다 — 과제-맞춤 매칭은 아래 cross_family
+        # 자문(비동기)에 전부 넘긴다. 이름 해석은 여전히 워크스페이스/브랜치
+        # 생성보다 먼저 온다(모르는 이름이거나 hooks/ 를 들고 있으면 여기서
+        # fail-closed, 이슈 #1955 요구사항 그대로).
         skill_registry_root = _skill_repo_root()
-        role_source = resolve_role_source(role, skill_registry_root)
+        role_source = resolve_static_policy_source(skill_registry_root)
     # 이슈 #2061: skill_judge 자문(BM25 프리필터 + haiku 판단)을 워크스페이스
     # 클론/브랜치 체크아웃(~12s)과 겹치도록 그 전에 먼저 던진다 — 아래
     # "cross_family" 단계에서 join 만 한다. 자문은 읽기 전용(저장소 파일을
     # 건드리지 않는다, `_skill_judge_consult()` 의 override 문구)이라
     # 워크스페이스가 아직 없어도(원본 cwd 로) 안전하게 먼저 돌 수 있다.
+    # 이슈 #2507: 이 자문이 이제 role 축 없는 스폰의 "유일한" 과제-맞춤
+    # 스킬 소스다(예전엔 고정 표 위에 얹는 add-only 층이었다) — top-K 를
+    # 2에서 `_COMPOSED_SKILLS_TOPK` 로 올려, role 이 예전에 주던 만큼의
+    # 스킬 개수를 (표 대신 매치로) 계속 받게 한다.
     _cross_family_executor: concurrent.futures.ThreadPoolExecutor | None = None
     _cross_family_future = None
-    if issue is not None and role_source["source"] == "skill-repo":
+    if issue is not None:
         _cross_family_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         _cross_family_future = _cross_family_executor.submit(
             _cross_family_skill_matches_with_consult,
             _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
+            k=_COMPOSED_SKILLS_TOPK,
             home=Path.home(), target_repo_root=Path(cwd))
     if issue is None:
         # Issue #2293 (scope addition, consumer incident 2026-08-25): an
@@ -2928,9 +3068,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 문장을 인라인한다(#1960 의 1/9 발화율 넛지를 대체) — 트리거
             # 문장이 없는 스킬도 이름은 절대 빠뜨리지 않는다(empty-state
             # 요구).
-            # 이슈 #2001/#2040: family 밖 top-K(K=2) 크로스-패밀리 스킬을
-            # add-only 로 얹는다 — 매치가 없으면 cross_family_dirs 는 빈
-            # 목록이라 아래 줄들은 오늘과 바이트 단위로 동일하게 남는다.
+            # 이슈 #2001/#2040/#2507: 이번 과제 텍스트에 매치되는 top-K
+            # 스킬을 얹는다 — 매치가 없으면 cross_family_dirs 는 빈 목록.
             # 이슈 #2040: BM25 프리필터 + skill_judge 자문 판단(스폰당
             # 최대 자문 1회) — 소요 시간은 "cross_family" 단계로 측정해
             # 부트스트랩 타이밍 요약에 실린다(Acceptance: per-spawn latency).
@@ -2944,25 +3083,24 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     if _cross_family_future is not None else ([], "not-run"))
                 if _cross_family_executor is not None:
                     _cross_family_executor.shutdown(wait=False)
+            # 이슈 #2507: 고정 표(family) + 자문 추가(cross-family)라는
+            # 두 층 구분이 없어졌다 — POLICY 스킬(정적) + 매치된 스킬(동적)
+            # 을 하나의 마운트 목록으로 합친다(add-only, 이름 중복 제거).
+            role_source = merge_composed_skill_source(role_source, cross_family_dirs)
             role_skill_lines = ", ".join(
                 d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
                 for d in role_source["skill_dirs"]
             ) if role_source["skill_dirs"] else ", ".join(role_source["skills"])
             if cross_family_dirs:
-                cross_family_lines = ", ".join(
-                    d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
-                    for d in cross_family_dirs)
-                role_skill_lines = (role_skill_lines + ", " + cross_family_lines
-                                     if role_skill_lines else cross_family_lines)
                 cross_family_clause = (
                     f" (이 중 {', '.join(d.name for d in cross_family_dirs)} 는 "
-                    f"이번 과제 텍스트와의 키워드 매치로 추가된 크로스-패밀리 "
-                    f"스킬 — 이슈 #2001)")
+                    f"이번 과제 텍스트와의 매치로 구성된 스킬 — 이슈 #2001/#2507)")
             else:
                 cross_family_clause = ""
             task = task + _dp("role-skill-triggers", (
-                f"\n\n이 역할은 skill-repository(이슈 #1955, #1758)로 매핑됐다: "
-                f"스킬 {role_skill_lines} "
+                f"\n\n이번 과제에 대해 스킬이 구성됐다(skill-repository, 이슈 "
+                f"#1955/#1758/#2507 — 고정 role->skill 표가 아니라 과제 텍스트 "
+                f"매치): 스킬 {role_skill_lines} "
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.{cross_family_clause}\n"))
         # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
@@ -3032,10 +3170,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         declared_artifacts = _design_artifacts_gate.parse_declaration(body) \
             if body is not None and _design_artifacts_gate is not None else None
         if declared_artifacts:
+            # 이슈 #2507: `role_source["skill_dirs"]` 는 이미 위에서
+            # cross_family_dirs 와 합쳐졌다 — 여기서 또 얹을 필요가 없다.
             artifact_all_dirs = list(skill_dirs) + [
                 d for d in role_source["skill_dirs"] if d not in skill_dirs]
-            artifact_all_dirs = artifact_all_dirs + [
-                d for d in cross_family_dirs if d not in artifact_all_dirs]
             pairing_lines = []
             for artifact_path in declared_artifacts:
                 basename = Path(artifact_path).stem
@@ -3099,12 +3237,21 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(s, f)
             settings = f.name
-    # --skills(#1742)와 역할 매핑 스킬(#1758/#1955)은 additive — 같은
-    # --plugin-dir 마운트 목록에 합쳐 붙인다.
+        # 이슈 #2468: `bounded and issue is not None`(아래)이면 이 파일의
+        # 실제 소유자는 이 프로세스가 아니라 곧 뜰 fork 자식이다 — 여기서
+        # 이 프로세스의 pid 로 남기면, 이 프로세스(부모)가 fork 직후 정상
+        # 리턴하는 순간 `_pid_is_alive()`가 바로 False 가 되어 아직 자식이
+        # 쓰고 있는 파일을 GC 스윕이 오삭제한다. 그 경로의 기록은 자식이
+        # fork 직후 자기 pid 로 직접 남긴다(아래, fork 분기).
+        if not (bounded and issue is not None):
+            _record_tmp_resource(settings, os.getpid(), "settings")
+    # --skills(#1742)와 구성된 스킬(#1758/#1955/#2507 — POLICY + 과제-매치)
+    # 은 additive — 같은 --plugin-dir 마운트 목록에 합쳐 붙인다.
+    # 이슈 #2507: `role_source["skill_dirs"]`가 이미 cross_family_dirs 와
+    # 합쳐져 있다(issue-scoped 스폰; adhoc 은 cross_family_dirs 가 애초에
+    # 빈 목록이라 이 필드가 POLICY 스킬뿐이다) — 여기서 또 얹을 필요가 없다.
     all_skill_dirs = list(skill_dirs) + [d for d in role_source["skill_dirs"]
                                           if d not in skill_dirs]
-    all_skill_dirs = all_skill_dirs + [d for d in cross_family_dirs
-                                        if d not in all_skill_dirs]
     try:
         rulebook_desc = "skill-repo(이슈 #1955)"
         roster_resolution_fields = _role_source_roster_fields(role_source)
@@ -3233,6 +3380,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _write_offset(offset_path, _event_count(events_path))
             child_pid = os.fork()
             if child_pid == 0:
+                # 이슈 #2468: settings.json 의 실제 소유자는 이 fork
+                # 자식이다(부모는 곧 정상 리턴해 죽는다) — 자기 pid 를
+                # 이 구간 맨 처음(다른 실패 가능 지점보다 먼저)에 남겨,
+                # 이후 어떻게 죽든(SIGKILL 포함) GC 스윕이 죽은 pid 로
+                # 찾아 지울 수 있게 한다. 같은 이유로 바로 아래 로스터
+                # 스텁도 이 구간 맨 앞에 있다(#908 주석 그대로).
+                _record_tmp_resource(settings, os.getpid(), "settings")
                 # 이슈 #908: fork-child 설정(setsid/dup2)과 Popen() 은 첫
                 # roster_register/session-start (아래, Popen 뒤) 이전에
                 # 실행된다 — 그 구간에서 죽으면(SIGKILL/segfault 포함, 예외를

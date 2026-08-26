@@ -561,8 +561,17 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
         else:
             ref_bad = pr_reference.check(repo, pr, issue, phase)
             if phase == "phase2":
-                closes_msg = (f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)가 "
-                              f"없다 — phase-2 인도 PR은 이슈를 명시적으로 닫아야 한다.")
+                # issue #2508: kept byte-identical to pr_reference.check_body's
+                # own no-Closes/no-Advances message by hand (a duplicate
+                # string-equality check, same fragile-but-established pattern
+                # this file already uses elsewhere) — drifted once already
+                # when check_body's phase-2 message text changed to also name
+                # Advances/Part of, silently disabling the record-evidence
+                # escape hatch below (gates/test_closes_gate_ci.py caught it).
+                closes_msg = (f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)도, "
+                              f"'Advances #{issue}'(또는 Part of, 의도적 partial "
+                              f"delivery용)도 없다 — phase-2 인도 PR은 이슈를 명시적으로 "
+                              f"닫거나(완결) 최소한 진전시켰다고(비-종결) 밝혀야 한다.")
                 if closes_msg in ref_bad:
                     branch = _pr_head_ref(repo, pr)
                     if branch is not None and _phase2_record_evidence(repo, pr, branch, issue):

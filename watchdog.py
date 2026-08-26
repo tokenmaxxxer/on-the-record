@@ -1503,6 +1503,15 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # spawn 시도를 보고한다 — roster 대조 대상이 아예 없어(그 구간엔 로스터
     # 엔트리 자체가 없다) 오늘까지는 이 워치독이 완전히 못 보던 상태.
     anomaly_count += _sp.spawn_attempt_sweep(d_all=d_all)
+    # 이슈 #2468: check_runner worktree / consult·spawn settings.json 이
+    # SIGKILL/하드크래시로 orphan 되는 걸 지운다 — 위 spawn_attempt_sweep
+    # 과 같은 틱(살아있는 로스터와 무관하게 매번, 워치독이 도는 한 언젠가는
+    # 반드시 돈다는 게 이 체크포인트를 고른 이유 — spawn 시작 시점이었다면
+    # 크래시 이후 다음 스폰이 있을 때까지, 어쩌면 영원히 안 돌 수 있다).
+    # 이상 신호가 아니라 정상적인 자기치유라 anomaly_count 에는 안 얹는다
+    # (`_prune_spawn_attempts()`의 반환값을 spawn_attempt_sweep 이 버리는
+    # 것과 같은 이유).
+    _sp.tmp_resource_sweep()
     # 이슈 #1491: standing-red 관찰은 살아있는 로스터와 무관하게 매 틱
     # 시도한다(자체 유한-주기 게이트로 실제 스위트 실행은 걸러낸다) —
     # 아래 `if not d` 조기 반환에 걸리지 않게 board-wide sweep 바로 뒤에
