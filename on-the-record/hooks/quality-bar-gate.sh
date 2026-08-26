@@ -14,9 +14,10 @@
 # already documents.
 #
 # Bar-scoped roles: the 7 specs carrying a `quality_bar` array
-# (roles/specs/{ux-engineering,interaction-design,accessibility,api-design,
-# performance-engineering,secure-coding,test-authoring}.spec.json) — a role
-# is bar-scoped for a PR when the PR's changed files match that spec's own
+# (spawn_roles.json's {ux-engineering,interaction-design,accessibility,
+# api-design,performance-engineering,secure-coding,test-authoring}.record_spec,
+# issue #2539 — previously roles/specs/<role>.spec.json) — a role is
+# bar-scoped for a PR when the PR's changed files match that spec's own
 # `use_when.trigger.path_patterns`.
 #
 # Verdict record convention: a role's own docs/issue-<n>/reports/<role>.md
@@ -209,12 +210,16 @@ issue_m = re.match(r"^issue-(\d+)/", head_ref)
 issue = issue_m.group(1) if issue_m else None
 
 # --- bar-scoped roles for this PR -------------------------------------------
+# issue #2539 stage 6C: roles/specs/<role>.spec.json -> spawn_roles.json's
+# per-role "record_spec" key.
+try:
+    _role_data = json.load(open(os.path.join(CHECKOUT, "spawn_roles.json"), encoding="utf-8"))
+except (OSError, ValueError):
+    _role_data = {}
 role_patterns = {}
 for role in BAR_ROLES:
-    spec_path = os.path.join(CHECKOUT, "roles", "specs", role + ".spec.json")
-    try:
-        spec = json.load(open(spec_path, encoding="utf-8"))
-    except (OSError, ValueError):
+    spec = (_role_data.get(role) or {}).get("record_spec")
+    if not isinstance(spec, dict):
         continue
     trigger = (spec.get("use_when") or {}).get("trigger") if isinstance(spec.get("use_when"), dict) else None
     role_patterns[role] = (trigger or {}).get("path_patterns") or []

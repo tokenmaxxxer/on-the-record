@@ -135,9 +135,8 @@ class UnknownSkillFailsClosedBeforeWorkspaceTest(unittest.TestCase):
         spawn.issue_workspace = fake_workspace
         spawn.checkout_issue_branch = fake_branch
 
-        role_spec_path = spawn.ROOT / "roles" / "implementation.json"
-        self.assertTrue(role_spec_path.is_file(),
-                         "이 테스트는 실제 roles/implementation.json 스펙을 읽는다")
+        self.assertIn("implementation", spawn.role_data(),
+                       "이 테스트는 실제 spawn_roles.json 의 implementation 스펙을 읽는다")
 
     def tearDown(self):
         spawn.issue_workspace = self._saved_workspace

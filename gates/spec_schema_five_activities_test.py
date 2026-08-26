@@ -9,7 +9,9 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SPECS_DIR = ROOT / "roles" / "specs"
+# issue #2539 stage 6C: roles/specs/<role>.spec.json -> spawn_roles.json's
+# per-role "record_spec" key.
+ROLE_DATA_PATH = ROOT / "spawn_roles.json"
 
 # The 14 roles issue #1129 diagnosed cause-d (no standing duty wired) and
 # #1130 in-scope for five-activity depth. Cause-a roles are intentionally
@@ -40,8 +42,12 @@ ACTIVITY_FIELDS = [
 ]
 
 
+def _role_data():
+    return json.loads(ROLE_DATA_PATH.read_text())
+
+
 def _load(role):
-    return json.loads((SPECS_DIR / f"{role}.spec.json").read_text())
+    return _role_data()[role]["record_spec"]
 
 
 def test_cause_a_roles_are_not_in_scope():
@@ -54,8 +60,9 @@ def test_cause_a_roles_are_not_in_scope():
 
 
 def test_every_in_scope_role_spec_exists():
+    data = _role_data()
     for role in IN_SCOPE_ROLES:
-        assert (SPECS_DIR / f"{role}.spec.json").is_file(), role
+        assert role in data and "record_spec" in data[role], role
 
 
 def test_every_in_scope_role_has_five_activity_fields_with_sources():
@@ -121,7 +128,7 @@ QUALITY_BAR_ROLES = [
     "user-discovery",
 ]
 
-ALL_ROLE_SPECS = sorted(p.stem.replace(".spec", "") for p in SPECS_DIR.glob("*.spec.json"))
+ALL_ROLE_SPECS = sorted(role for role, cfg in _role_data().items() if "record_spec" in cfg)
 
 
 def test_every_quality_bar_role_has_nonempty_quality_bar_array():

@@ -438,16 +438,16 @@ def rfc3339():
 # decision does. Function bodies are unchanged from #573 — only their
 # definition point moved earlier in the same heredoc.
 def load_roles():
-    roles = {}
-    roles_dir = TARGET / "roles"
-    if not roles_dir.is_dir():
-        return roles
-    for f in sorted(roles_dir.glob("*.json")):
-        try:
-            roles[f.stem] = json.loads(f.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
-    return roles
+    # issue #2539 stage 6C: roles/*.json -> spawn_roles.json (single file,
+    # role name -> role dict).
+    role_data_file = TARGET / "spawn_roles.json"
+    if not role_data_file.is_file():
+        return {}
+    try:
+        data = json.loads(role_data_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return {role: cfg for role, cfg in data.items() if isinstance(cfg, dict)}
 
 
 ROLES = load_roles()
