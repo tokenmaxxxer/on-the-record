@@ -95,7 +95,8 @@ class SectionFileMapping(unittest.TestCase):
         base = spawn.directive_section_files()
         self.assertEqual(set(base),
                          {"completion-and-landing.md", "repo-discovery.md",
-                          "known-paths.md", "turn-budget.md"})
+                          "hook-contract.md", "known-paths.md",
+                          "turn-budget.md"})
         with_skills = spawn.directive_section_files(skills_mounted=True)
         self.assertIn("skill-obligations.md", with_skills)
         self.assertIn(spawn._SKILL_CHECK_PROSE,
