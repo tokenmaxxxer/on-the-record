@@ -305,15 +305,14 @@ the project" edge case), flagged here as the one-sentence conflict note
 the skill asks for. Commit message, PR-facing prose, and this record are
 in English per the skill's default.
 
-skill-verdict: implementation-complexity-coupling-management — applied:
-invoked; considered rule 9 (order a pre-merge check pipeline
-cheapest-and-narrowest first) for the R1 fix, since it's about ensuring a
-prerequisite fetch runs before a ref-dependent check inside a pre-merge
-gate pipeline. Concluded rule 9 doesn't fit as written — the gap wasn't
-about reordering checks by cost, it was a missing correctness dependency
-(a ref-resolving check ran without its prerequisite having necessarily
-run first) — so applied the more directly relevant existing precedent
-instead (fetch inside the one shared function every caller of
-`evaluate()` funnels through, mirroring `check_runner.py`'s own
-`checkout_pr_worktree()` fix) rather than forcing rule 9's shape onto a
-problem it doesn't describe.
+skill-verdict: implementation-complexity-coupling-management — applied: invoked; considered
+rule 9 (order a pre-merge check pipeline cheapest-and-narrowest first)
+for the R1 fix, since it's about ensuring a prerequisite fetch runs
+before a ref-dependent check inside a pre-merge gate pipeline. Concluded
+rule 9 doesn't fit as written — the gap wasn't about reordering checks by
+cost, it was a missing correctness dependency (a ref-resolving check ran
+without its prerequisite having necessarily run first) — so applied the
+more directly relevant existing precedent instead (fetch inside the one
+shared function every caller of `evaluate()` funnels through, mirroring
+`check_runner.py`'s own `checkout_pr_worktree()` fix) rather than forcing
+rule 9's shape onto a problem it doesn't describe.
