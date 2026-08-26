@@ -19,6 +19,8 @@ code_under_review:
     sha: same-commit
   - path: docs/issue-2381/reports/implementation/2026-08-26-hunt-orchestrator-fetch-all-branches.md
     sha: same-commit
+  - path: docs/issue-2381/reports/implementation/2026-08-26-hunt-untrack-orchestrate-hook-fires.md
+    sha: same-commit
 type: fix
 breaking: none
 verdict: pass
@@ -223,6 +225,24 @@ acceptance (round 2): `python3 -m pytest on-the-record/hooks/test_hook_fire_coun
 5 passed in 0.81s
 ```
 Also re-verified working-tree preservation directly: after `git rm --cached -r .orchestrate-hook-fires/`, all 12 shard files (10 pre-existing + this branch's 2) are still present on disk (`ls .orchestrate-hook-fires/ | wc -l` → 12), only their git index entries were dropped.
+
+acceptance (round 2, spec-doc sync): `python3 gates/spec_index.py .` — result:
+```
+통과: 모든 spec 문서가 기록된 해시와 일치한다
+```
+(neither `docs/specs/generated-paths.md` nor `enforcement-boundary.md` — the
+two docs the prior round cited to justify keeping the shard directory
+tracked — was touched by this round, so the reconciled-index hash check
+has nothing to drift on.)
+
+Before-landing warrant hunt (this round) targeted whether untracking
+breaks any git-facing reader or doc-sync gate elsewhere — NO FINDING.
+`gates/test_generated_paths.py`/`gates/test_boundary.py` (the gates
+cross-checking those same two spec docs) fail identically on `HEAD` and
+`HEAD~2` (before this round's two commits), and neither spec doc
+asserts git-tracked-ness of the shard directory in the first place.
+
+canonical: `1ba8370b:docs/issue-2381/reports/implementation/2026-08-26-hunt-untrack-orchestrate-hook-fires.md` (full repro and findings)
 
 ## Why
 
