@@ -90,6 +90,33 @@ condenses them by hand instead — same content on both sides, checked
 against the module's `_section_bounds` note about issue #2219's
 whole-section (not fixed-3-line) evidence window).
 
+## Record-to-PR ordering + single-assembly (issue #2527)
+
+`record-order.md` — unconditional baseline in `directive_section_files()`,
+same reasoning as `hook-contract.md`: every role writes its own record
+through `record-claim-guard.sh`, regardless of `write_scope`. States two
+things, guidance only, no new gate or hook:
+
+1. Ordering — change the code, run the acceptance checks, THEN write the
+   record from those executed results, never the reverse. A record
+   written before the code exists has nothing to cite, and every
+   Write/Edit under `docs/issue-*/reports/**` re-enters
+   `record-claim-guard.sh`.
+2. Single assembly — write the record once from finished results rather
+   than growing it across many edits; each Write/Edit is a separate gate
+   entry. This covers the record's result content only — it explicitly
+   does NOT defer `## What did not work` / `## Rationale for deviations`
+   logging, which still happens the moment a deviation occurs, per the
+   warrant and record-shape directives.
+
+Both points, and the numbers cited in the prose (3 min inverted order, 11
+record edits, 5 refusals, 9 redundant git-inspection calls), come from one
+measured session: issue-2516's implementation session, 2026-08-26 (see
+`docs/issue-2527/reports/implementation.md` for the after-change
+comparison). `record-claim-guard.sh`'s own refusal logic is unchanged by
+this issue — the goal is a session that arrives at the record with
+citable results already in hand, never a gate that accepts less.
+
 ## Out of scope here
 
 `directive.sh`, `approval-gate.sh`, and the rest of the
