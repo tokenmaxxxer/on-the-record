@@ -5,26 +5,33 @@ author: execution-observation
 loop_state: handed-off
 upstream:
   - path: docs/issue-2409/reports/implementation.md
-    sha: 64028704e6b375c9d74af73ca3989e344efa1650
+    sha: 1b09aca4ba812f7b4fefc5de40cfd255189f210c
+  - path: docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json
+    sha: 1b09aca4ba812f7b4fefc5de40cfd255189f210c
   - path: directive_assembly.py
-    sha: 64028704e6b375c9d74af73ca3989e344efa1650
+    sha: 1b09aca4ba812f7b4fefc5de40cfd255189f210c
   - path: spawn.py
-    sha: 64028704e6b375c9d74af73ca3989e344efa1650
+    sha: 1b09aca4ba812f7b4fefc5de40cfd255189f210c
   - path: scripts/related_files.py
-    sha: 64028704e6b375c9d74af73ca3989e344efa1650
+    sha: 1b09aca4ba812f7b4fefc5de40cfd255189f210c
   - path: scripts/session_waste_metrics.py
-    sha: 64028704e6b375c9d74af73ca3989e344efa1650
+    sha: 1b09aca4ba812f7b4fefc5de40cfd255189f210c
 subject: PR #2416 (issue-2409/implementation, three additive mechanisms
   plus an instrumentation artifact for issue #2409's waste classes),
-  commit 64028704 (HEAD), checked out into an independent git worktree
-  at /tmp/wt-2409-impl (untracked in this tree, removed after this
-  observation)
+  commit 1b09aca4 (HEAD, CHANGES round — NR1b fix at 980d6db9 plus a
+  skill-verdict addendum at 1b09aca4, both on top of 64028704 which this
+  record's first pass already verified), checked out into an
+  independent git worktree at /tmp/wt-2409-impl2 (untracked in this
+  tree, removed after this observation)
 test: independent re-execution of the instrumentation artifact and the
   related-files lookup against the same 5 real session logs/issue
   numbers the implementation record names, independent re-read of the
   directive_assembly.py/spawn.py diff and the on-the-record/hooks/
-  tree for additive-only and untouched-gate claims, and a fresh run of
-  the four targeted test files — all from a fresh worktree, independent
+  tree for additive-only and untouched-gate claims, a fresh run of the
+  four targeted test files, and (CHANGES round) an independent re-run
+  of the committed batch-rollup artifact's own generating command,
+  byte-diffed against the file conformance-review PR #2420's NR1b
+  finding asked to be committed — all from a fresh worktree, independent
   of the PR's own pasted transcripts
 result: passed
 assertedBy: execution-observation session for issue-2409, independent
@@ -124,6 +131,59 @@ tests/test_related_files.py tests/test_session_waste_metrics.py -q -m ""
 derived: exact match to the implementation record's own pasted summary
 (79 passed, 1 skipped).
 
+### CHANGES round — NR1b fix re-verification (commits 980d6db9, 1b09aca4)
+
+canonical: `git fetch origin issue-2409/implementation && git worktree
+add --detach /tmp/wt-2409-impl2 origin/issue-2409/implementation` —
+head moved from 64028704 (this record's first pass) to `1b09aca4`,
+two commits on top: `980d6db9` ("commit generated per-turn-breakdown
+artifact (NR1b fix)") and `1b09aca4` ("skill-verdict addendum for
+CHANGES round"). canonical: `git diff 64028704..1b09aca4 --numstat`
+(fresh worktree) — result: 2 files changed, both docs-only
+(`docs/issue-2409/reports/implementation.md` (untracked in this tree —
+lives only on branch issue-2409/implementation/PR #2416), 22
+insertions; the new artifact file, 96 insertions), 0 deletions;
+canonical: `git diff 64028704..1b09aca4 --stat -- on-the-record/hooks/
+hooks.json directive_assembly.py spawn.py scripts/related_files.py
+scripts/session_waste_metrics.py` — empty output, confirming none of
+the four mechanism files this record already verified changed in the
+CHANGES round, so the wiring/additive-only findings above still hold
+without re-reading those diffs a second time.
+
+canonical: independently re-ran, in the fresh worktree, the exact
+`python3 -c` driver `docs/issue-2409/reports/implementation.md`
+(untracked in this tree — lives only on branch
+issue-2409/implementation/PR #2416) now cites for the artifact
+(`sw.batch_summary(paths)` plus one
+`sw.analyze(path)['hook_refusals']['by_gate']` per path, same 5 session
+logs as the before-table) and piped its stdout to a scratch file —
+result: `diff` against the committed
+`docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json`
+(untracked in this tree — lives only on branch
+issue-2409/implementation/PR #2416) is empty — byte-for-byte identical,
+independently reproduced (not merely re-read from the PR's own pasted
+diff-check). derived: the issue thread's own "CHANGES requested on PR
+#2416" comment (read this session via `gh issue view 2409 --comments`)
+names this gap NR1b and states the amended re-review found it as the
+sole remaining item; it is now committed at that path and this round
+confirms it is genuinely regeneratable, not hand-typed. canonical: `git
+ls-files docs/issue-2409/reports/implementation/artifacts/` (fresh
+worktree) — result: the file is tracked at `1b09aca4`, not merely
+present in a working tree.
+
+canonical: `env -u CORE_BUILD_NOW python3 -m pytest
+tests/test_directive_diet_2135.py tests/test_spawn_directive_assembly.py
+tests/test_related_files.py tests/test_session_waste_metrics.py -q -m ""
+-p xdist -n0` re-run in the same fresh worktree at `1b09aca4` — result:
+`79 passed, 1 skipped in 3.31s`, same counts as this record's first
+pass at `64028704`, consistent with the CHANGES round touching no test
+or mechanism file.
+
+derived: overall verdict recomputed per this role's spec (worst case
+across all cited test entries) — every entry above is `passed`, so the
+record's own `result` field stays `passed`; this CHANGES-round section
+extends rather than replaces the first pass's evidence.
+
 ## Why
 
 derived: this role's own spec
@@ -143,11 +203,16 @@ already established for this lineage.
 ## Upstream basis
 
 `docs/issue-2409/reports/implementation.md` (untracked in this tree —
-lives only on branch `issue-2409/implementation`/PR #2416, commit
-64028704) supplied every claim re-verified above: the instrumentation
-artifact and its regenerate command, the related-files lookup and its
-per-issue counts, the `directive_assembly.py`/`spawn.py` diff
-description, and the targeted test list.
+lives only on branch `issue-2409/implementation`/PR #2416; read at
+commit `64028704` and again at commit `1b09aca4`) supplied every claim
+re-verified above: the instrumentation artifact and its regenerate
+command, the related-files lookup and its per-issue counts, the
+`directive_assembly.py`/`spawn.py` diff description, and the targeted
+test list.
+`docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json`
+(untracked in this tree — lives only on branch
+`issue-2409/implementation`/PR #2416; committed there at `980d6db9`)
+supplied the generated artifact byte-diffed above.
 
 `roles/specs/execution-observation.spec.json` (read this session, this
 tree) fixed this record's own field shape (EARL 1.0
@@ -164,6 +229,21 @@ this round reused.
 
 ## Open findings
 
+- **This record's own first pass (at `64028704`) matched the
+  instrumentation artifact's live CLI output against the implementation
+  record's pasted table but did not independently check whether a
+  generated artifact file was actually committed to the repo — the same
+  gap conformance-review PR #2420's amended re-review later named NR1b.
+  Resolved, not open: derived: the "CHANGES round — NR1b fix
+  re-verification" section above (`git ls-files
+  docs/issue-2409/reports/implementation/artifacts/` plus the
+  byte-for-byte `diff` against a fresh independent re-run, both run
+  this session) confirms the gap is closed at `1b09aca4`, so this
+  round's own record no longer carries that blind spot for the current
+  commit.** No resolution path needed beyond noting it — a future round
+  of this role should check for a committed generated instance, not
+  just a working regenerate command, whenever an Acceptance bullet asks
+  for an artifact to be "published"/"in the record."
 - **`related_files.py`'s issue-2314 `issue_mentions` count drifted by
   one (6 pasted -> 7 reproduced), and it is explained, not a defect.**
   canonical: `grep -n "2314" docs/issue-2409/reports/implementation.md`
