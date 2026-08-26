@@ -204,12 +204,63 @@ def pr_refs(repo: Path, pr: int) -> dict | None:
     return {"base_ref": base_ref, "head_ref": head_ref}
 
 
-def stale_revert_reasons(repo: Path, pr: int) -> list[str]:
+def staleness(repo: Path, merge_base_ref: str, base_head_ref: str, head_ref: str) -> dict:
+    """issue #2403 — pre-merge staleness probe, pure local git (no `gh`).
+    `{"behind": int, "conflicting": bool}`: `behind` is how many commits
+    `base_head_ref` has added since `merge_base_ref` that `head_ref` lacks;
+    `conflicting` is whether a 3-way merge of those would actually clash.
+
+    `git merge-tree <base> <a> <b>` (this repo's git 2.34, pre `--write-tree`)
+    always exits 0 and reports conflicts in its *output* via `<<<<<<<`
+    markers -- exit code is not a signal here, unlike newer git."""
+    behind = subprocess.run(["git", "rev-list", "--count", f"{merge_base_ref}..{base_head_ref}"],
+                             cwd=repo, capture_output=True, text=True)
+    behind_n = (int(behind.stdout.strip())
+                if behind.returncode == 0 and behind.stdout.strip().isdigit() else 0)
+    if behind_n == 0:
+        return {"behind": 0, "conflicting": False}
+    mt = subprocess.run(["git", "merge-tree", merge_base_ref, base_head_ref, head_ref],
+                         cwd=repo, capture_output=True, text=True)
+    return {"behind": behind_n, "conflicting": "<<<<<<<" in mt.stdout}
+
+
+def staleness_for_pr(repo: Path, pr: int, refs: dict | None = None) -> dict | None:
+    """`evaluate()`'s pre-merge caller (issue #2403) -- resolves `pr`'s
+    base/head via `gh` (unless `refs` is already known -- `evaluate()`
+    passes its own `pr_refs()` result through here and to
+    `stale_revert_reasons()` so one `evaluate()` call makes one `gh pr
+    view` round trip for this pair, not two) then delegates to the pure
+    `staleness()`. `None` if refs or merge-base can't be resolved
+    (fail-open, same convention as `stale_revert_reasons()`: this probe
+    never blocks a PR it can't read)."""
+    if refs is None:
+        refs = pr_refs(repo, pr)
+    if refs is None:
+        return None
+    base_ref, head_ref = refs["base_ref"], refs["head_ref"]
+    base_head_ref = f"origin/{base_ref}"
+    mb = subprocess.run(["git", "merge-base", base_head_ref, head_ref],
+                         cwd=repo, capture_output=True, text=True)
+    if mb.returncode != 0:
+        base_head_ref = base_ref
+        mb = subprocess.run(["git", "merge-base", base_ref, head_ref],
+                             cwd=repo, capture_output=True, text=True)
+    if mb.returncode != 0:
+        return None
+    return staleness(repo, mb.stdout.strip(), base_head_ref, head_ref)
+
+
+def stale_revert_reasons(repo: Path, pr: int, refs: dict | None = None) -> list[str]:
     """req#6(issue #1664) -- PR 이 stale merge-base 로 인해 base HEAD의
     내용을 되돌리는지 검사한다. refs 를 못 읽거나 merge-base 를 계산할
     수 없으면 (fail-open) 빈 목록 -- 이 게이트가 못 읽어서 무해한 PR을
-    막는 일은 없어야 한다; 실제 위반은 산출물이 갖춰지면 잡힌다."""
-    refs = pr_refs(repo, pr)
+    막는 일은 없어야 한다; 실제 위반은 산출물이 갖춰지면 잡힌다.
+
+    `refs`: issue #2403 -- `evaluate()`'s already-resolved `pr_refs()`,
+    reused here and by `staleness_for_pr()` so one `evaluate()` call
+    doesn't make two identical `gh pr view` round trips."""
+    if refs is None:
+        refs = pr_refs(repo, pr)
     if refs is None:
         return []
     base_ref, head_ref = refs["base_ref"], refs["head_ref"]
@@ -230,6 +281,20 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     """`{"allowed": bool, "reasons": [str, ...]}`. 넷 다 깨끗해야
     `allowed`: check-runner 코멘트 존재, `passed == total`, 필요 검증
     기록 모두 존재, stale-revert 없음(issue #1664)."""
+    # issue #2381 R1 (conformance-review CHANGES round): 아래 `stale_revert_reasons()`
+    # 는 `origin/<base_ref>` 를 resolve 한다 — 예전엔 `check_runner.py`의
+    # `checkout_pr_worktree()`가 같은 `--repo` 체크아웃에 먼저
+    # `fetch_all_role_branches()`를 실행해 뒀다는 걸 전제로 삼았지만,
+    # `verdict_gate.py`(및 그걸 통하지 않고 `evaluate()`를 직접 부르는 다른
+    # 호출부)는 그 실행 순서를 보장하지 않는다 — 그러면 이슈 #2381 이 고치려던
+    # "fatal: invalid reference"(방금 push된 role 브랜치를 못 찾는 문제)가
+    # `merge_gate.py` 쪽에서 그대로 재발한다. `evaluate()` 자신이 이 함수의
+    # 유일한 origin-ref 의존 호출부(`stale_revert_reasons`) 바로 앞에서
+    # fetch 함으로써, 어느 스크립트를 거쳐 들어오든 매번 커버한다.
+    # best-effort: 리턴값을 보지 않는다 — origin 리모트가 없는 합성 테스트
+    # 저장소 등에서 실패해도, `stale_revert_reasons()`는 이미 ref 를 못 읽으면
+    # fail-open 이라 결과가 달라지지 않는다.
+    check_runner.fetch_all_role_branches(repo)
     reasons: list[str] = []
     comment = latest_check_runner_comment(repo, pr)
     if comment is None:
@@ -248,8 +313,25 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     missing = required_verification_missing(root, subject, repo, pr)
     if missing:
         reasons.append(f"필요한 검증 기록이 없다: {missing}")
-    reasons.extend(stale_revert_reasons(repo, pr))
-    return {"allowed": not reasons, "reasons": reasons}
+    # issue #2403: resolve once, share with staleness_for_pr() -- these two
+    # are the only callers here that need base/head refs, so one `gh pr
+    # view` covers both instead of one each (implementation-complexity-
+    # coupling-management rule 8/9: don't duplicate an expensive network
+    # step across sibling checks in the same pipeline).
+    refs = pr_refs(repo, pr)
+    reasons.extend(stale_revert_reasons(repo, pr, refs=refs))
+    stale = staleness_for_pr(repo, pr, refs=refs)
+    if stale is not None and stale["conflicting"]:
+        # issue #2403: worded as "stale-branch", not "code defect" -- this
+        # is what lets a reader (human or orchestrator) tell the two apart
+        # without re-deriving it from a failed `gh pr merge`.
+        reasons.append(
+            f"stale-branch: base 대비 {stale['behind']}개 커밋 뒤처졌고 merge 충돌 -- "
+            f"코드 결함이 아니라 기계적 rebase 필요(`python3 spawn.py rebase -C <워크스페이스>`)")
+    result = {"allowed": not reasons, "reasons": reasons}
+    if stale is not None:
+        result["staleness"] = stale
+    return result
 
 
 def main() -> int:
@@ -267,6 +349,13 @@ def main() -> int:
     if "--repo" in sys.argv:
         repo = Path(sys.argv[sys.argv.index("--repo") + 1]).resolve()
     result = evaluate(repo, repo, pr, subject)
+    stale = result.get("staleness")
+    if stale is not None:
+        # issue #2403: reported unconditionally, before any merge attempt --
+        # allowed or not -- so the orchestrator never has to learn this from
+        # a failed `gh pr merge`.
+        print(f"stale: behind by {stale['behind']}, conflicting: "
+              f"{'yes' if stale['conflicting'] else 'no'}")
     if result["allowed"]:
         print(f"허용: PR #{pr} ({subject}) 머지 자격 있음")
         return 0

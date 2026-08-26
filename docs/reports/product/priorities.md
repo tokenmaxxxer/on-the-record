@@ -75,6 +75,19 @@ Append-only, newest entry last.
   its two comments (issuecomment-5407296989, issuecomment-5407303268) by
   JiwonJung94, 2026-08-25.
 
+- 2026-08-25: operator applied the same standing systemic/no-side-effects
+  bar to issue #2409's 5x-speed-target work, plus an explicit tie-breaker
+  for this recurring speed-vs-record tension: cut overhead, but the
+  recording/audit-trail procedure (issue→spawn→PR, both observer roles,
+  verify-at-landing evidence, consult-trace) stays exactly as-is — a
+  proposed change that would thin the record to save time must be
+  rejected and the time found elsewhere instead. Source: issue #2409
+  body, comment by JiwonJung94, 2026-08-25 ("Operator-frozen constraint
+  (2026-08-25): must hold systemically for every session that installs
+  on-the-record against any target repo... Speed constraint (operator,
+  this session): cut the overhead, but the recording/audit-trail
+  procedure stays exactly as-is... If a proposed change would thin the
+  record to save time, reject it and find the time elsewhere.").
 - 2026-08-25: operator standing directive, restated across #2414 and its
   successor #2415: measure a defect/friction rate before adding any new
   gate or authoring/landing check, and adding nothing is an acceptable,
@@ -136,3 +149,17 @@ Append-only, newest entry last.
   `partial-delivery`) so build-now sessions that stop early don't have to
   choose between a blocked PR edit and a misleading auto-close. Source:
   this session's CHANGES-round task prompt on PR #2495, read 2026-08-26.
+- 2026-08-26: operator framed a standing bar for role-axis-retirement-style
+  migrations (not just #2507): deleting the old mechanism is not the
+  finish line — three things must hold together — (1) whatever the old
+  fixed table did must still work, now composed to fit the situation
+  rather than looked up from a table; (2) overhead must not grow, measured
+  against a stated baseline, not assumed; (3) every named remnant must be
+  resolved or explicitly re-scoped with a reason in the record, never
+  silently dropped. Also: an item found to have "no live callers" may be
+  removed without a migration step — dead code doesn't need the same
+  care as a live consumer. Source: issue #2507 body ("The completion bar
+  (operator, 2026-08-25)... Deleting the roles is not the finish line.
+  Three things must hold together... empty state: a consumer whose role
+  lookup already has no live callers — state that and remove it without a
+  migration step."), read 2026-08-26.

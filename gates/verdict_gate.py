@@ -87,6 +87,13 @@ def main() -> int:
 
     action = classify(verdict_text, gate_result, tests_pass)
     print(f"판정: PR #{pr} ({subject}) -> {action}")
+    stale = gate_result.get("staleness")
+    if stale is not None:
+        # issue #2403: same pre-merge signal `merge_gate.py`'s own CLI
+        # prints -- surfaced here too since this is the other place a
+        # merge decision is made before `gh pr merge` is attempted.
+        print(f"stale: behind by {stale['behind']}, conflicting: "
+              f"{'yes' if stale['conflicting'] else 'no'}")
     for reason in gate_result["reasons"]:
         print(f"  - {reason}")
     return 0 if action == "ALLOW_MERGE" else 1

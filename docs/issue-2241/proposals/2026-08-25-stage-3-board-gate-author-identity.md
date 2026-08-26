@@ -5,7 +5,7 @@ stage: 3
 files:
   - tokenmaxxxer-core:core/hooks/board-gate.sh
   - tokenmaxxxer-core:core/hooks/test_board_gate.py
-  - docs/issue-2241/reports/architecture/board-gate-r5-migration.md
+  - docs/issue-2286/reports/implementation/board-gate-r5-migration.md
 ---
 
 # Stage 3 — rewrite board-gate write-scope onto author identity
@@ -60,10 +60,18 @@ answers at different moments.
 - For a record with no `author:` field (pre-stage-1, mid-flight), R5
   falls back to today's role-filename match unchanged — no legacy
   record becomes suddenly unwritable.
-- `docs/issue-2241/reports/architecture/board-gate-r5-migration.md`
+- `docs/issue-2286/reports/implementation/board-gate-r5-migration.md`
   states the exact fallback rule above and the date after which every
   new record is expected to carry `author:` (tied to stage 1's landing
-  date, not a fixed calendar date).
+  date, not a fixed calendar date). Named under the delivering child
+  issue's own tree, not this program issue's tree — `board-gate.sh`
+  R4 (branch/tree scope) and R5 (role/report-subtree ownership) both
+  forbid a session delivering one child issue from writing into a
+  different issue's `docs/issue-2241/` tree or into another role's
+  `reports/architecture/` subtree; see issue #2412 for the full
+  reasoning. Already landed at this path. (Path correction per
+  issue #2412; pure post-landing path fix, no open design decision —
+  survey skipped.)
 - `EXTRA_SUBTREE`'s stale `"feasibility"`/`"ops"` keys (survey finding
   2) are corrected to match `spawn.py`'s current role names in the same
   PR, since this stage already touches the surrounding logic.

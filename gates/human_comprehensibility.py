@@ -84,7 +84,7 @@ def _first_paragraph(text: str) -> str:
 
 
 _TRAILER_LINE_RE = re.compile(
-    r"^\s*(part of|closes?|fixe?[sd]?|resolves?)\s+#\d+\s*$", re.IGNORECASE
+    r"^\s*(part of|advances|closes?|fixe?[sd]?|resolves?)\s+#\d+\s*$", re.IGNORECASE
 )
 
 
