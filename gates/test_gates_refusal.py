@@ -14,10 +14,13 @@
   python3 gates/test_gates_refusal.py
 """
 from __future__ import annotations
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import gates
@@ -30,12 +33,37 @@ def _run(*args, cwd):
     return p.stdout
 
 
+# issue #2516: this file used to leak every fixture repo it created — the
+# old docstring said cleanup was the caller's responsibility, but no
+# caller ever did it, and mkdtemp()'s directories only get reclaimed by the
+# OS on a full process exit, which a pytest worker doesn't reliably reach
+# (killed workers, ENOSPC mid-suite, or just "the suite keeps running").
+# `_mkdtemp()` records every directory it hands out, and the autouse
+# fixture below tears them down in pytest's own per-test teardown, which
+# runs even when the test raises.
+_created_dirs: list[Path] = []
+
+
+def _mkdtemp() -> Path:
+    d = Path(tempfile.mkdtemp())
+    _created_dirs.append(d)
+    return d
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_fixture_repos():
+    yield
+    while _created_dirs:
+        shutil.rmtree(_created_dirs.pop(), ignore_errors=True)
+
+
 def _repo_with_record(record_body: str, role: str = "implementation"):
     """origin/main 에 빈 상태를 커밋하고, HEAD 에서
     docs/issue-476/reports/<role>.md 를 record_body 로 추가한 임시
-    git repo. 정리는 호출자 책임(tempfile.TemporaryDirectory 를 쓰지 않는
-    이유는 `test_orphaned_references.py`와 같은 관례를 따르기 위해서)."""
-    d = Path(tempfile.mkdtemp())
+    git repo. 각 테스트는 여전히 자기 repo를 새로 받는다(공유 없음) —
+    정리는 `_cleanup_fixture_repos`(pytest 실행) 또는 `__main__` 러너의
+    try/finally(단독 실행)가 맡는다."""
+    d = _mkdtemp()
     _run("init", "-q", "-b", "main", cwd=d)
     _run("config", "user.email", "t@example.com", cwd=d)
     _run("config", "user.name", "t", cwd=d)
@@ -107,7 +135,11 @@ def t_record_enums_still_rejects_unknown_value():
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
-    for t in tests:
-        t()
-        print(f"  ok  {t.__name__}")
-    print(f"\n{len(tests)} passed")
+    try:
+        for t in tests:
+            t()
+            print(f"  ok  {t.__name__}")
+        print(f"\n{len(tests)} passed")
+    finally:
+        while _created_dirs:
+            shutil.rmtree(_created_dirs.pop(), ignore_errors=True)

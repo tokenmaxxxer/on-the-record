@@ -7,9 +7,12 @@
   python3 gates/test_ui_evidence_gate.py
 """
 from __future__ import annotations
+import shutil
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import ui_evidence_gate
@@ -21,9 +24,25 @@ verdict: pass
 body
 """
 
+# issue #2516: `_norepo_root()` used to leak an empty directory per test
+# (never removed — these were most of the "empty" leaked tmp* dirs found
+# under /tmp). `_created_dirs` + the autouse fixture below give every test
+# the same fresh, unshared throwaway dir it always got, but now torn down
+# in pytest's own per-test teardown instead of never.
+_created_dirs: list[Path] = []
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_tmp_dirs():
+    yield
+    while _created_dirs:
+        shutil.rmtree(_created_dirs.pop(), ignore_errors=True)
+
 
 def _norepo_root() -> Path:
-    return Path(tempfile.mkdtemp())
+    d = Path(tempfile.mkdtemp())
+    _created_dirs.append(d)
+    return d
 
 
 def t_ui_touch_unit_only_refused():
@@ -89,15 +108,19 @@ def t_non_pass_verdict_never_checked():
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
     failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"ok  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL {t.__name__}: {e}")
-    print(f"{len(tests) - failed}/{len(tests)} passed")
-    return 1 if failed else 0
+    try:
+        for t in tests:
+            try:
+                t()
+                print(f"ok  {t.__name__}")
+            except AssertionError as e:
+                failed += 1
+                print(f"FAIL {t.__name__}: {e}")
+        print(f"{len(tests) - failed}/{len(tests)} passed")
+        return 1 if failed else 0
+    finally:
+        while _created_dirs:
+            shutil.rmtree(_created_dirs.pop(), ignore_errors=True)
 
 
 if __name__ == "__main__":

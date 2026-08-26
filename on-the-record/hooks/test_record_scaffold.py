@@ -9,10 +9,13 @@
 """
 from __future__ import annotations
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 HOOKS_DIR = Path(__file__).parent
 PLUGIN_ROOT = HOOKS_DIR.parent
@@ -31,8 +34,24 @@ def _run(*args, cwd):
     return p.stdout
 
 
+# issue #2516: `_empty_repo()` used to leak every fixture repo it built
+# (no cleanup anywhere in this file). `_created_dirs` + the autouse
+# fixture below tear each one down in pytest's own per-test teardown
+# (which runs even on assertion failure), and the `__main__`/`-m pytest`
+# runners cover the standalone-script path with an equivalent try/finally.
+_created_dirs: list[Path] = []
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_tmp_repos():
+    yield
+    while _created_dirs:
+        shutil.rmtree(_created_dirs.pop(), ignore_errors=True)
+
+
 def _empty_repo():
     d = Path(tempfile.mkdtemp())
+    _created_dirs.append(d)
     _run("init", "-q", "-b", "main", cwd=d)
     _run("config", "user.email", "t@example.com", cwd=d)
     _run("config", "user.name", "t", cwd=d)
@@ -92,16 +111,20 @@ def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]
     failed = 0
-    for name, fn in tests:
-        try:
-            fn()
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL {name}: {e}")
-        else:
-            print(f"ok {name}")
-    print(f"{len(tests) - failed}/{len(tests)} passed")
-    return 1 if failed else 0
+    try:
+        for name, fn in tests:
+            try:
+                fn()
+            except AssertionError as e:
+                failed += 1
+                print(f"FAIL {name}: {e}")
+            else:
+                print(f"ok {name}")
+        print(f"{len(tests) - failed}/{len(tests)} passed")
+        return 1 if failed else 0
+    finally:
+        while _created_dirs:
+            shutil.rmtree(_created_dirs.pop(), ignore_errors=True)
 
 
 if __name__ == "__main__":
