@@ -71,7 +71,7 @@ class ReadonlyPluginDirsAlwaysSkillRepoTest(unittest.TestCase):
         spawn.resolve_role_source = spy
         try:
             spawn._ROLE_SKILLS = {"implementation": ["work-in-english"]}
-            spawn._readonly_plugin_dirs("implementation", {})
+            spawn._readonly_plugin_dirs("implementation")
         finally:
             spawn.resolve_role_source = real
         self.assertEqual(calls, ["implementation"])
@@ -87,7 +87,7 @@ class ReadonlyPluginDirsAlwaysSkillRepoTest(unittest.TestCase):
         spawn.resolve_role_source = spy
         try:
             spawn._ROLE_SKILLS = {}
-            out = spawn._readonly_plugin_dirs("no-such-role", {})
+            out = spawn._readonly_plugin_dirs("no-such-role")
         finally:
             spawn.resolve_role_source = real
         # "매핑 안 된 역할"은 rulebook 경로로 새지 않고, skill_dirs 0개짜리
