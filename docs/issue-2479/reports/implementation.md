@@ -163,7 +163,8 @@ user's requirement backlog, user-authored only"; reproduced live:
 message). Naming it here for the orchestrator/user to file: **follow-up
 — "record-claim-guard.sh / heredoc-command-refusal-gate.sh refusal
 messages don't cover compounding back-to-back hits near end-of-session"**
-(see `## Open findings` below for the drafted body).
+(see `## Open findings` below for the drafted body). Deviation logged:
+`docs/issue-2479/reports/implementation/deviation-log/20260826T011402145329-89f7f09e0aae5ebc.md`.
 
 ### Acceptance check 4 — should `progressed-dirty-tree` be reclassified by watchdog?
 
