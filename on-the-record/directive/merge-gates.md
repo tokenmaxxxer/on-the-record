@@ -98,6 +98,12 @@
   every other outcome is HOLD — never merge on the LLM verdict alone. A
   correct MERGE blocked by a flaky deterministic gate surfaces to the
   human as a HOLD, not an auto-reject.
+- DELETE-BRANCH ON MERGE (issue #2451): every `gh pr merge` call MUST pass
+  `--delete-branch`. The repo's `deleteBranchOnMerge` setting does not
+  reliably cover API/CLI-driven merges — this session directly observed
+  merged PRs (e.g. #2439, #2413) whose head branch survived without it.
+  Omitting the flag leaves stray `issue-<n>/<role>` branches on the
+  remote after merge.
 - STALE-REVERT AT MERGE (issue #1664): the same pre-merge step also runs
   `gates/stale_revert_guard.py` `classify()`/`check_pr()` — a PR whose
   merge would delete content base HEAD already has that was added after
