@@ -98,3 +98,19 @@ Append-only, newest entry last.
   prevents defects" / "Nobody has ever asked what an Acceptance section
   is for and derived the format from that... that is how the document
   got here").
+
+- 2026-08-26: operator scoped follow-up performance/waste-reduction work
+  deliberately narrow after #2409's corpus-scale claim failed conformance
+  review: the next round (#2467) explicitly excludes corpus-scale
+  hit-rate claims, production cache-eviction policy, and cross-session
+  persistence, asking instead for a small, cheaply-verifiable before/after
+  on real existing logs (or, if a precondition check fails, a clean
+  negative finding with no further build). Applies going forward to any
+  similar waste-reduction issue: prefer a narrow, directly-verifiable
+  claim over a broad corpus-wide one, and treat "the precondition doesn't
+  hold, so nothing was built" as a complete, valid outcome rather than a
+  shortfall to compensate for. Source: issue #2467 body ("Scoped
+  deliberately narrow this round (per operator instruction, after #2409's
+  corpus-scale claim failed conformance-review): a small,
+  cheaply-verifiable before/after on real existing logs, not a
+  corpus-wide 5x-style claim."), read 2026-08-26.
