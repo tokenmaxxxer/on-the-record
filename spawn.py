@@ -412,6 +412,7 @@ _self_trigger_respawn = lifecycle._self_trigger_respawn
 _sidecar_workspace_name = lifecycle._sidecar_workspace_name
 _workspace_base = lifecycle._workspace_base
 _workspace_clean_state = lifecycle._workspace_clean_state
+_workspace_merge_trigger_status = lifecycle._workspace_merge_trigger_status
 auto_sweep = lifecycle.auto_sweep
 detect_legacy_monitor_alive_dirs = lifecycle.detect_legacy_monitor_alive_dirs
 gc_monitor_alive = lifecycle.gc_monitor_alive

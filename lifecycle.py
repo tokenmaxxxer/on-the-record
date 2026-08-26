@@ -955,18 +955,53 @@ def _clean_max_bytes() -> int:
     return int(os.environ.get("MUSTER_CLEAN_MAX_BYTES", str(5 * 1024**3)))
 
 
+def _workspace_merge_trigger_status(w: Path) -> tuple[bool, str]:
+    """이슈 #2447: 세션이 이미 끝난(=`_workspace_clean_state()`가 이미
+    non-live/non-dirty 로 판정한) 워크스페이스가 age/size 상한과 무관하게
+    지금 지워도 되는지 — 그 브랜치의 PR 이 gh API 로 확인된 MERGED 일
+    때만. 독립 안전검사가 아니라 `auto_sweep()`의 이미-안전한 후보
+    집합 위에 얹는 가속 신호이므로, 호출자가 `_workspace_clean_state()`를
+    먼저 통과시킨 뒤에만 불러야 한다.
+
+    `(removable, detail)` 를 돌려준다 — `removable=False` 인 모든 경로
+    (브랜치 없음, gh API 호출 자체 실패, PR 이 아직 open/없음)는 "머지
+    안 됨"이 아니라 "모름/아직"으로 취급해 이 트리거를 no-op 으로
+    물러나게 한다: 그 워크스페이스는 그대로 기존 age/size prune 판정으로
+    넘어간다(요구사항 — GitHub API 실패가 age/size prune 을 막으면
+    안 된다)."""
+    branch = subprocess.run(
+        ["git", "-C", str(w), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True).stdout.strip()
+    if not branch:
+        return (False, "no-branch")
+    if not _sp._pr_list_call_ok(w, branch):
+        return (False, "pr-check-failed")
+    merged_pr = _sp._merged_pr_for_branch(w, branch)
+    if merged_pr is None:
+        return (False, "not-merged")
+    return (True, f"PR #{merged_pr} merged")
+
+
 def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
                now: float | None = None) -> dict[str, int]:
     """이슈 #1179: 스폰-타임 자동 정리. `roster_clean()` 과 같은 안전 판정
     (`_workspace_clean_state()`)만 지운다 — 살아있는 세션, 미커밋/미push
     작업은 절대 건드리지 않는다(#1124 보장 유지).
 
-    두 단계 bound: 1) `max_age_days` 보다 오래된 안전 워크스페이스는
-    무조건 지운다. 2) 그러고도 안전 워크스페이스 총합 크기가
-    `max_bytes` 를 넘으면, 오래된 것부터 더 지워서 bound 아래로 낮춘다.
+    세 가지 독립 트리거, 이 순서로 본다(각 트리거가 막는 실패 모드가
+    다르다):
+    1) merge-트리거(이슈 #2447, additive): 안전 후보 중 브랜치 PR 이
+       이미 MERGED 로 확인되면 나이/크기와 무관하게 바로 지운다 — 세션이
+       끝나고 PR 이 머지된 순간부터는 더 지킬 게 없다. gh API 호출이
+       실패/에러면 이 트리거는 그 워크스페이스에 한해 no-op 으로 물러나고
+       (`_workspace_merge_trigger_status()`), 아래 age/size 판정으로
+       그대로 넘어간다 — API 실패가 기존 prune 을 막지 않는다.
+    2) age-bound: `max_age_days` 보다 오래된 안전 워크스페이스는 무조건
+       지운다.
+    3) size-bound: 그러고도 안전 워크스페이스 총합 크기가 `max_bytes`
+       를 넘으면, 오래된 것부터 더 지워서 bound 아래로 낮춘다.
     나이만으로는 스폰이 늘면 디스크가 계속 자라고, 크기만으로는 방금
-    생긴 워크스페이스도 지울 수 있다 — 두 축을 다 잡는다(각 축이 막는
-    실패 모드가 다르다).
+    생긴 워크스페이스도 지울 수 있다.
 
     `now`: 테스트가 `time.time()` 대신 고정 시각을 주입한다."""
     now = now if now is not None else time.time()
@@ -990,21 +1025,34 @@ def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
             candidates.append([mtime, None, w])
 
     removed = failed = 0
+    by_trigger = {"merge": 0, "age": 0, "size": 0}
 
-    def _reap(entry) -> None:
+    def _reap(entry, trigger: str, detail: str = "") -> None:
         nonlocal removed, failed
         try:
             _sp._delete_workspace(entry[2], wb, log_outcomes, archive_dir)
             removed += 1
+            by_trigger[trigger] += 1
+            suffix = f" ({detail})" if detail else ""
+            print(f"[auto-sweep] 지움 ({trigger}-triggered): "
+                  f"{entry[2].name}{suffix}", file=sys.stderr)
         except Exception as ex:
             print(f"[auto-sweep] 실패 (삭제 중 예외): {entry[2].name}  [{ex}]",
                   file=sys.stderr)
             failed += 1
 
-    remaining = []
+    after_merge = []
     for entry in candidates:
+        removable, detail = _sp._workspace_merge_trigger_status(entry[2])
+        if removable:
+            _reap(entry, "merge", detail)
+        else:
+            after_merge.append(entry)
+
+    remaining = []
+    for entry in after_merge:
         if now - entry[0] > max_age_sec:
-            _reap(entry)
+            _reap(entry, "age")
         else:
             remaining.append(entry)
 
@@ -1017,12 +1065,14 @@ def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
         while total > max_bytes and i < len(remaining):
             entry = remaining[i]
             total -= entry[1]
-            _reap(entry)
+            _reap(entry, "size")
             i += 1
 
     if removed or failed:
-        print(f"[auto-sweep] 지움 {removed}" + (f", 실패 {failed}" if failed else ""),
-              file=sys.stderr)
+        print(f"[auto-sweep] 지움 {removed} "
+              f"(merge {by_trigger['merge']}, age {by_trigger['age']}, "
+              f"size {by_trigger['size']})"
+              + (f", 실패 {failed}" if failed else ""), file=sys.stderr)
     return {"removed": removed, "failed": failed}
 
 
