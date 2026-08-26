@@ -120,10 +120,27 @@ def _exempt_own_role(missing: list[str], subject: str, own_branch: str | None) -
     `issue-2204/execution-observation`)이 스스로 공급하는 바로 그 기록을
     "그 기록이 없다"는 이유로 막는 순환을 깬다. `own_branch`가 없거나
     subject 소속이 아니면 그대로 통과(no-op) — 로컬 단독 호출(PR 문맥
-    없음)에서는 오늘과 동일하게 동작한다. 순수 함수."""
+    없음)에서는 오늘과 동일하게 동작한다.
+
+    issue #2380: #2233 은 각 관찰자 PR 이 "자기 자신의" role 만 빼줬다 —
+    `own_role`이 `spawn_on_pr.PR_TRIGGERED_ROLES`(정확히
+    execution-observation/conformance-review 두 개)에 속하면, 그 둘은
+    같은 리뷰 사이클에서 나란히 열리는 형제(sibling) PR 이라
+    서로가 서로의 선행 머지를 요구하는 순환이 그대로 남아있었다 —
+    conformance-review PR 은 execution-observation 이 먼저 main 에
+    있어야 하고, 그 역도 마찬가지라 둘 다 먼저가 될 수 없었다. 이
+    PR 자신이 이미 그 두 role 중 하나를 스스로 공급하는 관찰자
+    record 라면, 나머지 하나(형제)가 아직 main 에 없다는 이유로도
+    막지 않는다 — `PR_TRIGGERED_ROLES` 전체를 `missing`에서 뺀다. 구조적
+    예외가 아니다: `own_role`이 이 닫힌 두-role 집합 밖이면(예:
+    `<subject>/implementation`) 기존처럼 자기 role 하나만 빠지고, 나머지
+    role(들)은 여전히 막힌다 — subject 의 implementation PR 은 오늘처럼
+    두 관찰자 기록이 모두 main 에 있어야 한다. 순수 함수."""
     if not own_branch or not own_branch.startswith(f"{subject}/"):
         return missing
     own_role = own_branch[len(subject) + 1:]
+    if own_role in spawn_on_pr.PR_TRIGGERED_ROLES:
+        return [r for r in missing if r not in spawn_on_pr.PR_TRIGGERED_ROLES]
     return [r for r in missing if r != own_role]
 
 
