@@ -832,10 +832,18 @@ def gate_report(cwd: str) -> list[str]:
         # 있으나 마나가 된다.
         gates.BASE = os.environ.get("GATE_BASE") or _sp._base(cwd)
         bad = ci.check(Path(cwd).resolve())
+        # 이슈 #2543: `requirement_registry()`가 `continue`로 건너뛰는
+        # UNVERIFIABLE 항목은 `bad`(위)에 안 들어간다 — 그래서 여기, 같은
+        # 게이트 리포트 안에 별도 줄로 항상 낸다. `bad` 가 비어도(즉
+        # "[게이트] 이상 없음" 이어도) 이 줄은 낸다 — 조용한 통과와
+        # "3 of 4 UNVERIFIABLE" 는 다른 결과다.
+        req_summary = gates.requirement_registry_unverifiable_summary(
+            Path(cwd).resolve(), {})
     except Exception as e:                       # git 아님, base 부재, import 실패 등
         return [f"[게이트] 검사 불가 — {type(e).__name__}: {str(e)[:120]}"]
-    return ["[게이트] 이상 없음"] if not bad else \
-           ["[게이트] 확인 필요:"] + [f"  - {b}" for b in bad]
+    report = (["[게이트] 이상 없음"] if not bad else
+              ["[게이트] 확인 필요:"] + [f"  - {b}" for b in bad])
+    return report + [f"  ({req_summary})"]
 
 
 def ownership_report(cwd: str, role: str, delta: list) -> list[str]:
