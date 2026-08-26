@@ -297,6 +297,7 @@ _append_consult_trace = consult._append_consult_trace
 _append_judge_trace = consult._append_judge_trace
 _append_panel_turn = consult._append_panel_turn
 _commit_consult_trace = consult._commit_consult_trace
+_composed_consult_skill_source = consult._composed_consult_skill_source
 _compress_diff = consult._compress_diff
 _consult_cmd_and_env = consult._consult_cmd_and_env
 _consult_evidence_suffix = consult._consult_evidence_suffix
