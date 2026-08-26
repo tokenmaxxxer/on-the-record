@@ -631,9 +631,42 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     return fast_dirs + picked, outcome
 
 
+def _composed_consult_skill_source(role: str, task_text: str | None,
+                                   issue: int | None, cwd: str | None,
+                                   model: str | None) -> dict:
+    """이슈 #2507: consult/verb/panel 세션이 마운트할 skill_dirs 를,
+    역할 가이던스(`resolve_role_source()` — 오늘의 기준선, 절대 안
+    줄어든다)에 과제 텍스트 기반 cross-family 매치(스폰 마운트 경로와
+    같은 `_cross_family_skill_matches_with_consult()` BM25+skill_judge
+    매치)를 add-only 로 얹어 구성한다(`merge_composed_skill_source()`).
+    role_source 를 대체하지 않고 얹기만 하는 이유: 자문 질문/verb
+    요청문은 스폰 과제 텍스트보다 훨씬 짧고 좁을 수 있어(예: 한 줄
+    판단 질문), 대체 방식은 "세션이 스킬을 예전보다 덜 갖고 도착"하는
+    실패 모드(이슈 acceptance 가 명시적으로 금지)를 낳을 위험이 있다 —
+    add-only 는 그 위험을 구조적으로 없앤다.
+
+    `task_text` 가 없으면(빈 문자열/None) 매치 단계를 건너뛰고
+    role_source 를 그대로 돌려준다 — 이 가드가 없으면
+    `_skill_judge_consult()` -> `_consult_cmd_and_env()` -> 이 함수 ->
+    `_cross_family_skill_matches_with_consult()` ->
+    `_skill_judge_consult()` 순환 재귀가 생긴다(`_skill_judge_consult()`
+    자신도 `_consult_cmd_and_env()` 를 통해 세션을 조립하기 때문 — 호출
+    그래프 확인됨, 그 호출부는 이 함수 시그니처에 `task_text` 를 안
+    넘겨 자동으로 매치 단계를 건너뛴다)."""
+    role_source = _sp.resolve_role_source(role, _sp._skill_repo_root())
+    if not task_text:
+        return role_source
+    matched_dirs, _outcome = _sp._cross_family_skill_matches_with_consult(
+        task_text, role, _sp._skill_repo_root(), issue, cwd,
+        k=_sp._COMPOSED_SKILLS_TOPK, model=model)
+    return _sp.merge_composed_skill_source(role_source, matched_dirs)
+
+
 def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
                          model: str | None = None,
-                         exclude_core_plugins: frozenset[str] = frozenset()
+                         exclude_core_plugins: frozenset[str] = frozenset(),
+                         task_text: str | None = None,
+                         issue: int | None = None
                          ) -> tuple[list[str], dict[str, str], str]:
     """`consult_cmd()`의 argv/env/settings-file 조립만 떼어낸, subprocess 를
     직접 부르지 않는 build-then-return 헬퍼 — `spawn_cmd()` 와 같은 모양이다.
@@ -655,6 +688,12 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
 
     이슈 #1955: 역할 가이던스는 이제 항상 skill-repository 에서 온다 —
     `resolve_role_source()` 가 매핑하는 스킬 디렉터리를 그대로 붙인다.
+
+    이슈 #2507: `task_text` 가 주어지면(consult_cmd/`_verb_cmd` 가 각자
+    질문/요청문을 넘긴다) `_composed_consult_skill_source()` 로 과제-텍스트
+    매치를 role_source 위에 add-only 로 얹는다 — 안 주어지면(예:
+    `_skill_judge_consult()` 자신의 내부 호출) 예전과 바이트 단위로
+    같은 role_source 만 쓴다.
 
     이슈 #2201: `exclude_core_plugins` 는 `_JUDGE_EXCLUDED_CORE_PLUGINS`
     (issue #1587) 와 같은 모양의 opt-in 필터 — 기본값(빈 집합)은 오늘의
@@ -687,7 +726,8 @@ def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
     — 이 플래그 하나로 19s-74s 스프레드 전체가 설명되지는 않는다(기록
     본문 "Investigate" 절 참고, 잔여 변동은 모델 자체
     duration_ms 변동과 거의 1:1 로 움직인다)."""
-    plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]
+    plugins = _sp._composed_consult_skill_source(
+        role, task_text, issue, cwd, model)["skill_dirs"]
     s = _sp.role_settings(role, cwd, inject_self_hosted_hooks=False)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(s, tf)
@@ -741,7 +781,8 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
             raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
         spec = json.loads(f.read_text())
-        cmd, env, settings_path = _sp._consult_cmd_and_env(role, spec, cwd, model)
+        cmd, env, settings_path = _sp._consult_cmd_and_env(
+            role, spec, cwd, model, task_text=question, issue=issue)
         # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
         # freelunch/scout/warrant/proposal-shape 같은, 저장소를 바꾸는 배달물을
         # 겨냥한 core 훅들이 자문 세션에도 그대로 꽂힌다. 복잡한 판단 질문 하나가
@@ -867,7 +908,8 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
             have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
             raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
         spec = json.loads(f.read_text())
-        cmd, env, settings_path = _sp._consult_cmd_and_env(role, spec, cwd)
+        cmd, env, settings_path = _sp._consult_cmd_and_env(
+            role, spec, cwd, task_text=prompt_text, issue=issue)
         override = (
             "이 세션에 로드된 스킬-저장소 가이던스/훅이 스카우트, 제안서(proposal) 작성, 위임"
             "(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도"
@@ -961,7 +1003,16 @@ def _readonly_plugin_dirs(role: str, spec: dict) -> list[Path]:
     """judge 세션에 붙일 플러그인 — 역할 가이던스(이슈 #1955: skill-repository,
     `resolve_role_source()`)는 그대로 싣는다(무엇을 위반했는지 판단하려면
     가이던스 전체가 필요하다), core 는 `_JUDGE_EXCLUDED_CORE_PLUGINS` 로
-    배달 지향 훅만 걸러낸다."""
+    배달 지향 훅만 걸러낸다.
+
+    이슈 #2507 disposition: 여기는 과제 텍스트 매치로 옮기지 않고
+    role-shaped 그대로 유지한다 — `judge_cmd()`가 판단하는 대상은 "이번
+    과제가 뭔지"가 아니라 "이 merge 가 role 의 write_scope/record
+    계약을 지켰는지"이므로 판단 기준 자체가 role 고정이다. 과제 텍스트
+    매치로 좁히면 그 role 계약 조항 중 이번 diff 와 표면적으로 안
+    겹치는 항목(예: 드물게 걸리는 write-scope 예외)이 후보에서 빠져
+    위반을 놓칠 위험이 있다 — 자문 guidance 완화가 아니라 fail-closed
+    enforcement 정확성 문제라 add-only 매치조차 불필요한 잡음이다."""
     out = list(_sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"])
     for p in _sp.core_plugin_dirs():
         if p.name not in _sp._JUDGE_EXCLUDED_CORE_PLUGINS:
@@ -1356,7 +1407,14 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
         have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
         raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
     spec = json.loads(f.read_text())
-    plugins = _sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"]
+    # 이슈 #2507: `issue` 가 이 함수 시그니처에 없어(`panel_cmd()` 는 갖고
+    # 있지만 그 아래 세션 하나씩 실행하는 이 헬퍼는 원래부터 안 받았다)
+    # None 으로 넘긴다 — `_composed_consult_skill_source()`/
+    # `_skill_judge_consult()` 양쪽 다 issue=None 을 trace/raw-output 경로
+    # 네이밍에만 쓰고(이미 adhoc consult 호출이 매일 거치는 경로) 판단
+    # 로직 자체에는 안 쓴다.
+    plugins = _sp._composed_consult_skill_source(
+        role, question, None, cwd, model)["skill_dirs"]
     s = _sp.role_settings(role, cwd, inject_self_hosted_hooks=False)
     s["crossSessionInbound"] = "accept"
     settings_path = None
