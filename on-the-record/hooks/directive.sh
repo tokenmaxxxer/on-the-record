@@ -29,7 +29,7 @@ hook_fires_record "UserPromptSubmit directive.sh" "$_HOOK_PAYLOAD"
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 # A spawned role session is never the orchestrator, even if the plugin leaks in.
-[ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
+[ -z "${TOKENMAXXXER_SPAWNED:-}" ] || { trap - EXIT; exit 0; }
 
 # issue #947 (northpole req#7): monitor-unavailable degradation notice.
 # Plugin Monitors (idle self-wake) run only in interactive CLI sessions

@@ -394,17 +394,11 @@ def _skill_judge_consult(task_text: str, role: str,
         for name, path, source in candidates)
     question = f"Task:\n{task_text}\n\nCandidates:\n{candidate_lines}"
     try:
-        # 이슈 #2241 stage 2 (docs/issue-2241/proposals/2026-08-25-stage-2-
-        # consult-skill-source-confirmation.md): 이 존재-확인과 `_ROLE_SKILLS`
-        # 자체는 여기서 그대로 둔다 — 키를 role 에서 skill 이름으로 옮기는
-        # 건 stage 4, `roles/*.json` 자체가 은퇴하며 이 확인이 없어지는 건
-        # stage 6 이다. 이 스테이지가 확인하는 건 가이던스 *내용* 해석
-        # (`resolve_role_source()`)이 이미 무조건 skill-repo 라는 것뿐.
-        f = _sp.ROOT / "roles" / f"{role}.json"
-        if not f.exists():
-            have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
-            raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
-        spec = json.loads(f.read_text())
+        # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
+        # 여기서 지웠다 — `spec` 은 아래 `_consult_cmd_and_env()` 호출 어디서도
+        # 안 읽힌다(호출 그래프 확인됨: `_consult_cmd_and_env()` -> `role_settings()`
+        # 만 role 을 실제로 검증한다, pipeline.py). role 검증은 여전히 일어난다 —
+        # 지워진 건 죽은 코드지 검증이 아니다.
         # 이슈 #2061: skill_judge 는 8개 후보 중 0-2개를 고르는 자잘한
         # 분류라, 호출자가 넘긴 세션 기본 모델을 그대로 물려받지 않고
         # 언제나 haiku 로 고정한다 — `model` 인자는 시그니처 호환용으로만
@@ -417,7 +411,7 @@ def _skill_judge_consult(task_text: str, role: str,
         # (`_consult_cmd_and_env()` 독스트링의 10.5s vs 15.6s 실측).
         # core/terse 는 그대로 남긴다(#1587 과 같은 이유: 무해하다).
         cmd, env, settings_path = _sp._consult_cmd_and_env(
-            role, spec, cwd, "haiku",
+            role, cwd, "haiku",
             exclude_core_plugins=_sp._JUDGE_EXCLUDED_CORE_PLUGINS)
         judge_timeout = _sp._skill_judge_timeout()
         # 이슈 #2124 part 3 (judge prompt diet): 최소 영어 프롬프트 —
@@ -662,7 +656,7 @@ def _composed_consult_skill_source(role: str, task_text: str | None,
     return _sp.merge_composed_skill_source(role_source, matched_dirs)
 
 
-def _consult_cmd_and_env(role: str, spec: dict, cwd: str | None,
+def _consult_cmd_and_env(role: str, cwd: str | None,
                          model: str | None = None,
                          exclude_core_plugins: frozenset[str] = frozenset(),
                          task_text: str | None = None,
@@ -776,13 +770,12 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
     raw_path = None
     raw_paths: list[Path] = []
     try:
-        f = _sp.ROOT / "roles" / f"{role}.json"
-        if not f.exists():
-            have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
-            raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
-        spec = json.loads(f.read_text())
+        # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
+        # 지웠다 — `_consult_cmd_and_env()` 는 `spec` 을 읽지 않았고(죽은
+        # 코드), role 검증은 그 안의 `role_settings()` 호출(pipeline.py,
+        # 여전히 `roles/` 를 읽는다)이 그대로 맡는다.
         cmd, env, settings_path = _sp._consult_cmd_and_env(
-            role, spec, cwd, model, task_text=question, issue=issue)
+            role, cwd, model, task_text=question, issue=issue)
         # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
         # freelunch/scout/warrant/proposal-shape 같은, 저장소를 바꾸는 배달물을
         # 겨냥한 core 훅들이 자문 세션에도 그대로 꽂힌다. 복잡한 판단 질문 하나가
@@ -903,13 +896,11 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
     settings_path = None
     raw_paths: list[Path] = []
     try:
-        f = _sp.ROOT / "roles" / f"{role}.json"
-        if not f.exists():
-            have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
-            raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
-        spec = json.loads(f.read_text())
+        # 이슈 #2537 stage 6A: 위 `consult_cmd()`와 같은 이유로 존재-확인 +
+        # `spec` 로드를 지웠다 — role 검증은 `_consult_cmd_and_env()` 안의
+        # `role_settings()`가 맡는다.
         cmd, env, settings_path = _sp._consult_cmd_and_env(
-            role, spec, cwd, task_text=prompt_text, issue=issue)
+            role, cwd, task_text=prompt_text, issue=issue)
         override = (
             "이 세션에 로드된 스킬-저장소 가이던스/훅이 스카우트, 제안서(proposal) 작성, 위임"
             "(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도"
@@ -999,7 +990,7 @@ def review_cmd(role: str, prompt_text: str, issue: int | None = None,
 _JUDGE_EXCLUDED_CORE_PLUGINS = {"freelunch", "scout", "warrant"}
 
 
-def _readonly_plugin_dirs(role: str, spec: dict) -> list[Path]:
+def _readonly_plugin_dirs(role: str) -> list[Path]:
     """judge 세션에 붙일 플러그인 — 역할 가이던스(이슈 #1955: skill-repository,
     `resolve_role_source()`)는 그대로 싣는다(무엇을 위반했는지 판단하려면
     가이던스 전체가 필요하다), core 는 `_JUDGE_EXCLUDED_CORE_PLUGINS` 로
@@ -1050,13 +1041,13 @@ def _readonly_settings(role: str, cwd: str) -> dict:
     return s
 
 
-def _judge_cmd_and_env(role: str, spec: dict, cwd: str,
+def _judge_cmd_and_env(role: str, cwd: str,
                        model: str | None = None) -> tuple[list[str], dict[str, str], str]:
     """judge 계열(judge 본세션/prefilter/validator) 공용 argv/env/settings
     조립. `_consult_cmd_and_env()`와 같은 build-then-return 모양이지만
     `--permission-mode bypassPermissions`를 주지 않고(읽기전용 강제),
     `_readonly_plugin_dirs()`/`_readonly_settings()`를 쓴다."""
-    plugins = _sp._readonly_plugin_dirs(role, spec)
+    plugins = _sp._readonly_plugin_dirs(role)
     s = _sp._readonly_settings(role, cwd)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(s, tf)
@@ -1165,13 +1156,13 @@ _JUDGE_ROLE_EXCLUSIONS: dict[str, list[str]] = {
 }
 
 
-def _judge_prefilter(role: str, spec: dict, diff_summary: str, cwd: str) -> bool:
+def _judge_prefilter(role: str, diff_summary: str, cwd: str) -> bool:
     """관할 사전필터 — 하이쿠급 단일 호출로 "이 diff 가 이 역할의 관할에
     조금이라도 걸리는가"만 묻는다(제안서 §5, 가장 큰 비용 절감 지점).
     호출 자체가 실패하면(타임아웃/파싱 실패) **관련 있다고 가정**한다 —
     사전필터는 비용 절감 장치일 뿐 판단 장치가 아니라, 실패를 놓침으로
     바꾸면 안 된다."""
-    cmd, env, settings_path = _sp._judge_cmd_and_env(role, spec, cwd, model="haiku")
+    cmd, env, settings_path = _sp._judge_cmd_and_env(role, cwd, model="haiku")
     prompt = (
         f"역할 '{role}' 의 관할(role jurisdiction) 안에 아래 diff 요약이 "
         "조금이라도 걸리는지만 판단하라. 다른 텍스트 없이 JSON 객체 하나만 "
@@ -1194,7 +1185,7 @@ def _judge_prefilter(role: str, spec: dict, diff_summary: str, cwd: str) -> bool
             os.unlink(settings_path)
 
 
-def _judge_validate(role: str, spec: dict, findings: list[dict], diff_summary: str,
+def _judge_validate(role: str, findings: list[dict], diff_summary: str,
                     cwd: str) -> list[dict]:
     """확인/반박 검증 — 하이쿠급 단일 호출로 judge 가 낸 findings 를
     확인/기각하고, `_JUDGE_ROLE_EXCLUSIONS[role]`에 걸리는 것은 호출 전에
@@ -1206,7 +1197,7 @@ def _judge_validate(role: str, spec: dict, findings: list[dict], diff_summary: s
                   if not any(x in f.get("excerpt", "") for x in exclusions)]
     if not candidates:
         return []
-    cmd, env, settings_path = _sp._judge_cmd_and_env(role, spec, cwd, model="haiku")
+    cmd, env, settings_path = _sp._judge_cmd_and_env(role, cwd, model="haiku")
     prompt = (
         f"역할 '{role}' 가 낸 아래 findings 를 diff 요약과 대조해 확인(confirm)/"
         "반박(refute)하라. 실제로 스킬-저장소 가이던스를 위반하는 것만 남기고, 다른 텍스트 "
@@ -1253,12 +1244,13 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
                        f"상한 {_sp.JUDGE_MAX_ROLES_PER_MERGE})")
             return {"skipped": True, "reason": "cap_exceeded", "role": role, "merge": merge_sha}
 
-        f = _sp.ROOT / "roles" / f"{role}.json"
-        if not f.exists():
-            have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
-            raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
-        spec = json.loads(f.read_text())
-
+        # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
+        # 지웠다 — `_judge_prefilter()`/`_judge_cmd_and_env()` 는 `spec` 을
+        # 안 읽었다(죽은 코드). role 검증은 `_judge_prefilter()` 안의
+        # `role_settings()` 호출(pipeline.py, 여전히 `roles/` 를 읽는다)이
+        # 여전히 맡는다 — 다만 그 검증이 아래 `git show` 뒤로 밀린다는
+        # 차이는 있다(무효 role 은 여전히 거절되지만, 거절 전에 무해한
+        # `git show` 서브프로세스 호출 하나가 더 실행된다).
         show = subprocess.run(["git", "-C", root, "show", "--no-color", merge_sha],
                               capture_output=True, text=True, timeout=_sp.JUDGE_TIMEOUT)
         if show.returncode != 0:
@@ -1266,11 +1258,11 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
             raise RuntimeError(outcome)
         diff_summary = _sp._compress_diff(show.stdout)
 
-        if not _sp._judge_prefilter(role, spec, diff_summary, root):
+        if not _sp._judge_prefilter(role, diff_summary, root):
             outcome = "ok: prefilter 미스 — judge 미호출"
             return {"skipped": True, "reason": "prefilter_miss", "role": role, "merge": merge_sha}
 
-        cmd, env, settings_path = _sp._judge_cmd_and_env(role, spec, root)
+        cmd, env, settings_path = _sp._judge_cmd_and_env(role, root)
         prompt = (
             f"당신은 judge 로 불렸다 — 역할 '{role}' 의 스킬-저장소 가이던스 관점에서 아래 merge diff 가 "
             "그 가이던스를 위반하는지만 판단한다. 저장소 파일을 하나도 건드리지 말고(Write/Edit "
@@ -1296,7 +1288,7 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
             outcome = "ok: findings 없음"
             return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": []}
 
-        validated = _sp._judge_validate(role, spec, raw_findings, diff_summary, root)
+        validated = _sp._judge_validate(role, raw_findings, diff_summary, root)
         if not validated:
             outcome = f"ok: {len(raw_findings)}건 중 validator 통과 0건"
             return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": []}
@@ -1402,11 +1394,9 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
     consult 로 내리는 신호로 쓴다."""
     if os.environ.get("TOKENMAXXXER_PANEL_MESSAGING") == "unavailable":
         raise _sp._PanelMessagingUnavailable(f"{role}: TOKENMAXXXER_PANEL_MESSAGING=unavailable")
-    f = _sp.ROOT / "roles" / f"{role}.json"
-    if not f.exists():
-        have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
-        raise ValueError(f"모르는 역할: {role}  (있는 것: {have})")
-    spec = json.loads(f.read_text())
+    # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
+    # 지웠다 — 아래 `_sp.role_settings()` 호출(pipeline.py, 여전히
+    # `roles/` 를 읽는다)이 role 검증을 그대로 맡는다.
     # 이슈 #2507: `issue` 가 이 함수 시그니처에 없어(`panel_cmd()` 는 갖고
     # 있지만 그 아래 세션 하나씩 실행하는 이 헬퍼는 원래부터 안 받았다)
     # None 으로 넘긴다 — `_composed_consult_skill_source()`/

@@ -22,10 +22,11 @@
 #   gh issue/pr create   -> `--body-file <path>` instead of `--body "$(...)"`
 #   gh issue/pr comment  -> `--body-file <path>` instead of `--body "$(...)"`
 #
-# Scope: role sessions only (`CLAUDE_ROLE` resolves non-empty via the same
-# SessionStart-snapshot-first / live-env-var-fallback primitive
+# Scope: role sessions only (`TOKENMAXXXER_SPAWNED` resolves non-empty via
+# the same SessionStart-snapshot-first / live-env-var-fallback primitive
 # gh-write-allow-gate.sh/merge-allow-gate.sh/spawn-allow-gate.sh already
-# use) — issue #1976's dogfooding note is specifically about role
+# use — issue #2538: presence-only, no role name needed) — issue #1976's
+# dogfooding note is specifically about role
 # sessions, and gh-write-allow-gate.sh already owns the orchestrator's
 # quoted-heredoc allow path for the five gh verbs it recognizes; this gate
 # must never regress that by denying an orchestrator's already-working
@@ -66,7 +67,7 @@ if not isinstance(cmd, str) or not cmd.strip():
 # --- identity: SessionStart snapshot first, live env var fallback ----------
 # Identical primitive to gh-write-allow-gate.sh / merge-allow-gate.sh /
 # spawn-allow-gate.sh.
-role = os.environ.get("CLAUDE_ROLE", "")
+spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 session_id = e.get("session_id")
 if isinstance(session_id, str) and session_id:
     state_dir = os.environ.get(
@@ -78,11 +79,11 @@ if isinstance(session_id, str) and session_id:
     try:
         with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
+        if isinstance(snapshot, dict) and "spawned" in snapshot:
+            spawned = bool(snapshot["spawned"])
     except (OSError, ValueError):
         pass  # no snapshot yet — fall back to the live env var
-if not role:
+if not spawned:
     sys.exit(0)  # orchestrator session — never this hook's target
 
 if "<<" not in cmd:

@@ -4,10 +4,10 @@
 # #726 audit row 9: every role learned this shape only from refusal,
 # the single most frequent gate-refusal on 2026-08-11).
 #
-# Audience: a spawned ROLE session only (CLAUDE_ROLE set) — the
-# orchestrator never writes docs/issue-*/reports/** itself, so it is
-# never the audience for this shape. Mirrors directive.sh's inverse
-# CLAUDE_ROLE gate.
+# Audience: a spawned ROLE session only (TOKENMAXXXER_SPAWNED set — issue
+# #2538: presence-only, no role name needed) — the orchestrator never
+# writes docs/issue-*/reports/** itself, so it is never the audience for
+# this shape. Mirrors directive.sh's inverse spawned-presence gate.
 #
 # Generated, not hand-typed: the printed text is built at hook-run time
 # from gates/record_lint.py's own check functions' docstrings — the
@@ -16,13 +16,13 @@
 # directive states too, with no second copy to keep in sync (the
 # drift the issue explicitly warns against).
 #
-# Fails open: no CLAUDE_ROLE, or record_lint.py not importable ->
+# Fails open: not spawned, or record_lint.py not importable ->
 # silent no-op, never blocks the turn. Kill switch: ORCHESTRATE_OFF=1.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-[ -n "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
+[ -n "${TOKENMAXXXER_SPAWNED:-}" ] || { trap - EXIT; exit 0; }
 command -v python3 >/dev/null 2>&1 || { trap - EXIT; exit 0; }
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

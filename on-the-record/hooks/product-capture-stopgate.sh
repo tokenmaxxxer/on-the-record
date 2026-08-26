@@ -15,7 +15,8 @@
 # not authored text, and are skipped).
 #
 # Same kill-switch/fail-closed skeleton as decision-queue-stopgate.sh:
-# no-op on CLAUDE_ROLE set, honors ORCHESTRATE_OFF, trap-based exit-code
+# no-op on TOKENMAXXXER_SPAWNED set (issue #2538: presence-only, no role
+# identity needed), honors ORCHESTRATE_OFF, trap-based exit-code
 # remap to 2 on unexpected failure. Advisory only
 # (hookSpecificOutput.additionalContext), never decision:"block" —
 # architecture's cross-check section states this explicitly.
@@ -40,7 +41,7 @@ trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-[ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
+[ -z "${TOKENMAXXXER_SPAWNED:-}" ] || { trap - EXIT; exit 0; }
 payload="$(cat 2>/dev/null || true)"
 
 command -v python3 >/dev/null 2>&1 || exit 2
