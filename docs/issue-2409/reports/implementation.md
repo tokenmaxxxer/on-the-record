@@ -235,6 +235,18 @@ $ python3 scripts/session_waste_metrics.py <session_log> [--md]
 $ python3 scripts/session_waste_metrics.py --batch '<glob>'
 ```
 
+A real generated instance of this artifact — not just the regenerate
+command — is committed at
+`docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json`:
+the same 5-session rollup as the before/after table below (per-session
+`wall_clock_ms`/`num_turns`/`bash_total`/`bash_other_share`/
+`hook_refusals`/`named_offenders`, plus each session's `hook_refusals_by_gate`
+breakdown), produced by `batch_summary()` plus one `analyze()` call per
+path (the CLI's own `--batch` flag only accepts a single glob with no
+brace-expansion, so the multi-issue selection needs the same short
+`python3 -c` driver already shown below rather than the bare CLI form).
+canonical: python3 -c "import sys, json; sys.path.insert(0, 'scripts'); import session_waste_metrics as sw; paths = ['/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2314-implementation.session.20260825T124527.1898083.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2331-implementation.session.20260825T132149.4048637.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2348-implementation.session.20260825T165751.3137898.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2382-implementation.session.20260825T165945.3150594.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2393-implementation.session.20260825T182737.1665378.log']; s = sw.batch_summary(paths); [row.update(hook_refusals_by_gate=sw.analyze(row['session_log'])['hook_refusals']['by_gate']) for row in s['per_session']]; print(json.dumps(s, indent=2, ensure_ascii=False))" — result: pass — run live this session; output diffed byte-for-byte identical to the committed artifact file (`diff <(above command) docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json` — empty diff) and its `bash_total`/`hook_refusals_total`/`named_offenders_total`/per-session rows match the before/after table below exactly, confirming both were produced by the same live run rather than hand-typed. This addresses conformance-review PR #2420's NR1b finding (per-turn-breakdown artifact previously documented only as a regenerate command, no generated instance committed).
+
 **Targeted new/updated tests** (env -u CORE_BUILD_NOW: this session's own
 env carries CORE_BUILD_NOW=1 for the build-now bypass, which one
 pre-existing, unrelated test —
