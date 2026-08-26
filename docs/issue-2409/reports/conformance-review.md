@@ -12,18 +12,21 @@ code_under_review:
   - tests/test_spawn_directive_assembly.py
   - tests/test_related_files.py  # untracked on this branch; lives on origin/issue-2409/implementation
   - tests/test_session_waste_metrics.py  # untracked on this branch; lives on origin/issue-2409/implementation
+  - docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json  # untracked on this branch; lives on origin/issue-2409/implementation, added at 980d6db9
 type: review
 breaking: none — read-only review, no code or record edited outside this file
-verdict: Absent
-spec_ref: issue #2409 `## Acceptance` (amended 2026-08-26), sub-clause NR1b (see "Requirement verdicts" below) — the sole Absent verdict driving this top-level `verdict:`/`result:` summary
-evidence: no committed per-turn-breakdown output instance anywhere in PR #2416's file list — see requirement block NR1b below for the full evidence citation
+verdict: Incorrect
+spec_ref: issue #2409 `## Acceptance` (amended 2026-08-26), sub-clause NR1b — see "CHANGES-round re-review" section below for the full basis
+evidence: see "CHANGES-round re-review" section below and requirement block NR1b's updated verdict
 upstream:
   - path: docs/issue-2409/reports/implementation.md  # untracked on this branch; lives on origin/issue-2409/implementation
-    sha: 02aba0a9b346d6c97ab63cb1750c45cda0698a66
+    sha: 1b09aca4ba812f7b4fefc5de40cfd255189f210c
+  - path: docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json  # untracked on this branch; lives on origin/issue-2409/implementation, added at 980d6db9
+    sha: 980d6db9ad853fc17ce23805413ed3f991945a0c
   - path: docs/issue-2409/reports/conformance-review.md
-    sha: 1bfc914d747f8f13555fa781881509dd904c3ead  # this role's own prior-round record, same branch — superseded by this revision, not deleted (git history retains it)
-subject: commit 02aba0a9b346d6c97ab63cb1750c45cda0698a66 (origin/issue-2409/implementation, PR #2416), re-reviewed against issue #2409's AMENDED (2026-08-26) `## Acceptance` text — six `check:` bullets, narrowed from the prior R1-R18 set this same role verdicted at 1bfc914d747f8f13555fa781881509dd904c3ead
-test: independent worktree rebuild of origin/issue-2409/implementation, independent pytest rerun of the four new/changed test files, live reruns of scripts/related_files.py and grep/diff checks against the real repo and the amended issue text — see requirement blocks below
+    sha: 8121072e4efd9ab92d54f844bed39005a03d5346  # this role's own prior-round record, same branch — superseded by this revision, not deleted (git history retains it)
+subject: commit 1b09aca4ba812f7b4fefc5de40cfd255189f210c (origin/issue-2409/implementation, PR #2416 tip) — see "CHANGES-round re-review" section below for the full basis
+test: see "CHANGES-round re-review" section below for the full list of independent commands rerun
 result: failed
 assertedBy: conformance-review
 ---
@@ -64,6 +67,89 @@ canonical: `gh issue view 2409` (run live this session) — result: the
 naming PR #2420's prior `failed` verdict as the reason for the
 narrowing — run live this session, spec version pinned to this text
 (no other Acceptance version exists on the issue at review time).
+
+## CHANGES-round re-review
+
+Since this role's prior round (`8121072e`), `origin/issue-2409/implementation`
+gained two new commits: `980d6db9` ("commit generated per-turn-breakdown
+artifact (NR1b fix)") and `1b09aca4` ("skill-verdict addendum for CHANGES
+round").
+
+canonical: `git fetch origin issue-2409/implementation` then `git log
+origin/issue-2409/implementation -1 --oneline` (run live this session) —
+result: tip `1b09aca4`, two commits ahead of the previously-reviewed
+`64028704`.
+canonical: `git diff 64028704 origin/issue-2409/implementation --stat`
+(run live this session) — result: 2 files changed, 118 insertions(+):
+`docs/issue-2409/reports/implementation.md` (untracked here; lives on
+origin/issue-2409/implementation) (+22) and a new file,
+`docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json`
+(untracked here; lives on origin/issue-2409/implementation, added at
+`980d6db9`) (+96). No code file (`directive_assembly.py`, `spawn.py`,
+`scripts/related_files.py`, `scripts/session_waste_metrics.py`) changed.
+canonical: `git diff 64028704 origin/issue-2409/implementation --stat --
+'roles/specs/*.json' 'pipeline.py' '*consult*'` and `git status --short
+on-the-record/hooks/` (both run live this session, against a fresh
+worktree at the new tip) — both empty — re-confirms NR3-mustnot/NR6a/NR6b
+still hold; those 15 sub-clauses' verdicts are carried forward unchanged
+from `8121072e` per verdict-assignment rule 4 (their evidence is
+untouched by this diff).
+
+The fix commit's own claim (`docs/issue-2409/reports/implementation.md`,
+untracked here, at `980d6db9`, quoted in full under NR1b's evidence
+below): a real JSON artifact was committed and its content was
+independently diff-checked byte-for-byte against a fresh regeneration.
+
+canonical: independently reran the equivalent regeneration this session
+(script content matching `docs/issue-2409/reports/implementation.md`'s
+own documented `canonical:` command verbatim, untracked here, run
+against a worktree built from `origin/issue-2409/implementation`) then
+diffed the output against
+`docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json`
+(untracked here) — result: empty diff (exit 0) — the committed artifact
+is confirmed byte-for-byte reproducible, corroborating that specific
+claim.
+
+However, independently reading `scripts/session_waste_metrics.py`
+(`sed -n '135,225p'`, run live this session) shows the codebase itself
+distinguishes two different shapes: `per_turn_breakdown(events)` (used
+by `analyze()`, which is what `--md`'s single-session per-turn table is
+built from — "One row per tool_use, in stream order" per its own
+docstring) versus `batch_summary(paths)` (used by `--batch`, which
+"One `analyze()` per path, plus a corpus-level rollup" per its own
+docstring, and whose `per_session` list comprehension at
+`scripts/session_waste_metrics.py:216-222` explicitly does not carry the
+`per_turn` key forward — only `session_log`, `wall_clock_ms`,
+`num_turns`, `bash_total`, `bash_other_share`, `hook_refusals`,
+`named_offenders`).
+
+canonical: `grep -c "per_turn"
+docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json`
+(untracked here, run live this session against the new-tip worktree) —
+result: `0` — the committed artifact contains no per-turn rows anywhere.
+canonical: `grep -oE '"[a-z_]+":'
+docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json
+| sort -u` (untracked here, run live this session) — result: thirteen
+keys, all session-level or corpus-level aggregates (`bash_total`,
+`hook_refusals_total`, `named_offenders_total`, `per_session`,
+`sessions`, etc.) — none named `turn` or `tool` or `per_turn`.
+canonical: `grep -rln "| turn | tool" docs/issue-2409/reports/`
+(run live this session, against the same worktree) — result: no match
+anywhere under the reviewed tree — no per-turn markdown table (the
+`_fmt_md()`/`--md` output shape NR1a's own evidence names) is committed
+either.
+
+This means the fix commit published a session-level/corpus-level
+**rollup** (`batch_summary()`'s shape), not a **per-turn breakdown**
+(`per_turn_breakdown()`'s shape) — the two are distinct outputs the
+script's own code already separates, and the amended check 1's literal
+text asks specifically for "a per-turn breakdown for a role session
+(what each turn's tool call was for)", not a cross-session aggregate.
+See the updated NR1b verdict below for the resulting Incorrect
+assignment (raised from Absent, per verdict-assignment rule 2: an
+artifact was actively produced and the record's own prose claims it
+"addresses ... NR1b", but what was produced is not the artifact type the
+clause names — a present-but-wrong deliverable, not an omission).
 
 ## What was done
 
@@ -189,27 +275,48 @@ requirement: NR1b — the per-turn breakdown artifact itself is published
 spec_ref: issue #2409 `## Acceptance` (amended 2026-08-26) check 1,
   clauses "publish a per-turn breakdown" and "the artifact ... [is] in
   the record"
-verdict: Absent
-evidence: no committed sample output (a `| turn | tool | detail |`
-  table, or any `.md`/`.json` generated-report file) exists anywhere in
-  the PR's file list or inside `implementation.md`'s own prose.
-canonical: `grep -n "| turn | tool"
-  02aba0a9:docs/issue-2409/reports/implementation.md` (run live this
-  session) — result: no match.
-canonical: `git diff origin/main...origin/issue-2409/implementation
-  --name-status -- 'docs/issue-2409/*'` (run live this session) —
-  result: three added files, none a generated session-waste-metrics
-  report — re-checked once against current artifact state per
-  verdict-assignment rule 6 before finalizing.
-rationale: NR1a (the capability and its command) is satisfied, but this
-  sub-clause's own text ("publish", "the artifact ... [is] in the
-  record", "tracked over time") requires an actual persisted instance a
-  reader could consult without running the tool themselves — none
-  exists. A future session still has to run the command itself to get
-  any tracking data, which is exactly what "rather than re-derived by
-  hand" says this mechanism should avoid. Absent, not Incorrect, since
-  this is omission (nothing published) rather than a contradiction of
-  the clause.
+verdict: Incorrect
+evidence: commit `980d6db9` (on
+  `origin/issue-2409/implementation`) committed
+  `docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json`
+  (untracked here) and its own `implementation.md` prose (untracked
+  here) explicitly claims "This addresses conformance-review PR #2420's
+  NR1b finding." Independently confirmed this session (see
+  "CHANGES-round re-review" above) that the committed file is a
+  `batch_summary()`-shaped session/corpus rollup (13 aggregate keys, 0
+  occurrences of `per_turn`), not a `per_turn_breakdown()`-shaped
+  per-turn table — `grep -c "per_turn"` on the committed file returns
+  `0`, and `grep -rln "| turn | tool" docs/issue-2409/reports/` (the
+  `_fmt_md()` table header NR1a's own evidence names) matches nothing
+  anywhere in the reviewed tree.
+spec_vs_built: spec asks for "a per-turn breakdown for a role session
+  (what each turn's tool call was for)" — a turn-by-turn table, one row
+  per tool_use event, per `per_turn_breakdown()`'s own docstring ("One
+  row per tool_use, in stream order"). What was built and committed is
+  a per-session/cross-session aggregate rollup (`batch_summary()`'s
+  shape: `bash_total`, `hook_refusals_total`, `named_offenders_total`,
+  a `per_session` list of session-level counts) — the same script
+  already implements both shapes as distinct functions, and the
+  `per_session` comprehension at `scripts/session_waste_metrics.py:216-222`
+  explicitly drops the `per_turn` key `analyze()` produces. The
+  committed artifact is real and byte-for-byte reproducible (confirmed
+  this session), but it is not the artifact type the clause names.
+canonical: see the four `canonical:` citations under "CHANGES-round
+  re-review" above (grep for `per_turn`, key enumeration, `| turn |
+  tool` search, and the independent byte-for-byte regeneration diff) —
+  re-checked live this session per verdict-assignment rule 6 before
+  raising the verdict from Absent to Incorrect.
+rationale: NR1a (the capability and its command) remains satisfied. This
+  sub-clause is raised from Absent to Incorrect, not left Absent,
+  because a concrete artifact now exists and is affirmatively presented
+  in the record as resolving this exact finding — that is a
+  present-but-wrong deliverable (the wrong one of the script's own two
+  output shapes), not an omission, per verdict-assignment rule 2. A
+  future reader consulting the committed artifact for "what each turn's
+  tool call was for" would find no such data — only session-level
+  counts — so the underlying gap this finding originally named
+  (nothing a reader can consult without running the per-turn tool
+  themselves) is unresolved despite the new commit.
 ---
 requirement: NR2a — a stated mechanism exists intended to reduce the
   exploratory-Bash class
@@ -447,26 +554,41 @@ rationale: identical check to NR6a — the `must not:` clause and the
 
 ## Open findings
 
-- **Requirement-set breakdown (amended scope).** Sub-clause set: NR1a,
-  NR1b, NR2a, NR2b, NR2c, NR2-mustnot, NR3a, NR3b, NR3-mustnot, NR4a,
-  NR4-mustnot, NR5, NR5-mustnot, NR6a, NR6b, NR6-mustnot.
+- **Requirement-set breakdown (amended scope), CHANGES round.**
+  Sub-clause set: NR1a, NR1b, NR2a, NR2b, NR2c, NR2-mustnot, NR3a, NR3b,
+  NR3-mustnot, NR4a, NR4-mustnot, NR5, NR5-mustnot, NR6a, NR6b,
+  NR6-mustnot.
   derived: count of `---`-delimited requirement blocks in this record's
-  "Requirement verdicts" section above = 16 — run live this session
-  (counted directly from the section just written).
-  Absent set: {NR1b} — one item = 1/16 = 6.25% of this round's 16
-  sub-clauses. Present set: the remaining 15/16 = 93.75%. This is a
-  substantially narrower gap than the prior round's below-clause set of
-  9/17 = 52.9% (see the derived: citation under "Revision note" above).
-  The amendment's own two pre-judged mechanisms (checks 2 and 3) verdict
-  Present here on independent re-derivation, and checks 4-6 verdict
-  Present outright. The sole remaining gap is check 1's
-  "publish"/"in the record" clause: the instrumentation script exists,
-  is tested, and its regenerate command is documented, but no actual
-  per-turn-breakdown instance is committed anywhere the PR touches.
-  Resolution path: commit one example `--md` output (or a `--batch`
-  summary) alongside `implementation.md`, or paste one inline in the
-  record, in a follow-up to PR #2416 — a small, mechanical gap, not a
-  design failure.
+  "Requirement verdicts" section above = 16, of which exactly one
+  (NR1b) carries `verdict: Incorrect` and the remaining fifteen carry
+  `verdict: Present` — counted directly from the section just written,
+  this session.
+  derived: 1/16 = 6.25% (Non-Present set {NR1b}) and 15/16 = 93.75%
+  (Present set) are plain arithmetic on the two counts (1 and 16) in the
+  `derived:` line immediately above — no independent recount needed.
+  Non-Present set: {NR1b} — one item, same proportion as the prior
+  round (`8121072e`), but the verdict on that one item changed from
+  Absent to Incorrect this round (see "CHANGES-round re-review" above
+  and NR1b's updated block) — Present set: the remaining fifteen items,
+  carried forward unchanged from `8121072e` per verdict-
+  assignment rule 4 (their evidence is untouched by the
+  `64028704`..`1b09aca4` diff, re-confirmed live this session).
+  Fix-attempt outcome: commit `980d6db9` on
+  `origin/issue-2409/implementation` committed a real, byte-for-byte
+  reproducible artifact intended to close NR1b, but the artifact is a
+  `batch_summary()`-shaped session/corpus rollup, not the
+  `per_turn_breakdown()`-shaped per-turn table the amended check 1's
+  literal text asks for ("a per-turn breakdown for a role session (what
+  each turn's tool call was for)") — the script itself already
+  implements both shapes as separate functions, and the committed
+  artifact used the wrong one. Resolution path (unchanged in substance
+  from the prior round, restated precisely): commit one example `--md`
+  single-session output (the `per_turn_breakdown()`-backed table, not
+  a `--batch` rollup) alongside `implementation.md`, or paste one
+  inline in the record, in a further follow-up to PR #2416 — still a
+  small, mechanical gap (the capability already exists and is tested;
+  only the correct published-instance shape is missing), not a design
+  failure.
 - **Prior round's "Approval-gate Bash-hook denial over-blocks on
   substring match" finding** (carried forward from the phase-1 survey,
   `1bfc914d`) is unrelated to this round's requirement set and not
@@ -484,14 +606,28 @@ None — `loop_state: reported` (terminal state for this role per
 `roles/specs/conformance-review.spec.json`). NR1b above is handed back
 via this record, not fixed by this role (out of scope, per this role's
 own proposal and the finding-record skill's "never fix or patch what it
-finds").
+finds") — this CHANGES round raised NR1b's verdict from Absent to
+Incorrect but did not itself commit a corrected per-turn artifact,
+consistent with that same scope boundary.
 
 ## skill-verdict
 
+derived: `git diff 64028704 origin/issue-2409/implementation --stat`
+(run live this session; also cited under "CHANGES-round re-review"
+above) — result: only `implementation.md` and the new artifact file
+changed — basis for the "carried forward unchanged" skill-verdict claim
+below.
+
+Original round (`8121072e`) invocations:
+
 skill-verdict: conformance-review-requirement-extraction — applied: invoked; used to split issue #2409's amended check-1 bullet into two independent sub-clauses (NR1a regenerate-command-documented vs NR1b artifact-instance-published) per rule 1, and to split checks 2 and 3's `check:`/`must not:` text into NR2a/b/c/mustnot and NR3a/b/mustnot per the same rule, dimension-tagging each per rule 6 (scope-boundary for the `must not:` items, functional for the `check:` items).
 skill-verdict: conformance-review-verification-method-selection — applied: invoked; assigned Inspection to structural checks (constant/function existence, file diffs, git status), Demonstration to the two live-fire mechanism reruns (related_files.py, the nested hook-contract session cited in implementation.md), and Test by reusing the existing 79-passed suite per rule 4 rather than re-deriving a parallel manual check.
-skill-verdict: conformance-review-verdict-assignment — applied: invoked; used to assign Absent (not Incorrect) to NR1b per rule 2 (omission — nothing published — rather than contradiction), named the specific failing clause per rule 5, and re-checked that evidence once more this session (grep + name-status diff) per rule 6 before finalizing; carried forward the unchanged "gate scripts untouched" fact from the prior round per rule 4 where this session's own fresh `git status`/`git diff` reconfirmed the underlying diff is genuinely unchanged.
-skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every requirement block cites file:line-range plus the `02aba0a9` sha or this session's own live command rather than a bare path, and each block names the amended (2026-08-26) Acceptance version explicitly per rule 5 since the issue carries two Acceptance versions (pre- and post-amendment) a reader could otherwise confuse.
-skill-verdict: conformance-review-finding-record — applied: invoked; each of the 16 sub-clauses above carries the full field set (requirement/spec_ref/verdict/evidence/rationale), one block each, no verdict written without an evidence pointer or spec_ref.
 skill-verdict: defect-verification-independence-from-upstream-verdicts — not-applicable: this session's own role is the original conformance-review pass producing this round's own verdicts, not a downstream defect-verification attempt against another role's closed_checks entry; the skill's own trigger names that downstream scenario, which this session's pipeline position does not match.
-other mounted skills: not triggered (conformance-review-sampling-derivation — full enumeration of all 16 sub-clauses was feasible, no sampling scope needed; conformance-review-severity-classification — this review's scope was not extended into risk-weighting, only fidelity-checking against the amended acceptance text).
+
+This CHANGES round's own invocations (re-reviewing commit `980d6db9`'s
+NR1b fix attempt against tip `1b09aca4`):
+
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; used rule 2 to raise NR1b from Absent to Incorrect (a real artifact was actively produced and the record's own prose claims it "addresses ... NR1b," but it is the wrong one of the script's own two output shapes — present-but-wrong, not omission), named the specific failing clause via `spec_vs_built` per rule 5, and re-checked the evidence live this session (grep for `per_turn`, key enumeration, `| turn | tool` search, byte-for-byte regeneration diff) per rule 6 before finalizing; carried forward the other 15 sub-clauses' unchanged verdicts from `8121072e` per rule 4, basis cited in the `derived:` line above.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; NR1b's updated evidence cites the new commit shas (`980d6db9`, `1b09aca4`) plus this session's own live command outputs rather than a bare path, and names the amended (2026-08-26) Acceptance version explicitly per rule 5, consistent with the original round's citation convention.
+skill-verdict: conformance-review-finding-record — applied: invoked; NR1b's block was rewritten in place with the full field set (requirement/spec_ref/verdict/evidence/spec_vs_built/rationale, `spec_vs_built` added per rule 3 since the verdict is now Incorrect) rather than merely relabeling the verdict.
+other mounted skills: not triggered this round (conformance-review-requirement-extraction — no new sub-clause split was needed, the existing 16-item set from the original round still exhaustively covers the amended Acceptance text; conformance-review-verification-method-selection — the verification method for NR1b stays Inspection/Demonstration, unchanged from the original round; conformance-review-sampling-derivation — full enumeration of the 16 sub-clauses remained feasible; conformance-review-severity-classification — this round's scope stayed fidelity-checking, not risk-weighting).
