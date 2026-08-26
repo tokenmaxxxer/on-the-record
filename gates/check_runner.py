@@ -452,6 +452,34 @@ def remove_worktree(repo: Path, worktree: Path) -> None:
     shutil.rmtree(worktree, ignore_errors=True)
 
 
+def fetch_all_role_branches(repo: Path) -> subprocess.CompletedProcess:
+    """issue #2381: 플레인 `git fetch origin`(또는 `git fetch origin
+    <one-branch>`) 은 `repo`의 `remote.origin.fetch` 설정이 그 브랜치
+    패턴을 포함하지 않으면 exit 0 으로 "성공"해도
+    `refs/remotes/origin/<branch>` 를 만들거나 갱신하지 않는다 — 그러면
+    막 스폰돼 push 된 `issue-<n>/<role>` 브랜치처럼 아직 로컬에 없는
+    참조에 대해 아래 `worktree_for_ref`/`git worktree add
+    origin/issue-<n>/<role>` 가 "fatal: invalid reference" 로 실패한다
+    (실측: 이 문제를 매 세션 `git fetch origin
+    '+refs/heads/*:refs/remotes/origin/*'` 로 손으로 우회해야 했다).
+    목적지 refspec 을 명시한 전체-미러 fetch 로, `repo`에 설정된 refspec과
+    무관하게 origin 의 모든 브랜치를 항상 로컬 `origin/*` 로 갱신한다 —
+    `checkout_pr_worktree()`(check_runner.py 가 fetch 하는 유일한 지점)가
+    호출하므로, 뒤이어 같은 `--repo` 체크아웃을 재사용하는
+    `gates/merge_gate.py`(자체 fetch 없음)도 별도 처리 없이 최신
+    `origin/*` 참조를 그대로 쓴다. `--prune` 필수(hunt finding, before-landing
+    stance 0): prune 없이는 origin 에서 삭제된 브랜치의 로컬 `origin/<branch>`
+    ref 가 stale 상태로 남아 fetch 가 exit 0 을 반환하고, 뒤이은
+    `worktree_for_ref`/`git worktree add` 도 그 stale ref 로 조용히 성공해
+    `checkout_pr_worktree()`의 fail-closed 계약(에러는 항상 거부)을 깬다 —
+    `--prune` 은 삭제된 브랜치의 로컬 ref 를 제거해, 사라진 head 는 다시
+    "fatal: invalid reference" 로 fail-closed 하게 만든다."""
+    return subprocess.run(
+        ["git", "fetch", "--prune", "origin",
+         "+refs/heads/*:refs/remotes/origin/*"],
+        cwd=repo, capture_output=True, text=True)
+
+
 def checkout_pr_worktree(repo: Path, pr: int) -> tuple[Path | None, str | None]:
     """PR #`pr`의 head 커밋을 `repo`(오케스트레이터 체크아웃, `origin`
     리모트를 가짐)에서 fetch 해 임시 worktree 로 체크아웃한다(issue #2233).
@@ -460,10 +488,9 @@ def checkout_pr_worktree(repo: Path, pr: int) -> tuple[Path | None, str | None]:
     head_ref = _pr_head_ref(repo, pr)
     if head_ref is None:
         return None, f"PR #{pr} 의 head 브랜치를 읽을 수 없다(`gh pr view` 실패)"
-    fetch = subprocess.run(["git", "fetch", "origin", head_ref], cwd=repo,
-                            capture_output=True, text=True)
+    fetch = fetch_all_role_branches(repo)
     if fetch.returncode != 0:
-        return None, f"origin/{head_ref} fetch 실패: {fetch.stderr.strip()}"
+        return None, f"origin fetch 실패: {fetch.stderr.strip()}"
     return worktree_for_ref(repo, f"origin/{head_ref}")
 
 
