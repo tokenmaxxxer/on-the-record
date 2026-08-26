@@ -283,6 +283,12 @@ def skill_repo_sha(repo_root: Path) -> str:
 # 매핑은 더 이상 대상 저장소의 선택적 파일이 아니라 여기 고정된다. 43개
 # 역할 전부가 예전 docs/specs 아래 허용목록 파일과 값이 같다(그 파일이
 # 이미 모든 역할을 매핑하고 있었다 — 이 상수는 그 내용을 그대로 옮긴 것).
+#
+# 이슈 #2507 스코프 노트: `spawn.py`의 스폰 마운트 경로는 이 표를 더 이상
+# 읽지 않는다(`resolve_static_policy_source()` + 과제-텍스트 매치로 이동).
+# 이 표는 아직 `consult.py`의 5개 자문 세션 호출부와 `pipeline.py` preflight
+# 가 `resolve_role_source()`를 통해 쓴다 — 그 4곳을 옮기지 못한 이유는
+# `resolve_role_source` 독스트링의 이슈 #2507 노트 참고.
 _ROLE_SKILLS = {
     'accessibility': ['accessibility-aria-and-contrast-rules'],
     'api-design': ['api-design-error-design', 'api-design-http-semantics', 'api-design-payload-design', 'api-design-resource-modeling', 'api-design-tool-landscape', 'api-design-versioning-evolution'],
@@ -356,6 +362,17 @@ def resolve_role_source(role: str, repo_root: Path | None) -> dict:
     전이용 역할-소스 허용목록/rulebook 해석 경로 은퇴, #1758 이 얼린 phase 5
     제약 이행 — 매핑 없는 역할이라는 상태 자체가 더 이상 없다).
 
+    이슈 #2507 스코프 노트: `spawn.py`의 스폰 마운트 경로는 이 함수를 더
+    이상 부르지 않는다 — `resolve_static_policy_source()` +
+    `merge_composed_skill_source()`(과제-텍스트 매치)로 옮겼다. 이 함수
+    자체(그리고 `_ROLE_SKILLS`)는 아직 `consult.py`의 5개 호출부(consult/
+    skill_judge/verb/judge/panel 세션 — 스폰이 아니라 독립 자문
+    subprocess)와 `pipeline.py`의 preflight 검사가 여전히 쓰므로 남아있다
+    — 그 4곳은 과제 텍스트가 공유 헬퍼(`_consult_cmd_and_env` 등)에 안
+    뚫려 있어 이번 이슈에서 같이 옮기면 자문 세션의 가이던스 품질을
+    검증 없이 흔드는 위험이 있다(레코드 "Open findings" 참고, 재스코프
+    사유).
+
     이름을 `resolved_skill_dirs()` 로 푼다(모르는 이름은 이미 거기서
     워크스페이스/브랜치 전에 fail-closed). 풀린 디렉터리 중 하나라도
     `hooks/` 서브디렉터리를 들고 있으면 — skill-repository 는 가이던스
@@ -374,6 +391,42 @@ def resolve_role_source(role: str, repo_root: Path | None) -> dict:
     return {"source": "skill-repo", "skill_dirs": skill_dirs,
             "skills": [d.name for d in skill_dirs],
             "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
+
+
+def resolve_static_policy_source(repo_root: Path | None) -> dict:
+    """이슈 #2507 (role retirement stage 6): 역할과 무관하게 항상 적용되는
+    POLICY 스킬(`_STATIC_POLICY_SKILLS`, 예: work-in-english)을 무조건
+    해석한다. 이전에는 이 스킬들이 `_ROLE_SKILLS[role]`에 우연히 들어있는
+    역할에서만 마운트됐다(이슈 #2208 감사가 지적한 gap — 실측 로그상 항상
+    role=implementation 뿐이었다) — `resolve_role_source()`가 은퇴하면서
+    그 우연한 경로도 같이 없어지므로, 여기서 역할 조회 없이 직접 붙인다.
+    반환 shape 는 `resolve_role_source()`와 같다."""
+    skill_dirs = _sp.resolved_skill_dirs(
+        ",".join(sorted(_STATIC_POLICY_SKILLS)), repo_root)
+    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
+    if hooked:
+        sys.exit(
+            f"resolve_static_policy_source: POLICY 스킬 중 "
+            f"{', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 있다 — "
+            f"skill-repository 는 가이던스 전용이다(훅 없음, 이슈 #1758)")
+    return {"source": "skill-repo", "skill_dirs": skill_dirs,
+            "skills": [d.name for d in skill_dirs],
+            "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
+
+
+def merge_composed_skill_source(role_source: dict, matched_dirs: list) -> dict:
+    """이슈 #2507: 위 `resolve_static_policy_source()`의 결과에 cross-family
+    BM25+judge 매치(`_cross_family_skill_matches_with_consult()`)를
+    add-only 로 얹는다 — 스폰이 도착할 때 들고 오는 스킬 목록이 고정 표
+    조회가 아니라 이번 과제 텍스트에 대한 매치로 구성되게 하는, 이 이슈의
+    핵심 변경. 반환은 새 dict(입력을 변형하지 않는다)."""
+    seen = {d.name for d in role_source["skill_dirs"]}
+    merged_dirs = list(role_source["skill_dirs"]) + [
+        d for d in matched_dirs if d.name not in seen]
+    return {"source": "skill-repo", "skill_dirs": merged_dirs,
+            "skills": [d.name for d in merged_dirs],
+            "skill_sha": (_sp.skill_repo_sha(merged_dirs[0].parent)
+                          if merged_dirs else None)}
 
 
 def resolve_skill_source(skill_name: str, repo_root: Path | None) -> dict:

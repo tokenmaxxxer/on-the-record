@@ -1395,19 +1395,24 @@ def _cross_family_candidate_corpus(role: str, repo_root: Path | None,
 
     반환은 (name, dir, source) 튜플 목록 — source 는 `_describe_skill_match()`
     가 아는 값(`"skill-repo"|"plugin"|"local-user"|"local-repo"`)과 같은
-    어휘를 쓴다. family 안 스킬(`_ROLE_SKILLS[role]`)은 호출자가 이미
-    걸러내던 대로 여기서도 걸러 반환에서 뺀다. 이슈 #2208: 정적으로
-    바인딩되는 POLICY 스킬(`_STATIC_POLICY_SKILLS`, 예: work-in-english)도
-    역할에 상관없이 여기서 항상 빠진다 — judge/BM25 는 이 스킬들을 후보로도
-    보지 않는다(정적으로 마운트되므로 경쟁할 이유가 없다).
+    어휘를 쓴다. 이슈 #2208: 정적으로 바인딩되는 POLICY 스킬
+    (`_STATIC_POLICY_SKILLS`, 예: work-in-english)은 역할에 상관없이 여기서
+    항상 빠진다 — judge/BM25 는 이 스킬들을 후보로도 보지 않는다(정적으로
+    마운트되므로 경쟁할 이유가 없다). 이슈 #2507: `_ROLE_SKILLS[role]`
+    exclusion 은 없앴다 — 고정 role->skill 표가 더 이상 "family"를 정의하지
+    않으므로(스폰의 유일한 스킬 소스는 이제 이 후보 풀에 대한 매치 자체),
+    후보 풀을 role 기준으로 미리 좁힐 이유가 사라졌다. `role` 파라미터는
+    signature 호환을 위해 남지만 이 함수 안에서는 더 이상 쓰이지 않는다.
 
     `home`/`target_repo_root` 를 생략하면(`None`) 해당 tier 는 아예 안
     읽는다 — 기존 호출부(테스트 포함)가 skill-repository tier 만 보는
     오늘의 동작을 그대로 유지하기 위한 명시적 opt-in 이다. 설치된 플러그인
     tier 는 `_installed_plugin_skill_dirs()` 자체가 이름이 실제로 필요할
     때만 파일을 읽으므로 별도 게이트가 필요 없다."""
-    family_names = (set(_sp._ROLE_SKILLS.get(role, []))
-                     | set(_sp._STATIC_POLICY_SKILLS))
+    # 이슈 #2507: `role` 은 더 이상 후보 풀을 좁히는 데 안 쓰인다 — signature
+    # 는 호환을 위해 남긴다(호출부가 여전히 role 을 넘긴다).
+    del role
+    family_names = set(_sp._STATIC_POLICY_SKILLS)
     matches: dict[str, list[tuple[str, Path]]] = {}
 
     def add(source: str, name: str, d: Path) -> None:

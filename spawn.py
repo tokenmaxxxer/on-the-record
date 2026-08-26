@@ -359,6 +359,8 @@ _skill_repo_valid = skills._skill_repo_valid
 _skill_roster_fields = skills._skill_roster_fields
 _skill_source_roster_row = skills._skill_source_roster_row
 resolve_role_source = skills.resolve_role_source
+resolve_static_policy_source = skills.resolve_static_policy_source
+merge_composed_skill_source = skills.merge_composed_skill_source
 resolve_skill_source = skills.resolve_skill_source
 resolved_skill_dirs = skills.resolved_skill_dirs
 resolved_skill_sources = skills.resolved_skill_sources
@@ -558,6 +560,11 @@ _SKILL_USE_SENTENCE_RE = directive_assembly._SKILL_USE_SENTENCE_RE
 _TOKEN_RE = directive_assembly._TOKEN_RE
 _STOPWORDS = directive_assembly._STOPWORDS
 _CROSS_FAMILY_CONSULT_TOPN = directive_assembly._CROSS_FAMILY_CONSULT_TOPN
+# 이슈 #2507: 고정 role->skill 표 은퇴 이후 cross_family 매치가 스폰의
+# 유일한 과제-맞춤 스킬 소스가 됐다 — 예전 add-only 층의 기본값(k=2)은
+# "표 위에 조금 더 얹는" 용도였지, "표를 대체하는" 용도가 아니었다. 옛
+# `_ROLE_SKILLS` 항목 길이 분포(1~10, 중앙값 근처)에 맞춰 5로 올린다.
+_COMPOSED_SKILLS_TOPK = 5
 _bm25_cross_family_scores = directive_assembly._bm25_cross_family_scores
 _cross_family_skill_matches = directive_assembly._cross_family_skill_matches
 
@@ -2602,23 +2609,31 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                      if skill_sources and all(m["source"] == "skill-repo"
                                                for m in skill_sources)
                      else None)
-        # 이슈 #1955(이슈 #1758 phase 5 이행): skill-repository 해석도 같은
-        # 이유로 워크스페이스/브랜치 생성보다 먼저 온다 — 역할이 매핑한 스킬
-        # 이름이 모르는 이름이거나 hooks/ 를 들고 있으면 여기서 fail-closed.
+        # 이슈 #2507 (role retirement stage 6): 고정 role->skill 표
+        # (`_ROLE_SKILLS`)이 아니라, 역할과 무관하게 항상 적용되는 POLICY
+        # 스킬만 여기서 동기로 붙인다 — 과제-맞춤 매칭은 아래 cross_family
+        # 자문(비동기)에 전부 넘긴다. 이름 해석은 여전히 워크스페이스/브랜치
+        # 생성보다 먼저 온다(모르는 이름이거나 hooks/ 를 들고 있으면 여기서
+        # fail-closed, 이슈 #1955 요구사항 그대로).
         skill_registry_root = _skill_repo_root()
-        role_source = resolve_role_source(role, skill_registry_root)
+        role_source = resolve_static_policy_source(skill_registry_root)
     # 이슈 #2061: skill_judge 자문(BM25 프리필터 + haiku 판단)을 워크스페이스
     # 클론/브랜치 체크아웃(~12s)과 겹치도록 그 전에 먼저 던진다 — 아래
     # "cross_family" 단계에서 join 만 한다. 자문은 읽기 전용(저장소 파일을
     # 건드리지 않는다, `_skill_judge_consult()` 의 override 문구)이라
     # 워크스페이스가 아직 없어도(원본 cwd 로) 안전하게 먼저 돌 수 있다.
+    # 이슈 #2507: 이 자문이 이제 role 축 없는 스폰의 "유일한" 과제-맞춤
+    # 스킬 소스다(예전엔 고정 표 위에 얹는 add-only 층이었다) — top-K 를
+    # 2에서 `_COMPOSED_SKILLS_TOPK` 로 올려, role 이 예전에 주던 만큼의
+    # 스킬 개수를 (표 대신 매치로) 계속 받게 한다.
     _cross_family_executor: concurrent.futures.ThreadPoolExecutor | None = None
     _cross_family_future = None
-    if issue is not None and role_source["source"] == "skill-repo":
+    if issue is not None:
         _cross_family_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         _cross_family_future = _cross_family_executor.submit(
             _cross_family_skill_matches_with_consult,
             _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
+            k=_COMPOSED_SKILLS_TOPK,
             home=Path.home(), target_repo_root=Path(cwd))
     if issue is None:
         # Issue #2293 (scope addition, consumer incident 2026-08-25): an
@@ -2935,9 +2950,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 문장을 인라인한다(#1960 의 1/9 발화율 넛지를 대체) — 트리거
             # 문장이 없는 스킬도 이름은 절대 빠뜨리지 않는다(empty-state
             # 요구).
-            # 이슈 #2001/#2040: family 밖 top-K(K=2) 크로스-패밀리 스킬을
-            # add-only 로 얹는다 — 매치가 없으면 cross_family_dirs 는 빈
-            # 목록이라 아래 줄들은 오늘과 바이트 단위로 동일하게 남는다.
+            # 이슈 #2001/#2040/#2507: 이번 과제 텍스트에 매치되는 top-K
+            # 스킬을 얹는다 — 매치가 없으면 cross_family_dirs 는 빈 목록.
             # 이슈 #2040: BM25 프리필터 + skill_judge 자문 판단(스폰당
             # 최대 자문 1회) — 소요 시간은 "cross_family" 단계로 측정해
             # 부트스트랩 타이밍 요약에 실린다(Acceptance: per-spawn latency).
@@ -2951,25 +2965,24 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     if _cross_family_future is not None else ([], "not-run"))
                 if _cross_family_executor is not None:
                     _cross_family_executor.shutdown(wait=False)
+            # 이슈 #2507: 고정 표(family) + 자문 추가(cross-family)라는
+            # 두 층 구분이 없어졌다 — POLICY 스킬(정적) + 매치된 스킬(동적)
+            # 을 하나의 마운트 목록으로 합친다(add-only, 이름 중복 제거).
+            role_source = merge_composed_skill_source(role_source, cross_family_dirs)
             role_skill_lines = ", ".join(
                 d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
                 for d in role_source["skill_dirs"]
             ) if role_source["skill_dirs"] else ", ".join(role_source["skills"])
             if cross_family_dirs:
-                cross_family_lines = ", ".join(
-                    d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
-                    for d in cross_family_dirs)
-                role_skill_lines = (role_skill_lines + ", " + cross_family_lines
-                                     if role_skill_lines else cross_family_lines)
                 cross_family_clause = (
                     f" (이 중 {', '.join(d.name for d in cross_family_dirs)} 는 "
-                    f"이번 과제 텍스트와의 키워드 매치로 추가된 크로스-패밀리 "
-                    f"스킬 — 이슈 #2001)")
+                    f"이번 과제 텍스트와의 매치로 구성된 스킬 — 이슈 #2001/#2507)")
             else:
                 cross_family_clause = ""
             task = task + _dp("role-skill-triggers", (
-                f"\n\n이 역할은 skill-repository(이슈 #1955, #1758)로 매핑됐다: "
-                f"스킬 {role_skill_lines} "
+                f"\n\n이번 과제에 대해 스킬이 구성됐다(skill-repository, 이슈 "
+                f"#1955/#1758/#2507 — 고정 role->skill 표가 아니라 과제 텍스트 "
+                f"매치): 스킬 {role_skill_lines} "
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.{cross_family_clause}\n"))
         # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
@@ -3039,10 +3052,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         declared_artifacts = _design_artifacts_gate.parse_declaration(body) \
             if body is not None and _design_artifacts_gate is not None else None
         if declared_artifacts:
+            # 이슈 #2507: `role_source["skill_dirs"]` 는 이미 위에서
+            # cross_family_dirs 와 합쳐졌다 — 여기서 또 얹을 필요가 없다.
             artifact_all_dirs = list(skill_dirs) + [
                 d for d in role_source["skill_dirs"] if d not in skill_dirs]
-            artifact_all_dirs = artifact_all_dirs + [
-                d for d in cross_family_dirs if d not in artifact_all_dirs]
             pairing_lines = []
             for artifact_path in declared_artifacts:
                 basename = Path(artifact_path).stem
@@ -3106,12 +3119,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(s, f)
             settings = f.name
-    # --skills(#1742)와 역할 매핑 스킬(#1758/#1955)은 additive — 같은
-    # --plugin-dir 마운트 목록에 합쳐 붙인다.
+    # --skills(#1742)와 구성된 스킬(#1758/#1955/#2507 — POLICY + 과제-매치)
+    # 은 additive — 같은 --plugin-dir 마운트 목록에 합쳐 붙인다.
+    # 이슈 #2507: `role_source["skill_dirs"]`가 이미 cross_family_dirs 와
+    # 합쳐져 있다(issue-scoped 스폰; adhoc 은 cross_family_dirs 가 애초에
+    # 빈 목록이라 이 필드가 POLICY 스킬뿐이다) — 여기서 또 얹을 필요가 없다.
     all_skill_dirs = list(skill_dirs) + [d for d in role_source["skill_dirs"]
                                           if d not in skill_dirs]
-    all_skill_dirs = all_skill_dirs + [d for d in cross_family_dirs
-                                        if d not in all_skill_dirs]
     try:
         rulebook_desc = "skill-repo(이슈 #1955)"
         roster_resolution_fields = _role_source_roster_fields(role_source)
