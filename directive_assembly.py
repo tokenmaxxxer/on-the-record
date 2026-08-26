@@ -276,8 +276,17 @@ _KNOWN_PATHS_PROSE = (
 # watchdog then respawned it from scratch as if it were dead. Neither
 # gate's refusal logic changes here — this only tells the passing shape
 # up front, before the first write that could trip either one.
+#
+# Item 3 (issue #2508): pr-preflight.sh's phase-2 linkage requirement used
+# to force a session delivering a deliberate partial into a false `Closes`
+# claim — observed live on PR #2495 (issue #2289), where the session added
+# the trailer and then had to invent its own disclosure paragraph stating
+# the trailer was false. pr-preflight.sh's mechanism now accepts a
+# non-closing `Advances`/`Part of` trailer for exactly this case; this
+# item states the choice up front so the next partial-delivery session
+# picks the right trailer instead of reaching for Closes-plus-disclaimer.
 _HOOK_CONTRACT_PROSE = (
-    "게이트 통과 모양(이슈 #2479): 아래 두 게이트는 거절되면 커밋을 못 "
+    "게이트 통과 모양(이슈 #2479): 아래 게이트들은 거절되면 커밋을 못 "
     "닫은 채 PR 만 열려 있는 상태로 좌초할 수 있다(progressed-dirty-"
     "tree) — 거절을 겪고 나서 배우지 말고 첫 시도부터 이 모양을 써라. "
     "두 게이트의 거절 로직 자체는 안 바뀐다, 더 일찍 알려줄 뿐이다.\n"
@@ -322,6 +331,20 @@ _HOOK_CONTRACT_PROSE = (
     "   git commit -m \"issue-2479: add gate passing-shape to spawn "
     "directive\" -m \"fixes progressed-dirty-tree stall from undocumented "
     "gate shape\"\n"
+    "   ```\n"
+    "\n"
+    "3. pr-preflight.sh (이슈 #2508, `gh pr create`/`gh pr edit` on a "
+    "phase-2 delivery PR): 이슈를 실제로 완결하면 지금처럼 "
+    "`Closes`/`Fixes`/`Resolves #<n>`을 쓴다. 의도적 partial delivery라서 "
+    "이 PR이 이슈를 닫으면 안 될 때는 `Advances #<n>` 또는 `Part of #<n>`을 "
+    "대신 쓴다 — 게이트는 이 형태도 링크 요건을 만족한 것으로 받아들이고, "
+    "머지돼도 이슈를 자동으로 닫지 않는다. 어느 쪽도 없으면(이슈 참조 "
+    "자체가 없으면) 여전히 거절된다. 트레일러를 고르는 것은 세션 자신의 "
+    "판단이다 — Closes를 써 놓고 본문에 \"사실 안 닫혔다\"는 disclaimer "
+    "문단을 따로 지어낼 필요가 없다.\n"
+    "   worked example (partial delivery, pr-preflight.sh 통과 확인됨):\n"
+    "   ```\n"
+    "   Advances #2289\n"
     "   ```\n")
 
 # Issue #2527: measured live (issue-2516 implementation session,

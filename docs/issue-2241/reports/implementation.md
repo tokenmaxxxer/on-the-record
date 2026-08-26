@@ -182,3 +182,132 @@ amendments-reconciled: issuecomment-5403806594 (canonical: `gh issue view
 (#2284-#2289) and confirmed stage 0 runs in-session under issue #2241 itself,
 matching this record. No change to stage 0's scope, write set, or
 acceptance; nothing to reconcile beyond acknowledging the comment.
+
+## Addendum (2026-08-26) — issue #2412 AC2/AC4 closed out
+
+Unrelated to stage 0's own scope/verdict above; appended per this record's
+append-only, own-issue write area. `code_under_review` for this addendum:
+`docs/issue-2241/proposals/2026-08-25-stage-3-board-gate-author-identity.md`,
+`docs/issue-2241/proposals/2026-08-25-stage-4-branch-record-naming-cutover.md`.
+`type: docs`, `breaking: no`, `verdict: pass`.
+
+canonical: `gh pr view 2449 --json state,mergedAt,baseRefName,headRefName`,
+this session — implementation PR #2449 (`issue-2412/implementation` →
+`main`) decided the resolution for issue #2412 (amend the proposal-named
+paths, not `board-gate.sh` R4) but its own delivering session ran on
+`issue-2412/implementation`; that PR's own record quotes a live R4 refusal
+verbatim from attempting to edit the stage-3 proposal from that branch.
+`gh pr view 2476` and `gh pr view 2454` (both MERGED, both `Closes #2412`),
+this session — both independent observers verdicted **AC2 Absent** and
+**AC4 Absent** on PR #2449, citing `git log` showing the stage-3/stage-4
+proposal files were never edited and `grep` showing neither carried a
+pointer to the corrected destination. PR #2449's own "Open findings"
+section names the unblock path used here: a session running on
+`issue-2241/implementation` (the parent-program branch, not a child-issue
+branch).
+
+### What was done
+
+This session runs on `issue-2241/implementation` (`git branch
+--show-current`, this session). Route taken: apply the same path
+correction PR #2449 already worked out (visible in `gh pr diff 2449` —
+that PR added `docs/issue-2412/reports/implementation/stage-proposal-path-corrections.md`
+on its own branch `issue-2412/implementation`, a file untracked on
+`main`/this branch since that PR is unmerged) directly to the two proposal
+files, using the parent-program-branch route PR #2449's "Open findings"
+identified — not a `board-gate.sh` R4 widening (the *rejected* alternative
+per issue #2412's own acceptance criteria).
+
+- AC2 (proposals actually updated): both files edited this session.
+  - Stage 3 `files:` frontmatter and its "What will be done" bullet:
+    untracked path, never created,
+    `docs/issue-2241/reports/architecture/board-gate-r5-migration.md`
+    (`test -f`, this session, confirmed absent) — renamed to
+    `docs/issue-2286/reports/implementation/board-gate-r5-migration.md`
+    (`test -f`, this session, confirmed present).
+  - Stage 4 `files:` frontmatter and its "What will be done" bullet:
+    untracked path, never created,
+    `docs/issue-2241/reports/architecture/in-flight-branch-migration.md`
+    (`test -f`, this session, confirmed absent) — renamed to
+    `docs/issue-2432/reports/implementation/in-flight-branch-migration.md`
+    (`test -f`, this session, confirmed present).
+- AC4 (landed doc discoverable from the proposal): each corrected bullet now
+  reads "Already landed at this path" and points to "issue #2412 for the
+  full reasoning" — a reader following either proposal now reaches the
+  doc's real location instead of a path that exists nowhere.
+
+acceptance: `git log --oneline -- docs/issue-2241/proposals/2026-08-25-stage-3-board-gate-author-identity.md docs/issue-2241/proposals/2026-08-25-stage-4-branch-record-naming-cutover.md` (before this session's edits) — result:
+```
+135712e8 issue-2241: staged proposal for retiring the role axis (#2252)
+135712e8 issue-2241: staged proposal for retiring the role axis (#2252)
+```
+derived: only the original creation commit touched either file before this
+session — confirms both observers' AC2-Absent finding held at the start of
+this session, on this branch, independent of PR #2449's own history.
+
+acceptance: `git diff --stat -- docs/issue-2241/proposals/2026-08-25-stage-3-board-gate-author-identity.md docs/issue-2241/proposals/2026-08-25-stage-4-branch-record-naming-cutover.md` (after this session's `Edit` calls) — result:
+```
+ .../2026-08-25-stage-3-board-gate-author-identity.md   | 14 +++++++++++---
+ .../2026-08-25-stage-4-branch-record-naming-cutover.md | 18 +++++++++++-------
+ 2 files changed, 22 insertions(+), 10 deletions(-)
+```
+
+### Route taken — the write succeeded
+
+Both `Edit` tool calls landed on the first attempt, with no `board-gate`
+R4/R5 refusal — unlike the three prior reproductions cited above (the
+original `issue-2412/implementation` delivering session, PR #2454's
+execution-observation, PR #2476's conformance-review), each of which got
+an identical R4 refusal from a child-issue branch. canonical: this
+session's own `PreToolUse:Edit` hook responses to both edits — each
+returned only a `survey-order` notice (addressed inline in the proposal
+bodies with a stated skip condition), with no `board-gate` deny message,
+contrasting with PR #2449's record quoting the verbatim deny text
+`board-gate: writing docs/issue-2241/ requires branch
+issue-2241/implementation (current: issue-2412/implementation), ...`. This
+demonstrates the deliberate route: the parent-program branch
+(`issue-2241/implementation`) is exactly what R4 permits for a write into
+`docs/issue-2241/`, while a child-issue branch continues to be refused for
+that same tree — the fix used the existing gate as designed, rather than
+widening it. `board-gate.sh` itself was not read, edited, or proposed for
+change by this addendum.
+
+### Why
+
+Same reasoning PR #2449 already decided and both observers already
+confirmed (amend the proposal-named paths, not R4) — this addendum differs
+only in *which branch* performs the write, using the unblock path PR
+#2449's "Open findings" itself named. No new design decision is opened;
+see the `survey-order` skip statements added inline in both proposal
+bodies (canonical: this session's `Edit` diffs, quoted above).
+
+### What did not work
+
+Nothing failed in this addendum — both proposal edits succeeded on the
+first attempt from this branch (canonical: `git diff --stat` result above,
+no error or refusal in either `Edit` call this session). The three *prior*
+R4 refusals from child-issue branches are documented in PR #2449, PR
+#2454, and PR #2476 (cited above); not reproduced again here since this
+session runs on the branch R4 permits.
+
+### Skill verdicts
+
+skill-verdict: work-in-english — applied: invoked; this addendum, its
+commit message, and the PR text are authored in English per the task's
+Korean-language spawn turn.
+other mounted skills (implementation-complexity-coupling-management,
+implementation-design-pattern-selection,
+implementation-performance-data-structure-choice, implementation-blueprint,
+conformance-review-finding-record, conformance-review-sampling-derivation):
+not-applicable — this addendum is a two-line path correction in existing
+docs, with no coupling/pattern/data-structure decision and no conformance
+verdict of my own to record (the AC2/AC4 verdicts already exist, authored
+by PR #2454/#2476's observers).
+
+### Next steps
+
+None for this addendum. canonical: `gh issue view 2412 --json state`, this
+session, shows issue #2412 already `CLOSED` (by PR #2454/#2476's `Closes
+#2412` trailers); this addendum closes its two remaining open findings
+(AC2, AC4) without reopening the issue or altering PR #2449's own recorded
+decision.

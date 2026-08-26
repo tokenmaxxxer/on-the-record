@@ -1113,6 +1113,74 @@ def _pid_is_alive(pid) -> bool:
         return True
 
 
+# 이슈 #2468: check_runner.py 의 임시 PR worktree(`tempfile.mkdtemp`)와
+# consult.py/spawn.py 의 settings.json(`tempfile.NamedTemporaryFile`)는
+# 정상 종료 경로에서만 지워진다 — SIGKILL/하드크래시는 try/finally 로도
+# 못 잡는다(파이썬이 신호를 볼 기회 자체가 없다). 생성 시점에 소유 PID 를
+# 여기 남겨 두면, 나중에 `_pid_is_alive()`(위, #2413 에서 이미 증명된
+# 패턴)로 그 PID 가 죽었는지만 물어 지운다 — 살아있는 소유자의 자원은
+# 나이와 무관하게 항상 보존한다(그 함수 자신의 보수적 정책을 그대로
+# 물려받는다: 판정이 불확실하면 살아있다고 본다). append-only(줄을 쓰는
+# 도중 죽어도 이미 쓴 줄은 안전하다 — SPAWN_ATTEMPTS_PATH 와 같은 이유).
+TMP_RESOURCE_LEDGER_PATH = STATE_ROOT / "tmp-resources.jsonl"
+
+
+def _record_tmp_resource(path, pid: int, kind: str) -> None:
+    """`path`(worktree 디렉터리 또는 settings.json 파일)를 소유 `pid`와
+    함께 남긴다. 호출부는 실제 정리 책임을 지는 프로세스가 자기 자신의
+    `os.getpid()`로 불러야 한다 — spawn.py 의 `bounded` 스폰처럼 만든
+    프로세스(부모)와 실제로 쓰고 지우는 프로세스(fork 자식)가 갈리는
+    경우, 부모 pid 를 남기면 부모가 정상 리턴한 직후 `_pid_is_alive()`가
+    바로 False 를 돌려줘 아직 자식이 쓰고 있는 자원을 오삭제하게 된다
+    (이슈 #2468 설계 검토에서 실측)."""
+    if os.environ.get("PYTEST_CURRENT_TEST") is not None:
+        return
+    TMP_RESOURCE_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TMP_RESOURCE_LEDGER_PATH.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"path": str(path), "pid": pid, "kind": kind,
+                              "ts": time.time()}, ensure_ascii=False) + "\n")
+
+
+def tmp_resource_sweep(ledger_path: Path | None = None) -> int:
+    """이슈 #2468 GC 스윕 — `_prune_spawn_attempts()`와 같은 자세(통짜
+    재쓰기, PID 생존만으로 판정)로 orphan worktree/settings.json 을
+    지운다. 이미 정상 경로로 지워진 자원(레저에는 있지만 디스크엔 없음)은
+    그냥 레저에서 빠진다 — 지운 걸로 세지 않는다. 반환값은 이번 호출에서
+    실제로 지운 자원 개수(워치독 로그용 — anomaly_count 에는 안 얹는다:
+    이건 이상 신호가 아니라 정상적인 자기치유다)."""
+    ledger_path = ledger_path or TMP_RESOURCE_LEDGER_PATH
+    try:
+        lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    kept = []
+    removed = 0
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        path = entry.get("path")
+        if not path:
+            continue
+        p = Path(path)
+        if not p.exists():
+            continue  # 이미 정상 경로로 지워졌다 — 레저에서도 조용히 뺀다
+        if _pid_is_alive(entry.get("pid")):
+            kept.append(line)
+            continue
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+        else:
+            with contextlib.suppress(OSError):
+                p.unlink()
+        removed += 1
+    if len(kept) != len(lines):
+        ledger_path.write_text(
+            "".join(ln + "\n" for ln in kept), encoding="utf-8")
+    return removed
+
+
 def _prune_spawn_attempts(now: float | None = None) -> int:
     """`SPAWN_ATTEMPTS_PATH`를 다시 써서 위 정책에 안 걸리는 이벤트만
     남긴다. 돌려주는 값은 지운 줄 수(0 이면 파일을 건드리지 않는다 —
@@ -1673,6 +1741,12 @@ def main() -> int:
         return roster_ps()
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
+    if a.role == "rebase":
+        # Issue #2403: mechanical rebase of the role branch already checked
+        # out at `-C <cwd>` onto current main -- no LLM session. Only the
+        # conflict-free case is mechanical; a conflict aborts and asks for
+        # a real role session (conflict resolution needs judgment).
+        return mechanical_rebase_cli(str(Path(a.cwd).resolve()))
     if a.role == "recut-corrupted":
         if not a.issue or not a.watch_role:
             sys.exit("사용법: spawn.py recut-corrupted --issue <n> --role <role> [-C cwd]")
@@ -1737,18 +1811,6 @@ def main() -> int:
         import roles_due as _roles_due
         due = _roles_due.roles_due(Path(a.cwd).resolve())
         lines = _roles_due.format_report(due)
-        for line in lines:
-            print(line)
-        return 0
-    if a.role == "needs-due":
-        # need-detector 평가기 — 대상 프로젝트가 이 역할의 실제 산출물을
-        # "필요로 하는지" 판정한다 (issue #1160 step 3 machinery).
-        # roles-due 와 마찬가지로 advisory-only: 절대 자동 스폰하지 않는다.
-        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
-        import need_detector as _need_detector
-        due = _need_detector.needs_due(
-            Path(a.cwd).resolve(), root=Path(__file__).parent.resolve())
-        lines = _need_detector.format_report(due)
         for line in lines:
             print(line)
         return 0
@@ -2383,6 +2445,62 @@ def _recut_absorbed_branch(cwd: str, br: str):
     return git("checkout", br)
 
 
+def _mechanical_rebase(cwd: str, push: bool = True) -> dict:
+    """Issue #2403 — bring the branch already checked out at `cwd` current
+    with `_base(cwd)` via plain git, no LLM session. Only the conflict-free
+    case is handled mechanically: a rebase that needs conflict resolution
+    is aborted and reported so the caller falls back to a real role
+    session (conflict resolution is a judgment call, not mechanical --
+    rationale in docs/issue-2403/reports/implementation.md).
+
+    Returns `{"status": "up-to-date"|"rebased"|"conflict"|"error",
+    "behind": int, "detail": str}`. `push` uses `--force-with-lease`, safe
+    against a concurrent push this process didn't see."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    br_r = git("symbolic-ref", "--short", "-q", "HEAD")
+    if br_r.returncode != 0 or not br_r.stdout.strip():
+        return {"status": "error", "behind": 0,
+                "detail": "HEAD 가 브랜치를 가리키지 않는다(분리 HEAD) — rebase 대상 아님"}
+    branch = br_r.stdout.strip()
+    fetch = git("fetch", "origin")
+    if fetch.returncode != 0:
+        return {"status": "error", "behind": 0,
+                "detail": f"git fetch origin 실패: {fetch.stderr.strip()}"}
+    base = _base(cwd)
+    behind = git("rev-list", "--count", f"HEAD..{base}")
+    behind_n = (int(behind.stdout.strip())
+                if behind.returncode == 0 and behind.stdout.strip().isdigit() else 0)
+    if behind_n == 0:
+        return {"status": "up-to-date", "behind": 0,
+                "detail": f"{branch} 는 이미 {base} 기준 최신이다"}
+    rb = git("rebase", base)
+    if rb.returncode != 0:
+        git("rebase", "--abort")
+        return {"status": "conflict", "behind": behind_n,
+                "detail": (f"{branch} 를 {base} 위로 rebase 하다 충돌 — 기계적으로 "
+                            f"처리할 수 없다(rebase 는 abort 했다). 충돌 해소는 판단이 "
+                            f"필요해 role 세션이 있어야 한다.")}
+    if push:
+        pushed = git("push", "--force-with-lease", "origin", f"HEAD:{branch}")
+        if pushed.returncode != 0:
+            return {"status": "error", "behind": behind_n,
+                    "detail": f"rebase 는 됐지만 push 실패: {pushed.stderr.strip()}"}
+    return {"status": "rebased", "behind": behind_n,
+            "detail": f"{branch} 를 {base} 위로 rebase" + (" 하고 push 했다" if push else " 했다(push 안 함)")}
+
+
+def mechanical_rebase_cli(cwd: str) -> int:
+    """`spawn.py rebase -C <cwd>` — issue #2403 진입점. `_mechanical_rebase()`
+    결과를 사람이 읽을 한 줄로 찍고, `up-to-date`/`rebased` 는 0, `conflict`
+    는 (role 세션이 필요하다는 신호로) 2, 그 외 오류는 1 을 돌려준다."""
+    result = _mechanical_rebase(cwd)
+    print(f"[rebase] status={result['status']} behind={result['behind']} — {result['detail']}")
+    if result["status"] in ("up-to-date", "rebased"):
+        return 0
+    if result["status"] == "conflict":
+        return 2
+    return 1
 def _recut_corrupted_branch(cwd: str, br: str, base: str):
     """`br`(예: `issue-<n>/<role>`)을 같은 이름을 유지한 채, 지금 잡힌
     `merge-base(br, base)`를 새 base 로 밀어 재컷한다 (issue #2402).
@@ -3120,6 +3238,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(s, f)
             settings = f.name
+        # 이슈 #2468: `bounded and issue is not None`(아래)이면 이 파일의
+        # 실제 소유자는 이 프로세스가 아니라 곧 뜰 fork 자식이다 — 여기서
+        # 이 프로세스의 pid 로 남기면, 이 프로세스(부모)가 fork 직후 정상
+        # 리턴하는 순간 `_pid_is_alive()`가 바로 False 가 되어 아직 자식이
+        # 쓰고 있는 파일을 GC 스윕이 오삭제한다. 그 경로의 기록은 자식이
+        # fork 직후 자기 pid 로 직접 남긴다(아래, fork 분기).
+        if not (bounded and issue is not None):
+            _record_tmp_resource(settings, os.getpid(), "settings")
     # --skills(#1742)와 구성된 스킬(#1758/#1955/#2507 — POLICY + 과제-매치)
     # 은 additive — 같은 --plugin-dir 마운트 목록에 합쳐 붙인다.
     # 이슈 #2507: `role_source["skill_dirs"]`가 이미 cross_family_dirs 와
@@ -3255,6 +3381,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _write_offset(offset_path, _event_count(events_path))
             child_pid = os.fork()
             if child_pid == 0:
+                # 이슈 #2468: settings.json 의 실제 소유자는 이 fork
+                # 자식이다(부모는 곧 정상 리턴해 죽는다) — 자기 pid 를
+                # 이 구간 맨 처음(다른 실패 가능 지점보다 먼저)에 남겨,
+                # 이후 어떻게 죽든(SIGKILL 포함) GC 스윕이 죽은 pid 로
+                # 찾아 지울 수 있게 한다. 같은 이유로 바로 아래 로스터
+                # 스텁도 이 구간 맨 앞에 있다(#908 주석 그대로).
+                _record_tmp_resource(settings, os.getpid(), "settings")
                 # 이슈 #908: fork-child 설정(setsid/dup2)과 Popen() 은 첫
                 # roster_register/session-start (아래, Popen 뒤) 이전에
                 # 실행된다 — 그 구간에서 죽으면(SIGKILL/segfault 포함, 예외를
