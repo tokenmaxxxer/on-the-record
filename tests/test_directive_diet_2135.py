@@ -91,12 +91,48 @@ class SectionFileMapping(unittest.TestCase):
         self.assertIn("Explore", body)
         self.assertIn("run_in_background", body)
 
+    def test_task_lookup_file_carries_the_related_files_lookup_guidance(self):
+        # Issue #2409: exploratory-Bash reduction. 62% of Bash calls
+        # across 177 sessions were neither pytest/git/gh — grep/find
+        # probing to locate a task's files. scripts/related_files.py
+        # replaces N of those with one call; this always-on-for-code-
+        # scoped-roles section tells a session to run it first.
+        files = spawn.directive_section_files()
+        body = files["task-lookup.md"]
+        self.assertIn(spawn._TASK_LOOKUP_PROSE, body)
+        self.assertIn("scripts/related_files.py", body)
+        self.assertIn("2409", body)
+
+    def test_hook_contract_file_carries_the_upfront_refusal_shapes(self):
+        # Issue #2409: hook-refusal-as-upfront-contract. 6.9 tool_result
+        # errors/session, largely this repo's own PreToolUse gates
+        # refusing a write/command one shape detail off. Always-on (any
+        # role's writes can trip record-claim-guard/approval-gate).
+        files = spawn.directive_section_files()
+        body = files["hook-contract.md"]
+        self.assertIn(spawn._HOOK_CONTRACT_PROSE, body)
+        self.assertIn("heredoc", body)
+        self.assertIn("record-claim-guard", body)
+        self.assertIn("canonical:", body)
+        self.assertIn("CORE_BUILD_NOW", body)
+
+    def test_turn_budget_file_carries_the_redundant_read_guidance(self):
+        # Issue #2409: redundant-same-file-re-read reduction. 105
+        # spawn.py re-reads, 96 own-record-file re-reads per session
+        # (measured, 177 sessions) — folded into the existing
+        # turn-budget.md section rather than a new file.
+        files = spawn.directive_section_files()
+        body = files["turn-budget.md"]
+        self.assertIn("이슈 #2409", body)
+        self.assertIn("spawn.py", body)
+        self.assertIn("재-Read", body)
+
     def test_skill_and_checkpoint_sections_are_conditional(self):
         base = spawn.directive_section_files()
         self.assertEqual(set(base),
                          {"completion-and-landing.md", "repo-discovery.md",
-                          "hook-contract.md", "known-paths.md",
-                          "turn-budget.md"})
+                          "known-paths.md", "turn-budget.md",
+                          "task-lookup.md", "hook-contract.md"})
         with_skills = spawn.directive_section_files(skills_mounted=True)
         self.assertIn("skill-obligations.md", with_skills)
         self.assertIn(spawn._SKILL_CHECK_PROSE,

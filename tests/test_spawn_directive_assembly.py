@@ -487,9 +487,13 @@ class DirectiveSectionFilesCodeScoping(unittest.TestCase):
     def test_code_scoped_false_omits_known_paths_but_keeps_baseline(self):
         files = spawn.directive_section_files(code_scoped=False)
         self.assertNotIn("known-paths.md", files)
+        # issue #2409: task-lookup.md (a file-hunt lookup) follows the same
+        # code_scoped gating as known-paths.md; hook-contract.md is baseline.
+        self.assertNotIn("task-lookup.md", files)
         self.assertIn("completion-and-landing.md", files)
         self.assertIn("repo-discovery.md", files)
         self.assertIn("turn-budget.md", files)
+        self.assertIn("hook-contract.md", files)
 
     def test_default_is_code_scoped_true_unchanged_from_pre_2227(self):
         # No caller that omits the new kwarg (adhoc spawns with no role
