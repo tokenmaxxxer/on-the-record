@@ -50,7 +50,7 @@ def bar_scoped_roles(pr_files, role_path_patterns):
 def mission_bar_scoped(target_files, mission_deliverable_patterns):
     """Issue #1160 step 3 machinery: same glob-matching body as
     `bar_scoped_roles`, applied to a role's `mission_deliverables[].artifact`
-    glob strings instead of `write_scope`/`use_when.trigger.path_patterns`
+    glob strings instead of `use_when.trigger.path_patterns`
     globs — feeds the bar-verdict linkage without changing `classify`
     itself. `mission_deliverable_patterns`: [glob pattern, ...] for one
     role. Returns True iff at least one pattern matches at least one file

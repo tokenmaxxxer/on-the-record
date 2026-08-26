@@ -962,8 +962,8 @@ def ideate_cmd(role: str, prompt_text: str, issue: int | None = None,
 def draft_cmd(role: str, prompt_text: str, issue: int | None = None,
              cwd: str | None = None) -> dict:
     """deliverable sketch — `{"draft": "...", "open_questions": [...]}`.
-    No `write_scope` applies: the caller decides whether to use the
-    text, the verb itself never writes to the repo."""
+    The caller decides whether to use the text — the verb itself never
+    writes to the repo."""
     return _sp._verb_cmd("draft", role, prompt_text, issue=issue, cwd=cwd)
 
 
@@ -998,12 +998,13 @@ def _readonly_plugin_dirs(role: str) -> list[Path]:
 
     이슈 #2507 disposition: 여기는 과제 텍스트 매치로 옮기지 않고
     role-shaped 그대로 유지한다 — `judge_cmd()`가 판단하는 대상은 "이번
-    과제가 뭔지"가 아니라 "이 merge 가 role 의 write_scope/record
-    계약을 지켰는지"이므로 판단 기준 자체가 role 고정이다. 과제 텍스트
-    매치로 좁히면 그 role 계약 조항 중 이번 diff 와 표면적으로 안
-    겹치는 항목(예: 드물게 걸리는 write-scope 예외)이 후보에서 빠져
-    위반을 놓칠 위험이 있다 — 자문 guidance 완화가 아니라 fail-closed
-    enforcement 정확성 문제라 add-only 매치조차 불필요한 잡음이다."""
+    과제가 뭔지"가 아니라 "이 merge 가 role 의 record 계약을 지켰는지"
+    (이슈 #2559: write_scope 는 더 이상 그 계약의 일부가 아니다 —
+    세션은 더 이상 경로로 제한되지 않는다)이므로 판단 기준 자체가 role
+    고정이다. 과제 텍스트 매치로 좁히면 그 role 계약 조항 중 이번 diff
+    와 표면적으로 안 겹치는 항목이 후보에서 빠져 위반을 놓칠 위험이
+    있다 — 자문 guidance 완화가 아니라 fail-closed enforcement 정확성
+    문제라 add-only 매치조차 불필요한 잡음이다."""
     out = list(_sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"])
     for p in _sp.core_plugin_dirs():
         if p.name not in _sp._JUDGE_EXCLUDED_CORE_PLUGINS:

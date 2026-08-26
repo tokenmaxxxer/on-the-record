@@ -25,7 +25,7 @@ checkout에 없고 `gh pr view`로만 얻어지므로, `check(repo)`의 로컬-�
 phase를 끌어낸다. 추출 실패는 fail closed(차단) — 근거와 트레이드오프는
 `docs/issue-245/decisions/2026-08-04-closes-gate-wiring-tradeoffs.md`.
 `--closes-only`(issue #245): 계획-인지 Closes 게이트(+phase1 mismatch)만
-돌리고 write_scope/protected-path/deps/record 검사는 건너뛴다 — `.github/`
+돌리고 protected-path/deps/record 검사는 건너뛴다 — `.github/`
 필수 상태체크가 쓰는 모드. 이유는 `check()`의 독스트링과
 `docs/issue-245/reports/implementation.md`의 "Rationale for deviations".
 """
@@ -541,15 +541,12 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
     """차단 사유 목록. 비어 있으면 통과.
 
     `closes_only=True`: 계획-인지 Closes 게이트(+phase1 mismatch 보완)만
-    돈다 — write_scope/protected-path/deps/record 검사는 전부 건너뛴다.
-    issue #245 필수 상태체크가 쓰는 모드: `gates.role_scope()`가 참조하는
-    `_always_writable()`의 제안-파일 패턴(`docs/issue-*/proposals/<role>.md`)이
-    이 저장소가 실제로 쓰는 날짜-슬러그 제안 파일명과 안 맞아, 번들 전체를
-    필수 체크로 걸면 그 불일치 하나로 미래의 모든 PR(이 PR 포함)이
-    막힌다 — 실측 확인됨(`docs/issue-245/reports/implementation.md`
-    "Rationale for deviations"). 그 불일치는 `gates/gates.py`의 기존 결함이라
-    이 이슈의 승인된 쓰기범위 밖: 고치는 대신, 이 이슈가 실제로 요구한
-    범위(계획-인지 Closes 게이트)만 필수 체크로 좁힌다."""
+    돈다 — protected-path/deps/record 검사는 전부 건너뛴다. issue #245
+    필수 상태체크가 쓰는 모드. (이슈 #2559: 이 모드가 예전에 우회하던
+    `gates.role_scope()`/`_always_writable()` 파일명-패턴 불일치는
+    write_scope 검사 자체가 통째로 제거되며 함께 사라졌다 — 남은 이유는
+    이 함수가 실제로 요구한 범위(계획-인지 Closes 게이트)만 필수 체크로
+    좁힌다는 것뿐이다.)"""
     bad = []
     if not closes_only:
         bad = [f"보호 경로 변경: {f}" for f in gates.changed_files(repo)
@@ -615,12 +612,6 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
                     bad += mismatch
     if closes_only:
         return bad
-    if pr is not None:
-        branch = _pr_head_ref(repo, pr)
-        if branch is None:
-            bad.append(f"PR #{pr} 의 head 브랜치를 읽을 수 없다 (fail closed)")
-        else:
-            bad += gates.role_scope(repo, branch)
     # issue #517: routed through gates/record_lint.py's re-exports — same
     # function objects as gates.py, not a second copy.
     bad += record_lint.record_enums(repo, {})
@@ -636,8 +627,8 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
 
     # issue #419: 재발 검사 두 가지. subprocess_call_shape_divergence 는
     # record_text 가 필요 없어 항상 돈다. sibling_mention_check 는 바뀐
-    # 레코드 텍스트가 필요해, PR 컨텍스트가 있을 때만(role_scope 와 같은
-    # 조건) — 로컬 단독 호출에서는 어떤 레코드를 볼지 결정할 근거가 없다.
+    # 레코드 텍스트가 필요해, PR 컨텍스트가 있을 때만 — 로컬 단독
+    # 호출에서는 어떤 레코드를 볼지 결정할 근거가 없다.
     bad += gates.subprocess_call_shape_divergence(repo)
     if pr is not None:
         branch = _pr_head_ref(repo, pr)

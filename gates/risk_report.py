@@ -9,7 +9,6 @@
 제안은 "낮음"이 아니라 "high"로 분류한다.
 """
 from __future__ import annotations
-import json
 import re
 import subprocess
 import sys
@@ -82,27 +81,6 @@ HOOK_DIRS = {"hooks"}
 GATES_DIRS = {"gates", "roles", "agents", "on-the-record", ".claude-plugin"}
 
 
-def _role_write_scopes(root: Path) -> dict[str, list[str]]:
-    """`spawn_roles.json`(이슈 #2539 — 예전 `roles/*.json`)의 write_scope glob
-    목록을 role 이름별로 모은다. 파일이 없거나 깨졌으면 빈 dict — 판정은 어차피
-    fail-closed 기본값(AXIS_MAX)이 감싼다."""
-    out: dict[str, list[str]] = {}
-    f = root / "spawn_roles.json"
-    if not f.is_file():
-        return out
-    try:
-        data = json.loads(f.read_text())
-    except (ValueError, OSError):
-        return out
-    for role, role_cfg in data.items():
-        if not isinstance(role_cfg, dict):
-            continue
-        scope = role_cfg.get("write_scope")
-        if isinstance(scope, list):
-            out[role] = [s for s in scope if isinstance(s, str)]
-    return out
-
-
 def _reversibility_of(path: str) -> int:
     parts = Path(path).parts
     if not parts:
@@ -128,29 +106,24 @@ def reversibility_grade(paths: list[str]) -> int:
 
 def blast_radius_grade(paths: list[str], root: Path,
                         other_proposals: list[dict] | None = None) -> int:
-    """DEPENDS-ON 근사치: write_scope가 겹치는 role 수 + 같은 경로를 쓰는
-    동시 열린 proposal 수. `roles/*.json`을 읽을 수 없으면 fail closed."""
+    """DEPENDS-ON 근사치: 같은 경로를 쓰는 동시 열린 proposal 수. (이슈
+    #2559: role-write_scope 겹침 신호는 write_scope 자체가 제거되며 함께
+    없어졌다 — 남은 입력은 proposal 겹침 하나뿐이라, 등급이 예전보다
+    전반적으로 낮게 나올 수 있다: role 소유권 기반 신호가 원천적으로
+    사라졌기 때문이지, 위험이 실제로 줄어서가 아니다.)"""
+    del root
     if not paths:
         return AXIS_MAX
-    scopes = _role_write_scopes(root)
-    if not scopes:
-        return AXIS_MAX
-    reading_roles = set()
-    for p in paths:
-        for role, globs in scopes.items():
-            if any(_glob_matches(p, g) for g in globs):
-                reading_roles.add(role)
     overlap = 0
     for other in other_proposals or []:
         other_files = set(other.get("files") or [])
         if other_files & set(paths):
             overlap += 1
-    signal = len(reading_roles) + overlap
-    if signal <= 1:
+    if overlap <= 1:
         return 1
-    if signal <= 3:
+    if overlap <= 3:
         return 2
-    if signal <= 6:
+    if overlap <= 6:
         return 3
     return AXIS_MAX
 
@@ -166,27 +139,24 @@ def _glob_matches(path: str, pattern: str) -> bool:
 
 
 def propagation_grade(paths: list[str], root: Path) -> int:
-    """이 경로를 자기 통치 범위로 문서화한 rulebook/role 수. enforcement-
-    boundary.md 행 + roles/*.json write_scope를 합쳐 센다. 둘 다 못 읽으면
+    """이 경로를 자기 통치 범위로 문서화한 rulebook 수. enforcement-
+    boundary.md 행만 센다. (이슈 #2559: role-write_scope 카운트 입력은
+    write_scope 자체가 제거되며 함께 없어졌다 — boundary.md 매치만 남아,
+    등급이 예전보다 전반적으로 낮게 나올 수 있다: role 소유권 기반 신호가
+    원천적으로 사라졌기 때문이지, 위험이 실제로 줄어서가 아니다.) 못 읽으면
     fail closed."""
     if not paths:
         return AXIS_MAX
-    scopes = _role_write_scopes(root)
     boundary = root / "docs" / "specs" / "enforcement-boundary.md"
     boundary_text = boundary.read_text() if boundary.is_file() else ""
-    if not scopes and not boundary_text:
+    if not boundary_text:
         return AXIS_MAX
-    touched_roles = set()
-    for p in paths:
-        for role, globs in scopes.items():
-            if any(_glob_matches(p, g) for g in globs):
-                touched_roles.add(role)
     boundary_rows = 0
     for p in paths:
         base = Path(p).name
         if base and re.search(re.escape(base), boundary_text):
             boundary_rows += 1
-    signal = len(touched_roles) + boundary_rows
+    signal = boundary_rows
     if signal <= 1:
         return 1
     if signal <= 3:
