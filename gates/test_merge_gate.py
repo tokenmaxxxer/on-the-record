@@ -373,39 +373,39 @@ def t_finder_empty_state_still_reports_comment_missing(monkeypatch, fixture_repo
     assert any("코멘트" in r for r in result["reasons"])
 
 
-def t_exempt_own_role_drops_only_the_supplying_prs_own_role():
+def t_exempt_own_record_kind_drops_only_the_supplying_prs_own_kind():
     missing = ["execution-observation", "conformance-review"]
 
-    # issue #2380: PR #2220 의 모양 -- issue-2204/execution-observation
-    # 은 스스로 execution-observation 을 공급하는 관찰자 record PR 이다.
-    # #2233 은 자기 role 만 뺐었지만(순환이 남아있던 지점), 이제는
-    # 형제(sibling) role 인 conformance-review 도 함께 빠진다 -- 같은
-    # 리뷰 사이클에 나란히 열린 관찰자 PR 이 서로의 선행 머지를 요구하는
-    # 순환을 깬다.
-    own = merge_gate._exempt_own_role(missing, "issue-2204",
-                                       "issue-2204/execution-observation")
+    # issue #2380 (stage 5 하에서 record-kind 축): PR #2220 의 모양 --
+    # issue-2204/execution-observation 은 스스로 execution-observation 을
+    # 공급하는 관찰자 record PR 이다. #2233 은 자기 kind 만 뺐었지만
+    # (순환이 남아있던 지점), 이제는 형제(sibling) kind 인
+    # conformance-review 도 함께 빠진다 -- 같은 리뷰 사이클에 나란히 열린
+    # 관찰자 PR 이 서로의 선행 머지를 요구하는 순환을 깬다.
+    own = merge_gate._exempt_own_record_kind(missing, "issue-2204",
+                                              "issue-2204/execution-observation")
     assert own == [], own
 
     # 거울 방향: conformance-review PR 도 마찬가지로 둘 다 빠진다.
-    mirror = merge_gate._exempt_own_role(missing, "issue-2204",
-                                          "issue-2204/conformance-review")
+    mirror = merge_gate._exempt_own_record_kind(missing, "issue-2204",
+                                                 "issue-2204/conformance-review")
     assert mirror == [], mirror
 
-    # own_role 이 PR_TRIGGERED_ROLES 밖이면(예: subject 의 implementation
-    # PR) 기존처럼 자기 role 하나만 빠진다 -- 구조적 예외가 아니라는
-    # 증거: implementation PR 은 여전히 두 관찰자 role 모두 요구한다.
+    # own_kind 가 PR_TRIGGERED_RECORD_KINDS 밖이면(예: subject 의
+    # implementation PR) 기존처럼 자기 kind 하나만 빠진다 -- 구조적 예외가
+    # 아니라는 증거: implementation PR 은 여전히 두 관찰자 kind 모두 요구한다.
     missing_with_impl = ["implementation", "execution-observation", "conformance-review"]
-    impl = merge_gate._exempt_own_role(missing_with_impl, "issue-2204",
-                                        "issue-2204/implementation")
+    impl = merge_gate._exempt_own_record_kind(missing_with_impl, "issue-2204",
+                                               "issue-2204/implementation")
     assert impl == ["execution-observation", "conformance-review"], impl
 
     # 다른 subject/role 의 PR 은 손대지 않는다(no-op).
-    other = merge_gate._exempt_own_role(missing, "issue-2204",
-                                         "issue-9999/implementation")
+    other = merge_gate._exempt_own_record_kind(missing, "issue-2204",
+                                                "issue-9999/implementation")
     assert other == missing
 
     # PR 문맥이 없으면(own_branch=None) 오늘과 같은 목록 그대로.
-    none_ctx = merge_gate._exempt_own_role(missing, "issue-2204", None)
+    none_ctx = merge_gate._exempt_own_record_kind(missing, "issue-2204", None)
     assert none_ctx == missing
 
 
@@ -425,7 +425,7 @@ def t_required_verification_missing_still_blocks_the_role_the_pr_does_not_supply
                                             "head_ref": "issue-2204/implementation"})
     missing = merge_gate.required_verification_missing(
         Path("."), "issue-2204", Path("."), 2212)
-    assert set(missing) == set(spawn_on_pr.PR_TRIGGERED_ROLES), missing
+    assert set(missing) == set(spawn_on_pr.PR_TRIGGERED_RECORD_KINDS), missing
 
 
 def t_required_verification_missing_exempts_the_observer_pr_that_supplies_it(monkeypatch):

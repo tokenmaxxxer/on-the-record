@@ -16,22 +16,37 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn_on_pr  # noqa: E402
 
 
-def test_applicable_roles_both_missing():
-    assert spawn_on_pr.applicable_roles({}) == [
+def test_applicable_record_kinds_both_missing():
+    assert spawn_on_pr.applicable_record_kinds({}) == [
         "execution-observation", "conformance-review"]
 
 
-def test_applicable_roles_one_missing():
+def test_applicable_record_kinds_one_missing_legacy_no_kind_field():
+    # 파일명 stem 을 kind fallback 으로 쓴다(stage 1 이전 레코드, kind: 없음).
     board = {"execution-observation": {"loop_state": "landed"}}
-    assert spawn_on_pr.applicable_roles(board) == ["conformance-review"]
+    assert spawn_on_pr.applicable_record_kinds(board) == ["conformance-review"]
 
 
-def test_applicable_roles_none_missing():
+def test_applicable_record_kinds_matches_by_kind_field_not_filename():
+    board = {"weird-filename": {"kind": "execution-observation"}}
+    assert spawn_on_pr.applicable_record_kinds(board) == ["conformance-review"]
+
+
+def test_applicable_record_kinds_none_missing():
     board = {
         "execution-observation": {"loop_state": "landed"},
         "conformance-review": {"loop_state": "landed"},
     }
-    assert spawn_on_pr.applicable_roles(board) == []
+    assert spawn_on_pr.applicable_record_kinds(board) == []
+
+
+def test_applicable_record_kinds_self_authored_does_not_satisfy():
+    board = {
+        "execution-observation": {"kind": "execution-observation", "author": "implementation"},
+        "conformance-review": {"kind": "conformance-review", "author": "conformance-review"},
+    }
+    missing = spawn_on_pr.applicable_record_kinds(board, subject_author="implementation")
+    assert missing == ["execution-observation"], missing
 
 
 @pytest.fixture()
