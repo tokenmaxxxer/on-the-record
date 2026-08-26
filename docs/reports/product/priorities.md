@@ -127,3 +127,18 @@ Append-only, newest entry last.
   corpus-scale claim failed conformance-review): a small,
   cheaply-verifiable before/after on real existing logs, not a
   corpus-wide 5x-style claim."), read 2026-08-26.
+
+- 2026-08-26: operator framed a standing bar for role-axis-retirement-style
+  migrations (not just #2507): deleting the old mechanism is not the
+  finish line — three things must hold together — (1) whatever the old
+  fixed table did must still work, now composed to fit the situation
+  rather than looked up from a table; (2) overhead must not grow, measured
+  against a stated baseline, not assumed; (3) every named remnant must be
+  resolved or explicitly re-scoped with a reason in the record, never
+  silently dropped. Also: an item found to have "no live callers" may be
+  removed without a migration step — dead code doesn't need the same
+  care as a live consumer. Source: issue #2507 body ("The completion bar
+  (operator, 2026-08-25)... Deleting the roles is not the finish line.
+  Three things must hold together... empty state: a consumer whose role
+  lookup already has no live callers — state that and remove it without a
+  migration step."), read 2026-08-26.
