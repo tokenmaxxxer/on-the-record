@@ -46,27 +46,25 @@ if _GATES_IMPL_KEY not in sys.modules:
 _gates = sys.modules[_GATES_IMPL_KEY]  # changed_files(), record_frontmatter()
 
 
-def _specs_dir(root: Path) -> Path:
-    return root / "roles" / "specs"
-
-
 def load_triggered_specs(root: Path) -> dict[str, dict]:
-    """role name -> spec dict, for every `roles/specs/*.spec.json` that
-    carries a non-empty `use_when.trigger` block."""
+    """role name -> spec dict, for every role in `spawn_roles.json`(이슈
+    #2539 — 예전 `roles/specs/*.spec.json`)'s `record_spec` that carries a
+    non-empty `use_when.trigger` block."""
     out = {}
-    d = _specs_dir(root)
-    if not d.is_dir():
+    f = root / "spawn_roles.json"
+    if not f.is_file():
         return out
-    for p in sorted(d.glob("*.spec.json")):
-        try:
-            spec = json.loads(p.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            continue
+    try:
+        data = json.loads(f.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return out
+    for role, role_cfg in data.items():
+        spec = (role_cfg or {}).get("record_spec")
         if not isinstance(spec, dict):
             continue
         trigger = (spec.get("use_when") or {}).get("trigger")
         if isinstance(trigger, dict) and trigger:
-            out[spec.get("role") or p.stem] = spec
+            out[role] = spec
     return out
 
 

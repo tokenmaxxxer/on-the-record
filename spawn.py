@@ -42,6 +42,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+# 이슈 #2539 (stage 6C): roles/*.json + roles/specs/*.spec.json 대신 이 파일
+# 하나 — role -> 원래 roles/<role>.json 내용, 그 안의 "record_spec" 키가 원래
+# roles/specs/<role>.spec.json 내용(일부 role은 이미 "spec" 필드를 다른 뜻으로
+# 쓰고 있어 이름이 다르다).
+_ROLE_DATA_PATH = ROOT / "spawn_roles.json"
+
+
+def role_data() -> dict:
+    return json.loads(_ROLE_DATA_PATH.read_text(encoding="utf-8"))
 
 # issue #2348: hook-fires/deviation-log per-session sharding -- both are
 # standalone leaf modules (no callback into spawn.py), so no `_sp`
@@ -2002,12 +2011,12 @@ def main() -> int:
     if not a.role:
         print("\n".join(status(a.cwd)))
         print("\n역할:")
-        for p in sorted((ROOT / "roles").glob("*.json")):
-            try:
-                meta = json.loads(p.read_text())
-            except ValueError:
-                meta = {}
-            print(f"  {p.stem:12s} {meta.get('decides','')}  — {meta.get('use_when','')}")
+        try:
+            data = role_data()
+        except (OSError, ValueError):
+            data = {}
+        for name, meta in sorted(data.items()):
+            print(f"  {name:12s} {meta.get('decides','')}  — {meta.get('use_when','')}")
         return 0
     if not a.task:
         sys.exit("맡길 일이 없다. 사용법: spawn.py <역할> \"<맡길 일>\" [-C <경로>]")
@@ -2688,7 +2697,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 겹친다.
     _core_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     _core_future = _core_executor.submit(core_plugin_dirs)
-    spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
+    spec = role_data()[role]
     # 이슈 #2001: 크로스-패밀리 스코어링은 이 함수가 받은 원본 task 텍스트를
     # 대상으로 한다 — 아래에서 task 에 여러 안내 문단이 계속 덧붙는데, 그
     # 덧붙은 텍스트(스킬 목록 자체 등)가 스코어링 입력에 섞이면 결정론이

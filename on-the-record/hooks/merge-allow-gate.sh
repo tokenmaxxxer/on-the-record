@@ -232,8 +232,9 @@ def _routing_fix_should_withhold(cwd):
         return False
     issue, role = m.group(1), m.group(2)
     try:
-        spec = json.load(open(os.path.join(cwd, "roles", "specs", role + ".spec.json")))
-    except (OSError, ValueError):
+        role_data = json.load(open(os.path.join(cwd, "spawn_roles.json")))
+        spec = role_data[role]["record_spec"]
+    except (OSError, ValueError, KeyError):
         return False
     trigger = (spec.get("use_when") or {}).get("trigger") if isinstance(spec.get("use_when"), dict) else None
     if not isinstance(trigger, dict) or trigger.get("record_absent_for") != role:

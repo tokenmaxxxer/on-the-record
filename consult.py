@@ -773,7 +773,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
         # 지웠다 — `_consult_cmd_and_env()` 는 `spec` 을 읽지 않았고(죽은
         # 코드), role 검증은 그 안의 `role_settings()` 호출(pipeline.py,
-        # 여전히 `roles/` 를 읽는다)이 그대로 맡는다.
+        # 이슈 #2539 stage 6C부터 `spawn_roles.json` 을 읽는다)이 그대로 맡는다.
         cmd, env, settings_path = _sp._consult_cmd_and_env(
             role, cwd, model, task_text=question, issue=issue)
         # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
@@ -1247,7 +1247,8 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
         # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
         # 지웠다 — `_judge_prefilter()`/`_judge_cmd_and_env()` 는 `spec` 을
         # 안 읽었다(죽은 코드). role 검증은 `_judge_prefilter()` 안의
-        # `role_settings()` 호출(pipeline.py, 여전히 `roles/` 를 읽는다)이
+        # `role_settings()` 호출(pipeline.py, 이슈 #2539 stage 6C부터
+        # `spawn_roles.json` 을 읽는다)이
         # 여전히 맡는다 — 다만 그 검증이 아래 `git show` 뒤로 밀린다는
         # 차이는 있다(무효 role 은 여전히 거절되지만, 거절 전에 무해한
         # `git show` 서브프로세스 호출 하나가 더 실행된다).
@@ -1395,8 +1396,8 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
     if os.environ.get("TOKENMAXXXER_PANEL_MESSAGING") == "unavailable":
         raise _sp._PanelMessagingUnavailable(f"{role}: TOKENMAXXXER_PANEL_MESSAGING=unavailable")
     # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
-    # 지웠다 — 아래 `_sp.role_settings()` 호출(pipeline.py, 여전히
-    # `roles/` 를 읽는다)이 role 검증을 그대로 맡는다.
+    # 지웠다 — 아래 `_sp.role_settings()` 호출(pipeline.py, 이슈 #2539
+    # stage 6C부터 `spawn_roles.json` 을 읽는다)이 role 검증을 그대로 맡는다.
     # 이슈 #2507: `issue` 가 이 함수 시그니처에 없어(`panel_cmd()` 는 갖고
     # 있지만 그 아래 세션 하나씩 실행하는 이 헬퍼는 원래부터 안 받았다)
     # None 으로 넘긴다 — `_composed_consult_skill_source()`/

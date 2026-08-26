@@ -51,7 +51,13 @@ def _changed_files(repo_root: str, merge_sha: str) -> list[str]:
 
 
 def _known_roles() -> list[str]:
-    return sorted(p.stem for p in (ROOT / "roles").glob("*.json"))
+    """이슈 #2539 (stage 6C): `roles/*.json` 파일 목록 대신 `spawn.ROLES` —
+    이 함수는 보드 파이프라인이 도는 role만 순회하면 되고, `spawn.ROLES`가
+    바로 그 집합이다(리포트 전용 채널인 upstream-defect-report는 원래도
+    보드 큐 엔트리가 생기지 않으므로 제외돼도 동작이 같다)."""
+    sys.path.insert(0, str(ROOT))
+    import spawn
+    return sorted(spawn.ROLES)
 
 
 def run(repo_root: str, merge_sha: str, judge_cmd=None) -> dict:

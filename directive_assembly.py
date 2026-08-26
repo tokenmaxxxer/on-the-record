@@ -587,8 +587,7 @@ def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
     # `in-progress` when the enum carries it, else the enum's first value.
     loop_state = "in-progress"
     try:
-        enum = (_sp.json.loads((_sp.ROOT / "roles" / f"{role}.json")
-                           .read_text(encoding="utf-8"))
+        enum = (_sp.role_data().get(role, {})
                 .get("record_fields", {}).get("loop_state"))
         if isinstance(enum, dict):
             # grouped shape {progress: [...], terminal: [...], ...} —
@@ -619,8 +618,7 @@ def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
     is_coding = role in ("coding", "implementation")
     spec_lines = ""
     try:
-        spec = _sp.json.loads((_sp.ROOT / "roles" / "specs" / f"{role}.spec.json")
-                          .read_text(encoding="utf-8"))
+        spec = _sp.role_data().get(role, {}).get("record_spec") or {}
         for fld in spec.get("required_fields", []):
             name = fld.get("name")
             if name == "loop_state":

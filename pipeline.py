@@ -222,13 +222,13 @@ def role_settings(role: str, cwd: str | None = None,
     **병합**이라 필요하다 — 안 끄면 qa 스킬-저장소 가이던스만 적은 세션에 전역 17개가 딸려
     온다.
     """
-    f = _sp.ROOT / "roles" / f"{role}.json"
-    if not f.exists():
-        have = ", ".join(sorted(p.stem for p in (_sp.ROOT / "roles").glob("*.json")))
-        sys.exit(f"모르는 역할: {role}  (있는 것: {have})")
-    spec = json.loads(f.read_text())
+    data = _sp.role_data()
+    if role not in data:
+        sys.exit(f"모르는 역할: {role}  (있는 것: {', '.join(sorted(data))})")
+    spec = data[role]
 
-    s = {k: v for k, v in spec.items() if k not in ("marketplace", "path", "repo")}
+    s = {k: v for k, v in spec.items()
+         if k not in ("marketplace", "path", "repo", "record_spec")}
 
     # 역할 파일의 env 는 **기본값**이지 강제가 아니다. 이미 환경에 있으면 그쪽이 이긴다 —
     # 안 그러면 bench 처럼 격리된 워크스페이스를 넘기려는 호출이 조용히 무시되고,
@@ -1640,7 +1640,7 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
     frontmatter), so a failure is a refusal — never fail-open."""
     role = ctx["role"]
     try:
-        if not (_sp.ROOT / "roles" / f"{role}.json").is_file():
+        if role not in _sp.ROLES:
             return False  # role spec is the first directive ingredient
         # Two-phase signal: the contract line must format for this role.
         _sp._SINGLE_PHASE_CONTRACT_LINE.format(role=role)

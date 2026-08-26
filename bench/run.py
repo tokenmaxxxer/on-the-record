@@ -34,7 +34,7 @@ BARE = ("QA this app: run it, try the main flows and obvious failure paths, "
 
 def rulebook_bench(role: str) -> Path:
     """역할의 룰북에서 bench 디렉터리. 역할 파일이 룰북 경로를 안다."""
-    spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
+    spec = spawn_mod.role_data()[role]
     b = Path(spec["path"]) / "bench"
     if not b.exists():
         sys.exit(f"[{role}] 룰북에 bench/ 가 없다: {b}")
