@@ -401,6 +401,7 @@ _post_crash_comment = lifecycle._post_crash_comment
 _post_session_end_comment = lifecycle._post_session_end_comment
 _post_stall_comment = lifecycle._post_stall_comment
 _pr_list_call_ok = lifecycle._pr_list_call_ok
+_prune_orphaned_sidecars = lifecycle._prune_orphaned_sidecars
 _remediation_merge_sweep = lifecycle._remediation_merge_sweep
 _respawn_fingerprint = lifecycle._respawn_fingerprint
 _respawn_or_cap = lifecycle._respawn_or_cap
@@ -408,6 +409,7 @@ _respawn_state_load = lifecycle._respawn_state_load
 _respawn_state_save = lifecycle._respawn_state_save
 _roster_reconcile_unreported = lifecycle._roster_reconcile_unreported
 _self_trigger_respawn = lifecycle._self_trigger_respawn
+_sidecar_workspace_name = lifecycle._sidecar_workspace_name
 _workspace_base = lifecycle._workspace_base
 _workspace_clean_state = lifecycle._workspace_clean_state
 auto_sweep = lifecycle.auto_sweep
@@ -2715,6 +2717,24 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     print(f"[{role}] auto-sweep(백그라운드) {elapsed:.3f}s "
                           f"만에 끝남 (지움 {outcome['removed']}, "
                           f"실패 {outcome['failed']})", file=sys.stderr)
+                    # 이슈 #2443: 워크스페이스 디렉터리 정리와 같은
+                    # 스폰타임/같은 백그라운드 스레드/같은 예외-흡수 계약으로
+                    # 짝 디렉터리가 이미 없어진 sidecar 파일(세션 로그/
+                    # events.jsonl/events.offset/watcher.log/task.txt)도
+                    # 훑는다 — 새 트리거 지점을 만들지 않는다, 위
+                    # auto_sweep() 과 같은 호출 안.
+                    try:
+                        sidecar_outcome = _prune_orphaned_sidecars(
+                            _workspace_base(), _clean_max_age_days())
+                    except Exception as ex:
+                        print(f"[{role}] sidecar-prune 실패(스폰은 계속): {ex}",
+                              file=sys.stderr)
+                        return
+                    if sidecar_outcome["removed"] or sidecar_outcome["failed"]:
+                        print(f"[{role}] sidecar-prune(백그라운드) "
+                              f"(지움 {sidecar_outcome['removed']}, "
+                              f"실패 {sidecar_outcome['failed']})",
+                              file=sys.stderr)
                 threading.Thread(target=_run_auto_sweep, daemon=True,
                                   name="auto-sweep").start()
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
