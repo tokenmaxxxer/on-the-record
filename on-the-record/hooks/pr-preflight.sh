@@ -607,7 +607,7 @@ _LIST_ITEM_RE = re.compile(r"^\s*(?:[-*]|\d+\.)\s+\S")
 _FENCE_RE = re.compile(r"^\s*(```|~~~)")
 _FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
 _TRAILER_LINE_RE = re.compile(
-    r"^\s*(part of|closes?|fixe?[sd]?|resolves?)\s+#\d+\s*$", re.IGNORECASE
+    r"^\s*(part of|advances|closes?|fixe?[sd]?|resolves?)\s+#\d+\s*$", re.IGNORECASE
 )
 _CITATION_RE = re.compile(
     r"(canonical:\s*\S+|derived:\s*\S+|\[[^\]]+\]\([^)]+\)|https?://\S+)"
@@ -687,6 +687,21 @@ def citation_trailing_placement(text):
 
 _PLAIN_REF = re.compile(r"(?<!\w)#(\d+)")
 _CLOSES_REF = re.compile(r"(?i)\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)")
+# issue #2508: a non-closing linkage trailer for an intentional partial
+# delivery — same acceptance as Closes/Fixes/Resolves below, minus the
+# auto-close side effect. Kept in sync by hand with gates/pr_reference.py.
+_ADVANCES_REF = re.compile(r"(?i)\b(advances|part of)\s+#(\d+)")
+
+def _ref_for_issue(pattern, body, issue):
+    # issue #2508: `.search()` (first match only) stops at an earlier,
+    # unrelated match ("...will not auto-close #999...") and misses a
+    # real trailer further in the body -- same reason pr-preflight.sh's
+    # own phase-1 refusal block below already uses .finditer(). Kept in
+    # sync by hand with gates/pr_reference.py::_ref_for_issue.
+    for m in pattern.finditer(body):
+        if int(m.group(2)) == issue:
+            return m
+    return None
 
 def check_body(issue, body, phase, plan=None):
     body = body or ""
@@ -707,16 +722,18 @@ def check_body(issue, body, phase, plan=None):
                 len(incomplete) == 1 and incomplete[0]["step"] == max_step
             )
             if incomplete and not only_last_incomplete:
-                mm = _CLOSES_REF.search(body)
-                if mm and int(mm.group(2)) == issue:
+                if _ref_for_issue(_CLOSES_REF, body, issue):
                     return prose_violations + ["계획에 미완 스텝이 남아 있다 — 마지막 스텝의 "
                             "phase-2 PR에서만 Closes/Fixes/Resolves를 쓴다."]
                 return prose_violations
-        mm = _CLOSES_REF.search(body)
-        if not mm or int(mm.group(2)) != issue:
-            return prose_violations + [f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)가 없다 — "
-                    f"phase-2 인도 PR은 이슈를 명시적으로 닫아야 한다."]
-        return prose_violations
+        if _ref_for_issue(_CLOSES_REF, body, issue):
+            return prose_violations
+        if _ref_for_issue(_ADVANCES_REF, body, issue):
+            return prose_violations
+        return prose_violations + [f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)도, "
+                f"'Advances #{issue}'(또는 Part of, 의도적 partial delivery용)도 "
+                f"없다 — phase-2 인도 PR은 이슈를 명시적으로 닫거나(완결) 최소한 "
+                f"진전시켰다고(비-종결) 밝혀야 한다."]
     refs = {int(n) for n in _PLAIN_REF.findall(body)}
     if issue not in refs:
         return prose_violations + [f"PR 본문에 '#{issue}' 참조가 없다 — phase-1 제안 PR도 자기 "
@@ -727,7 +744,9 @@ def check_body(issue, body, phase, plan=None):
 bad = check_body(issue, body, phase, plan)
 if bad:
     if phase == "phase2":
-        hint = f"'Closes #{issue}' (or Fixes/Resolves #{issue}) in the PR body"
+        hint = (f"'Closes #{issue}' (or Fixes/Resolves #{issue}) in the PR body "
+                 f"-- or, for an intentional partial delivery, 'Advances #{issue}' "
+                 f"(or 'Part of #{issue}')")
     else:
         hint = f"a plain '#{issue}' reference in the PR body (no Closes/Fixes/Resolves)"
     deny(bad[0], hint)

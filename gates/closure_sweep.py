@@ -43,13 +43,16 @@ OUT_OF_INDEX_SEEN_STATE_FILENAME = "closure_sweep_out_of_index_seen.json"
 _SWEEP_COMMENT_MARKER = "[on-the-record] closure-sweep: {digest}"
 
 
-def _refs_issue(body: str, issue: int) -> tuple[bool, bool]:
-    """(plain 참조 있음, Closes/Fixes/Resolves 참조 있음) — 이 이슈 번호로 한정."""
+def _refs_issue(body: str, issue: int) -> tuple[bool, bool, bool]:
+    """(plain 참조 있음, Closes/Fixes/Resolves 참조 있음, Advances/Part of
+    참조 있음(issue #2508)) — 이 이슈 번호로 한정."""
     body = body or ""
     has_closes = any(int(m.group(2)) == issue
                       for m in pr_reference._CLOSES_REF.finditer(body))
+    has_advances = any(int(m.group(2)) == issue
+                        for m in pr_reference._ADVANCES_REF.finditer(body))
     has_plain = issue in {int(n) for n in pr_reference._PLAIN_REF.findall(body)}
-    return has_plain, has_closes
+    return has_plain, has_closes, has_advances
 
 
 def classify(issue_state: str, pr_state: str, pr_body: str, issue: int,
@@ -65,11 +68,16 @@ def classify(issue_state: str, pr_state: str, pr_body: str, issue: int,
     `loop_state`가 채워져 있으면, PR 본문에 Closes/Fixes/Resolves가
     없어도 실제 인도로 본다. #284가 그 키워드를 선택사항으로 만든
     이후로는 키워드 부재만으로 '인도 아님'을 단정할 수 없다 — 키워드도
-    기록 증거도 없을 때만 위반이 아니다."""
-    has_plain, has_closes = _refs_issue(pr_body, issue)
+    기록 증거도 없을 때만 위반이 아니다.
+
+    `Advances`/`Part of`(issue #2508)는 반대 방향의 명시적 선언이다 — 저자가
+    이 머지로 이슈를 닫을 의도가 없다고 밝힌 것이므로, 머지됐는데 이슈가
+    열려 있는 상태는 기대한 결과지 위반이 아니다(record 증거가 있어도)."""
+    has_plain, has_closes, has_advances = _refs_issue(pr_body, issue)
     if issue_state == "CLOSED" and pr_state == "OPEN" and (has_plain or has_closes):
         return OPEN_PR_ON_CLOSED_ISSUE
-    if pr_state == "MERGED" and issue_state == "OPEN" and (has_closes or has_record_evidence):
+    if (pr_state == "MERGED" and issue_state == "OPEN" and not has_advances
+            and (has_closes or has_record_evidence)):
         return MERGED_DELIVERY_ISSUE_OPEN
     return None
 

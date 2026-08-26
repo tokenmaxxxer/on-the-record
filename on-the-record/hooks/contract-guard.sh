@@ -17,6 +17,12 @@
 # gates/ci.py._approved_roles_on_issue does: an `APPROVE issue-<n>/<role>`
 # comment from an approvers.md account on the issue means phase-2.
 #
+# Non-closing linkage (issue #2508): an `Advances #<issue>`/`Part of
+# #<issue>` trailer already satisfies the requirement below, same as
+# Closes/Fixes/Resolves — it is a deliberate author choice for an
+# intentional partial delivery, and this broker must never overwrite it
+# with a Closes trailer the author did not write.
+#
 # Fail-open by design difference from deliverable-guard.sh: deliverable-guard
 # denies WRITES (cheap to re-attempt, high blast radius if wrong-allowed).
 # This gates a PR MERGE (expensive to undo, and `gh`/network failures are
@@ -164,10 +170,17 @@ commit_dates = [
 first_commit_at = min(commit_dates) if commit_dates else None
 
 _CLOSES_REF = re.compile(r"(?i)\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)")
+# issue #2508: a non-closing linkage trailer (intentional partial delivery)
+# already satisfies the phase-2 requirement below — this broker must not
+# overwrite it with a Closes trailer the author deliberately did not write.
+_ADVANCES_REF = re.compile(r"(?i)\b(advances|part of)\s+#(\d+)")
 _PLAIN_REF = re.compile(r"(?<!\w)#(\d+)")
 closes_m = _CLOSES_REF.search(body)
+advances_m = _ADVANCES_REF.search(body)
 plain_refs = [int(n) for n in _PLAIN_REF.findall(body)]
-issue = int(closes_m.group(2)) if closes_m else (plain_refs[0] if plain_refs else None)
+issue = (int(closes_m.group(2)) if closes_m
+         else int(advances_m.group(2)) if advances_m
+         else (plain_refs[0] if plain_refs else None))
 if issue is None:
     sys.exit(0)  # no issue reference at all — pr_reference.py's own scope, not this hook's new ground
 
@@ -275,6 +288,7 @@ try:
         "is_src_test": is_src_test,
         "is_record": is_record,
         "closes_present_before": bool(closes_m),
+        "advances_present_before": bool(advances_m),
     }
     with open(log_path, "a", encoding="utf-8") as lf:
         lf.write(json.dumps(entry) + "\n")
@@ -297,7 +311,9 @@ if not phase2:
 if not (is_src_test or is_record):
     sys.exit(0)  # approved but this PR's own diff isn't phase-2-shaped (issue #741)
 
-if not closes_m or int(closes_m.group(2)) != issue:
+has_closes_for_issue = bool(closes_m) and int(closes_m.group(2)) == issue
+has_advances_for_issue = bool(advances_m) and int(advances_m.group(2)) == issue
+if not has_closes_for_issue and not has_advances_for_issue:
     if closes_m:
         old_num = closes_m.group(2)
         match_text = closes_m.group(0)
