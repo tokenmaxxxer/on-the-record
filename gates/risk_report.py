@@ -83,21 +83,23 @@ GATES_DIRS = {"gates", "roles", "agents", "on-the-record", ".claude-plugin"}
 
 
 def _role_write_scopes(root: Path) -> dict[str, list[str]]:
-    """`roles/*.json`의 write_scope glob 목록을 role 이름별로 모은다.
-    디렉터리가 없거나 파일이 깨졌으면 그 role만 건너뛴다 — 판정은 어차피
+    """`spawn_roles.json`(이슈 #2539 — 예전 `roles/*.json`)의 write_scope glob
+    목록을 role 이름별로 모은다. 파일이 없거나 깨졌으면 빈 dict — 판정은 어차피
     fail-closed 기본값(AXIS_MAX)이 감싼다."""
     out: dict[str, list[str]] = {}
-    roles_dir = root / "roles"
-    if not roles_dir.is_dir():
+    f = root / "spawn_roles.json"
+    if not f.is_file():
         return out
-    for f in sorted(roles_dir.glob("*.json")):
-        try:
-            data = json.loads(f.read_text())
-        except (ValueError, OSError):
+    try:
+        data = json.loads(f.read_text())
+    except (ValueError, OSError):
+        return out
+    for role, role_cfg in data.items():
+        if not isinstance(role_cfg, dict):
             continue
-        scope = data.get("write_scope")
+        scope = role_cfg.get("write_scope")
         if isinstance(scope, list):
-            out[f.stem] = [s for s in scope if isinstance(s, str)]
+            out[role] = [s for s in scope if isinstance(s, str)]
     return out
 
 
