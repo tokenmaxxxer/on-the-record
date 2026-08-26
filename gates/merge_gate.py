@@ -230,6 +230,20 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     """`{"allowed": bool, "reasons": [str, ...]}`. 넷 다 깨끗해야
     `allowed`: check-runner 코멘트 존재, `passed == total`, 필요 검증
     기록 모두 존재, stale-revert 없음(issue #1664)."""
+    # issue #2381 R1 (conformance-review CHANGES round): 아래 `stale_revert_reasons()`
+    # 는 `origin/<base_ref>` 를 resolve 한다 — 예전엔 `check_runner.py`의
+    # `checkout_pr_worktree()`가 같은 `--repo` 체크아웃에 먼저
+    # `fetch_all_role_branches()`를 실행해 뒀다는 걸 전제로 삼았지만,
+    # `verdict_gate.py`(및 그걸 통하지 않고 `evaluate()`를 직접 부르는 다른
+    # 호출부)는 그 실행 순서를 보장하지 않는다 — 그러면 이슈 #2381 이 고치려던
+    # "fatal: invalid reference"(방금 push된 role 브랜치를 못 찾는 문제)가
+    # `merge_gate.py` 쪽에서 그대로 재발한다. `evaluate()` 자신이 이 함수의
+    # 유일한 origin-ref 의존 호출부(`stale_revert_reasons`) 바로 앞에서
+    # fetch 함으로써, 어느 스크립트를 거쳐 들어오든 매번 커버한다.
+    # best-effort: 리턴값을 보지 않는다 — origin 리모트가 없는 합성 테스트
+    # 저장소 등에서 실패해도, `stale_revert_reasons()`는 이미 ref 를 못 읽으면
+    # fail-open 이라 결과가 달라지지 않는다.
+    check_runner.fetch_all_role_branches(repo)
     reasons: list[str] = []
     comment = latest_check_runner_comment(repo, pr)
     if comment is None:

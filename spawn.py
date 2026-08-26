@@ -543,6 +543,8 @@ _LANDING_BATCHING_PROSE = directive_assembly._LANDING_BATCHING_PROSE
 _TURN_BUDGET_PROSE = directive_assembly._TURN_BUDGET_PROSE
 _REPO_DISCOVERY_PROSE = directive_assembly._REPO_DISCOVERY_PROSE
 _KNOWN_PATHS_PROSE = directive_assembly._KNOWN_PATHS_PROSE
+_TASK_LOOKUP_PROSE = directive_assembly._TASK_LOOKUP_PROSE
+_HOOK_CONTRACT_PROSE = directive_assembly._HOOK_CONTRACT_PROSE
 _SKILL_CHECK_PROSE = directive_assembly._SKILL_CHECK_PROSE
 _SKILL_VERDICT_PROSE = directive_assembly._SKILL_VERDICT_PROSE
 _role_touches_code = directive_assembly._role_touches_code
@@ -1505,9 +1507,14 @@ def main() -> int:
                          "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--skills", default=None,
-                    help="쉼표로 구분한 스킬 이름 목록을 skill-repository 체크아웃"
-                         "(MUSTER_SKILL_REPO 또는 형제-클론)에서 마운트한다"
-                         "(이슈 #1742). 생략하면 스폰 argv/env 는 이전과 동일")
+                    help="쉼표로 구분한 스킬 이름 목록을 네 소스 — "
+                         "skill-repository 체크아웃(MUSTER_SKILL_REPO 또는 "
+                         "형제-클론), 설치된 플러그인의 skills/, "
+                         "~/.claude/skills, 타깃 저장소 .claude/skills — "
+                         "에 걸쳐 해석해 마운트한다(이슈 #1742/#1774/#2488). "
+                         "이름이 둘 이상의 소스에서 겹치면 fail-closed(우선순위 "
+                         "없음, docs/decisions/2026-08-26-skills-resolver-source-priority-and-trust.md). "
+                         "생략하면 스폰 argv/env 는 이전과 동일")
     ap.add_argument("--skill", default=None,
                     help="이슈 #2241 stage 0: 역할 대신 스킬 이름(콤마로 여러 개 가능)으로 "
                          "곧장 가이던스를 해석한다. 사용: spawn.py --skill <스킬명> "

@@ -1,0 +1,96 @@
+{
+  "sessions": 5,
+  "bash_total": 496,
+  "bash_other_share": 0.8629032258064516,
+  "hook_refusals_total": 35,
+  "hook_refusals_per_session": 7.0,
+  "named_offenders_total": {
+    "spawn.py": 28,
+    "implementation.md": 7
+  },
+  "per_session": [
+    {
+      "session_log": "/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2314-implementation.session.20260825T124527.1898083.log",
+      "wall_clock_ms": 1498480,
+      "num_turns": 108,
+      "bash_total": 80,
+      "bash_other_share": 0.9625,
+      "hook_refusals": 8,
+      "named_offenders": {
+        "spawn.py": 0,
+        "implementation.md": 0
+      },
+      "hook_refusals_by_gate": {
+        "record-claim-guard": 5,
+        "heredoc-command-refusal-gate": 2,
+        "board-gate": 1
+      }
+    },
+    {
+      "session_log": "/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2331-implementation.session.20260825T132149.4048637.log",
+      "wall_clock_ms": 2059740,
+      "num_turns": 112,
+      "bash_total": 76,
+      "bash_other_share": 0.9868421052631579,
+      "hook_refusals": 10,
+      "named_offenders": {
+        "spawn.py": 0,
+        "implementation.md": 3
+      },
+      "hook_refusals_by_gate": {
+        "board-gate": 5,
+        "record-claim-guard": 3,
+        "heredoc-command-refusal-gate": 1,
+        "pr-preflight": 1
+      }
+    },
+    {
+      "session_log": "/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2348-implementation.session.20260825T165751.3137898.log",
+      "wall_clock_ms": 2232118,
+      "num_turns": 177,
+      "bash_total": 100,
+      "bash_other_share": 0.65,
+      "hook_refusals": 7,
+      "named_offenders": {
+        "spawn.py": 5,
+        "implementation.md": 2
+      },
+      "hook_refusals_by_gate": {
+        "heredoc-command-refusal-gate": 3,
+        "record-claim-guard": 2,
+        "acceptance-command-real-run-guard": 1,
+        "pr-preflight": 1
+      }
+    },
+    {
+      "session_log": "/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2382-implementation.session.20260825T165945.3150594.log",
+      "wall_clock_ms": null,
+      "num_turns": null,
+      "bash_total": 111,
+      "bash_other_share": 0.7837837837837838,
+      "hook_refusals": 0,
+      "named_offenders": {
+        "spawn.py": 17,
+        "implementation.md": 0
+      },
+      "hook_refusals_by_gate": {}
+    },
+    {
+      "session_log": "/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2393-implementation.session.20260825T182737.1665378.log",
+      "wall_clock_ms": 2325492,
+      "num_turns": 139,
+      "bash_total": 129,
+      "bash_other_share": 0.9612403100775194,
+      "hook_refusals": 10,
+      "named_offenders": {
+        "spawn.py": 6,
+        "implementation.md": 2
+      },
+      "hook_refusals_by_gate": {
+        "board-gate": 4,
+        "record-claim-guard": 4,
+        "heredoc-command-refusal-gate": 2
+      }
+    }
+  ]
+}
