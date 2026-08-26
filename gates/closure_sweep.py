@@ -472,13 +472,19 @@ def _current_accumulation_counts(root: Path) -> dict:
 
 
 def _accumulation_repo_key(root: Path) -> str:
-    """`root` 를 식별하는 안정적이고 사람이 읽을 수 있는 키 — 체크아웃
-    디렉터리 basename(issue #2546). `spawn._repo_slug()`(gh API 호출) 는
-    쓰지 않는다 — `accumulation_trend()` 는 워치독이 "로컬 전용 신호"로
-    분류해 gh 쿼터/백오프 게이팅 없이 항상 돌리는 경로(watchdog.py
-    `_run_local_only_signals` 주석)라, 여기서 gh 호출을 추가하면 그
-    전제를 깬다."""
-    return root.resolve().name
+    """`root` 를 식별하는 안정적이고 사람이 읽을 수 있는 키 —
+    `spawn._repo_identity()`(= `events._repo_identity()`) 에 위임한다(issue
+    #2546 warrant-hunter 후속 수정). 최초 구현은 체크아웃 디렉터리
+    basename 을 직접 썼는데, origin 이 다른 두 레포가 같은 체크아웃
+    디렉터리 이름(예: 둘 다 `checkout/`)을 쓰면 같은 키로 충돌해 이슈
+    #2546 이 고치려던 바로 그 cross-repo delta 버그를 조용히 재도입했다.
+    `_repo_identity()` 는 로컬 전용(`git remote get-url origin` 서브프로세스
+    호출 1회, `gh` API 호출 없음)이고, origin 이 없을 때만 디렉터리
+    basename 으로 떨어진다 — `spawn._repo_slug()`(gh API 호출)와는 다르다.
+    이미 `spawn` 으로 임포트돼 있고, 같은 다중 레포 스윕 루프
+    (`watchdog._board_wide_sweep_all`, ~836/~1218)가 레포 라벨링과 락파일
+    이름에 이미 같은 함수를 쓰고 있으므로 그 신뢰 기반을 재사용한다."""
+    return spawn._repo_identity(root)
 
 
 def accumulation_trend(root: Path) -> dict:

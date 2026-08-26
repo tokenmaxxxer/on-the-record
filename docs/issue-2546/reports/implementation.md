@@ -21,8 +21,15 @@ verdict: pass
 pair was rewritten to make the advisory state repo-keyed instead of a single
 shared counter file:
 
-- Added `_accumulation_repo_key(root)` — returns `root.resolve().name` (the
-  checkout directory basename) as the stable, human-readable repo identifier.
+- Added `_accumulation_repo_key(root)` — delegates to `spawn._repo_identity(root)`
+  (= `events._repo_identity`, `events.py:331-344`) as the stable,
+  human-readable repo identifier. `_repo_identity` is local-only (one
+  `git remote get-url origin` subprocess call, no `gh` API call) and parses
+  the GitHub org/repo out of the origin URL, falling back to checkout
+  directory basename only when there is no GitHub origin remote. **This
+  replaces an earlier version of this function that returned
+  `root.resolve().name` (bare checkout directory basename) directly — see
+  "What did not work" below for why that was changed.**
 - `accumulation_trend()` now reads `runs/accumulation_trend.json` as a
   `{repo_key: {shape1_sites, shape1_ok}}` mapping. A legacy (pre-#2546)
   unkeyed file has non-dict top-level values, so it fails the
@@ -82,7 +89,12 @@ repo-identity source: `watchdog.py`'s `_run_local_only_signals` docstring
 signals that "runs regardless of gh quota/backoff gating" specifically
 because it makes no gh calls; adding one here would silently break that
 invariant. `root.resolve().name` (checkout directory basename) matches the
-issue's own suggested option and needs no network call.
+issue's own suggested option and needs no network call. **Deviation, applied
+after initial landing: basename keying was replaced with
+`spawn._repo_identity(root)` — see "What did not work" for why. This does
+not reopen the gh-quota concern above: `_repo_identity` makes exactly one
+`git remote get-url origin` subprocess call, never a `gh` API call, so the
+`_run_local_only_signals` invariant still holds.**
 
 derived: `grep -n "repo_name\|repo_root\|REPO_NAME\|_repo_slug\|repo_slug" gates/*.py` —
 result: found `spawn._repo_slug` (defined via `plumbing._repo_slug` in
@@ -92,7 +104,40 @@ root); neither was reused as-is, see Open findings.
 
 ## What did not work
 
-N/A.
+The first implementation of `_accumulation_repo_key()` returned
+`root.resolve().name` (bare checkout directory basename), reasoning that it
+matched the issue's own suggested option and needed no network call (see Why
+above for the full rejection-of-`_repo_slug()` reasoning, which still holds).
+This was verified live against two real repos before landing (Verification
+b/c below, unchanged) — but those two repos (this checkout, basename
+`on-the-record-issue-2546-implementation`, and `$CLAUDE_PLUGIN_ROOT_CORE`,
+basename `core`) happened to have different directory basenames, so the
+verification exercised the "two different repos → two different keys" path
+without ever exercising the "two different repos → same basename" path. The
+flaw was basename keying's actual failure mode: any two distinct repos
+(different git origin) checked out under the same directory name — e.g. two
+worktrees both named `checkout/`, which is exactly the pattern the
+multi-repo sweep loop in `watchdog._board_wide_sweep_all` can produce when
+juggling several repos' worktrees — collide on the same state key, silently
+reintroducing the exact cross-repo-delta-reported-as-growth bug issue #2546
+was filed to fix, just triggered by same-tick-set basename collision instead
+of sequential-tick alternation of a single shared unkeyed file.
+
+canonical: `docs/issue-2546/reports/implementation/2026-08-26-hunt-accumulation-trend-repo-key.md`
+— a warrant-hunter probe run against commit `cab3255b` caught this via a
+constructed two-repo, same-basename reproduction (`repo-alpha`/`repo-beta`,
+both checked out under a directory literally named `checkout`), quoted in
+full in that report's Observed section: both roots resolved to
+`_accumulation_repo_key() == "checkout"`, so repo-beta's first-ever tick was
+misreported as a `-1` delta against repo-alpha's prior count. The same
+report also pointed out that `watchdog._board_wide_sweep_all` already calls
+`_sp._repo_identity(repo)` at this exact call site (`watchdog.py` ~836 for
+the per-repo print label, ~1218 for the cross-workspace lock filename) and
+that function is proven collision-resistant there. Resolution: replaced
+`_accumulation_repo_key()`'s body with `spawn._repo_identity(root)` (this
+commit), re-ran the original three checks plus a fresh two-real-repo
+same-basename collision repro against the corrected code — see Verification
+below, "post warrant-hunter fix" section.
 
 ## Upstream basis
 
@@ -211,3 +256,133 @@ State file after all three ticks:
 ```
 
 acceptance: `python3 -m py_compile gates/closure_sweep.py` — result: exit 0, no syntax errors.
+
+## Verification — post warrant-hunter fix (`_repo_identity`-based keying)
+
+All three checks below were re-run against the corrected code
+(`_accumulation_repo_key()` now `return spawn._repo_identity(root)`), fresh,
+in this worktree, plus a fourth check demonstrating the collision case the
+warrant-hunter probe found is actually fixed.
+
+d) On-disk legacy unkeyed file, read without raising (fresh state root, not
+this worktree's real `runs/` dir):
+
+derived:
+```
+rm -rf /tmp/verify_state && mkdir -p /tmp/verify_state
+printf '{"shape1_sites": 365, "shape5_files": 0}' > /tmp/verify_state/accumulation_trend.json
+MUSTER_STATE_ROOT=/tmp/verify_state python3 -c "
+import sys
+sys.path.insert(0, 'gates'); sys.path.insert(0, '.')
+import closure_sweep
+from pathlib import Path
+t = closure_sweep.accumulation_trend(Path('.'))
+print('unkeyed-file tick:', closure_sweep.format_accumulation_trend(t))
+"
+cat /tmp/verify_state/accumulation_trend.json
+```
+output:
+```
+unkeyed-file tick: [on-the-record] accumulation-trend: no prior tick data (first run) — shape1_sites=365
+{"on-the-record": {"shape1_sites": 365, "shape1_ok": true}}
+```
+No exception. Note the repo key is now `on-the-record` (parsed from this
+checkout's real `origin` remote), not the directory basename
+(`on-the-record-issue-2546-implementation`) — confirms the key now comes
+from `_repo_identity`, not `root.resolve().name`.
+
+e) Three-tick alternation, this checkout + `$CLAUDE_PLUGIN_ROOT_CORE`, fresh
+state root:
+
+derived:
+```
+rm -rf /tmp/verify_state2 && mkdir -p /tmp/verify_state2
+MUSTER_STATE_ROOT=/tmp/verify_state2 python3 -c "
+import sys
+sys.path.insert(0, '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2546-implementation/gates')
+sys.path.insert(0, '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2546-implementation')
+import closure_sweep
+from pathlib import Path
+rootA = Path('/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2546-implementation')
+rootB = Path('\$CLAUDE_PLUGIN_ROOT_CORE')
+t1 = closure_sweep.accumulation_trend(rootA)
+print('tick1 (on-the-record):', closure_sweep.format_accumulation_trend(t1))
+t2 = closure_sweep.accumulation_trend(rootB)
+print('tick2 (core):', closure_sweep.format_accumulation_trend(t2))
+t3 = closure_sweep.accumulation_trend(rootA)
+print('tick3 (on-the-record again):', closure_sweep.format_accumulation_trend(t3))
+"
+cat /tmp/verify_state2/accumulation_trend.json
+```
+output:
+```
+tick1 (on-the-record): [on-the-record] accumulation-trend: no prior tick data (first run) — shape1_sites=365
+tick2 (core): [tokenmaxxxer-core] accumulation-trend: no prior tick data (first run) — shape1_sites=6
+tick3 (on-the-record again): [on-the-record] accumulation-trend: shape1_sites=365 (+0)
+{"on-the-record": {"shape1_sites": 365, "shape1_ok": true}, "tokenmaxxxer-core": {"shape1_sites": 6, "shape1_ok": true}}
+```
+Repo B's key is now `tokenmaxxxer-core` (parsed from its real origin
+`https://github.com/tokenmaxxxer/tokenmaxxxer-core.git`), not `core` (the
+directory basename) as in the original (pre-fix) verification run above —
+demonstrates the key source changed from basename to origin-derived
+identity. Tick 3's delta against repo A's own tick-1 prior is still
+correctly `(+0)`, not contaminated by repo B's `6`.
+
+f) Collision repro: two real local git repos, distinct GitHub origins, same
+checkout directory basename (`checkout`) — the exact case the
+warrant-hunter probe constructed against the pre-fix code:
+
+derived:
+```
+cd /tmp && rm -rf wrap1 wrap2 && mkdir -p wrap1/checkout wrap2/checkout
+cd /tmp/wrap1/checkout && git init -q && git remote add origin https://github.com/orgA/repo-alpha.git \
+  && printf 'import subprocess\nsubprocess.run(["echo","a"])\nsubprocess.run(["echo","b"])\n' > a.py \
+  && git add a.py && git -c user.email=a@a -c user.name=a commit -q -m init
+cd /tmp/wrap2/checkout && git init -q && git remote add origin https://github.com/orgB/repo-beta.git \
+  && printf 'import subprocess\nsubprocess.run(["echo","c"])\n' > b.py \
+  && git add b.py && git -c user.email=a@a -c user.name=a commit -q -m init
+
+rm -rf /tmp/state_root && mkdir -p /tmp/state_root
+MUSTER_STATE_ROOT=/tmp/state_root python3 -c "
+import sys
+sys.path.insert(0, '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2546-implementation/gates')
+sys.path.insert(0, '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2546-implementation')
+import closure_sweep
+from pathlib import Path
+rootA = Path('/tmp/wrap1/checkout')   # git origin orgA/repo-alpha
+rootB = Path('/tmp/wrap2/checkout')   # git origin orgB/repo-beta -- a DIFFERENT repo, SAME dirname
+t1 = closure_sweep.accumulation_trend(rootA)
+print('tick1 (repo-alpha):', closure_sweep.format_accumulation_trend(t1))
+t2 = closure_sweep.accumulation_trend(rootB)
+print('tick2 (repo-beta):', closure_sweep.format_accumulation_trend(t2))
+t3 = closure_sweep.accumulation_trend(rootA)
+print('tick3 (repo-alpha again):', closure_sweep.format_accumulation_trend(t3))
+"
+cat /tmp/state_root/accumulation_trend.json
+```
+output:
+```
+tick1 (repo-alpha): [repo-alpha] accumulation-trend: no prior tick data (first run) — shape1_sites=2
+tick2 (repo-beta): [repo-beta] accumulation-trend: no prior tick data (first run) — shape1_sites=1
+tick3 (repo-alpha again): [repo-alpha] accumulation-trend: shape1_sites=2 (+0)
+{"repo-alpha": {"shape1_sites": 2, "shape1_ok": true}, "repo-beta": {"shape1_sites": 1, "shape1_ok": true}}
+```
+Both roots have the identical directory basename `checkout`, yet the fixed
+code assigns distinct keys `repo-alpha`/`repo-beta` (parsed from each repo's
+own origin URL) and tracks independent deltas correctly: repo-beta's
+first-ever tick correctly prints the first-run form (not a delta against
+repo-alpha's `2`), and repo-alpha's own tick-3 delta against its own tick-1
+prior is correctly `(+0)`.
+
+Under the old (basename) keying this collides: `_accumulation_repo_key()`
+would have returned `root.resolve().name == "checkout"` for both roots, so
+`all_state.get(repo_key)` at tick 2 would look up repo-alpha's tick-1 entry
+(`{"shape1_sites": 2, ...}`) as if it were repo-beta's own prior — this is
+exactly what the warrant-hunter probe demonstrated against the unfixed code
+(quoted verbatim in
+`docs/issue-2546/reports/implementation/2026-08-26-hunt-accumulation-trend-repo-key.md`,
+Observed section): `tick2 (repo-beta): [checkout] accumulation-trend:
+shape1_sites=1 (-1)` — repo-beta's first-ever observation misreported as a
+`-1` shrink against a repo it had never touched.
+
+acceptance: `python3 -m py_compile gates/closure_sweep.py` — result: exit 0, no syntax errors (re-run against the corrected function body).
