@@ -18,7 +18,7 @@ class SkillJudgeModelTest(unittest.TestCase):
     def test_model_is_forced_to_haiku_even_when_caller_passes_a_different_model(self):
         seen = {}
 
-        def spy_consult_cmd_and_env(role, spec, cwd, model, **kw):
+        def spy_consult_cmd_and_env(role, cwd, model, **kw):
             seen["model"] = model
             return (["cat"], {}, None)
 
@@ -76,7 +76,7 @@ class SkillJudgeTimeoutTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, \
              mock.patch.dict(spawn.os.environ, {"SKILL_JUDGE_TIMEOUT": "7"}), \
              mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model, **kw: (["cat"], {}, None)), \
+                               lambda role, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run", spy_run):
             spawn._skill_judge_consult("some task", "implementation", [], 2061, td)
         timed_calls = [t for t in seen_timeouts if t is not None]
@@ -112,7 +112,7 @@ class SkillJudgeTimeoutTest(unittest.TestCase):
              mock.patch.object(spawn, "_bm25_cross_family_scores",
                                lambda *a, **k: [(1.0, "a-skill", scored_dir, "skill-repo")]), \
              mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model, **kw:
+                               lambda role, cwd, model, **kw:
                                (["sleep", "5"], dict(spawn.os.environ), None)):
             matches, outcome = spawn._cross_family_skill_matches_with_consult(
                 "task", "implementation", Path(td), 2274, td, k=2)

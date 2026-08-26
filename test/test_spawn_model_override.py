@@ -2,7 +2,6 @@
 (--model > MUSTER_ROLE_MODEL > role_model.txt > "sonnet") 정밀도 레벨별
 단위 테스트, 그리고 judge prefilter/validator 의 하드코딩 haiku 가 그
 오버라이드에 영향받지 않는다는 guard 케이스."""
-import json
 import os
 import sys
 import tempfile
@@ -93,9 +92,8 @@ class JudgeModelGuardTest(unittest.TestCase):
     def test_judge_guard_ignores_env_and_cli_style_override(self):
         os.environ["MUSTER_ROLE_MODEL"] = "opus"
         spawn.ROLE_MODEL_CONFIG.write_text("opus")
-        spec = json.loads((spawn.ROOT / "roles" / "implementation.json").read_text())
         cmd, _env, settings_path = spawn._judge_cmd_and_env(
-            "implementation", spec, "/tmp", model="haiku")
+            "implementation", "/tmp", model="haiku")
         try:
             self.assertIn("--model", cmd)
             self.assertEqual(cmd[cmd.index("--model") + 1], "haiku")
