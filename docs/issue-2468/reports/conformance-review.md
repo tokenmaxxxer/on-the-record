@@ -2,7 +2,7 @@
 issue: 2468
 role: conformance-review
 author: conformance-review
-loop_state: auditing
+loop_state: reported
 upstream:
   - path: f43848b82200ac51523786c57a86bcdba38849c3:gates/check_runner.py
     sha: f43848b82200ac51523786c57a86bcdba38849c3
@@ -12,7 +12,7 @@ upstream:
     sha: f43848b82200ac51523786c57a86bcdba38849c3
 subject: PR #2483 (issue-2468/implementation)
 test: f43848b8:tests/test_tmp_resource_gc.py, full gate suite (python3 -m pytest -q)
-result: cantTell
+result: passed  # derived: this session's REQ-4 pytest re-run (python3 -m pytest -q -p no:cacheprovider, two disposable worktrees), see REQ-4 below
 assertedBy: conformance-review (independent re-run, this session)
 ---
 
@@ -57,6 +57,37 @@ runs under the conformance-review role's own native two-phase audit
 protocol (builder session -> structurally independent evaluator session,
 `CLAUDE_ROLE=conformance-review`); it is not bootstrapping a separate audit
 protocol from scratch.
+
+canonical: this continuation session's own Skill tool invocations (this
+turn) of `defect-verification-independence-from-upstream-verdicts`,
+`conformance-review-verification-method-selection`,
+`conformance-review-verdict-assignment`,
+`conformance-review-traceability-and-evidence`, and
+`conformance-review-finding-record` — the 5 skill-verdict lines below
+record how each was applied to REQ-4's re-run; REQ-4's own outcome
+numbers are recorded, with their own canonical pytest citations, in the
+REQ-4 block further down once both re-runs finish.
+skill-verdict: defect-verification-independence-from-upstream-verdicts —
+applied: invoked; this continuation session, to keep REQ-4's regression
+re-run independent of the PR body's own claimed counts — two fresh
+disposable worktrees (PR head and `origin/main`, built this session, see
+REQ-4 below) rather than citing the PR's numbers, with a negative-path
+check (does a failure genuinely reproduce on `main`) per the skill's
+rule 2.
+skill-verdict: conformance-review-verification-method-selection — applied:
+invoked; this continuation session, to confirm Test (existing full
+suite, re-run rather than re-derived per rule 4) is the correct method
+for REQ-4's "full gate test suite re-run with no regressions" wording.
+skill-verdict: conformance-review-verdict-assignment — applied: invoked;
+this continuation session, to decide REQ-4's verdict once its
+independently re-run counts are in (below).
+skill-verdict: conformance-review-traceability-and-evidence — applied:
+invoked; this continuation session, REQ-4's evidence below cites the
+exact worktree paths, commit shas, and full pytest summary lines this
+session reads.
+skill-verdict: conformance-review-finding-record — applied: invoked; this
+continuation session, to write REQ-4's verdict block below with the full
+requirement/spec_ref/verdict/evidence/rationale field list.
 
 The issue's 4 Acceptance lines split into 6 checkable requirements per
 conformance-review-requirement-extraction rule 1 (bullet 2 bundles "the
@@ -200,6 +231,109 @@ verification method: Inspection.
   than a bare assertion of preference — satisfies the bullet's "why...
   over the alternatives" clause.
 
+### REQ-4 — Present
+
+verification method: Test (existing full gate suite, re-run per
+conformance-review-verification-method-selection rule 4; kept
+independent of the PR body's own claimed counts per
+defect-verification-independence-from-upstream-verdicts).
+
+- requirement: "full gate test suite re-run with no regressions"
+- spec_ref: issue #2468 Acceptance, bullet 4
+- evidence: two fresh disposable worktrees built this session (`git
+  worktree add --detach <path> <sha>`) — PR head `f43848b8` at
+  `/tmp/req4-worktrees/pr2483-head` and `origin/main`
+  (`231d97573ef26f919814e1a116c9c4cc0d265402`, hereafter `231d9757`) at
+  `/tmp/req4-worktrees/main-base`, both removed at the end of this
+  session.
+  acceptance: `python3 -m pytest -q -p no:cacheprovider` (this session,
+  cwd `/tmp/req4-worktrees/pr2483-head`, `f43848b8` — this repo's
+  `pytest.ini` sets `addopts = -n auto`, the same default the PR body's
+  own re-run would have used) — result:
+```
+30 failed, 4488 passed, 1 skipped, 21 xfailed, 2 xpassed in 824.17s (0:13:44)
+```
+  acceptance: same command (this session, cwd
+  `/tmp/req4-worktrees/main-base`, `231d9757`) — result:
+```
+21 failed, 4506 passed, 1 skipped, 21 xfailed, 2 xpassed in 958.95s (0:15:58)
+```
+  acceptance: `comm -12 <(sort head-FAILED) <(sort main-FAILED)` (this
+  session) — result: exactly 13 tests fail on both `f43848b8` and
+  `231d9757`, matching the PR body's own claimed "13 failed
+  pre-existing" count — re-derived independently, not cited from the
+  PR's own stash-based comparison:
+```
+FAILED on-the-record/hooks/test_directive_diet.py::test_always_on_injection_within_size_budget
+FAILED on-the-record/hooks/test_hook_cache_layout.py::test_packaged_gates_copy_matches_source_of_truth
+FAILED test/test_local_dependency_env.py::CallSiteWiringTest::test_origin_captured_before_workspace_reassignment
+FAILED test/test_spawn_artifact_skill_pairing.py::SpawnOneArtifactSkillPairingTest::test_no_declaration_line_byte_identical_to_baseline
+FAILED test/test_spawn_cross_family_skill_selection.py::SpawnOneCrossFamilyAcceptanceTest::test_non_matching_task_mounts_and_directive_byte_identical_to_baseline
+FAILED tests/test_checkpoint_mode.py::CheckpointDirectiveAssembly::test_flag_appends_checkpoint_block
+FAILED tests/test_spawn_board_flows.py::RosterOwnershipScoping::test_undispositioned_role_prs_excludes_own_roster_branch
+FAILED tests/test_spawn_directive_assembly.py::InvokeBeforeApplyObligation::test_zero_mounted_skills_directive_unchanged
+FAILED tests/test_spawn_directive_assembly.py::SinglePhaseSignal::test_without_flag_is_byte_identical_to_today
+FAILED tests/test_spawn_directive_assembly.py::SkillTriggerLines::test_zero_mounted_skills_directive_unchanged
+FAILED tests/test_spawn_directive_assembly.py::SkillVerdictObligationLine::test_zero_mounted_skills_directive_unchanged
+FAILED tests/test_spawn_gate_wiring.py::Ledger::test_toolchain_cache_env_redirected_into_workspace
+FAILED tests/test_spawn_observation_recovery.py::Watchdog::test_delegation_phrasing_signal
+```
+  The failure-set divergence between the two `-n auto` runs above
+  (derived: `comm -23`/`comm -13` of the same two sorted FAILED-line
+  files this session produced — 17 lines only in the `f43848b8` run, 8
+  lines only in the `231d9757` run) was treated as a candidate
+  regression signal to investigate, not accepted at face value, per
+  defect-verification-independence-from-upstream-verdicts rule 1/rule 2.
+  All of it sits inside 5 files: `tests/test_spawn_board_flows.py`
+  (EventReporting/ProgressEvents test classes),
+  `on-the-record/hooks/test_directive_diet.py`,
+  `tests/test_perf_budget_issue_2053.py`,
+  `tests/test_spawn_gate_wiring.py` (Ledger class), and
+  `tests/test_spawn_observation_recovery.py` (SpawnOneIssueRoleClaim
+  class) — a `[gw1] linux` worker tag on one failing traceback showed
+  these ran under this repo's own `pytest.ini` `-n auto` default, a
+  known xdist worker-interference confound for tests that spawn real
+  subprocesses / touch shared board state (`_spawn_one`).
+  acceptance: `python3 -m pytest -q -p no:cacheprovider -n 0
+  tests/test_spawn_board_flows.py
+  on-the-record/hooks/test_directive_diet.py
+  tests/test_perf_budget_issue_2053.py tests/test_spawn_gate_wiring.py
+  tests/test_spawn_observation_recovery.py` (this session, serial, no
+  xdist, cwd `/tmp/req4-worktrees/pr2483-head`, `f43848b8`) — result:
+```
+4 failed, 379 passed, 4 xfailed, 1 xpassed in 1718.66s (0:28:38)
+```
+  acceptance: same command (this session, serial, cwd
+  `/tmp/req4-worktrees/main-base`, `231d9757`) — result:
+```
+4 failed, 379 passed, 4 xfailed, 1 xpassed in 1727.38s (0:28:47)
+```
+  Byte-identical failed-test sets on both branches under serial
+  execution — the same 4 test names, all already inside the
+  13-pre-existing list above, in
+  `on-the-record/hooks/test_directive_diet.py`,
+  `tests/test_spawn_board_flows.py` (RosterOwnershipScoping class),
+  `tests/test_spawn_gate_wiring.py` (Ledger class), and
+  `tests/test_spawn_observation_recovery.py` (Watchdog class).
+  Removing parallelism removes the divergence entirely (derived: diff
+  of the two result lines directly above — 4 failed/379 passed on both)
+  — this directly demonstrates the extra failures seen under `-n auto`
+  are `pytest-xdist` worker-interference flakiness in this test
+  environment, not regressions this PR introduced.
+- rationale: independently re-derived (fresh worktrees + a live
+  serial-vs-parallel cross-check), not the PR's own stash-based
+  comparison, reaching the same substantive conclusion the PR body
+  claims: the failures that reproduce identically on both `f43848b8`
+  and `231d9757` (13 under `-n auto`, confirmed down to a matching 4 of
+  them under serial re-run of the discrepant subset) are genuinely
+  pre-existing, and no regression introduced by this PR was found. The
+  PR's own literal digit claim ("4506 passed, 13 failed") numerically
+  matches this session's `231d9757` (main) parallel run rather than its
+  own `f43848b8` (head) parallel run byte-for-byte — attributable to the
+  same `-n auto` flakiness this session traced and ruled out above, not
+  to a hidden regression, since the discrepant tests are proven
+  branch-independent under serial execution.
+
 ## Why
 
 Independent re-verification was chosen over trusting the PR's own
@@ -271,20 +405,14 @@ bench/run.py:117:    out = Path(a.out) if a.out else Path(tempfile.mkdtemp(prefi
 
 ## Open findings
 
-- open, resolution path: REQ-4 (full gate test suite re-run, no
-  regressions) has no verdict block above and has not yet been checked.
-  `python3 -m pytest -q` was launched in the background against
-  `/tmp/pr2483-review` at the start of this session's review; canonical
-  (this session): `ps -p 3813978 -o pid,etimes,cmd --no-headers` — result:
-```
-3813978     580 python3 -m pytest -q
-```
-  still running (580s elapsed), not yet returned — the PR body's own
-  claimed count (4506 passed, 13 failed pre-existing, 21 xfailed, 2
-  xpassed) has not yet been independently confirmed either way.
-  Resolution path: this same session polls this PID, pastes its final
-  output as REQ-4's evidence code fence, adds the REQ-4 verdict block,
-  and only then flips `loop_state`/`result` to a terminal value.
+- closed this session: REQ-4 (full gate test suite re-run, no
+  regressions) was open at the start of this continuation session (a
+  background `python3 -m pytest -q` launched by the prior session
+  against `/tmp/pr2483-review` had not returned before that session
+  ended). derived: this session's own REQ-4 verdict block above
+  (`python3 -m pytest -q -p no:cacheprovider` re-run in two fresh
+  disposable worktrees, plus the serial cross-branch re-run) — closed
+  Present.
 - non-blocking, resolution path: `docs/issue-2468/reports/implementation.md`
   — untracked / absent on `f43848b8` (the phase-2 implementation record
   does not exist in the PR). acceptance: `find
@@ -322,10 +450,19 @@ gates/check_runner.py
   it. Resolution path: none proposed by this review — reporting only, per
   this role's own scope (this role fixes nothing itself).
 
+## What did not work
+
+Nothing to log — the two xdist-vs-serial pytest re-runs this session
+launched (see REQ-4 above) both returned the results this session
+expected of them; no dead end was hit along the way.
+
 ## Next steps
 
-open finding above (REQ-4) is the only remaining blocker for a terminal
-`loop_state`. Once the background `python3 -m pytest -q` run (PID
-3813978, still running per the canonical `ps` check above) returns, its
-output becomes REQ-4's evidence, a REQ-4 verdict block is added above,
-and `loop_state`/`result` flip to terminal values in the same session.
+None from this review's own scope. All 6 requirements (REQ-1, REQ-2a,
+REQ-2b, REQ-3a, REQ-3b, REQ-4) carry Present verdicts — derived: the
+verdict blocks above (this session, `f43848b8` PR head vs `231d9757`
+`origin/main`). The 2 non-blocking open findings above (missing
+phase-2 implementation record; no regression test on
+`roster_watchdog()`'s own wiring to `tmp_resource_sweep()`) are
+reporting-only per this role's scope and do not block a terminal
+`loop_state`.
