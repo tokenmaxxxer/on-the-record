@@ -928,14 +928,90 @@ def recut_if_absorbed_cli(cwd: str) -> int:
     return 0
 
 
-def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
-    """대상 레포에서 issue-<n>/<역할> 브랜치를 만든다(있으면 갈아탄다).
+_DIFF_SHORTSTAT_RE = re.compile(
+    r"(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?")
+
+
+def _branch_base_max_files() -> int:
+    """이슈 #2379: `_verify_branch_base_sane()`의 파일-수 상한.
+
+    consumer 레포마다 정상 PR 크기가 다르므로 오버라이드 가능 — 기본값은
+    이 레포의 실측 사고 두 건(1572파일/571파일)보다 한참 아래이면서, 정상
+    이슈 하나가 건드리는 파일 수보다는 한참 위인 값."""
+    v = os.environ.get("MUSTER_BRANCH_BASE_MAX_FILES", "")
+    try:
+        return int(v) if v else 300
+    except ValueError:
+        return 300
+
+
+def _branch_base_max_lines() -> int:
+    """이슈 #2379: `_verify_branch_base_sane()`의 변경-라인-수 상한
+    (insertions+deletions 합). 파일 수 상한과 같은 근거."""
+    v = os.environ.get("MUSTER_BRANCH_BASE_MAX_LINES", "")
+    try:
+        return int(v) if v else 30000
+    except ValueError:
+        return 30000
+
+
+def _verify_branch_base_sane(cwd: str, br: str, base: str) -> str | None:
+    """이슈 #2379: `br`의 merge-base 가 `base`와 어긋나 있는지 검사한다.
+
+    실측 사고(#2372, #2384, tokenmaxxxer-core #311): 브랜치가 `origin/HEAD`
+    오염 등으로 무관한 옛 조상에서 갈라지면, 그 뒤로는 세션이 파일 하나만
+    커밋해도 PR diff 가 merge-base 와 `br` 사이의 트리 전체 차이(수백~수천
+    파일)로 열린다 — "며칠간 approval 대기로 오래된 merge-base" 와는 다른
+    현상이다: 정상 브랜치는 merge-base 가 달력상 오래돼도 자기가 실제로
+    건드린 파일만큼만 diff 가 커진다(같은 계보를 그냥 늦게 이어받았을
+    뿐이므로). 그래서 나이나 커밋 수 대신 diff 크기(파일 수 / 변경 라인
+    수) 를 신선도 신호로 쓴다 — 커밋 빈도가 다른 consumer 레포에서도,
+    다단계 승인으로 세션이 며칠 쉬는 이 레포의 정상 워크플로에서도 오탐이
+    없다.
+
+    이상 없으면 None, 이상하면 사람이 읽을 진단 문자열(merge-base sha +
+    파일/라인 수)을 반환한다 — merge-base 자체를 못 구하면(얕은 clone 등)
+    검사 불가로 보고 기존과 동일하게 통과시킨다(fail-open, 계산 불가와
+    이상 없음을 구분 못 하는 신호를 만들지 않기 위해)."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    mb = git("merge-base", br, base)
+    if mb.returncode != 0 or not mb.stdout.strip():
+        return None
+    merge_base_sha = mb.stdout.strip()
+    base_sha_r = git("rev-parse", "-q", "--verify", base)
+    base_sha = base_sha_r.stdout.strip() if base_sha_r.returncode == 0 else None
+    if base_sha is not None and merge_base_sha == base_sha:
+        return None                # 완전 최신 — 방금 그 지점에서 갈라졌다
+    stat_r = git("diff", "--shortstat", merge_base_sha, br)
+    if stat_r.returncode != 0 or not stat_r.stdout.strip():
+        return None
+    m = _DIFF_SHORTSTAT_RE.search(stat_r.stdout)
+    if not m:
+        return None
+    files = int(m.group(1))
+    lines = int(m.group(2) or 0) + int(m.group(3) or 0)
+    if files > _branch_base_max_files() or lines > _branch_base_max_lines():
+        return (f"merge-base {merge_base_sha[:12]} vs {br}: {files} files changed, "
+                f"{lines} lines (한도 {_branch_base_max_files()}파일/"
+                f"{_branch_base_max_lines()}라인)")
+    return None
+
+
+def _checkout_named_branch(cwd: str, br: str) -> str:
+    """`br`(이미 완성된 `issue-<n>/<...>` 브랜치 이름)로 갈아탄다(없으면 만든다).
+
+    이슈 #2432(stage 4): `checkout_issue_branch`와
+    `checkout_issue_branch_for_skill` 둘 다 이 함수 하나로 수렴한다 — 브랜치
+    *이름을 어떻게 짓는지*(역할 축 대 스킬+lease-disambiguator 축)만 두 함수가
+    각자 결정하고, 실제 checkout/재사용/흡수-재절단 로직은 여기 한 곳에만
+    있다(제안서 Accumulation: "하나의 새 네이밍 함수, per-call-site 특수화는
+    없다").
 
     core 의 board-gate R4 가 보드 쓰기를 이 브랜치에서만 허용하므로, 스폰
     전에 서 있어야 세션이 첫 쓰기부터 막히지 않는다. base 는 원격 기본
     브랜치 — 역할 산출물은 main 에서 갈라져 PR 로만 돌아간다 (계약 v3 s10).
     """
-    br = f"issue-{issue}/{role}"
     def git(*a):
         return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
     # 이슈 #1507 — 세션의 첫 verification/absence-claim 단계보다 먼저
@@ -966,7 +1042,107 @@ def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
             r = git("checkout", "-b", br)
     if r.returncode != 0:
         sys.exit(f"브랜치 {br} 로 못 갈아탔다: {r.stderr.strip()[:200]}")
+    # 이슈 #2379: 위 세 경로(재컷/origin 추적/신규 base 컷/흡수 없이 기존
+    # 재사용) 전부를 여기 한 곳에서 커버해야 PR 이 열리기 전에 무조건
+    # 걸린다 — 개별 경로에 흩어 넣으면 다음 다섯 번째 경로가 또 새로
+    # 생겼을 때 또 빠뜨린다.
+    base = _sp._base(cwd)
+    diag = _sp._verify_branch_base_sane(cwd, br, base)
+    if diag is not None:
+        # 한 번만 재시도: origin/HEAD 재계산 + 강제 재-fetch(--prune) 뒤
+        # base 를 다시 구해 재검사한다 — origin/HEAD 심볼릭 참조가 일시적으로
+        # 틀어져 있었을 뿐이면 여기서 회복된다. `br` 에 이미 커밋된 내용
+        # 자체가 무관한 조상에서 나왔으면(진짜 손상) 재-fetch 로는 못
+        # 고친다 — 그때는 거부한다.
+        git("remote", "set-head", "origin", "-a")
+        git("fetch", "--prune", "-q", "origin")
+        base = _sp._base(cwd)
+        diag = _sp._verify_branch_base_sane(cwd, br, base)
+    if diag is not None:
+        sys.exit(f"브랜치 {br} 의 merge-base 가 base({base})와 크게 어긋나 "
+                 f"있다 (이슈 #2379 가드) — {diag}. origin/HEAD 오염이나 "
+                 f"잘못된 조상에서 갈라졌을 가능성이 크다 — 조용히 진행하면 "
+                 f"무관한 파일 수백~수천개짜리 손상된 PR 을 연다. 수동 확인: "
+                 f"git -C {cwd} log --oneline {br} | tail -20 — 정말 손상됐으면 "
+                 f"로컬 브랜치를 지우고(git -C {cwd} branch -D {br}) 다시 스폰한다.")
     return br
+
+
+def recut_corrupted_cli(cwd: str, issue: int, role: str) -> int:
+    """`spawn.py recut-corrupted --issue <n> --role <role> -C <cwd>`
+    (issue #2402): issue #2379 의 corrupted-merge-base 브랜치(branch-cut
+    시점에 오래된/무관한 parent 에서 갈라진 `issue-<n>/<role>`)를 새
+    `fix/...` 브랜치로 옮기는 대신, **같은 이름을 유지한 채** 올바른 base
+    위로 재컷하고 그 이름으로 force-push 한다 — board-sweep/spawn_on_pr/
+    spawn_on_approve 등 저장소 전역의 모든 `issue-<n>/<role>` 매핑
+    (`_HEAD_REF_SUBJECT_RE` 류 정규식들)이 브랜치 이름을 그대로 계속
+    인식하므로, 어느 쪽 매핑 코드도 고칠 필요가 없다 — 이것이 "대안
+    브랜치 패턴을 sweep 이 추가로 인식하게 만드는" 안 대신 이 방식을
+    고른 이유(issue #2402 rationale)다.
+
+    #784 의 `_recut_absorbed_branch`(흡수된, 즉 버려도 되는 content 를
+    다루는 함수)와 안전 근거가 다르다: 여기서 force-push 하는 커밋들은
+    branch-cut 시점에 막 갈라진 것이라(issue #2379), 다른 워크스페이스가
+    그 사이에 그 브랜치 위에서 파생 작업을 했을 리 없다 — 그래서
+    merge-gates.md 의 "절대 force-push 로 흡수된 이력을 덮지 말 것"
+    금지는 #784 케이스에 대한 것이고 이 케이스에는 적용되지 않는다.
+
+    origin 에 이미 있는 브랜치를 대상으로 하므로(진행 중인 세션의 로컬
+    워크스페이스가 아니라, 오케스트레이터가 아무 체크아웃에서나 실행하는
+    사후 복구 커맨드) 먼저 그 브랜치와 base 를 origin 에서 받아온다."""
+    br = f"issue-{issue}/{role}"
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    fetch_br = git("fetch", "origin", br)
+    if fetch_br.returncode != 0:
+        print(f"[recut-corrupted] origin/{br} fetch 실패: "
+              f"{fetch_br.stderr.strip()[:200]}", file=sys.stderr)
+        return 1
+    base = _sp._base(cwd)
+    fetch_base = git("fetch", "origin", base.removeprefix("origin/"))
+    if fetch_base.returncode != 0:
+        print(f"[recut-corrupted] {base} fetch 실패: "
+              f"{fetch_base.stderr.strip()[:200]}", file=sys.stderr)
+        return 1
+    r = _sp._recut_corrupted_branch(cwd, br, base)
+    if r.returncode != 0:
+        print(f"[recut-corrupted] {br} 재컷 실패: {r.stderr.strip()[:200]}",
+              file=sys.stderr)
+        return 1
+    push = git("push", "--force-with-lease", "origin", f"{br}:{br}")
+    if push.returncode != 0:
+        print(f"[recut-corrupted] {br} push 실패: {push.stderr.strip()[:200]}",
+              file=sys.stderr)
+        return 1
+    print(f"[recut-corrupted] {br} 를 {base} 위로 재컷하고 push 했다 — "
+          "브랜치 이름/PR 은 그대로라 subject 매핑이 유지된다.")
+    return 0
+
+
+def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
+    """대상 레포에서 issue-<n>/<역할> 브랜치를 만든다(있으면 갈아탄다).
+
+    옛 역할 축 네이밍. 이슈 #2432 이후로도 역할 인자를 넘기는 모든 호출자에게
+    오늘과 바이트-동일한 출력을 낸다(제안서 dual-scheme coexistence — 기존
+    브랜치는 강제 rename 하지 않는다)."""
+    return _sp._checkout_named_branch(cwd, f"issue-{issue}/{role}")
+
+
+def checkout_issue_branch_for_skill(cwd: str, issue: int, skill: str,
+                                     disambiguator: str | None = None) -> str:
+    """이슈 #2432 (role retirement stage 4): 새 스킬 축 네이밍 —
+    `issue-<n>/<skill>-<lease-disambiguator>`.
+
+    `disambiguator`(생략 시 `roster.new_lease_disambiguator()`로 새로 뽑는다)는
+    `roster.lease_key()`에 그대로 넘겨 같은 문자열이 브랜치 이름과 로스터/lease
+    키 둘 다의 두 번째 세그먼트가 되게 한다 — 스킬 이름 하나는 세션마다
+    유일하지 않으므로(같은 이슈에 같은 스킬을 두 세션이 동시에 물 수 있다,
+    docs/decisions/2026-08-25-retire-role-axis-staging.md) 이 disambiguator가
+    실제 충돌-방지 키다. 대칭적으로 `checkout_issue_branch`와 마찬가지로 실제
+    checkout 은 `_checkout_named_branch`로 위임한다 — 네이밍 함수 자신은
+    이름만 짓는다."""
+    disambiguator = disambiguator or _sp.new_lease_disambiguator()
+    return _sp._checkout_named_branch(cwd, f"issue-{issue}/{skill}-{disambiguator}")
 
 
 def _session_log_path(cwd: str) -> Path:

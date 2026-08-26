@@ -51,6 +51,41 @@ _EMPTY_STATE = re.compile(
 _PROVENANCE = re.compile(
     r"^\s*[-*]?\s*provenance\s*:\s*(executed-live|executed-unit|read)\b",
     re.IGNORECASE | re.MULTILINE)
+# issue-2414 (Failure A — missing negative criteria, #2393/#2411): a third
+# self-declared field, same existence-only shape as empty state:/
+# provenance: above. Landed mechanism-adding work (#2291's spawn-attempt
+# trace, #2389's worktree age-prune) each birthed a same-shape follow-up
+# defect because the Acceptance said what the mechanism must DO and never
+# what it must NOT do / must leave working.
+#
+# Requiring this field on EVERY actionable issue (empty state:/
+# provenance:'s existing scope) was measured against the real open-issue
+# backlog and rejected: it would have newly blocked 34 of 45 open issues
+# (76%) that mostly add no mechanism at all — see
+# docs/issue-2414/reports/implementation.md. A prose-based mechanism
+# detector was also tried and measured unreliable (0% precision on a
+# broad verb lexicon, matching "report"/"record" in ordinary bug-symptom
+# prose). The two failure modes trade off in opposite directions —
+# broad-and-unconditional over-blocks the backlog, broad-and-inferred
+# false-positives on symptom prose — so this gates on a NARROW,
+# high-precision verb list instead: words that, in this repo's issue
+# corpus, appear near-exclusively in a mechanism's own description
+# (append/prune/purge/retire/rotate/refuse/reject/deny/force-remove), not
+# in prose describing a bug's symptoms. Measured against the same
+# backlog, this bounds the one-time migration cost to 14 of 45 open
+# issues (31%) while still catching all three real incidents (#2291,
+# #2383, #2393) on their own original text. This is intentionally
+# lower-recall than a "does this add a mechanism" classifier would be —
+# an issue whose mechanism verbs aren't in this list is not required to
+# declare, same category of incompleteness the module docstring already
+# accepts for the escape hatch below.
+_MECHANISM_TRIGGER = re.compile(
+    r"\b(append(?:s|ed|ing)?|prun(?:e|es|ed|ing)|purg(?:e|es|ed|ing)|"
+    r"retir(?:e|es|ed|ing)|rotat(?:e|es|ed|ing)|refus(?:e|es|ed|ing)|"
+    r"reject(?:s|ed|ing)?|den(?:y|ies|ied|ying)|force[- ]remov\w*)\b",
+    re.IGNORECASE)
+_MUST_NOT = re.compile(
+    r"^\s*[-*]?\s*must not\s*:\s*\S", re.IGNORECASE | re.MULTILINE)
 
 # issue-2229: 위반 메시지마다 "통과하는 형식"을 구체적으로 가리킨다 — 무엇이
 # 빠졌는지만 말하고 어떤 형식이면 통과하는지는 안 알려주면 작성자가 추측해야
@@ -113,6 +148,24 @@ def check_issue_body(issue: int, body: str) -> list[str]:
             f"명시해야 한다(읽기(`read`)로 판단했다면 그 사실도 명시적이어야 "
             f"한다 — 이 게이트는 `read` 를 금지하지 않고 보이게만 만든다). "
             f"통과하는 형식은 {_FORMAT_DOC} 를 봐라."
+        )
+    # issue-2414 Failure A: unlike empty state:/provenance: above, this
+    # is NOT required on every actionable issue — only when the ISSUE
+    # BODY (not just the Acceptance section; #2291's mechanism verbs
+    # ("append") lived in its '## Ask', not its thin Acceptance) trips
+    # the narrow _MECHANISM_TRIGGER lexicon above. Existence-only, same
+    # as empty state:/provenance: — a mechanism-adding issue names what
+    # the mechanism must NOT do / must leave working; an issue that adds
+    # no mechanism (and trips the trigger anyway, e.g. by describing a
+    # bug's symptoms) escapes with 'must not: not applicable — <reason>'.
+    if _MECHANISM_TRIGGER.search(body) and not _MUST_NOT.search(section):
+        bad.append(
+            f"이슈 #{issue}의 'Acceptance' 절이 실행가능 산출물을 참조하지만 "
+            f"'must not: <이 메커니즘이 절대 하면 안 되는 것 / 계속 작동해야 "
+            f"하는 것>' 줄이 없다 — 메커니즘(쓰기/삭제/거부/보고)을 추가하는 "
+            f"이슈라면 명시해야 한다(메커니즘을 추가하지 않는 이슈라면 "
+            f"'must not: not applicable — <이유>'). 통과하는 형식은 "
+            f"{_FORMAT_DOC} 를 봐라."
         )
     return bad
 

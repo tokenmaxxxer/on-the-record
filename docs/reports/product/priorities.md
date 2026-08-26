@@ -88,3 +88,42 @@ Append-only, newest entry last.
   this session): cut the overhead, but the recording/audit-trail
   procedure stays exactly as-is... If a proposed change would thin the
   record to save time, reject it and find the time elsewhere.").
+- 2026-08-25: operator standing directive, restated across #2414 and its
+  successor #2415: measure a defect/friction rate before adding any new
+  gate or authoring/landing check, and adding nothing is an acceptable,
+  explicitly sanctioned delivery when the measured rate doesn't justify
+  it — "do not add a gate to be seen doing something." When a check IS
+  justified, #2415 additionally warns against the specific failure mode
+  of appending one more rule per incident onto a shared format document
+  (the pattern that produced acceptance-format.md's 5-rule, 73-line
+  accretion) rather than periodically re-deriving the format from first
+  principles ("what an Acceptance section is FOR") and judging existing
+  rules keep/merge/drop against that. Any authoring-time or landing-time
+  check must be measured, not asserted, to not lengthen the normal path
+  for work that doesn't need it — verified against the real open-issue
+  backlog or closed-issue corpus, not argued from design intent alone.
+  Source: issue #2414 body ("If measurement shows this is infrequent
+  enough that the observer layer catching it is the cheaper equilibrium,
+  the correct delivery is to say so and add nothing... Do not add a gate
+  to be seen doing something") and issue #2415 body, both read 2026-08-25
+  ("The operator's standing directive is to CUT overhead. A redesign
+  that adds authoring burden to every issue... is a failure even if it
+  prevents defects" / "Nobody has ever asked what an Acceptance section
+  is for and derived the format from that... that is how the document
+  got here").
+
+- 2026-08-26: operator scoped follow-up performance/waste-reduction work
+  deliberately narrow after #2409's corpus-scale claim failed conformance
+  review: the next round (#2467) explicitly excludes corpus-scale
+  hit-rate claims, production cache-eviction policy, and cross-session
+  persistence, asking instead for a small, cheaply-verifiable before/after
+  on real existing logs (or, if a precondition check fails, a clean
+  negative finding with no further build). Applies going forward to any
+  similar waste-reduction issue: prefer a narrow, directly-verifiable
+  claim over a broad corpus-wide one, and treat "the precondition doesn't
+  hold, so nothing was built" as a complete, valid outcome rather than a
+  shortfall to compensate for. Source: issue #2467 body ("Scoped
+  deliberately narrow this round (per operator instruction, after #2409's
+  corpus-scale claim failed conformance-review): a small,
+  cheaply-verifiable before/after on real existing logs, not a
+  corpus-wide 5x-style claim."), read 2026-08-26.

@@ -36,7 +36,7 @@ import ci as _ci  # noqa: E402
 import skip_eligibility  # noqa: E402
 import state_paths  # noqa: E402
 
-PR_TRIGGERED_ROLES = ("execution-observation", "conformance-review")
+PR_TRIGGERED_RECORD_KINDS = ("execution-observation", "conformance-review")
 
 # 틱당 스폰 상한(issue #1360) — 자동 워치독 틱 하나가 한 번에 스폰하는
 # (subject, role) 쌍의 개수를 제한하는 예산 백스톱. 초과분은 조용히
@@ -67,11 +67,41 @@ PARK_STATE_FILENAME = "spawn_on_pr_parked.json"
 MERGED_SEEN_STATE_FILENAME = "spawn_on_pr_merged_seen.json"
 
 
-def applicable_roles(subject_board: dict, roles: tuple[str, ...] = PR_TRIGGERED_ROLES) -> list[str]:
-    """`subject_board`(`board(root)[subject]`, `{role: frontmatter}`) 에서
-    아직 기록이 없는 `roles` 서브셋을 `roles` 가 나열한 순서 그대로
-    돌려준다. 순수 함수, I/O 없음."""
-    return [r for r in roles if r not in subject_board]
+def applicable_record_kinds(subject_board: dict, kinds: tuple[str, ...] = PR_TRIGGERED_RECORD_KINDS,
+                             subject_author: str | None = None) -> list[str]:
+    """`subject_board`(`board(root)[subject]`, `{filename stem: frontmatter}`)
+    에서 아직 record-kind 가 없는 `kinds` 서브셋을 `kinds` 가 나열한 순서
+    그대로 돌려준다(issue #2241 stage 5 — role 이름이 아니라 각 항목의
+    `kind:` frontmatter 값으로 매칭한다).
+
+    한 항목의 `kind:` 값이 `kinds` 안에 있으면 그걸로 매칭한다. 그렇지
+    않으면(필드 자체가 없거나 — stage 1 이전 레코드, additive-only 라
+    소급 적용 안 됨 — 또는 필드는 있지만 stage 1 이전부터 산발적으로 쓰인
+    비정형 값, 예: `kind: record`, `docs/specs/record-kind-vocabulary.md`
+    의 닫힌 어휘 밖) 파일명 stem 이 `kinds` 안에 있으면 그것으로
+    대신 매칭한다(legacy fallback, `board-gate.sh` R5 의 `author:`-부재
+    fallback 과 같은 모양) — `kind:` 매칭과 파일명 매칭은 OR 관계라,
+    둘 중 하나만 맞아도 충족으로 친다. `kind:` 값이 무엇이든 파일명이
+    `kinds` 안에 있으면 항상 매칭되므로, stage 1 이전/이후 어느 subject 도
+    오늘과 같은(또는 더 넓은, kind: 필드만 새로 붙은 새 파일명도 잡는)
+    목록을 돌려준다.
+
+    `subject_author` 를 주면(subject 의 `implementation` 레코드
+    `author:` 값) 자기 자신을 검증하는 셀프-verification 을 막는다 —
+    항목의 `author:` 가 `subject_author` 와 같으면 그 kind 는 "충족됨"에
+    안 들어간다(issue #2241 stage 5 Constraints: record-kind 만으로는
+    부족하고 author-identity 도 달라야 한다). `subject_author` 가 없으면
+    (예: 로컬 단독 호출) 이 검사를 건너뛴다. 순수 함수, I/O 없음."""
+    satisfied = set()
+    for name, fm in subject_board.items():
+        kind_field = fm.get("kind")
+        matched = kind_field if kind_field in kinds else (name if name in kinds else None)
+        if matched is None:
+            continue
+        if subject_author is not None and fm.get("author") == subject_author:
+            continue
+        satisfied.add(matched)
+    return [k for k in kinds if k not in satisfied]
 
 
 def _issue_is_open(issue: int, issue_states: dict[int, str] | None) -> bool:
@@ -188,7 +218,8 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     b = spawn.board(root)
     merged_seen: set[str] | None = None
     for subject, subject_board in b.items():
-        missing = applicable_roles(subject_board)
+        subject_author = subject_board.get("implementation", {}).get("author")
+        missing = applicable_record_kinds(subject_board, subject_author=subject_author)
         if not missing:
             continue
         if merged_seen is None:
@@ -471,7 +502,8 @@ def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None
         pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
     for subject, subject_board in b.items():
-        missing = applicable_roles(subject_board)
+        subject_author = subject_board.get("implementation", {}).get("author")
+        missing = applicable_record_kinds(subject_board, subject_author=subject_author)
         if not missing:
             continue
         pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)

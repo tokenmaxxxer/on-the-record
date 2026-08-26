@@ -8,6 +8,31 @@
   surfaces as "No commits between main and issue-<n>". Recut the branch
   off updated base (`spawn.py`'s `_recut_absorbed_branch` shape) before
   committing — never force-push over the absorbed history.
+- CORRUPTED-MERGE-BASE RECUT STAYS ON-NAME (issue #2402, repair path for
+  #2379): when a branch-cut produced a corrupted merge-base (an
+  `issue-<n>/<role>` branch that forked from a stale/unrelated ancient
+  commit — #2379's 1572-file phantom diff), the sanctioned repair is
+  `spawn.py recut-corrupted --issue <n> --role <role> [-C <cwd>]`
+  (`pipeline.py:recut_corrupted_cli`, `spawn.py:_recut_corrupted_branch`):
+  it `git rebase --onto`s the branch's own commits from the corrupted
+  merge-base onto the current base, **under the same branch name**, then
+  `git push --force-with-lease` under that same name. Never invent a
+  `fix/...` (or any other) alternate branch name for this repair — every
+  `issue-<n>/<role>` subject-mapping site in this repo
+  (`watchdog.py:_HEAD_REF_SUBJECT_RE`,
+  `gates/spawn_on_approve.py:_BRANCH_SUBJECT_ROLE_RE`,
+  `gates/ci.py:_ISSUE_ROLE_BRANCH`, `gates/flows.py:_BRANCH_RE`,
+  `gates/roles_due.py:_subject_from_branch`, …) keys on that exact name,
+  so renaming the branch is what makes board-sweep/spawn-on-approve/
+  spawn-on-pr lose track of it and re-spawn an already-satisfied role
+  (issue-304 duplicate-spawn, `tokenmaxxxer-core#316`) — rejected the
+  alternative of teaching the sweep a second accepted branch pattern
+  because it would require touching every one of those sites and still
+  leaves a distinct "which pattern is this" mapping question open. The
+  force-push here is **not** the absorbed-branch case's forbidden
+  force-push above: those commits already have real history other
+  workspaces may depend on, while a just-corrupted branch-cut has no
+  legitimate downstream fork yet, so replacing its bad parent is safe.
 - PR-BODY CLAIM SCAN (issue #476, demoted from claim-scan-preflight.sh):
   a `gh pr create`/`gh pr edit` body making outcome claims carries an
   adjacent evidence marker (command output fence, `derived:`,
@@ -51,6 +76,22 @@
   `## Acceptance` section declares no runnable `check:`/`gate:` line gets
   a distinct "no checks declared" result, not a `0/0 passed` — the merge
   gate refuses to read that as satisfied.
+  issue #2381: you do NOT need to `git fetch` `--repo` yourself before
+  this step — `check_runner.py`'s `checkout_pr_worktree()` fetches ALL of
+  origin's branches (`fetch_all_role_branches()`, the full
+  `+refs/heads/*:refs/remotes/origin/*` refspec) before its `git
+  worktree add`, not just the one PR's head branch, so a role branch
+  pushed minutes earlier resolves without the old "fatal: invalid
+  reference". `gates/merge_gate.py`'s `evaluate()` runs the same
+  `fetch_all_role_branches()` itself, right before the one check inside
+  it (`stale_revert_reasons()`) that resolves an `origin/<base_ref>` ref
+  — this covers `verdict_gate.py` and any other caller that reaches
+  `evaluate()` directly without `check_runner.py` having run first in
+  that same `--repo` checkout (issue #2381 CHANGES round R1: relying on
+  `check_runner.py`'s earlier fetch alone left `merge_gate.py` exposed
+  whenever a caller skipped that ordering). A plain `git fetch origin` in
+  a checkout whose `remote.origin.fetch` was narrowed to `main` only used
+  to leave newly-pushed role branches unresolvable regardless.
 - LANDING REQUIREMENT-MET GRADE (issue #1651): as part of "verify it"
   above, before `gh pr merge`, spawn a builder-blind grader session —
   no access to the builder's context, given only the diff plus the
@@ -73,6 +114,12 @@
   every other outcome is HOLD — never merge on the LLM verdict alone. A
   correct MERGE blocked by a flaky deterministic gate surfaces to the
   human as a HOLD, not an auto-reject.
+- DELETE-BRANCH ON MERGE (issue #2451): every `gh pr merge` call MUST pass
+  `--delete-branch`. The repo's `deleteBranchOnMerge` setting does not
+  reliably cover API/CLI-driven merges — this session directly observed
+  merged PRs (e.g. #2439, #2413) whose head branch survived without it.
+  Omitting the flag leaves stray `issue-<n>/<role>` branches on the
+  remote after merge.
 - STALE-REVERT AT MERGE (issue #1664): the same pre-merge step also runs
   `gates/stale_revert_guard.py` `classify()`/`check_pr()` — a PR whose
   merge would delete content base HEAD already has that was added after

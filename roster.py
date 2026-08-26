@@ -25,6 +25,7 @@ import fcntl
 import json
 import os
 import re
+import secrets
 import tempfile
 import time
 from pathlib import Path
@@ -139,6 +140,20 @@ def lease_key(issue: int, disambiguator: str) -> str:
     passing role (docs/issue-2241/proposals/2026-08-25-stage-1-lease-
     identity-record-kind.md)."""
     return f"issue-{issue}/{disambiguator}"
+
+
+def new_lease_disambiguator() -> str:
+    """Issue #2432 (role retirement stage 4): mint a fresh per-session
+    disambiguator for the skill-axis naming scheme. A skill name alone is
+    not unique per session — two sessions may legitimately mount the same
+    skill on the same issue (docs/decisions/2026-08-25-retire-role-axis-
+    staging.md, job (a)/(d) split) — so, unlike the old role string, it
+    cannot double as the collision-safety key on its own. 8 hex chars of
+    `secrets.token_hex` keeps the branch name short while making an
+    accidental collision between two concurrently-spawned sessions on the
+    same issue+skill astronomically unlikely; the roster claim (not this
+    string) is still what actually enforces exclusivity."""
+    return secrets.token_hex(4)
 
 
 def roster_register(key: str, entry: dict) -> None:
@@ -467,6 +482,15 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
     d_all = _sp._roster_load() if d_all is None else d_all
     attempts, outcomes = _sp._load_spawn_attempts()
     count = 0
+    # 이슈 #2413: dedup 키가 attempt_id 라서, 같은 (issue, role) 시도가
+    # 여러 attempt_id 로 남아 있으면(예: orphan pytest fixture 레코드,
+    # 또는 재시도로 여러 번 spawn 된 같은 role) 각자 자기 attempt_id
+    # 게이트는 통과해 같은 틱에 subject 당 한 줄이 아니라 여러 줄을
+    # 찍는다(실측: 이슈 #2413 filing, 최대 5x). attempt_id 별 크로스틱
+    # dedup(ledger_check_and_stamp)은 그대로 두고, 여기에 subject 당
+    # "이번 틱에 이미 한 줄 찍었으면 더는 안 찍는다"는 인메모리 dedup을
+    # 얹는다 — 새 상태/스케줄 없이 이 호출 하나의 수명 안에서만 산다.
+    reported_subjects: set[str] = set()
     for attempt_id, a in sorted(attempts.items()):
         outcome = outcomes.get(attempt_id)
         if outcome is not None:
@@ -483,10 +507,13 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
             reason = (f"no outcome recorded {int(now - ts)}s after spawn "
                       f"attempt (pid {a.get('pid')}) — process likely died "
                       f"before it could report why")
+        subject = lease_key(a.get('issue'), a.get('role'))
+        if subject in reported_subjects:
+            continue  # already reported this subject this tick
         if not _sp.ledger_check_and_stamp(f"spawn-attempt-halt:{attempt_id}", now=now):
             continue
+        reported_subjects.add(subject)
         count += 1
-        subject = lease_key(a.get('issue'), a.get('role'))
         print(f"[spawn-attempt] {subject}: spawn halted pre-workspace: {reason}")
         _sp.ledger_write({"event": "spawn_attempt_halt_reported",
                           "attempt_id": attempt_id, "issue": a.get("issue"),

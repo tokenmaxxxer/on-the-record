@@ -308,6 +308,10 @@ def t_merge_gate_evaluate_refuses_no_checks_as_a_pass(monkeypatch):
     """`evaluate()`를 끝까지 — check-runner 코멘트를 no-checks 로 고정하고,
     나머지 세 검사(필요 기록/stale-revert)는 통과로 고정한 뒤, 그래도
     `allowed`가 아니어야 한다는 것을 확인한다."""
+    # issue #2381 R1: `evaluate()` now fetches (`check_runner.fetch_all_role_branches`)
+    # before `stale_revert_reasons()` — stub it out so this test stays
+    # network-free against the real checkout `repo=Path(".")` passes in.
+    monkeypatch.setattr(check_runner, "fetch_all_role_branches", lambda repo: None)
     monkeypatch.setattr(merge_gate, "latest_check_runner_comment",
                          lambda repo, pr: check_runner.format_no_checks_comment())
     monkeypatch.setattr(merge_gate, "required_verification_missing",
@@ -373,22 +377,39 @@ def t_finder_empty_state_still_reports_comment_missing(monkeypatch, fixture_repo
     assert any("코멘트" in r for r in result["reasons"])
 
 
-def t_exempt_own_role_drops_only_the_supplying_prs_own_role():
+def t_exempt_own_record_kind_drops_only_the_supplying_prs_own_kind():
     missing = ["execution-observation", "conformance-review"]
 
-    # PR #2220 의 모양: issue-2204/execution-observation 이 스스로 그
-    # 기록을 공급하니, 자기 role 만 빠지고 conformance-review 는 남는다.
-    own = merge_gate._exempt_own_role(missing, "issue-2204",
-                                       "issue-2204/execution-observation")
-    assert own == ["conformance-review"], own
+    # issue #2380 (stage 5 하에서 record-kind 축): PR #2220 의 모양 --
+    # issue-2204/execution-observation 은 스스로 execution-observation 을
+    # 공급하는 관찰자 record PR 이다. #2233 은 자기 kind 만 뺐었지만
+    # (순환이 남아있던 지점), 이제는 형제(sibling) kind 인
+    # conformance-review 도 함께 빠진다 -- 같은 리뷰 사이클에 나란히 열린
+    # 관찰자 PR 이 서로의 선행 머지를 요구하는 순환을 깬다.
+    own = merge_gate._exempt_own_record_kind(missing, "issue-2204",
+                                              "issue-2204/execution-observation")
+    assert own == [], own
+
+    # 거울 방향: conformance-review PR 도 마찬가지로 둘 다 빠진다.
+    mirror = merge_gate._exempt_own_record_kind(missing, "issue-2204",
+                                                 "issue-2204/conformance-review")
+    assert mirror == [], mirror
+
+    # own_kind 가 PR_TRIGGERED_RECORD_KINDS 밖이면(예: subject 의
+    # implementation PR) 기존처럼 자기 kind 하나만 빠진다 -- 구조적 예외가
+    # 아니라는 증거: implementation PR 은 여전히 두 관찰자 kind 모두 요구한다.
+    missing_with_impl = ["implementation", "execution-observation", "conformance-review"]
+    impl = merge_gate._exempt_own_record_kind(missing_with_impl, "issue-2204",
+                                               "issue-2204/implementation")
+    assert impl == ["execution-observation", "conformance-review"], impl
 
     # 다른 subject/role 의 PR 은 손대지 않는다(no-op).
-    other = merge_gate._exempt_own_role(missing, "issue-2204",
-                                         "issue-9999/implementation")
+    other = merge_gate._exempt_own_record_kind(missing, "issue-2204",
+                                                "issue-9999/implementation")
     assert other == missing
 
     # PR 문맥이 없으면(own_branch=None) 오늘과 같은 목록 그대로.
-    none_ctx = merge_gate._exempt_own_role(missing, "issue-2204", None)
+    none_ctx = merge_gate._exempt_own_record_kind(missing, "issue-2204", None)
     assert none_ctx == missing
 
 
@@ -408,7 +429,7 @@ def t_required_verification_missing_still_blocks_the_role_the_pr_does_not_supply
                                             "head_ref": "issue-2204/implementation"})
     missing = merge_gate.required_verification_missing(
         Path("."), "issue-2204", Path("."), 2212)
-    assert set(missing) == set(spawn_on_pr.PR_TRIGGERED_ROLES), missing
+    assert set(missing) == set(spawn_on_pr.PR_TRIGGERED_RECORD_KINDS), missing
 
 
 def t_required_verification_missing_exempts_the_observer_pr_that_supplies_it(monkeypatch):
@@ -420,7 +441,76 @@ def t_required_verification_missing_exempts_the_observer_pr_that_supplies_it(mon
                                             "head_ref": "issue-2204/execution-observation"})
     missing = merge_gate.required_verification_missing(
         Path("."), "issue-2204", Path("."), 2220)
-    assert missing == ["conformance-review"], missing
+    # issue #2380: this used to assert `missing == ["conformance-review"]`
+    # (i.e. execution-observation's own gate check still demanded its
+    # sibling conformance-review already be merged to main) -- that is
+    # exactly the deadlock #2380 reports: neither sibling can be first.
+    # Both PR_TRIGGERED_ROLES are now exempted when the PR under
+    # evaluation is itself one of them.
+    assert missing == [], missing
+
+
+def t_issue_2380_sibling_observer_prs_neither_blocks_on_the_other(monkeypatch):
+    """AC2 regression: spawn two sibling observer PRs for the same issue
+    (execution-observation and conformance-review), neither merged to
+    main -- `required_verification_missing()` must not flag either as
+    missing because of the other's absence. A control case (the
+    subject's own implementation PR, which is not itself an observer
+    record) must still report both roles missing."""
+    import spawn
+
+    # Neither observer role has landed to main yet -- fresh board.
+    monkeypatch.setattr(spawn, "board", lambda root: {"issue-7777": {}})
+
+    monkeypatch.setattr(merge_gate, "pr_refs",
+                         lambda repo, pr: {"base_ref": "main",
+                                            "head_ref": "issue-7777/execution-observation"})
+    eo_missing = merge_gate.required_verification_missing(
+        Path("."), "issue-7777", Path("."), 9001)
+    assert eo_missing == [], eo_missing
+
+    monkeypatch.setattr(merge_gate, "pr_refs",
+                         lambda repo, pr: {"base_ref": "main",
+                                            "head_ref": "issue-7777/conformance-review"})
+    cr_missing = merge_gate.required_verification_missing(
+        Path("."), "issue-7777", Path("."), 9002)
+    assert cr_missing == [], cr_missing
+
+    # Control: a PR that is not itself an observer record (the subject's
+    # own implementation PR) is unaffected -- both roles still missing.
+    monkeypatch.setattr(merge_gate, "pr_refs",
+                         lambda repo, pr: {"base_ref": "main",
+                                            "head_ref": "issue-7777/implementation"})
+    impl_missing = merge_gate.required_verification_missing(
+        Path("."), "issue-7777", Path("."), 9003)
+    assert set(impl_missing) == {"execution-observation", "conformance-review"}, impl_missing
+
+
+def t_issue_2380_sibling_observer_prs_evaluate_end_to_end(monkeypatch):
+    """Same scenario as above but through `evaluate()` -- confirms
+    neither sibling PR is refused for a missing-verification reason
+    when the other is only an open (unmerged) sibling. The manual
+    override pattern (release-eng consult + basis comment) should not
+    be necessary for this to clear."""
+    import spawn
+
+    monkeypatch.setattr(spawn, "board", lambda root: {"issue-7777": {}})
+    monkeypatch.setattr(merge_gate, "stale_revert_reasons", lambda repo, pr: [])
+    body = check_runner.format_comment([
+        {"check": "`a`", "type": "test", "status": "pass", "output": ""}])
+    monkeypatch.setattr(merge_gate, "latest_check_runner_comment", lambda repo, pr: body)
+
+    monkeypatch.setattr(merge_gate, "pr_refs",
+                         lambda repo, pr: {"base_ref": "main",
+                                            "head_ref": "issue-7777/execution-observation"})
+    eo_result = merge_gate.evaluate(Path("."), Path("."), 9001, "issue-7777")
+    assert not any("검증 기록" in r for r in eo_result["reasons"]), eo_result
+
+    monkeypatch.setattr(merge_gate, "pr_refs",
+                         lambda repo, pr: {"base_ref": "main",
+                                            "head_ref": "issue-7777/conformance-review"})
+    cr_result = merge_gate.evaluate(Path("."), Path("."), 9002, "issue-7777")
+    assert not any("검증 기록" in r for r in cr_result["reasons"]), cr_result
 
 
 def t_full_sequence_reaches_allow_merge_once_every_precondition_holds(monkeypatch):
@@ -438,6 +528,9 @@ def t_full_sequence_reaches_allow_merge_once_every_precondition_holds(monkeypatc
     session cannot itself supply (another role's merged record) held true."""
     import verdict_gate
 
+    # issue #2381 R1: stub the new `evaluate()` fetch — see the sibling
+    # comment on `t_merge_gate_evaluate_refuses_no_checks_as_a_pass`.
+    monkeypatch.setattr(check_runner, "fetch_all_role_branches", lambda repo: None)
     monkeypatch.setattr(merge_gate, "latest_check_runner_comment",
                          lambda repo, pr: "## Acceptance check-runner result: 1/1 passed\n\n"
                                           "- [PASS] (test) `tests/test_x.py`")
