@@ -668,6 +668,18 @@ def t_summarize_blocked_still_refuses_with_individual_reasons():
     assert "기준 'x'이 YES" in text
 
 
+def t_summarize_empty_advisory_not_blocked_is_not_all_unknown():
+    # warrant-hunt finding 2026-08-26: not reachable via check()/grade()
+    # (empty_state=False implies non-empty advisory), but summarize() is a
+    # pure function callable directly with hand-built dicts — it must not
+    # read a 0/0 vacuous match as "0 criteria, all UNKNOWN".
+    result = {"empty_state": False, "blocking_reasons": [], "advisory": []}
+    text, code = rm.summarize(result)
+    assert code == 0
+    assert "UNKNOWN" not in text
+    assert not text.startswith("게이트 통과")
+
+
 def t_summarize_empty_state_unchanged():
     result = {"empty_state": True, "reason": "테스트 사유"}
     text, code = rm.summarize(result)

@@ -172,7 +172,27 @@ $ python3 -m pytest gates/test_requirement_met.py -q
 
 ## Open findings
 
-None.
+canonical: python3 gates/test_requirement_met.py (42/42 passed after the
+fix below, fenced output further down; hunt record at
+docs/issue-2510/reports/implementation/2026-08-26-hunt-fix-inline-print-into-summarize.md)
+
+A before-landing warrant-hunt pass found one design-error: `summarize()`
+tested `unknown == total`, which is vacuously true when `advisory == []`
+(`empty_state=False`) — a hand-built `{"empty_state": False,
+"blocking_reasons": [], "advisory": []}` read as "0 criteria, all
+UNKNOWN" instead of a distinct "0 gradable criteria" outcome. Not
+reachable through `check()`/`grade()` today (`empty_state=False` always
+implies a non-empty `advisory` list there), but `summarize()` is a pure
+function other code could call directly, so this is now fixed with an
+explicit `total == 0` guard ahead of the UNKNOWN check, pinned by
+`t_summarize_empty_advisory_not_blocked_is_not_all_unknown`. Resolved,
+not open — re-run after the fix:
+
+```
+$ python3 gates/test_requirement_met.py
+[... 41 prior + 1 new t_summarize_empty_advisory_not_blocked_is_not_all_unknown ...]
+42/42 passed
+```
 
 ## Next steps
 

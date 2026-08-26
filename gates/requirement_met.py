@@ -558,6 +558,14 @@ def summarize(result: dict) -> tuple[str, int]:
         return ("\n".join(lines), 1)
     advisory = result["advisory"]
     total = len(advisory)
+    if total == 0:
+        # Not reachable through check()/grade() today (empty_state=False
+        # implies a non-empty advisory list) — guarded anyway so this
+        # pure function never reads "0 out of 0 UNKNOWN" as "all
+        # UNKNOWN", the same not-evaluated-vs-fine conflation this issue
+        # exists to remove (warrant-hunt finding, 2026-08-26).
+        return ("채점 가능한 기준 없음 — 이건 통과가 아니라 별개의 결과다 "
+                "(advisory 목록이 비어 있다)", 0)
     met = sum(1 for a in advisory if a["verdict"] == YES)
     unknown = sum(1 for a in advisory if a["verdict"] == UNKNOWN)
     if unknown == total:
