@@ -324,6 +324,45 @@ _HOOK_CONTRACT_PROSE = (
     "gate shape\"\n"
     "   ```\n")
 
+# Issue #2527: measured live (issue-2516 implementation session,
+# 2026-08-26, 11.2 min total): the record-to-PR phase alone cost 28% of
+# the session's wall clock. The record's first write landed at +6.9 min,
+# 2.9 minutes BEFORE the first code Edit/Write at +9.8 min — the record
+# was written with nothing yet done to cite, so all 5 record-claim-guard
+# refusals in that session fell inside that 3-minute window. After the
+# first write, the record was assembled across 11 separate Write/Edit
+# calls, each one re-entering record-claim-guard.sh from scratch, plus 9
+# redundant git diff/status/log calls re-checking what the session had
+# just done. Guidance only — record-claim-guard.sh's refusal logic does
+# not change; the fix is arriving at the record with citable results
+# already in hand, never accepting less from the gate.
+_RECORD_ORDER_PROSE = (
+    "\nRecord ordering (issue #2527, guidance only — no gate; does NOT "
+    "loosen record-claim-guard.sh or any citation gate): change the code, "
+    "run the acceptance checks, THEN write the record from those executed "
+    "results — never the reverse. A record written before the code exists "
+    "has nothing to cite yet, and every Write/Edit under "
+    "docs/issue-*/reports/** re-enters record-claim-guard.sh — an uncited "
+    "number there is refused on the spot. Measured live (issue-2516 "
+    "implementation session, 2026-08-26): the record's first write landed "
+    "3 minutes before the first code edit, and all 5 refusals that session "
+    "hit fell inside that window.\n"
+    "Assemble the record ONCE, after the checks have run, from the "
+    "finished results — not grown across many small edits as you go. Each "
+    "Write/Edit is a separate gate entry; the same session wrote its "
+    "record in 11 separate pieces, each one re-checked from scratch, plus "
+    "9 redundant git diff/status/log calls re-inspecting work already "
+    "done. One assembled write with the executed evidence already in hand "
+    "passes once instead of eleven times.\n"
+    "This batching covers the record's RESULT content only — it does NOT "
+    "defer deviation logging. A deviation (a scope-exceeded stop, an "
+    "alternative swap from the approved proposal, something you wrote and "
+    "then undid or replaced, something you expected to hold that did "
+    "not) is still appended to `## What did not work` / `## Rationale for "
+    "deviations` the moment it happens, per the warrant and record-shape "
+    "directives — never saved up for the single end-of-session record "
+    "write.\n")
+
 # Moved verbatim: the mounted-skill inspection nudge (issue #1960 phase B)
 # + invoke-before-apply (issue #2062).
 _SKILL_CHECK_PROSE = (
@@ -385,13 +424,17 @@ def directive_section_files(*, skills_mounted: bool = False,
     """The on-demand section files for one spawn: name -> full prose.
 
     `completion-and-landing.md`, `repo-discovery.md`, `turn-budget.md`,
-    and `hook-contract.md` are always materialized — the invariant
-    baseline every task gets regardless of path scope (Acceptance
-    'empty state': never an empty directive). `hook-contract.md`
+    `hook-contract.md`, and `record-order.md` are always materialized —
+    the invariant baseline every task gets regardless of path scope
+    (Acceptance 'empty state': never an empty directive). `hook-contract.md`
     (issue #2479) is unconditional because both gates it documents fire
     for every role: record-claim-guard.sh on any docs/issue-*/reports/**
     write, heredoc-command-refusal-gate.sh on any role-session commit/PR
-    Bash call. `known-paths.md` and `task-lookup.md` (issue #2409) are
+    Bash call. `record-order.md` (issue #2527) is unconditional for the
+    same reason: every role writes its own record through
+    record-claim-guard.sh, so the code-then-checks-then-record ordering
+    and single-assembly guidance apply regardless of write_scope.
+    `known-paths.md` and `task-lookup.md` (issue #2409) are
     scoped to `code_scoped` callers
     (issue #2227 REQ-10, see `_role_touches_code()`
     above); the skill and checkpoint sections only when their own
@@ -402,7 +445,8 @@ def directive_section_files(*, skills_mounted: bool = False,
     files = {"completion-and-landing.md":
              _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
              "repo-discovery.md": _REPO_DISCOVERY_PROSE,
-             "hook-contract.md": _HOOK_CONTRACT_PROSE}
+             "hook-contract.md": _HOOK_CONTRACT_PROSE,
+             "record-order.md": _RECORD_ORDER_PROSE}
     if code_scoped:
         files["known-paths.md"] = _KNOWN_PATHS_PROSE
         files["task-lookup.md"] = _TASK_LOOKUP_PROSE
