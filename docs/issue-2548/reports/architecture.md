@@ -123,6 +123,30 @@ session). Step C below wires the underlying `_checkout_named_branch()`
 helper directly with the slug alone, not slug-plus-suffix — canonical:
 `pipeline.py:1005` (`_checkout_named_branch`, read this session).
 
+**Completion test.** canonical: issue #2548 comment
+`issuecomment-5425404626` (read this session) — the design is only
+correct if `python3 spawn.py "<task>"` works with no identity argument
+at all, not merely a renamed one: "the only reason the role argument
+still has to exist is that authorization, branch naming, and record
+filenames demand it. Those are exactly what this design removes." A
+working precedent for this exact shape already exists, gated behind a
+flag — canonical: `spawn.py:1713-1744` (read this session), issue
+#2241 stage 0: when `--skill` is passed, the sole remaining positional
+argument is read as `task_text` instead of a role (`spawn.py:1721`,
+`task_text = a.role`), explicitly framed in its own comment as "역할
+axis 밖의 additive 경로" ("a path outside the role axis"), and resolves
+skills via task-matching with no role table — but it stops short of
+dispatching a real session ("세션을 안 띄우므로 roster/lease/board-gate/
+merge_gate 는 이 스테이지에서 손대지 않는다"). Step C is amended below to
+make this reinterpretation the default entry (no `--skill` flag
+required) and to make it actually dispatch, closing exactly the gap the
+completion test names: `spawn.py:2011-2012` (bare-status branch,
+`if not a.role:`) and `spawn.py:2021-2022` (`if not a.task: sys.exit(...)`)
+are the two literal blocks that make `spawn.py "<task>"` fail today —
+a single positional binds to `a.role`, leaves `a.task` empty, and hits
+the 2021-2022 exit demanding a task the caller already supplied, just
+not positionally.
+
 ### Authorization
 
 `write_scope` moves from a static, closed-enum lookup
@@ -323,15 +347,56 @@ authorization sourced from declared attributes, not a role-to-resource
 lookup table (`docs/issue-2548/reports/architecture/scout-brief.md`,
 "Adopt / skip" section, this session).
 
-**(d) Board's per-issue role enumeration.** `board.py:788-790` (inside
-`status()`) and `board.py:744-745` (inside `board()`) both iterate
-`spawn.py:703-715`'s hardcoded `ROLES` tuple to decide which record
-files are "missing" — canonical: both cited lines read this session.
-New form (Step E): this enumeration iterates the roster's currently-open
-lease slugs for that issue instead of the closed tuple, so "no record
-yet" means "a claimed slug with no matching
-`docs/issue-<n>/reports/<slug>.md`," not "one of a fixed name list with
-no file." It is a pure reader of roster state and gates nothing.
+**(d) `_sp.ROLES`, the fixed role enum itself.** Per the issue-comment
+amendment (`issuecomment-5425404626`, read this session): board's "43
+roles with no record" line is a symptom; `_sp.ROLES`
+(`spawn.py:703-715`) is the datum, and every consumer of it needs its
+own disposition, not just the display. canonical: `grep -n
+"_sp\.ROLES\|spawn\.ROLES" board.py gates/patrol_wiring.py pipeline.py`
+(read this session) — the full consumer set:
+- `board.py:717` (`ownership_report`-adjacent helper, `known = {f"{r}.md"
+  for r in _sp.ROLES}`) and `board.py:744` (`board()`, builds the dict
+  `status()` reads) and `board.py:770,782,788` (inside `status()`,
+  "missing"/"밖" reporting) — five sites, all pure readers deciding
+  which record files are "missing" or "outside the enum." New form
+  (Step E): switch all five to iterate the roster's currently-open
+  lease slugs for the issue instead of the closed tuple, so "no record
+  yet" means "a claimed slug with no matching
+  `docs/issue-<n>/reports/<slug>.md`," not "one of a fixed name list
+  with no file." Pure roster readers; gate nothing.
+- `pipeline.py:1643`, inside `_admission_check_directive_completeness()`
+  — canonical: `pipeline.py:1633-1668` (read this session):
+  ```python
+      role = ctx["role"]
+      try:
+          if role not in _sp.ROLES:
+              return False  # role spec is the first directive ingredient
+  ```
+  This is a **third** closed-enum gate this session found beyond
+  `role_settings()` (Identity section) and `role_scope()`'s fallback
+  (Authorization section) — an admission-time refusal for any
+  non-legacy slug, running before a workspace even exists. New form:
+  folded into Step C below, dropped the same way `role_settings()`'s
+  unknown-role exit is dropped — the directive-assembly checks that
+  follow it (`_SINGLE_PHASE_CONTRACT_LINE.format(role=role)`, skill
+  trigger-line resolution) already work from `ctx["role"]` as a plain
+  string and `resolve_static_policy_source()` (no table), so nothing
+  downstream in this function actually needs `role` to be a
+  `_sp.ROLES` member once the gate line itself is removed.
+- `gates/patrol_wiring.py:60`, inside `_known_roles()` — canonical:
+  `gates/patrol_wiring.py:53-60` (read this session): the board's
+  automated post-merge patrol sweep ("check up to
+  `MAX_ROLES_PER_MERGE` roles' worth of judge_cmd hits") needs a
+  **small, bounded** set of work-categories to periodically check —
+  a scheduling/coverage concern for the patrol feature, not a
+  session's own identity, authorization, or naming. This is the same
+  shape as `skills.py`'s advisory-persona catalog (Consumers item c):
+  legitimately fixed, not part of the axis being retired. New form: it
+  keeps reading `spawn.ROLES`, but `spawn.ROLES` itself narrows in Step
+  H to whatever subset `consult.py`'s advisory paths and this patrol
+  sweep still need — both are named explicitly here so Step H's
+  narrowing does not silently break patrol coverage the way it would if
+  this consumer went unaddressed.
 
 **(e) The spawn entry point.** `spawn.py <role> "<task>"`'s CLI surface
 does not change — canonical: `spawn.py:1569-1571` (read this session),
@@ -378,20 +443,43 @@ every branch hits the fail-closed message quoted under Authorization
 (`gates/gates.py:915-916`) — a repo-wide write freeze. This is why Step
 A must precede Step B.
 
-**Step C — wire the slug into spawn, branch, and settings resolution
-together, as one change:** `role_settings()` (`pipeline.py:225-227`)
-stops hard-exiting on an unrecognized slug, falling back to the
-Consumers-item-e baseline; `spawn.py:2918` calls
+**Step C — wire the slug into spawn, branch, settings, admission, and
+the CLI's default dispatch, together, as one change:**
+`role_settings()` (`pipeline.py:225-227`) stops hard-exiting on an
+unrecognized slug, falling back to the Consumers-item-e baseline;
+`_admission_check_directive_completeness()`'s `role not in _sp.ROLES`
+check (`pipeline.py:1643`, Consumers item d) is dropped, since nothing
+after it actually requires enum membership; `spawn.py:2918` calls
 `_checkout_named_branch(cwd, f"issue-{issue}/{slug}")`
 (`pipeline.py:1005`) instead of the role-only `checkout_issue_branch`;
 `gates.py`'s `BRANCH_ROLE` and `ci.py`'s `_ISSUE_ROLE_BRANCH` regexes
 keep their existing pattern (`^issue-[^/]+/([^/]+)$`) since the slug
-occupies the same single path segment a role name did.
+occupies the same single path segment a role name did; and
+`spawn.py`'s `main()` gains the completion-test behavior (Identity
+section above) — when `a.task` is empty and `a.role` does not match a
+`spawn_roles.json` key (`spawn.py:2021-2022`'s branch), `a.role` is
+reinterpreted as the task text (reusing the `task_text = a.role` idiom
+already at `spawn.py:1721`) and a slug is auto-derived from it, instead
+of exiting with "맡길 일이 없다." A bare positional that *does* match a
+known legacy role name still exits there unchanged (task genuinely
+missing) — only an unrecognized single positional takes the new path,
+so `python3 spawn.py "<task>"` reaches a real dispatch.
 What breaks if the branch/regex half of Step C lands without the
-`role_settings()` half: any spawn attempt with a non-legacy slug still
-exits at `pipeline.py:226-227`'s `sys.exit` before a branch is ever
-created — a loud block on all new-shape work, so both halves must ship
+`role_settings()`/admission-check half: any spawn attempt with a
+non-legacy slug still exits at `pipeline.py:226-227`'s `sys.exit` (or,
+if that one is patched but `pipeline.py:1643` is not, fails silently
+back to `False` inside `_admission_check_directive_completeness()`,
+refusing admission before a workspace exists) — a loud block on all
+new-shape work either way, so all of Step C's sub-changes must ship
 together.
+What breaks if the CLI default-dispatch half lands without the rest of
+Step C: a bare `python3 spawn.py "<task>"` would derive a slug and
+reach `checkout_issue_branch`/`role_settings()`/the admission check,
+all of which still demand a `spawn_roles.json` key — the same
+`sys.exit`/refusal paths above fire immediately, just reached from a
+new entry point instead of the old one. The CLI change is therefore
+the *outermost* layer of Step C, meaningless without the rest landing
+in the same change.
 What breaks if Step C lands without Step B already live: PR #2547's
 exact failure, reproduced — a branch/filename that no longer matches
 `BRANCH_ROLE`'s old capture semantics reaches `_role_cfg()`'s `KeyError`
@@ -453,6 +541,25 @@ with role keys — deleting it early breaks `consult.py`'s judge/advisory
 sessions too, even though they were never part of the identity axis
 being retired. Must be last, and must preserve whatever subset
 `consult.py` still reads.
+
+## Amendments
+
+amendments-reconciled: issue #2548 comment `issuecomment-5425404626`
+(read this session, orchestrator-added completion test) — reconciled
+by (1) adding the "Completion test" paragraph under Identity, tying the
+design to the executable outcome `python3 spawn.py "<task>"` working
+with no identity argument, and citing the existing `spawn.py:1713-1744`
+(`--skill`) precedent this design's CLI change extends; (2) expanding
+Consumers item (d) from "board's display" to `_sp.ROLES` itself as the
+datum, with all five `board.py` sites plus the two consumers the
+original draft missed (`pipeline.py:1643`'s admission-check gate,
+`gates/patrol_wiring.py:60`'s patrol sweep) each given their own
+disposition; (3) amending Step C to retire the admission-check gate and
+add the CLI default-dispatch change, with its own what-breaks-alone
+analysis. No other section changed; the identity/authorization/naming
+model itself (alt-C) did not need to change shape, only be carried
+through to the CLI entry point and the two additional closed-enum gates
+this reconciliation surfaced.
 
 ## Why
 
