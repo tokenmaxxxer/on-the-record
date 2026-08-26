@@ -222,10 +222,14 @@ def role_settings(role: str, cwd: str | None = None,
     **병합**이라 필요하다 — 안 끄면 qa 스킬-저장소 가이던스만 적은 세션에 전역 17개가 딸려
     온다.
     """
+    # 이슈 #2555 (Step C): `role` 은 이제 닫힌 집합의 원소가 아니라 스폰
+    # 시점에 정해지는 슬러그다 — `spawn_roles.json` 에 없는 슬러그는 거부가
+    # 아니라 일반 베이스라인(빈 spec)으로 떨어진다. 샌드박스는 어차피
+    # 아래에서 역할과 무관하게 중앙에서 강제로 꺼지고, 전역 플러그인
+    # 차단·permissions.allow 보강도 spec 내용과 무관하게 항상 적용된다 —
+    # 레거시 역할 이름에 대해서만 그 역할의 선언(env/sandbox 등)이 반영된다.
     data = _sp.role_data()
-    if role not in data:
-        sys.exit(f"모르는 역할: {role}  (있는 것: {', '.join(sorted(data))})")
-    spec = data[role]
+    spec = data.get(role, {})
 
     s = {k: v for k, v in spec.items()
          if k not in ("marketplace", "path", "repo", "record_spec")}
@@ -1640,8 +1644,11 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
     frontmatter), so a failure is a refusal — never fail-open."""
     role = ctx["role"]
     try:
-        if role not in _sp.ROLES:
-            return False  # role spec is the first directive ingredient
+        # 이슈 #2555 (Step C): `role not in _sp.ROLES` 닫힌-집합 거부를
+        # 여기서 뺀다 — 아래 나머지 검사(계약 줄 포맷, 스킬 트리거 라인
+        # 해석) 는 전부 `role` 을 평범한 문자열로만 쓰고, 어느 것도
+        # `_sp.ROLES` 멤버십을 실제로 요구하지 않는다 (issue-2548
+        # architecture record, Consumers item d).
         # Two-phase signal: the contract line must format for this role.
         _sp._SINGLE_PHASE_CONTRACT_LINE.format(role=role)
         # Per-skill trigger lines (issue #1978 B): resolve every skill
