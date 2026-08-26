@@ -22,9 +22,26 @@ import gh_rest
 import human_comprehensibility
 
 # phase-1 제안 PR은 `#<n>`만 있으면 된다 — 머지돼도 이슈를 닫으면 안 된다
-# (Closes 는 자동 종료를 유발한다). phase-2 인도 PR만 Closes/Fixes/Resolves 를 요구한다.
+# (Closes 는 자동 종료를 유발한다). phase-2 인도 PR은 Closes/Fixes/Resolves
+# 또는(issue #2508) 의도적 partial delivery를 위한 비-종결 링크 트레일러
+# (Advances/Part of)를 요구한다 — 세션이 이슈를 닫히지 않았는데 닫힌 것처럼
+# 주장하도록 강제하지 않으면서도, 이슈 참조 자체가 없는 PR은 여전히 거절한다.
 _PLAIN_REF = re.compile(r"(?<!\w)#(\d+)")
 _CLOSES_REF = re.compile(r"(?i)\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)")
+_ADVANCES_REF = re.compile(r"(?i)\b(advances|part of)\s+#(\d+)")
+
+
+def _ref_for_issue(pattern: re.Pattern, body: str, issue: int):
+    """`pattern`의 첫 매치가 아니라 *이 이슈를* 가리키는 매치를 찾는다
+    (issue #2508 발견: `.search()`(첫 매치 하나)는 본문이 다른 이슈를
+    먼저 언급하면("...will not auto-close #999...") 그 매치에서 멈춰
+    진짜 트레일러(예: 맨 끝의 "Closes #245")를 못 본다 — `gates/ci.py::
+    _closes_ref_for_issue`가 phase-1 검사에서 이미 같은 이유로 쓰는
+    `.finditer()` 패턴과 동일하다)."""
+    for m in pattern.finditer(body):
+        if int(m.group(2)) == issue:
+            return m
+    return None
 
 
 def check_body(issue: int, body: str, phase: str,
@@ -54,16 +71,18 @@ def check_body(issue: int, body: str, phase: str,
                 len(incomplete) == 1 and incomplete[0]["step"] == max_step
             )
             if incomplete and not only_last_incomplete:
-                m = _CLOSES_REF.search(body)
-                if m and int(m.group(2)) == issue:
+                if _ref_for_issue(_CLOSES_REF, body, issue):
                     return violations + ["계획에 미완 스텝이 남아 있다 — 마지막 스텝의 "
                             "phase-2 PR에서만 Closes/Fixes/Resolves를 쓴다."]
                 return violations
-        m = _CLOSES_REF.search(body)
-        if not m or int(m.group(2)) != issue:
-            return violations + [f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)가 없다 — "
-                    f"phase-2 인도 PR은 이슈를 명시적으로 닫아야 한다."]
-        return violations
+        if _ref_for_issue(_CLOSES_REF, body, issue):
+            return violations
+        if _ref_for_issue(_ADVANCES_REF, body, issue):
+            return violations
+        return violations + [f"PR 본문에 'Closes #{issue}'(또는 Fixes/Resolves)도, "
+                f"'Advances #{issue}'(또는 Part of, 의도적 partial delivery용)도 "
+                f"없다 — phase-2 인도 PR은 이슈를 명시적으로 닫거나(완결) 최소한 "
+                f"진전시켰다고(비-종결) 밝혀야 한다."]
     refs = {int(n) for n in _PLAIN_REF.findall(body)}
     if issue not in refs:
         return violations + [f"PR 본문에 '#{issue}' 참조가 없다 — phase-1 제안 PR도 자기 "
@@ -90,8 +109,7 @@ def check(repo: Path, pr: int, issue: int, phase: str) -> list[str]:
                     f"검사 불가는 통과가 아니다."]
         plan = flows._plan_from_body(issue_body)
         bad = check_body(issue, body, phase, plan)
-        closes = _CLOSES_REF.search(body)
-        if not bad and closes and int(closes.group(2)) == issue:
+        if not bad and _ref_for_issue(_CLOSES_REF, body, issue):
             bad = bad + acceptance_gate.check_issue_body(issue, issue_body)
         return bad
     return check_body(issue, body, phase, plan)
