@@ -62,6 +62,34 @@ functions with independent prompt assembly (see their own docstrings) —
 so the line naturally stays absent from consult/panel by construction,
 not by a conditional check.
 
+## Gate passing-shape contract (issue #2479)
+
+`hook-contract.md` — unconditional, alongside `completion-and-landing.md`
+and `repo-discovery.md` in `directive_section_files()` — states the exact
+passing shape plus a worked example for two deny-only PreToolUse gates
+that fire for every role session: `record-claim-guard.sh` (any Write/
+Edit/MultiEdit under `docs/issue-*/reports/**`) and
+`heredoc-command-refusal-gate.sh` (any role-session `git commit`/`gh
+issue|pr create|comment` Bash call). Both worked examples are verified to
+pass their respective gate's real check functions (`gates/record_lint.py`,
+`on-the-record/hooks/heredoc-command-refusal-gate.sh`'s embedded guard) —
+see `docs/issue-2479/reports/implementation.md`.
+
+Motivation: observed live (issue-2379 conformance-review session) —
+after opening its phase-1 PR, a follow-up commit hit both gates
+back-to-back with no prior warning and the session ended
+`progressed-dirty-tree`, unable to close out its own commit; watchdog
+then treated the entry as dead and respawned it from scratch. Neither
+gate's own refusal/deny logic changes — this only tells the passing
+shape earlier, mirroring the `--single-phase`/checkpoint contract-line
+mirroring pattern above (verbatim from the enforcing source, not a
+hand-invented paraphrase, where the source text was itself concise
+enough to mirror; `gates/record_lint.py`'s check docstrings are
+per-function prose, not a single quotable shape, so this section
+condenses them by hand instead — same content on both sides, checked
+against the module's `_section_bounds` note about issue #2219's
+whole-section (not fixed-3-line) evidence window).
+
 ## Out of scope here
 
 `directive.sh`, `approval-gate.sh`, and the rest of the
