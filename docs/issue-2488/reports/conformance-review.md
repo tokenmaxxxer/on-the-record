@@ -393,50 +393,13 @@ above) rather than left dangling.
 
 ## Skill verdicts
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; checked issue #2488's five bullets (`gh issue view 2488`,
-this session) for bundled obligations, missing acceptance thresholds,
-and redundant summary lines — none found, per "What was done" above —
-before mapping them one-to-one onto REQ 1 through REQ 5.
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; selected Demonstration for REQ 1, REQ 2, and REQ 3 and
-Inspection for REQ 4 and REQ 5, matching each bullet's own stated
-`provenance` field, and reused the shipped
-`aa9f754c:test/test_spawn_skills_mount.py` suite (31 passed, `derived:`
-quoted under REQ 1 above) as Test-method evidence rather than
-re-deriving a parallel manual check.
-skill-verdict: conformance-review-verdict-assignment — applied: invoked;
-assigned Present to every REQ block above only after independently
-re-deriving each behind the builder's account (worktree checkout, direct
-code reads, live re-execution — all `derived:`/`canonical:` tags cited
-per-REQ above), per the rule against asserting Present from the
-builder's own description.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every REQ cites file:line-range plus the commit sha
-(`aa9f754c`) actually read in `/tmp/pr2497-review`, and REQ 1's evidence
-cites both `skills.py` (resolution) and `spawn.py` (roster wiring) as
-separate links per contributing file.
-skill-verdict: conformance-review-finding-record — applied: invoked;
-this record's five REQ blocks each carry requirement/spec_ref/verdict/
-evidence/rationale, written to
-`docs/issue-2488/reports/conformance-review.md` only, with no verdict
-written without an evidence pointer and spec_ref.
-skill-verdict: conformance-review-sampling-derivation — not-applicable:
-full enumeration was used, per the "Why" section above.
-skill-verdict: conformance-review-severity-classification —
-not-applicable: this review's scope was not extended into risk-weighting
-a recorded finding, per the "Why" section above; the one out-of-scope
-defect noted has its own tracked issue (#2498) for that issue's own
-review to band.
-skill-verdict: verify-finding-record — not-applicable: this task is a
-fresh conformance review against an issue's acceptance criteria, not a
-reproduction-attempt outcome for a defect-verification record.
-skill-verdict: adversarial-review — not-applicable: this session is
-already the structurally independent evaluator this protocol calls for
-(a separate builder-blind conformance-review session against a
-separately-authored PR, worktree-isolated, no shared context with the
-implementation session), not a case requiring the cross-family protocol
-to be separately invoked.
-other mounted skills: not triggered — no chart/dataviz work, no config
-changes, no scheduling or keybinding work fell inside this review's
-scope this session.
+skill-verdict: conformance-review-requirement-extraction — applied: invoked; checked issue #2488's five bullets (`gh issue view 2488`, this session) for bundled obligations, missing acceptance thresholds, and redundant summary lines — none found, per "What was done" above — before mapping them one-to-one onto REQ 1 through REQ 5.
+skill-verdict: conformance-review-verification-method-selection — applied: invoked; selected Demonstration for REQ 1, REQ 2, and REQ 3 and Inspection for REQ 4 and REQ 5, matching each bullet's own stated `provenance` field, and reused the shipped `aa9f754c:test/test_spawn_skills_mount.py` suite (31 passed, `derived:` quoted under REQ 1 above) as Test-method evidence rather than re-deriving a parallel manual check.
+skill-verdict: conformance-review-verdict-assignment — applied: invoked; assigned Present to every REQ block above only after independently re-deriving each behind the builder's account (worktree checkout, direct code reads, live re-execution — all `derived:`/`canonical:` tags cited per-REQ above), per the rule against asserting Present from the builder's own description.
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked; every REQ cites file:line-range plus the commit sha (`aa9f754c`) actually read in `/tmp/pr2497-review`, and REQ 1's evidence cites both `skills.py` (resolution) and `spawn.py` (roster wiring) as separate links per contributing file.
+skill-verdict: conformance-review-finding-record — applied: invoked; this record's five REQ blocks each carry requirement/spec_ref/verdict/evidence/rationale, written to `docs/issue-2488/reports/conformance-review.md` only, with no verdict written without an evidence pointer and spec_ref.
+skill-verdict: conformance-review-sampling-derivation — not-applicable: full enumeration was used, per the "Why" section above (issue #2488's Acceptance section names exactly five check bullets, all checked).
+skill-verdict: conformance-review-severity-classification — not-applicable: this review's scope was not extended into risk-weighting a recorded finding, per the "Why" section above; the one out-of-scope defect noted has its own tracked issue (#2498) for that issue's own review to band.
+skill-verdict: verify-finding-record — not-applicable: this task is a fresh conformance review against an issue's acceptance criteria, not a reproduction-attempt outcome for a defect-verification record.
+skill-verdict: adversarial-review — not-applicable: this session is already the structurally independent evaluator this protocol calls for (a separate builder-blind conformance-review session against a separately-authored PR, worktree-isolated, no shared context with the implementation session), not a case requiring the cross-family protocol to be separately invoked.
+other mounted skills: not triggered — no chart/dataviz work, no config changes, no scheduling or keybinding work fell inside this review's scope this session.
