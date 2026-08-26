@@ -104,8 +104,7 @@ pytest's built-in `tmp_path`, for two concrete reasons:**
    `shutil.rmtree` in an autouse fixture teardown gives that; `tmp_path`
    gives a bounded-but-nonzero rolling window instead.
 
-skill-verdict: test-authoring-isolation-and-fixture-strategy — applied:
-invoked; the teardown is registered once per file as a pytest fixture
+skill-verdict: test-authoring-isolation-and-fixture-strategy — applied: invoked; the teardown is registered once per file as a pytest fixture
 (rule 1.6: "persistent Fresh Fixture is unavoidable → pair it with
 Automated Teardown registered at setup time, not manual in-line
 teardown at the end of each test") rather than duplicated as manual
