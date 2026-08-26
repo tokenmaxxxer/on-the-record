@@ -1,6 +1,0 @@
-{
-  "name": "tokenmaxxxer-core",
-  "plugins": [
-    {"name": "core", "source": "./core"}
-  ]
-}

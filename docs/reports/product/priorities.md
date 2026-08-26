@@ -75,6 +75,19 @@ Append-only, newest entry last.
   its two comments (issuecomment-5407296989, issuecomment-5407303268) by
   JiwonJung94, 2026-08-25.
 
+- 2026-08-25: operator applied the same standing systemic/no-side-effects
+  bar to issue #2409's 5x-speed-target work, plus an explicit tie-breaker
+  for this recurring speed-vs-record tension: cut overhead, but the
+  recording/audit-trail procedure (issue→spawn→PR, both observer roles,
+  verify-at-landing evidence, consult-trace) stays exactly as-is — a
+  proposed change that would thin the record to save time must be
+  rejected and the time found elsewhere instead. Source: issue #2409
+  body, comment by JiwonJung94, 2026-08-25 ("Operator-frozen constraint
+  (2026-08-25): must hold systemically for every session that installs
+  on-the-record against any target repo... Speed constraint (operator,
+  this session): cut the overhead, but the recording/audit-trail
+  procedure stays exactly as-is... If a proposed change would thin the
+  record to save time, reject it and find the time elsewhere.").
 - 2026-08-25: operator standing directive, restated across #2414 and its
   successor #2415: measure a defect/friction rate before adding any new
   gate or authoring/landing check, and adding nothing is an acceptable,
@@ -98,3 +111,19 @@ Append-only, newest entry last.
   prevents defects" / "Nobody has ever asked what an Acceptance section
   is for and derived the format from that... that is how the document
   got here").
+
+- 2026-08-26: operator scoped follow-up performance/waste-reduction work
+  deliberately narrow after #2409's corpus-scale claim failed conformance
+  review: the next round (#2467) explicitly excludes corpus-scale
+  hit-rate claims, production cache-eviction policy, and cross-session
+  persistence, asking instead for a small, cheaply-verifiable before/after
+  on real existing logs (or, if a precondition check fails, a clean
+  negative finding with no further build). Applies going forward to any
+  similar waste-reduction issue: prefer a narrow, directly-verifiable
+  claim over a broad corpus-wide one, and treat "the precondition doesn't
+  hold, so nothing was built" as a complete, valid outcome rather than a
+  shortfall to compensate for. Source: issue #2467 body ("Scoped
+  deliberately narrow this round (per operator instruction, after #2409's
+  corpus-scale claim failed conformance-review): a small,
+  cheaply-verifiable before/after on real existing logs, not a
+  corpus-wide 5x-style claim."), read 2026-08-26.

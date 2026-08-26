@@ -68,3 +68,17 @@ Append-only, newest entry last.
   acceptable answer; an unstated assumption about which case applies is
   not. Source: operator comment on issue #2468, 2026-08-26T00:26:12Z
   (https://github.com/tokenmaxxxer/on-the-record/issues/2468#issuecomment-5418860838).
+- 2026-08-26: when a fix gitignores/untracks a repository path that was
+  previously (even if accidentally) tracked, the rollout must be checked
+  for whether it turns an existing write path into a silent no-op —
+  "silent loss is the exact failure class this program is fixing," so a
+  CHANGES round dispatch treats that check as mandatory, not optional
+  polish. Concretely: verify what happens when something still tries to
+  `git add` the now-ignored path — an explicit, named add should fail
+  loudly (git's own default behavior), and a broad add's silent skip is
+  only acceptable if nothing anywhere actually reads a committed copy of
+  that path (checked against the reader code, not just a design doc's
+  classification of the path). State the verified behavior in the
+  record; don't assume it. Source: this session's task instructions,
+  CHANGES round 2 on PR #2445 (issue #2381), 2026-08-26, re: untracking
+  `.orchestrate-hook-fires.log`/`.orchestrate-hook-fires/`.

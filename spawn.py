@@ -401,6 +401,7 @@ _post_crash_comment = lifecycle._post_crash_comment
 _post_session_end_comment = lifecycle._post_session_end_comment
 _post_stall_comment = lifecycle._post_stall_comment
 _pr_list_call_ok = lifecycle._pr_list_call_ok
+_prune_orphaned_sidecars = lifecycle._prune_orphaned_sidecars
 _remediation_merge_sweep = lifecycle._remediation_merge_sweep
 _respawn_fingerprint = lifecycle._respawn_fingerprint
 _respawn_or_cap = lifecycle._respawn_or_cap
@@ -408,8 +409,10 @@ _respawn_state_load = lifecycle._respawn_state_load
 _respawn_state_save = lifecycle._respawn_state_save
 _roster_reconcile_unreported = lifecycle._roster_reconcile_unreported
 _self_trigger_respawn = lifecycle._self_trigger_respawn
+_sidecar_workspace_name = lifecycle._sidecar_workspace_name
 _workspace_base = lifecycle._workspace_base
 _workspace_clean_state = lifecycle._workspace_clean_state
+_workspace_merge_trigger_status = lifecycle._workspace_merge_trigger_status
 auto_sweep = lifecycle.auto_sweep
 detect_legacy_monitor_alive_dirs = lifecycle.detect_legacy_monitor_alive_dirs
 gc_monitor_alive = lifecycle.gc_monitor_alive
@@ -500,6 +503,7 @@ _skill_declared_phrases = _pipeline_mod._skill_declared_phrases
 _timed = _pipeline_mod._timed
 _tokenize = _pipeline_mod._tokenize
 _ttl_marker = _pipeline_mod._ttl_marker
+_verify_branch_base_sane = _pipeline_mod._verify_branch_base_sane
 _workspace_bash_allow = _pipeline_mod._workspace_bash_allow
 _write_role_sidecar = _pipeline_mod._write_role_sidecar
 admission_gate = _pipeline_mod.admission_gate
@@ -539,6 +543,8 @@ _LANDING_BATCHING_PROSE = directive_assembly._LANDING_BATCHING_PROSE
 _TURN_BUDGET_PROSE = directive_assembly._TURN_BUDGET_PROSE
 _REPO_DISCOVERY_PROSE = directive_assembly._REPO_DISCOVERY_PROSE
 _KNOWN_PATHS_PROSE = directive_assembly._KNOWN_PATHS_PROSE
+_TASK_LOOKUP_PROSE = directive_assembly._TASK_LOOKUP_PROSE
+_HOOK_CONTRACT_PROSE = directive_assembly._HOOK_CONTRACT_PROSE
 _SKILL_CHECK_PROSE = directive_assembly._SKILL_CHECK_PROSE
 _SKILL_VERDICT_PROSE = directive_assembly._SKILL_VERDICT_PROSE
 _role_touches_code = directive_assembly._role_touches_code
@@ -1569,9 +1575,14 @@ def main() -> int:
                          "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--skills", default=None,
-                    help="쉼표로 구분한 스킬 이름 목록을 skill-repository 체크아웃"
-                         "(MUSTER_SKILL_REPO 또는 형제-클론)에서 마운트한다"
-                         "(이슈 #1742). 생략하면 스폰 argv/env 는 이전과 동일")
+                    help="쉼표로 구분한 스킬 이름 목록을 네 소스 — "
+                         "skill-repository 체크아웃(MUSTER_SKILL_REPO 또는 "
+                         "형제-클론), 설치된 플러그인의 skills/, "
+                         "~/.claude/skills, 타깃 저장소 .claude/skills — "
+                         "에 걸쳐 해석해 마운트한다(이슈 #1742/#1774/#2488). "
+                         "이름이 둘 이상의 소스에서 겹치면 fail-closed(우선순위 "
+                         "없음, docs/decisions/2026-08-26-skills-resolver-source-priority-and-trust.md). "
+                         "생략하면 스폰 argv/env 는 이전과 동일")
     ap.add_argument("--skill", default=None,
                     help="이슈 #2241 stage 0: 역할 대신 스킬 이름(콤마로 여러 개 가능)으로 "
                          "곧장 가이던스를 해석한다. 사용: spawn.py --skill <스킬명> "
@@ -2782,6 +2793,24 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     print(f"[{role}] auto-sweep(백그라운드) {elapsed:.3f}s "
                           f"만에 끝남 (지움 {outcome['removed']}, "
                           f"실패 {outcome['failed']})", file=sys.stderr)
+                    # 이슈 #2443: 워크스페이스 디렉터리 정리와 같은
+                    # 스폰타임/같은 백그라운드 스레드/같은 예외-흡수 계약으로
+                    # 짝 디렉터리가 이미 없어진 sidecar 파일(세션 로그/
+                    # events.jsonl/events.offset/watcher.log/task.txt)도
+                    # 훑는다 — 새 트리거 지점을 만들지 않는다, 위
+                    # auto_sweep() 과 같은 호출 안.
+                    try:
+                        sidecar_outcome = _prune_orphaned_sidecars(
+                            _workspace_base(), _clean_max_age_days())
+                    except Exception as ex:
+                        print(f"[{role}] sidecar-prune 실패(스폰은 계속): {ex}",
+                              file=sys.stderr)
+                        return
+                    if sidecar_outcome["removed"] or sidecar_outcome["failed"]:
+                        print(f"[{role}] sidecar-prune(백그라운드) "
+                              f"(지움 {sidecar_outcome['removed']}, "
+                              f"실패 {sidecar_outcome['failed']})",
+                              file=sys.stderr)
                 threading.Thread(target=_run_auto_sweep, daemon=True,
                                   name="auto-sweep").start()
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,

@@ -134,6 +134,37 @@ _COMPOUND_SEP = re.compile(r"&&|;")
 # 그대로 유지된다.
 _ANGLE_PLACEHOLDER = re.compile(r"<[^\s<>]+>")
 
+# issue #2509 (#2463 의 잔여 결함): #2463 는 각괄호 placeholder 만 뺐다 —
+# 백틱 토큰이 *다른 어딘가*(설치된 플러그인 자신의 디렉터리, target/소비
+# 저장소의 로컬 레이아웃)에 있는 실재 경로를 가리켜도 진짜 `/`를 담고
+# 있어 여전히 "이 저장소에 이 경로가 있어야 한다"로 읽혔다. 라이브
+# 재현(이슈 #2488, PR #2497/#2499/#2500): "설치된 플러그인의 `skills/`"에서
+# 스킬 이름이 풀리는지를 묻는 불릿과 "target repo 의 로컬 `.claude/skills`"를
+# 언급하는 불릿 둘 다, 두 경로 어느 쪽도 있다고 주장한 적 없는 저장소에서
+# 기계적으로 FAIL 했다. 신호는 텍스트 기반이어야지 존재-여부 기반이면 안
+# 된다(존재 여부로 판정하면 분류기가 자기참조적이 되고, "진짜로 없는
+# in-repo 경로는 여전히 FAIL 해야 한다"는 non-goal 을 깬다) — 백틱 바로
+# 앞의 명시적 foreign-owner 소유격("installed plugin's", "target repo's" 등)은
+# 그 불릿이 "여기 있다"를 주장하는 게 아니라 "다른 곳에 있다"를 설명하고
+# 있다는 뜻이다.
+_FOREIGN_OWNER = re.compile(
+    r"(?i)\b(?:installed|target|another|other|downstream|external|"
+    r"consuming|third-party)\s+(?:plugin|repo(?:sitory)?)'s\b")
+# 창을 일부러 짧게 잡는다 — 백틱 *바로 앞*에서 그 토큰의 소유자를 이름하는
+# 소유격만 쳐준다. 긴 불릿 앞부분에서 다른 대상을 두고 언급한 foreign-owner
+# 구절이 뒤로 새어나가 문장 뒤쪽의 무관한, 진짜 로컬 경로를 삼키면 안 된다.
+_FOREIGN_OWNER_WINDOW = 60
+
+# issue #2509: 불릿 텍스트가 stating/demonstrating 동사로 시작하면 그건
+# 실행할 명령이 아니라 무엇을 보여주거나 문서화해야 하는지를 말하는
+# 서술문이다 — 같은 불릿 뒤쪽 백틱이 무엇처럼 생겼든 상관없다
+# (`.claude/skills` 는 아래 `looks_like_command`엔 compound 경로형 명령
+# 토큰으로 읽힌다). 라이브 재현: "state explicitly what trust distinction
+# ... a target repo's local `.claude/skills`"가 `test`로 분류돼, 원래
+# 실행할 뜻이 전혀 없던 셸 명령으로 돌아갔다.
+_STATING_VERB_PREFIX = re.compile(
+    r"(?i)^\s*(?:state\s+explicitly|demonstrate\s+live|document)\b")
+
 
 def _final_segment(cmd: str) -> str:
     parts = _COMPOUND_SEP.split(cmd)
@@ -195,6 +226,14 @@ def parse_checks(section: str,
                 "/" in tokens[0] and tokens[0].count(".") >= 1
                 or tokens[0] in INTERPRETERS
             )
+            # issue #2509: stating/demonstrating 불릿은 서술문이지 실행할
+            # 명령이 아니다 — 그 안 백틱이 명령 토큰 모양(`dir/name`)이라도
+            # 마찬가지다(위 looks_like_command 는 `cd` 없는 compound 상대
+            # 경로 명령과 이 모양을 구별 못 한다).
+            if _STATING_VERB_PREFIX.match(raw):
+                looks_like_command = False
+            is_foreign_owned = bool(_FOREIGN_OWNER.search(
+                raw[:bm.start()][-_FOREIGN_OWNER_WINDOW:]))
             if looks_like_command:
                 # issue #2233: 이 저장소가 실제로 가장 흔히 쓰는 형태 —
                 # 인터프리터 접두 없는 bare `.py` 경로 하나짜리
@@ -214,7 +253,16 @@ def parse_checks(section: str,
                 checks.append({"type": "test", "raw": raw, "command": cmd})
             elif _MEASUREMENT_LANGUAGE.search(raw):
                 checks.append({"type": "judgment", "raw": raw})
-            elif _looks_like_path(classify_cmd):
+            elif is_foreign_owned:
+                checks.append({"type": "judgment", "raw": raw})
+            elif len(tokens) == 1 and _looks_like_path(classify_cmd):
+                # issue #2509: file-existence 판정은 원래 경로 하나에 대한
+                # 것이지 여러 단어짜리 문자열이 아니다 — 이 분기가 다중
+                # 토큰 `classify_cmd`로 오는 경우는 위 stating-verb 억제가
+                # 명령 모양의 첫 토큰을 `test`에서 빼낸 경우뿐이다. 토큰
+                # 개수 가드가 없으면 그 남은 다중 단어 문자열("gates/x.py
+                # --flag" 같은)이 하나의 가짜 리터럴 경로로 기계적으로
+                # "검사"돼 버린다.
                 checks.append({"type": "file-existence", "raw": raw, "path": classify_cmd})
             else:
                 checks.append({"type": "judgment", "raw": raw})
@@ -413,6 +461,34 @@ def remove_worktree(repo: Path, worktree: Path) -> None:
     shutil.rmtree(worktree, ignore_errors=True)
 
 
+def fetch_all_role_branches(repo: Path) -> subprocess.CompletedProcess:
+    """issue #2381: 플레인 `git fetch origin`(또는 `git fetch origin
+    <one-branch>`) 은 `repo`의 `remote.origin.fetch` 설정이 그 브랜치
+    패턴을 포함하지 않으면 exit 0 으로 "성공"해도
+    `refs/remotes/origin/<branch>` 를 만들거나 갱신하지 않는다 — 그러면
+    막 스폰돼 push 된 `issue-<n>/<role>` 브랜치처럼 아직 로컬에 없는
+    참조에 대해 아래 `worktree_for_ref`/`git worktree add
+    origin/issue-<n>/<role>` 가 "fatal: invalid reference" 로 실패한다
+    (실측: 이 문제를 매 세션 `git fetch origin
+    '+refs/heads/*:refs/remotes/origin/*'` 로 손으로 우회해야 했다).
+    목적지 refspec 을 명시한 전체-미러 fetch 로, `repo`에 설정된 refspec과
+    무관하게 origin 의 모든 브랜치를 항상 로컬 `origin/*` 로 갱신한다 —
+    `checkout_pr_worktree()`(check_runner.py 가 fetch 하는 유일한 지점)가
+    호출하므로, 뒤이어 같은 `--repo` 체크아웃을 재사용하는
+    `gates/merge_gate.py`(자체 fetch 없음)도 별도 처리 없이 최신
+    `origin/*` 참조를 그대로 쓴다. `--prune` 필수(hunt finding, before-landing
+    stance 0): prune 없이는 origin 에서 삭제된 브랜치의 로컬 `origin/<branch>`
+    ref 가 stale 상태로 남아 fetch 가 exit 0 을 반환하고, 뒤이은
+    `worktree_for_ref`/`git worktree add` 도 그 stale ref 로 조용히 성공해
+    `checkout_pr_worktree()`의 fail-closed 계약(에러는 항상 거부)을 깬다 —
+    `--prune` 은 삭제된 브랜치의 로컬 ref 를 제거해, 사라진 head 는 다시
+    "fatal: invalid reference" 로 fail-closed 하게 만든다."""
+    return subprocess.run(
+        ["git", "fetch", "--prune", "origin",
+         "+refs/heads/*:refs/remotes/origin/*"],
+        cwd=repo, capture_output=True, text=True)
+
+
 def checkout_pr_worktree(repo: Path, pr: int) -> tuple[Path | None, str | None]:
     """PR #`pr`의 head 커밋을 `repo`(오케스트레이터 체크아웃, `origin`
     리모트를 가짐)에서 fetch 해 임시 worktree 로 체크아웃한다(issue #2233).
@@ -421,10 +497,9 @@ def checkout_pr_worktree(repo: Path, pr: int) -> tuple[Path | None, str | None]:
     head_ref = _pr_head_ref(repo, pr)
     if head_ref is None:
         return None, f"PR #{pr} 의 head 브랜치를 읽을 수 없다(`gh pr view` 실패)"
-    fetch = subprocess.run(["git", "fetch", "origin", head_ref], cwd=repo,
-                            capture_output=True, text=True)
+    fetch = fetch_all_role_branches(repo)
     if fetch.returncode != 0:
-        return None, f"origin/{head_ref} fetch 실패: {fetch.stderr.strip()}"
+        return None, f"origin fetch 실패: {fetch.stderr.strip()}"
     return worktree_for_ref(repo, f"origin/{head_ref}")
 
 

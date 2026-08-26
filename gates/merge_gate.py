@@ -113,35 +113,73 @@ def verify_artifact(repo: Path) -> dict:
     return {"trust": True, "reasons": []}
 
 
-def _exempt_own_role(missing: list[str], subject: str, own_branch: str | None) -> list[str]:
-    """`own_branch`(평가 대상 PR 자신의 head 브랜치)가 `subject`의 role
-    브랜치(`<subject>/<role>`)이고 그 role 이 `missing` 에 있으면 빼고
-    돌려준다(issue #2233 블로커 3) — 관찰자 record PR(예:
+def _exempt_own_record_kind(missing: list[str], subject: str, own_branch: str | None) -> list[str]:
+    """`own_branch`(평가 대상 PR 자신의 head 브랜치)가 `subject`의
+    record-kind 브랜치(`<subject>/<kind>`)이고 그 kind 가 `missing` 에
+    있으면 빼고 돌려준다(issue #2233 블로커 3, issue #2241 stage 5 하에서
+    record-kind 축으로 재키잉) — 관찰자 record PR(예:
     `issue-2204/execution-observation`)이 스스로 공급하는 바로 그 기록을
-    "그 기록이 없다"는 이유로 막는 순환을 깬다. `own_branch`가 없거나
-    subject 소속이 아니면 그대로 통과(no-op) — 로컬 단독 호출(PR 문맥
-    없음)에서는 오늘과 동일하게 동작한다. 순수 함수."""
+    "그 기록이 없다"는 이유로 막는 순환을 깬다.
+
+    `PR_TRIGGERED_RECORD_KINDS` 의 두 값은 그 자체가 관찰자 세션의
+    `author:` 값이기도 하다(스켈레톤이 `author:` 를 쓰는 role 문자열로
+    채운다, `docs/handbooks/record-contract.md`) — `spawn_on_pr.py` 는
+    stage 4 의 스킬 축 브랜치 네이밍을 쓰지 않고 이 두 kind 는
+    여전히 `<subject>/<kind>` 로 브랜치를 딴다(stage 4 write set 밖,
+    `checkout_issue_branch` 그대로) 그래서 브랜치 서픽스를 그 PR 자신의
+    (아직 랜딩 전이라 로컬 board 에는 안 잡히는) `author:`/kind 값의
+    대리 신호로 그대로 쓸 수 있다 — 이 함수가 순수 함수로 남는 이유이기도
+    하다(own_branch 트리를 따로 읽지 않는다).
+
+    issue #2380 (stage 5 하에서 record-kind 축으로 재키잉): #2233 은 각
+    관찰자 PR 이 "자기 자신의" kind 만 빼줬다 — `own_kind`가
+    `spawn_on_pr.PR_TRIGGERED_RECORD_KINDS`(정확히
+    execution-observation/conformance-review 두 개)에 속하면, 그 둘은
+    같은 리뷰 사이클에서 나란히 열리는 형제(sibling) PR 이라
+    서로가 서로의 선행 머지를 요구하는 순환이 그대로 남아있었다 —
+    conformance-review PR 은 execution-observation 이 먼저 main 에
+    있어야 하고, 그 역도 마찬가지라 둘 다 먼저가 될 수 없었다. 이
+    PR 자신이 이미 그 두 kind 중 하나를 스스로 공급하는 관찰자
+    record 라면, 나머지 하나(형제)가 아직 main 에 없다는 이유로도
+    막지 않는다 — `PR_TRIGGERED_RECORD_KINDS` 전체를 `missing`에서 뺀다.
+    구조적 예외가 아니다: `own_kind`가 이 닫힌 두-kind 집합 밖이면(예:
+    `<subject>/implementation`) 기존처럼 자기 kind 하나만 빠지고, 나머지
+    kind(들)은 여전히 막힌다 — subject 의 implementation PR 은 오늘처럼
+    두 관찰자 기록이 모두 main 에 있어야 한다.
+
+    `own_branch`가 없거나 subject 소속이 아니면 그대로 통과(no-op) —
+    로컬 단독 호출(PR 문맥 없음)에서는 오늘과 동일하게 동작한다. 순수
+    함수."""
     if not own_branch or not own_branch.startswith(f"{subject}/"):
         return missing
-    own_role = own_branch[len(subject) + 1:]
-    return [r for r in missing if r != own_role]
+    own_kind = own_branch[len(subject) + 1:]
+    if own_kind in spawn_on_pr.PR_TRIGGERED_RECORD_KINDS:
+        return [k for k in missing if k not in spawn_on_pr.PR_TRIGGERED_RECORD_KINDS]
+    return [k for k in missing if k != own_kind]
 
 
 def required_verification_missing(root: Path, subject: str, repo: Path | None = None,
                                    pr: int | None = None) -> list[str]:
-    """req 3 의 role 목록을 재사용하는 얇은 래퍼 — 두 번째 목록을 만들지
-    않는다.
+    """req 3 의 record-kind 목록을 재사용하는 얇은 래퍼 — 두 번째 목록을
+    만들지 않는다(issue #2241 stage 5: role 이름이 아니라 `kind:`
+    frontmatter 로 매칭한다).
 
-    `repo`/`pr` 을 주면(issue #2233) 평가 대상 PR 자신이 공급하는 role 을
-    `_exempt_own_role()`로 뺀다 — 둘 다 없으면(예: 로컬 단독 호출) 예외
-    없이 오늘과 같은 목록을 돌려준다."""
+    subject 의 `implementation` 레코드가 있으면 그 `author:` 값을
+    `subject_author` 로 넘겨 셀프-verification 을 막는다(작성자가 같은
+    kind 는 "충족됨"으로 안 친다) — subject 아직 없으면(로컬 단독 호출
+    등) `None` 이라 이 검사를 건너뛴다.
+
+    `repo`/`pr` 을 주면(issue #2233) 평가 대상 PR 자신이 공급하는
+    record-kind 을 `_exempt_own_record_kind()`로 뺀다 — 둘 다 없으면(예:
+    로컬 단독 호출) 예외 없이 오늘과 같은 목록을 돌려준다."""
     b = spawn.board(root)
     subject_board = b.get(subject, {})
-    missing = spawn_on_pr.applicable_roles(subject_board)
+    subject_author = subject_board.get("implementation", {}).get("author")
+    missing = spawn_on_pr.applicable_record_kinds(subject_board, subject_author=subject_author)
     if repo is not None and pr is not None:
         refs = pr_refs(repo, pr)
         own_branch = refs["head_ref"] if refs is not None else None
-        missing = _exempt_own_role(missing, subject, own_branch)
+        missing = _exempt_own_record_kind(missing, subject, own_branch)
     return missing
 
 
@@ -192,6 +230,20 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     """`{"allowed": bool, "reasons": [str, ...]}`. 넷 다 깨끗해야
     `allowed`: check-runner 코멘트 존재, `passed == total`, 필요 검증
     기록 모두 존재, stale-revert 없음(issue #1664)."""
+    # issue #2381 R1 (conformance-review CHANGES round): 아래 `stale_revert_reasons()`
+    # 는 `origin/<base_ref>` 를 resolve 한다 — 예전엔 `check_runner.py`의
+    # `checkout_pr_worktree()`가 같은 `--repo` 체크아웃에 먼저
+    # `fetch_all_role_branches()`를 실행해 뒀다는 걸 전제로 삼았지만,
+    # `verdict_gate.py`(및 그걸 통하지 않고 `evaluate()`를 직접 부르는 다른
+    # 호출부)는 그 실행 순서를 보장하지 않는다 — 그러면 이슈 #2381 이 고치려던
+    # "fatal: invalid reference"(방금 push된 role 브랜치를 못 찾는 문제)가
+    # `merge_gate.py` 쪽에서 그대로 재발한다. `evaluate()` 자신이 이 함수의
+    # 유일한 origin-ref 의존 호출부(`stale_revert_reasons`) 바로 앞에서
+    # fetch 함으로써, 어느 스크립트를 거쳐 들어오든 매번 커버한다.
+    # best-effort: 리턴값을 보지 않는다 — origin 리모트가 없는 합성 테스트
+    # 저장소 등에서 실패해도, `stale_revert_reasons()`는 이미 ref 를 못 읽으면
+    # fail-open 이라 결과가 달라지지 않는다.
+    check_runner.fetch_all_role_branches(repo)
     reasons: list[str] = []
     comment = latest_check_runner_comment(repo, pr)
     if comment is None:
