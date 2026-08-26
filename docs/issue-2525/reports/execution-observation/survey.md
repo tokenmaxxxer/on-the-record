@@ -109,6 +109,39 @@ sentence criterion 3 requires; it documents capability inventories and
 OPEN GAP lists instead, which is adjacent to but not the same statement
 the issue asks for verbatim.
 
+## Post-commit: new issue comment, pr-preflight deadlock
+
+derived: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5421173580
+--jq '.body,.user.login,.created_at'`, read this session after the phase-1
+commit above. Comment by `JiwonJung94` at `2026-08-26T05:49:17Z` (~82s
+after this session's own `session-start`, canonical:
+`docs/issue-2525/reports/execution-observation.md`-adjacent
+`.events.jsonl` sidecar timestamp `1787723275.7`, read this session) —
+an orchestrator note independently confirming this survey's own findings
+(232 files / 56,524 lines landed; the three guard scripts NOT deleted)
+and stating a guard-deletion round is deliberately not yet spawned
+because two observers, this session included, are reviewing PR #2528
+first.
+
+`gh pr create` then refused via `pr-preflight.sh`'s amendments-reconciled
+check (issue #1177): it requires an `amendments-reconciled:` line citing
+`issuecomment-5421173580` inside `docs/issue-2525/reports/execution-observation.md`
+itself — the phase-2 record file — before a PR can open. That exact file
+is simultaneously refused for any Write/Edit by `approval-gate.sh`
+(contract v3 s19) because issue #2525 carries no Approve yet (confirmed
+this session: an Edit attempt adding only that one line was denied with
+the standard no-approval message). The two gates jointly deadlock a
+phase-1 PR-create on this branch whenever a non-machine comment lands
+after session start: pr-preflight requires a write only approval-gate
+will unblock, and approval-gate requires exactly the PR pr-preflight is
+refusing to let open. This session stops retrying `gh pr create` here
+(same stop-retrying posture as `issue-1199`'s
+`dded545a` commit) — the reconciliation is instead recorded here, in this
+session's one writable phase-1 home, since the designated file is
+inaccessible pre-Approve. This branch's phase-1 commits remain pushed to
+`origin/issue-2525/execution-observation` regardless of this PR-open
+outcome.
+
 ## Skip: no current-state survey needed beyond this file
 
 derived: this file itself is the survey — per the survey-order-directive's
