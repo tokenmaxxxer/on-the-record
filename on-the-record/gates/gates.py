@@ -18,6 +18,8 @@ import os
 import re
 import shlex
 import subprocess
+import sys
+import time
 from pathlib import Path
 
 # 비교 기준. 라우터는 항상 origin/main 에서 워크트리를 만들지만, CI 에서는 PR 의
@@ -864,6 +866,12 @@ def record_checked_claims(d: Path, cfg: dict) -> list[str]:
 
 
 BRANCH_ROLE = re.compile(r"^issue-[^/]+/([^/]+)$")
+# 이슈 #2553 Step B 전용: 로스터 조회(`spawn.lease_key(issue, role)`)에 정수
+# 이슈 번호가 필요하다. BRANCH_ROLE 자체는(브랜치 shape 은 이번 스텝에서
+# 안 바꾼다는 설계 결정에 따라) 그대로 두고, 같은 브랜치를 대상으로 이슈
+# 번호만 별도로 뽑는다 — `gates/ci.py`의 `_ISSUE_ROLE_BRANCH`와 같은 자리의
+# 숫자 캡처, gates.py 안에서는 role_scope() 만 쓴다.
+_BRANCH_ISSUE = re.compile(r"^issue-(\d+)/")
 # 항상 허용되는 레코드 경로 — 어떤 write_scope 선언·오버라이드도 이걸 못
 # 지운다 (issue-149 item 5: 기록 의무는 무조건 살아남는다).
 _WRITE_SCOPE_OVERRIDE = re.compile(
@@ -891,31 +899,107 @@ def _write_scope_overrides(work: Path) -> dict[str, list[str]]:
     return out
 
 
+def _import_spawn_for_roster():
+    """이슈 #2553 Step B: `spawn.py`(roster 판독 함수 `_roster_load`/
+    `lease_key`의 재수출처)를 지연 임포트한다. 모듈 최상단에서 바로
+    `import spawn`을 했다면, `record_lint.py`(`on-the-record/gates/`
+    패키지 사본)처럼 role_scope()를 한 번도 안 부르는 소비자가 그냥
+    `gates.py`를 로드하기만 해도 이 임포트가 실행돼, `spawn.py`가 안
+    보이는 위치(패키지 사본은 `ON_THE_RECORD_ROOT`가 실제 저장소 루트가
+    아니다)에서 무조건 깨진다 — 이 함수가 실제로 `_roster_write_scope()`
+    안에서, 필요할 때만 불려야 하는 이유다. `gates/ci.py` 등 다른
+    `gates/*.py` 가 쓰는 것과 같은 sys.path 삽입 패턴(부모 디렉터리)이지만,
+    실패하면 `None`을 돌려줘 호출부가 로스터 미스와 동일하게
+    `spawn_roles.json` 폴백으로 넘어가게 한다 — 조용히 죽지 않는다."""
+    global _spawn_for_roster
+    if _spawn_for_roster is not None:
+        return _spawn_for_roster
+    root = str(Path(__file__).resolve().parent.parent)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    try:
+        import spawn as _spawn_mod
+    except ImportError:
+        return None
+    _spawn_for_roster = _spawn_mod
+    return _spawn_for_roster
+
+
+_spawn_for_roster = None
+
+
+def _roster_write_scope(branch: str, role: str) -> list[str] | None:
+    """이슈 #2553 Step B: `role_scope()`의 새 1순위 소스. 로스터 엔트리
+    (`lease_key(issue, role)`)에 `write_scope` 키가 **있으면** 그 값을(빈
+    리스트라도) 그대로 돌려준다 — "선언됐고 아무것도 허용 안 함"과 "선언
+    자체가 없음"은 서로 다른 결과여야 한다(Step A, 이슈 #2551 이 이미 지킨
+    구분: 미선언 role 은 키를 아예 안 쓴다, `{}`, 빈 리스트가 아니다).
+
+    다음 중 하나라도 해당하면 `None`을 돌려줘 호출부가
+    `spawn_roles.json` 폴백으로 넘어가게 한다 — 오늘의 정확한 폴백 동작은
+    이 함수가 아니라 `role_scope()`의 기존 분기가 그대로 담당한다:
+    - `spawn.py`를 임포트할 수 없음(이 gates.py 사본의 위치에서 도달 불가)
+    - 브랜치에서 정수 이슈 번호를 못 뽑음(로스터 조회 자체가 불가능)
+    - 로스터에 해당 키의 엔트리가 없음(roster miss)
+    - 리스가 만료됨(`lease_expires_at`이 있고 지금 시각을 지남) — 좀비
+      세션의 write_scope 선언은 "선언 없음"과 동일하게 취급한다
+    - 엔트리는 있지만 `write_scope` 키 자체가 없음(선언 없음)
+    """
+    spawn = _import_spawn_for_roster()
+    if spawn is None:
+        return None
+    m = _BRANCH_ISSUE.match(branch)
+    if not m:
+        return None
+    issue = int(m.group(1))
+    key = spawn.lease_key(issue, role)
+    entry = spawn._roster_load().get(key)
+    if entry is None:
+        return None
+    expires_at = entry.get("lease_expires_at")
+    if expires_at is not None and time.time() > expires_at:
+        return None
+    if "write_scope" not in entry:
+        return None
+    return list(entry["write_scope"])
+
+
 def role_scope(work: Path, branch: str) -> list[str]:
     """PR diff 가 브랜치로 선언된 역할의 `write_scope` 안에 있는지 검사한다.
 
     역할을 브랜치 이름(`issue-<n>/<role>`)에서 구조적으로 해석한다 —
     `board-gate.sh`/`record_enums()` 가 이미 쓰는 같은 방식. 브랜치가 그
-    형태가 아니거나, 해당 role 정의를 못 읽거나, `write_scope` 가 선언되지
-    않았으면 "검사할 게 없다"가 아니라 "검사할 수 없다": fail closed.
-    보드 레포의 `docs/specs/write_scope.md` 오버라이드가 있으면 그 역할의
+    형태가 아니면 "검사할 게 없다"가 아니라 "검사할 수 없다": fail closed.
+
+    이슈 #2553 Step B: `write_scope`의 1순위 소스는 로스터 엔트리
+    (`_roster_write_scope()`, `lease_key(issue, role)`로 조회) — 만료 안
+    된 리스가 있고 엔트리에 `write_scope` 키가 있으면(빈 리스트 포함) 그
+    값을 그대로 쓴다. 로스터 미스/만료/키 없음일 때만 오늘까지의 유일한
+    소스였던 `spawn_roles.json[role].write_scope`로 폴백한다 — 그 폴백
+    경로 자체(`_role_cfg`/`_write_scope_overrides` 조합)는 이번 스텝에서
+    바꾸지 않는다(Step D 몫).
+
+    보드 레포의 `docs/specs/write_scope.md` 오버라이드가 있으면(폴백
+    경로에서만 적용— 로스터 소스는 오버라이드 대상이 아니다) 그 역할의
     글롭 목록을 통째로 대체하지만, 레코드/제안 경로(`_always_writable`)는
-    오버라이드 뒤에도 항상 합집합으로 남는다 — 어떤 오버라이드도 기록 의무를
-    지울 수 없다."""
+    오버라이드 뒤에도, 로스터 소스를 쓸 때도 항상 합집합으로 남는다 — 어떤
+    소스·오버라이드도 기록 의무를 지울 수 없다."""
     m = BRANCH_ROLE.match(branch)
     if not m:
         return [f"브랜치 이름에서 역할을 해석할 수 없다 (fail closed): "
                 f"{branch!r} — issue-<n>/<role> 형태가 아니다"]
     role = m.group(1)
-    try:
-        role_cfg = _role_cfg(role)
-    except (OSError, json.JSONDecodeError, KeyError) as e:
-        return [f"역할 정의를 읽을 수 없어 write_scope 를 검사할 수 없다: "
-                f"{_ROLE_DATA_PATH} 의 {role!r} (on-the-record 체크아웃: {ON_THE_RECORD_ROOT}) ({e})"]
-    if "write_scope" not in role_cfg:
-        return [f"{_ROLE_DATA_PATH} 의 {role!r} 에 write_scope 선언이 없다 (fail closed)"]
-    overrides = _write_scope_overrides(work)
-    allowed = overrides.get(role, list(role_cfg["write_scope"]))
+    allowed = _roster_write_scope(branch, role)
+    if allowed is None:
+        try:
+            role_cfg = _role_cfg(role)
+        except (OSError, json.JSONDecodeError, KeyError) as e:
+            return [f"역할 정의를 읽을 수 없어 write_scope 를 검사할 수 없다: "
+                    f"{_ROLE_DATA_PATH} 의 {role!r} (on-the-record 체크아웃: {ON_THE_RECORD_ROOT}) ({e})"]
+        if "write_scope" not in role_cfg:
+            return [f"{_ROLE_DATA_PATH} 의 {role!r} 에 write_scope 선언이 없다 (fail closed)"]
+        overrides = _write_scope_overrides(work)
+        allowed = overrides.get(role, list(role_cfg["write_scope"]))
     allowed = allowed + _always_writable(role)
     try:
         files = changed_files(work)
