@@ -289,8 +289,8 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
                  mock.patch.object(spawn, "issue_workspace", fake_issue_workspace), \
                  mock.patch.object(spawn, "checkout_issue_branch",
                                    fake_checkout_issue_branch), \
-                 mock.patch.object(spawn, "resolve_role_source",
-                                   lambda role, repo_root: role_source), \
+                 mock.patch.object(spawn, "resolve_static_policy_source",
+                                   lambda repo_root: role_source), \
                  mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
                  mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                  mock.patch.object(spawn, "core_version", lambda: "v0"), \
@@ -349,8 +349,8 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
              mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, role: cwd), \
              mock.patch.object(spawn, "checkout_issue_branch",
                                lambda cwd, issue, role: "b"), \
-             mock.patch.object(spawn, "resolve_role_source",
-                               lambda role, repo_root: role_source), \
+             mock.patch.object(spawn, "resolve_static_policy_source",
+                               lambda repo_root: role_source), \
              mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
              mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
              mock.patch.object(spawn, "core_version", lambda: "v0"), \
@@ -386,8 +386,8 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             recorded = []
-            with mock.patch.object(spawn, "resolve_role_source",
-                                   lambda role, repo_root: role_source), \
+            with mock.patch.object(spawn, "resolve_static_policy_source",
+                                   lambda repo_root: role_source), \
                  mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
                  mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, role: cwd), \
                  mock.patch.object(spawn, "checkout_issue_branch",

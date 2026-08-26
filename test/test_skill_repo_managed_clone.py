@@ -63,11 +63,10 @@ class ManagedCloneFreshTest(unittest.TestCase):
         self.assertEqual(root, self.root / "runs" / "rulebooks" / "skill-repository" / "skills")
         self.assertTrue((root / "example-skill").is_dir())
 
-    def test_resolve_role_source_reports_skill_repo(self):
-        with mock.patch.object(spawn, "_ROLE_SKILLS",
-                                {"implementation": ["example-skill"]}):
-            result = spawn.resolve_role_source("implementation",
-                                                spawn._skill_repo_root())
+    def test_resolve_static_policy_source_reports_skill_repo(self):
+        with mock.patch.object(spawn.skills, "_STATIC_POLICY_SKILLS",
+                                {"example-skill"}):
+            result = spawn.resolve_static_policy_source(spawn._skill_repo_root())
         self.assertEqual(result["source"], "skill-repo")
         self.assertEqual(result["skills"], ["example-skill"])
         self.assertIsNotNone(result["skill_sha"])

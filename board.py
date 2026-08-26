@@ -691,9 +691,32 @@ def frontmatter(p: Path) -> dict[str, str]:
     return out
 
 
+def _issue_num(dirname: str) -> int | None:
+    """`"issue-2560"` -> `2560`. `None` if `dirname` isn't that shape."""
+    m = re.match(r"^issue-([0-9]+)$", dirname)
+    return int(m.group(1)) if m else None
+
+
+def _lease_slugs_for_issue(issue: int | None) -> set[str]:
+    """이슈 #2560: 고정 `_sp.ROLES` 튜플을 대신해, 이 이슈에 로스터
+    lease 를 가졌던(현재 살아있든 아니든, roster entry 가 아직 로스터에
+    남아있는) 실제 참가자 slug 집합을 돌려준다 (docs/issue-2548/reports/
+    architecture.md, Step E) — roster entry 가 하나도 없으면 빈 집합이고,
+    43개짜리 고정 이름 목록이 아니다."""
+    if issue is None:
+        return set()
+    try:
+        roster = _sp._roster_load()
+    except Exception:
+        return set()
+    return {e.get("role") for e in roster.values()
+            if e.get("issue") == issue and e.get("role")}
+
+
 def _skill_axis_report_names(rep: Path) -> list[str]:
-    """이슈 #2432 (role retirement stage 4): `reports/` 바로 아래에 있지만
-    `_sp.ROLES`(고정 역할 enum) 에는 없는 `.md` 파일 중, 실제 레코드처럼
+    """이슈 #2432 (role retirement stage 4), 이슈 #2560 개정: `reports/`
+    바로 아래에 있지만 이 이슈의 roster lease slug 집합(옛 `_sp.ROLES`
+    고정 역할 enum 자리) 에는 없는 `.md` 파일 중, 실제 레코드처럼
     보이는(frontmatter 에 `loop_state` 키가 있는) 파일 이름만 돌려준다.
 
     새 스킬 축 네이밍은 `single-skill-axis` 동결 결정 때문에 고정 enum이
@@ -714,7 +737,7 @@ def _skill_axis_report_names(rep: Path) -> list[str]:
     않는다."""
     if not rep.is_dir():
         return []
-    known = {f"{r}.md" for r in _sp.ROLES}
+    known = {f"{r}.md" for r in _sp._lease_slugs_for_issue(_sp._issue_num(rep.parent.name))}
     return sorted(p.stem for p in rep.iterdir()
                   if p.is_file() and p.suffix == ".md" and p.name not in known
                   and "loop_state" in _sp.frontmatter(p))
@@ -725,10 +748,11 @@ def board(root: Path) -> dict[str, dict[str, dict[str, str]]]:
 
     A subject is a docs/issue-<n>/ tree; role records sit in its reports/.
 
-    이슈 #2432 (stage 4): dual-scheme coexistence 기간 동안, `_sp.ROLES`
-    고정 이름(옛 역할 축 브랜치가 쓰는 이름)과 그 밖의 frontmatter 있는
-    파일(새 스킬 축 브랜치가 쓰는 이름) 을 함께 walk 해서 합친다 — 어느
-    쪽 네이밍으로 만들어진 레코드든 이 dict 하나에 같이 나온다."""
+    이슈 #2432 (stage 4), 이슈 #2560 개정: 이 이슈에 로스터 lease 를 가졌던
+    참가자 slug(옛 역할 축 브랜치가 쓰던 고정 `_sp.ROLES` 이름 자리)와 그
+    밖의 frontmatter 있는 파일(새 스킬 축 브랜치가 쓰는 이름) 을 함께
+    walk 해서 합친다 — 어느 쪽 네이밍으로 만들어진 레코드든 이 dict
+    하나에 같이 나온다."""
     docs = root / _sp.BOARD
     if not docs.is_dir():
         return {}
@@ -741,7 +765,8 @@ def board(root: Path) -> dict[str, dict[str, dict[str, str]]]:
                   f"{d.name}", file=sys.stderr)
             continue
         rep = d / "reports"
-        roles = {r: _sp.frontmatter(rep / f"{r}.md") for r in _sp.ROLES
+        lease_slugs = _sp._lease_slugs_for_issue(_sp._issue_num(d.name))
+        roles = {r: _sp.frontmatter(rep / f"{r}.md") for r in lease_slugs
                  if (rep / f"{r}.md").is_file()}
         for name in _sp._skill_axis_report_names(rep):
             roles[name] = _sp.frontmatter(rep / f"{name}.md")
@@ -767,7 +792,13 @@ def status(cwd: str) -> list[str]:
     if b:
         for subject, roles in b.items():
             out.append(f"subject: {subject}")
-            for r in _sp.ROLES:
+            # 이슈 #2560: 옛 고정 `_sp.ROLES` 튜플 대신, 이 이슈에 실제로
+            # 로스터 lease 를 가졌던 참가자 slug 집합만 돈다 — roster entry
+            # 가 없는 이슈는 여기서 빈 집합이 되어 "43개 중 몇 개 없음" 줄이
+            # 더 이상 나오지 않는다 (docs/issue-2548/reports/architecture.md,
+            # Step E).
+            lease_slugs = _sp._lease_slugs_for_issue(_sp._issue_num(subject))
+            for r in sorted(lease_slugs):
                 fm = roles.get(r)
                 if fm is None:
                     continue
@@ -775,17 +806,18 @@ def status(cwd: str) -> list[str]:
                 if fm.get("verdict"):          # feasibility. coding 이 여기 깨어난다(§3)
                     bits.append(f"verdict: {fm['verdict']}")
                 out.append(f"  [{r}] " + "   ".join(bits))
-            # 이슈 #2432: 스킬 축 네이밍으로 만들어진 레코드(_sp.ROLES 밖
-            # 이름) 도 같은 줄 형식으로 보여준다 — 안 그러면 새 스킬 축
-            # 스폰이 `board()` 에는 잡히는데 사람이 읽는 이 목록에서는
-            # 조용히 사라진다.
-            for r in sorted(r for r in roles if r not in _sp.ROLES):
+            # 이슈 #2432/#2560: 이 이슈의 lease slug 집합 밖 이름(스킬 축
+            # 네이밍으로 만들어진 레코드, 또는 lease 가 이미 로스터에서
+            # 지워진 뒤에도 남은 레코드) 도 같은 줄 형식으로 보여준다 —
+            # 안 그러면 그런 레코드가 `board()` 에는 잡히는데 사람이 읽는
+            # 이 목록에서는 조용히 사라진다.
+            for r in sorted(r for r in roles if r not in lease_slugs):
                 fm = roles[r]
                 bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
                 if fm.get("verdict"):
                     bits.append(f"verdict: {fm['verdict']}")
                 out.append(f"  [{r}] " + "   ".join(bits))
-            missing = [r for r in _sp.ROLES if r not in roles]
+            missing = [r for r in sorted(lease_slugs) if r not in roles]
             if missing:
                 out.append(f"  (기록 없음: {', '.join(missing)})")
         return out

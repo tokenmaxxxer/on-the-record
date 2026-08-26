@@ -14,7 +14,7 @@ patches stay visible to the moved code. Names that still live in spawn.py
 and are reached through `_sp` are exactly: `ROOT`,
 `_CROSS_FAMILY_CONSULT_TOPN`, `_bm25_cross_family_scores`,
 `_skill_repo_root`, `_skill_trigger_line`, `core_plugin_dirs`,
-`ledger_write`, `resolve_role_source`, `resolved_role_model`,
+`ledger_write`, `resolve_role_family_source`, `resolved_role_model`,
 `role_settings`, `session_result` — each a seam for a later extraction.
 Cluster-internal cross-function calls also go through `_sp` (same as the
 prior extractions), so patches on any moved name stay visible.
@@ -628,16 +628,16 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
 def _composed_consult_skill_source(role: str, task_text: str | None,
                                    issue: int | None, cwd: str | None,
                                    model: str | None) -> dict:
-    """이슈 #2507: consult/verb/panel 세션이 마운트할 skill_dirs 를,
-    역할 가이던스(`resolve_role_source()` — 오늘의 기준선, 절대 안
-    줄어든다)에 과제 텍스트 기반 cross-family 매치(스폰 마운트 경로와
-    같은 `_cross_family_skill_matches_with_consult()` BM25+skill_judge
+    """이슈 #2507/#2561: consult/verb/panel 세션이 마운트할 skill_dirs 를,
+    role 축 기준선(`resolve_role_family_source()` — 이슈 #2561: 고정
+    role->skill 표 `_ROLE_SKILLS`/`resolve_role_source()` 은퇴 뒤, 표 없이
+    skill-repository 디렉터리 이름의 `f"{role}-"` 접두어 컨벤션으로 같은
+    커버리지를 기계적으로 유도한다 — 실측 근거: `resolve_static_policy_source()`
+    (POLICY 스킬만) 를 여기 기준선으로 썼더니 role 특유 스킬이 cross-family
+    매치로 항상 복구되지는 않는 실제 과제 문구가 있었다, 이 세션 레코드
+    "Evidence" 참고)에 과제 텍스트 기반 cross-family 매치(스폰 마운트
+    경로와 같은 `_cross_family_skill_matches_with_consult()` BM25+skill_judge
     매치)를 add-only 로 얹어 구성한다(`merge_composed_skill_source()`).
-    role_source 를 대체하지 않고 얹기만 하는 이유: 자문 질문/verb
-    요청문은 스폰 과제 텍스트보다 훨씬 짧고 좁을 수 있어(예: 한 줄
-    판단 질문), 대체 방식은 "세션이 스킬을 예전보다 덜 갖고 도착"하는
-    실패 모드(이슈 acceptance 가 명시적으로 금지)를 낳을 위험이 있다 —
-    add-only 는 그 위험을 구조적으로 없앤다.
 
     `task_text` 가 없으면(빈 문자열/None) 매치 단계를 건너뛰고
     role_source 를 그대로 돌려준다 — 이 가드가 없으면
@@ -646,8 +646,9 @@ def _composed_consult_skill_source(role: str, task_text: str | None,
     `_skill_judge_consult()` 순환 재귀가 생긴다(`_skill_judge_consult()`
     자신도 `_consult_cmd_and_env()` 를 통해 세션을 조립하기 때문 — 호출
     그래프 확인됨, 그 호출부는 이 함수 시그니처에 `task_text` 를 안
-    넘겨 자동으로 매치 단계를 건너뛴다)."""
-    role_source = _sp.resolve_role_source(role, _sp._skill_repo_root())
+    넘겨 자동으로 매치 단계를 건너뛴다) — 그 내부 호출도 role 접두어
+    기준선을 그대로 받는다(byte-identical to 이슈 #2561 이전)."""
+    role_source = _sp.resolve_role_family_source(role, _sp._skill_repo_root())
     if not task_text:
         return role_source
     matched_dirs, _outcome = _sp._cross_family_skill_matches_with_consult(
@@ -680,14 +681,16 @@ def _consult_cmd_and_env(role: str, cwd: str | None,
     테스트는 이 이슈가 닫으려는 드리프트류를 그대로 재현한다(경고 문서:
     docs/issue-1141/reports/implementation/2026-08-13-hunt-consult-core-plugin-root-injection.md).
 
-    이슈 #1955: 역할 가이던스는 이제 항상 skill-repository 에서 온다 —
-    `resolve_role_source()` 가 매핑하는 스킬 디렉터리를 그대로 붙인다.
+    이슈 #1955: 역할 가이던스는 이제 항상 skill-repository 에서 온다.
+    이슈 #2561: 그 기준선은 `resolve_role_family_source()` 다 — 고정
+    role->skill 표(`_ROLE_SKILLS`)와 `resolve_role_source()` 는 은퇴하고,
+    같은 커버리지를 skill-repository 디렉터리 이름 컨벤션에서 기계적으로
+    유도한다.
 
     이슈 #2507: `task_text` 가 주어지면(consult_cmd/`_verb_cmd` 가 각자
     질문/요청문을 넘긴다) `_composed_consult_skill_source()` 로 과제-텍스트
     매치를 role_source 위에 add-only 로 얹는다 — 안 주어지면(예:
-    `_skill_judge_consult()` 자신의 내부 호출) 예전과 바이트 단위로
-    같은 role_source 만 쓴다.
+    `_skill_judge_consult()` 자신의 내부 호출) role_source 만 쓴다.
 
     이슈 #2201: `exclude_core_plugins` 는 `_JUDGE_EXCLUDED_CORE_PLUGINS`
     (issue #1587) 와 같은 모양의 opt-in 필터 — 기본값(빈 집합)은 오늘의
@@ -755,7 +758,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
     브랜치/워크스페이스/워처/roster 등록은 전부 배달물(deliverable)을
     향한 것이고, 자문은 텍스트 하나만 되돌려주면 끝나기 때문이다.
 
-    스킬-저장소 가이던스 로딩은 `role_settings()`/`resolve_role_source()` 를 그대로 재사용한다 —
+    스킬-저장소 가이던스 로딩은 `role_settings()`/`resolve_role_family_source()` 를 그대로 재사용한다 —
     이슈#699 phase-1 proposal 이 채택한 이유: 가이던스를 켜는 코드경로가
     두 벌로 갈라지면 spawn 경로만 고치고 consult 경로는 못 고치는 드리프트가
     생긴다(issue #695/#700 이 이미 한 번 치운 문제류).
@@ -991,21 +994,26 @@ _JUDGE_EXCLUDED_CORE_PLUGINS = {"freelunch", "scout", "warrant"}
 
 
 def _readonly_plugin_dirs(role: str) -> list[Path]:
-    """judge 세션에 붙일 플러그인 — 역할 가이던스(이슈 #1955: skill-repository,
-    `resolve_role_source()`)는 그대로 싣는다(무엇을 위반했는지 판단하려면
-    가이던스 전체가 필요하다), core 는 `_JUDGE_EXCLUDED_CORE_PLUGINS` 로
-    배달 지향 훅만 걸러낸다.
+    """judge 세션에 붙일 플러그인 — role 가이던스(이슈 #2561:
+    `resolve_role_family_source()`)는 그대로 싣는다(무엇을 위반했는지
+    판단하려면 가이던스 전체가 필요하다), core 는
+    `_JUDGE_EXCLUDED_CORE_PLUGINS` 로 배달 지향 훅만 걸러낸다.
 
-    이슈 #2507 disposition: 여기는 과제 텍스트 매치로 옮기지 않고
-    role-shaped 그대로 유지한다 — `judge_cmd()`가 판단하는 대상은 "이번
-    과제가 뭔지"가 아니라 "이 merge 가 role 의 record 계약을 지켰는지"
-    (이슈 #2559: write_scope 는 더 이상 그 계약의 일부가 아니다 —
-    세션은 더 이상 경로로 제한되지 않는다)이므로 판단 기준 자체가 role
-    고정이다. 과제 텍스트 매치로 좁히면 그 role 계약 조항 중 이번 diff
-    와 표면적으로 안 겹치는 항목이 후보에서 빠져 위반을 놓칠 위험이
-    있다 — 자문 guidance 완화가 아니라 fail-closed enforcement 정확성
-    문제라 add-only 매치조차 불필요한 잡음이다."""
-    out = list(_sp.resolve_role_source(role, _sp._skill_repo_root())["skill_dirs"])
+    이슈 #2561 disposition (기존 #2507 disposition을 대체): 이 함수는
+    예전엔 role->skill 표(`_ROLE_SKILLS`)를 `resolve_role_source()` 로
+    거쳐 role 이 매핑한 스킬 전체를 무조건 실었다 — `judge_cmd()`가
+    판단하는 대상은 "이번 과제가 뭔지"가 아니라 "이 merge 가 role 의
+    record 계약을 지켰는지"라 판단 기준 자체가 role 고정이고, 과제 텍스트
+    매치로 좁히면 표면적으로 diff 와 안 겹치는 계약 조항이 후보에서 빠져
+    위반을 놓칠 위험이 있다(그래서 #2507 은 이 소비부를 과제-텍스트 매치로
+    옮기지 않고 남겨뒀다 — 그 판단은 유효한 채로 남는다). role->skill 표
+    자체는 완전히 없앴지만, `resolve_role_family_source()` 가 표 없이도
+    같은 role-shaped 전체 목록을 skill-repository 디렉터리 이름 컨벤션
+    (`f"{role}-"` 접두어)에서 기계적으로 유도해 43개 역할 중 41개에서
+    옛 `_ROLE_SKILLS[role]` 과 정확히 같은 커버리지를 낸다(예외는 이
+    세션 레코드 "Open findings" 참고) — judge 세션이 여전히 과제 텍스트와
+    무관하게 role 가이던스 전체를 받는다는 불변식이 유지된다."""
+    out = list(_sp.resolve_role_family_source(role, _sp._skill_repo_root())["skill_dirs"])
     for p in _sp.core_plugin_dirs():
         if p.name not in _sp._JUDGE_EXCLUDED_CORE_PLUGINS:
             out.append(p)
@@ -1386,7 +1394,7 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
     """판정 세션 하나를 non-bare `claude -p` 로 띄운다 — `crossSessionInbound`
     를 걸어 `SendMessage` 를 받을 수 있게 한다(이슈#973 phase-1 조사: 공식
     문서, ListAgents/SendMessage 은 non-bare 세션에서만 열린다). 세션
-    설정은 `consult_cmd()` 와 똑같이 `role_settings()`/`resolve_role_source()`
+    설정은 `consult_cmd()` 와 똑같이 `role_settings()`/`resolve_role_family_source()`
     로 조립한다 — 두 코드경로가 갈라지면 한쪽만 고쳐지는 드리프트가 난다
     (#695/#700, `consult_cmd()` 독스트링과 같은 이유).
 

@@ -22,8 +22,8 @@ import spawn
 
 
 class ResolveSkillSourceTest(unittest.TestCase):
-    """`resolve_skill_source()` 단위 테스트 — `resolve_role_source()` 와 같은
-    반환 shape, 같은 fail-closed 규칙(모르는 이름, hooks/ 있는 스킬)."""
+    """`resolve_skill_source()` 단위 테스트 — `resolve_static_policy_source()`
+    와 같은 반환 shape, 같은 fail-closed 규칙(모르는 이름, hooks/ 있는 스킬)."""
 
     def setUp(self):
         self.repo_tmpdir = tempfile.TemporaryDirectory()
@@ -62,35 +62,37 @@ class ResolveSkillSourceTest(unittest.TestCase):
 
     def test_skill_with_no_corresponding_role_still_resolves(self):
         # proposal acceptance: 새 경로가 role 리네임이 아니라는 증거 —
-        # `_ROLE_SKILLS` 의 어떤 값에도 없는 이름이 skill 경로로는 풀린다.
-        self.assertNotIn("gamma",
-                          [s for skills in spawn._ROLE_SKILLS.values() for s in skills])
+        # role 축 없는 정책 기준선(`_STATIC_POLICY_SKILLS`)에도 없는 이름이
+        # skill 경로로는 풀린다.
+        self.assertNotIn("gamma", spawn._STATIC_POLICY_SKILLS)
         result = spawn.resolve_skill_source("gamma", self.repo_root)
         self.assertEqual(result["skills"], ["gamma"])
 
 
-class RoleSkillEquivalenceTest(unittest.TestCase):
-    """오늘 1:1 로 매핑되는 role/skill 쌍에서 두 경로의 해석 결과가 같다."""
+class PolicySkillEquivalenceTest(unittest.TestCase):
+    """이슈 #2561: role->skill 표 은퇴 뒤, role 축 없는 기준선
+    (`resolve_static_policy_source()`)과 skill 경로(`resolve_skill_source()`)
+    가 같은 이름에서 같은 해석 결과를 낸다."""
 
     def setUp(self):
-        self._saved_role_skills = spawn._ROLE_SKILLS
+        self._saved_static_policy_skills = spawn.skills._STATIC_POLICY_SKILLS
         self.repo_tmpdir = tempfile.TemporaryDirectory()
         self.repo_root = Path(self.repo_tmpdir.name)
         (self.repo_root / "alpha").mkdir()
         (self.repo_root / "beta").mkdir()
 
     def tearDown(self):
-        spawn._ROLE_SKILLS = self._saved_role_skills
+        spawn.skills._STATIC_POLICY_SKILLS = self._saved_static_policy_skills
         self.repo_tmpdir.cleanup()
 
-    def test_role_path_and_skill_path_agree_for_a_1to1_pair(self):
-        spawn._ROLE_SKILLS = {"implementation": ["alpha", "beta"]}
-        via_role = spawn.resolve_role_source("implementation", self.repo_root)
+    def test_policy_path_and_skill_path_agree_for_the_same_names(self):
+        spawn.skills._STATIC_POLICY_SKILLS = {"alpha", "beta"}
+        via_policy = spawn.resolve_static_policy_source(self.repo_root)
         via_skill = spawn.resolve_skill_source("alpha,beta", self.repo_root)
-        self.assertEqual(via_role["skills"], via_skill["skills"])
-        self.assertEqual(via_role["skill_dirs"], via_skill["skill_dirs"])
-        self.assertEqual(via_role["skill_sha"], via_skill["skill_sha"])
-        self.assertEqual(via_role["source"], via_skill["source"])
+        self.assertEqual(via_policy["skills"], via_skill["skills"])
+        self.assertEqual(via_policy["skill_dirs"], via_skill["skill_dirs"])
+        self.assertEqual(via_policy["skill_sha"], via_skill["skill_sha"])
+        self.assertEqual(via_policy["source"], via_skill["source"])
 
 
 class SkillCliDispatchTest(unittest.TestCase):

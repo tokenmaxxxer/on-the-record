@@ -78,8 +78,8 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
                                lambda cwd, issue, role: str(work)), \
              mock.patch.object(spawn, "checkout_issue_branch",
                                lambda cwd, issue, role: "b"), \
-             mock.patch.object(spawn, "resolve_role_source",
-                               lambda role, repo_root: role_source), \
+             mock.patch.object(spawn, "resolve_static_policy_source",
+                               lambda repo_root: role_source), \
              mock.patch.object(spawn, "_skill_repo_root",
                                lambda: skill_repo_root), \
              mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \

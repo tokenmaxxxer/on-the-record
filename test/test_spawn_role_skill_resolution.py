@@ -20,56 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import spawn
 
 
-class RoleSkillsResolutionTest(unittest.TestCase):
-    """헬퍼 함수 단위 테스트: 매핑된 역할은 skill-repo 소스로 풀리는 정상
-    경로 + 두 fail-closed 거절(모르는 이름, hooks/ 있는 스킬)."""
-
-    def setUp(self):
-        self._saved_role_skills = spawn._ROLE_SKILLS
-        self.repo_tmpdir = tempfile.TemporaryDirectory()
-        self.repo_root = Path(self.repo_tmpdir.name)
-        (self.repo_root / "alpha").mkdir()
-        (self.repo_root / "beta").mkdir()
-        (self.repo_root / "hooked").mkdir()
-        (self.repo_root / "hooked" / "hooks").mkdir()
-
-    def tearDown(self):
-        spawn._ROLE_SKILLS = self._saved_role_skills
-        self.repo_tmpdir.cleanup()
-
-    def test_mapped_role_resolves_to_skill_repo_source(self):
-        spawn._ROLE_SKILLS = {"implementation": ["alpha", "beta"]}
-        result = spawn.resolve_role_source("implementation", self.repo_root)
-        self.assertEqual(result["source"], "skill-repo")
-        self.assertEqual(result["skills"], ["alpha", "beta"])
-        self.assertEqual(result["skill_dirs"],
-                          [self.repo_root / "alpha", self.repo_root / "beta"])
-        self.assertIsNotNone(result["skill_sha"])
-
-    def test_role_absent_from_mapping_resolves_to_empty_skill_repo(self):
-        # "매핑 안 된 역할"이라는 상태는 더 이상 없다 — 그냥 스킬 0개인
-        # skill-repo 소스다(이슈 #1955: rulebook 소스로 떨어지는 경로 자체가
-        # 없다).
-        spawn._ROLE_SKILLS = {}
-        result = spawn.resolve_role_source("implementation", self.repo_root)
-        self.assertEqual(result, {"source": "skill-repo", "skill_dirs": [],
-                                   "skills": [], "skill_sha": None})
-
-    def test_missing_named_skill_exits_nonzero(self):
-        spawn._ROLE_SKILLS = {"implementation": ["alpha", "ghost"]}
-        with self.assertRaises(SystemExit) as ctx:
-            spawn.resolve_role_source("implementation", self.repo_root)
-        self.assertNotEqual(ctx.exception.code, 0)
-        self.assertIsNotNone(ctx.exception.code)
-
-    def test_skill_with_hooks_dir_exits_nonzero(self):
-        spawn._ROLE_SKILLS = {"implementation": ["hooked"]}
-        with self.assertRaises(SystemExit) as ctx:
-            spawn.resolve_role_source("implementation", self.repo_root)
-        self.assertNotEqual(ctx.exception.code, 0)
-        self.assertIsNotNone(ctx.exception.code)
-
-
 class MountLayoutTest(unittest.TestCase):
     """acceptance 1: 모든 역할은 룰북 --plugin-dir 도, 스킬 hooks/ 마운트도
     없다 — spawn_cmd 에 룰북 plugins 리스트가 아예 안 실린다(_spawn_one()
@@ -101,8 +51,6 @@ class RefusalBeforeWorkspaceTest(unittest.TestCase):
     issue_workspace()/checkout_issue_branch() 가 절대 안 불렸음을 증명."""
 
     def setUp(self):
-        self._saved_role_skills = spawn._ROLE_SKILLS
-
         self.repo_tmpdir = tempfile.TemporaryDirectory()
         self.repo_root = Path(self.repo_tmpdir.name)
         (self.repo_root / "alpha").mkdir()
@@ -132,7 +80,6 @@ class RefusalBeforeWorkspaceTest(unittest.TestCase):
                        "이 테스트는 실제 spawn_roles.json 의 implementation 스펙을 읽는다")
 
     def tearDown(self):
-        spawn._ROLE_SKILLS = self._saved_role_skills
         spawn.issue_workspace = self._saved_workspace
         spawn.checkout_issue_branch = self._saved_branch
         if self._saved_env is None:
@@ -142,7 +89,6 @@ class RefusalBeforeWorkspaceTest(unittest.TestCase):
         self.repo_tmpdir.cleanup()
 
     def test_missing_named_skill_exits_before_workspace(self):
-        spawn._ROLE_SKILLS = {"implementation": ["alpha", "ghost"]}
         with self.assertRaises(SystemExit) as ctx:
             spawn._spawn_one(str(self.repo_root), "implementation", "task",
                               True, issue=1955)
@@ -152,7 +98,6 @@ class RefusalBeforeWorkspaceTest(unittest.TestCase):
         self.assertFalse(self._branch_called)
 
     def test_skill_with_hooks_exits_before_workspace(self):
-        spawn._ROLE_SKILLS = {"implementation": ["hooked"]}
         with self.assertRaises(SystemExit) as ctx:
             spawn._spawn_one(str(self.repo_root), "implementation", "task",
                               True, issue=1955)
@@ -164,30 +109,32 @@ class RefusalBeforeWorkspaceTest(unittest.TestCase):
 
 class RecordFieldsTest(unittest.TestCase):
     """acceptance 3: 로스터 엔트리 shape — resolution_source 는 항상
-    skill-repo, resolution_skills/resolution_skill_sha 를 늘 싣는다(매핑
-    안 된 역할이라는 상태가 없으므로 rulebook 분기 자체가 없다)."""
+    skill-repo, resolution_skills/resolution_skill_sha 를 늘 싣는다. 이슈
+    #2561: role->skill 표(`_ROLE_SKILLS`)/`resolve_role_source()` 은퇴 뒤,
+    role 축 없는 기준선인 `resolve_static_policy_source()` 가 같은 반환
+    shape 을 낸다는 것으로 이 acceptance 를 검증한다."""
 
     def setUp(self):
-        self._saved_role_skills = spawn._ROLE_SKILLS
+        self._saved_static_policy_skills = spawn.skills._STATIC_POLICY_SKILLS
         self._tmpdir = tempfile.TemporaryDirectory()
         self.repo_root = Path(self._tmpdir.name)
         (self.repo_root / "alpha").mkdir()
 
     def tearDown(self):
-        spawn._ROLE_SKILLS = self._saved_role_skills
+        spawn.skills._STATIC_POLICY_SKILLS = self._saved_static_policy_skills
         self._tmpdir.cleanup()
 
-    def test_mapped_roster_fields(self):
-        spawn._ROLE_SKILLS = {"implementation": ["alpha"]}
-        role_source = spawn.resolve_role_source("implementation", self.repo_root)
+    def test_policy_roster_fields(self):
+        spawn.skills._STATIC_POLICY_SKILLS = {"alpha"}
+        role_source = spawn.resolve_static_policy_source(self.repo_root)
         fields = spawn._role_source_roster_fields(role_source)
         self.assertEqual(fields["resolution_source"], "skill-repo")
         self.assertEqual(fields["resolution_skills"], ["alpha"])
         self.assertIsNotNone(fields["resolution_skill_sha"])
 
-    def test_empty_state_no_mapping_still_skill_repo_shape(self):
-        spawn._ROLE_SKILLS = {}
-        role_source = spawn.resolve_role_source("implementation", self.repo_root)
+    def test_empty_state_no_policy_skills_still_skill_repo_shape(self):
+        spawn.skills._STATIC_POLICY_SKILLS = set()
+        role_source = spawn.resolve_static_policy_source(self.repo_root)
         self.assertEqual(role_source["source"], "skill-repo")
         fields = spawn._role_source_roster_fields(role_source)
         self.assertEqual(fields, {"resolution_source": "skill-repo",

@@ -51,13 +51,19 @@ def _changed_files(repo_root: str, merge_sha: str) -> list[str]:
 
 
 def _known_roles() -> list[str]:
-    """이슈 #2539 (stage 6C): `roles/*.json` 파일 목록 대신 `spawn.ROLES` —
-    이 함수는 보드 파이프라인이 도는 role만 순회하면 되고, `spawn.ROLES`가
-    바로 그 집합이다(리포트 전용 채널인 upstream-defect-report는 원래도
-    보드 큐 엔트리가 생기지 않으므로 제외돼도 동작이 같다)."""
+    """이슈 #2539 (stage 6C) / 이슈 #2560 개정: `roles/*.json` 파일 목록
+    대신 `spawn.role_data()`(→ `spawn_roles.json`) 의 키 집합을 쓴다 — 이
+    함수는 보드 파이프라인이 도는 role만 순회하면 되고, 그 role 이름
+    카탈로그가 바로 그 집합이다(리포트 전용 채널인 upstream-defect-report는
+    원래도 보드 큐 엔트리가 생기지 않으므로 제외돼도 동작이 같다).
+    `spawn.ROLES`(고정 43개 role 튜플)는 이슈 #2560 로 완전히 삭제됐다 —
+    세션 신원은 더 이상 닫힌 집합이 아니고, `spawn_roles.json`이 이
+    패트롤 스윕처럼 여전히 "적어도 하나의 유한한 카탈로그"가 필요한
+    소비자를 위해 남은 유일한 닫힌 집합이다 (docs/issue-2548/reports/
+    architecture.md, Consumers item d / Step H)."""
     sys.path.insert(0, str(ROOT))
     import spawn
-    return sorted(spawn.ROLES)
+    return sorted(spawn.role_data())
 
 
 def run(repo_root: str, merge_sha: str, judge_cmd=None) -> dict:
