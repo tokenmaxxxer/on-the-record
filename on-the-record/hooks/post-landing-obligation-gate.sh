@@ -147,8 +147,9 @@ if any(m in low for m in FAILURE_MARKERS):
 
 # --- issue/role resolution from the PR's own head branch -------------------
 # `gh pr merge` is an orchestrator-only action (merge-allow-gate.sh's own
-# invariant: role sessions never call it, CLAUDE_ROLE set => sys.exit(0)
-# there). The orchestrator merges from the base/main checkout, never from
+# invariant: role sessions never call it, TOKENMAXXXER_SPAWNED set =>
+# sys.exit(0) there — issue #2538). The orchestrator merges from the
+# base/main checkout, never from
 # an `issue-<n>/<role>` branch — so reading the CALLER's current branch
 # (as an earlier version of this hook did) never matches on the one call
 # shape that actually happens, and the hook silently no-ops on every real

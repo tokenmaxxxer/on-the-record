@@ -1,27 +1,43 @@
 #!/usr/bin/env bash
-# SessionStart hook: snapshot CLAUDE_ROLE into a session_id-keyed state file
-# before any session-controlled code can run. Issue #698 — approval-gate.sh
-# (and any future consumer) reads this snapshot instead of trusting a later,
-# session-influenced read of the live CLAUDE_ROLE env var, which the model
-# can re-export via Bash.
+# SessionStart hook: snapshot the spawned-session provenance flag into a
+# session_id-keyed state file before any session-controlled code can run.
+# Issue #698 — approval-gate.sh (and any future consumer) reads this
+# snapshot instead of trusting a later, session-influenced read of the live
+# env var, which the model can re-export via Bash.
 #
-# At SessionStart, CLAUDE_ROLE is still exactly what spawn.py set at process
+# Issue #2538 (role retirement stage 6B): the snapshot used to carry the
+# CLAUDE_ROLE *value*. Every consumer of this snapshot (deliverable-guard.sh,
+# gh-write-allow-gate.sh, heredoc-command-refusal-gate.sh,
+# decision-queue-stopgate.sh, retry-loop-bound.sh, spawn-allow-gate.sh,
+# merge-allow-gate.sh, delegation-post-gate.sh, approach-cap-warning.sh) only
+# ever tested it for truthiness ("is a role bound at all"), never compared
+# the string — so the snapshot now carries a boolean `spawned` flag sourced
+# from TOKENMAXXXER_SPAWNED, which pipeline.py/consult.py set alongside
+# CLAUDE_ROLE on every spawn path today (grep: both env keys are always
+# written together, never one without the other) — the same presence signal
+# with no role name attached. approval-gate.sh, upstream-defect-scope-guard.sh
+# and deviation-log-guard.sh need the actual role *value* for reasons
+# specific to each (see docs/issue-2538/reports/implementation.md) and keep
+# reading CLAUDE_ROLE directly rather than this snapshot.
+#
+# At SessionStart, the env var is still exactly what spawn.py set at process
 # launch — no session-controlled code has run yet, so this is the one point
-# in the session lifecycle where reading the env var is trustworthy.
+# in the session lifecycle where reading it is trustworthy.
 #
 # State: ${OTR_ROLE_BIND_STATE_DIR:-$TMPDIR/otr-role-bind}/<session_id>.json
-# containing {"role": "<value>"}. First-observation wins: a later
+# containing {"spawned": true}. First-observation wins: a later
 # SessionStart replay within the same session_id never overwrites an
-# existing snapshot, so a role can't rebind itself mid-session via a replay.
+# existing snapshot, so a session can't rebind itself mid-session via a
+# replay.
 #
-# No-ops (exit 0) when CLAUDE_ROLE is unset (orchestrator session) or the
-# payload carries no session_id — same fail-open shape as
+# No-ops (exit 0) when TOKENMAXXXER_SPAWNED is unset (orchestrator session)
+# or the payload carries no session_id — same fail-open shape as
 # retry-loop-bound.sh's missing-session_id handling.
 trap 'exit 0' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-[ -n "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
+[ -n "${TOKENMAXXXER_SPAWNED:-}" ] || { trap - EXIT; exit 0; }
 command -v python3 >/dev/null 2>&1 || { trap - EXIT; exit 0; }
 
 PAYLOAD="$(cat 2>/dev/null || true)"
@@ -30,7 +46,7 @@ PAYLOAD="$(cat 2>/dev/null || true)"
 STATE_DIR="${OTR_ROLE_BIND_STATE_DIR:-${TMPDIR:-/tmp}/otr-role-bind}"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
-OTR_RB_PAYLOAD="$PAYLOAD" OTR_RB_ROLE="$CLAUDE_ROLE" OTR_RB_STATE_DIR="$STATE_DIR" \
+OTR_RB_PAYLOAD="$PAYLOAD" OTR_RB_STATE_DIR="$STATE_DIR" \
   python3 - <<'PY'
 import json
 import os
@@ -38,7 +54,6 @@ import re
 import sys
 
 payload_raw = os.environ.get("OTR_RB_PAYLOAD", "")
-role = os.environ.get("OTR_RB_ROLE", "")
 state_dir = os.environ.get("OTR_RB_STATE_DIR", "")
 
 try:
@@ -62,7 +77,7 @@ if os.path.exists(state_path):
 tmp = state_path + ".tmp"
 try:
     with open(tmp, "w") as f:
-        json.dump({"role": role}, f)
+        json.dump({"spawned": True}, f)
     os.replace(tmp, state_path)
 except OSError:
     pass

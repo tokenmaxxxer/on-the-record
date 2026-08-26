@@ -34,12 +34,13 @@
 # that finishes naturally under the cap never crosses the remaining-turns
 # window, so it sees no warning and no behavior change.
 #
-# Role identity (matches retry-loop-bound.sh, approval-gate.sh): resolves
-# CLAUDE_ROLE from the #698 session-role-bind snapshot with a live-env
-# fallback. Orchestrator sessions never carry
-# MUSTER_SESSION_MAX_TURNS_RESOLVED in the first place (pipeline.py only
-# sets it inside a role spawn's env), so this check is a second,
-# independent no-op guard rather than the only one.
+# Spawned-session identity (matches retry-loop-bound.sh, approval-gate.sh;
+# issue #2538): resolves TOKENMAXXXER_SPAWNED from the #698
+# session-role-bind snapshot with a live-env fallback — presence-only,
+# never a role name, so this needs no role identity. Orchestrator sessions
+# never carry MUSTER_SESSION_MAX_TURNS_RESOLVED in the first place
+# (pipeline.py only sets it inside a role spawn's env), so this check is a
+# second, independent no-op guard rather than the only one.
 #
 # Fails OPEN on any parse/state error or missing session_id — this hook
 # only adds a warning on top of the existing turn budget, never instead
@@ -109,9 +110,9 @@ if not isinstance(session_id, str) or not session_id:
 safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
 state_path = os.path.join(state_dir, safe_session + ".json")
 
-# --- role identity: same resolve-with-fallback pattern as
+# --- spawned identity: same resolve-with-fallback pattern as
 # retry-loop-bound.sh / approval-gate.sh --------------------------------
-role = os.environ.get("CLAUDE_ROLE", "")
+spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 bind_state_dir = os.environ.get(
     "OTR_ROLE_BIND_STATE_DIR",
     os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
@@ -120,11 +121,11 @@ snapshot_path = os.path.join(bind_state_dir, safe_session + ".json")
 try:
     with open(snapshot_path, encoding="utf-8") as f:
         snapshot = json.load(f)
-    if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-        role = snapshot["role"]
+    if isinstance(snapshot, dict) and "spawned" in snapshot:
+        spawned = bool(snapshot["spawned"])
 except (OSError, ValueError):
     pass  # no snapshot yet — fall back to the live env var
-if not role:
+if not spawned:
     sys.exit(0)  # no role bound — nothing this hook is scoped to warn
 
 

@@ -4,11 +4,14 @@
 #
 # Grants `hookSpecificOutput.permissionDecision: "allow"` for a `gh pr merge`
 # call, scoped three ways per the proposal's Safety argument:
-#   (a) CLAUDE_ROLE resolves empty — orchestrator only, never a role session.
-#       Identity read reuses session-role-bind.sh's SessionStart snapshot,
-#       exactly the way approval-gate.sh already does (path:on-the-record/
-#       hooks/approval-gate.sh lines 72-92) — a later in-session re-export of
-#       CLAUDE_ROLE cannot flip this hook's belief about who is running.
+#   (a) TOKENMAXXXER_SPAWNED resolves empty — orchestrator only, never a
+#       role session. Identity read reuses session-role-bind.sh's
+#       SessionStart snapshot, exactly the way approval-gate.sh already
+#       does (path:on-the-record/hooks/approval-gate.sh lines 72-92) — a
+#       later in-session re-export of the env var cannot flip this hook's
+#       belief about who is running. Issue #2538: only presence is ever
+#       tested here, never a role name, so this needs no role identity —
+#       the spawned-flag is the same presence signal without one.
 #   (b) the command is `gh pr merge` against a resolvable, explicit PR
 #       number — reuses contract-guard.sh's target-repo resolution
 #       (path:on-the-record/hooks/contract-guard.sh lines 66-79) so no bare
@@ -141,9 +144,9 @@ if any(_is_operator_token(t) for t in _tail):
 # --- identity: SessionStart snapshot first, live env var fallback ----------
 # Same primitive approval-gate.sh already trusts (path:on-the-record/hooks/
 # approval-gate.sh lines 72-92) — this hook only ever fires for the
-# orchestrator (empty role), the mirror image of approval-gate.sh's
+# orchestrator (not spawned), the mirror image of approval-gate.sh's
 # role-session-only trigger.
-role = os.environ.get("CLAUDE_ROLE", "")
+spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 session_id = e.get("session_id")
 if isinstance(session_id, str) and session_id:
     state_dir = os.environ.get(
@@ -155,11 +158,11 @@ if isinstance(session_id, str) and session_id:
     try:
         with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
+        if isinstance(snapshot, dict) and "spawned" in snapshot:
+            spawned = bool(snapshot["spawned"])
     except (OSError, ValueError):
         pass  # no snapshot yet — fall back to the live env var
-if role:
+if spawned:
     sys.exit(0)  # a role session — never this hook's target, contract v3 s10 unchanged
 
 # --- target-repo / explicit-PR-number resolution ----------------------------
@@ -282,7 +285,7 @@ print(json.dumps({
         "permissionDecisionReason": (
             "merge-allow-gate: PR #%s is landing_readiness=READY "
             "(gates/landing_readiness.py) and this is the orchestration "
-            "session (CLAUDE_ROLE unset) — issue #810." % pr
+            "session (not spawned) — issue #810." % pr
         ),
     }
 }))

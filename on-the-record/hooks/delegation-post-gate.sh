@@ -2,7 +2,7 @@
 # PreToolUse (Bash): deny-before-post gate on a "VIA DELEGATION" APPROVE
 # citation — issue #707. Blocks a role-bound session (ANY role, not only the
 # branch's own) from ever posting a delegation-citing APPROVE comment
-# itself: only an orchestrator session (no CLAUDE_ROLE / no #698
+# itself: only an orchestrator session (not spawned / no #698
 # session-role-bind snapshot) may cite a delegation record as APPROVE
 # provenance. This is the self-approval invariant's enforcement point for
 # the delegation path — approval-gate.sh (the write-time gate) trusts
@@ -15,11 +15,14 @@
 # hunt (docs/issue-707/reports/product-discovery/hunt-after-proposal.md)
 # found the narrower differs-from-branch-role check insufficient — a
 # session bound to an unrelated role on an unrelated issue would pass that
-# narrower check without being the orchestrator at all. Absent CLAUDE_ROLE
-# (and absent a bound snapshot) is this repo's own existing convention for
-# "this is an orchestrator, not a role session" (session-role-bind.sh's own
-# no-op condition), so that is the positive signal checked here — any
-# bound role, matching or not, is refused.
+# narrower check without being the orchestrator at all. Absent
+# TOKENMAXXXER_SPAWNED (and absent a bound snapshot) is this repo's own
+# existing convention for "this is an orchestrator, not a role session"
+# (session-role-bind.sh's own no-op condition), so that is the positive
+# signal checked here — any bound role, matching or not, is refused.
+# Issue #2538: only presence is ever tested (never a role name — the value
+# below is only interpolated into the deny message for a human-readable
+# diagnostic), so this needs no role identity.
 #
 # Fail-open on parse failure / no python3 on PATH — same fail-open posture
 # every other Bash-matcher hook in this plugin already uses; what must
@@ -82,8 +85,9 @@ _CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
 if not _CITE_RE.match(body.strip()):
     sys.exit(0)  # not a delegation citation — not this hook's target
 
-# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ---
-role = os.environ.get("CLAUDE_ROLE", "")
+# --- spawned identity: prefer the SessionStart-bound snapshot (issue #698,
+# #2538) ----------------------------------------------------------------
+spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 session_id = e.get("session_id")
 if isinstance(session_id, str) and session_id:
     state_dir = os.environ.get(
@@ -95,20 +99,20 @@ if isinstance(session_id, str) and session_id:
     try:
         with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
+        if isinstance(snapshot, dict) and "spawned" in snapshot:
+            spawned = bool(snapshot["spawned"])
     except (OSError, ValueError):
         pass  # no snapshot yet — fall back to the live env var
 
-if role:
+if spawned:
     deny(
-        "a role-bound session (role=%r) attempted to post a "
+        "a role-bound session attempted to post a "
         "delegation-citing APPROVE comment (%r) — only an orchestrator "
-        "session (no CLAUDE_ROLE bound) may cite a delegation record as "
+        "session (not spawned) may cite a delegation record as "
         "APPROVE provenance, regardless of whether the cited delegation "
-        "record is itself valid." % (role, body.strip()),
-        "relay this citation from an orchestrator session with no "
-        "CLAUDE_ROLE bound, never from a role session.",
+        "record is itself valid." % (body.strip(),),
+        "relay this citation from an orchestrator session that was not "
+        "itself spawned, never from a role session.",
     )
 sys.exit(0)
 PY

@@ -14,9 +14,10 @@
 # word inside the command's arguments.
 #
 # Scoped the same three ways merge-allow-gate.sh already established:
-#   (a) CLAUDE_ROLE resolves empty — orchestrator only, never a role
-#       session. Same SessionStart-snapshot identity read as
-#       merge-allow-gate.sh / approval-gate.sh.
+#   (a) TOKENMAXXXER_SPAWNED resolves empty — orchestrator only, never a
+#       role session. Same SessionStart-snapshot identity read as
+#       merge-allow-gate.sh / approval-gate.sh; issue #2538: presence-only,
+#       no role name needed.
 #   (b) the whole, unstripped command tokenizes (shlex.shlex(posix=True,
 #       punctuation_chars=True) — issue #824's design, ported here per
 #       issue #834) to exactly ["python3"|"python", SPAWN_PATH, ...tail] or
@@ -81,8 +82,8 @@ if not isinstance(cmd, str) or not cmd.strip():
 # --- identity: SessionStart snapshot first, live env var fallback ----------
 # Identical primitive to merge-allow-gate.sh (path:on-the-record/hooks/
 # merge-allow-gate.sh lines 79-101) — this hook only ever fires for the
-# orchestrator (empty role).
-role = os.environ.get("CLAUDE_ROLE", "")
+# orchestrator (not spawned).
+spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 session_id = e.get("session_id")
 if isinstance(session_id, str) and session_id:
     state_dir = os.environ.get(
@@ -94,11 +95,11 @@ if isinstance(session_id, str) and session_id:
     try:
         with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
+        if isinstance(snapshot, dict) and "spawned" in snapshot:
+            spawned = bool(snapshot["spawned"])
     except (OSError, ValueError):
         pass  # no snapshot yet — fall back to the live env var
-if role:
+if spawned:
     sys.exit(0)  # a role session — never this hook's target
 
 # --- strict command-shape validation (issue #824 design, ported per #834) --
@@ -162,7 +163,7 @@ print(json.dumps({
         "hookEventName": "PreToolUse",
         "permissionDecision": "allow",
         "permissionDecisionReason": (
-            "spawn-allow-gate: orchestration session (CLAUDE_ROLE unset) "
+            "spawn-allow-gate: orchestration session (not spawned) "
             "invoking this checkout's own spawn.py with no unquoted shell "
             "chaining — issue #810 SCOPE EXTENSION 2."
         ),
