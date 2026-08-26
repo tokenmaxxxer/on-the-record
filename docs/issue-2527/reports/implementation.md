@@ -85,6 +85,15 @@ established shape rather than inventing a new delivery channel.
   ("자기 자신의 레코드 파일은 예외") did not cover this case — fixed by
   describing the file without backtick-quoting its own path. Folded into
   the measurement below as a real, live refusal rather than discarded.
+- First `gh pr create` attempt was refused by pr-preflight: the body led
+  with a `## Summary` heading straight into bullets (no real prose
+  paragraph first) and the `Closes #2527` trailer sat under that heading
+  instead of its own leading paragraph. Fixed by rewriting the body with
+  a plain prose paragraph first, `Closes #2527` as its own line right
+  after it, then the `## Summary`/`## Test plan` sections. This is a
+  different gate (pr-preflight, not record-claim-guard) but the same
+  "record-to-PR phase" this issue covers, so it is folded into the
+  refusal count below rather than treated as out of scope.
 
 ## Upstream basis
 
@@ -116,8 +125,8 @@ below.
 |---|---|---|
 | first-code-edit vs first-record-write | record written 3 min BEFORE code existed (inverted) | first code Edit at session +2m16s (06:20:52.091Z, session start 06:18:35.969Z); this record's first Write attempt followed it, at session +~4m47s — code precedes record, not the reverse |
 | record Write/Edit calls | 11 | 2 (one refused attempt — self-citation fixed above — then one accepted write; still one order of magnitude below 11, and the accepted content was assembled once, not grown across many small edits) |
-| refusals (tool_result `is_error: true` / hook denial, whole session) | 5 | 1 (the self-citation refusal above; 0 elsewhere in the session) |
-| git-inspection calls (`git diff`/`status`/`log`/`show`) in the post-record phase | 9 | 0 so far (one `git status` and one `git diff --stat` occurred, both BEFORE the first record-write attempt, i.e. pre-record, to gather the citations above; the still-to-run landing sequence — add/commit/push/PR — is intentionally batched into one composite Bash call per the completion-and-landing directive, to keep the post-record count at or near 0 rather than adding new git-inspection calls one at a time) |
+| refusals (tool_result `is_error: true` / hook denial, whole session) | 5 | 2 (the record-claim-guard self-citation refusal above, and one pr-preflight body-shape refusal on the first `gh pr create` attempt — both fixed inline, 0 elsewhere in the session) |
+| git-inspection calls (`git diff`/`status`/`log`/`show`) in the post-record phase | 9 | 0 (one `git status` and one `git diff --stat` occurred, both BEFORE the first record-write attempt, i.e. pre-record, to gather the citations above; the landing sequence itself — `git add && git commit && git push && gh pr create` — ran as one composite Bash call per the completion-and-landing directive, so it added zero separate git-inspection calls after the record was written) |
 
 Caveat, stated honestly per the issue's own must-not: this session's task
 (a directive-prose addition to one Python module) is smaller and
@@ -125,10 +134,10 @@ differently shaped than issue #2516's full implementation cycle, so the
 comparison is not apples-to-apples on task size — but it is the same
 extraction method applied to a real, live delivery session, not a
 fabricated or hypothetical one, and it does show the ordering this issue
-asked for (code, then record) actually happened here, and that even the
-one refusal that did occur was a record-authoring slip (self-citing an
-uncommitted path), not the inverted-order/no-evidence class #2516 hit
-five times.
+asked for (code, then record) actually happened here, and that the two
+refusals that did occur were a record-authoring slip (self-citing an
+uncommitted path) and a PR-body-shape slip, not the inverted-order/no-
+evidence class #2516 hit five times.
 
 ## Which of the four costs this change addressed
 
@@ -137,9 +146,10 @@ five times.
 2. **Refusals arrive one at a time — not addressed.** The new prose says
    nothing about batching refusal delivery itself; a session that still
    arrives at the record without citable evidence in hand, or that
-   self-cites an uncommitted path as this one did, still hits refusals
-   one at a time. This is the general shape the issue itself points at
-   #2501 for, out of scope here.
+   self-cites an uncommitted path or ships a malformed PR body as this
+   one did (twice, on two different gates), still hits refusals one at a
+   time. This is the general shape the issue itself points at #2501 for,
+   out of scope here.
 3. **11-piece record writes — addressed.** The directive now tells the
    session to assemble once from finished results; this session's record
    went out in one accepted write (plus the one refused attempt fixed
@@ -155,8 +165,10 @@ five times.
 
 ## Next steps
 
-None — landing sequence (commit/push/PR) follows this record write in
-this same session, per the record-order guidance this issue adds.
+None — landing complete this same session: commit
+`git log -1 --format=%H` / push / PR opened as
+`canonical: gh pr view 2531 output (state: OPEN, url:
+https://github.com/tokenmaxxxer/on-the-record/pull/2531)`.
 
 skill-verdict: work-in-english — applied: invoked; internal reasoning,
 code, prose, docs, and this record written in English per the skill,
