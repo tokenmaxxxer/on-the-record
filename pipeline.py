@@ -1656,17 +1656,20 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
         # line, exactly as the assembly code does.
         srcs = _sp.resolved_skill_sources(ctx.get("skills"), _sp._skill_repo_root(),
                                       target_repo_root=Path(ctx["cwd"]))
-        # 이슈 #2507: 스폰 마운트 경로가 더 이상 `resolve_role_source()`를
-        # 안 쓴다(`resolve_static_policy_source()` + 과제-텍스트 cross-family
-        # 매치로 옮겼다, PR #2532) — 이 preflight 는 실제로 마운트될 것을
-        # 검증해야 하므로 같이 옮긴다. cross-family 매치 자체(비동기,
-        # skill_judge 자문 하나 필요)는 admission 시점에 미리 알 수 없어
-        # 여기서 트리거 라인을 미리 검증할 수 없다 — 그 매치는 실제 마운트
-        # 시점에도 실패하면 BM25 fail-open 하는 경로다
+        # 이슈 #2507: 스폰 마운트 경로가 더 이상 role->skill 표를 안 쓴다
+        # (`resolve_static_policy_source()` + 과제-텍스트 cross-family 매치로
+        # 옮겼다, PR #2532) — 이 preflight 는 실제로 마운트될 것을 검증해야
+        # 하므로 같이 옮긴다. cross-family 매치 자체(비동기, skill_judge
+        # 자문 하나 필요)는 admission 시점에 미리 알 수 없어 여기서 트리거
+        # 라인을 미리 검증할 수 없다 — 그 매치는 실제 마운트 시점에도
+        # 실패하면 BM25 fail-open 하는 경로다
         # (`_cross_family_skill_matches_with_consult()` 독스트링), 그러니
-        # admission 을 그 경로 때문에 막을 이유가 없다. `resolve_role_source()`
-        # 는 아직 `consult.py`의 소비부(re-scope 사유는 그 함수 독스트링과
-        # 이 세션 레코드 참고)를 위해 이 파일에서 임포트된 채 남는다.
+        # admission 을 그 경로 때문에 막을 이유가 없다. 이슈 #2561: role->skill
+        # 표(`_ROLE_SKILLS`)와 `resolve_role_source()` 는 마지막 소비부였던
+        # `consult.py` 에서도 은퇴했다 — 스폰 마운트는 그대로
+        # `resolve_static_policy_source()`(role 축 없음), consult/judge 는
+        # 표 없이 skill-repository 디렉터리 이름 컨벤션에서 role 커버리지를
+        # 유도하는 `resolve_role_family_source()`(consult.py 참고).
         role_source = _sp.resolve_static_policy_source(_sp._skill_repo_root())
         for m in srcs:
             _sp._skill_trigger_line(m["dir"])

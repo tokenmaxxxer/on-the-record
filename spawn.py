@@ -377,7 +377,6 @@ review_cmd = consult.review_cmd
 import skills
 if skills._sp is None or __name__ in ("spawn", "__main__"):
     skills._sp = sys.modules[__name__]
-_ROLE_SKILLS = skills._ROLE_SKILLS
 _STATIC_POLICY_SKILLS = skills._STATIC_POLICY_SKILLS
 _core_candidates = skills._core_candidates
 _describe_skill_match = skills._describe_skill_match
@@ -390,8 +389,8 @@ _skill_repo_root = skills._skill_repo_root
 _skill_repo_valid = skills._skill_repo_valid
 _skill_roster_fields = skills._skill_roster_fields
 _skill_source_roster_row = skills._skill_source_roster_row
-resolve_role_source = skills.resolve_role_source
 resolve_static_policy_source = skills.resolve_static_policy_source
+resolve_role_family_source = skills.resolve_role_family_source
 merge_composed_skill_source = skills.merge_composed_skill_source
 resolve_skill_source = skills.resolve_skill_source
 resolved_skill_dirs = skills.resolved_skill_dirs

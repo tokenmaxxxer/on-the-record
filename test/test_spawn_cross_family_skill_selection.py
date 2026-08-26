@@ -78,7 +78,9 @@ class Bm25CrossFamilySkillMatchesTest(unittest.TestCase):
         self.assertEqual(matches, [])
 
     def test_family_skill_never_returned_as_cross_family_candidate(self):
-        # implementation-blueprint is already in _ROLE_SKILLS['implementation']
+        # implementation-blueprint used to live in the retired _ROLE_SKILLS
+        # role->skill table (issue #2561); still expected out of the
+        # cross-family candidate pool as a well-known implementation skill.
         self._skill(
             "implementation-blueprint",
             "Use whenever you are about to produce non-trivial code "
@@ -176,8 +178,8 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
                                lambda cwd, issue, role: str(work)), \
              mock.patch.object(spawn, "checkout_issue_branch",
                                lambda cwd, issue, role: "b"), \
-             mock.patch.object(spawn, "resolve_role_source",
-                               lambda role, repo_root: role_source), \
+             mock.patch.object(spawn, "resolve_static_policy_source",
+                               lambda repo_root: role_source), \
              mock.patch.object(spawn, "_skill_repo_root",
                                lambda: skill_repo_root), \
              mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
