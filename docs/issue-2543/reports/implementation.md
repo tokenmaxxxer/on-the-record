@@ -13,6 +13,8 @@ code_under_review:
     sha: same-commit
   - path: docs/specs/requirements.md
     sha: same-commit
+  - path: on-the-record/gates/gates.py
+    sha: same-commit
 type: fix
 breaking: none — `_current_accumulation_counts()`'s returned dict shape changed (`shape5_files` key removed, `shape1_ok` key added), but grep confirmed (see below) no caller outside this file reads either key
 verdict: pass
@@ -104,7 +106,26 @@ channel that isn't also a merge blocker.
 
 ## What did not work
 
-None — no reverted approach, no abandoned attempt.
+None — no reverted approach, no abandoned attempt. One post-commit
+correction: a background warrant-hunter pass (stance: silent-failure /
+composition-regression) ran against the `480d1a78..e380f7f7` diff and
+found no reproducible defect in the four hinted angles it checked, but
+surfaced one real drift outside them — canonical:
+`docs/issue-2543/reports/implementation/2026-08-26-hunt-closure-sweep-shape1-requirements-unverifiable.md`
+(the hunter's own filed record) — result: `gates/gates.py` has a packaged
+mirror at `on-the-record/gates/gates.py`, kept byte-identical by
+convention since issue #2295 (last synced together in `480d1a78` —
+derived: `git show 480d1a78:gates/gates.py | diff - <(git show
+480d1a78:on-the-record/gates/gates.py)` — result: no output, i.e.
+identical at that commit); commit `e380f7f7` edited `gates/gates.py` alone
+and left the packaged copy stale. The hunter judged this non-reportable as
+a defect (no live behavioral divergence: `board.gate_report()`, the only
+caller of the new function, always imports from the dev-tree root via
+`sys.path`, never the packaged copy), but the textual drift itself was
+real and matched an established sync convention this session had broken
+by omission — copied `gates/gates.py` onto `on-the-record/gates/gates.py`
+verbatim to restore it, in a follow-up commit after the hunter's report
+landed.
 
 ## Acceptance verification
 
