@@ -178,7 +178,7 @@ IFS=' ' read -r -a POLL_HEARTBEAT_PATROL_ROLES <<<"$(python3 -c "
 import sys
 sys.path.insert(0, '${CHECKOUT}')
 import spawn
-print(' '.join(spawn.ROLES))
+print(' '.join(sorted(spawn.role_data())))
 " 2>/dev/null)"
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
 sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-120}"

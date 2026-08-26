@@ -110,13 +110,15 @@ def _run_tick(checkout: Path, home: Path, report: str) -> subprocess.CompletedPr
     )
 
 
-# issue #1722: a roles-configured patrol fixture. ROLES/poll-due/watchdog
-# dispatch is guarded under __main__ so a plain `import spawn` for ROLES
-# alone (poll-heartbeat.sh's role-list read) doesn't also run the CLI
-# branches or force an exit.
+# issue #1722: a roles-configured patrol fixture. role_data()/poll-due/
+# watchdog dispatch is guarded under __main__ so a plain `import spawn` for
+# role_data() alone (poll-heartbeat.sh's role-list read, issue #2560:
+# reads `spawn.role_data()` since `spawn.ROLES` was retired) doesn't also
+# run the CLI branches or force an exit.
 FAKE_SPAWN_PY_WITH_ROLES = """#!/usr/bin/env python3
 import os, sys
-ROLES = ["role-a", "role-b"]
+def role_data():
+    return {"role-a": {}, "role-b": {}}
 if __name__ == "__main__":
     marker = os.environ["FAKE_SPAWN_MARKER"]
     if sys.argv[1:2] == ["poll-due"]:
@@ -430,11 +432,13 @@ def t_patrol_wiring_does_not_alter_heartbeat_tick_or_rearm_behavior():
     independent `patrol_tick` counter and patrol invocation must not
     change the existing `tick`/`POLL_HEARTBEAT_MAX_TICKS` bounding or the
     watchdog/rearm due-branch output. The fake spawn.py stub used by this
-    suite has no `ROLES` constant, so the patrol block's role-list import
-    fails and yields zero roles -- exercising the "own counter fires, but
-    no roles configured" path without a live patrol_promote.py call, while
-    still proving the due-branch report is unaffected and the loop still
-    stops at MAX_TICKS."""
+    suite has no `role_data()` function (issue #2560: poll-heartbeat.sh
+    reads `spawn.role_data()`, `spawn.ROLES` having been retired), so the
+    patrol block's role-list import fails and yields zero roles --
+    exercising the "own counter fires, but no roles configured" path
+    without a live patrol_promote.py call, while still proving the
+    due-branch report is unaffected and the loop still stops at
+    MAX_TICKS."""
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
