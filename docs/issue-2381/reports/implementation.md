@@ -430,3 +430,11 @@ convention file touched in the prior round). The user-facing turn summary
 is in Korean per the skill's default.
 
 canonical: `.gitignore` (this round's added comment block, English)
+
+other mounted skills this round: not triggered — implementation-design-pattern-selection,
+implementation-performance-data-structure-choice, and implementation-blueprint
+don't fit a `git rm --cached`/`.gitignore` tracking fix (no GoF pattern,
+data-structure, or multi-module structural decision involved);
+implementation-complexity-coupling-management (already invoked and
+recorded in a prior round, above) wasn't re-invoked since round 2 made
+no new check-pipeline-ordering or coupling decision.
