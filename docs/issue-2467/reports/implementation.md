@@ -182,7 +182,7 @@ here; recorded only so a future attempt does not have to re-derive today's
 grep/replay result from nothing.
 
 skill-verdict: work-in-english — applied: invoked; record/commit/PR text written in English per project convention
-skill-verdict: implementation-performance-data-structure-choice — applied: invoked; rule 5 (measure hit rate before assuming cache is beneficial) — this cache targets exact-input replay within real session data (measured directly in acceptance checks 2-3, not assumed); production-scale hit-rate is explicitly out of scope per the issue
+skill-verdict: implementation-performance-data-structure-choice — not-applicable: invoked to check before treating this as a cache-design task, but the outcome turned on call determinism/correctness (no cache was built), not on any of the skill's six data-structure/algorithm/removal rules — none of them govern whether a non-deterministic call may be cached at all
 
 ## Next steps
 
