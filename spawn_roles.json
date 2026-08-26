@@ -13,7 +13,6 @@
     "decides": "무엇을 만들지 — 가치 가설 (Cagan discovery)",
     "use_when": "요구가 아직 문제/가설 수준일 때. 사전등록 가설(지표·임계값·결정규칙)로 스펙 또는 kill 기록을 만든다 (board_condition: an issue's requirement is still at problem/hypothesis level AND no product-discovery record with a validated|invalidated verdict exists yet for that issue)",
     "produces": "hypothesis statement, target user/JTBD, evidence log, confidence level, next-decision trigger, product record",
-    "write_scope": [],
     "report_only": true,
     "spec": "roles/specs/product-discovery.spec.json",
     "record_fields": {
@@ -179,7 +178,6 @@
     "decides": "문제 → 화면·플로우",
     "use_when": "product-discovery 스펙 확정 후 (board_condition: a requirements-engineering record landed for a screen/flow-facing requirement AND no interaction-design record exists yet for it)",
     "produces": "wireframe/flow diagram, state list, edge-case interaction notes, open design questions",
-    "write_scope": [],
     "report_only": true,
     "spec": "roles/specs/interaction-design.spec.json",
     "record_fields": {
@@ -315,9 +313,6 @@
     "decides": "기술적으로 되는가",
     "use_when": "기술 PoC가 필요할 때. 시장 논리 없이 판정",
     "produces": "go|no-go|conditional verdict, PoC code/measurement, assumptions list",
-    "write_scope": [
-      "docs/issue-<n>/reports/technical-feasibility.md"
-    ],
     "record_fields": {
       "verdict": [
         "go",
@@ -415,11 +410,6 @@
     "decides": "승인된 범위 → 동작 코드 (신규 구현)",
     "use_when": "스펙/제안이 승인됐고 신규 구현이 필요할 때. 검증은 안 한다 — 자기 주장 확인(빌드·자기 테스트 1회)까지만",
     "produces": "src/·test/ 코드, build proposal, what-did-not-work log, closed_checks entries, coding record",
-    "write_scope": [
-      "src/**",
-      "test/**",
-      "tests/**"
-    ],
     "record_fields": {
       "loop_state": [
         "scope-proposed",
@@ -520,9 +510,6 @@
     "decides": "실행 시 실제 동작",
     "use_when": "실행 가능한 산출물이 랜딩됐을 때. 실행 없는 판정 금지, 고치지 않음 (board_condition: an executable artifact landed on the branch AND no execution-observation record exists yet for this commit sha)",
     "produces": "증거 인용된 claim별 pass/fail/blocked, run command/log reference, 버그 리포트(레코드로; 이슈는 사용자가)",
-    "write_scope": [
-      "docs/issue-<n>/reports/execution-observation.md"
-    ],
     "spec": "roles/specs/execution-observation.spec.json",
     "record_fields": {
       "loop_state": {
@@ -651,9 +638,6 @@
     "decides": "산출물 vs 명세 일치",
     "use_when": "implementation 커밋이 랜딩된 후, 요구사항 대비 감사가 필요할 때. 빌더 의도는 안 읽는다 (board_condition: an implementation commit landed on the branch AND no conformance-review record exists yet for this commit sha)",
     "produces": "요구사항별 Present|Surface|Absent|Incorrect|Unverifiable, 인용된 증거",
-    "write_scope": [
-      "docs/issue-<n>/reports/conformance-review.md"
-    ],
     "spec": "roles/specs/conformance-review.spec.json",
     "record_fields": {
       "loop_state": {
@@ -763,9 +747,6 @@
     "decides": "결함 실재 — 독립 재현",
     "use_when": "실행 결과가 다투어질 때 — execution-observation·conformance-review 만으로 결론낼 수 없는, 재현이 어렵거나 다투는 실행 결과 주장, 복잡한 변경. 적대적 독립 재현으로 놓친 것을 찾는다 (board_condition: an execution-observation or conformance-review record's result is disputed by another comment on the same commit sha AND no defect-verification record exists yet for that dispute)",
     "produces": "attempt별 reproduced|not-reproduced + 증거, repro steps/script, environment notes, blocking|advisory finding",
-    "write_scope": [
-      "docs/issue-<n>/reports/defect-verification.md"
-    ],
     "spec": "roles/specs/defect-verification.spec.json",
     "record_fields": {
       "loop_state": {
@@ -877,9 +858,6 @@
     "decides": "이슈 역사가 무엇을 가르치는가 (단일 이슈 회고)",
     "use_when": "작업이 랜딩되고 defect-verification/conformance-review 가 종결된 뒤. 기록만 읽는다",
     "produces": "timeline, lessons list, one-line advisory (advisory only)",
-    "write_scope": [
-      "docs/issue-<n>/reports/issue-retrospective.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -972,10 +950,6 @@
     "decides": "배포 가능한가 (릴리스/롤아웃)",
     "use_when": "변경이 머지되어 배포할 때",
     "produces": "rollout checklist, rollback plan, go/no-go verdict",
-    "write_scope": [
-      "CHANGELOG.md",
-      "docs/issue-<n>/reports/release-engineering.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -1108,7 +1082,6 @@
     "decides": "이 문제가 실제 사용자의 고통인가",
     "use_when": "가설 검증을 위해 사용자 인터뷰가 필요할 때 (board_condition: a product-discovery hypothesis requires user-interview validation AND no user-discovery record with a pain-confirmed|not-confirmed verdict exists yet for that hypothesis)",
     "produces": "interview script, per-interview evidence log, pain-confirmed|not-confirmed verdict",
-    "write_scope": [],
     "report_only": true,
     "spec": "roles/specs/user-discovery.spec.json",
     "record_fields": {
@@ -1284,7 +1257,6 @@
     "decides": "요구사항이 검증가능·일관·추적 가능하게 명세되었는가",
     "use_when": "product 가설이 확정되어 정식 스펙으로 전환할 때 (board_condition: a product-discovery record reached a validated verdict AND no requirements-engineering record exists yet turning it into a structured requirements doc)",
     "produces": "structured requirements doc, traceability matrix, ambiguity list resolved",
-    "write_scope": [],
     "report_only": true,
     "spec": "roles/specs/requirements-engineering.spec.json",
     "record_fields": {
@@ -1413,9 +1385,6 @@
     "decides": "기존 코드의 관찰 가능한 동작을 바꾸지 않고 안전하게 재구조화할 수 있는가",
     "use_when": "레거시/기존 코드에 손을 대야 할 때 (b) scope overlap, tentative: implementation의 write_scope가 이미 이 도메인을 inline으로 커버하는 경우 별도 record는 생략 가능 — 레거시-부채 전용 record 타입이 별도로 필요해지면 재검토 (issue #993 product-discovery diagnosis)",
     "produces": "refactoring plan, characterization tests, before/after behavior-equivalence note",
-    "write_scope": [
-      "docs/issue-<n>/reports/refactoring-legacy.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -1572,9 +1541,6 @@
     "decides": "테스트 코드 자체가 격리성·fixture 전략 면에서 좋은 설계인가",
     "use_when": "신규/기존 테스트 스위트를 설계·리뷰할 때 (b) scope overlap, tentative: implementation의 write_scope가 이미 이 도메인을 inline으로 커버하는 경우 별도 record는 생략 가능 — 테스트-설계 전용 record 타입이 별도로 필요해지면 재검토 (issue #993 product-discovery diagnosis)",
     "produces": "suite architecture note, fixture strategy, smell list (Meszaros catalog refs)",
-    "write_scope": [
-      "docs/issue-<n>/reports/test-authoring.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -1716,9 +1682,6 @@
     "decides": "프로덕션 내부 상태에 대해 사전에 정의하지 않은 질문도 던질 수 있는가",
     "use_when": "신규 서비스/경로에 계측이 필요할 때",
     "produces": "telemetry/instrumentation design, cardinality budget, dashboard/query examples",
-    "write_scope": [
-      "docs/issue-<n>/reports/observability.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -1880,9 +1843,6 @@
     "decides": "장애 후 무엇을 배웠고 재발을 무엇으로 막을 것인가",
     "use_when": "장애 종결 직후",
     "produces": "timeline, blameless postmortem, action items w/ owner+deadline",
-    "write_scope": [
-      "docs/issue-<n>/reports/incident-response.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -1978,9 +1938,6 @@
     "decides": "향후 수요 성장 대비 자원이 충분하며 언제 증설해야 하는가",
     "use_when": "용량 예측/증설 시점 결정이 걸릴 때",
     "produces": "capacity forecast, expansion trigger thresholds, cost note",
-    "write_scope": [
-      "docs/issue-<n>/reports/capacity-planning.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -2078,9 +2035,6 @@
     "decides": "개별 이슈의 교훈이 조직 차원에서 재사용 가능한 형태로 축적·색인되는가",
     "use_when": "여러 이슈의 회고가 쌓여 지식 큐레이션이 필요할 때",
     "produces": "curated pattern-library entry, cross-issue index, supersession note (if replacing an older pattern)",
-    "write_scope": [
-      "docs/issue-<n>/reports/knowledge-management.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -2240,9 +2194,6 @@
     "decides": "디자인 결정 → 토큰/규칙 시스템화",
     "use_when": "화면 스펙이 여러 개 쌓여 시스템화가 필요할 때",
     "produces": "token set (name/value/usage), rule doc, migration note for existing screens",
-    "write_scope": [
-      "docs/issue-<n>/reports/ux-engineering.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -2361,9 +2312,6 @@
     "decides": "서비스 경계의 인터페이스 형태",
     "use_when": "여러 소비자가 걸리는 API 표면을 설계/변경할 때",
     "produces": "interface spec (endpoints/schema/versioning), lifecycle/deprecation plan",
-    "write_scope": [
-      "docs/issue-<n>/reports/api-design.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -2528,10 +2476,6 @@
     "decides": "컴포넌트 경계·의존 방향",
     "use_when": "새 모듈 경계나 기존 경계 변경이 걸릴 때",
     "produces": "ADR (context/decision/consequences), boundary diagram",
-    "write_scope": [
-      "docs/decisions/*.md",
-      "docs/issue-<n>/reports/architecture.md"
-    ],
     "judgment_axes": [
       "maintenance_complexity"
     ],
@@ -2640,9 +2584,6 @@
     "decides": "신뢰 경계의 위협 표면",
     "use_when": "스펙에 신뢰 경계·인증·민감데이터가 걸릴 때 (board_condition: a spec or design doc landed that introduces a new trust boundary, authentication surface, or sensitive-data flow AND no security-threat-model record exists yet for it)",
     "produces": "STRIDE table, mitigation list per threat, residual risk note",
-    "write_scope": [
-      "docs/issue-<n>/reports/security-threat-model.md"
-    ],
     "judgment_axes": [
       "attack_potential"
     ],
@@ -2776,9 +2717,6 @@
     "decides": "데이터를 어떤 관계/스키마로 모델링할지",
     "use_when": "스키마 신설/변경이 걸릴 때",
     "produces": "schema/ERD, migration plan, normalization rationale",
-    "write_scope": [
-      "docs/issue-<n>/reports/data-modeling.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -2942,9 +2880,6 @@
     "decides": "부하/지연 목표를 만족하는가",
     "use_when": "성능 예산이 걸린 설계/회귀일 때",
     "produces": "performance budget, profiling evidence, bottleneck list",
-    "write_scope": [
-      "docs/issue-<n>/reports/performance-engineering.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -3099,9 +3034,6 @@
     "decides": "화면/토큰이 WCAG를 만족하는가",
     "use_when": "신규 인터랙션 패턴·색상 토큰 도입 시 (board_condition: a new interaction pattern or color-token set landed on the branch AND no accessibility record exists yet for it)",
     "produces": "WCAG success-criterion checklist w/ pass/fail per criterion",
-    "write_scope": [
-      "docs/issue-<n>/reports/accessibility.md"
-    ],
     "spec": "roles/specs/accessibility.spec.json",
     "record_fields": {
       "loop_state": {
@@ -3273,9 +3205,6 @@
     "decides": "구현이 공격에 견디는가",
     "use_when": "인증/입력처리 코드 랜딩 후 (board_condition: authentication or input-handling code landed on the branch AND no secure-coding record exists yet for that commit sha)",
     "produces": "ASVS checklist, pentest finding list w/ severity",
-    "write_scope": [
-      "docs/issue-<n>/reports/secure-coding.md"
-    ],
     "spec": "roles/specs/secure-coding.spec.json",
     "record_fields": {
       "loop_state": {
@@ -3421,9 +3350,6 @@
     "decides": "모델을 서비스로 안정적으로 서빙 가능한가",
     "use_when": "모델 서빙 표면이 걸릴 때",
     "produces": "serving design, risk note (drift/latency/failure mode)",
-    "write_scope": [
-      "docs/issue-<n>/reports/ml-engineering.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -3590,9 +3516,6 @@
     "decides": "파이프라인이 데이터를 안정적으로 이동·변환하는가",
     "use_when": "파이프라인 신설/변경이 걸릴 때",
     "produces": "pipeline design, data-quality check list, failure-handling plan",
-    "write_scope": [
-      "docs/issue-<n>/reports/data-engineering.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -3760,9 +3683,6 @@
     "decides": "경쟁 구도에서 이 스펙이 서는가",
     "use_when": "product 스펙 확정 후, 경쟁 구도가 걸린 결정일 때",
     "produces": "five-forces summary, competitor list w/ evidence links, JTBD-landscape verdict",
-    "write_scope": [
-      "docs/issue-<n>/reports/market-analysis.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -3882,9 +3802,6 @@
     "decides": "단위경제상 성립하는가",
     "use_when": "가격/비용 구조가 걸린 결정일 때",
     "produces": "unit economics model (CAC/LTV/margin), sensitivity note",
-    "write_scope": [
-      "docs/issue-<n>/reports/finance-unit-economics.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -3974,9 +3891,6 @@
     "decides": "얼마를, 어떤 구조로 받을지",
     "use_when": "신규 가격 정책이 걸릴 때",
     "produces": "pricing verdict, tier structure, rationale vs alternatives considered",
-    "write_scope": [
-      "docs/issue-<n>/reports/pricing.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4065,9 +3979,6 @@
     "decides": "리드/기회를 어떻게 진행시킬지",
     "use_when": "영업 프로세스 설계가 걸릴 때",
     "produces": "sales playbook, stage definitions, qualification criteria",
-    "write_scope": [
-      "docs/issue-<n>/reports/sales.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4184,9 +4095,6 @@
     "decides": "어떤 메시지로 어떤 채널에 도달할지",
     "use_when": "캠페인/포지셔닝이 걸릴 때",
     "produces": "messaging doc, channel plan, target segment",
-    "write_scope": [
-      "docs/issue-<n>/reports/marketing.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4279,9 +4187,6 @@
     "decides": "퍼널 병목과 실험 결과가 실제 개선인지",
     "use_when": "퍼널 분석 또는 A/B 실험 해석이 걸릴 때",
     "produces": "funnel diagnosis, experiment trust verdict (SRM/pre-registration check)",
-    "write_scope": [
-      "docs/issue-<n>/reports/growth-analytics.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4409,9 +4314,6 @@
     "decides": "문의를 어떤 우선순위/SLA로 처리할지",
     "use_when": "CS 플로우/SLA 설계가 걸릴 때",
     "produces": "support playbook, SLA table, escalation path",
-    "write_scope": [
-      "docs/issue-<n>/reports/customer-support.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4501,9 +4403,6 @@
     "decides": "파트너십이 구조적으로 성립하는가",
     "use_when": "제휴/BD 딜 구조가 걸릴 때",
     "produces": "deal structure verdict, term sheet outline",
-    "write_scope": [
-      "docs/issue-<n>/reports/partnerships-bd.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4596,9 +4495,6 @@
     "decides": "메시지가 외부에 어떻게 읽힐지",
     "use_when": "외부 커뮤니케이션이 걸릴 때",
     "produces": "communications plan, key message, risk/Q&A prep",
-    "write_scope": [
-      "docs/issue-<n>/reports/pr-communications.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4766,9 +4662,6 @@
     "decides": "전사 리스크 노출이 허용 범위인가",
     "use_when": "재무/운영/전략 리스크가 걸릴 때 (feasibility보다 넓은 범위)",
     "produces": "ERM verdict, risk register entry, mitigation owner",
-    "write_scope": [
-      "docs/issue-<n>/reports/risk-management.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4888,9 +4781,6 @@
     "decides": "이 스펙/처리가 법·규제를 통과하는가",
     "use_when": "개인정보·라이선스·계약이 걸릴 때",
     "produces": "compliance verdict, applicable regulation list, required mitigations",
-    "write_scope": [
-      "docs/issue-<n>/reports/legal-compliance.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -4987,9 +4877,6 @@
     "decides": "독자가 알아야 할 것을 어떻게 구조화할지",
     "use_when": "외부 공개 문서가 필요할 때",
     "produces": "doc outline, draft, target-reader note",
-    "write_scope": [
-      "docs/issue-<n>/reports/technical-writing.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -5109,10 +4996,6 @@
     "decides": "브랜드 정체성이 시각적으로 일관되는가",
     "use_when": "브랜드 자산 신설/변경이 걸릴 때",
     "produces": "brand guide entry, asset spec, consistency check vs existing guide",
-    "write_scope": [
-      "design-tokens/*.json",
-      "docs/issue-<n>/reports/brand-design.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -5267,9 +5150,6 @@
     "decides": "문구가 사용자의 실제 결정을 돕는가",
     "use_when": "플로우에 새 카피/마이크로카피가 걸릴 때",
     "produces": "copy draft, rationale per string, A/B alternative (if applicable)",
-    "write_scope": [
-      "docs/issue-<n>/reports/content-design.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -5448,9 +5328,6 @@
     "decides": "다른 로케일에서도 산출물이 성립하는가",
     "use_when": "i18n 대상 표면이 걸릴 때",
     "produces": "locale-fitness verdict per target locale, string-external issue list",
-    "write_scope": [
-      "docs/issue-<n>/reports/localization.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -5609,9 +5486,6 @@
     "decides": "외부 개발자가 이 표면을 채택할 수 있는가",
     "use_when": "외부 개발자 대상 API/SDK가 걸릴 때",
     "produces": "onboarding doc, sample code, adoption-friction list",
-    "write_scope": [
-      "docs/issue-<n>/reports/devrel.md"
-    ],
     "record_fields": {
       "loop_state": {
         "progress": [
@@ -5721,9 +5595,6 @@
     "decides": "관측된 결함이 upstream(on-the-record 자체) 결함인가 — 그렇다면 issue 초안이 실재/재현/버전을 담고 있는가",
     "use_when": "컨슈머 세션(target 레포에 on-the-record 설치)이 플러그인 자체의 결함을 관측했을 때 (board_condition: N/A — hooks/command 요소만 쓰는 report_only 채널, 스폰 파이프라인을 거치지 않는다, req#7)",
     "produces": "upstream issue 초안(버전 sha + 재현 증거 + 관측 컨텍스트), dedup 체크 결과, 확인 후 filing 결과(업스트림 issue 또는 로컬 fallback 문서)",
-    "write_scope": [
-      "docs/reports/upstream-findings/"
-    ],
     "report_only": true,
     "spec": "docs/specs/upstream-defect-channel.md",
     "record_fields": {

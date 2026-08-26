@@ -64,7 +64,7 @@ command -v python3 >/dev/null 2>&1 || exit 0
 TARGET_REPO="$(pwd -P)"
 
 IFS='' read -r -d '' GATE <<'PY' || true
-import fnmatch, json, os, re, subprocess, sys, time
+import json, os, re, subprocess, sys, time
 from pathlib import Path
 
 TARGET = Path(os.environ["DJG_TARGET"])
@@ -430,7 +430,7 @@ def rfc3339():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-# --- roles / write_scope / judgment_axes ------------------------------------
+# --- roles / judgment_axes ---------------------------------------------------
 # Moved above the candidate-decision AND-gate exit below (issue #609): the
 # open-decision triage block that follows needs ROLES/parse_axis_evaluations/
 # latest_axis_evaluation regardless of whether that gate escalates, since
@@ -451,20 +451,6 @@ def load_roles():
 
 
 ROLES = load_roles()
-
-
-def glob_matches(path, pattern):
-    if fnmatch.fnmatch(path, pattern):
-        return True
-    prefix = pattern.split("**")[0].rstrip("/")
-    return bool(prefix) and (path == prefix or path.startswith(prefix + "/"))
-
-
-def role_scope(role):
-    """`write_scope` globs with the `<n>` issue-number placeholder resolved
-    to this decision's own issue — the raw placeholder never matches a real
-    path via fnmatch."""
-    return [g.replace("<n>", str(issue)) for g in (ROLES.get(role, {}).get("write_scope") or [])]
 
 
 # --- read a role's latest axis_evaluation record ----------------------------
@@ -491,10 +477,11 @@ def parse_axis_evaluations(text):
 
 
 def role_record_path(role):
-    for g in ROLES.get(role, {}).get("write_scope") or []:
-        if g.endswith(".md") and "<n>" in g:
-            return TARGET / g.replace("<n>", str(issue))
-    return None
+    # issue #2559: used to resolve this from the role's `write_scope`
+    # (the one glob ending in `.md` with an `<n>` placeholder) — write_scope
+    # is gone, but every role's own record always lives at this fixed path
+    # (role-handoff contract v3's Layout line), so no lookup is needed.
+    return TARGET / f"docs/issue-{issue}/reports/{role}.md"
 
 
 def latest_axis_evaluation(role, axis):
@@ -611,11 +598,16 @@ for _rec_rel in changed_role_record_paths(paths, issue):
 if not (DEPTH and LOW_IMPACT):
     escalate("depth or impact axis did not clear")
 
-standing_roles = set()
-for p in paths:
-    for role in ROLES:
-        if any(glob_matches(p, g) for g in role_scope(role)):
-            standing_roles.add(role)
+# issue #2559: standing used to be path-ownership via `write_scope`
+# (a role only stood on paths its write_scope glob-matched). write_scope
+# is gone — sessions are not scope-limited, so no role is confined to a
+# path subset anymore, and every role has standing over every changed
+# path. A leftover write_scope-based filter here would silently zero out
+# `standing_roles` for every decision (every role's write_scope glob-match
+# is now permanently empty) and escalate everything unconditionally —
+# the same fail-closed trap as `gates.py:role_scope()`, just inside this
+# hook's own panel-composition logic instead of a write gate.
+standing_roles = set(ROLES)
 
 implicated_axes = set()
 for role in standing_roles:
@@ -709,11 +701,13 @@ finding = contradicting_ev["finding"]
 target_path = finding.get("target_path", "")
 required_fix = finding.get("required_fix", "")
 
+# issue #2559: this used to route `target_path` to whichever role's
+# write_scope glob-matched it. write_scope is gone — no role owns a path
+# subset anymore, so there is no ownership signal left to route on.
+# `routed_to` stays unresolved; the existing `routed_to is None` branch
+# below already escalates that case to a human instead of silently
+# dropping the finding.
 routed_to = None
-for role in ROLES:
-    if any(glob_matches(target_path, g) for g in role_scope(role)):
-        routed_to = role
-        break
 
 MAX_REMEDIATION_ROUNDS = 3
 finding_source = f"docs/issue-{issue}/decisions/auto-{seq}.md"
@@ -762,7 +756,7 @@ rem_path.write_text("\n".join(rem_lines), encoding="utf-8")
 _gh(["pr", "comment", pr_ref, "--body",
      f"### Remediation routed: round {round_n}\n\n"
      f"Finding from `{finding_source}` routed to **{routed_to or 'UNRESOLVED'}** "
-     f"(owns `{target_path}` via `write_scope`).\n"
+     f"(target: `{target_path}`).\n"
      f"Required fix: {required_fix}\n"
      f"Remediation record: `docs/issue-{issue}/decisions/remediation-{rem_seq}.md`"])
 _gh(["issue", "comment", str(issue), "--body",

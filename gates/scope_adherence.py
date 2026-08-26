@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Scope-adherence landing gate — issue #1658 (northpole req#6).
 
-The role's static write_scope (scope-gate: src/**, test/**, docs-own-record)
-already blocks writes outside a role's area. It does NOT catch INTENT
-drift: an issue "fix the login bug" whose PR wanders into an unrelated
-module — both under src/** — passes the static gate while diverging from
-what the issue asked. File paths are deterministic (not an LLM judgment),
-so a landing-time trajectory-vs-goal check can block this safely without
+(Issue #2559: the static role write_scope this module's design note used
+to lean on for context — "the static gate already blocks writes outside a
+role's area" — is gone; sessions are no longer scope-limited by role at
+all.) This module's own mechanism is unrelated and unaffected: an issue's
+`scope: <prefix list>` field, opted into per-issue in the issue body, not
+derived from `spawn_roles.json`. It still catches INTENT drift: an issue
+"fix the login bug" whose PR wanders into an unrelated module can diverge
+from what the issue asked even though nothing blocks the write itself
+anymore. File paths are deterministic (not an LLM judgment), so a
+landing-time trajectory-vs-goal check can block this safely without
 touching mid-flight watch-coverage.
 
 Same shape as `gates/landing_readiness.py`: a pure `classify()` on
