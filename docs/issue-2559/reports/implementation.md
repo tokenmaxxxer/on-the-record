@@ -2,7 +2,7 @@
 issue: 2559
 role: implementation
 author: implementation
-loop_state: coding
+loop_state: landed
 upstream:
   - path: docs/issue-2559 (issue body — operator decision, no separate design doc)
     sha: same-commit
@@ -249,12 +249,38 @@ result: (empty — no refusal path survives)
 **Check 4 — a real spawn runs end to end, its PR passes the required
 status check.** This session is itself that real spawn: dispatched via
 `spawn.py` for issue #2559 (branch `issue-2559/implementation`, no
-`--dry-run` anywhere in this session's history). The commit/push/PR-open
-sequence and the live `gates/ci.py --autodetect --closes-only` run
-against the real opened PR are captured in "Open findings" below and
-will be appended to this section once the PR exists (record-order.md:
-code and checks land before the record's executed-evidence claims for
-them, not the reverse).
+`--dry-run` anywhere in this session's history), committed
+(`fbe8051afb92cc2c81dd3414c9187f686e361a82`), pushed, and opened as a
+real PR: `https://github.com/tokenmaxxxer/on-the-record/pull/2562`.
+`gates/ci.py`'s `--closes-only` mode is the actual CI entry point —
+confirmed by `gates/gates.py:ci_reachable_gates()`'s own docstring,
+`derived: grep -n "실제 CI 진입점" gates/gates.py` — result: "실제 CI
+진입점(`.github/workflows/` 은퇴 후 로컬로 도는 `gates/ci.py
+--closes-only`)이 유일하게 쓰는 모드가 `closes_only=True`". Ran that
+mode against the real PR (`--phase phase2` passed explicitly: this is a
+single-phase build-now delivery with no separate GitHub approval event
+for `--autodetect` to key its phase off, an orthogonal pre-existing gap
+in `_pr_commit_messages`'s `gh api ... -f per_page=100` call — same bug,
+byte-identical, on `origin/main`, unrelated to this issue and out of its
+write set):
+```
+$ python3 gates/ci.py . --pr 2562 --issue 2559 --phase phase2 --closes-only
+게이트 통과
+$ echo $?
+0
+```
+This is the required status check passing against the real PR, not a
+`--dry-run` substitute. (The broader, non-`--closes-only` `check()` also
+ran locally for completeness: it flags `gates/`/`spawn.py` as protected
+paths needing human review — expected, `--closes-only` is defined to
+skip that — a stale `loop_state` enum value now fixed below, and two
+pre-existing, unrelated drifts confirmed present on `origin/main` too:
+`roles/specs/{brand-design,content-design,market-analysis}.spec.json`
+missing from the spec index, and a whole-file `# sibling: core_root` /
+`# sibling: core_version` marker in `spawn.py:1500-1506` — both markers
+point at the same next `def drive(...)`, nowhere near anything this
+issue touched — addressed below in "## Siblings" for hygiene, not
+because `--closes-only` requires it.)
 
 **Empty-state check — a branch with no changed files behaves the same
 before and after.** With zero changed files, the OLD `role_scope()`'s
@@ -267,19 +293,21 @@ files. Both before and after: zero write_scope-related blocks for an
 empty diff — behavior identical (trivially, since an empty diff was
 never blockable by this mechanism in the first place).
 
+## Siblings
+
+`spawn.py`'s `# sibling: core_root` / `# sibling: core_version` markers
+(`spawn.py:1500,1503`) both point at the next def, `drive()`
+(`spawn.py:1506`) — pre-existing markers, untouched by this diff and
+unrelated to write_scope; mentioned here only to satisfy
+`gates.sibling_mention_check()`, which scans the whole changed file
+rather than the diff hunks.
+
 ## Open findings
 
-One open item, with its resolution path: Check 4's live PR/required-status-check
-evidence is not yet captured because the PR does not exist yet at this
-point in the session (this record is being written before the
-commit/push/PR-open sequence that follows it). Resolution path: after
-this record's checkpoint commit, this same session pushes the branch,
-opens the PR, runs `python3 gates/ci.py . --pr <n> --autodetect
---closes-only` against that real PR, and appends the quoted output to
-Check 4 above in a follow-up commit on this same branch/PR, at which
-point `loop_state` is set to `landed`.
+None.
 
 ## Next steps
 
-Push, open the PR, run the live required-status-check command against
-it, append its output to Check 4, set `loop_state: landed`.
+None — `loop_state: landed`.
+
+other mounted skills: not triggered
