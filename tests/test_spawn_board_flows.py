@@ -2,6 +2,27 @@ from _spawn_test_support import *  # noqa: F401,F403
 from _spawn_test_support import _event  # noqa: F401
 
 
+# issue #2516: EventReporting/ProgressEvents (below) pass tempfile.mkdtemp()
+# straight into _run() and never remove it — every case in those two
+# classes leaked a fresh git-fixture repo. `_mkdtemp()` records every
+# directory it hands out, and the autouse fixture drains them in pytest's
+# own per-test teardown, which runs even when the test raises.
+_created_dirs: list = []
+
+
+def _mkdtemp():
+    d = tempfile.mkdtemp()
+    _created_dirs.append(d)
+    return d
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_fixture_repos():
+    yield
+    while _created_dirs:
+        shutil.rmtree(_created_dirs.pop(), ignore_errors=True)
+
+
 class BoardSnapshot(unittest.TestCase):
     def test_delta_shows_changed_and_new(self):
         with tempfile.TemporaryDirectory() as td:
@@ -128,7 +149,7 @@ class EventReporting(unittest.TestCase):
         # raw-text regex misfired on the key name itself.
         line = json.dumps({"type": "result", "stop_reason": "end_turn",
                            "is_error": False, "permission_denials": []})
-        events = self._run(tempfile.mkdtemp(), line + "\n")
+        events = self._run(_mkdtemp(), line + "\n")
         self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
 
     def test_echoed_source_mentioning_denied_is_not_a_gate_refusal(self):
@@ -139,7 +160,7 @@ class EventReporting(unittest.TestCase):
                   '"content":"_DENIAL_RE = re.compile(r\\"permission_denial|denied\\", re.IGNORECASE)"}]}}\n')
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": []})
-        events = self._run(tempfile.mkdtemp(), echoed + result_line + "\n")
+        events = self._run(_mkdtemp(), echoed + result_line + "\n")
         self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
 
     def test_denials_with_no_correlating_tool_result_are_unclassified(self):
@@ -149,7 +170,7 @@ class EventReporting(unittest.TestCase):
         # 남는다(제안서 5번). 옛 코드는 이 케이스에서 gate-refusal 을 냈다.
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Write"}]})
-        events = self._run(tempfile.mkdtemp(), result_line + "\n")
+        events = self._run(_mkdtemp(), result_line + "\n")
         self.assertTrue([e for e in events if e["type"] == "unclassified-refusal"], events)
         self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
 
@@ -167,7 +188,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Write"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" + result_line + "\n")
         refusals = [e for e in events if e["type"] == "gate-refusal"]
         self.assertEqual(len(refusals), 1, events)
@@ -195,7 +216,7 @@ class EventReporting(unittest.TestCase):
                      "content": text}]}})
                 result_line = json.dumps({"type": "result", "is_error": False,
                                           "permission_denials": [{"tool_name": "Bash"}]})
-                events = self._run(tempfile.mkdtemp(),
+                events = self._run(_mkdtemp(),
                                    tool_use + "\n" + tool_result + "\n" + result_line + "\n")
                 self.assertTrue([e for e in events if e["type"] == "harness-refusal"], events)
                 self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
@@ -214,7 +235,7 @@ class EventReporting(unittest.TestCase):
              "content": "This command requires approval"}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Bash"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" + result_line + "\n")
         refusals = [e for e in events if e["type"] == "harness-refusal"]
         self.assertEqual(len(refusals), 1, events)
@@ -236,7 +257,7 @@ class EventReporting(unittest.TestCase):
                      "content": text}]}})
                 result_line = json.dumps({"type": "result", "is_error": False,
                                           "permission_denials": [{"tool_name": "Write"}]})
-                events = self._run(tempfile.mkdtemp(),
+                events = self._run(_mkdtemp(),
                                    tool_use + "\n" + tool_result + "\n" + result_line + "\n")
                 self.assertTrue([e for e in events if e["type"] == "sandbox-refusal"], events)
                 self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
@@ -252,7 +273,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Bash"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" + result_line + "\n")
         self.assertTrue([e for e in events if e["type"] == "sandbox-refusal"], events)
         self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
@@ -269,7 +290,7 @@ class EventReporting(unittest.TestCase):
             with self.subTest(text=text):
                 tool_result = json.dumps({"type": "user", "message": {"content": [
                     {"type": "tool_result", "is_error": False, "content": text}]}})
-                events = self._run(tempfile.mkdtemp(), tool_result + "\n")
+                events = self._run(_mkdtemp(), tool_result + "\n")
                 self.assertFalse(
                     [e for e in events if e["type"] in
                      ("gate-refusal", "harness-refusal", "sandbox-refusal",
@@ -291,7 +312,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Bash"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" + result_line + "\n")
         self.assertTrue([e for e in events if e["type"] == "harness-refusal"], events)
         self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
@@ -307,7 +328,7 @@ class EventReporting(unittest.TestCase):
             {"type": "tool_result", "is_error": True, "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": []})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_result + "\n" + result_line + "\n")
         self.assertFalse(
             [e for e in events if e["type"] in
@@ -335,7 +356,7 @@ class EventReporting(unittest.TestCase):
              "content": spurious}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Write"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" + result_line + "\n")
         self.assertTrue([e for e in events if e["type"] == "unclassified-refusal"], events)
         self.assertFalse([e for e in events if e["type"] == "sandbox-refusal"], events)
@@ -355,7 +376,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Write"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" + result_line + "\n")
         refusals = [e for e in events if e["type"] == "sandbox-refusal"]
         self.assertEqual(len(refusals), 1, events)
@@ -376,7 +397,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Write"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" + result_line + "\n")
         refusals = [e for e in events if e["type"] == "gate-refusal"]
         self.assertEqual(len(refusals), 1, events)
@@ -395,7 +416,7 @@ class EventReporting(unittest.TestCase):
         tool_result = json.dumps({"type": "user", "message": {"content": [
             {"type": "tool_result", "is_error": True, "tool_use_id": "t1",
              "content": text}]}})
-        events = self._run(tempfile.mkdtemp(), tool_use + "\n" + tool_result + "\n")
+        events = self._run(_mkdtemp(), tool_use + "\n" + tool_result + "\n")
         self.assertEqual(len([e for e in events if e["type"] == "unverified-refusal"]), 1,
                          events)
         self.assertFalse([e for e in events if e["type"] == "gate-refusal"], events)
@@ -422,7 +443,7 @@ class EventReporting(unittest.TestCase):
                     {"type": "tool_result", "is_error": True, "tool_use_id": "t1",
                      "content": text}]}})
                 result_line = json.dumps(result_obj)
-                events = self._run(tempfile.mkdtemp(),
+                events = self._run(_mkdtemp(),
                                    tool_use + "\n" + tool_result + "\n" + result_line + "\n")
                 self.assertEqual(
                     len([e for e in events if e["type"] == "unverified-refusal"]), 1, events)
@@ -446,7 +467,7 @@ class EventReporting(unittest.TestCase):
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Bash"},
                                                           {"tool_name": "Bash"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use1 + "\n" + tool_result1 + "\n" +
                            tool_use2 + "\n" + tool_result2 + "\n" + result_line + "\n")
         harness = [e for e in events if e["type"] == "harness-refusal"]
@@ -469,7 +490,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Bash"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use1 + "\n" + tool_result1 + "\n" +
                            tool_use2 + "\n" + tool_result2 + "\n" + result_line + "\n")
         self.assertEqual(len([e for e in events if e["type"] == "harness-refusal"]), 1, events)
@@ -493,7 +514,7 @@ class EventReporting(unittest.TestCase):
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Write"},
                                                           {"tool_name": "Write"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use1 + "\n" + tool_result1 + "\n" +
                            tool_use2 + "\n" + tool_result2 + "\n" + result_line + "\n")
         refusals = [e for e in events if e["type"] == "gate-refusal"]
@@ -522,7 +543,7 @@ class EventReporting(unittest.TestCase):
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Write"},
                                                           {"tool_name": "Write"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use1 + "\n" + tool_result1 + "\n" +
                            tool_use2 + "\n" + tool_result2 + "\n" + result_line + "\n")
         self.assertEqual(len([e for e in events if e["type"] == "sandbox-refusal"]), 1, events)
@@ -543,7 +564,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"other_field": "Bash"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" + result_line + "\n")
         self.assertTrue([e for e in events if e["type"] == "unclassified-refusal"], events)
         self.assertFalse([e for e in events if e["type"] == "harness-refusal"], events)
@@ -560,7 +581,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Bash"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_result + "\n" + result_line + "\n")
         self.assertTrue([e for e in events if e["type"] == "unclassified-refusal"], events)
         self.assertFalse([e for e in events if e["type"] == "harness-refusal"], events)
@@ -578,7 +599,7 @@ class EventReporting(unittest.TestCase):
              "content": text}]}})
         result_line = json.dumps({"type": "result", "is_error": False,
                                   "permission_denials": [{"tool_name": "Bash"}]})
-        events = self._run(tempfile.mkdtemp(),
+        events = self._run(_mkdtemp(),
                            tool_use + "\n" + tool_result + "\n" +
                            result_line + "\n" + result_line + "\n")
         self.assertEqual(len([e for e in events if e["type"] == "harness-refusal"]), 1, events)
@@ -587,7 +608,7 @@ class EventReporting(unittest.TestCase):
         # issue-123 survey fixture: PR #124's URL, echoed again on a later
         # respawn of the same workspace, must not append a second
         # pr-opened event — dedup is durable across process restarts.
-        td = tempfile.mkdtemp()
+        td = _mkdtemp()
         url = "https://github.com/o/r/pull/124"
         pr_for_branch = lambda *a, **k: 124  # 이 브랜치의 실제 PR — 두 respawn 모두 같은 값
         self._run(td, url + "\n", pr_for_branch=pr_for_branch)
@@ -600,14 +621,14 @@ class EventReporting(unittest.TestCase):
         # issue-180 실측: 세션이 자기 레포 PR URL 을 텍스트로 읽기만 했다 —
         # `_pr_for_branch` 는 이 브랜치에 PR 이 없다는 뜻으로 None 을 낸다.
         url = "https://github.com/tokenmaxxxer/on-the-record/pull/142"
-        events = self._run(tempfile.mkdtemp(), url + "\n",
+        events = self._run(_mkdtemp(), url + "\n",
                            pr_for_branch=lambda *a, **k: None)
         self.assertFalse([e for e in events if e["type"] == "pr-opened"], events)
 
     def test_read_only_repo_url_does_not_fire_pr_opened_when_different_pr_open(self):
         # 언급된 번호(142)와 실제 열린 PR 번호(99)가 다르면 여전히 "읽기만"이다.
         url = "https://github.com/tokenmaxxxer/on-the-record/pull/142"
-        events = self._run(tempfile.mkdtemp(), url + "\n",
+        events = self._run(_mkdtemp(), url + "\n",
                            pr_for_branch=lambda *a, **k: 99)
         self.assertFalse([e for e in events if e["type"] == "pr-opened"], events)
 
@@ -616,7 +637,7 @@ class EventReporting(unittest.TestCase):
         # `.../pull/new/<branch>` 는 PR 번호가 없어 `_PR_URL_RE` 자체가 안 잡는다.
         calls = []
         url = "https://github.com/tokenmaxxxer/on-the-record/pull/new/issue-180/implementation"
-        events = self._run(tempfile.mkdtemp(), url + "\n",
+        events = self._run(_mkdtemp(), url + "\n",
                            pr_for_branch=lambda *a, **k: calls.append(a) or 555)
         self.assertFalse([e for e in events if e["type"] == "pr-opened"], events)
         self.assertEqual(calls, [])  # 후보가 아예 안 뽑혔으니 gh 도 안 불렸다
@@ -624,7 +645,7 @@ class EventReporting(unittest.TestCase):
     def test_actually_opened_pr_fires_pr_opened(self):
         # 실패 신호(제안서): 이게 없으면 "영원한 대기" 회귀를 못 잡는다.
         url = "https://github.com/tokenmaxxxer/on-the-record/pull/555"
-        events = self._run(tempfile.mkdtemp(), url + "\n",
+        events = self._run(_mkdtemp(), url + "\n",
                            pr_for_branch=lambda *a, **k: 555)
         opened = [e for e in events if e["type"] == "pr-opened"]
         self.assertEqual(opened, [{"ts": opened[0]["ts"], "type": "pr-opened",
@@ -637,7 +658,7 @@ class EventReporting(unittest.TestCase):
         # 머지 PR URL 을 세션이 언급해도 pr-opened 는 새 PR 로만 서야 한다.
         merged_url = "https://github.com/tokenmaxxxer/on-the-record/pull/479"
         new_url = "https://github.com/tokenmaxxxer/on-the-record/pull/555"
-        events = self._run(tempfile.mkdtemp(), merged_url + "\n" + new_url + "\n",
+        events = self._run(_mkdtemp(), merged_url + "\n" + new_url + "\n",
                            pr_for_branch=lambda *a, **k: 555)
         opened = [e["detail"] for e in events if e["type"] == "pr-opened"]
         self.assertEqual(opened, [new_url], events)
@@ -654,7 +675,7 @@ class EventReporting(unittest.TestCase):
 
         urls = [f"https://github.com/tokenmaxxxer/on-the-record/pull/{n}\n"
                for n in (1, 142, 124, 555, 142, 7, 8, 555)]  # 8개 후보, 서로 다른 번호 다수
-        events = self._run(tempfile.mkdtemp(), "".join(urls),
+        events = self._run(_mkdtemp(), "".join(urls),
                            pr_for_branch=counting)
         self.assertEqual(len(calls), 1, calls)  # 후보 8개인데 호출은 1번
         opened = [e["detail"] for e in events if e["type"] == "pr-opened"]
@@ -671,7 +692,7 @@ class EventReporting(unittest.TestCase):
 
         urls = [f"https://github.com/tokenmaxxxer/on-the-record/pull/{n}\n"
                for n in (1, 142, 124)]
-        events = self._run(tempfile.mkdtemp(), "".join(urls), pr_for_branch=always_none)
+        events = self._run(_mkdtemp(), "".join(urls), pr_for_branch=always_none)
         self.assertEqual(len(calls), 3, calls)  # 미해결 상태론 후보마다 재시도
         self.assertFalse([e for e in events if e["type"] == "pr-opened"], events)
 
@@ -688,7 +709,7 @@ class ProgressEvents(unittest.TestCase):
         return EventReporting()._run(td, "\n".join(json.dumps(l) for l in lines) + "\n")
 
     def test_write_tool_use_fires_progress(self):
-        events = self._run(tempfile.mkdtemp(), [
+        events = self._run(_mkdtemp(), [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write",
                  "input": {"file_path": "docs/issue-180/reports/implementation.md"}},
@@ -700,7 +721,7 @@ class ProgressEvents(unittest.TestCase):
                                                 "detail": "Write docs/issue-180/reports/implementation.md"}}])
 
     def test_consecutive_writes_to_same_file_are_deduped(self):
-        events = self._run(tempfile.mkdtemp(), [
+        events = self._run(_mkdtemp(), [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Edit", "input": {"file_path": "spawn.py"}},
             ]}},
@@ -711,7 +732,7 @@ class ProgressEvents(unittest.TestCase):
         self.assertEqual(len([e for e in events if e["type"] == "progress"]), 1, events)
 
     def test_writes_to_different_files_both_fire(self):
-        events = self._run(tempfile.mkdtemp(), [
+        events = self._run(_mkdtemp(), [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {"file_path": "a.py"}},
             ]}},
@@ -725,7 +746,7 @@ class ProgressEvents(unittest.TestCase):
         for command in ("git commit -q -m x", "git push -q", "gh pr create --title t",
                         "python3 tests/test_spawn.py", "python3 gates/ci.py ."):
             with self.subTest(command=command):
-                events = self._run(tempfile.mkdtemp(), [
+                events = self._run(_mkdtemp(), [
                     {"type": "assistant", "message": {"content": [
                         {"type": "tool_use", "name": "Bash", "input": {"command": command}},
                     ]}},
@@ -739,7 +760,7 @@ class ProgressEvents(unittest.TestCase):
         for command in ("ls docs/", "grep -rn foo .", "cat spawn.py", "git status",
                         "git diff"):
             with self.subTest(command=command):
-                events = self._run(tempfile.mkdtemp(), [
+                events = self._run(_mkdtemp(), [
                     {"type": "assistant", "message": {"content": [
                         {"type": "tool_use", "name": "Bash", "input": {"command": command}},
                     ]}},
@@ -751,7 +772,7 @@ class ProgressEvents(unittest.TestCase):
         # 그대로인지 — result 라인은 여전히 result 로만 처리된다. 여기엔
         # 층을 확정할 tool_result 줄이 없으니 unclassified-refusal 이 된다
         # (이슈 #232) — 예전엔 이 케이스가 gate-refusal 이었다.
-        events = self._run(tempfile.mkdtemp(), [
+        events = self._run(_mkdtemp(), [
             {"type": "assistant", "message": {"content": [
                 {"type": "tool_use", "name": "Write", "input": {"file_path": "x.py"}},
             ]}},

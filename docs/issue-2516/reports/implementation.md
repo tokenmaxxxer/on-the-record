@@ -12,11 +12,14 @@ upstream:
     sha: 8ae95c35180388eaf925bd89f2f76dc5a4d4e05d
   - path: on-the-record/hooks/test_record_scaffold.py
     sha: 629855d412c338d60de6146a4d14f4274646be9e
+  - path: tests/test_spawn_board_flows.py
+    sha: 878126c4fa5054dfa5e2878383e9636c012f8c25
 code_under_review:
   - gates/test_gates_refusal.py
   - gates/test_record_lint.py
   - gates/test_ui_evidence_gate.py
   - on-the-record/hooks/test_record_scaffold.py
+  - tests/test_spawn_board_flows.py
 type: fix
 breaking: false
 verdict: pass
@@ -79,6 +82,76 @@ unique directory, only the cleanup changed.
 Removed the pre-existing leaked fixture directories still on disk (see
 "Acceptance evidence", check 3, for the count and inodes reclaimed).
 
+### CHANGES round — a fifth leaking file
+
+canonical: `3418c838e55b8ba6ad283f3e09a682caad3a060f:docs/issue-2516/reports/conformance-review.md`, "Open findings" Finding 1 —
+verdict Incorrect against acceptance check 1: a fifth leaking file,
+`tests/test_spawn_board_flows.py`, was outside PR #2523's scope. Its
+`EventReporting`/`ProgressEvents` classes (both `@pytest.mark.slow`)
+build a fixture repo via `self._run(tempfile.mkdtemp(), ...)` and never
+remove it — `EventReporting._run`'s `finally:` block (previously lines
+100-103) restored only `sys.stdout`/`sys.stderr`/`spawn.ROSTER`, never
+`td`. The review live-reproduced it (one slow test left one new `/tmp`
+dir containing `.git`) and re-checked for a false positive
+(`grep -n "tearDown|addCleanup"` — no hits in the class).
+
+Why the first pass's discovery grep missed it, per the same review's
+rationale: that grep was
+`grep -rln "README.md" --include="*.py" . | xargs grep -l mkdtemp` —
+scoped to the `.git`+`README.md` shape sampled from the issue. This
+file's leaked dirs contain `.git` plus a `work/` tree instead
+(`EventReporting._run` builds `Path(td) / "work"`, not a `README.md`),
+so the README-shaped filter could not see it.
+
+derived: `grep -rln "mkdtemp" --include="*.py" . | grep -v orchestrate-hook-fires | wc -l` — result:
+```
+21
+```
+21 files use `mkdtemp` repo-wide (broader, unfiltered re-sweep, this
+session, no `README.md` filter). Read every one of the other 20 by hand
+(the four already-fixed files, the three already-clean files from the
+prior pass — `gates/test_closure_sweep.py`, `gates/test_accumulation.py`,
+`gates/test_recurrence.py` — `bench/run.py`, and 13 not previously
+checked: `gates/test_orphaned_references.py`,
+`gates/test_duplicate_test_basenames.py`, `gates/test_requirement_digest.py`,
+`gates/test_consult_json_parse.py`, `gates/check_runner.py`,
+`tests/_spawn_test_support.py`, `test/test_spawn_skills_mount.py`,
+`bench/ablation.py`, `tests/test_spawn_pipeline.py`,
+`tests/test_spawn_observation_recovery.py`,
+`harness/fixture-operator-experience/scenario.py`,
+`harness/fixture-requirement-digest/scenario.py`) — every `mkdtemp()`
+call site in each already has a `try/finally: shutil.rmtree(d)` (spot
+count, e.g. `gates/test_orphaned_references.py`:
+derived: `grep -c "finally:" gates/test_orphaned_references.py` → 6, `grep -c "shutil.rmtree(d)" gates/test_orphaned_references.py` → 6, 1:1 match), an
+`addCleanup(shutil.rmtree, ...)`/`tearDown`, a `TemporaryDirectory()`
+context manager, or (for `bench/ablation.py`'s CLI output dir and
+`gates/check_runner.py`'s git-worktree helper) is not a throwaway test
+fixture at all. `tests/test_spawn_board_flows.py` was the only one of
+the 21 with no cleanup path; no further leaking file exists.
+
+Applied the same fix already used in the four files: a module-level
+`_created_dirs`/`_mkdtemp()` recording wrapper plus an
+`@pytest.fixture(autouse=True)` teardown, added once near the top of
+`tests/test_spawn_board_flows.py`. It is harmless no-op scaffolding for
+the file's other ~40 `unittest.TestCase` classes, which already have
+their own `setUp`/`addCleanup(shutil.rmtree, ...)` cleanup and never
+call `_mkdtemp()`. Every bare `tempfile.mkdtemp()` call site inside
+`EventReporting`/`ProgressEvents` — 37 of them
+(derived: `sed -n '76,784p' tests/test_spawn_board_flows.py | grep -o 'tempfile\.mkdtemp()' | wc -l` — result:
+```
+37
+```
+run before the edit; the review's 43-site count also swept in six
+already-cleaned-up `self.td = tempfile.mkdtemp()` sites past line 763
+that already have `addCleanup(shutil.rmtree, ...)` — left untouched
+here) — was switched to `_mkdtemp()`. No `__main__` standalone runner
+exists in this file
+(derived: `grep -n '__main__' tests/test_spawn_board_flows.py` — result:
+```
+(no output)
+```
+), so no `try/finally` counterpart was needed.
+
 ## Why
 
 **Chose an explicit autouse fixture with `shutil.rmtree` teardown over
@@ -122,7 +195,18 @@ satisfying the issue's non-goal. Function-scoped autouse fixture (rule
 skill-verdict: work-in-english — applied: invoked; this record, the
 code comments in the four changed files, and the commit/PR text are all
 written in English per the policy; the final user-facing summary of
-this session is in Korean.
+this session is in Korean. Re-invoked in the CHANGES round for the same
+reason — the fifth file's fix comment and this section are English too.
+
+other mounted skills this round (implementation-complexity-coupling-management,
+implementation-design-pattern-selection,
+implementation-performance-data-structure-choice,
+implementation-blueprint, conformance-review-finding-record): not
+triggered — the CHANGES-round work was a single-file mechanical repeat
+of an already-established fixture-cleanup pattern, with no coupling/
+cohesion threshold, GoF-pattern decision, data-structure choice,
+multi-module structure decision, or a conformance-review verdict to
+record.
 
 **Left unaddressed — the CPU/subprocess side (#2514):** the task brief
 for this session said the same fixture helper "forks a nested pytest
@@ -215,6 +299,28 @@ This measurement is subset-scoped — the four fixed files, 102 tests
 (derived: pytest's own `102 passed` summary line above) — not a
 full-suite run, for the reason stated above.
 
+#### Check 1, CHANGES round — the fifth file's `slow`-tier class
+
+Ran the fixed class from `tests/test_spawn_board_flows.py`
+(`EventReporting`, the larger of the two leaking classes) under the
+`slow` marker, rather than the whole `slow` tier — the task brief for
+this round explicitly named running the entire `slow` tier as what
+stalled two earlier sessions on this host today:
+
+acceptance: `find /tmp -maxdepth 1 -name 'tmp*' -mindepth 1 | wc -l` (before) — result:
+```
+36833
+```
+acceptance: `python3 -m pytest tests/test_spawn_board_flows.py::EventReporting -m slow -q` — result:
+```
+31 passed in 106.70s (0:01:46)
+```
+acceptance: `find /tmp -maxdepth 1 -name 'tmp*' -mindepth 1 | wc -l` (after) — result:
+```
+36833
+```
+Zero new `tmp*` dirs across the 31 tests just run above (before − after = 0).
+
 ### Check 2 — teardown survives test failure (chose: explicit `pytest.fixture(autouse=True)`, not `tmp_path`)
 
 Confirmed live against the real helper in `gates/test_gates_refusal.py`
@@ -239,6 +345,38 @@ restoring the file, confirming only this record's real change remains
 ```
  gates/test_gates_refusal.py | 46 ++++++++++++++++++++++++++++++++++++++-------
  1 file changed, 39 insertions(+), 7 deletions(-)
+```
+
+#### Check 2, CHANGES round — the fifth file's failure path
+
+Repeated the same live check against `tests/test_spawn_board_flows.py`:
+temporarily appended a deliberately-failing `unittest.TestCase` that
+calls the file's real `_mkdtemp()`, ran it, then restored the file to
+its committed diff.
+
+acceptance: `python3 -m pytest tests/test_spawn_board_flows.py::Issue2516DeliberateFailureCheck -q` — result:
+```
+FAILED tests/test_spawn_board_flows.py::Issue2516DeliberateFailureCheck::test_deliberately_failing_after_mkdtemp
+1 failed in 0.86s
+```
+acceptance: `find /tmp -maxdepth 1 -name 'tmp*' -mindepth 1 | wc -l` (before this failing run) — result:
+```
+36834
+```
+acceptance: `find /tmp -maxdepth 1 -name 'tmp*' -mindepth 1 | wc -l` (after this failing run) — result:
+```
+36834
+```
+Zero new `tmp*` dirs across the failing test above (before − after = 0)
+— the autouse teardown ran on the failure path exactly as it does for
+the four other files.
+
+canonical: `git diff --stat tests/test_spawn_board_flows.py` after
+restoring the file, confirming only this round's real change remains
+(the injected test class was deleted, not committed) — result:
+```
+ tests/test_spawn_board_flows.py | 95 +++++++++++++++++++++++++----------------
+ 1 file changed, 58 insertions(+), 37 deletions(-)
 ```
 
 ### Check 3 — the 81k existing directories are removed, inodes reclaimed
@@ -288,6 +426,19 @@ issue's verified fixture shape, and were left untouched per the issue's
 own must-not (checked: not deleted, no shape-match — result:
 excluded from the removal list by construction of the `.git`+`README.md`
 filter above).
+
+#### Check 3, CHANGES round — no pre-existing fifth-file-shaped leftovers
+
+conformance-review verdicted this check Present already (not redone
+here). Checked separately for the fifth file's own leak shape
+(`.git` + `work/` tree, no `README.md`) in case any pre-existing ones
+were still on disk:
+
+derived: `for d in /tmp/tmp*; do [ -d "$d/.git" ] 2>/dev/null && [ -d "$d/work" ] && echo "$d"; done 2>/dev/null | wc -l` — result:
+```
+0
+```
+No pre-existing fifth-file-shaped directories were present to sweep.
 
 ## Open findings
 
