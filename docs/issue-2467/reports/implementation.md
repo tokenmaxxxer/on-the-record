@@ -83,61 +83,119 @@ acceptance: `grep -n "temperature\|seed" consult.py spawn.py` — result:
 `claude --help` was also checked by hand and exposes no `--temperature` or
 `--seed` flag, so there is no CLI-level lever to pin decoding either.
 
-acceptance: `PYTHONPATH=. python3 .scratch2467/determinism_check.py`
-(real issue-2467 task text, read from
-`$MUSTER_WORKSPACE_ROOT/on-the-record-issue-2467-implementation.task.txt`;
-role `implementation`; two calls with byte-identical arguments) — result:
+The script below was re-run after a warrant-hunter review (below) found the
+first pass's cited `.scratch2467/determinism_check.py` had been cleaned up
+and was no longer reproducible from the record alone — the block is now the
+script source (`cat`) immediately followed by its real, live execution
+(`python3`), matching this repo's `.scratch*`-citing precedent
+(`docs/issue-1730/reports/implementation.md`).
+
+acceptance: `cat .scratch2467v2/determinism_check3.py && PYTHONPATH=. python3 .scratch2467v2/determinism_check3.py`
+(real issue-2467 task text, matching `$MUSTER_WORKSPACE_ROOT/on-the-record-issue-2467-implementation.task.txt`;
+role `implementation`; `repo_root=spawn._skill_repo_root()`,
+`home=Path.home()`, `target_repo_root=Path(cwd)` — the exact arguments
+`_spawn_one()` passes at `spawn.py:2606-2611`; two calls with
+byte-identical arguments) — result:
 ```
-candidates: ['product-discovery-guardrail-metrics', 'market-analysis-mece-proposal',
-'implementation-audit', 'product-discovery-one-pager', 'verify-severity-classification',
-'observability-cardinality-budget', 'test-depth-audit', 'ux-engineering-control-selection']
+$ cat .scratch2467v2/determinism_check3.py
+import sys
+from pathlib import Path
+sys.path.insert(0, ".")
+import spawn as _sp
 
---- call 1: wall=18.149s picked=[]
-detail: {"picked": [], "reasons": {}, "rejected": [
-  {"name": "product-discovery-guardrail-metrics", "reason": "Task is meta-engineering on skill_judge mechanism, not hypothesis validation or guardrail metric naming"},
-  {"name": "market-analysis-mece-proposal", "reason": "Task is determinism investigation + caching logic, not MECE section structure for a proposal"},
-  {"name": "implementation-audit", "reason": "Task is algorithm determinism + caching design, not extraction of falsifiable spec claims for independent eval"},
-  {"name": "product-discovery-one-pager", "reason": "Task is engineering investigation, not idea-to-structure synthesis for evidence gathering"},
-  {"name": "verify-severity-classification", "reason": "Task is about skill_judge mechanism determinism, not defect severity banding"},
-  {"name": "observability-cardinality-budget", "reason": "Task is engineering investigation, not metric label cardinality risk classification"},
-  {"name": "test-depth-audit", "reason": "Task is determinism investigation + caching design, not classification of existing test suite assertions"},
-  {"name": "ux-engineering-control-selection", "reason": "Task is backend engineering; unrelated to UI control choice"}]}
+task_text = ("Fix issue #2467: investigate whether skill_judge's consult call in "
+             "_cross_family_skill_matches_with_consult is deterministic for "
+             "identical input; if so, add caching keyed on (task text, role, "
+             "candidate set), verified narrowly against 5-10 real existing "
+             "session logs (before/after wall-clock, identical skill selection "
+             "required). Explicitly out of scope: corpus-scale claims, "
+             "production cache eviction policy.")
+role = "implementation"
+issue = 2467
+cwd = str(Path(".").resolve())
 
---- call 2: wall=12.755s picked=[]
-detail: {"picked": [], "reasons": {}, "rejected": [
-  {"name": "product-discovery-guardrail-metrics", "reason": "Trigger is product role phase guardrail naming; task is skill_judge determinism/caching investigation."},
-  {"name": "market-analysis-mece-proposal", "reason": "Trigger is MECE proposal structuring; task is caching keyed on skill selection reproducibility."},
-  {"name": "implementation-audit", "reason": "Trigger is two-session audit of falsifiable claims vs implementation; task is skill_judge call determinism."},
-  {"name": "product-discovery-one-pager", "reason": "Trigger is idea-to-one-pager conversion; task is caching infrastructure for skill_judge."},
-  {"name": "verify-severity-classification", "reason": "Trigger is defect severity band attachment; task is skill selection determinism analysis."},
-  {"name": "observability-cardinality-budget", "reason": "Trigger is metric cardinality risk; task is skill_judge system behavior investigation."},
-  {"name": "test-depth-audit", "reason": "Trigger is test suite classification audit; task is caching determinism verification."},
-  {"name": "ux-engineering-control-selection", "reason": "Trigger is UI control type-fitting; task is skill_judge system-level caching optimization."}]}
+repo_root = _sp._skill_repo_root()
+scored = _sp._bm25_cross_family_scores(task_text, role, repo_root,
+                                        home=Path.home(),
+                                        target_repo_root=Path(cwd))
+candidates = [(name, d, source) for _, name, d, source
+              in scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]]
+print("candidates:", [name for name, _d, _s in candidates])
 
-=== IDENTICAL? === False   (picked matched: [] == []; full detail did NOT match — reason text differs verbatim)
+for i in (1, 2):
+    picked, detail = _sp._skill_judge_consult(task_text, role, candidates, issue, cwd)
+    print(f"\n--- call {i}: picked={[p.name for p in picked]}")
+    print("reasons:", detail.get("reasons"))
+    print("rejected reasons:", [r.get("reason") for r in detail.get("rejected", [])])
+
+$ PYTHONPATH=. python3 .scratch2467v2/determinism_check3.py
+candidates: ['implementation-audit', 'model-routing', 'marketing-channel-selection', 'product-discovery-guardrail-metrics', 'product-discovery-one-pager', 'market-analysis-mece-proposal', 'design-artifact-user-scenario', 'technical-writing-persuasion-trust']
+
+--- call 1: picked=[]
+reasons: {}
+rejected reasons: ['Task is implementing caching, not applying a two-session audit protocol with adversarial review against extracted falsifiable claims', 'Standing instruction for all non-trivial tasks, but this task specifies direct implementation work, not a routing decision', 'Task is technical implementation, not channel budget allocation', 'Task is technical development, not product hypothesis measurement setup', 'Task is implementation with verification, not idea structuring', 'Task is technical, not phase-1 proposal content verification', 'Task is technical caching implementation, not narrative user journey', 'Task is implementation and verification, not adoption-facing documentation']
+
+--- call 2: picked=[]
+reasons: {}
+rejected reasons: ['Audit protocol applies to evaluating implementation against a spec; this task is implementing a feature (caching), not auditing an existing implementation.', 'Triggers on routing decisions (what-to-delegate); this task requests direct implementation of a fix, not routing advice.', 'Domain mismatch: task is technical caching implementation, not marketing budget allocation.', 'Domain mismatch: task is engineering, not product discovery or metric naming.', 'Domain mismatch: task is engineering, not product idea structuring.', 'Domain mismatch: task is engineering, not market or proposal analysis.', 'Domain mismatch: task is engineering, not user scenario authoring.', 'Domain mismatch: task is engineering implementation, not adoption-facing documentation.']
+
+real	0m57.291s
 ```
 
-acceptance: `PYTHONPATH=. python3 .scratch2467/determinism_check2.py`
-(synthetic-but-real caching/coupling task text, role `implementation`, a
-different real BM25 candidate set chosen to make a non-empty pick likely)
-— result:
+=== IDENTICAL? === False — `picked` matched ([] == []) but the `rejected`
+reason text differs verbatim, word-for-word, on every one of the 8
+candidates between the two calls to the same real 8-name candidate set —
+the same sampled-decode signature as the original (now-unreproducible) pass,
+confirmed independently on a third real headless-Claude replay with real,
+committed evidence this time.
+
+acceptance: `cat .scratch2467v2/determinism_check4.py && PYTHONPATH=. python3 .scratch2467v2/determinism_check4.py`
+(synthetic-but-real caching/coupling task text, role `implementation`, same
+real `_spawn_one()` argument shape as the block above, a different real
+BM25 candidate set chosen to make a non-empty pick likely) — result:
 ```
-candidates: ['usability-eval', 'data-modeling-structure', 'defect-verification-reproduction-evidence-quality',
-'data-engineering-pipeline-design', 'flow-metrics', 'pricing-research',
-'architecture-coupling-classification', 'brand-design-brand-identity-strategy']
+$ cat .scratch2467v2/determinism_check4.py
+import sys
+from pathlib import Path
+sys.path.insert(0, ".")
+import spawn as _sp
 
---- call 1: wall=24.663s picked=['architecture-coupling-classification']
-detail.reasons.architecture-coupling-classification =
-  "Task explicitly requires 'design review of the coupling between the cache module and its callers'"
+task_text = ("Implement a cache module for the skill_judge consult result. "
+             "This requires a design review of the coupling between the cache "
+             "module and its callers, and a decision on the cache module's "
+             "data structure and eviction strategy.")
+role = "implementation"
+issue = 2467
+cwd = str(Path(".").resolve())
 
---- call 2: wall=21.444s picked=['architecture-coupling-classification']
-detail.reasons.architecture-coupling-classification =
-  "Task explicitly includes 'design review of the coupling between the cache module and its callers'—the skill
-  directly addresses component coupling classification, control flow, and decoupling strategies"
+repo_root = _sp._skill_repo_root()
+scored = _sp._bm25_cross_family_scores(task_text, role, repo_root,
+                                        home=Path.home(),
+                                        target_repo_root=Path(cwd))
+candidates = [(name, d, source) for _, name, d, source
+              in scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]]
+print("candidates:", [name for name, _d, _s in candidates])
 
-=== PICKED IDENTICAL? === True
-=== FULL DETAIL IDENTICAL? === False   (reason text differs verbatim between the two calls)
+for i in (1, 2):
+    picked, detail = _sp._skill_judge_consult(task_text, role, candidates, issue, cwd)
+    print(f"\n--- call {i}: picked={[p.name for p in picked]}")
+    print("reasons:", detail.get("reasons"))
+    print("rejected reasons:", [r.get("reason") for r in detail.get("rejected", [])])
+
+$ PYTHONPATH=. python3 .scratch2467v2/determinism_check4.py
+candidates: ['architecture-coupling-classification', 'code-architecture', 'content-strategy-content-governance-ownership', 'risk-management-response-strategy-selection', 'brand-design-brand-identity-strategy', 'org-design-hiring-rubric-structured-interview', 'experiment-trust', 'product-discovery-guardrail-metrics']
+
+--- call 1: picked=['architecture-coupling-classification', 'code-architecture']
+reasons: {'architecture-coupling-classification': 'Task explicitly requires design review of coupling between cache module and callers, and deciding on coupling model', 'code-architecture': 'Task requires designing a new cache module spanning potential multiple files with structural decisions (data structure, eviction strategy) that outlive initial implementation'}
+
+--- call 2: picked=['architecture-coupling-classification', 'code-architecture']
+reasons: {'architecture-coupling-classification': 'Task explicitly requires design review of coupling between cache module and callers; skill directly addresses classifying and deciding on component coupling', 'code-architecture': 'Building a new cache module with structural decisions (data structure, eviction strategy) that will outlive the initial implementation; skill covers proactive structure decisions for new modules'}
+
+real	0m24.406s
 ```
+
+=== PICKED IDENTICAL? === True (`['architecture-coupling-classification', 'code-architecture']` both times)
+=== FULL DETAIL IDENTICAL? === False — reason text differs verbatim between the two calls, same as above
 
 Reading across both replays (four real headless-Claude `skill_judge` calls
 in total): the `picked` set happened to agree call-to-call each time, but
