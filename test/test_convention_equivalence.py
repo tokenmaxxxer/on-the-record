@@ -243,7 +243,14 @@ class BoardRecordsEquivalenceTest(unittest.TestCase):
             root = Path(tmp)
             subj = root / "docs" / "issue-9001" / "reports"
             subj.mkdir(parents=True)
-            known_role = spawn.ROLES[0]
+            # 이슈 #2560: 고정 `spawn.ROLES` 튜플이 삭제됐다 — board()는
+            # 이제 이 이슈의 roster lease slug 집합(여기선 비어 있다)이 아닌
+            # 이름이라도, frontmatter 에 `loop_state` 가 있으면 여전히
+            # 잡는다(스킬 축 레코드 fallback, `_skill_axis_report_names`).
+            # `not-a-real-role.md`는 frontmatter 가 비어 있어(`loop_state`
+            # 없음) 여전히 걸러진다 — 이름이 role 카탈로그에 속하는지가
+            # 아니라 frontmatter 내용이 판별 기준이라는 걸 이 테스트가 편다.
+            known_role = "implementation"
             (subj / f"{known_role}.md").write_text("---\nloop_state: x\n---\n", encoding="utf-8")
             (subj / "not-a-real-role.md").write_text("---\n---\n", encoding="utf-8")
             result = spawn.board(root)
@@ -251,9 +258,11 @@ class BoardRecordsEquivalenceTest(unittest.TestCase):
             self.assertIn(known_role, result["issue-9001"])
             self.assertNotIn("not-a-real-role", result["issue-9001"])
 
-    def test_roles_is_a_fixed_tuple_not_a_parse_site(self):
-        self.assertIsInstance(spawn.ROLES, tuple)
-        self.assertIn("implementation", spawn.ROLES)
+    def test_roles_tuple_is_retired(self):
+        # 이슈 #2560: 고정 43개 역할 이름 튜플 `spawn.ROLES`는 완전히
+        # 삭제됐다 — 세션 신원은 더 이상 닫힌 집합에 속하지 않는다
+        # (docs/issue-2548/reports/architecture.md, Consumers item d).
+        self.assertFalse(hasattr(spawn, "ROLES"))
 
 
 # --- consumer 5: watch/roster ------------------------------------------------

@@ -479,6 +479,8 @@ _session_commit_count = _board_mod._session_commit_count
 approve_scope = _board_mod.approve_scope
 board = _board_mod.board
 _skill_axis_report_names = _board_mod._skill_axis_report_names
+_lease_slugs_for_issue = _board_mod._lease_slugs_for_issue
+_issue_num = _board_mod._issue_num
 board_snapshot = _board_mod.board_snapshot
 classify = _board_mod.classify
 fail_closed_downgrade = _board_mod.fail_closed_downgrade
@@ -720,20 +722,11 @@ _BOOTSTRAP_PHASES = ("admission", "skill_resolve", "workspace", "branch",
 
 
 
-# 역할 순서. 보드를 읽을 때 이 순서로 보여준다.
-ROLES = ("product-discovery", "interaction-design", "technical-feasibility",
-         "implementation", "execution-observation", "conformance-review",
-         "defect-verification", "issue-retrospective", "release-engineering",
-         "user-discovery", "requirements-engineering", "refactoring-legacy",
-         "test-authoring", "observability", "incident-response",
-         "capacity-planning", "knowledge-management",
-         "ux-engineering", "api-design", "architecture", "security-threat-model",
-         "data-modeling", "performance-engineering", "accessibility", "secure-coding",
-         "ml-engineering", "data-engineering",
-         "market-analysis", "finance-unit-economics", "pricing", "sales", "marketing",
-         "growth-analytics", "customer-support", "partnerships-bd", "pr-communications",
-         "risk-management", "legal-compliance",
-         "technical-writing", "brand-design", "content-design", "localization", "devrel")
+# 이슈 #2560: 고정 43개 역할 이름 튜플 `ROLES`는 여기서 완전히 삭제됐다 —
+# 역할/슬러그 신원은 더 이상 닫힌 집합에 속하지 않는다 (issue-2548
+# architecture record, Identity/Consumers item d). 남은 유일한 닫힌
+# 카탈로그는 `spawn_roles.json`(→ `role_data()`)이며, 그 파일 자체를
+# 남긴 이유(consult.py 자문 페르소나 등)는 그 함수 독스트링을 본다.
 BOARD = "docs"                          # v3: subject trees live at docs/issue-<n>/
 MARKER = "docs/specs/approvers.md"      # 보드 opt-in + 승인자 allowlist (v3)
 REQUIREMENT_DIGEST_MARKER = "docs/specs/requirement-digest.md"  # issue #1695

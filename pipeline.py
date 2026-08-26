@@ -1644,11 +1644,12 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
     frontmatter), so a failure is a refusal — never fail-open."""
     role = ctx["role"]
     try:
-        # 이슈 #2555 (Step C): `role not in _sp.ROLES` 닫힌-집합 거부를
-        # 여기서 뺀다 — 아래 나머지 검사(계약 줄 포맷, 스킬 트리거 라인
-        # 해석) 는 전부 `role` 을 평범한 문자열로만 쓰고, 어느 것도
-        # `_sp.ROLES` 멤버십을 실제로 요구하지 않는다 (issue-2548
-        # architecture record, Consumers item d).
+        # 이슈 #2555 (Step C), 이슈 #2560 로 `_sp.ROLES` 자체가 삭제됨:
+        # `role not in _sp.ROLES` 닫힌-집합 거부는 여기서 이미 빠져 있다 —
+        # 아래 나머지 검사(계약 줄 포맷, 스킬 트리거 라인 해석) 는 전부
+        # `role` 을 평범한 문자열로만 쓰고, 어느 것도 닫힌 집합 멤버십을
+        # 실제로 요구하지 않는다 (issue-2548 architecture record, Consumers
+        # item d).
         # Two-phase signal: the contract line must format for this role.
         _sp._SINGLE_PHASE_CONTRACT_LINE.format(role=role)
         # Per-skill trigger lines (issue #1978 B): resolve every skill
