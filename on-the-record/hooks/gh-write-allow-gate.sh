@@ -12,8 +12,11 @@
 #
 # Same three-part design as merge-allow-gate.sh (#816) and
 # spawn-allow-gate.sh (#823):
-#   (a) CLAUDE_ROLE resolves empty — orchestrator only, never a role
-#       session (identical SessionStart-snapshot-first identity read).
+#   (a) TOKENMAXXXER_SPAWNED resolves empty — orchestrator only, never a
+#       role session (identical SessionStart-snapshot-first identity read;
+#       issue #2538: this check only tests presence, never a role name, so
+#       it needs no role identity — the spawned-flag is the same presence
+#       signal without one).
 #   (b) the whole, unstripped command tokenizes (shlex.shlex(posix=True,
 #       punctuation_chars=True) — issue #824/#834's strict command-shape
 #       design) to exactly one of the five recognized verb shapes, or that
@@ -57,7 +60,7 @@ if not isinstance(cmd, str) or not cmd.strip():
 
 # --- identity: SessionStart snapshot first, live env var fallback ----------
 # Identical primitive to merge-allow-gate.sh / spawn-allow-gate.sh.
-role = os.environ.get("CLAUDE_ROLE", "")
+spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 session_id = e.get("session_id")
 if isinstance(session_id, str) and session_id:
     state_dir = os.environ.get(
@@ -69,11 +72,11 @@ if isinstance(session_id, str) and session_id:
     try:
         with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
+        if isinstance(snapshot, dict) and "spawned" in snapshot:
+            spawned = bool(snapshot["spawned"])
     except (OSError, ValueError):
         pass  # no snapshot yet — fall back to the live env var
-if role:
+if spawned:
     sys.exit(0)  # a role session — never this hook's target
 
 # --- strict command-shape validation (issue #824/#834 design) --------------
@@ -180,7 +183,7 @@ print(json.dumps({
         "hookEventName": "PreToolUse",
         "permissionDecision": "allow",
         "permissionDecisionReason": (
-            "gh-write-allow-gate: orchestration session (CLAUDE_ROLE unset) "
+            "gh-write-allow-gate: orchestration session (not spawned) "
             "invoking a recognized gh issue/pr write verb with no unquoted "
             "shell chaining — issue #856."
         ),

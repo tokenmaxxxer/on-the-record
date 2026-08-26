@@ -35,10 +35,11 @@
 # resolve), per docs/issue-597/proposals/{architecture,implementation}.md.
 #
 # Seventh firing condition (issue #641): review-is-role-work detector.
-# `gh pr comment` / `gh issue comment`, only when CLAUDE_ROLE is unset
-# (an orchestrator session, not a role session doing legitimate
-# conformance-review/axis-panel work — same CLAUDE_ROLE convention
-# approval-gate.sh uses to tell the two apart). Advisory only, never
+# `gh pr comment` / `gh issue comment`, only when TOKENMAXXXER_SPAWNED is
+# unset (an orchestrator session, not a role session doing legitimate
+# conformance-review/axis-panel work — issue #2538: presence-only, no role
+# name needed here, unlike approval-gate.sh's own dual-carrier check).
+# Advisory only, never
 # blocks the underlying command: a lexical proxy checks whether the
 # comment body carries review-verdict-shaped language
 # (Present/Surface/Absent/Incorrect/Unverifiable, supports/contradicts/
@@ -311,7 +312,7 @@ REVIEW_VERDICT_RE = re.compile(
 CITATION_RE = re.compile(
     r"docs/issue-\d+/reports/[\w-]+\.md|(?:PR\s*)?#\d+")
 
-if not os.environ.get("CLAUDE_ROLE"):
+if not os.environ.get("TOKENMAXXXER_SPAWNED"):
     _rc_m = re.search(r"\bgh\s+(pr|issue)\s+comment\s+(\d+)", cmd)
     if _rc_m:
         _rc_body_m = re.search(r"--body\s+(['\"])(.*?)\1", cmd, re.S)

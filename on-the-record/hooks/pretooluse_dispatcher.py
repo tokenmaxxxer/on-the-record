@@ -234,7 +234,12 @@ def _pre_approval(payload, env):
     # approval-gate.sh: `[ -n "${CLAUDE_ROLE:-}" ] || exit 0` before
     # reading the payload — a live-env check, deliberately ahead of the
     # snapshot resolution the python body then performs itself.
-    return bool(os.environ.get("CLAUDE_ROLE", ""))
+    # approval-gate.sh's own identity block still keys on CLAUDE_ROLE's
+    # value (issue #2538: it dual-carrier-checks the value against the
+    # branch/sidecar-derived role, see docs/issue-2538/reports/
+    # implementation.md) — but the gate this dispatcher runs BEFORE the
+    # payload read is presence-only, so it uses TOKENMAXXXER_SPAWNED.
+    return bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 
 
 # One entry per PreToolUse registration in hooks.json order.  Fields:

@@ -21,13 +21,16 @@
 # OTR_FLOWS_CACHE_TTL=0 disables caching (always fetch fresh).
 #
 # Resolves the on-the-record checkout the same way directive.sh does.
-# Kill switches: ORCHESTRATE_OFF=1, CLAUDE_ROLE set (spawned role session).
-# Role identity (issue #706): the CLAUDE_ROLE presence check is resolved
-# inside the CHECK python body from the #698 session-role-bind snapshot,
-# falling back to the live env var only when no snapshot exists — a role
-# session unsetting CLAUDE_ROLE before a Stop turn can no longer flip
-# itself into the orchestrator-only branch and have this decision-queue
-# nudge/block applied to it. See approval-gate.sh for the resolve pattern.
+# Kill switches: ORCHESTRATE_OFF=1, TOKENMAXXXER_SPAWNED set (spawned role
+# session).
+# Spawned-session identity (issue #706, issue #2538): the presence check
+# is resolved inside the CHECK python body from the #698 session-role-bind
+# snapshot, falling back to the live env var only when no snapshot exists
+# — a role session unsetting the env var before a Stop turn can no longer
+# flip itself into the orchestrator-only branch and have this
+# decision-queue nudge/block applied to it. Only presence is ever tested
+# (never a role name), so this needs no role identity. See
+# approval-gate.sh for the resolve pattern.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
@@ -104,11 +107,12 @@ stop_hook_active = bool(stdin_payload.get("stop_hook_active"))
 if stop_hook_active:
     sys.exit(0)
 
-# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
+# --- spawned identity: prefer the SessionStart-bound snapshot (issue #698,
+# #2538) ----------------------------------------------------------------
 # same resolve-with-fallback pattern as approval-gate.sh: a role session
-# that unsets CLAUDE_ROLE before a Stop turn no longer flips this hook
-# into treating the turn as orchestrator-authored.
-role = os.environ.get("CLAUDE_ROLE", "")
+# that unsets TOKENMAXXXER_SPAWNED before a Stop turn no longer flips this
+# hook into treating the turn as orchestrator-authored.
+spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 _session_id_for_role = stdin_payload.get("session_id")
 if isinstance(_session_id_for_role, str) and _session_id_for_role:
     state_dir = os.environ.get(
@@ -120,11 +124,11 @@ if isinstance(_session_id_for_role, str) and _session_id_for_role:
     try:
         with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
+        if isinstance(snapshot, dict) and "spawned" in snapshot:
+            spawned = bool(snapshot["spawned"])
     except (OSError, ValueError):
         pass  # no snapshot yet — fall back to the live env var
-if role:
+if spawned:
     sys.exit(0)  # role session — this decision-queue nudge is orchestrator-only
 
 try:

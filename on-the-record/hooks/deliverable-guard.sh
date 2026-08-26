@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse (Write|Edit|MultiEdit|NotebookEdit): deny-only. In an
-# orchestrator session (this plugin enabled, no CLAUDE_ROLE), deliverables
+# orchestrator session (this plugin enabled, not spawned), deliverables
 # are ROLE WORK — the coding-rulebook lesson, enforced mechanically after
 # a live session authored a requirements doc itself despite the directive.
 #
@@ -24,12 +24,15 @@
 # parse failure, not just crashes — the previous header claim here was
 # false for the parse-failure path; issue #287 S4).
 #
-# Role identity (issue #706): the CLAUDE_ROLE presence check is resolved
-# inside the Python body from the #698 session-role-bind snapshot,
-# falling back to the live env var only when no snapshot exists — a role
-# session unsetting CLAUDE_ROLE before this hook fires can no longer flip
-# itself into the orchestrator branch and dodge its own deliverable-write
-# denial. See approval-gate.sh for the ported resolve pattern.
+# Spawned-session identity (issue #706, keyed off TOKENMAXXXER_SPAWNED per
+# issue #2538): the presence check is resolved inside the Python body from
+# the #698 session-role-bind snapshot, falling back to the live env var
+# only when no snapshot exists — a role session unsetting the env var
+# before this hook fires can no longer flip itself into the orchestrator
+# branch and dodge its own deliverable-write denial. This hook only ever
+# tests presence (never the role name), so it needs no identity beyond
+# "was this session spawned" — see approval-gate.sh for the ported
+# resolve pattern.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
@@ -60,11 +63,12 @@ if not isinstance(e, dict):
     deny("stdin payload is not a JSON object — cannot verify this write is "
          "safe, denying rather than silently allowing it through.")
 
-# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
+# --- spawned identity: prefer the SessionStart-bound snapshot (issue #698,
+# #2538) ----------------------------------------------------------------
 # same resolve-with-fallback pattern as approval-gate.sh: a role session
-# that unsets CLAUDE_ROLE before this Write/Edit no longer flips this
-# hook into treating the write as orchestrator-authored.
-role = os.environ.get("CLAUDE_ROLE", "")
+# that unsets TOKENMAXXXER_SPAWNED before this Write/Edit no longer flips
+# this hook into treating the write as orchestrator-authored.
+spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 session_id = e.get("session_id")
 if isinstance(session_id, str) and session_id:
     state_dir = os.environ.get(
@@ -76,11 +80,11 @@ if isinstance(session_id, str) and session_id:
     try:
         with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
+        if isinstance(snapshot, dict) and "spawned" in snapshot:
+            spawned = bool(snapshot["spawned"])
     except (OSError, ValueError):
         pass  # no snapshot yet — fall back to the live env var
-if role:
+if spawned:
     sys.exit(0)  # role session — deliverable writes are its own job, not this hook's
 
 if (e.get("tool_name") or "") not in ("Write", "Edit", "MultiEdit", "NotebookEdit"):

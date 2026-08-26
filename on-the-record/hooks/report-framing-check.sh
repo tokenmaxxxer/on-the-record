@@ -33,7 +33,7 @@ set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
 payload="$(cat 2>/dev/null || true)"
-[ -z "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
+[ -z "${TOKENMAXXXER_SPAWNED:-}" ] || { trap - EXIT; exit 0; }
 
 command -v python3 >/dev/null 2>&1 || exit 2
 
