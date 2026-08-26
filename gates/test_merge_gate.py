@@ -308,6 +308,10 @@ def t_merge_gate_evaluate_refuses_no_checks_as_a_pass(monkeypatch):
     """`evaluate()`를 끝까지 — check-runner 코멘트를 no-checks 로 고정하고,
     나머지 세 검사(필요 기록/stale-revert)는 통과로 고정한 뒤, 그래도
     `allowed`가 아니어야 한다는 것을 확인한다."""
+    # issue #2381 R1: `evaluate()` now fetches (`check_runner.fetch_all_role_branches`)
+    # before `stale_revert_reasons()` — stub it out so this test stays
+    # network-free against the real checkout `repo=Path(".")` passes in.
+    monkeypatch.setattr(check_runner, "fetch_all_role_branches", lambda repo: None)
     monkeypatch.setattr(merge_gate, "latest_check_runner_comment",
                          lambda repo, pr: check_runner.format_no_checks_comment())
     monkeypatch.setattr(merge_gate, "required_verification_missing",
@@ -438,6 +442,9 @@ def t_full_sequence_reaches_allow_merge_once_every_precondition_holds(monkeypatc
     session cannot itself supply (another role's merged record) held true."""
     import verdict_gate
 
+    # issue #2381 R1: stub the new `evaluate()` fetch — see the sibling
+    # comment on `t_merge_gate_evaluate_refuses_no_checks_as_a_pass`.
+    monkeypatch.setattr(check_runner, "fetch_all_role_branches", lambda repo: None)
     monkeypatch.setattr(merge_gate, "latest_check_runner_comment",
                          lambda repo, pr: "## Acceptance check-runner result: 1/1 passed\n\n"
                                           "- [PASS] (test) `tests/test_x.py`")

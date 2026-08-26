@@ -90,3 +90,62 @@ acceptance: `python3 -m pytest gates/test_check_runner.py -q` — result:
 ```
 35 passed in 1.70s
 ```
+
+## before-landing — stance: does merge_gate.py's new unconditional check_runner.fetch_all_role_branches(repo) call in evaluate() have a bad interaction with any existing caller/test?
+
+Verdict: FINDING — evaluate()'s new unconditional, unmocked fetch_all_role_branches(repo) call breaks the test suite's own documented "no network" invariant: two pre-existing gates/test_merge_gate.py tests call `merge_gate.evaluate(Path("."), Path("."), ...)` (repo = the real developer/CI checkout) and only monkeypatch the three higher-level functions (`latest_check_runner_comment`, `required_verification_missing`, `stale_revert_reasons`) — never `subprocess.run` or `check_runner.fetch_all_role_branches` — because until this change `evaluate()` made no subprocess calls of its own before reaching those three mocked functions. Now it does: every run of these tests performs a real, unmocked `git fetch --prune origin +refs/heads/*:refs/remotes/origin/*` against the actual `origin` remote (real GitHub), over the network, and prunes/updates the developer's real local `origin/*` remote-tracking refs as a side effect of running a unit test. The module docstring of gates/test_merge_gate.py explicitly states these regression tests run "네트워크·gh 없이" (without network/gh) via synthetic repos and mocking — this invariant is now silently false for two of its tests. In a network-restricted CI/sandbox (no egress), `git fetch` here has no timeout set on the subprocess.run call in fetch_all_role_branches, so instead of the fast, deterministic, network-free unit test these were designed to be, they can hang or become flaky depending on DNS/connection-refused timing; evaluate() ignores the fetch's return value entirely ("best-effort"), so a fetch failure is masked rather than surfaced, but a fetch *hang* is not masked — it just makes the test suite hang.
+Kind: composition
+Seed: gates/merge_gate.py evaluate() diff (added `check_runner.fetch_all_role_branches(repo)` as its first statement)
+cap_seconds: (not specified by dispatcher)
+tier: (not specified by dispatcher)
+diff_stat_lines: gates/merge_gate.py +14, on-the-record/directive/merge-gates.md (doc), docs/issue-2381/reports/implementation.md (record)
+started_at: 2026-08-26T03:00:00Z
+ended_at: 2026-08-26T03:08:00Z
+
+### Reproduce
+```
+cd gates && python3 -c "
+import subprocess, sys
+from pathlib import Path
+sys.path.insert(0, '.')
+import merge_gate
+
+orig = subprocess.run
+calls = []
+def spy(*a, **k):
+    calls.append(a[0] if a else k.get('args'))
+    return orig(*a, **k)
+subprocess.run = spy
+
+# exactly what gates/test_merge_gate.py::t_merge_gate_evaluate_refuses_no_checks_as_a_pass
+# and t_full_sequence_reaches_allow_merge_once_every_precondition_holds do: monkeypatch
+# only the three higher-level functions, call evaluate() with repo=Path('.')
+merge_gate.latest_check_runner_comment = lambda repo, pr: '## Acceptance check-runner result: 1/1 passed\n\n- [PASS] x'
+merge_gate.required_verification_missing = lambda root, subject, repo=None, pr=None: []
+merge_gate.stale_revert_reasons = lambda repo, pr: []
+
+result = merge_gate.evaluate(Path('.'), Path('.'), 999, 'issue-999')
+print('RESULT', result)
+for c in calls:
+    print('CALL', c)
+"
+```
+
+### Observed
+```
+RESULT {'allowed': True, 'reasons': []}
+CALL ['git', 'fetch', '--prune', 'origin', '+refs/heads/*:refs/remotes/origin/*']
+```
+This is a real subprocess call (confirmed separately: `time git fetch --prune origin "+refs/heads/*:refs/remotes/origin/*"` against this repo's actual `origin` = `https://github.com/tokenmaxxxer/on-the-record.git` succeeds in ~0.5s and mutates real local `origin/*` refs) — i.e. running `python3 -m pytest gates/test_merge_gate.py` now performs live network I/O against GitHub and prunes local remote-tracking refs, despite the file's own docstring claiming these tests run without network.
+
+### Expected
+`evaluate()`'s new fetch should not fire when running against a test harness that never asked for network access — e.g. it should be injectable/mockable at the same seam the existing tests already use (so `t_merge_gate_evaluate_refuses_no_checks_as_a_pass` and `t_full_sequence_reaches_allow_merge_once_every_precondition_holds` stay network-free the way the module docstring says they are), or the fetch should be skippable when the three higher-level functions are already monkeypatched past the point where a real origin ref would ever be read. As written, calling `merge_gate.evaluate()` against any real repo checkout (not just the intended orchestrator `--repo` checkout) now always shells out to `git fetch` against `origin` first, unconditionally and unmocked, regardless of caller intent.
+
+### Fix applied
+The seam already exists (`evaluate()` calls `check_runner.fetch_all_role_branches(repo)`, and `gates/merge_gate.py` already does `import check_runner` at module scope), so no new injection point was needed. Both affected tests now stub it: `monkeypatch.setattr(check_runner, "fetch_all_role_branches", lambda repo: None)` added immediately before the existing three monkeypatches in `t_merge_gate_evaluate_refuses_no_checks_as_a_pass` (`gates/test_merge_gate.py`) and `t_full_sequence_reaches_allow_merge_once_every_precondition_holds` (same file) — same pattern the rest of the suite already uses to keep `evaluate()` network-free.
+
+acceptance: `python3 -m pytest gates/test_check_runner.py gates/test_merge_gate.py tests/test_verdict_gate.py -q` — result:
+```
+73 passed in 1.59s
+```
+(re-run after the fix; no `git fetch` subprocess call observed for the two previously-affected tests when re-run individually with the reproduce script above and `check_runner.fetch_all_role_branches` monkeypatched the same way)
