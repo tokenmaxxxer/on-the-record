@@ -401,6 +401,7 @@ _post_crash_comment = lifecycle._post_crash_comment
 _post_session_end_comment = lifecycle._post_session_end_comment
 _post_stall_comment = lifecycle._post_stall_comment
 _pr_list_call_ok = lifecycle._pr_list_call_ok
+_prune_orphaned_sidecars = lifecycle._prune_orphaned_sidecars
 _remediation_merge_sweep = lifecycle._remediation_merge_sweep
 _respawn_fingerprint = lifecycle._respawn_fingerprint
 _respawn_or_cap = lifecycle._respawn_or_cap
@@ -408,8 +409,10 @@ _respawn_state_load = lifecycle._respawn_state_load
 _respawn_state_save = lifecycle._respawn_state_save
 _roster_reconcile_unreported = lifecycle._roster_reconcile_unreported
 _self_trigger_respawn = lifecycle._self_trigger_respawn
+_sidecar_workspace_name = lifecycle._sidecar_workspace_name
 _workspace_base = lifecycle._workspace_base
 _workspace_clean_state = lifecycle._workspace_clean_state
+_workspace_merge_trigger_status = lifecycle._workspace_merge_trigger_status
 auto_sweep = lifecycle.auto_sweep
 detect_legacy_monitor_alive_dirs = lifecycle.detect_legacy_monitor_alive_dirs
 gc_monitor_alive = lifecycle.gc_monitor_alive
@@ -500,6 +503,7 @@ _skill_declared_phrases = _pipeline_mod._skill_declared_phrases
 _timed = _pipeline_mod._timed
 _tokenize = _pipeline_mod._tokenize
 _ttl_marker = _pipeline_mod._ttl_marker
+_verify_branch_base_sane = _pipeline_mod._verify_branch_base_sane
 _workspace_bash_allow = _pipeline_mod._workspace_bash_allow
 _write_role_sidecar = _pipeline_mod._write_role_sidecar
 admission_gate = _pipeline_mod.admission_gate
@@ -515,6 +519,7 @@ get_bootstrap_fetch_record = _pipeline_mod.get_bootstrap_fetch_record
 positive_int = _pipeline_mod.positive_int
 read_role_model_config = _pipeline_mod.read_role_model_config
 recut_if_absorbed_cli = _pipeline_mod.recut_if_absorbed_cli
+recut_corrupted_cli = _pipeline_mod.recut_corrupted_cli
 require_doctor = _pipeline_mod.require_doctor
 resolved_role_model = _pipeline_mod.resolved_role_model
 role_settings = _pipeline_mod.role_settings
@@ -538,6 +543,8 @@ _LANDING_BATCHING_PROSE = directive_assembly._LANDING_BATCHING_PROSE
 _TURN_BUDGET_PROSE = directive_assembly._TURN_BUDGET_PROSE
 _REPO_DISCOVERY_PROSE = directive_assembly._REPO_DISCOVERY_PROSE
 _KNOWN_PATHS_PROSE = directive_assembly._KNOWN_PATHS_PROSE
+_TASK_LOOKUP_PROSE = directive_assembly._TASK_LOOKUP_PROSE
+_HOOK_CONTRACT_PROSE = directive_assembly._HOOK_CONTRACT_PROSE
 _SKILL_CHECK_PROSE = directive_assembly._SKILL_CHECK_PROSE
 _SKILL_VERDICT_PROSE = directive_assembly._SKILL_VERDICT_PROSE
 _role_touches_code = directive_assembly._role_touches_code
@@ -593,6 +600,69 @@ STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
 
 NETWORK_TIMEOUT = plumbing.NETWORK_TIMEOUT   # fetch/pull/push (moved with _run_net)
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
+
+# 이슈 #2417: 호스트 디스크/inode 고갈은 on-the-record 소관 밖이다 — 실측
+# 워크스페이스 25개, 50~121MB (평균 ~60MB, 이슈에 적힌 ~119MB 는 상한 근처
+# 값). clone 을 실제로 시도하기 전에 여유 바이트/inode 를 한 번 확인해,
+# 실패가 "origin 불일치"/파묻힌 git 에러/watchdog rc=97 로 흩어지는 대신
+# 바로 원인을 이름 붙여 거부한다. 임계값 = 워크스페이스 하나 상한(~119MB)
+# 의 3배 — 동시 스폰 여러 개가 같은 틱에 클론해도 헤드룸이 남게. 알고
+# 진행하려는 컨슈머는 MUSTER_SKIP_SPACE_CHECK=1 로 끄거나
+# MUSTER_MIN_FREE_BYTES/MUSTER_MIN_FREE_INODES 로 임계값 자체를 바꾼다.
+MIN_FREE_BYTES_DEFAULT = 3 * 119 * 1024 * 1024   # ~357MB
+MIN_FREE_INODES_DEFAULT = 1000
+
+
+def _spawn_capacity_check(path) -> None:
+    """`path` 아래 clone 을 시도하기 전에 여유 바이트/inode 를 확인한다
+    (이슈 #2417). 부족하면 clone 근처도 안 가고 거부한다 — 메시지는 여유량과
+    임계값을 이름으로 남긴다. `path` 자체가 아직 없으면(신규 워크스페이스
+    디렉터리) 존재하는 조상 디렉터리로 올라가서 잰다."""
+    if os.environ.get("MUSTER_SKIP_SPACE_CHECK", "") not in ("", "0", "false", "no", "off"):
+        return
+    probe = Path(path)
+    while not probe.exists():
+        probe = probe.parent
+    try:
+        usage = shutil.disk_usage(probe)
+    except OSError:
+        return  # 못 재면 예전처럼 fail-open — clone 자체의 에러 경로가 처리한다
+    min_bytes = int(os.environ.get("MUSTER_MIN_FREE_BYTES", MIN_FREE_BYTES_DEFAULT))
+    if usage.free < min_bytes:
+        sys.exit(
+            f"스폰을 거부한다: {probe} 에 여유 공간이 부족하다 "
+            f"({usage.free // (1024 * 1024)}MB 가용, 임계값 {min_bytes // (1024 * 1024)}MB) "
+            f"— clone 을 시도하기 전에 미리 막는다. 정책: 워크스페이스 상한 "
+            f"실측치(~119MB)의 3배를 동시-스폰 헤드룸으로 둔다. 알고 진행하려면 "
+            f"MUSTER_SKIP_SPACE_CHECK=1."
+        )
+    try:
+        st = os.statvfs(probe)
+    except (OSError, AttributeError):
+        return
+    free_inodes = st.f_favail
+    min_inodes = int(os.environ.get("MUSTER_MIN_FREE_INODES", MIN_FREE_INODES_DEFAULT))
+    if free_inodes and free_inodes < min_inodes:
+        sys.exit(
+            f"스폰을 거부한다: {probe} 에 여유 inode 가 부족하다 "
+            f"({free_inodes}개 가용, 임계값 {min_inodes}개) — clone 을 시도하기 전에 "
+            f"미리 막는다. 알고 진행하려면 MUSTER_SKIP_SPACE_CHECK=1."
+        )
+
+
+def _workspace_clone_incomplete(work: Path) -> bool:
+    """`work` 에 `.git` 은 있지만 clone 이 끝까지 못 간 상태인지(ENOSPC 등으로
+    중간에 죽어 partial tree 만 남은 경우) 판별한다 (이슈 #2417). HEAD 가
+    가리키는 커밋이 없거나 `git status` 자체가 에러면 — 남의 레포가 아니라
+    미완성 클론이다; 그 다음에 오는 origin-mismatch 판정은 여기를 통과한,
+    완결된(그러나 진짜 다른) 레포에만 적용된다."""
+    head = subprocess.run(["git", "-C", str(work), "rev-parse", "--verify", "-q", "HEAD"],
+                          capture_output=True, text=True)
+    if head.returncode != 0:
+        return True
+    status = subprocess.run(["git", "-C", str(work), "status", "--porcelain"],
+                            capture_output=True, text=True)
+    return status.returncode != 0
 
 
 _BOOTSTRAP_TIMING: dict[str, float] = {}
@@ -1035,6 +1105,74 @@ def _pid_is_alive(pid) -> bool:
         return True
 
 
+# 이슈 #2468: check_runner.py 의 임시 PR worktree(`tempfile.mkdtemp`)와
+# consult.py/spawn.py 의 settings.json(`tempfile.NamedTemporaryFile`)는
+# 정상 종료 경로에서만 지워진다 — SIGKILL/하드크래시는 try/finally 로도
+# 못 잡는다(파이썬이 신호를 볼 기회 자체가 없다). 생성 시점에 소유 PID 를
+# 여기 남겨 두면, 나중에 `_pid_is_alive()`(위, #2413 에서 이미 증명된
+# 패턴)로 그 PID 가 죽었는지만 물어 지운다 — 살아있는 소유자의 자원은
+# 나이와 무관하게 항상 보존한다(그 함수 자신의 보수적 정책을 그대로
+# 물려받는다: 판정이 불확실하면 살아있다고 본다). append-only(줄을 쓰는
+# 도중 죽어도 이미 쓴 줄은 안전하다 — SPAWN_ATTEMPTS_PATH 와 같은 이유).
+TMP_RESOURCE_LEDGER_PATH = STATE_ROOT / "tmp-resources.jsonl"
+
+
+def _record_tmp_resource(path, pid: int, kind: str) -> None:
+    """`path`(worktree 디렉터리 또는 settings.json 파일)를 소유 `pid`와
+    함께 남긴다. 호출부는 실제 정리 책임을 지는 프로세스가 자기 자신의
+    `os.getpid()`로 불러야 한다 — spawn.py 의 `bounded` 스폰처럼 만든
+    프로세스(부모)와 실제로 쓰고 지우는 프로세스(fork 자식)가 갈리는
+    경우, 부모 pid 를 남기면 부모가 정상 리턴한 직후 `_pid_is_alive()`가
+    바로 False 를 돌려줘 아직 자식이 쓰고 있는 자원을 오삭제하게 된다
+    (이슈 #2468 설계 검토에서 실측)."""
+    if os.environ.get("PYTEST_CURRENT_TEST") is not None:
+        return
+    TMP_RESOURCE_LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with TMP_RESOURCE_LEDGER_PATH.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps({"path": str(path), "pid": pid, "kind": kind,
+                              "ts": time.time()}, ensure_ascii=False) + "\n")
+
+
+def tmp_resource_sweep(ledger_path: Path | None = None) -> int:
+    """이슈 #2468 GC 스윕 — `_prune_spawn_attempts()`와 같은 자세(통짜
+    재쓰기, PID 생존만으로 판정)로 orphan worktree/settings.json 을
+    지운다. 이미 정상 경로로 지워진 자원(레저에는 있지만 디스크엔 없음)은
+    그냥 레저에서 빠진다 — 지운 걸로 세지 않는다. 반환값은 이번 호출에서
+    실제로 지운 자원 개수(워치독 로그용 — anomaly_count 에는 안 얹는다:
+    이건 이상 신호가 아니라 정상적인 자기치유다)."""
+    ledger_path = ledger_path or TMP_RESOURCE_LEDGER_PATH
+    try:
+        lines = ledger_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return 0
+    kept = []
+    removed = 0
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        path = entry.get("path")
+        if not path:
+            continue
+        p = Path(path)
+        if not p.exists():
+            continue  # 이미 정상 경로로 지워졌다 — 레저에서도 조용히 뺀다
+        if _pid_is_alive(entry.get("pid")):
+            kept.append(line)
+            continue
+        if p.is_dir():
+            shutil.rmtree(p, ignore_errors=True)
+        else:
+            with contextlib.suppress(OSError):
+                p.unlink()
+        removed += 1
+    if len(kept) != len(lines):
+        ledger_path.write_text(
+            "".join(ln + "\n" for ln in kept), encoding="utf-8")
+    return removed
+
+
 def _prune_spawn_attempts(now: float | None = None) -> int:
     """`SPAWN_ATTEMPTS_PATH`를 다시 써서 위 정책에 안 걸리는 이벤트만
     남긴다. 돌려주는 값은 지운 줄 수(0 이면 파일을 건드리지 않는다 —
@@ -1437,9 +1575,14 @@ def main() -> int:
                          "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--skills", default=None,
-                    help="쉼표로 구분한 스킬 이름 목록을 skill-repository 체크아웃"
-                         "(MUSTER_SKILL_REPO 또는 형제-클론)에서 마운트한다"
-                         "(이슈 #1742). 생략하면 스폰 argv/env 는 이전과 동일")
+                    help="쉼표로 구분한 스킬 이름 목록을 네 소스 — "
+                         "skill-repository 체크아웃(MUSTER_SKILL_REPO 또는 "
+                         "형제-클론), 설치된 플러그인의 skills/, "
+                         "~/.claude/skills, 타깃 저장소 .claude/skills — "
+                         "에 걸쳐 해석해 마운트한다(이슈 #1742/#1774/#2488). "
+                         "이름이 둘 이상의 소스에서 겹치면 fail-closed(우선순위 "
+                         "없음, docs/decisions/2026-08-26-skills-resolver-source-priority-and-trust.md). "
+                         "생략하면 스폰 argv/env 는 이전과 동일")
     ap.add_argument("--skill", default=None,
                     help="이슈 #2241 stage 0: 역할 대신 스킬 이름(콤마로 여러 개 가능)으로 "
                          "곧장 가이던스를 해석한다. 사용: spawn.py --skill <스킬명> "
@@ -1458,7 +1601,9 @@ def main() -> int:
     ap.add_argument("--stall-timeout", type=float, default=5.0,
                     help="분 단위. role task/watch 가 이벤트 없이 블록하는 최대 시간 (기본 5)")
     ap.add_argument("--role", dest="watch_role",
-                    help="watch: 같은 이슈에 역할이 여럿 기록돼 있을 때 지정")
+                    help="watch: 같은 이슈에 역할이 여럿 기록돼 있을 때 지정. "
+                         "recut-corrupted: --issue 와 함께 대상 issue-<n>/<role> "
+                         "브랜치를 고른다")
     ap.add_argument("--follow", action="store_true",
                     help="watch: 이벤트마다 재무장하지 않고 session-end 까지 "
                          "_await_bounded 를 반복 호출하며 스트리밍한다")
@@ -1594,6 +1739,10 @@ def main() -> int:
         # conflict-free case is mechanical; a conflict aborts and asks for
         # a real role session (conflict resolution needs judgment).
         return mechanical_rebase_cli(str(Path(a.cwd).resolve()))
+    if a.role == "recut-corrupted":
+        if not a.issue or not a.watch_role:
+            sys.exit("사용법: spawn.py recut-corrupted --issue <n> --role <role> [-C cwd]")
+        return recut_corrupted_cli(str(Path(a.cwd).resolve()), a.issue, a.watch_role)
     if a.role == "watchdog":
         # 이슈 #1219: `-C` (기본값 ".") 를 그대로 넘긴다 — 컨슈머 세션은
         # 타깃 프로젝트를, dev 세션(cwd == 이 체크아웃)은 이 체크아웃
@@ -2121,6 +2270,13 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     repo_name = re.sub(r"\.git$", "", origin.rstrip("/").rsplit("/", 1)[-1]) or slug(cwd)
     work = (work_base / f"{repo_name}-issue-{issue}-{role}" if issue is not None
             else work_base / f"{repo_name}-adhoc-{role}-{os.getpid()}")
+    # 이슈 #2417 (before-landing hunt): fresh-clone 분기 앞에만 두면 재사용
+    # 분기(cwd==work 자기 재사용, 기존 .git 재사용) 두 곳은 여전히
+    # `_fetch_or_halt` 로 바로 들어가 디스크가 거의 다 찼을 때 clone 이 아니라
+    # fetch 에서 파묻힌 에러로 실패한다 — 같은 실패가 경로만 바뀐 것. 여기
+    # 최상단에서 한 번 확인하면 세 분기(자기 재사용/기존 워크스페이스
+    # 재사용/신규 clone) 모두 clone 이든 fetch든 쓰기 전에 걸린다.
+    _spawn_capacity_check(work)
     # cwd 가 이미 이 (이슈,역할)의 워크스페이스면 그대로 쓴다 — 중첩 금지.
     if src == work.resolve():
         _fetch_or_halt(str(src), "재사용 워크스페이스",
@@ -2137,6 +2293,16 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
         # own docstring claim that adhoc always takes it.
         shutil.rmtree(work, ignore_errors=True)
     if (work / ".git").exists():
+        # 이슈 #2417: origin 비교보다 먼저 — 여기 있는 `.git` 이 이전 clone
+        # 이 ENOSPC 등으로 중간에 죽어 남긴 partial tree 일 수 있다. 그
+        # 경우를 "남의 레포다(origin 불일치)"로 오판하면 실제 원인(디스크
+        # 부족)도, 해법(지우고 재시도)도 안 보인다.
+        if _workspace_clone_incomplete(work):
+            sys.exit(
+                f"워크스페이스가 불완전하다: {work} — 이전 clone 이 도중에 실패해 "
+                f"(디스크 공간/inode 부족 등) 남의 레포가 아니라 partial 상태의 "
+                f"미완성 클론으로 남아 있다. 해결: 지우고 재시도하라 — rm -rf {work}"
+            )
         # 이 경로가 우리가 만든 워크스페이스가 아니라 우연히 같은 이름으로
         # 미리 놓인 남의 레포일 수 있다(#288 N5) — origin 이 다르면 그건
         # 네트워크 문제가 아니라 신원 불일치이므로 fetch 를 시도하기 전에
@@ -2339,6 +2505,33 @@ def mechanical_rebase_cli(cwd: str) -> int:
     if result["status"] == "conflict":
         return 2
     return 1
+def _recut_corrupted_branch(cwd: str, br: str, base: str):
+    """`br`(예: `issue-<n>/<role>`)을 같은 이름을 유지한 채, 지금 잡힌
+    `merge-base(br, base)`를 새 base 로 밀어 재컷한다 (issue #2402).
+
+    `_recut_absorbed_branch`(issue #784)와는 정반대 상황을 다룬다: 그쪽은
+    "content 가 이미 base 에 흡수돼 버려도 되는" 브랜치라 base 로
+    리셋하고, 여기는 "content 는 유효한데 spawn 시점 branch-cut 이 잘못된
+    (오래된/무관한) parent 에서 갈라져 나온"(issue #2379) 브랜치라 그
+    content(브랜치 자신의 커밋들)를 버리지 않고 올바른 base 위로
+    옮겨 심는다 — `git rebase --onto`. 브랜치 이름이 그대로이므로 이
+    함수가 끝난 뒤 호출자가 같은 이름으로 origin 에 force-push 하면 기존
+    PR 은 (새로 열 필요 없이) 그 자리에서 깨끗한 merge-base 를 얻는다.
+
+    반환값은 최종 git 호출(checkout 실패 시 checkout, 아니면 rebase)의
+    CompletedProcess — returncode 로 성공 여부를 본다."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    checkout = git("checkout", "-B", br, f"origin/{br}")
+    if checkout.returncode != 0:
+        return checkout
+    merge_base = git("merge-base", br, base)
+    if merge_base.returncode != 0:
+        return merge_base
+    old_base = merge_base.stdout.strip()
+    if not old_base:
+        return merge_base
+    return git("rebase", "--onto", base, old_base, br)
 
 
 _ACCEPTANCE_CHECK_LINE = re.compile(r"^\s*-\s*check\s*:\s*(.+)$", re.MULTILINE)
@@ -2662,6 +2855,24 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     print(f"[{role}] auto-sweep(백그라운드) {elapsed:.3f}s "
                           f"만에 끝남 (지움 {outcome['removed']}, "
                           f"실패 {outcome['failed']})", file=sys.stderr)
+                    # 이슈 #2443: 워크스페이스 디렉터리 정리와 같은
+                    # 스폰타임/같은 백그라운드 스레드/같은 예외-흡수 계약으로
+                    # 짝 디렉터리가 이미 없어진 sidecar 파일(세션 로그/
+                    # events.jsonl/events.offset/watcher.log/task.txt)도
+                    # 훑는다 — 새 트리거 지점을 만들지 않는다, 위
+                    # auto_sweep() 과 같은 호출 안.
+                    try:
+                        sidecar_outcome = _prune_orphaned_sidecars(
+                            _workspace_base(), _clean_max_age_days())
+                    except Exception as ex:
+                        print(f"[{role}] sidecar-prune 실패(스폰은 계속): {ex}",
+                              file=sys.stderr)
+                        return
+                    if sidecar_outcome["removed"] or sidecar_outcome["failed"]:
+                        print(f"[{role}] sidecar-prune(백그라운드) "
+                              f"(지움 {sidecar_outcome['removed']}, "
+                              f"실패 {sidecar_outcome['failed']})",
+                              file=sys.stderr)
                 threading.Thread(target=_run_auto_sweep, daemon=True,
                                   name="auto-sweep").start()
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
@@ -3025,6 +3236,14 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(s, f)
             settings = f.name
+        # 이슈 #2468: `bounded and issue is not None`(아래)이면 이 파일의
+        # 실제 소유자는 이 프로세스가 아니라 곧 뜰 fork 자식이다 — 여기서
+        # 이 프로세스의 pid 로 남기면, 이 프로세스(부모)가 fork 직후 정상
+        # 리턴하는 순간 `_pid_is_alive()`가 바로 False 가 되어 아직 자식이
+        # 쓰고 있는 파일을 GC 스윕이 오삭제한다. 그 경로의 기록은 자식이
+        # fork 직후 자기 pid 로 직접 남긴다(아래, fork 분기).
+        if not (bounded and issue is not None):
+            _record_tmp_resource(settings, os.getpid(), "settings")
     # --skills(#1742)와 역할 매핑 스킬(#1758/#1955)은 additive — 같은
     # --plugin-dir 마운트 목록에 합쳐 붙인다.
     all_skill_dirs = list(skill_dirs) + [d for d in role_source["skill_dirs"]
@@ -3159,6 +3378,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _write_offset(offset_path, _event_count(events_path))
             child_pid = os.fork()
             if child_pid == 0:
+                # 이슈 #2468: settings.json 의 실제 소유자는 이 fork
+                # 자식이다(부모는 곧 정상 리턴해 죽는다) — 자기 pid 를
+                # 이 구간 맨 처음(다른 실패 가능 지점보다 먼저)에 남겨,
+                # 이후 어떻게 죽든(SIGKILL 포함) GC 스윕이 죽은 pid 로
+                # 찾아 지울 수 있게 한다. 같은 이유로 바로 아래 로스터
+                # 스텁도 이 구간 맨 앞에 있다(#908 주석 그대로).
+                _record_tmp_resource(settings, os.getpid(), "settings")
                 # 이슈 #908: fork-child 설정(setsid/dup2)과 Popen() 은 첫
                 # roster_register/session-start (아래, Popen 뒤) 이전에
                 # 실행된다 — 그 구간에서 죽으면(SIGKILL/segfault 포함, 예외를

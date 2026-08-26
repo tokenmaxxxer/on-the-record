@@ -1013,7 +1013,11 @@ def _board_wide_sweep(root: Path) -> int:
                             # 리포트하고 상태에 기록, 다음 틱부터는 억제.
                             print(f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
                                   f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<role> "
-                                  "형식 아님) — 이 PR 은 narrowing 에서 무시")
+                                  "형식 아님) — 이 PR 은 narrowing 에서 무시. issue-<n>/<role> "
+                                  "산출물을 잘못된 base 에서 다시 잡아온(#2379) 브랜치라면 "
+                                  "`spawn.py recut-corrupted --issue <n> --role <role>`(#2402)로 "
+                                  "같은 이름 아래 재컷하라 — 그 밖의 브랜치라면 board 와 무관한 "
+                                  "PR 이니 무시해도 된다")
                         else:
                             already_reported += 1
                     if already_reported:
@@ -1499,6 +1503,15 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # spawn 시도를 보고한다 — roster 대조 대상이 아예 없어(그 구간엔 로스터
     # 엔트리 자체가 없다) 오늘까지는 이 워치독이 완전히 못 보던 상태.
     anomaly_count += _sp.spawn_attempt_sweep(d_all=d_all)
+    # 이슈 #2468: check_runner worktree / consult·spawn settings.json 이
+    # SIGKILL/하드크래시로 orphan 되는 걸 지운다 — 위 spawn_attempt_sweep
+    # 과 같은 틱(살아있는 로스터와 무관하게 매번, 워치독이 도는 한 언젠가는
+    # 반드시 돈다는 게 이 체크포인트를 고른 이유 — spawn 시작 시점이었다면
+    # 크래시 이후 다음 스폰이 있을 때까지, 어쩌면 영원히 안 돌 수 있다).
+    # 이상 신호가 아니라 정상적인 자기치유라 anomaly_count 에는 안 얹는다
+    # (`_prune_spawn_attempts()`의 반환값을 spawn_attempt_sweep 이 버리는
+    # 것과 같은 이유).
+    _sp.tmp_resource_sweep()
     # 이슈 #1491: standing-red 관찰은 살아있는 로스터와 무관하게 매 틱
     # 시도한다(자체 유한-주기 게이트로 실제 스위트 실행은 걸러낸다) —
     # 아래 `if not d` 조기 반환에 걸리지 않게 board-wide sweep 바로 뒤에
@@ -1646,7 +1659,21 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         # 커밋을 잊어도 이 스냅샷은 남는다.
         work = e.get("work")
         if work:
-            checkpoint.checkpoint_workspace(work)
+            # 이슈 #2417: tempdir 이 꽉 찼거나 못 쓰면
+            # `checkpoint_workspace()` 가 `tempfile.TemporaryDirectory()`
+            # 에서 OSError(FileNotFoundError 포함)를 던진다 — 여기서 잡지
+            # 않으면 이 예외가 `roster_watchdog()` 밖의 try/except 까지
+            # 뚫고 나가 틱 전체를 WATCHDOG_CRASH_SENTINEL(rc=97)로 끝내며,
+            # 이 틱에 아직 안 본 다른 로스터 엔트리들의 진단까지 함께
+            # 날아간다. 체크포인트 하나 실패는 이상 신호로 보고하고 틱은
+            # 계속 돈다 — observe-only 계약(아무 것도 고치거나 죽이지
+            # 않는다)은 그대로.
+            try:
+                checkpoint.checkpoint_workspace(work)
+            except OSError as exc:
+                anomaly_count += 1
+                print(f"[checkpoint] {key}: 워크스페이스 체크포인트 실패 "
+                      f"(디스크/tempdir 문제로 보임, 이 틱은 계속 진행) — {exc}")
         anomalies = _sp.watchdog_check_one(key, e, state=state)
         # Issue #2101 mechanisms 1+2: renew this live entry's lease on the
         # same tick (the tick is the entry's watcher), recording the progress

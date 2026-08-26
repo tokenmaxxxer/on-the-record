@@ -56,3 +56,29 @@ Append-only, newest entry last.
   own turn first — certainty about one thing doesn't imply nothing else
   needs the delay. Source: this session's task instructions relaying
   PR #2438's execution-observation finding on issue #2431, 2026-08-25.
+
+- 2026-08-26: before implementing a fix for a resource-leak/crash-recovery
+  mechanism, the record must state explicitly whether the leak's observed
+  *scale* was driven by abnormal load/unusual conditions (so the mechanism
+  is a rare-case backstop) or by a chronic path that fires under normal
+  usage too (so the mechanism is the primary fix) — and must read the
+  actual call sites for non-crash early-exit gaps (a caught exception, an
+  early return) rather than assuming the crash-only case is the only
+  contributor. An honest "primarily X, could not fully attribute Y" is an
+  acceptable answer; an unstated assumption about which case applies is
+  not. Source: operator comment on issue #2468, 2026-08-26T00:26:12Z
+  (https://github.com/tokenmaxxxer/on-the-record/issues/2468#issuecomment-5418860838).
+- 2026-08-26: when a fix gitignores/untracks a repository path that was
+  previously (even if accidentally) tracked, the rollout must be checked
+  for whether it turns an existing write path into a silent no-op —
+  "silent loss is the exact failure class this program is fixing," so a
+  CHANGES round dispatch treats that check as mandatory, not optional
+  polish. Concretely: verify what happens when something still tries to
+  `git add` the now-ignored path — an explicit, named add should fail
+  loudly (git's own default behavior), and a broad add's silent skip is
+  only acceptable if nothing anywhere actually reads a committed copy of
+  that path (checked against the reader code, not just a design doc's
+  classification of the path). State the verified behavior in the
+  record; don't assume it. Source: this session's task instructions,
+  CHANGES round 2 on PR #2445 (issue #2381), 2026-08-26, re: untracking
+  `.orchestrate-hook-fires.log`/`.orchestrate-hook-fires/`.
