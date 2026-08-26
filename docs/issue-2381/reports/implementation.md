@@ -16,7 +16,7 @@ code_under_review:
   - path: on-the-record/directive/merge-gates.md
     sha: same-commit
   - path: .gitignore
-    sha: 8da6f0094b906b5726f980df85596b727f3d3003
+    sha: same-commit
   - path: docs/issue-2381/reports/implementation/2026-08-26-hunt-orchestrator-fetch-all-branches.md
     sha: same-commit
 type: fix
@@ -152,6 +152,78 @@ canonical: `git log --all -S 'roles/implementation.json' -- .gitignore` (no outp
 
 canonical: `git log --diff-filter=A --oneline -- ".orchestrate-hook-fires/*.log"` (each addition co-lands with that session's own PR commit); `hook_fires.py:1-28` and `docs/specs/generated-paths.md:28` (design docs classifying the path as intentionally tracked); `on-the-record/hooks/hook-fires.sh:14-22` (documented zero-overhead, pure-bash constraint)
 
+### CHANGES round 2 (two gaps, both reversing the round above)
+
+Both findings this round are corrections to conclusions the CHANGES round
+directly above reached, not new territory:
+
+- R2b (round 2): the very first cut of this branch added
+  `.orchestrate-hook-fires.log` to `.gitignore` but never ran
+  `git rm --cached` on it, so the ignore entry had been a no-op against
+  `origin/main` this entire time — `git ls-tree origin/main --
+  .orchestrate-hook-fires.log` still returned the blob. Fixed with
+  `git rm --cached .orchestrate-hook-fires.log`; the working-tree file is
+  untouched (`git rm --cached` only drops it from the index), so any hook
+  still writing to that exact path — none currently do, per the existing
+  "## Why" paragraph below — keeps writing to a now-untracked file
+  instead of a tracked one.
+
+canonical: `git ls-tree origin/main -- .orchestrate-hook-fires.log` (returned the blob before this round's fix); this round's commit diff (`git rm --cached .orchestrate-hook-fires.log`)
+
+- R2c (round 2): reverses the R2c decision directly above. That decision
+  rested on `docs/specs/generated-paths.md`/`docs/specs/enforcement-
+  boundary.md` classifying the shard directory as "intentionally
+  tracked, committed alongside the session's own PR." A fresh
+  architecture consult plus a live grep this round checked that premise
+  against the actual reader code instead of the design docs, and it does
+  not hold: `hook_fires.py::_hook_fires_aggregate()` (`hook_fires.py:63-
+  79`) globs `_hook_fires_dir(cwd)` — the *session workspace* directory,
+  per `_hook_fires_dir`'s own docstring (`hook_fires.py:49-56`): "never
+  the shared on-the-record checkout." No code anywhere reads a committed
+  copy of a shard across sessions; the only two readers in the tree are
+  this aggregator (workspace-local) and the writer itself
+  (`on-the-record/hooks/hook-fires.sh`, also workspace-local). Every
+  session committing its own shard was therefore pure byproduct —
+  audit-trail accumulation nobody consumes — and exactly the mechanical
+  cause of the local-`main`-vs-`origin/main` divergence tracked in issue
+  #2506: ten shards already on `origin/main`, two more added by this
+  branch alone before this round. Untracked with
+  `git rm --cached -r .orchestrate-hook-fires/` and gitignored (the
+  working tree is untouched, so hooks keep writing/reading shards under
+  the workspace exactly as before). Also removed the two shard files
+  this branch itself had added
+  (`.orchestrate-hook-fires/2cfde9a1f735d756b8e80c6b.log`,
+  `.orchestrate-hook-fires/9f5feb13badaeb330dfcc6e1.log`) from tracking
+  as part of the same directory-wide `git rm --cached -r`.
+
+  Rollout constraint (from the consult): `git rm --cached` doesn't touch
+  a live session's open file descriptor, so nothing breaks mid-session.
+  But once the ignore lands, the failure mode changes shape depending on
+  how a session stages its shard at landing time — checked both:
+  `git add <exact-shard-path>` (an explicit, named add) fails loudly —
+  git refuses to stage an ignored path and prints "The following paths
+  are ignored ... Use -f if you really want to add them" (verified: exit
+  1, non-empty stderr) — so a session that tries to hand-commit its own
+  shard the way earlier sessions did gets an immediate, visible error,
+  not a silent no-op. `git add -A`/`git add .` (a broad add) skips
+  ignored paths with no error at all — verified this too, and confirmed
+  it is safe here specifically because of the reader finding above:
+  nothing in this program ever expected the shard to survive as a commit
+  in the first place, so a broad add silently *not* including it drops
+  no deliverable and no observability — the same data keeps landing in
+  the same workspace file it always did, only the git side stops seeing
+  it. This is not the "silent loss of a real deliverable" failure class
+  this program exists to catch, because there was never a deliverable
+  there — only accidental tracking that this round removes.
+
+canonical: `hook_fires.py:49-56` (`_hook_fires_dir` docstring: "never the shared on-the-record checkout"), `hook_fires.py:63-79` (`_hook_fires_aggregate`, workspace-local glob, no cross-session/committed read path); `git add .orchestrate-hook-fires/<shard>.log` against the post-ignore tree (exit 1, "ignored by one of your .gitignore files" — explicit add refused loudly); `git add -A` against the same tree (exit 0, ignored shard absent from `git status --short` — broad add skips silently, verified safe per the reader finding)
+
+acceptance (round 2): `python3 -m pytest on-the-record/hooks/test_hook_fire_counter.py -q` (unaffected by untracking — the writer/aggregator behavior this test suite covers only ever touches the workspace path, never git) — result:
+```
+5 passed in 0.81s
+```
+Also re-verified working-tree preservation directly: after `git rm --cached -r .orchestrate-hook-fires/`, all 12 shard files (10 pre-existing + this branch's 2) are still present on disk (`ls .orchestrate-hook-fires/ | wc -l` → 12), only their git index entries were dropped.
+
 ## Why
 
 The issue's root cause for unresolvable role branches is that
@@ -191,6 +263,10 @@ out to already be dead as drift sources, just not yet cleaned out of
   touch the same path; nothing writes the flat filename anymore. It was
   gitignored here so it cannot reappear as untracked drift if any stale
   script still targets it.
+  [Corrected by CHANGES round 2 above (R2b): gitignoring it here didn't
+  actually untrack the file already committed on `origin/main` —
+  `git rm --cached` was missing from this cut, so the ignore entry was a
+  no-op until round 2 added it.]
 
 canonical: `git log --oneline --all -- tests/test_spawn_gate_wiring.py` → `cea0f583 issue-2383: legacy-remnant audit — gitignore scratch, root-cause implementation.json corruption, age-prune worktrees`; `tests/test_spawn_gate_wiring.py:20-26,219-225,355-389` (tempdir-patched `spawn.ROOT`, already on this branch pre-existing HEAD)
 
@@ -255,6 +331,19 @@ acceptance (re-run after fix): `python3 -m pytest gates/test_check_runner.py gat
 73 passed in 1.59s
 ```
 
+- The first CHANGES round's R2c decision (keep `.orchestrate-hook-fires/`
+  tracked, per-session-commit "by design") took the two spec docs'
+  classification of the path at face value instead of checking it
+  against the actual reader code. It didn't hold: CHANGES round 2's
+  architecture consult plus a live grep found no reader anywhere depends
+  on a committed shard (`hook_fires.py`'s own aggregator only globs the
+  local workspace copy), so the "by design, must stay tracked" premise
+  was wrong, and the ten-plus tracked shards it defended were the exact
+  mechanical cause of issue #2506's local-`main` divergence. Reversed in
+  round 2: see "CHANGES round 2" above.
+
+canonical: `hook_fires.py:49-56,63-79` (`_hook_fires_dir`/`_hook_fires_aggregate`, workspace-local only, no cross-session read path); this round's "CHANGES round 2" R2c bullet (above) for the fix
+
 ## Upstream basis
 
 Issue text (`gh issue view 2381`) — no separate survey/proposal file
@@ -267,27 +356,23 @@ canonical: `gh issue view 2381 --repo tokenmaxxxer/on-the-record` (Ask/Acceptanc
 
 ## Open findings
 
-- The *new* per-session shard directory `.orchestrate-hook-fires/` is
-  itself not gitignored — by design (per `hook_fires.py`'s own docstring
-  and `docs/specs/generated-paths.md`/`docs/specs/enforcement-boundary.md`),
-  a spawned role session is expected to commit its own shard alongside
-  its own PR. This record's original commit did that for its own shard,
-  and the CHANGES round (R2c, above) did it again for the new shard this
-  round's session produced. An orchestrator's own top-level, unspawned
-  session still has no PR to bundle its shard into, so its shards would
-  still accumulate as untracked cruft in the canonical checkout — the
-  same drift class under a new path, and the same open item as before
-  this round: distinguishing "orchestrator session" from "role session"
-  at the hook-script level is a real design decision (whether the
-  orchestrator's own shards should be gitignored, swept, or bundled into
-  its own periodic commit), not a minimal fix within this issue's two
-  acceptance criteria. Confirmed still open — this round evaluated and
-  rejected both R2c treatments (blanket-gitignore, and adding
-  branch-awareness to the zero-overhead writer) as wrong-sized fixes for
-  this issue; a future issue scoped to that specific orchestrator-session
-  case is the right place for it, not this one.
+None. The item this section previously carried — "an orchestrator's own
+unspawned top-level session has no PR to bundle its shard into, so its
+shards accumulate as untracked cruft, distinct from a role session's
+tracked-and-committed shard" — is resolved by CHANGES round 2's R2c
+(above), not merely superseded: with `.orchestrate-hook-fires/`
+gitignored, *no* session's shard is ever git-tracked, orchestrator or
+role. There is no longer a distinction to draw between the two cases —
+both are equally workspace-local, untracked, and read only by
+`_hook_fires_aggregate()`'s local glob — so the design question this
+finding used to raise ("how to distinguish an orchestrator session from
+a role session at the hook-script level") no longer needs an answer to
+close this issue's second acceptance line.
 
-derived: `git status` at the time of the original commit showed `.orchestrate-hook-fires/2cfde9a1f735d756b8e80c6b.log` as untracked; at the start of this CHANGES round it showed `.orchestrate-hook-fires/9f5feb13badaeb330dfcc6e1.log` as untracked (both now committed, one per session, matching the by-design pattern)
+derived: `.gitignore`'s `.orchestrate-hook-fires/` entry (this round's
+diff) and `git rm --cached -r .orchestrate-hook-fires/` (this round's
+commit) — the same treatment now applies to every session's shard
+regardless of role/orchestrator status
 
 ## Next steps
 
@@ -316,3 +401,12 @@ more directly relevant existing precedent instead (fetch inside the one
 shared function every caller of `evaluate()` funnels through, mirroring
 `check_runner.py`'s own `checkout_pr_worktree()` fix) rather than forcing
 rule 9's shape onto a problem it doesn't describe.
+
+skill-verdict: work-in-english — applied: invoked; this CHANGES round 2's
+`.gitignore` comment additions, the deviation-log entry, and this record
+are all in English, matching the surrounding `.gitignore`'s existing
+English-comment convention (no conflict to flag, unlike the Korean-
+convention file touched in the prior round). The user-facing turn summary
+is in Korean per the skill's default.
+
+canonical: `.gitignore` (this round's added comment block, English)

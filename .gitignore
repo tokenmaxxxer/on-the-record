@@ -18,3 +18,12 @@ __pycache__/
 # from origin/main. Nothing writes this exact filename anymore; ignored
 # so no stray pre-#2348 branch/script can reintroduce that drift.
 .orchestrate-hook-fires.log
+# issue #2381 (round 2): the sharding in #2348 moved the divergence, it
+# didn't remove it — every session still committed its own shard under
+# this directory, which is exactly the mechanical cause tracked in issue
+# #2506. hook_fires.py's own _hook_fires_aggregate() only ever globs this
+# directory under the session's local workspace (never the shared
+# on-the-record checkout, per its docstring) and nothing reads a
+# committed copy across sessions, so untracking it drops no observability
+# — the shards are still written to and read from disk exactly as today.
+.orchestrate-hook-fires/
