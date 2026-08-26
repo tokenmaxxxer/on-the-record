@@ -386,3 +386,8 @@ shape1_sites=1 (-1)` — repo-beta's first-ever observation misreported as a
 `-1` shrink against a repo it had never touched.
 
 acceptance: `python3 -m py_compile gates/closure_sweep.py` — result: exit 0, no syntax errors (re-run against the corrected function body).
+
+## Skills
+
+skill-verdict: work-in-english — applied: invoked; used for English-internals (commits, code comments, record body) with this Korean-language final summary
+other mounted skills: not triggered
