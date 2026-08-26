@@ -34,13 +34,13 @@ HEAD의 현재 위치는 f43848b8입니다 issue-2468: record skill-verdict line
 skill-verdict: conformance-review-requirement-extraction — applied: invoked;
 used to split the issue's 4 Acceptance bullets into 6 checkable requirements
 below (bullet 2 and bullet 3 each bundle two obligations with "and").
-skill-verdict: conformance-review-verification-method-selection — applied:
-invoked; used to pick Demonstration for the live kill-9/sweep checks, Test
+skill-verdict: conformance-review-verification-method-selection — applied: invoked;
+used to pick Demonstration for the live kill-9/sweep checks, Test
 for the regression re-run, Inspection for the checkpoint-statement check.
 skill-verdict: conformance-review-verdict-assignment — applied: invoked;
 used to decide Present vs Surface for each requirement below.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every evidence citation below is file:line-range pinned to
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+every evidence citation below is file:line-range pinned to
 `f43848b8`.
 skill-verdict: conformance-review-finding-record — applied: invoked; each
 requirement block below carries requirement/spec_ref/verdict/evidence/
