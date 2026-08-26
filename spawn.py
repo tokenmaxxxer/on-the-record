@@ -1733,6 +1733,12 @@ def main() -> int:
         return roster_ps()
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
+    if a.role == "rebase":
+        # Issue #2403: mechanical rebase of the role branch already checked
+        # out at `-C <cwd>` onto current main -- no LLM session. Only the
+        # conflict-free case is mechanical; a conflict aborts and asks for
+        # a real role session (conflict resolution needs judgment).
+        return mechanical_rebase_cli(str(Path(a.cwd).resolve()))
     if a.role == "recut-corrupted":
         if not a.issue or not a.watch_role:
             sys.exit("사용법: spawn.py recut-corrupted --issue <n> --role <role> [-C cwd]")
@@ -2443,6 +2449,62 @@ def _recut_absorbed_branch(cwd: str, br: str):
     return git("checkout", br)
 
 
+def _mechanical_rebase(cwd: str, push: bool = True) -> dict:
+    """Issue #2403 — bring the branch already checked out at `cwd` current
+    with `_base(cwd)` via plain git, no LLM session. Only the conflict-free
+    case is handled mechanically: a rebase that needs conflict resolution
+    is aborted and reported so the caller falls back to a real role
+    session (conflict resolution is a judgment call, not mechanical --
+    rationale in docs/issue-2403/reports/implementation.md).
+
+    Returns `{"status": "up-to-date"|"rebased"|"conflict"|"error",
+    "behind": int, "detail": str}`. `push` uses `--force-with-lease`, safe
+    against a concurrent push this process didn't see."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    br_r = git("symbolic-ref", "--short", "-q", "HEAD")
+    if br_r.returncode != 0 or not br_r.stdout.strip():
+        return {"status": "error", "behind": 0,
+                "detail": "HEAD 가 브랜치를 가리키지 않는다(분리 HEAD) — rebase 대상 아님"}
+    branch = br_r.stdout.strip()
+    fetch = git("fetch", "origin")
+    if fetch.returncode != 0:
+        return {"status": "error", "behind": 0,
+                "detail": f"git fetch origin 실패: {fetch.stderr.strip()}"}
+    base = _base(cwd)
+    behind = git("rev-list", "--count", f"HEAD..{base}")
+    behind_n = (int(behind.stdout.strip())
+                if behind.returncode == 0 and behind.stdout.strip().isdigit() else 0)
+    if behind_n == 0:
+        return {"status": "up-to-date", "behind": 0,
+                "detail": f"{branch} 는 이미 {base} 기준 최신이다"}
+    rb = git("rebase", base)
+    if rb.returncode != 0:
+        git("rebase", "--abort")
+        return {"status": "conflict", "behind": behind_n,
+                "detail": (f"{branch} 를 {base} 위로 rebase 하다 충돌 — 기계적으로 "
+                            f"처리할 수 없다(rebase 는 abort 했다). 충돌 해소는 판단이 "
+                            f"필요해 role 세션이 있어야 한다.")}
+    if push:
+        pushed = git("push", "--force-with-lease", "origin", f"HEAD:{branch}")
+        if pushed.returncode != 0:
+            return {"status": "error", "behind": behind_n,
+                    "detail": f"rebase 는 됐지만 push 실패: {pushed.stderr.strip()}"}
+    return {"status": "rebased", "behind": behind_n,
+            "detail": f"{branch} 를 {base} 위로 rebase" + (" 하고 push 했다" if push else " 했다(push 안 함)")}
+
+
+def mechanical_rebase_cli(cwd: str) -> int:
+    """`spawn.py rebase -C <cwd>` — issue #2403 진입점. `_mechanical_rebase()`
+    결과를 사람이 읽을 한 줄로 찍고, `up-to-date`/`rebased` 는 0, `conflict`
+    는 (role 세션이 필요하다는 신호로) 2, 그 외 오류는 1 을 돌려준다."""
+    result = _mechanical_rebase(cwd)
+    print(f"[rebase] status={result['status']} behind={result['behind']} — {result['detail']}")
+    if result["status"] in ("up-to-date", "rebased"):
+        return 0
+    if result["status"] == "conflict":
+        return 2
+    return 1
 def _recut_corrupted_branch(cwd: str, br: str, base: str):
     """`br`(예: `issue-<n>/<role>`)을 같은 이름을 유지한 채, 지금 잡힌
     `merge-base(br, base)`를 새 base 로 밀어 재컷한다 (issue #2402).
