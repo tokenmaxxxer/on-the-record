@@ -53,6 +53,27 @@ def role_data() -> dict:
     return json.loads(_ROLE_DATA_PATH.read_text(encoding="utf-8"))
 
 
+def _derive_slug_from_task(task_text: str) -> str:
+    """Issue #2555 (Step C): derive a branch/record-filename-safe slug from
+    bare task text, when `spawn.py "<task>"` is called with no role/slug
+    positional at all.
+
+    Deterministic on `task_text` alone -- a respawn into the same
+    workspace must land on the same branch/record (docs/issue-2548/
+    reports/architecture.md, Identity section: "appending a fresh
+    disambiguator on every spawn would change the branch/filename on
+    every retry of the same work unit"), so this cannot mint a random
+    disambiguator the way `roster.new_lease_disambiguator()` does for the
+    skill axis. Task text is free-form (often Korean, often long) and a
+    branch/filename slug is one `^issue-[^/]+/([^/]+)$` path segment, so
+    an ASCII-only prefix is trimmed off for readability and an 8-hex-char
+    digest of the full text is always appended -- the digest alone
+    carries uniqueness/determinism; the prefix is a human hint only."""
+    ascii_part = re.sub(r"[^a-z0-9]+", "-", task_text.strip().lower()).strip("-")
+    digest = hashlib.sha1(task_text.encode("utf-8")).hexdigest()[:8]
+    return f"{ascii_part[:40].strip('-')}-{digest}" if ascii_part else digest
+
+
 def _bootstrap_write_scope(role: str) -> dict:
     """Issue #2551 Step A: bootstrap the roster/lease entry's `write_scope`
     field from `spawn_roles.json[role].write_scope` at spawn time. No
@@ -2044,7 +2065,26 @@ def main() -> int:
             print(f"  {name:12s} {meta.get('decides','')}  — {meta.get('use_when','')}")
         return 0
     if not a.task:
-        sys.exit("맡길 일이 없다. 사용법: spawn.py <역할> \"<맡길 일>\" [-C <경로>]")
+        # 이슈 #2555 (Step C, completion test): `spawn.py "<task>"` 는
+        # 단일 positional 이 전부라 argparse 가 그걸 `a.role` 에 묶고
+        # `a.task` 는 비어 있다. 그 단일 positional 이 `spawn_roles.json`
+        # 키(레거시 역할 이름)와 맞지 않으면 — 즉 위의 `role == "init"`
+        # 류 서브커맨드 분기와도, 아래 알려진 역할 이름과도 안 맞으면 —
+        # 맡길 일이 실제로 없는 게 아니라 태스크 문구가 위치 인자 하나로만
+        # 들어온 것이다. `--skill` 경로(`spawn.py:1738-1746`)의
+        # `task_text = a.role` 관용구를 그대로 재사용해 태스크로 재해석하고,
+        # 슬러그를 그 문구에서 유도한다. 반대로 역할 이름과 *일치*하면
+        # 오늘과 동일하게 태스크 누락으로 거부한다 (must-not: 진짜 누락된
+        # 태스크를 역할 이름으로 삼켜서는 안 된다).
+        try:
+            known_roles = set(role_data())
+        except (OSError, ValueError):
+            known_roles = set()
+        if a.role in known_roles:
+            sys.exit("맡길 일이 없다. 사용법: spawn.py <역할> \"<맡길 일>\" [-C <경로>]")
+        task_text = a.role
+        a.task = task_text
+        a.role = _derive_slug_from_task(task_text)
     if a.checkpoint and a.single_phase:
         sys.exit("--checkpoint and --single-phase are mutually exclusive: "
                  "single-phase skips the proposal round entirely, checkpoint "
@@ -2722,7 +2762,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 겹친다.
     _core_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     _core_future = _core_executor.submit(core_plugin_dirs)
-    spec = role_data()[role]
+    # 이슈 #2555 (Step C): `role` 은 이제 `spawn_roles.json` 의 원소일
+    # 필요가 없는 슬러그다 — 없으면 빈 spec(아래 `write_scope` 조회가
+    # `_bootstrap_write_scope()`/`role_settings()`와 같은 모양으로 `[]`
+    # 로 떨어진다).
+    spec = role_data().get(role, {})
     # 이슈 #2001: 크로스-패밀리 스코어링은 이 함수가 받은 원본 task 텍스트를
     # 대상으로 한다 — 아래에서 task 에 여러 안내 문단이 계속 덧붙는데, 그
     # 덧붙은 텍스트(스킬 목록 자체 등)가 스코어링 입력에 섞이면 결정론이
@@ -2940,7 +2984,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _core_executor.shutdown(wait=False)
             return 1
         with _timed("branch"):
-            br = checkout_issue_branch(cwd, issue, role)
+            # 이슈 #2555 (Step C): `role` 은 이제 스폰 시점에 정해지는
+            # 슬러그다(레거시 역할 이름일 수도, 임의 슬러그일 수도 있다) —
+            # 역할-전용 `checkout_issue_branch()` 대신 이름-짓기 결정이
+            # 이미 끝난 브랜치 이름을 그대로 받는 `_checkout_named_branch()`
+            # 를 직접 부른다. 오늘의 브랜치 이름(`issue-<n>/<role>`)과
+            # 바이트 동일 — `checkout_issue_branch()` 자체가 이 한 줄이다.
+            br = _checkout_named_branch(cwd, f"issue-{issue}/{role}")
         print(f"[{role}] 격리 작업 디렉토리: {cwd}  (브랜치 {br})", file=sys.stderr)
         # 원본(프리픽스 붙기 전) 맡길 일을 한 번만 저장 — 재스폰(다른 spawn.py
         # 프로세스일 수 있다)이 이걸 읽어 그대로 넘기면, 아래에서 프리픽스를
