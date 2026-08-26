@@ -360,18 +360,19 @@ output, this session — result: FAIL, byte-identical to the failure above).
 
 **This CHANGES round (bullet-3 addendum, no code touched):**
 
-- `conformance-review-traceability-and-evidence` — applied: invoked; used
-  rule 1 (cite file:line/path plus the exact source read, not a bare
-  claim) to attach `canonical`/`derived` tags to every new figure in the
-  token-cost table and to the "What did not work" entry above — each of
-  the four token-cost rows cites its own transcript path as the one
-  contributing evidence file per case (rule 2), and the record-claim-guard
-  hook enforced the same requirement mechanically on this round's first
-  edit attempt (canonical: hook error text returned to this session on
-  that attempt).
-- `work-in-english` — applied: invoked; this round's record additions are
-  English exhaust, matching the rest of the file; the final summary to the
-  user stays Korean per the skill's routing rule.
+skill-verdict: conformance-review-traceability-and-evidence — applied:
+invoked; used rule 1 (cite file:line/path plus the exact source read, not
+a bare claim) to attach `canonical`/`derived` tags to every new figure in
+the token-cost table and to the "What did not work" entry above — each of
+the four token-cost rows cites its own transcript path as the one
+contributing evidence file per case (rule 2), and the record-claim-guard
+hook enforced the same requirement mechanically on this round's first
+edit attempt (canonical: hook error text returned to this session on that
+attempt).
+
+skill-verdict: work-in-english — applied: invoked; this round's record
+additions are English exhaust, matching the rest of the file; the final
+summary to the user stays Korean per the skill's routing rule.
 - `implementation-complexity-coupling-management`,
   `implementation-design-pattern-selection`,
   `implementation-performance-data-structure-choice`,
