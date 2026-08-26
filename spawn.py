@@ -52,6 +52,31 @@ _ROLE_DATA_PATH = ROOT / "spawn_roles.json"
 def role_data() -> dict:
     return json.loads(_ROLE_DATA_PATH.read_text(encoding="utf-8"))
 
+
+def _bootstrap_write_scope(role: str) -> dict:
+    """Issue #2551 Step A: bootstrap the roster/lease entry's `write_scope`
+    field from `spawn_roles.json[role].write_scope` at spawn time. No
+    reader of this field exists yet (Step B adds one) — this call is purely
+    additive to the roster entry's shape.
+
+    Returns `{}` (the key entirely absent) when `role` is not a
+    `spawn_roles.json` key or that role has no `write_scope` declared —
+    never `{"write_scope": []}` for that case. An empty *list* is a
+    legitimate declared value today (several roles, e.g.
+    `product-discovery`, declare `"write_scope": []` on purpose) and Step
+    B's planned fail-closed read distinguishes "no `write_scope` key" from
+    "an explicitly empty one" the same way `gates.py:role_scope()` already
+    does for `spawn_roles.json` itself (`"write_scope" not in role_cfg`) —
+    collapsing the undeclared case into an empty list here would erase that
+    distinction before Step B ever gets to make it."""
+    try:
+        cfg = role_data()[role]
+    except (OSError, ValueError, KeyError):
+        return {}
+    if "write_scope" not in cfg:
+        return {}
+    return {"write_scope": list(cfg["write_scope"])}
+
 # issue #2348: hook-fires/deviation-log per-session sharding -- both are
 # standalone leaf modules (no callback into spawn.py), so no `_sp`
 # injection is needed the way consult.py/roster.py/lifecycle.py require.
@@ -3421,6 +3446,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 }
                 _early_roster_entry.update(_skill_roster_fields(skill_sources, skill_sha))
                 _early_roster_entry.update(roster_resolution_fields)
+                _early_roster_entry.update(_bootstrap_write_scope(role))
                 roster_register(roster_key, _early_roster_entry)
                 _append_event(events_path, "session-start",
                               {"pid": os.getpid(), "ts": time.time()})
@@ -3554,6 +3580,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 그대로다.
             **_skill_roster_fields(skill_sources, skill_sha),
             **roster_resolution_fields,
+            # 이슈 #2551 Step A: spawn_roles.json[role].write_scope 를
+            # 스폰 시점에 그대로 옮겨 담는다 — 아직 아무도 읽지 않는다
+            # (Step B 전용).
+            **_bootstrap_write_scope(role),
         })
         if issue is not None:
             # 크래시가 roster_remove/종료 이벤트 사이에서 나면 이 이전엔

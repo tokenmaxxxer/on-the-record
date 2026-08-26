@@ -471,48 +471,83 @@ def _current_accumulation_counts(root: Path) -> dict:
     return {"shape1_sites": shape1_sites, "shape1_ok": shape1_ok}
 
 
+def _accumulation_repo_key(root: Path) -> str:
+    """`root` 를 식별하는 안정적이고 사람이 읽을 수 있는 키 —
+    `spawn._repo_identity()`(= `events._repo_identity()`) 에 위임한다(issue
+    #2546 warrant-hunter 후속 수정). 최초 구현은 체크아웃 디렉터리
+    basename 을 직접 썼는데, origin 이 다른 두 레포가 같은 체크아웃
+    디렉터리 이름(예: 둘 다 `checkout/`)을 쓰면 같은 키로 충돌해 이슈
+    #2546 이 고치려던 바로 그 cross-repo delta 버그를 조용히 재도입했다.
+    `_repo_identity()` 는 로컬 전용(`git remote get-url origin` 서브프로세스
+    호출 1회, `gh` API 호출 없음)이고, origin 이 없을 때만 디렉터리
+    basename 으로 떨어진다 — `spawn._repo_slug()`(gh API 호출)와는 다르다.
+    이미 `spawn` 으로 임포트돼 있고, 같은 다중 레포 스윕 루프
+    (`watchdog._board_wide_sweep_all`, ~836/~1218)가 레포 라벨링과 락파일
+    이름에 이미 같은 함수를 쓰고 있으므로 그 신뢰 기반을 재사용한다."""
+    return spawn._repo_identity(root)
+
+
 def accumulation_trend(root: Path) -> dict:
     """워치독 틱(issue #512 요구사항 4)마다 도는 advisory 측정 — 병합된
     트리를 훑어 모양 1 인스턴스 수를 세고, 직전 틱과 비교한 변화량을
     보고한다. 아무것도 막지 않는다(count report, blocking gate 아님).
 
-    직전 틱 데이터가 없으면(첫 실행) `has_prior: False`인 유효한 "no data"
-    artifact 를 낸다 — 예외를 던지지 않는다.
+    이슈 #2546: 상태 파일은 레포별로 키가 나뉜다(`{repo_key: {...}}`) —
+    이전엔 파일 하나에 레포 구분 없이 최신 카운트 하나만 얹혀서, 워치독이
+    레포 A를 훑은 뒤 레포 B를 훑으면 B의 카운트에서 A의 이전 카운트를 뺀
+    "델타"가 나왔다(둘 다 안 변했는데도). delta 는 반드시 같은 레포의
+    직전 항목하고만 비교한다.
+
+    직전 항목이 없으면(그 레포가 이 키로는 처음 관측됨 — 신규 레포거나,
+    구버전 비키드 상태 파일에서 마이그레이션하는 경우) `has_prior: False`
+    인 유효한 "no data" artifact 를 낸다 — 예외를 던지지 않는다. 구버전
+    파일(`{"shape1_sites": N, ...}`, 레포 키 없음)은 레포 정체성이 없으므로
+    쓸 수 있는 직전값이 없는 것으로 취급하고 통째로 버린 뒤, 이번 틱에
+    새 키드 모양으로 다시 쓴다.
 
     이슈 #2543: 이번 틱의 `git ls-files` 가 실패했으면(`shape1_ok=False`)
     delta 를 안 내고 상태 파일도 안 덮어쓴다 — 실패한 호출의 0을 상태에
     박아 넣으면 다음 틱의 delta 까지 오염된다."""
     state_path = state_paths.orchestrator_state_path(_ACCUMULATION_TREND_STATE)
-    prior = None
+    repo_key = _accumulation_repo_key(root)
+    all_state: dict = {}
     if state_path.is_file():
         try:
-            prior = json.loads(state_path.read_text(encoding="utf-8"))
+            loaded = json.loads(state_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            prior = None
+            loaded = None
+        # 레포키드 모양은 모든 최상위 값이 dict다. 구버전 비키드 파일
+        # (`{"shape1_sites": 365, "shape5_files": 0}`) 은 값이 int라 이
+        # 조건에서 걸러지고, 레포 정체성 없는 데이터로 통째로 버려진다.
+        if isinstance(loaded, dict) and all(isinstance(v, dict) for v in loaded.values()):
+            all_state = loaded
 
+    prior = all_state.get(repo_key)
     current = _current_accumulation_counts(root)
-    result = {"current": current, "has_prior": prior is not None}
+    result = {"repo": repo_key, "current": current, "has_prior": prior is not None}
     if prior is not None and current["shape1_ok"]:
         result["prior"] = prior
         result["delta"] = {"shape1_sites": current["shape1_sites"] - prior.get("shape1_sites", 0)}
 
     if current["shape1_ok"]:
+        all_state[repo_key] = current
         state_path.parent.mkdir(parents=True, exist_ok=True)
-        state_path.write_text(json.dumps(current), encoding="utf-8")
+        state_path.write_text(json.dumps(all_state), encoding="utf-8")
     return result
 
 
 def format_accumulation_trend(trend: dict) -> str:
     c = trend["current"]
+    repo = trend.get("repo", "?")
     if not c.get("shape1_ok", True):
         # 이슈 #2543: 실패와 진짜 0을 문면에서부터 구분한다 — 숫자를 전혀
         # 안 찍어 "0" 과 헷갈릴 여지를 없앤다.
-        return "accumulation-trend: shape1_sites=ERROR(git-ls-files-failed)"
+        return f"[{repo}] accumulation-trend: shape1_sites=ERROR(git-ls-files-failed)"
     if not trend.get("has_prior"):
-        return (f"accumulation-trend: no prior tick data (first run) — "
+        return (f"[{repo}] accumulation-trend: no prior tick data (first run) — "
                 f"shape1_sites={c['shape1_sites']}")
     d = trend["delta"]
-    return (f"accumulation-trend: shape1_sites={c['shape1_sites']} "
+    return (f"[{repo}] accumulation-trend: shape1_sites={c['shape1_sites']} "
            f"({'+' if d['shape1_sites'] >= 0 else ''}{d['shape1_sites']})")
 
 
