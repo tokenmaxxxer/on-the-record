@@ -114,3 +114,25 @@ Append-only, newest entry last.
   corpus-scale claim failed conformance-review): a small,
   cheaply-verifiable before/after on real existing logs, not a
   corpus-wide 5x-style claim."), read 2026-08-26.
+
+- 2026-08-26: reviewer stated a policy on PR #2495 (issue #2289, role
+  retirement stage 6) that a partial delivery must not carry a
+  Closes/Fixes/Resolves trailer for the issue it's partially delivering —
+  "a partial delivery references the issue, it does not close it."
+  Applying this surfaced a real gap: `on-the-record/hooks/pr-preflight.sh`
+  forces `phase2 = True` unconditionally whenever `CORE_BUILD_NOW=1`
+  (build-now bypass) and then hard-requires a Closes/Fixes/Resolves
+  trailer for every phase2 PR body, with no partial-delivery exception
+  and no override env var (verified by reading the file this session).
+  The two are in direct conflict for any build-now session that stops
+  partway under scope/turn-budget pressure and still needs to open or
+  update a PR. This session could not resolve the gate gap in-scope
+  (issue #2289 is about role retirement, not pr-preflight.sh) and instead
+  kept the trailer with clarifying prose — see
+  docs/issue-2289/reports/implementation/deviation-log/20260826T030345827655-dbf242b6a62cebdf.md.
+  Future work: pr-preflight.sh's phase2 model needs a partial-delivery
+  exception (e.g. a `Part of #<n>` trailer accepted in place of
+  Closes/Fixes/Resolves when the record's own `type:` frontmatter says
+  `partial-delivery`) so build-now sessions that stop early don't have to
+  choose between a blocked PR edit and a misleading auto-close. Source:
+  this session's CHANGES-round task prompt on PR #2495, read 2026-08-26.
