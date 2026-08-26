@@ -170,13 +170,6 @@ None — landing complete this same session: commit
 `canonical: gh pr view 2531 output (state: OPEN, url:
 https://github.com/tokenmaxxxer/on-the-record/pull/2531)`.
 
-skill-verdict: work-in-english — applied: invoked; internal reasoning,
-code, prose, docs, and this record written in English per the skill,
-final user-facing summary will be in Korean.
-skill-verdict: implementation-complexity-coupling-management —
-not-applicable: no class CBO/LCOM, accessor chain, cross-module import
-direction, DI interface, or shared-utils removal was in scope; the
-task's only "ordering" concern is a session-workflow prose sequence
-(code -> checks -> record), not a local pre-merge tool pipeline's step
-order (rule 9), which is what this skill's ordering rule covers.
+skill-verdict: work-in-english — applied: invoked; internal reasoning, code, prose, docs, and this record written in English per the skill, final user-facing summary in Korean.
+skill-verdict: implementation-complexity-coupling-management — not-applicable: no class CBO/LCOM, accessor chain, cross-module import direction, DI interface, or shared-utils removal was in scope; the task's only "ordering" concern is a session-workflow prose sequence (code -> checks -> record), not a local pre-merge tool pipeline's step order (rule 9), which is what this skill's ordering rule covers.
 other mounted skills: not triggered.
