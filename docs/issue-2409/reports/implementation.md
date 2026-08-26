@@ -470,3 +470,13 @@ implicitly throughout: this record, commit message, and code comments are
 in English, while the pre-existing Korean directive-fragment convention
 in `directive_assembly.py`'s `_*_PROSE` constants was matched for the two
 new constants, same precedent issue #2262's record already set).
+
+### CHANGES round (NR1b fix, commit 980d6db9)
+
+skill-verdict: work-in-english — applied: invoked; this CHANGES round's
+commit message and record edits are in English (user prompt was in
+Korean); final chat summary given in Korean per the skill.
+other mounted skills: not triggered — this round is a single-file
+artifact-commit fix (no coupling/cohesion, pattern, data-structure, or
+multi-module-structure decision in play; not a conformance-review-record
+or audit-protocol task, those belong to the observer roles).
