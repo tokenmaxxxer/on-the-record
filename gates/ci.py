@@ -406,6 +406,35 @@ def _fetch_ref_file(repo: Path, pr: int, branch: str, path: str) -> str | None:
         return None, "base64 디코드 실패"
 
 
+def _fetch_ref_dir_names(repo: Path, pr: int, branch: str, path: str) -> list[str] | None:
+    """`ref`(PR head 브랜치)의 디렉터리 항목 파일 이름 목록 — `_fetch_ref_file`과
+    같은 `contents` API, `path` 가 디렉터리면 GitHub 쪽이 배열을 돌려주는
+    동작을 쓴다. 이슈 #2545: 새 스킬+lease 레코드 이름(`{role}-{lease-
+    disambiguator}.md`)은 브랜치 이름(옛 역할 축 그대로, 바뀌지 않는다)에서
+    복원할 수 없어, `reports/` 를 훑어 `{role}-` 접두어로 찾아야 한다.
+    조회 실패(404 포함)는 조용히 `None` — 호출부가 이미 기존 파일 없음과
+    같은 값으로 처리한다."""
+    import json
+    import subprocess
+    slug = spawn._repo_slug(repo)
+    if not slug:
+        return None
+    r = subprocess.run(
+        ["gh", "api", "-X", "GET", f"repos/{slug}/contents/{path}",
+         "-f", f"ref={branch}"],
+        cwd=repo, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    try:
+        data = json.loads(r.stdout)
+    except ValueError:
+        return None
+    if not isinstance(data, list):
+        return None
+    return [e["name"] for e in data
+            if isinstance(e, dict) and e.get("type") == "file" and "name" in e]
+
+
 def _phase2_record_evidence(repo: Path, pr: int, branch: str, issue: int) -> bool:
     """phase-2 기록 파일의 존재 + 비어있지 않은 `loop_state` 를 closing 의도의
     대안 증거로 인정한다(issue #284 승인된 제안) — 승인 이후 phase 가 뒤바뀐
@@ -424,7 +453,20 @@ def _phase2_record_evidence(repo: Path, pr: int, branch: str, issue: int) -> boo
     if detected is None:
         return False
     _, role = detected
-    text, _err = _fetch_ref_file(repo, pr, branch, f"docs/issue-{issue}/reports/{role}.md")
+    reports_dir = f"docs/issue-{issue}/reports"
+    text, _err = _fetch_ref_file(repo, pr, branch, f"{reports_dir}/{role}.md")
+    if text is None:
+        # 이슈 #2545: 새 레코드는 `{role}.md`가 아니라 `{role}-{lease-
+        # disambiguator}.md`에 산다 — 브랜치는 여전히 옛 역할 축 이름이라
+        # 그 disambiguator를 브랜치 문자열에서 복원할 수 없다(디렉터리를
+        # 훑어야 한다). 정확히 하나만 매치하지 않아도(0개거나 여러 개거나)
+        # "증거 없음"으로 취급하지 않는다 — 첫 번째 매치를 시도해 실제로
+        # 읽히는 파일을 쓴다.
+        for name in sorted(_fetch_ref_dir_names(repo, pr, branch, reports_dir) or []):
+            if name.startswith(f"{role}-") and name.endswith(".md"):
+                text, _err = _fetch_ref_file(repo, pr, branch, f"{reports_dir}/{name}")
+                if text is not None:
+                    break
     if text is None:
         return False
     fm = gates.record_frontmatter(text)

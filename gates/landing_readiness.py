@@ -69,10 +69,13 @@ def reexecution_blocking_cause(root: Path, issue: int, role: str
     verdict = reexecution_gate.read_verdict(root, issue, role)
     if verdict is None or verdict.kind == reexecution_gate.PASS:
         return None
-    record_path = f"docs/issue-{issue}/reports/{role}.md"
+    # 이슈 #2545: 새 레코드는 `reports/{role}.md`가 아니라
+    # `reports/{role}-{lease-disambiguator}.md`에 쓰인다 — `scope`는 접두어
+    # 매칭(`startswith`, 위 docstring)이라 두 번째 항목으로 그 파일도 덮는다.
     return {
         "reason": f"reexecution_gate: {verdict.kind} — {verdict.detail}",
-        "scope": frozenset({record_path}),
+        "scope": frozenset({f"docs/issue-{issue}/reports/{role}.md",
+                             f"docs/issue-{issue}/reports/{role}-"}),
     }
 
 
@@ -88,11 +91,13 @@ def obligation_blocking_cause(root: Path, issue: int, role: str, pr: int
     obligation = landing_obligation.read_obligation(root, issue, role, pr)
     if obligation is None or obligation.status == landing_obligation.RESOLVED:
         return None
-    record_path = f"docs/issue-{issue}/reports/{role}.md"
+    # 이슈 #2545: reexecution_blocking_cause 와 같은 이유로 새-스킴 레코드
+    # 접두어도 scope 에 함께 넣는다.
     return {
         "reason": f"landing_obligation: {obligation.status} — pr #{pr} "
                   f"unverified since {obligation.opened_at}",
-        "scope": frozenset({record_path}),
+        "scope": frozenset({f"docs/issue-{issue}/reports/{role}.md",
+                             f"docs/issue-{issue}/reports/{role}-"}),
     }
 
 

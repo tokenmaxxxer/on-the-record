@@ -871,7 +871,14 @@ _WRITE_SCOPE_OVERRIDE = re.compile(
 
 
 def _always_writable(role: str) -> list[str]:
+    # 이슈 #2545: 새 레코드는 `reports/{role}.md`가 아니라
+    # `reports/{role}-{lease-disambiguator}.md`에 쓰인다
+    # (`directive_assembly.write_record_skeleton`, `pipeline.skill_lease_name`)
+    # — 두 번째 glob이 없으면 자기 자신의 새-스킴 레코드조차 이 화이트리스트
+    # 밖이라 write_scope 이탈로 오탐된다. 옛 스킴 파일은 첫 줄이 그대로
+    # 계속 덮는다(둘 다 always-writable).
     return [f"docs/issue-*/reports/{role}.md",
+            f"docs/issue-*/reports/{role}-*.md",
             f"docs/issue-*/reports/{role}/**",
             "docs/issue-*/proposals/**",
             "docs/issue-*/decisions/**"]

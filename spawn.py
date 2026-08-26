@@ -522,6 +522,7 @@ admission_gate = _pipeline_mod.admission_gate
 bootstrap_fetch_and_record_sha = _pipeline_mod.bootstrap_fetch_and_record_sha
 checkout_issue_branch = _pipeline_mod.checkout_issue_branch
 checkout_issue_branch_for_skill = _pipeline_mod.checkout_issue_branch_for_skill
+skill_lease_name = _pipeline_mod.skill_lease_name
 _checkout_named_branch = _pipeline_mod._checkout_named_branch
 core_plugin_dirs = _pipeline_mod.core_plugin_dirs
 core_root = _pipeline_mod.core_root
@@ -2923,6 +2924,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         task_path = Path(str(cwd) + ".task.txt")
         if not task_path.exists():
             task_path.write_text(task, encoding="utf-8")
+        # 이슈 #2545: 레코드 파일 이름의 skill+lease 세그먼트 — task_path와
+        # 같은 자리, 같은 "없으면 새로 쓰고 있으면 읽는다" 관용구다. 브랜치는
+        # 여전히 옛 역할 축 이름(`checkout_issue_branch`, 위)을 그대로 쓴다 —
+        # 이 disambiguator는 브랜치가 아니라 레코드 파일 이름에만 쓰인다. 매
+        # spawn_cmd() 호출마다 새로 뽑으면(재스폰 포함) 그때마다 다른 파일이
+        # 생겨 이전 스켈레톤이 고아가 된다 — 워크스페이스당 한 번만 뽑아
+        # task_path 옆에 영구히 남겨, 같은 워크스페이스로의 재스폰이 같은
+        # 레코드 경로로 수렴하게 한다.
+        disambiguator_path = Path(str(cwd) + ".record-disambiguator.txt")
+        if disambiguator_path.exists():
+            disambiguator = disambiguator_path.read_text(encoding="utf-8").strip()
+        else:
+            disambiguator = new_lease_disambiguator()
+            disambiguator_path.write_text(disambiguator, encoding="utf-8")
         # issue #1017 (northpole req#6): 이슈가 인용하는 요구 ID를 스폰
         # 텍스트에 그대로 실어, 스폰된 역할 세션이 첫 턴부터 어느 요구를
         # 섬기는지 안다. gh 조회 실패는 조용히 건너뛴다 — 이 줄이 없다고
@@ -2981,7 +2996,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                   if checkpoint else None),
                 code_scoped=_role_touches_code(spec.get("write_scope", [])))
             materialize_directive_sections(cwd, _directive_section_texts)
-            write_record_skeleton(cwd, issue, role)
+            _record_skeleton_path = write_record_skeleton(cwd, issue, role, disambiguator)
         with _timed("issue_fetch"):
             if pre_resolved:
                 body = issue_data.get("body") if issue_data else None
@@ -3043,9 +3058,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"gh issue view {issue} 로 이슈를 먼저 읽어라.\n"
                 f"완료의 정의: 변경이 이 브랜치에 커밋되고 push 되어 PR 로 "
                 f"제출된 상태다 — 미커밋 변경은 존재하지 않는 것과 같다.\n"
-                f"레코드 스켈레톤: docs/issue-{issue}/reports/{role}.md 가 "
+                f"레코드 스켈레톤: docs/issue-{issue}/reports/"
+                f"{skill_lease_name(role, disambiguator)}.md 가 "
                 f"미리 쓰여 있다 — 구조를 새로 만들지 말고 스켈레톤의 "
-                f"섹션을 채워라(이슈 #2135).\n"
+                f"섹션을 채워라(이슈 #2135, #2545).\n"
                 f"\n") + task
         # 이슈 #1978 (A), 이슈 #2152 로 기본값 반전: `single_phase` 는 이제
         # CLI 기본값이 True 인 effective 값이다 — --two-phase 나

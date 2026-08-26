@@ -860,7 +860,11 @@ def ownership_report(cwd: str, role: str, delta: list) -> list[str]:
         if not m:
             continue
         rest = m.group(2)
-        if rest == f"{role}.md" or rest.startswith(f"{role}/"):
+        # 이슈 #2545: 새 레코드는 `{role}.md`가 아니라 `{role}-{lease-
+        # disambiguator}.md`에 산다 — 이 세션 자신의 새-스킴 레코드도
+        # "자기 것"으로 인정한다.
+        if (rest == f"{role}.md" or rest.startswith(f"{role}/")
+                or rest.startswith(f"{role}-")):
             continue
         if role == "technical-feasibility" and rest.startswith("spikes/"):
             continue

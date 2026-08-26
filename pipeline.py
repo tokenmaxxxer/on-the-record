@@ -1128,6 +1128,20 @@ def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
     return _sp._checkout_named_branch(cwd, f"issue-{issue}/{role}")
 
 
+def skill_lease_name(skill: str, disambiguator: str | None = None) -> str:
+    """`<skill>-<lease-disambiguator>` 세그먼트 하나로 — `checkout_issue_branch_for_skill`
+    이 브랜치 이름을 짓는 바로 그 규칙을 순수 함수로 뽑아낸 것.
+
+    이슈 #2545: 레코드 파일 이름(`docs/issue-<n>/reports/<name>.md`)도 이
+    세그먼트를 stem 으로 쓴다 — 브랜치와 별도로 "두 번째 네이밍 스킴"을
+    새로 짓는 대신, 이미 존재하는 이 규칙을 재사용한다(제안서 must-not:
+    a second naming helper). `disambiguator` 생략 시 동작은
+    `checkout_issue_branch_for_skill`과 동일하게 `roster.new_lease_disambiguator()`
+    로 새로 뽑는다."""
+    disambiguator = disambiguator or _sp.new_lease_disambiguator()
+    return f"{skill}-{disambiguator}"
+
+
 def checkout_issue_branch_for_skill(cwd: str, issue: int, skill: str,
                                      disambiguator: str | None = None) -> str:
     """이슈 #2432 (role retirement stage 4): 새 스킬 축 네이밍 —
@@ -1140,9 +1154,9 @@ def checkout_issue_branch_for_skill(cwd: str, issue: int, skill: str,
     docs/decisions/2026-08-25-retire-role-axis-staging.md) 이 disambiguator가
     실제 충돌-방지 키다. 대칭적으로 `checkout_issue_branch`와 마찬가지로 실제
     checkout 은 `_checkout_named_branch`로 위임한다 — 네이밍 함수 자신은
-    이름만 짓는다."""
-    disambiguator = disambiguator or _sp.new_lease_disambiguator()
-    return _sp._checkout_named_branch(cwd, f"issue-{issue}/{skill}-{disambiguator}")
+    이름만 짓는다(`skill_lease_name`에 위임)."""
+    return _sp._checkout_named_branch(
+        cwd, f"issue-{issue}/{skill_lease_name(skill, disambiguator)}")
 
 
 def _session_log_path(cwd: str) -> Path:

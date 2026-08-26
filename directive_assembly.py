@@ -576,10 +576,22 @@ def _stamp_additive_record_fields(issue: int, role: str) -> str:
     return f"author: {role}\n"
 
 
-def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
+def write_record_skeleton(cwd: str, issue: int, role: str,
+                           disambiguator: str) -> Path | None:
     """Pre-write the role's own record skeleton at bootstrap; never
-    overwrite an existing record (a respawn into the same workspace)."""
-    p = Path(cwd) / "docs" / f"issue-{issue}" / "reports" / f"{role}.md"
+    overwrite an existing record (a respawn into the same workspace).
+
+    Issue #2545: the file's stem is `_sp.skill_lease_name(role,
+    disambiguator)` — the same `<skill>-<lease-disambiguator>` convention
+    `checkout_issue_branch_for_skill` uses for branch names, not a bare
+    role name — so the record's own filename stops being the thing that
+    encodes role identity for every downstream gate (the issue's premise:
+    "the record filename is the root"). `disambiguator` is minted once per
+    workspace by the caller and persisted alongside `.task.txt`, so a
+    respawn into the same workspace resolves the same path and this
+    function's existing-record guard still holds."""
+    name = _sp.skill_lease_name(role, disambiguator)
+    p = Path(cwd) / "docs" / f"issue-{issue}" / "reports" / f"{name}.md"
     if p.exists():
         return None
     # Initial loop_state: the role's own record_fields enum is authoritative
