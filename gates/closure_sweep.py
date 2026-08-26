@@ -440,13 +440,25 @@ def _violations_digest(violations: list[dict]) -> str:
 
 
 def _current_accumulation_counts(root: Path) -> dict:
-    """이슈 #512 요구사항 4: 병합된 트리(diff 아님)에서 모양 1/5 인스턴스
-    수를 센다 — `accumulation.py`가 검사에 쓰는 것과 같은 두 모양(inline
-    subprocess/gh 호출, roles/*.json)만, 일반 중복 탐지기는 재도입하지
-    않는다 (#419/#424 오탐 홍수 거부 재확인)."""
+    """이슈 #512 요구사항 4: 병합된 트리(diff 아님)에서 모양 1 인스턴스 수를
+    센다 — `accumulation.py`가 검사에 쓰는 것과 같은 모양(inline
+    subprocess/gh 호출)만, 일반 중복 탐지기는 재도입하지 않는다
+    (#419/#424 오탐 홍수 거부 재확인).
+
+    이슈 #2543: 모양 5(`roles/*.json` 근-중복 파일 더미)는 여기서 뺐다 —
+    #2539 가 `roles/` 를 통째로 지우고 `spawn_roles.json` 파일 하나로
+    합쳤으므로, 셀 대상 자체가 없다(이사 간 게 아니라 없어졌다). 상수 0을
+    영원히 내보내는 키를 남기는 대신 지운다 — 한 가지 값만 낼 수 있는
+    지표는 아예 없는 지표보다 나쁘다.
+
+    `git ls-files` 호출이 실패하면(예: `root` 가 git 레포가 아니거나 읽을
+    수 없음) `shape1_ok=False` 를 같이 낸다 — 실패를 조용히 0건으로 세면
+    "다 정리됐다"로 잘못 읽힌다(실측: `shape5_files=0 (-87)` 를 정리
+    완료로 오독한 사건, 이 이슈의 동기)."""
     p = subprocess.run(["git", "-C", str(root), "ls-files", "*.py"],
                        capture_output=True, text=True)
-    py_files = p.stdout.splitlines() if p.returncode == 0 else []
+    shape1_ok = p.returncode == 0
+    py_files = p.stdout.splitlines() if shape1_ok else []
     shape1_sites = 0
     for rel in py_files:
         f = root / rel
@@ -456,19 +468,20 @@ def _current_accumulation_counts(root: Path) -> dict:
             continue
         shape1_sites += accumulation._inline_subprocess_call_count(text)
 
-    p5 = subprocess.run(["git", "-C", str(root), "ls-files", "roles/*.json"],
-                        capture_output=True, text=True)
-    shape5_files = len(p5.stdout.splitlines()) if p5.returncode == 0 else 0
-    return {"shape1_sites": shape1_sites, "shape5_files": shape5_files}
+    return {"shape1_sites": shape1_sites, "shape1_ok": shape1_ok}
 
 
 def accumulation_trend(root: Path) -> dict:
     """워치독 틱(issue #512 요구사항 4)마다 도는 advisory 측정 — 병합된
-    트리를 훑어 모양 1/5 인스턴스 수를 세고, 직전 틱과 비교한 변화량을
+    트리를 훑어 모양 1 인스턴스 수를 세고, 직전 틱과 비교한 변화량을
     보고한다. 아무것도 막지 않는다(count report, blocking gate 아님).
 
     직전 틱 데이터가 없으면(첫 실행) `has_prior: False`인 유효한 "no data"
-    artifact 를 낸다 — 예외를 던지지 않는다."""
+    artifact 를 낸다 — 예외를 던지지 않는다.
+
+    이슈 #2543: 이번 틱의 `git ls-files` 가 실패했으면(`shape1_ok=False`)
+    delta 를 안 내고 상태 파일도 안 덮어쓴다 — 실패한 호출의 0을 상태에
+    박아 넣으면 다음 틱의 delta 까지 오염된다."""
     state_path = state_paths.orchestrator_state_path(_ACCUMULATION_TREND_STATE)
     prior = None
     if state_path.is_file():
@@ -479,27 +492,28 @@ def accumulation_trend(root: Path) -> dict:
 
     current = _current_accumulation_counts(root)
     result = {"current": current, "has_prior": prior is not None}
-    if prior is not None:
+    if prior is not None and current["shape1_ok"]:
         result["prior"] = prior
-        result["delta"] = {
-            k: current[k] - prior.get(k, 0) for k in current
-        }
+        result["delta"] = {"shape1_sites": current["shape1_sites"] - prior.get("shape1_sites", 0)}
 
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps(current), encoding="utf-8")
+    if current["shape1_ok"]:
+        state_path.parent.mkdir(parents=True, exist_ok=True)
+        state_path.write_text(json.dumps(current), encoding="utf-8")
     return result
 
 
 def format_accumulation_trend(trend: dict) -> str:
     c = trend["current"]
+    if not c.get("shape1_ok", True):
+        # 이슈 #2543: 실패와 진짜 0을 문면에서부터 구분한다 — 숫자를 전혀
+        # 안 찍어 "0" 과 헷갈릴 여지를 없앤다.
+        return "accumulation-trend: shape1_sites=ERROR(git-ls-files-failed)"
     if not trend.get("has_prior"):
         return (f"accumulation-trend: no prior tick data (first run) — "
-                f"shape1_sites={c['shape1_sites']} shape5_files={c['shape5_files']}")
+                f"shape1_sites={c['shape1_sites']}")
     d = trend["delta"]
     return (f"accumulation-trend: shape1_sites={c['shape1_sites']} "
-           f"({'+' if d['shape1_sites'] >= 0 else ''}{d['shape1_sites']}), "
-           f"shape5_files={c['shape5_files']} "
-           f"({'+' if d['shape5_files'] >= 0 else ''}{d['shape5_files']})")
+           f"({'+' if d['shape1_sites'] >= 0 else ''}{d['shape1_sites']})")
 
 
 def post_sweep_comments(root: Path, violations: list[dict]) -> list[int]:

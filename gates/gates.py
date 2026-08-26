@@ -664,7 +664,15 @@ def requirement_registry(d: Path, cfg: dict) -> list[str]:
     않는다 — #310 이 이미 인정한, 기계적으로 검사 불가능한 규칙의 표시다.
     레지스트리 파일이 없으면 "검사할 게 없다"로 통과시킨다 — 이 게이트
     자신이 그 파일을 만드는 최초 커밋에서 아직 없을 수 있기 때문이다.
-    파싱 실패(필수 필드 누락)는 차단 사유다."""
+    파싱 실패(필수 필드 누락)는 차단 사유다.
+
+    UNVERIFIABLE 개수는 여기 `bad`(차단 목록)에는 안 넣는다 — 이 함수는
+    `gates/ci.py`(머지를 막는 CI 게이트)에도 물려 있어, 여기 넣으면
+    UNVERIFIABLE 이 하나라도 있는 한 모든 PR 이 영구히 막힌다. 대신
+    `requirement_registry_unverifiable_summary()`가 같은 파싱으로 별도
+    집계해, `bad` 를 안 막는 `board.gate_report()`(스폰 사후 리포트)에서
+    같이 보인다(issue #2543) — UNVERIFIABLE 로 `continue` 되는 항목이
+    조용히 안 보이던 문제."""
     root = d / "work" if (d / "work").exists() else d
     reg = root / "docs" / "specs" / "requirements.md"
     if not reg.exists():
@@ -680,6 +688,20 @@ def requirement_registry(d: Path, cfg: dict) -> list[str]:
             bad.append(f"요구사항 체크 소실: {e['id']} (issue #{e['source_issue']}) "
                        f"— check={check!r} 이 가리키는 경로가 HEAD 에 없다")
     return bad
+
+
+def requirement_registry_unverifiable_summary(d: Path, cfg: dict) -> str:
+    """`requirement_registry()`가 `continue`로 건너뛰는 UNVERIFIABLE 항목
+    개수를, 전체 항목 수 대비 한 줄로 낸다(issue #2543). 0개여도 "0 of N"
+    을 낸다 — 그게 통과 상태이지, 줄 자체를 숨길 이유가 아니다."""
+    root = d / "work" if (d / "work").exists() else d
+    reg = root / "docs" / "specs" / "requirements.md"
+    if not reg.exists():
+        return "요구사항 레지스트리 없음 — UNVERIFIABLE 집계 대상 없음"
+    entries, _bad = _parse_requirements(
+        reg.read_text(encoding="utf-8-sig", errors="replace"))
+    unverifiable = sum(1 for e in entries if e["check"].startswith("UNVERIFIABLE:"))
+    return f"요구사항 레지스트리: {unverifiable} of {len(entries)} 체크가 UNVERIFIABLE"
 
 
 _CHECKED_CLAIM_LINE = re.compile(
