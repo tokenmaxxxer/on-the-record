@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 import json
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,12 +29,42 @@ def _run(*args, cwd):
     return p.stdout
 
 
+# issue #2516: this file was the single largest contributor to the
+# suite's git-fixture-repo leak into /tmp — every one of the ~85 tests
+# below builds its own repo via `_mkdtemp()`, and the old docstring on
+# `_repo_with_record` explicitly said cleanup was NOT the caller's
+# responsibility because "the OS reclaims it on process exit". That is
+# exactly the process-exit-only cleanup #2516 rules out: a killed or
+# ENOSPC-halted worker never reaches that exit. `_created_dirs` + the
+# autouse fixture below tear each directory down in pytest's own
+# per-test teardown, which runs even when a test raises; the `__main__`
+# runner gets an equivalent try/finally for the standalone-script path.
+# Test isolation is unchanged — every test still gets its own fresh,
+# unshared repo; only the leak is fixed.
+_created_dirs: list[Path] = []
+
+
+def _mkdtemp() -> Path:
+    d = Path(tempfile.mkdtemp())
+    _created_dirs.append(d)
+    return d
+
+
+@pytest.fixture(autouse=True)
+def _cleanup_fixture_repos():
+    yield
+    while _created_dirs:
+        shutil.rmtree(_created_dirs.pop(), ignore_errors=True)
+
+
 def _repo_with_record(record_body: str, role: str = "implementation",
                        rel: str | None = None):
     """`test_gates_refusal.py::_repo_with_record`와 같은 관례: origin/main 에
-    빈 상태를 커밋하고, HEAD 에서 레코드 하나를 추가한 임시 git repo. 정리는
-    호출자 책임이 아니다(임시 디렉터리, 프로세스 종료 시 OS 가 회수)."""
-    d = Path(tempfile.mkdtemp())
+    빈 상태를 커밋하고, HEAD 에서 레코드 하나를 추가한 임시 git repo. 각
+    테스트는 여전히 자기 repo를 새로 받는다(공유 없음) — 정리는
+    `_cleanup_fixture_repos`(pytest) 또는 `__main__` 러너의 try/finally가
+    맡는다."""
+    d = _mkdtemp()
     _run("init", "-q", "-b", "main", cwd=d)
     _run("config", "user.email", "t@example.com", cwd=d)
     _run("config", "user.name", "t", cwd=d)
@@ -94,7 +125,7 @@ def t_invalid_enum_value_is_reported():
 
 
 def t_repo_with_no_records_yields_explicit_empty_state():
-    d = Path(tempfile.mkdtemp())
+    d = _mkdtemp()
     _run("init", "-q", "-b", "main", cwd=d)
     _run("config", "user.email", "t@example.com", cwd=d)
     _run("config", "user.name", "t", cwd=d)
@@ -108,7 +139,7 @@ def t_repo_with_no_records_yields_explicit_empty_state():
 
 
 def t_non_record_path_is_reported_not_silently_skipped():
-    d = Path(tempfile.mkdtemp())
+    d = _mkdtemp()
     _run("init", "-q", "-b", "main", cwd=d)
     off_path = d / "docs" / "notes.md"
     off_path.parent.mkdir(parents=True, exist_ok=True)
@@ -476,7 +507,7 @@ def t_git_tracked_path_reference_check_exempts_self_citation():
     yet committed (mid-authoring, before the closing commit) — exempt,
     since the in-progress write cannot yet have git history for
     itself."""
-    d = Path(tempfile.mkdtemp())
+    d = _mkdtemp()
     _run("init", "-q", "-b", "main", cwd=d)
     _run("config", "user.email", "t@example.com", cwd=d)
     _run("config", "user.name", "t", cwd=d)
@@ -644,7 +675,7 @@ def t_sweep_mode_skips_record_authored_before_linter_birth():
     grade a record last committed before the linter's own birth date
     (2026-08-09) — retro-grading a frozen historical record against
     rules it predates fabricates provenance if "fixed" post hoc."""
-    d = Path(tempfile.mkdtemp())
+    d = _mkdtemp()
     _run("init", "-q", "-b", "main", cwd=d)
     _run("config", "user.email", "t@example.com", cwd=d)
     _run("config", "user.name", "t", cwd=d)
@@ -673,7 +704,7 @@ def t_sweep_mode_keeps_record_authored_after_linter_birth():
     """Sibling positive: a record committed after the cutoff date stays
     in the sweep — the cutoff excludes pre-existing history, not
     everything."""
-    d = Path(tempfile.mkdtemp())
+    d = _mkdtemp()
     _run("init", "-q", "-b", "main", cwd=d)
     _run("config", "user.email", "t@example.com", cwd=d)
     _run("config", "user.name", "t", cwd=d)
@@ -911,7 +942,7 @@ def t_1614_class4_historical_narration_not_flagged():
     assert record_lint.canonical_source_claim_check(text) == []
     defect_text = "Previously the root cause is a stale cache entry.\n"
     assert record_lint.defect_claim_grounding_check(
-        Path(tempfile.mkdtemp()), defect_text) == []
+        _mkdtemp(), defect_text) == []
 
 
 def t_1614_class5_rule_self_quotation_exempted():
@@ -1182,7 +1213,7 @@ def t_2219_empty_record_passes_every_claim_guard_cleanly():
     assert record_lint.canonical_source_claim_check(text) == []
     assert record_lint.outcome_claim_citation_check(text) == []
     assert record_lint.defect_claim_grounding_check(
-        Path(tempfile.mkdtemp()), text) == []
+        _mkdtemp(), text) == []
 
 
 # --- issue #2331: machine-verified derived figures -------------------------
@@ -1358,7 +1389,7 @@ def t_2331_empty_record_fires_zero_new_checks():
     """issue #2331 Acceptance — empty state: a record with no derived
     figures at all must not trip any of the four new checks."""
     text = ""
-    d = Path(tempfile.mkdtemp())
+    d = _mkdtemp()
     assert record_lint.wc_l_recompute_check(d, text) == []
     assert record_lint.pytest_count_recompute_check(d, text) == []
     assert record_lint.citation_line_bounds_check(d, text) == []
@@ -1388,16 +1419,20 @@ def _run_all():
     tests = [(n, f) for n, f in globals().items()
              if n.startswith("t_") and callable(f)]
     failed = 0
-    for name, fn in tests:
-        try:
-            fn()
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL {name}: {e}")
-        else:
-            print(f"ok {name}")
-    print(f"{len(tests) - failed}/{len(tests)} passed")
-    return 1 if failed else 0
+    try:
+        for name, fn in tests:
+            try:
+                fn()
+            except AssertionError as e:
+                failed += 1
+                print(f"FAIL {name}: {e}")
+            else:
+                print(f"ok {name}")
+        print(f"{len(tests) - failed}/{len(tests)} passed")
+        return 1 if failed else 0
+    finally:
+        while _created_dirs:
+            shutil.rmtree(_created_dirs.pop(), ignore_errors=True)
 
 
 if __name__ == "__main__":
