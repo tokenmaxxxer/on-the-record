@@ -500,6 +500,7 @@ _skill_declared_phrases = _pipeline_mod._skill_declared_phrases
 _timed = _pipeline_mod._timed
 _tokenize = _pipeline_mod._tokenize
 _ttl_marker = _pipeline_mod._ttl_marker
+_verify_branch_base_sane = _pipeline_mod._verify_branch_base_sane
 _workspace_bash_allow = _pipeline_mod._workspace_bash_allow
 _write_role_sidecar = _pipeline_mod._write_role_sidecar
 admission_gate = _pipeline_mod.admission_gate
