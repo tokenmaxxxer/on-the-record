@@ -91,6 +91,7 @@ _roster_own = roster._roster_own
 _watcher_looks_real = roster._watcher_looks_real
 _alive = roster._alive
 lease_key = roster.lease_key
+new_lease_disambiguator = roster.new_lease_disambiguator
 roster_register = roster.roster_register
 roster_remove = roster.roster_remove
 _declared_wait = roster._declared_wait
@@ -104,6 +105,7 @@ deadman_mark = roster.deadman_mark
 deadman_check = roster.deadman_check
 lease_reconcile_sweep = roster.lease_reconcile_sweep
 spawn_attempt_sweep = roster.spawn_attempt_sweep
+SPAWN_ATTEMPT_GRACE_SEC = roster.SPAWN_ATTEMPT_GRACE_SEC
 _surface_approval_wait = roster._surface_approval_wait
 APPROVAL_WAIT_EXPIRING_FRACTION = roster.APPROVAL_WAIT_EXPIRING_FRACTION
 APPROVAL_WAIT_LEDGER_TTL_SEC = roster.APPROVAL_WAIT_LEDGER_TTL_SEC
@@ -399,6 +401,7 @@ _post_crash_comment = lifecycle._post_crash_comment
 _post_session_end_comment = lifecycle._post_session_end_comment
 _post_stall_comment = lifecycle._post_stall_comment
 _pr_list_call_ok = lifecycle._pr_list_call_ok
+_prune_orphaned_sidecars = lifecycle._prune_orphaned_sidecars
 _remediation_merge_sweep = lifecycle._remediation_merge_sweep
 _respawn_fingerprint = lifecycle._respawn_fingerprint
 _respawn_or_cap = lifecycle._respawn_or_cap
@@ -406,8 +409,10 @@ _respawn_state_load = lifecycle._respawn_state_load
 _respawn_state_save = lifecycle._respawn_state_save
 _roster_reconcile_unreported = lifecycle._roster_reconcile_unreported
 _self_trigger_respawn = lifecycle._self_trigger_respawn
+_sidecar_workspace_name = lifecycle._sidecar_workspace_name
 _workspace_base = lifecycle._workspace_base
 _workspace_clean_state = lifecycle._workspace_clean_state
+_workspace_merge_trigger_status = lifecycle._workspace_merge_trigger_status
 auto_sweep = lifecycle.auto_sweep
 detect_legacy_monitor_alive_dirs = lifecycle.detect_legacy_monitor_alive_dirs
 gc_monitor_alive = lifecycle.gc_monitor_alive
@@ -439,6 +444,7 @@ _recovery_policy_module = _board_mod._recovery_policy_module
 _session_commit_count = _board_mod._session_commit_count
 approve_scope = _board_mod.approve_scope
 board = _board_mod.board
+_skill_axis_report_names = _board_mod._skill_axis_report_names
 board_snapshot = _board_mod.board_snapshot
 classify = _board_mod.classify
 fail_closed_downgrade = _board_mod.fail_closed_downgrade
@@ -451,6 +457,7 @@ ownership_report = _board_mod.ownership_report
 require_acceptance_gate = _board_mod.require_acceptance_gate
 require_board = _board_mod.require_board
 require_no_repo_config = _board_mod.require_no_repo_config
+require_repo_root = _board_mod.require_repo_root
 require_requirement_linkage = _board_mod.require_requirement_linkage
 roster_ps = _board_mod.roster_ps
 session_end_verdict = _board_mod.session_end_verdict
@@ -496,11 +503,14 @@ _skill_declared_phrases = _pipeline_mod._skill_declared_phrases
 _timed = _pipeline_mod._timed
 _tokenize = _pipeline_mod._tokenize
 _ttl_marker = _pipeline_mod._ttl_marker
+_verify_branch_base_sane = _pipeline_mod._verify_branch_base_sane
 _workspace_bash_allow = _pipeline_mod._workspace_bash_allow
 _write_role_sidecar = _pipeline_mod._write_role_sidecar
 admission_gate = _pipeline_mod.admission_gate
 bootstrap_fetch_and_record_sha = _pipeline_mod.bootstrap_fetch_and_record_sha
 checkout_issue_branch = _pipeline_mod.checkout_issue_branch
+checkout_issue_branch_for_skill = _pipeline_mod.checkout_issue_branch_for_skill
+_checkout_named_branch = _pipeline_mod._checkout_named_branch
 core_plugin_dirs = _pipeline_mod.core_plugin_dirs
 core_root = _pipeline_mod.core_root
 core_version = _pipeline_mod.core_version
@@ -509,6 +519,7 @@ get_bootstrap_fetch_record = _pipeline_mod.get_bootstrap_fetch_record
 positive_int = _pipeline_mod.positive_int
 read_role_model_config = _pipeline_mod.read_role_model_config
 recut_if_absorbed_cli = _pipeline_mod.recut_if_absorbed_cli
+recut_corrupted_cli = _pipeline_mod.recut_corrupted_cli
 require_doctor = _pipeline_mod.require_doctor
 resolved_role_model = _pipeline_mod.resolved_role_model
 role_settings = _pipeline_mod.role_settings
@@ -589,6 +600,69 @@ STATE_ROOT = (Path(os.environ["MUSTER_STATE_ROOT"]).resolve()
 
 NETWORK_TIMEOUT = plumbing.NETWORK_TIMEOUT   # fetch/pull/push (moved with _run_net)
 CLONE_TIMEOUT = 180    # clone — bigger initial transfer
+
+# 이슈 #2417: 호스트 디스크/inode 고갈은 on-the-record 소관 밖이다 — 실측
+# 워크스페이스 25개, 50~121MB (평균 ~60MB, 이슈에 적힌 ~119MB 는 상한 근처
+# 값). clone 을 실제로 시도하기 전에 여유 바이트/inode 를 한 번 확인해,
+# 실패가 "origin 불일치"/파묻힌 git 에러/watchdog rc=97 로 흩어지는 대신
+# 바로 원인을 이름 붙여 거부한다. 임계값 = 워크스페이스 하나 상한(~119MB)
+# 의 3배 — 동시 스폰 여러 개가 같은 틱에 클론해도 헤드룸이 남게. 알고
+# 진행하려는 컨슈머는 MUSTER_SKIP_SPACE_CHECK=1 로 끄거나
+# MUSTER_MIN_FREE_BYTES/MUSTER_MIN_FREE_INODES 로 임계값 자체를 바꾼다.
+MIN_FREE_BYTES_DEFAULT = 3 * 119 * 1024 * 1024   # ~357MB
+MIN_FREE_INODES_DEFAULT = 1000
+
+
+def _spawn_capacity_check(path) -> None:
+    """`path` 아래 clone 을 시도하기 전에 여유 바이트/inode 를 확인한다
+    (이슈 #2417). 부족하면 clone 근처도 안 가고 거부한다 — 메시지는 여유량과
+    임계값을 이름으로 남긴다. `path` 자체가 아직 없으면(신규 워크스페이스
+    디렉터리) 존재하는 조상 디렉터리로 올라가서 잰다."""
+    if os.environ.get("MUSTER_SKIP_SPACE_CHECK", "") not in ("", "0", "false", "no", "off"):
+        return
+    probe = Path(path)
+    while not probe.exists():
+        probe = probe.parent
+    try:
+        usage = shutil.disk_usage(probe)
+    except OSError:
+        return  # 못 재면 예전처럼 fail-open — clone 자체의 에러 경로가 처리한다
+    min_bytes = int(os.environ.get("MUSTER_MIN_FREE_BYTES", MIN_FREE_BYTES_DEFAULT))
+    if usage.free < min_bytes:
+        sys.exit(
+            f"스폰을 거부한다: {probe} 에 여유 공간이 부족하다 "
+            f"({usage.free // (1024 * 1024)}MB 가용, 임계값 {min_bytes // (1024 * 1024)}MB) "
+            f"— clone 을 시도하기 전에 미리 막는다. 정책: 워크스페이스 상한 "
+            f"실측치(~119MB)의 3배를 동시-스폰 헤드룸으로 둔다. 알고 진행하려면 "
+            f"MUSTER_SKIP_SPACE_CHECK=1."
+        )
+    try:
+        st = os.statvfs(probe)
+    except (OSError, AttributeError):
+        return
+    free_inodes = st.f_favail
+    min_inodes = int(os.environ.get("MUSTER_MIN_FREE_INODES", MIN_FREE_INODES_DEFAULT))
+    if free_inodes and free_inodes < min_inodes:
+        sys.exit(
+            f"스폰을 거부한다: {probe} 에 여유 inode 가 부족하다 "
+            f"({free_inodes}개 가용, 임계값 {min_inodes}개) — clone 을 시도하기 전에 "
+            f"미리 막는다. 알고 진행하려면 MUSTER_SKIP_SPACE_CHECK=1."
+        )
+
+
+def _workspace_clone_incomplete(work: Path) -> bool:
+    """`work` 에 `.git` 은 있지만 clone 이 끝까지 못 간 상태인지(ENOSPC 등으로
+    중간에 죽어 partial tree 만 남은 경우) 판별한다 (이슈 #2417). HEAD 가
+    가리키는 커밋이 없거나 `git status` 자체가 에러면 — 남의 레포가 아니라
+    미완성 클론이다; 그 다음에 오는 origin-mismatch 판정은 여기를 통과한,
+    완결된(그러나 진짜 다른) 레포에만 적용된다."""
+    head = subprocess.run(["git", "-C", str(work), "rev-parse", "--verify", "-q", "HEAD"],
+                          capture_output=True, text=True)
+    if head.returncode != 0:
+        return True
+    status = subprocess.run(["git", "-C", str(work), "status", "--porcelain"],
+                            capture_output=True, text=True)
+    return status.returncode != 0
 
 
 _BOOTSTRAP_TIMING: dict[str, float] = {}
@@ -1001,6 +1075,36 @@ def _load_spawn_attempts() -> tuple[dict, dict]:
 SPAWN_ATTEMPTS_RETENTION_SEC = 7 * 24 * 3600
 
 
+def _pid_is_alive(pid) -> bool:
+    """이슈 #2413: `_prune_spawn_attempts()`의 prune 패스 중에만 하는
+    on-demand 체크(signal 0 kill) — 지속 폴링이 아니라 watchdog 틱마다
+    prune 이 도는 그 순간에만 값을 묻는다(추가 steady-state 부하 없음).
+    `ProcessLookupError` 만 "죽었다"로 본다: `PermissionError`(다른
+    유저 소유 pid — 그래도 존재)나 그 밖의 `OSError` 는 생사를 확신할
+    수 없다는 뜻이라 보수적으로 "살아있다"로 취급한다 — 판정이 불확실할
+    때 실행 중인 spawn 을 실수로 지우는 쪽보다, 안 지워질 orphan 레코드가
+    하루이틀 더 남는 쪽이 낫다. `pid` 가 숫자 문자열로 직렬화돼 있어도
+    (레저 손상/드리프트로 실제 있었던 사례 — commit cea0f583) int 로
+    변환해 실제로 OS 에 물어본다: 변환 없이 non-int 를 바로 죽었다고
+    보면, 살아있는 pid 가 문자열로만 인코딩된 레코드를 오검사로
+    지워버릴 수 있다."""
+    if isinstance(pid, str) and pid.strip().lstrip("-").isdigit():
+        try:
+            pid = int(pid)
+        except ValueError:
+            return False
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:
+        return True
+    else:
+        return True
+
+
 def _prune_spawn_attempts(now: float | None = None) -> int:
     """`SPAWN_ATTEMPTS_PATH`를 다시 써서 위 정책에 안 걸리는 이벤트만
     남긴다. 돌려주는 값은 지운 줄 수(0 이면 파일을 건드리지 않는다 —
@@ -1019,7 +1123,85 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
     for aid, a in attempts.items():
         outcome = outcomes.get(aid)
         if outcome is None:
-            keep_ids.add(aid)  # 미해결 — 항상 유지
+            # 이슈 #2413: outcome 이 없다고 무조건 영원히 유지하면(원래
+            # 동작) 프로세스가 진작 죽어 다시는 outcome 을 못 쓸 시도
+            # (SIGKILL/OOM/하드 크래시)까지 매 틱 그대로 남아
+            # spawn_attempt_sweep() 이 "no outcome recorded"를 영원히
+            # 재보고한다(실측: 434건 중 419건이 pytest fixture 이슈
+            # 31/7 의 orphan — #2393 origin guard 이전에 쌓인 것들).
+            # 살아있는 spawn(pid 생존)은 나이와 무관하게 절대 안 지운다
+            # — "in-flight 시도가 실행 중인 spawn 밑에서 지워지면 안
+            # 된다"는 요구사항 그대로.
+            #
+            # 이슈 #2431: pid 가 죽었을 때 #2413 은 halted 분기와 같은
+            # SPAWN_ATTEMPTS_RETENTION_SEC(7일) 창을 그대로 재사용했다 —
+            # "새 knob 을 만들지 않는다"는 의도는 맞았지만, 그 7일 창은
+            # halted 분기 고유의 이유(미해결 halt 를 오케스트레이터가
+            # 알아채고 조치할 시간을 준다)로 존재하는 것이라 여기엔
+            # 적용되지 않는다: pid 가 이미 죽었다고 확인된 순간부터는
+            # "알아채고 조치할" 대상 자체가 없다 — 기다림은 순수 비용이다
+            # (실측: 라이브 백로그 434건이 전부 7일 미만의 죽은 pid라
+            # #2418 은 0건을 지웠다). 오퍼레이터 가이던스(이슈 #2431,
+            # issuecomment-5411038089, 2026-08-25 mid-flight)로 확정: 애초에
+            # 달력 기반 유예 자체가 불필요하다 — `_pid_is_alive()`가 False를
+            # 반환한 순간 그 결론(진짜 죽었다)은 이미 확정이라 더 기다려도
+            # 새로 알아낼 게 없다. 시간이 걸려야 하는 유일한 케이스는
+            # `_pid_is_alive()` 자신이 판정을 확신 못 하는 경우(모호한
+            # `OSError`)뿐인데, 그건 이미 그 함수 안에서 "확신 없으면
+            # 살아있다고 본다"로 보수적으로 처리돼 있어(docstring 참고)
+            # 여기까지 내려오지 않는다. 그래서 이 분기는 나이 계산을 아예
+            # 하지 않는다: pid 가 죽었다고 확인되면 바로 다음 prune pass
+            # (이 watchdog 틱)에 지운다. `spawn_attempt_sweep()`(roster.py)
+            # 은 이 함수를 호출하기 전에 같은 호출 안에서 먼저 보고 루프를
+            # 돌리므로(그 시점에 이미 `SPAWN_ATTEMPT_GRACE_SEC` 를 넘겼다면)
+            # 지우기 전에 보고할 기회를 여전히 얻는다 — 별도 유예 없이도
+            # "지우기 전에 최소 한 번은 보고"가 정상 호출 경로에서 그대로
+            # 성립한다. halted 분기의 7일 창은 이 변경으로 전혀 건드리지
+            # 않는다(아래 elif, 여전히 SPAWN_ATTEMPTS_RETENTION_SEC 그대로;
+            # issuecomment-5410865516 이 명시적으로 요구한 그대로).
+            #
+            # CHANGES 라운드(execution-observation, PR #2438 merged로 지적):
+            # 위 "나이 계산을 아예 안 한다"는 결론에는 구멍이 있었다 —
+            # `SPAWN_ATTEMPT_GRACE_SEC`(300초, roster.py) 이내에 pid 가 죽는
+            # 빠른 크래시는, 바로 그 틱에서 `spawn_attempt_sweep()` 의 보고
+            # 루프 자신이 "아직 부트스트랩 유예 중"이라며 보고를 건너뛰는데
+            # (그 루프의 게이트가 정확히 `now - ts < SPAWN_ATTEMPT_GRACE_SEC`),
+            # 뒤이어 같은 호출이 부르는 이 prune 은 나이를 전혀 안 보고 pid
+            # 죽음만으로 바로 지워버려 — 그 시도는 단 한 번도 보고되지 않고
+            # 사라진다. #2291/#2393/#2413/#2431 전체 체인이 없애려는 바로 그
+            # "무보고 침묵 halt" 클래스를 그대로 재도입하는 회귀였다.
+            #
+            # 고쳐서: pid 죽음 확인과 별개로 `SPAWN_ATTEMPT_GRACE_SEC` 를
+            # 넘기기 전에는 지우지 않는다 — 보고 루프가 reportable 여부를
+            # 판정하는 것과 정확히 같은 문턱이라, 한 시도가 처음 prune
+            # 대상 나이에 닿는 바로 그 틱은 늘 보고 루프가 먼저 그 시도를
+            # 검토하는 바로 그 틱이기도 하다(report 루프가 먼저 돌고 나서
+            # prune 이 도는 같은 `spawn_attempt_sweep()` 호출 안이므로) —
+            # "지우기 전 최소 한 번 보고"가 report 루프의 성공 여부에
+            # 기대는 게 아니라 이 문턱을 공유하는 것 자체로 보장된다. 이
+            # 문턱은 halted 분기의 7일 `SPAWN_ATTEMPTS_RETENTION_SEC`과는
+            # 다른, 훨씬 짧은 `SPAWN_ATTEMPT_GRACE_SEC`(300초 =
+            # CLONE_TIMEOUT+NETWORK_TIMEOUT+60) 이다 — 근거가 다르다: halted
+            # 쪽은 "오케스트레이터가 알아채고 조치할 시간"이고, 여기는
+            # "이 워치독 틱의 보고 루프가 이 레코드를 검토할 기회를 최소
+            # 한 번 갖게 하는 것"뿐이다. 이미 살아있는 spawn을 나이로
+            # 보호하려는 목적이 전혀 아니므로 — 살아있는 pid 는 위에서
+            # 나이와 무관하게 항상 keep 이고, 이 문턱은 "죽은 pid" 시도에만
+            # 적용된다. `ts` 가 없거나 숫자가 아니면(레저 손상/드리프트)
+            # 유예를 계산할 근거 자체가 없어 즉시 prune 대상으로 본다
+            # (missing-ts 에 대한 기존 동작 유지).
+            pid = a.get("pid")
+            if _pid_is_alive(pid):
+                keep_ids.add(aid)
+            else:
+                ts = a.get("ts")
+                if isinstance(ts, (int, float)) and \
+                        now - ts < SPAWN_ATTEMPT_GRACE_SEC:
+                    keep_ids.add(aid)
+                # else: 죽었다고 확인됐고, 보고 루프가 이 시도를 검토할 수
+                # 있었던 문턱(SPAWN_ATTEMPT_GRACE_SEC)도 이미 넘겼다(또는
+                # ts 가 없어 유예를 계산할 수 없다) — prune 대상
+                # (keep_ids 에 안 넣는다).
         elif outcome.get("outcome") == "halted":
             outcome_ts = outcome.get("ts", now)
             if not isinstance(outcome_ts, (int, float)) or \
@@ -1325,9 +1507,14 @@ def main() -> int:
                          "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--skills", default=None,
-                    help="쉼표로 구분한 스킬 이름 목록을 skill-repository 체크아웃"
-                         "(MUSTER_SKILL_REPO 또는 형제-클론)에서 마운트한다"
-                         "(이슈 #1742). 생략하면 스폰 argv/env 는 이전과 동일")
+                    help="쉼표로 구분한 스킬 이름 목록을 네 소스 — "
+                         "skill-repository 체크아웃(MUSTER_SKILL_REPO 또는 "
+                         "형제-클론), 설치된 플러그인의 skills/, "
+                         "~/.claude/skills, 타깃 저장소 .claude/skills — "
+                         "에 걸쳐 해석해 마운트한다(이슈 #1742/#1774/#2488). "
+                         "이름이 둘 이상의 소스에서 겹치면 fail-closed(우선순위 "
+                         "없음, docs/decisions/2026-08-26-skills-resolver-source-priority-and-trust.md). "
+                         "생략하면 스폰 argv/env 는 이전과 동일")
     ap.add_argument("--skill", default=None,
                     help="이슈 #2241 stage 0: 역할 대신 스킬 이름(콤마로 여러 개 가능)으로 "
                          "곧장 가이던스를 해석한다. 사용: spawn.py --skill <스킬명> "
@@ -1346,7 +1533,9 @@ def main() -> int:
     ap.add_argument("--stall-timeout", type=float, default=5.0,
                     help="분 단위. role task/watch 가 이벤트 없이 블록하는 최대 시간 (기본 5)")
     ap.add_argument("--role", dest="watch_role",
-                    help="watch: 같은 이슈에 역할이 여럿 기록돼 있을 때 지정")
+                    help="watch: 같은 이슈에 역할이 여럿 기록돼 있을 때 지정. "
+                         "recut-corrupted: --issue 와 함께 대상 issue-<n>/<role> "
+                         "브랜치를 고른다")
     ap.add_argument("--follow", action="store_true",
                     help="watch: 이벤트마다 재무장하지 않고 session-end 까지 "
                          "_await_bounded 를 반복 호출하며 스트리밍한다")
@@ -1476,6 +1665,10 @@ def main() -> int:
         return roster_ps()
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
+    if a.role == "recut-corrupted":
+        if not a.issue or not a.watch_role:
+            sys.exit("사용법: spawn.py recut-corrupted --issue <n> --role <role> [-C cwd]")
+        return recut_corrupted_cli(str(Path(a.cwd).resolve()), a.issue, a.watch_role)
     if a.role == "watchdog":
         # 이슈 #1219: `-C` (기본값 ".") 를 그대로 넘긴다 — 컨슈머 세션은
         # 타깃 프로젝트를, dev 세션(cwd == 이 체크아웃)은 이 체크아웃
@@ -1677,7 +1870,7 @@ def main() -> int:
                       repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
                       self_heal=a.self_heal)
     if a.role == "clean":
-        return roster_clean(_workspace_base(), a.issue)
+        return roster_clean(_workspace_base(), a.issue, Path(a.cwd).resolve())
     if a.role == "doctor":
         # 훅 발화 실측. 버전마다 한 번 — 룰북 집행의 전제조건이다.
         return doctor()
@@ -1762,13 +1955,20 @@ def main() -> int:
         # 드라이런은 막는다: 레포가 자기 훅을 들고 있으면 그건 세션을 띄우기
         # 전에 알아야 할 사실이지, 띄우고 나서 알 일이 아니다. attempt 기록
         # 대상이 아니므로(세션을 안 태움) 아래 non-dry-run 분기와 따로 돈다.
+        # 이슈 #2395: cwd 가 존재하지 않음/git 레포 아님/레포 루트 아님 세
+        # 경우를 require_board 의 "approvers.md 없다" 증상보다 먼저, 원인
+        # 그대로 이름 붙여 멈춘다.
+        require_repo_root(a.cwd, a.issue)
+        # 이슈 #2395 CHANGES(PR #2404 conformance review, REQ-CWD-WRONGREPO):
+        # require_acceptance_gate/require_requirement_linkage 는 이슈
+        # 리서치 결과에 따라 여기서 거절할 수 있다 — 레포/이슈 해석 echo
+        # 를 그 두 게이트보다 앞으로 옮겨, 거절되는 경우에도 오케스트레
+        # 이터가 어느 레포/이슈로 해석됐는지 본다.
+        _resolve_and_echo_issue(a.role, a.cwd, a.issue)
         require_board(a.cwd, a.no_contract or a.dry_run)
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_acceptance_gate(a.cwd, a.issue)
         require_requirement_linkage(a.cwd, a.issue)
-        cwd_path = Path(a.cwd)
-        if not cwd_path.is_dir():
-            sys.exit(f"-C 가 디렉터리가 아니다: {a.cwd}")
         out = role_settings(a.role, a.cwd)
         # MUSTER_ROLE_MODEL / role_model.txt (이슈#93): spawn_cmd 는 이
         # dry-run 경로를 안 타므로(세션을 안 띄우니까) --model 부착 여부가
@@ -1800,6 +2000,16 @@ def main() -> int:
     attempt_id = (_record_spawn_attempt(a.issue, a.role, os.getpid())
                   if a.issue is not None else None)
     try:
+        # 이슈 #2395: 위 dry-run 분기와 같은 이유로 네 계약 게이트보다
+        # 먼저 — 이 게이트도 attempt_id 기록 뒤(traceless halt 방지)에
+        # 있어야 한다.
+        require_repo_root(a.cwd, a.issue)
+        # 이슈 #2395 CHANGES: 위 dry-run 분기와 같은 이유로 이 게이트도
+        # require_acceptance_gate/require_requirement_linkage 보다 먼저
+        # — 그 두 게이트가 거절해도 echo 는 이미 찍혀 있다. 결과
+        # (issue_data, 또는 조회 실패 시 None)를 아래 `_spawn_one()`에
+        # 그대로 넘겨 gh 재조회를 피한다(acceptance check 2).
+        _issue_data = _resolve_and_echo_issue(a.role, a.cwd, a.issue)
         require_board(a.cwd, a.no_contract)
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_acceptance_gate(a.cwd, a.issue)
@@ -1825,7 +2035,8 @@ def main() -> int:
                           allow_unlimited_turns=a.allow_unlimited_turns,
                           checkpoint=a.checkpoint,
                           force_adhoc_task=a.force_adhoc_task,
-                          attempt_id=attempt_id)
+                          attempt_id=attempt_id,
+                          issue_data=_issue_data)
     except (SystemExit, Exception) as e:
         # 이슈 #2291: `_fetch_or_halt()`류의 fail-closed halt(sys.exit)와,
         # 이 구간의 아무 uncaught exception 이나 — 컨슈머가 stdout/stderr 를
@@ -1922,6 +2133,23 @@ def local_dependency_env(origin: str, work: str) -> dict[str, str]:
     return env
 
 
+def _set_origin_head(work_dir: str) -> subprocess.CompletedProcess:
+    """`origin/HEAD` 를 원격의 실제 기본 브랜치로 다시 계산한다.
+
+    issue #2383 (#2379 근본원인 추적): `_base()`(board.py)는 `origin/HEAD`
+    가 **존재하기만 하면** 그 값을 그대로 신뢰하고, 없을 때만
+    `origin/main`/`origin/master` 로 폴백한다 — 존재하지만 오래된 값은
+    걸러내지 않는다. 신규 클론 경로는 clone 직후 이 재계산을 이미
+    거치지만(issue #221), **재사용** 경로(cwd 가 이미 이 워크스페이스이거나
+    기존 워크스페이스를 fetch 만 하는 두 분기)는 `fetch`만 하고 이 재계산을
+    건너뛰어 왔다 — 원격 기본 브랜치가 바뀌었거나 최초 set-head 가 조용히
+    실패했던 워크스페이스는 재사용될 때마다 오염된 `origin/HEAD` 를 계속
+    물고 간다. `_fetch_or_halt`의 `after=` 로 세 경로(신규/재사용 2곳)
+    모두에서 fetch 직후 매번 호출한다."""
+    return subprocess.run(["git", "-C", work_dir, "remote", "set-head", "origin", "-a"],
+                          capture_output=True, text=True)
+
+
 def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
 
@@ -1968,9 +2196,17 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     repo_name = re.sub(r"\.git$", "", origin.rstrip("/").rsplit("/", 1)[-1]) or slug(cwd)
     work = (work_base / f"{repo_name}-issue-{issue}-{role}" if issue is not None
             else work_base / f"{repo_name}-adhoc-{role}-{os.getpid()}")
+    # 이슈 #2417 (before-landing hunt): fresh-clone 분기 앞에만 두면 재사용
+    # 분기(cwd==work 자기 재사용, 기존 .git 재사용) 두 곳은 여전히
+    # `_fetch_or_halt` 로 바로 들어가 디스크가 거의 다 찼을 때 clone 이 아니라
+    # fetch 에서 파묻힌 에러로 실패한다 — 같은 실패가 경로만 바뀐 것. 여기
+    # 최상단에서 한 번 확인하면 세 분기(자기 재사용/기존 워크스페이스
+    # 재사용/신규 clone) 모두 clone 이든 fetch든 쓰기 전에 걸린다.
+    _spawn_capacity_check(work)
     # cwd 가 이미 이 (이슈,역할)의 워크스페이스면 그대로 쓴다 — 중첩 금지.
     if src == work.resolve():
-        _fetch_or_halt(str(src), "재사용 워크스페이스")
+        _fetch_or_halt(str(src), "재사용 워크스페이스",
+                       after=lambda: _set_origin_head(str(src)))
         _write_role_sidecar(str(src), issue, role)
         return str(src)
     if issue is None and (work / ".git").exists():
@@ -1983,6 +2219,16 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
         # own docstring claim that adhoc always takes it.
         shutil.rmtree(work, ignore_errors=True)
     if (work / ".git").exists():
+        # 이슈 #2417: origin 비교보다 먼저 — 여기 있는 `.git` 이 이전 clone
+        # 이 ENOSPC 등으로 중간에 죽어 남긴 partial tree 일 수 있다. 그
+        # 경우를 "남의 레포다(origin 불일치)"로 오판하면 실제 원인(디스크
+        # 부족)도, 해법(지우고 재시도)도 안 보인다.
+        if _workspace_clone_incomplete(work):
+            sys.exit(
+                f"워크스페이스가 불완전하다: {work} — 이전 clone 이 도중에 실패해 "
+                f"(디스크 공간/inode 부족 등) 남의 레포가 아니라 partial 상태의 "
+                f"미완성 클론으로 남아 있다. 해결: 지우고 재시도하라 — rm -rf {work}"
+            )
         # 이 경로가 우리가 만든 워크스페이스가 아니라 우연히 같은 이름으로
         # 미리 놓인 남의 레포일 수 있다(#288 N5) — origin 이 다르면 그건
         # 네트워크 문제가 아니라 신원 불일치이므로 fetch 를 시도하기 전에
@@ -2003,7 +2249,8 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
         if _norm(work_origin) != _norm(origin):
             sys.exit(f"작업 경로에 다른 레포가 있다 (origin 불일치): {work} "
                      f"— 기대: {origin}, 실제: {work_origin or '(없음)'}")
-        _fetch_or_halt(str(work), "재사용 워크스페이스")
+        _fetch_or_halt(str(work), "재사용 워크스페이스",
+                       after=lambda: _set_origin_head(str(work)))
         _write_role_sidecar(str(work), issue, role)
         return str(work)
     work.parent.mkdir(parents=True, exist_ok=True)
@@ -2046,9 +2293,8 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     # origin 을 실제 원격으로 바꿨으니 origin/HEAD 도 그 원격 기준으로
     # 다시 계산해야 `_base()`가 오염된 기본 브랜치를 읽지 않는다. `after=`
     # 로 넘겨서 fetch 가 fail-closed 로 halt 하더라도 먼저 시도되게 한다.
-    _fetch_or_halt(str(work), "신규 워크스페이스", after=lambda: subprocess.run(
-        ["git", "-C", str(work), "remote", "set-head", "origin", "-a"],
-        capture_output=True, text=True))
+    _fetch_or_halt(str(work), "신규 워크스페이스",
+                   after=lambda: _set_origin_head(str(work)))
     _write_role_sidecar(str(work), issue, role)
     return str(work)
 
@@ -2129,6 +2375,35 @@ def _recut_absorbed_branch(cwd: str, br: str):
     return git("checkout", br)
 
 
+def _recut_corrupted_branch(cwd: str, br: str, base: str):
+    """`br`(예: `issue-<n>/<role>`)을 같은 이름을 유지한 채, 지금 잡힌
+    `merge-base(br, base)`를 새 base 로 밀어 재컷한다 (issue #2402).
+
+    `_recut_absorbed_branch`(issue #784)와는 정반대 상황을 다룬다: 그쪽은
+    "content 가 이미 base 에 흡수돼 버려도 되는" 브랜치라 base 로
+    리셋하고, 여기는 "content 는 유효한데 spawn 시점 branch-cut 이 잘못된
+    (오래된/무관한) parent 에서 갈라져 나온"(issue #2379) 브랜치라 그
+    content(브랜치 자신의 커밋들)를 버리지 않고 올바른 base 위로
+    옮겨 심는다 — `git rebase --onto`. 브랜치 이름이 그대로이므로 이
+    함수가 끝난 뒤 호출자가 같은 이름으로 origin 에 force-push 하면 기존
+    PR 은 (새로 열 필요 없이) 그 자리에서 깨끗한 merge-base 를 얻는다.
+
+    반환값은 최종 git 호출(checkout 실패 시 checkout, 아니면 rebase)의
+    CompletedProcess — returncode 로 성공 여부를 본다."""
+    def git(*a):
+        return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
+    checkout = git("checkout", "-B", br, f"origin/{br}")
+    if checkout.returncode != 0:
+        return checkout
+    merge_base = git("merge-base", br, base)
+    if merge_base.returncode != 0:
+        return merge_base
+    old_base = merge_base.stdout.strip()
+    if not old_base:
+        return merge_base
+    return git("rebase", "--onto", base, old_base, br)
+
+
 _ACCEPTANCE_CHECK_LINE = re.compile(r"^\s*-\s*check\s*:\s*(.+)$", re.MULTILINE)
 
 _STORYBOARD_RE = re.compile(r"storyboard|스토리보드", re.IGNORECASE)
@@ -2177,6 +2452,44 @@ ADMISSION_CHECKS: list[tuple] = [
 ]
 
 
+_ISSUE_NOT_PRE_RESOLVED = object()
+
+
+def _resolve_and_echo_issue(role: str, cwd: str, issue: int | None) -> dict | None:
+    """이슈 #2395 CHANGES(PR #2404 conformance review, REQ-REPRO/REQ-CWD-WRONGREPO):
+    레포/이슈 해석 echo 를 `main()`이 `require_acceptance_gate`/
+    `require_requirement_linkage` 를 부르기 *전에* 찍는다 — 그 두 게이트가
+    거절해도(예: 이슈의 원인 사례인 "요구 연결 없음") 오케스트레이터는
+    여전히 어느 레포/이슈로 해석됐는지 본다. 이전에는 이 echo 가
+    `_spawn_one()` 안에서만 돌아, 그 두 게이트보다 뒤에 있었다(게이트가
+    막으면 echo 자체가 안 찍힘).
+
+    `--issue` 없는 호출은 검사 대상이 없다 — `None` 을 그대로 돌려준다.
+    `gh` 조회 실패는 조용히 넘기지 않고 "확인 실패"라고 그대로 찍는다
+    (확인 불가를 확인됨으로 읽지 않는다, 아래 `_spawn_one()`과 동일 원칙).
+    """
+    if issue is None:
+        return None
+    issue_data = None
+    try:
+        sys.path.insert(0, str((ROOT / "gates").resolve()))
+        import gh_rest as _gh_rest
+        issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
+    except Exception:
+        issue_data = None
+    resolved_owner = issue_data.get("owner") if issue_data else None
+    resolved_repo = issue_data.get("repo") if issue_data else None
+    title = issue_data.get("title") if issue_data else None
+    if resolved_owner and resolved_repo:
+        resolved_line = (f"해석된 레포/이슈: {resolved_owner}/{resolved_repo}#{issue}"
+                          + (f" — {title}" if title else "") + "\n")
+    else:
+        resolved_line = (f"해석된 레포/이슈: 확인 실패 — cwd({cwd})가 가리키는 "
+                          f"레포에서 이슈 #{issue} 를 못 읽었다(gh 조회 실패).\n")
+    print(f"[{role}] {resolved_line.strip()}")
+    return issue_data
+
+
 def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
@@ -2186,7 +2499,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                allow_unlimited_turns: bool = False,
                checkpoint: bool = False,
                force_adhoc_task: bool = False,
-               attempt_id: str | None = None) -> int:
+               attempt_id: str | None = None,
+               issue_data=_ISSUE_NOT_PRE_RESOLVED) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
@@ -2201,7 +2515,15 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     일어날 수 있어, 그 지점들 하나하나를 계측하는 대신 호출부를 감싸는 쪽이
     새 halt 지점이 생겨도 놓치지 않는다. `None`(다른 호출부 — 예: 워치독
     자동-재스폰의 `_respawn_or_cap()`)이면 이 인자와 관련된 아무 것도 안
-    쓴다 — 오늘의 동작 그대로."""
+    쓴다 — 오늘의 동작 그대로.
+
+    `issue_data`(이슈 #2395 CHANGES, 옵션): `main()`이 게이트 앞에서 이미
+    `_resolve_and_echo_issue()`로 fetch-and-echo 를 끝냈으면 그 결과
+    (dict 또는 조회 실패 시 `None`)를 여기로 넘긴다 — 이 함수는 그 값을
+    재사용하고 echo 를 다시 찍지 않는다(gh 왕복 중복 방지). 기본값
+    `_ISSUE_NOT_PRE_RESOLVED` 는 "아직 아무도 안 찍었다"는 뜻으로, 이
+    함수가 직접 fetch 하고 echo 도 직접 찍는다 — `_respawn_or_cap()` 등
+    `main()`을 거치지 않는 호출부의 오늘까지 동작 그대로."""
     # Issue #2100: pre-spawn admission checklist. Runs before ANY side
     # effect (workspace clone, branch, roster/index writes, session
     # process) — a refusal names the missing precondition, writes one
@@ -2229,6 +2551,17 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
               f"non-retryable: publish the missing precondition, then "
               f"dispatch again.", file=sys.stderr)
         return 1
+    # 이슈 #2382: `core_plugin_dirs()` 는 인자가 없다 — role/cwd/issue 어느
+    # 것에도 안 걸리는, core 마켓플레이스 관리 클론(core_root()) pull 하나뿐
+    # 이라 admission 만 넘으면(부수효과는 admission 뒤부터, 위 주석) 바로
+    # 던져도 안전하다. 예전에는 이 pull 이 skill_resolve/workspace/branch/
+    # directive_write/issue_fetch/board_snapshot 을 전부 기다린 뒤 "core"
+    # 단계에서 처음 불렸다 — 그 사이 아무 것도 core_plugins 를 안 쓰므로
+    # 순수 직렬 대기였다. 여기서 먼저 던지고 아래 "core" 단계에서는 join 만
+    # 한다(cross_family 와 같은 패턴) — 그 사이의 거의 전체 부트스트랩과
+    # 겹친다.
+    _core_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    _core_future = _core_executor.submit(core_plugin_dirs)
     spec = json.loads((ROOT / "roles" / f"{role}.json").read_text())
     # 이슈 #2001: 크로스-패밀리 스코어링은 이 함수가 받은 원본 task 텍스트를
     # 대상으로 한다 — 아래에서 task 에 여러 안내 문단이 계속 덧붙는데, 그
@@ -2297,6 +2630,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         with _timed("adhoc_workspace"):
             cwd = issue_workspace(cwd, issue, role)
         print(f"[{role}] adhoc 격리 작업 디렉토리: {cwd}", file=sys.stderr)
+    # 이슈 #2382: adhoc 스폰(issue is None)은 아래 issue-스코프 블록 전체를
+    # 건너뛰어 directive_write 가 없다 — 그런 스폰의 board_snapshot 은
+    # cwd 가 애초에 안 바뀌므로 아무 것도 기다릴 필요가 없어, 이 두 변수가
+    # 여전히 None 이면 (composition_breakdown 직전) 거기서 바로 던진다.
+    _board_snapshot_executor: concurrent.futures.ThreadPoolExecutor | None = None
+    _board_snapshot_future = None
     if issue is not None:
         root = Path(cwd).resolve()
         # 이슈 #1239: #680 의 거절 게이트를 무조건적 surfacing 으로 대체한다
@@ -2386,6 +2725,24 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     print(f"[{role}] auto-sweep(백그라운드) {elapsed:.3f}s "
                           f"만에 끝남 (지움 {outcome['removed']}, "
                           f"실패 {outcome['failed']})", file=sys.stderr)
+                    # 이슈 #2443: 워크스페이스 디렉터리 정리와 같은
+                    # 스폰타임/같은 백그라운드 스레드/같은 예외-흡수 계약으로
+                    # 짝 디렉터리가 이미 없어진 sidecar 파일(세션 로그/
+                    # events.jsonl/events.offset/watcher.log/task.txt)도
+                    # 훑는다 — 새 트리거 지점을 만들지 않는다, 위
+                    # auto_sweep() 과 같은 호출 안.
+                    try:
+                        sidecar_outcome = _prune_orphaned_sidecars(
+                            _workspace_base(), _clean_max_age_days())
+                    except Exception as ex:
+                        print(f"[{role}] sidecar-prune 실패(스폰은 계속): {ex}",
+                              file=sys.stderr)
+                        return
+                    if sidecar_outcome["removed"] or sidecar_outcome["failed"]:
+                        print(f"[{role}] sidecar-prune(백그라운드) "
+                              f"(지움 {sidecar_outcome['removed']}, "
+                              f"실패 {sidecar_outcome['failed']})",
+                              file=sys.stderr)
                 threading.Thread(target=_run_auto_sweep, daemon=True,
                                   name="auto-sweep").start()
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
@@ -2399,6 +2756,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         claim_rejection = _acquire_spawn_claim(cwd, issue, role)
         if claim_rejection is not None:
             print(f"[{role}] {claim_rejection}", file=sys.stderr)
+            # 이슈 #2382 컨포먼스 리뷰 발견: 이 리턴은 위에서 이미 던진
+            # `_core_future`(core_plugin_dirs) 의 join 지점(아래 "core"
+            # 단계) 보다 먼저다 — join 없이 그냥 리턴하면 future 가 갈 곳을
+            # 잃는다. `ThreadPoolExecutor`는 daemon 스레드가 아니라
+            # 인터프리터 종료를 그 워커가 끝날 때까지 블록한다(#2195/#2061
+            # 의 그 이유로 auto_sweep/returned_pr_gate 는 raw daemon
+            # 스레드를 쓴다) — join 없이 나가면 그 블로킹이 조용히
+            # 되살아난다. 여기서 join 해 결과를 받는다: core_plugin_dirs()
+            # 는 선언된 core 플러그인이 없으면 `sys.exit()`로 죽는
+            # fail-loud 계약이라(pipeline.py, 이슈 #282) 그 예외는 삼키지
+            # 않고 그대로 전파한다 — claim 거절 여부와 무관하게 core
+            # 설정이 깨졌으면 시끄럽게 죽어야 한다는 원래 계약 그대로다.
+            core_plugins = _core_future.result()
+            _core_executor.shutdown(wait=False)
             return 1
         with _timed("branch"):
             br = checkout_issue_branch(cwd, issue, role)
@@ -2414,6 +2785,49 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 섬기는지 안다. gh 조회 실패는 조용히 건너뛴다 — 이 줄이 없다고
         # 스폰 자체를 막을 이유는 없다(require_requirement_linkage 가 이미
         # phase-1 드래프트 시점에 구조적으로 막는다).
+        # 이슈 #2382: 이 gh 조회(`_gh_rest.fetch_issue`)는 아래 directive_write
+        # 의 로컬 디스크 쓰기(섹션 파일/레코드 스켈레톤) 어느 쪽 결과에도
+        # 안 걸린다 — 둘 다 br/cwd 만 있으면 되고 서로의 출력을 안 읽는다.
+        # 예전에는 issue_fetch 가 directive_write **뒤에** 완전히 끝난
+        # 다음에야 시작해, 순수 네트워크 왕복이 로컬 I/O 뒤에 그대로
+        # 직렬로 얹혔다. 여기서 먼저 던지고(cross_family 와 같은 패턴),
+        # directive_write 가 메인 스레드에서 겹쳐 도는 동안 배경에서
+        # 돈다 — 아래 "issue_fetch" 단계는 이제 순수 join 대기만 잰다.
+        def _run_issue_fetch() -> tuple[str, str, str | None, object | None,
+                                         str | None, str | None, str | None]:
+            try:
+                sys.path.insert(0, str((ROOT / "gates").resolve()))
+                import gh_rest as _gh_rest
+                import requirement_linkage as _requirement_linkage
+                import design_artifacts_gate as _design_artifacts_gate_mod
+                issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
+                _body = issue_data.get("body") if issue_data else None
+                _title = issue_data.get("title") if issue_data else None
+                # 이슈 #2395: owner/repo 는 이 같은 `fetch_issue()` 응답에
+                # 이미 실려 있다 — echo 를 위해 gh 를 또 부르지 않는다.
+                _owner = issue_data.get("owner") if issue_data else None
+                _repo = issue_data.get("repo") if issue_data else None
+                _req_line = ""
+                _goal_pin = ""
+                if _body is not None:
+                    req_ids = _requirement_linkage.cited_requirement_ids(_body)
+                    if req_ids:
+                        _req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
+                    _goal_pin = _goal_pin_block(_title, _body)
+                return _req_line, _goal_pin, _body, _design_artifacts_gate_mod, _title, _owner, _repo
+            except Exception:
+                return "", "", None, None, None, None, None
+        # 이슈 #2395 CHANGES: `main()`이 게이트 앞에서 이미
+        # `_resolve_and_echo_issue()`로 fetch-and-echo 를 끝냈으면
+        # (`issue_data`가 `_ISSUE_NOT_PRE_RESOLVED`가 아니면) 이 async
+        # fetch 자체를 던지지 않는다 — 안 그러면 성공 경로에서 gh 왕복이
+        # 또 하나 늘어난다(acceptance check 2 위반). 아직 아무도 안
+        # 찍었으면(`_respawn_or_cap()` 등 `main()`을 안 거친 호출) 오늘
+        # 까지처럼 여기서 직접 async fetch 하고 echo 도 직접 찍는다.
+        pre_resolved = issue_data is not _ISSUE_NOT_PRE_RESOLVED
+        if not pre_resolved:
+            _issue_fetch_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            _issue_fetch_future = _issue_fetch_executor.submit(_run_issue_fetch)
         # Issue #2135: materialize the on-demand directive section files and
         # the record skeleton into the workspace BEFORE assembling the
         # index — the trigger lines below reference files that must exist.
@@ -2425,27 +2839,48 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 code_scoped=_role_touches_code(spec.get("write_scope", [])))
             materialize_directive_sections(cwd, _directive_section_texts)
             write_record_skeleton(cwd, issue, role)
-        req_line = ""
-        goal_pin = ""
-        body = None
-        _design_artifacts_gate = None
         with _timed("issue_fetch"):
-            try:
-                sys.path.insert(0, str((ROOT / "gates").resolve()))
-                import gh_rest as _gh_rest
-                import requirement_linkage as _requirement_linkage
-                import design_artifacts_gate as _design_artifacts_gate
-                issue_data = _gh_rest.fetch_issue(Path(cwd), issue)
+            if pre_resolved:
                 body = issue_data.get("body") if issue_data else None
                 title = issue_data.get("title") if issue_data else None
-                if body is not None:
-                    req_ids = _requirement_linkage.cited_requirement_ids(body)
-                    if req_ids:
-                        req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
-                    goal_pin = _goal_pin_block(title, body)
-            except Exception:
+                resolved_owner = issue_data.get("owner") if issue_data else None
+                resolved_repo = issue_data.get("repo") if issue_data else None
                 req_line = ""
                 goal_pin = ""
+                _design_artifacts_gate = None
+                try:
+                    sys.path.insert(0, str((ROOT / "gates").resolve()))
+                    import requirement_linkage as _requirement_linkage
+                    import design_artifacts_gate as _design_artifacts_gate
+                    if body is not None:
+                        req_ids = _requirement_linkage.cited_requirement_ids(body)
+                        if req_ids:
+                            req_line = f"이 이슈가 인용하는 요구: {', '.join(req_ids)}\n"
+                        goal_pin = _goal_pin_block(title, body)
+                except Exception:
+                    req_line = ""
+                    goal_pin = ""
+            else:
+                (req_line, goal_pin, body, _design_artifacts_gate,
+                 title, resolved_owner, resolved_repo) = _issue_fetch_future.result()
+                _issue_fetch_executor.shutdown(wait=False)
+        # 이슈 #2395: cwd 가 어느 레포로 해석됐는지(owner/repo#n) + 이슈
+        # 제목을, 오케스트레이터 stdout 과 역할 세션에 주입되는 지시문
+        # 양쪽에 같은 문구로 찍는다 — 같은 이슈 번호가 레포마다 다른
+        # 이슈를 가리키는 사고를 "조용한 오해"가 아니라 "눈에 보이는
+        # 사실"로 바꾼다. gh 조회 실패(fetch_issue 가 None)는 조용히
+        # 건너뛰지 않고, 확인 실패라고 그대로 말한다 — 확인 불가를
+        # 확인됨으로 읽지 않는다.
+        if resolved_owner and resolved_repo:
+            resolved_line = (f"해석된 레포/이슈: {resolved_owner}/{resolved_repo}#{issue}"
+                              + (f" — {title}" if title else "") + "\n")
+        else:
+            resolved_line = (f"해석된 레포/이슈: 확인 실패 — cwd({cwd})가 가리키는 "
+                              f"레포에서 이슈 #{issue} 를 못 읽었다(gh 조회 실패).\n")
+        if not pre_resolved:
+            # 이슈 #2395 CHANGES: pre-resolved 면 `main()`이 게이트 앞에서
+            # 이미 이 줄을 찍었다 — 여기서 또 찍으면 stdout 에 중복된다.
+            print(f"[{role}] {resolved_line.strip()}")
         # Issue #2135 directive diet: the always-on preamble is a compact
         # invariant index. The long prose it used to carry (완료의 정의
         # full text, 체크포인트 커밋 rule, headless/run_in_background
@@ -2460,6 +2895,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # below) — already in context at session start, zero round trips.
         task = _dp("issue-preamble-index",
                 f"당신의 이슈: #{issue} (subject issue-{issue}, 브랜치 {br}).\n"
+                + resolved_line
                 + req_line + goal_pin +
                 f"gh issue view {issue} 로 이슈를 먼저 읽어라.\n"
                 f"완료의 정의: 변경이 이 브랜치에 커밋되고 push 되어 PR 로 "
@@ -2572,6 +3008,26 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 task = task + _dp("skill-obligations-full",
                                   "\n\n" + _SKILL_CHECK_PROSE
                                   + "\n\n" + _SKILL_VERDICT_PROSE)
+        # 이슈 #2382: board_snapshot(cwd) 는 docs/issue-*/ 아래 파일 내용을
+        # 해시한다 — 이 지점은 두 가지를 모두 지킨다: (a)
+        # write_record_skeleton() 이 이미 그 트리 밑에 스켈레톤을 썼다(진짜
+        # 의존성, "before" 스냅샷이 세션이 안 쓴 스켈레톤을 세션이 바꾼
+        # 것으로 잘못 셀 수 있다), (b) 위 cross_family join
+        # (`_cross_family_future.result()`) 이 이미 끝나 skill_judge 자문이
+        # `docs/issue-<n>/reports/consult-log/`(consult.py) 에 남길 로그
+        # 파일도 이미 다 써졌다 — 여기보다 일찍(예: directive_write 직후)
+        # 던기면 그 consult-log 쓰기가 board_snapshot 의 "before"/"after"
+        # 스냅샷 중 어느 쪽에 들어갈지 스레드 스케줄링에 따라 갈려, 세션이
+        # 안 건드린 파일이 "다른 역할의 기록을 건드렸다"(계약 §11)로
+        # 오탐될 수 있다(실측: 이 재배치 전 시도가
+        # test_spawn_one_call_site_fires_after_own_session_end_event 를
+        # 깼다). board_snapshot 은 issue_fetch/core/settings/
+        # design_bearing/spawn_cmd 결과 중 어느 것도 안 읽는다 — 예전에는
+        # 이 다섯을 전부 기다린 뒤(함수 맨 끝, session Popen 직전) 처음
+        # 불렸다. 여기서 먼저 던지고 실제 사용 지점(맨 아래)에서 join 만
+        # 한다.
+        _board_snapshot_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _board_snapshot_future = _board_snapshot_executor.submit(board_snapshot, cwd)
         # 이슈 #2014 (artifact-gate phase 3): `design-artifacts:` 선언이
         # 있으면 선언된 각 아티팩트 경로를, 그 basename 이 마운트된 스킬들의
         # 트리거 문장과 가장 많이 겹치는 스킬 하나와 짝지어 한 줄씩 붙인다
@@ -2621,6 +3077,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 스킬 마운트 여부와 무관하므로 위 스킬 블록 바깥에 둔다.
     task = task + _dp("artifact-smoke",
                       _artifact_smoke_task_lines(body if issue is not None else None))
+    # 이슈 #2382: adhoc 스폰(issue is None, 위 issue-스코프 블록을 안 탄
+    # 경로)은 directive_write 가 없어 여태 못 던졌다 — cwd 가 이미 최종값
+    # (안 바뀜)이므로 여기서 바로 던진다.
+    if _board_snapshot_future is None:
+        _board_snapshot_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        _board_snapshot_future = _board_snapshot_executor.submit(board_snapshot, cwd)
     # Issue #2135: measure-first instrument — per-source byte counts of the
     # assembled directive, at every spawn.
     print(f"[{role}] {composition_breakdown(_directive_parts)}",
@@ -2632,9 +3094,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # core_plugin_dirs() 를 print 보다 먼저 불러 core_root() 의 관리 클론
     # pull 이 먼저 일어나게 한다 — 순서가 뒤집히면(예전처럼 print 뒤에서
     # 부르면) 로그에는 pull 전 sha, ledger 에는 pull 후 sha 가 찍혀 같은
-    # run 안에서 두 기록이 어긋난다.
+    # run 안에서 두 기록이 어긋난다. (이슈 #2382: pull 자체는 이미 admission
+    # clear 직후 던져졌다 — 이 시점보다 훨씬 먼저다. 이 순서 요구는 여전히
+    # 지켜진다.) 이 단계는 이제 순수 join 대기만 잰다(겹친 시간은 제외,
+    # cross_family 와 같은 계측 관례).
     with _timed("core"):
-        core_plugins = core_plugin_dirs()
+        core_plugins = _core_future.result()
+        _core_executor.shutdown(wait=False)
     with _timed("settings"):
         s = role_settings(role, cwd)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -2717,8 +3183,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 이슈 #2159: origin 체크아웃에만 있는 node_modules/.venv 를
             # 가리키는 env var — 파일은 옮기지 않는다(위 주석 참고).
             extra_env.update(local_dependency_env(origin_cwd, cwd))
+        # 이슈 #2382: dispatch 는 위(directive_write 직후, 또는 adhoc 스폰이면
+        # composition_breakdown 직전)에서 이미 던졌다 — 여기는 순수 join 만
+        # 잰다. core/settings/design_bearing/spawn_cmd 를 거치는 동안 배경
+        # 에서 겹쳐 돈다.
         with _timed("board_snapshot"):
-            before = board_snapshot(cwd)
+            before = _board_snapshot_future.result()
+            _board_snapshot_executor.shutdown(wait=False)
         before_head = _git_head(cwd) if issue is not None else None
         # 이슈 #2186: 이 지점이 fork/session-start 직전 — 로그로 나가는
         # bootstrap_timing 줄은 예전에 core/settings 단계 직후(더 위)에서

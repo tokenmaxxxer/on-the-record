@@ -56,11 +56,17 @@ def _api_json(repo: Path, path: str, run: Callable | None = None) -> dict | None
 
 def fetch_issue(repo: Path, issue: int, run: Callable | None = None) -> dict | None:
     """title/body 를 한 번의 REST 호출로 함께 읽는다(제목+본문 둘 다
-    필요한 호출부가 두 번 왕복하지 않도록)."""
+    필요한 호출부가 두 번 왕복하지 않도록). owner/repo 도 같이 돌려준다
+    (이슈 #2395) — 호출부가 resolved `owner/repo#n` 을 echo 하려고 또
+    gh 호출을 붙이지 않도록. `owner_repo()` 는 로컬 `git remote` 호출이지
+    `gh` API 왕복이 아니라, 이 REST 호출 수(1회)에 안 얹힌다."""
     data = _api_json(repo, f"issues/{issue}", run)
     if data is None:
         return None
-    return {"title": data.get("title", "") or "", "body": data.get("body", "") or ""}
+    owner_and_repo = owner_repo(repo, run=run)
+    owner, name = owner_and_repo if owner_and_repo else ("", "")
+    return {"title": data.get("title", "") or "", "body": data.get("body", "") or "",
+            "owner": owner, "repo": name}
 
 
 def fetch_issue_body(repo: Path, issue: int, run: Callable | None = None) -> str | None:

@@ -199,6 +199,50 @@ def init_requirement_digest(cwd: str) -> bool:
     return True
 
 
+def require_repo_root(cwd: str, issue: int | None) -> None:
+    """issue #2395: cwd 가 구조적으로 깨진 세 경우 -- 존재하지 않음, git
+    레포 안이 아님, git 레포이지만 레포 루트가 아님(하위 디렉터리) --
+    를 그 원인 그대로 이름 붙여 멈춘다. 이 검사가 없으면 세 경우 모두
+    `require_board` 의 `approvers.md 없다`(또는 그 이후 게이트의 다른
+    증상)로 떨어져, "cwd 가 생각하는 그 레포가 아니다"라는 실제 원인이
+    안 보이는 다운스트림 증상만 남는다(이슈 실측: on-the-record 서브
+    디렉터리, 존재하지 않는 경로, 아예 다른 레포 각각 다른 오탐 메시지).
+
+    정상 호출 모양(`cd repo && spawn.py <역할> "<일>" --issue N`, cwd
+    기본값 `.`)에서는 cwd 가 언제나 레포 루트이므로 이 세 조건 중
+    무엇에도 걸리지 않고 그대로 지나간다 -- 이 게이트가 새로 막는
+    스폰은 오늘 이미(더 늦게, 더 헷갈리는 메시지로) 막히던 것들뿐이다.
+
+    `issue is None` 이면 통과시킨다: 이 게이트가 지키는 것은 `--issue N`
+    이 엉뚱한 레포로 풀리는 사고뿐이다(이슈 제목 그대로) — 이슈 번호가
+    아예 없는 ad-hoc 스폰은 지킬 "N" 이 없고, git 레포가 아닌 디렉터리를
+    향한 ad-hoc/--no-contract/--dry-run 호출은 오늘도 유효한 모양이다
+    (require_acceptance_gate/require_requirement_linkage 와 같은
+    `if issue is None: return` 관례).
+    """
+    if issue is None:
+        return
+    p = Path(cwd)
+    if not p.is_dir():
+        sys.exit(
+            f"-C 가 존재하지 않는 디렉터리다: {cwd}\n"
+            f"  cwd 는 레포 루트를 가리켜야 한다 — 경로를 다시 확인해라.")
+    resolved = p.resolve()
+    r = subprocess.run(["git", "-C", str(resolved), "rev-parse", "--show-toplevel"],
+                        capture_output=True, text=True)
+    if r.returncode != 0:
+        sys.exit(
+            f"-C 가 git 레포 안이 아니다: {cwd}\n"
+            f"  cwd 는 레포 루트를 가리켜야 한다 — 클론된 레포로 다시 잡아라.")
+    toplevel = Path(r.stdout.strip()).resolve()
+    if toplevel != resolved:
+        sys.exit(
+            f"-C 가 레포 루트가 아니라 그 하위 디렉터리다: {cwd}\n"
+            f"  실제 레포 루트: {toplevel}\n"
+            f"  cwd 가 생각하는 그 레포가 맞는지부터 확인해라 — -C {toplevel} 로 "
+            f"다시 잡거나, 그 루트에서 -C 없이 불러라(이슈 #2395).")
+
+
 def require_board(cwd: str, override: bool) -> None:
     """대상 레포가 보드인지(approvers.md 가 있는지) 본다. 없으면 멈춘다.
 
@@ -647,11 +691,44 @@ def frontmatter(p: Path) -> dict[str, str]:
     return out
 
 
+def _skill_axis_report_names(rep: Path) -> list[str]:
+    """이슈 #2432 (role retirement stage 4): `reports/` 바로 아래에 있지만
+    `_sp.ROLES`(고정 역할 enum) 에는 없는 `.md` 파일 중, 실제 레코드처럼
+    보이는(frontmatter 에 `loop_state` 키가 있는) 파일 이름만 돌려준다.
+
+    새 스킬 축 네이밍은 `single-skill-axis` 동결 결정 때문에 고정 enum이
+    없다 — `checkout_issue_branch_for_skill`이 만드는 브랜치 이름 세그먼트
+    (`<skill>-<lease-disambiguator>`) 는 임의 문자열이라, 이름 모양으로
+    "새 스킬 축 레코드인지" 판별할 수 없다. `loop_state` 존재 여부를 쓰는
+    이유: `write_record_skeleton()`(모든 진짜 role/skill 레코드가 거치는
+    유일한 생성 경로)이 항상 이 키를 찍는다 — before-landing warrant hunt
+    발견(이슈 #2432): 단순 "frontmatter 블록 있음"만 보면, hunt/감사 레코드
+    (`---\\nproposal: ...\\n---`처럼 frontmatter 는 있지만 `loop_state` 는
+    없는 `docs/issue-1077/reports/hunt-implementation.md` 같은 파일)까지
+    쓸려 들어와 `_front_role()`의 "rootless 레코드는 하나뿐" 불변식을 깨고
+    `approve_scope()`(실제 커밋을 쓴다)의 판정을 바꿔 버렸다 — 29개 기존
+    subject 에서 실측(`issue-1077`이 그 중 하나, `_front_role`이
+    `implementation` 대신 `None`을 반환하게 됨). `rep.iterdir()`는 한 단계만
+    보므로 `reports/<role>/` 같은 중첩 디렉터리(예:
+    docs/issue-2241/reports/architecture/survey.md)의 파일들은 여기 걸리지
+    않는다."""
+    if not rep.is_dir():
+        return []
+    known = {f"{r}.md" for r in _sp.ROLES}
+    return sorted(p.stem for p in rep.iterdir()
+                  if p.is_file() and p.suffix == ".md" and p.name not in known
+                  and "loop_state" in _sp.frontmatter(p))
+
+
 def board(root: Path) -> dict[str, dict[str, dict[str, str]]]:
     """Read the board: subject (issue-<n>) -> role -> frontmatter (v3 s10).
 
     A subject is a docs/issue-<n>/ tree; role records sit in its reports/.
-    """
+
+    이슈 #2432 (stage 4): dual-scheme coexistence 기간 동안, `_sp.ROLES`
+    고정 이름(옛 역할 축 브랜치가 쓰는 이름)과 그 밖의 frontmatter 있는
+    파일(새 스킬 축 브랜치가 쓰는 이름) 을 함께 walk 해서 합친다 — 어느
+    쪽 네이밍으로 만들어진 레코드든 이 dict 하나에 같이 나온다."""
     docs = root / _sp.BOARD
     if not docs.is_dir():
         return {}
@@ -666,6 +743,8 @@ def board(root: Path) -> dict[str, dict[str, dict[str, str]]]:
         rep = d / "reports"
         roles = {r: _sp.frontmatter(rep / f"{r}.md") for r in _sp.ROLES
                  if (rep / f"{r}.md").is_file()}
+        for name in _sp._skill_axis_report_names(rep):
+            roles[name] = _sp.frontmatter(rep / f"{name}.md")
         if roles:
             found[d.name] = roles
     return found
@@ -694,6 +773,16 @@ def status(cwd: str) -> list[str]:
                     continue
                 bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
                 if fm.get("verdict"):          # feasibility. coding 이 여기 깨어난다(§3)
+                    bits.append(f"verdict: {fm['verdict']}")
+                out.append(f"  [{r}] " + "   ".join(bits))
+            # 이슈 #2432: 스킬 축 네이밍으로 만들어진 레코드(_sp.ROLES 밖
+            # 이름) 도 같은 줄 형식으로 보여준다 — 안 그러면 새 스킬 축
+            # 스폰이 `board()` 에는 잡히는데 사람이 읽는 이 목록에서는
+            # 조용히 사라진다.
+            for r in sorted(r for r in roles if r not in _sp.ROLES):
+                fm = roles[r]
+                bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
+                if fm.get("verdict"):
                     bits.append(f"verdict: {fm['verdict']}")
                 out.append(f"  [{r}] " + "   ".join(bits))
             missing = [r for r in _sp.ROLES if r not in roles]

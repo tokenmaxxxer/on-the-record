@@ -4,6 +4,25 @@ from _spawn_test_support import *  # noqa: F401,F403
 
 
 class SpawnCmd(unittest.TestCase):
+    def setUp(self):
+        # issue #2383: this class's role_model.txt tests used to
+        # save/restore around `spawn.ROLE_MODEL_CONFIG` (the real
+        # checkout-root file) — safe sequentially, but pytest.ini's
+        # `addopts = -n auto` (xdist) can run this file's tests
+        # concurrently with other workers touching the same real path,
+        # and any crash between write and restore leaves the checkout's
+        # role_model.txt corrupted/near-empty (matching the issue's
+        # observed symptom). Same isolation `test/test_spawn_model_override.py`
+        # already uses; harmless for the tests here that never touch
+        # ROLE_MODEL_CONFIG.
+        self._role_model_tmpdir = tempfile.TemporaryDirectory()
+        self._saved_role_model_config = spawn.ROLE_MODEL_CONFIG
+        spawn.ROLE_MODEL_CONFIG = Path(self._role_model_tmpdir.name) / "role_model.txt"
+
+    def tearDown(self):
+        spawn.ROLE_MODEL_CONFIG = self._saved_role_model_config
+        self._role_model_tmpdir.cleanup()
+
     def test_flags(self):
         cmd, _ = spawn.spawn_cmd("/tmp/s.json", "execution-observation", unattended=False)
         self.assertEqual(cmd[:2], ["claude", "-p"])
@@ -486,6 +505,19 @@ class DryRunModelReflection(unittest.TestCase):
     얹는지에 달려 있다 — 여기서 그 분기를 직접 재현해 검사한다
     (docs/reports/2026-07-29-hunt-muster-role-model-build.md).
     """
+
+    def setUp(self):
+        # issue #2383: isolate ROLE_MODEL_CONFIG the same way SpawnCmd's
+        # setUp does — this class's one test that writes to it used to
+        # target the real checkout-root role_model.txt, racy under
+        # pytest-xdist parallel workers.
+        self._role_model_tmpdir = tempfile.TemporaryDirectory()
+        self._saved_role_model_config = spawn.ROLE_MODEL_CONFIG
+        spawn.ROLE_MODEL_CONFIG = Path(self._role_model_tmpdir.name) / "role_model.txt"
+
+    def tearDown(self):
+        spawn.ROLE_MODEL_CONFIG = self._saved_role_model_config
+        self._role_model_tmpdir.cleanup()
 
     @staticmethod
     def _dry_run_output(role: str) -> dict:
@@ -1072,6 +1104,103 @@ class WorkspaceSyncFailClosed(unittest.TestCase):
                 self._git(work, "stash", "list").stdout.strip(), "",
                 "ahead 워크스페이스에선 stash 를 쓰면 안 된다")
 
+    @pytest.mark.slow
+    def test_checkout_refuses_branch_with_corrupted_merge_base(self):
+        # 이슈 #2379 회귀: 실측 사고(#2372, #2384, tokenmaxxxer-core #311)의
+        # 재현 모양은 "브랜치가 이미 무관한 옛 조상에서 갈라진 채로
+        # 재사용된다"였다 — 세션이 파일 하나만 커밋해도 merge-base 가 그
+        # 무관한 조상이라 PR diff 가 수백~수천 파일로 부풀었다. 여기선 그
+        # 조상 자체를 만든다: origin 의 `main` 과, `main` 이랑 root 커밋만
+        # 공유하고 그 뒤로 독자적으로(320개 파일) 갈라진 `stale-lineage` —
+        # `br` 을 `stale-lineage` 에서 잘라 자기 몫 커밋 하나만 더 얹으면,
+        # merge-base(br, main) 은 root 커밋이고 diff(root, br) 은
+        # stale-lineage 의 320 파일 + 자기 몫 1 파일 = 321 파일로, 기본
+        # 상한(300 파일) 을 넘는다. `checkout_issue_branch` 는 이 상태를
+        # 거부해야 한다 — 조용히 손상된 PR 을 여는 대신.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "root.txt").write_text("root")
+            self._git(origin, "add", "root.txt")
+            self._git(origin, "commit", "-q", "-m", "root commit")
+            root_sha = self._git(origin, "rev-parse", "HEAD").stdout.strip()
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            self._git(origin, "checkout", "-q", "-b", "stale-lineage", root_sha)
+            for i in range(320):
+                (origin / f"legacy-{i}.txt").write_text(f"legacy content {i}")
+            self._git(origin, "add", "-A")
+            self._git(origin, "commit", "-q", "-m", "independent 320-file lineage")
+            stale_tip = self._git(origin, "rev-parse", "stale-lineage").stdout.strip()
+            self._git(origin, "checkout", "-q", base_branch)
+            (origin / "current.txt").write_text("real ongoing main work")
+            self._git(origin, "add", "current.txt")
+            self._git(origin, "commit", "-q", "-m", "main keeps moving")
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999910, "implementation"
+            br = f"issue-{issue}/{role}"
+            # 브랜치-컷 자체가 아니라, 이미 잘못 컷된 브랜치가 재사용되는
+            # 시나리오(코멘트 #2 의 재발 모양)를 시뮬레이션한다 — 로컬에
+            # stale-lineage 에서 갈라진 br 을 role 자신의 커밋 하나와 함께
+            # 미리 만들어 둔다.
+            self._git(work, "checkout", "-q", "-b", br, stale_tip)
+            (work / "own-work.txt").write_text("this session's own file")
+            self._git(work, "add", "own-work.txt")
+            self._git(work, "commit", "-q", "-m", "role's own commit")
+
+            with self.assertRaises(SystemExit) as ctx:
+                spawn.checkout_issue_branch(str(work), issue, role)
+            self.assertIn("merge-base", str(ctx.exception))
+            self.assertIn(br, str(ctx.exception))
+
+    @pytest.mark.slow
+    def test_checkout_accepts_branch_with_bounded_diff_from_old_merge_base(self):
+        # 위 테스트의 대조군: merge-base 가 달력상/커밋수로 오래됐어도(여러
+        # 세션에 걸친 승인 대기 등 이 레포의 정상 워크플로), br 자신이 실제
+        # 건드린 파일 수가 상한 아래면 거부하면 안 된다 — 신선도 신호가
+        # 나이가 아니라 diff 크기라는 설계를 검사한다.
+        with tempfile.TemporaryDirectory() as td:
+            origin = Path(td) / "origin"
+            work = Path(td) / "work"
+            self._init_repo(origin)
+            (origin / "root.txt").write_text("root")
+            self._git(origin, "add", "root.txt")
+            self._git(origin, "commit", "-q", "-m", "root commit")
+            root_sha = self._git(origin, "rev-parse", "HEAD").stdout.strip()
+            base_branch = subprocess.run(
+                ["git", "-C", str(origin), "symbolic-ref", "--short", "HEAD"],
+                capture_output=True, text=True).stdout.strip()
+
+            for i in range(50):
+                (origin / f"main-{i}.txt").write_text(f"main content {i}")
+                self._git(origin, "add", f"main-{i}.txt")
+                self._git(origin, "commit", "-q", "-m", f"main commit {i}")
+
+            r = subprocess.run(["git", "clone", "-q", str(origin), str(work)],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self._git(work, "config", "user.email", "t@t.t")
+            self._git(work, "config", "user.name", "t")
+
+            issue, role = 999911, "implementation"
+            br = f"issue-{issue}/{role}"
+            self._git(work, "checkout", "-q", "-b", br, root_sha)
+            (work / "own-work.txt").write_text("this session's own file")
+            self._git(work, "add", "own-work.txt")
+            self._git(work, "commit", "-q", "-m", "role's own commit, honestly old base")
+
+            result = spawn.checkout_issue_branch(str(work), issue, role)
+            self.assertEqual(result, br)
+
 class WorkspaceExcludesHomeDotfiles(unittest.TestCase):
     """이슈 #289 H1: 샌드박스가 홈 dotfile 을 워크스페이스 루트에 오버레이해
     `git status`에 untracked 로 잡힌다 — `.muster-cache/`와 같은 방식으로
@@ -1447,6 +1576,207 @@ class WorkspaceReuseOriginMismatch(unittest.TestCase):
 
             self.assertEqual(result, str(work))
             fake_fetch.assert_called_once()
+
+
+class SpawnCapacityCheck(unittest.TestCase):
+    """이슈 #2417: 여유 바이트/inode 부족이면 clone 을 시도하기도 전에
+    거부한다 — 파묻힌 git 에러나 origin-mismatch 오인이 아니라 원인과
+    임계값을 바로 이름 붙인 메시지로."""
+
+    def test_refuses_before_clone_when_free_bytes_below_threshold(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "src"
+            self._init_repo(src, "https://github.com/example/demo.git")
+            work_base = Path(td) / "work"
+            work_base.mkdir()
+
+            old_environ = dict(os.environ)
+            os.environ["MUSTER_WORK_DIR"] = str(work_base)
+            os.environ.pop("MUSTER_SKIP_SPACE_CHECK", None)
+            usage = mock.Mock(total=10**9, used=10**9 - 1024, free=1024)  # 1KB free
+            try:
+                with mock.patch.object(spawn.shutil, "disk_usage", return_value=usage), \
+                     mock.patch.object(spawn, "_run_net") as fake_run_net:
+                    with self.assertRaises(SystemExit) as cm:
+                        spawn.issue_workspace(str(src), 24172, "implementation")
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environ)
+
+            msg = str(cm.exception)
+            self.assertIn("여유 공간이 부족하다", msg)
+            self.assertIn("MB", msg)
+            fake_run_net.assert_not_called()  # clone 근처도 안 갔다
+            self.assertFalse((work_base / "demo-issue-24172-implementation").exists())
+
+    def test_reuse_branch_is_also_refused_not_just_fresh_clone(self):
+        # before-landing hunt finding: the check used to sit only in the
+        # fresh-clone branch — a respawn onto an already-cloned workspace
+        # (the reuse branch, which calls `_fetch_or_halt` instead of
+        # `git clone`) skipped it entirely and could still fail with a
+        # buried `_fetch_or_halt` error on a nearly-full disk. The check
+        # now runs once at the top of issue_workspace(), before any of the
+        # three branches (self-reuse / workspace-reuse / fresh-clone).
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "src"
+            self._init_repo(src, "https://github.com/example/demo.git")
+            work_base = Path(td) / "work"
+            work_base.mkdir()
+            work = work_base / "demo-issue-24176-implementation"
+            self._init_repo(work, "https://github.com/example/demo.git")
+
+            old_environ = dict(os.environ)
+            os.environ["MUSTER_WORK_DIR"] = str(work_base)
+            os.environ.pop("MUSTER_SKIP_SPACE_CHECK", None)
+            usage = mock.Mock(total=10**9, used=10**9 - 1024, free=1024)
+            try:
+                with mock.patch.object(spawn.shutil, "disk_usage", return_value=usage), \
+                     mock.patch.object(spawn, "_fetch_or_halt") as fake_fetch:
+                    with self.assertRaises(SystemExit) as cm:
+                        spawn.issue_workspace(str(src), 24176, "implementation")
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environ)
+
+            self.assertIn("여유 공간이 부족하다", str(cm.exception))
+            fake_fetch.assert_not_called()
+
+    def test_skip_env_var_bypasses_the_check(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "src"
+            self._init_repo(src, "https://github.com/example/demo.git")
+            work_base = Path(td) / "work"
+            work_base.mkdir()
+
+            old_environ = dict(os.environ)
+            os.environ["MUSTER_WORK_DIR"] = str(work_base)
+            os.environ["MUSTER_SKIP_SPACE_CHECK"] = "1"
+            usage = mock.Mock(total=10**9, used=10**9 - 1024, free=1024)
+            try:
+                with mock.patch.object(spawn.shutil, "disk_usage", return_value=usage), \
+                     mock.patch.object(spawn, "_fetch_or_halt"):
+                    result = spawn.issue_workspace(str(src), 24173, "implementation")
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environ)
+
+            self.assertEqual(result, str(work_base / "demo-issue-24173-implementation"))
+
+    def _init_repo(self, path: Path, origin_url: str) -> None:
+        path.mkdir(parents=True)
+        run = lambda *args: subprocess.run(
+            args, cwd=str(path), capture_output=True, text=True, check=True)
+        run("git", "init", "-q")
+        run("git", "config", "user.email", "t@example.com")
+        run("git", "config", "user.name", "t")
+        (path / "f.txt").write_text("x")
+        run("git", "add", "f.txt")
+        run("git", "commit", "-q", "-m", "init")
+        run("git", "remote", "add", "origin", origin_url)
+
+
+class WorkspaceIncompleteCloneNotOriginMismatch(unittest.TestCase):
+    """이슈 #2417: `.git` 은 있지만 clone 이 중간에 죽어(예: ENOSPC) HEAD 에
+    닿는 커밋이 없는 workspace 는 "남의 레포"(origin 불일치)가 아니라
+    "미완성 클론"으로 분류돼야 한다 — 원인과 해법(지우고 재시도)이 메시지에
+    바로 보여야 한다. 완결된(그러나 진짜 다른) 레포는 여전히
+    WorkspaceReuseOriginMismatch 그대로 origin 불일치로 거부된다(회귀 없음)."""
+
+    def test_partial_clone_with_no_head_is_reported_as_incomplete(self):
+        with tempfile.TemporaryDirectory() as td:
+            src = Path(td) / "src"
+            src.mkdir()
+            run = lambda *args, cwd=src: subprocess.run(
+                args, cwd=str(cwd), capture_output=True, text=True, check=True)
+            run("git", "init", "-q")
+            run("git", "config", "user.email", "t@example.com")
+            run("git", "config", "user.name", "t")
+            (src / "f.txt").write_text("x")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "init")
+            run("git", "remote", "add", "origin", "https://github.com/example/demo.git")
+
+            work_base = Path(td) / "work"
+            work_base.mkdir()
+            repo_name = "demo"
+            issue = 24174
+            role = "implementation"
+            work = work_base / f"{repo_name}-issue-{issue}-{role}"
+            # a clone that died before ever reaching a checked-out HEAD
+            # (ENOSPC mid-fetch/checkout, git process killed) — `.git`
+            # exists, origin still points at the local clone source (never
+            # rewritten to the real origin), but there is no commit.
+            work.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q"], cwd=str(work), check=True)
+            subprocess.run(["git", "remote", "add", "origin", str(src)],
+                           cwd=str(work), check=True)
+
+            old_environ = dict(os.environ)
+            os.environ["MUSTER_WORK_DIR"] = str(work_base)
+            os.environ["MUSTER_SKIP_SPACE_CHECK"] = "1"
+            try:
+                with self.assertRaises(SystemExit) as cm:
+                    spawn.issue_workspace(str(src), issue, role)
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environ)
+
+            msg = str(cm.exception)
+            self.assertIn("불완전하다", msg)
+            self.assertNotIn("origin 불일치", msg)
+            self.assertIn(str(work), msg)
+
+    def test_complete_but_foreign_repo_is_still_origin_mismatch(self):
+        # regression guard: a fully-formed, unrelated repo at the work
+        # path (has a real HEAD commit) must still be refused as an
+        # identity mismatch, not misclassified as "incomplete".
+        with tempfile.TemporaryDirectory() as td:
+            src_remote = Path(td) / "src-remote.git"
+            subprocess.run(["git", "init", "-q", "--bare", str(src_remote)], check=True)
+            src = Path(td) / "src"
+            src.mkdir()
+            run = lambda *args, cwd=src: subprocess.run(
+                args, cwd=str(cwd), capture_output=True, text=True, check=True)
+            run("git", "init", "-q")
+            run("git", "config", "user.email", "t@example.com")
+            run("git", "config", "user.name", "t")
+            (src / "f.txt").write_text("x")
+            run("git", "add", "f.txt")
+            run("git", "commit", "-q", "-m", "init")
+            run("git", "remote", "add", "origin", str(src_remote))
+            subprocess.run(["git", "-C", str(src), "push", "-q", "-u", "origin", "HEAD:main"],
+                           check=True)
+
+            work_base = Path(td) / "work"
+            work_base.mkdir()
+            repo_name = "src-remote"
+            issue = 24175
+            role = "implementation"
+            work = work_base / f"{repo_name}-issue-{issue}-{role}"
+            work.mkdir(parents=True)
+            subprocess.run(["git", "init", "-q"], cwd=str(work), check=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=str(work), check=True)
+            subprocess.run(["git", "config", "user.name", "t"], cwd=str(work), check=True)
+            (work / "g.txt").write_text("y")
+            subprocess.run(["git", "add", "g.txt"], cwd=str(work), check=True)
+            subprocess.run(["git", "commit", "-q", "-m", "unrelated"], cwd=str(work), check=True)
+            subprocess.run(["git", "remote", "add", "origin",
+                            "https://github.com/someone/unrelated.git"], cwd=str(work), check=True)
+
+            old_environ = dict(os.environ)
+            os.environ["MUSTER_WORK_DIR"] = str(work_base)
+            os.environ["MUSTER_SKIP_SPACE_CHECK"] = "1"
+            try:
+                with self.assertRaises(SystemExit) as cm:
+                    spawn.issue_workspace(str(src), issue, role)
+            finally:
+                os.environ.clear()
+                os.environ.update(old_environ)
+
+            msg = str(cm.exception)
+            self.assertIn("origin 불일치", msg)
+            self.assertNotIn("불완전하다", msg)
+
 
 class RepoScopedWorkspaceIndex(unittest.TestCase):
     """이슈 #533: 서로 다른 레포가 같은 이슈+역할로 워크스페이스 인덱스

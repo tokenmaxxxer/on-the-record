@@ -515,6 +515,105 @@ def t_bare_prose_mention_still_not_evidence_even_with_canonical_fix():
     assert result["blocked"] is True
 
 
+def t_issue_2414_population_not_declared_is_unaffected():
+    """Backward compat: a check: with no `population:` metadata line never
+    triggers the convergence check, regardless of provenance or diff
+    content — the field is opt-in (issue-2414 Failure B)."""
+    body = """## Acceptance
+- check: `gates/requirement_met.py` runs against a real PR.
+  provenance: executed-live
+"""
+    diff = "diff --git a/x.py b/x.py\n+++ b/x.py\n+pass\n"
+    result = rm.grade(body, diff, {})
+    assert result["blocked"] is False
+    assert result["criteria"][0]["convergence_evidence_missing"] is False
+
+
+def t_issue_2414_population_declared_without_before_after_blocks():
+    """issue-2414 Failure B repro: a check: opts into `population:` and
+    claims executed-live, but the diff shows only a command that ran —
+    no before/after count. #2400's own shape: 'the prune command ran
+    with exit 0' does not prove it reached the population it was built
+    for (#2413: 419 of 434 records were exempt from the very prune added
+    to clear them)."""
+    body = """## Acceptance
+- check: spawn.py prunes stale spawn-attempt records.
+  provenance: executed-live
+  population: runs/spawn-attempts.jsonl
+"""
+    diff = (
+        "diff --git a/spawn.py b/spawn.py\n"
+        "+++ b/spawn.py\n"
+        "+def _prune_spawn_attempts(): ...\n"
+        "diff --git a/docs/issue-2400/reports/implementation.md "
+        "b/docs/issue-2400/reports/implementation.md\n"
+        "+++ b/docs/issue-2400/reports/implementation.md\n"
+        "+acceptance: python3 spawn.py prune-spawn-attempts — result: PASS\n"
+    )
+    result = rm.grade(body, diff, {})
+    assert result["blocked"] is True
+    assert any("population" in b for b in result["blocking_reasons"])
+
+
+def t_issue_2414_population_declared_with_before_after_passes():
+    """The same check:, now with a before/after count recorded anywhere
+    in the diff's added lines — matches the real shape PR #2400's own
+    body used ('One-time cleanup of the live runs/spawn-attempts.jsonl:
+    341 -> 41 lines')."""
+    body = """## Acceptance
+- check: spawn.py prunes stale spawn-attempt records.
+  provenance: executed-live
+  population: runs/spawn-attempts.jsonl
+"""
+    diff = (
+        "diff --git a/spawn.py b/spawn.py\n"
+        "+++ b/spawn.py\n"
+        "+def _prune_spawn_attempts(): ...\n"
+        "diff --git a/docs/issue-2400/reports/implementation.md "
+        "b/docs/issue-2400/reports/implementation.md\n"
+        "+++ b/docs/issue-2400/reports/implementation.md\n"
+        "+acceptance: python3 spawn.py prune-spawn-attempts — result: PASS\n"
+        "+One-time cleanup of the live runs/spawn-attempts.jsonl: 341 -> 41 lines.\n"
+    )
+    result = rm.grade(body, diff, {})
+    assert result["blocked"] is False
+    assert result["criteria"][0]["convergence_evidence_missing"] is False
+
+
+def t_issue_2414_real_case_2413_gap_would_have_blocked():
+    """Demonstrated against the real case (issue-2414 Acceptance: 'if B
+    is judged worth addressing... demonstrated against a real case').
+    #2413 reports the actual live numbers after PR #2400 landed: 434
+    total, 419 orphaned, exempt forever ('unresolved -- 항상 유지').
+    Recreate the shape #2400's Acceptance (issue #2393) would have had
+    under this rule for its ONGOING rotation-reaches-the-backlog claim
+    (as opposed to the one-time cleanup, which #2400 already evidenced
+    with real before/after numbers) — no before/after count for the
+    backlog exists anywhere in the diff, because none was produced; this
+    is exactly the gap #2413 found live 15 minutes after merge."""
+    body = """## Acceptance
+- check: the ongoing prune/rotation policy reaches the orphaned
+  test-origin backlog, not just new inflow.
+  provenance: executed-live
+  population: runs/spawn-attempts.jsonl (orphaned, no-outcome entries)
+"""
+    diff = (
+        "diff --git a/spawn.py b/spawn.py\n"
+        "+++ b/spawn.py\n"
+        "+    if outcome is None: keep_ids.add(aid)  # unresolved -- always kept\n"
+        "diff --git a/docs/issue-2400/reports/implementation.md "
+        "b/docs/issue-2400/reports/implementation.md\n"
+        "+++ b/docs/issue-2400/reports/implementation.md\n"
+        "+acceptance: python3 spawn.py watchdog — result: PASS\n"
+        "+The rotation policy ran without error.\n"
+    )
+    result = rm.grade(body, diff, {})
+    assert result["blocked"] is True, (
+        "the ongoing-rotation claim has no before/after backlog count in "
+        "the diff -- this rule would have refused it at landing, which is "
+        "exactly the gap #2413 found live")
+
+
 def _run(fn):
     try:
         fn()

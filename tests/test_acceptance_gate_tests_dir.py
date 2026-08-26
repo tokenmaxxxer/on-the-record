@@ -23,6 +23,7 @@ def test_backticked_tests_dir_path_accepted():
         "- `tests/test_spawn.py` covers this\n"
         "empty state: not applicable\n"
         "provenance: executed-unit\n"
+        "must not: not applicable — pure regression test, adds no mechanism.\n"
     )
     violations = check_issue_body(1284, body)
     assert violations == [], (
@@ -48,6 +49,7 @@ def test_existing_test_dir_path_still_accepted():
         "- `test/fixtures/example.py` covers this\n"
         "empty state: not applicable\n"
         "provenance: executed-unit\n"
+        "must not: not applicable — pure regression test, adds no mechanism.\n"
     )
     violations = check_issue_body(1284, body)
     assert violations == [], (
@@ -61,6 +63,7 @@ def test_gates_dir_path_still_accepted():
         "- `gates/acceptance_gate.py` enforces this\n"
         "empty state: not applicable\n"
         "provenance: executed-unit\n"
+        "must not: not applicable — pure regression test, adds no mechanism.\n"
     )
     violations = check_issue_body(1284, body)
     assert violations == [], (
@@ -74,6 +77,7 @@ def test_check_line_form_still_accepted():
         "check: python3 -m pytest tests/ -k acceptance -q\n"
         "empty state: not applicable\n"
         "provenance: executed-unit\n"
+        "must not: not applicable — pure regression test, adds no mechanism.\n"
     )
     violations = check_issue_body(1284, body)
     assert violations == [], (

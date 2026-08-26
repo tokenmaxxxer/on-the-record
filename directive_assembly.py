@@ -268,6 +268,62 @@ _KNOWN_PATHS_PROSE = (
     "마운트된 skill-repository 가 없으면 이 변수 자체가 없다, 빈 문자열이 "
     "아니라 unset). 넷 다 `printenv`로 바로 읽을 수 있다.\n")
 
+# Issue #2479: record-claim-guard.sh and heredoc-command-refusal-gate.sh
+# used to be learned only from their own refusal message, mid-session —
+# observed live (issue-2379 conformance-review session): a PR was already
+# open when a follow-up commit hit both gates back-to-back and the session
+# ended `progressed-dirty-tree`, unable to close out its own commit; a
+# watchdog then respawned it from scratch as if it were dead. Neither
+# gate's refusal logic changes here — this only tells the passing shape
+# up front, before the first write that could trip either one.
+_HOOK_CONTRACT_PROSE = (
+    "게이트 통과 모양(이슈 #2479): 아래 두 게이트는 거절되면 커밋을 못 "
+    "닫은 채 PR 만 열려 있는 상태로 좌초할 수 있다(progressed-dirty-"
+    "tree) — 거절을 겪고 나서 배우지 말고 첫 시도부터 이 모양을 써라. "
+    "두 게이트의 거절 로직 자체는 안 바뀐다, 더 일찍 알려줄 뿐이다.\n"
+    "\n"
+    "1. record-claim-guard.sh (docs/issue-*/reports/** 아래 모든 Write/"
+    "Edit/MultiEdit): 각 주장이 속한 markdown 섹션(가장 가까운 헤딩 "
+    "사이) 안에서 아래를 만족해야 한다.\n"
+    "   - `unverifiable:` 줄과 `checked: ... — result: unverifiable` 줄은 "
+    "반드시 콜론 뒤에 이유를 붙인다.\n"
+    "   - \"N of M\"/\"N개\" 같은 bare count 주장은 `derived: <명령어>` "
+    "나 코드펜스 재현이 있어야 한다.\n"
+    "   - 백틱 경로는 작업 트리에 실제로 존재하고 git 이력에 커밋된 적이 "
+    "있어야 한다(자기 자신의 레코드 파일은 예외).\n"
+    "   - role output / session·PR·board 상태 / 결함 주장은 같은 섹션 "
+    "안에 `canonical: <실제로 읽은 것>` 또는 `derived: <명령어>` 태그가 "
+    "있어야 한다 — 요약·grep 신호만으로는 부족하다.\n"
+    "   - \"requirement met\"/\"done\"/\"PASS\"/\"complete\" 류의 OUTCOME "
+    "주장은 그 `canonical:`/`derived:` 태그 자체가 실행-라이브 참조여야 "
+    "한다(명령어 문자열, 또는 `acceptance: <명령어> — result: ...` 줄) — "
+    "파일을 읽었다는 인용만으로는 부족하다.\n"
+    "   - 결함/근본원인 주장은 인용한 file:line 범위를 3줄 이상 그대로 "
+    "코드펜스로 뜨거나 `derived: <명령어>` 재현이 있어야 한다 — grep/"
+    "키워드 히트만으로는 부족하다.\n"
+    "   worked example (한 섹션 안에서 canonical/outcome 규칙을 동시에 "
+    "만족, record-claim-guard.sh 통과 확인됨):\n"
+    "   ```\n"
+    "   canonical: `gh pr view 2471` output (state: OPEN)\n"
+    "   Acceptance requirement met — checked: `python3 -m pytest "
+    "tests/test_x.py` — result: 12 passed\n"
+    "   ```\n"
+    "\n"
+    "2. heredoc-command-refusal-gate.sh (역할 세션의 모든 Bash 호출): "
+    "`git commit`/`gh issue|pr create`/`gh issue|pr comment` 명령에 `<<` "
+    "헤어독 리다이렉션이 하나라도 있으면 통째로 거절된다 — 커밋 메시지나 "
+    "--body 를 절대 heredoc(`$(cat <<EOF ... EOF)`)으로 만들지 마라.\n"
+    "   - `git commit`: `-m` 두 개로 나눠라 — `git commit -m \"<제목 "
+    "줄>\" -m \"<본문 줄>\"` (문단마다 -m 하나).\n"
+    "   - `gh issue|pr create`/`gh issue|pr comment`: 본문을 파일로 먼저 "
+    "쓰고 `--body-file <path>` 를 써라 — `--body \"$(...)\"` 금지.\n"
+    "   worked example (heredoc-command-refusal-gate.sh 통과 확인됨):\n"
+    "   ```\n"
+    "   git commit -m \"issue-2479: add gate passing-shape to spawn "
+    "directive\" -m \"fixes progressed-dirty-tree stall from undocumented "
+    "gate shape\"\n"
+    "   ```\n")
+
 # Moved verbatim: the mounted-skill inspection nudge (issue #1960 phase B)
 # + invoke-before-apply (issue #2062).
 _SKILL_CHECK_PROSE = (
@@ -329,10 +385,14 @@ def directive_section_files(*, skills_mounted: bool = False,
     """The on-demand section files for one spawn: name -> full prose.
 
     `completion-and-landing.md`, `repo-discovery.md`, `turn-budget.md`,
-    and `hook-contract.md` (issue #2409) are always materialized — the
-    invariant baseline every task gets regardless of path scope
-    (Acceptance 'empty state': never an empty directive). `known-paths.md`
-    and `task-lookup.md` (issue #2409) are scoped to `code_scoped` callers
+    and `hook-contract.md` are always materialized — the invariant
+    baseline every task gets regardless of path scope (Acceptance
+    'empty state': never an empty directive). `hook-contract.md`
+    (issue #2479) is unconditional because both gates it documents fire
+    for every role: record-claim-guard.sh on any docs/issue-*/reports/**
+    write, heredoc-command-refusal-gate.sh on any role-session commit/PR
+    Bash call. `known-paths.md` and `task-lookup.md` (issue #2409) are
+    scoped to `code_scoped` callers
     (issue #2227 REQ-10, see `_role_touches_code()`
     above); the skill and checkpoint sections only when their own
     condition holds. Default `code_scoped=True` keeps every caller that
@@ -341,7 +401,8 @@ def directive_section_files(*, skills_mounted: bool = False,
     never a narrower directive than before by omission."""
     files = {"completion-and-landing.md":
              _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
-             "repo-discovery.md": _REPO_DISCOVERY_PROSE}
+             "repo-discovery.md": _REPO_DISCOVERY_PROSE,
+             "hook-contract.md": _HOOK_CONTRACT_PROSE}
     if code_scoped:
         files["known-paths.md"] = _KNOWN_PATHS_PROSE
         files["task-lookup.md"] = _TASK_LOOKUP_PROSE

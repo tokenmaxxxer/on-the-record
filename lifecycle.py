@@ -691,11 +691,112 @@ def _delete_workspace(w: Path, wb: Path, log_outcomes: dict[str, str],
             sibling.unlink()
 
 
-def roster_clean(wb: Path, issue: int | None) -> int:
+def _worktree_max_age_hours() -> float:
+    """`MUSTER_WORKTREE_MAX_AGE_HOURS` — 기본 24시간. `check_runner.py`/
+    `reexecution_gate.py`가 만드는 임시 worktree 는 검사 하나(분 단위)
+    동안만 살아야 정상이다 — 워크스페이스의 `MUSTER_CLEAN_MAX_AGE_DAYS`
+    (기본 14일)보다 훨씬 짧은 게 맞다: 그 값은 사람이 며칠씩 붙들고 있는
+    워크스페이스용이고, 이 worktree 는 한 프로세스의 생애 동안만 존재할
+    임시물이다."""
+    return float(os.environ.get("MUSTER_WORKTREE_MAX_AGE_HOURS", "24"))
+
+
+def _worktree_last_activity(path: Path) -> float:
+    """`path`(worktree 루트) 자신의 mtime 이 아니라, 그 아래 모든
+    파일/서브디렉터리 mtime 중 최댓값을 본다. warrant-hunt 실측(이슈
+    #2383, 2026-08-25): git 은 디렉터리 엔트리가 추가/삭제/rename 될 때만
+    그 디렉터리 자체의 mtime 을 갱신한다 — 이미 있는 파일에 계속
+    append/overwrite 하는(체크 실행 중 로그·아티팩트를 쓰는 것과 같은)
+    프로세스는 최상위 디렉터리의 mtime 을 전혀 안 건드린다. 최상위
+    mtime 만 보면, 체크아웃 직후로 고정된 그 값이 24시간을 넘기는 순간
+    지금 실제로 쓰는 중인 worktree 도 '오래됨'으로 오판해 지운다 —
+    재현: 디렉터리를 backdate 하고 그 안 기존 파일 하나만 방금 건드린
+    뒤 `_prune_worktrees`를 부르면, 고쳐지기 전 코드는 그 worktree를
+    지웠다."""
+    latest = path.stat().st_mtime
+    for p in path.rglob("*"):
+        try:
+            latest = max(latest, p.stat().st_mtime)
+        except OSError:
+            continue
+    return latest
+
+
+def _prune_worktrees(repo: Path, max_age_hours: float | None = None,
+                      now: float | None = None) -> None:
+    """`spawn.py clean`이 워크스페이스 삭제와 같은 지나가는 길에 `repo`(호출
+    시점의 orchestrator 체크아웃, 보통 `-C`/cwd)에 등록된 `git worktree`
+    항목도 훑는다 — issue #2383: `check_runner.py`/`reexecution_gate.py`가
+    만드는 임시 worktree 는 각자 try/finally 로 지우지만, 프로세스가
+    죽으면(타임아웃/OOM) 그 finally 는 안 돈다. 이 정기 스윕이 그 잔재의
+    유일한 안전망이다. `repo`가 git 체크아웃이 아니면 조용히 건너뛴다 —
+    이 정리는 있으면 좋은 것이지 실패해야 할 전제조건이 아니다.
+
+    두 단계로 훑는다(issue #2383 Acceptance check 2 — count 뿐 아니라
+    age 도 monitored/pruned 여야 한다): 1) `git worktree prune`은 디렉터리가
+    이미 사라진 등록 항목만 지운다(existence 축). 2) 그러고도 디렉터리가
+    여전히 남아있는 항목은 나이만으로는 안 걸린다 — 하드-킬된 프로세스가
+    지우다 만 게 아니라 아예 못 지운 경우 디렉터리 자체가 그대로 남기
+    때문이다. 그 잔재를 잡으려면 별도로 각 worktree 의 마지막 활동 시각
+    (`_worktree_last_activity()` — 트리 전체에서 가장 최근 mtime, 최상위
+    디렉터리 자신의 mtime 만으로는 안 된다)을 `max_age_hours`와 비교해
+    오래된 것을 `git worktree remove --force`로 지운다(age 축) — 두
+    축이 잡는 실패 모드가 다르다."""
+    if not (repo / ".git").exists():
+        return
+    before = subprocess.run(["git", "-C", str(repo), "worktree", "list"],
+                            capture_output=True, text=True).stdout.splitlines()
+    if len(before) > 1:
+        print(f"worktree 목록 (정리 전 {len(before)}개):")
+        for line in before:
+            print(f"  {line}")
+    pruned = subprocess.run(["git", "-C", str(repo), "worktree", "prune", "-v"],
+                            capture_output=True, text=True)
+    if pruned.stdout.strip():
+        print(f"worktree prune: {pruned.stdout.strip()}")
+
+    max_age_hours = _worktree_max_age_hours() if max_age_hours is None else max_age_hours
+    now = time.time() if now is None else now
+    max_age_sec = max_age_hours * 3600
+    listing = subprocess.run(["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+                             capture_output=True, text=True).stdout
+    repo_resolved = repo.resolve()
+    for i, block in enumerate(listing.split("\n\n")):
+        lines = block.splitlines()
+        if not lines or not lines[0].startswith("worktree "):
+            continue
+        if i == 0:
+            continue  # 첫 항목은 항상 이 `repo` 자신(주 체크아웃) — 절대 안 건드린다.
+        wt_path = Path(lines[0][len("worktree "):])
+        try:
+            if wt_path.resolve() == repo_resolved:
+                continue
+            age_sec = now - _worktree_last_activity(wt_path)
+        except OSError:
+            continue  # 디렉터리가 이미 없다 — existence 축(위)이 이미 처리했다.
+        if age_sec <= max_age_sec:
+            continue
+        print(f"worktree age-prune: {wt_path} ({age_sec / 3600:.1f}h > "
+              f"{max_age_hours}h) — 지운다")
+        removed = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "remove", "--force", str(wt_path)],
+            capture_output=True, text=True)
+        if removed.returncode != 0:
+            print(f"worktree age-prune 실패 (non-fatal): {wt_path}  "
+                  f"[{removed.stderr.strip()}]")
+
+
+def roster_clean(wb: Path, issue: int | None, repo: Path | None = None) -> int:
     """`spawn.py clean [--issue N]`: 안전한 것만 지운다 — 미커밋 변경 없음 +
     origin 에 없는 커밋 없음. 워크스페이스 디렉터리는 그 조건만 지키면
     그대로 삭제한다(이슈 #1124 범위 밖). 형제 파일(로그 등)은
-    `_delete_workspace()` 가 archive-or-delete 판정을 한다."""
+    `_delete_workspace()` 가 archive-or-delete 판정을 한다.
+
+    `repo`(주어지면, 보통 호출 시점의 `-C`/cwd)에 등록된 stale `git
+    worktree` 항목도 같이 정리한다(issue #2383 — 누적된 채 방치되지 않게
+    routine landing/cleanup 의 일부로 만든다)."""
+    if repo is not None:
+        _prune_worktrees(repo)
     live = _sp._live_workspaces()
     log_outcomes = _sp._ledger_log_outcomes()
     archive_dir = wb / ".archived-logs"
@@ -854,18 +955,53 @@ def _clean_max_bytes() -> int:
     return int(os.environ.get("MUSTER_CLEAN_MAX_BYTES", str(5 * 1024**3)))
 
 
+def _workspace_merge_trigger_status(w: Path) -> tuple[bool, str]:
+    """이슈 #2447: 세션이 이미 끝난(=`_workspace_clean_state()`가 이미
+    non-live/non-dirty 로 판정한) 워크스페이스가 age/size 상한과 무관하게
+    지금 지워도 되는지 — 그 브랜치의 PR 이 gh API 로 확인된 MERGED 일
+    때만. 독립 안전검사가 아니라 `auto_sweep()`의 이미-안전한 후보
+    집합 위에 얹는 가속 신호이므로, 호출자가 `_workspace_clean_state()`를
+    먼저 통과시킨 뒤에만 불러야 한다.
+
+    `(removable, detail)` 를 돌려준다 — `removable=False` 인 모든 경로
+    (브랜치 없음, gh API 호출 자체 실패, PR 이 아직 open/없음)는 "머지
+    안 됨"이 아니라 "모름/아직"으로 취급해 이 트리거를 no-op 으로
+    물러나게 한다: 그 워크스페이스는 그대로 기존 age/size prune 판정으로
+    넘어간다(요구사항 — GitHub API 실패가 age/size prune 을 막으면
+    안 된다)."""
+    branch = subprocess.run(
+        ["git", "-C", str(w), "rev-parse", "--abbrev-ref", "HEAD"],
+        capture_output=True, text=True).stdout.strip()
+    if not branch:
+        return (False, "no-branch")
+    if not _sp._pr_list_call_ok(w, branch):
+        return (False, "pr-check-failed")
+    merged_pr = _sp._merged_pr_for_branch(w, branch)
+    if merged_pr is None:
+        return (False, "not-merged")
+    return (True, f"PR #{merged_pr} merged")
+
+
 def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
                now: float | None = None) -> dict[str, int]:
     """이슈 #1179: 스폰-타임 자동 정리. `roster_clean()` 과 같은 안전 판정
     (`_workspace_clean_state()`)만 지운다 — 살아있는 세션, 미커밋/미push
     작업은 절대 건드리지 않는다(#1124 보장 유지).
 
-    두 단계 bound: 1) `max_age_days` 보다 오래된 안전 워크스페이스는
-    무조건 지운다. 2) 그러고도 안전 워크스페이스 총합 크기가
-    `max_bytes` 를 넘으면, 오래된 것부터 더 지워서 bound 아래로 낮춘다.
+    세 가지 독립 트리거, 이 순서로 본다(각 트리거가 막는 실패 모드가
+    다르다):
+    1) merge-트리거(이슈 #2447, additive): 안전 후보 중 브랜치 PR 이
+       이미 MERGED 로 확인되면 나이/크기와 무관하게 바로 지운다 — 세션이
+       끝나고 PR 이 머지된 순간부터는 더 지킬 게 없다. gh API 호출이
+       실패/에러면 이 트리거는 그 워크스페이스에 한해 no-op 으로 물러나고
+       (`_workspace_merge_trigger_status()`), 아래 age/size 판정으로
+       그대로 넘어간다 — API 실패가 기존 prune 을 막지 않는다.
+    2) age-bound: `max_age_days` 보다 오래된 안전 워크스페이스는 무조건
+       지운다.
+    3) size-bound: 그러고도 안전 워크스페이스 총합 크기가 `max_bytes`
+       를 넘으면, 오래된 것부터 더 지워서 bound 아래로 낮춘다.
     나이만으로는 스폰이 늘면 디스크가 계속 자라고, 크기만으로는 방금
-    생긴 워크스페이스도 지울 수 있다 — 두 축을 다 잡는다(각 축이 막는
-    실패 모드가 다르다).
+    생긴 워크스페이스도 지울 수 있다.
 
     `now`: 테스트가 `time.time()` 대신 고정 시각을 주입한다."""
     now = now if now is not None else time.time()
@@ -889,21 +1025,34 @@ def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
             candidates.append([mtime, None, w])
 
     removed = failed = 0
+    by_trigger = {"merge": 0, "age": 0, "size": 0}
 
-    def _reap(entry) -> None:
+    def _reap(entry, trigger: str, detail: str = "") -> None:
         nonlocal removed, failed
         try:
             _sp._delete_workspace(entry[2], wb, log_outcomes, archive_dir)
             removed += 1
+            by_trigger[trigger] += 1
+            suffix = f" ({detail})" if detail else ""
+            print(f"[auto-sweep] 지움 ({trigger}-triggered): "
+                  f"{entry[2].name}{suffix}", file=sys.stderr)
         except Exception as ex:
             print(f"[auto-sweep] 실패 (삭제 중 예외): {entry[2].name}  [{ex}]",
                   file=sys.stderr)
             failed += 1
 
-    remaining = []
+    after_merge = []
     for entry in candidates:
+        removable, detail = _sp._workspace_merge_trigger_status(entry[2])
+        if removable:
+            _reap(entry, "merge", detail)
+        else:
+            after_merge.append(entry)
+
+    remaining = []
+    for entry in after_merge:
         if now - entry[0] > max_age_sec:
-            _reap(entry)
+            _reap(entry, "age")
         else:
             remaining.append(entry)
 
@@ -916,10 +1065,107 @@ def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
         while total > max_bytes and i < len(remaining):
             entry = remaining[i]
             total -= entry[1]
-            _reap(entry)
+            _reap(entry, "size")
             i += 1
 
     if removed or failed:
-        print(f"[auto-sweep] 지움 {removed}" + (f", 실패 {failed}" if failed else ""),
-              file=sys.stderr)
+        print(f"[auto-sweep] 지움 {removed} "
+              f"(merge {by_trigger['merge']}, age {by_trigger['age']}, "
+              f"size {by_trigger['size']})"
+              + (f", 실패 {failed}" if failed else ""), file=sys.stderr)
     return {"removed": removed, "failed": failed}
+
+
+# 이슈 #2443: `_delete_workspace()`(위)가 세대별 세션 로그/`.events.jsonl`/
+# `.events.offset`/`.watcher.log`/`.task.txt` 같은 sidecar 산출 파일을
+# 지우는 건 그 짝이 되는 워크스페이스 디렉터리를 지우는 그 순간뿐이다
+# (`w.parent.glob(w.name + ".*")`, 위). `auto_sweep()`/`roster_clean()`
+# 모두 `wb.glob("*")`로 디렉터리만 순회하므로, 짝 디렉터리가 이미 없어진
+# (수동 삭제·크래시로 워크스페이스만 사라지고 sidecar 만 `~/.tokenmaxxxer/
+# work` 바로 아래 flat 하게 남는) sidecar 세트는 두 정리 경로 어느 쪽도
+# 절대 방문하지 않는다 — 무한정 쌓인다. 다섯 패턴을 전부 여기서 인식한다.
+_SIDECAR_SUFFIX_MARKERS = (".events.jsonl", ".events.offset",
+                            ".watcher.log", ".task.txt")
+_SIDECAR_SESSION_LOG_RE = re.compile(r"^(.+)\.session\.[^./]+\.[^./]+\.log$")
+
+
+def _sidecar_workspace_name(filename: str) -> str | None:
+    """`filename`이 다섯 sidecar 패턴 중 하나에 맞으면 그 짝 워크스페이스
+    디렉터리 이름(`w.name`)을, 안 맞으면 `None`을 돌려준다."""
+    for marker in _SIDECAR_SUFFIX_MARKERS:
+        if filename.endswith(marker):
+            return filename[: -len(marker)]
+    m = _SIDECAR_SESSION_LOG_RE.match(filename)
+    return m.group(1) if m else None
+
+
+def _prune_orphaned_sidecars(wb: Path, max_age_days: float | None = None,
+                              now: float | None = None) -> dict[str, int]:
+    """`~/.tokenmaxxxer/work`(`wb`) 바로 아래 flat 하게 놓인, 짝 워크스페이스
+    디렉터리가 이미 없어진 sidecar 파일 세트를 지운다. `auto_sweep()`과
+    정책을 그대로 재사용한다 — 새 임계값/새 트리거 지점을 만들지 않는다
+    (이슈 #2443 요구사항): 나이 임계값은 같은 `_clean_max_age_days()`
+    (`MUSTER_CLEAN_MAX_AGE_DAYS`, 기본 14일), liveness 판정은 같은
+    `_live_workspaces()`(roster 의 pid-alive 엔트리, `_workspace_clean_state()`
+    가 쓰는 바로 그 함수) — 스폰타임 auto-sweep 백그라운드 스레드가 같은
+    호출에서 이 함수도 함께 부른다(spawn.py `_run_auto_sweep`), 새 cron/
+    one-off 훅이 아니다.
+
+    세트 하나를 "protected"(=지우지 않음)로 보는 두 조건 중 하나만
+    맞아도 지우지 않는다: (a) 짝이 되는 워크스페이스 디렉터리
+    (`wb / name`)가 아직 있다 — 그러면 그 디렉터리의 own lifecycle
+    (`_delete_workspace()`)이 알아서 같이 처리할 몫이다. (b) 디렉터리는
+    없어졌어도 그 워크스페이스 경로로 등록된 살아있는(pid-alive) roster
+    엔트리가 있다 — `_live_workspaces()`는 workspace 절대경로로 인덱싱하므로
+    디렉터리 존재 여부와 무관하게 조회된다.
+
+    세트의 "나이"는 그 세트에 속한 파일들 mtime 중 최댓값이다(파일 하나만
+    보면, issue #2383 후속(2ca4b4de)이 worktree age-prune 에서 겪은 것과
+    같은 오판 — 계속 append 중인 세션 로그가 있는데 다른 형제 파일 하나가
+    오래됐다고 세트 전체를 지우는 실패 모드 — 를 그대로 재도입한다).
+
+    `wb`: 워크스페이스 루트를 인자로 받는다(테스트가 실제
+    `~/.tokenmaxxxer/work` 대신 scratch 디렉터리를 넘길 수 있게, 하드코딩
+    하지 않는다). `max_age_days`/`now`: 테스트가 정책/시각을 주입한다."""
+    max_age_days = _clean_max_age_days() if max_age_days is None else max_age_days
+    now = time.time() if now is None else now
+    max_age_sec = max_age_days * 86400
+    live = _sp._live_workspaces()
+
+    groups: dict[str, list[Path]] = {}
+    if wb.is_dir():
+        for p in wb.iterdir():
+            if not p.is_file():
+                continue
+            name = _sidecar_workspace_name(p.name)
+            if name is None:
+                continue
+            groups.setdefault(name, []).append(p)
+
+    removed = kept = failed = 0
+    for name, files in groups.items():
+        workspace_dir = wb / name
+        if workspace_dir.exists():
+            kept += 1
+            continue
+        if workspace_dir.resolve() in live:
+            kept += 1
+            continue
+        try:
+            age_sec = now - max(f.stat().st_mtime for f in files)
+        except OSError:
+            kept += 1
+            continue
+        if age_sec <= max_age_sec:
+            kept += 1
+            continue
+        for f in files:
+            try:
+                f.unlink()
+            except OSError as ex:
+                print(f"[sidecar-prune] 실패 (삭제 중 예외): {f.name}  [{ex}]",
+                      file=sys.stderr)
+                failed += 1
+            else:
+                removed += 1
+    return {"removed": removed, "kept": kept, "failed": failed}
