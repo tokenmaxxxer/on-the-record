@@ -25,6 +25,7 @@ orchestrate 할 땐 절대 `${CHECKOUT}`이 아니라 그 소비 저장소의 �
   python3 gates/check_runner.py <pr-number> <issue-number> [--repo <이슈/PR이 속한 저장소 체크아웃, 기본 '.'>]
 """
 from __future__ import annotations
+import os
 import re
 import shlex
 import shutil
@@ -36,6 +37,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import check_run_artifact as cra  # noqa: E402
 import gh_rest  # noqa: E402
+sys.path.insert(0, str(Path(__file__).parent.parent))
+import spawn  # noqa: E402
 
 ARTIFACT_PATH = Path(".on-the-record/check-run-artifact.json")
 
@@ -435,6 +438,12 @@ def worktree_for_ref(repo: Path, ref: str) -> tuple[Path | None, str | None]:
     로컬 git 만 쓴다 — fetch 는 호출부(`checkout_pr_worktree`) 책임.
     `(worktree_path, None)` 또는 `(None, 에러메시지)`."""
     tmpdir = tempfile.mkdtemp(prefix="check-runner-pr-")
+    # issue #2468: SIGKILL/하드크래시는 아래 `git worktree add`가 끝나기도
+    # 전에, 또는 main() 의 try/finally(정상 종료 경로)에 닿기도 전에 이
+    # 프로세스를 죽일 수 있다 — 그러면 이 디렉터리는 영원히 고아가 된다.
+    # 소유 pid 를 지금 남겨 GC 스윕(`spawn.tmp_resource_sweep()`)이 나중에
+    # 이 pid 생사만으로 지울지 말지 정할 수 있게 한다.
+    spawn._record_tmp_resource(tmpdir, os.getpid(), "worktree")
     r = subprocess.run(["git", "worktree", "add", "--detach", tmpdir, ref],
                         cwd=repo, capture_output=True, text=True)
     if r.returncode != 0:
