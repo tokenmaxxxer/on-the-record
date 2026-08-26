@@ -35,7 +35,7 @@ RCG_OWNED_CONTENT = "unverifiable:\n"
 # incomplete/buggy behavior to every hook session that resolves gates
 # from the plugin cache layout — no error, no warning, tests still green,
 # because nothing compared the two trees. This pins the invariant.
-_SYNCED_GATE_FILES = ("gates.py", "record_lint.py", "role_spec_shape.py")
+_SYNCED_GATE_FILES = ("gates.py", "record_lint.py")
 
 
 def test_packaged_gates_copy_matches_source_of_truth():
@@ -59,12 +59,12 @@ def test_packaged_gates_copy_drift_check_actually_catches_drift(tmp_path):
     seeded_root = tmp_path / "seeded"
     seeded_gates = seeded_root / "on-the-record" / "gates"
     seeded_gates.mkdir(parents=True)
-    (seeded_gates / "role_spec_shape.py").write_text(
-        (REPO_ROOT / "gates" / "role_spec_shape.py").read_text(encoding="utf-8")
+    (seeded_gates / "gates.py").write_text(
+        (REPO_ROOT / "gates" / "gates.py").read_text(encoding="utf-8")
         + "\n# drifted\n", encoding="utf-8")
 
-    src = (REPO_ROOT / "gates" / "role_spec_shape.py").read_text(encoding="utf-8")
-    packaged = (seeded_gates / "role_spec_shape.py").read_text(encoding="utf-8")
+    src = (REPO_ROOT / "gates" / "gates.py").read_text(encoding="utf-8")
+    packaged = (seeded_gates / "gates.py").read_text(encoding="utf-8")
     assert src != packaged, "seeded fixture failed to introduce drift"
 
 
@@ -101,7 +101,6 @@ def _make_broken_gates_cache(tmp_path):
     broken = "raise ImportError('simulated broken module')\n"
     (gates / "gates.py").write_text(broken)
     (gates / "record_lint.py").write_text(broken)
-    (gates / "role_spec_shape.py").write_text(broken)
     return cache
 
 
