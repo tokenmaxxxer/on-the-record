@@ -1,5 +1,15 @@
 # issue-2561 — execution-observation current-state survey
 
+## Skill checks (issue #1960/#2039/#2062/#2153)
+
+skill-verdict: work-in-english — applied: invoked; this survey, the
+proposal, commit messages, and the PR are written in English per the
+skill (mounted because the user communicated in Korean); this session's
+own final user-facing summary is in Korean per the skill's own carve-out.
+skill-verdict: observability-phase-trace — not-applicable: this task
+verifies fixed acceptance checks against a landed PR, not a phase-2
+observability-signal set against a phase-1 methodology naming.
+
 ## Subject
 
 PR #2564 (branch `issue-2561/implementation`, "remove `_ROLE_SKILLS` and
