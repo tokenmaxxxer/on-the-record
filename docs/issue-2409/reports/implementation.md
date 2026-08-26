@@ -245,7 +245,24 @@ breakdown), produced by `batch_summary()` plus one `analyze()` call per
 path (the CLI's own `--batch` flag only accepts a single glob with no
 brace-expansion, so the multi-issue selection needs the same short
 `python3 -c` driver already shown below rather than the bare CLI form).
-canonical: python3 -c "import sys, json; sys.path.insert(0, 'scripts'); import session_waste_metrics as sw; paths = ['/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2314-implementation.session.20260825T124527.1898083.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2331-implementation.session.20260825T132149.4048637.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2348-implementation.session.20260825T165751.3137898.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2382-implementation.session.20260825T165945.3150594.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2393-implementation.session.20260825T182737.1665378.log']; s = sw.batch_summary(paths); [row.update(hook_refusals_by_gate=sw.analyze(row['session_log'])['hook_refusals']['by_gate']) for row in s['per_session']]; print(json.dumps(s, indent=2, ensure_ascii=False))" — result: pass — run live this session; output diffed byte-for-byte identical to the committed artifact file (`diff <(above command) docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json` — empty diff) and its `bash_total`/`hook_refusals_total`/`named_offenders_total`/per-session rows match the before/after table below exactly, confirming both were produced by the same live run rather than hand-typed. This addresses conformance-review PR #2420's NR1b finding (per-turn-breakdown artifact previously documented only as a regenerate command, no generated instance committed).
+canonical: python3 -c "import sys, json; sys.path.insert(0, 'scripts'); import session_waste_metrics as sw; paths = ['/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2314-implementation.session.20260825T124527.1898083.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2331-implementation.session.20260825T132149.4048637.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2348-implementation.session.20260825T165751.3137898.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2382-implementation.session.20260825T165945.3150594.log', '/home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2393-implementation.session.20260825T182737.1665378.log']; s = sw.batch_summary(paths); [row.update(hook_refusals_by_gate=sw.analyze(row['session_log'])['hook_refusals']['by_gate']) for row in s['per_session']]; print(json.dumps(s, indent=2, ensure_ascii=False))" — result: pass — run live this session; output diffed byte-for-byte identical to the committed artifact file (`diff <(above command) docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json` — empty diff) and its `bash_total`/`hook_refusals_total`/`named_offenders_total`/per-session rows match the before/after table below exactly, confirming both were produced by the same live run rather than hand-typed.
+
+Correction (2nd CHANGES round, see below): the paragraph above describes
+a `batch_summary()`-shaped corpus rollup — 13 aggregate keys, no
+`per_turn` field. It does **not** satisfy Acceptance item 1, which asks
+for a PER-TURN breakdown so waste classes can be tracked over time; a
+prior version of this record wrongly claimed it did. The artifact that
+actually satisfies item 1 is the `per_turn_breakdown()`-shaped table
+`_fmt_md()` renders, generated below for one real session and committed
+at
+`docs/issue-2409/reports/implementation/artifacts/session-per-turn-breakdown-2393.md`
+(one row per `tool_use` in stream order — `turn`/`tool`/`detail`, where
+`detail` carries the Bash classification, the `Read` file path, or a
+`[REFUSED: <gate>]` marker — exactly the shape `analyze()`'s `per_turn`
+key and `_fmt_md()`'s `| turn | tool | detail |` table produce).
+canonical: python3 scripts/session_waste_metrics.py /home/jwjung/.tokenmaxxxer/work/on-the-record-issue-2393-implementation.session.20260825T182737.1665378.log --md — result: pass — run live this session; output redirected to and committed as `docs/issue-2409/reports/implementation/artifacts/session-per-turn-breakdown-2393.md`, 172 lines, one `| turn | tool | detail |` row per tool_use across the session's 139 turns.
+checked: `grep -c per_turn docs/issue-2409/reports/implementation/artifacts/session-waste-batch-rollup-2314-2331-2348-2382-2393.json` — result: 0 (confirms the rollup artifact still carries no per-turn data — kept as-is, it answers a different, still-useful question: the corpus-level before/after aggregate, not item 1's per-turn tracking)
+checked: `grep -rln "| turn | tool" docs/issue-2409/reports/` — result: `docs/issue-2409/reports/implementation/artifacts/session-per-turn-breakdown-2393.md` (previously matched nothing; this is the same two greps conformance-review PR #2420's NR1b finding ran)
 
 **Targeted new/updated tests** (env -u CORE_BUILD_NOW: this session's own
 env carries CORE_BUILD_NOW=1 for the build-now bypass, which one
@@ -480,3 +497,37 @@ other mounted skills: not triggered — this round is a single-file
 artifact-commit fix (no coupling/cohesion, pattern, data-structure, or
 multi-module-structure decision in play; not a conformance-review-record
 or audit-protocol task, those belong to the observer roles).
+
+### CHANGES round (NR1b re-fix, commit 6c195892)
+
+The first NR1b fix (commit 980d6db9, above) committed the wrong artifact
+shape: a `batch_summary()` corpus rollup with no `per_turn` field, when
+the acceptance item asks for a per-turn breakdown. Conformance review
+caught this with two greps (`grep -c per_turn` on the rollup returning 0,
+`grep -rln "| turn | tool" docs/issue-2409/reports/` matching nothing)
+and marked NR1b Incorrect a second time.
+
+This round generates and commits the actual
+`per_turn_breakdown()`/`_fmt_md()`-shaped artifact — the `--md` CLI
+output for one real session log
+(`docs/issue-2409/reports/implementation/artifacts/session-per-turn-breakdown-2393.md`)
+— and corrects the Acceptance evidence section's prior claim that the
+rollup addressed NR1b. The rollup itself is left in place (it is real,
+useful corpus-level evidence for the before/after table) but is now
+described accurately as not being the per-turn artifact. Re-ran both of
+the reviewer's greps live; see the `checked:` lines in the Acceptance
+evidence section above for their output. No mechanism code, test, or
+other section of this record was touched.
+
+What did not work: nothing new failed in this round — the fix was
+generating the correct artifact shape and correcting the prose that
+mis-described the prior one.
+
+skill-verdict: work-in-english — applied: invoked; this CHANGES round's
+commit messages and record edits are in English (spawning prompt was in
+Korean); final chat summary given in Korean per the skill.
+other mounted skills: not triggered — this round is a single-artifact
+generation-and-record-correction fix (no coupling/cohesion, pattern,
+data-structure, or multi-module-structure decision in play; not a
+conformance-review-record or audit-protocol task, those belong to the
+observer roles).
