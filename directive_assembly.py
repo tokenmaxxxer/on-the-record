@@ -420,27 +420,13 @@ _SKILL_VERDICT_PROSE = (
 # Issue #2227 (REQ-10, carried forward from #2204's unaddressed `## Fix`
 # bullet 2): `known-paths.md` covers cross-repo/plugin/sibling-workspace
 # path discovery ($ON_THE_RECORD, $CLAUDE_PLUGIN_ROOT_CORE,
-# $MUSTER_WORKSPACE_ROOT, $MUSTER_SKILL_REGISTRY_ROOT) — a concern that
-# only arises for a role whose write_scope reaches the code/test buckets
-# the role-handoff contract's own Layout line names ("code src/, tests
-# test/, docs/ six buckets"). Of the 44 `roles/*.json` specs, only
-# `implementation` (`write_scope: ["src/**", "test/**", "tests/**"]`)
-# does; the other 43 are report-only (`docs/issue-<n>/reports/<role>.md`,
-# `docs/decisions/*.md`, `CHANGELOG.md`, `design-tokens/*.json` — none
-# under src/**|test/**|tests/**) — their whole task IS that one file, no
-# sibling-workspace/plugin-path lookup in their task shape (several
-# roles' own JSON even say so: "implementation의 write_scope가 이미 이
-# 도메인을 inline으로 커버"). This reuses `write_scope`, already-declared
-# per-role data the gates (`gates/gates.py::role_scope`) already enforce
-# post-hoc — no new classifier, no new field.
-def _role_touches_code(write_scope: list) -> bool:
-    """True when a role's write_scope reaches src/**, test/**, or
-    tests/** — the code/test buckets, not the docs-only report path
-    every role's write_scope carries by default."""
-    return any(g.startswith(("src/", "test/", "tests/"))
-               for g in write_scope)
-
-
+# $MUSTER_WORKSPACE_ROOT, $MUSTER_SKILL_REGISTRY_ROOT). This used to be
+# scoped per-role via `write_scope` (only `implementation` reached the
+# code/test buckets the role-handoff contract's Layout line names) — issue
+# #2559 removed `write_scope` outright (sessions are not scope-limited, so
+# every role can touch code/test now), which retired that classifier along
+# with it. `code_scoped` stays a plain kwarg below, defaulting True (the
+# safe, over-inclusive bundle) for every caller.
 def directive_section_files(*, skills_mounted: bool = False,
                             checkpoint_block: str | None = None,
                             code_scoped: bool = True) -> dict[str, str]:
@@ -456,15 +442,15 @@ def directive_section_files(*, skills_mounted: bool = False,
     Bash call. `record-order.md` (issue #2527) is unconditional for the
     same reason: every role writes its own record through
     record-claim-guard.sh, so the code-then-checks-then-record ordering
-    and single-assembly guidance apply regardless of write_scope.
+    and single-assembly guidance apply regardless of scope.
     `known-paths.md` and `task-lookup.md` (issue #2409) are
-    scoped to `code_scoped` callers
-    (issue #2227 REQ-10, see `_role_touches_code()`
-    above); the skill and checkpoint sections only when their own
-    condition holds. Default `code_scoped=True` keeps every caller that
-    does not pass the kwarg (adhoc spawns with no role write_scope to
-    check) on today's full bundle — the safe, over-inclusive default,
-    never a narrower directive than before by omission."""
+    scoped to `code_scoped` callers (issue #2227 REQ-10); the skill and
+    checkpoint sections only when their own condition holds. Default
+    `code_scoped=True` keeps every caller that does not pass the kwarg on
+    today's full bundle — the safe, over-inclusive default, never a
+    narrower directive than before by omission (issue #2559 retired the
+    only caller that ever passed `code_scoped=False`, so every spawn gets
+    the full bundle today)."""
     files = {"completion-and-landing.md":
              _COMPLETION_PROSE + _LANDING_BATCHING_PROSE,
              "repo-discovery.md": _REPO_DISCOVERY_PROSE,

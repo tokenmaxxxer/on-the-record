@@ -74,30 +74,6 @@ def _derive_slug_from_task(task_text: str) -> str:
     return f"{ascii_part[:40].strip('-')}-{digest}" if ascii_part else digest
 
 
-def _bootstrap_write_scope(role: str) -> dict:
-    """Issue #2551 Step A: bootstrap the roster/lease entry's `write_scope`
-    field from `spawn_roles.json[role].write_scope` at spawn time. No
-    reader of this field exists yet (Step B adds one) — this call is purely
-    additive to the roster entry's shape.
-
-    Returns `{}` (the key entirely absent) when `role` is not a
-    `spawn_roles.json` key or that role has no `write_scope` declared —
-    never `{"write_scope": []}` for that case. An empty *list* is a
-    legitimate declared value today (several roles, e.g.
-    `product-discovery`, declare `"write_scope": []` on purpose) and Step
-    B's planned fail-closed read distinguishes "no `write_scope` key" from
-    "an explicitly empty one" the same way `gates.py:role_scope()` already
-    does for `spawn_roles.json` itself (`"write_scope" not in role_cfg`) —
-    collapsing the undeclared case into an empty list here would erase that
-    distinction before Step B ever gets to make it."""
-    try:
-        cfg = role_data()[role]
-    except (OSError, ValueError, KeyError):
-        return {}
-    if "write_scope" not in cfg:
-        return {}
-    return {"write_scope": list(cfg["write_scope"])}
-
 # issue #2348: hook-fires/deviation-log per-session sharding -- both are
 # standalone leaf modules (no callback into spawn.py), so no `_sp`
 # injection is needed the way consult.py/roster.py/lifecycle.py require.
@@ -605,7 +581,6 @@ _TASK_LOOKUP_PROSE = directive_assembly._TASK_LOOKUP_PROSE
 _HOOK_CONTRACT_PROSE = directive_assembly._HOOK_CONTRACT_PROSE
 _SKILL_CHECK_PROSE = directive_assembly._SKILL_CHECK_PROSE
 _SKILL_VERDICT_PROSE = directive_assembly._SKILL_VERDICT_PROSE
-_role_touches_code = directive_assembly._role_touches_code
 directive_section_files = directive_assembly.directive_section_files
 materialize_directive_sections = directive_assembly.materialize_directive_sections
 _directive_system_prompt_block = directive_assembly._directive_system_prompt_block
@@ -2762,11 +2737,6 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 겹친다.
     _core_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
     _core_future = _core_executor.submit(core_plugin_dirs)
-    # 이슈 #2555 (Step C): `role` 은 이제 `spawn_roles.json` 의 원소일
-    # 필요가 없는 슬러그다 — 없으면 빈 spec(아래 `write_scope` 조회가
-    # `_bootstrap_write_scope()`/`role_settings()`와 같은 모양으로 `[]`
-    # 로 떨어진다).
-    spec = role_data().get(role, {})
     # 이슈 #2001: 크로스-패밀리 스코어링은 이 함수가 받은 원본 task 텍스트를
     # 대상으로 한다 — 아래에서 task 에 여러 안내 문단이 계속 덧붙는데, 그
     # 덧붙은 텍스트(스킬 목록 자체 등)가 스코어링 입력에 섞이면 결정론이
@@ -3053,8 +3023,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _directive_section_texts = directive_section_files(
                 skills_mounted=bool(skill_sources or role_source["skills"]),
                 checkpoint_block=(_checkpoint_contract_block(issue, role)
-                                  if checkpoint else None),
-                code_scoped=_role_touches_code(spec.get("write_scope", [])))
+                                  if checkpoint else None))
             materialize_directive_sections(cwd, _directive_section_texts)
             write_record_skeleton(cwd, issue, role)
         with _timed("issue_fetch"):
@@ -3496,7 +3465,6 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 }
                 _early_roster_entry.update(_skill_roster_fields(skill_sources, skill_sha))
                 _early_roster_entry.update(roster_resolution_fields)
-                _early_roster_entry.update(_bootstrap_write_scope(role))
                 roster_register(roster_key, _early_roster_entry)
                 _append_event(events_path, "session-start",
                               {"pid": os.getpid(), "ts": time.time()})
@@ -3630,10 +3598,6 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 그대로다.
             **_skill_roster_fields(skill_sources, skill_sha),
             **roster_resolution_fields,
-            # 이슈 #2551 Step A: spawn_roles.json[role].write_scope 를
-            # 스폰 시점에 그대로 옮겨 담는다 — 아직 아무도 읽지 않는다
-            # (Step B 전용).
-            **_bootstrap_write_scope(role),
         })
         if issue is not None:
             # 크래시가 roster_remove/종료 이벤트 사이에서 나면 이 이전엔
