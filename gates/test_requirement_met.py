@@ -614,6 +614,67 @@ def t_issue_2414_real_case_2413_gap_would_have_blocked():
         "exactly the gap #2413 found live")
 
 
+def _advisory(*verdicts):
+    return [{"raw": f"c{i}", "verdict": v} for i, v in enumerate(verdicts)]
+
+
+def t_summarize_all_unknown_is_not_the_pass_string():
+    # issue #2510 — live-observed on issue #2479/PR #2493: 4 criteria, all
+    # UNKNOWN, printed "게이트 통과 (4개 기준 채점, 차단 사유 없음)".
+    result = {"empty_state": False, "blocking_reasons": [],
+              "advisory": _advisory(rm.UNKNOWN, rm.UNKNOWN, rm.UNKNOWN, rm.UNKNOWN)}
+    text, code = rm.summarize(result)
+    assert code == 0
+    assert "UNKNOWN" in text
+    assert text != "게이트 통과 (4개 기준 채점, 차단 사유 없음)"
+    assert not text.startswith("게이트 통과")
+
+
+def t_summarize_at_least_one_met_and_unblocked_reads_unchanged():
+    # issue #2510 acceptance "must not": when every criterion has a
+    # settled verdict (no UNKNOWN) and at least one is met, with nothing
+    # blocking, the summary is byte-for-byte unchanged from before the fix.
+    result = {"empty_state": False, "blocking_reasons": [],
+              "advisory": _advisory(rm.YES, rm.NO, rm.YES)}
+    text, code = rm.summarize(result)
+    assert code == 0
+    assert text == "게이트 통과 (3개 기준 채점, 차단 사유 없음)"
+
+
+def t_summarize_partial_unknown_reports_explicit_counts():
+    result = {"empty_state": False, "blocking_reasons": [],
+              "advisory": _advisory(rm.YES, rm.YES, rm.UNKNOWN, rm.NO)}
+    text, code = rm.summarize(result)
+    assert code == 0
+    assert "met 2" in text and "unknown 1" in text and "blocked 0" in text
+    assert not text.startswith("게이트 통과 (")
+
+
+def t_summarize_all_no_without_unknown_also_avoids_pass_word():
+    result = {"empty_state": False, "blocking_reasons": [],
+              "advisory": _advisory(rm.NO, rm.NO)}
+    text, code = rm.summarize(result)
+    assert code == 0
+    assert "met 0" in text and "unknown 0" in text
+
+
+def t_summarize_blocked_still_refuses_with_individual_reasons():
+    result = {"empty_state": False,
+              "blocking_reasons": ["기준 'x'이 YES 로 채점됐지만 ..."],
+              "advisory": _advisory(rm.YES)}
+    text, code = rm.summarize(result)
+    assert code == 1
+    assert text.startswith("게이트 차단:")
+    assert "기준 'x'이 YES" in text
+
+
+def t_summarize_empty_state_unchanged():
+    result = {"empty_state": True, "reason": "테스트 사유"}
+    text, code = rm.summarize(result)
+    assert code == 0
+    assert text == "채점 가능한 기준 없음 — 이건 통과가 아니라 별개의 결과다 (테스트 사유)"
+
+
 def _run(fn):
     try:
         fn()

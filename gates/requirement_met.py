@@ -31,6 +31,22 @@ escape)이므로 항목으로 세지 않는다.
 이슈 #2231 두 번째 결함: 예전엔 이 둘이 똑같이 "게이트 통과"로 찍혀
 아무도 살펴보지 않은 PR 이 승인된 것처럼 읽혔다.
 
+채점 가능한 항목은 있지만(`empty_state=False`) 그중 실제로 `YES`인 게
+하나도 없는 경우(issue #2510, 2026-08-26 이슈 #2479/PR #2493 라이브
+관찰 — 채점 4개가 전부 `UNKNOWN`인데 "게이트 통과 (4개 기준 채점, 차단
+사유 없음)"이 찍혔다) 도 별도 상태다: `blocked` 서브체크는 여전히
+전혀 안 막았으니(`blocking_reasons=[]`) exit code 는 0 그대로지만,
+`summarize()` 는 "게이트 통과" 문구를 절대 재사용하지 않는다 — 전부
+`UNKNOWN`이면 그 단어로 그렇게 말하고, 일부만 `UNKNOWN`이거나 `YES`
+없이 `NO`만 섞였으면 met/unknown/blocked 개수를 그대로 드러낸다. 이건
+`gates/merge_gate.py` 의 check-runner 트랙과 다른 축이다 — Acceptance
+절에 `check:`/`gate:` 구조적 불릿이 0개인 "all-judgment" 절은
+`check_runner` 가 'no checks declared' 로 잡고 `merge_gate.py` 가
+그걸 이미 거절한다(issue #2233); 이 파일은 그 트랙의 게이트가
+아니므로 그 경우를 하드-블록하지 않는다 — landing 권위는
+`merge_gate.py` 에 있다(자세한 사유는
+`docs/issue-2510/reports/implementation.md` 참고).
+
   python3 gates/requirement_met.py <issue-number> <pr-number> [--repo <경로>]
 """
 from __future__ import annotations
@@ -508,6 +524,51 @@ def check(repo: Path, issue: int, pr: int,
             "empty_state": False}
 
 
+def summarize(result: dict) -> tuple[str, int]:
+    """`check()`가 돌려주는 결과 dict를 최종 요약 문자열과 종료 코드로
+    바꾸는 순수 함수 — issue #2510: 이슈 #2479/PR #2493에서 채점 대상
+    4개 기준이 전부 `UNKNOWN`이었는데도 옛 코드는
+    "게이트 통과 (4개 기준 채점, 차단 사유 없음)"을 찍었다.
+    `UNKNOWN`은 "채점했고 문제없다"가 아니라 "채점을 안(못) 했다"이므로,
+    `blocked`(결정적 아티팩트-부재 등)와 별개로 아무것도 실제로 검증되지
+    않은 결과가 통과 문구로 찍히면 안 된다. 세 갈래를 구분한다:
+      1. `empty_state` — 채점 가능한 기준 자체가 0개(기존 동작 그대로).
+      2. `blocked` — 결정적 서브체크가 막음(기존 동작 그대로, 각 사유가
+         개별적으로 보임 — 카운트 요약 뒤에 숨지 않는다).
+      3. 안 막혔지만(`blocked=False`) 채점된 기준 중 실제로 `YES`로
+         충족된 게 하나도 없으면 `게이트 통과` 문구를 절대 안 쓴다:
+         - 전부 `UNKNOWN`이면 그 사실을 그 단어로 말한다(pass 문구와
+           바이트 단위로 다른 문자열).
+         - 그 외(일부만 `UNKNOWN`, 또는 `YES` 없이 `NO`만 섞임)는
+           met/unknown/blocked 개수를 그대로 드러낸다 — 단일 판정 한
+           단어로 뭉개지 않는다.
+         적어도 하나가 실제로 `YES`이고 아무것도 안 막히면(오늘 기존
+         경로) 문구는 예전과 바이트 단위로 똑같다.
+    """
+    if result.get("empty_state"):
+        # issue #2231 defect 2: "no gradable criteria" and "criteria
+        # graded, nothing blocked" print distinct messages — the old
+        # single message ("게이트 통과 (또는 채점 가능한 기준 없음)")
+        # made an unexamined PR read as approved.
+        return ("채점 가능한 기준 없음 — 이건 통과가 아니라 별개의 결과다 "
+                f"({result.get('reason', '')})", 0)
+    bad = result["blocking_reasons"]
+    if bad:
+        lines = ["게이트 차단:"] + [f"  - {b}" for b in bad]
+        return ("\n".join(lines), 1)
+    advisory = result["advisory"]
+    total = len(advisory)
+    met = sum(1 for a in advisory if a["verdict"] == YES)
+    unknown = sum(1 for a in advisory if a["verdict"] == UNKNOWN)
+    if unknown == total:
+        return (f"미채점 (전부 UNKNOWN) — {total}개 기준 중 실제로 검증된 "
+                 "것이 없다. 차단 사유는 없지만 이건 게이트 통과가 아니다.", 0)
+    if met > 0 and unknown == 0:
+        return (f"게이트 통과 ({total}개 기준 채점, 차단 사유 없음)", 0)
+    return (f"게이트 통과 아님 — met {met} / unknown {unknown} / blocked 0 "
+            f"(총 {total}개 기준, 차단 사유 없음)", 0)
+
+
 def main() -> int:
     if len(sys.argv) < 3:
         print("usage: requirement_met.py <issue-number> <pr-number> [--repo <경로>]")
@@ -527,22 +588,9 @@ def main() -> int:
     result = check(repo, issue, pr)
     for a in result["advisory"]:
         print(f"advisory: [{a['verdict']}] {a['raw']}")
-    bad = result["blocking_reasons"]
-    # issue #2231 defect 2: "no gradable criteria" and "criteria graded,
-    # nothing blocked" print distinct messages — the old single message
-    # ("게이트 통과 (또는 채점 가능한 기준 없음)") made an unexamined PR
-    # read as approved.
-    if result.get("empty_state"):
-        print("채점 가능한 기준 없음 — 이건 통과가 아니라 별개의 결과다 "
-              f"({result.get('reason', '')})")
-        return 0
-    if not bad:
-        print(f"게이트 통과 ({len(result['advisory'])}개 기준 채점, 차단 사유 없음)")
-        return 0
-    print("게이트 차단:")
-    for b in bad:
-        print(f"  - {b}")
-    return 1
+    text, code = summarize(result)
+    print(text)
+    return code
 
 
 if __name__ == "__main__":
