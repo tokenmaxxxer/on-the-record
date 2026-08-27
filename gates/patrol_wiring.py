@@ -15,6 +15,7 @@ roles. This module counts hits from judge_cmd's own return value
 (`skipped` is False), never a trace-line count.
 """
 from __future__ import annotations
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -26,6 +27,7 @@ import patrol_queue  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 KILL_SWITCH_REL_PATH = ".on-the-record/patrol-disabled"
+RECORD_PATH = re.compile(r"^docs/issue-[^/]+/reports/([^/]+)\.md$")
 # Mirrors spawn.JUDGE_MAX_ROLES_PER_MERGE — this loop reads that constant
 # directly rather than defining a second cap number that could drift.
 MAX_ROLES_PER_MERGE = 3
@@ -50,20 +52,27 @@ def _changed_files(repo_root: str, merge_sha: str) -> list[str]:
     return [line for line in r.stdout.splitlines() if line.strip()]
 
 
-def _known_roles() -> list[str]:
-    """이슈 #2539 (stage 6C) / 이슈 #2560 개정: `roles/*.json` 파일 목록
-    대신 `spawn.role_data()`(→ `spawn_roles.json`) 의 키 집합을 쓴다 — 이
-    함수는 보드 파이프라인이 도는 role만 순회하면 되고, 그 role 이름
-    카탈로그가 바로 그 집합이다(리포트 전용 채널인 upstream-defect-report는
-    원래도 보드 큐 엔트리가 생기지 않으므로 제외돼도 동작이 같다).
-    `spawn.ROLES`(고정 43개 role 튜플)는 이슈 #2560 로 완전히 삭제됐다 —
-    세션 신원은 더 이상 닫힌 집합이 아니고, `spawn_roles.json`이 이
-    패트롤 스윕처럼 여전히 "적어도 하나의 유한한 카탈로그"가 필요한
-    소비자를 위해 남은 유일한 닫힌 집합이다 (docs/issue-2548/reports/
-    architecture.md, Consumers item d / Step H)."""
-    sys.path.insert(0, str(ROOT))
-    import spawn
-    return sorted(spawn.role_data())
+def _merge_roles(changed: list[str]) -> list[str]:
+    """issue #2610: this used to iterate every name in the (now-deleted)
+    44-entry role catalog and probe `judge_cmd` for each, relying on
+    judge's own prefilter to decide jurisdiction — the catalog was pure
+    iteration scaffolding, not a validity check, but it was still a
+    closed set: a real session's role/skill slug that never happened to
+    equal one of those 44 names could never be probed at all, and the
+    sweep wasted probes on roles unrelated to this merge.
+
+    Task-derived replacement, no catalog: this merge's own changed files
+    already name every role whose record it touched
+    (`docs/issue-<n>/reports/<role>.md`) — probe exactly those, and only
+    those. Strictly more precise (never probes an unrelated role) and
+    strictly more coverage (works for any role/skill slug, not just a
+    legacy 44-name subset)."""
+    out = set()
+    for f in changed:
+        m = RECORD_PATH.match(f)
+        if m:
+            out.add(m.group(1))
+    return sorted(out)
 
 
 def run(repo_root: str, merge_sha: str, judge_cmd=None) -> dict:
@@ -93,7 +102,7 @@ def run(repo_root: str, merge_sha: str, judge_cmd=None) -> dict:
 
     hits = 0
     board_roles = []
-    for role in _known_roles():
+    for role in _merge_roles(event["changed_files"]):
         if hits >= MAX_ROLES_PER_MERGE:
             print(f"[patrol-wiring] role cap reached ({MAX_ROLES_PER_MERGE} hits), stopping role loop")
             break

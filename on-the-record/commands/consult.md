@@ -27,7 +27,15 @@ design-rationale: 판단 지점마다 스폰 전체 파이프라인(브랜치→
 python3 $ON_THE_RECORD/spawn.py consult <역할> "<질문>" [--issue <n>] [-C <레포>] [--foreground]
 ```
 
-- `<역할>`: `spawn.py` 가 아는 역할 이름 (인자 없이 `spawn.py` 를 부르면 목록이 뜬다).
+- `<역할>`: 자문을 낼 스킬(들) 이름 — `--skills` 와 같은 해석 경로를
+  탄다(`skills.py::resolved_skill_dirs()`). 큐레이션된 목록은 없다: 실제
+  이름은 skill-repository 체크아웃의 디렉터리 목록이다 —
+  `ls "${MUSTER_SKILL_REPO:-$TOKENMAXXXER_RULEBOOKS/skill-repository}"`
+  (없으면 `spawn.py` 가 관리 클론을 받는다; 각 디렉터리 하나가 스킬 하나,
+  그 안에 `SKILL.md` 를 담는다). 이슈 #2610: 예전엔 이 자리에서
+  `spawn.py` 를 인자 없이 불러 44개짜리 큐레이션 카탈로그를 봤다 — 그
+  카탈로그와 그 출력은 삭제됐다(닫힌 신원 집합이었다); 위 디렉터리
+  목록이 유일한 발견 경로다.
 - `<질문>`: 판단이 필요한 질문 하나. 여러 판단이 필요하면 여러 번 부른다 —
   한 번의 자문은 한 판단이다.
 - `--issue <n>`: 이 판단이 특정 이슈에 속하면 붙인다. 트레이스는

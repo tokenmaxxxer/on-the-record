@@ -1,7 +1,7 @@
 """issue-517 — aggregate, single-pass record lint.
 
 Authoring a role record today costs one model turn per gate refusal:
-`record_enums`/`record_wellformed`/... in `gates.py` and the four checks
+`record_wellformed`/`record_checked_claims`/... in `gates.py` and the four checks
 mirrored inline in `on-the-record/hooks/record-claim-guard.sh` each
 report only their own first failure, and there is no single command an
 author can run before writing to see every violation at once (a
@@ -54,10 +54,13 @@ gates = sys.modules[_GATES_IMPL_KEY]
 
 RECORD_PATH = gates.RECORD_PATH  # docs/issue-<n>/reports/<role>.md
 
+# Issue #2241 stage 1: the closed record-kind vocabulary this module's
+# advisory-only kind check reads against.
+RECORD_KIND_VOCABULARY_PATH = "docs/specs/record-kind-vocabulary.md"
+
 # Re-exported, not reimplemented: `gates/ci.py` and `record-claim-guard.sh`
 # call these names on this module instead of holding their own copies —
 # single source of truth means the same function object, not a mirror.
-record_enums = gates.record_enums
 record_wellformed_in = gates.record_wellformed_in
 record_no_tool_residue_in = gates.record_no_tool_residue_in
 record_checked_claims = gates.record_checked_claims
@@ -634,6 +637,67 @@ def unverifiable_reason_check(text: str) -> list[str]:
                 "채우면 된다 (예: `unverifiable: 주관적 UX 판단이라 기계로 "
                 "검사할 수 없다`).")
     return bad
+
+
+_FRONTMATTER_KIND_LINE = re.compile(r"(?i)^\s*kind\s*:\s*(\S.*?)\s*$")
+_VOCAB_BULLET = re.compile(r"^-\s*`([a-z0-9][a-z0-9-]*)`", re.MULTILINE)
+
+
+def _load_record_kind_vocabulary(root: Path) -> set[str] | None:
+    """Parses the closed vocabulary out of `RECORD_KIND_VOCABULARY_PATH`'s
+    own bullet list (`` - `value` — description ``). `None` when the spec
+    file itself is absent — an empty state (no vocabulary landed yet),
+    never an error; the caller treats `None` the same as "nothing to
+    check against"."""
+    path = root / RECORD_KIND_VOCABULARY_PATH
+    if not path.exists():
+        return None
+    text = path.read_text(encoding="utf-8", errors="replace")
+    vocab = {m.group(1) for m in _VOCAB_BULLET.finditer(text)}
+    return vocab or None
+
+
+def _frontmatter_kind_value(text: str) -> str | None:
+    """The `kind:` value from a record's own leading `---` frontmatter
+    block only — never a `kind:`-shaped mention inside the record's
+    prose body."""
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        m = _FRONTMATTER_KIND_LINE.match(line)
+        if m:
+            return m.group(1).strip().strip("\"'")
+    return None
+
+
+def record_kind_vocabulary_check(root: Path, text: str) -> list[str]:
+    """issue #2241 stage 1 — ADVISORY ONLY. Deliberately not called from
+    `lint_record()`'s aggregation below (this repo's DEMOTE convention for
+    a brand-new check: land it, prove it fires correctly against the
+    closed vocabulary, and only a later stage — 3 or 5, per
+    `docs/issue-2241/proposals/` — wires it into a blocking path once the
+    `kind:` field itself becomes load-bearing for observer verification).
+    Flags a `kind:` frontmatter value that is not in the closed vocabulary
+    `docs/specs/record-kind-vocabulary.md` formalizes. No vocabulary file,
+    or no `kind:` line in this record, is a legitimate empty state (a
+    record predating this stage, or the vocabulary spec not yet landed in
+    this target repo) — never an advisory, per that spec's additive-only
+    constraint."""
+    vocab = _load_record_kind_vocabulary(root)
+    if vocab is None:
+        return []
+    value = _frontmatter_kind_value(text)
+    if value is None or value in vocab:
+        return []
+    return [
+        "레코드의 kind: 값이 닫힌 어휘 밖이다 (issue #2241 stage 1, advisory "
+        f"— 아무것도 막지 않는다): {value!r} — "
+        f"{RECORD_KIND_VOCABULARY_PATH} 에 정의된 값 중 하나를 쓰거나 그 "
+        "문서에 새 값을 추가하라."
+    ]
 
 
 def checked_claim_reason_check(text: str) -> list[str]:
@@ -1398,7 +1462,6 @@ def lint_record(path: Path) -> list[str]:
 
     diff_scoped = []
     try:
-        diff_scoped += gates.record_enums(root, {})
         diff_scoped += gates.record_refusal_reasoned(root, {})
         diff_scoped += gates.record_wellformed_in(root)
         diff_scoped += gates.record_no_tool_residue_in(root)

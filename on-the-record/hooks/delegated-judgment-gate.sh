@@ -430,27 +430,34 @@ def rfc3339():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-# --- roles / judgment_axes ---------------------------------------------------
+# --- records / axis_evaluations -----------------------------------------
 # Moved above the candidate-decision AND-gate exit below (issue #609): the
-# open-decision triage block that follows needs ROLES/parse_axis_evaluations/
-# latest_axis_evaluation regardless of whether that gate escalates, since
-# triage evaluates a different, item-scoped question than the candidate
-# decision does. Function bodies are unchanged from #573 — only their
-# definition point moved earlier in the same heredoc.
-def load_roles():
-    # issue #2539 stage 6C: roles/*.json -> spawn_roles.json (single file,
-    # role name -> role dict).
-    role_data_file = TARGET / "spawn_roles.json"
-    if not role_data_file.is_file():
-        return {}
-    try:
-        data = json.loads(role_data_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return {role: cfg for role, cfg in data.items() if isinstance(cfg, dict)}
-
-
-ROLES = load_roles()
+# open-decision triage block that follows needs
+# all_record_paths/parse_axis_evaluations/latest_axis_evaluation regardless
+# of whether that gate escalates, since triage evaluates a different,
+# item-scoped question than the candidate decision does. Function bodies
+# are unchanged from #573 — only their definition point moved earlier in
+# the same heredoc.
+#
+# issue #2610: this used to load the 44-entry role catalog into ROLES
+# and ask each role's static `judgment_axes` declaration "which axis
+# does this role own" — a lookup keyed on that closed name set. The
+# catalog is gone. Every axis this gate ever cares about is already self-declared,
+# per evaluation, inside the record that wrote it (`axis:` inside an
+# `<!-- axis_evaluation -->` block, `parse_axis_evaluations` below) — the
+# same way `candidate_axes` on an `open_decision_item` is self-declared,
+# not looked up. So instead of "which named role owns axis X", this asks
+# "which of this issue's own records (docs/issue-<n>/reports/*.md,
+# whatever their name) have self-declared an evaluation of axis X" —
+# task-derived from the issue's own record set, validated against
+# nothing. The role name attached to an evaluation is now just the
+# record's filename stem (descriptive, for the audit trail), never a
+# membership check against a catalog.
+def all_record_paths(issue):
+    d = TARGET / "docs" / f"issue-{issue}" / "reports"
+    if not d.is_dir():
+        return []
+    return sorted(p for p in d.glob("*.md") if p.is_file())
 
 
 # --- read a role's latest axis_evaluation record ----------------------------
@@ -494,6 +501,23 @@ def latest_axis_evaluation(role, axis):
         return None
     entries = [en for en in parse_axis_evaluations(text) if en.get("axis") == axis]
     return entries[-1] if entries else None
+
+
+def axes_evaluated_in(path, axes=None):
+    """Axis names with >=1 axis_evaluation block self-declared in this
+    record, optionally filtered to `axes`. issue #2610: replaces a
+    ROLES[role]["judgment_axes"] lookup — the axis comes from the
+    evaluation itself, not from a catalog entry keyed on the record's
+    filename."""
+    if not path.is_file():
+        return set()
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return set()
+    found = {en.get("axis") for en in parse_axis_evaluations(text)}
+    found.discard(None)
+    return found if axes is None else found & set(axes)
 
 
 # --- open-decision triage (issue #609) --------------------------------------
@@ -553,16 +577,19 @@ for _rec_rel in changed_role_record_paths(paths, issue):
     for _item in parse_open_decision_items(_rec_text):
         _source_role = _item.get("source_role", "")
         _candidate_axes = [a for a in _item.get("candidate_axes", []) if a in _JUDGMENT_AXES]
-        _owning_roles = sorted({
-            role for role, cfg in ROLES.items()
-            if set(cfg.get("judgment_axes") or []) & set(_candidate_axes)})
 
+        # issue #2610: no more "which role owns this axis" catalog lookup —
+        # scan the issue's own records for a self-declared evaluation of
+        # one of the candidate axes, from whichever record (any filename)
+        # actually carries one.
         _item_evaluations = []
-        for _o_role in _owning_roles:
-            for _o_axis in sorted(set(ROLES[_o_role].get("judgment_axes") or []) & set(_candidate_axes)):
+        for _rp in all_record_paths(issue):
+            _o_role = _rp.stem
+            for _o_axis in sorted(axes_evaluated_in(_rp, _candidate_axes)):
                 _o_ev = latest_axis_evaluation(_o_role, _o_axis)
                 if _o_ev is not None:
                     _item_evaluations.append((_o_role, _o_axis, _o_ev))
+        _owning_roles = sorted({r for r, _, _ in _item_evaluations})
 
         _verdicts = {ev.get("verdict") for (_, _, ev) in _item_evaluations}
         _threshold_exceeded = not (DEPTH and LOW_IMPACT)
@@ -602,41 +629,45 @@ if not (DEPTH and LOW_IMPACT):
 # (a role only stood on paths its write_scope glob-matched). write_scope
 # is gone — sessions are not scope-limited, so no role is confined to a
 # path subset anymore, and every role has standing over every changed
-# path. A leftover write_scope-based filter here would silently zero out
-# `standing_roles` for every decision (every role's write_scope glob-match
-# is now permanently empty) and escalate everything unconditionally —
-# the same fail-closed trap as `gates.py:role_scope()`, just inside this
-# hook's own panel-composition logic instead of a write gate.
-standing_roles = set(ROLES)
+# path.
+#
+# issue #2610: `standing_roles = set(ROLES)` (every one of the 44
+# catalog names, unconditionally — the write_scope removal above already
+# made role-standing unconditional) meant `implicated_axes` was, in
+# practice, always exactly the fixed union of judgment_axes across the
+# whole catalog — never item- or PR-specific. Verified against the
+# catalog before deleting it (`jq` over the retired role-catalog file): that union is
+# byte-identical to `_JUDGMENT_AXES` above. So this panel's scope was
+# already a constant, not a lookup — spelling it as the constant directly
+# drops the ROLES indirection without changing what gets implicated.
+implicated_axes = _JUDGMENT_AXES
 
-implicated_axes = set()
-for role in standing_roles:
-    implicated_axes.update(ROLES.get(role, {}).get("judgment_axes") or [])
-
-eligible_roles = sorted(
-    role for role, cfg in ROLES.items()
-    if set(cfg.get("judgment_axes") or []) & implicated_axes)
-
-if not eligible_roles:
-    escalate("no eligible role owns an implicated judgment axis")
-
+# issue #2610: no more "which role's static judgment_axes covers this
+# axis, then does THAT role have a standing evaluation" — quorum is now
+# per axis, not per role: every implicated axis needs at least one
+# self-declared axis_evaluation from *some* record under this issue
+# (any filename), the same task-derived-not-enumerated source the triage
+# block above already uses. A role name in `evaluating_roles` is
+# descriptive (which record supplied the evaluation), never a catalog
+# membership check.
 evaluating_roles = []
 quorum = True
-for role in eligible_roles:
-    role_axes = sorted(set(ROLES[role].get("judgment_axes") or []) & implicated_axes)
-    found = None
-    for axis in role_axes:
-        ev = latest_axis_evaluation(role, axis)
+for axis in sorted(implicated_axes):
+    found_any = False
+    for _rp in all_record_paths(issue):
+        if axis not in axes_evaluated_in(_rp, {axis}):
+            continue
+        ev = latest_axis_evaluation(_rp.stem, axis)
         if ev is not None:
-            found = (role, axis, ev)
-            break
-    if found is None:
+            evaluating_roles.append((_rp.stem, axis, ev))
+            found_any = True
+    if not found_any:
         quorum = False
-        continue
-    evaluating_roles.append(found)
 
 if not quorum:
     escalate("full-panel quorum not reached")
+
+eligible_roles = sorted({role for role, _, _ in evaluating_roles})
 
 verdicts = [ev.get("verdict") for (_, _, ev) in evaluating_roles]
 if any(v == "contradicts" for v in verdicts):

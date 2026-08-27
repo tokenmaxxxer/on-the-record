@@ -612,39 +612,30 @@ def write_record_skeleton(cwd: str, issue: int, role: str,
     p = Path(cwd) / "docs" / f"issue-{issue}" / "reports" / f"{role}.md"
     if p.exists():
         return None
-    # Initial loop_state: the role's own record_fields enum is authoritative
-    # (record_lint treats an out-of-enum value as a violation) — prefer
-    # `in-progress` when the enum carries it, else the enum's first value.
+    # issue #2610: this used to look a per-role `record_fields.loop_state`
+    # enum up in the (now-deleted) 44-entry role catalog and prefer its
+    # "in-progress" member, or its first value, as the initial loop_state.
+    # `role_data().get(role, {})` already returned `{}` for every slug
+    # session (the current identity axis, #2555/#2560/#2561) — a literal
+    # name match against the closed catalog never matched a real slug, so
+    # this lookup was already unreachable for every session this function
+    # is actually called for; only the handful of legacy literal role
+    # names ever got a non-default answer. The universal default below is
+    # what every current session already received.
     loop_state = "in-progress"
-    try:
-        enum = (_sp.role_data().get(role, {})
-                .get("record_fields", {}).get("loop_state"))
-        if isinstance(enum, dict):
-            # grouped shape {progress: [...], terminal: [...], ...} —
-            # prefer the progress group's first value
-            flat = [v for vs in enum.values() for v in vs]
-            if "in-progress" not in flat:
-                loop_state = (enum.get("progress") or [flat[0]])[0]
-        elif enum and "in-progress" not in enum:
-            loop_state = enum[0]
-    except Exception:
-        pass
-    # roles/specs/<role>.spec.json required_fields become empty frontmatter
-    # keys (with the enum as a YAML comment) so the session fills values,
-    # not structure — observed in the first post-diet run: without these the
-    # session spent turns excavating git history for a prior record's shape.
+    # issue #2610: same removal for `record_spec.required_fields` below —
+    # it scaffolded per-role placeholder frontmatter keys (with an enum
+    # hint), including a `code_under_review:` placeholder for the two
+    # roles record-fields-gate.sh special-cased (coding, implementation),
+    # from the same deleted catalog. Equally unreachable for slug sessions
+    # already (`role_data().get(role, {}).get("record_spec")` was always
+    # `{}` for them) — only those two legacy literal names ever got the
+    # placeholder. What's lost: a coding session no longer gets
+    # `code_under_review:`/other per-role required fields pre-scaffolded
+    # as empty frontmatter keys; it starts from the plain skeleton below
+    # (still gets "## What did not work" via `is_coding`, unaffected —
+    # that heuristic never touched the catalog).
     #
-    # issue-2190: for the two roles record-fields-gate.sh special-cases
-    # (coding, implementation), the spec's raw `commit_sha` field name never
-    # appears in an actual record — the gate checks `code_under_review:`
-    # instead (a file-list citation, not a bare sha; see
-    # docs/issue-100/decisions/2026-08-03-record-citation-format-and-kind-
-    # convention.md), and `breaking:` is universal delivery-record practice
-    # despite being marked optional in the spec. Emitting the spec's field
-    # names unrenamed left the session to re-derive both the rename and the
-    # optional-but-always-present field on every run (measured: docs/issue-45
-    # fixture, ~37s of thinking before converging on `code_under_review:` +
-    # `breaking:` across three Edit passes).
     # issue #2575: `role` is a free-form slug under slug identity (#2555)
     # and is never validated against a closed role set any more (#2555/
     # #2560/#2561) — a literal name match against a fixed tuple can no
@@ -669,29 +660,9 @@ def write_record_skeleton(cwd: str, issue: int, role: str,
     # because no better structural signal exists (see this issue's own
     # record for the investigation this rules out).
     is_coding = bool(_CODE_EXTENSION_RE.search(task_text or ""))
-    spec_lines = ""
-    try:
-        spec = _sp.role_data().get(role, {}).get("record_spec") or {}
-        for fld in spec.get("required_fields", []):
-            name = fld.get("name")
-            if name == "loop_state":
-                continue
-            if not fld.get("required") and not (is_coding and name == "breaking"):
-                continue
-            if is_coding and name == "commit_sha":
-                spec_lines += "code_under_review:\n  - PLACEHOLDER: path/to/file\n"
-                continue
-            enum = fld.get("enum")
-            hint = " # one of: %s" % "|".join(enum) if enum else \
-                   " # %s" % fld.get("type", "fill")
-            spec_lines += "%s:%s\n" % (name, hint)
-    except Exception:
-        pass
     body = _RECORD_SKELETON.format(
         issue=issue, role=role, loop_state=loop_state,
         author_line=_stamp_additive_record_fields(issue, role, skill_sources))
-    if spec_lines:
-        body = body.replace("sha:\n---\n", "sha:\n" + spec_lines + "---\n", 1)
     if is_coding:
         body = body.replace(
             "\n## Upstream basis\n",

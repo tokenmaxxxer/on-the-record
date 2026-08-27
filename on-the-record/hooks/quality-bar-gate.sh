@@ -14,7 +14,7 @@
 # already documents.
 #
 # Bar-scoped roles: the 7 specs carrying a `quality_bar` array
-# (spawn_roles.json's {ux-engineering,interaction-design,accessibility,
+# (the (now-deleted) role catalog's {ux-engineering,interaction-design,accessibility,
 # api-design,performance-engineering,secure-coding,test-authoring}.record_spec,
 # issue #2539 — previously roles/specs/<role>.spec.json) — a role is
 # bar-scoped for a PR when the PR's changed files match that spec's own
@@ -226,19 +226,25 @@ issue = head_ref_m.group(1) if head_ref_m else None
 slug = head_ref_m.group(2) if head_ref_m else None
 
 # --- bar-scoped roles for this PR -------------------------------------------
-# issue #2539 stage 6C: roles/specs/<role>.spec.json -> spawn_roles.json's
-# per-role "record_spec" key.
-try:
-    _role_data = json.load(open(os.path.join(CHECKOUT, "spawn_roles.json"), encoding="utf-8"))
-except (OSError, ValueError):
-    _role_data = {}
-role_patterns = {}
-for role in BAR_ROLES:
-    spec = (_role_data.get(role) or {}).get("record_spec")
-    if not isinstance(spec, dict):
-        continue
-    trigger = (spec.get("use_when") or {}).get("trigger") if isinstance(spec.get("use_when"), dict) else None
-    role_patterns[role] = (trigger or {}).get("path_patterns") or []
+# issue #2610: this used to look each BAR_ROLES name's path_patterns up in
+# the (now-deleted) 44-entry role catalog. BAR_ROLES itself was already a
+# fixed 7-name literal, independent of that catalog's key set (it names
+# quality domains, not identities validated against anything) — inlining
+# their path_patterns here drops the JSON dependency without changing
+# which 7 domains this hook classifies.
+_TRIGGER_PATH_PATTERNS = {
+    "interaction-design": ["docs/issue-*/reports/product-discovery.md"],
+    "test-authoring": ["src/**", "lib/**", "app/**"],
+    "ux-engineering": ["**/*.tsx", "**/*.jsx", "**/*.vue", "**/*.svelte"],
+    "api-design": [],
+    "performance-engineering": [],
+    "accessibility": ["**/*token*", "**/*.css", "**/*.tsx", "**/*.jsx",
+                       "**/interaction*"],
+    "secure-coding": ["**/auth/**", "**/*credential*", "**/*permission*",
+                       "**/*secret*", "**/*password*", "**/*login*",
+                       "**/*input*", "**/*sanitiz*", "**/*validat*"],
+}
+role_patterns = {role: _TRIGGER_PATH_PATTERNS.get(role) or [] for role in BAR_ROLES}
 
 scoped_roles = quality_bar.bar_scoped_roles(pr_files, role_patterns)
 if not scoped_roles or issue is None or slug is None:

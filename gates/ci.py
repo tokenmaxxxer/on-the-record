@@ -614,7 +614,6 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
         return bad
     # issue #517: routed through gates/record_lint.py's re-exports — same
     # function objects as gates.py, not a second copy.
-    bad += record_lint.record_enums(repo, {})
     bad += record_lint.record_wellformed_in(repo)
     bad += record_lint.record_no_tool_residue_in(repo)
     bad += gates.record_fulfils_diff(repo, {})

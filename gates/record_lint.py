@@ -1,7 +1,7 @@
 """issue-517 — aggregate, single-pass record lint.
 
 Authoring a role record today costs one model turn per gate refusal:
-`record_enums`/`record_wellformed`/... in `gates.py` and the four checks
+`record_wellformed`/`record_checked_claims`/... in `gates.py` and the four checks
 mirrored inline in `on-the-record/hooks/record-claim-guard.sh` each
 report only their own first failure, and there is no single command an
 author can run before writing to see every violation at once (a
@@ -61,7 +61,6 @@ RECORD_KIND_VOCABULARY_PATH = "docs/specs/record-kind-vocabulary.md"
 # Re-exported, not reimplemented: `gates/ci.py` and `record-claim-guard.sh`
 # call these names on this module instead of holding their own copies —
 # single source of truth means the same function object, not a mirror.
-record_enums = gates.record_enums
 record_wellformed_in = gates.record_wellformed_in
 record_no_tool_residue_in = gates.record_no_tool_residue_in
 record_checked_claims = gates.record_checked_claims
@@ -1463,7 +1462,6 @@ def lint_record(path: Path) -> list[str]:
 
     diff_scoped = []
     try:
-        diff_scoped += gates.record_enums(root, {})
         diff_scoped += gates.record_refusal_reasoned(root, {})
         diff_scoped += gates.record_wellformed_in(root)
         diff_scoped += gates.record_no_tool_residue_in(root)

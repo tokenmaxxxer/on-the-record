@@ -39,18 +39,6 @@ PROTECTED_ROOT_DIRS = {"roles", "gates", "agents", "images", "profiles"}
 # repo)의 경로와는 무관하다: roles/ 는 on-the-record 자산이지 보드
 # 자산이 아니다.
 ON_THE_RECORD_ROOT = Path(__file__).resolve().parent.parent
-# 이슈 #2539 (stage 6C): roles/<role>.json 파일 44개 + roles/specs/<role>.spec.json
-# 43개를 이 파일 하나로 통합했다 — 역할 이름 -> 원래 roles/<role>.json 내용, 그
-# 안의 "record_spec" 키가 원래 roles/specs/<role>.spec.json 내용(required_fields
-# 등). 일부 역할은 roles/<role>.json 자체가 이미 "spec" 필드(문서 경로 문자열)를
-# 쓰고 있어 그 키와 충돌을 피하려고 "record_spec"으로 이름 붙였다.
-_ROLE_DATA_PATH = ON_THE_RECORD_ROOT / "spawn_roles.json"
-
-
-def _role_cfg(role: str) -> dict:
-    """단일 사실 소스: spawn_roles.json 의 role 키. 모르는 role 은 KeyError —
-    각 호출부가 (OSError, json.JSONDecodeError, KeyError) 로 이미 fail closed."""
-    return json.loads(_ROLE_DATA_PATH.read_text(encoding="utf-8"))[role]
 # 인증 계열은 좁게(auth.py 는 막고 author.py 는 통과), 자격증명 계열은 넓게.
 # 자격증명의 미탐 비용은 유출이고 오탐 비용은 사람 확인 한 번이다.
 PROTECTED_GLOBS = ["*.pem", "*.key", "*.p12", ".env", ".env.*",
@@ -295,9 +283,6 @@ def deps(d: Path, cfg: dict) -> list[str]:
     return bad
 
 
-# issue-377: roles/*.json 의 record_fields.loop_state 선언이 실제 레코드
-# frontmatter 가 쓰는 값 어휘와 어긋나면(#147 류 drift) 여기서 잡는다.
-# CLAIM-CHECK: enum-subset spawn_roles.json:implementation.record_fields.loop_state docs/issue-*/reports/*.md:loop_state
 RECORD_PATH = re.compile(r"^docs/issue-[^/]+/reports/([^/]+)\.md$")
 
 
@@ -318,53 +303,23 @@ def record_frontmatter(text: str) -> dict[str, str]:
     return out
 
 
-def record_enums(d: Path, cfg: dict) -> list[str]:
-    """변경된 `docs/issue-<n>/reports/<role>.md` 의 frontmatter 필드가
-    roles/<role>.json 의 record_fields 로 선언한 enum 안에 있는지 검사한다.
-
-    선언되지 않은 필드는 검사하지 않는다(자유 텍스트로 남는다) — 선언된
-    값만 write-time 에 강제하는 것이 요청의 범위다. role 정의를 못 읽으면
-    "검사할 게 없다"가 아니라 "검사할 수 없다": 차단한다."""
-    root = d / "work" if (d / "work").exists() else d
-    try:
-        files = changed_files(root)
-    except RuntimeError as e:
-        return [str(e)]
-    bad = []
-    for f in files:
-        m = RECORD_PATH.match(f)
-        if not m:
-            continue
-        role = m.group(1)
-        try:
-            role_cfg = _role_cfg(role)
-        except (OSError, json.JSONDecodeError, KeyError) as e:
-            bad.append(f"역할 정의를 읽을 수 없어 enum 을 검사할 수 없다: "
-                       f"{_ROLE_DATA_PATH} 의 {role!r} (on-the-record 체크아웃: "
-                       f"{ON_THE_RECORD_ROOT}) ({e})")
-            continue
-        declared = role_cfg.get("record_fields", {})
-        record_file = root / f
-        fm = record_frontmatter(
-            record_file.read_text(encoding="utf-8-sig", errors="replace")
-            if record_file.exists() else "")
-        for field, allowed in declared.items():
-            if field not in fm:
-                continue
-            value = fm[field]
-            # allowed 가 버킷 dict({'progress': [...], 'terminal': [...], ...})
-            # 일 수 있다 — 버킷 전체 합집합이 유효값 집합이다. 어느 버킷에
-            # 속해도 유효하며, dict 를 그대로 flat allow-list 로 취급하면
-            # (in dict == in dict.keys()) 버킷된 값이 전부 오탐으로 잡힌다.
-            if isinstance(allowed, dict):
-                valid = {v for bucket in allowed.values() for v in bucket}
-            else:
-                valid = allowed
-            if value not in valid:
-                bad.append(
-                    f"레코드 enum 위반: {f} 의 {field}={value!r} — "
-                    f"{_ROLE_DATA_PATH} 의 {role!r} 이 선언한 값 ({allowed}) 이 아니다")
-    return bad
+# issue #2610: `record_enums` used to check a changed record's frontmatter
+# field values against a per-role enum declared in the (now-deleted)
+# 44-entry role catalog. That vocabulary was genuinely role-specific
+# (verified against the catalog before deleting it: e.g. `architecture`'s
+# terminal loop_state was "landed", `product-discovery`'s was one of
+# "validated"/"invalidated"/"inconclusive" — not a shared vocabulary a
+# role-independent check could substitute) — providing it required
+# looking a role name up in a closed set, which is exactly the mechanism
+# this issue retires. Per the operator's ruling on #2610 (a capability
+# that cannot be provided without enumerating identities is dropped, not
+# reshaped into a new enumeration): removed. What is lost is write-time
+# typo-catching for role-specific frontmatter vocabulary (issue #147-style
+# drift between a role's declared enum and what a record actually writes)
+# — `record_refusal_reasoned` below and `record_checked_claims` further
+# down still enforce the two role-independent invariants that used to
+# ride along with this check (a refusal-family loop_state needs a reason;
+# a terminal loop_state needs an Acceptance verification section).
 
 
 REFUSAL_STATES = {"refused", "not-needed", "cannot-verify"}
@@ -372,10 +327,16 @@ REFUSAL_STATES = {"refused", "not-needed", "cannot-verify"}
 
 def record_refusal_reasoned(d: Path, cfg: dict) -> list[str]:
     """issue #476 H2 — `loop_state`가 거부/불필요/검증불가 계열 값이면
-    `reason:` 필드 존재를 강제한다. `record_enums`와 같은 자리(role 정의를
-    못 읽으면 fail closed, 선언 안 된 필드는 검사 안 함)에, 값-내용 검증이
-    아니라 존재-검증만 한다 — 기존 `record_wellformed_in`의 엄격도와
-    같다: 성실히 채웠는지가 아니라 채웠는지만."""
+    `reason:` 필드 존재를 강제한다. 값-내용 검증이 아니라 존재-검증만 한다 —
+    기존 `record_wellformed_in`의 엄격도와 같다: 성실히 채웠는지가 아니라
+    채웠는지만.
+
+    issue #2610: 이 검사는 `REFUSAL_STATES`(전역, role 과 무관)만 본다 —
+    예전에 있던 role 정의 조회는 "role 을 못 찾으면 검사 자체를 건너뛴다"는
+    게이트로만 쓰였고 실제 판정에는 관여하지 않았다(판정은 항상 이 전역
+    집합 기준이었다). role 조회를 걷어내면 판정은 그대로이고, role 이
+    카탈로그에 없다는 이유로(사실상 모든 현재 세션) 이 검사가 통째로
+    스킵되던 부작용만 없어진다."""
     root = d / "work" if (d / "work").exists() else d
     try:
         files = changed_files(root)
@@ -385,16 +346,6 @@ def record_refusal_reasoned(d: Path, cfg: dict) -> list[str]:
     for f in files:
         m = RECORD_PATH.match(f)
         if not m:
-            continue
-        role = m.group(1)
-        try:
-            role_cfg = _role_cfg(role)
-        except (OSError, json.JSONDecodeError, KeyError) as e:
-            bad.append(f"역할 정의를 읽을 수 없어 refusal 필드를 검사할 수 "
-                       f"없다: {_ROLE_DATA_PATH} 의 {role!r} ({e})")
-            continue
-        declared = role_cfg.get("record_fields", {}).get("loop_state")
-        if declared is None:
             continue
         record_file = root / f
         fm = record_frontmatter(
@@ -723,27 +674,28 @@ def _acceptance_section(text: str) -> str | None:
     return rest[:nxt.start()] if nxt else rest
 
 
-def _terminal_loop_state(role_cfg: dict) -> str | None:
-    """role_cfg 의 `record_fields.loop_state` 선언 목록에서 터미널 값.
+def _is_terminal_loop_state(value: str | None) -> bool:
+    """`loop_state` 값이 터미널인지 role 과 무관하게 구조적으로 판정한다.
 
-    role 정의는 어떤 값이 터미널인지 별도 마킹하지 않는다 — 목록 순서 자체가
-    진행 순서다(예: technical-feasibility 의 measuring→verdict, implementation
-    의 scope-proposed→...→landed). 그래서 목록의 마지막 값을 터미널로 읽는다;
-    단일 값 목록(예: defect-verification 의 cleared)도 그 하나가 곧 마지막이라
-    같은 규칙으로 맞는다. 선언 자체가 없으면 None — 이 게이트가 그 레코드를
-    건드리지 않는다(터미널을 모르면 강제할 기준이 없다).
+    issue #2610 이전에는 (지금은 삭제된) role 카탈로그의
+    `record_fields.loop_state` 선언 목록 마지막 값을 "그 role 의 터미널
+    값"으로 읽었다 — role 마다 다른 단어였다(예: technical-feasibility 는
+    "landed", conformance-review 는 "reported", product-discovery 는
+    "validated"/"invalidated"/"inconclusive" 중 하나). role 마다 다른
+    단어라 role 없이는 "어떤 값이 터미널인가"를 알 수 없었다.
 
-    role_cfg 가 온전한 형태라는 보장이 없다(issue #1105 — 머지 충돌 중인
-    작업 트리에서 호출되면 record_fields/loop_state 가 빈 값이거나 리스트가
-    아닌 형태일 수 있다). list/tuple 이 아니면 순서가 없으므로 "마지막"을
-    읽을 수 없다 — None."""
-    record_fields = role_cfg.get("record_fields")
-    if not isinstance(record_fields, dict):
-        return None
-    states = record_fields.get("loop_state")
-    if not isinstance(states, (list, tuple)) or not states:
-        return None
-    return states[-1]
+    대신: `loop_state` 는 시스템 전역에서 이미 "in-progress" 를 시작 상태로
+    쓴다(레코드 스캐폴딩의 기본값, `directive_assembly.py`). "거부/불필요/
+    검증불가" 계열은 `REFUSAL_STATES` 로 이미 role 과 무관하게 분리돼
+    있다 — 그 계열은 "끝났다"가 아니라 "이번엔 못 한다"이므로 Acceptance
+    verification 을 요구할 대상이 아니다. 남는 건 셋뿐이다: 비어있음(아직
+    안 씀), "in-progress"(진행중), 그 외 전부(터미널) — role 이름을 몰라도
+    구조만으로 셋을 구별할 수 있다. 실측: 카탈로그가 있던 시절에도 이
+    검사는 `record_fields.loop_state` 가 flat list 인 단 하나의 role
+    ("implementation")에서만 실제로 발동했다(나머지 43개는 버킷 dict라
+    `isinstance(states, (list, tuple))` 에서 항상 None 이었다) — 이 구조적
+    판정은 그 좁은 적용 범위를 role 전체로 넓힌다, 좁히지 않는다."""
+    return bool(value) and value != "in-progress" and value not in REFUSAL_STATES
 
 
 def parse_checked_claims(work: Path) -> list[tuple[str, str, str, str | None]]:
@@ -763,18 +715,10 @@ def parse_checked_claims(work: Path) -> list[tuple[str, str, str, str | None]]:
         m = RECORD_PATH.match(f)
         if not m:
             continue
-        role = m.group(1)
-        try:
-            role_cfg = _role_cfg(role)
-        except (OSError, json.JSONDecodeError, KeyError):
-            continue
-        terminal = _terminal_loop_state(role_cfg)
-        if terminal is None:
-            continue
         record_file = work / f
         text = (record_file.read_text(encoding="utf-8-sig", errors="replace")
                 if record_file.exists() else "")
-        if record_frontmatter(text).get("loop_state") != terminal:
+        if not _is_terminal_loop_state(record_frontmatter(text).get("loop_state")):
             continue
         section = _acceptance_section(text)
         if section is None:
@@ -809,25 +753,15 @@ def record_checked_claims(d: Path, cfg: dict) -> list[str]:
         m = RECORD_PATH.match(f)
         if not m:
             continue
-        role = m.group(1)
-        try:
-            role_cfg = _role_cfg(role)
-        except (OSError, json.JSONDecodeError, KeyError) as e:
-            bad.append(f"역할 정의를 읽을 수 없어 checked-claims 를 검사할 수 "
-                       f"없다: {_ROLE_DATA_PATH} 의 {role!r} (on-the-record 체크아웃: "
-                       f"{ON_THE_RECORD_ROOT}) ({e})")
-            continue
-        terminal = _terminal_loop_state(role_cfg)
-        if terminal is None:
-            continue
         record_file = root / f
         text = (record_file.read_text(encoding="utf-8-sig", errors="replace")
                 if record_file.exists() else "")
-        if record_frontmatter(text).get("loop_state") != terminal:
+        loop_state = record_frontmatter(text).get("loop_state")
+        if not _is_terminal_loop_state(loop_state):
             continue
         section = _acceptance_section(text)
         if section is None:
-            bad.append(f"{f}: loop_state={terminal!r}(터미널)인데 "
+            bad.append(f"{f}: loop_state={loop_state!r}(터미널)인데 "
                        "'## Acceptance verification' 섹션이 없다 — 완료 주장은 "
                        "기계로 확인되지 않으면 터미널 상태로 못 간다")
             continue
@@ -1239,7 +1173,6 @@ def ui_evidence_gate_gate(d: Path, cfg: dict) -> list[str]:
 
 
 ALL = {"writeset": writeset, "deps": deps,
-       "record_enums": record_enums,
        "record_refusal_reasoned": record_refusal_reasoned,
        "record_wellformed": record_wellformed,
        "record_no_tool_residue": record_no_tool_residue,
