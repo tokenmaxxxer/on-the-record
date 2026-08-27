@@ -283,7 +283,20 @@ def stale_revert_reasons(repo: Path, pr: int, refs: dict | None = None) -> list[
 def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     """`{"allowed": bool, "reasons": [str, ...]}`. 넷 다 깨끗해야
     `allowed`: check-runner 코멘트 존재, `passed == total`, 필요 검증
-    기록 모두 존재, stale-revert 없음(issue #1664)."""
+    기록 모두 존재, stale-revert 없음(issue #1664).
+
+    이슈 #2506: 위 넷을 따지기 전에, 이 게이트를 실행 중인 코드 자체의
+    체크아웃(`spawn.ROOT` — `--repo` 로 받은 대상 PR 저장소와는 다른 축)이
+    origin 대비 뒤처졌는지 먼저 본다. 뒤처졌으면 넷 중 무엇도 계산하지
+    않고 즉시 거절한다 — 낡은 `_exempt_own_role`/`required_verification_missing`
+    구현이 낸 "확신에 찬 오답"이 바로 이 이슈가 실측한 사고였다. 판정
+    보류(`checked: False` — 원격 없는 합성 테스트 저장소, 이슈가 정의한
+    empty state)는 오늘처럼 그대로 통과시킨다."""
+    checkout = spawn.checkout_staleness()
+    if checkout["checked"] and checkout["stale"]:
+        reason = (f"checkout-stale (코드 결함 아님 — 이 게이트를 실행한 체크아웃이 낡았다): "
+                  f"{checkout['detail']} — `git -C {spawn.ROOT} pull --ff-only` 로 갱신 후 재실행하라")
+        return {"allowed": False, "reasons": [reason], "checkout_staleness": checkout}
     # issue #2381 R1 (conformance-review CHANGES round): 아래 `stale_revert_reasons()`
     # 는 `origin/<base_ref>` 를 resolve 한다 — 예전엔 `check_runner.py`의
     # `checkout_pr_worktree()`가 같은 `--repo` 체크아웃에 먼저
