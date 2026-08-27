@@ -568,12 +568,35 @@ def _stamp_additive_record_fields(issue: int, role: str,
     issue #1742/#1774) — a record naming only the skill, never its
     source, cannot be re-judged later once resolution order changes.
     Omitted entirely when no `--skills` were mounted (empty-state:
-    byte-identical to before this issue)."""
+    byte-identical to before this issue).
+
+    Issue #2609 (landing-comment follow-up: "nothing emits the field"):
+    a third stamped line, `verifies_subject: false`, extends the same
+    additive-field call site -- every record gets it, regardless of
+    `role`/skill, the same way every record already gets `author:`. This
+    is deliberately NOT a role/kind lookup: `merge_gate.py`'s obligation
+    check reads only the field's *value* in the committed record, never
+    which role produced it, and staying that way is the entire point of
+    #2609's Option 2 (self-declared, not enumerated) -- keying this
+    stamp off `role` (e.g. only stamping `true` for roles named
+    "execution-observation"/"conformance-review") would reintroduce
+    exactly the closed set #2609 deleted, one layer up. The default is
+    `false` (safe: most records are not independent verifications of
+    their subject); a session whose work IS one flips it to `true`
+    itself before committing -- self-declaration stays 100% about
+    content, only the field's *presence* (so no session has to know
+    from `docs/handbooks/observer-verification.md` that the key exists
+    at all) arrives by construction. `write_record_skeleton` already
+    refuses to touch an existing record file, so this stamped default
+    can never overwrite a session's own considered `true`."""
     line = f"author: {role}\n"
     if skill_sources:
         detail = ", ".join(f"{m['name']} ({_sp._describe_skill_match(m)})"
                             for m in skill_sources)
         line += f"skills: {detail}\n"
+    line += ("verifies_subject: false  # flip to true only if this record is an "
+             "independent verification of this subject's own deliverable -- see "
+             "docs/handbooks/observer-verification.md\n")
     return line
 
 

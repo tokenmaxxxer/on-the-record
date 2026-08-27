@@ -1,5 +1,20 @@
 # Observer verification: self-declared, counted (issue #2609)
 
+## Scaffolding: the field arrives by construction
+
+`gates/directive_assembly.py`'s `_stamp_additive_record_fields()` -- the
+single call site every additive record-field stamp goes through, already
+used for `author:` -- stamps a `verifies_subject: false` line into
+*every* session's record skeleton at bootstrap (`write_record_skeleton()`),
+regardless of role/skill/kind. A session no longer has to know from this
+handbook that the field exists at all; it is already sitting in the
+frontmatter of the file it is editing. What stays 100% self-declared is
+the *value*: a session whose own work is an independent verification of
+its subject flips `false` to `true` itself before committing, per the
+guidance below. Nothing branches on a role/skill name to decide the
+default -- keying the stamp off `role` would reintroduce, one layer up,
+exactly the closed set #2609 deleted from the merge-gating check itself.
+
 `gates/merge_gate.py`'s `required_verification_missing()` — the check a
 PR cannot merge without passing — gates on a self-declared, counted
 field. It used to key off a closed set of `kind:` values (stage 5 of
@@ -73,6 +88,18 @@ the guard is skipped rather than treating every match as suspect.
   only the per-subject wrapper (`classify_for_subject()`, whose sole
   caller was the now-deleted execution-observation skip-eligibility
   exemption) is gone.
+- The scaffolding stamp above (`_stamp_additive_record_fields()`) does
+  not read `spawn_roles.json`'s `record_fields`/`record_spec` — that is
+  a separate call site in `write_record_skeleton()` (the `spec_lines`
+  block) which issue #2610 is scheduled to retire. The stamp is keyed
+  on nothing but "a record skeleton is being written," so #2610's
+  retirement of `spawn_roles.json` does not invalidate it.
+- Records that landed before this scaffolding existed, or before #2609
+  at all, are not amended — `docs/issue-*/reports/` is never migrated
+  (standing operator decision). A subject whose only candidate
+  verifying records predate the field still shows 0 qualifying records
+  until a newly-written record supplies one; this scaffold changes what
+  new records default to, not what old ones say.
 
 ## History: stage 5's kind-matching (superseded)
 
