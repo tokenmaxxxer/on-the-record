@@ -137,15 +137,36 @@ except OSError:
 if not marker_found:
     sys.exit(0)
 
-branch_r = subprocess.run(
-    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-    cwd=repo, capture_output=True, text=True, timeout=10,
-)
-branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
-branch_m = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
-role = os.environ.get("CLAUDE_ROLE") or None
-if branch_m:
-    base = os.path.join("docs", f"issue-{branch_m.group(1)}", "reports")
+# --- prefer the .on-the-record/role.json lease sidecar (issue #1814) -------
+# written by spawn.py's issue_workspace() at spawn time; carries the exact
+# (possibly composed, e.g. "skill-a+skill-b-<disambiguator>") identity
+# string the session was spawned under. Any absence/parse failure falls
+# back to the branch-regex parse below.
+issue_n, role = None, None
+try:
+    with open(os.path.join(repo, ".on-the-record", "role.json"), encoding="utf-8") as f:
+        sidecar = json.load(f)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+            and isinstance(sidecar.get("issue"), int)):
+        issue_n, role = sidecar["issue"], sidecar["role"]
+except (OSError, ValueError):
+    pass
+
+if role is None:
+    branch_r = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=repo, capture_output=True, text=True, timeout=10,
+    )
+    branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
+    branch_m = re.match(r"^issue-(\d+)/([^/]+)$", branch)
+    if branch_m:
+        issue_n, role = branch_m.group(1), branch_m.group(2)
+    # CLAUDE_ROLE presence-only override: a session with no branch/sidecar
+    # identity at all but a live CLAUDE_ROLE still scopes to its own dir.
+    role = role or (os.environ.get("CLAUDE_ROLE") or None)
+
+if issue_n is not None:
+    base = os.path.join("docs", f"issue-{issue_n}", "reports")
     rel = os.path.join(base, role, "deviation-log") if role else os.path.join(base, "deviation-log")
 else:
     rel = os.path.join("docs", "reports", "deviation-log")

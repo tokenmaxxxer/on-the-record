@@ -56,7 +56,7 @@ command -v python3 >/dev/null 2>&1 || exit 2
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, re, subprocess, sys
 
-CHANNEL_ROLE = "upstream-defect-report"
+CHANNEL_SKILL = "upstream-defect-report"
 
 def deny(msg):
     sys.stderr.write("upstream-defect-scope-guard: %s\n" % msg)
@@ -75,26 +75,18 @@ if not isinstance(cmd, str) or not cmd.strip():
 
 lowered = cmd.lower()
 
-# --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
-# Same pattern as approval-gate.sh: the snapshot can't be rebound by a later
-# Bash-tool re-export of CLAUDE_ROLE within this same session.
-role = os.environ.get("CLAUDE_ROLE", "")
-session_id = e.get("session_id")
-if isinstance(session_id, str) and session_id:
-    state_dir = os.environ.get(
-        "OTR_ROLE_BIND_STATE_DIR",
-        os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
-    )
-    safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", session_id)
-    snapshot_path = os.path.join(state_dir, safe_session + ".json")
-    try:
-        with open(snapshot_path, encoding="utf-8") as f:
-            snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
-    except (OSError, ValueError):
-        pass  # no snapshot yet — fall back to the live env var
-channel_role_active = role == CHANNEL_ROLE
+# --- channel identity: mounted skills, not CLAUDE_ROLE (issue #2576) -------
+# CLAUDE_ROLE now carries whatever (possibly composed, "+"-joined) slug a
+# --skills spawn produced, so an exact-string compare against the single
+# literal "upstream-defect-report" only ever matched a spawn mounting that
+# skill alone — any multi-skill composition silently fell out of scope.
+# The session-role-bind.sh snapshot this used to prefer never actually
+# carries a role value either (issue #2538 stage 6B narrowed it to a bare
+# {"spawned": true} flag) — that fallback path was already dead. Read
+# $MUSTER_SKILLS (pipeline.py:723) directly instead: true membership,
+# unaffected by what else is mounted alongside it.
+mounted = [s for s in os.environ.get("MUSTER_SKILLS", "").split(",") if s]
+channel_role_active = CHANNEL_SKILL in mounted
 
 # --- this session's own git origin repo (owner/repo, lowercased) -----------
 def origin_repo():

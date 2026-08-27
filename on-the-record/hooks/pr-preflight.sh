@@ -127,7 +127,7 @@ if issue is None:
     if r.returncode != 0:
         sys.exit(0)
     branch = r.stdout.strip()
-    bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
+    bm = re.match(r"^issue-(\d+)/([^/]+)$", branch)
     if not bm:
         sys.exit(0)
     issue = int(bm.group(1))

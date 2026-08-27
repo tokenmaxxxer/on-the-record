@@ -80,7 +80,7 @@ branch_r = subprocess.run(
 )
 if branch_r.returncode != 0:
     sys.exit(0)
-branch_m = re.match(r"^issue-(\d+)/([\w-]+)$", branch_r.stdout.strip())
+branch_m = re.match(r"^issue-(\d+)/([^/]+)$", branch_r.stdout.strip())
 issue_n = branch_m.group(1) if branch_m else None
 
 CATEGORIES = {

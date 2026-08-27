@@ -2,15 +2,16 @@
 # Stop: per-mounted-skill verdict obligation (issue #2039,
 # docs/issue-2039/proposals/2026-08-22-per-skill-verdict-obligation.md).
 #
-# Mirrors deviation-log-guard.sh's mechanism exactly: the mounted-skill
-# list only ever exists in the spawned session's own first-user-message
-# text (spawn.py:8143-8182's two assembly points), never in a file the
-# target repo's git tree or CI can read independently — so this is
-# necessarily a session-side Stop hook, not a gates.py CI-diff scan.
-# Reads transcript_path off the raw Stop event JSON, scans the
-# transcript's first user message for the two known mounted-skill line
-# prefixes, extracts the skill name set (union, no double-count for a
-# skill named by both assembly points), and delegates the actual
+# issue #2576: mounted-skill identity now comes straight from $MUSTER_SKILLS
+# (pipeline.py:723, set on the spawned session's own process env from
+# skill_dirs basenames) rather than scraping the two natural-language
+# mounted-skill sentences spawn.py used to print into the first user
+# message — that text is still shown to the model as a human-readable
+# explanation, but was never a stable machine interface (a wording change
+# at either assembly point silently emptied `mounted` here, with no
+# error). $MUSTER_SKILLS is this Stop hook's own process env — it is a
+# session-side signal same as before, not a gates.py CI-diff scan, just
+# read directly instead of re-derived from prose. Delegates the actual
 # shape check to gates/record_lint.py's record_skill_verdicts_in (the
 # same canonical function a future gates.py/CI caller would use).
 #
@@ -77,117 +78,17 @@ if not os.path.isfile(transcript_path):
 repo = os.environ.get("SVG_REPO", "")
 gates_dir = os.environ.get("SVG_GATES_DIR") or ""
 
-# The two mounted-skill line prefixes spawn.py assembles
-# (spawn.py:8143-8151 and spawn.py:8152-8182). Each line is a
-# comma-joined "name (...)"/"name — ..." list; a skill name is the text
-# up to the first " (" or " — " token.
-_PREFIXES = (
-    "마운트된 스킬(--skills",
-    "이 역할은 skill-repository(",
-)
 
-
-def flat_text(content):
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                t = block.get("text")
-                if isinstance(t, str):
-                    parts.append(t)
-        return "\n".join(parts) if parts else None
-    return None
-
-
-def first_user_text(path):
-    try:
-        with open(path, "r", encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entry = json.loads(line)
-                except ValueError:
-                    continue
-                if not isinstance(entry, dict) or entry.get("type") != "user":
-                    continue
-                message = entry.get("message")
-                if not isinstance(message, dict):
-                    continue
-                text = flat_text(message.get("content"))
-                if text:
-                    return text
-    except OSError:
-        return None
-    return None
-
-
-_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
-
-
-def extract_names(line_body):
-    """`line_body` is everything after the assembly point's own colon
-    (e.g. "이슈 #1742/#1774): a, b (...), c — Use ...trigger., ...").
-
-    Issue #2057: a naive split on every comma fragments a skill's own
-    trigger sentence -- spawn.py:8318-8361 joins entries with ", " but
-    each entry's optional trigger is itself free text that commonly
-    contains internal commas (e.g. "Use when a class's coupling ...
-    crosses a threshold, a caller chains ..."). spawn.py's own trigger
-    regex (`_SKILL_USE_SENTENCE_RE = r"(Use\\b[^.]*\\.)"`) guarantees a
-    trigger never contains a literal "." except its own terminating one,
-    so a trigger's internal commas can be told apart from a real
-    top-level, entry-separating comma: only split on a comma that sits
-    outside both parens (depth 0) AND outside an unterminated "Use ..."
-    trigger sentence.
-    """
-    # Drop the leading "이슈 #.../..): " citation clause before the
-    # actual comma-joined name list, if present.
-    m = re.match(r"^[^:]*:\s*(.*)$", line_body)
-    body = m.group(1) if m else line_body
-    # spawn.py's role-mapping line inserts a literal "스킬 " label before
-    # the actual comma-joined name list (the --skills line has no such
-    # label) -- strip it so it isn't parsed as part of the first name.
-    body = re.sub(r"^스킬\s+", "", body)
-
-    parts = []
-    depth = 0
-    in_use = False
-    start = 0
-    n = len(body)
-    i = 0
-    while i < n:
-        ch = body[i]
-        if ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth = max(0, depth - 1)
-        elif not in_use and depth == 0 and body[i:i + 4] == "Use ":
-            in_use = True
-        elif in_use and ch == ".":
-            in_use = False
-        elif ch == "," and depth == 0 and not in_use:
-            parts.append(body[start:i])
-            start = i + 1
-        i += 1
-    parts.append(body[start:])
-
-    names = []
-    for item in parts:
-        item = item.strip()
-        if not item:
-            continue
-        item = re.split(r"\s+—\s+|\s+\(", item, maxsplit=1)[0].strip()
-        # A real skill name is a bare identifier token -- discard any
-        # split remainder still carrying spaces/parens/prose (e.g. the
-        # trailing "(skill-repository <sha>) 가이던스만 붙는다 ..." tail
-        # and cross-family parenthetical, which name no new skill).
-        if item and _NAME_RE.match(item):
-            names.append(item)
-    return names
+def mounted_skill_names():
+    """issue #2576: $MUSTER_SKILLS (pipeline.py:723) is this session's own
+    process env, set from `skill_dirs` basenames at spawn time — the
+    structured mounted-skill list, not the two natural-language sentences
+    spawn.py prints for the model to read. Empty/unset (a session with
+    zero matched skills, including zero always-on policy skills — an
+    edge case, since policy skills like work-in-english are themselves
+    task-triggered) yields an empty tuple, same as before."""
+    raw = os.environ.get("MUSTER_SKILLS", "")
+    return tuple(s for s in (p.strip() for p in raw.split(",")) if s)
 
 
 # issue #2153: only a skill actually invoked via the Skill tool this
@@ -269,19 +170,7 @@ def obligations_reminder(session_id):
 
 reminder = obligations_reminder(e.get("session_id"))
 
-text = first_user_text(transcript_path)
-mounted = []
-seen = set()
-if text:
-    for raw_line in text.splitlines():
-        line = raw_line.strip()
-        for prefix in _PREFIXES:
-            if line.startswith(prefix):
-                for name in extract_names(line[len(prefix):]):
-                    if name not in seen:
-                        seen.add(name)
-                        mounted.append(name)
-                break
+mounted = mounted_skill_names()
 
 def finish(*parts):
     parts = [p for p in parts if p]
@@ -314,16 +203,28 @@ try:
 except ImportError:
     sys.exit(2)
 
-branch_r = subprocess.run(
-    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-    cwd=repo, capture_output=True, text=True, timeout=10,
-)
-branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
-branch_m = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
-if not branch_m:
-    finish(reminder)
-role = branch_m.group(2)
-rel = os.path.join("docs", f"issue-{branch_m.group(1)}", "reports", f"{role}.md")
+# --- prefer the .on-the-record/role.json lease sidecar (issue #1814) -------
+issue_n, role = None, None
+try:
+    with open(os.path.join(repo, ".on-the-record", "role.json"), encoding="utf-8") as f:
+        sidecar = json.load(f)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+            and isinstance(sidecar.get("issue"), int)):
+        issue_n, role = sidecar["issue"], sidecar["role"]
+except (OSError, ValueError):
+    pass
+
+if role is None:
+    branch_r = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=repo, capture_output=True, text=True, timeout=10,
+    )
+    branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
+    branch_m = re.match(r"^issue-(\d+)/([^/]+)$", branch)
+    if not branch_m:
+        finish(reminder)
+    issue_n, role = int(branch_m.group(1)), branch_m.group(2)
+rel = os.path.join("docs", f"issue-{issue_n}", "reports", f"{role}.md")
 
 record_file = os.path.join(repo, rel)
 record_text = ""
