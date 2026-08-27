@@ -82,3 +82,20 @@ Append-only, newest entry last.
   record; don't assume it. Source: this session's task instructions,
   CHANGES round 2 on PR #2445 (issue #2381), 2026-08-26, re: untracking
   `.orchestrate-hook-fires.log`/`.orchestrate-hook-fires/`.
+- 2026-08-27: for any judgment-returning primitive (consult, skill_judge,
+  and future siblings) where latency and answer quality trade off,
+  cheapening the answer (matching fewer skills, skipping a judge call,
+  reducing breadth) to hit a speed target is not an acceptable fix — the
+  wall-clock problem must be solved by changing *when*/*how* the caller
+  waits (async delivery, restructuring the call graph), not by removing
+  work the answer depends on. A fix must prove the answer is unchanged
+  (e.g. quoting an identical matched-skill set before/after) rather than
+  merely asserting it. Also: don't diagnose a multi-stage pipeline's
+  latency from a single wall-clock figure — instrument per-stage timing
+  and let a real run show which stage actually dominates; it can vary
+  run-to-run. Source: issue #2569 body ("Keep the skill matching — it is
+  what makes the answer good... must not: reach the speed target by
+  matching fewer skills or skipping the judge, that trades the answer for
+  the clock... Do not accept a partial measurement... Instrument the
+  consult path... and report where the time goes, before choosing the
+  fix."), read 2026-08-27.
