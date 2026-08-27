@@ -443,6 +443,30 @@ def core_version() -> str:
     return "버전 불명 (core 체크아웃 없음)"
 
 
+def core_clone_staleness_line(d: Path) -> str:
+    """이슈 #2616: `d`(core_root() 가 실제로 고른 체크아웃 — 관리 클론이든
+    로컬 오버라이드든)가 origin 대비 뒤처졌는지 `checkout_staleness()`
+    (이슈 #2506, 재사용 — fetch+비교만, 작업 트리 mutate 없음)로 검사해
+    부트스트랩에 보일 한 줄을 만든다.
+
+    뒤처졌을 때만(`checked` 참 and `stale` 참) 줄을 돌려준다 — 확인
+    불가(`checked` 거짓, 예: git 클론이 아니거나 origin 이 없음)이거나
+    최신이면 빈 문자열, 오늘처럼 조용하다(이슈의 empty state). 이슈의
+    must-not("fetch 안 하고 current 로 보고하지 않는다")을 만족하려고
+    항상 `fetch=True`로 부른다 — core_root() 의 TTL-gated pull 이 이번
+    스폰에서 건너뛰었을 수도 있으므로, 매 호출이 스스로 fetch 해 정확한
+    비교를 보장한다.
+    """
+    result = _sp.checkout_staleness(root=d, fetch=True)
+    if result["checked"] and result["stale"]:
+        return (f"[core] 룰북 클론({d})이 origin 대비 {result['behind']}개 커밋 "
+                f"뒤처졌다 — 이 세션은 landed 된 게이트 수정이 반영 안 된 코드로 "
+                f"떴을 수 있다. `git -C {d} pull -q --ff-only` 로 직접 갱신하거나, "
+                f"다음 spawn 의 TTL-gated pull(MUSTER_RULEBOOK_TTL="
+                f"{_sp._rulebook_ttl_min():g}분)을 기다려라.")
+    return ""
+
+
 def core_plugin_dirs() -> list[Path]:
     """core 마켓플레이스가 선언한 플러그인 전부 — marketplace.json 이 정본이다.
 

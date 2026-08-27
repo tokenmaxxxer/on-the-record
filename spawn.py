@@ -564,6 +564,7 @@ _checkout_named_branch = _pipeline_mod._checkout_named_branch
 core_plugin_dirs = _pipeline_mod.core_plugin_dirs
 core_root = _pipeline_mod.core_root
 core_version = _pipeline_mod.core_version
+core_clone_staleness_line = _pipeline_mod.core_clone_staleness_line
 ensure_target_remote = _pipeline_mod.ensure_target_remote
 get_bootstrap_fetch_record = _pipeline_mod.get_bootstrap_fetch_record
 positive_int = _pipeline_mod.positive_int
@@ -3707,6 +3708,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         print(f"[{role}] 플러그인 {len(plugins)}개, 룰북 {rulebook_desc}, "
               f"core 플러그인 {', '.join(p.name for p in core_plugins)}, "
               f"core {core_version()}, 작업 디렉터리 {cwd}", file=sys.stderr)
+        # 이슈 #2616: core_root() 가 이미 이 실행에서 한 번 resolve 됐다
+        # (core_plugin_dirs() 경유) — 다시 불러도 TTL 이 방금 fresh 로
+        # 마크됐으므로 추가 pull 없이 같은 경로만 돌려준다.
+        staleness_line = core_clone_staleness_line(core_root())
+        if staleness_line:
+            print(staleness_line, file=sys.stderr)
         # 이슈 #2070: design-bearing 판정은 issue 본문에 대해서만 의미가
         # 있다 — 없으면(adhoc 스폰) None, gates 호출이 실패해도(gh 오류 등)
         # fail-open 으로 None 에 떨어진다(라우팅 계층 자체가 fail-open).
