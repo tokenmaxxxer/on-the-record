@@ -44,8 +44,8 @@ assertedBy: conformance-review session, issue-2637 (structurally independent fro
 canonical: `gh issue view 2637` (this session) — issue #2637's Acceptance
 section, quoted verbatim in "Requirement list" below.
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every citation below is pinned to file:line plus the commit sha
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+every citation below is pinned to file:line plus the commit sha
 this session actually read (`aa152c79` on the branch, `5f23f894`/`9a1de9bb`
 where the citation is to current main or the merge-base), and the
 requirements.md/philosophy.md/goals.md scoping claim is checked against
