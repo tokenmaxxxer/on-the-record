@@ -1,0 +1,112 @@
+{
+  "decides": "산출물 vs 명세 일치",
+  "judgment_axes": [
+    "alignment"
+  ],
+  "produces": "요구사항별 Present|Surface|Absent|Incorrect|Unverifiable, 인용된 증거",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "subject-unreadable"
+      ],
+      "progress": [
+        "auditing"
+      ],
+      "refusal": [
+        "spec-ambiguous"
+      ],
+      "terminal": [
+        "reported"
+      ]
+    }
+  },
+  "record_spec": {
+    "gate_c_axis_evaluation": "see docs/handbooks/architecture-methodology.md, section 'Axis evaluation procedure — alignment' for the READ/EXECUTE/CRITERIA/CITATION method this role's axis_evaluation entries must follow: EXECUTE recomputes the record's overall verdict as the worst-case result across all cited test entries in EARL's fixed severity order (failed > cantTell > inapplicable > untested > passed) and compares it against any standalone summary verdict asserted, per EARL 1.0 Schema (W3C, https://www.w3.org/TR/EARL10-Schema/).",
+    "loop_state": {
+      "error": [
+        "subject-unreadable"
+      ],
+      "progress": [
+        "auditing"
+      ],
+      "refusal": [
+        "spec-ambiguous"
+      ],
+      "terminal": [
+        "reported"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "overall verdict = the worst-case result across all cited test entries (failed > cantTell > inapplicable > untested > passed), never a standalone summary field asserted independently of the cited results (issue-515 invariant 4)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "test must resolve to the actual conformance criterion (a spec section, requirement, or lint rule) being checked, not a vague description; subject must resolve to a real repo path or commit sha. Each axis_evaluation ref must resolve to a real entry inside this record carrying axis (must be in this role's judgment_axes), verdict (supports|contradicts|no-opinion), and citation (a docs/product/*.md entry path); when verdict is contradicts, the entry must also carry a finding object with target_path (must resolve against some role's write_scope) and a non-empty required_fix (issue-573 architecture proposal, sections 1 and 6)."
+    },
+    "required_fields": [
+      {
+        "name": "subject",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "test",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "passed",
+          "failed",
+          "cantTell",
+          "inapplicable",
+          "untested"
+        ],
+        "name": "result",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "assertedBy",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "axis_evaluation",
+        "required": false,
+        "type": "ref[]"
+      }
+    ],
+    "source_standard": "EARL 1.0 Schema (W3C, https://www.w3.org/TR/EARL10-Schema/)",
+    "use_when": {
+      "board_condition": "an implementation commit landed on the branch AND no conformance-review record exists yet for this commit sha",
+      "trigger": {
+        "content_patterns": [],
+        "path_patterns": [
+          "**/*.py",
+          "**/*.js",
+          "**/*.ts",
+          "**/*.sh",
+          "**/*.go"
+        ],
+        "record_absent_for": "conformance-review"
+      }
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/conformance-review.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/conformance-review.spec.json",
+  "use_when": "implementation 커밋이 랜딩된 후, 요구사항 대비 감사가 필요할 때. 빌더 의도는 안 읽는다 (board_condition: an implementation commit landed on the branch AND no conformance-review record exists yet for this commit sha)"
+}

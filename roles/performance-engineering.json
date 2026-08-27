@@ -1,0 +1,157 @@
+{
+  "decides": "부하/지연 목표를 만족하는가",
+  "judgment_axes": [
+    "performance"
+  ],
+  "produces": "performance budget, profiling evidence, bottleneck list",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "metric-unreachable"
+      ],
+      "progress": [
+        "measuring",
+        "reviewing"
+      ],
+      "refusal": [
+        "slo-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "degree_level_knowledge": [
+      {
+        "concept": "USE and RED diagnostic methods",
+        "source": "brendangregg.com/usemethod.html; weave.works/blog/the-red-method-key-metrics-for-microservices-architecture"
+      },
+      {
+        "concept": "Tail latency at scale",
+        "source": "research.google/pubs/pub40801"
+      },
+      {
+        "concept": "SLO-driven capacity planning",
+        "source": "sre.google"
+      }
+    ],
+    "deliverable_form": {
+      "method": "RED-method (Rate/Errors/Duration) benchmark report with before/after latency numbers",
+      "source": "Wilkie, the RED Method; weave.works/blog/the-red-method-key-metrics-for-microservices-architecture"
+    },
+    "feedback_methodology": {
+      "method": "Tail-latency review: does the change report p99/p999, not only mean latency",
+      "source": "Dean & Barroso, \"The Tail at Scale,\" Communications of the ACM, 2013; research.google/pubs/pub40801"
+    },
+    "gate_c_axis_evaluation": "see docs/handbooks/architecture-methodology.md, section 'Axis evaluation procedure — performance' for the READ/EXECUTE/CRITERIA/CITATION method this role's axis_evaluation entries must follow: EXECUTE recomputes error_budget_remaining from the current sli measurement against slo_target, then recomputes verdict from that recomputed budget, per the Google SRE Workbook (implementing-slos / error-budget-policy chapters).",
+    "judgment_methodology": {
+      "method": "USE Method (Utilization/Saturation/Errors) as the diagnostic lens for a resource bottleneck",
+      "source": "Gregg, the USE Method; brendangregg.com/usemethod.html"
+    },
+    "loop_state": {
+      "error": [
+        "metric-unreachable"
+      ],
+      "progress": [
+        "measuring",
+        "reviewing"
+      ],
+      "refusal": [
+        "slo-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "planning_methodology": {
+      "method": "SLO-driven capacity planning per the Google SRE book's monitoring/SLO chapters",
+      "source": "sre.google"
+    },
+    "quality_bar": [
+      {
+        "criterion": "slo_declared_and_measured",
+        "verification_method": "reuses the spec's existing gate_c_axis_evaluation measurement rule: declared SLO plus a measured value against it"
+      },
+      {
+        "criterion": "error_budget_not_exhausted",
+        "verification_method": "error-budget calculation (SRE workbook policy) against the measured value for the declared SLO window"
+      },
+      {
+        "criterion": "tail_latency_bounded",
+        "verification_method": "p99 percentile latency measurement from the same load test/measurement run, stated against a bound"
+      },
+      {
+        "criterion": "capacity_headroom_stated",
+        "verification_method": "resource-utilization measurement (CPU/memory/connections, USE method) alongside the latency measurement, headroom against the current capacity ceiling stated"
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "error_budget_remaining is recomputed from the current sli measurement against slo_target, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "sli must resolve to an actual monitored metric — no orphan references (issue-515 invariant 2). Each axis_evaluation ref must resolve to a real entry inside this record carrying axis (must be in this role's judgment_axes), verdict (supports|contradicts|no-opinion), and citation (a docs/product/*.md entry path); when verdict is contradicts, the entry must also carry a finding object with target_path (must resolve against some role's write_scope) and a non-empty required_fix (issue-573 architecture proposal, sections 1 and 6)."
+    },
+    "required_fields": [
+      {
+        "name": "sli",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "slo_target",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "error_budget_remaining",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "within-budget",
+          "exhausted"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "axis_evaluation",
+        "required": false,
+        "type": "ref[]"
+      }
+    ],
+    "review_methodology": {
+      "method": "Azure Well-Architected performance-testing checklist applied before sign-off (baseline, load, soak)",
+      "source": "learn.microsoft.com/en-us/azure/well-architected/performance-efficiency/performance-test"
+    },
+    "source_standard": "Google SRE SLO / error-budget, https://sre.google/workbook/implementing-slos/ , https://sre.google/workbook/error-budget-policy/",
+    "use_when": {
+      "board_condition": "a latency- or throughput-sensitive change lands on the branch AND no performance-engineering record exists yet for that commit sha"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/performance-engineering.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/performance-engineering.spec.json",
+  "use_when": "성능 예산이 걸린 설계/회귀일 때"
+}

@@ -1,0 +1,159 @@
+{
+  "decides": "개별 이슈의 교훈이 조직 차원에서 재사용 가능한 형태로 축적·색인되는가",
+  "produces": "curated pattern-library entry, cross-issue index, supersession note (if replacing an older pattern)",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "article-unreachable"
+      ],
+      "progress": [
+        "capturing"
+      ],
+      "refusal": [
+        "not-captured-at-resolution"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "degree_level_knowledge": [
+      {
+        "concept": "SECI knowledge-conversion model",
+        "source": "Nonaka & Takeuchi, The Knowledge-Creating Company (1995)"
+      },
+      {
+        "concept": "ISO 30401 knowledge management systems",
+        "source": "iso.org/standard/89436.html"
+      },
+      {
+        "concept": "APQC KM maturity model",
+        "source": "apqc.org/resource-library"
+      }
+    ],
+    "deliverable_form": {
+      "method": "APQC KM maturity-level-scoped artifact (process doc, lessons-learned entry, or community-of-practice note)",
+      "source": "APQC KM-CAT and maturity levels; apqc.org/resource-library"
+    },
+    "feedback_methodology": {
+      "method": "Externalization check: does the artifact convert a named person's tacit know-how into a reusable explicit form",
+      "source": "Nonaka & Takeuchi, The Knowledge-Creating Company (1995)"
+    },
+    "judgment_methodology": {
+      "method": "SECI model (Socialization-Externalization-Combination-Internalization) to judge whether tacit knowledge has actually been captured",
+      "source": "Nonaka & Takeuchi, The Knowledge-Creating Company (1995)"
+    },
+    "loop_state": {
+      "error": [
+        "article-unreachable"
+      ],
+      "progress": [
+        "capturing"
+      ],
+      "refusal": [
+        "not-captured-at-resolution",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "planning_methodology": {
+      "method": "ISO 30401 knowledge-management-system planning cycle (context, leadership, planning, support)",
+      "source": "ISO 30401:2018; iso.org/standard/89436.html"
+    },
+    "quality_bar": [
+      {
+        "criterion": "capture_point_is_at_resolution",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `capture_point` equals `at-resolution`, matching the spec's own `recomputation` rule that a retroactive capture is a refusal state",
+        "verified_source": "Consortium for Service Innovation, 'KCS v6 Practices Guide' — https://www.thekcsacademy.net/kcs/ (primary source; \"capture in the workflow\" — capturing knowledge at the moment of resolution rather than after — is KCS's own first stated core principle)."
+      },
+      {
+        "criterion": "article_reflects_actual_resolution_not_generic_template",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: does `article_content` describe the specific problem-and-resolution actually encountered, rather than a generic templated restatement with the specifics stripped out?",
+        "verified_source": "Consortium for Service Innovation, KCS 'Solve loop' — https://www.thekcsacademy.net/kcs/ (primary source; the Solve loop's Capture step is defined as capturing the issue in the searcher's own words/context, distinct from a boilerplate template)."
+      },
+      {
+        "criterion": "reuse_status_reflects_an_actual_search_before_creation",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `reuse_status` is `reused` or `flagged-for-review` only when a prior matching `article_id` is cited, and `new` only when no matching article was found",
+        "verified_source": "Consortium for Service Innovation, KCS 'Solve loop' — https://www.thekcsacademy.net/kcs/ (primary source; \"search first\" — checking for an existing article before creating a new one — is a KCS Solve-loop step this criterion operationalizes)."
+      },
+      {
+        "criterion": "tacit_knowledge_externalized_not_just_logged",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: does the article convert a named person's tacit know-how into a reusable explicit form (the spec's own `feedback_methodology`), rather than a raw activity log?",
+        "verified_source": "Nonaka & Takeuchi, The Knowledge-Creating Company (Oxford University Press, 1995) (primary source; the SECI model's Externalization mode is precisely tacit-to-explicit conversion, matching the spec's own cited judgment_methodology)."
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "capture_point must equal at-resolution — KCS's own capture-at-point-of-resolution invariant (mirrors issue-515 invariant 1); a retroactive capture is a refusal state, not a silent pass."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "article_id must resolve to an actual KB article file — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "article_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "at-resolution",
+          "retroactive"
+        ],
+        "name": "capture_point",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "article_content",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "new",
+          "reused",
+          "flagged-for-review"
+        ],
+        "name": "reuse_status",
+        "required": true,
+        "type": "enum"
+      }
+    ],
+    "review_methodology": {
+      "method": "ISO 30401 conformance check against the standard's knowledge-development and knowledge-sharing clauses",
+      "source": "ISO 30401:2018; iso.org/standard/89436.html"
+    },
+    "source_standard": "KCS (Knowledge-Centered Service) Solve loop, https://www.thekcsacademy.net/kcs/",
+    "use_when": {
+      "board_condition": "an issue reaches resolution AND no knowledge-management record exists yet for that resolution"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/knowledge-management.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/knowledge-management.spec.json",
+  "use_when": "여러 이슈의 회고가 쌓여 지식 큐레이션이 필요할 때"
+}

@@ -1,0 +1,145 @@
+{
+  "decides": "구현이 공격에 견디는가",
+  "produces": "ASVS checklist, pentest finding list w/ severity",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "target-unreachable"
+      ],
+      "progress": [
+        "checklisting",
+        "pentesting"
+      ],
+      "refusal": [
+        "target-level-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "target-unreachable"
+      ],
+      "progress": [
+        "checklisting",
+        "pentesting"
+      ],
+      "refusal": [
+        "target-level-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "quality_bar": [
+      {
+        "criterion": "asvs_level_declared_checklist_pass",
+        "verification_method": "checklist completion cross-reference against the declared ASVS target level's requirement list, every requirement checked off pass/fail"
+      },
+      {
+        "criterion": "input_validation_at_boundary",
+        "verification_method": "static scan for a validation call on each identified external input boundary (request body/query/header/file)"
+      },
+      {
+        "criterion": "authn_authz_path_covered",
+        "verification_method": "cross-reference the endpoint list against a declared authn/authz requirement per endpoint, including explicit \"none, by design\""
+      },
+      {
+        "criterion": "known_vuln_dependency_free",
+        "verification_method": "dependency vulnerability scan (e.g. npm audit / pip-audit or equivalent) on the diff's changed manifest, no critical/high CVE at the pinned version"
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "level is cumulative per ASVS (L2 implies L1 coverage, L3 implies L1+L2); a role record's overall pass/fail is the worst-case verdict across all cited requirement_id checks at the record's declared level, never a standalone summary field (issue-515 invariant 4)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "requirement_id must resolve to an actual ASVS clause; cwe, when present, must resolve to a real CWE identifier — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "requirement_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "L1",
+          "L2",
+          "L3"
+        ],
+        "name": "level",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "cwe",
+        "required": false,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "pass",
+          "fail"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "severity",
+        "required": false,
+        "type": "string"
+      }
+    ],
+    "source_standard": "OWASP ASVS (Application Security Verification Standard, https://softwaremill.com/implementing-owasp-asvs/)",
+    "use_when": {
+      "board_condition": "authentication or input-handling code landed on the branch AND no secure-coding record exists yet for that commit sha",
+      "trigger": {
+        "content_patterns": [
+          "authenticate",
+          "password",
+          "credential",
+          "sanitize",
+          "validate input"
+        ],
+        "path_patterns": [
+          "**/auth/**",
+          "**/*credential*",
+          "**/*permission*",
+          "**/*secret*",
+          "**/*password*",
+          "**/*login*",
+          "**/*input*",
+          "**/*sanitiz*",
+          "**/*validat*"
+        ],
+        "record_absent_for": "secure-coding"
+      }
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/secure-coding.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/secure-coding.spec.json",
+  "use_when": "인증/입력처리 코드 랜딩 후 (board_condition: authentication or input-handling code landed on the branch AND no secure-coding record exists yet for that commit sha)"
+}

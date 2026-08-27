@@ -46,15 +46,26 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-# 이슈 #2539 (stage 6C): roles/*.json + roles/specs/*.spec.json 대신 이 파일
-# 하나 — role -> 원래 roles/<role>.json 내용, 그 안의 "record_spec" 키가 원래
-# roles/specs/<role>.spec.json 내용(일부 role은 이미 "spec" 필드를 다른 뜻으로
-# 쓰고 있어 이름이 다르다).
-_ROLE_DATA_PATH = ROOT / "spawn_roles.json"
+# 이슈 #2610: 44개 역할을 한 JSON 파일로 묶어 두는 것 자체가
+# "닫힌 정체성 카탈로그"였다 — spawn.py 인자 없이 부르면 그 44개를 그대로
+# `역할:` 아래 나열해, --skills 만이 유일한 스폰 형태인(이슈 #2572) 지금도
+# 세션이 "역할 이름을 골라야 스폰한다"고 오인하게 만들었다(--skills
+# implementation 오타의 발단). `roles/<role>.json` 44개 파일로 되돌린다 —
+# 이슈 #2539 (stage 6C) 가 합치기 전 원래 자리다. 이건 다시 "카탈로그"가
+# 아니다: role_data() 는 이미 role 이름을 손에 쥔 호출자에게 그 role 의
+# 설정을 주는 조회 함수일 뿐이고, 그 목록을 세션에게 열거해 보여주는 곳은
+# 이제 어디에도 없다 — 아래 `main()`의 인자 없는 분기가 대신 가리키는 곳은
+# skill-repository 체크아웃(실제 스킬 소스)이다.
+_ROLE_DATA_DIR = ROOT / "roles"
 
 
 def role_data() -> dict:
-    return json.loads(_ROLE_DATA_PATH.read_text(encoding="utf-8"))
+    out = {}
+    if not _ROLE_DATA_DIR.is_dir():
+        return out
+    for p in _ROLE_DATA_DIR.glob("*.json"):
+        out[p.stem] = json.loads(p.read_text(encoding="utf-8"))
+    return out
 
 
 def _derive_slug_from_task(task_text: str) -> str:
@@ -739,9 +750,11 @@ _BOOTSTRAP_PHASES = ("admission", "skill_resolve", "workspace", "branch",
 
 # 이슈 #2560: 고정 43개 역할 이름 튜플 `ROLES`는 여기서 완전히 삭제됐다 —
 # 역할/슬러그 신원은 더 이상 닫힌 집합에 속하지 않는다 (issue-2548
-# architecture record, Identity/Consumers item d). 남은 유일한 닫힌
-# 카탈로그는 `spawn_roles.json`(→ `role_data()`)이며, 그 파일 자체를
-# 남긴 이유(consult.py 자문 페르소나 등)는 그 함수 독스트링을 본다.
+# architecture record, Identity/Consumers item d). `roles/*.json`(→
+# `role_data()`)은 그래도 남는다 — 이슈 #2610 이후로도 role 별 record_fields/
+# record_spec 등 실제 설정을 들고 있는 조회 테이블일 뿐, 세션에게 열거해
+# 보여주는 카탈로그가 아니다(consult.py 자문 페르소나 등 남긴 이유는 그
+# 함수 독스트링을 본다).
 BOARD = "docs"                          # v3: subject trees live at docs/issue-<n>/
 MARKER = "docs/specs/approvers.md"      # 보드 opt-in + 승인자 allowlist (v3)
 REQUIREMENT_DIGEST_MARKER = "docs/specs/requirement-digest.md"  # issue #1695
@@ -2458,13 +2471,21 @@ def main() -> int:
         return drive(a.cwd, a.unattended, a.limit)
     if not a.role:
         print("\n".join(status(a.cwd)))
-        print("\n역할:")
-        try:
-            data = role_data()
-        except (OSError, ValueError):
-            data = {}
-        for name, meta in sorted(data.items()):
-            print(f"  {name:12s} {meta.get('decides','')}  — {meta.get('use_when','')}")
+        # 이슈 #2610: 고정 역할 카탈로그를 열거하는 대신, --skills 가 실제로
+        # 검증에 쓰는 소스(skill-repository 체크아웃)를 그대로 가리킨다 —
+        # 세션이 골라야 하는 "역할 이름 목록"은 더 이상 없다.
+        repo_root = _skill_repo_root()
+        if repo_root is None:
+            print("\n스킬 소스: skill-repository 체크아웃을 못 찾았다 — "
+                  "MUSTER_SKILL_REPO 나 $TOKENMAXXXER_RULEBOOKS/skill-repository 를 확인하라 "
+                  "(고정 역할 카탈로그는 이슈 #2610 으로 은퇴했다; --skills 가 받는 이름은 "
+                  "이 체크아웃의 디렉터리 이름이다).")
+        else:
+            names = sorted(p.name for p in repo_root.iterdir()
+                           if p.is_dir() and not p.name.startswith("."))
+            print(f"\n스킬 소스: {repo_root} ({len(names)}개) — --skills 가 받는 이름은 "
+                  "이 디렉터리 목록이다(고정 역할 카탈로그는 이슈 #2610 으로 은퇴했다):")
+            print("  " + ", ".join(names))
         return 0
     if not _via_skills:
         # 이슈 #2572: --skills 가 유일한 스폰 형태다 — 은퇴한 두 형태

@@ -1,0 +1,158 @@
+{
+  "decides": "다른 로케일에서도 산출물이 성립하는가",
+  "produces": "locale-fitness verdict per target locale, string-external issue list",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "cldr-data-unreachable"
+      ],
+      "progress": [
+        "translating",
+        "validating"
+      ],
+      "refusal": [
+        "locale-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "degree_level_knowledge": [
+      {
+        "concept": "MQM error typology",
+        "source": "themqm.org"
+      },
+      {
+        "concept": "ISO 17100 translation service requirements",
+        "source": "iso.org/standard/59149.html"
+      },
+      {
+        "concept": "XLIFF interchange format",
+        "source": "oasis-open.org/committees/xliff"
+      },
+      {
+        "concept": "Internationalization vs. localization terminology",
+        "source": "w3.org/TR/i18n-glossary"
+      }
+    ],
+    "deliverable_form": {
+      "method": "XLIFF 2.1 translatable-unit package with locale metadata",
+      "source": "OASIS XLIFF 2.1; oasis-open.org/committees/xliff"
+    },
+    "feedback_methodology": {
+      "method": "MQM-scored bilingual review with per-error severity weighting",
+      "source": "Lommel et al., MQM framework (2014); themqm.org"
+    },
+    "judgment_methodology": {
+      "method": "MQM (Multidimensional Quality Metrics) error typology to classify a translation defect's severity",
+      "source": "Lommel et al., MQM framework (2014); themqm.org"
+    },
+    "loop_state": {
+      "error": [
+        "cldr-data-unreachable"
+      ],
+      "progress": [
+        "translating",
+        "validating"
+      ],
+      "refusal": [
+        "locale-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "planning_methodology": {
+      "method": "ISO 17100 translation-project workflow (preparation, translation, revision, review, proofreading)",
+      "source": "ISO 17100:2015; iso.org/standard/59149.html"
+    },
+    "quality_bar": [
+      {
+        "criterion": "pattern_value_matches_ldml_grammar_for_locale",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `pattern_value` parses under the LDML pattern grammar for its declared `pattern_type` and `locale`, matching the spec's own `recomputation` rule",
+        "verified_source": "Unicode, 'UTS #35: Unicode LDML' — https://www.unicode.org/reports/tr35/ (primary source; §Date/Time/Number Format Patterns define the exact per-type grammar a pattern_value must satisfy)."
+      },
+      {
+        "criterion": "no_source_string_concatenation_of_translated_fragments",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: is any translated string assembled by concatenating separately-translated word fragments (rather than translating a whole sentence/phrase as one unit)?",
+        "verified_source": "Unicode, 'UTS #35: Unicode LDML', 'MessageFormat' section — https://www.unicode.org/reports/tr35/#Message_Format (primary source; LDML's own message-format design exists specifically to avoid fragment concatenation, since word order and inflection are not universal across locales)."
+      },
+      {
+        "criterion": "mqm_error_severity_classified_for_flagged_defects",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: is every flagged translation defect classified with an MQM error category and severity (minor/major/critical), rather than left as an unclassified note?",
+        "verified_source": "Lommel et al., 'Multidimensional Quality Metrics (MQM)' — https://themqm.org (primary source; MQM's own framework requires each error to carry a typed category and severity weight, matching the spec's own `feedback_methodology`)."
+      },
+      {
+        "criterion": "second_linguist_revision_step_completed",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that a revision/review step by a second linguist (distinct from the original translator) is recorded before the pattern is marked `validating`, matching the spec's own `review_methodology`",
+        "verified_source": "ISO 17100:2015, 'Translation services — Requirements for translation services' — iso.org/standard/59149.html (primary source; ISO 17100 mandates a revision step performed by a person other than the translator as a required stage, not optional QA)."
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "pattern_value is recomputed by re-validating it against the locale's current LDML pattern grammar, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "locale must resolve to an actual CLDR locale identifier — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "locale",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "date",
+          "time",
+          "number",
+          "currency",
+          "name"
+        ],
+        "name": "pattern_type",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "pattern_value",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "review_methodology": {
+      "method": "ISO 17100 revision-and-review step performed by a second linguist against the source",
+      "source": "ISO 17100:2015; iso.org/standard/59149.html"
+    },
+    "source_standard": "Unicode CLDR / UTS #35 (LDML), https://cldr.unicode.org/ , https://www.unicode.org/reports/tr35/",
+    "use_when": {
+      "board_condition": "a new locale or translated string lands on the branch AND no localization record exists yet for that locale"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/localization.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/localization.spec.json",
+  "use_when": "i18n 대상 표면이 걸릴 때"
+}

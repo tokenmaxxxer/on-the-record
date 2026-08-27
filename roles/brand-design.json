@@ -1,0 +1,154 @@
+{
+  "decides": "브랜드 정체성이 시각적으로 일관되는가",
+  "produces": "brand guide entry, asset spec, consistency check vs existing guide",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "token-file-unreachable"
+      ],
+      "progress": [
+        "designing",
+        "validating"
+      ],
+      "refusal": [
+        "type-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "token-file-unreachable"
+      ],
+      "progress": [
+        "designing",
+        "validating"
+      ],
+      "refusal": [
+        "type-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "mission_deliverables": [
+      {
+        "artifact": "design-tokens/*.json (palette + type scale, DTCG format)",
+        "fit_criterion": "every token resolves to a real DTCG entry and covers at minimum color + fontFamily + fontWeight categories (reuses the spec's own reference_resolution rule)"
+      },
+      {
+        "artifact": "docs/issue-<n>/reports/brand-design/logo-usage.md (clear-space, minimum size, correct/incorrect application examples)",
+        "fit_criterion": "states a numeric clear-space value and minimum size, and shows at least one correct and one incorrect usage example — not description-only"
+      },
+      {
+        "artifact": "component theming: token consumption wired into at least one real UI component's stylesheet/theme file",
+        "fit_criterion": "a component in the target project's source resolves a token from (1) at build/render time, checkable the same way ux-engineering's reference_resolution already checks token_name -> consuming_component"
+      }
+    ],
+    "outcome_mission": "the target project has an applied, consistent visual identity a user or another contributor can see and reuse — not a description of one.",
+    "quality_bar": [
+      {
+        "criterion": "token_type_is_a_valid_dtcg_type",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `token_type` is one of the DTCG-defined types (color, dimension, fontFamily, fontWeight, duration, cubicBezier, number), matching the spec's own `required_fields` enum",
+        "verified_source": "DTCG, 'Design Tokens Format Module' — https://www.designtokens.org/tr/2025.10/format/ (primary source; §9 enumerates the type values as the spec's own normative type list)."
+      },
+      {
+        "criterion": "value_matches_declared_type_grammar",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `value` parses under the DTCG type-specific value grammar for its declared `token_type` (e.g. a `color` value is a valid color string, a `dimension` value carries a unit)",
+        "verified_source": "DTCG, 'Design Tokens Format Module', §9 'Types' — https://www.designtokens.org/tr/2025.10/format/#types (primary source; each type section defines its own required value shape)."
+      },
+      {
+        "criterion": "clear_space_and_minimum_size_stated_numerically",
+        "evidence_grade": "practitioner-consensus",
+        "verification_method": "human-review-checklist: does the logo-usage deliverable state a numeric clear-space value and a numeric minimum size, rather than a qualitative description?",
+        "verified_source": "No checkable primary/practitioner source is cited for this criterion, and it does not trace to DTCG (this spec's source_standard, which covers token format, not logo-usage rules). The numeric clear-space/minimum-size requirement reflects widespread practitioner convention in published brand guidelines (e.g. logo clear-space expressed as a multiple of a logo's own reference dimension, minimum size in px/mm) rather than a single named primary source. Gap: no specific practitioner document is cited here; matches the spec's own `mission_deliverables` fit_criterion requiring a stated numeric clear-space value and minimum size."
+      },
+      {
+        "criterion": "correct_and_incorrect_usage_examples_present",
+        "evidence_grade": "practitioner-consensus",
+        "verification_method": "automated check that the logo-usage deliverable shows at least one correct and one incorrect application example, matching the spec's own `mission_deliverables` fit_criterion",
+        "verified_source": "No checkable primary/practitioner source is cited for this criterion, and it does not trace to DTCG (this spec's source_standard, which covers token format, not logo-usage rules). Correct/incorrect usage pairing is widespread practitioner convention across published brand guideline documents for making a logo-usage rule unambiguous, but no specific practitioner document is named. Gap: no specific practitioner document is cited here; matches the spec's own `mission_deliverables` fit_criterion."
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "value is recomputed by re-validating token_name's entry against the DTCG format spec, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "token_name must resolve to an actual entry in the design-tokens JSON file — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "token_name",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "color",
+          "dimension",
+          "fontFamily",
+          "fontWeight",
+          "duration",
+          "cubicBezier",
+          "number"
+        ],
+        "name": "token_type",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "value",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "source_standard": "DTCG Design Tokens Format spec, https://www.designtokens.org/tr/2025.10/format/",
+    "use_when": {
+      "board_condition": "a new design token is proposed on the branch AND no brand-design record exists yet for that token_name",
+      "need_detector": {
+        "absent_patterns": [
+          "design-tokens/*.json"
+        ],
+        "advisory_only": true,
+        "condition": "the target project has UI source files (path_patterns: **/*.tsx, **/*.jsx, **/*.vue, **/*.svelte) AND no design-tokens/*.json file exists anywhere in the repo tree",
+        "false_positive_bound": "a backend-only or CLI-only target project has no UI source files at all, so the detector never fires — zero UI surface -> silent, unconditionally",
+        "present_patterns": [
+          "**/*.tsx",
+          "**/*.jsx",
+          "**/*.vue",
+          "**/*.svelte"
+        ]
+      }
+    },
+    "verified_by": "ux-engineering — brand-design never grades its own mission_deliverables (deliverable 3 is a UX-engineering consumption point by definition; deliverables 1-2 are checked by the same role since it already reads brand-design's token file as an input to its own reference_resolution rule)",
+    "write_scope": [
+      "design-tokens/*.json",
+      "docs/issue-<n>/reports/brand-design.md",
+      "docs/issue-<n>/reports/brand-design/logo-usage.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/brand-design.spec.json",
+  "use_when": "브랜드 자산 신설/변경이 걸릴 때"
+}

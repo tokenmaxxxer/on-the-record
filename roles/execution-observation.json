@@ -1,0 +1,125 @@
+{
+  "decides": "실행 시 실제 동작",
+  "produces": "증거 인용된 claim별 pass/fail/blocked, run command/log reference, 버그 리포트(레코드로; 이슈는 사용자가)",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "environment-setup-failed"
+      ],
+      "progress": [
+        "running",
+        "collecting-evidence"
+      ],
+      "refusal": [
+        "execution-not-possible"
+      ],
+      "terminal": [
+        "handed-off"
+      ]
+    }
+  },
+  "record_spec": {
+    "blocking_cause_convention": {
+      "checked_by": "TBD -- documentation-only convention for now; not schema-enforced beyond the enum shape above. See docs/issue-2403/reports/implementation.md.",
+      "orchestrator_rule": "a reader (human or `gates/`) that sees `result: failed` + `blocking_cause: branch-stale` routes to a mechanical rebase (`python3 spawn.py rebase -C <workspace>`, issue #2403) instead of spawning a fresh implementation session to chase a phantom defect. `gates/merge_gate.py`'s own pre-merge `staleness()` probe (issue #2403) is the mechanical source of truth for whether a branch is actually stale/conflicting; this field is this role's record of having observed that same condition, not a new independent check.",
+      "rule": "issue #2403: when the overall `result: failed` is driven solely by a mergeability/branch-staleness test entry (`assertedBy` a local git merge-base + merge-tree check, e.g. `git merge --no-commit` or `gates/merge_gate.py`'s `staleness()`) and no other entry is `failed`, the record sets `blocking_cause: branch-stale` alongside `result: failed`. This does NOT change the worst-case-result recomputation rule above -- `result: failed` still stands and the merge is still blocked -- it only lets a reader (human or orchestrator) tell 'this specific failure is not a code defect' without re-reading the whole record. Absence of `blocking_cause` means the failure is a real code defect (or the record predates this convention)."
+    },
+    "gate_b_contrast": "hollow instance: a record where every result entry is untested or cantTell, with no resolvable command output behind assertedBy, is schema-conformant but asserts nothing about the artifact under observation — at least one passed or failed entry, each tied to a command actually run, is required for the record to count as a genuine observation (issue-807 step2 audit).",
+    "gate_c_status": "N/A — mechanical aggregation, not investigative finding. This role's judgment reduces to applying the worst-case recomputation rule over already-run test claims; it does not decide what to observe. Per issue-807 step1 sec4's N/A test: two independent observers re-running the same test set against the same commit sha produce the same worst-case verdict, so there is no discretionary finding step to ground a lens-based method for.",
+    "loop_state": {
+      "error": [
+        "environment-setup-failed"
+      ],
+      "progress": [
+        "running",
+        "collecting-evidence"
+      ],
+      "refusal": [
+        "execution-not-possible"
+      ],
+      "terminal": [
+        "handed-off"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "overall verdict = the worst-case result across all cited test entries (failed > cantTell > inapplicable > untested > passed), never a standalone summary field asserted independently of the cited results (issue-515 invariant 4)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "subject and test must each resolve to a repo path, commit sha, or a command actually run — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "subject",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "test",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "passed",
+          "failed",
+          "cantTell",
+          "inapplicable",
+          "untested"
+        ],
+        "name": "result",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "assertedBy",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "mode",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "branch-stale"
+        ],
+        "name": "blocking_cause",
+        "required": false,
+        "type": "enum"
+      }
+    ],
+    "source_standard": "EARL 1.0 Schema (W3C, https://www.w3.org/TR/EARL10-Schema/)",
+    "use_when": {
+      "board_condition": "an executable artifact landed on the branch AND no execution-observation record exists yet for this commit sha",
+      "trigger": {
+        "content_patterns": [],
+        "path_patterns": [
+          "**/*.py",
+          "**/*.js",
+          "**/*.ts",
+          "**/*.sh",
+          "**/*.go"
+        ],
+        "record_absent_for": "execution-observation"
+      }
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/execution-observation.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/execution-observation.spec.json",
+  "use_when": "실행 가능한 산출물이 랜딩됐을 때. 실행 없는 판정 금지, 고치지 않음 (board_condition: an executable artifact landed on the branch AND no execution-observation record exists yet for this commit sha)"
+}

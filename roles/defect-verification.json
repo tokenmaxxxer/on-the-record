@@ -1,0 +1,111 @@
+{
+  "decides": "결함 실재 — 독립 재현",
+  "produces": "attempt별 reproduced|not-reproduced + 증거, repro steps/script, environment notes, blocking|advisory finding",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "environment-setup-failed"
+      ],
+      "progress": [
+        "reproducing"
+      ],
+      "refusal": [
+        "cannot-attempt-independent-reproduction"
+      ],
+      "terminal": [
+        "cleared"
+      ]
+    }
+  },
+  "record_spec": {
+    "gate_b_contrast": "hollow instance: repro_steps textually identical (or near-identical) to the original bug report's own reproduction narrative, with no independent execution log attached, is schema-conformant but is a restatement, not a verification (issue-807 step2 audit).",
+    "gate_c_finding_method": "adversarial independent reproduction (roles/defect-verification.json use_when: '적대적 독립 재현'): repro_steps must include at least one input, environment, or ordering variation not present in the original report's own steps — a checkable diff against the source report, not a copy. This operationalizes the role's stated purpose into the spec's required content instead of leaving it as prose only in roles/defect-verification.json.",
+    "loop_state": {
+      "error": [
+        "environment-setup-failed"
+      ],
+      "progress": [
+        "reproducing"
+      ],
+      "refusal": [
+        "cannot-attempt-independent-reproduction"
+      ],
+      "terminal": [
+        "cleared"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "verdict is derived from whether repro_steps, executed against the cited evidence, actually reproduces the defect — never asserted as a standalone field with no attached repro log (issue-515 invariant 4). No closed vocabulary exists for repro_steps content itself per 29119-3/Bugmon, so it stays free text."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "every evidence[] entry must resolve to an existing repo path, commit sha, or line-anchored citation of the reproduction log — no orphan references (issue-515 invariant 2). severity and status are free text: 29119-3 clause 7.12/Annex A.2.15 names 'originator's severity assessment' and 'status' as required fields but defines no closed vocabulary for either (scout-brief.md), so type: enum with an invented value list would violate the proposal's no-invented-enum constraint."
+    },
+    "required_fields": [
+      {
+        "enum": [
+          "reproduced",
+          "not-reproduced"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "repro_steps",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "evidence",
+        "required": true,
+        "type": "ref[]"
+      },
+      {
+        "name": "severity",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "status",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "blocking",
+          "advisory"
+        ],
+        "name": "finding_type",
+        "required": true,
+        "type": "enum"
+      }
+    ],
+    "source_standard": "ISO/IEC/IEEE 29119-3 Incident Report (clause 7.12, Annex A.2.15) + Bugmon reproduction precedent",
+    "use_when": {
+      "board_condition": "an execution-observation or conformance-review record's result is disputed by another comment on the same commit sha AND no defect-verification record exists yet for that dispute",
+      "trigger": {
+        "obligation_status": [
+          "failing"
+        ],
+        "record_absent_for": "defect-verification"
+      }
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/defect-verification.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/defect-verification.spec.json",
+  "use_when": "실행 결과가 다투어질 때 — execution-observation·conformance-review 만으로 결론낼 수 없는, 재현이 어렵거나 다투는 실행 결과 주장, 복잡한 변경. 적대적 독립 재현으로 놓친 것을 찾는다 (board_condition: an execution-observation or conformance-review record's result is disputed by another comment on the same commit sha AND no defect-verification record exists yet for that dispute)"
+}

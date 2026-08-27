@@ -1,0 +1,133 @@
+{
+  "decides": "신뢰 경계의 위협 표면",
+  "judgment_axes": [
+    "attack_potential"
+  ],
+  "produces": "STRIDE table, mitigation list per threat, residual risk note",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "spec-unreadable"
+      ],
+      "progress": [
+        "modeling"
+      ],
+      "refusal": [
+        "trust-boundary-undetermined"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "gate_b_contrast": "hollow instance: a threat list covering only 1-2 STRIDE categories for a data flow that crosses an authentication boundary is schema-conformant but reflects incomplete elicitation, not a completed threat model (issue-807 step2 audit).",
+    "gate_c_axis_evaluation": "see docs/handbooks/architecture-methodology.md, section 'Axis evaluation procedure — attack_potential' for the READ/EXECUTE/CRITERIA/CITATION method this role's axis_evaluation entries must follow: EXECUTE walks each data-flow-diagram element against all six STRIDE categories explicitly, per Adam Shostack, Threat Modeling: Designing for Security (Wiley, 2014), ch. 3-4 — the standard's actual elicitation method, not just its category enum.",
+    "loop_state": {
+      "error": [
+        "spec-unreadable"
+      ],
+      "progress": [
+        "modeling"
+      ],
+      "refusal": [
+        "trust-boundary-undetermined"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "overall risk verdict is derived per-threat, not asserted as one standalone summary field: each element's residual risk = severity as stated after mitigation is applied, never a role-asserted number independent of the listed threats and their mitigations (issue-515 invariant 4)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "element must resolve to an actual system/data-flow element named elsewhere in the same record — no orphan references (issue-515 invariant 2). severity and status are free text: the Threat Dragon model schema (scout-brief.md, confirmed live fetch, resolving #515's prior open finding) carries these as present fields but does not define a closed vocabulary for either — an invented value list would violate the proposal's no-invented-enum constraint. Each axis_evaluation ref must resolve to a real entry inside this record carrying axis (must be in this role's judgment_axes), verdict (supports|contradicts|no-opinion), and citation (a docs/product/*.md entry path); when verdict is contradicts, the entry must also carry a finding object with target_path (must resolve against some role's write_scope) and a non-empty required_fix (issue-573 architecture proposal, sections 1 and 6)."
+    },
+    "required_fields": [
+      {
+        "name": "element",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "Spoofing",
+          "Tampering",
+          "Repudiation",
+          "Information Disclosure",
+          "Denial of Service",
+          "Elevation of Privilege"
+        ],
+        "name": "type",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "title",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "description",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "severity",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "status",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "mitigation",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "axis_evaluation",
+        "required": false,
+        "type": "ref[]"
+      }
+    ],
+    "source_standard": "STRIDE / OWASP Threat Dragon model schema (https://raw.githubusercontent.com/OWASP/threat-dragon/main/ThreatDragonModels/demo-threat-model.json)",
+    "use_when": {
+      "board_condition": "a spec or design doc landed that introduces a new trust boundary, authentication surface, or sensitive-data flow AND no security-threat-model record exists yet for it",
+      "trigger": {
+        "content_patterns": [
+          "trust boundary",
+          "authentication",
+          "bypassPermissions",
+          "sudo"
+        ],
+        "path_patterns": [
+          "**/auth/**",
+          "**/*permission*",
+          "**/*credential*",
+          "**/*secret*"
+        ],
+        "record_absent_for": "security-threat-model"
+      }
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/security-threat-model.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/security-threat-model.spec.json",
+  "use_when": "스펙에 신뢰 경계·인증·민감데이터가 걸릴 때 (board_condition: a spec or design doc landed that introduces a new trust boundary, authentication surface, or sensitive-data flow AND no security-threat-model record exists yet for it)"
+}

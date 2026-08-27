@@ -1,0 +1,92 @@
+{
+  "decides": "장애 후 무엇을 배웠고 재발을 무엇으로 막을 것인가",
+  "produces": "timeline, blameless postmortem, action items w/ owner+deadline",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "timeline-unreachable"
+      ],
+      "progress": [
+        "triaging",
+        "writing-postmortem"
+      ],
+      "refusal": [
+        "impact-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "timeline-unreachable"
+      ],
+      "progress": [
+        "triaging",
+        "writing-postmortem"
+      ],
+      "refusal": [
+        "impact-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "root_cause is recomputed from timeline evidence at postmortem review, never pre-filled before the timeline is complete."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "action_items must each resolve to an actual tracked issue — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "incident_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "timeline",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "impact_statement",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "root_cause",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "action_items",
+        "required": true,
+        "type": "ref[]"
+      }
+    ],
+    "source_standard": "SRE Postmortem Template (Google SRE book), https://sre.google/sre-book/postmortem-culture/",
+    "use_when": {
+      "board_condition": "an incident is resolved AND no incident-response record exists yet for that incident_id"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/incident-response.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/incident-response.spec.json",
+  "use_when": "장애 종결 직후"
+}

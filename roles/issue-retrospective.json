@@ -1,0 +1,92 @@
+{
+  "decides": "이슈 역사가 무엇을 가르치는가 (단일 이슈 회고)",
+  "produces": "timeline, lessons list, one-line advisory (advisory only)",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "timeline-unreachable"
+      ],
+      "progress": [
+        "gathering",
+        "writing"
+      ],
+      "refusal": [
+        "blame-language-detected"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "timeline-unreachable"
+      ],
+      "progress": [
+        "gathering",
+        "writing"
+      ],
+      "refusal": [
+        "blame-language-detected"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "action_items is recomputed from timeline evidence, never pre-filled; blame language directed at a person is refused at write time (blameless constraint)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "action_items must each resolve to an actual tracked issue — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "retro_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "timeline",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "impact_summary",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "action_items",
+        "required": true,
+        "type": "ref[]"
+      }
+    ],
+    "source_standard": "Blameless retrospective format (SRE lineage, applied to non-incident retros), https://www.blameless.com/blog/retrospective-template",
+    "use_when": {
+      "board_condition": "a non-incident issue closes AND no issue-retrospective record exists yet for that issue",
+      "trigger": {
+        "content_patterns": [],
+        "path_patterns": [],
+        "record_absent_for": "issue-retrospective"
+      }
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/issue-retrospective.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/issue-retrospective.spec.json",
+  "use_when": "작업이 랜딩되고 defect-verification/conformance-review 가 종결된 뒤. 기록만 읽는다"
+}

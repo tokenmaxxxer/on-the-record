@@ -6,7 +6,7 @@ to lean on for context — "the static gate already blocks writes outside a
 role's area" — is gone; sessions are no longer scope-limited by role at
 all.) This module's own mechanism is unrelated and unaffected: an issue's
 `scope: <prefix list>` field, opted into per-issue in the issue body, not
-derived from `spawn_roles.json`. It still catches INTENT drift: an issue
+derived from any per-role config. It still catches INTENT drift: an issue
 "fix the login bug" whose PR wanders into an unrelated module can diverge
 from what the issue asked even though nothing blocks the write itself
 anymore. File paths are deterministic (not an LLM judgment), so a

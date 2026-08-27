@@ -1,0 +1,165 @@
+{
+  "decides": "무엇을 만들지 — 가치 가설 (Cagan discovery)",
+  "produces": "hypothesis statement, target user/JTBD, evidence log, confidence level, next-decision trigger, product record",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "evidence-log-unreadable"
+      ],
+      "progress": [
+        "measuring"
+      ],
+      "refusal": [
+        "hypothesis-not-falsifiable"
+      ],
+      "terminal": [
+        "validated",
+        "invalidated",
+        "inconclusive"
+      ]
+    }
+  },
+  "record_spec": {
+    "gate_b_contrast": "hollow instance: market_size_rationale or competitive_alternatives filled with generic prose that cites no evidence_log entry is schema-conformant but not a real assessment (issue-807 step2 audit).",
+    "gate_c_finding_method": "evidence rigor floor, Mom-Test discipline (Rob Fitzpatrick, The Mom Test, 2013): each evidence_log entry must state an observation/interview count and an approximate date range, and must not rest solely on stated preference or hypothetical response ('would you use X' answers are inadmissible on their own) — the same admissibility rule already carried by this session's user-discovery/market-recon skill directives, now made part of the spec instead of living only in skill prose.",
+    "loop_state": {
+      "error": [
+        "evidence-log-unreadable"
+      ],
+      "progress": [
+        "measuring"
+      ],
+      "refusal": [
+        "hypothesis-not-falsifiable"
+      ],
+      "terminal": [
+        "validated",
+        "invalidated",
+        "inconclusive"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "recommendation (go|no-go) must not be asserted before fail_condition, time_box, and decision_rule are populated — pre-registration order (rationale: rule fixed before evidence, never asserted post-hoc)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "evidence_log entries must each resolve to a repo path, commit sha, or a source actually consulted — no orphan references (issue-515 invariant 2)."
+    },
+    "report_only": true,
+    "required_fields": [
+      {
+        "name": "problem_statement",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "target_market",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "market_size_rationale",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "competitive_alternatives",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "differentiator",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "timing_rationale",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "go_to_market_plan",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "success_metric",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "critical_success_factors",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "go",
+          "no-go"
+        ],
+        "name": "recommendation",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "hypothesis_statement",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "fail_condition",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "time_box",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "decision_rule",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "confidence_level",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "name": "evidence_log",
+        "required": true,
+        "type": "ref[]"
+      },
+      {
+        "enum": [
+          "validated",
+          "invalidated",
+          "inconclusive"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      }
+    ],
+    "source_standard": "Cagan/SVPG Opportunity Assessment + lean-startup pre-registered decision rules (Startup Commons / Kromatic / Startup Project)",
+    "use_when": {
+      "board_condition": "an issue's requirement is still at problem/hypothesis level AND no product-discovery record with a validated|invalidated verdict exists yet for that issue"
+    },
+    "write_scope": []
+  },
+  "report_only": true,
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/product-discovery.spec.json",
+  "use_when": "요구가 아직 문제/가설 수준일 때. 사전등록 가설(지표·임계값·결정규칙)로 스펙 또는 kill 기록을 만든다 (board_condition: an issue's requirement is still at problem/hypothesis level AND no product-discovery record with a validated|invalidated verdict exists yet for that issue)"
+}

@@ -1,0 +1,89 @@
+{
+  "decides": "단위경제상 성립하는가",
+  "produces": "unit economics model (CAC/LTV/margin), sensitivity note",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "billing-data-unreachable"
+      ],
+      "progress": [
+        "computing",
+        "reviewing"
+      ],
+      "refusal": [
+        "period-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "billing-data-unreachable"
+      ],
+      "progress": [
+        "computing",
+        "reviewing"
+      ],
+      "refusal": [
+        "period-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "value is recomputed from the current period's billing data, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "metric_name's value must resolve to an actual computed figure from the current billing/finance data source — no fabricated figures."
+    },
+    "required_fields": [
+      {
+        "enum": [
+          "CAC",
+          "LTV",
+          "LTV_CAC_ratio",
+          "CAC_payback",
+          "Rule_of_40"
+        ],
+        "name": "metric_name",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "value",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "period",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "source_standard": "SaaS unit-economics metric set (CAC, LTV, LTV:CAC, CAC payback, Rule of 40) — de facto convention popularized by Bessemer's Cloud reports, no single ratified standards body found (scout-brief gap, stated as assumption); https://www.dualentry.com/blog/saas-unit-economics",
+    "use_when": {
+      "board_condition": "a finance review checkpoint occurs AND no finance-unit-economics record exists yet for that period"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/finance-unit-economics.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/finance-unit-economics.spec.json",
+  "use_when": "가격/비용 구조가 걸린 결정일 때"
+}

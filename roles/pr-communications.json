@@ -1,0 +1,167 @@
+{
+  "decides": "메시지가 외부에 어떻게 읽힐지",
+  "produces": "communications plan, key message, risk/Q&A prep",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "channel-data-unreachable"
+      ],
+      "progress": [
+        "planning",
+        "measuring"
+      ],
+      "refusal": [
+        "objective-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "degree_level_knowledge": [
+      {
+        "concept": "Conventional Commits taxonomy",
+        "source": "conventionalcommits.org"
+      },
+      {
+        "concept": "Keep a Changelog structure",
+        "source": "keepachangelog.com/en/1.1.0"
+      },
+      {
+        "concept": "Semantic Versioning rules",
+        "source": "semver.org"
+      },
+      {
+        "concept": "Commit-message craft",
+        "source": "Beams, \"How to Write a Git Commit Message\"; cbea.ms/git-commit"
+      }
+    ],
+    "deliverable_form": {
+      "method": "Keep a Changelog entry (Added/Changed/Fixed/Removed) alongside the commit series",
+      "source": "Keep a Changelog v1.1.0; keepachangelog.com/en/1.1.0"
+    },
+    "feedback_methodology": {
+      "method": "Conventional Comments labeling (praise/nitpick/issue/question) on review threads",
+      "source": "conventionalcomments.org"
+    },
+    "judgment_methodology": {
+      "method": "Google engineering-practices reviewer standard for what a PR description must justify",
+      "source": "google.github.io/eng-practices/review/reviewer/standard.html"
+    },
+    "loop_state": {
+      "error": [
+        "channel-data-unreachable"
+      ],
+      "progress": [
+        "planning",
+        "measuring"
+      ],
+      "refusal": [
+        "objective-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "planning_methodology": {
+      "method": "Conventional Commits type/scope taxonomy planned before the commit series is written",
+      "source": "Conventional Commits v1.0.0; conventionalcommits.org"
+    },
+    "quality_bar": [
+      {
+        "criterion": "outcome_traces_to_stated_objective_not_output_or_outtake",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `outcome` names a change in awareness/attitude/behavior tied to the record's own `objective`, not restated `output` (volume produced) or `outtake` (what audience recalls/thinks)",
+        "verified_source": "AMEC, 'Integrated Evaluation Framework' — https://amecorg.com/amecframework/ (primary source; AMEC's own framework defines outputs, outtakes, and outcomes as distinct rungs, with outcome specifically meaning a change resulting from the communication, not a restatement of the lower rungs)."
+      },
+      {
+        "criterion": "no_ave_used_as_a_measure",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that no field in the record expresses value as an Advertising Value Equivalency (AVE) figure",
+        "verified_source": "AMEC, 'Barcelona Principles 3.0' — https://amecorg.com/barcelona-principles-3-0/ (primary source; Principle 2 explicitly states AVEs do not measure communication value and are rejected outright by the standard)."
+      },
+      {
+        "criterion": "channel_classification_matches_paid_earned_shared_owned_definitions",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `channel` matches the AMEC/PESO definitional test for its declared category (paid = bought placement, earned = third-party coverage, shared = audience-distributed, owned = organization-controlled)",
+        "verified_source": "AMEC Integrated Evaluation Framework, 'Channel Planning' — https://amecorg.com/amecframework/set-objectives/ (primary source; the framework's own channel taxonomy is the paid/earned/shared/owned split the spec's `required_fields` enum reuses verbatim)."
+      },
+      {
+        "criterion": "qualitative_and_quantitative_evidence_both_present",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: does the record combine quantitative measurement (reach, volume, sentiment score) with qualitative context (what the coverage/response actually said), rather than quantity alone?",
+        "verified_source": "AMEC, 'Barcelona Principles 3.0', Principle 5 — https://amecorg.com/barcelona-principles-3-0/ (primary source; Principle 5 states that qualitative and quantitative measurement are both important, guarding against a volume-only report)."
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "outcome is recomputed from the current channel's actual measured output, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "outcome must trace back to a stated objective on the same record — no orphan outcomes (AMEC's own chain requirement)."
+    },
+    "required_fields": [
+      {
+        "name": "objective",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "paid",
+          "earned",
+          "shared",
+          "owned"
+        ],
+        "name": "channel",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "output",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "outtake",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "name": "outcome",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "review_methodology": {
+      "method": "SemVer-impact check: does the change require a major/minor/patch bump per its actual API surface delta",
+      "source": "Semantic Versioning 2.0.0; semver.org"
+    },
+    "source_standard": "AMEC Integrated Evaluation Framework (Barcelona Principles), https://amecorg.com/amecframework/",
+    "use_when": {
+      "board_condition": "a PR or communications activity concludes AND no pr-communications record exists yet for that activity"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/pr-communications.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/pr-communications.spec.json",
+  "use_when": "외부 커뮤니케이션이 걸릴 때"
+}

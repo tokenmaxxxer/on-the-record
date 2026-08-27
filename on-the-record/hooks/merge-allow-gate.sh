@@ -253,8 +253,8 @@ def _routing_fix_should_withhold(cwd):
         issue = int(m.group(1))
     for role in candidates:
         try:
-            role_data = json.load(open(os.path.join(cwd, "spawn_roles.json")))
-            spec = role_data[role]["record_spec"]
+            role_data = json.load(open(os.path.join(cwd, "roles", f"{role}.json")))
+            spec = role_data["record_spec"]
         except (OSError, ValueError, KeyError):
             continue
         trigger = (spec.get("use_when") or {}).get("trigger") if isinstance(spec.get("use_when"), dict) else None

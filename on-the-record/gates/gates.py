@@ -39,18 +39,19 @@ PROTECTED_ROOT_DIRS = {"roles", "gates", "agents", "images", "profiles"}
 # repo)의 경로와는 무관하다: roles/ 는 on-the-record 자산이지 보드
 # 자산이 아니다.
 ON_THE_RECORD_ROOT = Path(__file__).resolve().parent.parent
-# 이슈 #2539 (stage 6C): roles/<role>.json 파일 44개 + roles/specs/<role>.spec.json
-# 43개를 이 파일 하나로 통합했다 — 역할 이름 -> 원래 roles/<role>.json 내용, 그
-# 안의 "record_spec" 키가 원래 roles/specs/<role>.spec.json 내용(required_fields
-# 등). 일부 역할은 roles/<role>.json 자체가 이미 "spec" 필드(문서 경로 문자열)를
-# 쓰고 있어 그 키와 충돌을 피하려고 "record_spec"으로 이름 붙였다.
-_ROLE_DATA_PATH = ON_THE_RECORD_ROOT / "spawn_roles.json"
+# 이슈 #2610: 44개 role 을 한 파일로 묶어 두는 것 자체가 마지막 남은 닫힌
+# 정체성 카탈로그였다(spawn.py 인자 없이 부르면 그대로 열거됐다) — 다시
+# `roles/<role>.json` 파일 하나씩으로 되돌린다. "record_spec" 키는 원래
+# roles/specs/<role>.spec.json 내용(required_fields 등)이었던 것을 그대로
+# 안에 담는다 — 일부 role 은 이미 "spec" 필드(문서 경로 문자열)를 쓰고 있어
+# 그 키와 충돌을 피하려고 "record_spec"으로 이름 붙인 채 유지한다.
+_ROLE_DATA_DIR = ON_THE_RECORD_ROOT / "roles"
 
 
 def _role_cfg(role: str) -> dict:
-    """단일 사실 소스: spawn_roles.json 의 role 키. 모르는 role 은 KeyError —
+    """단일 사실 소스: roles/<role>.json. 모르는 role 은 FileNotFoundError —
     각 호출부가 (OSError, json.JSONDecodeError, KeyError) 로 이미 fail closed."""
-    return json.loads(_ROLE_DATA_PATH.read_text(encoding="utf-8"))[role]
+    return json.loads((_ROLE_DATA_DIR / f"{role}.json").read_text(encoding="utf-8"))
 # 인증 계열은 좁게(auth.py 는 막고 author.py 는 통과), 자격증명 계열은 넓게.
 # 자격증명의 미탐 비용은 유출이고 오탐 비용은 사람 확인 한 번이다.
 PROTECTED_GLOBS = ["*.pem", "*.key", "*.p12", ".env", ".env.*",
@@ -297,7 +298,7 @@ def deps(d: Path, cfg: dict) -> list[str]:
 
 # issue-377: roles/*.json 의 record_fields.loop_state 선언이 실제 레코드
 # frontmatter 가 쓰는 값 어휘와 어긋나면(#147 류 drift) 여기서 잡는다.
-# CLAIM-CHECK: enum-subset spawn_roles.json:implementation.record_fields.loop_state docs/issue-*/reports/*.md:loop_state
+# CLAIM-CHECK: enum-subset roles/implementation.json:record_fields.loop_state docs/issue-*/reports/*.md:loop_state
 RECORD_PATH = re.compile(r"^docs/issue-[^/]+/reports/([^/]+)\.md$")
 
 
@@ -340,7 +341,7 @@ def record_enums(d: Path, cfg: dict) -> list[str]:
             role_cfg = _role_cfg(role)
         except (OSError, json.JSONDecodeError, KeyError) as e:
             bad.append(f"역할 정의를 읽을 수 없어 enum 을 검사할 수 없다: "
-                       f"{_ROLE_DATA_PATH} 의 {role!r} (on-the-record 체크아웃: "
+                       f"{_ROLE_DATA_DIR / f'{role}.json'} 의 {role!r} (on-the-record 체크아웃: "
                        f"{ON_THE_RECORD_ROOT}) ({e})")
             continue
         declared = role_cfg.get("record_fields", {})
@@ -363,7 +364,7 @@ def record_enums(d: Path, cfg: dict) -> list[str]:
             if value not in valid:
                 bad.append(
                     f"레코드 enum 위반: {f} 의 {field}={value!r} — "
-                    f"{_ROLE_DATA_PATH} 의 {role!r} 이 선언한 값 ({allowed}) 이 아니다")
+                    f"{_ROLE_DATA_DIR / f'{role}.json'} 의 {role!r} 이 선언한 값 ({allowed}) 이 아니다")
     return bad
 
 
@@ -391,7 +392,7 @@ def record_refusal_reasoned(d: Path, cfg: dict) -> list[str]:
             role_cfg = _role_cfg(role)
         except (OSError, json.JSONDecodeError, KeyError) as e:
             bad.append(f"역할 정의를 읽을 수 없어 refusal 필드를 검사할 수 "
-                       f"없다: {_ROLE_DATA_PATH} 의 {role!r} ({e})")
+                       f"없다: {_ROLE_DATA_DIR / f'{role}.json'} 의 {role!r} ({e})")
             continue
         declared = role_cfg.get("record_fields", {}).get("loop_state")
         if declared is None:
@@ -814,7 +815,7 @@ def record_checked_claims(d: Path, cfg: dict) -> list[str]:
             role_cfg = _role_cfg(role)
         except (OSError, json.JSONDecodeError, KeyError) as e:
             bad.append(f"역할 정의를 읽을 수 없어 checked-claims 를 검사할 수 "
-                       f"없다: {_ROLE_DATA_PATH} 의 {role!r} (on-the-record 체크아웃: "
+                       f"없다: {_ROLE_DATA_DIR / f'{role}.json'} 의 {role!r} (on-the-record 체크아웃: "
                        f"{ON_THE_RECORD_ROOT}) ({e})")
             continue
         terminal = _terminal_loop_state(role_cfg)

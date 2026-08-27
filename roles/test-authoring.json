@@ -1,0 +1,141 @@
+{
+  "decides": "테스트 코드 자체가 격리성·fixture 전략 면에서 좋은 설계인가",
+  "produces": "suite architecture note, fixture strategy, smell list (Meszaros catalog refs)",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "test-unreachable"
+      ],
+      "progress": [
+        "drafting",
+        "running"
+      ],
+      "refusal": [
+        "items-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "gate_b_contrast": "hollow instance: output_spec mechanically re-derived from input_spec with smells_identified left empty is schema-conformant but not a design-quality judgment — the role's own stated decides (roles/test-authoring.json) is whether the test is well-designed in isolation, not merely whether it runs (issue-807 step2 audit).",
+    "gate_c_finding_method": "enumerate the specific Meszaros Test Smells categories present (e.g. Fragile Test, Obscure Test, Test Code Duplication, Interacting Tests, per xUnit Test Patterns part IV) and evidence each named smell with the file:line that triggered it in smells_identified; fixture_strategy and isolation_verdict must each cite the specific fixture/setup lines they judge, not a bare pass/fail label.",
+    "loop_state": {
+      "error": [
+        "test-unreachable"
+      ],
+      "progress": [
+        "drafting",
+        "running"
+      ],
+      "refusal": [
+        "items-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "quality_bar": [
+      {
+        "criterion": "ieee829_case_shape",
+        "verification_method": "structural check of each authored test case's documentation/docstring against the IEEE 829 test-case fields: purpose, preconditions, inputs, expected result"
+      },
+      {
+        "criterion": "no_test_smell",
+        "verification_method": "reuses the spec's existing gate_c_finding_method smell-detection rule against the Test Smells catalog's structural smells"
+      },
+      {
+        "criterion": "coverage_of_changed_behavior",
+        "verification_method": "coverage tool run scoped to the diff's changed lines/branches, asserting every changed branch/condition has at least one asserting test"
+      },
+      {
+        "criterion": "suite_passes_clean",
+        "verification_method": "pytest (or equivalent) run, exit code and SKIPPED-line count asserted, reusing role-test-claim-guard.sh's SKIPPED-line discipline"
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "output_spec is recomputed by re-running test_id against input_spec, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "test_id must resolve to an actual test file or test case — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "test_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "test_items",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "input_spec",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "output_spec",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "environment",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "name": "smells_identified",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "fixture_strategy",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "isolation_verdict",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "source_standard": "IEEE 829-2008, Standard for Software and System Test Documentation (test case specification shape) + Gerard Meszaros, xUnit Test Patterns: Refactoring Test Code (Addison-Wesley, 2007), Test Smells catalog (part IV) for suite-design/fixture-quality judgment",
+    "use_when": {
+      "board_condition": "new testable behavior lands on the branch AND no test-authoring record exists yet for that behavior",
+      "trigger": {
+        "content_patterns": [],
+        "path_patterns": [
+          "src/**",
+          "lib/**",
+          "app/**"
+        ],
+        "record_absent_for": "test-authoring"
+      }
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/test-authoring.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/test-authoring.spec.json",
+  "use_when": "신규/기존 테스트 스위트를 설계·리뷰할 때 (b) scope overlap, tentative: implementation의 write_scope가 이미 이 도메인을 inline으로 커버하는 경우 별도 record는 생략 가능 — 테스트-설계 전용 record 타입이 별도로 필요해지면 재검토 (issue #993 product-discovery diagnosis)"
+}

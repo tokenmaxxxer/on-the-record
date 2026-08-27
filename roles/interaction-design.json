@@ -1,0 +1,135 @@
+{
+  "decides": "문제 → 화면·플로우",
+  "produces": "wireframe/flow diagram, state list, edge-case interaction notes, open design questions",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "screen-ref-unresolvable"
+      ],
+      "progress": [
+        "sketching"
+      ],
+      "refusal": [
+        "spec-not-confirmed"
+      ],
+      "terminal": [
+        "reviewed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "screen-ref-unresolvable"
+      ],
+      "progress": [
+        "sketching"
+      ],
+      "refusal": [
+        "spec-not-confirmed",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "reviewed"
+      ]
+    },
+    "quality_bar": [
+      {
+        "criterion": "closed_node_enum",
+        "verification_method": "schema validation of every wireflow node's type against the spec's declared closed enum (screen/decision/system-action/end)"
+      },
+      {
+        "criterion": "no_orphan_transition",
+        "verification_method": "reference-resolution check (reuses the spec's own reference_resolution rule) asserting every transition edge resolves to a declared node on both ends"
+      },
+      {
+        "criterion": "error_path_modeled",
+        "verification_method": "graph traversal asserting an error-typed outgoing edge exists per user-input node"
+      },
+      {
+        "criterion": "terminal_reachability",
+        "verification_method": "graph reachability check asserting every node reaches the terminal node and is reachable from the start node"
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "a flow is not complete until every state's edge_case_variant is populated — error-state-before-happy-path-only (NN/g's must-be), never asserted complete from happy-path states alone."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "every transitions entry must resolve to another state's state_name elsewhere in the same record — graph reference-resolution (issue-515 invariant 2); every flow must contain at least one terminal node_type."
+    },
+    "report_only": true,
+    "required_fields": [
+      {
+        "name": "state_name",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "entry_trigger",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "screen_ref",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "state",
+          "choice",
+          "terminal"
+        ],
+        "name": "node_type",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "feedback",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "transitions",
+        "required": true,
+        "type": "ref[]"
+      },
+      {
+        "name": "edge_case_variant",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "source_standard": "NN/g wireflows (nngroup.com/articles/wireflows) + UML state-machine notation (uml-diagrams.org) for the closed node-type enum NN/g itself leaves unspecified",
+    "use_when": {
+      "board_condition": "a requirements-engineering record landed for a screen/flow-facing requirement AND no interaction-design record exists yet for it",
+      "trigger": {
+        "content_patterns": [],
+        "path_patterns": [
+          "docs/issue-*/reports/product-discovery.md"
+        ],
+        "record_absent_for": "interaction-design"
+      }
+    },
+    "write_scope": []
+  },
+  "report_only": true,
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/interaction-design.spec.json",
+  "use_when": "product-discovery 스펙 확정 후 (board_condition: a requirements-engineering record landed for a screen/flow-facing requirement AND no interaction-design record exists yet for it)"
+}

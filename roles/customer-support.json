@@ -1,0 +1,89 @@
+{
+  "decides": "문의를 어떤 우선순위/SLA로 처리할지",
+  "produces": "support playbook, SLA table, escalation path",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "ticket-unreachable"
+      ],
+      "progress": [
+        "triaging",
+        "resolving"
+      ],
+      "refusal": [
+        "score-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "ticket-unreachable"
+      ],
+      "progress": [
+        "triaging",
+        "resolving"
+      ],
+      "refusal": [
+        "score-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "csat_score is recomputed from the actual customer survey response, never pre-filled before the survey returns."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "ticket_id must resolve to an actual support ticket — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "ticket_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+        ],
+        "name": "csat_score",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "resolution_summary",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "source_standard": "HDI Support Center Standard + CSAT, https://www.thinkhdi.com/services/support-center-standard",
+    "use_when": {
+      "board_condition": "a support ticket closes AND no customer-support record exists yet for that ticket_id"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/customer-support.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/customer-support.spec.json",
+  "use_when": "CS 플로우/SLA 설계가 걸릴 때"
+}

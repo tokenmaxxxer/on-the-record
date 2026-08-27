@@ -1,0 +1,119 @@
+{
+  "decides": "외부 개발자가 이 표면을 채택할 수 있는가",
+  "produces": "onboarding doc, sample code, adoption-friction list",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "metric-unreachable"
+      ],
+      "progress": [
+        "tracking",
+        "reviewing"
+      ],
+      "refusal": [
+        "stage-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "metric-unreachable"
+      ],
+      "progress": [
+        "tracking",
+        "reviewing"
+      ],
+      "refusal": [
+        "stage-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "quality_bar": [
+      {
+        "criterion": "product_journey_stage_matches_metric_definition",
+        "evidence_grade": "practitioner-consensus",
+        "verification_method": "automated check that `product_journey_stage` matches the Keystone stage a metric like this actually measures (awareness = reach/impressions, activation = first successful use, adoption = repeat/sustained use, advocacy = referral/community-contribution signals)",
+        "verified_source": "OpenView Partners, 'Measuring the Impact of Your Developer Relations Team' — https://openviewpartners.com/blog/measuring-the-impact-of-your-developer-relations-team/ (practitioner-consensus source, not a ratified standard, per the spec's own source_standard note; the awareness/activation/adoption/advocacy funnel is the article's own stated stage taxonomy, matching the spec's `required_fields` enum verbatim)."
+      },
+      {
+        "criterion": "metric_is_outcome_shaped_not_vanity",
+        "evidence_grade": "practitioner-consensus",
+        "verification_method": "human-review-checklist: does `metric_name` measure a developer behavior change (activation, adoption, advocacy signal) rather than a pure output/vanity count (impressions, follower count) with no behavioral link?",
+        "verified_source": "Mary Thengvall, 'Measuring Progress in Developer Relations' — https://developerrelations.com/talks/measuring-progress-in-developer-relations/ (practitioner-consensus source, not a ratified standard, per the spec's own source_standard note; the talk's own central argument is that vanity metrics undercount by omitting behavior-linked outcomes)."
+      },
+      {
+        "criterion": "devrel_qualified_lead_criteria_named_when_stage_is_adoption_or_advocacy",
+        "evidence_grade": "practitioner-consensus",
+        "verification_method": "human-review-checklist: for a `product_journey_stage` of adoption or advocacy, does the record name the concrete DevRel-Qualified-Lead criteria used (e.g. repo starred + docs visited + support ticket filed), rather than asserting the stage without a checkable basis?",
+        "verified_source": "Mary Thengvall, DevRel-Qualified-Lead concept, per OpenView Partners — https://openviewpartners.com/blog/measuring-the-impact-of-your-developer-relations-team/ (practitioner-consensus source, not a ratified standard, per the spec's own source_standard note; DQL is defined there as a named, multi-signal composite, not a single self-asserted claim)."
+      },
+      {
+        "criterion": "value_traceable_to_a_named_metric_source",
+        "evidence_grade": "practitioner-consensus",
+        "verification_method": "automated check that `value` names or links the concrete metric source it was pulled from (analytics dashboard, survey instrument, repo API), matching the spec's own `recomputation` rule that value must be re-derivable from the current metric source",
+        "verified_source": "OpenView Partners, 'Measuring the Impact of Your Developer Relations Team' — https://openviewpartners.com/blog/measuring-the-impact-of-your-developer-relations-team/ (practitioner-consensus source, not a ratified standard, per the spec's own source_standard note; the article's own repeated critique of DevRel measurement is untraceable self-reported numbers)."
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "value is recomputed from the current metric source, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "metric_name must resolve to an actual tracked DevRel metric — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "metric_name",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "awareness",
+          "activation",
+          "adoption",
+          "advocacy"
+        ],
+        "name": "product_journey_stage",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "value",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "source_standard": "Keystone DevRel metrics + DevRel-Qualified-Lead concept (Mary Thengvall) — convergent industry practice, no single ratified standard confirmed (scout-brief gap, stated as assumption); https://openviewpartners.com/blog/measuring-the-impact-of-your-developer-relations-team/ , https://developerrelations.com/talks/measuring-progress-in-developer-relations/",
+    "use_when": {
+      "board_condition": "a DevRel campaign or content piece ships AND no devrel record exists yet for that campaign"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/devrel.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/devrel.spec.json",
+  "use_when": "외부 개발자 대상 API/SDK가 걸릴 때"
+}

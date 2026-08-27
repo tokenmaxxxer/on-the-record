@@ -1,0 +1,171 @@
+{
+  "decides": "화면/토큰이 WCAG를 만족하는가",
+  "produces": "WCAG success-criterion checklist w/ pass/fail per criterion",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "sample-unreachable"
+      ],
+      "progress": [
+        "sampling",
+        "evaluating"
+      ],
+      "refusal": [
+        "scope-undeterminable"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "degree_level_knowledge": [
+      {
+        "concept": "WCAG 2.2 success criteria and conformance levels",
+        "source": "w3.org/TR/WCAG22"
+      },
+      {
+        "concept": "WAI-ARIA roles/states/properties",
+        "source": "w3.org/TR/wai-aria-1.2"
+      },
+      {
+        "concept": "VPAT/ACR accessibility conformance reporting",
+        "source": "deque.com/accessibility-compliance/vpat"
+      }
+    ],
+    "deliverable_form": {
+      "method": "VPAT/ACR (Accessibility Conformance Report) entry citing the specific WCAG success criteria addressed",
+      "source": "ITI VPAT and ACR guidance; deque.com/accessibility-compliance/vpat"
+    },
+    "feedback_methodology": {
+      "method": "WAI-ARIA authoring-practice check: does an interactive widget expose the correct role/name/state",
+      "source": "W3C WAI-ARIA; w3.org/TR/wai-aria-1.2"
+    },
+    "judgment_methodology": {
+      "method": "WCAG 2.2 success-criterion conformance check (A/AA/AAA) as the pass/fail lens for a UI change",
+      "source": "W3C WCAG 2.2; w3.org/TR/WCAG22"
+    },
+    "loop_state": {
+      "error": [
+        "sample-unreachable"
+      ],
+      "progress": [
+        "sampling",
+        "evaluating"
+      ],
+      "refusal": [
+        "scope-undeterminable",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "planning_methodology": {
+      "method": "Accessibility heuristics evaluation planned at the design phase, before implementation",
+      "source": "Deque, \"Accessibility Heuristics Evaluation\"; deque.com/blog/supporting-the-design-phase-with-accessibility-heuristics-evaluations"
+    },
+    "quality_bar": [
+      {
+        "criterion": "wcag22_aa_automated_pass",
+        "verification_method": "ACT-Rules-conformant automated scanner run against the WCAG-EM sample, zero violations asserted"
+      },
+      {
+        "criterion": "manual_check_coverage",
+        "verification_method": "cross-reference the manual-check log against the WCAG-EM criterion list for the sample, asserting every ACT-Rules not-machine-testable criterion has a recorded pass/fail/n-a outcome"
+      },
+      {
+        "criterion": "keyboard_and_focus_visible",
+        "verification_method": "automated keyboard-nav + focus-visibility check across the sample"
+      },
+      {
+        "criterion": "name_role_value_exposed",
+        "verification_method": "automated accessibility-tree query against the sample, asserting non-empty accessible name/role (and value/state where applicable) on every interactive element"
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "overall verdict = the worst-case result across all cited sample x test outcomes (failed > cantTell > untested > inapplicable > passed), never a standalone summary field (issue-515 invariant 4). result uses ACT's 5-value outcome enum, not EARL's 4-value one, since ACT is the accessibility-specific profile and the W3C spec frames ACT-EARL compatibility as expressibility, not identity (scout-brief.md)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "sample entries must resolve to real screens/components/tokens in the repo; test must be bound to a specific WCAG success-criterion ID (e.g. '1.4.3') — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "scope",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "sample",
+        "required": true,
+        "type": "ref[]"
+      },
+      {
+        "name": "test",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "inapplicable",
+          "passed",
+          "failed",
+          "cantTell",
+          "untested"
+        ],
+        "name": "result",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "assertedBy",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "review_methodology": {
+      "method": "WCAG 2.2 conformance re-check against the specific success criteria the change touches (perceivable/operable/understandable/robust)",
+      "source": "W3C WCAG 2.2; w3.org/TR/WCAG22"
+    },
+    "source_standard": "WCAG-EM 2.0 (W3C, https://www.w3.org/TR/wcag-em/) evaluation procedure + ACT Rules Format outcome vocabulary (W3C, https://www.w3.org/TR/act-rules-format/)",
+    "use_when": {
+      "board_condition": "a new interaction pattern or color-token set landed on the branch AND no accessibility record exists yet for it",
+      "trigger": {
+        "content_patterns": [
+          "aria-",
+          "color-token",
+          "role=\""
+        ],
+        "path_patterns": [
+          "**/*token*",
+          "**/*.css",
+          "**/*.tsx",
+          "**/*.jsx",
+          "**/interaction*"
+        ],
+        "record_absent_for": "accessibility"
+      }
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/accessibility.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/accessibility.spec.json",
+  "use_when": "신규 인터랙션 패턴·색상 토큰 도입 시 (board_condition: a new interaction pattern or color-token set landed on the branch AND no accessibility record exists yet for it)"
+}

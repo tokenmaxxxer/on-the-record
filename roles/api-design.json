@@ -1,0 +1,164 @@
+{
+  "decides": "서비스 경계의 인터페이스 형태",
+  "produces": "interface spec (endpoints/schema/versioning), lifecycle/deprecation plan",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "ruleset-unreachable"
+      ],
+      "progress": [
+        "linting",
+        "reviewing"
+      ],
+      "refusal": [
+        "spec-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "degree_level_knowledge": [
+      {
+        "concept": "Google AIPs (resource-oriented API design)",
+        "source": "google.aip.dev"
+      },
+      {
+        "concept": "Microsoft REST API Guidelines",
+        "source": "github.com/microsoft/api-guidelines"
+      },
+      {
+        "concept": "OpenAPI Specification",
+        "source": "spec.openapis.org/oas/latest.html"
+      },
+      {
+        "concept": "RFC 9110 HTTP semantics",
+        "source": "rfc-editor.org/rfc/rfc9110"
+      }
+    ],
+    "deliverable_form": {
+      "method": "OpenAPI Specification document as the contract of record",
+      "source": "OpenAPI Specification; spec.openapis.org/oas/latest.html"
+    },
+    "feedback_methodology": {
+      "method": "RFC 9110 HTTP-semantics compliance check (method/status-code correctness) on review",
+      "source": "RFC 9110; rfc-editor.org/rfc/rfc9110"
+    },
+    "judgment_methodology": {
+      "method": "Google AIP resource-oriented design principles as the correctness lens for a new endpoint or field",
+      "source": "Google's AIP series; google.aip.dev; docs.cloud.google.com/apis/design"
+    },
+    "loop_state": {
+      "error": [
+        "ruleset-unreachable"
+      ],
+      "progress": [
+        "linting",
+        "reviewing"
+      ],
+      "refusal": [
+        "spec-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "planning_methodology": {
+      "method": "Microsoft REST API Guidelines versioning and breaking-change policy applied at design time",
+      "source": "Microsoft REST API Guidelines; github.com/microsoft/api-guidelines"
+    },
+    "quality_bar": [
+      {
+        "criterion": "spectral_ruleset_pass",
+        "verification_method": "spectral lint exit code / error count, zero errors against the project's OpenAPI ruleset"
+      },
+      {
+        "criterion": "schema_conformance",
+        "verification_method": "schema-conformance test suite run against recorded/contract responses for every documented status code"
+      },
+      {
+        "criterion": "breaking_change_versioned",
+        "verification_method": "api-version-guard.sh's existing diff check, asserting a removed/renamed public field or endpoint carries a version bump"
+      },
+      {
+        "criterion": "error_response_shape",
+        "verification_method": "schema-conformance test scoped to documented 4xx/5xx responses against the project's declared error-shape schema"
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "verdict is recomputed by re-running the spectral ruleset against the current endpoint_path, never a standalone asserted field (issue-515 invariant 4)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "spectral_ruleset_id must resolve to an actual rule in the project's Spectral ruleset file — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "endpoint_path",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "GET",
+          "POST",
+          "PUT",
+          "PATCH",
+          "DELETE"
+        ],
+        "name": "method",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "spectral_ruleset_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "pass",
+          "fail"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "openapi_version",
+        "required": false,
+        "type": "string"
+      }
+    ],
+    "review_methodology": {
+      "method": "Structural OpenAPI diff (oasdiff) to catch a removed/renamed field or path with no version bump",
+      "source": "oasdiff; github.com/oasdiff/oasdiff"
+    },
+    "source_standard": "Spectral ruleset (OpenAPI linting) + OpenAPI schema conformance, https://stoplight.io/open-source/spectral",
+    "use_when": {
+      "board_condition": "an OpenAPI spec file changed on the branch AND no api-design record exists yet for that commit sha"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/api-design.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/api-design.spec.json",
+  "use_when": "여러 소비자가 걸리는 API 표면을 설계/변경할 때"
+}

@@ -9,9 +9,9 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-# issue #2539 stage 6C: roles/specs/<role>.spec.json -> spawn_roles.json's
-# per-role "record_spec" key.
-ROLE_DATA_PATH = ROOT / "spawn_roles.json"
+# issue #2610: back to roles/<role>.json per role (one file, not one
+# closed-catalog JSON) -- record_spec is that file's "record_spec" key.
+ROLE_DATA_DIR = ROOT / "roles"
 
 # The 14 roles issue #1129 diagnosed cause-d (no standing duty wired) and
 # #1130 in-scope for five-activity depth. Cause-a roles are intentionally
@@ -43,7 +43,8 @@ ACTIVITY_FIELDS = [
 
 
 def _role_data():
-    return json.loads(ROLE_DATA_PATH.read_text())
+    return {p.stem: json.loads(p.read_text(encoding="utf-8"))
+            for p in ROLE_DATA_DIR.glob("*.json")}
 
 
 def _load(role):

@@ -223,7 +223,7 @@ def role_settings(role: str, cwd: str | None = None,
     온다.
     """
     # 이슈 #2555 (Step C): `role` 은 이제 닫힌 집합의 원소가 아니라 스폰
-    # 시점에 정해지는 슬러그다 — `spawn_roles.json` 에 없는 슬러그는 거부가
+    # 시점에 정해지는 슬러그다 — `roles/<role>.json` 이 없는 슬러그는 거부가
     # 아니라 일반 베이스라인(빈 spec)으로 떨어진다. 샌드박스는 어차피
     # 아래에서 역할과 무관하게 중앙에서 강제로 꺼지고, 전역 플러그인
     # 차단·permissions.allow 보강도 spec 내용과 무관하게 항상 적용된다 —

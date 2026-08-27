@@ -1,0 +1,108 @@
+{
+  "decides": "컴포넌트 경계·의존 방향",
+  "judgment_axes": [
+    "maintenance_complexity"
+  ],
+  "produces": "ADR (context/decision/consequences), boundary diagram",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "options-unreachable"
+      ],
+      "progress": [
+        "drafting",
+        "reviewing"
+      ],
+      "refusal": [
+        "decision-not-ripe"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "gate_b_contrast": "hollow instance: considered_options listing exactly one option, or decision_drivers absent/boilerplate, is schema-conformant but not a real trade-off decision — MADR's own template (adr.github.io/madr) requires decision drivers and multiple considered options with pros/cons weighed against them, not merely named (issue-807 step2 audit).",
+    "gate_c_axis_evaluation": "see docs/handbooks/architecture-methodology.md, section 'Axis evaluation procedure — maintenance_complexity' for the READ/EXECUTE/CRITERIA/CITATION method this role's axis_evaluation entries must follow, grounded in MADR's decision-drivers/considered-options weighing method rather than field names alone.",
+    "loop_state": {
+      "error": [
+        "options-unreachable"
+      ],
+      "progress": [
+        "drafting",
+        "reviewing"
+      ],
+      "refusal": [
+        "decision-not-ripe"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "outcome is recomputed from the referenced ADR's own status field, never asserted independently of the ADR text."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "decision_id must resolve to an actual ADR file under docs/decisions/; considered_options must each resolve to a real alternative discussed in that ADR — no orphan references (issue-515 invariant 2). Each axis_evaluation ref must resolve to a real entry inside this record carrying axis (must be in this role's judgment_axes), verdict (supports|contradicts|no-opinion), and citation (a docs/product/*.md entry path); when verdict is contradicts, the entry must also carry a finding object with target_path (must resolve against some role's write_scope) and a non-empty required_fix (issue-573 architecture proposal, sections 1 and 6)."
+    },
+    "required_fields": [
+      {
+        "name": "decision_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "context",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "considered_options",
+        "required": true,
+        "type": "ref[]"
+      },
+      {
+        "name": "decision_drivers",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "accepted",
+          "rejected",
+          "superseded"
+        ],
+        "name": "outcome",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "axis_evaluation",
+        "required": false,
+        "type": "ref[]"
+      }
+    ],
+    "source_standard": "MADR (Markdown Any Decision Records), https://adr.github.io/madr/",
+    "use_when": {
+      "board_condition": "a cross-module design choice is proposed on the branch AND no architecture record exists yet for that decision"
+    },
+    "write_scope": [
+      "docs/decisions/*.md",
+      "docs/issue-<n>/reports/architecture.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/architecture.spec.json",
+  "use_when": "새 모듈 경계나 기존 경계 변경이 걸릴 때"
+}

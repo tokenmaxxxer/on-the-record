@@ -1,0 +1,175 @@
+{
+  "decides": "이 문제가 실제 사용자의 고통인가",
+  "produces": "interview script, per-interview evidence log, pain-confirmed|not-confirmed verdict",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "snapshot-unreadable"
+      ],
+      "progress": [
+        "interviewing"
+      ],
+      "refusal": [
+        "no-interview-access"
+      ],
+      "terminal": [
+        "pain-confirmed",
+        "not-confirmed"
+      ]
+    }
+  },
+  "record_spec": {
+    "degree_level_knowledge": [
+      {
+        "concept": "The Mom Test interview discipline",
+        "source": "momtestbook.com"
+      },
+      {
+        "concept": "Opportunity Solution Trees",
+        "source": "producttalk.org/opportunity-solution-trees"
+      },
+      {
+        "concept": "Thematic analysis and saturation",
+        "source": "Braun & Clarke, Qualitative Research in Psychology, 2006; Guest, Bunce & Johnson, Field Methods, 2006"
+      },
+      {
+        "concept": "Jobs-to-be-Done theory",
+        "source": "christenseninstitute.org"
+      }
+    ],
+    "deliverable_form": {
+      "method": "Thematic-analysis coded finding with saturation statement",
+      "source": "Braun & Clarke, \"Using thematic analysis in psychology,\" Qualitative Research in Psychology, 2006; Guest, Bunce & Johnson, \"How Many Interviews Are Enough?,\" Field Methods, 2006"
+    },
+    "feedback_methodology": {
+      "method": "Contextual-inquiry review of interview notes for observation vs. opinion conflation",
+      "source": "Beyer & Holtzblatt, Contextual Design (Morgan Kaufmann 1998)"
+    },
+    "judgment_methodology": {
+      "method": "The Mom Test's three failure-mode filter (compliments, fluff, hypotheticals) to judge whether an interview finding is real signal",
+      "source": "Fitzpatrick, The Mom Test (2013); momtestbook.com"
+    },
+    "loop_state": {
+      "error": [
+        "snapshot-unreadable"
+      ],
+      "progress": [
+        "interviewing"
+      ],
+      "refusal": [
+        "no-interview-access",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "pain-confirmed",
+        "not-confirmed"
+      ]
+    },
+    "planning_methodology": {
+      "method": "Opportunity Solution Tree scoping from outcome to opportunities to solutions before recruiting",
+      "source": "Torres, Continuous Discovery Habits (2021); producttalk.org/opportunity-solution-trees"
+    },
+    "quality_bar": [
+      {
+        "criterion": "opportunity_backed_by_minimum_one_snapshot_ref",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that every `opportunity_tag` entry cites at least one `snapshot_refs` entry, matching the spec's own `reference_resolution` rule",
+        "verified_source": "Torres, Continuous Discovery Habits (Product Talk LLC, 2021); producttalk.org/opportunity-solution-trees (primary source; Torres's own opportunity-solution-tree method requires each opportunity to trace to observed interview evidence, not an unbacked assertion)."
+      },
+      {
+        "criterion": "quote_is_observation_not_opinion_or_hypothetical",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: does `quote` capture an observed past behavior or concrete fact, rather than a compliment, a hypothetical (\"I would...\"), or vague fluff — The Mom Test's own three failure modes?",
+        "verified_source": "Fitzpatrick, The Mom Test (2013); momtestbook.com (primary source; compliments/fluff/hypotheticals are the book's own named failure modes for a bad interview finding, matching the spec's cited `judgment_methodology`)."
+      },
+      {
+        "criterion": "saturation_run_length_meets_a_stated_consecutive_null_threshold",
+        "evidence_grade": "practitioner-consensus (contested framing)",
+        "verification_method": "automated check that `saturation_run_length` names a run of consecutive interviews (>=2, per the extension's stated minimum) that added zero new opportunity tags, before `verdict` is set to `pain-confirmed` or `not-confirmed`",
+        "verified_source": "Guest, Bunce & Johnson, 'How Many Interviews Are Enough?', Field Methods (2006); Hennink, Kaiser & Weber, 'How Many Interviews Are Enough?', Qualitative Health Research (2020) — cited as an extension beyond Torres's own confirmed/not-confirmed vocabulary, per the spec's own `source_standard` note; both studies report code saturation typically reached within a run of the same few consecutive interviews adding no new codes, the run-length basis this criterion operationalizes."
+      },
+      {
+        "criterion": "opportunity_tag_maps_to_a_jobs_to_be_done_not_a_feature_request",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: does the stated need map to a job-to-be-done (the underlying progress the person is trying to make), rather than a feature request restated as a finding — the spec's own `review_methodology`?",
+        "verified_source": "Christensen and Moesta, JTBD theory; christenseninstitute.org (primary source; the theory's own core claim is that customers hire products for a job, and a feature request is a solution disguised as a need, the exact conflation this checklist item guards against)."
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "saturation must be computed from saturation_run_length (a run of consecutive interviews adding zero new opportunity tags), never asserted as a standalone claim independent of the cited interview_snapshot sequence."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "snapshot_refs must resolve to a real interview_snapshot elsewhere in the record, and every opportunity must be backed by >=1 snapshot_refs entry — Torres's minimum-evidence-count rule (issue-515 invariant 2)."
+    },
+    "report_only": true,
+    "required_fields": [
+      {
+        "name": "interview_snapshot",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "quote",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "need",
+          "pain",
+          "desire"
+        ],
+        "name": "opportunity_tag",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "snapshot_refs",
+        "required": true,
+        "type": "ref[]"
+      },
+      {
+        "name": "saturation_run_length",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "pain-confirmed",
+          "not-confirmed"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      }
+    ],
+    "review_methodology": {
+      "method": "JTBD framing check: does the stated need map to a job-to-be-done, not a feature request restated as a finding",
+      "source": "Christensen and Moesta, JTBD theory; christenseninstitute.org"
+    },
+    "source_standard": "Teresa Torres interview snapshots (producttalk.org) + Guest/Bunce/Johnson 2006 and Hennink/Kaiser/Weber 2020 saturation run-length (extension beyond Torres's own confirmed/not-confirmed vocabulary, stated explicitly)",
+    "use_when": {
+      "board_condition": "a product-discovery hypothesis requires user-interview validation AND no user-discovery record with a pain-confirmed|not-confirmed verdict exists yet for that hypothesis"
+    },
+    "write_scope": []
+  },
+  "report_only": true,
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/user-discovery.spec.json",
+  "use_when": "가설 검증을 위해 사용자 인터뷰가 필요할 때 (board_condition: a product-discovery hypothesis requires user-interview validation AND no user-discovery record with a pain-confirmed|not-confirmed verdict exists yet for that hypothesis)"
+}

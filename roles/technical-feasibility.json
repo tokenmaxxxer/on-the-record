@@ -1,0 +1,97 @@
+{
+  "decides": "기술적으로 되는가",
+  "produces": "go|no-go|conditional verdict, PoC code/measurement, assumptions list",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "spike-unreachable"
+      ],
+      "progress": [
+        "spiking",
+        "reviewing"
+      ],
+      "refusal": [
+        "goal-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "verdict": [
+      "go",
+      "no-go",
+      "conditional"
+    ]
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "spike-unreachable"
+      ],
+      "progress": [
+        "spiking",
+        "reviewing"
+      ],
+      "refusal": [
+        "goal-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "decision is recomputed from findings at review time, never pre-filled before the spike concludes."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "when decision is proceed, it must resolve to an actual follow-up ADR filed under docs/decisions/ — no orphan references."
+    },
+    "required_fields": [
+      {
+        "name": "spike_goal",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "timebox",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "findings",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "proceed",
+          "reject",
+          "defer"
+        ],
+        "name": "decision",
+        "required": true,
+        "type": "enum"
+      }
+    ],
+    "source_standard": "ADR-style spike record, https://adr.github.io/",
+    "use_when": {
+      "board_condition": "a build-vs-buy or technology choice is proposed on the branch AND no technical-feasibility record exists yet for that choice"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/technical-feasibility.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/technical-feasibility.spec.json",
+  "use_when": "기술 PoC가 필요할 때. 시장 논리 없이 판정"
+}

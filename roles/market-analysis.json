@@ -1,0 +1,119 @@
+{
+  "decides": "경쟁 구도에서 이 스펙이 서는가",
+  "produces": "five-forces summary, competitor list w/ evidence links, JTBD-landscape verdict",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "market-data-unreachable"
+      ],
+      "progress": [
+        "researching",
+        "assessing"
+      ],
+      "refusal": [
+        "evidence-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "market-data-unreachable"
+      ],
+      "progress": [
+        "researching",
+        "assessing"
+      ],
+      "refusal": [
+        "evidence-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "mission_deliverables": [
+      {
+        "artifact": "the five-forces record itself (docs/issue-<n>/reports/market-analysis.md), already required by required_fields",
+        "fit_criterion": "every force's evidence field names a checkable source (a tracked competitor entry, a dated external reference) — not a bare assertion; reuses the spec's own reference_resolution rule"
+      },
+      {
+        "artifact": "docs/issue-<n>/reports/market-analysis/competitor-tracking.md (a maintained list of tracked competitor entries the evidence field's reference_resolution rule resolves against)",
+        "fit_criterion": "at least one entry per force where the assessment is medium/high, so 'evidence' has something concrete to point at"
+      }
+    ],
+    "outcome_mission": "the target project's market position is assessed against real, current competitive evidence — not a template filled with placeholder judgment.",
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "assessment is recomputed from current evidence at each market review, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "evidence, when it cites a competitor, must resolve to an actual tracked competitor entry — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "enum": [
+          "new-entrants",
+          "supplier-power",
+          "buyer-power",
+          "substitutes",
+          "rivalry"
+        ],
+        "name": "force",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "enum": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "name": "assessment",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "evidence",
+        "required": true,
+        "type": "string"
+      }
+    ],
+    "source_standard": "Porter's Five Forces (HBR), https://hbr.org/2008/01/the-five-competitive-forces-that-shape-strategy",
+    "use_when": {
+      "board_condition": "a market entry or strategy decision is proposed AND no market-analysis record exists yet covering all five forces",
+      "need_detector": {
+        "absent_patterns": [
+          "docs/issue-*/reports/market-analysis.md"
+        ],
+        "advisory_only": true,
+        "condition": "a product-discovery or pricing record exists on the branch (a market-facing decision was made) AND no market-analysis record exists yet covering all five forces",
+        "false_positive_bound": "a repo with no product-discovery/pricing record at all never fires — no market-facing decision on the branch -> silent, unconditionally",
+        "present_patterns": [
+          "docs/issue-*/reports/product-discovery.md",
+          "docs/issue-*/reports/pricing*.md"
+        ]
+      }
+    },
+    "verified_by": "requirements-engineering — market-analysis never grades its own mission_deliverables, same account-differs-from-producer basis as content-design (requirements-engineering never authors a market-analysis record)",
+    "write_scope": [
+      "docs/issue-<n>/reports/market-analysis.md",
+      "docs/issue-<n>/reports/market-analysis/*.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/market-analysis.spec.json",
+  "use_when": "product 스펙 확정 후, 경쟁 구도가 걸린 결정일 때"
+}

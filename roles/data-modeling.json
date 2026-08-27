@@ -1,0 +1,160 @@
+{
+  "decides": "데이터를 어떤 관계/스키마로 모델링할지",
+  "produces": "schema/ERD, migration plan, normalization rationale",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "table-unreachable"
+      ],
+      "progress": [
+        "modeling",
+        "reviewing"
+      ],
+      "refusal": [
+        "grain-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "degree_level_knowledge": [
+      {
+        "concept": "Relational normalization (1NF-3NF, BCNF)",
+        "source": "Codd, \"A Relational Model of Data for Large Shared Data Banks,\" CACM 1970"
+      },
+      {
+        "concept": "Entity-relationship modeling",
+        "source": "Chen, \"The Entity-Relationship Model,\" ACM TODS 1976"
+      },
+      {
+        "concept": "IDEF1X modeling notation",
+        "source": "NIST FIPS 184 IDEF1X"
+      }
+    ],
+    "deliverable_form": {
+      "method": "IDEF1X-conformant entity-relationship diagram plus a data dictionary",
+      "source": "NIST FIPS 184 IDEF1X"
+    },
+    "feedback_methodology": {
+      "method": "Pattern match against known model archetypes (party, product, transaction) before endorsing a novel structure",
+      "source": "Silverston & Agnew, The Data Model Resource Book, Vol 3 (Wiley 2008)"
+    },
+    "judgment_methodology": {
+      "method": "Codd's normalization rules (1NF-3NF/BCNF) as the correctness lens for a schema change",
+      "source": "Codd, \"A Relational Model of Data for Large Shared Data Banks,\" CACM 1970"
+    },
+    "loop_state": {
+      "error": [
+        "table-unreachable"
+      ],
+      "progress": [
+        "modeling",
+        "reviewing"
+      ],
+      "refusal": [
+        "grain-undeclared",
+        "bar-not-met"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "planning_methodology": {
+      "method": "Entity-relationship modeling before physical schema design",
+      "source": "Chen, \"The Entity-Relationship Model,\" ACM TODS 1976"
+    },
+    "quality_bar": [
+      {
+        "criterion": "grain_stated_and_singular",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `grain` names exactly one business-process-level statement (e.g. 'one row per order line'), not a compound of multiple grains joined by 'and'/'or'",
+        "verified_source": "Kimball Group, 'Grain' — https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/grain/ (primary source; grain declaration is Kimball's own stated first mandatory step, defined as a single unambiguous sentence — directly supports 'exactly one business-process-level statement, not a compound of multiple grains')."
+      },
+      {
+        "criterion": "normal_form_audited",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: is every relation checked against 1NF-3NF/BCNF, and is any deliberate denormalization named with its reason?",
+        "verified_source": "Named source (1NF-3NF/BCNF) traces to Codd's original relational-model formalization; strengthened with E.F. Codd, 'A Relational Model of Data for Large Shared Data Banks' (Communications of the ACM, 1970) as the canonical primary source for normal forms, since tutorial sites are secondary restatements, not the standard itself. BCNF specifically is Boyce & Codd's later refinement (Codd's 3NF plus stricter candidate-key handling), consistent with the criterion as written — no change needed beyond citing the primary paper."
+      },
+      {
+        "criterion": "fact_dimension_role_unambiguous",
+        "evidence_grade": "validated",
+        "verification_method": "automated check that `table_type` is declared and every foreign key on a fact table resolves to a table with `table_type: dimension`",
+        "verified_source": "Kimball Group, 'Fact Tables and Dimension Tables' — https://www.kimballgroup.com/2003/01/fact-tables-and-dimension-tables/ and 'Fact Table Surrogate Key' — https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/fact-surrogate-key/ (primary source; fact-table foreign keys resolving to dimension-table primary/surrogate keys is Kimball's own documented convention)."
+      },
+      {
+        "criterion": "slowly_changing_dimension_type_declared",
+        "evidence_grade": "validated",
+        "verification_method": "human-review-checklist: for a `table_type: dimension` entry, does the model state its SCD type (0-6) rather than leaving change-tracking behavior implicit?",
+        "verified_source": "Kimball Group, Design Tip #152 'Slowly Changing Dimension Types 0, 4, 5, 6 and 7' — https://www.kimballgroup.com/2013/02/design-tip-152-slowly-changing-dimension-types-0-4-5-6-7/ (primary source; Types 0-6 as enumerated in the criterion match Kimball's own catalog, Type 7 exists but is out of the criterion's stated 0-6 range and is left out deliberately since it is a hybrid combination rather than a distinct declared type)."
+      },
+      {
+        "criterion": "human_comprehensibility_verdict",
+        "verification_method": "gates/quality_bar.py:human_comprehensibility_verdict against the role's own docs/issue-<n>/reports/<role>.md record text (gates/human_comprehensibility.py tier-1 structural prose rules: lead paragraph present, citation trailing placement, section size bound, no raw dump, enumeration cap); a record with no human-facing prose section anywhere is exempt (bar-met) -- issue #1623."
+      }
+    ],
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "verdict is recomputed by re-checking table_name's declared grain against its current column set, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "table_name must resolve to an actual modeled table definition — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "table_name",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "fact",
+          "dimension"
+        ],
+        "name": "table_type",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "grain",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "pass",
+          "fail"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      }
+    ],
+    "review_methodology": {
+      "method": "Normal-form audit: check every relation against 1NF-3NF/BCNF and justify any deliberate denormalization",
+      "source": "Codd, \"A Relational Model of Data for Large Shared Data Banks,\" CACM 1970"
+    },
+    "source_standard": "Kimball dimensional-modeling conventions (fact/dimension grain), https://www.kimballgroup.com/data-warehouse-business-intelligence-resources/kimball-techniques/dimensional-modeling-techniques/ — chosen at this delivery sub-batch's own re-scout per the batch-3-plus proposal's flagged gap; the Data Contract Specification (bitol.io) was considered and rejected because it duplicates data-engineering's dbt-contract scope within this repo's family split.",
+    "use_when": {
+      "board_condition": "a new fact or dimension table is proposed on the branch AND no data-modeling record exists yet for that table"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/data-modeling.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/data-modeling.spec.json",
+  "use_when": "스키마 신설/변경이 걸릴 때"
+}

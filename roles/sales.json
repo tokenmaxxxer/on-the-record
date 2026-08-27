@@ -1,0 +1,116 @@
+{
+  "decides": "리드/기회를 어떻게 진행시킬지",
+  "produces": "sales playbook, stage definitions, qualification criteria",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "deal-unreachable"
+      ],
+      "progress": [
+        "qualifying",
+        "negotiating"
+      ],
+      "refusal": [
+        "economic-buyer-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "deal-unreachable"
+      ],
+      "progress": [
+        "qualifying",
+        "negotiating"
+      ],
+      "refusal": [
+        "economic-buyer-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "verdict is recomputed as the worst-case completeness across all 8 MEDDPICC fields, never a standalone summary field (issue-515 invariant 4)."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "economic_buyer and champion must each resolve to an actual named contact on the deal record — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "metrics",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "economic_buyer",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "decision_criteria",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "decision_process",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "paper_process",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "name": "identify_pain",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "champion",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "name": "competition",
+        "required": false,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "qualified",
+          "disqualified"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      }
+    ],
+    "source_standard": "MEDDPICC, https://meddicc.com/meddpicc-sales-methodology-and-process",
+    "use_when": {
+      "board_condition": "a deal reaches a qualification checkpoint AND no sales record exists yet for that deal"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/sales.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/sales.spec.json",
+  "use_when": "영업 프로세스 설계가 걸릴 때"
+}

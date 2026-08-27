@@ -1,0 +1,92 @@
+{
+  "decides": "파트너십이 구조적으로 성립하는가",
+  "produces": "deal structure verdict, term sheet outline",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "partner-unreachable"
+      ],
+      "progress": [
+        "assessing",
+        "collaborating"
+      ],
+      "refusal": [
+        "stage-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "partner-unreachable"
+      ],
+      "progress": [
+        "assessing",
+        "collaborating"
+      ],
+      "refusal": [
+        "stage-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "lifecycle_stage is recomputed from the partnership's current governance evidence, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "partner_id must resolve to an actual tracked partner entity — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "partner_id",
+        "required": true,
+        "type": "ref"
+      },
+      {
+        "enum": [
+          "awareness",
+          "knowledge",
+          "internal-assessment",
+          "partner-selection",
+          "working-together",
+          "value-creation",
+          "staying-together",
+          "exit-strategy"
+        ],
+        "name": "lifecycle_stage",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "governance_note",
+        "required": false,
+        "type": "string"
+      }
+    ],
+    "source_standard": "ISO 44001:2017 Collaborative Business Relationship Management, https://www.iso.org/standard/72798.html",
+    "use_when": {
+      "board_condition": "a partnership reaches a lifecycle checkpoint AND no partnerships-bd record exists yet for that partner_id"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/partnerships-bd.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/partnerships-bd.spec.json",
+  "use_when": "제휴/BD 딜 구조가 걸릴 때"
+}

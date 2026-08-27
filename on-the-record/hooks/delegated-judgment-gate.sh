@@ -438,16 +438,28 @@ def rfc3339():
 # decision does. Function bodies are unchanged from #573 — only their
 # definition point moved earlier in the same heredoc.
 def load_roles():
-    # issue #2539 stage 6C: roles/*.json -> spawn_roles.json (single file,
-    # role name -> role dict).
-    role_data_file = TARGET / "spawn_roles.json"
-    if not role_data_file.is_file():
+    # issue #2610: back to roles/<role>.json per role (one file, not one
+    # closed-catalog JSON). Warrant-hunter finding (before-landing stance
+    # 1): a per-file try/except-and-continue here would let one corrupt
+    # role file silently drop just that role while the other 43 keep
+    # loading -- panel composition would proceed one role short forever,
+    # with no signal. The pre-split single-file version failed ALL 44
+    # roles at once on any corruption (`ROLES = {}`), forcing
+    # escalate("no eligible role owns an implicated judgment axis") on
+    # every decision -- loud and unmissable. Preserve that same blast
+    # radius: any one file failing to parse zeroes the whole catalog.
+    role_data_dir = TARGET / "roles"
+    if not role_data_dir.is_dir():
         return {}
-    try:
-        data = json.loads(role_data_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return {role: cfg for role, cfg in data.items() if isinstance(cfg, dict)}
+    out = {}
+    for f in role_data_dir.glob("*.json"):
+        try:
+            cfg = json.loads(f.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        if isinstance(cfg, dict):
+            out[f.stem] = cfg
+    return out
 
 
 ROLES = load_roles()

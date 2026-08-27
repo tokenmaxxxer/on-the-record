@@ -1,0 +1,88 @@
+{
+  "decides": "얼마를, 어떤 구조로 받을지",
+  "produces": "pricing verdict, tier structure, rationale vs alternatives considered",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "survey-data-unreachable"
+      ],
+      "progress": [
+        "surveying",
+        "computing"
+      ],
+      "refusal": [
+        "price-point-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "survey-data-unreachable"
+      ],
+      "progress": [
+        "surveying",
+        "computing"
+      ],
+      "refusal": [
+        "price-point-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "acceptable_range is recomputed from all four price_point values via the PSM intersection method, never a standalone asserted field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "acceptable_range, when present, must resolve from the actual four price_point survey responses on the same record — no orphan references."
+    },
+    "required_fields": [
+      {
+        "enum": [
+          "too-cheap",
+          "cheap",
+          "expensive",
+          "too-expensive"
+        ],
+        "name": "price_point",
+        "required": true,
+        "type": "enum"
+      },
+      {
+        "name": "price_value",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "acceptable_range",
+        "required": false,
+        "type": "string"
+      }
+    ],
+    "source_standard": "Van Westendorp Price Sensitivity Meter, https://en.wikipedia.org/wiki/Van_Westendorp's_Price_Sensitivity_Meter",
+    "use_when": {
+      "board_condition": "a pricing decision checkpoint occurs AND no pricing record exists yet for that decision"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/pricing.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/pricing.spec.json",
+  "use_when": "신규 가격 정책이 걸릴 때"
+}

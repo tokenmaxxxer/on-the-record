@@ -1,0 +1,96 @@
+{
+  "decides": "이 스펙/처리가 법·규제를 통과하는가",
+  "produces": "compliance verdict, applicable regulation list, required mitigations",
+  "record_fields": {
+    "loop_state": {
+      "error": [
+        "dpia-source-unreachable"
+      ],
+      "progress": [
+        "assessing",
+        "mitigating"
+      ],
+      "refusal": [
+        "processing-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    }
+  },
+  "record_spec": {
+    "loop_state": {
+      "error": [
+        "dpia-source-unreachable"
+      ],
+      "progress": [
+        "assessing",
+        "mitigating"
+      ],
+      "refusal": [
+        "processing-undeclared"
+      ],
+      "terminal": [
+        "landed"
+      ]
+    },
+    "recomputation": {
+      "checked_by": "TBD (follow-up — issue-521 out-of-scope note: per-role recomputation enforcement is a follow-up once evidence from real usage shows which roles need it)",
+      "rule": "verdict is recomputed as the worst-case across necessity_assessment and risk_assessment, never a standalone summary field."
+    },
+    "reference_resolution": {
+      "checked_by": "on-the-record/hooks/role-spec-reference-guard.sh",
+      "rule": "mitigation_measures, when it cites a control, must resolve to an actual implemented control — no orphan references (issue-515 invariant 2)."
+    },
+    "required_fields": [
+      {
+        "name": "processing_description",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "necessity_assessment",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "risk_assessment",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "name": "mitigation_measures",
+        "required": true,
+        "type": "string"
+      },
+      {
+        "enum": [
+          "compliant",
+          "non-compliant"
+        ],
+        "name": "verdict",
+        "required": true,
+        "type": "enum"
+      }
+    ],
+    "source_standard": "GDPR Article 35(7) DPIA, https://gdpr.eu/data-protection-impact-assessment-template/",
+    "use_when": {
+      "board_condition": "new personal-data processing is proposed on the branch AND no legal-compliance record exists yet for that processing"
+    },
+    "write_scope": [
+      "docs/issue-<n>/reports/legal-compliance.md"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "network": {
+      "allowedDomains": [
+        "api.anthropic.com",
+        "*.github.com",
+        "github.com"
+      ]
+    }
+  },
+  "spec": "roles/specs/legal-compliance.spec.json",
+  "use_when": "개인정보·라이선스·계약이 걸릴 때"
+}
