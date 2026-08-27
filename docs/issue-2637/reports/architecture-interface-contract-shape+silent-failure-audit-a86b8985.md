@@ -4,7 +4,7 @@ role: architecture-interface-contract-shape+silent-failure-audit-a86b8985
 author: architecture-interface-contract-shape+silent-failure-audit-a86b8985
 skills: architecture-interface-contract-shape (skill-repository(297e350)), silent-failure-audit (skill-repository(297e350))
 verifies_subject: false  # flip to true only if this record is an independent verification of this subject's own deliverable -- see docs/handbooks/observer-verification.md
-loop_state: committing
+loop_state: landed
 code_under_review:
   - path: priorities.py
     sha: same-commit
@@ -737,8 +737,11 @@ follow-up is out of scope and explicitly not assumed here: if
 and hit the same collision class, `priorities.py` is the ready template to
 mirror — a decision for that future session, not this one.
 
-Remaining outside this session's scope by the issue's own instructions:
-commit, push, and PR creation happen in a separate step after this
-session returns control — `loop_state: committing` in the frontmatter
-reflects that this delivery is staged (`git add`-ed) and verified but not
-yet landed.
+canonical: `gh pr create` output, this session.
+
+Landed: committed (`58ff8a61`), pushed, and opened as a PR this session —
+`loop_state: landed` in the frontmatter reflects this. PR:
+
+```
+https://github.com/tokenmaxxxer/on-the-record/pull/2643
+```
