@@ -28,6 +28,7 @@ import re
 import secrets
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import checkpoint
@@ -447,6 +448,17 @@ def lease_reconcile_sweep(root: Path = None, d_all: dict | None = None,
 SPAWN_ATTEMPT_GRACE_SEC = 180 + 60 + 60  # CLONE_TIMEOUT + NETWORK_TIMEOUT + 60
 
 
+def _iso(ts) -> str:
+    """이슈 #2511: 리포트 줄에 싣는 사람이 읽는 UTC 타임스탬프. 포맷 실패
+    (ts 가 숫자가 아닌 손상 레코드)는 원본 값을 그대로 문자열로 보여준다
+    — 타임스탬프 표시 자체가 sweep 을 죽이면 안 된다."""
+    try:
+        return datetime.fromtimestamp(float(ts), tz=timezone.utc).strftime(
+            "%Y-%m-%dT%H:%M:%SZ")
+    except (TypeError, ValueError, OSError):
+        return str(ts)
+
+
 def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> int:
     """Issue #2291 mechanism: level-triggered advisory, hooked into the same
     watchdog tick as `lease_reconcile_sweep` (mechanism 3 above) — a spawn
@@ -474,13 +486,23 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
     on, a crash is the existing dead-entry watchdog reporting's job
     (`diagnose_health` et al.), not this pre-bootstrap trace's.
 
+    Issue #2511: a `"halted"` outcome is no longer reprinted verbatim from
+    `outcomes` — before each report, `_sp._halt_condition_cleared()`
+    re-checks whether that specific halt's blocking condition still holds
+    (per-class re-check, see that function's docstring). Cleared halts are
+    marked resolved once (`spawn_attempt_resolved` event + a one-line
+    "halt RESOLVED at <time>" print) and never surface as a live halt
+    again; still-blocked halts keep reporting exactly as before, now with
+    the original attempt's timestamp in the line so a reader can tell a
+    fresh failure from an old one even before the resolution check runs.
+
     Dedup-gated per attempt_id via the same reconcile ledger every other
     watchdog advisory uses (`ledger_check_and_stamp`) — one attempt_id
     re-surfaces at most once per `RECONCILE_LEDGER_TTL_SEC` window, same
     cadence as e.g. the `health:` dedup key."""
     now = time.time() if now is None else now
     d_all = _sp._roster_load() if d_all is None else d_all
-    attempts, outcomes = _sp._load_spawn_attempts()
+    attempts, outcomes, resolved = _sp._load_spawn_attempts()
     count = 0
     # 이슈 #2413: dedup 키가 attempt_id 라서, 같은 (issue, role) 시도가
     # 여러 attempt_id 로 남아 있으면(예: orphan pytest fixture 레코드,
@@ -493,10 +515,41 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
     reported_subjects: set[str] = set()
     for attempt_id, a in sorted(attempts.items()):
         outcome = outcomes.get(attempt_id)
+        subject = lease_key(a.get('issue'), a.get('role'))
+        cls = None  # "no outcome recorded" branch has no failure-class (issue #2511)
         if outcome is not None:
             if outcome.get("outcome") != "halted":
                 continue  # "session-log": bootstrap succeeded, not our concern
+            if attempt_id in resolved:
+                continue  # already surfaced as resolved once — never replayed again (#2511)
             reason = outcome.get("detail", "")
+            # 이슈 #2511: replay 버그의 핵심 수정 — 보고하기 전에 매번 이
+            # halt 의 blocking 조건이 지금도 살아있는지 다시 확인한다.
+            # 재확인 없이 `outcomes`에 적힌 사유를 그대로 다시 찍으면, 몇
+            # 시간/며칠 전에 이미 풀린 halt 를 이번 틱에도 라이브인 것처럼
+            # replay 하게 된다 — 이 이슈가 고치는 바로 그 결함. 클래스별
+            # 재확인 방식과 그 근거는 `_sp._halt_condition_cleared()`
+            # docstring과 이 레코드의 "staleness 판정" 절에 있다.
+            cls = _sp._classify_halt_reason(reason)
+            if _sp._halt_condition_cleared(cls, a, reason):
+                attempted_ts = a.get("ts", now)
+                _sp._append_spawn_attempt_event({
+                    "event": "spawn_attempt_resolved", "attempt_id": attempt_id,
+                    "issue": a.get("issue"), "role": a.get("role"), "class": cls,
+                    "attempted_ts": attempted_ts, "ts": now})
+                print(f"[spawn-attempt] {subject}: halt RESOLVED at {_iso(now)} "
+                      f"(class={cls}, originally attempted at {_iso(attempted_ts)}) "
+                      f"— no longer a live halt: {reason.splitlines()[0]}")
+                # 이슈 #2511 observability-explorability: attempted_ts 를
+                # 여기(durable ledger)에도 실어, 이 spawn-attempts.jsonl
+                # 레코드 자체가 곧 프루닝돼도 "이 halt 가 살아있던 기간"
+                # 같은 ad-hoc 질문을 attempt_id 문자열을 역파싱하지 않고
+                # 이 한 줄만으로 answer 할 수 있게 한다.
+                _sp.ledger_write({"event": "spawn_attempt_resolved_reported",
+                                  "attempt_id": attempt_id, "issue": a.get("issue"),
+                                  "role": a.get("role"), "class": cls,
+                                  "attempted_ts": attempted_ts, "ts": now})
+                continue  # resolved this tick — not reported as a live halt
         else:
             ts = a.get("ts", now)
             if not isinstance(ts, (int, float)) or now - ts < SPAWN_ATTEMPT_GRACE_SEC:
@@ -507,17 +560,25 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
             reason = (f"no outcome recorded {int(now - ts)}s after spawn "
                       f"attempt (pid {a.get('pid')}) — process likely died "
                       f"before it could report why")
-        subject = lease_key(a.get('issue'), a.get('role'))
         if subject in reported_subjects:
             continue  # already reported this subject this tick
         if not _sp.ledger_check_and_stamp(f"spawn-attempt-halt:{attempt_id}", now=now):
             continue
         reported_subjects.add(subject)
         count += 1
-        print(f"[spawn-attempt] {subject}: spawn halted pre-workspace: {reason}")
+        # 이슈 #2511 acceptance bullet 2: attempt 자체의 timestamp 를 매
+        # 리포트 줄에 싣는다 — 재확인이 아직 못 따라잡았어도 독자가 신선한
+        # halt 와 오래된 halt 를 눈으로 구분할 수 있게.
+        print(f"[spawn-attempt] {subject}: spawn halted pre-workspace "
+              f"(attempted at {_iso(a.get('ts', now))}): {reason}")
+        # 이슈 #2511 observability-explorability: 클래스를 여기(halt_reported
+        # 쪽)에도 실어 둔다 — "어느 클래스가 제일 빨리 풀리는가" 같은
+        # 사후 ad-hoc 질문이, reason 문자열을 다시 분류기에 통과시키지
+        # 않고도 runs/ledger.jsonl 하나만 훑어 답이 나오게.
         _sp.ledger_write({"event": "spawn_attempt_halt_reported",
                           "attempt_id": attempt_id, "issue": a.get("issue"),
-                          "role": a.get("role"), "reason": reason, "ts": now})
+                          "role": a.get("role"), "reason": reason, "class": cls,
+                          "ts": now})
     # 이슈 #2393 (R8): 매 틱 이 sweep 이 이미 전체 파일을 읽으므로, 같은
     # 틱에서 프루닝도 해치운다 — 별도 스케줄/상태 없이, 이 함수 하나가
     # "swept" 시점 자체를 쥐고 있다. `_prune_spawn_attempts()`는 지울 게

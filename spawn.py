@@ -1022,13 +1022,21 @@ def _append_spawn_attempt_event(entry: dict) -> None:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _record_spawn_attempt(issue: int | None, role: str, pid: int) -> str | None:
+def _record_spawn_attempt(issue: int | None, role: str, pid: int,
+                           cwd: str | None = None) -> str | None:
     """이슈 #2291: 네트워크/워크스페이스 작업 전, spawn 시도를 durable 하게
     남긴다 — `_fetch_or_halt()`(pipeline.py) 류의 fail-closed halt 가
     stdout/stderr 로만 나가 컨슈머가 파이프(`2>&1 | tail`)로 삼켜버리면
     그 halt 는 오늘 어디에도 흔적이 없다(실측: 이슈 #2291 컨슈머 리포트).
     반환하는 attempt_id 를 `_record_spawn_outcome()`에 넘겨 이 시도의
     처분(halt 사유 또는 세션 로그 경로)을 잇는다.
+
+    이슈 #2511: `cwd`(spawn 호출에 넘겨진 `-C` 값 그대로, 아직 검증 전)를
+    같이 남긴다 — `spawn_attempt_sweep()`이 halt 사유를 클래스 분류해
+    "그 조건이 지금도 살아있는가"를 다시 물을 때(`_halt_condition_cleared`)
+    각 클래스가 필요로 하는 경로 근거가 이것이다. 없으면 재확인이 불가능해
+    보수적으로 "아직 안 풀림"으로 남는다(아래 `_halt_condition_cleared`
+    참고).
 
     이슈 #2393: `PYTEST_CURRENT_TEST` 가 서 있으면(pytest 가 테스트 하나를
     도는 동안 자동으로 세팅/해제 — xdist 워커에서도 마찬가지) 아예 안
@@ -1047,7 +1055,8 @@ def _record_spawn_attempt(issue: int | None, role: str, pid: int) -> str | None:
     ts = time.time()
     attempt_id = f"{issue}:{role}:{pid}:{int(ts * 1000)}"
     _append_spawn_attempt_event({"event": "spawn_attempt", "attempt_id": attempt_id,
-                                  "issue": issue, "role": role, "pid": pid, "ts": ts})
+                                  "issue": issue, "role": role, "pid": pid, "cwd": cwd,
+                                  "ts": ts})
     return attempt_id
 
 
@@ -1072,16 +1081,20 @@ def _record_spawn_outcome(attempt_id: str, outcome: str, detail: str) -> None:
                                   "detail": detail, "ts": time.time()})
 
 
-def _load_spawn_attempts() -> tuple[dict, dict]:
-    """`SPAWN_ATTEMPTS_PATH`를 읽어 (attempts, outcomes) — 둘 다
-    attempt_id 로 키가 잡힌 dict. 워치독의 `spawn_attempt_sweep()`
-    (roster.py)이 소비한다."""
+def _load_spawn_attempts() -> tuple[dict, dict, dict]:
+    """`SPAWN_ATTEMPTS_PATH`를 읽어 (attempts, outcomes, resolved) — 셋
+    다 attempt_id 로 키가 잡힌 dict. 워치독의 `spawn_attempt_sweep()`
+    (roster.py)이 소비한다. `resolved`는 이슈 #2511 추가분 —
+    `spawn_attempt_resolved` 이벤트(sweep 이 halt 조건 재확인으로 "풀렸다"
+    판정한 시점에 한 번만 쓴다)로, 한 번 채워지면 그 attempt_id 는 다시
+    재확인/재보고 대상이 아니라는 뜻이다."""
     attempts: dict = {}
     outcomes: dict = {}
+    resolved: dict = {}
     try:
         lines = SPAWN_ATTEMPTS_PATH.read_text(encoding="utf-8").splitlines()
     except OSError:
-        return attempts, outcomes
+        return attempts, outcomes, resolved
     for line in lines:
         try:
             ev = json.loads(line)
@@ -1096,7 +1109,153 @@ def _load_spawn_attempts() -> tuple[dict, dict]:
             attempts[aid] = ev
         elif ev.get("event") == "spawn_attempt_outcome":
             outcomes[aid] = ev
-    return attempts, outcomes
+        elif ev.get("event") == "spawn_attempt_resolved":
+            resolved[aid] = ev
+    return attempts, outcomes, resolved
+
+
+# 이슈 #2511: halt 사유 문자열을 클래스로 분류한다. 분류는 sys.exit 메시지
+# 접두사로 하는데, 그 메시지들은 board.py/spawn.py 안의 고정 f-string
+# 템플릿이라(사용자가 자유 입력하는 텍스트가 아니다) 접두사 매칭이
+# 안정적이다. 이슈가 이름을 붙인 세 클래스(요구 연결 누락/ENOSPC/워크스페이스
+# origin 불일치) + acceptance-format(이슈 acceptance 절 3번째 불릿이 명시적으로
+# 이름 붙임) + cwd-invalid(이슈 #2576 스폰에서 실측된 "-C 가 존재하지 않는
+# 디렉터리다" 류 — require_repo_root()의 세 sys.exit 분기, 같은 재확인
+# 방식: 그 경로가 지금 존재/레포/레포-루트인지 다시 물으면 된다).
+_HALT_CLASS_PATTERNS = (
+    ("requirement-tag", re.compile(r"^이슈 #\d+ 가 요구 연결이 없다")),
+    ("acceptance-format", re.compile(r"^이슈 #\d+ 는 phase-2 승인")),
+    ("enospc", re.compile(r"^스폰을 거부한다: .+ 에 여유 (?:공간|inode)")),
+    ("workspace-origin-mismatch",
+     re.compile(r"^작업 경로에 다른 레포가 있다 \(origin 불일치\): ")),
+    ("cwd-invalid", re.compile(r"^-C 가 (?:존재하지 않는 디렉터리다|"
+                                r"git 레포 안이 아니다|레포 루트가 아니라)")),
+)
+
+
+def _classify_halt_reason(reason: str) -> str:
+    """`reason`(halt outcome 의 `detail`)을 위 패턴으로 분류한다. 매칭되는
+    게 없으면 `"unknown"` — `_halt_condition_cleared()`는 unknown 클래스를
+    항상 "아직 안 풀림"으로 본다(재확인할 방법을 모르면 계속 보고하는 게
+    watch-coverage 불변식과 같은 보수적 방향)."""
+    reason = reason or ""
+    for name, pat in _HALT_CLASS_PATTERNS:
+        if pat.search(reason):
+            return name
+    return "unknown"
+
+
+def _norm_git_remote_url(u: str) -> str:
+    """origin 비교용 정규화 — `issue_workspace()`(위, origin 불일치 halt를
+    내는 바로 그 코드)의 `_norm()`과 동일하게 유지해야, 재확인이 최초
+    판정과 다른 기준으로 "풀렸다"고 오판하지 않는다."""
+    u = re.sub(r"^(?:ssh://)?git@github\.com[:/](.+?)(?:\.git)?$",
+               r"https://github.com/\1", u or "")
+    return re.sub(r"\.git$", "", u.rstrip("/"))
+
+
+def _halt_condition_cleared(cls: str, attempt: dict, reason: str) -> bool:
+    """이슈 #2511 핵심: `cls`(위 분류)의 blocking 조건이 **지금** 다시 봐도
+    여전히 살아있는지 재확인한다. `True`면 "풀렸다"(resolved) — sweep 이
+    더는 이 halt 를 라이브로 보고하지 않는다.
+
+    설계 결정(레코드의 "staleness 판정 방식" 절 그대로): 모든 클래스가
+    "그 조건을 다시 확인한다"(re-check) 방식이지, 경과 시간(expiry)만으로
+    풀렸다고 표시하는 클래스는 하나도 없다 — 다섯 클래스 전부 조건이
+    자연히 사라지지 않고(태그는 누가 안 달면 안 달린 채 영원하고, 디스크는
+    안 지우면 안 차고, origin 불일치/불량 cwd 는 아무도 안 고치면 그대로다)
+    시간이 지난다고 저절로 참이 되는 술어가 아니다 — "N분 지났으니 풀린
+    셈 친다"는 판정은 여전히 안 고쳐진 스폰을 "풀렸다"로 오분류할 길을
+    남긴다(이슈의 must-not 그대로: "a missing tag does not fix itself").
+
+    판정 불가(경로 정보가 없다/재확인 자체가 실패한다/알 수 없는 클래스)는
+    전부 `False`(아직 안 풀림) — 확신 없을 때는 계속 라이브로 보고한다."""
+    cwd = attempt.get("cwd")
+    try:
+        if cls == "requirement-tag" or cls == "acceptance-format":
+            issue = attempt.get("issue")
+            if issue is None or not cwd:
+                return False
+            root = Path(cwd)
+            if not root.is_dir():
+                return False
+            root = root.resolve()
+            gates_dir = str((ROOT / "gates").resolve())
+            if gates_dir not in sys.path:
+                sys.path.insert(0, gates_dir)
+            if cls == "requirement-tag":
+                import requirement_linkage as _rl
+                return not _rl.check(root, issue)
+            import acceptance_gate as _ag
+            return not _ag.check(root, issue)
+        if cls == "cwd-invalid":
+            if not cwd:
+                return False
+            p = Path(cwd)
+            if not p.is_dir():
+                return False
+            resolved_p = p.resolve()
+            r = subprocess.run(
+                ["git", "-C", str(resolved_p), "rev-parse", "--show-toplevel"],
+                capture_output=True, text=True)
+            if r.returncode != 0:
+                return False
+            return Path(r.stdout.strip()).resolve() == resolved_p
+        if cls == "enospc":
+            m = re.search(r"^스폰을 거부한다: (.+?) 에 여유 (공간|inode)", reason or "")
+            if not m:
+                return False
+            probe = Path(m.group(1))
+            while not probe.exists():
+                parent = probe.parent
+                if parent == probe:
+                    return False
+                probe = parent
+            try:
+                usage = shutil.disk_usage(probe)
+            except OSError:
+                return False
+            min_bytes = int(os.environ.get("MUSTER_MIN_FREE_BYTES", MIN_FREE_BYTES_DEFAULT))
+            if usage.free < min_bytes:
+                return False
+            try:
+                st = os.statvfs(probe)
+            except (OSError, AttributeError):
+                return True
+            free_inodes = st.f_favail
+            min_inodes = int(os.environ.get("MUSTER_MIN_FREE_INODES", MIN_FREE_INODES_DEFAULT))
+            return not (free_inodes and free_inodes < min_inodes)
+        if cls == "workspace-origin-mismatch":
+            reason = reason or ""
+            m = re.search(r"^작업 경로에 다른 레포가 있다 \(origin 불일치\): (\S+) ", reason)
+            if not m:
+                return False
+            work = Path(m.group(1))
+            if not work.is_dir():
+                # 이슈 실측 그대로: 더는 존재하지 않는 워크스페이스 디렉터리에
+                # 대한 origin 불일치는, 그 특정 충돌이 재현될 대상 자체가
+                # 없어졌다는 뜻이라 풀린 것으로 본다.
+                return True
+            m2 = re.search(r"기대: (\S+), 실제: (\S*)", reason)
+            if not m2:
+                return False
+            expected = m2.group(1)
+            rw = subprocess.run(["git", "-C", str(work), "remote", "get-url", "origin"],
+                                capture_output=True, text=True)
+            actual = rw.stdout.strip()
+            return _norm_git_remote_url(actual) == _norm_git_remote_url(expected)
+    except Exception as e:
+        # 이슈 #2511 silent-failure-audit: 조용히 False 만 돌려주면 "아직도
+        # 안 풀렸다"(정상 케이스)와 "재확인 자체가 깨졌다"(버그)가 구분이
+        # 안 된다 — 둘 다 같은 halt 라인이 계속 반복되므로, 후자를 겪는
+        # 운영자는 재확인 메커니즘이 죽어 있다는 걸 알 방법이 없다. 판정
+        # 자체는 여전히 보수적으로 False(=아직 안 풀림)로 두되(watch-coverage
+        # 불변식은 그대로), 예외가 났다는 사실만 별도 한 줄로 드러낸다.
+        print(f"[spawn-attempt] recheck 자체가 예외로 실패했다(class={cls!r}): "
+              f"{type(e).__name__}: {e} — 조건은 보수적으로 '아직 안 풀림'으로 "
+              f"본다.", file=sys.stderr)
+        return False
+    return False  # unknown class
 
 
 # 이슈 #2393 (R8, #2291 conformance review, "Surface" — 이 파일은 append-only
@@ -1225,10 +1384,17 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
         lines = SPAWN_ATTEMPTS_PATH.read_text(encoding="utf-8").splitlines()
     except OSError:
         return 0
-    attempts, outcomes = _load_spawn_attempts()
+    attempts, outcomes, resolved = _load_spawn_attempts()
     keep_ids = set()
     for aid, a in attempts.items():
         outcome = outcomes.get(aid)
+        if outcome is not None and outcome.get("outcome") == "halted" and aid in resolved:
+            # 이슈 #2511: sweep 이 이미 "풀렸다"고 판정해 한 번 알렸다 —
+            # session-log 처분과 같은 대접(더는 보고 대상이 아니므로 즉시
+            # 정리). halted 분기 고유의 7일 재보고 창(SPAWN_ATTEMPTS_RETENTION_SEC)
+            # 은 "아직 안 풀린" halt 를 오케스트레이터가 알아챌 시간을 주려는
+            # 것이라 이미 풀린 시도에는 적용할 이유가 없다.
+            continue
         if outcome is None:
             # 이슈 #2413: outcome 이 없다고 무조건 영원히 유지하면(원래
             # 동작) 프로세스가 진작 죽어 다시는 outcome 을 못 쓸 시도
@@ -2228,7 +2394,7 @@ def main() -> int:
     # 부트스트랩(워크스페이스/로스터/세션 로그가 아직 없는) 구간"이라는
     # 이 분기의 맨 위로 옮긴다. `--issue` 없는 ad-hoc 스폰은 애초에
     # 로스터에 등록되지 않으므로(워치독이 대조할 대상이 없다) 추적하지 않는다.
-    attempt_id = (_record_spawn_attempt(a.issue, a.role, os.getpid())
+    attempt_id = (_record_spawn_attempt(a.issue, a.role, os.getpid(), cwd=a.cwd)
                   if a.issue is not None else None)
     try:
         # 이슈 #2395: 위 dry-run 분기와 같은 이유로 네 계약 게이트보다
