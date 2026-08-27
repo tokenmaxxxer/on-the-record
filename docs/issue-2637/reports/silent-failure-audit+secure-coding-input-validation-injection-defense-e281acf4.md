@@ -153,16 +153,7 @@ importing or invoking `deliverable-guard.sh`), and the 8-test delta
 (350 - 342 = 8) accounted for entirely by the new regression test file,
 confirming no other test regressed.
 
-skill-verdict: secure-coding-input-validation-injection-defense —
-applied: invoked; confirmed via the skill's own rules that the fix keeps
-the anchored-regex allowlist as the sole control (rule 1 — no denylist
-introduced) and fails closed rather than exempting on an
-ambiguous/unresolvable relpath (rule 8 — the fallback path matches the
-raw, still-un-prefixed absolute string against the same anchored
-pattern, which cannot match, so it falls through to the existing deny
-path in
-`2354b1e7764b0dc3b56b1f641c214c76da902e5e:on-the-record/hooks/deliverable-guard.sh:186-193`
-rather than silently granting exemption).
+skill-verdict: secure-coding-input-validation-injection-defense — applied: invoked; canonical: `2354b1e7764b0dc3b56b1f641c214c76da902e5e:on-the-record/hooks/deliverable-guard.sh:129-193` (quoted under "What was done" above) — confirmed via the skill's own rules that the fix keeps the anchored-regex allowlist as the sole control (rule 1 — no denylist introduced) and fails closed rather than exempting on an ambiguous/unresolvable relpath (rule 8 — the fallback path matches the raw, still-un-prefixed absolute string against the same anchored pattern, which cannot match, so it falls through to the existing deny path rather than silently granting exemption).
 skill-verdict: silent-failure-audit — not-applicable: the diff (quoted
 in full under "What was done" above) adds no new try/except, error
 callback, or Promise-rejection path — the `..`/relpath handling is an
