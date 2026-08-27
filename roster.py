@@ -584,6 +584,21 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
     the original attempt's timestamp in the line so a reader can tell a
     fresh failure from an old one even before the resolution check runs.
 
+    Issue #2511 residual (PR #2594 reopen comment, PR #2608 closed-unmerged
+    review): class re-check alone misses one shape — a halt whose blocking
+    condition is a property of the ATTEMPT itself (its recorded `-C` value,
+    or a legacy record with no `cwd` at all) rather than the issue/workspace,
+    so re-checking it can never clear even after a later retry for the same
+    work actually succeeded. When `_halt_condition_cleared()` returns
+    `False`, `_sp._attempt_superseded()` is asked next — additively, never
+    instead of the class re-check — whether a later attempt for the same
+    (issue, role-family) already reached `"session-log"`. If so, the halt is
+    marked resolved exactly the same way (same event, same print, same
+    dedup) with `resolution="superseded"` distinguishing it in the ledger
+    from `resolution="class-recheck"`. See `_sp._attempt_superseded()` and
+    the `SPAWN_ATTEMPTS_RETENTION_SEC` comment in spawn.py for the evidence-
+    location and "same work" matching-rule decisions.
+
     Dedup-gated per attempt_id via the same reconcile ledger every other
     watchdog advisory uses (`ledger_check_and_stamp`) — one attempt_id
     re-surfaces at most once per `RECONCILE_LEDGER_TTL_SEC` window, same
@@ -619,14 +634,26 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
             # 재확인 방식과 그 근거는 `_sp._halt_condition_cleared()`
             # docstring과 이 레코드의 "staleness 판정" 절에 있다.
             cls = _sp._classify_halt_reason(reason)
-            if _sp._halt_condition_cleared(cls, a, reason):
+            cleared = _sp._halt_condition_cleared(cls, a, reason)
+            resolution = "class-recheck" if cleared else None
+            if not cleared and _sp._attempt_superseded(
+                    attempt_id, a, attempts, outcomes):
+                # 이슈 #2511 residual: 클래스 재확인은 이 halt 를 못 풀었지만
+                # (그 조건이 시도 자신의 인자에 매여 있거나, cwd 없는
+                # 레거시 레코드라 재확인이 판정 불가), 같은 작업의 더 나중
+                # 시도가 실제로 성공했다 — supersession 으로 대신 풀린다.
+                cleared = True
+                resolution = "superseded"
+            if cleared:
                 attempted_ts = a.get("ts", now)
                 _sp._append_spawn_attempt_event({
                     "event": "spawn_attempt_resolved", "attempt_id": attempt_id,
                     "issue": a.get("issue"), "role": a.get("role"), "class": cls,
+                    "resolution": resolution,
                     "attempted_ts": attempted_ts, "ts": now})
                 print(f"[spawn-attempt] {subject}: halt RESOLVED at {_iso(now)} "
-                      f"(class={cls}, originally attempted at {_iso(attempted_ts)}) "
+                      f"(class={cls}, resolution={resolution}, "
+                      f"originally attempted at {_iso(attempted_ts)}) "
                       f"— no longer a live halt: {reason.splitlines()[0]}")
                 # 이슈 #2511 observability-explorability: attempted_ts 를
                 # 여기(durable ledger)에도 실어, 이 spawn-attempts.jsonl
@@ -636,6 +663,7 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
                 _sp.ledger_write({"event": "spawn_attempt_resolved_reported",
                                   "attempt_id": attempt_id, "issue": a.get("issue"),
                                   "role": a.get("role"), "class": cls,
+                                  "resolution": resolution,
                                   "attempted_ts": attempted_ts, "ts": now})
                 continue  # resolved this tick — not reported as a live halt
         else:

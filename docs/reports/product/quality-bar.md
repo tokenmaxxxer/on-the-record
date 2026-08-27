@@ -135,3 +135,25 @@ Append-only, newest entry last.
   enumeration failure"; "If enumeration cannot be made reliable, it must
   distinguish 'no session' from 'cannot determine' and say so, rather than
   printing an empty list that reads as authoritative.").
+
+- 2026-08-27: two standing principles for any "was this earlier failure
+  superseded/resolved" check added to a retention-pruned ledger in this
+  codebase (surfaced on issue #2511, watchdog spawn-attempt staleness):
+  (1) evidence-retention symmetry — the proof that an earlier record was
+  superseded must survive at least as long as that record does; if the
+  positive-outcome evidence is pruned faster than the negative-outcome
+  record it would resolve, the check is unsatisfiable in production no
+  matter how correct its logic is, and this can hide behind a demo built
+  from an isolated/hand-built copy of the ledger that never ran the real
+  prune cadence against it — verification for this class of check must run
+  against the real, live ledger, not a constructed one. (2) "same work"
+  identity across a retry must not require an exact match on the part of
+  an identifier that is *designed* to differ every attempt (a lease
+  disambiguator, a per-attempt nonce); a differing disambiguator is the
+  normal shape of a retry, not an edge case, so an exact-match rule
+  silently never fires for real retries while looking correct in a
+  hand-built demo. Both principles were the two ways a prior attempt at
+  this same fix (PR #2608) failed review. Source: operator's reopen
+  comment and correction comment on issue #2511, and operator's review
+  comment on the closed PR #2608, relayed via this session's task
+  instructions, 2026-08-27.

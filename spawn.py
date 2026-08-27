@@ -1265,18 +1265,132 @@ def _halt_condition_cleared(cls: str, attempt: dict, reason: str) -> bool:
     return False  # unknown class
 
 
+# 이슈 #2511 residual (PR #2594 재오픈 코멘트, PR #2608 리뷰 코멘트): 클래스
+# 기반 재확인(`_halt_condition_cleared`)은 halt 사유가 "이슈/워크스페이스의
+# 지금 상태"의 함수일 때만 통한다. `cwd-invalid`/`workspace-origin-mismatch`
+# 처럼 halt 가 그 *시도 자신이 넘긴 인자*(재시도해도 절대 안 바뀌는 문자열 —
+# 예: 이슈 #2576 이 -C 에 리포 슬러그를 준 시도)에 매인 클래스는, 그 뒤
+# 같은 작업이 인자를 고쳐 재시도해 실제로 성공했어도 원래 레코드의 재확인은
+# 영원히 "아직 안 풀림"을 돌려준다 — 원래 레코드 자체가 안 바뀌기 때문이다.
+# cwd 필드가 없는(#2594 이전에 쓰인) 레거시 레코드도 같은 증상이다: `cwd`가
+# 없으면 `_halt_condition_cleared`는 판정 불가로 항상 False.
+#
+# 이 함수는 그 잔여를 별도로 묻는다: "같은 작업(issue + role family)에 대한
+# 더 나중 시도가 성공했는가?" — 그렇다면 이 halt 는 그 자체 조건이 지금
+# 재확인으로 어떻게 나오든 상관없이 풀린 것으로 본다. `_halt_condition_cleared`
+# 를 대체하지 않는다 — `roster.spawn_attempt_sweep()`이 그 재확인이 False 를
+# 돌려준 *뒤에만* 이 함수를 추가로 묻는 순서를 유지한다(클래스 기반 재확인은
+# 여전히 1급 메커니즘).
+#
+# "같은 작업" 매칭 규칙: role 에서 `roster.new_lease_disambiguator()`가 붙이는
+# lease 분해자(`secrets.token_hex(4)` — 정확히 8자리 소문자 hex, role 끝에
+# `-{hex8}`로 붙는다)를 뗀 나머지를 "role family"로 본다. 정확 role 문자열
+# 매칭(#2608 이 시도했던 방식)은 실측 재시도 쌍(이슈 #2576:
+# `silent-failure-audit-ec09cf78` 실패 -> `silent-failure-audit-c678659a`
+# 성공)에서 절대 맞지 않는다 — 분해자가 매 시도마다 새로 뽑히는 게 재시도의
+# 정상 모양이지 예외가 아니기 때문이다(#2608 리뷰 코멘트). family 로
+# 넓히되 issue 번호는 여전히 정확히 일치해야 한다 — 안 그러면
+# `issue-1/implementation-af260856`(아무도 태그를 안 달 이슈, 검증 픽스처)
+# 같은 무관한 halt 까지 다른 이슈의 같은 family 성공 때문에 조용히 풀린 것으로
+# 오판할 길이 열린다.
+#
+# 증거 위치: `attempts`/`outcomes`(둘 다 `_load_spawn_attempts()`가
+# `SPAWN_ATTEMPTS_PATH`에서 읽어온 것 — 호출부가 이미 갖고 있어 새로
+# 읽지 않는다)에서 issue+family 가 같고 timestamp 가 이 halt 보다 나중이며
+# outcome 이 `"session-log"`인 항목을 찾는다. 이게 실제로 가능한 건
+# `_prune_spawn_attempts()`가 이제 session-log 처분도 halted 와 같은
+# `SPAWN_ATTEMPTS_RETENTION_SEC` 창 동안 보존하기 때문이다 — PR #2608 은
+# 정확히 여기서 실패했다: session-log 는 그 PR 이 열렸던 시점까지 매 sweep
+# (watchdog 틱, ~2분마다) 끝에 즉시 지워졌으므로, 재시도가 성공한 바로 다음
+# 틱이면 이미 그 증거가 사라져 있었다(격리된 사본으로 만든 데모에서만
+# 재현됐다 — 실제 운영 레저에는 애초에 `session-log` outcome 이 하나도
+# 없었다는 게 그 PR 리뷰의 실측). 이 잔여 작업이 채택한 해법은 그 비대칭을
+# spawn-attempts.jsonl 안에서 없애는 것(retention 대칭화)이지, PR/보드 같은
+# 외부 소스를 새로 얹는 게 아니다 — 레코드 기록서 "staleness 판정" 절에
+# 대안(외부 증거원)을 왜 안 골랐는지와 함께 남긴다.
+_LEASE_DISAMBIGUATOR_SUFFIX_RE = re.compile(r"-[0-9a-f]{8}$")
+
+
+def _role_family(role: str) -> str:
+    """`role`에서 lease 분해자 접미사를 떼 role family 를 돌려준다. 접미사가
+    없으면(분해자 없이 role 을 직접 넘긴 옛 호출부/테스트 픽스처) role 을
+    그대로 돌려준다 — family 는 "role 에서 알아낼 수 있는 가장 넓은, 그러나
+    여전히 issue 번호와 함께 써야 안전한 식별자"이지, "항상 접미사가 있다"는
+    가정이 아니다."""
+    return _LEASE_DISAMBIGUATOR_SUFFIX_RE.sub("", role or "")
+
+
+def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
+                         outcomes: dict) -> bool:
+    """`attempt`(halt 가 아직 클래스 재확인으로는 안 풀린 것으로 나온 시도)가
+    같은 작업(issue + role family)에 대한 더 나중의 성공한(`"session-log"`)
+    시도로 superseded 됐는지 본다. 위 모듈 주석 참고 — 매칭 규칙과 증거
+    위치의 근거는 거기 있다.
+
+    보수적 기본값: issue/role/ts 중 하나라도 없거나 타입이 안 맞으면
+    `False`(판정 불가 — 아직 안 풀림 쪽으로) — `_halt_condition_cleared`와
+    같은 fail-safe 방향."""
+    issue = attempt.get("issue")
+    role = attempt.get("role")
+    my_ts = attempt.get("ts")
+    if issue is None or not role or not isinstance(my_ts, (int, float)):
+        return False
+    family = _role_family(role)
+    for other_id, other in attempts.items():
+        if other_id == attempt_id:
+            continue
+        if other.get("issue") != issue:
+            continue
+        other_role = other.get("role")
+        if not other_role or _role_family(other_role) != family:
+            continue
+        other_ts = other.get("ts")
+        if not isinstance(other_ts, (int, float)) or other_ts <= my_ts:
+            continue
+        outcome = outcomes.get(other_id)
+        if outcome is not None and outcome.get("outcome") == "session-log":
+            return True
+    return False
+
+
 # 이슈 #2393 (R8, #2291 conformance review, "Surface" — 이 파일은 append-only
 # 로만 자라고 오늘까지 rotation 이 없었다): PR #2371 이 남긴 해법 그대로 —
 # "prune spawn-attempts.jsonl 는 한 엔트리의 처분이 sweep 되어 보고까지 끝난
 # 뒤" 이되, `spawn_attempt_sweep()`(roster.py)의 실제 보고 규칙을 그대로
-# 따른다: outcome 이 `"session-log"` 인 시도는 애초에 절대 보고되지 않으므로
-# (성공 — 그 뒤론 기존 dead-entry 워치독의 몫) 나이와 무관하게 바로 지워도
-# 된다; outcome 이 `"halted"` 인 시도는 `ledger_check_and_stamp` TTL 주기마다
+# 따른다: outcome 이 `"halted"` 인 시도는 `ledger_check_and_stamp` TTL 주기마다
 # 반복 재보고되는 게 의도된 동작이라(미해결 halt 를 계속 상기) 그 재보고
 # 창을 죽이지 않도록 보존 기간을 둔다 — `APPROVAL_WAIT_LEDGER_TTL_SEC`
 # 와 같은 7일(roster.py); outcome 이 아직 없는(sweep 이 아직 판정 중일 수
 # 있는) 시도는 나이와 무관하게 항상 남긴다 — 지우면 늦게 오는 진짜 halt
 # 판정을 sweep 이 영영 놓친다.
+#
+# 이슈 #2511 residual (PR #2608 리뷰 코멘트로 확정된 실측): outcome 이
+# `"session-log"`(성공)인 시도는 `spawn_attempt_sweep()`의 보고 규칙상
+# 애초에 라이브 halt 로 보고된 적이 없다는 점은 그대로지만, 그렇다고
+# "보존 대상이 아니다"는 더는 맞지 않는다 — `_attempt_superseded()`(위)가
+# "같은 작업에 대한 더 나중의 성공한 시도가 있었는가"를 이 레코드로
+# 답한다. 예전처럼 나이와 무관하게 바로 지우면, halted 시도가 재시도돼
+# 성공한 바로 다음 watchdog 틱(spawn_attempt_sweep 자신이 매 틱 끝에 이
+# prune 을 부른다 — roster.py)에 그 성공 증거가 이미 없다: PR #2608 이
+# "session-log outcome 을 later attempt 로 찾아 supersession 을 증명한다"는
+# 접근으로 냈다가, 운영 레저에 `session-log` outcome 이 하나도 없다는(전부
+# sweep 한 번 안에 지워진다) 실측으로 리뷰에서 막힌 게 정확히 이 경로다.
+# 그래서 halted 분기와 retention 을 대칭으로 맞춘다 — 같은
+# `SPAWN_ATTEMPTS_RETENTION_SEC`(7일) 창, 새 knob 없이: 이 halt 가 아직
+# 살아서 재보고될 수 있는 최대 기간 동안은, 그 halt 를 superseded 로 만들
+# 성공 증거도 최소한 그만큼 살아있어야 한다는 게 이 대칭의 근거다(그
+# 창보다 더 길게 남길 이유는 없다 — 그 창을 넘긴 halted 시도는 이미
+# `_prune_spawn_attempts()`가 지워 재보고 대상이 아니므로, supersede 할
+# 대상 자체가 없다).
+#
+# 기록서("staleness 판정" 절)에 남긴 대안 검토: PR/보드 상태 같은 외부
+# 소스(예: `board.py._merged_pr_for_branch`)로 증거를 옮기는 방안도
+# 검토했으나 기각했다 — 이 오케스트레이터는 `-C`로 넘어온 임의의 대상
+# 레포 위에서 돈다(GitHub 가 아닐 수도 있고, 브랜치 네이밍 관례가
+# 레포마다 다를 수 있다), 매 watchdog 틱마다 halted 상태인 subject 수만큼
+# 네트워크 API 호출을 추가하며, 이미 이 파일 안에 있는(append-only,
+# crash-safe, 이미 감사된) 메커니즘의 retention 창 하나를 대칭으로 맞추는
+# 것보다 새 외부 의존성을 얹는 쪽이 훨씬 무겁다.
 SPAWN_ATTEMPTS_RETENTION_SEC = 7 * 24 * 3600
 
 
@@ -1487,7 +1601,20 @@ def _prune_spawn_attempts(now: float | None = None) -> int:
             if not isinstance(outcome_ts, (int, float)) or \
                     now - outcome_ts < SPAWN_ATTEMPTS_RETENTION_SEC:
                 keep_ids.add(aid)  # halted — 재보고 TTL 창 동안 유지
-        # outcome == "session-log": 절대 보고 안 됨 — 유지 대상 아님(바로 정리)
+        elif outcome.get("outcome") == "session-log":
+            # 이슈 #2511 residual: 이 시도는 절대 라이브 halt 로 보고되지
+            # 않지만(sweep 의 보고 루프가 애초에 건너뛴다), 다른 halted
+            # 시도의 `_attempt_superseded()` 재확인이 읽는 증거이기도
+            # 하다 — halted 분기와 같은 창(SPAWN_ATTEMPTS_RETENTION_SEC)
+            # 동안 대칭으로 유지한다(근거는 이 파일의
+            # `SPAWN_ATTEMPTS_RETENTION_SEC` 정의 옆 주석). 이 창을 넘기면
+            # 지운다 — 그 시점이면 supersede 할 수 있었던 halted 시도
+            # 자신도 이미 위 분기에서 지워졌으므로 이 레코드가 답할 질문이
+            # 남아있지 않다.
+            outcome_ts = outcome.get("ts", now)
+            if not isinstance(outcome_ts, (int, float)) or \
+                    now - outcome_ts < SPAWN_ATTEMPTS_RETENTION_SEC:
+                keep_ids.add(aid)
     kept_lines = []
     dropped = 0
     for line in lines:
