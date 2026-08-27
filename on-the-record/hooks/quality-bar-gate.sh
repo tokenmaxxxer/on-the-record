@@ -20,11 +20,19 @@
 # bar-scoped for a PR when the PR's changed files match that spec's own
 # `use_when.trigger.path_patterns`.
 #
-# Verdict record convention: a role's own docs/issue-<n>/reports/<role>.md
-# carries a line `quality_bar_verdict: bar-met` or
-# `quality_bar_verdict: bar-not-met` — the most recent such line in the
-# file is the verdict this gate reads. No line at all is "no record"
-# (gates/quality_bar.py treats this the same as an explicit bar-not-met).
+# Verdict record convention (issue #2568): records are slug-named, not
+# role-named (#2555) — a role name is no longer a filename that can exist.
+# This gate resolves the ONE record a PR's session wrote from the PR's own
+# branch (`issue-<n>/<slug>`, `spawn.py`'s `_checkout_named_branch` — the
+# slug segment IS the record's filename stem, verified live against this
+# session's own branch/record pair), never from a domain/role name:
+# `docs/issue-<n>/reports/<slug>.md`. That record carries a line
+# `quality_bar_verdict: bar-met` or `quality_bar_verdict: bar-not-met` — the
+# most recent such line in the file is the verdict this gate reads. No line
+# at all is "no record" (gates/quality_bar.py treats this the same as an
+# explicit bar-not-met). BAR_ROLES below is used ONLY to classify which
+# quality domains the PR's changed paths implicate (path_patterns lookup) —
+# it is never turned back into a record path.
 #
 # Anti-circularity (proposal §4): identity is account-resolved, never a
 # bare CLAUDE_ROLE compare (a same-operator bypass the requirements-
@@ -32,11 +40,11 @@
 # issue-1156/reports/requirements-engineering/2026-08-13-hunt-
 # per-role-quality-bars.md). `producer_account` is the PR author (`gh pr
 # view --json author`); `record_author_account` is the git author of the
-# most recent commit that touched the role's own record file — both are
-# real accounts, never a CLAUDE_ROLE string.
+# most recent commit that touched the PR's own slug-named record file —
+# both are real accounts, never a CLAUDE_ROLE string.
 #
 # Bounded rejection (proposal §5): `consecutive_bar_not_met_count` is read
-# from the same record file, counting immediately-preceding
+# from the same slug-named record file, counting immediately-preceding
 # `quality_bar_verdict: bar-not-met` lines from the end of the file
 # (reset by any `bar-met` line). At the reject cap (3, gates/
 # quality_bar.py:REJECT_CAP) the classifier returns ESCALATE instead of
@@ -206,8 +214,16 @@ producer_account = ((pr_json.get("author") or {}).get("login")) if isinstance(pr
 if not pr_files:
     sys.exit(0)
 
-issue_m = re.match(r"^issue-(\d+)/", head_ref)
-issue = issue_m.group(1) if issue_m else None
+# issue #2568: the branch's own second path segment is the record's
+# filename stem — `spawn.py`'s `_checkout_named_branch(cwd, f"issue-{issue}/
+# {role_or_slug}")` (spawn.py:2955) and this repo's own record-skeleton line
+# (`docs/issue-<n>/reports/<role_or_slug>.md`, spawn.py:3082) both derive
+# from the same variable, verified live against this very session (branch
+# issue-2568/implementation, record docs/issue-2568/reports/
+# implementation.md). No role→slug lookup table is introduced or needed.
+head_ref_m = re.match(r"^issue-(\d+)/(.+)$", head_ref)
+issue = head_ref_m.group(1) if head_ref_m else None
+slug = head_ref_m.group(2) if head_ref_m else None
 
 # --- bar-scoped roles for this PR -------------------------------------------
 # issue #2539 stage 6C: roles/specs/<role>.spec.json -> spawn_roles.json's
@@ -225,55 +241,59 @@ for role in BAR_ROLES:
     role_patterns[role] = (trigger or {}).get("path_patterns") or []
 
 scoped_roles = quality_bar.bar_scoped_roles(pr_files, role_patterns)
-if not scoped_roles or issue is None:
-    sys.exit(0)  # NO_BAR_SCOPED — nothing to deny
+if not scoped_roles or issue is None or slug is None:
+    sys.exit(0)  # NO_BAR_SCOPED — nothing to deny (or no branch slug to resolve a record against)
 
 VERDICT_RE = re.compile(r"^\s*quality_bar_verdict:\s*(bar-met|bar-not-met)\s*$", re.MULTILINE)
 
+# issue #2568: one PR has one branch, hence one slug, hence one record —
+# resolved once here, not per bar-scoped domain. `scoped_roles` (BAR_ROLES
+# subset) only ever labels *which* domains a denial line names below; it is
+# never turned back into a record path (that was the bug this issue fixes).
+record_path = os.path.join(run_cwd, "docs", "issue-%s" % issue, "reports", slug + ".md")
+verdict = None
+consecutive = 0
+record_author = None
+text = ""
+if os.path.isfile(record_path):
+    try:
+        text = open(record_path, encoding="utf-8", errors="ignore").read()
+    except OSError:
+        text = ""
+    matches = VERDICT_RE.findall(text)
+    if matches:
+        verdict = matches[-1]
+        for v in reversed(matches):
+            if v == "bar-not-met":
+                consecutive += 1
+            else:
+                break
+    log = _run(["git", "log", "-1", "--format=%an", "--", record_path], cwd=run_cwd)
+    if log is not None and log.returncode == 0:
+        record_author = log.stdout.strip() or None
+
 # issue #1623: wires human_comprehensibility_verdict (gates/quality_bar.py,
-# issue #1165 tier-1 machinery) into this live per-role record read -- a
-# role's own self-declared `quality_bar_verdict: bar-met` line is downgraded
-# to bar-not-met when the same record's prose fails the tier-1 structure
-# checks (raw dump, missing lead paragraph, etc.). A record with no
-# human-facing prose section anywhere is exempt (human_comprehensibility_
-# verdict returns bar-met for it) -- none of BAR_ROLES' own record files are
-# currently no-prose (all write docs/issue-<n>/reports/<role>.md prose
-# records per the standing record-shape directive), so no role is listed
-# exempt here; the exemption path stays live for a future no-prose
+# issue #1165 tier-1 machinery) into this live record read -- a session's
+# own self-declared `quality_bar_verdict: bar-met` line is downgraded to
+# bar-not-met when the same record's prose fails the tier-1 structure checks
+# (raw dump, missing lead paragraph, etc.). A record with no human-facing
+# prose section anywhere is exempt (human_comprehensibility_verdict returns
+# bar-met for it) -- slug-named records write docs/issue-<n>/reports/
+# <slug>.md prose per the standing record-shape directive, so no exemption
+# fires today; the exemption path stays live for a future no-prose
 # deliverable.
+hc_verdict, hc_reason = quality_bar.human_comprehensibility_verdict(text)
+effective_verdict = "bar-not-met" if hc_verdict == "bar-not-met" else verdict
+
+status, reason = quality_bar.classify(
+    True, effective_verdict, record_author, producer_account, consecutive,
+)
+if hc_verdict == "bar-not-met" and status in (quality_bar.BAR_NOT_MET, quality_bar.ESCALATE):
+    reason = "%s; human_comprehensibility: bar-not-met (%s)" % (reason, hc_reason)
+
 denials = []
-for role in sorted(scoped_roles):
-    record_path = os.path.join(run_cwd, "docs", "issue-%s" % issue, "reports", role + ".md")
-    verdict = None
-    consecutive = 0
-    record_author = None
-    text = ""
-    if os.path.isfile(record_path):
-        try:
-            text = open(record_path, encoding="utf-8", errors="ignore").read()
-        except OSError:
-            text = ""
-        matches = VERDICT_RE.findall(text)
-        if matches:
-            verdict = matches[-1]
-            for v in reversed(matches):
-                if v == "bar-not-met":
-                    consecutive += 1
-                else:
-                    break
-        log = _run(["git", "log", "-1", "--format=%an", "--", record_path], cwd=run_cwd)
-        if log is not None and log.returncode == 0:
-            record_author = log.stdout.strip() or None
-
-    hc_verdict, hc_reason = quality_bar.human_comprehensibility_verdict(text)
-    effective_verdict = "bar-not-met" if hc_verdict == "bar-not-met" else verdict
-
-    status, reason = quality_bar.classify(
-        True, effective_verdict, record_author, producer_account, consecutive,
-    )
-    if hc_verdict == "bar-not-met" and status in (quality_bar.BAR_NOT_MET, quality_bar.ESCALATE):
-        reason = "%s; human_comprehensibility: bar-not-met (%s)" % (reason, hc_reason)
-    if status in (quality_bar.BAR_NOT_MET, quality_bar.ESCALATE):
+if status in (quality_bar.BAR_NOT_MET, quality_bar.ESCALATE):
+    for role in sorted(scoped_roles):
         denials.append((role, status, reason))
 
 if not denials:
