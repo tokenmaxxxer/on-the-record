@@ -613,23 +613,29 @@ def _sibling_checkout_roots(shared_root: Path) -> list[Path]:
     return [c for c in children if c.is_dir() and (c / "spawn.py").is_file()]
 
 
-def _sibling_live_sessions(sibling_root: Path) -> dict[Path, dict]:
+def _sibling_live_sessions(sibling_root: Path) -> tuple[dict[Path, dict], str | None]:
     """한 sibling 체크아웃 자신의 `runs/active.json`(그 체크아웃 자신의
     STATE_ROOT/ROSTER 관례, `STATE_ROOT = ROOT / "runs"`,
     `ROSTER = STATE_ROOT / "active.json"`)에서 살아있는(pid-alive) 엔트리만
     워크스페이스 절대경로로 인덱싱 — `_live_workspaces()`와 같은 모양,
-    다만 로컬 `_sp.ROSTER` 대신 남의 체크아웃 로스터를 읽는다. 로스터
-    파일이 없거나 JSON 파싱이 깨지거나 모양이 기대와 다르면 그 sibling은
-    "라이브 세션 0개"로 취급하고 넘어간다 — 예외를 던지지 않는다: 이웃
-    체크아웃 하나가 망가졌다고 이쪽 체크아웃의 prune 이 죽거나 막히면
-    안 된다."""
+    다만 로컬 `_sp.ROSTER` 대신 남의 체크아웃 로스터를 읽는다. 예외를
+    던지지 않는다: 이웃 체크아웃 하나가 망가졌다고 이쪽 체크아웃의 prune 이
+    죽거나 막히면 안 된다.
+
+    반환은 `(live, load_error)`. 로스터 파일이 아예 없으면(그 sibling 이
+    한 번도 스폰한 적 없는, 정당한 빈 상태) `({}, None)` — 지금처럼 그
+    sibling 의 워크스페이스는 그대로 prunable. 파일은 있는데 못 읽거나
+    파싱이 깨지면(권한 오류, 쓰기 도중 읽은 절반짜리 내용) `({}, <이유>)` —
+    이슈 #2603: 예전엔 이 경우도 그냥 `{}`(빈 로스터, "세션 없음")로 흡수해
+    그 sibling 의 진짜 라이브 워크스페이스까지 prune 대상으로 보이게
+    만들었다. `_roster_load_checked()`(이슈 #2203)가 이미 같은 절대-빈 vs
+    못-읽음 구분을 하므로 그걸 그대로 재사용한다 — 두 분류기가 "모른다"의
+    뜻을 따로 정의하면 이 결함이 다시 생긴다. 호출부(`_live_workspaces_union()`)
+    는 `load_error`가 아니면 절대 "라이브 세션 0개"로 읽으면 안 된다."""
     roster_path = sibling_root / "runs" / "active.json"
-    try:
-        roster = json.loads(roster_path.read_text())
-    except (OSError, ValueError):
-        return {}
-    if not isinstance(roster, dict):
-        return {}
+    roster, load_error = _sp._roster_load_checked(path=roster_path)
+    if load_error is not None:
+        return {}, load_error
     live = {}
     for e in roster.values():
         if not isinstance(e, dict):
@@ -643,10 +649,10 @@ def _sibling_live_sessions(sibling_root: Path) -> dict[Path, dict]:
             live[Path(work).resolve()] = e
         except OSError:
             continue
-    return live
+    return live, None
 
 
-def _live_workspaces_union() -> dict[Path, dict]:
+def _live_workspaces_union() -> tuple[dict[Path, dict], list[str]]:
     """이슈 #2492: `_live_workspaces()`(체크아웃-로컬)를 이 체크아웃과 같은
     공유 작업 디렉터리(`_sp._workspace_base()`, 예: `~/.tokenmaxxxer/work`)
     아래 다른 체크아웃들의 로스터까지 합쳐서 넓힌다. 이 host 에 31개
@@ -660,14 +666,25 @@ def _live_workspaces_union() -> dict[Path, dict]:
     공유 작업 디렉터리 바로 아래(한 단계만, 재귀 없음) 있고 체크아웃
     루트로 인식되는 sibling 들의 로스터, 그 합집합만 본다 — 지금 prune
     하는 그 작업 디렉터리를 실제로 공유하는 체크아웃으로 범위가 묶여있고,
-    그보다 넓히지 않는다. 읽거나 파싱할 수 없는 sibling 로스터는 죽지도
-    않고 범위를 조용히 넓히지도 않으며 그냥 "라이브 세션 0개"로 깎인다
-    (`_sibling_live_sessions()`)."""
+    그보다 넓히지 않는다.
+
+    반환은 `(live, unreadable)`. 이슈 #2603: sibling 로스터가 아예 없으면
+    (정당한 빈 상태) 지금처럼 그냥 합집합에 기여하는 게 없을 뿐이다. 하지만
+    있는데 못 읽거나 파싱이 깨지면(`_sibling_live_sessions()`가 돌려주는
+    `load_error`) 그 sibling 을 "라이브 세션 0개"로 깎아 읽으면 안 된다 —
+    그건 그 sibling 이 실제로 추적 중인 워크스페이스까지 조용히 prune
+    대상으로 만든다(이 host 에서 워크스페이스 삭제가 진행 중이던 작업을
+    두 번 파괴한 바로 그 경로). `unreadable`(사람이 읽을 `"<경로>: <이유>"`
+    문자열 목록, 보통 비어있음)에 그 사실만 쌓아 돌려준다 — 이름을 못 아는
+    sibling 하나 때문에 이 체크아웃의 prune 자체를 죽이거나 막지는
+    않는다(#2597 의 그 판단은 유지): 호출부가 `unreadable`을 보고 "라이브
+    여부 확인 불가"인 후보들을 개별적으로 보수적으로 남기는 몫이다."""
     live = dict(_sp._live_workspaces())
+    unreadable: list[str] = []
     try:
         shared_root = _sp._workspace_base().resolve()
     except OSError:
-        return live
+        return live, unreadable
     try:
         own_root = _sp.ROOT.resolve()
     except OSError:
@@ -679,9 +696,13 @@ def _live_workspaces_union() -> dict[Path, dict]:
             continue
         if own_root is not None and sibling_resolved == own_root:
             continue  # 이미 위에서 로컬 로스터로 커버됨
-        for k, v in _sp._sibling_live_sessions(sibling_resolved).items():
+        sibling_live, load_error = _sp._sibling_live_sessions(sibling_resolved)
+        if load_error is not None:
+            unreadable.append(f"{sibling_resolved}: {load_error}")
+            continue
+        for k, v in sibling_live.items():
             live.setdefault(k, v)
-    return live
+    return live, unreadable
 
 
 # 이슈 #1179 (reopen): 훅이 워크스페이스 안에 직접 심어놓는 자체 부기
@@ -703,19 +724,33 @@ _HARNESS_NOISE_BASENAMES = frozenset({
 })
 
 
-def _workspace_clean_state(w: Path, live: dict[Path, dict]) -> tuple[str | None, str]:
+def _workspace_clean_state(
+    w: Path, live: dict[Path, dict], unreadable: list[str] | None = None,
+) -> tuple[str | None, str]:
     """워크스페이스 하나가 지워도 안전한지 판정한다. `(reason, detail)` —
     `reason` 이 `None` 이면 안전(지워도 됨), 아니면 남기는 이유
-    (`"live"`/`"dirty"`) 와 사람이 읽을 상세 문자열.
+    (`"live"`/`"unknown"`/`"dirty"`) 와 사람이 읽을 상세 문자열.
 
     `roster_clean()`(수동)과 `auto_sweep()`(자동, 이슈 #1179)이 같은 판정을
     쓴다 — 두 곳에 독립적으로 안전 검사를 두면 한쪽만 고치고 다른 쪽은
-    #1124 보장이 조용히 깨진다."""
+    #1124 보장이 조용히 깨진다.
+
+    `unreadable`(이슈 #2603, `_live_workspaces_union()`이 돌려주는 못-읽은
+    sibling 목록): 이번 실행에 못 읽은 sibling 로스터가 하나라도 있으면,
+    이 워크스페이스가 `live`에 없다는 사실이 "죽었다"를 증명하지 못한다 —
+    그 sibling 의 로스터를 읽을 수 있었다면 이 경로를 라이브로 알았을 수도
+    있다("unknown must not mean empty", 이슈 #2603). 그래서 git-dirty
+    판정으로 내려가지 않고 바로 `"unknown"`으로 남긴다 — 실제로 죽었는지는
+    다음 실행(sibling 이 다시 읽힐 때)에 다시 판정된다."""
     e = live.get(w.resolve())
     if e is not None:
         return ("live",
                 f"실행 중인 세션 있음: issue-{e.get('issue', '?')}/"
                 f"{e.get('role', '?')}, pid {e.get('pid', '?')}")
+    if unreadable:
+        return ("unknown",
+                 "이웃 체크아웃 로스터를 못 읽어 라이브 여부 확인 불가 — "
+                 + "; ".join(unreadable))
     raw_st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
                             capture_output=True, text=True).stdout.strip()
     # untracked(`??`)이면서 harness 자체 마커 파일인 줄만 걸러낸다 —
@@ -905,7 +940,11 @@ def roster_clean(wb: Path, issue: int | None, repo: Path | None = None) -> int:
     routine landing/cleanup 의 일부로 만든다)."""
     if repo is not None:
         _prune_worktrees(repo)
-    live = _sp._live_workspaces_union()
+    live, unreadable = _sp._live_workspaces_union()
+    for msg in unreadable:
+        print(f"경고: 이웃 체크아웃 로스터를 읽지 못함 — {msg} — 그 로스터가 "
+              f"아는 워크스페이스를 놓쳤을 수 있어, 이번 정리에서 확인 불가 "
+              f"항목은 남긴다")
     log_outcomes = _sp._ledger_log_outcomes()
     archive_dir = wb / ".archived-logs"
 
@@ -916,7 +955,7 @@ def roster_clean(wb: Path, issue: int | None, repo: Path | None = None) -> int:
             continue
         if scope is not None and scope not in w.name:
             continue
-        reason, detail = _sp._workspace_clean_state(w, live)
+        reason, detail = _sp._workspace_clean_state(w, live, unreadable)
         if reason is not None:
             print(f"남김 ({detail}): {w.name}")
             kept += 1
@@ -1113,7 +1152,10 @@ def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
 
     `now`: 테스트가 `time.time()` 대신 고정 시각을 주입한다."""
     now = now if now is not None else time.time()
-    live = _sp._live_workspaces_union()
+    live, unreadable = _sp._live_workspaces_union()
+    for msg in unreadable:
+        print(f"[auto-sweep] 경고: 이웃 체크아웃 로스터를 읽지 못함 — {msg} — "
+              f"확인 불가 워크스페이스는 이번 스윕에서 남긴다", file=sys.stderr)
     log_outcomes = _sp._ledger_log_outcomes()
     archive_dir = wb / ".archived-logs"
     max_age_sec = max_age_days * 86400
@@ -1123,7 +1165,7 @@ def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
         for w in sorted(wb.glob("*")):
             if not (w / ".git").is_dir():
                 continue
-            reason, _detail = _sp._workspace_clean_state(w, live)
+            reason, _detail = _sp._workspace_clean_state(w, live, unreadable)
             if reason is not None:
                 continue
             try:
@@ -1238,7 +1280,11 @@ def _prune_orphaned_sidecars(wb: Path, max_age_days: float | None = None,
     max_age_days = _clean_max_age_days() if max_age_days is None else max_age_days
     now = time.time() if now is None else now
     max_age_sec = max_age_days * 86400
-    live = _sp._live_workspaces_union()
+    live, unreadable = _sp._live_workspaces_union()
+    for msg in unreadable:
+        print(f"[sidecar-prune] 경고: 이웃 체크아웃 로스터를 읽지 못함 — {msg} — "
+              f"확인 불가 워크스페이스의 sidecar 는 이번 정리에서 남긴다",
+              file=sys.stderr)
 
     groups: dict[str, list[Path]] = {}
     if wb.is_dir():

@@ -58,18 +58,25 @@ def _roster_load() -> dict:
         return {}
 
 
-def _roster_load_checked() -> tuple[dict, str | None]:
+def _roster_load_checked(path: Path | None = None) -> tuple[dict, str | None]:
     """`_roster_load()`처럼 로스터를 읽되, "세션이 정말 없음"(파일이 아예
     없음 — 정당한 빈 상태)과 "파일은 있는데 못 읽음/못 파싱함"(권한 오류,
     또는 `_roster_save()` 쓰기 도중 읽은 절반짜리 내용)을 구분해 돌려준다
     (이슈 #2203). 성공(빈 상태 포함)이면 `(d, None)`; 파일이 있는데 읽기/
     파싱에 실패했으면 `({}, <이유>)` — 호출부는 후자를 "세션 없음"으로
     읽으면 안 된다. `_roster_load()` 자신은 바꾸지 않는다 — 다른 모든
-    호출부(워치독, 리스 정리, `_live_workspaces()` 등, 이슈 #2492 가 같이
-    건드리는 prune 경로 포함)는 지금처럼 실패를 빈 로스터로 흡수해도 되는
-    자리라, 그 동작을 이 이슈에서 바꾸지 않는다 — `ps` 만 이 구분이 필요."""
+    호출부(워치독, 리스 정리 등)는 지금처럼 실패를 빈 로스터로 흡수해도 되는
+    자리라, 그 동작을 이 이슈에서 바꾸지 않는다.
+
+    `path`: 기본은 이 체크아웃 자신의 `_sp.ROSTER`. 이슈 #2603 — 이 함수가
+    구분하는 절대-빈 vs 못-읽음이 `lifecycle.py::_sibling_live_sessions()`가
+    남의 체크아웃 로스터를 읽을 때도 그대로 필요해서(파일 자체가 없으면
+    정당한 빈 상태로 prunable 유지, 있는데 못 읽으면 그 sibling 의
+    워크스페이스를 possibly-live 로 봐야 함) 두 번째 분류기를 새로 안 만들고
+    임의 경로를 받게 넓혔다 — 로컬 호출부(`ps`)는 인자 없이 그대로 쓴다."""
+    p = _sp.ROSTER if path is None else path
     try:
-        text = _sp.ROSTER.read_text()
+        text = p.read_text()
     except FileNotFoundError:
         return {}, None
     except OSError as exc:
