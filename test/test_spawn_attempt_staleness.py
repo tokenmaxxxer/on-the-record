@@ -208,6 +208,119 @@ class HaltConditionClearedUnknownClassTest(unittest.TestCase):
             spawn._halt_condition_cleared("unknown", {"issue": 1, "cwd": "/tmp"}, "x"))
 
 
+class RoleFamilyTest(unittest.TestCase):
+    """issue #2511 residual: `_role_family()` strips the trailing 8-hex-char
+    lease disambiguator (`roster.new_lease_disambiguator()` ==
+    `secrets.token_hex(4)`) that `spawn.py:1990-1991` appends to every role
+    string, so retries of the same work (a fresh disambiguator each time,
+    the normal shape of a retry — not an edge case, per PR #2608's review)
+    compare equal on the part that identifies the work item itself."""
+
+    def test_strips_trailing_lease_disambiguator(self):
+        self.assertEqual(spawn._role_family("silent-failure-audit-ec09cf78"),
+                          "silent-failure-audit")
+
+    def test_the_real_issue_2576_retry_pair_matches_after_stripping(self):
+        # Real fixture (runs/spawn-attempts.jsonl live ledger + issue #2576
+        # session-end comments): halted as -ec09cf78, later succeeded as
+        # -c678659a — same family, different lease disambiguator.
+        self.assertEqual(spawn._role_family("silent-failure-audit-ec09cf78"),
+                          spawn._role_family("silent-failure-audit-c678659a"))
+
+    def test_role_without_a_disambiguator_suffix_passes_through(self):
+        self.assertEqual(spawn._role_family("orchestrator"), "orchestrator")
+
+    def test_composite_skill_role_keeps_its_plus_joined_family(self):
+        self.assertEqual(
+            spawn._role_family("silent-failure-audit+diagnose-first-ae8ab737"),
+            "silent-failure-audit+diagnose-first")
+
+    def test_short_hex_like_suffix_is_not_mistaken_for_the_8char_disambiguator(self):
+        # Only an exact 8-lowercase-hex-char trailing group is a lease
+        # disambiguator; a shorter or differently-shaped trailing token is
+        # part of the family name and must not be stripped.
+        self.assertEqual(spawn._role_family("implementation-af26085"),
+                          "implementation-af26085")
+
+
+class AttemptSupersededTest(unittest.TestCase):
+    """issue #2511 residual: `_attempt_superseded()` — the fallback the
+    class-based re-check (`_halt_condition_cleared`) cannot provide for
+    attempt-bound classes (`cwd-invalid`, `workspace-origin-mismatch`) or
+    cwd-less legacy records. Matching rule and evidence-location rationale
+    are in the function's own docstring and the module comment above it in
+    spawn.py."""
+
+    def test_later_successful_attempt_same_issue_and_family_supersedes(self):
+        attempts = {
+            "a1": {"issue": 2576, "role": "silent-failure-audit-ec09cf78", "ts": 100.0},
+            "a2": {"issue": 2576, "role": "silent-failure-audit-c678659a", "ts": 200.0},
+        }
+        outcomes = {"a2": {"outcome": "session-log", "detail": "/log/path"}}
+        self.assertTrue(
+            spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
+
+    def test_no_later_attempt_at_all_is_not_superseded(self):
+        # Matches issue-1/implementation-af260856: nobody will ever retry
+        # this issue, so there is no later attempt of any kind.
+        attempts = {"a1": {"issue": 1, "role": "implementation-af260856", "ts": 100.0}}
+        outcomes = {}
+        self.assertFalse(
+            spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
+
+    def test_later_attempt_that_also_halted_does_not_supersede(self):
+        attempts = {
+            "a1": {"issue": 2576, "role": "silent-failure-audit-ec09cf78", "ts": 100.0},
+            "a2": {"issue": 2576, "role": "silent-failure-audit-c678659a", "ts": 200.0},
+        }
+        outcomes = {"a2": {"outcome": "halted", "detail": "still broken"}}
+        self.assertFalse(
+            spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
+
+    def test_earlier_successful_attempt_does_not_supersede_a_later_halt(self):
+        # A success that happened BEFORE this halt cannot be its retry.
+        attempts = {
+            "a1": {"issue": 2576, "role": "silent-failure-audit-old", "ts": 200.0},
+            "a2": {"issue": 2576, "role": "silent-failure-audit-ec09cf78", "ts": 300.0},
+        }
+        outcomes = {"a1": {"outcome": "session-log", "detail": "/log/path"}}
+        self.assertFalse(
+            spawn._attempt_superseded("a2", attempts["a2"], attempts, outcomes))
+
+    def test_success_on_a_different_issue_does_not_supersede(self):
+        """Over-broadening guard: same role family, different issue — must
+        not silence issue-1/implementation-af260856 just because some other
+        issue's implementation succeeded."""
+        attempts = {
+            "a1": {"issue": 1, "role": "implementation-af260856", "ts": 100.0},
+            "a2": {"issue": 2, "role": "implementation-deadbeef", "ts": 200.0},
+        }
+        outcomes = {"a2": {"outcome": "session-log", "detail": "/log/path"}}
+        self.assertFalse(
+            spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
+
+    def test_success_on_a_different_role_family_does_not_supersede(self):
+        """Over-broadening guard: same issue, different role family — an
+        unrelated skill's success on the same issue must not silence this
+        halt."""
+        attempts = {
+            "a1": {"issue": 2587, "role": "requirement-tag-fix-de7d3bcf", "ts": 100.0},
+            "a2": {"issue": 2587, "role": "technical-writing-cba98765", "ts": 200.0},
+        }
+        outcomes = {"a2": {"outcome": "session-log", "detail": "/log/path"}}
+        self.assertFalse(
+            spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
+
+    def test_missing_issue_or_role_or_ts_is_conservative_not_superseded(self):
+        attempts = {"a2": {"issue": 1, "role": "implementation-deadbeef", "ts": 200.0}}
+        outcomes = {"a2": {"outcome": "session-log", "detail": "x"}}
+        for attempt in ({"role": "implementation-af260856", "ts": 100.0},
+                         {"issue": 1, "ts": 100.0},
+                         {"issue": 1, "role": "implementation-af260856"}):
+            self.assertFalse(
+                spawn._attempt_superseded("a1", attempt, attempts, outcomes))
+
+
 class SpawnAttemptSweepReplayFixTest(unittest.TestCase):
     """End-to-end: the exact live shape from the issue — a `-C` halt that
     was blocking (the given path did not exist), gets fixed, and the next
@@ -299,6 +412,175 @@ class SpawnAttemptSweepReplayFixTest(unittest.TestCase):
             roster.spawn_attempt_sweep(d_all={})
         printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
         self.assertIn(roster._iso(attempt_ts), printed)
+
+
+class SpawnAttemptSweepSupersessionTest(unittest.TestCase):
+    """issue #2511 residual, end-to-end: the shape PR #2608 tried and failed
+    to fix — a halt bound to its own recorded arguments (the `-C` value is a
+    repo slug, e.g. 'tokenmaxxxer/on-the-record', that will never become a
+    directory — the exact live issue-2576 fixture) never clears by
+    class re-check alone, but a later successful retry for the same
+    (issue, role-family) must still resolve it."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.attempts_path = Path(self._td.name) / "spawn-attempts.jsonl"
+        patches = [
+            mock.patch.object(spawn, "SPAWN_ATTEMPTS_PATH", self.attempts_path),
+            mock.patch.object(spawn, "ledger_write", lambda ev: None),
+            mock.patch.object(spawn, "ledger_check_and_stamp",
+                               lambda *a, **k: True),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _append(self, entry):
+        with self.attempts_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+
+    def _append_attempt(self, attempt_id, issue, role, ts, cwd=None):
+        self._append({"event": "spawn_attempt", "attempt_id": attempt_id,
+                       "issue": issue, "role": role, "pid": 4242, "cwd": cwd,
+                       "ts": ts})
+
+    def _append_halted(self, attempt_id, reason, ts):
+        self._append({"event": "spawn_attempt_outcome", "attempt_id": attempt_id,
+                       "outcome": "halted", "detail": reason, "ts": ts})
+
+    def _append_session_log(self, attempt_id, ts, log_path="/log/path"):
+        self._append({"event": "spawn_attempt_outcome", "attempt_id": attempt_id,
+                       "outcome": "session-log", "detail": log_path, "ts": ts})
+
+    def test_halt_superseded_by_a_later_successful_retry_stops_replaying(self):
+        # Real fixture (runs/spawn-attempts.jsonl live ledger, issue #2576):
+        # -C was given a repo slug, not a path — cwd-invalid re-checks this
+        # as still-blocking forever, since the recorded string never
+        # becomes a directory no matter how many times it's re-checked.
+        reason = ("-C 가 존재하지 않는 디렉터리다: tokenmaxxxer/on-the-record\n"
+                   "  cwd 는 레포 루트를 가리켜야 한다 — 경로를 다시 확인해라.")
+        halted_ts = time.time() - 3600
+        self._append_attempt("2576:silent-failure-audit-ec09cf78:1:1", 2576,
+                              "silent-failure-audit-ec09cf78", halted_ts)
+        self._append_halted("2576:silent-failure-audit-ec09cf78:1:1", reason,
+                             halted_ts)
+
+        # Tick 1, before the retry exists: class re-check cannot clear a
+        # cwd-invalid halt whose recorded string is a slug, not a path — it
+        # keeps reporting exactly as PR #2608 found in production.
+        with mock.patch("builtins.print") as mocked_print:
+            count1 = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count1, 1)
+        printed1 = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
+        self.assertIn("spawn halted pre-workspace", printed1)
+
+        # A later attempt for the same (issue, role-family) — different
+        # lease disambiguator, the normal shape of a retry — succeeds.
+        success_ts = halted_ts + 1800
+        self._append_attempt("2576:silent-failure-audit-c678659a:2:2", 2576,
+                              "silent-failure-audit-c678659a", success_ts)
+        self._append_session_log("2576:silent-failure-audit-c678659a:2:2",
+                                  success_ts)
+
+        # Tick 2: class re-check still cannot clear it (the recorded slug
+        # never becomes a directory), but supersession now can — the
+        # heartbeat must no longer report this halt as live.
+        with mock.patch("builtins.print") as mocked_print:
+            count2 = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count2, 0)
+        printed2 = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
+        self.assertIn("RESOLVED", printed2)
+        self.assertIn("resolution=superseded", printed2)
+        self.assertNotIn("spawn halted pre-workspace", printed2)
+
+        # Tick 3: never replayed again.
+        with mock.patch("builtins.print") as mocked_print:
+            count3 = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count3, 0)
+        self.assertEqual(mocked_print.call_args_list, [])
+
+    def test_unrelated_halt_on_a_never_tagged_issue_keeps_reporting_unchanged(self):
+        """Verification fixture named in the task: issue-1/implementation-
+        af260856 — a requirement-tag halt on an issue nobody will ever tag,
+        with no later successful attempt for that issue+role-family. Must
+        keep reporting at full volume, completely unaffected by the
+        supersession mechanism or by an unrelated issue's success."""
+        reason = ("이슈 #1 가 요구 연결이 없다:\n  - 이슈 #1 본문이 요구 ID를 "
+                   "하나도 인용하지 않는다.\n  세션을 안 띄운다.")
+        halted_ts = time.time() - 3600
+        self._append_attempt("1:implementation-af260856:1:1", 1,
+                              "implementation-af260856", halted_ts)
+        self._append_halted("1:implementation-af260856:1:1", reason, halted_ts)
+
+        # An unrelated issue's same-family success must not leak across.
+        other_success_ts = halted_ts + 60
+        self._append_attempt("2:implementation-deadbeef:2:2", 2,
+                              "implementation-deadbeef", other_success_ts)
+        self._append_session_log("2:implementation-deadbeef:2:2",
+                                  other_success_ts)
+
+        with mock.patch("builtins.print") as mocked_print:
+            count = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count, 1)
+        printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
+        self.assertIn("spawn halted pre-workspace", printed)
+        self.assertNotIn("RESOLVED", printed)
+
+
+class PruneSpawnAttemptsSessionLogRetentionTest(unittest.TestCase):
+    """issue #2511 residual: PR #2608 was closed unmerged because
+    `_prune_spawn_attempts()` used to drop every `"session-log"` outcome at
+    the end of the very sweep that recorded it — by the next watchdog tick
+    (~2 minutes later, roster.py:667) the evidence a supersession check
+    would need was already gone (PR #2608's review comment, citing
+    spawn.py:1489 and the live ledger: 3 records, all halted, zero
+    session-log after ~15 successful spawns that day). session-log outcomes
+    must now survive at least `SPAWN_ATTEMPTS_RETENTION_SEC`, symmetric
+    with halted outcomes, so `_attempt_superseded()` has something to read."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.attempts_path = Path(self._td.name) / "spawn-attempts.jsonl"
+        self.addCleanup(mock.patch.stopall)
+        mock.patch.object(spawn, "SPAWN_ATTEMPTS_PATH", self.attempts_path).start()
+
+    def _write(self, *entries):
+        with self.attempts_path.open("w", encoding="utf-8") as fh:
+            for e in entries:
+                fh.write(json.dumps(e) + "\n")
+
+    def test_fresh_session_log_outcome_survives_a_prune_pass(self):
+        now = time.time()
+        self._write(
+            {"event": "spawn_attempt", "attempt_id": "x", "issue": 1,
+             "role": "r-aaaaaaaa", "pid": 1, "cwd": None, "ts": now - 10},
+            {"event": "spawn_attempt_outcome", "attempt_id": "x",
+             "outcome": "session-log", "detail": "/log", "ts": now - 10},
+        )
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertEqual(dropped, 0)
+        attempts, outcomes, _ = spawn._load_spawn_attempts()
+        self.assertIn("x", attempts)
+        self.assertIn("x", outcomes)
+
+    def test_session_log_outcome_older_than_retention_is_pruned(self):
+        now = time.time()
+        old_ts = now - spawn.SPAWN_ATTEMPTS_RETENTION_SEC - 1
+        self._write(
+            {"event": "spawn_attempt", "attempt_id": "x", "issue": 1,
+             "role": "r-aaaaaaaa", "pid": 1, "cwd": None, "ts": old_ts},
+            {"event": "spawn_attempt_outcome", "attempt_id": "x",
+             "outcome": "session-log", "detail": "/log", "ts": old_ts},
+        )
+        dropped = spawn._prune_spawn_attempts(now=now)
+        self.assertGreater(dropped, 0)
+        attempts, outcomes, _ = spawn._load_spawn_attempts()
+        self.assertNotIn("x", attempts)
+        self.assertNotIn("x", outcomes)
 
 
 if __name__ == "__main__":
