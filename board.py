@@ -805,7 +805,17 @@ def status(cwd: str) -> list[str]:
                 bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
                 if fm.get("verdict"):          # feasibility. coding 이 여기 깨어난다(§3)
                     bits.append(f"verdict: {fm['verdict']}")
-                out.append(f"  [{r}] " + "   ".join(bits))
+                # 이슈 #2593: bracket 이 record 파일명(과거 role 이름을
+                # 포함해 무엇이든 될 수 있다)을 담고, 그게 --skills 에
+                # 넣을 스폰 가능한 스킬 이름과 같은 것으로 읽혔다 -- 실제
+                # 사고 사례(이슈 #2593 본문 인용). `record:` 접두어는
+                # 이 줄이 과거 기록 파일을 가리킨다는 것만 밝힌다 -- 무엇을
+                # --skills 에 타이핑해야 하는지는 여기서 답하지 않는다
+                # (그 답은 `spawn.py --skills` 자체의 도움말과
+                # `consult.md` 가 가리키는 skill-repository 디렉터리
+                # 목록이며, 닫힌 이름 목록을 board.py 에 다시 들여오지
+                # 않는다 -- #2139 컨설트가 이미 기각한 모양).
+                out.append(f"  [record: {r}] " + "   ".join(bits))
             # 이슈 #2432/#2560: 이 이슈의 lease slug 집합 밖 이름(스킬 축
             # 네이밍으로 만들어진 레코드, 또는 lease 가 이미 로스터에서
             # 지워진 뒤에도 남은 레코드) 도 같은 줄 형식으로 보여준다 —
@@ -816,7 +826,7 @@ def status(cwd: str) -> list[str]:
                 bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
                 if fm.get("verdict"):
                     bits.append(f"verdict: {fm['verdict']}")
-                out.append(f"  [{r}] " + "   ".join(bits))
+                out.append(f"  [record: {r}] " + "   ".join(bits))
             missing = [r for r in sorted(lease_slugs) if r not in roles]
             if missing:
                 out.append(f"  (기록 없음: {', '.join(missing)})")

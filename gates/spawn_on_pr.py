@@ -176,24 +176,42 @@ def verification_deficit(subject_board: dict, subject_author: str | None = None)
 
 def subject_deliverable_record(subject_board: dict) -> tuple[str | None, dict]:
     """Resolve the subject's own (non-observer) deliverable record from
-    `subject_board` (`board(root)[subject]`) — issue #2575: the literal
-    `subject_board.get("implementation", {})` lookup silently returns an
-    empty dict once the deliverable's filename is a slug (#2555), so it
-    can never distinguish "no deliverable landed yet" from "deliverable
-    landed under a different name". This resolves it the same way the
-    retired kind-matching function used to resolve the two PR-triggered
-    kinds (issue #2241 stage 5): the record whose `kind:` frontmatter is
-    `implementation`, or (legacy fallback — a record written before
-    #2555 never carried a `kind:` line at all) whose filename stem is
-    literally `implementation`. Returns `(slug, frontmatter)`, or
-    `(None, {})` when the subject has no such record in `subject_board`
-    yet — `None` is the loud form of "not found" (a caller can check
-    `slug is None` directly, unlike a `.get(x, {})` empty dict, which
-    reads identically whether the key is absent or genuinely empty)."""
-    for name, fm in subject_board.items():
-        kind_field = fm.get("kind")
-        if kind_field == "implementation" or (kind_field is None and name == "implementation"):
-            return name, fm
+    `subject_board` (`board(root)[subject]`) -- issue #2593: this used to
+    match `kind_field == "implementation" or (kind_field is None and name
+    == "implementation")`, a hard-coded historical role name the #2593
+    audit found live and reachable (fires for the majority of this
+    board's subjects) and, separately, already incomplete -- it never
+    matched the equally-historical `"coding"` deliverable name, so a
+    fraction of subjects were always silently unresolved by it.
+
+    Replaced with the same structural, name-free pattern
+    `subject_deliverable_branch()` already uses (issue #2575): the
+    deliverable is whichever record in `subject_board` does NOT
+    self-declare `verifies_subject: true` (issue #2609's own field, not a
+    `kind:`/filename match). Exactly one such candidate -> that is the
+    deliverable. Zero or more than one -> refuse to guess, same
+    conservative `(None, {})` this function and its sibling already
+    return for "no deliverable landed yet" / genuine ambiguity.
+
+    Operator ruling (2026-08-27, #2593): a capability that cannot be
+    provided without matching a hard-coded identity name is dropped
+    outright rather than relocated. The dropped capability here is
+    precision on subjects whose reports/ directory holds more than one
+    non-verifying record and no `verifies_subject` marker to disambiguate
+    them -- chiefly, older subjects predating #2609 whose deliverable and
+    both observer records (`implementation`/`coding`, `execution-
+    observation`, `conformance-review`) all lack the field. For those,
+    `verifying_record_count()`'s self-verification guard now degrades to
+    its already-documented `subject_author=None` fail-open behavior
+    (skip the guard, still require the same count) instead of firing
+    precisely -- the base independent-verification-count obligation this
+    function feeds is unaffected either way; only the same-author
+    exclusion loses precision on that subset. See this issue's record for
+    the measured count of currently-open subjects affected."""
+    candidates = [(name, fm) for name, fm in subject_board.items()
+                  if fm.get("verifies_subject") != "true"]
+    if len(candidates) == 1:
+        return candidates[0]
     return None, {}
 
 
