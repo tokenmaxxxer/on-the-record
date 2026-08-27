@@ -180,3 +180,23 @@ Append-only, newest entry last.
   scope — future scope-cleanup work should account for them. Source:
   issue #2629 spawn-prompt task text and its correcting comment, read
   2026-08-27.
+
+- 2026-08-27: operator issued an absolute standing ruling for the
+  role-catalog-retirement program, stated as applying beyond the one
+  issue it landed in: if a capability needs a fixed identity
+  enumeration (a closed list of names), the fix is to remove the
+  capability and state what stops working — renaming, relocating,
+  sharding, or reading the same names from config all count as failure,
+  not compliance. Also overruled a specific prior exemption this program
+  had accepted (PR #2630's argument that `quality-bar-gate.sh`'s
+  `BAR_ROLES` named quality *domains* rather than identities, so was a
+  different kind of list): a fixed list of names in a gate is confusing
+  regardless of what the names are said to denote, and a list needing an
+  explanatory comment to prove it isn't an identity axis does the same
+  damage as one that is. Framed as a repeat: "that has now happened
+  three times in this program." Source: issue #2631 body ("Operator
+  ruling, 2026-08-27, absolute: if a capability needs an identity
+  enumeration, remove the capability and state what stops working...
+  Renaming, relocating, sharding, or reading the same names from config
+  all count as failure — that has now happened three times in this
+  program."), read 2026-08-27.
