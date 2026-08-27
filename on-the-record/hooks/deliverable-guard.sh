@@ -146,8 +146,9 @@ if root is None:
 
 deny("this is an orchestrator session and %s is a deliverable path in a "
      "board repo. Deliverables are role work: draft the issue, get the "
-     "user's confirmation, and spawn the role (spawn.py <role> ... "
-     "--issue <n>). You author only confirmed issues, PR comments, and "
+     "user's confirmation, and spawn a session (spawn.py --skills <skill> "
+     "\"<task>\" --issue <n> — issue #2572: --skills is the sole spawn "
+     "form). You author only confirmed issues, PR comments, and "
      "docs/specs/approvers.md." % n)
 PY
 

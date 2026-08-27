@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""역할별 플러그인 환경으로 에이전트를 띄운다. on-the-record 의 핵심 동작 하나.
+"""스킬 조합으로 에이전트를 띄운다. on-the-record 의 핵심 동작 하나.
 
-  python3 spawn.py <역할> <맡길 일> [-C <작업 디렉터리>] [--dry-run]
-  python3 spawn.py review "PR 12 를 리뷰해라"
-  python3 spawn.py qa "/testrun:testrun smoke" -C ~/work/some-repo
+이슈 #2572: 유일한 스폰 형태는 `--skills` 다 — 역할-포지셔널 스폰
+(`spawn.py implementation "<task>"`)과 맨 태스크 스폰(`spawn.py "<task>"`,
+이슈 #2555)은 은퇴했고 둘 다 `--skills` 를 이름하는 메시지로 거절된다.
+
+  python3 spawn.py --skills <스킬>[,<스킬>...] "<맡길 일>" --issue <n> [-C <작업 디렉터리>] [--dry-run]
+  python3 spawn.py --skills conformance-review-verdict-assignment "PR 12 를 리뷰해라" --issue 12
+  python3 spawn.py --skills testing "/testrun:testrun smoke" --issue 34 -C ~/work/some-repo
 
 **왜 스크립트가 필요한가**: `--settings` 는 덮어쓰기가 아니라 **병합**이다. 역할
 파일에 qa 플러그인만 적어도 사용자 전역 설정의 플러그인 17개가 그대로 딸려온다 —
@@ -1581,12 +1585,17 @@ ROLE_MODEL_CONFIG = ROOT / "role_model.txt"
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("role", nargs="?", help="역할. 생략하면 상태만 보여준다")
+    ap.add_argument("role", nargs="?",
+                    help="서브커맨드 이름(watch/kill/init/...), 또는 "
+                         "--skills/--skill 스폰의 유일한 위치 인자인 "
+                         "<맡길 일>. 생략하면 상태만 보여준다. 이슈 #2572: "
+                         "역할-포지셔널 스폰(spawn.py implementation \"<일>\")은 "
+                         "은퇴했다 — 세션 스폰은 --skills 로만 한다")
     ap.add_argument("task", nargs="?", help="맡길 일. 룰북 커맨드면 '/plugin:command 인자'")
     ap.add_argument("consult_question", nargs="?",
-                    help="consult <역할> \"<질문>\": 세 번째 위치 인자로 질문을 받는다")
+                    help="consult <role-or-skill> \"<질문>\": 세 번째 위치 인자로 질문을 받는다")
     ap.add_argument("panel_question", nargs="?",
-                    help="panel <역할A> <역할B> \"<질문>\": 네 번째 위치 인자로 질문을 받는다")
+                    help="panel <role-or-skill-A> <role-or-skill-B> \"<질문>\": 네 번째 위치 인자로 질문을 받는다")
     ap.add_argument("-C", "--cwd", default=".", help="작업 디렉터리")
     ap.add_argument("--dry-run", action="store_true", help="합쳐진 설정만 보고 안 띄운다")
     ap.add_argument("--no-contract", action="store_true",
@@ -1594,7 +1603,10 @@ def main() -> int:
     ap.add_argument("--trust-repo-config", action="store_true",
                     help="대상 레포의 .claude/ 설정·훅을 신뢰한다. 읽어본 뒤에만")
     ap.add_argument("--issue", type=positive_int,
-                    help="이 이슈 번호로 스폰한다: issue-<n>/<역할> 브랜치를 만들고 프롬프트에 명시")
+                    help="이 이슈 번호로 스폰한다: --skills 스폰이면 "
+                         "issue-<n>/<skill>-<lease> 브랜치를(이슈 #2432/#2572), "
+                         "그 외 서브커맨드는 issue-<n>/<slug> 브랜치를 만들고 "
+                         "프롬프트에 명시. --skills 는 이제 이 인자가 필수다")
     ap.add_argument("--force-adhoc-task", action="store_true",
                     help="issue #2293: admit a task that looks like a bare "
                          "issue number (`538`, `#538`, `-538`) with no "
@@ -1606,20 +1618,29 @@ def main() -> int:
                          "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--skills", default=None,
-                    help="쉼표로 구분한 스킬 이름 목록을 네 소스 — "
+                    help="이슈 #2572: 유일한 스폰 형태 — "
+                         "spawn.py --skills <스킬>[,<스킬>...] \"<맡길 일>\" "
+                         "--issue <n>. 쉼표로 구분한 스킬 이름 목록을 네 소스 — "
                          "skill-repository 체크아웃(MUSTER_SKILL_REPO 또는 "
                          "형제-클론), 설치된 플러그인의 skills/, "
                          "~/.claude/skills, 타깃 저장소 .claude/skills — "
                          "에 걸쳐 해석해 마운트한다(이슈 #1742/#1774/#2488). "
-                         "이름이 둘 이상의 소스에서 겹치면 fail-closed(우선순위 "
+                         "이름이 둘 이상의 소스에서 겹치면, 또는 어느 소스에도 "
+                         "없으면 fail-closed — 워크스페이스/브랜치 전에 "
+                         "모르는 스킬 이름을 그대로 찍어 거절한다(우선순위 "
                          "없음, docs/decisions/2026-08-26-skills-resolver-source-priority-and-trust.md). "
-                         "생략하면 스폰 argv/env 는 이전과 동일")
+                         "이름한 스킬은 기준선(base)이고, 이번 과제 텍스트와 "
+                         "매치되는 스킬은 여전히 그 위에 add-only 로 얹힌다 — "
+                         "이름한 스킬이 매치를 대신하지 않는다(이슈 #2507 "
+                         "add-only 합성, 그대로 유지). 브랜치/기록 이름은 "
+                         "checkout_issue_branch_for_skill() 이 짓는다: "
+                         "issue-<n>/<skill>-<lease-disambiguator>(이슈 #2432)")
     ap.add_argument("--skill", default=None,
                     help="이슈 #2241 stage 0: 역할 대신 스킬 이름(콤마로 여러 개 가능)으로 "
                          "곧장 가이던스를 해석한다. 사용: spawn.py --skill <스킬명> "
                          "\"<맡길 일>\" --issue <n>. 세션은 안 띄운다 — 해석 결과 JSON만 "
                          "찍는다. --role 경로는 이 옵션과 무관하게 그대로다")
-    ap.add_argument("--merge", help="judge <역할> --merge <sha>: 판단할 머지의 커밋 sha")
+    ap.add_argument("--merge", help="judge <role-or-skill> --merge <sha>: 판단할 머지의 커밋 sha")
     ap.add_argument("--unattended", action="store_true",
                     help="사람이 없는 실행. mint 는 안 되고, 휴먼 게이트는 선다")
     ap.add_argument("--limit", type=int, default=12,
@@ -1729,6 +1750,46 @@ def main() -> int:
     ap.add_argument("--json", action="store_true",
                     help="flows: 사람용 표 대신 flows-schema.md 계약대로 JSON 을 stdout 에 찍는다")
     a = ap.parse_args()
+
+    # Issue #2572: --skills is now the sole spawn form -- role-shaped
+    # positional spawns (`spawn.py implementation "<task>"`) and the bare-
+    # task form (`spawn.py "<task>"`, issue #2555) are both retired. This
+    # flag tracks whether the current invocation used the surviving form,
+    # so the generic fall-through further down (which used to launch a
+    # role-named session) can refuse everything else instead.
+    _via_skills = False
+    _skills_branch_identity: tuple[str, str] | None = None
+    if a.skills:
+        # Same argparse-binding convention as `--skill` right below: with
+        # only one positional slot left once a selector flag takes over
+        # session identity, argparse binds the lone remaining token to
+        # `a.role` (positional order is role/task/consult_question/...).
+        # Read it as the task text, not a role name.
+        task_text = a.role
+        if not task_text:
+            sys.exit('usage: spawn.py --skills <skill>[,<skill>...] '
+                     '"<task>" --issue <n>')
+        if a.issue is None:
+            sys.exit('spawn.py --skills requires --issue <n> (issue #2572) '
+                     '-- the skill-axis branch/lease naming '
+                     '(checkout_issue_branch_for_skill, pipeline.py:1135) '
+                     'has no adhoc/issue-less form')
+        skill_names = [n.strip() for n in a.skills.split(",") if n.strip()]
+        if not skill_names:
+            sys.exit(f"--skills: empty skill list -- {a.skills!r}")
+        # This only *names* the branch/record identity from what was
+        # asked for -- actual resolution (does each name exist in one of
+        # the four skill sources? does it carry hooks/?) still happens
+        # inside `_spawn_one()`'s existing `resolved_skill_sources()` call
+        # before any workspace/branch mutation (issue #1742/#1774
+        # fail-closed contract, unchanged by this issue) and fails closed
+        # naming exactly the unresolvable skill.
+        a.task = task_text
+        skill_slug = "+".join(skill_names)
+        disambiguator = new_lease_disambiguator()
+        _skills_branch_identity = (skill_slug, disambiguator)
+        a.role = f"{skill_slug}-{disambiguator}"
+        _via_skills = True
 
     if a.skill:
         # 이슈 #2241 stage 0: 역할 axis 밖의 additive 경로. positional 은
@@ -2077,27 +2138,21 @@ def main() -> int:
         for name, meta in sorted(data.items()):
             print(f"  {name:12s} {meta.get('decides','')}  — {meta.get('use_when','')}")
         return 0
-    if not a.task:
-        # 이슈 #2555 (Step C, completion test): `spawn.py "<task>"` 는
-        # 단일 positional 이 전부라 argparse 가 그걸 `a.role` 에 묶고
-        # `a.task` 는 비어 있다. 그 단일 positional 이 `spawn_roles.json`
-        # 키(레거시 역할 이름)와 맞지 않으면 — 즉 위의 `role == "init"`
-        # 류 서브커맨드 분기와도, 아래 알려진 역할 이름과도 안 맞으면 —
-        # 맡길 일이 실제로 없는 게 아니라 태스크 문구가 위치 인자 하나로만
-        # 들어온 것이다. `--skill` 경로(`spawn.py:1738-1746`)의
-        # `task_text = a.role` 관용구를 그대로 재사용해 태스크로 재해석하고,
-        # 슬러그를 그 문구에서 유도한다. 반대로 역할 이름과 *일치*하면
-        # 오늘과 동일하게 태스크 누락으로 거부한다 (must-not: 진짜 누락된
-        # 태스크를 역할 이름으로 삼켜서는 안 된다).
-        try:
-            known_roles = set(role_data())
-        except (OSError, ValueError):
-            known_roles = set()
-        if a.role in known_roles:
-            sys.exit("맡길 일이 없다. 사용법: spawn.py <역할> \"<맡길 일>\" [-C <경로>]")
-        task_text = a.role
-        a.task = task_text
-        a.role = _derive_slug_from_task(task_text)
+    if not _via_skills:
+        # 이슈 #2572: --skills 가 유일한 스폰 형태다 — 은퇴한 두 형태
+        # (역할-포지셔널 `spawn.py <role> "<task>"`, 맨 태스크 `spawn.py
+        # "<task>"`(이슈 #2555))는 둘 다 `_via_skills` 가 여전히 False 인 채
+        # 여기 도달한다(위의 `--skills` 분기만 그 플래그를 True 로 뒤집는다,
+        # 그리고 그 분기는 이미 `a.role`/`a.task` 를 스킬-슬러그/태스크로
+        # 재배정하고 지나간다) — 위의 서브커맨드 분기(`init`/`ps`/`drive`/...)
+        # 는 모두 그 안에서 return/sys.exit 하므로 여기까지 안 온다. 둘 다
+        # `--skills` 를 이름하는 메시지로 거절한다.
+        sys.exit(
+            "spawn.py 는 이제 --skills 로만 세션을 스폰한다(이슈 #2572) — "
+            "역할-포지셔널 스폰(`spawn.py <role> \"<task>\"`)과 맨 태스크 스폰"
+            "(`spawn.py \"<task>\"`, 이슈 #2555)은 둘 다 은퇴했다. 사용법: "
+            "spawn.py --skills <skill>[,<skill>...] \"<task>\" --issue <n>"
+        )
     if a.checkpoint and a.single_phase:
         sys.exit("--checkpoint and --single-phase are mutually exclusive: "
                  "single-phase skips the proposal round entirely, checkpoint "
@@ -2193,6 +2248,7 @@ def main() -> int:
                           checkpoint=a.checkpoint,
                           force_adhoc_task=a.force_adhoc_task,
                           attempt_id=attempt_id,
+                          skills_branch_identity=_skills_branch_identity,
                           issue_data=_issue_data)
     except (SystemExit, Exception) as e:
         # 이슈 #2291: `_fetch_or_halt()`류의 fail-closed halt(sys.exit)와,
@@ -2726,6 +2782,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                checkpoint: bool = False,
                force_adhoc_task: bool = False,
                attempt_id: str | None = None,
+               skills_branch_identity: tuple[str, str] | None = None,
                issue_data=_ISSUE_NOT_PRE_RESOLVED) -> int:
     """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
@@ -3005,13 +3062,25 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _core_executor.shutdown(wait=False)
             return 1
         with _timed("branch"):
-            # 이슈 #2555 (Step C): `role` 은 이제 스폰 시점에 정해지는
-            # 슬러그다(레거시 역할 이름일 수도, 임의 슬러그일 수도 있다) —
-            # 역할-전용 `checkout_issue_branch()` 대신 이름-짓기 결정이
-            # 이미 끝난 브랜치 이름을 그대로 받는 `_checkout_named_branch()`
-            # 를 직접 부른다. 오늘의 브랜치 이름(`issue-<n>/<role>`)과
-            # 바이트 동일 — `checkout_issue_branch()` 자체가 이 한 줄이다.
-            br = _checkout_named_branch(cwd, f"issue-{issue}/{role}")
+            if skills_branch_identity is not None:
+                # 이슈 #2572/#2432: --skills 스폰은 스킬 축 네이밍
+                # (`checkout_issue_branch_for_skill`, pipeline.py:1135)을
+                # 실제로 쓴다 — 이 함수는 여태 테스트만 있고 프로덕션
+                # 호출자가 없었다. `role` 은 main()에서 이미
+                # `{skill_slug}-{disambiguator}` 로 조립돼 있어 결과 브랜치
+                # 이름은 아래 직접 조립과 바이트 동일하지만, 이름-짓기를
+                # 이 함수에 위임해 pipeline.py:1135 를 실제 호출자로 만든다.
+                skill_slug, disambiguator = skills_branch_identity
+                br = checkout_issue_branch_for_skill(cwd, issue, skill_slug,
+                                                      disambiguator)
+            else:
+                # 이슈 #2555 (Step C): `role` 은 이제 스폰 시점에 정해지는
+                # 슬러그다(레거시 역할 이름일 수도, 임의 슬러그일 수도 있다) —
+                # 역할-전용 `checkout_issue_branch()` 대신 이름-짓기 결정이
+                # 이미 끝난 브랜치 이름을 그대로 받는 `_checkout_named_branch()`
+                # 를 직접 부른다. 오늘의 브랜치 이름(`issue-<n>/<role>`)과
+                # 바이트 동일 — `checkout_issue_branch()` 자체가 이 한 줄이다.
+                br = _checkout_named_branch(cwd, f"issue-{issue}/{role}")
         print(f"[{role}] 격리 작업 디렉토리: {cwd}  (브랜치 {br})", file=sys.stderr)
         # 원본(프리픽스 붙기 전) 맡길 일을 한 번만 저장 — 재스폰(다른 spawn.py
         # 프로세스일 수 있다)이 이걸 읽어 그대로 넘기면, 아래에서 프리픽스를
