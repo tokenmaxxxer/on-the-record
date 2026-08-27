@@ -484,5 +484,123 @@ class SkillRosterFieldsFourTierTest(unittest.TestCase):
         self.assertEqual(len(fields["skills_detail"]), 2)
 
 
+class SymlinkCollapseAndSourceQualifierTest(unittest.TestCase):
+    """이슈 #2579: 심링크로 같은 디렉터리를 두 소스에서 잡아도 충돌이
+    아니라는 것, 내용이 진짜 다르면 여전히 충돌이라는 것, `<source>:<name>`
+    한정자가 충돌 여부와 무관하게 언제나 쓸 수 있다는 것."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        base = Path(self._tmpdir.name)
+        self.repo_root = base / "skill-repo"
+        self.home = base / "home"
+        self.target_repo = base / "target-repo"
+        self.repo_root.mkdir()
+        (self.home / ".claude").mkdir(parents=True)
+        (self.target_repo / ".claude" / "skills").mkdir(parents=True)
+        # 실제 버그 재현: skill-repository 안의 스킬 디렉터리를 만들고,
+        # ~/.claude/skills 를 그 부모(skill-repo 체크아웃)로 심링크한다 —
+        # 이슈가 보고한 "~/.claude/skills -> skill-registry/skills" 모양.
+        (self.repo_root / "alpha").mkdir()
+        (self.repo_root / "alpha" / "SKILL.md").write_text("alpha content")
+        (self.home / ".claude" / "skills").symlink_to(self.repo_root)
+        self._saved_home = spawn.Path.home
+        spawn.Path.home = staticmethod(lambda: self.home)
+
+    def tearDown(self):
+        spawn.Path.home = self._saved_home
+        self._tmpdir.cleanup()
+
+    def test_symlinked_duplicate_is_not_a_collision(self):
+        result = spawn.resolved_skill_sources(
+            "alpha", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "skill-repo")
+
+    def test_genuinely_different_content_still_refuses(self):
+        # local-user 쪽 심링크 대신, 진짜로 다른 내용을 가진 별도 디렉터리를
+        # 만들어 "같은 이름, 다른 내용" 을 재현한다.
+        other_home = Path(self._tmpdir.name) / "home2"
+        (other_home / ".claude" / "skills" / "alpha").mkdir(parents=True)
+        (other_home / ".claude" / "skills" / "alpha" / "SKILL.md").write_text(
+            "totally different content")
+        spawn.Path.home = staticmethod(lambda: other_home)
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "alpha", self.repo_root, home=other_home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("skill-repository", msg)
+        self.assertIn(".claude/skills", msg)
+
+    def test_missing_skill_md_on_both_sides_still_refuses(self):
+        # 회귀 방지: SKILL.md 가 둘 다 없는, 서로 무관한 두 디렉터리를
+        # "내용이 같다"고 오판해 조용히 합치면 안 된다.
+        (self.repo_root / "bare").mkdir()
+        home2 = Path(self._tmpdir.name) / "home3"
+        (home2 / ".claude" / "skills" / "bare").mkdir(parents=True)
+        spawn.Path.home = staticmethod(lambda: home2)
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "bare", self.repo_root, home=home2,
+                target_repo_root=self.target_repo)
+        self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_qualified_name_with_no_collision_works(self):
+        (self.target_repo / ".claude" / "skills" / "beta").mkdir()
+        (self.target_repo / ".claude" / "skills" / "beta" / "SKILL.md").write_text("beta")
+        result = spawn.resolved_skill_sources(
+            "local-repo:beta", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "local-repo")
+        self.assertEqual(result[0]["name"], "beta")
+
+    def test_qualified_name_unaffected_by_dedup_still_selects_source(self):
+        result = spawn.resolved_skill_sources(
+            "skill-repo:alpha", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "skill-repo")
+
+    def test_qualified_name_missing_from_source_names_both(self):
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "local-repo:alpha", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("local-repo", msg)
+        self.assertIn("alpha", msg)
+
+    def test_unqualified_unambiguous_name_still_works(self):
+        (self.target_repo / ".claude" / "skills" / "gamma").mkdir()
+        result = spawn.resolved_skill_sources(
+            "gamma", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "local-repo")
+
+
+class SkillBranchSlugStripsQualifierTest(unittest.TestCase):
+    """이슈 #2579: 브랜치/역할 이름 슬러그는 `<source>:<name>` 한정자의
+    콜론을 절대 나르지 않는다 — 실 스폰(`--skills skill-repo:diagnose-first`)
+    에서 `checkout -b` 가 콜론 때문에 깨지는 걸 재현하고 고친 회귀 방지."""
+
+    def test_qualified_name_slug_has_no_colon(self):
+        slug = spawn.skill_branch_slug(["skill-repo:diagnose-first"])
+        self.assertEqual(slug, "diagnose-first")
+        self.assertNotIn(":", slug)
+
+    def test_mixed_qualified_and_unqualified_names(self):
+        slug = spawn.skill_branch_slug(
+            ["skill-repo:diagnose-first", "silent-failure-audit"])
+        self.assertEqual(slug, "diagnose-first+silent-failure-audit")
+
+    def test_unqualified_names_unchanged(self):
+        slug = spawn.skill_branch_slug(["alpha", "beta"])
+        self.assertEqual(slug, "alpha+beta")
+
+
 if __name__ == "__main__":
     unittest.main()

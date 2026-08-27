@@ -389,11 +389,15 @@ _installed_plugin_skill_dirs = skills._installed_plugin_skill_dirs
 _local_skill_dirs = skills._local_skill_dirs
 _role_source_roster_fields = skills._role_source_roster_fields
 _skill_content_hash = skills._skill_content_hash
+_skill_identity_key = skills._skill_identity_key
 _skill_repo_managed_root = skills._skill_repo_managed_root
 _skill_repo_root = skills._skill_repo_root
 _skill_repo_valid = skills._skill_repo_valid
 _skill_roster_fields = skills._skill_roster_fields
 _skill_source_roster_row = skills._skill_source_roster_row
+_split_skill_qualifier = skills._split_skill_qualifier
+_collapse_identical_matches = skills._collapse_identical_matches
+skill_branch_slug = skills.skill_branch_slug
 resolve_static_policy_source = skills.resolve_static_policy_source
 resolve_role_family_source = skills.resolve_role_family_source
 merge_composed_skill_source = skills.merge_composed_skill_source
@@ -1625,10 +1629,19 @@ def main() -> int:
                          "형제-클론), 설치된 플러그인의 skills/, "
                          "~/.claude/skills, 타깃 저장소 .claude/skills — "
                          "에 걸쳐 해석해 마운트한다(이슈 #1742/#1774/#2488). "
-                         "이름이 둘 이상의 소스에서 겹치면, 또는 어느 소스에도 "
-                         "없으면 fail-closed — 워크스페이스/브랜치 전에 "
-                         "모르는 스킬 이름을 그대로 찍어 거절한다(우선순위 "
-                         "없음, docs/decisions/2026-08-26-skills-resolver-source-priority-and-trust.md). "
+                         "이름이 둘 이상의 소스에서 내용까지 다르게 겹치면, "
+                         "또는 어느 소스에도 없으면 fail-closed — 워크스페이스/"
+                         "브랜치 전에 모르는 스킬 이름을 그대로 찍어 거절한다"
+                         "(우선순위 없음, docs/decisions/2026-08-26-skills-resolver-source-priority-and-trust.md). "
+                         "같은 이름이 둘 이상의 소스에서 잡혀도 내용이 "
+                         "바이트 단위로 같으면(심링크로 같은 디렉터리를 두 "
+                         "경로로 두 번 센 경우 등) 충돌로 보지 않는다(이슈 "
+                         "#2579). 이름 앞에 소스 라벨을 붙여 "
+                         "(skill-repo|plugin|local-user|local-repo):<이름> "
+                         "형태로 소스를 항상 — 겹칠 때만이 아니라 언제나 — "
+                         "명시할 수 있다(이슈 #2579): "
+                         "--skills skill-repo:silent-failure-audit,diagnose-first. "
+                         "한정자가 없으면 오늘처럼 이름만으로 찾는다. "
                          "이름한 스킬은 기준선(base)이고, 이번 과제 텍스트와 "
                          "매치되는 스킬은 여전히 그 위에 add-only 로 얹힌다 — "
                          "이름한 스킬이 매치를 대신하지 않는다(이슈 #2507 "
@@ -1785,7 +1798,13 @@ def main() -> int:
         # fail-closed contract, unchanged by this issue) and fails closed
         # naming exactly the unresolvable skill.
         a.task = task_text
-        skill_slug = "+".join(skill_names)
+        # 이슈 #2579: 브랜치/역할 이름은 스킬 *이름*으로만 짓는다(콜론을 쓰는
+        # `<source>:<name>` 한정자를 그대로 슬러그에 넣으면 git 브랜치 이름이
+        # 깨진다 — 실측: qualified 소스로 실제 스폰해서 재현). 실제 소스
+        # 해석(`resolved_skill_sources()`)은 원본 `a.skills`(한정자 포함)를
+        # 그대로 받으므로 여기서 한정자를 벗겨도 fail-closed 판정에는
+        # 영향이 없다.
+        skill_slug = skill_branch_slug(skill_names)
         disambiguator = new_lease_disambiguator()
         _skills_branch_identity = (skill_slug, disambiguator)
         a.role = f"{skill_slug}-{disambiguator}"

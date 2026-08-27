@@ -189,6 +189,60 @@ def _skill_content_hash(skill_dir: Path) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _skill_identity_key(skill_dir: Path) -> object:
+    """이슈 #2579 dedup 전용 정체성 키. `_skill_content_hash()`와 달리
+    `SKILL.md` 를 못 읽으면 빈-바이트 해시(모든 "못 읽음" 케이스가 공유하는
+    같은 문자열)로 떨어지지 않고 매번 새 유니크 객체를 돌려준다 —
+    `SKILL.md` 가 둘 다 없는, 서로 무관한 두 디렉터리를 "내용이 같다"고
+    오판해 `_collapse_identical_matches()` 가 잘못 합치는 사고를 막는다."""
+    try:
+        data = (skill_dir / "SKILL.md").read_bytes()
+    except OSError:
+        return object()
+    return hashlib.sha256(data).hexdigest()
+
+
+_SKILL_SOURCE_LABELS = ("skill-repo", "plugin", "local-user", "local-repo")
+
+
+def _split_skill_qualifier(raw: str) -> tuple[str | None, str]:
+    """이슈 #2579: `--skills <source>:<name>` 를 (source, name) 으로 쪼갠다.
+    prefix 가 네 소스 라벨(`_SKILL_SOURCE_LABELS`) 중 하나가 아니면
+    한정자가 아니라 이름 자체의 일부로 본다(콜론 없는 이름이 압도적
+    다수라 오탐 여지가 없다) — 이름에 소스가 없으면 (None, raw) 그대로."""
+    if ":" in raw:
+        prefix, _, rest = raw.partition(":")
+        if prefix in _SKILL_SOURCE_LABELS and rest:
+            return prefix, rest
+    return None, raw
+
+
+def skill_branch_slug(skill_names: list[str]) -> str:
+    """이슈 #2579: `--skills` 의 브랜치/역할-이름 슬러그를 스킬 *이름*으로만
+    짓는다 — `<source>:<name>` 한정자의 콜론을 그대로 넣으면 git 브랜치
+    이름이 깨진다(실측: `--skills skill-repo:diagnose-first` 실 스폰에서
+    `checkout -b issue-<n>/skill-repo:diagnose-first-<lease>` 가 "올바른
+    브랜치 이름이 아니다"로 실패). 한정자는 소스 해석에만 쓰고 신원/표시용
+    슬러그에는 반영하지 않는다."""
+    return "+".join(_split_skill_qualifier(n)[1] for n in skill_names)
+
+
+def _collapse_identical_matches(matches: list[dict]) -> list[dict]:
+    """이슈 #2579: 같은 스킬 이름이 둘 이상의 소스에서 잡혀도, 그 내용이
+    바이트 단위로 같으면(예: `~/.claude/skills` 가 skill-repository 체크아웃과
+    같은 디렉터리를 가리키는 심링크) 진짜 충돌이 아니다 — 한 디렉터리를 두
+    경로로 두 번 센 것뿐이다. 전부 같은 내용이면 검색 순서상 첫 매치 하나로
+    합친다(내용이 같으므로 어느 쪽을 골라도 결과는 동일 — precedence 로
+    "다른 것 중 하나를 조용히 고르는" 문제와는 다르다). 내용이 하나라도
+    다르면 원래 목록을 그대로 돌려줘 기존 fail-closed 충돌 처리로 넘긴다."""
+    if len(matches) <= 1:
+        return matches
+    keys = {m["_content_key"] for m in matches}
+    if len(keys) == 1:
+        return matches[:1]
+    return matches
+
+
 def _describe_skill_match(m: dict) -> str:
     """에러 메시지/태스크 문구에 쓸, 소스 하나를 사람이 읽는 한 줄로."""
     if m["source"] == "skill-repo":
@@ -220,11 +274,21 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
     스킬 마운트는 가이던스 전용이라는 원칙 위반 — 역시 워크스페이스/
     브랜치 전에 fail-closed(네 소스 모두 동일 규칙).
 
+    이슈 #2579: 이름 앞에 소스 라벨을 붙여(`<source>:<name>`, 라벨은
+    `skill-repo`/`plugin`/`local-user`/`local-repo`) 소스를 항상(충돌이
+    있을 때만이 아니라 언제나) 명시적으로 고를 수 있다 — 한정자가 가리키는
+    소스에 그 이름이 없으면 소스와 이름을 모두 이름 붙여 fail-closed.
+    한정자가 없으면(압도적 다수) 오늘처럼 이름만으로 찾는다. 같은 이름이
+    둘 이상의 소스에서 잡혀도 내용이 바이트 단위로 같으면(예: 심링크로
+    같은 디렉터리를 두 경로로 두 번 센 경우) 충돌이 아니다 —
+    `_collapse_identical_matches()`; 내용이 하나라도 다르면 여전히
+    fail-closed, precedence 로 조용히 고르지 않는다.
+
     반환값은 이름당 dict 하나: 최소 `name`/`source`/`dir` 를 들고, 소스별
     정체성 필드(`sha`|`plugin`+`version`|`path`+`content_sha256`)가
     추가된다."""
-    names = [n.strip() for n in (skills_csv or "").split(",") if n.strip()]
-    if not names:
+    raw_names = [n.strip() for n in (skills_csv or "").split(",") if n.strip()]
+    if not raw_names:
         return []
     home = home or Path.home()
     plugin_index = _sp._installed_plugin_skill_dirs()
@@ -232,7 +296,8 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
     tier4 = (_sp._local_skill_dirs(target_repo_root / ".claude" / "skills")
              if target_repo_root is not None else {})
     results = []
-    for name in names:
+    for raw in raw_names:
+        source_filter, name = _sp._split_skill_qualifier(raw)
         matches: list[dict] = []
         if repo_root is not None and repo_root.is_dir():
             cand = repo_root / name
@@ -255,11 +320,26 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
                 f"--skills: 모르는 스킬 {name} — skill-repository, 설치된 "
                 f"플러그인, ~/.claude/skills, 타깃 저장소 .claude/skills "
                 f"어디에도 없다")
+        for m in matches:
+            m["_content_key"] = _sp._skill_identity_key(m["dir"])
+        if source_filter is not None:
+            filtered = [m for m in matches if m["source"] == source_filter]
+            if not filtered:
+                sys.exit(
+                    f"--skills: {source_filter}:{name} — 소스 {source_filter} "
+                    f"에 스킬 {name} 이 없다"
+                    + (f" (다른 소스에서는 발견: "
+                       f"{', '.join(_sp._describe_skill_match(mm) for mm in matches)})"
+                       if matches else ""))
+            matches = filtered
+        matches = _sp._collapse_identical_matches(matches)
         if len(matches) > 1:
             sys.exit(
                 f"--skills: {name} 가 둘 이상의 소스에서 겹친다 — "
                 f"{', '.join(_sp._describe_skill_match(m) for m in matches)} "
-                f"(precedence 는 검색 순서일 뿐 충돌을 가리지 않는다)")
+                f"(precedence 는 검색 순서일 뿐 충돌을 가리지 않는다 — "
+                f"소스를 <source>:{name} 형태로 지정해 골라라, 예: "
+                f"skill-repo:{name})")
         m = matches[0]
         if (m["dir"] / "hooks").is_dir():
             sys.exit(

@@ -83,6 +83,37 @@ roster (`skills.py:_skill_roster_fields()`/`_skill_source_roster_row()`)
 plus a `SKILL.md`-content sha256 — so the composition stays
 reproducible and auditable regardless of which source won.
 
+## Update (issue #2579, 2026-08-27)
+
+Two corrections to the collision rule above, both in `resolved_skill_sources()`:
+
+1. **A name matching in two-or-more sources is no longer automatically a
+   collision when the underlying content is byte-identical** (e.g.
+   `~/.claude/skills` symlinked to the same physical directory the
+   skill-repository checkout resolves to — the reported bug: every one of
+   273 skills "collided" with itself this way, blocking `--skills`
+   entirely). `_collapse_identical_matches()` compares each match's
+   `SKILL.md` bytes (via `_skill_identity_key()`, which never treats two
+   *missing* `SKILL.md` files as equal — that would wrongly merge
+   unrelated empty directories) and collapses to one match only when
+   every match's content agrees. Matches whose content genuinely differs
+   still hit the original hard fail-closed error unchanged — this
+   decision's "no silent precedence" rule stands exactly as written above
+   for that case.
+2. **A source can now be named explicitly, always** — not only once a
+   collision forces a choice — via `<source>:<name>`
+   (`skill-repo`/`plugin`/`local-user`/`local-repo`), e.g.
+   `--skills skill-repo:diagnose-first`. An unqualified name behaves
+   exactly as before (resolves across all four sources, subject to the
+   collision rule above). A qualifier pointing at a source that doesn't
+   have that name fails closed naming both the source and the name. This
+   makes every mount reproducible from a record alone — previously a
+   name's source could only be inferred from search order, so "which
+   `secure-coding` ran" was unrecoverable after the fact.
+
+See `docs/issue-2579/reports/silent-failure-audit+diagnose-first-206898b1.md`
+for the live reproductions.
+
 ## Consequences
 
 - A future change proposing silent per-source precedence, or a
