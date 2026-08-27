@@ -31,6 +31,12 @@ skill-verdict: other mounted skills — not triggered (no Skill tool call this s
 
 ## What was done
 
+amendments-reconciled: issuecomment-5433139986 — read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/2574/comments` this turn. Body:
+"Observers run single-phase... The first one is correct." No
+alternative swap occurred — this session's design already matches the
+confirmed reading below THE JUDGMENT.
+
 canonical: `gh issue view 2574` output, read at session start — root cause quoted verbatim from the issue body:
 
 ```
