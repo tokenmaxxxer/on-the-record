@@ -98,3 +98,25 @@ Append-only, newest entry last.
   explicit, human-invoked flags, not inferred from role identity. Source:
   operator comment on issue #2574, 2026-08-27T01:21:04Z
   (https://github.com/tokenmaxxxer/on-the-record/issues/2574#issuecomment-5433139986).
+
+- 2026-08-27: design principle for any disambiguation/naming syntax added
+  to fix an ambiguity bug (surfaced on issue #2579, `--skills` source
+  resolution): the syntax that resolves an ambiguity must be legal
+  unconditionally, not only once the ambiguity actually fires. Stated
+  directly in the issue body: "Naming the source must be possible always,
+  not only when forced... any disambiguation syntax added *only* for the
+  collision case is a syntax nobody uses until something breaks — the
+  ambiguity exists first and the means to resolve it appears afterward."
+  The corollary: a record that only ever names a resolved *result* (e.g.
+  a mounted skill's bare name) without a way to also name which *source*
+  produced it cannot be re-judged later — "a record saying `--skills
+  secure-coding` cannot be re-judged later: which `secure-coding` ran is
+  unrecoverable." This generalizes past `--skills`: anywhere a name is
+  resolved across more than one candidate source, the resolver should
+  accept an explicit source qualifier as a first-class, always-available
+  option, not a special form that only exists in the CHANGES/error path.
+  Paired constraint from the same issue, so the fix doesn't overcorrect:
+  an unqualified name must still resolve on its own when unambiguous —
+  "requiring qualification everywhere would be noise." Source: issue body,
+  tokenmaxxxer/on-the-record#2579, opened before 2026-08-27
+  (https://github.com/tokenmaxxxer/on-the-record/issues/2579).
