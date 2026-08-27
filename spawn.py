@@ -1475,7 +1475,7 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
             anomalies.append(
                 f"watcher-dead: 워처 pid {watcher_pid} 가 죽어 있거나(또는 다른 "
                 f"프로세스가 그 pid 를 물려받았거나) — spawn.py watch --issue "
-                f"<n> --role <role> --rearm 로 재무장하라 (non-blocking)")
+                f"<n> --session <session> --rearm 로 재무장하라 (non-blocking)")
         else:
             # signal 6 (이슈 #782): 워처 pid 는 살아 있고 신원도 진짜인데
             # (_watcher_looks_real 통과) 워처 자신의 로그가 무장 이후로
@@ -1492,7 +1492,7 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
                     anomalies.append(
                         f"watcher-silent: 워처 pid {watcher_pid} 는 살아 있지만 "
                         f"{int(silence_min)}분째 로그 무응답 ({watcher_log}) — "
-                        f"spawn.py watch --issue <n> --role <role> --rearm 로 "
+                        f"spawn.py watch --issue <n> --session <session> --rearm 로 "
                         f"재무장하라 (non-blocking)")
 
     return anomalies
@@ -1665,9 +1665,10 @@ def main() -> int:
                          "복붙 명령 블록을 출력하고 비0으로 끝난다")
     ap.add_argument("--stall-timeout", type=float, default=5.0,
                     help="분 단위. role task/watch 가 이벤트 없이 블록하는 최대 시간 (기본 5)")
-    ap.add_argument("--role", dest="watch_role",
-                    help="watch: 같은 이슈에 역할이 여럿 기록돼 있을 때 지정. "
-                         "recut-corrupted: --issue 와 함께 대상 issue-<n>/<role> "
+    ap.add_argument("--session", dest="watch_session",
+                    help="watch: 같은 이슈에 세션이 여럿 기록돼 있을 때 어느 "
+                         "세션인지 지정하는 슬러그(예: implementation-abcd1234). "
+                         "recut-corrupted: --issue 와 함께 대상 issue-<n>/<session> "
                          "브랜치를 고른다")
     ap.add_argument("--follow", action="store_true",
                     help="watch: 이벤트마다 재무장하지 않고 session-end 까지 "
@@ -1762,6 +1763,14 @@ def main() -> int:
                     help="closure-sweep: 위반을 해당 이슈에 코멘트로도 남긴다 (기본은 stdout 만)")
     ap.add_argument("--json", action="store_true",
                     help="flows: 사람용 표 대신 flows-schema.md 계약대로 JSON 을 stdout 에 찍는다")
+    # Issue #2592: `--role` selected a session instance, not a role, and
+    # its own name/help text said otherwise. Retired outright rather than
+    # aliased (same precedent as #2572's retired role-positional/bare-task
+    # spawn forms) — argparse's generic "unrecognized arguments" wouldn't
+    # name the replacement, so intercept before parsing.
+    if any(tok == "--role" or tok.startswith("--role=") for tok in sys.argv[1:]):
+        sys.exit("spawn.py: --role 는 은퇴했다(이슈 #2592) — 세션을 고르는 "
+                 "건 역할이 아니라 슬러그다. 대신 --session <slug> 를 써라")
     a = ap.parse_args()
 
     # Issue #2572: --skills is now the sole spawn form -- role-shaped
@@ -1857,9 +1866,9 @@ def main() -> int:
         # a real role session (conflict resolution needs judgment).
         return mechanical_rebase_cli(str(Path(a.cwd).resolve()))
     if a.role == "recut-corrupted":
-        if not a.issue or not a.watch_role:
-            sys.exit("사용법: spawn.py recut-corrupted --issue <n> --role <role> [-C cwd]")
-        return recut_corrupted_cli(str(Path(a.cwd).resolve()), a.issue, a.watch_role)
+        if not a.issue or not a.watch_session:
+            sys.exit("사용법: spawn.py recut-corrupted --issue <n> --session <session> [-C cwd]")
+        return recut_corrupted_cli(str(Path(a.cwd).resolve()), a.issue, a.watch_session)
     if a.role == "watchdog":
         # 이슈 #1219: `-C` (기본값 ".") 를 그대로 넘긴다 — 컨슈머 세션은
         # 타깃 프로젝트를, dev 세션(cwd == 이 체크아웃)은 이 체크아웃
@@ -2076,15 +2085,15 @@ def main() -> int:
         if a.until_idle:
             sys.exit("사용법: spawn.py watch --until-idle 은 --all 과 함께만 쓴다")
         if a.issue is None:
-            sys.exit("사용법: spawn.py watch --issue <n> [--role <역할>] "
+            sys.exit("사용법: spawn.py watch --issue <n> [--session <slug>] "
                      "[--stall-timeout <분>], 또는 spawn.py watch --all")
         # 이슈 #554: `kill <역할> --issue N` 과 같은 위치 인자 문법을
-        # `watch` 에도 허용한다 — `--role` 이 이미 있으면 그게 우선한다.
-        watch_role = a.watch_role or a.task
+        # `watch` 에도 허용한다 — `--session` 이 이미 있으면 그게 우선한다.
+        watch_session = a.watch_session or a.task
         if a.rearm:
-            return _rearm_watcher_detached(a.issue, watch_role, a.stall_timeout,
+            return _rearm_watcher_detached(a.issue, watch_session, a.stall_timeout,
                                             repo=_repo_identity(a.cwd), cwd=a.cwd)
-        return _watch(a.issue, watch_role, a.stall_timeout, follow=a.follow,
+        return _watch(a.issue, watch_session, a.stall_timeout, follow=a.follow,
                       repo=_repo_identity(a.cwd), max_wait_min=a.max_wait,
                       self_heal=a.self_heal)
     if a.role == "clean":
@@ -2095,13 +2104,13 @@ def main() -> int:
     if a.role == "await-approval":
         # Issue #2129: the deterministic in-session approval wait a
         # checkpoint-mode session runs at its phase-1/phase-2 boundary.
-        # Positional `task` doubles as the role (same convention as
-        # kill/watch); --role wins when both are given.
-        wait_role = a.watch_role or a.task
-        if a.issue is None or not wait_role:
-            sys.exit("usage: spawn.py await-approval --issue <n> --role "
-                     "<role> [--timeout <s>] [--poll-interval <s>] [-C <dir>]")
-        return await_approval_cmd(a.cwd, a.issue, wait_role,
+        # Positional `task` doubles as the session slug (same convention
+        # as kill/watch); --session wins when both are given.
+        wait_session = a.watch_session or a.task
+        if a.issue is None or not wait_session:
+            sys.exit("usage: spawn.py await-approval --issue <n> --session "
+                     "<session> [--timeout <s>] [--poll-interval <s>] [-C <dir>]")
+        return await_approval_cmd(a.cwd, a.issue, wait_session,
                                   timeout=a.timeout,
                                   interval=a.poll_interval)
     if a.role == "approve":
@@ -3627,7 +3636,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                         wproc = subprocess.Popen(
                             [sys.executable, str(Path(__file__).resolve()),
                              "-C", resolved_watch_cwd,
-                             "watch", "--issue", str(issue), "--role", role,
+                             "watch", "--issue", str(issue), "--session", role,
                              "--follow", "--self-heal",
                              "--stall-timeout", str(stall_timeout_min)],
                             stdin=subprocess.DEVNULL, stdout=wf,
@@ -3651,10 +3660,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 죽는 걸로 관측됐다(이슈 #1154 8/8). 등록 직후 항상 리턴해
                 # `_rearm_watcher_detached()` 와 같은 모양으로 맞춘다.
                 # 기존 bounded 진행 대기가 필요하면 별도
-                # `spawn.py watch --issue <n> --role <role>` 호출로 이어본다.
+                # `spawn.py watch --issue <n> --session <session>` 호출로 이어본다.
                 print(f"[{role}] 스폰은 리턴했지만 세션은 계속 돈다 — 상태는 "
                       f"spawn.py ps, 이어보려면 spawn.py watch --issue "
-                      f"{issue} --role {role}", file=sys.stderr)
+                      f"{issue} --session {role}", file=sys.stderr)
                 # 이슈 #2201 헌트: 여기가 bounded 부모의 유일한 리턴 지점이고,
                 # 이 함수가 끝나면 곧 `sys.exit()`(CLI 진입점)로 인터프리터가
                 # 죽는다 — 데몬 스레드는 그 시점에 join 없이 그냥 죽으므로,

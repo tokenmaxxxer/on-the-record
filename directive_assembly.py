@@ -52,7 +52,7 @@ _CHECKPOINT_CONTRACT_BLOCK = (
     "parameter to at least {bash_timeout_ms} ms; never poll in your own "
     "turns):\n"
     "     {python} {spawn_py} -C . await-approval --issue {issue} "
-    "--role {role}\n"
+    "--session {role}\n"
     "     It writes the declared-wait file (.waiting-on.json, "
     "`issue:{issue}` / approve-token — the #2101 watchdog exemption) and "
     "polls `gh issue view {issue} --comments` machinery for the "
@@ -94,7 +94,7 @@ def _checkpoint_index_block(issue: int, role: str) -> str:
         f"(timeout parameter >= {bash_timeout_ms} ms) for the whole "
         f"wait:\n"
         f"     {sys.executable} {Path(_sp.__file__).resolve()} -C . "
-        f"await-approval --issue {issue} --role {role}\n"
+        f"await-approval --issue {issue} --session {role}\n"
         f"  exit 0 = approved: continue IMMEDIATELY into phase-2 in "
         f"this same context; exit 3 = timeout: end cleanly (the "
         f"proposal PR is the returned state).\n")

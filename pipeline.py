@@ -1073,7 +1073,7 @@ def _checkout_named_branch(cwd: str, br: str) -> str:
 
 
 def recut_corrupted_cli(cwd: str, issue: int, role: str) -> int:
-    """`spawn.py recut-corrupted --issue <n> --role <role> -C <cwd>`
+    """`spawn.py recut-corrupted --issue <n> --session <session> -C <cwd>`
     (issue #2402): issue #2379 의 corrupted-merge-base 브랜치(branch-cut
     시점에 오래된/무관한 parent 에서 갈라진 `issue-<n>/<role>`)를 새
     `fix/...` 브랜치로 옮기는 대신, **같은 이름을 유지한 채** 올바른 base

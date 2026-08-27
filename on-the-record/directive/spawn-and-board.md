@@ -52,7 +52,7 @@
   HEALTHY/RUNNING/anomaly/returned-PR events as notifications to this
   session automatically. Trust those and act on them when they arrive; the
   only sanctioned direct status checks are a one-shot `spawn.py ps` or
-  `spawn.py watch --issue <n> --role <r>` call — never a standing loop of
+  `spawn.py watch --issue <n> --session <s>` call — never a standing loop of
   any kind.
 - SPAWN INDEPENDENT WORK TOGETHER, NOT ONE-THEN-WAIT (issue #2382): before
   spawning, check whether more than one pending role has no data dependency
