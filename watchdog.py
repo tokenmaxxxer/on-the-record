@@ -560,6 +560,23 @@ def _watchdog_note_unmappable_pr(root: Path, pr_number: int) -> bool:
     return True
 
 
+def _watchdog_note_unmappable_subject_branch(root: Path, subject: str) -> bool:
+    """이슈 #2196 category 3: `gates/spawn_on_pr.py`의 `missing_verification`
+    이 `subject`의 deliverable 브랜치를 `pr_index`에서 찾지 못하는 조건은
+    삭제된 오래된 브랜치처럼 영구적인 경우가 대부분이다 —
+    `_watchdog_note_unmappable_pr`과 같은 one-shot 마커: 처음 보는
+    subject 면 True(=이번 틱에 개별 줄로 보고)를 돌려주고 상태에 기록,
+    이미 본 subject 면 False(=저장소 상태가 그대로면 반복 보고하지 않음)."""
+    path = _sp._watchdog_noise_state_path(root)
+    state = _sp._load_watchdog_noise_state(path)
+    seen = state.setdefault("unmappable_subject_branch_reported", {})
+    if subject in seen:
+        return False
+    seen[subject] = True
+    _sp._save_watchdog_noise_state(path, state)
+    return True
+
+
 def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
     """issue #1688: single-number detail fetch for delta-mode
     requirement-drift rechecks, routed through `gates.gh_cache.cached_get`
