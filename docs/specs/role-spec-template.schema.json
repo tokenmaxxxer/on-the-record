@@ -10,7 +10,6 @@
     "required_fields",
     "reference_resolution",
     "recomputation",
-    "write_scope",
     "loop_state",
     "use_when"
   ],
