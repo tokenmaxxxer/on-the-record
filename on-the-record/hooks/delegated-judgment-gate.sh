@@ -292,7 +292,7 @@ for _pattern, _transition, _ in FRAMING_TRANSITIONS:
         _r = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
         if _r is None:
             sys.exit(0)
-        _bm = re.match(r"^issue-(\d+)/([\w-]+)$", _r.stdout.strip())
+        _bm = re.match(r"^issue-(\d+)/([^/]+)$", _r.stdout.strip())
         if not _bm:
             sys.exit(0)
         _f_issue = int(_bm.group(1))
@@ -338,7 +338,7 @@ r = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"])
 if r is None:
     sys.exit(0)
 branch = r.stdout.strip()
-bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
+bm = re.match(r"^issue-(\d+)/([^/]+)$", branch)
 if not bm:
     sys.exit(0)
 issue = int(bm.group(1))

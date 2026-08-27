@@ -220,7 +220,7 @@ if role is None:
             capture_output=True, text=True, timeout=20, cwd=_role_cwd,
         )
         if br.returncode == 0:
-            bm = re.match(r"^issue-(\d+)/([\w-]+)$", br.stdout.strip())
+            bm = re.match(r"^issue-(\d+)/([^/]+)$", br.stdout.strip())
             if bm and int(bm.group(1)) == issue:
                 role = bm.group(2)
     except (OSError, subprocess.SubprocessError):

@@ -220,43 +220,66 @@ run_cwd = target_cwd or e.get("cwd") or os.getcwd()
 # denying — an existing deny gate elsewhere still wins either way per this
 # hook's own file-header note; this only makes a bad merge no easier.
 def _routing_fix_should_withhold(cwd):
+    # issue #2576: identity axis is now mounted skills ($MUSTER_SKILLS,
+    # pipeline.py:723), not a literal two-role branch-name match — a
+    # composed multi-skill spawn (e.g. "secure-coding+other-skill-<id>")
+    # never matched the old `^issue-(\d+)/(secure-coding|release-
+    # engineering)$` regex at all, silently disabling this routing-fix for
+    # exactly the composed-slug sessions #2548/#2572 introduced.
+    mounted = [s for s in os.environ.get("MUSTER_SKILLS", "").split(",") if s]
+    candidates = [r for r in ("secure-coding", "release-engineering") if r in mounted]
+    if not candidates:
+        return False
+    # --- issue number: prefer the .on-the-record/role.json lease sidecar ---
+    issue = None
     try:
-        branch = subprocess.run(
-            ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=10,
-        ).stdout.strip()
-    except (OSError, subprocess.SubprocessError):
-        return False
-    m = re.match(r"^issue-(\d+)/(secure-coding|release-engineering)$", branch)
-    if not m:
-        return False
-    issue, role = m.group(1), m.group(2)
-    try:
-        role_data = json.load(open(os.path.join(cwd, "spawn_roles.json")))
-        spec = role_data[role]["record_spec"]
-    except (OSError, ValueError, KeyError):
-        return False
-    trigger = (spec.get("use_when") or {}).get("trigger") if isinstance(spec.get("use_when"), dict) else None
-    if not isinstance(trigger, dict) or trigger.get("record_absent_for") != role:
-        return False
-    path_patterns = trigger.get("path_patterns") or []
-    if not path_patterns:
-        return False
-    try:
-        diff = subprocess.run(
-            ["git", "-C", cwd, "diff", "--name-only", "origin/main...HEAD"],
-            capture_output=True, text=True, timeout=15,
-        )
-        changed = [l for l in diff.stdout.splitlines() if l.strip()]
-    except (OSError, subprocess.SubprocessError):
-        return False
-    if not changed:
-        return False
-    import fnmatch
-    if not any(fnmatch.fnmatch(f, pat) for f in changed for pat in path_patterns):
-        return False
-    record_path = os.path.join(cwd, "docs", "issue-%s" % issue, "reports", role + ".md")
-    return not os.path.isfile(record_path)
+        with open(os.path.join(cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
+            sidecar = json.load(f)
+        if isinstance(sidecar, dict) and isinstance(sidecar.get("issue"), int):
+            issue = sidecar["issue"]
+    except (OSError, ValueError):
+        pass
+    if issue is None:
+        try:
+            branch = subprocess.run(
+                ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+                capture_output=True, text=True, timeout=10,
+            ).stdout.strip()
+        except (OSError, subprocess.SubprocessError):
+            return False
+        m = re.match(r"^issue-(\d+)/", branch)
+        if not m:
+            return False
+        issue = int(m.group(1))
+    for role in candidates:
+        try:
+            role_data = json.load(open(os.path.join(cwd, "spawn_roles.json")))
+            spec = role_data[role]["record_spec"]
+        except (OSError, ValueError, KeyError):
+            continue
+        trigger = (spec.get("use_when") or {}).get("trigger") if isinstance(spec.get("use_when"), dict) else None
+        if not isinstance(trigger, dict) or trigger.get("record_absent_for") != role:
+            continue
+        path_patterns = trigger.get("path_patterns") or []
+        if not path_patterns:
+            continue
+        try:
+            diff = subprocess.run(
+                ["git", "-C", cwd, "diff", "--name-only", "origin/main...HEAD"],
+                capture_output=True, text=True, timeout=15,
+            )
+            changed = [l for l in diff.stdout.splitlines() if l.strip()]
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if not changed:
+            continue
+        import fnmatch
+        if not any(fnmatch.fnmatch(f, pat) for f in changed for pat in path_patterns):
+            continue
+        record_path = os.path.join(cwd, "docs", "issue-%s" % issue, "reports", role + ".md")
+        if not os.path.isfile(record_path):
+            return True
+    return False
 
 
 if _routing_fix_should_withhold(run_cwd):

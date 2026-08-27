@@ -137,7 +137,7 @@ if issue is not None:
     except (OSError, subprocess.SubprocessError):
         r2 = None
     if r2 is not None and r2.returncode == 0:
-        bm2 = re.match(r"^issue-(\d+)/([\w-]+)$", r2.stdout.strip())
+        bm2 = re.match(r"^issue-(\d+)/([^/]+)$", r2.stdout.strip())
         if bm2:
             cross_issue = int(bm2.group(1))
             cross_role = bm2.group(2)
@@ -160,7 +160,7 @@ if issue is None:
     if r.returncode != 0:
         sys.exit(0)
     branch = r.stdout.strip()
-    bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
+    bm = re.match(r"^issue-(\d+)/([^/]+)$", branch)
     if not bm:
         sys.exit(0)  # unparseable branch — accepted fail-open, matches pr-preflight.sh/contract-guard.sh
     issue = int(bm.group(1))

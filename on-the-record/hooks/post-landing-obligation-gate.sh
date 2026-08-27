@@ -169,7 +169,7 @@ except ValueError:
 branch = head_data.get("headRefName") if isinstance(head_data, dict) else None
 if not isinstance(branch, str):
     sys.exit(0)
-bm = re.match(r"^issue-(\d+)/([A-Za-z0-9_-]+)$", branch)
+bm = re.match(r"^issue-(\d+)/([^/]+)$", branch)
 if not bm:
     sys.exit(0)  # not a per-issue role branch — cannot resolve, no-op
 issue, role = bm.group(1), bm.group(2)

@@ -184,15 +184,32 @@ def _marked_defs(text):
 
 marked = _marked_defs(new_content)
 if marked:
-    branch = None
-    br = subprocess.run(["git", "-C", root, "branch", "--show-current"],
-                        capture_output=True, text=True)
-    if br.returncode == 0:
-        branch = br.stdout.strip()
-    m = re.match(r"^issue-(\d+)/([\w-]+)$", branch or "")
-    if m:
+    # --- prefer the .on-the-record/role.json lease sidecar (issue #1814) ---
+    # written by spawn.py's issue_workspace() at spawn time; carries the
+    # exact (possibly composed, e.g. "skill-a+skill-b-<disambiguator>")
+    # identity string the session was spawned under. Any absence/parse
+    # failure falls back to the branch-regex parse below.
+    issue_n, slug = None, None
+    try:
+        with open(os.path.join(root, ".on-the-record", "role.json"), encoding="utf-8") as f:
+            sidecar = json.load(f)
+        if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+                and isinstance(sidecar.get("issue"), int)):
+            issue_n, slug = sidecar["issue"], sidecar["role"]
+    except (OSError, ValueError):
+        pass
+    if slug is None:
+        branch = None
+        br = subprocess.run(["git", "-C", root, "branch", "--show-current"],
+                            capture_output=True, text=True)
+        if br.returncode == 0:
+            branch = br.stdout.strip()
+        m = re.match(r"^issue-(\d+)/([^/]+)$", branch or "")
+        if m:
+            issue_n, slug = int(m.group(1)), m.group(2)
+    if slug is not None:
         record_path = os.path.join(
-            root, "docs", f"issue-{m.group(1)}", "reports", f"{m.group(2)}.md")
+            root, "docs", f"issue-{issue_n}", "reports", f"{slug}.md")
         if os.path.isfile(record_path):
             try:
                 record_text = open(record_path, encoding="utf-8",

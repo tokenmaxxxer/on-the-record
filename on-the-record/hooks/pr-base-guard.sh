@@ -102,9 +102,9 @@ except (OSError, subprocess.SubprocessError):
 if r.returncode != 0:
     sys.exit(0)
 branch = r.stdout.strip()
-bm = re.match(r"^issue-(\d+)/([\w-]+)$", branch)
+bm = re.match(r"^issue-(\d+)/", branch)
 if not bm:
-    sys.exit(0)  # not a role workspace branch — out of this gate's scope
+    sys.exit(0)  # not a per-issue workspace branch — out of this gate's scope
 issue = int(bm.group(1))
 
 def gh_json(*args):
