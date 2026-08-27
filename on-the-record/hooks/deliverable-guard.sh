@@ -124,14 +124,98 @@ PRODUCT_CAPTURE_ISSUE_RE = re.compile(
 # `src/docs/reports/product/priorities/hack.md` pass this exemption
 # merely by ENDING with the recognized suffix, exempting a real
 # deliverable write under `src/`. `n` is repo-root-relative by
-# construction (see `posixpath.normpath` above), so the real target
-# directory must start at position 0, not appear as an arbitrary suffix.
+# construction (see `posixpath.normpath` above) only when `file_path`
+# arrived relative — the real target directory must start at position 0,
+# not appear as an arbitrary suffix.
 PRODUCT_CAPTURE_PRIORITIES_DIR_RE = re.compile(
     r"^docs/reports/product/priorities/[^/]+\.md$"
     r"|^docs/issue-\d+/reports/product/priorities/[^/]+\.md$"
 )
+# issue #2637 (adversarial-review, aba56a87): the `^`-anchor above closes
+# the src/-rooted bypass but then never matches when `file_path` arrives
+# absolute — `n` is the raw absolute path in that case, not "docs/...".
+# A first fix attempt (rejected, PR #2653) re-derived a *cwd*-relative
+# form and matched that instead. `cwd` is reported by the calling session
+# itself, so a session that `cd src` before its write handed the guard a
+# relative form ("docs/reports/product/priorities/hack.md") that lands
+# right back inside the exemption — the identical src/-rooted bypass,
+# only the calling shape changed. The base a path is made relative to
+# must not be something the caller controls. Resolve `n` to an absolute
+# path and find the actual repo root by walking up for a `.git` directory
+# (the same walk this hook already does lower down to decide whether it's
+# even in a board repo) — that root is filesystem truth, not a
+# session-reported value. Match the anchored regex against the path
+# relative to THAT root. This also closes the relative-path mirror of the
+# same bug: a relative `file_path` was previously assumed repo-root-
+# relative "by construction", which is only true when cwd happens to be
+# the repo root — a session that `cd src` and then writes the identical
+# relative shard-looking path was never exercised by the regression test
+# and would have been wrongly exempted too. No exemption is granted when
+# no git root can be found (falls back to matching raw `n`, unchanged) —
+# a narrower miss, never a new bypass.
+def _git_root_from(path_hint):
+    probe = posixpath.dirname(path_hint)
+    while probe and probe != "/":
+        if os.path.isdir(posixpath.join(probe, ".git")):
+            return probe
+        probe = posixpath.dirname(probe)
+    return None
+
+# KNOWN OPEN BYPASS (issue #2637 round 4, PR #2658 finding, reproduced
+# again in test/test_deliverable_guard_priorities_shard.py's three
+# `expectedFailure` cases below): `_git_root_from` above trusts
+# `os.path.isdir(<probe>/".git")` as proof that `<probe>` is the real
+# repo root. This hook only ever inspects Write/Edit/MultiEdit/
+# NotebookEdit tool calls (see the tool_name check above) — it never
+# sees an ordinary Bash `mkdir <probe>/.git` or `ln -s <anything>
+# <probe>/.git` the same orchestrator session can run immediately before
+# the guarded write. Either one relocates the "root" this exemption
+# resolves against to `<probe>`, which reopens the identical
+# src/-rooted bypass this whole exemption exists to close. A linked
+# worktree/submodule checkout (`.git` there is a FILE, not a directory)
+# hits the walk's "no root found" fallback instead and disables this
+# hook's src/test/docs deliverable-write denial entirely, not just the
+# priorities-shard exemption — see the hook's own separate board-repo
+# activation walk further below, which has the identical `os.path.isdir`
+# assumption and is unmodified by this file's history.
+#
+# Round 4 (docs/issue-2637/reports/silent-failure-audit+architecture-
+# interface-contract-shape-149dabd2.md) confirmed a session genuinely
+# must `Write` a shard file directly — `priorities.py`'s own module
+# docstring says so, and `_priorities_entry_path()`/`spawn.py
+# priorities-path` mint a path and `mkdir` the directory but never write
+# the entry itself (verified: the path does not exist on disk until a
+# session's own Write/Edit lands it) — so this exemption cannot simply
+# be deleted. That round was also told not to attempt a fourth
+# path-shaped resolution here: three prior fixes (unanchored regex,
+# `^`-anchor, cwd-relative, this git-root walk) each closed the
+# previous fix's hole and opened a new one, and a consult concluded no
+# path-shaped formulation can be made unsteerable while this hook
+# decides from session-reported strings and session-mutable filesystem
+# state before the write happens. This comment and the three
+# `expectedFailure` tests exist so that fact is visible in the code and
+# in `pytest` output instead of silently unaddressed — closing it needs
+# a mechanism that does not decide from a path string, which is a
+# decision for the issue, not a fifth regex.
+priorities_candidate = n
+_cwd_for_exemption = e.get("cwd")
+_cwd_ok = (isinstance(_cwd_for_exemption, str) and _cwd_for_exemption
+           and posixpath.isabs(_cwd_for_exemption))
+if posixpath.isabs(n):
+    _abs_for_exemption = n
+elif _cwd_ok:
+    _abs_for_exemption = posixpath.normpath(
+        posixpath.join(_cwd_for_exemption, n))
+else:
+    _abs_for_exemption = None
+if _abs_for_exemption is not None:
+    _root_for_exemption = _git_root_from(_abs_for_exemption)
+    if _root_for_exemption is not None:
+        _rel = posixpath.relpath(_abs_for_exemption, _root_for_exemption)
+        if _rel != "." and not _rel.startswith(".."):
+            priorities_candidate = _rel
 if (n.endswith(EXEMPT_SUFFIXES) or PRODUCT_CAPTURE_ISSUE_RE.search(n)
-        or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(n)):
+        or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(priorities_candidate)):
     sys.exit(0)
 # issue #787 H1: the old src/tests?/docs-segment-only regex missed a flat
 # top-level package layout (no such segment at all). Widen to "everything
