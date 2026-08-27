@@ -162,6 +162,71 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
         r = _run_gate(self.repo, "src/foo.py", cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
 
+    # --- issue #2637 round 4: the git-root walk itself is steerable -----
+    # PR #2658 (adversarial-review+secure-coding-input-validation-
+    # injection-defense-b0e82077) found the `.git`-probing walk this
+    # exemption's cwd/abs-path resolution depends on
+    # (`on-the-record/hooks/deliverable-guard.sh`'s `_git_root_from`/the
+    # pre-existing activation walk it reuses) trusts `os.path.isdir(<probe>/
+    # ".git")` as proof of "this is the repo root" — a signal the very
+    # session this hook is meant to gate can plant with an ordinary
+    # `mkdir`/`ln -s` before the guarded Write/Edit call, since this hook
+    # only ever inspects Write/Edit/MultiEdit/NotebookEdit tool calls, never
+    # plain Bash filesystem mutation. These three cases pin that finding
+    # down as a live regression, not a re-derivation: each currently
+    # returns rc=0 (EXEMPT — bypass) instead of the rc=2 every other
+    # src/-rooted case above gets, and each is `expectedFailure` rather
+    # than fixed, per this round's finding
+    # (docs/issue-2637/reports/silent-failure-audit+architecture-interface-contract-shape-149dabd2.md):
+    # a session genuinely must `Write` a shard file directly (`priorities.py`'s
+    # own module docstring, and `_priorities_entry_path()`/`spawn.py
+    # priorities-path` mint a path and mkdir the directory but never write
+    # the entry themselves), so the exemption these three cases attack
+    # cannot simply be deleted — and a fourth path-shaped resolution
+    # attempt is exactly what round 4 was told not to write, per the
+    # consult finding that no such formulation can be made unsteerable
+    # while this hook decides from session-reported strings and
+    # session-mutable filesystem state before the write happens. These
+    # `expectedFailure` cases exist so the suite says so out loud instead
+    # of silently having no coverage for a known-open gap.
+
+    @unittest.expectedFailure
+    def test_bypass_via_planted_git_directory_should_be_denied(self):
+        (self.repo / "src" / ".git").mkdir(parents=True)
+        r = _run_gate(
+            self.repo,
+            str(self.repo / "src/docs/reports/product/priorities/hack.md"),
+            cwd=str(self.repo))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    @unittest.expectedFailure
+    def test_bypass_via_planted_git_symlink_should_be_denied(self):
+        elsewhere = self.repo.parent / "elsewhere"
+        elsewhere.mkdir()
+        (self.repo / "src" / ".git").symlink_to(elsewhere)
+        r = _run_gate(
+            self.repo,
+            str(self.repo / "src/docs/reports/product/priorities/hack.md"),
+            cwd=str(self.repo))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    @unittest.expectedFailure
+    def test_bypass_inside_linked_worktree_should_be_denied(self):
+        (self.repo / "README.md").write_text("x")
+        subprocess.run(["git", "add", "README.md"], cwd=self.repo, check=True)
+        subprocess.run(
+            ["git", "-c", "user.email=t@t", "-c", "user.name=t",
+             "commit", "-q", "-m", "init"],
+            cwd=self.repo, check=True)
+        wt = self.repo.parent / "wt"
+        subprocess.run(
+            ["git", "worktree", "add", "-q", str(wt), "-b", "wtbranch"],
+            cwd=self.repo, check=True)
+        r = _run_gate(
+            wt, str(wt / "src/docs/reports/product/priorities/hack.md"),
+            cwd=str(wt))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -161,6 +161,42 @@ def _git_root_from(path_hint):
         probe = posixpath.dirname(probe)
     return None
 
+# KNOWN OPEN BYPASS (issue #2637 round 4, PR #2658 finding, reproduced
+# again in test/test_deliverable_guard_priorities_shard.py's three
+# `expectedFailure` cases below): `_git_root_from` above trusts
+# `os.path.isdir(<probe>/".git")` as proof that `<probe>` is the real
+# repo root. This hook only ever inspects Write/Edit/MultiEdit/
+# NotebookEdit tool calls (see the tool_name check above) — it never
+# sees an ordinary Bash `mkdir <probe>/.git` or `ln -s <anything>
+# <probe>/.git` the same orchestrator session can run immediately before
+# the guarded write. Either one relocates the "root" this exemption
+# resolves against to `<probe>`, which reopens the identical
+# src/-rooted bypass this whole exemption exists to close. A linked
+# worktree/submodule checkout (`.git` there is a FILE, not a directory)
+# hits the walk's "no root found" fallback instead and disables this
+# hook's src/test/docs deliverable-write denial entirely, not just the
+# priorities-shard exemption — see the hook's own separate board-repo
+# activation walk further below, which has the identical `os.path.isdir`
+# assumption and is unmodified by this file's history.
+#
+# Round 4 (docs/issue-2637/reports/silent-failure-audit+architecture-
+# interface-contract-shape-149dabd2.md) confirmed a session genuinely
+# must `Write` a shard file directly — `priorities.py`'s own module
+# docstring says so, and `_priorities_entry_path()`/`spawn.py
+# priorities-path` mint a path and `mkdir` the directory but never write
+# the entry itself (verified: the path does not exist on disk until a
+# session's own Write/Edit lands it) — so this exemption cannot simply
+# be deleted. That round was also told not to attempt a fourth
+# path-shaped resolution here: three prior fixes (unanchored regex,
+# `^`-anchor, cwd-relative, this git-root walk) each closed the
+# previous fix's hole and opened a new one, and a consult concluded no
+# path-shaped formulation can be made unsteerable while this hook
+# decides from session-reported strings and session-mutable filesystem
+# state before the write happens. This comment and the three
+# `expectedFailure` tests exist so that fact is visible in the code and
+# in `pytest` output instead of silently unaddressed — closing it needs
+# a mechanism that does not decide from a path string, which is a
+# decision for the issue, not a fifth regex.
 priorities_candidate = n
 _cwd_for_exemption = e.get("cwd")
 _cwd_ok = (isinstance(_cwd_for_exemption, str) and _cwd_for_exemption
