@@ -543,7 +543,8 @@ value for this record kind when done -->
 """
 
 
-def _stamp_additive_record_fields(issue: int, role: str) -> str:
+def _stamp_additive_record_fields(issue: int, role: str,
+                                   skill_sources: list | None = None) -> str:
     """Issue #2241 stage 1 (Accumulation note in the stage-1 proposal): the
     single call site every additive record-field stamp goes through —
     `author:` today; a later stage's new stamped field extends this same
@@ -555,14 +556,29 @@ def _stamp_additive_record_fields(issue: int, role: str) -> str:
     place at this stage, so the only session-scoped identity available is
     the role itself; a later stage may widen what populates this line
     once a non-role-shaped identity axis exists. Returns a trailing-
-    newline-terminated frontmatter line, written once at skeleton
+    newline-terminated frontmatter block, written once at skeleton
     creation — `write_record_skeleton` already refuses to touch a record
     file that exists, so a respawn into the same workspace can never
-    rewrite a prior session's `author:` line (append-only)."""
-    return f"author: {role}\n"
+    rewrite a prior session's stamped lines (append-only).
+
+    Issue #2579: when `--skills` mounted at least one skill, a second
+    stamped line names which of the four sources each one actually
+    resolved from (`_sp._describe_skill_match()` — the same one-line
+    description already used in the task-injected "마운트된 스킬" text,
+    issue #1742/#1774) — a record naming only the skill, never its
+    source, cannot be re-judged later. Omitted entirely when no
+    `--skills` were mounted (empty-state: byte-identical to before this
+    issue)."""
+    line = f"author: {role}\n"
+    if skill_sources:
+        detail = ", ".join(f"{m['name']} ({_sp._describe_skill_match(m)})"
+                            for m in skill_sources)
+        line += f"skills: {detail}\n"
+    return line
 
 
-def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
+def write_record_skeleton(cwd: str, issue: int, role: str,
+                           skill_sources: list | None = None) -> Path | None:
     """Pre-write the role's own record skeleton at bootstrap; never
     overwrite an existing record (a respawn into the same workspace)."""
     p = Path(cwd) / "docs" / f"issue-{issue}" / "reports" / f"{role}.md"
@@ -620,9 +636,9 @@ def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
             spec_lines += "%s:%s\n" % (name, hint)
     except Exception:
         pass
-    body = _RECORD_SKELETON.format(issue=issue, role=role,
-                                   loop_state=loop_state,
-                                   author_line=_stamp_additive_record_fields(issue, role))
+    body = _RECORD_SKELETON.format(
+        issue=issue, role=role, loop_state=loop_state,
+        author_line=_stamp_additive_record_fields(issue, role, skill_sources))
     if spec_lines:
         body = body.replace("sha:\n---\n", "sha:\n" + spec_lines + "---\n", 1)
     if is_coding:

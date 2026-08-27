@@ -202,6 +202,55 @@ def _describe_skill_match(m: dict) -> str:
     return m["source"]
 
 
+# 이슈 #2579: 네 소스 라벨 — `--skills` 이름 토큰의 `<source>:<name>` 접두어로
+# 언제든(모호하지 않을 때도) 소스를 명시할 수 있게 한다.
+_SKILL_SOURCE_LABELS = {"skill-repo", "plugin", "local-user", "local-repo"}
+
+
+def _parse_skill_token(tok: str) -> tuple[str | None, str]:
+    """`--skills` 이름 토큰 하나를 (요청된 소스 또는 None, 이름)으로 쪼갠다.
+    `<source>:<name>` 형태이고 `<source>` 가 네 라벨 중 하나면 명시적 소스
+    요청으로 읽는다. 그 외(콜론이 없거나, `:` 앞이 네 라벨이 아닌 경우 —
+    예: 이름 자체에 우연히 `:` 가 있는 경우)는 이름 전체를 그대로 쓴다,
+    소스 미지정."""
+    if ":" in tok:
+        source, _, name = tok.partition(":")
+        if source in _SKILL_SOURCE_LABELS and name:
+            return source, name
+    return None, tok
+
+
+def _skill_token_name(tok: str) -> str:
+    """토큰의 이름 부분만(소스 접두어 제외) — 브랜치/슬러그 이름에 쓴다
+    (콜론은 git ref 에 못 쓴다)."""
+    return _parse_skill_token(tok)[1]
+
+
+def _skill_content_identity(m: dict) -> str:
+    """매치 하나의 내용 정체성(이슈 #2579): 소스 종류와 무관하게
+    `SKILL.md` 내용의 sha256 — 심볼릭 링크로 같은 실체를 두 경로로 본
+    매치들(신고된 버그: skill-repository 체크아웃과 그걸 가리키는
+    `~/.claude/skills` 심링크)이 내용 기준으로 하나로 합쳐지게 한다.
+    이미 tier3/4 매치엔 `content_sha256` 이 있지만(#1774), tier1/2엔
+    없었다 — 이제 넷 다 같은 필드를 쓴다."""
+    if "content_sha256" not in m:
+        m["content_sha256"] = _sp._skill_content_hash(m["dir"])
+    return m["content_sha256"]
+
+
+def _dedupe_matches_by_content(matches: list[dict]) -> list[dict]:
+    """내용이 같은 매치들을 하나로 묶는다(첫 발견 순서 유지) — 진짜
+    충돌(서로 다른 내용)만 남기고, 같은 스킬을 두 경로로 본 것뿐인
+    매치는 하나로 합친다. 그룹당 대표 하나(그 그룹에서 처음 발견된
+    매치)만 돌려준다."""
+    seen: dict[str, dict] = {}
+    for m in matches:
+        key = _sp._skill_content_identity(m)
+        if key not in seen:
+            seen[key] = m
+    return list(seen.values())
+
+
 def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
                             home: Path | None = None,
                             target_repo_root: Path | None = None) -> list[dict]:
@@ -211,20 +260,28 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
     이 경우 네 소스 중 어느 것도 읽지 않는다, 요구사항 4).
 
     이름 하나가 소스 하나에서만 잡히면 그 소스로 확정. 소스 두 개 이상에서
-    잡히면(같은 tier 안의 플러그인-대-플러그인 충돌 포함) 워크스페이스/
-    브랜치를 건드리기 전에 fail-closed, 잡힌 소스를 전부 이름 붙여
-    보고한다 — 어느 tier 도 다른 tier 를 조용히 가리지 않는다(이슈 #1774
-    SCOPE EXTENSION). 어디서도 안 잡히면 오늘과 같은 fail-closed.
+    잡히되 내용(SKILL.md sha256)이 전부 같으면 — 심볼릭 링크로 같은 실체를
+    두 경로로 본 것뿐이라 — 충돌이 아니라 하나로 합친다(이슈 #2579).
+    내용이 실제로 다른 소스가 둘 이상 남으면(같은 tier 안의 플러그인-대-
+    플러그인 충돌 포함) 워크스페이스/브랜치를 건드리기 전에 fail-closed,
+    남은 소스를 전부 이름 붙여 보고한다 — 어느 tier 도 다른 tier 를
+    조용히 가리지 않는다(이슈 #1774 SCOPE EXTENSION). 어디서도 안 잡히면
+    오늘과 같은 fail-closed.
+
+    이름 토큰은 `<source>:<name>` 로 소스를 언제나(모호할 때만이 아니라)
+    명시할 수 있다(이슈 #2579) — `_parse_skill_token()`. 명시된 소스에
+    그 이름이 없으면(소스 자체가 비어 있어도 마찬가지, empty-state) 소스와
+    이름을 둘 다 이름 붙여 fail-closed.
 
     각 소스가 가리키는 디렉터리에 `hooks/` 서브디렉터리가 있으면 —
     스킬 마운트는 가이던스 전용이라는 원칙 위반 — 역시 워크스페이스/
     브랜치 전에 fail-closed(네 소스 모두 동일 규칙).
 
     반환값은 이름당 dict 하나: 최소 `name`/`source`/`dir` 를 들고, 소스별
-    정체성 필드(`sha`|`plugin`+`version`|`path`+`content_sha256`)가
-    추가된다."""
-    names = [n.strip() for n in (skills_csv or "").split(",") if n.strip()]
-    if not names:
+    정체성 필드(`sha`|`plugin`+`version`|`path`+`content_sha256`)와 항상
+    `content_sha256`(소스 무관, 이슈 #2579)이 추가된다."""
+    tokens = [n.strip() for n in (skills_csv or "").split(",") if n.strip()]
+    if not tokens:
         return []
     home = home or Path.home()
     plugin_index = _sp._installed_plugin_skill_dirs()
@@ -232,7 +289,8 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
     tier4 = (_sp._local_skill_dirs(target_repo_root / ".claude" / "skills")
              if target_repo_root is not None else {})
     results = []
-    for name in names:
+    for tok in tokens:
+        requested_source, name = _sp._parse_skill_token(tok)
         matches: list[dict] = []
         if repo_root is not None and repo_root.is_dir():
             cand = repo_root / name
@@ -255,11 +313,21 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
                 f"--skills: 모르는 스킬 {name} — skill-repository, 설치된 "
                 f"플러그인, ~/.claude/skills, 타깃 저장소 .claude/skills "
                 f"어디에도 없다")
+        if requested_source is not None:
+            qualified = [m for m in matches if m["source"] == requested_source]
+            if not qualified:
+                sys.exit(
+                    f"--skills: {name} 는 소스 {requested_source} 에 없다 — "
+                    f"{name} 를 실제로 들고 있는 소스: "
+                    f"{', '.join(_sp._describe_skill_match(m) for m in matches)}")
+            matches = qualified
+        matches = _sp._dedupe_matches_by_content(matches)
         if len(matches) > 1:
             sys.exit(
                 f"--skills: {name} 가 둘 이상의 소스에서 겹친다 — "
                 f"{', '.join(_sp._describe_skill_match(m) for m in matches)} "
-                f"(precedence 는 검색 순서일 뿐 충돌을 가리지 않는다)")
+                f"(precedence 는 검색 순서일 뿐 충돌을 가리지 않는다, "
+                f"내용이 서로 다르다 — <source>:{name} 로 소스를 명시하라)")
         m = matches[0]
         if (m["dir"] / "hooks").is_dir():
             sys.exit(

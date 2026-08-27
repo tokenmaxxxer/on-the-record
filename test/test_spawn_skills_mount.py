@@ -320,19 +320,31 @@ class ResolvedSkillSourcesFourTierTest(unittest.TestCase):
         self.assertNotEqual(ctx.exception.code, 0)
 
     def _make_pair(self, name, tier_a, tier_b):
-        """`name` 이 두 tier 에서 동시에 잡히게 픽스처를 만든다."""
+        """`name` 이 두 tier 에서 동시에 잡히게 픽스처를 만든다. 이슈
+        #2579: 각 tier 디렉터리에 서로 다른 `SKILL.md` 내용을 심어 둔다
+        — 내용이 같으면(심링크로 같은 실체를 두 경로로 본 경우) 더 이상
+        충돌이 아니므로, 이 fixture 가 여전히 "진짜" 충돌(내용이 실제로
+        다른 두 소스)을 재현하려면 내용이 갈라져야 한다."""
         if "repo" == tier_a or "repo" == tier_b:
-            (self.repo_root / name).mkdir()
+            d = self.repo_root / name
+            d.mkdir()
+            (d / "SKILL.md").write_text(f"repo content for {name}")
         if "plugin" == tier_a or "plugin" == tier_b:
-            (self.plugin_install / "skills" / name).mkdir()
+            d = self.plugin_install / "skills" / name
+            d.mkdir()
+            (d / "SKILL.md").write_text(f"plugin content for {name}")
             self._write_installed_plugins({
                 "foo@marketplace": [{"installPath": str(self.plugin_install),
                                       "version": "v1"}],
             })
         if "tier3" == tier_a or "tier3" == tier_b:
-            (self.home / ".claude" / "skills" / name).mkdir()
+            d = self.home / ".claude" / "skills" / name
+            d.mkdir()
+            (d / "SKILL.md").write_text(f"tier3 content for {name}")
         if "tier4" == tier_a or "tier4" == tier_b:
-            (self.target_repo / ".claude" / "skills" / name).mkdir()
+            d = self.target_repo / ".claude" / "skills" / name
+            d.mkdir()
+            (d / "SKILL.md").write_text(f"tier4 content for {name}")
 
     def test_ambiguity_repo_and_plugin_hard_error_names_both(self):
         self._make_pair("shared", "repo", "plugin")
@@ -372,9 +384,13 @@ class ResolvedSkillSourcesFourTierTest(unittest.TestCase):
         self.assertIn(".claude/skills", msg)
 
     def test_ambiguity_two_distinct_plugins_within_tier2(self):
-        (self.plugin_install / "skills" / "shared").mkdir()
+        d1 = self.plugin_install / "skills" / "shared"
+        d1.mkdir()
+        (d1 / "SKILL.md").write_text("foo plugin content")
         plugin_install2 = Path(self._tmpdir.name) / "plugin-install-2"
-        (plugin_install2 / "skills" / "shared").mkdir(parents=True)
+        d2 = plugin_install2 / "skills" / "shared"
+        d2.mkdir(parents=True)
+        (d2 / "SKILL.md").write_text("bar plugin content")
         self._write_installed_plugins({
             "foo@marketplace": [{"installPath": str(self.plugin_install), "version": "v1"}],
             "bar@marketplace": [{"installPath": str(plugin_install2), "version": "v2"}],
@@ -385,6 +401,82 @@ class ResolvedSkillSourcesFourTierTest(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("foo@marketplace", msg)
         self.assertIn("bar@marketplace", msg)
+
+    def test_symlink_alias_same_content_two_sources_is_not_a_collision(self):
+        # 이슈 #2579: 신고된 버그의 최소 재현 — 같은 실체를 두 경로(예:
+        # `~/.claude/skills` 가 skill-repository 체크아웃을 가리키는
+        # 심링크)로 본 매치는 내용이 같으니 충돌이 아니다. 여기서는
+        # 실제 심링크 대신(테스트 환경에 상관없이 결정적이도록) 두 tier
+        # 에 바이트 단위로 같은 SKILL.md 내용을 심어 그 조건을 재현한다
+        # — `resolved_skill_sources()` 는 매치가 물리적으로 심링크인지는
+        # 몰라도, 내용이 같다는 사실만으로 하나로 합친다.
+        (self.repo_root / "shared").mkdir()
+        (self.repo_root / "shared" / "SKILL.md").write_text("identical content")
+        d3 = self.home / ".claude" / "skills" / "shared"
+        d3.mkdir()
+        (d3 / "SKILL.md").write_text("identical content")
+        result = spawn.resolved_skill_sources(
+            "shared", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "skill-repo")
+
+    def test_genuinely_different_content_two_sources_still_refuses(self):
+        self._make_pair("shared", "repo", "tier3")
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "shared", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("skill-repository", msg)
+        self.assertIn(".claude/skills", msg)
+        self.assertIn("shared", msg)
+
+    def test_qualified_source_works_even_when_unambiguous(self):
+        (self.repo_root / "alpha").mkdir()
+        import subprocess
+        subprocess.run(["git", "init", "-q"], cwd=self.repo_root, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                         "commit", "--allow-empty", "-q", "-m", "x"],
+                        cwd=self.repo_root, check=True)
+        result = spawn.resolved_skill_sources(
+            "skill-repo:alpha", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "skill-repo")
+        self.assertEqual(result[0]["name"], "alpha")
+
+    def test_qualified_source_resolves_a_genuine_collision(self):
+        self._make_pair("shared", "repo", "tier3")
+        result = spawn.resolved_skill_sources(
+            "local-user:shared", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "local-user")
+
+    def test_qualified_source_missing_from_that_source_names_both(self):
+        (self.repo_root / "alpha").mkdir()
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "local-user:alpha", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception)
+        self.assertIn("alpha", msg)
+        self.assertIn("local-user", msg)
+
+    def test_unqualified_unambiguous_name_still_works_unchanged(self):
+        (self.repo_root / "alpha").mkdir()
+        import subprocess
+        subprocess.run(["git", "init", "-q"], cwd=self.repo_root, check=True)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                         "commit", "--allow-empty", "-q", "-m", "x"],
+                        cwd=self.repo_root, check=True)
+        result = spawn.resolved_skill_sources(
+            "alpha", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["source"], "skill-repo")
+        self.assertEqual(result[0]["name"], "alpha")
 
     def test_hooks_refusal_tier1_skill_repo(self):
         d = self.repo_root / "hooked"
@@ -482,6 +574,38 @@ class SkillRosterFieldsFourTierTest(unittest.TestCase):
         self.assertNotIn("skills", fields)
         self.assertNotIn("skills_sha", fields)
         self.assertEqual(len(fields["skills_detail"]), 2)
+
+
+class RecordSkeletonSkillProvenanceTest(unittest.TestCase):
+    """이슈 #2579: `--skills` 로 마운트된 스킬은 각자의 소스와 함께 그
+    세션의 record 스켈레톤에 곧장 실린다 — 소스를 안 밝히면 그 record 는
+    나중에 재-판정할 수 없다는 이슈 본문의 요구."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_skills_line_names_each_skill_source(self):
+        sources = [
+            {"name": "alpha", "source": "skill-repo",
+             "dir": Path("/tmp/x/alpha"), "sha": "abc1234"},
+            {"name": "beta", "source": "local-user",
+             "dir": Path("/tmp/u/beta"), "path": "/tmp/u/beta",
+             "content_sha256": "deadbeef"},
+        ]
+        p = spawn.write_record_skeleton(self._tmpdir.name, 999, "some-role",
+                                         skill_sources=sources)
+        text = p.read_text()
+        self.assertIn(
+            "skills: alpha (skill-repository(abc1234)), "
+            "beta (~/.claude/skills (/tmp/u/beta))\n", text)
+
+    def test_no_skills_omits_the_line_entirely(self):
+        p = spawn.write_record_skeleton(self._tmpdir.name, 999, "some-role")
+        text = p.read_text()
+        self.assertNotIn("skills:", text)
 
 
 if __name__ == "__main__":

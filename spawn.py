@@ -383,17 +383,22 @@ import skills
 if skills._sp is None or __name__ in ("spawn", "__main__"):
     skills._sp = sys.modules[__name__]
 _STATIC_POLICY_SKILLS = skills._STATIC_POLICY_SKILLS
+_SKILL_SOURCE_LABELS = skills._SKILL_SOURCE_LABELS
 _core_candidates = skills._core_candidates
 _describe_skill_match = skills._describe_skill_match
+_dedupe_matches_by_content = skills._dedupe_matches_by_content
 _installed_plugin_skill_dirs = skills._installed_plugin_skill_dirs
 _local_skill_dirs = skills._local_skill_dirs
+_parse_skill_token = skills._parse_skill_token
 _role_source_roster_fields = skills._role_source_roster_fields
 _skill_content_hash = skills._skill_content_hash
+_skill_content_identity = skills._skill_content_identity
 _skill_repo_managed_root = skills._skill_repo_managed_root
 _skill_repo_root = skills._skill_repo_root
 _skill_repo_valid = skills._skill_repo_valid
 _skill_roster_fields = skills._skill_roster_fields
 _skill_source_roster_row = skills._skill_source_roster_row
+_skill_token_name = skills._skill_token_name
 resolve_static_policy_source = skills.resolve_static_policy_source
 resolve_role_family_source = skills.resolve_role_family_source
 merge_composed_skill_source = skills.merge_composed_skill_source
@@ -1774,8 +1779,8 @@ def main() -> int:
                      '-- the skill-axis branch/lease naming '
                      '(checkout_issue_branch_for_skill, pipeline.py:1135) '
                      'has no adhoc/issue-less form')
-        skill_names = [n.strip() for n in a.skills.split(",") if n.strip()]
-        if not skill_names:
+        skill_tokens = [n.strip() for n in a.skills.split(",") if n.strip()]
+        if not skill_tokens:
             sys.exit(f"--skills: empty skill list -- {a.skills!r}")
         # This only *names* the branch/record identity from what was
         # asked for -- actual resolution (does each name exist in one of
@@ -1785,6 +1790,11 @@ def main() -> int:
         # fail-closed contract, unchanged by this issue) and fails closed
         # naming exactly the unresolvable skill.
         a.task = task_text
+        # Issue #2579: a token may carry an explicit `<source>:<name>`
+        # source qualifier -- strip it for the slug (git ref names can't
+        # hold a colon); the full token (qualifier included) still reaches
+        # `resolved_skill_sources()` unchanged via `a.skills` below.
+        skill_names = [_skill_token_name(t) for t in skill_tokens]
         skill_slug = "+".join(skill_names)
         disambiguator = new_lease_disambiguator()
         _skills_branch_identity = (skill_slug, disambiguator)
@@ -3145,7 +3155,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 checkpoint_block=(_checkpoint_contract_block(issue, role)
                                   if checkpoint else None))
             materialize_directive_sections(cwd, _directive_section_texts)
-            write_record_skeleton(cwd, issue, role)
+            write_record_skeleton(cwd, issue, role, skill_sources=skill_sources)
         with _timed("issue_fetch"):
             if pre_resolved:
                 body = issue_data.get("body") if issue_data else None
