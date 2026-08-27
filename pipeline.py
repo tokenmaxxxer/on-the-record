@@ -576,7 +576,13 @@ def resolved_role_model(cli_model: str | None = None, role: str | None = None,
     태운다 — `--model` 과 `MUSTER_ROLE_MODEL`/`role_model.txt` 는 그대로
     최우선으로 이긴다(회귀 없음). 반환값은 (model, rule) 튜플로 바뀌지만
     `role` 을 생략하면(기본값 None) 이전 세 rung 은 그대로이고 반환값도
-    문자열 하나 그대로다 — byte-identical."""
+    문자열 하나 그대로다 — byte-identical.
+
+    이슈#2631: 여기서의 `role`은 "role이 주어졌는가"라는 존재 여부만으로
+    반환 타입(튜플 vs 문자열)을 가른다 — `gates/model_routing.py`로는 더
+    이상 전달되지 않는다. 그 모듈의 `route_model()`이 이름 기반 tier
+    membership test를 잃었기 때문이다(이 역할이 무엇인지는 더 이상 어떤
+    tier로 갈지에 영향을 주지 않는다)."""
     cli_value = (cli_model or "").strip()
     if cli_value:
         return (cli_value, "cli-override") if role is not None else cli_value
@@ -590,7 +596,7 @@ def resolved_role_model(cli_model: str | None = None, role: str | None = None,
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import model_routing
         policy = model_routing.load_policy(_sp.ROOT)
-        return model_routing.route_model(role, single_phase, design_bearing_verdict, policy)
+        return model_routing.route_model(single_phase, design_bearing_verdict, policy)
     return "sonnet"
 
 
