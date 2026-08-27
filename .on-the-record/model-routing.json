@@ -1,16 +1,13 @@
 {
   "tiers": {
     "judgment": {
-      "model": "sonnet",
-      "roles": ["ux-engineering", "brand-design", "content-design", "architecture"]
+      "model": "sonnet"
     },
     "mid-design": {
-      "model": "sonnet",
-      "roles": []
+      "model": "sonnet"
     },
     "mechanical": {
-      "model": "sonnet",
-      "roles": []
+      "model": "sonnet"
     }
   },
   "design_bearing_override": "judgment",

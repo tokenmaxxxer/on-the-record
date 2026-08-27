@@ -12,10 +12,24 @@ test-tiers.json #1518 선례와 동일한 모양) — 소비 레포가 spawn.py�
 issue #2148 — operator pin (2026-08-24): DEFAULT_POLICY의 모든 tier
 model 값이 "sonnet"으로 고정되어 있다. #2070의 구조적 tier
 분리(judgment=claude-fable-5, mid-design=opus)는 SUSPENDED — 삭제가
-아니라 값만 눌러놓은 것이다. tier 이름·roles 매핑·
-design_bearing_override·single_phase_tier·default_tier 구조는 그대로다.
-해제하려면 (a) 소비 레포에 `.on-the-record/model-routing.json`을 두어
-tier별 model을 오버라이드하거나 (b) 이 DEFAULT_POLICY의 값을 되돌린다.
+아니라 값만 눌러놓은 것이다. tier 이름·design_bearing_override·
+single_phase_tier·default_tier 구조는 그대로다. 해제하려면 (a) 소비
+레포에 `.on-the-record/model-routing.json`을 두어 tier별 model을
+오버라이드하거나 (b) 이 DEFAULT_POLICY의 값을 되돌린다.
+
+issue #2631 — operator ruling (2026-08-27): tier별 "roles" 고정 이름
+목록과 그 membership test(`role in tier["roles"]`)를 제거했다. 이것으로
+{ux-engineering, brand-design, content-design, architecture} 네 이름이
+role-tier:judgment로 강제 배정되던 능력 자체가 없어진다 — 그
+capability가 없어진 것이지 어딘가로 옮겨진 게 아니다. 이 네 역할은
+이제 다른 모든 역할과 동일하게 design_bearing_override(참일 때) →
+single_phase_tier → default_tier 순서로만 라우팅된다. #2148이 모든
+tier의 model을 "sonnet"으로 고정해 놓은 상태라 오늘 시점에는 실제
+선택되는 model이 바뀌지 않는다 — 다만 design_bearing_verdict가
+거짓/None이고 single_phase도 아닌 경우, 이 네 역할의 rule 태그는
+`role-tier:judgment`에서 `default-tier:mid-design`으로 바뀐다(모델은
+여전히 sonnet). `route_model()`은 이제 `role` 인자를 받지 않는다 —
+role은 더 이상 라우팅 신호가 아니다.
 
   from gates.model_routing import load_policy, route_model
 """
@@ -25,12 +39,9 @@ from pathlib import Path
 
 DEFAULT_POLICY = {
     "tiers": {
-        "judgment": {
-            "model": "sonnet",
-            "roles": ["ux-engineering", "brand-design", "content-design", "architecture"],
-        },
-        "mid-design": {"model": "sonnet", "roles": []},
-        "mechanical": {"model": "sonnet", "roles": []},
+        "judgment": {"model": "sonnet"},
+        "mid-design": {"model": "sonnet"},
+        "mechanical": {"model": "sonnet"},
     },
     "design_bearing_override": "judgment",
     "single_phase_tier": "mechanical",
@@ -50,22 +61,15 @@ def load_policy(repo_root: str | Path) -> dict:
         return DEFAULT_POLICY
 
 
-def _role_tier(role: str, tiers: dict) -> str | None:
-    for tier_name, tier in tiers.items():
-        if role in (tier.get("roles") or []):
-            return tier_name
-    return None
-
-
-def route_model(role: str, single_phase: bool = False,
+def route_model(single_phase: bool = False,
                  design_bearing_verdict: bool | None = None,
                  policy: dict | None = None) -> tuple[str, str]:
     """(model, rule) 을 돌려준다. `policy`가 malformed 여도(필요 키 누락,
     잘못된 타입) 절대 raise 하지 않고 `("sonnet", "fail-open-default")`로
     떨어진다.
 
-    우선순위: design-bearing override(참일 때) > 역할이 매핑된 tier >
-    single_phase 이면 `single_phase_tier` > `default_tier`.
+    우선순위: design-bearing override(참일 때) > single_phase 이면
+    `single_phase_tier` > `default_tier`.
     """
     policy = policy or DEFAULT_POLICY
     try:
@@ -80,12 +84,6 @@ def route_model(role: str, single_phase: bool = False,
             model = model_of(override_tier) if override_tier else None
             if model:
                 return model, "design-bearing-override"
-
-        role_tier = _role_tier(role, tiers)
-        if role_tier:
-            model = model_of(role_tier)
-            if model:
-                return model, f"role-tier:{role_tier}"
 
         if single_phase:
             sp_tier = policy.get("single_phase_tier")

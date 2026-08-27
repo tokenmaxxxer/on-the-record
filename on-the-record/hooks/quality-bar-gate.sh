@@ -30,9 +30,9 @@
 # `quality_bar_verdict: bar-met` or `quality_bar_verdict: bar-not-met` — the
 # most recent such line in the file is the verdict this gate reads. No line
 # at all is "no record" (gates/quality_bar.py treats this the same as an
-# explicit bar-not-met). BAR_ROLES below is used ONLY to classify which
-# quality domains the PR's changed paths implicate (path_patterns lookup) —
-# it is never turned back into a record path.
+# explicit bar-not-met). _TRIGGER_PATH_PATTERNS below is used ONLY to
+# classify which quality domains the PR's changed paths implicate
+# (path_patterns lookup) — it is never turned back into a record path.
 #
 # Anti-circularity (proposal §4): identity is account-resolved, never a
 # bare CLAUDE_ROLE compare (a same-operator bypass the requirements-
@@ -120,11 +120,6 @@ def usable_cd_dir(raw):
 CHECKOUT = os.environ.get("QBG_CHECKOUT")
 sys.path.insert(0, os.path.join(CHECKOUT, "gates"))
 import quality_bar  # noqa: E402
-
-BAR_ROLES = [
-    "ux-engineering", "interaction-design", "accessibility", "api-design",
-    "performance-engineering", "secure-coding", "test-authoring",
-]
 
 try:
     e = json.loads(os.environ.get("QBG_PAYLOAD", ""))
@@ -225,13 +220,15 @@ head_ref_m = re.match(r"^issue-(\d+)/(.+)$", head_ref)
 issue = head_ref_m.group(1) if head_ref_m else None
 slug = head_ref_m.group(2) if head_ref_m else None
 
-# --- bar-scoped roles for this PR -------------------------------------------
-# issue #2610: this used to look each BAR_ROLES name's path_patterns up in
-# the (now-deleted) 44-entry role catalog. BAR_ROLES itself was already a
-# fixed 7-name literal, independent of that catalog's key set (it names
-# quality domains, not identities validated against anything) — inlining
-# their path_patterns here drops the JSON dependency without changing
-# which 7 domains this hook classifies.
+# --- bar-scoped domains for this PR -----------------------------------------
+# issue #2610: this used to look each domain name's path_patterns up in the
+# (now-deleted) 44-entry role catalog — inlined here to drop that JSON
+# dependency.
+# issue #2631: this dict's own key set IS the domain set this hook
+# classifies — the separate fixed-name-list literal that used to gate it
+# named exactly these 7 keys and filtered nothing a reader could see, so
+# it is gone; there is no capability loss because that list never removed
+# or added a domain relative to this dict.
 _TRIGGER_PATH_PATTERNS = {
     "interaction-design": ["docs/issue-*/reports/product-discovery.md"],
     "test-authoring": ["src/**", "lib/**", "app/**"],
@@ -244,18 +241,18 @@ _TRIGGER_PATH_PATTERNS = {
                        "**/*secret*", "**/*password*", "**/*login*",
                        "**/*input*", "**/*sanitiz*", "**/*validat*"],
 }
-role_patterns = {role: _TRIGGER_PATH_PATTERNS.get(role) or [] for role in BAR_ROLES}
 
-scoped_roles = quality_bar.bar_scoped_roles(pr_files, role_patterns)
+scoped_roles = quality_bar.bar_scoped_roles(pr_files, _TRIGGER_PATH_PATTERNS)
 if not scoped_roles or issue is None or slug is None:
     sys.exit(0)  # NO_BAR_SCOPED — nothing to deny (or no branch slug to resolve a record against)
 
 VERDICT_RE = re.compile(r"^\s*quality_bar_verdict:\s*(bar-met|bar-not-met)\s*$", re.MULTILINE)
 
 # issue #2568: one PR has one branch, hence one slug, hence one record —
-# resolved once here, not per bar-scoped domain. `scoped_roles` (BAR_ROLES
-# subset) only ever labels *which* domains a denial line names below; it is
-# never turned back into a record path (that was the bug this issue fixes).
+# resolved once here, not per bar-scoped domain. `scoped_roles` (a subset of
+# _TRIGGER_PATH_PATTERNS' keys) only ever labels *which* domains a denial
+# line names below; it is never turned back into a record path (that was
+# the bug this issue fixes).
 record_path = os.path.join(run_cwd, "docs", "issue-%s" % issue, "reports", slug + ".md")
 verdict = None
 consecutive = 0
