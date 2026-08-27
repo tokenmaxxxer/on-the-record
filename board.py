@@ -823,7 +823,7 @@ def status(cwd: str) -> list[str]:
         return out
 
     # 보드가 없다. "아무 일도 없다"와 "옛 자리에 있다"는 정반대 처분을 받아야 한다.
-    stale = sorted(r for r, name in _sp.LEGACY.items()
+    stale = sorted(name for name in _sp.LEGACY_FILES
                    if (root / name).exists() or (root / "docs" / name).exists())
     if stale:
         out.append(f"보드 없음. 계약 v1 자리에 기록이 있다: {', '.join(stale)}")
