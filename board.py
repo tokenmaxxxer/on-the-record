@@ -1243,9 +1243,35 @@ def roster_ps() -> int:
     이슈 #559: 각 살아있는 세션마다 붙은 워처(있으면)를 함께 보여준다 —
     "워처가 무장됐는지 죽었는지 바깥에서 알 방법이 없다"는 관찰에 대한
     응답. `ROSTER`(`issue-<n>/<role>` 키)와 `WORKSPACE_INDEX`(레포 접두사
-    포함 키)를 `_watch`/`watchdog_check_one`과 같은 방식으로 조인한다."""
-    d = _sp._roster_load()
-    if not d:
+    포함 키)를 `_watch`/`watchdog_check_one`과 같은 방식으로 조인한다.
+
+    이슈 #2203: 로스터 파일을 못 읽거나 못 파싱하면(권한 오류, 또는 쓰기
+    도중 읽은 절반짜리 내용) 예전엔 그냥 빈 딕셔너리로 흡수돼 "돌고 있는
+    역할 세션 없음"과 구분 없이 찍혔다 — 이 빈 출력이 두 차례 실제로
+    살아있는 세션을 "죽음"으로 오판해 그 위에서 강제 push/merge, git
+    stash 같은 파괴적 조치를 부른 원인이었다. 이제 그 실패를
+    `_roster_load_checked()` 로 구분해 "확인 불가"로 명시하고, 로스터
+    read/write 자체는 멀쩡해도 로스터에 없는 살아있는 세션이 있을 수
+    있다는 걸 스폰-클레임(별도 진실원, 스폰 거부 경로가 신뢰하는 것과
+    같은 파일)과 교차 확인해 불일치를 알린다 — 로스터가 아는 것만 보여주고
+    나머지를 조용히 빠뜨리지 않는다. 클레임 스캔 자체가 못 미더웠으면
+    (베이스 디렉터리 스캔 실패, 개별 클레임 파일 파싱 실패) 그것도
+    `claim_warnings` 로 그대로 드러낸다 — silent-failure 감사 발견:
+    클레임 쪽 스캔 실패를 조용히 빈 결과로 흡수하면, 로스터 실패를 감추던
+    것과 같은 모양의 구멍이 클레임 쪽에도 그대로 남는다."""
+    d, load_error = _sp._roster_load_checked()
+    claim_only, claim_warnings = _sp._claim_only_live_sessions(d)
+    for warning in claim_warnings:
+        print(f"경고: {warning} — 이 파일이 가리켰을 살아있는 세션을 놓쳤을 수 있다")
+    if load_error is not None:
+        print(f"돌고 있는 역할 세션: 확인 불가 — 로스터 파일을 읽지 못함({load_error})")
+        print("               이 결과를 '세션 없음'으로 읽지 마라 — 로스터 자체가 신뢰 불가 상태다.")
+        if claim_only:
+            print("               스폰 클레임으로 발견된 살아있는 세션(로스터 미확인):")
+            for work, pid in claim_only:
+                print(f"               claim-only  pid {pid}  work: {work}")
+        return 2
+    if not d and not claim_only and not claim_warnings:
         print("돌고 있는 역할 세션 없음")
         return 0
     ws_idx = _sp._workspace_index_load()
@@ -1277,5 +1303,9 @@ def roster_ps() -> int:
                           f"{health['detail']}")
     for k in dead:
         _sp.roster_remove(k)
-    return 0
+    if claim_only:
+        print("경고: 스폰 클레임은 살아있는데 로스터엔 없는 세션 발견(로스터와 불일치, 이슈 #2203):")
+        for work, pid in claim_only:
+            print(f"               claim-only  pid {pid}  work: {work}")
+    return 2 if claim_warnings else 0
 
