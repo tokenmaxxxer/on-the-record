@@ -104,8 +104,13 @@ existing, already-shipped identity primitive (`heredoc-command-refusal-
 gate.sh` uses the identical scope for an analogous role-session-only
 deny gate) rather than inventing a new one.
 
-skill-verdict: secure-coding-authorization-access-control — applied:
-invoked; rule 1 (deny-by-default for an unmatched/unresolvable request)
+skill-verdict: work-in-english — applied: invoked; this record, the hook's
+own comments, and every commit message this session produced are written
+in English per the skill (the one exception is this session's final
+chat reply to the user, written in Korean per the skill's own
+route-by-reader rule).
+
+skill-verdict: secure-coding-authorization-access-control — applied: invoked; rule 1 (deny-by-default for an unmatched/unresolvable request)
 justifies the fail-closed-on-lookup-failure branch — an unresolvable
 default-branch lookup denies, it does not permit. Rule 6 (remove
 reliance on a client-side-only check, add a server-side enforcement
