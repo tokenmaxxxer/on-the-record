@@ -164,17 +164,20 @@ def required_verification_missing(root: Path, subject: str, repo: Path | None = 
     만들지 않는다(issue #2241 stage 5: role 이름이 아니라 `kind:`
     frontmatter 로 매칭한다).
 
-    subject 의 `implementation` 레코드가 있으면 그 `author:` 값을
-    `subject_author` 로 넘겨 셀프-verification 을 막는다(작성자가 같은
-    kind 는 "충족됨"으로 안 친다) — subject 아직 없으면(로컬 단독 호출
-    등) `None` 이라 이 검사를 건너뛴다.
+    subject 의 deliverable(`kind: implementation`, 혹은 #2555 이전 레코드의
+    레거시 파일명 `implementation` — `spawn_on_pr.subject_deliverable_record()`,
+    issue #2575) 레코드가 있으면 그 `author:` 값을 `subject_author` 로
+    넘겨 셀프-verification 을 막는다(작성자가 같은 kind 는 "충족됨"으로
+    안 친다) — subject 아직 없으면(로컬 단독 호출 등) `None` 이라 이
+    검사를 건너뛴다.
 
     `repo`/`pr` 을 주면(issue #2233) 평가 대상 PR 자신이 공급하는
     record-kind 을 `_exempt_own_record_kind()`로 뺀다 — 둘 다 없으면(예:
     로컬 단독 호출) 예외 없이 오늘과 같은 목록을 돌려준다."""
     b = spawn.board(root)
     subject_board = b.get(subject, {})
-    subject_author = subject_board.get("implementation", {}).get("author")
+    _slug, subject_fm = spawn_on_pr.subject_deliverable_record(subject_board)
+    subject_author = subject_fm.get("author")
     missing = spawn_on_pr.applicable_record_kinds(subject_board, subject_author=subject_author)
     if repo is not None and pr is not None:
         refs = pr_refs(repo, pr)

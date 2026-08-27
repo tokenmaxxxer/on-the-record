@@ -3164,7 +3164,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 checkpoint_block=(_checkpoint_contract_block(issue, role)
                                   if checkpoint else None))
             materialize_directive_sections(cwd, _directive_section_texts)
-            write_record_skeleton(cwd, issue, role)
+            # issue #2575: `_cross_family_task_text` (pristine, pre-mutation
+            # task text — same var `_cross_family_skill_matches_with_consult`
+            # already uses above) lets `write_record_skeleton()` decide
+            # is_coding from the task itself instead of a role-name match.
+            write_record_skeleton(cwd, issue, role, _cross_family_task_text)
         with _timed("issue_fetch"):
             if pre_resolved:
                 body = issue_data.get("body") if issue_data else None
