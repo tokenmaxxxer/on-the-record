@@ -134,24 +134,50 @@ PRODUCT_CAPTURE_PRIORITIES_DIR_RE = re.compile(
 # issue #2637 (adversarial-review, aba56a87): the `^`-anchor above closes
 # the src/-rooted bypass but then never matches when `file_path` arrives
 # absolute — `n` is the raw absolute path in that case, not "docs/...".
-# Every sibling hook that does an isabs/relative split
-# (call-shape-guard.sh, accumulation-claim-guard.sh, record-claim-guard.sh)
-# treats an absolute `file_path` as ordinary input, so this shape really
-# arrives. Re-derive the cwd-relative form purely lexically (no realpath,
-# matching the git-root walk below) and match the anchored regex against
-# that instead of the raw absolute `n` — a src/-rooted absolute path still
-# normalizes to a `src/...`-prefixed relative form and stays denied; only
-# a path that is actually the recognized shard directory, relative to the
-# session's own cwd, is exempted. An absolute path outside cwd (relpath
-# escaping via `..`) or with no usable cwd falls back to matching `n`
-# unchanged, i.e. no exemption — never a new bypass, only a narrower miss.
+# A first fix attempt (rejected, PR #2653) re-derived a *cwd*-relative
+# form and matched that instead. `cwd` is reported by the calling session
+# itself, so a session that `cd src` before its write handed the guard a
+# relative form ("docs/reports/product/priorities/hack.md") that lands
+# right back inside the exemption — the identical src/-rooted bypass,
+# only the calling shape changed. The base a path is made relative to
+# must not be something the caller controls. Resolve `n` to an absolute
+# path and find the actual repo root by walking up for a `.git` directory
+# (the same walk this hook already does lower down to decide whether it's
+# even in a board repo) — that root is filesystem truth, not a
+# session-reported value. Match the anchored regex against the path
+# relative to THAT root. This also closes the relative-path mirror of the
+# same bug: a relative `file_path` was previously assumed repo-root-
+# relative "by construction", which is only true when cwd happens to be
+# the repo root — a session that `cd src` and then writes the identical
+# relative shard-looking path was never exercised by the regression test
+# and would have been wrongly exempted too. No exemption is granted when
+# no git root can be found (falls back to matching raw `n`, unchanged) —
+# a narrower miss, never a new bypass.
+def _git_root_from(path_hint):
+    probe = posixpath.dirname(path_hint)
+    while probe and probe != "/":
+        if os.path.isdir(posixpath.join(probe, ".git")):
+            return probe
+        probe = posixpath.dirname(probe)
+    return None
+
 priorities_candidate = n
 _cwd_for_exemption = e.get("cwd")
-if (posixpath.isabs(n) and isinstance(_cwd_for_exemption, str)
-        and _cwd_for_exemption and posixpath.isabs(_cwd_for_exemption)):
-    _rel = posixpath.relpath(n, posixpath.normpath(_cwd_for_exemption))
-    if _rel != "." and not _rel.startswith(".."):
-        priorities_candidate = _rel
+_cwd_ok = (isinstance(_cwd_for_exemption, str) and _cwd_for_exemption
+           and posixpath.isabs(_cwd_for_exemption))
+if posixpath.isabs(n):
+    _abs_for_exemption = n
+elif _cwd_ok:
+    _abs_for_exemption = posixpath.normpath(
+        posixpath.join(_cwd_for_exemption, n))
+else:
+    _abs_for_exemption = None
+if _abs_for_exemption is not None:
+    _root_for_exemption = _git_root_from(_abs_for_exemption)
+    if _root_for_exemption is not None:
+        _rel = posixpath.relpath(_abs_for_exemption, _root_for_exemption)
+        if _rel != "." and not _rel.startswith(".."):
+            priorities_candidate = _rel
 if (n.endswith(EXEMPT_SUFFIXES) or PRODUCT_CAPTURE_ISSUE_RE.search(n)
         or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(priorities_candidate)):
     sys.exit(0)
