@@ -78,6 +78,13 @@ _hook_fires_aggregate = hook_fires._hook_fires_aggregate
 _deviation_log_aggregate = deviation_log._deviation_log_aggregate
 _deviation_log_path = deviation_log._deviation_log_path
 
+# issue #2637: docs/reports/product/priorities.md per-entry sharding, same
+# conflict-elimination shape as the two imports above -- see priorities.py's
+# module docstring.
+import priorities
+_priorities_aggregate = priorities.priorities_aggregate
+_priorities_entry_path = priorities._priorities_entry_path
+
 # Issue #2105 extraction 1/N: relay / returned-PR machinery lives in relay.py.
 # spawn.py stays the entry point and re-exports the moved names so external
 # callers and the test suite keep addressing them as `spawn.<name>`. relay
@@ -2324,6 +2331,21 @@ def main() -> int:
         # deviation-log append belongs in -- a session never computes the
         # shard id itself, so two sessions' formulas can never drift apart.
         print(_deviation_log_path(a.issue, role=os.environ.get("CLAUDE_ROLE"), cwd=a.cwd))
+        return 0
+    if a.role == "priorities-log":
+        # issue #2637: same reader shape as consult-log/deviation-log --
+        # reconstructs the pre-sharding single-file
+        # docs/reports/product/priorities.md view (legacy content first,
+        # then new per-entry shards in filename order).
+        print(_priorities_aggregate(a.issue, cwd=a.cwd), end="")
+        return 0
+    if a.role == "priorities-path":
+        # issue #2637: prints the path THIS call's new priorities entry
+        # belongs in -- unlike deviation-log-path, every call mints a
+        # fresh path (one file per entry, not per session; see
+        # priorities.py's module docstring), so this is safe to call again
+        # for a second, unrelated entry in the same session.
+        print(_priorities_entry_path(a.issue, cwd=a.cwd))
         return 0
     if a.role in ("ideate", "draft", "review"):
         if not a.task or not a.consult_question:
