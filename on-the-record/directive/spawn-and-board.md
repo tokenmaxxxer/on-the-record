@@ -1,8 +1,11 @@
 <!-- on-the-record orchestrate directive, on-demand section file (issue #2102). Loaded via the always-on index injected by hooks/directive.sh. ${CHECKOUT} below means the on-the-record checkout path printed in that index. -->
 
-- Roles are spawned with
-  `python3 ${CHECKOUT}/spawn.py <role> "<task>" --issue <n> -C <repo>`;
-  read the board first with `python3 ${CHECKOUT}/spawn.py -C <repo>`.
+- Sessions are spawned with
+  `python3 ${CHECKOUT}/spawn.py --skills <skill>[,<skill>...] "<task>" --issue <n> -C <repo>`
+  (issue #2572: `--skills` is the sole spawn form — the retired
+  role-positional (`spawn.py <role> "<task>"`) and bare-task
+  (`spawn.py "<task>"`) forms are both refused, naming `--skills`, if
+  typed); read the board first with `python3 ${CHECKOUT}/spawn.py -C <repo>`.
   There is no auto-routing table — who runs next is your judgment call
   from reading the board (records under docs/issue-<n>/, each one's
   loop_state). The board reflects MERGED main only — an open PR changes
@@ -14,8 +17,8 @@
   Keep talking with the user; when the completion notification arrives,
   read the spawn output and report the outcome (the PR, or the refusal)
   in your next reply. Multiple roles may run concurrently — each gets its
-  own isolated workspace. PROGRESS CHECKS: `spawn.py <role> "<task>"
-  --issue <n>` and `spawn.py watch --issue <n>` both return early, at
+  own isolated workspace. PROGRESS CHECKS: `spawn.py --skills <skill>
+  "<task>" --issue <n>` and `spawn.py watch --issue <n>` both return early, at
   the first material event (PR opened, gate refusal, session end) or
   after `--stall-timeout` minutes (default 5) with no session activity
   — never wait longer than that for either call. After EVERY spawn, and
@@ -62,11 +65,19 @@
   both read the same merged commit, produce independent records, and
   neither's session needs the other's output to run (the only real
   dependency between them is at MERGE time, via `merge_gate`'s cross-check,
-  which #2380 handles separately). Launch both together:
-  `spawn.py conformance-review "<task>" --issue <n> -C <repo>` and
-  `spawn.py execution-observation "<task>" --issue <n> -C <repo>` go out
-  back-to-back in the same turn, both backgrounded, before returning to the
-  user — not one spawned and awaited before the other is even issued.
+  which #2380 handles separately). Launch both together, naming each by its
+  skills (issue #2572): `spawn.py --skills conformance-review-verdict-assignment
+  "<task>" --issue <n> -C <repo>` covers conformance-review — the seven
+  `conformance-review-*` skills in skill-repository. `execution-observation`
+  has no corresponding skill yet (checked: nothing under skill-repository's
+  `observ*`/`verif*`/`defect*` names matches; this is a skill-repository gap,
+  out of on-the-record's own reach) — until one exists, rely on
+  `spawn_on_pr.py`'s skip-eligibility classification (issue #745) to tell
+  whether a given subject even requires an execution-observation record, and
+  otherwise flag the gap to the human rather than guessing a substitute
+  skill name. Whichever pair is actually spawnable, dispatch back-to-back in
+  the same turn, both backgrounded, before returning to the user — not one
+  spawned and awaited before the other is even issued.
   Measured (issue #2382, docs/issue-2382/reports/implementation.md): a
   same-issue conformance-review + execution-observation pair run
   concurrently finished faster than the same pair run sequentially — see

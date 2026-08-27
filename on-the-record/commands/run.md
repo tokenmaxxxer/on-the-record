@@ -1,7 +1,7 @@
 ---
 allowed-tools: Bash(python3:*), Bash(git:*), Bash(gh:*), Bash(ls:*), Read
 description: 보드를 읽고 역할을 띄운다. 인자 없이 부르면 보드와 누가 깨어났는지 보여준다
-argument-hint: "[역할 [맡길 일]] — 예: coding \"issue 7 진행\" | 비우면 보드만"
+argument-hint: "[--skills <skill>[,<skill>...] 맡길 일] — 예: --skills implementation-blueprint \"issue 7 진행\" | 비우면 보드만"
 design-rationale: 조율 세션의 대화형 절차를 그대로 프롬프트 텍스트로 남긴다 — 머지·승인처럼 사람의 판단이 실제로 개입하는 단계를 코드로 캡슐화하면 그 판단이 불투명해지므로, 이 파일은 스크립트가 아니라 매 스텝을 사람이 읽고 따라갈 수 있는 절차 문서로 유지한다.
 ---
 
@@ -9,9 +9,10 @@ design-rationale: 조율 세션의 대화형 절차를 그대로 프롬프트 �
 
 `ON_THE_RECORD=${CLAUDE_PLUGIN_ROOT}/..` 로 두고, 아래는 전부 `python3 $ON_THE_RECORD/spawn.py` 를 쓴다.
 
-당신은 조율 세션이다 (contract v3). 역할들은 대상 레포의 이슈에서 깨어나
-`issue-<n>/<역할>` 브랜치에서 일하고 PR 로만 돌아온다. 보드는
-`docs/issue-<n>/reports/<역할>.md` 이고, main 에 머지된 것만이 보드다.
+당신은 조율 세션이다 (contract v3). 세션들은 대상 레포의 이슈에서 `--skills`로
+이름한 스킬을 물고 깨어나(이슈 #2572) `issue-<n>/<skill>-<lease>` 브랜치에서
+일하고 PR 로만 돌아온다. 보드는 `docs/issue-<n>/reports/<skill>-<lease>.md`
+이고, main 에 머지된 것만이 보드다.
 
 어떤 계약 절이 기계적으로 강제되지 않는지는 `${CLAUDE_PLUGIN_ROOT}/UNENFORCED-CLAUSES.md`
 를 읽어라 — zero-install 로 (설치 없이) 읽을 수 있는 목록이다 (issue #452, #457).
@@ -104,9 +105,10 @@ design-rationale: 조율 세션의 대화형 절차를 그대로 프롬프트 �
    섹션을 따라 계획을 제안한다.
 3. **먼저 remediation 대기열을 확인한다(issue #587).** 자유 판단으로 넘어가기
    전에 `python3 $ON_THE_RECORD/gates/remediation_spawn.py --issue <n> -C <레포>`
-   를 실행한다. 한 줄이라도 찍히면(`<역할>\t<태스크>`) 그 role/task 를 그대로
-   5번 스텝의 `spawn.py <역할> "<태스크>" --issue <n> -C <레포>` 호출에 넘겨
-   띄우고 보고한다 — 라우팅을 다시 판단하거나 태스크 문구를 다시 쓰지 않는다.
+   를 실행한다. 한 줄이라도 찍히면(`<역할>\t<태스크>`) 그 role 이름을 이슈
+   #2572 의 `--skills` 로 넘길 스킬 이름으로 삼아, 태스크는 그대로 5번 스텝의
+   `spawn.py --skills <role-as-skill> "<태스크>" --issue <n> -C <레포>` 호출에
+   넘겨 띄우고 보고한다 — 라우팅을 다시 판단하거나 태스크 문구를 다시 쓰지 않는다.
    아무것도 안 찍히면(대기 중인 remediation 없음) 아래 4번 스텝으로 넘어간다.
 4. **누구를 깨울지.** 기계가 평가하는 라우팅 표는 없다 — `python3
    $ON_THE_RECORD/spawn.py -C <레포>` 로 보드(`docs/issue-<n>/reports/*.md`
@@ -123,11 +125,12 @@ design-rationale: 조율 세션의 대화형 절차를 그대로 프롬프트 �
    고친 뒤 다시 lint 하고, 위반이 없을 때만 아래 스폰으로 넘어간다 —
    스폰해서 게이트에 막히고서야 다음 위반을 알게 되는 왕복(issue #2088
    리포로 실측: 5회 거절)을 없앤다. 그다음
-   `python3 $ON_THE_RECORD/spawn.py <역할> "<맡길 일>" --issue <n> -C <레포>`
-   를 run_in_background 로 실행한다. 역할 세션은 수 분 단위이고, 그동안
-   대화가 막혀서는 안 된다. 완료 통지가 오면 출력을 읽고 결과(PR 링크
-   또는 거부 사유)를 사용자에게 보고한다. 여러 역할 동시 실행 가능 —
-   각자 격리 작업 클론을 받는다.
+   `python3 $ON_THE_RECORD/spawn.py --skills <skill>[,<skill>...] "<맡길 일>" --issue <n> -C <레포>`
+   (이슈 #2572: 유일한 스폰 형태 — 역할-포지셔널/맨 태스크 스폰은 둘 다
+   `--skills` 를 이름하는 메시지로 거절된다)를 run_in_background 로 실행한다.
+   세션은 수 분 단위이고, 그동안 대화가 막혀서는 안 된다. 완료 통지가 오면
+   출력을 읽고 결과(PR 링크 또는 거부 사유)를 사용자에게 보고한다. 여러
+   세션 동시 실행 가능 — 각자 격리 작업 클론을 받는다.
    — --issue 가 브랜치를 만들고 프롬프트에 이슈를 박는다. 기본(1계정)에서는
    역할 세션도 사용자의 gh 를 물려받고, gh-guard 가 승인·머지·이슈 행위를
    세션 차원에서 막는다. MUSTER_AGENT_GH_TOKEN 이 설정돼 있으면 그 토큰
