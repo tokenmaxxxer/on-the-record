@@ -135,3 +135,28 @@ Append-only, newest entry last.
   enumeration failure"; "If enumeration cannot be made reliable, it must
   distinguish 'no session' from 'cannot determine' and say so, rather than
   printing an empty list that reads as authoritative.").
+
+- 2026-08-27: design principle for any staleness/re-check mechanism added
+  to this codebase (surfaced on issue #2511's reopen thread, spawn-attempt
+  halt replay): a "does the condition still hold" re-check must first ask
+  *whose property* the blocking condition actually is. Stated directly in
+  the reopen comment: "requirement-tag and acceptance-format are
+  properties of the ISSUE, so fixing the issue clears them. `cwd-invalid`
+  is a property of the ATTEMPT, and a superseded attempt's arguments never
+  change." A re-check that only re-derives the ISSUE's current state (or
+  only re-derives the ATTEMPT's own recorded arguments) will silently
+  never clear the other kind of condition, no matter how often it re-runs
+  — re-checking harder along the wrong axis cannot substitute for asking
+  the right question ("has this subject since succeeded via a different
+  attempt," for attempt-scoped conditions). Generalizes past this one
+  fix: before adding a re-check-based resolution path, classify each
+  condition by which entity actually owns it, and verify the chosen
+  re-check axis matches. Paired caution from the same fix's before-landing
+  warrant-hunt: a re-check that leans on another attempt's *recorded
+  outcome* (rather than live filesystem/git/gh state) must still verify
+  that recorded claim against something live (e.g. the referenced log
+  file still existing on disk) — trusting a stored "it succeeded" claim
+  outright reintroduces the same replay-a-stale-claim failure mode the
+  re-check mechanism exists to eliminate. Source: issue body/comment,
+  tokenmaxxxer/on-the-record#2511
+  (https://github.com/tokenmaxxxer/on-the-record/issues/2511#issuecomment-5434229805).
