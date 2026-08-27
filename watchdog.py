@@ -734,11 +734,19 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
             return
         _sp._watchdog_note_gh_failure(root, "requirement-drift:delta", False)
         if failed_numbers:
-            # 리뷰 non-blocking 노트: 델타 모드에서 개별 번호 조회 실패는
-            # 조용히 사라지지 않고 이 한 줄로 남는다 — 해당 번호는 이번
-            # 틱에서 재평가 안 되고 캐시된 이전 판정을 그대로 쓴다.
-            print(f"[watchdog] requirement-drift: 조회 실패 {failed_numbers} — "
-                  "이전 캐시 판정 유지")
+            # 이슈 #2589: 델타 모드에서 개별 번호 조회 실패는 조용히
+            # 사라지지 않고 이 줄들로 남는다 — 캐시에 이전 판정이 있는
+            # 번호는 그 판정을 유지한다고 정확히 알리고, 캐시가 없는
+            # 번호는 "이전 캐시 판정 유지"라고 거짓 주장하지 않고 이번
+            # 틱에서 전혀 평가되지 않았다는 사실을 그대로 알린다.
+            cached_failed = [n for n in failed_numbers if str(n) in cache]
+            uncached_failed = [n for n in failed_numbers if str(n) not in cache]
+            if cached_failed:
+                print(f"[watchdog] requirement-drift: 조회 실패 {cached_failed} — "
+                      "이전 캐시 판정 유지")
+            if uncached_failed:
+                print(f"[watchdog] requirement-drift: 조회 실패 {uncached_failed} — "
+                      "캐시된 판정 없음, 이번 틱 미평가")
 
     # 이슈 #1219: gates 코드는 언제나 이 체크아웃(ROOT)에서 온다 — root 가
     # 컨슈머의 타깃 프로젝트일 때 거기엔 gates/ 가 없다.
