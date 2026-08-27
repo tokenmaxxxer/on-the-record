@@ -18,6 +18,7 @@ upstream:
 
 skill-verdict: diagnose-first — applied: invoked; verified park-state file scope (item 3) as the first diagnostic step before assuming the PR-number logic (item 1) was reachable
 skill-verdict: silent-failure-audit — applied: invoked; audited should_park()'s silent no-signal failure mode and made the new loop ceiling fail loud instead of silently no-opping
+skill-verdict: work-in-english — applied: invoked; commit messages, PR title/body, code, tests, and this record were written in English throughout
 
 ## What was done
 
