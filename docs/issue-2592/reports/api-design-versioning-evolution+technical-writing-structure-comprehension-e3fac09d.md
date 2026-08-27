@@ -118,8 +118,8 @@ skill-verdict: api-design-versioning-evolution — applied: invoked; loaded
 via Skill tool this session, rule 4 used to classify the flag removal as
 breaking (frontmatter `breaking: true`), rules 9-10 judged inapplicable
 to an internal CLI with a closed consumer set (see rationale above)
-skill-verdict: technical-writing-structure-comprehension — applied:
-invoked; loaded via Skill tool this session, applied when rewriting the
+skill-verdict: technical-writing-structure-comprehension — applied: invoked;
+loaded via Skill tool this session, applied when rewriting the
 `--session` help text and the new pre-parse-guard error message (short,
 ~15-20-word sentences split on em dash/period rather than one long run-on)
 
