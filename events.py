@@ -548,12 +548,12 @@ def _live_roster_matches(matches: list, issue: int) -> list:
 
 def _ambiguous_watch_exit(issue: int, matches: list, repo: str | None) -> None:
     """이슈 #554: 애매할 때(살아있는 세션이 0개 또는 2개 이상) 그대로
-    붙여넣을 수 있는 명령을 에러에 찍는다 — `--role` 없이 재시도하면 같은
+    붙여넣을 수 있는 명령을 에러에 찍는다 — `--session` 없이 재시도하면 같은
     메시지가 또 나오는 죽은 재시도 구간을 없앤다."""
     cwd_flag = f" -C {repo}" if repo else ""
     roles = [v.get("role") or k.rsplit("/", 1)[1] for k, v in matches]
     cmds = "; ".join(
-        f"spawn.py watch --issue {issue} --role {r}{cwd_flag}" for r in roles)
+        f"spawn.py watch --issue {issue} --session {r}{cwd_flag}" for r in roles)
     sys.exit(f"이슈 {issue} 에 역할이 여럿 기록돼 있다 — 역할을 지정하라 "
              f"(후보: {', '.join(roles)}): {cmds}")
 
@@ -606,7 +606,7 @@ def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | No
     이슈 #554: 역할을 안 줬는데 매치가 여럿이면, 그중 살아있는 세션이
     정확히 하나면 그걸 자동 선택한다 — watch 는 어차피 실행 중인 세션만
     보고하므로 그게 유일하게 뜻이 통하는 선택이다. 0개 또는 2개 이상
-    살아있으면 여전히 애매하니 `--role`을 요구한다(실행 가능한 명령까지
+    살아있으면 여전히 애매하니 `--session`을 요구한다(실행 가능한 명령까지
     같이 찍는다)."""
     key, entry = _sp._lookup_workspace_entry(idx, issue, role, repo=repo)
     if entry is None:
@@ -900,7 +900,7 @@ def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: flo
                 wproc = subprocess.Popen(
                     [sys.executable, str(Path(_sp.__file__).resolve()),
                      "-C", resolved_cwd,
-                     "watch", "--issue", str(issue), "--role", rearm_role,
+                     "watch", "--issue", str(issue), "--session", rearm_role,
                      "--follow", "--self-heal",
                      "--stall-timeout", str(stall_timeout_min)],
                     stdin=subprocess.DEVNULL, stdout=wf,

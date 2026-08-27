@@ -1015,7 +1015,7 @@ def _board_wide_sweep(root: Path) -> int:
                                   f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<role> "
                                   "형식 아님) — 이 PR 은 narrowing 에서 무시. issue-<n>/<role> "
                                   "산출물을 잘못된 base 에서 다시 잡아온(#2379) 브랜치라면 "
-                                  "`spawn.py recut-corrupted --issue <n> --role <role>`(#2402)로 "
+                                  "`spawn.py recut-corrupted --issue <n> --session <session>`(#2402)로 "
                                   "같은 이름 아래 재컷하라 — 그 밖의 브랜치라면 board 와 무관한 "
                                   "PR 이니 무시해도 된다")
                         else:

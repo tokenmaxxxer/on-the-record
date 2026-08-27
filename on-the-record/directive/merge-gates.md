@@ -12,7 +12,7 @@
   #2379): when a branch-cut produced a corrupted merge-base (an
   `issue-<n>/<role>` branch that forked from a stale/unrelated ancient
   commit — #2379's 1572-file phantom diff), the sanctioned repair is
-  `spawn.py recut-corrupted --issue <n> --role <role> [-C <cwd>]`
+  `spawn.py recut-corrupted --issue <n> --session <session> [-C <cwd>]`
   (`pipeline.py:recut_corrupted_cli`, `spawn.py:_recut_corrupted_branch`):
   it `git rebase --onto`s the branch's own commits from the corrupted
   merge-base onto the current base, **under the same branch name**, then
