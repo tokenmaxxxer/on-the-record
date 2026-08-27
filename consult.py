@@ -83,6 +83,33 @@ _MIN_PLAUSIBLE_JUDGE_WALL_S = 1.0
 # observed `skill_judge_perf` line is ~150-250 bytes).
 _LEDGER_TAIL_READ_BYTES = 512 * 1024
 
+# issue #2569: per-call stage timing for `consult_cmd()`, the same shape as
+# `pipeline._timed()`/`_bootstrap_timing_line()` uses for spawn's bootstrap —
+# so a real consult's stage breakdown can be quoted the same way a spawn's
+# can, instead of arguing from the single wall-clock figure a caller sees.
+# Module-level (not a spawn-shared `_sp` attribute) because this state is
+# consult-local; cleared at the top of `consult_cmd()` so a process that
+# calls it more than once (e.g. `panel_cmd()`'s sequential degrade path)
+# never blends one call's stage times into the next one's line.
+_CONSULT_TIMING: dict[str, float] = {}
+_CONSULT_PHASES = ("skill_match", "session_run")
+
+
+@contextlib.contextmanager
+def _consult_timed(phase: str):
+    t0 = time.monotonic()
+    try:
+        yield
+    finally:
+        _CONSULT_TIMING[phase] = _CONSULT_TIMING.get(phase, 0.0) + (time.monotonic() - t0)
+
+
+def _consult_timing_line(role: str) -> str:
+    parts = [f"{p}={_CONSULT_TIMING.get(p, 0.0):.3f}" for p in _CONSULT_PHASES]
+    total = sum(_CONSULT_TIMING.get(p, 0.0) for p in _CONSULT_PHASES)
+    parts.append(f"total={total:.3f}")
+    return f"[{role}] consult_timing " + " ".join(parts)
+
 
 def _skill_judge_perf_samples(ledger_path: Path | None = None) -> list[float]:
     """issue #2274: 실측 skill_judge 호출 지연(초) 목록 —
@@ -215,6 +242,20 @@ def _consult_evidence_suffix(verdict: dict, cwd: str | None) -> str:
             _sp.ledger_write({"event": "evidence_check_crash", "error": str(e)[:300],
                           "ts": datetime.now(timezone.utc).isoformat()})
         return " | evidence=error(fail-open)"
+
+
+def _consult_background_log_path() -> Path:
+    """이슈 #2569: 배경 fork 로 도는 consult 자식의 stdout/stderr 목적지.
+    devnull 로 버리면 `_consult_timing_line()`/실패 트레이스백이 사라져
+    "어디서 시간을 썼는지"를 재구성할 길이 없어진다 — 최종 판단 자체는
+    이미 트레이스(git 커밋)에 남지만, 단계별 타이밍은 이 로그가 유일한
+    목적지다. `_sp.STATE_ROOT`(기본 `ROOT/runs`, `MUSTER_STATE_ROOT` 로
+    오버라이드 — 로스터/워크스페이스 인덱스와 같은 상태 루트) 아래 둔다 —
+    결과물이 아니라 진단용 휘발성 로그라 커밋 대상 트리(`docs/`) 밖."""
+    d = _sp.STATE_ROOT / "consult-logs"
+    d.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    return d / f"{ts}-{os.getpid()}.log"
 
 
 def _consult_root(cwd: str | None) -> Path:
@@ -747,6 +788,15 @@ def _consult_cmd_and_env(role: str, cwd: str | None,
     core_dir = next((p for p in _sp.core_plugin_dirs() if Path(p).name == "core"), None)
     if core_dir:
         env["CLAUDE_PLUGIN_ROOT_CORE"] = str(core_dir)
+    # 이슈 #2569: `spawn_cmd()`(pipeline.py) 는 실제 스폰 세션에 마운트한
+    # 스킬을 `MUSTER_SKILLS` 로 얹지만, 이 함수는 여태 그러지 않았다 —
+    # cross-family 매치가 자문(consult)의 답에 실제로 반영됐는지(이슈가
+    # 요구하는 "블로킹을 없애도 매치는 그대로") 확인할 관측 지점이 아예
+    # 없었다. `plugins`(위, `_composed_consult_skill_source()` 의 매치
+    # 결과)를 같은 모양으로 얹는다 — falsy 면 아무 것도 안 붙여 no-flag
+    # 경로를 바이트 단위로 그대로 둔다(spawn_cmd() 와 같은 관례).
+    if plugins:
+        env["MUSTER_SKILLS"] = ",".join(Path(p).name for p in plugins)
     return cmd, env, settings_path
 
 
@@ -764,7 +814,16 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
     생긴다(issue #695/#700 이 이미 한 번 치운 문제류).
 
     트레이스는 **성공/실패와 무관하게** 항상 한 줄 남는다 — `finally` 에서
-    쓰고, 그 다음에야 리턴하거나 다시 raise 한다."""
+    쓰고, 그 다음에야 리턴하거나 다시 raise 한다.
+
+    이슈 #2569: `skill_match`(=`_consult_cmd_and_env()` 호출, cross-family
+    BM25+skill_judge 매치가 여기서 돈다) / `session_run`(=아래 실제 자문
+    세션 subprocess.run 루프) 두 단계를 `_consult_timed()` 로 재
+    `_consult_timing_line()` 을 `finally` 에서 항상 stderr 로 찍는다 —
+    `pipeline._bootstrap_timing_line()` 과 같은 모양. 이 호출 자체가
+    실측 지배 단계였다(cross_family 43-78s, `bootstrap_timing` 실측) —
+    "1m 2s" 한 숫자가 아니라 단계별로 어디서 쓰는지를 매 실행마다
+    남긴다."""
     trace_path = _sp._consult_trace_path(issue, cwd)
     ts = datetime.now(timezone.utc).isoformat()
     outcome = "error: 알 수 없는 실패"
@@ -772,13 +831,16 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
     settings_path = None
     raw_path = None
     raw_paths: list[Path] = []
+    env: dict = {}
+    _CONSULT_TIMING.clear()
     try:
         # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
         # 지웠다 — `_consult_cmd_and_env()` 는 `spec` 을 읽지 않았고(죽은
         # 코드), role 검증은 그 안의 `role_settings()` 호출(pipeline.py,
         # 이슈 #2539 stage 6C부터 `spawn_roles.json` 을 읽는다)이 그대로 맡는다.
-        cmd, env, settings_path = _sp._consult_cmd_and_env(
-            role, cwd, model, task_text=question, issue=issue)
+        with _consult_timed("skill_match"):
+            cmd, env, settings_path = _sp._consult_cmd_and_env(
+                role, cwd, model, task_text=question, issue=issue)
         # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
         # freelunch/scout/warrant/proposal-shape 같은, 저장소를 바꾸는 배달물을
         # 겨냥한 core 훅들이 자문 세션에도 그대로 꽂힌다. 복잡한 판단 질문 하나가
@@ -808,27 +870,28 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             "절차도 밟지 말고, 지금 바로 위 형식의 JSON 객체 하나만 출력하라.)"
         )
         attempts_exhausted = "알 수 없는 실패"
-        for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
-            r = subprocess.run(cmd, cwd=cwd or str(_sp.ROOT), input=attempt_prompt, text=True,
-                               capture_output=True, timeout=_sp.CONSULT_TIMEOUT, env=env)
-            if r.returncode != 0:
-                attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
-                continue
-            result = _sp.session_result(r.stdout)
-            raw_text = result.get("result", "")
-            verdict = _sp._parse_consult_verdict(raw_text)
-            if verdict is None:
-                raw_path = _sp._persist_consult_raw_output(issue, ts, attempt_num, raw_text, cwd)
-                raw_paths.append(raw_path)
-                excerpt = raw_text[-300:].replace("\n", " ")
-                attempts_exhausted = (
-                    f"모델 출력에서 판단 JSON 을 못 찾음 (원본: `{raw_path}`, "
-                    f"끝부분: {excerpt!r})"
-                )
-                continue
-            outcome = (f"ok: {str(verdict.get('answer', ''))[:200]}"
-                       + _sp._consult_evidence_suffix(verdict, cwd))  # issue #2104
-            return verdict
+        with _consult_timed("session_run"):
+            for attempt_num, attempt_prompt in enumerate((base_prompt, retry_prompt), start=1):
+                r = subprocess.run(cmd, cwd=cwd or str(_sp.ROOT), input=attempt_prompt, text=True,
+                                   capture_output=True, timeout=_sp.CONSULT_TIMEOUT, env=env)
+                if r.returncode != 0:
+                    attempts_exhausted = f"세션 종료 코드 {r.returncode}: {r.stderr.strip()[:300]}"
+                    continue
+                result = _sp.session_result(r.stdout)
+                raw_text = result.get("result", "")
+                verdict = _sp._parse_consult_verdict(raw_text)
+                if verdict is None:
+                    raw_path = _sp._persist_consult_raw_output(issue, ts, attempt_num, raw_text, cwd)
+                    raw_paths.append(raw_path)
+                    excerpt = raw_text[-300:].replace("\n", " ")
+                    attempts_exhausted = (
+                        f"모델 출력에서 판단 JSON 을 못 찾음 (원본: `{raw_path}`, "
+                        f"끝부분: {excerpt!r})"
+                    )
+                    continue
+                outcome = (f"ok: {str(verdict.get('answer', ''))[:200]}"
+                           + _sp._consult_evidence_suffix(verdict, cwd))  # issue #2104
+                return verdict
         outcome = f"error: {attempts_exhausted} (재시도 1회 포함, 모두 실패)"
         raise RuntimeError(outcome)
     except subprocess.TimeoutExpired:
@@ -838,6 +901,8 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         if settings_path:
             with contextlib.suppress(OSError):
                 os.unlink(settings_path)
+        print(_consult_timing_line(role) +
+              f" muster_skills={env.get('MUSTER_SKILLS', '')!r}", file=sys.stderr)
         _sp._append_consult_trace(trace_path, ts, role, issue, question, outcome)
         commit_paths = [trace_path] + raw_paths
         _sp._commit_consult_trace(commit_paths, issue, role, outcome, cwd)

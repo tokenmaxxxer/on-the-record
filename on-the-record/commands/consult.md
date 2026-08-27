@@ -23,7 +23,7 @@ issue → 브랜치 → 커밋 → PR 파이프라인 전체가 아니라, 질�
 ## 어떻게 부르나
 
 ```
-python3 $ON_THE_RECORD/spawn.py consult <역할> "<질문>" [--issue <n>] [-C <레포>]
+python3 $ON_THE_RECORD/spawn.py consult <역할> "<질문>" [--issue <n>] [-C <레포>] [--foreground]
 ```
 
 - `<역할>`: `spawn.py` 가 아는 역할 이름 (인자 없이 `spawn.py` 를 부르면 목록이 뜬다).
@@ -37,10 +37,31 @@ python3 $ON_THE_RECORD/spawn.py consult <역할> "<질문>" [--issue <n>] [-C <�
   오늘까지의 단일-파일 뷰가 필요하면
   `spawn.py consult-log --issue <n> [-C <레포>]` 로 모든 샤드를
   시간순으로 이어 붙인 텍스트를 본다.
+- `--foreground`: 이슈 #2569 이전의 동작으로 되돌린다 — 아래 "무엇이
+  돌아오나" 참고. 스크립트/테스트처럼 판단 JSON 을 그 자리에서 바로
+  파싱해 써야 할 때만 켠다.
 
 ## 무엇이 돌아오나
 
-stdout 에 JSON 객체 하나:
+**기본(이슈 #2569)은 배경 실행이다.** cross-family 스킬 매치(BM25 +
+skill_judge 자문)와 실제 자문 세션 실행을 합치면 실측 43-78s+ 걸릴 수
+있다 — 호출자 프로세스 안에서 그대로 기다리면 대화형 세션 하나를 그만큼
+얼린다. `spawn.py <역할> ... --issue <n>` 이 세션을 detach 하고 즉시
+리턴하는 것과 같은 패턴(`os.fork()`)으로, 이 커맨드도 즉시 리턴한다:
+
+```
+[consult] 배경에서 돈다(pid <pid>) — 판단은 자문 트레이스에 커밋된다:
+`spawn.py consult-log[--issue <n>]` 로 확인. 단계별 타이밍/원시 출력: <log>
+```
+
+판단 JSON 자체는 스킬 매치를 포함해 자문이 끝난 뒤 위 트레이스에
+커밋된다(아래 "트레이스" 절) — 곧바로 stdout 에서 읽을 수 없다. `<log>`
+경로에는 매 실행마다 단계별 소요시간(`skill_match`/`session_run`)과
+`muster_skills`(이번 자문에 실제로 마운트된 스킬 이름들 — 스킬 매치가
+그대로 유지됐는지 확인할 지점)도 함께 남는다.
+
+`--foreground` 를 주면 예전처럼 호출자 프로세스 안에서 끝까지 기다려
+stdout 에 JSON 객체 하나를 그대로 찍는다:
 
 ```json
 {"answer": "...", "confidence": "low|medium|high", "caveats": ["..."]}
@@ -61,6 +82,10 @@ stdout 에 JSON 객체 하나:
 - `spawn.py <역할> ... --issue <n>` 의 워처/roster 등록/재스폰 기계장치를
   전혀 거치지 않는다 — 세션 하나 돌고, 답 하나 돌아오고, 끝난다.
 
-바운드된 헤드리스 실행이라 오래 걸리지 않는다(기본 상한 180초) — 결과를
-기다려도 된다, `spawn.py <역할> ... --issue <n>` 처럼 백그라운드로 돌릴
-필요 없다.
+자문 세션 자체는 바운드된 헤드리스 실행이다(기본 상한 180초) — 하지만
+그 실행 앞에 붙는 cross-family 스킬 매치(skill_judge 자문)가 실측
+43-78s+ 걸릴 수 있어(이슈 #2569, `bootstrap_timing` 의 `cross_family`
+구간과 같은 원인), 매치+세션 합계는 180초 상한과 별개로 대화형
+호출자에게 1-3분짜리 정지로 보였다. 그래서 이제 기본은 위 "무엇이
+돌아오나" 절의 배경 실행이다 — `spawn.py <역할> ... --issue <n>` 처럼
+호출자는 즉시 리턴받고, 판단은 트레이스에 커밋된 뒤 확인한다.
