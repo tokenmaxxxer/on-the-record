@@ -42,10 +42,10 @@ import state_paths  # noqa: E402
 # architecture-decomposition-strategy-386ff408.md) -- no kind/name matching
 # anywhere in the merge path. This tuple exists only so THIS automation's
 # own auto-spawn tick (missing_verification/spawn_missing_for_pr below)
-# knows which two of spawn_roles.json's ~44 skills to invite when the
+# knows which two of the retired ~44-entry role catalog's skills to invite when the
 # subject board hasn't landed a qualifying record yet -- a role-selection
 # choice, not an obligation check. Generalizing or removing named role
-# selection here is issue #2610's separate surface (spawn_roles.json / the
+# selection here is issue #2610's separate surface (the role catalog / the
 # role catalog's retirement) -- not absorbed into this issue.
 AUTO_SPAWN_ROLES = ("execution-observation", "conformance-review")
 

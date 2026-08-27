@@ -251,16 +251,21 @@ def _routing_fix_should_withhold(cwd):
         if not m:
             return False
         issue = int(m.group(1))
+    # issue #2610: this used to look these two skills' trigger up in the
+    # (now-deleted) 44-entry role catalog. `candidates` was already a
+    # fixed 2-name tuple (secure-coding/release-engineering) unrelated to
+    # that catalog's key set — inlining their trigger data here drops the
+    # JSON dependency without shrinking or reshaping the set this hook
+    # special-cases (still exactly these two, unchanged).
+    TRIGGER_PATH_PATTERNS = {
+        "secure-coding": ["**/auth/**", "**/*credential*", "**/*permission*",
+                           "**/*secret*", "**/*password*", "**/*login*",
+                           "**/*input*", "**/*sanitiz*", "**/*validat*"],
+        "release-engineering": ["CHANGELOG.md", "package.json",
+                                 "pyproject.toml", "**/VERSION"],
+    }
     for role in candidates:
-        try:
-            role_data = json.load(open(os.path.join(cwd, "spawn_roles.json")))
-            spec = role_data[role]["record_spec"]
-        except (OSError, ValueError, KeyError):
-            continue
-        trigger = (spec.get("use_when") or {}).get("trigger") if isinstance(spec.get("use_when"), dict) else None
-        if not isinstance(trigger, dict) or trigger.get("record_absent_for") != role:
-            continue
-        path_patterns = trigger.get("path_patterns") or []
+        path_patterns = TRIGGER_PATH_PATTERNS.get(role) or []
         if not path_patterns:
             continue
         try:

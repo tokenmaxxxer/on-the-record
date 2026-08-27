@@ -46,15 +46,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-# 이슈 #2539 (stage 6C): roles/*.json + roles/specs/*.spec.json 대신 이 파일
-# 하나 — role -> 원래 roles/<role>.json 내용, 그 안의 "record_spec" 키가 원래
-# roles/specs/<role>.spec.json 내용(일부 role은 이미 "spec" 필드를 다른 뜻으로
-# 쓰고 있어 이름이 다르다).
-_ROLE_DATA_PATH = ROOT / "spawn_roles.json"
-
-
-def role_data() -> dict:
-    return json.loads(_ROLE_DATA_PATH.read_text(encoding="utf-8"))
 
 
 def _derive_slug_from_task(task_text: str) -> str:
@@ -739,9 +730,9 @@ _BOOTSTRAP_PHASES = ("admission", "skill_resolve", "workspace", "branch",
 
 # 이슈 #2560: 고정 43개 역할 이름 튜플 `ROLES`는 여기서 완전히 삭제됐다 —
 # 역할/슬러그 신원은 더 이상 닫힌 집합에 속하지 않는다 (issue-2548
-# architecture record, Identity/Consumers item d). 남은 유일한 닫힌
-# 카탈로그는 `spawn_roles.json`(→ `role_data()`)이며, 그 파일 자체를
-# 남긴 이유(consult.py 자문 페르소나 등)는 그 함수 독스트링을 본다.
+# architecture record, Identity/Consumers item d). 이슈 #2610: 남아있던
+# 마지막 닫힌 카탈로그(44개 role 이름 -> 정의)도 삭제됐다 — 그 파일의
+# 열 곳이 넘는 소비자는 전부 카탈로그 조회 없이 동작하도록 다시 짜였다.
 BOARD = "docs"                          # v3: subject trees live at docs/issue-<n>/
 MARKER = "docs/specs/approvers.md"      # 보드 opt-in + 승인자 allowlist (v3)
 REQUIREMENT_DIGEST_MARKER = "docs/specs/requirement-digest.md"  # issue #1695
@@ -2222,16 +2213,19 @@ def main() -> int:
         import flows
         return flows.flows(a.cwd, a.json, all_scope=a.all)
     if a.role == "roles-due":
-        # board_condition 평가기 — 판단(judgment) 잔여만 (issue #896 step 2).
-        # 표준 발동(test-authoring 등)은 이제 항상-켜짐 훅이 맡고, 여기는
-        # 스폰 여부까지 판단이 필요한 나머지 역할만 surfaced-only 로 보고한다.
-        sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
-        import roles_due as _roles_due
-        due = _roles_due.roles_due(Path(a.cwd).resolve())
-        lines = _roles_due.format_report(due)
-        for line in lines:
-            print(line)
-        return 0
+        # issue #2610: removed. `roles_due.py` evaluated the (now-deleted)
+        # 44-entry role catalog's `record_spec.use_when.trigger` per role
+        # name to nudge "role X is due — its record is absent and the
+        # changed paths match its trigger". That nudge was inherently
+        # keyed on a closed set of role names — the operator's ruling on
+        # #2610 is that a capability which cannot be provided without
+        # enumerating identities is dropped, not reshaped into a new
+        # enumeration, and no non-enumerated trigger registry replaces it.
+        # Loud, not silent: anyone still invoking this prints the removal
+        # reason and exits non-zero rather than reporting an empty list.
+        print("spawn.py roles-due: removed (issue #2610) — depended on the "
+              "retired role-name-keyed trigger catalog; no replacement.")
+        return 1
     if a.role == "closure-sweep":
         # 보드 전체를 훑어 이슈-PR 종결 불일치를 보고한다 — 명시적 단발 호출
         # (approve-scope 와 마찬가지로 watchdog 틱에 자동으로 안 물린다, 이슈 #135).
@@ -2458,13 +2452,6 @@ def main() -> int:
         return drive(a.cwd, a.unattended, a.limit)
     if not a.role:
         print("\n".join(status(a.cwd)))
-        print("\n역할:")
-        try:
-            data = role_data()
-        except (OSError, ValueError):
-            data = {}
-        for name, meta in sorted(data.items()):
-            print(f"  {name:12s} {meta.get('decides','')}  — {meta.get('use_when','')}")
         return 0
     if not _via_skills:
         # 이슈 #2572: --skills 가 유일한 스폰 형태다 — 은퇴한 두 형태
