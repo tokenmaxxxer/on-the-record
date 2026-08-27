@@ -505,6 +505,39 @@ def unpark(root: Path, subject: str, role: str) -> bool:
     return False
 
 
+def clear_ceiling(root: Path, subject: str | None = None, role: str | None = None
+                   ) -> list[str]:
+    """issue #2607: CEILING HIT 가 parked 시킨 쌍의 ceiling 상태
+    (`ceiling_hit` 플래그 + `attempts` 카운터)만 지운다 — `blocked`/
+    `parked` 는 손대지 않는다, 그래야 다음 틱에도 여전히 진짜 승인 신호
+    (`is_approval_blocked()`)를 통해서만 재개된다. 운영자 결정: 카운터는
+    자동 신호(승인, 경과 시간, PR 번호 변화)로 절대 되돌지 않는다 —
+    이건 그 결정을 지키면서 사람이 명시적으로 실행하는 유일한 해제
+    경로다.
+
+    `subject`/`role` 을 둘 다 주면 그 쌍만 대상으로 한다(운영자가 이름을
+    지정한 경우). 안 주면 현재 `ceiling_hit: True` 로 보고된 모든 쌍을
+    대상으로 한다("currently reported" — CEILING HIT 줄이 방금 찍은
+    바로 그 목록). 어느 경우든 그 쌍이 실제로 `ceiling_hit` 상태가
+    아니면 건드리지 않는다 — 그 밖의 park 항목(승인 대기 중인 쌍 등)은
+    범위 밖이다. 지워진 키 목록을 돌려준다(빈 목록 = 지울 게 없었음)."""
+    state = load_park_state(root)
+    if subject is not None and role is not None:
+        keys = [f"{subject}/{role}"]
+    else:
+        keys = [key for key, entry in state.items() if entry.get("ceiling_hit")]
+    cleared = []
+    for key in keys:
+        entry = state.get(key)
+        if not entry or not entry.get("ceiling_hit"):
+            continue
+        state[key] = {**entry, "ceiling_hit": False, "attempts": 0}
+        cleared.append(key)
+    if cleared:
+        _save_park_state(root, state)
+    return cleared
+
+
 def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
                           issue_states: dict[int, str] | None = None,
                           spawn_cap: int = SPAWN_CAP,
@@ -625,8 +658,10 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
             })
         print(f"[spawn-on-pr] CEILING HIT: {len(ceiling_hit)}건이 최대 재시도 "
               f"횟수({max_respawn_attempts})에 도달해 자동 스폰을 멈춘다 — "
-              f"사람 개입 필요 (park_state 에 ceiling_hit=True 로 기록됨): "
-              f"{[(s, r, a) for s, r, a in ceiling_hit]}")
+              f"사람 개입 필요 (park_state 에 ceiling_hit=True 로 기록됨).")
+        print(f"[spawn-on-pr]   해제: `python3 gates/spawn_on_pr.py clear-ceiling` "
+              f"(특정 쌍만 지우려면 `--subject <subject> --role <role>` 추가)")
+        print(f"[spawn-on-pr]   대상: {[(s, r, a) for s, r, a in ceiling_hit]}")
 
     pairs3 = to_spawn[:spawn_cap]
     deferred = len(to_spawn) - len(pairs3)
@@ -747,7 +782,15 @@ def _main(argv: list[str] | None = None) -> int:
         "unpark", help="park 된 (subject, role) 을 명시적으로 재무장한다(issue #1476 요구 2).")
     unpark_p.add_argument("--subject", required=True, help="예: issue-1163")
     unpark_p.add_argument("--role", required=True, help="예: conformance-review")
+    clear_ceiling_p = sub.add_parser(
+        "clear-ceiling",
+        help="CEILING HIT 로 parked 된 쌍의 ceiling 상태만 지운다(issue #2607). "
+             "생략하면 현재 ceiling_hit=True 로 보고된 모든 쌍이 대상.")
+    clear_ceiling_p.add_argument("--subject", help="예: issue-1163 (--role 과 함께 지정)")
+    clear_ceiling_p.add_argument("--role", help="예: conformance-review (--subject 와 함께 지정)")
     args = parser.parse_args(argv)
+    if args.command == "clear-ceiling" and bool(args.subject) != bool(args.role):
+        parser.error("clear-ceiling: --subject 와 --role 은 함께 주거나 둘 다 생략한다.")
     if args.command == "backfill-closed":
         pairs = backfill_closed(ROOT, str(ROOT), dry_run=not args.live)
         mode = "LIVE" if args.live else "DRY-RUN"
@@ -759,6 +802,21 @@ def _main(argv: list[str] | None = None) -> int:
         cleared = unpark(ROOT, args.subject, args.role)
         print(f"[unpark] {args.subject}/{args.role}: "
               f"{'재무장됨' if cleared else 'park 기록 없음'}")
+        return 0
+    if args.command == "clear-ceiling":
+        cleared = clear_ceiling(ROOT, args.subject, args.role)
+        if cleared:
+            print(f"[clear-ceiling] {len(cleared)}건 해제됨: {cleared}")
+        elif args.subject and args.role:
+            # issue #2607 silent-failure-audit: distinguish "that pair isn't
+            # ceiling_hit (or doesn't exist)" from the global empty case
+            # below -- both reporting the same generic line would leave an
+            # operator who mistyped --subject/--role unable to tell a typo
+            # from an already-clear pair.
+            print(f"[clear-ceiling] {args.subject}/{args.role}: "
+                  f"ceiling_hit 상태 아님 (지울 것 없음)")
+        else:
+            print("[clear-ceiling] 지울 ceiling 상태 없음")
         return 0
     return 1
 

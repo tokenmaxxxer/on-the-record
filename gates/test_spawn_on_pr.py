@@ -262,3 +262,117 @@ def test_ceiling_hit_entry_stays_parked_on_a_later_tick(monkeypatch, tmp_path):
     state = json.loads(park_path.read_text())
     assert state[KEY]["ceiling_hit"] is True
     assert state[KEY]["attempts"] == 4
+
+
+# ---------------------------------------------------------------------
+# clear_ceiling(): issue #2607 — the CEILING HIT message's named recovery
+# command. Must clear only ceiling_hit/attempts, never blocked/parked, so
+# the next tick still gates on a real approval signal, not on this
+# command's mere invocation.
+# ---------------------------------------------------------------------
+
+def test_clear_ceiling_empty_state_reports_nothing_and_does_not_error(tmp_path, monkeypatch):
+    park_path = tmp_path / "spawn_on_pr_parked.json"
+    monkeypatch.setattr(spawn_on_pr, "_park_state_path", lambda root: park_path)
+
+    cleared = spawn_on_pr.clear_ceiling(tmp_path)
+
+    assert cleared == []
+    assert not park_path.exists()
+
+
+def test_clear_ceiling_no_args_clears_all_currently_reported_pairs(tmp_path, monkeypatch):
+    park_path = tmp_path / "spawn_on_pr_parked.json"
+    monkeypatch.setattr(spawn_on_pr, "_park_state_path", lambda root: park_path)
+    OTHER_KEY = "issue-99002/conformance-review"
+    _seed_park_state(park_path, {
+        KEY: {"blocked": True, "pr_number": 700, "parked": True,
+              "ceiling_hit": True, "attempts": 4},
+        OTHER_KEY: {"blocked": True, "pr_number": 900, "parked": True,
+                    "ceiling_hit": True, "attempts": 4},
+        # A plain waiting-for-approval park entry, never ceiling_hit --
+        # out of scope for this command and must survive untouched.
+        "issue-99003/execution-observation": {
+            "blocked": True, "pr_number": 800, "parked": True, "attempts": 1,
+        },
+    })
+
+    cleared = spawn_on_pr.clear_ceiling(tmp_path)
+
+    assert sorted(cleared) == sorted([KEY, OTHER_KEY])
+    state = json.loads(park_path.read_text())
+    assert state[KEY]["ceiling_hit"] is False
+    assert state[KEY]["attempts"] == 0
+    assert state[KEY]["blocked"] is True  # untouched -- still gated on real signal
+    assert state[KEY]["parked"] is True
+    assert state[OTHER_KEY]["ceiling_hit"] is False
+    assert state[OTHER_KEY]["attempts"] == 0
+    untouched = state["issue-99003/execution-observation"]
+    assert untouched == {"blocked": True, "pr_number": 800, "parked": True, "attempts": 1}
+
+
+def test_clear_ceiling_named_pair_leaves_other_ceiling_hits_alone(tmp_path, monkeypatch):
+    park_path = tmp_path / "spawn_on_pr_parked.json"
+    monkeypatch.setattr(spawn_on_pr, "_park_state_path", lambda root: park_path)
+    OTHER_KEY = "issue-99002/conformance-review"
+    _seed_park_state(park_path, {
+        KEY: {"blocked": True, "pr_number": 700, "parked": True,
+              "ceiling_hit": True, "attempts": 4},
+        OTHER_KEY: {"blocked": True, "pr_number": 900, "parked": True,
+                    "ceiling_hit": True, "attempts": 4},
+    })
+
+    cleared = spawn_on_pr.clear_ceiling(tmp_path, subject=SUBJECT, role=ROLE)
+
+    assert cleared == [KEY]
+    state = json.loads(park_path.read_text())
+    assert state[KEY]["attempts"] == 0
+    assert state[OTHER_KEY]["ceiling_hit"] is True  # not named -- untouched
+    assert state[OTHER_KEY]["attempts"] == 4
+
+
+def test_clear_ceiling_then_next_tick_spawns_once_approval_is_real(monkeypatch, tmp_path):
+    # The full recovery path the issue asks for: a pair hit the ceiling,
+    # the operator runs clear-ceiling, and — because a real external
+    # approval signal is already present (blocked=False here stands in
+    # for that) — the very next tick spawns it again. clear_ceiling()
+    # never had to touch `blocked`/`parked` for this to work: the ceiling
+    # was the only thing still in the way.
+    recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]}, pr_number=700,
+        blocked=False)
+    _seed_park_state(park_path, {
+        KEY: {"blocked": True, "pr_number": 700, "parked": True,
+              "ceiling_hit": True, "attempts": 4},
+    })
+
+    cleared = spawn_on_pr.clear_ceiling(tmp_path)
+    assert cleared == [KEY]
+
+    pairs = _run(tmp_path)
+
+    assert pairs == [(SUBJECT, ROLE)]
+    assert len(recorder.spawn_calls) == 1
+    state = json.loads(park_path.read_text())
+    assert state[KEY]["parked"] is False
+    assert state[KEY]["attempts"] == 1
+
+
+def test_clear_ceiling_does_not_unblock_without_a_real_approval_signal(monkeypatch, tmp_path):
+    # The must-not case: clear-ceiling alone is not a bypass. If no real
+    # external signal exists yet (still blocked=True), the pair stays
+    # parked on the next tick exactly like any other waiting-for-human
+    # pair -- clearing the ceiling did not spoof an approval.
+    recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]}, pr_number=700,
+        blocked=True)
+    _seed_park_state(park_path, {
+        KEY: {"blocked": True, "pr_number": 700, "parked": True,
+              "ceiling_hit": True, "attempts": 4},
+    })
+
+    spawn_on_pr.clear_ceiling(tmp_path)
+    pairs = _run(tmp_path)
+
+    assert pairs == []
+    assert recorder.spawn_calls == []
