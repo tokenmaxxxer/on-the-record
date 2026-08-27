@@ -364,8 +364,7 @@ rebuilt every reproduction independently (fresh fixtures, fresh git
 worktrees, own payload generator) rather than accepting the PR body's
 pasted transcripts, and searched past the fixing session's own listed
 variants for a failure mode it hadn't covered.
-skill-verdict: secure-coding-input-validation-injection-defense —
-applied: invoked; identified the fix's allowlist check
+skill-verdict: secure-coding-input-validation-injection-defense — applied: invoked; identified the fix's allowlist check
 (`PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(priorities_candidate)`) as
 matching against a value derived from an untrusted anchor (`cwd`)
 instead of the code's own already-computed canonical anchor (the
