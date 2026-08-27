@@ -180,3 +180,16 @@ Append-only, newest entry last.
   scope — future scope-cleanup work should account for them. Source:
   issue #2629 spawn-prompt task text and its correcting comment, read
   2026-08-27.
+
+- 2026-08-27: user flagged, while directing a rebase of PR #2633 across a
+  concurrent landing of PR #2632 (issue #2629), that this file
+  (`docs/reports/product/priorities.md`) is itself an append-only log
+  with no conflict-elimination sharding — unlike `consult-log.md`, which
+  got that treatment in #2333. Two sessions appending an entry to this
+  file in the same window will always conflict, exactly as PR #2633 and
+  PR #2632 did here. Explicitly noted for the record and explicitly not
+  fixed in that rebase — future work sharding this file the way
+  `consult-log.md` was sharded would remove a recurring, low-value
+  conflict surface. Source: user's rebase-task instructions, issue-2631
+  session, 2026-08-27 ("Note for the record, not for fixing here...
+  Mention it; do not fix it in this PR.").
