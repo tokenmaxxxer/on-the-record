@@ -1270,13 +1270,21 @@ def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
     의 클래스별 재확인은 그 halt 를 낸 ATTEMPT 자신의 recorded 인자(cwd 등)를
     다시 본다 — requirement-tag/acceptance-format 은 이슈의 성질이라 이슈를
     고치면 풀리지만, cwd-invalid/workspace-origin-mismatch 는 그 특정 spawn
-    시도의 성질이고 한 번 기록된 그 attempt 의 인자는 다시는 안 바뀐다(실측:
-    이슈 #2576 스폰의 cwd 가 레포 슬러그 문자열 "tokenmaxxxer/on-the-record"
-    로 기록돼, 절대 디렉터리가 될 수 없어 클래스 재확인이 영원히 False — 재실행
-    성공 뒤로도 6번 replay). 이 함수는 그 attempt 자신의 인자가 아니라 "같은
-    (issue, role) 이 그 뒤 성공적으로 재시도됐는가"를 묻는다 — 성공했다면
+    시도의 성질이고 한 번 기록된 그 attempt 의 인자는 다시는 안 바뀐다: 예를 들어
+    `-C` 인자가 레포 슬러그 문자열("tokenmaxxxer/on-the-record" 류, 경로가
+    아니다)로 잘못 넘어온 시도는 그 인자가 절대 디렉터리가 될 수 없어 클래스
+    재확인이 영원히 False 로 남는다(이슈 #2576 스폰이 이 halt 를 낸 실제
+    사례 — 재실행 성공 뒤로도 6번 replay, 재오픈 코멘트). 이슈 #2511
+    issuecomment-5434456805(재오픈 코멘트의 정정)가 실측한 대로, 지금
+    spawn-attempts.jsonl 에 남은 attempt 레코드는 전부 PR #2594 이전에
+    쓰인 것이라 `cwd` 필드 자체가 아예 없다(`None`) — 그래서 클래스 재확인은
+    "그 값이 나쁘다"가 아니라 "재확인할 값 자체가 없다"는 이유로도 영원히
+    False 다. 두 경우 다 클래스 재확인 혼자서는 못 푼다는 결론은 같다. 이
+    함수는 그 attempt 자신의 인자(있든 없든)가 아니라 "같은 (issue, role)
+    이 그 뒤 성공적으로 재시도됐는가"를 묻는다 — 성공했다면
     (`outcome == "session-log"`) 그 재시도가 원래 halt 를 superseded 했고,
-    superseded 된 halt 는 자기 인자가 여전히 나빠 보여도 더 이상 라이브가 아니다.
+    superseded 된 halt 는 자기 인자가 여전히 나빠 보이거나 아예 없어도 더
+    이상 라이브가 아니다.
 
     `attempt` 보다 `ts` 가 늦은 같은 (issue, role) 시도만 본다 — 더 이른 시도의
     성공은 이 halt 를 안 지운다(나중에 실패로 되돌아간 케이스를 오판하지

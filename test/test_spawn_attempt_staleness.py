@@ -409,13 +409,19 @@ class SpawnAttemptSweepReplayFixTest(unittest.TestCase):
 
 class SpawnAttemptSweepSupersededFixTest(unittest.TestCase):
     """issue #2511 residual, mirrored from the two live fixtures named in
-    the reopen comment (`runs/spawn-attempts.jsonl` on the canonical
+    the reopen thread (`runs/spawn-attempts.jsonl` on the canonical
     checkout, issue-2576/silent-failure-audit-ec09cf78 and
-    issue-1/implementation-af260856): a cwd-invalid halt whose recorded
-    `cwd` is a repo slug (never a directory, so the class re-check can
-    never clear it) must stop replaying once the same (issue, role) has
-    a later successful attempt; a requirement-tag halt with no such later
-    success must keep reporting exactly as #2594 left it."""
+    issue-1/implementation-af260856) — including the reopen thread's own
+    correction (issuecomment-5434456805): every attempt record that
+    predates PR #2594 has no `cwd` field at all, not a bad-but-present
+    value, so the class re-check (`_halt_condition_cleared`) cannot clear
+    ANY of them, cwd-invalid or requirement-tag alike, on missing-data
+    grounds alone. `_attempt_superseded()` does not depend on `cwd` at
+    all, so it is unaffected by that gap: a cwd-invalid halt with no
+    recorded `cwd` must still stop replaying once the same (issue, role)
+    has a later successful attempt; a requirement-tag halt with no such
+    later success must still keep reporting exactly as #2594 left it —
+    a missing `cwd` must never be read as "assume resolved"."""
 
     def setUp(self):
         import tempfile
@@ -437,12 +443,17 @@ class SpawnAttemptSweepSupersededFixTest(unittest.TestCase):
             fh.write(json.dumps(event, ensure_ascii=False) + "\n")
 
     def test_cwd_invalid_superseded_by_later_successful_attempt_stops_replaying(self):
+        """The real live `spawn_attempt` event for this fixture carries no
+        `cwd` field at all (issue #2511 issuecomment-5434456805: every
+        attempt record that predates PR #2594 has `cwd=None`, since
+        `_record_spawn_attempt()` only started recording it in that PR) —
+        reproduced here without a `cwd` key, matching the real entry
+        exactly, not with a fabricated value."""
         halted_ts = 1787801373.7906659
         self._append({"event": "spawn_attempt",
                        "attempt_id": "2576:silent-failure-audit-ec09cf78:2909352:1787801373790",
                        "issue": 2576, "role": "silent-failure-audit-ec09cf78",
-                       "pid": 2909352, "cwd": "tokenmaxxxer/on-the-record",
-                       "ts": halted_ts})
+                       "pid": 2909352, "ts": halted_ts})
         self._append({"event": "spawn_attempt_outcome",
                        "attempt_id": "2576:silent-failure-audit-ec09cf78:2909352:1787801373790",
                        "outcome": "halted",
@@ -451,12 +462,12 @@ class SpawnAttemptSweepSupersededFixTest(unittest.TestCase):
                                   "  cwd 는 레포 루트를 가리켜야 한다 — 경로를 "
                                   "다시 확인해라."),
                        "ts": halted_ts})
-        # cwd is a bare repo slug, never a directory — the class re-check
+        # No recorded cwd (legacy, pre-#2594 record) — the class re-check
         # (spawn._halt_condition_cleared) can never clear this on its own,
-        # by design (that recorded argument belongs to this attempt and
-        # this attempt's arguments never change).
-        self.assertFalse(spawn._halt_condition_cleared(
-            "cwd-invalid", {"cwd": "tokenmaxxxer/on-the-record"}, ""))
+        # by design (missing cwd is conservative-not-cleared, and even a
+        # recorded cwd here would just be this one attempt's own argument,
+        # which never changes after the fact).
+        self.assertFalse(spawn._halt_condition_cleared("cwd-invalid", {}, ""))
 
         # The re-run under the same (issue, role) succeeded and its
         # workspace/session log came into existence (later ts). The log
