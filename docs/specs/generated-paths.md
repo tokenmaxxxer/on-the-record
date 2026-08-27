@@ -31,6 +31,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `merge-allow-gate.sh` | out-of-tree | safe — same `_checkout_resolve` shared-checkout-clone pattern as `impact-guard.sh`/`decision-queue-stopgate.sh` below, never inside the target repo |
 | `gh-write-allow-gate.sh` | n/a | reads/validates only, no write call, no checkout resolution needed |
 | `heredoc-command-refusal-gate.sh` | n/a | reads/validates only, no write call |
+| `git-push-guard.sh` | n/a | reads/validates only (`git rev-parse`/`git config`/`git ls-remote`), no write call |
 | `decision-queue-stopgate.sh` | out-of-tree | safe — same shared checkout clone |
 | `accumulation-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `pretooluse-dispatcher.sh` | n/a | dispatch shim only (issue #2146) — no write call of its own; every write a dispatched gate body performs is that gate's own row above |

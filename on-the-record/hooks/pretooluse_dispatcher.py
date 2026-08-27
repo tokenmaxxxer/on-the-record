@@ -86,6 +86,10 @@ def _grep_git_commit(p):
     return "git" in p and "commit" in p
 
 
+def _grep_git_push(p):
+    return "git" in p and "push" in p
+
+
 def _need_gh_silent(env):
     return None if shutil.which("gh") else ""
 
@@ -294,6 +298,9 @@ GATES = [
          payload_env="SAG_PAYLOAD", setup=_env_spawn, crash=VERBATIM),
     dict(script="gh-write-allow-gate.sh", tools=BASH_TOOLS,
          payload_env="GWAG_PAYLOAD", crash=VERBATIM),
+    dict(script="git-push-guard.sh", tools=BASH_TOOLS,
+         payload_env="GPUG_PAYLOAD", fastpath=_grep_git_push,
+         need=_need_git_silent, crash=VERBATIM),
     dict(script="credential-network-guard.sh",
          tools=BASH_TOOLS | {"WebFetch"},
          payload_env="CNG_PAYLOAD", setup=_env_cng, crash=CLOSED2),
