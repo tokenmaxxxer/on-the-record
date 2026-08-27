@@ -33,10 +33,52 @@ sys.path.insert(0, str(ROOT / "gates"))
 import spawn  # noqa: E402
 import closure_sweep  # noqa: E402
 import ci as _ci  # noqa: E402
-import skip_eligibility  # noqa: E402
 import state_paths  # noqa: E402
 
-PR_TRIGGERED_RECORD_KINDS = ("execution-observation", "conformance-review")
+# issue #2609: NOT the merge-gating identity axis anymore --
+# gates/merge_gate.py::required_verification_missing() now gates purely on
+# a self-declared, counted `verifies_subject` field (Option 2,
+# docs/issue-2593/reports/architecture-module-boundary-definition+
+# architecture-decomposition-strategy-386ff408.md) -- no kind/name matching
+# anywhere in the merge path. This tuple exists only so THIS automation's
+# own auto-spawn tick (missing_verification/spawn_missing_for_pr below)
+# knows which two of spawn_roles.json's ~44 skills to invite when the
+# subject board hasn't landed a qualifying record yet -- a role-selection
+# choice, not an obligation check. Generalizing or removing named role
+# selection here is issue #2610's separate surface (spawn_roles.json / the
+# role catalog's retirement) -- not absorbed into this issue.
+AUTO_SPAWN_ROLES = ("execution-observation", "conformance-review")
+
+# issue #2609: the actual obligation threshold -- how many independent
+# qualifying records (`verifies_subject: true`, author != subject's own
+# deliverable author) a subject needs before merge_gate.py allows its
+# merge. A count, not a vocabulary: it says how many, never which ones.
+REQUIRED_INDEPENDENT_VERIFICATIONS = 2
+
+
+def verifying_record_count(subject_board: dict, subject_author: str | None = None) -> int:
+    """issue #2609: count of records in `subject_board`
+    (`board(root)[subject]`, `{filename stem: frontmatter}`) that
+    self-declare `verifies_subject: true` (frontmatter -- the same
+    self-declaration pattern already used for `author:`) and whose
+    `author:` differs from `subject_author`. No `kind:` value, filename, or
+    skill name participates -- replaces the old closed two-kind tuple that
+    used to decide this for `merge_gate.py::required_verification_missing`.
+
+    `subject_author` (the subject's own deliverable-record `author:`) reuses
+    the existing self-verification guard `applicable_record_kinds()` already
+    used (issue #2241 stage 5): a record authored by the deliverable's own
+    author does not count toward the requirement. `subject_author=None`
+    (e.g. local standalone call, no deliverable landed yet) skips the guard.
+    Pure function, no I/O."""
+    count = 0
+    for _name, fm in subject_board.items():
+        if fm.get("verifies_subject") != "true":
+            continue
+        if subject_author is not None and fm.get("author") == subject_author:
+            continue
+        count += 1
+    return count
 
 # 틱당 스폰 상한(issue #1360) — 자동 워치독 틱 하나가 한 번에 스폰하는
 # (subject, role) 쌍의 개수를 제한하는 예산 백스톱. 초과분은 조용히
@@ -95,7 +137,7 @@ MAX_RESPAWN_ATTEMPTS = 4
 MERGED_SEEN_STATE_FILENAME = "spawn_on_pr_merged_seen.json"
 
 
-def applicable_record_kinds(subject_board: dict, kinds: tuple[str, ...] = PR_TRIGGERED_RECORD_KINDS,
+def applicable_record_kinds(subject_board: dict, kinds: tuple[str, ...] = AUTO_SPAWN_ROLES,
                              subject_author: str | None = None) -> list[str]:
     """`subject_board`(`board(root)[subject]`, `{filename stem: frontmatter}`)
     에서 아직 record-kind 가 없는 `kinds` 서브셋을 `kinds` 가 나열한 순서
@@ -119,7 +161,15 @@ def applicable_record_kinds(subject_board: dict, kinds: tuple[str, ...] = PR_TRI
     항목의 `author:` 가 `subject_author` 와 같으면 그 kind 는 "충족됨"에
     안 들어간다(issue #2241 stage 5 Constraints: record-kind 만으로는
     부족하고 author-identity 도 달라야 한다). `subject_author` 가 없으면
-    (예: 로컬 단독 호출) 이 검사를 건너뛴다. 순수 함수, I/O 없음."""
+    (예: 로컬 단독 호출) 이 검사를 건너뛴다. 순수 함수, I/O 없음.
+
+    issue #2609: 더 이상 머지-게이팅 의무(merge_gate.py::
+    required_verification_missing)를 뒷받침하지 않는다 — 그건 이제
+    `verifying_record_count()`(자기-선언 `verifies_subject` 필드 카운트,
+    kind 무관)로 완전히 분리됐다. 이 함수는 `missing_verification()`/
+    `spawn_missing_for_pr()`의 auto-spawn 틱 전용으로 남는다 — kinds 인자
+    기본값(`AUTO_SPAWN_ROLES`)이 어떤 두 스킬을 자동 초대할지 결정할 뿐,
+    머지를 막을지 여부와는 무관하다."""
     satisfied = set()
     for name, fm in subject_board.items():
         kind_field = fm.get("kind")
@@ -161,8 +211,9 @@ def subject_deliverable_branch(subject: str, pr_index: dict[str, dict] | None) -
     map) — issue #2575's lease/branch axis replacement for the literal
     `f"{subject}/implementation"`: the `{subject}/<slug>` branch among
     this subject's indexed PRs whose slug is not one of the two fixed
-    PR-triggered observer kinds (`PR_TRIGGERED_RECORD_KINDS`, untouched
-    per the issue's own non-goal). Used where `subject_deliverable_record`
+    auto-spawned observer roles (`AUTO_SPAWN_ROLES`, issue #2609 --
+    a role-selection list, not the merge-gating axis; see that constant's
+    own comment). Used where `subject_deliverable_record`
     cannot help — the deliverable PR may still be open and unmerged, so
     `board()` (landed records only) has nothing to resolve against yet,
     but the PR index already does.
@@ -177,7 +228,7 @@ def subject_deliverable_branch(subject: str, pr_index: dict[str, dict] | None) -
         return None
     prefix = f"{subject}/"
     candidates = [b for b in pr_index
-                  if b.startswith(prefix) and b[len(prefix):] not in PR_TRIGGERED_RECORD_KINDS]
+                  if b.startswith(prefix) and b[len(prefix):] not in AUTO_SPAWN_ROLES]
     return candidates[0] if len(candidates) == 1 else None
 
 
@@ -242,19 +293,19 @@ def _implementation_session_active(root: Path, subject: str) -> bool:
     issue #2575: `f"{subject}/implementation"` 이라는 고정 로스터 키는
     슬러그 신원(#2555) 아래서는 어느 세션의 키와도 안 맞는다 — 이
     subject 소속(`f"{subject}/"` 접두어) 로스터 엔트리 중, 고정된 두
-    PR-트리거 관찰자 kind(`PR_TRIGGERED_RECORD_KINDS`, 이 이슈가 안
-    건드리는 축)가 아닌 것을 찾는다: 이 두 관찰자는 여전히 리터럴 role
-    이름으로 스폰되므로(`spawn_missing_for_pr` 참고) 배제로 걸러도
-    안전하고, deliverable 세션 하나가 subject 당 하나라는 불변식(#1697이
-    막는 stale-base 사고의 전제)을 그대로 쓴다 — subject 를 slug 로
-    매핑하는 새 표를 만들지 않는다. 로스터에 그런 항목이 없거나 pid 가
-    이미 죽었으면 False — 오래된/고아 로스터 항목으로 영원히 스폰을
-    막지 않는다(`spawn._alive()`가 실제 프로세스 생존을 본다)."""
+    자동-스폰 관찰자 role(`AUTO_SPAWN_ROLES`, issue #2609 — 머지-게이팅
+    축이 아니라 role-선택 목록)이 아닌 것을 찾는다: 이 두 관찰자는 여전히
+    리터럴 role 이름으로 스폰되므로(`spawn_missing_for_pr` 참고) 배제로
+    걸러도 안전하고, deliverable 세션 하나가 subject 당 하나라는
+    불변식(#1697이 막는 stale-base 사고의 전제)을 그대로 쓴다 — subject 를
+    slug 로 매핑하는 새 표를 만들지 않는다. 로스터에 그런 항목이 없거나
+    pid 가 이미 죽었으면 False — 오래된/고아 로스터 항목으로 영원히
+    스폰을 막지 않는다(`spawn._alive()`가 실제 프로세스 생존을 본다)."""
     prefix = f"{subject}/"
     for key, entry in spawn._roster_load().items():
         if not key.startswith(prefix):
             continue
-        if key[len(prefix):] in PR_TRIGGERED_RECORD_KINDS:
+        if key[len(prefix):] in AUTO_SPAWN_ROLES:
             continue
         pid = entry.get("pid")
         if spawn._alive(pid if isinstance(pid, int) else 0):
@@ -364,42 +415,11 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
             print(f"[spawn-on-pr] {subject}: implementation 세션이 아직 "
                   f"RUNNING — 옵저버 스폰 미룸 (missing={missing})")
             continue
-        if "execution-observation" in missing:
-            missing = _filter_execution_observation(root, subject, branch, missing)
-            if not missing:
-                continue
         out[subject] = missing
     if unmappable_branch_already_reported:
         print(f"[spawn-on-pr] {unmappable_branch_already_reported}건 이전에 보고된 "
               "매핑-불가 subject — 계속 무시 (반복 안 찍음)")
     return out
-
-
-def _filter_execution_observation(root: Path, subject: str, branch: str,
-                                   missing: list[str]) -> list[str]:
-    """issue #745 Item 3 — `execution-observation` 스폰 자격을 세 축
-    (변경 크기/비가역성/주장 어휘, `skip_eligibility.classify_for_subject`)
-    으로 분류하고 ledger 에 population(R/S) 을 기록한다(20-PR 측정
-    윈도우 재현용). population S(모두 low-risk) 면 `missing` 에서 뺀다;
-    분류 자체가 실패하면(예: 브랜치/기록 없음) fail closed — required
-    그대로 둔다.
-
-    issue #2575: `branch`(호출부가 `subject_deliverable_branch()`로 이미
-    구한 것)를 `ref=`로 그대로 넘긴다 — `classify_for_subject()`가 자기
-    내부에서 다시 `f"{subject}/implementation"`을 유도하지 않는다."""
-    try:
-        classification = skip_eligibility.classify_for_subject(root, subject, ref=branch)
-    except Exception as exc:
-        print(f"[spawn-on-pr] {subject}: execution-observation 분류 실패 — "
-              f"fail closed, required 유지: {exc}")
-        return missing
-    spawn.ledger_write({
-        "event": "execution_observation_classification",
-        **classification,
-    })
-    if classification["skip_eligible"]:
-        return [r for r in missing if r != "execution-observation"]
-    return missing
 
 
 def _park_state_path(root: Path) -> Path:
@@ -570,7 +590,7 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
             root, issue_states=issue_states, pr_index=pr_index).items():
         # issue #2575: subject 소속 PR 은 이제 slug 로 이름 붙으므로,
         # 브랜치 이름을 pr_index 에서 유도해야 한다(subject_deliverable_
-        # branch — lease/branch 축, PR_TRIGGERED_RECORD_KINDS 제외).
+        # branch — lease/branch 축, AUTO_SPAWN_ROLES 제외, issue #2609).
         branch = subject_deliverable_branch(subject, pr_index)
         pr_number = _pr_number_for_branch(root, branch, pr_index) if branch else None
         for role in roles:

@@ -72,7 +72,7 @@ def test_should_park_signature_has_no_pr_number_parameter():
 # ---------------------------------------------------------------------
 
 SUBJECT = "issue-99001"
-ROLE = "execution-observation"
+ROLE = "generic-role"
 KEY = f"{SUBJECT}/{ROLE}"
 
 
