@@ -104,6 +104,55 @@ def applicable_record_kinds(subject_board: dict, kinds: tuple[str, ...] = PR_TRI
     return [k for k in kinds if k not in satisfied]
 
 
+def subject_deliverable_record(subject_board: dict) -> tuple[str | None, dict]:
+    """Resolve the subject's own (non-observer) deliverable record from
+    `subject_board` (`board(root)[subject]`) — issue #2575: the literal
+    `subject_board.get("implementation", {})` lookup silently returns an
+    empty dict once the deliverable's filename is a slug (#2555), so it
+    can never distinguish "no deliverable landed yet" from "deliverable
+    landed under a different name". This resolves it the same way
+    `applicable_record_kinds()` already resolves the two PR-triggered
+    kinds (issue #2241 stage 5): the record whose `kind:` frontmatter is
+    `implementation`, or (legacy fallback — a record written before
+    #2555 never carried a `kind:` line at all) whose filename stem is
+    literally `implementation`. Returns `(slug, frontmatter)`, or
+    `(None, {})` when the subject has no such record in `subject_board`
+    yet — `None` is the loud form of "not found" (a caller can check
+    `slug is None` directly, unlike a `.get(x, {})` empty dict, which
+    reads identically whether the key is absent or genuinely empty)."""
+    for name, fm in subject_board.items():
+        kind_field = fm.get("kind")
+        if kind_field == "implementation" or (kind_field is None and name == "implementation"):
+            return name, fm
+    return None, {}
+
+
+def subject_deliverable_branch(subject: str, pr_index: dict[str, dict] | None) -> str | None:
+    """Resolve the subject's own (non pr-observer) branch from `pr_index`
+    (`closure_sweep._pr_index_all()`'s branch -> `{number, state, ...}`
+    map) — issue #2575's lease/branch axis replacement for the literal
+    `f"{subject}/implementation"`: the `{subject}/<slug>` branch among
+    this subject's indexed PRs whose slug is not one of the two fixed
+    PR-triggered observer kinds (`PR_TRIGGERED_RECORD_KINDS`, untouched
+    per the issue's own non-goal). Used where `subject_deliverable_record`
+    cannot help — the deliverable PR may still be open and unmerged, so
+    `board()` (landed records only) has nothing to resolve against yet,
+    but the PR index already does.
+
+    `None` when `pr_index` itself is unavailable (gh degraded — the
+    caller has no branch name to fall back to either, same as today),
+    or when zero or more than one candidate branch matches: zero is the
+    ordinary "no deliverable PR yet" case every caller already treats as
+    "nothing to do this tick"; more than one is a genuine ambiguity this
+    function refuses to guess through rather than silently picking one."""
+    if pr_index is None:
+        return None
+    prefix = f"{subject}/"
+    candidates = [b for b in pr_index
+                  if b.startswith(prefix) and b[len(prefix):] not in PR_TRIGGERED_RECORD_KINDS]
+    return candidates[0] if len(candidates) == 1 else None
+
+
 def _issue_is_open(issue: int, issue_states: dict[int, str] | None) -> bool:
     """`issue_states`(issue #-> state 사전) 에서 `issue` 가 OPEN 인지
     판정한다. 사전이 없거나(gh 실패/truncated) `issue` 가 사전에 없으면
@@ -156,19 +205,33 @@ def _pr_state_for_branch(root: Path, branch: str,
 
 
 def _implementation_session_active(root: Path, subject: str) -> bool:
-    """`subject` 의 `<subject>/implementation` 세션이 로스터에 살아있는
+    """`subject` 의 deliverable(옵저버가 아닌) 세션이 로스터에 살아있는
     pid 로 남아있으면 True(issue #1697 두 번째 재현, issue-1696) — 활성
     fix 세션 중에 옵저버를 스폰하면 옵저버 브랜치가 fix 커밋 이전 main
     에서 잘려, 나중에 fix 가 머지되면 옵저버 record PR 이 719줄급
-    REVERT 로 보이는 stale-base 사고가 난다(#1664 계열). 로스터에 항목이
-    없거나 pid 가 이미 죽었으면 False — 오래된/고아 로스터 항목으로
-    영원히 스폰을 막지 않는다(`spawn._alive()`가 실제 프로세스 생존을
-    본다)."""
-    entry = spawn._roster_load().get(f"{subject}/implementation")
-    if entry is None:
-        return False
-    pid = entry.get("pid")
-    return spawn._alive(pid if isinstance(pid, int) else 0)
+    REVERT 로 보이는 stale-base 사고가 난다(#1664 계열).
+
+    issue #2575: `f"{subject}/implementation"` 이라는 고정 로스터 키는
+    슬러그 신원(#2555) 아래서는 어느 세션의 키와도 안 맞는다 — 이
+    subject 소속(`f"{subject}/"` 접두어) 로스터 엔트리 중, 고정된 두
+    PR-트리거 관찰자 kind(`PR_TRIGGERED_RECORD_KINDS`, 이 이슈가 안
+    건드리는 축)가 아닌 것을 찾는다: 이 두 관찰자는 여전히 리터럴 role
+    이름으로 스폰되므로(`spawn_missing_for_pr` 참고) 배제로 걸러도
+    안전하고, deliverable 세션 하나가 subject 당 하나라는 불변식(#1697이
+    막는 stale-base 사고의 전제)을 그대로 쓴다 — subject 를 slug 로
+    매핑하는 새 표를 만들지 않는다. 로스터에 그런 항목이 없거나 pid 가
+    이미 죽었으면 False — 오래된/고아 로스터 항목으로 영원히 스폰을
+    막지 않는다(`spawn._alive()`가 실제 프로세스 생존을 본다)."""
+    prefix = f"{subject}/"
+    for key, entry in spawn._roster_load().items():
+        if not key.startswith(prefix):
+            continue
+        if key[len(prefix):] in PR_TRIGGERED_RECORD_KINDS:
+            continue
+        pid = entry.get("pid")
+        if spawn._alive(pid if isinstance(pid, int) else 0):
+            return True
+    return False
 
 
 def resolve_live_base(root: Path) -> str | None:
@@ -218,7 +281,8 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     b = spawn.board(root)
     merged_seen: set[str] | None = None
     for subject, subject_board in b.items():
-        subject_author = subject_board.get("implementation", {}).get("author")
+        _slug, subject_fm = subject_deliverable_record(subject_board)
+        subject_author = subject_fm.get("author")
         missing = applicable_record_kinds(subject_board, subject_author=subject_author)
         if not missing:
             continue
@@ -229,7 +293,16 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
             # 는 종결적 사실이라 이후 틱의 (혹은 fail-open 하는) 재확인을
             # 기다리지 않고 바로 건너뛴다.
             continue
-        branch = f"{subject}/implementation"
+        # issue #2575: `branch`는 subject_board(랜딩된 기록)가 아니라
+        # pr_index(살아있는 PR)에서 구한다 — deliverable PR 이 아직 open
+        # 이면 subject_board 에 그 기록이 없는 게 정상이라(위
+        # subject_deliverable_record 가 (None, {}) 를 돌려줄 수 있다),
+        # 그 경우에도 branch/PR 조회는 여전히 가능해야 한다.
+        branch = subject_deliverable_branch(subject, pr_index)
+        if branch is None:
+            print(f"[spawn-on-pr] {subject}: deliverable 브랜치를 pr_index 에서 "
+                  f"찾지 못했다 — 이번 틱은 건너뜀 (missing={missing})")
+            continue
         pr_number = _pr_number_for_branch(root, branch, pr_index)
         if pr_number is None:
             continue
@@ -256,24 +329,30 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
                   f"RUNNING — 옵저버 스폰 미룸 (missing={missing})")
             continue
         if "execution-observation" in missing:
-            missing = _filter_execution_observation(root, subject, missing)
+            missing = _filter_execution_observation(root, subject, branch, missing)
             if not missing:
                 continue
         out[subject] = missing
     return out
 
 
-def _filter_execution_observation(root: Path, subject: str,
+def _filter_execution_observation(root: Path, subject: str, branch: str,
                                    missing: list[str]) -> list[str]:
     """issue #745 Item 3 — `execution-observation` 스폰 자격을 세 축
     (변경 크기/비가역성/주장 어휘, `skip_eligibility.classify_for_subject`)
     으로 분류하고 ledger 에 population(R/S) 을 기록한다(20-PR 측정
     윈도우 재현용). population S(모두 low-risk) 면 `missing` 에서 뺀다;
     분류 자체가 실패하면(예: 브랜치/기록 없음) fail closed — required
-    그대로 둔다."""
+    그대로 둔다.
+
+    issue #2575: `branch`(호출부가 `subject_deliverable_branch()`로 이미
+    구한 것)를 `ref=`로 그대로 넘긴다 — `classify_for_subject()`가 자기
+    내부에서 다시 `f"{subject}/implementation"`을 유도하지 않는다."""
     try:
-        classification = skip_eligibility.classify_for_subject(root, subject)
-    except Exception:
+        classification = skip_eligibility.classify_for_subject(root, subject, ref=branch)
+    except Exception as exc:
+        print(f"[spawn-on-pr] {subject}: execution-observation 분류 실패 — "
+              f"fail closed, required 유지: {exc}")
         return missing
     spawn.ledger_write({
         "event": "execution_observation_classification",
@@ -420,7 +499,11 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     all_pairs: list[tuple[str, str, int | None]] = []
     for subject, roles in missing_verification(
             root, issue_states=issue_states, pr_index=pr_index).items():
-        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
+        # issue #2575: subject 소속 PR 은 이제 slug 로 이름 붙으므로,
+        # 브랜치 이름을 pr_index 에서 유도해야 한다(subject_deliverable_
+        # branch — lease/branch 축, PR_TRIGGERED_RECORD_KINDS 제외).
+        branch = subject_deliverable_branch(subject, pr_index)
+        pr_number = _pr_number_for_branch(root, branch, pr_index) if branch else None
         for role in roles:
             all_pairs.append((subject, role, pr_number))
 
@@ -510,11 +593,13 @@ def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None
         pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
     for subject, subject_board in b.items():
-        subject_author = subject_board.get("implementation", {}).get("author")
+        _slug, subject_fm = subject_deliverable_record(subject_board)
+        subject_author = subject_fm.get("author")
         missing = applicable_record_kinds(subject_board, subject_author=subject_author)
         if not missing:
             continue
-        pr_number = _pr_number_for_branch(root, f"{subject}/implementation", pr_index)
+        branch = subject_deliverable_branch(subject, pr_index)
+        pr_number = _pr_number_for_branch(root, branch, pr_index) if branch else None
         if pr_number is None:
             continue
         issue = int(subject.split("-", 1)[1])

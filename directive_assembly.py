@@ -562,7 +562,12 @@ def _stamp_additive_record_fields(issue: int, role: str) -> str:
     return f"author: {role}\n"
 
 
-def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
+_CODE_EXTENSION_RE = re.compile(
+    r"\.(?:py|js|jsx|ts|tsx|go|rs|java|kt|rb|c|cc|cpp|h|hpp|cs|php|sh|sql)\b")
+
+
+def write_record_skeleton(cwd: str, issue: int, role: str,
+                           task_text: str = "") -> Path | None:
     """Pre-write the role's own record skeleton at bootstrap; never
     overwrite an existing record (a respawn into the same workspace)."""
     p = Path(cwd) / "docs" / f"issue-{issue}" / "reports" / f"{role}.md"
@@ -601,7 +606,30 @@ def write_record_skeleton(cwd: str, issue: int, role: str) -> Path | None:
     # optional-but-always-present field on every run (measured: docs/issue-45
     # fixture, ~37s of thinking before converging on `code_under_review:` +
     # `breaking:` across three Edit passes).
-    is_coding = role in ("coding", "implementation")
+    # issue #2575: `role` is a free-form slug under slug identity (#2555)
+    # and is never validated against a closed role set any more (#2555/
+    # #2560/#2561) — a literal name match against a fixed tuple can no
+    # longer answer "is this a code-producing session" (it never matches
+    # any real slug, e.g. this very session's own
+    # "silent-failure-audit+diagnose-first-a9ef3af5"). No structural
+    # per-session signal survives slugs here either: `role_data()` only
+    # covers the closed set of legacy role names (so a spec-content check
+    # would be permanently False for exactly the slug sessions this issue
+    # is about), mounted skills carry no code-vs-doc metadata, and no
+    # CLI flag/roster field declares "this session produces code"
+    # (investigated this session — none of `spawn.py`'s `add_argument`
+    # calls or `roster.py`'s roster-entry fields carry one). The
+    # task-composed-skills axis's only available proxy at this call site
+    # is the session's own pristine spawn task text (`task_text`, the
+    # `spawn.py` caller's `_cross_family_task_text` — read before any
+    # skill-mounting mutation, same pristine-text precedent that axis
+    # already uses for cross-family skill matching): a task that names
+    # code-file paths is code work regardless of what the session ends up
+    # being named. Heuristic, not exact — a task that only *reads* code
+    # files for a doc-only deliverable can still false-positive; accepted
+    # because no better structural signal exists (see this issue's own
+    # record for the investigation this rules out).
+    is_coding = bool(_CODE_EXTENSION_RE.search(task_text or ""))
     spec_lines = ""
     try:
         spec = _sp.role_data().get(role, {}).get("record_spec") or {}

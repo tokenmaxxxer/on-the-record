@@ -126,11 +126,21 @@ def _deleted_paths(root: Path, base: str, ref: str) -> set[str]:
 
 
 def read_record_text(root: Path, ref: str, issue: int) -> str:
-    """`ref`(브랜치/커밋)에서 `docs/issue-<issue>/reports/implementation.md`
-    본문. 아직 없으면(phase-1만 랜딩) 빈 문자열 — 축 3이 그냥 안 걸린다."""
+    """`ref`(브랜치/커밋)의 레코드 본문. issue #2575: 파일명은 더 이상
+    고정된 `implementation.md` 가 아니다 — `ref` 자신의 두 번째 경로
+    세그먼트가 곧 레코드 파일명 stem 이다(`issue-<n>/<slug>` 브랜치와
+    `docs/issue-<n>/reports/<slug>.md` 가 같은 slug 를 쓴다는, #2568 이
+    이미 쓴 것과 같은 naming 축 — `spawn.py`의 `_checkout_named_branch`
+    와 이 레포 자신의 record-skeleton 라인 모두 그 slug 하나에서
+    유도된다). `ref` 가 그 모양이 아니면(예: 커밋 sha 를 직접 받은 레거시
+    호출) `implementation.md` 로 되돌아간다 — 슬러그 이전 레코드까지
+    계속 읽히게 하는 legacy fallback. 아직 없으면(phase-1만 랜딩) 빈
+    문자열 — 축 3이 그냥 안 걸린다."""
+    m = re.match(r"^issue-\d+/(.+)$", ref)
+    slug = m.group(1) if m else "implementation"
     p = subprocess.run(
         ["git", "-C", str(root), "show",
-         f"{ref}:docs/issue-{issue}/reports/implementation.md"],
+         f"{ref}:docs/issue-{issue}/reports/{slug}.md"],
         capture_output=True, text=True)
     return p.stdout if p.returncode == 0 else ""
 
@@ -143,11 +153,21 @@ def _ref_resolvable(root: Path, ref: str) -> bool:
 
 def classify_for_subject(root: Path, subject: str, ref: str | None = None,
                           base: str | None = None) -> dict:
-    """`subject`(예: `issue-745`)의 `<subject>/implementation` 브랜치를
-    `base`(기본 `gates.BASE`) 대비 분류한다. `ref`/`base` 어느 쪽도
-    resolve 되지 않으면(브랜치 없음/아직 fetch 안 됨) 예외로 실패시켜
-    호출부가 fail-closed(population R 취급)로 처리하게 한다 — diff 를
-    아예 못 본 상태를 조용히 population S 로 내주지 않는다."""
+    """`subject`(예: `issue-745`)의 deliverable 브랜치를 `base`(기본
+    `gates.BASE`) 대비 분류한다. `ref`/`base` 어느 쪽도 resolve 되지
+    않으면(브랜치 없음/아직 fetch 안 됨) 예외로 실패시켜 호출부가
+    fail-closed(population R 취급)로 처리하게 한다 — diff 를 아예 못 본
+    상태를 조용히 population S 로 내주지 않는다.
+
+    issue #2575: `ref` 를 안 주면(레거시 직접 호출/테스트) `f"{subject}/
+    implementation"` 으로 되돌아간다 — slug 신원(#2555) 아래서는 이
+    기본값이 실재하지 않는 브랜치를 가리켜 위 RuntimeError 로 loud하게
+    실패하는 게 보통이지만, subject 의 실제 deliverable 과 무관하게 같은
+    이름의 낡은 브랜치가 우연히 존재하면 그 브랜치를 조용히 잘못
+    분류할 수 있다 — 그래서 유일한 프로덕션 호출부
+    (`spawn_on_pr._filter_execution_observation`)는 이제 이 기본값에
+    기대지 않고, `subject_deliverable_branch()`(pr_index 에서 유도한
+    실제 브랜치)를 `ref=`로 항상 명시해서 넘긴다."""
     issue = int(subject.split("-", 1)[1])
     ref = ref or f"{subject}/implementation"
     base = base or gates.BASE
