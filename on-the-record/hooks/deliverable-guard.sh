@@ -17,9 +17,12 @@
 # sanctioned to write, with the user's confirmation), the
 # product-capture-stopgate.sh category files under docs/reports/product/
 # and docs/issue-<n>/reports/product/ (issue #1111 — product capture is
-# orchestrator scribing, same category as approvers.md), and anything
-# under a scratch/tmp path or a .git/plugin-cache directory (the muster
-# checkout itself, scratch notes).
+# orchestrator scribing, same category as approvers.md), the sharded
+# per-entry priorities/ directory that replaces priorities.md going
+# forward (issue #2637 — same category, priorities.py's shard shape, one
+# new file per entry rather than an append to the flat file), and
+# anything under a scratch/tmp path or a .git/plugin-cache directory (the
+# muster checkout itself, scratch notes).
 # Kill switch: ORCHESTRATE_OFF=1. Fail closed on non-0/2 (now including
 # parse failure, not just crashes — the previous header claim here was
 # false for the parse-failure path; issue #287 S4).
@@ -103,7 +106,7 @@ n = posixpath.normpath(p.replace("\\", "/"))
 EXEMPT_SUFFIXES = (
     "docs/specs/approvers.md",
     "docs/reports/product/requirements.md",
-    "docs/reports/product/priorities.md",
+    "docs/reports/product/priorities.md",  # legacy, frozen (issue #2637)
     "docs/reports/product/philosophy.md",
     "docs/reports/product/goals.md",
 )
@@ -111,7 +114,24 @@ PRODUCT_CAPTURE_ISSUE_RE = re.compile(
     r"docs/issue-\d+/reports/product/"
     r"(requirements|priorities|philosophy|goals)\.md$"
 )
-if n.endswith(EXEMPT_SUFFIXES) or PRODUCT_CAPTURE_ISSUE_RE.search(n):
+# issue #2637: priorities.md's replacement is a directory of per-entry
+# shard files (priorities.py), not a single path — same category as the
+# flat-file suffixes above, just directory-shaped. `[^/]+\.md$` (not
+# `.*`) so this only ever matches a shard file directly inside the
+# priorities/ directory, never an unrelated nested path that happens to
+# contain the segment. Anchored with `^` (warrant-hunt, issue #2637,
+# before-landing dispatch): `.search()` with no anchor let a path like
+# `src/docs/reports/product/priorities/hack.md` pass this exemption
+# merely by ENDING with the recognized suffix, exempting a real
+# deliverable write under `src/`. `n` is repo-root-relative by
+# construction (see `posixpath.normpath` above), so the real target
+# directory must start at position 0, not appear as an arbitrary suffix.
+PRODUCT_CAPTURE_PRIORITIES_DIR_RE = re.compile(
+    r"^docs/reports/product/priorities/[^/]+\.md$"
+    r"|^docs/issue-\d+/reports/product/priorities/[^/]+\.md$"
+)
+if (n.endswith(EXEMPT_SUFFIXES) or PRODUCT_CAPTURE_ISSUE_RE.search(n)
+        or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(n)):
     sys.exit(0)
 # issue #787 H1: the old src/tests?/docs-segment-only regex missed a flat
 # top-level package layout (no such segment at all). Widen to "everything

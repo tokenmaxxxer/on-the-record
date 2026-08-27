@@ -164,7 +164,8 @@ def obligations_reminder(session_id):
         "(2) product capture — requirements/priorities/philosophy/goals "
         "the user stated this session are recorded into "
         "docs/reports/product/<category>.md before the session ends "
-        "(issue #566)."
+        "(issue #566; priorities is sharded per entry since issue #2637 -- "
+        "`spawn.py priorities-path` prints where a new entry goes)."
     )
 
 
