@@ -1264,6 +1264,62 @@ def _halt_condition_cleared(cls: str, attempt: dict, reason: str) -> bool:
     return False  # unknown class
 
 
+def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
+                         outcomes: dict) -> bool:
+    """이슈 #2511 residual (PR #2594 머지 뒤 재오픈 코멘트): `_halt_condition_cleared()`
+    의 클래스별 재확인은 그 halt 를 낸 ATTEMPT 자신의 recorded 인자(cwd 등)를
+    다시 본다 — requirement-tag/acceptance-format 은 이슈의 성질이라 이슈를
+    고치면 풀리지만, cwd-invalid/workspace-origin-mismatch 는 그 특정 spawn
+    시도의 성질이고 한 번 기록된 그 attempt 의 인자는 다시는 안 바뀐다(실측:
+    이슈 #2576 스폰의 cwd 가 레포 슬러그 문자열 "tokenmaxxxer/on-the-record"
+    로 기록돼, 절대 디렉터리가 될 수 없어 클래스 재확인이 영원히 False — 재실행
+    성공 뒤로도 6번 replay). 이 함수는 그 attempt 자신의 인자가 아니라 "같은
+    (issue, role) 이 그 뒤 성공적으로 재시도됐는가"를 묻는다 — 성공했다면
+    (`outcome == "session-log"`) 그 재시도가 원래 halt 를 superseded 했고,
+    superseded 된 halt 는 자기 인자가 여전히 나빠 보여도 더 이상 라이브가 아니다.
+
+    `attempt` 보다 `ts` 가 늦은 같은 (issue, role) 시도만 본다 — 더 이른 시도의
+    성공은 이 halt 를 안 지운다(나중에 실패로 되돌아간 케이스를 오판하지
+    않도록). `ts` 가 없거나 숫자가 아니면 비교 근거가 없어 보수적으로
+    False(여전히 라이브).
+
+    warrant-hunter 실측(이 함수 도입 세션, before-landing 훈트): `outcome ==
+    "session-log"` 만 보면 spawn-attempts.jsonl 에 적힌 과거 기록을 그대로
+    믿는 꼴이라 — 다른 클래스는 전부 "다시 확인"(파일시스템/git/gh 라이브
+    상태)인데 이 경로만 "기록을 재생"이라 이슈의 원래 취지(replay 금지)와
+    결이 다르다는 지적. 그래서 `session-log` 라고 적힌 그 attempt 의 로그
+    파일이 지금도 실제로 존재하는지 한 번 더 다시 확인한다 — 세션이
+    부트스트랩을 실제로 통과했다는 유일한 라이브 증거이자, cwd-invalid/
+    workspace-origin-mismatch 가 막던 바로 그 지점(워크스페이스/로그 생성)을
+    이 재시도가 실제로 넘었다는 뜻이다. 로그가 이미 정리(워크스페이스 prune)
+    됐으면 판정 근거가 없어 보수적으로 False — 이 함수도 다른 클래스들과
+    같은 "판정 불가 -> 여전히 라이브" 원칙을 따른다."""
+    ts = attempt.get("ts")
+    if not isinstance(ts, (int, float)):
+        return False
+    issue = attempt.get("issue")
+    role = attempt.get("role")
+    for other_id, other in attempts.items():
+        if other_id == attempt_id or other.get("issue") != issue or \
+                other.get("role") != role:
+            continue
+        other_ts = other.get("ts")
+        if not isinstance(other_ts, (int, float)) or other_ts <= ts:
+            continue
+        outcome = outcomes.get(other_id)
+        if outcome is None or outcome.get("outcome") != "session-log":
+            continue
+        log_path = outcome.get("detail")
+        if not log_path:
+            continue
+        try:
+            if Path(log_path).is_file():
+                return True
+        except OSError:
+            continue
+    return False
+
+
 # 이슈 #2393 (R8, #2291 conformance review, "Surface" — 이 파일은 append-only
 # 로만 자라고 오늘까지 rotation 이 없었다): PR #2371 이 남긴 해법 그대로 —
 # "prune spawn-attempts.jsonl 는 한 엔트리의 처분이 sweep 되어 보고까지 끝난

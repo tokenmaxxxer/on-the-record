@@ -570,12 +570,19 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
     Issue #2511: a `"halted"` outcome is no longer reprinted verbatim from
     `outcomes` — before each report, `_sp._halt_condition_cleared()`
     re-checks whether that specific halt's blocking condition still holds
-    (per-class re-check, see that function's docstring). Cleared halts are
-    marked resolved once (`spawn_attempt_resolved` event + a one-line
-    "halt RESOLVED at <time>" print) and never surface as a live halt
-    again; still-blocked halts keep reporting exactly as before, now with
-    the original attempt's timestamp in the line so a reader can tell a
-    fresh failure from an old one even before the resolution check runs.
+    (per-class re-check, see that function's docstring), and
+    `_sp._attempt_superseded()` separately checks whether the same
+    (issue, role) has since been attempted successfully — the second
+    check catches classes (cwd-invalid, workspace-origin-mismatch) whose
+    recorded arguments belong to the attempt itself and so never change,
+    even after a later respawn actually fixed the problem (residual filed
+    against #2594, see `_attempt_superseded()` docstring). Either check
+    clearing marks the halt resolved once (`spawn_attempt_resolved` event
+    + a one-line "halt RESOLVED at <time>" print, `resolved_via` naming
+    which check cleared it) and it never surfaces as a live halt again;
+    still-blocked halts keep reporting exactly as before, now with the
+    original attempt's timestamp in the line so a reader can tell a fresh
+    failure from an old one even before the resolution check runs.
 
     Dedup-gated per attempt_id via the same reconcile ledger every other
     watchdog advisory uses (`ledger_check_and_stamp`) — one attempt_id
@@ -612,23 +619,37 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
             # 재확인 방식과 그 근거는 `_sp._halt_condition_cleared()`
             # docstring과 이 레코드의 "staleness 판정" 절에 있다.
             cls = _sp._classify_halt_reason(reason)
-            if _sp._halt_condition_cleared(cls, a, reason):
+            condition_cleared = _sp._halt_condition_cleared(cls, a, reason)
+            # 이슈 #2511 residual (PR #2594 재오픈 코멘트): 클래스 재확인
+            # 만으로는 cwd-invalid/workspace-origin-mismatch 처럼 halt 를 낸
+            # attempt 자신의 인자가 안 바뀌는 클래스를 영원히 못 푼다 — 그
+            # attempt 가 이미 성공한 재시도로 superseded 됐는지도 따로 묻는다
+            # (`_sp._attempt_superseded()`, #2594 의 클래스별 재확인 자체는
+            # 안 건드리고 나란히 추가).
+            superseded = _sp._attempt_superseded(attempt_id, a, attempts, outcomes)
+            if condition_cleared or superseded:
                 attempted_ts = a.get("ts", now)
+                resolved_via = "class-recheck" if condition_cleared else "superseded"
                 _sp._append_spawn_attempt_event({
                     "event": "spawn_attempt_resolved", "attempt_id": attempt_id,
                     "issue": a.get("issue"), "role": a.get("role"), "class": cls,
+                    "resolved_via": resolved_via,
                     "attempted_ts": attempted_ts, "ts": now})
                 print(f"[spawn-attempt] {subject}: halt RESOLVED at {_iso(now)} "
-                      f"(class={cls}, originally attempted at {_iso(attempted_ts)}) "
-                      f"— no longer a live halt: {reason.splitlines()[0]}")
-                # 이슈 #2511 observability-explorability: attempted_ts 를
-                # 여기(durable ledger)에도 실어, 이 spawn-attempts.jsonl
-                # 레코드 자체가 곧 프루닝돼도 "이 halt 가 살아있던 기간"
-                # 같은 ad-hoc 질문을 attempt_id 문자열을 역파싱하지 않고
-                # 이 한 줄만으로 answer 할 수 있게 한다.
+                      f"(class={cls}, resolved_via={resolved_via}, originally "
+                      f"attempted at {_iso(attempted_ts)}) — no longer a live "
+                      f"halt: {reason.splitlines()[0]}")
+                # 이슈 #2511 observability-explorability: attempted_ts 와
+                # resolved_via 를 여기(durable ledger)에도 실어, 이
+                # spawn-attempts.jsonl 레코드 자체가 곧 프루닝돼도 "이 halt 가
+                # 살아있던 기간"이나 "어느 경로로 풀렸는가(클래스 재확인
+                # vs. 이후 성공 재시도로 superseded)" 같은 ad-hoc 질문을
+                # attempt_id 문자열을 역파싱하지 않고 이 한 줄만으로 answer
+                # 할 수 있게 한다.
                 _sp.ledger_write({"event": "spawn_attempt_resolved_reported",
                                   "attempt_id": attempt_id, "issue": a.get("issue"),
                                   "role": a.get("role"), "class": cls,
+                                  "resolved_via": resolved_via,
                                   "attempted_ts": attempted_ts, "ts": now})
                 continue  # resolved this tick — not reported as a live halt
         else:
