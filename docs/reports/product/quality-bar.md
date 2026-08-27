@@ -82,3 +82,19 @@ Append-only, newest entry last.
   record; don't assume it. Source: this session's task instructions,
   CHANGES round 2 on PR #2445 (issue #2381), 2026-08-26, re: untracking
   `.orchestrate-hook-fires.log`/`.orchestrate-hook-fires/`.
+- 2026-08-27: no per-category carve-outs for the spawn single-phase
+  default. When a session faced the choice of treating observer spawns
+  (verification-record-only, no code_under_review) as their own
+  exception to the build-now default versus just ordinary single-phase
+  work like everything else, the operator ruled for the latter: "Do not
+  deliberate it further and do not build a separate category for
+  observers... observers get no special case; they are simply not an
+  exception to the default." The corollary that generalizes: a shared
+  default (single-phase/build-now) should stay one mechanism every spawn
+  path inherits, not a base case plus role-specific exceptions layered
+  on top — a role-shaped carve-out is exactly the kind of divergence
+  that goes silent the next time someone adds a caller. `--two-phase`/
+  `--checkpoint` remain the only sanctioned opt-outs, and they stay
+  explicit, human-invoked flags, not inferred from role identity. Source:
+  operator comment on issue #2574, 2026-08-27T01:21:04Z
+  (https://github.com/tokenmaxxxer/on-the-record/issues/2574#issuecomment-5433139986).

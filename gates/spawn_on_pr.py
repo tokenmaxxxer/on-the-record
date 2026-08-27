@@ -481,7 +481,15 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
             f"issue-{issue}/{role}",
             {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
         )
-        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True)
+        # 이슈 #2574 disposition: single-phase(build-now). 이 스폰은 이미
+        # 랜딩된 PR 커밋에 대한 검증 기록을 쓸 뿐 새 code_under_review 를
+        # 여는 게 아니다 — proposal-first 두-단계 계약(v3 s19)이 지키려는
+        # "제안 없이 코드부터 짜지 마라"는 여기 해당하지 않는다. 명시하지
+        # 않으면 사람 Approve 를 기다리며 조용히 멈춘다(이슈 #2574 의 실측
+        # 원인, issue-648/conformance-review 가 PR #650 에서 이 자리에
+        # 걸려 있었다).
+        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True,
+                         single_phase=True)
         park_state[f"{subject}/{role}"] = {"blocked": True, "pr_number": pr_number, "parked": False}
     _save_park_state(root, park_state)
     return pairs
@@ -540,7 +548,11 @@ def backfill_closed(root: Path, cwd: str, dry_run: bool = True) -> list[tuple[st
             f"issue-{issue}/{role}",
             {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
         )
-        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True)
+        # 이슈 #2574 disposition: single-phase(build-now) — 위
+        # spawn_missing_for_pr() 자동 스폰과 같은 이유(닫힌 이슈에 랜딩된
+        # 커밋에 대한 검증 기록 백필, 새 code_under_review 없음).
+        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True,
+                         single_phase=True)
     return pairs
 
 

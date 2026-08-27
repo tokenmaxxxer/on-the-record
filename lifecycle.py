@@ -357,9 +357,17 @@ def _classify_workspace_completion(work: str, role: str) -> str:
 
 
 def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
-                    session_start_ts, state: dict, trigger: str) -> None:
+                    session_start_ts, state: dict, trigger: str,
+                    single_phase: bool) -> None:
     """공유 재스폰 시퀀스: 원자적 클레임 확인, 상한(`RESPAWN_MAX_ATTEMPTS`)
     확인, `.task.txt` 를 통한 `_spawn_one()` 재생, 상한 도달 시 캡-코멘트.
+
+    `single_phase`(이슈 #2574, 필수 인자 — 기본값을 두지 않는다): 죽은
+    세션이 원래 어떤 처분(build-now 인지 two-phase 인지)으로 스폰됐는지
+    호출자가 반드시 밝혀야 한다. 이 값이 안 넘어오면 `_spawn_one()` 의
+    새 기본값(True)에 조용히 올라타 원래 two-phase 였던 세션까지
+    build-now 로 승격시키는, 이 이슈가 고치려는 것과 같은 모양의
+    조용한 갈라짐을 재스폰 경로에 다시 만든다.
 
     이슈 #678: `attempts` 는 이제 no-progress *스트릭* 이다 — 직전 재스폰
     시점에 저장해둔 지문(`_respawn_fingerprint()`)과 지금 지문이 다르면
@@ -466,7 +474,11 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
     print(f"[respawn] {key}: {trigger} — 재스폰 시도 {attempt_n}/{_sp.RESPAWN_MAX_ATTEMPTS} "
           f"(총 {total_attempt_n}/{_sp.RESPAWN_ABSOLUTE_MAX})",
           file=sys.stderr)
-    _sp._spawn_one(work, role, task, unattended=True, issue=issue, bounded=True)
+    # 이슈 #2574 disposition: 고정값 아님, 상속 — 두 호출부(watchdog-
+    # observed-crashed / self-triggered) 가 각자 원래 스폰의 처분을
+    # 알아내 넘긴 값을 여기서 그대로 쓴다.
+    _sp._spawn_one(work, role, task, unattended=True, issue=issue, bounded=True,
+                  single_phase=single_phase)
 
 
 def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
@@ -503,15 +515,23 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
         if ev.get("type") == "session-start":
             start_ts = (ev.get("detail") or {}).get("ts")
             break
+    # 이슈 #2574 disposition: 고정값이 아니라 '상속' — 이 크래시한 세션이
+    # 실제로 어느 처분으로 스폰됐는지 roster 엔트리에서 그대로 읽는다.
+    # 필드가 없으면(이 필드가 생기기 전에 스폰된 낡은 엔트리) False 로
+    # fail-closed — 원래 값을 모를 때 build-now 로 잘못 승격시키는
+    # 쪽보다, 예전처럼 two-phase 로 두고 사람의 승인을 다시 받게 하는
+    # 쪽이 안전하다.
+    single_phase = entry.get("single_phase", False)
     _sp._respawn_or_cap(key, work, issue, role, entry.get("log", ""), start_ts, state,
-                    "watchdog-observed-crashed")
+                    "watchdog-observed-crashed", single_phase)
 
 
 _ABANDONED_WORK_OUTCOMES = ("uncommitted-work", "failed-no-commit", "silent-failure")
 
 
 def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
-                          role: str, log: str, session_start_ts) -> None:
+                          role: str, log: str, session_start_ts,
+                          single_phase: bool) -> None:
     """이슈 #247/#675: `_spawn_one()` 자신이 정상 종료(`session-end` 가 이미
     남는다)했지만 outcome 이 미커밋-방치 신호(`uncommitted-work`/
     `failed-no-commit`) 이거나, 원인 없이 그냥 멈춘 `silent-failure` 일 때,
@@ -534,8 +554,11 @@ def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
     state = _sp._respawn_state_load()
     trigger = ("self-triggered-causeless" if outcome == "silent-failure"
                else "self-triggered-abandoned")
+    # 이슈 #2574 disposition: 고정값 아님, 상속 — `single_phase` 는 이
+    # 세션 자신을 스폰했던 처분 그대로다(spawn.py 호출부가 자기 자신의
+    # `_spawn_one()` 파라미터를 그대로 넘긴다).
     _sp._respawn_or_cap(roster_key, work, issue, role, log, session_start_ts, state,
-                    trigger)
+                    trigger, single_phase)
 
 
 

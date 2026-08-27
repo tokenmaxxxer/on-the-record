@@ -246,7 +246,18 @@ def spawn_phase2(root: Path, cwd: str, dry_run: bool = False,
             f"issue-{issue}/{role}",
             {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
         )
-        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True)
+        # 이슈 #2574 disposition: single-phase(build-now). 이 스폰의
+        # 전제 자체가 "APPROVE issue-<n>/<role> 코멘트가 이미 관측됐다"
+        # 이므로(위 task 문구), phase-2 승인 조건은 이미 실제로
+        # 충족됐다 — approval-gate.sh 는 CORE_BUILD_NOW 없이도 그 코멘트를
+        # 직접 스캔해 통과시켰을 것이다. single_phase=True 를 명시하는
+        # 것은 그 승인을 우회하는 게 아니라, 이 세션이 spawn.py 의
+        # 시스템 프롬프트 주입(`_SINGLE_PHASE_CONTRACT_LINE`)을 통해 첫
+        # 턴부터 "제안 라운드 없이 바로 phase-2 작업으로" 라는 것을
+        # 알고 시작하게 한다 — task 문구가 이미 말하는 바와 정확히
+        # 일치시키는 것.
+        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True,
+                         single_phase=True)
         attempted[branch] = {
             "pr_number": _pr_number_for_branch(root, branch, pr_index),
         }

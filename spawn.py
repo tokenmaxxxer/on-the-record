@@ -2707,7 +2707,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
                despite_returned: bool = False, model: str | None = None,
-               skills: str | None = None, single_phase: bool = False,
+               # 이슈 #2574: 이 기본값은 CLI 진입점(main())이 계산하는
+               # `effective_single_phase`(--two-phase/--checkpoint 둘 다
+               # 없을 때 True)와 항상 같아야 한다 — #2152 는 그 계산을
+               # main() 안에만 넣고 이 함수 자신의 기본값은 고치지 않아,
+               # `_spawn_one()`을 직접 부르는 네 호출부(옵저버 자동스폰)가
+               # 값을 안 넘기면 여전히 예전 two-phase 로 떨어지는 조용한
+               # 분기를 만들었다. 여기서 True 로 맞춰 두면, single_phase
+               # 를 아예 안 넘기는 어떤 호출부(지금의 넷이든 앞으로 생길
+               # 다섯 번째든)나 CLI 나 항상 같은 값을 받는다 — 갈라짐이
+               # "나중에 발견되는" 게 아니라 "애초에 생길 수 없는" 구조가
+               # 된다. 진짜 two-phase 가 필요한 호출부는 이 기본값에
+               # 기대지 말고 반드시 `single_phase=False`(또는
+               # `checkpoint=True`)를 명시해야 한다.
+               skills: str | None = None, single_phase: bool = True,
                max_turns: int | None = None,
                allow_unlimited_turns: bool = False,
                checkpoint: bool = False,
@@ -3599,6 +3612,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             "issue": issue, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
+            # 이슈 #2574: 이 스폰이 실제로 받은 single_phase 처분을 그대로
+            # 남긴다 — lifecycle.py 의 워치독 재스폰(`_auto_respawn_check`)
+            # 이 크래시한 세션을 되살릴 때, 원래 two-phase 였던 세션을
+            # 조용히 build-now 로 승격시키지 않으려면(그 반대로 조용히
+            # 강등시키지도 않으려면) 이 값을 읽어 그대로 다시 넘겨야 한다.
+            "single_phase": single_phase,
             # Issue #2293: the raw task text, adhoc spawns only -- lets
             # watchdog.diagnose_health() tag every poll line for a
             # no-issue entry with the task it is actually running, so
@@ -3975,8 +3994,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # _self_trigger_respawn()과 같은 dead-entry-invisible 레이스를
         # 그대로 겪는다.
         _post_session_end_comment(Path(cwd), issue, roster_key, cwd, str(log_path))
+        # 이슈 #2574: 이 프로세스 자신이 받은 single_phase 를 그대로 넘긴다
+        # — 이 지점은 roster 엔트리를 다시 읽을 필요 없이 원래 처분을
+        # 직접 알고 있는 유일한 재스폰 경로다.
         _self_trigger_respawn(outcome, roster_key, cwd, issue, role,
-                              str(log_path), session_start_ts)
+                              str(log_path), session_start_ts, single_phase)
         os._exit(rc if isinstance(rc, int) else 0)
     return rc
 
