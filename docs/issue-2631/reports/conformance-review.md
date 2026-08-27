@@ -34,9 +34,9 @@ below.
 skill-verdict: work-in-english — applied: invoked; this record and all
 commands run this session are in English; the final chat summary to the
 user is in Korean per the skill's routing rule.
-skill-verdict: conformance-review-verification-method-selection —
-applied: invoked; used rule 3 (Demonstration, not code-reading) for
-AC-2/AC-4's functional-behavior claims — actually called
+skill-verdict: conformance-review-verification-method-selection — applied: invoked;
+used rule 3 (Demonstration, not code-reading) for AC-2/AC-4's
+functional-behavior claims — actually called
 `route_model()`/`bar_scoped_roles()` with representative subjects/
 payloads in fresh worktrees rather than inferring the before/after
 equivalence from the diff.
@@ -50,8 +50,8 @@ skill-verdict: conformance-review-finding-record — applied: invoked;
 every requirement below carries a verdict from the five-value set, a
 file:line/command evidence pointer, and a one-line rationale connecting
 the two.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every citation below is pinned to file:line plus the commit sha
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+every citation below is pinned to file:line plus the commit sha
 this session actually read (`444b6906`/`cdd7e3a4` on the branch, or
 `3567f44c` where the citation is to current main), and the merge-conflict
 finding names the exact spec state (current `origin/main`) the branch was
