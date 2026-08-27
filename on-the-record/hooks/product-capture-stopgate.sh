@@ -199,7 +199,18 @@ if not active:
 # file would go to, via `rel`/`product_dir` below.
 unrecorded = []
 for cat, sents in active.items():
-    if issue_n is not None:
+    # issue #2637: priorities.md sharded per entry, same conflict-
+    # elimination shape issue #2333/#2348 shipped for consult-log/
+    # deviation-log -- see priorities.py's module docstring. requirements/
+    # philosophy/goals are unaffected (still a single flat file each, and
+    # none of the three has ever actually been written to -- issue #2637's
+    # step-3 finding) and keep the old rel/check below unchanged.
+    is_priorities_dir = cat == "priorities"
+    if is_priorities_dir:
+        rel = (os.path.join("docs", f"issue-{issue_n}", "reports", "product", "priorities")
+               if issue_n is not None
+               else os.path.join("docs", "reports", "product", "priorities"))
+    elif issue_n is not None:
         rel = os.path.join("docs", f"issue-{issue_n}", "reports", "product", f"{cat}.md")
     else:
         rel = os.path.join("docs", "reports", "product", f"{cat}.md")
@@ -218,6 +229,24 @@ for cat, sents in active.items():
         for out_line in r.stdout.splitlines():
             if out_line.startswith("+") and not out_line.startswith("+++"):
                 added_lines += 1
+    # issue #2637 (mirrors deviation-log-guard.sh's #2348 fix): a brand-new
+    # priorities shard is untracked until something stages it, and `git
+    # diff`/`git log -p` never report untracked paths at all -- without
+    # this fallback the gate would be permanently blind to the now-common
+    # case of a session's first-ever priorities entry. `git status
+    # --porcelain` reports untracked ("??"), staged, and unstaged-modified
+    # paths alike, so it closes that gap regardless of which state this
+    # turn's new/changed shard is currently in.
+    if added_lines == 0 and is_priorities_dir:
+        try:
+            st = subprocess.run(
+                ["git", "status", "--porcelain", "--", rel],
+                cwd=repo, capture_output=True, text=True, timeout=10,
+            )
+            if st.returncode == 0 and st.stdout.strip():
+                added_lines = 1
+        except (OSError, subprocess.SubprocessError):
+            pass
     if added_lines == 0:
         excerpt = sents[0][:120]
         unrecorded.append((cat, excerpt))
@@ -272,7 +301,15 @@ unrecorded = deduped
 if not unrecorded:
     sys.exit(0)
 
-parts = [f"{cat}.md (e.g. \"{excerpt}\")" for cat, excerpt in unrecorded]
+# issue #2637: priorities is a directory of per-entry shards now, not a
+# single .md file -- name the path a new entry actually goes to (the path
+# `spawn.py priorities-path` prints) rather than the flat-file name the
+# other three categories still use.
+parts = [
+    (f"priorities/ (spawn.py priorities-path; e.g. \"{excerpt}\")"
+     if cat == "priorities" else f"{cat}.md (e.g. \"{excerpt}\")")
+    for cat, excerpt in unrecorded
+]
 product_dir = (
     f"docs/issue-{issue_n}/reports/product/" if issue_n is not None
     else "docs/reports/product/"
