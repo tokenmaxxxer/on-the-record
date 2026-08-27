@@ -72,8 +72,8 @@ def test_should_park_signature_has_no_pr_number_parameter():
 # ---------------------------------------------------------------------
 
 SUBJECT = "issue-99001"
-ROLE = "generic-role"
-KEY = f"{SUBJECT}/{ROLE}"
+ROLE = "independent-verification-1"  # issue #2628: the slot spawned when attempts starts at 0
+KEY = SUBJECT  # issue #2628: park state is keyed by subject alone, not "subject/role"
 
 
 class _Recorder:
@@ -135,7 +135,7 @@ def test_empty_state_spawns_once_and_never_parks_on_first_tick(monkeypatch, tmp_
     # is not treated as a retry.
     approval_calls = []
     recorder, park_path = _wire(
-        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]}, pr_number=111,
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=111,
         blocked=True, approval_calls=approval_calls)
 
     pairs = _run(tmp_path)
@@ -161,7 +161,7 @@ def test_self_created_pr_number_change_no_longer_defeats_parking(monkeypatch, tm
     # still reports blocked=True (no real external signal was observed).
     approval_calls = []
     recorder, park_path = _wire(
-        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]},
+        monkeypatch, tmp_path, missing={SUBJECT: 1},
         pr_number=600,  # different from the prior tick's 500 -- self-created PR
         blocked=True, approval_calls=approval_calls)
     _seed_park_state(park_path, {
@@ -174,7 +174,7 @@ def test_self_created_pr_number_change_no_longer_defeats_parking(monkeypatch, tm
     assert recorder.spawn_calls == []
     # The recheck DID happen (a prior blocked record exists) -- it just
     # correctly parked instead of being bypassed by the pr_number diff.
-    assert approval_calls == [(99001, ROLE)]
+    assert approval_calls == [(99001, spawn_on_pr.VERIFICATION_APPROVAL_TARGET)]
 
     state = json.loads(park_path.read_text())
     entry = state[KEY]
@@ -189,7 +189,7 @@ def test_real_external_signal_clears_park_and_allows_respawn(monkeypatch, tmp_pa
     # a genuine external signal from a bare PR-number diff, rather than
     # just refusing to ever re-arm.
     recorder, park_path = _wire(
-        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]}, pr_number=600,
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=600,
         blocked=False)
     _seed_park_state(park_path, {
         KEY: {"blocked": True, "pr_number": 500, "parked": False, "attempts": 1},
@@ -197,7 +197,11 @@ def test_real_external_signal_clears_park_and_allows_respawn(monkeypatch, tmp_pa
 
     pairs = _run(tmp_path)
 
-    assert pairs == [(SUBJECT, ROLE)]
+    # issue #2628: the slot number is drawn from the subject's own
+    # cumulative attempts (1 already recorded), never renumbered back to 1
+    # -- that stability is exactly what the warrant hunt on this issue's
+    # delivery required after finding the positional-renumbering defect.
+    assert pairs == [(SUBJECT, "independent-verification-2")]
     assert len(recorder.spawn_calls) == 1
     state = json.loads(park_path.read_text())
     entry = state[KEY]
@@ -212,7 +216,7 @@ def test_respawn_ceiling_hits_and_reports_loudly(monkeypatch, tmp_path, capsys):
     # ceiling must still stop it once max_respawn_attempts is reached --
     # and must say so loudly (print + ledger), not silently no-op.
     recorder, park_path = _wire(
-        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]}, pr_number=700,
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=700,
         blocked=False)
     _seed_park_state(park_path, {
         KEY: {"blocked": True, "pr_number": 600, "parked": False, "attempts": 2},
@@ -227,7 +231,6 @@ def test_respawn_ceiling_hits_and_reports_loudly(monkeypatch, tmp_path, capsys):
     event = recorder.ledger_events[0]
     assert event["event"] == "spawn_on_pr_respawn_ceiling_hit"
     assert event["subject"] == SUBJECT
-    assert event["role"] == ROLE
     assert event["attempts"] == 2
 
     out = capsys.readouterr().out
@@ -248,7 +251,7 @@ def test_ceiling_hit_entry_stays_parked_on_a_later_tick(monkeypatch, tmp_path):
     # keeps it parked without needing to re-derive the ceiling verdict
     # every tick.
     recorder, park_path = _wire(
-        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]}, pr_number=700,
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=700,
         blocked=True)
     _seed_park_state(park_path, {
         KEY: {"blocked": True, "pr_number": 700, "parked": True,
@@ -262,6 +265,57 @@ def test_ceiling_hit_entry_stays_parked_on_a_later_tick(monkeypatch, tmp_path):
     state = json.loads(park_path.read_text())
     assert state[KEY]["ceiling_hit"] is True
     assert state[KEY]["attempts"] == 4
+
+
+def test_sibling_slot_resolving_does_not_reset_ceiling_progress(monkeypatch, tmp_path):
+    # issue #2628 warrant hunt (before-landing, stance 0, 2026-08-27):
+    # reproduced regression. Slot numbers used to be recomputed fresh each
+    # tick from the CURRENT deficit (`range(1, deficit+1)`) -- when a
+    # subject needed 2 verifications and the lower-numbered one resolved
+    # first, the still-stuck higher-numbered slot's own park/ceiling
+    # history got silently discarded and replaced by a fresh, low-attempt
+    # identity under the now-renumbered key. Tracking park/ceiling state
+    # per subject (not per slot) closes that path: the subject's
+    # cumulative `attempts` counter must climb monotonically to the real
+    # ceiling regardless of how many of its individual slots resolve
+    # along the way, and slot numbers must never repeat.
+    #
+    # Tick 1: subject needs 2 verifications, nothing spawned yet -- both
+    # slots go out in one batch.
+    recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: 2}, pr_number=100, blocked=True)
+    pairs1 = _run(tmp_path)
+    assert pairs1 == [(SUBJECT, "independent-verification-1"),
+                       (SUBJECT, "independent-verification-2")]
+    assert json.loads(park_path.read_text())[KEY]["attempts"] == 2
+
+    # Tick 2: one of the two landed a verifying record -- the subject's
+    # deficit drops to 1 -- but the auto-spawn tick must still treat this
+    # as "still blocked, retry" (a real approval re-arm signal, blocked=
+    # False) so it spawns exactly one more session, numbered from the
+    # subject's own attempts (2), never renumbered back to 1.
+    recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=100, blocked=False)
+    pairs2 = _run(tmp_path, max_respawn_attempts=3)
+    assert pairs2 == [(SUBJECT, "independent-verification-3")]
+    state2 = json.loads(park_path.read_text())
+    assert state2[KEY]["attempts"] == 3
+
+    # Tick 3: still 1 short, still blocked -- with max_respawn_attempts=3
+    # the subject's cumulative attempts (3) has now reached the ceiling.
+    # A defect that reset the counter when slot 1 resolved on tick 2 would
+    # never reach this ceiling at all.
+    recorder, park_path = _wire(
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=100, blocked=False)
+    pairs3 = _run(tmp_path, max_respawn_attempts=3)
+    assert pairs3 == []
+    assert recorder.spawn_calls == []
+    state3 = json.loads(park_path.read_text())
+    assert state3[KEY]["ceiling_hit"] is True
+    assert state3[KEY]["attempts"] == 3
+    assert len(recorder.ledger_events) == 1
+    assert recorder.ledger_events[0]["event"] == "spawn_on_pr_respawn_ceiling_hit"
+    assert recorder.ledger_events[0]["attempts"] == 3
 
 
 # ---------------------------------------------------------------------
@@ -281,10 +335,10 @@ def test_clear_ceiling_empty_state_reports_nothing_and_does_not_error(tmp_path, 
     assert not park_path.exists()
 
 
-def test_clear_ceiling_no_args_clears_all_currently_reported_pairs(tmp_path, monkeypatch):
+def test_clear_ceiling_no_args_clears_all_currently_reported_subjects(tmp_path, monkeypatch):
     park_path = tmp_path / "spawn_on_pr_parked.json"
     monkeypatch.setattr(spawn_on_pr, "_park_state_path", lambda root: park_path)
-    OTHER_KEY = "issue-99002/conformance-review"
+    OTHER_KEY = "issue-99002"
     _seed_park_state(park_path, {
         KEY: {"blocked": True, "pr_number": 700, "parked": True,
               "ceiling_hit": True, "attempts": 4},
@@ -292,7 +346,7 @@ def test_clear_ceiling_no_args_clears_all_currently_reported_pairs(tmp_path, mon
                     "ceiling_hit": True, "attempts": 4},
         # A plain waiting-for-approval park entry, never ceiling_hit --
         # out of scope for this command and must survive untouched.
-        "issue-99003/execution-observation": {
+        "issue-99003": {
             "blocked": True, "pr_number": 800, "parked": True, "attempts": 1,
         },
     })
@@ -307,14 +361,14 @@ def test_clear_ceiling_no_args_clears_all_currently_reported_pairs(tmp_path, mon
     assert state[KEY]["parked"] is True
     assert state[OTHER_KEY]["ceiling_hit"] is False
     assert state[OTHER_KEY]["attempts"] == 0
-    untouched = state["issue-99003/execution-observation"]
+    untouched = state["issue-99003"]
     assert untouched == {"blocked": True, "pr_number": 800, "parked": True, "attempts": 1}
 
 
-def test_clear_ceiling_named_pair_leaves_other_ceiling_hits_alone(tmp_path, monkeypatch):
+def test_clear_ceiling_named_subject_leaves_other_ceiling_hits_alone(tmp_path, monkeypatch):
     park_path = tmp_path / "spawn_on_pr_parked.json"
     monkeypatch.setattr(spawn_on_pr, "_park_state_path", lambda root: park_path)
-    OTHER_KEY = "issue-99002/conformance-review"
+    OTHER_KEY = "issue-99002"
     _seed_park_state(park_path, {
         KEY: {"blocked": True, "pr_number": 700, "parked": True,
               "ceiling_hit": True, "attempts": 4},
@@ -322,7 +376,7 @@ def test_clear_ceiling_named_pair_leaves_other_ceiling_hits_alone(tmp_path, monk
                     "ceiling_hit": True, "attempts": 4},
     })
 
-    cleared = spawn_on_pr.clear_ceiling(tmp_path, subject=SUBJECT, role=ROLE)
+    cleared = spawn_on_pr.clear_ceiling(tmp_path, subject=SUBJECT)
 
     assert cleared == [KEY]
     state = json.loads(park_path.read_text())
@@ -339,7 +393,7 @@ def test_clear_ceiling_then_next_tick_spawns_once_approval_is_real(monkeypatch, 
     # never had to touch `blocked`/`parked` for this to work: the ceiling
     # was the only thing still in the way.
     recorder, park_path = _wire(
-        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]}, pr_number=700,
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=700,
         blocked=False)
     _seed_park_state(park_path, {
         KEY: {"blocked": True, "pr_number": 700, "parked": True,
@@ -364,7 +418,7 @@ def test_clear_ceiling_does_not_unblock_without_a_real_approval_signal(monkeypat
     # parked on the next tick exactly like any other waiting-for-human
     # pair -- clearing the ceiling did not spoof an approval.
     recorder, park_path = _wire(
-        monkeypatch, tmp_path, missing={SUBJECT: [ROLE]}, pr_number=700,
+        monkeypatch, tmp_path, missing={SUBJECT: 1}, pr_number=700,
         blocked=True)
     _seed_park_state(park_path, {
         KEY: {"blocked": True, "pr_number": 700, "parked": True,
