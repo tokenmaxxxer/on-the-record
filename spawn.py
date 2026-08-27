@@ -743,11 +743,12 @@ _BOOTSTRAP_PHASES = ("admission", "skill_resolve", "workspace", "branch",
 BOARD = "docs"                          # v3: subject trees live at docs/issue-<n>/
 MARKER = "docs/specs/approvers.md"      # 보드 opt-in + 승인자 allowlist (v3)
 REQUIREMENT_DIGEST_MARKER = "docs/specs/requirement-digest.md"  # issue #1695
-# 계약 v1 이 쓰던 자리. 아직 v2 로 안 옮긴 레포를 **말해주기 위해서만** 본다
-LEGACY = {"conformance-review": "review-record.md",
-          "technical-feasibility": "feasibility-record.md",
-          "release-engineering": "state.md",
-          "product-discovery": "product-record.md"}
+# 계약 v1 이 쓰던 자리. 아직 v2 로 안 옮긴 레포를 **말해주기 위해서만** 본다.
+# 이슈 #2651: 예전엔 역할 이름 -> 파일명 dict 였다 — identity 키가 board.py 를
+# 거쳐 소비자 화면에 그대로 찍혔다. 여기 필요한 건 "이 파일이 있는가"뿐이라
+# identity 축을 없애고 파일명만 남긴다.
+LEGACY_FILES = ("review-record.md", "feasibility-record.md", "state.md",
+                "product-record.md")
 
 
 REPO_CONFIG = (".claude/settings.json", ".claude/settings.local.json", ".claude/hooks",
