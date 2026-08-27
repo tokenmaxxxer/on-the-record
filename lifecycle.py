@@ -599,6 +599,91 @@ def _live_workspaces() -> dict[Path, dict]:
     return live
 
 
+def _sibling_checkout_roots(shared_root: Path) -> list[Path]:
+    """`shared_root`(예: `~/.tokenmaxxxer/work`) 바로 아래 자식들 중,
+    spawn.py 자신이 자기 `ROOT`를 잡는 것과 같은 관례("이 파일(spawn.py)이
+    들어있는 디렉터리가 곧 체크아웃 루트다", `ROOT =
+    Path(__file__).resolve().parent`)로 체크아웃 루트라고 인식할 수 있는
+    것만 돌려준다 — 자식 안에 `spawn.py`가 있으면 그 자식이 체크아웃
+    루트. 한 단계만 본다(재귀 없음) — 임의 깊이 트리를 훑지 않는다."""
+    try:
+        children = sorted(shared_root.iterdir())
+    except OSError:
+        return []
+    return [c for c in children if c.is_dir() and (c / "spawn.py").is_file()]
+
+
+def _sibling_live_sessions(sibling_root: Path) -> dict[Path, dict]:
+    """한 sibling 체크아웃 자신의 `runs/active.json`(그 체크아웃 자신의
+    STATE_ROOT/ROSTER 관례, `STATE_ROOT = ROOT / "runs"`,
+    `ROSTER = STATE_ROOT / "active.json"`)에서 살아있는(pid-alive) 엔트리만
+    워크스페이스 절대경로로 인덱싱 — `_live_workspaces()`와 같은 모양,
+    다만 로컬 `_sp.ROSTER` 대신 남의 체크아웃 로스터를 읽는다. 로스터
+    파일이 없거나 JSON 파싱이 깨지거나 모양이 기대와 다르면 그 sibling은
+    "라이브 세션 0개"로 취급하고 넘어간다 — 예외를 던지지 않는다: 이웃
+    체크아웃 하나가 망가졌다고 이쪽 체크아웃의 prune 이 죽거나 막히면
+    안 된다."""
+    roster_path = sibling_root / "runs" / "active.json"
+    try:
+        roster = json.loads(roster_path.read_text())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(roster, dict):
+        return {}
+    live = {}
+    for e in roster.values():
+        if not isinstance(e, dict):
+            continue
+        if not _sp._alive(e.get("pid", 0)):
+            continue
+        work = e.get("work")
+        if not work:
+            continue
+        try:
+            live[Path(work).resolve()] = e
+        except OSError:
+            continue
+    return live
+
+
+def _live_workspaces_union() -> dict[Path, dict]:
+    """이슈 #2492: `_live_workspaces()`(체크아웃-로컬)를 이 체크아웃과 같은
+    공유 작업 디렉터리(`_sp._workspace_base()`, 예: `~/.tokenmaxxxer/work`)
+    아래 다른 체크아웃들의 로스터까지 합쳐서 넓힌다. 이 host 에 31개
+    체크아웃이 같은 `~/.tokenmaxxxer/work`를 공유하는데(MUSTER_STATE_ROOT
+    미설정이면 각자 독립적으로 ROOT/STATE_ROOT/ROSTER 를 계산) prune 이 자기
+    체크아웃 로스터만 보면, 세션 A 의 prune 이 체크아웃 B 의 로스터만 아는
+    살아있는 세션을 죽었다고 오판해 지울 수 있었다.
+
+    설계 노트 — 어떤 로스터를 보는지와 왜 그게 맞고 안전한지: 로컬
+    로스터(`_sp.ROSTER`, 이 체크아웃 자신의 `_live_workspaces()`) +
+    공유 작업 디렉터리 바로 아래(한 단계만, 재귀 없음) 있고 체크아웃
+    루트로 인식되는 sibling 들의 로스터, 그 합집합만 본다 — 지금 prune
+    하는 그 작업 디렉터리를 실제로 공유하는 체크아웃으로 범위가 묶여있고,
+    그보다 넓히지 않는다. 읽거나 파싱할 수 없는 sibling 로스터는 죽지도
+    않고 범위를 조용히 넓히지도 않으며 그냥 "라이브 세션 0개"로 깎인다
+    (`_sibling_live_sessions()`)."""
+    live = dict(_sp._live_workspaces())
+    try:
+        shared_root = _sp._workspace_base().resolve()
+    except OSError:
+        return live
+    try:
+        own_root = _sp.ROOT.resolve()
+    except OSError:
+        own_root = None
+    for sibling in _sp._sibling_checkout_roots(shared_root):
+        try:
+            sibling_resolved = sibling.resolve()
+        except OSError:
+            continue
+        if own_root is not None and sibling_resolved == own_root:
+            continue  # 이미 위에서 로컬 로스터로 커버됨
+        for k, v in _sp._sibling_live_sessions(sibling_resolved).items():
+            live.setdefault(k, v)
+    return live
+
+
 # 이슈 #1179 (reopen): 훅이 워크스페이스 안에 직접 심어놓는 자체 부기
 # 파일 — 사용자가 만든 내용이 아니라 harness 자신의 상태 마커라
 # untracked 로 남아도 "미보존 작업"이 아니다. 이 목록에 없는 파일은
@@ -820,7 +905,7 @@ def roster_clean(wb: Path, issue: int | None, repo: Path | None = None) -> int:
     routine landing/cleanup 의 일부로 만든다)."""
     if repo is not None:
         _prune_worktrees(repo)
-    live = _sp._live_workspaces()
+    live = _sp._live_workspaces_union()
     log_outcomes = _sp._ledger_log_outcomes()
     archive_dir = wb / ".archived-logs"
 
@@ -1028,7 +1113,7 @@ def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
 
     `now`: 테스트가 `time.time()` 대신 고정 시각을 주입한다."""
     now = now if now is not None else time.time()
-    live = _sp._live_workspaces()
+    live = _sp._live_workspaces_union()
     log_outcomes = _sp._ledger_log_outcomes()
     archive_dir = wb / ".archived-logs"
     max_age_sec = max_age_days * 86400
@@ -1153,7 +1238,7 @@ def _prune_orphaned_sidecars(wb: Path, max_age_days: float | None = None,
     max_age_days = _clean_max_age_days() if max_age_days is None else max_age_days
     now = time.time() if now is None else now
     max_age_sec = max_age_days * 86400
-    live = _sp._live_workspaces()
+    live = _sp._live_workspaces_union()
 
     groups: dict[str, list[Path]] = {}
     if wb.is_dir():
