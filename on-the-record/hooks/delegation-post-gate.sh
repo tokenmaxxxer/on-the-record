@@ -81,7 +81,7 @@ for pat in (
 if body is None:
     sys.exit(0)  # no --body/-f body=/--raw-field body= — nothing to check yet
 
-_CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
+_CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([^/]+) VIA DELEGATION (\S+)$")
 if not _CITE_RE.match(body.strip()):
     sys.exit(0)  # not a delegation citation — not this hook's target
 
