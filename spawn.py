@@ -330,6 +330,7 @@ _append_panel_turn = consult._append_panel_turn
 _commit_consult_trace = consult._commit_consult_trace
 _composed_consult_skill_source = consult._composed_consult_skill_source
 _compress_diff = consult._compress_diff
+_consult_background_log_path = consult._consult_background_log_path
 _consult_cmd_and_env = consult._consult_cmd_and_env
 _consult_evidence_suffix = consult._consult_evidence_suffix
 _consult_log_aggregate = consult._consult_log_aggregate
@@ -1653,6 +1654,12 @@ def main() -> int:
     ap.add_argument("--no-wait", action="store_true",
                     help="spawn --issue: fork 직후 _await_bounded 없이 즉시 "
                          "리턴한다 — 재개 명령(spawn.py watch)을 찍는다 (이슈 #645)")
+    ap.add_argument("--foreground", action="store_true",
+                    help="consult: 기본(배경 fork, 이슈 #2569)을 끄고 예전처럼 "
+                         "호출자 프로세스 안에서 끝까지 기다려 판단 JSON 을 "
+                         "표준출력에 찍는다 — 매치+세션이 43-78s+ 걸릴 수 있어 "
+                         "대화형 호출자를 그만큼 얼린다(스크립트/테스트처럼 "
+                         "리턴값을 그 자리에서 바로 써야 할 때만 켠다)")
     ap.add_argument("--despite-returned", action="store_true",
                     help="[DEPRECATED, 이슈 #1239] no-op — 게이트가 이제 "
                          "항상 non-blocking surfacing 이라 스폰을 거절하지 "
@@ -1865,12 +1872,51 @@ def main() -> int:
     if a.role == "consult":
         if not a.task or not a.consult_question:
             sys.exit('사용법: spawn.py consult <역할> "<질문>" [--issue <n>]')
-        try:
-            verdict = consult_cmd(a.task, a.consult_question, issue=a.issue, cwd=a.cwd,
-                                  model=a.model)
-        except Exception as e:
-            sys.exit(f"consult 실패(트레이스는 남았다): {e}")
-        print(json.dumps(verdict, indent=2, ensure_ascii=False))
+        if a.foreground:
+            try:
+                verdict = consult_cmd(a.task, a.consult_question, issue=a.issue, cwd=a.cwd,
+                                      model=a.model)
+            except Exception as e:
+                sys.exit(f"consult 실패(트레이스는 남았다): {e}")
+            print(json.dumps(verdict, indent=2, ensure_ascii=False))
+            return 0
+        # 이슈 #2569: 기본은 배경 fork다 — cross-family 매치(skill_judge
+        # 포함, 그대로 유지)와 자문 세션 실행을 합치면 43-78s+90s 대까지
+        # 걸릴 수 있다(bootstrap_timing 실측 cross_family 구간과 같은
+        # 원인) — 호출자 프로세스가 그 안에서 그대로 기다리면 대화형
+        # 세션 하나를 몇 분씩 얼린다. `_spawn_one()` 이 실제 스폰 세션에
+        # 쓰는 것과 같은 os.fork()+setsid()+표준입출력 dup2 패턴: 부모는
+        # 즉시 리턴하고, 자식이 판단을 끝까지 몰아 트레이스에 커밋한다.
+        log_path = _consult_background_log_path()
+        role_for_log, task_for_log, cwd_for_log = a.task, a.consult_question, a.cwd
+        issue_for_log, model_for_log = a.issue, a.model
+        child_pid = os.fork()
+        if child_pid == 0:
+            os.setsid()
+            log_fd = os.open(str(log_path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+            devnull_in = os.open(os.devnull, os.O_RDONLY)
+            os.dup2(devnull_in, 0)
+            os.dup2(log_fd, 1)
+            os.dup2(log_fd, 2)
+            os.close(devnull_in)
+            os.close(log_fd)
+            try:
+                verdict = consult_cmd(role_for_log, task_for_log, issue=issue_for_log,
+                                      cwd=cwd_for_log, model=model_for_log)
+                print(json.dumps(verdict, indent=2, ensure_ascii=False))
+            except Exception as e:
+                print(f"consult 실패(트레이스는 남았다): {e}", file=sys.stderr)
+            # os._exit() 는 인터프리터 정리(stdio 플러시 포함)를 건너뛴다 —
+            # 위 print() 들이 파일로 리다이렉트된 stdout 의 블록 버퍼에만
+            # 남아 로그 파일에는 한 줄도 안 남는 것으로 실측됐다. 명시적으로
+            # 비운 뒤에 종료한다.
+            sys.stdout.flush()
+            sys.stderr.flush()
+            os._exit(0)
+        issue_hint = f" --issue {a.issue}" if a.issue is not None else ""
+        print(f"[consult] 배경에서 돈다(pid {child_pid}) — 판단은 자문 트레이스에 "
+              f"커밋된다: `spawn.py consult-log{issue_hint}` 로 확인. 단계별 "
+              f"타이밍/원시 출력: {log_path}", file=sys.stderr)
         return 0
     if a.role == "consult-log":
         # 이슈 #2333: consult-log.md 는 이제 세션마다 다른 샤드 파일이라,
