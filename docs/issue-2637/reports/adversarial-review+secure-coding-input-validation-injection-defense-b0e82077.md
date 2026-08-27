@@ -421,28 +421,11 @@ pre-existing activation walk at `on-the-record/hooks/deliverable-guard.sh:204-21
 are the basis for the secure-coding verdict below — both fail open
 ("root not found" -> allow) instead of denying.
 
-- skill-verdict: adversarial-review — applied: invoked; used to keep
-  every claim in "What was done" above re-derived from the real
-  hook/tests rather than from the PR body or prior records, and to
-  keep the verdict blind to the redo session's own framing until the
-  independent evidence was in.
-- skill-verdict: secure-coding-input-validation-injection-defense —
-  applied: invoked; rule 8 (fail closed on a security-relevant path
-  check rather than silently falling back) is the basis for the two
-  open findings named in the canonical line just above.
-- skill-verdict: defect-verification-independence-from-upstream-verdicts
-  — applied: invoked; every direction in "What was done" above was
-  re-run against the real hook/tests this session rather than cited
-  from the redo record or PR #2653's record, including the required
-  directions already marked Present upstream.
-- skill-verdict: defect-verification-reproduction-evidence-quality —
-  applied: invoked; the bypasses in "What was done" above are recorded
-  as numbered cwd/file_path inputs with the real exit code and stderr,
-  the test-suite audit as exact commands with their real output, the
-  rebase check with the actual diff artifact rather than a paraphrase.
-- skill-verdict: work-in-english — applied: invoked; this record, all
-  commands, and the commit message are in English; the end-of-turn
-  summary to the user is in Korean.
+- skill-verdict: adversarial-review — applied: invoked; kept every claim in "What was done" above (canonical: §1-6, the real-hook/real-pytest runs quoted there) re-derived independently rather than from the PR body or prior records.
+- skill-verdict: secure-coding-input-validation-injection-defense — applied: invoked; rule 8 (fail closed on a security-relevant path check) is the basis for the two open findings — canonical: `on-the-record/hooks/deliverable-guard.sh:156-162,204-213`, quoted in full in §2/§3 of "What was done" above.
+- skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; every direction in "What was done" above (canonical: §1's four required directions, re-run this session) was re-run against the real hook/tests rather than cited from the redo record or PR #2653's record.
+- skill-verdict: defect-verification-reproduction-evidence-quality — applied: invoked; the bypasses in "What was done" above (canonical: §2/§3's numbered cwd/file_path inputs with real exit codes) are recorded as numbered inputs with the actual exit code/stderr/diff artifact, not a paraphrase.
+- skill-verdict: work-in-english — applied: invoked; this record, all commands, and the commit message (canonical: this file and the commit at the top of this branch) are in English; the end-of-turn summary to the user is in Korean.
 
 ## Next steps
 
