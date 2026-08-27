@@ -280,6 +280,7 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
         pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
     merged_seen: set[str] | None = None
+    unmappable_branch_already_reported = 0
     for subject, subject_board in b.items():
         _slug, subject_fm = subject_deliverable_record(subject_board)
         subject_author = subject_fm.get("author")
@@ -300,8 +301,15 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
         # 그 경우에도 branch/PR 조회는 여전히 가능해야 한다.
         branch = subject_deliverable_branch(subject, pr_index)
         if branch is None:
-            print(f"[spawn-on-pr] {subject}: deliverable 브랜치를 pr_index 에서 "
-                  f"찾지 못했다 — 이번 틱은 건너뜀 (missing={missing})")
+            # 이슈 #2196 category 3: 브랜치가 삭제된 오래된 subject 는 이
+            # 조건이 영구적이라 매 틱 재출력하면 wall of noise 가 된다 —
+            # board-sweep 의 _watchdog_note_unmappable_pr 과 같은 one-shot
+            # 마커: 처음 보는 subject 만 개별 줄로 찍고, 이후는 개수로 접는다.
+            if spawn._watchdog_note_unmappable_subject_branch(root, subject):
+                print(f"[spawn-on-pr] {subject}: deliverable 브랜치를 pr_index 에서 "
+                      f"찾지 못했다 — 이번 틱은 건너뜀 (missing={missing})")
+            else:
+                unmappable_branch_already_reported += 1
             continue
         pr_number = _pr_number_for_branch(root, branch, pr_index)
         if pr_number is None:
@@ -333,6 +341,9 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
             if not missing:
                 continue
         out[subject] = missing
+    if unmappable_branch_already_reported:
+        print(f"[spawn-on-pr] {unmappable_branch_already_reported}건 이전에 보고된 "
+              "매핑-불가 subject — 계속 무시 (반복 안 찍음)")
     return out
 
 
