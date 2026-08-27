@@ -163,3 +163,20 @@ Append-only, newest entry last.
   Three things must hold together... empty state: a consumer whose role
   lookup already has no live callers — state that and remove it without a
   migration step."), read 2026-08-26.
+
+- 2026-08-27: operator decision, stated in the issue-2629 spawn prompt as
+  "권한은 빼. 제한두지마" (remove the permission mechanism, don't limit):
+  sessions are deliberately not write-scope-limited going forward, not a
+  gap to eventually close. Applies beyond issue #2629 to any future work
+  that touches role-boundary enforcement — a PR proposing to re-add
+  write-scope/permission-style limiting on a session's writes should be
+  treated as reversing a stated decision, not filling in an omission; a
+  record documenting the removal must read as final, not as an
+  unfinished migration. This session found two adjacent files still
+  describing the retired mechanism as live (`protocol.md:107`'s
+  present-tense `roles/<name>.json` mention, and
+  `gates/spec_index.py --update`'s pre-existing crash on the same
+  removed directory) and left them unfixed as out of this issue's named
+  scope — future scope-cleanup work should account for them. Source:
+  issue #2629 spawn-prompt task text and its correcting comment, read
+  2026-08-27.
