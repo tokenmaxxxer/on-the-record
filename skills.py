@@ -74,6 +74,11 @@ def _skill_repo_managed_root() -> Path | None:
                 _sp._run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"],
                          "[skill-repo] pull")
                 _sp._mark_pulled(d)
+            # 이슈 #2616: core_root() 와 완전히 같은 TTL-pull 패턴(같은
+            # _pull_is_fresh/_run_net/_mark_pulled) 을 쓰는 관리 클론이라
+            # 같은 결함(TTL 창 안에서 실제 stale 여부와 무관하게 "현재"로
+            # 보임)을 그대로 물려받는다 — 같은 보고 레이어를 그대로 재사용.
+            _sp._report_managed_clone_staleness(d, "skill-repo")
             return skills_dir
         try:
             print("[skill-repo] skill-repository 를 받는 중", file=sys.stderr)

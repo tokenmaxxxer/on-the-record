@@ -366,6 +366,41 @@ def role_settings(role: str, cwd: str | None = None,
     return s
 
 
+def _report_managed_clone_staleness(d: Path, label: str) -> None:
+    """이슈 #2616: 관리 클론(core, skill-repository — 둘 다 이 파일/skills.py
+    가 같은 TTL-pull 패턴으로 받아 쓰는 fallback 클론)이 origin 대비 뒤처졌는지
+    보고한다. TTL(`_pull_is_fresh`)은 마지막 pull 이 최근이었는지만 볼 뿐 실제
+    origin 대비 상태는 안 본다 — 머지가 TTL 창 안에 들어오면 pull 은 건너뛰고,
+    이후 아무 코드도 그 사실을 다시 확인하지 않아 클론은 "현재"로 보인 채
+    구버전 코드를 계속 돌린다(실측: tokenmaxxxer-core#337 이 머지되고 몇 분
+    안에 바로 이 상태였다).
+
+    두 번째 감지기를 새로 안 만든다 — `spawn.checkout_staleness()`(이슈
+    #2506, 이미 fetch 후 비교, 절대 워킹트리를 건드리지 않는다)를 그대로
+    재사용해 보고만 얹는다. `fetch=True` 라 TTL 과 무관하게 매번 실제
+    origin 상태를 받아온다 — "fetch 없이 현재라고 보고" 하는 바로 그 결함을
+    피한다. pull 트리거 자체(TTL)는 건드리지 않는다 — 이 함수는 순수 보고
+    레이어이고, 새 auto-update 경로를 만들지 않는다(이슈의 must-not: 관련
+    없는 동작의 부작용으로 클론을 조용히 mutate 하지 않는다 — 이 보고는
+    아무것도 mutate 하지 않는다).
+
+    `checked: True, stale: False` (현재) 면 아무것도 출력하지 않는다 — 오늘과
+    같은 무출력 empty state. 그 외(뒤처짐, 또는 판정 불가)는 클론 경로와
+    고치는 명령을 그대로 이름 붙여 stderr 에 한 줄 낸다 — 상태만 이름 붙이고
+    고칠 방법은 안 주는 것(이슈 #2607 이 겨냥한 실패)을 피한다."""
+    result = _sp.checkout_staleness(root=d, fetch=True)
+    if result["checked"] and not result["stale"]:
+        return
+    if result["checked"]:
+        print(f"[{label}] {d} 이(가) origin 대비 {result['behind']}개 커밋 "
+              f"뒤처졌다 — 고치려면: git -C {d} pull --ff-only",
+              file=sys.stderr)
+    else:
+        print(f"[{label}] {d} 의 origin 대비 최신 여부를 판정할 수 없다 "
+              f"({result['detail']}) — 확인하려면: git -C {d} fetch origin && "
+              f"git -C {d} status -sb", file=sys.stderr)
+
+
 def core_root() -> Path:
     """tokenmaxxxer-core 체크아웃 루트. 없으면 멈춘다.
 
@@ -394,6 +429,7 @@ def core_root() -> Path:
             if not _sp._pull_is_fresh(d):
                 _sp._run_net(["git", "-C", str(d), "pull", "-q", "--ff-only"], "[core] pull")
                 _sp._mark_pulled(d)
+            _sp._report_managed_clone_staleness(d, "core")
             return d
         try:
             print("[core] tokenmaxxxer-core 를 받는 중", file=sys.stderr)

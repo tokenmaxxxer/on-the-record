@@ -540,6 +540,7 @@ _mark_pulled = _pipeline_mod._mark_pulled
 _migrate_legacy_ttl_marker = _pipeline_mod._migrate_legacy_ttl_marker
 _mkt = _pipeline_mod._mkt
 _pull_is_fresh = _pipeline_mod._pull_is_fresh
+_report_managed_clone_staleness = _pipeline_mod._report_managed_clone_staleness
 _resolve_session_max_turns = _pipeline_mod._resolve_session_max_turns
 _rulebook_lock_path = _pipeline_mod._rulebook_lock_path
 _rulebook_ttl_min = _pipeline_mod._rulebook_ttl_min
