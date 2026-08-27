@@ -124,14 +124,36 @@ PRODUCT_CAPTURE_ISSUE_RE = re.compile(
 # `src/docs/reports/product/priorities/hack.md` pass this exemption
 # merely by ENDING with the recognized suffix, exempting a real
 # deliverable write under `src/`. `n` is repo-root-relative by
-# construction (see `posixpath.normpath` above), so the real target
-# directory must start at position 0, not appear as an arbitrary suffix.
+# construction (see `posixpath.normpath` above) only when `file_path`
+# arrived relative — the real target directory must start at position 0,
+# not appear as an arbitrary suffix.
 PRODUCT_CAPTURE_PRIORITIES_DIR_RE = re.compile(
     r"^docs/reports/product/priorities/[^/]+\.md$"
     r"|^docs/issue-\d+/reports/product/priorities/[^/]+\.md$"
 )
+# issue #2637 (adversarial-review, aba56a87): the `^`-anchor above closes
+# the src/-rooted bypass but then never matches when `file_path` arrives
+# absolute — `n` is the raw absolute path in that case, not "docs/...".
+# Every sibling hook that does an isabs/relative split
+# (call-shape-guard.sh, accumulation-claim-guard.sh, record-claim-guard.sh)
+# treats an absolute `file_path` as ordinary input, so this shape really
+# arrives. Re-derive the cwd-relative form purely lexically (no realpath,
+# matching the git-root walk below) and match the anchored regex against
+# that instead of the raw absolute `n` — a src/-rooted absolute path still
+# normalizes to a `src/...`-prefixed relative form and stays denied; only
+# a path that is actually the recognized shard directory, relative to the
+# session's own cwd, is exempted. An absolute path outside cwd (relpath
+# escaping via `..`) or with no usable cwd falls back to matching `n`
+# unchanged, i.e. no exemption — never a new bypass, only a narrower miss.
+priorities_candidate = n
+_cwd_for_exemption = e.get("cwd")
+if (posixpath.isabs(n) and isinstance(_cwd_for_exemption, str)
+        and _cwd_for_exemption and posixpath.isabs(_cwd_for_exemption)):
+    _rel = posixpath.relpath(n, posixpath.normpath(_cwd_for_exemption))
+    if _rel != "." and not _rel.startswith(".."):
+        priorities_candidate = _rel
 if (n.endswith(EXEMPT_SUFFIXES) or PRODUCT_CAPTURE_ISSUE_RE.search(n)
-        or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(n)):
+        or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(priorities_candidate)):
     sys.exit(0)
 # issue #787 H1: the old src/tests?/docs-segment-only regex missed a flat
 # top-level package layout (no such segment at all). Widen to "everything
