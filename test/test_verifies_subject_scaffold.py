@@ -47,10 +47,10 @@ class ScaffoldStampsTheFieldUniversallyTest(unittest.TestCase):
         self.assertIn("verifies_subject: false", text)
 
     def test_named_legacy_roles_get_no_special_treatment(self):
-        # Same stamp, same default -- these two names are not privileged
-        # by the scaffold (only by spawn_on_pr.AUTO_SPAWN_ROLES's separate,
-        # documented spawn-target-selection concern, unrelated to this
-        # stamp).
+        # Same stamp, same default -- "execution-observation" carries no
+        # special meaning to the scaffold; it is retired even as a
+        # spawn-on-pr auto-spawn target name (issue #2628), unrelated to
+        # this stamp either way.
         p1 = spawn.write_record_skeleton(self._tmpdir.name, 4242, "execution-observation")
         p2 = spawn.write_record_skeleton(self._tmpdir.name, 4242, "some-other-skill-slug")
         self.assertEqual(p1.read_text(encoding="utf-8").count("verifies_subject: false"), 1)

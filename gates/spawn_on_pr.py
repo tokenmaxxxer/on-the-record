@@ -23,6 +23,7 @@ subject 만 대상으로 하고, 틱당 스폰 개수를 `SPAWN_CAP` 으로 캡�
 from __future__ import annotations
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -35,25 +36,32 @@ import closure_sweep  # noqa: E402
 import ci as _ci  # noqa: E402
 import state_paths  # noqa: E402
 
-# issue #2609: NOT the merge-gating identity axis anymore --
-# gates/merge_gate.py::required_verification_missing() now gates purely on
-# a self-declared, counted `verifies_subject` field (Option 2,
-# docs/issue-2593/reports/architecture-module-boundary-definition+
-# architecture-decomposition-strategy-386ff408.md) -- no kind/name matching
-# anywhere in the merge path. This tuple exists only so THIS automation's
-# own auto-spawn tick (missing_verification/spawn_missing_for_pr below)
-# knows which two of the retired ~44-entry role catalog's skills to invite when the
-# subject board hasn't landed a qualifying record yet -- a role-selection
-# choice, not an obligation check. Generalizing or removing named role
-# selection here is issue #2610's separate surface (the role catalog / the
-# role catalog's retirement) -- not absorbed into this issue.
-AUTO_SPAWN_ROLES = ("execution-observation", "conformance-review")
-
 # issue #2609: the actual obligation threshold -- how many independent
 # qualifying records (`verifies_subject: true`, author != subject's own
 # deliverable author) a subject needs before merge_gate.py allows its
 # merge. A count, not a vocabulary: it says how many, never which ones.
 REQUIRED_INDEPENDENT_VERIFICATIONS = 2
+
+# issue #2628: a fixed two-entry tuple of named observer roles used to
+# live here, matched by a kind-matching function that has since been
+# deleted. It was a byte-identical survivor of the tuple issue #2615
+# claimed removed, just
+# under a new constant name (found by the removal audit, #2626/#2627).
+# Operator ruling (2026-08-27): a capability that cannot be provided
+# without enumerating identities is dropped outright, not
+# renamed/relocated/sharded again. This automation's auto-spawn tick can
+# no longer decide WHICH named expertise to invite (that always required
+# a closed set of role names, and #2610 already retired the last catalog
+# that could have supplied one without hardcoding). What survives is the
+# count-based half issue #2609 already proved works as a property of the
+# subject: `verification_deficit()` below says only HOW MANY more
+# independent verifications a subject needs, never who.
+# `spawn_missing_for_pr()` invites that many *generic* verification
+# sessions (slug `independent-verification-<slot>`, no skill/expertise
+# identity attached) instead of two fixed named roles -- see that
+# function and `_VERIFICATION_SLOT_RE` for what replaced the
+# branch/roster exclusion the old tuple also drove.
+_VERIFICATION_SLOT_RE = re.compile(r"^independent-verification-\d+$")
 
 
 def verifying_record_count(subject_board: dict, subject_author: str | None = None) -> int:
@@ -66,7 +74,7 @@ def verifying_record_count(subject_board: dict, subject_author: str | None = Non
     used to decide this for `merge_gate.py::required_verification_missing`.
 
     `subject_author` (the subject's own deliverable-record `author:`) reuses
-    the existing self-verification guard `applicable_record_kinds()` already
+    the same self-verification guard the retired kind-matching function
     used (issue #2241 stage 5): a record authored by the deliverable's own
     author does not count toward the requirement. `subject_author=None`
     (e.g. local standalone call, no deliverable landed yet) skips the guard.
@@ -86,10 +94,21 @@ def verifying_record_count(subject_board: dict, subject_author: str | None = Non
 SPAWN_CAP = 4
 
 # issue #1476: park state store that stops re-spawning every tick while a
-# (subject, role) pair is waiting on human approval. Keys are
-# "<subject>/<role>"; values carry `blocked` (bool), `pr_number` (int,
-# informational only — see issue #2238 below), `parked` (bool), and
-# `attempts` (int, issue #2238 item 2).
+# subject's verification effort is waiting on human approval. Keys are
+# `subject` alone (issue #2628: no longer `"<subject>/<role>"` -- see
+# `verification_deficit()`/`_VERIFICATION_SLOT_RE` above for why per-slot
+# identity was retired: a hunt on this issue's own delivery reproduced a
+# defeated respawn ceiling when slot numbers were recomputed fresh each
+# tick from the current deficit, silently discarding a still-stuck slot's
+# attempt history whenever a lower-numbered sibling slot resolved first.
+# Tracking park/ceiling state at the subject level sidesteps that
+# entirely: a subject's cumulative auto-spawn attempt count only ever
+# grows, regardless of how its individual verification slots are
+# renumbered for branch-naming purposes); values carry `blocked` (bool),
+# `pr_number` (int, informational only — see issue #2238 below), `parked`
+# (bool), and `attempts` (int, issue #2238 item 2 -- now a running total
+# of verification sessions ever auto-spawned for the subject, not a
+# per-role count).
 #
 # issue #2238 (this file's should_park()/spawn_missing_for_pr() defect):
 # the original design treated an unchanged `pr_number` as the re-arm
@@ -104,9 +123,10 @@ SPAWN_CAP = 4
 # `gates/ci.py:_approved_roles_on_issue()` (approver allowlist, exact
 # `APPROVE issue-<n>/<role>` string match — a human posting an approval
 # comment), and a merge to main is handled upstream of this state
-# entirely — once a role's record lands, `missing_verification()` stops
-# reporting that (subject, role) pair as missing, so it never reaches
-# this park logic again regardless of park_state's contents.
+# entirely — once a subject's verification deficit reaches 0,
+# `missing_verification()` stops reporting that subject as missing, so
+# it never reaches this park logic again regardless of park_state's
+# contents.
 #
 # issue #2240: this is the orchestrator's cross-tick memory, not
 # target-repo state — anchored via state_paths, never `root` (the target
@@ -118,7 +138,7 @@ SPAWN_CAP = 4
 PARK_STATE_FILENAME = "spawn_on_pr_parked.json"
 
 # issue #2238 item 2: a second, independent backstop. Even with a correct
-# park rule (item 1), N respawns of the same (subject, role) pair with no
+# park rule (item 1), N respawns accumulated for the same subject with no
 # intervening merge must stop and say so loudly — not loop forever, and
 # not silently no-op if some future bug defeats the park rule again. A
 # small constant is enough; it is threaded through spawn_missing_for_pr()
@@ -137,49 +157,21 @@ MAX_RESPAWN_ATTEMPTS = 4
 MERGED_SEEN_STATE_FILENAME = "spawn_on_pr_merged_seen.json"
 
 
-def applicable_record_kinds(subject_board: dict, kinds: tuple[str, ...] = AUTO_SPAWN_ROLES,
-                             subject_author: str | None = None) -> list[str]:
-    """`subject_board`(`board(root)[subject]`, `{filename stem: frontmatter}`)
-    에서 아직 record-kind 가 없는 `kinds` 서브셋을 `kinds` 가 나열한 순서
-    그대로 돌려준다(issue #2241 stage 5 — role 이름이 아니라 각 항목의
-    `kind:` frontmatter 값으로 매칭한다).
-
-    한 항목의 `kind:` 값이 `kinds` 안에 있으면 그걸로 매칭한다. 그렇지
-    않으면(필드 자체가 없거나 — stage 1 이전 레코드, additive-only 라
-    소급 적용 안 됨 — 또는 필드는 있지만 stage 1 이전부터 산발적으로 쓰인
-    비정형 값, 예: `kind: record`, `docs/specs/record-kind-vocabulary.md`
-    의 닫힌 어휘 밖) 파일명 stem 이 `kinds` 안에 있으면 그것으로
-    대신 매칭한다(legacy fallback, `board-gate.sh` R5 의 `author:`-부재
-    fallback 과 같은 모양) — `kind:` 매칭과 파일명 매칭은 OR 관계라,
-    둘 중 하나만 맞아도 충족으로 친다. `kind:` 값이 무엇이든 파일명이
-    `kinds` 안에 있으면 항상 매칭되므로, stage 1 이전/이후 어느 subject 도
-    오늘과 같은(또는 더 넓은, kind: 필드만 새로 붙은 새 파일명도 잡는)
-    목록을 돌려준다.
-
-    `subject_author` 를 주면(subject 의 `implementation` 레코드
-    `author:` 값) 자기 자신을 검증하는 셀프-verification 을 막는다 —
-    항목의 `author:` 가 `subject_author` 와 같으면 그 kind 는 "충족됨"에
-    안 들어간다(issue #2241 stage 5 Constraints: record-kind 만으로는
-    부족하고 author-identity 도 달라야 한다). `subject_author` 가 없으면
-    (예: 로컬 단독 호출) 이 검사를 건너뛴다. 순수 함수, I/O 없음.
-
-    issue #2609: 더 이상 머지-게이팅 의무(merge_gate.py::
-    required_verification_missing)를 뒷받침하지 않는다 — 그건 이제
-    `verifying_record_count()`(자기-선언 `verifies_subject` 필드 카운트,
-    kind 무관)로 완전히 분리됐다. 이 함수는 `missing_verification()`/
-    `spawn_missing_for_pr()`의 auto-spawn 틱 전용으로 남는다 — kinds 인자
-    기본값(`AUTO_SPAWN_ROLES`)이 어떤 두 스킬을 자동 초대할지 결정할 뿐,
-    머지를 막을지 여부와는 무관하다."""
-    satisfied = set()
-    for name, fm in subject_board.items():
-        kind_field = fm.get("kind")
-        matched = kind_field if kind_field in kinds else (name if name in kinds else None)
-        if matched is None:
-            continue
-        if subject_author is not None and fm.get("author") == subject_author:
-            continue
-        satisfied.add(matched)
-    return [k for k in kinds if k not in satisfied]
+def verification_deficit(subject_board: dict, subject_author: str | None = None) -> int:
+    """issue #2628: replaces the retired kind-matching function (which
+    used to match a fixed two-role tuple against `kind:`/filename) as the
+    auto-spawn tick's own "does this subject still need verification"
+    signal. Mirrors `gates/merge_gate.py::required_verification_missing()`'s
+    count-only branch exactly (issue #2609): `REQUIRED_INDEPENDENT_
+    VERIFICATIONS` minus `verifying_record_count()` (self-declared
+    `verifies_subject: true`, `author:` != `subject_author`), floored at
+    0. No `kind:` value, filename, or role/skill name participates -- the
+    auto-spawn tick and the merge gate now agree on the same
+    property-of-the-subject definition of "verified", instead of the two
+    using different mechanisms (kind-matching here, counting there) the
+    way they did before this issue. Pure function, no I/O."""
+    return max(0, REQUIRED_INDEPENDENT_VERIFICATIONS -
+               verifying_record_count(subject_board, subject_author))
 
 
 def subject_deliverable_record(subject_board: dict) -> tuple[str | None, dict]:
@@ -188,8 +180,8 @@ def subject_deliverable_record(subject_board: dict) -> tuple[str | None, dict]:
     `subject_board.get("implementation", {})` lookup silently returns an
     empty dict once the deliverable's filename is a slug (#2555), so it
     can never distinguish "no deliverable landed yet" from "deliverable
-    landed under a different name". This resolves it the same way
-    `applicable_record_kinds()` already resolves the two PR-triggered
+    landed under a different name". This resolves it the same way the
+    retired kind-matching function used to resolve the two PR-triggered
     kinds (issue #2241 stage 5): the record whose `kind:` frontmatter is
     `implementation`, or (legacy fallback — a record written before
     #2555 never carried a `kind:` line at all) whose filename stem is
@@ -210,10 +202,10 @@ def subject_deliverable_branch(subject: str, pr_index: dict[str, dict] | None) -
     (`closure_sweep._pr_index_all()`'s branch -> `{number, state, ...}`
     map) — issue #2575's lease/branch axis replacement for the literal
     `f"{subject}/implementation"`: the `{subject}/<slug>` branch among
-    this subject's indexed PRs whose slug is not one of the two fixed
-    auto-spawned observer roles (`AUTO_SPAWN_ROLES`, issue #2609 --
-    a role-selection list, not the merge-gating axis; see that constant's
-    own comment). Used where `subject_deliverable_record`
+    this subject's indexed PRs whose slug does not look like one of this
+    file's own generic verification slots (`_VERIFICATION_SLOT_RE`,
+    issue #2628 -- a structural pattern, not a role-name enumeration;
+    see that regex's own comment). Used where `subject_deliverable_record`
     cannot help — the deliverable PR may still be open and unmerged, so
     `board()` (landed records only) has nothing to resolve against yet,
     but the PR index already does.
@@ -228,7 +220,7 @@ def subject_deliverable_branch(subject: str, pr_index: dict[str, dict] | None) -
         return None
     prefix = f"{subject}/"
     candidates = [b for b in pr_index
-                  if b.startswith(prefix) and b[len(prefix):] not in AUTO_SPAWN_ROLES]
+                  if b.startswith(prefix) and not _VERIFICATION_SLOT_RE.match(b[len(prefix):])]
     return candidates[0] if len(candidates) == 1 else None
 
 
@@ -292,20 +284,24 @@ def _implementation_session_active(root: Path, subject: str) -> bool:
 
     issue #2575: `f"{subject}/implementation"` 이라는 고정 로스터 키는
     슬러그 신원(#2555) 아래서는 어느 세션의 키와도 안 맞는다 — 이
-    subject 소속(`f"{subject}/"` 접두어) 로스터 엔트리 중, 고정된 두
-    자동-스폰 관찰자 role(`AUTO_SPAWN_ROLES`, issue #2609 — 머지-게이팅
-    축이 아니라 role-선택 목록)이 아닌 것을 찾는다: 이 두 관찰자는 여전히
-    리터럴 role 이름으로 스폰되므로(`spawn_missing_for_pr` 참고) 배제로
-    걸러도 안전하고, deliverable 세션 하나가 subject 당 하나라는
-    불변식(#1697이 막는 stale-base 사고의 전제)을 그대로 쓴다 — subject 를
-    slug 로 매핑하는 새 표를 만들지 않는다. 로스터에 그런 항목이 없거나
-    pid 가 이미 죽었으면 False — 오래된/고아 로스터 항목으로 영원히
-    스폰을 막지 않는다(`spawn._alive()`가 실제 프로세스 생존을 본다)."""
+    subject 소속(`f"{subject}/"` 접두어) 로스터 엔트리를 훑는다.
+
+    issue #2628: 이전에는 고정된 두 자동-스폰 관찰자 role 이름을 여기서
+    배제했다(리터럴 role 이름으로 스폰됐으므로). 그 두 이름이 삭제된
+    지금은 이 자동화가 스폰하는 옵저버 브랜치가 애초에 그 리터럴
+    이름으로 나타나지 않으므로(대신 `_VERIFICATION_SLOT_RE` 모양의
+    generic slot 이름) 더 배제할 것이 없다 — subject 접두어 아래 살아있는
+    로스터 엔트리가 있으면(옵저버든 deliverable 이든) 그대로 "아직 뭔가
+    돈다"로 본다. deliverable 세션 하나가 subject 당 하나라는 불변식
+    (#1697이 막는 stale-base 사고의 전제)은 여전히 유지되고, 우연히
+    사람이 수동으로 동시에 verification slot 을 돌리는 드문 경우에도
+    이 함수가 한 틱 더 보수적으로 미루는 것뿐이라 안전한 방향의 오차다.
+    로스터에 그런 항목이 없거나 pid 가 이미 죽었으면 False — 오래된/고아
+    로스터 항목으로 영원히 스폰을 막지 않는다(`spawn._alive()`가 실제
+    프로세스 생존을 본다)."""
     prefix = f"{subject}/"
     for key, entry in spawn._roster_load().items():
         if not key.startswith(prefix):
-            continue
-        if key[len(prefix):] in AUTO_SPAWN_ROLES:
             continue
         pid = entry.get("pid")
         if spawn._alive(pid if isinstance(pid, int) else 0):
@@ -335,13 +331,15 @@ def resolve_live_base(root: Path) -> str | None:
 
 def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
                           pr_index: dict[str, dict] | None = None
-                          ) -> dict[str, list[str]]:
-    """보드 전체를 훑어 `{subject: [빠진 role, ...]}` 을 만든다. 대상
-    조건: PR 이 실제로 열려있거나 머지되어 있고(트리거는 "PR 생성"이지
-    "어떤 브랜치에든 커밋이 존재함"이 아니므로), AND 그 subject 의
-    이슈가 아직 OPEN 이어야 한다(issue #1360) — 닫힌 이슈의 검증 부채는
-    이 자동 경로의 스코프 밖이다(`backfill_closed()` 가 opt-in 으로
-    다룬다).
+                          ) -> dict[str, int]:
+    """보드 전체를 훑어 `{subject: 부족한 독립 verification 개수}` 를
+    만든다(issue #2628: 이전에는 `{subject: [빠진 role, ...]}` 이었다 —
+    role 이름 목록 대신 카운트 하나, `verification_deficit()` 가 매기는
+    property-of-the-subject 값). 대상 조건: PR 이 실제로 열려있거나
+    머지되어 있고(트리거는 "PR 생성"이지 "어떤 브랜치에든 커밋이
+    존재함"이 아니므로), AND 그 subject 의 이슈가 아직 OPEN 이어야 한다
+    (issue #1360) — 닫힌 이슈의 검증 부채는 이 자동 경로의 스코프
+    밖이다(`backfill_closed()` 가 opt-in 으로 다룬다).
 
     `issue_states` 는 이슈번호 -> state 사전(선택) — 주어지지 않으면
     `closure_sweep.issue_state_index_all()` 로 한 번에 가져온다(호출자가
@@ -350,7 +348,7 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     안 주면 `closure_sweep._pr_index_all()` 로 한 번에 가져온다(이슈
     #1498 요구 5: subject 당 `gh pr list --head` 대신 벌크 인덱스 한 번 +
     로컬 조인)."""
-    out: dict[str, list[str]] = {}
+    out: dict[str, int] = {}
     if issue_states is None:
         issue_states, ok = closure_sweep.issue_state_index_all(root)
         if not ok:
@@ -363,8 +361,8 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     for subject, subject_board in b.items():
         _slug, subject_fm = subject_deliverable_record(subject_board)
         subject_author = subject_fm.get("author")
-        missing = applicable_record_kinds(subject_board, subject_author=subject_author)
-        if not missing:
+        deficit = verification_deficit(subject_board, subject_author=subject_author)
+        if deficit <= 0:
             continue
         if merged_seen is None:
             merged_seen = load_merged_seen(root)
@@ -386,7 +384,7 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
             # 마커: 처음 보는 subject 만 개별 줄로 찍고, 이후는 개수로 접는다.
             if spawn._watchdog_note_unmappable_subject_branch(root, subject):
                 print(f"[spawn-on-pr] {subject}: deliverable 브랜치를 pr_index 에서 "
-                      f"찾지 못했다 — 이번 틱은 건너뜀 (missing={missing})")
+                      f"찾지 못했다 — 이번 틱은 건너뜀 (deficit={deficit})")
             else:
                 unmappable_branch_already_reported += 1
             continue
@@ -402,20 +400,20 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
             _save_merged_seen(root, merged_seen)
             spawn.ledger_write({
                 "event": "spawn_on_pr_skip_merged",
-                "subject": subject, "missing": missing,
+                "subject": subject, "deficit": deficit,
             })
             print(f"[spawn-on-pr] {subject}: subject PR 이 이미 merged — "
-                  f"옵저버 스폰 건너뜀 (missing={missing})")
+                  f"옵저버 스폰 건너뜀 (deficit={deficit})")
             continue
         if _implementation_session_active(root, subject):
             spawn.ledger_write({
                 "event": "spawn_on_pr_skip_active_implementation",
-                "subject": subject, "missing": missing,
+                "subject": subject, "deficit": deficit,
             })
             print(f"[spawn-on-pr] {subject}: implementation 세션이 아직 "
-                  f"RUNNING — 옵저버 스폰 미룸 (missing={missing})")
+                  f"RUNNING — 옵저버 스폰 미룸 (deficit={deficit})")
             continue
-        out[subject] = missing
+        out[subject] = deficit
     if unmappable_branch_already_reported:
         print(f"[spawn-on-pr] {unmappable_branch_already_reported}건 이전에 보고된 "
               "매핑-불가 subject — 계속 무시 (반복 안 찍음)")
@@ -471,63 +469,72 @@ def _save_merged_seen(root: Path, seen: set[str]) -> None:
     p.write_text(json.dumps(sorted(seen)), encoding="utf-8")
 
 
+# issue #2628: the single fixed, generic re-arm target every subject's
+# verification park entry shares -- not a role/skill identity, just the
+# literal string a human types to re-arm a stuck subject's auto-spawn:
+# `APPROVE issue-<n>/independent-verification`. One constant string, not
+# a roster: every subject uses this exact same value, regardless of how
+# many verification slots it needs or what number they end up numbered.
+VERIFICATION_APPROVAL_TARGET = "independent-verification"
+
+
 def is_approval_blocked(root: Path, issue: int, role: str) -> bool:
     """구조화 신호: `gates/ci.py:_approved_roles_on_issue()`(승인자
     allowlist 계정의 `APPROVE issue-<n>/<role>` 코멘트, 문자열 완전일치)
-    에 `role` 이 없으면 아직 승인-대기(blocked)다."""
+    에 `role` 이 없으면 아직 승인-대기(blocked)다. issue #2628: 이 자동화의
+    호출부는 항상 `role=VERIFICATION_APPROVAL_TARGET` 을 넘긴다(subject 별
+    park 상태가 subject 하나에 대해 딱 하나이므로) — 함수 자신은 여전히
+    임의의 `role` 문자열을 받는 범용 술어다."""
     return role not in _ci._approved_roles_on_issue(root, issue)
 
 
 def should_park(prior: dict | None, blocked: bool) -> bool:
-    """Park decision: pure function. Park iff this (subject, role) pair
-    was already identified as blocked on a prior tick (`prior` exists and
-    `prior["blocked"]` is True) AND it is still blocked this tick.
-    `prior is None` (first-ever candidate) is always False — a role that
-    has never been tried is never mistaken for a retry.
+    """Park decision: pure function. Park iff this subject's verification
+    effort was already identified as blocked on a prior tick (`prior`
+    exists and `prior["blocked"]` is True) AND it is still blocked this
+    tick. `prior is None` (first-ever candidate) is always False — a
+    subject that has never been tried is never mistaken for a retry.
 
     issue #2238: `pr_number` deliberately does NOT appear in this
     signature or decision anymore. The previous version parked only when
     `prior.get("pr_number") == pr_number`, treating a PR-number diff as
     "a human pushed a new commit, so retry." That is indistinguishable
     from "this mechanism's own respawn opened a fresh PR for the same
-    still-blocked role" — the exact failure mode that let `spawn-on-pr`
+    still-blocked subject" — the exact failure mode that let `spawn-on-pr`
     respawn issue-2208's observers 9x each. The only thing that may
     legitimately clear `blocked` now is a real external signal
     (`is_approval_blocked()`, an approver-allowlist comment) — the caller
-    computes `blocked` from that signal every time this pair is
+    computes `blocked` from that signal every time this subject is
     rechecked, never from a bare identity comparison on `pr_number`."""
     if not blocked or prior is None:
         return False
     return prior.get("blocked") is True
 
 
-def parked_report(root: Path) -> list[tuple[str, str]]:
-    """현재 park 상태에서 `blocked=True` 인 `(subject, role)` 쌍을
-    돌려준다 — watchdog 출력이 park 된 항목을 waiting-for-human 으로
-    계속 보여주는 데 쓴다(요구 3, watch-coverage 불가침)."""
-    out = []
-    for key, entry in sorted(load_park_state(root).items()):
-        if entry.get("parked"):
-            subject, _, role = key.partition("/")
-            out.append((subject, role))
-    return out
+def parked_report(root: Path) -> list[str]:
+    """현재 park 상태에서 `blocked=True` 인 subject 목록을 돌려준다 —
+    watchdog 출력이 park 된 항목을 waiting-for-human 으로 계속 보여주는
+    데 쓴다(요구 3, watch-coverage 불가침). issue #2628: park state 가
+    subject 단위로 바뀌면서 `(subject, role)` 쌍 대신 subject 하나만
+    돌려준다."""
+    return sorted(subject for subject, entry in load_park_state(root).items()
+                  if entry.get("parked"))
 
 
-def unpark(root: Path, subject: str, role: str) -> bool:
+def unpark(root: Path, subject: str) -> bool:
     """명시적 unpark(요구 2의 세 번째 재무장 트리거) — park 항목을
-    지운다. 지울 게 있었으면 True."""
+    지운다. 지울 게 있었으면 True. issue #2628: park state 가 subject
+    단위이므로 더 이상 `role` 을 받지 않는다."""
     state = load_park_state(root)
-    key = f"{subject}/{role}"
-    if key in state:
-        del state[key]
+    if subject in state:
+        del state[subject]
         _save_park_state(root, state)
         return True
     return False
 
 
-def clear_ceiling(root: Path, subject: str | None = None, role: str | None = None
-                   ) -> list[str]:
-    """issue #2607: CEILING HIT 가 parked 시킨 쌍의 ceiling 상태
+def clear_ceiling(root: Path, subject: str | None = None) -> list[str]:
+    """issue #2607: CEILING HIT 가 parked 시킨 subject 의 ceiling 상태
     (`ceiling_hit` 플래그 + `attempts` 카운터)만 지운다 — `blocked`/
     `parked` 는 손대지 않는다, 그래야 다음 틱에도 여전히 진짜 승인 신호
     (`is_approval_blocked()`)를 통해서만 재개된다. 운영자 결정: 카운터는
@@ -535,15 +542,17 @@ def clear_ceiling(root: Path, subject: str | None = None, role: str | None = Non
     이건 그 결정을 지키면서 사람이 명시적으로 실행하는 유일한 해제
     경로다.
 
-    `subject`/`role` 을 둘 다 주면 그 쌍만 대상으로 한다(운영자가 이름을
-    지정한 경우). 안 주면 현재 `ceiling_hit: True` 로 보고된 모든 쌍을
-    대상으로 한다("currently reported" — CEILING HIT 줄이 방금 찍은
-    바로 그 목록). 어느 경우든 그 쌍이 실제로 `ceiling_hit` 상태가
-    아니면 건드리지 않는다 — 그 밖의 park 항목(승인 대기 중인 쌍 등)은
-    범위 밖이다. 지워진 키 목록을 돌려준다(빈 목록 = 지울 게 없었음)."""
+    issue #2628: park state 가 subject 단위로 바뀌면서 이 함수도 `role`
+    을 더 이상 받지 않는다 — `subject` 하나만 주면 그 subject 만
+    대상으로 한다. 안 주면 현재 `ceiling_hit: True` 로 보고된 모든
+    subject 를 대상으로 한다("currently reported" — CEILING HIT 줄이
+    방금 찍은 바로 그 목록). 어느 경우든 그 subject 가 실제로
+    `ceiling_hit` 상태가 아니면 건드리지 않는다 — 그 밖의 park 항목
+    (승인 대기 중인 subject 등)은 범위 밖이다. 지워진 subject 목록을
+    돌려준다(빈 목록 = 지울 게 없었음)."""
     state = load_park_state(root)
-    if subject is not None and role is not None:
-        keys = [f"{subject}/{role}"]
+    if subject is not None:
+        keys = [subject]
     else:
         keys = [key for key, entry in state.items() if entry.get("ceiling_hit")]
     cleared = []
@@ -565,36 +574,52 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
                           pr_index: dict | None = None,
                           max_respawn_attempts: int = MAX_RESPAWN_ATTEMPTS
                           ) -> list[tuple[str, str]]:
-    """`missing_verification()` 이 찾은 `(subject, role)` 쌍 중 최대
-    `spawn_cap` 개를 등록+스폰한다. 초과분은 스폰하지 않고, 몇 건이
-    미뤄졌는지 한 줄 찍는다(issue #1360 — no silent cap). `dry_run=True`
-    면 등록/스폰 없이 (캡 적용된) 쌍만 돌려준다(테스트용, 실제 세션을
-    띄우지 않는다).
+    """`missing_verification()` 이 찾은 subject 들의 부족분(`deficit`)을
+    최대 `spawn_cap` 개(개별 세션 기준)까지 등록+스폰한다. issue #2628:
+    각 세션은 role 이름이 아니라 generic 슬롯 이름
+    (`independent-verification-<n>`)을 받는다 — 어느 특정 전문성도
+    이름 붙이지 않는다. 초과분은 스폰하지 않고, 몇 건이 미뤄졌는지 한 줄
+    찍는다(issue #1360 — no silent cap). `dry_run=True` 면 등록/스폰
+    없이 (캡 적용된) `(subject, role)` 쌍만 돌려준다(테스트용, 실제
+    세션을 띄우지 않는다).
 
-    issue #1476/#2238: for every candidate pair, if a prior park record
-    (`load_park_state`) says it was already `blocked`, this recomputes
-    `blocked` via `is_approval_blocked()` (a real external signal — an
-    approver-allowlist comment) and parks again via `should_park()` if it
-    is still blocked. issue #2238: unlike the original #1476 version,
-    this recheck no longer requires the tick's `pr_number` to match the
-    prior one — a PR number changing is not itself an external signal
-    (see should_park()'s docstring); it is exactly what a self-created
-    respawn would also produce, so gating the recheck on it defeated the
-    park guard entirely. `is_approval_blocked()` (a `gh` call) still only
-    fires for pairs that were already `blocked` on a prior tick — a
-    candidate seen for the first time never touches `gh` here and just
-    spawns (unchanged from before).
+    park/ceiling 상태는 subject 단위다(issue #2628 -- 이전에는
+    `(subject, role)` 쌍 단위였다). 이유: 슬롯 번호(`n`)는 이 subject의
+    누적 스폰 횟수(`attempts`)에서 매 틱 새로 매겨지므로 -- 즉 매
+    틱마다 절대 재사용되지 않고 항상 증가만 한다 -- 매 틱 신선하게 다시
+    계산되는 값이라 park/ceiling 신원으로 쓸 수 없다(이 신원으로 썼다면:
+    슬롯 번호가 부족분에서 직접 나온 위치 인덱스였을 때, 한 subject의
+    여러 슬롯 중 낮은 번호가 먼저 충족되면 아직 막혀있는 높은 번호
+    슬롯의 park/ceiling 이력이 다음 틱에 조용히 새 번호로 갈아치워져
+    사라진다 -- 이 이슈 자신의 인도물에 대한 warrant hunt 로 재현된
+    결함, 2026-08-27). subject 단위 카운터는 그 슬롯들이 어떻게
+    재번호매김되든 무관하게 항상 단조 증가한다.
+
+    issue #1476/#2238: for every candidate subject, if a prior park
+    record (`load_park_state`) says it was already `blocked`, this
+    recomputes `blocked` via `is_approval_blocked()` (a real external
+    signal — an approver-allowlist comment on
+    `VERIFICATION_APPROVAL_TARGET`) and parks again via `should_park()`
+    if it is still blocked. issue #2238: unlike the original #1476
+    version, this recheck no longer requires the tick's `pr_number` to
+    match the prior one — a PR number changing is not itself an external
+    signal (see should_park()'s docstring); it is exactly what a
+    self-created respawn would also produce, so gating the recheck on it
+    defeated the park guard entirely. `is_approval_blocked()` (a `gh`
+    call) still only fires for subjects that were already `blocked` on a
+    prior tick — a candidate seen for the first time never touches `gh`
+    here and just spawns (unchanged from before).
 
     issue #2238 item 2: independently of the park/re-arm decision above,
     every candidate about to be spawned is also checked against
-    `max_respawn_attempts` — a hard ceiling on how many times the same
-    (subject, role) pair may be spawned with no intervening merge, even
-    if some future bug defeats the park rule again. Hitting the ceiling
-    does not silently drop the pair: it is parked with `ceiling_hit:
-    True` and reported loudly (`print` + `spawn.ledger_write`), the same
-    silent-failure concern that motivated auditing `should_park()` in the
-    first place — a guard that can fail without saying so is as bad as no
-    guard.
+    `max_respawn_attempts` — a hard ceiling on how many verification
+    sessions the same subject may accumulate with no intervening merge,
+    even if some future bug defeats the park rule again. Hitting the
+    ceiling does not silently drop the subject: it is parked with
+    `ceiling_hit: True` and reported loudly (`print` + `spawn.ledger_
+    write`), the same silent-failure concern that motivated auditing
+    `should_park()` in the first place — a guard that can fail without
+    saying so is as bad as no guard.
 
     issue #1498 요구 4: 그 재확인 자체도 매 틱 부르지 않는다 —
     `closure_sweep.recheck_backoff()`(같은 `runs/gh_quota_backoff.json`,
@@ -618,49 +643,48 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     if pr_index is None:
         pr_index, _ = closure_sweep._pr_index_all(root)
 
-    all_pairs: list[tuple[str, str, int | None]] = []
-    for subject, roles in missing_verification(
+    candidates: list[tuple[str, int, int | None]] = []
+    for subject, deficit in missing_verification(
             root, issue_states=issue_states, pr_index=pr_index).items():
         # issue #2575: subject 소속 PR 은 이제 slug 로 이름 붙으므로,
         # 브랜치 이름을 pr_index 에서 유도해야 한다(subject_deliverable_
-        # branch — lease/branch 축, AUTO_SPAWN_ROLES 제외, issue #2609).
+        # branch — lease/branch 축, generic verification slot 제외,
+        # issue #2609/#2628).
         branch = subject_deliverable_branch(subject, pr_index)
         pr_number = _pr_number_for_branch(root, branch, pr_index) if branch else None
-        for role in roles:
-            all_pairs.append((subject, role, pr_number))
+        candidates.append((subject, deficit, pr_number))
 
     park_state = load_park_state(root)
-    to_spawn: list[tuple[str, str, int | None, int]] = []
-    parked_now: list[tuple[str, str]] = []
-    ceiling_hit: list[tuple[str, str, int]] = []
-    for subject, role, pr_number in all_pairs:
+    to_spawn: list[tuple[str, int, int | None, int, int]] = []  # subject, deficit, pr_number, issue, attempts
+    parked_now: list[str] = []
+    ceiling_hit: list[tuple[str, int]] = []
+    for subject, deficit, pr_number in candidates:
         issue = int(subject.split("-", 1)[1])
-        key = f"{subject}/{role}"
-        prior = park_state.get(key)
+        prior = park_state.get(subject)
         if prior is not None and prior.get("blocked"):
-            if not closure_sweep.recheck_backoff(backoff_state, key, False):
+            if not closure_sweep.recheck_backoff(backoff_state, subject, False):
                 # Not this tick's turn to recheck — stay parked, no gh call.
-                parked_now.append((subject, role))
-                park_state[key] = {**prior, "pr_number": pr_number, "parked": True}
+                parked_now.append(subject)
+                park_state[subject] = {**prior, "pr_number": pr_number, "parked": True}
                 continue
-            blocked = is_approval_blocked(root, issue, role)
+            blocked = is_approval_blocked(root, issue, VERIFICATION_APPROVAL_TARGET)
             if not blocked:
-                closure_sweep.recheck_backoff(backoff_state, key, True)
+                closure_sweep.recheck_backoff(backoff_state, subject, True)
             if should_park(prior, blocked):
-                parked_now.append((subject, role))
-                park_state[key] = {**prior, "blocked": True, "pr_number": pr_number,
-                                    "parked": True}
+                parked_now.append(subject)
+                park_state[subject] = {**prior, "blocked": True, "pr_number": pr_number,
+                                        "parked": True}
                 continue
             # blocked cleared by a real external signal (an approval
             # comment) — fall through to spawn, still subject to the
             # respawn ceiling check below (issue #2238 item 2).
         attempts = (prior or {}).get("attempts", 0)
         if attempts >= max_respawn_attempts:
-            ceiling_hit.append((subject, role, attempts))
-            park_state[key] = {**(prior or {}), "blocked": True, "pr_number": pr_number,
-                                "parked": True, "ceiling_hit": True, "attempts": attempts}
+            ceiling_hit.append((subject, attempts))
+            park_state[subject] = {**(prior or {}), "blocked": True, "pr_number": pr_number,
+                                    "parked": True, "ceiling_hit": True, "attempts": attempts}
             continue
-        to_spawn.append((subject, role, pr_number, issue))
+        to_spawn.append((subject, deficit, pr_number, issue, attempts))
 
     if owns_backoff_state:
         closure_sweep.save_backoff_state(root, backoff_state)
@@ -670,21 +694,33 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
               f"(승인-대기 상태 변화 없음): {parked_now}")
 
     if ceiling_hit:
-        for subject, role, attempts in ceiling_hit:
+        for subject, attempts in ceiling_hit:
             spawn.ledger_write({
                 "event": "spawn_on_pr_respawn_ceiling_hit",
-                "subject": subject, "role": role, "attempts": attempts,
+                "subject": subject, "attempts": attempts,
                 "max_respawn_attempts": max_respawn_attempts,
             })
         print(f"[spawn-on-pr] CEILING HIT: {len(ceiling_hit)}건이 최대 재시도 "
               f"횟수({max_respawn_attempts})에 도달해 자동 스폰을 멈춘다 — "
               f"사람 개입 필요 (park_state 에 ceiling_hit=True 로 기록됨).")
         print(f"[spawn-on-pr]   해제: `python3 gates/spawn_on_pr.py clear-ceiling` "
-              f"(특정 쌍만 지우려면 `--subject <subject> --role <role>` 추가)")
-        print(f"[spawn-on-pr]   대상: {[(s, r, a) for s, r, a in ceiling_hit]}")
+              f"(특정 subject 만 지우려면 `--subject <subject>` 추가)")
+        print(f"[spawn-on-pr]   대상: {ceiling_hit}")
 
-    pairs3 = to_spawn[:spawn_cap]
-    deferred = len(to_spawn) - len(pairs3)
+    # issue #2628: 슬롯 번호는 이 subject 의 누적 attempts 에서 이어서
+    # 매긴다 -- 부족분(deficit) 에서 매 틱 새로 1 부터 매기지 않는다.
+    # 그래야 아직 못 채운 슬롯의 park/ceiling 이력이 형제 슬롯의 충족
+    # 여부와 무관하게 안정적으로 이어진다.
+    pending: list[tuple[str, str, int | None, int]] = []
+    subject_meta: dict[str, tuple[int | None, int]] = {}  # subject -> (pr_number, attempts_before_this_tick)
+    for subject, deficit, pr_number, issue, attempts in to_spawn:
+        subject_meta[subject] = (pr_number, attempts)
+        for i in range(deficit):
+            role = f"independent-verification-{attempts + i + 1}"
+            pending.append((subject, role, pr_number, issue))
+
+    pairs3 = pending[:spawn_cap]
+    deferred = len(pending) - len(pairs3)
     if deferred > 0:
         print(f"[spawn-on-pr] cap={spawn_cap} 초과로 {deferred}건 미룸 "
               f"(다음 틱 또는 backfill_closed() 로 처리)")
@@ -702,9 +738,18 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         # 워크스페이스 clone 이어도 스폰 시점 main 을 보게 된다.
         live_base_sha = resolve_live_base(root)
         print(f"[spawn-on-pr] live base sha={live_base_sha or '조회 실패(fail-open)'}")
+    spawned_counts: dict[str, int] = {}
     for subject, role, pr_number, issue in pairs3:
-        task = (f"이슈 #{issue}: {role} — {subject}/implementation 브랜치에 랜딩된 "
-                f"커밋에 대해 아직 기록이 없다. PR 생성 시 자동 스폰됨 (spawn_on_pr.py).")
+        # issue #2628: 어느 특정 전문성/스킬도 이름 붙이지 않는다 -- 이
+        # subject 의 deliverable PR 에 독립 verification 기록
+        # (verifies_subject: true) 이 부족하다는 사실과 이 subject 에
+        # 필요한 총 개수만 전달한다. 실제로 무엇을 검증할지는 세션
+        # 자신의 스킬 매칭이 정한다.
+        task = (f"이슈 #{issue}: {subject}/implementation 브랜치에 랜딩된 커밋에 "
+                f"대해 독립 verification 기록이 아직 부족하다 (이 subject 에 "
+                f"필요한 총 개수: {REQUIRED_INDEPENDENT_VERIFICATIONS}, 이 세션의 "
+                f"슬롯: {role}). PR 을 읽고 감사한 뒤 record 의 verifies_subject 를 "
+                f"true 로 남겨라. PR 생성 시 자동 스폰됨 (spawn_on_pr.py).")
         spawn.roster_register(
             f"issue-{issue}/{role}",
             {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
@@ -718,33 +763,35 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         # 걸려 있었다).
         spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True,
                          single_phase=True)
-        key = f"{subject}/{role}"
-        prior_attempts = park_state.get(key, {}).get("attempts", 0)
-        park_state[key] = {"blocked": True, "pr_number": pr_number, "parked": False,
-                            "attempts": prior_attempts + 1}
+        spawned_counts[subject] = spawned_counts.get(subject, 0) + 1
+    for subject, spawned_here in spawned_counts.items():
+        pr_number, attempts_before = subject_meta[subject]
+        park_state[subject] = {"blocked": True, "pr_number": pr_number, "parked": False,
+                                "attempts": attempts_before + spawned_here}
     _save_park_state(root, park_state)
     return pairs
 
 
 def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None,
                                   pr_index: dict[str, dict] | None = None
-                                  ) -> dict[str, list[str]]:
-    """`missing_verification()` 의 거울 — PR 이 있고 기록이 빠진 subject
-    중 이슈가 CLOSED 인 것만 돌려준다(issue #1360 req 3, opt-in
-    backfill 전용). `issue_states` 가 없거나(gh 실패) 이슈가 사전에
-    없으면(조회 불가) 대상에서 제외한다 — 상태를 모르는 subject 를
-    "닫혔다"고 넘겨짚지 않는다. `pr_index` 는 `missing_verification()` 과
-    같은 벌크 인덱스 재사용(이슈 #1498 요구 5) — 안 주면 이 함수가 직접
-    가져온다."""
-    out: dict[str, list[str]] = {}
+                                  ) -> dict[str, int]:
+    """`missing_verification()` 의 거울 — PR 이 있고 verification 기록이
+    부족한 subject 중 이슈가 CLOSED 인 것만 돌려준다(issue #1360 req 3,
+    opt-in backfill 전용). issue #2628: 값은 role 이름 목록이 아니라
+    부족한 개수(`verification_deficit()`). `issue_states` 가 없거나(gh
+    실패) 이슈가 사전에 없으면(조회 불가) 대상에서 제외한다 — 상태를
+    모르는 subject 를 "닫혔다"고 넘겨짚지 않는다. `pr_index` 는
+    `missing_verification()` 과 같은 벌크 인덱스 재사용(이슈 #1498 요구
+    5) — 안 주면 이 함수가 직접 가져온다."""
+    out: dict[str, int] = {}
     if pr_index is None:
         pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
     for subject, subject_board in b.items():
         _slug, subject_fm = subject_deliverable_record(subject_board)
         subject_author = subject_fm.get("author")
-        missing = applicable_record_kinds(subject_board, subject_author=subject_author)
-        if not missing:
+        deficit = verification_deficit(subject_board, subject_author=subject_author)
+        if deficit <= 0:
             continue
         branch = subject_deliverable_branch(subject, pr_index)
         pr_number = _pr_number_for_branch(root, branch, pr_index) if branch else None
@@ -753,7 +800,7 @@ def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None
         issue = int(subject.split("-", 1)[1])
         if issue_states is None or issue_states.get(issue) != "CLOSED":
             continue
-        out[subject] = missing
+        out[subject] = deficit
     return out
 
 
@@ -767,16 +814,18 @@ def backfill_closed(root: Path, cwd: str, dry_run: bool = True) -> list[tuple[st
     if not ok:
         issue_states = None
     pairs: list[tuple[str, str]] = []
-    for subject, roles in _missing_verification_closed(root, issue_states).items():
-        for role in roles:
-            pairs.append((subject, role))
+    for subject, deficit in _missing_verification_closed(root, issue_states).items():
+        for slot in range(1, deficit + 1):
+            pairs.append((subject, f"independent-verification-{slot}"))
     if dry_run:
         return pairs
     for subject, role in pairs:
         issue = int(subject.split("-", 1)[1])
-        task = (f"이슈 #{issue}: {role} — {subject}/implementation 브랜치에 랜딩된 "
-                f"커밋에 대해 아직 기록이 없다(닫힌 이슈 백필, "
-                f"backfill_closed() 로 opt-in 스폰됨).")
+        task = (f"이슈 #{issue}: {subject}/implementation 브랜치에 랜딩된 커밋에 "
+                f"대해 독립 verification 기록이 아직 부족하다 "
+                f"({REQUIRED_INDEPENDENT_VERIFICATIONS}개 중 {role} 슬롯, 닫힌 이슈 "
+                f"백필, backfill_closed() 로 opt-in 스폰됨). PR 을 읽고 감사한 뒤 "
+                f"record 의 verifies_subject 를 true 로 남겨라.")
         spawn.roster_register(
             f"issue-{issue}/{role}",
             {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
@@ -799,18 +848,14 @@ def _main(argv: list[str] | None = None) -> int:
     backfill.add_argument("--live", action="store_true",
                            help="실제로 등록+스폰한다(기본은 dry-run).")
     unpark_p = sub.add_parser(
-        "unpark", help="park 된 (subject, role) 을 명시적으로 재무장한다(issue #1476 요구 2).")
+        "unpark", help="park 된 subject 를 명시적으로 재무장한다(issue #1476 요구 2).")
     unpark_p.add_argument("--subject", required=True, help="예: issue-1163")
-    unpark_p.add_argument("--role", required=True, help="예: conformance-review")
     clear_ceiling_p = sub.add_parser(
         "clear-ceiling",
-        help="CEILING HIT 로 parked 된 쌍의 ceiling 상태만 지운다(issue #2607). "
-             "생략하면 현재 ceiling_hit=True 로 보고된 모든 쌍이 대상.")
-    clear_ceiling_p.add_argument("--subject", help="예: issue-1163 (--role 과 함께 지정)")
-    clear_ceiling_p.add_argument("--role", help="예: conformance-review (--subject 와 함께 지정)")
+        help="CEILING HIT 로 parked 된 subject 의 ceiling 상태만 지운다(issue #2607). "
+             "생략하면 현재 ceiling_hit=True 로 보고된 모든 subject 가 대상.")
+    clear_ceiling_p.add_argument("--subject", help="예: issue-1163")
     args = parser.parse_args(argv)
-    if args.command == "clear-ceiling" and bool(args.subject) != bool(args.role):
-        parser.error("clear-ceiling: --subject 와 --role 은 함께 주거나 둘 다 생략한다.")
     if args.command == "backfill-closed":
         pairs = backfill_closed(ROOT, str(ROOT), dry_run=not args.live)
         mode = "LIVE" if args.live else "DRY-RUN"
@@ -819,21 +864,21 @@ def _main(argv: list[str] | None = None) -> int:
             print(f"  {subject} / {role}")
         return 0
     if args.command == "unpark":
-        cleared = unpark(ROOT, args.subject, args.role)
-        print(f"[unpark] {args.subject}/{args.role}: "
+        cleared = unpark(ROOT, args.subject)
+        print(f"[unpark] {args.subject}: "
               f"{'재무장됨' if cleared else 'park 기록 없음'}")
         return 0
     if args.command == "clear-ceiling":
-        cleared = clear_ceiling(ROOT, args.subject, args.role)
+        cleared = clear_ceiling(ROOT, args.subject)
         if cleared:
             print(f"[clear-ceiling] {len(cleared)}건 해제됨: {cleared}")
-        elif args.subject and args.role:
-            # issue #2607 silent-failure-audit: distinguish "that pair isn't
-            # ceiling_hit (or doesn't exist)" from the global empty case
-            # below -- both reporting the same generic line would leave an
-            # operator who mistyped --subject/--role unable to tell a typo
-            # from an already-clear pair.
-            print(f"[clear-ceiling] {args.subject}/{args.role}: "
+        elif args.subject:
+            # issue #2607 silent-failure-audit: distinguish "that subject
+            # isn't ceiling_hit (or doesn't exist)" from the global empty
+            # case below -- both reporting the same generic line would
+            # leave an operator who mistyped --subject unable to tell a
+            # typo from an already-clear subject.
+            print(f"[clear-ceiling] {args.subject}: "
                   f"ceiling_hit 상태 아님 (지울 것 없음)")
         else:
             print("[clear-ceiling] 지울 ceiling 상태 없음")
