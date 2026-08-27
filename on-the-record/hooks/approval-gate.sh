@@ -272,7 +272,7 @@ if not approved:
     # --- delegation-citation provenance (issue #707) -----------------------
     _DELEGATE_RE = re.compile(r"^DELEGATE (\S+) UNTIL (\d{4}-\d{2}-\d{2})$")
     _REVOKE_RE = re.compile(r"^REVOKE (\S+)$")
-    _CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
+    _CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([^/]+) VIA DELEGATION (\S+)$")
 
     def _delegation_valid(scope, all_comments, approver_set):
         import datetime
