@@ -43,18 +43,46 @@ PR_TRIGGERED_RECORD_KINDS = ("execution-observation", "conformance-review")
 # 버리지 않고 몇 건이 미뤄졌는지 한 줄로 찍는다.
 SPAWN_CAP = 4
 
-# issue #1476: 승인-대기 상태에서 매 틱 재스폰하던 것을 막는 park 상태
-# 저장소. 키는 "<subject>/<role>", 값은 {"blocked": bool, "pr_number": int}
-# — 두 필드 모두 구조화 신호다: `pr_number`(`_pr_open_or_merged_for_branch`가
-# 이미 매 틱 조회하는 값)가 안 바뀌었으면 브랜치에 새 커밋이 없었다는
-# 뜻이고(요구 2의 "새 커밋" 재무장 트리거), `blocked`는
-# `gates/ci.py:_approved_roles_on_issue()`(승인자 allowlist, `APPROVE
-# issue-<n>/<role>` 문자열 완전일치 — 프로즈 매칭이 아니다)로 구한다. 두
-# 신호가 이전 틱과 완전히 같을 때만 park — 결코 경과 시간만으로
-# 재무장하지 않는다.
-# issue #2240: 이건 오케스트레이터의 틱간 기억이지 대상 레포 상태가
-# 아니다 — `root`(대상 레포) 기준이 아니라 state_paths 를 통해 앵커링된다.
+# issue #1476: park state store that stops re-spawning every tick while a
+# (subject, role) pair is waiting on human approval. Keys are
+# "<subject>/<role>"; values carry `blocked` (bool), `pr_number` (int,
+# informational only — see issue #2238 below), `parked` (bool), and
+# `attempts` (int, issue #2238 item 2).
+#
+# issue #2238 (this file's should_park()/spawn_missing_for_pr() defect):
+# the original design treated an unchanged `pr_number` as the re-arm
+# signal ("no new commit on the branch"). That is unsound — a PR number
+# changing is exactly as likely to mean "this very mechanism respawned
+# the role and its session opened a fresh PR" as "a human pushed a new
+# commit". A self-created PR is not evidence of human progress, so
+# `pr_number` no longer participates in the park/re-arm decision at all
+# (see should_park() below) — it is kept in the state dict purely for
+# operator-visible debugging. The only re-arm signals now are real
+# EXTERNAL ones: `blocked` is derived from
+# `gates/ci.py:_approved_roles_on_issue()` (approver allowlist, exact
+# `APPROVE issue-<n>/<role>` string match — a human posting an approval
+# comment), and a merge to main is handled upstream of this state
+# entirely — once a role's record lands, `missing_verification()` stops
+# reporting that (subject, role) pair as missing, so it never reaches
+# this park logic again regardless of park_state's contents.
+#
+# issue #2240: this is the orchestrator's cross-tick memory, not
+# target-repo state — anchored via state_paths, never `root` (the target
+# repo). See the item-3 investigation note in
+# docs/issue-2238/reports/silent-failure-audit+diagnose-first-86a93666.md:
+# this scope question was already fixed by #2240/PR #2247 before this
+# issue was worked — `_park_state_path()` below already routes through
+# `state_paths.orchestrator_state_path()`, not `root`.
 PARK_STATE_FILENAME = "spawn_on_pr_parked.json"
+
+# issue #2238 item 2: a second, independent backstop. Even with a correct
+# park rule (item 1), N respawns of the same (subject, role) pair with no
+# intervening merge must stop and say so loudly — not loop forever, and
+# not silently no-op if some future bug defeats the park rule again. A
+# small constant is enough; it is threaded through spawn_missing_for_pr()
+# as an optional parameter so a caller can override it without editing
+# this file.
+MAX_RESPAWN_ATTEMPTS = 4
 
 # issue #2165: subject 의 `<subject>/implementation` PR 이 MERGED 로
 # 확인된 사실은 종결적이다 — 한 번 확인되면 이후 틱에서 다시 확인할
@@ -419,17 +447,27 @@ def is_approval_blocked(root: Path, issue: int, role: str) -> bool:
     return role not in _ci._approved_roles_on_issue(root, issue)
 
 
-def should_park(prior: dict | None, pr_number: int | None, blocked: bool) -> bool:
-    """park 판정: 순수 함수. 이번 틱도 여전히 blocked 이고, 이전 틱
-    기록(`prior`)이 있으며, 그 기록의 `pr_number`/`blocked` 가 이번 틱과
-    완전히 같을 때만 park — 그중 하나라도 다르면(새 커밋으로 PR 번호가
-    바뀌었거나, 승인 코멘트가 새로 달려 더 이상 blocked 가 아니면)
-    재무장(park 아님)한다. `prior is None`(첫 틱 후보)은 언제나 park
-    아님 — 아직 한 번도 시도해 본 적 없는 역할을 재시도로 오인하지
-    않는다."""
+def should_park(prior: dict | None, blocked: bool) -> bool:
+    """Park decision: pure function. Park iff this (subject, role) pair
+    was already identified as blocked on a prior tick (`prior` exists and
+    `prior["blocked"]` is True) AND it is still blocked this tick.
+    `prior is None` (first-ever candidate) is always False — a role that
+    has never been tried is never mistaken for a retry.
+
+    issue #2238: `pr_number` deliberately does NOT appear in this
+    signature or decision anymore. The previous version parked only when
+    `prior.get("pr_number") == pr_number`, treating a PR-number diff as
+    "a human pushed a new commit, so retry." That is indistinguishable
+    from "this mechanism's own respawn opened a fresh PR for the same
+    still-blocked role" — the exact failure mode that let `spawn-on-pr`
+    respawn issue-2208's observers 9x each. The only thing that may
+    legitimately clear `blocked` now is a real external signal
+    (`is_approval_blocked()`, an approver-allowlist comment) — the caller
+    computes `blocked` from that signal every time this pair is
+    rechecked, never from a bare identity comparison on `pr_number`."""
     if not blocked or prior is None:
         return False
-    return prior.get("blocked") is True and prior.get("pr_number") == pr_number
+    return prior.get("blocked") is True
 
 
 def parked_report(root: Path) -> list[tuple[str, str]]:
@@ -460,19 +498,39 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
                           issue_states: dict[int, str] | None = None,
                           spawn_cap: int = SPAWN_CAP,
                           backoff_state: dict | None = None,
-                          pr_index: dict | None = None) -> list[tuple[str, str]]:
+                          pr_index: dict | None = None,
+                          max_respawn_attempts: int = MAX_RESPAWN_ATTEMPTS
+                          ) -> list[tuple[str, str]]:
     """`missing_verification()` 이 찾은 `(subject, role)` 쌍 중 최대
     `spawn_cap` 개를 등록+스폰한다. 초과분은 스폰하지 않고, 몇 건이
     미뤄졌는지 한 줄 찍는다(issue #1360 — no silent cap). `dry_run=True`
     면 등록/스폰 없이 (캡 적용된) 쌍만 돌려준다(테스트용, 실제 세션을
     띄우지 않는다).
 
-    issue #1476: 후보 쌍마다 이전 park 상태(`load_park_state`)가 있고
-    이번 틱의 `pr_number`가 그 상태와 같으면(새 커밋 없음) `is_approval_
-    blocked()`(구조화 신호)로 확인해 여전히 승인-대기면 park 하고
-    스폰하지 않는다. `is_approval_blocked()`(gh 호출)는 바로 이 경우 —
-    이전 park 기록이 있고 `pr_number`가 같을 때만 호출한다: 후보를 처음
-    보는 틱은 gh 를 전혀 안 건드리고 그냥 스폰한다(기존 동작 그대로).
+    issue #1476/#2238: for every candidate pair, if a prior park record
+    (`load_park_state`) says it was already `blocked`, this recomputes
+    `blocked` via `is_approval_blocked()` (a real external signal — an
+    approver-allowlist comment) and parks again via `should_park()` if it
+    is still blocked. issue #2238: unlike the original #1476 version,
+    this recheck no longer requires the tick's `pr_number` to match the
+    prior one — a PR number changing is not itself an external signal
+    (see should_park()'s docstring); it is exactly what a self-created
+    respawn would also produce, so gating the recheck on it defeated the
+    park guard entirely. `is_approval_blocked()` (a `gh` call) still only
+    fires for pairs that were already `blocked` on a prior tick — a
+    candidate seen for the first time never touches `gh` here and just
+    spawns (unchanged from before).
+
+    issue #2238 item 2: independently of the park/re-arm decision above,
+    every candidate about to be spawned is also checked against
+    `max_respawn_attempts` — a hard ceiling on how many times the same
+    (subject, role) pair may be spawned with no intervening merge, even
+    if some future bug defeats the park rule again. Hitting the ceiling
+    does not silently drop the pair: it is parked with `ceiling_hit:
+    True` and reported loudly (`print` + `spawn.ledger_write`), the same
+    silent-failure concern that motivated auditing `should_park()` in the
+    first place — a guard that can fail without saying so is as bad as no
+    guard.
 
     issue #1498 요구 4: 그 재확인 자체도 매 틱 부르지 않는다 —
     `closure_sweep.recheck_backoff()`(같은 `runs/gh_quota_backoff.json`,
@@ -510,25 +568,34 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     park_state = load_park_state(root)
     to_spawn: list[tuple[str, str, int | None, int]] = []
     parked_now: list[tuple[str, str]] = []
+    ceiling_hit: list[tuple[str, str, int]] = []
     for subject, role, pr_number in all_pairs:
         issue = int(subject.split("-", 1)[1])
         key = f"{subject}/{role}"
         prior = park_state.get(key)
-        if prior is not None and prior.get("pr_number") == pr_number and prior.get("blocked"):
+        if prior is not None and prior.get("blocked"):
             if not closure_sweep.recheck_backoff(backoff_state, key, False):
-                # 이번 틱은 재확인 순번이 아니다 — gh 호출 없이 park 유지.
+                # Not this tick's turn to recheck — stay parked, no gh call.
                 parked_now.append((subject, role))
-                park_state[key] = {"blocked": True, "pr_number": pr_number, "parked": True}
+                park_state[key] = {**prior, "pr_number": pr_number, "parked": True}
                 continue
             blocked = is_approval_blocked(root, issue, role)
             if not blocked:
                 closure_sweep.recheck_backoff(backoff_state, key, True)
-            if should_park(prior, pr_number, blocked):
+            if should_park(prior, blocked):
                 parked_now.append((subject, role))
-                park_state[key] = {"blocked": True, "pr_number": pr_number, "parked": True}
+                park_state[key] = {**prior, "blocked": True, "pr_number": pr_number,
+                                    "parked": True}
                 continue
-            if not blocked:
-                park_state.pop(key, None)
+            # blocked cleared by a real external signal (an approval
+            # comment) — fall through to spawn, still subject to the
+            # respawn ceiling check below (issue #2238 item 2).
+        attempts = (prior or {}).get("attempts", 0)
+        if attempts >= max_respawn_attempts:
+            ceiling_hit.append((subject, role, attempts))
+            park_state[key] = {**(prior or {}), "blocked": True, "pr_number": pr_number,
+                                "parked": True, "ceiling_hit": True, "attempts": attempts}
+            continue
         to_spawn.append((subject, role, pr_number, issue))
 
     if owns_backoff_state:
@@ -537,6 +604,18 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     if parked_now:
         print(f"[spawn-on-pr] park={len(parked_now)}건 waiting-for-human "
               f"(승인-대기 상태 변화 없음): {parked_now}")
+
+    if ceiling_hit:
+        for subject, role, attempts in ceiling_hit:
+            spawn.ledger_write({
+                "event": "spawn_on_pr_respawn_ceiling_hit",
+                "subject": subject, "role": role, "attempts": attempts,
+                "max_respawn_attempts": max_respawn_attempts,
+            })
+        print(f"[spawn-on-pr] CEILING HIT: {len(ceiling_hit)}건이 최대 재시도 "
+              f"횟수({max_respawn_attempts})에 도달해 자동 스폰을 멈춘다 — "
+              f"사람 개입 필요 (park_state 에 ceiling_hit=True 로 기록됨): "
+              f"{[(s, r, a) for s, r, a in ceiling_hit]}")
 
     pairs3 = to_spawn[:spawn_cap]
     deferred = len(to_spawn) - len(pairs3)
@@ -573,7 +652,10 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         # 걸려 있었다).
         spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True,
                          single_phase=True)
-        park_state[f"{subject}/{role}"] = {"blocked": True, "pr_number": pr_number, "parked": False}
+        key = f"{subject}/{role}"
+        prior_attempts = park_state.get(key, {}).get("attempts", 0)
+        park_state[key] = {"blocked": True, "pr_number": pr_number, "parked": False,
+                            "attempts": prior_attempts + 1}
     _save_park_state(root, park_state)
     return pairs
 
