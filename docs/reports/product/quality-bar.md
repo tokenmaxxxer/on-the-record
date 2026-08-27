@@ -157,3 +157,16 @@ Append-only, newest entry last.
   comment and correction comment on issue #2511, and operator's review
   comment on the closed PR #2608, relayed via this session's task
   instructions, 2026-08-27.
+
+- 2026-08-27: standing operator requirement for any claimed removal in this
+  codebase: "there must be no case where something was declared removed and
+  was in fact only reshaped." A grep for the old name is not sufficient
+  evidence of removal — it is only the weakest of three checks (name gone /
+  reconstructed under another name-shape-file-layout / still branches on
+  closed-set membership), and a rename or file-split passes a bare grep
+  trivially. This system's own role-axis program declared removal four
+  times and reshaped it three of those times (a wrapper function, a rename,
+  a 44-file split reassembled by `glob`), each passing its own review at
+  the time — so the failure is systematic, not incidental, and a one-time
+  sweep is not a sufficient response; a repeatable, rerunnable check is
+  required going forward. Source: issue body, tokenmaxxxer/on-the-record#2626.
