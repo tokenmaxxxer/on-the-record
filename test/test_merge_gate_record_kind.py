@@ -1,8 +1,13 @@
-"""issue #2241 stage 5: `gates/merge_gate.py::required_verification_missing`
-and `gates/spawn_on_pr.py::applicable_record_kinds` match on the `kind:`
-frontmatter field instead of a role-named file on the board, and the
-self-verification guard (a `kind:` match whose `author:` equals the
-subject's own `author:` does not count) actually blocks."""
+"""issue #2609: `gates/spawn_on_pr.py::verifying_record_count` and
+`gates/merge_gate.py::required_verification_missing` gate on a
+self-declared, counted `verifies_subject` field -- no `kind:` value,
+filename, or skill name decides the merge-gating obligation anymore (the
+old closed two-name tuple this replaces is gone entirely, not
+re-expressed under another name). The self-verification guard (a
+qualifying record whose `author:` equals the subject's own `author:` does
+not count) still blocks, reused unchanged in spirit from the old
+`kind:`-matching version."""
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -13,91 +18,111 @@ import spawn_on_pr  # noqa: E402
 import merge_gate  # noqa: E402
 
 
-class ApplicableRecordKindsTest(unittest.TestCase):
-    def test_both_present_different_authors_reports_none_missing(self):
+class VerifyingRecordCountTest(unittest.TestCase):
+    def test_two_qualifying_records_different_authors_counts_both(self):
         board = {
-            "execution-observation": {"kind": "execution-observation", "author": "execution-observation"},
-            "conformance-review": {"kind": "conformance-review", "author": "conformance-review"},
+            "a": {"verifies_subject": "true", "author": "role-a"},
+            "b": {"verifies_subject": "true", "author": "role-b"},
         }
-        missing = spawn_on_pr.applicable_record_kinds(board, subject_author="implementation")
-        self.assertEqual(missing, [])
+        count = spawn_on_pr.verifying_record_count(board, subject_author="implementation")
+        self.assertEqual(count, 2)
 
-    def test_one_missing_reported_by_record_kind_name(self):
+    def test_record_without_verifies_subject_does_not_count(self):
         board = {
-            "execution-observation": {"kind": "execution-observation", "author": "execution-observation"},
+            "survey": {"author": "role-a"},
+            "a": {"verifies_subject": "true", "author": "role-b"},
         }
-        missing = spawn_on_pr.applicable_record_kinds(board, subject_author="implementation")
-        self.assertEqual(missing, ["conformance-review"])
-
-    def test_kind_field_wins_over_filename(self):
-        # A skill-axis-named file whose kind: still identifies it correctly.
-        board = {"perf-a1b2c3d4": {"kind": "conformance-review", "author": "conformance-review"}}
-        missing = spawn_on_pr.applicable_record_kinds(board, subject_author="implementation")
-        self.assertEqual(missing, ["execution-observation"])
+        count = spawn_on_pr.verifying_record_count(board, subject_author="implementation")
+        self.assertEqual(count, 1)
 
     def test_self_verification_guard_blocks_same_author_as_subject(self):
         board = {
-            "execution-observation": {"kind": "execution-observation", "author": "implementation"},
-            "conformance-review": {"kind": "conformance-review", "author": "conformance-review"},
+            "a": {"verifies_subject": "true", "author": "implementation"},
+            "b": {"verifies_subject": "true", "author": "role-b"},
         }
-        missing = spawn_on_pr.applicable_record_kinds(board, subject_author="implementation")
-        self.assertEqual(missing, ["execution-observation"])
+        count = spawn_on_pr.verifying_record_count(board, subject_author="implementation")
+        self.assertEqual(count, 1)
 
     def test_no_subject_author_skips_the_guard(self):
-        board = {"execution-observation": {"kind": "execution-observation", "author": "implementation"}}
-        missing = spawn_on_pr.applicable_record_kinds(board, subject_author=None)
-        self.assertEqual(missing, ["conformance-review"])
+        board = {"a": {"verifies_subject": "true", "author": "implementation"}}
+        count = spawn_on_pr.verifying_record_count(board, subject_author=None)
+        self.assertEqual(count, 1)
 
-    def test_legacy_record_without_kind_field_falls_back_to_filename(self):
-        board = {"execution-observation": {"loop_state": "landed"}}
-        missing = spawn_on_pr.applicable_record_kinds(board)
-        self.assertEqual(missing, ["conformance-review"])
+    def test_no_kind_or_filename_participates_arbitrary_names_count(self):
+        # issue #2609's own rejected-alternative check: a design doc
+        # authored under the same subject must NOT satisfy the requirement
+        # just by existing -- only its own `verifies_subject: true` field
+        # does. An arbitrarily-named file with that field set DOES count.
+        board = {
+            "2026-08-27-some-survey": {"author": "role-a"},
+            "perf-a1b2c3d4": {"verifies_subject": "true", "author": "role-b"},
+        }
+        count = spawn_on_pr.verifying_record_count(board, subject_author="implementation")
+        self.assertEqual(count, 1)
 
 
-class ExemptOwnRecordKindTest(unittest.TestCase):
-    def test_drops_only_the_supplying_prs_own_kind(self):
-        # issue #2380: 형제-예외 대상(PR_TRIGGERED_RECORD_KINDS) 밖의 kind 는
-        # 오늘처럼 자기 것 하나만 빠진다 — subject 의 implementation PR 은
-        # 여전히 두 관찰자 기록을 모두 요구한다. 형제 쌍 케이스는 아래
-        # test_sibling_observer_pair_both_exempt 가 따로 고정한다.
-        missing = ["implementation", "execution-observation", "conformance-review"]
-        own = merge_gate._exempt_own_record_kind(
-            missing, "issue-2204", "issue-2204/implementation")
-        self.assertEqual(own, ["execution-observation", "conformance-review"])
+class OwnPrSuppliesVerificationTest(unittest.TestCase):
+    def _run_with_show(self, stdout, returncode, subject, own_branch, subject_author):
+        orig_run = subprocess.run
+        seen_cmd = []
 
-    def test_sibling_observer_pair_both_exempt(self):
-        # issue #2380 (stage 5 하에서 record-kind 축으로 재키잉): 같은 리뷰
-        # 사이클에 나란히 열린 두 관찰자 PR 이 서로의 선행 머지를 요구하는
-        # 순환을 깬다 — 자기 kind 가 형제 쌍 안이면 둘 다 빠진다.
-        missing = ["execution-observation", "conformance-review"]
-        own = merge_gate._exempt_own_record_kind(
-            missing, "issue-2204", "issue-2204/execution-observation")
-        self.assertEqual(own, [])
-        mirror = merge_gate._exempt_own_record_kind(
-            missing, "issue-2204", "issue-2204/conformance-review")
-        self.assertEqual(mirror, [])
+        def fake_run(cmd, capture_output, text):
+            seen_cmd.append(cmd)
+            self.assertEqual(cmd[:3], ["git", "-C", "/repo"])
+            return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr="")
+        merge_gate.subprocess.run = fake_run
+        try:
+            result = merge_gate._own_pr_supplies_verification(
+                Path("/repo"), subject, own_branch, subject_author)
+        finally:
+            merge_gate.subprocess.run = orig_run
+        if seen_cmd:
+            # regression lock for the silent-failure-audit fix: this must
+            # read origin/<branch>, never the bare branch name -- `repo`
+            # has no local branch of that exact name (see this function's
+            # own docstring).
+            self.assertIn(f"origin/{own_branch}:", seen_cmd[0][-1])
+        return result
+
+    def test_own_branch_supplies_qualifying_record(self):
+        result = self._run_with_show(
+            "---\nverifies_subject: true\nauthor: execution-observation\n---\n", 0,
+            "issue-2204", "issue-2204/execution-observation", "implementation")
+        self.assertTrue(result)
+
+    def test_own_branch_record_missing_verifies_subject_field(self):
+        result = self._run_with_show(
+            "---\nauthor: execution-observation\n---\n", 0,
+            "issue-2204", "issue-2204/execution-observation", "implementation")
+        self.assertFalse(result)
+
+    def test_own_branch_self_authored_does_not_count(self):
+        result = self._run_with_show(
+            "---\nverifies_subject: true\nauthor: implementation\n---\n", 0,
+            "issue-2204", "issue-2204/execution-observation", "implementation")
+        self.assertFalse(result)
 
     def test_other_subjects_pr_is_a_no_op(self):
-        missing = ["execution-observation", "conformance-review"]
-        other = merge_gate._exempt_own_record_kind(
-            missing, "issue-2204", "issue-9999/implementation")
-        self.assertEqual(other, missing)
+        result = merge_gate._own_pr_supplies_verification(
+            Path("/repo"), "issue-2204", "issue-9999/implementation", "implementation")
+        self.assertFalse(result)
 
     def test_no_pr_context_is_a_no_op(self):
-        missing = ["execution-observation", "conformance-review"]
-        self.assertEqual(
-            merge_gate._exempt_own_record_kind(missing, "issue-2204", None), missing)
+        result = merge_gate._own_pr_supplies_verification(
+            Path("/repo"), "issue-2204", None, "implementation")
+        self.assertFalse(result)
 
 
 class RequiredVerificationMissingIntegrationTest(unittest.TestCase):
-    def test_reads_subject_author_from_the_implementation_record(self):
+    def test_load_bearing_refusal_fewer_than_required_records(self):
+        # issue #2609 acceptance bullet 2: a subject with fewer than
+        # REQUIRED_INDEPENDENT_VERIFICATIONS qualifying records refuses.
         import spawn
 
         board = {
             "issue-2204": {
-                "implementation": {"role": "implementation", "author": "implementation"},
-                "execution-observation": {"kind": "execution-observation", "author": "implementation"},
-                "conformance-review": {"kind": "conformance-review", "author": "conformance-review"},
+                "implementation": {"author": "implementation"},
+                "a": {"verifies_subject": "true", "author": "role-a"},
             }
         }
         orig_board = spawn.board
@@ -106,9 +131,45 @@ class RequiredVerificationMissingIntegrationTest(unittest.TestCase):
             missing = merge_gate.required_verification_missing(Path("."), "issue-2204")
         finally:
             spawn.board = orig_board
-        # execution-observation was self-authored by "implementation" -- does
-        # not satisfy the requirement (self-verification guard).
-        self.assertEqual(missing, ["execution-observation"])
+        self.assertEqual(missing, 1)
+
+    def test_two_qualifying_records_satisfies_the_requirement(self):
+        import spawn
+
+        board = {
+            "issue-2204": {
+                "implementation": {"author": "implementation"},
+                "a": {"verifies_subject": "true", "author": "role-a"},
+                "b": {"verifies_subject": "true", "author": "role-b"},
+            }
+        }
+        orig_board = spawn.board
+        spawn.board = lambda root: board
+        try:
+            missing = merge_gate.required_verification_missing(Path("."), "issue-2204")
+        finally:
+            spawn.board = orig_board
+        self.assertEqual(missing, 0)
+
+    def test_self_authored_records_alone_do_not_satisfy_the_requirement(self):
+        # issue #2609 acceptance bullet 3: two verifies_subject: true
+        # records both authored by the deliverable author still refuse.
+        import spawn
+
+        board = {
+            "issue-2204": {
+                "implementation": {"author": "implementation"},
+                "a": {"verifies_subject": "true", "author": "implementation"},
+                "b": {"verifies_subject": "true", "author": "implementation"},
+            }
+        }
+        orig_board = spawn.board
+        spawn.board = lambda root: board
+        try:
+            missing = merge_gate.required_verification_missing(Path("."), "issue-2204")
+        finally:
+            spawn.board = orig_board
+        self.assertEqual(missing, 2)
 
 
 if __name__ == "__main__":

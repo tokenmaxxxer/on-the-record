@@ -20,6 +20,7 @@ import spawn_on_pr  # noqa: E402
 import check_run_artifact as cra  # noqa: E402
 import check_runner  # noqa: E402
 import stale_revert_guard  # noqa: E402
+import gates  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn  # noqa: E402
@@ -113,77 +114,103 @@ def verify_artifact(repo: Path) -> dict:
     return {"trust": True, "reasons": []}
 
 
-def _exempt_own_record_kind(missing: list[str], subject: str, own_branch: str | None) -> list[str]:
-    """`own_branch`(평가 대상 PR 자신의 head 브랜치)가 `subject`의
-    record-kind 브랜치(`<subject>/<kind>`)이고 그 kind 가 `missing` 에
-    있으면 빼고 돌려준다(issue #2233 블로커 3, issue #2241 stage 5 하에서
-    record-kind 축으로 재키잉) — 관찰자 record PR(예:
-    `issue-2204/execution-observation`)이 스스로 공급하는 바로 그 기록을
-    "그 기록이 없다"는 이유로 막는 순환을 깬다.
+def _own_pr_supplies_verification(repo: Path, subject: str, own_branch: str | None,
+                                   subject_author: str | None) -> bool:
+    """issue #2609 (Option 2, docs/issue-2593/reports/architecture-module-
+    boundary-definition+architecture-decomposition-strategy-386ff408.md):
+    kind-free replacement for the old kind-based sibling-pair cycle break
+    (issue #2233 blocker 3, issue #2380) -- an observer record PR (e.g.
+    `issue-2204/execution-observation`) must not be blocked from merging by
+    the very record it is itself about to supply.
 
-    `PR_TRIGGERED_RECORD_KINDS` 의 두 값은 그 자체가 관찰자 세션의
-    `author:` 값이기도 하다(스켈레톤이 `author:` 를 쓰는 role 문자열로
-    채운다, `docs/handbooks/record-contract.md`) — `spawn_on_pr.py` 는
-    stage 4 의 스킬 축 브랜치 네이밍을 쓰지 않고 이 두 kind 는
-    여전히 `<subject>/<kind>` 로 브랜치를 딴다(stage 4 write set 밖,
-    `checkout_issue_branch` 그대로) 그래서 브랜치 서픽스를 그 PR 자신의
-    (아직 랜딩 전이라 로컬 board 에는 안 잡히는) `author:`/kind 값의
-    대리 신호로 그대로 쓸 수 있다 — 이 함수가 순수 함수로 남는 이유이기도
-    하다(own_branch 트리를 따로 읽지 않는다).
+    True when `own_branch`(the PR under evaluation's own head, not yet
+    landed so `spawn.board()` has nothing to join against yet) itself
+    carries a record self-declaring `verifies_subject: true` with an
+    `author:` different from `subject_author` -- read directly via `git
+    show` against the branch tip, the same self-declared field
+    `spawn_on_pr.verifying_record_count()` checks against landed records.
+    No `kind:` value or branch-suffix identity match participates.
 
-    issue #2380 (stage 5 하에서 record-kind 축으로 재키잉): #2233 은 각
-    관찰자 PR 이 "자기 자신의" kind 만 빼줬다 — `own_kind`가
-    `spawn_on_pr.PR_TRIGGERED_RECORD_KINDS`(정확히
-    execution-observation/conformance-review 두 개)에 속하면, 그 둘은
-    같은 리뷰 사이클에서 나란히 열리는 형제(sibling) PR 이라
-    서로가 서로의 선행 머지를 요구하는 순환이 그대로 남아있었다 —
-    conformance-review PR 은 execution-observation 이 먼저 main 에
-    있어야 하고, 그 역도 마찬가지라 둘 다 먼저가 될 수 없었다. 이
-    PR 자신이 이미 그 두 kind 중 하나를 스스로 공급하는 관찰자
-    record 라면, 나머지 하나(형제)가 아직 main 에 없다는 이유로도
-    막지 않는다 — `PR_TRIGGERED_RECORD_KINDS` 전체를 `missing`에서 뺀다.
-    구조적 예외가 아니다: `own_kind`가 이 닫힌 두-kind 집합 밖이면(예:
-    `<subject>/implementation`) 기존처럼 자기 kind 하나만 빠지고, 나머지
-    kind(들)은 여전히 막힌다 — subject 의 implementation PR 은 오늘처럼
-    두 관찰자 기록이 모두 main 에 있어야 한다.
+    issue #2609 (silent-failure-audit skill-verdict): reads
+    `origin/{own_branch}`, not the bare branch name -- `repo` here is the
+    orchestrator checkout `evaluate()`/`main()` operate against, which has
+    an `origin` remote but no local branch of that exact name;
+    `check_runner.fetch_all_role_branches()` (already run once at the top
+    of `evaluate()`) mirrors every origin branch to local `origin/<branch>`
+    refs, the same convention `check_runner.checkout_pr_worktree()` uses
+    (`origin/{head_ref}`, not bare `head_ref`) for the identical PR-head
+    resolution problem. Reading the bare name here would have made this
+    exemption never actually fire in production -- every call would take
+    the `git show` failure branch below and silently fall through to the
+    normal count (never wrong, but never the intended cycle-break either,
+    and with nothing to distinguish that from a genuinely unqualifying
+    branch).
 
-    `own_branch`가 없거나 subject 소속이 아니면 그대로 통과(no-op) —
-    로컬 단독 호출(PR 문맥 없음)에서는 오늘과 동일하게 동작한다. 순수
-    함수."""
+    Unlike the old mechanism (which dropped the whole closed two-kind set
+    from `missing` whenever `own_branch`'s suffix was one of the two
+    named kinds -- a hack specific to there being exactly two required
+    names), this exempts the evaluated PR from the check outright: landing
+    a PR that itself supplies a qualifying verification can only help the
+    subject meet `spawn_on_pr.REQUIRED_INDEPENDENT_VERIFICATIONS`, never
+    hurt it, so blocking it on the very count it is about to increase
+    serves no purpose regardless of how many named roles exist.
+
+    `own_branch` outside `subject`'s prefix, unresolvable, or lacking a
+    qualifying record: False (no exemption -- same conservative no-op as
+    the old `own_branch=None`/other-subject cases). Not a pure function
+    (shells out to `git show`), unlike the old mechanism."""
     if not own_branch or not own_branch.startswith(f"{subject}/"):
-        return missing
-    own_kind = own_branch[len(subject) + 1:]
-    if own_kind in spawn_on_pr.PR_TRIGGERED_RECORD_KINDS:
-        return [k for k in missing if k not in spawn_on_pr.PR_TRIGGERED_RECORD_KINDS]
-    return [k for k in missing if k != own_kind]
+        return False
+    slug = own_branch[len(subject) + 1:]
+    issue_num = int(subject.split("-", 1)[1])
+    r = subprocess.run(
+        ["git", "-C", str(repo), "show",
+         f"origin/{own_branch}:docs/issue-{issue_num}/reports/{slug}.md"],
+        capture_output=True, text=True)
+    if r.returncode != 0:
+        return False
+    fm = gates.record_frontmatter(r.stdout)
+    if fm.get("verifies_subject") != "true":
+        return False
+    return subject_author is None or fm.get("author") != subject_author
 
 
 def required_verification_missing(root: Path, subject: str, repo: Path | None = None,
-                                   pr: int | None = None) -> list[str]:
-    """req 3 의 record-kind 목록을 재사용하는 얇은 래퍼 — 두 번째 목록을
-    만들지 않는다(issue #2241 stage 5: role 이름이 아니라 `kind:`
-    frontmatter 로 매칭한다).
+                                   pr: int | None = None) -> int:
+    """issue #2609 (Option 2 of docs/issue-2593/reports/architecture-
+    module-boundary-definition+architecture-decomposition-strategy-
+    386ff408.md): how many more independent verifying records `subject`
+    still needs -- `spawn_on_pr.REQUIRED_INDEPENDENT_VERIFICATIONS` minus
+    the count of records self-declaring `verifies_subject: true` with an
+    `author:` different from the subject's own deliverable author
+    (`spawn_on_pr.verifying_record_count()`, reusing the existing
+    self-verification guard unchanged in spirit). `0` when satisfied. No
+    `kind:` value, filename, or skill name decides this -- the closed
+    two-name tuple this used to match against is gone entirely, not
+    re-expressed under another name.
 
-    subject 의 deliverable(`kind: implementation`, 혹은 #2555 이전 레코드의
-    레거시 파일명 `implementation` — `spawn_on_pr.subject_deliverable_record()`,
-    issue #2575) 레코드가 있으면 그 `author:` 값을 `subject_author` 로
-    넘겨 셀프-verification 을 막는다(작성자가 같은 kind 는 "충족됨"으로
-    안 친다) — subject 아직 없으면(로컬 단독 호출 등) `None` 이라 이
-    검사를 건너뛴다.
+    `subject`'s deliverable record (`spawn_on_pr.subject_deliverable_record()`,
+    unchanged, issue #2575) supplies `subject_author`; no deliverable
+    landed yet (e.g. local standalone call) -> `None`, which skips the
+    self-verification guard.
 
-    `repo`/`pr` 을 주면(issue #2233) 평가 대상 PR 자신이 공급하는
-    record-kind 을 `_exempt_own_record_kind()`로 뺀다 — 둘 다 없으면(예:
-    로컬 단독 호출) 예외 없이 오늘과 같은 목록을 돌려준다."""
+    `repo`/`pr` (issue #2233/#2380, kind-free as of #2609): when both are
+    given, a PR that itself supplies a qualifying verifying record for
+    `subject` is exempt outright (`_own_pr_supplies_verification()`) --
+    breaks the same sibling mutual-block cycle the old kind-based
+    exemption did, without matching on any name. Both omitted: no
+    exemption, same as today."""
     b = spawn.board(root)
     subject_board = b.get(subject, {})
     _slug, subject_fm = spawn_on_pr.subject_deliverable_record(subject_board)
     subject_author = subject_fm.get("author")
-    missing = spawn_on_pr.applicable_record_kinds(subject_board, subject_author=subject_author)
     if repo is not None and pr is not None:
         refs = pr_refs(repo, pr)
         own_branch = refs["head_ref"] if refs is not None else None
-        missing = _exempt_own_record_kind(missing, subject, own_branch)
-    return missing
+        if _own_pr_supplies_verification(repo, subject, own_branch, subject_author):
+            return 0
+    count = spawn_on_pr.verifying_record_count(subject_board, subject_author=subject_author)
+    return max(0, spawn_on_pr.REQUIRED_INDEPENDENT_VERIFICATIONS - count)
 
 
 def pr_refs(repo: Path, pr: int) -> dict | None:
@@ -328,7 +355,11 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
             reasons.append(f"check-runner 결과가 전부 pass 가 아니다: {result}")
     missing = required_verification_missing(root, subject, repo, pr)
     if missing:
-        reasons.append(f"필요한 검증 기록이 없다: {missing}")
+        required = spawn_on_pr.REQUIRED_INDEPENDENT_VERIFICATIONS
+        seen = required - missing
+        reasons.append(
+            f"required_verification_missing(): 독립 검증 기록이 부족하다 -- "
+            f"{seen}/{required}개 확인됨 ({missing}개 더 필요)")
     # issue #2403: resolve once, share with staleness_for_pr() -- these two
     # are the only callers here that need base/head refs, so one `gh pr
     # view` covers both instead of one each (implementation-complexity-

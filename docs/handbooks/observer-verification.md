@@ -1,101 +1,114 @@
-# Observer verification: record-kind matching (stage 5)
+# Observer verification: self-declared, counted (issue #2609)
 
-Issue #2241 (role-axis retirement) stage 5
-(`docs/issue-2241/proposals/2026-08-25-stage-5-observer-record-kind.md`)
-is the last of the five staged rewrites and the one the issue itself
-calls out as the actual risk: `gates/merge_gate.py`'s
-`required_verification_missing()` — the check a PR cannot merge without
-passing — used to key directly off two hardcoded role names. That
-hardcode is "exactly what jammed merges" in incident #2233 and fed the
-#2238 runaway, which is why every other stage (lease, author identity,
-write-scope, branch naming) had to land and prove stable first.
+`gates/merge_gate.py`'s `required_verification_missing()` — the check a
+PR cannot merge without passing — gates on a self-declared, counted
+field. It used to key off a closed set of `kind:` values (stage 5 of
+issue #2241's role-axis retirement, see "History" below); issue #2609
+removed that closed set entirely, per the design in
+`docs/issue-2593/reports/architecture-module-boundary-definition+
+architecture-decomposition-strategy-386ff408.md` (Option 2).
 
-## What changed
+## Current mechanism
 
 `gates/spawn_on_pr.py`:
 
-- `PR_TRIGGERED_ROLES` is now `PR_TRIGGERED_RECORD_KINDS` — same two
-  values, `("execution-observation", "conformance-review")`. The
-  narrowing itself (2 of the 10 `board_condition`-carrying roles that
-  are mechanically presence-checkable) is unrelated to this stage and
-  stays as-is.
-- `applicable_roles()` is now `applicable_record_kinds()`. It scans a
-  subject's board entries for a `kind:` frontmatter value in the
-  required set, instead of testing whether a role-named file exists.
+- `REQUIRED_INDEPENDENT_VERIFICATIONS = 2` — a count, not a vocabulary.
+  It says how many independent checks a subject needs, never which ones.
+- `verifying_record_count(subject_board, subject_author)` counts board
+  entries whose frontmatter carries `verifies_subject: true` and whose
+  `author:` differs from `subject_author`. No `kind:` value, filename,
+  or skill name participates — any record may self-declare
+  `verifies_subject: true`, the same self-declaration pattern already
+  used for `author:`.
 
 `gates/merge_gate.py`:
 
-- `required_verification_missing()` delegates to
-  `applicable_record_kinds()`, passing the subject's own
-  `author:` (read off its `implementation` record) as
-  `subject_author`.
-- `_exempt_own_role` is renamed `_exempt_own_record_kind` — same
-  circularity-breaking shape (an observer PR's own branch supplies
-  the very record it would otherwise be blocked on lacking), now
-  read as exempting a record-*kind*, not a role.
+- `required_verification_missing()` computes
+  `max(0, REQUIRED_INDEPENDENT_VERIFICATIONS - verifying_record_count(...))`
+  and returns that deficit (`0` when satisfied). The refusal reason
+  printed by `evaluate()`/`main()` names the mechanism
+  (`required_verification_missing()`) and the count it saw, e.g. `"1/2개
+  확인됨 (1개 더 필요)"`.
+- `_own_pr_supplies_verification()` replaces the old
+  `_exempt_own_record_kind()`'s branch-suffix exemption (see "History").
+  It reads the PR-under-evaluation's own branch content directly (`git
+  show origin/<branch>:docs/issue-<n>/reports/<slug>.md`, since the
+  branch is not yet landed and `spawn.board()` has nothing to join
+  against) and, if that record itself qualifies
+  (`verifies_subject: true`, author differs from the subject's
+  deliverable author), exempts this PR from the check outright: landing
+  a verification-supplying PR can only help the subject meet the
+  requirement, never hurt it, so blocking it on the very count it is
+  about to increase serves no purpose.
 
-## Kind-field matching, with a filename fallback
+## Self-verification guard (unchanged in spirit)
 
-Matching an entry against a required kind checks **either** signal,
-not just one:
-
-1. `kind: execution-observation` (or `conformance-review`) in the
-   entry's own frontmatter, or
-2. the entry's filename stem is `execution-observation.md` /
-   `conformance-review.md`.
-
-This is deliberately an OR, not a kind-only check with a narrow
-fallback for absent fields. A repo-wide sweep at stage 1 found the
-`kind:` field already in ad hoc use across 420+ pre-existing records
-under 40+ spellings (`docs/specs/record-kind-vocabulary.md`) — a good
-number of them carrying a `kind:` value that predates the closed
-vocabulary entirely (e.g. a generic `kind: record`) rather than no
-`kind:` line at all. A fallback that only triggers when the field is
-*absent* misses every one of those: the field is present, just not one
-of the two required values, so a kind-only check would report a
-record as missing verification when a role-filename check would have
-found it. The filename fallback is checked independently of what (if
-anything) `kind:` says, so both eras of the corpus are read correctly
-by the same function.
-
-## Self-verification guard
-
-Presence of the right `kind:` value is not sufficient — the record
+Presence of `verifies_subject: true` is not sufficient — the record
 also has to have been produced by someone other than the subject's own
-author. A record-kind match whose `author:` equals the subject's own
-`author:` (its `implementation` record's `author:` field) does not
-count toward satisfying `required_verification_missing()`. This is the
-mechanical enforcement of issue #2241's own non-goal: retiring the role
-axis is not a reason to accept self-verification.
+deliverable author. This is the same guard stage 5 built for `kind:`
+matching, carried over unchanged: a qualifying record whose `author:`
+equals the subject's own `author:` does not count toward the
+requirement. `subject_author` is looked up once from the subject's own
+deliverable record (`spawn_on_pr.subject_deliverable_record()`,
+unchanged by #2609); if that record or its `author:` field is absent,
+the guard is skipped rather than treating every match as suspect.
 
-`subject_author` is looked up once, from the subject's own
-`implementation` board entry; if that entry or its `author:` field is
-absent (e.g. a subject predating stage 1, or a purely local call with
-no board context), the guard is skipped rather than treating every
-kind match as suspect — an unknown author is not evidence of
-self-verification.
+## What #2609 did NOT change
 
-## What did not change
+- `spawn_on_pr.py`'s own auto-spawn tick (`missing_verification`/
+  `spawn_missing_for_pr`) still invites two fixed named roles
+  (`AUTO_SPAWN_ROLES`, same two values `PR_TRIGGERED_RECORD_KINDS` used
+  to hold) when a subject hasn't landed a qualifying record yet — a
+  role-selection decision (which skill to invite), structurally
+  distinct from the merge-gating obligation check above, which no
+  longer reads this list or any kind/name at all. Generalizing or
+  removing named role selection here is issue #2610's separate surface
+  (`spawn_roles.json` / the role catalog's retirement).
+- `subject_deliverable_record()`'s single-kind `implementation` match
+  (identifying the subject's own deliverable record, as opposed to an
+  observer's) — unrelated to the two-kind observer axis this issue
+  removed, reused unchanged.
+- The `skip_eligibility.py::classify_rows`/`hard_to_revert_hit`/etc.
+  three-axis classifiers `trivial_lane_gate.py` still uses directly —
+  only the per-subject wrapper (`classify_for_subject()`, whose sole
+  caller was the now-deleted execution-observation skip-eligibility
+  exemption) is gone.
 
-- `_exempt_own_record_kind`'s branch-derived exemption. It still reads
-  the PR-under-evaluation's own branch suffix (`<subject>/<kind>`) and
-  drops that one kind from `missing` if present — `gates/spawn_on_pr.py`
-  is outside stage 4's write set and still checks out these two kinds'
-  branches via `pipeline.checkout_issue_branch()`
-  (`issue-<n>/<role>`, byte-identical to today), so the branch suffix
-  is still a reliable proxy for which kind that PR itself supplies.
-  This is also, not coincidentally, the same value the observer
-  session's own `author:` field carries once its record lands — the
-  branch suffix and the eventual `author:` value are the same string
-  by construction for this pair.
-- Which two kinds are required, or widening/narrowing the observer
-  pair — a separate policy question, out of this stage's scope.
-- Anything about branch naming (stage 4) or write-scope (stage 3).
+## History: stage 5's kind-matching (superseded)
 
-## Rollback
+Issue #2241 stage 5 (`docs/issue-2241/proposals/2026-08-25-stage-5-
+observer-record-kind.md`) replaced a hardcoded two-role-name match
+(`PR_TRIGGERED_ROLES`) with a two-`kind:`-value match
+(`PR_TRIGGERED_RECORD_KINDS`), matching an entry's `kind:` frontmatter
+OR (as a legacy fallback) its filename stem against
+`("execution-observation", "conformance-review")`. Stage 5's own
+proposal explicitly deferred the question of *whether* two named kinds
+should decide the obligation at all — issue #2609 is that deferred
+question, decided by closing it: no `kind:` value, filename, or skill
+name decides the obligation anymore, replaced by the self-declared
+counted mechanism above. `_exempt_own_record_kind()` (stage 5's
+circularity-breaker, itself a stage-2 rename of `_exempt_own_role`) is
+deleted; `_own_pr_supplies_verification()` above replaces it.
 
-Reverting `gates/merge_gate.py`/`gates/spawn_on_pr.py` to the
-role-matching version is safe: every record written from stage 1
-onward carries both `role:`/filename and `kind:`, so it evaluates
-identically under either version. No subject's verification state is
-stranded by a revert.
+An execution-observation-specific skip-eligibility carve-out
+(`gates/skip_eligibility.py`'s three-axis size/reversibility/claim-
+vocabulary classification, wired in via `spawn_on_pr.py`'s
+`_filter_execution_observation()`) also existed alongside stage 5's
+kind-matching, exempting some low-risk subjects from needing an
+execution-observation record specifically. Issue #2609's operator
+ruling on its own Open finding 1 removed this exemption entirely rather
+than converting it to a kind-free equivalent ("every subject takes the
+same count requirement") — `_filter_execution_observation()` and
+`classify_for_subject()` (its sole caller) are both deleted.
+
+Reverting to the stage-5 kind-matching version is **not** safe without
+also reverting the record contract: `verifies_subject: true` is a new
+field, so records written only under the current mechanism would not
+satisfy a reverted kind-matching check (they may lack a recognized
+`kind:` value or filename). Records written before #2609 that already
+carry a required `kind:` value do satisfy the current mechanism only if
+they are also amended to carry `verifies_subject: true` going forward —
+existing landed records are not retroactively rewritten (`docs/issue-*/
+reports/` is never migrated), so a subject whose two observer records
+landed before #2609 needs newly-written qualifying records to satisfy
+the count-based check.
