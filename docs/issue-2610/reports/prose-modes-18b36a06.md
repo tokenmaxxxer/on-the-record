@@ -4,7 +4,7 @@ role: prose-modes-18b36a06
 author: prose-modes-18b36a06
 skills: prose-modes (skill-repository(297e350))
 verifies_subject: false  # flip to true only if this record is an independent verification of this subject's own deliverable -- see docs/handbooks/observer-verification.md
-loop_state: in-progress
+loop_state: terminal
 upstream: []
 ---
 
@@ -41,5 +41,9 @@ canonical: `gh issue view 2610 --json title -q '.title'` — result: "Retire the
 
 ## Next steps
 
-Push this commit, open the PR, then append below the `gh pr view` output
-confirming the PR exists, and set loop_state to terminal.
+none — terminal. This session's sole task (verify the pipeline reaches PR)
+is complete.
+
+canonical: `gh pr view 2624 --repo tokenmaxxxer/on-the-record --json number,state,url` — result: number=2624, state=OPEN, url=https://github.com/tokenmaxxxer/on-the-record/pull/2624
+
+skill-verdict: prose-modes — not-applicable: this record is a terse, structurally-mandated status memo (frontmatter + fixed headings), not explanatory prose read for comprehension by a human audience.
