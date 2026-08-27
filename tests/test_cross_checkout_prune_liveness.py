@@ -27,6 +27,8 @@ Each prune path gets the same three-part story:
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -160,7 +162,7 @@ class SidecarPruneCrossCheckoutTest(_TwoCheckoutFixture):
         now = 2_000_000_000.0
         files = self._write_sidecar_set(name, now - 30 * 86400)
         with mock.patch.object(spawn, "_live_workspaces_union",
-                                spawn._live_workspaces):
+                                lambda: (spawn._live_workspaces(), [])):
             outcome = spawn._prune_orphaned_sidecars(
                 self.shared, max_age_days=14, now=now)
         self.assertEqual(outcome["removed"], len(files),
@@ -242,7 +244,7 @@ class WorkspaceDirPruneCrossCheckoutTest(_TwoCheckoutFixture):
             }
         })
         with mock.patch.object(spawn, "_live_workspaces_union",
-                                spawn._live_workspaces):
+                                lambda: (spawn._live_workspaces(), [])):
             outcome = spawn.auto_sweep(self.shared, max_age_days=14,
                                         max_bytes=10 ** 12, now=now)
         self.assertEqual(outcome["removed"], 1,
@@ -303,8 +305,7 @@ class WorkspaceDirPruneCrossCheckoutTest(_TwoCheckoutFixture):
 class SiblingDiscoveryBoundaryTest(_TwoCheckoutFixture):
     """Requirement 4/design-note guarantees: discovery is bounded to
     immediate children that resolve as checkout roots, and a malformed
-    sibling roster degrades to zero live sessions instead of crashing or
-    blocking the prune."""
+    sibling roster does not crash or block the prune."""
 
     def test_sibling_checkout_roots_skips_non_checkout_dirs(self):
         not_a_checkout = self.shared / "just-a-workspace"
@@ -314,7 +315,12 @@ class SiblingDiscoveryBoundaryTest(_TwoCheckoutFixture):
         self.assertIn(self.checkout_a, roots)
         self.assertIn(self.checkout_b, roots)
 
-    def test_malformed_sibling_roster_does_not_crash_and_degrades_to_zero(self):
+    def test_malformed_sibling_roster_does_not_crash_and_keeps_workspace(self):
+        """Issue #2603: a corrupt (as opposed to absent) sibling roster used
+        to degrade to "zero live sessions", which made this workspace look
+        provably dead and get swept -- exactly the defect this issue fixes.
+        It must now survive as unknown-liveness, not get deleted, and the
+        sweep must still finish rather than raising."""
         (self.checkout_b / "runs" / "active.json").write_text(
             "{not valid json")
         work_dir = self.shared / "proj-issue-10-implementation"
@@ -324,8 +330,126 @@ class SiblingDiscoveryBoundaryTest(_TwoCheckoutFixture):
         # must not raise despite B's roster being corrupt
         outcome = spawn.auto_sweep(self.shared, max_age_days=14,
                                     max_bytes=10 ** 12, now=now)
+        self.assertEqual(outcome["removed"], 0)
+        self.assertTrue(work_dir.is_dir())
+
+
+class UnreadableSiblingRosterPruneTest(_TwoCheckoutFixture):
+    """Issue #2603: `_sibling_live_sessions()` used to fold "roster file
+    exists but can't be read/parsed" into the same `{}` result as "roster
+    file absent", so both prune paths read a broken sibling as "sibling has
+    no live sessions" -- silently making that sibling's live workspaces
+    prunable. A corrupt sibling roster must now read as unknown, and unknown
+    liveness must keep a workspace, not delete it -- while genuinely dead
+    entries elsewhere (no ambiguity involved) are still pruned in the same
+    run, and the run still completes and names the sibling it could not
+    read."""
+
+    def _corrupt_b_roster(self) -> None:
+        (self.checkout_b / "runs" / "active.json").write_text(
+            "{not: valid json, at all")
+
+    def test_workspace_survives_both_prune_paths_when_sibling_roster_corrupt(self):
+        name = "proj-issue-20-implementation"
+        work_dir = self.shared / name
+        _make_pushed_git_workspace(work_dir)
+        now = 2_000_000_000.0
+        os.utime(work_dir, (now - 30 * 86400, now - 30 * 86400))
+        files = self._write_sidecar_files(name, now - 30 * 86400)
+        self._corrupt_b_roster()
+
+        sweep_outcome = spawn.auto_sweep(self.shared, max_age_days=14,
+                                          max_bytes=10 ** 12, now=now)
+        self.assertEqual(sweep_outcome["removed"], 0)
+        self.assertTrue(work_dir.is_dir(),
+                         "workspace under an unreadable sibling roster must "
+                         "survive the workspace-dir prune path")
+
+        sidecar_outcome = spawn._prune_orphaned_sidecars(
+            self.shared, max_age_days=14, now=now)
+        self.assertEqual(sidecar_outcome["removed"], 0)
+        for f in files:
+            self.assertTrue(f.exists(),
+                             "sidecars of a workspace under an unreadable "
+                             "sibling roster must survive the sidecar-prune "
+                             "path too")
+
+    def test_prune_completes_prunes_dead_elsewhere_and_names_unreadable_sibling(self):
+        name = "proj-issue-21-implementation"
+        work_dir = self.shared / name
+        _make_pushed_git_workspace(work_dir)
+        now = 2_000_000_000.0
+        os.utime(work_dir, (now - 30 * 86400, now - 30 * 86400))
+        self._corrupt_b_roster()
+
+        # Genuinely dead elsewhere: an orphaned sidecar set whose paired
+        # workspace directory is already gone -- its deadness doesn't
+        # depend on any roster (sibling or local), so B's corruption must
+        # not block it.
+        dead_files = self._write_sidecar_files(
+            "proj-issue-22-implementation", now - 30 * 86400)
+
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            sweep_outcome = spawn.auto_sweep(
+                self.shared, max_age_days=14, max_bytes=10 ** 12, now=now)
+        sweep_stderr = buf.getvalue()
+
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            sidecar_outcome = spawn._prune_orphaned_sidecars(
+                self.shared, max_age_days=14, now=now)
+        sidecar_stderr = buf.getvalue()
+
+        # completes (no exception) and keeps the ambiguous workspace
+        self.assertEqual(sweep_outcome["removed"], 0)
+        self.assertTrue(work_dir.is_dir())
+        # genuinely dead entry elsewhere is still pruned in the same run
+        self.assertEqual(sidecar_outcome["removed"], len(dead_files))
+        for f in dead_files:
+            self.assertFalse(f.exists())
+        # names the sibling it could not read
+        b_root = str(self.checkout_b.resolve())
+        self.assertTrue(
+            any(b_root in line for line in sweep_stderr.splitlines()),
+            f"expected auto_sweep to name {b_root} as unreadable, got: "
+            f"{sweep_stderr!r}")
+        self.assertTrue(
+            any(b_root in line for line in sidecar_stderr.splitlines()),
+            f"expected sidecar-prune to name {b_root} as unreadable, got: "
+            f"{sidecar_stderr!r}")
+
+    def test_missing_sibling_roster_file_stays_prunable(self):
+        """A sibling that has never spawned (no runs/active.json at all) is
+        a legitimate empty state, not "unknown" -- must not regress to
+        unprunable."""
+        (self.checkout_b / "runs" / "active.json").unlink()
+        name = "proj-issue-23-implementation"
+        work_dir = self.shared / name
+        _make_pushed_git_workspace(work_dir)
+        now = 2_000_000_000.0
+        os.utime(work_dir, (now - 30 * 86400, now - 30 * 86400))
+
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            outcome = spawn.auto_sweep(self.shared, max_age_days=14,
+                                        max_bytes=10 ** 12, now=now)
         self.assertEqual(outcome["removed"], 1)
         self.assertFalse(work_dir.exists())
+        self.assertNotIn("확인 불가", buf.getvalue())
+
+    def _write_sidecar_files(self, name: str, mtime: float) -> list[Path]:
+        files = [
+            self.shared / f"{name}.events.jsonl",
+            self.shared / f"{name}.events.offset",
+            self.shared / f"{name}.watcher.log",
+            self.shared / f"{name}.task.txt",
+            self.shared / f"{name}.session.20260101T000000.123.log",
+        ]
+        for f in files:
+            f.write_text("x")
+            os.utime(f, (mtime, mtime))
+        return files
 
 
 if __name__ == "__main__":
