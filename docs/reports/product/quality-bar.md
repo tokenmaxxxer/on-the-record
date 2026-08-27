@@ -120,3 +120,18 @@ Append-only, newest entry last.
   "requiring qualification everywhere would be noise." Source: issue body,
   tokenmaxxxer/on-the-record#2579, opened before 2026-08-27
   (https://github.com/tokenmaxxxer/on-the-record/issues/2579).
+
+- 2026-08-27: standing design principle for any liveness/status-reporting
+  surface in this codebase (`spawn.py ps`, and generalizable to future
+  status commands): an empty/negative result must never conflate "verified
+  absent" with "enumeration failed" — a genuinely empty state is legitimate
+  and must stay distinguishable from a state the code simply couldn't
+  determine. Motivated by two recorded incidents where `ps`'s ambiguous
+  empty listing was read as "confirmed dead" and triggered destructive
+  action (force-push+merge of a running branch; `git stash` of a running
+  session's edits) on sessions that were actually alive. Source: issue
+  body, tokenmaxxxer/on-the-record#2203 ("empty state: no sessions running
+  is a legitimate empty listing and must stay distinguishable from an
+  enumeration failure"; "If enumeration cannot be made reliable, it must
+  distinguish 'no session' from 'cannot determine' and say so, rather than
+  printing an empty list that reads as authoritative.").

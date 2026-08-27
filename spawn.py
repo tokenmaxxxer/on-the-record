@@ -121,6 +121,8 @@ if roster._sp is None or __name__ in ("spawn", "__main__"):
     roster._sp = sys.modules[__name__]
 _roster_locked = roster._roster_locked
 _roster_load = roster._roster_load
+_roster_load_checked = roster._roster_load_checked
+_claim_only_live_sessions = roster._claim_only_live_sessions
 _roster_save = roster._roster_save
 _roster_own = roster._roster_own
 _watcher_looks_real = roster._watcher_looks_real

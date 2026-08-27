@@ -58,9 +58,90 @@ def _roster_load() -> dict:
         return {}
 
 
+def _roster_load_checked() -> tuple[dict, str | None]:
+    """`_roster_load()`처럼 로스터를 읽되, "세션이 정말 없음"(파일이 아예
+    없음 — 정당한 빈 상태)과 "파일은 있는데 못 읽음/못 파싱함"(권한 오류,
+    또는 `_roster_save()` 쓰기 도중 읽은 절반짜리 내용)을 구분해 돌려준다
+    (이슈 #2203). 성공(빈 상태 포함)이면 `(d, None)`; 파일이 있는데 읽기/
+    파싱에 실패했으면 `({}, <이유>)` — 호출부는 후자를 "세션 없음"으로
+    읽으면 안 된다. `_roster_load()` 자신은 바꾸지 않는다 — 다른 모든
+    호출부(워치독, 리스 정리, `_live_workspaces()` 등, 이슈 #2492 가 같이
+    건드리는 prune 경로 포함)는 지금처럼 실패를 빈 로스터로 흡수해도 되는
+    자리라, 그 동작을 이 이슈에서 바꾸지 않는다 — `ps` 만 이 구분이 필요."""
+    try:
+        text = _sp.ROSTER.read_text()
+    except FileNotFoundError:
+        return {}, None
+    except OSError as exc:
+        return {}, str(exc)
+    try:
+        d = json.loads(text)
+    except ValueError as exc:
+        return {}, str(exc)
+    if not isinstance(d, dict):
+        return {}, f"로스터 파일이 JSON 객체가 아님: {type(d).__name__}"
+    return d, None
+
+
+def _claim_only_live_sessions(d: dict) -> tuple[list[tuple[str, int]], list[str]]:
+    """스폰-클레임 파일(`_spawn_claim_path`)을 워크스페이스 베이스 아래
+    스캔해, 클레임은 살아있는데(pid 생존) `d`(로스터)의 어떤 살아있는
+    엔트리의 `work` 와도 안 겹치는 것들을 찾는다 (이슈 #2203 실측
+    2026-08-25: 스폰 거부 경로가 신뢰하는 클레임은 세션을 아는데 `ps` 가
+    읽는 로스터는 그 항목이 없었다 — 로스터 read/write 자체가 멀쩡해도
+    벌어지는, `_roster_load_checked()` 로는 못 잡는 별종 원인이라 클레임을
+    별도 진실원으로 교차 확인한다). `work` 비교는 클레임 파일 이름에서
+    역산하지 않고 접미사만 벗겨 경로 문자열로 비교한다.
+
+    두번째 반환값은 스캔 자체가 못 미더웠던 이유들이다(silent-failure-audit
+    발견, 이슈 #2203: 첫 버전은 베이스 디렉터리 스캔 실패와 개별 클레임
+    파일 파싱 실패를 그냥 `continue`/빈 리스트로 흡수했다 — 그 순간 클레임
+    쪽도 로스터와 똑같이 "못 봤다"를 "없다"와 구분 못 하는 원점으로
+    돌아간다. 호출부(`roster_ps`)는 이 리스트가 비어있지 않으면 절대
+    "확인 완료"로 읽으면 안 된다."""
+    live_roster_work = {
+        str(Path(e["work"]).resolve())
+        for e in d.values()
+        if e.get("work") and _sp._alive(e.get("pid", 0))
+    }
+    out = []
+    warnings = []
+    suffix = ".spawn-claim"
+    try:
+        claim_paths = list(_sp._workspace_base().glob(f"*{suffix}"))
+    except OSError as exc:
+        return out, [f"스폰 클레임 디렉터리를 스캔하지 못함({exc})"]
+    for claim_path in claim_paths:
+        try:
+            payload = json.loads(claim_path.read_text())
+        except (OSError, ValueError) as exc:
+            warnings.append(f"스폰 클레임 파일을 읽지 못함({exc}): {claim_path}")
+            continue
+        pid = payload.get("pid")
+        if not isinstance(pid, int) or not _sp._alive(pid):
+            continue
+        work_path = str(Path(str(claim_path)[:-len(suffix)]).resolve())
+        if work_path not in live_roster_work:
+            out.append((work_path, pid))
+    return out, warnings
+
+
 def _roster_save(d: dict) -> None:
+    """이슈 #2203: 임시파일에 다 쓴 뒤 `os.replace()`로 교체한다 — 이전엔
+    `write_text()`(truncate 후 쓰기)라, `_roster_locked()` 밖에서 읽는
+    `ps`/`_live_workspaces()` 같은 무잠금 리더가 truncate 직후~새 내용
+    쓰기 사이를 읽으면 빈 파일이 아니라 '손상된 JSON'을 봤다 —
+    `_roster_load()`/`_roster_load_checked()` 양쪽 다 그 경우를 파싱
+    실패로 잡으므로, 원래는 그냥 사라졌을 창이 좁아지되 완전히 없어지진
+    않는다(다른 프로세스가 같은 이름의 `.tmp` 파일을 동시에 만들 일은
+    없다 — `tempfile.mkstemp` 가 유일한 이름을 보장). `_rewrite_spawn_claim_pid()`
+    가 클레임 파일에 이미 쓰는 것과 같은 패턴."""
     _sp.ROSTER.parent.mkdir(parents=True, exist_ok=True)
-    _sp.ROSTER.write_text(json.dumps(d, indent=2, ensure_ascii=False))
+    tmp_fd, tmp_name = tempfile.mkstemp(dir=str(_sp.ROSTER.parent),
+                                        prefix=_sp.ROSTER.name + ".tmp")
+    with os.fdopen(tmp_fd, "w") as f:
+        json.dump(d, f, indent=2, ensure_ascii=False)
+    os.replace(tmp_name, str(_sp.ROSTER))
 
 
 def _roster_own(d: dict, all_scope: bool) -> dict:
