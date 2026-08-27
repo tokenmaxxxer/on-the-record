@@ -1,5 +1,11 @@
 # issue-2574 — execution-observation current-state survey
 
+skill-verdict: work-in-english — applied: invoked; used to decide this
+survey's and its sibling proposal's own language (English, matching
+this repository's other execution-observation and implementation
+records) versus the Korean the surrounding session directives are
+written in.
+
 Scout skip: no design decision is open here — this session verifies
 already-landed code rather than proposing something new. Scout-protocol's
 second mandatory skip condition applies ("the spec literally leaves no
