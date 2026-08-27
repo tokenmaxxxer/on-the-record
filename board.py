@@ -208,8 +208,8 @@ def require_repo_root(cwd: str, issue: int | None) -> None:
     안 보이는 다운스트림 증상만 남는다(이슈 실측: on-the-record 서브
     디렉터리, 존재하지 않는 경로, 아예 다른 레포 각각 다른 오탐 메시지).
 
-    정상 호출 모양(`cd repo && spawn.py <역할> "<일>" --issue N`, cwd
-    기본값 `.`)에서는 cwd 가 언제나 레포 루트이므로 이 세 조건 중
+    정상 호출 모양(`cd repo && spawn.py --skills <skill> "<일>" --issue N`,
+    이슈 #2572, cwd 기본값 `.`)에서는 cwd 가 언제나 레포 루트이므로 이 세 조건 중
     무엇에도 걸리지 않고 그대로 지나간다 -- 이 게이트가 새로 막는
     스폰은 오늘 이미(더 늦게, 더 헷갈리는 메시지로) 막히던 것들뿐이다.
 

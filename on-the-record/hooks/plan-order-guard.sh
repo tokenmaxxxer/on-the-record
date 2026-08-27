@@ -6,20 +6,22 @@
 # via `‖`; this hook is what mechanically consumes it instead of leaving the
 # order in the orchestrator's head.
 #
-# Scope: matches `spawn.py <role> ... --issue <n>` (spawn.py's real CLI has
-# no `--step` flag — the plan's step numbers map to roles via the issue's
-# `## 실행 계획`, not to a spawn.py argument, so this hook resolves role ->
-# step itself). When matched, this hook resolves the issue's plan via `gh
-# issue view --json body`, maps the spawned role to its declared step
-# number, computes `gates/flows.py:plan_order_blocked()`, and denies if
-# that step is blocked by an undone earlier step. A command that isn't a
-# role-naming spawn call, or whose role the plan doesn't mention, is not
-# this hook's concern — it exits open, matching impact-guard.sh's
-# fail-open-on-ambiguity posture. `gh pr merge` is intentionally not
-# matched: a merge carries no role/step signal in the command text to
-# correlate against the plan (unlike `spawn.py`'s positional role arg), so
-# there is nothing safe to gate there — Axis 2 enforcement is at the
-# spawn boundary, before a premature step's session ever starts.
+# Scope: matches `spawn.py --skills <skill>[,<skill>...] ... --issue <n>`
+# (issue #2572: `--skills` is spawn.py's sole spawn form now — the plan's
+# step numbers map to roles via the issue's `## 실행 계획`, not to a spawn.py
+# argument, so this hook resolves skill -> step itself, matching any named
+# skill against a step's declared `roles` list). When matched, this hook
+# resolves the issue's plan via `gh issue view --json body`, maps a named
+# skill to its declared step number, computes
+# `gates/flows.py:plan_order_blocked()`, and denies if that step is blocked
+# by an undone earlier step. A command that carries no `--skills` flag, or
+# whose named skills the plan doesn't mention, is not this hook's concern —
+# it exits open, matching impact-guard.sh's fail-open-on-ambiguity posture.
+# `gh pr merge` is intentionally not matched: a merge carries no role/step
+# signal in the command text to correlate against the plan (unlike
+# `spawn.py --skills`'s flag value), so there is nothing safe to gate there
+# — Axis 2 enforcement is at the spawn boundary, before a premature step's
+# session ever starts.
 #
 # Deployment target: same checkout-resolution as impact-guard.sh
 # (zero-install, git-clone fallback), paths anchored to the TARGET repo.
@@ -81,18 +83,18 @@ cmd = ti.get("command") if isinstance(ti, dict) else None
 if not isinstance(cmd, str):
     sys.exit(0)
 
-# `spawn.py <role> "<task>" --issue <n>` is the real CLI shape (no `--step`
-# flag exists — the plan's step numbers map to roles, not to a spawn.py
-# argument). Pull the role from the token right after `spawn.py` and the
-# issue number from `--issue`.
-m_spawn = re.search(r"\bspawn\.py\s+(\S+)", cmd)
+# `spawn.py --skills <skill>[,<skill>...] "<task>" --issue <n>` is the real
+# CLI shape (no `--step` flag exists — the plan's step numbers map to
+# roles, not to a spawn.py argument; issue #2572 made `--skills` the sole
+# spawn form). Pull the named skill(s) from `--skills` and the issue number
+# from `--issue`.
+m_spawn = re.search(r"--skills[= ]\s*(\S+)", cmd)
 m_issue = re.search(r"--issue[= ]\s*(\d+)", cmd) or re.search(r"\bissue[-\s]?(\d+)\b", cmd, re.I)
 if not m_spawn or not m_issue:
-    sys.exit(0)  # not a role-naming spawn call, or no issue — not this hook's concern
-role = m_spawn.group(1).strip("'\"")
-if role in ("watch", "kill", "consult", "reconcile", "approve-scope", "update",
-            "init", "drive"):
-    sys.exit(0)  # spawn.py subcommand, not a role name
+    sys.exit(0)  # not a --skills spawn call, or no issue — not this hook's concern
+skill_names = [s.strip("'\"") for s in m_spawn.group(1).split(",") if s.strip("'\"")]
+if not skill_names:
+    sys.exit(0)
 issue_n = m_issue.group(1)
 
 checkout = os.environ.get("POG_CHECKOUT")
@@ -116,9 +118,10 @@ plan = flows._plan_from_body(body)
 if not plan:
     sys.exit(0)
 
-step_n = next((p["step"] for p in plan if role in p["roles"]), None)
+step_n = next((p["step"] for p in plan
+               if any(s in p["roles"] for s in skill_names)), None)
 if step_n is None:
-    sys.exit(0)  # role not named in this issue's plan — not this hook's concern
+    sys.exit(0)  # no named skill appears in this issue's plan — not this hook's concern
 
 blocked = {b["step"]: b for b in flows.plan_order_blocked(plan)}
 hit = blocked.get(step_n)
