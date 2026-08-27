@@ -2563,6 +2563,76 @@ def _set_origin_head(work_dir: str) -> subprocess.CompletedProcess:
                           capture_output=True, text=True)
 
 
+def checkout_staleness(root: Path = ROOT, fetch: bool = True) -> dict:
+    """이슈 #2506: 이 코드(`root` — 보통 `spawn.ROOT`, 게이트가 로드된
+    체크아웃 그 자체) 가 자신의 origin 대비 뒤처졌는지 검사한다.
+
+    `merge_gate.staleness_for_pr()`(PR 브랜치가 base 대비 뒤처졌는지)와는
+    다른 축이다 — 이건 게이트를 실행 중인 파이썬 코드 자체의 신선도다.
+    2026-08-26 사고: 로컬 consult-trace 커밋이 쌓여 `main` 이 origin 을
+    fast-forward 할 수 없게 됐고, 그 체크아웃에서 돈 `merge_gate.py` 가
+    이미 고쳐진 `_exempt_own_role` 을 구버전으로 읽어 확신에 찬 오답을
+    냈다(#2444 가 되돌아온 것처럼 보이는 유령 결함).
+
+    `fetch=True`(기본) 면 먼저 `git fetch origin` 을 시도한다 — best-effort,
+    실패해도 마지막으로 알려진 `origin/HEAD` 로 판정한다(오프라인에서 게이트
+    전체를 막는 게 더 나쁘다). 작업 트리는 절대 건드리지 않는다 — reset/
+    checkout/merge 없음, fetch 와 비교뿐(이슈의 must-not).
+
+    `origin/HEAD` 를 못 구하면(원격 없는 합성 테스트 저장소, 이슈가 정의한
+    empty state) `checked: False` 로 판정을 보류한다 — 불확실을 stale 로
+    단정하면 legitimately-current 체크아웃까지 막는다(이슈의 must-not).
+
+    Returns `{"checked": bool, "stale": bool, "behind": int,
+    "fetch_ok": bool, "detail": str}`."""
+    fetch_ok = True
+    if fetch:
+        r = subprocess.run(["git", "-C", str(root), "fetch", "--quiet", "origin"],
+                           capture_output=True, text=True)
+        fetch_ok = r.returncode == 0
+    head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          capture_output=True, text=True)
+    if head.returncode != 0 or not head.stdout.strip():
+        return {"checked": False, "stale": False, "behind": 0,
+                "fetch_ok": fetch_ok, "detail": "HEAD 를 resolve 할 수 없다"}
+    origin_head = subprocess.run(["git", "-C", str(root), "rev-parse", "origin/HEAD"],
+                                 capture_output=True, text=True)
+    if origin_head.returncode != 0 or not origin_head.stdout.strip():
+        return {"checked": False, "stale": False, "behind": 0,
+                "fetch_ok": fetch_ok, "detail": "origin/HEAD 를 resolve 할 수 없다"}
+    local_sha = head.stdout.strip()
+    origin_sha = origin_head.stdout.strip()
+    if local_sha == origin_sha:
+        return {"checked": True, "stale": False, "behind": 0,
+                "fetch_ok": fetch_ok, "detail": ""}
+    ancestor = subprocess.run(
+        ["git", "-C", str(root), "merge-base", "--is-ancestor", origin_sha, local_sha],
+        capture_output=True, text=True)
+    if ancestor.returncode == 0:
+        # local 이 origin 을 포함하고 앞서 있을 뿐(정상적인 WIP) -- 이
+        # 이슈가 겨냥한 실패 모드가 아니다.
+        return {"checked": True, "stale": False, "behind": 0,
+                "fetch_ok": fetch_ok, "detail": ""}
+    if ancestor.returncode not in (0, 1):
+        # `--is-ancestor` 는 0(맞다)/1(아니다) 만 진짜 판정이다 -- 그 밖의
+        # 코드는 git 자체가 실패한 것(예: 손상된 오브젝트)이라, 1 과
+        # 똑같이 취급해 "뒤처지지 않았다"로 단정하면 이 이슈가 겨냥한
+        # "확신에 찬 오답"을 판정 로직 안에서 그대로 재현하게 된다.
+        return {"checked": False, "stale": False, "behind": 0, "fetch_ok": fetch_ok,
+                "detail": f"merge-base --is-ancestor 판정 실패 — {ancestor.stderr.strip()[:200]}"}
+    count = subprocess.run(
+        ["git", "-C", str(root), "rev-list", "--count", f"{local_sha}..{origin_sha}"],
+        capture_output=True, text=True)
+    if count.returncode != 0 or not count.stdout.strip().isdigit():
+        return {"checked": False, "stale": False, "behind": 0, "fetch_ok": fetch_ok,
+                "detail": f"뒤처진 커밋 수를 셀 수 없다 — {count.stderr.strip()[:200]}"}
+    behind_n = int(count.stdout.strip())
+    return {"checked": True, "stale": behind_n > 0, "behind": behind_n,
+            "fetch_ok": fetch_ok,
+            "detail": (f"체크아웃({root})이 origin 대비 {behind_n}개 커밋 뒤처졌다 "
+                       f"(로컬={local_sha[:12]} origin={origin_sha[:12]})")}
+
+
 def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
 

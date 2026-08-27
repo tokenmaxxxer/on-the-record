@@ -363,27 +363,81 @@ def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
         f.write(line)
 
 
+_CONSULT_TRACE_REF = "refs/heads/otr-consult-trace"
+_CONSULT_TRACE_COMMIT_RETRIES = 5
+
+
 def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
                           outcome: str, cwd: str | None) -> None:
     """자문 트레이스(및 이번 호출에서 쓴 원본 사이드 파일)를 커밋해
     체크아웃을 깨끗하게 유지한다(이슈 #1134, northpole req#2 — 로컬
-    미커밋 상태만 있는 기록은 기록이 아니다). `approve-scope`
-    선례(spawn.py:1367-1387)와 같은 add-then-commit 모양이지만, 되돌릴
-    "이전 전문"이 없다(append 이지 overwrite 가 아니다) — 커밋 실패시
-    파일 쓰기는 그대로 두고 경고만 남긴다."""
+    미커밋 상태만 있는 기록은 기록이 아니다).
+
+    이슈 #2506: 예전엔 `git add` + `git commit` 이 **현재 체크아웃 중인
+    브랜치**(오케스트레이터의 `main`) 에 직접 커밋했다 — 매 자문이 로컬
+    전용 커밋을 하나씩 쌓아, `main` 이 origin 을 fast-forward 할 수 없게
+    만들고(실측: 153개, 그리고 재발: 18개/9-behind), 그 낡은 체크아웃에서
+    돈 게이트가 확신에 찬 오답을 냈다. 지금은 `_CONSULT_TRACE_REF`
+    (`main` 이 아닌 별도 ref) 에 커밋한다 — 격리된 임시 인덱스(GIT_INDEX_FILE)
+    를 써서 공유 인덱스/현재 브랜치/HEAD 를 전혀 건드리지 않는다. 작업
+    트리의 파일 자체는 그대로 디스크에 남아 `_consult_log_aggregate()` 가
+    평소처럼 glob 으로 읽는다 — git 커밋 대상 트리에 없을 뿐, 사라지지
+    않는다. `approve-scope` 선례(spawn.py:1367-1387)와 같은 add-then-commit
+    모양이지만 대상 ref 가 다르다.
+
+    이슈 #2569 배경 fork 등 동시 프로세스가 같은 ref 를 놓고 경합할 수
+    있어 `git update-ref <ref> <new> <old>` CAS 로 재시도한다(유실 갱신
+    방지) — 되돌릴 "이전 전문"은 없다(append 이지 overwrite 가 아니다).
+    커밋 실패시(재시도 소진 포함) 파일 쓰기는 그대로 두고 경고만 남긴다."""
     root = _sp._consult_root(cwd)
     rels = [str(p.relative_to(root)) for p in paths]
     outcome_word = "error" if outcome.startswith("error") else "ok"
     message = (f"issue-{issue}: consult-trace ({outcome_word})" if issue is not None
                else f"consult-trace ({outcome_word})")
-    try:
-        subprocess.run(["git", "-C", str(root), "add", *rels],
-                       check=True, capture_output=True, text=True)
-        subprocess.run(["git", "-C", str(root), "commit", "-m", message],
-                       check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as e:
-        print(f"consult-trace 커밋 실패 — {', '.join(rels)} 가 커밋 안 된 채 남았다: "
-              f"{e.stderr.strip() if e.stderr else e}", file=sys.stderr)
+
+    def _git(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run(["git", "-C", str(root), *args],
+                              capture_output=True, text=True, env=env)
+
+    def _fail(step: str, proc: subprocess.CompletedProcess) -> None:
+        print(f"consult-trace 커밋 실패 — {', '.join(rels)} 가 커밋 안 된 채 남았다 "
+              f"({step}): {proc.stderr.strip() if proc.stderr else proc}", file=sys.stderr)
+
+    for _attempt in range(_CONSULT_TRACE_COMMIT_RETRIES):
+        old = _git("rev-parse", "--verify", "--quiet", _CONSULT_TRACE_REF)
+        if old.returncode != 0 and old.stderr.strip():
+            # `--quiet` 는 "그런 ref 가 없다"는 딱 그 경우만 출력을
+            # 삼킨다 -- stderr 에 뭔가 찍혔다는 건 다른 진짜 git 오류(손상된
+            # 저장소 등)라는 뜻이고, 이걸 "ref 가 없다"와 같이 취급해
+            # 새 root 커밋을 만들면 트레이스 ref 의 히스토리 연속성이
+            # 조용히 끊긴다(내용은 안 잃지만 이력이 갈라진다).
+            return _fail("rev-parse", old)
+        old_sha = old.stdout.strip() if old.returncode == 0 else None
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+            if old_sha:
+                r = _git("read-tree", old_sha, env=env)
+                if r.returncode != 0:
+                    return _fail("read-tree", r)
+            r = _git("add", "--", *rels, env=env)
+            if r.returncode != 0:
+                return _fail("add", r)
+            tree = _git("write-tree", env=env)
+            if tree.returncode != 0:
+                return _fail("write-tree", tree)
+            parent_args = ["-p", old_sha] if old_sha else []
+            commit = _git("commit-tree", tree.stdout.strip(), *parent_args,
+                          "-m", message, env=env)
+            if commit.returncode != 0:
+                return _fail("commit-tree", commit)
+            new_sha = commit.stdout.strip()
+        cas_old = old_sha if old_sha else ""
+        upd = _git("update-ref", "-m", message, _CONSULT_TRACE_REF, new_sha, cas_old)
+        if upd.returncode == 0:
+            return
+    print(f"consult-trace 커밋 실패 — {', '.join(rels)} 가 커밋 안 된 채 남았다: "
+          f"동시 갱신 경합이 재시도 {_CONSULT_TRACE_COMMIT_RETRIES}회를 넘었다 "
+          f"({_CONSULT_TRACE_REF})", file=sys.stderr)
 
 
 def _skill_judge_consult(task_text: str, role: str,
