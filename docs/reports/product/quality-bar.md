@@ -170,3 +170,27 @@ Append-only, newest entry last.
   the time — so the failure is systematic, not incidental, and a one-time
   sweep is not a sufficient response; a repeatable, rerunnable check is
   required going forward. Source: issue body, tokenmaxxxer/on-the-record#2626.
+
+- 2026-08-27: follow-on ruling once a fourth reshape of the same closed
+  role-name tuple was caught (`AUTO_SPAWN_ROLES`, byte-identical to the
+  tuple issue #2615 claimed removed): "if the capability cannot be provided
+  without enumerating identities, remove the capability" — do not attempt a
+  fifth reshape — "and state plainly what stops working." A capability that
+  structurally requires a closed set of names to exist is not fixable by
+  finding a cleverer shape for that set; when review keeps catching reshapes
+  of the same thing, the answer is to stop providing the capability in that
+  form and name the resulting behavior change explicitly in the record,
+  not to keep hunting for a shape review hasn't caught yet. Paired
+  constraint: dropping the capability must not weaken any obligation that
+  merely *used* it as an implementation detail (here,
+  `REQUIRED_INDEPENDENT_VERIFICATIONS`/`merge_gate.py`'s pre-merge
+  verification gate, which predates and does not depend on the removed
+  tuple) — the capability being removed and the obligation it happened to
+  serve are not the same thing, and only the former is in scope. Separately,
+  this issue's own before-landing warrant hunt reproduced a defeated
+  respawn-ceiling backstop mid-fix (positional slot numbering silently
+  discarding a stuck verifier's attempt history) — a live reminder that a
+  ceiling/backstop mechanism that *can* be silently defeated is
+  functionally equivalent to having none, and this class of runaway has
+  already cost real money in this program (a same-day incident, #2604,
+  $23.84). Source: issue body, tokenmaxxxer/on-the-record#2628.

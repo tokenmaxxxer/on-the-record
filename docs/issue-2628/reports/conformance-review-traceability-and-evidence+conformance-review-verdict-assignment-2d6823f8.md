@@ -383,8 +383,8 @@ plausible false positive) directly drove re-grepping every
 `audit_removal_claim.py` hit independently instead of accepting the PR
 record's classification.
 
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; rule 1 (file:line + commit sha, not a bare path) shaped every
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+rule 1 (file:line + commit sha, not a bare path) shaped every
 citation above (e.g. `686237cd:gates/spawn_on_pr.py:160-174`); rule 2 (one
 link per contributing file) shaped citing `gates/spawn_on_pr.py` and
 `gates/merge_gate.py` as separate upstream links rather than one bundled
