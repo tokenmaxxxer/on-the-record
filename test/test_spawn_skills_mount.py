@@ -602,5 +602,37 @@ class SkillBranchSlugStripsQualifierTest(unittest.TestCase):
         self.assertEqual(slug, "alpha+beta")
 
 
+class RecordSkeletonSkillProvenanceTest(unittest.TestCase):
+    """이슈 #2579: `--skills` 로 마운트된 스킬은 각자의 소스와 함께 그
+    세션의 record 스켈레톤에 곧장 실린다 — 소스를 안 밝히면 그 record 는
+    나중에 재-판정할 수 없다는 이슈 본문의 요구."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+
+    def tearDown(self):
+        self._tmpdir.cleanup()
+
+    def test_skills_line_names_each_skill_source(self):
+        sources = [
+            {"name": "alpha", "source": "skill-repo",
+             "dir": Path("/tmp/x/alpha"), "sha": "abc1234"},
+            {"name": "beta", "source": "local-user",
+             "dir": Path("/tmp/u/beta"), "path": "/tmp/u/beta",
+             "content_sha256": "deadbeef"},
+        ]
+        p = spawn.write_record_skeleton(self._tmpdir.name, 999, "some-role",
+                                         skill_sources=sources)
+        text = p.read_text()
+        self.assertIn(
+            "skills: alpha (skill-repository(abc1234)), "
+            "beta (~/.claude/skills (/tmp/u/beta))\n", text)
+
+    def test_no_skills_omits_the_line_entirely(self):
+        p = spawn.write_record_skeleton(self._tmpdir.name, 999, "some-role")
+        text = p.read_text()
+        self.assertNotIn("skills:", text)
+
+
 if __name__ == "__main__":
     unittest.main()

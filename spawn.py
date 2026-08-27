@@ -3343,7 +3343,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # task text — same var `_cross_family_skill_matches_with_consult`
             # already uses above) lets `write_record_skeleton()` decide
             # is_coding from the task itself instead of a role-name match.
-            write_record_skeleton(cwd, issue, role, _cross_family_task_text)
+            write_record_skeleton(cwd, issue, role, _cross_family_task_text,
+                                   skill_sources=skill_sources)
         with _timed("issue_fetch"):
             if pre_resolved:
                 body = issue_data.get("body") if issue_data else None
