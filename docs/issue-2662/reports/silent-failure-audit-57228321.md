@@ -162,3 +162,15 @@ skill-verdict: work-in-english — applied: invoked; repo-bound artifacts
 (this record, commit messages, the PR body) written in English, final
 user-facing summary in Korean.
 other mounted skills: not triggered
+
+## Continuation note
+
+The blocker above is resolved: the operator added the
+`maintenance-targets:` line to issue #2662's body, and a follow-up
+session (`silent-failure-audit-feea97c4`) carried both target files
+onto this branch and updated PR #2663 — see
+`docs/issue-2662/reports/silent-failure-audit-feea97c4.md` for the
+resolution details. This record's own `loop_state: blocked` and
+frontmatter are left as originally written (foreign-authored, append-
+only per contract v3 s11) — it accurately describes the state at the
+time it was written.
