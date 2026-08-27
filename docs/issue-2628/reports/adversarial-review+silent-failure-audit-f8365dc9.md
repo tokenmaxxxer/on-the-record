@@ -223,6 +223,22 @@ canonical: `git rev-parse origin/issue-2628/architecture-interface-contract-shap
 
 None. `loop_state: terminal`.
 
+amendments-reconciled: issuecomment-5436750956 (JiwonJung94, 2026-08-27T08:59:31Z)
+— posted after this review session started. canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5436750956 --jq '.body'`,
+this session — live evidence that on `origin/main`'s still-deployed
+`AUTO_SPAWN_ROLES` path, `python3 spawn.py --skills conformance-review
+"<task>" --issue 2628` fails outright (`--skills: 모르는 스킬
+conformance-review`) because `conformance-review` stopped being an
+installed skill once the record-kind axis was retired, while the
+heartbeat kept printing `missing=['execution-observation',
+'conformance-review']` regardless — the closed set had gone stale against
+the very names it invited, and nothing in a roster can notice that; a
+count (PR #2640's `verification_deficit()`) has nothing analogous to go
+stale against. This corroborates rather than contradicts every verdict
+above — it is additional evidence for the same fix, not a new claim to
+adjudicate — so no verdict in this record changes.
+
 ## Skill verdicts
 
 skill-verdict: adversarial-review — applied: invoked; this review session
