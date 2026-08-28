@@ -116,7 +116,7 @@ spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 _session_id_for_role = stdin_payload.get("session_id")
 if isinstance(_session_id_for_role, str) and _session_id_for_role:
     state_dir = os.environ.get(
-        "OTR_ROLE_BIND_STATE_DIR",
+        "OTR_SKILL_BIND_STATE_DIR",
         os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
     )
     safe_session = re.sub(r"[^A-Za-z0-9_.-]", "_", _session_id_for_role)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """issue #2070 — spawn 시점 구조적 모델 라우팅. `resolved_role_model()`의
-`--model` > `MUSTER_ROLE_MODEL` > `role_model.txt` 체인이 셋 다 비어 있을
+`--model` > `MUSTER_SKILL_MODEL` > `role_model.txt` 체인이 셋 다 비어 있을
 때만 호출되는, 오늘의 하드코딩된 `"sonnet"` 종착점을 대체하는 계층.
 
 fail-open: 정책 파일이 없거나 깨져 있거나 알 수 없는 역할이어도 절대

@@ -24,7 +24,7 @@
 # launch — no session-controlled code has run yet, so this is the one point
 # in the session lifecycle where reading it is trustworthy.
 #
-# State: ${OTR_ROLE_BIND_STATE_DIR:-$TMPDIR/otr-role-bind}/<session_id>.json
+# State: ${OTR_SKILL_BIND_STATE_DIR:-$TMPDIR/otr-role-bind}/<session_id>.json
 # containing {"spawned": true}. First-observation wins: a later
 # SessionStart replay within the same session_id never overwrites an
 # existing snapshot, so a session can't rebind itself mid-session via a
@@ -43,7 +43,7 @@ command -v python3 >/dev/null 2>&1 || { trap - EXIT; exit 0; }
 PAYLOAD="$(cat 2>/dev/null || true)"
 [ -n "$PAYLOAD" ] || { trap - EXIT; exit 0; }
 
-STATE_DIR="${OTR_ROLE_BIND_STATE_DIR:-${TMPDIR:-/tmp}/otr-role-bind}"
+STATE_DIR="${OTR_SKILL_BIND_STATE_DIR:-${TMPDIR:-/tmp}/otr-role-bind}"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
 OTR_RB_PAYLOAD="$PAYLOAD" OTR_RB_STATE_DIR="$STATE_DIR" \

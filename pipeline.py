@@ -347,7 +347,7 @@ def role_settings(role: str, cwd: str | None = None,
     # #58/#65 와 다른 점은 대상이 tokenmaxxxer 가 아는 고정 도구가 아니라
     # **사용자마다 다른 이름의 개인 MCP 서버**라는 것 — 코드에 이름을 박을
     # 수 없다. 그래서 운영자가 스폰 시점에 콤마로 나열한다
-    # (MUSTER_ROLE_MODEL/MUSTER_AGENT_GH_TOKEN/MUSTER_WORK_DIR 와 같은
+    # (MUSTER_SKILL_MODEL/MUSTER_AGENT_GH_TOKEN/MUSTER_WORK_DIR 와 같은
     # 환경변수 관례). 빈 문자열/공백뿐인 항목은 미설정과 동일하게 버린다.
     #
     # `mcp__` 접두사만 받는다 — 이 통로는 MCP 도구 permission 층의 구멍을
@@ -562,7 +562,7 @@ def read_role_model_config() -> str:
 def resolved_role_model(cli_model: str | None = None, role: str | None = None,
                          single_phase: bool = False,
                          design_bearing_verdict: bool | None = None) -> tuple[str, str] | str:
-    """이슈#93: env > config > built-in default("sonnet"). MUSTER_ROLE_MODEL 이
+    """이슈#93: env > config > built-in default("sonnet"). MUSTER_SKILL_MODEL 이
     (strip 후) 비어 있지 않으면 그것이 이긴다 — config 는 그때는 아예 안 읽힌
     값처럼 무시된다. 둘 다 비어 있으면 "sonnet" — --model 이 항상 붙는다,
     호출자의(비쌀 수 있는) 세션 모델을 조용히 물려받지 않도록.
@@ -573,7 +573,7 @@ def resolved_role_model(cli_model: str | None = None, role: str | None = None,
 
     이슈#2070: `role` 이 주어지면(기존 세 rung 이 전부 비었을 때만) built-in
     `"sonnet"` 종착점 대신 `gates/model_routing.py`의 구조적 라우팅 계층을
-    태운다 — `--model` 과 `MUSTER_ROLE_MODEL`/`role_model.txt` 는 그대로
+    태운다 — `--model` 과 `MUSTER_SKILL_MODEL`/`role_model.txt` 는 그대로
     최우선으로 이긴다(회귀 없음). 반환값은 (model, rule) 튜플로 바뀌지만
     `role` 을 생략하면(기본값 None) 이전 세 rung 은 그대로이고 반환값도
     문자열 하나 그대로다 — byte-identical.
@@ -586,7 +586,7 @@ def resolved_role_model(cli_model: str | None = None, role: str | None = None,
     cli_value = (cli_model or "").strip()
     if cli_value:
         return (cli_value, "cli-override") if role is not None else cli_value
-    env_value = (os.environ.get("MUSTER_ROLE_MODEL") or "").strip()
+    env_value = (os.environ.get("MUSTER_SKILL_MODEL") or "").strip()
     if env_value:
         return (env_value, "env-override") if role is not None else env_value
     config_value = _sp.read_role_model_config()
@@ -710,7 +710,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # no-flag 경로의 argv 를 바이트 단위로 그대로 둔다.
     for p in (skill_dirs or []):
         cmd += ["--plugin-dir", str(p)]
-    # MUSTER_ROLE_MODEL / role_model.txt (이슈#93): 역할 세션이 쓰는 모델을
+    # MUSTER_SKILL_MODEL / role_model.txt (이슈#93): 역할 세션이 쓰는 모델을
     # 고정한다. env > config > built-in "sonnet". 둘 다 비어있어도 built-in
     # 이 이겨 --model 이 항상 붙는다 — haiku 프로브(doctor())는 이 함수를
     # 거치지 않으므로 영향 없다.

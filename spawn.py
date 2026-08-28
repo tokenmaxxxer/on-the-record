@@ -1918,7 +1918,7 @@ def main() -> int:
                          "case")
     ap.add_argument("--model",
                     help="이 스폰 한 번만 쓸 모델 오버라이드: --model > "
-                         "MUSTER_ROLE_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
+                         "MUSTER_SKILL_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
                          "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--skills", default=None,
                     help="이슈 #2572: 유일한 스폰 형태 — "
@@ -2520,7 +2520,7 @@ def main() -> int:
         require_acceptance_gate(a.cwd, a.issue)
         require_requirement_linkage(a.cwd, a.issue)
         out = role_settings(a.role, a.cwd)
-        # MUSTER_ROLE_MODEL / role_model.txt (이슈#93): spawn_cmd 는 이
+        # MUSTER_SKILL_MODEL / role_model.txt (이슈#93): spawn_cmd 는 이
         # dry-run 경로를 안 타므로(세션을 안 띄우니까) --model 부착 여부가
         # 여기 안 보이면 이슈#31 acceptance 커맨드(`--dry-run`)로는 이 기능을
         # 검증할 수 없다(실측:
