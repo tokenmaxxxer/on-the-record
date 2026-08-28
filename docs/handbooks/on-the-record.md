@@ -11,6 +11,16 @@ payload missing `file_path`/`notebook_path` — not just on the trap-caught
 crash paths (issue #287 S4). It also denies writes under a `tests/`
 path segment, not only `test/` (issue #287 S5).
 
+`tests/run-orchestrate-tests.sh`'s `guard()` helper builds its fixture
+repo under `"$HERE/.guard-fixture.XXXXXX"`, never under the plain system
+tempdir (`mktemp -d` with no `--tmpdir` override) — issue #2661
+send-back: every path under `/tmp` carries a path segment literally
+named "tmp" (the `/tmp` directory itself), which used to be an
+unconditional deliverable-guard exemption (issue #787 H1, removed by
+issue #2661) and made several `guard()` cases pass for the wrong reason
+regardless of what they actually claimed to test. Any new fixture-backed
+case in this file should keep that root, not revert to plain `mktemp -d`.
+
 ## 오케스트레이션 모델
 
 역할을 소집한다 — 그 역할의 룰북만 깔린 샌드박스 세션 하나를 띄운다.
