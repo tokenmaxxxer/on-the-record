@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse (Bash): deny-before-post gate on a "VIA DELEGATION" APPROVE
-# citation — issue #707. Blocks a role-bound session (ANY role, not only the
+# citation — issue #707. Blocks a spawned session (any identity, not only the
 # branch's own) from ever posting a delegation-citing APPROVE comment
 # itself: only an orchestrator session (not spawned / no #698
 # session-role-bind snapshot) may cite a delegation record as APPROVE
@@ -17,16 +17,16 @@
 # session bound to an unrelated role on an unrelated issue would pass that
 # narrower check without being the orchestrator at all. Absent
 # TOKENMAXXXER_SPAWNED (and absent a bound snapshot) is this repo's own
-# existing convention for "this is an orchestrator, not a role session"
+# existing convention for "this is an orchestrator, not a spawned session"
 # (session-role-bind.sh's own no-op condition), so that is the positive
-# signal checked here — any bound role, matching or not, is refused.
-# Issue #2538: only presence is ever tested (never a role name — the value
+# signal checked here — any bound skill, matching or not, is refused.
+# Issue #2538: only presence is ever tested (never a skill name — the value
 # below is only interpolated into the deny message for a human-readable
-# diagnostic), so this needs no role identity.
+# diagnostic), so this needs no skill identity.
 #
 # Fail-open on parse failure / no python3 on PATH — same fail-open posture
 # every other Bash-matcher hook in this plugin already uses; what must
-# never happen is silently allowing a positively-identified role-bound
+# never happen is silently allowing a positively-identified spawned
 # session to post the citation, matching approval-gate.sh's own asymmetry.
 # Kill switch: ORCHESTRATE_OFF=1.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT

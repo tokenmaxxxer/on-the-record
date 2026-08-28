@@ -21,15 +21,15 @@
 # OTR_FLOWS_CACHE_TTL=0 disables caching (always fetch fresh).
 #
 # Resolves the on-the-record checkout the same way directive.sh does.
-# Kill switches: ORCHESTRATE_OFF=1, TOKENMAXXXER_SPAWNED set (spawned role
+# Kill switches: ORCHESTRATE_OFF=1, TOKENMAXXXER_SPAWNED set (a spawned
 # session).
 # Spawned-session identity (issue #706, issue #2538): the presence check
 # is resolved inside the CHECK python body from the #698 session-role-bind
 # snapshot, falling back to the live env var only when no snapshot exists
-# — a role session unsetting the env var before a Stop turn can no longer
+# — a spawned session unsetting the env var before a Stop turn can no longer
 # flip itself into the orchestrator-only branch and have this
 # decision-queue nudge/block applied to it. Only presence is ever tested
-# (never a role name), so this needs no role identity. See
+# (never a skill name), so this needs no skill identity. See
 # approval-gate.sh for the resolve pattern.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail

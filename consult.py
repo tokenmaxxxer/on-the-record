@@ -492,8 +492,10 @@ def _skill_judge_consult(task_text: str, role: str,
         # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
         # 여기서 지웠다 — `spec` 은 아래 `_consult_cmd_and_env()` 호출 어디서도
         # 안 읽힌다(호출 그래프 확인됨: `_consult_cmd_and_env()` -> `role_settings()`
-        # 만 role 을 실제로 검증한다, pipeline.py). role 검증은 여전히 일어난다 —
-        # 지워진 건 죽은 코드지 검증이 아니다.
+        # 만 role 을 실제로 검증한다, pipeline.py). role 검증 호출 자체는 여전히
+        # 일어난다 — 지워진 건 죽은 코드지 검증이 아니다. 다만 이슈 #2610부터
+        # 그 함수는 role 카탈로그 조회 없이 빈 베이스라인을 무조건 쓴다(role 을
+        # 검증하지 않는다).
         # 이슈 #2061: skill_judge 는 8개 후보 중 0-2개를 고르는 자잘한
         # 분류라, 호출자가 넘긴 세션 기본 모델을 그대로 물려받지 않고
         # 언제나 haiku 로 고정한다 — `model` 인자는 시그니처 호환용으로만

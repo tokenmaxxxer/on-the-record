@@ -5,12 +5,12 @@
 # Grants `hookSpecificOutput.permissionDecision: "allow"` for a `gh pr merge`
 # call, scoped three ways per the proposal's Safety argument:
 #   (a) TOKENMAXXXER_SPAWNED resolves empty — orchestrator only, never a
-#       role session. Identity read reuses session-role-bind.sh's
+#       spawned session. Identity read reuses session-role-bind.sh's
 #       SessionStart snapshot, exactly the way approval-gate.sh already
 #       does (path:on-the-record/hooks/approval-gate.sh lines 72-92) — a
 #       later in-session re-export of the env var cannot flip this hook's
 #       belief about who is running. Issue #2538: only presence is ever
-#       tested here, never a role name, so this needs no role identity —
+#       tested here, never a skill name, so this needs no skill identity —
 #       the spawned-flag is the same presence signal without one.
 #   (b) the command is `gh pr merge` against a resolvable, explicit PR
 #       number — reuses contract-guard.sh's target-repo resolution
@@ -20,7 +20,7 @@
 #       line 31), invoked via its own CLI entrypoint against the target
 #       checkout, reports that exact PR as READY with no reason suffix.
 #
-# Any other shape (unresolvable command, role session, PR not exactly READY,
+# Any other shape (unresolvable command, spawned session, PR not exactly READY,
 # lookup failure) falls through to plain `exit 0` with no JSON — no change
 # from today's classifier/manual-grant behavior. This hook only ever ADDS a
 # permission signal; it never emits `"deny"` itself, and per the phase-2

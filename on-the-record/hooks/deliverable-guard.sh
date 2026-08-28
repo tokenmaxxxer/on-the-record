@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse (Write|Edit|MultiEdit|NotebookEdit): deny-only. In an
 # orchestrator session (this plugin enabled, not spawned), deliverables
-# are ROLE WORK — the coding-rulebook lesson, enforced mechanically after
+# are SESSION WORK — the coding-rulebook lesson, enforced mechanically after
 # a live session authored a requirements doc itself despite the directive.
 #
 # Denied: writes to any deliverable-shaped path in a target repo — not
@@ -30,10 +30,10 @@
 # Spawned-session identity (issue #706, keyed off TOKENMAXXXER_SPAWNED per
 # issue #2538): the presence check is resolved inside the Python body from
 # the #698 session-role-bind snapshot, falling back to the live env var
-# only when no snapshot exists — a role session unsetting the env var
+# only when no snapshot exists — a spawned session unsetting the env var
 # before this hook fires can no longer flip itself into the orchestrator
 # branch and dodge its own deliverable-write denial. This hook only ever
-# tests presence (never the role name), so it needs no identity beyond
+# tests presence (never the skill name), so it needs no identity beyond
 # "was this session spawned" — see approval-gate.sh for the ported
 # resolve pattern.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT

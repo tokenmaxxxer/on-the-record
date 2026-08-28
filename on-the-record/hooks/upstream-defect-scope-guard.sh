@@ -20,7 +20,7 @@
 #     with a createPullRequest-shaped body
 #
 # Scoped (issue #1171): deny only within the upstream-defect channel's own
-# flow, never a role session's own delivery PR against origin. Before
+# flow, never a spawned session's own delivery PR against origin. Before
 # #1171, this fired on every Bash call regardless of target or session —
 # which also denied issue-1163's own delivery-PR creation against origin
 # (docs/issue-1163/reports/implementation.md, 2026-08-13), because this

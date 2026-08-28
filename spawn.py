@@ -9,10 +9,10 @@
   python3 spawn.py --skills conformance-review-verdict-assignment "PR 12 를 리뷰해라" --issue 12
   python3 spawn.py --skills testing "/testrun:testrun smoke" --issue 34 -C ~/work/some-repo
 
-**왜 스크립트가 필요한가**: `--settings` 는 덮어쓰기가 아니라 **병합**이다. 역할
-파일에 qa 플러그인만 적어도 사용자 전역 설정의 플러그인 17개가 그대로 딸려온다 —
+**왜 스크립트가 필요한가**: `--settings` 는 덮어쓰기가 아니라 **병합**이다. 스킬
+세션 설정에 qa 플러그인만 적어도 사용자 전역 설정의 플러그인 17개가 그대로 딸려온다 —
 "코딩 에이전트가 qa 룰북까지 본다"는 원래 문제의 다른 얼굴이다. 전역 목록을 읽어
-역할이 켜지 않은 것을 전부 `false` 로 덮어야 격리가 성립한다(실측 확인).
+스킬이 켜지 않은 것을 전부 `false` 로 덮어야 격리가 성립한다(실측 확인).
 
 `--settings` 는 사용자 설정보다 우선순위가 높으므로 이 덮어쓰기가 이긴다.
 
@@ -760,7 +760,7 @@ _UPSTREAM_PATH = re.compile(r"^\s*-\s*path:\s*(\S+)", re.M)
 
 # issue #476 round 3, candidate E (refusal-cost-parity). 등록된 refusal/
 # null-result 어휘만 인정한다 — 자유 문장이 아니라 이 닫힌 집합과 정확히
-# 일치해야 한다("REFUSAL: <state> — <reason>" 형태), 그래야 역할 세션이
+# 일치해야 한다("REFUSAL: <state> — <reason>" 형태), 그래야 세션이
 # 임의 텍스트로 스스로를 이 경로에 밀어넣지 못한다. rounds 1-2 의
 # loop_state 어휘(H2)와 issue #983 의 role-session 변형에서 이미 쓰는
 # 이름들을 재사용한다 — 새 어휘를 이 라운드가 새로 발명하지 않는다.
@@ -1808,14 +1808,14 @@ def drive(cwd: str, unattended: bool, limit: int = 12) -> int:
 
     "누구를 다음에 띄울지"는 기계가 평가하는 라우팅 표가 아니라 오케스트레이터가
     보드(기록, loop_state)를 직접 읽고 내리는 판단이다(이슈 #120) — 그래서
-    drive 는 스스로 역할을 고르지 않는다. 자동으로 고를 표가 없으므로 이
+    drive 는 스스로 고르지 않는다. 자동으로 고를 표가 없으므로 이
     호출은 항상 즉시 멈춘다; 남은 인자는 향후 호출부 호환을 위해 받되 쓰지
     않는다.
 
     이슈 #492 (ADR): `reconcile()` 이 낸 divergence 를 소비하는 것으로
     바뀐다 — 로스터를 읽어 엔트리마다 `reconcile()` 을 돌리고 결과와
     `next_action` 을 출력한다. #120 계약은 그대로다: drive() 는 여전히
-    아무 역할도 스스로 고르지 않고, 무엇을 띄울지는 오케스트레이터의
+    아무것도 스스로 고르지 않고, 무엇을 띄울지는 오케스트레이터의
     판단으로 남긴다 — 여기서 respawn/resume-watch 를 자동 실행하지 않는다.
     """
     root = Path(cwd).resolve()
@@ -2159,10 +2159,10 @@ def main() -> int:
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
     if a.role == "rebase":
-        # Issue #2403: mechanical rebase of the role branch already checked
+        # Issue #2403: mechanical rebase of the branch already checked
         # out at `-C <cwd>` onto current main -- no LLM session. Only the
         # conflict-free case is mechanical; a conflict aborts and asks for
-        # a real role session (conflict resolution needs judgment).
+        # a real session (conflict resolution needs judgment).
         return mechanical_rebase_cli(str(Path(a.cwd).resolve()))
     if a.role == "recut-corrupted":
         if not a.issue or not a.watch_session:
@@ -2467,7 +2467,7 @@ def main() -> int:
         print(_acceptance_gate.format_sweep_report(bad_by_issue))
         return 1 if bad_by_issue else 0
     if a.role == "drive":
-        # 보드가 지목하는 역할을 하나씩, 멈출 때까지.
+        # 보드가 지목하는 세션을 하나씩, 멈출 때까지.
         require_board(a.cwd, a.no_contract)
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_doctor()
@@ -2774,7 +2774,7 @@ def checkout_staleness(root: Path = ROOT, fetch: bool = True) -> dict:
 def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
 
-    산출물이 PR 로만 돌아오는 모델에서 역할 세션이 사용자의 체크아웃을
+    산출물이 PR 로만 돌아오는 모델에서 세션이 사용자의 체크아웃을
     공유할 이유가 없다 — 공유하면 동시 스폰 둘이 같은 .git/index 와 현재
     브랜치를 두고 경합한다(실측: issue-45 와 issue-59 coding 세션이 한
     트리에서 충돌 직전까지 갔다). 로컬에서 클론하고 origin 을 실제 원격으로
@@ -2807,7 +2807,7 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
                  f"GitHub 원격이 전제다 (계약 v3 s10)")
     # 보호 경로 밖이어야 한다: on-the-record 가 ~/.claude/plugins/ 아래 설치되면
     # ROOT/runs/work 도 그 아래가 되는데, 거긴 Claude Code 의 전역 sensitive
-    # 경로라 역할 세션의 Write 가 전부 거부된다(실측: phase 2 가 코드 한 줄
+    # 경로라 세션의 Write 가 전부 거부된다(실측: phase 2 가 코드 한 줄
     # 못 쓰고 $2.68 을 태웠다). 기본은 ~/.tokenmaxxxer/work, 오버라이드는
     # MUSTER_WORK_DIR.
     work_base = _workspace_base()
@@ -3000,7 +3000,7 @@ def _mechanical_rebase(cwd: str, push: bool = True) -> dict:
     """Issue #2403 — bring the branch already checked out at `cwd` current
     with `_base(cwd)` via plain git, no LLM session. Only the conflict-free
     case is handled mechanically: a rebase that needs conflict resolution
-    is aborted and reported so the caller falls back to a real role
+    is aborted and reported so the caller falls back to a real
     session (conflict resolution is a judgment call, not mechanical --
     rationale in docs/issue-2403/reports/implementation.md).
 
@@ -3044,7 +3044,7 @@ def _mechanical_rebase(cwd: str, push: bool = True) -> dict:
 def mechanical_rebase_cli(cwd: str) -> int:
     """`spawn.py rebase -C <cwd>` — issue #2403 진입점. `_mechanical_rebase()`
     결과를 사람이 읽을 한 줄로 찍고, `up-to-date`/`rebased` 는 0, `conflict`
-    는 (role 세션이 필요하다는 신호로) 2, 그 외 오류는 1 을 돌려준다."""
+    는 (세션이 필요하다는 신호로) 2, 그 외 오류는 1 을 돌려준다."""
     result = _mechanical_rebase(cwd)
     print(f"[rebase] status={result['status']} behind={result['behind']} — {result['detail']}")
     if result["status"] in ("up-to-date", "rebased"):
@@ -3192,7 +3192,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                attempt_id: str | None = None,
                skills_branch_identity: tuple[str, str] | None = None,
                issue_data=_ISSUE_NOT_PRE_RESOLVED) -> int:
-    """역할 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
+    """세션 하나를 띄우고, 무슨 일이 있었는지 원장에 남기고, 처분을 말한다.
 
     main() 과 drive() 가 같은 몸통을 쓴다 — 드라이버가 따로 스폰 경로를 들고
     있으면 둘이 갈라지고, 갈라진 쪽이 조용히 게이트 하나를 빠뜨린다.
@@ -3497,7 +3497,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         if not task_path.exists():
             task_path.write_text(task, encoding="utf-8")
         # issue #1017 (northpole req#6): 이슈가 인용하는 요구 ID를 스폰
-        # 텍스트에 그대로 실어, 스폰된 역할 세션이 첫 턴부터 어느 요구를
+        # 텍스트에 그대로 실어, 스폰된 세션이 첫 턴부터 어느 요구를
         # 섬기는지 안다. gh 조회 실패는 조용히 건너뛴다 — 이 줄이 없다고
         # 스폰 자체를 막을 이유는 없다(require_requirement_linkage 가 이미
         # phase-1 드래프트 시점에 구조적으로 막는다).
@@ -3585,7 +3585,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                  title, resolved_owner, resolved_repo) = _issue_fetch_future.result()
                 _issue_fetch_executor.shutdown(wait=False)
         # 이슈 #2395: cwd 가 어느 레포로 해석됐는지(owner/repo#n) + 이슈
-        # 제목을, 오케스트레이터 stdout 과 역할 세션에 주입되는 지시문
+        # 제목을, 오케스트레이터 stdout 과 세션에 주입되는 지시문
         # 양쪽에 같은 문구로 찍는다 — 같은 이슈 번호가 레포마다 다른
         # 이슈를 가리키는 사고를 "조용한 오해"가 아니라 "눈에 보이는
         # 사실"로 바꾼다. gh 조회 실패(fetch_issue 가 None)는 조용히
@@ -3691,7 +3691,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.{cross_family_clause}\n"))
         # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
-        # 역할 매핑이든) 실체 작업을 시작하기 전에 그 목록을 이번 과제와
+        # POLICY 스킬이든) 실체 작업을 시작하기 전에 그 목록을 이번 과제와
         # 대조해보라고 스폰 시점에 못박는다. 베이스라인 측정
         # (docs/issue-1960/reports/execution-observation/baseline-measurement.md)
         # 이 relevance-gated 세션 38개 전부에서 Skill 호출 0건을 보였다 —
@@ -3805,7 +3805,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # assembled directive, at every spawn.
     print(f"[{role}] {composition_breakdown(_directive_parts)}",
           file=sys.stderr)
-    # 이슈 #1955: 역할은 룰북을 아예 마운트하지 않는다 — rulebook 해석
+    # 이슈 #1955: 세션은 룰북을 아예 마운트하지 않는다 — rulebook 해석
     # 경로 자체가 은퇴했다(요구사항: 룰북 마운트가 "붙었지만 무시됨"이
     # 아니라 argv 에서 통째로 빠져야 한다는 #1758 요구사항 2를 무조건화).
     plugins: list[Path] = []

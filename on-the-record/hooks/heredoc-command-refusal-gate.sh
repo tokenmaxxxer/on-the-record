@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# PreToolUse (Bash): deny-only, role-scoped refusal-message gate — issue
+# PreToolUse (Bash): deny-only, spawned-session-scoped refusal-message gate — issue
 # #1976.
 #
-# Dogfooding observation (issue #1976): virtually every role session's
+# Dogfooding observation (issue #1976): virtually every spawned session's
 # first `git commit`/`gh pr create`/`gh issue create`/`gh pr comment`/
 # `gh issue comment` attempt uses a heredoc-shaped message/body (`$(cat
 # <<'EOF' ... EOF)`, or any other `<<` heredoc redirection anywhere in
@@ -22,11 +22,11 @@
 #   gh issue/pr create   -> `--body-file <path>` instead of `--body "$(...)"`
 #   gh issue/pr comment  -> `--body-file <path>` instead of `--body "$(...)"`
 #
-# Scope: role sessions only (`TOKENMAXXXER_SPAWNED` resolves non-empty via
+# Scope: spawned sessions only (`TOKENMAXXXER_SPAWNED` resolves non-empty via
 # the same SessionStart-snapshot-first / live-env-var-fallback primitive
 # gh-write-allow-gate.sh/merge-allow-gate.sh/spawn-allow-gate.sh already
-# use — issue #2538: presence-only, no role name needed) — issue #1976's
-# dogfooding note is specifically about role
+# use — issue #2538: presence-only, no skill name needed) — issue #1976's
+# dogfooding note is specifically about spawned
 # sessions, and gh-write-allow-gate.sh already owns the orchestrator's
 # quoted-heredoc allow path for the five gh verbs it recognizes; this gate
 # must never regress that by denying an orchestrator's already-working

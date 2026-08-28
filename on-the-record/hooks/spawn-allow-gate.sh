@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # PreToolUse (Bash): plugin-only default-on orchestrator spawn-allow gate —
 # issue #810 SCOPE EXTENSION 2, extending merge-allow-gate.sh's pattern from
-# `gh pr merge` to the plugin's own spawn.py role-spawn/watch/consult
+# `gh pr merge` to the plugin's own spawn.py spawn/watch/consult
 # invocations.
 #
 # Live evidence that motivated this (issue #810 comment "SCOPE EXTENSION 2"):
@@ -15,9 +15,9 @@
 #
 # Scoped the same three ways merge-allow-gate.sh already established:
 #   (a) TOKENMAXXXER_SPAWNED resolves empty — orchestrator only, never a
-#       role session. Same SessionStart-snapshot identity read as
+#       spawned session. Same SessionStart-snapshot identity read as
 #       merge-allow-gate.sh / approval-gate.sh; issue #2538: presence-only,
-#       no role name needed.
+#       no skill name needed.
 #   (b) the whole, unstripped command tokenizes (shlex.shlex(posix=True,
 #       punctuation_chars=True) — issue #824's design, ported here per
 #       issue #834) to exactly ["python3"|"python", SPAWN_PATH, ...tail] or

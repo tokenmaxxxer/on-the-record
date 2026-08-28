@@ -36,8 +36,8 @@
 #
 # Seventh firing condition (issue #641): review-is-role-work detector.
 # `gh pr comment` / `gh issue comment`, only when TOKENMAXXXER_SPAWNED is
-# unset (an orchestrator session, not a role session doing legitimate
-# conformance-review/axis-panel work — issue #2538: presence-only, no role
+# unset (an orchestrator session, not a spawned session doing legitimate
+# conformance-review/axis-panel work — issue #2538: presence-only, no skill
 # name needed here, unlike approval-gate.sh's own dual-carrier check).
 # Advisory only, never
 # blocks the underlying command: a lexical proxy checks whether the

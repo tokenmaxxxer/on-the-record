@@ -10,7 +10,7 @@ set -uo pipefail
 # issue #2028: append-only fire counter -- the #2016 survey left "how
 # often does Stop/UserPromptSubmit actually fire per session" an
 # unmeasured open finding. One line per firing, written before any
-# kill-switch/role short-circuit below so the count reflects every real
+# kill-switch/spawned-session short-circuit below so the count reflects every real
 # trip of this hook, not just the ones that go on to do work. Lives under
 # the session workspace (the target repo this hook fires in, same
 # per-workspace convention GREETED_MARKER below already uses), never the
@@ -28,7 +28,7 @@ _HOOK_PAYLOAD="$(cat 2>/dev/null || true)"
 hook_fires_record "UserPromptSubmit directive.sh" "$_HOOK_PAYLOAD"
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-# A spawned role session is never the orchestrator, even if the plugin leaks in.
+# A spawned session is never the orchestrator, even if the plugin leaks in.
 [ -z "${TOKENMAXXXER_SPAWNED:-}" ] || { trap - EXIT; exit 0; }
 
 # issue #947 (northpole req#7): monitor-unavailable degradation notice.

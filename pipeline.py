@@ -315,7 +315,7 @@ def role_settings(role: str, cwd: str | None = None,
     # NETWORK 층(allowedDomains)만 열었다 — TOOL-PERMISSION 층은 별개로, (당시)
     # headless 세션은 --permission-mode acceptEdits 로 뜨고 답할 사람이 없어서
     # permissions.allow 에 규칙이 없는 도구는 그냥 거부됐다(#58 조사가 놓친 지점).
-    # 모든 역할에 적용한다(#58 과 동일한 operator 결정: option B) — 샌드박스
+    # 모든 세션에 적용한다(#58 과 동일한 operator 결정: option B) — 샌드박스
     # 활성 여부와 무관하다, 이 층은 샌드박스가 아니라 CLI 권한 프롬프트이므로.
     # Read/Grep/Glob 도 같은 이유로 추가한다(이슈 #153) — 읽기 전용 조회이고
     # 도달 가능한 경로는 여전히 sandbox.filesystem.allowRead/denyRead 가 정한다;
@@ -409,7 +409,7 @@ def core_root() -> Path:
     """tokenmaxxxer-core 체크아웃 루트. 없으면 멈춘다.
 
     core 는 상호작용 프로토콜의 게이트(보드·승인·gh-guard)와 정본 계약을
-    들고 있다. 없이 띄우면 역할은 그대로 돌지만 아무도 이탈을 막지 않는다 —
+    들고 있다. 없이 띄우면 세션은 그대로 돌지만 아무도 이탈을 막지 않는다 —
     조용히 보호가 사라지는 쪽이라 경고가 아니라 정지다.
     """
     for _label, cand in _sp._core_candidates():
@@ -649,7 +649,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     있다.
 
     이슈 #2211: `ON_THE_RECORD`(플러그인 체크아웃 루트, `_sp.ROOT`) 와
-    `MUSTER_WORKSPACE_ROOT`(역할 워크스페이스 루트, `_sp._workspace_base()`)
+    `MUSTER_WORKSPACE_ROOT`(세션 워크스페이스 루트, `_sp._workspace_base()`)
     는 스포너가 스폰 시점에 이미 아는 값이라 무조건 심는다.
     `skill_registry_root`(있으면, 호출자가 이미 해석해 넘긴 skill-repository
     checkout)는 `MUSTER_SKILL_REGISTRY_ROOT` 로 심는다 — `CLAUDE_PLUGIN_ROOT_CORE`
@@ -664,15 +664,15 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
            "--exclude-dynamic-system-prompt-sections"]
     if append_system_prompt:
         cmd += ["--append-system-prompt", append_system_prompt]
-    # Issue #2135 (measured composition): a role session inheriting the
+    # Issue #2135 (measured composition): a spawned session inheriting the
     # operator's USER-scope settings mounts the operator's entire personal
     # skill registry (273 skills / ~410KB of trigger descriptions on the
     # measured machine) into its standing system prompt — the dominant
     # share of the ~55K-token session-start context, none of it addressed
-    # to the role (role skills mount explicitly via --plugin-dir above).
-    # Restrict setting sources to the target project. Everything the role
+    # to the session (its own skills mount explicitly via --plugin-dir above).
+    # Restrict setting sources to the target project. Everything the
     # session needs rides on explicit flags: --settings (generated file),
-    # --plugin-dir (core + role skills), --model, env (GH_TOKEN, CLAUDE_ROLE).
+    # --plugin-dir (core + session skills), --model, env (GH_TOKEN, CLAUDE_ROLE).
     # Kill switch / override: MUSTER_SETTING_SOURCES ("user,project,local"
     # restores the old behavior; empty string omits the flag entirely).
     setting_sources = os.environ.get("MUSTER_SETTING_SOURCES",
@@ -710,7 +710,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # no-flag 경로의 argv 를 바이트 단위로 그대로 둔다.
     for p in (skill_dirs or []):
         cmd += ["--plugin-dir", str(p)]
-    # MUSTER_ROLE_MODEL / role_model.txt (이슈#93): 역할 세션이 쓰는 모델을
+    # MUSTER_ROLE_MODEL / role_model.txt (이슈#93): 스폰된 세션이 쓰는 모델을
     # 고정한다. env > config > built-in "sonnet". 둘 다 비어있어도 built-in
     # 이 이겨 --model 이 항상 붙는다 — haiku 프로브(doctor())는 이 함수를
     # 거치지 않으므로 영향 없다.
@@ -738,14 +738,14 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     if max_turns is not None and max_turns > 0:
         env["MUSTER_SESSION_MAX_TURNS_RESOLVED"] = str(max_turns)
         env["MUSTER_APPROACH_WARNING_TURNS"] = str(_resolve_approach_warning_turns())
-    # Two-account model (core README): role sessions act as the AGENT
+    # Two-account model (core README): spawned sessions act as the AGENT
     # account. MUSTER_AGENT_GH_TOKEN, if set, becomes the session's GH_TOKEN
     # so gh in the container/sandbox authenticates as the agent — never the
-    # user. gh-guard denies the human's acts in role sessions regardless.
+    # user. gh-guard denies the human's acts in spawned sessions regardless.
     # 샌드박스 안에서는 macOS 키링이 안 보여 gh 토큰이 무효로 읽힌다(실측).
     # 그래서 토큰을 env 로 명시 주입한다: 에이전트 토큰이 있으면 그것,
     # 없으면(1계정 기본) 사용자의 gh 토큰을 꺼내 넘긴다. gh-guard 가
-    # 역할 세션의 사람-행위 명령은 어차피 막는다.
+    # 스폰된 세션의 사람-행위 명령은 어차피 막는다.
     # `_resolve_gh_token()` 과 로직을 공유한다(중복 제거, 이슈 발견:
     # 오케스트레이터 자신의 git 호출은 이 로직이 없어서 인증 없이 돌았다) —
     # 캐시도 공유해서, 이 스폰에서 `_fetch_or_halt()` 가 먼저 불렸다면
@@ -793,7 +793,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
 
 
 def ensure_target_remote(cwd: str, unattended: bool) -> None:
-    """`origin` 원격 유무를 역할 스폰 전에 정리한다(이슈 #831).
+    """`origin` 원격 유무를 스폰 전에 정리한다(이슈 #831).
 
     #830 실측: 헤드리스 top-level 세션이 `--issue` 없는 첫 스폰은 통과하고
     (issue_workspace 를 안 거치므로), 실제 작업을 시키는 두 번째 `--issue`
@@ -1060,7 +1060,7 @@ def _checkout_named_branch(cwd: str, br: str) -> str:
 
     core 의 board-gate R4 가 보드 쓰기를 이 브랜치에서만 허용하므로, 스폰
     전에 서 있어야 세션이 첫 쓰기부터 막히지 않는다. base 는 원격 기본
-    브랜치 — 역할 산출물은 main 에서 갈라져 PR 로만 돌아간다 (계약 v3 s10).
+    브랜치 — 세션 산출물은 main 에서 갈라져 PR 로만 돌아간다 (계약 v3 s10).
     """
     def git(*a):
         return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
@@ -1272,7 +1272,7 @@ def _artifact_smoke_task_lines(body: str | None) -> str:
 
 def _goal_pin_block(title: str | None, body: str | None) -> str:
     """이슈 #1652 (northpole req#6): 제목 + '## Acceptance' 의 'check:'
-    불릿을 스폰 프롬프트에 그대로(verbatim) 박아, 스폰된 역할 세션이
+    불릿을 스폰 프롬프트에 그대로(verbatim) 박아, 스폰된 세션이
     첫 턴부터 원본 목표를 본다 — 코멘트 히스토리 등 오염된 문맥은 절대
     섞지 않는다. Acceptance 절이 없거나 check: 불릿이 하나도 없으면
     빈 문자열을 돌려준다(오늘의 프롬프트와 바이트 단위로 동일해야
@@ -1686,8 +1686,8 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
     `_SINGLE_PHASE_CONTRACT_LINE`; per-skill trigger lines — issue #1978)
     must assemble without error BEFORE spawn. An assembly failure here is
     an admission refusal, not a mid-flight surprise. This is deterministic
-    local work (role spec file, skill-repository checkout, SKILL.md
-    frontmatter), so a failure is a refusal — never fail-open."""
+    local work (skill-repository checkout, SKILL.md frontmatter), so a
+    failure is a refusal — never fail-open."""
     role = ctx["role"]
     try:
         # 이슈 #2555 (Step C), 이슈 #2560 로 `_sp.ROLES` 자체가 삭제됨:

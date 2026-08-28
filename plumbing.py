@@ -342,9 +342,9 @@ def _resolve_gh_token() -> str:
     `gh auth token` 을 그만큼 다시 shell-out 한다). 실패하면 빈 문자열 —
     호출부가 "주입 안 함"으로 처리한다.
 
-    `spawn_cmd()` 가 역할 세션의 `GH_TOKEN` env 를 채울 때 쓰던 것과 같은
+    `spawn_cmd()` 가 세션의 `GH_TOKEN` env 를 채울 때 쓰던 것과 같은
     로직이다(중복 제거) — 두 소비자가 정확히 같은 우선순위를 공유해야,
-    오케스트레이터 자신의 git 호출과 역할 세션이 서로 다른 계정으로 인증하는
+    오케스트레이터 자신의 git 호출과 세션이 서로 다른 계정으로 인증하는
     일이 없다."""
     if _sp._GH_TOKEN_CACHE is not None:
         return _sp._GH_TOKEN_CACHE
@@ -366,7 +366,7 @@ def _git_env() -> dict[str, str] | None:
 
     `issue_workspace()` 가 작업 클론에 심는 credential.helper
     (`!f() { ...; echo password=$GH_TOKEN; }; f`)는 그 helper 를 실행하는
-    프로세스의 `$GH_TOKEN` 을 읽는다. 역할 세션에는 `spawn_cmd()` 가 이
+    프로세스의 `$GH_TOKEN` 을 읽는다. 세션에는 `spawn_cmd()` 가 이
     값을 명시 주입하지만, `_fetch_or_halt()`/`ensure_pushed()` 는
     오케스트레이터 자신의 프로세스에서 돈다 — 아무도 이 프로세스의 env 에는
     넣어주지 않았다(실측: reasona 검증 중 `GH_TOKEN` 없이 `python3

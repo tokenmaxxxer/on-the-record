@@ -8,8 +8,8 @@ issue #322: 운영자가 승인/거부/피드백으로 남기는 판단은 노�
 네 번 반복된 뒤에야 사람이 알아채고 문서화했다 — 처음 교정에서 배웠다면 두
 번째는 없었을 것이다.
 
-읽는 것은 role 세션이 이미 record-shape-gate 강제로 쓰는
-`docs/issue-*/reports/implementation.md` (및 다른 role 의 동종 기록 파일)의
+읽는 것은 세션이 이미 record-shape-gate 강제로 쓰는
+`docs/issue-*/reports/implementation.md` (및 다른 참가자의 동종 기록 파일)의
 `## What did not work` / `## Rationale for deviations` 절이다 — 새 데이터
 수집 경로 없이, 이미 커밋된 텍스트만 읽는다.
 
@@ -91,7 +91,7 @@ def _subject_of(rel: str) -> str:
 
 
 def records(repo: Path) -> list[str]:
-    """스캔할 role 기록 파일들의 레포 상대 경로."""
+    """스캔할 기록 파일들의 레포 상대 경로."""
     board = repo / BOARD
     if not board.is_dir():
         return []

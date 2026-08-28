@@ -14,7 +14,8 @@ Three axes, checked against a landed diff and its landing record:
 `execution-observation` is skip-eligible (population S) only when ALL
 three axes read low-risk; any single trip routes the PR to population R
 (required). `#476`'s `fabrication_survival_rate` guardrail machinery is
-untouched — this module only conditions whether the role is spawned.
+untouched — this module only conditions whether execution-observation is
+spawned.
 """
 from __future__ import annotations
 import re

@@ -13,9 +13,9 @@
 # Same three-part design as merge-allow-gate.sh (#816) and
 # spawn-allow-gate.sh (#823):
 #   (a) TOKENMAXXXER_SPAWNED resolves empty — orchestrator only, never a
-#       role session (identical SessionStart-snapshot-first identity read;
-#       issue #2538: this check only tests presence, never a role name, so
-#       it needs no role identity — the spawned-flag is the same presence
+#       spawned session (identical SessionStart-snapshot-first identity read;
+#       issue #2538: this check only tests presence, never a skill name, so
+#       it needs no skill identity — the spawned-flag is the same presence
 #       signal without one).
 #   (b) the whole, unstripped command tokenizes (shlex.shlex(posix=True,
 #       punctuation_chars=True) — issue #824/#834's strict command-shape
@@ -30,11 +30,11 @@
 #       forge writes (create/comment/close, not merge), so unlike
 #       merge-allow-gate.sh there is no landing_readiness.py call.
 #
-# Any other shape (unresolvable command, role session, unrecognized verb)
+# Any other shape (unresolvable command, spawned session, unrecognized verb)
 # falls through to plain `exit 0` with no JSON — no change from today's
 # classifier/manual-grant behavior. This hook only ever ADDS a permission
 # signal; it never emits `"deny"` itself, so an existing deny gate on the
-# same command (e.g. a role-scoped gate, or a future gh-write deny rule)
+# same command (e.g. a spawned-session-scoped gate, or a future gh-write deny rule)
 # still wins when both fire — the same safe composition proven for #816.
 #
 # Kill switch: ORCHESTRATE_OFF=1 (same convention as every other gate here).

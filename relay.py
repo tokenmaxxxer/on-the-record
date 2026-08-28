@@ -197,7 +197,7 @@ def ensure_pushed(work: str, issue: int, role: str) -> dict:
     샌드박스의 GitHub egress 는 환경마다 다르게 막힌다(https 프록시 403,
     ssh-only 정책, 키링 불가시 등 — 전부 실측). 산출물이 로컬 커밋으로만
     남으면 보드에 존재하지 않는 것과 같으므로, on-the-record 가 세션 종료 후
-    바깥에서 릴레이한다. 역할이 스스로 push/PR 에 성공했으면 전부 no-op.
+    바깥에서 릴레이한다. 세션이 스스로 push/PR 에 성공했으면 전부 no-op.
 
     리턴은 `{"status": ..., "reason": <str|None>}` — status 는
     `nothing-to-push` / `pushed` / `push-rejected` / `pr-create-failed` /

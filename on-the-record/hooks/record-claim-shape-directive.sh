@@ -4,8 +4,8 @@
 # #726 audit row 9: every role learned this shape only from refusal,
 # the single most frequent gate-refusal on 2026-08-11).
 #
-# Audience: a spawned ROLE session only (TOKENMAXXXER_SPAWNED set — issue
-# #2538: presence-only, no role name needed) — the orchestrator never
+# Audience: a spawned session only (TOKENMAXXXER_SPAWNED set — issue
+# #2538: presence-only, no skill name needed) — the orchestrator never
 # writes docs/issue-*/reports/** itself, so it is never the audience for
 # this shape. Mirrors directive.sh's inverse spawned-presence gate.
 #

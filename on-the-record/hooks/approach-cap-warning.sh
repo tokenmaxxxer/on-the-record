@@ -37,9 +37,9 @@
 # Spawned-session identity (matches retry-loop-bound.sh, approval-gate.sh;
 # issue #2538): resolves TOKENMAXXXER_SPAWNED from the #698
 # session-role-bind snapshot with a live-env fallback — presence-only,
-# never a role name, so this needs no role identity. Orchestrator sessions
+# never a skill name, so this needs no skill identity. Orchestrator sessions
 # never carry MUSTER_SESSION_MAX_TURNS_RESOLVED in the first place
-# (pipeline.py only sets it inside a role spawn's env), so this check is a
+# (pipeline.py only sets it inside a spawned session's env), so this check is a
 # second, independent no-op guard rather than the only one.
 #
 # Fails OPEN on any parse/state error or missing session_id — this hook

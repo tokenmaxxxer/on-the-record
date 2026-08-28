@@ -1,7 +1,7 @@
 """Post-hoc trajectory analyzer over a session's raw stream-json log
 (issue #2214).
 
-`spawn.py`'s `_session_log_path()` already tees every role session's
+`spawn.py`'s `_session_log_path()` already tees every session's
 `--output-format stream-json` output to `<work>.session.<ts>.<pid>.log` —
 this module is the first thing that reads it back for anything beyond a
 live tee. Two things it recovers:

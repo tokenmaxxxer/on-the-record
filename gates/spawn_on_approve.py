@@ -14,8 +14,9 @@ APPROVE 코멘트를 보고 `spawn.py <role> ... --issue <n>` 를 수동으로
 다시 실행해야만 phase-2 가 시작됐다.
 
 이 모듈은 `spawn_on_pr.py` 와 나란한 세 번째 board-wide 스윕 신호이지만
-트리거 조건이 정반대다 — 그쪽은 "PR 이 생겼다"(role 고정, PR 존재가
-트리거), 이쪽은 "이 role 이 승인됐다"(role 은 board 가 이미 아는 임의의
+트리거 조건이 정반대다 — 그쪽은 "PR 이 생겼다"(PR 존재가 트리거 — issue
+#2628 이후로는 role 고정이 아니라 subject 당 부족한 독립 verification
+개수를 본다), 이쪽은 "이 role 이 승인됐다"(role 은 board 가 이미 아는 임의의
 role, `gates/ci.py._approved_roles_on_issue` 술어로 판정) + "아직
 phase-2 기록이 없다"(board 에 role 항목 없음, phase-1 은 record 를 쓰지
 않는다는 계약 그대로) + "phase-1 PR 이 이미 열려 있다"(계속할 브랜치가
