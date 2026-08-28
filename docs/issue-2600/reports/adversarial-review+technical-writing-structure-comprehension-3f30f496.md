@@ -27,10 +27,9 @@ independent session re-derived every command from a fresh clone, took
 the subject's PR body and record as context only, and treated the
 933-vs-934 discrepancy and the consult.py hunk as findings surfaced by
 looking rather than assumed innocent.
-skill-verdict: technical-writing-structure-comprehension — applied:
-invoked; used to keep this record's sentences near the 15-20 word target
-and to group the four-claim-plus-two-extras findings under per-claim
-subheadings instead of one flat wall of prose.
+skill-verdict: technical-writing-structure-comprehension — applied: invoked; used to keep this record's sentences near the 15-20 word
+target and to group the four-claim-plus-two-extras findings under
+per-claim subheadings instead of one flat wall of prose.
 
 ### Claim 1 — shell diff restricted to non-comment lines is empty: **PRESENT**
 
