@@ -10,7 +10,7 @@
 # time days later (#332's generator point).
 #
 # Ported checks, all scoped to writes under docs/issue-*/reports/** or
-# work/docs/issue-*/reports/** (a role's own record):
+# work/docs/issue-*/reports/** (a session's own record):
 #   - #333 mirror: a bare "N of M"/"N items" count claim with no code-fence
 #     reproduction and no `derived: ...` citation.
 #   - #310 mirror: an `unverifiable:` escape line with no reason text.
@@ -19,7 +19,7 @@
 #   - #330 mirror: a backtick-quoted relative path referenced in the new
 #     content that does not exist anywhere in the working tree — an
 #     orphaned reference caught at write time instead of PR review.
-#   - #793 mirror (verify-before-claim): a role-output / session-PR-board
+#   - #793 mirror (verify-before-claim): a session-output / session-PR-board
 #     state / defect claim line with no `canonical: <what was read>` tag
 #     within 3 lines above it — a claim citing only a summary, grep, or
 #     watcher signal with nothing canonical named.

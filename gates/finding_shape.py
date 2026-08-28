@@ -1,6 +1,6 @@
 """domain-finding shape checker (issue #1202 requirement 2).
 
-A role session that discovers a domain problem in its own domain records
+A session that discovers a domain problem in its own domain records
 it as a structured finding file under
 `docs/reports/findings/<role>/<date>-<slug>.md` (or the per-issue
 variant `docs/issue-<n>/reports/findings/<role>/...`) — never a direct
@@ -99,7 +99,7 @@ def check_rate_bound(findings_root: Path, role: str, session_id: str,
     summary-line path the session must use instead.
 
     Counts only finding files already written this session — matched via
-    an optional `session:` frontmatter field a role session stamps into
+    an optional `session:` frontmatter field a session stamps into
     every finding it writes. Per-session, not cumulative against the
     standing queue: a fresh `session_id` gets a fresh bound (proposal
     §4 — the bound forces depth-over-volume triage within one look, not

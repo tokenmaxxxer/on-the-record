@@ -733,7 +733,8 @@ def parse_checked_claims(work: Path) -> list[tuple[str, str, str, str | None]]:
 
 
 def record_checked_claims(d: Path, cfg: dict) -> list[str]:
-    """변경된 phase-2 레코드가 role 의 터미널 `loop_state` 를 선언하면
+    """변경된 phase-2 레코드가 (role 과 무관하게 구조적으로 판정되는,
+    `_is_terminal_loop_state` 참고) 터미널 `loop_state` 를 선언하면
     `## Acceptance verification` 섹션을 요구하고, 그 라인이 기계로 falsifiable
     한지 검사한다 (issue #331).
 

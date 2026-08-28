@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# UserPromptSubmit: the role-session variant of the #958/#803 deviation
+# UserPromptSubmit: the spawned-session variant of the #958/#803 deviation
 # loop (issue #983 — audit E Finding 1: the loop was structurally
 # orchestrator-only, docs/issue-754/reports/defect-verification.md).
 #
-# Audience: a spawned ROLE session only (TOKENMAXXXER_SPAWNED set — issue
-# #2538: presence-only, no role name needed) — the orchestrator already
+# Audience: a spawned session only (TOKENMAXXXER_SPAWNED set — issue
+# #2538: presence-only, no skill name needed) — the orchestrator already
 # gets the loop from directive.sh's own "YOUR DEVIATION LOOP" paragraph;
 # this hook never fires there. Mirrors record-tiering-directive.sh's/
 # record-claim-shape-directive.sh's spawned-presence gate, the opposite of
 # directive.sh's own gate.
 #
-# FILE-AS-ISSUE differs from the orchestrator variant: a role session
-# cannot spawn a peer role or open an issue on its own initiative
+# FILE-AS-ISSUE differs from the orchestrator variant: a spawned session
+# cannot spawn a peer session or open an issue on its own initiative
 # mid-task (role-handoff contract v3's SCOPE-EXCEEDED RULE) — it
-# resolves to the stop-and-report a role already owes, not a `spawn.py
+# resolves to the stop-and-report a spawned session already owes, not a `spawn.py
 # spawn` call.
 #
 # Fails open: not spawned -> silent no-op, never blocks the turn.

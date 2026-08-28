@@ -223,7 +223,7 @@ def _split_skill_qualifier(raw: str) -> tuple[str | None, str]:
 
 
 def skill_branch_slug(skill_names: list[str]) -> str:
-    """이슈 #2579: `--skills` 의 브랜치/역할-이름 슬러그를 스킬 *이름*으로만
+    """이슈 #2579: `--skills` 의 브랜치/스킬-이름 슬러그를 스킬 *이름*으로만
     짓는다 — `<source>:<name>` 한정자의 콜론을 그대로 넣으면 git 브랜치
     이름이 깨진다(실측: `--skills skill-repo:diagnose-first` 실 스폰에서
     `checkout -b issue-<n>/skill-repo:diagnose-first-<lease>` 가 "올바른

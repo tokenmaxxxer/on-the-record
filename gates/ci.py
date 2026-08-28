@@ -411,11 +411,13 @@ def _phase2_record_evidence(repo: Path, pr: int, branch: str, issue: int) -> boo
     대안 증거로 인정한다(issue #284 승인된 제안) — 승인 이후 phase 가 뒤바뀐
     PR을 본문을 다시 쓰지 않고도 통과시킨다. `loop_state` 의 *값*은 보지
     않는다: `record-shape-directive` 가 이미 모든 phase-2 기록에 이 필드를
-    강제하므로 존재 자체가 새 의무가 아니고, `roles/implementation.json` 의
-    선언 enum과 실제 기록 값(`phase-2-complete`)이 어긋나 있어(값 검사는
-    #337 류 기록을 오탐 차단한다 — 자세한 근거는
-    `docs/issue-284/decisions/record-evidence-as-closing-intent.md`) 존재
-    검사만이 오늘 실제로 참인 것이다.
+    강제하므로 존재 자체가 새 의무가 아니고, issue #284 결정 당시엔
+    `roles/implementation.json` 의 선언 enum과 실제 기록 값
+    (`phase-2-complete`)이 어긋나 있어 값 검사가 #337 류 기록을 오탐
+    차단할 수 없었다(자세한 근거는
+    `docs/issue-284/decisions/record-evidence-as-closing-intent.md`) — 그
+    role 카탈로그 자체가 이슈 #2610 으로 삭제된 지금은 대조할 enum 이
+    아예 없으므로, 존재 검사만이 오늘도 여전히 참인 것이다.
 
     기록은 로컬 워킹트리가 아니라 PR head 브랜치에서 `gh api` 로 읽는다
     (issue #369) — 게이트 워크플로우가 항상 `main` 을 체크아웃하므로,

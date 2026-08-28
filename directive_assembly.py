@@ -201,7 +201,7 @@ _TASK_LOOKUP_PROSE = (
 # — the refusal is correct, but it arrives one at a time, after the fact.
 # This section states the shape up front instead. Content is a direct
 # summary of the real gates in on-the-record/hooks/pretooluse_dispatcher.py
-# (GATES list) most likely to trip a role session's own writes/commands —
+# (GATES list) most likely to trip a session's own writes/commands —
 # not invented rules.
 _HOOK_CONTRACT_PROSE = (
     "훅 거부 계약(이슈 #2409): 아래는 세션을 자주 막는 PreToolUse 게이트가 "
@@ -249,7 +249,7 @@ _REPO_DISCOVERY_PROSE = (
 
 # Issue #2211: #2185's `git ls-files` guidance only covers the repo the
 # session is IN — it says nothing about where the on-the-record plugin
-# checkout, core plugin, skill-repository, or sibling role workspaces are
+# checkout, core plugin, skill-repository, or sibling session workspaces are
 # installed. Measured (issue-2201 session, 2026-08-24): a session that
 # needed exactly those four burned 126s on unscoped `find /` /
 # `find /home` scans because it had no other way to learn the paths. The
@@ -437,10 +437,10 @@ def directive_section_files(*, skills_mounted: bool = False,
     the invariant baseline every task gets regardless of path scope
     (Acceptance 'empty state': never an empty directive). `hook-contract.md`
     (issue #2479) is unconditional because both gates it documents fire
-    for every role: record-claim-guard.sh on any docs/issue-*/reports/**
-    write, heredoc-command-refusal-gate.sh on any role-session commit/PR
+    for every session: record-claim-guard.sh on any docs/issue-*/reports/**
+    write, heredoc-command-refusal-gate.sh on any session's commit/PR
     Bash call. `record-order.md` (issue #2527) is unconditional for the
-    same reason: every role writes its own record through
+    same reason: every session writes its own record through
     record-claim-guard.sh, so the code-then-checks-then-record ordering
     and single-assembly guidance apply regardless of scope.
     `known-paths.md` and `task-lookup.md` (issue #2409) are

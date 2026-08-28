@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse (Bash): deny-before-effect gate on a role session's `git push`
+# PreToolUse (Bash): deny-before-effect gate on a spawned session's `git push`
 # whose destination ref resolves to the repo's own default branch — issue
 # #2617.
 #
@@ -14,7 +14,7 @@
 # stays exactly as unreliable as it always was), it adds an independent,
 # local, fail-closed check that never depends on it.
 #
-# Scope: role sessions only (`TOKENMAXXXER_SPAWNED` resolves non-empty via
+# Scope: spawned sessions only (`TOKENMAXXXER_SPAWNED` resolves non-empty via
 # the same SessionStart-snapshot-first / live-env-var-fallback primitive
 # gh-write-allow-gate.sh / heredoc-command-refusal-gate.sh already use).
 # The orchestrator session (`spawn.py init --push`'s own `git push
@@ -68,7 +68,7 @@
 # name(s) are extracted from its refspec argument(s) (falling back to the
 # current local branch when no refspec/remote is given, matching git's
 # own push.default=simple behavior). A destination shaped like this
-# system's own role branches (`issue-<n>/<slug>`) is allowed with no
+# system's own branches (`issue-<n>/<slug>`) is allowed with no
 # network call at all — the fast, common-case path every legitimate
 # session push takes. Only a destination NOT shaped that way (`main`,
 # `master`, anything else, or `--all`/`--mirror`) triggers a
