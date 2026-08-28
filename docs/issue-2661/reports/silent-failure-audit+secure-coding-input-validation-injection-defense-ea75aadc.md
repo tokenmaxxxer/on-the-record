@@ -245,8 +245,8 @@ a test harness's fixture confound and adds regression coverage for an
 already-documented, already-deferred bypass; it does not touch new
 production error-handling code (try/catch, rejection, error callback) to
 audit.
-skill-verdict: secure-coding-input-validation-injection-defense —
-not-applicable: the allowlist-vs-denylist validation approach for
+skill-verdict: secure-coding-input-validation-injection-defense — not-applicable:
+the allowlist-vs-denylist validation approach for
 `EXEMPT_SUFFIXES`/`PRODUCT_CAPTURE_PRIORITIES_DIR_RE` was already chosen
 and verified correct by three independent prior sessions; this item adds
 test coverage for an already-disclosed residual gap in that approach,
