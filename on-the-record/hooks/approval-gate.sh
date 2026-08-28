@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# PreToolUse (Write|Edit|MultiEdit): deny-only, spawned-session approval gate —
+# PreToolUse (Write|Edit|MultiEdit): deny-only, role-session approval gate —
 # issue #608 step 2. Closes the coverage hole step 1's fixture measurement
 # confirmed: no deployed hook checked phase-2 approval state for a role
 # session's own writes (its record file, src/, test/); the only two hooks
@@ -12,7 +12,7 @@
 # branch (detached HEAD, non-issue branch) fails open — accepted,
 # pattern-consistent limitation, see the proposal's hunt note.
 #
-# Only the two phase-2-shaped targets are checked: the acting session's own
+# Only the two phase-2-shaped targets are checked: the acting role's own
 # record file (docs/issue-<n>/reports/<role>.md) or a src/test(s)/ path.
 # Everything else (proposals, survey files, decisions, handbooks,
 # docs/specs/approvers.md itself) is phase-1-legal and skipped.
@@ -35,7 +35,7 @@
 # The human-typed exact-match path above stays byte-identical; the
 # delegation path is checked only when that first match fails, and empty
 # state (no DELEGATE comment at all) falls through to the exact same deny
-# as today. Self-approval via this path (a spawned session posting its
+# as today. Self-approval via this path (a role-bound session posting its
 # own citation) is refused at the point the citation would be POSTED
 # (delegation-post-gate.sh), not re-checked here — this gate only asks
 # "does a live, in-scope grant already back this citation."
