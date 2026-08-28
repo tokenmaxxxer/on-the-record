@@ -1,5 +1,5 @@
 """이슈#1736: `resolved_role_model()`의 CLI 오버라이드 우선순위
-(--model > MUSTER_ROLE_MODEL > role_model.txt > "sonnet") 정밀도 레벨별
+(--model > MUSTER_SKILL_MODEL > role_model.txt > "sonnet") 정밀도 레벨별
 단위 테스트, 그리고 judge prefilter/validator 의 하드코딩 haiku 가 그
 오버라이드에 영향받지 않는다는 guard 케이스."""
 import os
@@ -22,26 +22,26 @@ class ResolvedRoleModelPrecedenceTest(unittest.TestCase):
     테스트마다 고유한 임시 파일로 가리키게 바꿔 그 경합을 없앤다."""
 
     def setUp(self):
-        self._saved_env = os.environ.pop("MUSTER_ROLE_MODEL", None)
+        self._saved_env = os.environ.pop("MUSTER_SKILL_MODEL", None)
         self._saved_config_path = spawn.ROLE_MODEL_CONFIG
         self._tmpdir = tempfile.TemporaryDirectory()
         spawn.ROLE_MODEL_CONFIG = Path(self._tmpdir.name) / "role_model.txt"
 
     def tearDown(self):
         if self._saved_env is None:
-            os.environ.pop("MUSTER_ROLE_MODEL", None)
+            os.environ.pop("MUSTER_SKILL_MODEL", None)
         else:
-            os.environ["MUSTER_ROLE_MODEL"] = self._saved_env
+            os.environ["MUSTER_SKILL_MODEL"] = self._saved_env
         spawn.ROLE_MODEL_CONFIG = self._saved_config_path
         self._tmpdir.cleanup()
 
     def test_cli_wins_over_env_and_file(self):
-        os.environ["MUSTER_ROLE_MODEL"] = "sonnet"
+        os.environ["MUSTER_SKILL_MODEL"] = "sonnet"
         spawn.ROLE_MODEL_CONFIG.write_text("haiku")
         self.assertEqual(spawn.resolved_role_model("opus"), "opus")
 
     def test_env_wins_over_file_when_no_cli(self):
-        os.environ["MUSTER_ROLE_MODEL"] = "opus"
+        os.environ["MUSTER_SKILL_MODEL"] = "opus"
         spawn.ROLE_MODEL_CONFIG.write_text("haiku")
         self.assertEqual(spawn.resolved_role_model(), "opus")
 
@@ -55,7 +55,7 @@ class ResolvedRoleModelPrecedenceTest(unittest.TestCase):
     def test_cli_whitespace_only_falls_through(self):
         # 이슈#35/#93 과 같은 이유 — 공백만 있는 오버라이드는 미설정과
         # 동일하게 취급돼야 한다, "--model '   '" 이 나가면 안 된다.
-        os.environ["MUSTER_ROLE_MODEL"] = "opus"
+        os.environ["MUSTER_SKILL_MODEL"] = "opus"
         self.assertEqual(spawn.resolved_role_model("   "), "opus")
 
 
@@ -68,7 +68,7 @@ class JudgeModelGuardTest(unittest.TestCase):
     차지하므로 다른 오버라이드는 도달하지 못한다."""
 
     def setUp(self):
-        self._saved_env = os.environ.get("MUSTER_ROLE_MODEL")
+        self._saved_env = os.environ.get("MUSTER_SKILL_MODEL")
         self._saved_config_path = spawn.ROLE_MODEL_CONFIG
         self._tmpdir = tempfile.TemporaryDirectory()
         spawn.ROLE_MODEL_CONFIG = Path(self._tmpdir.name) / "role_model.txt"
@@ -81,16 +81,16 @@ class JudgeModelGuardTest(unittest.TestCase):
 
     def tearDown(self):
         if self._saved_env is None:
-            os.environ.pop("MUSTER_ROLE_MODEL", None)
+            os.environ.pop("MUSTER_SKILL_MODEL", None)
         else:
-            os.environ["MUSTER_ROLE_MODEL"] = self._saved_env
+            os.environ["MUSTER_SKILL_MODEL"] = self._saved_env
         spawn.ROLE_MODEL_CONFIG = self._saved_config_path
         self._tmpdir.cleanup()
         spawn.resolve_role_family_source = self._orig_resolve_role_family_source
         spawn.core_plugin_dirs = self._orig_core_plugin_dirs
 
     def test_judge_guard_ignores_env_and_cli_style_override(self):
-        os.environ["MUSTER_ROLE_MODEL"] = "opus"
+        os.environ["MUSTER_SKILL_MODEL"] = "opus"
         spawn.ROLE_MODEL_CONFIG.write_text("opus")
         cmd, _env, settings_path = spawn._judge_cmd_and_env(
             "implementation", "/tmp", model="haiku")

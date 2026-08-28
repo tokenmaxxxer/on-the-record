@@ -98,7 +98,7 @@ state_path = os.path.join(state_dir, safe_session + ".json")
 # this hook into treating the call as orchestrator-authored.
 spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
 bind_state_dir = os.environ.get(
-    "OTR_ROLE_BIND_STATE_DIR",
+    "OTR_SKILL_BIND_STATE_DIR",
     os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-role-bind"),
 )
 snapshot_path = os.path.join(bind_state_dir, safe_session + ".json")
