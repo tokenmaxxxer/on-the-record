@@ -17,12 +17,15 @@
 # sanctioned to write, with the user's confirmation), the
 # product-capture-stopgate.sh category files under docs/reports/product/
 # and docs/issue-<n>/reports/product/ (issue #1111 — product capture is
-# orchestrator scribing, same category as approvers.md), the sharded
+# orchestrator scribing, same category as approvers.md), and the sharded
 # per-entry priorities/ directory that replaces priorities.md going
 # forward (issue #2637 — same category, priorities.py's shard shape, one
-# new file per entry rather than an append to the flat file), and
-# anything under a scratch/tmp path or a .git/plugin-cache directory (the
-# muster checkout itself, scratch notes).
+# new file per entry rather than an append to the flat file). No
+# scratch/tmp/plugin-cache exemption (issue #2661 — removed): no
+# orchestrator write path in this codebase or on-disk plugin install
+# actually needs one (verified live, issue #2661 record), and the
+# unconditional per-segment form let any deliverable write pass by
+# putting a "tmp" folder anywhere in its own path.
 # Kill switch: ORCHESTRATE_OFF=1. Fail closed on non-0/2 (now including
 # parse failure, not just crashes — the previous header claim here was
 # false for the parse-failure path; issue #287 S4).
@@ -197,7 +200,22 @@ def _git_root_from(path_hint):
 # in `pytest` output instead of silently unaddressed — closing it needs
 # a mechanism that does not decide from a path string, which is a
 # decision for the issue, not a fifth regex.
-priorities_candidate = n
+# root_relative_n backs both EXEMPT_SUFFIXES and
+# PRODUCT_CAPTURE_PRIORITIES_DIR_RE below — filesystem truth (the actual
+# git root), never a caller-supplied cwd or a raw-`n` guess, per the
+# src/-rooted-bypass history above. EXEMPT_SUFFIXES used to be matched
+# with `n.endswith(...)` against the raw (possibly caller-rooted) `n`
+# directly (issue #2661 finding): unanchored suffix matching means any
+# path ending in "docs/specs/approvers.md" passes, including
+# `tmp/docs/specs/approvers.md` — a real deliverable path one directory
+# short of the sanctioned file, verified live to rc=0 EXEMPT against the
+# unfixed hook. Matching root_relative_n by exact equality closes that
+# the same way the priorities-dir regex's `^`-anchor closed its own
+# src/-rooted bypass. PRODUCT_CAPTURE_ISSUE_RE below is intentionally
+# left unanchored/unresolved — an adjacent gap of the identical shape,
+# not exercised by any acceptance path here; out of scope for issue
+# #2661, left as an open finding in that issue's record.
+root_relative_n = n
 _cwd_for_exemption = e.get("cwd")
 _cwd_ok = (isinstance(_cwd_for_exemption, str) and _cwd_for_exemption
            and posixpath.isabs(_cwd_for_exemption))
@@ -213,18 +231,29 @@ if _abs_for_exemption is not None:
     if _root_for_exemption is not None:
         _rel = posixpath.relpath(_abs_for_exemption, _root_for_exemption)
         if _rel != "." and not _rel.startswith(".."):
-            priorities_candidate = _rel
-if (n.endswith(EXEMPT_SUFFIXES) or PRODUCT_CAPTURE_ISSUE_RE.search(n)
-        or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(priorities_candidate)):
+            root_relative_n = _rel
+if (root_relative_n in EXEMPT_SUFFIXES or PRODUCT_CAPTURE_ISSUE_RE.search(n)
+        or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(root_relative_n)):
     sys.exit(0)
-# issue #787 H1: the old src/tests?/docs-segment-only regex missed a flat
-# top-level package layout (no such segment at all). Widen to "everything
-# is a deliverable path" and instead exempt the narrow set of paths that
-# are never a deliverable: scratch/tmp work areas and the plugin's own
-# .git/plugin-cache internals.
-segs = [s for s in n.split("/") if s]
-if any(s in ("scratch", "tmp", ".git", "plugin-cache") for s in segs):
-    sys.exit(0)
+# issue #787 H1 used to widen this from "src/tests?/docs segment only" to
+# "everything is a deliverable path" and then carve back out any path
+# with a "scratch", "tmp", ".git", or "plugin-cache" segment ANYWHERE in
+# it. issue #2661: that carve-out is removed. It was unconditional on
+# segment position, so `src/tmp/module.py`, `docs/tmp/note.md`, and any
+# other real deliverable path with a "tmp"-named directory anywhere
+# passed it (verified live). No real write in this codebase or on-disk
+# plugin install needs it, per the same issue's record: no repo code
+# (spawn.py, roster.py, pipeline.py, the hooks) creates or writes a
+# project-relative `scratch/` or `tmp/` directory, and no installed
+# plugin-checkout path on this system has a literal "plugin-cache"
+# segment (the real layout is `plugins/cache/...`, two segments, never
+# hyphenated as one). `.git` is real — every git repo has one — but no
+# legitimate Write/Edit/NotebookEdit call ever targets a path segment
+# named `.git` (git itself manages its own internals over a subprocess,
+# not through Claude's Write tool); keeping it exempted only offered a
+# disguise for a write that would already be suspicious on its own
+# terms, not a real use case, so it is removed for that separate reason,
+# not carried along with the other three by inheritance.
 # Only guard writes inside a git repo reachable from cwd (issue #787 H1:
 # the target repo no longer needs to already carry docs/specs/approvers.md
 # itself — that used to be the sole activation signal, which silently

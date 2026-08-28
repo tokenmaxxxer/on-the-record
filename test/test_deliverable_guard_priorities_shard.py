@@ -37,11 +37,13 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK_PATH = REPO_ROOT / "on-the-record" / "hooks" / "deliverable-guard.sh"
 
-# deliverable-guard.sh exempts any path with a literal "tmp" path segment
-# (scratch/tmp work areas, see the hook's own issue #787 H1 comment) — the
-# fixture root must not live under the system tempdir (usually /tmp) or
-# every absolute-path case below would exit 0 via that unrelated exemption
-# instead of the priorities-shard regex this test targets.
+# Historically deliverable-guard.sh exempted any path with a literal
+# "tmp" path segment (issue #787 H1), which would have made every
+# absolute-path case below exit 0 via that unrelated exemption instead of
+# the priorities-shard regex this test targets, if the fixture lived
+# under the system tempdir (usually /tmp). That segment exemption was
+# removed (issue #2661) but the fixture still avoids the system tempdir,
+# since nothing about this test needs it.
 _FIXTURE_BASE = Path.home() / ".otr-dg-test-fixture"
 
 
@@ -160,6 +162,37 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
 
     def test_real_deliverable_write_still_denied(self):
         r = _run_gate(self.repo, "src/foo.py", cwd=str(self.repo))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    # --- issue #2661: the removed scratch/tmp/.git/plugin-cache segment
+    # exemption no longer waves through a deliverable path merely because
+    # one of its segments is named "tmp" or "scratch" -----------------
+
+    def test_src_rooted_tmp_segment_no_longer_exempt(self):
+        r = _run_gate(self.repo, "src/tmp/module.py", cwd=str(self.repo))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    def test_docs_rooted_tmp_segment_no_longer_exempt(self):
+        r = _run_gate(self.repo, "docs/tmp/note.md", cwd=str(self.repo))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    def test_tmp_prefixed_approvers_lookalike_no_longer_exempt(self):
+        # Not just the removed segment check: "tmp/docs/specs/approvers.md"
+        # also used to slip through EXEMPT_SUFFIXES' unanchored
+        # `n.endswith("docs/specs/approvers.md")` (a second, independent
+        # bug found while verifying this issue) — one directory short of
+        # the actual sanctioned file.
+        r = _run_gate(self.repo, "tmp/docs/specs/approvers.md",
+                      cwd=str(self.repo))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    def test_genuine_approvers_md_still_exempt(self):
+        r = _run_gate(self.repo, "docs/specs/approvers.md",
+                      cwd=str(self.repo))
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_scratch_segment_no_longer_exempt(self):
+        r = _run_gate(self.repo, "scratch/notes.md", cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
 
     # --- issue #2637 round 4: the git-root walk itself is steerable -----

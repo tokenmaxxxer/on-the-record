@@ -33,7 +33,11 @@ guard deny  guard-src-in-board       src/app.py                      yes
 guard deny  guard-tests-in-board     tests/test_app.py               yes
 guard allow guard-approvers-ok       docs/specs/approvers.md         yes
 guard allow guard-nonboard-repo      docs/notes.md                   no
-guard allow guard-outside-trees      scratch/notes.md                yes
+# issue #2661: a top-level "scratch/" segment used to be an unconditional
+# exemption (issue #787) with no real write depending on it — removed,
+# so a board-repo write there is now correctly denied like any other
+# unrecognized deliverable-shaped path.
+guard deny  guard-scratch-not-exempt scratch/notes.md                yes
 
 # issue #287 S4: an unparseable stdin payload must DENY, not silently ALLOW —
 # a delivery failure on stdin is not evidence the write is safe.
