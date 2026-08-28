@@ -414,6 +414,30 @@ class ConsultJudgeStageTest(unittest.TestCase):
         line = stderr.getvalue()
         self.assertIn("skill_judge 자문 안 함", line)
         self.assertIn("fast-path", line)
+        self.assertIn("슬롯이 다 참", line)
+
+    def test_fast_path_partial_fill_with_no_remaining_candidates_prints(self):
+        """이슈 #2679 send-back (독립 검증에서 재현): fast-path 가 슬롯 일부만
+        채우고(remaining>0) BM25 후보 중 fast-path 픽을 뺀 나머지가 0개면
+        `outcome_prefix` 가 있다는 이유로 print 가 통째로 건너뛰어졌다 —
+        위 fast-path-fills-all-slots 갈래와 outcome 문자열 모양이 같은데
+        (both "fast-path:<이름들>") 이 갈래만 조용했다."""
+        self._skill(
+            "exact-phrase-skill",
+            'Use when the task says "please run the reproduction now" verbatim.')
+        with mock.patch.object(spawn, "_skill_judge_consult") as m:
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                matches, outcome = spawn._cross_family_skill_matches_with_consult(
+                    "please run the reproduction now", "implementation",
+                    self.repo_root, 2040, str(self.work), k=2)
+        m.assert_not_called()
+        self.assertEqual(outcome, "fast-path:exact-phrase-skill")
+        line = stderr.getvalue()
+        self.assertIn("skill_judge 자문 안 함", line)
+        self.assertIn("fast-path", line)
+        self.assertNotIn("슬롯이 다 참", line)
+        self.assertIn("남은 BM25 후보 0개", line)
 
 
 class FourSurfaceCandidateCorpusTest(unittest.TestCase):

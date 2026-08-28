@@ -262,3 +262,95 @@ acceptance: `python3 -m pytest -q -m "not slow"` — result:
 497 passed, 16 failed, 3 xfailed
 ```
 derived: `git stash && python3 -m pytest -q -m "not slow" 2>&1 | grep "^FAILED" | sort > /tmp/before.txt && git stash pop && python3 -m pytest -q -m "not slow" 2>&1 | grep "^FAILED" | sort > /tmp/after.txt && diff /tmp/before.txt /tmp/after.txt` — result: empty diff — the 16 failures are byte-identical before and after this change (all pre-existing network-sandbox/git-fetch limitations of this environment, unrelated to skill resolution or skill_judge logging).
+
+## Send-back correction (appended by issue-2679/silent-failure-audit+api-design-error-design-b496a493, per independent verification `docs/issue-2679/reports/adversarial-review+conformance-review-sampling-derivation-0d692f76.md`)
+
+This section corrects, without altering, the "Measure first" paragraphs
+above (per contract v3 s11 — a foreign-authored record may only be
+appended to, never edited). The full fix (code + tests) for the send-back
+items this correction accompanies lives in
+`docs/issue-2679/reports/silent-failure-audit+api-design-error-design-b496a493.md`.
+
+**Claim 1 correction — the 95% figure does not license "fail-open is rare,
+so leave the budget alone."** canonical: the verification record's "Attack:
+population disagreement" section (linked above) — re-derived the same
+202-line trace, independently, and stratified it by calendar day rather
+than trusting the flat aggregate.
+
+derived (re-run this session, matches the verification's own numbers):
+```
+2026-08-22 total=12 timeout=0   (0%)
+2026-08-23 total=17 timeout=4   (23.5%)   <- same calendar day as #2071's own cited tm-dicequest incident
+2026-08-24 total=50 timeout=1   (2%)
+2026-08-25 total=31 timeout=0   (0%)
+2026-08-26 total=79 timeout=3   (3.8%)    <- 39% of the whole sample, lowest timeout rate
+2026-08-27 total=13 timeout=0   (0%)
+```
+
+The 202-line population above is entirely this repo's own self-dogfood
+consult trace — single machine/session line, no consumer-repo traffic
+(`consult.py`'s trace schema, `_append_consult_trace()`, has no field for
+source repo, orchestrator identity, registry size, or cache warmth to even
+split it by), and it ends 2026-08-27, one day before the 2026-08-28 #2071
+recurrence it was used to reason about. The one day that coincides with
+#2071's own cited tm-dicequest dogfood date (08-23) shows 23.5%, not the
+5% aggregate error rate, while the largest single day (08-26, 39% of the
+sample) pulls the aggregate down with a 3.8% timeout rate.
+
+**The 95%/8-timeouts figure describes this repo's own history, not the
+consumer-repo population #2071 Defect 1 and its 08-28 recurrence are
+about — the completion rate on the affected population is unknown from any
+evidence gathered in this checkout.** "Fail-open is rare, so log-only is
+enough" does not follow from this measurement; that inference was asserted
+above, not established.
+
+The fix stays log-only regardless — #2071's own explicit "must not: do not
+fix the fail-open by making the judge blocking" holds independent of this
+measurement, and it was never in scope to widen here (send-back
+instruction: keep the log-only fix, correct only what the record claims).
+What changes is the justification: log-only is a **deliberate deferral** of
+the timeout/budget question pending real consumer-repo trace data, not a
+conclusion this session's measurement supports. See Open findings below
+for the resolution path.
+
+**Claim 4 nuance — fail-open never blocks a spawn, but it does delay
+session start on the exact timeout case this issue was filed over.** The
+verification record's "Claim 4" section (linked above) established this;
+re-confirmed this session by re-reading the same lines.
+
+canonical: `spawn.py:3665-3672`:
+```python
+            with _timed("cross_family"):
+                # 이슈 #2061: 위에서 워크스페이스/브랜치 셋업보다 먼저 던져둔
+                # 자문을 여기서 join 만 한다 — 이 단계의 측정치는 이제 겹친
+                # 대기 시간이 아니라 순수 join 대기(자문이 셋업보다 오래
+                # 걸린 나머지)만 반영한다.
+                if _cross_family_future is not None:
+                    cross_family_dirs, skill_judge_outcome = _cross_family_future.result()
+                else:
+```
+`.result()` (line 3671) is a blocking join inside the `"cross_family"`
+timed stage. The judge call is dispatched before workspace clone/branch
+checkout starts (issue #2061's overlap optimization, elsewhere in this
+same function) so the two normally overlap, but if the judge call runs
+longer than that overlap window — exactly what happens on a timeout,
+35-90s — the spawn's session launch is delayed by the difference, up to
+nearly the full `judge_timeout` in the worst case. The requirement "a
+hanging judge must never prevent a spawn from proceeding" holds (it never
+blocks forever), but "fail-open is rare, so log-only is enough" elides
+that even a rare fail-open still costs a real, bounded delay on the
+critical path — this was not disclosed above and is recorded here for
+completeness. Not a defect and not a reason to touch the timeout/budget
+(same must-not as above); disclosed per the send-back instruction.
+
+## Open findings (appended)
+
+1. **Population disagreement.** The 95%/8-timeouts figure above is drawn
+   from this repo's own self-dogfood trace, not from the consumer-repo
+   population #2071 Defect 1 and its 08-28 recurrence describe (full
+   stratification in the correction section above). Resolution path: a
+   follow-up against #2679/#2071 needs to gather consumer-repo trace data
+   (e.g. `runs/spawn-attempts.jsonl`/`runs/ledger.jsonl` from an actual
+   consumer session, or a new trace field recording source-repo identity)
+   before "fail-open is rare" can be asserted for that population, or the
+   timeout-budget question needs to be re-opened without that assumption.

@@ -385,6 +385,7 @@ if skills._sp is None or __name__ in ("spawn", "__main__"):
     skills._sp = sys.modules[__name__]
 _STATIC_POLICY_SKILLS = skills._STATIC_POLICY_SKILLS
 _available_skills_clause = skills._available_skills_clause
+_carries_hooks = skills._carries_hooks
 _core_candidates = skills._core_candidates
 _describe_skill_match = skills._describe_skill_match
 _installed_plugin_skill_dirs = skills._installed_plugin_skill_dirs

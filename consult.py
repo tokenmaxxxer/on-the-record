@@ -716,7 +716,17 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
                   for _, name, d, source in scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]
                   if name not in fast_names]
     if not candidates:
-        if not outcome_prefix:
+        # 이슈 #2679 send-back (독립 검증에서 재현): outcome_prefix 가 있는
+        # 갈래(fast-path 가 일부 슬롯만 채우고 남은 BM25 후보가 0개)는
+        # 위 `if not outcome_prefix` 에 걸려 이 print 를 건너뛰고 조용히
+        # outcome_prefix 그대로 반환했다 — "fast-path 로 슬롯이 다 참"
+        # 갈래(위, remaining<=0)와 똑같은 outcome 문자열 모양을 내면서
+        # 자기 줄이 없는 유일한 경로였다. 두 갈래를 각자 다른 문구로
+        # 갈라 찍는다.
+        if outcome_prefix:
+            print(f"[{role}] skill_judge 자문 안 함 — fast-path 이후 남은 BM25 "
+                  f"후보 0개, fast-path 픽만 반영: {outcome_prefix}", file=sys.stderr)
+        else:
             print(f"[{role}] skill_judge 자문 안 함 — fast-path 이후 남은 후보 0개 "
                   f"(no-candidates)", file=sys.stderr)
         return fast_dirs, (outcome_prefix or "no-candidates")
