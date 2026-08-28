@@ -101,10 +101,47 @@ class ResolvedSkillDirsTest(unittest.TestCase):
         self.assertNotEqual(ctx.exception.code, 0)
         self.assertIsNotNone(ctx.exception.code)
 
+    def test_unknown_name_error_names_candidates(self):
+        """이슈 #2679: 거부 메시지가 다음 시도에 쓸 수 있는 이름을 낸다 —
+        그 자리에서 새로 나열하는 게 아니라, 이미 거부를 판단한 바로 그
+        `available` 목록을 그대로 재사용한다."""
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_dirs("alpha,ghost", self.repo_root)
+        self.assertIn("alpha", str(ctx.exception.code))
+        self.assertIn("beta", str(ctx.exception.code))
+
     def test_no_repo_root_exits_nonzero(self):
         with self.assertRaises(SystemExit) as ctx:
             spawn.resolved_skill_dirs("alpha", None)
         self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_unknown_name_candidates_exclude_hooked_dirs(self):
+        """이슈 #2679 send-back (독립 검증 재현): hooks/ 를 든 디렉터리는
+        `--skills` 로 절대 마운트되지 않는데도(resolve_skill_source 등이
+        항상 거부), 예전엔 이 거부 메시지의 후보로 나열됐다 — 이름을
+        그대로 다시 넣으면 한 걸음 뒤에서 또 거부되는 막다른 길이 재발한
+        것과 같다. 후보에서 빠져야 한다."""
+        (self.repo_root / "hooked").mkdir()
+        (self.repo_root / "hooked" / "hooks").mkdir()
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_dirs("ghost", self.repo_root)
+        msg = str(ctx.exception.code)
+        self.assertIn("alpha", msg)
+        self.assertIn("beta", msg)
+        self.assertNotIn("hooked", msg)
+
+    def test_exact_name_request_for_hooked_dir_still_gets_hooks_error(self):
+        """위 필터가 '이름-존재' 판정 자체를 바꾸면 안 된다 — hooks/ 를 든
+        디렉터리를 정확한 이름으로 요청하면 여전히 해석은 성공하고(빈
+        목록이 아니라 그 디렉터리를 돌려주고), 마운트 거부는 호출부
+        (resolve_skill_source 등)의 hooks/ 전용 메시지가 낸다."""
+        (self.repo_root / "hooked").mkdir()
+        (self.repo_root / "hooked" / "hooks").mkdir()
+        dirs = spawn.resolved_skill_dirs("hooked", self.repo_root)
+        self.assertEqual(dirs, [self.repo_root / "hooked"])
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolve_skill_source("hooked", self.repo_root)
+        self.assertIn("hooks/", str(ctx.exception.code))
 
 
 class UnknownSkillFailsClosedBeforeWorkspaceTest(unittest.TestCase):
@@ -315,6 +352,51 @@ class ResolvedSkillSourcesFourTierTest(unittest.TestCase):
                 "ghost", self.repo_root, home=self.home,
                 target_repo_root=self.target_repo)
         self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_nowhere_found_error_names_candidates_from_resolver(self):
+        """이슈 #2679: 이 출구(:325)가 이제 :132 처럼 후보를 낸다 — 손으로
+        관리하는 목록이 아니라, 같은 호출 안에서 이미 찾아낸 네 소스의
+        실제 이름 목록에서."""
+        (self.repo_root / "alpha").mkdir()
+        d = self.target_repo / ".claude" / "skills" / "delta"
+        d.mkdir()
+        (d / "SKILL.md").write_text("delta content")
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "ghost", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception.code)
+        self.assertIn("alpha", msg)
+        self.assertIn("delta", msg)
+
+    def test_nowhere_found_empty_state_says_so_explicitly(self):
+        """이슈 #2679 empty-state: 후보가 하나도 없으면 빈 목록을 찍는
+        대신 그렇다고 명시한다."""
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "ghost", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception.code)
+        self.assertIn("사용 가능한 스킬이 하나도 없다", msg)
+        self.assertNotIn("쓸 수 있는 이름: ", msg)
+
+    def test_nowhere_found_candidates_exclude_hooked_dirs(self):
+        """이슈 #2679 send-back (독립 검증 재현): 네 소스 어디서든 hooks/
+        를 든 디렉터리는 후보에서 빠진다 — `resolve_skill_source`/
+        `resolve_static_policy_source`/`resolve_role_family_source` 가
+        모두 이 이름을 결국 거부하므로, 후보로 냈다간 다음 시도도 막다른
+        길로 보낸다."""
+        (self.repo_root / "alpha").mkdir()
+        hooked = self.repo_root / "hooked-skill"
+        hooked.mkdir()
+        (hooked / "hooks").mkdir()
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "ghost", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception.code)
+        self.assertIn("alpha", msg)
+        self.assertNotIn("hooked-skill", msg)
 
     def _make_pair(self, name, tier_a, tier_b):
         """`name` 이 두 tier 에서 동시에 잡히게 픽스처를 만든다."""

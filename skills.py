@@ -112,6 +112,34 @@ def _skill_repo_root() -> Path | None:
     return _sp._skill_repo_managed_root()
 
 
+def _carries_hooks(skill_dir: Path) -> bool:
+    """스킬 마운트가 항상 거부되는 조건 — `hooks/` 서브디렉터리 존재.
+    `resolve_static_policy_source()`/`resolve_role_family_source()`/
+    `resolve_skill_source()`/`resolved_skill_sources()` 의 실제 마운트-거부
+    판정과, 이슈 #2679 send-back 이후 후보 목록 필터가 같은 정의를 쓰게
+    하는 단일 소스 — 후보 목록이 거부 판정과 별도의 두 번째 사본으로
+    갈라지면 "후보로 나열됐지만 실제로는 거부되는" 항목이 다시 생긴다."""
+    return (skill_dir / "hooks").is_dir()
+
+
+def _available_skills_clause(available: list[str]) -> str:
+    """이슈 #2679: unknown-skill 거부의 두 출구(`resolved_skill_dirs`,
+    `resolved_skill_sources`)가 후보 절을 같은 모양으로 낸다 — 후보는 항상
+    거부한 바로 그 resolver 가 이미 나열한 목록에서 오지, 손으로 관리하는
+    별도 표에서 오지 않는다(그래야 실제 마운트 가능한 것과 어긋날 수
+    없다). 후보가 하나도 없으면(스킬을 하나도 못 찾은 설치) 빈 목록을
+    찍는 대신 그렇다고 명시한다(empty-state 요구).
+
+    이슈 #2679 send-back (독립 검증에서 재현): 호출자는 `available` 로
+    `_carries_hooks()` 를 이미 통과시킨(hooks/ 를 든 디렉터리를 뺀) 이름만
+    넘겨야 한다 — 안 그러면 여기 나열된 이름이 실제로는
+    `resolve_skill_source()` 등에서 다시 거부되는, "후보라고 나열했지만
+    한 걸음 뒤에서 막다른 길" 재발이 된다."""
+    if not available:
+        return "사용 가능한 스킬이 하나도 없다"
+    return f"쓸 수 있는 이름: {', '.join(available)}"
+
+
 def resolved_skill_dirs(skills_csv: str | None,
                          repo_root: Path | None) -> list[Path]:
     """`--skills a,b,c` 를 skill-repository 체크아웃 안의 디렉터리 목록으로
@@ -129,8 +157,18 @@ def resolved_skill_dirs(skills_csv: str | None,
                         if p.is_dir() and not p.name.startswith("."))
     unknown = [n for n in names if n not in available]
     if unknown:
+        # 이슈 #2679 send-back (독립 검증에서 재현): 이 이름-존재 판정
+        # (`available`) 은 그대로 두되, 에러 절에 나열할 후보만
+        # `_carries_hooks()` 로 걸러 실제 마운트 가능한 이름만 보여준다 —
+        # hooks/ 를 든 디렉터리를 정확한 이름으로 요청하면 여전히
+        # (이 목록이 아니라) `resolve_skill_source()` 등의 hooks/ 전용
+        # 거부 메시지로 fail-closed 된다; 여기서 걸러지는 건 "모르는
+        # 이름" 에러가 그 항목을 마치 쓸 수 있는 것처럼 후보에 얹는
+        # 경우뿐이다.
+        mountable = [n for n in available
+                     if not _sp._carries_hooks(repo_root / n)]
         sys.exit(f"--skills: 모르는 스킬 {', '.join(unknown)} "
-                  f"— 쓸 수 있는 이름: {', '.join(available)}")
+                  f"— {_sp._available_skills_clause(mountable)}")
     return [repo_root / n for n in names]
 
 
@@ -300,6 +338,29 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
     tier3 = _sp._local_skill_dirs(home / ".claude" / "skills")
     tier4 = (_sp._local_skill_dirs(target_repo_root / ".claude" / "skills")
              if target_repo_root is not None else {})
+    # 이슈 #2679: 거부 메시지의 후보 목록 — 네 소스 각각이 이미 이 호출
+    # 안에서 실제로 찾아낸 이름들의 합집합이지, 손으로 관리하는 별도
+    # 목록이 아니다(같은 resolver 가 거부하고 같은 resolver 가 후보를
+    # 댄다, `resolved_skill_dirs()`의 :132 출구와 같은 원칙).
+    # 이슈 #2679 send-back (독립 검증에서 재현): 위 union 은 hooks/ 를 든
+    # 디렉터리도 그대로 후보로 냈다 — `resolve_skill_source()` 등이
+    # 아래에서 쓰는 것과 같은 `_carries_hooks()` 판정으로 미리 걸러,
+    # 후보로 나열된 이름은 실제로 마운트도 된다는 보장을 지킨다(소스가
+    # 여럿인 이름은 그중 하나라도 hooks/ 가 없으면 마운트 가능하다고
+    # 본다 — 실제 마운트는 `<source>:<name>` 한정자로 그 소스를 골라
+    # 성공할 수 있으므로).
+    repo_names = (sorted(p.name for p in repo_root.iterdir()
+                          if p.is_dir() and not p.name.startswith(".")
+                          and not _sp._carries_hooks(p))
+                  if repo_root is not None and repo_root.is_dir() else [])
+    plugin_names = {name for name, entries in plugin_index.items()
+                     if any(not _sp._carries_hooks(d) for _, d, _ in entries)}
+    tier3_names = {name for name, d in tier3.items()
+                    if not _sp._carries_hooks(d)}
+    tier4_names = {name for name, d in tier4.items()
+                    if not _sp._carries_hooks(d)}
+    all_available = sorted(set(repo_names) | plugin_names
+                            | tier3_names | tier4_names)
     results = []
     for raw in raw_names:
         source_filter, name = _sp._split_skill_qualifier(raw)
@@ -324,7 +385,7 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
             sys.exit(
                 f"--skills: 모르는 스킬 {name} — skill-repository, 설치된 "
                 f"플러그인, ~/.claude/skills, 타깃 저장소 .claude/skills "
-                f"어디에도 없다")
+                f"어디에도 없다 — {_sp._available_skills_clause(all_available)}")
         for m in matches:
             m["_content_key"] = _sp._skill_identity_key(m["dir"])
         if source_filter is not None:
@@ -346,7 +407,7 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
                 f"소스를 <source>:{name} 형태로 지정해 골라라, 예: "
                 f"skill-repo:{name})")
         m = matches[0]
-        if (m["dir"] / "hooks").is_dir():
+        if _sp._carries_hooks(m["dir"]):
             sys.exit(
                 f"--skills: {name} ({_sp._describe_skill_match(m)}) 가 hooks/ "
                 f"를 들고 있다 — 스킬 마운트는 가이던스 전용이다(집행은 "
@@ -388,7 +449,7 @@ def resolve_static_policy_source(repo_root: Path | None) -> dict:
     "skill_sha": ...}`."""
     skill_dirs = _sp.resolved_skill_dirs(
         ",".join(sorted(_STATIC_POLICY_SKILLS)), repo_root)
-    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
+    hooked = [d for d in skill_dirs if _sp._carries_hooks(d)]
     if hooked:
         sys.exit(
             f"resolve_static_policy_source: POLICY 스킬 중 "
@@ -430,7 +491,7 @@ def resolve_role_family_source(role: str, repo_root: Path | None) -> dict:
                      if repo_root is not None and repo_root.is_dir() else [])
     names = sorted(set(family_names) | _STATIC_POLICY_SKILLS)
     skill_dirs = _sp.resolved_skill_dirs(",".join(names), repo_root)
-    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
+    hooked = [d for d in skill_dirs if _sp._carries_hooks(d)]
     if hooked:
         sys.exit(
             f"resolve_role_family_source: 역할 {role!r} 접두어로 유도한 "
@@ -464,7 +525,7 @@ def resolve_skill_source(skill_name: str, repo_root: Path | None) -> dict:
     ("source"/"skill_dirs"/"skills"/"skill_sha"), 입력이 role 이 아니라
     스킬 이름 자체다."""
     skill_dirs = _sp.resolved_skill_dirs(skill_name, repo_root)
-    hooked = [d for d in skill_dirs if (d / "hooks").is_dir()]
+    hooked = [d for d in skill_dirs if _sp._carries_hooks(d)]
     if hooked:
         sys.exit(
             f"resolve_skill_source: {skill_name!r} 이 지정한 스킬 중 "

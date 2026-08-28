@@ -633,6 +633,12 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     "fast-path:<이름들>+completed|fail-open" 형태다(원장 태깅)."""
     scored = _sp._bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
     if not scored:
+        # 이슈 #2679: fail-open 로그(아래)만 있으면 "이 줄이 없다"가 성공과
+        # not-invoked 두 상태를 동시에 뜻하게 된다 — no-candidates 도 자기
+        # 줄을 낸다(자문 자체를 부르지 않은 세 번째 상태, 성공으로 읽히면
+        # 안 된다).
+        print(f"[{role}] skill_judge 자문 안 함 — BM25 후보 0개 (no-candidates)",
+              file=sys.stderr)
         return [], "no-candidates"
     # 이슈 #2124 part 2 (exact-phrase fast path, OpenHands microagents 키워드
     # tier): description 에 따옴표로 선언된 트리거 문구가 과제 텍스트에
@@ -700,16 +706,36 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     outcome_prefix = f"fast-path:{','.join(fast_names)}" if fast_names else ""
     remaining = k - len(fast_dirs)
     if remaining <= 0:
+        # 이슈 #2679 (before-landing hunt finding): fast-path 픽만으로 k 슬롯이
+        # 다 차 판단을 아예 안 부르는 세 번째 갈래 — 아래 no-candidates 줄과
+        # 같은 이유로 자기 줄이 필요하다(안 그러면 이 갈래도 조용하다).
+        print(f"[{role}] skill_judge 자문 안 함 — fast-path 로 슬롯이 다 참: "
+              f"{outcome_prefix}", file=sys.stderr)
         return fast_dirs, outcome_prefix
     candidates = [(name, d, source)
                   for _, name, d, source in scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]
                   if name not in fast_names]
     if not candidates:
+        # 이슈 #2679 send-back (독립 검증에서 재현): outcome_prefix 가 있는
+        # 갈래(fast-path 가 일부 슬롯만 채우고 남은 BM25 후보가 0개)는
+        # 위 `if not outcome_prefix` 에 걸려 이 print 를 건너뛰고 조용히
+        # outcome_prefix 그대로 반환했다 — "fast-path 로 슬롯이 다 참"
+        # 갈래(위, remaining<=0)와 똑같은 outcome 문자열 모양을 내면서
+        # 자기 줄이 없는 유일한 경로였다. 두 갈래를 각자 다른 문구로
+        # 갈라 찍는다.
+        if outcome_prefix:
+            print(f"[{role}] skill_judge 자문 안 함 — fast-path 이후 남은 BM25 "
+                  f"후보 0개, fast-path 픽만 반영: {outcome_prefix}", file=sys.stderr)
+        else:
+            print(f"[{role}] skill_judge 자문 안 함 — fast-path 이후 남은 후보 0개 "
+                  f"(no-candidates)", file=sys.stderr)
         return fast_dirs, (outcome_prefix or "no-candidates")
     try:
         picked, _detail = _sp._skill_judge_consult(task_text, role, candidates, issue, cwd,
                                                model=model, max_picks=remaining)
         outcome = "completed"
+        print(f"[{role}] skill_judge 자문 완료 — {len(picked)}개 선택",
+              file=sys.stderr)
     except Exception as ex:
         print(f"[{role}] skill_judge 자문 실패 — BM25 top-{remaining} 로 fail-open: {ex}",
               file=sys.stderr)

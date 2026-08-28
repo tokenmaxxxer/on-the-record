@@ -7,6 +7,8 @@ acceptance: 매치되는 태스크는 마운트 목록이 정확히 그 스킬�
 늘고 디렉티브에도 실린다; 매치 안 되는 태스크는 마운트/디렉티브가 오늘과
 바이트 단위로 동일하다 — 둘 다 라이브(serial, -o addopts='')로 검증한다.
 """
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -341,8 +343,10 @@ class ConsultJudgeStageTest(unittest.TestCase):
                          "Use when a landing page needs contrast accessible review.")
         d2 = self._skill("bbb-skill",
                          "Use when a landing page needs contrast accessible review.")
+        stderr = io.StringIO()
         with mock.patch.object(spawn, "_skill_judge_consult",
-                               side_effect=RuntimeError("consult boom")):
+                               side_effect=RuntimeError("consult boom")), \
+             contextlib.redirect_stderr(stderr):
             matches, outcome = spawn._cross_family_skill_matches_with_consult(
                 "Build a landing page that needs contrast accessible review.",
                 "implementation", self.repo_root, 2040, str(self.work), k=2)
@@ -352,16 +356,88 @@ class ConsultJudgeStageTest(unittest.TestCase):
         self.assertEqual(matches, bm25_top2)
         self.assertEqual(matches, [d1, d2])
         self.assertEqual(outcome, "fail-open")
+        self.assertIn("skill_judge 자문 실패", stderr.getvalue())
 
     def test_no_bm25_candidates_skips_consult_entirely(self):
         self._skill("some-skill", "Use when deploying a widget frobnicator.")
-        with mock.patch.object(spawn, "_skill_judge_consult") as m:
+        stderr = io.StringIO()
+        with mock.patch.object(spawn, "_skill_judge_consult") as m, \
+             contextlib.redirect_stderr(stderr):
             matches, outcome = spawn._cross_family_skill_matches_with_consult(
                 "Completely unrelated vocabulary here.", "implementation",
                 self.repo_root, 2040, str(self.work))
         m.assert_not_called()
         self.assertEqual(matches, [])
         self.assertEqual(outcome, "no-candidates")
+        self.assertIn("skill_judge 자문 안 함", stderr.getvalue())
+
+    def test_completed_outcome_prints_distinguishable_line(self):
+        """이슈 #2679: fail-open 만 로그를 남기면 "이 줄이 없다"가 성공과
+        not-invoked 둘 다를 뜻하게 된다 — 완료도 자기 줄을 낸다, 실패
+        줄과 구분되는 문구로."""
+        picked_dir = self._skill(
+            "aaa-skill", "Use when a landing page needs contrast accessible review.")
+        session_json = json.dumps({"result": json.dumps({
+            "picked": ["aaa-skill"], "rejected": [], "reasons": {}})})
+        stderr = io.StringIO()
+        with mock.patch.object(spawn, "_consult_cmd_and_env",
+                               lambda role, cwd, model, **kw: (["cat"], {}, None)), \
+             mock.patch.object(spawn.subprocess, "run",
+                               lambda *a, **k: subprocess.CompletedProcess(
+                                   a, 0, stdout=session_json, stderr="")), \
+             contextlib.redirect_stderr(stderr):
+            matches, outcome = spawn._cross_family_skill_matches_with_consult(
+                "Build a landing page that needs contrast accessible review.",
+                "implementation", self.repo_root, 2040, str(self.work), k=2)
+        self.assertEqual(outcome, "completed")
+        self.assertEqual(matches, [picked_dir])
+        line = stderr.getvalue()
+        self.assertIn("skill_judge 자문 완료", line)
+        self.assertNotIn("자문 실패", line)
+        self.assertNotIn("자문 안 함", line)
+
+    def test_fast_path_fills_all_slots_prints_distinguishable_line(self):
+        """이슈 #2679 (before-landing hunt finding): fast-path 만으로 k 슬롯이
+        다 차면 판단(consult)을 아예 안 부르고 조용히 돌아왔다 —
+        no-candidates 와 같은 "안 부름" 상태인데 자기 줄이 없었다."""
+        self._skill(
+            "exact-phrase-skill",
+            'Use when the task says "please run the reproduction now" verbatim.')
+        with mock.patch.object(spawn, "_skill_judge_consult") as m:
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                matches, outcome = spawn._cross_family_skill_matches_with_consult(
+                    "please run the reproduction now", "implementation",
+                    self.repo_root, 2040, str(self.work), k=1)
+        m.assert_not_called()
+        self.assertEqual(outcome, "fast-path:exact-phrase-skill")
+        line = stderr.getvalue()
+        self.assertIn("skill_judge 자문 안 함", line)
+        self.assertIn("fast-path", line)
+        self.assertIn("슬롯이 다 참", line)
+
+    def test_fast_path_partial_fill_with_no_remaining_candidates_prints(self):
+        """이슈 #2679 send-back (독립 검증에서 재현): fast-path 가 슬롯 일부만
+        채우고(remaining>0) BM25 후보 중 fast-path 픽을 뺀 나머지가 0개면
+        `outcome_prefix` 가 있다는 이유로 print 가 통째로 건너뛰어졌다 —
+        위 fast-path-fills-all-slots 갈래와 outcome 문자열 모양이 같은데
+        (both "fast-path:<이름들>") 이 갈래만 조용했다."""
+        self._skill(
+            "exact-phrase-skill",
+            'Use when the task says "please run the reproduction now" verbatim.')
+        with mock.patch.object(spawn, "_skill_judge_consult") as m:
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                matches, outcome = spawn._cross_family_skill_matches_with_consult(
+                    "please run the reproduction now", "implementation",
+                    self.repo_root, 2040, str(self.work), k=2)
+        m.assert_not_called()
+        self.assertEqual(outcome, "fast-path:exact-phrase-skill")
+        line = stderr.getvalue()
+        self.assertIn("skill_judge 자문 안 함", line)
+        self.assertIn("fast-path", line)
+        self.assertNotIn("슬롯이 다 참", line)
+        self.assertIn("남은 BM25 후보 0개", line)
 
 
 class FourSurfaceCandidateCorpusTest(unittest.TestCase):
