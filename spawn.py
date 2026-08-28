@@ -384,6 +384,7 @@ import skills
 if skills._sp is None or __name__ in ("spawn", "__main__"):
     skills._sp = sys.modules[__name__]
 _STATIC_POLICY_SKILLS = skills._STATIC_POLICY_SKILLS
+_available_skills_clause = skills._available_skills_clause
 _core_candidates = skills._core_candidates
 _describe_skill_match = skills._describe_skill_match
 _installed_plugin_skill_dirs = skills._installed_plugin_skill_dirs
@@ -3665,9 +3666,16 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 자문을 여기서 join 만 한다 — 이 단계의 측정치는 이제 겹친
                 # 대기 시간이 아니라 순수 join 대기(자문이 셋업보다 오래
                 # 걸린 나머지)만 반영한다.
-                cross_family_dirs, skill_judge_outcome = (
-                    _cross_family_future.result()
-                    if _cross_family_future is not None else ([], "not-run"))
+                if _cross_family_future is not None:
+                    cross_family_dirs, skill_judge_outcome = _cross_family_future.result()
+                else:
+                    # 이슈 #2679: --issue 없는 스폰은 자문 자체를 안 던진다
+                    # (위 `if issue is not None:`) — 이 줄이 없으면 성공
+                    # 로그도 실패 로그도 안 남아 "자문이 성공했는지 아예
+                    # 안 불렸는지" 를 로그만으로 구분할 수 없다.
+                    cross_family_dirs, skill_judge_outcome = [], "not-run"
+                    print(f"[{role}] skill_judge 자문 안 함 — --issue 없는 스폰이라 "
+                          f"자문 자체를 안 던졌다 (not-run)", file=sys.stderr)
                 if _cross_family_executor is not None:
                     _cross_family_executor.shutdown(wait=False)
             # 이슈 #2507: 고정 표(family) + 자문 추가(cross-family)라는

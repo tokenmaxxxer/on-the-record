@@ -101,6 +101,15 @@ class ResolvedSkillDirsTest(unittest.TestCase):
         self.assertNotEqual(ctx.exception.code, 0)
         self.assertIsNotNone(ctx.exception.code)
 
+    def test_unknown_name_error_names_candidates(self):
+        """이슈 #2679: 거부 메시지가 다음 시도에 쓸 수 있는 이름을 낸다 —
+        그 자리에서 새로 나열하는 게 아니라, 이미 거부를 판단한 바로 그
+        `available` 목록을 그대로 재사용한다."""
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_dirs("alpha,ghost", self.repo_root)
+        self.assertIn("alpha", str(ctx.exception.code))
+        self.assertIn("beta", str(ctx.exception.code))
+
     def test_no_repo_root_exits_nonzero(self):
         with self.assertRaises(SystemExit) as ctx:
             spawn.resolved_skill_dirs("alpha", None)
@@ -315,6 +324,33 @@ class ResolvedSkillSourcesFourTierTest(unittest.TestCase):
                 "ghost", self.repo_root, home=self.home,
                 target_repo_root=self.target_repo)
         self.assertNotEqual(ctx.exception.code, 0)
+
+    def test_nowhere_found_error_names_candidates_from_resolver(self):
+        """이슈 #2679: 이 출구(:325)가 이제 :132 처럼 후보를 낸다 — 손으로
+        관리하는 목록이 아니라, 같은 호출 안에서 이미 찾아낸 네 소스의
+        실제 이름 목록에서."""
+        (self.repo_root / "alpha").mkdir()
+        d = self.target_repo / ".claude" / "skills" / "delta"
+        d.mkdir()
+        (d / "SKILL.md").write_text("delta content")
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "ghost", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception.code)
+        self.assertIn("alpha", msg)
+        self.assertIn("delta", msg)
+
+    def test_nowhere_found_empty_state_says_so_explicitly(self):
+        """이슈 #2679 empty-state: 후보가 하나도 없으면 빈 목록을 찍는
+        대신 그렇다고 명시한다."""
+        with self.assertRaises(SystemExit) as ctx:
+            spawn.resolved_skill_sources(
+                "ghost", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo)
+        msg = str(ctx.exception.code)
+        self.assertIn("사용 가능한 스킬이 하나도 없다", msg)
+        self.assertNotIn("쓸 수 있는 이름: ", msg)
 
     def _make_pair(self, name, tier_a, tier_b):
         """`name` 이 두 tier 에서 동시에 잡히게 픽스처를 만든다."""

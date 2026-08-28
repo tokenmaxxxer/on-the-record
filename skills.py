@@ -112,6 +112,18 @@ def _skill_repo_root() -> Path | None:
     return _sp._skill_repo_managed_root()
 
 
+def _available_skills_clause(available: list[str]) -> str:
+    """이슈 #2679: unknown-skill 거부의 두 출구(`resolved_skill_dirs`,
+    `resolved_skill_sources`)가 후보 절을 같은 모양으로 낸다 — 후보는 항상
+    거부한 바로 그 resolver 가 이미 나열한 목록에서 오지, 손으로 관리하는
+    별도 표에서 오지 않는다(그래야 실제 마운트 가능한 것과 어긋날 수
+    없다). 후보가 하나도 없으면(스킬을 하나도 못 찾은 설치) 빈 목록을
+    찍는 대신 그렇다고 명시한다(empty-state 요구)."""
+    if not available:
+        return "사용 가능한 스킬이 하나도 없다"
+    return f"쓸 수 있는 이름: {', '.join(available)}"
+
+
 def resolved_skill_dirs(skills_csv: str | None,
                          repo_root: Path | None) -> list[Path]:
     """`--skills a,b,c` 를 skill-repository 체크아웃 안의 디렉터리 목록으로
@@ -130,7 +142,7 @@ def resolved_skill_dirs(skills_csv: str | None,
     unknown = [n for n in names if n not in available]
     if unknown:
         sys.exit(f"--skills: 모르는 스킬 {', '.join(unknown)} "
-                  f"— 쓸 수 있는 이름: {', '.join(available)}")
+                  f"— {_sp._available_skills_clause(available)}")
     return [repo_root / n for n in names]
 
 
@@ -300,6 +312,15 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
     tier3 = _sp._local_skill_dirs(home / ".claude" / "skills")
     tier4 = (_sp._local_skill_dirs(target_repo_root / ".claude" / "skills")
              if target_repo_root is not None else {})
+    # 이슈 #2679: 거부 메시지의 후보 목록 — 네 소스 각각이 이미 이 호출
+    # 안에서 실제로 찾아낸 이름들의 합집합이지, 손으로 관리하는 별도
+    # 목록이 아니다(같은 resolver 가 거부하고 같은 resolver 가 후보를
+    # 댄다, `resolved_skill_dirs()`의 :132 출구와 같은 원칙).
+    repo_names = (sorted(p.name for p in repo_root.iterdir()
+                          if p.is_dir() and not p.name.startswith("."))
+                  if repo_root is not None and repo_root.is_dir() else [])
+    all_available = sorted(set(repo_names) | set(plugin_index)
+                            | set(tier3) | set(tier4))
     results = []
     for raw in raw_names:
         source_filter, name = _sp._split_skill_qualifier(raw)
@@ -324,7 +345,7 @@ def resolved_skill_sources(skills_csv: str | None, repo_root: Path | None,
             sys.exit(
                 f"--skills: 모르는 스킬 {name} — skill-repository, 설치된 "
                 f"플러그인, ~/.claude/skills, 타깃 저장소 .claude/skills "
-                f"어디에도 없다")
+                f"어디에도 없다 — {_sp._available_skills_clause(all_available)}")
         for m in matches:
             m["_content_key"] = _sp._skill_identity_key(m["dir"])
         if source_filter is not None:
