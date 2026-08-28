@@ -260,6 +260,28 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             cwd=str(wt))
         self.assertEqual(r.returncode, 2, r.stderr)
 
+    # issue #2661 send-back (PR #2683's finding): the three cases above
+    # only ever target PRODUCT_CAPTURE_PRIORITIES_DIR_RE. `root_relative_n`
+    # backs EXEMPT_SUFFIXES too (this file's docs/specs/approvers.md
+    # anchoring fix, same `_git_root_from` call site), and a live
+    # reproduction shows the identical planted-`.git` steering reaches it:
+    # a session that plants `src/.git` before writing
+    # `src/docs/specs/approvers.md` gets rc=0 EXEMPT, not rc=2 — the exact
+    # bypass shape the three cases above pin down for the priorities-shard
+    # regex, unpinned here until now. Not a new mechanism, not fixed here
+    # (same "no path-shaped resolution can be made unsteerable" finding
+    # from #2637 round 4 applies without re-deriving it) — `expectedFailure`
+    # per that round's own precedent, so this gap is visible in `pytest`
+    # output instead of silently uncovered.
+    @unittest.expectedFailure
+    def test_bypass_via_planted_git_directory_reaches_exempt_suffixes(self):
+        (self.repo / "src" / ".git").mkdir(parents=True)
+        r = _run_gate(
+            self.repo,
+            str(self.repo / "src/docs/specs/approvers.md"),
+            cwd=str(self.repo))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

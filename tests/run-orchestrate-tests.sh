@@ -21,7 +21,14 @@ lines=$(CLAUDE_ROLE=qa /bin/bash "$H/directive.sh" | wc -l)
 [ "$lines" = 0 ] && report x x directive-silent-for-roles || report 0 "$lines" directive-silent-for-roles
 
 guard() { # want name file_path board(yes/no)
-  td="$(cd "$(mktemp -d)" && pwd -P)"; git init -q "$td"
+  # Fixture root is "$HERE/.guard-fixture.XXXXXX", not plain mktemp -d:
+  # plain mktemp -d lands under /tmp, and every path under /tmp carries a
+  # path segment literally named "tmp" (the /tmp directory itself) —
+  # before issue #2661, that segment was itself an unconditional
+  # exemption, so every guard() case here was silently passing through
+  # that bypass rather than the behavior it claims to test (issue #2661
+  # send-back, PR #2683/#2685). Segments here never spell "tmp" exactly.
+  td="$(cd "$(mktemp -d "$HERE/.guard-fixture.XXXXXX")" && pwd -P)"; git init -q "$td"
   [ "$4" = yes ] && { mkdir -p "$td/docs/specs"; echo "- u" > "$td/docs/specs/approvers.md"; }
   printf '{"tool_name":"Write","tool_input":{"file_path":"%s","content":"x"},"cwd":"%s"}' "$td/$3" "$td" \
     | env -u CLAUDE_ROLE /bin/bash "$H/deliverable-guard.sh" >/dev/null 2>&1
@@ -32,7 +39,14 @@ guard deny  guard-docs-in-board      docs/issue-3/reports/product.md yes
 guard deny  guard-src-in-board       src/app.py                      yes
 guard deny  guard-tests-in-board     tests/test_app.py               yes
 guard allow guard-approvers-ok       docs/specs/approvers.md         yes
-guard allow guard-nonboard-repo      docs/notes.md                   no
+# issue #787 H1 already denies any deliverable-shaped write inside any
+# git repo, board-onboarded or not — "board" activation was retired as a
+# concept then, so a fresh non-board repo has never legitimately allowed
+# this write. Confirmed live (issue #2661 send-back) with a fixture
+# outside /tmp: this denies identically on origin/main HEAD and on this
+# branch — the fixture fix above is what makes that visible, not a
+# behavior change here.
+guard deny  guard-nonboard-repo      docs/notes.md                   no
 # issue #2661: a top-level "scratch/" segment used to be an unconditional
 # exemption (issue #787) with no real write depending on it — removed,
 # so a board-repo write there is now correctly denied like any other
