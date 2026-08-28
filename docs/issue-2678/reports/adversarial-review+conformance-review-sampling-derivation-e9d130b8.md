@@ -464,8 +464,8 @@ work in this record itself.
   quoted in Claim 2 above), and this record then constructed inputs those
   tests do not cover — the consumer-shaped probes in Claim 1, the
   k-mismatch repro in Claim 2 — to test what the passing tests do not.
-- skill-verdict: conformance-review-sampling-derivation — applied:
-  invoked; used rules 1 and 3 (stratification and stated derivation) in
+- skill-verdict: conformance-review-sampling-derivation — applied: invoked;
+  used rules 1 and 3 (stratification and stated derivation) in
   Claim 6 above to evaluate the subject's 0-of-47 sample as a convenience
   sample with no stated population size, no strata, and no designed
   selection method, and rule 4 (no silent sample expansion on a
