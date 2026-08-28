@@ -3,11 +3,11 @@
 # (docs/issue-803/proposals/2026-08-11-self-driven-deviation-loop.md,
 # docs/issue-803/proposals/2026-08-12-implementation-deviation-loop.md).
 #
-# Binds in BOTH orchestrator and role-session contexts (issue #983 —
+# Binds in BOTH orchestrator and spawned-session contexts (issue #983 —
 # previously a CLAUDE_ROLE-unset orchestrator-only gate, matching
 # stop-gate.sh's skeleton, left role sessions structurally unenforced;
 # audit E Finding 1, docs/issue-754/reports/defect-verification.md). The
-# branch-to-path regex below already resolves a role session's own
+# branch-to-path regex below already resolves a spawned session's own
 # issue-<n>/<role> branch correctly, so no other change was needed to
 # extend coverage. Same fail-closed trap / ORCHESTRATE_OFF kill switch as
 # stop-gate.sh's skeleton — but stop-gate.sh's
@@ -33,14 +33,14 @@
 # directory-level hit cannot be another session's shard.
 #
 # Path also now folds in the pre-existing, previously unenforced role-
-# scoped convention many role sessions already use
+# scoped convention many spawned sessions already use
 # (docs/issue-<n>/reports/<role>/deviation-log/ instead of the flat
 # docs/issue-<n>/reports/deviation-log/) -- role comes ONLY from
 # $CLAUDE_ROLE (same signal board-gate's R4 already treats as
-# authoritative for a role session's own subtree), never re-derived from
-# the branch name: a role session is defined by CLAUDE_ROLE being set, not
+# authoritative for a spawned session's own subtree), never re-derived from
+# the branch name: a spawned session is defined by CLAUDE_ROLE being set, not
 # by what its branch happens to look like, and the branch is already
-# required to equal issue-<n>/<CLAUDE_ROLE> for a role session (board-gate
+# required to equal issue-<n>/<CLAUDE_ROLE> for a spawned session (board-gate
 # R4) rather than being an independent source for it. No CLAUDE_ROLE (the
 # orchestrator) means no role component, same as before this issue.
 #

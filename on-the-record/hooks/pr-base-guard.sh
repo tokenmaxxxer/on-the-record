@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # PreToolUse (Bash): deny-before-effect gate on `gh pr create --base` / REST
-# pulls-create issued from a role workspace, when --base is not the repo's
+# pulls-create issued from a spawned session's workspace, when --base is not the repo's
 # default branch (issue #1461).
 #
 # Root cause (issue #1461 investigation): before this gate, nothing computed
@@ -24,7 +24,7 @@
 # denial): every other lookup failure (no git, no `gh`, non-matching
 # command, non-issue branch, no --base found) is a scope miss and passes
 # through — this hook only ever *applies* to `gh pr create --base <x>` /
-# `gh api .../pulls` calls with a role-shaped current branch. But once it
+# `gh api .../pulls` calls with a subject-scoped current branch. But once it
 # applies, an unresolvable default branch (the one fact this gate exists to
 # check) denies rather than passing through, since a silent pass-through
 # there is exactly the failure mode issue #1461 reports.
@@ -93,7 +93,7 @@ if base is None and is_rest_create:
 if base is None:
     sys.exit(0)  # no --base on the command — gh defaults to the repo default
 
-# --- subject issue number from the current branch (role workspace scope) ---
+# --- subject issue number from the current branch (spawned workspace scope) ---
 try:
     r = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
                         capture_output=True, text=True, timeout=20)

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """머지 게이트 — PR 하나가 머지될 자격이 있는지 판정한다(issue-1323
-req 4): phase 2 의 check-runner 결과(전부 pass) + 필요한 검증 기록(req 3
-이 스폰하는 2개 role) 이 모두 갖춰져야 `allowed`.
+req 4): phase 2 의 check-runner 결과(전부 pass) + 필요한 검증 기록(subject
+당 독립 검증 기록 2건, kind/이름 무관 — issue #2609) 이 모두 갖춰져야
+`allowed`.
 
 `.github/workflows/` 파일이 아니다 — 이 레포엔 그런 CI 표면이 없고,
-role 세션은 그걸 추가하는 게 거절된다. `check_runner.py` 와 같은 자세로
+세션은 그걸 추가하는 게 거절된다. `check_runner.py` 와 같은 자세로
 PR 번호를 받는 스크립트다.
 
   python3 gates/merge_gate.py <pr> <subject> [--repo <경로>]
@@ -153,7 +154,7 @@ def _own_pr_supplies_verification(repo: Path, subject: str, own_branch: str | No
     a PR that itself supplies a qualifying verification can only help the
     subject meet `spawn_on_pr.REQUIRED_INDEPENDENT_VERIFICATIONS`, never
     hurt it, so blocking it on the very count it is about to increase
-    serves no purpose regardless of how many named roles exist.
+    serves no purpose regardless of what that required count is.
 
     `own_branch` outside `subject`'s prefix, unresolvable, or lacking a
     qualifying record: False (no exemption -- same conservative no-op as

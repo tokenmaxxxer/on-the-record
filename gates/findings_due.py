@@ -4,7 +4,7 @@ shape exactly: a pure classifier plus a pure formatter, wired into the
 orchestrator's board-reading step alongside `roles-due`/`needs-due`.
 
 Advisory-only: this module never files a `gh issue` and never spawns a
-role session — scribe rule stays intact (the role discovers and queues,
+session — scribe rule stays intact (the session discovers and queues,
 the user confirms into an issue, the orchestrator then stamps
 `relayed_to_issue:` on the finding after that confirmation).
 """
@@ -48,7 +48,7 @@ def findings_due(target_root: Path) -> list[dict]:
     """Un-relayed queued findings under `target_root`. A finding is
     "un-relayed" until the orchestrator appends a `relayed_to_issue: <n>`
     frontmatter field to it, post user-confirmation (scribe-rule
-    boundary: role discovers/queues, user confirms, orchestrator
+    boundary: session discovers/queues, user confirms, orchestrator
     records). Session-summary files (`<date>-session-summary.md`) are
     not findings and are skipped.
 

@@ -2,10 +2,12 @@
 
 Pure classifier, network-free, `landing_readiness.classify`-shaped
 (gates/landing_readiness.py line 31): given whether a PR's diff is scoped
-to a role that owns a `quality_bar` (roles/specs/<role>.spec.json), the
-most recent verdict recorded for that (PR, role) pair, and the identity
-that authored the verdict record vs. the identity that produced the
-bar-scoped diff, returns BAR_MET / BAR_NOT_MET / ESCALATE / NO_BAR_SCOPED.
+to a quality domain that owns a `quality_bar` (the fixed 7-domain set
+inlined in `quality-bar-gate.sh` since issue #2539/#2610 — no longer read
+from `roles/specs/<role>.spec.json`, which was deleted), the most recent
+verdict recorded for that (PR, role) pair, and the identity that authored
+the verdict record vs. the identity that produced the bar-scoped diff,
+returns BAR_MET / BAR_NOT_MET / ESCALATE / NO_BAR_SCOPED.
 
 Anti-circularity (proposal §4, docs/issue-1156/proposals/
 per-role-quality-bars.md): identity here means an *account*, not a bare
@@ -91,15 +93,16 @@ def human_comprehensibility_verdict(
     point for `human_comprehensibility.check_record` in the quality_bar
     machinery — reduces its tier-1 rule results to the same
     `bar-met`/`bar-not-met` vocabulary `quality-bar-gate.sh` already reads
-    from a role's `quality_bar_verdict:` line (module docstring: verdict
-    values compared to `classify`'s own `verdict` parameter). An exempt
-    record (no human-facing prose section at all) reports `bar-met` -- a
-    universal criterion cannot fail an artifact that has nothing for it to
-    check. This function does not yet have a live caller wired into
-    `quality-bar-gate.sh`'s per-role record read (delivery-order (a) in
-    the issue covers adding the criterion to the machinery itself, not
-    wiring every existing bar-scoped role's gate read -- that wiring is
-    deferred, tracked as a follow-up)."""
+    from the PR's slug-named record's `quality_bar_verdict:` line (issue
+    #2568: records are slug-named, not role-named; module docstring:
+    verdict values compared to `classify`'s own `verdict` parameter). An
+    exempt record (no human-facing prose section at all) reports
+    `bar-met` -- a universal criterion cannot fail an artifact that has
+    nothing for it to check. This function does not yet have a live
+    caller wired into `quality-bar-gate.sh`'s record read (delivery-order
+    (a) in the issue covers adding the criterion to the machinery itself,
+    not wiring every existing bar-scoped domain's gate read -- that
+    wiring is deferred, tracked as a follow-up)."""
     result = human_comprehensibility.check_record(text, doc_type, changed_ranges)
     if result["exempt"]:
         return "bar-met", None

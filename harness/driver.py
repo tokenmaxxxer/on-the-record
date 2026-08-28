@@ -198,7 +198,7 @@ def reset_and_push_fixture_to_github(dest_dir, repo, token):
     """issue #847: reset repo (a real GitHub repo, e.g. the harness-only
     fixture host) to a clean state and push dest_dir's current HEAD as its
     sole default-branch history, so every steady-state run starts the
-    delegated role from the same clean slate. Deletes every other branch
+    delegated session from the same clean slate. Deletes every other branch
     via the GitHub REST API through `gh api`
     (https://cli.github.com/manual/gh_api) so no prior run's
     issue-<n>/<role> branches linger, then force-pushes dest_dir's HEAD.
@@ -398,7 +398,7 @@ def resume_orchestrator_session(session_id, nudge, cwd=None, timeout_sec=None):
     resumed turn can only auto-accept file edits, not Bash — `gh pr
     merge`, `git fetch`, and `spawn.py` invocations all get denied
     (measured PR #885, `.permission_denials`). `bypassPermissions` is the
-    same headless default #700 already uses for real role spawns; it
+    same headless default #700 already uses for real spawns; it
     only lifts the HOST permission prompt — PreToolUse-hooked gates
     (gh-write-allow-gate.sh, merge-allow-gate.sh, deliverable-guard) still
     run regardless of this mode. One precise boundary: those hooks only

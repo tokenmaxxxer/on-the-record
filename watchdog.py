@@ -410,7 +410,7 @@ def _resume_orchestrator_session(session_id: str, nudge: str,
 
 
 def _maybe_resume_for_ready_pr(key: str, entry: dict, pr_number: int) -> bool:
-    """이슈 #878: 죽은(=역할 세션이 끝난) roster 엔트리가 PR 을 남겼을 때,
+    """이슈 #878: 죽은(=세션이 끝난) roster 엔트리가 PR 을 남겼을 때,
     그 스폰을 무장한 오케스트레이터가 headless 세션이었다면(`session_id`
     가 찍혀 있으면) `--resume` 으로 그 세션을 재개해 merge→rebuild/
     re-check→`final_report` 턴을 잇는다. 인터랙티브 세션(`session_id`
@@ -1306,7 +1306,7 @@ def watchdog_freshness_check(startup_head: str, cwd: Path = ROOT,
 
 def watchdog_canonical_guard(module_path: Path = Path(__file__)) -> tuple[bool, str]:
     """워치독 자신의 파일 경로가 canonical 보드 체크아웃 밖(예:
-    `~/.tokenmaxxxer/work/*` 역할 워크스페이스)이면 시작을 거부한다 (이슈
+    `~/.tokenmaxxxer/work/*` 세션 워크스페이스)이면 시작을 거부한다 (이슈
     #1456 요구 3, #1360 재발 원인 그 자체 — 역할 워크스페이스에서 뜬
     독립 워치독이 rearm 을 못 받았다). `SPAWN_WATCHDOG_ALLOW_NONCANONICAL=1`
     로 테스트/운영 오버라이드."""
@@ -1473,7 +1473,7 @@ def standing_red_check(state: dict | None = None, now: float | None = None,
 
 def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                      root: Path = ROOT) -> int:
-    """`spawn.py watchdog` — 살아있는 모든 역할 세션을 한 번 스캔해서 이상
+    """`spawn.py watchdog` — 살아있는 모든 세션을 한 번 스캔해서 이상
     신호를 사람이 읽을 수 있게 출력한다. observe-only: 아무 것도 고치거나
     죽이지 않는다. 오케스트레이터가 10-15분 간격으로 반복 호출한다
     (이슈 #90 phase-2 프로포절).
@@ -1680,7 +1680,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
             continue
         # 이슈 #2215: harness-decided, unconditional — 이 라이브 엔트리의
         # 워크스페이스를 매 폴 틱(POLL_INTERVAL_SEC)마다 체크포인트한다.
-        # dura 처럼 HEAD/브랜치/인덱스를 건드리지 않는다; 역할 세션이
+        # dura 처럼 HEAD/브랜치/인덱스를 건드리지 않는다; 세션이
         # 커밋을 잊어도 이 스냅샷은 남는다.
         work = e.get("work")
         if work:

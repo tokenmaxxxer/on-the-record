@@ -575,9 +575,9 @@ def _record_upstream(record: Path) -> dict[str, str]:
 
 
 def _front_role(root: Path, subject: str, roles: dict) -> str | None:
-    """그 subject 의 front record — subject 를 처음 연 역할 (첫 빌드 승인 게이트).
+    """그 subject 의 front record — subject 를 처음 연 참가자 (첫 빌드 승인 게이트).
 
-    upstream 이 빈 역할이 하나뿐이면 그게 체인 루트다. 못 가리면 관례 순서
+    upstream 이 빈 참가자가 하나뿐이면 그게 체인 루트다. 못 가리면 관례 순서
     (product, 아니면 feasibility)로 물러난다.
     """
     rootless = [r for r in roles
@@ -595,7 +595,7 @@ def approve_scope(cwd: str, issue: int) -> int:
     `scope-approved` 로 올리는 커밋을 직접 쓴다 (이슈 #115).
 
     승인은 여전히 사람의 몫이다 — 이 함수는 그 결정을 **표현하는 방법**(댓글)에서
-    **기록에 반영하는 방법**(커밋)으로 옮길 뿐, 어느 역할도 스스로 승인하지
+    **기록에 반영하는 방법**(커밋)으로 옮길 뿐, 어느 참가자도 스스로 승인하지
     못한다는 규칙은 그대로 둔다.
     """
     root = Path(cwd).resolve()
@@ -1248,7 +1248,7 @@ def _format_roster_row(key: str, e: dict, ws_idx: dict,
 
 
 def roster_ps() -> int:
-    """돌고 있는 역할 세션들. 죽은 항목은 표시 후 정리한다.
+    """돌고 있는 세션들. 죽은 항목은 표시 후 정리한다.
 
     이슈 #559: 각 살아있는 세션마다 붙은 워처(있으면)를 함께 보여준다 —
     "워처가 무장됐는지 죽었는지 바깥에서 알 방법이 없다"는 관찰에 대한

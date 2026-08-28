@@ -3,12 +3,12 @@
 
 Every file the system writes under `runs/` is either target-repo state
 (belongs with the repo being worked on) or orchestrator cross-tick memory
-("did I already report this PR", "did I already try spawning this role")
+("did I already report this PR", "did I already try spawning this skill")
 that must outlive any single workspace and must never land inside a
 consumer's working tree. The latter category was previously composed
 ad hoc as `root / "runs" / "<name>.json"`, where `root` is whatever repo
 a caller happens to be operating on — the target repo's own checkout, or
-an ephemeral per-role clone that gets discarded at session end. Storage
+an ephemeral per-session clone that gets discarded at session end. Storage
 location and meaning disagreed: orchestrator memory kept vanishing
 because it was never written to the same place twice, and — worse — for
 any repo that is not this orchestrator's own install, it was written

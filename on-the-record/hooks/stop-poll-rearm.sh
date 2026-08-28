@@ -36,7 +36,7 @@ _HOOK_PAYLOAD="$(cat 2>/dev/null || true)"
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/hook-fires.sh"
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-# A spawned role session is never the orchestrator, even if the plugin leaks in.
+# A spawned session is never the orchestrator, even if the plugin leaks in.
 [ -z "${TOKENMAXXXER_SPAWNED:-}" ] || { trap - EXIT; exit 0; }
 
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/poll-rearm.sh"

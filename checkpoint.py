@@ -1,4 +1,4 @@
-"""Harness-decided checkpointing for role workspaces (issue #2215).
+"""Harness-decided checkpointing for session workspaces (issue #2215).
 
 Pure workspace-path functions — unlike watchdog.py/roster.py/lifecycle.py
 (extractions from spawn.py that resolve cross-module references through the

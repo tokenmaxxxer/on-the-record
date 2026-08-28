@@ -1,6 +1,6 @@
 """issue-517 — aggregate, single-pass record lint.
 
-Authoring a role record today costs one model turn per gate refusal:
+Authoring a record today costs one model turn per gate refusal:
 `record_wellformed`/`record_checked_claims`/... in `gates.py` and the four checks
 mirrored inline in `on-the-record/hooks/record-claim-guard.sh` each
 report only their own first failure, and there is no single command an
@@ -883,12 +883,12 @@ def git_tracked_path_reference_check(root: Path, text: str,
 
 
 def canonical_source_claim_check(text: str) -> list[str]:
-    """issue #793 mirror: a state/defect-claim line (role output "found",
+    """issue #793 mirror: a state/defect-claim line (session output "found",
     session/PR/board state "halted|merged|closed|is running|is gone|is
     stale", or a bare count claim) needs, somewhere in its enclosing
     markdown section (issue #2219 — was a fixed 3-line window; see the
     module note above `_section_bounds`), a `canonical:`/`derived:
-    <what was read>` tag citing the actual role record/diff, raw
+    <what was read>` tag citing the actual record/diff, raw
     ground-truth command output, or file:line-context read, or an
     `acceptance: ... — result:` lead-in immediately followed by a
     fenced block (issue #2219) — not a summary/grep/watcher signal with

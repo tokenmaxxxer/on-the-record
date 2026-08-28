@@ -38,10 +38,10 @@
 # Spawned-session identity (issue #706, issue #2538): the presence check
 # is resolved inside the python body from the #698 session-role-bind
 # snapshot, falling back to the live env var only when no snapshot exists
-# — a role session unsetting TOKENMAXXXER_SPAWNED before a tool call can
+# — a spawned session unsetting TOKENMAXXXER_SPAWNED before a tool call can
 # no longer flip itself into the orchestrator-only branch and have this
-# retry bound applied to it. Only presence is ever tested, never a role
-# name, so this needs no role identity. See approval-gate.sh for the
+# retry bound applied to it. Only presence is ever tested, never a skill
+# name, so this needs no skill identity. See approval-gate.sh for the
 # resolve pattern.
 trap 'exit 0' EXIT
 set -uo pipefail

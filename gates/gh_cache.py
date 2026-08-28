@@ -4,7 +4,7 @@
 캐시. `gates/closure_sweep.py:_conditional_issue_list` 와 같은
 ETag-조건부 패턴을 쓰되, 워크트리 로컬(`.git/`)이 아니라
 `~/.tokenmaxxxer/gh-cache/` 아래에 둬서 워크트리가 다른 여러 소비자(다른
-subject 브랜치, 다른 role 세션)가 캐시를 공유한다 — 그것이 이 모듈의
+subject 브랜치, 다른 세션)가 캐시를 공유한다 — 그것이 이 모듈의
 존재 이유다.
 
 PR #1683 코멘트의 amendment(2026-08-16, on-record operator): 두 소비자 ->

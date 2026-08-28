@@ -580,7 +580,7 @@ class SymlinkCollapseAndSourceQualifierTest(unittest.TestCase):
 
 
 class SkillBranchSlugStripsQualifierTest(unittest.TestCase):
-    """이슈 #2579: 브랜치/역할 이름 슬러그는 `<source>:<name>` 한정자의
+    """이슈 #2579: 브랜치/스킬 이름 슬러그는 `<source>:<name>` 한정자의
     콜론을 절대 나르지 않는다 — 실 스폰(`--skills skill-repo:diagnose-first`)
     에서 `checkout -b` 가 콜론 때문에 깨지는 걸 재현하고 고친 회귀 방지."""
 

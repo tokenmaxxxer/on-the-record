@@ -14,8 +14,8 @@
 #
 # Mounted-skill detection (issue #2044): the orchestrator's own reply
 # carries no mounted-skill list of its own — that only ever exists in a
-# ROLE session's transcript (skill-verdict-guard.sh's territory, issue
-# #2039). What the orchestrator DOES have is the role's landed record,
+# spawned session's transcript (skill-verdict-guard.sh's territory, issue
+# #2039). What the orchestrator DOES have is the session's landed record,
 # which carries one `skill-verdict: <name> — applied: ... |
 # not-applicable: ...` line per mounted skill (issue #2039). So: pull
 # every `이슈 #<n>` cited in this reply, and if any

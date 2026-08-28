@@ -5,7 +5,13 @@
 10개 board_condition 역할 중 "커밋이 브랜치에 랜딩했다 AND 이 커밋에 대한
 기록이 아직 없다"만으로 판정되는 2개만 대상이다 — 나머지 8개는 컨텐츠
 분류나 다른 역할의 기록을 전제조건으로 요구해 여기서 다루지 않는다
-(docs/issue-1323/reports/implementation/survey-phase3-4.md).
+(docs/issue-1323/reports/implementation/survey-phase3-4.md, issue-1323
+당시 기준).
+
+issue #2628: 이제 그 2개를 이름 있는 role 로 선별하지 않는다 — subject 당
+부족한 독립 verification 개수(`verification_deficit()`)만 보고, 부족한
+만큼 generic `independent-verification-<slot>` 세션을 스폰한다
+(`_VERIFICATION_SLOT_RE` 참고, 어느 특정 전문성도 이름 붙이지 않는다).
 
 `reconcile()`(spawn.py) 의 계약은 건드리지 않는다 — 이 모듈은
 `_board_wide_sweep`(spawn.py) 이 이미 하는 것과 같은 board-wide 스윕

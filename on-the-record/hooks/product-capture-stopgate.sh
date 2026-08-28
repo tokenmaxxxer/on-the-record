@@ -15,7 +15,7 @@
 # not authored text, and are skipped).
 #
 # Same kill-switch/fail-closed skeleton as decision-queue-stopgate.sh:
-# no-op on TOKENMAXXXER_SPAWNED set (issue #2538: presence-only, no role
+# no-op on TOKENMAXXXER_SPAWNED set (issue #2538: presence-only, no skill
 # identity needed), honors ORCHESTRATE_OFF, trap-based exit-code
 # remap to 2 on unexpected failure. Advisory only
 # (hookSpecificOutput.additionalContext), never decision:"block" —
@@ -35,7 +35,7 @@
 # Off that branch shape there is no issue number to scope by, so the
 # hook falls back to the fixed pre-#684 path, docs/reports/product/<cat>.md
 # (issue #1111: also retargeted into the `reports` bucket) — #684's
-# collision only arises among on-the-record's own concurrent role
+# collision only arises among on-the-record's own concurrent spawned
 # sessions, which a target-project repo does not run.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
