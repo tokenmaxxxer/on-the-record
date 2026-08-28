@@ -746,6 +746,98 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     return fast_dirs + picked, outcome
 
 
+def rank_skills(task_text: str, role: str = "candidates",
+                repo_root: Path | None = None, *,
+                issue: int | None = None, cwd: str | None = None,
+                home: Path | None = None, target_repo_root: Path | None = None,
+                use_judge: bool = False, model: str | None = None,
+                k: int = 2) -> dict:
+    """Issue #2678: read-only ranked-candidate view for the orchestrator to
+    weigh BEFORE it commits to `--skills` -- never mutates anything, and
+    never replaces the orchestrator's own choice. Reuses, byte-identical,
+    the same two functions spawn's own internal add-only cross-family
+    mount already calls (`_bm25_cross_family_scores()` for the ranking,
+    `_cross_family_skill_matches_with_consult()` for the optional judge
+    refinement) -- one scoring implementation, two call sites, so the
+    orchestrator's preview and spawn's actual mount decision cannot drift
+    apart (Acceptance: "same scoring, not two implementations").
+
+    The proposal's caveat on extractability turned out to be unfounded:
+    both functions already take `repo_root`/`home`/`target_repo_root` as
+    plain parameters and touch no spawn-session mutable state (no lease,
+    no roster, no workspace lock) -- the only "coupling" is the `_sp`
+    late-binding alias every extracted module in this cluster already uses
+    for test-patchability (pipeline.py/directive_assembly.py/skills.py
+    docstrings), which is why this function lives here calling `_sp.*`
+    exactly like its neighbors rather than needing a new extraction.
+
+    Always returns a dict, never `None`, never raises:
+      {"ranked": [{"name", "score", "trigger", "source"}, ...],
+       "outcome": <str>, "picked": [name, ...]}
+
+    `ranked` is the full BM25 order (score desc, name asc tiebreak) --
+    this stage is a local tokenize+arithmetic pass over on-disk SKILL.md
+    files, so it cannot hang or time out; an empty list always and only
+    means "no candidate shares a token with the task text", never a
+    failure. `outcome` distinguishes that genuine-empty case from every
+    other state, deliberately reusing spawn's own existing outcome
+    vocabulary so a caller checking one string never has to special-case
+    this entry point:
+      "no-candidates" -- `ranked` is [] (BM25 found nothing)
+      "bm25-only"     -- `use_judge=False`; `ranked` is BM25 order, judge
+                         was never asked (not "judge is silent" -- those
+                         are different states, see next)
+      "completed"     -- judge ran and returned a verdict
+      "fail-open"     -- judge errored or timed out; `ranked` (BM25) is
+                         still fully populated -- fail-open here NEVER
+                         collapses into "ranked nothing" the way a caller
+                         could mistake for "no-candidates". This is the
+                         explicit, pinned-down contract issue #2678's
+                         caveat asked for: the timeout is
+                         `_sp._skill_judge_timeout()` (env
+                         `SKILL_JUDGE_TIMEOUT` override, else the ledger's
+                         p90 of recent real `skill_judge_perf` events,
+                         else `_sp.SKILL_JUDGE_TIMEOUT_DEFAULT` -- same
+                         adaptive bound spawn's own internal call uses,
+                         issue #2274), and its firing is never silent: the
+                         caller reads it straight off `outcome`, the same
+                         field spawn's own ledger write already tags
+                         `outcome_ok=False` for (issue #2679's seven-state
+                         judge logging covers this call site already,
+                         unchanged here).
+      "fast-path:<names>[+completed|+fail-open]" -- declared-phrase
+                         auto-pick short-circuited some/all of the judge
+                         slots, same shape as spawn's own outcome.
+
+    `picked` is only ever non-empty when `use_judge=True` -- the names the
+    judge (or fast-path) actually chose, a subset of `ranked`'s names,
+    length <= `k`. It never overrides `ranked`; a caller that ignores
+    `picked` entirely still gets the full ranking.
+
+    `use_judge` defaults to False: the BM25 stage is free (no subprocess,
+    no LLM call, no side effect), while `use_judge=True` reuses
+    `_skill_judge_consult()` verbatim, including that function's existing
+    side effects (a consult-trace commit, a `skill_judge_perf` ledger
+    write) -- calling it from a preview path is not a new cost class, it
+    is spawn's own existing per-spawn cost paid one call earlier, at the
+    orchestrator's discretion rather than unconditionally inside every
+    spawn (issue #2678 non-goal: this does not touch spawn's own internal
+    call, which is unchanged and still add-only/max-`k`)."""
+    scored = _sp._bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
+    ranked = [{"name": name, "score": score, "source": source,
+               "trigger": _sp._skill_trigger_line(d)}
+              for score, name, d, source in scored]
+    if not scored:
+        return {"ranked": [], "outcome": "no-candidates", "picked": []}
+    if not use_judge:
+        return {"ranked": ranked, "outcome": "bm25-only", "picked": []}
+    picked_dirs, outcome = _sp._cross_family_skill_matches_with_consult(
+        task_text, role, repo_root, issue, cwd, k=k, model=model,
+        home=home, target_repo_root=target_repo_root)
+    return {"ranked": ranked, "outcome": outcome,
+            "picked": [d.name for d in picked_dirs]}
+
+
 def _composed_consult_skill_source(role: str, task_text: str | None,
                                    issue: int | None, cwd: str | None,
                                    model: str | None) -> dict:

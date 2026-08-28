@@ -37,6 +37,22 @@
 # transcript (not just the first user message) for assistant tool_use
 # blocks named "Skill", intersected against the mounted-name set so a
 # stray/typo'd tool call can't manufacture a new requirement.
+#
+# issue #2681: #2153's narrowing has a floor at zero -- invoke one skill
+# and you owe a verdict for it, invoke none and (before this change) you
+# owed nothing AND produced nothing, byte-identical to the zero-mounted
+# path below. A wrong-but-uninvoked skill was therefore invisible from
+# every artifact this hook produces for the rest of the session. The
+# zero_invocation_notice() below is the fix's entire surface: advisory
+# only (additionalContext, never decision:"block" -- measured, issue's
+# own "must not": the zero-invocation case is the minority on this
+# machine's retained local session sample, 0/47 landed skill-composed
+# records lacked a skill-verdict line, so a blocking gate would strand
+# rare, hard-to-recover work for a signal that mostly wouldn't fire
+# anyway), does not resurrect the per-mounted-skill verdict obligation
+# #2153 removed (still no verdict line is owed), and makes no judgment
+# about whether any mounted skill was appropriate -- it only makes the
+# fact of non-use visible where it previously produced nothing.
 trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
@@ -173,6 +189,23 @@ reminder = obligations_reminder(e.get("session_id"))
 
 mounted = mounted_skill_names()
 
+
+# issue #2681: distinguishes "mounted N skills, invoked zero" from
+# "mounted zero skills" -- both used to be byte-identical (nothing, or at
+# most the folded obligations reminder). Advisory only; never a
+# requirement, never a judgment of appropriateness.
+def zero_invocation_notice(mounted_names):
+    return (
+        "skill-verdict-guard: zero-invocation (issue #2681) -- this "
+        f"session mounted {len(mounted_names)} skill(s) ("
+        + ", ".join(mounted_names) + ") and invoked none of them via the "
+        "Skill tool. Advisory only: no skill-verdict line is owed (issue "
+        "#2153's narrowing stands) and this is not a judgment that any of "
+        "them applied or didn't -- if one does apply, invoke it via the "
+        "Skill tool before ending; if none do, no action is needed."
+    )
+
+
 def finish(*parts):
     parts = [p for p in parts if p]
     if not parts:
@@ -192,9 +225,11 @@ if not mounted:
 invoked = invoked_skill_names(transcript_path, set(mounted))
 
 # issue #2153: a mounted skill this session never actually invoked owes
-# no skill-verdict line -- byte-unaffected same as the zero-mounted path.
+# no skill-verdict line. issue #2681: that no longer means byte-identical
+# to the zero-mounted path above -- the notice makes the zero-invocation
+# fact visible without adding any new obligation.
 if not invoked:
-    finish(reminder)
+    finish(zero_invocation_notice(mounted), reminder)
 
 if not gates_dir:
     sys.exit(2)

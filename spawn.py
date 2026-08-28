@@ -362,6 +362,7 @@ _readonly_bash_allow = consult._readonly_bash_allow
 _readonly_plugin_dirs = consult._readonly_plugin_dirs
 _readonly_settings = consult._readonly_settings
 _run_panel_session = consult._run_panel_session
+rank_skills = consult.rank_skills
 _skill_judge_consult = consult._skill_judge_consult
 _skill_judge_p90_cutoff = consult._skill_judge_p90_cutoff
 _skill_judge_perf_samples = consult._skill_judge_perf_samples
@@ -1954,6 +1955,21 @@ def main() -> int:
                          "곧장 가이던스를 해석한다. 사용: spawn.py --skill <스킬명> "
                          "\"<맡길 일>\" --issue <n>. 세션은 안 띄운다 — 해석 결과 JSON만 "
                          "찍는다. --role 경로는 이 옵션과 무관하게 그대로다")
+    ap.add_argument("--skill-candidates", action="store_true",
+                    help="이슈 #2678: --skills 를 찍기 전에 과제 문구로 후보를 "
+                         "랭킹만 본다 — 세션은 안 띄우고 --skills 도 안 건드린다. "
+                         "사용: spawn.py --skill-candidates \"<맡길 일>\" "
+                         "[--issue <n>]. rank_skills() (스폰의 add-only "
+                         "cross-family 마운트가 이미 쓰는 것과 같은 BM25 함수) "
+                         "결과를 JSON으로 찍는다: {ranked, outcome, picked}. "
+                         "기본은 BM25만(빠름, 부작용 없음) — --with-judge 를 "
+                         "얹으면 스폰이 실제로 쓰는 skill_judge 자문까지 돌려 "
+                         "picked 를 채운다(자문 호출과 같은 부작용 — 트레이스 "
+                         "커밋/원장 기록 — 을 그대로 진다)")
+    ap.add_argument("--with-judge", action="store_true",
+                    help="--skill-candidates 전용: BM25 프리필터에 skill_judge "
+                         "자문 단계까지 더한다(스폰 내부 경로와 같은 함수, 같은 "
+                         "타임아웃/fail-open)")
     ap.add_argument("--merge", help="judge <role-or-skill> --merge <sha>: 판단할 머지의 커밋 sha")
     ap.add_argument("--unattended", action="store_true",
                     help="사람이 없는 실행. mint 는 안 되고, 휴먼 게이트는 선다")
@@ -2151,6 +2167,29 @@ def main() -> int:
             "skills": skill_source["skills"],
             "skill_sha": skill_source["skill_sha"],
         }, indent=2, ensure_ascii=False))
+        return 0
+
+    if a.skill_candidates:
+        # 이슈 #2678: 오케스트레이터가 --skills 를 찍기 전에 후보를 미리
+        # 본다 — `--skill` 과 같은 자리(role dispatch 체인보다 먼저)에서
+        # 같은 이유로 `a.role` 을 태스크 문구로 읽는다(위 --skill 분기
+        # 주석 참고, argparse 가 positional 하나를 role 에 묶는 것도 그대로).
+        # 세션은 안 띄운다 — roster/lease/board-gate/merge_gate 는 손대지
+        # 않는다. `_skill_repo_root()`/`Path.home()`/`Path(a.cwd)` 는
+        # `_spawn_one()` 의 실제 cross_family 호출부(위 3336번대 라인)가
+        # 넘기는 것과 동일한 인자 — "같은 스코어링" Acceptance 를 함수
+        # 레벨뿐 아니라 인자 레벨에서도 만족시킨다(같은 task_text 를
+        # 넣으면 정확히 같은 랭킹이 나온다).
+        task_text = a.role
+        if not task_text:
+            sys.exit('사용법: spawn.py --skill-candidates "<맡길 일>" [--issue <n>] [--with-judge]')
+        result = rank_skills(task_text, role="candidates",
+                             repo_root=_skill_repo_root(),
+                             issue=a.issue, cwd=a.cwd,
+                             home=Path.home(), target_repo_root=Path(a.cwd),
+                             use_judge=a.with_judge)
+        print(json.dumps({"task": task_text, "issue": a.issue, **result},
+                         indent=2, ensure_ascii=False))
         return 0
 
     if a.role == "init":
