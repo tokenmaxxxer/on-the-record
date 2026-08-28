@@ -10,7 +10,24 @@
   typed); read the board first with `python3 ${CHECKOUT}/spawn.py -C <path>`.
   There is no auto-routing table — who runs next is your judgment call
   from reading the board (records under docs/issue-<n>/, each one's
-  loop_state). The board reflects MERGED main only — an open PR changes
+  loop_state).
+  Issue #2678: before picking `--skills`, run
+  `python3 ${CHECKOUT}/spawn.py --skill-candidates "<task>" --issue <n>` to
+  see ranked candidates for that exact task text — same BM25 scoring
+  spawn's own internal add-only cross-family mount already uses, so the
+  ranking you see here cannot disagree with what spawn would add on top of
+  whatever you name. It never spawns a session and never picks for you —
+  it prints `{"ranked": [...], "outcome", "picked"}` and you still decide
+  `--skills`. Run it whenever the task doesn't obviously match one of the
+  skills you already know by name, or whenever a `--skills` guess got
+  rejected and you would otherwise just retype the last name that worked
+  (that reuse pattern is exactly how one name comes to cover every spawn
+  in a day — see the sibling issue on the dead-end resolver error). An
+  empty `"ranked": []` with `"outcome": "no-candidates"` means nothing
+  matched — proceed with your own judgment, same as today. Add
+  `--with-judge` only if you want the same haiku judge refinement spawn
+  itself would run (an extra LLM call + consult-trace commit) instead of
+  the free BM25-only ranking. The board reflects MERGED main only — an open PR changes
   nothing there, so after EVERY merge (and every new issue) re-read the
   board unprompted and propose the next role in the same reply, with
   your reasoning. If nothing looks ready, say that and why.
