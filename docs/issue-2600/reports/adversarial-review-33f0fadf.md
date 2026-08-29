@@ -72,6 +72,7 @@ derived: `grep -rIo --exclude-dir=.git --exclude-dir=docs -i 'role' --include=*.
 The task named this exact failure class — plausible-sounding negative claims ("behavior unchanged", "failing-test set identical", "nothing outside the identifier kind was touched") produced without actually running the check — as something this program has already shipped four times uncaught. The only way to close that gap is to not read the PR body as evidence: re-derive each negative claim from the PR head with fresh commands, in a worktree separate from the builder's own working directory, and only then cross-check against the builder's own record to see whether the same numbers came out. Every command in "What was done" above was run by this session against a `git worktree` checkout of the PR head and of `main`, not copied from the PR body.
 
 skill-verdict: adversarial-review — applied: invoked; this whole record follows the skill's blind-evaluator posture — every command was re-run independently against the PR head before I read the builder's own record file in detail, and the record above documents disagreements with the PR body's stated claims (comment-touch scope, docs/ "empty" claim) rather than restating them.
+skill-verdict: work-in-english — applied: invoked; this record, its commit message, and the PR title/body were all written in English per the skill's routing rule, with only the final end-of-turn summary to the user written in Korean.
 
 ## What did not work
 
