@@ -400,13 +400,7 @@ caught up to it in form — the same shape of correction
 
 ## Skill verdicts
 
-- skill-verdict: secure-coding-input-validation-injection-defense —
-  applied: invoked; derived: the `Skill(secure-coding-input-validation-injection-defense)`
-  tool call this session and this record's "Why" section above (rule 10
-  and rule 8's applicability both reasoned through there, each with its
-  own separate citation) together are the evidence this verdict is
-  grounded in — not a summary of the skill, the actual tool call plus the
-  reasoning it produced.
+- skill-verdict: secure-coding-input-validation-injection-defense — applied: invoked; derived: the `Skill(secure-coding-input-validation-injection-defense)` tool call this session and this record's "Why" section above (rule 10 and rule 8's applicability both reasoned through there, each with its own separate citation) together are the evidence this verdict is grounded in — not a summary of the skill, the actual tool call plus the reasoning it produced.
 - skill-verdict: adversarial-review — not-applicable: this round's task
   is to build the fix (build-now bypass), not to serve as a structurally
   independent evaluator of someone else's deliverable — the skill's own
