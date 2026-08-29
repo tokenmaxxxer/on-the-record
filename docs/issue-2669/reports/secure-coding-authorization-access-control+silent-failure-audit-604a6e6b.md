@@ -157,11 +157,24 @@ None.
   session-mutable filesystem state (e.g. an orchestrator-attested repo
   allowlist recorded outside the session's own write access — out of
   scope for this issue).
+- Coverage limit surfaced by re-reading secure-coding-authorization-
+  access-control rule 7 (multi-entry-path parity) after actually
+  invoking the skill (see deviation log entry
+  `20260829T071518840485-c7642d9bf3bcd4eb.md`): `operative_cwd()` only
+  matches a single leading `cd <dir> &&`/`cd <dir>;`. `pushd <dir> &&
+  ...`, a subshell `(cd <dir> && gh pr create ...)`, or a second chained
+  `cd` all still resolve against the payload cwd, so those call shapes
+  do not get the fix even for a genuinely legitimate second-repo
+  checkout — they fall back to the pre-#2669 denial. Not fixed here
+  (the reported case, and the Acceptance's own check-3 construction, are
+  both the single-leading-`cd` shape); left as a known narrower-than-
+  ideal coverage boundary rather than claimed as fully general.
+  derived: `python3 -m pytest test/test_upstream_defect_scope_guard_cross_repo_cwd.py -v` — result: 4 passed, 1 xfailed — none of the passing cases exercise `pushd`/subshell/chained-`cd` shapes, confirming they are genuinely untested, not incidentally covered.
 
 ## Next steps
 
 None — delivered per the build-now bypass (CORE_BUILD_NOW=1, contract
 v3 s19a); this record accompanies the delivery PR.
 
-skill-verdict: secure-coding-authorization-access-control — applied: invoked; this is exactly a "closing a client-side-only or single-entry-path check" / deny-by-default judgment call (which signal a PreToolUse hook decides "in scope" from) — the skill's framing shaped the Rationale section's rejection of every session-assertable candidate signal and the choice to verify a real on-disk git config rather than a session-claimed string.
-skill-verdict: silent-failure-audit — applied: invoked; audited `origin_repo()`'s failure paths (subprocess error, non-zero `git remote` exit, unparseable URL) — all three already fell through to `return None`, which `in_scope()` already treats as fail-open on signal (b) alone (documented pre-existing posture, matched by `approval-gate.sh`'s unparseable-branch fail-open); `operative_cwd()`'s own failure path (no leading `cd`, or an empty capture group) falls back to the payload cwd rather than raising or silently returning a wrong directory, verified by `test_same_call_without_cd_still_denied` and `test_unrelated_upstream_repo_still_denied` passing.
+skill-verdict: secure-coding-authorization-access-control — applied: invoked; loaded via the Skill tool this session, correcting an invoke-before-apply miss (the lines below this note originally claimed "invoked" before the Skill tool was ever called — see deviation log entry `20260829T071518840485-c7642d9bf3bcd4eb.md`). canonical: `on-the-record/hooks/upstream-defect-scope-guard.sh` `in_scope()` (lines defining the `target_repo is not None and ORIGIN_REPO is not None` gate). Re-checked the delivered fix against rule 7 (an endpoint reachable through more than one entry path must get the same check on every path) — a `--repo` PR-creation call is reachable through a bare command, a `cd &&`-prefixed one, a `pushd`-prefixed one, or a subshell, and `operative_cwd()` gives parity only for the single-leading-`cd` shape; recorded above as a new Open finding rather than left unnoticed. Rule 1 (deny by default when no rule matches) is in tension with the guard's pre-existing fail-open posture on unresolvable origin — not introduced by this fix, out of scope here, noted for completeness.
+skill-verdict: silent-failure-audit — applied: invoked; loaded via the Skill tool this session (same correction, deviation-log entry cited above). Re-classified `origin_repo()`/`operative_cwd()`'s failure paths under the skill's own H/S/U taxonomy: `origin_repo()`'s three failure modes (subprocess error, non-zero `git remote` exit, unparseable URL) are Handled — they propagate to `in_scope()`'s documented fail-open branch, not silently absorbed into a wrong allow/deny with no trace; `operative_cwd()`'s no-match path is also Handled — it falls back to the payload cwd rather than raising or defaulting to a silently-wrong directory. No Silently-Absorbed sites found in the changed code. derived: `python3 -m pytest test/test_upstream_defect_scope_guard_cross_repo_cwd.py::CrossRepoCwdDisagreementTest::test_same_call_without_cd_still_denied test/test_upstream_defect_scope_guard_cross_repo_cwd.py::CrossRepoCwdDisagreementTest::test_unrelated_upstream_repo_still_denied -v` — result: 2 passed.
