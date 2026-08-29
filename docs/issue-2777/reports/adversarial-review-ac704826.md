@@ -270,9 +270,16 @@ None — `loop_state: landed`. This is a terminal verification record;
 both open findings above are resolution-path-only (tracked by existing
 or future issues, not by further work in this session).
 
-skill-verdict: adversarial-review — applied: invoked; used as the
-protocol for this entire session — treated PR #2780 and its own record
-as an artifact to be independently re-derived rather than restated,
-wrote separate repro scripts before reading the PR's own scripts, and
-surfaced two findings (blind window, #2216 inheritance) the delivering
-record did not disclose about its own work.
+skill-verdict: adversarial-review — applied: invoked; derived: this
+turn's own Skill tool call — the tool call happened after the commit and
+PR above already existed, correcting an earlier draft of this line that
+claimed invocation without having called the tool. The review itself
+did apply the skill's core mechanism: this session was structurally
+independent of PR #2780's builder session, did not trust the builder's
+self-report, wrote its own repro scripts before reading the builder's,
+and surfaced two findings (the blind window, the #2216 inheritance) the
+delivering record did not disclose. It did not follow the skill's strict
+blind/no-spec protocol — this session read the issue text and the PR's
+own record by design (the task was independent verification against a
+known spec, not blind evaluation), which the skill's Step 1 excludes
+from a true blind review.
