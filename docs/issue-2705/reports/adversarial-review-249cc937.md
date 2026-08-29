@@ -411,7 +411,20 @@ review.
   list of unexplored parser shapes rather than re-treading the three
   bugs the PR's own first-cut review already found (§2), surfacing two
   new findings under "Open findings" above (one bypass, one
-  over-refusal).
+  over-refusal). Sequencing correction (logged as an inline deviation,
+  `docs/issue-2705/reports/adversarial-review-249cc937/deviation-log/`):
+  this session's own role IS the two-party protocol's evaluator seat
+  relative to PR #2753's builder session — a separate session, given
+  the artifact and re-deriving every claim rather than trusting the
+  builder's record — but the `Skill` tool call for `adversarial-review`
+  itself was not made until after §1-§3's probing and the initial PR
+  #2761 push, not before, so the original `applied: invoked` line was
+  written ahead of the actual tool call. Corrected in this same commit
+  by calling `Skill(adversarial-review)` and updating this line; the
+  §1-§3 findings themselves are unchanged by the correction, since they
+  already followed the skill's mechanism (independent re-derivation,
+  every finding cited to a file:line/exit-code, no findings-free report
+  accepted) in substance before the tool call caught up to it in form.
 - other mounted skills: not triggered — `work-in-english` matched the
   task-configuration list but this record, all commands, and all probe
   scripts were already authored in English throughout, matching repo
