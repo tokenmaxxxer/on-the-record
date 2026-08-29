@@ -430,3 +430,90 @@ def test_clear_ceiling_does_not_unblock_without_a_real_approval_signal(monkeypat
 
     assert pairs == []
     assert recorder.spawn_calls == []
+
+
+# ---------------------------------------------------------------------
+# missing_verification(): issue #2652 -- the is-open check must run
+# before the pr_index-membership check, so a closed subject whose
+# deliverable branch is unmappable (the ordinary state for a long-closed
+# issue) never reaches the branch-missing print/one-shot-marker at all.
+# ---------------------------------------------------------------------
+
+def _deliverable_board(author="alice"):
+    # A single non-verifying record -> subject_deliverable_record()
+    # resolves it as the deliverable, and verifying_record_count() is 0
+    # (no `verifies_subject: true` record), so verification_deficit() is
+    # REQUIRED_INDEPENDENT_VERIFICATIONS (> 0) -- this subject is always a
+    # deficit candidate for missing_verification() to evaluate.
+    return {"implementation": {"author": author}}
+
+
+def test_closed_issue_with_unmappable_branch_prints_nothing(monkeypatch, tmp_path, capsys):
+    # issue #2652 acceptance 1: a closed issue whose deliverable branch is
+    # not in pr_index must produce NO per-tick spawn-on-pr output -- the
+    # is-open check must short-circuit before the branch-missing check
+    # even gets a chance to fire (with the one-shot marker forced to
+    # "first time seen" below, so the old ordering would deterministically
+    # print here if it regressed).
+    subject = "issue-99101"
+    monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: {subject: _deliverable_board()})
+    monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
+                         lambda root, s: True)
+
+    out = spawn_on_pr.missing_verification(
+        tmp_path, issue_states={99101: "CLOSED"}, pr_index={})
+
+    assert subject not in out
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+
+def test_open_subject_with_unmappable_branch_still_reports_missing_branch(
+        monkeypatch, tmp_path, capsys):
+    # issue #2652 acceptance 2: an OPEN subject whose branch genuinely is
+    # missing from pr_index must still print the branch-missing line --
+    # the fix must not silence this case generally, only reorder past it
+    # for closed subjects.
+    subject = "issue-99102"
+    monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: {subject: _deliverable_board()})
+    monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
+                         lambda root, s: True)
+
+    out = spawn_on_pr.missing_verification(
+        tmp_path, issue_states={99102: "OPEN"}, pr_index={})
+
+    assert subject not in out
+    captured = capsys.readouterr()
+    assert (f"[spawn-on-pr] {subject}: deliverable 브랜치를 pr_index 에서 "
+            "찾지 못했다") in captured.out
+
+
+def test_closed_and_open_subjects_mixed_only_open_unmappable_branch_reported(
+        monkeypatch, tmp_path, capsys):
+    # issue #2652: a mixed board (many closed subjects with unmappable
+    # branches, one open subject with an unmappable branch, one open
+    # subject whose branch IS in pr_index) -- only the open+unmappable
+    # subject prints, the open+mapped subject spawns normally (deficit
+    # surfaces in the result), and no spawning-eligible set changes.
+    closed_subjects = [f"issue-{93000 + i}" for i in range(30)]
+    board = {s: _deliverable_board() for s in closed_subjects}
+    board["issue-93100"] = _deliverable_board()  # open, branch unmappable
+    board["issue-93200"] = _deliverable_board()  # open, branch mapped
+
+    issue_states = {int(s.split("-", 1)[1]): "CLOSED" for s in closed_subjects}
+    issue_states[93100] = "OPEN"
+    issue_states[93200] = "OPEN"
+    pr_index = {"issue-93200/implementation": {"number": 1, "state": "OPEN"}}
+
+    monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: board)
+    monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
+                         lambda root, s: True)
+
+    out = spawn_on_pr.missing_verification(
+        tmp_path, issue_states=issue_states, pr_index=pr_index)
+
+    assert out == {"issue-93200": spawn_on_pr.REQUIRED_INDEPENDENT_VERIFICATIONS}
+    captured = capsys.readouterr()
+    printed_subjects = [line.split(":", 1)[0].removeprefix("[spawn-on-pr] ")
+                         for line in captured.out.splitlines() if "찾지 못했다" in line]
+    assert printed_subjects == ["issue-93100"]
