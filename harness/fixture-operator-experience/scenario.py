@@ -65,7 +65,7 @@ def check_3_precise_seed_skips_elicitation() -> list[str]:
 
 def _run_directive(checkout: Path) -> subprocess.CompletedProcess:
     env = dict(os.environ)
-    env.pop("CLAUDE_ROLE", None)
+    env.pop("CLAUDE_SKILL", None)
     env["ORCHESTRATE_OFF"] = "0"
     env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
     directive = checkout / "on-the-record" / "hooks" / "directive.sh"

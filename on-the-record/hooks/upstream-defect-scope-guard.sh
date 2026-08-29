@@ -30,7 +30,7 @@
 #
 # In-scope-for-denial iff EITHER:
 #   (a) the acting role is the channel's own role
-#       (CLAUDE_ROLE == "upstream-defect-report", read via the
+#       (CLAUDE_SKILL == "upstream-defect-report", read via the
 #       session-role-bind snapshot the same way approval-gate.sh already
 #       does — issue #698's pattern — falling back to the live env var), or
 #   (b) the call shape carries an extractable target repo
@@ -125,8 +125,8 @@ if not isinstance(cmd, str) or not cmd.strip():
 
 lowered = cmd.lower()
 
-# --- channel identity: mounted skills, not CLAUDE_ROLE (issue #2576) -------
-# CLAUDE_ROLE now carries whatever (possibly composed, "+"-joined) slug a
+# --- channel identity: mounted skills, not CLAUDE_SKILL (issue #2576) -------
+# CLAUDE_SKILL now carries whatever (possibly composed, "+"-joined) slug a
 # --skills spawn produced, so an exact-string compare against the single
 # literal "upstream-defect-report" only ever matched a spawn mounting that
 # skill alone — any multi-skill composition silently fell out of scope.

@@ -81,7 +81,7 @@ def _run_guard(command: str, cwd: str, env_extra: dict | None = None):
     })
     env = dict(os.environ)
     env.pop("ORCHESTRATE_OFF", None)
-    env.pop("CLAUDE_ROLE", None)
+    env.pop("CLAUDE_SKILL", None)
     env.pop("MUSTER_SKILLS", None)
     if env_extra:
         env.update(env_extra)

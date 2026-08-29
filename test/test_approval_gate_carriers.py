@@ -99,7 +99,7 @@ def _run_gate(repo: Path, bin_dir: Path, comments=()):
         "cwd": str(repo),
     })
     env = dict(os.environ)
-    env["CLAUDE_ROLE"] = ROLE
+    env["CLAUDE_SKILL"] = ROLE
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(list(comments))
     env.pop("ORCHESTRATE_OFF", None)

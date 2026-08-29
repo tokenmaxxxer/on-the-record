@@ -77,10 +77,10 @@ def _run_heartbeat(checkout: Path, marker: Path, env_extra: dict, cwd: Path | No
     env["FAKE_SPAWN_MARKER"] = str(marker)
     env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
     env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
-    env.pop("CLAUDE_ROLE", None)
+    env.pop("CLAUDE_SKILL", None)
     # issue #1724: normalize unconditionally, mirroring
     # POLL_HEARTBEAT_SLEEP_SECONDS/POLL_HEARTBEAT_MAX_TICKS above and the
-    # CLAUDE_ROLE pop -- otherwise an ambient OTR_MONITOR_OFF=1 in the
+    # CLAUDE_SKILL pop -- otherwise an ambient OTR_MONITOR_OFF=1 in the
     # invoking shell (the very thing this proposal tells operators to set
     # via .claude/settings.local.json) would silently mask a regression in
     # any test that claims OTR_MONITOR_OFF is unset.
@@ -104,7 +104,7 @@ def _run_tick(checkout: Path, home: Path, report: str) -> subprocess.CompletedPr
     env["FAKE_POLL_DUE"] = "1"
     env["FAKE_WATCHDOG_REPORT"] = report
     env["HOME"] = str(home)
-    env.pop("CLAUDE_ROLE", None)
+    env.pop("CLAUDE_SKILL", None)
     return subprocess.run(
         ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
     )
@@ -182,7 +182,7 @@ def _run_patrol_tick(checkout: Path, home: Path, *, patrol_behavior: str | None 
         env["FAKE_PATROL_BEHAVIOR"] = patrol_behavior
     if patrol_marker is not None:
         env["FAKE_PATROL_MARKER"] = str(patrol_marker)
-    env.pop("CLAUDE_ROLE", None)
+    env.pop("CLAUDE_SKILL", None)
     return subprocess.run(
         ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
     )
@@ -454,7 +454,7 @@ def t_patrol_wiring_does_not_alter_heartbeat_tick_or_rearm_behavior():
         env["FAKE_POLL_DUE"] = "1"
         env["FAKE_WATCHDOG_REPORT"] = EMPTY_ROSTER_REPORT
         env["HOME"] = str(home)
-        env.pop("CLAUDE_ROLE", None)
+        env.pop("CLAUDE_SKILL", None)
         r = subprocess.run(
             ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
         )
@@ -853,7 +853,7 @@ def t_patrol_tick_skips_when_checkout_vanishes_mid_sleep():
         env["FAKE_POLL_DUE"] = "0"
         env["FAKE_PATROL_MARKER"] = str(patrol_marker)
         env["HOME"] = str(home)
-        env.pop("CLAUDE_ROLE", None)
+        env.pop("CLAUDE_SKILL", None)
         proc = subprocess.Popen(
             ["bash", str(POLL_HEARTBEAT)], stdout=subprocess.PIPE,
             stderr=subprocess.PIPE, text=True, env=env,

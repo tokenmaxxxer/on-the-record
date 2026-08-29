@@ -175,7 +175,7 @@ def obligations_reminder(session_id):
         "(1) no traceless deviation — every mid-task deviation, inline or "
         "filed, leaves exactly one entry appended to the path "
         "`spawn.py deviation-log-path --issue <n>` prints (issue #2348: "
-        "sharded per session, role-scoped when $CLAUDE_ROLE is set; issue "
+        "sharded per session, role-scoped when $CLAUDE_SKILL is set; issue "
         "#803/#983/#2348, docs/handbooks/deviation-loop.md). "
         "(2) product capture — requirements/priorities/philosophy/goals "
         "the user stated this session are recorded into "

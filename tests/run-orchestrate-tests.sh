@@ -15,9 +15,9 @@ PY
 [ $? -eq 0 ] && pass=$((pass+1)) || fail=$((fail+1))
 
 # directive injects on prompt, silent for role sessions
-out=$(env -u CLAUDE_ROLE /bin/bash "$H/directive.sh" | head -1)
+out=$(env -u CLAUDE_SKILL /bin/bash "$H/directive.sh" | head -1)
 case "$out" in "[orchestrate]"*) report x x directive-injects ;; *) report inject none directive-injects ;; esac
-lines=$(CLAUDE_ROLE=qa /bin/bash "$H/directive.sh" | wc -l)
+lines=$(CLAUDE_SKILL=qa /bin/bash "$H/directive.sh" | wc -l)
 [ "$lines" = 0 ] && report x x directive-silent-for-roles || report 0 "$lines" directive-silent-for-roles
 
 guard() { # want name file_path board(yes/no)
@@ -31,7 +31,7 @@ guard() { # want name file_path board(yes/no)
   td="$(cd "$(mktemp -d "$HERE/.guard-fixture.XXXXXX")" && pwd -P)"; git init -q "$td"
   [ "$4" = yes ] && { mkdir -p "$td/docs/specs"; echo "- u" > "$td/docs/specs/approvers.md"; }
   printf '{"tool_name":"Write","tool_input":{"file_path":"%s","content":"x"},"cwd":"%s"}' "$td/$3" "$td" \
-    | env -u CLAUDE_ROLE /bin/bash "$H/deliverable-guard.sh" >/dev/null 2>&1
+    | env -u CLAUDE_SKILL /bin/bash "$H/deliverable-guard.sh" >/dev/null 2>&1
   rc=$?; case "$rc" in 0) got=allow ;; 2) got=deny ;; *) got="exit-$rc" ;; esac
   rm -rf "$td"; report "$1" "$got" "$2"
 }
@@ -56,7 +56,7 @@ guard deny  guard-scratch-not-exempt scratch/notes.md                yes
 # issue #287 S4: an unparseable stdin payload must DENY, not silently ALLOW —
 # a delivery failure on stdin is not evidence the write is safe.
 guard_raw() { # want name payload
-  printf '%s' "$3" | env -u CLAUDE_ROLE /bin/bash "$H/deliverable-guard.sh" >/dev/null 2>&1
+  printf '%s' "$3" | env -u CLAUDE_SKILL /bin/bash "$H/deliverable-guard.sh" >/dev/null 2>&1
   rc=$?; case "$rc" in 0) got=allow ;; 2) got=deny ;; *) got="exit-$rc" ;; esac
   report "$1" "$got" "$2"
 }

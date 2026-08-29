@@ -672,7 +672,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # to the session (its own skills mount explicitly via --plugin-dir above).
     # Restrict setting sources to the target project. Everything the
     # session needs rides on explicit flags: --settings (generated file),
-    # --plugin-dir (core + session skills), --model, env (GH_TOKEN, CLAUDE_ROLE).
+    # --plugin-dir (core + session skills), --model, env (GH_TOKEN, CLAUDE_SKILL).
     # Kill switch / override: MUSTER_SETTING_SOURCES ("user,project,local"
     # restores the old behavior; empty string omits the flag entirely).
     setting_sources = os.environ.get("MUSTER_SETTING_SOURCES",
@@ -719,7 +719,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
         design_bearing_verdict=design_bearing_verdict)
     if role_model:
         cmd += ["--model", role_model]
-    env = {"CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1",
+    env = {"CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1",
            # 이슈 #2204: 1시간 프롬프트 캐시 TTL 옵트인 — 위
            # `--exclude-dynamic-system-prompt-sections` 로 안정된 시스템
            # 프롬프트 프리픽스가 기본 TTL 보다 넓은 스폰 간격에서도 캐시에
@@ -757,7 +757,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     if unattended:
         env["TOKENMAXXXER_UNATTENDED"] = "1"
     # core PR #277 detection contract: checkpoint mode = env stamp
-    # CORE_CHECKPOINT=1, set by the SPAWNER alongside CLAUDE_ROLE — never
+    # CORE_CHECKPOINT=1, set by the SPAWNER alongside CLAUDE_SKILL — never
     # by the session (same trust model as CORE_BUILD_NOW). core's
     # approval-gate reads it only to reshape the no-approval refusal to
     # point at the in-session await-approval boundary; verdict machinery

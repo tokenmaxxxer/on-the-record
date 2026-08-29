@@ -235,10 +235,10 @@ def _env_rcg(payload, env):
 
 
 def _pre_approval(payload, env):
-    # approval-gate.sh: `[ -n "${CLAUDE_ROLE:-}" ] || exit 0` before
+    # approval-gate.sh: `[ -n "${CLAUDE_SKILL:-}" ] || exit 0` before
     # reading the payload — a live-env check, deliberately ahead of the
     # snapshot resolution the python body then performs itself.
-    # approval-gate.sh's own identity block still keys on CLAUDE_ROLE's
+    # approval-gate.sh's own identity block still keys on CLAUDE_SKILL's
     # value (issue #2538: it dual-carrier-checks the value against the
     # branch/sidecar-derived role, see docs/issue-2538/reports/
     # implementation.md) — but the gate this dispatcher runs BEFORE the

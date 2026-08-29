@@ -4,7 +4,7 @@
 # docs/issue-803/proposals/2026-08-12-implementation-deviation-loop.md).
 #
 # Binds in BOTH orchestrator and spawned-session contexts (issue #983 —
-# previously a CLAUDE_ROLE-unset orchestrator-only gate, matching
+# previously a CLAUDE_SKILL-unset orchestrator-only gate, matching
 # stop-gate.sh's skeleton, left role sessions structurally unenforced;
 # audit E Finding 1, docs/issue-754/reports/defect-verification.md). The
 # branch-to-path regex below already resolves a spawned session's own
@@ -36,12 +36,12 @@
 # scoped convention many spawned sessions already use
 # (docs/issue-<n>/reports/<role>/deviation-log/ instead of the flat
 # docs/issue-<n>/reports/deviation-log/) -- role comes ONLY from
-# $CLAUDE_ROLE (same signal board-gate's R4 already treats as
+# $CLAUDE_SKILL (same signal board-gate's R4 already treats as
 # authoritative for a spawned session's own subtree), never re-derived from
-# the branch name: a spawned session is defined by CLAUDE_ROLE being set, not
+# the branch name: a spawned session is defined by CLAUDE_SKILL being set, not
 # by what its branch happens to look like, and the branch is already
-# required to equal issue-<n>/<CLAUDE_ROLE> for a spawned session (board-gate
-# R4) rather than being an independent source for it. No CLAUDE_ROLE (the
+# required to equal issue-<n>/<CLAUDE_SKILL> for a spawned session (board-gate
+# R4) rather than being an independent source for it. No CLAUDE_SKILL (the
 # orchestrator) means no role component, same as before this issue.
 #
 # Refuses via hookSpecificOutput.additionalContext, never decision:"block"
@@ -161,9 +161,9 @@ if role is None:
     branch_m = re.match(r"^issue-(\d+)/([^/]+)$", branch)
     if branch_m:
         issue_n, role = branch_m.group(1), branch_m.group(2)
-    # CLAUDE_ROLE presence-only override: a session with no branch/sidecar
-    # identity at all but a live CLAUDE_ROLE still scopes to its own dir.
-    role = role or (os.environ.get("CLAUDE_ROLE") or None)
+    # CLAUDE_SKILL presence-only override: a session with no branch/sidecar
+    # identity at all but a live CLAUDE_SKILL still scopes to its own dir.
+    role = role or (os.environ.get("CLAUDE_SKILL") or None)
 
 if issue_n is not None:
     base = os.path.join("docs", f"issue-{issue_n}", "reports")

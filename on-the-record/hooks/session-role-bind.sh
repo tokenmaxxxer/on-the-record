@@ -6,19 +6,19 @@
 # env var, which the model can re-export via Bash.
 #
 # Issue #2538 (role retirement stage 6B): the snapshot used to carry the
-# CLAUDE_ROLE *value*. Every consumer of this snapshot (deliverable-guard.sh,
+# CLAUDE_SKILL *value*. Every consumer of this snapshot (deliverable-guard.sh,
 # gh-write-allow-gate.sh, heredoc-command-refusal-gate.sh,
 # decision-queue-stopgate.sh, retry-loop-bound.sh, spawn-allow-gate.sh,
 # merge-allow-gate.sh, delegation-post-gate.sh, approach-cap-warning.sh) only
 # ever tested it for truthiness ("is a role bound at all"), never compared
 # the string — so the snapshot now carries a boolean `spawned` flag sourced
 # from TOKENMAXXXER_SPAWNED, which pipeline.py/consult.py set alongside
-# CLAUDE_ROLE on every spawn path today (grep: both env keys are always
+# CLAUDE_SKILL on every spawn path today (grep: both env keys are always
 # written together, never one without the other) — the same presence signal
 # with no role name attached. approval-gate.sh, upstream-defect-scope-guard.sh
 # and deviation-log-guard.sh need the actual role *value* for reasons
 # specific to each (see docs/issue-2538/reports/implementation.md) and keep
-# reading CLAUDE_ROLE directly rather than this snapshot.
+# reading CLAUDE_SKILL directly rather than this snapshot.
 #
 # At SessionStart, the env var is still exactly what spawn.py set at process
 # launch — no session-controlled code has run yet, so this is the one point

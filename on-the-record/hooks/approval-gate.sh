@@ -6,7 +6,7 @@
 # that read an APPROVE comment (contract-guard.sh, pr-preflight.sh) are both
 # Bash-matcher, gated on `gh pr` verbs only, never reached by a plain write.
 #
-# No-ops immediately unless CLAUDE_ROLE is set — orchestrator-authored
+# No-ops immediately unless CLAUDE_SKILL is set — orchestrator-authored
 # writes are deliverable-guard.sh's job, not this hook's. Branch name is
 # parsed as issue-<n>/<role> (same regex as pr-preflight.sh); an unparseable
 # branch (detached HEAD, non-issue branch) fails open — accepted,
@@ -59,7 +59,7 @@ trap 'rc=$?; if [ "$rc" != 0 ] && [ "$rc" != 2 ]; then exit 2; fi' EXIT
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; esac
-[ -n "${CLAUDE_ROLE:-}" ] || { trap - EXIT; exit 0; }
+[ -n "${CLAUDE_SKILL:-}" ] || { trap - EXIT; exit 0; }
 payload="$(cat 2>/dev/null || true)"
 command -v python3 >/dev/null 2>&1 || { trap - EXIT; exit 0; }
 
@@ -83,13 +83,13 @@ if not isinstance(p, str) or not p:
     sys.exit(0)
 
 # --- role identity: prefer the SessionStart-bound snapshot (issue #698) ----
-# session-role-bind.sh snapshots CLAUDE_ROLE at SessionStart, before any
+# session-role-bind.sh snapshots CLAUDE_SKILL at SessionStart, before any
 # session-controlled code runs, keyed by session_id, into a state file this
 # session has no declared write path to. A later Bash-tool re-export of
-# CLAUDE_ROLE can no longer change what this gate believes the role is,
+# CLAUDE_SKILL can no longer change what this gate believes the role is,
 # because the live env var is only a fallback for when no snapshot exists
 # (e.g. session-role-bind.sh hasn't run yet, or its state dir was cleared).
-role = os.environ.get("CLAUDE_ROLE", "")
+role = os.environ.get("CLAUDE_SKILL", "")
 session_id = e.get("session_id")
 if isinstance(session_id, str) and session_id:
     state_dir = os.environ.get(

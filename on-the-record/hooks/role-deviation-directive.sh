@@ -43,7 +43,7 @@ claims to do, (d) a one-off, not a recognizable systemic pattern.
 Otherwise FILE-AS-ISSUE.
 
 RESOLVE-AND-CONTINUE: run `spawn.py deviation-log-path --issue <n>` (issue
-#2348: sharded per session, role-scoped under your own $CLAUDE_ROLE) and
+#2348: sharded per session, role-scoped under your own $CLAUDE_SKILL) and
 append your entry to the path it prints — never compute the path by hand.
 - Inline: apply the fix, append one line — timestamp, `inline`, one-line
   description, the diff's location; resume the original task same turn.
