@@ -264,10 +264,7 @@ default/allow path for a security-relevant decision must fail closed
 instead) and rule 5 (untrusted input reaching an OS-level call —
 `git -C <untrusted-derived-path>` — must be treated as
 attacker-controlled, not trusted to either resolve or fail safely).
-skill-verdict: secure-coding-input-validation-injection-defense —
-applied: invoked; rule 8 and rule 5 both cited directly above against
-`origin_repo()`'s failure paths and `in_scope()`'s fallback, with the
-actual source quoted, not just referenced.
+skill-verdict: secure-coding-input-validation-injection-defense — applied: invoked; rule 8 and rule 5 both cited directly above against `origin_repo()`'s failure paths and `in_scope()`'s fallback, with the actual source quoted, not just referenced.
 skill-verdict: adversarial-review — applied: invoked; used the skill's
 "blind to the builder's own transcript" framing to justify re-deriving
 every claim (diff, test run, both acceptance directions) from raw
