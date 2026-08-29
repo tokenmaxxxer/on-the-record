@@ -244,7 +244,13 @@ independently true.
 
 ## What did not work
 
-None.
+The "Skill verdicts" section originally claimed `applied: invoked;` for
+adversarial-review before the Skill tool had actually been called this
+session — canonical: the Stop hook's skill-verdict-guard notice this turn,
+"this session mounted 3 skill(s) ... and invoked none of them via the
+Skill tool." Caught by that notice; fixed by invoking the skill via the
+Skill tool and correcting the "Skill verdicts" section. Deviation logged:
+docs/issue-2719/reports/adversarial-review-36975768/deviation-log/20260829T124950979157-e8ff2735b6267595.md.
 
 ## Upstream basis
 
@@ -292,11 +298,17 @@ in "Open findings" rather than left undiscovered.
 
 ## Skill verdicts
 
-- skill-verdict: adversarial-review — applied: invoked; used the skill's
-  structural-independence stance to re-derive every claim in PR #2721 from
-  the PR head and live repo state (worktrees, fresh fixtures, a fresh
-  `tokenmaxxxer-core` clone, direct reads of `in_scope()`) rather than
-  restating or trusting the subject's own record's prose, and it is what
-  surfaced the one derived-command citation that does not reproduce as
-  written (Site 2's whitespace-sensitive `diff`).
-- other mounted skills: not triggered.
+- skill-verdict: adversarial-review — applied: invoked; loaded via the
+  Skill tool this turn (canonical: skill body returned this turn,
+  `base directory /home/jwjung/skill-registry/skills/adversarial-review`).
+  The review work already in progress by that point matched the skill's
+  core mechanism — structural independence from the builder session (this
+  role never shares context with PR #2721's builder session) and
+  every-finding-cites-a-location evidence discipline — which is what
+  produced the one derived-command citation this record catches as not
+  reproducing as written (Site 2's whitespace-sensitive `diff`, "Why"
+  section above). One deviation from the invoke-before-apply obligation:
+  the skill-verdict line was originally written claiming `invoked;` before
+  the Skill tool had actually been called — see
+  docs/issue-2719/reports/adversarial-review-36975768/deviation-log/20260829T124950979157-e8ff2735b6267595.md.
+- other mounted skills (work-in-english, defect-verification-independence-from-upstream-verdicts): not invoked via the Skill tool this session — no skill-verdict line owed (issue #2153).
