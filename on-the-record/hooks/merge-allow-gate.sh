@@ -207,89 +207,49 @@ if target_repo_flag and target_cwd is None:
 
 run_cwd = target_cwd or e.get("cwd") or os.getcwd()
 
-# --- issue #1130 routing-fix: secure-coding / release-engineering ----------
-# Both roles' use_when.trigger already names record_absent_for, but nothing
-# consulted it (docs/issue-1130/reports/requirements-engineering/
-# scout-brief.md) — this merge-time chokepoint is the natural consumer
-# since it is already the universal auto-allow gate. Presence-check only:
-# when the local diff between origin/main and HEAD in run_cwd touches a
-# path matching one of these two roles' trigger.path_patterns and that
-# role's own docs/issue-<n>/reports/<role>.md is absent for the issue
-# resolved from run_cwd's current branch (issue-<n>/<role>), this hook
-# simply withholds its "allow" (falls through unreached) rather than
-# denying — an existing deny gate elsewhere still wins either way per this
-# hook's own file-header note; this only makes a bad merge no easier.
-def _routing_fix_should_withhold(cwd):
-    # issue #2576: identity axis is now mounted skills ($MUSTER_SKILLS,
-    # pipeline.py:723), not a literal two-role branch-name match — a
-    # composed multi-skill spawn (e.g. "secure-coding+other-skill-<id>")
-    # never matched the old `^issue-(\d+)/(secure-coding|release-
-    # engineering)$` regex at all, silently disabling this routing-fix for
-    # exactly the composed-slug sessions #2548/#2572 introduced.
-    mounted = [s for s in os.environ.get("MUSTER_SKILLS", "").split(",") if s]
-    candidates = [r for r in ("secure-coding", "release-engineering") if r in mounted]
-    if not candidates:
-        return False
-    # --- issue number: prefer the .on-the-record/role.json lease sidecar ---
-    issue = None
-    try:
-        with open(os.path.join(cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
-            sidecar = json.load(f)
-        if isinstance(sidecar, dict) and isinstance(sidecar.get("issue"), int):
-            issue = sidecar["issue"]
-    except (OSError, ValueError):
-        pass
-    if issue is None:
-        try:
-            branch = subprocess.run(
-                ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
-                capture_output=True, text=True, timeout=10,
-            ).stdout.strip()
-        except (OSError, subprocess.SubprocessError):
-            return False
-        m = re.match(r"^issue-(\d+)/", branch)
-        if not m:
-            return False
-        issue = int(m.group(1))
-    # issue #2610: this used to look these two skills' trigger up in the
-    # (now-deleted) 44-entry role catalog. `candidates` was already a
-    # fixed 2-name tuple (secure-coding/release-engineering) unrelated to
-    # that catalog's key set — inlining their trigger data here drops the
-    # JSON dependency without shrinking or reshaping the set this hook
-    # special-cases (still exactly these two, unchanged).
-    TRIGGER_PATH_PATTERNS = {
-        "secure-coding": ["**/auth/**", "**/*credential*", "**/*permission*",
-                           "**/*secret*", "**/*password*", "**/*login*",
-                           "**/*input*", "**/*sanitiz*", "**/*validat*"],
-        "release-engineering": ["CHANGELOG.md", "package.json",
-                                 "pyproject.toml", "**/VERSION"],
-    }
-    for role in candidates:
-        path_patterns = TRIGGER_PATH_PATTERNS.get(role) or []
-        if not path_patterns:
-            continue
-        try:
-            diff = subprocess.run(
-                ["git", "-C", cwd, "diff", "--name-only", "origin/main...HEAD"],
-                capture_output=True, text=True, timeout=15,
-            )
-            changed = [l for l in diff.stdout.splitlines() if l.strip()]
-        except (OSError, subprocess.SubprocessError):
-            continue
-        if not changed:
-            continue
-        import fnmatch
-        if not any(fnmatch.fnmatch(f, pat) for f in changed for pat in path_patterns):
-            continue
-        record_path = os.path.join(cwd, "docs", "issue-%s" % issue, "reports", role + ".md")
-        if not os.path.isfile(record_path):
-            return True
-    return False
-
-
-if _routing_fix_should_withhold(run_cwd):
-    sys.exit(0)  # trigger matched, role's own record absent — withhold allow
-
+# issue #2719 removed the issue-#1130 routing-fix that used to live here.
+# It withheld this hook's "allow" (never a hard deny — see the file header)
+# for a `gh pr merge` when: MUSTER_SKILLS mounted "secure-coding" or
+# "release-engineering" (`candidates = [r for r in ("secure-coding",
+# "release-engineering") if r in mounted]`), the local diff touched a
+# per-skill hardcoded path-pattern list (`TRIGGER_PATH_PATTERNS`, itself a
+# 2-key dispatch table keyed by the same two names), and that skill's own
+# `docs/issue-<n>/reports/<role>.md` was absent. That is `role in ROLES`
+# reproduced under skill identity (issue #2626 finding A) — a fixed
+# 2-name tuple plus a name-keyed dispatch table, the same shape core#343
+# removed from approval-gate.sh's OBSERVER_ROLES. issue #2610's own
+# comment on this code already named it as unreshaped debt from the
+# deleted 44-entry role catalog before this removal.
+#
+# There is no non-identity signal this hook can use for "which skill's
+# trigger patterns apply" without either keeping the identity check or
+# reconstructing the same table under another name (a container/config
+# move the #2548 test treats as no removal at all) — per the operator
+# ruling of 2026-08-27, the capability is removed rather than reshaped.
+#
+# CAPABILITY REMOVED, asymmetrically:
+#   - secure-coding: NOT a net loss. `on-the-record/hooks/quality-bar-
+#     gate.sh` independently DENIES (not merely withholds an allow) any
+#     `gh pr merge` on a secure-coding-bar-scoped PR (its own
+#     `_TRIGGER_PATH_PATTERNS["secure-coding"]` is byte-identical to the
+#     list removed here) lacking a `quality_bar_verdict: bar-met` line,
+#     and per this hook's own file header a deny gate always wins over
+#     this hook's allow. secure-coding diffs missing their record are
+#     still blocked by that gate, unconditionally, whether or not this
+#     hook would have granted its convenience allow.
+#   - release-engineering: a REAL loss, with no replacement anywhere else
+#     in either enforcement repo (grep confirmed — see this issue's
+#     record). A `gh pr merge` on a release-engineering session touching
+#     CHANGELOG.md/package.json/pyproject.toml/VERSION with no
+#     `docs/issue-<n>/reports/<slug>.md` on disk no longer has its
+#     auto-allow withheld by this hook; it is now treated the same as any
+#     other session's diff once `gates/landing_readiness.py` reports
+#     READY. This only ever affected whether the merge auto-executed
+#     without an interactive confirmation — it never blocked a human from
+#     merging manually, and no other gate denies on this basis, so the
+#     loss is scoped to that convenience-friction, not to a hard block
+#     disappearing.
+#
 # --- call the existing READY predicate, not a reimplementation -------------
 checkout = os.environ.get("MAG_CHECKOUT")
 script = os.path.join(checkout, "gates", "landing_readiness.py")
