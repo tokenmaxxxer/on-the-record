@@ -78,7 +78,7 @@ class BootstrapSignalGuardCaughtSignalTest(unittest.TestCase):
         task_file.write_text("do the thing")
         ready = Path(self._td.name) / "ready-term"
 
-        pid = self._fork_armed_child(work, "2742:role:1:1", ready)
+        pid = self._fork_armed_child(work, "2742:sigtermfault:1:1", ready)
         _wait_for(ready)
         os.kill(pid, signal.SIGTERM)
         os.waitpid(pid, 0)
@@ -100,7 +100,7 @@ class BootstrapSignalGuardCaughtSignalTest(unittest.TestCase):
         work.mkdir()
         ready = Path(self._td.name) / "ready-int"
 
-        pid = self._fork_armed_child(work, "2742:role:2:2", ready)
+        pid = self._fork_armed_child(work, "2742:sigintfault:2:2", ready)
         _wait_for(ready)
         os.kill(pid, signal.SIGINT)
         os.waitpid(pid, 0)
@@ -122,7 +122,7 @@ class BootstrapSignalGuardCaughtSignalTest(unittest.TestCase):
         (work / "marker").write_text("cloned")
         ready = Path(self._td.name) / "ready-kill"
 
-        pid = self._fork_armed_child(work, "2742:role:3:3", ready)
+        pid = self._fork_armed_child(work, "2742:sigkillfault:3:3", ready)
         _wait_for(ready)
         os.kill(pid, signal.SIGKILL)
         os.waitpid(pid, 0)
@@ -144,7 +144,7 @@ class BootstrapSignalGuardCaughtSignalTest(unittest.TestCase):
         work.mkdir()
         (work / "marker").write_text("session running")
         ready = Path(self._td.name) / "ready-live"
-        attempt_id = "2742:role:4:4"
+        attempt_id = "2742:livefault:4:4"
 
         def _child():
             armed = spawn._arm_bootstrap_signal_guard(attempt_id)
@@ -203,7 +203,7 @@ class BootstrapSignalGuardReviewGapsTest(unittest.TestCase):
         work_base = Path(self._td.name) / "work-base"
         work_base.mkdir()
         ready = Path(self._td.name) / "ready-clone"
-        issue, skill, attempt_id = 2742, "clonefault", "2742:role:5:5"
+        issue, skill, attempt_id = 2742, "clonefault", "2742:clonefault:5:5"
 
         with mock.patch.object(spawn, "_workspace_base", lambda: work_base):
             _, expected_target = spawn._workspace_target_path(
@@ -393,7 +393,7 @@ class BootstrapSignalGuardReviewGapsTest(unittest.TestCase):
         work.mkdir()
         (work / "marker").write_text("session running")
         ready = Path(self._td.name) / "ready-race"
-        attempt_id = "2742:role:6:6"
+        attempt_id = "2742:disarmracefault:6:6"
 
         def _child():
             armed = spawn._arm_bootstrap_signal_guard(attempt_id)
@@ -447,7 +447,7 @@ class BootstrapSignalGuardReviewGapsTest(unittest.TestCase):
                         "https://github.com/acme/widget2.git"], check=True)
         work_base = Path(self._td.name) / "work-base2"
         work_base.mkdir()
-        issue, skill, attempt_id = 2742, "reusefault", "2742:role:7:7"
+        issue, skill, attempt_id = 2742, "reusefault", "2742:reusefault:7:7"
 
         with mock.patch.object(spawn, "_workspace_base", lambda: work_base):
             _, target = spawn._workspace_target_path(str(src), issue, skill)
@@ -528,7 +528,7 @@ class BootstrapSignalGuardReviewGapsTest(unittest.TestCase):
              mock.patch.object(spawn, "_fetch_or_halt", lambda *a, **k: None), \
              mock.patch.object(spawn, "_write_skill_sidecar", lambda *a, **k: None), \
              mock.patch.object(spawn, "_set_origin_head", lambda *a, **k: None):
-            attempt_id = "2742:role:8:8"
+            attempt_id = "2742:selfreuse:8:8"
             armed = spawn._arm_bootstrap_signal_guard(attempt_id)
             result = spawn._create_workspace_with_signal_guard(
                 str(work), issue, skill, armed)
@@ -561,7 +561,7 @@ class SpawnAttemptSweepReportsCallerDepartedDistinctlyTest(unittest.TestCase):
         now = time.time()
         with self.attempts_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps({"event": "spawn_attempt", "attempt_id": "a1",
-                                  "issue": 2741, "skill": "declined-role",
+                                  "issue": 2741, "skill": "declined",
                                   "pid": 111, "cwd": "/tmp/does-not-matter-a",
                                   "ts": now - 5}) + "\n")
             fh.write(json.dumps({"event": "spawn_attempt_outcome",
@@ -572,7 +572,7 @@ class SpawnAttemptSweepReportsCallerDepartedDistinctlyTest(unittest.TestCase):
                                             "ever started",
                                   "ts": now - 4}) + "\n")
             fh.write(json.dumps({"event": "spawn_attempt", "attempt_id": "a2",
-                                  "issue": 2741, "skill": "killed-role",
+                                  "issue": 2741, "skill": "killed",
                                   "pid": 222, "cwd": "/tmp/does-not-matter-b",
                                   "ts": now - (roster.SPAWN_ATTEMPT_GRACE_SEC + 30)}) + "\n")
 
@@ -581,8 +581,8 @@ class SpawnAttemptSweepReportsCallerDepartedDistinctlyTest(unittest.TestCase):
 
         self.assertEqual(count, 2)
         lines = [str(c.args[0]) for c in mocked_print.call_args_list]
-        declined_line = next(l for l in lines if "declined-role" in l)
-        killed_line = next(l for l in lines if "killed-role" in l)
+        declined_line = next(l for l in lines if "declined" in l)
+        killed_line = next(l for l in lines if "killed" in l)
         self.assertIn("SIGTERM", declined_line)
         self.assertIn("not a crash", declined_line)
         self.assertNotIn("likely died", declined_line)
