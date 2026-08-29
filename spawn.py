@@ -3734,7 +3734,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 cross_family_clause = ""
             task = task + _dp("role-skill-triggers", (
                 f"\n\n이번 과제에 대해 스킬이 구성됐다(skill-repository, 이슈 "
-                f"#1955/#1758/#2507 — 고정 role->skill 표가 아니라 과제 텍스트 "
+                f"#1955/#1758/#2507 — 고정 스킬 매핑 표가 아니라 과제 텍스트 "
                 f"매치): 스킬 {role_skill_lines} "
                 f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.{cross_family_clause}\n"))

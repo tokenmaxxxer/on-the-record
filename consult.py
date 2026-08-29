@@ -1029,7 +1029,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
             " 있는 판단을 바로 답한다. 다른 모든 지시보다 이 문장이 우선한다."
         )
         base_prompt = (
-            "당신은 자문(consult) 으로 불렸다 — 판단만 돌려주면 된다. 이 역할의 "
+            "당신은 자문(consult) 으로 불렸다 — 판단만 돌려주면 된다. "
             "스킬-저장소 가이던스는 이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
             "마라 — 텍스트로 답하고 끝난다. " + override + " 답을 다 쓴 뒤 마지막에, "
             "다른 어떤 텍스트도 없이 JSON 객체 하나만 출력하라: "
@@ -1411,7 +1411,7 @@ def _judge_prefilter(role: str, diff_summary: str, cwd: str) -> bool:
     바꾸면 안 된다."""
     cmd, env, settings_path = _sp._judge_cmd_and_env(role, cwd, model="haiku")
     prompt = (
-        f"역할 '{role}' 의 관할(role jurisdiction) 안에 아래 diff 요약이 "
+        f"스킬 '{role}' 의 관할(skill jurisdiction) 안에 아래 diff 요약이 "
         "조금이라도 걸리는지만 판단하라. 다른 텍스트 없이 JSON 객체 하나만 "
         '출력하라: {"relevant": true|false}\n\ndiff 요약:\n' + diff_summary
     )
@@ -1446,7 +1446,7 @@ def _judge_validate(role: str, findings: list[dict], diff_summary: str,
         return []
     cmd, env, settings_path = _sp._judge_cmd_and_env(role, cwd, model="haiku")
     prompt = (
-        f"역할 '{role}' 가 낸 아래 findings 를 diff 요약과 대조해 확인(confirm)/"
+        f"스킬 '{role}' 가 낸 아래 findings 를 diff 요약과 대조해 확인(confirm)/"
         "반박(refute)하라. 실제로 스킬-저장소 가이던스를 위반하는 것만 남기고, 다른 텍스트 "
         '없이 JSON 객체 하나만 출력하라: {"findings": [{"path": "...", '
         '"finding_class": "...", "excerpt": "...", "promotable": true|false}, '
@@ -1512,7 +1512,7 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
 
         cmd, env, settings_path = _sp._judge_cmd_and_env(role, root)
         prompt = (
-            f"당신은 judge 로 불렸다 — 역할 '{role}' 의 스킬-저장소 가이던스 관점에서 아래 merge diff 가 "
+            f"당신은 judge 로 불렸다 — 스킬 '{role}' 의 스킬-저장소 가이던스 관점에서 아래 merge diff 가 "
             "그 가이던스를 위반하는지만 판단한다. 저장소 파일을 하나도 건드리지 말고(Write/Edit "
             "도구 없음), 브랜치/커밋/PR 을 만들지 마라. 필요하면 `git show`/`git diff`/"
             "`git log` 로 더 살펴봐도 된다. 답을 다 쓴 뒤 마지막에, 다른 어떤 텍스트도 "
@@ -1674,16 +1674,17 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
             cmd += ["--model", role_model]
         env = {**os.environ, "CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1"}
         prompt = (
-            "당신은 판정단(panel) 판정자로 불렸다 — 다른 역할 판정자 "
-            f"'{peer_role}' 와 함께 아래 질문을 판정한다. 이 역할의 스킬-저장소 가이던스는 "
+            "당신은 판정단(panel) 판정자로 불렸다 — 다른 스킬 판정자 "
+            f"'{peer_role}' 와 함께 아래 질문을 판정한다. "
+            "스킬-저장소 가이던스는 "
             "이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
             "마라. 상대 세션은 이 세션과 거의 동시에 떴다 — 아직 인박스가 "
             "등록되지 않았을 수 있다. 먼저 ListAgents 를 호출해 상대를 "
-            f"찾아라('{peer_role}' 역할일 것이다). 안 보이면 몇 초 뒤 다시 "
+            f"찾아라('{peer_role}' 스킬일 것이다). 안 보이면 몇 초 뒤 다시 "
             "ListAgents 를 호출하는 식으로 몇 차례 재시도하라 — 한 번만 "
             "확인하고 포기하지 마라. 상대가 보이면, ListAgents 가 실제로 "
             f"반환한 이름으로 SendMessage 를 보내라('{peer_role}' 같은 "
-            "역할명이 아니라 그 이름 그대로 주소를 써라). 먼저 당신의 "
+            "스킬명이 아니라 그 이름 그대로 주소를 써라). 먼저 당신의 "
             "입장(position)을 한 문단으로 정리해 SendMessage 로 상대에게 "
             "보내라. 상대의 응답을 받은 뒤 최소 한 차례 반박(rebuttal)을 "
             "SendMessage 로 주고받아라. 교환이 끝나면 다른 어떤 텍스트도 "
