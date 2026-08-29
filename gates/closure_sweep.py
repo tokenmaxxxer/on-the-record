@@ -244,10 +244,27 @@ def _pr_index_all(root: Path) -> tuple[dict[str, dict] | None, bool]:
 
 _ISSUE_INDEX_LIMIT = 1000
 
+# issue #2792: `issue_state_index_all()` used to return `(index, ok: bool)`
+# — a two-valued contract that cannot express three states without fusing
+# two of them. `ok=True` covered both "fetched a real index" AND "the gh
+# call succeeded but the result was too big to trust, so index is None" —
+# the same shape as `ok=False` (`index` is also `None` there). A caller
+# that only checks `ok` (or only checks `not ok`) cannot tell truncation
+# from either a healthy fetch or a real gh failure; #2777's fix (the
+# `spawn-on-pr` gh-failure streak) and #2652 before it each separated one
+# pair of these three states while leaving the other pair still fused —
+# this is the third quiet mode found in the same code path in one night.
+# `ISSUE_INDEX_*` below names the three states explicitly so a caller
+# cannot collapse them back into a boolean by accident: matching on a
+# string constant is a visible branch, not an implicit `not x`.
+ISSUE_INDEX_OK = "ok"
+ISSUE_INDEX_TRUNCATED = "truncated"
+ISSUE_INDEX_FAILED = "failed"
 
-def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, bool]:
+
+def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, str]:
     """이슈번호 -> state 사전, `gh` 한 번(issue #743) — `_pr_index_all` 과
-    같은 `(index, ok)`/잘림-안전 모양.
+    비슷하지만(잘림-안전) 잘림과 실패를 별도 상태로 구별하는 모양.
 
     `find_violations` 는 이미 `issue_states` 를 받으면 subject 별
     `_issue_view` 호출을 건너뛴다(issue #189) — 문제는 배포된 호출자
@@ -256,14 +273,20 @@ def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, bool]:
     #743 측정). 이 헬퍼는 그 맵을 한 번의 `gh issue list` 로 만든다 —
     `find_violations` 자체는 바뀌지 않는다.
 
-    `(index, ok)` — `ok=False` 는 `gh` 호출 자체가 실패했다는 뜻이고,
-    그때 `index` 는 `None` 이다: "이슈 없음"으로 읽으면 안 된다(`_pr_index_all`
-    과 같은 이유, issue #287 S1 계열).
+    `(index, status)` — `status` 는 `ISSUE_INDEX_OK`/`ISSUE_INDEX_TRUNCATED`/
+    `ISSUE_INDEX_FAILED` 셋 중 하나(issue #2792). `index` 는 `ISSUE_INDEX_OK`
+    일 때만 실제 사전이고, 나머지 둘은 항상 `None` — 그러나 그 `None` 이
+    "실패해서 모른다"인지 "너무 커서 안전하게 못 읽었다"인지는 `status`
+    로만 구별된다("이슈 없음"으로 읽으면 안 된다는 점은 이전과 같다,
+    `_pr_index_all` 과 같은 이유, issue #287 S1 계열).
 
-    `--limit` 상한에 정확히 걸리면 잘렸을 수 있으므로 `(None, True)` 를
-    돌려준다 — 호출부는 이를 `issue_states=None` 으로 `find_violations` 에
-    넘겨 기존 subject 별 개별 조회로 되돌아가야 한다(조용한 절단으로 위반을
-    놓치느니 느린 옛 경로가 낫다, issue #224).
+    `--limit` 상한에 정확히 걸리면 잘렸을 수 있으므로 `(None,
+    ISSUE_INDEX_TRUNCATED)` 를 돌려준다 — 호출부는 이를 `issue_states=None`
+    으로 `find_violations` 에 넘겨 기존 subject 별 개별 조회로 되돌아가야
+    한다(조용한 절단으로 위반을 놓치느니 느린 옛 경로가 낫다, issue #224).
+    이 함수는 잘림 자체를 없애지 않는다 — `_ISSUE_INDEX_LIMIT` 은 그대로다;
+    잘림이 일어났다는 사실을 호출부가 실패와 구별해 스스로 보고할 수 있게
+    할 뿐이다.
 
     이슈 #1554 요구 5: 보드가 100건 이하면 ETag 조건부 1페이지 조회로
     풀린다 — 안 변했으면 304 로 캐시를 그대로 쓰고 이 함수는 gh 호출을
@@ -279,9 +302,9 @@ def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, bool]:
                 number = item.get("number")
                 if number is not None:
                     index[number] = str(item.get("state", "")).upper()
-            return index, True
+            return index, ISSUE_INDEX_OK
         if not ok:
-            return None, False
+            return None, ISSUE_INDEX_FAILED
         # raw is None with ok=True: >100 open+closed items — fall through
         # to the unconditional multi-page path below.
 
@@ -289,21 +312,21 @@ def issue_state_index_all(root: Path) -> tuple[dict[int, str] | None, bool]:
                         "number,state", "--limit", str(_ISSUE_INDEX_LIMIT)],
                        cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
-        return None, False
+        return None, ISSUE_INDEX_FAILED
     try:
         data = json.loads(r.stdout)
     except ValueError:
-        return None, False
+        return None, ISSUE_INDEX_FAILED
     if not isinstance(data, list):
-        return None, False
+        return None, ISSUE_INDEX_FAILED
     if len(data) >= _ISSUE_INDEX_LIMIT:
-        return None, True
+        return None, ISSUE_INDEX_TRUNCATED
     index: dict[int, str] = {}
     for item in data:
         number = item.get("number")
         if number is not None:
             index[number] = item.get("state", "")
-    return index, True
+    return index, ISSUE_INDEX_OK
 
 
 def _load_out_of_index_seen(root: Path) -> set[str]:
@@ -355,9 +378,9 @@ def find_violations(root: Path, subjects: dict | None = None,
         # issue #1320: no per-item `gh issue view` fallback in the sweep
         # path — compute the bulk index here so O(1) gh calls holds
         # regardless of whether the caller pre-fetched it.
-        issue_states, issue_states_ok = issue_state_index_all(root)
+        issue_states, issue_states_status = issue_state_index_all(root)
     else:
-        issue_states_ok = True
+        issue_states_status = ISSUE_INDEX_OK
     violations = []
     skips = []
     out_of_index_seen: set[str] | None = None
@@ -371,7 +394,9 @@ def find_violations(root: Path, subjects: dict | None = None,
             continue
         issue = int(m[1])
         if issue_states is None:
-            reason = "gh-issue-list-failed" if not issue_states_ok else "gh-issue-list-truncated"
+            reason = ("gh-issue-list-failed"
+                      if issue_states_status == ISSUE_INDEX_FAILED
+                      else "gh-issue-list-truncated")
             skips.append({"subject": subject, "reason": reason})
             continue
         if issue not in issue_states:

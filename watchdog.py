@@ -1072,10 +1072,10 @@ def _board_wide_sweep(root: Path) -> int:
         _run_local_only_signals(changed_numbers=changed_numbers if delta_mode else None)
         return count
 
-    issue_states, issue_states_ok = (None, True)
+    issue_states, issue_states_status = (None, closure_sweep.ISSUE_INDEX_OK)
     if ("spawn-on-pr" in this_tick or "closure-sweep" in this_tick
             or "spawn-on-approve" in this_tick):
-        issue_states, issue_states_ok = closure_sweep.issue_state_index_all(root)
+        issue_states, issue_states_status = closure_sweep.issue_state_index_all(root)
         calls_made += 1
 
     rate_limited_this_tick = False
@@ -1132,13 +1132,26 @@ def _board_wide_sweep(root: Path) -> int:
             count += len(violations)
             print(f"[watchdog] closure-sweep: 위반 {len(violations)}건")
             print(closure_sweep.format_report(violations))
-        rate_limited_this_tick = bool(skips) and not issue_states_ok
+        # issue #2792: a real gh failure at the top-level fetch is a
+        # rate-limit-relevant signal (backs off board-sweep's polling
+        # interval below); a truncated index is a structural board-size
+        # condition that backing off cannot fix, so it must not be
+        # counted the same way `not issue_states_ok` used to (that
+        # conflated the two — see closure_sweep.ISSUE_INDEX_* docstring).
+        rate_limited_this_tick = (
+            bool(skips) and issue_states_status == closure_sweep.ISSUE_INDEX_FAILED)
         if skips:
             count += 1
             # 이슈 #2196: 단발 gh blip 은 조용히 넘어간다 — 연속 N틱
-            # 실패면 그때부터 경고한다.
+            # 실패면 그때부터 경고한다. issue #2792: skip 사유를
+            # 개수로 접어 gh 실패와 인덱스 절단을 라벨에서부터 구별한다
+            # — 둘 다 "(gh 실패)"로 뭉뚱그리면 절단인데 실패로 오독한다.
             if _sp._watchdog_note_gh_failure(root, "closure-sweep", True):
-                print(f"[watchdog] closure-sweep: 확인 불가 (gh 실패) {len(skips)}건")
+                reason_counts: dict[str, int] = {}
+                for s in skips:
+                    r = s.get("reason", "?")
+                    reason_counts[r] = reason_counts.get(r, 0) + 1
+                print(f"[watchdog] closure-sweep: 확인 불가 {len(skips)}건 {reason_counts}")
         else:
             _sp._watchdog_note_gh_failure(root, "closure-sweep", False)
 
