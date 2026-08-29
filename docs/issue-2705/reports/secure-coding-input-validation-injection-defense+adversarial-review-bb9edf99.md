@@ -369,7 +369,12 @@ conflict resolution intact rather than silently losing part of the diff.
   (matches real git's own pathspec semantics, ground-truthed this
   session per Fix 3 above, rather than a generic string heuristic) to
   avoid both an injection-shaped bypass (Fixes 1-2) and an over-broad
-  denylist-style false positive (Fix 3).
+  denylist-style false positive (Fix 3). Sequencing correction: the
+  `Skill` tool call for this skill was made after this record's own
+  first successful write and PR #2763 already open, not before — the
+  design choice above already followed the skill's rule 1/rule 2
+  guidance in substance, and the tool call confirmed rather than
+  produced it.
 - skill-verdict: adversarial-review — applied: invoked; derived: this
   session's own stash-based fail-before/pass-after reruns (Fix 1-3
   sections above) are the evidence — before writing the fix,
@@ -378,7 +383,22 @@ conflict resolution intact rather than silently losing part of the diff.
   and pinned every one of the three fixed shapes with a regression test
   proven to fail against the pre-fix parser via a stash-based
   revert-and-rerun this same session, rather than trusting that a
-  passing test after the fix alone was adequate evidence.
+  passing test after the fix alone was adequate evidence. Same
+  sequencing correction as above applies (tool call made after PR #2763
+  was already open). canonical: the skill's own "First: does this even
+  need the procedure?" section, read this session via the `Skill` tool
+  call above — this session's own stash-based reruns are same-session
+  self-verification (the builder checking its own fix), not the skill's
+  actual two-party protocol (a structurally independent evaluator
+  session with no access to this session's context or reasoning). Flagged
+  honestly rather than smoothed over: the recommended next step in this
+  record's own "Next steps" section above (an independent re-verification
+  of this fix, matching how PR #2753 itself was reviewed) is exactly what
+  this skill's real mechanism would require and this session's own
+  self-verification cannot substitute for.
 - other mounted skills: not triggered — `work-in-english`: this record,
   all commands, and all new test/code content were authored in English
-  throughout.
+  throughout. `flow-metrics`: this task-configuration-matched skill
+  (issue #2001/#2507) has no application here — no WIP/throughput/lead-
+  time question or Little's-law-shaped diagnostic was in scope for a
+  parser bug fix.
