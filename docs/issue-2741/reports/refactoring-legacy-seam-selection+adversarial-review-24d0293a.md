@@ -66,7 +66,8 @@ canonical: `sed -n '105,155p' on-the-record/hooks/approval-gate.sh` and the equi
 
 ## What did not work
 
-None.
+The first draft of this record's `skill-verdict:` lines claimed `refactoring-legacy-seam-selection` was `applied: invoked;` — this was false; the Skill tool was never actually called this session. Caught by the Stop hook's zero-invocation notice and corrected in place to `not-applicable` for both mounted skills before landing.
+canonical: the corrected `skill-verdict:` lines at the end of this record, as committed — no Skill-tool invocation exists in this session's tool-call history.
 
 ## Upstream basis
 
@@ -140,5 +141,5 @@ acceptance: `python3 -m pytest -q test/test_approval_gate_carriers.py test/test_
 30 passed
 ```
 
-skill-verdict: refactoring-legacy-seam-selection — applied: invoked; used to choose the mechanical per-site sed/Edit rename over inventing a new object seam, since this is a straightforward legacy string-literal rename over an already-established test harness, not a case needing a new seam for untested behavior.
-skill-verdict: adversarial-review — not-applicable: this record documents original delivery work by the same session that built it, not an evaluation of another session's already-finished artifact.
+skill-verdict: refactoring-legacy-seam-selection — not-applicable: this was a mechanical string-literal key rename across code already covered by an existing test suite, not introducing new/changed behavior into untested legacy code, so there was no Sprout/Wrap-Method-vs-seam decision to make; the Skill tool was not invoked.
+skill-verdict: adversarial-review — not-applicable: this record documents original delivery work by the same session that built it, not an evaluation of another session's already-finished artifact; the Skill tool was not invoked.
