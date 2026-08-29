@@ -574,20 +574,77 @@ def _record_upstream(record: Path) -> dict[str, str]:
     return {m.group(1): "" for m in _sp._UPSTREAM_PATH.finditer(block[1])}
 
 
-def _front_skill(root: Path, subject: str, skills: dict) -> str | None:
+def _record_add_commit(root: Path, path: Path) -> str | None:
+    """`path` 를 이 저장소에 처음 추가한 커밋의 SHA. 아직 커밋 안 됐으면 None.
+
+    `_front_skill` 이 여러 rootless 레코드 중 하나를 골라야 할 때 쓰는
+    비-정체성 신호다(이슈 #2725) — "누가 썼나"가 아니라 "언제 저장소에
+    들어왔나"는 레코드 자신에 대한 사실이라, 관례적 이름 목록(닫힌 집합의
+    이름 두 개를 코드에 박아 두는 것 — #2548, #2626 이 이미 네 번 잡은
+    reshape 패턴)보다 안정적이다. 커밋 타임스탬프(초 단위 해상도)가 아니라
+    커밋 히스토리 상의 순서로 가리는 이유는, 자동화가 같은 초 안에 레코드
+    여러 개를 연달아 커밋하면 타임스탬프끼리 진짜로 동률이 나서 실제로는
+    있는 순서를 놓치기 때문이다 — `_front_skill` 이 그 순서를 매긴다.
+    """
+    rel = path.relative_to(root)
+    r = subprocess.run(
+        ["git", "-C", str(root), "log", "--reverse", "--diff-filter=A",
+         "--format=%H", "--", str(rel)],
+        capture_output=True, text=True,
+    )
+    lines = [ln for ln in r.stdout.splitlines() if ln.strip()]
+    return lines[0] if lines else None
+
+
+def _front_skill(root: Path, subject: str, skills: dict) -> tuple[str | None, bool]:
     """그 subject 의 front record — subject 를 처음 연 참가자 (첫 빌드 승인 게이트).
 
-    upstream 이 빈 참가자가 하나뿐이면 그게 체인 루트다. 못 가리면 관례 순서
-    (product, 아니면 feasibility)로 물러난다.
+    upstream 이 빈 참가자가 하나뿐이면 그게 체인 루트다. 둘 이상이면(이슈
+    #2725) 레코드 자신에 대한 사실 — 저장소 커밋 히스토리 상 각자를 처음
+    추가한 커밋의 순서 — 로 가린다. 가장 먼저 추가된 레코드가 유일하면
+    그게 front record 다.
+
+    반환값은 `(front, ok)`. `ok=True` 인데 `front=None` 이면 "front record 가
+    아예 없다"(rootless 0개) 는 뜻이고, `ok=False` 면 "판별할 신호가 없어
+    결정할 수 없다"(rootless 여러 개인데 둘 이상이 같은 커밋에서 함께
+    추가됐거나, 커밋된 레코드가 하나 이하뿐) 는 뜻이다 — 둘은 서로 다른
+    사건이라 같은 값(None)으로 뭉뚱그리지 않는다.
+
+    이전에는 못 가리면 관례 순서(product-discovery, 아니면
+    technical-feasibility)로 물러났다 — 이 저장소의 마운트된 스킬 목록에는
+    이제 이 두 이름이 없다. 다만 이 fallback 이 완전히 죽은 코드는 아니었다:
+    두 이름을 문자 그대로 쓰는 낡은 레코드 파일(스킬 분리 이전에 만들어진
+    issue-1199 등)이 여전히 디스크에 있어서, 매칭될 때는 "front record 없음"
+    으로 오인되는 게 아니라 두 후보 중 하나를 뒷받침 근거 없이 조용히
+    골라버렸다 — 검증: 이 커밋 이전 코드로 `_front_skill(root, "issue-1199",
+    board(root)["issue-1199"])` 를 실행하면 rootless 35개 중
+    `product-discovery` 를 아무 근거 없이 반환했다.
     """
     rootless = [r for r in skills
                 if not _sp._record_upstream(root / _sp.BOARD / subject / "reports" / f"{r}.md")]
+    if not rootless:
+        return None, True
     if len(rootless) == 1:
-        return rootless[0]
-    for r in ("product-discovery", "technical-feasibility"):
-        if r in skills:
-            return r
-    return None
+        return rootless[0], True
+    candidates = [(r, _record_add_commit(root, root / _sp.BOARD / subject / "reports" / f"{r}.md"))
+                  for r in rootless]
+    candidates = [(r, sha) for r, sha in candidates if sha is not None]
+    if len(candidates) < 2:
+        return None, False
+    log = subprocess.run(
+        ["git", "-C", str(root), "log", "--reverse", "--format=%H"],
+        capture_output=True, text=True,
+    )
+    order = {sha: i for i, sha in enumerate(log.stdout.split())}
+    candidates.sort(key=lambda rc: order.get(rc[1], len(order)))
+    if order.get(candidates[0][1], len(order)) == order.get(candidates[1][1], len(order)):
+        # 정렬 후 1등 자리를 유일하게 차지하지 못했다 (이슈 #2725 리뷰): 후보 전체가
+        # 한 커밋에 몰린 경우뿐 아니라, 셋 이상 중 "가장 이른" 자리만 두 개 이상이
+        # 공유해도 (더 늦은 후보가 따로 있어도) 못 가리는 건 마찬가지다 -- 집합
+        # 전체가 하나의 sha 로 뭉치는지가 아니라 정렬 후 최솟값 자리가 유일한지를
+        # 봐야 한다.
+        return None, False
+    return candidates[0][0], True
 
 
 def approve_scope(cwd: str, issue: int) -> int:
@@ -608,9 +665,13 @@ def approve_scope(cwd: str, issue: int) -> int:
     if not skills:
         sys.exit(f"{subject} 의 보드 기록이 없다: {root / _sp.BOARD / subject / 'reports'}")
 
-    front = _sp._front_skill(root, subject, skills)
+    front, front_ok = _sp._front_skill(root, subject, skills)
+    if not front_ok:
+        sys.exit(f"{subject} 의 front record 를 결정할 수 없다 — rootless 레코드가 "
+                 f"여럿인데 커밋 시각으로도 가려지지 않는다(동시 커밋 또는 커밋 "
+                 f"시각 불명).")
     if not front:
-        sys.exit(f"{subject} 의 front record 를 판별할 수 없다.")
+        sys.exit(f"{subject} 의 front record 를 판별할 수 없다 — 열린 레코드가 없다.")
 
     record_path = root / _sp.BOARD / subject / "reports" / f"{front}.md"
     fm = _sp.frontmatter(record_path)

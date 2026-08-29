@@ -417,12 +417,17 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
         issue_n = int(subject.split("-", 1)[1])
         skill_entries = []
         stage_source = None
+        # ok=False (front record 를 결정할 수 없음, 이슈 #2725) 일 때는
+        # front 가 None 이라 아래 비교가 어차피 매칭되지 않는다 —
+        # stage_source 는 "front record 없음"과 마찬가지로 None 에 머문다;
+        # 대시보드 단계 표시에는 두 경우가 같은 영향이라 여기서는 구분하지 않는다.
+        front, _front_ok = spawn._front_skill(root, subject, skills)
         for skill, fm in skills.items():
             loop_state = fm.get("loop_state")
             pr = pr_by_branch.get((subject, skill))
             skill_entries.append({"role": skill, "loop_state": loop_state,
                                  "verdict": fm.get("verdict")})
-            if spawn._front_skill(root, subject, skills) == skill:
+            if front == skill:
                 stage_source = loop_state
             if not pr:
                 continue
