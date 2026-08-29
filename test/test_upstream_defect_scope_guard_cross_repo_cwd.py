@@ -48,6 +48,16 @@ scope here) — pinned live as
 `test_harness_cwd_origin_removed_bypass_should_be_denied` rather than
 left silently uncovered.
 
+Issue #2709: three more cd-adjacent shapes disclosed in prose by #2669/
+#2706 (`pushd`, a `cd` inside a subshell, a chained `cd A && cd B`) but
+never pinned by a test. Covered below by
+`test_pushd_not_followed_still_denied`,
+`test_subshell_cd_not_followed_still_denied`, and
+`test_chained_cd_uses_first_target_not_final_still_denied` — all three
+pin today's actual (deny) verdict, the safe direction; #2669's own
+conclusion (inherited from #2637) is that this fix does not attempt to
+follow them.
+
 Run: python3 -m pytest test/test_upstream_defect_scope_guard_cross_repo_cwd.py -q
 """
 from __future__ import annotations
@@ -90,6 +100,16 @@ def _run_guard(command: str, cwd: str, env_extra: dict | None = None):
         input=payload, capture_output=True, text=True,
         cwd=cwd, env=env, timeout=30,
     )
+
+
+def _assert_denied_for_documented_reason(test_case, result):
+    """rc==2 alone can't distinguish "denied per the documented policy"
+    from "the hook crashed" — its own `trap` (upstream-defect-scope-
+    guard.sh line 99) remaps ANY unexpected nonzero exit to 2 as well.
+    Require the actual policy-denial message on stderr, per issue #2637's
+    /issue #2709's own bar for what a pinning test must show."""
+    test_case.assertIn("issue #1131 req#4", result.stderr, result.stderr)
+    test_case.assertNotIn("Traceback", result.stderr, result.stderr)
 
 
 class CrossRepoCwdDisagreementTest(unittest.TestCase):
@@ -149,6 +169,58 @@ class CrossRepoCwdDisagreementTest(unittest.TestCase):
                "--repo some-unrelated-org/upstream-repo --title x --body y")
         r = _run_guard(cmd, cwd=str(self.repo_a))
         self.assertEqual(r.returncode, 2, r.stderr)
+
+    # --- issue #2709: three cd-adjacent shapes disclosed in prose by
+    # #2669/#2706 ("A leading `cd <dir> &&`/`cd <dir>;`" — see the guard's
+    # own `operative_cwd` docstring) but never pinned by a test: `pushd`,
+    # a `cd` inside a `(...)` subshell, and a chained `cd A && cd B`. Each
+    # is denied today because `operative_cwd`'s regex only matches a
+    # literal leading `cd <dir>` token and only takes the FIRST such
+    # match — the safe direction per the issue, so these pin deny, not an
+    # aspiration. Confirmed discriminating (not tautological) against a
+    # mutant `operative_cwd` that also recognizes `pushd`, strips a
+    # leading `(`, and follows the LAST chained `cd`: all three flip to
+    # rc=0 (allow) under that mutant, and stay rc=2 (deny) against the
+    # shipped hook.
+    def test_pushd_not_followed_still_denied(self):
+        """`pushd <repo-b> && gh pr create --repo repo-b`, otherwise
+        identical to `test_legitimate_cross_repo_pr_now_allowed`. Origin
+        is resolved from the payload cwd (repo A), not the `pushd`
+        target, because `operative_cwd`'s regex matches only a literal
+        leading `cd`."""
+        cmd = (f"pushd {self.repo_b} && gh pr create "
+               "--repo tokenmaxxxer/tokenmaxxxer-core "
+               "--title x --body y")
+        r = _run_guard(cmd, cwd=str(self.repo_a))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
+
+    def test_subshell_cd_not_followed_still_denied(self):
+        """`(cd <repo-b> && gh pr create --repo repo-b)` — the command
+        text starts with `(`, not `cd`, so `operative_cwd`'s anchored
+        regex never matches and origin is resolved from the payload cwd
+        (repo A) instead of the subshell's target."""
+        cmd = (f"(cd {self.repo_b} && gh pr create "
+               "--repo tokenmaxxxer/tokenmaxxxer-core "
+               "--title x --body y)")
+        r = _run_guard(cmd, cwd=str(self.repo_a))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
+
+    def test_chained_cd_uses_first_target_not_final_still_denied(self):
+        """`cd <repo-a> && cd <repo-b> && gh pr create --repo repo-b` —
+        `operative_cwd` takes only the FIRST leading `cd` (here, back to
+        repo A, whose origin is on-the-record), not the final directory
+        the command actually runs `gh pr create` in (repo B, whose
+        origin matches the target). Denied today because origin is
+        resolved against repo A, not repo B, even though the real final
+        cwd would match the target."""
+        cmd = (f"cd {self.repo_a} && cd {self.repo_b} && gh pr create "
+               "--repo tokenmaxxxer/tokenmaxxxer-core "
+               "--title x --body y")
+        r = _run_guard(cmd, cwd=str(self.repo_a))
+        self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
 
     # --- PR #2703 review: the unresolvable-origin fallback existed before
     # #2669 (no git repo, no origin remote => fail open), but it only used
