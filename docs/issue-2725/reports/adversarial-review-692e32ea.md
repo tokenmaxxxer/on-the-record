@@ -321,8 +321,7 @@ and `grep -n "flows_payload\b" --include="*.py" --include="*.sh" -r .`
 tracing `gates/flows.py`'s claim to its actual consumer (quoted in
 "What was done" Check 4), both run independently in this session rather
 than accepted from the PR body.
-skill-verdict: defect-verification-independence-from-upstream-verdicts
-— applied: invoked; per rule 2, built two adversarial scenarios beyond
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; per rule 2, built two adversarial scenarios beyond
 the cases the subject's own test file constructs — derived: `python3
 /tmp/verify_false_positive.py` and `python3
 /tmp/verify_concurrent_branches.py` (quoted in "What was done" Check
