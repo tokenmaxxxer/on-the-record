@@ -1090,6 +1090,89 @@ def _record_spawn_outcome(attempt_id: str, outcome: str, detail: str) -> None:
                                   "detail": detail, "ts": time.time()})
 
 
+# 이슈 #2742: pre-workspace 부트스트랩 도중 "호출자가 떠났다"(승인 거절,
+# 오케스트레이터 툴콜 타임아웃)와 "프로세스 자신이 죽었다"(OOM/SIGKILL)를
+# 구분하는 신호. 두 관측 사례(이슈 코멘트) 모두 spawn.py 프로세스가
+# SIGTERM/SIGINT 를 받고 아무 처분도 남기지 못한 채 죽었다 — 파이썬은
+# SIGTERM 에 기본 핸들러를 두지 않아(예외도 없이 즉시 종료) 이 창에서
+# 도착한 신호는 오늘까지 `_record_spawn_outcome()`을 전혀 못 거쳤고, 그래서
+# `spawn_attempt_sweep()`의 "no outcome recorded ... process likely died"
+# 분기로 떨어졌다 — 죽지 않았는데도. 이 가드는 그 신호 자체를 잡아 halt
+# 처분에 실제 사유를 남기고, 이 시도가 만든 워크스페이스/`.spawn-claim`/
+# `.task.txt`를 지운다(아무 작업도 없었으니 남길 게 없다) — must-not 그대로
+# 타임아웃 추정이 아니라 신호 그 자체로만 판단한다. SIGKILL/OOM 은 여전히
+# 못 잡으므로(파이썬이 아니라 커널이 죽인다) 이 가드를 거치지 않고 기존
+# "no outcome recorded" 분기가 그대로 남는다 — 두 케이스가 계속 다른 줄을
+# 낸다.
+_BOOTSTRAP_SIGNAL_GUARD_SIGNALS = (signal.SIGTERM, signal.SIGINT)
+
+
+def _arm_bootstrap_signal_guard(attempt_id: str | None):
+    """`attempt_id`가 있는 부트스트랩 구간에서만 SIGTERM/SIGINT 를 잡는다
+    (`None`이면 아무 것도 안 한다 — 이 파일의 다른 attempt_id 옵션 인자와
+    같은 관례, `_spawn_one()` docstring 참고. 이 관례 덕에 pytest 아래에서는
+    (`_record_spawn_attempt()`가 항상 `None`을 돌려준다) 이 가드도 절대
+    안 걸린다). 반환값을 그대로 `_disarm_bootstrap_signal_guard()`에
+    넘긴다. 반환된 dict 의 `"cwd"`를 워크스페이스 경로가 정해지는 즉시
+    채워야, 신호가 그 뒤에 도착했을 때 지울 대상을 안다 — 그 전에
+    도착하면(워크스페이스가 아직 없다) 지울 것도 없다는 뜻 그대로 아무
+    것도 안 지운다."""
+    if attempt_id is None:
+        return None
+    state = {"cwd": None}
+    prev_handlers = {sig: signal.getsignal(sig)
+                      for sig in _BOOTSTRAP_SIGNAL_GUARD_SIGNALS}
+
+    def _handler(signum, frame):
+        if attempt_id in _SPAWN_ATTEMPT_OUTCOME_WRITTEN:
+            # 이슈 #2742 addendum(리뷰 발견 — disarm 레이스): 아래
+            # `_disarm_bootstrap_signal_guard()`는 SIGTERM/SIGINT 를
+            # 각각 별도의 `signal.signal()` 호출로 되돌린다 — 원자적이지
+            # 않다. `_record_spawn_outcome(attempt_id, "session-log", ...)`
+            # 가 이미 이 시도의 처분을 남긴(= `_SPAWN_ATTEMPT_OUTCOME_WRITTEN`
+            # 에 attempt_id 가 들어간) 뒤, 그러나 두 `signal.signal()` 호출이
+            # 아직 다 끝나기 전이라면, 그 틈으로 들어온 신호가 여전히 이
+            # 핸들러로 온다 — 이 시점의 워크스페이스는 이미 실제로 도는
+            # 세션 소유다. 여기서 rmtree 를 돌리면 partial 이 아닌
+            # 워크스페이스를 지우는 데다, `_record_spawn_outcome()`이
+            # attempt_id 로 dedupe 하므로 두 번째 호출은 no-op — 지웠다는
+            # 사실이 로그 어디에도 안 남는다. 방어적으로: 이 시도의 처분이
+            # 이미 기록돼 있으면 무조건 아무 것도 하지 않는다(삭제도, 재
+            # 기록 시도도 없음) — 신호 자체를 원래 핸들러로 되돌리는 일은
+            # 곧이어 완료될 나머지 `signal.signal()` 호출의 몫이다.
+            return
+        sig_name = signal.Signals(signum).name
+        cwd = state.get("cwd")
+        detail = (f"caller departed before bootstrap finished (received "
+                  f"{sig_name}) — this is not a crash, no session ever "
+                  "started" + (f"; removing partial workspace {cwd}"
+                                if cwd else ""))
+        _record_spawn_outcome(attempt_id, "halted", detail)
+        if cwd:
+            shutil.rmtree(cwd, ignore_errors=True)
+            _spawn_claim_path(cwd).unlink(missing_ok=True)
+            Path(str(cwd) + ".task.txt").unlink(missing_ok=True)
+        os._exit(128 + signum)
+
+    for sig in _BOOTSTRAP_SIGNAL_GUARD_SIGNALS:
+        signal.signal(sig, _handler)
+    return state, prev_handlers
+
+
+def _disarm_bootstrap_signal_guard(armed) -> None:
+    """`_arm_bootstrap_signal_guard()`가 돌려준 값을 원래 핸들러로 되돌린다
+    — 워크스페이스/로스터/세션 로그가 실제로 생긴(`"session-log"` 처분을
+    남긴) 뒤에는 이 창의 몫이 아니라 기존 dead-entry 워치독의 몫이라, 그
+    지점부터는 이 프로세스의 SIGTERM/SIGINT 를 다시 평범하게(파이썬 기본
+    동작대로) 둔다 — 안 그러면 세션이 실제로 도는 워크스페이스를 나중에
+    온 신호가 "부트스트랩 halt"로 오분류해 지워버릴 수 있다."""
+    if armed is None:
+        return
+    _, prev_handlers = armed
+    for sig, handler in prev_handlers.items():
+        signal.signal(sig, handler)
+
+
 def _load_spawn_attempts() -> tuple[dict, dict, dict]:
     """`SPAWN_ATTEMPTS_PATH`를 읽어 (attempts, outcomes, resolved) — 셋
     다 attempt_id 로 키가 잡힌 dict. 워치독의 `spawn_attempt_sweep()`
@@ -2812,6 +2895,40 @@ def checkout_staleness(root: Path = ROOT, fetch: bool = True) -> dict:
                        f"(로컬={local_sha[:12]} origin={origin_sha[:12]})")}
 
 
+def _workspace_target_path(cwd: str, issue: int | None, skill: str) -> tuple[str, str | None]:
+    """`issue_workspace()`가 실제로 clone/fetch 하기 전에, 그 워크스페이스가
+    놓일 경로만 계산한다 — `git remote get-url` 은 로컬 설정을 읽을 뿐
+    네트워크를 타지 않으므로 이 호출 자체는 clone/fetch 보다 훨씬 싸다.
+    반환은 `(origin, work)`; origin 원격을 못 구하면(대상이 git 레포가
+    아니거나 origin 이 없다) `work` 는 `None` — 그 경우 실제 실패/사유는
+    `issue_workspace()` 자신의 `sys.exit()` 몫이고, 여긴 best-effort 라
+    조용히 포기한다.
+
+    이슈 #2742 addendum(리뷰 발견): 이 계산 부분을 `issue_workspace()`
+    호출 *전*에 끝내 둬야, 그 호출이 벌이는 실제 clone/fetch(초 단위로
+    걸릴 수 있다) 도중에 도착한 SIGTERM/SIGINT 도 부트스트랩 신호
+    가드가 지울 대상 경로를 이미 안다. 전에는 `issue_workspace()`가
+    끝난 뒤에만 가드의 `cwd`를 채웠는데, 그 호출 자체가 최대 시간을
+    쓰는 구간이라 신호가 가장 자주 떨어질 구간에서 가드가 무력했다."""
+    src = Path(cwd).resolve()
+    r = subprocess.run(["git", "-C", str(src), "remote", "get-url", "origin"],
+                       capture_output=True, text=True)
+    origin = r.stdout.strip()
+    if os.environ.get("MUSTER_KEEP_SSH", "") not in ("", "0", "false", "no", "off"):
+        pass
+    else:
+        m = re.match(r"^(?:ssh://)?git@github\.com[:/](.+?)(?:\.git)?$", origin)
+        if m:
+            origin = "https://github.com/%s.git" % m.group(1)
+    if not origin:
+        return origin, None
+    work_base = _workspace_base()
+    repo_name = re.sub(r"\.git$", "", origin.rstrip("/").rsplit("/", 1)[-1]) or slug(cwd)
+    work = (work_base / f"{repo_name}-issue-{issue}-{skill}" if issue is not None
+            else work_base / f"{repo_name}-adhoc-{skill}-{os.getpid()}")
+    return origin, str(work)
+
+
 def issue_workspace(cwd: str, issue: int | None, skill: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
 
@@ -2829,35 +2946,19 @@ def issue_workspace(cwd: str, issue: int | None, skill: str) -> str:
     fresh-clone path below rather than the reuse branches.
     """
     src = Path(cwd).resolve()
-    r = subprocess.run(["git", "-C", str(src), "remote", "get-url", "origin"],
-                       capture_output=True, text=True)
-    origin = r.stdout.strip()
-    # 샌드박스는 HTTP 프록시만 뚫려 있다 — ssh(22번)는 나갈 수 없으므로
-    # 작업 클론의 origin 은 기본으로 https 로 정규화한다. 회사 정책이 ssh
-    # 원격만 허용하면 MUSTER_KEEP_SSH=1 로 끈다 — 그 경우 세션 안 push 는
-    # 실패하지만, 세션 뒤 on-the-record 가 호스트 환경(사용자의 ssh 키)에서
-    # push/PR 를 대신한다(아래 ensure_pushed).
-    if os.environ.get("MUSTER_KEEP_SSH", "") not in ("", "0", "false", "no", "off"):
-        pass
-    else:
-        m = re.match(r"^(?:ssh://)?git@github\.com[:/](.+?)(?:\.git)?$", origin)
-        if m:
-            origin = "https://github.com/%s.git" % m.group(1)
-    if not origin:
-        sys.exit(f"대상 레포에 origin 원격이 없다: {src} — 이슈/PR 모델은 "
-                 f"GitHub 원격이 전제다 (계약 v3 s10)")
     # 보호 경로 밖이어야 한다: on-the-record 가 ~/.claude/plugins/ 아래 설치되면
     # ROOT/runs/work 도 그 아래가 되는데, 거긴 Claude Code 의 전역 sensitive
     # 경로라 세션의 Write 가 전부 거부된다(실측: phase 2 가 코드 한 줄
     # 못 쓰고 $2.68 을 태웠다). 기본은 ~/.tokenmaxxxer/work, 오버라이드는
-    # MUSTER_WORK_DIR.
-    work_base = _workspace_base()
-    # 이름은 origin 의 레포명에서 뽑는다 — 디렉토리 이름(slug)을 쓰면
-    # 워크스페이스를 -C 로 다시 넘겼을 때 이름이 이중으로 붙는다(실측:
-    # ...-issue-45-coding-issue-45-coding). origin 은 위에서 이미 읽었다.
-    repo_name = re.sub(r"\.git$", "", origin.rstrip("/").rsplit("/", 1)[-1]) or slug(cwd)
-    work = (work_base / f"{repo_name}-issue-{issue}-{skill}" if issue is not None
-            else work_base / f"{repo_name}-adhoc-{skill}-{os.getpid()}")
+    # MUSTER_WORK_DIR. origin 정규화(ssh->https)/repo_name/work 경로 계산은
+    # `_workspace_target_path()`(위) 하나로 합쳤다 — 부트스트랩 신호 가드가
+    # clone 전에 같은 계산을 다시 하므로, 두 곳이 갈라지면 가드가 지울
+    # 경로와 여기서 실제로 쓰는 경로가 어긋난다.
+    origin, work_str = _workspace_target_path(cwd, issue, skill)
+    if not work_str:
+        sys.exit(f"대상 레포에 origin 원격이 없다: {src} — 이슈/PR 모델은 "
+                 f"GitHub 원격이 전제다 (계약 v3 s10)")
+    work = Path(work_str)
     # 이슈 #2417 (before-landing hunt): fresh-clone 분기 앞에만 두면 재사용
     # 분기(cwd==work 자기 재사용, 기존 .git 재사용) 두 곳은 여전히
     # `_fetch_or_halt` 로 바로 들어가 디스크가 거의 다 찼을 때 clone 이 아니라
@@ -2959,6 +3060,63 @@ def issue_workspace(cwd: str, issue: int | None, skill: str) -> str:
                    after=lambda: _set_origin_head(str(work)))
     _write_skill_sidecar(str(work), issue, skill)
     return str(work)
+
+
+def _workspace_target_is_fresh(cwd: str, target_path: str, issue: int | None) -> bool:
+    """`target_path`(= `_workspace_target_path()`가 계산한 곳)가
+    `issue_workspace()`의 fresh-clone 분기로 갈 곳이면(= 그 자리에 지울
+    가치가 있는 기존 콘텐츠가 없다) `True`.
+
+    두 경우는 `False`다 — 부트스트랩 신호 가드가 선제적으로 지우면
+    이 시도가 만들지 않은 실제 콘텐츠를 파괴한다:
+    - self-reuse: `target_path`가 `cwd` 자기 자신(호출자의 원본 체크아웃)
+      과 같다 — `issue_workspace()`는 이 경우 clone 조차 안 하고 그
+      경로를 그대로 돌려준다(위 함수 최상단 분기).
+    - issue-scoped reuse: `target_path`에 이미 `.git`이 있다 — 이전 스폰
+      시도가 만든 실제 작업(브랜치, 커밋)이라 `_fetch_or_halt`로 갱신만
+      할 뿐 다시 만들지 않는다. (`issue is None`인 adhoc 재사용은 예외 —
+      `issue_workspace()`가 그 leftover 를 조건 없이 지우고 새로 clone
+      한다고 스스로 문서화하므로, 여기서도 지워도 안전한 fresh 취급.)
+    """
+    src = Path(cwd).resolve()
+    target = Path(target_path)
+    target_resolved = target.resolve() if target.exists() else target
+    if src == target_resolved:
+        return False
+    if issue is not None and (target / ".git").exists():
+        return False
+    return True
+
+
+def _create_workspace_with_signal_guard(cwd: str, issue: int | None, skill: str,
+                                         guard) -> str:
+    """`issue_workspace()`를 호출하되, 그 전후로 부트스트랩 신호 가드
+    (`_arm_bootstrap_signal_guard()`가 돌려준 `guard`, 없으면 `None`)의
+    `cwd`를 채운다 — 오직 이 호출이 fresh-clone 으로 갈 게 확실할 때만
+    (`_workspace_target_is_fresh()`).
+
+    이슈 #2742 addendum(리뷰 발견): `issue_workspace()` 자신이 실제 git
+    clone/fetch 를 돌려 초 단위로 걸릴 수 있다 — 그 호출이 끝난 뒤에만
+    가드의 `cwd`를 채우면, 딱 그 clone 구간(신호가 가장 자주 떨어질
+    구간)에서 가드가 무력해 partial 워크스페이스가 살아남는다.
+    best-effort 대상 경로를 호출 *전*에 `_workspace_target_path()`로 미리
+    계산해 채워 둔다 — 단, 그 대상이 self-reuse(호출자의 원본 체크아웃)
+    이거나 issue-scoped 재사용(이전 시도의 실제 작업)이면 채우지 않는다.
+    그 두 경우에 채우면, fetch 도중 신호를 받았을 때 이 시도가 만들지
+    않은 콘텐츠까지 지워버린다 — 원래 있던 "clone 뒤에만 채운다" 버그가
+    안전했던 이유(아직 아무 것도 몰라 아무 것도 못 지운다)를 fresh-clone
+    이 아닌 경로로까지 없애면 안 된다."""
+    is_fresh = None
+    if guard is not None:
+        _, target_path = _workspace_target_path(cwd, issue, skill)
+        is_fresh = (target_path is not None and
+                    _workspace_target_is_fresh(cwd, target_path, issue))
+        if is_fresh:
+            guard[0]["cwd"] = target_path
+    result = issue_workspace(cwd, issue, skill)
+    if guard is not None:
+        guard[0]["cwd"] = result if is_fresh else None
+    return result
 
 
 def _recut_absorbed_branch(cwd: str, br: str):
@@ -3283,6 +3441,10 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
               f"non-retryable: publish the missing precondition, then "
               f"dispatch again.", file=sys.stderr)
         return 1
+    # 이슈 #2742: admission 을 넘긴 지금부터(부수효과가 시작되는 지점) 이
+    # 시도가 `"session-log"` 처분을 남기기 전까지, 이 프로세스로 온
+    # SIGTERM/SIGINT 는 "호출자가 떠났다"는 뜻이지 "죽었다"는 뜻이 아니다.
+    _bootstrap_signal_guard = _arm_bootstrap_signal_guard(attempt_id)
     # 이슈 #2382: `core_plugin_dirs()` 는 인자가 없다 — role/cwd/issue 어느
     # 것에도 안 걸리는, core 마켓플레이스 관리 클론(core_root()) pull 하나뿐
     # 이라 admission 만 넘으면(부수효과는 admission 뒤부터, 위 주석) 바로
@@ -3366,8 +3528,18 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
         # inside the target repo's checkout and broke an unrelated PR's
         # build. Give it the same clone-isolation an issue-scoped spawn
         # already gets (`issue_workspace()`, keyed by pid here).
+        #
+        # 이슈 #2742 addendum: 이 호출도 issue-scoped 경로와 똑같이
+        # `_create_workspace_with_signal_guard()`를 거쳐야 한다 — 직접
+        # `issue_workspace()`를 부르면 이 clone 도중 도착한 SIGTERM/SIGINT
+        # 에 대해 가드의 `cwd`가 끝까지 `None`으로 남아(이 호출 이후로도
+        # 아무도 채우지 않는다), 이 프로세스가 어떤 시점에 halt 하든
+        # partial 워크스페이스가 아예 지워지지 않는다 — issue-scoped 경로만
+        # 고치고 adhoc 경로를 그대로 두면 같은 클래스의 구멍이 그대로
+        # 남는다.
         with _timed("adhoc_workspace"):
-            cwd = issue_workspace(cwd, issue, skill)
+            cwd = _create_workspace_with_signal_guard(
+                cwd, issue, skill, _bootstrap_signal_guard)
         print(f"[{skill}] adhoc 격리 작업 디렉토리: {cwd}", file=sys.stderr)
     # 이슈 #2382: adhoc 스폰(issue is None)은 아래 issue-스코프 블록 전체를
     # 건너뛰어 directive_write 가 없다 — 그런 스폰의 board_snapshot 은
@@ -3491,9 +3663,11 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
         # 남는다.
         origin_cwd = cwd
         with _timed("workspace"):
-            cwd = issue_workspace(cwd, issue, skill)
+            cwd = _create_workspace_with_signal_guard(
+                cwd, issue, skill, _bootstrap_signal_guard)
         claim_rejection = _acquire_spawn_claim(cwd, issue, skill)
         if claim_rejection is not None:
+            _disarm_bootstrap_signal_guard(_bootstrap_signal_guard)
             print(f"[{skill}] {claim_rejection}", file=sys.stderr)
             # 이슈 #2382 컨포먼스 리뷰 발견: 이 리턴은 위에서 이미 던진
             # `_core_future`(core_plugin_dirs) 의 join 지점(아래 "core"
@@ -3992,6 +4166,11 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             # (아래, Popen 뒤)보다 먼저지만 몇 줄 차이라 워치독 틱(60초 간격)
             # 기준으로는 동시다.
             _record_spawn_outcome(attempt_id, "session-log", str(log_path))
+            # 이슈 #2742: 이 지점부터는 곧 실제로 도는(fork/Popen 될) 세션의
+            # 워크스페이스다 — 이후 이 프로세스가 받는 SIGTERM/SIGINT 를
+            # "부트스트랩 halt"로 되잡아 방금 확정된 워크스페이스를 지우면
+            # 안 된다. 원래 핸들러로 되돌린다.
+            _disarm_bootstrap_signal_guard(_bootstrap_signal_guard)
         result = {}
         roster_key = lease_key(issue, skill) if issue is not None else f"adhoc/{skill}/{os.getpid()}"
         events_path = _events_path(cwd)
