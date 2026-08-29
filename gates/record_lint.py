@@ -938,7 +938,7 @@ def canonical_source_claim_check(text: str) -> list[str]:
                 or has_acceptance_result):
             bad.append(
                 "레코드에 canonical 소스 인용 없는 상태/결함 주장 (issue #793): "
-                f"{line.strip()!r} — role output / session·PR·board 상태 / "
+                f"{line.strip()!r} — skill output / session·PR·board 상태 / "
                 "결함을 주장하면서 같은 섹션 안에 `canonical: <읽은 소스>` "
                 "태그가 없다 — 요약이나 grep/watcher 신호가 아니라 실제 "
                 "레코드/diff, raw ground truth, 또는 file:line 컨텍스트를 "
