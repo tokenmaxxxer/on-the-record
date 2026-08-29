@@ -371,12 +371,37 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     피한다, closure_sweep 의 같은 패턴). `pr_index` 도 마찬가지 —
     안 주면 `closure_sweep._pr_index_all()` 로 한 번에 가져온다(이슈
     #1498 요구 5: subject 당 `gh pr list --head` 대신 벌크 인덱스 한 번 +
-    로컬 조인)."""
+    로컬 조인).
+
+    issue #2777: 이 함수 자신이 `issue_state_index_all()` 을 불러 실패하면
+    (`ok=False`) `issue_states` 는 `None` 으로 남고, 아래 루프의
+    `_issue_is_open()` 이 (의도대로) fail-closed 되어 모든 subject 를
+    건너뛴다 — 스폰 결정은 그대로 두되(#2652 가 세운 순서는 안 건드린다),
+    이 사실 자체는 watchdog.py 의 `closure-sweep` 실패-스트릭 관용
+    (`_watchdog_note_gh_failure`) 과 같은 방식으로 한 줄 남긴다: 단발
+    blip 은 삼키고, 연속 실패만 경고해 "닫힌 이슈라 조용함"/"정상이라
+    조용함"과 구별되는 세 번째 상태("판정 불가라 건너뜀")를 드러낸다.
+
+    실제 운영 호출부(watchdog.py)는 매 틱 한 번 자신이 직접
+    `issue_state_index_all()` 을 불러 성공하면 실제 dict 를, 실패하면
+    `None` 을 이 함수에 그대로 넘긴다 — 즉 `issue_states is not None` 로
+    들어오는 모든 호출은 그 호출자의 fetch 가 이번 틱에 성공했다는
+    뜻이다. `closure-sweep` 은 매 틱 if/else 양쪽에서 스트릭을 갱신하는데
+    (성공 분기에서도 리셋을 호출) 반해, 이 신호는 실패 재-fetch 분기
+    안에서만 스트릭을 건드리면 그 분기 자체가 정상 운영 틱에는 전혀
+    실행되지 않아 리셋이 죽은 코드가 된다 — 그래서 `issue_states` 가
+    이미 주어진 (=성공한) 매 호출마다도 리셋을 호출해 `closure-sweep`
+    과 같은 if/else 모양을 맞춘다."""
     out: dict[str, int] = {}
     if issue_states is None:
         issue_states, ok = closure_sweep.issue_state_index_all(root)
+        if spawn._watchdog_note_gh_failure(root, "spawn-on-pr", not ok):
+            print("[spawn-on-pr] gh 실패 — 이슈 상태 조회 불가, "
+                  "이번 틱 판정 보류 (연속 실패)")
         if not ok:
             issue_states = None
+    else:
+        spawn._watchdog_note_gh_failure(root, "spawn-on-pr", False)
     if pr_index is None:
         pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)

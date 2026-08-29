@@ -517,3 +517,115 @@ def test_closed_and_open_subjects_mixed_only_open_unmappable_branch_reported(
     printed_subjects = [line.split(":", 1)[0].removeprefix("[spawn-on-pr] ")
                          for line in captured.out.splitlines() if "찾지 못했다" in line]
     assert printed_subjects == ["issue-93100"]
+
+
+# ---------------------------------------------------------------------
+# missing_verification(): issue #2777 -- a degraded issue-state lookup
+# (issue_states stays None because closure_sweep.issue_state_index_all()
+# itself failed) must report its own distinct state, not silently
+# produce the same empty output as a healthy quiet tick. #2652's reorder
+# is not touched: `_issue_is_open()` still fail-closes the spawn decision
+# (`out` stays unaffected either way) -- only the diagnostic print is new.
+# ---------------------------------------------------------------------
+
+def _degraded_lookup(monkeypatch, tmp_path, *, ok):
+    subject = "issue-99301"
+    monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: {subject: _deliverable_board()})
+    monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
+                         lambda root, s: True)
+    monkeypatch.setattr(spawn_on_pr.closure_sweep, "issue_state_index_all",
+                         lambda root: (({} if ok else None), ok))
+    monkeypatch.setattr(spawn_on_pr.state_paths, "STATE_ROOT", tmp_path / "state")
+    return subject
+
+
+def test_degraded_lookup_stays_quiet_below_the_failure_streak_threshold(monkeypatch, tmp_path, capsys):
+    _degraded_lookup(monkeypatch, tmp_path, ok=False)
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+    for _ in range(threshold - 1):
+        out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
+        assert out == {}
+    captured = capsys.readouterr()
+    assert captured.out == ""  # single/short blips stay quiet, same convention as watchdog.py
+
+
+def test_degraded_lookup_reports_its_own_state_once_streak_hits_threshold(monkeypatch, tmp_path, capsys):
+    _degraded_lookup(monkeypatch, tmp_path, ok=False)
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+    for _ in range(threshold):
+        out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
+
+    assert out == {}  # no spawn-eligibility change -- _issue_is_open() still fail-closes
+    captured = capsys.readouterr()
+    assert "gh 실패" in captured.out
+    # distinct from the old unlabeled branch-missing noise:
+    assert "찾지 못했다" not in captured.out
+
+
+def test_healthy_lookup_after_this_functions_own_fetch_stays_quiet(monkeypatch, tmp_path, capsys):
+    # Regression guard: a *successful* internal fetch (ok=True) must not
+    # start printing either -- the new print is gated on failure alone.
+    subject = _degraded_lookup(monkeypatch, tmp_path, ok=True)
+
+    out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
+
+    assert subject not in out  # empty issue_states index -> issue treated as not-OPEN
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+
+def test_gh_failure_streak_resets_on_recovery_via_production_caller_shape(monkeypatch, tmp_path, capsys):
+    # issue #2777 verification finding: watchdog.py (the sole production
+    # caller of spawn_missing_for_pr()) fetches issue_states ONCE per tick
+    # and always forwards it explicitly -- a real dict on success, None on
+    # failure -- it never omits the argument the way every other test in
+    # this file does. That means the "issue_states is None" branch (the
+    # only place the pre-fix streak reset lived) never runs on a healthy
+    # production tick, so the streak could climb on a sustained outage and
+    # then never come back down once the caller recovered. This test
+    # drives missing_verification() through that exact calling shape --
+    # explicit issue_states=None on failing ticks, explicit real dict on
+    # the recovery tick -- rather than letting missing_verification() do
+    # its own internal fetch every tick.
+    subject = "issue-99302"
+    monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: {subject: _deliverable_board()})
+    monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
+                         lambda root, s: True)
+    monkeypatch.setattr(spawn_on_pr.state_paths, "STATE_ROOT", tmp_path / "state")
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+
+    def streak():
+        path = spawn_on_pr.spawn._watchdog_noise_state_path(tmp_path)
+        state = spawn_on_pr.spawn._load_watchdog_noise_state(path)
+        return state.get("gh_failure_streaks", {}).get("spawn-on-pr", 0)
+
+    monkeypatch.setattr(spawn_on_pr.closure_sweep, "issue_state_index_all",
+                         lambda root: (None, False))
+    lines = []
+    for _ in range(threshold):
+        # mirrors watchdog.py: the caller's own top-level fetch failed,
+        # so it forwards issue_states=None explicitly (not omitted).
+        spawn_on_pr.missing_verification(tmp_path, issue_states=None, pr_index={})
+        lines.append(capsys.readouterr().out)
+
+    assert lines[:-1] == [""] * (threshold - 1)
+    assert "gh 실패" in lines[-1]
+    assert streak() == threshold
+
+    # recovery tick: the caller's own fetch now succeeds and forwards a
+    # real (non-None) issue_states dict -- exactly what watchdog.py does,
+    # and exactly the shape the pre-fix code never called the reset from.
+    out = spawn_on_pr.missing_verification(tmp_path, issue_states={}, pr_index={})
+    recovery_line = capsys.readouterr().out
+
+    assert recovery_line == ""  # a reset never itself prints
+    assert streak() == 0
+    assert out == {}  # empty issue_states index -> issue treated as not-OPEN, unaffected
+
+    # a single isolated blip right after recovery must NOT immediately
+    # re-warn -- if it did, the streak would not have actually reset.
+    monkeypatch.setattr(spawn_on_pr.closure_sweep, "issue_state_index_all",
+                         lambda root: (None, False))
+    spawn_on_pr.missing_verification(tmp_path, issue_states=None, pr_index={})
+    assert capsys.readouterr().out == ""
+    assert streak() == 1
