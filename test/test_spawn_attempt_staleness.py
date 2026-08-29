@@ -208,8 +208,8 @@ class HaltConditionClearedUnknownClassTest(unittest.TestCase):
             spawn._halt_condition_cleared("unknown", {"issue": 1, "cwd": "/tmp"}, "x"))
 
 
-class RoleFamilyTest(unittest.TestCase):
-    """issue #2511 residual: `_role_family()` strips the trailing 8-hex-char
+class SkillFamilyTest(unittest.TestCase):
+    """issue #2511 residual: `_skill_family()` strips the trailing 8-hex-char
     lease disambiguator (`roster.new_lease_disambiguator()` ==
     `secrets.token_hex(4)`) that `spawn.py:1990-1991` appends to every role
     string, so retries of the same work (a fresh disambiguator each time,
@@ -217,29 +217,29 @@ class RoleFamilyTest(unittest.TestCase):
     compare equal on the part that identifies the work item itself."""
 
     def test_strips_trailing_lease_disambiguator(self):
-        self.assertEqual(spawn._role_family("silent-failure-audit-ec09cf78"),
+        self.assertEqual(spawn._skill_family("silent-failure-audit-ec09cf78"),
                           "silent-failure-audit")
 
     def test_the_real_issue_2576_retry_pair_matches_after_stripping(self):
         # Real fixture (runs/spawn-attempts.jsonl live ledger + issue #2576
         # session-end comments): halted as -ec09cf78, later succeeded as
         # -c678659a — same family, different lease disambiguator.
-        self.assertEqual(spawn._role_family("silent-failure-audit-ec09cf78"),
-                          spawn._role_family("silent-failure-audit-c678659a"))
+        self.assertEqual(spawn._skill_family("silent-failure-audit-ec09cf78"),
+                          spawn._skill_family("silent-failure-audit-c678659a"))
 
-    def test_role_without_a_disambiguator_suffix_passes_through(self):
-        self.assertEqual(spawn._role_family("orchestrator"), "orchestrator")
+    def test_skill_without_a_disambiguator_suffix_passes_through(self):
+        self.assertEqual(spawn._skill_family("orchestrator"), "orchestrator")
 
-    def test_composite_skill_role_keeps_its_plus_joined_family(self):
+    def test_composite_skill_skill_keeps_its_plus_joined_family(self):
         self.assertEqual(
-            spawn._role_family("silent-failure-audit+diagnose-first-ae8ab737"),
+            spawn._skill_family("silent-failure-audit+diagnose-first-ae8ab737"),
             "silent-failure-audit+diagnose-first")
 
     def test_short_hex_like_suffix_is_not_mistaken_for_the_8char_disambiguator(self):
         # Only an exact 8-lowercase-hex-char trailing group is a lease
         # disambiguator; a shorter or differently-shaped trailing token is
         # part of the family name and must not be stripped.
-        self.assertEqual(spawn._role_family("implementation-af26085"),
+        self.assertEqual(spawn._skill_family("implementation-af26085"),
                           "implementation-af26085")
 
 
@@ -299,7 +299,7 @@ class AttemptSupersededTest(unittest.TestCase):
         self.assertFalse(
             spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
 
-    def test_success_on_a_different_role_family_does_not_supersede(self):
+    def test_success_on_a_different_skill_family_does_not_supersede(self):
         """Over-broadening guard: same issue, different role family — an
         unrelated skill's success on the same issue must not silence this
         halt."""
@@ -311,7 +311,7 @@ class AttemptSupersededTest(unittest.TestCase):
         self.assertFalse(
             spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
 
-    def test_missing_issue_or_role_or_ts_is_conservative_not_superseded(self):
+    def test_missing_issue_or_skill_or_ts_is_conservative_not_superseded(self):
         attempts = {"a2": {"issue": 1, "role": "implementation-deadbeef", "ts": 200.0}}
         outcomes = {"a2": {"outcome": "session-log", "detail": "x"}}
         for attempt in ({"role": "implementation-af260856", "ts": 100.0},
@@ -341,10 +341,10 @@ class SpawnAttemptSweepReplayFixTest(unittest.TestCase):
             p.start()
             self.addCleanup(p.stop)
 
-    def _write_attempt(self, attempt_id, issue, role, cwd, reason, ts):
+    def _write_attempt(self, attempt_id, issue, skill, cwd, reason, ts):
         with self.attempts_path.open("w", encoding="utf-8") as fh:
             fh.write(json.dumps({"event": "spawn_attempt", "attempt_id": attempt_id,
-                                  "issue": issue, "role": role, "pid": 4242,
+                                  "issue": issue, "role": skill, "pid": 4242,
                                   "cwd": cwd, "ts": ts}) + "\n")
             fh.write(json.dumps({"event": "spawn_attempt_outcome",
                                   "attempt_id": attempt_id, "outcome": "halted",
@@ -441,9 +441,9 @@ class SpawnAttemptSweepSupersessionTest(unittest.TestCase):
         with self.attempts_path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry) + "\n")
 
-    def _append_attempt(self, attempt_id, issue, role, ts, cwd=None):
+    def _append_attempt(self, attempt_id, issue, skill, ts, cwd=None):
         self._append({"event": "spawn_attempt", "attempt_id": attempt_id,
-                       "issue": issue, "role": role, "pid": 4242, "cwd": cwd,
+                       "issue": issue, "role": skill, "pid": 4242, "cwd": cwd,
                        "ts": ts})
 
     def _append_halted(self, attempt_id, reason, ts):

@@ -107,14 +107,14 @@ if body is None:
 # time; any absence/parse/shape failure falls back to the branch-regex
 # parse below, byte-identical to pre-#1814 behavior.
 issue = None
-role = None
+skill = None
 try:
     with open(os.path.join(os.getcwd(), ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
     if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
             and isinstance(sidecar.get("issue"), int)):
         issue = sidecar["issue"]
-        role = sidecar["role"]
+        skill = sidecar["role"]
 except (OSError, ValueError):
     pass
 
@@ -131,7 +131,7 @@ if issue is None:
     if not bm:
         sys.exit(0)
     issue = int(bm.group(1))
-    role = bm.group(2)
+    skill = bm.group(2)
 
 # --- phase determination via issue comments + approvers.md -----------------
 def gh_json(*args):
@@ -158,7 +158,7 @@ if os.path.isfile(approvers_path):
         if mm:
             approvers.add(mm.group(1))
 
-needle = "APPROVE issue-%d/%s" % (issue, role)
+needle = "APPROVE issue-%d/%s" % (issue, skill)
 
 def _first_line_matches(body, token):
     # issue #2021 parity fix (field discovery during #2013): approval-
@@ -217,14 +217,14 @@ if not phase2:
             return False
         return datetime.date.today() <= exp
 
-    own_scope = "issue-%d/%s" % (issue, role)
+    own_scope = "issue-%d/%s" % (issue, skill)
     for c in (comments or []):
         b = (c.get("body") or "").strip()
         login = (c.get("author", {}) or {}).get("login")
         cm = _CITE_RE.match(b)
         if not cm or login not in approvers:
             continue
-        if int(cm.group(1)) != issue or cm.group(2) != role:
+        if int(cm.group(1)) != issue or cm.group(2) != skill:
             continue
         cited_scope = cm.group(3)
         if cited_scope == own_scope and _delegation_valid(cited_scope, comments, approvers):
@@ -245,7 +245,7 @@ if not phase2 and os.environ.get("CORE_BUILD_NOW") == "1":
     sys.stderr.write(
         "pr-preflight: CORE_BUILD_NOW=1 — treating issue-%d/%s as phase-2-equivalent "
         "(build-now single-phase delivery, no separate approval round to gate).\n"
-        % (issue, role)
+        % (issue, skill)
     )
 
 phase = "phase2" if phase2 else "phase1"
@@ -350,7 +350,7 @@ if spawn_ts is not None and comments:
         newest_id = _comment_num_id(newest[1])
         if newest_id:
             record_path = os.path.join(os.getcwd(), "docs", f"issue-{issue}",
-                                        "reports", f"{role}.md")
+                                        "reports", f"{skill}.md")
             record_text = ""
             if os.path.isfile(record_path):
                 try:

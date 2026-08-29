@@ -99,8 +99,8 @@ import relay
 # `mock.patch.object(spawn, ...)` patches would stop reaching relay.
 if relay._sp is None or __name__ in ("spawn", "__main__"):
     relay._sp = sys.modules[__name__]
-_open_role_prs = relay._open_role_prs
-_undispositioned_role_prs = relay._undispositioned_role_prs
+_open_skill_prs = relay._open_skill_prs
+_undispositioned_skill_prs = relay._undispositioned_skill_prs
 _print_returned_pr_surfaced = relay._print_returned_pr_surfaced
 _STRANDED_PUSH_COMMENT_MARKER = relay._STRANDED_PUSH_COMMENT_MARKER
 _post_stranded_push_comment = relay._post_stranded_push_comment
@@ -322,9 +322,9 @@ _MIN_PLAUSIBLE_JUDGE_WALL_S = consult._MIN_PLAUSIBLE_JUDGE_WALL_S
 _LEDGER_TAIL_READ_BYTES = consult._LEDGER_TAIL_READ_BYTES
 PANEL_TIMEOUT = consult.PANEL_TIMEOUT
 JUDGE_TIMEOUT = consult.JUDGE_TIMEOUT
-JUDGE_MAX_ROLES_PER_MERGE = consult.JUDGE_MAX_ROLES_PER_MERGE
+JUDGE_MAX_SKILLS_PER_MERGE = consult.JUDGE_MAX_SKILLS_PER_MERGE
 _JUDGE_EXCLUDED_CORE_PLUGINS = consult._JUDGE_EXCLUDED_CORE_PLUGINS
-_JUDGE_ROLE_EXCLUSIONS = consult._JUDGE_ROLE_EXCLUSIONS
+_JUDGE_SKILL_EXCLUSIONS = consult._JUDGE_SKILL_EXCLUSIONS
 _PanelMessagingUnavailable = consult._PanelMessagingUnavailable
 _VERB_INSTRUCTIONS = consult._VERB_INSTRUCTIONS
 _VERB_JSON_SHAPE = consult._VERB_JSON_SHAPE
@@ -349,7 +349,7 @@ _evidence_stamp_summary = consult._evidence_stamp_summary
 _extract_sendmessage_turns = consult._extract_sendmessage_turns
 _judge_cmd_and_env = consult._judge_cmd_and_env
 _judge_prefilter = consult._judge_prefilter
-_judge_roles_run_today = consult._judge_roles_run_today
+_judge_skills_run_today = consult._judge_skills_run_today
 _judge_trace_path = consult._judge_trace_path
 _judge_validate = consult._judge_validate
 _panel_degrade = consult._panel_degrade
@@ -391,7 +391,7 @@ _core_candidates = skills._core_candidates
 _describe_skill_match = skills._describe_skill_match
 _installed_plugin_skill_dirs = skills._installed_plugin_skill_dirs
 _local_skill_dirs = skills._local_skill_dirs
-_role_source_roster_fields = skills._role_source_roster_fields
+_skill_source_roster_fields = skills._skill_source_roster_fields
 _skill_content_hash = skills._skill_content_hash
 _skill_identity_key = skills._skill_identity_key
 _skill_repo_managed_root = skills._skill_repo_managed_root
@@ -403,7 +403,7 @@ _split_skill_qualifier = skills._split_skill_qualifier
 _collapse_identical_matches = skills._collapse_identical_matches
 skill_branch_slug = skills.skill_branch_slug
 resolve_static_policy_source = skills.resolve_static_policy_source
-resolve_role_family_source = skills.resolve_role_family_source
+resolve_skill_family_source = skills.resolve_skill_family_source
 merge_composed_skill_source = skills.merge_composed_skill_source
 resolve_skill_source = skills.resolve_skill_source
 resolved_skill_dirs = skills.resolved_skill_dirs
@@ -480,7 +480,7 @@ if _board_mod._sp is None or __name__ in ("spawn", "__main__"):
 _approvers = _board_mod._approvers
 _base = _board_mod._base
 _format_roster_row = _board_mod._format_roster_row
-_front_role = _board_mod._front_role
+_front_skill = _board_mod._front_skill
 _is_new_commit = _board_mod._is_new_commit
 _ledger_log_outcomes = _board_mod._ledger_log_outcomes
 _merged_pr_for_branch = _board_mod._merged_pr_for_branch
@@ -557,7 +557,7 @@ _tokenize = _pipeline_mod._tokenize
 _ttl_marker = _pipeline_mod._ttl_marker
 _verify_branch_base_sane = _pipeline_mod._verify_branch_base_sane
 _workspace_bash_allow = _pipeline_mod._workspace_bash_allow
-_write_role_sidecar = _pipeline_mod._write_role_sidecar
+_write_skill_sidecar = _pipeline_mod._write_skill_sidecar
 admission_gate = _pipeline_mod.admission_gate
 bootstrap_fetch_and_record_sha = _pipeline_mod.bootstrap_fetch_and_record_sha
 checkout_issue_branch = _pipeline_mod.checkout_issue_branch
@@ -569,12 +569,12 @@ core_version = _pipeline_mod.core_version
 ensure_target_remote = _pipeline_mod.ensure_target_remote
 get_bootstrap_fetch_record = _pipeline_mod.get_bootstrap_fetch_record
 positive_int = _pipeline_mod.positive_int
-read_role_model_config = _pipeline_mod.read_role_model_config
+read_skill_model_config = _pipeline_mod.read_skill_model_config
 recut_if_absorbed_cli = _pipeline_mod.recut_if_absorbed_cli
 recut_corrupted_cli = _pipeline_mod.recut_corrupted_cli
 require_doctor = _pipeline_mod.require_doctor
-resolved_role_model = _pipeline_mod.resolved_role_model
-role_settings = _pipeline_mod.role_settings
+resolved_skill_model = _pipeline_mod.resolved_skill_model
+skill_settings = _pipeline_mod.skill_settings
 self_hosted_hooks = _pipeline_mod.self_hosted_hooks
 spawn_cmd = _pipeline_mod.spawn_cmd
 await_approval_cmd = _pipeline_mod.await_approval_cmd
@@ -797,22 +797,22 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
     `test_expects_pr_missing_not_in_progress_is_respawn` 류처럼 `issue`
     없이 부르는 순수-비교 호출부는 여전히 상태 I/O 없이 동작한다.
     """
-    role = expected.get("role")
+    skill = expected.get("role")
     branch = expected.get("branch")
     issue = expected.get("issue")
     has_commit = bool(observed.get("new_commit"))
     failure_signature = observed.get("failure_signature")
     death_id = observed.get("death_id")
-    base_detail = (f"role={role} branch={branch}: "
+    base_detail = (f"role={skill} branch={branch}: "
                    f"expects_pr=True pr_number=None session_verdict={verdict!r}")
 
-    if issue is not None and role:
+    if issue is not None and skill:
         recovery_policy = _recovery_policy_module()
         kwargs = {}
         if recovery_state_dir is not None:
             kwargs["state_dir"] = recovery_state_dir
         policy_verdict = recovery_policy.classify_from_state(
-            issue, role, has_commit=has_commit, has_pr=False,
+            issue, skill, has_commit=has_commit, has_pr=False,
             failure_signature=failure_signature, death_id=death_id, **kwargs)
     else:
         policy_verdict = ("RESPAWN_WITH_HANDOFF" if has_commit
@@ -889,14 +889,14 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     # 건강한 (issue, role) 은 재기동 카운터를 초기화한다 — 아니면 일시적
     # flake 두 번이 이후의 진짜 죽음까지 영구히 ESCALATE 로 몰아간다.
     _issue = expected.get("issue")
-    _role = expected.get("role")
-    if _issue is not None and _role and (
+    _skill = expected.get("role")
+    if _issue is not None and _skill and (
             observed.get("pr_number") is not None or verdict == "normal"):
         recovery_policy = _recovery_policy_module()
         kwargs = {}
         if recovery_state_dir is not None:
             kwargs["state_dir"] = recovery_state_dir
-        recovery_policy.reset_state(_issue, _role, **kwargs)
+        recovery_policy.reset_state(_issue, _skill, **kwargs)
     if verdict is None:
         if observed.get("loop_state") is not None:
             # loop_state 는 관측됐는데 session_verdict 가 없다 — 앞뒤가
@@ -943,10 +943,10 @@ def _build_observed(root: Path, entry: dict) -> dict:
     pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
     loop_state = None
     issue = entry.get("issue")
-    role = entry.get("role")
-    if issue is not None and role:
+    skill = entry.get("role")
+    if issue is not None and skill:
         subject = f"issue-{issue}"
-        loop_state = board(root).get(subject, {}).get(role, {}).get("loop_state")
+        loop_state = board(root).get(subject, {}).get(skill, {}).get("loop_state")
     new_commit = False
     if work:
         after_head = _git_head(work)
@@ -1031,7 +1031,7 @@ def _append_spawn_attempt_event(entry: dict) -> None:
         fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
 
-def _record_spawn_attempt(issue: int | None, role: str, pid: int,
+def _record_spawn_attempt(issue: int | None, skill: str, pid: int,
                            cwd: str | None = None) -> str | None:
     """이슈 #2291: 네트워크/워크스페이스 작업 전, spawn 시도를 durable 하게
     남긴다 — `_fetch_or_halt()`(pipeline.py) 류의 fail-closed halt 가
@@ -1062,9 +1062,9 @@ def _record_spawn_attempt(issue: int | None, role: str, pid: int,
     if os.environ.get("PYTEST_CURRENT_TEST") is not None:
         return None
     ts = time.time()
-    attempt_id = f"{issue}:{role}:{pid}:{int(ts * 1000)}"
+    attempt_id = f"{issue}:{skill}:{pid}:{int(ts * 1000)}"
     _append_spawn_attempt_event({"event": "spawn_attempt", "attempt_id": attempt_id,
-                                  "issue": issue, "role": role, "pid": pid, "cwd": cwd,
+                                  "issue": issue, "role": skill, "pid": pid, "cwd": cwd,
                                   "ts": ts})
     return attempt_id
 
@@ -1313,13 +1313,13 @@ def _halt_condition_cleared(cls: str, attempt: dict, reason: str) -> bool:
 _LEASE_DISAMBIGUATOR_SUFFIX_RE = re.compile(r"-[0-9a-f]{8}$")
 
 
-def _role_family(role: str) -> str:
+def _skill_family(skill: str) -> str:
     """`role`에서 lease 분해자 접미사를 떼 role family 를 돌려준다. 접미사가
     없으면(분해자 없이 role 을 직접 넘긴 옛 호출부/테스트 픽스처) role 을
     그대로 돌려준다 — family 는 "role 에서 알아낼 수 있는 가장 넓은, 그러나
     여전히 issue 번호와 함께 써야 안전한 식별자"이지, "항상 접미사가 있다"는
     가정이 아니다."""
-    return _LEASE_DISAMBIGUATOR_SUFFIX_RE.sub("", role or "")
+    return _LEASE_DISAMBIGUATOR_SUFFIX_RE.sub("", skill or "")
 
 
 def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
@@ -1333,18 +1333,18 @@ def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
     `False`(판정 불가 — 아직 안 풀림 쪽으로) — `_halt_condition_cleared`와
     같은 fail-safe 방향."""
     issue = attempt.get("issue")
-    role = attempt.get("role")
+    skill = attempt.get("role")
     my_ts = attempt.get("ts")
-    if issue is None or not role or not isinstance(my_ts, (int, float)):
+    if issue is None or not skill or not isinstance(my_ts, (int, float)):
         return False
-    family = _role_family(role)
+    family = _skill_family(skill)
     for other_id, other in attempts.items():
         if other_id == attempt_id:
             continue
         if other.get("issue") != issue:
             continue
-        other_role = other.get("role")
-        if not other_role or _role_family(other_role) != family:
+        other_skill = other.get("role")
+        if not other_skill or _skill_family(other_skill) != family:
             continue
         other_ts = other.get("ts")
         if not isinstance(other_ts, (int, float)) or other_ts <= my_ts:
@@ -1770,10 +1770,10 @@ def watchdog_check_one(key: str, entry: dict, now: float | None = None,
     ws_entry = _workspace_index_load().get(ws_key)
     if ws_entry is not None:
         watcher_pid = ws_entry.get("watcher_pid")
-        watcher_role = key.split("/", 1)[1] if "/" in key else None
+        watcher_skill = key.split("/", 1)[1] if "/" in key else None
         if watcher_pid is None:
             anomalies.append(f"watcher-missing: {key} 에 등록된 워처가 없다")
-        elif not _watcher_looks_real(watcher_pid, entry.get("issue"), watcher_role):
+        elif not _watcher_looks_real(watcher_pid, entry.get("issue"), watcher_skill):
             anomalies.append(
                 f"watcher-dead: 워처 pid {watcher_pid} 가 죽어 있거나(또는 다른 "
                 f"프로세스가 그 pid 를 물려받았거나) — spawn.py watch --issue "
@@ -1886,7 +1886,7 @@ def doctor() -> int:
     return 1
 
 
-ROLE_MODEL_CONFIG = ROOT / "role_model.txt"
+SKILL_MODEL_CONFIG = ROOT / "role_model.txt"
 
 
 def main() -> int:
@@ -2183,7 +2183,7 @@ def main() -> int:
         task_text = a.role
         if not task_text:
             sys.exit('사용법: spawn.py --skill-candidates "<맡길 일>" [--issue <n>] [--with-judge]')
-        result = rank_skills(task_text, role="candidates",
+        result = rank_skills(task_text, skill="candidates",
                              repo_root=_skill_repo_root(),
                              issue=a.issue, cwd=a.cwd,
                              home=Path.home(), target_repo_root=Path(a.cwd),
@@ -2320,7 +2320,7 @@ def main() -> int:
         # 쓰는 것과 같은 os.fork()+setsid()+표준입출력 dup2 패턴: 부모는
         # 즉시 리턴하고, 자식이 판단을 끝까지 몰아 트레이스에 커밋한다.
         log_path = _consult_background_log_path()
-        role_for_log, task_for_log, cwd_for_log = a.task, a.consult_question, a.cwd
+        skill_for_log, task_for_log, cwd_for_log = a.task, a.consult_question, a.cwd
         issue_for_log, model_for_log = a.issue, a.model
         child_pid = os.fork()
         if child_pid == 0:
@@ -2333,7 +2333,7 @@ def main() -> int:
             os.close(devnull_in)
             os.close(log_fd)
             try:
-                verdict = consult_cmd(role_for_log, task_for_log, issue=issue_for_log,
+                verdict = consult_cmd(skill_for_log, task_for_log, issue=issue_for_log,
                                       cwd=cwd_for_log, model=model_for_log)
                 print(json.dumps(verdict, indent=2, ensure_ascii=False))
             except Exception as e:
@@ -2365,14 +2365,14 @@ def main() -> int:
         # issue #2348: same reader shape as consult-log -- reconstructs the
         # pre-sharding single-file deviation-log.md view for this issue
         # (+role, when this session's own $CLAUDE_SKILL names one).
-        print(_deviation_log_aggregate(a.issue, role=os.environ.get("CLAUDE_SKILL"),
+        print(_deviation_log_aggregate(a.issue, skill=os.environ.get("CLAUDE_SKILL"),
                                         cwd=a.cwd), end="")
         return 0
     if a.role == "deviation-log-path":
         # issue #2348: prints the exact shard path this session's own
         # deviation-log append belongs in -- a session never computes the
         # shard id itself, so two sessions' formulas can never drift apart.
-        print(_deviation_log_path(a.issue, role=os.environ.get("CLAUDE_SKILL"), cwd=a.cwd))
+        print(_deviation_log_path(a.issue, skill=os.environ.get("CLAUDE_SKILL"), cwd=a.cwd))
         return 0
     if a.role == "priorities-log":
         # issue #2637: same reader shape as consult-log/deviation-log --
@@ -2560,7 +2560,7 @@ def main() -> int:
         require_no_repo_config(a.cwd, a.trust_repo_config)
         require_acceptance_gate(a.cwd, a.issue)
         require_requirement_linkage(a.cwd, a.issue)
-        out = role_settings(a.role, a.cwd)
+        out = skill_settings(a.role, a.cwd)
         # MUSTER_SKILL_MODEL / role_model.txt (이슈#93): spawn_cmd 는 이
         # dry-run 경로를 안 타므로(세션을 안 띄우니까) --model 부착 여부가
         # 여기 안 보이면 이슈#31 acceptance 커맨드(`--dry-run`)로는 이 기능을
@@ -2568,15 +2568,15 @@ def main() -> int:
         # docs/reports/2026-07-29-hunt-muster-role-model-build.md). resolved_role_model()
         # 로 spawn_cmd 와 동일한 env > config > built-in "sonnet" 경로를 태워,
         # 둘 다 비어있어도 built-in 값을 키에 넣는다.
-        role_model = resolved_role_model(a.model)
-        if role_model:
-            out["model"] = role_model
+        skill_model = resolved_skill_model(a.model)
+        if skill_model:
+            out["model"] = skill_model
         print(json.dumps(out, indent=2, ensure_ascii=False))
-        if role_model:
+        if skill_model:
             # 실제 스폰 시 spawn_cmd 가 argv 에 붙이는 것과 같은 두 토큰을
             # 여기서도 보여준다 — 이슈#31 acceptance("--dry-run 이 --model
             # sonnet 을 보여준다")가 겨냥하는 문구 그대로.
-            print(f"--model {role_model}")
+            print(f"--model {skill_model}")
         return 0
     # 이슈 #2291 CHANGES(PR #2371 conformance review R2/R4): require_board()
     # 부터 require_requirement_linkage() 까지 네 계약 게이트 — 그중 둘
@@ -2812,7 +2812,7 @@ def checkout_staleness(root: Path = ROOT, fetch: bool = True) -> dict:
                        f"(로컬={local_sha[:12]} origin={origin_sha[:12]})")}
 
 
-def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
+def issue_workspace(cwd: str, issue: int | None, skill: str) -> str:
     """이슈 스폰마다 on-the-record 소유의 격리 클론을 만든다.
 
     산출물이 PR 로만 돌아오는 모델에서 세션이 사용자의 체크아웃을
@@ -2856,8 +2856,8 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     # 워크스페이스를 -C 로 다시 넘겼을 때 이름이 이중으로 붙는다(실측:
     # ...-issue-45-coding-issue-45-coding). origin 은 위에서 이미 읽었다.
     repo_name = re.sub(r"\.git$", "", origin.rstrip("/").rsplit("/", 1)[-1]) or slug(cwd)
-    work = (work_base / f"{repo_name}-issue-{issue}-{role}" if issue is not None
-            else work_base / f"{repo_name}-adhoc-{role}-{os.getpid()}")
+    work = (work_base / f"{repo_name}-issue-{issue}-{skill}" if issue is not None
+            else work_base / f"{repo_name}-adhoc-{skill}-{os.getpid()}")
     # 이슈 #2417 (before-landing hunt): fresh-clone 분기 앞에만 두면 재사용
     # 분기(cwd==work 자기 재사용, 기존 .git 재사용) 두 곳은 여전히
     # `_fetch_or_halt` 로 바로 들어가 디스크가 거의 다 찼을 때 clone 이 아니라
@@ -2869,7 +2869,7 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     if src == work.resolve():
         _fetch_or_halt(str(src), "재사용 워크스페이스",
                        after=lambda: _set_origin_head(str(src)))
-        _write_role_sidecar(str(src), issue, role)
+        _write_skill_sidecar(str(src), issue, skill)
         return str(src)
     if issue is None and (work / ".git").exists():
         # Issue #2293 (before-landing warrant hunt): an adhoc task has no
@@ -2913,7 +2913,7 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
                      f"— 기대: {origin}, 실제: {work_origin or '(없음)'}")
         _fetch_or_halt(str(work), "재사용 워크스페이스",
                        after=lambda: _set_origin_head(str(work)))
-        _write_role_sidecar(str(work), issue, role)
+        _write_skill_sidecar(str(work), issue, skill)
         return str(work)
     work.parent.mkdir(parents=True, exist_ok=True)
     c = _run_net(["git", "clone", "-q", str(src), str(work)], "작업 클론",
@@ -2957,7 +2957,7 @@ def issue_workspace(cwd: str, issue: int | None, role: str) -> str:
     # 로 넘겨서 fetch 가 fail-closed 로 halt 하더라도 먼저 시도되게 한다.
     _fetch_or_halt(str(work), "신규 워크스페이스",
                    after=lambda: _set_origin_head(str(work)))
-    _write_role_sidecar(str(work), issue, role)
+    _write_skill_sidecar(str(work), issue, skill)
     return str(work)
 
 
@@ -3173,7 +3173,7 @@ ADMISSION_CHECKS: list[tuple] = [
 _ISSUE_NOT_PRE_RESOLVED = object()
 
 
-def _resolve_and_echo_issue(role: str, cwd: str, issue: int | None) -> dict | None:
+def _resolve_and_echo_issue(skill: str, cwd: str, issue: int | None) -> dict | None:
     """이슈 #2395 CHANGES(PR #2404 conformance review, REQ-REPRO/REQ-CWD-WRONGREPO):
     레포/이슈 해석 echo 를 `main()`이 `require_acceptance_gate`/
     `require_requirement_linkage` 를 부르기 *전에* 찍는다 — 그 두 게이트가
@@ -3204,11 +3204,11 @@ def _resolve_and_echo_issue(role: str, cwd: str, issue: int | None) -> dict | No
     else:
         resolved_line = (f"해석된 레포/이슈: 확인 실패 — cwd({cwd})가 가리키는 "
                           f"레포에서 이슈 #{issue} 를 못 읽었다(gh 조회 실패).\n")
-    print(f"[{role}] {resolved_line.strip()}")
+    print(f"[{skill}] {resolved_line.strip()}")
     return issue_data
 
 
-def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
+def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
                despite_returned: bool = False, model: str | None = None,
@@ -3269,7 +3269,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     resolved_max_turns = _resolve_session_max_turns(max_turns)
     with _timed("admission"):
         _refused_item = admission_gate({
-            "cwd": cwd, "role": role, "issue": issue, "task": task,
+            "cwd": cwd, "role": skill, "issue": issue, "task": task,
             "single_phase": single_phase, "skills": skills,
             "max_turns": resolved_max_turns,
             "allow_unlimited_turns": allow_unlimited_turns,
@@ -3277,7 +3277,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             "force_adhoc_task": force_adhoc_task,
         })
     if _refused_item is not None:
-        print(f"[{role}] admission refused: missing precondition "
+        print(f"[{skill}] admission refused: missing precondition "
               f"'{_refused_item}' (issue #2100) — no session created, no "
               f"workspace left behind. This refusal is deterministic and "
               f"non-retryable: publish the missing precondition, then "
@@ -3340,7 +3340,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 생성보다 먼저 온다(모르는 이름이거나 hooks/ 를 들고 있으면 여기서
         # fail-closed, 이슈 #1955 요구사항 그대로).
         skill_registry_root = _skill_repo_root()
-        role_source = resolve_static_policy_source(skill_registry_root)
+        skill_source = resolve_static_policy_source(skill_registry_root)
     # 이슈 #2061: skill_judge 자문(BM25 프리필터 + haiku 판단)을 워크스페이스
     # 클론/브랜치 체크아웃(~12s)과 겹치도록 그 전에 먼저 던진다 — 아래
     # "cross_family" 단계에서 join 만 한다. 자문은 읽기 전용(저장소 파일을
@@ -3356,7 +3356,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         _cross_family_executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
         _cross_family_future = _cross_family_executor.submit(
             _cross_family_skill_matches_with_consult,
-            _cross_family_task_text, role, _skill_repo_root(), issue, cwd,
+            _cross_family_task_text, skill, _skill_repo_root(), issue, cwd,
             k=_COMPOSED_SKILLS_TOPK,
             home=Path.home(), target_repo_root=Path(cwd))
     if issue is None:
@@ -3367,8 +3367,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # build. Give it the same clone-isolation an issue-scoped spawn
         # already gets (`issue_workspace()`, keyed by pid here).
         with _timed("adhoc_workspace"):
-            cwd = issue_workspace(cwd, issue, role)
-        print(f"[{role}] adhoc 격리 작업 디렉토리: {cwd}", file=sys.stderr)
+            cwd = issue_workspace(cwd, issue, skill)
+        print(f"[{skill}] adhoc 격리 작업 디렉토리: {cwd}", file=sys.stderr)
     # 이슈 #2382: adhoc 스폰(issue is None)은 아래 issue-스코프 블록 전체를
     # 건너뛰어 directive_write 가 없다 — 그런 스폰의 board_snapshot 은
     # cwd 가 애초에 안 바뀌므로 아무 것도 기다릴 필요가 없어, 이 두 변수가
@@ -3382,7 +3382,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # never-missed != never-spawn). `--despite-returned` 는 이제 아무
         # 것도 바꾸지 않는 no-op (CLI 호환성 보존, deprecation 안내만 찍는다).
         if despite_returned:
-            print(f"[{role}] --despite-returned 는 더 이상 아무 효과가 없다 "
+            print(f"[{skill}] --despite-returned 는 더 이상 아무 효과가 없다 "
                   f"(deprecated, 이슈 #1239) — 게이트가 항상 non-blocking "
                   f"surfacing 이라 무시할 거절이 없다", file=sys.stderr)
         # 이슈 #2186: 이 gh 조회(`gh pr list`)가 실측 스폰에서 un-instrumented
@@ -3403,20 +3403,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         def _run_returned_pr_gate() -> None:
             t0 = time.monotonic()
             try:
-                blockers, ok = _undispositioned_role_prs(root, exclude_issue=issue)
+                blockers, ok = _undispositioned_skill_prs(root, exclude_issue=issue)
             except Exception as ex:
-                print(f"[{role}] returned-pr 게이트 실패(스폰은 계속): {ex}",
+                print(f"[{skill}] returned-pr 게이트 실패(스폰은 계속): {ex}",
                       file=sys.stderr)
                 return
             elapsed = time.monotonic() - t0
             if not ok:
-                print(f"[{role}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
+                print(f"[{skill}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
                       f"통과시킨다 (이슈 #680)", file=sys.stderr)
-                ledger_write({"event": "returned_pr_gate_fail_open", "role": role,
+                ledger_write({"event": "returned_pr_gate_fail_open", "role": skill,
                               "issue": issue, "ts": int(time.time())})
             else:
                 _print_returned_pr_surfaced(blockers, source="spawn")
-            print(f"[{role}] returned-pr 게이트(백그라운드) {elapsed:.3f}s 만에 "
+            print(f"[{skill}] returned-pr 게이트(백그라운드) {elapsed:.3f}s 만에 "
                   f"끝남 (걸린 PR {len(blockers)}개)", file=sys.stderr)
         with _timed("returned_pr_gate"):
             _returned_pr_gate_thread = threading.Thread(
@@ -3457,11 +3457,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                               _clean_max_age_days(),
                                               _clean_max_bytes())
                     except Exception as ex:
-                        print(f"[{role}] auto-sweep 실패(스폰은 계속): {ex}",
+                        print(f"[{skill}] auto-sweep 실패(스폰은 계속): {ex}",
                               file=sys.stderr)
                         return
                     elapsed = time.monotonic() - t0
-                    print(f"[{role}] auto-sweep(백그라운드) {elapsed:.3f}s "
+                    print(f"[{skill}] auto-sweep(백그라운드) {elapsed:.3f}s "
                           f"만에 끝남 (지움 {outcome['removed']}, "
                           f"실패 {outcome['failed']})", file=sys.stderr)
                     # 이슈 #2443: 워크스페이스 디렉터리 정리와 같은
@@ -3474,11 +3474,11 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                         sidecar_outcome = _prune_orphaned_sidecars(
                             _workspace_base(), _clean_max_age_days())
                     except Exception as ex:
-                        print(f"[{role}] sidecar-prune 실패(스폰은 계속): {ex}",
+                        print(f"[{skill}] sidecar-prune 실패(스폰은 계속): {ex}",
                               file=sys.stderr)
                         return
                     if sidecar_outcome["removed"] or sidecar_outcome["failed"]:
-                        print(f"[{role}] sidecar-prune(백그라운드) "
+                        print(f"[{skill}] sidecar-prune(백그라운드) "
                               f"(지움 {sidecar_outcome['removed']}, "
                               f"실패 {sidecar_outcome['failed']})",
                               file=sys.stderr)
@@ -3491,10 +3491,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 남는다.
         origin_cwd = cwd
         with _timed("workspace"):
-            cwd = issue_workspace(cwd, issue, role)
-        claim_rejection = _acquire_spawn_claim(cwd, issue, role)
+            cwd = issue_workspace(cwd, issue, skill)
+        claim_rejection = _acquire_spawn_claim(cwd, issue, skill)
         if claim_rejection is not None:
-            print(f"[{role}] {claim_rejection}", file=sys.stderr)
+            print(f"[{skill}] {claim_rejection}", file=sys.stderr)
             # 이슈 #2382 컨포먼스 리뷰 발견: 이 리턴은 위에서 이미 던진
             # `_core_future`(core_plugin_dirs) 의 join 지점(아래 "core"
             # 단계) 보다 먼저다 — join 없이 그냥 리턴하면 future 가 갈 곳을
@@ -3529,8 +3529,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 이미 끝난 브랜치 이름을 그대로 받는 `_checkout_named_branch()`
                 # 를 직접 부른다. 오늘의 브랜치 이름(`issue-<n>/<role>`)과
                 # 바이트 동일 — `checkout_issue_branch()` 자체가 이 한 줄이다.
-                br = _checkout_named_branch(cwd, f"issue-{issue}/{role}")
-        print(f"[{role}] 격리 작업 디렉토리: {cwd}  (브랜치 {br})", file=sys.stderr)
+                br = _checkout_named_branch(cwd, f"issue-{issue}/{skill}")
+        print(f"[{skill}] 격리 작업 디렉토리: {cwd}  (브랜치 {br})", file=sys.stderr)
         # 원본(프리픽스 붙기 전) 맡길 일을 한 번만 저장 — 재스폰(다른 spawn.py
         # 프로세스일 수 있다)이 이걸 읽어 그대로 넘기면, 아래에서 프리픽스를
         # 다시 붙여도 중복되지 않는다 (이슈 #132).
@@ -3590,15 +3590,15 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # index — the trigger lines below reference files that must exist.
         with _timed("directive_write"):
             _directive_section_texts = directive_section_files(
-                skills_mounted=bool(skill_sources or role_source["skills"]),
-                checkpoint_block=(_checkpoint_contract_block(issue, role)
+                skills_mounted=bool(skill_sources or skill_source["skills"]),
+                checkpoint_block=(_checkpoint_contract_block(issue, skill)
                                   if checkpoint else None))
             materialize_directive_sections(cwd, _directive_section_texts)
             # issue #2575: `_cross_family_task_text` (pristine, pre-mutation
             # task text — same var `_cross_family_skill_matches_with_consult`
             # already uses above) lets `write_record_skeleton()` decide
             # is_coding from the task itself instead of a role-name match.
-            write_record_skeleton(cwd, issue, role, _cross_family_task_text,
+            write_record_skeleton(cwd, issue, skill, _cross_family_task_text,
                                    skill_sources=skill_sources)
         with _timed("issue_fetch"):
             if pre_resolved:
@@ -3641,7 +3641,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         if not pre_resolved:
             # 이슈 #2395 CHANGES: pre-resolved 면 `main()`이 게이트 앞에서
             # 이미 이 줄을 찍었다 — 여기서 또 찍으면 stdout 에 중복된다.
-            print(f"[{role}] {resolved_line.strip()}")
+            print(f"[{skill}] {resolved_line.strip()}")
         # Issue #2135 directive diet: the always-on preamble is a compact
         # invariant index. The long prose it used to carry (완료의 정의
         # full text, 체크포인트 커밋 rule, headless/run_in_background
@@ -3661,7 +3661,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 f"gh issue view {issue} 로 이슈를 먼저 읽어라.\n"
                 f"완료의 정의: 변경이 이 브랜치에 커밋되고 push 되어 PR 로 "
                 f"제출된 상태다 — 미커밋 변경은 존재하지 않는 것과 같다.\n"
-                f"레코드 스켈레톤: docs/issue-{issue}/reports/{role}.md 가 "
+                f"레코드 스켈레톤: docs/issue-{issue}/reports/{skill}.md 가 "
                 f"미리 쓰여 있다 — 구조를 새로 만들지 말고 스켈레톤의 "
                 f"섹션을 채워라(이슈 #2135).\n"
                 f"\n") + task
@@ -3671,7 +3671,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 줄)보다 먼저 온다(A before B, 제안서 순서).
         if single_phase:
             task = task + _dp("single-phase-contract",
-                "\n\n" + _SINGLE_PHASE_CONTRACT_LINE.format(role=role))
+                "\n\n" + _SINGLE_PHASE_CONTRACT_LINE.format(role=skill))
         # Issue #2129: --checkpoint appends the single-session
         # propose-approve-implement contract. Without the flag this block
         # appends NOTHING — the default directive stays byte-identical
@@ -3681,7 +3681,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # command stays inline); full contract prose verbatim in
             # {DIRECTIVE_DIR}/checkpoint-mode.md (materialized above).
             task = task + _dp("checkpoint-mode-index",
-                              "\n\n" + _checkpoint_index_block(issue, role))
+                              "\n\n" + _checkpoint_index_block(issue, skill))
         if skill_sources:
             skill_lines = ", ".join(
                 f"{m['name']}"
@@ -3691,7 +3691,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 for m in skill_sources)
             task = task + _dp("mounted-skills", (
                 f"\n\n마운트된 스킬(--skills, 이슈 #1742/#1774): {skill_lines}\n"))
-        if role_source["source"] == "skill-repo":
+        if skill_source["source"] == "skill-repo":
             # 이슈 #1978 (B): 스킬 이름 옆에 SKILL.md 의 "Use ..." 트리거
             # 문장을 인라인한다(#1960 의 1/9 발화율 넛지를 대체) — 트리거
             # 문장이 없는 스킬도 이름은 절대 빠뜨리지 않는다(empty-state
@@ -3714,18 +3714,18 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                     # 로그도 실패 로그도 안 남아 "자문이 성공했는지 아예
                     # 안 불렸는지" 를 로그만으로 구분할 수 없다.
                     cross_family_dirs, skill_judge_outcome = [], "not-run"
-                    print(f"[{role}] skill_judge 자문 안 함 — --issue 없는 스폰이라 "
+                    print(f"[{skill}] skill_judge 자문 안 함 — --issue 없는 스폰이라 "
                           f"자문 자체를 안 던졌다 (not-run)", file=sys.stderr)
                 if _cross_family_executor is not None:
                     _cross_family_executor.shutdown(wait=False)
             # 이슈 #2507: 고정 표(family) + 자문 추가(cross-family)라는
             # 두 층 구분이 없어졌다 — POLICY 스킬(정적) + 매치된 스킬(동적)
             # 을 하나의 마운트 목록으로 합친다(add-only, 이름 중복 제거).
-            role_source = merge_composed_skill_source(role_source, cross_family_dirs)
-            role_skill_lines = ", ".join(
+            skill_source = merge_composed_skill_source(skill_source, cross_family_dirs)
+            skill_lines = ", ".join(
                 d.name + (f" — {_skill_trigger_line(d)}" if _skill_trigger_line(d) else "")
-                for d in role_source["skill_dirs"]
-            ) if role_source["skill_dirs"] else ", ".join(role_source["skills"])
+                for d in skill_source["skill_dirs"]
+            ) if skill_source["skill_dirs"] else ", ".join(skill_source["skills"])
             if cross_family_dirs:
                 cross_family_clause = (
                     f" (이 중 {', '.join(d.name for d in cross_family_dirs)} 는 "
@@ -3735,8 +3735,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             task = task + _dp("role-skill-triggers", (
                 f"\n\n이번 과제에 대해 스킬이 구성됐다(skill-repository, 이슈 "
                 f"#1955/#1758/#2507 — 고정 스킬 매핑 표가 아니라 과제 텍스트 "
-                f"매치): 스킬 {role_skill_lines} "
-                f"(skill-repository {role_source['skill_sha']}) 가이던스만 붙는다 — "
+                f"매치): 스킬 {skill_lines} "
+                f"(skill-repository {skill_source['skill_sha']}) 가이던스만 붙는다 — "
                 f"집행은 core 훅뿐이다.{cross_family_clause}\n"))
         # 이슈 #1960 phase B: 마운트된 스킬이 하나라도 있으면(--skills 든
         # POLICY 스킬이든) 실체 작업을 시작하기 전에 그 목록을 이번 과제와
@@ -3746,7 +3746,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 스킬이 안 맞아서가 아니라 애초에 호출을 고려하지 않는 구조적
         # 공백이라는 뜻이라, trigger 문구를 손보는 대신 이 지시문 한 줄을
         # 추가한다(단일 변경, 순차 적용).
-        if skill_sources or role_source["skills"]:
+        if skill_sources or skill_source["skills"]:
             # 이슈 #2039: 마운트된 스킬 하나마다 레코드에 한 줄씩 verdict를
             # 남겨야 한다 — 스킬을 조용히 무시하는 걸 불가능하게 만든다.
             # 스킬이 하나도 안 마운트되면 이 블록 전체가 안 붙으므로
@@ -3808,7 +3808,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 이슈 #2507: `role_source["skill_dirs"]` 는 이미 위에서
             # cross_family_dirs 와 합쳐졌다 — 여기서 또 얹을 필요가 없다.
             artifact_all_dirs = list(skill_dirs) + [
-                d for d in role_source["skill_dirs"] if d not in skill_dirs]
+                d for d in skill_source["skill_dirs"] if d not in skill_dirs]
             pairing_lines = []
             for artifact_path in declared_artifacts:
                 basename = Path(artifact_path).stem
@@ -3851,7 +3851,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         _board_snapshot_future = _board_snapshot_executor.submit(board_snapshot, cwd)
     # Issue #2135: measure-first instrument — per-source byte counts of the
     # assembled directive, at every spawn.
-    print(f"[{role}] {composition_breakdown(_directive_parts)}",
+    print(f"[{skill}] {composition_breakdown(_directive_parts)}",
           file=sys.stderr)
     # 이슈 #1955: 세션은 룰북을 아예 마운트하지 않는다 — rulebook 해석
     # 경로 자체가 은퇴했다(요구사항: 룰북 마운트가 "붙었지만 무시됨"이
@@ -3868,7 +3868,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         core_plugins = _core_future.result()
         _core_executor.shutdown(wait=False)
     with _timed("settings"):
-        s = role_settings(role, cwd)
+        s = skill_settings(skill, cwd)
         with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
             json.dump(s, f)
             settings = f.name
@@ -3885,12 +3885,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     # 이슈 #2507: `role_source["skill_dirs"]`가 이미 cross_family_dirs 와
     # 합쳐져 있다(issue-scoped 스폰; adhoc 은 cross_family_dirs 가 애초에
     # 빈 목록이라 이 필드가 POLICY 스킬뿐이다) — 여기서 또 얹을 필요가 없다.
-    all_skill_dirs = list(skill_dirs) + [d for d in role_source["skill_dirs"]
+    all_skill_dirs = list(skill_dirs) + [d for d in skill_source["skill_dirs"]
                                           if d not in skill_dirs]
     try:
         rulebook_desc = "skill-repo(이슈 #1955)"
-        roster_resolution_fields = _role_source_roster_fields(role_source)
-        print(f"[{role}] 플러그인 {len(plugins)}개, 룰북 {rulebook_desc}, "
+        roster_resolution_fields = _skill_source_roster_fields(skill_source)
+        print(f"[{skill}] 플러그인 {len(plugins)}개, 룰북 {rulebook_desc}, "
               f"core 플러그인 {', '.join(p.name for p in core_plugins)}, "
               f"core {core_version()}, 작업 디렉터리 {cwd}", file=sys.stderr)
         # 이슈 #2070: design-bearing 판정은 issue 본문에 대해서만 의미가
@@ -3918,10 +3918,10 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 맡길 일은 stdin 으로 넘긴다. 인자로 주면 가변 인자 플래그가 삼키고,
         # 셸 보간을 거치면 신뢰할 수 없는 값의 $(…) 가 실행된다.
         with _timed("spawn_cmd"):
-            cmd, extra_env = spawn_cmd(settings, role, unattended,
+            cmd, extra_env = spawn_cmd(settings, skill, unattended,
                                        core_plugins, plugins, model,
                                        all_skill_dirs,
-                                       skill_sha or role_source["skill_sha"],
+                                       skill_sha or skill_source["skill_sha"],
                                        single_phase=single_phase,
                                        design_bearing_verdict=design_bearing_verdict,
                                        max_turns=resolved_max_turns,
@@ -3972,7 +3972,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # board_snapshot 구간이 그 줄의 `total`에 전혀 안 실렸다 — 실제
         # session-start 이벤트 바로 앞으로 옮겨, `total`이 spawn 진입부터
         # session-start까지 전체 구간을 담게 한다.
-        print(_bootstrap_timing_line(role), file=sys.stderr)
+        print(_bootstrap_timing_line(skill), file=sys.stderr)
         t0 = time.monotonic()
         # stream-json 을 줄 단위로 받아 라이브 로그에 tee 한다 — "지금 뭐
         # 하는 중인가"가 세션이 끝나기 전에도 보이게. 최종 result 이벤트가
@@ -3985,7 +3985,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # could overwrite mid-session.
         log_path = _session_log_path(cwd)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        print(f"[{role}] 라이브 로그: {log_path}", file=sys.stderr)
+        print(f"[{skill}] 라이브 로그: {log_path}", file=sys.stderr)
         if attempt_id is not None:
             # 이슈 #2291: 이 지점 이후로는 세션 로그/로스터가 곧 존재한다 —
             # 부트스트랩 halt 구간을 이 시도의 성공으로 확정한다. roster_register
@@ -3993,12 +3993,12 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             # 기준으로는 동시다.
             _record_spawn_outcome(attempt_id, "session-log", str(log_path))
         result = {}
-        roster_key = lease_key(issue, role) if issue is not None else f"adhoc/{role}/{os.getpid()}"
+        roster_key = lease_key(issue, skill) if issue is not None else f"adhoc/{skill}/{os.getpid()}"
         events_path = _events_path(cwd)
         offset_path = _offset_path(cwd)
         is_parent_return = False
         if bounded and issue is not None:
-            _workspace_index_put(issue, role, str(cwd), str(log_path))
+            _workspace_index_put(issue, skill, str(cwd), str(log_path))
             # 부모(호출한 CLI 콜)는 이벤트 하나 또는 stall 시간까지만 기다리고
             # 리턴한다 — 자식이 세션을 끝까지 몰고 간다 (이슈 #114). setsid 로
             # 자식을 새 세션에 놓아, 부모가 속한 프로세스 그룹에 신호가 가도
@@ -4034,7 +4034,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # 죽으면 못 잡는다) 사람이 읽을 spawn-death 이벤트를 남기는
                 # 용도로만 아래에서 덧붙인다.
                 _early_roster_entry = {
-                    "pid": os.getpid(), "role": role,
+                    "pid": os.getpid(), "role": skill,
                     "issue": issue, "ts": int(time.time()),
                     "work": str(cwd), "log": str(log_path),
                     "expects_pr": issue is not None,
@@ -4065,20 +4065,20 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                         wproc = subprocess.Popen(
                             [sys.executable, str(Path(__file__).resolve()),
                              "-C", resolved_watch_cwd,
-                             "watch", "--issue", str(issue), "--session", role,
+                             "watch", "--issue", str(issue), "--session", skill,
                              "--follow", "--self-heal",
                              "--stall-timeout", str(stall_timeout_min)],
                             stdin=subprocess.DEVNULL, stdout=wf,
                             stderr=subprocess.STDOUT, start_new_session=True,
                         )
                 except OSError as exc:
-                    print(f"[{role}] 워처 자동 무장 실패 — 스폰을 완료로 치지 "
+                    print(f"[{skill}] 워처 자동 무장 실패 — 스폰을 완료로 치지 "
                           f"않는다: {exc}", file=sys.stderr)
                     return 1
-                _workspace_index_put(issue, role, str(cwd), str(log_path),
+                _workspace_index_put(issue, skill, str(cwd), str(log_path),
                                       watcher_pid=wproc.pid,
                                       watcher_armed_at=time.time())
-                print(f"[{role}] 워처 자동 무장: pid {wproc.pid} "
+                print(f"[{skill}] 워처 자동 무장: pid {wproc.pid} "
                       f"(로그 {watcher_log})", file=sys.stderr)
                 # 이슈 #1154: 워처는 `start_new_session=True` 로 detach 됐지만,
                 # 아래 `_await_bounded()` 를 그대로 거치면 이 스폰 프로세스
@@ -4090,9 +4090,9 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                 # `_rearm_watcher_detached()` 와 같은 모양으로 맞춘다.
                 # 기존 bounded 진행 대기가 필요하면 별도
                 # `spawn.py watch --issue <n> --session <session>` 호출로 이어본다.
-                print(f"[{role}] 스폰은 리턴했지만 세션은 계속 돈다 — 상태는 "
+                print(f"[{skill}] 스폰은 리턴했지만 세션은 계속 돈다 — 상태는 "
                       f"spawn.py ps, 이어보려면 spawn.py watch --issue "
-                      f"{issue} --session {role}", file=sys.stderr)
+                      f"{issue} --session {skill}", file=sys.stderr)
                 # 이슈 #2201 헌트: 여기가 bounded 부모의 유일한 리턴 지점이고,
                 # 이 함수가 끝나면 곧 `sys.exit()`(CLI 진입점)로 인터프리터가
                 # 죽는다 — 데몬 스레드는 그 시점에 join 없이 그냥 죽으므로,
@@ -4138,7 +4138,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                "error": str(exc)})
             raise
         roster_register(roster_key, {
-            "pid": proc.pid, "role": role,
+            "pid": proc.pid, "role": skill,
             "issue": issue, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
@@ -4280,7 +4280,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                 # 보면 TTL 안이라 조용히 넘어간다(Acceptance
                                 # test 2).
                                 ledger_stamp(
-                                    f"health-repair:{issue}:{role}:pr-expected-missing")
+                                    f"health-repair:{issue}:{skill}:pr-expected-missing")
                 try:
                     obj = json.loads(line)
                 except ValueError:
@@ -4373,7 +4373,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
     if result.get("result"):
         print(result["result"])                  # 세션의 마지막 답 — 기존 UX
     elif not result:
-        print(f"[{role}] 결과 이벤트를 받지 못했다 — 라이브 로그를 봐라: {log_path}",
+        print(f"[{skill}] 결과 이벤트를 받지 못했다 — 라이브 로그를 봐라: {log_path}",
               file=sys.stderr)
 
     after = board_snapshot(cwd)
@@ -4391,13 +4391,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                             capture_output=True, text=True)
         uncommitted = [l for l in st.stdout.splitlines() if l.strip()]
         if uncommitted:
-            print(f"[{role}] 세션이 미커밋 변경 {len(uncommitted)}건을 남기고 "
+            print(f"[{skill}] 세션이 미커밋 변경 {len(uncommitted)}건을 남기고 "
                   f"끝났다 — 커밋되지 않은 작업은 PR 에 존재하지 않는다. "
                   f"같은 이슈로 재스폰하면 이 워크스페이스를 이어받아 커밋부터 "
                   f"끝낼 수 있다:\n  " + "\n  ".join(uncommitted[:10]),
                   file=sys.stderr)
         try:
-            push_result = ensure_pushed(cwd, issue, role)
+            push_result = ensure_pushed(cwd, issue, skill)
         finally:
             # ensure_pushed() 안의 `gh`/`git` 호출이 예외를 던져도(이슈 #719
             # hunt: gh 바이너리 부재 등) 클레임은 반드시 풀려야 한다 — 안
@@ -4406,13 +4406,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
             _release_spawn_claim(cwd, os.getpid())
     else:
         push_result = None
-    gates = gate_report(cwd) + ownership_report(cwd, role, delta)
+    gates = gate_report(cwd) + ownership_report(cwd, skill, delta)
     outcome = classify(rc, result, delta, blocked)
     if outcome == "silent-failure" and uncommitted:
         outcome = "uncommitted-work"
     elif outcome == "silent-failure" and push_result and push_result["status"] == "push-rejected":
         outcome = "push-rejected"
-        print(f"[{role}] 호스트 push 가 거부됐다 — 커밋은 로컬에 있다: "
+        print(f"[{skill}] 호스트 push 가 거부됐다 — 커밋은 로컬에 있다: "
               f"{push_result['reason']}", file=sys.stderr)
     new_commit = issue is not None and _is_new_commit(cwd, before_head, after_head)
     already_delivered = False
@@ -4427,7 +4427,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
                                        already_delivered, push_succeeded)
     if downgraded != outcome:
         if downgraded == "progressed-dirty-tree":
-            print(f"[{role}] 페일-클로즈드: progressed 로 자기보고 했고 새 "
+            print(f"[{skill}] 페일-클로즈드: progressed 로 자기보고 했고 새 "
                   f"커밋도 있지만(before {before_head}, after {after_head}) "
                   f"워크스페이스에 미커밋 변경 {len(uncommitted)}건이 남았다 — "
                   f"{outcome} 를 progressed-dirty-tree 로 표기한다. 기대한 것: "
@@ -4437,13 +4437,13 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         elif outcome == "silent-failure" and downgraded == "progressed":
             reason = ("이미 브랜치에 open/merged PR 이 있다" if already_delivered
                       else "새 커밋이 push 됐다")
-            print(f"[{role}] silent-failure 로 자기보고 됐지만 관측된 git/PR "
+            print(f"[{skill}] silent-failure 로 자기보고 됐지만 관측된 git/PR "
                   f"상태가 배달을 보여준다({reason}) — {outcome} 를 progressed "
                   f"로 끌어올린다. 기대한 것: docs 보드 델타로 성공을 포착. "
                   f"관찰한 것: 델타는 없지만 실제로는 배달됨.",
                   file=sys.stderr)
         else:
-            print(f"[{role}] 페일-클로즈드: progressed 로 자기보고 했지만 "
+            print(f"[{skill}] 페일-클로즈드: progressed 로 자기보고 했지만 "
                   f"새 커밋이 없고(before {before_head}, after {after_head})"
                   + (f" 미커밋 변경 {len(uncommitted)}건도 남았다" if uncommitted else "")
                   + f" — {outcome} 를 failed-no-commit 으로 깎는다. 기대한 것: "
@@ -4453,7 +4453,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         outcome = downgraded
     denials = result.get("permission_denials") or []
     ledger_write({
-        "ts": int(time.time()), "role": role, "cwd": str(Path(cwd).resolve()),
+        "ts": int(time.time()), "role": skill, "cwd": str(Path(cwd).resolve()),
         "repo": _repo_name(Path(cwd).resolve()),
         "session_id": result.get("session_id"),
         "cost_usd": result.get("total_cost_usd"),
@@ -4470,26 +4470,26 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
 
     for line in gates:
         print(line, file=sys.stderr)
-    print(f"[{role}] {outcome}"
+    print(f"[{skill}] {outcome}"
           + (f", 보드 변화 {len(delta)}건" if delta else ", 보드 무변화")
           + (f", 비용 ${result.get('total_cost_usd'):.2f}"
              if isinstance(result.get("total_cost_usd"), (int, float)) else ""),
           file=sys.stderr)
     sid = f" (session {result.get('session_id')})" if result.get("session_id") else ""
     if denials:
-        print(f"[{role}] 거부된 도구 호출 {len(denials)}건 — 게이트가 막았거나 "
+        print(f"[{skill}] 거부된 도구 호출 {len(denials)}건 — 게이트가 막았거나 "
               f"답할 사람이 없어 거부됐다. 무엇을 막았는지는 세션 출력에 있다",
               file=sys.stderr)
     if outcome == "refused":
-        print(f"[{role}] 게이트가 막아서 보드가 안 바뀌었다 — 이건 실패가 아니라 "
+        print(f"[{skill}] 게이트가 막아서 보드가 안 바뀌었다 — 이건 실패가 아니라 "
               f"규칙이 지켜진 것일 수 있다. 위 거부 사유를 읽고 맡길 일을 "
               f"고쳐서 다시 띄워라{sid}", file=sys.stderr)
     if outcome == "silent-failure":
-        print(f"[{role}] exit 0 인데 보드도 안 바뀌고 막힌 것도 없다 — 성공이 "
+        print(f"[{skill}] exit 0 인데 보드도 안 바뀌고 막힌 것도 없다 — 성공이 "
               f"아니라 실측된 침묵-사망 모드다. 세션 로그를 확인하라{sid}",
               file=sys.stderr)
     if outcome == "refused-null-result":
-        print(f"[{role}] 등록된 REFUSAL 어휘로 무결과를 선언하고 끝났다 — "
+        print(f"[{skill}] 등록된 REFUSAL 어휘로 무결과를 선언하고 끝났다 — "
               f"커밋/보드 델타가 없어도 이건 실패가 아니라 정직한 거부다"
               f"(이슈 #476 round 3, candidate E){sid}", file=sys.stderr)
     if bounded and issue is not None:
@@ -4516,8 +4516,8 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 이슈 #782: session-end 를 이미 확정적으로 아는 순간 원장에 찍는다
         # — 뒤이은 폴링 틱이 이 세션을 죽었다고(DEAD-ERRORED/session-crashed)
         # 다시 보고하지 않게 한다(Acceptance test 2/3).
-        ledger_stamp(f"health-repair:{issue}:{role}:session-crashed")
-        ledger_stamp(f"health:{issue}:{role}:DEAD-ERRORED")
+        ledger_stamp(f"health-repair:{issue}:{skill}:session-crashed")
+        ledger_stamp(f"health:{issue}:{skill}:DEAD-ERRORED")
         # 이슈 #534: session-end 직후, self-trigger 재스폰과 같은 자리에서
         # durable 코멘트도 남긴다 — roster_watchdog() 틱이 이 엔트리를 볼
         # 무렵엔 roster_remove()(spawn.py:3988)가 이미 지워버린 뒤라
@@ -4527,7 +4527,7 @@ def _spawn_one(cwd: str, role: str, task: str, unattended: bool,
         # 이슈 #2574: 이 프로세스 자신이 받은 single_phase 를 그대로 넘긴다
         # — 이 지점은 roster 엔트리를 다시 읽을 필요 없이 원래 처분을
         # 직접 알고 있는 유일한 재스폰 경로다.
-        _self_trigger_respawn(outcome, roster_key, cwd, issue, role,
+        _self_trigger_respawn(outcome, roster_key, cwd, issue, skill,
                               str(log_path), session_start_ts, single_phase)
         os._exit(rc if isinstance(rc, int) else 0)
     return rc

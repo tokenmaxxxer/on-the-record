@@ -104,11 +104,11 @@ def _consult_timed(phase: str):
         _CONSULT_TIMING[phase] = _CONSULT_TIMING.get(phase, 0.0) + (time.monotonic() - t0)
 
 
-def _consult_timing_line(role: str) -> str:
+def _consult_timing_line(skill: str) -> str:
     parts = [f"{p}={_CONSULT_TIMING.get(p, 0.0):.3f}" for p in _CONSULT_PHASES]
     total = sum(_CONSULT_TIMING.get(p, 0.0) for p in _CONSULT_PHASES)
     parts.append(f"total={total:.3f}")
-    return f"[{role}] consult_timing " + " ".join(parts)
+    return f"[{skill}] consult_timing " + " ".join(parts)
 
 
 def _skill_judge_perf_samples(ledger_path: Path | None = None) -> list[float]:
@@ -200,7 +200,7 @@ def _skill_judge_timeout() -> float:
 
 PANEL_TIMEOUT = 240    # panel: two judges + a rebuttal round, wider than a single consult
 JUDGE_TIMEOUT = 120           # issue #1587: per-judge-call hard cap (prefilter/judge/validator each)
-JUDGE_MAX_ROLES_PER_MERGE = 3  # issue #1587: cost/API-strain cap — counted from the trace log
+JUDGE_MAX_SKILLS_PER_MERGE = 3  # issue #1587: cost/API-strain cap — counted from the trace log
 
 
 def _parse_consult_verdict(text: str) -> dict | None:
@@ -344,7 +344,7 @@ def _consult_log_aggregate(issue: int | None, cwd: str | None = None) -> str:
     return "".join(p.read_text(encoding="utf-8") for p in sorted(d.glob("*.md")))
 
 
-def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
+def _append_consult_trace(path: Path, ts: str, skill: str, issue: int | None,
                           question: str, outcome: str, verb: str = "consult") -> None:
     """자문 한 건마다 한 줄 — 성공/실패 가리지 않고 남긴다("no traceless
     consults", 운영자 결정, 이슈 #699). 함수 자체가 실패해도(디렉터리를
@@ -356,7 +356,7 @@ def _append_consult_trace(path: Path, ts: str, role: str, issue: int | None,
     난다(`consult_cmd()` 독스트링과 같은 이유). `verb=` 는 기본값
     "consult" 라 기존 호출부는 그대로 동작한다."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = (f"- {ts} | role={role} | verb={verb} "
+    line = (f"- {ts} | role={skill} | verb={verb} "
             f"| issue={issue if issue is not None else 'none'} "
             f"| question={question[:200]!r} | outcome={outcome[:300]!r}\n")
     with path.open("a", encoding="utf-8") as f:
@@ -440,7 +440,7 @@ def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
           f"({_CONSULT_TRACE_REF})", file=sys.stderr)
 
 
-def _skill_judge_consult(task_text: str, role: str,
+def _skill_judge_consult(task_text: str, skill: str,
                          candidates: list[tuple[str, Path, str]],
                          issue: int | None, cwd: str | None,
                          model: str | None = None,
@@ -506,7 +506,7 @@ def _skill_judge_consult(task_text: str, role: str,
         # (`_consult_cmd_and_env()` 독스트링의 10.5s vs 15.6s 실측).
         # core/terse 는 그대로 남긴다(#1587 과 같은 이유: 무해하다).
         cmd, env, settings_path = _sp._consult_cmd_and_env(
-            role, cwd, "haiku",
+            skill, cwd, "haiku",
             exclude_core_plugins=_sp._JUDGE_EXCLUDED_CORE_PLUGINS)
         judge_timeout = _sp._skill_judge_timeout()
         # 이슈 #2124 part 3 (judge prompt diet): 최소 영어 프롬프트 —
@@ -578,13 +578,13 @@ def _skill_judge_consult(task_text: str, role: str,
         if settings_path:
             with contextlib.suppress(OSError):
                 os.unlink(settings_path)
-        _sp._append_consult_trace(trace_path, ts, role, issue, question, outcome,
+        _sp._append_consult_trace(trace_path, ts, skill, issue, question, outcome,
                               verb="skill_judge")
         commit_paths = [trace_path] + raw_paths
-        _sp._commit_consult_trace(commit_paths, issue, role, outcome, cwd)
+        _sp._commit_consult_trace(commit_paths, issue, skill, outcome, cwd)
         usage = result.get("usage") or {}
         _sp.ledger_write({
-            "event": "skill_judge_perf", "ts": int(time.time()), "role": role,
+            "event": "skill_judge_perf", "ts": int(time.time()), "role": skill,
             "issue": issue, "wall_s": (round(call_wall_s, 3)
                                         if call_wall_s is not None else None),
             "duration_ms": result.get("duration_ms"),
@@ -604,7 +604,7 @@ def _skill_judge_consult(task_text: str, role: str,
 _FAST_PATH_CORROBORATION_MIN_TOKENS = 10
 
 
-def _cross_family_skill_matches_with_consult(task_text: str, role: str,
+def _cross_family_skill_matches_with_consult(task_text: str, skill: str,
                                              repo_root: Path | None,
                                              issue: int | None, cwd: str | None,
                                              k: int = 2,
@@ -631,13 +631,13 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     "fast-path:<이름들>" 이 접두된다 — 상한을 fast-path 만으로 채우면
     그 접두가 outcome 전부이고 자문은 아예 안 불린다; 남는 슬롯이 있으면
     "fast-path:<이름들>+completed|fail-open" 형태다(원장 태깅)."""
-    scored = _sp._bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
+    scored = _sp._bm25_cross_family_scores(task_text, skill, repo_root, home, target_repo_root)
     if not scored:
         # 이슈 #2679: fail-open 로그(아래)만 있으면 "이 줄이 없다"가 성공과
         # not-invoked 두 상태를 동시에 뜻하게 된다 — no-candidates 도 자기
         # 줄을 낸다(자문 자체를 부르지 않은 세 번째 상태, 성공으로 읽히면
         # 안 된다).
-        print(f"[{role}] skill_judge 자문 안 함 — BM25 후보 0개 (no-candidates)",
+        print(f"[{skill}] skill_judge 자문 안 함 — BM25 후보 0개 (no-candidates)",
               file=sys.stderr)
         return [], "no-candidates"
     # 이슈 #2124 part 2 (exact-phrase fast path, OpenHands microagents 키워드
@@ -692,7 +692,7 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
                                     flags=re.I)
             if len(_sp._tokenize(stripped_task)) >= _FAST_PATH_CORROBORATION_MIN_TOKENS:
                 stripped_scored = _sp._bm25_cross_family_scores(
-                    stripped_task, role, repo_root, home, target_repo_root)
+                    stripped_task, skill, repo_root, home, target_repo_root)
                 stripped_names = [n for _s, n, _d, _src in
                                    stripped_scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]]
                 if name not in stripped_names:
@@ -709,7 +709,7 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
         # 이슈 #2679 (before-landing hunt finding): fast-path 픽만으로 k 슬롯이
         # 다 차 판단을 아예 안 부르는 세 번째 갈래 — 아래 no-candidates 줄과
         # 같은 이유로 자기 줄이 필요하다(안 그러면 이 갈래도 조용하다).
-        print(f"[{role}] skill_judge 자문 안 함 — fast-path 로 슬롯이 다 참: "
+        print(f"[{skill}] skill_judge 자문 안 함 — fast-path 로 슬롯이 다 참: "
               f"{outcome_prefix}", file=sys.stderr)
         return fast_dirs, outcome_prefix
     candidates = [(name, d, source)
@@ -724,20 +724,20 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
         # 자기 줄이 없는 유일한 경로였다. 두 갈래를 각자 다른 문구로
         # 갈라 찍는다.
         if outcome_prefix:
-            print(f"[{role}] skill_judge 자문 안 함 — fast-path 이후 남은 BM25 "
+            print(f"[{skill}] skill_judge 자문 안 함 — fast-path 이후 남은 BM25 "
                   f"후보 0개, fast-path 픽만 반영: {outcome_prefix}", file=sys.stderr)
         else:
-            print(f"[{role}] skill_judge 자문 안 함 — fast-path 이후 남은 후보 0개 "
+            print(f"[{skill}] skill_judge 자문 안 함 — fast-path 이후 남은 후보 0개 "
                   f"(no-candidates)", file=sys.stderr)
         return fast_dirs, (outcome_prefix or "no-candidates")
     try:
-        picked, _detail = _sp._skill_judge_consult(task_text, role, candidates, issue, cwd,
+        picked, _detail = _sp._skill_judge_consult(task_text, skill, candidates, issue, cwd,
                                                model=model, max_picks=remaining)
         outcome = "completed"
-        print(f"[{role}] skill_judge 자문 완료 — {len(picked)}개 선택",
+        print(f"[{skill}] skill_judge 자문 완료 — {len(picked)}개 선택",
               file=sys.stderr)
     except Exception as ex:
-        print(f"[{role}] skill_judge 자문 실패 — BM25 top-{remaining} 로 fail-open: {ex}",
+        print(f"[{skill}] skill_judge 자문 실패 — BM25 top-{remaining} 로 fail-open: {ex}",
               file=sys.stderr)
         picked = [d for _, name, d, _ in scored if name not in fast_names][:remaining]
         outcome = "fail-open"
@@ -746,7 +746,7 @@ def _cross_family_skill_matches_with_consult(task_text: str, role: str,
     return fast_dirs + picked, outcome
 
 
-def rank_skills(task_text: str, role: str = "candidates",
+def rank_skills(task_text: str, skill: str = "candidates",
                 repo_root: Path | None = None, *,
                 issue: int | None = None, cwd: str | None = None,
                 home: Path | None = None, target_repo_root: Path | None = None,
@@ -823,7 +823,7 @@ def rank_skills(task_text: str, role: str = "candidates",
     orchestrator's discretion rather than unconditionally inside every
     spawn (issue #2678 non-goal: this does not touch spawn's own internal
     call, which is unchanged and still add-only/max-`k`)."""
-    scored = _sp._bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
+    scored = _sp._bm25_cross_family_scores(task_text, skill, repo_root, home, target_repo_root)
     ranked = [{"name": name, "score": score, "source": source,
                "trigger": _sp._skill_trigger_line(d)}
               for score, name, d, source in scored]
@@ -832,13 +832,13 @@ def rank_skills(task_text: str, role: str = "candidates",
     if not use_judge:
         return {"ranked": ranked, "outcome": "bm25-only", "picked": []}
     picked_dirs, outcome = _sp._cross_family_skill_matches_with_consult(
-        task_text, role, repo_root, issue, cwd, k=k, model=model,
+        task_text, skill, repo_root, issue, cwd, k=k, model=model,
         home=home, target_repo_root=target_repo_root)
     return {"ranked": ranked, "outcome": outcome,
             "picked": [d.name for d in picked_dirs]}
 
 
-def _composed_consult_skill_source(role: str, task_text: str | None,
+def _composed_consult_skill_source(skill: str, task_text: str | None,
                                    issue: int | None, cwd: str | None,
                                    model: str | None) -> dict:
     """이슈 #2507/#2561: consult/verb/panel 세션이 마운트할 skill_dirs 를,
@@ -861,16 +861,16 @@ def _composed_consult_skill_source(role: str, task_text: str | None,
     그래프 확인됨, 그 호출부는 이 함수 시그니처에 `task_text` 를 안
     넘겨 자동으로 매치 단계를 건너뛴다) — 그 내부 호출도 role 접두어
     기준선을 그대로 받는다(byte-identical to 이슈 #2561 이전)."""
-    role_source = _sp.resolve_role_family_source(role, _sp._skill_repo_root())
+    skill_source = _sp.resolve_skill_family_source(skill, _sp._skill_repo_root())
     if not task_text:
-        return role_source
+        return skill_source
     matched_dirs, _outcome = _sp._cross_family_skill_matches_with_consult(
-        task_text, role, _sp._skill_repo_root(), issue, cwd,
+        task_text, skill, _sp._skill_repo_root(), issue, cwd,
         k=_sp._COMPOSED_SKILLS_TOPK, model=model)
-    return _sp.merge_composed_skill_source(role_source, matched_dirs)
+    return _sp.merge_composed_skill_source(skill_source, matched_dirs)
 
 
-def _consult_cmd_and_env(role: str, cwd: str | None,
+def _consult_cmd_and_env(skill: str, cwd: str | None,
                          model: str | None = None,
                          exclude_core_plugins: frozenset[str] = frozenset(),
                          task_text: str | None = None,
@@ -937,8 +937,8 @@ def _consult_cmd_and_env(role: str, cwd: str | None,
     본문 "Investigate" 절 참고, 잔여 변동은 모델 자체
     duration_ms 변동과 거의 1:1 로 움직인다)."""
     plugins = _sp._composed_consult_skill_source(
-        role, task_text, issue, cwd, model)["skill_dirs"]
-    s = _sp.role_settings(role, cwd, inject_self_hosted_hooks=False)
+        skill, task_text, issue, cwd, model)["skill_dirs"]
+    s = _sp.skill_settings(skill, cwd, inject_self_hosted_hooks=False)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(s, tf)
         settings_path = tf.name
@@ -952,10 +952,10 @@ def _consult_cmd_and_env(role: str, cwd: str | None,
     for p in _sp.core_plugin_dirs():
         if p.name not in exclude_core_plugins:
             cmd += ["--plugin-dir", str(p)]
-    role_model = _sp.resolved_role_model(model)
-    if role_model:
-        cmd += ["--model", role_model]
-    env = {**os.environ, "CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1",
+    skill_model = _sp.resolved_skill_model(model)
+    if skill_model:
+        cmd += ["--model", skill_model]
+    env = {**os.environ, "CLAUDE_SKILL": skill, "TOKENMAXXXER_SPAWNED": "1",
            "ENABLE_PROMPT_CACHING_1H": "1"}
     core_dir = next((p for p in _sp.core_plugin_dirs() if Path(p).name == "core"), None)
     if core_dir:
@@ -972,7 +972,7 @@ def _consult_cmd_and_env(role: str, cwd: str | None,
     return cmd, env, settings_path
 
 
-def consult_cmd(role: str, question: str, issue: int | None = None,
+def consult_cmd(skill: str, question: str, issue: int | None = None,
                 cwd: str | None = None, model: str | None = None) -> dict:
     """자문(consult): 역할의 스킬-저장소 가이던스를 로드해 판단만 돌려받는다 — 브랜치도
     커밋도 PR 도 만들지 않는다(이슈 #699 R1). `spawn_cmd()`/`_spawn_one()`
@@ -1013,7 +1013,7 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         # 빈 베이스라인을 무조건 쓴다.
         with _consult_timed("skill_match"):
             cmd, env, settings_path = _sp._consult_cmd_and_env(
-                role, cwd, model, task_text=question, issue=issue)
+                skill, cwd, model, task_text=question, issue=issue)
         # 이슈 #1097 근본원인: consult 도 core_plugin_dirs() 를 그대로 물기 때문에
         # freelunch/scout/warrant/proposal-shape 같은, 저장소를 바꾸는 배달물을
         # 겨냥한 core 훅들이 자문 세션에도 그대로 꽂힌다. 복잡한 판단 질문 하나가
@@ -1074,11 +1074,11 @@ def consult_cmd(role: str, question: str, issue: int | None = None,
         if settings_path:
             with contextlib.suppress(OSError):
                 os.unlink(settings_path)
-        print(_consult_timing_line(role) +
+        print(_consult_timing_line(skill) +
               f" muster_skills={env.get('MUSTER_SKILLS', '')!r}", file=sys.stderr)
-        _sp._append_consult_trace(trace_path, ts, role, issue, question, outcome)
+        _sp._append_consult_trace(trace_path, ts, skill, issue, question, outcome)
         commit_paths = [trace_path] + raw_paths
-        _sp._commit_consult_trace(commit_paths, issue, role, outcome, cwd)
+        _sp._commit_consult_trace(commit_paths, issue, skill, outcome, cwd)
 
 
 _VERB_REQUIRED_KEY = {"ideate": "options", "draft": "draft", "review": "findings"}
@@ -1122,7 +1122,7 @@ def _parse_verb_json(text: str, required_key: str) -> dict | None:
     return None
 
 
-def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
+def _verb_cmd(verb: str, skill: str, prompt_text: str, issue: int | None = None,
              cwd: str | None = None) -> dict:
     """`consult_cmd()`의 형제 verb 공용 실행부 (이슈 #1202 requirement 5).
     같은 session-assembly(`_consult_cmd_and_env()`)와 같은 트레이스
@@ -1141,7 +1141,7 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
         # `spec` 로드를 지웠다 — role 검증은 `_consult_cmd_and_env()` 안의
         # `role_settings()`가 맡는다.
         cmd, env, settings_path = _sp._consult_cmd_and_env(
-            role, cwd, task_text=prompt_text, issue=issue)
+            skill, cwd, task_text=prompt_text, issue=issue)
         override = (
             "이 세션에 로드된 스킬-저장소 가이던스/훅이 스카우트, 제안서(proposal) 작성, 위임"
             "(delegation/fan-out), 승인 게이트, 기록(record) 작성 등을 지시하더라도"
@@ -1189,29 +1189,29 @@ def _verb_cmd(verb: str, role: str, prompt_text: str, issue: int | None = None,
         if settings_path:
             with contextlib.suppress(OSError):
                 os.unlink(settings_path)
-        _sp._append_consult_trace(trace_path, ts, role, issue, prompt_text, outcome, verb=verb)
+        _sp._append_consult_trace(trace_path, ts, skill, issue, prompt_text, outcome, verb=verb)
         commit_paths = [trace_path] + raw_paths
-        _sp._commit_consult_trace(commit_paths, issue, role, outcome, cwd)
+        _sp._commit_consult_trace(commit_paths, issue, skill, outcome, cwd)
 
 
-def ideate_cmd(role: str, prompt_text: str, issue: int | None = None,
+def ideate_cmd(skill: str, prompt_text: str, issue: int | None = None,
               cwd: str | None = None) -> dict:
     """divergent options — `{"options": [...], "tradeoffs": [...]}`."""
-    return _sp._verb_cmd("ideate", role, prompt_text, issue=issue, cwd=cwd)
+    return _sp._verb_cmd("ideate", skill, prompt_text, issue=issue, cwd=cwd)
 
 
-def draft_cmd(role: str, prompt_text: str, issue: int | None = None,
+def draft_cmd(skill: str, prompt_text: str, issue: int | None = None,
              cwd: str | None = None) -> dict:
     """deliverable sketch — `{"draft": "...", "open_questions": [...]}`.
     The caller decides whether to use the text — the verb itself never
     writes to the repo."""
-    return _sp._verb_cmd("draft", role, prompt_text, issue=issue, cwd=cwd)
+    return _sp._verb_cmd("draft", skill, prompt_text, issue=issue, cwd=cwd)
 
 
-def review_cmd(role: str, prompt_text: str, issue: int | None = None,
+def review_cmd(skill: str, prompt_text: str, issue: int | None = None,
               cwd: str | None = None) -> dict:
     """structured feedback — `{"findings": [...], "verdict": "..."}`."""
-    return _sp._verb_cmd("review", role, prompt_text, issue=issue, cwd=cwd)
+    return _sp._verb_cmd("review", skill, prompt_text, issue=issue, cwd=cwd)
 
 
 # ---------------------------------------------------------------------------
@@ -1231,7 +1231,7 @@ def review_cmd(role: str, prompt_text: str, issue: int | None = None,
 _JUDGE_EXCLUDED_CORE_PLUGINS = {"freelunch", "scout", "warrant"}
 
 
-def _readonly_plugin_dirs(role: str) -> list[Path]:
+def _readonly_plugin_dirs(skill: str) -> list[Path]:
     """judge 세션에 붙일 플러그인 — role 가이던스(이슈 #2561:
     `resolve_role_family_source()`)는 그대로 싣는다(무엇을 위반했는지
     판단하려면 가이던스 전체가 필요하다), core 는
@@ -1251,7 +1251,7 @@ def _readonly_plugin_dirs(role: str) -> list[Path]:
     옛 `_ROLE_SKILLS[role]` 과 정확히 같은 커버리지를 낸다(예외는 이
     세션 레코드 "Open findings" 참고) — judge 세션이 여전히 과제 텍스트와
     무관하게 role 가이던스 전체를 받는다는 불변식이 유지된다."""
-    out = list(_sp.resolve_role_family_source(role, _sp._skill_repo_root())["skill_dirs"])
+    out = list(_sp.resolve_skill_family_source(skill, _sp._skill_repo_root())["skill_dirs"])
     for p in _sp.core_plugin_dirs():
         if p.name not in _sp._JUDGE_EXCLUDED_CORE_PLUGINS:
             out.append(p)
@@ -1272,7 +1272,7 @@ def _readonly_bash_allow(cwd: str) -> list[str]:
     ]
 
 
-def _readonly_settings(role: str, cwd: str) -> dict:
+def _readonly_settings(skill: str, cwd: str) -> dict:
     """읽기 전용 세션 설정 — `role_settings()`의 샌드박스/전역-플러그인
     차단은 그대로 쓰되, `permissions.allow`를 Read/Grep/Glob + git 플루밍
     Bash 로만 한정하고 Write/Edit/`gh `를 `permissions.deny`로 명시적으로
@@ -1280,7 +1280,7 @@ def _readonly_settings(role: str, cwd: str) -> dict:
     이룬다 — headless 세션은 허용 목록에 없는 도구를 답할 사람 없이
     그냥 거부한다(role_settings() #742 문단이 서술하는 바로 그 실측 동작을,
     judge 는 위험이 아니라 안전장치로 쓴다)."""
-    s = _sp.role_settings(role, cwd, inject_self_hosted_hooks=False)
+    s = _sp.skill_settings(skill, cwd, inject_self_hosted_hooks=False)
     s["permissions"] = {
         "allow": ["Read", "Grep", "Glob", *_sp._readonly_bash_allow(cwd)],
         "deny": ["Write", "Edit", "Bash(gh *)"],
@@ -1288,14 +1288,14 @@ def _readonly_settings(role: str, cwd: str) -> dict:
     return s
 
 
-def _judge_cmd_and_env(role: str, cwd: str,
+def _judge_cmd_and_env(skill: str, cwd: str,
                        model: str | None = None) -> tuple[list[str], dict[str, str], str]:
     """judge 계열(judge 본세션/prefilter/validator) 공용 argv/env/settings
     조립. `_consult_cmd_and_env()`와 같은 build-then-return 모양이지만
     `--permission-mode bypassPermissions`를 주지 않고(읽기전용 강제),
     `_readonly_plugin_dirs()`/`_readonly_settings()`를 쓴다."""
-    plugins = _sp._readonly_plugin_dirs(role)
-    s = _sp._readonly_settings(role, cwd)
+    plugins = _sp._readonly_plugin_dirs(skill)
+    s = _sp._readonly_settings(skill, cwd)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(s, tf)
         settings_path = tf.name
@@ -1303,8 +1303,8 @@ def _judge_cmd_and_env(role: str, cwd: str,
     cmd = ["claude", "-p", "--settings", settings_path, "--output-format", "json"]
     for p in plugins:
         cmd += ["--plugin-dir", str(p)]
-    cmd += ["--model", model or _sp.resolved_role_model()]
-    env = {**os.environ, "CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1"}
+    cmd += ["--model", model or _sp.resolved_skill_model()]
+    env = {**os.environ, "CLAUDE_SKILL": skill, "TOKENMAXXXER_SPAWNED": "1"}
     core_dir = next((p for p in _sp.core_plugin_dirs() if Path(p).name == "core"), None)
     if core_dir:
         env["CLAUDE_PLUGIN_ROOT_CORE"] = str(core_dir)
@@ -1357,18 +1357,18 @@ def _judge_trace_path(cwd: str) -> Path:
     return _sp._consult_root(cwd) / "runs" / "patrol-judge-log.md"
 
 
-def _append_judge_trace(path: Path, ts: str, role: str, merge_sha: str, outcome: str) -> None:
+def _append_judge_trace(path: Path, ts: str, skill: str, merge_sha: str, outcome: str) -> None:
     """judge 실행 한 건당 한 줄 — 성공/실패/캡-초과 가리지 않는다. `merge=`
     필드는 `_judge_roles_run_today()`가 3-역할 캡을 세는 데 쓰는 grep
     앵커다."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = (f"- {ts} | role={role} | verb=judge | merge={merge_sha} "
+    line = (f"- {ts} | role={skill} | verb=judge | merge={merge_sha} "
             f"| outcome={outcome[:300]!r}\n")
     with path.open("a", encoding="utf-8") as f:
         f.write(line)
 
 
-def _judge_roles_run_today(trace_path: Path, merge_sha: str) -> int:
+def _judge_skills_run_today(trace_path: Path, merge_sha: str) -> int:
     """이 merge_sha 에 대해 이미 트레이스에 남은 **실제 judge 세션 실행** 수 —
     3-역할 캡 판정에 쓴다. prefilter-미스 줄(`ok: prefilter 미스`)과
     캡-초과 거절 줄(`error: 캡 초과`)은 judge 세션이 실제로 돌지 않았으므로
@@ -1396,22 +1396,22 @@ def _judge_roles_run_today(trace_path: Path, merge_sha: str) -> int:
     return count
 
 
-_JUDGE_ROLE_EXCLUSIONS: dict[str, list[str]] = {
+_JUDGE_SKILL_EXCLUSIONS: dict[str, list[str]] = {
     # 역할별 알려진 오탐 패턴(문자열 부분일치) — validator 가 이 목록에
     # 걸리는 finding 은 무조건 버린다. 지금은 빈 채로 시작해, 실제 오탐이
     # 나타나면 그때 항목을 더한다(운영 결정 없이 상상으로 채우지 않는다).
 }
 
 
-def _judge_prefilter(role: str, diff_summary: str, cwd: str) -> bool:
+def _judge_prefilter(skill: str, diff_summary: str, cwd: str) -> bool:
     """관할 사전필터 — 하이쿠급 단일 호출로 "이 diff 가 이 역할의 관할에
     조금이라도 걸리는가"만 묻는다(제안서 §5, 가장 큰 비용 절감 지점).
     호출 자체가 실패하면(타임아웃/파싱 실패) **관련 있다고 가정**한다 —
     사전필터는 비용 절감 장치일 뿐 판단 장치가 아니라, 실패를 놓침으로
     바꾸면 안 된다."""
-    cmd, env, settings_path = _sp._judge_cmd_and_env(role, cwd, model="haiku")
+    cmd, env, settings_path = _sp._judge_cmd_and_env(skill, cwd, model="haiku")
     prompt = (
-        f"스킬 '{role}' 의 관할(skill jurisdiction) 안에 아래 diff 요약이 "
+        f"스킬 '{skill}' 의 관할(skill jurisdiction) 안에 아래 diff 요약이 "
         "조금이라도 걸리는지만 판단하라. 다른 텍스트 없이 JSON 객체 하나만 "
         '출력하라: {"relevant": true|false}\n\ndiff 요약:\n' + diff_summary
     )
@@ -1432,21 +1432,21 @@ def _judge_prefilter(role: str, diff_summary: str, cwd: str) -> bool:
             os.unlink(settings_path)
 
 
-def _judge_validate(role: str, findings: list[dict], diff_summary: str,
+def _judge_validate(skill: str, findings: list[dict], diff_summary: str,
                     cwd: str) -> list[dict]:
     """확인/반박 검증 — 하이쿠급 단일 호출로 judge 가 낸 findings 를
     확인/기각하고, `_JUDGE_ROLE_EXCLUSIONS[role]`에 걸리는 것은 호출 전에
     이미 버린다(Anthropic security-review 패턴, 제안서 §5). 호출 자체가
     실패하면 **아무것도 큐에 넣지 않는다** — 검증 못 한 finding 을 큐로
     흘리는 쪽보다, 이번 실행에서 놓치는 쪽이 patrol 큐 오염보다 싸다."""
-    exclusions = _sp._JUDGE_ROLE_EXCLUSIONS.get(role, [])
+    exclusions = _sp._JUDGE_SKILL_EXCLUSIONS.get(skill, [])
     candidates = [f for f in findings
                   if not any(x in f.get("excerpt", "") for x in exclusions)]
     if not candidates:
         return []
-    cmd, env, settings_path = _sp._judge_cmd_and_env(role, cwd, model="haiku")
+    cmd, env, settings_path = _sp._judge_cmd_and_env(skill, cwd, model="haiku")
     prompt = (
-        f"스킬 '{role}' 가 낸 아래 findings 를 diff 요약과 대조해 확인(confirm)/"
+        f"스킬 '{skill}' 가 낸 아래 findings 를 diff 요약과 대조해 확인(confirm)/"
         "반박(refute)하라. 실제로 스킬-저장소 가이던스를 위반하는 것만 남기고, 다른 텍스트 "
         '없이 JSON 객체 하나만 출력하라: {"findings": [{"path": "...", '
         '"finding_class": "...", "excerpt": "...", "promotable": true|false}, '
@@ -1470,7 +1470,7 @@ def _judge_validate(role: str, findings: list[dict], diff_summary: str,
             os.unlink(settings_path)
 
 
-def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
+def judge_cmd(skill: str, merge_sha: str, cwd: str | None = None) -> dict:
     """`spawn.py judge <role> --merge <sha>` 의 본체 — 읽기 전용, 4단계
     파이프라인(prefilter -> judge -> validator -> enqueue), 트레이스는
     성공/실패/캡초과 가리지 않고 항상 한 줄(이슈 #1587, 제안서 §What will
@@ -1485,11 +1485,11 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
     ts = datetime.now(timezone.utc).isoformat()
     outcome = "error: 알 수 없는 실패"
     try:
-        already = _sp._judge_roles_run_today(trace_path, merge_sha)
-        if already >= _sp.JUDGE_MAX_ROLES_PER_MERGE:
+        already = _sp._judge_skills_run_today(trace_path, merge_sha)
+        if already >= _sp.JUDGE_MAX_SKILLS_PER_MERGE:
             outcome = (f"error: 캡 초과 (merge={merge_sha} 에 이미 {already}개 역할 실행, "
-                       f"상한 {_sp.JUDGE_MAX_ROLES_PER_MERGE})")
-            return {"skipped": True, "reason": "cap_exceeded", "role": role, "merge": merge_sha}
+                       f"상한 {_sp.JUDGE_MAX_SKILLS_PER_MERGE})")
+            return {"skipped": True, "reason": "cap_exceeded", "role": skill, "merge": merge_sha}
 
         # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
         # 지웠다 — `_judge_prefilter()`/`_judge_cmd_and_env()` 는 `spec` 을
@@ -1506,13 +1506,13 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
             raise RuntimeError(outcome)
         diff_summary = _sp._compress_diff(show.stdout)
 
-        if not _sp._judge_prefilter(role, diff_summary, root):
+        if not _sp._judge_prefilter(skill, diff_summary, root):
             outcome = "ok: prefilter 미스 — judge 미호출"
-            return {"skipped": True, "reason": "prefilter_miss", "role": role, "merge": merge_sha}
+            return {"skipped": True, "reason": "prefilter_miss", "role": skill, "merge": merge_sha}
 
-        cmd, env, settings_path = _sp._judge_cmd_and_env(role, root)
+        cmd, env, settings_path = _sp._judge_cmd_and_env(skill, root)
         prompt = (
-            f"당신은 judge 로 불렸다 — 스킬 '{role}' 의 스킬-저장소 가이던스 관점에서 아래 merge diff 가 "
+            f"당신은 judge 로 불렸다 — 스킬 '{skill}' 의 스킬-저장소 가이던스 관점에서 아래 merge diff 가 "
             "그 가이던스를 위반하는지만 판단한다. 저장소 파일을 하나도 건드리지 말고(Write/Edit "
             "도구 없음), 브랜치/커밋/PR 을 만들지 마라. 필요하면 `git show`/`git diff`/"
             "`git log` 로 더 살펴봐도 된다. 답을 다 쓴 뒤 마지막에, 다른 어떤 텍스트도 "
@@ -1534,12 +1534,12 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
         raw_findings = parsed.get("findings", []) if parsed else []
         if not raw_findings:
             outcome = "ok: findings 없음"
-            return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": []}
+            return {"skipped": False, "role": skill, "merge": merge_sha, "enqueued": []}
 
-        validated = _sp._judge_validate(role, raw_findings, diff_summary, root)
+        validated = _sp._judge_validate(skill, raw_findings, diff_summary, root)
         if not validated:
             outcome = f"ok: {len(raw_findings)}건 중 validator 통과 0건"
-            return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": []}
+            return {"skipped": False, "role": skill, "merge": merge_sha, "enqueued": []}
 
         sys.path.insert(0, str((_sp.ROOT / "gates").resolve()))
         import patrol_queue
@@ -1554,10 +1554,10 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
         for vf in validated:
             if not patrol_queue.verify(vf, Path(root)):
                 continue
-            fp = patrol_queue.fingerprint(f"judge:{role}", vf["path"], [vf.get("excerpt", "")])
+            fp = patrol_queue.fingerprint(f"judge:{skill}", vf["path"], [vf.get("excerpt", "")])
             finding = {
                 "fingerprint": fp,
-                "scanner_id": f"judge:{role}",
+                "scanner_id": f"judge:{skill}",
                 "path": vf["path"],
                 "finding_class": vf.get("finding_class", "judge-finding"),
                 "excerpt": vf.get("excerpt", ""),
@@ -1570,12 +1570,12 @@ def judge_cmd(role: str, merge_sha: str, cwd: str | None = None) -> dict:
         patrol_queue.save_queue(queue_path, queue)
         outcome = (f"ok: {len(raw_findings)}건 중 {len(validated)}건 검증, "
                   f"{len(enqueued)}건 verify 통과 후 큐 반영")
-        return {"skipped": False, "role": role, "merge": merge_sha, "enqueued": enqueued}
+        return {"skipped": False, "role": skill, "merge": merge_sha, "enqueued": enqueued}
     except subprocess.TimeoutExpired:
         outcome = f"error: 시간초과({_sp.JUDGE_TIMEOUT}s)"
         raise
     finally:
-        _sp._append_judge_trace(trace_path, ts, role, merge_sha, outcome)
+        _sp._append_judge_trace(trace_path, ts, skill, merge_sha, outcome)
 
 
 class _PanelMessagingUnavailable(RuntimeError):
@@ -1600,12 +1600,12 @@ def _panel_record_path(issue: int | None, slug: str, cwd: str | None = None) -> 
     return root / "docs" / "reports" / "panel" / f"{slug}.md"
 
 
-def _append_panel_turn(path: Path, ts: str, role: str, kind: str, text: str) -> None:
+def _append_panel_turn(path: Path, ts: str, skill: str, kind: str, text: str) -> None:
     """턴 하나당 한 줄 — 라이브 경로와 저하 경로가 이 한 헬퍼를 같이
     쓴다(제안서 §What will be done 2) — 두 경로가 서로 다른 기록 포맷으로
     갈라지지 않는다."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = f"- {ts} | role={role} | {kind} | {text[:2000]!r}\n"
+    line = f"- {ts} | role={skill} | {kind} | {text[:2000]!r}\n"
     with path.open("a", encoding="utf-8") as f:
         f.write(line)
 
@@ -1627,7 +1627,7 @@ def _extract_sendmessage_turns(stream_lines: list[dict]) -> list[str]:
     return turns
 
 
-def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None,
+def _run_panel_session(skill: str, peer_skill: str, question: str, cwd: str | None,
                        model: str | None = None) -> dict:
     """판정 세션 하나를 non-bare `claude -p` 로 띄운다 — `crossSessionInbound`
     를 걸어 `SendMessage` 를 받을 수 있게 한다(이슈#973 phase-1 조사: 공식
@@ -1641,9 +1641,9 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
     샌드박스/CI 환경이 스스로 신고하는 경로다. 호출자는 이걸 순차
     consult 로 내리는 신호로 쓴다."""
     if os.environ.get("TOKENMAXXXER_PANEL_MESSAGING") == "unavailable":
-        raise _sp._PanelMessagingUnavailable(f"{role}: TOKENMAXXXER_PANEL_MESSAGING=unavailable")
+        raise _sp._PanelMessagingUnavailable(f"{skill}: TOKENMAXXXER_PANEL_MESSAGING=unavailable")
     # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
-    # 지웠다 — 아래 `_sp.role_settings()` 호출(pipeline.py)은 여전히
+    # 지웠다 — 아래 `_sp.skill_settings()` 호출(pipeline.py)은 여전히
     # 일어난다; 이슈 #2610부터 그 함수는 role 카탈로그 조회 없이 빈
     # 베이스라인을 무조건 쓴다(role 을 검증하지 않는다).
     # 이슈 #2507: `issue` 가 이 함수 시그니처에 없어(`panel_cmd()` 는 갖고
@@ -1653,8 +1653,8 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
     # 네이밍에만 쓰고(이미 adhoc consult 호출이 매일 거치는 경로) 판단
     # 로직 자체에는 안 쓴다.
     plugins = _sp._composed_consult_skill_source(
-        role, question, None, cwd, model)["skill_dirs"]
-    s = _sp.role_settings(role, cwd, inject_self_hosted_hooks=False)
+        skill, question, None, cwd, model)["skill_dirs"]
+    s = _sp.skill_settings(skill, cwd, inject_self_hosted_hooks=False)
     s["crossSessionInbound"] = "accept"
     settings_path = None
     try:
@@ -1669,21 +1669,21 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
             cmd += ["--plugin-dir", str(p)]
         for p in _sp.core_plugin_dirs():
             cmd += ["--plugin-dir", str(p)]
-        role_model = _sp.resolved_role_model(model)
-        if role_model:
-            cmd += ["--model", role_model]
-        env = {**os.environ, "CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1"}
+        skill_model = _sp.resolved_skill_model(model)
+        if skill_model:
+            cmd += ["--model", skill_model]
+        env = {**os.environ, "CLAUDE_SKILL": skill, "TOKENMAXXXER_SPAWNED": "1"}
         prompt = (
             "당신은 판정단(panel) 판정자로 불렸다 — 다른 스킬 판정자 "
-            f"'{peer_role}' 와 함께 아래 질문을 판정한다. "
+            f"'{peer_skill}' 와 함께 아래 질문을 판정한다. "
             "스킬-저장소 가이던스는 "
             "이미 로드돼 있다. 브랜치를 만들지도, 커밋하지도, PR 을 열지도 "
             "마라. 상대 세션은 이 세션과 거의 동시에 떴다 — 아직 인박스가 "
             "등록되지 않았을 수 있다. 먼저 ListAgents 를 호출해 상대를 "
-            f"찾아라('{peer_role}' 스킬일 것이다). 안 보이면 몇 초 뒤 다시 "
+            f"찾아라('{peer_skill}' 스킬일 것이다). 안 보이면 몇 초 뒤 다시 "
             "ListAgents 를 호출하는 식으로 몇 차례 재시도하라 — 한 번만 "
             "확인하고 포기하지 마라. 상대가 보이면, ListAgents 가 실제로 "
-            f"반환한 이름으로 SendMessage 를 보내라('{peer_role}' 같은 "
+            f"반환한 이름으로 SendMessage 를 보내라('{peer_skill}' 같은 "
             "스킬명이 아니라 그 이름 그대로 주소를 써라). 먼저 당신의 "
             "입장(position)을 한 문단으로 정리해 SendMessage 로 상대에게 "
             "보내라. 상대의 응답을 받은 뒤 최소 한 차례 반박(rebuttal)을 "
@@ -1696,7 +1696,7 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
         r = subprocess.run(cmd, cwd=cwd or str(_sp.ROOT), input=prompt, text=True,
                            capture_output=True, timeout=_sp.PANEL_TIMEOUT, env=env)
         if r.returncode != 0:
-            raise RuntimeError(f"{role}: 세션 종료 코드 {r.returncode}: "
+            raise RuntimeError(f"{skill}: 세션 종료 코드 {r.returncode}: "
                                f"{r.stderr.strip()[:300]}")
         stream_lines = []
         for line in r.stdout.splitlines():
@@ -1719,23 +1719,23 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
                 os.unlink(settings_path)
 
 
-def _consult_or_record_error(path: Path, ts: str, role: str, question: str,
+def _consult_or_record_error(path: Path, ts: str, skill: str, question: str,
                               issue: int | None, cwd: str | None) -> tuple[dict | None, str | None]:
     """`consult_cmd()` 를 호출하되, 실패해도 밖으로 던지지 않는다 — 저하
     경로에서 `consult_cmd()` 실패는 panel 실행 전체를 크래시시켜선 안
     된다(#1045 결함 2). 실패하면 `consult-error` 턴으로 기록하고
     `(None, <에러 메시지>)` 를 돌려준다."""
     try:
-        verdict = _sp.consult_cmd(role, question, issue, cwd)
+        verdict = _sp.consult_cmd(skill, question, issue, cwd)
     except Exception as e:  # noqa: BLE001 - 어떤 실패든 절대 밖으로 던지지 않는다
         msg = str(e)
-        _sp._append_panel_turn(path, ts, role, "consult-error", msg)
+        _sp._append_panel_turn(path, ts, skill, "consult-error", msg)
         return None, msg
-    _sp._append_panel_turn(path, ts, role, "verdict", str(verdict))
+    _sp._append_panel_turn(path, ts, skill, "verdict", str(verdict))
     return verdict, None
 
 
-def _panel_degrade(path: Path, ts: str, role_a: str, role_b: str, question: str,
+def _panel_degrade(path: Path, ts: str, skill_a: str, skill_b: str, question: str,
                     issue: int | None, cwd: str | None, reason: str) -> dict:
     """저하 경로 — 순차 `consult_cmd()` 두 번으로 판단을 받고, 저하했다는
     사실과 이유를 `degraded:` 마커로 기록에 남긴다(제안서, 병합 설계
@@ -1743,15 +1743,15 @@ def _panel_degrade(path: Path, ts: str, role_a: str, role_b: str, question: str,
     로 감싸 — 한쪽이 실패해도(#1045 결함 2) panel 실행 자체는 절대 raise
     하지 않고, 실패는 기록에 남기고 그 쪽 verdict 만 None 이 된다."""
     _sp._append_panel_turn(path, ts, "panel", "degraded", f"sequential-consult — {reason}")
-    verdict_a, error_a = _sp._consult_or_record_error(path, ts, role_a, question, issue, cwd)
-    verdict_b, error_b = _sp._consult_or_record_error(path, ts, role_b, question, issue, cwd)
+    verdict_a, error_a = _sp._consult_or_record_error(path, ts, skill_a, question, issue, cwd)
+    verdict_b, error_b = _sp._consult_or_record_error(path, ts, skill_b, question, issue, cwd)
     return {"degraded": True, "reason": reason,
             "verdict_a": verdict_a, "verdict_b": verdict_b,
             "error_a": error_a, "error_b": error_b,
             "record_path": str(path)}
 
 
-def panel_cmd(role_a: str, role_b: str, question: str, issue: int | None = None,
+def panel_cmd(skill_a: str, skill_b: str, question: str, issue: int | None = None,
               cwd: str | None = None, run_session=None,
               model: str | None = None) -> dict:
     """동시-판정(concurrent judgment): 두 역할을 non-bare 세션으로 띄워
@@ -1774,25 +1774,25 @@ def panel_cmd(role_a: str, role_b: str, question: str, issue: int | None = None,
     ts = datetime.now(timezone.utc).isoformat()
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-            fut_a = ex.submit(launcher, role_a, role_b, question, cwd, model)
-            fut_b = ex.submit(launcher, role_b, role_a, question, cwd, model)
+            fut_a = ex.submit(launcher, skill_a, skill_b, question, cwd, model)
+            fut_b = ex.submit(launcher, skill_b, skill_a, question, cwd, model)
             result_a = fut_a.result()
             result_b = fut_b.result()
     except _sp._PanelMessagingUnavailable as e:
-        return _sp._panel_degrade(path, ts, role_a, role_b, question, issue, cwd, str(e))
+        return _sp._panel_degrade(path, ts, skill_a, skill_b, question, issue, cwd, str(e))
     if not (result_a.get("turns") or result_b.get("turns")):
         # 두 세션 다 SendMessage 왕복이 한 건도 안 잡혔다 — 메시징이
         # 켜지긴 했지만 실제로는 왕복이 안 닿은 경우(제안서 §3의 두 번째
         # 저하 트리거). 이미 스폰된 세션의 verdict 는 버리고, 순차 consult
         # 로 다시 판단을 받아 저하했다는 사실과 함께 기록한다.
-        return _sp._panel_degrade(path, ts, role_a, role_b, question, issue, cwd,
+        return _sp._panel_degrade(path, ts, skill_a, skill_b, question, issue, cwd,
                                "no SendMessage round-trip observed")
-    for role, result in ((role_a, result_a), (role_b, result_b)):
+    for skill, result in ((skill_a, result_a), (skill_b, result_b)):
         turns = result.get("turns") or []
         for i, text in enumerate(turns):
             kind = "position" if i == 0 else "rebuttal"
-            _sp._append_panel_turn(path, ts, role, kind, text)
+            _sp._append_panel_turn(path, ts, skill, kind, text)
         if result.get("verdict") is not None:
-            _sp._append_panel_turn(path, ts, role, "verdict", str(result["verdict"]))
+            _sp._append_panel_turn(path, ts, skill, "verdict", str(result["verdict"]))
     return {"degraded": False, "verdict_a": result_a.get("verdict"),
             "verdict_b": result_b.get("verdict"), "record_path": str(path)}

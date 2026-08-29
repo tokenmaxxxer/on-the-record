@@ -483,16 +483,16 @@ def parse_axis_evaluations(text):
     return out
 
 
-def role_record_path(role):
+def skill_record_path(skill):
     # issue #2559: used to resolve this from the role's `write_scope`
     # (the one glob ending in `.md` with an `<n>` placeholder) — write_scope
     # is gone, but every role's own record always lives at this fixed path
     # (role-handoff contract v3's Layout line), so no lookup is needed.
-    return TARGET / f"docs/issue-{issue}/reports/{role}.md"
+    return TARGET / f"docs/issue-{issue}/reports/{skill}.md"
 
 
-def latest_axis_evaluation(role, axis):
-    path = role_record_path(role)
+def latest_axis_evaluation(skill, axis):
+    path = skill_record_path(skill)
     if path is None or not path.is_file():
         return None
     try:
@@ -559,14 +559,14 @@ def parse_open_decision_items(text):
     return out
 
 
-def changed_role_record_paths(paths, issue):
+def changed_skill_record_paths(paths, issue):
     pattern = re.compile(rf"^docs/issue-{issue}/reports/[^/]+\.md$")
     return [p for p in paths if pattern.match(p)]
 
 
 TRIAGE_DECISIONS_DIR = TARGET / "docs" / f"issue-{issue}" / "decisions"
 
-for _rec_rel in changed_role_record_paths(paths, issue):
+for _rec_rel in changed_skill_record_paths(paths, issue):
     _rec_path = TARGET / _rec_rel
     if not _rec_path.is_file():
         continue
@@ -575,7 +575,7 @@ for _rec_rel in changed_role_record_paths(paths, issue):
     except OSError:
         continue
     for _item in parse_open_decision_items(_rec_text):
-        _source_role = _item.get("source_role", "")
+        _source_skill = _item.get("source_role", "")
         _candidate_axes = [a for a in _item.get("candidate_axes", []) if a in _JUDGMENT_AXES]
 
         # issue #2610: no more "which role owns this axis" catalog lookup —
@@ -584,18 +584,18 @@ for _rec_rel in changed_role_record_paths(paths, issue):
         # actually carries one.
         _item_evaluations = []
         for _rp in all_record_paths(issue):
-            _o_role = _rp.stem
+            _o_skill = _rp.stem
             for _o_axis in sorted(axes_evaluated_in(_rp, _candidate_axes)):
-                _o_ev = latest_axis_evaluation(_o_role, _o_axis)
+                _o_ev = latest_axis_evaluation(_o_skill, _o_axis)
                 if _o_ev is not None:
-                    _item_evaluations.append((_o_role, _o_axis, _o_ev))
-        _owning_roles = sorted({r for r, _, _ in _item_evaluations})
+                    _item_evaluations.append((_o_skill, _o_axis, _o_ev))
+        _owning_skills = sorted({r for r, _, _ in _item_evaluations})
 
         _verdicts = {ev.get("verdict") for (_, _, ev) in _item_evaluations}
         _threshold_exceeded = not (DEPTH and LOW_IMPACT)
         _panel_conflict = "supports" in _verdicts and "contradicts" in _verdicts
         _triage_decision = ("escalated"
-                             if (_threshold_exceeded or _panel_conflict or not _owning_roles)
+                             if (_threshold_exceeded or _panel_conflict or not _owning_skills)
                              else "resolved")
 
         TRIAGE_DECISIONS_DIR.mkdir(parents=True, exist_ok=True)
@@ -614,7 +614,7 @@ for _rec_rel in changed_role_record_paths(paths, issue):
         if _triage_decision == "escalated":
             _gh(["issue", "comment", str(issue), "--body",
                  f"Open-decision triage: `{_item.get('item', '?')}` (from "
-                 f"{_source_role or '?'}) → escalated.\n"
+                 f"{_source_skill or '?'}) → escalated.\n"
                  f"Audit record: `docs/issue-{issue}/decisions/triage-{_tseq}.md`"])
         else:
             _gh(["pr", "comment", pr_ref, "--body",
@@ -650,7 +650,7 @@ implicated_axes = _JUDGMENT_AXES
 # block above already uses. A role name in `evaluating_roles` is
 # descriptive (which record supplied the evaluation), never a catalog
 # membership check.
-evaluating_roles = []
+evaluating_skills = []
 quorum = True
 for axis in sorted(implicated_axes):
     found_any = False
@@ -659,7 +659,7 @@ for axis in sorted(implicated_axes):
             continue
         ev = latest_axis_evaluation(_rp.stem, axis)
         if ev is not None:
-            evaluating_roles.append((_rp.stem, axis, ev))
+            evaluating_skills.append((_rp.stem, axis, ev))
             found_any = True
     if not found_any:
         quorum = False
@@ -667,9 +667,9 @@ for axis in sorted(implicated_axes):
 if not quorum:
     escalate("full-panel quorum not reached")
 
-eligible_roles = sorted({role for role, _, _ in evaluating_roles})
+eligible_skills = sorted({skill for skill, _, _ in evaluating_skills})
 
-verdicts = [ev.get("verdict") for (_, _, ev) in evaluating_roles]
+verdicts = [ev.get("verdict") for (_, _, ev) in evaluating_skills]
 if any(v == "contradicts" for v in verdicts):
     decision = "reject"
 elif verdicts and all(v == "supports" for v in verdicts):
@@ -690,27 +690,27 @@ lines = [
     "---",
     f"derivation_source: docs/issue-{issue}/product corpus match",
     f"impact_grade: {IMPACT_GRADE}",
-    f"eligible_roles: {eligible_roles}",
+    f"eligible_roles: {eligible_skills}",
     "synthesis_rule_id: panel-unanimous-support-v1",
     "evaluating_roles:",
 ]
-for role, axis, ev in evaluating_roles:
-    lines.append(f"  - role: {role}")
+for skill, axis, ev in evaluating_skills:
+    lines.append(f"  - role: {skill}")
     lines.append(f"    axis: {axis}")
     lines.append(f"    verdict: {ev.get('verdict')}")
 lines += [f"decision: {decision}", f"timestamp: {rfc3339()}", "---", ""]
 audit_path.write_text("\n".join(lines), encoding="utf-8")
 
 table_rows = "\n".join(
-    f"| {role} | {axis} | {ev.get('verdict')} | "
+    f"| {skill} | {axis} | {ev.get('verdict')} | "
     f"{(ev.get('finding') or {}).get('required_fix', '—') if ev.get('verdict') == 'contradicts' else '—'} |"
-    for role, axis, ev in evaluating_roles)
+    for skill, axis, ev in evaluating_skills)
 synthesis_comment = (
     f"### Delegated judgment: `auto-{seq}` — **{decision}**\n\n"
     "| Role | Axis | Verdict | Finding |\n|---|---|---|---|\n"
     f"{table_rows}\n\n"
     f"Synthesis rule: `panel-unanimous-support-v1` · quorum: "
-    f"{len(evaluating_roles)}/{len(eligible_roles)}\n"
+    f"{len(evaluating_skills)}/{len(eligible_skills)}\n"
     f"Audit record: `docs/issue-{issue}/decisions/auto-{seq}.md`")
 _gh(["pr", "comment", pr_ref, "--body", synthesis_comment])
 _gh(["issue", "comment", str(issue), "--body",
@@ -721,13 +721,13 @@ if decision == "approve":
     sys.exit(0)
 
 # --- decision == reject: route the finding, write the remediation record ---
-finding_role_axis_ev = next(
-    ((role, axis, ev) for role, axis, ev in evaluating_roles
+finding_skill_axis_ev = next(
+    ((skill, axis, ev) for skill, axis, ev in evaluating_skills
      if ev.get("verdict") == "contradicts" and ev.get("finding")), None)
-if finding_role_axis_ev is None:
+if finding_skill_axis_ev is None:
     sys.exit(0)  # contradiction with no routable finding — nothing more to route
 
-contradicting_role, _, contradicting_ev = finding_role_axis_ev
+contradicting_skill, _, contradicting_ev = finding_skill_axis_ev
 finding = contradicting_ev["finding"]
 target_path = finding.get("target_path", "")
 required_fix = finding.get("required_fix", "")
@@ -759,7 +759,7 @@ round_n = len(chain) + 1
 # required_fix differs from the prior one is a genuine new attempt and
 # only counts against the round bound above, not this check.
 repeat_contradiction = any(
-    f"contradicting_role: {contradicting_role}" in (txt := p.read_text(encoding="utf-8", errors="ignore"))
+    f"contradicting_role: {contradicting_skill}" in (txt := p.read_text(encoding="utf-8", errors="ignore"))
     and f"target_path: {target_path}" in txt
     and f"required_fix: {required_fix}" in txt
     for p in chain)
@@ -776,7 +776,7 @@ rem_lines = [
     f"routed_to: {routed_to or 'UNRESOLVED'}",
     f"target_path: {target_path}",
     f"required_fix: {required_fix}",
-    f"contradicting_role: {contradicting_role}",
+    f"contradicting_role: {contradicting_skill}",
     f"round: {round_n}",
     f"status: {status}",
     f"timestamp: {rfc3339()}",

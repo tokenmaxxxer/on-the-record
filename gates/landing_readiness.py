@@ -58,7 +58,7 @@ def classify(pr_state: str, checks: str, has_record: bool, has_approval: bool,
     return READY, None
 
 
-def reexecution_blocking_cause(root: Path, issue: int, role: str
+def reexecution_blocking_cause(root: Path, issue: int, skill: str
                                 ) -> dict | None:
     """`.reexecution/<issue>-<role>.json` 의 verdict 를 `blocking_causes` 한
     항목으로 바꾼다. `pass` 면 None(원인 없음). `fail`/`error` 면 그 PR
@@ -66,17 +66,17 @@ def reexecution_blocking_cause(root: Path, issue: int, role: str
     `docs/issue-<n>/reports/<role>.md` 로 스코프해야, 그 파일을 이 PR이
     항상 건드리기 때문에 원인이 실제로 이 PR을 덮는다(after-proposal hunt
     가 재현한 gates/-스코프 bypass 를 닫는 지점, ADR §6)."""
-    verdict = reexecution_gate.read_verdict(root, issue, role)
+    verdict = reexecution_gate.read_verdict(root, issue, skill)
     if verdict is None or verdict.kind == reexecution_gate.PASS:
         return None
-    record_path = f"docs/issue-{issue}/reports/{role}.md"
+    record_path = f"docs/issue-{issue}/reports/{skill}.md"
     return {
         "reason": f"reexecution_gate: {verdict.kind} — {verdict.detail}",
         "scope": frozenset({record_path}),
     }
 
 
-def obligation_blocking_cause(root: Path, issue: int, role: str, pr: int
+def obligation_blocking_cause(root: Path, issue: int, skill: str, pr: int
                                ) -> dict | None:
     """`.landing-obligations/<issue>-<role>-<pr>.json` 의 상태를
     `blocking_causes` 한 항목으로 바꾼다 — issue #1098 (northpole req#3,
@@ -85,10 +85,10 @@ def obligation_blocking_cause(root: Path, issue: int, role: str, pr: int
     `reexecution_blocking_cause` 와 같은 스코핑(ADR §6): `gates/` 같은
     고정 접두어가 아니라 `docs/issue-<n>/reports/<role>.md` 로 스코프해야,
     그 파일을 이 PR이 항상 건드리기 때문에 원인이 실제로 이 PR을 덮는다."""
-    obligation = landing_obligation.read_obligation(root, issue, role, pr)
+    obligation = landing_obligation.read_obligation(root, issue, skill, pr)
     if obligation is None or obligation.status == landing_obligation.RESOLVED:
         return None
-    record_path = f"docs/issue-{issue}/reports/{role}.md"
+    record_path = f"docs/issue-{issue}/reports/{skill}.md"
     return {
         "reason": f"landing_obligation: {obligation.status} — pr #{pr} "
                   f"unverified since {obligation.opened_at}",
@@ -145,17 +145,17 @@ def main() -> int:
         branch = pr.get("headRefName", "")
         checks = _pr_checks_summary(root, n)
         files = _pr_files(root, n)
-        detected = ci._issue_and_role_from_branch(branch)
+        detected = ci._issue_and_skill_from_branch(branch)
         if detected is None:
             has_record = False
             has_approval = False
         else:
-            issue, role = detected
+            issue, skill = detected
             has_record = ci._phase2_record_evidence(root, n, branch, issue)
-            has_approval = role in ci._approved_roles_on_issue(root, issue)
+            has_approval = skill in ci._approved_skills_on_issue(root, issue)
         causes = ()
         if detected is not None:
-            cause = reexecution_blocking_cause(root, issue, role)
+            cause = reexecution_blocking_cause(root, issue, skill)
             causes = (cause,) if cause else ()
         kind, reason = classify("OPEN", checks, has_record, has_approval, files,
                                 causes)

@@ -460,7 +460,7 @@ def resolve_static_policy_source(repo_root: Path | None) -> dict:
             "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
 
 
-def resolve_role_family_source(role: str, repo_root: Path | None) -> dict:
+def resolve_skill_family_source(skill: str, repo_root: Path | None) -> dict:
     """이슈 #2561: `consult.py`(consult/verb/skill_judge/panel 세션)와
     judge 세션의 role 축 기준선 — `_ROLE_SKILLS` 정적 표 없이, 실제
     skill-repository 디렉터리 이름이 `f"{role}-"` 로 시작하는 스킬 전부를
@@ -485,7 +485,7 @@ def resolve_role_family_source(role: str, repo_root: Path | None) -> dict:
     `hooks/` 서브디렉터리를 들고 있으면(skill-repository 는 가이던스
     전용) fail-closed. 반환 shape 는 `resolve_static_policy_source()`와
     같다."""
-    prefix = f"{role}-"
+    prefix = f"{skill}-"
     family_names = (sorted(p.name for p in repo_root.iterdir()
                             if p.is_dir() and p.name.startswith(prefix))
                      if repo_root is not None and repo_root.is_dir() else [])
@@ -494,7 +494,7 @@ def resolve_role_family_source(role: str, repo_root: Path | None) -> dict:
     hooked = [d for d in skill_dirs if _sp._carries_hooks(d)]
     if hooked:
         sys.exit(
-            f"resolve_role_family_source: 역할 {role!r} 접두어로 유도한 "
+            f"resolve_role_family_source: 역할 {skill!r} 접두어로 유도한 "
             f"스킬 중 {', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 "
             f"있다 — skill-repository 는 가이던스 전용이다(훅 없음, "
             f"이슈 #1758)")
@@ -503,14 +503,14 @@ def resolve_role_family_source(role: str, repo_root: Path | None) -> dict:
             "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
 
 
-def merge_composed_skill_source(role_source: dict, matched_dirs: list) -> dict:
+def merge_composed_skill_source(skill_source: dict, matched_dirs: list) -> dict:
     """이슈 #2507: 위 `resolve_static_policy_source()`의 결과에 cross-family
     BM25+judge 매치(`_cross_family_skill_matches_with_consult()`)를
     add-only 로 얹는다 — 스폰이 도착할 때 들고 오는 스킬 목록이 고정 표
     조회가 아니라 이번 과제 텍스트에 대한 매치로 구성되게 하는, 이 이슈의
     핵심 변경. 반환은 새 dict(입력을 변형하지 않는다)."""
-    seen = {d.name for d in role_source["skill_dirs"]}
-    merged_dirs = list(role_source["skill_dirs"]) + [
+    seen = {d.name for d in skill_source["skill_dirs"]}
+    merged_dirs = list(skill_source["skill_dirs"]) + [
         d for d in matched_dirs if d.name not in seen]
     return {"source": "skill-repo", "skill_dirs": merged_dirs,
             "skills": [d.name for d in merged_dirs],
@@ -564,11 +564,11 @@ def _skill_roster_fields(skill_sources: list[dict], skill_sha: str | None) -> di
     return fields
 
 
-def _role_source_roster_fields(role_source: dict) -> dict:
+def _skill_source_roster_fields(skill_source: dict) -> dict:
     """이슈 #1758 요구사항 3 계승, 이슈 #1955 로 단순화: 로스터 엔트리마다
     항상 붙는 resolution 필드. source 는 이제 언제나 skill-repo(rulebook
     해석 경로는 은퇴했다) — resolution_source/resolution_skills/
     resolution_skill_sha 를 채운다."""
     return {"resolution_source": "skill-repo",
-            "resolution_skills": role_source["skills"],
-            "resolution_skill_sha": role_source["skill_sha"]}
+            "resolution_skills": skill_source["skills"],
+            "resolution_skill_sha": skill_source["skill_sha"]}

@@ -32,7 +32,7 @@ class MountLayoutTest(unittest.TestCase):
     def tearDown(self):
         spawn._resolve_gh_token = self._saved_token
 
-    def test_mapped_role_excludes_rulebook_plugin_dir(self):
+    def test_mapped_skill_excludes_rulebook_plugin_dir(self):
         skill_dirs = [Path("/tmp/skill-repo/alpha")]
         cmd, env = spawn.spawn_cmd(
             "/tmp/settings.json", "implementation", False,
@@ -123,17 +123,17 @@ class RecordFieldsTest(unittest.TestCase):
 
     def test_policy_roster_fields(self):
         spawn.skills._STATIC_POLICY_SKILLS = {"alpha"}
-        role_source = spawn.resolve_static_policy_source(self.repo_root)
-        fields = spawn._role_source_roster_fields(role_source)
+        skill_source = spawn.resolve_static_policy_source(self.repo_root)
+        fields = spawn._skill_source_roster_fields(skill_source)
         self.assertEqual(fields["resolution_source"], "skill-repo")
         self.assertEqual(fields["resolution_skills"], ["alpha"])
         self.assertIsNotNone(fields["resolution_skill_sha"])
 
     def test_empty_state_no_policy_skills_still_skill_repo_shape(self):
         spawn.skills._STATIC_POLICY_SKILLS = set()
-        role_source = spawn.resolve_static_policy_source(self.repo_root)
-        self.assertEqual(role_source["source"], "skill-repo")
-        fields = spawn._role_source_roster_fields(role_source)
+        skill_source = spawn.resolve_static_policy_source(self.repo_root)
+        self.assertEqual(skill_source["source"], "skill-repo")
+        fields = spawn._skill_source_roster_fields(skill_source)
         self.assertEqual(fields, {"resolution_source": "skill-repo",
                                    "resolution_skills": [],
                                    "resolution_skill_sha": None})

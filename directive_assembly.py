@@ -70,16 +70,16 @@ _CHECKPOINT_CONTRACT_BLOCK = (
 )
 
 
-def _checkpoint_contract_block(issue: int, role: str) -> str:
+def _checkpoint_contract_block(issue: int, skill: str) -> str:
     """Render `_CHECKPOINT_CONTRACT_BLOCK` for this spawn. The Bash timeout
     hint covers the full bounded wait plus a one-minute margin."""
     bash_timeout_ms = int((_sp._checkpoint_wait_max_seconds() + 60) * 1000)
     return _CHECKPOINT_CONTRACT_BLOCK.format(
-        issue=issue, role=role, python=sys.executable,
+        issue=issue, role=skill, python=sys.executable,
         spawn_py=Path(_sp.__file__).resolve(), bash_timeout_ms=bash_timeout_ms)
 
 
-def _checkpoint_index_block(issue: int, role: str) -> str:
+def _checkpoint_index_block(issue: int, skill: str) -> str:
     """Issue #2135: the condensed inline checkpoint invariant. The
     actionable wait command and exit-code semantics stay inline; the full
     contract prose (`_CHECKPOINT_CONTRACT_BLOCK`) is materialized verbatim
@@ -94,7 +94,7 @@ def _checkpoint_index_block(issue: int, role: str) -> str:
         f"(timeout parameter >= {bash_timeout_ms} ms) for the whole "
         f"wait:\n"
         f"     {sys.executable} {Path(_sp.__file__).resolve()} -C . "
-        f"await-approval --issue {issue} --session {role}\n"
+        f"await-approval --issue {issue} --session {skill}\n"
         f"  exit 0 = approved: continue IMMEDIATELY into phase-2 in "
         f"this same context; exit 3 = timeout: end cleanly (the "
         f"proposal PR is the returned state).\n")
@@ -543,7 +543,7 @@ value for this record kind when done -->
 """
 
 
-def _stamp_additive_record_fields(issue: int, role: str,
+def _stamp_additive_record_fields(issue: int, skill: str,
                                    skill_sources: list | None = None) -> str:
     """Issue #2241 stage 1 (Accumulation note in the stage-1 proposal): the
     single call site every additive record-field stamp goes through —
@@ -589,7 +589,7 @@ def _stamp_additive_record_fields(issue: int, role: str,
     at all) arrives by construction. `write_record_skeleton` already
     refuses to touch an existing record file, so this stamped default
     can never overwrite a session's own considered `true`."""
-    line = f"author: {role}\n"
+    line = f"author: {skill}\n"
     if skill_sources:
         detail = ", ".join(f"{m['name']} ({_sp._describe_skill_match(m)})"
                             for m in skill_sources)
@@ -604,12 +604,12 @@ _CODE_EXTENSION_RE = re.compile(
     r"\.(?:py|js|jsx|ts|tsx|go|rs|java|kt|rb|c|cc|cpp|h|hpp|cs|php|sh|sql)\b")
 
 
-def write_record_skeleton(cwd: str, issue: int, role: str,
+def write_record_skeleton(cwd: str, issue: int, skill: str,
                            task_text: str = "",
                            skill_sources: list | None = None) -> Path | None:
     """Pre-write the role's own record skeleton at bootstrap; never
     overwrite an existing record (a respawn into the same workspace)."""
-    p = Path(cwd) / "docs" / f"issue-{issue}" / "reports" / f"{role}.md"
+    p = Path(cwd) / "docs" / f"issue-{issue}" / "reports" / f"{skill}.md"
     if p.exists():
         return None
     # issue #2610: this used to look a per-role `record_fields.loop_state`
@@ -661,8 +661,8 @@ def write_record_skeleton(cwd: str, issue: int, role: str,
     # record for the investigation this rules out).
     is_coding = bool(_CODE_EXTENSION_RE.search(task_text or ""))
     body = _RECORD_SKELETON.format(
-        issue=issue, role=role, loop_state=loop_state,
-        author_line=_stamp_additive_record_fields(issue, role, skill_sources))
+        issue=issue, role=skill, loop_state=loop_state,
+        author_line=_stamp_additive_record_fields(issue, skill, skill_sources))
     if is_coding:
         body = body.replace(
             "\n## Upstream basis\n",
@@ -699,7 +699,7 @@ _BM25_B = 0.75
 _CROSS_FAMILY_CONSULT_TOPN = 8  # 이슈 본문: consult 에 넘기는 BM25 상위 후보 수
 
 
-def _bm25_cross_family_scores(task_text: str, role: str,
+def _bm25_cross_family_scores(task_text: str, skill: str,
                                repo_root: Path | None,
                                home: Path | None = None,
                                target_repo_root: Path | None = None
@@ -720,7 +720,7 @@ def _bm25_cross_family_scores(task_text: str, role: str,
     query_tokens = _sp._tokenize(task_text)
     if not query_tokens:
         return []
-    corpus = _sp._cross_family_candidate_corpus(role, repo_root, home, target_repo_root)
+    corpus = _sp._cross_family_candidate_corpus(skill, repo_root, home, target_repo_root)
     docs: list[tuple[str, Path, str, set[str]]] = []
     for name, d, source in corpus:
         # 이슈 #2124 part 1: 문서 = description 전문 + 이름 토큰 + metadata.axis
@@ -754,7 +754,7 @@ def _bm25_cross_family_scores(task_text: str, role: str,
     return scored
 
 
-def _cross_family_skill_matches(task_text: str, role: str,
+def _cross_family_skill_matches(task_text: str, skill: str,
                                  repo_root: Path | None,
                                  k: int = 2,
                                  home: Path | None = None,
@@ -763,7 +763,7 @@ def _cross_family_skill_matches(task_text: str, role: str,
     대체, 호출부/시그니처는 그대로다). consult-judge 단계 없이 이 함수
     단독으로도 오늘의 fail-open 경로(자문 에러시 이 함수의 top-k)와
     동일한 모양을 낸다."""
-    scored = _sp._bm25_cross_family_scores(task_text, role, repo_root, home, target_repo_root)
+    scored = _sp._bm25_cross_family_scores(task_text, skill, repo_root, home, target_repo_root)
     return [d for _, _, d, _ in scored[:k]]
 
 

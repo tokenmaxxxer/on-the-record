@@ -174,7 +174,7 @@ tick=0
 # semantics cannot silently retime patrol promotion.
 patrol_tick=0
 patrol_every_n="${POLL_HEARTBEAT_PATROL_EVERY_N:-5}"
-IFS=' ' read -r -a POLL_HEARTBEAT_PATROL_ROLES <<<"$(python3 -c "
+IFS=' ' read -r -a POLL_HEARTBEAT_PATROL_SKILLS <<<"$(python3 -c "
 import sys
 sys.path.insert(0, '${CHECKOUT}')
 import spawn
@@ -292,8 +292,8 @@ while true; do
       _patrol_checked=0
       _patrol_promotions=0
       _patrol_crashed=0
-      for _patrol_role in "${POLL_HEARTBEAT_PATROL_ROLES[@]}"; do
-        _patrol_out="$(python3 "${CHECKOUT}/gates/patrol_promote.py" run "${CHECKOUT}" "${_patrol_role}" 2>&1)"
+      for _patrol_skill in "${POLL_HEARTBEAT_PATROL_SKILLS[@]}"; do
+        _patrol_out="$(python3 "${CHECKOUT}/gates/patrol_promote.py" run "${CHECKOUT}" "${_patrol_skill}" 2>&1)"
         _patrol_rc=$?
         _patrol_checked=$((_patrol_checked + 1))
         if [ "${_patrol_rc}" -ne 0 ]; then
@@ -302,8 +302,8 @@ while true; do
           # logged the same way the existing due_rc-crash path already
           # logs (_poll_watchdog_log_append), plus a Monitor-visible
           # trace line so the failing role is identifiable per tick.
-          _poll_watchdog_log_append "$(printf '[patrol-poll crashed, role=%s, rc=%s] %s' "${_patrol_role}" "${_patrol_rc}" "${_patrol_out}")"
-          printf '[patrol-poll] %s: crashed (rc=%s)\n' "${_patrol_role}" "${_patrol_rc}"
+          _poll_watchdog_log_append "$(printf '[patrol-poll crashed, role=%s, rc=%s] %s' "${_patrol_skill}" "${_patrol_rc}" "${_patrol_out}")"
+          printf '[patrol-poll] %s: crashed (rc=%s)\n' "${_patrol_skill}" "${_patrol_rc}"
           _patrol_crashed=1
         elif [ -n "${_patrol_out}" ]; then
           _patrol_count="$(printf '%s' "${_patrol_out}" | python3 -c '
@@ -316,7 +316,7 @@ print(len(d.get("promotions", [])) if isinstance(d, dict) else 0)
 ' 2>/dev/null || printf '0')"
           if [ -n "${_patrol_count}" ] && [ "${_patrol_count}" != "0" ]; then
             _patrol_promotions=$((_patrol_promotions + _patrol_count))
-            printf '[patrol-poll] %s: %s promotion(s)\n' "${_patrol_role}" "${_patrol_count}"
+            printf '[patrol-poll] %s: %s promotion(s)\n' "${_patrol_skill}" "${_patrol_count}"
           fi
         fi
       done

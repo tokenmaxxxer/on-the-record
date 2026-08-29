@@ -1,7 +1,7 @@
 """Structured approval record field-read/dual-write/fallback tests (issue #1818).
 
 Mirrors issue #1803's field-present-vs-key-split equivalence method: the
-record is a write-through cache of `_approved_roles_on_issue`'s own comment
+record is a write-through cache of `_approved_skills_on_issue`'s own comment
 scan, so "record path" and "comment-scan path" must agree by construction.
 """
 from __future__ import annotations
@@ -41,8 +41,8 @@ class ApprovalRecordFieldTest(unittest.TestCase):
         # approving login and a timestamp, keyed by role.
         spawn._issue_comments = lambda repo, issue: (
             [{"login": "approver1", "body": "APPROVE issue-9001/implementation"}], True)
-        roles = ci._approved_roles_on_issue(self.repo, 9001)
-        self.assertEqual(roles, {"implementation"})
+        skills = ci._approved_skills_on_issue(self.repo, 9001)
+        self.assertEqual(skills, {"implementation"})
 
         record_path = self._record_path(9001)
         self.assertTrue(record_path.exists())
@@ -61,8 +61,8 @@ class ApprovalRecordFieldTest(unittest.TestCase):
             {"implementation": {"actor": "approver1", "timestamp": "2026-01-01T00:00:00+00:00"}}),
             encoding="utf-8")
         spawn._issue_comments = lambda repo, issue: ([], True)
-        roles = ci._approved_roles_on_issue(self.repo, 9002)
-        self.assertEqual(roles, {"implementation"})
+        skills = ci._approved_skills_on_issue(self.repo, 9002)
+        self.assertEqual(skills, {"implementation"})
 
     def test_fallback_covers_role_record_does_not_have(self):
         # record covers one role; comment scan finds a second, newer
@@ -75,8 +75,8 @@ class ApprovalRecordFieldTest(unittest.TestCase):
             encoding="utf-8")
         spawn._issue_comments = lambda repo, issue: (
             [{"login": "approver1", "body": "APPROVE issue-9003/review"}], True)
-        roles = ci._approved_roles_on_issue(self.repo, 9003)
-        self.assertEqual(roles, {"implementation", "review"})
+        skills = ci._approved_skills_on_issue(self.repo, 9003)
+        self.assertEqual(skills, {"implementation", "review"})
         record = json.loads(record_path.read_text(encoding="utf-8"))
         self.assertIn("review", record)
         self.assertIn("implementation", record)
@@ -92,13 +92,13 @@ class ApprovalRecordFieldTest(unittest.TestCase):
              {"login": "approver1", "body": "not an approval"}],
             True)
         self.assertFalse(self._record_path(9004).exists())
-        roles = ci._approved_roles_on_issue(self.repo, 9004)
-        self.assertEqual(roles, {"implementation"})
+        skills = ci._approved_skills_on_issue(self.repo, 9004)
+        self.assertEqual(skills, {"implementation"})
 
     def test_record_absent_and_comments_unreachable_fails_closed(self):
         spawn._issue_comments = lambda repo, issue: ([], False)
-        roles = ci._approved_roles_on_issue(self.repo, 9005)
-        self.assertEqual(roles, set())
+        skills = ci._approved_skills_on_issue(self.repo, 9005)
+        self.assertEqual(skills, set())
 
     def test_corrupt_record_file_falls_back_to_scan(self):
         record_path = self._record_path(9006)
@@ -106,8 +106,8 @@ class ApprovalRecordFieldTest(unittest.TestCase):
         record_path.write_text("not json", encoding="utf-8")
         spawn._issue_comments = lambda repo, issue: (
             [{"login": "approver1", "body": "APPROVE issue-9006/implementation"}], True)
-        roles = ci._approved_roles_on_issue(self.repo, 9006)
-        self.assertEqual(roles, {"implementation"})
+        skills = ci._approved_skills_on_issue(self.repo, 9006)
+        self.assertEqual(skills, {"implementation"})
 
 
 if __name__ == "__main__":

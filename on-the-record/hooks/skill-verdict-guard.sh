@@ -240,17 +240,17 @@ except ImportError:
     sys.exit(2)
 
 # --- prefer the .on-the-record/role.json lease sidecar (issue #1814) -------
-issue_n, role = None, None
+issue_n, skill = None, None
 try:
     with open(os.path.join(repo, ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
     if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
             and isinstance(sidecar.get("issue"), int)):
-        issue_n, role = sidecar["issue"], sidecar["role"]
+        issue_n, skill = sidecar["issue"], sidecar["role"]
 except (OSError, ValueError):
     pass
 
-if role is None:
+if skill is None:
     branch_r = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=repo, capture_output=True, text=True, timeout=10,
@@ -259,8 +259,8 @@ if role is None:
     branch_m = re.match(r"^issue-(\d+)/([^/]+)$", branch)
     if not branch_m:
         finish(reminder)
-    issue_n, role = int(branch_m.group(1)), branch_m.group(2)
-rel = os.path.join("docs", f"issue-{issue_n}", "reports", f"{role}.md")
+    issue_n, skill = int(branch_m.group(1)), branch_m.group(2)
+rel = os.path.join("docs", f"issue-{issue_n}", "reports", f"{skill}.md")
 
 record_file = os.path.join(repo, rel)
 record_text = ""

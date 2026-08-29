@@ -69,18 +69,18 @@ class BranchNamesEquivalenceTest(unittest.TestCase):
     ]
 
     def test_hook_trio_match_and_extract(self):
-        for branch, issue, role in self.GOLDEN_MATCH:
+        for branch, issue, skill in self.GOLDEN_MATCH:
             m = _HOOK_BRANCH_RE.match(branch)
             self.assertIsNotNone(m, branch)
             self.assertEqual(m.group(1), issue)
-            self.assertEqual(m.group(2), role)
+            self.assertEqual(m.group(2), skill)
 
     def test_flows_match_and_extract(self):
-        for branch, issue, role in self.GOLDEN_MATCH:
+        for branch, issue, skill in self.GOLDEN_MATCH:
             m = _FLOWS_BRANCH_RE.match(branch)
             self.assertIsNotNone(m, branch)
             self.assertEqual(m.group(1), f"issue-{issue}")
-            self.assertEqual(m.group(2), role)
+            self.assertEqual(m.group(2), skill)
 
     def test_charset_divergence_hooks_accept_flows_reject(self):
         for branch in self.GOLDEN_DIVERGENT:
@@ -109,9 +109,9 @@ class BranchNamesEquivalenceTest(unittest.TestCase):
 _CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
 
 
-def _needle_exact(issue: int, role: str) -> str:
+def _needle_exact(issue: int, skill: str) -> str:
     """approval-gate.sh:166 / pr-preflight.sh:137"""
-    return "APPROVE issue-%d/%s" % (issue, role)
+    return "APPROVE issue-%d/%s" % (issue, skill)
 
 
 def _needle_prefix(issue: int) -> str:
@@ -151,7 +151,7 @@ class ApproveGrammarEquivalenceTest(unittest.TestCase):
     # issue #1818: field-present path equivalence — a structured approval
     # record (write-through cache of the needle scan itself) must yield
     # the same role set the comment-scan-only path derives on its own.
-    def test_approved_roles_record_present_matches_scan_only(self):
+    def test_approved_skills_record_present_matches_scan_only(self):
         import tempfile
         import ci  # noqa: PLC0415 — local import mirrors flows import style above
         with tempfile.TemporaryDirectory() as tmp:
@@ -161,16 +161,16 @@ class ApproveGrammarEquivalenceTest(unittest.TestCase):
             spawn._issue_comments = lambda repo, issue: (
                 [{"login": "approver1", "body": "APPROVE issue-9101/implementation"}], True)
             try:
-                roles_scan_only = ci._approved_roles_on_issue(root, 9101)
+                skills_scan_only = ci._approved_skills_on_issue(root, 9101)
                 # second call: record now exists (write-through from the
                 # first call) — comment scan still runs unmodified.
-                roles_record_present = ci._approved_roles_on_issue(root, 9101)
+                skills_record_present = ci._approved_skills_on_issue(root, 9101)
             finally:
                 spawn._approvers, spawn._issue_comments = orig_approvers, orig_comments
-            self.assertEqual(roles_scan_only, {"implementation"})
-            self.assertEqual(roles_record_present, roles_scan_only)
+            self.assertEqual(skills_scan_only, {"implementation"})
+            self.assertEqual(skills_record_present, skills_scan_only)
 
-    def test_approved_roles_record_absent_matches_legacy_scan(self):
+    def test_approved_skills_record_absent_matches_legacy_scan(self):
         import tempfile
         import ci  # noqa: PLC0415
         with tempfile.TemporaryDirectory() as tmp:
@@ -182,10 +182,10 @@ class ApproveGrammarEquivalenceTest(unittest.TestCase):
                  {"login": "not-an-approver", "body": "APPROVE issue-9102/review"}], True)
             try:
                 self.assertFalse(spawn._approval_record_path(root, 9102).exists())
-                roles = ci._approved_roles_on_issue(root, 9102)
+                skills = ci._approved_skills_on_issue(root, 9102)
             finally:
                 spawn._approvers, spawn._issue_comments = orig_approvers, orig_comments
-            self.assertEqual(roles, {"implementation"})
+            self.assertEqual(skills, {"implementation"})
 
     def test_two_semantics_diverge_on_near_miss(self):
         # exact match rejects a role-swapped near-miss; prefix match (any
@@ -237,7 +237,7 @@ class ApprovalGateEquivalenceTest(unittest.TestCase):
 # --- consumer 4: board records (zero role-name-parse-site consumer) --------
 
 class BoardRecordsEquivalenceTest(unittest.TestCase):
-    def test_board_matches_only_known_roles(self, tmp_path=None):
+    def test_board_matches_only_known_skills(self, tmp_path=None):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -250,12 +250,12 @@ class BoardRecordsEquivalenceTest(unittest.TestCase):
             # `not-a-real-role.md`는 frontmatter 가 비어 있어(`loop_state`
             # 없음) 여전히 걸러진다 — 이름이 role 카탈로그에 속하는지가
             # 아니라 frontmatter 내용이 판별 기준이라는 걸 이 테스트가 편다.
-            known_role = "implementation"
-            (subj / f"{known_role}.md").write_text("---\nloop_state: x\n---\n", encoding="utf-8")
+            known_skill = "implementation"
+            (subj / f"{known_skill}.md").write_text("---\nloop_state: x\n---\n", encoding="utf-8")
             (subj / "not-a-real-role.md").write_text("---\n---\n", encoding="utf-8")
             result = spawn.board(root)
             self.assertIn("issue-9001", result)
-            self.assertIn(known_role, result["issue-9001"])
+            self.assertIn(known_skill, result["issue-9001"])
             self.assertNotIn("not-a-real-role", result["issue-9001"])
 
     def test_roles_tuple_is_retired(self):

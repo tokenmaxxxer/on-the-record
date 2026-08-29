@@ -131,11 +131,11 @@ class DualSchemeBoardDiscoveryTest(unittest.TestCase):
             self._write_record(root, 2432, "implementation")
             self._write_record(root, 2432, "implementation-blueprint-a1b2c3d4")
             b = spawn.board(root)
-            roles = b["issue-2432"]
-            self.assertEqual(set(roles),
+            skills = b["issue-2432"]
+            self.assertEqual(set(skills),
                               {"implementation", "implementation-blueprint-a1b2c3d4"})
-            for name in roles:
-                self.assertEqual(roles[name]["loop_state"], "in-progress")
+            for name in skills:
+                self.assertEqual(skills[name]["loop_state"], "in-progress")
 
     def test_non_record_md_file_in_reports_is_not_swept_in(self):
         # frontmatter 블록이 없는 잡파일은 새 스킬 축 레코드로 오인되면

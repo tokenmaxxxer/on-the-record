@@ -17,7 +17,7 @@ APPROVE 코멘트를 보고 `spawn.py <role> ... --issue <n>` 를 수동으로
 트리거 조건이 정반대다 — 그쪽은 "PR 이 생겼다"(PR 존재가 트리거 — issue
 #2628 이후로는 role 고정이 아니라 subject 당 부족한 독립 verification
 개수를 본다), 이쪽은 "이 role 이 승인됐다"(role 은 board 가 이미 아는 임의의
-role, `gates/ci.py._approved_roles_on_issue` 술어로 판정) + "아직
+role, `gates/ci.py._approved_skills_on_issue` 술어로 판정) + "아직
 phase-2 기록이 없다"(board 에 role 항목 없음, phase-1 은 record 를 쓰지
 않는다는 계약 그대로) + "phase-1 PR 이 이미 열려 있다"(계속할 브랜치가
 있어야 한다 — PR 이 아직 없으면 이어받을 phase-1 산출물 자체가 없다) +
@@ -54,7 +54,7 @@ import ci as _ci  # noqa: E402
 import closure_sweep  # noqa: E402
 import state_paths  # noqa: E402
 
-_BRANCH_SUBJECT_ROLE_RE = re.compile(r"(?:^|/)(issue-\d+)/([A-Za-z0-9-]+)$")
+_BRANCH_SUBJECT_SKILL_RE = re.compile(r"(?:^|/)(issue-\d+)/([A-Za-z0-9-]+)$")
 
 # issue #1360 계열 백스톱과 같은 상수값 — 틱당 자동 phase-2 스폰 상한.
 SPAWN_CAP = 4
@@ -111,11 +111,11 @@ def _pr_number_for_branch(root: Path, branch: str,
     return spawn._pr_open_or_merged_for_branch(root, branch)
 
 
-def _role_session_active(root: Path, subject: str, role: str) -> bool:
+def _skill_session_active(root: Path, subject: str, skill: str) -> bool:
     """`subject/role` 로스터 엔트리가 살아있는 pid 로 남아있으면 True —
     이미 도는 세션 위에 또 스폰하지 않는다(`spawn_on_pr.py:
     _implementation_session_active` 와 같은 판정, role 을 일반화)."""
-    entry = spawn._roster_load().get(f"{subject}/{role}")
+    entry = spawn._roster_load().get(f"{subject}/{skill}")
     if entry is None:
         return False
     pid = entry.get("pid")
@@ -139,7 +139,7 @@ def _candidate_branches(root: Path) -> set[tuple[str, str]]:
         return set()
     out: set[tuple[str, str]] = set()
     for line in r.stdout.splitlines():
-        m = _BRANCH_SUBJECT_ROLE_RE.search(line.strip())
+        m = _BRANCH_SUBJECT_SKILL_RE.search(line.strip())
         if m:
             out.add((m.group(1), m.group(2)))
     return out
@@ -176,27 +176,27 @@ def ready_for_phase2(root: Path, subjects: set[str] | None = None,
     candidates = _candidate_branches(root)
     if subjects is not None:
         candidates = {(s, r) for (s, r) in candidates if s in subjects}
-    for subject, role in sorted(candidates):
+    for subject, skill in sorted(candidates):
         parts = subject.split("-", 1)
         if len(parts) != 2 or not parts[1].isdigit():
             continue
         issue = int(parts[1])
         if not _issue_is_open(issue, issue_states):
             continue
-        if role in b.get(subject, {}):
+        if skill in b.get(subject, {}):
             continue  # phase-2 기록이 이미 있다 — 델리버리 끝
-        key = f"{subject}/{role}"
+        key = f"{subject}/{skill}"
         if key in attempted:
             continue  # 이미 한 번 시도됐다 — auto-respawn/health 경로가 이어받는다
-        approved = _ci._approved_roles_on_issue(root, issue)
-        if role not in approved:
+        approved = _ci._approved_skills_on_issue(root, issue)
+        if skill not in approved:
             continue  # 아직 승인 안 됨 — phase-1 그대로
-        branch = f"{subject}/{role}"
+        branch = f"{subject}/{skill}"
         if _pr_number_for_branch(root, branch, pr_index) is None:
             continue  # phase-1 PR 이 아직 없다 — 이어받을 산출물이 없다
-        if _role_session_active(root, subject, role):
+        if _skill_session_active(root, subject, skill):
             continue  # 이미 돌고 있다
-        out.setdefault(subject, []).append(role)
+        out.setdefault(subject, []).append(skill)
     return out
 
 
@@ -221,11 +221,11 @@ def spawn_phase2(root: Path, cwd: str, dry_run: bool = False,
     if pr_index is None:
         pr_index, _ = closure_sweep._pr_index_all(root)
     pairs_all: list[tuple[str, str]] = []
-    for subject, roles in ready_for_phase2(
+    for subject, skills in ready_for_phase2(
             root, subjects=subjects, issue_states=issue_states,
             pr_index=pr_index).items():
-        for role in roles:
-            pairs_all.append((subject, role))
+        for skill in skills:
+            pairs_all.append((subject, skill))
 
     pairs = pairs_all[:spawn_cap]
     deferred = len(pairs_all) - len(pairs)
@@ -236,16 +236,16 @@ def spawn_phase2(root: Path, cwd: str, dry_run: bool = False,
         return pairs
 
     attempted = load_attempted(root)
-    for subject, role in pairs:
+    for subject, skill in pairs:
         issue = int(subject.split("-", 1)[1])
-        branch = f"{subject}/{role}"
-        task = (f"이슈 #{issue}: {role} — APPROVE issue-{issue}/{role} 코멘트가 "
+        branch = f"{subject}/{skill}"
+        task = (f"이슈 #{issue}: {skill} — APPROVE issue-{issue}/{skill} 코멘트가 "
                 f"관측됐다. phase-2 로 계속한다: 기존 phase-1 PR({branch} 브랜치) "
                 f"위에서 실제 작업과 기록을 커밋하라. (자동 스폰됨, "
                 f"spawn_on_approve.py, issue #2173)")
         spawn.roster_register(
-            f"issue-{issue}/{role}",
-            {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
+            f"issue-{issue}/{skill}",
+            {"role": skill, "issue": issue, "expects_pr": True, "work": cwd},
         )
         # 이슈 #2574 disposition: single-phase(build-now). 이 스폰의
         # 전제 자체가 "APPROVE issue-<n>/<role> 코멘트가 이미 관측됐다"
@@ -257,7 +257,7 @@ def spawn_phase2(root: Path, cwd: str, dry_run: bool = False,
         # 턴부터 "제안 라운드 없이 바로 phase-2 작업으로" 라는 것을
         # 알고 시작하게 한다 — task 문구가 이미 말하는 바와 정확히
         # 일치시키는 것.
-        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True,
+        spawn._spawn_one(cwd, skill, task, unattended=True, issue=issue, bounded=True,
                          single_phase=True)
         attempted[branch] = {
             "pr_number": _pr_number_for_branch(root, branch, pr_index),

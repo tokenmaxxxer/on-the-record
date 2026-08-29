@@ -30,7 +30,7 @@ KILL_SWITCH_REL_PATH = ".on-the-record/patrol-disabled"
 RECORD_PATH = re.compile(r"^docs/issue-[^/]+/reports/([^/]+)\.md$")
 # Mirrors spawn.JUDGE_MAX_ROLES_PER_MERGE — this loop reads that constant
 # directly rather than defining a second cap number that could drift.
-MAX_ROLES_PER_MERGE = 3
+MAX_SKILLS_PER_MERGE = 3
 
 
 def kill_switch_active(repo_root: Path) -> bool:
@@ -52,7 +52,7 @@ def _changed_files(repo_root: str, merge_sha: str) -> list[str]:
     return [line for line in r.stdout.splitlines() if line.strip()]
 
 
-def _merge_roles(changed: list[str]) -> list[str]:
+def _merge_skills(changed: list[str]) -> list[str]:
     """issue #2610: this used to iterate every name in the (now-deleted)
     44-entry role catalog and probe `judge_cmd` for each, relying on
     judge's own prefilter to decide jurisdiction — the catalog was pure
@@ -101,33 +101,33 @@ def run(repo_root: str, merge_sha: str, judge_cmd=None) -> dict:
         judge_cmd = spawn.judge_cmd
 
     hits = 0
-    board_roles = []
-    for role in _merge_roles(event["changed_files"]):
-        if hits >= MAX_ROLES_PER_MERGE:
-            print(f"[patrol-wiring] role cap reached ({MAX_ROLES_PER_MERGE} hits), stopping role loop")
+    board_skills = []
+    for skill in _merge_skills(event["changed_files"]):
+        if hits >= MAX_SKILLS_PER_MERGE:
+            print(f"[patrol-wiring] role cap reached ({MAX_SKILLS_PER_MERGE} hits), stopping role loop")
             break
         try:
-            result = judge_cmd(role, merge_sha, cwd=str(root))
+            result = judge_cmd(skill, merge_sha, cwd=str(root))
         except Exception as e:
-            print(f"[patrol-wiring] role={role} errored ({type(e).__name__}): continuing")
+            print(f"[patrol-wiring] role={skill} errored ({type(e).__name__}): continuing")
             continue
         if result.get("skipped"):
-            print(f"[patrol-wiring] role={role} skipped ({result.get('reason')})")
+            print(f"[patrol-wiring] role={skill} skipped ({result.get('reason')})")
             continue
         hits += 1
         enqueued = result.get("enqueued", [])
-        print(f"[patrol-wiring] role={role} judged, enqueued={len(enqueued)}")
+        print(f"[patrol-wiring] role={skill} judged, enqueued={len(enqueued)}")
         if enqueued:
-            board_roles.append(role)
+            board_skills.append(skill)
 
     from datetime import datetime, timezone
     date = datetime.now(timezone.utc).date().isoformat()
     queue_path = root / patrol_queue.QUEUE_REL_PATH
-    for role in board_roles:
-        patrol_board.run_patrol_board(root, role, queue_path, False, date)
-        print(f"[patrol-wiring] board refreshed for role={role}")
+    for skill in board_skills:
+        patrol_board.run_patrol_board(root, skill, queue_path, False, date)
+        print(f"[patrol-wiring] board refreshed for role={skill}")
 
-    return {"skipped": False, "hits": hits, "board_roles": board_roles}
+    return {"skipped": False, "hits": hits, "board_roles": board_skills}
 
 
 def main(argv: list[str]) -> int:

@@ -40,13 +40,13 @@ class ScaffoldStampsTheFieldUniversallyTest(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)
 
-    def test_arbitrary_role_name_gets_the_field_default_false(self):
+    def test_arbitrary_skill_name_gets_the_field_default_false(self):
         p = spawn.write_record_skeleton(self._tmpdir.name, 4242,
                                          "totally-unenumerated-slug-9f3a")
         text = p.read_text(encoding="utf-8")
         self.assertIn("verifies_subject: false", text)
 
-    def test_named_legacy_roles_get_no_special_treatment(self):
+    def test_named_legacy_skills_get_no_special_treatment(self):
         # Same stamp, same default -- "execution-observation" carries no
         # special meaning to the scaffold; it is retired even as a
         # spawn-on-pr auto-spawn target name (issue #2628), unrelated to

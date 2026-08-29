@@ -342,7 +342,7 @@ def require_acceptance_gate(cwd: str, issue: int | None) -> None:
     issue #310) — 머지 시점이 아니라 세션 시작 전에 거절한다, #424 가 요구한
     "잘못된 상태에서 나가는 배선" 모양 그대로.
 
-    phase 판정은 `gates/ci.py._approved_roles_on_issue` 와 같은 술어를
+    phase 판정은 `gates/ci.py._approved_skills_on_issue` 와 같은 술어를
     쓴다: 승인자 계정의 `APPROVE issue-<n>/<role>` 코멘트가 이슈에 하나라도
     있으면 phase-2(issue #312, phase 는 role 이 아니라 이슈의 속성).
 
@@ -367,8 +367,8 @@ def require_acceptance_gate(cwd: str, issue: int | None) -> None:
     sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
     import ci as _ci
     import acceptance_gate as _acceptance_gate
-    approved_roles = _ci._approved_roles_on_issue(root, issue)
-    if not approved_roles:
+    approved_skills = _ci._approved_skills_on_issue(root, issue)
+    if not approved_skills:
         try:
             bad = _acceptance_gate.check(root, issue)
         except Exception:
@@ -386,7 +386,7 @@ def require_acceptance_gate(cwd: str, issue: int | None) -> None:
     if not bad:
         return
     sys.exit(
-        f"이슈 #{issue} 는 phase-2 승인({', '.join(sorted(approved_roles))})을 "
+        f"이슈 #{issue} 는 phase-2 승인({', '.join(sorted(approved_skills))})을 "
         f"받았지만 'Acceptance' 절이 실행가능한 산출물을 가리키지 않는다:\n"
         + "\n".join(f"  - {b}" for b in bad)
         + f"\n  세션을 안 띄운다 — 프로즈만 있는 Acceptance 로는 델리버리를 "
@@ -422,8 +422,8 @@ def require_requirement_linkage(cwd: str, issue: int | None) -> None:
     sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
     import ci as _ci
     import requirement_linkage as _requirement_linkage
-    approved_roles = _ci._approved_roles_on_issue(root, issue)
-    if approved_roles:
+    approved_skills = _ci._approved_skills_on_issue(root, issue)
+    if approved_skills:
         return  # phase-2: 이미 승인됐다 — 소급 차단하지 않는다
     br = subprocess.run(
         ["git", "for-each-ref",
@@ -465,8 +465,8 @@ def lint_issue(cwd: str, issue: int) -> list[str]:
     import ci as _ci
     import acceptance_gate as _acceptance_gate
     import requirement_linkage as _requirement_linkage
-    approved_roles = _ci._approved_roles_on_issue(root, issue)
-    if approved_roles:
+    approved_skills = _ci._approved_skills_on_issue(root, issue)
+    if approved_skills:
         bad = _acceptance_gate.check(root, issue)
         violations.extend(f"acceptance: {b}" for b in bad)
         return violations  # phase-2: require_requirement_linkage 도 소급 차단하지 않는다
@@ -574,18 +574,18 @@ def _record_upstream(record: Path) -> dict[str, str]:
     return {m.group(1): "" for m in _sp._UPSTREAM_PATH.finditer(block[1])}
 
 
-def _front_role(root: Path, subject: str, roles: dict) -> str | None:
+def _front_skill(root: Path, subject: str, skills: dict) -> str | None:
     """그 subject 의 front record — subject 를 처음 연 참가자 (첫 빌드 승인 게이트).
 
     upstream 이 빈 참가자가 하나뿐이면 그게 체인 루트다. 못 가리면 관례 순서
     (product, 아니면 feasibility)로 물러난다.
     """
-    rootless = [r for r in roles
+    rootless = [r for r in skills
                 if not _sp._record_upstream(root / _sp.BOARD / subject / "reports" / f"{r}.md")]
     if len(rootless) == 1:
         return rootless[0]
     for r in ("product-discovery", "technical-feasibility"):
-        if r in roles:
+        if r in skills:
             return r
     return None
 
@@ -604,11 +604,11 @@ def approve_scope(cwd: str, issue: int) -> int:
     if not approvers:
         sys.exit(f"승인자 목록이 비어 있다: {root / _sp.MARKER}")
 
-    roles = _sp.board(root).get(subject)
-    if not roles:
+    skills = _sp.board(root).get(subject)
+    if not skills:
         sys.exit(f"{subject} 의 보드 기록이 없다: {root / _sp.BOARD / subject / 'reports'}")
 
-    front = _sp._front_role(root, subject, roles)
+    front = _sp._front_skill(root, subject, skills)
     if not front:
         sys.exit(f"{subject} 의 front record 를 판별할 수 없다.")
 
@@ -728,9 +728,9 @@ def _skill_axis_report_names(rep: Path) -> list[str]:
     발견(이슈 #2432): 단순 "frontmatter 블록 있음"만 보면, hunt/감사 레코드
     (`---\\nproposal: ...\\n---`처럼 frontmatter 는 있지만 `loop_state` 는
     없는 `docs/issue-1077/reports/hunt-implementation.md` 같은 파일)까지
-    쓸려 들어와 `_front_role()`의 "rootless 레코드는 하나뿐" 불변식을 깨고
+    쓸려 들어와 `_front_skill()`의 "rootless 레코드는 하나뿐" 불변식을 깨고
     `approve_scope()`(실제 커밋을 쓴다)의 판정을 바꿔 버렸다 — 29개 기존
-    subject 에서 실측(`issue-1077`이 그 중 하나, `_front_role`이
+    subject 에서 실측(`issue-1077`이 그 중 하나, `_front_skill`이
     `implementation` 대신 `None`을 반환하게 됨). `rep.iterdir()`는 한 단계만
     보므로 `reports/<role>/` 같은 중첩 디렉터리(예:
     docs/issue-2241/reports/architecture/survey.md)의 파일들은 여기 걸리지
@@ -766,12 +766,12 @@ def board(root: Path) -> dict[str, dict[str, dict[str, str]]]:
             continue
         rep = d / "reports"
         lease_slugs = _sp._lease_slugs_for_issue(_sp._issue_num(d.name))
-        roles = {r: _sp.frontmatter(rep / f"{r}.md") for r in lease_slugs
+        skills = {r: _sp.frontmatter(rep / f"{r}.md") for r in lease_slugs
                  if (rep / f"{r}.md").is_file()}
         for name in _sp._skill_axis_report_names(rep):
-            roles[name] = _sp.frontmatter(rep / f"{name}.md")
-        if roles:
-            found[d.name] = roles
+            skills[name] = _sp.frontmatter(rep / f"{name}.md")
+        if skills:
+            found[d.name] = skills
     return found
 
 
@@ -790,7 +790,7 @@ def status(cwd: str) -> list[str]:
                    f"`spawn.py init` 으로 만든다.")
     b = _sp.board(root)
     if b:
-        for subject, roles in b.items():
+        for subject, skills in b.items():
             out.append(f"subject: {subject}")
             # 이슈 #2560: 옛 고정 `_sp.ROLES` 튜플 대신, 이 이슈에 실제로
             # 로스터 lease 를 가졌던 참가자 slug 집합만 돈다 — roster entry
@@ -799,7 +799,7 @@ def status(cwd: str) -> list[str]:
             # Step E).
             lease_slugs = _sp._lease_slugs_for_issue(_sp._issue_num(subject))
             for r in sorted(lease_slugs):
-                fm = roles.get(r)
+                fm = skills.get(r)
                 if fm is None:
                     continue
                 bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
@@ -821,13 +821,13 @@ def status(cwd: str) -> list[str]:
             # 지워진 뒤에도 남은 레코드) 도 같은 줄 형식으로 보여준다 —
             # 안 그러면 그런 레코드가 `board()` 에는 잡히는데 사람이 읽는
             # 이 목록에서는 조용히 사라진다.
-            for r in sorted(r for r in roles if r not in lease_slugs):
-                fm = roles[r]
+            for r in sorted(r for r in skills if r not in lease_slugs):
+                fm = skills[r]
                 bits = [f"loop_state: {fm.get('loop_state', '(없음)')}"]
                 if fm.get("verdict"):
                     bits.append(f"verdict: {fm['verdict']}")
                 out.append(f"  [record: {r}] " + "   ".join(bits))
-            missing = [r for r in sorted(lease_slugs) if r not in roles]
+            missing = [r for r in sorted(lease_slugs) if r not in skills]
             if missing:
                 out.append(f"  (기록 없음: {', '.join(missing)})")
         return out
@@ -911,7 +911,7 @@ def gate_report(cwd: str) -> list[str]:
 ALT_RECORD_SUBDIRS = ("spikes/", "postmortems/")
 
 
-def ownership_report(cwd: str, role: str, delta: list) -> list[str]:
+def ownership_report(cwd: str, skill: str, delta: list) -> list[str]:
     """이 세션이 **자기 것이 아닌** 보드 경로를 건드렸는지 사후로 본다.
 
     세션 안에서는 룰북과 core 의 게이트가 막는다. 이건 그 게이트가 어떤
@@ -925,14 +925,14 @@ def ownership_report(cwd: str, role: str, delta: list) -> list[str]:
         if not m:
             continue
         rest = m.group(2)
-        if rest == f"{role}.md" or rest.startswith(f"{role}/"):
+        if rest == f"{skill}.md" or rest.startswith(f"{skill}/"):
             continue
         if rest.startswith(ALT_RECORD_SUBDIRS):
             continue
         bad.append(f"  - {p} (다른 역할의 기록)")
     if not bad:
         return []
-    return [f"[소유권] {role} 이 자기 것이 아닌 보드 경로를 건드렸다 — "
+    return [f"[소유권] {skill} 이 자기 것이 아닌 보드 경로를 건드렸다 — "
             f"세션 안의 게이트가 안 돌았다는 뜻이다 (계약 §11):"] + bad
 
 
@@ -1241,7 +1241,7 @@ def _format_roster_row(key: str, e: dict, ws_idx: dict,
     ws_key = f"{_sp._repo_identity(work)}/{key}" if work else key
     ws_entry = ws_idx.get(ws_key)
     watcher_pid = ws_entry.get("watcher_pid") if ws_entry else None
-    role = key.split("/", 1)[1] if "/" in key else None
+    skill = key.split("/", 1)[1] if "/" in key else None
     if watcher_pid is None:
         lines.append("               워처: UNWATCHED")
     elif not alive:
@@ -1249,7 +1249,7 @@ def _format_roster_row(key: str, e: dict, ws_idx: dict,
         # ENDED 이면, 워처의 by-design 동반 종료를 DEAD 로 오라벨하지
         # 않는다 — 그건 세션이 살아있는데 워처만 죽은 경우의 라벨이다.
         lines.append(f"               워처: exited-with-session (pid {watcher_pid})")
-    elif _sp._watcher_looks_real(watcher_pid, e.get("issue"), role):
+    elif _sp._watcher_looks_real(watcher_pid, e.get("issue"), skill):
         armed_at = ws_entry.get("watcher_armed_at")
         armed_mins = (int(now) - int(armed_at)) // 60 \
             if armed_at is not None else "?"

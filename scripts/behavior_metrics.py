@@ -32,10 +32,10 @@ REPO = Path(__file__).resolve().parent.parent
 # Consult/observation-only roles routinely end a turn with 0 commits by
 # design (e.g. a validity consult that only advises), so they are not
 # flagged by metric (b).
-EXPECTED_COMMIT_ROLES = {"implementation", "coding"}
+EXPECTED_COMMIT_SKILLS = {"implementation", "coding"}
 
 RECHECK_RE = re.compile(r"(\d+)(?:st|nd|rd|th)\s+re-check|재확인", re.I)
-ROLE_DIR_RE = re.compile(r"reports/([a-z][a-z0-9_-]*)/deviation-log\.md$")
+SKILL_DIR_RE = re.compile(r"reports/([a-z][a-z0-9_-]*)/deviation-log\.md$")
 ISSUE_RE = re.compile(r"docs/issue-(\d+)/")
 
 
@@ -77,13 +77,13 @@ def extract_recheck_entries(repo: Path = REPO) -> list[dict]:
         if not issue_m:
             continue
         issue = issue_m.group(1)
-        role_m = ROLE_DIR_RE.search(rel)
-        role = role_m.group(1) if role_m else "unknown"
+        skill_m = SKILL_DIR_RE.search(rel)
+        skill = skill_m.group(1) if skill_m else "unknown"
         text = path.read_text(errors="replace")
         for line in text.splitlines():
             if RECHECK_RE.search(line) and "re-check" in line.lower() or "재확인" in line:
                 entries.append({
-                    "role": role, "issue": issue,
+                    "role": skill, "issue": issue,
                     "subject_hash": _subject_hash(line),
                     "source": rel, "line": line.strip(),
                 })
@@ -100,7 +100,7 @@ def zero_commit_sessions(sessions: list[dict]) -> list[dict]:
     commit (EXPECTED_COMMIT_ROLES). Non-implementation (e.g. consult)
     sessions with 0 commits are not flagged."""
     return [s for s in sessions
-            if s.get("commits", 0) == 0 and s.get("role") in EXPECTED_COMMIT_ROLES]
+            if s.get("commits", 0) == 0 and s.get("role") in EXPECTED_COMMIT_SKILLS]
 
 
 SUBJECT_TRAILER_RE = re.compile(r"^Subject:\s*issue-(\d+)\s*$", re.M)

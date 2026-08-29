@@ -388,7 +388,7 @@ def _workspace_index_locked():
             fcntl.flock(f, fcntl.LOCK_UN)
 
 
-def _workspace_index_put(issue: int, role: str, work: str, log: str,
+def _workspace_index_put(issue: int, skill: str, work: str, log: str,
                           watcher_pid: int | None = None,
                           watcher_armed_at: float | None = None) -> None:
     """이슈 #488: `watcher_pid` 는 이 스폰이 자동 무장한 워처 프로세스의
@@ -407,14 +407,14 @@ def _workspace_index_put(issue: int, role: str, work: str, log: str,
     _sp.WORKSPACE_INDEX.parent.mkdir(parents=True, exist_ok=True)
     with _sp._workspace_index_locked():
         d = _sp._workspace_index_load()
-        key = f"{_sp._repo_identity(work)}/issue-{issue}/{role}"
+        key = f"{_sp._repo_identity(work)}/issue-{issue}/{skill}"
         existing = d.get(key)
         if existing is not None and existing.get("work") != work:
             raise RuntimeError(
                 f"workspace index collision on {key!r}: existing entry "
                 f"{existing!r} has a different work dir than {work!r} — "
                 f"refusing to overwrite silently (issue #533)")
-        entry = {"work": work, "log": log, "role": role}
+        entry = {"work": work, "log": log, "role": skill}
         if watcher_pid is not None:
             entry["watcher_pid"] = watcher_pid
         if watcher_armed_at is not None:
@@ -539,8 +539,8 @@ def _live_roster_matches(matches: list, issue: int) -> list:
     roster = _sp._roster_load()
     live = []
     for k, v in matches:
-        role = v.get("role") or k.rsplit("/", 1)[1]
-        e = roster.get(f"issue-{issue}/{role}")
+        skill = v.get("role") or k.rsplit("/", 1)[1]
+        e = roster.get(f"issue-{issue}/{skill}")
         if e is not None and _sp._alive(e.get("pid", 0)):
             live.append((k, v))
     return live
@@ -551,14 +551,14 @@ def _ambiguous_watch_exit(issue: int, matches: list, repo: str | None) -> None:
     붙여넣을 수 있는 명령을 에러에 찍는다 — `--session` 없이 재시도하면 같은
     메시지가 또 나오는 죽은 재시도 구간을 없앤다."""
     cwd_flag = f" -C {repo}" if repo else ""
-    roles = [v.get("role") or k.rsplit("/", 1)[1] for k, v in matches]
+    skills = [v.get("role") or k.rsplit("/", 1)[1] for k, v in matches]
     cmds = "; ".join(
-        f"spawn.py watch --issue {issue} --session {r}{cwd_flag}" for r in roles)
+        f"spawn.py watch --issue {issue} --session {r}{cwd_flag}" for r in skills)
     sys.exit(f"이슈 {issue} 에 역할이 여럿 기록돼 있다 — 역할을 지정하라 "
-             f"(후보: {', '.join(roles)}): {cmds}")
+             f"(후보: {', '.join(skills)}): {cmds}")
 
 
-def _roster_fallback_entry(issue: int, role: str | None, repo: str | None):
+def _roster_fallback_entry(issue: int, skill: str | None, repo: str | None):
     """이슈 #1585: `watch`(워크스페이스 인덱스)와 `ps`(ROSTER)가 서로 다른
     소스를 읽어, 스폰 직후 워크스페이스 인덱스 쓰기가 아직 안 보이는
     짧은 창에서 `ps` 는 RUNNING 인데 `watch` 는 '기록 없음'을 내는 레이스가
@@ -568,37 +568,37 @@ def _roster_fallback_entry(issue: int, role: str | None, repo: str | None):
     같은 모양의 엔트리를 재구성해 두 소스가 존재 여부에서 일치하게 한다.
     조회만 하고 아무것도 기다리지 않는다 — 블로킹을 새로 넣지 않는다."""
     roster = _sp._roster_load()
-    if role:
-        e = roster.get(f"issue-{issue}/{role}")
+    if skill:
+        e = roster.get(f"issue-{issue}/{skill}")
         if not (e is not None and _sp._alive(e.get("pid", 0)) and e.get("work") and e.get("log")):
             return None, None
         if repo is not None and _sp._repo_identity(e["work"]) != repo:
             return None, None
-        key = f"{_sp._repo_identity(e['work'])}/issue-{issue}/{role}"
+        key = f"{_sp._repo_identity(e['work'])}/issue-{issue}/{skill}"
         return key, {"work": e["work"], "log": e["log"]}
     candidates = []
     for k, e in roster.items():
-        found_role = e.get("role")
-        if found_role is None:
+        found_skill = e.get("role")
+        if found_skill is None:
             m = re.match(rf"^issue-{issue}/([^/]+)$", k)
             if not m:
                 continue
-            found_role = m.group(1)
+            found_skill = m.group(1)
         elif not k.startswith(f"issue-{issue}/"):
             continue
         if not (_sp._alive(e.get("pid", 0)) and e.get("work") and e.get("log")):
             continue
         if repo is not None and _sp._repo_identity(e["work"]) != repo:
             continue
-        candidates.append((found_role, e))
+        candidates.append((found_skill, e))
     if len(candidates) != 1:
         return None, None
-    found_role, e = candidates[0]
-    key = f"{_sp._repo_identity(e['work'])}/issue-{issue}/{found_role}"
+    found_skill, e = candidates[0]
+    key = f"{_sp._repo_identity(e['work'])}/issue-{issue}/{found_skill}"
     return key, {"work": e["work"], "log": e["log"]}
 
 
-def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | None = None):
+def _lookup_roster_entry(idx: dict, issue: int, skill: str | None, repo: str | None = None):
     """이슈 #533: `repo` 가 주어지면 그 레포로만 조회를 좁힌다 — `-C` 가
     지금까지 조회에 안 먹히던 구멍을 막는다. 안 주면(기존 기본값) 모든
     레포를 대상으로 이슈+역할 접미사로 매칭하던 예전 동작을 유지한다.
@@ -608,18 +608,18 @@ def _lookup_roster_entry(idx: dict, issue: int, role: str | None, repo: str | No
     보고하므로 그게 유일하게 뜻이 통하는 선택이다. 0개 또는 2개 이상
     살아있으면 여전히 애매하니 `--session`을 요구한다(실행 가능한 명령까지
     같이 찍는다)."""
-    key, entry = _sp._lookup_workspace_entry(idx, issue, role, repo=repo)
+    key, entry = _sp._lookup_workspace_entry(idx, issue, skill, repo=repo)
     if entry is None:
-        fb_key, fb_entry = _sp._roster_fallback_entry(issue, role, repo)
+        fb_key, fb_entry = _sp._roster_fallback_entry(issue, skill, repo)
         if fb_entry is not None:
             return fb_key, fb_entry
     return key, entry
 
 
-def _lookup_workspace_entry(idx: dict, issue: int, role: str | None, repo: str | None = None):
+def _lookup_workspace_entry(idx: dict, issue: int, skill: str | None, repo: str | None = None):
     if repo is not None:
-        if role:
-            key = f"{repo}/issue-{issue}/{role}"
+        if skill:
+            key = f"{repo}/issue-{issue}/{skill}"
             entry = idx.get(key)
         else:
             matches = [(k, v) for k, v in idx.items()
@@ -633,10 +633,10 @@ def _lookup_workspace_entry(idx: dict, issue: int, role: str | None, repo: str |
             key = matches[0][0] if matches else None
             entry = matches[0][1] if matches else None
         return key, entry
-    if role:
-        matches = [(k, v) for k, v in idx.items() if k.endswith(f"/issue-{issue}/{role}")]
+    if skill:
+        matches = [(k, v) for k, v in idx.items() if k.endswith(f"/issue-{issue}/{skill}")]
         if len(matches) > 1:
-            sys.exit(f"이슈 {issue}/{role} 이 레포 여럿에 기록돼 있다 — -C 로 "
+            sys.exit(f"이슈 {issue}/{skill} 이 레포 여럿에 기록돼 있다 — -C 로 "
                      "레포를 지정하라: " + ", ".join(k.rsplit("/issue-", 1)[0] for k, _ in matches))
         key = matches[0][0] if matches else None
         entry = matches[0][1] if matches else None
@@ -653,11 +653,11 @@ def _lookup_workspace_entry(idx: dict, issue: int, role: str | None, repo: str |
     return key, entry
 
 
-def _watch(issue: int, role: str | None, stall_timeout_min: float,
+def _watch(issue: int, skill: str | None, stall_timeout_min: float,
            follow: bool = False, repo: str | None = None,
            max_wait_min: float | None = None, self_heal: bool = False) -> int:
     idx = _sp._workspace_index_load()
-    key, entry = _sp._lookup_roster_entry(idx, issue, role, repo=repo)
+    key, entry = _sp._lookup_roster_entry(idx, issue, skill, repo=repo)
     if entry is None:
         # 등록 레이스(이슈 #484): 스폰이 막 리턴했지만 명부 쓰기가 아직
         # 반영되지 않았을 수 있다 — #451 의 "끝내 안 나타남"과는 구분되는
@@ -671,9 +671,9 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
             time.sleep(poll_s)
             poll_s = min(poll_s * 2, 2.0)
             idx = _sp._workspace_index_load()
-            key, entry = _sp._lookup_roster_entry(idx, issue, role, repo=repo)
+            key, entry = _sp._lookup_roster_entry(idx, issue, skill, repo=repo)
     if entry is None:
-        print(f"[watch] issue-{issue}{'/' + role if role else ''}: 기록 없음 — "
+        print(f"[watch] issue-{issue}{'/' + skill if skill else ''}: 기록 없음 — "
               f"아직 스폰된 적이 없다", file=sys.stderr)
         return 1
     work = entry["work"]
@@ -712,12 +712,12 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
     # 죽어있을 때만 이 follow 프로세스 자신을 워처로 등록한다 — 그래야
     # watchdog 이 살아있는 follow 를 stale 자동무장 pid 로 오인해 매
     # 틱마다 watcher-dead 를 오탐하지 않는다.
-    follow_role_m = re.search(r"issue-\d+/([^/]+)$", key) if key else None
-    follow_role = follow_role_m.group(1) if follow_role_m else role
+    follow_skill_m = re.search(r"issue-\d+/([^/]+)$", key) if key else None
+    follow_skill = follow_skill_m.group(1) if follow_skill_m else skill
     current_watcher_pid = entry.get("watcher_pid")
     if not (current_watcher_pid is not None and
-            _sp._watcher_looks_real(current_watcher_pid, issue, follow_role)):
-        _sp._workspace_index_put(issue, follow_role, work, str(log_path),
+            _sp._watcher_looks_real(current_watcher_pid, issue, follow_skill)):
+        _sp._workspace_index_put(issue, follow_skill, work, str(log_path),
                               watcher_pid=os.getpid(),
                               watcher_armed_at=time.time())
     stall_limit_s = stall_timeout_min * 60
@@ -827,7 +827,7 @@ def _watch(issue: int, role: str | None, stall_timeout_min: float,
             return 0
 
 
-def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: float,
+def _rearm_watcher_detached(issue: int, skill: str | None, stall_timeout_min: float,
                              repo: str | None = None, cwd: str | None = None) -> int:
     """이슈 #1133: `spawn.py watch --rearm` 의 본체 — 죽은 워처를 non-blocking
     으로 재무장한다. `_watch(..., follow=True)`는 워처 등록 뒤에도 자기
@@ -846,18 +846,18 @@ def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: flo
     직접 반복한다."""
     with _sp._workspace_index_locked():
         idx = _sp._workspace_index_load()
-        key, entry = _sp._lookup_roster_entry(idx, issue, role, repo=repo)
+        key, entry = _sp._lookup_roster_entry(idx, issue, skill, repo=repo)
         if entry is None:
-            print(f"[watch] issue-{issue}{'/' + role if role else ''}: 기록 없음 — "
+            print(f"[watch] issue-{issue}{'/' + skill if skill else ''}: 기록 없음 — "
                   f"재무장할 대상이 없다", file=sys.stderr)
             return 1
         work = entry["work"]
         log_path = entry["log"]
         m = re.search(r"issue-\d+/([^/]+)$", key) if key else None
-        rearm_role = m.group(1) if m else role
+        rearm_skill = m.group(1) if m else skill
         current_watcher_pid = entry.get("watcher_pid")
         if (current_watcher_pid is not None and
-                _sp._watcher_looks_real(current_watcher_pid, issue, rearm_role)):
+                _sp._watcher_looks_real(current_watcher_pid, issue, rearm_skill)):
             # 이슈 #1975: pid 생존(및 신원 확인)만으로는 관측성을 보장하지
             # 않는다 — 워처는 살아있는데 이벤트가 흐르지 않는 "alive but
             # event-silent" 상태를 못 잡으면 --rearm 이 그 상태를 회복
@@ -881,11 +881,11 @@ def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: flo
                             and session_log_path.stat().st_mtime > baseline):
                         stale = True
             if not stale:
-                print(f"[watch] issue-{issue}/{rearm_role}: 워처 pid "
+                print(f"[watch] issue-{issue}/{rearm_skill}: 워처 pid "
                       f"{current_watcher_pid} 이미 살아있다 — 재무장 안 함",
                       file=sys.stderr)
                 return 0
-            print(f"[watch] issue-{issue}/{rearm_role}: 워처 pid "
+            print(f"[watch] issue-{issue}/{rearm_skill}: 워처 pid "
                   f"{current_watcher_pid} 는 살아있지만 {int(silence_min)}분째 "
                   f"event-silent (세션 로그는 진행 중) — 옛 워처를 종료하고 "
                   f"재무장한다", file=sys.stderr)
@@ -900,14 +900,14 @@ def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: flo
                 wproc = subprocess.Popen(
                     [sys.executable, str(Path(_sp.__file__).resolve()),
                      "-C", resolved_cwd,
-                     "watch", "--issue", str(issue), "--session", rearm_role,
+                     "watch", "--issue", str(issue), "--session", rearm_skill,
                      "--follow", "--self-heal",
                      "--stall-timeout", str(stall_timeout_min)],
                     stdin=subprocess.DEVNULL, stdout=wf,
                     stderr=subprocess.STDOUT, start_new_session=True,
                 )
         except OSError as exc:
-            print(f"[watch] issue-{issue}/{rearm_role}: 워처 재무장 실패 — {exc}",
+            print(f"[watch] issue-{issue}/{rearm_skill}: 워처 재무장 실패 — {exc}",
                   file=sys.stderr)
             return 1
         d = _sp._workspace_index_load()
@@ -920,7 +920,7 @@ def _rearm_watcher_detached(issue: int, role: str | None, stall_timeout_min: flo
         d[key] = {"work": work, "log": log_path,
                   "watcher_pid": wproc.pid, "watcher_armed_at": time.time()}
         _sp.WORKSPACE_INDEX.write_text(json.dumps(d, indent=2, ensure_ascii=False))
-        print(f"[watch] issue-{issue}/{rearm_role}: 워처 재무장 pid {wproc.pid} "
+        print(f"[watch] issue-{issue}/{rearm_skill}: 워처 재무장 pid {wproc.pid} "
               f"(로그 {watcher_log})", file=sys.stderr)
         return 0
 

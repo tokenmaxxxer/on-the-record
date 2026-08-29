@@ -63,26 +63,26 @@ def classify(failure_signals: dict) -> str:
     return RESPAWN_IDENTICAL
 
 
-def _state_path(state_dir: Path, issue, role: str) -> Path:
-    return Path(state_dir) / f"{issue}-{role}.json"
+def _state_path(state_dir: Path, issue, skill: str) -> Path:
+    return Path(state_dir) / f"{issue}-{skill}.json"
 
 
-def _load_state(state_dir: Path, issue, role: str) -> dict:
-    path = _state_path(state_dir, issue, role)
+def _load_state(state_dir: Path, issue, skill: str) -> dict:
+    path = _state_path(state_dir, issue, skill)
     if not path.exists():
         return {"respawn_count": 0, "last_failure_signature": None}
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def _save_state(state_dir: Path, issue, role: str, state: dict) -> None:
-    path = _state_path(state_dir, issue, role)
+def _save_state(state_dir: Path, issue, skill: str, state: dict) -> None:
+    path = _state_path(state_dir, issue, skill)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state), encoding="utf-8")
 
 
 def classify_from_state(
     issue,
-    role: str,
+    skill: str,
     has_commit: bool,
     has_pr: bool,
     failure_signature: str | None,
@@ -105,7 +105,7 @@ def classify_from_state(
     건드리지 않고 그 죽음에 대해 이미 낸 판정을 그대로 돌려준다 —
     재계산하면 `last_failure_signature` 가 자기 자신(방금 이 죽음이 남긴
     서명)과 같아져 same-signature-repeat 규칙이 오발화한다."""
-    state = _load_state(state_dir, issue, role)
+    state = _load_state(state_dir, issue, skill)
     is_new_death = death_id is None or state.get("current_death_id") != death_id
     if not is_new_death and "current_verdict" in state:
         return state["current_verdict"]
@@ -125,14 +125,14 @@ def classify_from_state(
     state["last_failure_signature"] = failure_signature
     state["current_death_id"] = death_id
     state["current_verdict"] = verdict
-    _save_state(state_dir, issue, role, state)
+    _save_state(state_dir, issue, skill, state)
     return verdict
 
 
-def reset_state(issue, role: str, state_dir: Path = DEFAULT_STATE_DIR) -> None:
+def reset_state(issue, skill: str, state_dir: Path = DEFAULT_STATE_DIR) -> None:
     """이슈 #1678 review D2: (issue, role) 이 건강한 상태(PR 존재/세션
     정상 종료)에 도달하면 재기동 카운터/직전 실패 서명을 지운다 — 일시적
     flake 두 번이 이후의 진짜 죽음까지 영구히 ESCALATE 로 몰아가지
     않도록."""
-    path = _state_path(state_dir, issue, role)
+    path = _state_path(state_dir, issue, skill)
     path.unlink(missing_ok=True)

@@ -23,7 +23,7 @@
 # path instead of two, and no catalog lookup in either.
 set -euo pipefail
 
-role="${1:?usage: record-scaffold.sh <role> <issue-n> [target-repo-root]}"
+skill="${1:?usage: record-scaffold.sh <role> <issue-n> [target-repo-root]}"
 issue="${2:?usage: record-scaffold.sh <role> <issue-n> [target-repo-root]}"
 root="${3:-$(pwd)}"
 
@@ -32,20 +32,20 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # and gates/ — two levels up from on-the-record/hooks/.
 plugin_root="$(cd "$script_dir/../.." && pwd)"
 
-python3 - "$role" "$issue" "$root" "$plugin_root" <<'PY'
+python3 - "$skill" "$issue" "$root" "$plugin_root" <<'PY'
 import sys
 from pathlib import Path
 
-role, issue, root, plugin_root = sys.argv[1:5]
+skill, issue, root, plugin_root = sys.argv[1:5]
 sys.path.insert(0, plugin_root)
 import directive_assembly
 
-target = Path(root) / "docs" / f"issue-{issue}" / "reports" / f"{role}.md"
+target = Path(root) / "docs" / f"issue-{issue}" / "reports" / f"{skill}.md"
 if target.exists():
     sys.stderr.write(f"record-scaffold: 이미 존재한다, 덮어쓰지 않는다: {target}\n")
     sys.exit(1)
 
-p = directive_assembly.write_record_skeleton(root, int(issue), role)
+p = directive_assembly.write_record_skeleton(root, int(issue), skill)
 if p is None:
     sys.stderr.write(f"record-scaffold: 스켈레톤을 쓰지 못했다: {target}\n")
     sys.exit(1)

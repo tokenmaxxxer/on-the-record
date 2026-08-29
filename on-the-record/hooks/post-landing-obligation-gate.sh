@@ -172,7 +172,7 @@ if not isinstance(branch, str):
 bm = re.match(r"^issue-(\d+)/([^/]+)$", branch)
 if not bm:
     sys.exit(0)  # not a per-issue role branch — cannot resolve, no-op
-issue, role = bm.group(1), bm.group(2)
+issue, skill = bm.group(1), bm.group(2)
 
 merge_commit = head_data.get("mergeCommit") if isinstance(head_data, dict) else None
 sha = None
@@ -186,7 +186,7 @@ if not isinstance(sha, str) or not sha:
 checkout = os.environ.get("PLOG_CHECKOUT")
 script = os.path.join(checkout, "gates", "landing_obligation.py")
 subprocess.run(
-    [sys.executable, script, "open", "--issue", issue, "--role", role,
+    [sys.executable, script, "open", "--issue", issue, "--role", skill,
      "--pr", str(pr), "--sha", sha, "--repo", run_cwd],
     capture_output=True, text=True, timeout=30,
 )

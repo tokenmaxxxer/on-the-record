@@ -32,16 +32,16 @@ BARE = ("QA this app: run it, try the main flows and obvious failure paths, "
         "write findings to qa/runs/ with evidence.")
 
 
-def rulebook_bench(role: str) -> Path:
+def rulebook_bench(skill: str) -> Path:
     """역할의 룰북에서 bench 디렉터리. 역할 파일이 룰북 경로를 안다."""
-    spec = spawn_mod.role_data()[role]
+    spec = spawn_mod.role_data()[skill]
     b = Path(spec["path"]) / "bench"
     if not b.exists():
-        sys.exit(f"[{role}] 룰북에 bench/ 가 없다: {b}")
+        sys.exit(f"[{skill}] 룰북에 bench/ 가 없다: {b}")
     return b
 
 
-def one_run(role: str, arm: str, target: Path, i: int, out: Path) -> dict:
+def one_run(skill: str, arm: str, target: Path, i: int, out: Path) -> dict:
     """한 번의 실행. 표적 사본과 워크스페이스는 매번 새로 만든다."""
     work = out / f"{arm}-{i}"
     shutil.copytree(target, work)
@@ -54,7 +54,7 @@ def one_run(role: str, arm: str, target: Path, i: int, out: Path) -> dict:
 
     env = {**os.environ, "QA_WORKSPACE": str(ws)}
     if arm == "on":
-        cmd = [sys.executable, str(ROOT / "spawn.py"), role,
+        cmd = [sys.executable, str(ROOT / "spawn.py"), skill,
                "/testrun:testrun", "-C", str(work)]
         task = None
     else:

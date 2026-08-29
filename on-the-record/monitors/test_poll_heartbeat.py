@@ -115,7 +115,7 @@ def _run_tick(checkout: Path, home: Path, report: str) -> subprocess.CompletedPr
 # role_data() alone (poll-heartbeat.sh's role-list read, issue #2560:
 # reads `spawn.role_data()` since `spawn.ROLES` was retired) doesn't also
 # run the CLI branches or force an exit.
-FAKE_SPAWN_PY_WITH_ROLES = """#!/usr/bin/env python3
+FAKE_SPAWN_PY_WITH_SKILLS = """#!/usr/bin/env python3
 import os, sys
 def role_data():
     return {"role-a": {}, "role-b": {}}
@@ -162,7 +162,7 @@ def _run_patrol_tick(checkout: Path, home: Path, *, patrol_behavior: str | None 
     """issue #1722: drives the patrol block in isolation from the due
     branch (FAKE_POLL_DUE=0) via a roles-configured fake spawn.py and a
     fake gates/patrol_promote.py whose behavior is env-var-selected."""
-    (checkout / "spawn.py").write_text(FAKE_SPAWN_PY_WITH_ROLES, encoding="utf-8")
+    (checkout / "spawn.py").write_text(FAKE_SPAWN_PY_WITH_SKILLS, encoding="utf-8")
     gates_dir = checkout / "gates"
     gates_dir.mkdir(exist_ok=True)
     (gates_dir / "patrol_promote.py").write_text(FAKE_PATROL_PROMOTE_PY, encoding="utf-8")
@@ -747,7 +747,7 @@ def t_returned_pr_first_ever_tick_treats_every_open_pr_as_new():
         assert r2.stdout.strip() == "", r2.stdout
 
 
-def t_patrol_quiet_tick_with_roles_emits_no_summary_line():
+def t_patrol_quiet_tick_with_skills_emits_no_summary_line():
     """issue #1722 Acceptance check 1: a patrol-due tick with roles
     configured, zero promotions, and no crash writes nothing
     patrol-related to Monitor stdout — the patrol still runs
@@ -784,7 +784,7 @@ def t_patrol_promotion_tick_still_prints_summary_line():
         assert "[patrol-poll] checked 2 role(s), 2 promotion(s)" in r.stdout, r.stdout
 
 
-def t_patrol_crashed_role_tick_still_prints_summary_line():
+def t_patrol_crashed_skill_tick_still_prints_summary_line():
     """issue #1722 Acceptance check 2: a patrol-due tick with a crashed
     role keeps printing both the per-role crash line and the summary
     line unchanged."""
@@ -837,7 +837,7 @@ def t_patrol_tick_skips_when_checkout_vanishes_mid_sleep():
         tmp = Path(d)
         checkout = tmp / "checkout"
         checkout.mkdir()
-        (checkout / "spawn.py").write_text(FAKE_SPAWN_PY_WITH_ROLES, encoding="utf-8")
+        (checkout / "spawn.py").write_text(FAKE_SPAWN_PY_WITH_SKILLS, encoding="utf-8")
         gates_dir = checkout / "gates"
         gates_dir.mkdir()
         (gates_dir / "patrol_promote.py").write_text(FAKE_PATROL_PROMOTE_PY, encoding="utf-8")

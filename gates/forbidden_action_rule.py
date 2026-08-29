@@ -44,7 +44,7 @@ _FORBIDDEN_ACTION = re.compile(
 # The same obligation is fine when it names someone other than the
 # delivering role as the actor — the sanctioned rewrite for the
 # follow-up case.
-_ROLE_REASSIGNED = re.compile(
+_SKILL_REASSIGNED = re.compile(
     r"orchestrator|\boperator\b|\bhuman\b|non-role|not (?:this|the deliver"
     r"ing) role|not by (?:this|the) (?:role|session)|different account"
     r"|the user files|filed by",
@@ -79,7 +79,7 @@ def check_issue_body(issue: int, body: str) -> list[str]:
         window_start = max(0, m.start() - 200)
         window_end = min(len(section), m.end() + 200)
         window = section[window_start:window_end]
-        if _ROLE_REASSIGNED.search(window):
+        if _SKILL_REASSIGNED.search(window):
             continue
         line_end = section.find("\n", m.end())
         line = section[section.rfind("\n", 0, m.start()) + 1:

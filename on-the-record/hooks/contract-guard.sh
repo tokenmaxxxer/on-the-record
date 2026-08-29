@@ -14,7 +14,7 @@
 # phase2 path, closure_sweep.py single-PR case's specific violating act) —
 # the requirement a consumer without any local install would otherwise
 # never see enforced at all. Phase is determined the same way
-# gates/ci.py._approved_roles_on_issue does: an `APPROVE issue-<n>/<role>`
+# gates/ci.py._approved_skills_on_issue does: an `APPROVE issue-<n>/<role>`
 # comment from an approvers.md account on the issue means phase-2.
 #
 # Non-closing linkage (issue #2508): an `Advances #<issue>`/`Part of
@@ -198,36 +198,36 @@ files = [
 ]
 is_src_test = any(re.search(r"(^|/)(src|tests?)/", f) for f in files)
 
-role = None
-_role_cwd = target_cwd or os.getcwd()
+skill = None
+_skill_cwd = target_cwd or os.getcwd()
 # --- prefer the .on-the-record/role.json sidecar (issue #1814) -------------
 # written by spawn.py's issue_workspace() at spawn time; any absence/parse/
 # shape/issue-mismatch falls back to the branch-regex parse below,
 # byte-identical to pre-#1814 behavior.
 try:
-    with open(os.path.join(_role_cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
+    with open(os.path.join(_skill_cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
     if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
             and isinstance(sidecar.get("issue"), int) and sidecar["issue"] == issue):
-        role = sidecar["role"]
+        skill = sidecar["role"]
 except (OSError, ValueError):
-    role = None
+    skill = None
 
-if role is None:
+if skill is None:
     try:
         br = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=20, cwd=_role_cwd,
+            capture_output=True, text=True, timeout=20, cwd=_skill_cwd,
         )
         if br.returncode == 0:
             bm = re.match(r"^issue-(\d+)/([^/]+)$", br.stdout.strip())
             if bm and int(bm.group(1)) == issue:
-                role = bm.group(2)
+                skill = bm.group(2)
     except (OSError, subprocess.SubprocessError):
-        role = None  # unreached: git ships wherever contract-guard.sh does
+        skill = None  # unreached: git ships wherever contract-guard.sh does
 
-is_record = role is not None and (
-    "docs/issue-%d/reports/%s.md" % (issue, role) in files
+is_record = skill is not None and (
+    "docs/issue-%d/reports/%s.md" % (issue, skill) in files
 )
 
 if target_repo_flag and target_cwd is None:

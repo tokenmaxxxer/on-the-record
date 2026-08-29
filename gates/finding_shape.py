@@ -83,16 +83,16 @@ def check_finding(path: str | Path) -> list[str]:
     return bad
 
 
-def session_summary_path(findings_root: Path, role: str, date: str) -> Path:
+def session_summary_path(findings_root: Path, skill: str, date: str) -> Path:
     """`docs/reports/findings/<role>/<date>-session-summary.md` — where a
     session's findings beyond the rate bound go instead of a new finding
     file (requirement 3), one bare-marker-style line per further
     finding, mirroring the record-tiering directive's "no padding"
     shape already in force for `## What did not work`."""
-    return findings_root / role / f"{date}-session-summary.md"
+    return findings_root / skill / f"{date}-session-summary.md"
 
 
-def check_rate_bound(findings_root: Path, role: str, session_id: str,
+def check_rate_bound(findings_root: Path, skill: str, session_id: str,
                       bound: int = 3) -> str | None:
     """`None` when this session is still under `bound` findings filed for
     `role` (the write may proceed); otherwise a reject reason naming the
@@ -104,19 +104,19 @@ def check_rate_bound(findings_root: Path, role: str, session_id: str,
     standing queue: a fresh `session_id` gets a fresh bound (proposal
     §4 — the bound forces depth-over-volume triage within one look, not
     a cap on total queue size)."""
-    role_dir = findings_root / role
-    if not role_dir.is_dir():
+    skill_dir = findings_root / skill
+    if not skill_dir.is_dir():
         return None
     count = 0
-    for p in role_dir.glob("*.md"):
+    for p in skill_dir.glob("*.md"):
         if p.name.endswith("-session-summary.md"):
             continue
         fm, _ = _parse_frontmatter(p.read_text(encoding="utf-8"))
         if fm.get("session") == session_id:
             count += 1
     if count >= bound:
-        summary = session_summary_path(findings_root, role, "<date>")
-        return (f"session bound N={bound} reached for role {role!r} — "
+        summary = session_summary_path(findings_root, skill, "<date>")
+        return (f"session bound N={bound} reached for role {skill!r} — "
                 f"append a summary line to {summary} instead of a new finding file")
     return None
 

@@ -167,7 +167,7 @@ lowered = cmd.lower()
 # $MUSTER_SKILLS (pipeline.py:723) directly instead: true membership,
 # unaffected by what else is mounted alongside it.
 mounted = [s for s in os.environ.get("MUSTER_SKILLS", "").split(",") if s]
-channel_role_active = CHANNEL_SKILL in mounted
+channel_skill_active = CHANNEL_SKILL in mounted
 
 # --- the directory the command actually runs in (issue #2669) --------------
 # A leading `cd <dir> &&`/`cd <dir>;` in the command text names the real
@@ -232,7 +232,7 @@ def in_scope(target_repo):
     session pick its way out of the guard entirely on any single call;
     treat
     an unresolvable session-chosen directory as in-scope instead."""
-    if channel_role_active:
+    if channel_skill_active:
         return True
     if target_repo is not None:
         if ORIGIN_REPO is not None:

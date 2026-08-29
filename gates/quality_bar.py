@@ -33,7 +33,7 @@ NO_BAR_SCOPED = "NO_BAR_SCOPED"
 REJECT_CAP = 3  # 3 consecutive bar-not-met verdicts on the same (PR, role) -> ESCALATE
 
 
-def bar_scoped_roles(pr_files, role_path_patterns):
+def bar_scoped_skills(pr_files, skill_path_patterns):
     """`role_path_patterns`: {role: [glob pattern, ...]} (each role's
     `use_when.trigger.path_patterns`, the same trigger field
     merge-allow-gate.sh's routing-fix already reads). Returns the subset of
@@ -41,11 +41,11 @@ def bar_scoped_roles(pr_files, role_path_patterns):
     import fnmatch
 
     scoped = set()
-    for role, patterns in role_path_patterns.items():
+    for skill, patterns in skill_path_patterns.items():
         if not patterns:
             continue
         if any(fnmatch.fnmatch(f, pat) for f in pr_files for pat in patterns):
-            scoped.add(role)
+            scoped.add(skill)
     return frozenset(scoped)
 
 
@@ -79,10 +79,10 @@ def verified_by_account(spec, resolve_account_fn):
     verified_by = spec.get("verified_by") if isinstance(spec, dict) else None
     if not verified_by or not isinstance(verified_by, str):
         return None
-    role = verified_by.split(" — ", 1)[0].strip()
-    if not role:
+    skill = verified_by.split(" — ", 1)[0].strip()
+    if not skill:
         return None
-    return resolve_account_fn(role)
+    return resolve_account_fn(skill)
 
 
 def human_comprehensibility_verdict(

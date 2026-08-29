@@ -58,7 +58,7 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
         return d
 
     def _run(self, work, skill_repo_root, issue_body, *, issue=2014,
-             role_skill_dirs=None):
+             skill_skill_dirs=None):
         roster_calls = []
         real_roster_register = spawn.roster_register
 
@@ -66,20 +66,20 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
             roster_calls.append((key, dict(entry)))
             return real_roster_register(key, entry)
 
-        def spy_spawn_cmd(settings, role, unattended, core_plugins, plugins,
+        def spy_spawn_cmd(settings, skill, unattended, core_plugins, plugins,
                           model, skill_dirs, skill_repo_sha_value, **kwargs):
             return (["cat"], {})
 
-        role_source = {"source": "skill-repo",
-                       "skill_dirs": role_skill_dirs or [],
+        skill_source = {"source": "skill-repo",
+                       "skill_dirs": skill_skill_dirs or [],
                        "skills": [], "skill_sha": None}
 
         with mock.patch.object(spawn, "issue_workspace",
-                               lambda cwd, issue, role: str(work)), \
+                               lambda cwd, issue, skill: str(work)), \
              mock.patch.object(spawn, "checkout_issue_branch",
-                               lambda cwd, issue, role: "b"), \
+                               lambda cwd, issue, skill: "b"), \
              mock.patch.object(spawn, "resolve_static_policy_source",
-                               lambda repo_root: role_source), \
+                               lambda repo_root: skill_source), \
              mock.patch.object(spawn, "_skill_repo_root",
                                lambda: skill_repo_root), \
              mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
@@ -89,7 +89,7 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
              mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
              mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
              mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
-             mock.patch.object(spawn, "_undispositioned_role_prs",
+             mock.patch.object(spawn, "_undispositioned_skill_prs",
                                lambda root, exclude_issue=None: ([], True)), \
              mock.patch.object(spawn, "roster_register", spy_roster_register), \
              mock.patch.object(spawn, "ledger_write", lambda *a, **k: None), \
@@ -119,7 +119,7 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
                     "design-artifacts:\n"
                     "- docs/issue-2014/design/contrast-landing-page.md\n")
             delivered = self._run(work, skill_repo_root, body,
-                                  role_skill_dirs=[skill_dir])
+                                  skill_skill_dirs=[skill_dir])
         self.assertIn("아티팩트-스킬 짝짓기(이슈 #2014)", delivered)
         self.assertIn(
             "docs/issue-2014/design/contrast-landing-page.md ↔ "

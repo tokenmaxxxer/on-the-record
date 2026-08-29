@@ -72,7 +72,7 @@ def test_should_park_signature_has_no_pr_number_parameter():
 # ---------------------------------------------------------------------
 
 SUBJECT = "issue-99001"
-ROLE = "independent-verification-1"  # issue #2628: the slot spawned when attempts starts at 0
+SKILL = "independent-verification-1"  # issue #2628: the slot spawned when attempts starts at 0
 KEY = SUBJECT  # issue #2628: park state is keyed by subject alone, not "subject/role"
 
 
@@ -104,9 +104,9 @@ def _wire(monkeypatch, tmp_path, *, missing, pr_number, blocked,
                          lambda root, branch, pr_index: pr_number)
     monkeypatch.setattr(spawn_on_pr, "resolve_live_base", lambda root: "deadbeef")
 
-    def _is_approval_blocked(root, issue, role):
+    def _is_approval_blocked(root, issue, skill):
         if approval_calls is not None:
-            approval_calls.append((issue, role))
+            approval_calls.append((issue, skill))
         return blocked
 
     monkeypatch.setattr(spawn_on_pr, "is_approval_blocked", _is_approval_blocked)
@@ -140,7 +140,7 @@ def test_empty_state_spawns_once_and_never_parks_on_first_tick(monkeypatch, tmp_
 
     pairs = _run(tmp_path)
 
-    assert pairs == [(SUBJECT, ROLE)]
+    assert pairs == [(SUBJECT, SKILL)]
     assert len(recorder.spawn_calls) == 1
     # is_approval_blocked() must never be consulted for a brand-new
     # candidate -- only pairs with a prior "blocked" record touch gh here.
@@ -405,7 +405,7 @@ def test_clear_ceiling_then_next_tick_spawns_once_approval_is_real(monkeypatch, 
 
     pairs = _run(tmp_path)
 
-    assert pairs == [(SUBJECT, ROLE)]
+    assert pairs == [(SUBJECT, SKILL)]
     assert len(recorder.spawn_calls) == 1
     state = json.loads(park_path.read_text())
     assert state[KEY]["parked"] is False

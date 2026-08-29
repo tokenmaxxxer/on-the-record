@@ -126,7 +126,7 @@ SPAWN_CAP = 4
 # (see should_park() below) — it is kept in the state dict purely for
 # operator-visible debugging. The only re-arm signals now are real
 # EXTERNAL ones: `blocked` is derived from
-# `gates/ci.py:_approved_roles_on_issue()` (approver allowlist, exact
+# `gates/ci.py:_approved_skills_on_issue()` (approver allowlist, exact
 # `APPROVE issue-<n>/<role>` string match — a human posting an approval
 # comment), and a merge to main is handled upstream of this state
 # entirely — once a subject's verification deficit reaches 0,
@@ -502,14 +502,14 @@ def _save_merged_seen(root: Path, seen: set[str]) -> None:
 VERIFICATION_APPROVAL_TARGET = "independent-verification"
 
 
-def is_approval_blocked(root: Path, issue: int, role: str) -> bool:
-    """구조화 신호: `gates/ci.py:_approved_roles_on_issue()`(승인자
+def is_approval_blocked(root: Path, issue: int, skill: str) -> bool:
+    """구조화 신호: `gates/ci.py:_approved_skills_on_issue()`(승인자
     allowlist 계정의 `APPROVE issue-<n>/<role>` 코멘트, 문자열 완전일치)
     에 `role` 이 없으면 아직 승인-대기(blocked)다. issue #2628: 이 자동화의
     호출부는 항상 `role=VERIFICATION_APPROVAL_TARGET` 을 넘긴다(subject 별
     park 상태가 subject 하나에 대해 딱 하나이므로) — 함수 자신은 여전히
     임의의 `role` 문자열을 받는 범용 술어다."""
-    return role not in _ci._approved_roles_on_issue(root, issue)
+    return skill not in _ci._approved_skills_on_issue(root, issue)
 
 
 def should_park(prior: dict | None, blocked: bool) -> bool:
@@ -740,8 +740,8 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     for subject, deficit, pr_number, issue, attempts in to_spawn:
         subject_meta[subject] = (pr_number, attempts)
         for i in range(deficit):
-            role = f"independent-verification-{attempts + i + 1}"
-            pending.append((subject, role, pr_number, issue))
+            skill = f"independent-verification-{attempts + i + 1}"
+            pending.append((subject, skill, pr_number, issue))
 
     pairs3 = pending[:spawn_cap]
     deferred = len(pending) - len(pairs3)
@@ -749,7 +749,7 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         print(f"[spawn-on-pr] cap={spawn_cap} 초과로 {deferred}건 미룸 "
               f"(다음 틱 또는 backfill_closed() 로 처리)")
 
-    pairs = [(subject, role) for subject, role, _pr, _issue in pairs3]
+    pairs = [(subject, skill) for subject, skill, _pr, _issue in pairs3]
     if dry_run:
         return pairs
     if pairs3:
@@ -763,7 +763,7 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         live_base_sha = resolve_live_base(root)
         print(f"[spawn-on-pr] live base sha={live_base_sha or '조회 실패(fail-open)'}")
     spawned_counts: dict[str, int] = {}
-    for subject, role, pr_number, issue in pairs3:
+    for subject, skill, pr_number, issue in pairs3:
         # issue #2628: 어느 특정 전문성/스킬도 이름 붙이지 않는다 -- 이
         # subject 의 deliverable PR 에 독립 verification 기록
         # (verifies_subject: true) 이 부족하다는 사실과 이 subject 에
@@ -772,11 +772,11 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         task = (f"이슈 #{issue}: {subject}/implementation 브랜치에 랜딩된 커밋에 "
                 f"대해 독립 verification 기록이 아직 부족하다 (이 subject 에 "
                 f"필요한 총 개수: {REQUIRED_INDEPENDENT_VERIFICATIONS}, 이 세션의 "
-                f"슬롯: {role}). PR 을 읽고 감사한 뒤 record 의 verifies_subject 를 "
+                f"슬롯: {skill}). PR 을 읽고 감사한 뒤 record 의 verifies_subject 를 "
                 f"true 로 남겨라. PR 생성 시 자동 스폰됨 (spawn_on_pr.py).")
         spawn.roster_register(
-            f"issue-{issue}/{role}",
-            {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
+            f"issue-{issue}/{skill}",
+            {"role": skill, "issue": issue, "expects_pr": True, "work": cwd},
         )
         # 이슈 #2574 disposition: single-phase(build-now). 이 스폰은 이미
         # 랜딩된 PR 커밋에 대한 검증 기록을 쓸 뿐 새 code_under_review 를
@@ -785,7 +785,7 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         # 않으면 사람 Approve 를 기다리며 조용히 멈춘다(이슈 #2574 의 실측
         # 원인, issue-648/conformance-review 가 PR #650 에서 이 자리에
         # 걸려 있었다).
-        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True,
+        spawn._spawn_one(cwd, skill, task, unattended=True, issue=issue, bounded=True,
                          single_phase=True)
         spawned_counts[subject] = spawned_counts.get(subject, 0) + 1
     for subject, spawned_here in spawned_counts.items():
@@ -843,21 +843,21 @@ def backfill_closed(root: Path, cwd: str, dry_run: bool = True) -> list[tuple[st
             pairs.append((subject, f"independent-verification-{slot}"))
     if dry_run:
         return pairs
-    for subject, role in pairs:
+    for subject, skill in pairs:
         issue = int(subject.split("-", 1)[1])
         task = (f"이슈 #{issue}: {subject}/implementation 브랜치에 랜딩된 커밋에 "
                 f"대해 독립 verification 기록이 아직 부족하다 "
-                f"({REQUIRED_INDEPENDENT_VERIFICATIONS}개 중 {role} 슬롯, 닫힌 이슈 "
+                f"({REQUIRED_INDEPENDENT_VERIFICATIONS}개 중 {skill} 슬롯, 닫힌 이슈 "
                 f"백필, backfill_closed() 로 opt-in 스폰됨). PR 을 읽고 감사한 뒤 "
                 f"record 의 verifies_subject 를 true 로 남겨라.")
         spawn.roster_register(
-            f"issue-{issue}/{role}",
-            {"role": role, "issue": issue, "expects_pr": True, "work": cwd},
+            f"issue-{issue}/{skill}",
+            {"role": skill, "issue": issue, "expects_pr": True, "work": cwd},
         )
         # 이슈 #2574 disposition: single-phase(build-now) — 위
         # spawn_missing_for_pr() 자동 스폰과 같은 이유(닫힌 이슈에 랜딩된
         # 커밋에 대한 검증 기록 백필, 새 code_under_review 없음).
-        spawn._spawn_one(cwd, role, task, unattended=True, issue=issue, bounded=True,
+        spawn._spawn_one(cwd, skill, task, unattended=True, issue=issue, bounded=True,
                          single_phase=True)
     return pairs
 
@@ -884,8 +884,8 @@ def _main(argv: list[str] | None = None) -> int:
         pairs = backfill_closed(ROOT, str(ROOT), dry_run=not args.live)
         mode = "LIVE" if args.live else "DRY-RUN"
         print(f"[backfill-closed] {mode}: {len(pairs)}건")
-        for subject, role in pairs:
-            print(f"  {subject} / {role}")
+        for subject, skill in pairs:
+            print(f"  {subject} / {skill}")
         return 0
     if args.command == "unpark":
         cleared = unpark(ROOT, args.subject)

@@ -320,7 +320,7 @@ _CONTINUATION_PREAMBLE = (
 _RECORD_PATH_RE = re.compile(r"docs/issue-\d+/(reports|proposals)/")
 
 
-def _classify_workspace_completion(work: str, role: str) -> str:
+def _classify_workspace_completion(work: str, skill: str) -> str:
     """이슈 #1982: 재스폰 시점 dirty workspace 를 "finished"/"unfinished" 로
     분류한다. `git status --porcelain` 이 비어 있으면(clean) 바로
     "unfinished". dirty 라도, 변경분에 이 저장소의 record-shape 규약이
@@ -356,7 +356,7 @@ def _classify_workspace_completion(work: str, role: str) -> str:
     return "unfinished"
 
 
-def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
+def _respawn_or_cap(key: str, work: str, issue: int, skill: str, log: str,
                     session_start_ts, state: dict, trigger: str,
                     single_phase: bool) -> None:
     """공유 재스폰 시퀀스: 원자적 클레임 확인, 상한(`RESPAWN_MAX_ATTEMPTS`)
@@ -431,9 +431,9 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
         print(f"[respawn] {key}: issue-state lookup failed — failing open "
               f"(returned-PR gate convention, issue #680)", file=sys.stderr)
         _sp.ledger_write({"event": "issue_state_gate_fail_open", "source": "respawn",
-                      "issue": issue, "role": role, "ts": int(time.time())})
+                      "issue": issue, "role": skill, "ts": int(time.time())})
     elif issue_state == "CLOSED":
-        _sp._flag_stale_returned_branch(issue, role, f"issue-{issue}/{role}",
+        _sp._flag_stale_returned_branch(issue, skill, f"issue-{issue}/{skill}",
                                     source="respawn")
         return
     if total_attempts >= _sp.RESPAWN_ABSOLUTE_MAX:
@@ -462,7 +462,7 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
     current_task = _sp._current_issue_task_text(root, issue)
     if current_task is not None:
         task = current_task
-    if _sp._classify_workspace_completion(work, role) == "finished":
+    if _sp._classify_workspace_completion(work, skill) == "finished":
         task = _sp._CONTINUATION_PREAMBLE + "\n\n" + task
     attempt_n = attempts + 1
     total_attempt_n = total_attempts + 1
@@ -477,7 +477,7 @@ def _respawn_or_cap(key: str, work: str, issue: int, role: str, log: str,
     # 이슈 #2574 disposition: 고정값 아님, 상속 — 두 호출부(watchdog-
     # observed-crashed / self-triggered) 가 각자 원래 스폰의 처분을
     # 알아내 넘긴 값을 여기서 그대로 쓴다.
-    _sp._spawn_one(work, role, task, unattended=True, issue=issue, bounded=True,
+    _sp._spawn_one(work, skill, task, unattended=True, issue=issue, bounded=True,
                   single_phase=single_phase)
 
 
@@ -489,8 +489,8 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     아무도 모르게 재스폰하지 않는 것은 다르다."""
     work = entry.get("work")
     issue = entry.get("issue")
-    role = entry.get("role")
-    if not work or issue is None or not role:
+    skill = entry.get("role")
+    if not work or issue is None or not skill:
         return
     log_path = Path(entry["log"]) if entry.get("log") else None
     verdict = _sp.session_end_verdict(work, log_path)
@@ -522,7 +522,7 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     # 쪽보다, 예전처럼 two-phase 로 두고 사람의 승인을 다시 받게 하는
     # 쪽이 안전하다.
     single_phase = entry.get("single_phase", False)
-    _sp._respawn_or_cap(key, work, issue, role, entry.get("log", ""), start_ts, state,
+    _sp._respawn_or_cap(key, work, issue, skill, entry.get("log", ""), start_ts, state,
                     "watchdog-observed-crashed", single_phase)
 
 
@@ -530,7 +530,7 @@ _ABANDONED_WORK_OUTCOMES = ("uncommitted-work", "failed-no-commit", "silent-fail
 
 
 def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
-                          role: str, log: str, session_start_ts,
+                          skill: str, log: str, session_start_ts,
                           single_phase: bool) -> None:
     """이슈 #247/#675: `_spawn_one()` 자신이 정상 종료(`session-end` 가 이미
     남는다)했지만 outcome 이 미커밋-방치 신호(`uncommitted-work`/
@@ -557,15 +557,15 @@ def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
     # 이슈 #2574 disposition: 고정값 아님, 상속 — `single_phase` 는 이
     # 세션 자신을 스폰했던 처분 그대로다(spawn.py 호출부가 자기 자신의
     # `_spawn_one()` 파라미터를 그대로 넘긴다).
-    _sp._respawn_or_cap(roster_key, work, issue, role, log, session_start_ts, state,
+    _sp._respawn_or_cap(roster_key, work, issue, skill, log, session_start_ts, state,
                     trigger, single_phase)
 
 
 
 
-def roster_kill(issue: int, role: str) -> int:
+def roster_kill(issue: int, skill: str) -> int:
     d = _sp._roster_load()
-    key = f"issue-{issue}/{role}"
+    key = f"issue-{issue}/{skill}"
     e = d.get(key)
     if not e:
         print(f"로스터에 없다: {key}", file=sys.stderr)

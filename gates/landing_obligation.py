@@ -41,28 +41,28 @@ class Obligation:
     opened_at: float
 
 
-def obligation_path(repo: Path, issue: int, role: str, pr: int) -> Path:
-    return repo / ".landing-obligations" / f"{issue}-{role}-{pr}.json"
+def obligation_path(repo: Path, issue: int, skill: str, pr: int) -> Path:
+    return repo / ".landing-obligations" / f"{issue}-{skill}-{pr}.json"
 
 
-def open_obligation(repo: Path, issue: int, role: str, pr: int,
+def open_obligation(repo: Path, issue: int, skill: str, pr: int,
                      sha: str) -> Path:
     """새 obligation을 `"open"` 상태로 쓴다. 이미 있으면 덮어쓰지 않고 그대로
     돌려준다 — 같은 랜딩에 대한 중복 호출이 opened_at을 갱신해 이미 진행
     중인 검증의 타임스탬프를 지우지 않게 한다."""
-    path = obligation_path(repo, issue, role, pr)
+    path = obligation_path(repo, issue, skill, pr)
     if path.exists():
         return path
-    obligation = Obligation(OPEN, pr, sha, issue, role, time.time())
+    obligation = Obligation(OPEN, pr, sha, issue, skill, time.time())
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(obligation), ensure_ascii=False,
                                 indent=2))
     return path
 
 
-def read_obligation(repo: Path, issue: int, role: str,
+def read_obligation(repo: Path, issue: int, skill: str,
                      pr: int) -> Obligation | None:
-    path = obligation_path(repo, issue, role, pr)
+    path = obligation_path(repo, issue, skill, pr)
     if not path.exists():
         return None
     try:
@@ -72,25 +72,25 @@ def read_obligation(repo: Path, issue: int, role: str,
     return Obligation(**data)
 
 
-def _write(repo: Path, issue: int, role: str, pr: int,
+def _write(repo: Path, issue: int, skill: str, pr: int,
            obligation: Obligation) -> Path:
-    path = obligation_path(repo, issue, role, pr)
+    path = obligation_path(repo, issue, skill, pr)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(obligation), ensure_ascii=False,
                                 indent=2))
     return path
 
 
-def resolve_with_reexecution_verdict(repo: Path, issue: int, role: str,
+def resolve_with_reexecution_verdict(repo: Path, issue: int, skill: str,
                                       pr: int) -> Obligation | None:
     """`.reexecution/<issue>-<role>.json`의 verdict를 읽어 obligation 상태를
     갱신한다. obligation이 없으면 아무것도 하지 않고 None. verdict가 없거나
     obligation의 opened_at보다 먼저 찍힌 것이면 상태를 바꾸지 않는다 — 랜딩
     "이후"에 실제로 재실행됐다는 것만 resolve의 근거로 인정한다."""
-    obligation = read_obligation(repo, issue, role, pr)
+    obligation = read_obligation(repo, issue, skill, pr)
     if obligation is None:
         return None
-    verdict = reexecution_gate.read_verdict(repo, issue, role)
+    verdict = reexecution_gate.read_verdict(repo, issue, skill)
     if verdict is None or verdict.timestamp < obligation.opened_at:
         return obligation
     if verdict.kind == reexecution_gate.PASS:
@@ -100,7 +100,7 @@ def resolve_with_reexecution_verdict(repo: Path, issue: int, role: str,
     updated = Obligation(new_status, obligation.pr, obligation.sha,
                           obligation.issue, obligation.role,
                           obligation.opened_at)
-    _write(repo, issue, role, pr, updated)
+    _write(repo, issue, skill, pr, updated)
     return updated
 
 
@@ -135,10 +135,10 @@ def main(argv: list[str]) -> int:
     action = argv[0]
     rest = argv[1:]
     issue = _arg(rest, "--issue")
-    role = _arg(rest, "--role")
+    skill = _arg(rest, "--role")
     pr = _arg(rest, "--pr")
     repo = Path(_arg(rest, "--repo", ".")).resolve()
-    if not (issue and role and pr):
+    if not (issue and skill and pr):
         print("landing_obligation: --issue --role --pr 모두 필요하다")
         return 2
     if action == "open":
@@ -146,10 +146,10 @@ def main(argv: list[str]) -> int:
         if not sha:
             print("landing_obligation open: --sha 필요하다")
             return 2
-        path = open_obligation(repo, int(issue), role, int(pr), sha)
+        path = open_obligation(repo, int(issue), skill, int(pr), sha)
         print(f"landing_obligation: opened ({path})")
         return 0
-    obligation = resolve_with_reexecution_verdict(repo, int(issue), role,
+    obligation = resolve_with_reexecution_verdict(repo, int(issue), skill,
                                                     int(pr))
     if obligation is None:
         print("landing_obligation: no obligation on record")

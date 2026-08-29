@@ -1120,10 +1120,10 @@ def _board_wide_sweep(root: Path) -> int:
         sweep_subjects = None
         if delta_mode:
             sweep_subjects = {}
-            for subj, roles in _sp.board(root).items():
+            for subj, skills in _sp.board(root).items():
                 parts = subj.split("-", 1)
                 if len(parts) == 2 and parts[1].isdigit() and int(parts[1]) in changed_numbers:
-                    sweep_subjects[subj] = roles
+                    sweep_subjects[subj] = skills
         violations, skips = closure_sweep.find_violations(
             root, subjects=sweep_subjects, issue_states=issue_states,
             pr_index=shared_pr_index)
@@ -1548,7 +1548,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # 카테고리로 찍는다 — poll-heartbeat.sh 의 #1220 delta-suppression 이
     # `[returned-pr]` 태그 줄을 ALWAYS_RE 로 인식해 매 틱 살아남는다. 스폰
     # 시점뿐 아니라 매 60초 틱마다 방치를 보이게 하는 게 이 이슈의 요구다.
-    blockers, ok = _sp._undispositioned_role_prs(root)
+    blockers, ok = _sp._undispositioned_skill_prs(root)
     if ok:
         _sp._print_returned_pr_surfaced(blockers, source="watchdog")
     # 이슈 #1013 block B: 자기 세션 소유(또는 소유 미기재=empty-state)
@@ -1574,7 +1574,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         return anomaly_count
     state = _sp._watchdog_state_load()
     respawn_state = _sp._respawn_state_load() if auto_respawn else {}
-    issue_role_key = lambda e: (e.get("issue"), e.get("role"))
+    issue_skill_key = lambda e: (e.get("issue"), e.get("role"))
     # Issue #2103: one shared branch->PR index per poll tick, built lazily
     # from the cached board snapshot (delta read: 1 API call, usually) the
     # first time a dead entry needs a PR check — replaces the per-dead-entry
@@ -1593,9 +1593,9 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         divergences = _sp.reconcile(_sp._build_expected(e), _sp._build_observed(root, e),
                                  recovery_state_dir=root / ".on-the-record" / "recovery-state")
         if divergences:
-            issue_n, role_n = issue_role_key(e)
+            issue_n, skill_n = issue_skill_key(e)
             for div in divergences:
-                dedup_key = f"health-repair:{issue_n}:{role_n}:{div['kind']}"
+                dedup_key = f"health-repair:{issue_n}:{skill_n}:{div['kind']}"
                 if not _sp.ledger_check_and_stamp(dedup_key):
                     continue  # 이슈 #782: 이미 같은 TTL 창에서 보고됨 — 조용히
                 anomaly_count += 1
@@ -1715,8 +1715,8 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         # 이슈 #782 스코프-확장: dedup 원장과 무관하게 매 틱 상태를 보고한다.
         print(f"[poll-report] {key}: {health['state']} — {health['detail']}")
         if health["state"] is not None and health["state"] != "HEALTHY":
-            issue_n, role_n = issue_role_key(e)
-            dedup_key = f"health:{issue_n}:{role_n}:{health['state']}"
+            issue_n, skill_n = issue_skill_key(e)
+            dedup_key = f"health:{issue_n}:{skill_n}:{health['state']}"
             if _sp.ledger_check_and_stamp(dedup_key):
                 anomaly_count += 1
                 print(f"[health] {key}: {health['state']} — "
