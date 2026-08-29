@@ -180,6 +180,28 @@ def _run_git(args, cwd):
         return None
 
 
+# issue #2760: `_git_root_from` used to return the single value `None`
+# for two different situations — "git confidently said this path is not
+# in a repository" (a real, informative answer — the activation check
+# below also treats this as "not this gate's business" and allows) and
+# "git could not answer at all" (missing binary, a timeout, a nonzero
+# exit with no recognizable message, or a zero exit with empty/garbage
+# stdout — an unresolved unknown, not evidence of anything). The
+# exemption-resolution code below could not tell those apart and folded
+# both into the same "keep matching the raw unresolved file_path"
+# fallback, which is only safe for the first case: a raw relative
+# `file_path` that already equals an EXEMPT_SUFFIXES entry always
+# matches itself, so every "git could not answer" condition granted the
+# exemption for free without ever reaching the hardened activation
+# check below (which does fail closed on exactly these conditions).
+# `_GIT_UNKNOWN` names the second case explicitly so the caller can
+# refuse to award the exemption on it, instead of silently trusting an
+# unresolved path — the write still falls through to the activation
+# check, which asks git itself again and fails closed the same way it
+# already does for every other guarded write.
+_GIT_UNKNOWN = object()
+
+
 def _git_root_from(path_hint):
     # issue #2659: this used to trust `os.path.isdir(<probe>/".git")` as
     # proof that `<probe>` is a real repo root — true for an ordinary
@@ -198,11 +220,21 @@ def _git_root_from(path_hint):
     # scope here (issue #2637, not this issue).
     probe = _nearest_existing_dir(posixpath.dirname(path_hint))
     r = _run_git(["rev-parse", "--show-toplevel"], probe)
-    if r is not None and r.returncode == 0:
+    if r is None:
+        return _GIT_UNKNOWN  # binary missing, or the call timed out
+    if r.returncode == 0:
         top = r.stdout.strip()
-        if top:
+        # issue #2760: a zero exit with empty or non-path stdout is not
+        # a usable answer either — trusting it as a literal root used to
+        # let a bogus `posixpath.relpath` fall through to the same
+        # raw-path fallback below, which then matched the payload's
+        # unresolved (and already-exempt-looking) relative path anyway.
+        if top and posixpath.isabs(top):
             return top
-    return None
+        return _GIT_UNKNOWN
+    if "not a git repository" in r.stderr.lower():
+        return None  # a real answer: this path is not inside any repo
+    return _GIT_UNKNOWN  # nonzero exit, unrecognized — not a real answer
 
 # root_relative_n backs both EXEMPT_SUFFIXES and
 # PRODUCT_CAPTURE_PRIORITIES_DIR_RE below — filesystem truth (the actual
@@ -220,6 +252,13 @@ def _git_root_from(path_hint):
 # not exercised by any acceptance path here; out of scope for issue
 # #2661, left as an open finding in that issue's record.
 root_relative_n = n
+# issue #2760: set when git could not give a real answer while
+# resolving the root this exemption match is relative to — see
+# `_GIT_UNKNOWN` above. Gates the two root_relative_n-based exemption
+# checks below (a resolution failure must not fall back to trusting the
+# caller-supplied raw path); PRODUCT_CAPTURE_ISSUE_RE is unaffected
+# because it never calls git in the first place.
+_git_unknown_for_exemption = False
 _cwd_for_exemption = e.get("cwd")
 _cwd_ok = (isinstance(_cwd_for_exemption, str) and _cwd_for_exemption
            and posixpath.isabs(_cwd_for_exemption))
@@ -232,12 +271,19 @@ else:
     _abs_for_exemption = None
 if _abs_for_exemption is not None:
     _root_for_exemption = _git_root_from(_abs_for_exemption)
-    if _root_for_exemption is not None:
+    if _root_for_exemption is _GIT_UNKNOWN:
+        _git_unknown_for_exemption = True
+    elif _root_for_exemption is not None:
         _rel = posixpath.relpath(_abs_for_exemption, _root_for_exemption)
         if _rel != "." and not _rel.startswith(".."):
             root_relative_n = _rel
-if (root_relative_n in EXEMPT_SUFFIXES or PRODUCT_CAPTURE_ISSUE_RE.search(n)
-        or PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(root_relative_n)):
+    # else: _root_for_exemption is None — git confidently answered "not
+    # inside a repository", so the raw-path fallback above is a real
+    # answer, not a guess, and stays in effect (same as before #2760).
+if ((not _git_unknown_for_exemption and root_relative_n in EXEMPT_SUFFIXES)
+        or PRODUCT_CAPTURE_ISSUE_RE.search(n)
+        or (not _git_unknown_for_exemption
+            and PRODUCT_CAPTURE_PRIORITIES_DIR_RE.search(root_relative_n))):
     sys.exit(0)
 # issue #787 H1 used to widen this from "src/tests?/docs segment only" to
 # "everything is a deliverable path" and then carve back out any path
