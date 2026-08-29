@@ -177,8 +177,8 @@ The rest of #2600 (the identifier slice, the persisted-data-key slice,
 the hooks-emitted-string slice, and tokenmaxxxer-core's own sweep)
 remains open, per PR #2712's own record, and is not started here.
 
-skill-verdict: technical-writing-structure-comprehension — applied:
-invoked; applied the sentence-length target, clause-splitting, and
+skill-verdict: technical-writing-structure-comprehension — applied: invoked;
+applied the sentence-length target, clause-splitting, and
 filler-deletion rules from SKILL.md while drafting this record's own
 "What was done"/"Why" prose above; not applied to the
 `on-the-record/directive/*.md` edits themselves — those are single-word/
