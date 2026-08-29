@@ -102,15 +102,21 @@ task. Do not read the reference files, do not run the stages, do not
 open with a diagnostic lecture.
 ```
 
-**Diagnosis (skill-verdict: diagnose-first — not-applicable, per the two
-canonical quotes directly above: the issue names its own root cause
-verbatim with exact line numbers, and the skill's own quoted opt-out
-rule applies — this was a *design choice* between a narrow fix and a
-contract change, not an unknown cause to locate).**
+skill-verdict: diagnose-first — not-applicable: per the two canonical
+quotes directly above, the issue names its own root cause verbatim with
+exact line numbers, and the skill's own quoted opt-out rule applies —
+this was a *design choice* between a narrow fix and a contract change,
+not an unknown cause to locate.
 
-**Silent-failure trace (skill-verdict: silent-failure-audit — invoked;
-applied at `gates/spawn_on_pr.py:397-402`, pre-fix version, `git show
-HEAD:gates/spawn_on_pr.py`):**
+skill-verdict: silent-failure-audit — applied: invoked; traced the
+silent-failure chain at `gates/spawn_on_pr.py:397-402` (pre-fix version,
+code fence directly below) through Step 1-3 of the skill's procedure
+(collect the error-handling site, classify Silently Absorbed, trace
+forward to the downstream consequence), and that trace is what informed
+this fix's design.
+
+**Silent-failure trace, pre-fix version, `git show
+HEAD:gates/spawn_on_pr.py`:**
 ```python
     if issue_states is None:
         issue_states, ok = closure_sweep.issue_state_index_all(root)
