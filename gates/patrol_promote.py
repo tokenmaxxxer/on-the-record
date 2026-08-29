@@ -36,8 +36,8 @@ import patrol_board  # noqa: E402
 import patrol_queue  # noqa: E402
 
 LABEL_PROMOTED = "patrol-promoted"
-RATE_CAP_HOURLY_PER_ROLE = 2
-RATE_CAP_OPEN_PER_ROLE = 10
+RATE_CAP_HOURLY_PER_SKILL = 2
+RATE_CAP_OPEN_PER_SKILL = 10
 _MARKER_RE = re.compile(r"<!-- patrol:promoted fp=([0-9a-f]+) -->")
 
 
@@ -115,7 +115,7 @@ def rate_cap_ok(state: dict, now_hour_key: str) -> tuple[bool, bool]:
     promotions = state.get("promotions", [])
     hourly_count = sum(1 for ts in promotions if ts.startswith(now_hour_key))
     open_count = len(state.get("open_issue_numbers", []))
-    return hourly_count < RATE_CAP_HOURLY_PER_ROLE, open_count < RATE_CAP_OPEN_PER_ROLE
+    return hourly_count < RATE_CAP_HOURLY_PER_SKILL, open_count < RATE_CAP_OPEN_PER_SKILL
 
 
 def move_ticked_line(pending_lines: list[str], approved_lines: list[str],
@@ -148,12 +148,12 @@ def move_ticked_line(pending_lines: list[str], approved_lines: list[str],
 # Imperative shell
 # ---------------------------------------------------------------------------
 
-def _state_path(root: Path, role: str) -> Path:
-    return root / ".git" / "patrol-promote" / f"{role or 'all'}.json"
+def _state_path(root: Path, skill: str) -> Path:
+    return root / ".git" / "patrol-promote" / f"{skill or 'all'}.json"
 
 
-def load_state(root: Path, role: str) -> dict:
-    path = _state_path(root, role)
+def load_state(root: Path, skill: str) -> dict:
+    path = _state_path(root, skill)
     try:
         if path.exists():
             data = json.loads(path.read_text(encoding="utf-8"))
@@ -165,18 +165,18 @@ def load_state(root: Path, role: str) -> dict:
     return {"promotions": [], "open_issue_numbers": []}
 
 
-def save_state(root: Path, role: str, state: dict) -> None:
-    path = _state_path(root, role)
+def save_state(root: Path, skill: str, state: dict) -> None:
+    path = _state_path(root, skill)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(state), encoding="utf-8")
 
 
-def _prior_body_path(root: Path, role: str) -> Path:
-    return root / ".git" / "patrol-promote" / f"prior-body-{role or 'all'}.txt"
+def _prior_body_path(root: Path, skill: str) -> Path:
+    return root / ".git" / "patrol-promote" / f"prior-body-{skill or 'all'}.txt"
 
 
-def load_prior_body(root: Path, role: str) -> str | None:
-    path = _prior_body_path(root, role)
+def load_prior_body(root: Path, skill: str) -> str | None:
+    path = _prior_body_path(root, skill)
     if not path.exists():
         return None
     try:
@@ -185,8 +185,8 @@ def load_prior_body(root: Path, role: str) -> str | None:
         return None
 
 
-def save_prior_body(root: Path, role: str, body: str) -> None:
-    path = _prior_body_path(root, role)
+def save_prior_body(root: Path, skill: str, body: str) -> None:
+    path = _prior_body_path(root, skill)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
 
@@ -215,7 +215,7 @@ def find_existing_promotion(root: Path, fingerprint: str) -> int | None:
     return None
 
 
-def promote_tick(root: Path, role: str, entry: dict, state: dict,
+def promote_tick(root: Path, skill: str, entry: dict, state: dict,
                   now_iso: str) -> dict:
     """Orchestrates one tick's promotion. Idempotence search runs before
     any cap check, so an already-promoted tick is never blocked by its
@@ -229,17 +229,17 @@ def promote_tick(root: Path, role: str, entry: dict, state: dict,
         return {"promoted": False, "reason": "rate_cap"}
 
     sev = entry.get("severity", "unspecified")
-    title = f"[patrol:{role or 'all'}] {entry['finding_class']}: {entry['path']}"
+    title = f"[patrol:{skill or 'all'}] {entry['finding_class']}: {entry['path']}"
     body = build_finding_issue_body(entry)
     # Labels must exist or the create 422s (same failure class as the board's
     # first create — PR #1594 review). `gh label create --force` is idempotent.
-    for lbl in (LABEL_PROMOTED, "finding", f"role:{role}", f"severity:{sev}"):
+    for lbl in (LABEL_PROMOTED, "finding", f"role:{skill}", f"severity:{sev}"):
         subprocess.run(["gh", "label", "create", lbl, "--force"],
                        cwd=root, capture_output=True, text=True)
     r = subprocess.run(
         ["gh", "issue", "create", "--title", title, "--body", body,
          "--label", LABEL_PROMOTED, "--label", "finding",
-         "--label", f"role:{role}", "--label", f"severity:{sev}"],
+         "--label", f"role:{skill}", "--label", f"severity:{sev}"],
         cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
         return {"promoted": False, "reason": "gh_error", "stderr": r.stderr[:300]}
@@ -259,14 +259,14 @@ def _has_checked_pending(body: str) -> bool:
     return any(line.lstrip().startswith("- [x]") for line in pending)
 
 
-def run_patrol_promote(root: Path, role: str, queue_path: Path, dry_run: bool,
+def run_patrol_promote(root: Path, skill: str, queue_path: Path, dry_run: bool,
                         now_iso: str) -> dict:
     queue = patrol_queue.load_queue(queue_path)
 
     if dry_run:
         return {"dry_run": True, "api_calls": 0, "promotions": [], "deferred": []}
 
-    issue, ok, calls = patrol_board.find_board_issue(root, role)
+    issue, ok, calls = patrol_board.find_board_issue(root, skill)
     new_body = issue.get("body") if issue else None
     if new_body is None:
         return {"dry_run": False, "api_calls": calls, "promotions": [], "deferred": []}
@@ -278,16 +278,16 @@ def run_patrol_promote(root: Path, role: str, queue_path: Path, dry_run: bool,
     # in Pending Approval", with idempotence guaranteed by
     # find_existing_promotion(), not by the body diff. prior_body is kept
     # only as a cheap short-circuit when nothing changed at all.
-    prior_body = load_prior_body(root, role)
+    prior_body = load_prior_body(root, skill)
     if prior_body == new_body and not _has_checked_pending(new_body):
         return {"dry_run": False, "api_calls": calls, "promotions": [], "deferred": []}
     ticks = detect_ticks(None, new_body, queue)
 
     if not ticks:
-        save_prior_body(root, role, new_body)
+        save_prior_body(root, skill, new_body)
         return {"dry_run": False, "api_calls": calls, "promotions": [], "deferred": []}
 
-    state = load_state(root, role)
+    state = load_state(root, skill)
     sections = patrol_board.parse_board_body(new_body)
     pending_lines = sections[patrol_board.PENDING_HEADING]
     approved_lines = sections[patrol_board.APPROVED_HEADING]
@@ -295,7 +295,7 @@ def run_patrol_promote(root: Path, role: str, queue_path: Path, dry_run: bool,
     promotions, deferred = [], []
     for entry in ticks:
         fp_prefix = entry["fingerprint"][:12]
-        result = promote_tick(root, role, entry, state, now_iso)
+        result = promote_tick(root, skill, entry, state, now_iso)
         if result["promoted"]:
             pending_lines, approved_lines = move_ticked_line(
                 pending_lines, approved_lines, fp_prefix, result["issue"])
@@ -307,7 +307,7 @@ def run_patrol_promote(root: Path, role: str, queue_path: Path, dry_run: bool,
                     pending_lines, approved_lines, fp_prefix, None, annotation=annotation)
             deferred.append({"fingerprint": entry["fingerprint"], "reason": result.get("reason")})
 
-    save_state(root, role, state)
+    save_state(root, skill, state)
 
     next_body = patrol_board._render_from_lines(
         pending_lines, approved_lines, sections[patrol_board.CLOSED_HEADING])
@@ -324,9 +324,9 @@ def run_patrol_promote(root: Path, role: str, queue_path: Path, dry_run: bool,
             if wrote:
                 patrol_board.record_write(root, now_iso[:10])
         else:
-            patrol_board.record_drop(root, role, now_iso[:10])
+            patrol_board.record_drop(root, skill, now_iso[:10])
 
-    save_prior_body(root, role, next_body if wrote else new_body)
+    save_prior_body(root, skill, next_body if wrote else new_body)
 
     return {"dry_run": False, "api_calls": api_calls, "wrote": wrote,
             "promotions": promotions, "deferred": deferred}
@@ -353,10 +353,10 @@ def main(argv: list[str]) -> int:
         rest = rest[:i] + rest[i + 2:]
 
     root = Path(rest[0]).resolve()
-    role = rest[1] if len(rest) > 1 else ""
+    skill = rest[1] if len(rest) > 1 else ""
     queue_path = queue_override or (root / patrol_queue.QUEUE_REL_PATH)
 
-    summary = run_patrol_promote(root, role, queue_path, dry_run, now_iso)
+    summary = run_patrol_promote(root, skill, queue_path, dry_run, now_iso)
     print(json.dumps(summary, indent=2))
     return 0
 

@@ -136,7 +136,7 @@ def _own_pr_supplies_verification(repo: Path, subject: str, own_branch: str | No
     `origin/{own_branch}`, not the bare branch name -- `repo` here is the
     orchestrator checkout `evaluate()`/`main()` operate against, which has
     an `origin` remote but no local branch of that exact name;
-    `check_runner.fetch_all_role_branches()` (already run once at the top
+    `check_runner.fetch_all_skill_branches()` (already run once at the top
     of `evaluate()`) mirrors every origin branch to local `origin/<branch>`
     refs, the same convention `check_runner.checkout_pr_worktree()` uses
     (`origin/{head_ref}`, not bare `head_ref`) for the identical PR-head
@@ -328,7 +328,7 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     # issue #2381 R1 (conformance-review CHANGES round): 아래 `stale_revert_reasons()`
     # 는 `origin/<base_ref>` 를 resolve 한다 — 예전엔 `check_runner.py`의
     # `checkout_pr_worktree()`가 같은 `--repo` 체크아웃에 먼저
-    # `fetch_all_role_branches()`를 실행해 뒀다는 걸 전제로 삼았지만,
+    # `fetch_all_skill_branches()`를 실행해 뒀다는 걸 전제로 삼았지만,
     # `verdict_gate.py`(및 그걸 통하지 않고 `evaluate()`를 직접 부르는 다른
     # 호출부)는 그 실행 순서를 보장하지 않는다 — 그러면 이슈 #2381 이 고치려던
     # "fatal: invalid reference"(방금 push된 role 브랜치를 못 찾는 문제)가
@@ -338,7 +338,7 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     # best-effort: 리턴값을 보지 않는다 — origin 리모트가 없는 합성 테스트
     # 저장소 등에서 실패해도, `stale_revert_reasons()`는 이미 ref 를 못 읽으면
     # fail-open 이라 결과가 달라지지 않는다.
-    check_runner.fetch_all_role_branches(repo)
+    check_runner.fetch_all_skill_branches(repo)
     reasons: list[str] = []
     comment = latest_check_runner_comment(repo, pr)
     if comment is None:

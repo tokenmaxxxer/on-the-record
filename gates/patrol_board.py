@@ -43,7 +43,7 @@ _SEEN_SUFFIX = re.compile(r" \(seen (\d+)x\)$")
 # Pure rendering / selection functions
 # ---------------------------------------------------------------------------
 
-def select_board_entries(queue: list[dict], role: str) -> list[dict]:
+def select_board_entries(queue: list[dict], skill: str) -> list[dict]:
     """Diff-lane, status=open, validated entries scoped to `role`. A queue
     entry belongs to a role's board when the judge transport authored it for
     that role — `scanner_id == "judge:<role>"` (spawn.py judge_cmd's enqueue
@@ -55,10 +55,10 @@ def select_board_entries(queue: list[dict], role: str) -> list[dict]:
     for entry in queue:
         if entry.get("lane") != "diff" or entry.get("status") != "open":
             continue
-        if role:
-            by_scanner = entry.get("scanner_id") == f"judge:{role}"
-            by_path = (entry["path"].startswith(f"roles/{role}/")
-                       or entry["path"].startswith(f"{role}/"))
+        if skill:
+            by_scanner = entry.get("scanner_id") == f"judge:{skill}"
+            by_path = (entry["path"].startswith(f"roles/{skill}/")
+                       or entry["path"].startswith(f"{skill}/"))
             if not (by_scanner or by_path):
                 continue
         out.append(entry)
@@ -163,11 +163,11 @@ def diff_board(prior_pending_lines: list[str], new_pending_fingerprints: set[str
     return still_pending, newly_closed
 
 
-def build_next_body(prior_body: str | None, role: str, queue: list[dict]) -> str:
+def build_next_body(prior_body: str | None, skill: str, queue: list[dict]) -> str:
     """End-to-end pure render: prior board body (None on first run) +
     current queue -> next board body. Combines select/dedup/absence-close
     without any I/O."""
-    pending_entries = select_board_entries(queue, role)
+    pending_entries = select_board_entries(queue, skill)
     sections = parse_board_body(prior_body) if prior_body else {h: [] for h in SECTION_HEADINGS}
 
     prior_pending = sections[PENDING_HEADING]
@@ -201,11 +201,11 @@ def _render_from_lines(pending_lines: list[str], approved_lines: list[str],
 # serialized, batched to one edit per role per run)
 # ---------------------------------------------------------------------------
 
-def _etag_cache_path(root: Path, role: str) -> Path:
-    return root / ".git" / "gh-read-cache" / f"patrol-board-{role or 'all'}.json"
+def _etag_cache_path(root: Path, skill: str) -> Path:
+    return root / ".git" / "gh-read-cache" / f"patrol-board-{skill or 'all'}.json"
 
 
-def find_board_issue(root: Path, role: str) -> tuple[dict | None, bool, int]:
+def find_board_issue(root: Path, skill: str) -> tuple[dict | None, bool, int]:
     """Locate the existing board issue for `role` via one ETag-conditional
     `gh api` call. Returns (issue_dict_or_None, ok, billed_calls). A 304
     response reuses the cached issue and bills 0 calls."""
@@ -213,7 +213,7 @@ def find_board_issue(root: Path, role: str) -> tuple[dict | None, bool, int]:
     if not slug:
         return None, False, 0
 
-    cache_path = _etag_cache_path(root, role)
+    cache_path = _etag_cache_path(root, skill)
     etag = None
     cached_raw = None
     try:
@@ -226,7 +226,7 @@ def find_board_issue(root: Path, role: str) -> tuple[dict | None, bool, int]:
     except (OSError, ValueError, UnicodeDecodeError):
         etag, cached_raw = None, None
 
-    labels = f"{LABEL_BOARD},role:{role}" if role else LABEL_BOARD
+    labels = f"{LABEL_BOARD},role:{skill}" if skill else LABEL_BOARD
     # -X GET is load-bearing: `gh api` with -f fields and no method defaults
     # to POST, and POST /issues is issue CREATION (observed live: 422 only
     # because the payload lacked a title — PR #1594 review).
@@ -285,17 +285,17 @@ def record_write(root: Path, date: str) -> None:
     path.write_text(json.dumps({"count": count + 1}), encoding="utf-8")
 
 
-def record_drop(root: Path, role: str, date: str) -> None:
+def record_drop(root: Path, skill: str, date: str) -> None:
     """Drop-and-record: a write skipped for daily budget is never queued
     for later — it is logged once and the run moves on."""
     report = root / "docs" / "issue-1588" / "reports" / "write-budget-drops.md"
     report.parent.mkdir(parents=True, exist_ok=True)
-    line = f"- {date} role={role or '(all)'} write dropped: daily budget exceeded\n"
+    line = f"- {date} role={skill or '(all)'} write dropped: daily budget exceeded\n"
     with report.open("a", encoding="utf-8") as f:
         f.write(line)
 
 
-def run_patrol_board(root: Path, role: str, queue_path: Path, dry_run: bool,
+def run_patrol_board(root: Path, skill: str, queue_path: Path, dry_run: bool,
                       date: str) -> dict:
     """Orchestrates one patrol-board run for `role`. Returns a summary
     dict (also what --dry-run prints). Makes 0 subprocess/gh calls when
@@ -305,36 +305,36 @@ def run_patrol_board(root: Path, role: str, queue_path: Path, dry_run: bool,
     if dry_run:
         # dry-run never touches gh: prior body is treated as absent so the
         # printed body reflects a from-scratch render of the current queue.
-        body = build_next_body(None, role, queue)
+        body = build_next_body(None, skill, queue)
         return {"dry_run": True, "api_calls": 0, "wrote": False, "body": body}
 
-    issue, ok, calls = find_board_issue(root, role)
+    issue, ok, calls = find_board_issue(root, skill)
     if not ok:
         # A failed lookup must never fall through to create — a transient
         # error would mint a duplicate board (PR #1594 review).
         return {"dry_run": False, "api_calls": calls, "wrote": False,
                 "error": "board lookup failed"}
     prior_body = issue.get("body") if issue else None
-    next_body = build_next_body(prior_body, role, queue)
+    next_body = build_next_body(prior_body, skill, queue)
 
     if issue is not None and prior_body == next_body:
         return {"dry_run": False, "api_calls": calls, "wrote": False, "body": next_body}
 
     if not write_budget_ok(root, date):
-        record_drop(root, role, date)
+        record_drop(root, skill, date)
         return {"dry_run": False, "api_calls": calls, "wrote": False,
                  "body": next_body, "dropped": True}
 
-    title = f"Patrol board: {role or 'all roles'}"
+    title = f"Patrol board: {skill or 'all roles'}"
     if issue is None:
         # First-ever board for this role: labels must exist or create 422s.
         # `gh label create --force` is idempotent; one-time cost per repo.
-        for lbl in (LABEL_BOARD, f"role:{role}"):
+        for lbl in (LABEL_BOARD, f"role:{skill}"):
             subprocess.run(["gh", "label", "create", lbl, "--force"],
                            cwd=root, capture_output=True, text=True)
         w = subprocess.run(
             ["gh", "issue", "create", "--title", title, "--body", next_body,
-             "--label", LABEL_BOARD, "--label", f"role:{role}"],
+             "--label", LABEL_BOARD, "--label", f"role:{skill}"],
             cwd=root, capture_output=True, text=True)
     else:
         w = subprocess.run(
@@ -367,10 +367,10 @@ def main(argv: list[str]) -> int:
         rest = rest[:i] + rest[i + 2:]
 
     root = Path(rest[0]).resolve()
-    role = rest[1] if len(rest) > 1 else ""
+    skill = rest[1] if len(rest) > 1 else ""
     queue_path = queue_override or (root / patrol_queue.QUEUE_REL_PATH)
 
-    summary = run_patrol_board(root, role, queue_path, dry_run, date)
+    summary = run_patrol_board(root, skill, queue_path, dry_run, date)
     print(json.dumps({k: v for k, v in summary.items() if k != "body"}, indent=2))
     if dry_run:
         print(summary["body"])

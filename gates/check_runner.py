@@ -461,7 +461,7 @@ def remove_worktree(repo: Path, worktree: Path) -> None:
     shutil.rmtree(worktree, ignore_errors=True)
 
 
-def fetch_all_role_branches(repo: Path) -> subprocess.CompletedProcess:
+def fetch_all_skill_branches(repo: Path) -> subprocess.CompletedProcess:
     """issue #2381: 플레인 `git fetch origin`(또는 `git fetch origin
     <one-branch>`) 은 `repo`의 `remote.origin.fetch` 설정이 그 브랜치
     패턴을 포함하지 않으면 exit 0 으로 "성공"해도
@@ -497,7 +497,7 @@ def checkout_pr_worktree(repo: Path, pr: int) -> tuple[Path | None, str | None]:
     head_ref = _pr_head_ref(repo, pr)
     if head_ref is None:
         return None, f"PR #{pr} 의 head 브랜치를 읽을 수 없다(`gh pr view` 실패)"
-    fetch = fetch_all_role_branches(repo)
+    fetch = fetch_all_skill_branches(repo)
     if fetch.returncode != 0:
         return None, f"origin fetch 실패: {fetch.stderr.strip()}"
     return worktree_for_ref(repo, f"origin/{head_ref}")

@@ -23,16 +23,16 @@ def fake_root(tmp_path, monkeypatch):
     return tmp_path
 
 
-def _seeded_live_session(role, peer_role, question, cwd, model=None):
+def _seeded_live_session(skill, peer_skill, question, cwd, model=None):
     """Stands in for a live judge session: one position, one rebuttal,
     then a verdict — the shape a real session's `SendMessage` exchange
     plus final JSON would produce."""
     return {
         "turns": [
-            f"{role}: my position on {question!r} is X.",
-            f"{role}: rebutting {peer_role}'s point — still X, refined.",
+            f"{skill}: my position on {question!r} is X.",
+            f"{skill}: rebutting {peer_skill}'s point — still X, refined.",
         ],
-        "verdict": {"answer": f"{role} says X", "confidence": "high", "caveats": []},
+        "verdict": {"answer": f"{skill} says X", "confidence": "high", "caveats": []},
     }
 
 
@@ -52,16 +52,16 @@ def test_panel_live_exchange_records_position_rebuttal_and_verdict(fake_root):
     assert "role=review" in text
 
 
-def _unavailable_session(role, peer_role, question, cwd, model=None):
-    raise spawn._PanelMessagingUnavailable(f"{role}: seeded unavailable")
+def _unavailable_session(skill, peer_skill, question, cwd, model=None):
+    raise spawn._PanelMessagingUnavailable(f"{skill}: seeded unavailable")
 
 
 def test_panel_degrades_to_sequential_consult_when_messaging_unavailable(fake_root, monkeypatch):
     calls = []
 
-    def fake_consult(role, question, issue=None, cwd=None):
-        calls.append(role)
-        return {"answer": f"{role} sequential answer", "confidence": "medium", "caveats": []}
+    def fake_consult(skill, question, issue=None, cwd=None):
+        calls.append(skill)
+        return {"answer": f"{skill} sequential answer", "confidence": "medium", "caveats": []}
 
     monkeypatch.setattr(spawn, "consult_cmd", fake_consult)
 

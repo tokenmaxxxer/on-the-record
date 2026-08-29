@@ -57,16 +57,16 @@ def findings_due(target_root: Path) -> list[dict]:
     bound: a target repo with nothing queued stays silent)."""
     target_root = Path(target_root).resolve()
     due = []
-    for role_dir in _findings_dirs(target_root):
-        role = role_dir.name
-        for p in sorted(role_dir.glob("*.md")):
+    for skill_dir in _findings_dirs(target_root):
+        skill = skill_dir.name
+        for p in sorted(skill_dir.glob("*.md")):
             if p.name.endswith("-session-summary.md"):
                 continue
             fm = _frontmatter(p.read_text(encoding="utf-8"))
             if fm.get("relayed_to_issue"):
                 continue
             due.append({
-                "role": role,
+                "role": skill,
                 "path": str(p.relative_to(target_root)),
                 "domain_rule": fm.get("domain_rule", ""),
                 "date": fm.get("date", ""),

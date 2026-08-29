@@ -72,19 +72,19 @@ def run_reexecution(command: str, target_sha: str, repo: Path,
                            cwd=repo, capture_output=True, text=True)
 
 
-def verdict_path(repo: Path, issue: int, role: str) -> Path:
-    return repo / ".reexecution" / f"{issue}-{role}.json"
+def verdict_path(repo: Path, issue: int, skill: str) -> Path:
+    return repo / ".reexecution" / f"{issue}-{skill}.json"
 
 
-def write_verdict(repo: Path, issue: int, role: str, verdict: Verdict) -> Path:
-    path = verdict_path(repo, issue, role)
+def write_verdict(repo: Path, issue: int, skill: str, verdict: Verdict) -> Path:
+    path = verdict_path(repo, issue, skill)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(asdict(verdict), ensure_ascii=False, indent=2))
     return path
 
 
-def read_verdict(repo: Path, issue: int, role: str) -> Verdict | None:
-    path = verdict_path(repo, issue, role)
+def read_verdict(repo: Path, issue: int, skill: str) -> Verdict | None:
+    path = verdict_path(repo, issue, skill)
     if not path.exists():
         return None
     try:
@@ -102,16 +102,16 @@ def _arg(argv: list[str], name: str, default: str | None = None) -> str | None:
 
 def main(argv: list[str]) -> int:
     issue = _arg(argv, "--issue")
-    role = _arg(argv, "--role")
+    skill = _arg(argv, "--role")
     sha = _arg(argv, "--sha")
     command = _arg(argv, "--command")
     repo = Path(_arg(argv, "--repo", ".")).resolve()
     timeout = int(_arg(argv, "--timeout", str(DEFAULT_TIMEOUT)))
-    if not (issue and role and sha and command):
+    if not (issue and skill and sha and command):
         print("reexecution_gate: --issue --role --sha --command 모두 필요하다")
         return 2
     verdict = run_reexecution(command, sha, repo, timeout)
-    path = write_verdict(repo, int(issue), role, verdict)
+    path = write_verdict(repo, int(issue), skill, verdict)
     print(f"reexecution_gate: {verdict.kind} ({path})")
     if verdict.detail:
         print(f"    {verdict.detail}")

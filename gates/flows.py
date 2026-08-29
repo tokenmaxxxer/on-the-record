@@ -143,8 +143,8 @@ def _plan_from_body(body: str) -> list[dict] | None:
             continue
         done = m.group(1) in ("x", "X")
         step_n = int(m.group(2))
-        roles = [r.strip() for r in m.group(3).split("‖")]
-        steps.append({"step": step_n, "roles": roles, "done": done})
+        skills = [r.strip() for r in m.group(3).split("‖")]
+        steps.append({"step": step_n, "roles": skills, "done": done})
     return steps
 
 
@@ -173,7 +173,7 @@ def plan_order_blocked(plan: list[dict]) -> list[dict]:
 
 
 def _pr_approved(pr: dict, comments: list[dict], approvers: set[str],
-                 subject: str, role: str, root: Path = spawn.ROOT) -> bool:
+                 subject: str, skill: str, root: Path = spawn.ROOT) -> bool:
     """Two detection paths from contract v3 s19: an `APPROVE <subject>/<role>`
     comment from an approvers.md login, or a PR review Approve from a
     different approvers.md login (`pr["reviews"]`, already fetched by
@@ -188,9 +188,9 @@ def _pr_approved(pr: dict, comments: list[dict], approvers: set[str],
     import ci
     issue_n = int(subject.split("-", 1)[1])
     record = ci._read_approval_record(spawn._approval_record_path(root, issue_n))
-    if role in record:
+    if skill in record:
         return True
-    needle = f"APPROVE {subject}/{role}"
+    needle = f"APPROVE {subject}/{skill}"
     if any(c["body"].strip() == needle and c["login"] in approvers for c in comments):
         return True
     for rv in pr.get("reviews") or []:
@@ -354,7 +354,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
     # 매칭만으로 열린 PR을 전부 잡는다(issue #248 — `decision_queue`와 같은
     # 소스를 `flows[].prs`도 공유해 두 필드가 구조적으로 불일치하지 않게 한다).
     prs_by_subject: dict[str, set[int]] = {}
-    for (subject_key, _role), pr in pr_by_branch.items():
+    for (subject_key, _skill), pr in pr_by_branch.items():
         prs_by_subject.setdefault(subject_key, set()).add(pr["number"])
 
     comments_cache: dict[int, list[dict]] = {}
@@ -384,10 +384,10 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
     roster_all = spawn._roster_load()
     roster_own_keys = set(spawn._roster_own(roster_all, all_scope=all_scope))
 
-    def _own_item(subject: str, role: str) -> bool:
+    def _own_item(subject: str, skill: str) -> bool:
         if all_scope:
             return True
-        key = f"{subject}/{role}"
+        key = f"{subject}/{skill}"
         # 이슈 #1035: 로스터에 아예 항목이 없으면(둘 다 관측 불가) 소유를
         # 부정할 수 없다 — `_roster_own`의 observation-loss invariant와
         # 동일하게 계속 노출한다. 로스터에 있는데 다른 세션 소유일 때만 뺀다.
@@ -399,45 +399,45 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
     # 순회(all_subjects → roles.items())와 무관하게 완전한 소스다 — 머지된
     # 레코드도 계획 블록도 없는 subject의 PR도 여기서는 보인다(issue #216).
     # 보드 레코드는 있으면 loop_state/phase 판단에만 조인한다.
-    for (subject, role), pr in sorted(pr_by_branch.items()):
+    for (subject, skill), pr in sorted(pr_by_branch.items()):
         issue_n = int(subject.split("-", 1)[1])
-        loop_state = (b.get(subject, {}).get(role, {}) or {}).get("loop_state")
+        loop_state = (b.get(subject, {}).get(skill, {}) or {}).get("loop_state")
         comments = comments_for(subject, pr["number"])
-        approved = _pr_approved(pr, comments, approvers, subject, role, root)
+        approved = _pr_approved(pr, comments, approvers, subject, skill, root)
         phase = 1 if loop_state in (None, "scope-proposed") else 2
-        if not approved and _own_item(subject, role):
+        if not approved and _own_item(subject, skill):
             decision_queue.append({
                 "issue": issue_n, "pr": pr["number"], "phase": phase,
-                "role": role, "opened_at": pr.get("createdAt"),
+                "role": skill, "opened_at": pr.get("createdAt"),
                 "age_hours": _age_hours(pr.get("createdAt")),
                 "awaiting": "approve-scope" if phase == 1 else "approve-full",
             })
 
-    for subject, roles in sorted(all_subjects.items()):
+    for subject, skills in sorted(all_subjects.items()):
         issue_n = int(subject.split("-", 1)[1])
-        role_entries = []
+        skill_entries = []
         stage_source = None
-        for role, fm in roles.items():
+        for skill, fm in skills.items():
             loop_state = fm.get("loop_state")
-            pr = pr_by_branch.get((subject, role))
-            role_entries.append({"role": role, "loop_state": loop_state,
+            pr = pr_by_branch.get((subject, skill))
+            skill_entries.append({"role": skill, "loop_state": loop_state,
                                  "verdict": fm.get("verdict")})
-            if spawn._front_role(root, subject, roles) == role:
+            if spawn._front_skill(root, subject, skills) == skill:
                 stage_source = loop_state
             if not pr:
                 continue
             comments = comments_for(subject, pr["number"])
-            approved = _pr_approved(pr, comments, approvers, subject, role, root)
+            approved = _pr_approved(pr, comments, approvers, subject, skill, root)
             if loop_state and loop_state != "scope-proposed" and not approved:
                 unapproved_open_prs.append({
-                    "issue": issue_n, "pr": pr["number"], "role": role,
+                    "issue": issue_n, "pr": pr["number"], "role": skill,
                     "opened_at": pr.get("createdAt"),
                 })
 
         stage, derived = _stage_for(stage_source, issue_state_by_n.get(issue_n))
         flows_out.append({
             "issue": issue_n, "stage": stage, "stage_derived": derived,
-            "roles": role_entries,
+            "roles": skill_entries,
             "prs": sorted(prs_by_subject.get(subject, set())),
             "plan": plan_by_issue.get(issue_n),
         })

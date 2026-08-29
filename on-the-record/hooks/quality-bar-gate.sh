@@ -242,8 +242,8 @@ _TRIGGER_PATH_PATTERNS = {
                        "**/*input*", "**/*sanitiz*", "**/*validat*"],
 }
 
-scoped_roles = quality_bar.bar_scoped_roles(pr_files, _TRIGGER_PATH_PATTERNS)
-if not scoped_roles or issue is None or slug is None:
+scoped_skills = quality_bar.bar_scoped_skills(pr_files, _TRIGGER_PATH_PATTERNS)
+if not scoped_skills or issue is None or slug is None:
     sys.exit(0)  # NO_BAR_SCOPED — nothing to deny (or no branch slug to resolve a record against)
 
 VERDICT_RE = re.compile(r"^\s*quality_bar_verdict:\s*(bar-met|bar-not-met)\s*$", re.MULTILINE)
@@ -296,19 +296,19 @@ if hc_verdict == "bar-not-met" and status in (quality_bar.BAR_NOT_MET, quality_b
 
 denials = []
 if status in (quality_bar.BAR_NOT_MET, quality_bar.ESCALATE):
-    for role in sorted(scoped_roles):
-        denials.append((role, status, reason))
+    for skill in sorted(scoped_skills):
+        denials.append((skill, status, reason))
 
 if not denials:
     sys.exit(0)  # every bar-scoped role is BAR_MET
 
 lines = []
-for role, status, reason in denials:
-    lines.append("%s: %s (%s)" % (role, status, reason))
+for skill, status, reason in denials:
+    lines.append("%s: %s (%s)" % (skill, status, reason))
     if status == quality_bar.ESCALATE:
         lines.append(
             "  -> open docs/issue-%s/decisions/open_decision_item-%s-<ts>.md for operator attention"
-            % (issue, role)
+            % (issue, skill)
         )
 
 print(json.dumps({

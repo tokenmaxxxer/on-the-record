@@ -131,7 +131,7 @@ def session_cache_summary(path) -> dict:
     return summary
 
 
-def to_ledger_event(summary: dict, role: str | None = None, issue: str | None = None) -> dict:
+def to_ledger_event(summary: dict, skill: str | None = None, issue: str | None = None) -> dict:
     """`skill_judge_perf` (issue #2255, consult.py) is the field-shape
     template this Ask names: ts/role/issue plus the measured metrics, so
     this can be handed straight to `ledger_write` later without inventing
@@ -141,7 +141,7 @@ def to_ledger_event(summary: dict, role: str | None = None, issue: str | None = 
     return {
         "event": "cache_coverage_perf",
         "ts": int(time.time()),
-        "role": role,
+        "role": skill,
         "issue": issue,
         "turns": summary["turns"],
         "cache_hit_share": summary["cache_hit_share"],

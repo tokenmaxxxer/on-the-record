@@ -28,7 +28,7 @@ from pathlib import Path
 _sp = None
 
 
-def _open_role_prs(root: Path) -> tuple[list[dict], bool]:
+def _open_skill_prs(root: Path) -> tuple[list[dict], bool]:
     """열린 `issue-*/` 브랜치 PR 목록. `(prs, ok)` — `ok=False` 는 `gh` 조회
     실패(`_issue_comments`/`_pr_for_branch` 와 같은 튜플 관례, issue #287 S6).
     각 항목은 `number`, `headRefName`, `body`, `url`, 그리고 파싱해 뽑은
@@ -54,17 +54,17 @@ def _open_role_prs(root: Path) -> tuple[list[dict], bool]:
     return out, True
 
 
-def _undispositioned_role_prs(root: Path, exclude_issue: int | None = None
+def _undispositioned_skill_prs(root: Path, exclude_issue: int | None = None
                                ) -> tuple[list[dict], bool]:
     """열린 `issue-*/` PR 중 아직 처분(phase-1 승인 또는 phase-2 머지/닫힘)
-    되지 않은 것들. phase 판정은 `gates/ci.py._approved_roles_on_issue` 를
-    재사용한다 — `_approved_roles_on_issue` 가 비어 있으면 phase-1 미승인,
+    되지 않은 것들. phase 판정은 `gates/ci.py._approved_skills_on_issue` 를
+    재사용한다 — `_approved_skills_on_issue` 가 비어 있으면 phase-1 미승인,
     있으면 phase-2 진행 중(그 이슈의 phase-2 PR 은 정의상 아직 열려 있으니
     처분 전). `exclude_issue` 와 같은 이슈 번호는 건너뛴다(진행 중인 그
     이슈 자신을 막지 않는다). `(blockers, ok)` — `ok` 는 `_open_role_prs`
     의 실패를 그대로 전파한다.
     """
-    prs, ok = _sp._open_role_prs(root)
+    prs, ok = _sp._open_skill_prs(root)
     if not ok:
         return [], False
     sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
@@ -85,8 +85,8 @@ def _undispositioned_role_prs(root: Path, exclude_issue: int | None = None
             continue
         if pr.get("headRefName") in own_branches:
             continue
-        approved_roles = _ci._approved_roles_on_issue(root, pr["issue"])
-        phase = "phase2" if approved_roles else "phase1"
+        approved_skills = _ci._approved_skills_on_issue(root, pr["issue"])
+        phase = "phase2" if approved_skills else "phase1"
         age_hours = None
         created_at = pr.get("createdAt")
         if created_at:
@@ -116,7 +116,7 @@ def _print_returned_pr_surfaced(blockers: list[dict], source: str) -> None:
 _STRANDED_PUSH_COMMENT_MARKER = "[on-the-record] stranded-relay: {key}"
 
 
-def _post_stranded_push_comment(root: Path, issue: int, role: str, branch: str,
+def _post_stranded_push_comment(root: Path, issue: int, skill: str, branch: str,
                                 reason: str, detail: str) -> None:
     """이슈 #326: `ensure_pushed()`의 push/PR-생성 실패가 조용히 사라지지
     않게, `_post_crash_comment`와 같은 멱등 read-then-check 패턴으로 이슈에
@@ -132,7 +132,7 @@ def _post_stranded_push_comment(root: Path, issue: int, role: str, branch: str,
         return
     body = (f"{marker}\n\n"
             f"branch: {branch}\nreason: {reason}\ndetail: {detail[:200]}\n\n"
-            f"The {role}-role session's work stopped here — resume it (retry the "
+            f"The {skill}-role session's work stopped here — resume it (retry the "
             f"push/PR creation from the host), or close the issue with a stated "
             f"reason. Needs human intervention.")
     subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
@@ -157,7 +157,7 @@ def _subject_issue_state(root: Path, issue: int) -> tuple[str | None, bool]:
         return None, False
 
 
-def _flag_stale_returned_branch(issue: int, role: str, branch: str,
+def _flag_stale_returned_branch(issue: int, skill: str, branch: str,
                                 source: str) -> None:
     """Issue #2068: a returned/stranded branch whose subject issue is
     CLOSED must never be re-opened as a PR or respawned — flag it for
@@ -169,7 +169,7 @@ def _flag_stale_returned_branch(issue: int, role: str, branch: str,
           f"returned branch {branch}; branch flagged for cleanup",
           file=sys.stderr)
     _sp.ledger_write({"event": "stale_branch_cleanup_flagged", "issue": issue,
-                  "role": role, "branch": branch, "source": source,
+                  "role": skill, "branch": branch, "source": source,
                   "ts": int(time.time())})
 
 
@@ -191,7 +191,7 @@ def _current_issue_task_text(root: Path, issue: int) -> str | None:
     return f"Issue #{issue}: {title}\n\n{body}".rstrip() + "\n"
 
 
-def ensure_pushed(work: str, issue: int, role: str) -> dict:
+def ensure_pushed(work: str, issue: int, skill: str) -> dict:
     """세션이 남긴 커밋을 호스트 환경에서 push 하고, PR 이 없으면 연다.
 
     샌드박스의 GitHub egress 는 환경마다 다르게 막힌다(https 프록시 403,
@@ -208,7 +208,7 @@ def ensure_pushed(work: str, issue: int, role: str) -> dict:
     사유를 이벤트/원장에 실을 수 있도록 구조화된 결과를 추가로 리턴한다
     (이슈 #301 B2).
     """
-    br = f"issue-{issue}/{role}"
+    br = f"issue-{issue}/{skill}"
     def git(*a):
         # env=_git_env(): 이 클로저의 유일한 네트워크 호출은 아래 push 다 —
         # rev-parse/rev-list 는 로컬이라 영향 없다. push 도 _fetch_or_halt
@@ -216,7 +216,7 @@ def ensure_pushed(work: str, issue: int, role: str) -> dict:
         # 막힐 수 있다 — 이 함수 자체가 "샌드박스 egress 가 막히면 호스트
         # 에서 대신 push 한다"는 백업 경로인데, 그 백업 경로 자신이
         # 무인증으로 막히면 산출물이 로컬 커밋으로만 남는다.
-        return _sp._run_net(["git", "-C", work, *a], f"[{role}] 호스트 git",
+        return _sp._run_net(["git", "-C", work, *a], f"[{skill}] 호스트 git",
                         env=_sp._git_env())
     if git("rev-parse", "--verify", "-q", br).returncode != 0:
         return {"status": "nothing-to-push", "reason": None}
@@ -227,11 +227,11 @@ def ensure_pushed(work: str, issue: int, role: str) -> dict:
         r = git("push", "-q", "-u", "origin", br)
         if r.returncode != 0:
             reason = r.stderr.strip()[:200]
-            print(f"[{role}] 호스트 push 실패: {reason}", file=sys.stderr)
-            _sp._post_stranded_push_comment(Path(work), issue, role, br,
+            print(f"[{skill}] 호스트 push 실패: {reason}", file=sys.stderr)
+            _sp._post_stranded_push_comment(Path(work), issue, skill, br,
                                         "push-failed", r.stderr.strip())
             return {"status": "push-rejected", "reason": reason}
-        print(f"[{role}] 호스트에서 push 했다: {br}", file=sys.stderr)
+        print(f"[{skill}] 호스트에서 push 했다: {br}", file=sys.stderr)
     # "PR 있음" 판정은 OPEN 만 센다 — gh pr view <브랜치> 는 같은 브랜치의
     # 머지된 과거 PR(phase 1)도 잡아서, phase 2 의 새 PR 생성을 조용히
     # 건너뛰게 했다(실측: #60 머지 후 phase 2 커밋이 PR 없이 남았다).
@@ -250,33 +250,33 @@ def ensure_pushed(work: str, issue: int, role: str) -> dict:
         # deliverable that genuinely needs its relay PR.
         issue_state, state_ok = _sp._subject_issue_state(Path(work), issue)
         if not state_ok:
-            print(f"[{role}] relay PR gate: issue-state lookup failed — "
+            print(f"[{skill}] relay PR gate: issue-state lookup failed — "
                   f"failing open (returned-PR gate convention, issue #680)",
                   file=sys.stderr)
             _sp.ledger_write({"event": "issue_state_gate_fail_open",
-                          "source": "relay", "issue": issue, "role": role,
+                          "source": "relay", "issue": issue, "role": skill,
                           "ts": int(time.time())})
         elif issue_state == "CLOSED":
-            _sp._flag_stale_returned_branch(issue, role, br, source="relay")
+            _sp._flag_stale_returned_branch(issue, skill, br, source="relay")
             return {"status": "issue-closed-stale-branch", "reason": None}
         # 참조만 한다 — Closes 를 박으면 record PR 하나가 머지되는 순간
         # 이슈가 조기에 닫힌다(실측 직전 발견). 이슈 닫기는 라운드가 끝났을
         # 때 사람의 행위다 (계약 s8).
         body = (f"Part of #{issue}.\n\nOpened by on-the-record on behalf of the "
-                f"{role} role session (sandbox egress relay); the branch "
-                f"content is the role's own work.\n\nrole: {role}")
+                f"{skill} role session (sandbox egress relay); the branch "
+                f"content is the role's own work.\n\nrole: {skill}")
         c = subprocess.run(["gh", "pr", "create", "--head", br,
                             "--title", f"[{br}]",
                             "--body", body],
                            capture_output=True, text=True, cwd=work)
         if c.returncode == 0:
-            print(f"[{role}] PR 을 열었다: {c.stdout.strip().splitlines()[-1] if c.stdout.strip() else br}",
+            print(f"[{skill}] PR 을 열었다: {c.stdout.strip().splitlines()[-1] if c.stdout.strip() else br}",
                   file=sys.stderr)
             return {"status": "pr-opened", "reason": None}
         else:
             reason = c.stderr.strip()[:200]
-            print(f"[{role}] PR 생성 실패: {reason}", file=sys.stderr)
-            _sp._post_stranded_push_comment(Path(work), issue, role, br,
+            print(f"[{skill}] PR 생성 실패: {reason}", file=sys.stderr)
+            _sp._post_stranded_push_comment(Path(work), issue, skill, br,
                                         "pr-create-failed", c.stderr.strip())
             return {"status": "pr-create-failed", "reason": reason}
     return {"status": "pr-already-open", "reason": None}

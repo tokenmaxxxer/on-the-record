@@ -26,8 +26,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOKS_DIR = REPO_ROOT / "on-the-record" / "hooks"
 HOOK_PATH = HOOKS_DIR / "approval-gate.sh"
 ISSUE = 88
-ROLE = "implementation"
-RECORD_FILE_PATH = f"docs/issue-{ISSUE}/reports/{ROLE}.md"
+SKILL = "implementation"
+RECORD_FILE_PATH = f"docs/issue-{ISSUE}/reports/{SKILL}.md"
 
 _FAKE_GH = """#!/usr/bin/env python3
 import json, os, sys
@@ -64,10 +64,10 @@ def _write_approvers(root: Path, approvers):
     (specs / "approvers.md").write_text("\n".join(f"- {a}" for a in approvers) + "\n")
 
 
-def _write_sidecar(root: Path, issue: int, role: str):
+def _write_sidecar(root: Path, issue: int, skill: str):
     d = root / ".on-the-record"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "role.json").write_text(json.dumps({"role": role, "issue": issue}), encoding="utf-8")
+    (d / "role.json").write_text(json.dumps({"role": skill, "issue": issue}), encoding="utf-8")
 
 
 def _write_sidecar_raw(root: Path, text: str):
@@ -99,7 +99,7 @@ def _run_gate(repo: Path, bin_dir: Path, comments=()):
         "cwd": str(repo),
     })
     env = dict(os.environ)
-    env["CLAUDE_SKILL"] = ROLE
+    env["CLAUDE_SKILL"] = SKILL
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(list(comments))
     env.pop("ORCHESTRATE_OFF", None)
@@ -114,7 +114,7 @@ def _run_gate(repo: Path, bin_dir: Path, comments=()):
 class ApprovalGateCarrierMatrixTest(unittest.TestCase):
     def _workspace(self, tmp: Path, branch=None):
         repo = tmp / "repo"
-        _init_repo_on_branch(repo, branch or f"issue-{ISSUE}/{ROLE}")
+        _init_repo_on_branch(repo, branch or f"issue-{ISSUE}/{SKILL}")
         _write_approvers(repo, ["alice"])
         bin_dir = tmp / "bin"
         bin_dir.mkdir()
@@ -127,8 +127,8 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
-            _write_sidecar(repo, ISSUE, ROLE)
-            _write_record(repo, ISSUE, {ROLE: {"actor": "alice", "timestamp": "t"}})
+            _write_sidecar(repo, ISSUE, SKILL)
+            _write_record(repo, ISSUE, {SKILL: {"actor": "alice", "timestamp": "t"}})
             r = _run_gate(repo, bin_dir, comments=[])  # no gh call needed
             self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -138,8 +138,8 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
-            _write_sidecar(repo, ISSUE, ROLE)
-            comments = [{"body": f"APPROVE issue-{ISSUE}/{ROLE}", "author": {"login": "alice"}}]
+            _write_sidecar(repo, ISSUE, SKILL)
+            comments = [{"body": f"APPROVE issue-{ISSUE}/{SKILL}", "author": {"login": "alice"}}]
             r = _run_gate(repo, bin_dir, comments=comments)
             self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -147,18 +147,18 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
-            _write_sidecar(repo, ISSUE, ROLE)
+            _write_sidecar(repo, ISSUE, SKILL)
             r = _run_gate(repo, bin_dir, comments=[])
             self.assertEqual(r.returncode, 2, r.stderr)
-            self.assertIn(f"APPROVE issue-{ISSUE}/{ROLE}", r.stderr)
+            self.assertIn(f"APPROVE issue-{ISSUE}/{SKILL}", r.stderr)
 
     # --- record-only (no sidecar) — role from branch regex, approval from record
 
-    def test_record_only_role_from_branch_approval_from_record(self):
+    def test_record_only_skill_from_branch_approval_from_record(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
-            _write_record(repo, ISSUE, {ROLE: {"actor": "alice", "timestamp": "t"}})
+            _write_record(repo, ISSUE, {SKILL: {"actor": "alice", "timestamp": "t"}})
             r = _run_gate(repo, bin_dir, comments=[])  # no gh call needed
             self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -168,7 +168,7 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
-            comments = [{"body": f"APPROVE issue-{ISSUE}/{ROLE}", "author": {"login": "alice"}}]
+            comments = [{"body": f"APPROVE issue-{ISSUE}/{SKILL}", "author": {"login": "alice"}}]
             r = _run_gate(repo, bin_dir, comments=comments)
             self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -178,7 +178,7 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
             repo, bin_dir = self._workspace(tmp)
             r = _run_gate(repo, bin_dir, comments=[])
             self.assertEqual(r.returncode, 2, r.stderr)
-            self.assertIn(f"APPROVE issue-{ISSUE}/{ROLE}", r.stderr)
+            self.assertIn(f"APPROVE issue-{ISSUE}/{SKILL}", r.stderr)
 
     # --- corrupt carriers — fall back cleanly, no crash ------------------
 
@@ -187,7 +187,7 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
             _write_sidecar_raw(repo, "{not valid json")
-            comments = [{"body": f"APPROVE issue-{ISSUE}/{ROLE}", "author": {"login": "alice"}}]
+            comments = [{"body": f"APPROVE issue-{ISSUE}/{SKILL}", "author": {"login": "alice"}}]
             r = _run_gate(repo, bin_dir, comments=comments)
             self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -195,9 +195,9 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
-            _write_sidecar(repo, ISSUE, ROLE)
+            _write_sidecar(repo, ISSUE, SKILL)
             _write_record_raw(repo, ISSUE, "[1, 2, 3]")  # parses, wrong shape (not a dict)
-            comments = [{"body": f"APPROVE issue-{ISSUE}/{ROLE}", "author": {"login": "alice"}}]
+            comments = [{"body": f"APPROVE issue-{ISSUE}/{SKILL}", "author": {"login": "alice"}}]
             r = _run_gate(repo, bin_dir, comments=comments)
             self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -205,22 +205,22 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
-            _write_sidecar(repo, ISSUE, ROLE)
+            _write_sidecar(repo, ISSUE, SKILL)
             _write_record_raw(repo, ISSUE, "{not valid json")
             r = _run_gate(repo, bin_dir, comments=[])
             self.assertEqual(r.returncode, 2, r.stderr)
-            self.assertIn(f"APPROVE issue-{ISSUE}/{ROLE}", r.stderr)
+            self.assertIn(f"APPROVE issue-{ISSUE}/{SKILL}", r.stderr)
 
     # --- sidecar-vs-branch role mismatch — hard deny, names both values --
 
-    def test_role_mismatch_both_resolve_hard_deny(self):
+    def test_skill_mismatch_both_resolve_hard_deny(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp, branch=f"issue-{ISSUE}/decoy")
-            _write_sidecar(repo, ISSUE, ROLE)
+            _write_sidecar(repo, ISSUE, SKILL)
             r = _run_gate(repo, bin_dir, comments=[])
             self.assertEqual(r.returncode, 2, r.stderr)
-            self.assertIn(f"issue-{ISSUE}/{ROLE}", r.stderr)
+            self.assertIn(f"issue-{ISSUE}/{SKILL}", r.stderr)
             self.assertIn(f"issue-{ISSUE}/decoy", r.stderr)
             self.assertIn("disagrees with the", r.stderr)
 
@@ -228,12 +228,12 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             other_issue = ISSUE + 1
-            repo, bin_dir = self._workspace(tmp, branch=f"issue-{other_issue}/{ROLE}")
-            _write_sidecar(repo, ISSUE, ROLE)
+            repo, bin_dir = self._workspace(tmp, branch=f"issue-{other_issue}/{SKILL}")
+            _write_sidecar(repo, ISSUE, SKILL)
             r = _run_gate(repo, bin_dir, comments=[])
             self.assertEqual(r.returncode, 2, r.stderr)
-            self.assertIn(f"issue-{ISSUE}/{ROLE}", r.stderr)
-            self.assertIn(f"issue-{other_issue}/{ROLE}", r.stderr)
+            self.assertIn(f"issue-{ISSUE}/{SKILL}", r.stderr)
+            self.assertIn(f"issue-{other_issue}/{SKILL}", r.stderr)
 
     def test_sidecar_present_unparseable_branch_no_mismatch_possible(self):
         # detached HEAD after sidecar resolves: no branch to cross-check
@@ -241,12 +241,12 @@ class ApprovalGateCarrierMatrixTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             repo, bin_dir = self._workspace(tmp)
-            _write_sidecar(repo, ISSUE, ROLE)
+            _write_sidecar(repo, ISSUE, SKILL)
             sha = subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True,
             ).stdout.strip()
             subprocess.run(["git", "checkout", "-q", sha], cwd=repo, check=True)
-            comments = [{"body": f"APPROVE issue-{ISSUE}/{ROLE}", "author": {"login": "alice"}}]
+            comments = [{"body": f"APPROVE issue-{ISSUE}/{SKILL}", "author": {"login": "alice"}}]
             r = _run_gate(repo, bin_dir, comments=comments)
             self.assertEqual(r.returncode, 0, r.stderr)
 

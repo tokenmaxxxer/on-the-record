@@ -72,7 +72,7 @@ import spec_index
 # 이미 강제되는 이 명명 규칙을 재사용한다. role 은 issue #271 요구사항 2의
 # 승인-이벤트 phase 신호(`APPROVE issue-<n>/<role>`)에 필요해 이 이슈에서
 # 추가한다.
-_ISSUE_ROLE_BRANCH = re.compile(r"^issue-(\d+)/([^/]+)$")
+_ISSUE_SKILL_BRANCH = re.compile(r"^issue-(\d+)/([^/]+)$")
 
 
 def _pr_head_ref(repo: Path, pr: int) -> str | None:
@@ -87,9 +87,9 @@ def _pr_head_ref(repo: Path, pr: int) -> str | None:
     return json.loads(r.stdout).get("headRefName")
 
 
-def _issue_and_role_from_branch(branch: str) -> tuple[int, str] | None:
+def _issue_and_skill_from_branch(branch: str) -> tuple[int, str] | None:
     """순수 함수(네트워크 없음) — `_autodetect_issue_phase`/테스트가 공유."""
-    m = _ISSUE_ROLE_BRANCH.match(branch)
+    m = _ISSUE_SKILL_BRANCH.match(branch)
     return (int(m.group(1)), m.group(2)) if m else None
 
 
@@ -223,7 +223,7 @@ def _write_approval_record(record_path: Path, record: dict) -> None:
         pass  # write-through cache is best-effort; the comment scan stays authoritative
 
 
-def _approved_roles_on_issue(repo: Path, issue: int) -> set[str]:
+def _approved_skills_on_issue(repo: Path, issue: int) -> set[str]:
     """이슈-레벨 코멘트를 스캔해 `APPROVE issue-<n>/<role>`(승인자
     allowlist 계정, 문자열 정확 일치)이 있는 모든 role 토큰 집합을
     돌려준다 — role 은 상관없이 이 이슈에 대해 *어떤* 역할이 승인받았는지
@@ -242,7 +242,7 @@ def _approved_roles_on_issue(repo: Path, issue: int) -> set[str]:
     성립한다(제안 Rationale)."""
     record_path = spawn._approval_record_path(repo, issue)
     record = _read_approval_record(record_path)
-    roles = {role for role in record if isinstance(role, str)}
+    skills = {skill for skill in record if isinstance(skill, str)}
 
     approvers = spawn._approvers(repo)
     comments, _ok = spawn._issue_comments(repo, issue)
@@ -254,21 +254,21 @@ def _approved_roles_on_issue(repo: Path, issue: int) -> set[str]:
     for c in comments:
         body = (c.get("body") or "").strip()
         if body.startswith(prefix) and c.get("login") in approvers:
-            role_token = body[len(prefix):]
-            if role_token:  # empty suffix ("APPROVE issue-<n>/") approves no real role
-                roles.add(role_token)
-                if role_token not in record:
-                    new_entries[role_token] = {
+            skill_token = body[len(prefix):]
+            if skill_token:  # empty suffix ("APPROVE issue-<n>/") approves no real role
+                skills.add(skill_token)
+                if skill_token not in record:
+                    new_entries[skill_token] = {
                         "actor": c.get("login"),
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
     if new_entries:
         record.update(new_entries)
         _write_approval_record(record_path, record)
-    return roles
+    return skills
 
 
-def _phase_from_approval(repo: Path, pr: int, issue: int, role: str) -> str:
+def _phase_from_approval(repo: Path, pr: int, issue: int, skill: str) -> str:
     """phase2 를 closing 키워드가 아니라 승인 이벤트로 판정한다 — 없으면
     phase1(issue #271 요구사항 2, #245 관찰 F1 술어 결합 해소). phase 는
     이슈의 속성이다(issue #312): 이슈에 달린 `APPROVE issue-<n>/<any
@@ -277,13 +277,13 @@ def _phase_from_approval(repo: Path, pr: int, issue: int, role: str) -> str:
     이 인도하는 cross-role 인계(#304/#307)가 그 예다. PR review 의
     Approve 는 이 PR 자신에 대한 승인이라 role 모호성이 없으므로
     (issue #271) 그대로 differing-account 규칙을 유지한다."""
-    approved_roles = _approved_roles_on_issue(repo, issue)
+    approved_skills = _approved_skills_on_issue(repo, issue)
     reviews = _pr_reviews(repo, pr)
     approvers = spawn._approvers(repo)
     review_approved = any(
         rv.get("state") == "APPROVED" and (rv.get("author") or {}).get("login") in approvers
         for rv in (reviews or []))
-    return "phase2" if (approved_roles or review_approved) else "phase1"
+    return "phase2" if (approved_skills or review_approved) else "phase1"
 
 
 _SHADOW_STATE_KEY = "shadow_wired_pairs"  # issue #1791 — recorded (issue, pr) pairs, idempotency only
@@ -422,11 +422,11 @@ def _phase2_record_evidence(repo: Path, pr: int, branch: str, issue: int) -> boo
     기록은 로컬 워킹트리가 아니라 PR head 브랜치에서 `gh api` 로 읽는다
     (issue #369) — 게이트 워크플로우가 항상 `main` 을 체크아웃하므로,
     기록이 사는 PR 브랜치 자체는 로컬 트리에 구조적으로 존재할 수 없다."""
-    detected = _issue_and_role_from_branch(branch)
+    detected = _issue_and_skill_from_branch(branch)
     if detected is None:
         return False
-    _, role = detected
-    text, _err = _fetch_ref_file(repo, pr, branch, f"docs/issue-{issue}/reports/{role}.md")
+    _, skill = detected
+    text, _err = _fetch_ref_file(repo, pr, branch, f"docs/issue-{issue}/reports/{skill}.md")
     if text is None:
         return False
     fm = gates.record_frontmatter(text)
@@ -507,12 +507,12 @@ def _autodetect_issue_phase(repo: Path, pr: int, issue: int | None,
     phase 는 이제 PR 본문의 closing 키워드가 아니라 승인 이벤트에서
     끌어낸다(issue #271 요구사항 2) — role 세그먼트가 그 판정에 필요해
     브랜치에서 이슈 번호와 함께 뽑는다."""
-    role = None
+    skill = None
     if issue is None or phase is None:
         branch = _pr_head_ref(repo, pr)
         if branch is None:
             return [f"PR #{pr} 의 head 브랜치를 읽을 수 없다 (fail closed)"]
-        detected = _issue_and_role_from_branch(branch)
+        detected = _issue_and_skill_from_branch(branch)
         if detected is None:
             fork_issue = _fork_issue_from_body(repo, pr)
             if fork_issue is None:
@@ -525,11 +525,11 @@ def _autodetect_issue_phase(repo: Path, pr: int, issue: int | None,
             if issue is None:
                 issue = fork_issue
         else:
-            detected_issue, role = detected
+            detected_issue, skill = detected
             if issue is None:
                 issue = detected_issue
     if phase is None:
-        phase = _phase_from_approval(repo, pr, issue, role)
+        phase = _phase_from_approval(repo, pr, issue, skill)
         if phase == "phase2":
             # issue #1791 — shadow_verdict() 배선 지점. 실패 격리는
             # 함수 내부에서 끝난다: 여기 반환값(issue, phase)에는
@@ -604,12 +604,12 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
                         # 결론에 딸려 보낸다 — issue #312 요구사항 2: 추론을
                         # 전제로 말하지 않는다.
                         branch = _pr_head_ref(repo, pr)
-                        detected = _issue_and_role_from_branch(branch) if branch else None
+                        detected = _issue_and_skill_from_branch(branch) if branch else None
                         if detected is not None:
-                            _, evidence_role = detected
-                            found = ", ".join(sorted(_approved_roles_on_issue(repo, issue))) or "없음"
+                            _, evidence_skill = detected
+                            found = ", ".join(sorted(_approved_skills_on_issue(repo, issue))) or "없음"
                             mismatch = mismatch + [
-                                f"이 PR 의 role({evidence_role})에 대한 승인 코멘트를 "
+                                f"이 PR 의 role({evidence_skill})에 대한 승인 코멘트를 "
                                 f"못 찾았다 — 이슈 #{issue} 에 있는 승인: {found}"]
                     bad += mismatch
     if closes_only:
@@ -633,11 +633,11 @@ def check(repo: Path, pr: int | None = None, issue: int | None = None,
     bad += gates.subprocess_call_shape_divergence(repo)
     if pr is not None:
         branch = _pr_head_ref(repo, pr)
-        detected = _issue_and_role_from_branch(branch) if branch else None
+        detected = _issue_and_skill_from_branch(branch) if branch else None
         if detected is not None:
-            det_issue, det_role = detected
+            det_issue, det_skill = detected
             record_text, _err = _fetch_ref_file(
-                repo, pr, branch, f"docs/issue-{det_issue}/reports/{det_role}.md")
+                repo, pr, branch, f"docs/issue-{det_issue}/reports/{det_skill}.md")
             bad += gates.sibling_mention_check(repo, record_text or "")
 
     # ponytail: gates.deps() 와 같은 판정을 반복한다. gates.deps 가 라우터의

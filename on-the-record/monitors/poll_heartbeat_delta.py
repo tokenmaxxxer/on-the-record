@@ -117,7 +117,7 @@ def main() -> None:
     # issue #2180 warrant-hunt finding: the returned-pr diff key
     # (`returned-pr:issue #N (phaseX)`) bakes in the phase label, so a
     # phase1->phase2 transition on the SAME still-open PR (relay.py's
-    # _undispositioned_role_prs reclassifies one gh-pr-list entry's phase in
+    # _undispositioned_skill_prs reclassifies one gh-pr-list entry's phase in
     # place -- same url/number, new phase label once approved) is a brand
     # new diff key even though it is not a brand new PR. Using that key
     # directly for "is this PR new" would re-fire the [new-returned-pr]

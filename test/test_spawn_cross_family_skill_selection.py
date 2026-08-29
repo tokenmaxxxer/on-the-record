@@ -155,12 +155,12 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
             roster_calls.append((key, dict(entry)))
             return real_roster_register(key, entry)
 
-        def spy_spawn_cmd(settings, role, unattended, core_plugins, plugins,
+        def spy_spawn_cmd(settings, skill, unattended, core_plugins, plugins,
                           model, skill_dirs, skill_repo_sha_value, **kwargs):
             spawn_cmd_calls.append(list(skill_dirs))
             return (["cat"], {})
 
-        role_source = {"source": "skill-repo", "skill_dirs": [],
+        skill_source = {"source": "skill-repo", "skill_dirs": [],
                        "skills": [], "skill_sha": None}
 
         # 이슈 #2040: 크로스-패밀리 선택이 이제 BM25 + skill_judge 자문을
@@ -169,19 +169,19 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         # 로 스텁해 오늘의 테스트 기대치(마운트 = BM25 top-k)를 그대로
         # 재사용한다. 자문 자체의 판단/트레이스/fail-open 동작은
         # ConsultJudgeStageTest 가 별도로 검증한다.
-        def stub_with_consult(task_text, role, repo_root, issue, cwd, k=2, model=None,
+        def stub_with_consult(task_text, skill, repo_root, issue, cwd, k=2, model=None,
                               home=None, target_repo_root=None):
-            return (spawn._cross_family_skill_matches(task_text, role, repo_root, k=k),
+            return (spawn._cross_family_skill_matches(task_text, skill, repo_root, k=k),
                     "completed")
 
         with mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
                                stub_with_consult), \
              mock.patch.object(spawn, "issue_workspace",
-                               lambda cwd, issue, role: str(work)), \
+                               lambda cwd, issue, skill: str(work)), \
              mock.patch.object(spawn, "checkout_issue_branch",
-                               lambda cwd, issue, role: "b"), \
+                               lambda cwd, issue, skill: "b"), \
              mock.patch.object(spawn, "resolve_static_policy_source",
-                               lambda repo_root: role_source), \
+                               lambda repo_root: skill_source), \
              mock.patch.object(spawn, "_skill_repo_root",
                                lambda: skill_repo_root), \
              mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
@@ -191,7 +191,7 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
              mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
              mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
              mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
-             mock.patch.object(spawn, "_undispositioned_role_prs",
+             mock.patch.object(spawn, "_undispositioned_skill_prs",
                                lambda root, exclude_issue=None: ([], True)), \
              mock.patch.object(spawn, "roster_register", spy_roster_register), \
              mock.patch.object(spawn, "ledger_write", lambda *a, **k: None):
@@ -307,7 +307,7 @@ class ConsultJudgeStageTest(unittest.TestCase):
                         "task literally asks for ARIA role on a landing page"},
         })})
         with mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model, **kw: (["cat"], {}, None)), \
+                               lambda skill, spec, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run",
                                lambda *a, **k: subprocess.CompletedProcess(
                                    a, 0, stdout=session_json, stderr="")):
@@ -329,7 +329,7 @@ class ConsultJudgeStageTest(unittest.TestCase):
     def test_consult_error_raises_and_still_traces(self):
         candidates = [("some-skill", self.repo_root / "some-skill", "skill-repo")]
         with mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model, **kw: (["cat"], {}, None)), \
+                               lambda skill, spec, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run",
                                lambda *a, **k: subprocess.CompletedProcess(
                                    a, 1, stdout="", stderr="boom")):
@@ -381,7 +381,7 @@ class ConsultJudgeStageTest(unittest.TestCase):
             "picked": ["aaa-skill"], "rejected": [], "reasons": {}})})
         stderr = io.StringIO()
         with mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, cwd, model, **kw: (["cat"], {}, None)), \
+                               lambda skill, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run",
                                lambda *a, **k: subprocess.CompletedProcess(
                                    a, 0, stdout=session_json, stderr="")), \
@@ -558,7 +558,7 @@ class FourSurfaceCandidateCorpusTest(unittest.TestCase):
             return subprocess.CompletedProcess(a, 0, stdout=session_json, stderr="")
 
         with mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, spec, cwd, model, **kw: (["cat"], {}, None)), \
+                               lambda skill, spec, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run", fake_run):
             spawn._skill_judge_consult(
                 "landing page contrast", "implementation", candidates, 2055,

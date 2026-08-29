@@ -173,7 +173,7 @@ def _roster_own(d: dict, all_scope: bool) -> dict:
 
 
 def _watcher_looks_real(pid: int, issue: int | None,
-                         role: str | None = None) -> bool:
+                         skill: str | None = None) -> bool:
     """이슈 #488 before-landing hunt 발견: `_alive()` 만으로는 워처가 죽은
     뒤 OS 가 같은 pid 를 다른 프로세스에 재할당한 경우를 못 잡는다 — 살아는
     있지만 그 워처가 아니다. `issue` 를 알면(로스터 엔트리가 준다)
@@ -198,7 +198,7 @@ def _watcher_looks_real(pid: int, issue: int | None,
         return True
     if "watch" not in parts or str(issue) not in parts:
         return False
-    if role is not None and role not in parts:
+    if skill is not None and skill not in parts:
         return False
     return True
 
@@ -732,8 +732,8 @@ def _surface_approval_wait(key: str, entry: dict, wait: dict,
     watch-coverage policy: nothing is blocked, refused, or killed —
     the surfacing IS the fix."""
     issue = wait.get("issue", entry.get("issue"))
-    role = wait.get("role", entry.get("role"))
-    subject = f"issue-{issue}/{role}"
+    skill = wait.get("role", entry.get("role"))
+    subject = f"issue-{issue}/{skill}"
     ts, budget = wait.get("ts"), wait.get("budget_sec")
     prefix, remaining_desc = "[awaiting-approval]", "remaining unknown"
     if isinstance(ts, (int, float)) and isinstance(budget, (int, float)) \
@@ -749,7 +749,7 @@ def _surface_approval_wait(key: str, entry: dict, wait: dict,
                                   now=now,
                                   ttl=_sp.APPROVAL_WAIT_LEDGER_TTL_SEC):
         _sp.ledger_write({"event": "approval_wait_surfaced", "key": key,
-                          "issue": issue, "role": role, "wait_ts": ts,
+                          "issue": issue, "role": skill, "wait_ts": ts,
                           "budget_sec": budget, "ts": now})
 
 
@@ -757,7 +757,7 @@ def _spawn_claim_path(work: str) -> Path:
     return Path(str(work) + ".spawn-claim")
 
 
-def _acquire_spawn_claim(work: str, issue: int, role: str) -> str | None:
+def _acquire_spawn_claim(work: str, issue: int, skill: str) -> str | None:
     """(issue, role) 하나의 동시 스폰을 막는 O_CREAT|O_EXCL 클레임을 취득한다
     — 재스폰 경로의 `.respawn-claim-{ts}`(이슈 #132)와 같은 계열이지만,
     재시도-단위가 아니라 이 (issue,role) 자체가 생존해 있는 동안 유지되는
@@ -795,14 +795,14 @@ def _acquire_spawn_claim(work: str, issue: int, role: str) -> str | None:
             existing = {}
         pid = existing.get("pid")
         if isinstance(pid, int) and _sp._alive(pid):
-            return (f"issue-{issue}/{role}: 이미 세션(pid {pid}, 시작 ts "
+            return (f"issue-{issue}/{skill}: 이미 세션(pid {pid}, 시작 ts "
                     f"{existing.get('ts')})이 이 (issue,role) 스폰 클레임을 "
                     f"쥐고 있다 — 거부")
         try:
             claim_path.unlink()
         except FileNotFoundError:
             pass
-    return f"issue-{issue}/{role}: 스폰 클레임 취득 실패(재시도 소진)"
+    return f"issue-{issue}/{skill}: 스폰 클레임 취득 실패(재시도 소진)"
 
 
 def _rewrite_spawn_claim_pid(work: str) -> None:

@@ -18,7 +18,7 @@ class SkillJudgeModelTest(unittest.TestCase):
     def test_model_is_forced_to_haiku_even_when_caller_passes_a_different_model(self):
         seen = {}
 
-        def spy_consult_cmd_and_env(role, cwd, model, **kw):
+        def spy_consult_cmd_and_env(skill, cwd, model, **kw):
             seen["model"] = model
             return (["cat"], {}, None)
 
@@ -76,7 +76,7 @@ class SkillJudgeTimeoutTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, \
              mock.patch.dict(spawn.os.environ, {"SKILL_JUDGE_TIMEOUT": "7"}), \
              mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, cwd, model, **kw: (["cat"], {}, None)), \
+                               lambda skill, cwd, model, **kw: (["cat"], {}, None)), \
              mock.patch.object(spawn.subprocess, "run", spy_run):
             spawn._skill_judge_consult("some task", "implementation", [], 2061, td)
         timed_calls = [t for t in seen_timeouts if t is not None]
@@ -112,7 +112,7 @@ class SkillJudgeTimeoutTest(unittest.TestCase):
              mock.patch.object(spawn, "_bm25_cross_family_scores",
                                lambda *a, **k: [(1.0, "a-skill", scored_dir, "skill-repo")]), \
              mock.patch.object(spawn, "_consult_cmd_and_env",
-                               lambda role, cwd, model, **kw:
+                               lambda skill, cwd, model, **kw:
                                (["sleep", "5"], dict(spawn.os.environ), None)):
             matches, outcome = spawn._cross_family_skill_matches_with_consult(
                 "task", "implementation", Path(td), 2274, td, k=2)
@@ -269,14 +269,14 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
             events.append("judge-ran")
             return [], "completed"
 
-        role_source = {"source": "skill-repo", "skill_dirs": [],
+        skill_source = {"source": "skill-repo", "skill_dirs": [],
                        "skills": [], "skill_sha": None}
 
-        def fake_issue_workspace(cwd, issue, role):
+        def fake_issue_workspace(cwd, issue, skill):
             events.append("workspace")
             return cwd
 
-        def fake_checkout_issue_branch(cwd, issue, role):
+        def fake_checkout_issue_branch(cwd, issue, skill):
             events.append("branch")
             return "b"
 
@@ -290,7 +290,7 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
                  mock.patch.object(spawn, "checkout_issue_branch",
                                    fake_checkout_issue_branch), \
                  mock.patch.object(spawn, "resolve_static_policy_source",
-                                   lambda repo_root: role_source), \
+                                   lambda repo_root: skill_source), \
                  mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
                  mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                  mock.patch.object(spawn, "core_version", lambda: "v0"), \
@@ -299,7 +299,7 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
                  mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
                  mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
                  mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
-                 mock.patch.object(spawn, "_undispositioned_role_prs",
+                 mock.patch.object(spawn, "_undispositioned_skill_prs",
                                    lambda root, exclude_issue=None: ([], True)), \
                  mock.patch.object(spawn, "roster_register", lambda *a, **k: None), \
                  mock.patch.object(spawn, "ledger_write", lambda *a, **k: None):
@@ -342,15 +342,15 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
 
     def _run_spawn_one_with_outcome(self, td, work, matches_return):
         recorded = []
-        role_source = {"source": "skill-repo", "skill_dirs": [],
+        skill_source = {"source": "skill-repo", "skill_dirs": [],
                        "skills": [], "skill_sha": None}
         with mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
                                lambda *a, **k: matches_return), \
-             mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, role: cwd), \
+             mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, skill: cwd), \
              mock.patch.object(spawn, "checkout_issue_branch",
-                               lambda cwd, issue, role: "b"), \
+                               lambda cwd, issue, skill: "b"), \
              mock.patch.object(spawn, "resolve_static_policy_source",
-                               lambda repo_root: role_source), \
+                               lambda repo_root: skill_source), \
              mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
              mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
              mock.patch.object(spawn, "core_version", lambda: "v0"), \
@@ -359,7 +359,7 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
              mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
              mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
              mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
-             mock.patch.object(spawn, "_undispositioned_role_prs",
+             mock.patch.object(spawn, "_undispositioned_skill_prs",
                                lambda root, exclude_issue=None: ([], True)), \
              mock.patch.object(spawn, "roster_register", lambda *a, **k: None), \
              mock.patch.object(spawn, "ledger_write",
@@ -381,17 +381,17 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
             recorded = self._run_spawn_one_with_outcome(td, work, ([], "fail-open"))
         self.assertEqual(recorded[-1]["skill_judge_outcome"], "fail-open")
 
-    def test_ledger_entry_records_not_run_when_role_source_is_not_skill_repo(self):
-        role_source = {"source": "flat", "skill_dirs": [], "skills": [], "skill_sha": None}
+    def test_ledger_entry_records_not_run_when_skill_source_is_not_skill_repo(self):
+        skill_source = {"source": "flat", "skill_dirs": [], "skills": [], "skill_sha": None}
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             recorded = []
             with mock.patch.object(spawn, "resolve_static_policy_source",
-                                   lambda repo_root: role_source), \
+                                   lambda repo_root: skill_source), \
                  mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
-                 mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, role: cwd), \
+                 mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, skill: cwd), \
                  mock.patch.object(spawn, "checkout_issue_branch",
-                                   lambda cwd, issue, role: "b"), \
+                                   lambda cwd, issue, skill: "b"), \
                  mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                  mock.patch.object(spawn, "core_version", lambda: "v0"), \
                  mock.patch.object(spawn, "_clean_auto_enabled", lambda: False), \
@@ -399,7 +399,7 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
                  mock.patch.object(spawn, "_release_spawn_claim", lambda *a, **k: None), \
                  mock.patch.object(spawn, "_rewrite_spawn_claim_pid", lambda w: None), \
                  mock.patch.object(spawn, "_await_bounded", lambda *a, **k: 0), \
-                 mock.patch.object(spawn, "_undispositioned_role_prs",
+                 mock.patch.object(spawn, "_undispositioned_skill_prs",
                                    lambda root, exclude_issue=None: ([], True)), \
                  mock.patch.object(spawn, "roster_register", lambda *a, **k: None), \
                  mock.patch.object(spawn, "ledger_write",

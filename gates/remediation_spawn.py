@@ -74,9 +74,9 @@ def pending_remediation_tasks(root: Path, issue: int) -> list[dict]:
         fields = _parse_frontmatter(path.read_text(encoding="utf-8", errors="ignore"))
         if fields.get("status") != "open":
             continue
-        role = fields.get("routed_to", "")
+        skill = fields.get("routed_to", "")
         remediation_path = f"docs/issue-{issue}/decisions/{path.name}"
-        if _branch_exists(root, f"issue-{issue}/{role}"):
+        if _branch_exists(root, f"issue-{issue}/{skill}"):
             continue
         if _pr_already_launched(root, remediation_path):
             continue
@@ -88,7 +88,7 @@ def pending_remediation_tasks(root: Path, issue: int) -> list[dict]:
             finding_source=fields.get("finding_source", ""),
         )
         tasks.append({
-            "role": role,
+            "role": skill,
             "task": task,
             "remediation_path": remediation_path,
             "round": fields.get("round", ""),

@@ -53,7 +53,7 @@ class SidecarWriteShapeTest(unittest.TestCase):
     def test_write_role_sidecar_creates_expected_json(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            spawn._write_role_sidecar(tmp, 1814, "implementation")
+            spawn._write_skill_sidecar(tmp, 1814, "implementation")
             p = Path(tmp) / ".on-the-record" / "role.json"
             self.assertTrue(p.is_file())
             data = json.loads(p.read_text(encoding="utf-8"))
@@ -70,7 +70,7 @@ class SidecarWriteShapeTest(unittest.TestCase):
                             check=True)
             subprocess.run(["git", "-C", tmp, "config", "user.name", "t"],
                             check=True)
-            spawn._write_role_sidecar(tmp, 1891, "implementation")
+            spawn._write_skill_sidecar(tmp, 1891, "implementation")
             r = subprocess.run(["git", "-C", tmp, "status", "--porcelain"],
                                 capture_output=True, text=True, check=True)
             self.assertNotIn("role.json", r.stdout)
@@ -80,8 +80,8 @@ class SidecarWriteShapeTest(unittest.TestCase):
     def test_write_role_sidecar_overwrites_on_respawn(self):
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
-            spawn._write_role_sidecar(tmp, 1814, "implementation")
-            spawn._write_role_sidecar(tmp, 1814, "implementation")  # respawn, same role
+            spawn._write_skill_sidecar(tmp, 1814, "implementation")
+            spawn._write_skill_sidecar(tmp, 1814, "implementation")  # respawn, same role
             p = Path(tmp) / ".on-the-record" / "role.json"
             data = json.loads(p.read_text(encoding="utf-8"))
             self.assertEqual(data, {"role": "implementation", "issue": 1814})
@@ -96,7 +96,7 @@ class SidecarWriteShapeTest(unittest.TestCase):
         start = text.index("def issue_workspace(")
         end = text.index("\ndef _recut_absorbed_branch(", start)
         body = text[start:end]
-        self.assertEqual(body.count("_write_role_sidecar("), 3)
+        self.assertEqual(body.count("_write_skill_sidecar("), 3)
 
 
 class PrBodyTrailerWriteShapeTest(unittest.TestCase):
@@ -168,10 +168,10 @@ else:
 # 2. Shell hooks: live-fire dual-read + fallback (real script, real stdin)
 # =============================================================================
 
-def _write_sidecar(repo: Path, issue: int, role: str):
+def _write_sidecar(repo: Path, issue: int, skill: str):
     d = repo / ".on-the-record"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "role.json").write_text(json.dumps({"role": role, "issue": issue}), encoding="utf-8")
+    (d / "role.json").write_text(json.dumps({"role": skill, "issue": issue}), encoding="utf-8")
 
 
 def _init_repo_on_branch(root: Path, branch: str):
@@ -210,14 +210,14 @@ def _write_fake_gh(bin_dir: Path, script: str):
     return p
 
 
-def _run_approval_gate(repo: Path, bin_dir: Path, file_path: str, role_env: str, comments):
+def _run_approval_gate(repo: Path, bin_dir: Path, file_path: str, skill_env: str, comments):
     payload = json.dumps({
         "tool_name": "Write",
         "tool_input": {"file_path": file_path, "content": "x"},
         "cwd": str(repo),
     })
     env = dict(os.environ)
-    env["CLAUDE_SKILL"] = role_env
+    env["CLAUDE_SKILL"] = skill_env
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(comments)
     env.pop("ORCHESTRATE_OFF", None)

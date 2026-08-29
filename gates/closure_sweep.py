@@ -365,7 +365,7 @@ def find_violations(root: Path, subjects: dict | None = None,
         pr_index, pr_index_ok = _pr_index_all(root)
     else:
         pr_index_ok = True
-    for subject, roles in subjects.items():
+    for subject, skills in subjects.items():
         m = subject.split("-", 1)
         if len(m) != 2 or not m[1].isdigit():
             continue
@@ -390,17 +390,17 @@ def find_violations(root: Path, subjects: dict | None = None,
         issue_state = issue_states[issue]
         if issue_state is None:
             continue
-        for role in roles:
-            branch = f"{subject}/{role}"
+        for skill in skills:
+            branch = f"{subject}/{skill}"
             if not pr_index_ok:
-                skips.append({"subject": subject, "role": role,
+                skips.append({"subject": subject, "role": skill,
                               "reason": "gh-pr-list-failed"})
                 continue
             if pr_index is None:
                 # 목록이 --limit 에 걸려 잘렸다 — issue #1320: 개별
                 # `gh pr view` 조회로 되돌아가지 않는다(스윕 경로는 O(1)
                 # gh 호출만), 대신 skip 으로 남긴다.
-                skips.append({"subject": subject, "role": role,
+                skips.append({"subject": subject, "role": skill,
                               "reason": "gh-pr-list-truncated"})
                 continue
             entry = pr_index.get(branch)
@@ -420,7 +420,7 @@ def find_violations(root: Path, subjects: dict | None = None,
                 if ci._phase2_record_evidence(root, pr, branch, issue):
                     kind = classify(issue_state, pr_state, pr_body, issue, True)
             if kind:
-                violations.append({"issue": issue, "pr": pr, "role": role, "kind": kind})
+                violations.append({"issue": issue, "pr": pr, "role": skill, "kind": kind})
     return violations, skips
 
 

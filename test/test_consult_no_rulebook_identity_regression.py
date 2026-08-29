@@ -63,37 +63,37 @@ class ReadonlyPluginDirsAlwaysSkillRepoTest(unittest.TestCase):
     def tearDown(self):
         spawn.core_plugin_dirs = self._saved_core_plugin_dirs
 
-    def test_mapped_role_reaches_resolve_role_family_source(self):
+    def test_mapped_skill_reaches_resolve_skill_family_source(self):
         calls = []
-        real = spawn.resolve_role_family_source
+        real = spawn.resolve_skill_family_source
 
-        def spy(role, repo_root):
-            calls.append(role)
-            return real(role, repo_root)
+        def spy(skill, repo_root):
+            calls.append(skill)
+            return real(skill, repo_root)
 
-        spawn.resolve_role_family_source = spy
+        spawn.resolve_skill_family_source = spy
         try:
             spawn._readonly_plugin_dirs("implementation")
         finally:
-            spawn.resolve_role_family_source = real
+            spawn.resolve_skill_family_source = real
         self.assertEqual(calls, ["implementation"])
 
-    def test_unmapped_role_still_reaches_resolve_role_family_source(self):
+    def test_unmapped_skill_still_reaches_resolve_skill_family_source(self):
         # "매핑 안 된 역할"이라는 상태는 rulebook 경로로 새지 않는다 — 이름
         # 접두어가 하나도 안 걸려도 POLICY 스킬만 있는 skill-repo 결과로
         # 떨어진다(#1955).
         calls = []
-        real = spawn.resolve_role_family_source
+        real = spawn.resolve_skill_family_source
 
-        def spy(role, repo_root):
-            calls.append(role)
-            return real(role, repo_root)
+        def spy(skill, repo_root):
+            calls.append(skill)
+            return real(skill, repo_root)
 
-        spawn.resolve_role_family_source = spy
+        spawn.resolve_skill_family_source = spy
         try:
             out = spawn._readonly_plugin_dirs("no-such-role")
         finally:
-            spawn.resolve_role_family_source = real
+            spawn.resolve_skill_family_source = real
         self.assertEqual(calls, ["no-such-role"])
         self.assertEqual([d.name for d in out if d.name == "work-in-english"],
                           ["work-in-english"])

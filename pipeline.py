@@ -52,11 +52,11 @@ def _timed(phase: str):
         _sp._BOOTSTRAP_TIMING[phase] = _sp._BOOTSTRAP_TIMING.get(phase, 0.0) + (time.monotonic() - t0)
 
 
-def _bootstrap_timing_line(role: str) -> str:
+def _bootstrap_timing_line(skill: str) -> str:
     parts = [f"{p}={_sp._BOOTSTRAP_TIMING.get(p, 0.0):.3f}" for p in _sp._BOOTSTRAP_PHASES]
     total = sum(_sp._BOOTSTRAP_TIMING.get(p, 0.0) for p in _sp._BOOTSTRAP_PHASES)
     parts.append(f"total={total:.3f}")
-    return f"[{role}] bootstrap_timing " + " ".join(parts)
+    return f"[{skill}] bootstrap_timing " + " ".join(parts)
 
 
 def _rulebook_ttl_min() -> float:
@@ -208,7 +208,7 @@ def _workspace_bash_allow(cwd: str) -> list[str]:
     ]
 
 
-def role_settings(role: str, cwd: str | None = None,
+def skill_settings(skill: str, cwd: str | None = None,
                    inject_self_hosted_hooks: bool = True) -> dict:
     """역할의 샌드박스 경계 + 전역 플러그인 차단.
 
@@ -266,7 +266,7 @@ def role_settings(role: str, cwd: str | None = None,
             unresolved = [p for p in fs[key] if "$" in p]
             if unresolved:
                 # 안 풀린 변수를 그대로 넘기면 경계가 존재하지 않는 경로를 가리킨다.
-                sys.exit(f"[{role}] sandbox.filesystem.{key} 의 변수를 풀 수 없다: "
+                sys.exit(f"[{skill}] sandbox.filesystem.{key} 의 변수를 풀 수 없다: "
                          f"{', '.join(unresolved)}")
 
     # 이슈 #695: 롤-세션 샌드박스를 role_settings() 가 중앙에서 끈다.
@@ -550,16 +550,16 @@ def require_doctor(version: str | None = None) -> None:
                 f"게이트 전부가 조용히 사라지는 버전이라 스폰을 막는다.")
 
 
-def read_role_model_config() -> str:
+def read_skill_model_config() -> str:
     """이슈#60: repo-root role_model.txt 에서 기본 모델 값을 읽는다. 파일이
     없거나 읽기 오류가 나면 미설정과 동일하게 "" 를 돌려준다."""
     try:
-        return _sp.ROLE_MODEL_CONFIG.read_text().strip()
+        return _sp.SKILL_MODEL_CONFIG.read_text().strip()
     except (OSError, UnicodeDecodeError):
         return ""
 
 
-def resolved_role_model(cli_model: str | None = None, role: str | None = None,
+def resolved_skill_model(cli_model: str | None = None, skill: str | None = None,
                          single_phase: bool = False,
                          design_bearing_verdict: bool | None = None) -> tuple[str, str] | str:
     """이슈#93: env > config > built-in default("sonnet"). MUSTER_SKILL_MODEL 이
@@ -585,14 +585,14 @@ def resolved_role_model(cli_model: str | None = None, role: str | None = None,
     tier로 갈지에 영향을 주지 않는다)."""
     cli_value = (cli_model or "").strip()
     if cli_value:
-        return (cli_value, "cli-override") if role is not None else cli_value
+        return (cli_value, "cli-override") if skill is not None else cli_value
     env_value = (os.environ.get("MUSTER_SKILL_MODEL") or "").strip()
     if env_value:
-        return (env_value, "env-override") if role is not None else env_value
-    config_value = _sp.read_role_model_config()
+        return (env_value, "env-override") if skill is not None else env_value
+    config_value = _sp.read_skill_model_config()
     if config_value:
-        return (config_value, "config-override") if role is not None else config_value
-    if role is not None:
+        return (config_value, "config-override") if skill is not None else config_value
+    if skill is not None:
         sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
         import model_routing
         policy = model_routing.load_policy(_sp.ROOT)
@@ -600,7 +600,7 @@ def resolved_role_model(cli_model: str | None = None, role: str | None = None,
     return "sonnet"
 
 
-def spawn_cmd(settings_path: str, role: str, unattended: bool,
+def spawn_cmd(settings_path: str, skill: str, unattended: bool,
               core_plugins: list | None = None,
               plugins: list | None = None,
               model: str | None = None,
@@ -714,12 +714,12 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
     # 고정한다. env > config > built-in "sonnet". 둘 다 비어있어도 built-in
     # 이 이겨 --model 이 항상 붙는다 — haiku 프로브(doctor())는 이 함수를
     # 거치지 않으므로 영향 없다.
-    role_model, model_rule = _sp.resolved_role_model(
-        model, role=role, single_phase=single_phase,
+    skill_model, model_rule = _sp.resolved_skill_model(
+        model, skill=skill, single_phase=single_phase,
         design_bearing_verdict=design_bearing_verdict)
-    if role_model:
-        cmd += ["--model", role_model]
-    env = {"CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1",
+    if skill_model:
+        cmd += ["--model", skill_model]
+    env = {"CLAUDE_SKILL": skill, "TOKENMAXXXER_SPAWNED": "1",
            # 이슈 #2204: 1시간 프롬프트 캐시 TTL 옵트인 — 위
            # `--exclude-dynamic-system-prompt-sections` 로 안정된 시스템
            # 프롬프트 프리픽스가 기본 TTL 보다 넓은 스폰 간격에서도 캐시에
@@ -727,7 +727,7 @@ def spawn_cmd(settings_path: str, role: str, unattended: bool,
            "ENABLE_PROMPT_CACHING_1H": "1",
            # 이슈 #2070: roster 기록용 — `_spawn_one()` 이 실제 subprocess env
            # 로 넘기기 전에 이 두 내부 키를 꺼내 roster 엔트리에 옮겨 담는다.
-           "_MODEL_ROUTING_MODEL": role_model or "",
+           "_MODEL_ROUTING_MODEL": skill_model or "",
            "_MODEL_ROUTING_RULE": model_rule}
     # Issue #2262: the nominal cap (never the allowance-widened CLI value
     # above) and the warning threshold ride as env so the in-session
@@ -911,7 +911,7 @@ def _fetch_or_halt(work_dir: str, label: str, after=None) -> None:
     _sp._FETCHED_THIS_SPAWN[key] = time.monotonic()
 
 
-def _write_role_sidecar(work: str, issue: int, role: str) -> None:
+def _write_skill_sidecar(work: str, issue: int, skill: str) -> None:
     """이슈 #1814: 워크스페이스 루트에 `.on-the-record/role.json` 을 남긴다 —
     네 개의 브랜치-정규식 사이트 중 셸 훅 세 곳(approval-gate.sh,
     pr-preflight.sh, contract-guard.sh)이 이미 로컬 `git rev-parse` 로
@@ -930,7 +930,7 @@ def _write_role_sidecar(work: str, issue: int, role: str) -> None:
     try:
         d.mkdir(parents=True, exist_ok=True)
         (d / "role.json").write_text(
-            json.dumps({"role": role, "issue": issue}) + "\n", encoding="utf-8")
+            json.dumps({"role": skill, "issue": issue}) + "\n", encoding="utf-8")
         ex = Path(work) / ".git" / "info" / "exclude"
         ex.parent.mkdir(parents=True, exist_ok=True)
         existing = ex.read_text() if ex.exists() else ""
@@ -1118,7 +1118,7 @@ def _checkout_named_branch(cwd: str, br: str) -> str:
     return br
 
 
-def recut_corrupted_cli(cwd: str, issue: int, role: str) -> int:
+def recut_corrupted_cli(cwd: str, issue: int, skill: str) -> int:
     """`spawn.py recut-corrupted --issue <n> --session <session> -C <cwd>`
     (issue #2402): issue #2379 의 corrupted-merge-base 브랜치(branch-cut
     시점에 오래된/무관한 parent 에서 갈라진 `issue-<n>/<role>`)를 새
@@ -1140,7 +1140,7 @@ def recut_corrupted_cli(cwd: str, issue: int, role: str) -> int:
     origin 에 이미 있는 브랜치를 대상으로 하므로(진행 중인 세션의 로컬
     워크스페이스가 아니라, 오케스트레이터가 아무 체크아웃에서나 실행하는
     사후 복구 커맨드) 먼저 그 브랜치와 base 를 origin 에서 받아온다."""
-    br = f"issue-{issue}/{role}"
+    br = f"issue-{issue}/{skill}"
     def git(*a):
         return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
     fetch_br = git("fetch", "origin", br)
@@ -1169,13 +1169,13 @@ def recut_corrupted_cli(cwd: str, issue: int, role: str) -> int:
     return 0
 
 
-def checkout_issue_branch(cwd: str, issue: int, role: str) -> str:
+def checkout_issue_branch(cwd: str, issue: int, skill: str) -> str:
     """대상 레포에서 issue-<n>/<역할> 브랜치를 만든다(있으면 갈아탄다).
 
     옛 역할 축 네이밍. 이슈 #2432 이후로도 역할 인자를 넘기는 모든 호출자에게
     오늘과 바이트-동일한 출력을 낸다(제안서 dual-scheme coexistence — 기존
     브랜치는 강제 rename 하지 않는다)."""
-    return _sp._checkout_named_branch(cwd, f"issue-{issue}/{role}")
+    return _sp._checkout_named_branch(cwd, f"issue-{issue}/{skill}")
 
 
 def checkout_issue_branch_for_skill(cwd: str, issue: int, skill: str,
@@ -1429,7 +1429,7 @@ def _tokenize(text: str) -> set[str]:
     return {t for t in _sp._TOKEN_RE.findall(text.lower()) if t not in _sp._STOPWORDS}
 
 
-def _cross_family_candidate_corpus(role: str, repo_root: Path | None,
+def _cross_family_candidate_corpus(skill: str, repo_root: Path | None,
                                     home: Path | None = None,
                                     target_repo_root: Path | None = None
                                     ) -> list[tuple[str, Path, str]]:
@@ -1461,7 +1461,7 @@ def _cross_family_candidate_corpus(role: str, repo_root: Path | None,
     때만 파일을 읽으므로 별도 게이트가 필요 없다."""
     # 이슈 #2507: `role` 은 더 이상 후보 풀을 좁히는 데 안 쓰인다 — signature
     # 는 호환을 위해 남긴다(호출부가 여전히 role 을 넘긴다).
-    del role
+    del skill
     family_names = set(_sp._STATIC_POLICY_SKILLS)
     matches: dict[str, list[tuple[str, Path]]] = {}
 
@@ -1580,7 +1580,7 @@ def _checkpoint_wait_max_seconds() -> float:
 AWAIT_APPROVAL_TIMEOUT_RC = 3
 
 
-def await_approval_cmd(cwd: str, issue: int, role: str,
+def await_approval_cmd(cwd: str, issue: int, skill: str,
                        timeout: float | None = None,
                        interval: float | None = None) -> int:
     """Issue #2129 checkpoint mode: the deterministic in-session approval
@@ -1592,7 +1592,7 @@ def await_approval_cmd(cwd: str, issue: int, role: str,
     watchdog's flat-progress exemption applies for the whole pause), then
     polls the issue comments for the `APPROVE issue-<n>/<role>` needle with
     the SAME predicate the phase-2 merge gate reads
-    (`gates/ci.py._approved_roles_on_issue` — this call IS the approve-token
+    (`gates/ci.py._approved_skills_on_issue` — this call IS the approve-token
     check at the boundary, which is why admission's approve-token row cedes
     to checkpoint spawns). Returns 0 on approval, 3
     (AWAIT_APPROVAL_TIMEOUT_RC) on timeout. The declared-wait file is
@@ -1606,7 +1606,7 @@ def await_approval_cmd(cwd: str, issue: int, role: str,
     try:
         wait_path.write_text(json.dumps({
             "object": f"issue:{issue}", "reason": "approve-token",
-            "issue": issue, "role": role, "ts": int(time.time()),
+            "issue": issue, "role": skill, "ts": int(time.time()),
             # Issue #2133: the watchdog sweep computes the remaining wait
             # from ts + budget_sec to surface the healthy pause
             # ([awaiting-approval] line); a wait file without budget_sec
@@ -1621,14 +1621,14 @@ def await_approval_cmd(cwd: str, issue: int, role: str,
     deadline = time.monotonic() + timeout
     try:
         while True:
-            if role in _ci._approved_roles_on_issue(root, issue):
-                print(f"[await-approval] APPROVE issue-{issue}/{role} "
+            if skill in _ci._approved_skills_on_issue(root, issue):
+                print(f"[await-approval] APPROVE issue-{issue}/{skill} "
                       f"observed — continue to phase-2 in this session.")
                 return 0
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 print(f"[await-approval] timeout after {timeout:.0f}s — no "
-                      f"APPROVE issue-{issue}/{role}. End the session "
+                      f"APPROVE issue-{issue}/{skill}. End the session "
                       f"cleanly; the proposal PR is the returned state.",
                       file=sys.stderr)
                 return _sp.AWAIT_APPROVAL_TIMEOUT_RC
@@ -1643,19 +1643,19 @@ def await_approval_cmd(cwd: str, issue: int, role: str,
 def _admission_check_approve_token(ctx: dict) -> bool | None:
     """Item 1 (issue #2100): on a phase-2 issue the spawned role's APPROVE
     token must already be published — checked with the same predicate the
-    consuming gate uses (`gates/ci.py._approved_roles_on_issue`, the exact
+    consuming gate uses (`gates/ci.py._approved_skills_on_issue`, the exact
     scan the phase-2 merge gate later reads). This reconstructs the 3x
     APPROVE-token incident at admission time: phase-2 issue, role differs
     from every approved role, token not yet published => refuse now
     instead of stranding the session on the gate mid-flight."""
-    issue, role = ctx.get("issue"), ctx["role"]
+    issue, skill = ctx.get("issue"), ctx["role"]
     if issue is None or ctx.get("single_phase"):
         return True  # adhoc spawn / explicit build-now bypass: no token gate
     if ctx.get("checkpoint"):
         # Issue #2129: a checkpoint-mode spawn deliberately starts BEFORE
         # any APPROVE token exists — the session itself enforces the token
         # at the phase-1/phase-2 boundary (`spawn.py await-approval`, the
-        # same `_approved_roles_on_issue` predicate this row consults).
+        # same `_approved_skills_on_issue` predicate this row consults).
         # Without this exemption the row would double-block every
         # checkpoint spawn on a phase-2 issue whose approved role differs,
         # which is exactly the state a checkpoint spawn is designed to
@@ -1666,7 +1666,7 @@ def _admission_check_approve_token(ctx: dict) -> bool | None:
     if not (root / _sp.MARKER).is_file():
         return True  # off-board work: no approver machinery to consult
     # Distinguish "no approval comments" from "could not read comments":
-    # `_approved_roles_on_issue` deliberately collapses the two (it
+    # `_approved_skills_on_issue` deliberately collapses the two (it
     # fail-closes to phase-1), but admission must fail OPEN on a gh
     # failure — so probe the comment fetch first and fail open on error.
     _, ok = _sp._issue_comments(root, issue)
@@ -1674,10 +1674,10 @@ def _admission_check_approve_token(ctx: dict) -> bool | None:
         return None  # gh/network failure — fail-open (ledger event + proceed)
     sys.path.insert(0, str((Path(__file__).parent / "gates").resolve()))
     import ci as _ci
-    approved = _ci._approved_roles_on_issue(root, issue)
+    approved = _ci._approved_skills_on_issue(root, issue)
     if not approved:
         return True  # phase-1 issue: no token is required yet
-    return role in approved
+    return skill in approved
 
 
 def _admission_check_directive_completeness(ctx: dict) -> bool | None:
@@ -1688,7 +1688,7 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
     an admission refusal, not a mid-flight surprise. This is deterministic
     local work (skill-repository checkout, SKILL.md frontmatter), so a
     failure is a refusal — never fail-open."""
-    role = ctx["role"]
+    skill = ctx["role"]
     try:
         # 이슈 #2555 (Step C), 이슈 #2560 로 `_sp.ROLES` 자체가 삭제됨:
         # `role not in _sp.ROLES` 닫힌-집합 거부는 여기서 이미 빠져 있다 —
@@ -1697,7 +1697,7 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
         # 실제로 요구하지 않는다 (issue-2548 architecture record, Consumers
         # item d).
         # Two-phase signal: the contract line must format for this role.
-        _sp._SINGLE_PHASE_CONTRACT_LINE.format(role=role)
+        _sp._SINGLE_PHASE_CONTRACT_LINE.format(role=skill)
         # Per-skill trigger lines (issue #1978 B): resolve every skill
         # source the spawn body will resolve, and extract each trigger
         # line, exactly as the assembly code does.
@@ -1717,10 +1717,10 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
         # `resolve_static_policy_source()`(role 축 없음), consult/judge 는
         # 표 없이 skill-repository 디렉터리 이름 컨벤션에서 role 커버리지를
         # 유도하는 `resolve_role_family_source()`(consult.py 참고).
-        role_source = _sp.resolve_static_policy_source(_sp._skill_repo_root())
+        skill_source = _sp.resolve_static_policy_source(_sp._skill_repo_root())
         for m in srcs:
             _sp._skill_trigger_line(m["dir"])
-        for d in role_source["skill_dirs"]:
+        for d in skill_source["skill_dirs"]:
             _sp._skill_trigger_line(d)
     except Exception:
         # The directive cannot be assembled — refuse. SystemExit from the
@@ -1792,10 +1792,10 @@ def _admission_check_degenerate_task(ctx: dict) -> bool | None:
     if m is None:
         return True
     digits = m.group(0).lstrip("#-")
-    role = ctx.get("role")
+    skill = ctx.get("role")
     stripped = task.strip()
     print(f"[admission] degenerate-task: task {stripped!r} looks like "
-          f"an issue number; did you mean: spawn.py {role} \"{stripped}\" "
+          f"an issue number; did you mean: spawn.py {skill} \"{stripped}\" "
           f"--issue {digits}? Pass --force-adhoc-task to admit this "
           f"literal task anyway.", file=sys.stderr)
     return False

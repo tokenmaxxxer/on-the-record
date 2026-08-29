@@ -142,17 +142,17 @@ if not marker_found:
 # (possibly composed, e.g. "skill-a+skill-b-<disambiguator>") identity
 # string the session was spawned under. Any absence/parse failure falls
 # back to the branch-regex parse below.
-issue_n, role = None, None
+issue_n, skill = None, None
 try:
     with open(os.path.join(repo, ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
     if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
             and isinstance(sidecar.get("issue"), int)):
-        issue_n, role = sidecar["issue"], sidecar["role"]
+        issue_n, skill = sidecar["issue"], sidecar["role"]
 except (OSError, ValueError):
     pass
 
-if role is None:
+if skill is None:
     branch_r = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=repo, capture_output=True, text=True, timeout=10,
@@ -160,14 +160,14 @@ if role is None:
     branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
     branch_m = re.match(r"^issue-(\d+)/([^/]+)$", branch)
     if branch_m:
-        issue_n, role = branch_m.group(1), branch_m.group(2)
+        issue_n, skill = branch_m.group(1), branch_m.group(2)
     # CLAUDE_SKILL presence-only override: a session with no branch/sidecar
     # identity at all but a live CLAUDE_SKILL still scopes to its own dir.
-    role = role or (os.environ.get("CLAUDE_SKILL") or None)
+    skill = skill or (os.environ.get("CLAUDE_SKILL") or None)
 
 if issue_n is not None:
     base = os.path.join("docs", f"issue-{issue_n}", "reports")
-    rel = os.path.join(base, role, "deviation-log") if role else os.path.join(base, "deviation-log")
+    rel = os.path.join(base, skill, "deviation-log") if skill else os.path.join(base, "deviation-log")
 else:
     rel = os.path.join("docs", "reports", "deviation-log")
 

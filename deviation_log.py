@@ -45,7 +45,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def _deviation_log_dir(issue: int | None, role: str | None = None,
+def _deviation_log_dir(issue: int | None, skill: str | None = None,
                         cwd: str | None = None) -> Path:
     """Issue-scoped + role-scoped when both are known, issue-scoped only
     when role is None, else the standard `reports/` bucket — same
@@ -55,7 +55,7 @@ def _deviation_log_dir(issue: int | None, role: str | None = None,
     if issue is None:
         return root / "docs" / "reports" / "deviation-log"
     base = root / "docs" / f"issue-{issue}" / "reports"
-    return (base / role / "deviation-log") if role else (base / "deviation-log")
+    return (base / skill / "deviation-log") if skill else (base / "deviation-log")
 
 
 def _deviation_log_shard_id(shard_dir: Path, session_id: str | None) -> str:
@@ -79,18 +79,18 @@ def _deviation_log_session_id() -> str | None:
     return os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID")
 
 
-def _deviation_log_path(issue: int | None, role: str | None = None,
+def _deviation_log_path(issue: int | None, skill: str | None = None,
                          cwd: str | None = None, session_id: str | None = None) -> Path:
     """The shard file this session's deviation-log appends land in.
     Creates the shard directory (not the file) so a session can rely on
     the parent existing before its own Write/Edit call."""
-    d = _deviation_log_dir(issue, role, cwd)
+    d = _deviation_log_dir(issue, skill, cwd)
     sid = session_id if session_id is not None else _deviation_log_session_id()
     d.mkdir(parents=True, exist_ok=True)
     return d / f"{_deviation_log_shard_id(d, sid)}.md"
 
 
-def _deviation_log_aggregate(issue: int | None, role: str | None = None,
+def _deviation_log_aggregate(issue: int | None, skill: str | None = None,
                               cwd: str | None = None) -> str:
     """Reader/aggregator reconstructing the pre-#2348 single-file view —
     concatenates whole shard files (never individual lines, entries can
@@ -98,7 +98,7 @@ def _deviation_log_aggregate(issue: int | None, role: str | None = None,
     append because the shard id embeds the session's first-seen timestamp.
     Empty string, matching the old "file not found" empty state, when no
     deviation has ever been logged under this dir."""
-    d = _deviation_log_dir(issue, role, cwd)
+    d = _deviation_log_dir(issue, skill, cwd)
     if not d.is_dir():
         return ""
     return "".join(p.read_text(encoding="utf-8") for p in sorted(d.glob("*.md")))

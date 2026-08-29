@@ -151,7 +151,7 @@ class MergeGateRefusesOnStaleCheckoutTest(unittest.TestCase):
             with mock.patch.object(merge_gate, "latest_check_runner_comment",
                                    return_value=None):
                 with mock.patch.object(merge_gate.check_runner,
-                                       "fetch_all_role_branches"):
+                                       "fetch_all_skill_branches"):
                     with mock.patch.object(merge_gate, "required_verification_missing",
                                            return_value=[]):
                         with mock.patch.object(merge_gate, "pr_refs", return_value=None):
