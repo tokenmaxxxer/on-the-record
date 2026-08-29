@@ -1090,6 +1090,72 @@ def _record_spawn_outcome(attempt_id: str, outcome: str, detail: str) -> None:
                                   "detail": detail, "ts": time.time()})
 
 
+# 이슈 #2742: pre-workspace 부트스트랩 도중 "호출자가 떠났다"(승인 거절,
+# 오케스트레이터 툴콜 타임아웃)와 "프로세스 자신이 죽었다"(OOM/SIGKILL)를
+# 구분하는 신호. 두 관측 사례(이슈 코멘트) 모두 spawn.py 프로세스가
+# SIGTERM/SIGINT 를 받고 아무 처분도 남기지 못한 채 죽었다 — 파이썬은
+# SIGTERM 에 기본 핸들러를 두지 않아(예외도 없이 즉시 종료) 이 창에서
+# 도착한 신호는 오늘까지 `_record_spawn_outcome()`을 전혀 못 거쳤고, 그래서
+# `spawn_attempt_sweep()`의 "no outcome recorded ... process likely died"
+# 분기로 떨어졌다 — 죽지 않았는데도. 이 가드는 그 신호 자체를 잡아 halt
+# 처분에 실제 사유를 남기고, 이 시도가 만든 워크스페이스/`.spawn-claim`/
+# `.task.txt`를 지운다(아무 작업도 없었으니 남길 게 없다) — must-not 그대로
+# 타임아웃 추정이 아니라 신호 그 자체로만 판단한다. SIGKILL/OOM 은 여전히
+# 못 잡으므로(파이썬이 아니라 커널이 죽인다) 이 가드를 거치지 않고 기존
+# "no outcome recorded" 분기가 그대로 남는다 — 두 케이스가 계속 다른 줄을
+# 낸다.
+_BOOTSTRAP_SIGNAL_GUARD_SIGNALS = (signal.SIGTERM, signal.SIGINT)
+
+
+def _arm_bootstrap_signal_guard(attempt_id: str | None):
+    """`attempt_id`가 있는 부트스트랩 구간에서만 SIGTERM/SIGINT 를 잡는다
+    (`None`이면 아무 것도 안 한다 — 이 파일의 다른 attempt_id 옵션 인자와
+    같은 관례, `_spawn_one()` docstring 참고. 이 관례 덕에 pytest 아래에서는
+    (`_record_spawn_attempt()`가 항상 `None`을 돌려준다) 이 가드도 절대
+    안 걸린다). 반환값을 그대로 `_disarm_bootstrap_signal_guard()`에
+    넘긴다. 반환된 dict 의 `"cwd"`를 워크스페이스 경로가 정해지는 즉시
+    채워야, 신호가 그 뒤에 도착했을 때 지울 대상을 안다 — 그 전에
+    도착하면(워크스페이스가 아직 없다) 지울 것도 없다는 뜻 그대로 아무
+    것도 안 지운다."""
+    if attempt_id is None:
+        return None
+    state = {"cwd": None}
+    prev_handlers = {sig: signal.getsignal(sig)
+                      for sig in _BOOTSTRAP_SIGNAL_GUARD_SIGNALS}
+
+    def _handler(signum, frame):
+        sig_name = signal.Signals(signum).name
+        cwd = state.get("cwd")
+        detail = (f"caller departed before bootstrap finished (received "
+                  f"{sig_name}) — this is not a crash, no session ever "
+                  "started" + (f"; removing partial workspace {cwd}"
+                                if cwd else ""))
+        _record_spawn_outcome(attempt_id, "halted", detail)
+        if cwd:
+            shutil.rmtree(cwd, ignore_errors=True)
+            _spawn_claim_path(cwd).unlink(missing_ok=True)
+            Path(str(cwd) + ".task.txt").unlink(missing_ok=True)
+        os._exit(128 + signum)
+
+    for sig in _BOOTSTRAP_SIGNAL_GUARD_SIGNALS:
+        signal.signal(sig, _handler)
+    return state, prev_handlers
+
+
+def _disarm_bootstrap_signal_guard(armed) -> None:
+    """`_arm_bootstrap_signal_guard()`가 돌려준 값을 원래 핸들러로 되돌린다
+    — 워크스페이스/로스터/세션 로그가 실제로 생긴(`"session-log"` 처분을
+    남긴) 뒤에는 이 창의 몫이 아니라 기존 dead-entry 워치독의 몫이라, 그
+    지점부터는 이 프로세스의 SIGTERM/SIGINT 를 다시 평범하게(파이썬 기본
+    동작대로) 둔다 — 안 그러면 세션이 실제로 도는 워크스페이스를 나중에
+    온 신호가 "부트스트랩 halt"로 오분류해 지워버릴 수 있다."""
+    if armed is None:
+        return
+    _, prev_handlers = armed
+    for sig, handler in prev_handlers.items():
+        signal.signal(sig, handler)
+
+
 def _load_spawn_attempts() -> tuple[dict, dict, dict]:
     """`SPAWN_ATTEMPTS_PATH`를 읽어 (attempts, outcomes, resolved) — 셋
     다 attempt_id 로 키가 잡힌 dict. 워치독의 `spawn_attempt_sweep()`
@@ -3283,6 +3349,10 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
               f"non-retryable: publish the missing precondition, then "
               f"dispatch again.", file=sys.stderr)
         return 1
+    # 이슈 #2742: admission 을 넘긴 지금부터(부수효과가 시작되는 지점) 이
+    # 시도가 `"session-log"` 처분을 남기기 전까지, 이 프로세스로 온
+    # SIGTERM/SIGINT 는 "호출자가 떠났다"는 뜻이지 "죽었다"는 뜻이 아니다.
+    _bootstrap_signal_guard = _arm_bootstrap_signal_guard(attempt_id)
     # 이슈 #2382: `core_plugin_dirs()` 는 인자가 없다 — role/cwd/issue 어느
     # 것에도 안 걸리는, core 마켓플레이스 관리 클론(core_root()) pull 하나뿐
     # 이라 admission 만 넘으면(부수효과는 admission 뒤부터, 위 주석) 바로
@@ -3492,8 +3562,13 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
         origin_cwd = cwd
         with _timed("workspace"):
             cwd = issue_workspace(cwd, issue, skill)
+        # 이슈 #2742: 워크스페이스 경로가 정해졌다 — 지금부터 도착하는
+        # SIGTERM/SIGINT 는 이 경로를 지울 대상으로 안다.
+        if _bootstrap_signal_guard is not None:
+            _bootstrap_signal_guard[0]["cwd"] = cwd
         claim_rejection = _acquire_spawn_claim(cwd, issue, skill)
         if claim_rejection is not None:
+            _disarm_bootstrap_signal_guard(_bootstrap_signal_guard)
             print(f"[{skill}] {claim_rejection}", file=sys.stderr)
             # 이슈 #2382 컨포먼스 리뷰 발견: 이 리턴은 위에서 이미 던진
             # `_core_future`(core_plugin_dirs) 의 join 지점(아래 "core"
@@ -3992,6 +4067,11 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             # (아래, Popen 뒤)보다 먼저지만 몇 줄 차이라 워치독 틱(60초 간격)
             # 기준으로는 동시다.
             _record_spawn_outcome(attempt_id, "session-log", str(log_path))
+            # 이슈 #2742: 이 지점부터는 곧 실제로 도는(fork/Popen 될) 세션의
+            # 워크스페이스다 — 이후 이 프로세스가 받는 SIGTERM/SIGINT 를
+            # "부트스트랩 halt"로 되잡아 방금 확정된 워크스페이스를 지우면
+            # 안 된다. 원래 핸들러로 되돌린다.
+            _disarm_bootstrap_signal_guard(_bootstrap_signal_guard)
         result = {}
         roster_key = lease_key(issue, skill) if issue is not None else f"adhoc/{skill}/{os.getpid()}"
         events_path = _events_path(cwd)
