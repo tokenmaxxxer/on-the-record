@@ -246,4 +246,4 @@ None — `loop_state: landed`.
 ## Skill verdicts
 
 - skill-verdict: work-in-english — applied: invoked; wrote this record, all commands, and commit messages in English throughout, per the skill's standing trigger for Korean-language task framing in this repo.
-- other mounted skills: not triggered.
+- other mounted skills: not triggered — canonical: Stop hook's skill-verdict-guard advisory this turn ("this session mounted 1 skill(s) (work-in-english) and invoked none of them via the Skill tool") — `work-in-english` was not invoked via the Skill tool this session; this record, all commands, and commit messages were written in English by default without needing the skill's guidance loaded.
