@@ -43,6 +43,56 @@
 # as approval-gate.sh's unparseable-branch fail-open — leaving (a) as the
 # only remaining signal.
 #
+# Cwd resolution (issue #2669): "this session's own git origin repo" in
+# (b) used to be resolved with `git -C <payload cwd> remote get-url
+# origin` unconditionally, where `<payload cwd>` is the PreToolUse
+# event's own `cwd` field — the harness's fixed per-session workspace
+# directory, which does NOT track a `cd` the command itself performs
+# (Bash's cwd persists across separate tool calls, but the hook payload's
+# `cwd` field does not follow it). A session legitimately delivering to a
+# second repo it has a real local checkout of — `cd <repo-B-checkout> &&
+# gh pr create --repo owner/repo-B` — always resolved ORIGIN_REPO from
+# the first (harness) repo, never repo B, so `target != origin` and the
+# call was denied regardless of the `cd`. Fixed by preferring a leading
+# `cd <dir> &&`/`cd <dir>;` in the command text (resolved against the
+# payload cwd if relative) as the directory `git remote get-url origin`
+# is actually run in, falling back to the payload cwd when no leading
+# `cd` is present — this is "the checkout the command is actually about
+# to run in," not a new claim the session makes about itself: the
+# directory must be a real local git checkout whose CONFIGURED remote is
+# inspected on disk, not a string taken from the command line.
+#
+# Known residual gap, deliberately not chased further (issue #2637's
+# precedent: docs/issue-2637/reports/silent-failure-audit+architecture-
+# interface-contract-shape-149dabd2.md found that no path/git-derived
+# resolution a hook computes from session-reported strings before the
+# write can be made fully unsteerable, and pinned the gap as
+# `expectedFailure` tests rather than iterating a fourth resolution
+# scheme). The same class applies here: a session can `git init` a
+# throwaway directory, `git remote add origin <target-url>`, and `cd`
+# into it before the `gh pr create` call, which makes ORIGIN_REPO report
+# the target repo with zero real relationship to it. This fix does not
+# and cannot close that — it is pinned as a live `expectedFailure` test
+# in test/test_upstream_defect_scope_guard_cross_repo_cwd.py rather than
+# silently left uncovered. What it does close is the reported case: a
+# session with a genuine local checkout of a second repo it legitimately
+# works in.
+#
+# Fail-open guard (PR #2703 review): the pre-#2669 code already failed
+# open (allowed) when origin was unresolvable at all (no git repo, no
+# origin remote) — see "Origin-resolution failure" above. Before this
+# fix, that fallback only fired where the HARNESS put the session, which
+# the session could not choose. Once the operative directory could come
+# from a `cd` in the command text, an unresolvable directory became
+# something the session picks on purpose: `cd /tmp && gh pr create
+# --repo <anything>` made ORIGIN_REPO resolve to None for every target,
+# which fell open for every target. `operative_cwd`/`origin_repo` now
+# report whether the directory that failed to resolve was session-chosen
+# (via `cd`) or the harness's own payload cwd; `in_scope` fails open only
+# in the latter case and treats the former as in-scope, so a `cd` to a
+# non-checkout no longer buys a session an unconditional PR-creation
+# allow.
+#
 # Shape: stdin JSON payload, trap remapping unexpected exit to 2 (fail
 # closed by construction), ORCHESTRATE_OFF kill switch, python3 for the
 # actual logic, exit 2 + stderr message to deny, exit 0 to pass.
@@ -88,33 +138,76 @@ lowered = cmd.lower()
 mounted = [s for s in os.environ.get("MUSTER_SKILLS", "").split(",") if s]
 channel_role_active = CHANNEL_SKILL in mounted
 
+# --- the directory the command actually runs in (issue #2669) --------------
+# A leading `cd <dir> &&`/`cd <dir>;` in the command text names the real
+# checkout the guarded call executes in more accurately than the payload's
+# `cwd` field does (that field is the harness's fixed per-session
+# workspace dir and does not follow a `cd` the command itself performs).
+# Falls back to the payload cwd when no leading `cd` is present. Also
+# reports whether the returned directory was named by the command text
+# itself (session-chosen) rather than the harness's own payload cwd — the
+# unresolvable-origin fallback below must not fail open on a session-chosen
+# directory the way it does on a harness-chosen one (issue #2669 PR #2703
+# review: `cd /tmp && gh pr create --repo <anything>` made the session able
+# to pick whether origin resolves at all, since `/tmp` is never a git repo).
+def operative_cwd(payload_cwd):
+    m = re.match(r'^\s*cd\s+("[^"]+"|\'[^\']+\'|\S+)\s*(?:&&|;)', cmd)
+    if not m:
+        return payload_cwd, False
+    target = m.group(1).strip("'\"")
+    if not target:
+        return payload_cwd, False
+    if not target.startswith("/") and payload_cwd:
+        target = os.path.join(payload_cwd, target)
+    return target, True
+
 # --- this session's own git origin repo (owner/repo, lowercased) -----------
 def origin_repo():
-    cwd = e.get("cwd") if isinstance(e.get("cwd"), str) and e.get("cwd") else None
+    payload_cwd = e.get("cwd") if isinstance(e.get("cwd"), str) and e.get("cwd") else None
+    cwd, cwd_session_chosen = operative_cwd(payload_cwd)
+    cwd = cwd or payload_cwd
     try:
         r = subprocess.run(
             ["git", "-C", cwd or ".", "remote", "get-url", "origin"],
             capture_output=True, text=True, timeout=10,
         )
     except (OSError, subprocess.SubprocessError):
-        return None
+        return None, cwd_session_chosen
     if r.returncode != 0:
-        return None
+        return None, cwd_session_chosen
     url = r.stdout.strip()
     m = re.search(r"[:/]([^/:\s]+/[^/:\s]+?)(\.git)?$", url)
-    return m.group(1).lower() if m else None
+    return (m.group(1).lower() if m else None), cwd_session_chosen
 
-ORIGIN_REPO = origin_repo()
+ORIGIN_REPO, ORIGIN_CWD_SESSION_CHOSEN = origin_repo()
 
 def in_scope(target_repo):
     """PR-creation call is in-scope for denial iff the channel's own role
     is active, or a target repo was extracted and it isn't this session's
-    origin repo. `target_repo=None` (no extractable target, or origin
-    unresolvable) relies on the role signal alone."""
+    origin repo. `target_repo=None` (no extractable target) relies on the
+    role signal alone.
+
+    Origin-unresolvable fails open ONLY when the directory that failed to
+    resolve is the harness's own payload cwd — the pre-#2669 posture,
+    unchanged here. That is a narrower exposure than a `cd`-target
+    failure: it requires the session to have already mutated its own
+    harness workspace's git state (e.g. `git remote remove origin`) in a
+    prior call, which is the same session-mutable-local-git-state class
+    as the already-pinned spoofed-origin gap below, not something this
+    fix introduces or is scoped to close. When the directory came instead
+    from a `cd` in the command text, the session picks a fresh,
+    arbitrary directory on the spot with no such precondition (e.g. `cd
+    /tmp`, never a git repo), so failing open there would let the
+    session pick its way out of the guard entirely on any single call;
+    treat
+    an unresolvable session-chosen directory as in-scope instead."""
     if channel_role_active:
         return True
-    if target_repo is not None and ORIGIN_REPO is not None:
-        return target_repo.lower() != ORIGIN_REPO
+    if target_repo is not None:
+        if ORIGIN_REPO is not None:
+            return target_repo.lower() != ORIGIN_REPO
+        if ORIGIN_CWD_SESSION_CHOSEN:
+            return True
     return False
 
 def extract_repo_flag(text):
