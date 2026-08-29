@@ -395,6 +395,19 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
             # 는 종결적 사실이라 이후 틱의 (혹은 fail-open 하는) 재확인을
             # 기다리지 않고 바로 건너뛴다.
             continue
+        # issue #2652: the is-open check must run BEFORE the pr_index
+        # membership check below. Closed issues are the ordinary case for
+        # an unmappable deliverable branch (their PR is long gone from
+        # `pr_index`) -- checking pr_index membership first meant every
+        # closed subject printed (or one-shot-marked) a "branch not
+        # found" line before ever reaching the is-open `continue`, even
+        # though closed subjects were never spawn candidates to begin
+        # with. Pure reorder of these two pre-existing checks -- neither
+        # sets state the other reads (see this issue's
+        # architecture-coupling-classification record).
+        issue = int(subject.split("-", 1)[1])
+        if not _issue_is_open(issue, issue_states):
+            continue
         # issue #2575: `branch`는 subject_board(랜딩된 기록)가 아니라
         # pr_index(살아있는 PR)에서 구한다 — deliverable PR 이 아직 open
         # 이면 subject_board 에 그 기록이 없는 게 정상이라(위
@@ -414,9 +427,6 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
             continue
         pr_number = _pr_number_for_branch(root, branch, pr_index)
         if pr_number is None:
-            continue
-        issue = int(subject.split("-", 1)[1])
-        if not _issue_is_open(issue, issue_states):
             continue
         pr_state = _pr_state_for_branch(root, branch, pr_index)
         if pr_state == "MERGED":
