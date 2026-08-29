@@ -240,12 +240,17 @@ technical merits; this record does not itself land it.
 
 ## Skill verdicts
 
-skill-verdict: adversarial-review — applied: invoked; used the skill's
+skill-verdict: adversarial-review — applied: invoked, though only after
+the review work below was already written — a deviation, logged at
+`docs/issue-2725/reports/adversarial-review-ad2370fc/deviation-log/20260829T160017321207-8ca844d18bc81d8a.md`.
+canonical: this turn's own Skill-tool result for `adversarial-review` —
+its procedure states a session structurally separate from the builder
+already satisfies the skill's core mechanism, which this session was
+(evaluating PR #2738, a different session's deliverable) — matching the
 "receive only the deliverable, incentivized to find everything wrong"
-posture to independently re-derive PR #2738's specific claims (test
-discrimination, closed-set removal, call-site harmlessness, test-set
-comparison) from a fresh worktree rather than re-trusting the subject
-record's prose or citations.
+posture this record independently applied by re-deriving PR #2738's
+specific claims from a fresh worktree rather than re-trusting the
+subject record's prose or citations.
 skill-verdict: work-in-english — not-applicable: not invoked via the
 Skill tool this session; this record and all repository-bound work were
 already written in English without needing the skill's guidance invoked
