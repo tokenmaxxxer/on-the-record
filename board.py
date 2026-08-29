@@ -888,6 +888,29 @@ def gate_report(cwd: str) -> list[str]:
     return report + [f"  ({req_summary})"]
 
 
+# issue #2719: this used to carve out `spikes/` and `postmortems/` by
+# testing `role == "technical-feasibility"` / `role == "release-
+# engineering"` — a 2-name closed-set membership test, the retired
+# role-catalog dispatch shape reproduced under skill identity (issue
+# #2626 finding A). The fact this branch actually needs is not "which
+# role wrote it" but "is this path shape a recognized alternate
+# own-record convention distinct from `<role-or-slug>.md`" — a path-only
+# signal with no identity read at all. `ALT_RECORD_SUBDIRS` names that
+# convention once, independent of any role/skill name, and the two
+# subdirectories are exempted for whichever role writes to them, not
+# just the two that historically did. Stated behavior change: a role
+# other than technical-feasibility/release-engineering writing to
+# `spikes/` or `postmortems/` is no longer flagged either (previously it
+# was, same as any other role writing outside its own record). Verified,
+# not assumed: `git log --all --diff-filter=A -- 'docs/issue-*/reports/
+# spikes/*' 'docs/issue-*/reports/postmortems/*'` returns zero commits in
+# this repo's history — no role, including the two that were named here,
+# has ever actually written to either subdirectory, so this widening has
+# reclassified no real write; see test/test_board_ownership_report.py for
+# the pinned before/after cases.
+ALT_RECORD_SUBDIRS = ("spikes/", "postmortems/")
+
+
 def ownership_report(cwd: str, role: str, delta: list) -> list[str]:
     """이 세션이 **자기 것이 아닌** 보드 경로를 건드렸는지 사후로 본다.
 
@@ -904,9 +927,7 @@ def ownership_report(cwd: str, role: str, delta: list) -> list[str]:
         rest = m.group(2)
         if rest == f"{role}.md" or rest.startswith(f"{role}/"):
             continue
-        if role == "technical-feasibility" and rest.startswith("spikes/"):
-            continue
-        if role == "release-engineering" and rest.startswith("postmortems/"):
+        if rest.startswith(ALT_RECORD_SUBDIRS):
             continue
         bad.append(f"  - {p} (다른 역할의 기록)")
     if not bad:

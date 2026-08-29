@@ -106,6 +106,37 @@ command -v python3 >/dev/null 2>&1 || exit 2
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, re, subprocess, sys
 
+# issue #2719: audited against the retired `role in ROLES` dispatch shape
+# (issue #2626 finding A) and kept, not removed. The distinguishing test
+# (issue #2626, core#343 precedent): is this hardcoded name choosing
+# among several comparable identities (closed-set DISPATCH, which must
+# go), or is it the one subject this entire file exists to constrain
+# (naming what the gate is genuinely about)? This file has exactly one
+# reason to exist — issue #1131 req#4, "the upstream-defect channel files
+# issues only, never PRs" — and CHANNEL_SKILL identifies that one
+# channel, not a member of an open-ended roster getting special
+# treatment. It is not a dispatch table (compare merge-allow-gate.sh's
+# `("secure-coding", "release-engineering")` 2-key TRIGGER_PATH_PATTERNS,
+# removed by this same issue): there is nothing to add a second name to,
+# and no catalog it reconstructs.
+#
+# Direction matters too. core#343 removed OBSERVER_ROLES because it was
+# a special EXEMPTION carved out of a stricter baseline — deleting it
+# made the gate deny MORE, the safe direction. CHANNEL_SKILL does the
+# opposite: it is condition (a) of `in_scope`'s OR, adding an extra
+# denial (channel-active PR-creation of any shape, including same-origin
+# targets and the two target-less shapes — GraphQL createPullRequest,
+# `hub pull-request` — condition (b) can never catch) beyond what the
+# target-repo check alone would refuse. Deleting it would silently
+# widen this gate to allow the channel's own-origin/target-less PR
+# creation — exactly the "regression dressed as a removal" issue #2719's
+# acceptance forbids, and the identical failure class issue #1171/#2669
+# already document as a real incident here (issue-1163's delivery PR
+# wrongly denied by an under-scoped version of this same file).
+# Relocating the name into a constant/config/per-entry file is also
+# rejected as no removal at all (the #2548 test) — CHANNEL_SKILL already
+# is exactly that: a single named constant, used once, at its own
+# definition site.
 CHANNEL_SKILL = "upstream-defect-report"
 
 def deny(msg):
