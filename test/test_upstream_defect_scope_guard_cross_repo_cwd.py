@@ -148,6 +148,7 @@ class CrossRepoCwdDisagreementTest(unittest.TestCase):
                "--title x --body y")
         r = _run_guard(cmd, cwd=str(self.repo_a))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
 
     def test_unrelated_upstream_repo_still_denied(self):
         """Acceptance check 2: the case the guard was written for — a
@@ -158,6 +159,7 @@ class CrossRepoCwdDisagreementTest(unittest.TestCase):
                "--title x --body y")
         r = _run_guard(cmd, cwd=str(self.repo_b))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
 
     def test_cd_into_unrelated_repo_checkout_still_denied(self):
         """Even resolving via the `cd`-target directory, a real checkout
@@ -169,6 +171,7 @@ class CrossRepoCwdDisagreementTest(unittest.TestCase):
                "--repo some-unrelated-org/upstream-repo --title x --body y")
         r = _run_guard(cmd, cwd=str(self.repo_a))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
 
     # --- issue #2709: three cd-adjacent shapes disclosed in prose by
     # #2669/#2706 ("A leading `cd <dir> &&`/`cd <dir>;`" — see the guard's
@@ -239,6 +242,7 @@ class CrossRepoCwdDisagreementTest(unittest.TestCase):
                "--repo some-unrelated-org/upstream-repo --title x --body y")
         r = _run_guard(cmd, cwd=str(self.repo_a))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
 
     def test_cd_into_nonexistent_dir_still_denied(self):
         """Same shape, a path that does not exist on disk at all."""
@@ -246,6 +250,7 @@ class CrossRepoCwdDisagreementTest(unittest.TestCase):
                "--repo some-unrelated-org/upstream-repo --title x --body y")
         r = _run_guard(cmd, cwd=str(self.repo_a))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
 
     def test_harness_cwd_unresolvable_without_cd_still_fails_open(self):
         """Without a `cd`, an unresolvable HARNESS payload cwd (not
@@ -277,6 +282,7 @@ class CrossRepoCwdDisagreementTest(unittest.TestCase):
                "--repo some-unrelated-org/upstream-repo --title x --body y")
         r = _run_guard(cmd, cwd=str(self.repo_a))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
 
     # --- adversarial review of this same fix (independent evaluator
     # session, not #2637/#2703) surfaced a second instance of the same
@@ -303,6 +309,7 @@ class CrossRepoCwdDisagreementTest(unittest.TestCase):
                "--title x --body y")
         r = _run_guard(cmd, cwd=str(mutated))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_for_documented_reason(self, r)
 
 
 if __name__ == "__main__":
