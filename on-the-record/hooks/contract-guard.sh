@@ -208,8 +208,17 @@ try:
     with open(os.path.join(_skill_cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
     if (isinstance(sidecar, dict) and isinstance(sidecar.get("skill"), str)
-            and isinstance(sidecar.get("issue"), int) and sidecar["issue"] == issue):
-        skill = sidecar["skill"]
+            and isinstance(sidecar.get("issue"), int)):
+        if sidecar["issue"] == issue:
+            skill = sidecar["skill"]
+    else:
+        sys.stderr.write(
+            "contract-guard: .on-the-record/role.json present but not in "
+            "the expected shape (skill: str, issue: int) -- falling back "
+            "to branch-name parsing (issue #2741: this key was renamed "
+            "role -> skill, forward-only; a sidecar written before that "
+            "rename no longer resolves here).\n"
+        )
 except (OSError, ValueError):
     skill = None
 
