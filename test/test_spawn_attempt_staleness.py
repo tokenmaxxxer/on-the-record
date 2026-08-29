@@ -391,8 +391,8 @@ class SpawnAttemptSweepReplayFixTest(unittest.TestCase):
         reason = (f"-C 가 존재하지 않는 디렉터리다: {missing}\n"
                   f"  cwd 는 레포 루트를 가리켜야 한다 — 경로를 다시 확인해라.")
         attempt_ts = time.time() - 60
-        self._write_attempt("2999:role:1:1", 2999, "role", str(missing),
-                             reason, attempt_ts)
+        self._write_attempt("2999:stillblockedfault:1:1", 2999, "stillblockedfault",
+                             str(missing), reason, attempt_ts)
 
         with mock.patch("builtins.print") as mocked_print:
             count = roster.spawn_attempt_sweep(d_all={})
@@ -405,8 +405,8 @@ class SpawnAttemptSweepReplayFixTest(unittest.TestCase):
         missing = Path("/definitely/not/a/real/path-issue-2511-b")
         reason = f"-C 가 존재하지 않는 디렉터리다: {missing}\n  ..."
         attempt_ts = 1_700_000_000.0  # 2023-11-14T22:13:20Z
-        self._write_attempt("3000:role:1:1", 3000, "role", str(missing),
-                             reason, attempt_ts)
+        self._write_attempt("3000:tscarryfault:1:1", 3000, "tscarryfault",
+                             str(missing), reason, attempt_ts)
 
         with mock.patch("builtins.print") as mocked_print:
             roster.spawn_attempt_sweep(d_all={})
