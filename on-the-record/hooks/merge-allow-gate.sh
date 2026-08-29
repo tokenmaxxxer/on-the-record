@@ -230,13 +230,22 @@ run_cwd = target_cwd or e.get("cwd") or os.getcwd()
 # CAPABILITY REMOVED, asymmetrically:
 #   - secure-coding: NOT a net loss. `on-the-record/hooks/quality-bar-
 #     gate.sh` independently DENIES (not merely withholds an allow) any
-#     `gh pr merge` on a secure-coding-bar-scoped PR (its own
-#     `_TRIGGER_PATH_PATTERNS["secure-coding"]` is byte-identical to the
-#     list removed here) lacking a `quality_bar_verdict: bar-met` line,
-#     and per this hook's own file header a deny gate always wins over
-#     this hook's allow. secure-coding diffs missing their record are
-#     still blocked by that gate, unconditionally, whether or not this
-#     hook would have granted its convenience allow.
+#     `gh pr merge` on a secure-coding-bar-scoped PR lacking a
+#     `quality_bar_verdict: bar-met` line, and per this hook's own file
+#     header a deny gate always wins over this hook's allow. Its own
+#     `_TRIGGER_PATH_PATTERNS["secure-coding"]` carries the same 9
+#     glob-pattern values as the list removed here — not the same
+#     bytes, since the removed copy was nested one function-level
+#     deeper than this dict's top level, so a raw diff of the two is
+#     indentation-only, not empty. A whitespace-normalized diff and a
+#     parsed-list equality check both confirm the values match —
+#     commands run and shown in docs/issue-2729/reports/technical-
+#     writing-style-guide-compliance+adversarial-review-93eb1d9c.md
+#     (issue #2729, replacing this comment's prior unqualified
+#     "byte-identical" assertion, which cited no command). secure-coding
+#     diffs missing their record are still blocked by that gate,
+#     unconditionally, whether or not this hook would have granted its
+#     convenience allow.
 #   - release-engineering: a REAL loss, with no replacement anywhere else
 #     in either enforcement repo (grep confirmed — see this issue's
 #     record). A `gh pr merge` on a release-engineering session touching
