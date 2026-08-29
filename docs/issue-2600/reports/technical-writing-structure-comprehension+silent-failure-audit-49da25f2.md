@@ -281,3 +281,83 @@ slice (`.sh` files, including `deliverable-guard.sh`/`pr-base-guard.sh`),
 and tokenmaxxxer-core's own sweep.
 
 `loop_state: landed`.
+
+## Correction (append-only, by technical-writing-structure-comprehension+silent-failure-audit-37fd118b, 2026-08-29)
+
+Send-back on this record's PR (#2712) found two false statements in the
+"What was done" section above (its "Left unchanged" list, unedited here
+per board-gate contract v3 s11): `on-the-record/directive/acceptance-format.md`
+and `on-the-record/directive/delegation-loops.md` were listed as "0
+occurrences already" — false for both, and "Why" above names neither file
+with a per-file reason. canonical: `git show HEAD:on-the-record/directive/acceptance-format.md`
+and `git show HEAD:on-the-record/directive/delegation-loops.md` at the
+commit this record's PR (#2712) carried — both byte-identical to
+`origin/main`, confirming neither file was touched despite the "Left
+unchanged... 0 occurrences already" claim. The independent verification
+(PR #2713) checked those hits and found them mostly generic prose
+matching this record's own bucket-1 "safe rename" pattern.
+
+Both files are now fixed on this branch, applying the same behavior-test/
+bucket framework this record already established in "Why":
+
+- `on-the-record/directive/delegation-loops.md` — every occurrence was
+  bucket 1 (safe rename): `role` -> `skill` where the referent is the
+  consult/panel/deviation target (matches `spawn.py`'s `--skills`/
+  `resolved_skill_dirs()` path, same convention `commands/consult.md`
+  already applies), `role` -> `session` where the referent is a spawned
+  delivery unit (matches the `role session` -> `spawned session`
+  convention from PR #2673/#2675). derived: `grep -oiE '\brole\b|역할'
+  on-the-record/directive/delegation-loops.md | wc -l` — 16 before this
+  fix (matches `git show origin/main:on-the-record/directive/delegation-loops.md`
+  piped through the same grep), 0 after.
+  Two stale-but-word-independent findings surfaced while doing this and
+  are NOT fixed here (bucket 4, named not patched, same treatment "Open
+  findings" above already gives protocol.md): (a) the file's `spawn.py
+  spawn <role> "<task>" --issue <n> --background` example names a
+  `spawn` subcommand and a `--background` flag that do not exist —
+  derived: `grep -n '"spawn"' spawn.py` and `grep -n -- "--background"
+  spawn.py` both return no subcommand/flag registration; only `<role>`
+  -> `<skill>` and the trailing "role" -> "skill" in the same line's
+  description were renamed, the broken command shape itself predates
+  this slice and is out of a wording-only pass's remit; (b) `role-scoped
+  under $CLAUDE_SKILL` (pre-fix) was already self-contradictory after PR
+  #2710's `CLAUDE_ROLE` -> `CLAUDE_SKILL` rename — fixed to
+  `skill-scoped` as part of this wording pass since the contradiction is
+  the word itself, not a design question.
+- `on-the-record/directive/acceptance-format.md` — three occurrences were
+  bucket 1 (`ROLE-FORBIDDEN ACTION` header and "delivering role"/"role
+  session" prose -> `SESSION-FORBIDDEN ACTION`/"delivering session"/
+  "spawned session"). One is bucket 2 (literal identifier, left
+  untouched, occurring twice after an added clarifying sentence):
+  `orchestrator/operator/a non-role account`. canonical:
+  `gates/forbidden_action_rule.py` line 48, `_ROLE_REASSIGNED` regex —
+  matches the literal substring `non-role`; `gates/*.py` is out of this
+  slice's file scope (`.md` only), so renaming the doc phrase would
+  desync the sanctioned wording from what the gate actually accepts —
+  same exception class as this record's own `APPROVE issue-<n>/<role>`
+  and `session-role-bind.sh` carve-outs above. derived: `grep -oiE
+  '\brole\b|역할' on-the-record/directive/acceptance-format.md | wc -l`
+  — 4 before this fix, 2 after (both the preserved `non-role` literal).
+
+derived: `grep -rIo -iE '\brole\b|역할' protocol.md protocol.ko.md
+on-the-record/directive/*.md on-the-record/commands/*.md | wc -l` (repo
+root, working tree after this correction) — 210 before this record's PR
+(unchanged from `origin/main`), 121 after this correction (was 139 after
+this record's original cut — the -18 delta is exactly the 16 + 2 = 18
+occurrences removed by this correction's two-file fix above). Restricted
+to just `on-the-record/directive/*.md` and `on-the-record/commands/*.md`
+(no protocol files — the same subset this record's PR body's count prose
+described): 121 before -> 32 after this correction (was 121 -> 50 after
+this record's original cut).
+
+The "Left unchanged" list in "What was done" above should now read:
+`protocol.md`, `protocol.ko.md`, `on-the-record/directive/merge-gates.md`,
+`on-the-record/directive/monitor-mode.md` (0 occurrences already — derived:
+`grep -c -iE '\brole\b|역할' on-the-record/directive/monitor-mode.md`
+exits 1, no match). `acceptance-format.md` and `delegation-loops.md` are
+removed from that list by this fix; the original line is left unedited
+in place per board-gate (contract v3 s11) — this section is the
+correction of record.
+
+`loop_state: landed` (unchanged — this correction lands in the same PR
+branch, no new open loop).
