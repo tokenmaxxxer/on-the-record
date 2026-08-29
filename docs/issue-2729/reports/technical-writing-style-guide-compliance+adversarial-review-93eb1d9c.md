@@ -165,8 +165,8 @@ Stripping that whitespace, or parsing both sides as Python list
 literals, isolates the glob values and shows they match — both shown
 under "AFTER" above.
 
-- skill-verdict: technical-writing-style-guide-compliance — applied:
-  invoked; reviewed the added `.sh` comment prose and this record's
+- skill-verdict: technical-writing-style-guide-compliance — applied: invoked;
+  reviewed the added `.sh` comment prose and this record's
   prose for active voice with named actors, list-vs-run-on structure,
   and passive constructs needing a named actor rewrite. The comment is
   internal code documentation, not reader-facing instructional text, so
