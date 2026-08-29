@@ -45,8 +45,8 @@ Split by kind (functional-behavior / edge-case / scope-boundary):
    job. 4c: do not treat docstrings as in scope — slice 2 already
    dispositioned those.
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; used to split the bundled "session reaches a PR, and a consult
+skill-verdict: conformance-review-requirement-extraction — applied: invoked;
+used to split the bundled "session reaches a PR, and a consult
 call returns a judgment" bullet into 3a/3b before attempting either, and
 to keep the three must-not clauses as separate scope-boundary items.
 
@@ -404,8 +404,8 @@ result:
 
 ### Skill verdicts
 
-skill-verdict: conformance-review-requirement-extraction — applied:
-invoked; see "Requirement extraction" section above.
+skill-verdict: conformance-review-requirement-extraction — applied: invoked;
+see "Requirement extraction" section above.
 skill-verdict: technical-writing-style-guide-compliance — not-applicable:
 this task swaps a single retired term inside existing prompt strings
 under an explicit must-not against changing mood/voice/structure — it is
