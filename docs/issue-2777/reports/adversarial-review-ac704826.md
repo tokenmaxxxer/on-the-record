@@ -283,3 +283,15 @@ blind/no-spec protocol — this session read the issue text and the PR's
 own record by design (the task was independent verification against a
 known spec, not blind evaluation), which the skill's Step 1 excludes
 from a true blind review.
+skill-verdict: work-in-english — applied: invoked; derived: this turn's
+own Skill tool call — checked against this session's own output rather
+than assumed: canonical: `git log --format=%B -3 -- docs/issue-2777` and
+this record's own body, both this session's actual commits/record text
+— all English throughout (commit messages, PR title/body, this record),
+matching repo convention (recent commit subjects on this branch are also
+English). No violation found to flag.
+other mounted skills: not triggered
+(`defect-verification-independence-from-upstream-verdicts`,
+`verify-finding-record` — this record's independence and reproduction-
+evidence choices were made without invoking either via the Skill tool;
+not a claim that they were unnecessary, only that they were not loaded).
