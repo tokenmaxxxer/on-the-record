@@ -1723,7 +1723,9 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                       f"{health['detail']} -> {health['next_action']}")
         if anomalies:
             anomaly_count += 1
-            print(f"[watchdog] {key}: 이상 신호 {len(anomalies)}건")
+            # name the signal class(es) inline, reusing each anomaly's existing "class: detail" label
+            classes = dict.fromkeys(a.split(":", 1)[0] for a in anomalies)
+            print(f"[watchdog] {key}: 이상 신호 {len(anomalies)}건 ({', '.join(classes)})")
             for a in anomalies:
                 print(f"  - {a}")
         else:

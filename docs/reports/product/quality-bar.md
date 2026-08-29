@@ -194,3 +194,22 @@ Append-only, newest entry last.
   functionally equivalent to having none, and this class of runaway has
   already cost real money in this program (a same-day incident, #2604,
   $23.84). Source: issue body, tokenmaxxxer/on-the-record#2628.
+
+- 2026-08-30: standing operator requirement (alarm-without-content): a
+  per-tick alarm line that reports only a count of anomalies without
+  naming which one forces a manual log dig every time it fires — over a
+  high-frequency heartbeat this trains the reader to skim past the alarm
+  rather than dig, which is worse than not printing it at all. The fix is
+  to name the signal inline, reusing data already computed at that point
+  in the code, never by adding a new query. Because the heartbeat is
+  high-frequency and context is this system's dominant cost driver (issue
+  #2135), the decision of what belongs inline versus behind a pointer is
+  load-bearing, not incidental: inline gets only the minimum identifying
+  dimension (e.g. a signal's class label), while full per-signal detail
+  stays behind the pointer it already had (the existing detail line one
+  row below) — an alarm that names its signal in a few words is the
+  target, not a dump. Contrast the operator cited directly:
+  `denied-tool-calls: 이번 스캔 구간에 3건` already names its class and is
+  useful on sight; `이상 신호 1건` with no class costs a round-trip every
+  single time it appears. Source: issue body,
+  tokenmaxxxer/on-the-record#2334.
