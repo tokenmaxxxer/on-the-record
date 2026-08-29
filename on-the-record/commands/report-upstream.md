@@ -2,7 +2,7 @@
 allowed-tools: Bash(python3:*), Bash(git:*), Bash(gh:*), Read, Write
 description: 컨슈머 세션에서 on-the-record 플러그인 자체의 결함을 upstream 에 issue 로 보고한다 — PR 은 절대 아니다
 argument-hint: "\"<결함 관측 서술>\" — 예: \"watcher registry 가 재기동 후 살아있는 pid 를 DEAD 로 표시한다\""
-design-rationale: 컨슈머 세션에는 upstream 결함을 보고할 채널이 없어 관측이 대화 로그에서 죽는다 (issue #1131). draft→dedup→미리보기→확인 순서로 만든 이유는 자동 제출을 금지하는 req#3 을 지키면서도 사용자가 매번 초안을 손으로 쓰지 않게 하기 위함이고, issue-only 인 이유는 fix 는 upstream 자체의 issue→role 플로우 몫이라 컨슈머가 PR 을 열 권한/근거가 없기 때문이다 (req#4).
+design-rationale: 컨슈머 세션에는 upstream 결함을 보고할 채널이 없어 관측이 대화 로그에서 죽는다 (issue #1131). draft→dedup→미리보기→확인 순서로 만든 이유는 자동 제출을 금지하는 req#3 을 지키면서도 사용자가 매번 초안을 손으로 쓰지 않게 하기 위함이고, issue-only 인 이유는 fix 는 upstream 자체의 issue→세션 플로우 몫이라 컨슈머가 PR 을 열 권한/근거가 없기 때문이다 (req#4).
 ---
 
 인자: $ARGUMENTS

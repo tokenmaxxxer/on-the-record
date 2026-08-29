@@ -93,10 +93,10 @@
   the `artifact-smoke` check type, and
   `docs/specs/artifact-smoke-contract.md` is the contract. Byte-inert
   when nothing is declared — a mechanical issue sees no new check.
-- ROLE-FORBIDDEN ACTION (issue #2503, #2479 R3): an `## Acceptance` bullet
-  must not require an action the delivering role is categorically
+- SESSION-FORBIDDEN ACTION (issue #2503, #2479 R3): an `## Acceptance` bullet
+  must not require an action the delivering session is categorically
   forbidden from taking — most commonly filing/creating/opening a
-  GitHub issue, which `gh-guard` refuses for every role session
+  GitHub issue, which `gh-guard` refuses for every spawned session
   (contract v3 s8/s9: issues are the user's requirement backlog,
   user-authored only). #2479's original R3 read "file that as a
   separate follow-up issue and link it here" — unsatisfiable by
@@ -108,10 +108,12 @@
   orchestrator files it." `gates/forbidden_action_rule.py` enforces
   this at authoring time — it flags a file/open/create verb paired with
   issue/ticket in the Acceptance section unless the same window
-  reassigns the action to the orchestrator/operator/a non-role account,
-  and it fails closed (an unfetchable issue body blocks, it does not
-  pass) with a message naming the sanctioned rewrite rather than a bare
-  refusal.
+  reassigns the action to the orchestrator/operator/a non-role account
+  (that exact phrase — the gate's `_ROLE_REASSIGNED` regex matches the
+  literal substring `non-role`, and the regex itself is out of this
+  slice's scope, so the sanctioned wording keeps it verbatim), and it
+  fails closed (an unfetchable issue body blocks, it does not pass) with
+  a message naming the sanctioned rewrite rather than a bare refusal.
 - VISUAL-VERIFICATION (issue #2073): when the issue is DESIGN-BEARING
   and its declared design artifacts include a STORYBOARD, the phase-2
   record carries a `screen-verified:` line citing a live-screen
