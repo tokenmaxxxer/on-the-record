@@ -584,7 +584,7 @@ def _skill_judge_consult(task_text: str, skill: str,
         _sp._commit_consult_trace(commit_paths, issue, skill, outcome, cwd)
         usage = result.get("usage") or {}
         _sp.ledger_write({
-            "event": "skill_judge_perf", "ts": int(time.time()), "role": skill,
+            "event": "skill_judge_perf", "ts": int(time.time()), "skill": skill,
             "issue": issue, "wall_s": (round(call_wall_s, 3)
                                         if call_wall_s is not None else None),
             "duration_ms": result.get("duration_ms"),
@@ -1489,7 +1489,7 @@ def judge_cmd(skill: str, merge_sha: str, cwd: str | None = None) -> dict:
         if already >= _sp.JUDGE_MAX_SKILLS_PER_MERGE:
             outcome = (f"error: 캡 초과 (merge={merge_sha} 에 이미 {already}개 역할 실행, "
                        f"상한 {_sp.JUDGE_MAX_SKILLS_PER_MERGE})")
-            return {"skipped": True, "reason": "cap_exceeded", "role": skill, "merge": merge_sha}
+            return {"skipped": True, "reason": "cap_exceeded", "skill": skill, "merge": merge_sha}
 
         # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
         # 지웠다 — `_judge_prefilter()`/`_judge_cmd_and_env()` 는 `spec` 을
@@ -1508,7 +1508,7 @@ def judge_cmd(skill: str, merge_sha: str, cwd: str | None = None) -> dict:
 
         if not _sp._judge_prefilter(skill, diff_summary, root):
             outcome = "ok: prefilter 미스 — judge 미호출"
-            return {"skipped": True, "reason": "prefilter_miss", "role": skill, "merge": merge_sha}
+            return {"skipped": True, "reason": "prefilter_miss", "skill": skill, "merge": merge_sha}
 
         cmd, env, settings_path = _sp._judge_cmd_and_env(skill, root)
         prompt = (
@@ -1534,12 +1534,12 @@ def judge_cmd(skill: str, merge_sha: str, cwd: str | None = None) -> dict:
         raw_findings = parsed.get("findings", []) if parsed else []
         if not raw_findings:
             outcome = "ok: findings 없음"
-            return {"skipped": False, "role": skill, "merge": merge_sha, "enqueued": []}
+            return {"skipped": False, "skill": skill, "merge": merge_sha, "enqueued": []}
 
         validated = _sp._judge_validate(skill, raw_findings, diff_summary, root)
         if not validated:
             outcome = f"ok: {len(raw_findings)}건 중 validator 통과 0건"
-            return {"skipped": False, "role": skill, "merge": merge_sha, "enqueued": []}
+            return {"skipped": False, "skill": skill, "merge": merge_sha, "enqueued": []}
 
         sys.path.insert(0, str((_sp.ROOT / "gates").resolve()))
         import patrol_queue
@@ -1570,7 +1570,7 @@ def judge_cmd(skill: str, merge_sha: str, cwd: str | None = None) -> dict:
         patrol_queue.save_queue(queue_path, queue)
         outcome = (f"ok: {len(raw_findings)}건 중 {len(validated)}건 검증, "
                   f"{len(enqueued)}건 verify 통과 후 큐 반영")
-        return {"skipped": False, "role": skill, "merge": merge_sha, "enqueued": enqueued}
+        return {"skipped": False, "skill": skill, "merge": merge_sha, "enqueued": enqueued}
     except subprocess.TimeoutExpired:
         outcome = f"error: 시간초과({_sp.JUDGE_TIMEOUT}s)"
         raise

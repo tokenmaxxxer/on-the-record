@@ -63,7 +63,7 @@ class LivePsReliabilityTest(unittest.TestCase):
 
     def _register(self, work):
         entry = {
-            "pid": self.proc.pid, "role": "implementation", "issue": 2203,
+            "pid": self.proc.pid, "skill": "implementation", "issue": 2203,
             "ts": int(time.time()), "work": str(work),
             "log": str(work) + ".log", "expects_pr": True,
             "session_id": None,

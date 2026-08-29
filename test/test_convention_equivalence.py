@@ -312,7 +312,7 @@ class WatchRosterEquivalenceTest(unittest.TestCase):
     # would have derived from the same key.
     def test_live_roster_matches_field_read_matches_key_split(self):
         matches_field = [("repo/issue-1792/implementation",
-                           {"work": "w", "role": "implementation"})]
+                           {"work": "w", "skill": "implementation"})]
         matches_split = [("repo/issue-1792/implementation", {"work": "w"})]
         roster = {"issue-1792/implementation": {"pid": 999999999, "work": "w"}}
         orig = spawn._roster_load
@@ -331,7 +331,7 @@ class WatchRosterEquivalenceTest(unittest.TestCase):
 
     def test_roster_fallback_entry_field_read_matches_key_split(self):
         roster_field = {"issue-1792/implementation":
-                         {"pid": 1, "work": "/w", "log": "/l", "role": "implementation"}}
+                         {"pid": 1, "work": "/w", "log": "/l", "skill": "implementation"}}
         roster_split = {"issue-1792/implementation": {"pid": 1, "work": "/w", "log": "/l"}}
         orig_load = spawn._roster_load
         orig_alive = spawn._alive
@@ -352,9 +352,9 @@ class WatchRosterEquivalenceTest(unittest.TestCase):
 
     def test_lookup_workspace_entry_ambiguous_exit_field_read_matches_key_split(self):
         matches_field = [("repoA/issue-1792/implementation",
-                           {"work": "/wa", "role": "implementation"}),
+                           {"work": "/wa", "skill": "implementation"}),
                           ("repoB/issue-1792/review",
-                           {"work": "/wb", "role": "review"})]
+                           {"work": "/wb", "skill": "review"})]
         matches_split = [("repoA/issue-1792/implementation", {"work": "/wa"}),
                           ("repoB/issue-1792/review", {"work": "/wb"})]
         with self.assertRaises(SystemExit) as ctx_field:

@@ -101,8 +101,8 @@ if isinstance(session_id, str) and session_id:
     try:
         with open(snapshot_path, encoding="utf-8") as f:
             snapshot = json.load(f)
-        if isinstance(snapshot, dict) and isinstance(snapshot.get("role"), str):
-            role = snapshot["role"]
+        if isinstance(snapshot, dict) and isinstance(snapshot.get("skill"), str):
+            role = snapshot["skill"]
     except (OSError, ValueError):
         pass  # no snapshot yet — fall back to the live env var
 
@@ -118,10 +118,10 @@ branch_role = None
 try:
     with open(os.path.join(cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
-    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("skill"), str)
             and isinstance(sidecar.get("issue"), int)):
         issue = sidecar["issue"]
-        branch_role = sidecar["role"]
+        branch_role = sidecar["skill"]
 except (OSError, ValueError):
     pass
 

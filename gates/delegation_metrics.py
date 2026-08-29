@@ -46,8 +46,8 @@ def self_approval_violation_count(deny_events: list[dict]) -> int:
     """The guardrail: count of `deny_events` where `delegation-post-gate.sh`
     (or `approval-gate.sh`'s own delegation path, for defense in depth)
     refused a role-bound session's own delegation citation. Each event is
-    `{"hook": str, "role": str, "denied": bool}` — the shape a session-log
+    `{"hook": str, "skill": str, "denied": bool}` — the shape a session-log
     scan of the hooks' stderr output would produce. Counts only genuine
     denials; a hook run that passed through (role absent, not a citation)
     is not a violation attempt and must not inflate this count."""
-    return sum(1 for e in deny_events if e.get("denied") and e.get("role"))
+    return sum(1 for e in deny_events if e.get("denied") and e.get("skill"))

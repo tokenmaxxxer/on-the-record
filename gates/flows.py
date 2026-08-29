@@ -408,7 +408,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
         if not approved and _own_item(subject, skill):
             decision_queue.append({
                 "issue": issue_n, "pr": pr["number"], "phase": phase,
-                "role": skill, "opened_at": pr.get("createdAt"),
+                "skill": skill, "opened_at": pr.get("createdAt"),
                 "age_hours": _age_hours(pr.get("createdAt")),
                 "awaiting": "approve-scope" if phase == 1 else "approve-full",
             })
@@ -425,7 +425,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
         for skill, fm in skills.items():
             loop_state = fm.get("loop_state")
             pr = pr_by_branch.get((subject, skill))
-            skill_entries.append({"role": skill, "loop_state": loop_state,
+            skill_entries.append({"skill": skill, "loop_state": loop_state,
                                  "verdict": fm.get("verdict")})
             if front == skill:
                 stage_source = loop_state
@@ -435,7 +435,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
             approved = _pr_approved(pr, comments, approvers, subject, skill, root)
             if loop_state and loop_state != "scope-proposed" and not approved:
                 unapproved_open_prs.append({
-                    "issue": issue_n, "pr": pr["number"], "role": skill,
+                    "issue": issue_n, "pr": pr["number"], "skill": skill,
                     "opened_at": pr.get("createdAt"),
                 })
 
@@ -461,7 +461,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
             matches = [le for le in ledger_entries if _ledger_issue(le) == issue_n]
             verdict = matches[-1].get("outcome") if matches else None
         log_path = Path(e["log"]) if e.get("log") else None
-        sessions.append({"role": e.get("role"), "issue": e.get("issue"),
+        sessions.append({"skill": e.get("skill"), "issue": e.get("issue"),
                          "elapsed_min": elapsed_min, "pid": e.get("pid"),
                          "alive": alive, "verdict": verdict,
                          "last_activity": _session_last_activity(log_path)})
@@ -534,15 +534,15 @@ def flows(cwd: str, as_json: bool, all_scope: bool = False) -> int:
         return 0
     print(f"decision_queue: {len(payload['decision_queue'])}건")
     for d in payload["decision_queue"]:
-        print(f"  issue-{d['issue']} PR#{d['pr']} phase{d['phase']} {d['role']} "
+        print(f"  issue-{d['issue']} PR#{d['pr']} phase{d['phase']} {d['skill']} "
               f"{d['age_hours']}시간 대기 — {d['awaiting']}")
     print(f"\nflows: {len(payload['flows'])}건")
     for f in payload["flows"]:
         print(f"  issue-{f['issue']}: {f['stage']}" + ("" if f["stage_derived"] else " (raw)")
-              + f"  roles={[r['role'] for r in f['roles']]}  prs={f['prs']}")
+              + f"  roles={[r['skill'] for r in f['roles']]}  prs={f['prs']}")
     print(f"\nsessions: {len(payload['sessions'])}건")
     for s in payload["sessions"]:
-        print(f"  {'RUNNING' if s['alive'] else 'DEAD':8s} {s['role']} "
+        print(f"  {'RUNNING' if s['alive'] else 'DEAD':8s} {s['skill']} "
               f"issue-{s['issue']} {s['elapsed_min']}분 verdict={s['verdict']}")
     print(f"\nledger: {len(payload['ledger'])}건 (미귀속 세션 "
           f"{payload['unattributed']['sessions']}건)")

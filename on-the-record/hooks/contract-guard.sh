@@ -207,9 +207,9 @@ _skill_cwd = target_cwd or os.getcwd()
 try:
     with open(os.path.join(_skill_cwd, ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
-    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("skill"), str)
             and isinstance(sidecar.get("issue"), int) and sidecar["issue"] == issue):
-        skill = sidecar["role"]
+        skill = sidecar["skill"]
 except (OSError, ValueError):
     skill = None
 

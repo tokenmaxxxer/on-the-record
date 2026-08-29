@@ -169,7 +169,7 @@ def _flag_stale_returned_branch(issue: int, skill: str, branch: str,
           f"returned branch {branch}; branch flagged for cleanup",
           file=sys.stderr)
     _sp.ledger_write({"event": "stale_branch_cleanup_flagged", "issue": issue,
-                  "role": skill, "branch": branch, "source": source,
+                  "skill": skill, "branch": branch, "source": source,
                   "ts": int(time.time())})
 
 
@@ -254,7 +254,7 @@ def ensure_pushed(work: str, issue: int, skill: str) -> dict:
                   f"failing open (returned-PR gate convention, issue #680)",
                   file=sys.stderr)
             _sp.ledger_write({"event": "issue_state_gate_fail_open",
-                          "source": "relay", "issue": issue, "role": skill,
+                          "source": "relay", "issue": issue, "skill": skill,
                           "ts": int(time.time())})
         elif issue_state == "CLOSED":
             _sp._flag_stale_returned_branch(issue, skill, br, source="relay")

@@ -244,9 +244,9 @@ issue_n, skill = None, None
 try:
     with open(os.path.join(repo, ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
-    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("skill"), str)
             and isinstance(sidecar.get("issue"), int)):
-        issue_n, skill = sidecar["issue"], sidecar["role"]
+        issue_n, skill = sidecar["issue"], sidecar["skill"]
 except (OSError, ValueError):
     pass
 

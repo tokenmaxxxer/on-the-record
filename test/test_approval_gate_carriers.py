@@ -67,7 +67,7 @@ def _write_approvers(root: Path, approvers):
 def _write_sidecar(root: Path, issue: int, skill: str):
     d = root / ".on-the-record"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "role.json").write_text(json.dumps({"role": skill, "issue": issue}), encoding="utf-8")
+    (d / "role.json").write_text(json.dumps({"skill": skill, "issue": issue}), encoding="utf-8")
 
 
 def _write_sidecar_raw(root: Path, text: str):

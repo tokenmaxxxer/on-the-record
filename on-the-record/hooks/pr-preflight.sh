@@ -111,10 +111,10 @@ skill = None
 try:
     with open(os.path.join(os.getcwd(), ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
-    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("skill"), str)
             and isinstance(sidecar.get("issue"), int)):
         issue = sidecar["issue"]
-        skill = sidecar["role"]
+        skill = sidecar["skill"]
 except (OSError, ValueError):
     pass
 

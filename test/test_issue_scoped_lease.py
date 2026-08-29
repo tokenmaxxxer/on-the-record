@@ -30,8 +30,8 @@ class LeaseKeyShapeTest(unittest.TestCase):
 class LeaseRenewIdenticalTest(unittest.TestCase):
     def test_renew_identical_for_skill_and_nonskill_key(self):
         now = 1_000_000.0
-        entry_skill = {"issue": 2284, "role": "implementation"}
-        entry_nonskill = {"issue": 2284, "role": "implementation"}
+        entry_skill = {"issue": 2284, "skill": "implementation"}
+        entry_nonskill = {"issue": 2284, "skill": "implementation"}
         key_skill = spawn.lease_key(2284, "implementation")
         key_nonskill = spawn.lease_key(2284, "lease-scope-token")
 
@@ -50,7 +50,7 @@ class LeaseRenewIdenticalTest(unittest.TestCase):
         now = 1_000_000.0
         for key in (spawn.lease_key(2284, "implementation"),
                     spawn.lease_key(2284, "lease-scope-token")):
-            entry = {"issue": 2284, "role": "implementation"}
+            entry = {"issue": 2284, "skill": "implementation"}
             advisories = []
             for i in range(spawn.LEASE_FLAT_RENEWALS_K + 1):
                 advisories = spawn.lease_renew(key, entry, now=now + i)
@@ -64,9 +64,9 @@ class LeaseExpireAndRequeueIdenticalTest(unittest.TestCase):
         key_skill = spawn.lease_key(2284, "implementation")
         key_nonskill = spawn.lease_key(2284, "lease-scope-token")
         d_all = {
-            key_skill: {"issue": 2284, "role": "implementation", "pid": 0,
+            key_skill: {"issue": 2284, "skill": "implementation", "pid": 0,
                         "lease_expires_at": now - 10},
-            key_nonskill: {"issue": 2284, "role": "implementation", "pid": 0,
+            key_nonskill: {"issue": 2284, "skill": "implementation", "pid": 0,
                            "lease_expires_at": now - 10},
         }
         events = []

@@ -127,7 +127,7 @@ def main() -> int:
 
     # 채점표: 정답 키 × 실행. 사람이 채운다.
     seeded = json.loads(key.read_text())["seeded"]
-    sheet = {"target": a.target, "out": str(out), "role": a.role,
+    sheet = {"target": a.target, "out": str(out), "skill": a.role,
              "rulebook": version, "runs": runs,
              "score": [{"id": s["id"], "class": s["class"], "trigger": s["trigger"],
                         "detected": {f"{r['arm']}-{r['rep']}": None for r in runs}}
