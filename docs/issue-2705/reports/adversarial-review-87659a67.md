@@ -473,8 +473,8 @@ there; not repeated as a separate section since it produced no finding.
   checkout (§1-§4 above) rather than trusting the PR's own record, and
   specifically hunting the new code's own edges (§2) rather than only
   confirming the three named shapes.
-- skill-verdict: defect-verification-independence-from-upstream-verdicts —
-  applied: invoked; derived: §1 above re-derives the fail-before/pass-after
+- skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked;
+  derived: §1 above re-derives the fail-before/pass-after
   claim from primary pytest evidence instead of citing the PR's record
   (rule 3); §2-§3 above keep probing the bare-`cd`/`pushd` argument-grammar
   space after both prior records reported "fixed"/"not found" there rather
