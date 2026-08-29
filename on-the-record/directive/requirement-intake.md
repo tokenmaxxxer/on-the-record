@@ -45,7 +45,7 @@
   match), and the Korean synonyms `권장` and `추천` (either, as a
   substring match), MUST NOT appear anywhere inside the option block.
 - VALIDITY CONSULT (issue #1024): before drafting an issue, route the
-  confirmed ask through the `requirements-engineering` skill/role
+  confirmed ask through the `requirements-engineering` skill
   (feasibility, testability, consistency with
   `docs/specs/requirement-digest.md`, ordering against other live
   work) and, when the ask is risk-bearing (touches auth, data deletion,

@@ -1,7 +1,7 @@
 ---
 allowed-tools: Bash(python3:*)
-description: 역할 하나에게 판단만 묻는다 — 브랜치도 커밋도 PR 도 없이, 트레이스만 남긴다
-argument-hint: "<역할> \"<질문>\" [--issue <n>] — 예: coding \"이 스키마 변경이 breaking 인가\" --issue 42"
+description: 스킬 하나에게 판단만 묻는다 — 브랜치도 커밋도 PR 도 없이, 트레이스만 남긴다
+argument-hint: "<스킬> \"<질문>\" [--issue <n>] — 예: architecture-interface-contract-shape \"이 스키마 변경이 breaking 인가\" --issue 42"
 design-rationale: 판단 지점마다 스폰 전체 파이프라인(브랜치→커밋→PR)을 여는 비용을 치르면 세션이 스스로 판단을 내려버리는 유인이 생긴다 — consult 는 룰북 로딩만 재사용하고 배달 기계장치는 전부 건너뛰어 그 비용을 없앤다. 이슈 #1202 로 ideate/draft/review 를 같은 트랜스포트 위 형제 verb 로 얹은 이유: 판단(consult) 뿐 아니라 발산/초안/검토도 똑같이 "저장소를 안 바꾸는 도움"이라 같은 무브랜치/무커밋/무PR 계약과 같은 트레이스 파일을 그대로 쓰는 편이, 사본 코드경로를 새로 만들어 드리프트를 내는 것보다 낫다.
 ---
 
@@ -12,11 +12,11 @@ design-rationale: 판단 지점마다 스폰 전체 파이프라인(브랜치→
 
 ## 무엇인가
 
-**자문(consult)** 은 역할의 룰북을 로드해 판단 하나를 돌려받는 것이다
+**자문(consult)** 은 지정한 스킬의 룰북을 로드해 판단 하나를 돌려받는 것이다
 (이슈 #699 R1) — `spawn.py --skills <skill>[,<skill>...] "<일>" --issue <n>`
 (이슈 #2572: 유일한 스폰 형태)가 여는 issue → 브랜치 → 커밋 → PR 파이프라인
 전체가 아니라, 질문 하나에 답 하나다. 디자인/타당성/위험/스펙 모호함 같은
-**판단 지점**을 세션이 스스로 결정하는 대신 맞는 역할에 물을 때 쓴다 —
+**판단 지점**을 세션이 스스로 결정하는 대신 맞는 스킬에 물을 때 쓴다 —
 결과가 저장소를 바꾸지 않는 한 PR 사이클은 필요 없다. 결과가 저장소를
 바꿔야 한다면 그건 자문이 아니라 배달물이고, `spawn.py --skills <skill>
 ... --issue <n>` 로 간다.
@@ -24,10 +24,10 @@ design-rationale: 판단 지점마다 스폰 전체 파이프라인(브랜치→
 ## 어떻게 부르나
 
 ```
-python3 $ON_THE_RECORD/spawn.py consult <역할> "<질문>" [--issue <n>] [-C <레포>] [--foreground]
+python3 $ON_THE_RECORD/spawn.py consult <스킬> "<질문>" [--issue <n>] [-C <레포>] [--foreground]
 ```
 
-- `<역할>`: 자문을 낼 스킬(들) 이름 — `--skills` 와 같은 해석 경로를
+- `<스킬>`: 자문을 낼 스킬(들) 이름 — `--skills` 와 같은 해석 경로를
   탄다(`skills.py::resolved_skill_dirs()`). 큐레이션된 목록은 없다: 실제
   이름은 skill-repository 체크아웃의 디렉터리 목록이다 —
   `ls "${MUSTER_SKILL_REPO:-$TOKENMAXXXER_RULEBOOKS/skill-repository}"`
