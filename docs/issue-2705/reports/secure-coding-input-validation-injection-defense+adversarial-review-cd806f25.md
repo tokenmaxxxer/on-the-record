@@ -264,21 +264,6 @@ tool invocations earlier in this record's authoring turn, and the
 for both verdicts below; the fixes each verdict references are pinned
 at commit `8160def48e0c3392af39fc2ac18057ab42e60a39`.
 
-- skill-verdict: secure-coding-input-validation-injection-defense —
-  applied: invoked; reviewed the new parsing/subprocess code against
-  rules 5 (parameterized OS calls — verified via `grep -n "shell=True"
-  on-the-record/hooks/gate-registration-guard.sh`, no matches, so no
-  string-built shell commands anywhere in the diff) and 10 (scope a
-  review to the changed trust-boundary-adjacent lines — scoped to the
-  three new parsing functions and their `subprocess.run`/`fnmatch`
-  calls); no denylist-as-sole-defense or unparameterized-shell finding
-  to act on.
-- skill-verdict: adversarial-review — applied: invoked; spawned an
-  independent blind evaluator subagent (Agent tool, fresh context, no
-  issue text or intent given) against the first-cut diff; it surfaced 3
-  real bugs (`git add -A`/`-u`/`--all` dead code, `git -c`/`-C`
-  global-option bypass, `git add .` repo-wide-vs-cwd-scoping), each of
-  which I independently reproduced via a live probe against the
-  then-current file before fixing and pinning with a new regression
-  test.
+- skill-verdict: secure-coding-input-validation-injection-defense — applied: invoked; reviewed the new parsing/subprocess code against rule 5 (parameterized OS calls — verified via `grep -n "shell=True" on-the-record/hooks/gate-registration-guard.sh`, no matches, so no string-built shell commands anywhere in the diff) and rule 10 (scope a review to the changed trust-boundary-adjacent lines — scoped to the three new parsing functions and their `subprocess.run`/`fnmatch` calls); no denylist-as-sole-defense or unparameterized-shell finding to act on.
+- skill-verdict: adversarial-review — applied: invoked; spawned an independent blind evaluator subagent (Agent tool, fresh context, no issue text or intent given) against the first-cut diff; it surfaced 3 real bugs (`git add -A`/`-u`/`--all` dead code, `git -c`/`-C` global-option bypass, `git add .` repo-wide-vs-cwd-scoping), each of which I independently reproduced via a live probe against the then-current file before fixing and pinning with a new regression test.
 </content>
