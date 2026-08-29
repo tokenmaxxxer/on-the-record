@@ -416,26 +416,8 @@ canonical: this session's own tool-call transcript (three `Skill` tool
 invocations earlier in this session) is the source for all three verdicts
 below.
 
-- skill-verdict: adversarial-review — applied: invoked; ran a second,
-  independent probing round against the shipped fix (not the first-cut
-  diff the PR's own embedded round already covered), targeting shapes that
-  round did not exercise (directory-add, `cd`/subshell path resolution,
-  pathspec magic, `--`, quoting, globs, semicolons, a no-op add), and found
-  4 further live, reproducible defects (derived: "What was done" above,
-  this session) — 3 silent-bypass, 1 false-positive — that neither the
-  PR's own review round nor its regression suite catches.
-- skill-verdict: work-in-english — applied: invoked; this record, all
-  probe scripts, and all intermediate commands this session were written
-  in English.
-- skill-verdict: defect-verification-independence-from-upstream-verdicts —
-  applied: invoked; re-derived the enumeration and all four standing
-  invariants from primary commands run this session rather than citing the
-  PR's record at its stated sha; deliberately probed edge/negative-path
-  shapes the PR's own first-cut round had not covered rather than treating
-  one clean prior round as exhausting the surface; recorded the "no new
-  bug" invariant's one discrepancy (derived: Standing invariant 2 above,
-  this session's own pytest runs, showing 16 failed on the PR branch vs the
-  PR's claimed 15) with the same rigor as a reproduced defect rather than
-  smoothing it over because the underlying claim turned out correct.
+- skill-verdict: adversarial-review — applied: invoked; ran a second, independent probing round against the shipped fix (not the first-cut diff the PR's own embedded round already covered), targeting shapes that round did not exercise (directory-add, `cd`/subshell path resolution, pathspec magic, `--`, quoting, globs, semicolons, a no-op add), and found 4 further live, reproducible defects (derived: "What was done" above, this session) — 3 silent-bypass, 1 false-positive — that neither the PR's own review round nor its regression suite catches.
+- skill-verdict: work-in-english — applied: invoked; this record, all probe scripts, and all intermediate commands this session were written in English.
+- skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-derived the enumeration and all four standing invariants from primary commands run this session rather than citing the PR's record at its stated sha; deliberately probed edge/negative-path shapes the PR's own first-cut round had not covered rather than treating one clean prior round as exhausting the surface; recorded the "no new bug" invariant's one discrepancy (derived: Standing invariant 2 above, this session's own pytest runs, showing 16 failed on the PR branch vs the PR's claimed 15) with the same rigor as a reproduced defect rather than smoothing it over because the underlying claim turned out correct.
 
 other mounted skills: not triggered
