@@ -43,6 +43,41 @@
 # as approval-gate.sh's unparseable-branch fail-open — leaving (a) as the
 # only remaining signal.
 #
+# Cwd resolution (issue #2669): "this session's own git origin repo" in
+# (b) used to be resolved with `git -C <payload cwd> remote get-url
+# origin` unconditionally, where `<payload cwd>` is the PreToolUse
+# event's own `cwd` field — the harness's fixed per-session workspace
+# directory, which does NOT track a `cd` the command itself performs
+# (Bash's cwd persists across separate tool calls, but the hook payload's
+# `cwd` field does not follow it). A session legitimately delivering to a
+# second repo it has a real local checkout of — `cd <repo-B-checkout> &&
+# gh pr create --repo owner/repo-B` — always resolved ORIGIN_REPO from
+# the first (harness) repo, never repo B, so `target != origin` and the
+# call was denied regardless of the `cd`. Fixed by preferring a leading
+# `cd <dir> &&`/`cd <dir>;` in the command text (resolved against the
+# payload cwd if relative) as the directory `git remote get-url origin`
+# is actually run in, falling back to the payload cwd when no leading
+# `cd` is present — this is "the checkout the command is actually about
+# to run in," not a new claim the session makes about itself: the
+# directory must be a real local git checkout whose CONFIGURED remote is
+# inspected on disk, not a string taken from the command line.
+#
+# Known residual gap, deliberately not chased further (issue #2637's
+# precedent: docs/issue-2637/reports/silent-failure-audit+architecture-
+# interface-contract-shape-149dabd2.md found that no path/git-derived
+# resolution a hook computes from session-reported strings before the
+# write can be made fully unsteerable, and pinned the gap as
+# `expectedFailure` tests rather than iterating a fourth resolution
+# scheme). The same class applies here: a session can `git init` a
+# throwaway directory, `git remote add origin <target-url>`, and `cd`
+# into it before the `gh pr create` call, which makes ORIGIN_REPO report
+# the target repo with zero real relationship to it. This fix does not
+# and cannot close that — it is pinned as a live `expectedFailure` test
+# in test/test_upstream_defect_scope_guard_cross_repo_cwd.py rather than
+# silently left uncovered. What it does close is the reported case: a
+# session with a genuine local checkout of a second repo it legitimately
+# works in.
+#
 # Shape: stdin JSON payload, trap remapping unexpected exit to 2 (fail
 # closed by construction), ORCHESTRATE_OFF kill switch, python3 for the
 # actual logic, exit 2 + stderr message to deny, exit 0 to pass.
@@ -88,9 +123,27 @@ lowered = cmd.lower()
 mounted = [s for s in os.environ.get("MUSTER_SKILLS", "").split(",") if s]
 channel_role_active = CHANNEL_SKILL in mounted
 
+# --- the directory the command actually runs in (issue #2669) --------------
+# A leading `cd <dir> &&`/`cd <dir>;` in the command text names the real
+# checkout the guarded call executes in more accurately than the payload's
+# `cwd` field does (that field is the harness's fixed per-session
+# workspace dir and does not follow a `cd` the command itself performs).
+# Falls back to the payload cwd when no leading `cd` is present.
+def operative_cwd(payload_cwd):
+    m = re.match(r'^\s*cd\s+("[^"]+"|\'[^\']+\'|\S+)\s*(?:&&|;)', cmd)
+    if not m:
+        return payload_cwd
+    target = m.group(1).strip("'\"")
+    if not target:
+        return payload_cwd
+    if not target.startswith("/") and payload_cwd:
+        target = os.path.join(payload_cwd, target)
+    return target
+
 # --- this session's own git origin repo (owner/repo, lowercased) -----------
 def origin_repo():
-    cwd = e.get("cwd") if isinstance(e.get("cwd"), str) and e.get("cwd") else None
+    payload_cwd = e.get("cwd") if isinstance(e.get("cwd"), str) and e.get("cwd") else None
+    cwd = operative_cwd(payload_cwd) or payload_cwd
     try:
         r = subprocess.run(
             ["git", "-C", cwd or ".", "remote", "get-url", "origin"],
