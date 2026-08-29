@@ -33,6 +33,20 @@
 # commit` command, no newly-staged mechanism file, unreadable spec
 # file). Fail-closed (exit 2) only when a newly-staged mechanism file's
 # basename has no row in the relevant spec(s).
+#
+# issue #2705: PreToolUse fires BEFORE the guarded command's text runs,
+# so `git diff --cached` alone is blind to a bundled `git add X && git
+# commit` (this repo's own recommended landing shape, #2135) -- nothing
+# is staged yet at hook time and this guard passed silently. Fixed by
+# also parsing the pending command's own `git add` segment(s) for path
+# arguments and cross-referencing them against `git status --porcelain`
+# (untracked files only -- the "newly-added" case this guard cares
+# about); a path that would be freshly staged by THIS SAME command is
+# treated identically to one already staged by a prior call. No new
+# fail-closed surface: a `git add` segment this guard cannot parse
+# (unsupported flag ordering, path it cannot resolve) simply contributes
+# no pending targets, same fail-open posture as every other environment
+# gap here.
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
@@ -45,7 +59,7 @@ command -v python3 >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] 
 command -v git >/dev/null 2>&1 || { echo "[$(basename "${BASH_SOURCE[0]}")] skipping: git not found (fail-open)" >&2; exit 0; }
 
 IFS='' read -r -d '' GUARD <<'PY' || true
-import json, os, re, shlex, subprocess, sys
+import fnmatch, json, os, re, shlex, subprocess, sys
 
 def deny(msg):
     sys.stderr.write("gate-registration-guard: %s\n" % msg)
@@ -143,6 +157,291 @@ for line in r.stdout.splitlines():
     # hunt, stance 0).
     if status == "A" or status[:1] in ("R", "C"):
         added.append(path)
+
+
+# issue #2705: the bundled `git add X && git commit` shape this repo's
+# own batching guidance (#2135) recommends stages nothing before this
+# hook runs -- `staged_all`/`added` above only ever reflect a PRIOR
+# `git add` call. Parse the pending command's own `git add` segment(s)
+# for path arguments the command is ABOUT to stage, and treat any that
+# are currently untracked exactly like an already-staged "A". An
+# adversarial review of the first cut of this fix (blind evaluator
+# session, no issue context) live-reproduced three bypasses fixed below:
+# `git add -A`/`-u`/`--all` was dead code (its own flag-token was
+# stripped by the generic `-`-prefix filter before the special case
+# ever saw it); `git -c k=v add`/`git -C dir add` (this file's own
+# lines ~88-94 already call out `-c`/`-C` as a known two-token global-
+# option bypass class for the sibling `commit`-detection check, never
+# hardened here); and `git add .` was treated as repo-wide instead of
+# scoped to the acting directory's subtree.
+def _shell_segments(text):
+    """Ordered ("seg", tokens) / ("open", None) / ("close", None) items
+    for `text` -- `(`/`)` are reported as their own boundary markers
+    (issue #2705 follow-up) instead of being folded in as plain
+    separators, so a caller can track which segments run inside a
+    `(...)` subshell and restore state when it closes, the same way
+    bash itself does not leak a subshell's own `cd` to its parent."""
+    items = []
+    for line in text.replace("\\\n", " ").split("\n"):
+        if not line.strip():
+            continue
+        try:
+            lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+            lexer.whitespace_split = True
+            toks = list(lexer)
+        except ValueError:
+            continue
+        seps = {"&&", "||", ";", "|", "<", ">", "&"}
+        cur = []
+        for t in toks:
+            if t in ("(", ")"):
+                if cur:
+                    items.append(("seg", cur))
+                    cur = []
+                items.append(("open" if t == "(" else "close", None))
+            elif t in seps:
+                if cur:
+                    items.append(("seg", cur))
+                cur = []
+            else:
+                cur.append(t)
+        if cur:
+            items.append(("seg", cur))
+    return items
+
+
+def _new_frame(cwd):
+    """A fresh cwd-tracking frame: the effective directory (`cwd`,
+    always realpath'd -- issue #2705 round 3), the OLDPWD-equivalent
+    `cd -` restores to (`oldpwd`, None until a plain `cd` sets it), and
+    a `dirs` stack mirroring bash's own pushd/popd stack (`dirs[0]` is
+    always kept equal to `cwd`)."""
+    real = os.path.realpath(cwd)
+    return {"cwd": real, "oldpwd": None, "dirs": [real]}
+
+
+def _pending_add_segments(text, start_cwd):
+    """(effective_cwd, argument_list) for every `git add` segment in
+    `text` -- tolerant of a leading wrapper/keyword before `git` (`env
+    FOO=bar git add x`, `then git add x`) by locating the first `git`
+    token rather than requiring it at position 0, and of two-token
+    global options (`-c <key>=<val>`, `-C <dir>`) between `git` and
+    `add`.
+
+    issue #2705 follow-up: an earlier `cd`/`pushd` segment in the same
+    command shifts the directory every later relative `git add` path
+    resolves against -- the payload's static top-level `cwd` is only
+    the STARTING effective cwd, not necessarily the one in force by
+    the time the `add` segment runs. A stack of frames mirrors bash's
+    own subshell scoping: entering `(` pushes a copy of the current
+    frame (cwd, OLDPWD, and pushd/popd dir stack all included), and
+    closing `)` pops back to it, discarding any `cd`/`pushd`/`popd`
+    done inside -- a subshell's directory change never leaks to its
+    parent.
+
+    issue #2705 round 3: the first cut of this stack modeled only a
+    single mutable "current cwd" string, which left three bypasses live
+    -- `cd -` (no OLDPWD tracked to restore to), `pushd`/`popd` (`popd`
+    unrecognized, `pushd` reusing the single-slot `cd` mutation instead
+    of pushing), and a `cd` through a symlinked directory component (no
+    canonicalization, so the resolved path did not match what `git
+    status` reports for the same real file). Each frame now tracks an
+    OLDPWD-equivalent and a real push/pop dir stack, and every cwd
+    committed to a frame is realpath'd before any caller derives a
+    repo-relative path from it."""
+    out = []
+    stack = [_new_frame(start_cwd)]
+    for kind, value in _shell_segments(text):
+        if kind == "open":
+            top = stack[-1]
+            stack.append({"cwd": top["cwd"], "oldpwd": top["oldpwd"], "dirs": list(top["dirs"])})
+            continue
+        if kind == "close":
+            if len(stack) > 1:
+                stack.pop()
+            continue
+        seg = value
+        if not seg:
+            continue
+        frame = stack[-1]
+        if seg[0] == "popd":
+            if len(frame["dirs"]) > 1:
+                frame["oldpwd"] = frame["cwd"]
+                frame["dirs"].pop(0)
+                frame["cwd"] = frame["dirs"][0]
+            continue
+        if seg[0] in ("cd", "pushd"):
+            is_pushd = seg[0] == "pushd"
+            raw_args = seg[1:]
+            if not is_pushd and any(a == "-" for a in raw_args):
+                # `cd -`: restore $OLDPWD, swapping it with the current
+                # cwd the same way real bash does -- not a flag, even
+                # though the generic `-`-prefix filter below would
+                # otherwise treat the lone `-` token as one.
+                if frame["oldpwd"] is not None:
+                    frame["cwd"], frame["oldpwd"] = frame["oldpwd"], frame["cwd"]
+                    frame["dirs"][0] = frame["cwd"]
+                continue
+            args = [a for a in raw_args if not a.startswith("-")]
+            if not args:
+                continue
+            target = args[0]
+            resolved = os.path.realpath(
+                target if os.path.isabs(target) else os.path.join(frame["cwd"], target))
+            frame["oldpwd"] = frame["cwd"]
+            frame["cwd"] = resolved
+            if is_pushd:
+                frame["dirs"].insert(0, resolved)
+            else:
+                frame["dirs"][0] = resolved
+            continue
+        if "git" not in seg:
+            continue
+        i = seg.index("git") + 1
+        while i < len(seg):
+            t = seg[i]
+            if t in ("-C", "-c"):
+                i += 2
+                continue
+            if t.startswith("-"):
+                i += 1
+                continue
+            break
+        if i >= len(seg) or seg[i] != "add":
+            continue
+        out.append((frame["cwd"], seg[i + 1:]))
+    return out
+
+
+def _pathspec_exclude_pattern(arg):
+    """The path pattern `arg` excludes, if `arg` is a `:(exclude)path`/
+    `:!path`/`:^path` pathspec-magic token -- otherwise None.
+
+    Only the exclude direction is special-cased. Other pathspec magic
+    (`:(glob)`, `:(icase)`, `:(top)`, ...) is not implemented; an
+    argument carrying it falls through to the generic literal/glob
+    handling in `_pending_add_targets` below (best effort), same as
+    any other shape this file cannot fully interpret."""
+    if arg.startswith(":!") or arg.startswith(":^"):
+        return arg[2:]
+    if arg.startswith(":("):
+        end = arg.find(")")
+        if end == -1:
+            return None
+        keywords = [k.strip() for k in arg[2:end].split(",")]
+        if "exclude" in keywords:
+            return arg[end + 1:]
+    return None
+
+
+def _match_untracked(raw, seg_cwd, untracked):
+    """Untracked repo-relative paths that positional argument `raw`
+    resolves to, given `seg_cwd` as the acting directory: `.` or an
+    existing directory argument sweep in cwd-relative prefix-matched
+    form (issue #2705 follow-up: `git add gates/` stages every
+    untracked file beneath it, the same as `git add .` already did for
+    the whole cwd subtree -- a named directory is that case with a
+    different spelling), otherwise an exact match or an fnmatch glob.
+
+    issue #2705 round 3: `seg_cwd` is already realpath'd by
+    `_pending_add_segments`, but `raw` itself can still carry its own
+    symlink component (e.g. a segment that never `cd`s and instead
+    passes a symlinked path straight to `git add`) -- `os.path.realpath`
+    on the joined path, not `os.path.normpath`, so the repo-relative
+    path derived below always matches the real path `git status`
+    reports, the same canonical form `untracked` is already keyed on."""
+    if raw == ".":
+        cwd_rel = os.path.relpath(seg_cwd, repo_root).replace(os.sep, "/")
+        prefix = "" if cwd_rel == "." else cwd_rel + "/"
+        return {u for u in untracked if u.startswith(prefix)}
+    abs_p = os.path.realpath(raw if os.path.isabs(raw) else os.path.join(seg_cwd, raw))
+    if os.path.isdir(abs_p):
+        try:
+            dir_rel = os.path.relpath(abs_p, repo_root).replace(os.sep, "/")
+        except ValueError:
+            return set()
+        prefix = "" if dir_rel in (".", "") else dir_rel + "/"
+        return {u for u in untracked if u.startswith(prefix)}
+    try:
+        rel = os.path.relpath(abs_p, repo_root).replace(os.sep, "/")
+    except ValueError:
+        return set()
+    if rel in untracked:
+        return {rel}
+    return {u for u in untracked if fnmatch.fnmatch(u, rel)}
+
+
+def _pending_add_targets(seg_args, untracked, seg_cwd):
+    """Repo-relative untracked paths a single `git add` segment's
+    argument list would stage, given the already-computed `untracked`
+    set (git status's `??` entries, repo-root-relative) and that
+    segment's own effective cwd."""
+    whole_tree = False
+    positional = []
+    excludes = []
+    after_dashdash = False
+    for a in seg_args:
+        if not after_dashdash and a == "--":
+            after_dashdash = True
+            continue
+        if not after_dashdash and a in ("-A", "--all"):
+            whole_tree = True
+            continue
+        if not after_dashdash and a in ("-u", "--update"):
+            # only stages modifications to ALREADY-tracked files -- never
+            # stages a new untracked file by itself (finding #4).
+            continue
+        if not after_dashdash:
+            excl = _pathspec_exclude_pattern(a)
+            if excl is not None:
+                excludes.append(excl)
+                continue
+        if not after_dashdash and a.startswith("-"):
+            continue
+        positional.append(a)
+    if whole_tree:
+        out = set(untracked)
+    else:
+        out = set()
+        for raw in positional:
+            out.update(_match_untracked(raw, seg_cwd, untracked))
+    for excl in excludes:
+        out -= _match_untracked(excl, seg_cwd, untracked)
+    return out
+
+
+pending_add_segments = _pending_add_segments(cmd_skeleton, cwd)
+if pending_add_segments:
+    try:
+        # `-z`: NUL-separated, unquoted paths -- porcelain's default
+        # quoting mangles names with spaces/non-ASCII, which a plain
+        # `line[3:]` slice cannot undo (finding #6).
+        st = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            capture_output=True, text=True, timeout=20, cwd=repo_root,
+        )
+    except (OSError, subprocess.SubprocessError):
+        st = None
+    if st is not None and st.returncode == 0:
+        untracked = set()
+        fields = st.stdout.split("\0")
+        idx = 0
+        while idx < len(fields):
+            entry = fields[idx]
+            idx += 1
+            if not entry:
+                continue
+            status = entry[:2]
+            if status[0] in ("R", "C"):
+                idx += 1  # rename/copy carries a paired orig-path field
+                continue
+            if status == "??":
+                untracked.add(entry[3:])
+        for seg_cwd, seg_args in pending_add_segments:
+            for u in _pending_add_targets(seg_args, untracked, seg_cwd):
+                if u not in staged_all:
+                    added.append(u)
+                    staged_all.add(u)
 
 
 def is_gate_module(p):
