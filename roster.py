@@ -397,7 +397,7 @@ def _lease_requeue(key: str, entry: dict, now: float) -> None:
         except FileNotFoundError:
             pass
     _sp.ledger_write({"event": "lease_expired_requeued", "key": key,
-                  "issue": entry.get("issue"), "role": entry.get("role"),
+                  "issue": entry.get("issue"), "skill": entry.get("skill"),
                   "lease_expires_at": entry.get("lease_expires_at"),
                   "ts": now})
     print(f"[lease] {key}: lease expired — claim released, item returned to "
@@ -502,7 +502,7 @@ def lease_reconcile_sweep(root: Path = None, d_all: dict | None = None,
             elif _sp.ledger_check_and_stamp(f"reconcile-sweep-no-session:{key}"):
                 _sp.ledger_write({"event": "claim_without_live_session",
                               "key": key, "issue": e.get("issue"),
-                              "role": e.get("role"),
+                              "skill": e.get("skill"),
                               "lease_expires_at": expires_at, "ts": now})
                 lease_desc = ("no lease recorded" if expires_at is None
                               else f"lease valid until {expires_at}")
@@ -618,7 +618,7 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
     reported_subjects: set[str] = set()
     for attempt_id, a in sorted(attempts.items()):
         outcome = outcomes.get(attempt_id)
-        subject = lease_key(a.get('issue'), a.get('role'))
+        subject = lease_key(a.get('issue'), a.get('skill'))
         cls = None  # "no outcome recorded" branch has no failure-class (issue #2511)
         if outcome is not None:
             if outcome.get("outcome") != "halted":
@@ -648,7 +648,7 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
                 attempted_ts = a.get("ts", now)
                 _sp._append_spawn_attempt_event({
                     "event": "spawn_attempt_resolved", "attempt_id": attempt_id,
-                    "issue": a.get("issue"), "role": a.get("role"), "class": cls,
+                    "issue": a.get("issue"), "skill": a.get("skill"), "class": cls,
                     "resolution": resolution,
                     "attempted_ts": attempted_ts, "ts": now})
                 print(f"[spawn-attempt] {subject}: halt RESOLVED at {_iso(now)} "
@@ -662,7 +662,7 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
                 # 이 한 줄만으로 answer 할 수 있게 한다.
                 _sp.ledger_write({"event": "spawn_attempt_resolved_reported",
                                   "attempt_id": attempt_id, "issue": a.get("issue"),
-                                  "role": a.get("role"), "class": cls,
+                                  "skill": a.get("skill"), "class": cls,
                                   "resolution": resolution,
                                   "attempted_ts": attempted_ts, "ts": now})
                 continue  # resolved this tick — not reported as a live halt
@@ -670,7 +670,7 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
             ts = a.get("ts", now)
             if not isinstance(ts, (int, float)) or now - ts < SPAWN_ATTEMPT_GRACE_SEC:
                 continue  # still within the legitimate pre-roster window
-            roster_key = lease_key(a.get('issue'), a.get('role'))
+            roster_key = lease_key(a.get('issue'), a.get('skill'))
             if roster_key in d_all:
                 continue  # a roster entry eventually showed up
             reason = (f"no outcome recorded {int(now - ts)}s after spawn "
@@ -693,7 +693,7 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
         # 않고도 runs/ledger.jsonl 하나만 훑어 답이 나오게.
         _sp.ledger_write({"event": "spawn_attempt_halt_reported",
                           "attempt_id": attempt_id, "issue": a.get("issue"),
-                          "role": a.get("role"), "reason": reason, "class": cls,
+                          "skill": a.get("skill"), "reason": reason, "class": cls,
                           "ts": now})
     # 이슈 #2393 (R8): 매 틱 이 sweep 이 이미 전체 파일을 읽으므로, 같은
     # 틱에서 프루닝도 해치운다 — 별도 스케줄/상태 없이, 이 함수 하나가
@@ -732,7 +732,7 @@ def _surface_approval_wait(key: str, entry: dict, wait: dict,
     watch-coverage policy: nothing is blocked, refused, or killed —
     the surfacing IS the fix."""
     issue = wait.get("issue", entry.get("issue"))
-    skill = wait.get("role", entry.get("role"))
+    skill = wait.get("skill", entry.get("skill"))
     subject = f"issue-{issue}/{skill}"
     ts, budget = wait.get("ts"), wait.get("budget_sec")
     prefix, remaining_desc = "[awaiting-approval]", "remaining unknown"
@@ -749,7 +749,7 @@ def _surface_approval_wait(key: str, entry: dict, wait: dict,
                                   now=now,
                                   ttl=_sp.APPROVAL_WAIT_LEDGER_TTL_SEC):
         _sp.ledger_write({"event": "approval_wait_surfaced", "key": key,
-                          "issue": issue, "role": skill, "wait_ts": ts,
+                          "issue": issue, "skill": skill, "wait_ts": ts,
                           "budget_sec": budget, "ts": now})
 
 

@@ -44,13 +44,13 @@ ISSUE_RE = re.compile(r"docs/issue-(\d+)/")
 # ---------------------------------------------------------------------------
 
 def recheck_counts(entries: list[dict]) -> dict[tuple, int]:
-    """entries: [{"role":..., "issue":..., "subject_hash":...}, ...],
+    """entries: [{"skill":..., "issue":..., "subject_hash":...}, ...],
     one entry per re-check event. Returns a count per (role, issue,
     subject_hash) key — the number of times that unchanged subject was
     re-checked."""
     counts: Counter = Counter()
     for e in entries:
-        counts[(e["role"], e["issue"], e["subject_hash"])] += 1
+        counts[(e["skill"], e["issue"], e["subject_hash"])] += 1
     return dict(counts)
 
 
@@ -83,7 +83,7 @@ def extract_recheck_entries(repo: Path = REPO) -> list[dict]:
         for line in text.splitlines():
             if RECHECK_RE.search(line) and "re-check" in line.lower() or "재확인" in line:
                 entries.append({
-                    "role": skill, "issue": issue,
+                    "skill": skill, "issue": issue,
                     "subject_hash": _subject_hash(line),
                     "source": rel, "line": line.strip(),
                 })
@@ -95,12 +95,12 @@ def extract_recheck_entries(repo: Path = REPO) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 def zero_commit_sessions(sessions: list[dict]) -> list[dict]:
-    """sessions: [{"role":..., "issue":..., "commits": int, ...}, ...].
+    """sessions: [{"skill":..., "issue":..., "commits": int, ...}, ...].
     Flags a session iff commits == 0 AND its role is expected to deliver a
     commit (EXPECTED_COMMIT_ROLES). Non-implementation (e.g. consult)
     sessions with 0 commits are not flagged."""
     return [s for s in sessions
-            if s.get("commits", 0) == 0 and s.get("role") in EXPECTED_COMMIT_SKILLS]
+            if s.get("commits", 0) == 0 and s.get("skill") in EXPECTED_COMMIT_SKILLS]
 
 
 SUBJECT_TRAILER_RE = re.compile(r"^Subject:\s*issue-(\d+)\s*$", re.M)
@@ -143,7 +143,7 @@ def extract_sessions(repo: Path, since: str, until: str) -> list[dict]:
             continue
         issue = m.group(1)
         key = (issue, "implementation")
-        sessions[key]["role"] = "implementation"
+        sessions[key]["skill"] = "implementation"
         sessions[key]["issue"] = issue
         for f in files:
             if f.startswith(f"docs/issue-{issue}/reports/implementation.md"):

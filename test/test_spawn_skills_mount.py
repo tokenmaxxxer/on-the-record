@@ -207,12 +207,12 @@ class RecordFieldsCarrySkillsAndShaTest(unittest.TestCase):
     def test_roster_dict_carries_skills_and_sha_only_when_used(self):
         skill_dirs = [self.repo_root / "alpha"]
         entry_with = {
-            "pid": 1, "role": "implementation",
+            "pid": 1, "skill": "implementation",
             **({"skills": [p.name for p in skill_dirs], "skills_sha": "abc1234"}
                if skill_dirs else {}),
         }
         entry_without = {
-            "pid": 1, "role": "implementation",
+            "pid": 1, "skill": "implementation",
             **({"skills": [], "skills_sha": None} if [] else {}),
         }
         self.assertEqual(entry_with["skills"], ["alpha"])

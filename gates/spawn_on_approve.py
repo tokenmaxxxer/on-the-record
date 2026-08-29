@@ -245,7 +245,7 @@ def spawn_phase2(root: Path, cwd: str, dry_run: bool = False,
                 f"spawn_on_approve.py, issue #2173)")
         spawn.roster_register(
             f"issue-{issue}/{skill}",
-            {"role": skill, "issue": issue, "expects_pr": True, "work": cwd},
+            {"skill": skill, "issue": issue, "expects_pr": True, "work": cwd},
         )
         # 이슈 #2574 disposition: single-phase(build-now). 이 스폰의
         # 전제 자체가 "APPROVE issue-<n>/<role> 코멘트가 이미 관측됐다"

@@ -414,7 +414,7 @@ def _workspace_index_put(issue: int, skill: str, work: str, log: str,
                 f"workspace index collision on {key!r}: existing entry "
                 f"{existing!r} has a different work dir than {work!r} — "
                 f"refusing to overwrite silently (issue #533)")
-        entry = {"work": work, "log": log, "role": skill}
+        entry = {"work": work, "log": log, "skill": skill}
         if watcher_pid is not None:
             entry["watcher_pid"] = watcher_pid
         if watcher_armed_at is not None:
@@ -539,7 +539,7 @@ def _live_roster_matches(matches: list, issue: int) -> list:
     roster = _sp._roster_load()
     live = []
     for k, v in matches:
-        skill = v.get("role") or k.rsplit("/", 1)[1]
+        skill = v.get("skill") or k.rsplit("/", 1)[1]
         e = roster.get(f"issue-{issue}/{skill}")
         if e is not None and _sp._alive(e.get("pid", 0)):
             live.append((k, v))
@@ -551,7 +551,7 @@ def _ambiguous_watch_exit(issue: int, matches: list, repo: str | None) -> None:
     붙여넣을 수 있는 명령을 에러에 찍는다 — `--session` 없이 재시도하면 같은
     메시지가 또 나오는 죽은 재시도 구간을 없앤다."""
     cwd_flag = f" -C {repo}" if repo else ""
-    skills = [v.get("role") or k.rsplit("/", 1)[1] for k, v in matches]
+    skills = [v.get("skill") or k.rsplit("/", 1)[1] for k, v in matches]
     cmds = "; ".join(
         f"spawn.py watch --issue {issue} --session {r}{cwd_flag}" for r in skills)
     sys.exit(f"이슈 {issue} 에 역할이 여럿 기록돼 있다 — 역할을 지정하라 "
@@ -578,7 +578,7 @@ def _roster_fallback_entry(issue: int, skill: str | None, repo: str | None):
         return key, {"work": e["work"], "log": e["log"]}
     candidates = []
     for k, e in roster.items():
-        found_skill = e.get("role")
+        found_skill = e.get("skill")
         if found_skill is None:
             m = re.match(rf"^issue-{issue}/([^/]+)$", k)
             if not m:

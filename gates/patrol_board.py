@@ -226,7 +226,7 @@ def find_board_issue(root: Path, skill: str) -> tuple[dict | None, bool, int]:
     except (OSError, ValueError, UnicodeDecodeError):
         etag, cached_raw = None, None
 
-    labels = f"{LABEL_BOARD},role:{skill}" if skill else LABEL_BOARD
+    labels = f"{LABEL_BOARD},skill:{skill}" if skill else LABEL_BOARD
     # -X GET is load-bearing: `gh api` with -f fields and no method defaults
     # to POST, and POST /issues is issue CREATION (observed live: 422 only
     # because the payload lacked a title — PR #1594 review).
@@ -329,12 +329,12 @@ def run_patrol_board(root: Path, skill: str, queue_path: Path, dry_run: bool,
     if issue is None:
         # First-ever board for this role: labels must exist or create 422s.
         # `gh label create --force` is idempotent; one-time cost per repo.
-        for lbl in (LABEL_BOARD, f"role:{skill}"):
+        for lbl in (LABEL_BOARD, f"skill:{skill}"):
             subprocess.run(["gh", "label", "create", lbl, "--force"],
                            cwd=root, capture_output=True, text=True)
         w = subprocess.run(
             ["gh", "issue", "create", "--title", title, "--body", next_body,
-             "--label", LABEL_BOARD, "--label", f"role:{skill}"],
+             "--label", LABEL_BOARD, "--label", f"skill:{skill}"],
             cwd=root, capture_output=True, text=True)
     else:
         w = subprocess.run(

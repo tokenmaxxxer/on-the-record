@@ -930,7 +930,7 @@ def _write_skill_sidecar(work: str, issue: int, skill: str) -> None:
     try:
         d.mkdir(parents=True, exist_ok=True)
         (d / "role.json").write_text(
-            json.dumps({"role": skill, "issue": issue}) + "\n", encoding="utf-8")
+            json.dumps({"skill": skill, "issue": issue}) + "\n", encoding="utf-8")
         ex = Path(work) / ".git" / "info" / "exclude"
         ex.parent.mkdir(parents=True, exist_ok=True)
         existing = ex.read_text() if ex.exists() else ""
@@ -1606,7 +1606,7 @@ def await_approval_cmd(cwd: str, issue: int, skill: str,
     try:
         wait_path.write_text(json.dumps({
             "object": f"issue:{issue}", "reason": "approve-token",
-            "issue": issue, "role": skill, "ts": int(time.time()),
+            "issue": issue, "skill": skill, "ts": int(time.time()),
             # Issue #2133: the watchdog sweep computes the remaining wait
             # from ts + budget_sec to surface the healthy pause
             # ([awaiting-approval] line); a wait file without budget_sec
@@ -1648,7 +1648,7 @@ def _admission_check_approve_token(ctx: dict) -> bool | None:
     APPROVE-token incident at admission time: phase-2 issue, role differs
     from every approved role, token not yet published => refuse now
     instead of stranding the session on the gate mid-flight."""
-    issue, skill = ctx.get("issue"), ctx["role"]
+    issue, skill = ctx.get("issue"), ctx["skill"]
     if issue is None or ctx.get("single_phase"):
         return True  # adhoc spawn / explicit build-now bypass: no token gate
     if ctx.get("checkpoint"):
@@ -1688,7 +1688,7 @@ def _admission_check_directive_completeness(ctx: dict) -> bool | None:
     an admission refusal, not a mid-flight surprise. This is deterministic
     local work (skill-repository checkout, SKILL.md frontmatter), so a
     failure is a refusal — never fail-open."""
-    skill = ctx["role"]
+    skill = ctx["skill"]
     try:
         # 이슈 #2555 (Step C), 이슈 #2560 로 `_sp.ROLES` 자체가 삭제됨:
         # `role not in _sp.ROLES` 닫힌-집합 거부는 여기서 이미 빠져 있다 —
@@ -1792,7 +1792,7 @@ def _admission_check_degenerate_task(ctx: dict) -> bool | None:
     if m is None:
         return True
     digits = m.group(0).lstrip("#-")
-    skill = ctx.get("role")
+    skill = ctx.get("skill")
     stripped = task.strip()
     print(f"[admission] degenerate-task: task {stripped!r} looks like "
           f"an issue number; did you mean: spawn.py {skill} \"{stripped}\" "
@@ -1869,7 +1869,7 @@ def admission_gate(ctx: dict) -> str | None:
             # original exit propagate unchanged — still before any session
             # or workspace exists.
             _sp.ledger_write({"event": "admission_refused", "item": name,
-                          "role": ctx.get("role"), "issue": ctx.get("issue"),
+                          "skill": ctx.get("skill"), "issue": ctx.get("issue"),
                           "ts": int(time.time())})
             raise
         except Exception as exc:
@@ -1881,12 +1881,12 @@ def admission_gate(ctx: dict) -> str | None:
                   file=sys.stderr)
         if verdict is None:
             _sp.ledger_write({"event": "admission_gate_fail_open", "item": name,
-                          "role": ctx.get("role"), "issue": ctx.get("issue"),
+                          "skill": ctx.get("skill"), "issue": ctx.get("issue"),
                           "ts": int(time.time())})
             continue
         if not verdict:
             _sp.ledger_write({"event": "admission_refused", "item": name,
-                          "role": ctx.get("role"), "issue": ctx.get("issue"),
+                          "skill": ctx.get("skill"), "issue": ctx.get("issue"),
                           "ts": int(time.time())})
             return name
     return None

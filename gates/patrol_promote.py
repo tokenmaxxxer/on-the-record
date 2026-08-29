@@ -233,13 +233,13 @@ def promote_tick(root: Path, skill: str, entry: dict, state: dict,
     body = build_finding_issue_body(entry)
     # Labels must exist or the create 422s (same failure class as the board's
     # first create — PR #1594 review). `gh label create --force` is idempotent.
-    for lbl in (LABEL_PROMOTED, "finding", f"role:{skill}", f"severity:{sev}"):
+    for lbl in (LABEL_PROMOTED, "finding", f"skill:{skill}", f"severity:{sev}"):
         subprocess.run(["gh", "label", "create", lbl, "--force"],
                        cwd=root, capture_output=True, text=True)
     r = subprocess.run(
         ["gh", "issue", "create", "--title", title, "--body", body,
          "--label", LABEL_PROMOTED, "--label", "finding",
-         "--label", f"role:{skill}", "--label", f"severity:{sev}"],
+         "--label", f"skill:{skill}", "--label", f"severity:{sev}"],
         cwd=root, capture_output=True, text=True)
     if r.returncode != 0:
         return {"promoted": False, "reason": "gh_error", "stderr": r.stderr[:300]}

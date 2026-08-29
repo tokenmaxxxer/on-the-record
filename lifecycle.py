@@ -431,7 +431,7 @@ def _respawn_or_cap(key: str, work: str, issue: int, skill: str, log: str,
         print(f"[respawn] {key}: issue-state lookup failed — failing open "
               f"(returned-PR gate convention, issue #680)", file=sys.stderr)
         _sp.ledger_write({"event": "issue_state_gate_fail_open", "source": "respawn",
-                      "issue": issue, "role": skill, "ts": int(time.time())})
+                      "issue": issue, "skill": skill, "ts": int(time.time())})
     elif issue_state == "CLOSED":
         _sp._flag_stale_returned_branch(issue, skill, f"issue-{issue}/{skill}",
                                     source="respawn")
@@ -489,7 +489,7 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     아무도 모르게 재스폰하지 않는 것은 다르다."""
     work = entry.get("work")
     issue = entry.get("issue")
-    skill = entry.get("role")
+    skill = entry.get("skill")
     if not work or issue is None or not skill:
         return
     log_path = Path(entry["log"]) if entry.get("log") else None
@@ -746,7 +746,7 @@ def _workspace_clean_state(
     if e is not None:
         return ("live",
                 f"실행 중인 세션 있음: issue-{e.get('issue', '?')}/"
-                f"{e.get('role', '?')}, pid {e.get('pid', '?')}")
+                f"{e.get('skill', '?')}, pid {e.get('pid', '?')}")
     if unreadable:
         return ("unknown",
                  "이웃 체크아웃 로스터를 못 읽어 라이브 여부 확인 불가 — "

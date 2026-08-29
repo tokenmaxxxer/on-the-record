@@ -139,7 +139,7 @@ class SidecarPruneCrossCheckoutTest(_TwoCheckoutFixture):
         self._set_b_roster({
             "issue-1/implementation": {
                 "pid": os.getpid(), "work": str(work_dir),
-                "issue": 1, "role": "implementation",
+                "issue": 1, "skill": "implementation",
             }
         })
         old_local_live = spawn._live_workspaces()
@@ -156,7 +156,7 @@ class SidecarPruneCrossCheckoutTest(_TwoCheckoutFixture):
         self._set_b_roster({
             "issue-2/implementation": {
                 "pid": os.getpid(), "work": str(work_dir),
-                "issue": 2, "role": "implementation",
+                "issue": 2, "skill": "implementation",
             }
         })
         now = 2_000_000_000.0
@@ -179,7 +179,7 @@ class SidecarPruneCrossCheckoutTest(_TwoCheckoutFixture):
         self._set_b_roster({
             "issue-3/implementation": {
                 "pid": os.getpid(), "work": str(work_dir),
-                "issue": 3, "role": "implementation",
+                "issue": 3, "skill": "implementation",
             }
         })
         now = 2_000_000_000.0
@@ -200,7 +200,7 @@ class SidecarPruneCrossCheckoutTest(_TwoCheckoutFixture):
         self._set_b_roster({
             "issue-4/implementation": {
                 "pid": _dead_pid(), "work": str(work_dir),
-                "issue": 4, "role": "implementation",
+                "issue": 4, "skill": "implementation",
             }
         })
         now = 2_000_000_000.0
@@ -240,7 +240,7 @@ class WorkspaceDirPruneCrossCheckoutTest(_TwoCheckoutFixture):
         self._set_b_roster({
             "issue-5/implementation": {
                 "pid": os.getpid(), "work": str(work_dir),
-                "issue": 5, "role": "implementation",
+                "issue": 5, "skill": "implementation",
             }
         })
         with mock.patch.object(spawn, "_live_workspaces_union",
@@ -263,7 +263,7 @@ class WorkspaceDirPruneCrossCheckoutTest(_TwoCheckoutFixture):
         self._set_b_roster({
             "issue-6/implementation": {
                 "pid": os.getpid(), "work": str(work_dir),
-                "issue": 6, "role": "implementation",
+                "issue": 6, "skill": "implementation",
             }
         })
         outcome = spawn.auto_sweep(self.shared, max_age_days=14,
@@ -280,7 +280,7 @@ class WorkspaceDirPruneCrossCheckoutTest(_TwoCheckoutFixture):
         self._set_b_roster({
             "issue-8/implementation": {
                 "pid": _dead_pid(), "work": str(work_dir),
-                "issue": 8, "role": "implementation",
+                "issue": 8, "skill": "implementation",
             }
         })
         outcome = spawn.auto_sweep(self.shared, max_age_days=14,

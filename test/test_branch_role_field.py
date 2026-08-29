@@ -57,7 +57,7 @@ class SidecarWriteShapeTest(unittest.TestCase):
             p = Path(tmp) / ".on-the-record" / "role.json"
             self.assertTrue(p.is_file())
             data = json.loads(p.read_text(encoding="utf-8"))
-            self.assertEqual(data, {"role": "implementation", "issue": 1814})
+            self.assertEqual(data, {"skill": "implementation", "issue": 1814})
 
     def test_write_role_sidecar_excludes_from_git_status(self):
         """issue #1891: PR #1890 committed the sidecar by accident — the
@@ -84,7 +84,7 @@ class SidecarWriteShapeTest(unittest.TestCase):
             spawn._write_skill_sidecar(tmp, 1814, "implementation")  # respawn, same role
             p = Path(tmp) / ".on-the-record" / "role.json"
             data = json.loads(p.read_text(encoding="utf-8"))
-            self.assertEqual(data, {"role": "implementation", "issue": 1814})
+            self.assertEqual(data, {"skill": "implementation", "issue": 1814})
 
     def test_issue_workspace_writes_sidecar_at_every_return_point(self):
         # source-level pin (same convention as
@@ -161,7 +161,7 @@ else:
 
             self.assertEqual(result["status"], "pr-opened", result)
             self.assertTrue(create_log.is_file())
-            self.assertIn("role: implementation", create_log.read_text())
+            self.assertIn("skill: implementation", create_log.read_text())
 
 
 # =============================================================================
@@ -171,7 +171,7 @@ else:
 def _write_sidecar(repo: Path, issue: int, skill: str):
     d = repo / ".on-the-record"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "role.json").write_text(json.dumps({"role": skill, "issue": issue}), encoding="utf-8")
+    (d / "role.json").write_text(json.dumps({"skill": skill, "issue": issue}), encoding="utf-8")
 
 
 def _init_repo_on_branch(root: Path, branch: str):
@@ -541,7 +541,7 @@ class FlowsRoleTrailerTest(unittest.TestCase):
     def test_field_read_prefers_trailer(self):
         m = flows._BRANCH_RE.match("issue-1814/decoy")
         self.assertIsNotNone(m)
-        pr = {"body": "Part of #1814.\n\nrole: implementation"}
+        pr = {"body": "Part of #1814.\n\nskill: implementation"}
         self.assertEqual(flows._role_from_pr(pr, m), "implementation")
 
     def test_fallback_when_trailer_absent(self):
@@ -562,7 +562,7 @@ class FlowsRoleTrailerTest(unittest.TestCase):
         # exercises the actual call site (gates/flows.py ~L336), not just
         # the helper in isolation.
         prs = [{"headRefName": "issue-1814/decoy",
-                "body": "role: implementation"}]
+                "body": "skill: implementation"}]
         pr_by_branch = {}
         for pr in prs:
             m = flows._BRANCH_RE.match(pr.get("headRefName") or "")

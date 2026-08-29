@@ -253,8 +253,8 @@ class AttemptSupersededTest(unittest.TestCase):
 
     def test_later_successful_attempt_same_issue_and_family_supersedes(self):
         attempts = {
-            "a1": {"issue": 2576, "role": "silent-failure-audit-ec09cf78", "ts": 100.0},
-            "a2": {"issue": 2576, "role": "silent-failure-audit-c678659a", "ts": 200.0},
+            "a1": {"issue": 2576, "skill": "silent-failure-audit-ec09cf78", "ts": 100.0},
+            "a2": {"issue": 2576, "skill": "silent-failure-audit-c678659a", "ts": 200.0},
         }
         outcomes = {"a2": {"outcome": "session-log", "detail": "/log/path"}}
         self.assertTrue(
@@ -263,15 +263,15 @@ class AttemptSupersededTest(unittest.TestCase):
     def test_no_later_attempt_at_all_is_not_superseded(self):
         # Matches issue-1/implementation-af260856: nobody will ever retry
         # this issue, so there is no later attempt of any kind.
-        attempts = {"a1": {"issue": 1, "role": "implementation-af260856", "ts": 100.0}}
+        attempts = {"a1": {"issue": 1, "skill": "implementation-af260856", "ts": 100.0}}
         outcomes = {}
         self.assertFalse(
             spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
 
     def test_later_attempt_that_also_halted_does_not_supersede(self):
         attempts = {
-            "a1": {"issue": 2576, "role": "silent-failure-audit-ec09cf78", "ts": 100.0},
-            "a2": {"issue": 2576, "role": "silent-failure-audit-c678659a", "ts": 200.0},
+            "a1": {"issue": 2576, "skill": "silent-failure-audit-ec09cf78", "ts": 100.0},
+            "a2": {"issue": 2576, "skill": "silent-failure-audit-c678659a", "ts": 200.0},
         }
         outcomes = {"a2": {"outcome": "halted", "detail": "still broken"}}
         self.assertFalse(
@@ -280,8 +280,8 @@ class AttemptSupersededTest(unittest.TestCase):
     def test_earlier_successful_attempt_does_not_supersede_a_later_halt(self):
         # A success that happened BEFORE this halt cannot be its retry.
         attempts = {
-            "a1": {"issue": 2576, "role": "silent-failure-audit-old", "ts": 200.0},
-            "a2": {"issue": 2576, "role": "silent-failure-audit-ec09cf78", "ts": 300.0},
+            "a1": {"issue": 2576, "skill": "silent-failure-audit-old", "ts": 200.0},
+            "a2": {"issue": 2576, "skill": "silent-failure-audit-ec09cf78", "ts": 300.0},
         }
         outcomes = {"a1": {"outcome": "session-log", "detail": "/log/path"}}
         self.assertFalse(
@@ -292,8 +292,8 @@ class AttemptSupersededTest(unittest.TestCase):
         not silence issue-1/implementation-af260856 just because some other
         issue's implementation succeeded."""
         attempts = {
-            "a1": {"issue": 1, "role": "implementation-af260856", "ts": 100.0},
-            "a2": {"issue": 2, "role": "implementation-deadbeef", "ts": 200.0},
+            "a1": {"issue": 1, "skill": "implementation-af260856", "ts": 100.0},
+            "a2": {"issue": 2, "skill": "implementation-deadbeef", "ts": 200.0},
         }
         outcomes = {"a2": {"outcome": "session-log", "detail": "/log/path"}}
         self.assertFalse(
@@ -304,19 +304,19 @@ class AttemptSupersededTest(unittest.TestCase):
         unrelated skill's success on the same issue must not silence this
         halt."""
         attempts = {
-            "a1": {"issue": 2587, "role": "requirement-tag-fix-de7d3bcf", "ts": 100.0},
-            "a2": {"issue": 2587, "role": "technical-writing-cba98765", "ts": 200.0},
+            "a1": {"issue": 2587, "skill": "requirement-tag-fix-de7d3bcf", "ts": 100.0},
+            "a2": {"issue": 2587, "skill": "technical-writing-cba98765", "ts": 200.0},
         }
         outcomes = {"a2": {"outcome": "session-log", "detail": "/log/path"}}
         self.assertFalse(
             spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
 
     def test_missing_issue_or_skill_or_ts_is_conservative_not_superseded(self):
-        attempts = {"a2": {"issue": 1, "role": "implementation-deadbeef", "ts": 200.0}}
+        attempts = {"a2": {"issue": 1, "skill": "implementation-deadbeef", "ts": 200.0}}
         outcomes = {"a2": {"outcome": "session-log", "detail": "x"}}
-        for attempt in ({"role": "implementation-af260856", "ts": 100.0},
+        for attempt in ({"skill": "implementation-af260856", "ts": 100.0},
                          {"issue": 1, "ts": 100.0},
-                         {"issue": 1, "role": "implementation-af260856"}):
+                         {"issue": 1, "skill": "implementation-af260856"}):
             self.assertFalse(
                 spawn._attempt_superseded("a1", attempt, attempts, outcomes))
 
@@ -344,7 +344,7 @@ class SpawnAttemptSweepReplayFixTest(unittest.TestCase):
     def _write_attempt(self, attempt_id, issue, skill, cwd, reason, ts):
         with self.attempts_path.open("w", encoding="utf-8") as fh:
             fh.write(json.dumps({"event": "spawn_attempt", "attempt_id": attempt_id,
-                                  "issue": issue, "role": skill, "pid": 4242,
+                                  "issue": issue, "skill": skill, "pid": 4242,
                                   "cwd": cwd, "ts": ts}) + "\n")
             fh.write(json.dumps({"event": "spawn_attempt_outcome",
                                   "attempt_id": attempt_id, "outcome": "halted",
@@ -443,7 +443,7 @@ class SpawnAttemptSweepSupersessionTest(unittest.TestCase):
 
     def _append_attempt(self, attempt_id, issue, skill, ts, cwd=None):
         self._append({"event": "spawn_attempt", "attempt_id": attempt_id,
-                       "issue": issue, "role": skill, "pid": 4242, "cwd": cwd,
+                       "issue": issue, "skill": skill, "pid": 4242, "cwd": cwd,
                        "ts": ts})
 
     def _append_halted(self, attempt_id, reason, ts):
@@ -557,7 +557,7 @@ class PruneSpawnAttemptsSessionLogRetentionTest(unittest.TestCase):
         now = time.time()
         self._write(
             {"event": "spawn_attempt", "attempt_id": "x", "issue": 1,
-             "role": "r-aaaaaaaa", "pid": 1, "cwd": None, "ts": now - 10},
+             "skill": "r-aaaaaaaa", "pid": 1, "cwd": None, "ts": now - 10},
             {"event": "spawn_attempt_outcome", "attempt_id": "x",
              "outcome": "session-log", "detail": "/log", "ts": now - 10},
         )
@@ -572,7 +572,7 @@ class PruneSpawnAttemptsSessionLogRetentionTest(unittest.TestCase):
         old_ts = now - spawn.SPAWN_ATTEMPTS_RETENTION_SEC - 1
         self._write(
             {"event": "spawn_attempt", "attempt_id": "x", "issue": 1,
-             "role": "r-aaaaaaaa", "pid": 1, "cwd": None, "ts": old_ts},
+             "skill": "r-aaaaaaaa", "pid": 1, "cwd": None, "ts": old_ts},
             {"event": "spawn_attempt_outcome", "attempt_id": "x",
              "outcome": "session-log", "detail": "/log", "ts": old_ts},
         )
