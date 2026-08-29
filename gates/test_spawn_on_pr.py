@@ -517,3 +517,58 @@ def test_closed_and_open_subjects_mixed_only_open_unmappable_branch_reported(
     printed_subjects = [line.split(":", 1)[0].removeprefix("[spawn-on-pr] ")
                          for line in captured.out.splitlines() if "찾지 못했다" in line]
     assert printed_subjects == ["issue-93100"]
+
+
+# ---------------------------------------------------------------------
+# missing_verification(): issue #2777 -- a degraded issue-state lookup
+# (issue_states stays None because closure_sweep.issue_state_index_all()
+# itself failed) must report its own distinct state, not silently
+# produce the same empty output as a healthy quiet tick. #2652's reorder
+# is not touched: `_issue_is_open()` still fail-closes the spawn decision
+# (`out` stays unaffected either way) -- only the diagnostic print is new.
+# ---------------------------------------------------------------------
+
+def _degraded_lookup(monkeypatch, tmp_path, *, ok):
+    subject = "issue-99301"
+    monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: {subject: _deliverable_board()})
+    monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
+                         lambda root, s: True)
+    monkeypatch.setattr(spawn_on_pr.closure_sweep, "issue_state_index_all",
+                         lambda root: (({} if ok else None), ok))
+    monkeypatch.setattr(spawn_on_pr.state_paths, "STATE_ROOT", tmp_path / "state")
+    return subject
+
+
+def test_degraded_lookup_stays_quiet_below_the_failure_streak_threshold(monkeypatch, tmp_path, capsys):
+    _degraded_lookup(monkeypatch, tmp_path, ok=False)
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+    for _ in range(threshold - 1):
+        out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
+        assert out == {}
+    captured = capsys.readouterr()
+    assert captured.out == ""  # single/short blips stay quiet, same convention as watchdog.py
+
+
+def test_degraded_lookup_reports_its_own_state_once_streak_hits_threshold(monkeypatch, tmp_path, capsys):
+    _degraded_lookup(monkeypatch, tmp_path, ok=False)
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+    for _ in range(threshold):
+        out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
+
+    assert out == {}  # no spawn-eligibility change -- _issue_is_open() still fail-closes
+    captured = capsys.readouterr()
+    assert "gh 실패" in captured.out
+    # distinct from the old unlabeled branch-missing noise:
+    assert "찾지 못했다" not in captured.out
+
+
+def test_healthy_lookup_after_this_functions_own_fetch_stays_quiet(monkeypatch, tmp_path, capsys):
+    # Regression guard: a *successful* internal fetch (ok=True) must not
+    # start printing either -- the new print is gated on failure alone.
+    subject = _degraded_lookup(monkeypatch, tmp_path, ok=True)
+
+    out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
+
+    assert subject not in out  # empty issue_states index -> issue treated as not-OPEN
+    captured = capsys.readouterr()
+    assert captured.out == ""
