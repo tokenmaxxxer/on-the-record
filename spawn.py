@@ -2364,15 +2364,15 @@ def main() -> int:
     if a.role == "deviation-log":
         # issue #2348: same reader shape as consult-log -- reconstructs the
         # pre-sharding single-file deviation-log.md view for this issue
-        # (+role, when this session's own $CLAUDE_ROLE names one).
-        print(_deviation_log_aggregate(a.issue, role=os.environ.get("CLAUDE_ROLE"),
+        # (+role, when this session's own $CLAUDE_SKILL names one).
+        print(_deviation_log_aggregate(a.issue, role=os.environ.get("CLAUDE_SKILL"),
                                         cwd=a.cwd), end="")
         return 0
     if a.role == "deviation-log-path":
         # issue #2348: prints the exact shard path this session's own
         # deviation-log append belongs in -- a session never computes the
         # shard id itself, so two sessions' formulas can never drift apart.
-        print(_deviation_log_path(a.issue, role=os.environ.get("CLAUDE_ROLE"), cwd=a.cwd))
+        print(_deviation_log_path(a.issue, role=os.environ.get("CLAUDE_SKILL"), cwd=a.cwd))
         return 0
     if a.role == "priorities-log":
         # issue #2637: same reader shape as consult-log/deviation-log --

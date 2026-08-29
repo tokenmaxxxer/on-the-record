@@ -35,13 +35,13 @@
 # (path_patterns lookup) — it is never turned back into a record path.
 #
 # Anti-circularity (proposal §4): identity is account-resolved, never a
-# bare CLAUDE_ROLE compare (a same-operator bypass the requirements-
+# bare CLAUDE_SKILL compare (a same-operator bypass the requirements-
 # engineering hunt found and closed in design, not deferred — docs/
 # issue-1156/reports/requirements-engineering/2026-08-13-hunt-
 # per-role-quality-bars.md). `producer_account` is the PR author (`gh pr
 # view --json author`); `record_author_account` is the git author of the
 # most recent commit that touched the PR's own slug-named record file —
-# both are real accounts, never a CLAUDE_ROLE string.
+# both are real accounts, never a CLAUDE_SKILL string.
 #
 # Bounded rejection (proposal §5): `consecutive_bar_not_met_count` is read
 # from the same slug-named record file, counting immediately-preceding

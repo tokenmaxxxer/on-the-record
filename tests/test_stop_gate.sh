@@ -7,7 +7,7 @@ report() { if [ "$2" = "$1" ]; then pass=$((pass+1)); printf 'ok     %-34s %s\n'
 
 run() { # $1 = last_assistant_message
   python3 -c 'import json,sys; print(json.dumps({"last_assistant_message": sys.argv[1]}))' "$1" \
-    | env -u CLAUDE_ROLE /bin/bash "$H/stop-gate.sh"
+    | env -u CLAUDE_SKILL /bin/bash "$H/stop-gate.sh"
 }
 
 # (a) approval-shaped, missing risk clause -> additionalContext names it
@@ -22,8 +22,8 @@ out="$(run 'Requesting approve for #411 — this will change stop-gate.sh. Risk:
 out="$(run 'Here is a status update on the current task, nothing to approve.')"
 [ -z "$out" ] && report x x non-approval-passthrough || report "" "$out" non-approval-passthrough
 
-# CLAUDE_ROLE set -> pass-through regardless of content
-out="$(printf '{"last_assistant_message":"approve #411 with no clauses"}' | CLAUDE_ROLE=qa /bin/bash "$H/stop-gate.sh")"
+# CLAUDE_SKILL set -> pass-through regardless of content
+out="$(printf '{"last_assistant_message":"approve #411 with no clauses"}' | CLAUDE_SKILL=qa /bin/bash "$H/stop-gate.sh")"
 [ -z "$out" ] && report x x role-session-passthrough || report "" "$out" role-session-passthrough
 
 echo "---"

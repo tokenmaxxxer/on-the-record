@@ -217,7 +217,7 @@ def _run_approval_gate(repo: Path, bin_dir: Path, file_path: str, role_env: str,
         "cwd": str(repo),
     })
     env = dict(os.environ)
-    env["CLAUDE_ROLE"] = role_env
+    env["CLAUDE_SKILL"] = role_env
     env["PATH"] = f"{bin_dir}:{env['PATH']}"
     env["FAKE_GH_COMMENTS"] = json.dumps(comments)
     env.pop("ORCHESTRATE_OFF", None)

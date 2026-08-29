@@ -955,7 +955,7 @@ def _consult_cmd_and_env(role: str, cwd: str | None,
     role_model = _sp.resolved_role_model(model)
     if role_model:
         cmd += ["--model", role_model]
-    env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1",
+    env = {**os.environ, "CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1",
            "ENABLE_PROMPT_CACHING_1H": "1"}
     core_dir = next((p for p in _sp.core_plugin_dirs() if Path(p).name == "core"), None)
     if core_dir:
@@ -1304,7 +1304,7 @@ def _judge_cmd_and_env(role: str, cwd: str,
     for p in plugins:
         cmd += ["--plugin-dir", str(p)]
     cmd += ["--model", model or _sp.resolved_role_model()]
-    env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+    env = {**os.environ, "CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1"}
     core_dir = next((p for p in _sp.core_plugin_dirs() if Path(p).name == "core"), None)
     if core_dir:
         env["CLAUDE_PLUGIN_ROOT_CORE"] = str(core_dir)
@@ -1672,7 +1672,7 @@ def _run_panel_session(role: str, peer_role: str, question: str, cwd: str | None
         role_model = _sp.resolved_role_model(model)
         if role_model:
             cmd += ["--model", role_model]
-        env = {**os.environ, "CLAUDE_ROLE": role, "TOKENMAXXXER_SPAWNED": "1"}
+        env = {**os.environ, "CLAUDE_SKILL": role, "TOKENMAXXXER_SPAWNED": "1"}
         prompt = (
             "당신은 판정단(panel) 판정자로 불렸다 — 다른 역할 판정자 "
             f"'{peer_role}' 와 함께 아래 질문을 판정한다. 이 역할의 스킬-저장소 가이던스는 "

@@ -33,7 +33,7 @@ the guard checked for — the natural granularity once more than one role
 works the same issue (implementation, conformance-review, execution-
 observation, ... all landing in the same flat file would itself be a
 shared append-only path, the exact class this issue eliminates). Role
-comes from `$CLAUDE_ROLE` when set (the same signal board-gate's R4
+comes from `$CLAUDE_SKILL` when set (the same signal board-gate's R4
 already treats as authoritative for a role session's own subtree), else
 there is no role component (orchestrator / no role in scope).
 """

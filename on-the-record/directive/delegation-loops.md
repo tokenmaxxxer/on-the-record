@@ -64,7 +64,7 @@
     consult <role> "<question>"` call before acting — the classification
     is itself a judgment point per #699 R2. RESOLVE-AND-CONTINUE: run
     `spawn.py deviation-log-path --issue <n>` (issue #2348: sharded per
-    session, role-scoped under `$CLAUDE_ROLE` when set, mirroring
+    session, role-scoped under `$CLAUDE_SKILL` when set, mirroring
     `consult-log.md`'s own sharding) and append your entry to the path it
     prints. Inline case — apply the fix, append one line — timestamp,
     `inline`, one-line description, the diff's location; resume the
@@ -81,7 +81,7 @@
     docs/handbooks/deviation-loop.md.
 
 - DELEGATION-CITING APPROVE (issue #707, demoted from
-  delegation-post-gate.sh): only an orchestrator session (no CLAUDE_ROLE
+  delegation-post-gate.sh): only an orchestrator session (no CLAUDE_SKILL
   binding) may post an APPROVE comment citing a delegation record as
   provenance — a role-bound session never posts one, for any role; that
   would be self-approval through the delegation path.

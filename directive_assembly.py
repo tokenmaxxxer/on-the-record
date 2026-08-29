@@ -207,7 +207,7 @@ _HOOK_CONTRACT_PROSE = (
     "훅 거부 계약(이슈 #2409): 아래는 세션을 자주 막는 PreToolUse 게이트가 "
     "요구하는 형태다 — 하나씩 거부당하며 알아내지 말고 미리 맞춰라.\n"
     "1. 커밋/PR/이슈 본문에 heredoc(`$(cat <<EOF ... EOF)`)을 쓰지 마라 — "
-    "역할 세션(CLAUDE_ROLE 설정됨)의 heredoc 형태 `git commit`/`gh pr "
+    "역할 세션(CLAUDE_SKILL 설정됨)의 heredoc 형태 `git commit`/`gh pr "
     "create`/`gh issue create`/`gh pr comment`/`gh issue comment` 는 매번 "
     "거부된다(이슈 #1976, heredoc-command-refusal-gate.sh). 대신 "
     "`git commit -m \"title\" -m \"body\"`(두 개의 -m) 와 "

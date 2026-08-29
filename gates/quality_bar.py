@@ -11,7 +11,7 @@ returns BAR_MET / BAR_NOT_MET / ESCALATE / NO_BAR_SCOPED.
 
 Anti-circularity (proposal §4, docs/issue-1156/proposals/
 per-role-quality-bars.md): identity here means an *account*, not a bare
-`CLAUDE_ROLE` string — `CLAUDE_ROLE` is self-declared and
+`CLAUDE_SKILL` string — `CLAUDE_SKILL` is self-declared and
 operator-controlled, so comparing it alone lets one operator author the
 diff under one role name and the verdict under another in the same
 session and pass. Callers must resolve both `record_author_account` and
@@ -19,7 +19,7 @@ session and pass. Callers must resolve both `record_author_account` and
 same primitive `pr-preflight.sh`/`approval-gate.sh` already use to
 resolve "who authored this") before calling `classify` — this module
 takes the resolved accounts as explicit inputs and never re-derives them
-from `CLAUDE_ROLE` itself.
+from `CLAUDE_SKILL` itself.
 """
 from __future__ import annotations
 
@@ -73,8 +73,8 @@ def verified_by_account(spec, resolve_account_fn):
     to the resolved account for its leading role token — the slot
     `classify`'s `record_author_account` expects. `resolve_account_fn`:
     role name (str) -> resolved account (str | None), the same resolution
-    primitive callers already use for `CLAUDE_ROLE`-adjacent accounts
-    (module docstring constraint: never re-derive from `CLAUDE_ROLE` here).
+    primitive callers already use for `CLAUDE_SKILL`-adjacent accounts
+    (module docstring constraint: never re-derive from `CLAUDE_SKILL` here).
     Returns None when `spec` has no `verified_by` field."""
     verified_by = spec.get("verified_by") if isinstance(spec, dict) else None
     if not verified_by or not isinstance(verified_by, str):
