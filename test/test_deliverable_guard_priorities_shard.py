@@ -195,35 +195,41 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
         r = _run_gate(self.repo, "scratch/notes.md", cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
 
-    # --- issue #2637 round 4: the git-root walk itself is steerable -----
-    # PR #2658 (adversarial-review+secure-coding-input-validation-
-    # injection-defense-b0e82077) found the `.git`-probing walk this
-    # exemption's cwd/abs-path resolution depends on
-    # (`on-the-record/hooks/deliverable-guard.sh`'s `_git_root_from`/the
-    # pre-existing activation walk it reuses) trusts `os.path.isdir(<probe>/
-    # ".git")` as proof of "this is the repo root" — a signal the very
-    # session this hook is meant to gate can plant with an ordinary
-    # `mkdir`/`ln -s` before the guarded Write/Edit call, since this hook
-    # only ever inspects Write/Edit/MultiEdit/NotebookEdit tool calls, never
-    # plain Bash filesystem mutation. These three cases pin that finding
-    # down as a live regression, not a re-derivation: each currently
-    # returns rc=0 (EXEMPT — bypass) instead of the rc=2 every other
-    # src/-rooted case above gets, and each is `expectedFailure` rather
-    # than fixed, per this round's finding
-    # (docs/issue-2637/reports/silent-failure-audit+architecture-interface-contract-shape-149dabd2.md):
-    # a session genuinely must `Write` a shard file directly (`priorities.py`'s
-    # own module docstring, and `_priorities_entry_path()`/`spawn.py
-    # priorities-path` mint a path and mkdir the directory but never write
-    # the entry themselves), so the exemption these three cases attack
-    # cannot simply be deleted — and a fourth path-shaped resolution
-    # attempt is exactly what round 4 was told not to write, per the
-    # consult finding that no such formulation can be made unsteerable
-    # while this hook decides from session-reported strings and
-    # session-mutable filesystem state before the write happens. These
-    # `expectedFailure` cases exist so the suite says so out loud instead
-    # of silently having no coverage for a known-open gap.
+    # --- issue #2637 round 4 / issue #2659: the git-root walk's bare-name
+    # trust is closed, a real nested repo still steers it -------------
+    # PR #2658 found the `.git`-probing walk this exemption's cwd/abs-path
+    # resolution depends on (`_git_root_from`, and the separate
+    # board-repo activation walk it mirrored) trusted
+    # `os.path.isdir(<probe>/".git")` as proof of "this is the repo
+    # root" — a signal the very session this hook is meant to gate could
+    # plant with an ordinary `mkdir`/`ln -s` before the guarded
+    # Write/Edit call, since this hook only ever inspects Write/Edit/
+    # MultiEdit/NotebookEdit tool calls, never plain Bash filesystem
+    # mutation. Also: `.git` in a linked worktree is a FILE (a "gitdir:
+    # <path>" pointer), which `os.path.isdir` never matches at all, so a
+    # worktree wasn't just steerable — it fell through to "no root
+    # found" and disabled the priorities-shard denial outright.
+    #
+    # issue #2659 replaced both walks with `git rev-parse` (see
+    # `_git_root_from`/`_run_git` in the hook): it parses a `.git` FILE
+    # the way git itself does (closing the worktree/submodule miss), and
+    # — unlike the old walk — does not accept a bare `.git`
+    # directory/symlink with no real git content as a repo boundary
+    # either, so it keeps walking up past a planted one and finds the
+    # actual root (verified live, docs/issue-2659 record). The four
+    # cases below that used to be `expectedFailure` for exactly this
+    # planted-`.git` shape now pass for real; they are kept (decorator
+    # removed) as the regression coverage for the fix.
+    #
+    # What is NOT closed: a session that runs a genuine `git init` in a
+    # subdirectory before the guarded write still steers both walks,
+    # because that subdirectory is then a real, independent git
+    # repository from git's own perspective, not a bare name `os.path.
+    # isdir`/`git rev-parse` can tell apart from the outer one. That
+    # narrower class is pinned below as `expectedFailure` — a decision
+    # for issue #2637 (three prior fixes already rejected for the
+    # priorities-shard exemption), not a fifth resolution attempt here.
 
-    @unittest.expectedFailure
     def test_bypass_via_planted_git_directory_should_be_denied(self):
         (self.repo / "src" / ".git").mkdir(parents=True)
         r = _run_gate(
@@ -232,7 +238,6 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
 
-    @unittest.expectedFailure
     def test_bypass_via_planted_git_symlink_should_be_denied(self):
         elsewhere = self.repo.parent / "elsewhere"
         elsewhere.mkdir()
@@ -243,7 +248,6 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
 
-    @unittest.expectedFailure
     def test_bypass_inside_linked_worktree_should_be_denied(self):
         (self.repo / "README.md").write_text("x")
         subprocess.run(["git", "add", "README.md"], cwd=self.repo, check=True)
@@ -260,25 +264,22 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             cwd=str(wt))
         self.assertEqual(r.returncode, 2, r.stderr)
 
-    # issue #2661 send-back (PR #2683's finding): the three cases above
-    # only ever target PRODUCT_CAPTURE_PRIORITIES_DIR_RE. `root_relative_n`
-    # backs EXEMPT_SUFFIXES too (this file's docs/specs/approvers.md
-    # anchoring fix, same `_git_root_from` call site), and a live
-    # reproduction shows the identical planted-`.git` steering reaches it:
-    # a session that plants `src/.git` before writing
-    # `src/docs/specs/approvers.md` gets rc=0 EXEMPT, not rc=2 — the exact
-    # bypass shape the three cases above pin down for the priorities-shard
-    # regex, unpinned here until now. Not a new mechanism, not fixed here
-    # (same "no path-shaped resolution can be made unsteerable" finding
-    # from #2637 round 4 applies without re-deriving it) — `expectedFailure`
-    # per that round's own precedent, so this gap is visible in `pytest`
-    # output instead of silently uncovered.
-    @unittest.expectedFailure
     def test_bypass_via_planted_git_directory_reaches_exempt_suffixes(self):
         (self.repo / "src" / ".git").mkdir(parents=True)
         r = _run_gate(
             self.repo,
             str(self.repo / "src/docs/specs/approvers.md"),
+            cwd=str(self.repo))
+        self.assertEqual(r.returncode, 2, r.stderr)
+
+    @unittest.expectedFailure
+    def test_bypass_via_nested_git_init_reaches_exempt_priorities_dir(self):
+        (self.repo / "src").mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=self.repo / "src",
+                        check=True)
+        r = _run_gate(
+            self.repo,
+            str(self.repo / "src/docs/reports/product/priorities/hack.md"),
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
 

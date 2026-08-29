@@ -54,7 +54,7 @@ payload="$(cat 2>/dev/null || true)"
 command -v python3 >/dev/null 2>&1 || exit 2
 
 IFS='' read -r -d '' GUARD <<'PY' || true
-import json, os, posixpath, re, sys
+import json, os, posixpath, re, subprocess, sys
 
 def deny(msg):
     sys.stderr.write("orchestrate: %s\n" % msg)
@@ -156,50 +156,54 @@ PRODUCT_CAPTURE_PRIORITIES_DIR_RE = re.compile(
 # and would have been wrongly exempted too. No exemption is granted when
 # no git root can be found (falls back to matching raw `n`, unchanged) —
 # a narrower miss, never a new bypass.
-def _git_root_from(path_hint):
-    probe = posixpath.dirname(path_hint)
-    while probe and probe != "/":
-        if os.path.isdir(posixpath.join(probe, ".git")):
-            return probe
+def _nearest_existing_dir(path):
+    # `path` (and any number of its parents) may not exist yet for a
+    # brand-new file a write is about to create, and `git -C` requires a
+    # directory that already exists to start looking from.
+    probe = path
+    while probe and probe != "/" and not os.path.isdir(probe):
         probe = posixpath.dirname(probe)
+    return probe if probe and os.path.isdir(probe) else "/"
+
+
+def _run_git(args, cwd):
+    env = dict(os.environ)
+    env["LC_ALL"] = "C"  # deterministic English output/stderr, so string
+                          # matches on git's messages aren't locale-dependent
+    try:
+        return subprocess.run(
+            ["git", "-C", cwd] + list(args),
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, timeout=10, env=env,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+
+
+def _git_root_from(path_hint):
+    # issue #2659: this used to trust `os.path.isdir(<probe>/".git")` as
+    # proof that `<probe>` is a real repo root — true for an ordinary
+    # clone, but a linked worktree or a submodule marks its root with a
+    # `.git` FILE (a "gitdir: <path>" pointer), which `os.path.isdir`
+    # never matches, so the walk fell through those layouts entirely.
+    # `git rev-parse --show-toplevel` parses both shapes the way git
+    # itself does, and — unlike the old walk — does not accept a bare
+    # `.git` directory/symlink with no real git content as a repo
+    # boundary either: it keeps walking up past one and finds the actual
+    # root above it (verified live, issue #2659 record). A session that
+    # runs a genuine `git init` in a subdirectory before the guarded
+    # write still relocates the perceived root, because that directory
+    # is then a real, independent git repository from git's own
+    # perspective — that narrower class is unchanged and stays out of
+    # scope here (issue #2637, not this issue).
+    probe = _nearest_existing_dir(posixpath.dirname(path_hint))
+    r = _run_git(["rev-parse", "--show-toplevel"], probe)
+    if r is not None and r.returncode == 0:
+        top = r.stdout.strip()
+        if top:
+            return top
     return None
 
-# KNOWN OPEN BYPASS (issue #2637 round 4, PR #2658 finding, reproduced
-# again in test/test_deliverable_guard_priorities_shard.py's three
-# `expectedFailure` cases below): `_git_root_from` above trusts
-# `os.path.isdir(<probe>/".git")` as proof that `<probe>` is the real
-# repo root. This hook only ever inspects Write/Edit/MultiEdit/
-# NotebookEdit tool calls (see the tool_name check above) — it never
-# sees an ordinary Bash `mkdir <probe>/.git` or `ln -s <anything>
-# <probe>/.git` the same orchestrator session can run immediately before
-# the guarded write. Either one relocates the "root" this exemption
-# resolves against to `<probe>`, which reopens the identical
-# src/-rooted bypass this whole exemption exists to close. A linked
-# worktree/submodule checkout (`.git` there is a FILE, not a directory)
-# hits the walk's "no root found" fallback instead and disables this
-# hook's src/test/docs deliverable-write denial entirely, not just the
-# priorities-shard exemption — see the hook's own separate board-repo
-# activation walk further below, which has the identical `os.path.isdir`
-# assumption and is unmodified by this file's history.
-#
-# Round 4 (docs/issue-2637/reports/silent-failure-audit+architecture-
-# interface-contract-shape-149dabd2.md) confirmed a session genuinely
-# must `Write` a shard file directly — `priorities.py`'s own module
-# docstring says so, and `_priorities_entry_path()`/`spawn.py
-# priorities-path` mint a path and `mkdir` the directory but never write
-# the entry itself (verified: the path does not exist on disk until a
-# session's own Write/Edit lands it) — so this exemption cannot simply
-# be deleted. That round was also told not to attempt a fourth
-# path-shaped resolution here: three prior fixes (unanchored regex,
-# `^`-anchor, cwd-relative, this git-root walk) each closed the
-# previous fix's hole and opened a new one, and a consult concluded no
-# path-shaped formulation can be made unsteerable while this hook
-# decides from session-reported strings and session-mutable filesystem
-# state before the write happens. This comment and the three
-# `expectedFailure` tests exist so that fact is visible in the code and
-# in `pytest` output instead of silently unaddressed — closing it needs
-# a mechanism that does not decide from a path string, which is a
-# decision for the issue, not a fifth regex.
 # root_relative_n backs both EXEMPT_SUFFIXES and
 # PRODUCT_CAPTURE_PRIORITIES_DIR_RE below — filesystem truth (the actual
 # git root), never a caller-supplied cwd or a raw-`n` guess, per the
@@ -266,15 +270,42 @@ if not isinstance(cwd, str) or not cwd or not posixpath.isabs(cwd):
          "this write's target relative to the session's actual working "
          "directory, denying rather than silently resolving a relative "
          "cwd against the hook process's own unrelated cwd.")
-root = None
 d = n if posixpath.isabs(n) else posixpath.normpath(posixpath.join(cwd, n))
-probe = posixpath.dirname(d)
-while probe and probe != "/":
-    if os.path.isdir(posixpath.join(probe, ".git")):
-        root = probe
-        break
-    probe = posixpath.dirname(probe)
-if root is None:
+
+# issue #2659: this activation check used to walk up for a directory
+# literally named ".git", which is how an ordinary clone marks its root
+# but not how a linked worktree or a submodule checkout does — there
+# `.git` is a FILE holding a "gitdir: <path>" pointer, the directory
+# walk matched nothing, and the fallback below was to ALLOW the write
+# outright (fail-open, in a guard, exactly where the layout is
+# unusual). `_run_git` asks git itself instead of hand-rolling a second
+# walk with the same weakness — a `.git` file's gitdir pointer is not
+# taken on faith, git already validates what it points at before it
+# will say "true". When git cannot answer at all (binary missing,
+# timeout, unrecognized output), that is reported as a refusal, not an
+# allow — "I could not find the root" and "this write is fine" are
+# opposite conclusions.
+probe = _nearest_existing_dir(posixpath.dirname(d))
+r = _run_git(["rev-parse", "--is-inside-work-tree"], probe)
+if r is None:
+    deny("could not determine whether %s is inside a git repository "
+         "(git rev-parse did not run) — cannot verify this write is "
+         "outside a board repo, denying rather than silently allowing "
+         "it through." % n)
+out = r.stdout.strip()
+if r.returncode == 0 and out == "true":
+    inside = True
+elif r.returncode == 0 and out == "false":
+    inside = False
+elif "not a git repository" in r.stderr.lower():
+    inside = False
+else:
+    deny("could not determine whether %s is inside a git repository "
+         "(git rev-parse --is-inside-work-tree exited %d: %s) — cannot "
+         "verify this write is outside a board repo, denying rather "
+         "than silently allowing it through."
+         % (n, r.returncode, r.stderr.strip()))
+if not inside:
     sys.exit(0)
 
 deny("this is an orchestrator session and %s is a deliverable path in a "
