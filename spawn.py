@@ -797,7 +797,7 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
     `test_expects_pr_missing_not_in_progress_is_respawn` 류처럼 `issue`
     없이 부르는 순수-비교 호출부는 여전히 상태 I/O 없이 동작한다.
     """
-    skill = expected.get("role")
+    skill = expected.get("skill")
     branch = expected.get("branch")
     issue = expected.get("issue")
     has_commit = bool(observed.get("new_commit"))
@@ -842,7 +842,7 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     아니라 이 reconcile 자신의 판정 상태이므로 순수성 취지(외부 세계 재조회
     없음)는 유지된다.
 
-    `expected = {"expects_pr": bool, "role": str, "branch": str, "issue": int|None}`
+    `expected = {"expects_pr": bool, "skill": str, "branch": str, "issue": int|None}`
     `observed = {"session_verdict": str, "pr_number": int|None,
                  "loop_state": str|None, "new_commit": bool,
                  "failure_signature": str|None}`
@@ -870,14 +870,14 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     if verdict == "crashed":
         return [{
             "kind": "session-crashed",
-            "detail": f"role={expected.get('role')} branch={expected.get('branch')}: "
+            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
                        "session_verdict=crashed",
             "next_action": "respawn",
         }]
     if verdict == "stalled":
         return [{
             "kind": "session-stalled",
-            "detail": f"role={expected.get('role')} branch={expected.get('branch')}: "
+            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
                        "session_verdict=stalled",
             "next_action": "resume-watch",
         }]
@@ -889,7 +889,7 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     # 건강한 (issue, role) 은 재기동 카운터를 초기화한다 — 아니면 일시적
     # flake 두 번이 이후의 진짜 죽음까지 영구히 ESCALATE 로 몰아간다.
     _issue = expected.get("issue")
-    _skill = expected.get("role")
+    _skill = expected.get("skill")
     if _issue is not None and _skill and (
             observed.get("pr_number") is not None or verdict == "normal"):
         recovery_policy = _recovery_policy_module()
@@ -903,7 +903,7 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
             # 안 맞는 입력, 침묵 대신 사람 검토로 보낸다.
             return [{
                 "kind": "inconsistent-observed-state",
-                "detail": f"role={expected.get('role')} branch={expected.get('branch')}: "
+                "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
                            f"session_verdict=None loop_state={observed.get('loop_state')!r}",
                 "next_action": "manual-review",
             }]
@@ -911,7 +911,7 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     if verdict not in known_verdicts:
         return [{
             "kind": "inconsistent-observed-state",
-            "detail": f"role={expected.get('role')} branch={expected.get('branch')}: "
+            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
                        f"session_verdict={verdict!r} loop_state={observed.get('loop_state')!r}",
             "next_action": "manual-review",
         }]
@@ -920,13 +920,13 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
 
 def _build_expected(entry: dict) -> dict:
     """로스터 엔트리 → `reconcile()` 의 `expected` 입력. 새 스키마 없음 —
-    `roster_register()` 가 이미 쓰는 필드(`role`, `expects_pr`)와 워크
+    `roster_register()` 가 이미 쓰는 필드(`skill`, `expects_pr`)와 워크
     경로에서 도출한 브랜치 이름만 쓴다."""
     work = entry.get("work")
     branch = Path(work).name if work else None
     return {
         "expects_pr": bool(entry.get("expects_pr")),
-        "role": entry.get("role"),
+        "skill": entry.get("skill"),
         "branch": branch,
         "issue": entry.get("issue"),
     }
@@ -943,7 +943,7 @@ def _build_observed(root: Path, entry: dict) -> dict:
     pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
     loop_state = None
     issue = entry.get("issue")
-    skill = entry.get("role")
+    skill = entry.get("skill")
     if issue is not None and skill:
         subject = f"issue-{issue}"
         loop_state = board(root).get(subject, {}).get(skill, {}).get("loop_state")
@@ -1064,7 +1064,7 @@ def _record_spawn_attempt(issue: int | None, skill: str, pid: int,
     ts = time.time()
     attempt_id = f"{issue}:{skill}:{pid}:{int(ts * 1000)}"
     _append_spawn_attempt_event({"event": "spawn_attempt", "attempt_id": attempt_id,
-                                  "issue": issue, "role": skill, "pid": pid, "cwd": cwd,
+                                  "issue": issue, "skill": skill, "pid": pid, "cwd": cwd,
                                   "ts": ts})
     return attempt_id
 
@@ -1333,7 +1333,7 @@ def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
     `False`(판정 불가 — 아직 안 풀림 쪽으로) — `_halt_condition_cleared`와
     같은 fail-safe 방향."""
     issue = attempt.get("issue")
-    skill = attempt.get("role")
+    skill = attempt.get("skill")
     my_ts = attempt.get("ts")
     if issue is None or not skill or not isinstance(my_ts, (int, float)):
         return False
@@ -1343,7 +1343,7 @@ def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
             continue
         if other.get("issue") != issue:
             continue
-        other_skill = other.get("role")
+        other_skill = other.get("skill")
         if not other_skill or _skill_family(other_skill) != family:
             continue
         other_ts = other.get("ts")
@@ -3269,7 +3269,7 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
     resolved_max_turns = _resolve_session_max_turns(max_turns)
     with _timed("admission"):
         _refused_item = admission_gate({
-            "cwd": cwd, "role": skill, "issue": issue, "task": task,
+            "cwd": cwd, "skill": skill, "issue": issue, "task": task,
             "single_phase": single_phase, "skills": skills,
             "max_turns": resolved_max_turns,
             "allow_unlimited_turns": allow_unlimited_turns,
@@ -3412,7 +3412,7 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             if not ok:
                 print(f"[{skill}] returned-PR 게이트: gh 조회 실패 — fail-open 으로 "
                       f"통과시킨다 (이슈 #680)", file=sys.stderr)
-                ledger_write({"event": "returned_pr_gate_fail_open", "role": skill,
+                ledger_write({"event": "returned_pr_gate_fail_open", "skill": skill,
                               "issue": issue, "ts": int(time.time())})
             else:
                 _print_returned_pr_surfaced(blockers, source="spawn")
@@ -4034,7 +4034,7 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                 # 죽으면 못 잡는다) 사람이 읽을 spawn-death 이벤트를 남기는
                 # 용도로만 아래에서 덧붙인다.
                 _early_roster_entry = {
-                    "pid": os.getpid(), "role": skill,
+                    "pid": os.getpid(), "skill": skill,
                     "issue": issue, "ts": int(time.time()),
                     "work": str(cwd), "log": str(log_path),
                     "expects_pr": issue is not None,
@@ -4138,7 +4138,7 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                                "error": str(exc)})
             raise
         roster_register(roster_key, {
-            "pid": proc.pid, "role": skill,
+            "pid": proc.pid, "skill": skill,
             "issue": issue, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
@@ -4453,7 +4453,7 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
         outcome = downgraded
     denials = result.get("permission_denials") or []
     ledger_write({
-        "ts": int(time.time()), "role": skill, "cwd": str(Path(cwd).resolve()),
+        "ts": int(time.time()), "skill": skill, "cwd": str(Path(cwd).resolve()),
         "repo": _repo_name(Path(cwd).resolve()),
         "session_id": result.get("session_id"),
         "cost_usd": result.get("total_cost_usd"),

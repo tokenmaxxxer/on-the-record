@@ -141,7 +141,7 @@ def to_ledger_event(summary: dict, skill: str | None = None, issue: str | None =
     return {
         "event": "cache_coverage_perf",
         "ts": int(time.time()),
-        "role": skill,
+        "skill": skill,
         "issue": issue,
         "turns": summary["turns"],
         "cache_hit_share": summary["cache_hit_share"],

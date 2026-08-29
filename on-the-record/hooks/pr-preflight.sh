@@ -111,10 +111,18 @@ skill = None
 try:
     with open(os.path.join(os.getcwd(), ".on-the-record", "role.json"), encoding="utf-8") as f:
         sidecar = json.load(f)
-    if (isinstance(sidecar, dict) and isinstance(sidecar.get("role"), str)
+    if (isinstance(sidecar, dict) and isinstance(sidecar.get("skill"), str)
             and isinstance(sidecar.get("issue"), int)):
         issue = sidecar["issue"]
-        skill = sidecar["role"]
+        skill = sidecar["skill"]
+    else:
+        sys.stderr.write(
+            "pr-preflight: .on-the-record/role.json present but not in "
+            "the expected shape (skill: str, issue: int) -- falling back "
+            "to branch-name parsing (issue #2741: this key was renamed "
+            "role -> skill, forward-only; a sidecar written before that "
+            "rename no longer resolves here).\n"
+        )
 except (OSError, ValueError):
     pass
 

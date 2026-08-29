@@ -1574,7 +1574,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         return anomaly_count
     state = _sp._watchdog_state_load()
     respawn_state = _sp._respawn_state_load() if auto_respawn else {}
-    issue_skill_key = lambda e: (e.get("issue"), e.get("role"))
+    issue_skill_key = lambda e: (e.get("issue"), e.get("skill"))
     # Issue #2103: one shared branch->PR index per poll tick, built lazily
     # from the cached board snapshot (delta read: 1 API call, usually) the
     # first time a dead entry needs a PR check — replaces the per-dead-entry

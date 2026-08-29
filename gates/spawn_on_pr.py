@@ -776,7 +776,7 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
                 f"true 로 남겨라. PR 생성 시 자동 스폰됨 (spawn_on_pr.py).")
         spawn.roster_register(
             f"issue-{issue}/{skill}",
-            {"role": skill, "issue": issue, "expects_pr": True, "work": cwd},
+            {"skill": skill, "issue": issue, "expects_pr": True, "work": cwd},
         )
         # 이슈 #2574 disposition: single-phase(build-now). 이 스폰은 이미
         # 랜딩된 PR 커밋에 대한 검증 기록을 쓸 뿐 새 code_under_review 를
@@ -852,7 +852,7 @@ def backfill_closed(root: Path, cwd: str, dry_run: bool = True) -> list[tuple[st
                 f"record 의 verifies_subject 를 true 로 남겨라.")
         spawn.roster_register(
             f"issue-{issue}/{skill}",
-            {"role": skill, "issue": issue, "expects_pr": True, "work": cwd},
+            {"skill": skill, "issue": issue, "expects_pr": True, "work": cwd},
         )
         # 이슈 #2574 disposition: single-phase(build-now) — 위
         # spawn_missing_for_pr() 자동 스폰과 같은 이유(닫힌 이슈에 랜딩된

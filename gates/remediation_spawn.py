@@ -88,7 +88,7 @@ def pending_remediation_tasks(root: Path, issue: int) -> list[dict]:
             finding_source=fields.get("finding_source", ""),
         )
         tasks.append({
-            "role": skill,
+            "skill": skill,
             "task": task,
             "remediation_path": remediation_path,
             "round": fields.get("round", ""),
@@ -103,7 +103,7 @@ def main() -> int:
     args = ap.parse_args()
     root = Path(args.repo)
     for t in pending_remediation_tasks(root, args.issue):
-        print(f"{t['role']}\t{t['task']}")
+        print(f"{t['skill']}\t{t['task']}")
     return 0
 
 

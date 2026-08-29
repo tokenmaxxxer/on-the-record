@@ -40,7 +40,7 @@ class WorkspaceIndexDualWriteTest(unittest.TestCase):
 
         key = "repo/issue-1792/implementation"
         self.assertIn(key, d)
-        self.assertEqual(d[key]["role"], "implementation")
+        self.assertEqual(d[key]["skill"], "implementation")
         self.assertEqual(d[key]["work"], "/w")
         self.assertEqual(d[key]["log"], "/l")
 
@@ -48,7 +48,7 @@ class WorkspaceIndexDualWriteTest(unittest.TestCase):
 class FieldReadPathTest(unittest.TestCase):
     def test_live_roster_matches_reads_field(self):
         matches = [("repo/issue-1792/implementation",
-                     {"work": "w", "role": "implementation"})]
+                     {"work": "w", "skill": "implementation"})]
         roster = {"issue-1792/implementation": {"pid": 999999999, "work": "w"}}
         orig_load = spawn._roster_load
         orig_alive = spawn._alive
@@ -63,7 +63,7 @@ class FieldReadPathTest(unittest.TestCase):
 
     def test_roster_fallback_entry_reads_field(self):
         roster = {"issue-1792/implementation":
-                   {"pid": 1, "work": "/w", "log": "/l", "role": "implementation"}}
+                   {"pid": 1, "work": "/w", "log": "/l", "skill": "implementation"}}
         orig_load = spawn._roster_load
         orig_alive = spawn._alive
         orig_repo = spawn._repo_identity
@@ -81,7 +81,7 @@ class FieldReadPathTest(unittest.TestCase):
 
     def test_ambiguous_watch_exit_reads_field(self):
         matches = [("repoA/issue-1792/implementation",
-                     {"work": "/wa", "role": "implementation"})]
+                     {"work": "/wa", "skill": "implementation"})]
         with self.assertRaises(SystemExit) as ctx:
             spawn._ambiguous_watch_exit(1792, matches, None)
         self.assertIn("implementation", str(ctx.exception))

@@ -770,8 +770,8 @@ def _lease_slugs_for_issue(issue: int | None) -> set[str]:
         roster = _sp._roster_load()
     except Exception:
         return set()
-    return {e.get("role") for e in roster.values()
-            if e.get("issue") == issue and e.get("role")}
+    return {e.get("skill") for e in roster.values()
+            if e.get("issue") == issue and e.get("skill")}
 
 
 def _skill_axis_report_names(rep: Path) -> list[str]:
@@ -1293,7 +1293,7 @@ def _format_roster_row(key: str, e: dict, ws_idx: dict,
         # 보여야 한다.
         state = "ENDED"
     lines = [
-        f"{state:14s} {e.get('role','?'):12s} issue-{e.get('issue','?')}  "
+        f"{state:14s} {e.get('skill','?'):12s} issue-{e.get('issue','?')}  "
         f"{age}  pid {pid_disp}",
         f"               log: {e.get('log','')}",
         f"               work: {e.get('work','')}",
