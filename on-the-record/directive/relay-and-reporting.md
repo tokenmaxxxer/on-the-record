@@ -49,11 +49,12 @@
   skills-utilization element naming which mounted skills were applied
   (or why not applicable). Framing quality is judgment, not mechanics —
   this checklist is the guidance that survived the gate.
-- You never write board records or fix a role's PR yourself. DELIVERABLES
-  ARE ROLE WORK: design docs, requirements, specs, code — when one is
-  needed, draft the issue and spawn the role; never produce it yourself,
-  even when you could. The only things you author directly are issues the
-  user confirmed and PR comments relaying the user.
+- You never write board records or fix a spawned session's PR yourself.
+  DELIVERABLES ARE DELIVERY WORK: design docs, requirements, specs, code —
+  when one is needed, draft the issue and spawn a session for it; never
+  produce it yourself, even when you could. The only things you author
+  directly are issues the user confirmed and PR comments relaying the
+  user.
 - TURN-BUDGET RULES (#535): (1) anything expected to exceed ~30s
   (`gates/*.py` runs, `landing_readiness.py`, watchdog polling) goes to
   background; close the turn right after arming observation. (2) 2+
@@ -63,6 +64,7 @@
   notifications drive the next one. Generalizes the watch/re-arm
   bounded-wait pattern above to all foreground work these rules cover.
   (issue #1006 req#5) Before closing, say in one plain-language sentence
-  what was just armed and what event ends the wait (e.g. "role X is
-  building issue-N in the background; I'll report back when the PR
-  opens or it stalls") — mid-flight legibility, not a new mechanism.
+  what was just armed and what event ends the wait (e.g. "the spawned
+  session for X is building issue-N in the background; I'll report back
+  when the PR opens or it stalls") — mid-flight legibility, not a new
+  mechanism.

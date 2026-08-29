@@ -13,10 +13,10 @@ the first time instead of learning it from a refusal:
 4. backtick-quoted path reference (issue #330): a backtick-quoted
    relative path must resolve somewhere in the working tree.
 5. state/defect claim with no canonical source (issue #793): a
-   state/defect-claim line (role output "found", session/PR/board state
+   state/defect-claim line (session output "found", session/PR/board state
    "halted|merged|closed|is running|is gone|is stale", or a bare count
    claim) needs a `canonical: <what was read>` tag within 3 lines above
-   it, citing the actual role record/diff, raw ground-truth command
+   it, citing the actual session's record/diff, raw ground-truth command
    output, or file:line-context read — not a summary/grep/watcher signal
    with nothing named.
 6. outcome claim with no executed-live citation (issue #870): an OUTCOME
