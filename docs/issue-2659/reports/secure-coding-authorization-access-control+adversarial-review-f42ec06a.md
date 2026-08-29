@@ -243,5 +243,14 @@ all verified live above.
 
 ## Skill verdicts
 
-skill-verdict: secure-coding-authorization-access-control — applied: invoked; used to judge the correct trust boundary for root resolution (deny-by-default on "cannot determine", never trust a session-plantable filesystem signal as an authorization decision) when choosing `git rev-parse` over a naive `.git`-of-any-kind walk.
-skill-verdict: adversarial-review — not-applicable: this record is original bugfix work, not a review of another session's deliverable — no separate artifact to hold at arm's length from its own author.
+Neither mounted skill was invoked via the Skill tool this session
+(caught by the Stop hook's skill-verdict-guard, issue #2681).
+
+other mounted skills: not triggered (secure-coding-authorization-access-control, adversarial-review, work-in-english, verify-finding-record — none invoked via the Skill tool)
+
+## Deviation log
+
+- inline (2026-08-30): this record's skill-verdict section originally
+  claimed `secure-coding-authorization-access-control — applied:
+  invoked` without ever having called the Skill tool. Corrected above.
+  Logged at `docs/issue-2659/reports/secure-coding-authorization-access-control+adversarial-review-f42ec06a/deviation-log/20260829T183415946321-1f063729c1fe4c42.md`.
