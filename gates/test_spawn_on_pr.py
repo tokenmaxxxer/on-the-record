@@ -520,27 +520,41 @@ def test_closed_and_open_subjects_mixed_only_open_unmappable_branch_reported(
 
 
 # ---------------------------------------------------------------------
-# missing_verification(): issue #2777 -- a degraded issue-state lookup
-# (issue_states stays None because closure_sweep.issue_state_index_all()
-# itself failed) must report its own distinct state, not silently
-# produce the same empty output as a healthy quiet tick. #2652's reorder
-# is not touched: `_issue_is_open()` still fail-closes the spawn decision
-# (`out` stays unaffected either way) -- only the diagnostic print is new.
+# missing_verification(): issue #2777/#2792 -- a degraded issue-state
+# lookup (issue_states stays None because closure_sweep.issue_state_
+# index_all() did not return a usable index) must report its own
+# distinct state, not silently produce the same empty output as a
+# healthy quiet tick. #2652's reorder is not touched: `_issue_is_open()`
+# still fail-closes the spawn decision (`out` stays unaffected either
+# way) -- only the diagnostic print is new.
+#
+# issue #2792: the degraded case is now two DISTINCT states sharing the
+# same `issue_states=None` fallout -- ISSUE_INDEX_FAILED (the gh call
+# itself failed) and ISSUE_INDEX_TRUNCATED (the gh call succeeded but
+# the index was too large to trust). Pre-#2792, `issue_state_index_all()`
+# returned `(None, True)` for truncation -- indistinguishable, at this
+# call site, from `(index, True)` healthy success once `not ok` was the
+# only check -- so a truncated board never accumulated a failure streak
+# and never printed anything: silent withholding while looking healthy.
+# The two states below must now print two DIFFERENT lines under two
+# DIFFERENT streak signals ("spawn-on-pr" / "spawn-on-pr:truncated"),
+# never the same "gh 실패" line for both.
 # ---------------------------------------------------------------------
 
-def _degraded_lookup(monkeypatch, tmp_path, *, ok):
+def _degraded_lookup(monkeypatch, tmp_path, *, status):
     subject = "issue-99301"
+    index = {} if status == spawn_on_pr.closure_sweep.ISSUE_INDEX_OK else None
     monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: {subject: _deliverable_board()})
     monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
                          lambda root, s: True)
     monkeypatch.setattr(spawn_on_pr.closure_sweep, "issue_state_index_all",
-                         lambda root: (({} if ok else None), ok))
+                         lambda root: (index, status))
     monkeypatch.setattr(spawn_on_pr.state_paths, "STATE_ROOT", tmp_path / "state")
     return subject
 
 
 def test_degraded_lookup_stays_quiet_below_the_failure_streak_threshold(monkeypatch, tmp_path, capsys):
-    _degraded_lookup(monkeypatch, tmp_path, ok=False)
+    _degraded_lookup(monkeypatch, tmp_path, status=spawn_on_pr.closure_sweep.ISSUE_INDEX_FAILED)
     threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
     for _ in range(threshold - 1):
         out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
@@ -550,7 +564,7 @@ def test_degraded_lookup_stays_quiet_below_the_failure_streak_threshold(monkeypa
 
 
 def test_degraded_lookup_reports_its_own_state_once_streak_hits_threshold(monkeypatch, tmp_path, capsys):
-    _degraded_lookup(monkeypatch, tmp_path, ok=False)
+    _degraded_lookup(monkeypatch, tmp_path, status=spawn_on_pr.closure_sweep.ISSUE_INDEX_FAILED)
     threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
     for _ in range(threshold):
         out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
@@ -560,18 +574,75 @@ def test_degraded_lookup_reports_its_own_state_once_streak_hits_threshold(monkey
     assert "gh 실패" in captured.out
     # distinct from the old unlabeled branch-missing noise:
     assert "찾지 못했다" not in captured.out
+    # distinct from the truncated-state line (issue #2792):
+    assert "절단" not in captured.out
 
 
 def test_healthy_lookup_after_this_functions_own_fetch_stays_quiet(monkeypatch, tmp_path, capsys):
-    # Regression guard: a *successful* internal fetch (ok=True) must not
-    # start printing either -- the new print is gated on failure alone.
-    subject = _degraded_lookup(monkeypatch, tmp_path, ok=True)
+    # Regression guard: a *successful* internal fetch must not start
+    # printing either -- the diagnostic prints are gated on a non-OK
+    # status alone.
+    subject = _degraded_lookup(monkeypatch, tmp_path, status=spawn_on_pr.closure_sweep.ISSUE_INDEX_OK)
 
     out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
 
     assert subject not in out  # empty issue_states index -> issue treated as not-OPEN
     captured = capsys.readouterr()
     assert captured.out == ""
+
+
+# ---------------------------------------------------------------------
+# missing_verification(): issue #2792 acceptance -- a truncated index is
+# reported as its own state, distinct from both a healthy quiet tick
+# (test above) and a gh-failure tick (tests above). It shares
+# `issue_states=None` fallout with a real failure (`out == {}`, same
+# spawn eligibility either way -- acceptance bullet 3) but must never be
+# silently folded into, or mistaken for, the "gh 실패" failure streak.
+# ---------------------------------------------------------------------
+
+def test_truncated_lookup_stays_quiet_below_its_own_streak_threshold(monkeypatch, tmp_path, capsys):
+    _degraded_lookup(monkeypatch, tmp_path, status=spawn_on_pr.closure_sweep.ISSUE_INDEX_TRUNCATED)
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+    for _ in range(threshold - 1):
+        out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
+        assert out == {}
+    captured = capsys.readouterr()
+    assert captured.out == ""
+
+
+def test_truncated_lookup_reports_its_own_state_once_streak_hits_threshold(monkeypatch, tmp_path, capsys):
+    _degraded_lookup(monkeypatch, tmp_path, status=spawn_on_pr.closure_sweep.ISSUE_INDEX_TRUNCATED)
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+    for _ in range(threshold):
+        out = spawn_on_pr.missing_verification(tmp_path, pr_index={})
+
+    assert out == {}  # spawn eligibility unaffected -- same fail-closed result as a real failure
+    captured = capsys.readouterr()
+    assert "절단" in captured.out
+    # never mislabeled as a real gh failure -- this is the exact defect
+    # #2792 reports: truncation used to be indistinguishable from health
+    # because both left `not ok` False.
+    assert "gh 실패" not in captured.out
+
+
+def test_truncated_and_failed_streaks_accumulate_independently(monkeypatch, tmp_path, capsys):
+    # A run of truncated ticks must not feed the "spawn-on-pr" gh-failure
+    # streak (that streak means something actionable-differently: the gh
+    # call itself is broken, not "the board grew past the safety limit").
+    _degraded_lookup(monkeypatch, tmp_path, status=spawn_on_pr.closure_sweep.ISSUE_INDEX_TRUNCATED)
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+
+    def streaks():
+        path = spawn_on_pr.spawn._watchdog_noise_state_path(tmp_path)
+        state = spawn_on_pr.spawn._load_watchdog_noise_state(path)
+        return state.get("gh_failure_streaks", {})
+
+    for _ in range(threshold):
+        spawn_on_pr.missing_verification(tmp_path, pr_index={})
+
+    s = streaks()
+    assert s.get("spawn-on-pr:truncated", 0) == threshold
+    assert s.get("spawn-on-pr", 0) == 0
 
 
 def test_gh_failure_streak_resets_on_recovery_via_production_caller_shape(monkeypatch, tmp_path, capsys):
@@ -600,7 +671,7 @@ def test_gh_failure_streak_resets_on_recovery_via_production_caller_shape(monkey
         return state.get("gh_failure_streaks", {}).get("spawn-on-pr", 0)
 
     monkeypatch.setattr(spawn_on_pr.closure_sweep, "issue_state_index_all",
-                         lambda root: (None, False))
+                         lambda root: (None, spawn_on_pr.closure_sweep.ISSUE_INDEX_FAILED))
     lines = []
     for _ in range(threshold):
         # mirrors watchdog.py: the caller's own top-level fetch failed,
@@ -625,7 +696,41 @@ def test_gh_failure_streak_resets_on_recovery_via_production_caller_shape(monkey
     # a single isolated blip right after recovery must NOT immediately
     # re-warn -- if it did, the streak would not have actually reset.
     monkeypatch.setattr(spawn_on_pr.closure_sweep, "issue_state_index_all",
-                         lambda root: (None, False))
+                         lambda root: (None, spawn_on_pr.closure_sweep.ISSUE_INDEX_FAILED))
     spawn_on_pr.missing_verification(tmp_path, issue_states=None, pr_index={})
     assert capsys.readouterr().out == ""
     assert streak() == 1
+
+
+def test_truncated_streak_resets_on_recovery_via_production_caller_shape(monkeypatch, tmp_path, capsys):
+    # issue #2792: the "spawn-on-pr:truncated" streak (separate signal
+    # name from "spawn-on-pr", see test_truncated_and_failed_streaks_
+    # accumulate_independently above) must reset on recovery the same
+    # way the pre-existing failure streak does -- same production caller
+    # shape as test_gh_failure_streak_resets_on_recovery_via_production_
+    # caller_shape above, mirrored for the truncated signal.
+    subject = "issue-99303"
+    monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: {subject: _deliverable_board()})
+    monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
+                         lambda root, s: True)
+    monkeypatch.setattr(spawn_on_pr.state_paths, "STATE_ROOT", tmp_path / "state")
+    threshold = spawn_on_pr.spawn.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
+
+    def streak():
+        path = spawn_on_pr.spawn._watchdog_noise_state_path(tmp_path)
+        state = spawn_on_pr.spawn._load_watchdog_noise_state(path)
+        return state.get("gh_failure_streaks", {}).get("spawn-on-pr:truncated", 0)
+
+    monkeypatch.setattr(spawn_on_pr.closure_sweep, "issue_state_index_all",
+                         lambda root: (None, spawn_on_pr.closure_sweep.ISSUE_INDEX_TRUNCATED))
+    for _ in range(threshold):
+        spawn_on_pr.missing_verification(tmp_path, issue_states=None, pr_index={})
+        capsys.readouterr()
+    assert streak() == threshold
+
+    out = spawn_on_pr.missing_verification(tmp_path, issue_states={}, pr_index={})
+    recovery_line = capsys.readouterr().out
+
+    assert recovery_line == ""
+    assert streak() == 0
+    assert out == {}

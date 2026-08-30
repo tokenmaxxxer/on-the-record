@@ -373,35 +373,52 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     #1498 요구 5: subject 당 `gh pr list --head` 대신 벌크 인덱스 한 번 +
     로컬 조인).
 
-    issue #2777: 이 함수 자신이 `issue_state_index_all()` 을 불러 실패하면
-    (`ok=False`) `issue_states` 는 `None` 으로 남고, 아래 루프의
-    `_issue_is_open()` 이 (의도대로) fail-closed 되어 모든 subject 를
-    건너뛴다 — 스폰 결정은 그대로 두되(#2652 가 세운 순서는 안 건드린다),
-    이 사실 자체는 watchdog.py 의 `closure-sweep` 실패-스트릭 관용
-    (`_watchdog_note_gh_failure`) 과 같은 방식으로 한 줄 남긴다: 단발
-    blip 은 삼키고, 연속 실패만 경고해 "닫힌 이슈라 조용함"/"정상이라
-    조용함"과 구별되는 세 번째 상태("판정 불가라 건너뜀")를 드러낸다.
+    issue #2777/#2792: 이 함수 자신이 `issue_state_index_all()` 을 불러
+    성공적으로 인덱스를 못 채우면(`status != ISSUE_INDEX_OK`) `issue_states`
+    는 `None` 으로 남고, 아래 루프의 `_issue_is_open()` 이 (의도대로)
+    fail-closed 되어 모든 subject 를 건너뛴다 — 스폰 결정은 그대로 두되
+    (#2652 가 세운 순서는 안 건드린다), 이 사실 자체는 watchdog.py 의
+    `closure-sweep` 실패-스트릭 관용(`_watchdog_note_gh_failure`) 과 같은
+    방식으로 한 줄 남긴다: 단발 blip 은 삼키고, 연속 실패만 경고한다.
+
+    issue #2792: `status` 는 `ISSUE_INDEX_FAILED`(gh 호출 자체가 실패)와
+    `ISSUE_INDEX_TRUNCATED`(gh 호출은 성공했지만 인덱스가 안전 상한을
+    넘어 신뢰할 수 없음) 둘 중 하나일 수 있다 — 둘 다 `issue_states=None`
+    으로 이어지는 결과는 같지만(스폰 판정은 동일하게 fail-closed), 이
+    사실을 알리는 스트릭은 서로 다른 signal 이름
+    (`"spawn-on-pr"`/`"spawn-on-pr:truncated"`) 아래 별도로 누적한다 —
+    `not ok` 하나로 뭉뚱그리면 truncated 가 실패 스트릭에도 안 잡히고
+    자기 자신의 신호도 없어 "정상이라 조용함"과 구별 불가능한 상태로
+    영원히 남는다(이 이슈가 고치는 바로 그 결함). 그래서 "닫힌 이슈라
+    조용함"/"정상이라 조용함"/"gh 실패라 판정 보류"/"절단이라 판정 보류"
+    네 상태가 서로 다른 출력으로 구별된다.
 
     실제 운영 호출부(watchdog.py)는 매 틱 한 번 자신이 직접
-    `issue_state_index_all()` 을 불러 성공하면 실제 dict 를, 실패하면
+    `issue_state_index_all()` 을 불러 성공하면 실제 dict 를, 실패/절단이면
     `None` 을 이 함수에 그대로 넘긴다 — 즉 `issue_states is not None` 로
     들어오는 모든 호출은 그 호출자의 fetch 가 이번 틱에 성공했다는
     뜻이다. `closure-sweep` 은 매 틱 if/else 양쪽에서 스트릭을 갱신하는데
     (성공 분기에서도 리셋을 호출) 반해, 이 신호는 실패 재-fetch 분기
     안에서만 스트릭을 건드리면 그 분기 자체가 정상 운영 틱에는 전혀
     실행되지 않아 리셋이 죽은 코드가 된다 — 그래서 `issue_states` 가
-    이미 주어진 (=성공한) 매 호출마다도 리셋을 호출해 `closure-sweep`
-    과 같은 if/else 모양을 맞춘다."""
+    이미 주어진 (=성공한) 매 호출마다도 두 신호 모두 리셋을 호출해
+    `closure-sweep` 과 같은 if/else 모양을 맞춘다."""
     out: dict[str, int] = {}
     if issue_states is None:
-        issue_states, ok = closure_sweep.issue_state_index_all(root)
-        if spawn._watchdog_note_gh_failure(root, "spawn-on-pr", not ok):
+        issue_states, status = closure_sweep.issue_state_index_all(root)
+        failed = status == closure_sweep.ISSUE_INDEX_FAILED
+        truncated = status == closure_sweep.ISSUE_INDEX_TRUNCATED
+        if spawn._watchdog_note_gh_failure(root, "spawn-on-pr", failed):
             print("[spawn-on-pr] gh 실패 — 이슈 상태 조회 불가, "
                   "이번 틱 판정 보류 (연속 실패)")
-        if not ok:
+        if spawn._watchdog_note_gh_failure(root, "spawn-on-pr:truncated", truncated):
+            print(f"[spawn-on-pr] 이슈 인덱스 절단(상한 {closure_sweep._ISSUE_INDEX_LIMIT}건) — "
+                  "이슈 상태 조회 불가, 이번 틱 판정 보류 (연속 절단)")
+        if status != closure_sweep.ISSUE_INDEX_OK:
             issue_states = None
     else:
         spawn._watchdog_note_gh_failure(root, "spawn-on-pr", False)
+        spawn._watchdog_note_gh_failure(root, "spawn-on-pr:truncated", False)
     if pr_index is None:
         pr_index, _ = closure_sweep._pr_index_all(root)
     b = spawn.board(root)
@@ -869,8 +886,14 @@ def backfill_closed(root: Path, cwd: str, dry_run: bool = True) -> list[tuple[st
     않는다 — 사람이 명시적으로 `python3 gates/spawn_on_pr.py
     backfill-closed` 를 실행할 때만 쓴다. `dry_run` 기본값은 `True` —
     실제로 스폰하려면 호출자가 `--live` 로 명시해야 한다."""
-    issue_states, ok = closure_sweep.issue_state_index_all(root)
-    if not ok:
+    issue_states, status = closure_sweep.issue_state_index_all(root)
+    if status != closure_sweep.ISSUE_INDEX_OK:
+        # issue #2792: failed 와 truncated 모두 이 opt-in CLI 경로에서는
+        # 스폰 판정 결과는 같다(대상 subject 없음) — 사람이 직접 실행하는
+        # 명령이라 자동 틱의 "조용히 계속 건강해 보임" 문제는 여기서
+        # 재현되지 않는다. 다만 `status` 를 그대로 한 줄 찍어 원인은
+        # 구별해 둔다(gh 실패 vs 인덱스 절단).
+        print(f"[backfill-closed] 이슈 상태 조회 불가 ({status}) — 대상 subject 없음")
         issue_states = None
     pairs: list[tuple[str, str]] = []
     for subject, deficit in _missing_verification_closed(root, issue_states).items():
