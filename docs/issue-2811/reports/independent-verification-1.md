@@ -123,10 +123,11 @@ worktrees, and the core-repo population was independently reproduced
 by discovering (not assuming) that `$CLAUDE_PLUGIN_ROOT_CORE` is a
 subdirectory of a larger repo before trusting the PR's 3-file count.
 
-skill-verdict: work-in-english — not-applicable: this task's prompt is
-in English (spawn prompt for `independent-verification-1`); the Korean
-text in this session's outer directive context is scaffolding, not a
-user instruction to translate the work.
+skill-verdict: work-in-english — applied: invoked; the spawn prompt for
+this role is in Korean, so all internal work (this record, the
+git commit, and every intermediate command/output above) was kept in
+English; only the final user-facing summary is in Korean, per the
+skill's policy.
 other mounted skills: not triggered.
 
 ## What did not work
