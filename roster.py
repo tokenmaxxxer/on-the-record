@@ -203,6 +203,38 @@ def _watcher_looks_real(pid: int, issue: int | None,
     return True
 
 
+def _session_looks_real(pid: int, work: str | None) -> bool:
+    """이슈 #2749 PR #2823 after-proposal review 발견: `self_update_pull_cli()`
+    가 살아있는 세션을 찾을 때 `_alive()` 만 쓰면 `_watcher_looks_real()` 이
+    워처 pid 에 대해 이미 고친 것과 같은 구멍이 세션 pid 에도 그대로 있다
+    -- 크래시한 세션의 pid 를 OS 가 무관한 프로세스에 재할당하면
+    `_alive()` 는 계속 참을 돌려주고, self-update 는 로스터가 정리될
+    때까지 영원히 거부만 한다(자가치유 없음).
+
+    워처는 cmdline 에 `watch`/이슈/스킬 토큰이 그대로 있어 그걸로 신원을
+    재확인하지만(`_watcher_looks_real`), 로스터에 최종 등록되는 세션
+    pid 는 언제나 `spawn_cmd()`/`subprocess.Popen(cmd, cwd=cwd, ...)` 로
+    뜬 `claude` 서브프로세스 자신이라 cmdline 에 그런 토큰이 없다 --
+    대신 그 프로세스의 `cwd` 가 등록 당시 워크스페이스(`work`)와 정확히
+    같다는, Popen 이 보장하는 사실을 쓴다. `/proc` 없는 플랫폼이나
+    `work` 를 모르는 호출(예: work 필드가 비어 있는 구 엔트리)에서는
+    `_alive()` 로 저하한다 -- `_watcher_looks_real()` 이 `issue=None` 이나
+    `/proc` 부재에서 저하하는 것과 같은 모양."""
+    if not _sp._alive(pid):
+        return False
+    if not work:
+        return True
+    cwd_link = Path(f"/proc/{pid}/cwd")
+    if not cwd_link.exists():
+        return True
+    try:
+        actual = cwd_link.resolve()
+        expected = Path(work).resolve()
+    except OSError:
+        return True
+    return actual == expected
+
+
 def _alive(pid: int) -> bool:
     # 이슈 #1462: `os.kill(0, 0)` 은 pid 0 이 아니라 호출자 자신의 프로세스
     # 그룹에 신호를 보내 항상 성공한다 — roster 엔트리의 `pid` 가 없거나

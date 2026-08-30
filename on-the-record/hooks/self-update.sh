@@ -34,17 +34,35 @@ _checkout_resolve() {
 }
 CHECKOUT="$(_checkout_resolve || true)"
 if [ -n "$CHECKOUT" ]; then
-  # issue #910 finding #4: a failed `git pull --ff-only` (diverged history,
-  # merge conflict, network down) was previously discarded silently and
-  # every downstream hook kept running against a stale checkout with no
-  # trace. Mirror the `.shallow-check` marker pattern below: record the
-  # outcome either way.
-  pull_err="$(git -C "$CHECKOUT" pull -q --ff-only 2>&1)"
-  if [ $? -eq 0 ]; then
-    printf 'pull=ok\n' > "$CHECKOUT/.pull-check" 2>/dev/null || true
-  else
-    printf 'pull=failed:%s\n' "$(printf '%s' "$pull_err" | tr '\n' ' ' | head -c 500)" \
+  # issue #2749: this used to `git pull --ff-only` unconditionally here.
+  # `pull` = fetch + merge into the working tree, and the working tree is
+  # what every hook in this checkout executes from — so that merge, not
+  # the GitHub merge, was the moment code changed underneath whichever
+  # sessions were live (issue #2670's finding, reflog-confirmed: repeated
+  # fast-forwards this hook fired with no actor choosing the moment,
+  # while sessions were running). `git fetch` alone only updates
+  # refs/objects, never the working tree, so it stays unconditional and
+  # safe here; advancing the working tree is now a deliberate act —
+  # `spawn.py self-update`, which refuses while any session is live (the
+  # same "zero sessions running at pull time" discipline #2670 ran by
+  # hand). issue #910 finding #4's bar still holds either way: the
+  # outcome is always recorded to `.pull-check`, never silently dropped —
+  # mirror the `.shallow-check` marker pattern below.
+  fetch_err="$(git -C "$CHECKOUT" fetch -q 2>&1)"
+  if [ $? -ne 0 ]; then
+    printf 'pull=failed:fetch:%s\n' "$(printf '%s' "$fetch_err" | tr '\n' ' ' | head -c 500)" \
       > "$CHECKOUT/.pull-check" 2>/dev/null || true
+  else
+    behind_err="$(git -C "$CHECKOUT" rev-list --count 'HEAD..@{u}' 2>&1)"
+    if [ $? -ne 0 ]; then
+      printf 'pull=unknown:%s\n' "$(printf '%s' "$behind_err" | tr '\n' ' ' | head -c 200)" \
+        > "$CHECKOUT/.pull-check" 2>/dev/null || true
+    elif [ "$behind_err" = "0" ]; then
+      printf 'pull=ok\n' > "$CHECKOUT/.pull-check" 2>/dev/null || true
+    else
+      printf 'pull=deferred:%s-behind-origin\n' "$behind_err" \
+        > "$CHECKOUT/.pull-check" 2>/dev/null || true
+    fi
   fi
 fi
 # #412: a self-clone (or any pre-existing checkout) can be shallow — a
