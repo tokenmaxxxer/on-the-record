@@ -1263,6 +1263,22 @@ def session_end_verdict(work: str, log_path: Path | None, now: float | None = No
     `in-progress` 로 판정해 이 구간을 죽음으로 오판하지 않는다. 생략하면
     (기본값 `None`, 기존 호출부) 이전과 동일하게 자식 pid 만으로 판정한다
     — 순수 추가라 기존 동작은 안 바뀐다.
+
+    알려진 한계(이슈 #2874 before-landing hunt): `alive_fn(wrapper_pid)` 는
+    `os.kill(pid, 0)` 뿐이라 "그 pid 번호를 지금 누가 쥐고 있다"만 증명하지
+    "그 pid 가 여전히 이 로스터 엔트리를 몰던 바로 그 wrapper"라는 신원까지는
+    증명 못 한다 — 진짜 wrapper 가 `session-end` 를 남기지 못하고 죽은 뒤,
+    OS 가 그 pid 번호를 무관한 다른 프로세스에 재사용하면 그 사이 크래시가
+    `in-progress` 로 잘못 읽힌다. `_watch --follow`(events.py, 이슈 #224)가
+    이미 같은 방식으로 `wrapper_pid` 를 쓰고 있고 거긴 별도의 stall-timeout
+    안전망이 있어 결국 붙잡히지만, 이 함수의 호출부(`_auto_respawn_check()`
+    등)엔 그런 시간 기반 백스톱이 없다 — 이슈 #2874 의 "lease 를 넓히거나
+    대기를 늘리지 말라"는 제약과 정면으로 부딪혀 이 세션에서는 고치지
+    않는다(신원 확인엔 `/proc/<pid>` 시작시각 비교 같은 새 메커니즘이
+    필요하고, 그건 이 코드베이스 어디에도 아직 없다). PID 재사용 자체가
+    영구적이지 않다는 점(그 무관한 프로세스도 언젠가 죽으면 다음 틱이 다시
+    `crashed` 로 바로잡는다)이 완화 요인이지만, 신원 검증이 없다는 사실은
+    남는다 — 후속 이슈감.
     """
     now = time.time() if now is None else now
     alive_fn = _sp._alive if alive_fn is None else alive_fn
