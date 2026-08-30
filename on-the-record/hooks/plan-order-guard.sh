@@ -119,7 +119,7 @@ if not plan:
     sys.exit(0)
 
 step_n = next((p["step"] for p in plan
-               if any(s in p["roles"] for s in skill_names)), None)
+               if any(s in p["skills"] for s in skill_names)), None)
 if step_n is None:
     sys.exit(0)  # no named skill appears in this issue's plan — not this hook's concern
 
