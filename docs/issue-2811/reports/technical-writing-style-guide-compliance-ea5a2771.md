@@ -137,9 +137,7 @@ all sentence structure is byte-identical before/after, confirming the
 meaning of every sentence is unchanged and no mood/voice/person was
 altered, only the noun.
 
-skill-verdict: technical-writing-style-guide-compliance — applied:
-invoked; used at the spawn.py lines 1399-1438 word-choice rewrite (rule 4:
-match identifier vocabulary) per skill-repository(c05de12).
+skill-verdict: technical-writing-style-guide-compliance — applied: invoked; used at the spawn.py lines 1399-1438 word-choice rewrite (rule 4: match identifier vocabulary) per skill-repository(c05de12).
 
 ## What did not work
 
