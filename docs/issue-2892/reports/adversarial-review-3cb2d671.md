@@ -282,8 +282,7 @@ real, separately-spawned sessions, identical task, only the directive
 text differing) since the subject's own record could not distinguish "the
 sentence caused the commits" from "the session would have committed
 anyway."
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-invoked; applied: re-derived the byte delta from the real injection point
+skill-verdict: defect-verification-independence-from-upstream-verdicts — invoked; applied: re-derived the byte delta from the real injection point
 rather than citing the subject record's number, per rule 3 and rule 8; ran
 a deliberate negative/edge case (4-file task, no terminal verification
 step) alongside the positive cases rather than stopping after the first
