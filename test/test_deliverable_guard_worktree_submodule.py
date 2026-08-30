@@ -50,6 +50,16 @@ def _run_gate(repo: Path, file_path: str, cwd: str | None = None):
     )
 
 
+def _assert_denied_as_deliverable_path(test_case, result):
+    """rc==2 alone can't distinguish "denied because it's a deliverable
+    path in a board repo" from "the hook crashed" — its own `trap`
+    (deliverable-guard.sh line 42) remaps ANY unexpected nonzero exit to
+    2 as well. Require the actual policy-denial message on stderr."""
+    test_case.assertIn(
+        "deliverable path in a board repo", result.stderr, result.stderr)
+    test_case.assertNotIn("Traceback", result.stderr, result.stderr)
+
+
 class DeliverableGuardLayoutParityTest(unittest.TestCase):
     """Acceptance: the same payload reaches the same verdict in an
     ordinary clone, a linked worktree, and a submodule."""
@@ -99,6 +109,7 @@ class DeliverableGuardLayoutParityTest(unittest.TestCase):
             with self.subTest(layout=label):
                 r = _run_gate(repo, str(repo / "src/x.py"), cwd=str(repo))
                 self.assertEqual(r.returncode, 2, f"{label}: {r.stderr}")
+                _assert_denied_as_deliverable_path(self, r)
 
     def test_allow_shaped_write_allowed_in_every_layout(self):
         for label, repo in self._layouts():
