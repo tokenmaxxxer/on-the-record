@@ -183,7 +183,7 @@ def _watcher_looks_real(pid: int, issue: int | None,
     기능이라 그 이상은 판단 불가.
 
     이슈 #559 after-proposal hunt 발견: `issue` 만 보면 같은 이슈의 *다른*
-    역할이 무장한 살아있는 워처를 이 역할의 워처로 오인한다 — `role` 을
+    스킬이 무장한 살아있는 워처를 이 스킬의 워처로 오인한다 — `skill` 을
     넘기면 cmdline 에 그 문자열도 있어야 한다."""
     if not _sp._alive(pid):
         return False
