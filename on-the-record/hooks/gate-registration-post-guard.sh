@@ -49,9 +49,12 @@
 #           convention every sibling gate in this file follows). A miss
 #           writes a pending-violation record to
 #           ${OTR_GRG_POST_STATE_DIR:-$TMPDIR/otr-grg-post}/<session_id>.json.
-#           Cannot deny (same invariant post-landing-obligation-gate.sh's
-#           comment states: PostToolUse fires after the write already
-#           landed) -- this mode is pure side-effect, always exit 0.
+#           A clean commit -- no missing rows -- leaves no file behind: see
+#           _save()'s comment for why the file's mere existence, not its
+#           content, has to mean "a violation is outstanding". Cannot deny
+#           (same invariant post-landing-obligation-gate.sh's comment
+#           states: PostToolUse fires after the write already landed) --
+#           this mode is pure side-effect, always exit 0.
 #   pre  -- PreToolUse, any tool (same broad matcher approach-cap-
 #           warning.sh's "pre" mode already uses) -- reads the state file
 #           and, for every still-open violation, re-checks the CURRENT
@@ -64,7 +67,11 @@
 #           commit now. Repeats on every tool call until the row lands or
 #           the state entry is manually cleared, mirroring approach-cap-
 #           warning.sh's own "cannot scroll out of context" rationale. A
-#           row that lands clears the entry and the nagging stops.
+#           row that lands clears the entry, deletes the now-empty state
+#           file (see _save()), and the bash-only fast path at the top of
+#           this script -- which tests file existence, not content -- goes
+#           cold again for every later tool call, in this session and any
+#           other sharing this TMPDIR.
 #
 # What this pair does NOT restore: the strong guarantee -- refuse the
 # write before it happens -- for the bundled shape specifically. That
@@ -149,6 +156,23 @@ def _load():
 
 
 def _save(data):
+    # A state file must exist only while a violation is genuinely
+    # outstanding: the `pre`-mode bash-only short-circuit at the top of
+    # this script tests file existence, not content, as its cheap
+    # per-tool-call check. If a resolved or non-violating outcome left a
+    # `{"violations": []}` file behind, that check would find it on every
+    # later tool call sharing this TMPDIR and force the slow python3 path
+    # forever, even though the interpreter itself would immediately exit
+    # -- a permanent ~22x fast-path regression triggered by the very first
+    # bundled commit, including a clean one (issue #2705 CHANGES round).
+    # Deleting the file when there is nothing left to report keeps file
+    # existence and "a violation is outstanding" the same fact.
+    if not data.get("violations"):
+        try:
+            os.remove(state_path)
+        except OSError:
+            pass
+        return
     try:
         tmp = state_path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:

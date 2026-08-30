@@ -174,7 +174,13 @@ it, and that `gate-registration-guard.sh`'s own pre-commit refusal still
 applies unchanged whenever the file was staged in an earlier, separate
 Bash call. It repeats on every subsequent tool call until the row lands,
 mirroring `approach-cap-warning.sh`'s own "cannot scroll out of context"
-rationale, then clears.
+rationale, then clears. Clearing deletes the session's state file rather
+than leaving it behind holding `{"violations": []}`: the `pre`-mode
+bash-only fast path (checked before any process spawn, on every tool
+call) short-circuits on the state file's mere *existence*, so a
+resolved-but-still-present file would defeat that short-circuit forever
+for every later tool call sharing the same `$TMPDIR` — the file's
+existence and "a violation is outstanding" are kept the same fact.
 
 Regression coverage: `on-the-record/hooks/test_gate_registration_post_guard.py`.
 

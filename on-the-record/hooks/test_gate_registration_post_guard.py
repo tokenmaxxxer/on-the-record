@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -137,8 +138,12 @@ class GateRegistrationPostGuardTest(unittest.TestCase):
         resolved = _run("pre", next_call, self.state_dir, self.repo)
         self.assertEqual(resolved.returncode, 0)
         self.assertEqual(resolved.stdout.strip(), "", resolved.stdout)
+        # issue #2705 CHANGES round: a resolved violation must delete its
+        # state file, not leave a `{"violations": []}` file behind -- that
+        # leftover file is exactly what defeats the `pre`-mode bash-only
+        # fast path (existence-only check) forever.
         state_file = self.state_dir / "sess-2.json"
-        self.assertEqual(json.loads(state_file.read_text())["violations"], [])
+        self.assertFalse(state_file.exists(), "resolved state file should be removed")
 
     def test_bundled_add_and_commit_with_row_already_staged_is_clean(self):
         (self.repo / "docs" / "specs" / "enforcement-boundary.md").write_text(
@@ -155,10 +160,10 @@ class GateRegistrationPostGuardTest(unittest.TestCase):
         }
         post = _run("post", payload, self.state_dir, self.repo)
         self.assertEqual(post.returncode, 0, post.stderr)
+        # issue #2705 CHANGES round: a clean commit must not leave a state
+        # file behind at all -- see test_pre_mode_warns_then_clears_once_row_lands.
         state_file = self.state_dir / "sess-3.json"
-        violations = (json.loads(state_file.read_text())["violations"]
-                      if state_file.exists() else [])
-        self.assertEqual(violations, [])
+        self.assertFalse(state_file.exists(), "clean commit should write no state file")
 
     def test_non_bash_tool_is_noop(self):
         payload = {"session_id": "sess-4", "tool_name": "Write",
@@ -192,6 +197,76 @@ class GateRegistrationPostGuardTest(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("gates/second_gate.py", result.stderr)
+
+    def test_pre_mode_fast_path_survives_a_resolved_violation(self):
+        """issue #2705 CHANGES round: the pre-mode bash-only short-circuit
+        (checked before any process spawn, on every tool call) must not be
+        a one-way door. A state file left behind after resolution -- even
+        holding an empty `violations` list -- would defeat that
+        short-circuit permanently for every later tool call sharing this
+        TMPDIR, since it tests file existence, not content.
+
+        Proven here with a `python3` stub on PATH that writes a marker
+        file when invoked: if the bash-only fast path returns before ever
+        reaching `python3 -c "$GUARD"`, the marker is never created,
+        regardless of what the stub would have done. A real violation
+        (state file present) must still reach the interpreter; a resolved
+        one (state file removed) must not."""
+        marker = Path(self._tmp.name) / "python3-invoked.marker"
+        stub_dir = Path(self._tmp.name) / "python-stub-bin"
+        stub_dir.mkdir()
+        stub = stub_dir / "python3"
+        # exec the REAL interpreter by its absolute path, not by PATH
+        # lookup -- the stub dir is prepended to PATH below, so a bare
+        # `python3`/`env python3` re-lookup would just re-invoke this
+        # same stub forever.
+        stub.write_text(f"#!/bin/sh\ntouch {marker}\nexec {sys.executable} \"$@\"\n")
+        stub.chmod(0o755)
+        env = dict(os.environ)
+        env["OTR_GRG_POST_STATE_DIR"] = str(self.state_dir)
+        env.pop("ORCHESTRATE_OFF", None)
+        env["PATH"] = f"{stub_dir}{os.pathsep}{env.get('PATH', '')}"
+
+        def _run_with_stub(mode: str, payload: dict) -> subprocess.CompletedProcess:
+            marker.unlink(missing_ok=True)
+            return subprocess.run(
+                ["bash", str(HOOK_PATH), mode], input=json.dumps(payload),
+                capture_output=True, text=True, cwd=self.repo, env=env, timeout=30,
+            )
+
+        stdout = self._commit_bundled(
+            "gates/new_gate.py", "def check(): pass", "add new gate")
+        payload = {
+            "session_id": "sess-7", "tool_name": "Bash", "cwd": str(self.repo),
+            "tool_input": {"command": "git add gates/new_gate.py && git commit -m x"},
+            "tool_response": stdout,
+        }
+        self.assertEqual(_run_with_stub("post", payload).returncode, 0)
+
+        next_call = {"session_id": "sess-7", "cwd": str(self.repo),
+                     "tool_name": "Read", "tool_input": {}}
+        self.assertEqual(_run_with_stub("pre", next_call).returncode, 0)
+        self.assertTrue(marker.exists(),
+                         "an open violation must still reach the interpreter")
+
+        (self.repo / "docs" / "specs" / "enforcement-boundary.md").write_text(
+            "| mechanism | verdict |\n|---|---|\n| `new_gate.py` | ok |\n"
+        )
+        _git(self.repo, "add", "docs/specs/enforcement-boundary.md")
+        _git(self.repo, "commit", "-q", "-m", "register")
+        resolved = _run_with_stub("pre", next_call)
+        self.assertEqual(resolved.returncode, 0)
+        self.assertTrue(marker.exists(),
+                         "resolving still requires one interpreter pass to re-check the tree")
+        self.assertFalse((self.state_dir / "sess-7.json").exists())
+
+        # The NEXT pre call, with the state file gone, must take the
+        # bash-only fast path and never touch the (stubbed) interpreter.
+        final = _run_with_stub("pre", next_call)
+        self.assertEqual(final.returncode, 0)
+        self.assertEqual(final.stdout.strip(), "")
+        self.assertFalse(marker.exists(),
+                          "fast path must not spawn python3 once no state file exists")
 
     def test_orchestrate_off_disables_both_modes(self):
         stdout = self._commit_bundled(
