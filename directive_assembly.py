@@ -120,6 +120,13 @@ DEFAULT_SESSION_MAX_TURNS = 200
 # Moved verbatim from the issue-workspace preamble (issues #132/#1981 and
 # the headless/run_in_background warning). The inline index keeps the
 # one-line 완료의 정의 invariant plus a trigger line; this file is canon.
+# Issue #2892: the checkpoint-commit sentence below only fires "before
+# starting a long/backgrounded verification" -- a session that edits many
+# files, passes its build, and is killed while writing the record next
+# (verification already done, commit still pending) falls outside that
+# trigger. The added sentence generalizes the trigger to "finish a work
+# unit," not "about to verify," and is worded to fire mid-task rather than
+# reduce to "commit when done."
 _COMPLETION_PROSE = (
     "완료의 정의: 변경이 이 브랜치에 **커밋**되고 push 되어 PR 로\n"
     "제출된 상태다. 미커밋 변경은 존재하지 않는 것과 같다 —\n"
@@ -129,6 +136,11 @@ _COMPLETION_PROSE = (
     "전에 먼저 체크포인트 커밋을 해 두고, 검증이 끝난 뒤 amend 하거나\n"
     "후속 커밋을 추가하라 — 검증부터 하고 나중에 커밋하는 습관은\n"
     "세션이 검증 도중 끊길 때 미커밋 변경을 그대로 좌초시킨다.\n"
+    "진행 중 커밋: 검증 시작 전만이 아니라, 의미 있게 끝난 편집 단위를\n"
+    "마칠 때마다 그 자리에서 커밋하라 — 끝나고 한 번에 커밋하면 턴\n"
+    "한도가 그 사이 어디서 끊기든 이전 작업이 전부 사라진다. 이 중간\n"
+    "커밋은 이 세션 자신의 브랜치에만 쌓인다, main 은 여전히 PR 로만\n"
+    "받는다.\n"
     "경고: 이 턴은 headless 이고 단발이다 — 세션이 끝나면 이 프로세스도\n"
     "끝난다. run_in_background 로 넘긴 작업은 부모 턴이 끝나는 순간 함께\n"
     "죽는다(백그라운드 워커가 커밋·push 를 대신 끝내줄 것이라고 가정하지\n"
