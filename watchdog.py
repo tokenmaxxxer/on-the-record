@@ -302,8 +302,14 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
 
     alive = _sp._alive(pid)
     if not alive:
+        # 이슈 #2874: wrapper_pid 를 넘겨 reconcile()/`_auto_respawn_check()`
+        # 와 같은 신호로 판정한다 — 지금까지는 이 함수만 `pr_number` 로
+        # 같은 후처리-꼬리 구간을 우회해 왔고(아래), reconcile 쪽엔 그 우회가
+        # 없어 두 계통이 갈렸다(이슈 #2874 실측). PR 이 아직 없는 죽음에서도
+        # 같은 구간을 같은 이유로 놓치지 않도록 두 신호를 함께 쓴다.
         verdict = _sp.session_end_verdict(
-            work, Path(entry["log"]) if entry.get("log") else None, now=now) \
+            work, Path(entry["log"]) if entry.get("log") else None, now=now,
+            wrapper_pid=entry.get("wrapper_pid")) \
             if work else None
         if branch is None:
             pr_number = None
@@ -311,7 +317,15 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
             pr_number = _sp._pr_state_from_index(pr_index, branch)
         else:
             pr_number = _sp._pr_open_or_merged_for_branch(root, branch)
-        if verdict == "normal" or pr_number is not None:
+        # 이슈 #2874: 이 함수의 `alive`(자식 pid)가 이미 죽었다고 본 뒤라,
+        # `session_end_verdict()` 는 여기서 절대 "alive_fn(pid) 살아있음"
+        # 갈래로 못 간다 — `wrapper_pid` 경유로만 나오는 `in-progress` 는
+        # 항상 이 죽음-후처리-꼬리(위 주석)를 뜻하지, 세션이 실제로 아직
+        # 실행 중이라는 뜻이 아니다. `normal`(이미 확정)과 나란히 "지금은
+        # 알람 아님"으로 다룬다 — PR/커밋 유무와 무관하게, wrapper 가
+        # 살아서 그 후처리를 마치는 중이라는 사실 자체가 "안 죽었다"의
+        # 증거이기 때문이다.
+        if verdict in ("normal", "in-progress") or pr_number is not None:
             return _diagnosis({"state": None, "next_action": "none",
                     "detail": "completion, not a health diagnosis"})
         if commit_count == _sp.UNPUSHED_STATUS_UNKNOWN:
@@ -1690,6 +1704,29 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                                               commit_count=commit_count)
                 state[f"{key}:dead_report"] = dead_health
             dead_health = state.get(f"{key}:dead_report")
+            # 이슈 #2874: 위에서 이미 계산한 `divergences`([reconcile])와
+            # `dead_health`([poll-report])가 같은 세션을 두고 서로 다른
+            # 처분(하나는 respawn, 다른 하나는 완료)을 낸 경우를 조용히
+            # 묻지 않고 이름 붙여 찍는다. 이슈 #2874 실측 그 자체(reconcile
+            # 은 crashed->respawn, poll-report 는 COMPLETED)를 겨냥한
+            # 잔여-안전망이다 — 위 wrapper_pid 수정이 이 특정 원인은 이미
+            # 없앴지만, 두 계통이 서로 다른 원자료(reconcile 은 항상
+            # `_build_observed()`, poll-report 는 `pr_index`/commit_count
+            # 까지 곁들인 `diagnose_health()`)로 판정하는 구조 자체는 남아
+            # 있어 다른 원인으로도 다시 갈릴 수 있다 — 그 경우까지 "둘 중
+            # 나중에 찍힌 쪽이 이긴다"로 조용히 묻히지 않게 한다.
+            if dead_health is not None and dead_health.get("state") is None:
+                crash_shaped = [div for div in divergences
+                                if div.get("next_action") == "respawn"]
+                if crash_shaped:
+                    dedup_key = f"reconcile-poll-disagreement:{key}"
+                    if _sp.ledger_check_and_stamp(dedup_key):
+                        anomaly_count += 1
+                        kinds = ", ".join(div["kind"] for div in crash_shaped)
+                        print(f"[reconcile-poll-disagreement] {key}: reconcile "
+                              f"says {kinds} (-> respawn) but poll-report says "
+                              f"completion ({dead_health['detail']}) — the two "
+                              "disagree; not resolved silently, needs a human look")
             if dead_health is not None:
                 # 이슈 #2312: 위 dead_report 캐시는 ledger TTL 마다만
                 # 재계산되지만, 이 print 자체는 원래 그 TTL 밖에 있어(주석

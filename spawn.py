@@ -945,10 +945,17 @@ def _build_expected(entry: dict) -> dict:
 def _build_observed(root: Path, entry: dict) -> dict:
     """로스터 엔트리 → `reconcile()` 의 `observed` 입력. 기존 리더만 쓴다
     (`session_end_verdict`, `_pr_open_or_merged_for_branch`, `board`,
-    `_is_new_commit`) — 새 `gh` 호출을 추가하지 않는다."""
+    `_is_new_commit`) — 새 `gh` 호출을 추가하지 않는다.
+
+    이슈 #2874: `wrapper_pid`(로스터 엔트리, `roster_register()` 가 채운다)
+    를 `session_end_verdict()` 에 함께 넘긴다 — 자식(claude) pid 만 보면
+    `_spawn_one()` 의 `session-end` 후처리 꼬리(push/게이트/classify/
+    ledger_write, 아직 안 남은 구간)에서 정상 종료를 crashed 로 오판한다
+    (이슈 #224 hunt 가 `_watch --follow` 에서 이미 잡은 것과 같은 신호)."""
     work = entry.get("work")
     log = entry.get("log")
-    verdict = session_end_verdict(work, Path(log) if log else None) if work else None
+    verdict = session_end_verdict(work, Path(log) if log else None,
+                                  wrapper_pid=entry.get("wrapper_pid")) if work else None
     # Issue #2834: real checked-out branch, not the workspace directory's
     # basename — see diagnose_health() in watchdog.py for the full story.
     branch = _current_branch(Path(work)) if work else None

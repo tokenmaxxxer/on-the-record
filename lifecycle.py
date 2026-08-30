@@ -486,14 +486,20 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     `_respawn_or_cap()` 에 넘긴다. `stalled`/`normal`/`in-progress` 는
     재스폰을 걸지 않는다(관찰-전용 계약 유지, 이슈 #132) — 다만 `stalled`
     는 최초 1회 이슈 코멘트로 남는다(이슈 #325): 재스폰하지 않는 것과
-    아무도 모르게 재스폰하지 않는 것은 다르다."""
+    아무도 모르게 재스폰하지 않는 것은 다르다.
+
+    이슈 #2874: `entry.get("wrapper_pid")` 를 `session_end_verdict()` 에
+    넘긴다 — 이게 없으면 이 함수가 `_build_expected`/`_build_observed`
+    (reconcile 의 입력)와 서로 다른 판정을 내릴 수 있다: 자식(claude) pid
+    만 보고 crashed 로 오판한 채로 바로 `_respawn_or_cap()` 을 태우면,
+    이미 성공적으로 끝나 PR 까지 낸 세션이 재스폰된다(실측: 이슈 #2874)."""
     work = entry.get("work")
     issue = entry.get("issue")
     skill = entry.get("skill")
     if not work or issue is None or not skill:
         return
     log_path = Path(entry["log"]) if entry.get("log") else None
-    verdict = _sp.session_end_verdict(work, log_path)
+    verdict = _sp.session_end_verdict(work, log_path, wrapper_pid=entry.get("wrapper_pid"))
     print(f"[watchdog] {key}: {verdict}")
     if verdict == "stalled":
         _sp._post_stall_comment(Path(work), issue, key, work, entry.get("log", ""))
