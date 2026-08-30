@@ -286,6 +286,8 @@ guessed wrong.
 
 ## Upstream basis
 
+amendments-reconciled: issuecomment-5467431758 — read via `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5467431758` this turn (posted after this session started); its "Status of the 2026-08-24/27/29 findings" section and its "New findings, by kind" table are exactly what this record's "What was done"/"Upstream basis" sections above already reconcile into the batch cleanup and the 3 open findings — no additional amendment needed beyond what is already reflected there.
+
 canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5467431758 -q .body` read this turn — the comment's own "Status of the 2026-08-24/27/29 findings" section, re-verified against the current tree by this session's own edits and greps above.
 
 This session re-verified the four prior issue comments on #2139, dated
