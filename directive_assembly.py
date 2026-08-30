@@ -415,18 +415,20 @@ _SKILL_CHECK_PROSE = (
 # invocation marker per issue #2062, scoped to invoked skills only per
 # issue #2153).
 _SKILL_VERDICT_PROSE = (
-    "스킬-verdict 의무(이슈 #2039) — 대상 범위는 이슈 #2153 갱신: 위에 "
-    "마운트된 스킬 중 이번 세션에서 실제로 Skill 도구로 호출한 스킬 "
-    "이름마다, 레코드에 `skill-verdict: <스킬명> — applied: "
-    "<어디서/어떻게> | not-applicable: <한 줄 이유>` 형태의 줄을 "
-    "정확히 하나씩 남겨야 한다 — 적용 여부 판단은 전적으로 이 "
-    "세션의 몫이지만, 그 판단을 아예 안 밝히는 것은 더 이상 "
-    "허용되지 않는다. 마운트만 되고 호출하지 않은 스킬은 이 줄이 "
-    "필요 없다 — 선택적으로 요약 한 줄만 남겨도 된다: "
-    "`other mounted skills: not triggered`. applied: 줄은 위 "
+    "스킬-verdict 의무(이슈 #2039) — 대상 범위는 이슈 #2153 갱신, "
+    "전부-미호출 시 이슈 #2893 갱신: 위에 마운트된 스킬 중 이번 "
+    "세션에서 실제로 Skill 도구로 호출한 스킬 이름마다, 레코드에 "
+    "`skill-verdict: <스킬명> — applied: <어디서/어떻게> | "
+    "not-applicable: <한 줄 이유>` 형태의 줄을 정확히 하나씩 남겨야 "
+    "한다 — 적용 여부 판단은 전적으로 이 세션의 몫이지만, 그 판단을 "
+    "아예 안 밝히는 것은 더 이상 허용되지 않는다. 마운트만 되고 "
+    "호출하지 않은 스킬은 각각 이 줄이 필요 없다 — 선택적으로 요약 "
+    "한 줄만 남겨도 된다: `other mounted skills: not triggered`. "
+    "단, 전부-미호출(마운트된 스킬을 하나도 호출하지 않음)이면 이 "
+    "요약 줄은 필수다(이슈 #2893). applied: 줄은 위 "
     "invoke-before-apply 의무에 따라 실제로 Skill 도구를 호출했다는 "
     "증거로 `invoked;` 를 자유 텍스트 맨 앞에 붙여야 한다(이슈 "
-    "#2062) — not-applicable: 줄은 이 마커가 필요 없다.\n")
+    "#2062) — not-applicable: 줄과 이 요약 줄은 이 마커가 필요 없다.\n")
 
 
 # Issue #2227 (REQ-10, carried forward from #2204's unaddressed `## Fix`
