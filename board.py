@@ -1038,11 +1038,28 @@ def _remote_branch_head(cwd: str, remote: str, branch: str) -> str | None:
 
     반환: 원격에 그 브랜치가 없으면 `""`(빈 문자열 — "조회 실패"와 구분
     하려고 `None` 을 안 쓴다), `ls-remote` 자체가 실패하면(네트워크/원격
-    설정 등) `None`."""
-    c = subprocess.run(
-        ["git", "-C", cwd, "ls-remote", "--heads", remote, branch],
-        capture_output=True, text=True,
-    )
+    설정 등) `None`.
+
+    PR #2824 리뷰(이슈 #2795): 이 호출은 `_sp._run_net()` 을 거쳐
+    `NETWORK_TIMEOUT` 으로 경계를 두른다 — 이 저장소의 다른 모든 네트워크
+    git 호출과 같은 원칙(이슈 #285 P5, `_run_net()` 자신의 독스트링:
+    `TimeoutExpired` 가 그냥 새 나가면 오케스트레이터가 무기한 걸린다).
+    다만 `_run_net()` 의 fail-closed 은 `sys.exit()` 인데, 이 함수의
+    호출부는 `roster_watchdog()` 의 로스터 폴링 루프 안이다 — 스폰/파이프
+    라인에서처럼 세션 하나를 멈추는 게 아니라, 여기서 `sys.exit()` 이
+    새 나가면 세션 하나의 원격이 멎었다는 이유로 워치독 프로세스 전체가
+    죽어 남은 로스터 보고까지 조용해진다(이 이슈가 고치려는 '조용히
+    멈춘 감시'와 같은 모양을 새 경로로 재현하게 된다). 그래서 타임아웃을
+    여기서 붙잡아 이 함수의 기존 '조회 실패' 신호(`None`)로 되돌린다 —
+    호출부(`_unrecovered_commit_count()`)는 그 값을 이미
+    `UNPUSHED_STATUS_UNKNOWN` 으로 읽으므로, 진짜 stranded 로도 healthy
+    로도 추측하지 않는다."""
+    try:
+        c = _sp._run_net(
+            ["git", "-C", cwd, "ls-remote", "--heads", remote, branch],
+            "[board] 원격 브랜치 헤드 조회")
+    except SystemExit:
+        return None
     if c.returncode != 0:
         return None
     line = c.stdout.strip()

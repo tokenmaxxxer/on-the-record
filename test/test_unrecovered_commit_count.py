@@ -21,6 +21,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -131,6 +132,29 @@ class UnrecoveredCommitCountTest(unittest.TestCase):
                                            commit_count=commit_count, pr_index={})
         self.assertEqual(health["state"], "DEAD-UNRECOVERED-COMMITS")
         self.assertIn("1개", health["detail"])
+
+    def test_remote_stall_times_out_to_unknown_not_hang_or_crash(self):
+        # PR #2824 CHANGES: `_remote_branch_head()` must route its
+        # `ls-remote` through `_sp._run_net()` (same bounded primitive as
+        # every other network git call, issue #285 P5) instead of a bare
+        # `subprocess.run()` with no timeout. `_run_net()`'s own fail-closed
+        # is `sys.exit()` on `TimeoutExpired` -- correct for a halted spawn,
+        # fatal for `roster_watchdog()`'s polling loop (one stalled remote
+        # would kill monitoring for every other roster entry too). This
+        # simulates the timeout without a real multi-second wait and checks
+        # the process survives and the caller sees the existing "query
+        # failed" signal, not a guess.
+        pushed_head = self._commit("b.txt")
+        _git(self.work, "push", "-q", "origin", self.branch)
+        unpushed_head = self._commit("c-unpushed.txt")
+
+        def _timed_out_run_net(args, label, timeout=None, **kwargs):
+            sys.exit(f"{label}: 시간초과({int(timeout or 60)}s) — 네트워크를 확인하라")
+
+        with mock.patch.object(spawn, "_run_net", _timed_out_run_net):
+            result = board._unrecovered_commit_count(
+                str(self.work), pushed_head, unpushed_head, self.branch)
+        self.assertEqual(result, board.UNPUSHED_STATUS_UNKNOWN)
 
     def test_diagnose_health_unknown_remote_is_its_own_state(self):
         pushed_head = self._commit("b.txt")
