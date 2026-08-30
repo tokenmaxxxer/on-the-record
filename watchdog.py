@@ -217,7 +217,7 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
                      anomalies: list[str] | None = None,
                      pr_index: dict | None = None,
-                     commit_count: int | None = None) -> dict:
+                     commit_count: int | str | None = None) -> dict:
     """이슈 #782 스코프-확장, 이슈 #1966 확장: 살아있는(또는 방금 죽은) 로스터
     엔트리 하나를 HEALTHY/STALLED/STALLED-HEARTBEAT-ONLY(advisory)/
     DEADLOCKED/DEAD-ERRORED 다섯 상태 중 하나로 진단하고
@@ -246,15 +246,19 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     호출, 또는 벌크 조회를 아직 안 도는 호출부) 기존
     `_pr_open_or_merged_for_branch()` 개별 `gh pr list` 로 되돌아간다.
 
-    `commit_count`(이슈 #2193): 죽었는데 완료가 아닌(PR 없음) 엔트리에
-    한해, 호출부가 이미 계산해 둔 "이 세션이 남긴 새 커밋 개수"(예:
-    `_sp._session_commit_count(work, entry.get("before_head"), _sp._git_head(work))`)
-    를 넘기면 `DEAD-ERRORED` 대신 `DEAD-UNRECOVERED-COMMITS` 로 갈린다 —
-    이 함수 자신은 그 값을 구하려고 새 `git` 호출 타입을 추가하지 않는다
-    (위 원자료 제약 그대로), 호출부가 이미 쓰는 (before_head, HEAD) 랜드마크
-    위에서 계산해 건네주는 형태다. 생략하면(기본값 `None`, 기존 호출부)
-    이전과 동일하게 `DEAD-ERRORED` 하나로만 갈린다 — 순수 추가라 기존
-    동작은 안 바뀐다.
+    `commit_count`(이슈 #2193, 이슈 #2795 로 원격-인지로 교체): 죽었는데
+    완료가 아닌(PR 없음) 엔트리에 한해, 호출부가 이미 계산해 둔 "원격에
+    아직 없는 커밋 개수"(예: `_sp._unrecovered_commit_count(work,
+    entry.get("before_head"), _sp._git_head(work), branch)`) 를 넘기면
+    셋 중 하나로 갈린다: 양의 정수 → `DEAD-UNRECOVERED-COMMITS`(진짜
+    좌초), `_sp.UNPUSHED_STATUS_UNKNOWN` → `DEAD-REMOTE-STATE-UNKNOWN`
+    (원격 상태 확인 불가 — healthy 로도 stranded 로도 읽지 않는다,
+    이슈 #2792 와 같은 모양의 세 번째 상태), 그 외(0 또는 `None`, 기본값)
+    → `DEAD-ERRORED`. 이 함수 자신은 그 값을 구하려고 새 `git` 호출
+    타입을 추가하지 않는다(위 원자료 제약 그대로), 호출부가 이미 쓰는
+    (before_head, HEAD, branch) 랜드마크 위에서 계산해 건네주는 형태다.
+    생략하면(기본값 `None`, 기존 호출부) 이전과 동일하게 `DEAD-ERRORED`
+    하나로만 갈린다 — 순수 추가라 기존 동작은 안 바뀐다.
 
     이슈 #2215: `work` 가 있으면 매 판정에 `dirty_files`(raw `git status
     --porcelain` 개수)와 `minutes_since_checkpoint`(마지막 체크포인트 ref
@@ -310,12 +314,32 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         if verdict == "normal" or pr_number is not None:
             return _diagnosis({"state": None, "next_action": "none",
                     "detail": "completion, not a health diagnosis"})
+        if commit_count == _sp.UNPUSHED_STATUS_UNKNOWN:
+            # 이슈 #2795: 원격 상태를 확인하지 못했다(ls-remote 실패,
+            # 또는 원격 SHA 가 로컬에 없어 조상 관계를 못 따짐) — 이걸
+            # HEALTHY/DEAD-ERRORED 로 fail-open 하면(=알람 없음) 진짜
+            # 좌초가 조용히 넘어가고, DEAD-UNRECOVERED-COMMITS 로
+            # fail-closed 하면(=알람) 이 이슈가 고치려는 바로 그 오탐을
+            # 반복한다 — 그래서 "모른다"를 그 자체로 보고하는 세 번째
+            # 상태를 쓴다(이슈 #2792 의 성공-플래그+데이터-없음 모양을
+            # 되풀이하지 않는다).
+            return _diagnosis({"state": "DEAD-REMOTE-STATE-UNKNOWN",
+                    "next_action": "manual-review",
+                    "detail": f"{key}: pid {pid} 부재, PR 없음, "
+                              f"branch={branch} 의 원격 push 상태를 확인 "
+                              f"못함(ls-remote 실패 또는 조상 관계 판단 "
+                              f"불가) — 수동 확인 필요 "
+                              f"(session_verdict={verdict!r})"})
         if commit_count:
             # 이슈 #2193: 죽었고 PR 도 없지만 커밋은 남았다 — plugin
             # reload 등으로 워처 자신이 함께 죽어 `ensure_pushed()` 가
             # 못 돈 경우의 대표 실패 모드. 일반 DEAD-ERRORED("respawn 해도
             # 잃을 것 없음")와 섞으면 이 커밋들이 침묵 속에 좌초한다 —
             # 브랜치명과 커밋 개수를 이름 붙여 별도 상태로 갈라낸다.
+            # 이슈 #2795: 이 커밋 개수는 이제 원격에 실제로 없는 커밋만
+            # 센 값이다(`_unrecovered_commit_count()`) — 이미 push 된
+            # 커밋은 여기 도달하지 않는다(위 == 0 이면 아래 DEAD-ERRORED
+            # 로 빠진다).
             return _diagnosis({"state": "DEAD-UNRECOVERED-COMMITS",
                     "next_action": "recover-unpushed",
                     "detail": f"{key}: pid {pid} 부재, PR 없음, "
@@ -1647,8 +1671,19 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                 # entry — same (before_head, HEAD) landmark `_build_observed()`
                 # already reads for `reconcile()`, just counted instead of
                 # boolean.
-                commit_count = (_sp._session_commit_count(
-                    work, e.get("before_head"), _sp._git_head(work))
+                # Issue #2795: the count is now remote-aware — it asks
+                # `origin/<branch>` directly instead of assuming "no PR"
+                # means "not pushed", so commits already on the remote no
+                # longer trip this alarm. Branch comes from the workspace's
+                # actual checked-out ref (`_current_branch`), not
+                # `Path(work).name` — the workspace directory is named
+                # `<repo>-issue-<n>-<skill>` (dashes) while the branch is
+                # `issue-<n>/<skill>` (slash); querying the directory name
+                # would make `ls-remote` miss every real branch and
+                # reintroduce this same false positive.
+                commit_count = (_sp._unrecovered_commit_count(
+                    work, e.get("before_head"), _sp._git_head(work),
+                    _sp._current_branch(Path(work)))
                     if work else 0)
                 dead_health = _sp.diagnose_health(key, e, state=state, root=root,
                                               pr_index=_poll_pr_index(),
