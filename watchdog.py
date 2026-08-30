@@ -265,7 +265,16 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     now = time.time() if now is None else now
     pid = entry.get("pid", 0)
     work = entry.get("work")
-    branch = Path(work).name if work else None
+    # Issue #2834: the real checked-out git branch, not the workspace
+    # directory's basename — `issue_workspace()` names the directory
+    # `<repo>-issue-<n>-<skill>` (dashes, filesystem-safe) while the git
+    # branch is `issue-<n>/<skill>` (slash). Using the directory name as
+    # the PR-completion lookup key below made every lookup miss every real
+    # branch, so a session that actually finished and opened its PR was
+    # reported as DEAD-ERRORED. Same primitive PR #2824 (issue #2795)
+    # already switched to at board.py's two `_unrecovered_commit_count()`
+    # call sites, for the identical reason.
+    branch = _sp._current_branch(Path(work)) if work else None
     ckpt_fields = (checkpoint.checkpoint_health(work, now=now) if work
                    else {"dirty_files": 0, "minutes_since_checkpoint": None})
     # Issue #2293: a no-`--issue` (adhoc) roster entry's watchdog line must
@@ -1677,7 +1686,11 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                     # 여기서 --resume 을 쏜다 — 인터랙티브 케이스 1 은
                     # 라이브 notify 로 이미 처리되므로 session_id 없는 엔트리는
                     # 그대로 통과한다(중복 트리거 없음).
-                    branch = Path(work).name if work else None
+                    # Issue #2834: real checked-out branch, not the
+                    # workspace directory's basename (same fix as
+                    # diagnose_health() above and PR #2824/issue #2795's
+                    # board.py call sites).
+                    branch = _sp._current_branch(Path(work)) if work else None
                     # Issue #2103: same shared index; per-branch `gh pr list`
                     # only as fallback when the board is unreadable.
                     tick_index = _poll_pr_index() if branch else None
