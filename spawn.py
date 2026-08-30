@@ -2280,6 +2280,8 @@ def main() -> int:
         return init_board(a.cwd, a.login, push=a.push)
     if a.role == "ps":
         return roster_ps()
+    if a.role == "self-update":
+        return self_update_pull_cli()
     if a.role == "recut-if-absorbed":
         return recut_if_absorbed_cli(str(Path(a.cwd).resolve()))
     if a.role == "rebase":
@@ -3251,6 +3253,75 @@ def mechanical_rebase_cli(cwd: str) -> int:
     if result["status"] == "conflict":
         return 2
     return 1
+
+
+def _pull_check_write(marker: Path, line: str) -> None:
+    """`self_update_pull_cli()`'s only writer of `.pull-check`. Unlike
+    `self-update.sh`'s own best-effort marker write (fire-and-forget, no
+    console attached), this CLI always prints its verdict to stdout too
+    -- so a marker-write failure here still can't leave the outcome
+    silent, but it would leave no on-disk trace, so it gets a line on
+    stderr rather than the bare `except: pass` self-update.sh uses
+    (silent-failure-audit finding, issue #2749 own delivery)."""
+    try:
+        marker.write_text(line + "\n")
+    except OSError as exc:
+        print(f"경고: .pull-check 기록 실패({exc}) — 위 stdout 결과가 유일한 기록이다",
+              file=sys.stderr)
+
+
+def self_update_pull_cli() -> int:
+    """`spawn.py self-update` -- issue #2749. Advances THIS checkout's
+    working tree (`git pull --ff-only`) the way `self-update.sh` used to
+    do unconditionally on every `SessionStart`, but only when nothing is
+    live to observe the swap -- the "zero sessions running at pull time"
+    discipline #2670 ran by hand, now a named command instead of a habit
+    the orchestrator has to remember. `git fetch` (self-update.sh's own
+    remaining job) only touches refs/objects, so it stays unconditional;
+    this step touches the working tree hooks execute from, so it refuses
+    (non-zero exit, no working-tree change) whenever the roster can't be
+    trusted or any session is still alive.
+
+    Records the outcome to `.pull-check` either way -- issue #910
+    finding #4's bar: a refused advance or a stuck-stale checkout stays
+    visible on disk, never a silent absorb."""
+    marker = ROOT / ".pull-check"
+    d, load_error = _roster_load_checked()
+    if load_error is not None:
+        print(f"self-update 거부: 로스터 파일을 읽지 못함({load_error}) — "
+              "세션 존재 여부를 확인할 수 없어 진행하지 않는다")
+        _pull_check_write(marker, f"pull=refused:roster-unreadable:{load_error}")
+        return 2
+    live_roster = [(key, e.get("pid")) for key, e in d.items()
+                   if _alive(e.get("pid", 0))]
+    claim_only, claim_warnings = _claim_only_live_sessions(d)
+    for warning in claim_warnings:
+        print(f"경고: {warning} — 살아있는 세션을 놓쳤을 수 있다")
+    if claim_warnings:
+        print("self-update 거부: 스폰 클레임 스캔을 신뢰할 수 없어 진행하지 않는다")
+        _pull_check_write(marker, "pull=refused:claim-scan-unreliable")
+        return 2
+    if live_roster or claim_only:
+        print("self-update 거부: 살아있는 세션이 있다 —")
+        for key, pid in live_roster:
+            print(f"  roster      {key}  pid {pid}")
+        for work, pid in claim_only:
+            print(f"  claim-only  pid {pid}  work: {work}")
+        _pull_check_write(marker, "pull=refused:"
+                           f"{len(live_roster) + len(claim_only)}-live-sessions")
+        return 1
+    result = subprocess.run(["git", "-C", str(ROOT), "pull", "-q", "--ff-only"],
+                             capture_output=True, text=True)
+    if result.returncode == 0:
+        _pull_check_write(marker, "pull=ok")
+        print(f"self-update: {ROOT} 를 최신으로 당겼다 (살아있는 세션 0)")
+        return 0
+    err = (result.stderr + result.stdout).replace("\n", " ")[:500]
+    _pull_check_write(marker, f"pull=failed:{err}")
+    print(f"self-update 실패: {err}")
+    return 1
+
+
 def _recut_corrupted_branch(cwd: str, br: str, base: str):
     """`br`(예: `issue-<n>/<role>`)을 같은 이름을 유지한 채, 지금 잡힌
     `merge-base(br, base)`를 새 base 로 밀어 재컷한다 (issue #2402).
