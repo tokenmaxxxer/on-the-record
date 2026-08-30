@@ -6,7 +6,7 @@ no copy, no symlink into the isolated clone.
 it only reads the filesystem and returns an env-var dict; the wiring at the
 `_spawn_one()` call site (origin path captured before `issue_workspace()`
 overwrites `cwd`, result merged into `extra_env`) is pinned by a
-source-level test the same way test_branch_role_field.py pins
+source-level test the same way test_branch_skill_field.py pins
 `issue_workspace()`'s sidecar-write call count.
 
 Run: python3 -m pytest test/test_local_dependency_env.py -q
@@ -204,7 +204,7 @@ class NoFilesystemMutationTest(unittest.TestCase):
 
 
 class CallSiteWiringTest(unittest.TestCase):
-    """Source-level pin (same convention as test_branch_role_field.py's
+    """Source-level pin (same convention as test_branch_skill_field.py's
     ApprovalGateEquivalenceTest / sidecar-count tests): `_spawn_one()` must
     capture the origin cwd *before* `issue_workspace()` reassigns `cwd` to
     the isolated clone, and must fold `local_dependency_env()`'s result

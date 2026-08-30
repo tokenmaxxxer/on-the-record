@@ -9,7 +9,7 @@ These tests prove:
  - `pipeline.checkout_issue_branch_for_skill()` produces the new-scheme
    branch name and behaves like the existing `checkout_issue_branch()`
    otherwise (real git, local bare-repo origin — same harness shape as
-   test_branch_role_field.py's `PrBodyTrailerWriteShapeTest`).
+   test_branch_skill_field.py's `PrBodyTrailerWriteShapeTest`).
  - `pipeline.checkout_issue_branch()` (old scheme) stays byte-identical.
  - `board.board()`'s discovery walk surfaces a record under either
    naming scheme, and both appear together in one `board()` listing —

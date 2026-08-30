@@ -8,7 +8,7 @@ combination, plus a new fail-closed sidecar-vs-branch role-mismatch deny.
 Runs the real shipped hook (`bash on-the-record/hooks/approval-gate.sh`)
 via a real PreToolUse JSON payload on stdin, against a real git checkout
 and a fake `gh` shim on PATH — same harness shape as
-test/test_branch_role_field.py's ApprovalGateDualReadTest.
+test/test_branch_skill_field.py's ApprovalGateDualReadTest.
 
 Run: python3 -m pytest test/test_approval_gate_carriers.py -q
 """

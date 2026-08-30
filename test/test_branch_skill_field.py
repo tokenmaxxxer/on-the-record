@@ -24,7 +24,7 @@ against `_role_from_pr` (not a subprocess hook — it's an importable
 Python module), covering field-read, fallback, and the body=None/no-body
 absence cases.
 
-Run: python3 -m pytest test/test_branch_role_field.py -q
+Run: python3 -m pytest test/test_branch_skill_field.py -q
 """
 from __future__ import annotations
 
