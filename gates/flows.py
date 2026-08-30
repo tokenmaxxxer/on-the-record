@@ -34,7 +34,7 @@ _BRANCH_RE = re.compile(r"^(issue-[0-9]+)/([a-z0-9-]+)$")
 # creates ("skill: <skill>", renamed from "role:" by issue #2741, forward-
 # only), read line-by-line so a body containing the literal substring
 # elsewhere doesn't false-match.
-_ROLE_TRAILER_RE = re.compile(r"^skill:\s*([a-z0-9-]+)\s*$")
+_SKILL_TRAILER_RE = re.compile(r"^skill:\s*([a-z0-9-]+)\s*$")
 
 
 def _role_from_pr(pr: dict, branch_match: re.Match) -> str:
@@ -44,7 +44,7 @@ def _role_from_pr(pr: dict, branch_match: re.Match) -> str:
     body = pr.get("body")
     if isinstance(body, str):
         for line in body.splitlines():
-            m = _ROLE_TRAILER_RE.match(line.strip())
+            m = _SKILL_TRAILER_RE.match(line.strip())
             if m:
                 return m.group(1)
     return branch_match.group(2)
@@ -106,7 +106,7 @@ _PLAN_STEP_RE = re.compile(r"^-\s\[([ xX])\]\s+step\s+(\d+)\s+(.+)$")
 def _plan_from_body(body: str) -> list[dict] | None:
     """이슈 본문에서 `## 실행 계획` 블록을 파싱한다(issue #189). 헤더가 없으면
     `None`. 있으면 다음 `##`(또는 본문 끝)까지 스캔해 `- [ ] step <N>
-    <role>[ ‖ <role2> ...]` 형태의 줄만 골라 `[{step, roles, done}, ...]`
+    <skill>[ ‖ <skill2> ...]` 형태의 줄만 골라 `[{step, skills, done}, ...]`
     로 돌려준다 — 헤더는 있지만 유효한 step 줄이 하나도 없어도 `None`이
     아니라 빈 리스트(블록 자체는 존재하므로). 코드펜스(```) 안 내용은 헤더
     탐색·스텝 수집 둘 다에서 건너뛴다(issue #197) — `gates.py`의
@@ -145,12 +145,12 @@ def _plan_from_body(body: str) -> list[dict] | None:
         done = m.group(1) in ("x", "X")
         step_n = int(m.group(2))
         skills = [r.strip() for r in m.group(3).split("‖")]
-        steps.append({"step": step_n, "roles": skills, "done": done})
+        steps.append({"step": step_n, "skills": skills, "done": done})
     return steps
 
 
 def plan_order_blocked(plan: list[dict]) -> list[dict]:
-    """`_plan_from_body`가 낸 `[{step, roles, done}, ...]`을 받아, 아직 안
+    """`_plan_from_body`가 낸 `[{step, skills, done}, ...]`을 받아, 아직 안
     끝난(더 낮은 번호의) 선행 step이 있는 뒤 step을 모두 골라 `[{step,
     prerequisite_step, prerequisite_done}, ...]`로 돌려준다 (issue #659
     Axis 2). 같은 step 번호를 공유하는 항목(‖로 병렬 표시된 step)은 서로를
@@ -443,7 +443,7 @@ def flows_payload(root: Path, all_scope: bool = False) -> dict:
         stage, derived = _stage_for(stage_source, issue_state_by_n.get(issue_n))
         flows_out.append({
             "issue": issue_n, "stage": stage, "stage_derived": derived,
-            "roles": skill_entries,
+            "skills": skill_entries,
             "prs": sorted(prs_by_subject.get(subject, set())),
             "plan": plan_by_issue.get(issue_n),
         })
@@ -540,7 +540,7 @@ def flows(cwd: str, as_json: bool, all_scope: bool = False) -> int:
     print(f"\nflows: {len(payload['flows'])}건")
     for f in payload["flows"]:
         print(f"  issue-{f['issue']}: {f['stage']}" + ("" if f["stage_derived"] else " (raw)")
-              + f"  roles={[r['skill'] for r in f['roles']]}  prs={f['prs']}")
+              + f"  skills={[r['skill'] for r in f['skills']]}  prs={f['prs']}")
     print(f"\nsessions: {len(payload['sessions'])}건")
     for s in payload["sessions"]:
         print(f"  {'RUNNING' if s['alive'] else 'DEAD':8s} {s['skill']} "

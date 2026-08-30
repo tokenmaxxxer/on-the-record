@@ -57,7 +57,7 @@ def select_board_entries(queue: list[dict], skill: str) -> list[dict]:
             continue
         if skill:
             by_scanner = entry.get("scanner_id") == f"judge:{skill}"
-            by_path = (entry["path"].startswith(f"roles/{skill}/")
+            by_path = (entry["path"].startswith(f"skills/{skill}/")
                        or entry["path"].startswith(f"{skill}/"))
             if not (by_scanner or by_path):
                 continue
@@ -325,7 +325,7 @@ def run_patrol_board(root: Path, skill: str, queue_path: Path, dry_run: bool,
         return {"dry_run": False, "api_calls": calls, "wrote": False,
                  "body": next_body, "dropped": True}
 
-    title = f"Patrol board: {skill or 'all roles'}"
+    title = f"Patrol board: {skill or 'all skills'}"
     if issue is None:
         # First-ever board for this role: labels must exist or create 422s.
         # `gh label create --force` is idempotent; one-time cost per repo.

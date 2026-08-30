@@ -386,7 +386,7 @@ class RsbStatusBoardEquivalenceTest(unittest.TestCase):
         )
         self.assertFalse(approved)
 
-    def test_plan_from_body_parses_role_checklist(self):
+    def test_plan_from_body_parses_skill_checklist(self):
         body = (
             "## 실행 계획\n"
             "- [ ] step 1 implementation\n"
@@ -396,8 +396,8 @@ class RsbStatusBoardEquivalenceTest(unittest.TestCase):
         self.assertEqual(
             plan,
             [
-                {"step": 1, "roles": ["implementation"], "done": False},
-                {"step": 2, "roles": ["conformance-review", "defect-verification"], "done": True},
+                {"step": 1, "skills": ["implementation"], "done": False},
+                {"step": 2, "skills": ["conformance-review", "defect-verification"], "done": True},
             ],
         )
 
