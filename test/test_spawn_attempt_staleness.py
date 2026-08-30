@@ -208,6 +208,60 @@ class HaltConditionClearedUnknownClassTest(unittest.TestCase):
             spawn._halt_condition_cleared("unknown", {"issue": 1, "cwd": "/tmp"}, "x"))
 
 
+class AttemptIssueClosedTest(unittest.TestCase):
+    """issue #2894: the third fallback, additive to class-recheck and
+    supersession — neither of those can ever fire for a halt whose issue
+    is closed (an unknown class never re-checks clear; a closed issue is
+    never spawned against again, so no later attempt of any kind, let
+    alone a successful one, will ever exist to supersede it)."""
+
+    def test_closed_issue_is_cleared(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo")
+            attempt = {"issue": 645, "cwd": str(repo)}
+            fake = mock.Mock(returncode=0, stdout="CLOSED\n")
+            with mock.patch.object(spawn.subprocess, "run", return_value=fake):
+                self.assertTrue(spawn._attempt_issue_closed(attempt))
+
+    def test_open_issue_stays_uncleared(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo")
+            attempt = {"issue": 645, "cwd": str(repo)}
+            fake = mock.Mock(returncode=0, stdout="OPEN\n")
+            with mock.patch.object(spawn.subprocess, "run", return_value=fake):
+                self.assertFalse(spawn._attempt_issue_closed(attempt))
+
+    def test_missing_issue_or_cwd_is_conservative_not_cleared(self):
+        self.assertFalse(spawn._attempt_issue_closed({"cwd": "/tmp"}))
+        self.assertFalse(spawn._attempt_issue_closed({"issue": 1}))
+
+    def test_nonexistent_cwd_is_conservative_not_cleared(self):
+        # The `-C` workspace no longer exists — there is no repo left to
+        # ask `gh` from, so this must not guess.
+        self.assertFalse(spawn._attempt_issue_closed(
+            {"issue": 645, "cwd": "/does/not/exist-issue-2894"}))
+
+    def test_gh_failure_is_conservative_not_cleared(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo")
+            attempt = {"issue": 645, "cwd": str(repo)}
+            fake = mock.Mock(returncode=1, stdout="")
+            with mock.patch.object(spawn.subprocess, "run", return_value=fake):
+                self.assertFalse(spawn._attempt_issue_closed(attempt))
+
+    def test_gh_exception_is_conservative_not_cleared(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo")
+            attempt = {"issue": 645, "cwd": str(repo)}
+            with mock.patch.object(spawn.subprocess, "run",
+                                    side_effect=OSError("boom")):
+                self.assertFalse(spawn._attempt_issue_closed(attempt))
+
+
 class SkillFamilyTest(unittest.TestCase):
     """issue #2511 residual: `_skill_family()` strips the trailing 8-hex-char
     lease disambiguator (`roster.new_lease_disambiguator()` ==
@@ -523,6 +577,79 @@ class SpawnAttemptSweepSupersessionTest(unittest.TestCase):
 
         with mock.patch("builtins.print") as mocked_print:
             count = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count, 1)
+        printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
+        self.assertIn("spawn halted pre-workspace", printed)
+        self.assertNotIn("RESOLVED", printed)
+
+
+class SpawnAttemptSweepIssueClosedTest(unittest.TestCase):
+    """issue #2894 end-to-end: the population the issue names — a halt
+    whose reason matches none of the five known classes (e.g. "skill X
+    not found") on an issue that is now closed. Class re-check can never
+    clear "unknown"; supersession can never fire because a closed issue
+    is never spawned against again, so no later attempt (successful or
+    not) will ever be recorded for it. This population is exactly the
+    "mechanism reports a clean result for a population it never reaches"
+    shape from #2876 — the sweep must still stop replaying it once the
+    issue is confirmed closed, and must keep reporting the same shape of
+    halt unchanged while the issue is still open."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.attempts_path = Path(self._td.name) / "spawn-attempts.jsonl"
+        self.repo = _git_repo(Path(self._td.name) / "repo")
+        patches = [
+            mock.patch.object(spawn, "SPAWN_ATTEMPTS_PATH", self.attempts_path),
+            mock.patch.object(spawn, "ledger_write", lambda ev: None),
+            mock.patch.object(spawn, "ledger_check_and_stamp",
+                               lambda *a, **k: True),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _append(self, entry):
+        with self.attempts_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+
+    def _write_attempt(self, attempt_id, issue, skill, reason, ts):
+        self._append({"event": "spawn_attempt", "attempt_id": attempt_id,
+                       "issue": issue, "skill": skill, "pid": 4242,
+                       "cwd": str(self.repo), "ts": ts})
+        self._append({"event": "spawn_attempt_outcome", "attempt_id": attempt_id,
+                       "outcome": "halted", "detail": reason, "ts": ts})
+
+    def test_unknown_class_halt_on_closed_issue_stops_replaying(self):
+        reason = "skill frontend-ui-engineering not found"
+        halted_ts = time.time() - 3 * 24 * 3600
+        self._write_attempt("614:frontend-ui-engineering-aaaaaaaa:1:1", 614,
+                             "frontend-ui-engineering-aaaaaaaa", reason, halted_ts)
+
+        fake_closed = mock.Mock(returncode=0, stdout="CLOSED\n")
+        with mock.patch.object(spawn.subprocess, "run", return_value=fake_closed):
+            with mock.patch("builtins.print") as mocked_print:
+                count = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count, 0)
+        printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
+        self.assertIn("RESOLVED", printed)
+        self.assertIn("resolution=issue-closed", printed)
+        self.assertNotIn("spawn halted pre-workspace", printed)
+
+    def test_unknown_class_halt_on_open_issue_keeps_reporting(self):
+        """Must-not guard: the same shape of halt, but the issue is still
+        open, so it stays live — the check must never over-fire."""
+        reason = "skill implementation not found"
+        halted_ts = time.time() - 3 * 24 * 3600
+        self._write_attempt("488:implementation-bbbbbbbb:1:1", 488,
+                             "implementation-bbbbbbbb", reason, halted_ts)
+
+        fake_open = mock.Mock(returncode=0, stdout="OPEN\n")
+        with mock.patch.object(spawn.subprocess, "run", return_value=fake_open):
+            with mock.patch("builtins.print") as mocked_print:
+                count = roster.spawn_attempt_sweep(d_all={})
         self.assertEqual(count, 1)
         printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
         self.assertIn("spawn halted pre-workspace", printed)
