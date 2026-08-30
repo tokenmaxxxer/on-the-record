@@ -74,34 +74,42 @@
 # behavior discarded whatever partial pytest output already existed at
 # that point, replacing it with a bare "budget exceeded, skipped"
 # message -- losing the fact that real, already-confirmed test
-# failures were sitting in that discarded output. Round 4 fixes this
-# two ways, neither of which is a bigger timeout (a bigger timeout only
-# raises the concurrency level at which the same silent loss recurs):
+# failures were sitting in that discarded output. Round 4 fixed this
+# by making evidence durable, not by making the timeout bigger (a
+# bigger timeout only raises the concurrency level at which the same
+# silent loss recurs): pytest is invoked with `-v` (not `-q`) and
+# PYTHONUNBUFFERED=1, so each test item's PASSED/FAILED/ERROR line is
+# flushed to the output capture file as soon as that item finishes --
+# not deferred to an end-of-run summary that a mid-run kill would
+# erase. On a timeout, that partial output is read (never discarded)
+# and scanned for already-confirmed failures; if any are found, they
+# are reported explicitly as "budget exceeded mid-run -- N test(s)
+# ALREADY CONFIRMED FAILING before the timeout". If none are found (or
+# none can be recovered), the report says so explicitly -- "budget
+# exceeded ... verdict INCOMPLETE (not verified clean)" -- which can
+# never be mistaken for silence or for a clean pass: this hook's only
+# other terminal state is emitting nothing at all on a run that
+# actually completed clean, and every budget-exceeded path always
+# emits non-empty text.
 #
-#   1. Concurrency-aware serialization: a best-effort, non-blocking
-#      advisory lock (flock) scoped to the repo root serializes the
-#      CPU-heavy test step across concurrent invocations against the
-#      SAME repo, so N concurrent edits queue instead of all thrashing
-#      the same CPU at once and degrading each other's wall-clock. This
-#      reduces how often the budget is hit at all; it does not claim to
-#      eliminate it at arbitrarily high concurrency, which is why (2)
-#      exists as the actual correctness guarantee.
-#   2. Never discard evidence, never claim a verdict that was not
-#      computed: pytest is invoked with `-v` (not `-q`) and
-#      PYTHONUNBUFFERED=1, so each test item's PASSED/FAILED/ERROR line
-#      is flushed to the output capture file as soon as that item
-#      finishes -- not deferred to an end-of-run summary that a
-#      mid-run kill would erase. On a timeout, that partial output is
-#      read (never discarded) and scanned for already-confirmed
-#      failures; if any are found, they are reported explicitly as
-#      "budget exceeded mid-run -- N test(s) ALREADY CONFIRMED FAILING
-#      before the timeout". If none are found (or none can be
-#      recovered), the report says so explicitly -- "budget exceeded
-#      ... verdict INCOMPLETE (not verified clean)" -- which can never
-#      be mistaken for silence or for a clean pass: this hook's only
-#      other terminal state is emitting nothing at all on a run that
-#      actually completed clean, and every budget-exceeded path always
-#      emits non-empty text.
+# Round 4 additionally shipped a best-effort per-repo-root advisory
+# lock (flock) to serialize the CPU-heavy test step across concurrent
+# invocations, reasoning that queuing instead of thrashing the same
+# CPU would reduce how often the budget is hit. Round 4's own
+# independent verification (docs/issue-2326/reports/
+# adversarial-review-813a3aa7.md, referenced from PR #2878) measured
+# it against a shape the round never tested -- concurrent edits to
+# DIFFERENT files, the ordinary fleet case, not the same file -- and
+# found it serializes work that has no reason to serialize: 3.8x
+# wall-clock (9.57s vs 2.49s) for 4 disjoint edits, and even at the
+# round's own same-file 8-way concurrency scale it produced a *worse*
+# outcome distribution than no lock at all (1/8 full reports with the
+# lock vs 4-5/8 without, 3 runs each way, 16-core host). Round 5 removes
+# it: the durable-evidence fix above is what closes the silent-failure
+# gap, and the lock was not load-bearing for that guarantee -- it was
+# a speculative overhead-reduction step that measured worse than doing
+# nothing on the common case. No replacement serialization is added;
+# nothing here currently establishes a need for one.
 #
 # If the budget is exhausted before the test step starts at all
 # (including a budget of 0, or lint alone consuming it), the test step
@@ -176,8 +184,6 @@ OTR_LTE_PAYLOAD="$PAYLOAD" \
     OTR_LTE_PER_FILE_TIMEOUT_S="${OTR_LINT_TEST_PER_FILE_TIMEOUT_S:-3}" \
     OTR_LTE_HOOK_DIR="$_hook_dir" \
     python3 - <<'PY'
-import fcntl
-import hashlib
 import json
 import os
 import posixpath
@@ -366,62 +372,6 @@ def _killpg(pgid):
         pass
 
 
-def _acquire_repo_lock(root_dir, deadline):
-    """Best-effort mutual exclusion on the CPU-heavy test step, scoped
-    to one repo root. Reduces (does not claim to eliminate) the CPU-
-    contention-induced budget exhaustion issue #2326 round 4 traced:
-    without it, N concurrent hook invocations against the same repo
-    all fight for the same CPU at once and each one's wall-clock
-    degrades together; with it, they queue instead, each still bounded
-    by its own remaining budget. Returns (fd, timed_out):
-
-    - locking infrastructure unavailable (e.g. no writable temp dir):
-      (None, False) -- fail open, caller proceeds without
-      serialization, exactly like today.
-    - lock acquired: (fd, False) -- caller must release it.
-    - deadline reached while waiting for another invocation to finish:
-      (None, True) -- caller treats this exactly like any other
-      budget-exceeded case (never silently proceeds, never silently
-      gives up).
-    """
-    try:
-        lock_dir = os.path.join(
-            tempfile.gettempdir(), "otr-lint-test-on-edit-locks")
-        os.makedirs(lock_dir, exist_ok=True)
-        digest = hashlib.sha1(
-            root_dir.encode("utf-8", "replace")).hexdigest()[:16]
-        lock_path = os.path.join(lock_dir, digest + ".lock")
-        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    except OSError:
-        return None, False
-    while True:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            return fd, False
-        except OSError:
-            pass
-        if time.monotonic() >= deadline:
-            try:
-                os.close(fd)
-            except OSError:
-                pass
-            return None, True
-        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
-
-
-def _release_repo_lock(fd):
-    if fd is None:
-        return
-    try:
-        fcntl.flock(fd, fcntl.LOCK_UN)
-    except OSError:
-        pass
-    try:
-        os.close(fd)
-    except OSError:
-        pass
-
-
 _FAILED_LINE_RE = re.compile(r"^(\S+::\S+)\s+(FAILED|ERROR)\b")
 
 
@@ -514,15 +464,7 @@ if not failures and not budget_hit:
                 "PYTHONPATH", ""),
             "PYTHONUNBUFFERED": "1",
         }
-        lock_fd, lock_timed_out = _acquire_repo_lock(root, _start + budget_s)
-        if lock_timed_out:
-            budget_hit = True
-            ok, out = None, ""
-        else:
-            try:
-                ok, out = _run(pytest_args, root, env_extra=env_extra)
-            finally:
-                _release_repo_lock(lock_fd)
+        ok, out = _run(pytest_args, root, env_extra=env_extra)
 
         candidate_list = ", ".join(
             os.path.relpath(c, root) for c in candidates)
