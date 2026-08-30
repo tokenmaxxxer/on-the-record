@@ -202,7 +202,10 @@ session.
 ## Next steps
 
 loop_state: landed. This record's decision (do not ship the hook; land the `rework_fraction.py` fix
-regardless) is final for this role. This session closes PR #2855 with a comment linking here, and
-opens this PR carrying only `scripts/rework_fraction.py`'s fix — both actions executed directly by
-this session (commands and their output are in this PR's own description, not restated here since
-they happen after this record is written). No further action by this role.
+regardless) is final for this role. This session posted the recommendation as a comment on PR #2855
+linking to this PR, and opened this PR carrying only `scripts/rework_fraction.py`'s fix
+derived: `gh pr comment 2855 --repo tokenmaxxxer/on-the-record --body-file ...` → https://github.com/tokenmaxxxer/on-the-record/pull/2855#issuecomment-5467072997
+. Closing PR #2855 itself was attempted and refused by this repo's own gh-guard hook
+derived: `gh pr close 2855 --repo tokenmaxxxer/on-the-record` → refused: "gh-guard: refused for role session 'diagnose-first-56b99f15': merging or closing a PR is the human's acceptance/refusal — a role session only opens PRs and pushes to its own issue branch. (two-account model, contract v3 s8)"
+— closing PR #2855 is left to the human, per that boundary; this record's recommendation stands as
+a comment, not an executed closure. No further action by this role.
