@@ -6,7 +6,10 @@
 # diagnose-first-71f82584.md): rework fraction re-derived on the live
 # $MUSTER_WORKSPACE_ROOT session-log corpus (see that record for the
 # exact command and number -- the earlier 4.5% figure's source corpus
-# was an ephemeral /tmp directory that no longer exists). This hook
+# was an ephemeral /tmp directory that no longer exists). Round 4
+# (docs/issue-2326/reports/silent-failure-audit+diagnose-first-0f11c1bf.md)
+# re-derived it again and found it swings 1.1%-6.0% on +/-2 of 17 corpus
+# files -- treat that as an interval, not a point estimate. This hook
 # shortens the fail -> re-edit rework loop by injecting the failure
 # signal (a syntax error, or a failing impacted test) into the very
 # next turn's additionalContext, instead of the agent discovering the
@@ -16,8 +19,16 @@
 # latency, so the skip check below is pure bash string/pattern
 # matching against the raw payload text -- no subprocess of any kind
 # (not even `cat`/`grep`/`sed`), before python3 or any lint/test tool
-# is ever invoked. Everything past that point (the real, authoritative
-# parse) happens inside the python3 body.
+# is ever invoked. It is a NON-authoritative pre-filter restricted to
+# well-known non-code extensions only (`.md`/`.txt`/`.rst`) -- it does
+# not attempt to classify a bare `docs/*` prefix, because that
+# requires resolving symlinks to be safe (round 4 finding: a
+# `docs/live_spawn.py -> ../spawn.py` symlink matches a `docs/*` glob
+# on the raw string while actually pointing at real code) and bash
+# cannot resolve symlinks without spawning a subprocess, which would
+# defeat the point of this fast path. Every path this fast path does
+# not skip -- including every bare `docs/*` path -- falls through to
+# python's authoritative, realpath-resolved check below.
 #
 # LINT: `.py` -> `python3 -m py_compile <file>` (fast syntax check; no
 # ruff/flake8/etc. is configured anywhere in this repo, so this does
@@ -42,17 +53,7 @@
 # caps how long any single selected test item may run
 # (otr_lint_test_timeout_plugin.py, SIGALRM-based) before it is
 # abandoned (reported as a failure) and the run moves on to the next
-# item. Measured directly against the traced episode's actual 36-file
-# import-graph union (docs/issue-2326/reports/diagnose-first-
-# 71f82584.md): the one file in that union carrying deliberate
-# `time.sleep(30)` calls unrelated to the traced episode
-# (test/test_bootstrap_signal_guard.py) is bounded to ~3s instead of
-# running ~30s, and the full union completes in ~9-12s -- inside the
-# combined budget below -- while still selecting, running, and
-# reporting all three real failing tests from the episode. Excluding
-# that file by name was rejected in the prior round specifically
-# because a filename rule rots the moment the file is renamed; a time
-# bound generalizes to any future outlier.
+# item.
 #
 # The per-file timeout requires pytest-xdist's default parallel
 # workers (`-n auto`, this repo's own pytest.ini) disabled for this
@@ -64,19 +65,51 @@
 #
 # BUDGET: OTR_LINT_TEST_BUDGET_S (default 15) is a combined wall-clock
 # cap over the lint + test subprocess work, tracked in python via each
-# subprocess.run(..., timeout=<remaining budget>) call (same primitive
-# every other hook in this directory already uses for its own
-# subprocess calls -- grep this file's siblings for `timeout=20` --
-# rather than shelling out to a separate `timeout(1)` process, which
-# would just be one more external-tool dependency for the same effect
-# on an already-Linux-only harness). If the budget is exhausted before
-# a step runs (including a budget of 0), that step is skipped and
-# reported as "budget exceeded, skipped", never left to hang. The
-# per-file timeout is a second, independent bound nested inside this
-# one: it stops one item from consuming the whole combined budget by
-# itself, but the combined budget still governs the invocation as a
-# whole (e.g. an unusually large fan-in match set on a slower
-# machine).
+# subprocess.run(..., timeout=<remaining budget>) call. Round 3 shipped
+# this as a single-invocation timing claim; round 4's independent
+# verification found it breaks under this hook's own actual deployment
+# shape (fires on every edit, fleet-wide -- concurrent invocations
+# against the same repo contend for the same CPU): 3 of 8 concurrent
+# runs against the same edit hit the outer budget, and the pre-round-4
+# behavior discarded whatever partial pytest output already existed at
+# that point, replacing it with a bare "budget exceeded, skipped"
+# message -- losing the fact that real, already-confirmed test
+# failures were sitting in that discarded output. Round 4 fixes this
+# two ways, neither of which is a bigger timeout (a bigger timeout only
+# raises the concurrency level at which the same silent loss recurs):
+#
+#   1. Concurrency-aware serialization: a best-effort, non-blocking
+#      advisory lock (flock) scoped to the repo root serializes the
+#      CPU-heavy test step across concurrent invocations against the
+#      SAME repo, so N concurrent edits queue instead of all thrashing
+#      the same CPU at once and degrading each other's wall-clock. This
+#      reduces how often the budget is hit at all; it does not claim to
+#      eliminate it at arbitrarily high concurrency, which is why (2)
+#      exists as the actual correctness guarantee.
+#   2. Never discard evidence, never claim a verdict that was not
+#      computed: pytest is invoked with `-v` (not `-q`) and
+#      PYTHONUNBUFFERED=1, so each test item's PASSED/FAILED/ERROR line
+#      is flushed to the output capture file as soon as that item
+#      finishes -- not deferred to an end-of-run summary that a
+#      mid-run kill would erase. On a timeout, that partial output is
+#      read (never discarded) and scanned for already-confirmed
+#      failures; if any are found, they are reported explicitly as
+#      "budget exceeded mid-run -- N test(s) ALREADY CONFIRMED FAILING
+#      before the timeout". If none are found (or none can be
+#      recovered), the report says so explicitly -- "budget exceeded
+#      ... verdict INCOMPLETE (not verified clean)" -- which can never
+#      be mistaken for silence or for a clean pass: this hook's only
+#      other terminal state is emitting nothing at all on a run that
+#      actually completed clean, and every budget-exceeded path always
+#      emits non-empty text.
+#
+# If the budget is exhausted before the test step starts at all
+# (including a budget of 0, or lint alone consuming it), the test step
+# is skipped and this is reported the same explicit, non-silent way.
+# The per-file timeout is a second, independent bound nested inside
+# the combined one: it stops one item from consuming the whole budget
+# by itself, but the combined budget still governs the invocation as a
+# whole.
 #
 # FAILS OPEN on any missing tool (`python3`, `bash`), malformed JSON
 # payload, permission error, or path-resolution failure -- same
@@ -84,7 +117,16 @@
 # cannot deny a tool call in this harness; this hook only ever adds
 # `hookSpecificOutput.additionalContext` on FAILURE (lint or impacted
 # test failed, or budget exceeded) and is silent on success -- it must
-# never be the reason a turn fails or hangs.
+# never be the reason a turn fails or hangs. The repo-root walk checks
+# for `.git` existing at all (file or directory), not just a
+# directory, so it also recognizes a `git worktree` checkout's `.git`
+# file, not only a primary clone's `.git` directory (round 4 finding:
+# the directory-only check silently zeroed out impacted-test selection
+# when a worktree sat nested under an unrelated ancestor repo). If the
+# harness's own timeout plugin cannot be imported (e.g. moved or
+# deleted), that is reported as a distinct "harness internal error",
+# not folded into the generic "impacted test failed" text a real
+# broken test would produce.
 #
 # No role-axis: this hook keys nothing on a role/skill identity (only
 # ever on the file path it was handed), no state is persisted at all,
@@ -106,10 +148,12 @@ IFS= read -r -d '' PAYLOAD
 [ -n "$PAYLOAD" ] || { trap - EXIT; exit 0; }
 
 # --- docs-only fast path: pure bash pattern matching, zero subprocess -
-# Crude on purpose: this only needs to answer "is this obviously a
-# docs path" before deciding whether to pay for python3 at all. The
-# real (authoritative) file_path extraction happens in the python body
-# below, which is reached for every non-docs-shaped path.
+# Narrow and extension-only on purpose (see header comment): this only
+# ever skips on a well-known non-code suffix, never on a bare `docs/*`
+# prefix, so it cannot be fooled by a symlink whose literal path looks
+# docs-shaped but resolves elsewhere. The real (authoritative)
+# file_path extraction and symlink resolution happens in the python
+# body below, which is reached for every path this does not skip.
 _fp_guess=""
 if [[ "$PAYLOAD" =~ \"file_path\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
     _fp_guess="${BASH_REMATCH[1]}"
@@ -118,16 +162,7 @@ elif [[ "$PAYLOAD" =~ \"path\"[[:space:]]*:[[:space:]]*\"([^\"]*)\" ]]; then
 fi
 
 case "$_fp_guess" in
-    *..*)
-        # a raw ".." segment can make an actual code path (e.g.
-        # "docs/../spawn.py") match the docs/* / */docs/* globs below on
-        # the UN-normalized string, even though it normalizes to a real
-        # code file -- never fast-path skip on unnormalized input that
-        # contains ".."; fall through to python's authoritative
-        # posixpath.normpath-based check instead (issue #2326 round 3
-        # hunt finding).
-        ;;
-    docs/*|*/docs/*|*.md|*.txt|*.rst)
+    *.md|*.txt|*.rst)
         trap - EXIT; exit 0
         ;;
 esac
@@ -141,6 +176,8 @@ OTR_LTE_PAYLOAD="$PAYLOAD" \
     OTR_LTE_PER_FILE_TIMEOUT_S="${OTR_LINT_TEST_PER_FILE_TIMEOUT_S:-3}" \
     OTR_LTE_HOOK_DIR="$_hook_dir" \
     python3 - <<'PY'
+import fcntl
+import hashlib
 import json
 import os
 import posixpath
@@ -148,6 +185,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 payload_raw = os.environ.get("OTR_LTE_PAYLOAD", "")
@@ -202,41 +240,63 @@ if not isinstance(fp, str) or not fp:
     sys.exit(0)
 
 norm = posixpath.normpath(fp.replace("\\", "/"))
-ext = posixpath.splitext(norm)[1].lower()
-
-# defense-in-depth: the bash fast path above already skips this for
-# the common shapes, but re-check here against the authoritative parse
-# (e.g. a payload shape the bash regex missed) before spawning
-# anything.
-if ext in (".md", ".txt", ".rst"):
-    sys.exit(0)
-parts = [p for p in norm.split("/") if p]
-if "docs" in parts[:-1] or (parts and parts[0] == "docs"):
-    sys.exit(0)
-
 cwd = payload.get("cwd") or os.getcwd()
 abs_path = norm if posixpath.isabs(norm) else posixpath.normpath(
     posixpath.join(cwd, norm))
 
+# authoritative docs-only classification: resolve symlinks BEFORE
+# checking extension or directory shape, not after -- a symlink whose
+# literal path looks docs-shaped (or vice versa) is classified by
+# where it actually points, never by the string used to reach it
+# (issue #2326 round 4: a `docs/live_spawn.py -> ../spawn.py` symlink
+# defeated both this check and the bash fast path above when both
+# matched on the unresolved string). This resolves the path rather
+# than adding another string spelling to check.
+try:
+    real_path = os.path.realpath(abs_path)
+except (OSError, ValueError):
+    # cannot resolve (e.g. an embedded NUL) -- fail toward running the
+    # check, never toward silently exempting an unresolvable path
+    real_path = abs_path
+
+ext = posixpath.splitext(real_path)[1].lower()
+if ext in (".md", ".txt", ".rst"):
+    sys.exit(0)
+real_parts = [p for p in real_path.split("/") if p]
+if "docs" in real_parts[:-1]:
+    sys.exit(0)
+
 root = None
-probe = posixpath.dirname(abs_path)
+probe = posixpath.dirname(real_path)
 while probe and probe != "/":
-    if os.path.isdir(posixpath.join(probe, ".git")):
+    # `os.path.exists`, not `os.path.isdir`: a `git worktree` checkout's
+    # `.git` is a file (containing `gitdir: <path>`), not a directory
+    # (issue #2326 round 4 finding -- the directory-only check silently
+    # zeroed out impacted-test selection under a worktree nested inside
+    # an unrelated ancestor repo).
+    if os.path.exists(posixpath.join(probe, ".git")):
         root = probe
         break
     probe = posixpath.dirname(probe)
 if root is None:
     root = cwd
 
+rel = os.path.relpath(real_path, root).replace(os.sep, "/")
+
 failures = []
 budget_hit = False
 
 
 def _run(args, cwd_arg=None, env_extra=None):
-    """Bounded by the remaining combined budget. Returns (ok, output) --
-    ok is False on nonzero exit OR on a timeout (the timeout case is
-    also reported as a lint/test failure, distinct from the overall
-    budget-exceeded report).
+    """Bounded by the remaining combined budget. Returns (ok, out) --
+    ok is True/False for a run that actually completed, None if the
+    combined budget ran out first. `out` is the captured output either
+    way: on a timeout the subprocess is killed, but whatever it already
+    wrote to the capture file before the kill is still read back and
+    returned, never discarded (issue #2326 round 4 -- the previous
+    version returned (None, None) on timeout, throwing away partial
+    pytest output that could already contain real, confirmed
+    failures).
 
     Output is captured via temp files, not pipes, and the subprocess
     runs in its own process group (start_new_session=True), which is
@@ -256,15 +316,15 @@ def _run(args, cwd_arg=None, env_extra=None):
     remaining = _remaining()
     if remaining <= 0:
         budget_hit = True
-        return None, None
+        return None, ""
     env = None
     if env_extra:
         env = dict(os.environ)
         env.update(env_extra)
-    import tempfile
     with tempfile.TemporaryFile() as out_f:
         proc = None
         pgid = None
+        timed_out = False
         try:
             proc = subprocess.Popen(
                 args, cwd=cwd_arg, stdout=out_f, stderr=subprocess.STDOUT,
@@ -278,8 +338,7 @@ def _run(args, cwd_arg=None, env_extra=None):
             proc.wait(timeout=max(remaining, 0.01))
         except subprocess.TimeoutExpired:
             budget_hit = True
-            _killpg(pgid)
-            return None, None
+            timed_out = True
         except OSError:
             # missing tool / permission error -- fail open for this step
             return True, ""
@@ -287,6 +346,8 @@ def _run(args, cwd_arg=None, env_extra=None):
             _killpg(pgid)
         out_f.seek(0)
         out = out_f.read().decode("utf-8", "replace")
+    if timed_out:
+        return None, out
     ok = proc.returncode == 0
     return ok, out
 
@@ -305,17 +366,92 @@ def _killpg(pgid):
         pass
 
 
+def _acquire_repo_lock(root_dir, deadline):
+    """Best-effort mutual exclusion on the CPU-heavy test step, scoped
+    to one repo root. Reduces (does not claim to eliminate) the CPU-
+    contention-induced budget exhaustion issue #2326 round 4 traced:
+    without it, N concurrent hook invocations against the same repo
+    all fight for the same CPU at once and each one's wall-clock
+    degrades together; with it, they queue instead, each still bounded
+    by its own remaining budget. Returns (fd, timed_out):
+
+    - locking infrastructure unavailable (e.g. no writable temp dir):
+      (None, False) -- fail open, caller proceeds without
+      serialization, exactly like today.
+    - lock acquired: (fd, False) -- caller must release it.
+    - deadline reached while waiting for another invocation to finish:
+      (None, True) -- caller treats this exactly like any other
+      budget-exceeded case (never silently proceeds, never silently
+      gives up).
+    """
+    try:
+        lock_dir = os.path.join(
+            tempfile.gettempdir(), "otr-lint-test-on-edit-locks")
+        os.makedirs(lock_dir, exist_ok=True)
+        digest = hashlib.sha1(
+            root_dir.encode("utf-8", "replace")).hexdigest()[:16]
+        lock_path = os.path.join(lock_dir, digest + ".lock")
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:
+        return None, False
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd, False
+        except OSError:
+            pass
+        if time.monotonic() >= deadline:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            return None, True
+        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+
+
+def _release_repo_lock(fd):
+    if fd is None:
+        return
+    try:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    except OSError:
+        pass
+    try:
+        os.close(fd)
+    except OSError:
+        pass
+
+
+_FAILED_LINE_RE = re.compile(r"^(\S+::\S+)\s+(FAILED|ERROR)\b")
+
+
+def _extract_confirmed_failures(out):
+    """pytest's own end-of-run summary only prints after the full item
+    set completes -- useless once a run is killed mid-way -- but this
+    hook always invokes pytest with `-v` (never `-q`) and
+    PYTHONUNBUFFERED=1, so each item's own PASSED/FAILED/ERROR line is
+    written to the capture file as soon as that item finishes, not
+    deferred. Used only on the timeout path: a completed run already
+    reports its failures via the normal ok=False path above."""
+    found = []
+    for line in out.splitlines():
+        m = _FAILED_LINE_RE.match(line.strip())
+        if m:
+            found.append(m.group(1))
+    return found
+
+
 # --- lint step ----------------------------------------------------------
 if ext == ".py":
     if shutil.which("python3"):
-        ok, out = _run(["python3", "-m", "py_compile", abs_path], root)
+        ok, out = _run(["python3", "-m", "py_compile", real_path], root)
         if ok is False:
-            failures.append("lint failed for %s:\n%s" % (norm, out))
+            failures.append("lint failed for %s:\n%s" % (rel, out))
 elif ext == ".sh":
     if shutil.which("bash"):
-        ok, out = _run(["bash", "-n", abs_path], root)
+        ok, out = _run(["bash", "-n", real_path], root)
         if ok is False:
-            failures.append("lint failed for %s:\n%s" % (norm, out))
+            failures.append("lint failed for %s:\n%s" % (rel, out))
 # other extensions: no lint step -- not every language has tooling
 # this repo can assume
 
@@ -350,8 +486,7 @@ def _find_impacted(stem, root_dir):
 # syntax error will fail its test for the same reason, and there is no
 # budget-neutral reason to pay for both.
 if not failures and not budget_hit:
-    stem = posixpath.splitext(posixpath.basename(norm))[0]
-    rel = os.path.relpath(abs_path, root).replace(os.sep, "/")
+    stem = posixpath.splitext(posixpath.basename(real_path))[0]
     rel_parts = rel.split("/")
 
     candidates = []
@@ -362,27 +497,64 @@ if not failures and not budget_hit:
         and rel_parts[-1].endswith(".py")
     )
     if is_own_test:
-        candidates.append(abs_path)
+        candidates.append(real_path)
     elif ext == ".py":
         candidates.extend(_find_impacted(stem, root))
 
     if candidates and shutil.which("python3"):
         pytest_args = [
-            "python3", "-m", "pytest",
+            "python3", "-u", "-m", "pytest",
             "-p", "otr_lint_test_timeout_plugin",
             "-o", "addopts=",
-        ] + candidates + ["-q"]
+            "-v",
+        ] + candidates
         env_extra = {
             "OTR_LINT_TEST_PER_FILE_TIMEOUT_S": per_file_timeout_s,
             "PYTHONPATH": hook_dir + os.pathsep + os.environ.get(
                 "PYTHONPATH", ""),
+            "PYTHONUNBUFFERED": "1",
         }
-        ok, out = _run(pytest_args, root, env_extra=env_extra)
+        lock_fd, lock_timed_out = _acquire_repo_lock(root, _start + budget_s)
+        if lock_timed_out:
+            budget_hit = True
+            ok, out = None, ""
+        else:
+            try:
+                ok, out = _run(pytest_args, root, env_extra=env_extra)
+            finally:
+                _release_repo_lock(lock_fd)
+
+        candidate_list = ", ".join(
+            os.path.relpath(c, root) for c in candidates)
         if ok is False:
-            failures.append(
-                "impacted test failed (%s):\n%s"
-                % (", ".join(os.path.relpath(c, root) for c in candidates),
-                   out))
+            if ("otr_lint_test_timeout_plugin" in out
+                    and "ModuleNotFoundError" in out):
+                # distinct from a real test failure: the harness's own
+                # plugin could not be imported, so none of the
+                # candidate tests actually ran (issue #2326 round 4
+                # finding -- this used to render identically to N real
+                # broken tests).
+                failures.append(
+                    "harness internal error (not a real test failure): "
+                    "otr_lint_test_timeout_plugin could not be "
+                    "imported -- impacted tests (%s) did not actually "
+                    "run:\n%s" % (candidate_list, out))
+            else:
+                failures.append(
+                    "impacted test failed (%s):\n%s"
+                    % (candidate_list, out))
+        elif ok is None:
+            confirmed = _extract_confirmed_failures(out or "")
+            if confirmed:
+                failures.append(
+                    "budget exceeded mid-run (%s) -- %d test(s) ALREADY "
+                    "CONFIRMED FAILING before the timeout (scan "
+                    "incomplete, more may be broken): %s"
+                    % (candidate_list, len(confirmed),
+                       ", ".join(confirmed)))
+            # else: no evidence recovered either way -- falls through
+            # to the explicit budget-exceeded/INCOMPLETE report below,
+            # never a silent no-op.
     # no matching test file -- skipped silently, this is import-graph
     # selection on the edited module's stem, not full test-impact
     # analysis (e.g. it will not catch a test that reaches the edited
@@ -391,8 +563,10 @@ if not failures and not budget_hit:
 if failures:
     _emit("\n\n".join(failures))
 elif budget_hit:
-    _emit("budget exceeded (%ss), skipped remaining lint/test checks for %s"
-          % (os.environ.get("OTR_LTE_BUDGET_S", "15"), norm))
+    _emit(
+        "budget exceeded (%ss) -- verdict INCOMPLETE, NOT verified clean: "
+        "lint/test checks for %s did not finish in time"
+        % (os.environ.get("OTR_LTE_BUDGET_S", "15"), rel))
 
 sys.exit(0)
 PY
