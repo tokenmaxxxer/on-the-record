@@ -1,5 +1,5 @@
 """Skill-resolution machinery (skill repo discovery, --skills resolution,
-role -> skill-source mapping, roster provenance fields), extracted from
+skill-family -> skill-source mapping, roster provenance fields), extracted from
 spawn.py (issue #2105, extraction 7/N).
 
 Pure move — no behavior change. spawn.py imports this module and re-exports
@@ -114,7 +114,7 @@ def _skill_repo_root() -> Path | None:
 
 def _carries_hooks(skill_dir: Path) -> bool:
     """스킬 마운트가 항상 거부되는 조건 — `hooks/` 서브디렉터리 존재.
-    `resolve_static_policy_source()`/`resolve_role_family_source()`/
+    `resolve_static_policy_source()`/`resolve_skill_family_source()`/
     `resolve_skill_source()`/`resolved_skill_sources()` 의 실제 마운트-거부
     판정과, 이슈 #2679 send-back 이후 후보 목록 필터가 같은 정의를 쓰게
     하는 단일 소스 — 후보 목록이 거부 판정과 별도의 두 번째 사본으로
@@ -462,8 +462,8 @@ def resolve_static_policy_source(repo_root: Path | None) -> dict:
 
 def resolve_skill_family_source(skill: str, repo_root: Path | None) -> dict:
     """이슈 #2561: `consult.py`(consult/verb/skill_judge/panel 세션)와
-    judge 세션의 role 축 기준선 — `_ROLE_SKILLS` 정적 표 없이, 실제
-    skill-repository 디렉터리 이름이 `f"{role}-"` 로 시작하는 스킬 전부를
+    judge 세션의 스킬 축 기준선 — `_ROLE_SKILLS` 정적 표 없이, 실제
+    skill-repository 디렉터리 이름이 `f"{skill}-"` 로 시작하는 스킬 전부를
     매 호출마다 기계적으로 유도한다(표가 아니라 저장소 내용 자체를
     읽으므로 드리프트가 없다) + `_STATIC_POLICY_SKILLS`.
 
@@ -494,7 +494,7 @@ def resolve_skill_family_source(skill: str, repo_root: Path | None) -> dict:
     hooked = [d for d in skill_dirs if _sp._carries_hooks(d)]
     if hooked:
         sys.exit(
-            f"resolve_role_family_source: 역할 {skill!r} 접두어로 유도한 "
+            f"resolve_skill_family_source: 스킬 {skill!r} 접두어로 유도한 "
             f"스킬 중 {', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 "
             f"있다 — skill-repository 는 가이던스 전용이다(훅 없음, "
             f"이슈 #1758)")

@@ -69,7 +69,7 @@ class CommitConsultTraceTest(unittest.TestCase):
     def test_main_head_never_moves_across_n_consults(self):
         for i in range(3):
             trace = self._trace_file(f"shard-{i}.md", f"- consult {i}\n")
-            consult._commit_consult_trace([trace], issue=None, role="tester",
+            consult._commit_consult_trace([trace], issue=None, skill="tester",
                                           outcome="ok", cwd=str(self.work))
         self.assertEqual(_git(self.work, "rev-parse", "HEAD").stdout.strip(),
                          self.original_head,
@@ -86,7 +86,7 @@ class CommitConsultTraceTest(unittest.TestCase):
     def test_trace_ref_accumulates_every_commit(self):
         for i in range(3):
             trace = self._trace_file(f"shard-{i}.md", f"- consult {i}\n")
-            consult._commit_consult_trace([trace], issue=42, role="tester",
+            consult._commit_consult_trace([trace], issue=42, skill="tester",
                                           outcome="ok", cwd=str(self.work))
         count = _git(self.work, "rev-list", "--count",
                      consult._CONSULT_TRACE_REF).stdout.strip()
@@ -96,7 +96,7 @@ class CommitConsultTraceTest(unittest.TestCase):
 
     def test_working_tree_files_survive_and_stay_untracked_on_main(self):
         trace = self._trace_file("shard-0.md", "- consult 0\n")
-        consult._commit_consult_trace([trace], issue=None, role="tester",
+        consult._commit_consult_trace([trace], issue=None, skill="tester",
                                       outcome="ok", cwd=str(self.work))
         self.assertTrue(trace.exists())
         self.assertEqual(trace.read_text(), "- consult 0\n")
@@ -121,7 +121,7 @@ class CommitConsultTraceTest(unittest.TestCase):
 
         with mock.patch("subprocess.run", side_effect=fake_run):
             with mock.patch("sys.stderr") as mock_stderr:
-                consult._commit_consult_trace([trace], issue=None, role="tester",
+                consult._commit_consult_trace([trace], issue=None, skill="tester",
                                               outcome="ok", cwd=str(self.work))
         written = "".join(c.args[0] for c in mock_stderr.write.call_args_list)
         self.assertIn("rev-parse", written)
@@ -132,7 +132,7 @@ class CommitConsultTraceTest(unittest.TestCase):
 
     def test_error_outcome_word_recorded_on_trace_ref(self):
         trace = self._trace_file("shard-err.md", "- consult err\n")
-        consult._commit_consult_trace([trace], issue=None, role="tester",
+        consult._commit_consult_trace([trace], issue=None, skill="tester",
                                       outcome="error: boom", cwd=str(self.work))
         log = _git(self.work, "log", "--format=%s",
                    consult._CONSULT_TRACE_REF).stdout

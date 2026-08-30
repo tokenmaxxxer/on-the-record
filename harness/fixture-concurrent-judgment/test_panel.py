@@ -48,8 +48,8 @@ def test_panel_live_exchange_records_position_rebuttal_and_verdict(fake_root):
     assert "| position |" in text
     assert "| rebuttal |" in text
     assert "| verdict |" in text
-    assert "role=qa" in text
-    assert "role=review" in text
+    assert "skill=qa" in text
+    assert "skill=review" in text
 
 
 def _unavailable_session(skill, peer_skill, question, cwd, model=None):

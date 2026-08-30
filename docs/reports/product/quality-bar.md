@@ -281,3 +281,31 @@ Append-only, newest entry last.
   mitigation once the never-silent guarantee is in place, but is not a
   substitute for it. Source: issue body, tokenmaxxxer/on-the-record#2326
   (round 4 task framing).
+- 2026-08-30: standing principle for any "no new bug" or coverage-style
+  invariant check in this codebase (surfaced on issue #2139 round 2, PR
+  #2869/#2873/#2877): a check scoped narrower than the population it
+  claims to guard is not a weaker version of the check — it is the worst
+  failure shape this program tracks, because it reports clean *for the
+  same reason it missed the bug*: it never looked. Concretely,
+  `pytest test/` reported an unchanged failing-test-name set while a real
+  regression sat in `harness/fixture-concurrent-judgment/test_panel.py`,
+  which lives outside `test/` and was therefore structurally invisible to
+  that command, not merely unlucky to miss. The required response is not
+  a narrower supplementary check aimed at the one file that got missed —
+  it is to ask what the *true* population is and widen the check's own
+  scope to it when that's possible without hand-enumeration (here,
+  `pytest.ini` already carried no `testpaths` restriction, so `pytest .`
+  from the repo root covers the real population using the config that
+  already existed); only when covering it *would* require enumerating
+  directories should that be stated explicitly instead of built. Paired
+  requirement, same round: once a silent-failure shape is independently
+  reproduced against a session's own prior "unestablished, deferred"
+  characterization of a bug (here, `roster_kill()` reporting "not in
+  roster" while a live, lease-suffixed session kept running on a bare
+  skill-name call — exactly the call shape the CLI's own usage text
+  invites), it must be fixed in that same round rather than deferred
+  again — a second deferral of an already-reproduced silent failure is
+  treated as a repeat of the same defect, not a legitimate scope
+  boundary. Source: this session's task instructions relaying the
+  independent verification's diagnosis on issue #2139, PR #2873/#2877,
+  2026-08-30.

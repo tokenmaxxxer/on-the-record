@@ -590,7 +590,7 @@ def _watchdog_note_gh_failure(root: Path, signal: str, failed: bool) -> bool:
 
 
 def _watchdog_note_unmappable_pr(root: Path, pr_number: int) -> bool:
-    """이슈 #2196: 브랜치명이 issue-<n>/<role> 형식이 아니라 영구적으로
+    """이슈 #2196: 브랜치명이 issue-<n>/<skill>[+<skill>]-<lease> 형식이 아니라 영구적으로
     subject 매핑이 안 되는 PR 을, `root` 스코프 영속 상태에 이미 한 번
     보고했는지로 판별한다. 처음 보는 PR 이면 True(=이번 틱에 개별 줄을
     찍어라)를 돌려주고 상태에 기록, 이미 본 PR 이면 False(=저장소 상태가
@@ -1064,7 +1064,7 @@ def _board_wide_sweep(root: Path) -> int:
                     changed_numbers.add(n)
             if pr_numbers:
                 # 이슈 #1688 blocker 1: PR 만 바뀐 틱은 이슈 번호가 델타에
-                # 안 잡힌다 — 각 PR 을 headRefName(issue-<n>/<role>)으로
+                # 안 잡힌다 — 각 PR 을 headRefName(issue-<n>/<skill>[+<skill>]-<lease>)으로
                 # subject 이슈에 매핑해 narrowing set 에 합친다.
                 # closure_sweep._pr_index_all 은 이 파일이 이미 다른
                 # 경로(closure-sweep 처리)에서 쓰는 동일한 `gh pr list`
@@ -1084,8 +1084,8 @@ def _board_wide_sweep(root: Path) -> int:
                             # 이슈 #2196: 처음 보는 매핑-불가 PR — 개별 줄로
                             # 리포트하고 상태에 기록, 다음 틱부터는 억제.
                             print(f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
-                                  f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<role> "
-                                  "형식 아님) — 이 PR 은 narrowing 에서 무시. issue-<n>/<role> "
+                                  f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<skill>[+<skill>]-<lease> "
+                                  "형식 아님) — 이 PR 은 narrowing 에서 무시. issue-<n>/<skill>[+<skill>]-<lease> "
                                   "산출물을 잘못된 base 에서 다시 잡아온(#2379) 브랜치라면 "
                                   "`spawn.py recut-corrupted --issue <n> --session <session>`(#2402)로 "
                                   "같은 이름 아래 재컷하라 — 그 밖의 브랜치라면 board 와 무관한 "
@@ -1628,7 +1628,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
             print(f"[orphaned] {key}: session {e.get('session_id')} 소유, "
                   f"이 세션 소유 아님 — 재스폰하지 않음")
     if not d:
-        print("돌고 있는 역할 세션 없음")
+        print("돌고 있는 스킬 세션 없음")
         if not anomaly_count:
             print("이상 신호 없음")
         return anomaly_count

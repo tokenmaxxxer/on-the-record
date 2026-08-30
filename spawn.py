@@ -811,7 +811,7 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
     has_commit = bool(observed.get("new_commit"))
     failure_signature = observed.get("failure_signature")
     death_id = observed.get("death_id")
-    base_detail = (f"role={skill} branch={branch}: "
+    base_detail = (f"skill={skill} branch={branch}: "
                    f"expects_pr=True pr_number=None session_verdict={verdict!r}")
 
     if issue is not None and skill:
@@ -878,14 +878,14 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     if verdict == "crashed":
         return [{
             "kind": "session-crashed",
-            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
+            "detail": f"skill={expected.get('skill')} branch={expected.get('branch')}: "
                        "session_verdict=crashed",
             "next_action": "respawn",
         }]
     if verdict == "stalled":
         return [{
             "kind": "session-stalled",
-            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
+            "detail": f"skill={expected.get('skill')} branch={expected.get('branch')}: "
                        "session_verdict=stalled",
             "next_action": "resume-watch",
         }]
@@ -911,7 +911,7 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
             # 안 맞는 입력, 침묵 대신 사람 검토로 보낸다.
             return [{
                 "kind": "inconsistent-observed-state",
-                "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
+                "detail": f"skill={expected.get('skill')} branch={expected.get('branch')}: "
                            f"session_verdict=None loop_state={observed.get('loop_state')!r}",
                 "next_action": "manual-review",
             }]
@@ -919,7 +919,7 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     if verdict not in known_verdicts:
         return [{
             "kind": "inconsistent-observed-state",
-            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
+            "detail": f"skill={expected.get('skill')} branch={expected.get('branch')}: "
                        f"session_verdict={verdict!r} loop_state={observed.get('loop_state')!r}",
             "next_action": "manual-review",
         }]
@@ -1926,7 +1926,7 @@ def drive(cwd: str, unattended: bool, limit: int = 12) -> int:
     root = Path(cwd).resolve()
     d = _roster_load()
     if not d:
-        print("[drive] 돌고 있는 역할 세션 없음 — 보고할 divergence 없음. 멈춘다.",
+        print("[drive] 돌고 있는 스킬 세션 없음 — 보고할 divergence 없음. 멈춘다.",
               file=sys.stderr)
         return 0
     found = False
@@ -1938,7 +1938,7 @@ def drive(cwd: str, unattended: bool, limit: int = 12) -> int:
             print(f"[drive] {key}: {div['kind']}: {div['detail']} "
                   f"-> next_action={div['next_action']}", file=sys.stderr)
     if not found:
-        print("[drive] divergence 없음 — 다음 역할을 자동으로 고르는 라우팅 "
+        print("[drive] divergence 없음 — 다음 스킬을 자동으로 고르는 라우팅 "
               "표는 없다(이슈 #120). 오케스트레이터가 보드를 읽고 판단한다. "
               "띄울 게 없다고 보고 멈춘다.", file=sys.stderr)
     return 0
@@ -2642,7 +2642,7 @@ def main() -> int:
                  "pauses on it (issue #2129)")
     if a.checkpoint and a.issue is None:
         sys.exit("--checkpoint requires --issue <n>: the approval needle is "
-                 "`APPROVE issue-<n>/<role>` on that issue (issue #2129)")
+                 "`APPROVE issue-<n>/<skill>` on that issue (issue #2129)")
 
     if a.dry_run:
         # --dry-run 은 세션을 안 태운다. 계약 검사는 버려질 세션을 막으려는
@@ -2669,7 +2669,7 @@ def main() -> int:
         # dry-run 경로를 안 타므로(세션을 안 띄우니까) --model 부착 여부가
         # 여기 안 보이면 이슈#31 acceptance 커맨드(`--dry-run`)로는 이 기능을
         # 검증할 수 없다(실측:
-        # docs/reports/2026-07-29-hunt-muster-role-model-build.md). resolved_role_model()
+        # docs/reports/2026-07-29-hunt-muster-role-model-build.md). resolved_skill_model()
         # 로 spawn_cmd 와 동일한 env > config > built-in "sonnet" 경로를 태워,
         # 둘 다 비어있어도 built-in 값을 키에 넣는다.
         skill_model = resolved_skill_model(a.model)
@@ -3251,7 +3251,7 @@ def _mechanical_rebase(cwd: str, push: bool = True) -> dict:
         return {"status": "conflict", "behind": behind_n,
                 "detail": (f"{branch} 를 {base} 위로 rebase 하다 충돌 — 기계적으로 "
                             f"처리할 수 없다(rebase 는 abort 했다). 충돌 해소는 판단이 "
-                            f"필요해 role 세션이 있어야 한다.")}
+                            f"필요해 스킬 세션이 있어야 한다.")}
     if push:
         pushed = git("push", "--force-with-lease", "origin", f"HEAD:{branch}")
         if pushed.returncode != 0:

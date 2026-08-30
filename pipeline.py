@@ -210,14 +210,14 @@ def _workspace_bash_allow(cwd: str) -> list[str]:
 
 def skill_settings(skill: str, cwd: str | None = None,
                    inject_self_hosted_hooks: bool = True) -> dict:
-    """역할의 샌드박스 경계 + 전역 플러그인 차단.
+    """스킬의 샌드박스 경계 + 전역 플러그인 차단.
 
     **스킬-저장소 가이던스를 켜는 일은 여기서 하지 않는다.** 그건 `--plugin-dir` 이 한다
     (`spawn_cmd()` 의 plugins/core_plugins/skill_dirs 참고). 설정으로 켜려면 마켓플레이스를 등록하고 설치해야
     하는데, 그 경로에는 조용한 함정이 셋 있고 전부 "의도한 것과 다른 커밋이
     붙는다"로 끝난다.
 
-    남는 일은 두 가지다: 역할이 선언한 샌드박스를 펼치는 것, 그리고 사용자
+    남는 일은 두 가지다: 스킬이 선언한 샌드박스를 펼치는 것, 그리고 사용자
     전역 플러그인을 빠짐없이 끄는 것. 후자는 `--settings` 가 교체가 아니라
     **병합**이라 필요하다 — 안 끄면 qa 스킬-저장소 가이던스만 적은 세션에 전역 17개가 딸려
     온다.
@@ -269,7 +269,7 @@ def skill_settings(skill: str, cwd: str | None = None,
                 sys.exit(f"[{skill}] sandbox.filesystem.{key} 의 변수를 풀 수 없다: "
                          f"{', '.join(unresolved)}")
 
-    # 이슈 #695: 롤-세션 샌드박스를 role_settings() 가 중앙에서 끈다.
+    # 이슈 #695: 롤-세션 샌드박스를 skill_settings() 가 중앙에서 끈다.
     # roles/*.json 이 어떤 sandbox.enabled 값을 선언하든 여기서 무조건
     # 거짓으로 강제한다 — 반복된 차단 버그(#38/#58/#65/#72/#153, 2026-08-11
     # tas 리포트)의 비용이 경계의 보호 가치를 넘어섰다는 운영자 결정.
@@ -303,7 +303,7 @@ def skill_settings(skill: str, cwd: str | None = None,
     # 실측했다(거부 0건). bypassPermissions 아래서 도구 호출을 실제로
     # 판정하는 층은 PreToolUse/PermissionRequest 훅뿐이다.
     #
-    # 그런데도 목록을 지우지 않는 이유 둘: (1) role_settings() 는
+    # 그런데도 목록을 지우지 않는 이유 둘: (1) skill_settings() 는
     # `--dry-run` 경로(main() 의 a.dry_run 분기)에서도 호출되는데 그
     # 경로는 claude 프로세스를 아예 안 띄우므로 permission-mode 자체가
     # 없다 — 거기 출력되는 permissions.allow 는 이 함수가 만드는 그대로다;
@@ -446,7 +446,7 @@ def core_root() -> Path:
         if (d / "core" / ".claude-plugin" / "plugin.json").is_file():
             return d
     sys.exit(
-        "tokenmaxxxer-core 를 찾지 못했고 받지도 못했다. 역할 세션은 core 없이\n"
+        "tokenmaxxxer-core 를 찾지 못했고 받지도 못했다. 스킬 세션은 core 없이\n"
         "  뜨지 않는다 — 프로토콜 게이트와 정본 계약이 거기 있다.\n"
         "  네트워크를 확인하거나 체크아웃을 두고 $TOKENMAXXXER_CORE 로 가리켜라.")
 

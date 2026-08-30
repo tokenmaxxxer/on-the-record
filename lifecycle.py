@@ -574,8 +574,25 @@ def roster_kill(issue: int, skill: str) -> int:
     key = f"issue-{issue}/{skill}"
     e = d.get(key)
     if not e:
-        print(f"로스터에 없다: {key}", file=sys.stderr)
-        return 1
+        # 이슈 #2432 이후 라이브 로스터 키는 항상 `<skill>-<8-hex-리스>`
+        # 접미사가 붙는다(new_lease_disambiguator()) — 그런데 `kill`
+        # 서브커맨드의 사용법 문구는 여전히 `<역할>`이라 접미사 없는 bare
+        # skill 이름으로 부르는 호출이 실제로 생긴다(#2873 재현). 정확히
+        # 하나의 라이브 엔트리가 그 skill 이름으로 시작하면 그걸로 대신
+        # 죽인다 — 둘 이상이면 조용히 하나를 고르지 않고 후보를 나열하며
+        # 실패한다.
+        prefix = f"issue-{issue}/{skill}-"
+        candidates = {k: v for k, v in d.items() if k.startswith(prefix)}
+        if len(candidates) == 1:
+            key, e = next(iter(candidates.items()))
+        elif len(candidates) > 1:
+            names = ", ".join(sorted(candidates))
+            print(f"{skill}: 라이브 후보가 여럿이다 — 전체 리스 키를 지정하라: {names}",
+                  file=sys.stderr)
+            return 1
+        else:
+            print(f"로스터에 없다: {key}", file=sys.stderr)
+            return 1
     pid = e.get("pid", 0)
     if _sp._alive(pid):
         os.kill(pid, 15)
