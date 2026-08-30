@@ -35,12 +35,18 @@ import sys
 RETIRED_WORDS = {"role", "roles"}
 
 # This detector must name what it detects -- the docstring above and
-# RETIRED_WORDS itself necessarily spell "role"/"roles" literally. That is
-# a citation of the retired axis by a named contract (this check), not a
-# live use of it -- the tokenmaxxxer-core#361 trade, not a revival -- so
-# this file (and its thin shell wrapper) is the one self-exclusion, not
-# an allowlist that grows.
-_SELF_EXCLUDED = {"gates/retirement_count.py", "gates/retirement_count.sh"}
+# RETIRED_WORDS itself necessarily spell "role"/"roles" literally, and its
+# test suite must feed it literal "role"/"roles" fixtures to prove it still
+# matches them. That is a citation of the retired axis by a named contract
+# (this check and its test), not a live use of it -- the
+# tokenmaxxxer-core#361 trade, not a revival -- so this file, its thin
+# shell wrapper, and its test file are the fixed self-exclusion, not an
+# allowlist that grows.
+_SELF_EXCLUDED = {
+    "gates/retirement_count.py",
+    "gates/retirement_count.sh",
+    "test/test_retirement_count.py",
+}
 
 _LETTER_RUN = re.compile(r"[A-Za-z]+")
 _SUBWORD = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z]*|[a-z]+")
