@@ -1019,26 +1019,88 @@ def _is_new_commit(cwd: str, before_head: str | None, after_head: str | None) ->
     return c.returncode == 0
 
 
-def _session_commit_count(cwd: str, before_head: str | None, after_head: str | None) -> int:
-    """`before_head`~`after_head` 사이에 실제로 쌓인 커밋 개수 —
-    `_is_new_commit()` 과 같은 (before_head, after_head) 랜드마크를 쓰지만
-    bool 이 아니라 count (이슈 #2193). dead 세션이 committed-but-unpushed
-    상태로 죽었을 때 복구 신호에 "커밋 몇 개"를 실어 보내는 용도 — PR 이
-    없는 죽은 세션은 push 자체가 안 됐다는 뜻이라, 이 새 커밋 개수가 곧
-    unpushed 커밋 개수와 같다."""
+UNPUSHED_STATUS_UNKNOWN = "unknown"
+"""이슈 #2795 sentinel: `_unrecovered_commit_count()` 이 원격 상태를
+확인하지 못했을 때(원격 조회 자체가 실패, 또는 원격 SHA 가 로컬에 없어
+조상 관계를 못 따질 때) 돌려주는 값 — `0`(정상)이나 양의 정수(좌초)
+어느 쪽으로도 읽으면 안 되는 세 번째 상태다(이슈 #2792 의 '성공
+플래그+데이터 없음' 모양을 되풀이하지 않는다)."""
+
+
+def _remote_branch_head(cwd: str, remote: str, branch: str) -> str | None:
+    """`remote`/`branch` 의 원격 헤드 SHA 를 `git ls-remote --heads` 로
+    직접 묻는다(이슈 #2795) — 로컬 `origin/<branch>` 캐시 ref 나 `@{u}`
+    트래킹 ref 는 워크스페이스가 fetch/트래킹 설정을 한 적 없으면 존재조차
+    안 해, '원격에 없다'와 '이 워크스페이스가 트래킹 ref 를 안 만들어
+    놨다'를 구분 못 한다 — 이번 실제 사고: `git ls-remote` 로 직접 물으면
+    원격 HEAD 가 로컬 HEAD 와 같았는데도(모두 push 됨), 로컬 ref 기반
+    비교는 이를 놓쳤다.
+
+    반환: 원격에 그 브랜치가 없으면 `""`(빈 문자열 — "조회 실패"와 구분
+    하려고 `None` 을 안 쓴다), `ls-remote` 자체가 실패하면(네트워크/원격
+    설정 등) `None`."""
+    c = subprocess.run(
+        ["git", "-C", cwd, "ls-remote", "--heads", remote, branch],
+        capture_output=True, text=True,
+    )
+    if c.returncode != 0:
+        return None
+    line = c.stdout.strip()
+    return line.split()[0] if line else ""
+
+
+def _unrecovered_commit_count(cwd: str, before_head: str | None, after_head: str | None,
+                               branch: str, remote: str = "origin") -> int | str:
+    """`before_head`~`after_head` 사이 커밋 중 실제로 `remote`/`branch` 에
+    없는 것만 센다(이슈 #2795, 이전 `_session_commit_count()` 대체).
+
+    이전 구현은 `before_head` 이후 새로 쌓인 로컬 커밋 개수를 그대로
+    "unpushed 개수"로 읽었다 — 그 커밋들이 이미 push 됐어도(PR 이 아직
+    안 열렸거나 인덱스에 안 잡혔을 뿐이어도) 똑같이 셌다: 원격을 한 번도
+    묻지 않았기 때문이다. 이 함수는 `_remote_branch_head()` 로 실제
+    원격 HEAD 를 물어 비교한다.
+
+    반환:
+    - `0`: 새 커밋이 없거나(`_is_new_commit()` False), 원격 HEAD 가
+      `after_head` 와 같음(모두 push 됨) — 알람 없음.
+    - 양의 정수: 원격 HEAD 가 `after_head` 의 진짜 조상이면 그 차이,
+      원격에 브랜치가 아예 없으면(막 딴 브랜치, 아직 한 번도 push 안 됨)
+      `before_head..after_head` 전체 — 진짜 좌초.
+    - `UNPUSHED_STATUS_UNKNOWN`: 원격 조회 자체가 실패했거나, 원격 SHA 가
+      로컬 오브젝트 DB 에 없어(fetch 필요) 조상 관계를 못 따지거나,
+      조상도 아니고 후손도 아니면(diverged — 이 함수가 추측하면 안 되는
+      모양) — 절대 `0`이나 양의 정수로 fail-open/fail-closed 하지
+      않는다."""
     if not _is_new_commit(cwd, before_head, after_head):
         return 0
-    rng = f"{before_head}..{after_head}" if before_head else after_head
+    remote_sha = _remote_branch_head(cwd, remote, branch)
+    if remote_sha is None:
+        return UNPUSHED_STATUS_UNKNOWN
+    if remote_sha == after_head:
+        return 0
+    if remote_sha == "":
+        rng = f"{before_head}..{after_head}" if before_head else after_head
+    else:
+        anc = subprocess.run(
+            ["git", "-C", cwd, "merge-base", "--is-ancestor", remote_sha, after_head],
+            capture_output=True, text=True,
+        )
+        if anc.returncode != 0:
+            # 0=조상(정상 진행), 그 외(1=조상 아님/diverged, 128=오브젝트
+            # 없음)는 전부 unknown — 어느 쪽이든 이 함수가 추측할 근거가
+            # 없다.
+            return UNPUSHED_STATUS_UNKNOWN
+        rng = f"{remote_sha}..{after_head}"
     c = subprocess.run(
         ["git", "-C", cwd, "rev-list", "--count", rng],
         capture_output=True, text=True,
     )
     if c.returncode != 0:
-        return 0
+        return UNPUSHED_STATUS_UNKNOWN
     try:
         return int(c.stdout.strip())
     except ValueError:
-        return 0
+        return UNPUSHED_STATUS_UNKNOWN
 
 
 def board_snapshot(cwd: str) -> dict[str, str]:
@@ -1386,8 +1448,17 @@ def roster_ps() -> int:
             # 워크스페이스가 있을 때만 diagnose_health() 로 한 번 더
             # 진단해 recovery 신호를 찍는다.
             if work and Path(work).is_dir():
-                commit_count = _sp._session_commit_count(
-                    work, e.get("before_head"), _sp._git_head(work))
+                # Issue #2795: the actual checked-out git branch, not the
+                # workspace directory's basename — `issue_workspace()`
+                # names the directory `<repo>-issue-<n>-<skill>` (dashes,
+                # filesystem-safe) while the git branch is `issue-<n>/<skill>`
+                # (slash); using the directory name here would make every
+                # `ls-remote` below query a branch that never exists,
+                # reintroducing this same issue's false positive by a new
+                # route.
+                commit_count = _sp._unrecovered_commit_count(
+                    work, e.get("before_head"), _sp._git_head(work),
+                    _sp._current_branch(Path(work)))
                 health = _sp.diagnose_health(key, e, root=Path(work),
                                           commit_count=commit_count)
                 if health["state"] not in (None, "DEAD-ERRORED"):
