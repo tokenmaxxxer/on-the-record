@@ -18,6 +18,10 @@ upstream:
 
 # issue-2894 — adversarial-review-3fb40e3e record
 
+skill-verdict: adversarial-review — applied: invoked; used the skill's evaluator posture (blind to the builder's own claims, incentive to find real problems with cited locations) to structure this entire independent verification pass against PR #2896, rather than restating its record.
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; treated PR #2896's own "4 -> 0" claim as a claim to re-test rather than a settled fact (rule 1), deliberately ran the negative/edge-case path (real `gh` against the real four issue numbers, not the PR's own mocked harness) rather than only the happy path (rule 2), and re-derived the four fail-safe paths and the two ruled-out causes from primary evidence instead of citing PR #2896's description of them (rule 3).
+skill-verdict: work-in-english — applied: invoked; record, commit message, and PR title/body are in English per the policy, with only this final user-facing summary in Korean.
+
 ## What was done
 
 Independent adversarial verification of PR #2896 (commit
