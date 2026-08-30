@@ -498,7 +498,7 @@ def _autodetect_issue_phase(repo: Path, pr: int, issue: int | None,
 
     이슈 번호는 PR 본문이 아니라 head 브랜치명에서 뽑는다: 본문은 이슈를
     여럿 언급할 수 있어 모호하지만, 브랜치명은 이 저장소 전체가 강제하는
-    유일한 `issue-<n>/<role>` 규칙이라 모호성이 없다. 브랜치가 그 형태가
+    유일한 `issue-<n>/<skill>` 규칙이라 모호성이 없다. 브랜치가 그 형태가
     아니면(이슈에 안 연결된 사람 PR 등) 이슈 번호를 알 방법이 없다 —
     통과가 아니라 차단한다(fail closed): 조용히 건너뛰면 #245 가 고치려는
     "강제 지점 없음" 구멍이 이 경로로 그대로 되살아난다. 트레이드오프는
@@ -517,11 +517,11 @@ def _autodetect_issue_phase(repo: Path, pr: int, issue: int | None,
             fork_issue = _fork_issue_from_body(repo, pr)
             if fork_issue is None:
                 return [f"브랜치 {branch!r} 에서 이슈 번호를 추출할 수 없다 "
-                        f"(issue-<n>/<role> 형태가 아니다) — fail closed: 이슈에 "
+                        f"(issue-<n>/<skill> 형태가 아니다) — fail closed: 이슈에 "
                         f"연결 안 된 PR을 이 검사 없이 통과시키지 않는다. 내부 "
-                        f"PR이면 브랜치를 issue-<n>/<role> 로 바꾸면 재검사된다; "
+                        f"PR이면 브랜치를 issue-<n>/<skill> 로 바꾸면 재검사된다; "
                         f"확인된 fork PR이면 본문에 '#<이슈번호>'를 적으면 "
-                        f"재검사된다(role 은 None 으로 남는다)."]
+                        f"재검사된다(skill 은 None 으로 남는다)."]
             if issue is None:
                 issue = fork_issue
         else:

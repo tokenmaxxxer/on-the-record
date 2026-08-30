@@ -505,7 +505,7 @@ def _await_bounded(events_path: Path, offset_path: Path, stall_timeout_min: floa
             if not log_path.exists():
                 print(f"[watch] cannot observe: 세션 로그 파일이 없다 — "
                       f"{log_path}. stall 이 아니라 관측 채널 자체가 사라진 "
-                      f"것이다 — clean 이력을 확인하거나 역할을 다시 스폰하라",
+                      f"것이다 — clean 이력을 확인하거나 스킬을 다시 스폰하라",
                       file=sys.stderr)
                 return 0
             secs = int(time.monotonic() - last_change)
@@ -554,7 +554,7 @@ def _ambiguous_watch_exit(issue: int, matches: list, repo: str | None) -> None:
     skills = [v.get("skill") or k.rsplit("/", 1)[1] for k, v in matches]
     cmds = "; ".join(
         f"spawn.py watch --issue {issue} --session {r}{cwd_flag}" for r in skills)
-    sys.exit(f"이슈 {issue} 에 역할이 여럿 기록돼 있다 — 역할을 지정하라 "
+    sys.exit(f"이슈 {issue} 에 스킬이 여럿 기록돼 있다 — 스킬을 지정하라 "
              f"(후보: {', '.join(skills)}): {cmds}")
 
 

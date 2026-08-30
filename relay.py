@@ -61,7 +61,7 @@ def _undispositioned_skill_prs(root: Path, exclude_issue: int | None = None
     재사용한다 — `_approved_skills_on_issue` 가 비어 있으면 phase-1 미승인,
     있으면 phase-2 진행 중(그 이슈의 phase-2 PR 은 정의상 아직 열려 있으니
     처분 전). `exclude_issue` 와 같은 이슈 번호는 건너뛴다(진행 중인 그
-    이슈 자신을 막지 않는다). `(blockers, ok)` — `ok` 는 `_open_role_prs`
+    이슈 자신을 막지 않는다). `(blockers, ok)` — `ok` 는 `_open_skill_prs`
     의 실패를 그대로 전파한다.
     """
     prs, ok = _sp._open_skill_prs(root)
@@ -132,7 +132,7 @@ def _post_stranded_push_comment(root: Path, issue: int, skill: str, branch: str,
         return
     body = (f"{marker}\n\n"
             f"branch: {branch}\nreason: {reason}\ndetail: {detail[:200]}\n\n"
-            f"The {skill}-role session's work stopped here — resume it (retry the "
+            f"The {skill}-skill session's work stopped here — resume it (retry the "
             f"push/PR creation from the host), or close the issue with a stated "
             f"reason. Needs human intervention.")
     subprocess.run(["gh", "api", f"repos/{slug}/issues/{issue}/comments",
@@ -263,8 +263,8 @@ def ensure_pushed(work: str, issue: int, skill: str) -> dict:
         # 이슈가 조기에 닫힌다(실측 직전 발견). 이슈 닫기는 라운드가 끝났을
         # 때 사람의 행위다 (계약 s8).
         body = (f"Part of #{issue}.\n\nOpened by on-the-record on behalf of the "
-                f"{skill} role session (sandbox egress relay); the branch "
-                f"content is the role's own work.\n\nskill: {skill}")
+                f"{skill}-skill session (sandbox egress relay); the branch "
+                f"content is the skill session's own work.\n\nskill: {skill}")
         c = subprocess.run(["gh", "pr", "create", "--head", br,
                             "--title", f"[{br}]",
                             "--body", body],

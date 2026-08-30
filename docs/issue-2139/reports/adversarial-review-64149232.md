@@ -541,3 +541,226 @@ for this session was in English throughout (only the surrounding
 directive/system-reminder scaffolding is Korean by system design, not
 user communication), so the trigger condition ("whenever the user
 communicates in Korean") was not met.
+
+## Round 2 — relic-sweep cleanup batch + fix-issue recommendations (2026-08-30)
+
+Separate deliverable from Round 1 above (independent verification of PR
+#2877): this round executes the pending action items from the issue
+#2139 "kind-lens pass" comment (canonical: `gh issue view 2139 --repo
+tokenmaxxxer/on-the-record --comments`, read this session — the comment
+titled "Evidence sweep — non-hook surfaces, kind-lens pass (2026-08-30)",
+posted before this round started). That comment's evidence table already
+satisfies the issue's "evidence table committed as an issue comment"
+acceptance line; what remained was landing the mechanical fixes and
+recommending the two findings that needed their own follow-up issue
+rather than being batched.
+
+### What was done
+
+Mechanical wording/dead-name-reference cleanup across the files the
+kind-lens-pass comment's tables (its "Kind 3 — log/status print format
+strings", "Kind 4 — messages posted live to GitHub", "Kind 5 —
+docstring/comment references to a renamed function or constant", "Kind 7
+— on-disk schema field names", and "Kind 8 — directive/commands prose
+invocation examples" sections, plus its "STILL LIVE: A5" row — canonical:
+same comment cited above) marked "fixed in cleanup PR" — `board.py`,
+`consult.py`, `events.py`, `gates/ci.py`, `pipeline.py`, `relay.py`,
+`roster.py`, `skills.py`, `spawn.py`, `watchdog.py`,
+`on-the-record/directive/delegation-loops.md` — plus one additional
+single-line fix this round's own compile/grep pass turned up
+(`gates/patrol_wiring.py:31`, a stale comment reference to
+`spawn.JUDGE_MAX_ROLES_PER_MERGE`, a constant that no longer exists under
+that name):
+
+```
+$ grep -n "JUDGE_MAX_ROLES_PER_MERGE\|JUDGE_MAX_SKILLS_PER_MERGE" spawn.py consult.py gates/patrol_wiring.py
+gates/patrol_wiring.py:31:# Mirrors spawn.JUDGE_MAX_ROLES_PER_MERGE — this loop reads that constant
+consult.py:203:JUDGE_MAX_SKILLS_PER_MERGE = 3  # issue #1587: cost/API-strain cap — counted from the trace log
+spawn.py:326:JUDGE_MAX_SKILLS_PER_MERGE = consult.JUDGE_MAX_SKILLS_PER_MERGE
+```
+
+derived: `git diff --stat` (this round's full working-tree diff before
+commit):
+
+```
+ board.py                                    |  8 ++++----
+ consult.py                                  | 20 ++++++++++----------
+ events.py                                   |  4 ++--
+ gates/ci.py                                 |  8 ++++----
+ gates/patrol_wiring.py                      |  2 +-
+ on-the-record/directive/delegation-loops.md |  6 +++---
+ pipeline.py                                 |  4 ++--
+ relay.py                                    |  8 ++++----
+ roster.py                                   |  2 +-
+ skills.py                                   |  4 ++--
+ spawn.py                                    | 10 +++++-----
+ test/test_consult_trace_commit.py           | 10 +++++-----
+ test/test_ps_live_reliability.py            | 10 +++++-----
+ watchdog.py                                 |  6 +++---
+ 14 files changed, 51 insertions(+), 51 deletions(-)
+```
+
+Each substitution kept the underlying `skill`-shaped value expression
+intact and changed only the stale label/noun (`role`/`역할` → `skill`/
+`스킬`) at the specific locations the kind-lens-pass evidence rows named
+— not a blind repo-wide grep-and-replace: `resolve_role_family_source`
+(skills.py) and `role_settings()` (pipeline.py) docstring/comment
+mentions were fixed only where a live call site under the new name
+(`resolve_skill_family_source`, `skill_settings`) already existed;
+several other stale mentions of the same old names survive elsewhere in
+`consult.py` (lines 17, 845, 898, 983, 1236, 1248, 1635) and
+`pipeline.py:1719`, derived: `grep -rn "resolve_role_family_source"
+--include=*.py . | grep -v '^test/'` after this round's commit — result:
+those 8 lines still print, confirming they were intentionally left
+out-of-scope (outside the kind-lens-pass comment's enumerated evidence
+rows for this batch) rather than missed — left for a future sweep rather
+than expanding this round's scope silently.
+
+### Two findings not folded into the cleanup PR — recommending fix issues
+
+`gh issue create` was attempted for these and refused at the tool-call
+layer:
+
+```
+$ gh issue create --repo tokenmaxxxer/on-the-record --title "..." --body-file ...
+gh-guard: refused for skill session 'adversarial-review-64149232':
+issues are the user's requirement backlog, user-authored only
+(contract v3 s9) — no role touches them. (two-account model, contract v3 s8)
+```
+
+canonical: `/home/jwjung/.claude/plugins/marketplaces/tokenmaxxxer/runs/rulebooks/tokenmaxxxer-core/core/hooks/gh-guard.sh`,
+read this session — `gh issue create/close/reopen/edit/transfer/delete`
+are denied for any session with `CLAUDE_SKILL` set; `gh issue comment`
+is not in the deny list. So both write-ups below are posted as
+*recommendations* inside the issue-#2139 comment this round also posts,
+per the pattern the kind-lens-pass comment itself already used
+("New fix issues filed from this sweep" as a placeholder, never an
+actual `gh issue create` call), rather than filed as standalone issues.
+
+1. **`spawn.py:4006` `_dp("role-skill-triggers", ...)` label.** The
+   literal string `"role-skill-triggers"` names a directive-diet
+   component; the component's own emitted content is already
+   skill-only. derived: `grep -rn "role-skill-triggers" --include=*.md
+   .`:
+
+```
+docs/issue-2720/reports/technical-writing-style-guide-compliance+conformance-review-requirement-extraction+adversarial-review-8361dea3.md:261:
+  (the edited `_spawn_one`/`_dp("role-skill-triggers", ...)` f-string
+docs/issue-2579/reports/silent-failure-audit+diagnose-first-206898b1.md:126:
+  role-skill-triggers=473B, ...
+docs/issue-2579/reports/silent-failure-audit+diagnose-first-206898b1.md:153:
+  role-skill-triggers=473B, ...
+```
+
+   Two prior report files already cite this exact literal string, so a
+   blind rename would desync those citations. Recommendation: rename to
+   `skill-triggers` only after confirming no automated tooling parses
+   the label (the hits found above are prose citations, not parsers),
+   and note the rename wherever directive-diet component names are
+   tracked.
+2. **`directive_assembly.py:509-519` `_RECORD_SKELETON`'s `role: {role}`
+   frontmatter key.** Every future record in the repo is stamped from
+   this template (`directive_assembly.py:663` formats it in). derived:
+   `grep -n "role:" test/test_record_kind_field.py
+   test/test_branch_skill_field.py`:
+
+```
+test/test_record_kind_field.py:27:        text = "---\nissue: 2284\nrole: implementation\n---\n\nbody\n"
+test/test_branch_skill_field.py:8: - `role: <role>` trailer appended to the PR body `ensure_pushed()` uses
+```
+
+   `test_record_kind_field.py:27` builds a fixture record with a literal
+   `role:` frontmatter line to test the record-kind-field parser, and
+   `test_branch_skill_field.py:8` documents a `role: <role>` PR-body
+   trailer — both would need to move in lockstep with the skeleton
+   template, not just the template itself. Recommendation: rename
+   `role: {role}` → `skill: {skill}` only as a coordinated change that
+   also updates every frontmatter reader (record-kind-field parser,
+   board.py's record scan, any gate that greps `^role:`), not a
+   template-only edit.
+
+### Regression found and fixed before landing
+
+The mechanical batch (produced by a delegated background worker) renamed
+`_commit_consult_trace`'s dead `role` parameter to `skill`
+(`consult.py:370`) on the claim that all 3 production call sites pass it
+positionally. That claim covered production call sites only — it missed
+that `test/test_consult_trace_commit.py` calls the function with the
+keyword `role=` in 5 places.
+
+derived: `python3 -m pytest test/ -q` on this round's working tree
+before the fix:
+
+```
+16 failed, 440 passed, 3 xfailed
+```
+
+derived: same command run against `git stash` (this round's diff
+removed, i.e. the tree as of commit `f635b276`):
+
+```
+15 failed, 441 passed, 3 xfailed
+```
+
+derived: `diff <(pytest_failure_list_stashed) <(pytest_failure_list_unstashed)`
+(failure-name lists captured from each run's short summary) — result:
+15 of the 16 unstashed failures exactly match the 15 stashed failures
+(pre-existing, environment/mock related, unrelated to this round); the
+one extra line in the unstashed list is
+`test_ps_live_reliability.py::LivePsReliabilityTest::test_genuinely_no_sessions_still_reports_empty`
+— caused by the same class of drift: `board.py`'s `roster_ps()` renamed
+its "no sessions" print line, but the test still asserted the old
+Korean wording.
+
+Fixed both: `test/test_consult_trace_commit.py` (5 call sites,
+`role="tester"` → `skill="tester"`, derived: `sed -i 's/role="tester"/skill="tester"/'
+test/test_consult_trace_commit.py` then `python3 -m pytest
+test/test_consult_trace_commit.py -q` — result: `5 passed`) and
+`test/test_ps_live_reliability.py` (5 assertions, `역할 세션 없음` →
+`스킬 세션 없음`, both the `assertIn` and the four `assertNotIn` guards
+so they still test the intended invariant under the new wording, not
+just vacuously pass, derived: `python3 -m pytest
+test/test_ps_live_reliability.py -q` — result: `4 passed`).
+
+derived: `python3 -m pytest test/ -q` after both fixes:
+
+```
+15 failed, 441 passed, 3 xfailed
+```
+
+byte-identical failure list to the `git stash` baseline above (derived:
+`diff` of both short-summary failure lists — result: empty diff) —
+confirms zero net regressions from this round's batch.
+
+### Why
+
+The task (issue #2139 acceptance) asks for dead-weight findings to land
+in one cleanup PR and live-harm-adjacent findings needing coordination
+to get their own issue. The mechanical batch was delegated to a
+background worker per this session's freelunch directive (a well-scoped,
+frozen-contract, many-small-independent-files task), but delegation does
+not exempt the landing session from verifying the result before it
+ships — the `_commit_consult_trace` regression above is exactly the kind
+of gap a "trust the worker's raw output without a pre-commit full test
+run" policy would have shipped silently.
+
+## What did not work (Round 2)
+
+None left unresolved. derived: `python3 -m pytest test/ -q` (repeated
+here from the "Regression found and fixed before landing" section
+above) — result: `15 failed, 441 passed, 3 xfailed`, byte-identical to
+the pre-existing `git stash` baseline — the one regression the
+delegated worker's batch introduced was caught by that same pre-commit
+test run and fixed within this round, not left as a failure.
+
+## Next steps (Round 2)
+
+Post an issue #2139 comment: reference this round's commit/PR as the
+cleanup-PR batch the kind-lens-pass comment's tables pointed at, and
+recommend (not file, per the gh-guard evidence above) the two fix issues
+described above. `loop_state: landed` remains accurate — no code left
+mid-change.
+
+skill-verdict: work-in-english — not-applicable: this round's task text
+was in English throughout, same basis as the Round 1 determination
+above. other mounted skills: not triggered.

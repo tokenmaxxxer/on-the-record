@@ -11,7 +11,7 @@
   - A judgment whose answer does NOT need to change the repo (design/
     feasibility/risk/ambiguity questions) is a CONSULT:
     `python3 ${CHECKOUT}/spawn.py consult <skill> "<question>" [--issue
-    <n>]` — the matching skill's rulebook loaded, judgment rendered, answer returned as
+    <n>]` — the matching skill's guidance loaded, judgment rendered, answer returned as
     `{answer, confidence, caveats}`, no branch/commit/PR, but always one
     line appended to this session's own consult-trace shard
     (`docs/issue-<n>/reports/consult-log/<session-ts-pid>.md`, or
@@ -69,8 +69,8 @@
     prints. Inline case — apply the fix, append one line — timestamp,
     `inline`, one-line description, the diff's location; resume the
     original task same turn.
-    File case — draft the issue, `spawn.py spawn <skill> "<task>" --issue
-    <n> --background`, append a `filed` line to the same log (timestamp,
+    File case — draft the issue, `spawn.py --skills <skill> "<task>" --issue
+    <n>`, append a `filed` line to the same log (timestamp,
     issue number, skill, one-line description); wait on it via the
     existing `spawn.py watch --issue <n>` pattern if it blocks the
     original task, otherwise continue other work in parallel; when the PR

@@ -1070,8 +1070,8 @@ def _board_wide_sweep(root: Path) -> int:
                             # 이슈 #2196: 처음 보는 매핑-불가 PR — 개별 줄로
                             # 리포트하고 상태에 기록, 다음 틱부터는 억제.
                             print(f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
-                                  f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<role> "
-                                  "형식 아님) — 이 PR 은 narrowing 에서 무시. issue-<n>/<role> "
+                                  f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<skill> "
+                                  "형식 아님) — 이 PR 은 narrowing 에서 무시. issue-<n>/<skill> "
                                   "산출물을 잘못된 base 에서 다시 잡아온(#2379) 브랜치라면 "
                                   "`spawn.py recut-corrupted --issue <n> --session <session>`(#2402)로 "
                                   "같은 이름 아래 재컷하라 — 그 밖의 브랜치라면 board 와 무관한 "
@@ -1614,7 +1614,7 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
             print(f"[orphaned] {key}: session {e.get('session_id')} 소유, "
                   f"이 세션 소유 아님 — 재스폰하지 않음")
     if not d:
-        print("돌고 있는 역할 세션 없음")
+        print("돌고 있는 스킬 세션 없음")
         if not anomaly_count:
             print("이상 신호 없음")
         return anomaly_count

@@ -24,7 +24,7 @@ The #2104 evidence-check call-out inside `_append_consult_trace` /
 
 Module-level constants whose values bind at import time moved here WITH
 their users (`CONSULT_TIMEOUT`, `SKILL_JUDGE_TIMEOUT_DEFAULT`,
-`PANEL_TIMEOUT`, `JUDGE_TIMEOUT`, `JUDGE_MAX_ROLES_PER_MERGE`,
+`PANEL_TIMEOUT`, `JUDGE_TIMEOUT`, `JUDGE_MAX_SKILLS_PER_MERGE`,
 `_VERB_REQUIRED_KEY`, `_VERB_INSTRUCTIONS`, `_VERB_JSON_SHAPE`,
 `_JUDGE_EXCLUDED_CORE_PLUGINS`) — spawn.py re-exports them by assignment.
 Run-time references still go through `_sp` so patches on spawn attributes
@@ -356,7 +356,7 @@ def _append_consult_trace(path: Path, ts: str, skill: str, issue: int | None,
     난다(`consult_cmd()` 독스트링과 같은 이유). `verb=` 는 기본값
     "consult" 라 기존 호출부는 그대로 동작한다."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = (f"- {ts} | role={skill} | verb={verb} "
+    line = (f"- {ts} | skill={skill} | verb={verb} "
             f"| issue={issue if issue is not None else 'none'} "
             f"| question={question[:200]!r} | outcome={outcome[:300]!r}\n")
     with path.open("a", encoding="utf-8") as f:
@@ -367,7 +367,7 @@ _CONSULT_TRACE_REF = "refs/heads/otr-consult-trace"
 _CONSULT_TRACE_COMMIT_RETRIES = 5
 
 
-def _commit_consult_trace(paths: list[Path], issue: int | None, role: str,
+def _commit_consult_trace(paths: list[Path], issue: int | None, skill: str,
                           outcome: str, cwd: str | None) -> None:
     """자문 트레이스(및 이번 호출에서 쓴 원본 사이드 파일)를 커밋해
     체크아웃을 깨끗하게 유지한다(이슈 #1134, northpole req#2 — 로컬
@@ -1359,10 +1359,10 @@ def _judge_trace_path(cwd: str) -> Path:
 
 def _append_judge_trace(path: Path, ts: str, skill: str, merge_sha: str, outcome: str) -> None:
     """judge 실행 한 건당 한 줄 — 성공/실패/캡-초과 가리지 않는다. `merge=`
-    필드는 `_judge_roles_run_today()`가 3-역할 캡을 세는 데 쓰는 grep
+    필드는 `_judge_skills_run_today()`가 3-스킬 캡을 세는 데 쓰는 grep
     앵커다."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = (f"- {ts} | role={skill} | verb=judge | merge={merge_sha} "
+    line = (f"- {ts} | skill={skill} | verb=judge | merge={merge_sha} "
             f"| outcome={outcome[:300]!r}\n")
     with path.open("a", encoding="utf-8") as f:
         f.write(line)
@@ -1435,7 +1435,7 @@ def _judge_prefilter(skill: str, diff_summary: str, cwd: str) -> bool:
 def _judge_validate(skill: str, findings: list[dict], diff_summary: str,
                     cwd: str) -> list[dict]:
     """확인/반박 검증 — 하이쿠급 단일 호출로 judge 가 낸 findings 를
-    확인/기각하고, `_JUDGE_ROLE_EXCLUSIONS[role]`에 걸리는 것은 호출 전에
+    확인/기각하고, `_JUDGE_SKILL_EXCLUSIONS[skill]`에 걸리는 것은 호출 전에
     이미 버린다(Anthropic security-review 패턴, 제안서 §5). 호출 자체가
     실패하면 **아무것도 큐에 넣지 않는다** — 검증 못 한 finding 을 큐로
     흘리는 쪽보다, 이번 실행에서 놓치는 쪽이 patrol 큐 오염보다 싸다."""
@@ -1476,8 +1476,8 @@ def judge_cmd(skill: str, merge_sha: str, cwd: str | None = None) -> dict:
     성공/실패/캡초과 가리지 않고 항상 한 줄(이슈 #1587, 제안서 §What will
     be done 6).
 
-    3-역할/머지 캡(`JUDGE_MAX_ROLES_PER_MERGE`)은 트레이스 로그에서
-    세되, `_judge_roles_run_today()`가 방어적으로 읽는다 — 로그가 없거나
+    3-스킬/머지 캡(`JUDGE_MAX_SKILLS_PER_MERGE`)은 트레이스 로그에서
+    세되, `_judge_skills_run_today()`가 방어적으로 읽는다 — 로그가 없거나
     깨져 있어도 캡을 오탐하지 않고(0으로 fail), 이 실행 자체는 트레이스에
     한 줄을 항상 남긴다(binding review note, PR #1590)."""
     root = str(Path(cwd).resolve()) if cwd else str(_sp.ROOT)
@@ -1605,7 +1605,7 @@ def _append_panel_turn(path: Path, ts: str, skill: str, kind: str, text: str) ->
     쓴다(제안서 §What will be done 2) — 두 경로가 서로 다른 기록 포맷으로
     갈라지지 않는다."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    line = f"- {ts} | role={skill} | {kind} | {text[:2000]!r}\n"
+    line = f"- {ts} | skill={skill} | {kind} | {text[:2000]!r}\n"
     with path.open("a", encoding="utf-8") as f:
         f.write(line)
 
@@ -1761,7 +1761,7 @@ def panel_cmd(skill_a: str, skill_b: str, question: str, issue: int | None = Non
     돌려받는다는 점은 같고, 판정자가 둘이고 서로 대화한다는 점이 다르다.
 
     `run_session`: 판정 세션 하나를 실행하는 콜러블
-    `(role, peer_role, question, cwd) -> {"turns": [...], "verdict": dict|None}`,
+    `(skill, peer_skill, question, cwd) -> {"turns": [...], "verdict": dict|None}`,
     기본은 `_run_panel_session()`(실제 `claude -p` 스폰). 테스트는 이
     인자로 진짜 프로세스 없이 씨드된 응답을 주입한다 — 이 파라미터가
     제안서의 "transport boundary" 다.

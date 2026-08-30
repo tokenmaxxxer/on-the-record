@@ -811,7 +811,7 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
     has_commit = bool(observed.get("new_commit"))
     failure_signature = observed.get("failure_signature")
     death_id = observed.get("death_id")
-    base_detail = (f"role={skill} branch={branch}: "
+    base_detail = (f"skill={skill} branch={branch}: "
                    f"expects_pr=True pr_number=None session_verdict={verdict!r}")
 
     if issue is not None and skill:
@@ -878,14 +878,14 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     if verdict == "crashed":
         return [{
             "kind": "session-crashed",
-            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
+            "detail": f"skill={expected.get('skill')} branch={expected.get('branch')}: "
                        "session_verdict=crashed",
             "next_action": "respawn",
         }]
     if verdict == "stalled":
         return [{
             "kind": "session-stalled",
-            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
+            "detail": f"skill={expected.get('skill')} branch={expected.get('branch')}: "
                        "session_verdict=stalled",
             "next_action": "resume-watch",
         }]
@@ -911,7 +911,7 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
             # 안 맞는 입력, 침묵 대신 사람 검토로 보낸다.
             return [{
                 "kind": "inconsistent-observed-state",
-                "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
+                "detail": f"skill={expected.get('skill')} branch={expected.get('branch')}: "
                            f"session_verdict=None loop_state={observed.get('loop_state')!r}",
                 "next_action": "manual-review",
             }]
@@ -919,7 +919,7 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     if verdict not in known_verdicts:
         return [{
             "kind": "inconsistent-observed-state",
-            "detail": f"role={expected.get('skill')} branch={expected.get('branch')}: "
+            "detail": f"skill={expected.get('skill')} branch={expected.get('branch')}: "
                        f"session_verdict={verdict!r} loop_state={observed.get('loop_state')!r}",
             "next_action": "manual-review",
         }]

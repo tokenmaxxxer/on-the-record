@@ -898,7 +898,7 @@ def status(cwd: str) -> list[str]:
                    if (root / name).exists() or (root / "docs" / name).exists())
     if stale:
         out.append(f"보드 없음. 계약 v1 자리에 기록이 있다: {', '.join(stale)}")
-        out.append("  이 레포는 v3 이전 판이다. v3 는 docs/issue-<n>/reports/<역할>.md 다.")
+        out.append("  이 레포는 v3 이전 판이다. v3 는 docs/issue-<n>/reports/<skill>.md 다.")
     else:
         out.append("보드 없음 (docs/issue-<n>/). 아직 아무 역할도 기록을 쓰지 않았다.")
     return out
@@ -1418,7 +1418,7 @@ def roster_ps() -> int:
 
     이슈 #2203: 로스터 파일을 못 읽거나 못 파싱하면(권한 오류, 또는 쓰기
     도중 읽은 절반짜리 내용) 예전엔 그냥 빈 딕셔너리로 흡수돼 "돌고 있는
-    역할 세션 없음"과 구분 없이 찍혔다 — 이 빈 출력이 두 차례 실제로
+    스킬 세션 없음"과 구분 없이 찍혔다 — 이 빈 출력이 두 차례 실제로
     살아있는 세션을 "죽음"으로 오판해 그 위에서 강제 push/merge, git
     stash 같은 파괴적 조치를 부른 원인이었다. 이제 그 실패를
     `_roster_load_checked()` 로 구분해 "확인 불가"로 명시하고, 로스터
@@ -1435,7 +1435,7 @@ def roster_ps() -> int:
     for warning in claim_warnings:
         print(f"경고: {warning} — 이 파일이 가리켰을 살아있는 세션을 놓쳤을 수 있다")
     if load_error is not None:
-        print(f"돌고 있는 역할 세션: 확인 불가 — 로스터 파일을 읽지 못함({load_error})")
+        print(f"돌고 있는 스킬 세션: 확인 불가 — 로스터 파일을 읽지 못함({load_error})")
         print("               이 결과를 '세션 없음'으로 읽지 마라 — 로스터 자체가 신뢰 불가 상태다.")
         if claim_only:
             print("               스폰 클레임으로 발견된 살아있는 세션(로스터 미확인):")
@@ -1443,7 +1443,7 @@ def roster_ps() -> int:
                 print(f"               claim-only  pid {pid}  work: {work}")
         return 2
     if not d and not claim_only and not claim_warnings:
-        print("돌고 있는 역할 세션 없음")
+        print("돌고 있는 스킬 세션 없음")
         return 0
     ws_idx = _sp._workspace_index_load()
     dead = []

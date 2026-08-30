@@ -28,7 +28,7 @@ import patrol_queue  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 KILL_SWITCH_REL_PATH = ".on-the-record/patrol-disabled"
 RECORD_PATH = re.compile(r"^docs/issue-[^/]+/reports/([^/]+)\.md$")
-# Mirrors spawn.JUDGE_MAX_ROLES_PER_MERGE — this loop reads that constant
+# Mirrors spawn.JUDGE_MAX_SKILLS_PER_MERGE — this loop reads that constant
 # directly rather than defining a second cap number that could drift.
 MAX_SKILLS_PER_MERGE = 3
 
