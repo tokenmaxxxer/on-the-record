@@ -479,6 +479,11 @@ if _board_mod._sp is None or __name__ in ("spawn", "__main__"):
     _board_mod._sp = sys.modules[__name__]
 _approvers = _board_mod._approvers
 _base = _board_mod._base
+# Issue #2834: exported so watchdog.py's diagnose_health() can go through
+# `_sp._current_branch()` (the same primitive PR #2824/issue #2795 reused at
+# board.py's two `_unrecovered_commit_count()` call sites) instead of
+# deriving a branch name from the workspace directory's basename.
+_current_branch = _board_mod._current_branch
 _format_roster_row = _board_mod._format_roster_row
 _front_skill = _board_mod._front_skill
 _is_new_commit = _board_mod._is_new_commit
@@ -923,7 +928,9 @@ def _build_expected(entry: dict) -> dict:
     `roster_register()` 가 이미 쓰는 필드(`skill`, `expects_pr`)와 워크
     경로에서 도출한 브랜치 이름만 쓴다."""
     work = entry.get("work")
-    branch = Path(work).name if work else None
+    # Issue #2834: real checked-out branch, not the workspace directory's
+    # basename — see diagnose_health() in watchdog.py for the full story.
+    branch = _current_branch(Path(work)) if work else None
     return {
         "expects_pr": bool(entry.get("expects_pr")),
         "skill": entry.get("skill"),
@@ -939,7 +946,9 @@ def _build_observed(root: Path, entry: dict) -> dict:
     work = entry.get("work")
     log = entry.get("log")
     verdict = session_end_verdict(work, Path(log) if log else None) if work else None
-    branch = Path(work).name if work else None
+    # Issue #2834: real checked-out branch, not the workspace directory's
+    # basename — see diagnose_health() in watchdog.py for the full story.
+    branch = _current_branch(Path(work)) if work else None
     pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
     loop_state = None
     issue = entry.get("issue")
