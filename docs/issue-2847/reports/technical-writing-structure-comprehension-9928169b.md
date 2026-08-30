@@ -204,5 +204,5 @@ canonical: this record's own "What was done" section, each claim backed
 by a command run this session, is the acceptance evidence for landing
 this branch (commit, push, PR) this same session.
 
-skill-verdict: technical-writing-structure-comprehension — not-applicable: invoked, but this session's actual work was a merge-conflict rebase and invariant re-verification on another branch, not drafting or restructuring prose for reader comprehension — no sentence/paragraph/section needed a structure edit.
-skill-verdict: merge-gates — not-applicable: invoked, but the task was resolving one already-open PR's conflict against a shared append-only file, not designing a new merge gate for concurrent work.
+skill-verdict: technical-writing-structure-comprehension — not-applicable: this session's actual work was a merge-conflict rebase and invariant re-verification on another branch, not drafting or restructuring prose for reader comprehension — no sentence/paragraph/section needed a structure edit; not invoked via the Skill tool this session.
+skill-verdict: merge-gates — not-applicable: the task was resolving one already-open PR's conflict against a shared append-only file, not designing a new merge gate for concurrent work; not invoked via the Skill tool this session.
