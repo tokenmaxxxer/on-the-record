@@ -163,5 +163,69 @@ class InvokedSuppressesNoticeTest(_GuardTestBase):
         self.assertNotIn("zero-invocation", ctx)
 
 
+def _checkout_issue_branch(repo: Path, issue: int, skill: str):
+    # `git rev-parse --abbrev-ref HEAD` (used by `_resolve_record_path()`
+    # in the hook) fails closed (exit 128, unusable stdout) on an unborn
+    # branch -- an empty commit gives HEAD a real ref to resolve.
+    subprocess.run(["git", "checkout", "-q", "-b", f"issue-{issue}/{skill}"],
+                    cwd=repo, check=True)
+    subprocess.run(["git", "-c", "user.email=t@t.com", "-c", "user.name=t",
+                     "commit", "-q", "--allow-empty", "-m", "init"],
+                    cwd=repo, check=True)
+
+
+def _write_record(repo: Path, issue: int, skill: str, body: str):
+    d = repo / "docs" / f"issue-{issue}" / "reports"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / f"{skill}.md").write_text(body, encoding="utf-8")
+
+
+class ZeroInvocationRecordSummaryTest(_GuardTestBase):
+    """Issue #2893: the zero-invocation notice (issue #2681) is ephemeral
+    Stop-hook output, not a durable artifact -- "correctly judged nothing
+    applied" and "never considered the mounted list at all" still
+    produced the same (silent) record. This is the added check: the
+    record must carry `other mounted skills: not triggered` when the
+    session invoked none of its mounted skills, resolved the same way
+    the existing invoked-skill check resolves its own record path
+    (issue-<n>/<skill> branch)."""
+
+    def test_missing_summary_line_is_named_in_the_notice(self):
+        _checkout_issue_branch(self.repo, 2893, "implementation")
+        _write_record(self.repo, 2893, "implementation", "# record\n\nno skill section yet\n")
+        _write_transcript(self.transcript_path, [])
+        r = _run_guard(self.repo, self.transcript_path,
+                       "implementation-blueprint", self.session_id)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ctx = _additional_context(r)
+        self.assertIn("zero-invocation", ctx)
+        self.assertIn("issue #2893", ctx)
+        self.assertIn("other mounted skills: not triggered", ctx)
+
+    def test_present_summary_line_suppresses_the_extra_reminder(self):
+        _checkout_issue_branch(self.repo, 2893, "implementation")
+        _write_record(self.repo, 2893, "implementation",
+                       "# record\n\nother mounted skills: not triggered\n")
+        _write_transcript(self.transcript_path, [])
+        r = _run_guard(self.repo, self.transcript_path,
+                       "implementation-blueprint", self.session_id)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ctx = _additional_context(r)
+        self.assertIn("zero-invocation", ctx)  # #2681's notice still fires
+        self.assertNotIn("issue #2893", ctx)   # but nothing more is owed
+
+    def test_unresolvable_record_path_still_gets_the_base_notice(self):
+        # No issue-<n>/<skill> branch, no lease sidecar file -- same as
+        # before #2893, the base zero-invocation notice must still fire
+        # even though no record check is possible.
+        _write_transcript(self.transcript_path, [])
+        r = _run_guard(self.repo, self.transcript_path,
+                       "implementation-blueprint", self.session_id)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        ctx = _additional_context(r)
+        self.assertIn("zero-invocation", ctx)
+        self.assertNotIn("issue #2893", ctx)
+
+
 if __name__ == "__main__":
     unittest.main()
