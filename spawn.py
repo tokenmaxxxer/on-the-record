@@ -1397,9 +1397,9 @@ _LEASE_DISAMBIGUATOR_SUFFIX_RE = re.compile(r"-[0-9a-f]{8}$")
 
 
 def _skill_family(skill: str) -> str:
-    """`role`에서 lease 분해자 접미사를 떼 role family 를 돌려준다. 접미사가
-    없으면(분해자 없이 role 을 직접 넘긴 옛 호출부/테스트 픽스처) role 을
-    그대로 돌려준다 — family 는 "role 에서 알아낼 수 있는 가장 넓은, 그러나
+    """`skill`에서 lease 분해자 접미사를 떼 skill family 를 돌려준다. 접미사가
+    없으면(분해자 없이 skill 을 직접 넘긴 옛 호출부/테스트 픽스처) skill 을
+    그대로 돌려준다 — family 는 "skill 에서 알아낼 수 있는 가장 넓은, 그러나
     여전히 issue 번호와 함께 써야 안전한 식별자"이지, "항상 접미사가 있다"는
     가정이 아니다."""
     return _LEASE_DISAMBIGUATOR_SUFFIX_RE.sub("", skill or "")
@@ -1408,11 +1408,11 @@ def _skill_family(skill: str) -> str:
 def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
                          outcomes: dict) -> bool:
     """`attempt`(halt 가 아직 클래스 재확인으로는 안 풀린 것으로 나온 시도)가
-    같은 작업(issue + role family)에 대한 더 나중의 성공한(`"session-log"`)
+    같은 작업(issue + skill family)에 대한 더 나중의 성공한(`"session-log"`)
     시도로 superseded 됐는지 본다. 위 모듈 주석 참고 — 매칭 규칙과 증거
     위치의 근거는 거기 있다.
 
-    보수적 기본값: issue/role/ts 중 하나라도 없거나 타입이 안 맞으면
+    보수적 기본값: issue/skill/ts 중 하나라도 없거나 타입이 안 맞으면
     `False`(판정 불가 — 아직 안 풀림 쪽으로) — `_halt_condition_cleared`와
     같은 fail-safe 방향."""
     issue = attempt.get("issue")
