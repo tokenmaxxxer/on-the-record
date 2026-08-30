@@ -70,6 +70,16 @@ def _run_gate(repo: Path, file_path: str, cwd: str | None = None):
     )
 
 
+def _assert_denied_as_deliverable_path(test_case, result):
+    """rc==2 alone can't distinguish "denied because it's a deliverable
+    path in a board repo" from "the hook crashed" — its own `trap`
+    (deliverable-guard.sh line 42) remaps ANY unexpected nonzero exit to
+    2 as well. Require the actual policy-denial message on stderr."""
+    test_case.assertIn(
+        "deliverable path in a board repo", result.stderr, result.stderr)
+    test_case.assertNotIn("Traceback", result.stderr, result.stderr)
+
+
 class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
     def setUp(self):
         _FIXTURE_BASE.mkdir(parents=True, exist_ok=True)
@@ -130,6 +140,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             self.repo, "src/docs/reports/product/priorities/hack.md",
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_absolute_src_rooted_bypass_stays_denied_at_repo_root_cwd(self):
         r = _run_gate(
@@ -137,6 +148,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             str(self.repo / "src/docs/reports/product/priorities/hack.md"),
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_relative_bypass_via_subdirectory_cwd_stays_denied(self):
         # cwd=<repo>/src, file_path relative ("docs/reports/product/
@@ -147,6 +159,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             self.repo, "docs/reports/product/priorities/hack.md",
             cwd=self.src_cwd)
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_absolute_bypass_via_subdirectory_cwd_stays_denied(self):
         # The exact payload PR #2653 reproduced against the rejected fix:
@@ -159,10 +172,12 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             str(self.repo / "src/docs/reports/product/priorities/hack.md"),
             cwd=self.src_cwd)
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_real_deliverable_write_still_denied(self):
         r = _run_gate(self.repo, "src/foo.py", cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     # --- issue #2661: the removed scratch/tmp/.git/plugin-cache segment
     # exemption no longer waves through a deliverable path merely because
@@ -171,10 +186,12 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
     def test_src_rooted_tmp_segment_no_longer_exempt(self):
         r = _run_gate(self.repo, "src/tmp/module.py", cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_docs_rooted_tmp_segment_no_longer_exempt(self):
         r = _run_gate(self.repo, "docs/tmp/note.md", cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_tmp_prefixed_approvers_lookalike_no_longer_exempt(self):
         # Not just the removed segment check: "tmp/docs/specs/approvers.md"
@@ -185,6 +202,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
         r = _run_gate(self.repo, "tmp/docs/specs/approvers.md",
                       cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_genuine_approvers_md_still_exempt(self):
         r = _run_gate(self.repo, "docs/specs/approvers.md",
@@ -194,6 +212,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
     def test_scratch_segment_no_longer_exempt(self):
         r = _run_gate(self.repo, "scratch/notes.md", cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     # --- issue #2637 round 4 / issue #2659: the git-root walk's bare-name
     # trust is closed, a real nested repo still steers it -------------
@@ -237,6 +256,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             str(self.repo / "src/docs/reports/product/priorities/hack.md"),
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_bypass_via_planted_git_symlink_should_be_denied(self):
         elsewhere = self.repo.parent / "elsewhere"
@@ -247,6 +267,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             str(self.repo / "src/docs/reports/product/priorities/hack.md"),
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_bypass_inside_linked_worktree_should_be_denied(self):
         (self.repo / "README.md").write_text("x")
@@ -263,6 +284,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             wt, str(wt / "src/docs/reports/product/priorities/hack.md"),
             cwd=str(wt))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     def test_bypass_via_planted_git_directory_reaches_exempt_suffixes(self):
         (self.repo / "src" / ".git").mkdir(parents=True)
@@ -271,6 +293,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             str(self.repo / "src/docs/specs/approvers.md"),
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
     @unittest.expectedFailure
     def test_bypass_via_nested_git_init_reaches_exempt_priorities_dir(self):
@@ -282,6 +305,7 @@ class DeliverableGuardPrioritiesShardTest(unittest.TestCase):
             str(self.repo / "src/docs/reports/product/priorities/hack.md"),
             cwd=str(self.repo))
         self.assertEqual(r.returncode, 2, r.stderr)
+        _assert_denied_as_deliverable_path(self, r)
 
 
 if __name__ == "__main__":
