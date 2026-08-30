@@ -1457,6 +1457,66 @@ def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
     return False
 
 
+# 이슈 #2894 round-2: watchdog tick 안에서 도는 재확인 하나당 상한 -- 이
+# 값 없이 `gates/gh_budget.py`의 `gh api rate_limit` 호출과 같은 10초를
+# 쓴다(같은 파일이 이미 이 값으로 gh 네트워크 호출을 묶어 둔 선례).
+_GH_STATE_RECHECK_TIMEOUT_SEC = 10
+
+
+def _attempt_issue_closed(attempt: dict) -> bool:
+    """이슈 #2894: 위 두 재확인(`_halt_condition_cleared`, `_attempt_superseded`)
+    둘 다 손댈 수 없는 세 번째 population을 위한 폴백. 실측(이슈 #2894 본문):
+    "skill X not found" 류 halt는 다섯 클래스 어디에도 안 걸려 `unknown`으로
+    분류되고(`_halt_condition_cleared`는 unknown을 절대 못 푼다), 그 이슈가
+    이미 닫혔으면 `_attempt_superseded`도 절대 못 푼다 — 같은 (issue, skill
+    family)로 또 스폰될 일이 다시는 없으므로 "더 나중의 성공한 시도"라는
+    증거 자체가 영원히 생기지 않는다. `requirement-tag` 클래스도 같은 함정에
+    걸린다: 이슈가 닫힌 뒤로는 아무도 그 이슈 본문에 요구 ID를 달지 않을
+    것이므로 `requirement_linkage.check()` 재확인이 계속 "여전히 없음"을
+    돌려준다.
+
+    두 재확인 모두 "이 halt를 막는 조건이 지금 다시 봐도 살아있는가"를
+    묻는다 — 클래스가 무엇이든, 이슈 자체가 닫혔으면 이 특정 attempt는
+    board.py의 스폰 게이트(닫힌 이슈는 대상이 아니다)에 의해 다시는
+    재시도되지 않는다. "조건이 고쳐졌다"가 아니라 "이 조건을 다시 물을
+    미래 시도 자체가 없다"는 뜻으로 resolved 처리한다 — `_attempt_superseded`
+    와 같은 자리(class-recheck가 False를 돌려준 *뒤에만*)에 additively 얹는다,
+    대신하지 않는다. 같은 조건에서 disk-full 같은 머신 전역 문제가 여전히
+    라이브라도, 그 문제는 다른(열린) 이슈의 스폰 시도가 있다면 그 시도
+    자신의 새 halt로 여전히 보고된다 — 이 halt 하나를 닫는다고 watch
+    coverage가 줄지 않는다.
+
+    보수적 기본값: issue/cwd가 없거나, cwd가 실존 디렉터리가 아니거나(halt
+    당시 -C로 넘겨받은 대상 레포 경로 자체가 사라졌다 — gh를 어느 레포에서
+    물어야 할지 알 길이 없다), 재확인 자체가 실패/timeout이거나 closed가
+    아니면 전부 `False`(아직 안 풀림) — 판정 불가일 때는 계속 라이브로
+    본다는 이 파일의 다른 재확인 함수들과 같은 fail-safe 방향.
+
+    이슈 #2894 round-2 (PR #2896 독립 검증, #2897): 최초 구현은 `gh issue
+    view --json state`(GraphQL)를 직접 불러 "CLOSED" 정확 일치로 비교했다.
+    실제 레포에 대해 라이브로 재현한 결과, 이슈 #2894가 예시로 든 네 개
+    번호 중 두 개(614, 489)는 이슈가 아니라 "머지된 PR" 번호였고, GraphQL
+    이 그 상태를 "MERGED"로 답해 그 비교를 통과하지 못했다 — before/after
+    가 4 -> 2에서 멈추는 원인이었다. `_gh_rest.fetch_issue_state()`(REST
+    Issues API)로 바꾸면 두 문제가 한 번에 풀린다: (1) REST Issues API는
+    PR 번호도 이슈로 취급해 상태를 open/closed 둘로만 답하므로("merged"라는
+    상태가 따로 없다) 머지된 PR 번호도 "closed"로 정확히 매치되고, (2)
+    class-recheck의 두 형제 경로(`requirement_linkage.check()`,
+    `acceptance_gate.check()`)와 같은 REST 경로를 타 GraphQL 쿼터(이슈
+    #1569가 REST로 분리해 둔 바로 그 쿼터)를 다시 끌어쓰지 않는다."""
+    issue = attempt.get("issue")
+    cwd = attempt.get("cwd")
+    if issue is None or not cwd:
+        return False
+    root = Path(cwd)
+    if not root.is_dir():
+        return False
+    sys.path.insert(0, str((ROOT / "gates").resolve()))
+    import gh_rest as _gh_rest
+    state = _gh_rest.fetch_issue_state(root, issue, timeout=_GH_STATE_RECHECK_TIMEOUT_SEC)
+    return state == "closed"
+
+
 # 이슈 #2393 (R8, #2291 conformance review, "Surface" — 이 파일은 append-only
 # 로만 자라고 오늘까지 rotation 이 없었다): PR #2371 이 남긴 해법 그대로 —
 # "prune spawn-attempts.jsonl 는 한 엔트리의 처분이 sweep 되어 보고까지 끝난

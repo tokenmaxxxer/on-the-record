@@ -676,6 +676,13 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
                 # 시도가 실제로 성공했다 — supersession 으로 대신 풀린다.
                 cleared = True
                 resolution = "superseded"
+            if not cleared and _sp._attempt_issue_closed(a):
+                # 이슈 #2894: 클래스 재확인도 supersession 도 이 halt 를 못
+                # 풀었지만, 이슈 자체가 닫혀 이 attempt 는 다시는 재시도되지
+                # 않는다 — "고쳤다"가 아니라 "이 조건을 다시 물을 미래 시도
+                # 자체가 없다"는 뜻으로 resolved 처리한다.
+                cleared = True
+                resolution = "issue-closed"
             if cleared:
                 attempted_ts = a.get("ts", now)
                 _sp._append_spawn_attempt_event({

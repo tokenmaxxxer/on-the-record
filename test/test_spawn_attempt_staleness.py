@@ -43,6 +43,31 @@ def _git_repo(path: Path, origin: str | None = None) -> Path:
     return path
 
 
+def _mixed_gh_run(gh_stdout="", gh_returncode=0, gh_exception=None):
+    """issue #2894 round-2: `_attempt_issue_closed()` now calls
+    `gates.gh_rest.fetch_issue_state()`, which issues two different
+    subprocess commands -- a real local `git remote get-url origin` (no
+    network) and a `gh api repos/<owner>/<repo>/issues/<n>` REST call (the
+    one actually worth faking). This lets `git remote get-url origin`
+    resolve for real against a repo built by `_git_repo(path, origin=...)`
+    while only the `gh api` leg is mocked -- the same shape the real `gh`
+    binary returns for the REST Issues endpoint, not the GraphQL
+    `gh issue view --json state` shape the pre-round-2 code used to call
+    (that GraphQL shape is exactly what could not represent a merged PR's
+    number as anything other than "MERGED", which a plain "CLOSED"-stubbed
+    test harness could never catch -- see PR #2896's independent review,
+    issue #2894 comment thread, #2897)."""
+    real_run = subprocess.run
+
+    def run(cmd, **kwargs):
+        if cmd[:1] == ["git"]:
+            return real_run(cmd, **kwargs)
+        if gh_exception is not None:
+            raise gh_exception
+        return mock.Mock(returncode=gh_returncode, stdout=gh_stdout)
+    return run
+
+
 class ClassifyHaltReasonTest(unittest.TestCase):
     def test_requirement_tag_message_classified(self):
         reason = ("이슈 #2379 가 요구 연결이 없다:\n  - x\n  세션을 안 띄운다 ...")
@@ -206,6 +231,118 @@ class HaltConditionClearedUnknownClassTest(unittest.TestCase):
     def test_unknown_class_never_reports_cleared(self):
         self.assertFalse(
             spawn._halt_condition_cleared("unknown", {"issue": 1, "cwd": "/tmp"}, "x"))
+
+
+class AttemptIssueClosedTest(unittest.TestCase):
+    """issue #2894: the third fallback, additive to class-recheck and
+    supersession — neither of those can ever fire for a halt whose issue
+    is closed (an unknown class never re-checks clear; a closed issue is
+    never spawned against again, so no later attempt of any kind, let
+    alone a successful one, will ever exist to supersede it)."""
+
+    _ORIGIN = "https://github.com/tokenmaxxxer/on-the-record.git"
+
+    def test_closed_issue_is_cleared(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo", origin=self._ORIGIN)
+            attempt = {"issue": 645, "cwd": str(repo)}
+            payload = json.dumps({"state": "closed"})
+            with mock.patch.object(spawn.subprocess, "run",
+                                    side_effect=_mixed_gh_run(payload)):
+                self.assertTrue(spawn._attempt_issue_closed(attempt))
+
+    def test_closed_pull_request_number_is_cleared(self):
+        """issue #2894 round-2 (PR #2896 independent review, #2897): a live
+        repro against the real four issue numbers the issue names found two
+        of them (614, 489) are numbers of MERGED pull requests, not closed
+        issues. `gh issue view --json state` (GraphQL, the pre-round-2
+        call) answers "MERGED" for those, and the original exact-match
+        `== "CLOSED"` rejected that, stalling the before/after count at
+        4 -> 2 instead of 4 -> 0. The REST Issues API this function now
+        calls has no separate "merged" state -- a merged PR's number reads
+        "closed" the same as a closed issue's, which is what a real
+        `gh api repos/<o>/<r>/issues/<n>` response for a merged PR number
+        actually looks like (a `pull_request` key present, `state`
+        "closed")."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo", origin=self._ORIGIN)
+            attempt = {"issue": 614, "cwd": str(repo)}
+            payload = json.dumps({
+                "state": "closed",
+                "pull_request": {"merged_at": "2026-08-01T00:00:00Z"},
+            })
+            with mock.patch.object(spawn.subprocess, "run",
+                                    side_effect=_mixed_gh_run(payload)):
+                self.assertTrue(spawn._attempt_issue_closed(attempt))
+
+    def test_open_issue_stays_uncleared(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo", origin=self._ORIGIN)
+            attempt = {"issue": 645, "cwd": str(repo)}
+            payload = json.dumps({"state": "open"})
+            with mock.patch.object(spawn.subprocess, "run",
+                                    side_effect=_mixed_gh_run(payload)):
+                self.assertFalse(spawn._attempt_issue_closed(attempt))
+
+    def test_missing_issue_or_cwd_is_conservative_not_cleared(self):
+        self.assertFalse(spawn._attempt_issue_closed({"cwd": "/tmp"}))
+        self.assertFalse(spawn._attempt_issue_closed({"issue": 1}))
+
+    def test_nonexistent_cwd_is_conservative_not_cleared(self):
+        # The `-C` workspace no longer exists — there is no repo left to
+        # ask `gh` from, so this must not guess.
+        self.assertFalse(spawn._attempt_issue_closed(
+            {"issue": 645, "cwd": "/does/not/exist-issue-2894"}))
+
+    def test_gh_failure_is_conservative_not_cleared(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo", origin=self._ORIGIN)
+            attempt = {"issue": 645, "cwd": str(repo)}
+            with mock.patch.object(
+                    spawn.subprocess, "run",
+                    side_effect=_mixed_gh_run("", gh_returncode=1)):
+                self.assertFalse(spawn._attempt_issue_closed(attempt))
+
+    def test_gh_exception_is_conservative_not_cleared(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo", origin=self._ORIGIN)
+            attempt = {"issue": 645, "cwd": str(repo)}
+            with mock.patch.object(
+                    spawn.subprocess, "run",
+                    side_effect=_mixed_gh_run(gh_exception=OSError("boom"))):
+                self.assertFalse(spawn._attempt_issue_closed(attempt))
+
+    def test_uses_rest_not_graphql(self):
+        """issue #2894 round-2: the two sibling class-recheck paths
+        (`requirement_linkage.check()`, `acceptance_gate.check()`) already
+        route `gh` reads through `gates/gh_rest.py`'s REST helper (issue
+        #1569, built specifically to avoid `gh issue view`/`gh pr view`'s
+        shared GraphQL quota). This asserts `_attempt_issue_closed()` does
+        the same -- the `gh` command actually issued is `gh api
+        repos/.../issues/<n>`, never `gh issue view`."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            repo = _git_repo(Path(td) / "repo", origin=self._ORIGIN)
+            attempt = {"issue": 645, "cwd": str(repo)}
+            seen_gh_cmds = []
+            real_run = subprocess.run
+
+            def run(cmd, **kwargs):
+                if cmd[:1] == ["git"]:
+                    return real_run(cmd, **kwargs)
+                seen_gh_cmds.append(cmd)
+                return mock.Mock(returncode=0, stdout=json.dumps({"state": "closed"}))
+
+            with mock.patch.object(spawn.subprocess, "run", side_effect=run):
+                spawn._attempt_issue_closed(attempt)
+            self.assertEqual(len(seen_gh_cmds), 1)
+            self.assertEqual(seen_gh_cmds[0][:2], ["gh", "api"])
+            self.assertNotIn("view", seen_gh_cmds[0])
 
 
 class SkillFamilyTest(unittest.TestCase):
@@ -523,6 +660,108 @@ class SpawnAttemptSweepSupersessionTest(unittest.TestCase):
 
         with mock.patch("builtins.print") as mocked_print:
             count = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count, 1)
+        printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
+        self.assertIn("spawn halted pre-workspace", printed)
+        self.assertNotIn("RESOLVED", printed)
+
+
+class SpawnAttemptSweepIssueClosedTest(unittest.TestCase):
+    """issue #2894 end-to-end: the population the issue names — a halt
+    whose reason matches none of the five known classes (e.g. "skill X
+    not found") on an issue that is now closed. Class re-check can never
+    clear "unknown"; supersession can never fire because a closed issue
+    is never spawned against again, so no later attempt (successful or
+    not) will ever be recorded for it. This population is exactly the
+    "mechanism reports a clean result for a population it never reaches"
+    shape from #2876 — the sweep must still stop replaying it once the
+    issue is confirmed closed, and must keep reporting the same shape of
+    halt unchanged while the issue is still open."""
+
+    def setUp(self):
+        import tempfile
+        self._td = tempfile.TemporaryDirectory()
+        self.addCleanup(self._td.cleanup)
+        self.attempts_path = Path(self._td.name) / "spawn-attempts.jsonl"
+        self.repo = _git_repo(Path(self._td.name) / "repo",
+                               origin="https://github.com/tokenmaxxxer/on-the-record.git")
+        patches = [
+            mock.patch.object(spawn, "SPAWN_ATTEMPTS_PATH", self.attempts_path),
+            mock.patch.object(spawn, "ledger_write", lambda ev: None),
+            mock.patch.object(spawn, "ledger_check_and_stamp",
+                               lambda *a, **k: True),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+
+    def _append(self, entry):
+        with self.attempts_path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+
+    def _write_attempt(self, attempt_id, issue, skill, reason, ts):
+        self._append({"event": "spawn_attempt", "attempt_id": attempt_id,
+                       "issue": issue, "skill": skill, "pid": 4242,
+                       "cwd": str(self.repo), "ts": ts})
+        self._append({"event": "spawn_attempt_outcome", "attempt_id": attempt_id,
+                       "outcome": "halted", "detail": reason, "ts": ts})
+
+    def test_unknown_class_halt_on_closed_issue_stops_replaying(self):
+        reason = "skill frontend-ui-engineering not found"
+        halted_ts = time.time() - 3 * 24 * 3600
+        self._write_attempt("614:frontend-ui-engineering-aaaaaaaa:1:1", 614,
+                             "frontend-ui-engineering-aaaaaaaa", reason, halted_ts)
+
+        payload = json.dumps({"state": "closed"})
+        with mock.patch.object(spawn.subprocess, "run",
+                                side_effect=_mixed_gh_run(payload)):
+            with mock.patch("builtins.print") as mocked_print:
+                count = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count, 0)
+        printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
+        self.assertIn("RESOLVED", printed)
+        self.assertIn("resolution=issue-closed", printed)
+        self.assertNotIn("spawn halted pre-workspace", printed)
+
+    def test_unknown_class_halt_on_merged_pr_number_stops_replaying(self):
+        """issue #2894 round-2: reproduces the exact real-repo gap PR
+        #2896's independent review (#2897) found live — two of the four
+        issue-#2894 halt numbers (614, 489) turned out to be merged PR
+        numbers, not closed issues, and the pre-round-2 GraphQL call
+        answered "MERGED" for them, which the old exact-match "CLOSED"
+        comparison never resolved (before/after stalled at 4 -> 2)."""
+        reason = "skill frontend-ui-engineering not found"
+        halted_ts = time.time() - 3 * 24 * 3600
+        self._write_attempt("614:frontend-ui-engineering-aaaaaaaa:1:1", 614,
+                             "frontend-ui-engineering-aaaaaaaa", reason, halted_ts)
+
+        payload = json.dumps({
+            "state": "closed",
+            "pull_request": {"merged_at": "2026-08-01T00:00:00Z"},
+        })
+        with mock.patch.object(spawn.subprocess, "run",
+                                side_effect=_mixed_gh_run(payload)):
+            with mock.patch("builtins.print") as mocked_print:
+                count = roster.spawn_attempt_sweep(d_all={})
+        self.assertEqual(count, 0)
+        printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
+        self.assertIn("RESOLVED", printed)
+        self.assertIn("resolution=issue-closed", printed)
+        self.assertNotIn("spawn halted pre-workspace", printed)
+
+    def test_unknown_class_halt_on_open_issue_keeps_reporting(self):
+        """Must-not guard: the same shape of halt, but the issue is still
+        open, so it stays live — the check must never over-fire."""
+        reason = "skill implementation not found"
+        halted_ts = time.time() - 3 * 24 * 3600
+        self._write_attempt("488:implementation-bbbbbbbb:1:1", 488,
+                             "implementation-bbbbbbbb", reason, halted_ts)
+
+        payload = json.dumps({"state": "open"})
+        with mock.patch.object(spawn.subprocess, "run",
+                                side_effect=_mixed_gh_run(payload)):
+            with mock.patch("builtins.print") as mocked_print:
+                count = roster.spawn_attempt_sweep(d_all={})
         self.assertEqual(count, 1)
         printed = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
         self.assertIn("spawn halted pre-workspace", printed)
