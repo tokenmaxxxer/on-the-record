@@ -94,8 +94,7 @@ builder session's reasoning) assessing PR #2805's deliverable against
 the issue's acceptance criteria and my own re-derivation, not the
 builder's self-report — the core mechanism this skill describes.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; treated the PR's own record (a review-shaped "Present"
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; treated the PR's own record (a review-shaped "Present"
 claim for its own acceptance bullets) as something to independently
 re-test rather than cite — re-ran the call-site grep myself instead of
 trusting its "six call sites" count, re-executed the three-state
