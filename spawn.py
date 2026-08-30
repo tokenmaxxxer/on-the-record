@@ -1457,6 +1457,12 @@ def _attempt_superseded(attempt_id: str, attempt: dict, attempts: dict,
     return False
 
 
+# 이슈 #2894 round-2: watchdog tick 안에서 도는 재확인 하나당 상한 -- 이
+# 값 없이 `gates/gh_budget.py`의 `gh api rate_limit` 호출과 같은 10초를
+# 쓴다(같은 파일이 이미 이 값으로 gh 네트워크 호출을 묶어 둔 선례).
+_GH_STATE_RECHECK_TIMEOUT_SEC = 10
+
+
 def _attempt_issue_closed(attempt: dict) -> bool:
     """이슈 #2894: 위 두 재확인(`_halt_condition_cleared`, `_attempt_superseded`)
     둘 다 손댈 수 없는 세 번째 population을 위한 폴백. 실측(이슈 #2894 본문):
@@ -1482,9 +1488,22 @@ def _attempt_issue_closed(attempt: dict) -> bool:
 
     보수적 기본값: issue/cwd가 없거나, cwd가 실존 디렉터리가 아니거나(halt
     당시 -C로 넘겨받은 대상 레포 경로 자체가 사라졌다 — gh를 어느 레포에서
-    물어야 할지 알 길이 없다), `gh` 호출 자체가 실패/예외거나 CLOSED가
+    물어야 할지 알 길이 없다), 재확인 자체가 실패/timeout이거나 closed가
     아니면 전부 `False`(아직 안 풀림) — 판정 불가일 때는 계속 라이브로
-    본다는 이 파일의 다른 재확인 함수들과 같은 fail-safe 방향."""
+    본다는 이 파일의 다른 재확인 함수들과 같은 fail-safe 방향.
+
+    이슈 #2894 round-2 (PR #2896 독립 검증, #2897): 최초 구현은 `gh issue
+    view --json state`(GraphQL)를 직접 불러 "CLOSED" 정확 일치로 비교했다.
+    실제 레포에 대해 라이브로 재현한 결과, 이슈 #2894가 예시로 든 네 개
+    번호 중 두 개(614, 489)는 이슈가 아니라 "머지된 PR" 번호였고, GraphQL
+    이 그 상태를 "MERGED"로 답해 그 비교를 통과하지 못했다 — before/after
+    가 4 -> 2에서 멈추는 원인이었다. `_gh_rest.fetch_issue_state()`(REST
+    Issues API)로 바꾸면 두 문제가 한 번에 풀린다: (1) REST Issues API는
+    PR 번호도 이슈로 취급해 상태를 open/closed 둘로만 답하므로("merged"라는
+    상태가 따로 없다) 머지된 PR 번호도 "closed"로 정확히 매치되고, (2)
+    class-recheck의 두 형제 경로(`requirement_linkage.check()`,
+    `acceptance_gate.check()`)와 같은 REST 경로를 타 GraphQL 쿼터(이슈
+    #1569가 REST로 분리해 둔 바로 그 쿼터)를 다시 끌어쓰지 않는다."""
     issue = attempt.get("issue")
     cwd = attempt.get("cwd")
     if issue is None or not cwd:
@@ -1492,22 +1511,10 @@ def _attempt_issue_closed(attempt: dict) -> bool:
     root = Path(cwd)
     if not root.is_dir():
         return False
-    try:
-        r = subprocess.run(
-            ["gh", "issue", "view", str(issue), "--json", "state", "-q", ".state"],
-            cwd=root, capture_output=True, text=True)
-    except Exception as e:
-        # 이슈 #2511 silent-failure-audit 과 같은 이유(`_halt_condition_cleared`
-        # 참고): 조용히 False만 돌려주면 "아직 닫히지 않았다"(정상)와 "재확인
-        # 자체가 깨졌다"(버그)가 구분이 안 된다 — 판정 자체는 보수적으로
-        # False로 두되, 예외가 났다는 사실만 별도로 드러낸다.
-        print(f"[spawn-attempt] issue-closed 재확인 자체가 예외로 실패했다 "
-              f"(issue={issue!r}): {type(e).__name__}: {e} — 조건은 보수적으로 "
-              f"'아직 안 풀림'으로 본다.", file=sys.stderr)
-        return False
-    if r.returncode != 0:
-        return False
-    return r.stdout.strip().upper() == "CLOSED"
+    sys.path.insert(0, str((ROOT / "gates").resolve()))
+    import gh_rest as _gh_rest
+    state = _gh_rest.fetch_issue_state(root, issue, timeout=_GH_STATE_RECHECK_TIMEOUT_SEC)
+    return state == "closed"
 
 
 # 이슈 #2393 (R8, #2291 conformance review, "Surface" — 이 파일은 append-only

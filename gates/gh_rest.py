@@ -20,12 +20,15 @@ from typing import Callable
 _REMOTE_RE = re.compile(r"[:/]([^/:]+)/([^/]+?)(?:\.git)?$")
 
 
-def owner_repo(repo: Path, run: Callable | None = None) -> tuple[str, str] | None:
+def owner_repo(repo: Path, run: Callable | None = None,
+               timeout: float | None = None) -> tuple[str, str] | None:
     run = run or subprocess.run
+    kwargs = {"cwd": repo, "capture_output": True, "text": True}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
     try:
-        r = run(["git", "remote", "get-url", "origin"], cwd=repo,
-                capture_output=True, text=True)
-    except OSError:
+        r = run(["git", "remote", "get-url", "origin"], **kwargs)
+    except (OSError, subprocess.TimeoutExpired):
         return None
     if r.returncode != 0:
         return None
@@ -35,16 +38,19 @@ def owner_repo(repo: Path, run: Callable | None = None) -> tuple[str, str] | Non
     return m.group(1), m.group(2)
 
 
-def _api_json(repo: Path, path: str, run: Callable | None = None) -> dict | None:
+def _api_json(repo: Path, path: str, run: Callable | None = None,
+              timeout: float | None = None) -> dict | None:
     run = run or subprocess.run
-    owner_and_repo = owner_repo(repo, run=run)
+    owner_and_repo = owner_repo(repo, run=run, timeout=timeout)
     if owner_and_repo is None:
         return None
     owner, name = owner_and_repo
+    kwargs = {"cwd": repo, "capture_output": True, "text": True}
+    if timeout is not None:
+        kwargs["timeout"] = timeout
     try:
-        r = run(["gh", "api", f"repos/{owner}/{name}/{path}"], cwd=repo,
-                capture_output=True, text=True)
-    except OSError:
+        r = run(["gh", "api", f"repos/{owner}/{name}/{path}"], **kwargs)
+    except (OSError, subprocess.TimeoutExpired):
         return None
     if r.returncode != 0:
         return None
@@ -52,6 +58,21 @@ def _api_json(repo: Path, path: str, run: Callable | None = None) -> dict | None
         return json.loads(r.stdout)
     except ValueError:
         return None
+
+
+def fetch_issue_state(repo: Path, issue: int, run: Callable | None = None,
+                       timeout: float | None = None) -> str | None:
+    """이슈 #2894 round-2: 번호가 이슈가 아니라 머지된 PR 을 가리켜도 같은
+    엔드포인트로 답이 나온다 — REST Issues API 는 PR 번호도 이슈로 취급해
+    `state` 를 open/closed 둘로만 답한다("merged" 라는 상태가 따로 없다),
+    `gh issue view --json state`(GraphQL) 가 PR 번호에 "MERGED" 를 돌려주는
+    것과 다르다. 실패(REST 실패/git remote 실패/gh 없음/timeout) 시 None —
+    호출부가 "판정 불가는 아직 안 풀림"으로 보수적으로 처리한다."""
+    data = _api_json(repo, f"issues/{issue}", run, timeout=timeout)
+    if data is None:
+        return None
+    state = data.get("state")
+    return state.lower() if isinstance(state, str) else None
 
 
 def fetch_issue(repo: Path, issue: int, run: Callable | None = None) -> dict | None:
