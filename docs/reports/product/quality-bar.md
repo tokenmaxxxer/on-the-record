@@ -213,3 +213,39 @@ Append-only, newest entry last.
   useful on sight; `이상 신호 1건` with no class costs a round-trip every
   single time it appears. Source: issue body,
   tokenmaxxxer/on-the-record#2334.
+
+- 2026-08-30: standing fail-direction principle for any liveness/identity
+  gate guarding a hard-to-reverse or shared-state action (generalizing
+  beyond `spawn.py self-update`'s pid-liveness check): when the gate
+  cannot determine identity with confidence, it must fail toward refusing
+  the action, never toward permitting it — a gate that lets a
+  hard-to-reverse action through because it "couldn't tell" reintroduces
+  the exact hazard the gate exists to remove, and is worse than the
+  absence of a gate because it looks like a safety check while providing
+  none. Concretely: a pid-reuse-safe identity check that cannot confirm a
+  process's identity must degrade toward treating it as still-live
+  (refuse), not toward treating it as gone (permit) — the false positive
+  (an unnecessary refusal, self-healing once state catches up) is the
+  acceptable failure mode; the false negative (a wrongly-permitted
+  destructive/shared-state action) is not. Explicitly stated as a
+  constraint on the delivery, not just inferred from the fix: "Do not
+  weaken the refusal to make it easier to satisfy. A gate that lets the
+  pull through when it cannot determine liveness is the failure this PR
+  exists to remove." Source: issue body, tokenmaxxxer/on-the-record#2749
+  (continuation-session task text, PR #2823).
+
+- 2026-08-30: standing PR-hygiene principle, stated as a hard constraint
+  rather than a suggestion: a delivery PR must not carry a `Closes #<n>`
+  trailer when the issue's founding symptom (the concrete evidence the
+  issue was filed on) still reproduces through a route the PR's diff
+  doesn't touch — "Do not land Closes on an issue whose founding symptom
+  still reproduces." The PR trailer choice is treated as a factual claim
+  the delivery must earn, not a formality to fill in once the diff
+  otherwise looks done; when a fix only closes one of several routes to
+  the same symptom, the honest trailer is `Advances #<n>`/`Part of #<n>`,
+  with the remaining route stated explicitly in the record rather than
+  left implicit in an out-of-scope note. Source: issue body,
+  tokenmaxxxer/on-the-record#2749 (continuation-session task text, PR
+  #2823), reinforced by `hook-contract.md`'s `pr-preflight.sh` note (issue
+  #2508) which already treats `Advances`/`Part of` as a first-class
+  alternative to `Closes`, not a fallback.
