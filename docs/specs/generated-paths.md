@@ -18,6 +18,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `deviation-log-guard.sh` | n/a | reads/checks only (`git diff`/`git log -p`/`git status --porcelain`, issue #2348 added the last one), no write call — the actual `docs/issue-<n>/reports/<role>/deviation-log/<shard>.md` (or the no-role/no-issue variants) append is made by the session via `spawn.py deviation-log-path`, not this hook |
 | `skill-verdict-guard.sh` | n/a | reads/checks only (transcript scan + a direct read of the current branch's role record file), no write call — the actual `skill-verdict:` lines are appended by the session, not this hook |
 | `retry-loop-bound.sh` | out-of-tree | safe — `$TMPDIR`-rooted, never inside the target repo |
+| `lint-test-on-edit.sh` | n/a | new (issue #2326): reads/validates only (`py_compile`/`bash -n`/`pytest` subprocess calls against the already-written file, plus a stdin read) — no `write_text`/`open(..., "w")`/`.mkdir(`/`shutil.copy`/`move` call of its own, no persisted state |
 | `approach-cap-warning.sh` | out-of-tree | safe — `$TMPDIR`-rooted (`${OTR_APPROACH_CAP_STATE_DIR:-$TMPDIR/otr-approach-cap}`), never inside the target repo, same pattern as `retry-loop-bound.sh` |
 | `plan-order-guard.sh` | issue-scoped | safe — `docs/issue-<n>/decisions/spawn-refusal-<ts>.md`, `<n>` from `--issue` CLI arg |
 | `session-role-bind.sh` | out-of-tree | safe — `${OTR_ROLE_BIND_STATE_DIR:-$TMPDIR/otr-role-bind}`-rooted, never inside the target repo (#698) |
