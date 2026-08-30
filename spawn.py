@@ -124,6 +124,7 @@ _claim_only_live_sessions = roster._claim_only_live_sessions
 _roster_save = roster._roster_save
 _roster_own = roster._roster_own
 _watcher_looks_real = roster._watcher_looks_real
+_session_looks_real = roster._session_looks_real
 _alive = roster._alive
 lease_key = roster.lease_key
 new_lease_disambiguator = roster.new_lease_disambiguator
@@ -3301,8 +3302,17 @@ def self_update_pull_cli() -> int:
               "세션 존재 여부를 확인할 수 없어 진행하지 않는다")
         _pull_check_write(marker, f"pull=refused:roster-unreadable:{load_error}")
         return 2
-    live_roster = [(key, e.get("pid")) for key, e in d.items()
-                   if _alive(e.get("pid", 0))]
+    # 이슈 #2749 PR #2823 after-proposal review 발견: `_alive()` 만으로
+    # 세션의 생존을 판단하면, 크래시한 세션의 pid 를 OS 가 무관한
+    # 프로세스에 재할당했을 때도 "살아있다"로 오판해 이 거부가 로스터가
+    # 정리될 때까지 영원히 풀리지 않는다(자가치유 없음). 워처 pid 에
+    # 대해 이미 있는 `_watcher_looks_real()` 과 같은 패턴 — pid 재사용을
+    # 잡아내는 `_session_looks_real()` 로 확인한다(roster.py, 신원 확인은
+    # `/proc/<pid>/cwd` 가 등록 당시 워크스페이스와 같은지로 한다 — 최종
+    # 등록되는 세션 pid 는 언제나 그 워크스페이스를 `cwd=` 로 뜬 `claude`
+    # 서브프로세스 자신이다).
+    live_roster = [(key, e.get("pid"), e.get("work")) for key, e in d.items()
+                   if _session_looks_real(e.get("pid", 0), e.get("work"))]
     claim_only, claim_warnings = _claim_only_live_sessions(d)
     for warning in claim_warnings:
         print(f"경고: {warning} — 살아있는 세션을 놓쳤을 수 있다")
@@ -3311,9 +3321,14 @@ def self_update_pull_cli() -> int:
         _pull_check_write(marker, "pull=refused:claim-scan-unreliable")
         return 2
     if live_roster or claim_only:
-        print("self-update 거부: 살아있는 세션이 있다 —")
-        for key, pid in live_roster:
-            print(f"  roster      {key}  pid {pid}")
+        # 사람이 이 판단을 직접 확인할 수 있게, 살아있다고 믿는 세션이
+        # 정확히 어떤 pid/workspace 인지 남긴다 — `_session_looks_real()`
+        # 의 신원 확인이 틀렸을 가능성을 사람이 `/proc/<pid>/cwd` 로
+        # 직접 대조해 반박할 수 있어야 한다(review: "so a human can check
+        # the claim rather than trusting it").
+        print("self-update 거부: 살아있는 세션이 있다고 판단함(신원 확인 포함) —")
+        for key, pid, work in live_roster:
+            print(f"  roster      {key}  pid {pid}  work {work}")
         for work, pid in claim_only:
             print(f"  claim-only  pid {pid}  work: {work}")
         _pull_check_write(marker, "pull=refused:"

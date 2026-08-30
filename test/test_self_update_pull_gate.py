@@ -105,7 +105,11 @@ class SelfUpdatePullGateTest(unittest.TestCase):
         _git(self.src, "push", "-q", "origin", "main")
         before = self._head()
 
-        proc = subprocess.Popen(["sleep", "30"])
+        # cwd=str(self.checkout) mirrors what a real spawned session's pid
+        # always has: `spawn_cmd()`/`subprocess.Popen(cmd, cwd=cwd, ...)`
+        # registers the *subprocess's own* pid, whose /proc/<pid>/cwd is
+        # exactly the workspace it was spawned into.
+        proc = subprocess.Popen(["sleep", "30"], cwd=str(self.checkout))
         try:
             spawn.roster_register(
                 spawn.lease_key(2749, "implementation"),
@@ -123,9 +127,47 @@ class SelfUpdatePullGateTest(unittest.TestCase):
             marker = (self.checkout / ".pull-check").read_text().strip()
             self.assertTrue(marker.startswith("pull=refused:"), marker)
             self.assertIn("live-sessions", marker)
+            self.assertIn(str(proc.pid), out,
+                          "refusal must name the pid it believes is live, so a "
+                          "human can check the claim")
+            self.assertIn(str(self.checkout), out,
+                          "refusal must name the workspace it believes is live")
         finally:
             proc.kill()
             proc.wait()
+
+    def test_reused_pid_of_crashed_session_does_not_wedge_forever(self):
+        # issue #2749 PR #2823 after-proposal review: a crashed session's
+        # pid, recycled by the OS to an unrelated live process, must not
+        # block self-update forever. Simulate reuse: register a roster
+        # entry whose "work" is this checkout but whose pid belongs to an
+        # unrelated process (a live process with a *different* cwd) --
+        # exactly what pid reuse looks like from the roster's point of
+        # view. self-update must recognize this is not really the session
+        # and proceed to pull instead of refusing indefinitely.
+        (self.src / "new.txt").write_text("x\n")
+        _git(self.src, "add", "new.txt")
+        _git(self.src, "commit", "-q", "-m", "advance")
+        _git(self.src, "push", "-q", "origin", "main")
+
+        unrelated = subprocess.Popen(["sleep", "30"], cwd=str(self.src))
+        try:
+            spawn.roster_register(
+                spawn.lease_key(2749, "implementation"),
+                {"pid": unrelated.pid, "skill": "implementation", "issue": 2749,
+                 "ts": int(time.time()), "work": str(self.checkout),
+                 "log": str(self.checkout) + ".log", "expects_pr": True,
+                 "session_id": None},
+            )
+
+            rc, out = _capture(spawn.self_update_pull_cli)
+
+            self.assertEqual(rc, 0, out)
+            self.assertEqual((self.checkout / ".pull-check").read_text().strip(),
+                              "pull=ok")
+        finally:
+            unrelated.kill()
+            unrelated.wait()
 
     def test_unreadable_roster_refuses_without_pulling(self):
         (self.src / "new.txt").write_text("x\n")
