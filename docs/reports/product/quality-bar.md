@@ -266,3 +266,18 @@ Append-only, newest entry last.
   disagreeing magnitude is the expected outcome of differing methods, not
   evidence something broke. Source: issue body,
   tokenmaxxxer/on-the-record#2847.
+
+- 2026-08-30: standing rule against raising a timeout/budget as the fix for
+  a resource-exhaustion silent failure: a bigger timeout only raises the
+  concurrency (or load) level at which the same silent loss recurs, it
+  never removes the failure mode. When a budget/timeout is exhausted under
+  real load, the fix is to make that exhaustion structurally impossible to
+  mistake for a clean success — capture and surface whatever partial
+  evidence already exists rather than discarding it, and make the
+  incomplete/exhausted state's own report say so explicitly, distinct from
+  both a real failure and a real pass — not to make the exhaustion less
+  frequent by widening the window. A rate-limiting or serialization
+  mechanism (a lock, a queue) is legitimate as an additive root-cause
+  mitigation once the never-silent guarantee is in place, but is not a
+  substitute for it. Source: issue body, tokenmaxxxer/on-the-record#2326
+  (round 4 task framing).
