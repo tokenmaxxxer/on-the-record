@@ -600,6 +600,35 @@ def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
     return bad
 
 
+_ZERO_INVOCATION_SUMMARY_LINE = re.compile(
+    r"(?i)other mounted skills\s*:\s*not triggered")
+
+
+def zero_invocation_summary_check(text: str, mounted: list[str]) -> list[str]:
+    """Issue #2893: when a session mounts >= 1 skill and invokes NONE of
+    them, #2153's narrowing means no per-skill `skill-verdict:` line is
+    owed for any of them -- but that left "correctly judged none
+    applicable" and "never considered the mounted list at all" producing
+    the exact same (silent) record, indistinguishable after the fact.
+    Requires exactly one summary line (`other mounted skills: not
+    triggered`, the convention `_SKILL_VERDICT_PROSE` already documents)
+    somewhere in the record when `mounted` is non-empty. Shape only --
+    never a judgment of whether the skip itself was correct, mirroring
+    `skill_verdict_reason_check`'s own frozen boundary. `mounted` empty is
+    a no-op (zero-mounted-skill sessions stay byte-unaffected)."""
+    if not mounted:
+        return []
+    if _ZERO_INVOCATION_SUMMARY_LINE.search(text):
+        return []
+    return [
+        "마운트된 스킬을 하나도 호출하지 않았는데 레코드에 요약 줄이 "
+        "없다 (issue #2893): `other mounted skills: not triggered` 한 "
+        "줄을 레코드에 남겨야 한다 — 어떤 스킬이 맞았어야 한다는 뜻이 "
+        "아니라, 이번 세션이 마운트된 스킬 목록을 실제로 검토했다는 "
+        "사실만 기록한다."
+    ]
+
+
 def record_skill_verdicts_in(work: Path, mounted: list[str]) -> list[str]:
     """CI/diff-scoped wrapper around `skill_verdict_reason_check`,
     mirroring `gates.py`'s `(work, cfg)`-shaped checks — used by both

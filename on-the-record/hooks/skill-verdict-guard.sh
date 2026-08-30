@@ -224,57 +224,89 @@ if not mounted:
 
 invoked = invoked_skill_names(transcript_path, set(mounted))
 
-# issue #2153: a mounted skill this session never actually invoked owes
-# no skill-verdict line. issue #2681: that no longer means byte-identical
-# to the zero-mounted path above -- the notice makes the zero-invocation
-# fact visible without adding any new obligation.
-if not invoked:
-    finish(zero_invocation_notice(mounted), reminder)
+# issue #2893: resolved unconditionally (both branches below need it) --
+# previously this import + the record-path resolution only ran on the
+# invoked-nonempty path, so the zero-invocation branch could never look
+# at the record at all.
+record_lint = None
+if gates_dir:
+    try:
+        sys.path.insert(0, gates_dir)
+        import record_lint
+    except ImportError:
+        record_lint = None
 
-if not gates_dir:
-    sys.exit(2)
-try:
-    sys.path.insert(0, gates_dir)
-    import record_lint
-except ImportError:
-    sys.exit(2)
 
-# --- prefer the .on-the-record/role.json lease sidecar (issue #1814) -------
-issue_n, skill = None, None
-try:
-    with open(os.path.join(repo, ".on-the-record", "role.json"), encoding="utf-8") as f:
-        sidecar = json.load(f)
-    if (isinstance(sidecar, dict) and isinstance(sidecar.get("skill"), str)
-            and isinstance(sidecar.get("issue"), int)):
-        issue_n, skill = sidecar["issue"], sidecar["skill"]
-    else:
-        sys.stderr.write(
-            "skill-verdict-guard: .on-the-record/role.json present but "
-            "not in the expected shape (skill: str, issue: int) -- "
-            "falling back to branch-name parsing (issue #2741: this key "
-            "was renamed role -> skill, forward-only; a sidecar written "
-            "before that rename no longer resolves here).\n"
+def _resolve_record_path():
+    """(rel, record_text), or (None, None) when the issue/skill identity
+    can't be resolved (e.g. not on an issue-<n>/<skill> branch and no
+    lease sidecar file either) -- callers degrade gracefully on None,
+    same as this hook always has."""
+    # --- prefer the .on-the-record/role.json lease sidecar (issue #1814) ---
+    issue_n, skill = None, None
+    try:
+        with open(os.path.join(repo, ".on-the-record", "role.json"), encoding="utf-8") as f:
+            sidecar = json.load(f)
+        if (isinstance(sidecar, dict) and isinstance(sidecar.get("skill"), str)
+                and isinstance(sidecar.get("issue"), int)):
+            issue_n, skill = sidecar["issue"], sidecar["skill"]
+        else:
+            sys.stderr.write(
+                "skill-verdict-guard: .on-the-record/role.json present but "
+                "not in the expected shape (skill: str, issue: int) -- "
+                "falling back to branch-name parsing (issue #2741: this key "
+                "was renamed role -> skill, forward-only; a sidecar written "
+                "before that rename no longer resolves here).\n"
+            )
+    except (OSError, ValueError):
+        pass
+
+    if skill is None:
+        branch_r = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=repo, capture_output=True, text=True, timeout=10,
         )
-except (OSError, ValueError):
-    pass
+        branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
+        branch_m = re.match(r"^issue-(\d+)/([^/]+)$", branch)
+        if not branch_m:
+            return None, None
+        issue_n, skill = int(branch_m.group(1)), branch_m.group(2)
+    rel = os.path.join("docs", f"issue-{issue_n}", "reports", f"{skill}.md")
 
-if skill is None:
-    branch_r = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=repo, capture_output=True, text=True, timeout=10,
-    )
-    branch = branch_r.stdout.strip() if branch_r.returncode == 0 else ""
-    branch_m = re.match(r"^issue-(\d+)/([^/]+)$", branch)
-    if not branch_m:
-        finish(reminder)
-    issue_n, skill = int(branch_m.group(1)), branch_m.group(2)
-rel = os.path.join("docs", f"issue-{issue_n}", "reports", f"{skill}.md")
+    record_file = os.path.join(repo, rel)
+    record_text = ""
+    if os.path.isfile(record_file):
+        with open(record_file, "r", encoding="utf-8-sig", errors="replace") as fh:
+            record_text = fh.read()
+    return rel, record_text
 
-record_file = os.path.join(repo, rel)
-record_text = ""
-if os.path.isfile(record_file):
-    with open(record_file, "r", encoding="utf-8-sig", errors="replace") as fh:
-        record_text = fh.read()
+
+# issue #2153: a mounted skill this session never actually invoked owes
+# no per-skill skill-verdict line. issue #2681: that no longer means
+# byte-identical to the zero-mounted path above -- the notice makes the
+# zero-invocation fact visible. issue #2893: the notice alone is
+# ephemeral (Stop-hook additionalContext, not a durable artifact), so
+# "correctly judged not applicable" and "never considered at all" still
+# looked identical from outside the session after the fact -- this now
+# also folds in a check for the one-line record summary
+# `_SKILL_VERDICT_PROSE` already asks for (`other mounted skills: not
+# triggered`), when the record is resolvable. Still advisory only: never
+# `decision: "block"`, and a session whose issue/skill identity can't be
+# resolved still gets the base notice, exactly as before.
+if not invoked:
+    zero_extra = []
+    if record_lint is not None:
+        rel, record_text = _resolve_record_path()
+        if rel is not None:
+            zero_extra = record_lint.zero_invocation_summary_check(record_text, mounted)
+    finish(zero_invocation_notice(mounted), *zero_extra, reminder)
+
+if record_lint is None:
+    sys.exit(2)
+
+rel, record_text = _resolve_record_path()
+if rel is None:
+    finish(reminder)
 
 violations = record_lint.skill_verdict_reason_check(record_text, invoked)
 
