@@ -281,3 +281,22 @@ Append-only, newest entry last.
   mitigation once the never-silent guarantee is in place, but is not a
   substitute for it. Source: issue body, tokenmaxxxer/on-the-record#2326
   (round 4 task framing).
+
+- 2026-08-30: standing rule for any `grep -rl`-based exclude filter or
+  count in this codebase: `grep -rl` (and `-l` generally) emits paths
+  exactly as given relative to the search root — no `./` prefix is added —
+  so a pattern anchored on a leading slash to mark a directory boundary
+  (`grep -vE '/(test|docs)/'`) silently fails to exclude a top-level
+  `test/`/`docs/` path while still excluding the identical directory name
+  nested deeper (`harness/test/foo.py`). Anchor with `(^|/)` instead. The
+  same invariant independently lost the plural: `\brole\b` does not match
+  "roles" (no word boundary sits between "e" and "s") — a claim covering
+  the plural needs `\broles?\b` explicitly, stated as such. Both bugs
+  understate a decrease and can flip a real decrease into an apparent
+  increase once new files land in the wrongly-unexcluded directories;
+  re-running the same recipe on fresh data reproduces the bug rather than
+  resolving it — the fix is to anchor and pluralize the pattern, not to
+  re-derive with the same regex. Source: issue #2139 round
+  (merge-gates-a22bb8e4), correcting PR #2877's own retirement-count claim
+  (corrected recount: 897 → 850, a decrease of 47, not the originally
+  reported 19056 → 19044 / 12).
