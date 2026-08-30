@@ -211,7 +211,7 @@ class HaltConditionClearedUnknownClassTest(unittest.TestCase):
 class SkillFamilyTest(unittest.TestCase):
     """issue #2511 residual: `_skill_family()` strips the trailing 8-hex-char
     lease disambiguator (`roster.new_lease_disambiguator()` ==
-    `secrets.token_hex(4)`) that `spawn.py:1990-1991` appends to every role
+    `secrets.token_hex(4)`) that `spawn.py:1990-1991` appends to every skill
     string, so retries of the same work (a fresh disambiguator each time,
     the normal shape of a retry — not an edge case, per PR #2608's review)
     compare equal on the part that identifies the work item itself."""
@@ -288,7 +288,7 @@ class AttemptSupersededTest(unittest.TestCase):
             spawn._attempt_superseded("a2", attempts["a2"], attempts, outcomes))
 
     def test_success_on_a_different_issue_does_not_supersede(self):
-        """Over-broadening guard: same role family, different issue — must
+        """Over-broadening guard: same skill family, different issue — must
         not silence issue-1/implementation-af260856 just because some other
         issue's implementation succeeded."""
         attempts = {
@@ -300,7 +300,7 @@ class AttemptSupersededTest(unittest.TestCase):
             spawn._attempt_superseded("a1", attempts["a1"], attempts, outcomes))
 
     def test_success_on_a_different_skill_family_does_not_supersede(self):
-        """Over-broadening guard: same issue, different role family — an
+        """Over-broadening guard: same issue, different skill family — an
         unrelated skill's success on the same issue must not silence this
         halt."""
         attempts = {
@@ -420,7 +420,7 @@ class SpawnAttemptSweepSupersessionTest(unittest.TestCase):
     repo slug, e.g. 'tokenmaxxxer/on-the-record', that will never become a
     directory — the exact live issue-2576 fixture) never clears by
     class re-check alone, but a later successful retry for the same
-    (issue, role-family) must still resolve it."""
+    (issue, skill-family) must still resolve it."""
 
     def setUp(self):
         import tempfile
@@ -476,7 +476,7 @@ class SpawnAttemptSweepSupersessionTest(unittest.TestCase):
         printed1 = "\n".join(str(c.args[0]) for c in mocked_print.call_args_list)
         self.assertIn("spawn halted pre-workspace", printed1)
 
-        # A later attempt for the same (issue, role-family) — different
+        # A later attempt for the same (issue, skill-family) — different
         # lease disambiguator, the normal shape of a retry — succeeds.
         success_ts = halted_ts + 1800
         self._append_attempt("2576:silent-failure-audit-c678659a:2:2", 2576,
@@ -504,7 +504,7 @@ class SpawnAttemptSweepSupersessionTest(unittest.TestCase):
     def test_unrelated_halt_on_a_never_tagged_issue_keeps_reporting_unchanged(self):
         """Verification fixture named in the task: issue-1/implementation-
         af260856 — a requirement-tag halt on an issue nobody will ever tag,
-        with no later successful attempt for that issue+role-family. Must
+        with no later successful attempt for that issue+skill-family. Must
         keep reporting at full volume, completely unaffected by the
         supersession mechanism or by an unrelated issue's success."""
         reason = ("이슈 #1 가 요구 연결이 없다:\n  - 이슈 #1 본문이 요구 ID를 "
