@@ -413,8 +413,8 @@ def _plan_from_body(issue_body):
             continue
         done = mm.group(1) in ("x", "X")
         step_n = int(mm.group(2))
-        roles = [r.strip() for r in mm.group(3).split("‖")]
-        steps.append({"step": step_n, "roles": roles, "done": done})
+        skills = [r.strip() for r in mm.group(3).split("‖")]
+        steps.append({"step": step_n, "skills": skills, "done": done})
     return steps
 
 plan = None

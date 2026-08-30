@@ -401,6 +401,67 @@ class RsbStatusBoardEquivalenceTest(unittest.TestCase):
             ],
         )
 
+    def test_pr_preflight_plan_from_body_port_matches_flows(self):
+        # pr-preflight.sh:382-418 ports flows._plan_from_body inline (heredoc
+        # Python, not importable — see module docstring) because a zero-
+        # install hook cannot assume gates/ is on sys.path in the consumer
+        # repo. Issue #2876 round 2: this port kept the "roles" key after
+        # flows.py's copy was renamed to "skills", invisible to a reader
+        # search restricted to --include=*.py since this is a .sh file.
+        # Literal reproduction of the fixed port, pinned against flows.py's
+        # golden output for the same body so the two can't drift apart again.
+        _PLAN_STEP_RE = re.compile(r"^-\s\[([ xX])\]\s+step\s+(\d+)\s+(.+)$")
+
+        def _plan_from_body_port(issue_body):
+            lines = (issue_body or "").splitlines()
+            start = None
+            in_fence = False
+            for i, line in enumerate(lines):
+                if line.lstrip().startswith("```"):
+                    in_fence = not in_fence
+                    continue
+                if in_fence:
+                    continue
+                stripped = line.strip()
+                if stripped == "## 실행 계획" or stripped.startswith("## 실행 계획 "):
+                    start = i + 1
+                    break
+            if start is None:
+                return None
+            steps = []
+            in_fence = False
+            for line in lines[start:]:
+                if line.lstrip().startswith("```"):
+                    in_fence = not in_fence
+                    continue
+                if in_fence:
+                    continue
+                stripped = line.strip()
+                if stripped.startswith("##"):
+                    break
+                mm = _PLAN_STEP_RE.match(stripped)
+                if not mm:
+                    continue
+                done = mm.group(1) in ("x", "X")
+                step_n = int(mm.group(2))
+                skills = [r.strip() for r in mm.group(3).split("‖")]
+                steps.append({"step": step_n, "skills": skills, "done": done})
+            return steps
+
+        body = (
+            "## 실행 계획\n"
+            "- [ ] step 1 implementation\n"
+            "- [x] step 2 conformance-review ‖ defect-verification\n"
+        )
+        self.assertEqual(_plan_from_body_port(body), flows._plan_from_body(body))
+        # pin the port's own source text, so a future edit to pr-preflight.sh
+        # that reintroduces the "roles" key (or drifts from this literal
+        # reproduction some other way) fails this test, not just the runtime
+        # retirement-count check.
+        text = (REPO_ROOT / "on-the-record" / "hooks" / "pr-preflight.sh").read_text(encoding="utf-8")
+        self.assertIn('steps.append({"step": step_n, "skills": skills, "done": done})', text)
+        self.assertNotIn('"roles": roles', text)
+
 
 # --- issue #1814: explicit-carrier dual-read/fallback equivalence ----------
 # Golden baseline for the branch-role field migration: additions only, per

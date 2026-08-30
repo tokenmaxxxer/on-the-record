@@ -81,5 +81,25 @@ class EmptyStateExitsCleanNotErrorTest(unittest.TestCase):
             self.assertIn("dirty.py:1:", r.stdout)
 
 
+class ListFilesDerivesTheReaderCheckPopulationTest(unittest.TestCase):
+    """issue #2876 round 2: pr-preflight.sh:417 kept the identical "roles"-
+    key defect gates/flows.py was fixed for, invisible to a reader-check
+    grep hand-typed with `--include=*.py` only. `--list-files` exposes this
+    checker's own tracked population so a future reader search can pipe
+    through it instead of restating (and potentially narrowing) the
+    extension list by hand."""
+
+    def test_list_files_includes_a_known_sh_and_py_site_excludes_docs_and_self(self):
+        r = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "gates" / "retirement_count.py"), "--list-files"],
+            cwd=REPO_ROOT, capture_output=True, text=True, check=True,
+        )
+        files = set(r.stdout.splitlines())
+        self.assertIn("on-the-record/hooks/pr-preflight.sh", files)
+        self.assertIn("gates/flows.py", files)
+        self.assertFalse(any(f.startswith("docs/") for f in files))
+        self.assertNotIn("gates/retirement_count.py", files)
+
+
 if __name__ == "__main__":
     unittest.main()

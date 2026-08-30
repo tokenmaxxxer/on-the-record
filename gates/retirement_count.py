@@ -62,6 +62,16 @@ def line_hits(line):
     return any(tok in RETIRED_WORDS for tok in tokenize(line))
 
 
+# The `*.py`/`*.sh` population itself is an enumeration, not something this
+# checker can derive from first principles: "what file types can carry a
+# reader/writer of a Python dict key or a shell variable" has no computable
+# answer in this repo -- a `.sh` file can embed a Python heredoc
+# (on-the-record/hooks/*.sh all do; pr-preflight.sh:417 was exactly this),
+# so extension does not even reliably predict language. The two extensions
+# here are fixed by this issue's own acceptance criteria ("population:
+# py/sh sources... docs/ excluded"), not derived by this function, and are
+# not extended on suspicion -- a third extension only joins this set with
+# the same evidence gate #2876 used for the plural (a demonstrated miss).
 def tracked_sources():
     out = subprocess.run(
         ["git", "ls-files", "*.py", "*.sh"],
@@ -72,7 +82,22 @@ def tracked_sources():
     return [f for f in out if not f.startswith("docs/") and f not in _SELF_EXCLUDED]
 
 
-def main():
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv == ["--list-files"]:
+        # issue #2876 round 2: the population this check walks (py/sh
+        # sources, docs/ and this module's own 3 self-excluded paths) is a
+        # single source of truth, not a fact for every caller to retype.
+        # A repo-wide "who reads/writes this key" search hand-typing its
+        # own `--include=*.py` list can silently diverge from what this
+        # checker actually covers -- as pr-preflight.sh:417 did: a `.sh`
+        # file invisible to a `--include=*.py`-only reader search. Pipe
+        # this instead: `python3 gates/retirement_count.py --list-files |
+        # xargs grep -n <pattern>`.
+        for path in tracked_sources():
+            print(path)
+        return 0
+
     sites = []
     for path in tracked_sources():
         try:
