@@ -63,7 +63,10 @@ for why, with its own citation.
 | 3 | per-turn UserPromptSubmit re-injection index (record-shape, proposal-shape, survey-order, freelunch, terse, warrant, scout — 7 lines), fires turn 1 and every turn | 2,969 B (≈742 tok) | tokenmaxxxer-core | No — already dieted by tokenmaxxxer-core#278. |
 | 4 | CLI baseline (system prompt + tool schemas) + core plugin SessionStart hook injection + settings-sources listing | remainder: 44,840 − (641+3,096+742) ≈ 40,361 tok | Claude Code / agent-SDK harness + tokenmaxxxer-core SessionStart hook | Not owned by this repo at all. |
 
-- derived (items 1–3, same code path this spawn used):
+- derived (item 1, this spawn's own materialized task file): `wc -c
+  on-the-record-issue-2135-diagnose-first+technical-writing-minimalism-scoping-5676d1d0.task.txt`
+  under `$MUSTER_WORKSPACE_ROOT` → `2563`.
+- derived (item 2, same code path this spawn used):
 ```
 cd <workspace> && python3 -c "
 import spawn, directive_assembly as da
@@ -74,7 +77,7 @@ print(len(da._directive_system_prompt_block(files).encode('utf-8')), 'B system-p
 ```
   result: `12203 B files` / `12384 B system-prompt block` (the
   system-prompt block adds `# <name>` join headers over the raw file
-  total, hence the small delta).
+  total, hence the small delta) — the 12,384 B figure in row 2 above.
 - derived (item 3, this turn's literal reminders, copied verbatim to a
   scratch file and measured): `wc -c /tmp/ups_reminders_2135.txt` →
   `2969`.
