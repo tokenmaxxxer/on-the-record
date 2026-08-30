@@ -1235,7 +1235,7 @@ def _ledger_log_outcomes() -> dict[str, str]:
 
 
 def session_end_verdict(work: str, log_path: Path | None, now: float | None = None,
-                        alive_fn=None) -> str:
+                        alive_fn=None, wrapper_pid: int | None = None) -> str:
     """워크스페이스 하나의 세션-종료 3분법: `normal` / `crashed` / `stalled` /
     `in-progress` (이슈 #132).
 
@@ -1248,6 +1248,37 @@ def session_end_verdict(work: str, log_path: Path | None, now: float | None = No
     `log_path` 는 호출자가 넘긴다 — 이 함수가 스스로 고정 접미사로
     재구성하면 세대별로 고유해진 로그 명명 규약(이슈 #192,
     `_session_log_path()`)을 놓친다.
+
+    `wrapper_pid`(이슈 #2874, 이슈 #224 hunt 의 `_watch --follow`
+    wrapper_pid 수정과 같은 신호를 여기로도 끌어온다): `session-start`
+    detail 의 `pid` 는 claude 서브프로세스다 — 정상 종료에서도
+    `proc.wait()` 리턴과 함께, 이 세션 자신이 push/게이트·소유권 리포트/
+    classify/ledger_write 를 거쳐 `session-end` 를 남기기 전에 먼저 죽는다
+    (spawn.py `_spawn_one()` 의 `for line in proc.stdout:` 루프 꼬리 —
+    자식은 이미 stdout 을 닫았는데 이 루프가 마지막 몇 줄을 아직 소비/파싱
+    중인 그 찰나). 그 구간에 로스터 엔트리는 아직 남아 있고
+    `wrapper_pid`(이 세션을 실제로 몰고 있는 호출자 프로세스, `roster_
+    register()` 참고)는 여전히 살아있다 — 호출자가 이 값을 넘기면, 자식
+    pid 가 죽었어도 wrapper_pid 가 살아있는 동안은 `crashed` 대신
+    `in-progress` 로 판정해 이 구간을 죽음으로 오판하지 않는다. 생략하면
+    (기본값 `None`, 기존 호출부) 이전과 동일하게 자식 pid 만으로 판정한다
+    — 순수 추가라 기존 동작은 안 바뀐다.
+
+    알려진 한계(이슈 #2874 before-landing hunt): `alive_fn(wrapper_pid)` 는
+    `os.kill(pid, 0)` 뿐이라 "그 pid 번호를 지금 누가 쥐고 있다"만 증명하지
+    "그 pid 가 여전히 이 로스터 엔트리를 몰던 바로 그 wrapper"라는 신원까지는
+    증명 못 한다 — 진짜 wrapper 가 `session-end` 를 남기지 못하고 죽은 뒤,
+    OS 가 그 pid 번호를 무관한 다른 프로세스에 재사용하면 그 사이 크래시가
+    `in-progress` 로 잘못 읽힌다. `_watch --follow`(events.py, 이슈 #224)가
+    이미 같은 방식으로 `wrapper_pid` 를 쓰고 있고 거긴 별도의 stall-timeout
+    안전망이 있어 결국 붙잡히지만, 이 함수의 호출부(`_auto_respawn_check()`
+    등)엔 그런 시간 기반 백스톱이 없다 — 이슈 #2874 의 "lease 를 넓히거나
+    대기를 늘리지 말라"는 제약과 정면으로 부딪혀 이 세션에서는 고치지
+    않는다(신원 확인엔 `/proc/<pid>` 시작시각 비교 같은 새 메커니즘이
+    필요하고, 그건 이 코드베이스 어디에도 아직 없다). PID 재사용 자체가
+    영구적이지 않다는 점(그 무관한 프로세스도 언젠가 죽으면 다음 틱이 다시
+    `crashed` 로 바로잡는다)이 완화 요인이지만, 신원 검증이 없다는 사실은
+    남는다 — 후속 이슈감.
     """
     now = time.time() if now is None else now
     alive_fn = _sp._alive if alive_fn is None else alive_fn
@@ -1274,6 +1305,8 @@ def session_end_verdict(work: str, log_path: Path | None, now: float | None = No
     detail = events[start_idx].get("detail") or {}
     pid = detail.get("pid")
     if not alive_fn(pid):
+        if wrapper_pid is not None and alive_fn(wrapper_pid):
+            return "in-progress"
         return "crashed"
     if log_path is not None and log_path.exists():
         silent_min = (now - log_path.stat().st_mtime) / 60
