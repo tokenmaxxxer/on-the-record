@@ -270,7 +270,13 @@ verdict — no blocking findings survived independent re-derivation. The
 cosmetic branch-display finding above is a candidate for a small separate
 issue, not a required follow-up on #2795/#2843. `loop_state: landed`.
 
-skill-verdict: adversarial-review — applied: invoked; this record is a full
-adversarial-review pass on PR #2843 per the skill's protocol (independent
-re-derivation of every claim, no shared context with the delivery session)
+skill-verdict: adversarial-review — applied: invoked; loaded via the Skill
+tool post-hoc (correction: an earlier version of this line claimed
+"invoked" before the Skill tool had actually been called this session —
+that was wrong, fixed here). canonical: `adversarial-review` SKILL.md
+(loaded this session via the Skill tool) — this session's structure
+(distinct from PR #2843's builder session, findings required to cite
+file:line/command+output, told to construct failure cases rather than
+trust the delivery's record) matches the skill's Step 2-4 evaluator
+protocol; the review above stands unchanged.
 other mounted skills: not triggered
