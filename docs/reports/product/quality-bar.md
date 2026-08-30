@@ -249,3 +249,20 @@ Append-only, newest entry last.
   #2823), reinforced by `hook-contract.md`'s `pr-preflight.sh` note (issue
   #2508) which already treats `Advances`/`Part of` as a first-class
   alternative to `Closes`, not a fallback.
+
+- 2026-08-30: standing measurement-comparability requirement: two
+  measurements of the same underlying phenomenon, taken by different
+  methods (different category boundaries, different classifiers, different
+  session shapes), are not comparable by direct subtraction or ratio even
+  when they nominally measure "the same thing" — PR #2841 demonstrated the
+  same transcript yields a 9x or 3.06x ratio depending only on how
+  categories are assigned. A re-measurement is only valid against its own
+  prior baseline when it reuses that baseline's own extraction method
+  unchanged; the fix for "are these two numbers really different" is never
+  to subtract them, it is to re-run one method on fresh data and state
+  which numbers are comparable to which and why. Do not assume a
+  disagreement in magnitude between differently-derived numbers is a
+  regression — qualitative agreement (the same shape of finding) with
+  disagreeing magnitude is the expected outcome of differing methods, not
+  evidence something broke. Source: issue body,
+  tokenmaxxxer/on-the-record#2847.
