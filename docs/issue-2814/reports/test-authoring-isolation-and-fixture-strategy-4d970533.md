@@ -321,8 +321,4 @@ skill-verdict: prose-modes — applied: invoked; wrote this record as a
 decision-record/explanation for an expert reader (dense, no hand-holding
 connectives per the reader axis), used comparison-style lists per the
 mode table, and avoided restating the same acceptance line twice.
-skill-verdict: test-authoring-isolation-and-fixture-strategy —
-not-applicable: this issue is a mechanical filename rename plus
-reference/collection sweeps; no fixture construction, scope,
-isolation/run-order, database cleanup, or test-double decision was made
-or reviewed.
+skill-verdict: test-authoring-isolation-and-fixture-strategy — not-applicable: invoked to check applicability; this issue is a mechanical filename rename plus reference/collection sweeps, so no fixture construction, scope, isolation/run-order, database cleanup, or test-double decision was made or reviewed.
