@@ -84,7 +84,7 @@ class LivePsReliabilityTest(unittest.TestCase):
         rc, out = _capture(board.roster_ps)
         self.assertEqual(rc, 0)
         self.assertIn("RUNNING", out)
-        self.assertNotIn("역할 세션 없음", out)
+        self.assertNotIn("스킬 세션 없음", out)
 
         # Reinstall-shaped failure mode: a reader observes the roster file
         # mid interrupted-write, i.e. truncated/invalid JSON -- what
@@ -95,7 +95,7 @@ class LivePsReliabilityTest(unittest.TestCase):
         spawn.ROSTER.write_text('{"issue-2203/implementati')
 
         rc, out = _capture(board.roster_ps)
-        self.assertNotIn("돌고 있는 역할 세션 없음", out)
+        self.assertNotIn("돌고 있는 스킬 세션 없음", out)
         self.assertIn("확인 불가", out)
         self.assertIn(str(work.resolve()), out)
         self.assertEqual(rc, 2)
@@ -114,7 +114,7 @@ class LivePsReliabilityTest(unittest.TestCase):
         spawn.ROSTER.write_text("{}")
 
         rc, out = _capture(board.roster_ps)
-        self.assertNotIn("돌고 있는 역할 세션 없음", out)
+        self.assertNotIn("돌고 있는 스킬 세션 없음", out)
         self.assertIn("claim-only", out)
         self.assertIn(str(work.resolve()), out)
         self.assertEqual(rc, 0)
@@ -128,7 +128,7 @@ class LivePsReliabilityTest(unittest.TestCase):
         claim_path.write_text("{not valid json")
 
         rc, out = _capture(board.roster_ps)
-        self.assertNotIn("돌고 있는 역할 세션 없음", out)
+        self.assertNotIn("돌고 있는 스킬 세션 없음", out)
         self.assertIn("경고", out)
         self.assertIn(str(claim_path), out)
         self.assertEqual(rc, 2)
@@ -137,7 +137,7 @@ class LivePsReliabilityTest(unittest.TestCase):
         # Regression guard (acceptance criterion 2): no roster file, no
         # claim files -- this empty read must stay legitimate.
         rc, out = _capture(board.roster_ps)
-        self.assertIn("돌고 있는 역할 세션 없음", out)
+        self.assertIn("돌고 있는 스킬 세션 없음", out)
         self.assertEqual(rc, 0)
 
 
