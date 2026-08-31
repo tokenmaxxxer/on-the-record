@@ -1290,9 +1290,12 @@ def t_alive_stamp_write_survives_missing_flock_issue_2919():
 # mkdir-mutex acquire/release code verbatim ... into a standalone harness
 # with a widened critical section", "the widening changes only the
 # payload timing, not the mutex code under test"). The mutex logic itself
-# (mkdir/case/kill -0/rmdir) is portable POSIX shell, not bash-3.2-specific
-# -- host bash is sufficient for these; the bash-3.2 array/flock-detection
-# concerns are already covered separately above.
+# (noclobber-write/case/kill -0/rm) is portable POSIX shell, not
+# bash-3.2-specific -- host bash is sufficient for these; the bash-3.2
+# array/flock-detection concerns are already covered separately above.
+# The bash-3.2/no-`flock` concurrency claims specifically (mutual
+# exclusion holding under the real reported platform, not just under
+# host bash) are covered by the docker bash:3.2 container tests below.
 def _extract_bash_function(text: str, name: str) -> str:
     marker = f"{name}() {{"
     start = text.index(marker)
@@ -1313,15 +1316,17 @@ def _extract_bash_function(text: str, name: str) -> str:
 
 def _splice_test_instrumentation(alive_stamp_write_text: str) -> str:
     """Inserts ENTER/optional-self-kill/hold/EXIT logging immediately
-    after the real pid-write line (the point the fixed code establishes
-    itself as the recorded owner) and before the real stamp write +
-    release -- test-only instrumentation, anchored on a substring unique
-    to that exact point so a future edit to this line fails the test
-    loudly (via the uniqueness assert) rather than silently splicing into
-    the wrong place."""
-    anchor = 'printf \'%s\' "$$" >"${_owner_pid_file}" 2>/dev/null || true'
+    after the acquire loop's closing `done` (the point the fixed code has
+    already atomically created the lockfile with its own pid inside it --
+    issue #2919 follow-up: creation and identity-publication are now one
+    command, so there is no longer a separate pid-write line to anchor on)
+    and before the real stamp write + release -- test-only instrumentation,
+    anchored on a substring unique to that exact point so a future edit to
+    this line fails the test loudly (via the uniqueness assert) rather than
+    silently splicing into the wrong place."""
+    anchor = '\n    done\n'
     count = alive_stamp_write_text.count(anchor)
-    assert count == 1, f"expected exactly one pid-write anchor, found {count}"
+    assert count == 1, f"expected exactly one acquire-loop close anchor, found {count}"
     idx = alive_stamp_write_text.index(anchor) + len(anchor)
     instrumentation = """
     printf '%s ENTER %s pid=%s\\n' "$(date +%s.%N 2>/dev/null || date +%s)" "${MUTEX_TEST_WORKER_ID}" "$$" >>"${MUTEX_TEST_LOGFILE}"
@@ -1394,10 +1399,10 @@ def t_alive_stamp_lock_owner_status_establishes_liveness_issue_2919():
     acquire/release sequence -- refactoring-legacy-seam-selection rule 1
     (Sprout Method: a single, clearly-localized behavioral change gets
     its own separately-testable function). Pins all three verdicts:
-    a lockdir with no owner.pid yet ("forming"), one naming a genuinely
-    live process ("alive"), and one naming a confirmed-reaped process
-    ("dead") -- liveness is ESTABLISHED via a real PID check, never
-    inferred."""
+    a lockfile with no readable content yet ("forming"), one naming a
+    genuinely live process ("alive"), and one naming a confirmed-reaped
+    process ("dead") -- liveness is ESTABLISHED via a real PID check,
+    never inferred."""
     import tempfile
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
@@ -1407,15 +1412,15 @@ def t_alive_stamp_lock_owner_status_establishes_liveness_issue_2919():
         driver.write_text(f"#!/usr/bin/env bash\nset -uo pipefail\n{owner_status_fn}\n_alive_stamp_lock_owner_status \"$1\"\n",
                            encoding="utf-8")
 
-        lockdir = tmp / "stamp.lockdir"
-        lockdir.mkdir()
-        r = subprocess.run(["bash", str(driver), str(lockdir)], capture_output=True, text=True, timeout=5)
-        assert r.stdout == "forming", f"no owner.pid yet must read as forming: {r.stdout!r}"
+        lockfile = tmp / "stamp.lockfile"
+        lockfile.write_text("", encoding="utf-8")
+        r = subprocess.run(["bash", str(driver), str(lockfile)], capture_output=True, text=True, timeout=5)
+        assert r.stdout == "forming", f"empty lockfile must read as forming: {r.stdout!r}"
 
         live_proc = subprocess.Popen(["sleep", "5"])
         try:
-            (lockdir / "owner.pid").write_text(str(live_proc.pid), encoding="utf-8")
-            r = subprocess.run(["bash", str(driver), str(lockdir)], capture_output=True, text=True, timeout=5)
+            lockfile.write_text(str(live_proc.pid), encoding="utf-8")
+            r = subprocess.run(["bash", str(driver), str(lockfile)], capture_output=True, text=True, timeout=5)
             assert r.stdout == "alive", f"a genuinely running owner pid must read as alive: {r.stdout!r}"
         finally:
             live_proc.kill()
@@ -1432,8 +1437,8 @@ def t_alive_stamp_lock_owner_status_establishes_liveness_issue_2919():
                 _time.sleep(0.05)
             except OSError:
                 break
-        (lockdir / "owner.pid").write_text(str(dead_pid), encoding="utf-8")
-        r = subprocess.run(["bash", str(driver), str(lockdir)], capture_output=True, text=True, timeout=5)
+        lockfile.write_text(str(dead_pid), encoding="utf-8")
+        r = subprocess.run(["bash", str(driver), str(lockfile)], capture_output=True, text=True, timeout=5)
         assert r.stdout == "dead", f"a confirmed-reaped owner pid must read as dead: {r.stdout!r}"
 
 
@@ -1472,7 +1477,7 @@ def t_alive_stamp_mutex_never_evicts_slow_live_holder_issue_2919():
 def t_alive_stamp_mutex_recovers_crashed_holder_issue_2919():
     """issue #2919 follow-up: the companion property this fix must
     preserve -- a genuinely crashed holder (SIGKILL'd mid-critical-section
-    without releasing the lockdir) must not deadlock the tick forever.
+    without releasing the lockfile) must not deadlock the tick forever.
     Worker A enters, holds 1s, then SIGKILLs itself without cleanup;
     worker B, contending 0.3s after A started, must detect A's pid as
     dead and complete (ENTER+EXIT) within a bounded time -- proving
@@ -1483,7 +1488,16 @@ def t_alive_stamp_mutex_recovers_crashed_holder_issue_2919():
     -0` reports a zombie (unreaped exited process) as still existing, so
     an unreaped A would make this test's own harness artificially slow to
     detect death, which is a property of the test's process supervision,
-    not of the fixed liveness check itself."""
+    not of the fixed liveness check itself. This is exactly the gap
+    adversarial-review-95d4569a point 2 named: who reaps a crashed
+    poll-heartbeat.sh in real deployment, and how promptly, is a Claude
+    Code plugin Monitor platform capability this repo cannot establish
+    (docs/specs/platform-capabilities.md) -- this test's prompt reaping is
+    a test-harness convenience, not a production guarantee. The
+    deployment-independent recovery path for a holder whose reap never
+    happens is exercised separately below, by
+    t_alive_stamp_mutex_max_age_recovers_unreaped_holder_issue_2919, which
+    never reaps its holder at all."""
     import tempfile
     import threading
     with tempfile.TemporaryDirectory() as d:
@@ -1504,8 +1518,81 @@ def t_alive_stamp_mutex_recovers_crashed_holder_issue_2919():
         assert "B" in events and "ENTER" in events["B"] and "EXIT" in events["B"], (
             f"worker B must recover the crashed holder's lock and complete: {events}"
         )
-        assert not (stamp.with_name(stamp.name + ".lockdir")).exists(), \
-            "no lockdir should remain after the crashed holder was reclaimed and B released cleanly"
+        assert not (stamp.with_name(stamp.name + ".lockfile")).exists(), \
+            "no lockfile should remain after the crashed holder was reclaimed and B released cleanly"
+
+
+def t_alive_stamp_mutex_max_age_recovers_unreaped_holder_issue_2919():
+    """issue #2919 follow-up (adversarial-review-95d4569a point 2, "the
+    zombie/reap-uncertainty gap"): proves the recovery path that does NOT
+    depend on pid liveness at all. Worker A self-kills but is deliberately
+    left UNREAPED for the whole test (no background wait(), unlike the
+    sibling crash-recovery test above) -- os.kill(pid, 0) on an unreaped
+    exited child keeps succeeding exactly like a real zombie would, so
+    `_alive_stamp_lock_owner_status` would report "alive" for it
+    indefinitely and a waiter relying solely on that check would block
+    forever. POLL_HEARTBEAT_ALIVE_LOCK_MAX_AGE is overridden to 2s so the
+    test does not need to wait out the 60s production default; worker B
+    must still recover and complete well within a bounded time, and the
+    watchdog log must name this specific reclaim as the max-age safety
+    valve (not a normal `dead` reclaim), since collapsing the two into one
+    log message would misrepresent an assumption override as an
+    established fact -- the same silent-failure-audit distinction this
+    fix's `dead`-branch log message already draws."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        harness = _write_mutex_harness(tmp)
+        stamp = tmp / "stamp"
+        logfile = tmp / "log"
+        env = dict(os.environ)
+        env["POLL_HEARTBEAT_ALIVE_LOCK_MAX_AGE"] = "2"
+        env["MUTEX_TEST_WORKER_ID"] = "A"
+        env["MUTEX_TEST_LOGFILE"] = str(logfile)
+        env["MUTEX_TEST_HOLD_SECONDS"] = "0.2"
+        env["MUTEX_TEST_KILL_SELF"] = "1"
+        proc_a = subprocess.Popen(
+            ["bash", str(harness), str(stamp)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+        )
+        try:
+            # Deliberately never poll()/wait() proc_a until the final
+            # cleanup below -- either call reaps it via waitpid(), which
+            # would silently turn this into the sibling prompt-reaping
+            # test instead of the unreaped-zombie case this test exists
+            # to cover. Wait on the log line instead of the process.
+            deadline = time.time() + 5
+            while time.time() < deadline and "SELFKILL A" not in (
+                logfile.read_text(encoding="utf-8") if logfile.exists() else ""
+            ):
+                time.sleep(0.05)
+            assert "SELFKILL A" in logfile.read_text(encoding="utf-8"), \
+                "worker A must have self-killed before worker B starts contending"
+            env_b = dict(os.environ)
+            env_b["POLL_HEARTBEAT_ALIVE_LOCK_MAX_AGE"] = "2"
+            env_b["MUTEX_TEST_WORKER_ID"] = "B"
+            env_b["MUTEX_TEST_LOGFILE"] = str(logfile)
+            env_b["MUTEX_TEST_HOLD_SECONDS"] = "0.1"
+            env_b["MUTEX_TEST_KILL_SELF"] = "0"
+            proc_b = subprocess.Popen(
+                ["bash", str(harness), str(stamp)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env_b,
+            )
+            out_b, err_b = proc_b.communicate(timeout=15)
+            assert proc_b.returncode == 0, f"worker B must recover via the max-age valve and exit 0: {err_b}"
+        finally:
+            proc_a.kill()
+            proc_a.wait()
+
+        events = _parse_mutex_log(logfile)
+        assert "A" in events and "SELFKILL" in events["A"], events
+        assert "B" in events and "ENTER" in events["B"] and "EXIT" in events["B"], (
+            f"worker B must recover the unreaped holder's lock via the max-age valve and complete: {events}"
+        )
+        log_text = logfile.read_text(encoding="utf-8")
+        assert "force-reclaimed independent of liveness check" in log_text, (
+            f"the max-age reclaim must be logged distinctly from a normal dead-owner reclaim: {log_text}"
+        )
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
