@@ -1873,9 +1873,10 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         # #2919 검증 네 건 확인)를 소스 통일로 없앤다. `confirm_pr_missing`
         # 은 finding 1 의 완화책(위 주석) — "없음"을 respawn 으로 확정하기
         # 직전에만 호출된다.
-        _entry_branch = _sp._current_branch(Path(e["work"])) if e.get("work") else None
+        _expected = _sp._build_expected(e)
+        _entry_branch = _expected["branch"]
         divergences = _sp.reconcile(
-            _sp._build_expected(e),
+            _expected,
             _sp._build_observed(root, e, pr_index=_poll_pr_index()),
             recovery_state_dir=root / ".on-the-record" / "recovery-state",
             confirm_pr_missing=lambda br=_entry_branch: _poll_pr_index_confirm_gone(br))
