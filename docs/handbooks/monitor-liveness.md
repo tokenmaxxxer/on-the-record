@@ -230,18 +230,90 @@ emit — tick 0 (unconditional first-tick, unchanged from round 1) and
 tick 15 (the 1800s bound, new) — and extending the same simulation to 90
 ticks (10800s / 3h) shows the emission strictly repeating every 1800s
 (gaps: 1800s, 1800s, 1800s, 1800s, 1800s — measured, not assumed).
-**Worst-case detection latency for a dead Monitor during a healthy,
-quiet, tracked-roster stretch is now bounded at ~1800s (30 minutes) from
-the build's own turn-independent tick loop, down from round 1's
-unbounded measurement** — an external orchestrator watching the
-Monitor's stdout stream (not this session's own turns) can infer death
-from the absence of an expected `[monitor-heartbeat]` line ~1800s after
-the last one, the same dead-man's-switch shape #1220 originally used, now
-scoped to only the roster that actually has something to report on.
+**Round 2's claim here was wrong and is withdrawn (issue #2915 round
+3, executed-live against the current build):** round 2 originally stated
+this as "worst-case detection latency for a dead Monitor ... is now
+bounded at ~1800s ... an external orchestrator watching the Monitor's
+stdout stream can infer death from the absence of an expected
+`[monitor-heartbeat]` line." That sentence measured the wrong quantity
+and directly contradicted the "Structural limit: full-idle death cannot
+self-heal" section immediately above, without ever reconciling the two.
+The `[monitor-heartbeat]` line can only be emitted *by the tick loop
+that is itself the thing being checked for liveness* — a tick loop that
+has actually died cannot emit one more line to announce its own death.
+No inference from absence is possible without a consumer that watches
+for that absence on some schedule independent of the dead process, and
+no such consumer exists: re-checked this session (`grep -rn
+"monitor-heartbeat" --include="*.py" --include="*.sh" --include="*.md"
+.`), the only hits are the emitting code, its own comments, its tests,
+and this handbook's own prose describing the intended consumer — no
+code in `relay.py`, `hook_fires.py`, `watchdog.py`, `spawn.py`, or any
+`on-the-record/hooks/*.sh` reads a `[monitor-heartbeat]` line, tracks
+time since the last one, or alerts on its absence.
 
-**What remains unbounded, disclosed rather than left implicit:** a
-fully-idle stretch with an *empty* tracked roster (nothing spawned, no
-returned PRs) still emits nothing past the 1800s bound — confirmed by
+Constructed and measured directly (not reasoned about): a genuine kill,
+not a synthetic "still alive but quiet" tick — a healthy roster ticks
+normally for a 1h warm-up, then the tick loop is simply never invoked
+again (no more calls to `poll_heartbeat_delta.py`, no more touches of
+`poll_heartbeat_alive.json` — this is what an actual process death looks
+like from the rest of the repo's point of view) and zero further turns
+arrive. Checked at +1h, +3h, +24h, and +388min (the #1497/#2182 incident
+length) past the moment of death: 0 surfacing events at every horizon,
+because the turn-driven staleness check (`directive.sh`/
+`stop-poll-rearm.sh`) is never invoked without a turn, and no turn
+occurred. Elapsed wall-clock from actual death to surfaced-to-orchestrator
+is therefore bounded only by whenever some unrelated event next forces a
+turn — 0s if one is already in flight, unbounded if the session goes
+fully idle — exactly as round 1 measured and exactly what the
+"Structural limit" section above already says. Once a turn does arrive,
+the pre-existing check correctly flags staleness in ~18-29ms
+(re-confirmed here; not new, not in question).
+
+Building a real absence-consumer would not close this gap either: the
+only wake mechanism any consumer in this repo can use is the same
+turn-driven hook path the pre-existing `poll_heartbeat_alive.json` +
+staleness check already runs on, and that stamp is written on *every*
+tick unconditionally (`poll-heartbeat.sh:159`, "written on EVERY
+iteration regardless of the due/not-due outcome"), independent of
+whether anything emits — strictly finer-grained than a beacon that only
+updates every ~1800-1920s. A beacon-absence consumer would be a
+strictly weaker, redundant duplicate of a check that already exists,
+adding code and surface area for zero marginal detection benefit. The
+chain terminates where round 1 and round 2 both already named it, and
+where it stops here too: a true bound on actual-death detection needs an
+OS-level scheduled-execution primitive (cron/launchd/systemd timer)
+external to the session, which no plugin-shipped `settings.json`
+permissions key can grant (`docs/issue-801/proposals/
+technical-feasibility.md`'s "Hard boundary") — not a new open regress,
+the same single, already-documented termination point.
+
+**What round 2's beacon actually is, stated plainly:** a real
+improvement to a *different* property — the Monitor's stdout channel no
+longer goes dark for an unbounded stretch while the Monitor is alive and
+healthy. Worst case is ~1800s plus up to one tick interval (~1920s with
+the real 120s loop, not a flat 1800s — the `>= 1800` threshold check in
+`poll_heartbeat_delta.py:218` fires on the first tick at or past the
+bound, not exactly at it), down from unbounded since #1732. Per independent,
+already-established evidence
+(`docs/issue-2906/reports/adversarial-review-30a89443.md:196-198,208-211`),
+non-empty Monitor stdout does force a task-notification/turn while the
+Monitor is alive, so this likely does restore a turn-forcing cadence
+during healthy stretches — at ~1920s granularity, narrower in scope than
+the noisy ~120s cadence #2913 correctly removed. That is a genuine,
+useful aliveness/observability property, described here as exactly that
+and nothing more: an aliveness/observability improvement, not a
+dead-Monitor detection-latency bound.
+
+**What remains unbounded, disclosed rather than left implicit:** for the
+literal failure mode this issue is about — the Monitor process itself
+dying — *both* the empty-roster case and the non-empty tracked-roster
+case are equally unbounded, for the identical reason (no consumer can
+observe the absence of output from a process that no longer runs).
+Round 2 drew too sharp a line between the two, disclosing the empty case
+as unbounded while claiming the non-empty case was fixed; it was not.
+The one real distinction that does hold: a fully-idle stretch with an
+*empty* tracked roster (nothing spawned, no returned PRs) emits nothing
+past the 1800s mark even while the Monitor is alive — confirmed by
 re-running the same simulation against `EMPTY_ROSTER_REPORT`
 (`[poll-report] roster: empty` / `[poll-report] quiet, nothing in
 flight`): only tick 0 emits, ticks 1-29 stay silent, matching round 1's
@@ -251,9 +323,10 @@ that an empty roster must stay silent past the bound (#1732's own
 acceptance check), and a periodic ping with nothing real to report would
 be the content-free line #2913/#1732 both removed. A session with zero
 spawned work and zero pending PRs has, by definition, nothing this
-mechanism can say that a reader could act on — the only honest
-mitigation for *that* specific case remains the already-documented,
-out-of-scope OS-level scheduled wake two sections up.
+mechanism can say that a reader could act on. For actual-death detection
+specifically, the only honest mitigation for either case (empty or
+non-empty roster) remains the already-documented, out-of-scope OS-level
+scheduled wake named just above.
 
 **Call-site scope, disclosed:** round 1's enumeration ("exactly two call
 sites") was bounded to `hooks.json`'s production wiring
