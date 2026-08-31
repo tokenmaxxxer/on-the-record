@@ -141,12 +141,11 @@ per the round's must-nots); no watch/monitor behavior changed.
 
 ## Skill verdicts
 
-skill-verdict: technical-writing-structure-comprehension — applied:
-invoked; canonical: skill-repository technical-writing-structure-comprehension
-SKILL.md — used its sentence-length and clause-split rules to
-restructure the fixed paragraph in
-`docs/handbooks/monitor-liveness.md:47-55` from one long compound
-sentence into several shorter sentences at clause boundaries.
+skill-verdict: technical-writing-structure-comprehension — applied: invoked; canonical: skill-repository
+technical-writing-structure-comprehension SKILL.md — used its
+sentence-length and clause-split rules to restructure the fixed
+paragraph in `docs/handbooks/monitor-liveness.md:47-55` from one long
+compound sentence into several shorter sentences at clause boundaries.
 skill-verdict: diagnose-first — not-applicable: the cause (one stale
 paragraph) was already diagnosed and named by the prior round's
 adversarial review; this round is direct execution on a known cause,
