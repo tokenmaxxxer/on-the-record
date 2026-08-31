@@ -1091,6 +1091,190 @@ def t_poll_heartbeat_bash_syntax_is_clean():
     assert r.returncode == 0, f"bash -n failed: {r.stderr}"
 
 
+# issue #2919: poll-heartbeat.sh died with exit 1 on macOS (bash 3.2, no
+# flock) -- two independent regressions, pinned below. Reproduction
+# against a real bash 3.2.57 container (this issue's investigation)
+# confirmed bash 3.2 treats even a *declared, genuinely-empty* array as
+# unbound under `set -u` when expanded bare (`ARR=(); "${ARR[@]}"` still
+# raises) -- not just an unset-variable case -- so the fix is the
+# `${NAME[@]+"${NAME[@]}"}` guard, not merely ensuring the array is
+# declared.
+_GUARDED_ARRAY_RE = re.compile(
+    r'\$\{([A-Za-z_][A-Za-z0-9_]*)\[([@*])\]\+"\$\{\1\[\2\]\}"\}'
+)
+_ARRAY_EXPANSION_RE = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\[[@*]\]\}')
+
+
+def _find_unguarded_array_expansions(text: str) -> list[tuple[int, str]]:
+    """Masks every occurrence of the bash-3.2-safe
+    `${NAME[@]+"${NAME[@]}"}` idiom first, then flags any `${NAME[@]}` /
+    `${NAME[*]}` expansion left over -- bounded by scanning the whole
+    file for every `[@]`/`[*]` occurrence, so a new array introduced
+    later and left unguarded is caught the same way this one was found."""
+    masked = _GUARDED_ARRAY_RE.sub("", text)
+    findings = []
+    for lineno, line in enumerate(masked.split("\n"), 1):
+        if _ARRAY_EXPANSION_RE.search(line):
+            findings.append((lineno, line.strip()))
+    return findings
+
+
+def t_no_unguarded_array_expansion_in_script_issue_2919():
+    """issue #2919 acceptance check 3: enumerate every `${...[@]}` (or
+    `[*]`) expansion in poll-heartbeat.sh and require each to use the
+    bash-3.2-safe guarded idiom -- precedent controller #521/#523, where a
+    fix that patched only the one firing unguarded expansion left others
+    in the same file to fail later on the same platform. Search bound:
+    the whole file, via regex over every `[@]`/`[*]` occurrence -- not
+    just the line the reporter's traceback named."""
+    text = POLL_HEARTBEAT.read_text(encoding="utf-8")
+    hits = _find_unguarded_array_expansions(text)
+    assert not hits, f"unguarded array expansion(s) found (bash-3.2-unsafe): {hits}"
+
+
+def t_unguarded_array_detector_catches_a_bare_expansion_issue_2919():
+    """Detector self-check, mirroring t_command_substitution_wrapped_heredoc_detector_catches_multiline_shape:
+    a synthetic bare `${ARR[@]}` (never the real poll-heartbeat.sh) must
+    be flagged, so the check above cannot pass merely because the file
+    happens to be clean."""
+    sample = 'for x in "${ARR[@]}"; do\n  echo "$x"\ndone\n'
+    hits = _find_unguarded_array_expansions(sample)
+    assert hits, "detector must flag a bare, unguarded array expansion"
+
+
+FAKE_SPAWN_PY_NO_ROLE_DATA = """#!/usr/bin/env python3
+import os, sys
+if __name__ == "__main__":
+    marker = os.environ["FAKE_SPAWN_MARKER"]
+    if sys.argv[1:2] == ["poll-due"]:
+        sys.exit(0 if os.environ.get("FAKE_POLL_DUE") == "1" else 1)
+    if sys.argv[1:2] == ["watchdog"]:
+        with open(marker, "a", encoding="utf-8") as f:
+            f.write("watchdog-ran\\n")
+        report = os.environ.get("FAKE_WATCHDOG_REPORT", "")
+        if report:
+            print(report)
+        sys.exit(0)
+    sys.exit(0)
+"""
+
+FAKE_SPAWN_PY_EMPTY_SKILLS = """#!/usr/bin/env python3
+import os, sys
+def role_data():
+    return {}
+if __name__ == "__main__":
+    marker = os.environ["FAKE_SPAWN_MARKER"]
+    if sys.argv[1:2] == ["poll-due"]:
+        sys.exit(0 if os.environ.get("FAKE_POLL_DUE") == "1" else 1)
+    if sys.argv[1:2] == ["watchdog"]:
+        with open(marker, "a", encoding="utf-8") as f:
+            f.write("watchdog-ran\\n")
+        report = os.environ.get("FAKE_WATCHDOG_REPORT", "")
+        if report:
+            print(report)
+        sys.exit(0)
+    sys.exit(0)
+"""
+
+
+def _run_skills_query_tick(checkout_spawn_py: str, tmp: Path) -> subprocess.CompletedProcess:
+    checkout = tmp / "checkout"
+    checkout.mkdir()
+    (checkout / "spawn.py").write_text(checkout_spawn_py, encoding="utf-8")
+    marker = tmp / "marker.log"
+    home = tmp / "home"
+    home.mkdir()
+    env = dict(os.environ)
+    env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+    env["FAKE_SPAWN_MARKER"] = str(marker)
+    env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
+    env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
+    env["POLL_HEARTBEAT_PATROL_EVERY_N"] = "1"
+    env["FAKE_POLL_DUE"] = "0"
+    env["HOME"] = str(home)
+    env.pop("CLAUDE_SKILL", None)
+    return subprocess.run(
+        ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
+    )
+
+
+def t_patrol_skills_query_failure_is_visible_issue_2919():
+    """issue #2919 acceptance check 3 (must-not clause): a patrol-skills
+    query that FAILS -- `import spawn` succeeds but `spawn.role_data()`
+    raises AttributeError (confirmed live: this is the actual shape of
+    the real repo's spawn.py right now, which has no role_data() either
+    -- see this issue's Open findings) -- must print a visible
+    per-patrol-tick line. It must not read as an indistinguishable quiet
+    zero-roles tick, the must-not this issue names explicitly."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        r = _run_skills_query_tick(FAKE_SPAWN_PY_NO_ROLE_DATA, Path(d))
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "[patrol-poll] skills query failed at startup" in r.stdout, r.stdout
+
+
+def t_patrol_skills_genuinely_empty_roster_stays_quiet_issue_2919():
+    """issue #2919 acceptance check 3 counterpart: a role_data() that
+    SUCCEEDS but legitimately returns zero skills must stay quiet -- no
+    query-failed line -- proving the two conditions (failed query vs.
+    genuinely-empty roster) are actually distinguishable and not just the
+    failure case made loud."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        r = _run_skills_query_tick(FAKE_SPAWN_PY_EMPTY_SKILLS, Path(d))
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "skills query failed" not in r.stdout, r.stdout
+        assert "[patrol-poll]" not in r.stdout, r.stdout
+
+
+def t_alive_stamp_write_survives_missing_flock_issue_2919():
+    """issue #2919 acceptance check 2: on a host with no `flock` reachable
+    on PATH (the reported macOS condition -- flock ships with util-linux,
+    absent by default on macOS), the tick must still complete cleanly and
+    the alive-stamp write must not silently drop serialisation. PATH is
+    rebuilt from symlinks to only the binaries the script needs, minus
+    flock, so `command -v flock` genuinely fails the way it does on the
+    reporter's host -- not merely un-exercised."""
+    import shutil
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        bindir = tmp / "bin"
+        bindir.mkdir()
+        needed = ["bash", "python3", "git", "mkdir", "touch", "mv", "rm", "rmdir",
+                  "wc", "date", "sleep", "dirname", "cat", "printf", "sh", "env",
+                  "basename", "chmod"]
+        for name in needed:
+            src = shutil.which(name)
+            if src:
+                (bindir / name).symlink_to(src)
+        assert not (bindir / "flock").exists(), \
+            "test setup bug: flock leaked into the restricted PATH"
+        env = dict(os.environ)
+        env["PATH"] = str(bindir)
+        env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+        env["FAKE_SPAWN_MARKER"] = str(marker)
+        env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
+        env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
+        env["FAKE_POLL_DUE"] = "1"
+        env["FAKE_WATCHDOG_REPORT"] = EMPTY_ROSTER_REPORT
+        env["HOME"] = str(home)
+        env.pop("CLAUDE_SKILL", None)
+        r = subprocess.run(
+            [str(bindir / "bash"), str(POLL_HEARTBEAT)], input="", capture_output=True, text=True,
+            env=env, timeout=15,
+        )
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0 even without flock: {r.stderr}"
+        assert "flock" not in r.stderr, r.stderr
+        stamp = checkout / "runs" / "poll_heartbeat_alive.json"
+        assert stamp.exists(), "alive stamp must still be written when flock is absent"
+        assert '"last_tick"' in stamp.read_text(), stamp.read_text()
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
 
 
