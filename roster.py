@@ -33,6 +33,35 @@ from pathlib import Path
 
 import checkpoint
 
+# issue #2924: `_watcher_looks_real()`/`_session_looks_real()` verify pid
+# *identity* via `/proc`, not just liveness -- on a platform without
+# `/proc` (macOS) both degrade to `_alive()`, which reopens the pid-reuse
+# hole #2749/PR #2823 closed. Computed once at import (no added per-call
+# cost -- the callers already do a `Path(...).exists()` stat per call
+# regardless) so `_note_proc_identity_degraded()` below can tell "no
+# /proc on this host" apart from "this pid has no /proc entry", and the
+# degradation stops being visible only in a docstring.
+_PROC_AVAILABLE = os.path.isdir("/proc")
+_proc_identity_degradation_noted = False
+
+
+def _note_proc_identity_degraded(site: str) -> None:
+    """issue #2924: print once per process, the first time a `/proc`-based
+    identity check degrades to `_alive()` for lack of `/proc` -- not on
+    every call, so a watcher-liveness check (called every patrol tick)
+    doesn't turn this into per-tick noise. The degradation itself is
+    unchanged (there is no substitute identity signal to fall back to);
+    this only makes it visible to whoever reads this process's output,
+    same as the guard patterns already used for `[lease]`/`[deadman]`
+    lines in this module."""
+    global _proc_identity_degradation_noted
+    if _proc_identity_degradation_noted:
+        return
+    _proc_identity_degradation_noted = True
+    print(f"[proc-identity] {site}: /proc 없음 -- 신원 확인이 생존 확인"
+          "(_alive)으로 저하됨, pid 재사용이면 이 판정이 틀릴 수 있음 "
+          "(이 프로세스 동안 1회만 표시)")
+
 # The spawn module object; set by spawn.py on import. All cross-module lookups
 # resolve through it at call time so monkeypatches on spawn attributes are seen.
 _sp = None
@@ -191,6 +220,8 @@ def _watcher_looks_real(pid: int, issue: int | None,
         return True
     cmdline_path = Path(f"/proc/{pid}/cmdline")
     if not cmdline_path.exists():
+        if not _PROC_AVAILABLE:
+            _note_proc_identity_degraded("_watcher_looks_real")
         return True
     try:
         parts = cmdline_path.read_bytes().decode("utf-8", "replace").split("\x00")
@@ -226,6 +257,8 @@ def _session_looks_real(pid: int, work: str | None) -> bool:
         return True
     cwd_link = Path(f"/proc/{pid}/cwd")
     if not cwd_link.exists():
+        if not _PROC_AVAILABLE:
+            _note_proc_identity_degraded("_session_looks_real")
         return True
     try:
         actual = cwd_link.resolve()
