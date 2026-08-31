@@ -379,14 +379,23 @@ claims. No code was changed by this review (PR #2913 was not modified,
 per the adversarial-review skill's structural-independence contract —
 evaluate, do not fix).
 
-skill-verdict: adversarial-review — applied: invoked; per its protocol
-(structurally independent evaluation, no shared context with the
-builder), re-derived every checkable claim in PR #2913 from primary
-sources (diff, worktree checkouts, live transcript, cited handbook doc)
-rather than reading and restating the builder's own record, and
-constructed the four required live transitions plus the boundary
-enumeration myself before consulting the PR's own test file.
-skill-verdict: work-in-english — applied: invoked; this record and all
-intermediate scratch scripts are in English; only the final chat summary
-to the user will be Korean, per project convention.
+skill-verdict: adversarial-review — applied: invoked; called via the
+Skill tool this turn — canonical: Skill tool call this turn returned the
+full SKILL.md body (structurally independent evaluation, no shared
+context with the builder, evidence-per-finding requirement). Deviation
+logged (see this session's deviation-log entry): the review itself was
+already carried out and committed in the protocol's shape before this
+call happened. The protocol as read matches the work done above: every
+checkable claim in PR #2913 was re-derived from primary sources (diff,
+worktree checkouts, live transcript, cited handbook doc) rather than
+read and restated from the builder's own record, and the four required
+live transitions plus the boundary enumeration were constructed before
+consulting the PR's own test file.
+skill-verdict: work-in-english — applied: invoked; called via the Skill
+tool this turn — canonical: Skill tool call this turn returned the full
+SKILL.md body (English for repo-bound exhaust, Korean for the final
+user-facing summary). Deviation logged, same entry as above. The rule as
+read matches the work done above: this record and all intermediate
+scratch scripts are in English, and the final chat summary to the user
+is Korean.
 other mounted skills: not triggered
