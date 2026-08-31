@@ -213,6 +213,111 @@ def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
     return pr.get("number") if pr.get("state") in ("OPEN", "MERGED") else None
 
 
+def _live_session_workspace_summary(work: str) -> str:
+    """이슈 #2904 (재구성, 2026-08-31 이슈 코멘트): `gh`는 세션이 PR을 열어야
+    비로소 그 존재를 본다 — 커밋도 PR도 없는 15분짜리 진행 중 세션은 `gh`
+    로는 완전히 안 보인다. 워크스페이스는 그 순간부터 보인다: 로컬
+    `git status --porcelain` 하나로 지금 손대는 파일과 기록(record) 시작
+    여부를 매 틱 보고한다 — 새 `gh` 호출 없음, 새 폴링 루프 없음(이미 도는
+    이 watchdog 틱에 얹는다). 아무 것도 안 건드린 세션도 "아직 없음"을
+    보고한다 — 침묵이 아니라 명시적 빈 상태(이슈가 요구하는 empty-state
+    계약)."""
+    # `-uall`: a brand-new record file lives under a directory
+    # (`docs/issue-<n>/reports/`) that does not exist yet on any tracked
+    # branch -- plain `--porcelain` collapses a wholly-untracked directory
+    # to one `?? docs/` line, which would hide exactly the "record
+    # started" case this function exists to name.
+    st = subprocess.run(["git", "-C", work, "status", "--porcelain", "-uall"],
+                        capture_output=True, text=True)
+    if st.returncode != 0:
+        return "워크스페이스 상태 확인 실패(git status)"
+    lines = [l for l in st.stdout.splitlines() if l.strip()]
+    if not lines:
+        return "손댄 파일 없음"
+    paths = []
+    record_started = False
+    for line in lines:
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        paths.append(path)
+        if _sp._RECORD_PATH_RE.search(path):
+            record_started = True
+    paths.sort()
+    shown = ", ".join(paths[:5])
+    more = f" (+{len(paths) - 5}개 더)" if len(paths) > 5 else ""
+    record_note = "기록 시작함" if record_started else "기록 아직 없음"
+    return f"손댄 파일 {len(paths)}건: {shown}{more}, {record_note}"
+
+
+def _last_tool_activity_summary(log_path: Path | None) -> str:
+    """이슈 #2904 (재구성 2차, 2026-08-31 두 번째 코멘트): 파일 diff는
+    결과고 도구 호출은 행위다 — 이미 dirty 한 파일이 그대로 dirty 인 채로
+    2분이 흘렀을 때, 그 2분이 grep/Read/Edit/테스트 실행으로 채워졌는지
+    (투자 중) 아무 것도 안 했는지(정지)는 파일 상태만으로는 구별되지
+    않는다(위 `_live_session_workspace_summary()`가 겪는 바로 그 반례,
+    운영자가 이 세션 자신에게 실측했다). 그 구별은 세션 자신의
+    트랜스크립트(`entry["log"]`, `watchdog_check_one()`이 이미 오프셋
+    증분으로 읽는 바로 그 파일)에만 있다 — 이 함수는 그 로그의 마지막
+    tool_use 이름과 절대 타임스탬프(HH:MM:SS UTC)를 읽는다. 새 이벤트를
+    쓰지 않는다, 세션이 이미 쓰는 로그를 읽을 뿐이다.
+
+    절대 타임스탬프를 쓰는 이유: "N초 전" 같은 상대 표현은 마지막 도구
+    호출이 전혀 안 바뀌어도 틱마다 문자열이 달라져 delta-suppression을
+    무력화한다(조용한 틱이 조용히 안 있게 된다) — 마지막 도구가 그대로면
+    절대 타임스탬프도 그대로라 문자열이 안 바뀌고, 새 도구 호출이 있어야만
+    바뀐다."""
+    if log_path is None or not log_path.exists():
+        return "도구 호출 로그 없음"
+    try:
+        size = log_path.stat().st_size
+        with log_path.open("rb") as fh:
+            fh.seek(max(0, size - 65536))
+            raw = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return "도구 호출 로그 읽기 실패"
+    last_tool = None
+    last_ts = None
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant":
+            continue
+        ts_raw = obj.get("timestamp")
+        ts = None
+        if isinstance(ts_raw, str):
+            try:
+                ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                ts = None
+        for block in (obj.get("message") or {}).get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            name = block.get("name")
+            if not name:
+                continue
+            inp = block.get("input") or {}
+            detail = inp.get("file_path") or inp.get("command") or inp.get("pattern") or ""
+            if isinstance(detail, str) and detail:
+                detail = detail.strip().splitlines()[0][:40]
+            else:
+                detail = ""
+            last_tool = f"{name} {detail}".strip()
+            if ts is not None:
+                last_ts = ts
+    if last_tool is None:
+        return "도구 호출 기록 없음"
+    if last_ts is not None:
+        stamp = datetime.fromtimestamp(last_ts, tz=timezone.utc).strftime("%H:%M:%S")
+        return f"마지막 도구 호출: {last_tool} ({stamp} UTC)"
+    return f"마지막 도구 호출: {last_tool}"
+
+
 def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
                      anomalies: list[str] | None = None,
@@ -393,8 +498,11 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                 "detail": f"{key}: lease renewed {_sp.LEASE_FLAT_RENEWALS_K}+ "
                           f"times with a flat progress indicator, RUNNING "
                           f"(advisory)"})
+    workspace_summary = _live_session_workspace_summary(work) if work else "워크스페이스 없음"
+    activity_summary = _last_tool_activity_summary(
+        Path(entry["log"]) if entry.get("log") else None)
     return _diagnosis({"state": "HEALTHY", "next_action": "none",
-            "detail": f"{key}: 최근 로그 성장, RUNNING"})
+            "detail": f"{key}: 최근 로그 성장, RUNNING — {workspace_summary}; {activity_summary}"})
 
 
 def _session_resume_claim(session_id: str, now: float | None = None) -> bool:
@@ -1573,11 +1681,35 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     직접 호출/테스트만을 위한 하위호환 폴백이다 — 워치독 코드(closure_sweep
     등 gates 모듈) 임포트는 항상 `ROOT` 를 쓰고(코드는 언제나 체크아웃에서
     온다), 보드 스캔 대상(이슈/PR/다이제스트)만 `root` 를 쓴다."""
+    # 이슈 #2904: 자연 종료로 자기 roster 엔트리를 스스로 지운(아래 `d_all`
+    # 로드보다 먼저, 이미 사라진 뒤라 dead-scan 이 못 보는) 세션의 완료
+    # 사실을 큐에서 드레인해 always-emit `[poll-report] ...: COMPLETED`
+    # 로 낸다 — `if not d:` 조기 리턴(로스터가 완전히 비면 여기서 함수가
+    # 끝난다, 아래)보다 반드시 앞이어야, 등록된 세션이 하나도 없는 흔한
+    # 틱에서도 이 신호가 여전히 나간다. 새 `gh`/git 호출도, 새 폴링 주기도
+    # 추가하지 않는다 — 이미 도는 이 watchdog 틱에 얹을 뿐. 완료 자체는
+    # anomaly_count 에 안 얹는다(이상 신호가 아니다 — 기존 dead-scan
+    # COMPLETED 와 같은 대접). 큐를 못 읽은 경우(lock/디스크 실패)는
+    # 반대로 이상 신호로 낸다 — 그러지 않으면 "이번 틱엔 완료 없음"과
+    # "이번 틱은 확인을 못 했음"이 똑같은 침묵으로 보여, 이 큐 자신이
+    # 이슈 #2904 가 겨냥하는 바로 그 결함(깨끗한 출력과 안 봤음이
+    # 구별 안 됨)을 새로 만든다.
+    anomaly_count = 0
+    _pending_completions, _pc_err = _sp._drain_pending_completions()
+    if _pc_err is not None:
+        anomaly_count += 1
+        print(f"[poll-report-drain-failed] pending-completions 큐를 못 읽음 "
+              f"(완료 신호를 이번 틱엔 못 볼 수 있음) — {_pc_err}")
+    for _pc in _pending_completions:
+        pr = _pc.get("pr_number")
+        pr_label = f"PR #{pr}" if pr is not None else "PR 없음"
+        print(f"[poll-report] {_pc.get('key')}: COMPLETED — issue #{_pc.get('issue')}, "
+              f"session {_pc.get('session_id')}, {pr_label}, outcome={_pc.get('outcome')!r}")
     # 이슈 #1276: 로스터를 여기서 먼저 읽는다 — 보드 스윕이 로스터가
     # 가리키는 distinct 타깃 레포까지 커버해야 해서(요구#1), 로스터 스캔
     # 루프가 쓰는 `d_all` 과 같은 한 번의 읽기를 그대로 재사용한다.
     d_all = _sp._roster_load()
-    anomaly_count = _sp._board_wide_sweep_all(root, d_all)
+    anomaly_count += _sp._board_wide_sweep_all(root, d_all)
     # Issue #2101 mechanisms 3+4: level-triggered reconcile sweep (expired
     # leases requeued, claims without sessions and dangling declared waits
     # surfaced) + dead-man coverage marker check/refresh. Advisory-only;
