@@ -35,11 +35,20 @@ answer, since a hook tick and a Monitor tick both touch it.
 ## Staleness threshold and the re-arm directive
 
 `directive.sh` (UserPromptSubmit) and `stop-poll-rearm.sh` (Stop) each
-check the stamp's age against a threshold, default **180 seconds** (3x
-the 60s poll interval; overridable for tests via
-`MONITOR_LIVENESS_STALE_SECONDS`). A missing stamp — the Monitor never
-started this session, or this checkout has no `runs/` history yet — is
-treated as stale from the very first check.
+check the stamp's age against a threshold — `directive.sh` defaults to
+**360 seconds**, `stop-poll-rearm.sh` defaults to **180 seconds** (3x
+`watchdog.POLL_INTERVAL_SEC` = 60s, the unrelated `spawn.py poll-due()`
+TTL gate these same two hooks also arm — NOT `poll-heartbeat.sh`'s own
+120s tick-loop sleep, a distinct interval; both are overridable for
+tests via `MONITOR_LIVENESS_STALE_SECONDS`). A missing stamp — the
+Monitor never started this session, or this checkout has no `runs/`
+history yet — is treated as stale from the very first check.
+
+**These numbers bound how fast the check flags a stale stamp once
+invoked (measured: ~29ms, issue #2915), not how often the check gets
+invoked.** See "Structural limit" below — as of this writing, invocation
+during a genuinely healthy, quiet stretch is not bounded by anything in
+this repo.
 
 When stale, the hook emits one line:
 
@@ -122,6 +131,65 @@ remove the *turn-driven* dependency itself. A true session-independent
 wake would require an OS-level scheduled-execution primitive
 (cron/launchd/systemd timer) external to this session, which is out of
 scope here and would need its own issue if wanted.
+
+### Issue #2915: the 360s/180s numbers were never an enforced upper bound
+
+This section's own logic above already said the check only runs when a
+turn happens. Issue #2915 quantified what that means during a
+**healthy, quiet** stretch specifically (roster alive, nothing anomalous
+— as opposed to fully idle with a dead roster), because a second
+mechanism, independent of the turn-driven hooks, used to *also* force a
+turn on close to the Monitor's own cadence, and that mechanism's history
+is what actually determined whether 360s/180s held in practice:
+
+- **2026-08-13 (#1220) - 2026-08-18 (#1732):** a fully-suppressed due
+  tick (nothing changed) still forced one no-op "monitoring active"
+  notification every 1800s (30min) as a backstop — already 5-10x looser
+  than the 360s/180s figures below, but finite.
+- **2026-08-18 (#1732):** that 1800s backstop was removed outright
+  ("monitor liveness is already covered by the separate alive marker" —
+  true only if something reads that marker on a bounded cadence, which
+  nothing did). From this point, a healthy/unchanging roster entry forces
+  *no* tick to print anything, ever — zero notifications, zero forced
+  turns, no upper bound.
+- **2026-08-30 (#2905) - 2026-08-31 (#2913):** a one-day window where an
+  unrelated change (a per-tick last-tool-activity timestamp appended to
+  the `[poll-report]` HEALTHY line) accidentally defeated the delta
+  suppression, so nearly every ~120s Monitor tick emitted and forced a
+  turn — incidentally invoking the staleness check on roughly that
+  cadence. #2913 correctly removed this noise (87.8% of a measured
+  transcript's notifications carried no actionable content); doing so
+  reverted the system to the #1732-onward state, not a new one.
+
+**Measured (issue #2915, executed-live against the current build):**
+30 simulated ticks of `poll_heartbeat_delta.py` fed an unchanging
+`HEALTHY` report over a 3600s (60-minute) span emitted on tick 0 only
+(the unconditional first-tick emit) — 0 of the remaining 29 ticks
+produced any stdout, i.e. zero Monitor notifications and zero forced
+turns across the full simulated hour. Separately, the staleness check
+itself, once a turn does invoke it, correctly flags a stale (1000s-old)
+stamp in ~29ms wall-clock — negligible next to the 360s/180s figures.
+**Verdict: the 360s/180s bound was never a code-enforced maximum
+detection latency; it is, and since 2026-08-18 has been, the latency of
+the check itself once some turn-triggering event happens to occur.**
+During a stretch with only a healthy `poll-heartbeat.sh` Monitor and no
+other live watch/roster traffic, the current build's worst-case
+detection latency for a dead monitor is unbounded — bounded only by
+whichever unrelated event (a real user message, or a different Monitor
+producing actual content) happens next. This is not worse than the
+388-minute #1497/#2182 incident this mechanism was built to catch (that
+incident is still caught the moment *any* turn fires), but it is not the
+360s/180s the handbook previously implied either, and has not been since
+12 days before the #2905/#2913 episode this issue was filed to look at.
+
+No fix ships with this finding: the two structural options — (a) a new
+low-frequency content-free "still alive" notification, or (b) an
+OS-level scheduled wake outside this session — are respectively exactly
+what #2913 correctly removed (issue #2915's own must-not list forbids
+reintroducing it under another name) and the already-documented,
+already-out-of-scope hard boundary two paragraphs up. Filed as a
+follow-up rather than attempted here (see issue #2915's record's "Open
+findings").
 
 ## Quiet ticks (requirement 1)
 
