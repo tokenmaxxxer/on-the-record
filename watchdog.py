@@ -1378,7 +1378,17 @@ def watchdog_lock_acquire(lock_path: Path = WATCHDOG_LOCK_PATH,
     """`spawn.py watchdog` 단일-인스턴스 락(이슈 #1456 요구 1). 이미 살아있는
     인스턴스가 있으면 (False, 안내줄) — pid 재사용을 피하려 pid *와*
     프로세스 시작 시각이 둘 다 일치해야 "살아있다"로 본다. 죽은 프로세스가
-    남긴 락(또는 pid 재사용으로 시작시각이 달라진 락)은 그대로 회수한다."""
+    남긴 락(또는 pid 재사용으로 시작시각이 달라진 락)은 그대로 회수한다.
+
+    이슈 #2924: `/proc` 없는 플랫폼(macOS)에서는 `_proc_start_time()` 이
+    항상 `None` 을 돌려준다 — 락 기록 당시에도, 재확인 시에도. 그러면
+    `None == None` 이 항상 참이 되어 시작시각 비교가 무조건 "일치"로
+    보인다: pid 가 재사용된 무관한 프로세스도 "이미 실행 중"으로 오판돼
+    새 워치독이 영원히 못 뜬다 — 시작시각 비교가 있는 것처럼 보이지만
+    사실상 아무것도 검증하지 않는다. 그 저하 자체는 대체 메커니즘이 없어
+    바꿀 수 없지만(이슈의 must-not: 리눅스 쪽을 약화해 맞추지 않는다),
+    반환되는 안내줄에는 남긴다 — 이 함수의 호출자(spawn.py)는 실패 시
+    이 메시지를 그대로 print 하므로, 여기 붙이면 그 자리에서 바로 보인다."""
     my_pid = pid if pid is not None else os.getpid()
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -1390,8 +1400,13 @@ def watchdog_lock_acquire(lock_path: Path = WATCHDOG_LOCK_PATH,
         other_start = existing.get("start_time")
         if (isinstance(other_pid, int) and _sp._alive(other_pid)
                 and _sp._proc_start_time(other_pid) == other_start):
+            degraded_note = (
+                " (start_time 신원 확인 불가 -- /proc 없는 플랫폼, pid 가 "
+                "재사용된 무관한 프로세스여도 이 판정은 똑같이 나온다)"
+                if other_start is None else "")
             return False, (f"[watchdog] 이미 실행 중: pid={other_pid} "
-                            f"start_time={other_start} — lock={lock_path}")
+                            f"start_time={other_start}{degraded_note} — "
+                            f"lock={lock_path}")
     lock_path.write_text(json.dumps({"pid": my_pid,
                                       "start_time": _sp._proc_start_time(my_pid)}))
     return True, ""
