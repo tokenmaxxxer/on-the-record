@@ -942,7 +942,7 @@ def _build_expected(entry: dict) -> dict:
     }
 
 
-def _build_observed(root: Path, entry: dict) -> dict:
+def _build_observed(root: Path, entry: dict, pr_index: dict | None = None) -> dict:
     """로스터 엔트리 → `reconcile()` 의 `observed` 입력. 기존 리더만 쓴다
     (`session_end_verdict`, `_pr_open_or_merged_for_branch`, `board`,
     `_is_new_commit`) — 새 `gh` 호출을 추가하지 않는다.
@@ -951,7 +951,20 @@ def _build_observed(root: Path, entry: dict) -> dict:
     를 `session_end_verdict()` 에 함께 넘긴다 — 자식(claude) pid 만 보면
     `_spawn_one()` 의 `session-end` 후처리 꼬리(push/게이트/classify/
     ledger_write, 아직 안 남은 구간)에서 정상 종료를 crashed 로 오판한다
-    (이슈 #224 hunt 가 `_watch --follow` 에서 이미 잡은 것과 같은 신호)."""
+    (이슈 #224 hunt 가 `_watch --follow` 에서 이미 잡은 것과 같은 신호).
+
+    이슈 #2941: `pr_index`(호출부가 같은 틱에서 이미 만든 `_board_pr_index()`
+    벌크 인덱스, `diagnose_health()`가 poll-report 판정에 쓰는 것과 동일한
+    소스)를 넘기면 `pr_number`를 그 인덱스에서 읽는다 — `gh pr list --head
+    <branch>`(브랜치 필터 검색 인덱스, propagation 지연 실측: PR #2930/
+    #2934/#2937/#2919 검증 네 건 모두 생성 직후 이 필터로는 "없음", 동시에
+    board 인덱스로는 "있음")를 매 엔트리마다 새로 부르는 대신, poll-report
+    가 이미 신뢰하는 것과 같은 소스를 읽어 두 판정이 애초에 서로 다른
+    데이터를 보지 않게 한다 — grace-period 를 추측해 넣는 대신 원인(두
+    소스의 불일치) 자체를 없앤다. 생략하면(기본값 `None`, 기존 호출부:
+    `roster_reconcile()` CLI, `drive()`) 이전과 동일하게 개별 `gh pr list`
+    를 부른다 — 이 두 호출부는 poll-report 와 같은 틱에서 경쟁하지 않아
+    이 disagreement 클래스에 해당하지 않는다."""
     work = entry.get("work")
     log = entry.get("log")
     verdict = session_end_verdict(work, Path(log) if log else None,
@@ -959,7 +972,12 @@ def _build_observed(root: Path, entry: dict) -> dict:
     # Issue #2834: real checked-out branch, not the workspace directory's
     # basename — see diagnose_health() in watchdog.py for the full story.
     branch = _current_branch(Path(work)) if work else None
-    pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
+    if not branch:
+        pr_number = None
+    elif pr_index is not None:
+        pr_number = _pr_state_from_index(pr_index, branch)
+    else:
+        pr_number = _pr_open_or_merged_for_branch(root, branch)
     loop_state = None
     issue = entry.get("issue")
     skill = entry.get("skill")
@@ -3281,12 +3299,43 @@ def _create_workspace_with_signal_guard(cwd: str, issue: int | None, skill: str,
     return result
 
 
+def _branch_created_age_sec(cwd: str, br: str, now: float | None = None) -> float | None:
+    """이슈 #2941: 로컬 `br` ref 의 reflog 에서 가장 오래된(=생성) 항목의
+    시각을 읽어 "이 로컬 ref 가 언제 생겼는지"를 구한다. `--date=unix` 는
+    `@{<epoch>}:` 형태로 타임스탬프를 직접 참조 안에 싣는다(실측: 이 레포
+    자신의 `git reflog show --date=unix HEAD`) — 별도 날짜 필드 파싱이
+    필요 없다. reflog 가 없거나(만료·shallow clone) 파싱 실패면 `None` —
+    호출부는 "판단 불가"를 "새로 만들어짐"으로 착각하면 안 되므로 fail-open
+    (재컷 진행) 쪽으로 읽는다."""
+    now = time.time() if now is None else now
+    r = subprocess.run(["git", "-C", cwd, "reflog", "show", "--date=unix", br],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    oldest = r.stdout.strip().splitlines()[-1]
+    m = re.search(r"@\{(\d+)\}:", oldest)
+    if not m:
+        return None
+    return now - int(m.group(1))
+
+
 def _recut_absorbed_branch(cwd: str, br: str):
     """`br` 이 이미 로컬에 체크아웃돼 있다고 가정하고, base 에 흡수됐는지
     검사해 필요하면 재컷한다 (untracked 작업은 stash 로 보존). 스폰 시점
     `checkout_issue_branch()` 와 세션 자신의 mid-run 재검사
     (`recut_if_absorbed_cli`, 이슈 #784) 양쪽에서 재사용하는 공유 헬퍼 —
     로직은 #732 가 이미 검증한 것 그대로, 호출 시점만 늘어난다.
+
+    이슈 #2941: `base` 대비 0-ahead("local_zero")는 "흡수됐다"뿐 아니라
+    "막 만들어져 아직 커밋할 시간이 없었다"에서도 똑같이 참이다 — 실측:
+    watchdog-observed-crashed 오판(세션 시작 직후, 아직 커밋 전)으로
+    respawn 이 걸린 워크스페이스 두 건이 이 분기를 타 살아있는 세션의
+    로컬 브랜치가 지워졌다. 두 경우를 가르는 신호로 `br` 자신의 reflog
+    생성 시각을 쓴다: 방금 만든 ref 는 나이가 `SPAWN_ATTEMPT_GRACE_SEC`
+    (300초, roster.py — CLONE_TIMEOUT+NETWORK_TIMEOUT+60, 새 값 아님)보다
+    한참 어리고, 진짜 흡수된 브랜치는 원래 생성 시점이 그보다 오래전이다
+    — 고정 sleep 을 추가하는 게 아니라 이미 존재하는, 이미 근거가 있는
+    문턱을 재사용해 "얼마나 기다릴지"를 새로 추측하지 않는다.
 
     반환값은 최종 `git checkout`/`checkout -B` 의 CompletedProcess."""
     def git(*a):
@@ -3311,6 +3360,13 @@ def _recut_absorbed_branch(cwd: str, br: str):
               file=sys.stderr)
         return git("checkout", "-B", br, f"origin/{br}")
     if local_zero:
+        age = _branch_created_age_sec(cwd, br)
+        if age is not None and age < SPAWN_ATTEMPT_GRACE_SEC:
+            print(f"[spawn] {br} 는 {base} 대비 0-ahead 지만 {int(age)}초 전에 "
+                  f"막 만들어졌다 — 아직 커밋할 시간이 없었을 뿐일 수 있어 "
+                  f"(not yet, not gone) 재컷하지 않고 그대로 둔다.",
+                  file=sys.stderr)
+            return git("checkout", br)
         print(f"[spawn] {br} 는 {base} 에 완전히 흡수돼 커밋이 없다 — "
               f"로컬 브랜치를 지우고 새로 판다.", file=sys.stderr)
         # 흡수된 브랜치는 base 대비 영원히 0-ahead 라 재컷 없이는
