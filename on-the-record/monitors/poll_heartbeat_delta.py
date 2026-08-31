@@ -231,14 +231,22 @@ def main() -> None:
             # tighter one -- no reversion to the #2905/near-every-tick noise
             # #2913 fixed), content-CARRYING beacon for the case #1732 did
             # not have a test for: a non-empty roster (real tracked
-            # entries, not the "roster: empty"/"quiet, nothing in flight"
-            # sentinel shape) whose only reason for silence is that nothing
-            # about it changed. `poll-report:roster` is that sentinel's own
-            # diff key (TAG_RE on "[poll-report] roster: ..."); excluding
-            # it (not "any poll-report key") is what keeps a genuinely
-            # empty roster exactly as silent as #1732 left it --
-            # t_heartbeat_bound_with_no_returned_pr_emits_nothing pins that
-            # case unchanged. Each beacon line re-states a real tracked
+            # entries) whose only reason for silence is that nothing about
+            # it changed. A genuinely empty roster stays silent past the
+            # bound not because of the `poll-report:roster` exclusion below
+            # -- watchdog.py's real empty-roster output ("돌고 있는 스킬
+            # 세션 없음") carries no `[poll-report]` tag at all, so TAG_RE
+            # never produces a `poll-report:` key for it in the first
+            # place, regardless of this exclusion (warrant-hunt finding,
+            # docs/reports/2026-08-31-hunt-round2-heartbeat-beacon.md). The
+            # exclusion exists only for `EMPTY_ROSTER_REPORT`
+            # (`test_poll_heartbeat.py`'s own synthetic "[poll-report]
+            # roster: empty" fixture, which does not mirror the real
+            # watchdog.py string) so that fixture's
+            # `t_heartbeat_bound_with_no_returned_pr_emits_nothing` pin
+            # keeps passing too -- belt-and-suspenders against a future
+            # roster-representation change, not the load-bearing mechanism
+            # for the real production case. Each beacon line re-states a real tracked
             # entry's actual current state (HEALTHY/STALLED/etc, not a
             # static phrase) under a distinct `[monitor-heartbeat]` tag, so
             # presence on this ~1800s cadence is legible to an external
