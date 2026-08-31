@@ -1573,11 +1573,35 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     직접 호출/테스트만을 위한 하위호환 폴백이다 — 워치독 코드(closure_sweep
     등 gates 모듈) 임포트는 항상 `ROOT` 를 쓰고(코드는 언제나 체크아웃에서
     온다), 보드 스캔 대상(이슈/PR/다이제스트)만 `root` 를 쓴다."""
+    # 이슈 #2904: 자연 종료로 자기 roster 엔트리를 스스로 지운(아래 `d_all`
+    # 로드보다 먼저, 이미 사라진 뒤라 dead-scan 이 못 보는) 세션의 완료
+    # 사실을 큐에서 드레인해 always-emit `[poll-report] ...: COMPLETED`
+    # 로 낸다 — `if not d:` 조기 리턴(로스터가 완전히 비면 여기서 함수가
+    # 끝난다, 아래)보다 반드시 앞이어야, 등록된 세션이 하나도 없는 흔한
+    # 틱에서도 이 신호가 여전히 나간다. 새 `gh`/git 호출도, 새 폴링 주기도
+    # 추가하지 않는다 — 이미 도는 이 watchdog 틱에 얹을 뿐. 완료 자체는
+    # anomaly_count 에 안 얹는다(이상 신호가 아니다 — 기존 dead-scan
+    # COMPLETED 와 같은 대접). 큐를 못 읽은 경우(lock/디스크 실패)는
+    # 반대로 이상 신호로 낸다 — 그러지 않으면 "이번 틱엔 완료 없음"과
+    # "이번 틱은 확인을 못 했음"이 똑같은 침묵으로 보여, 이 큐 자신이
+    # 이슈 #2904 가 겨냥하는 바로 그 결함(깨끗한 출력과 안 봤음이
+    # 구별 안 됨)을 새로 만든다.
+    anomaly_count = 0
+    _pending_completions, _pc_err = _sp._drain_pending_completions()
+    if _pc_err is not None:
+        anomaly_count += 1
+        print(f"[poll-report-drain-failed] pending-completions 큐를 못 읽음 "
+              f"(완료 신호를 이번 틱엔 못 볼 수 있음) — {_pc_err}")
+    for _pc in _pending_completions:
+        pr = _pc.get("pr_number")
+        pr_label = f"PR #{pr}" if pr is not None else "PR 없음"
+        print(f"[poll-report] {_pc.get('key')}: COMPLETED — issue #{_pc.get('issue')}, "
+              f"session {_pc.get('session_id')}, {pr_label}, outcome={_pc.get('outcome')!r}")
     # 이슈 #1276: 로스터를 여기서 먼저 읽는다 — 보드 스윕이 로스터가
     # 가리키는 distinct 타깃 레포까지 커버해야 해서(요구#1), 로스터 스캔
     # 루프가 쓰는 `d_all` 과 같은 한 번의 읽기를 그대로 재사용한다.
     d_all = _sp._roster_load()
-    anomaly_count = _sp._board_wide_sweep_all(root, d_all)
+    anomaly_count += _sp._board_wide_sweep_all(root, d_all)
     # Issue #2101 mechanisms 3+4: level-triggered reconcile sweep (expired
     # leases requeued, claims without sessions and dangling declared waits
     # surfaced) + dead-man coverage marker check/refresh. Advisory-only;

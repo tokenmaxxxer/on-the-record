@@ -1032,6 +1032,87 @@ def roster_reconcile(issue: int | None = None, unreported: bool = False,
 
 ROSTER = STATE_ROOT / "active.json"
 
+# 이슈 #2904: 세션이 정상 종료해 `_spawn_one()` 꼬리(아래, roster_remove
+# 직후)에서 스스로 자기 roster 엔트리를 지우는 경로는, 다음
+# `roster_watchdog()` 틱이 그 키를 "방금 죽은 채로 등록됨"으로 다시 볼
+# 기회 자체를 없앤다 — 등록이 이미 사라졌으므로, 크래시로 프로세스 자신이
+# roster_remove 를 못 부르고 죽은 드문 레이스만 잡는 기존 poll-report
+# dead-scan([poll-report] ...: COMPLETED, watchdog.py)이 이 흔한(정상 종료)
+# 경로는 절대 못 본다. `_spawn_one()` 이 자기 완료 사실(issue/session/PR/
+# outcome)을 이미 다 아는 바로 그 순간 이 큐에 한 줄 남기고, 다음 watchdog
+# 틱이 (기존 120초 폴 주기 그대로) 한 번 읽어 소비한다 — 새 `gh`/git 호출도,
+# 새 폴링 주기도 추가하지 않는다.
+PENDING_COMPLETIONS = STATE_ROOT / "pending-completions.jsonl"
+
+
+def _record_session_completion(key: str, issue: int, skill: str,
+                               session_id: str | None,
+                               pr_number: int | None, outcome: str) -> None:
+    """완료 사실 하나를 큐에 append 한다 — lock 은 `_drain_pending_completions()`
+    와 공유해 드레인 도중의 append 가 조용히 사라지는 레이스를 없앤다.
+
+    이 큐는 순수 관측용 사이드채널이다 — 여기서 예외를 그대로 흘리면
+    디스크/권한 문제 하나가 `_spawn_one()`의 세션 종료 꼬리 전체(게이트
+    보고/self-trigger 재스폰/session-end 코멘트)를 막아버린다(silent-failure-audit
+    셀프 리뷰 발견: 최초 구현은 이 open()/flock() 실패를 그대로 던졌다).
+    실패는 advisory 로 남기고 계속— 이 완료 하나는 하트비트에 못 실리지만,
+    세션 자신의 종료 처리는 그대로 끝난다."""
+    entry = {"key": key, "issue": issue, "skill": skill,
+             "session_id": session_id, "pr_number": pr_number,
+             "outcome": outcome, "ts": int(time.time())}
+    try:
+        PENDING_COMPLETIONS.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = PENDING_COMPLETIONS.with_name(PENDING_COMPLETIONS.name + ".lock")
+        with open(lock_path, "w") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                with PENDING_COMPLETIONS.open("a", encoding="utf-8") as out:
+                    out.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except OSError as exc:
+        print(f"[{skill}] 완료 신호 기록 실패(관측용 큐, 계속 진행) — {exc}",
+              file=sys.stderr)
+
+
+def _drain_pending_completions() -> tuple[list[dict], str | None]:
+    """큐를 원자적으로 읽고 비운다 — 한 번 드레인한 완료 사실은 다음 틱에
+    다시 나타나지 않는다(완료는 한 번만 알린다는 계약).
+
+    반환은 `(entries, error)` — 파일이 아예 없는 것도 정당한 빈 상태라
+    `([], None)`; lock/읽기/쓰기 자체가 실패하면 `([], <사유>)`. 호출부가
+    "이번 틱엔 완료 없음"과 "이번 틱은 확인을 못 했음"을 구별해 후자를
+    이상 신호로 보고할 수 있게 한다 — 그러지 않으면 이 큐 자체가 이슈
+    #2904 가 겨냥하는 바로 그 모양(깨끗한 출력이 "안 봤음"과 구별 안
+    됨)을 새로 만든다."""
+    try:
+        lock_path = PENDING_COMPLETIONS.with_name(PENDING_COMPLETIONS.name + ".lock")
+        PENDING_COMPLETIONS.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w") as f:
+            fcntl.flock(f, fcntl.LOCK_EX)
+            try:
+                try:
+                    text = PENDING_COMPLETIONS.read_text(encoding="utf-8")
+                except FileNotFoundError:
+                    return [], None
+                if not text:
+                    return [], None
+                entries = []
+                for line in text.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entries.append(json.loads(line))
+                    except ValueError:
+                        continue
+                PENDING_COMPLETIONS.write_text("", encoding="utf-8")
+                return entries, None
+            finally:
+                fcntl.flock(f, fcntl.LOCK_UN)
+    except OSError as exc:
+        return [], str(exc)
+
 
 RECONCILE_LEDGER = ROOT / "runs" / "reconcile_ledger.json"
 
@@ -4819,6 +4900,18 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
              if isinstance(result.get("total_cost_usd"), (int, float)) else ""),
           file=sys.stderr)
     sid = f" (session {result.get('session_id')})" if result.get("session_id") else ""
+    if issue is not None:
+        # 이슈 #2904: 이 지점에서 이미 이 함수는 completion 사실 전체(issue,
+        # session, PR, 최종 outcome)를 알고 있다 — 위 `roster_remove()` 가
+        # 지운 roster 엔트리를 watchdog 의 dead-scan 이 다시 볼 수 없는
+        # 간극을 큐로 메운다(PENDING_COMPLETIONS 주석 참고).
+        completion_branch = subprocess.run(
+            ["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True).stdout.strip()
+        completion_pr = (_pr_open_or_merged_for_branch(Path(cwd), completion_branch)
+                         if completion_branch else None)
+        _record_session_completion(roster_key, issue, skill,
+                                   result.get("session_id"), completion_pr, outcome)
     if denials:
         print(f"[{skill}] 거부된 도구 호출 {len(denials)}건 — 게이트가 막았거나 "
               f"답할 사람이 없어 거부됐다. 무엇을 막았는지는 세션 출력에 있다",
