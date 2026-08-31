@@ -226,6 +226,7 @@ _watchdog_note_unmappable_subject_branch = watchdog._watchdog_note_unmappable_su
 _fetch_issue_or_pr_via_cache = watchdog._fetch_issue_or_pr_via_cache
 _board_read = watchdog._board_read
 _board_pr_index = watchdog._board_pr_index
+_board_pr_index_with_meta = watchdog._board_pr_index_with_meta
 _DIGEST_LIVE_ENTRY_RE = watchdog._DIGEST_LIVE_ENTRY_RE
 parse_digest_live_entries = watchdog.parse_digest_live_entries
 requirement_drift = watchdog.requirement_drift
