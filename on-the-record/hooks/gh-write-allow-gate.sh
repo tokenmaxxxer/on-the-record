@@ -8,7 +8,8 @@
 # install's host permission classifier denies by default (measured #855:
 # "every gh call ... is denied by the permission mode in this session"):
 #   gh issue create, gh issue comment, gh pr comment, gh issue close,
-#   gh pr close, gh issue edit (issue #1586: patrol-board edit-in-place)
+#   gh pr close, gh issue edit (requirement-issue plan-block edit-in-place,
+#   see on-the-record/commands/run.md's 최소·감사 가능한 편집 section)
 #
 # Same three-part design as merge-allow-gate.sh (#816) and
 # spawn-allow-gate.sh (#823):
@@ -148,10 +149,11 @@ VERB_SHAPES = (
     ("gh", "pr", "comment"),
     ("gh", "issue", "close"),
     ("gh", "pr", "close"),
-    # issue #1586: patrol-channel board-issue edit-in-place (Renovate
-    # dependencyDashboard pattern) needs `gh issue edit` — shape-only,
-    # same as every other verb here; content (which issue, cap counts)
-    # is enforced at the patrol-board implementation layer, not here.
+    # requirement-issue plan-block edit-in-place (on-the-record/commands/
+    # run.md's 합의 절차/최소·감사 가능한 편집 sections) needs
+    # `gh issue edit` — shape-only, same as every other verb here;
+    # content (which issue, what changed) is enforced at the
+    # orchestrator-authoring layer, not here.
     ("gh", "issue", "edit"),
 )
 

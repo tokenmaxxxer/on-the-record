@@ -17,7 +17,6 @@ the test does not wait on a real 60s cadence.
 from __future__ import annotations
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -104,84 +103,6 @@ def _run_tick(checkout: Path, home: Path, report: str) -> subprocess.CompletedPr
     env["FAKE_POLL_DUE"] = "1"
     env["FAKE_WATCHDOG_REPORT"] = report
     env["HOME"] = str(home)
-    env.pop("CLAUDE_SKILL", None)
-    return subprocess.run(
-        ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
-    )
-
-
-# issue #1722: a roles-configured patrol fixture. role_data()/poll-due/
-# watchdog dispatch is guarded under __main__ so a plain `import spawn` for
-# role_data() alone (poll-heartbeat.sh's role-list read, issue #2560:
-# reads `spawn.role_data()` since `spawn.ROLES` was retired) doesn't also
-# run the CLI branches or force an exit.
-FAKE_SPAWN_PY_WITH_SKILLS = """#!/usr/bin/env python3
-import os, sys
-def role_data():
-    return {"role-a": {}, "role-b": {}}
-if __name__ == "__main__":
-    marker = os.environ["FAKE_SPAWN_MARKER"]
-    if sys.argv[1:2] == ["poll-due"]:
-        sys.exit(0 if os.environ.get("FAKE_POLL_DUE") == "1" else 1)
-    if sys.argv[1:2] == ["watchdog"]:
-        with open(marker, "a", encoding="utf-8") as f:
-            f.write("watchdog-ran\\n")
-        report = os.environ.get("FAKE_WATCHDOG_REPORT", "")
-        if report:
-            print(report)
-        sys.exit(0)
-    sys.exit(0)
-"""
-
-# issue #1722: a fake gates/patrol_promote.py whose behavior (quiet /
-# promote / crash) is selected via FAKE_PATROL_BEHAVIOR, mirroring
-# _run_tick's FAKE_WATCHDOG_REPORT env-var-selected-fixture pattern. Each
-# invocation appends its role arg to FAKE_PATROL_MARKER (when set) so a
-# test can prove patrol_promote.py actually ran per configured role.
-FAKE_PATROL_PROMOTE_PY = """#!/usr/bin/env python3
-import json, os, sys
-role = sys.argv[-1]
-marker = os.environ.get("FAKE_PATROL_MARKER")
-if marker:
-    with open(marker, "a", encoding="utf-8") as f:
-        f.write(role + "\\n")
-behavior = os.environ.get("FAKE_PATROL_BEHAVIOR", "quiet")
-if behavior == "crash":
-    sys.stderr.write("boom\\n")
-    sys.exit(1)
-if behavior == "promote":
-    print(json.dumps({"promotions": [{"role": role}]}))
-    sys.exit(0)
-print(json.dumps({"promotions": []}))
-sys.exit(0)
-"""
-
-
-def _run_patrol_tick(checkout: Path, home: Path, *, patrol_behavior: str | None = None,
-                      patrol_marker: Path | None = None, patrol_disabled: bool = False) -> subprocess.CompletedProcess:
-    """issue #1722: drives the patrol block in isolation from the due
-    branch (FAKE_POLL_DUE=0) via a roles-configured fake spawn.py and a
-    fake gates/patrol_promote.py whose behavior is env-var-selected."""
-    (checkout / "spawn.py").write_text(FAKE_SPAWN_PY_WITH_SKILLS, encoding="utf-8")
-    gates_dir = checkout / "gates"
-    gates_dir.mkdir(exist_ok=True)
-    (gates_dir / "patrol_promote.py").write_text(FAKE_PATROL_PROMOTE_PY, encoding="utf-8")
-    if patrol_disabled:
-        otr = checkout / ".on-the-record"
-        otr.mkdir(exist_ok=True)
-        (otr / "patrol-disabled").write_text("", encoding="utf-8")
-    env = dict(os.environ)
-    env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
-    env["FAKE_SPAWN_MARKER"] = str(checkout / "marker.log")
-    env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
-    env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
-    env["POLL_HEARTBEAT_PATROL_EVERY_N"] = "1"
-    env["FAKE_POLL_DUE"] = "0"
-    env["HOME"] = str(home)
-    if patrol_behavior is not None:
-        env["FAKE_PATROL_BEHAVIOR"] = patrol_behavior
-    if patrol_marker is not None:
-        env["FAKE_PATROL_MARKER"] = str(patrol_marker)
     env.pop("CLAUDE_SKILL", None)
     return subprocess.run(
         ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
@@ -425,46 +346,6 @@ def t_heartbeat_attaches_on_board_repo():
         assert not (target_repo / ".orchestrate-monitor-alive").exists(), \
             "the old repo-local marker path must never be recreated"
         assert _wait_for_marker(marker), "watchdog was not run on a due tick for a board repo"
-
-
-def t_patrol_wiring_does_not_alter_heartbeat_tick_or_rearm_behavior():
-    """issue #1598 (patrol wiring E2) regression pin: adding the
-    independent `patrol_tick` counter and patrol invocation must not
-    change the existing `tick`/`POLL_HEARTBEAT_MAX_TICKS` bounding or the
-    watchdog/rearm due-branch output. The fake spawn.py stub used by this
-    suite has no `role_data()` function (issue #2560: poll-heartbeat.sh
-    reads `spawn.role_data()`, `spawn.ROLES` having been retired), so the
-    patrol block's role-list import fails and yields zero roles --
-    exercising the "own counter fires, but no roles configured" path
-    without a live patrol_promote.py call, while still proving the
-    due-branch report is unaffected and the loop still stops at
-    MAX_TICKS."""
-    import tempfile
-    with tempfile.TemporaryDirectory() as d:
-        tmp = Path(d)
-        checkout = _make_checkout(tmp)
-        marker = tmp / "marker.log"
-        home = tmp / "home"
-        home.mkdir()
-        env = dict(os.environ)
-        env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
-        env["FAKE_SPAWN_MARKER"] = str(marker)
-        env["POLL_HEARTBEAT_MAX_TICKS"] = "5"
-        env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
-        env["FAKE_POLL_DUE"] = "1"
-        env["FAKE_WATCHDOG_REPORT"] = EMPTY_ROSTER_REPORT
-        env["HOME"] = str(home)
-        env.pop("CLAUDE_SKILL", None)
-        r = subprocess.run(
-            ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
-        )
-        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
-        assert EMPTY_ROSTER_REPORT in r.stdout, r.stdout
-        assert _wait_for_marker(marker), "watchdog was not run on a due tick"
-        # issue #1722: the summary line only prints when there's a
-        # promotion or a crash — a quiet tick (zero roles here) prints
-        # nothing patrol-related.
-        assert "[patrol-poll] checked" not in r.stdout, r.stdout
 
 
 def t_returned_pr_unchanged_set_produces_no_output_on_due_tick():
@@ -861,135 +742,6 @@ def t_returned_pr_first_ever_tick_treats_every_open_pr_as_new():
         r2 = _run_tick(checkout, home, report)
         assert r2.returncode == 0, r2.stderr
         assert r2.stdout.strip() == "", r2.stdout
-
-
-def t_patrol_quiet_tick_with_skills_emits_no_summary_line():
-    """issue #1722 Acceptance check 1: a patrol-due tick with roles
-    configured, zero promotions, and no crash writes nothing
-    patrol-related to Monitor stdout — the patrol still runs
-    (patrol_promote.py invoked once per configured role, proven via the
-    marker file)."""
-    with tempfile.TemporaryDirectory() as d:
-        tmp = Path(d)
-        checkout = tmp / "checkout"
-        checkout.mkdir()
-        home = tmp / "home"
-        home.mkdir()
-        patrol_marker = tmp / "patrol_marker.log"
-        r = _run_patrol_tick(checkout, home, patrol_marker=patrol_marker)
-        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
-        assert "[patrol-poll]" not in r.stdout, r.stdout
-        invoked = patrol_marker.read_text().splitlines() if patrol_marker.exists() else []
-        assert invoked == ["role-a", "role-b"], \
-            f"patrol_promote.py must still run once per configured role: {invoked}"
-
-
-def t_patrol_promotion_tick_still_prints_summary_line():
-    """issue #1722 Acceptance check 2: a patrol-due tick with a promotion
-    keeps printing its existing [patrol-poll] lines unchanged."""
-    with tempfile.TemporaryDirectory() as d:
-        tmp = Path(d)
-        checkout = tmp / "checkout"
-        checkout.mkdir()
-        home = tmp / "home"
-        home.mkdir()
-        r = _run_patrol_tick(checkout, home, patrol_behavior="promote")
-        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
-        assert "[patrol-poll] role-a: 1 promotion(s)" in r.stdout, r.stdout
-        assert "[patrol-poll] role-b: 1 promotion(s)" in r.stdout, r.stdout
-        assert "[patrol-poll] checked 2 role(s), 2 promotion(s)" in r.stdout, r.stdout
-
-
-def t_patrol_crashed_skill_tick_still_prints_summary_line():
-    """issue #1722 Acceptance check 2: a patrol-due tick with a crashed
-    role keeps printing both the per-role crash line and the summary
-    line unchanged."""
-    with tempfile.TemporaryDirectory() as d:
-        tmp = Path(d)
-        checkout = tmp / "checkout"
-        checkout.mkdir()
-        home = tmp / "home"
-        home.mkdir()
-        r = _run_patrol_tick(checkout, home, patrol_behavior="crash")
-        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
-        assert "[patrol-poll] role-a: crashed (rc=1)" in r.stdout, r.stdout
-        assert "[patrol-poll] role-b: crashed (rc=1)" in r.stdout, r.stdout
-        assert "[patrol-poll] checked 2 role(s), 0 promotion(s)" in r.stdout, r.stdout
-
-
-def t_patrol_kill_switch_still_prints_disabled_line_only():
-    """issue #1722 Acceptance check 2: the kill-switch
-    (.on-the-record/patrol-disabled) keeps printing only its existing
-    disabled-skip line, unchanged, with no summary line — even when
-    roles are configured."""
-    with tempfile.TemporaryDirectory() as d:
-        tmp = Path(d)
-        checkout = tmp / "checkout"
-        checkout.mkdir()
-        home = tmp / "home"
-        home.mkdir()
-        patrol_marker = tmp / "patrol_marker.log"
-        r = _run_patrol_tick(checkout, home, patrol_marker=patrol_marker, patrol_disabled=True)
-        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
-        assert "[patrol-poll] disabled, skipped" in r.stdout, r.stdout
-        assert "[patrol-poll] checked" not in r.stdout, r.stdout
-        assert not patrol_marker.exists(), \
-            "the kill-switch must short-circuit before patrol_promote.py runs"
-
-
-def t_patrol_tick_skips_when_checkout_vanishes_mid_sleep():
-    """issue #2163 regression: CHECKOUT is resolved once at Monitor
-    startup; this test runs the script as a background subprocess and
-    deletes the checkout dir while it sleeps between ticks, simulating a
-    marketplace reclone's stale-dir cleanup mid-session. Before the fix,
-    a tick landing in that window spawned one gates/patrol_promote.py
-    subprocess per configured role, each dying rc=2 ("can't open file",
-    errno 2) --
-    a crash-line burst sized to the role count. After the fix, the tick
-    detects the missing checkout up front and prints exactly one skip
-    line, spawning no per-role subprocess at all (proven via the marker
-    file staying absent, mirroring the kill-switch test above)."""
-    with tempfile.TemporaryDirectory() as d:
-        tmp = Path(d)
-        checkout = tmp / "checkout"
-        checkout.mkdir()
-        (checkout / "spawn.py").write_text(FAKE_SPAWN_PY_WITH_SKILLS, encoding="utf-8")
-        gates_dir = checkout / "gates"
-        gates_dir.mkdir()
-        (gates_dir / "patrol_promote.py").write_text(FAKE_PATROL_PROMOTE_PY, encoding="utf-8")
-        home = tmp / "home"
-        home.mkdir()
-        patrol_marker = tmp / "patrol_marker.log"
-        env = dict(os.environ)
-        env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
-        env["FAKE_SPAWN_MARKER"] = str(checkout / "marker.log")
-        env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
-        env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "1"
-        env["POLL_HEARTBEAT_PATROL_EVERY_N"] = "1"
-        env["FAKE_POLL_DUE"] = "0"
-        env["FAKE_PATROL_MARKER"] = str(patrol_marker)
-        env["HOME"] = str(home)
-        env.pop("CLAUDE_SKILL", None)
-        proc = subprocess.Popen(
-            ["bash", str(POLL_HEARTBEAT)], stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE, text=True, env=env,
-        )
-        try:
-            # Startup (CHECKOUT resolution, the ROLES read, GC) happens
-            # before the loop's first `sleep 1` -- this window lets that
-            # settle before the reclone simulation removes the dir.
-            time.sleep(0.3)
-            shutil.rmtree(checkout)
-            out, err = proc.communicate(timeout=15)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            raise
-        assert proc.returncode == 0, f"poll-heartbeat.sh should exit 0: {err}"
-        assert "[poll-heartbeat] checkout unavailable" in out, out
-        assert "crashed" not in out, out
-        assert "[patrol-poll]" not in out, out
-        assert not patrol_marker.exists(), \
-            "no per-role patrol_promote.py subprocess should run when checkout is missing"
 
 
 # issue #2266: bash 3.2-compatibility regression smoke. #1719 documented
