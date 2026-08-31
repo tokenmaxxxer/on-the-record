@@ -383,7 +383,7 @@ class ResolvedSkillSourcesFourTierTest(unittest.TestCase):
     def test_nowhere_found_candidates_exclude_hooked_dirs(self):
         """이슈 #2679 send-back (독립 검증 재현): 네 소스 어디서든 hooks/
         를 든 디렉터리는 후보에서 빠진다 — `resolve_skill_source`/
-        `resolve_static_policy_source`/`resolve_role_family_source` 가
+        `resolve_static_policy_source`/`resolve_consult_skill_source` 가
         모두 이 이름을 결국 거부하므로, 후보로 냈다간 다음 시도도 막다른
         길로 보낸다."""
         (self.repo_root / "alpha").mkdir()

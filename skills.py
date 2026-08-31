@@ -114,7 +114,7 @@ def _skill_repo_root() -> Path | None:
 
 def _carries_hooks(skill_dir: Path) -> bool:
     """스킬 마운트가 항상 거부되는 조건 — `hooks/` 서브디렉터리 존재.
-    `resolve_static_policy_source()`/`resolve_skill_family_source()`/
+    `resolve_static_policy_source()`/`resolve_consult_skill_source()`/
     `resolve_skill_source()`/`resolved_skill_sources()` 의 실제 마운트-거부
     판정과, 이슈 #2679 send-back 이후 후보 목록 필터가 같은 정의를 쓰게
     하는 단일 소스 — 후보 목록이 거부 판정과 별도의 두 번째 사본으로
@@ -460,47 +460,70 @@ def resolve_static_policy_source(repo_root: Path | None) -> dict:
             "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
 
 
-def resolve_skill_family_source(skill: str, repo_root: Path | None) -> dict:
-    """이슈 #2561: `consult.py`(consult/verb/skill_judge/panel 세션)와
-    judge 세션의 스킬 축 기준선 — `_ROLE_SKILLS` 정적 표 없이, 실제
-    skill-repository 디렉터리 이름이 `f"{skill}-"` 로 시작하는 스킬 전부를
-    매 호출마다 기계적으로 유도한다(표가 아니라 저장소 내용 자체를
-    읽으므로 드리프트가 없다) + `_STATIC_POLICY_SKILLS`.
+def resolve_consult_skill_source(skill: str, repo_root: Path | None) -> dict:
+    """이슈 #2920: consult/verb/skill_judge/panel/judge 세션의 스킬 축
+    기준선. 이 함수가 대체하는 `resolve_skill_family_source()`(이슈 #2561)
+    는 `f"{skill}-"` 로 시작하는 skill-repository 디렉터리 전부를 family
+    로 유도했다 — 그 컨벤션 자체가 은퇴했다던 `_ROLE_SKILLS`/
+    `resolve_role_source()` 고정 표를, 딕셔너리에서 디렉터리 이름 규칙으로
+    자리만 옮겨 그대로 살려 둔 것이었다(이슈 #2920 진단). 그 결과 실제
+    skill-repository 의 리프 스킬 이름(예: `adversarial-review`,
+    `code-architecture` — 그 자체가 다른 무엇의 접두어가 아니다)을 넘기면
+    가족이 하나도 안 잡혀 POLICY 스킬만 마운트되면서도 그렇다는 신호가
+    전혀 없었다 — retired role 이름(`architecture`/`conformance-review`
+    등, 실제 디렉터리가 아니라 접두어일 뿐인 이름)만 골라야 커버리지가
+    나오는, 정확히 거꾸로 된 동작.
 
-    실측 근거(이 세션 레코드 "Evidence" 참고): `resolve_static_policy_source()`
-    (POLICY 스킬만) 를 이 두 소비부의 기준선으로 그대로 쓰면, cross-family
-    task-text 매치가 role 특유 스킬을 못 건지는 실제 과제 문구에서 세션이
-    이전보다 스킬을 덜 갖고 도착한다(측정: 이슈 #2561 세션이 실제
-    skill-repository 로 재현, before=5/after=4) — acceptance 가 명시적으로
-    금지하는 실패 모드. 접두어 유도는 43개 역할 중 41개에서 옛
-    `_ROLE_SKILLS[role]` 과 정확히 같은 집합을 낸다(유일한 예외:
-    `defect-verification` 이 매핑했던 `verify-finding-record`/
-    `verify-severity-classification` 은 role 접두어를 안 따르는 두 스킬 —
-    이 세션 레코드 "Open findings" 참고). 이름 하나를 두 소스(예: 역할
-    접두어와 정책 스킬)가 같이 낼 수 있으므로 합집합으로 중복을 없앤 뒤
-    `resolved_skill_dirs()` 로 해석한다(모르는 이름은 이미 있을 수
-    없다 — 디렉터리 목록 자체에서 유도했으므로).
+    이 함수는 `--skills`/`resolve_skill_source()`가 쓰는 것과 같은
+    정확한-이름 해석이다: 콤마로 여러 스킬을 받고(멀티 스킬 consult),
+    `repo_root` 바로 아래 그 이름과 정확히 같은 디렉터리가 있을 때만
+    마운트한다 — family-prefix 추측은 없다. `_STATIC_POLICY_SKILLS`
+    베이스라인은 그대로 add-only 로 얹는다.
 
-    이름을 `resolved_skill_dirs()` 로 푼다. 풀린 디렉터리 중 하나라도
-    `hooks/` 서브디렉터리를 들고 있으면(skill-repository 는 가이던스
-    전용) fail-closed. 반환 shape 는 `resolve_static_policy_source()`와
-    같다."""
-    prefix = f"{skill}-"
-    family_names = (sorted(p.name for p in repo_root.iterdir()
-                            if p.is_dir() and p.name.startswith(prefix))
-                     if repo_root is not None and repo_root.is_dir() else [])
-    names = sorted(set(family_names) | _STATIC_POLICY_SKILLS)
-    skill_dirs = _sp.resolved_skill_dirs(",".join(names), repo_root)
-    hooked = [d for d in skill_dirs if _sp._carries_hooks(d)]
+    이슈 #2569: consult 의 인자는 자유 형식이다(질문 문구, 존재하지 않는
+    스킬 이름, 콤마로 구분된 여러 실제 스킬 이름 모두 올 수 있다) — 이름
+    하나가 어떤 디렉터리와도 안 맞아도 `sys.exit` 하지 않는다(그건
+    `--skills` 자체의 계약이지 이 함수의 계약이 아니다). 대신 매치 안 된
+    토큰을 반환 dict 의 `"unresolved"` 키에 그대로 담아, 호출자가 그
+    사실을 트레이스/응답에 실어 보이게 한다(이 이슈가 요구하는
+    "empty/failed resolution 은 visible 해야 한다" — silently absorbed
+    가 아니라).
+
+    `resolve_skill_family_source()` 가 주던 능력 중, 여기서 사라진 것:
+    retired role 이름 하나로 그 역할이 예전에 매핑했던 스킬 전체
+    (예: `conformance-review` -> 8개)를 한 번에 묶어 싣는 "family
+    coverage" — 이제 그런 이름은 실제 디렉터리와 안 맞으므로 아무 것도
+    안 잡히고 `unresolved` 에 나타난다. 그 커버리지가 필요하면 정확한
+    스킬 이름을 콤마로 나열해서 명시적으로 요청해야 한다(가디언스 전체를
+    한 selector 뒤에 숨기지 않는다).
+
+    풀린 디렉터리 중 하나라도 `hooks/` 서브디렉터리를 들고 있으면
+    (skill-repository 는 가이던스 전용) fail-closed — `--skills`/
+    `resolve_skill_source()`와 같은 규칙."""
+    baseline = resolve_static_policy_source(repo_root)
+    names = [n.strip() for n in skill.split(",") if n.strip()]
+    if repo_root is not None and repo_root.is_dir():
+        matched = [n for n in names
+                   if n not in _STATIC_POLICY_SKILLS
+                   and not n.startswith(".")
+                   and (repo_root / n).is_dir()]
+    else:
+        matched = []
+    unresolved = [n for n in names
+                  if n not in matched and n not in _STATIC_POLICY_SKILLS]
+    if not matched:
+        baseline["unresolved"] = unresolved
+        return baseline
+    exact_dirs = _sp.resolved_skill_dirs(",".join(matched), repo_root)
+    hooked = [d for d in exact_dirs if _sp._carries_hooks(d)]
     if hooked:
         sys.exit(
-            f"resolve_skill_family_source: 스킬 {skill!r} 접두어로 유도한 "
-            f"스킬 중 {', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 "
-            f"있다 — skill-repository 는 가이던스 전용이다(훅 없음, "
-            f"이슈 #1758)")
-    return {"source": "skill-repo", "skill_dirs": skill_dirs,
-            "skills": [d.name for d in skill_dirs],
-            "skill_sha": _sp.skill_repo_sha(skill_dirs[0].parent) if skill_dirs else None}
+            f"resolve_consult_skill_source: 스킬 {matched!r} 중 "
+            f"{', '.join(d.name for d in hooked)} 가 hooks/ 를 들고 있다 — "
+            f"skill-repository 는 가이던스 전용이다(훅 없음, 이슈 #1758)")
+    merged = _sp.merge_composed_skill_source(baseline, exact_dirs)
+    merged["unresolved"] = unresolved
+    return merged
 
 
 def merge_composed_skill_source(skill_source: dict, matched_dirs: list) -> dict:
