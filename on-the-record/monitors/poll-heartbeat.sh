@@ -157,13 +157,51 @@ _poll_watchdog_log_append() {
 # from the workspace-keyed one-shot alive marker (#1280) — neither can
 # stand in for this without reintroducing the disambiguation gap.
 _alive_stamp_path="${CHECKOUT}/runs/poll_heartbeat_alive.json"
+# issue #2919: flock ships with util-linux and is absent on macOS by
+# default (and this script must not require consumers to install it or a
+# newer bash). Detected once here, not per tick, so the hot loop below
+# pays no extra cost on the common Linux/flock host. When flock is
+# missing, _alive_stamp_write falls back to an mkdir-based mutex — mkdir
+# is atomic on every POSIX filesystem, so this still serialises
+# concurrent writers to the same stamp file instead of silently letting
+# the write race (the earlier behaviour: the flock subshell errored to
+# stderr and the write still happened, unserialised, while the tick kept
+# reporting success).
+if command -v flock >/dev/null 2>&1; then
+  _alive_stamp_has_flock=1
+else
+  _alive_stamp_has_flock=0
+fi
 _alive_stamp_write() {
   mkdir -p "${CHECKOUT}/runs" 2>/dev/null || true
-  (
-    flock -x 200
+  if [ "${_alive_stamp_has_flock}" -eq 1 ]; then
+    (
+      flock -x 200
+      printf '{"last_tick": %s}' "$(date +%s)" >"${_alive_stamp_path}.tmp" 2>/dev/null \
+        && mv -f "${_alive_stamp_path}.tmp" "${_alive_stamp_path}" 2>/dev/null
+    ) 200>"${_alive_stamp_path}.lock"
+  else
+    local _lockdir="${_alive_stamp_path}.lockdir"
+    local _tries=0
+    while ! mkdir "${_lockdir}" 2>/dev/null; do
+      _tries=$((_tries + 1))
+      if [ "${_tries}" -ge 20 ]; then
+        # a prior writer died mid-write and left the lockdir behind --
+        # break it rather than hang this tick loop forever (ticks are
+        # 120s apart; 20 one-second retries is well inside one tick).
+        # silent-failure-audit (issue #2919): logged, not just broken --
+        # a stale lock silently cleared reads identically to "no
+        # contention happened" otherwise, hiding a prior writer's crash.
+        _poll_watchdog_log_append "[alive-stamp-lock] stale lockdir ${_lockdir} broken after ${_tries}s wait"
+        rmdir "${_lockdir}" 2>/dev/null || true
+        break
+      fi
+      sleep 1
+    done
     printf '{"last_tick": %s}' "$(date +%s)" >"${_alive_stamp_path}.tmp" 2>/dev/null \
       && mv -f "${_alive_stamp_path}.tmp" "${_alive_stamp_path}" 2>/dev/null
-  ) 200>"${_alive_stamp_path}.lock"
+    rmdir "${_lockdir}" 2>/dev/null || true
+  fi
 }
 
 tick=0
@@ -174,12 +212,28 @@ tick=0
 # semantics cannot silently retime patrol promotion.
 patrol_tick=0
 patrol_every_n="${POLL_HEARTBEAT_PATROL_EVERY_N:-5}"
-IFS=' ' read -r -a POLL_HEARTBEAT_PATROL_SKILLS <<<"$(python3 -c "
+# issue #2919: `read -a` on empty stdin leaves the array name completely
+# UNDEFINED under bash 3.2 (not defined-and-empty), and even a literal
+# `ARR=()` expands as "unbound variable" under `set -u` pre-bash-4.4 --
+# both a failed role_data() query and a genuinely-empty roster produce
+# the same empty stdin here, so the rc is captured separately to tell
+# them apart (must-not: don't make those two conditions indistinguishable
+# — precedent controller #521/#523 for the unguarded-expansion class).
+_patrol_skills_query_failed=0
+_patrol_skills_query_out="$(python3 -c "
 import sys
 sys.path.insert(0, '${CHECKOUT}')
 import spawn
 print(' '.join(sorted(spawn.role_data())))
-" 2>/dev/null)"
+" 2>&1)"
+_patrol_skills_query_rc=$?
+if [ "${_patrol_skills_query_rc}" -eq 0 ]; then
+  IFS=' ' read -r -a POLL_HEARTBEAT_PATROL_SKILLS <<<"${_patrol_skills_query_out}"
+else
+  POLL_HEARTBEAT_PATROL_SKILLS=()
+  _patrol_skills_query_failed=1
+  _poll_watchdog_log_append "$(printf '[patrol-skills query failed, rc=%s] %s' "${_patrol_skills_query_rc}" "${_patrol_skills_query_out}")"
+fi
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
 sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-120}"
 while true; do
@@ -300,7 +354,19 @@ while true; do
       _patrol_checked=0
       _patrol_promotions=0
       _patrol_crashed=0
-      for _patrol_skill in "${POLL_HEARTBEAT_PATROL_SKILLS[@]}"; do
+      if [ "${_patrol_skills_query_failed}" -eq 1 ]; then
+        # issue #2919: the roster query crashed at Monitor startup, so
+        # this loop has nothing to iterate all session long -- say so on
+        # every patrol-due tick rather than reading as an indistinguishable
+        # quiet "no skills configured" tick (must-not in #2919).
+        printf '[patrol-poll] skills query failed at startup, patrol skipped this tick\n'
+      fi
+      # issue #2919: bash 3.2 (unlike 4.4+) treats even a genuinely-empty
+      # declared array as unbound under `set -u` when expanded plainly --
+      # confirmed live under bash 3.2.57. The `${arr[@]+"${arr[@]}"}`
+      # idiom expands to nothing (zero loop iterations, no error) whether
+      # the array is unset, empty, or populated, on both bash 3.2 and 5.x.
+      for _patrol_skill in "${POLL_HEARTBEAT_PATROL_SKILLS[@]+"${POLL_HEARTBEAT_PATROL_SKILLS[@]}"}"; do
         _patrol_out="$(python3 "${CHECKOUT}/gates/patrol_promote.py" run "${CHECKOUT}" "${_patrol_skill}" 2>&1)"
         _patrol_rc=$?
         _patrol_checked=$((_patrol_checked + 1))
