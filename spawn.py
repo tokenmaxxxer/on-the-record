@@ -3320,9 +3320,13 @@ def _branch_created_age_sec(cwd: str, br: str, now: float | None = None) -> floa
     시각을 읽어 "이 로컬 ref 가 언제 생겼는지"를 구한다. `--date=unix` 는
     `@{<epoch>}:` 형태로 타임스탬프를 직접 참조 안에 싣는다(실측: 이 레포
     자신의 `git reflog show --date=unix HEAD`) — 별도 날짜 필드 파싱이
-    필요 없다. reflog 가 없거나(만료·shallow clone) 파싱 실패면 `None` —
-    호출부는 "판단 불가"를 "새로 만들어짐"으로 착각하면 안 되므로 fail-open
-    (재컷 진행) 쪽으로 읽는다."""
+    필요 없다. reflog 가 없거나(만료·shallow clone·`core.logallrefupdates
+    false`) 파싱 실패면 `None` — 이슈 #2941 finding 3(adversarial review,
+    docs/issue-2941/reports/adversarial-review-2c0dae04.md): 호출부
+    (`_recut_absorbed_branch()`)는 이 `None` 을 "새로 만들어짐"으로 착각해
+    재컷을 밀어붙이면 안 되고, 반대로 "판단 불가"를 파괴적 재컷의
+    fail-open 신호로도 읽으면 안 된다 — 판단 불가는 안전한 쪽
+    (재컷하지 않음)으로 읽는다, 아래 호출부 참고."""
     now = time.time() if now is None else now
     r = subprocess.run(["git", "-C", cwd, "reflog", "show", "--date=unix", br],
                        capture_output=True, text=True)
@@ -3353,6 +3357,20 @@ def _recut_absorbed_branch(cwd: str, br: str):
     — 고정 sleep 을 추가하는 게 아니라 이미 존재하는, 이미 근거가 있는
     문턱을 재사용해 "얼마나 기다릴지"를 새로 추측하지 않는다.
 
+    이슈 #2941 finding 3: `_branch_created_age_sec()` 가 `None`(reflog 없음
+    — `core.logallrefupdates false`, shallow clone 등)이면 이전엔 곧장
+    파괴적 재컷으로 fail-open 했다 — "판단 불가"를 "gone"으로 잘못 읽어
+    이 함수 자신이 막으려는 사고(방금 만든 브랜치 삭제)를 그대로 재현하는
+    경로였다(실측: reviewer 가 `core.logallrefupdates false` 로 라이브
+    재현). 이제는 판단 불가를 "not yet"과 같은 안전한 쪽(재컷하지 않음)
+    으로 읽는다. 이 레포의 실제 clone 경로(`git clone -q`, non-bare
+    checkout 의 git 기본값 `core.logallrefupdates=true`, `pipeline.py`/
+    `spawn.py` 어느 clone 호출도 이를 덮어쓰지 않음 — 이 세션에서 재확인)
+    는 이 `None` 분기를 오늘 타지 않는다; 언젠가 clone 전략이 바뀌어 reflog
+    가 꺼지면, 그 워크스페이스는 (#732 가 막으려던 것과 달리) 재컷 없이
+    새 PR 을 못 열 수 있다는 뜻이고, 이 분기의 stderr 줄이 그 신호다 —
+    새 백스톱을 여기서 추측해 넣지 않는다.
+
     반환값은 최종 `git checkout`/`checkout -B` 의 CompletedProcess."""
     def git(*a):
         return subprocess.run(["git", "-C", cwd, *a], capture_output=True, text=True)
@@ -3377,7 +3395,14 @@ def _recut_absorbed_branch(cwd: str, br: str):
         return git("checkout", "-B", br, f"origin/{br}")
     if local_zero:
         age = _branch_created_age_sec(cwd, br)
-        if age is not None and age < SPAWN_ATTEMPT_GRACE_SEC:
+        if age is None:
+            print(f"[spawn] {br} 는 {base} 대비 0-ahead 지만 나이를 잴 reflog 가 "
+                  f"없다(core.logallrefupdates=false 등 — 이 레포의 실제 clone "
+                  f"경로에서는 오늘 도달 불가해야 함) — 판단 불가를 gone 으로 "
+                  f"잘못 읽지 않기 위해 재컷하지 않고 그대로 둔다.",
+                  file=sys.stderr)
+            return git("checkout", br)
+        if age < SPAWN_ATTEMPT_GRACE_SEC:
             print(f"[spawn] {br} 는 {base} 대비 0-ahead 지만 {int(age)}초 전에 "
                   f"막 만들어졌다 — 아직 커밋할 시간이 없었을 뿐일 수 있어 "
                   f"(not yet, not gone) 재컷하지 않고 그대로 둔다.",

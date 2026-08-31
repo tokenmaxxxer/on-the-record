@@ -127,6 +127,31 @@ class RecutNotYetVsGoneTest(unittest.TestCase):
                              "a genuinely old, absorbed branch must still be recut")
         self.assertEqual(new_sha, base_tip)
 
+    def test_no_reflog_does_not_fail_open_into_destructive_recut(self):
+        # Issue #2941 finding 3 (adversarial review,
+        # docs/issue-2941/reports/adversarial-review-2c0dae04.md): with
+        # `core.logallrefupdates false` set before the branch is created,
+        # `_branch_created_age_sec()` has no reflog to read and returns
+        # `None` -- the reviewer reproduced this live and found the
+        # pre-fix guard fell through to the pre-#2941 unconditional
+        # destructive recut, destroying a genuinely-fresh branch. The
+        # guard must now treat "can't tell" as "don't destroy", the same
+        # direction as the age-based not-yet case above, not fail open
+        # into the one path this function exists to avoid.
+        _git(self.work, "config", "core.logallrefupdates", "false")
+        _git(self.work, "checkout", "-b", self.branch)
+        before = _git(self.work, "rev-parse", self.branch).stdout.strip()
+        self.assertIsNone(
+            spawn._branch_created_age_sec(str(self.work), self.branch),
+            "setup invariant: no reflog means age is unmeasurable")
+        self._advance_base()
+        result = spawn._recut_absorbed_branch(str(self.work), self.branch)
+        self.assertEqual(result.returncode, 0)
+        after = _git(self.work, "rev-parse", self.branch).stdout.strip()
+        self.assertEqual(before, after,
+                          "unmeasurable age must not fail open into the "
+                          "destructive recut")
+
     def test_construction_actually_differs(self):
         # The two cases above must not silently converge -- prove the
         # "not yet" branch is reachable at all by checking the guard
