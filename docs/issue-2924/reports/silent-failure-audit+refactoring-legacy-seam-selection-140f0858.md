@@ -16,6 +16,22 @@ upstream:
 
 # issue-2924 — silent-failure-audit+refactoring-legacy-seam-selection-140f0858 record
 
+skill-verdict: silent-failure-audit — applied: invoked; classified the
+three `/proc` identity-check degrade sites (roster.py's
+`_watcher_looks_real`/`_session_looks_real`, watchdog.py's
+`watchdog_lock_acquire`) as Silently Absorbed under the catalog's
+"default-value substitution without recording" pattern, forward-traced
+each to its downstream consequence, and remediated per the skill's Step
+5 fix (visibility, not a behavior change) — see "Why" for the full trace.
+
+skill-verdict: refactoring-legacy-seam-selection — applied: invoked;
+chose Sprout Method (rule 1) for roster.py's
+`_note_proc_identity_degraded()`, placed at the branch closest to the
+behavioral difference (rule 5) rather than restructuring the enclosing
+functions (rule 6), and an inline ternary over a sprouted helper for
+watchdog.py's one-line change per rule 4 (confidence/budget over
+aesthetics) — see "Why" for detail.
+
 ## What was done
 
 Build-now bypass (CORE_BUILD_NOW=1) — delivered directly, no phase-1 proposal round.
