@@ -579,6 +579,34 @@ def _iso(ts) -> str:
         return str(ts)
 
 
+# Issue #2916: dedicated re-report cadence for a "halted" spawn-attempt that
+# is still unresolved. Before this fix, the single call below used the
+# default `RECONCILE_LEDGER_TTL_SEC` (15 min, plumbing.py) as its dedup TTL
+# -- the same key every other reconcile advisory shares (completion
+# reconciliation, #782's event-vs-poll gate) -- while `_prune_spawn_attempts()`
+# (spawn.py) deliberately keeps an unresolved halt alive for
+# `SPAWN_ATTEMPTS_RETENTION_SEC` (7 days) so the orchestrator has time to
+# notice it. Those two numbers disagree by two orders of magnitude, so an
+# unresolved halt replayed every 15 minutes for 7 days (measured: 105 and 73
+# `spawn_attempt_halt_reported` events for the two unresolved attempts named
+# in issue #2916). Widening `RECONCILE_LEDGER_TTL_SEC` itself was rejected --
+# it is shared by unrelated dedup keys this issue must not touch. Instead,
+# this key gets its own TTL, derived from the same retention window that
+# already governs how long the halt survives: retention / this TTL = 7
+# reports maximum per unresolved halt over its whole 7-day life (versus 672
+# before this fix), applied ONLY to the "still halted" branch inside
+# `spawn_attempt_sweep` below -- the "no outcome recorded" branch (#2413)
+# keeps the untouched default TTL, since the measurement in issue #2916
+# confirms that branch already reports exactly once and is not part of the
+# defect.
+# Literal, not `_sp.SPAWN_ATTEMPTS_RETENTION_SEC // 7` -- `_sp` is injected
+# into this module after import (spawn.py imports roster before assigning
+# itself as roster's `_sp`, same deferred-injection shape as plumbing.py),
+# so it is still `None` at this module-level line. `SPAWN_ATTEMPTS_RETENTION_SEC`
+# (spawn.py) is 7 * 24 * 3600; this is that value divided by 7.
+SPAWN_ATTEMPT_HALT_REPORT_TTL_SEC = 24 * 3600  # 1 day
+
+
 def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> int:
     """Issue #2291 mechanism: level-triggered advisory, hooked into the same
     watchdog tick as `lease_reconcile_sweep` (mechanism 3 above) — a spawn
@@ -652,12 +680,17 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
         outcome = outcomes.get(attempt_id)
         subject = lease_key(a.get('issue'), a.get('skill'))
         cls = None  # "no outcome recorded" branch has no failure-class (issue #2511)
+        # 이슈 #2916: "no outcome recorded"(#2413) 분기는 건드리지 않는
+        # 기본 TTL(RECONCILE_LEDGER_TTL_SEC) 을 유지하고, 아래 halted-still-
+        # unresolved 분기에서만 전용 TTL 로 덮어쓴다.
+        dedup_ttl = _sp.RECONCILE_LEDGER_TTL_SEC
         if outcome is not None:
             if outcome.get("outcome") != "halted":
                 continue  # "session-log": bootstrap succeeded, not our concern
             if attempt_id in resolved:
                 continue  # already surfaced as resolved once — never replayed again (#2511)
             reason = outcome.get("detail", "")
+            dedup_ttl = SPAWN_ATTEMPT_HALT_REPORT_TTL_SEC
             # 이슈 #2511: replay 버그의 핵심 수정 — 보고하기 전에 매번 이
             # halt 의 blocking 조건이 지금도 살아있는지 다시 확인한다.
             # 재확인 없이 `outcomes`에 적힌 사유를 그대로 다시 찍으면, 몇
@@ -717,7 +750,8 @@ def spawn_attempt_sweep(d_all: dict | None = None, now: float | None = None) -> 
                       f"before it could report why")
         if subject in reported_subjects:
             continue  # already reported this subject this tick
-        if not _sp.ledger_check_and_stamp(f"spawn-attempt-halt:{attempt_id}", now=now):
+        if not _sp.ledger_check_and_stamp(f"spawn-attempt-halt:{attempt_id}",
+                                           now=now, ttl=dedup_ttl):
             continue
         reported_subjects.add(subject)
         count += 1
