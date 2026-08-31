@@ -563,6 +563,122 @@ def t_unkeyed_line_insertion_suppresses_unchanged_lines_below():
         assert r2.stdout.strip() == line_new, r2.stdout
 
 
+def _healthy_report(idx: int, workspace: str = "손댄 파일 없음") -> str:
+    """issue #2906: mirrors watchdog.py's real `[poll-report] <key>:
+    HEALTHY — <key>: 최근 로그 성장, RUNNING — <workspace>; <activity>`
+    shape (diagnose_health(), workspace/activity_summary joined with
+    "; "). `<activity>` embeds the entry's last-tool-activity timestamp
+    (`_last_tool_activity_summary()`) -- the part that legitimately
+    changes on every tick an entry is actively worked, even though
+    nothing anomalous is happening. `<workspace>` (dirty-file summary)
+    is left constant by default so tests isolate the activity-only
+    drift; callers that want to pin the opposite (a real workspace
+    change) pass a different `workspace` value."""
+    return (
+        f"[poll-report] issue-500/implementation: HEALTHY — "
+        f"issue-500/implementation: 최근 로그 성장, RUNNING — "
+        f"{workspace}; 마지막 도구 호출: Read file{idx}.py (10:{idx:02d}:00 UTC)\n"
+        f"[watchdog] issue-500/implementation: 정상\n"
+        f"이상 신호 없음"
+    )
+
+
+def t_healthy_poll_report_with_drifting_detail_suppresses_after_first_tick():
+    """issue #2906: a live roster entry that stays HEALTHY across ticks
+    must stop reaching the Monitor channel after its first sighting, even
+    though `[poll-report]`'s detail (last-tool-activity, dirty-file list)
+    keeps changing tick to tick as the session keeps working -- the
+    plain full-line compare this pins against (pre-#2906) never saw two
+    identical HEALTHY lines and woke the orchestrator on every due tick
+    for the lifetime of every actively-worked session."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+
+        r1 = _run_tick(checkout, home, _healthy_report(0))
+        assert r1.returncode == 0, r1.stderr
+        assert "[poll-report] issue-500/implementation: HEALTHY" in r1.stdout, r1.stdout
+
+        for i in range(1, 6):
+            r = _run_tick(checkout, home, _healthy_report(i))
+            assert r.returncode == 0, r.stderr
+            assert r.stdout.strip() == "", (
+                f"tick {i}: HEALTHY entry with only its detail changed "
+                f"must not re-notify: {r.stdout!r}"
+            )
+
+
+def t_healthy_to_stalled_transition_still_notifies():
+    """issue #2906 must-not: suppressing repeat HEALTHY confirmations must
+    never suppress a real anomaly. A HEALTHY entry that goes STALLED is a
+    state change, not a detail drift -- it must reach the Monitor channel
+    exactly like before this issue."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+
+        r1 = _run_tick(checkout, home, _healthy_report(0))
+        assert r1.returncode == 0, r1.stderr
+
+        r2 = _run_tick(checkout, home, _healthy_report(1))
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == "", r2.stdout
+
+        stalled_report = (
+            "[poll-report] issue-500/implementation: STALLED — "
+            "issue-500/implementation: idle > 20분, RUNNING"
+        )
+        r3 = _run_tick(checkout, home, stalled_report)
+        assert r3.returncode == 0, r3.stderr
+        assert "STALLED" in r3.stdout, r3.stdout
+
+        # recovering back to HEALTHY is itself worth one notification —
+        # only the *repeat* confirmations that follow stay suppressed.
+        r4 = _run_tick(checkout, home, _healthy_report(2))
+        assert r4.returncode == 0, r4.stderr
+        assert "HEALTHY" in r4.stdout, r4.stdout
+
+        r5 = _run_tick(checkout, home, _healthy_report(3))
+        assert r5.returncode == 0, r5.stderr
+        assert r5.stdout.strip() == "", r5.stdout
+
+
+def t_healthy_workspace_change_still_notifies_despite_activity_drift():
+    """issue #2906 must-not, guards against over-broad suppression: a
+    HEALTHY entry whose workspace summary actually changes (a new file
+    touched, a record started) must still notify even though the
+    activity-drift suppression above is active -- this is the exact
+    shape test/test_workspace_progress_tracking.py's
+    test_new_file_touched_reemits_the_changed_line pins at the watchdog
+    layer; this test pins the same distinction at the delta-diff layer
+    this issue's fix touches."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+
+        r1 = _run_tick(checkout, home, _healthy_report(0, workspace="손댄 파일 없음"))
+        assert r1.returncode == 0, r1.stderr
+
+        # activity-only drift (same workspace) stays suppressed
+        r2 = _run_tick(checkout, home, _healthy_report(1, workspace="손댄 파일 없음"))
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == "", r2.stdout
+
+        # a newly-dirtied file is a real workspace change -- must notify
+        r3 = _run_tick(
+            checkout, home,
+            _healthy_report(2, workspace="손댄 파일 1건: spawn.py, 기록 아직 없음"),
+        )
+        assert r3.returncode == 0, r3.stderr
+        assert "spawn.py" in r3.stdout, r3.stdout
+
+
 def t_unkeyed_line_content_change_still_emits():
     """issue #1734 Acceptance check 2: an unkeyed line whose own content
     changes between ticks is still emitted -- content-derived keying must

@@ -40,6 +40,30 @@ ALWAYS_RE = re.compile(
     re.IGNORECASE,
 )
 AGE_STRIP_RE = re.compile(r"age=[^ ]+")
+# issue #2906: `[poll-report] <key>: <STATE> — <detail>` is printed
+# unconditionally every due tick for every live roster entry
+# (watchdog.py's roster_watchdog(), issue #782/#2904 scope-expansion) —
+# never gated by the dedup ledger. For state HEALTHY, `<detail>` ends
+# with `_last_tool_activity_summary()`'s "; 마지막 도구 호출: <tool>
+# (<abs ts> UTC)" clause (#2904), which changes on essentially every tick
+# a session keeps calling new tools even while nothing externally
+# actionable is happening — so the plain full-line compare below never
+# sees two identical HEALTHY lines in a row for an actively-worked
+# session, defeating #1220 for exactly the case (routinely busy, not
+# stalled) that has nothing for the orchestrator to act on.
+# `POLL_REPORT_STATE_RE` extracts the state token; `POLL_REPORT_ACTIVITY_STRIP_RE`
+# strips only that trailing last-tool-activity clause before comparing a
+# HEALTHY line to the previous one -- a HEALTHY entry whose *workspace*
+# summary changes (a newly-dirtied file, a record started -- the #2904
+# regression pin in test/test_workspace_progress_tracking.py) still
+# compares as changed and still emits; only the "same files, yet another
+# tool call since last tick" case is now treated as unchanged. Any other
+# state (or a transition into/out of HEALTHY) still compares on the full
+# line, same as before this issue.
+POLL_REPORT_STATE_RE = re.compile(r"^\[poll-report\]\s*[^:]+:\s*(\S+)")
+POLL_REPORT_ACTIVITY_STRIP_RE = re.compile(
+    r"; (마지막 도구 호출:.*|도구 호출 로그 없음|도구 호출 기록 없음)$"
+)
 # issue #2180: short "#<issue>" label extracted for the collapsed
 # still-pending summary line and the distinct new-item marker below.
 ISSUE_TOKEN_RE = re.compile(r"#\d+")
@@ -158,6 +182,19 @@ def main() -> None:
                 # does not re-fire this marker.
                 new_pr_markers.append(line.replace("[returned-pr]", "[new-returned-pr]", 1))
                 surfaced_issues.add(issue_token)
+        elif key.startswith("poll-report:"):
+            m2 = POLL_REPORT_STATE_RE.match(line)
+            state_token = m2.group(1) if m2 else None
+            prev_line = prev_lines.get(key)
+            if state_token == "HEALTHY":
+                pm = POLL_REPORT_STATE_RE.match(prev_line) if prev_line else None
+                prev_state = pm.group(1) if pm else None
+                changed = prev_state != "HEALTHY" or (
+                    POLL_REPORT_ACTIVITY_STRIP_RE.sub("", prev_line)
+                    != POLL_REPORT_ACTIVITY_STRIP_RE.sub("", line)
+                )
+            else:
+                changed = prev_line != line
         else:
             changed = prev_lines.get(key) != line
         if first_tick or changed or ALWAYS_RE.search(line):
