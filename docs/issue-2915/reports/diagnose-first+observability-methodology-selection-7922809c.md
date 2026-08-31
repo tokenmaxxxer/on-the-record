@@ -267,4 +267,9 @@ a request-driven boundary, USE for a finite-resource surface, block a
 redundant Golden-Signals overview) do not match this surface, which
 reuses an existing per-entry state representation rather than proposing
 any new methodology dashboard.
+skill-verdict: work-in-english — applied: invoked; called via the Skill
+tool this turn — followed for this session's own output (English
+commits, code comments, PR title/body, this record; the final
+user-facing summary reported separately in Korean per the skill's own
+routing rule).
 other mounted skills: not triggered
