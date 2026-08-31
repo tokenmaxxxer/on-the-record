@@ -45,13 +45,15 @@ Monitor never started this session, or this checkout has no `runs/`
 history yet — is treated as stale from the very first check.
 
 **These numbers bound how fast this turn-driven check flags a stale
-stamp once invoked (measured: ~29ms, issue #2915), not how often the
-check gets invoked.** See "Structural limit" below — this turn-driven
-check's own invocation, during a genuinely healthy, quiet stretch, is not
-bounded by anything in this repo. A separate, independent mechanism
-(`poll_heartbeat_delta.py`'s own 1800s-bound beacon, issue #2915 round 2)
-bounds detection for a non-empty tracked roster specifically, without
-touching this check.
+stamp once invoked (measured: ~29ms, issue #2915). They do not bound
+how often the check gets invoked, or how quickly an actually dead
+Monitor's death reaches the orchestrator.** See "Structural limit"
+below: during a genuinely healthy, quiet stretch, nothing in this repo
+bounds this check's invocation. `poll_heartbeat_delta.py`'s separate
+1800s-bound beacon (issue #2915 round 2) does not close that gap
+either — a dead tick loop cannot emit the beacon that would announce
+its own absence. See "Issue #2915" under "Structural limit" for the
+full argument.
 
 When stale, the hook emits one line:
 
