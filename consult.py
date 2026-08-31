@@ -1234,7 +1234,9 @@ def _verb_cmd(verb: str, skill: str, prompt_text: str, issue: int | None = None,
         if settings_path:
             with contextlib.suppress(OSError):
                 os.unlink(settings_path)
-        _sp._append_consult_trace(trace_path, ts, skill, issue, prompt_text, outcome, verb=verb)
+        _sp._append_consult_trace(trace_path, ts, skill, issue, prompt_text, outcome, verb=verb,
+                              mounted=env.get("MUSTER_SKILLS", ""),
+                              unresolved=env.get("MUSTER_SKILLS_UNRESOLVED", ""))
         commit_paths = [trace_path] + raw_paths
         _sp._commit_consult_trace(commit_paths, issue, skill, outcome, cwd)
 
