@@ -31,6 +31,7 @@ git repos, real reflogs, real `_build_observed`/`reconcile`) -- no stub of
 either function under test, per the issue's own evidentiary bar
 (adversarial-review-5200fcf2.md item 8's convention).
 """
+import json
 import subprocess
 import sys
 import tempfile
@@ -208,6 +209,139 @@ class ReconcilePrIndexConsistencyTest(unittest.TestCase):
         divergences = spawn.reconcile(spawn._build_expected(self.entry), observed)
         kinds = [d["kind"] for d in divergences]
         self.assertIn("pr-expected-missing", kinds)
+
+
+class ConfirmBeforeGoneTest(unittest.TestCase):
+    """Issue #2941 finding 1 (independent adversarial review,
+    docs/issue-2941/reports/adversarial-review-2c0dae04.md): PR #2956's
+    shared `pr_index` steady-state path (`gates/board_read.py::_delta_read`)
+    is itself a GraphQL `search(...)` call -- the same indexing-pipeline
+    class as the `gh pr list --head` call it replaced. Once reconcile and
+    poll-report read the same index, a stale index makes both sides
+    silently AGREE on a wrong "gone" instead of disagreeing -- exactly what
+    #2882's disagreement check exists to catch. `confirm_pr_missing` is a
+    zero-arg callback, called only at the moment either site is about to
+    treat `pr_number is None` as authoritative; it must not fire at all
+    when the index already found the PR (no added per-tick overhead in the
+    common case)."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.tmp = Path(self._tmpdir.name)
+        self.addCleanup(self._tmpdir.cleanup)
+        self.remote = self.tmp / "remote.git"
+        subprocess.run(["git", "init", "--bare", "-q", str(self.remote)], check=True)
+        self.work = self.tmp / "work"
+        subprocess.run(["git", "clone", "-q", str(self.remote), str(self.work)], check=True)
+        _git(self.work, "config", "user.email", "t@example.com")
+        _git(self.work, "config", "user.name", "t")
+        (self.work / "a.txt").write_text("1")
+        _git(self.work, "add", "a.txt")
+        _git(self.work, "commit", "-q", "-m", "c1")
+        _git(self.work, "branch", "-m", "issue-2941/demo")
+        _git(self.work, "push", "-q", "-u", "origin", "issue-2941/demo")
+        self.entry = {"pid": 999999999, "work": str(self.work),
+                      "before_head": _git(self.work, "rev-parse", "HEAD").stdout.strip(),
+                      "log": None, "issue": 2941, "skill": "demo", "expects_pr": True}
+
+    def _mark_crashed(self):
+        # `diagnose_health()`'s completion shortcut treats `session_verdict
+        # == "normal"` as always-completion regardless of PR presence (see
+        # its docstring), so its DEAD-* branches -- the ones this class's
+        # confirm-before-gone tests target -- are only reachable with a
+        # verdict of "crashed"/"stalled"/etc. `board.session_end_verdict()`
+        # reads a work path with no events file as "normal" (the default
+        # every other fixture in this file relies on for reconcile()'s
+        # rule 3), so this helper writes a real session-start with a dead
+        # pid and no session-end -- the issue's own "died without push"
+        # shape -- to reach "crashed" instead.
+        events_path = spawn._events_path(str(self.work))
+        events_path.write_text(json.dumps(
+            {"ts": 0, "type": "session-start", "detail": {"pid": 999999999}}) + "\n")
+        self.addCleanup(events_path.unlink, missing_ok=True)
+
+    def test_reconcile_confirm_finds_the_pr_after_index_miss(self):
+        observed = spawn._build_observed(self.tmp, self.entry, pr_index={})
+        self.assertIsNone(observed["pr_number"])
+        divergences = spawn.reconcile(
+            spawn._build_expected(self.entry), observed,
+            confirm_pr_missing=lambda: 2942)
+        self.assertEqual(divergences, [],
+                          "confirm_pr_missing found the PR -- must not respawn")
+
+    def test_reconcile_still_flags_gone_when_confirm_agrees(self):
+        # must-not (issue text, verbatim): "must not resolve disagreements
+        # silently instead of reducing them" -- a miss the confirmation
+        # itself reproduces must still fire pr-expected-missing.
+        observed = spawn._build_observed(self.tmp, self.entry, pr_index={})
+        divergences = spawn.reconcile(
+            spawn._build_expected(self.entry), observed,
+            confirm_pr_missing=lambda: None)
+        kinds = [d["kind"] for d in divergences]
+        self.assertIn("pr-expected-missing", kinds,
+                       "a real miss confirmed by the direct re-check must still fire")
+
+    def test_confirm_not_invoked_when_index_already_found_it(self):
+        pr_index = {"issue-2941/demo": {"number": 2942, "state": "OPEN"}}
+        observed = spawn._build_observed(self.tmp, self.entry, pr_index=pr_index)
+        confirm = mock.Mock(return_value=999)
+        spawn.reconcile(spawn._build_expected(self.entry), observed,
+                        confirm_pr_missing=confirm)
+        confirm.assert_not_called()
+
+    def test_diagnose_health_confirm_finds_the_pr(self):
+        self._mark_crashed()
+        result = watchdog.diagnose_health(
+            "issue-2941:demo", self.entry, root=self.tmp,
+            pr_index={}, confirm_pr_missing=lambda: 2942)
+        self.assertIsNone(result["state"],
+                           "confirm_pr_missing found the PR -- must read as completion")
+
+    def test_diagnose_health_still_dead_errored_when_confirm_agrees(self):
+        self._mark_crashed()
+        result = watchdog.diagnose_health(
+            "issue-2941:demo", self.entry, root=self.tmp,
+            pr_index={}, confirm_pr_missing=lambda: None)
+        self.assertEqual(result["state"], "DEAD-ERRORED")
+
+    def test_diagnose_health_confirm_not_invoked_when_index_already_found_it(self):
+        self._mark_crashed()
+        pr_index = {"issue-2941/demo": {"number": 2942, "state": "OPEN"}}
+        confirm = mock.Mock(return_value=999)
+        result = watchdog.diagnose_health(
+            "issue-2941:demo", self.entry, root=self.tmp,
+            pr_index=pr_index, confirm_pr_missing=confirm)
+        confirm.assert_not_called()
+        self.assertIsNone(result["state"])
+
+    def test_board_pr_index_confirm_forces_full_read_only_on_delta_miss(self):
+        # The delta (search) read says no PR; `_board_pr_index_with_meta`'s
+        # `force_full` must produce a direct, non-search re-read instead of
+        # re-running the same delta search.
+        calls = []
+
+        def fake_board_read(root, force_full=None):
+            calls.append(force_full)
+            if force_full:
+                return ({"issues": {}, "prs": {"7": {
+                    "number": 7, "state": "OPEN",
+                    "headRefName": "issue-2941/demo", "body": ""}}},
+                        {"source": "full", "api_calls": 2,
+                         "last_sweep_at": "x", "error": None})
+            return ({"issues": {}, "prs": {}},
+                    {"source": "delta", "api_calls": 1,
+                     "last_sweep_at": "x", "error": None})
+
+        with mock.patch.object(spawn, "_board_read", side_effect=fake_board_read):
+            idx, meta = watchdog._board_pr_index_with_meta(self.tmp)
+            self.assertEqual(meta["source"], "delta")
+            self.assertEqual(idx, {})
+            confirmed_idx, confirmed_meta = watchdog._board_pr_index_with_meta(
+                self.tmp, force_full=True)
+            self.assertEqual(confirmed_meta["source"], "full")
+            self.assertEqual(
+                confirmed_idx.get("issue-2941/demo", {}).get("number"), 7)
+        self.assertEqual(calls, [None, True])
 
 
 if __name__ == "__main__":
