@@ -172,6 +172,56 @@ if command -v flock >/dev/null 2>&1; then
 else
   _alive_stamp_has_flock=0
 fi
+
+# issue #2919 follow-up (adversarial review of the original mkdir-mutex
+# fix, docs/issue-2919/reports/adversarial-review-a4f05242.md "Open
+# findings"): a live but merely SLOW holder was being evicted by the
+# 20-failed-retries-then-force-break threshold below, because that
+# threshold inferred staleness purely from elapsed wait time -- it never
+# checked whether the holder was actually still running. Sprouted out
+# (refactoring-legacy-seam-selection rule 1: single, clearly-localized
+# behavioral change -> Sprout Method) so the liveness decision is
+# independently testable without exercising the full acquire/release
+# sequence. Liveness is ESTABLISHED via the recorded owner PID (`kill -0`,
+# same-host signal-0 existence probe), never inferred from a retry count.
+# Echoes exactly one of:
+#   alive   - the lockfile names a PID and that process still exists --
+#             the caller must keep waiting, no matter how many retries
+#             have elapsed. This is the fix: a slow-but-alive holder is
+#             never reported stale.
+#   dead    - the lockfile names a PID and `kill -0` confirms it no
+#             longer exists -- safe to reclaim now, established rather
+#             than assumed.
+#   forming - the lockfile exists but has no readable owner PID in it
+#             yet. issue #2919 follow-up (adversarial-review-95d4569a
+#             point 1): under the prior two-step "mkdir dir, then
+#             separately printf a pid file inside it" acquire sequence
+#             this was the NORMAL window every acquire passed through,
+#             wide enough that a host-load pause of the acquiring
+#             shell between the two separate commands (live-reproduced
+#             at >3s) got a still-alive holder evicted. Acquisition
+#             below now creates the lockfile and writes the owner pid
+#             in one shell redirection (`_alive_stamp_write`'s
+#             noclobber write), so this status is reachable only via a
+#             write that crashed between opening the file and writing
+#             its content -- exceptional, not the common case -- and
+#             the short grace period below exists for that residual,
+#             not for ordinary acquisition.
+_alive_stamp_lock_owner_status() {
+  local _lockfile="$1"
+  local _owner_pid
+  _owner_pid="$(cat "${_lockfile}" 2>/dev/null)"
+  if [ -z "${_owner_pid}" ]; then
+    printf 'forming'
+    return 0
+  fi
+  if kill -0 "${_owner_pid}" 2>/dev/null; then
+    printf 'alive'
+  else
+    printf 'dead'
+  fi
+}
+
 _alive_stamp_write() {
   mkdir -p "${CHECKOUT}/runs" 2>/dev/null || true
   if [ "${_alive_stamp_has_flock}" -eq 1 ]; then
@@ -181,26 +231,135 @@ _alive_stamp_write() {
         && mv -f "${_alive_stamp_path}.tmp" "${_alive_stamp_path}" 2>/dev/null
     ) 200>"${_alive_stamp_path}.lock"
   else
-    local _lockdir="${_alive_stamp_path}.lockdir"
+    local _lockfile="${_alive_stamp_path}.lockfile"
     local _tries=0
-    while ! mkdir "${_lockdir}" 2>/dev/null; do
+    local _forming_tries=0
+    # issue #2919 follow-up (adversarial-review-95d4569a point 1, "the
+    # forming boundary"): the prior design split acquisition into two
+    # separate top-level commands -- `mkdir "${_lockdir}"` to claim the
+    # lock, then a later `printf ... >"${_owner_pid_file}"` to publish
+    # who claimed it. Nothing stopped the acquiring shell from being
+    # descheduled by the OS between those two commands, and a
+    # contending waiter reading the lockdir in that gap saw "claimed,
+    # but nobody says by whom" -- indistinguishable from a holder that
+    # crashed before ever recording its pid. Live-reproduced: a holder
+    # sleeping 5s between its own mkdir and its own pid write got
+    # reclaimed by a waiter at the 3s mark, and then the original
+    # holder's now-orphaned pid write failed silently and it fell
+    # through into the stamp write with no lock held -- the same
+    # unprotected-concurrent-write shape PR #2923 was meant to close.
+    #
+    # Fix: collapse "claim" and "publish identity" into ONE shell
+    # command. `set -o noclobber` makes `printf '%s' "$$" >file` open
+    # the file with O_EXCL -- atomic exclusive-create at the kernel
+    # level, the same guarantee `mkdir` gave for a directory -- and
+    # that same command's own printf writes our pid through the
+    # already-open fd before control returns to this loop. There is no
+    # bash-level command boundary between "the lockfile exists" and
+    # "the lockfile names its owner" for a scheduler pause to land in,
+    # because there is only one command; a waiter can no longer catch
+    # this holder's lockfile in a claimed-but-anonymous state as a
+    # result of ITS shell being paused between two separate steps.
+    #
+    # This does not claim a literal zero-width window: the open() and
+    # the write() that follows it inside the same command are still two
+    # kernel calls, and a reader could in principle observe the file
+    # between them. That residual is not the bug this issue reports --
+    # it cannot be widened by host load or scheduling the way a gap
+    # between two top-level shell commands could, because no other
+    # command from this script runs in between to be delayed. The
+    # `forming` grace below stays as a defensive backstop for exactly
+    # that residual (or a write killed mid-syscall), not as the primary
+    # mechanism -- see the status echoed by _alive_stamp_lock_owner_status
+    # above.
+    local _forming_grace=3
+    # issue #2919 follow-up (adversarial-review-95d4569a point 2): `kill
+    # -0` cannot tell a genuinely live holder from an unreaped zombie --
+    # a crashed process whose exit status its parent has not yet
+    # collected still answers `kill -0` as if it existed. Who reaps a
+    # crashed poll-heartbeat.sh, and how promptly, is a Claude Code
+    # plugin Monitor platform behaviour with no repo-visible spawn/reap
+    # code (docs/specs/platform-capabilities.md) -- this repository
+    # cannot establish it, so "a crashed holder's lock always recovers"
+    # is NOT a guarantee this fix can make solely from pid liveness. If
+    # the real owner is a zombie the platform never reaps, `_status`
+    # would read "alive" forever and a waiter would block forever.
+    # ${_alive_stamp_lock_max_age} is a second, independent recovery
+    # path that does not trust pid liveness at all: once a waiter has
+    # been trying to acquire this lock longer than this many seconds,
+    # it force-reclaims regardless of what the liveness check says. The
+    # default (60s) is chosen with deliberate margin above the longest
+    # legitimate hold this fix's own verification demonstrated (a 25s
+    # slow-but-alive holder, adversarial-review-95d4569a point 1) and
+    # well inside the 120s tick cadence, so a zombie-shadowed lock costs
+    # at most about one tick's worth of delay rather than an unbounded
+    # wait -- it does not make the zombie case impossible, it bounds
+    # its cost. This IS a deliberate, honestly-stated trade: if a holder
+    # is still genuinely alive and legitimately working past 60s (not
+    # demonstrated as realistic for this small a write, but not provable
+    # impossible either), the valve force-reclaims it anyway and a second
+    # writer proceeds concurrently -- the exact unprotected-write failure
+    # shape this issue exists to close, deliberately reintroduced for
+    # holds beyond 60s in exchange for guaranteeing forward progress
+    # against a hold that never legitimately ends (the zombie case). No
+    # mechanism in this repo can distinguish "genuinely still working"
+    # from "zombie that will never be reaped" from the outside, so this
+    # is the honest floor, not an unqualified "never deadlocks" claim.
+    # POLL_HEARTBEAT_ALIVE_LOCK_MAX_AGE overrides it for tests.
+    local _alive_stamp_lock_max_age="${POLL_HEARTBEAT_ALIVE_LOCK_MAX_AGE:-60}"
+    local _wait_started
+    _wait_started="$(date +%s)"
+    local _status
+    while ! ( set -o noclobber; printf '%s' "$$" >"${_lockfile}" ) 2>/dev/null; do
       _tries=$((_tries + 1))
-      if [ "${_tries}" -ge 20 ]; then
-        # a prior writer died mid-write and left the lockdir behind --
-        # break it rather than hang this tick loop forever (ticks are
-        # 120s apart; 20 one-second retries is well inside one tick).
+      if [ "$(($(date +%s) - _wait_started))" -ge "${_alive_stamp_lock_max_age}" ]; then
         # silent-failure-audit (issue #2919): logged, not just broken --
-        # a stale lock silently cleared reads identically to "no
-        # contention happened" otherwise, hiding a prior writer's crash.
-        _poll_watchdog_log_append "[alive-stamp-lock] stale lockdir ${_lockdir} broken after ${_tries}s wait"
-        rmdir "${_lockdir}" 2>/dev/null || true
-        break
+        # this is a deliberate override of the liveness check, not a
+        # normal reclaim, and must say so rather than read identically
+        # to the `dead` branch below.
+        _poll_watchdog_log_append "$(printf '[alive-stamp-lock] lockfile %s exceeded max wait %ss (owner pid %s) -- force-reclaimed independent of liveness check (zombie/reap-uncertainty safety valve, not a normal stale-lock reclaim)' "${_lockfile}" "${_alive_stamp_lock_max_age}" "$(cat "${_lockfile}" 2>/dev/null)")"
+        rm -f "${_lockfile}" 2>/dev/null || true
+        _forming_tries=0
+        _wait_started="$(date +%s)"
+        sleep 1
+        continue
       fi
+      _status="$(_alive_stamp_lock_owner_status "${_lockfile}")"
+      case "${_status}" in
+        dead)
+          # silent-failure-audit (issue #2919): logged, not just broken --
+          # a stale lock silently cleared reads identically to "no
+          # contention happened" otherwise, hiding a prior writer's crash.
+          _poll_watchdog_log_append "$(printf '[alive-stamp-lock] stale lockfile %s (owner pid %s confirmed dead) reclaimed after %ss wait' "${_lockfile}" "$(cat "${_lockfile}" 2>/dev/null)" "${_tries}")"
+          rm -f "${_lockfile}" 2>/dev/null || true
+          _forming_tries=0
+          ;;
+        forming)
+          _forming_tries=$((_forming_tries + 1))
+          if [ "${_forming_tries}" -ge "${_forming_grace}" ]; then
+            _poll_watchdog_log_append "$(printf '[alive-stamp-lock] stale lockfile %s (no owner pid recorded after %ss wait) reclaimed' "${_lockfile}" "${_tries}")"
+            rm -f "${_lockfile}" 2>/dev/null || true
+            _forming_tries=0
+          fi
+          ;;
+        alive)
+          # never evict a live holder, no matter how many retries elapse
+          # -- this is the defect fix itself (adversarial review point
+          # 10): the prior threshold broke a merely-slow, still-running
+          # holder's lock and let a second writer enter concurrently.
+          _forming_tries=0
+          ;;
+      esac
       sleep 1
     done
+    # only reachable once the noclobber write above has ATOMICALLY
+    # created the lockfile with our own pid already inside it -- there
+    # is no separate publish-identity step left to race, and no
+    # reclaimed-stale-lock path falls through into the critical section
+    # unprotected.
     printf '{"last_tick": %s}' "$(date +%s)" >"${_alive_stamp_path}.tmp" 2>/dev/null \
       && mv -f "${_alive_stamp_path}.tmp" "${_alive_stamp_path}" 2>/dev/null
-    rmdir "${_lockdir}" 2>/dev/null || true
+    rm -f "${_lockfile}" 2>/dev/null || true
   fi
 }
 
