@@ -1091,6 +1091,423 @@ def t_poll_heartbeat_bash_syntax_is_clean():
     assert r.returncode == 0, f"bash -n failed: {r.stderr}"
 
 
+# issue #2919: poll-heartbeat.sh died with exit 1 on macOS (bash 3.2, no
+# flock) -- two independent regressions, pinned below. Reproduction
+# against a real bash 3.2.57 container (this issue's investigation)
+# confirmed bash 3.2 treats even a *declared, genuinely-empty* array as
+# unbound under `set -u` when expanded bare (`ARR=(); "${ARR[@]}"` still
+# raises) -- not just an unset-variable case -- so the fix is the
+# `${NAME[@]+"${NAME[@]}"}` guard, not merely ensuring the array is
+# declared.
+_GUARDED_ARRAY_RE = re.compile(
+    r'\$\{([A-Za-z_][A-Za-z0-9_]*)\[([@*])\]\+"\$\{\1\[\2\]\}"\}'
+)
+_ARRAY_EXPANSION_RE = re.compile(r'\$\{([A-Za-z_][A-Za-z0-9_]*)\[[@*]\]\}')
+
+
+def _find_unguarded_array_expansions(text: str) -> list[tuple[int, str]]:
+    """Masks every occurrence of the bash-3.2-safe
+    `${NAME[@]+"${NAME[@]}"}` idiom first, then flags any `${NAME[@]}` /
+    `${NAME[*]}` expansion left over -- bounded by scanning the whole
+    file for every `[@]`/`[*]` occurrence, so a new array introduced
+    later and left unguarded is caught the same way this one was found."""
+    masked = _GUARDED_ARRAY_RE.sub("", text)
+    findings = []
+    for lineno, line in enumerate(masked.split("\n"), 1):
+        if _ARRAY_EXPANSION_RE.search(line):
+            findings.append((lineno, line.strip()))
+    return findings
+
+
+def t_no_unguarded_array_expansion_in_script_issue_2919():
+    """issue #2919 acceptance check 3: enumerate every `${...[@]}` (or
+    `[*]`) expansion in poll-heartbeat.sh and require each to use the
+    bash-3.2-safe guarded idiom -- precedent controller #521/#523, where a
+    fix that patched only the one firing unguarded expansion left others
+    in the same file to fail later on the same platform. Search bound:
+    the whole file, via regex over every `[@]`/`[*]` occurrence -- not
+    just the line the reporter's traceback named."""
+    text = POLL_HEARTBEAT.read_text(encoding="utf-8")
+    hits = _find_unguarded_array_expansions(text)
+    assert not hits, f"unguarded array expansion(s) found (bash-3.2-unsafe): {hits}"
+
+
+def t_unguarded_array_detector_catches_a_bare_expansion_issue_2919():
+    """Detector self-check, mirroring t_command_substitution_wrapped_heredoc_detector_catches_multiline_shape:
+    a synthetic bare `${ARR[@]}` (never the real poll-heartbeat.sh) must
+    be flagged, so the check above cannot pass merely because the file
+    happens to be clean."""
+    sample = 'for x in "${ARR[@]}"; do\n  echo "$x"\ndone\n'
+    hits = _find_unguarded_array_expansions(sample)
+    assert hits, "detector must flag a bare, unguarded array expansion"
+
+
+FAKE_SPAWN_PY_NO_ROLE_DATA = """#!/usr/bin/env python3
+import os, sys
+if __name__ == "__main__":
+    marker = os.environ["FAKE_SPAWN_MARKER"]
+    if sys.argv[1:2] == ["poll-due"]:
+        sys.exit(0 if os.environ.get("FAKE_POLL_DUE") == "1" else 1)
+    if sys.argv[1:2] == ["watchdog"]:
+        with open(marker, "a", encoding="utf-8") as f:
+            f.write("watchdog-ran\\n")
+        report = os.environ.get("FAKE_WATCHDOG_REPORT", "")
+        if report:
+            print(report)
+        sys.exit(0)
+    sys.exit(0)
+"""
+
+FAKE_SPAWN_PY_EMPTY_SKILLS = """#!/usr/bin/env python3
+import os, sys
+def role_data():
+    return {}
+if __name__ == "__main__":
+    marker = os.environ["FAKE_SPAWN_MARKER"]
+    if sys.argv[1:2] == ["poll-due"]:
+        sys.exit(0 if os.environ.get("FAKE_POLL_DUE") == "1" else 1)
+    if sys.argv[1:2] == ["watchdog"]:
+        with open(marker, "a", encoding="utf-8") as f:
+            f.write("watchdog-ran\\n")
+        report = os.environ.get("FAKE_WATCHDOG_REPORT", "")
+        if report:
+            print(report)
+        sys.exit(0)
+    sys.exit(0)
+"""
+
+
+def _run_skills_query_tick(checkout_spawn_py: str, tmp: Path) -> subprocess.CompletedProcess:
+    checkout = tmp / "checkout"
+    checkout.mkdir()
+    (checkout / "spawn.py").write_text(checkout_spawn_py, encoding="utf-8")
+    marker = tmp / "marker.log"
+    home = tmp / "home"
+    home.mkdir()
+    env = dict(os.environ)
+    env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+    env["FAKE_SPAWN_MARKER"] = str(marker)
+    env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
+    env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
+    env["POLL_HEARTBEAT_PATROL_EVERY_N"] = "1"
+    env["FAKE_POLL_DUE"] = "0"
+    env["HOME"] = str(home)
+    env.pop("CLAUDE_SKILL", None)
+    return subprocess.run(
+        ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True, env=env, timeout=15,
+    )
+
+
+def t_patrol_skills_query_failure_is_visible_issue_2919():
+    """issue #2919 acceptance check 3 (must-not clause): a patrol-skills
+    query that FAILS -- `import spawn` succeeds but `spawn.role_data()`
+    raises AttributeError (confirmed live: this is the actual shape of
+    the real repo's spawn.py right now, which has no role_data() either
+    -- see this issue's Open findings) -- must print a visible
+    per-patrol-tick line. It must not read as an indistinguishable quiet
+    zero-roles tick, the must-not this issue names explicitly."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        r = _run_skills_query_tick(FAKE_SPAWN_PY_NO_ROLE_DATA, Path(d))
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "[patrol-poll] skills query failed at startup" in r.stdout, r.stdout
+
+
+def t_patrol_skills_genuinely_empty_roster_stays_quiet_issue_2919():
+    """issue #2919 acceptance check 3 counterpart: a role_data() that
+    SUCCEEDS but legitimately returns zero skills must stay quiet -- no
+    query-failed line -- proving the two conditions (failed query vs.
+    genuinely-empty roster) are actually distinguishable and not just the
+    failure case made loud."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        r = _run_skills_query_tick(FAKE_SPAWN_PY_EMPTY_SKILLS, Path(d))
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "skills query failed" not in r.stdout, r.stdout
+        assert "[patrol-poll]" not in r.stdout, r.stdout
+
+
+def t_alive_stamp_write_survives_missing_flock_issue_2919():
+    """issue #2919 acceptance check 2: on a host with no `flock` reachable
+    on PATH (the reported macOS condition -- flock ships with util-linux,
+    absent by default on macOS), the tick must still complete cleanly and
+    the alive-stamp write must not silently drop serialisation. PATH is
+    rebuilt from symlinks to only the binaries the script needs, minus
+    flock, so `command -v flock` genuinely fails the way it does on the
+    reporter's host -- not merely un-exercised."""
+    import shutil
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        bindir = tmp / "bin"
+        bindir.mkdir()
+        needed = ["bash", "python3", "git", "mkdir", "touch", "mv", "rm", "rmdir",
+                  "wc", "date", "sleep", "dirname", "cat", "printf", "sh", "env",
+                  "basename", "chmod"]
+        for name in needed:
+            src = shutil.which(name)
+            if src:
+                (bindir / name).symlink_to(src)
+        assert not (bindir / "flock").exists(), \
+            "test setup bug: flock leaked into the restricted PATH"
+        env = dict(os.environ)
+        env["PATH"] = str(bindir)
+        env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+        env["FAKE_SPAWN_MARKER"] = str(marker)
+        env["POLL_HEARTBEAT_MAX_TICKS"] = "1"
+        env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
+        env["FAKE_POLL_DUE"] = "1"
+        env["FAKE_WATCHDOG_REPORT"] = EMPTY_ROSTER_REPORT
+        env["HOME"] = str(home)
+        env.pop("CLAUDE_SKILL", None)
+        r = subprocess.run(
+            [str(bindir / "bash"), str(POLL_HEARTBEAT)], input="", capture_output=True, text=True,
+            env=env, timeout=15,
+        )
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0 even without flock: {r.stderr}"
+        assert "flock" not in r.stderr, r.stderr
+        stamp = checkout / "runs" / "poll_heartbeat_alive.json"
+        assert stamp.exists(), "alive stamp must still be written when flock is absent"
+        assert '"last_tick"' in stamp.read_text(), stamp.read_text()
+
+
+# issue #2919 follow-up (adversarial review of PR #2923's mkdir-mutex fix,
+# docs/issue-2919/reports/adversarial-review-a4f05242.md "Open findings"
+# point 1): the 20-failed-retries-then-force-break threshold could evict a
+# live, merely-slow holder's lock -- confirmed live under real bash 3.2
+# with `flock` absent (docker bash:3.2, restricted PATH) during this
+# fix's own verification. These tests exercise the fixed mutex by
+# dynamically EXTRACTING the real `_alive_stamp_lock_owner_status` and
+# `_alive_stamp_write` function bodies out of the actual script text (not
+# a hand-maintained copy) so they can never silently drift from the
+# implementation under review, then splice in test-only ENTER/hold/EXIT
+# instrumentation at a uniquely-anchored point -- mirroring the
+# adversarial review's own harness shape (its points 9/10: "extracted the
+# mkdir-mutex acquire/release code verbatim ... into a standalone harness
+# with a widened critical section", "the widening changes only the
+# payload timing, not the mutex code under test"). The mutex logic itself
+# (mkdir/case/kill -0/rmdir) is portable POSIX shell, not bash-3.2-specific
+# -- host bash is sufficient for these; the bash-3.2 array/flock-detection
+# concerns are already covered separately above.
+def _extract_bash_function(text: str, name: str) -> str:
+    marker = f"{name}() {{"
+    start = text.index(marker)
+    depth = 0
+    i = start
+    n = len(text)
+    while i < n:
+        c = text[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+        i += 1
+    raise AssertionError(f"unterminated function {name!r} while extracting from script")
+
+
+def _splice_test_instrumentation(alive_stamp_write_text: str) -> str:
+    """Inserts ENTER/optional-self-kill/hold/EXIT logging immediately
+    after the real pid-write line (the point the fixed code establishes
+    itself as the recorded owner) and before the real stamp write +
+    release -- test-only instrumentation, anchored on a substring unique
+    to that exact point so a future edit to this line fails the test
+    loudly (via the uniqueness assert) rather than silently splicing into
+    the wrong place."""
+    anchor = 'printf \'%s\' "$$" >"${_owner_pid_file}" 2>/dev/null || true'
+    count = alive_stamp_write_text.count(anchor)
+    assert count == 1, f"expected exactly one pid-write anchor, found {count}"
+    idx = alive_stamp_write_text.index(anchor) + len(anchor)
+    instrumentation = """
+    printf '%s ENTER %s pid=%s\\n' "$(date +%s.%N 2>/dev/null || date +%s)" "${MUTEX_TEST_WORKER_ID}" "$$" >>"${MUTEX_TEST_LOGFILE}"
+    if [ "${MUTEX_TEST_KILL_SELF:-0}" = "1" ]; then
+      sleep "${MUTEX_TEST_HOLD_SECONDS:-0}"
+      printf '%s SELFKILL %s pid=%s\\n' "$(date +%s.%N 2>/dev/null || date +%s)" "${MUTEX_TEST_WORKER_ID}" "$$" >>"${MUTEX_TEST_LOGFILE}"
+      kill -9 $$
+    fi
+    sleep "${MUTEX_TEST_HOLD_SECONDS:-0}"
+    printf '%s EXIT %s pid=%s\\n' "$(date +%s.%N 2>/dev/null || date +%s)" "${MUTEX_TEST_WORKER_ID}" "$$" >>"${MUTEX_TEST_LOGFILE}"
+"""
+    return alive_stamp_write_text[:idx] + instrumentation + alive_stamp_write_text[idx:]
+
+
+def _write_mutex_harness(tmp: Path) -> Path:
+    script_text = POLL_HEARTBEAT.read_text(encoding="utf-8")
+    owner_status_fn = _extract_bash_function(script_text, "_alive_stamp_lock_owner_status")
+    alive_stamp_write_fn = _splice_test_instrumentation(
+        _extract_bash_function(script_text, "_alive_stamp_write")
+    )
+    harness = tmp / "mutex_harness.sh"
+    harness.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -uo pipefail\n"
+        f"{owner_status_fn}\n"
+        f"{alive_stamp_write_fn}\n"
+        "_poll_watchdog_log_append() {\n"
+        "  printf '%s [log:%s] %s\\n' \"$(date +%s.%N 2>/dev/null || date +%s)\" "
+        "\"${MUTEX_TEST_WORKER_ID}\" \"$1\" >>\"${MUTEX_TEST_LOGFILE}\"\n"
+        "}\n"
+        "_alive_stamp_has_flock=0\n"
+        "CHECKOUT=\"$(dirname \"$1\")\"\n"
+        "_alive_stamp_path=\"$1\"\n"
+        "_alive_stamp_write\n",
+        encoding="utf-8",
+    )
+    return harness
+
+
+def _run_mutex_worker(harness: Path, stamp_path: Path, logfile: Path, worker_id: str,
+                       hold_seconds: str, kill_self: str) -> subprocess.Popen:
+    env = dict(os.environ)
+    env["MUTEX_TEST_WORKER_ID"] = worker_id
+    env["MUTEX_TEST_LOGFILE"] = str(logfile)
+    env["MUTEX_TEST_HOLD_SECONDS"] = hold_seconds
+    env["MUTEX_TEST_KILL_SELF"] = kill_self
+    return subprocess.Popen(
+        ["bash", str(harness), str(stamp_path)],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+    )
+
+
+def _parse_mutex_log(logfile: Path) -> dict:
+    events = {}
+    if not logfile.exists():
+        return events
+    for line in logfile.read_text(encoding="utf-8").splitlines():
+        parts = line.split()
+        if len(parts) < 3:
+            continue
+        ts, kind, worker = parts[0], parts[1], parts[2]
+        if kind in ("ENTER", "EXIT", "SELFKILL"):
+            events.setdefault(worker, {})[kind] = float(ts)
+    return events
+
+
+def t_alive_stamp_lock_owner_status_establishes_liveness_issue_2919():
+    """issue #2919 follow-up: direct unit test of the sprouted seam
+    (_alive_stamp_lock_owner_status), independent of the full
+    acquire/release sequence -- refactoring-legacy-seam-selection rule 1
+    (Sprout Method: a single, clearly-localized behavioral change gets
+    its own separately-testable function). Pins all three verdicts:
+    a lockdir with no owner.pid yet ("forming"), one naming a genuinely
+    live process ("alive"), and one naming a confirmed-reaped process
+    ("dead") -- liveness is ESTABLISHED via a real PID check, never
+    inferred."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        script_text = POLL_HEARTBEAT.read_text(encoding="utf-8")
+        owner_status_fn = _extract_bash_function(script_text, "_alive_stamp_lock_owner_status")
+        driver = tmp / "owner_status_driver.sh"
+        driver.write_text(f"#!/usr/bin/env bash\nset -uo pipefail\n{owner_status_fn}\n_alive_stamp_lock_owner_status \"$1\"\n",
+                           encoding="utf-8")
+
+        lockdir = tmp / "stamp.lockdir"
+        lockdir.mkdir()
+        r = subprocess.run(["bash", str(driver), str(lockdir)], capture_output=True, text=True, timeout=5)
+        assert r.stdout == "forming", f"no owner.pid yet must read as forming: {r.stdout!r}"
+
+        live_proc = subprocess.Popen(["sleep", "5"])
+        try:
+            (lockdir / "owner.pid").write_text(str(live_proc.pid), encoding="utf-8")
+            r = subprocess.run(["bash", str(driver), str(lockdir)], capture_output=True, text=True, timeout=5)
+            assert r.stdout == "alive", f"a genuinely running owner pid must read as alive: {r.stdout!r}"
+        finally:
+            live_proc.kill()
+            live_proc.wait()
+
+        dead_proc = subprocess.Popen(["true"])
+        dead_pid = dead_proc.pid
+        dead_proc.wait()
+        import time as _time
+        deadline = _time.time() + 5
+        while _time.time() < deadline:
+            try:
+                os.kill(dead_pid, 0)
+                _time.sleep(0.05)
+            except OSError:
+                break
+        (lockdir / "owner.pid").write_text(str(dead_pid), encoding="utf-8")
+        r = subprocess.run(["bash", str(driver), str(lockdir)], capture_output=True, text=True, timeout=5)
+        assert r.stdout == "dead", f"a confirmed-reaped owner pid must read as dead: {r.stdout!r}"
+
+
+def t_alive_stamp_mutex_never_evicts_slow_live_holder_issue_2919():
+    """issue #2919 follow-up regression pin for the adversarial review's
+    highest-severity Open finding: a live holder that merely runs long
+    (here, past the OLD 20-failed-retry/20s break threshold this fix
+    replaces) must never have its lock broken and re-entered by a
+    contending worker. Worker A holds the critical section 22s (alive the
+    whole time); worker B starts 0.3s later and must not ENTER until
+    strictly after A's EXIT -- proving at most one holder at any instant,
+    live under the same mutex code the adversarial review attacked."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        harness = _write_mutex_harness(tmp)
+        stamp = tmp / "stamp"
+        logfile = tmp / "log"
+        proc_a = _run_mutex_worker(harness, stamp, logfile, "A", "22", "0")
+        time.sleep(0.3)
+        proc_b = _run_mutex_worker(harness, stamp, logfile, "B", "0.2", "0")
+        out_a, err_a = proc_a.communicate(timeout=40)
+        out_b, err_b = proc_b.communicate(timeout=40)
+        assert proc_a.returncode == 0, f"worker A must exit 0: {err_a}"
+        assert proc_b.returncode == 0, f"worker B must exit 0: {err_b}"
+
+        events = _parse_mutex_log(logfile)
+        assert "A" in events and "ENTER" in events["A"] and "EXIT" in events["A"], events
+        assert "B" in events and "ENTER" in events["B"] and "EXIT" in events["B"], events
+        assert events["B"]["ENTER"] >= events["A"]["EXIT"], (
+            f"worker B entered before worker A (still alive) released the lock -- "
+            f"mutual exclusion violated: {events}"
+        )
+
+
+def t_alive_stamp_mutex_recovers_crashed_holder_issue_2919():
+    """issue #2919 follow-up: the companion property this fix must
+    preserve -- a genuinely crashed holder (SIGKILL'd mid-critical-section
+    without releasing the lockdir) must not deadlock the tick forever.
+    Worker A enters, holds 1s, then SIGKILLs itself without cleanup;
+    worker B, contending 0.3s after A started, must detect A's pid as
+    dead and complete (ENTER+EXIT) within a bounded time -- proving
+    recovery, not just eviction-avoidance.
+
+    A is reaped promptly by a background thread the moment it exits, the
+    same way a real crashed writer's own parent process reaps it -- `kill
+    -0` reports a zombie (unreaped exited process) as still existing, so
+    an unreaped A would make this test's own harness artificially slow to
+    detect death, which is a property of the test's process supervision,
+    not of the fixed liveness check itself."""
+    import tempfile
+    import threading
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        harness = _write_mutex_harness(tmp)
+        stamp = tmp / "stamp"
+        logfile = tmp / "log"
+        proc_a = _run_mutex_worker(harness, stamp, logfile, "A", "1", "1")
+        threading.Thread(target=proc_a.wait, daemon=True).start()
+        time.sleep(0.3)
+        proc_b = _run_mutex_worker(harness, stamp, logfile, "B", "0.1", "0")
+        out_b, err_b = proc_b.communicate(timeout=15)
+        assert proc_b.returncode == 0, f"worker B must recover and exit 0: {err_b}"
+        proc_a.wait(timeout=5)
+
+        events = _parse_mutex_log(logfile)
+        assert "A" in events and "SELFKILL" in events["A"], events
+        assert "B" in events and "ENTER" in events["B"] and "EXIT" in events["B"], (
+            f"worker B must recover the crashed holder's lock and complete: {events}"
+        )
+        assert not (stamp.with_name(stamp.name + ".lockdir")).exists(), \
+            "no lockdir should remain after the crashed holder was reclaimed and B released cleanly"
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
 
 
