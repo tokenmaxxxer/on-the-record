@@ -85,6 +85,8 @@ class SelfUpdateWorkingTreeUntouchedTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self._head(), before)
         self.assertEqual((self.checkout / ".pull-check").read_text().strip(), "pull=ok")
+        self.assertEqual(result.stdout, "",
+                          "issue #2908: a matched install must report nothing")
 
     def test_behind_origin_never_merges_and_records_deferred(self):
         (self.src / "new.txt").write_text("x\n")
@@ -103,6 +105,12 @@ class SelfUpdateWorkingTreeUntouchedTest(unittest.TestCase):
                           "working tree -- that would mean a merge ran")
         marker = (self.checkout / ".pull-check").read_text().strip()
         self.assertEqual(marker, "pull=deferred:1-behind-origin")
+        # issue #2908: version skew between the (assumed current) packaged
+        # hooks and this engine checkout must announce itself on stdout --
+        # a SessionStart hook's stdout reaches the session -- not sit only
+        # in a `.pull-check` file nothing reads.
+        self.assertIn("1 commits behind origin/main", result.stdout)
+        self.assertIn(str(self.checkout), result.stdout)
 
     def test_unreachable_origin_records_failed_fetch_not_silence(self):
         _git(self.checkout, "remote", "set-url", "origin",

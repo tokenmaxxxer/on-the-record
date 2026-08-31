@@ -58,8 +58,6 @@ _checkout_resolve() {
   if [ -f "$mk/spawn.py" ]; then printf '%s' "$mk"; return 0; fi
   own="$HOME/.claude/tokenmaxxxer/on-the-record"
   if [ -f "$own/spawn.py" ]; then printf '%s' "$own"; return 0; fi
-  old="$HOME/.claude/tokenmaxxxer/muster"
-  if [ -f "$old/spawn.py" ]; then printf '%s' "$old"; return 0; fi
   return 1
 }
 CHECKOUT="$(_checkout_resolve || true)"

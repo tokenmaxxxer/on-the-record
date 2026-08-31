@@ -8,9 +8,10 @@ case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; e
 # Resolve the on-the-record checkout (spawn.py lives at the repo root,
 # OUTSIDE the plugin subtree — a cache install copies only orchestrate/, so
 # the old plugin-root/../.. guess pointed at nothing there). Order: dev
-# override, plugin-root ancestors, the marketplace clone, else self-clone
-# (preferring an existing new-path checkout, falling back to a still-present
-# old-path checkout before re-cloning).
+# override, plugin-root ancestors, the marketplace clone, own clone, else
+# self-clone. issue #2908: the retired `muster` name (#83) dropped from
+# this order -- see poll-rearm.sh's poll_rearm_resolve_checkout for the
+# rationale; the two must keep resolving identically.
 _checkout_resolve() {
   if [ -n "${TOKENMAXXXER_CHECKOUT:-}" ] && [ -f "${TOKENMAXXXER_CHECKOUT}/spawn.py" ]; then
     printf '%s' "${TOKENMAXXXER_CHECKOUT}"; return 0
@@ -25,8 +26,6 @@ _checkout_resolve() {
   if [ -f "$mk/spawn.py" ]; then printf '%s' "$mk"; return 0; fi
   own="$HOME/.claude/tokenmaxxxer/on-the-record"
   if [ -f "$own/spawn.py" ]; then printf '%s' "$own"; return 0; fi
-  old="$HOME/.claude/tokenmaxxxer/muster"
-  if [ -f "$old/spawn.py" ]; then printf '%s' "$old"; return 0; fi
   mkdir -p "$(dirname "$own")" 2>/dev/null
   git clone -q https://github.com/tokenmaxxxer/on-the-record.git "$own" 2>/dev/null
   if [ -f "$own/spawn.py" ]; then printf '%s' "$own"; return 0; fi
@@ -62,6 +61,18 @@ if [ -n "$CHECKOUT" ]; then
     else
       printf 'pull=deferred:%s-behind-origin\n' "$behind_err" \
         > "$CHECKOUT/.pull-check" 2>/dev/null || true
+      # issue #2908: the fetch above already computed this count -- this
+      # is not a new check, only a new place its result goes. Previously
+      # only `.pull-check` recorded it, and nothing ever read that file:
+      # the hooks running THIS session could be current while the engine
+      # they call (spawn.py etc. at CHECKOUT) sat arbitrarily far behind,
+      # with no signal either had drifted from the other. `spawn.py
+      # self-update` (issue #2749) clears this the moment zero sessions
+      # are live; until then, print it to this hook's own stdout so a
+      # SessionStart context surfaces the skew every session it persists,
+      # instead of only to a file no reader consumes.
+      printf '[self-update] engine checkout %s commits behind origin/main (%s) -- hooks may be current while the engine they call is not; clears automatically once no spawned sessions are live\n' \
+        "$behind_err" "$CHECKOUT"
     fi
   fi
 fi

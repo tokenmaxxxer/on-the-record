@@ -139,7 +139,6 @@ def _checkout_resolve(clone):
         for cand in (
             os.path.join(home, ".claude/plugins/marketplaces/tokenmaxxxer"),
             os.path.join(home, ".claude/tokenmaxxxer/on-the-record"),
-            os.path.join(home, ".claude/tokenmaxxxer/muster"),
         ):
             if os.path.isfile(os.path.join(cand, "spawn.py")):
                 result = cand

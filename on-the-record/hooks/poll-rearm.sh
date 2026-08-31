@@ -23,10 +23,13 @@ set -uo pipefail
 # Resolve the on-the-record checkout (spawn.py lives at the repo root,
 # OUTSIDE the plugin subtree — a cache install copies only orchestrate/, so
 # a plugin-root/../.. guess points at nothing there). Order: dev override,
-# plugin-root ancestors, the marketplace clone, else self-clone (preferring
-# an existing new-path checkout, falling back to a still-present old-path
-# checkout before re-cloning). Shared verbatim between directive.sh and
-# stop-poll-rearm.sh so the two hook events resolve the same checkout.
+# plugin-root ancestors, the marketplace clone, own clone, else self-clone.
+# issue #2908: the retired `muster` name (#83) dropped from this order --
+# it was never refreshed by anything and only shadowed the self-clone
+# fallback with an arbitrarily old checkout; an install that used to
+# resolve there now falls through to a fresh self-clone instead, which is
+# never staler. Shared verbatim between directive.sh and stop-poll-rearm.sh
+# so the two hook events resolve the same checkout.
 poll_rearm_resolve_checkout() {
   local hook_script_path="${1:?poll_rearm_resolve_checkout requires the caller script path}"
   if [ -n "${TOKENMAXXXER_CHECKOUT:-}" ] && [ -f "${TOKENMAXXXER_CHECKOUT}/spawn.py" ]; then
@@ -43,8 +46,6 @@ poll_rearm_resolve_checkout() {
   if [ -f "$mk/spawn.py" ]; then printf '%s' "$mk"; return 0; fi
   local own="$HOME/.claude/tokenmaxxxer/on-the-record"
   if [ -f "$own/spawn.py" ]; then printf '%s' "$own"; return 0; fi
-  local old="$HOME/.claude/tokenmaxxxer/muster"
-  if [ -f "$old/spawn.py" ]; then printf '%s' "$old"; return 0; fi
   mkdir -p "$(dirname "$own")" 2>/dev/null
   git clone -q https://github.com/tokenmaxxxer/on-the-record.git "$own" 2>/dev/null
   if [ -f "$own/spawn.py" ]; then printf '%s' "$own"; return 0; fi
@@ -98,6 +99,20 @@ poll_rearm_arm_if_due() {
   if [ "$due_rc" -eq 0 ]; then
     mkdir -p "${HOME}/.claude/tokenmaxxxer" 2>/dev/null
     nohup python3 "${checkout}/spawn.py" watchdog --auto-respawn \
+      >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>&1 &
+    disown 2>/dev/null || true
+    # issue #2908: the missing half of the consumer update path.
+    # self-update.sh's SessionStart `git fetch` only ever advances refs;
+    # nothing was calling the working-tree advance (`spawn.py self-update`,
+    # #2749) except a human running it by hand. Piggyback it on this SAME
+    # poll-due TTL gate (already the de-dup this hook shares with the
+    # watchdog launch above) so it fires automatically, detached, without
+    # adding a new poll cadence. `spawn.py self-update` is its own guard:
+    # it refuses (no working-tree change) whenever any spawned session is
+    # live, so this stays inside the #2670/#2749 zero-sessions discipline
+    # -- it is never an unconditional pull, only an automatic trigger for
+    # the same conditional one #2749 already built.
+    nohup python3 "${checkout}/spawn.py" self-update \
       >>"${HOME}/.claude/tokenmaxxxer/poll-watchdog.log" 2>&1 &
     disown 2>/dev/null || true
     return 0
