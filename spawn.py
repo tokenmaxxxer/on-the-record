@@ -840,7 +840,8 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
     }]
 
 
-def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = None) -> list[dict]:
+def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = None,
+             confirm_pr_missing=None) -> list[dict]:
     """이슈-492 step 2 (ADR: `docs/issue-492/decisions/2026-08-08-reconciliation-step-for-supervision.md`).
 
     순수 함수: 로스터/보드/PR/git 에서 이미 읽은 값을 받아 비교만 한다 —
@@ -848,7 +849,11 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     가지에서 `expected["issue"]` 가 있으면 `recovery_policy.classify_from_state()`
     를 불러 per-(issue, role) 재기동 카운터를 읽고 쓴다 — 이건 `gh`/git 재조회가
     아니라 이 reconcile 자신의 판정 상태이므로 순수성 취지(외부 세계 재조회
-    없음)는 유지된다.
+    없음)는 유지된다. 예외 둘(이슈 #2941 finding 1): `pr_number is None` 이라
+    바로 아래서 `pr-expected-missing` 을 확정하기 직전에만 `confirm_pr_missing`
+    (있으면)을 부른다 — 아래 규칙 3 설명 참고, 이 예외도 "외부 세계 재조회
+    없음" 원칙이 아니라 "매 호출마다 재조회 없음(only-when-about-to-act)"
+    원칙으로 읽는다.
 
     `expected = {"expects_pr": bool, "skill": str, "branch": str, "issue": int|None}`
     `observed = {"session_verdict": str, "pr_number": int|None,
@@ -866,7 +871,13 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
        standing decision 그대로, 자동 재무장은 안 하고 이름만 붙인다.
     3. PR 을 기대했는데(`expects_pr`) 아직 없고(`pr_number is None`) 세션이
        진행 중도 아니면(`session_verdict != "in-progress"`) → `respawn` —
-       이슈의 "push 없이 죽음" 예시.
+       이슈의 "push 없이 죽음" 예시. 이슈 #2941 finding 1: `pr_number` 가
+       `None`인 것은 이제 reconcile 과 poll-report 가 공유하는 단일 board
+       인덱스 하나의 답이다 — 그 인덱스의 steady-state 경로(`_delta_read()`)
+       자체가 search-API 라 원래 이 버그를 만든 것과 같은 지연 계열을 진다.
+       `confirm_pr_missing`(있으면)이 이 순간 한 번 불려 그 지연을 확인/
+       배제한다 — 콜백이 번호를 돌려주면 respawn 대신 정상 종료 경로로
+       흐른다(아래 카운터 리셋 포함).
     4. 위 어디에도 안 걸리는데 입력 자체가 앞뒤가 안 맞으면(예:
        `loop_state` 는 있는데 `session_verdict` 가 없거나 인식 불가) →
        `manual-review` — 침묵 대신 사람 검토로 보낸다.
@@ -889,6 +900,11 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
                        "session_verdict=stalled",
             "next_action": "resume-watch",
         }]
+    if (expected.get("expects_pr") and observed.get("pr_number") is None
+            and confirm_pr_missing is not None):
+        confirmed = confirm_pr_missing()
+        if confirmed is not None:
+            observed = {**observed, "pr_number": confirmed}
     if (expected.get("expects_pr") and observed.get("pr_number") is None
             and verdict != "in-progress"):
         return _reconcile_pr_expected_missing(expected, observed, verdict,
