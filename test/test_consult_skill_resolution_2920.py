@@ -103,6 +103,27 @@ class ConsultSkillResolutionParityTest(unittest.TestCase):
         with self.assertRaises(SystemExit):
             spawn.resolve_consult_skill_source("hooked-skill", self.repo_root)
 
+    def test_explicitly_requested_policy_skill_is_not_reported_unresolved(self):
+        # issue #2920 round 2, finding 2: a POLICY skill (e.g.
+        # work-in-english) is always mounted via the baseline regardless
+        # of whether the caller named it. When the caller *does* name it
+        # explicitly, it must not also show up in "unresolved" -- it
+        # mounted, so it isn't unresolved. Getting this wrong corrupts the
+        # corpus count acceptance-3 depends on ("how many consults mounted
+        # only work-in-english"): a legitimate work-in-english-only
+        # consult would be indistinguishable from a failed/typo'd one.
+        result = spawn.resolve_consult_skill_source(
+            "policy-skill", self.repo_root)
+        self.assertEqual(result["skills"], ["policy-skill"])
+        self.assertEqual(result["unresolved"], [])
+
+    def test_policy_skill_combined_with_real_leaf_is_not_unresolved(self):
+        result = spawn.resolve_consult_skill_source(
+            "policy-skill,adversarial-review", self.repo_root)
+        self.assertIn("policy-skill", result["skills"])
+        self.assertIn("adversarial-review", result["skills"])
+        self.assertEqual(result["unresolved"], [])
+
 
 class JudgeReadonlyPluginDirsNoFamilyExpansionTest(unittest.TestCase):
     """`_readonly_plugin_dirs()`(judge 세션의 플러그인 선택)도 같은
@@ -126,7 +147,7 @@ class JudgeReadonlyPluginDirsNoFamilyExpansionTest(unittest.TestCase):
         spawn.core_plugin_dirs = self._saved_core_plugin_dirs
         self._tmpdir.cleanup()
 
-    def test_retired_role_name_no_longer_pulls_in_family_members(self):
+    def test_retired_family_prefix_no_longer_pulls_in_family_members(self):
         out = spawn._readonly_plugin_dirs("conformance-review")
         names = [d.name for d in out]
         self.assertNotIn("conformance-review-verdict-assignment", names)

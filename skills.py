@@ -509,7 +509,8 @@ def resolve_consult_skill_source(skill: str, repo_root: Path | None) -> dict:
                    and (repo_root / n).is_dir()]
     else:
         matched = []
-    unresolved = [n for n in names if n not in matched]
+    unresolved = [n for n in names
+                  if n not in matched and n not in _STATIC_POLICY_SKILLS]
     if not matched:
         baseline["unresolved"] = unresolved
         return baseline
