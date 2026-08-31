@@ -310,6 +310,7 @@ _alive_stamp_write() {
     local _wait_started
     _wait_started="$(date +%s)"
     local _status
+    local _owner_pid_at_release
     while ! ( set -o noclobber; printf '%s' "$$" >"${_lockfile}" ) 2>/dev/null; do
       _tries=$((_tries + 1))
       if [ "$(($(date +%s) - _wait_started))" -ge "${_alive_stamp_lock_max_age}" ]; then
@@ -359,7 +360,45 @@ _alive_stamp_write() {
     # unprotected.
     printf '{"last_tick": %s}' "$(date +%s)" >"${_alive_stamp_path}.tmp" 2>/dev/null \
       && mv -f "${_alive_stamp_path}.tmp" "${_alive_stamp_path}" 2>/dev/null
-    rm -f "${_lockfile}" 2>/dev/null || true
+    # issue #2919 follow-up (adversarial-review-67ff85fb finding 1): the
+    # max-age valve above can force-reclaim THIS holder's own lockfile
+    # while this holder is still genuinely alive and mid-write (the
+    # valve's own disclosed trade-off, documented above). When that
+    # happens, a later contender re-acquires the lockfile with ITS OWN
+    # pid before this holder ever reaches here -- an unconditional
+    # `rm -f` at that point deletes THAT holder's live lock, not this
+    # holder's already-gone slot, letting a further contender in
+    # alongside it (live-reproduced: adversarial-review-67ff85fb,
+    # PRE_RELEASE_OWNER_CHECK instrumentation showed worker A remove
+    # worker B's active lockfile, worker D then entering alongside
+    # still-active B). Mirrors the acquire-side fix above
+    # (adversarial-review-95d4569a point 1): re-verify ownership
+    # immediately before acting, never remove on the strength of "I
+    # created this file at some point in the past."
+    #
+    # Residual: the `cat` (read) below and the `rm -f` (remove) are
+    # still two separate commands, so a scheduler pause between them is
+    # not literally impossible -- if THIS holder's own eviction by the
+    # max-age valve lands in that exact gap (after the read confirms
+    # ownership but before the rm executes), the same failure shape
+    # could in principle reappear. That window is now bounded by two
+    # adjacent syscalls rather than this holder's entire remaining
+    # hold-plus-write duration (previously reachable any time up to
+    # several seconds under load, per the max-age valve's own stated
+    # >60s trade-off) -- narrower by orders of magnitude, not proven
+    # zero, the same honesty standard the noclobber acquire fix above
+    # applies to its own open()/write() gap.
+    _owner_pid_at_release="$(cat "${_lockfile}" 2>/dev/null)"
+    if [ "${_owner_pid_at_release}" = "$$" ]; then
+      rm -f "${_lockfile}" 2>/dev/null || true
+    else
+      # silent-failure-audit (issue #2919): logged, not silently
+      # skipped -- this release is a deliberate no-op because the
+      # lockfile now belongs to a different, active holder, not an
+      # error, but it must not read identically to an ordinary quiet
+      # release.
+      _poll_watchdog_log_append "$(printf '[alive-stamp-lock] release skipped: lockfile %s no longer names this holder (pid %s) -- current owner %s (this holder was likely force-reclaimed by the max-age valve while still alive; removing would delete a live holder'"'"'s lock)' "${_lockfile}" "$$" "${_owner_pid_at_release:-<empty>}")"
+    fi
   fi
 }
 
