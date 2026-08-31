@@ -1782,7 +1782,14 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     for key, e in sorted(d.items()):
         # 이슈 #492: 같은 틱에서 reconcile() 도 한 번 태운다 — 새 폴러가
         # 아니라 이 기존 스캔에 올라탄다(ADR 결정 4).
-        divergences = _sp.reconcile(_sp._build_expected(e), _sp._build_observed(root, e),
+        # 이슈 #2941: `_poll_pr_index()`(아래 dead-entry 분기가 poll-report
+        # 판정에 쓰는 것과 같은 공유 인덱스)를 여기서도 넘긴다 — reconcile
+        # 과 poll-report 가 같은 엔트리를 두고 서로 다른 PR 조회 경로(개별
+        # `gh pr list --head` 대 board 벌크 인덱스)를 봐서 생긴
+        # [reconcile-poll-disagreement](43건 실측, PR #2930/#2934/#2937/
+        # #2919 검증 네 건 확인)를 소스 통일로 없앤다.
+        divergences = _sp.reconcile(_sp._build_expected(e),
+                                 _sp._build_observed(root, e, pr_index=_poll_pr_index()),
                                  recovery_state_dir=root / ".on-the-record" / "recovery-state")
         if divergences:
             issue_n, skill_n = issue_skill_key(e)
