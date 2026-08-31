@@ -69,14 +69,30 @@ every `order` key with prefix `poll-report:` except the literal
 `"[poll-report] roster: ..."` empty-roster line) — and, when non-empty,
 emits one `[monitor-heartbeat] <entry's real current state>` line per
 key, alongside the pre-existing `[returned-pr-pending]` behavior
-(unchanged). Excluding the sentinel key specifically (not "any
-poll-report key") is what keeps a genuinely empty roster exactly as
-silent past the bound as `#1732` left it —
+(unchanged). A genuinely empty roster stays exactly as silent past the
+bound as `#1732` left it —
 `t_heartbeat_bound_with_no_returned_pr_emits_nothing`
 (`on-the-record/monitors/test_poll_heartbeat.py:714`, unmodified) still
 passes unchanged, confirmed — derived: `python3 -m pytest
 on-the-record/monitors/test_poll_heartbeat.py -q`, this turn, result: `35
 passed` (33 pre-existing + 2 new, 0 failed, 0 modified-and-broken).
+**Correction (post-landing background warrant-hunter, `docs/reports/
+2026-08-31-hunt-round2-heartbeat-beacon.md`):** the empty-roster
+silence is *not* caused by the `poll-report:roster` sentinel-key
+exclusion as first written above and in the code's own comment — the
+hunter found that `watchdog.py`'s real empty-roster output
+(`"돌고 있는 스킬 세션 없음"` / `"이상 신호 없음"`, `watchdog.py:1762-1766`)
+carries no `[poll-report]` tag at all, so `TAG_RE` never produces a
+`poll-report:`-prefixed key for it in the first place, with or without
+the exclusion — confirmed live: `python3 -c "import re; TAG_RE=re.compile(r'^\[(poll-report|...)\]...'); print(TAG_RE.match('돌고 있는 스킬 세션 없음'))"` → `None`. The exclusion is inert
+against real production input; it only matters for
+`test_poll_heartbeat.py`'s own synthetic `EMPTY_ROSTER_REPORT` fixture
+(`"[poll-report] roster: empty\n..."`), which does not itself mirror
+`watchdog.py`'s real string (a pre-existing, unrelated inaccuracy in
+that fixture's own comment, not introduced by this round). No wrong
+observable output resulted (hunter's verdict: NO FINDING) — the code
+comment was corrected in the same commit as this correction to state
+the real mechanism instead of the original, causally-wrong claim.
 `on-the-record/monitors/poll-heartbeat.sh`'s own comment describing the
 (stale, per the review) removed backstop was corrected to describe the
 new mechanism instead of the deleted one.
