@@ -250,6 +250,74 @@ def _live_session_workspace_summary(work: str) -> str:
     return f"손댄 파일 {len(paths)}건: {shown}{more}, {record_note}"
 
 
+def _last_tool_activity_summary(log_path: Path | None) -> str:
+    """이슈 #2904 (재구성 2차, 2026-08-31 두 번째 코멘트): 파일 diff는
+    결과고 도구 호출은 행위다 — 이미 dirty 한 파일이 그대로 dirty 인 채로
+    2분이 흘렀을 때, 그 2분이 grep/Read/Edit/테스트 실행으로 채워졌는지
+    (투자 중) 아무 것도 안 했는지(정지)는 파일 상태만으로는 구별되지
+    않는다(위 `_live_session_workspace_summary()`가 겪는 바로 그 반례,
+    운영자가 이 세션 자신에게 실측했다). 그 구별은 세션 자신의
+    트랜스크립트(`entry["log"]`, `watchdog_check_one()`이 이미 오프셋
+    증분으로 읽는 바로 그 파일)에만 있다 — 이 함수는 그 로그의 마지막
+    tool_use 이름과 절대 타임스탬프(HH:MM:SS UTC)를 읽는다. 새 이벤트를
+    쓰지 않는다, 세션이 이미 쓰는 로그를 읽을 뿐이다.
+
+    절대 타임스탬프를 쓰는 이유: "N초 전" 같은 상대 표현은 마지막 도구
+    호출이 전혀 안 바뀌어도 틱마다 문자열이 달라져 delta-suppression을
+    무력화한다(조용한 틱이 조용히 안 있게 된다) — 마지막 도구가 그대로면
+    절대 타임스탬프도 그대로라 문자열이 안 바뀌고, 새 도구 호출이 있어야만
+    바뀐다."""
+    if log_path is None or not log_path.exists():
+        return "도구 호출 로그 없음"
+    try:
+        size = log_path.stat().st_size
+        with log_path.open("rb") as fh:
+            fh.seek(max(0, size - 65536))
+            raw = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return "도구 호출 로그 읽기 실패"
+    last_tool = None
+    last_ts = None
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant":
+            continue
+        ts_raw = obj.get("timestamp")
+        ts = None
+        if isinstance(ts_raw, str):
+            try:
+                ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00")).timestamp()
+            except ValueError:
+                ts = None
+        for block in (obj.get("message") or {}).get("content") or []:
+            if not isinstance(block, dict) or block.get("type") != "tool_use":
+                continue
+            name = block.get("name")
+            if not name:
+                continue
+            inp = block.get("input") or {}
+            detail = inp.get("file_path") or inp.get("command") or inp.get("pattern") or ""
+            if isinstance(detail, str) and detail:
+                detail = detail.strip().splitlines()[0][:40]
+            else:
+                detail = ""
+            last_tool = f"{name} {detail}".strip()
+            if ts is not None:
+                last_ts = ts
+    if last_tool is None:
+        return "도구 호출 기록 없음"
+    if last_ts is not None:
+        stamp = datetime.fromtimestamp(last_ts, tz=timezone.utc).strftime("%H:%M:%S")
+        return f"마지막 도구 호출: {last_tool} ({stamp} UTC)"
+    return f"마지막 도구 호출: {last_tool}"
+
+
 def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
                      anomalies: list[str] | None = None,
@@ -431,8 +499,10 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                           f"times with a flat progress indicator, RUNNING "
                           f"(advisory)"})
     workspace_summary = _live_session_workspace_summary(work) if work else "워크스페이스 없음"
+    activity_summary = _last_tool_activity_summary(
+        Path(entry["log"]) if entry.get("log") else None)
     return _diagnosis({"state": "HEALTHY", "next_action": "none",
-            "detail": f"{key}: 최근 로그 성장, RUNNING — {workspace_summary}"})
+            "detail": f"{key}: 최근 로그 성장, RUNNING — {workspace_summary}; {activity_summary}"})
 
 
 def _session_resume_claim(session_id: str, now: float | None = None) -> bool:

@@ -12,6 +12,7 @@ explicitly (empty state, not silence) and a later file touch changes the
 line's text -- which `poll_heartbeat_delta.py`'s existing per-key diff
 already re-emits on change and suppresses on no-change, with zero new
 plumbing on the emission side."""
+import json
 import os
 import subprocess
 import sys
@@ -26,6 +27,14 @@ import spawn  # noqa: E402
 import watchdog  # noqa: E402
 
 watchdog._sp = spawn
+
+
+def _tool_use_line(ts, name, **input_kwargs):
+    return json.dumps({
+        "type": "assistant", "timestamp": ts,
+        "message": {"content": [
+            {"type": "tool_use", "name": name, "input": input_kwargs}]},
+    })
 
 
 def _git(cwd, *a):
@@ -154,6 +163,71 @@ class DeltaSuppressionForWorkspaceProgressTest(unittest.TestCase):
         line2 = "[poll-report] issue-2904/demo: HEALTHY — issue-2904/demo: 최근 로그 성장, RUNNING — 손댄 파일 1건: spawn.py, 기록 아직 없음"
         out2 = self._run_delta(state_path, line2, 1010)
         self.assertIn("spawn.py", out2)
+
+
+class LastToolActivitySummaryTest(unittest.TestCase):
+    """Issue #2904, second correction (issuecomment-5472429696): file diff
+    is the result, the tool call is the act -- the same set of dirty files
+    stays dirty whether the session spent the last two minutes actively
+    grepping/reading/editing or doing nothing at all, so
+    `_live_session_workspace_summary()` alone reproduces the exact defect
+    this issue is about. `_last_tool_activity_summary()` reads the
+    session's own transcript log -- the same file `watchdog_check_one()`
+    already scans incrementally for anomaly detection -- for its last
+    `tool_use` block, and reports it with an ABSOLUTE timestamp rather
+    than a relative age specifically so an unchanged last-tool-call
+    produces byte-identical text tick to tick (relative "Ns ago" text
+    would defeat delta-suppression by changing every single tick even
+    when nothing new happened)."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.log_path = Path(self._tmpdir.name) / "session.log"
+        self.addCleanup(self._tmpdir.cleanup)
+
+    def test_missing_log_reports_explicit_empty_state(self):
+        summary = watchdog._last_tool_activity_summary(self.log_path)
+        self.assertEqual(summary, "도구 호출 로그 없음")
+
+    def test_log_with_no_tool_use_reports_explicit_empty_state(self):
+        self.log_path.write_text('{"type": "assistant", "timestamp": "2026-08-31T00:58:00Z", "message": {"content": [{"type": "text", "text": "thinking"}]}}\n')
+        summary = watchdog._last_tool_activity_summary(self.log_path)
+        self.assertEqual(summary, "도구 호출 기록 없음")
+
+    def test_names_the_tool_and_its_target_and_an_absolute_timestamp(self):
+        self.log_path.write_text(
+            _tool_use_line("2026-08-31T00:59:13Z", "Edit", file_path="watchdog.py") + "\n")
+        summary = watchdog._last_tool_activity_summary(self.log_path)
+        self.assertIn("Edit", summary)
+        self.assertIn("watchdog.py", summary)
+        self.assertIn("00:59:13", summary)
+
+    def test_investigating_vs_stalled_distinguished_by_a_new_tool_call(self):
+        """The exact scenario in the issue's own live demonstration: two
+        minutes of unchanged `git status` output that were actually full
+        of grep/Read/Edit/test activity. A later tool call must change
+        this summary even though the workspace-level file set (checked
+        separately) does not."""
+        self.log_path.write_text(
+            _tool_use_line("2026-08-31T00:58:20Z", "Grep", pattern="roster_watchdog") + "\n")
+        first = watchdog._last_tool_activity_summary(self.log_path)
+        with self.log_path.open("a") as f:
+            f.write(_tool_use_line("2026-08-31T00:59:48Z", "Bash",
+                                    command="python3 -m pytest test/x.py") + "\n")
+        second = watchdog._last_tool_activity_summary(self.log_path)
+        self.assertNotEqual(first, second)
+        self.assertIn("Bash", second)
+
+    def test_unchanged_log_produces_byte_identical_text_not_a_ticking_age(self):
+        """This is the delta-suppression guarantee itself: call the
+        function twice against the exact same (unappended) log and
+        require byte-identical output -- a relative-age implementation
+        would fail this by construction."""
+        self.log_path.write_text(
+            _tool_use_line("2026-08-31T00:58:20Z", "Read", file_path="spawn.py") + "\n")
+        first = watchdog._last_tool_activity_summary(self.log_path)
+        second = watchdog._last_tool_activity_summary(self.log_path)
+        self.assertEqual(first, second)
 
 
 if __name__ == "__main__":
