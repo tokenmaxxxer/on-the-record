@@ -764,6 +764,58 @@ def t_heartbeat_bound_with_returned_pr_emits_only_those_lines():
         assert "monitoring active" not in r2.stdout, r2.stdout
 
 
+def t_heartbeat_bound_with_tracked_roster_emits_monitor_heartbeat():
+    """issue #2915: a non-empty, unchanging-HEALTHY roster (real tracked
+    entries, not the "roster: empty"/"quiet, nothing in flight" sentinel
+    EMPTY_ROSTER_REPORT covers) ticked past the 1800s bound now emits a
+    [monitor-heartbeat] line carrying the entry's actual current state --
+    the bounded, content-carrying beacon this issue's round-2 fix adds.
+    Not the #1732-removed content-free "monitoring active, no changes"
+    line: the emitted text is the real per-entry state, not a static
+    phrase."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+
+        r1 = _run_tick(checkout, home, _healthy_report(0))
+        assert r1.returncode == 0, r1.stderr
+        assert "[poll-report] issue-500/implementation: HEALTHY" in r1.stdout, r1.stdout
+
+        _force_last_emit_epoch(checkout, 0)
+        r2 = _run_tick(checkout, home, _healthy_report(1))
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.startswith("[monitor-heartbeat] issue-500/implementation: HEALTHY"), r2.stdout
+        assert "monitoring active" not in r2.stdout, r2.stdout
+
+        import json
+        state_path = checkout / "runs" / "poll_heartbeat_last_state.json"
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert state["last_emit_epoch"] != 0, \
+            f"last_emit_epoch must advance once the beacon actually emits: {state}"
+
+
+def t_heartbeat_bound_not_yet_crossed_stays_silent_for_tracked_roster():
+    """issue #2915 must-not (no overhead increase / no new noise source):
+    the same unchanging-HEALTHY roster as above, on a tick where the 1800s
+    bound has NOT been crossed (last_emit_epoch left at "now"), must stay
+    exactly as silent as pre-#2915 -- the beacon is bounded to the
+    existing 1800s cadence, not a new, tighter one."""
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+
+        r1 = _run_tick(checkout, home, _healthy_report(0))
+        assert r1.returncode == 0, r1.stderr
+
+        r2 = _run_tick(checkout, home, _healthy_report(1))
+        assert r2.returncode == 0, r2.stderr
+        assert r2.stdout.strip() == "", r2.stdout
+
+
 def t_returned_pr_new_item_gets_distinct_marker_ahead_of_routine_line():
     """issue #2180 acceptance check 1: a newly-returned PR produces a
     distinct, unmistakable [new-returned-pr] signal on the tick it first

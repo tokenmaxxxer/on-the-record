@@ -240,9 +240,17 @@ while true; do
     # every tick regardless of diff. Persisted as JSON at
     # runs/poll_heartbeat_last_state.json, the #1117 sibling-file
     # convention's successor (docs/issue-1220/proposals/delta-only-monitor-emission.md).
-    # Also emits a bounded ~30min aliveness heartbeat when a due tick would
-    # otherwise be fully suppressed for that long, so the Monitor channel
-    # never goes silent past a bound (issue req #1220).
+    # issue #1732 removed the #1220-era unconditional ~30min "monitoring
+    # active, no changes" backstop outright (content-free, exactly what
+    # #2913/issue #2915 forbid reintroducing). issue #2915 round 2 adds a
+    # narrower, content-CARRYING replacement in poll_heartbeat_delta.py's
+    # own 1800s-bound branch: a non-empty tracked roster that stays fully
+    # suppressed for 1800s now re-emits each entry's real current state
+    # under a `[monitor-heartbeat]` tag (not a static phrase). A genuinely
+    # empty roster (nothing tracked) stays exactly as silent past the
+    # bound as #1732 left it — see poll_heartbeat_delta.py and
+    # docs/handbooks/monitor-liveness.md's "Issue #2915" section for the
+    # measured before/after.
     # issue #2266 (fix for #1719's landmine, made worse by #2181): the
     # delta-diff logic used to live inline as a `python3 - <<'PY' ... PY`
     # heredoc inside this $( ) capture -- bash 3.2 miscounts quote nesting
