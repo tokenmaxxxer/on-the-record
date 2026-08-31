@@ -1595,6 +1595,82 @@ def t_alive_stamp_mutex_max_age_recovers_unreaped_holder_issue_2919():
         )
 
 
+def t_alive_stamp_mutex_evicted_live_holder_release_does_not_corrupt_other_holder_issue_2919():
+    """issue #2919 round 4 (adversarial-review-67ff85fb finding 1):
+    regression pin for the release-path ownership-check fix. Reproduces
+    the reviewer's own live-reproduced 3-worker attack: worker A holds
+    the lock genuinely alive but slow; worker B's own max-age valve
+    force-reclaims A's still-live lock (the pre-existing, disclosed
+    #2948 trade-off -- NOT what this test is checking); worker D then
+    contends normally against B. Before this fix, A's own eventual,
+    unconditional `rm -f` on release deleted whatever lockfile was
+    THEN present -- by that point B's, not A's own already-gone slot --
+    letting D enter alongside still-active B. This test proves D's
+    ENTER never precedes B's EXIT, i.e. D and B are never concurrently
+    inside the critical section, and that no lockfile is left behind
+    once all three workers have completed."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        harness = _write_mutex_harness(tmp)
+        stamp = tmp / "stamp"
+        logfile = tmp / "log"
+
+        def _popen(worker_id: str, hold_seconds: str, max_age: str) -> subprocess.Popen:
+            env = dict(os.environ)
+            env["MUTEX_TEST_WORKER_ID"] = worker_id
+            env["MUTEX_TEST_LOGFILE"] = str(logfile)
+            env["MUTEX_TEST_HOLD_SECONDS"] = hold_seconds
+            env["MUTEX_TEST_KILL_SELF"] = "0"
+            env["POLL_HEARTBEAT_ALIVE_LOCK_MAX_AGE"] = max_age
+            return subprocess.Popen(
+                ["bash", str(harness), str(stamp)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=env,
+            )
+
+        # A: never self-triggers its own valve as a waiter (it is not
+        # waiting -- it wins the empty lock immediately), holds 5s
+        # (genuinely alive, merely slow).
+        proc_a = _popen("A", "5", "100")
+        time.sleep(0.5)
+        # B: a short max_age so its OWN wait exceeds it quickly and
+        # force-reclaims A's still-live lock -- the disclosed #2948
+        # trade-off this test relies on to set up the scenario, not the
+        # defect under test. B then holds 3s of its own.
+        proc_b = _popen("B", "3", "1")
+        time.sleep(2.5)
+        # D: never self-triggers, starts well after B has entered and
+        # before B releases -- must be blocked by B's genuinely-valid
+        # lock until B's own real release, not let in by A's stale rm.
+        proc_d = _popen("D", "0.1", "100")
+
+        out_a, err_a = proc_a.communicate(timeout=20)
+        out_b, err_b = proc_b.communicate(timeout=20)
+        out_d, err_d = proc_d.communicate(timeout=20)
+        assert proc_a.returncode == 0, f"worker A must exit 0: {err_a}"
+        assert proc_b.returncode == 0, f"worker B must exit 0: {err_b}"
+        assert proc_d.returncode == 0, f"worker D must exit 0: {err_d}"
+
+        events = _parse_mutex_log(logfile)
+        for w in ("A", "B", "D"):
+            assert w in events and "ENTER" in events[w] and "EXIT" in events[w], events
+
+        assert events["B"]["ENTER"] < events["A"]["EXIT"], (
+            f"test setup did not exercise the scenario -- B must force-reclaim "
+            f"A's lock while A is still alive: {events}"
+        )
+        assert events["D"]["ENTER"] >= events["B"]["EXIT"], (
+            f"worker D entered before worker B (still genuinely active) released "
+            f"the lock -- A's release corrupted B's live lock and let D in: {events}"
+        )
+        log_text = logfile.read_text(encoding="utf-8")
+        assert "release skipped" in log_text, (
+            f"A's release must be logged as skipped (ownership mismatch), not silent: {log_text}"
+        )
+        assert not (stamp.with_name(stamp.name + ".lockfile")).exists(), \
+            "no lockfile should remain once all three workers have completed"
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
 
 
