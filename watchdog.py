@@ -213,6 +213,43 @@ def _pr_state_from_index(pr_index: dict, branch: str) -> int | None:
     return pr.get("number") if pr.get("state") in ("OPEN", "MERGED") else None
 
 
+def _live_session_workspace_summary(work: str) -> str:
+    """이슈 #2904 (재구성, 2026-08-31 이슈 코멘트): `gh`는 세션이 PR을 열어야
+    비로소 그 존재를 본다 — 커밋도 PR도 없는 15분짜리 진행 중 세션은 `gh`
+    로는 완전히 안 보인다. 워크스페이스는 그 순간부터 보인다: 로컬
+    `git status --porcelain` 하나로 지금 손대는 파일과 기록(record) 시작
+    여부를 매 틱 보고한다 — 새 `gh` 호출 없음, 새 폴링 루프 없음(이미 도는
+    이 watchdog 틱에 얹는다). 아무 것도 안 건드린 세션도 "아직 없음"을
+    보고한다 — 침묵이 아니라 명시적 빈 상태(이슈가 요구하는 empty-state
+    계약)."""
+    # `-uall`: a brand-new record file lives under a directory
+    # (`docs/issue-<n>/reports/`) that does not exist yet on any tracked
+    # branch -- plain `--porcelain` collapses a wholly-untracked directory
+    # to one `?? docs/` line, which would hide exactly the "record
+    # started" case this function exists to name.
+    st = subprocess.run(["git", "-C", work, "status", "--porcelain", "-uall"],
+                        capture_output=True, text=True)
+    if st.returncode != 0:
+        return "워크스페이스 상태 확인 실패(git status)"
+    lines = [l for l in st.stdout.splitlines() if l.strip()]
+    if not lines:
+        return "손댄 파일 없음"
+    paths = []
+    record_started = False
+    for line in lines:
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ", 1)[1]
+        paths.append(path)
+        if _sp._RECORD_PATH_RE.search(path):
+            record_started = True
+    paths.sort()
+    shown = ", ".join(paths[:5])
+    more = f" (+{len(paths) - 5}개 더)" if len(paths) > 5 else ""
+    record_note = "기록 시작함" if record_started else "기록 아직 없음"
+    return f"손댄 파일 {len(paths)}건: {shown}{more}, {record_note}"
+
+
 def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
                      anomalies: list[str] | None = None,
@@ -393,8 +430,9 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                 "detail": f"{key}: lease renewed {_sp.LEASE_FLAT_RENEWALS_K}+ "
                           f"times with a flat progress indicator, RUNNING "
                           f"(advisory)"})
+    workspace_summary = _live_session_workspace_summary(work) if work else "워크스페이스 없음"
     return _diagnosis({"state": "HEALTHY", "next_action": "none",
-            "detail": f"{key}: 최근 로그 성장, RUNNING"})
+            "detail": f"{key}: 최근 로그 성장, RUNNING — {workspace_summary}"})
 
 
 def _session_resume_claim(session_id: str, now: float | None = None) -> bool:
