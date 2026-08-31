@@ -242,3 +242,14 @@ correction) is not itself re-submitted for another adversarial-review
 round by this session; per role scope, a future independent review of
 this PR, if the orchestrator schedules one, is the next possible loop
 iteration, not something this record schedules itself.
+
+skill-verdict: diagnose-first — applied: invoked; called via the Skill
+tool this turn before deciding between "build a consumer" and "withdraw
+the claim." The record above follows the Stage-2 (verify the "no
+consumer exists" cause with fresh evidence, not the review's own
+say-so) and Stage-3 (reversibility/option-comparison, argued not
+asserted) shape.
+skill-verdict: observability-methodology-selection — not-applicable: no
+new signal-bearing surface, RED/USE choice, or redundant Golden-Signals
+overview is at issue in a detection-latency documentation correction.
+other mounted skills: not triggered
