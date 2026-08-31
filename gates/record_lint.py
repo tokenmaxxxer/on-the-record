@@ -1561,7 +1561,7 @@ def find_records(root: Path, sweep_cutoff: bool = True) -> list[Path]:
     """All `docs/issue-*/reports/*.md` record files tracked or present
     under `root` — used by the whole-repo scan mode. `sweep_cutoff`
     (default on, matching this function's only callers: `main()`'s
-    directory mode and `patrol_queue`'s sweep-lane scanner) skips a
+    directory mode and `precision_measure`'s sweep-lane scanner) skips a
     record last authored before `SWEEP_CUTOFF_DATE` — the linter cannot
     grade a record frozen before the rules it's graded against existed."""
     out = []

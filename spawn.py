@@ -322,16 +322,12 @@ _SKILL_JUDGE_PERF_MIN_EVENTS = consult._SKILL_JUDGE_PERF_MIN_EVENTS
 _MIN_PLAUSIBLE_JUDGE_WALL_S = consult._MIN_PLAUSIBLE_JUDGE_WALL_S
 _LEDGER_TAIL_READ_BYTES = consult._LEDGER_TAIL_READ_BYTES
 PANEL_TIMEOUT = consult.PANEL_TIMEOUT
-JUDGE_TIMEOUT = consult.JUDGE_TIMEOUT
-JUDGE_MAX_SKILLS_PER_MERGE = consult.JUDGE_MAX_SKILLS_PER_MERGE
 _JUDGE_EXCLUDED_CORE_PLUGINS = consult._JUDGE_EXCLUDED_CORE_PLUGINS
-_JUDGE_SKILL_EXCLUSIONS = consult._JUDGE_SKILL_EXCLUSIONS
 _PanelMessagingUnavailable = consult._PanelMessagingUnavailable
 _VERB_INSTRUCTIONS = consult._VERB_INSTRUCTIONS
 _VERB_JSON_SHAPE = consult._VERB_JSON_SHAPE
 _VERB_REQUIRED_KEY = consult._VERB_REQUIRED_KEY
 _append_consult_trace = consult._append_consult_trace
-_append_judge_trace = consult._append_judge_trace
 _append_panel_turn = consult._append_panel_turn
 _commit_consult_trace = consult._commit_consult_trace
 _composed_consult_skill_source = consult._composed_consult_skill_source
@@ -348,20 +344,12 @@ _consult_trace_path = consult._consult_trace_path
 _cross_family_skill_matches_with_consult = consult._cross_family_skill_matches_with_consult
 _evidence_stamp_summary = consult._evidence_stamp_summary
 _extract_sendmessage_turns = consult._extract_sendmessage_turns
-_judge_cmd_and_env = consult._judge_cmd_and_env
-_judge_prefilter = consult._judge_prefilter
-_judge_skills_run_today = consult._judge_skills_run_today
-_judge_trace_path = consult._judge_trace_path
-_judge_validate = consult._judge_validate
 _panel_degrade = consult._panel_degrade
 _panel_record_path = consult._panel_record_path
 _panel_slug = consult._panel_slug
 _parse_consult_verdict = consult._parse_consult_verdict
 _parse_verb_json = consult._parse_verb_json
 _persist_consult_raw_output = consult._persist_consult_raw_output
-_readonly_bash_allow = consult._readonly_bash_allow
-_readonly_plugin_dirs = consult._readonly_plugin_dirs
-_readonly_settings = consult._readonly_settings
 _run_panel_session = consult._run_panel_session
 rank_skills = consult.rank_skills
 _skill_judge_consult = consult._skill_judge_consult
@@ -373,7 +361,6 @@ _verb_cmd = consult._verb_cmd
 consult_cmd = consult.consult_cmd
 draft_cmd = consult.draft_cmd
 ideate_cmd = consult.ideate_cmd
-judge_cmd = consult.judge_cmd
 panel_cmd = consult.panel_cmd
 review_cmd = consult.review_cmd
 
@@ -2165,7 +2152,7 @@ def main() -> int:
     ap.add_argument("--model",
                     help="이 스폰 한 번만 쓸 모델 오버라이드: --model > "
                          "MUSTER_SKILL_MODEL > role_model.txt > \"sonnet\" (이슈#1736). "
-                         "judge prefilter/validator 의 하드코딩 haiku 는 영향받지 않는다")
+                         "skill_judge 자문의 하드코딩 haiku 는 영향받지 않는다")
     ap.add_argument("--skills", default=None,
                     help="이슈 #2572: 유일한 스폰 형태 — "
                          "spawn.py --skills <스킬>[,<스킬>...] \"<맡길 일>\" "
@@ -2213,7 +2200,6 @@ def main() -> int:
                     help="--skill-candidates 전용: BM25 프리필터에 skill_judge "
                          "자문 단계까지 더한다(스폰 내부 경로와 같은 함수, 같은 "
                          "타임아웃/fail-open)")
-    ap.add_argument("--merge", help="judge <role-or-skill> --merge <sha>: 판단할 머지의 커밋 sha")
     ap.add_argument("--unattended", action="store_true",
                     help="사람이 없는 실행. mint 는 안 되고, 휴먼 게이트는 선다")
     ap.add_argument("--limit", type=int, default=12,
@@ -2642,15 +2628,6 @@ def main() -> int:
             result = verb_fn(a.task, a.consult_question, issue=a.issue, cwd=a.cwd)
         except Exception as e:
             sys.exit(f"{a.role} 실패(트레이스는 남았다): {e}")
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-        return 0
-    if a.role == "judge":
-        if not a.task or not a.merge:
-            sys.exit('사용법: spawn.py judge <역할> --merge <sha> [-C <repo>]')
-        try:
-            result = judge_cmd(a.task, a.merge, cwd=a.cwd)
-        except Exception as e:
-            sys.exit(f"judge 실패(트레이스는 남았다): {e}")
         print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0
     if a.role == "findings-due":

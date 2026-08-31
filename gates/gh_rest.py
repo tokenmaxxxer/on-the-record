@@ -155,12 +155,11 @@ def fetch_open_prs(repo: Path, run: Callable | None = None,
                     cache_path: Path | None = None) -> list[dict] | None:
     """issue #1681 hot path: the recurring PR-poll helper, REST + ETag-
     conditional (never GraphQL — `gh pr list --json` bills GraphQL
-    quota, `gh api .../pulls` does not). Follows
-    `patrol_board.find_board_issue`'s `gh api -i` + `If-None-Match` +
-    304 pattern: an unchanged poll costs one REST call and bills no
-    fresh data transfer, reusing the cached list on a 304. Returns
-    `None` on any `gh`/git/parse failure (fail-closed, same convention
-    as the other fetch_* helpers in this module)."""
+    quota, `gh api .../pulls` does not). `gh api -i` + `If-None-Match` +
+    304: an unchanged poll costs one REST call and bills no fresh data
+    transfer, reusing the cached list on a 304. Returns `None` on any
+    `gh`/git/parse failure (fail-closed, same convention as the other
+    fetch_* helpers in this module)."""
     run = run or subprocess.run
     owner_and_repo = owner_repo(repo, run=run)
     if owner_and_repo is None:
@@ -191,8 +190,7 @@ def fetch_open_prs(repo: Path, run: Callable | None = None,
 
     status, headers, body = _split_gh_api_i_output(r.stdout)
     # `gh api` exits non-zero on HTTP 304 — the status must be parsed
-    # before the returncode check, or the cache-hit path never fires
-    # (same pitfall noted at patrol_board.py:239-243).
+    # before the returncode check, or the cache-hit path never fires.
     if r.returncode != 0 and status != 304:
         return None
     if status == 304:

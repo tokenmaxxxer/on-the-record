@@ -3,18 +3,15 @@ command instead of a bespoke session.
 
 Protocol (frozen from the issue #1614 measurement, 2026-08-16):
   population = every verified sweep-lane record_lint finding (per-rule
-  disabled rules already excluded by `patrol_queue.run_scan`'s own
-  `SWEEP_DISABLED_RULES` filter — this tool measures precision on the
-  ENABLED-rule population only, consistent with what the sweep lane
-  actually enqueues).
+  disabled rules already excluded by `SWEEP_DISABLED_RULES` below — this
+  tool measures precision on the ENABLED-rule population only).
   sample = stratified random, proportional by rule, floor 5 per rule
   present, target n=100 (or the full population when smaller), seeded.
   judged (TP/FP) by a human/LLM reviewer against the Tricorder
   effective-FP criterion ("would the record's owner take positive
   action?") — this module does not itself judge (no LLM call in any
-  `gates/` module, same convention `patrol_queue.py` already holds); it
-  builds the sample, then reads back a judgments file mapping each
-  sample's `id` to `"TP"`/`"FP"`.
+  `gates/` module); it builds the sample, then reads back a judgments
+  file mapping each sample's `id` to `"TP"`/`"FP"`.
   report = per-rule + overall precision with a one-sided 90% Wilson
   lower bound, finite-population-corrected, plus the pre-registered
   pass/kill rule from #1614: overall point >=90% AND Wilson LB >=85%;
@@ -30,26 +27,108 @@ import argparse
 import json
 import math
 import random
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-import patrol_queue  # noqa: E402
+import record_lint  # noqa: E402
+
+SCANNER_ID_RECORD_LINT = "record_lint"
+
+# issue #1614 — sweep-lane precision measurement (n=100 stratified,
+# 2026-08-16) found rules #791 (0%), #793 (7%), #870 (9%) all below the
+# per-rule 70% kill threshold; disabled for the SWEEP lane until fixed
+# and re-measured. The diff lane is unaffected — record_lint's checks
+# still run there unchanged (docs/issue-1614 Acceptance: diff-lane
+# behavior stays unchanged).
+SWEEP_DISABLED_RULES = ("791", "793", "870")
+
+_QUOTED_SPAN = re.compile(r"'([^']+)'|`([^`]+)`")
+_RULE_ID_RE = re.compile(r"issue #(\d+)")
+
+
+def _finding_rule_id(finding: dict) -> str | None:
+    """The `issue #<n>` rule id a record_lint violation message names —
+    read from the first context line (the full violation sentence)."""
+    ctx = finding.get("context_lines") or []
+    if not ctx:
+        return None
+    m = _RULE_ID_RE.search(ctx[0])
+    return m.group(1) if m else None
+
+
+def _quoted_excerpt(message: str) -> str | None:
+    """record_lint violation messages carry their evidence as a quoted
+    span lifted verbatim from the record (e.g. "...: 'some record text'
+    — explanation"), before the final " — " separator. Pull that span out
+    so `verify()` checks against text that can actually appear in the
+    file — the full violation sentence (rule name + explanation) never
+    does."""
+    head = message.split(" — ")[0]
+    matches = _QUOTED_SPAN.findall(head)
+    if not matches:
+        return None
+    last = matches[-1]
+    return last[0] or last[1]
+
+
+def scan_record_lint(repo_root: Path) -> list[dict]:
+    """Run record_lint.find_records/lint_record over `repo_root` and
+    translate violations into finding dicts (pre-fingerprint). A
+    violation with no verbatim-quoted span (e.g. a reach-check rule
+    naming a path, not record text) has no anchor `verify()` can confirm
+    and is dropped at scan time rather than churning the verify-drop
+    counter."""
+    findings = []
+    for rec in record_lint.find_records(repo_root):
+        violations = record_lint.lint_record(rec)
+        rel = rec.relative_to(repo_root).as_posix()
+        for v in violations:
+            excerpt = _quoted_excerpt(v)
+            if excerpt is None:
+                continue
+            findings.append({
+                "scanner_id": SCANNER_ID_RECORD_LINT,
+                "path": rel,
+                "finding_class": "record-lint-violation",
+                "excerpt": excerpt,
+                # The full violation message (rule + quoted span), not the
+                # excerpt alone: keeps two different rules that happen to
+                # quote overlapping record text from colliding onto one
+                # fingerprint, while staying stable under unrelated edits
+                # elsewhere in the record (no line numbers involved).
+                "context_lines": [v],
+            })
+    return findings
+
+
+def verify(finding: dict, repo_root: Path) -> bool:
+    """Re-read the cited path and confirm the quoted excerpt is still
+    present verbatim (curl bug-bounty lesson: an unverifiable finding is
+    dropped, never sampled)."""
+    path = repo_root / finding["path"]
+    if not path.exists() or not path.is_file():
+        return False
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return finding["excerpt"].strip() in text
 
 
 def _population(repo_root: Path) -> list[dict]:
     """The verified sweep-lane finding population, one entry per
     finding, each carrying its rule id (already-disabled rules never
-    appear — `scan_record_lint`'s output, filtered the same way
-    `run_scan` filters it for the sweep lane)."""
-    raw = patrol_queue.scan_record_lint(repo_root)
+    appear — `scan_record_lint`'s output, filtered for the sweep lane)."""
+    raw = scan_record_lint(repo_root)
     kept = []
     for f in raw:
-        rid = patrol_queue._finding_rule_id(f)
-        if rid in patrol_queue.SWEEP_DISABLED_RULES:
+        rid = _finding_rule_id(f)
+        if rid in SWEEP_DISABLED_RULES:
             continue
         probe = {"path": f["path"], "excerpt": f["excerpt"]}
-        if not patrol_queue.verify(probe, repo_root):
+        if not verify(probe, repo_root):
             continue
         kept.append({
             "rule": rid or "unknown",

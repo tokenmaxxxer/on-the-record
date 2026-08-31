@@ -355,14 +355,6 @@ running/waiting/done 세 그룹 중 하나로 정상 분류된다.
      확인된 뒤에만
      `gh pr merge <n> --merge --delete-branch` — 머지된 브랜치는 반드시
      함께 지운다. 역할별 이슈 브랜치는 PR 이 생명주기다 (이슈 #294)
-     머지가 성공한 직후, 곧바로
-     `python3 gates/patrol_wiring.py run <repo-root> <merge-sha>` 를
-     돌리고 그 트레이스 출력을 확인한다 (issue #1597 E1) — 이것이
-     patrol 의 judge+board 자동 실행을 잇는 유일한 진입점이다. 저장소
-     루트에 `.on-the-record/patrol-disabled` 파일이 있으면 이 명령은
-     `[patrol-wiring] kill-switch active, skipping` 한 줄만 남기고 즉시
-     끝난다 — 그 파일을 만드는 것만으로 judge/board 자동 실행 전체를
-     끌 수 있다.
    - 거부 → `gh pr close <n>`
    - 랜딩은 기본적으로 PR 단위다(issue #407) — 한 PR 자신의 체크·기록·
      승인이 아니라 여러 PR에 걸친 원인으로 머지를 멈출 때는, 반드시

@@ -8,7 +8,7 @@
 # install's host permission classifier denies by default (measured #855:
 # "every gh call ... is denied by the permission mode in this session"):
 #   gh issue create, gh issue comment, gh pr comment, gh issue close,
-#   gh pr close, gh issue edit (issue #1586: patrol-board edit-in-place)
+#   gh pr close
 #
 # Same three-part design as merge-allow-gate.sh (#816) and
 # spawn-allow-gate.sh (#823):
@@ -19,7 +19,7 @@
 #       signal without one).
 #   (b) the whole, unstripped command tokenizes (shlex.shlex(posix=True,
 #       punctuation_chars=True) — issue #824/#834's strict command-shape
-#       design) to exactly one of the five recognized verb shapes, or that
+#       design) to exactly one of the four recognized verb shapes, or that
 #       shape prefixed by `cd DIR &&`, with no other chaining/substitution
 #       operator token anywhere else in the list. Keyed on command SHAPE
 #       only — no token past the verb's own subcommand name is inspected,
@@ -148,11 +148,6 @@ VERB_SHAPES = (
     ("gh", "pr", "comment"),
     ("gh", "issue", "close"),
     ("gh", "pr", "close"),
-    # issue #1586: patrol-channel board-issue edit-in-place (Renovate
-    # dependencyDashboard pattern) needs `gh issue edit` — shape-only,
-    # same as every other verb here; content (which issue, cap counts)
-    # is enforced at the patrol-board implementation layer, not here.
-    ("gh", "issue", "edit"),
 )
 
 
@@ -172,7 +167,7 @@ else:
     tail = None
 
 if tail is None:
-    sys.exit(0)  # not one of the five recognized verb shapes — unreached
+    sys.exit(0)  # not one of the four recognized verb shapes — unreached
 
 if any(_is_operator_token(t) for t in tail):
     sys.exit(0)  # a chaining/substitution operator survives outside the
