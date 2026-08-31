@@ -216,27 +216,55 @@ def main() -> None:
     else:
         last_emit_epoch = int(prev.get("last_emit_epoch", 0) or 0)
         if now - last_emit_epoch >= 1800:
-            # issue #1732: the periodic no-op liveness line is dropped --
-            # liveness is already covered by the alive marker
-            # (poll-heartbeat.sh:105-114). Only the undisposed-PR set #1719
-            # req#1 attached to this bound stays visible, and only when
-            # non-empty; an empty result leaves emitted_now False so
-            # last_emit_epoch (line 343) stays untouched.
+            # issue #1732: the periodic CONTENT-FREE "monitoring active, no
+            # changes" line stays dropped -- that removal is not reopened
+            # here. Only the undisposed-PR set #1719 req#1 attached to this
+            # bound stays visible, and only when non-empty; an empty result
+            # leaves emitted_now False so last_emit_epoch stays untouched.
             # issue #2180: this used to re-print every current [returned-pr]
             # line verbatim, which is exactly the "already-surfaced PR
             # repeats forever" complaint -- collapsed into one summary line
             # instead, so an already-surfaced PR's full line never reappears
             # here, only its continued presence as a count plus short label.
             returned_pr_keys = [k for k in order if k.startswith("returned-pr:")]
+            # issue #2915: a bounded (this same 1800s cadence, not a new,
+            # tighter one -- no reversion to the #2905/near-every-tick noise
+            # #2913 fixed), content-CARRYING beacon for the case #1732 did
+            # not have a test for: a non-empty roster (real tracked
+            # entries, not the "roster: empty"/"quiet, nothing in flight"
+            # sentinel shape) whose only reason for silence is that nothing
+            # about it changed. `poll-report:roster` is that sentinel's own
+            # diff key (TAG_RE on "[poll-report] roster: ..."); excluding
+            # it (not "any poll-report key") is what keeps a genuinely
+            # empty roster exactly as silent as #1732 left it --
+            # t_heartbeat_bound_with_no_returned_pr_emits_nothing pins that
+            # case unchanged. Each beacon line re-states a real tracked
+            # entry's actual current state (HEALTHY/STALLED/etc, not a
+            # static phrase) under a distinct `[monitor-heartbeat]` tag, so
+            # presence on this ~1800s cadence is legible to an external
+            # orchestrator watching the Monitor's own turn-independent tick
+            # loop as "still alive," while its content stays something a
+            # reader can act on even when nothing changed (a suspiciously
+            # long-idle HEALTHY entry, an unexpected roster shrink next
+            # tick, etc) -- not the #1732-removed content-free ping.
+            roster_keys = [
+                k for k in order
+                if k.startswith("poll-report:") and k != "poll-report:roster"
+            ]
+            beacon_lines = []
             if returned_pr_keys:
                 labels = []
                 for k in returned_pr_keys:
                     m2 = ISSUE_TOKEN_RE.search(curr[k])
                     labels.append(m2.group(0) if m2 else k.split(":", 1)[1].strip())
-                sys.stdout.write(
-                    "[returned-pr-pending] %d PR(s) still awaiting review: %s\n"
+                beacon_lines.append(
+                    "[returned-pr-pending] %d PR(s) still awaiting review: %s"
                     % (len(returned_pr_keys), ", ".join(labels))
                 )
+            for k in roster_keys:
+                beacon_lines.append("[monitor-heartbeat] " + curr[k].split("] ", 1)[1])
+            if beacon_lines:
+                sys.stdout.write("\n".join(beacon_lines) + "\n")
                 emitted_now = True
 
     new_state = {

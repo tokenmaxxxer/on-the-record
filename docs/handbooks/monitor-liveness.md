@@ -44,11 +44,14 @@ tests via `MONITOR_LIVENESS_STALE_SECONDS`). A missing stamp — the
 Monitor never started this session, or this checkout has no `runs/`
 history yet — is treated as stale from the very first check.
 
-**These numbers bound how fast the check flags a stale stamp once
-invoked (measured: ~29ms, issue #2915), not how often the check gets
-invoked.** See "Structural limit" below — as of this writing, invocation
-during a genuinely healthy, quiet stretch is not bounded by anything in
-this repo.
+**These numbers bound how fast this turn-driven check flags a stale
+stamp once invoked (measured: ~29ms, issue #2915), not how often the
+check gets invoked.** See "Structural limit" below — this turn-driven
+check's own invocation, during a genuinely healthy, quiet stretch, is not
+bounded by anything in this repo. A separate, independent mechanism
+(`poll_heartbeat_delta.py`'s own 1800s-bound beacon, issue #2915 round 2)
+bounds detection for a non-empty tracked roster specifically, without
+touching this check.
 
 When stale, the hook emits one line:
 
@@ -151,45 +154,117 @@ is what actually determined whether 360s/180s held in practice:
   true only if something reads that marker on a bounded cadence, which
   nothing did). From this point, a healthy/unchanging roster entry forces
   *no* tick to print anything, ever — zero notifications, zero forced
-  turns, no upper bound.
+  turns, no upper bound. This is **13 days** before the #2905/#2913
+  episode below (`date -d 2026-08-31 +%s` minus `date -d 2026-08-18 +%s`
+  = 1123200s / 86400 = 13), not twelve — round 1 of this issue's own
+  record stated twelve, an arithmetic error corrected in round 2.
 - **2026-08-30 (#2905) - 2026-08-31 (#2913):** a one-day window where an
   unrelated change (a per-tick last-tool-activity timestamp appended to
   the `[poll-report]` HEALTHY line) accidentally defeated the delta
   suppression, so nearly every ~120s Monitor tick emitted and forced a
   turn — incidentally invoking the staleness check on roughly that
-  cadence. #2913 correctly removed this noise (87.8% of a measured
-  transcript's notifications carried no actionable content); doing so
-  reverted the system to the #1732-onward state, not a new one.
+  cadence, and incidentally functioning as an unintentional liveness
+  signal that masked the #1732 gap for that one day. #2913 correctly
+  removed this noise (87.8% of a measured transcript's notifications
+  carried no actionable content). Removing it did not introduce the
+  turn-gated-only detection gap — that dates to #1732, 13 days earlier —
+  but it did make that pre-existing, latent gap operationally live again
+  for the first time since 2026-08-18, by removing the accidental signal
+  that had been incidentally covering it. Round 1 of this issue's own
+  record framed #2913 as "correctly reverted an accidental cadence, not a
+  new regression," which is true only in the narrow sense that #2913 did
+  not *create* the gap; it elides that #2913 is what made the gap live
+  again in practice, which this correction restates plainly.
 
-**Measured (issue #2915, executed-live against the current build):**
-30 simulated ticks of `poll_heartbeat_delta.py` fed an unchanging
-`HEALTHY` report over a 3600s (60-minute) span emitted on tick 0 only
-(the unconditional first-tick emit) — 0 of the remaining 29 ticks
-produced any stdout, i.e. zero Monitor notifications and zero forced
-turns across the full simulated hour. Separately, the staleness check
-itself, once a turn does invoke it, correctly flags a stale (1000s-old)
-stamp in ~29ms wall-clock — negligible next to the 360s/180s figures.
-**Verdict: the 360s/180s bound was never a code-enforced maximum
-detection latency; it is, and since 2026-08-18 has been, the latency of
-the check itself once some turn-triggering event happens to occur.**
-During a stretch with only a healthy `poll-heartbeat.sh` Monitor and no
-other live watch/roster traffic, the current build's worst-case
-detection latency for a dead monitor is unbounded — bounded only by
-whichever unrelated event (a real user message, or a different Monitor
-producing actual content) happens next. This is not worse than the
-388-minute #1497/#2182 incident this mechanism was built to catch (that
-incident is still caught the moment *any* turn fires), but it is not the
-360s/180s the handbook previously implied either, and has not been since
-12 days before the #2905/#2913 episode this issue was filed to look at.
+**Measured before (round 1, issue #2915, executed-live against the
+pre-round-2 build):** 30 simulated ticks of `poll_heartbeat_delta.py` fed
+an unchanging `HEALTHY` report over a 3600s (60-minute) span emitted on
+tick 0 only (the unconditional first-tick emit) and were silent for the
+remaining 29 — one number, two equivalent phrasings of the same run: "1
+of 30 ticks emit" (Test plan) and, counting only the 29 ticks *after* the
+unconditional tick-0 emit, "0 of 29" (Summary) — both describe the same
+measured run, not two different measurements. Separately, the staleness
+check itself, once a turn does invoke it, correctly flags a stale
+(1000s-old) stamp in ~29ms wall-clock — negligible next to the 360s/180s
+figures, and unchanged by round 2 (no code in `directive.sh` or
+`stop-poll-rearm.sh` was touched).
 
-No fix ships with this finding: the two structural options — (a) a new
-low-frequency content-free "still alive" notification, or (b) an
-OS-level scheduled wake outside this session — are respectively exactly
-what #2913 correctly removed (issue #2915's own must-not list forbids
-reintroducing it under another name) and the already-documented,
-already-out-of-scope hard boundary two paragraphs up. Filed as a
-follow-up rather than attempted here (see issue #2915's record's "Open
-findings").
+**Round 1 verdict:** the 360s/180s bound was never a code-enforced
+maximum detection latency during a healthy, quiet, tracked-roster stretch
+— worst case, unbounded, bounded only by whichever unrelated event (a
+real user turn, or a different Monitor producing actual content) happens
+next. Round 1 shipped this measurement and a handbook correction with
+**no code change**, reasoning that the two apparent structural fixes were
+each foreclosed: a low-frequency content-free "still alive" ping is
+exactly what #2913 (and, 13 days earlier, #1732) removed, and an
+OS-level scheduled wake is outside this repo's platform boundary
+(`docs/issue-801/proposals/technical-feasibility.md`). An independent
+adversarial review of round 1
+(`docs/issue-2915/reports/adversarial-review-a74dca2a.md`) found that
+conclusion unsupported against this issue's own acceptance bar ("any
+change must be shown to shorten, not lengthen, the measured latency") —
+a PR shipping zero code cannot satisfy "shorten" by construction — and
+named a concrete, previously-existing, cheap candidate mitigation round 1
+never evaluated: the #1220-era ~1800s unconditional backstop `#1732`
+removed. Round 1 treated "periodic" and "content-free" as the same thing
+— its "the two structural fixes are either explicitly forbidden... or
+already documented as an out-of-scope platform boundary" reasoning
+lumped any periodic beacon in with the issue's own content-free-ping
+must-not without checking whether a periodic-but-content-carrying beacon
+was available; it is, and round 2 below is it.
+
+**Round 2 fix, measured (issue #2915, executed-live against the current
+build):** `on-the-record/monitors/poll_heartbeat_delta.py`'s existing
+1800s bound-check branch (previously: emit an undisposed-PR summary if
+one exists, else stay silent) now also emits a `[monitor-heartbeat]`
+line per non-empty tracked roster entry, carrying that entry's real
+current state (not a static phrase), when nothing else fired for 1800s.
+A genuinely empty roster (`poll-report:roster`'s own sentinel key,
+`t_heartbeat_bound_with_no_returned_pr_emits_nothing`) is excluded and
+stays exactly as silent as #1732 left it — this fix narrows the gap for
+a *tracked, healthy, quiet* roster specifically, the scenario round 1's
+own simulation measured, not the fully-idle/nothing-tracked case, which
+remains genuinely unbounded (see below). Re-running round 1's own
+simulation shape (30 ticks, 3600s) against the new build: 2 of 30 ticks
+emit — tick 0 (unconditional first-tick, unchanged from round 1) and
+tick 15 (the 1800s bound, new) — and extending the same simulation to 90
+ticks (10800s / 3h) shows the emission strictly repeating every 1800s
+(gaps: 1800s, 1800s, 1800s, 1800s, 1800s — measured, not assumed).
+**Worst-case detection latency for a dead Monitor during a healthy,
+quiet, tracked-roster stretch is now bounded at ~1800s (30 minutes) from
+the build's own turn-independent tick loop, down from round 1's
+unbounded measurement** — an external orchestrator watching the
+Monitor's stdout stream (not this session's own turns) can infer death
+from the absence of an expected `[monitor-heartbeat]` line ~1800s after
+the last one, the same dead-man's-switch shape #1220 originally used, now
+scoped to only the roster that actually has something to report on.
+
+**What remains unbounded, disclosed rather than left implicit:** a
+fully-idle stretch with an *empty* tracked roster (nothing spawned, no
+returned PRs) still emits nothing past the 1800s bound — confirmed by
+re-running the same simulation against `EMPTY_ROSTER_REPORT`
+(`[poll-report] roster: empty` / `[poll-report] quiet, nothing in
+flight`): only tick 0 emits, ticks 1-29 stay silent, matching round 1's
+original finding exactly for that scenario. This is deliberate, not an
+oversight: `t_heartbeat_bound_with_no_returned_pr_emits_nothing` pins
+that an empty roster must stay silent past the bound (#1732's own
+acceptance check), and a periodic ping with nothing real to report would
+be the content-free line #2913/#1732 both removed. A session with zero
+spawned work and zero pending PRs has, by definition, nothing this
+mechanism can say that a reader could act on — the only honest
+mitigation for *that* specific case remains the already-documented,
+out-of-scope OS-level scheduled wake two sections up.
+
+**Call-site scope, disclosed:** round 1's enumeration ("exactly two call
+sites") was bounded to `hooks.json`'s production wiring
+(`directive.sh:272`, `stop-poll-rearm.sh:133`) and is accurate for that
+scope. `tests/run-orchestrate-tests.sh:18` also execs `directive.sh`
+directly, outside any `hooks.json` trigger, purely to test its
+stdout-injection behavior — since the staleness-check function runs
+unconditionally near the bottom of `directive.sh`, that test invocation
+also exercises it. Test-only, not reachable from a live session, and
+does not change the production-path conclusions above; named here so the
+call-site count reads as scoped rather than exhaustive.
 
 ## Quiet ticks (requirement 1)
 
