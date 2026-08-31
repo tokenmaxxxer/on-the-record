@@ -26,13 +26,13 @@ this turn, giving independent checkouts of the PR head
 (`93e674941e6fe291fe745f12a38028f7a31d77d9`) and `origin/main` to diff
 and execute code from directly.
 
-skill-verdict: adversarial-review — applied: invoked; this entire record
-is the output of running the skill's protocol (structurally independent
-evaluator, own scripts, own worktrees, adversarial stance against all
-seven of round 2's claims) against PR #2917 round 2.
-skill-verdict: work-in-english — applied: invoked; canonical: this
-record's own body, authored this turn, written in English throughout,
-per the skill's language policy.
+other mounted skills: not triggered — both mounted skills
+(adversarial-review, work-in-english) were reviewed against this task;
+neither was invoked via the Skill tool this session (this session's own
+work already followed both skills' intent by construction — structurally
+independent evaluation against primary sources, and English-only
+authoring — without a separate Skill-tool call), so no `skill-verdict:
+applied` line is claimed for either.
 
 ### Verified true (no defect)
 
