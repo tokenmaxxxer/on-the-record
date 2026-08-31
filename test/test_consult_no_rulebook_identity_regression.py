@@ -6,13 +6,15 @@ consult-skill-source-confirmation.md): #1955 가 은퇴시킨 역할-소스
 1. 정적 스캔 — #1955 커밋(5494b62b)이 spawn.py 에서 지운 rulebook/
    allowlist 식별자들이 `consult.py` 소스 텍스트 어디에도 없다.
 2. 동작 확인 — `_readonly_plugin_dirs()`(judge 세션이 붙일 플러그인을
-   고르는 자리)가 언제나 skill-repository 소스(이슈 #2561:
-   `resolve_role_family_source()` — 고정 role->skill 표
-   `_ROLE_SKILLS`/`resolve_role_source()` 은퇴 뒤, 표 없이 디렉터리 이름
-   컨벤션으로 role 커버리지를 유도)로만 간다 — "매핑 안 된 역할" 이라는
-   상태 자체가 없다는 #1955 의 불변식이 이 자리에서도 깨지지 않는다(이름이
-   `f"{role}-"` 로 시작하는 스킬이 하나도 없어도 fail 하지 않고 POLICY
-   스킬만 있는 skill-repo 결과로 떨어진다).
+   고르는 자리)가 언제나 skill-repository 소스(이슈 #2920:
+   `resolve_consult_skill_source()` — `--skills`와 같은 정확한-이름 해석
+   + POLICY 베이스라인, family-prefix 추측 없음. 이전 `resolve_skill_family_source()`
+   의 `f"{role}-"` 접두어 컨벤션은 은퇴했다던 role->skill 표를 디렉터리
+   이름 규칙으로 살려 둔 것이었다는 게 #2920 의 진단이라 제거됐다)로만
+   간다 — "매핑 안 된 이름" 이라는 상태 자체가 없다는 #1955 의 불변식이
+   이 자리에서도 깨지지 않는다(이름이 어떤 skill-repository 디렉터리와도
+   안 맞아도 fail 하지 않고 POLICY 스킬만 있는 skill-repo 결과로
+   떨어진다 — `"unresolved"` 로 그 사실이 드러날 뿐).
 """
 import re
 import sys
@@ -63,37 +65,38 @@ class ReadonlyPluginDirsAlwaysSkillRepoTest(unittest.TestCase):
     def tearDown(self):
         spawn.core_plugin_dirs = self._saved_core_plugin_dirs
 
-    def test_mapped_skill_reaches_resolve_skill_family_source(self):
+    def test_mapped_skill_reaches_resolve_consult_skill_source(self):
         calls = []
-        real = spawn.resolve_skill_family_source
+        real = spawn.resolve_consult_skill_source
 
         def spy(skill, repo_root):
             calls.append(skill)
             return real(skill, repo_root)
 
-        spawn.resolve_skill_family_source = spy
+        spawn.resolve_consult_skill_source = spy
         try:
-            spawn._readonly_plugin_dirs("implementation")
+            spawn._readonly_plugin_dirs("implementation-blueprint")
         finally:
-            spawn.resolve_skill_family_source = real
-        self.assertEqual(calls, ["implementation"])
+            spawn.resolve_consult_skill_source = real
+        self.assertEqual(calls, ["implementation-blueprint"])
 
-    def test_unmapped_skill_still_reaches_resolve_skill_family_source(self):
-        # "매핑 안 된 역할"이라는 상태는 rulebook 경로로 새지 않는다 — 이름
-        # 접두어가 하나도 안 걸려도 POLICY 스킬만 있는 skill-repo 결과로
-        # 떨어진다(#1955).
+    def test_unmapped_skill_still_reaches_resolve_consult_skill_source(self):
+        # "매핑 안 된 이름"이라는 상태는 rulebook 경로로 새지 않는다 — 이름이
+        # 어떤 skill-repository 디렉터리와도 안 맞아도 POLICY 스킬만 있는
+        # skill-repo 결과로 떨어진다(#1955 불변식은 그대로, #2920 은 그
+        # 결과에 `"unresolved"` 로 표식만 더한다).
         calls = []
-        real = spawn.resolve_skill_family_source
+        real = spawn.resolve_consult_skill_source
 
         def spy(skill, repo_root):
             calls.append(skill)
             return real(skill, repo_root)
 
-        spawn.resolve_skill_family_source = spy
+        spawn.resolve_consult_skill_source = spy
         try:
             out = spawn._readonly_plugin_dirs("no-such-role")
         finally:
-            spawn.resolve_skill_family_source = real
+            spawn.resolve_consult_skill_source = real
         self.assertEqual(calls, ["no-such-role"])
         self.assertEqual([d.name for d in out if d.name == "work-in-english"],
                           ["work-in-english"])

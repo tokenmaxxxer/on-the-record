@@ -10,12 +10,13 @@ watchdog.py/events.py, extractions 1-5): every cross-function reference here
 resolves at call time through `_sp` — the spawn module object, injected by
 spawn.py right after it imports this module (guarded so only the canonical
 spawn/__main__ module binds it), so `mock.patch.object(spawn, "<name>")`
-patches stay visible to the moved code. Names that still live in spawn.py
-and are reached through `_sp` are exactly: `ROOT`,
-`_CROSS_FAMILY_CONSULT_TOPN`, `_bm25_cross_family_scores`,
-`_skill_repo_root`, `_skill_trigger_line`, `core_plugin_dirs`,
-`ledger_write`, `resolve_role_family_source`, `resolved_role_model`,
-`role_settings`, `session_result` — each a seam for a later extraction.
+patches stay visible to the moved code. Names reached through `_sp` this
+way include: `ROOT`, `_CROSS_FAMILY_CONSULT_TOPN`,
+`_bm25_cross_family_scores`, `_skill_repo_root`, `_skill_trigger_line`,
+`core_plugin_dirs`, `ledger_write`, `resolve_consult_skill_source`
+(skills.py, issue #2920 — replaces the retired `resolve_skill_family_source`),
+`resolved_skill_model`, `skill_settings` (both pipeline.py),
+`session_result` — each a seam for a later extraction.
 Cluster-internal cross-function calls also go through `_sp` (same as the
 prior extractions), so patches on any moved name stay visible.
 
@@ -345,7 +346,8 @@ def _consult_log_aggregate(issue: int | None, cwd: str | None = None) -> str:
 
 
 def _append_consult_trace(path: Path, ts: str, skill: str, issue: int | None,
-                          question: str, outcome: str, verb: str = "consult") -> None:
+                          question: str, outcome: str, verb: str = "consult",
+                          mounted: str = "", unresolved: str = "") -> None:
     """자문 한 건마다 한 줄 — 성공/실패 가리지 않고 남긴다("no traceless
     consults", 운영자 결정, 이슈 #699). 함수 자체가 실패해도(디렉터리를
     못 만든다 등) 예외를 그대로 올려, 호출부의 finally 가 "트레이스 남김"을
@@ -354,11 +356,25 @@ def _append_consult_trace(path: Path, ts: str, skill: str, issue: int | None,
     이슈 #1202 requirement 5: consult 의 형제 verb(ideate/draft/review) 도
     같은 트레이스 파일 하나를 공유한다 — 별도 파일로 갈라지면 drift 가
     난다(`consult_cmd()` 독스트링과 같은 이유). `verb=` 는 기본값
-    "consult" 라 기존 호출부는 그대로 동작한다."""
+    "consult" 라 기존 호출부는 그대로 동작한다.
+
+    이슈 #2920: `mounted`/`unresolved` (둘 다 기본값 빈 문자열 — 안 넘기는
+    호출부는 이전과 바이트 단위로 같은 줄을 낸다, 필드 자체가 안 붙는다)
+    는 이번 자문이 실제로 마운트한 스킬 이름과, selector 가 어떤 스킬에도
+    안 맞아 마운트되지 못한 토큰을 각각 담는다. 이전엔 이 정보가
+    트레이스(git 커밋되는 유일한 durable 기록)에 전혀 안 남고 stderr 의
+    `muster_skills=` 한 줄에만 있었다 — 그 stderr 는 배경 fork 기본
+    경로에서 `runs/consult-logs/` 로그 파일에 O_TRUNC 로 매번 덮어써져,
+    다음 자문이 돌기 전까지만 산다(이 이슈가 측정한 "3개 남은 로그 파일"
+    자체가 이미 그 증거). 그 결과 자문이 스킬을 하나도 못 싣고 끝났는지
+    durable 하게 알 방법이 없었다 — 이 두 필드가 그 공백을 닫는다."""
     path.parent.mkdir(parents=True, exist_ok=True)
     line = (f"- {ts} | skill={skill} | verb={verb} "
             f"| issue={issue if issue is not None else 'none'} "
-            f"| question={question[:200]!r} | outcome={outcome[:300]!r}\n")
+            f"| question={question[:200]!r} | outcome={outcome[:300]!r}")
+    if mounted or unresolved:
+        line += f" | mounted={mounted!r} | unresolved={unresolved!r}"
+    line += "\n"
     with path.open("a", encoding="utf-8") as f:
         f.write(line)
 
@@ -489,11 +505,6 @@ def _skill_judge_consult(task_text: str, skill: str,
         for name, path, source in candidates)
     question = f"Task:\n{task_text}\n\nCandidates:\n{candidate_lines}"
     try:
-        # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
-        # 여기서 지웠다 — `spec` 은 아래 `_consult_cmd_and_env()` 호출 어디서도
-        # 안 읽힌다(호출 그래프 확인됨: `_consult_cmd_and_env()` -> `role_settings()`
-        # 만 role 을 실제로 검증한다, pipeline.py). role 검증은 여전히 일어난다 —
-        # 지워진 건 죽은 코드지 검증이 아니다.
         # 이슈 #2061: skill_judge 는 8개 후보 중 0-2개를 고르는 자잘한
         # 분류라, 호출자가 넘긴 세션 기본 모델을 그대로 물려받지 않고
         # 언제나 haiku 로 고정한다 — `model` 인자는 시그니처 호환용으로만
@@ -841,33 +852,42 @@ def rank_skills(task_text: str, skill: str = "candidates",
 def _composed_consult_skill_source(skill: str, task_text: str | None,
                                    issue: int | None, cwd: str | None,
                                    model: str | None) -> dict:
-    """이슈 #2507/#2561: consult/verb/panel 세션이 마운트할 skill_dirs 를,
-    role 축 기준선(`resolve_role_family_source()` — 이슈 #2561: 고정
-    role->skill 표 `_ROLE_SKILLS`/`resolve_role_source()` 은퇴 뒤, 표 없이
-    skill-repository 디렉터리 이름의 `f"{role}-"` 접두어 컨벤션으로 같은
-    커버리지를 기계적으로 유도한다 — 실측 근거: `resolve_static_policy_source()`
-    (POLICY 스킬만) 를 여기 기준선으로 썼더니 role 특유 스킬이 cross-family
-    매치로 항상 복구되지는 않는 실제 과제 문구가 있었다, 이 세션 레코드
-    "Evidence" 참고)에 과제 텍스트 기반 cross-family 매치(스폰 마운트
-    경로와 같은 `_cross_family_skill_matches_with_consult()` BM25+skill_judge
-    매치)를 add-only 로 얹어 구성한다(`merge_composed_skill_source()`).
+    """이슈 #2507/#2561/#2920: consult/verb/panel 세션이 마운트할
+    skill_dirs 를, 스킬 축 기준선(`resolve_consult_skill_source()` — 이슈
+    #2920: `--skills`와 같은 정확한-이름 해석 + POLICY 베이스라인, family-
+    prefix 추측 없음. 이전엔 `resolve_skill_family_source()` 가 `f"{skill}-"`
+    접두어로 디렉터리를 스캔했는데, 그건 은퇴했다던 role->skill 표가
+    디렉터리-이름 컨벤션으로 자리만 옮겨 그대로 살아있던 것이었다 — 실제
+    스킬 이름(`adversarial-review` 등)을 넘기면 아무 것도 안 잡히고 retired
+    role 이름(`conformance-review` 등)을 넘겨야 커버리지가 나오는, consult
+    가 `--skills`와 스킬 이름의 의미 자체를 다르게 해석하던 근본원인이다.
+    이 이슈에서 그 능력을 제거했다 — 정확한 스킬 이름만 마운트되고, 안
+    맞는 이름은 `resolve_consult_skill_source()`의 `"unresolved"` 로
+    보인다)에 과제 텍스트 기반 cross-family 매치(스폰 마운트 경로와 같은
+    `_cross_family_skill_matches_with_consult()` BM25+skill_judge 매치)를
+    add-only 로 얹어 구성한다(`merge_composed_skill_source()`) — 이
+    add-only 매치 자체는 이 이슈로 바뀌지 않는다(#2507/#2561 그대로).
 
     `task_text` 가 없으면(빈 문자열/None) 매치 단계를 건너뛰고
-    role_source 를 그대로 돌려준다 — 이 가드가 없으면
+    skill_source 를 그대로 돌려준다 — 이 가드가 없으면
     `_skill_judge_consult()` -> `_consult_cmd_and_env()` -> 이 함수 ->
     `_cross_family_skill_matches_with_consult()` ->
     `_skill_judge_consult()` 순환 재귀가 생긴다(`_skill_judge_consult()`
     자신도 `_consult_cmd_and_env()` 를 통해 세션을 조립하기 때문 — 호출
     그래프 확인됨, 그 호출부는 이 함수 시그니처에 `task_text` 를 안
-    넘겨 자동으로 매치 단계를 건너뛴다) — 그 내부 호출도 role 접두어
-    기준선을 그대로 받는다(byte-identical to 이슈 #2561 이전)."""
-    skill_source = _sp.resolve_skill_family_source(skill, _sp._skill_repo_root())
+    넘겨 자동으로 매치 단계를 건너뛴다) — 그 내부 호출도 같은 기준선을
+    그대로 받는다. `merge_composed_skill_source()`는 입력 dict의 추가
+    키를 보존하지 않으므로, `"unresolved"`는 이 함수가 직접 이어붙인다."""
+    skill_source = _sp.resolve_consult_skill_source(skill, _sp._skill_repo_root())
+    unresolved = skill_source.get("unresolved", [])
     if not task_text:
         return skill_source
     matched_dirs, _outcome = _sp._cross_family_skill_matches_with_consult(
         task_text, skill, _sp._skill_repo_root(), issue, cwd,
         k=_sp._COMPOSED_SKILLS_TOPK, model=model)
-    return _sp.merge_composed_skill_source(skill_source, matched_dirs)
+    merged = _sp.merge_composed_skill_source(skill_source, matched_dirs)
+    merged["unresolved"] = unresolved
+    return merged
 
 
 def _consult_cmd_and_env(skill: str, cwd: str | None,
@@ -894,16 +914,21 @@ def _consult_cmd_and_env(skill: str, cwd: str | None,
     테스트는 이 이슈가 닫으려는 드리프트류를 그대로 재현한다(경고 문서:
     docs/issue-1141/reports/implementation/2026-08-13-hunt-consult-core-plugin-root-injection.md).
 
-    이슈 #1955: 역할 가이던스는 이제 항상 skill-repository 에서 온다.
-    이슈 #2561: 그 기준선은 `resolve_role_family_source()` 다 — 고정
-    role->skill 표(`_ROLE_SKILLS`)와 `resolve_role_source()` 는 은퇴하고,
-    같은 커버리지를 skill-repository 디렉터리 이름 컨벤션에서 기계적으로
-    유도한다.
+    이슈 #1955: 스킬 가이던스는 이제 항상 skill-repository 에서 온다.
+    이슈 #2920: 그 기준선은 `resolve_consult_skill_source()` 다 — `--skills`
+    가 쓰는 것과 같은 정확한-이름 해석(콤마로 여러 스킬) + POLICY
+    베이스라인이지, family-prefix 추측이 아니다(이전엔
+    `resolve_skill_family_source()` 가 `f"{skill}-"` 접두어로 디렉터리를
+    스캔해, 은퇴했다던 role->skill 표를 디렉터리-이름 컨벤션으로 그대로
+    되살렸다 — 이슈 #2920 이 그 축을 없앴다).
 
     이슈 #2507: `task_text` 가 주어지면(consult_cmd/`_verb_cmd` 가 각자
     질문/요청문을 넘긴다) `_composed_consult_skill_source()` 로 과제-텍스트
-    매치를 role_source 위에 add-only 로 얹는다 — 안 주어지면(예:
-    `_skill_judge_consult()` 자신의 내부 호출) role_source 만 쓴다.
+    매치를 skill_source 위에 add-only 로 얹는다 — 안 주어지면(예:
+    `_skill_judge_consult()` 자신의 내부 호출) skill_source 만 쓴다.
+    이름이 skill-repository 의 어떤 디렉터리와도 안 맞으면(consult 인자는
+    자유 형식이다, 이슈 #2569) 매치되지 않은 채 `env["MUSTER_SKILLS_UNRESOLVED"]`
+    로 드러난다 — silently 빈 마운트로 답하지 않는다(이슈 #2920).
 
     이슈 #2201: `exclude_core_plugins` 는 `_JUDGE_EXCLUDED_CORE_PLUGINS`
     (issue #1587) 와 같은 모양의 opt-in 필터 — 기본값(빈 집합)은 오늘의
@@ -936,8 +961,10 @@ def _consult_cmd_and_env(skill: str, cwd: str | None,
     — 이 플래그 하나로 19s-74s 스프레드 전체가 설명되지는 않는다(기록
     본문 "Investigate" 절 참고, 잔여 변동은 모델 자체
     duration_ms 변동과 거의 1:1 로 움직인다)."""
-    plugins = _sp._composed_consult_skill_source(
-        skill, task_text, issue, cwd, model)["skill_dirs"]
+    consult_skill_source = _sp._composed_consult_skill_source(
+        skill, task_text, issue, cwd, model)
+    plugins = consult_skill_source["skill_dirs"]
+    unresolved = consult_skill_source.get("unresolved", [])
     s = _sp.skill_settings(skill, cwd, inject_self_hosted_hooks=False)
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
         json.dump(s, tf)
@@ -969,6 +996,12 @@ def _consult_cmd_and_env(skill: str, cwd: str | None,
     # 경로를 바이트 단위로 그대로 둔다(spawn_cmd() 와 같은 관례).
     if plugins:
         env["MUSTER_SKILLS"] = ",".join(Path(p).name for p in plugins)
+    # 이슈 #2920: 매치 안 된 selector 토큰(consult 자유-형식 인자가 어떤
+    # skill-repository 디렉터리와도 안 맞은 경우, retired role 이름 포함)을
+    # 그대로 얹는다 — 빈 마운트가 "정상적으로 아무 것도 안 골랐다"와 구분
+    # 안 되던 게 이 이슈의 핵심 결함(silent empty mount)이었다.
+    if unresolved:
+        env["MUSTER_SKILLS_UNRESOLVED"] = ",".join(unresolved)
     return cmd, env, settings_path
 
 
@@ -980,10 +1013,18 @@ def consult_cmd(skill: str, question: str, issue: int | None = None,
     브랜치/워크스페이스/워처/roster 등록은 전부 배달물(deliverable)을
     향한 것이고, 자문은 텍스트 하나만 되돌려주면 끝나기 때문이다.
 
-    스킬-저장소 가이던스 로딩은 `role_settings()`/`resolve_role_family_source()` 를 그대로 재사용한다 —
-    이슈#699 phase-1 proposal 이 채택한 이유: 가이던스를 켜는 코드경로가
-    두 벌로 갈라지면 spawn 경로만 고치고 consult 경로는 못 고치는 드리프트가
-    생긴다(issue #695/#700 이 이미 한 번 치운 문제류).
+    스킬-저장소 가이던스 로딩은 `skill_settings()`/`resolve_consult_skill_source()`
+    를 그대로 재사용한다 — 이슈#699 phase-1 proposal 이 채택한 이유:
+    가이던스를 켜는 코드경로가 두 벌로 갈라지면 spawn 경로만 고치고
+    consult 경로는 못 고치는 드리프트가 생긴다(issue #695/#700 이 이미
+    한 번 치운 문제류).
+
+    이슈 #2920: `verdict` 에 `skills_mounted`/`skills_unresolved` 를
+    더해 돌려준다 — selector 가 어떤 스킬에도 안 맞아 POLICY 스킬만
+    실린 채로 자문이 끝나도(예: 흔한 실수로 retired role 이름을 그대로
+    쓴 경우) 호출자가 그 결과를 answer/confidence 와 함께 바로 본다,
+    stderr 로그나 트레이스 파일을 따로 열어봐야만 알 수 있는 상태가
+    아니다.
 
     트레이스는 **성공/실패와 무관하게** 항상 한 줄 남는다 — `finally` 에서
     쓰고, 그 다음에야 리턴하거나 다시 raise 한다.
@@ -1006,11 +1047,6 @@ def consult_cmd(skill: str, question: str, issue: int | None = None,
     env: dict = {}
     _CONSULT_TIMING.clear()
     try:
-        # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
-        # 지웠다 — `_consult_cmd_and_env()` 는 `spec` 을 읽지 않았고(죽은
-        # 코드), role 검증은 그 안의 `role_settings()` 호출(pipeline.py)이
-        # 그대로 맡는다 — 이슈 #2610부터 그 함수는 role 카탈로그 조회 없이
-        # 빈 베이스라인을 무조건 쓴다.
         with _consult_timed("skill_match"):
             cmd, env, settings_path = _sp._consult_cmd_and_env(
                 skill, cwd, model, task_text=question, issue=issue)
@@ -1064,6 +1100,13 @@ def consult_cmd(skill: str, question: str, issue: int | None = None,
                     continue
                 outcome = (f"ok: {str(verdict.get('answer', ''))[:200]}"
                            + _sp._consult_evidence_suffix(verdict, cwd))  # issue #2104
+                # 이슈 #2920: 마운트된 스킬 이름과, selector 가 안 맞아 못
+                # 실린 이름을 판단 JSON 자체에 실어 보낸다 — 빈/실패 해석이
+                # 캐치할 수 있는 신호 없이 정상 판단처럼 보이지 않도록.
+                verdict["skills_mounted"] = [
+                    n for n in env.get("MUSTER_SKILLS", "").split(",") if n]
+                verdict["skills_unresolved"] = [
+                    n for n in env.get("MUSTER_SKILLS_UNRESOLVED", "").split(",") if n]
                 return verdict
         outcome = f"error: {attempts_exhausted} (재시도 1회 포함, 모두 실패)"
         raise RuntimeError(outcome)
@@ -1075,8 +1118,12 @@ def consult_cmd(skill: str, question: str, issue: int | None = None,
             with contextlib.suppress(OSError):
                 os.unlink(settings_path)
         print(_consult_timing_line(skill) +
-              f" muster_skills={env.get('MUSTER_SKILLS', '')!r}", file=sys.stderr)
-        _sp._append_consult_trace(trace_path, ts, skill, issue, question, outcome)
+              f" muster_skills={env.get('MUSTER_SKILLS', '')!r}"
+              f" muster_skills_unresolved={env.get('MUSTER_SKILLS_UNRESOLVED', '')!r}",
+              file=sys.stderr)
+        _sp._append_consult_trace(trace_path, ts, skill, issue, question, outcome,
+                              mounted=env.get("MUSTER_SKILLS", ""),
+                              unresolved=env.get("MUSTER_SKILLS_UNRESOLVED", ""))
         commit_paths = [trace_path] + raw_paths
         _sp._commit_consult_trace(commit_paths, issue, skill, outcome, cwd)
 
@@ -1136,10 +1183,8 @@ def _verb_cmd(verb: str, skill: str, prompt_text: str, issue: int | None = None,
     outcome = "error: 알 수 없는 실패"
     settings_path = None
     raw_paths: list[Path] = []
+    env: dict = {}
     try:
-        # 이슈 #2537 stage 6A: 위 `consult_cmd()`와 같은 이유로 존재-확인 +
-        # `spec` 로드를 지웠다 — role 검증은 `_consult_cmd_and_env()` 안의
-        # `role_settings()`가 맡는다.
         cmd, env, settings_path = _sp._consult_cmd_and_env(
             skill, cwd, task_text=prompt_text, issue=issue)
         override = (
@@ -1232,26 +1277,30 @@ _JUDGE_EXCLUDED_CORE_PLUGINS = {"freelunch", "scout", "warrant"}
 
 
 def _readonly_plugin_dirs(skill: str) -> list[Path]:
-    """judge 세션에 붙일 플러그인 — role 가이던스(이슈 #2561:
-    `resolve_role_family_source()`)는 그대로 싣는다(무엇을 위반했는지
-    판단하려면 가이던스 전체가 필요하다), core 는
+    """judge 세션에 붙일 플러그인 — 스킬 가이던스는 그대로 싣는다(무엇을
+    위반했는지 판단하려면 가이던스가 필요하다), core 는
     `_JUDGE_EXCLUDED_CORE_PLUGINS` 로 배달 지향 훅만 걸러낸다.
 
-    이슈 #2561 disposition (기존 #2507 disposition을 대체): 이 함수는
-    예전엔 role->skill 표(`_ROLE_SKILLS`)를 `resolve_role_source()` 로
-    거쳐 role 이 매핑한 스킬 전체를 무조건 실었다 — `judge_cmd()`가
-    판단하는 대상은 "이번 과제가 뭔지"가 아니라 "이 merge 가 role 의
-    record 계약을 지켰는지"라 판단 기준 자체가 role 고정이고, 과제 텍스트
-    매치로 좁히면 표면적으로 diff 와 안 겹치는 계약 조항이 후보에서 빠져
-    위반을 놓칠 위험이 있다(그래서 #2507 은 이 소비부를 과제-텍스트 매치로
-    옮기지 않고 남겨뒀다 — 그 판단은 유효한 채로 남는다). role->skill 표
-    자체는 완전히 없앴지만, `resolve_role_family_source()` 가 표 없이도
-    같은 role-shaped 전체 목록을 skill-repository 디렉터리 이름 컨벤션
-    (`f"{role}-"` 접두어)에서 기계적으로 유도해 43개 역할 중 41개에서
-    옛 `_ROLE_SKILLS[role]` 과 정확히 같은 커버리지를 낸다(예외는 이
-    세션 레코드 "Open findings" 참고) — judge 세션이 여전히 과제 텍스트와
-    무관하게 role 가이던스 전체를 받는다는 불변식이 유지된다."""
-    out = list(_sp.resolve_skill_family_source(skill, _sp._skill_repo_root())["skill_dirs"])
+    이슈 #2920 disposition (기존 #2561/#2507 disposition을 대체): 이
+    함수는 예전엔 `resolve_skill_family_source()`(`f"{skill}-"` 접두어로
+    디렉터리 이름을 스캔)로, retired role 이름 하나가 예전에 매핑했던
+    스킬 전체(예: `conformance-review` -> 8개)를 한꺼번에 묶어 실었다 —
+    그 family-prefix 컨벤션 자체가 이 이슈의 진단 대상: 은퇴했다던
+    role->skill 표를 디렉터리 이름 규칙으로 자리만 옮겨 그대로 살려 둔
+    것이었다. 이제 그 능력은 없다 — `judge <skill> --merge <sha>` 를
+    실제 리프 스킬 이름(예: `conformance-review-verdict-assignment`)으로
+    부르면 그 스킬 하나만(+POLICY) 실린다. **여기서 멈추는 것**: retired
+    role 이름(`conformance-review` 등, 실제 디렉터리가 아니라 접두어일
+    뿐이던 이름)으로 judge 를 부르면 더 이상 그 role 이 매핑하던 스킬
+    전체를 자동으로 안 불러온다 — 그 이름은 어떤 디렉터리와도 안 맞으므로
+    POLICY 스킬만 실리고, `resolve_consult_skill_source()`가 돌려주는
+    `"unresolved"` 로 그 사실이 드러난다(judge_cmd() 자체는 아직 이
+    필드를 트레이스에 옮기지 않는다 — 이 이슈의 범위는 consult 의 empty-
+    mount 가시성이지 judge 트레이스 확장은 아니다). judge 로 여러 스킬의
+    포괄 심사가 필요하면 호출자가 스킬 이름을 콤마로 명시적으로 나열해야
+    한다 — `--skills`와 같은 계약이지, 한 selector 뒤에 가디언스 전체를
+    숨기지 않는다."""
+    out = list(_sp.resolve_consult_skill_source(skill, _sp._skill_repo_root())["skill_dirs"])
     for p in _sp.core_plugin_dirs():
         if p.name not in _sp._JUDGE_EXCLUDED_CORE_PLUGINS:
             out.append(p)
@@ -1273,13 +1322,13 @@ def _readonly_bash_allow(cwd: str) -> list[str]:
 
 
 def _readonly_settings(skill: str, cwd: str) -> dict:
-    """읽기 전용 세션 설정 — `role_settings()`의 샌드박스/전역-플러그인
+    """읽기 전용 세션 설정 — `skill_settings()`의 샌드박스/전역-플러그인
     차단은 그대로 쓰되, `permissions.allow`를 Read/Grep/Glob + git 플루밍
     Bash 로만 한정하고 Write/Edit/`gh `를 `permissions.deny`로 명시적으로
     막는다. `--permission-mode bypassPermissions`를 주지 않는 것과 짝을
     이룬다 — headless 세션은 허용 목록에 없는 도구를 답할 사람 없이
-    그냥 거부한다(role_settings() #742 문단이 서술하는 바로 그 실측 동작을,
-    judge 는 위험이 아니라 안전장치로 쓴다)."""
+    그냥 거부한다(#742 문단이 서술하는 바로 그 실측 동작을, judge 는
+    위험이 아니라 안전장치로 쓴다)."""
     s = _sp.skill_settings(skill, cwd, inject_self_hosted_hooks=False)
     s["permissions"] = {
         "allow": ["Read", "Grep", "Glob", *_sp._readonly_bash_allow(cwd)],
@@ -1491,14 +1540,6 @@ def judge_cmd(skill: str, merge_sha: str, cwd: str | None = None) -> dict:
                        f"상한 {_sp.JUDGE_MAX_SKILLS_PER_MERGE})")
             return {"skipped": True, "reason": "cap_exceeded", "skill": skill, "merge": merge_sha}
 
-        # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
-        # 지웠다 — `_judge_prefilter()`/`_judge_cmd_and_env()` 는 `spec` 을
-        # 안 읽었다(죽은 코드). `_judge_prefilter()` 안의 `role_settings()`
-        # 호출(pipeline.py)은 여전히 일어난다 — 이슈 #2610부터 그 함수는
-        # role 카탈로그 조회 없이 빈 베이스라인을 무조건 쓰므로(role 을
-        # 검증하지 않는다, 카탈로그가 있던 시절에도 조회 실패가 거절로
-        # 이어지진 않았다), 그 호출이 아래 `git show` 뒤로 밀린다는 순서
-        # 차이만 남는다.
         show = subprocess.run(["git", "-C", root, "show", "--no-color", merge_sha],
                               capture_output=True, text=True, timeout=_sp.JUDGE_TIMEOUT)
         if show.returncode != 0:
@@ -1632,9 +1673,10 @@ def _run_panel_session(skill: str, peer_skill: str, question: str, cwd: str | No
     """판정 세션 하나를 non-bare `claude -p` 로 띄운다 — `crossSessionInbound`
     를 걸어 `SendMessage` 를 받을 수 있게 한다(이슈#973 phase-1 조사: 공식
     문서, ListAgents/SendMessage 은 non-bare 세션에서만 열린다). 세션
-    설정은 `consult_cmd()` 와 똑같이 `role_settings()`/`resolve_role_family_source()`
-    로 조립한다 — 두 코드경로가 갈라지면 한쪽만 고쳐지는 드리프트가 난다
-    (#695/#700, `consult_cmd()` 독스트링과 같은 이유).
+    설정은 `consult_cmd()` 와 똑같이 `skill_settings()`/
+    `resolve_consult_skill_source()` 로 조립한다 — 두 코드경로가 갈라지면
+    한쪽만 고쳐지는 드리프트가 난다(#695/#700, `consult_cmd()` 독스트링과
+    같은 이유).
 
     `TOKENMAXXXER_PANEL_MESSAGING=unavailable` 이 켜져 있으면
     `_PanelMessagingUnavailable` 을 던진다 — 크로스세션 소켓이 막힌
@@ -1642,10 +1684,6 @@ def _run_panel_session(skill: str, peer_skill: str, question: str, cwd: str | No
     consult 로 내리는 신호로 쓴다."""
     if os.environ.get("TOKENMAXXXER_PANEL_MESSAGING") == "unavailable":
         raise _sp._PanelMessagingUnavailable(f"{skill}: TOKENMAXXXER_PANEL_MESSAGING=unavailable")
-    # 이슈 #2537 stage 6A: `roles/<role>.json` 존재-확인 + `spec` 로드를
-    # 지웠다 — 아래 `_sp.skill_settings()` 호출(pipeline.py)은 여전히
-    # 일어난다; 이슈 #2610부터 그 함수는 role 카탈로그 조회 없이 빈
-    # 베이스라인을 무조건 쓴다(role 을 검증하지 않는다).
     # 이슈 #2507: `issue` 가 이 함수 시그니처에 없어(`panel_cmd()` 는 갖고
     # 있지만 그 아래 세션 하나씩 실행하는 이 헬퍼는 원래부터 안 받았다)
     # None 으로 넘긴다 — `_composed_consult_skill_source()`/
