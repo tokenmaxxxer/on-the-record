@@ -840,7 +840,8 @@ def _reconcile_pr_expected_missing(expected: dict, observed: dict, verdict: str 
     }]
 
 
-def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = None) -> list[dict]:
+def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = None,
+             confirm_pr_missing=None) -> list[dict]:
     """이슈-492 step 2 (ADR: `docs/issue-492/decisions/2026-08-08-reconciliation-step-for-supervision.md`).
 
     순수 함수: 로스터/보드/PR/git 에서 이미 읽은 값을 받아 비교만 한다 —
@@ -848,7 +849,11 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
     가지에서 `expected["issue"]` 가 있으면 `recovery_policy.classify_from_state()`
     를 불러 per-(issue, role) 재기동 카운터를 읽고 쓴다 — 이건 `gh`/git 재조회가
     아니라 이 reconcile 자신의 판정 상태이므로 순수성 취지(외부 세계 재조회
-    없음)는 유지된다.
+    없음)는 유지된다. 예외 둘(이슈 #2941 finding 1): `pr_number is None` 이라
+    바로 아래서 `pr-expected-missing` 을 확정하기 직전에만 `confirm_pr_missing`
+    (있으면)을 부른다 — 아래 규칙 3 설명 참고, 이 예외도 "외부 세계 재조회
+    없음" 원칙이 아니라 "매 호출마다 재조회 없음(only-when-about-to-act)"
+    원칙으로 읽는다.
 
     `expected = {"expects_pr": bool, "skill": str, "branch": str, "issue": int|None}`
     `observed = {"session_verdict": str, "pr_number": int|None,
@@ -866,7 +871,13 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
        standing decision 그대로, 자동 재무장은 안 하고 이름만 붙인다.
     3. PR 을 기대했는데(`expects_pr`) 아직 없고(`pr_number is None`) 세션이
        진행 중도 아니면(`session_verdict != "in-progress"`) → `respawn` —
-       이슈의 "push 없이 죽음" 예시.
+       이슈의 "push 없이 죽음" 예시. 이슈 #2941 finding 1: `pr_number` 가
+       `None`인 것은 이제 reconcile 과 poll-report 가 공유하는 단일 board
+       인덱스 하나의 답이다 — 그 인덱스의 steady-state 경로(`_delta_read()`)
+       자체가 search-API 라 원래 이 버그를 만든 것과 같은 지연 계열을 진다.
+       `confirm_pr_missing`(있으면)이 이 순간 한 번 불려 그 지연을 확인/
+       배제한다 — 콜백이 번호를 돌려주면 respawn 대신 정상 종료 경로로
+       흐른다(아래 카운터 리셋 포함).
     4. 위 어디에도 안 걸리는데 입력 자체가 앞뒤가 안 맞으면(예:
        `loop_state` 는 있는데 `session_verdict` 가 없거나 인식 불가) →
        `manual-review` — 침묵 대신 사람 검토로 보낸다.
@@ -889,6 +900,11 @@ def reconcile(expected: dict, observed: dict, recovery_state_dir: Path | None = 
                        "session_verdict=stalled",
             "next_action": "resume-watch",
         }]
+    if (expected.get("expects_pr") and observed.get("pr_number") is None
+            and confirm_pr_missing is not None):
+        confirmed = confirm_pr_missing()
+        if confirmed is not None:
+            observed = {**observed, "pr_number": confirmed}
     if (expected.get("expects_pr") and observed.get("pr_number") is None
             and verdict != "in-progress"):
         return _reconcile_pr_expected_missing(expected, observed, verdict,
@@ -942,7 +958,7 @@ def _build_expected(entry: dict) -> dict:
     }
 
 
-def _build_observed(root: Path, entry: dict) -> dict:
+def _build_observed(root: Path, entry: dict, pr_index: dict | None = None) -> dict:
     """로스터 엔트리 → `reconcile()` 의 `observed` 입력. 기존 리더만 쓴다
     (`session_end_verdict`, `_pr_open_or_merged_for_branch`, `board`,
     `_is_new_commit`) — 새 `gh` 호출을 추가하지 않는다.
@@ -951,7 +967,20 @@ def _build_observed(root: Path, entry: dict) -> dict:
     를 `session_end_verdict()` 에 함께 넘긴다 — 자식(claude) pid 만 보면
     `_spawn_one()` 의 `session-end` 후처리 꼬리(push/게이트/classify/
     ledger_write, 아직 안 남은 구간)에서 정상 종료를 crashed 로 오판한다
-    (이슈 #224 hunt 가 `_watch --follow` 에서 이미 잡은 것과 같은 신호)."""
+    (이슈 #224 hunt 가 `_watch --follow` 에서 이미 잡은 것과 같은 신호).
+
+    이슈 #2941: `pr_index`(호출부가 같은 틱에서 이미 만든 `_board_pr_index()`
+    벌크 인덱스, `diagnose_health()`가 poll-report 판정에 쓰는 것과 동일한
+    소스)를 넘기면 `pr_number`를 그 인덱스에서 읽는다 — `gh pr list --head
+    <branch>`(브랜치 필터 검색 인덱스, propagation 지연 실측: PR #2930/
+    #2934/#2937/#2919 검증 네 건 모두 생성 직후 이 필터로는 "없음", 동시에
+    board 인덱스로는 "있음")를 매 엔트리마다 새로 부르는 대신, poll-report
+    가 이미 신뢰하는 것과 같은 소스를 읽어 두 판정이 애초에 서로 다른
+    데이터를 보지 않게 한다 — grace-period 를 추측해 넣는 대신 원인(두
+    소스의 불일치) 자체를 없앤다. 생략하면(기본값 `None`, 기존 호출부:
+    `roster_reconcile()` CLI, `drive()`) 이전과 동일하게 개별 `gh pr list`
+    를 부른다 — 이 두 호출부는 poll-report 와 같은 틱에서 경쟁하지 않아
+    이 disagreement 클래스에 해당하지 않는다."""
     work = entry.get("work")
     log = entry.get("log")
     verdict = session_end_verdict(work, Path(log) if log else None,
@@ -959,7 +988,12 @@ def _build_observed(root: Path, entry: dict) -> dict:
     # Issue #2834: real checked-out branch, not the workspace directory's
     # basename — see diagnose_health() in watchdog.py for the full story.
     branch = _current_branch(Path(work)) if work else None
-    pr_number = _pr_open_or_merged_for_branch(root, branch) if branch else None
+    if not branch:
+        pr_number = None
+    elif pr_index is not None:
+        pr_number = _pr_state_from_index(pr_index, branch)
+    else:
+        pr_number = _pr_open_or_merged_for_branch(root, branch)
     loop_state = None
     issue = entry.get("issue")
     skill = entry.get("skill")
@@ -3281,12 +3315,61 @@ def _create_workspace_with_signal_guard(cwd: str, issue: int | None, skill: str,
     return result
 
 
+def _branch_created_age_sec(cwd: str, br: str, now: float | None = None) -> float | None:
+    """이슈 #2941: 로컬 `br` ref 의 reflog 에서 가장 오래된(=생성) 항목의
+    시각을 읽어 "이 로컬 ref 가 언제 생겼는지"를 구한다. `--date=unix` 는
+    `@{<epoch>}:` 형태로 타임스탬프를 직접 참조 안에 싣는다(실측: 이 레포
+    자신의 `git reflog show --date=unix HEAD`) — 별도 날짜 필드 파싱이
+    필요 없다. reflog 가 없거나(만료·shallow clone·`core.logallrefupdates
+    false`) 파싱 실패면 `None` — 이슈 #2941 finding 3(adversarial review,
+    docs/issue-2941/reports/adversarial-review-2c0dae04.md): 호출부
+    (`_recut_absorbed_branch()`)는 이 `None` 을 "새로 만들어짐"으로 착각해
+    재컷을 밀어붙이면 안 되고, 반대로 "판단 불가"를 파괴적 재컷의
+    fail-open 신호로도 읽으면 안 된다 — 판단 불가는 안전한 쪽
+    (재컷하지 않음)으로 읽는다, 아래 호출부 참고."""
+    now = time.time() if now is None else now
+    r = subprocess.run(["git", "-C", cwd, "reflog", "show", "--date=unix", br],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not r.stdout.strip():
+        return None
+    oldest = r.stdout.strip().splitlines()[-1]
+    m = re.search(r"@\{(\d+)\}:", oldest)
+    if not m:
+        return None
+    return now - int(m.group(1))
+
+
 def _recut_absorbed_branch(cwd: str, br: str):
     """`br` 이 이미 로컬에 체크아웃돼 있다고 가정하고, base 에 흡수됐는지
     검사해 필요하면 재컷한다 (untracked 작업은 stash 로 보존). 스폰 시점
     `checkout_issue_branch()` 와 세션 자신의 mid-run 재검사
     (`recut_if_absorbed_cli`, 이슈 #784) 양쪽에서 재사용하는 공유 헬퍼 —
     로직은 #732 가 이미 검증한 것 그대로, 호출 시점만 늘어난다.
+
+    이슈 #2941: `base` 대비 0-ahead("local_zero")는 "흡수됐다"뿐 아니라
+    "막 만들어져 아직 커밋할 시간이 없었다"에서도 똑같이 참이다 — 실측:
+    watchdog-observed-crashed 오판(세션 시작 직후, 아직 커밋 전)으로
+    respawn 이 걸린 워크스페이스 두 건이 이 분기를 타 살아있는 세션의
+    로컬 브랜치가 지워졌다. 두 경우를 가르는 신호로 `br` 자신의 reflog
+    생성 시각을 쓴다: 방금 만든 ref 는 나이가 `SPAWN_ATTEMPT_GRACE_SEC`
+    (300초, roster.py — CLONE_TIMEOUT+NETWORK_TIMEOUT+60, 새 값 아님)보다
+    한참 어리고, 진짜 흡수된 브랜치는 원래 생성 시점이 그보다 오래전이다
+    — 고정 sleep 을 추가하는 게 아니라 이미 존재하는, 이미 근거가 있는
+    문턱을 재사용해 "얼마나 기다릴지"를 새로 추측하지 않는다.
+
+    이슈 #2941 finding 3: `_branch_created_age_sec()` 가 `None`(reflog 없음
+    — `core.logallrefupdates false`, shallow clone 등)이면 이전엔 곧장
+    파괴적 재컷으로 fail-open 했다 — "판단 불가"를 "gone"으로 잘못 읽어
+    이 함수 자신이 막으려는 사고(방금 만든 브랜치 삭제)를 그대로 재현하는
+    경로였다(실측: reviewer 가 `core.logallrefupdates false` 로 라이브
+    재현). 이제는 판단 불가를 "not yet"과 같은 안전한 쪽(재컷하지 않음)
+    으로 읽는다. 이 레포의 실제 clone 경로(`git clone -q`, non-bare
+    checkout 의 git 기본값 `core.logallrefupdates=true`, `pipeline.py`/
+    `spawn.py` 어느 clone 호출도 이를 덮어쓰지 않음 — 이 세션에서 재확인)
+    는 이 `None` 분기를 오늘 타지 않는다; 언젠가 clone 전략이 바뀌어 reflog
+    가 꺼지면, 그 워크스페이스는 (#732 가 막으려던 것과 달리) 재컷 없이
+    새 PR 을 못 열 수 있다는 뜻이고, 이 분기의 stderr 줄이 그 신호다 —
+    새 백스톱을 여기서 추측해 넣지 않는다.
 
     반환값은 최종 `git checkout`/`checkout -B` 의 CompletedProcess."""
     def git(*a):
@@ -3311,6 +3394,20 @@ def _recut_absorbed_branch(cwd: str, br: str):
               file=sys.stderr)
         return git("checkout", "-B", br, f"origin/{br}")
     if local_zero:
+        age = _branch_created_age_sec(cwd, br)
+        if age is None:
+            print(f"[spawn] {br} 는 {base} 대비 0-ahead 지만 나이를 잴 reflog 가 "
+                  f"없다(core.logallrefupdates=false 등 — 이 레포의 실제 clone "
+                  f"경로에서는 오늘 도달 불가해야 함) — 판단 불가를 gone 으로 "
+                  f"잘못 읽지 않기 위해 재컷하지 않고 그대로 둔다.",
+                  file=sys.stderr)
+            return git("checkout", br)
+        if age < SPAWN_ATTEMPT_GRACE_SEC:
+            print(f"[spawn] {br} 는 {base} 대비 0-ahead 지만 {int(age)}초 전에 "
+                  f"막 만들어졌다 — 아직 커밋할 시간이 없었을 뿐일 수 있어 "
+                  f"(not yet, not gone) 재컷하지 않고 그대로 둔다.",
+                  file=sys.stderr)
+            return git("checkout", br)
         print(f"[spawn] {br} 는 {base} 에 완전히 흡수돼 커밋이 없다 — "
               f"로컬 브랜치를 지우고 새로 판다.", file=sys.stderr)
         # 흡수된 브랜치는 base 대비 영원히 0-ahead 라 재컷 없이는

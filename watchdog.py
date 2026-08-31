@@ -322,7 +322,8 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
                      anomalies: list[str] | None = None,
                      pr_index: dict | None = None,
-                     commit_count: int | str | None = None) -> dict:
+                     commit_count: int | str | None = None,
+                     confirm_pr_missing=None) -> dict:
     """이슈 #782 스코프-확장, 이슈 #1966 확장: 살아있는(또는 방금 죽은) 로스터
     엔트리 하나를 HEALTHY/STALLED/STALLED-HEARTBEAT-ONLY(advisory)/
     DEADLOCKED/DEAD-ERRORED 다섯 상태 중 하나로 진단하고
@@ -370,7 +371,17 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     커밋 이후 경과 분, ref 가 아직 없으면 `None`)를 얹는다 —
     `checkpoint.checkpoint_health()` 위임, 이 함수 자신은 새 `git` 호출을
     추가하지 않는다. 어느 분기로 빠지든(completion 포함) 이 두 필드는
-    항상 붙는다 — 호출부가 균일한 shape 을 기대할 수 있게."""
+    항상 붙는다 — 호출부가 균일한 shape 을 기대할 수 있게.
+
+    `confirm_pr_missing`(이슈 #2941 finding 1): `pr_index`에서 이 브랜치의
+    PR 이 안 보여 DEAD-* 로 확정하기 직전에만 불리는 0-인자 콜백 — 호출부가
+    "오늘 이 틱의 `pr_index`가 search-API 인 delta read 출처였으면 직접
+    connection 쿼리인 full read 로 한 번 더 확인한다"를 구현해 넘긴다
+    (`roster_watchdog()`의 `_poll_pr_index_confirm_gone`). 콜백이 PR 번호를
+    돌려주면 completion 으로 되돌아간다 — 인덱스가 아직 못 따라잡았을 뿐인
+    걸 DEAD-ERRORED/respawn 으로 조용히 확정하지 않는다. 생략하면(기본값
+    `None`, 기존 호출부) 이전과 동일하게 `pr_index`의 첫 답을 그대로
+    믿는다 — 순수 추가라 기존 동작은 안 바뀐다."""
     now = time.time() if now is None else now
     pid = entry.get("pid", 0)
     work = entry.get("work")
@@ -420,6 +431,10 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
             pr_number = None
         elif pr_index is not None:
             pr_number = _sp._pr_state_from_index(pr_index, branch)
+            if pr_number is None and confirm_pr_missing is not None:
+                # 이슈 #2941 finding 1: 인덱스가 "없음"이라 말했다고 바로
+                # DEAD-* 로 확정하지 않는다 — 위 docstring 참고.
+                pr_number = confirm_pr_missing()
         else:
             pr_number = _sp._pr_open_or_merged_for_branch(root, branch)
         # 이슈 #2874: 이 함수의 `alive`(자식 pid)가 이미 죽었다고 본 뒤라,
@@ -747,12 +762,17 @@ def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
     return data
 
 
-def _board_read(root: Path) -> tuple[dict | None, dict]:
+def _board_read(root: Path, force_full: bool | None = None) -> tuple[dict | None, dict]:
     """Issue #2103: the shared multi-item board read. Delegates to
     `gates.board_read.board_read` (single GraphQL board query + delta reads
     over a cached snapshot) and routes its fail-open signal to the ledger
     as an advisory `board_read_fail_open` event — a gh/network failure
     serves the stale snapshot and never crashes the calling sweep.
+
+    `force_full` defaults to `None` (unchanged: `board_read()` decides from
+    `BOARD_READ_FORCE_FULL`/the sweep counter) — passing `True` is issue
+    #2941 finding 1's confirm-before-gone path (see
+    `_board_pr_index_with_meta`), never the steady-state default.
 
     Returns `(board, meta)`; `board` is None only when gh failed AND no
     snapshot exists (or the repo has no slug — non-GitHub checkout)."""
@@ -767,7 +787,24 @@ def _board_read(root: Path) -> tuple[dict | None, dict]:
         _sp.ledger_write({"event": "board_read_fail_open", "repo": board_slug,
                       "detail": detail, "ts": time.time()})
 
-    return board_read_mod.board_read(root, board_slug, on_fail_open=_fail_open)
+    return board_read_mod.board_read(root, board_slug, on_fail_open=_fail_open,
+                                     force_full=force_full)
+
+
+def _board_pr_index_with_meta(root: Path,
+                              force_full: bool | None = None) -> tuple[dict | None, dict]:
+    """Same as `_board_pr_index()` but also returns the `board_read()` meta
+    (issue #2941 finding 1: `meta["source"]` distinguishes a direct 2-call
+    full connection read from the search-API-backed `_delta_read()` steady
+    state — the shared index's "no PR for this branch" answer is only as
+    trustworthy as which of the two produced it). `force_full=None`
+    (default) preserves `_board_pr_index()`'s existing behavior exactly."""
+    board, meta = _sp._board_read(root, force_full=force_full)
+    if board is None:
+        return None, meta
+    sys.path.insert(0, str(_sp.ROOT / "gates"))
+    import board_read as board_read_mod
+    return board_read_mod.pr_index(board), meta
 
 
 def _board_pr_index(root: Path) -> dict | None:
@@ -776,12 +813,8 @@ def _board_pr_index(root: Path) -> dict | None:
     `gh pr list` loops in the poll tick. None when the board is unreadable
     (caller falls back to the per-branch helper, preserving today's
     fail-open behavior)."""
-    board, _meta = _sp._board_read(root)
-    if board is None:
-        return None
-    sys.path.insert(0, str(_sp.ROOT / "gates"))
-    import board_read as board_read_mod
-    return board_read_mod.pr_index(board)
+    idx, _meta = _board_pr_index_with_meta(root)
+    return idx
 
 
 _DIGEST_LIVE_ENTRY_RE = re.compile(
@@ -1789,16 +1822,64 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     # (board unreadable) keeps the per-branch fallback inside
     # diagnose_health(), so failure behavior is unchanged.
     _poll_pr_index_cache: list = []
+    _poll_pr_index_meta_cache: list = []
 
     def _poll_pr_index() -> dict | None:
         if not _poll_pr_index_cache:
-            _poll_pr_index_cache.append(_sp._board_pr_index(root))
+            idx, meta = _sp._board_pr_index_with_meta(root)
+            _poll_pr_index_cache.append(idx)
+            _poll_pr_index_meta_cache.append(meta)
         return _poll_pr_index_cache[0]
+
+    # 이슈 #2941 finding 1 (adversarial review, docs/issue-2941/reports/
+    # adversarial-review-2c0dae04.md): 위 `_poll_pr_index()`의 steady-state
+    # 경로(`_delta_read()`)는 그 자체가 GraphQL search(...) 호출이다 —
+    # 이 PR 이 대체한 `gh pr list --head`(브랜치 필터, 생성 직후 지연 실측:
+    # #2930/#2934/#2937/#2919 네 건) 와 같은 인덱싱-파이프라인 계열이다.
+    # reconcile 과 poll-report 가 이제 같은 인덱스를 보므로, 그 인덱스가
+    # 아직 안 따라잡았으면 둘 다 "없음"에 조용히 동의해 버려
+    # `[reconcile-poll-disagreement]`(#2882) 가 잡아낼 신호 자체가 사라진다
+    # — 그래서 "없음"을 근거로 respawn/DEAD-ERRORED 를 확정하기 직전에만,
+    # 이 틱의 인덱스가 delta(search) 출처였던 경우에 한해 직접 커넥션 쿼리인
+    # full read 를 강제로 한 번 더 돈다(#2103 의 Layer 1 — search 인덱스가
+    # 아니라 `repository { pullRequests }` 직접 쿼리, Finding 1 이 지목한
+    # 바로 그 architecturally-다른 경로). "없음"이 이미 아닌 흔한 경우엔
+    # 전혀 안 불려 틱당 오버헤드가 그대로다; 같은 틱에 여러 엔트리가 확인이
+    # 필요해도 한 번만 돈다(캐시).
+    _poll_pr_index_confirm_cache: dict = {}
+
+    def _poll_pr_index_confirm_gone(branch: str | None) -> int | None:
+        if not branch:
+            return None
+        idx = _poll_pr_index()
+        meta = _poll_pr_index_meta_cache[0] if _poll_pr_index_meta_cache else {}
+        if meta.get("source") != "delta":
+            # full/stale/None: already the architecturally-direct read (or
+            # nothing better is available) — no confirmation to gain.
+            return _sp._pr_state_from_index(idx, branch) if idx else None
+        if "full" not in _poll_pr_index_confirm_cache:
+            full_idx, _full_meta = _sp._board_pr_index_with_meta(root, force_full=True)
+            _poll_pr_index_confirm_cache["full"] = full_idx
+        full_idx = _poll_pr_index_confirm_cache["full"]
+        return _sp._pr_state_from_index(full_idx, branch) if full_idx else None
     for key, e in sorted(d.items()):
         # 이슈 #492: 같은 틱에서 reconcile() 도 한 번 태운다 — 새 폴러가
         # 아니라 이 기존 스캔에 올라탄다(ADR 결정 4).
-        divergences = _sp.reconcile(_sp._build_expected(e), _sp._build_observed(root, e),
-                                 recovery_state_dir=root / ".on-the-record" / "recovery-state")
+        # 이슈 #2941: `_poll_pr_index()`(아래 dead-entry 분기가 poll-report
+        # 판정에 쓰는 것과 같은 공유 인덱스)를 여기서도 넘긴다 — reconcile
+        # 과 poll-report 가 같은 엔트리를 두고 서로 다른 PR 조회 경로(개별
+        # `gh pr list --head` 대 board 벌크 인덱스)를 봐서 생긴
+        # [reconcile-poll-disagreement](43건 실측, PR #2930/#2934/#2937/
+        # #2919 검증 네 건 확인)를 소스 통일로 없앤다. `confirm_pr_missing`
+        # 은 finding 1 의 완화책(위 주석) — "없음"을 respawn 으로 확정하기
+        # 직전에만 호출된다.
+        _expected = _sp._build_expected(e)
+        _entry_branch = _expected["branch"]
+        divergences = _sp.reconcile(
+            _expected,
+            _sp._build_observed(root, e, pr_index=_poll_pr_index()),
+            recovery_state_dir=root / ".on-the-record" / "recovery-state",
+            confirm_pr_missing=lambda br=_entry_branch: _poll_pr_index_confirm_gone(br))
         if divergences:
             issue_n, skill_n = issue_skill_key(e)
             for div in divergences:
@@ -1844,11 +1925,14 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
                 # reintroduce this same false positive.
                 commit_count = (_sp._unrecovered_commit_count(
                     work, e.get("before_head"), _sp._git_head(work),
-                    _sp._current_branch(Path(work)))
+                    _entry_branch)
                     if work else 0)
                 dead_health = _sp.diagnose_health(key, e, state=state, root=root,
                                               pr_index=_poll_pr_index(),
-                                              commit_count=commit_count)
+                                              commit_count=commit_count,
+                                              confirm_pr_missing=(
+                                                  lambda br=_entry_branch:
+                                                  _poll_pr_index_confirm_gone(br)))
                 state[f"{key}:dead_report"] = dead_health
             dead_health = state.get(f"{key}:dead_report")
             # 이슈 #2874: 위에서 이미 계산한 `divergences`([reconcile])와
