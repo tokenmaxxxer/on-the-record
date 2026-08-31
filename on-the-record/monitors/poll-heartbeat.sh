@@ -172,6 +172,46 @@ if command -v flock >/dev/null 2>&1; then
 else
   _alive_stamp_has_flock=0
 fi
+
+# issue #2919 follow-up (adversarial review of the original mkdir-mutex
+# fix, docs/issue-2919/reports/adversarial-review-a4f05242.md "Open
+# findings"): a live but merely SLOW holder was being evicted by the
+# 20-failed-retries-then-force-break threshold below, because that
+# threshold inferred staleness purely from elapsed wait time -- it never
+# checked whether the holder was actually still running. Sprouted out
+# (refactoring-legacy-seam-selection rule 1: single, clearly-localized
+# behavioral change -> Sprout Method) so the liveness decision is
+# independently testable without exercising the full acquire/release
+# sequence. Liveness is ESTABLISHED via the recorded owner PID (`kill -0`,
+# same-host signal-0 existence probe), never inferred from a retry count.
+# Echoes exactly one of:
+#   alive   - the lockdir names a PID and that process still exists --
+#             the caller must keep waiting, no matter how many retries
+#             have elapsed. This is the fix: a slow-but-alive holder is
+#             never reported stale.
+#   dead    - the lockdir names a PID and `kill -0` confirms it no longer
+#             exists -- safe to reclaim now, established rather than
+#             assumed.
+#   forming - the lockdir exists but no owner PID has been recorded yet
+#             (the narrow window between a holder's `mkdir` and its own
+#             PID write). The caller applies a short bounded grace period
+#             before treating this as abandoned, since there is no PID
+#             left to confirm dead in this state.
+_alive_stamp_lock_owner_status() {
+  local _lockdir="$1"
+  local _owner_pid
+  _owner_pid="$(cat "${_lockdir}/owner.pid" 2>/dev/null)"
+  if [ -z "${_owner_pid}" ]; then
+    printf 'forming'
+    return 0
+  fi
+  if kill -0 "${_owner_pid}" 2>/dev/null; then
+    printf 'alive'
+  else
+    printf 'dead'
+  fi
+}
+
 _alive_stamp_write() {
   mkdir -p "${CHECKOUT}/runs" 2>/dev/null || true
   if [ "${_alive_stamp_has_flock}" -eq 1 ]; then
@@ -182,24 +222,60 @@ _alive_stamp_write() {
     ) 200>"${_alive_stamp_path}.lock"
   else
     local _lockdir="${_alive_stamp_path}.lockdir"
+    local _owner_pid_file="${_lockdir}/owner.pid"
     local _tries=0
+    local _forming_tries=0
+    # issue #2919 follow-up: bounds only the "mkdir succeeded but no
+    # owner PID ever showed up" case -- a holder alive with a recorded
+    # PID is never subject to this or any other bound (see
+    # _alive_stamp_lock_owner_status above). 3s is well inside the
+    # sub-millisecond mkdir-then-printf gap this grace period exists to
+    # cover; a residual race remains if that gap is ever legitimately
+    # slower than 3s (e.g. an extremely loaded host pausing the holder
+    # between its mkdir and its own PID write) -- the lock would be
+    # reclaimed out from under a holder that was about to record its PID.
+    # This window is orders of magnitude narrower than the 20s window the
+    # original code exposed for the whole critical section, not zero.
+    local _forming_grace=3
+    local _status
     while ! mkdir "${_lockdir}" 2>/dev/null; do
       _tries=$((_tries + 1))
-      if [ "${_tries}" -ge 20 ]; then
-        # a prior writer died mid-write and left the lockdir behind --
-        # break it rather than hang this tick loop forever (ticks are
-        # 120s apart; 20 one-second retries is well inside one tick).
-        # silent-failure-audit (issue #2919): logged, not just broken --
-        # a stale lock silently cleared reads identically to "no
-        # contention happened" otherwise, hiding a prior writer's crash.
-        _poll_watchdog_log_append "[alive-stamp-lock] stale lockdir ${_lockdir} broken after ${_tries}s wait"
-        rmdir "${_lockdir}" 2>/dev/null || true
-        break
-      fi
+      _status="$(_alive_stamp_lock_owner_status "${_lockdir}")"
+      case "${_status}" in
+        dead)
+          # silent-failure-audit (issue #2919): logged, not just broken --
+          # a stale lock silently cleared reads identically to "no
+          # contention happened" otherwise, hiding a prior writer's crash.
+          _poll_watchdog_log_append "$(printf '[alive-stamp-lock] stale lockdir %s (owner pid %s confirmed dead) reclaimed after %ss wait' "${_lockdir}" "$(cat "${_owner_pid_file}" 2>/dev/null)" "${_tries}")"
+          rm -f "${_owner_pid_file}" 2>/dev/null
+          rmdir "${_lockdir}" 2>/dev/null || true
+          _forming_tries=0
+          ;;
+        forming)
+          _forming_tries=$((_forming_tries + 1))
+          if [ "${_forming_tries}" -ge "${_forming_grace}" ]; then
+            _poll_watchdog_log_append "$(printf '[alive-stamp-lock] stale lockdir %s (no owner pid recorded after %ss wait) reclaimed' "${_lockdir}" "${_tries}")"
+            rmdir "${_lockdir}" 2>/dev/null || true
+            _forming_tries=0
+          fi
+          ;;
+        alive)
+          # never evict a live holder, no matter how many retries elapse
+          # -- this is the defect fix itself (adversarial review point
+          # 10): the prior threshold broke a merely-slow, still-running
+          # holder's lock and let a second writer enter concurrently.
+          _forming_tries=0
+          ;;
+      esac
       sleep 1
     done
+    # only reachable via a successful mkdir above -- unlike the prior
+    # code, a reclaimed-stale-lock path loops back to retry mkdir rather
+    # than falling through into the critical section unprotected.
+    printf '%s' "$$" >"${_owner_pid_file}" 2>/dev/null || true
     printf '{"last_tick": %s}' "$(date +%s)" >"${_alive_stamp_path}.tmp" 2>/dev/null \
       && mv -f "${_alive_stamp_path}.tmp" "${_alive_stamp_path}" 2>/dev/null
+    rm -f "${_owner_pid_file}" 2>/dev/null || true
     rmdir "${_lockdir}" 2>/dev/null || true
   fi
 }
