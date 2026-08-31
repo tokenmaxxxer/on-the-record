@@ -1401,11 +1401,11 @@ def _compress_diff(diff_text: str, cap_tokens: int = 18000) -> str:
 
 
 def _judge_trace_path(cwd: str) -> Path:
-    """모든 judge 실행이 공유하는 트레이스 — `runs/patrol-judge-log.md`
+    """모든 judge 실행이 공유하는 트레이스 — `runs/judge-log.md`
     (제안서 §Constraints "trace-always", consult-log `finally` 관례와
     같은 이유). `runs/`는 git-ignored라 커밋 없이도 대상 트리를
     더럽히지 않는다(이슈 #1730)."""
-    return _sp._consult_root(cwd) / "runs" / "patrol-judge-log.md"
+    return _sp._consult_root(cwd) / "runs" / "judge-log.md"
 
 
 def _append_judge_trace(path: Path, ts: str, skill: str, merge_sha: str, outcome: str) -> None:
@@ -1488,8 +1488,8 @@ def _judge_validate(skill: str, findings: list[dict], diff_summary: str,
     """확인/반박 검증 — 하이쿠급 단일 호출로 judge 가 낸 findings 를
     확인/기각하고, `_JUDGE_SKILL_EXCLUSIONS[skill]`에 걸리는 것은 호출 전에
     이미 버린다(Anthropic security-review 패턴, 제안서 §5). 호출 자체가
-    실패하면 **아무것도 큐에 넣지 않는다** — 검증 못 한 finding 을 큐로
-    흘리는 쪽보다, 이번 실행에서 놓치는 쪽이 patrol 큐 오염보다 싸다."""
+    실패하면 **아무것도 반환하지 않는다** — 검증 못 한 finding 을 그대로
+    흘리는 쪽보다, 이번 실행에서 놓치는 쪽이 결과 오염보다 싸다."""
     exclusions = _sp._JUDGE_SKILL_EXCLUSIONS.get(skill, [])
     candidates = [f for f in findings
                   if not any(x in f.get("excerpt", "") for x in exclusions)]
@@ -1577,43 +1577,37 @@ def judge_cmd(skill: str, merge_sha: str, cwd: str | None = None) -> dict:
         raw_findings = parsed.get("findings", []) if parsed else []
         if not raw_findings:
             outcome = "ok: findings 없음"
-            return {"skipped": False, "skill": skill, "merge": merge_sha, "enqueued": []}
+            return {"skipped": False, "skill": skill, "merge": merge_sha, "findings": []}
 
         validated = _sp._judge_validate(skill, raw_findings, diff_summary, root)
         if not validated:
             outcome = f"ok: {len(raw_findings)}건 중 validator 통과 0건"
-            return {"skipped": False, "skill": skill, "merge": merge_sha, "enqueued": []}
+            return {"skipped": False, "skill": skill, "merge": merge_sha, "findings": []}
 
-        sys.path.insert(0, str((_sp.ROOT / "gates").resolve()))
-        import patrol_queue
-        queue_path = Path(root) / patrol_queue.QUEUE_REL_PATH
-        queue = patrol_queue.load_queue(queue_path)
-        enqueued = []
-        # patrol_queue.verify(): 인용된 경로/발췌를 실제로 다시 읽어 확인한다
-        # (run_scan() 이 이미 밟는 scan -> verify -> budget -> enqueue 파이프라인의
-        # 그 단계) — validator(하이쿠급 반박 콜)는 모델의 자기평가일 뿐이라,
-        # 환각된 path/excerpt 를 그대로 통과시킬 수 있다. verify() 를 건너뛰면
-        # judge 만 유일하게 검증 안 된 finding 을 큐에 넣는 경로가 된다.
+        findings = []
+        # 인용된 경로/발췌를 실제로 다시 읽어 확인한다 — validator(하이쿠급
+        # 반박 콜)는 모델의 자기평가일 뿐이라, 환각된 path/excerpt 를 그대로
+        # 통과시킬 수 있다. 이 재확인을 건너뛰면 judge 만 유일하게 검증 안
+        # 된 finding 을 그대로 반환하는 경로가 된다.
         for vf in validated:
-            if not patrol_queue.verify(vf, Path(root)):
+            path = Path(root) / vf["path"]
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
                 continue
-            fp = patrol_queue.fingerprint(f"judge:{skill}", vf["path"], [vf.get("excerpt", "")])
-            finding = {
-                "fingerprint": fp,
+            if vf.get("excerpt", "").strip() not in text:
+                continue
+            findings.append({
                 "scanner_id": f"judge:{skill}",
                 "path": vf["path"],
                 "finding_class": vf.get("finding_class", "judge-finding"),
                 "excerpt": vf.get("excerpt", ""),
                 "last_seen": ts,
-                "lane": "diff",
                 "promotable": bool(vf.get("promotable", False)),
-            }
-            queue = patrol_queue.enqueue(queue, finding)
-            enqueued.append(fp)
-        patrol_queue.save_queue(queue_path, queue)
+            })
         outcome = (f"ok: {len(raw_findings)}건 중 {len(validated)}건 검증, "
-                  f"{len(enqueued)}건 verify 통과 후 큐 반영")
-        return {"skipped": False, "skill": skill, "merge": merge_sha, "enqueued": enqueued}
+                  f"{len(findings)}건 재확인 통과")
+        return {"skipped": False, "skill": skill, "merge": merge_sha, "findings": findings}
     except subprocess.TimeoutExpired:
         outcome = f"error: 시간초과({_sp.JUDGE_TIMEOUT}s)"
         raise

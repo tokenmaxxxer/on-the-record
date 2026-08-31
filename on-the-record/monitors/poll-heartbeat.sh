@@ -364,35 +364,6 @@ _alive_stamp_write() {
 }
 
 tick=0
-# issue #1598 (patrol wiring E2): patrol_tick is its OWN counter,
-# independent of `tick` above — the validity consult flagged reusing
-# `tick`'s counting assumptions, and the proposal (PR #1600) requires the
-# promote-poll cadence to be separate state so a future change to `tick`'s
-# semantics cannot silently retime patrol promotion.
-patrol_tick=0
-patrol_every_n="${POLL_HEARTBEAT_PATROL_EVERY_N:-5}"
-# issue #2919: `read -a` on empty stdin leaves the array name completely
-# UNDEFINED under bash 3.2 (not defined-and-empty), and even a literal
-# `ARR=()` expands as "unbound variable" under `set -u` pre-bash-4.4 --
-# both a failed role_data() query and a genuinely-empty roster produce
-# the same empty stdin here, so the rc is captured separately to tell
-# them apart (must-not: don't make those two conditions indistinguishable
-# — precedent controller #521/#523 for the unguarded-expansion class).
-_patrol_skills_query_failed=0
-_patrol_skills_query_out="$(python3 -c "
-import sys
-sys.path.insert(0, '${CHECKOUT}')
-import spawn
-print(' '.join(sorted(spawn.role_data())))
-" 2>&1)"
-_patrol_skills_query_rc=$?
-if [ "${_patrol_skills_query_rc}" -eq 0 ]; then
-  IFS=' ' read -r -a POLL_HEARTBEAT_PATROL_SKILLS <<<"${_patrol_skills_query_out}"
-else
-  POLL_HEARTBEAT_PATROL_SKILLS=()
-  _patrol_skills_query_failed=1
-  _poll_watchdog_log_append "$(printf '[patrol-skills query failed, rc=%s] %s' "${_patrol_skills_query_rc}" "${_patrol_skills_query_out}")"
-fi
 max_ticks="${POLL_HEARTBEAT_MAX_TICKS:-0}"
 sleep_seconds="${POLL_HEARTBEAT_SLEEP_SECONDS:-120}"
 while true; do
@@ -403,15 +374,14 @@ while true; do
   # `claude plugin marketplace update` (stale-directory cleanup +
   # re-clone) removes and recreates that same directory tree while this
   # loop is sleeping between ticks; a tick landing inside that window
-  # used to launch one `python3 .../gates/patrol_promote.py` subprocess
-  # per configured role (POLL_HEARTBEAT_PATROL_ROLES) with no existence
-  # check, and python3 itself failed to open the momentarily-missing
-  # script file (errno 2, "No such file or directory") once per role --
-  # a 43-role crash burst for one transient condition. Reuse the same
-  # existence signal poll_rearm_resolve_checkout already trusts
-  # (spawn.py present at CHECKOUT) and skip the WHOLE tick -- due-check
-  # and patrol both -- with one advisory line, instead of letting every
-  # subprocess below fail independently.
+  # used to launch each `python3 .../spawn.py` subprocess below with no
+  # existence check, and python3 itself failed to open the momentarily-
+  # missing script file (errno 2, "No such file or directory") once per
+  # subprocess -- a multi-subprocess crash burst for one transient
+  # condition. Reuse the same existence signal poll_rearm_resolve_checkout
+  # already trusts (spawn.py present at CHECKOUT) and skip the WHOLE tick
+  # with one advisory line, instead of letting every subprocess below
+  # fail independently.
   if [ ! -f "${CHECKOUT}/spawn.py" ]; then
     printf '[poll-heartbeat] checkout unavailable at %s (mid-update?), skipping tick\n' "${CHECKOUT}"
     tick=$((tick + 1))
@@ -485,82 +455,6 @@ while true; do
     # issue #1220: non-due ticks are now fully silent (no "skipped (within
     # TTL)" line) — delta-only emission means a normal within-TTL tick
     # produces zero Monitor-visible output, not a constant per-minute echo.
-  fi
-  # issue #1598 (patrol wiring E2): patrol promotion rides this SAME loop
-  # at a reduced, independently-counted cadence — unconditional, outside
-  # the due_rc-gated branch above and outside its delta-suppression state
-  # file, so a patrol-due tick always prints its own trace line regardless
-  # of whether this tick was also heartbeat-due (warrant hunt finding,
-  # hunt-patrol-heartbeat-wiring.md: poll-due's TTL is shared with the
-  # turn-driven directive.sh hook, so a patrol-due tick is routinely
-  # non-due — folding patrol emission into the due-gated report would
-  # silently drop promotion trace lines on exactly those ticks).
-  # issue #2163: checking every configured role here every patrol_every_n
-  # ticks is uncapped BY DESIGN, and deliberately not
-  # gates/patrol_wiring.py's MAX_ROLES_PER_MERGE=3 — that cap protects a
-  # different, expensive call (spawn.judge_cmd's Haiku-prefiltered judge
-  # run at the merge seam); this loop's per-role call
-  # (gates/patrol_promote.py) is a cheap board-state read/tick-detect
-  # that only reaches a `gh` write when a checkbox was actually ticked,
-  # so sweeping all configured roles on a slow, fixed cadence costs one
-  # cheap read per role rather than one judge run per role. The two caps
-  # are not the same code path and must not be unified.
-  patrol_tick=$((patrol_tick + 1))
-  if [ "${patrol_every_n}" != "0" ] && [ "$((patrol_tick % patrol_every_n))" -eq 0 ]; then
-    if [ -e "${CHECKOUT}/.on-the-record/patrol-disabled" ]; then
-      printf '[patrol-poll] disabled, skipped\n'
-    else
-      _patrol_checked=0
-      _patrol_promotions=0
-      _patrol_crashed=0
-      if [ "${_patrol_skills_query_failed}" -eq 1 ]; then
-        # issue #2919: the roster query crashed at Monitor startup, so
-        # this loop has nothing to iterate all session long -- say so on
-        # every patrol-due tick rather than reading as an indistinguishable
-        # quiet "no skills configured" tick (must-not in #2919).
-        printf '[patrol-poll] skills query failed at startup, patrol skipped this tick\n'
-      fi
-      # issue #2919: bash 3.2 (unlike 4.4+) treats even a genuinely-empty
-      # declared array as unbound under `set -u` when expanded plainly --
-      # confirmed live under bash 3.2.57. The `${arr[@]+"${arr[@]}"}`
-      # idiom expands to nothing (zero loop iterations, no error) whether
-      # the array is unset, empty, or populated, on both bash 3.2 and 5.x.
-      for _patrol_skill in "${POLL_HEARTBEAT_PATROL_SKILLS[@]+"${POLL_HEARTBEAT_PATROL_SKILLS[@]}"}"; do
-        _patrol_out="$(python3 "${CHECKOUT}/gates/patrol_promote.py" run "${CHECKOUT}" "${_patrol_skill}" 2>&1)"
-        _patrol_rc=$?
-        _patrol_checked=$((_patrol_checked + 1))
-        if [ "${_patrol_rc}" -ne 0 ]; then
-          # warrant hunt finding (hunt-patrol-heartbeat-wiring.md): a
-          # per-role patrol_promote.py crash must not vanish silently —
-          # logged the same way the existing due_rc-crash path already
-          # logs (_poll_watchdog_log_append), plus a Monitor-visible
-          # trace line so the failing role is identifiable per tick.
-          _poll_watchdog_log_append "$(printf '[patrol-poll crashed, role=%s, rc=%s] %s' "${_patrol_skill}" "${_patrol_rc}" "${_patrol_out}")"
-          printf '[patrol-poll] %s: crashed (rc=%s)\n' "${_patrol_skill}" "${_patrol_rc}"
-          _patrol_crashed=1
-        elif [ -n "${_patrol_out}" ]; then
-          _patrol_count="$(printf '%s' "${_patrol_out}" | python3 -c '
-import json, sys
-try:
-    d = json.loads(sys.stdin.read())
-except (ValueError, TypeError):
-    d = {}
-print(len(d.get("promotions", [])) if isinstance(d, dict) else 0)
-' 2>/dev/null || printf '0')"
-          if [ -n "${_patrol_count}" ] && [ "${_patrol_count}" != "0" ]; then
-            _patrol_promotions=$((_patrol_promotions + _patrol_count))
-            printf '[patrol-poll] %s: %s promotion(s)\n' "${_patrol_skill}" "${_patrol_count}"
-          fi
-        fi
-      done
-      # issue #1722: the summary line only fires when there's something to
-      # act on (a promotion or a crash) — a quiet tick still runs the
-      # patrol and logs it, it just stops waking the Monitor session with
-      # a "0 promotion(s)" no-op every patrol_every_n ticks.
-      if [ "${_patrol_promotions}" != "0" ] || [ "${_patrol_crashed}" = "1" ]; then
-        printf '[patrol-poll] checked %s role(s), %s promotion(s)\n' "${_patrol_checked}" "${_patrol_promotions}"
-      fi
-    fi
   fi
   tick=$((tick + 1))
   if [ "${max_ticks}" != "0" ] && [ "${tick}" -ge "${max_ticks}" ]; then
