@@ -116,12 +116,7 @@ content the reader needs — the added clause about death reaching the
 orchestrator is new information this round's brief required, not
 padding.
 
-skill-verdict: technical-writing-structure-comprehension — applied:
-invoked; restructured `docs/handbooks/monitor-liveness.md:47-55` per the
-canonical SKILL.md procedure cited above, splitting the withdrawn-claim
-sentence into shorter single-clause sentences while preserving the
-bolded caveat and adding a forward reference instead of duplicating the
-deep section's argument.
+skill-verdict: technical-writing-structure-comprehension — applied: invoked; restructured `docs/handbooks/monitor-liveness.md:47-55` per the canonical SKILL.md procedure cited above, splitting the withdrawn-claim sentence into shorter single-clause sentences while preserving the bolded caveat and adding a forward reference instead of duplicating the deep section's argument.
 
 other mounted skills: not triggered (work-in-english governs language
 only, no separate invocation needed beyond writing this record and its
