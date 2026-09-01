@@ -890,6 +890,32 @@ def _watchdog_note_spawn_coverage_delta(root: Path, uncovered: list[int]) -> lis
     return newly
 
 
+def _watchdog_note_ambiguous_deliverable_record(root: Path, subject: str) -> bool:
+    """issue #2978 follow-up (PR #3021's independent-review finding):
+    `gates/spawn_on_pr.py`'s `missing_verification` distinguishes "this
+    subject has 0 non-verifying board records" (no deliverable ever
+    landed, ordinary) from "2+ non-verifying board records with no
+    `verifies_subject` marker to disambiguate" (a deliverable
+    demonstrably DID land, which one is ambiguous -- #2593's own
+    documented refuse-to-guess case). The second, combined with a branch
+    also missing from `pr_index`, is a genuine anomaly worth reporting --
+    but like `_watchdog_note_unmappable_subject_branch` above, the
+    underlying board shape is durable (an old subject's ambiguous record
+    set doesn't resolve itself), so it gets its own one-shot marker in a
+    separate state bucket rather than reusing that function's (a
+    different finding -- "record set is ambiguous", not "branch
+    confirmed missing" -- must not collapse into the same reported-once
+    key). Same True/False one-shot contract as its sibling."""
+    path = _sp._watchdog_noise_state_path(root)
+    state = _sp._load_watchdog_noise_state(path)
+    seen = state.setdefault("ambiguous_deliverable_record_reported", {})
+    if subject in seen:
+        return False
+    seen[subject] = True
+    _sp._save_watchdog_noise_state(path, state)
+    return True
+
+
 def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
     """issue #1688: single-number detail fetch for delta-mode
     requirement-drift rechecks, routed through `gates.gh_cache.cached_get`

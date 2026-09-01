@@ -102,6 +102,44 @@ class SpawnOnPrGenuinelyMissingBranchIsStillReported(unittest.TestCase):
             printed)
 
 
+class SpawnOnPrAmbiguousRecordSetIsStillReported(unittest.TestCase):
+    """Regression case added by issue #2978's follow-up (PR #3021's
+    independent-review finding): `subject_deliverable_record()` collapses
+    "0 non-verifying records" (no deliverable ever landed) and "2+
+    non-verifying records" (a deliverable demonstrably DID land, but
+    which record is ambiguous -- #2593's own documented refuse-to-guess
+    case) into the same `(None, {})`. Acceptance test 2 above only
+    constructs the single-record case, so it never exercised this
+    2+-candidate shape -- PR #3012's own tests missed it. This subject's
+    branch is also missing from `pr_index`, so it must still be reported
+    (not silently treated as "no PR yet")."""
+
+    def test_spawn_on_pr_ambiguous_record_set_still_reported(self):
+        subject = "issue-97003"
+        board = {subject: {
+            "implementation": {"author": "alice"},
+            "conformance-review": {"author": "bob"},
+        }}
+        with mock.patch.object(spawn_on_pr.spawn, "board", lambda root: board), \
+             mock.patch.object(
+                 spawn_on_pr.spawn, "_watchdog_note_ambiguous_deliverable_record",
+                 return_value=True) as marker, \
+             mock.patch.object(
+                 spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
+                 return_value=True) as other_marker:
+            with mock.patch("builtins.print") as fake_print:
+                out = spawn_on_pr.missing_verification(
+                    Path("/tmp/does-not-matter"),
+                    issue_states={97003: "OPEN"}, pr_index={})
+
+        self.assertEqual(out, {})
+        marker.assert_called_once_with(mock.ANY, subject)
+        other_marker.assert_not_called()
+        printed = "\n".join(str(c.args[0]) for c in fake_print.call_args_list)
+        self.assertIn(f"[spawn-on-pr] {subject}: deliverable record 모호함", printed)
+        self.assertIn("2건", printed)
+
+
 class ClosureSweepRecordAfterMergeIsNotAViolation(unittest.TestCase):
     """Acceptance 3: a record PR still open on an issue that GitHub
     auto-closed at implementation merge is not reported as a closure

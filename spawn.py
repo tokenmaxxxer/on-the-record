@@ -249,6 +249,7 @@ _save_watchdog_noise_state = watchdog._save_watchdog_noise_state
 _watchdog_note_gh_failure = watchdog._watchdog_note_gh_failure
 _watchdog_note_unmappable_pr = watchdog._watchdog_note_unmappable_pr
 _watchdog_note_unmappable_subject_branch = watchdog._watchdog_note_unmappable_subject_branch
+_watchdog_note_ambiguous_deliverable_record = watchdog._watchdog_note_ambiguous_deliverable_record
 _fetch_issue_or_pr_via_cache = watchdog._fetch_issue_or_pr_via_cache
 _board_read = watchdog._board_read
 _board_pr_index = watchdog._board_pr_index
