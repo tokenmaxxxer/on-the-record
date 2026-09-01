@@ -46,3 +46,17 @@ quote: If the upstream repo is unreachable (permissions/network), the draft is s
 source_issue: 1131
 check: UNVERIFIABLE: gates/test_upstream_finding_channel.py was deleted when the plugin's own pytest suite was retired (#2137 — persistent test files are not a default deliverable); no replacement test file was reintroduced per that policy
 status: enforced
+
+## R005
+
+quote: a PR is refused when merging it would delete or overwrite content that exists at the base branch HEAD but was added by a commit the PR's merge-base does NOT contain (i.e. the PR is stale relative to that commit and its merge reverts it)
+source_issue: 1664
+check: gates/stale_revert_guard.py::classify
+status: enforced
+
+## R006
+
+quote: Dominant-axis rule: no summing/averaging across axes; worst reversibility grade alone forces individual human approval.
+source_issue: 511
+check: gates/risk_report.py::classify_axes
+status: enforced
