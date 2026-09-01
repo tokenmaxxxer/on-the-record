@@ -348,9 +348,8 @@ worktree, re-run tests, direct code reads — see the code fences in
 "What was done" sections 1-5 above) rather than restating the PR's own
 pasted test-plan numbers.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; called via the Skill tool this turn — canonical: Skill
-tool call this turn returned the full rule set (rules 1-10). Applied:
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; called via the Skill
+tool this turn — canonical: Skill tool call this turn returned the full rule set (rules 1-10). Applied:
 treated the PR's claimed test-plan numbers and its "pre-existing
 unrelated failure" note as claims to re-derive rather than cite (rule 3,
 rule 8) — see the code fence in "What was done" section 2 above, where
