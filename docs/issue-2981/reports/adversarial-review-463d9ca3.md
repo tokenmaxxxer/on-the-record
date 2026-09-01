@@ -284,8 +284,6 @@ Findings 1 and 2 above are handed back to coding/qa for issue #2981 --
 loop_state is terminal for this review session; no further action is
 pending on this record's own side.
 
-skill-verdict: adversarial-review -- applied: invoked; used to approach
-PR #3002 as an artifact to find problems in per the task's explicit
-instruction not to trust its claimed results
-skill-verdict: defect-verification-independence-from-upstream-verdicts -- applied: invoked; used to re-derive every acceptance/must-not claim from the isolated worktree rather than citing the PR's test-plan or record output, and to probe the two edges its own tests never cover
+skill-verdict: adversarial-review — applied: invoked; used to approach PR #3002 as an artifact to find problems in per the task's explicit instruction not to trust its claimed results
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; used to re-derive every acceptance/must-not claim from the isolated worktree rather than citing the PR's test-plan or record output, and to probe the two edges its own tests never cover
 other mounted skills: not triggered
