@@ -29,7 +29,8 @@ import spawn  # noqa: E402
 ARTIFACT_PATH = Path(".on-the-record/check-run-artifact.json")
 
 _RESULT_HEADER = re.compile(
-    r"^## Acceptance check-runner result:\s*(?:(\d+)/(\d+)\s*passed|no checks declared)",
+    r"^## Acceptance check-runner result:\s*(?:(\d+)/(\d+)\s*passed|"
+    r"no checks declared|record-only PR — implementation checks not scored)",
     re.MULTILINE)
 
 
@@ -40,7 +41,15 @@ def parse_check_runner_result(comment_body: str) -> dict | None:
     issue #2233 empty-state: `check_runner.NO_CHECKS_MARKER` 를 숫자 헤더보다
     먼저 확인한다 — 실행가능한 검사가 0개면 `{"no_checks": True}` 를
     돌려준다. 이걸 숫자 파싱으로 흘려보내면 `0/0` 같은 우연한 통과 형태가
-    나올 수 있다(에러가 아니라 진짜 있었던 결함, 아래 `evaluate()` 참고)."""
+    나올 수 있다(에러가 아니라 진짜 있었던 결함, 아래 `evaluate()` 참고).
+
+    issue #2974: `check_runner.RECORD_ONLY_MARKER` 도 숫자 헤더보다 먼저
+    확인한다 — `{"record_only": True}`. `no_checks`(이슈 자체에 실행가능한
+    검사가 없다, 수상해서 fail-closed)와 의도적으로 다른 결과다: 이건 이
+    PR 자신이 record-only 라 애초에 그 검사의 채점 대상이 아니라는
+    뜻이라, `evaluate()`는 이걸 통과로 취급한다."""
+    if check_runner.RECORD_ONLY_MARKER in comment_body:
+        return {"record_only": True}
     if check_runner.NO_CHECKS_MARKER in comment_body:
         return {"no_checks": True}
     m = _RESULT_HEADER.search(comment_body)
@@ -347,6 +356,12 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
         result = parse_check_runner_result(comment)
         if result is None:
             reasons.append(f"check-runner 결과를 파싱할 수 없다: {comment[:200]!r}")
+        elif result.get("record_only"):
+            # issue #2974: 이 PR 자신이 record-only 라 애초에 구현
+            # Acceptance 검사의 채점 대상이 아니다 — no_checks(이슈 자체에
+            # 실행가능한 검사가 없다, 수상함)와 달리 이건 정상적인 결과라
+            # 통과로 취급한다. 거부 사유를 추가하지 않는다.
+            pass
         elif result.get("no_checks"):
             # issue #2233 empty-state: 이슈의 Acceptance 절에 실행가능한
             # 검사가 없다는 것 자체가 명시적 결과다 — 통과로 취급하지 않는다.

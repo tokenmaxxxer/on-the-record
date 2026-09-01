@@ -97,6 +97,33 @@ def _count_merge_invocations(command):
     )
 
 
+def _merge_pr_numbers(command):
+    # issue #2974: which PR each `gh pr merge` invocation targets, so the
+    # batch's own write-sets can be checked against an individually-required
+    # proposal before inheriting its reversibility (see the Acceptance-item
+    # deny() call below). Deliberately narrow, same posture as
+    # `_count_merge_invocations` above: only the plain `gh pr merge <n>`
+    # shape (bare numeric token immediately after "merge") is resolved. Any
+    # invocation not in that shape makes this return `None` for the whole
+    # command — the caller then falls back to the pre-#2974 behaviour
+    # (every individually-required proposal blocks, batch context unknown)
+    # rather than guessing which PRs are actually in the batch.
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return None
+    numbers = []
+    for i in range(len(tokens) - 2):
+        if tokens[i] == "gh" and tokens[i + 1] == "pr" and tokens[i + 2] == "merge":
+            nxt = tokens[i + 3] if i + 3 < len(tokens) else None
+            if not (nxt and nxt.isdigit()):
+                return None
+            numbers.append(nxt)
+    return numbers
+
+
 merge_count = _count_merge_invocations(cmd)
 if merge_count < 2:
     sys.exit(0)  # single merge — ordinary individually-approved act, not a batch
@@ -112,7 +139,27 @@ except ImportError:
 
 root = Path(target)
 proposals = risk_report.scan_open_proposals(root)
-blocked = risk_report.batch_blocked(proposals, root)
+
+# issue #2974: resolve the batch's own write-sets so `batch_blocked` can
+# tell an implicated proposal from an unrelated one. Any failure along this
+# path (unresolvable PR numbers, `gh pr diff` failing for any of them)
+# leaves `batch_files` as `None` — `batch_blocked`'s documented empty state
+# for that argument, identical to this hook's behaviour before #2974.
+batch_files = None
+pr_numbers = _merge_pr_numbers(cmd)
+if pr_numbers:
+    import subprocess
+    resolved = []
+    for n in pr_numbers:
+        r = subprocess.run(["gh", "pr", "diff", n, "--name-only"], cwd=target,
+                            capture_output=True, text=True)
+        if r.returncode != 0:
+            resolved = None
+            break
+        resolved.append([ln.strip() for ln in r.stdout.splitlines() if ln.strip()])
+    batch_files = resolved
+
+blocked = risk_report.batch_blocked(proposals, root, batch_files=batch_files)
 if not blocked:
     sys.exit(0)
 

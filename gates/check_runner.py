@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import check_run_artifact as cra  # noqa: E402
 import gh_rest  # noqa: E402
+import gates  # noqa: E402
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn  # noqa: E402
 
@@ -46,6 +47,18 @@ ARTIFACT_PATH = Path(".on-the-record/check-run-artifact.json")
 # 숫자 헤더(`_RESULT_HEADER`, merge_gate.py)와 겹치지 않는 별도 문구라야
 # `0/0 passed`(빈 목록의 우연한 통과)와 구조적으로 구분된다.
 NO_CHECKS_MARKER = "## Acceptance check-runner result: no checks declared"
+
+# issue #2974: PR의 diff 가 docs/ 밖 경로를 하나도 건드리지 않으면
+# record-only 로 판단해, 이슈 Acceptance 절의 구현 검사(test/grep/
+# file-existence/artifact-smoke)를 이 브랜치에 대해 채점하지 않는다 —
+# verification-record/measurement-record 브랜치는 애초에 그 검사가
+# 겨냥하는 구현 코드를 담을 계획이 없다(같은 이슈의 다른 PR이 이미
+# 그 코드를 담아 착륙했을 수 있다). NO_CHECKS_MARKER 와 다른 문구라야
+# `parse_check_runner_result()`가 "검사가 없다"(fail-closed)와
+# "이 PR은 애초에 채점 대상이 아니다"(non-blocking)를 구조적으로
+# 구분할 수 있다.
+RECORD_ONLY_MARKER = ("## Acceptance check-runner result: record-only PR — "
+                       "implementation checks not scored")
 
 # acceptance_gate.py 의 실행가능-산출물 admission 정규식과 같은 계열:
 # 백틱으로 감싼 test/gates 경로, 또는 'check:'/'gate:' 줄.
@@ -353,7 +366,8 @@ def run_checks(repo: Path, checks: list[dict]) -> list[dict]:
     return results
 
 
-def format_comment(results: list[dict], skipped: list[dict] | None = None) -> str:
+def format_comment(results: list[dict], skipped: list[dict] | None = None,
+                    disagreement_note: str | None = None) -> str:
     """구조화된 마크다운 PR 코멘트 본문 하나를 만든다.
 
     `results`가 빈 목록이면(파싱된 `check:`/`gate:` 줄이 하나도 없음, 또는
@@ -384,6 +398,9 @@ def format_comment(results: list[dict], skipped: list[dict] | None = None) -> st
                       "semantic 채점은 requirement_met.py 몫):")
         for s in skipped:
             lines.append(f"- {s['raw']}")
+    if disagreement_note:
+        lines.append("")
+        lines.append(disagreement_note)
     return "\n".join(lines)
 
 
@@ -429,6 +446,104 @@ def _pr_head_ref(repo: Path, pr: int) -> str | None:
         return json.loads(r.stdout).get("headRefName")
     except ValueError:
         return None
+
+
+def pr_diff_paths(repo: Path, pr: int) -> list[str] | None:
+    """PR `pr`이 건드리는 경로 전체(`gh pr diff --name-only`) — issue #2313
+    `ci.py:_shadow_diff_paths`와 같은 자세, check_runner 자체 gh 호출
+    지점(`_pr_head_ref`/`post_comment`)과 같은 `cwd=repo`. 실패하면 `None`
+    (네트워크/권한 문제) — 호출부가 fail-closed 방향(구현 취급, 채점 실행)으로
+    처리한다."""
+    r = subprocess.run(["gh", "pr", "diff", str(pr), "--name-only"], cwd=repo,
+                        capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return [line.strip() for line in r.stdout.splitlines() if line.strip()]
+
+
+def touches_implementation_paths(paths: list[str] | None) -> bool:
+    """issue #2974 record-only PR 의 1차(primary) 신호: diff 가 `docs/`
+    밖 경로를 하나라도 건드리는가. 이 저장소의 레이아웃(그리고 이 러너가
+    대상으로 삼는 target repo들의 공통 관례 — code src/, tests test/,
+    docs/ 여섯 버킷)에서 레코드가 쓸 수 있는 경로는 오직 `docs/` 뿐이다.
+
+    `paths`가 `None`/빈 목록(diff 를 못 읽음)이면 True로 fail-closed —
+    구현을 건드리는 PR로 취급해 오늘과 같은 채점 경로를 그대로 탄다.
+    이슈의 must-not("do not make the check-runner skip scoring for any
+    PR that does touch implementation paths")을 diff 를 못 읽는 경우까지
+    확장한 것: 불확실하면 스킵이 아니라 채점 쪽으로 넘어간다."""
+    if not paths:
+        return True
+    return any(not p.startswith("docs/") for p in paths)
+
+
+# issue #2974: `kind:` frontmatter 는 corroborating 신호일 뿐이다(1차
+# 신호는 위 `touches_implementation_paths` 의 diff 판정) — 두 목록은
+# `docs/specs/record-kind-vocabulary.md`가 이미 분류해 둔 카테고리
+# 이름을 그대로 옮긴 것으로, 파일명/브랜치명/스킬명이 아니라 레코드
+# 자신의 `kind:` 필드 값이라는 닫힌 어휘 하나만 참조한다.
+_RECORD_ONLY_KINDS = frozenset({
+    "survey", "current-state-survey", "scout-brief", "research-evidence-log",
+    "evidence-trail", "proposal", "coding-proposal", "build-proposal",
+    "decision", "adr", "decision-record", "verify-record", "verify-survey",
+    "verify-proposal", "execution-observation", "execution-observation-report",
+    "observation-record", "review-record", "conformance-review",
+    "defect-verification-record", "qa-record", "hunt-record", "fan-out-record",
+    "hypothesis-testing", "reflect-record", "realization-record",
+    "product-discovery-record", "requirements-engineering",
+    "security-threat-model", "content-design", "resolution", "deviation-log",
+    "superseded",
+})
+_IMPLEMENTATION_KINDS = frozenset({
+    "coding-record", "implementation", "implementation-record",
+    "implementation-survey", "build-report",
+})
+
+
+def frontmatter_record_only_signal(repo: Path, record_paths: list[str]) -> bool | None:
+    """`record_paths`(diff 안의 `docs/issue-<n>/reports/*.md` 경로들, `repo`
+    워크트리 기준)의 frontmatter `kind:` 값으로부터 corroborating 신호를
+    뽑는다. `True` = record-only 를 가리킴, `False` = 구현측 레코드를
+    가리킴, `None` = 신호 없음(레코드가 없거나, `kind:` 이 없거나 닫힌
+    어휘 밖이거나, 여러 레코드가 서로 다른 신호를 내는 경우) — `None`은
+    "불일치 없음"으로 처리된다, 신호가 아예 없다는 뜻이지 record-only를
+    확인했다는 뜻이 아니다."""
+    votes: set[bool] = set()
+    for rel in record_paths:
+        f = repo / rel
+        if not f.exists():
+            continue
+        text = f.read_text(encoding="utf-8-sig", errors="replace")
+        kind = gates.record_frontmatter(text).get("kind")
+        if kind in _RECORD_ONLY_KINDS:
+            votes.add(True)
+        elif kind in _IMPLEMENTATION_KINDS:
+            votes.add(False)
+    return votes.pop() if len(votes) == 1 else None
+
+
+def format_record_only_comment(fm_signal: bool | None, disagreement: bool) -> str:
+    """`main()`이 record-only로 판정했을 때 남기는 코멘트. `NO_CHECKS_MARKER`
+    와 의도적으로 다른 문구다 — 저건 이슈에 실행가능한 검사가 없다는(대개
+    수상한) fail-closed 결과고, 이건 이 PR 자신이 애초에 그 검사의 채점
+    대상이 아니라는(정상적인, non-blocking) 결과다."""
+    lines = [
+        RECORD_ONLY_MARKER, "",
+        "이 PR 의 diff 가 `docs/` 밖 경로를 하나도 건드리지 않는다 — "
+        "record-only PR 로 판단해 이슈 `## Acceptance` 절의 구현 검사"
+        "(test/grep/file-existence/artifact-smoke)를 이 브랜치에 대해 "
+        "채점하지 않는다(issue #2974). 이것은 실패가 아니라 별개의 결과다 "
+        "— 머지 게이트는 이 PR 자신의 check-runner 점수 요건에서 이 결과를 "
+        "만족으로 다룬다.",
+    ]
+    if disagreement:
+        lines.append("")
+        lines.append(
+            "신호 불일치: diff 는 record-only(구현 경로 없음)를 가리키지만 "
+            "레코드 frontmatter 의 `kind:` 값은 구현측 레코드를 가리킨다"
+            f" (frontmatter record-only 신호: {fm_signal}) — 자동으로 "
+            "해소하지 않고 그대로 보고한다. diff 가 1차 신호다.")
+    return "\n".join(lines)
 
 
 def worktree_for_ref(repo: Path, ref: str) -> tuple[Path | None, str | None]:
@@ -568,8 +683,35 @@ def main() -> int:
         print(f"거부: PR #{pr} 코드를 체크아웃할 수 없다 — {err}")
         return 1
     try:
+        # issue #2974: 구현 검사를 돌리기 전에 이 PR 자신이 record-only 인지
+        # 먼저 본다 — 1차 신호는 diff(구현 경로를 하나라도 건드리는가),
+        # frontmatter `kind:` 는 corroborating 신호일 뿐이다. 신호가
+        # 갈리면(record-only PR인데 frontmatter는 구현측 kind를 가리키는
+        # 경우, 또는 그 반대) 자동으로 해소하지 않고 코멘트에 그대로
+        # 남긴다 — diff 판정이 항상 이긴다.
+        diff_paths = pr_diff_paths(repo, pr)
+        touches_impl = touches_implementation_paths(diff_paths)
+        record_paths = [p for p in (diff_paths or [])
+                         if gates.RECORD_PATH.match(p)]
+        fm_signal = frontmatter_record_only_signal(worktree, record_paths)
+        record_only = not touches_impl
+        disagreement = fm_signal is not None and fm_signal != record_only
+
+        if record_only:
+            comment = format_record_only_comment(fm_signal, disagreement)
+            print(comment)
+            post_comment(pr, comment, repo)
+            return 0
+
+        disagreement_note = None
+        if disagreement:
+            disagreement_note = (
+                "신호 불일치: diff 는 구현 경로를 건드리는 것으로 보이지만 "
+                "레코드 frontmatter 의 `kind:` 값은 record-only 레코드를 "
+                "가리킨다 — 자동으로 해소하지 않고 그대로 보고한다. diff 가 "
+                "1차 신호라 이 PR은 오늘과 같이 채점된다(issue #2974).")
         results = run_checks(worktree, mechanical)
-        comment = format_comment(results, judgment)
+        comment = format_comment(results, judgment, disagreement_note)
         print(comment)
         post_comment(pr, comment, repo)
 
