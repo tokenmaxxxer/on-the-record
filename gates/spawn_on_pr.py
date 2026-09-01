@@ -264,6 +264,23 @@ def _branch_looks_like_deliverable(root: Path, pr_number: int | None) -> bool:
     return check_runner.touches_implementation_paths(paths)
 
 
+def _deliverable_candidate_count(subject_board: dict) -> int:
+    """Count of `subject_board` records that don't self-declare
+    `verifies_subject: true` -- the count `subject_deliverable_record()`
+    already computes above before it collapses 0 and 2+ into the same
+    `(None, {})`. issue #2978 follow-up (PR #3021's independent-review
+    finding): those two counts are not the same situation. 0 means no
+    deliverable record has ever landed for this subject (the ordinary
+    "issue just filed" case). 2+ means a deliverable record demonstrably
+    DID land -- which one is ambiguous (#2593's own documented
+    refuse-to-guess case) -- so a caller that treats `_slug is None` as
+    "nothing to report" for both counts silently swallows the 2+ case,
+    which is exactly the kind of real condition this issue exists to
+    keep reporting."""
+    return len([1 for fm in subject_board.values()
+                if fm.get("verifies_subject") != "true"])
+
+
 def subject_deliverable_branch(root: Path, subject: str,
                                 pr_index: dict[str, dict] | None) -> str | None:
     """Resolve the subject's own (non pr-observer) branch from `pr_index`
@@ -536,6 +553,7 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     b = spawn.board(root)
     merged_seen: set[str] | None = None
     unmappable_branch_already_reported = 0
+    ambiguous_deliverable_already_reported = 0
     for subject, subject_board in b.items():
         _slug, subject_fm = subject_deliverable_record(subject_board)
         subject_author = subject_fm.get("author")
@@ -569,6 +587,49 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
         # 그 경우에도 branch/PR 조회는 여전히 가능해야 한다.
         branch = subject_deliverable_branch(root, subject, pr_index)
         if branch is None:
+            # issue #2978: `_slug` (from `subject_deliverable_record()`
+            # above) is `None` when this subject has no unique
+            # non-verifying record -- but that collapses two different
+            # counts (`_deliverable_candidate_count()` above): 0 means its
+            # deliverable PR has never existed in the first place (this
+            # subject only reached this loop because a *verification*
+            # record already landed for it, e.g. reviewing a not-yet-opened
+            # deliverable) -- the ordinary state of a freshly filed issue,
+            # nothing was ever lost from `pr_index`, nothing to report.
+            # Once a deliverable record HAS landed (`_slug` is not `None`,
+            # OR 2+ ambiguous candidates exist -- see below), its PR
+            # necessarily existed and merged at some point -- an
+            # unmappable branch past that point is a genuine anomaly (e.g.
+            # #2379's corrupted merge-base case) and must still print, same
+            # as before this issue.
+            if _slug is None:
+                candidate_count = _deliverable_candidate_count(subject_board)
+                if candidate_count == 0:
+                    continue
+                # issue #2978 follow-up (PR #3021's independent-review
+                # finding): 2+ non-verifying records exist with no
+                # `verifies_subject` marker to disambiguate them
+                # (#2593's own documented refuse-to-guess ambiguity) -- a
+                # deliverable demonstrably DID land here (that is why more
+                # than one candidate record exists), so this is not "no PR
+                # yet". Refusing to guess WHICH record is the deliverable
+                # does not mean refusing to report that its branch is also
+                # missing from `pr_index` -- staying silent here would
+                # swallow a genuine #2379-class unmappable-branch report.
+                # Reported under its own one-shot marker/message, distinct
+                # from the confirmed-single-deliverable case below, because
+                # "record set is ambiguous" and "branch confirmed missing"
+                # are different findings, not the same one guessed either
+                # direction (this repo's #2795/#2969 precedent for a third
+                # state over a forced binary).
+                if spawn._watchdog_note_ambiguous_deliverable_record(root, subject):
+                    print(f"[spawn-on-pr] {subject}: deliverable record 모호함 "
+                          f"({candidate_count}건, verifies_subject 미표시로 특정 불가) — "
+                          f"브랜치도 pr_index 에서 찾지 못함 — 이번 틱은 건너뜀 "
+                          f"(deficit={deficit})")
+                else:
+                    ambiguous_deliverable_already_reported += 1
+                continue
             # 이슈 #2196 category 3: 브랜치가 삭제된 오래된 subject 는 이
             # 조건이 영구적이라 매 틱 재출력하면 wall of noise 가 된다 —
             # board-sweep 의 _watchdog_note_unmappable_pr 과 같은 one-shot
@@ -605,6 +666,9 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
     if unmappable_branch_already_reported:
         print(f"[spawn-on-pr] {unmappable_branch_already_reported}건 이전에 보고된 "
               "매핑-불가 subject — 계속 무시 (반복 안 찍음)")
+    if ambiguous_deliverable_already_reported:
+        print(f"[spawn-on-pr] {ambiguous_deliverable_already_reported}건 이전에 보고된 "
+              "모호한 deliverable record subject — 계속 무시 (반복 안 찍음)")
     return out
 
 

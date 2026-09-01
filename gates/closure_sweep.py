@@ -20,6 +20,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import pr_reference  # noqa: E402
 import spawn  # noqa: E402
 import ci  # noqa: E402
+import check_runner  # noqa: E402
 import accumulation  # noqa: E402
 import state_paths  # noqa: E402
 
@@ -80,6 +81,25 @@ def classify(issue_state: str, pr_state: str, pr_body: str, issue: int,
             and (has_closes or has_record_evidence)):
         return MERGED_DELIVERY_ISSUE_OPEN
     return None
+
+
+def _pr_is_record_only(root: Path, pr: int) -> bool:
+    """issue #2978: is `pr` a record-only PR (verification, observation,
+    conformance-review, ...) rather than the subject's actual delivery?
+
+    Reuses `check_runner.touches_implementation_paths()` verbatim (issue
+    #2974's own primary signal: does the diff touch any path outside
+    `docs/`) -- the same structural test that already tells a record-only
+    PR apart from an implementation PR for the check-runner/merge-gate
+    path, applied here so `find_violations()` doesn't reinvent it or fall
+    back to a branch-name/issue-age guess. `pr_diff_paths()` fails closed
+    to `None` on a `gh` error, and `touches_implementation_paths(None)` is
+    `True` -- so an unreadable diff is treated as "touches implementation"
+    (not record-only), the same direction this file already fails toward
+    for every other degraded-lookup case: report rather than silently
+    drop a possible genuine violation."""
+    paths = check_runner.pr_diff_paths(root, pr)
+    return not check_runner.touches_implementation_paths(paths)
 
 
 def _board_list_etag_cache_path(root: Path, name: str) -> Path:
@@ -444,6 +464,25 @@ def find_violations(root: Path, subjects: dict | None = None,
             if kind is None and pr_state == "MERGED" and issue_state == "OPEN":
                 if ci._phase2_record_evidence(root, pr, branch, issue):
                     kind = classify(issue_state, pr_state, pr_body, issue, True)
+            # issue #2978: a record-only PR (independent-verification,
+            # conformance-review, ...) landing before or after the
+            # subject's actual delivery PR is the ordinary landing order
+            # this system prescribes, not a closure violation -- neither
+            # its being OPEN past the issue's auto-close
+            # (OPEN_PR_ON_CLOSED_ISSUE, `has_plain`/`has_closes` from its
+            # own body referencing the issue) nor its being MERGED while
+            # the issue is still open pending more verification
+            # (MERGED_DELIVERY_ISSUE_OPEN, from `has_closes` or the
+            # record-evidence fallback above) is a genuine "this was
+            # supposed to be the delivery" signal. Reuses issue #2974's
+            # structural record-only test (diff touches no path outside
+            # `docs/`) instead of a branch name or issue age -- and only
+            # runs it once a violation is already a candidate, the same
+            # lazy-gh-call discipline `_phase2_record_evidence` above
+            # already uses, so a healthy tick costs zero extra `gh`
+            # calls.
+            if kind and _pr_is_record_only(root, pr):
+                kind = None
             if kind:
                 violations.append({"issue": issue, "pr": pr, "skill": skill, "kind": kind})
     return violations, skips
