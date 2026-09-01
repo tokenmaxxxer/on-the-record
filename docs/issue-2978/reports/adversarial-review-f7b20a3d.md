@@ -274,8 +274,7 @@ nothing further to do.
   authored independently rather than reused) instantiates the
   builder/evaluator separation this skill's procedure describes — read
   via the Skill tool this turn before applying.
-- skill-verdict: defect-verification-independence-from-upstream-verdicts
-  — applied: invoked; re-derived the population figure from a fresh
+- skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-derived the population figure from a fresh
   script instead of citing PR #3021's number (rule 3; result
   `total=700 many(2+)=146`, matching PR #3021's magnitude, derived
   above), built fixtures not copied from the PR's/test's own
