@@ -188,23 +188,23 @@ result:
 ```
 loop_state: landed, verdict: **pass**.
 
-skill-verdict: adversarial-review — applied: invoked; loaded via the
-Skill tool before any investigation. This session's mandate to
-independently verify PR #3023 (fresh isolated worktree, no deference to
-the PR's own claimed test-plan output) is this skill's core mechanism —
-the independent-session, re-derive-not-cite posture — applied to a code
+skill-verdict: adversarial-review — applied: invoked; loaded via the Skill
+tool before any investigation. This session's mandate to independently
+verify PR #3023 (fresh isolated worktree, no deference to the PR's own
+claimed test-plan output) is this skill's core mechanism — the
+independent-session, re-derive-not-cite posture — applied to a code
 deliverable rather than a design doc.
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; loaded via the Skill tool before any investigation.
-Its rules matched what this verification performed throughout `## What
-was done`: re-deriving the three acceptance checks and the full suite
-from primary evidence in an isolated worktree instead of citing the
-PR's own reported counts (see the pasted command output above), and
-deliberately probing two negative/edge paths (stale-interval retention,
-intermittent failure) the acceptance tests do not directly cover, rather
-than stopping at the happy-path filters.
-skill-verdict: verify-finding-record — not-applicable: canonical: this
-skill's own SKILL.md, loaded via the Skill tool — its scope is
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; loaded via
+the Skill tool before any investigation. Its rules matched what this
+verification performed throughout `## What was done`: re-deriving the
+three acceptance checks and the full suite from primary evidence in an
+isolated worktree instead of citing the PR's own reported counts (see
+the pasted command output above), and deliberately probing two
+negative/edge paths (stale-interval retention, intermittent failure) the
+acceptance tests do not directly cover, rather than stopping at the
+happy-path filters.
+skill-verdict: verify-finding-record — not-applicable: canonical: this skill's own SKILL.md, loaded via
+the Skill tool — its scope is
 `docs/issue-<n>/reports/defect-verification.md` outcome records for a
 reproduction attempt against a defect claim; this session found no
 defect (see `## Open findings`), and this verification's own record
