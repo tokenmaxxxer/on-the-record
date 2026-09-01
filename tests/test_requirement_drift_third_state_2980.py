@@ -180,3 +180,39 @@ class TestNoPriorReportsUnknown:
             spawn.requirement_drift(board_repo, changed_numbers={4000})
         out = capsys.readouterr().out
         assert "requirement-drift-unknown:" not in out
+
+
+class TestNoFailureStillComputesVerdict:
+    """warrant-hunter finding (before-landing, this session): the
+    `if not all_items: return` guard added to satisfy the must-not on
+    treating a failed lookup as a violation must not itself swallow a
+    genuinely successful tick that happens to end up with no open items
+    (e.g. the only previously-cached, now-refetched number turned out to
+    be closed) -- that tick had zero failures, so it must compute and
+    print a verdict exactly like the equivalent full-mode empty-board case
+    does, not go silent."""
+
+    def test_requirement_drift_no_failure_empty_items_still_flags_drift(
+            self, board_repo, capsys):
+        cache_path = watchdog._requirement_drift_cache_path(board_repo)
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            '{"42": {"title": "unrelated", "body": "no requirement id here", '
+            '"cached_at": "2020-01-01T00:00:00+00:00"}}')
+
+        # #42 is the only ever-cached item; this tick's live refetch
+        # succeeds and finds it closed -- zero fetch failures this tick.
+        with mock.patch.object(
+                spawn, "_fetch_issue_or_pr_via_cache",
+                return_value={"number": 42, "title": "closed now",
+                              "body": "", "state": "closed"}):
+            spawn.requirement_drift(board_repo, changed_numbers={42})
+        out = capsys.readouterr().out
+
+        # a genuinely empty item set with no failure must still compute
+        # and print the live verdict (R001 unmentioned) -- not go silent
+        # the way a failure-caused empty item set correctly does.
+        assert "요구 R001" in out
+        assert "requirement-drift-lookup-failed:" not in out
+        assert "requirement-drift-cache-retained:" not in out
+        assert "requirement-drift-unknown:" not in out

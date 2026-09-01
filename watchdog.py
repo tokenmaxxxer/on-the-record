@@ -1064,11 +1064,20 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
             if uncached_failed:
                 print(f"[watchdog] requirement-drift-unknown: 조회 실패 {uncached_failed} — "
                       "이전 판정 없음, unknown")
-        if not all_items:
-            # 이슈 #2980 must-not: 이번 틱에 평가할 데이터가 정말 하나도
-            # 없으면(fetch 도 실패, 재사용할 캐시도 없음) 여기서 멈춘다 —
-            # 계속 진행하면 모든 살아있는 요구가 "인용 안 됨"으로 찍혀
-            # 조회 실패를 violation 으로 오판하는 꼴이 된다.
+        if failed_numbers and not all_items:
+            # 이슈 #2980 must-not: 이번 틱에 "조회 실패 때문에" 평가할
+            # 데이터가 정말 하나도 없으면(fetch 도 실패, 재사용할 캐시도
+            # 없음) 여기서 멈춘다 — 계속 진행하면 모든 살아있는 요구가
+            # "인용 안 됨"으로 찍혀 조회 실패를 violation 으로 오판하는
+            # 꼴이 된다. `failed_numbers` 를 반드시 함께 검사한다 — 실패가
+            # 전혀 없는 틱(예: 유일하게 캐시됐던 번호가 이번에 merge/close
+            # 로 정상 확인되어 all_items 가 비는 경우)까지 이 guard 로
+            # 막으면, full 모드의 "정말로 열린 이슈/PR 이 하나도 없다"는
+            # 정당한 상태와 똑같은 상황에서 delta 모드만 조용히 아무 것도
+            # 안 찍는 새로운 침묵을 만든다(경고 헌팅으로 실측: #42 하나만
+            # 캐시돼 있었고 이번 틱에 그게 closed 로 정상 재조회되면,
+            # 실패가 전혀 없었는데도 이전 코드가 이 return 으로 살아있는
+            # 요구의 진짜 위반을 그대로 삼켰다).
             return
 
     # 이슈 #1219: gates 코드는 언제나 이 체크아웃(ROOT)에서 온다 — root 가
