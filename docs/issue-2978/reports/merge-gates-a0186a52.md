@@ -119,10 +119,24 @@ re-run above.
 
 ## Next steps
 
-None -- PR #3012 is CLEAN/MERGEABLE against current `main` (canonical
-tag above); landing it is a human merge decision outside this session's
-scope. `loop_state: landed` reflects this session's own work (rebased,
-conflict-resolved, pushed, re-verified), not PR #3012's merge state.
+None -- PR #3012 merged during this session: canonical: `gh pr view
+3012 --json mergeable,mergeStateStatus,state` returned
+`{"mergeStateStatus":"UNKNOWN","mergeable":"UNKNOWN","state":"MERGED"}`
+(fields go `UNKNOWN` post-merge, `state` is the authoritative one); `git
+log origin/main --oneline -1` after `git fetch origin` showed
+`bce83485 issue-2978: watchdog stops flagging no-PR-yet and
+record-after-merge as violations (#3012)` at the tip. Re-ran issue
+#2978's four acceptance checks a third time directly against this
+merged `main` tip (`git worktree add /tmp/main-check-2978 origin/main`):
+acceptance: `python3 -m pytest tests/ -k spawn_on_pr_no_pr_yet -q` —
+result: 1 passed in 0.96s; acceptance: `python3 -m pytest tests/ -k
+spawn_on_pr_genuinely_missing_branch -q` — result: 1 passed in 0.90s;
+acceptance: `python3 -m pytest tests/ -k closure_sweep_record_after_merge
+-q` — result: 1 passed in 0.93s; acceptance: `python3 -m pytest tests/
+-k closure_sweep_genuine_violation -q` — result: 1 passed in 0.91s.
+`loop_state: landed` reflects this session's own work (rebased,
+conflict-resolved, pushed, re-verified) and now also PR #3012's actual
+merge to `main`.
 
 skill-verdict: work-in-english — applied: invoked; task instruction (from the spawning prompt) was in English, so per the skill's own English-edge-case rule, internal work and the final summary both stay English -- no Korean-report deviation needed.
 skill-verdict: merge-gates — not-applicable: this task is resolving a merge conflict that already happened (a code task), which the skill's own trigger explicitly excludes.
