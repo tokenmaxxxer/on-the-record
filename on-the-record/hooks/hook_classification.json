@@ -1,0 +1,101 @@
+{
+  "_comment": "issue #2962: classification of every hooks.json command registration. class is one of invariant-injecting|observability. invariant-injecting = the hook's absence leaves the session running without a rule it establishes or enforces (directive text, role state, gate deny logic, obligation tracking). observability = the hook only reports/warns/records; its absence loses signal, not a rule. wrapped=false marks the one registration (pretooluse-dispatcher.sh) that is deliberately fail-closed and bypasses fail-open-wrapper.sh entirely -- its class is recorded for completeness but the visible-fail-open notice mechanism (fail-open-wrapper.sh) never applies to it, and this file does not change its fail-closed posture. Read together with test_hook_classification.py, which checks this file against hooks.json mechanically rather than trusting this comment.",
+  "registrations": [
+    {
+      "event": "SessionStart",
+      "script": "self-update.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "refreshes the installed checkout; the script's own header calls offline failure fine -- nothing downstream depends on this having run"
+    },
+    {
+      "event": "SessionStart",
+      "script": "session-role-bind.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "invariant-injecting",
+      "rationale": "snapshots session-role provenance that approval-gate.sh and other gates trust instead of a later, model-influenced env read (issue #698) -- absence leaves those gates unable to enforce the role invariant"
+    },
+    {
+      "event": "UserPromptSubmit",
+      "script": "directive.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "invariant-injecting",
+      "rationale": "injects this system's always-on invariants every turn (issue #2962's own canonical example)"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "pretooluse-dispatcher.sh",
+      "args": [],
+      "wrapped": false,
+      "class": "invariant-injecting",
+      "rationale": "dispatches all 20 PreToolUse deny gates; deliberately fail-closed (command -v python3 || exit 2) and MUST stay outside fail-open-wrapper.sh -- classified here for completeness, not to route it through the visible-fail-open notice"
+    },
+    {
+      "event": "PreToolUse",
+      "script": "approach-cap-warning.sh",
+      "args": ["pre"],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "turn-budget warning only; the real --max-turns enforcement lives in the CLI outside this repo"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "retry-loop-bound.sh",
+      "args": ["post"],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "post-mode only bumps a per-session denial-signature counter; no rule enforced or injected at this registration"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "post-landing-obligation-gate.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "invariant-injecting",
+      "rationale": "opens the post-landing verification obligation record the northpole loop depends on (issue #1098) -- absence means a landed fix silently owes no tracked verification"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "approach-cap-warning.sh",
+      "args": ["post"],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "same warning-only class as its pre-mode sibling"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "lint-test-on-edit.sh",
+      "args": ["post"],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "shortens the fail -> re-edit rework loop by surfacing lint/test signal early; absence only slows feedback, no rule is lost"
+    },
+    {
+      "event": "Stop",
+      "script": "stop-poll-rearm.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "best-effort turn-END watchdog re-arm; the script's own header says do not overclaim -- it widens an existing mechanism, it does not establish one"
+    },
+    {
+      "event": "Stop",
+      "script": "stop-gate.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "invariant-injecting",
+      "rationale": "structurally enforces the approval-reply shape (issue #411); already self-fail-closed via its own trap, but a wrapper-level crash before that trap resolves still means the invariant went unchecked"
+    },
+    {
+      "event": "Stop",
+      "script": "skill-verdict-guard.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "invariant-injecting",
+      "rationale": "the merged per-skill verdict obligation gate (issue #2039/#2138) -- absence means a session's skill-verdict obligation goes unchecked and unreported"
+    }
+  ]
+}

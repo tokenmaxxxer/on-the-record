@@ -62,12 +62,18 @@ def record_fail_open(
     digest: str = "",
     exit_code: Optional[int] = None,
     reason: str = "",
+    fallback_fired: bool = False,
 ) -> bool:
     """Append one fail-open line to the ledger.  Returns True if it landed.
 
     Never raises, and never signals failure by any route other than the
     return value: a ledger that cannot be written must not change what a
     guard decided.
+
+    issue #2962: `exit_code` and `fallback_fired` are recorded as their own
+    fields, never folded into one merged "success" string -- a wrapper that
+    survived a crash and a hook that actually succeeded must stay
+    distinguishable by a reader who never sees the crash itself.
     """
     try:
         path = ledger_path()
@@ -81,6 +87,7 @@ def record_fail_open(
             "digest": str(digest),
             "exit_code": exit_code,
             "reason": str(reason),
+            "fallback_fired": bool(fallback_fired),
         }
         parent = os.path.dirname(path)
         if parent:
@@ -98,7 +105,8 @@ if __name__ == "__main__":  # pragma: no cover - CLI shim for fail-open-wrapper.
     _hook = sys.argv[1] if len(sys.argv) > 1 else ""
     _exit = sys.argv[2] if len(sys.argv) > 2 else ""
     _reason = sys.argv[3] if len(sys.argv) > 3 else ""
-    _argv = sys.argv[4:]
+    _fallback = sys.argv[4] if len(sys.argv) > 4 else ""
+    _argv = sys.argv[5:]
     try:
         _code = int(_exit)
     except ValueError:
@@ -108,5 +116,8 @@ if __name__ == "__main__":  # pragma: no cover - CLI shim for fail-open-wrapper.
         _raw = os.environ.get("OTR_FAIL_OPEN_INPUT", "")
     except Exception:
         _raw = ""
-    record_fail_open(_hook, _argv, input_digest(_raw), _code, _reason)
+    record_fail_open(
+        _hook, _argv, input_digest(_raw), _code, _reason,
+        fallback_fired=_fallback in ("1", "true", "True"),
+    )
     sys.exit(0)

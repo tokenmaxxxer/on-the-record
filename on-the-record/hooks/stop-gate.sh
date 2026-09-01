@@ -38,6 +38,13 @@ case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) trap - EXIT; exit 0 ;; e
 
 command -v python3 >/dev/null 2>&1 || exit 2
 
+# issue #2962: pre-initialize so a heredoc-assignment failure (e.g. no
+# temp file could be created on a full disk) leaves CHECK defined-empty
+# instead of unset -- `set -u` would otherwise turn the next expansion
+# into a second, unrelated "unbound variable" error. The bail check right
+# after the heredoc catches that state and exits before ever handing an
+# empty program to python3.
+CHECK=""
 IFS='' read -r -d '' CHECK <<'PY' || true
 import json, os, re, sys
 
@@ -104,6 +111,8 @@ out = {
 sys.stdout.write(json.dumps(out))
 sys.exit(0)
 PY
+
+[ -n "$CHECK" ] || { echo "stop-gate: heredoc assignment produced no program (disk full / temp file unavailable?) -- bailing, not enforcing this turn" >&2; exit 1; }
 
 STOP_PAYLOAD="$payload" python3 -c "$CHECK"
 rc=$?

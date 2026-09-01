@@ -62,12 +62,39 @@ elif [ -n "$_err_file" ] && grep -q 'Traceback (most recent call last)' "$_err_f
     # subprocess inside the hook crashed.  Still a fail-open to record.
     _failed_open="traceback"
 fi
+
+# issue #2962: invariant-injecting vs observability class, shell-builtins
+# only (`case` is a bash builtin; no python3, no disk read/write) -- the
+# step that surfaces a fail-open must not depend on the thing that just
+# failed. Kept in sync with hook_classification.json by
+# test_hook_classification.py, which cross-checks this list against that
+# file's invariant-injecting entries rather than trusting a comment here.
+# pretooluse-dispatcher.sh is deliberately absent: it never reaches this
+# wrapper (fail-closed, unwrapped by design) so it can never match here.
+_fallback_fired=0
+if [ -n "$_failed_open" ]; then
+    case "$_hook_name" in
+        session-role-bind.sh|directive.sh|post-landing-obligation-gate.sh|stop-gate.sh|skill-verdict-guard.sh)
+            _fallback_fired=1
+            # Visible in-band degraded notice (issue #2962): a distinct,
+            # unambiguous line -- not the raw traceback standing in for it
+            # -- so a dead invariant-injecting hook stops reporting itself
+            # as success. Printed via `printf` alone, before the
+            # python3/disk-dependent ledger step below, so it fires even
+            # when that step cannot.
+            printf '[fail-open][DEGRADED] %s failed open (exit=%s, %s) -- this session is running WITHOUT the invariant(s) this hook injects/enforces.\n' \
+                "$_hook_name" "$rc" "$_failed_open"
+            ;;
+        *) ;;
+    esac
+fi
+
 if [ -n "$_failed_open" ]; then
     if command -v python3 >/dev/null 2>&1 && [ -n "$_wrapper_dir" ] \
        && [ -f "$_wrapper_dir/hook_ledger.py" ]; then
         OTR_FAIL_OPEN_INPUT="$([ -n "$_in_file" ] && cat "$_in_file" 2>/dev/null || true)" \
             python3 "$_wrapper_dir/hook_ledger.py" \
-            "$_hook_name" "$rc" "$_failed_open" "$@" >/dev/null 2>&1 || true
+            "$_hook_name" "$rc" "$_failed_open" "$_fallback_fired" "$@" >/dev/null 2>&1 || true
     fi
 fi
 
