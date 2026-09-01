@@ -68,12 +68,15 @@ def _delta_with_unmappable_prs(pr_numbers, branches):
     return items, index
 
 
-class TestPerPrMappingFailureSuppression:
-    """Acceptance bullet 1 (board-sweep half): two consecutive
-    full-rescan/delta ticks with unchanged repo state produce no repeated
-    per-PR mapping-failure lines."""
+class TestPerPrNonSubjectAggregation:
+    """Issue #2979 superseded the original acceptance bullet 1 (board-sweep
+    half): non-subject PRs (branch never `issue-<n>/<skill>` shaped) are no
+    longer enumerated line by line even on the FIRST tick that sees them —
+    they are always folded into a single aggregate count. See
+    tests/test_board_sweep_and_spawn_coverage_change_signal_2979.py for the
+    fuller decision-table coverage (non-subject vs subject-mapping-loss)."""
 
-    def test_two_ticks_unchanged_state_suppresses_repeat_lines(self, board_repo):
+    def test_two_ticks_never_print_individual_lines_only_aggregate_count(self, board_repo):
         pr_numbers = [2006, 2017]
         branches = {2006: "old-feature-branch", 2017: "another-legacy-branch"}
         items, index = _delta_with_unmappable_prs(pr_numbers, branches)
@@ -91,36 +94,11 @@ class TestPerPrMappingFailureSuppression:
                 spawn._board_wide_sweep(board_repo)
             tick2_lines = _printed_lines(fake_print)
 
-        assert any("PR #2006" in l and "subject 매핑 실패" in l for l in tick1_lines)
-        assert any("PR #2017" in l and "subject 매핑 실패" in l for l in tick1_lines)
-
-        assert not any("PR #2006" in l and "subject 매핑 실패" in l for l in tick2_lines)
-        assert not any("PR #2017" in l and "subject 매핑 실패" in l for l in tick2_lines)
-        assert any("2건" in l and "이전에 보고된 매핑-불가 PR" in l for l in tick2_lines)
-
-    def test_genuinely_new_unmappable_pr_still_emits_on_its_own_tick(self, board_repo):
-        branches = {2006: "old-feature-branch"}
-        items, index = _delta_with_unmappable_prs([2006], branches)
-
-        with mock.patch("subprocess.run", side_effect=_fake_run), \
-             mock.patch("gh_delta.fetch_delta",
-                        return_value=(items, "cursor-1", "delta")), \
-             mock.patch("closure_sweep._pr_index_all", return_value=(index, True)), \
-             mock.patch("closure_sweep.next_categories", return_value=([], [])):
-            with mock.patch("builtins.print"):
-                spawn._board_wide_sweep(board_repo)  # tick 1: #2006 seen
-
-            branches2 = {2006: "old-feature-branch", 3099: "yet-another-legacy"}
-            items2, index2 = _delta_with_unmappable_prs([2006, 3099], branches2)
-            with mock.patch("gh_delta.fetch_delta",
-                            return_value=(items2, "cursor-2", "delta")), \
-                 mock.patch("closure_sweep._pr_index_all", return_value=(index2, True)):
-                with mock.patch("builtins.print") as fake_print:
-                    spawn._board_wide_sweep(board_repo)
-            tick2_lines = _printed_lines(fake_print)
-
-        assert any("PR #3099" in l and "subject 매핑 실패" in l for l in tick2_lines)
-        assert not any("PR #2006" in l and "subject 매핑 실패" in l for l in tick2_lines)
+        for lines in (tick1_lines, tick2_lines):
+            assert not any("PR #2006" in l for l in lines)
+            assert not any("PR #2017" in l for l in lines)
+            assert not any("subject 매핑 실패" in l for l in lines)
+            assert any("2건" in l and "non-subject PR" in l for l in lines)
 
 
 class TestTransientGhFailureSuppression:
