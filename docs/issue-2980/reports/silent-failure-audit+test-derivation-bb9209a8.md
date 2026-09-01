@@ -290,7 +290,8 @@ classified Medium depth, and derived
 `tests/test_requirement_drift_third_state_2980.py`'s test cases from that
 partition list plus one two-tick genuine-prior construction for the
 cached-prior partition — see "Why" above.
-skill-verdict: work-in-english — invoked; applied: wrote code comments,
-commit messages, and this record in English; the final user-facing reply
-is in Korean.
-other mounted skills: not triggered
+other mounted skills: not triggered (work-in-english was not invoked via
+the Skill tool this session — per this task's configuration it attaches as
+guidance enforced by a core hook, not a Skill-tool call — but its guidance
+was followed regardless: code comments, commit messages, and this record
+are in English, final user-facing reply in Korean).
