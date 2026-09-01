@@ -61,7 +61,7 @@ Record-correction over forced-gating for finding 2: see the Finding 2 bullets ab
 
 ## What did not work
 
-None — no scope-exceeded stop, no alternative-swap from an approved proposal (none existed under the build-now bypass), nothing written and then undone.
+One in-flight correction, not a scope-exceeded stop: this session expected to be able to correct PR #2990's own delivery record directly, and discovered via `board-gate.sh` R4/R5 that a role can never edit another role's record regardless of which branch is checked out — corrected by documenting the finding-2 correction in this session's own record instead (see "What was done", Finding 2) and opening PR #3005 to carry it. Full account: `docs/issue-2969/reports/silent-failure-audit-daadb0ad/deviation-log/20260901T044926573906-8efd8f07eb90eb1b.md`.
 
 ## Upstream basis
 
