@@ -481,6 +481,23 @@ def _respawn_or_cap(key: str, work: str, issue: int, skill: str, log: str,
                   single_phase=single_phase)
 
 
+def _subject_has_deliverable(root: Path, subject: str) -> dict | None:
+    """Lazy-import wrapper (same idiom as `watchdog.py`'s
+    `_fetch_issue_or_pr_via_cache`/`_board_read`) around
+    `gates/spawn_on_pr.py::subject_has_deliverable()` -- root-level
+    lifecycle.py cannot import `gates/spawn_on_pr.py` at module load time
+    (that module itself imports `spawn` at its own top level, which would
+    close a cycle back through this one), so the import is deferred to
+    call time, same as every other root -> gates crossing in this
+    codebase. See `subject_has_deliverable()`'s own docstring for why it
+    answers "does `subject` already have a deliverable PR" and how it
+    tells a real deliverable apart from a record-only verification PR
+    (issue #2981)."""
+    sys.path.insert(0, str(ROOT / "gates"))
+    import spawn_on_pr
+    return spawn_on_pr.subject_has_deliverable(root, subject)
+
+
 def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     """죽은 로스터 엔트리 하나에 대해 `crashed` 인지 판정하고, 그렇다면
     `_respawn_or_cap()` 에 넘긴다. `stalled`/`normal`/`in-progress` 는
@@ -505,6 +522,38 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
         _sp._post_stall_comment(Path(work), issue, key, work, entry.get("log", ""))
         return
     if verdict != "crashed":
+        return
+    # Issue #2981: a correct "crashed" verdict alone does not mean this
+    # subject needs a new PR -- it only means this one session died. A
+    # deliverable PR for the same subject may already exist (opened by an
+    # earlier, actually-successful round this verdict merely raced with,
+    # or by a sibling session), and respawning over it is exactly how one
+    # issue accumulated five competing PRs (issue #2981 report). This is
+    # deliberately NOT a verdict-reliability fix (that is issue #2969's
+    # separate scope, untouched here) -- the gate below fires even when
+    # `verdict == "crashed"` is entirely correct.
+    #
+    # `_subject_has_deliverable()` returns `None` on genuine absence, on a
+    # subject whose only PR is record-only (verification/measurement, not
+    # a deliverable), and on any lookup error -- all three fall through to
+    # respawn exactly as before (fail-open toward recovery: a missed
+    # respawn of a truly dead session is worse than an occasional
+    # duplicate PR, issue #2981 acceptance). Only a positive match (a real
+    # open or merged deliverable PR) skips the respawn, and that skip is
+    # always reported by name/number here -- never silent.
+    subject = f"issue-{issue}"
+    existing = _sp._subject_has_deliverable(Path(work), subject)
+    if existing is not None:
+        pr_number = existing.get("number")
+        pr_label = f"PR #{pr_number}" if pr_number is not None else existing.get("branch")
+        state = existing.get("state", "existing")
+        print(f"[respawn] {key}: crashed, but {subject} already has a {state} "
+              f"deliverable ({pr_label}) — skipping respawn", file=sys.stderr)
+        _sp.ledger_write({
+            "event": "respawn_skipped_existing_deliverable",
+            "issue": issue, "skill": skill, "subject": subject,
+            "pr_number": pr_number, "branch": existing.get("branch"),
+            "state": state, "ts": int(time.time())})
         return
     events_path = _sp._events_path(work)
     events = []

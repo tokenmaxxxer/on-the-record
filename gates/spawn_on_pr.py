@@ -248,6 +248,68 @@ def subject_deliverable_branch(subject: str, pr_index: dict[str, dict] | None) -
     return candidates[0] if len(candidates) == 1 else None
 
 
+def subject_has_deliverable(root: Path, subject: str) -> dict | None:
+    """issue #2981: does `subject` already have a deliverable PR -- open or
+    merged, never a mere record-only verification/measurement PR -- so a
+    crashed-verdict respawn can check this before acting and avoid opening
+    a duplicate PR for an issue a prior (or still-in-flight) round already
+    covers.
+
+    Layered directly on the two existing per-subject resolvers in this
+    file, one per state a deliverable can be in:
+
+      1. Landed (merged into main, so already in `spawn.board(root)`) --
+         `subject_deliverable_record()` (issue #2575/#2593, unchanged).
+      2. Still open (not yet merged, so `board()` has nothing to join
+         against) -- `subject_deliverable_branch()` (issue #2575), which
+         already excludes record-only branches by the same structural
+         filter (`_VERIFICATION_SLOT_RE`, issue #2628) the auto-spawn tick
+         in this file uses to *open* exactly those record-only PRs in the
+         first place -- so a subject with only a record-only PR in flight
+         resolves to no candidate branch here, same as "no PR at all".
+
+    `merge_gate._own_pr_supplies_verification()` was considered for step 2
+    instead of the naming filter, but it resolves record-only-ness via
+    `git show origin/<branch>:...` against a locally mirrored ref that this
+    call site never fetches, and it returns `False` ("not record-only") on
+    any read failure -- exactly backwards for this call site, where an
+    unreadable branch must NOT be treated as a confirmed deliverable
+    (issue #2981 acceptance: absence or lookup error must default to
+    respawn, never to a silent skip). The structural filter degrades the
+    right way instead: `subject_deliverable_branch()` only ever returns a
+    branch it is confident about, so any uncertainty here already falls
+    through to `None` ("no deliverable found").
+
+    `root` must be a real repo checkout with `gh` available -- `gh`
+    failures here (via `closure_sweep._pr_index_all()`) return `None`
+    ("no deliverable"), the same fail-open direction: an occasional
+    duplicate PR from a missed detection is a smaller cost than silently
+    never recovering a genuinely dead session (issue #2981's own "must
+    not" list).
+
+    Returns `{"number": int|None, "branch": str, "state": "OPEN"|"MERGED"}`
+    when found, else `None`."""
+    b = spawn.board(root)
+    subject_board = b.get(subject, {})
+    slug, _fm = subject_deliverable_record(subject_board)
+    if slug:
+        branch = f"{subject}/{slug}"
+        number = spawn._pr_open_or_merged_for_branch(root, branch)
+        return {"number": number, "branch": branch, "state": "MERGED"}
+
+    pr_index, ok = closure_sweep._pr_index_all(root)
+    if not ok or pr_index is None:
+        return None
+    branch = subject_deliverable_branch(subject, pr_index)
+    if branch is None:
+        return None
+    entry = pr_index.get(branch) or {}
+    state = entry.get("state")
+    if state not in ("OPEN", "MERGED"):
+        return None
+    return {"number": entry.get("number"), "branch": branch, "state": state}
+
+
 def _issue_is_open(issue: int, issue_states: dict[int, str] | None) -> bool:
     """`issue_states`(issue #-> state 사전) 에서 `issue` 가 OPEN 인지
     판정한다. 사전이 없거나(gh 실패/truncated) `issue` 가 사전에 없으면
