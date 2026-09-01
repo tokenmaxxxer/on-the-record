@@ -793,12 +793,17 @@ def _watchdog_note_gh_failure(root: Path, signal: str, failed: bool) -> bool:
 
 
 def _watchdog_note_unmappable_pr(root: Path, pr_number: int) -> bool:
-    """이슈 #2196: 브랜치명이 issue-<n>/<skill>[+<skill>]-<lease> 형식이 아니라 영구적으로
-    subject 매핑이 안 되는 PR 을, `root` 스코프 영속 상태에 이미 한 번
-    보고했는지로 판별한다. 처음 보는 PR 이면 True(=이번 틱에 개별 줄을
-    찍어라)를 돌려주고 상태에 기록, 이미 본 PR 이면 False(=저장소 상태가
-    그대로면 같은 사실을 매 틱 반복 보고하지 않는다) — #2165 sticky-cache/
-    #2173 spawn_on_approve 와 같은 one-shot 마커 관용."""
+    """이슈 #2196, 이슈 #2979 로 범위 축소: 브랜치명은
+    issue-<n>/<skill>[+<skill>]-<lease> 형식이지만(즉 board subject
+    형태다) 그 이슈가 지금 board 에 없는, subject 매핑 손실 PR 을(#2379
+    corrupted-merge-base 류) `root` 스코프 영속 상태에 이미 한 번
+    보고했는지로 판별한다. 브랜치가 애초에 그 형태가 아니었던
+    non-subject PR(#2979 이전엔 여기 같이 섞였다)은 `_classify_narrowing_prs`
+    가 이 함수를 아예 부르지 않고 개수로만 접는다 — 개별 줄 자체가 없다.
+    처음 보는 PR 이면 True(=이번 틱에 개별 줄을 찍어라)를 돌려주고
+    상태에 기록, 이미 본 PR 이면 False(=저장소 상태가 그대로면 같은
+    사실을 매 틱 반복 보고하지 않는다) — #2165 sticky-cache/#2173
+    spawn_on_approve 와 같은 one-shot 마커 관용."""
     path = _sp._watchdog_noise_state_path(root)
     state = _sp._load_watchdog_noise_state(path)
     seen = state.setdefault("unmappable_prs_reported", {})
@@ -825,6 +830,64 @@ def _watchdog_note_unmappable_subject_branch(root: Path, subject: str) -> bool:
     seen[subject] = True
     _sp._save_watchdog_noise_state(path, state)
     return True
+
+
+def _classify_narrowing_prs(
+        root: Path, pr_numbers: set[int], number_to_branch: dict[int, str | None],
+        board_now: dict) -> tuple[set[int], int, list[tuple[int, int, str]], int]:
+    """이슈 #2979: 델타로 바뀐 PR 을 subject 이슈로 좁히면서, 두 상태를
+    구분한다 — (a) 브랜치가 `issue-<n>/<skill>` 형태를 한 번도 아니었던
+    PR(non-subject, 관측된 #1/#7/#26/#1985 류: `fix/...`, `plan/...`,
+    브랜치 삭제로 `None`)과 (b) 브랜치는 그 형태이지만 그 이슈가 지금
+    `board_now`에 없는 PR(subject mapping loss, #2379 corrupted-merge-base
+    류). (a)는 board 와 무관한 PR 이라 언제나 개수로만 접고 개별 줄을
+    절대 찍지 않는다 — 매 틱 반복돼도 one-shot 마커를 타지 않는다(찍을
+    개별 줄 자체가 없으므로 반복 억제가 필요 없다). (b)만 subject 가
+    board 매핑을 잃은, 진짜 신호라 개별 줄 + recut-corrupted remediation
+    대상이다 — 그마저도 `_watchdog_note_unmappable_pr`의 기존 one-shot
+    마커로 저장소 상태가 안 바뀌는 한 반복 보고하지 않는다.
+
+    `(changed_numbers, non_subject_count, mapping_loss_new,
+    mapping_loss_already_reported)`. `changed_numbers`는 narrowing set 에
+    합칠 이슈 번호(성공 매핑), `mapping_loss_new`는 이번 틱에 처음
+    발견된 `(pr_number, issue_number, branch)` 튜플 목록이다."""
+    changed_numbers: set[int] = set()
+    non_subject_count = 0
+    mapping_loss_new: list[tuple[int, int, str]] = []
+    mapping_loss_already_reported = 0
+    for prn in sorted(pr_numbers):
+        branch = number_to_branch.get(prn)
+        m = _HEAD_REF_SUBJECT_RE.match(branch) if branch else None
+        if not m:
+            non_subject_count += 1
+            continue
+        issue_n = int(m.group(1))
+        if f"issue-{issue_n}" in board_now:
+            changed_numbers.add(issue_n)
+            continue
+        if _watchdog_note_unmappable_pr(root, prn):
+            mapping_loss_new.append((prn, issue_n, branch))
+        else:
+            mapping_loss_already_reported += 1
+    return changed_numbers, non_subject_count, mapping_loss_new, mapping_loss_already_reported
+
+
+def _watchdog_note_spawn_coverage_delta(root: Path, uncovered: list[int]) -> list[int]:
+    """이슈 #2979: spawn-coverage 는 매 틱 커버되지 않은 이슈의 전체
+    집합을 그대로 다시 찍어 대부분 안 바뀌는 census 가 된다 — 실제 신호는
+    이전 틱 대비 새로 늘어난 이슈뿐이다. 저장된 이전 집합과 비교해 새로
+    늘어난 번호만 돌려주고, 상태를 이번 틱 집합으로 통째로 교체한다 —
+    한 번 커버됐다가 다시 커버 안 되면(flap) 다음에 다시 나타날 때 또
+    "새로" 로 잡힌다, sticky one-shot 이 아니다: 그 이슈는 실제로 다시
+    커버 안 되는 상태로 바뀐 것이라 다시 신호할 가치가 있다."""
+    path = _watchdog_noise_state_path(root)
+    state = _load_watchdog_noise_state(path)
+    seen = set(state.get("spawn_coverage_uncovered", []))
+    current = set(uncovered)
+    newly = sorted(current - seen)
+    state["spawn_coverage_uncovered"] = sorted(current)
+    _save_watchdog_noise_state(path, state)
+    return newly
 
 
 def _fetch_issue_or_pr_via_cache(root: Path, number: int) -> dict | None:
@@ -1295,30 +1358,38 @@ def _board_wide_sweep(root: Path) -> int:
                 if pr_index_ok and pr_index is not None:
                     _sp._watchdog_note_gh_failure(root, "board-sweep:pr-index", False)
                     number_to_branch = {v.get("number"): k for k, v in pr_index.items()}
-                    already_reported = 0
-                    for prn in sorted(pr_numbers):
-                        branch = number_to_branch.get(prn)
-                        m = _sp._HEAD_REF_SUBJECT_RE.match(branch) if branch else None
-                        if m:
-                            changed_numbers.add(int(m.group(1)))
-                        elif _sp._watchdog_note_unmappable_pr(root, prn):
-                            # 이슈 #2196: 처음 보는 매핑-불가 PR — 개별 줄로
-                            # 리포트하고 상태에 기록, 다음 틱부터는 억제.
-                            print(f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
-                                  f"subject 매핑 실패 (브랜치={branch!r}, issue-<n>/<skill>[+<skill>]-<lease> "
-                                  "형식 아님) — 이 PR 은 narrowing 에서 무시. issue-<n>/<skill>[+<skill>]-<lease> "
-                                  "산출물을 잘못된 base 에서 다시 잡아온(#2379) 브랜치라면 "
-                                  "`spawn.py recut-corrupted --issue <n> --session <session>`(#2402)로 "
-                                  "같은 이름 아래 재컷하라 — 그 밖의 브랜치라면 board 와 무관한 "
-                                  "PR 이니 무시해도 된다")
-                        else:
-                            already_reported += 1
-                    if already_reported:
-                        # 이슈 #2196: 이전에 이미 개별 보고된 매핑-불가 PR
-                        # 들은 저장소 상태가 그대로면 반복하지 않고, 한
-                        # 줄짜리 카운트로 접는다.
-                        print(f"[watchdog] board-sweep: {already_reported}건 "
-                              "이전에 보고된 매핑-불가 PR — 계속 무시 (반복 안 찍음)")
+                    (mapped, non_subject_count, mapping_loss_new,
+                     mapping_loss_already_reported) = _classify_narrowing_prs(
+                        root, pr_numbers, number_to_branch, _sp.board(root))
+                    changed_numbers |= mapped
+                    for prn, issue_n, branch in mapping_loss_new:
+                        # 이슈 #2979: 브랜치는 issue-<n>/<skill> 형태지만 그
+                        # 이슈가 지금 board 에 없다 — non-subject 와 달리
+                        # 진짜 신호(#2379 corrupted-merge-base 류)라 개별
+                        # 줄로 찍는다. one-shot: 저장소 상태가 그대로면
+                        # 반복 안 찍는다.
+                        print(f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
+                              f"issue-{issue_n} subject 가 board 매핑을 잃었다 "
+                              f"(브랜치={branch!r}) — issue-<n>/<skill>[+<skill>]-<lease> "
+                              "산출물을 잘못된 base 에서 다시 잡아온(#2379) 브랜치라면 "
+                              "`spawn.py recut-corrupted --issue <n> --session <session>`(#2402)로 "
+                              "같은 이름 아래 재컷하라")
+                    if mapping_loss_already_reported:
+                        # 이슈 #2196: 이전에 이미 개별 보고된 매핑-손실
+                        # subject 들은 저장소 상태가 그대로면 반복하지
+                        # 않고, 한 줄짜리 카운트로 접는다.
+                        print(f"[watchdog] board-sweep: {mapping_loss_already_reported}건 "
+                              "이전에 보고된 매핑-손실 subject — 계속 무시 (반복 안 찍음)")
+                    if non_subject_count:
+                        # 이슈 #2979: 브랜치가 issue-<n>/<skill> 형태를 한
+                        # 번도 아니었던 PR(board 와 무관, fix/... plan/...
+                        # 또는 브랜치 삭제로 None) — 절대 개별 줄로 찍지
+                        # 않고 항상 개수로만 접는다. recut-corrupted
+                        # remediation 은 여기 붙지 않는다: board subject 가
+                        # 아닌 항목에 적용될 조언이 아니다.
+                        print(f"[watchdog] board-sweep: {non_subject_count}건 "
+                              "non-subject PR (브랜치가 board subject 형태 아님) — "
+                              "board 와 무관, 집계만")
                 else:
                     # 이슈 #2196: PR 인덱스 조회 실패는 단발 gh blip 일 수
                     # 있다 — 연속 N틱 실패면 그때부터 경고한다.
@@ -1456,7 +1527,13 @@ def _board_wide_sweep(root: Path) -> int:
                 open_issues, _sp.board(root), datetime.now(timezone.utc))
             if uncovered:
                 count += len(uncovered)
-                print(f"[watchdog] spawn-coverage: 커버되지 않은 이슈 {uncovered}")
+            # 이슈 #2979: 표준 집합을 매 틱 그대로 다시 찍지 않는다 —
+            # 이전 틱 대비 새로 늘어난 이슈만 신호다. 총 건수는 anomaly
+            # count 에 그대로 반영해(위) 심각도 판정을 흐리지 않는다.
+            newly_uncovered = _watchdog_note_spawn_coverage_delta(root, uncovered)
+            if newly_uncovered:
+                print(f"[watchdog] spawn-coverage: 새로 커버되지 않음 {newly_uncovered} "
+                      f"(표준 집합 {len(uncovered)}건)")
 
     closure_sweep.record_sweep_result(backoff_state, "board-sweep", rate_limited_this_tick)
     closure_sweep.save_backoff_state(root, backoff_state)
