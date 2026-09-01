@@ -131,7 +131,39 @@ them from a genuine #2379-class mapping loss when it does fire.
 
 ## Open findings
 
-None.
+canonical: docs/issue-2979/reports/observability-signal-golden+test-derivation-547467ea/2026-09-01-hunt-delivery.md (before-landing warrant-hunter dispatch, stance 0, tier full/180s)
+
+`closure_sweep._pr_index_all()` (gates/closure_sweep.py:233) dedups its
+branch->PR index first-wins by branch string, so when two PR numbers
+share one head branch (e.g. an original PR and a later `recut-corrupted`
+retry reopened from the same subject branch), the losing PR number has no
+entry in the resulting `number_to_branch` reverse map `_board_wide_sweep`
+builds. `_classify_narrowing_prs` cannot distinguish that "unresolved
+because of dedup collision" `None` from a "genuinely never
+subject-shaped" `None` (a deleted/unrelated branch) — both currently fold
+into the non-printed non-subject count. Reproduced by the hunter:
+`_classify_narrowing_prs(root, {100, 200}, {200: "issue-42/architecture-abc"}, board_now={})`
+gives PR #200 a mapping-loss line but silently counts PR #100 (branch
+dropped by the dedup) into the never-printed aggregate.
+
+Judged out of scope for this issue rather than fixed here, for two
+reasons: (1) the issue's own field observation explicitly lists `None`
+branches among the examples that must be aggregated, not enumerated
+("branches like fix/verify-plugins-actually-loaded, plan/state-gate-into-core,
+or None. These are simply not board subjects."), so the acceptance itself
+sanctions treating an unresolved branch as non-subject by default; (2)
+fixing it properly means giving `_pr_index_all()` a way to report
+collided/dropped PR numbers, which is a change to shared lookup
+infrastructure (gates/closure_sweep.py) consumed by closure-sweep,
+spawn-on-pr, and spawn-on-approve as well — exactly the "lookup-failure
+defects filed separately" class this issue's must-not clause says not to
+fold in here.
+
+Resolution path: file a follow-up issue against
+`closure_sweep._pr_index_all()` to have it also return the set of PR
+numbers whose branch was dropped by the first-wins dedup, so
+`_classify_narrowing_prs` (or any other consumer) can route those PRs to
+individual-report instead of silent aggregation.
 
 ## Next steps
 
