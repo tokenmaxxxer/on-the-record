@@ -267,6 +267,44 @@ e465079d issue-2982: merge PR #3003 (calibrated relevance floor) to build the re
 
 ## Open findings
 
+canonical: `cbe65786:docs/issue-2982/reports/silent-failure-audit-68344f70/2026-09-01-hunt-skill-candidates-floor-recalibration.md`,
+read directly.
+
+- Before-landing warrant-hunt (background agent, this session) flagged
+  the record cited above: it claimed 5 of the 7
+  `REAL_POSITIVE_TOP1_SCORES` comments in
+  `tests/test_skill_candidates_floor.py` name a skill the cited issue's
+  report never applied. **Investigated and rejected as a false
+  positive** — the hunt checked only one report file per flagged issue,
+  but each of those issues has two report files, one per skill:
+
+derived:
+```
+$ grep -H "^skills:" docs/issue-2874/reports/*.md docs/issue-2924/reports/*.md docs/issue-2626/reports/*.md docs/issue-2892/reports/*.md docs/issue-2894/reports/*.md
+docs/issue-2874/reports/silent-failure-audit-e7b244cd.md:skills: silent-failure-audit (skill-repository(c05de12))
+docs/issue-2874/reports/adversarial-review-5200fcf2.md:skills: adversarial-review, defect-verification-independence-from-upstream-verdicts, work-in-english (skill-repository(c05de12))
+docs/issue-2924/reports/silent-failure-audit+refactoring-legacy-seam-selection-140f0858.md:skills: silent-failure-audit (skill-repository(c05de12)), refactoring-legacy-seam-selection (skill-repository(c05de12))
+docs/issue-2924/reports/adversarial-review-83c8f7f0.md:skills: adversarial-review (skill-repository(c05de12))
+docs/issue-2626/reports/adversarial-review+silent-failure-audit-9ea418cf.md:skills: adversarial-review (skill-repository(c05de12)), silent-failure-audit (skill-repository(c05de12))
+docs/issue-2626/reports/adversarial-review+implementation-audit-ee26fbd8.md:skills: adversarial-review (skill-repository(297e350)), implementation-audit (skill-repository(297e350))
+docs/issue-2892/reports/adversarial-review-3cb2d671.md:skills: adversarial-review, defect-verification-independence-from-upstream-verdicts, work-in-english (skill-repository(c05de12))
+docs/issue-2892/reports/silent-failure-audit-f753aa68.md:skills: silent-failure-audit (skill-repository(c05de12))
+docs/issue-2894/reports/silent-failure-audit-dd4cce49.md:skills: silent-failure-audit (skill-repository(c05de12))
+docs/issue-2894/reports/adversarial-review-3fb40e3e.md:skills: adversarial-review (skill-repository(c05de12))
+docs/issue-2894/reports/silent-failure-audit-0c41a52b.md:skills: silent-failure-audit (skill-repository(c05de12))
+```
+  All 5 flagged issues genuinely have both a `silent-failure-audit`
+  report and an `adversarial-review` report (this repo's common pattern
+  of a build session followed by an independent-review session on the
+  same issue), so this record's extraction script's per-issue
+  skill *set* (`## What was done` above, `/tmp/extract_pairs.py`, which
+  unions skills across every report file for an issue number rather than
+  reading a single file) correctly includes both, and each test comment
+  names whichever of the two the BM25 title score genuinely matched
+  top-1 — not a contradiction of the cited evidence, an incomplete read
+  of it. No code or test change made in response; the seven scores and
+  their labels stand as originally derived.
+
 - The floor does not, and cannot with a single BM25-score cutoff,
   separate genuine top-1 matches from plausible-but-wrong ones in the
   7.617-15.134 score band (documented and tested in
