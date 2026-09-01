@@ -124,4 +124,5 @@ tag above); landing it is a human merge decision outside this session's
 scope. `loop_state: landed` reflects this session's own work (rebased,
 conflict-resolved, pushed, re-verified), not PR #3012's merge state.
 
-skill-verdict: other mounted skills: not triggered
+skill-verdict: work-in-english — applied: invoked; task instruction (from the spawning prompt) was in English, so per the skill's own English-edge-case rule, internal work and the final summary both stay English -- no Korean-report deviation needed.
+skill-verdict: merge-gates — not-applicable: this task is resolving a merge conflict that already happened (a code task), which the skill's own trigger explicitly excludes.
