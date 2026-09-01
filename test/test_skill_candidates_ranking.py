@@ -53,6 +53,16 @@ class TaskShapeRankingTest(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.repo_root = Path(self._tmpdir.name)
         self.addCleanup(self._tmpdir.cleanup)
+        # issue #2982: the calibrated relevance floor (consult.py) is
+        # measured against the real, ~270-skill skill-repository corpus --
+        # BM25's un-normalized per-query-token summing means score scale
+        # tracks corpus size, and this test's tiny 2-skill synthetic corpus
+        # never reaches it. This test is about ranking ORDER, not the
+        # floor, so the floor is neutralized here rather than reworked to
+        # chase an unrelated feature's calibration.
+        patcher = mock.patch.object(spawn, "_SKILL_CANDIDATES_RELEVANCE_FLOOR", 0.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         _write_skill(
             self.repo_root, "architecture-interface-contract-shape",
             "Use when choosing the shape of a boundary contract between "
@@ -114,7 +124,12 @@ class SameScoringTest(unittest.TestCase):
             task = "some alpha work needs doing here"
             direct = spawn._bm25_cross_family_scores(task, "orchestrator",
                                                       root, None, None)
-            via_rank_skills = spawn.rank_skills(task, "orchestrator", root)
+            # issue #2982: this test is about scoring/ordering parity
+            # between the two call sites, not the relevance floor (which
+            # is calibrated against the real, much larger corpus) --
+            # neutralize it here the same way TaskShapeRankingTest does.
+            with mock.patch.object(spawn, "_SKILL_CANDIDATES_RELEVANCE_FLOOR", 0.0):
+                via_rank_skills = spawn.rank_skills(task, "orchestrator", root)
         direct_names = [name for _score, name, _d, _source in direct]
         candidate_names = [r["name"] for r in via_rank_skills["ranked"]]
         self.assertEqual(direct_names, candidate_names)
@@ -153,6 +168,11 @@ class FailOpenDistinguishableTest(unittest.TestCase):
                                        issue=2678, cwd="/tmp", use_judge=True)
         self.assertEqual(result, {"ranked": [], "outcome": "no-candidates",
                                   "picked": []})
+
+
+# Issue #2982's floor/calibration/regression coverage lives in
+# tests/test_skill_candidates_floor.py (per this repo's `tests/` vs `test/`
+# split, the issue's Acceptance checks run against `tests/`).
 
 
 if __name__ == "__main__":

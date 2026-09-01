@@ -72,6 +72,25 @@ _SKILL_JUDGE_PERF_MIN_EVENTS = 50
 # `duration_ms` claims.
 _MIN_PLAUSIBLE_JUDGE_WALL_S = 1.0
 
+# issue #2982: `rank_skills()` (--skill-candidates preview only, never the
+# internal cross-family mount -- see that function's docstring) reports
+# "no-candidates" instead of a confident-looking ranked list when even the
+# top BM25 score falls under this floor. Derived by measurement, not
+# picked freehand (docs/issue-2982/reports/ carries the full derivation):
+# against the live skill-repository corpus, every task/skill pair with a
+# genuinely on-topic top-1 match scored >= 16.96 (7 real pairs spanning
+# architecture-interface-contract-shape, test-depth-audit, test-derivation,
+# silent-failure-audit, adversarial-review, knowledge-management-taxonomy-
+# tagging, secure-coding-input-validation-injection-defense), while every
+# task/skill pair with a genuinely off-topic top-1 match scored <= 15.13
+# (10 pairs, including the two regressions this issue reports and 8
+# additional jargon-heavy real task descriptions with no on-topic skill in
+# today's corpus). 16.0 sits in that measured gap. BM25's un-normalized
+# per-query-token summing means this value is corpus-size- and
+# query-length-sensitive -- it is re-derivable, not sacred -- but it is not
+# a freehand guess.
+_SKILL_CANDIDATES_RELEVANCE_FLOOR = 16.0
+
 # issue #2274 (operator-frozen constraint, 2026-08-25: "no added per-spawn
 # overhead or steady-state load"): `runs/ledger.jsonl` is append-only and
 # never rotated, so a full-file scan on every `_skill_judge_timeout()` call
@@ -819,6 +838,23 @@ def rank_skills(task_text: str, skill: str = "candidates",
       "fast-path:<names>[+completed|+fail-open]" -- declared-phrase
                          auto-pick short-circuited some/all of the judge
                          slots, same shape as spawn's own outcome.
+      "no-candidates" also covers issue #2982: when `use_judge=False` (the
+                         default `--skill-candidates` preview), `ranked`
+                         non-empty but the top score under
+                         `_SKILL_CANDIDATES_RELEVANCE_FLOOR` collapses to
+                         this same outcome and the same empty `ranked` --
+                         a confident-looking list of unrelated skills is
+                         indistinguishable, to the caller, from genuine
+                         "nothing shares a token". Scoped to the judge-off
+                         path only: `use_judge=True` is unchanged by this
+                         floor (issue #2982's own must-not -- the judge
+                         must not become the fix for a recall problem), and
+                         `_cross_family_skill_matches_with_consult()`,
+                         spawn's own internal cross-family mount, calls
+                         `_bm25_cross_family_scores()` directly and never
+                         passes through here either, so the floor changes
+                         nothing about what spawn mounts on its own (issue
+                         #2982 non-goal).
 
     `picked` is only ever non-empty when `use_judge=True` -- the names the
     judge (or fast-path) actually chose, a subset of `ranked`'s names,
@@ -841,6 +877,14 @@ def rank_skills(task_text: str, skill: str = "candidates",
     if not scored:
         return {"ranked": [], "outcome": "no-candidates", "picked": []}
     if not use_judge:
+        if scored[0][0] < _sp._SKILL_CANDIDATES_RELEVANCE_FLOOR:
+            # issue #2982: every candidate (including the top one) sits
+            # below the calibrated floor -- report the same "no-candidates"
+            # outcome as a genuine empty ranking rather than a
+            # confident-looking list of unrelated skills. Scoped to the
+            # judge-off default preview path only (issue's own must-not:
+            # the judge/rerank path is unchanged by this floor).
+            return {"ranked": [], "outcome": "no-candidates", "picked": []}
         return {"ranked": ranked, "outcome": "bm25-only", "picked": []}
     picked_dirs, outcome = _sp._cross_family_skill_matches_with_consult(
         task_text, skill, repo_root, issue, cwd, k=k, model=model,
