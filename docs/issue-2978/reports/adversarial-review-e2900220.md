@@ -256,8 +256,8 @@ evidence-over-claims discipline to treat the fix diff's own comments and
 commit message as unverified claims, backing every statement in this
 record with a command actually run this turn rather than a reading of
 the diff's prose
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; re-derived the board figure (`total=700,
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked;
+re-derived the board figure (`total=700,
 ambiguous=146`, derived this turn per `## What was done` above) and the
 16-name failing-test set independently rather than citing them, and
 constructed fresh board fixtures (distinct subject names/authors from
