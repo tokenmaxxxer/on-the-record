@@ -26,6 +26,8 @@ import re
 import sys
 from pathlib import Path
 
+import runaway_backstop
+
 # The spawn module object; set by spawn.py on import. All cross-module
 # lookups resolve through it at call time so monkeypatches on spawn
 # attributes are seen, and so text embedding "spawn.py's path" names the
@@ -112,10 +114,13 @@ def _checkpoint_index_block(issue: int, skill: str) -> str:
 # the full prose inline — their assembly is byte-identical to before.
 DIRECTIVE_DIR = ".on-the-record/directive"
 
-# Issue #2100 item 4 (moved up from the admission section, issue #2262):
-# needed by _TURN_BUDGET_PROSE below at module-eval time, so this constant
-# has to exist before that string literal is built, not after.
-DEFAULT_SESSION_MAX_TURNS = 200
+# Issue #2100 item 4 (moved up from the admission section, issue #2262).
+# Issue #2961: no longer a hard cap — turn count never terminates a
+# session (the CLI's turn-count flag is never passed; see pipeline.py's
+# spawn_cmd). This value now only seeds the soft convergence nudge below;
+# the actual worst-case bound is runaway_backstop.py's wall-clock/token
+# backstops.
+DEFAULT_SESSION_TURN_GUIDANCE = 200
 
 # Moved verbatim from the issue-workspace preamble (issues #132/#1981 and
 # the headless/run_in_background warning). The inline index keeps the
@@ -156,23 +161,29 @@ _LANDING_BATCHING_PROSE = (
     "Five separate single-command turns for add/commit/push/pr-create were "
     "the measured pattern this guidance retires.\n")
 
-# Issue #2262: turn-efficiency guidance. Measured (six 2026-08-24/25
-# sessions, issues 2173/2186/2193/2204/2208/2240): all six died at the
-# 200-turn `--max-turns` cap, and #2240's own anatomy (230 tool calls) was
-# 69 grep commands, 68 of them unique — not a loop, serial one-grep-per-
-# turn exploration that alone burned roughly a third of the whole budget.
-# The session previously had no way to know a cap existed at all.
+# Issue #2262 (turn-efficiency guidance), reframed by issue #2961: turn
+# count no longer terminates a session (no cap exists to converge
+# against), so this prose drops the cap framing entirely. The batching
+# guidance itself survives untouched — issue #2261's own measurement
+# (#2240: 230 tool calls, 69 grep commands, 68 of them unique — not a
+# loop, serial one-grep-per-turn exploration) is still the reason a
+# session should batch, cap or no cap: wall-clock and token/cost now
+# bound the worst case (runaway_backstop.py), and serial exploration
+# burns straight into those the same way it used to burn into the cap.
 _TURN_BUDGET_PROSE = (
-    "턴 예산(이슈 #2262): 이 세션은 --max-turns 상한 안에서 돈다(기본값 "
-    f"{DEFAULT_SESSION_MAX_TURNS}, 스포너가 다르게 줬으면 "
-    "$MUSTER_SESSION_MAX_TURNS_RESOLVED 로 실측치를 알 수 있다). 남은 턴이 "
-    "적어지면(기본 20턴 전) 지금 이 채널로 수렴하라는 경고가 한 번 더 "
-    "온다 — 그 경고가 오면 새 탐색을 시작하지 말고 커밋/PR/기록으로 "
-    "수렴하라; 상한을 넘긴 뒤에도 수렴 전용의 소진 유예(wrap-up "
-    "allowance)가 조금 있을 뿐, 탐색을 더 할 여유가 아니다. 측정 결과 "
-    "(이슈 #2240): 캡에 걸린 세션 하나가 한 턴에 grep 하나씩 69번 실행했고 "
-    "그중 68번이 서로 다른 검색이었다 — 루프가 아니라 예산을 선형으로 "
-    "쓰는 직렬 탐색이 원인이었다. 이걸 줄이려면 두 가지를 같이 써라: "
+    "세션 예산(이슈 #2961): 이 세션에 턴 상한은 없다 — 더 이상 턴 수로 "
+    "죽지 않는다. 대신 지갑/시계 백스톱이 걸려 있다: 벽시계 "
+    f"{runaway_backstop.WALL_CLOCK_BACKSTOP_MS // 60_000}분, 누적 토큰 "
+    f"{runaway_backstop.TOKEN_COST_BACKSTOP_TOKENS // 1_000_000}백만 "
+    "토큰(runaway_backstop.py) — "
+    "둘 중 하나만 넘어도 세션이 끝난다. 관측 전용 조합 신호("
+    "runaway_signal.py) 는 같이 돌지만 아무 것도 끝내지 않는다 — 참고용 "
+    "판정만 남긴다. 예산이 무제한이 됐다고 탐색을 늘리라는 뜻이 아니다: "
+    "측정 결과(이슈 #2240) 캡에 걸린 세션 하나가 한 턴에 grep 하나씩 "
+    "69번 실행했고 그중 68번이 서로 다른 검색이었다 — 루프가 아니라 "
+    "예산을 선형으로 쓰는 직렬 탐색이 원인이었고, 그 직렬 탐색은 이제 "
+    "턴 캡 대신 저 백스톱을 향해 똑같이 타들어간다. 이걸 줄이려면 두 "
+    "가지를 같이 써라: "
     "(1) 관련된 grep 여러 개를 한 Bash 호출에 `&&`나 `|`로 묶어서 한 "
     "턴에 실행하고, 파일 전체를 여러 번 나눠 읽기(paging)보다 필요한 "
     "범위만 짚어 Read 하라. (2) 폭넓은 탐색은 Task 도구로 3-4개 병렬 "

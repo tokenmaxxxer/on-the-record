@@ -598,7 +598,7 @@ _CHECKPOINT_CONTRACT_BLOCK = directive_assembly._CHECKPOINT_CONTRACT_BLOCK
 _checkpoint_contract_block = directive_assembly._checkpoint_contract_block
 _checkpoint_index_block = directive_assembly._checkpoint_index_block
 DIRECTIVE_DIR = directive_assembly.DIRECTIVE_DIR
-DEFAULT_SESSION_MAX_TURNS = directive_assembly.DEFAULT_SESSION_MAX_TURNS
+DEFAULT_SESSION_TURN_GUIDANCE = directive_assembly.DEFAULT_SESSION_TURN_GUIDANCE
 _COMPLETION_PROSE = directive_assembly._COMPLETION_PROSE
 _LANDING_BATCHING_PROSE = directive_assembly._LANDING_BATCHING_PROSE
 _TURN_BUDGET_PROSE = directive_assembly._TURN_BUDGET_PROSE
@@ -2145,9 +2145,12 @@ def doctor() -> int:
         work.mkdir()
         subprocess.run(["git", "init", "-q", str(work)], check=False)
         # --model haiku: 프로브의 관심사는 훅 로딩이지 모델이 아니다. 싸게 간다.
+        # 이슈 #2961: 턴 캡 플래그를 더 안 쓴다 — 아래 subprocess.run 자체의
+        # timeout=180 이 이 프로브의 유일한 상한이다(원래도 턴 캡보다 먼저
+        # 걸리는 진짜 바운드였다).
         subprocess.run(
             ["claude", "-p", "--plugin-dir", str(plug), "--model", "haiku",
-             "--max-turns", "2", "--output-format", "json"],
+             "--output-format", "json"],
             cwd=work, input="Run this exact bash command and nothing else: echo ok",
             text=True, capture_output=True, timeout=180)
         fired_ups, fired_pre = ups.is_file(), pre.is_file()
@@ -2325,17 +2328,19 @@ def main() -> int:
     ap.add_argument("--poll-interval", type=float, default=None,
                     help="await-approval: comment poll cadence in seconds "
                          "(default CHECKPOINT_POLL_SECONDS env or 60)")
-    ap.add_argument("--max-turns", type=int, default=None,
-                    help="spawn: session turn budget passed through as claude "
-                         "--max-turns (issue #2100 item 4). Default: "
-                         "MUSTER_SESSION_MAX_TURNS env or "
-                         f"{DEFAULT_SESSION_MAX_TURNS}. 0 or negative means "
-                         "unlimited and is refused at admission unless "
-                         "--allow-unlimited-turns is also given")
+    # Issue #2961: the CLI turn-cap flag itself is retired (no session is
+    # ever passed a turn ceiling anymore — the wall-clock/token backstops
+    # in runaway_backstop.py bound the worst case instead), so the
+    # user-facing flag that used to forward a value onto it is gone too.
+    # `--allow-unlimited-turns` stays: it still gates the advisory
+    # turn-guidance admission check below (_admission_check_budget_caps),
+    # which no longer affects the CLI subprocess either way.
     ap.add_argument("--allow-unlimited-turns", action="store_true",
-                    help="spawn: explicit override letting --max-turns 0 "
-                         "(unlimited) pass the budget-caps admission check "
-                         "(issue #2100 item 4)")
+                    help="spawn: explicit override letting a turn-guidance "
+                         "value of 0 (unlimited) pass the admission check "
+                         "(issue #2100 item 4; advisory only since issue "
+                         "#2961 — no CLI turn ceiling exists to opt out of "
+                         "anymore)")
     ap.add_argument("--all", action="store_true",
                     help="watch: 워크스페이스 인덱스 전체를 다중화해 스트리밍한다 "
                          "(오케스트레이터가 대화당 한 번 무장하는 집계 뷰, 이슈 #488)")
@@ -2902,7 +2907,6 @@ def main() -> int:
                           despite_returned=a.despite_returned,
                           model=a.model, skills=a.skills,
                           single_phase=effective_single_phase,
-                          max_turns=a.max_turns,
                           allow_unlimited_turns=a.allow_unlimited_turns,
                           checkpoint=a.checkpoint,
                           force_adhoc_task=a.force_adhoc_task,
