@@ -232,10 +232,21 @@ open pending Direction priorities 1 (trigger-document expansion) and 2
 (judge timeout fix), which is where subsequent work should land per both
 the consult and this verification's effect measurement.
 
-skill-verdict: adversarial-review — applied: invoked; used its
-structurally-independent-evaluator posture to re-derive every load-bearing
-claim in PR #3036's own record (acceptance checks, must-not compliance,
-query provenance, and the false-positive-rate effect) from the fetched PR
-head rather than citing the PR's record on trust, and to render the two
-judgment calls (scope, effect) as plain verdicts rather than deferring to
-the PR's own framing.
+skill-verdict: adversarial-review — applied: invoked; loaded via the Skill
+tool after this record's first landing (see deviation log,
+`20260901T070414358274-65c92070ff521aa9.md`) — the skill's own "does this
+even need the procedure" gate says the blind two-session artifact-only
+protocol (Steps 1-3) does not fit a task that requires spec/must-not
+knowledge to do its job (this task needed the issue's Direction and
+must-not list to check compliance), so the formal blind sub-protocol was
+not run. What was applied is the skill's core mechanism at the session
+level: this session is structurally independent from PR #3036's building
+session (no shared context, artifact received only via `gh`/`git fetch`),
+incentivized to find real problems rather than defend the work, and
+required every claim to cite a specific, re-derivable location — which is
+how the acceptance re-runs, must-not audit, and the independent 20-query
+effect measurement above were produced, rather than citing PR #3036's own
+record on trust.
+other mounted skills: not triggered (work-in-english,
+defect-verification-independence-from-upstream-verdicts,
+implementation-audit — none invoked via the Skill tool this session).
