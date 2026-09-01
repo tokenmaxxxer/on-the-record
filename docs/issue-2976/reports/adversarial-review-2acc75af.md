@@ -184,6 +184,15 @@ criteria and must-not list verbatim.
 
 None.
 
+## Skill verdicts
+
+skill-verdict: adversarial-review — applied: invoked; framed this record
+as a structurally independent evaluation of PR #2987's own claimed
+results (fresh worktrees, real subprocess re-tests, diff audit) rather
+than accepting the PR description at face value.
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-derived every acceptance check and the "16 pre-existing failures" claim from primary evidence (own pytest runs, own base-vs-head diff) instead of citing the PR's Test Plan checkmarks, and added a negative/edge-case probe (real double-supply refusal, real metacharacter pipe) beyond the PR's own happy-path unit tests.
+skill-verdict: work-in-english — applied: invoked; wrote the record, commit messages, and PR title/body in English per this project's convention, matching the Korean-language spawn instructions' expectation.
+
 ## Next steps
 
 canonical: all four acceptance checks and the full-suite regression
