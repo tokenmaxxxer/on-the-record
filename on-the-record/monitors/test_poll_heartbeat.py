@@ -1064,6 +1064,14 @@ def _splice_test_instrumentation(alive_stamp_write_text: str) -> str:
 def _write_mutex_harness(tmp: Path) -> Path:
     script_text = POLL_HEARTBEAT.read_text(encoding="utf-8")
     owner_status_fn = _extract_bash_function(script_text, "_alive_stamp_lock_owner_status")
+    # issue #2977: _alive_stamp_write's extracted body now calls these two
+    # reclaim-log-bounding helpers (dead/forming branches only -- the
+    # max-age valve and release-skip paths still call
+    # _poll_watchdog_log_append directly, unchanged) -- extracted here too
+    # so the harness resolves them the same way it resolves the mutex
+    # functions themselves, never hand-copied.
+    reclaim_bounded_fn = _extract_bash_function(script_text, "_reclaim_log_bounded")
+    reclaim_flush_fn = _extract_bash_function(script_text, "_reclaim_log_flush")
     alive_stamp_write_fn = _splice_test_instrumentation(
         _extract_bash_function(script_text, "_alive_stamp_write")
     )
@@ -1072,6 +1080,8 @@ def _write_mutex_harness(tmp: Path) -> Path:
         "#!/usr/bin/env bash\n"
         "set -uo pipefail\n"
         f"{owner_status_fn}\n"
+        f"{reclaim_bounded_fn}\n"
+        f"{reclaim_flush_fn}\n"
         f"{alive_stamp_write_fn}\n"
         "_poll_watchdog_log_append() {\n"
         "  printf '%s [log:%s] %s\\n' \"$(date +%s.%N 2>/dev/null || date +%s)\" "
@@ -1389,6 +1399,178 @@ def t_alive_stamp_mutex_evicted_live_holder_release_does_not_corrupt_other_holde
         )
         assert not (stamp.with_name(stamp.name + ".lockfile")).exists(), \
             "no lockfile should remain once all three workers have completed"
+
+
+def _write_reclaim_log_harness(tmp: Path) -> Path:
+    """issue #2977: standalone extraction of the reclaim-log-bounding seam
+    (_reclaim_log_bounded / _reclaim_log_flush) plus the REAL
+    _poll_watchdog_log_append (not stubbed here -- HOME is pointed at a
+    tmp dir instead so its real file-append/rotation logic runs
+    unmodified), so these tests exercise the exact bounding arithmetic
+    shipped in poll-heartbeat.sh, never a hand-maintained copy."""
+    script_text = POLL_HEARTBEAT.read_text(encoding="utf-8")
+    log_append_fn = _extract_bash_function(script_text, "_poll_watchdog_log_append")
+    reclaim_bounded_fn = _extract_bash_function(script_text, "_reclaim_log_bounded")
+    reclaim_flush_fn = _extract_bash_function(script_text, "_reclaim_log_flush")
+    harness = tmp / "reclaim_log_harness.sh"
+    harness.write_text(
+        "#!/usr/bin/env bash\n"
+        "set -uo pipefail\n"
+        "POLL_WATCHDOG_LOG_MAX_BYTES=\"${POLL_WATCHDOG_LOG_MAX_BYTES:-5242880}\"\n"
+        f"{log_append_fn}\n"
+        f"{reclaim_bounded_fn}\n"
+        f"{reclaim_flush_fn}\n",
+        encoding="utf-8",
+    )
+    return harness
+
+
+def _run_reclaim_log_script(tmp: Path, harness: Path, body: str) -> subprocess.CompletedProcess:
+    home = tmp / "home"
+    home.mkdir(exist_ok=True)
+    script = tmp / "run.sh"
+    script.write_text(
+        "#!/usr/bin/env bash\nset -uo pipefail\n"
+        f"source \"{harness}\"\n{body}\n",
+        encoding="utf-8",
+    )
+    env = dict(os.environ)
+    env["HOME"] = str(home)
+    r = subprocess.run(["bash", str(script)], capture_output=True, text=True, env=env, timeout=15)
+    assert r.returncode == 0, f"harness script must exit cleanly: {r.stderr}"
+    return r
+
+
+def _reclaim_log_text(tmp: Path) -> str:
+    log_path = tmp / "home" / ".claude" / "tokenmaxxxer" / "poll-watchdog.log"
+    return log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+
+
+def t_reclaim_output_bounded_issue_2977():
+    """issue #2977 acceptance check 1 (`reclaim_output_bounded`): a
+    contended lock driving many dead/forming reclaim events in quick
+    succession must not turn into a per-event log-line stream (the
+    defect this issue reports) -- total lines written must stay small
+    and bounded regardless of the event count. The collapse window is
+    set far longer than this run's own duration so it never elapses
+    mid-run: only the first event logs immediately, every later event
+    folds into the counter, and the counter's remainder is flushed once
+    at the end -- 2 appended entries total (4 lines: header+body each)
+    no matter how large N is."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        harness = _write_reclaim_log_harness(tmp)
+        n = 200
+        body = (
+            "_reclaim_log_window=1000\n"
+            "_reclaim_collapsed_count=0\n"
+            "_reclaim_last_logged_ts=0\n"
+            f"for i in $(seq 1 {n}); do\n"
+            "  _reclaim_log_bounded \"[alive-stamp-lock] stale lockfile /tmp/x "
+            "(owner pid 1 confirmed dead) reclaimed after ${i}s wait\"\n"
+            "done\n"
+            "_reclaim_log_flush /tmp/x\n"
+        )
+        _run_reclaim_log_script(tmp, harness, body)
+        log_text = _reclaim_log_text(tmp)
+        line_count = sum(1 for line in log_text.splitlines() if line.strip())
+        assert line_count < n, (
+            f"{n} rapid dead-reclaim events must not drive ~{n} log lines "
+            f"(a per-iteration stream) -- got {line_count} lines: {log_text}"
+        )
+        assert line_count <= 6, (
+            f"expected a small, bounded line count (first event + final flush, "
+            f"2 lines each), got {line_count}: {log_text}"
+        )
+
+
+def t_reclaim_suppression_reports_count_issue_2977():
+    """issue #2977 acceptance check 2 (`reclaim_suppression_reports_count`):
+    a bounded/collapsed run still reports that the suppressed events
+    occurred and how many, rather than dropping them silently -- the
+    first event's own line plus the final flush line's count must sum to
+    the true total. A separate run with zero reclaim events must report
+    nothing at all (empty state, per the issue's stated acceptance)."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        harness = _write_reclaim_log_harness(tmp)
+        n = 50
+        body = (
+            "_reclaim_log_window=1000\n"
+            "_reclaim_collapsed_count=0\n"
+            "_reclaim_last_logged_ts=0\n"
+            f"for i in $(seq 1 {n}); do\n"
+            "  _reclaim_log_bounded \"[alive-stamp-lock] stale lockfile /tmp/x reclaimed\"\n"
+            "done\n"
+            "_reclaim_log_flush /tmp/x\n"
+        )
+        _run_reclaim_log_script(tmp, harness, body)
+        log_text = _reclaim_log_text(tmp)
+        first_match = re.search(r"\(bounded: (\d+) reclaim event\(s\) counted in this window\)", log_text)
+        flush_match = re.search(r"(\d+) further reclaim event\(s\) on lockfile", log_text)
+        assert first_match, f"expected the first event's own bounded line: {log_text}"
+        assert flush_match, f"expected a flush line reporting the suppressed remainder: {log_text}"
+        total_reported = int(first_match.group(1)) + int(flush_match.group(1))
+        assert total_reported == n, (
+            f"reported count must account for all {n} events even though most were "
+            f"collapsed, got {total_reported}: {log_text}"
+        )
+
+    with tempfile.TemporaryDirectory() as d2:
+        tmp2 = Path(d2)
+        harness2 = _write_reclaim_log_harness(tmp2)
+        body2 = (
+            "_reclaim_log_window=1000\n"
+            "_reclaim_collapsed_count=0\n"
+            "_reclaim_last_logged_ts=0\n"
+            "_reclaim_log_flush /tmp/x\n"
+        )
+        _run_reclaim_log_script(tmp2, harness2, body2)
+        log_text2 = _reclaim_log_text(tmp2)
+        assert log_text2 == "", f"zero reclaim events must report nothing, got: {log_text2}"
+
+
+def t_force_reclaim_never_suppressed_issue_2977():
+    """issue #2977 acceptance check 3 (`force_reclaim_never_suppressed`)
+    and its must-not clause: the max-age force-reclaim valve's own line
+    (the safety-valve signal, not routine noise) must never be
+    suppressed under any rate bound, even under heavy volume -- unlike
+    the dead/forming branches (bounded above), every single force-reclaim
+    event must still produce its own full log line. First pins that the
+    real source's call site still routes the valve line through
+    _poll_watchdog_log_append directly (never the bounded wrapper used
+    for dead/forming), then drives that same direct call n times to
+    prove volume alone never collapses it."""
+    script_text = POLL_HEARTBEAT.read_text(encoding="utf-8")
+    valve_line = next(
+        line for line in script_text.splitlines()
+        if "force-reclaimed independent of liveness check" in line
+    )
+    assert "_poll_watchdog_log_append" in valve_line and "_reclaim_log_bounded" not in valve_line, (
+        f"the max-age valve line must call _poll_watchdog_log_append directly "
+        f"(unbounded), never the bounded wrapper: {valve_line}"
+    )
+
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        harness = _write_reclaim_log_harness(tmp)
+        n = 50
+        body = (
+            f"for i in $(seq 1 {n}); do\n"
+            "  _poll_watchdog_log_append \"[alive-stamp-lock] lockfile /tmp/x exceeded "
+            "max wait -- force-reclaimed independent of liveness check (attempt ${i})\"\n"
+            "done\n"
+        )
+        _run_reclaim_log_script(tmp, harness, body)
+        log_text = _reclaim_log_text(tmp)
+        occurrences = log_text.count("force-reclaimed independent of liveness check")
+        assert occurrences == n, (
+            f"every one of {n} force-reclaim events must produce its own line, never "
+            f"suppressed or collapsed regardless of volume -- got {occurrences}: {log_text}"
+        )
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]
