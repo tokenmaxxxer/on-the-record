@@ -166,6 +166,11 @@ def _remediation_merge_sweep(root: Path, issue: int) -> int:
 
 RESPAWN_STATE = ROOT / "runs" / "respawn_state.json"
 RESPAWN_MAX_ATTEMPTS = 2
+# 이슈 #2969: 워치독 한 틱의 `crashed` 판정 하나만으로 재스폰을 걸지 않는다
+# — 두 세션이 단일 verdict 를 믿었다가 오판으로 죽은 사례가 실측됐다.
+# `_auto_respawn_check()` 가 연속 확인 횟수를 이 값까지 채워야 실제
+# `_respawn_or_cap()` 을 태운다.
+RESPAWN_CONSECUTIVE_CONFIRMATIONS = 2
 # 이슈 #678: no-progress 스트릭이 매 재스폰마다 진행을 인정해 리셋되더라도,
 # 토큰 비용 백스톱으로 전체 재스폰 횟수에 독립적인 절대 상한을 둔다 —
 # 진짜 진행 중인 작업(스트릭 리셋)을 방해하지 않을 만큼 넉넉히, 그러나
@@ -504,7 +509,27 @@ def _auto_respawn_check(key: str, entry: dict, state: dict) -> None:
     if verdict == "stalled":
         _sp._post_stall_comment(Path(work), issue, key, work, entry.get("log", ""))
         return
+    # 이슈 #2969: "crashed" 판정 하나로 바로 재스폰(파괴적 행동)하지
+    # 않는다 — 단일 verdict 스냅샷을 믿고 살아있는 세션 둘을 죽인 사례가
+    # 실측됐다(이슈 본문). 같은 key 에 대해 연속으로
+    # `RESPAWN_CONSECUTIVE_CONFIRMATIONS`번 "crashed"가 나와야 아래
+    # `_respawn_or_cap()`에 도달한다 — 중간에 다른 verdict 가 끼면(진짜
+    # 살아있었거나 판정이 흔들린 것) 카운터를 0 으로 되돌린다. 카운터는
+    # `_respawn_or_cap()`이 이미 쓰는 `state`(respawn_state.json)에
+    # 얹는다 — 새 저장소를 만들지 않는다.
+    confirm_prior = state.get(key, {})
     if verdict != "crashed":
+        if confirm_prior.get("crash_confirms"):
+            state[key] = {**confirm_prior, "crash_confirms": 0}
+            _sp._respawn_state_save(state)
+        return
+    crash_confirms = confirm_prior.get("crash_confirms", 0) + 1
+    if crash_confirms < _sp.RESPAWN_CONSECUTIVE_CONFIRMATIONS:
+        state[key] = {**confirm_prior, "crash_confirms": crash_confirms}
+        _sp._respawn_state_save(state)
+        print(f"[watchdog] {key}: crashed 판정 {crash_confirms}/"
+              f"{_sp.RESPAWN_CONSECUTIVE_CONFIRMATIONS}회 연속 확인 대기 중 — "
+              "아직 재스폰하지 않음", file=sys.stderr)
         return
     events_path = _sp._events_path(work)
     events = []
@@ -554,6 +579,24 @@ def _self_trigger_respawn(outcome: str, roster_key: str, work: str, issue: int,
     `silent-failure` 는 `fail_closed_downgrade()` 를 이미 거쳐 실제로는
     진행됐다고 판명되면 `progressed` 로 승격되므로, 여기 도달하는
     `silent-failure` 는 이미 원인 없는(causeless) 경우로 걸러져 있다.
+
+    이슈 #2969 follow-up (독립 검증 두 건, PR #2999/#3000 이 동일하게 지적):
+    이 경로는 `_auto_respawn_check()` 의 `RESPAWN_CONSECUTIVE_CONFIRMATIONS`
+    게이트를 거치지 않고 `_respawn_or_cap()` 을 바로 부른다 — 의도적이다,
+    빠뜨린 게 아니다. 그 게이트가 막는 위험(아직 살아있는 세션을 흔들리는
+    외부 관측 하나만 믿고 죽었다고 오판)이 여기엔 없다: 이 함수는
+    `_spawn_one()` 자신이 `proc.wait()` 로 프로세스 종료를 이미 직접
+    확인한 뒤에만 불린다 — "살아있나?"를 추측할 대상 자체가 없다. 같은
+    이유로 두 번째 관측을 기다리는 것도 불가능하다: 위 문단대로
+    `roster_remove()` 가 이 시점 이미 로스터 엔트리를 지웠으므로, 어떤
+    후속 워치독 틱도 이 키를 다시 볼 수 없다 — 카운터를 채우려 기다리면
+    영원히 안 채워진다. 이 경로의 실제 안전장치는 다른 층에 이미 있다:
+    `_respawn_or_cap()` 자신의 `RESPAWN_MAX_ATTEMPTS`/`RESPAWN_ABSOLUTE_MAX`
+    상한(무한 재스폰 방지)과, 여기 도달하기 전 `silent-failure` 를 이미
+    걸러내는 `fail_closed_downgrade()`(위 문단) — crash_confirms 카운터를
+    이 경로에도 붙이면 카운터가 절대 2 에 못 미쳐(두 번째 관측이 원천
+    불가능하므로) self-trigger 재스폰 자체가 영구히 죽는다(이슈
+    #247/#675 회귀).
     """
     if outcome not in _sp._ABANDONED_WORK_OUTCOMES:
         return

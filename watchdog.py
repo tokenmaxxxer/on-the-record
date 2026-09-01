@@ -101,6 +101,7 @@ WATCHDOG_NO_COMMIT_MIN = 71   # 이슈 #90 proposal, signal 4 (0.5 * p90 ≈ 142
 WATCHDOG_DENIAL_THRESHOLD = 3 # 이슈 #90 proposal, signal 3
 WATCHDOG_HEARTBEAT_ONLY_MIN = 18  # 이슈 #1966, signal 7: 하트비트만-성장 관측 창(분)
 WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD = 3  # 이슈 #2196: 단발 gh 실패는 억제, N틱 연속이면 경보
+FLAPPING_WINDOW_SEC = 15 * 60  # 이슈 #2969: A->B->A 왕복이 이 창 안에서 일어나면 flapping
 
 
 def _watchdog_state_load() -> dict:
@@ -318,6 +319,55 @@ def _last_tool_activity_summary(log_path: Path | None) -> str:
     return f"마지막 도구 호출: {last_tool}"
 
 
+def _confirmed_progress_seen(key: str, entry: dict, state: dict | None) -> bool:
+    """이슈 #2969: HEALTHY 를 "확인된 진행"과 "이상 신호 없음(미확인)"으로
+    가른다 — mtime 은 워크스페이스 보존 커밋 같은 무관한 이유로도 움직일
+    수 있어(이 이슈의 field report 가 제기한, 아직 미확정인 바로 그
+    가설) 쓰지 않는다. 대신 세션 로그 파일의 실제 바이트 크기가 지난
+    관측 이후 늘었는지를 틱 사이에 저장해 비교한다 — 로그가 없거나
+    (`entry["log"]` 미기재) 이 함수를 가로지르는 상태 저장소가 없으면
+    (`state=None`, 단발 호출) 진행을 확인할 방법이 없으므로 항상
+    미확인으로 취급한다(추측하지 않는다)."""
+    if state is None:
+        return False
+    log = entry.get("log")
+    if not log:
+        return False
+    log_path = Path(log)
+    try:
+        cur_size = log_path.stat().st_size
+    except OSError:
+        return False
+    size_key = f"{key}:last_seen_log_size"
+    prev_size = state.get(size_key)
+    state[size_key] = cur_size
+    return prev_size is not None and cur_size > prev_size
+
+
+def _record_verdict_and_check_flapping(key: str, verdict_state: str, now: float,
+                                        state: dict | None) -> bool:
+    """이슈 #2969: 짧은 창 안에서 A -> B -> A 로 왕복하는 verdict 는 그
+    자체로 결함 신호다(FLAPPING) — 두 독립된 보고가 조용히 지나가게 두지
+    않는다. `key`당 최근 3개 `(verdict_state, ts)` 만 남겨 셋째가 첫째와
+    같고 둘째와는 달라야(진짜 왕복) 하고, "짧은 창"은 B 로 떠난 시점부터
+    다시 A 로 돌아온 시점까지(둘째~셋째 관측 간격)로 잰다 — 첫 관측
+    시점까지 포함해 재면 A 에 오래 머문 뒤 잠깐 흔들린 경우도 "왕복 폭"과
+    무관하게 창을 넘겨버린다. 안정된(전환이 없거나 관측이 3회 미만인)
+    이력은 항상 False — empty-state 는 조용히 통과한다. `state=None`
+    (단발 호출)이면 이력을 남길 곳이 없으니 판정하지 않는다."""
+    if state is None:
+        return False
+    hist_key = f"{key}:verdict_history"
+    history = state.get(hist_key, [])
+    history = history + [(verdict_state, now)]
+    history = history[-3:]
+    state[hist_key] = history
+    if len(history) < 3:
+        return False
+    (s1, _t1), (s2, t2), (s3, t3) = history
+    return s1 == s3 and s1 != s2 and (t3 - t2) <= FLAPPING_WINDOW_SEC
+
+
 def diagnose_health(key: str, entry: dict, root: Path = ROOT,
                      now: float | None = None, state: dict | None = None,
                      anomalies: list[str] | None = None,
@@ -414,10 +464,26 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
         merged = {**d, **ckpt_fields}
         if adhoc_prefix and merged.get("detail"):
             merged["detail"] = f"{adhoc_prefix} — {merged['detail']}"
+        if merged.get("state") is not None:
+            # 이슈 #2969: 완료(state=None)는 verdict 가 아니라 관측 종료라
+            # flapping 이력에 안 얹는다 — 종료 뒤 재사용된 키가 엉뚱한
+            # 이전 세대의 이력과 섞이는 걸 막는다.
+            merged["flapping"] = _record_verdict_and_check_flapping(
+                key, merged["state"], now, state)
         return merged
 
-    alive = _sp._alive(pid)
-    if not alive:
+    # 이슈 #2969: pid 가 살아있다는 사실만으로 "확인된 생존"을 주장하지
+    # 않는다 — 등록 시점의 `start_time` 과 짝지어 재확인하고(`_paired_liveness`),
+    # 짝짓기 자체를 세울 수 없으면(구 엔트리, 또는 `/proc` 없는 macOS —
+    # 이슈 #2924) HEALTHY 로도 DEAD 로도 확정하지 않는 별도 상태로 멈춘다
+    # — 이쪽이든 저쪽이든 추측하면 이 이슈가 고치려는 결함을 반복한다.
+    liveness = _paired_liveness(pid, entry.get("start_time"))
+    if liveness == "unconfirmed":
+        return _diagnosis({"state": "LIVENESS-UNCONFIRMED", "next_action": "resume-watch",
+                "detail": f"{key}: pid {pid} 살아있으나 시작시각 짝짓기를 세울 수 "
+                          f"없음(시작시각 미기록 또는 /proc 부재) — 생존을 확인도 "
+                          f"반증도 못함, HEALTHY 로도 DEAD 로도 확정하지 않음"})
+    if liveness == "dead":
         # 이슈 #2874: wrapper_pid 를 넘겨 reconcile()/`_auto_respawn_check()`
         # 와 같은 신호로 판정한다 — 지금까지는 이 함수만 `pr_number` 로
         # 같은 후처리-꼬리 구간을 우회해 왔고(아래), reconcile 쪽엔 그 우회가
@@ -516,8 +582,22 @@ def diagnose_health(key: str, entry: dict, root: Path = ROOT,
     workspace_summary = _live_session_workspace_summary(work) if work else "워크스페이스 없음"
     activity_summary = _last_tool_activity_summary(
         Path(entry["log"]) if entry.get("log") else None)
-    return _diagnosis({"state": "HEALTHY", "next_action": "none",
-            "detail": f"{key}: 최근 로그 성장, RUNNING — {workspace_summary}; {activity_summary}"})
+    # 이슈 #2969: 여기 도달했다는 건 위의 모든 anomaly 검사가 안 걸렸다는
+    # 뜻뿐이다 — "확인했더니 성장했다"와 "아무것도 확인 안 했다"를 같은
+    # 문장으로 찍던 게 이 이슈의 결함이다. `_confirmed_progress_seen()`
+    # 은 로그 파일의 실제 바이트 크기가 지난 관측 이후 늘었는지만 본다
+    # (워크스페이스 mtime 은 안 쓴다 — field report 의 미확정 가설과
+    # 얽히지 않으려는 의도적 선택). 늘었으면 확인된 진행, 아니면(로그가
+    # 없거나, 크기 변화가 없거나, 첫 관측이라 비교 기준이 없거나) 성장을
+    # 주장하지 않는다 — "이상 신호는 없지만 확인도 안 됐다"를 그대로
+    # 찍는다.
+    if _confirmed_progress_seen(key, entry, state):
+        return _diagnosis({"state": "HEALTHY-CONFIRMED", "next_action": "none",
+                "detail": f"{key}: 로그 성장 확인됨, RUNNING — "
+                          f"{workspace_summary}; {activity_summary}"})
+    return _diagnosis({"state": "HEALTHY-UNCONFIRMED", "next_action": "none",
+            "detail": f"{key}: 이상 신호 없음(로그 성장은 확인되지 않음), RUNNING — "
+                      f"{workspace_summary}; {activity_summary}"})
 
 
 def _session_resume_claim(session_id: str, now: float | None = None) -> bool:
@@ -1406,6 +1486,30 @@ def _proc_start_time(pid: int) -> str | None:
     return fields[19]  # starttime = 필드 22, state(필드3)부터 0-based 로 19번째
 
 
+def _paired_liveness(pid: int, recorded_start_time: str | None) -> str:
+    """이슈 #2969: `_alive()`(raw `ps`) 하나만으로 "확인된 생존"을 주장하지
+    않는다 — pid 는 살아있어도 크래시 뒤 OS 가 재사용한 남의 프로세스일 수
+    있다(이슈 #2749/#2823 이 워처/세션 신원 확인에 이미 쓰는 것과 같은
+    구멍). 로스터 등록 시점에 함께 저장해 둔 `_proc_start_time(pid)` 값과
+    지금 값을 짝지어(pair) 신원을 재확인한다.
+
+    셋 중 하나를 돌려준다:
+    - `"alive"`: 살아있고, 시작시각 짝짓기가 일치 — 확인된 생존.
+    - `"dead"`: 죽어 있음, 또는 시작시각이 달라 pid 가 재사용됐다고 확인됨.
+    - `"unconfirmed"`: 살아는 있지만 짝짓기 자체를 세울 수 없다(기록된
+      시작시각이 없는 엔트리, 또는 `/proc` 없는 플랫폼 — 이슈 #2924) —
+      "확인된 생존"도 "확인된 죽음"도 아니다, 어느 쪽으로도 추측하지
+      않는다."""
+    if not _sp._alive(pid):
+        return "dead"
+    if recorded_start_time is None:
+        return "unconfirmed"
+    cur_start = _proc_start_time(pid)
+    if cur_start is None:
+        return "unconfirmed"
+    return "alive" if cur_start == recorded_start_time else "dead"
+
+
 def watchdog_lock_acquire(lock_path: Path = WATCHDOG_LOCK_PATH,
                            pid: int | None = None) -> tuple[bool, str]:
     """`spawn.py watchdog` 단일-인스턴스 락(이슈 #1456 요구 1). 이미 살아있는
@@ -2043,13 +2147,23 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
         health = _sp.diagnose_health(key, e, state=state, anomalies=anomalies, root=root)
         # 이슈 #782 스코프-확장: dedup 원장과 무관하게 매 틱 상태를 보고한다.
         print(f"[poll-report] {key}: {health['state']} — {health['detail']}")
-        if health["state"] is not None and health["state"] != "HEALTHY":
+        if health["state"] is not None and health["state"] not in (
+                "HEALTHY-CONFIRMED", "HEALTHY-UNCONFIRMED"):
             issue_n, skill_n = issue_skill_key(e)
             dedup_key = f"health:{issue_n}:{skill_n}:{health['state']}"
             if _sp.ledger_check_and_stamp(dedup_key):
                 anomaly_count += 1
                 print(f"[health] {key}: {health['state']} — "
                       f"{health['detail']} -> {health['next_action']}")
+        if health.get("flapping"):
+            # 이슈 #2969: 짧은 창 안에서 왕복한 verdict 는 그 자체가 결함
+            # 신호다 — 두 독립된 보고가 조용히 지나가지 않게 원장과
+            # 무관하게 매번 찍는다(위 dedup 은 verdict 자체의 반복만
+            # 거른다, flapping 신호는 그 dedup 을 우회해야 보인다).
+            anomaly_count += 1
+            print(f"[flapping] {key}: verdict 가 {FLAPPING_WINDOW_SEC // 60}분 "
+                  f"창 안에서 왕복함 — 지금 {health['state']}, 두 관측이 서로 "
+                  "모순됐을 수 있다, 사람이 확인 필요")
         if anomalies:
             anomaly_count += 1
             # name the signal class(es) inline, reusing each anomaly's existing "class: detail" label

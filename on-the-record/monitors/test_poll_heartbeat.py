@@ -27,6 +27,12 @@ from pathlib import Path
 MONITORS_DIR = Path(__file__).resolve().parent
 POLL_HEARTBEAT = MONITORS_DIR / "poll-heartbeat.sh"
 
+REPO_ROOT = MONITORS_DIR.parent.parent
+sys.path.insert(0, str(REPO_ROOT))
+import spawn  # noqa: E402
+import watchdog  # noqa: E402
+watchdog._sp = spawn
+
 FAKE_SPAWN_PY = """#!/usr/bin/env python3
 import os, sys
 marker = os.environ["FAKE_SPAWN_MARKER"]
@@ -445,9 +451,27 @@ def t_unkeyed_line_insertion_suppresses_unchanged_lines_below():
         assert r2.stdout.strip() == line_new, r2.stdout
 
 
+def _healthy_state_token() -> str:
+    """issue #2969 follow-up: calling the real `watchdog.diagnose_health()`
+    for the state token (instead of hardcoding the literal "HEALTHY") means
+    a future rename/split of that state breaks this fixture loudly instead
+    of leaving it silently pinned to a stale name -- exactly the gap that
+    let poll_heartbeat_delta.py's `state_token == "HEALTHY"` comparison go
+    stale at the HEALTHY-CONFIRMED/HEALTHY-UNCONFIRMED split without any
+    test in this file noticing. No `log`/`work` is supplied, so the
+    residual branch always resolves to `HEALTHY-UNCONFIRMED` -- deterministic
+    across calls, which is all this fixture needs (see
+    test-authoring-isolation-and-fixture-strategy rule 5.18: prefer the
+    real, fast, side-effect-free dependency over a hardcoded double)."""
+    entry = {"pid": os.getpid(), "work": None, "log": None,
+              "start_time": watchdog._proc_start_time(os.getpid())}
+    health = watchdog.diagnose_health("issue-500/implementation", entry, anomalies=[])
+    return health["state"]
+
+
 def _healthy_report(idx: int, workspace: str = "손댄 파일 없음") -> str:
     """issue #2906: mirrors watchdog.py's real `[poll-report] <key>:
-    HEALTHY — <key>: 최근 로그 성장, RUNNING — <workspace>; <activity>`
+    <STATE> — <key>: 최근 로그 성장, RUNNING — <workspace>; <activity>`
     shape (diagnose_health(), workspace/activity_summary joined with
     "; "). `<activity>` embeds the entry's last-tool-activity timestamp
     (`_last_tool_activity_summary()`) -- the part that legitimately
@@ -457,7 +481,7 @@ def _healthy_report(idx: int, workspace: str = "손댄 파일 없음") -> str:
     drift; callers that want to pin the opposite (a real workspace
     change) pass a different `workspace` value."""
     return (
-        f"[poll-report] issue-500/implementation: HEALTHY — "
+        f"[poll-report] issue-500/implementation: {_healthy_state_token()} — "
         f"issue-500/implementation: 최근 로그 성장, RUNNING — "
         f"{workspace}; 마지막 도구 호출: Read file{idx}.py (10:{idx:02d}:00 UTC)\n"
         f"[watchdog] issue-500/implementation: 정상\n"
