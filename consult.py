@@ -75,21 +75,35 @@ _MIN_PLAUSIBLE_JUDGE_WALL_S = 1.0
 # issue #2982: `rank_skills()` (--skill-candidates preview only, never the
 # internal cross-family mount -- see that function's docstring) reports
 # "no-candidates" instead of a confident-looking ranked list when even the
-# top BM25 score falls under this floor. Derived by measurement, not
-# picked freehand (docs/issue-2982/reports/ carries the full derivation):
-# against the live skill-repository corpus, every task/skill pair with a
-# genuinely on-topic top-1 match scored >= 16.96 (7 real pairs spanning
-# architecture-interface-contract-shape, test-depth-audit, test-derivation,
-# silent-failure-audit, adversarial-review, knowledge-management-taxonomy-
-# tagging, secure-coding-input-validation-injection-defense), while every
-# task/skill pair with a genuinely off-topic top-1 match scored <= 15.13
-# (10 pairs, including the two regressions this issue reports and 8
-# additional jargon-heavy real task descriptions with no on-topic skill in
-# today's corpus). 16.0 sits in that measured gap. BM25's un-normalized
+# top BM25 score falls under this floor.
+#
+# Re-derived (docs/issue-2982/reports/ carries the full derivation) after
+# PR #3007's independent verification found the first shipped value
+# (16.0) was fit to 7 hand-written positive examples authored by the same
+# session that chose the threshold, and reproduced 3 realistic queries
+# with genuine, unambiguous top-1 matches (scores 14.53/11.19/10.53) that
+# it silently suppressed -- the exact "floor too high eats correct
+# candidates" failure the issue itself warned against. This value instead
+# comes from this repo's own recorded history: real (issue, skill)
+# selections an operator actually made, read from `skills:` frontmatter
+# across docs/issue-*/reports/*.md and replayed as each issue's own title
+# against the live corpus, kept where the applied skill was the genuine
+# BM25 top-1. That real-history positive set is thin and scores much
+# lower than the first attempt's self-authored examples -- as low as
+# 7.62 -- which overlaps the score range of plausible-looking wrong
+# matches (7.91-15.13, from the prior derivation's own negative probes).
+# No floor separates "genuinely on-topic" from "plausible but wrong"
+# cleanly across that overlap; this constant does not attempt to. It sits
+# only in the one gap the evidence does support: above the two documented
+# near-zero degenerate matches this issue originally reported (0.4325,
+# 1.3324) and below every documented genuine top-1 match, real or
+# probed (7.62 lowest). It therefore still catches near-zero spurious
+# overlap but, deliberately, lets mid-score plausible-but-wrong matches
+# through rather than risk suppressing a real one -- an honest partial
+# fix, not a general recall/precision floor. BM25's un-normalized
 # per-query-token summing means this value is corpus-size- and
-# query-length-sensitive -- it is re-derivable, not sacred -- but it is not
-# a freehand guess.
-_SKILL_CANDIDATES_RELEVANCE_FLOOR = 16.0
+# query-length-sensitive -- it is re-derivable, not sacred.
+_SKILL_CANDIDATES_RELEVANCE_FLOOR = 4.0
 
 # issue #2274 (operator-frozen constraint, 2026-08-25: "no added per-spawn
 # overhead or steady-state load"): `runs/ledger.jsonl` is append-only and
