@@ -488,6 +488,7 @@ _self_trigger_respawn = lifecycle._self_trigger_respawn
 _sibling_checkout_roots = lifecycle._sibling_checkout_roots
 _sibling_live_sessions = lifecycle._sibling_live_sessions
 _sidecar_workspace_name = lifecycle._sidecar_workspace_name
+_subject_has_deliverable = lifecycle._subject_has_deliverable
 _temp_repos_base = lifecycle._temp_repos_base
 session_temp_root = lifecycle.session_temp_root
 sweep_temp_repos = lifecycle.sweep_temp_repos

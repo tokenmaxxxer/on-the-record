@@ -29,7 +29,6 @@ subject 만 대상으로 하고, 틱당 스폰 개수를 `SPAWN_CAP` 으로 캡�
 from __future__ import annotations
 import argparse
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -39,6 +38,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "gates"))
 import spawn  # noqa: E402
 import closure_sweep  # noqa: E402
+import check_runner  # noqa: E402
 import ci as _ci  # noqa: E402
 import state_paths  # noqa: E402
 
@@ -65,9 +65,10 @@ REQUIRED_INDEPENDENT_VERIFICATIONS = 2
 # `spawn_missing_for_pr()` invites that many *generic* verification
 # sessions (slug `independent-verification-<slot>`, no skill/expertise
 # identity attached) instead of two fixed named roles -- see that
-# function and `_VERIFICATION_SLOT_RE` for what replaced the
-# branch/roster exclusion the old tuple also drove.
-_VERIFICATION_SLOT_RE = re.compile(r"^independent-verification-\d+$")
+# function for the generic naming, and `_branch_looks_like_deliverable()`
+# below for what replaced the branch/roster exclusion the old tuple also
+# drove (originally a regex matching that literal slug, `_VERIFICATION_
+# SLOT_RE`; issue #2981 retired it -- see that function's docstring).
 
 
 def verifying_record_count(subject_board: dict, subject_author: str | None = None) -> int:
@@ -221,18 +222,64 @@ def subject_deliverable_record(subject_board: dict) -> tuple[str | None, dict]:
     return None, {}
 
 
-def subject_deliverable_branch(subject: str, pr_index: dict[str, dict] | None) -> str | None:
+def _branch_looks_like_deliverable(root: Path, pr_number: int | None) -> bool:
+    """issue #2981 (PR #3006's live-reproduced gap): decides whether a
+    candidate `{subject}/<slug>` branch is a genuine deliverable rather
+    than a record-only verification/measurement PR, using the same
+    standard issue #2974 already established for the identical
+    record-only-vs-implementation question in `check_runner.py`: whether
+    the PR's diff touches paths outside `docs/` (`check_runner.
+    pr_diff_paths()` + `touches_implementation_paths()`) -- never a
+    branch-name pattern. Replaces the old `_VERIFICATION_SLOT_RE` regex
+    (`^independent-verification-\\d+$`), which matched only that one
+    literal slug and silently misresolved this repo's other real
+    record-only branch names (e.g. `adversarial-review-*`) as
+    deliverables, inverting the gate for the majority of this repo's
+    actual independent-verification traffic.
+
+    `pr_number=None`, or a `gh pr diff` read failure, both fall through
+    to `False` ("not a confirmed deliverable") -- the opposite fail
+    direction from `check_runner.touches_implementation_paths()`'s own
+    `paths is None -> True` default. That default fits check_runner's own
+    caller (an unreadable diff should still be scored as implementation,
+    never silently exempted from acceptance checks); it would be
+    backwards here, where `subject_has_deliverable()`'s own must-not
+    requires an unreadable/uncertain branch to fall through to "no
+    deliverable found" (respawn proceeds) rather than being mistaken for
+    a confirmed deliverable that suppresses one.
+
+    silent-failure-audit (issue #2981): the `gh pr diff` read failure is
+    reported here, not just silently folded into "no candidate" -- without
+    this, a sustained `gh` outage would make every open PR misclassify as
+    record-only with no visible signal that the fail-open direction (not
+    the branch itself) is why respawn kept proceeding."""
+    if pr_number is None:
+        return False
+    paths = check_runner.pr_diff_paths(root, pr_number)
+    if paths is None:
+        print(f"[spawn-on-pr] PR #{pr_number} 의 diff 를 gh 로 못 읽었다 -- "
+              "deliverable 후보에서 제외 (fail-open: respawn 판단은 '없음' 쪽으로)",
+              file=sys.stderr)
+        return False
+    return check_runner.touches_implementation_paths(paths)
+
+
+def subject_deliverable_branch(root: Path, subject: str,
+                                pr_index: dict[str, dict] | None) -> str | None:
     """Resolve the subject's own (non pr-observer) branch from `pr_index`
     (`closure_sweep._pr_index_all()`'s branch -> `{number, state, ...}`
     map) — issue #2575's lease/branch axis replacement for the literal
     `f"{subject}/implementation"`: the `{subject}/<slug>` branch among
-    this subject's indexed PRs whose slug does not look like one of this
-    file's own generic verification slots (`_VERIFICATION_SLOT_RE`,
-    issue #2628 -- a structural pattern, not a role-name enumeration;
-    see that regex's own comment). Used where `subject_deliverable_record`
-    cannot help — the deliverable PR may still be open and unmerged, so
-    `board()` (landed records only) has nothing to resolve against yet,
-    but the PR index already does.
+    this subject's indexed PRs that `_branch_looks_like_deliverable()`
+    (issue #2981) confirms actually carries implementation-path changes,
+    not merely one whose slug fails to match a record-only naming
+    convention. Used where `subject_deliverable_record` cannot help — the
+    deliverable PR may still be open and unmerged, so `board()` (landed
+    records only) has nothing to resolve against yet, but the PR index
+    already does.
+
+    `root` is needed to read each candidate's diff (`gh pr diff`) via
+    `_branch_looks_like_deliverable()`.
 
     `None` when `pr_index` itself is unavailable (gh degraded — the
     caller has no branch name to fall back to either, same as today),
@@ -243,9 +290,74 @@ def subject_deliverable_branch(subject: str, pr_index: dict[str, dict] | None) -
     if pr_index is None:
         return None
     prefix = f"{subject}/"
-    candidates = [b for b in pr_index
-                  if b.startswith(prefix) and not _VERIFICATION_SLOT_RE.match(b[len(prefix):])]
+    candidates = [b for b, entry in pr_index.items()
+                  if b.startswith(prefix)
+                  and _branch_looks_like_deliverable(root, entry.get("number"))]
     return candidates[0] if len(candidates) == 1 else None
+
+
+def subject_has_deliverable(root: Path, subject: str) -> dict | None:
+    """issue #2981: does `subject` already have a deliverable PR -- open or
+    merged, never a mere record-only verification/measurement PR -- so a
+    crashed-verdict respawn can check this before acting and avoid opening
+    a duplicate PR for an issue a prior (or still-in-flight) round already
+    covers.
+
+    Layered directly on the two existing per-subject resolvers in this
+    file, one per state a deliverable can be in:
+
+      1. Landed (merged into main, so already in `spawn.board(root)`) --
+         `subject_deliverable_record()` (issue #2575/#2593, unchanged).
+      2. Still open (not yet merged, so `board()` has nothing to join
+         against) -- `subject_deliverable_branch()` (issue #2575), which
+         excludes record-only branches via `_branch_looks_like_
+         deliverable()`'s diff-content check (issue #2981) the auto-spawn
+         tick in this file uses to *open* exactly those record-only PRs
+         in the first place -- so a subject with only a record-only PR in
+         flight resolves to no candidate branch here, same as "no PR at
+         all".
+
+    `merge_gate._own_pr_supplies_verification()` was considered for step 2
+    instead, but it resolves record-only-ness via `git show
+    origin/<branch>:...` against a locally mirrored ref that this call
+    site never fetches, and it returns `False` ("not record-only") on any
+    read failure -- exactly backwards for this call site, where an
+    unreadable branch must NOT be treated as a confirmed deliverable
+    (issue #2981 acceptance: absence or lookup error must default to
+    respawn, never to a silent skip). `_branch_looks_like_deliverable()`
+    degrades the right way instead (its own docstring): unreadable ->
+    `False`, so `subject_deliverable_branch()` only ever returns a branch
+    it is confident about, and any uncertainty here already falls through
+    to `None` ("no deliverable found").
+
+    `root` must be a real repo checkout with `gh` available -- `gh`
+    failures here (via `closure_sweep._pr_index_all()`) return `None`
+    ("no deliverable"), the same fail-open direction: an occasional
+    duplicate PR from a missed detection is a smaller cost than silently
+    never recovering a genuinely dead session (issue #2981's own "must
+    not" list).
+
+    Returns `{"number": int|None, "branch": str, "state": "OPEN"|"MERGED"}`
+    when found, else `None`."""
+    b = spawn.board(root)
+    subject_board = b.get(subject, {})
+    slug, _fm = subject_deliverable_record(subject_board)
+    if slug:
+        branch = f"{subject}/{slug}"
+        number = spawn._pr_open_or_merged_for_branch(root, branch)
+        return {"number": number, "branch": branch, "state": "MERGED"}
+
+    pr_index, ok = closure_sweep._pr_index_all(root)
+    if not ok or pr_index is None:
+        return None
+    branch = subject_deliverable_branch(root, subject, pr_index)
+    if branch is None:
+        return None
+    entry = pr_index.get(branch) or {}
+    state = entry.get("state")
+    if state not in ("OPEN", "MERGED"):
+        return None
+    return {"number": entry.get("number"), "branch": branch, "state": state}
 
 
 def _issue_is_open(issue: int, issue_states: dict[int, str] | None) -> bool:
@@ -455,7 +567,7 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
         # 이면 subject_board 에 그 기록이 없는 게 정상이라(위
         # subject_deliverable_record 가 (None, {}) 를 돌려줄 수 있다),
         # 그 경우에도 branch/PR 조회는 여전히 가능해야 한다.
-        branch = subject_deliverable_branch(subject, pr_index)
+        branch = subject_deliverable_branch(root, subject, pr_index)
         if branch is None:
             # 이슈 #2196 category 3: 브랜치가 삭제된 오래된 subject 는 이
             # 조건이 영구적이라 매 틱 재출력하면 wall of noise 가 된다 —
@@ -726,7 +838,7 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         # 브랜치 이름을 pr_index 에서 유도해야 한다(subject_deliverable_
         # branch — lease/branch 축, generic verification slot 제외,
         # issue #2609/#2628).
-        branch = subject_deliverable_branch(subject, pr_index)
+        branch = subject_deliverable_branch(root, subject, pr_index)
         pr_number = _pr_number_for_branch(root, branch, pr_index) if branch else None
         candidates.append((subject, deficit, pr_number))
 
@@ -869,7 +981,7 @@ def _missing_verification_closed(root: Path, issue_states: dict[int, str] | None
         deficit = verification_deficit(subject_board, subject_author=subject_author)
         if deficit <= 0:
             continue
-        branch = subject_deliverable_branch(subject, pr_index)
+        branch = subject_deliverable_branch(root, subject, pr_index)
         pr_number = _pr_number_for_branch(root, branch, pr_index) if branch else None
         if pr_number is None:
             continue

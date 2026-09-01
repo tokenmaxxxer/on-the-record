@@ -99,7 +99,7 @@ def _wire(monkeypatch, tmp_path, *, missing, pr_number, blocked,
     monkeypatch.setattr(spawn_on_pr, "missing_verification",
                          lambda root, issue_states=None, pr_index=None: dict(missing))
     monkeypatch.setattr(spawn_on_pr, "subject_deliverable_branch",
-                         lambda subject, pr_index: f"{subject}/impl")
+                         lambda root, subject, pr_index: f"{subject}/impl")
     monkeypatch.setattr(spawn_on_pr, "_pr_number_for_branch",
                          lambda root, branch, pr_index: pr_number)
     monkeypatch.setattr(spawn_on_pr, "resolve_live_base", lambda root: "deadbeef")
@@ -508,6 +508,8 @@ def test_closed_and_open_subjects_mixed_only_open_unmappable_branch_reported(
     monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda root: board)
     monkeypatch.setattr(spawn_on_pr.spawn, "_watchdog_note_unmappable_subject_branch",
                          lambda root, s: True)
+    monkeypatch.setattr(spawn_on_pr.check_runner, "pr_diff_paths",
+                         lambda root, pr: ["gates/spawn_on_pr.py"])
 
     out = spawn_on_pr.missing_verification(
         tmp_path, issue_states=issue_states, pr_index=pr_index)
