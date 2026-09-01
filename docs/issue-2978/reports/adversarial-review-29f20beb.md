@@ -217,15 +217,48 @@ genuine-violation directions for both checks (see `## What was done`).
 
 None — loop_state: landed.
 
-skill-verdict: adversarial-review — applied: invoked; ran this entire
-verification in that posture (independent worktree, live `gh`
-re-derivation, no reliance on the builder's stated test-plan results).
+skill-verdict: adversarial-review — applied: invoked; loaded via the
+Skill tool (see `## Rationale for deviations` below for sequencing).
+This session's "independently verify PR #3012" mandate carries the
+skill's core mechanism — an independent session, no deference to the
+builder's claims — while checking against issue #2978's own acceptance
+criteria as the known standard, matching the worktree re-derivation and
+real-data probes actually performed in `## What was done`.
 skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; treated the PR's own "Present"/passing test-plan
-claims as unverified until re-derived from a freshly fetched worktree
-and live `gh` data, per this skill's concern.
+applied: invoked; loaded via the Skill tool (see `## Rationale for
+deviations` below for sequencing). Its rules matched what this
+verification already performed: re-deriving from primary evidence
+instead of citing the builder's claims (the live `gh` re-derivation of
+PR #2851/#2827 and #2994/#2865 in `## What was done`) and deliberately
+including a negative/edge path rather than only the false-positive side
+(the genuine-violation probes in the same section).
 other mounted skills: not triggered (test-depth-audit,
 growth-analytics-experiment-trust,
 negotiation-interests-vs-positions-framing, implementation-audit — none
-match a verification-of-a-PR task; the adversarial-review skill above is
-the applicable one).
+match a verification-of-a-PR task; the two skills above are the
+applicable ones).
+
+## Rationale for deviations
+
+Both skills above were judged applicable and their guidance was
+followed in substance (independent worktree, live re-derivation, a
+deliberate negative/genuine-violation path alongside the false-positive
+path, no deference to the builder's clean-looking record) throughout
+`## What was done`, but the invoke-before-apply obligation (Skill tool
+call preceding the applied work) was not honored in sequence — this
+record's initial write and commit happened before either skill was
+loaded via the Skill tool. Caught by the session's own Stop-hook
+skill-verdict-guard notice; both skills were then loaded via the Skill
+tool. canonical: Skill tool output for `adversarial-review` and
+`defect-verification-independence-from-upstream-verdicts`, this turn —
+both skills' procedures describe the independent-session,
+re-derive-don't-cite posture the `## What was done` section already
+executed. acceptance: `python3 -m pytest tests/ -k "spawn_on_pr_no_pr_yet
+or spawn_on_pr_genuinely_missing_branch or
+closure_sweep_record_after_merge or closure_sweep_genuine_violation" -q`
+— result:
+```
+4 passed in 0.90s
+```
+Re-confirms the acceptance results already quoted in `## What was done`
+and `## Open findings` are unchanged after loading both skills.
