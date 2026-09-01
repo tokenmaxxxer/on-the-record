@@ -41,7 +41,12 @@
 # forever; POLL_HEARTBEAT_SLEEP_SECONDS=<n> overrides the 120s default
 # cadence so the bounded run also completes quickly. Both unset in
 # production — the loop then runs the real 120s cadence for the
-# session's lifetime as designed.
+# session's lifetime as designed. issue #2977: POLL_HEARTBEAT_ALIVE_LOCK_RETRY_SLEEP=<n>
+# overrides the alive-stamp-lock acquire loop's own per-iteration sleep
+# (default 1s) and POLL_HEARTBEAT_RECLAIM_LOG_WINDOW=<n> overrides the
+# dead/forming reclaim-log collapse window (default 5s) — both let tests
+# exercise heavy lock contention without waiting out real time. Unset in
+# production.
 set -uo pipefail
 
 case "${ORCHESTRATE_OFF:-}" in ""|0|false|no|off) ;; *) exit 0 ;; esac
@@ -145,6 +150,56 @@ _poll_watchdog_log_append() {
   { printf '%s\n' "${header}"; printf '%s\n' "${body}"; } >>"${log_path}" 2>/dev/null || true
 }
 
+# issue #2977: a contended alive-stamp-lock can drive the `dead`/`forming`
+# reclaim branches inside _alive_stamp_write's acquire loop into a
+# per-iteration log stream (up to ~1/s per contending process, more in
+# aggregate across concurrently contending processes) -- enough to push
+# the Monitor past its own output limit and silence every other signal it
+# would otherwise surface. This does NOT apply to the max-age
+# force-reclaim valve (the safety-valve line, logged directly via
+# _poll_watchdog_log_append, unchanged, never routed through here) or to
+# the release-skipped path -- neither repeats per-iteration inside a
+# single wait, so neither is the flood source this bounds.
+#
+# _reclaim_log_bounded logs the first collapsible reclaim event in a
+# window immediately, then folds further events in the same window into
+# a counter instead of logging each one -- bounding total output -- and
+# flushes that counter into the NEXT emitted line once the window
+# elapses, so every event is still reflected in a count, never silently
+# dropped (docs/issue-2977: "still reports that the events occurred and
+# how many"). _reclaim_log_flush emits any remainder that never hit a
+# window boundary, called once the lock is finally acquired, so a run
+# that ends mid-window still reports its count rather than dropping it.
+#
+# State (_reclaim_collapsed_count / _reclaim_last_logged_ts /
+# _reclaim_log_window) lives in the caller's (_alive_stamp_write's)
+# `local`s -- bash's dynamic scoping makes them visible here because
+# these are only ever called from inside that function's call stack, not
+# invoked standalone. POLL_HEARTBEAT_RECLAIM_LOG_WINDOW overrides the
+# window (seconds) for tests; POLL_HEARTBEAT_ALIVE_LOCK_RETRY_SLEEP
+# (used at the acquire loop's own retry sleeps below) overrides the
+# per-iteration delay for the same reason -- both unset in production.
+_reclaim_log_bounded() {
+  local _msg="$1"
+  local _window="${_reclaim_log_window:-5}"
+  local _now
+  _now="$(date +%s)"
+  _reclaim_collapsed_count=$((_reclaim_collapsed_count + 1))
+  if [ "${_reclaim_last_logged_ts}" -eq 0 ] || [ "$((_now - _reclaim_last_logged_ts))" -ge "${_window}" ]; then
+    _poll_watchdog_log_append "$(printf '%s (bounded: %s reclaim event(s) counted in this window)' "${_msg}" "${_reclaim_collapsed_count}")"
+    _reclaim_last_logged_ts="${_now}"
+    _reclaim_collapsed_count=0
+  fi
+}
+
+_reclaim_log_flush() {
+  local _lockfile_for_msg="$1"
+  if [ "${_reclaim_collapsed_count}" -gt 0 ]; then
+    _poll_watchdog_log_append "$(printf '[alive-stamp-lock] %s further reclaim event(s) on lockfile %s occurred while waiting (window not yet elapsed at acquisition; reporting count now)' "${_reclaim_collapsed_count}" "${_lockfile_for_msg}")"
+    _reclaim_collapsed_count=0
+  fi
+}
+
 # issue #1497 req 2: a liveness stamp, owned solely by this tick loop and
 # written on EVERY iteration regardless of the due/not-due outcome below —
 # so staleness reflects the loop's own wake cadence, not the shared
@@ -234,6 +289,14 @@ _alive_stamp_write() {
     local _lockfile="${_alive_stamp_path}.lockfile"
     local _tries=0
     local _forming_tries=0
+    # issue #2977: see _reclaim_log_bounded/_reclaim_log_flush above --
+    # these locals are the shared state those functions read/write via
+    # bash's dynamic scoping, and the retry-sleep override lets tests
+    # exercise many iterations without waiting out real 1s sleeps.
+    local _reclaim_log_window="${POLL_HEARTBEAT_RECLAIM_LOG_WINDOW:-5}"
+    local _reclaim_collapsed_count=0
+    local _reclaim_last_logged_ts=0
+    local _alive_stamp_lock_retry_sleep="${POLL_HEARTBEAT_ALIVE_LOCK_RETRY_SLEEP:-1}"
     # issue #2919 follow-up (adversarial-review-95d4569a point 1, "the
     # forming boundary"): the prior design split acquisition into two
     # separate top-level commands -- `mkdir "${_lockdir}"` to claim the
@@ -322,7 +385,7 @@ _alive_stamp_write() {
         rm -f "${_lockfile}" 2>/dev/null || true
         _forming_tries=0
         _wait_started="$(date +%s)"
-        sleep 1
+        sleep "${_alive_stamp_lock_retry_sleep}"
         continue
       fi
       _status="$(_alive_stamp_lock_owner_status "${_lockfile}")"
@@ -331,14 +394,20 @@ _alive_stamp_write() {
           # silent-failure-audit (issue #2919): logged, not just broken --
           # a stale lock silently cleared reads identically to "no
           # contention happened" otherwise, hiding a prior writer's crash.
-          _poll_watchdog_log_append "$(printf '[alive-stamp-lock] stale lockfile %s (owner pid %s confirmed dead) reclaimed after %ss wait' "${_lockfile}" "$(cat "${_lockfile}" 2>/dev/null)" "${_tries}")"
+          # issue #2977: routed through _reclaim_log_bounded, not logged
+          # directly -- a contended lock cycling through repeatedly
+          # re-created dead owners must not turn this into a
+          # per-iteration stream (the defect this issue reports); the
+          # bound still reports every event's occurrence and count.
+          _reclaim_log_bounded "$(printf '[alive-stamp-lock] stale lockfile %s (owner pid %s confirmed dead) reclaimed after %ss wait' "${_lockfile}" "$(cat "${_lockfile}" 2>/dev/null)" "${_tries}")"
           rm -f "${_lockfile}" 2>/dev/null || true
           _forming_tries=0
           ;;
         forming)
           _forming_tries=$((_forming_tries + 1))
           if [ "${_forming_tries}" -ge "${_forming_grace}" ]; then
-            _poll_watchdog_log_append "$(printf '[alive-stamp-lock] stale lockfile %s (no owner pid recorded after %ss wait) reclaimed' "${_lockfile}" "${_tries}")"
+            # issue #2977: same bounding as the `dead` branch above.
+            _reclaim_log_bounded "$(printf '[alive-stamp-lock] stale lockfile %s (no owner pid recorded after %ss wait) reclaimed' "${_lockfile}" "${_tries}")"
             rm -f "${_lockfile}" 2>/dev/null || true
             _forming_tries=0
           fi
@@ -351,8 +420,13 @@ _alive_stamp_write() {
           _forming_tries=0
           ;;
       esac
-      sleep 1
+      sleep "${_alive_stamp_lock_retry_sleep}"
     done
+    # issue #2977: report any dead/forming reclaims that occurred but
+    # never hit a window boundary while waiting -- the lock is acquired
+    # now, so this is the last chance to reflect their count rather than
+    # dropping it silently.
+    _reclaim_log_flush "${_lockfile}"
     # only reachable once the noclobber write above has ATOMICALLY
     # created the lockfile with our own pid already inside it -- there
     # is no separate publish-identity step left to race, and no
