@@ -461,6 +461,9 @@ _self_trigger_respawn = lifecycle._self_trigger_respawn
 _sibling_checkout_roots = lifecycle._sibling_checkout_roots
 _sibling_live_sessions = lifecycle._sibling_live_sessions
 _sidecar_workspace_name = lifecycle._sidecar_workspace_name
+_temp_repos_base = lifecycle._temp_repos_base
+session_temp_root = lifecycle.session_temp_root
+sweep_temp_repos = lifecycle.sweep_temp_repos
 _workspace_base = lifecycle._workspace_base
 _workspace_clean_state = lifecycle._workspace_clean_state
 _workspace_in_progress_merge = lifecycle._workspace_in_progress_merge
@@ -3999,6 +4002,23 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                               f"(지움 {sidecar_outcome['removed']}, "
                               f"실패 {sidecar_outcome['failed']})",
                               file=sys.stderr)
+                    # 이슈 #2973: 세션이 스스로 정리하는 것에 기대지 않고,
+                    # 위 워크스페이스/sidecar 스윕과 같은 스폰타임/같은
+                    # 백그라운드 스레드/같은 예외-흡수 계약으로 plugin-managed
+                    # temp repo root(`session_temp_root()`)도 나이 기준으로
+                    # 되찾는다 — 살아있는 세션의 몫은 건너뛴다.
+                    try:
+                        temp_repos_outcome = sweep_temp_repos(
+                            max_age_days=_clean_max_age_days())
+                    except Exception as ex:
+                        print(f"[{skill}] temp-repos-sweep 실패(스폰은 계속): {ex}",
+                              file=sys.stderr)
+                        return
+                    if temp_repos_outcome["removed"] or temp_repos_outcome["failed"]:
+                        print(f"[{skill}] temp-repos-sweep(백그라운드) "
+                              f"(지움 {temp_repos_outcome['removed']}, "
+                              f"실패 {temp_repos_outcome['failed']})",
+                              file=sys.stderr)
                 threading.Thread(target=_run_auto_sweep, daemon=True,
                                   name="auto-sweep").start()
         # 격리 작업 클론에서 돈다 — 사용자의 체크아웃은 건드리지 않고,
@@ -4518,6 +4538,11 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             _disarm_bootstrap_signal_guard(_bootstrap_signal_guard)
         result = {}
         roster_key = lease_key(issue, skill) if issue is not None else f"adhoc/{skill}/{os.getpid()}"
+        # 이슈 #2973: 세션이 repo 복사본/빌드 트리를 두려고 `/tmp/tas-*`
+        # 같은 경로를 스스로 고르는 대신, plugin 이 아는 위치를 심어 준다
+        # — 그래야 auto-sweep(아래, 세션 협조 없이 도는 백그라운드
+        # 사이클)이 되찾을 수 있다.
+        extra_env["MUSTER_TEMP_ROOT"] = str(session_temp_root(roster_key))
         events_path = _events_path(cwd)
         offset_path = _offset_path(cwd)
         is_parent_return = False

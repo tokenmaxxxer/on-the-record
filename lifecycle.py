@@ -1192,6 +1192,82 @@ def _workspace_merge_trigger_status(w: Path) -> tuple[bool, str]:
     return (True, f"PR #{merged_pr} merged")
 
 
+def _temp_repos_base() -> Path:
+    """이슈 #2973: 세션이 자기 몫 scratch repo 복사본/빌드 트리를 두는
+    plugin-managed 루트. `_workspace_base()`(세션 워크스페이스 자체,
+    이슈 #2960 스코프)와는 별개 위치라 아래 `sweep_temp_repos()`가
+    `~/.tokenmaxxxer/work` 를 절대 건드리지 않는다. `MUSTER_TEMP_REPOS_ROOT`
+    오버라이드는 `_workspace_base()`의 `MUSTER_WORK_DIR` 관례와 같다 —
+    운영/테스트 격리용이며, 스포너가 심어 주는 값이지 세션이 스스로
+    고르는 값이 아니다."""
+    override = os.environ.get("MUSTER_TEMP_REPOS_ROOT")
+    if override:
+        return Path(override)
+    return Path.home() / ".tokenmaxxxer" / "tmp-repos"
+
+
+def session_temp_root(roster_key: str) -> Path:
+    """세션 하나의 관리형 temp repo root:
+    `<_temp_repos_base()>/<roster_key 를 세이프하게 바꾼 이름>`, 없으면
+    만든다. 스포너가 이 경로를 `MUSTER_TEMP_ROOT` env 로 심어 주면,
+    세션이 repo 복사본/빌드 트리를 두려고 `/tmp/tas-<n>-repos` 같은
+    경로를 스스로 고르는 대신 이 plugin-managed 위치를 쓰게 된다 —
+    그래야 `sweep_temp_repos()`가 세션의 협조 없이도 되찾을 수 있다
+    (이슈 #2973)."""
+    safe_name = roster_key.replace("/", "-")
+    root = _sp._temp_repos_base() / safe_name
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def sweep_temp_repos(base: Path | None = None,
+                      max_age_days: float | None = None,
+                      now: float | None = None) -> dict[str, int]:
+    """`session_temp_root()`가 만든 세션별 temp repo root 를 나이 기준으로
+    되찾는다(이슈 #2973) — 세션이 스스로 지우는 것에 기대지 않는다:
+    턴 한도에서 죽거나 자기 정리 코드에 닿기 전에 크래시한 세션도 이
+    스윕이 되찾는다. `/tmp`를 이름 패턴으로 훑지 않는다 — 오직
+    plugin-managed `base` 아래만 본다. 살아있는(pid-alive) 세션의
+    roster key 를 `session_temp_root()`와 같은 규칙으로 새니타이즈해
+    디렉터리 이름과 비교하므로, 그 세션의 temp root 는 나이와 무관하게
+    지우지 않는다 — 역-매핑 없이 한 방향 규칙 비교만으로 성립한다.
+
+    `base`/`max_age_days`/`now`: 테스트가 위치/정책/시각을 주입한다.
+    빈 상태(`base`가 없거나 항목이 없음)는 removed=kept=failed=0 을
+    돌려준다."""
+    base = base if base is not None else _sp._temp_repos_base()
+    now = now if now is not None else time.time()
+    max_age_days = (max_age_days if max_age_days is not None
+                     else _sp._clean_max_age_days())
+    max_age_sec = max_age_days * 86400
+    roster = _sp._roster_load()
+    live_names = {k.replace("/", "-") for k, e in roster.items()
+                  if _sp._alive(e.get("pid", 0))}
+    removed = kept = failed = 0
+    entries = sorted(base.glob("*")) if base.is_dir() else []
+    for entry in entries:
+        if not entry.is_dir():
+            continue
+        if entry.name in live_names:
+            kept += 1
+            continue
+        try:
+            mtime = max((p.stat().st_mtime for p in entry.rglob("*")),
+                        default=entry.stat().st_mtime)
+        except OSError:
+            failed += 1
+            continue
+        if now - mtime > max_age_sec:
+            try:
+                shutil.rmtree(entry)
+                removed += 1
+            except OSError:
+                failed += 1
+        else:
+            kept += 1
+    return {"removed": removed, "kept": kept, "failed": failed}
+
+
 def auto_sweep(wb: Path, max_age_days: float, max_bytes: int,
                now: float | None = None) -> dict[str, int]:
     """이슈 #1179: 스폰-타임 자동 정리. `roster_clean()` 과 같은 안전 판정
