@@ -250,12 +250,14 @@ governing protocol for treating PR #2985's own claimed results as
 unverified until independently re-derived (isolated worktree, fresh
 `pytest` runs, full diff read rather than summary), per the task's
 explicit instruction not to trust the PR's claimed results.
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; used rule 2 (include an edge case, not only
-happy-path checks) to look past the three named acceptance tests for
-the process-kill-mid-window durability gap (Open finding 1), and rule 3
-(re-derive rather than cite) to re-run every check against the fetched
-head instead of citing the PR record's own posted pass/fail lines.
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; used rule 2
+(include an edge case, not only happy-path checks) to look past the
+three named acceptance tests for the process-kill-mid-window durability
+gap (Open finding 1), and rule 3 (re-derive rather than cite) to re-run
+every check against the fetched head — canonical: the four `acceptance:`
+blocks under "What was done" above, each produced by this session's own
+`pytest` invocation this turn — instead of citing the PR record's own
+posted pass/fail lines.
 other mounted skills: work-in-english not invoked as a Skill-tool call
 this session (record and commit already written in English per its
 stated guidance without needing to load the file); verify-finding-record
