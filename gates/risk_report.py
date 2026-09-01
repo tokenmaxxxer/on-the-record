@@ -284,17 +284,35 @@ def report(proposals: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def batch_blocked(proposals: list[dict], root: Path) -> list[dict]:
+def batch_blocked(proposals: list[dict], root: Path,
+                   batch_files: list[list[str]] | None = None) -> list[dict]:
     """`proposals` 중 dominant-axis 규칙상 배치 승인에 포함될 수 없는(개별
     승인이 강제되는) 항목만 골라 `{path, axes}` 목록으로 반환한다. 요구사항 5
     (risk_report를 배치 승인 경로에 블로킹으로 연결)의 판정 지점 —
-    `on-the-record/hooks/impact-guard.sh`가 그대로 호출한다."""
+    `on-the-record/hooks/impact-guard.sh`가 그대로 호출한다.
+
+    `batch_files`(issue #2974): 지금 배치되는 PR들 각각의 write-set. 주어지면,
+    개별 승인이 강제되는 proposal 이라도 그중 이 배치의 PR과 write-set이
+    겹치는(implicate하는) 것만 걸린다 — 배치가 전혀 건드리지 않는 무관한
+    open proposal 이 그 reversibility 를 배치 전체에 상속시키던 결함(issue
+    #2974: `docs/issue-317/proposals/playwright-98-cell-live-proof.md` 가
+    자신과 무관한 PR 2개짜리 배치를 막은 라이브 사례)의 수정. `None`(기본):
+    모든 호출부에서 배치 컨텍스트 없이 이 함수를 쓸 수 있도록, 오늘처럼
+    개별 승인이 강제되는 proposal 전부를 무조건 포함한다 — 겹침 필터는
+    `batch_files`가 주어질 때만 적용된다. 배치가 진짜로 implicate하는
+    proposal 의 개별 승인 요건은 이 필터로 절대 약해지지 않는다 — 겹치면
+    그대로 걸린다."""
     blocked = []
     for p in proposals:
         others = [o for o in proposals if o is not p]
         axes = classify_axes(p["files"], p["added"], p["removed"], root, others)
-        if axes["requires_individual_approval"]:
-            blocked.append({"path": p["path"], "axes": axes})
+        if not axes["requires_individual_approval"]:
+            continue
+        if batch_files is not None:
+            implicated = any(_paths_overlap(p["files"], bf) for bf in batch_files)
+            if not implicated:
+                continue
+        blocked.append({"path": p["path"], "axes": axes})
     return blocked
 
 
