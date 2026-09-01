@@ -69,6 +69,32 @@ def _derive_slug_from_task(task_text: str) -> str:
     return f"{ascii_part[:40].strip('-')}-{digest}" if ascii_part else digest
 
 
+def resolve_task_text(positional_task: str | None, use_stdin: bool,
+                       stdin=None) -> str:
+    """Issue #2976: a long task body has no way in besides the positional
+    `<task>` argument, which has to survive shell quoting whole -- a
+    single `->` inside it is enough to make zsh fail with a parse error.
+    `--task-stdin` opens a second channel without retiring the positional
+    form (#2572 fixed `--skills <skill> "<task>"` as the sole spawn
+    form). Reads a stream rather than writing a temp file first, so this
+    never becomes the disk-full failure mode issue #2962 documents.
+
+    Double-supply is refused rather than resolved by precedence -- a
+    positional value present while `--task-stdin` is also set is an
+    operator mistake, not a case to silently pick a winner for."""
+    if use_stdin:
+        if positional_task:
+            sys.exit(
+                "spawn.py: task supplied both positionally "
+                f"({positional_task!r}) and via --task-stdin -- refuses "
+                "to silently prefer one. Supply the task exactly once: "
+                "either the positional \"<task>\" argument, or "
+                "--task-stdin with the body piped on stdin, not both."
+            )
+        return (stdin if stdin is not None else sys.stdin).read()
+    return positional_task
+
+
 # issue #2348: hook-fires/deviation-log per-session sharding -- both are
 # standalone leaf modules (no callback into spawn.py), so no `_sp`
 # injection is needed the way consult.py/roster.py/lifecycle.py require.
@@ -2178,6 +2204,14 @@ def main() -> int:
                          "역할-포지셔널 스폰(spawn.py implementation \"<일>\")은 "
                          "은퇴했다 — 세션 스폰은 --skills 로만 한다")
     ap.add_argument("task", nargs="?", help="맡길 일. 룰북 커맨드면 '/plugin:command 인자'")
+    ap.add_argument("--task-stdin", action="store_true",
+                    help="이슈 #2976: --skills 스폰의 맡길 일 본문을 위치 "
+                         "인자 대신 표준입력으로 받는다 -- 셸이 해석할 "
+                         "문자(`->`, 따옴표, 개행)가 든 긴 본문을 안전하게 "
+                         "넘길 때 쓴다. 사용: cat body.txt | spawn.py "
+                         "--skills <skill> --task-stdin --issue <n>. "
+                         "위치 인자와 함께 오면(둘 다 채워지면) 어느 쪽도 "
+                         "조용히 고르지 않고 거절한다.")
     ap.add_argument("consult_question", nargs="?",
                     help="consult <role-or-skill> \"<질문>\": 세 번째 위치 인자로 질문을 받는다")
     ap.add_argument("panel_question", nargs="?",
@@ -2384,10 +2418,11 @@ def main() -> int:
         # session identity, argparse binds the lone remaining token to
         # `a.role` (positional order is role/task/consult_question/...).
         # Read it as the task text, not a role name.
-        task_text = a.role
+        task_text = resolve_task_text(a.role, a.task_stdin)
         if not task_text:
             sys.exit('usage: spawn.py --skills <skill>[,<skill>...] '
-                     '"<task>" --issue <n>')
+                     '"<task>" --issue <n> (or --task-stdin with the '
+                     'body piped on stdin)')
         if a.issue is None:
             sys.exit('spawn.py --skills requires --issue <n> (issue #2572) '
                      '-- the skill-axis branch/lease naming '
