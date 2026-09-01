@@ -31,7 +31,7 @@ their users (`RESPAWN_STATE`, `RESPAWN_MAX_ATTEMPTS`,
 `RESPAWN_ABSOLUTE_MAX`, the crash/stall/session-end comment markers,
 `_CONTINUATION_PREAMBLE`, `_RECORD_PATH_RE`,
 `_REMEDIATION_MERGE_COMMENT_MARKER`, `_ABANDONED_WORK_OUTCOMES`,
-`_HARNESS_NOISE_BASENAMES`, the `MONITOR_ALIVE_*` cadence constants,
+the `MONITOR_ALIVE_*` cadence constants,
 `LEGACY_MONITOR_ALIVE_DIRNAME`) — spawn.py re-exports them by assignment.
 `ROOT` is recomputed here with the exact expression spawn.py uses (same
 directory, same import pass) because `RESPAWN_STATE` derives from it at
@@ -728,23 +728,45 @@ def _live_workspaces_union() -> tuple[dict[Path, dict], list[str]]:
     return live, unreadable
 
 
-# 이슈 #1179 (reopen): 훅이 워크스페이스 안에 직접 심어놓는 자체 부기
-# 파일 — 사용자가 만든 내용이 아니라 harness 자신의 상태 마커라
-# untracked 로 남아도 "미보존 작업"이 아니다. 이 목록에 없는 파일은
-# 전부 그대로 dirty 취급(안전 기본값 유지) — 이름을 아는 것만 뺀다.
-_HARNESS_NOISE_BASENAMES = frozenset({
-    ".pull-check", ".shallow-check", ".orchestrate-greeted",
-    ".warrant-hunt.count", ".warrant-hunt.lock",
-    # 파이썬 바이트코드 캐시 — 어느 리포에서도 소스에서 재생성되는
-    # 순수 파생물이라 "미보존 작업"일 수가 없다(실측 최다 노이즈,
-    # 320개 워크스페이스 중 335건).
-    "__pycache__",
-    # project-rich 리포의 테스트/빌드 산출물 — `file` 로 확인한 SQLite
-    # db 와 컴파일된 JS/HTML 번들, 소스 아님(실측: project-rich-issue-*
-    # 워크스페이스 다수가 이 파일 하나 때문에만 dirty 로 잡혔다).
-    "fundamentals.db", "fundamentals.db-shm", "fundamentals.db-wal",
-    "web_out_snapshot", "web_out",
-})
+# 내용 변경으로 취급하는 porcelain 상태 문자 — staged/unstaged 를
+# 가리지 않고 M(수정)/A(추가)/R(rename)/C(copy)/U(unmerged, 충돌)
+# 중 하나가 X 나 Y 자리에 있으면 그 파일은 "잃을 게 있다".
+_CONTENT_DIFF_CODES = frozenset("MARCU")
+
+
+def _workspace_in_progress_merge(w: Path) -> bool:
+    """진행 중인 merge/rebase/cherry-pick/bisect 상태가 있으면 True.
+    `git rev-parse --git-dir`로 얻은 경로를 쓴다 — worktree 체크아웃은
+    이 마커들이 `.git/worktrees/<name>/` 아래 따로 있어, `w / ".git"`을
+    직접 뒤지면 놓친다."""
+    r = subprocess.run(["git", "-C", str(w), "rev-parse", "--git-dir"],
+                        capture_output=True, text=True)
+    if r.returncode != 0:
+        return False
+    git_dir = Path(r.stdout.strip())
+    if not git_dir.is_absolute():
+        git_dir = w / git_dir
+    return any((git_dir / marker).exists() for marker in (
+        "MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply",
+        "BISECT_LOG"))
+
+
+def _workspace_untracked_not_ignored(w: Path) -> list[bytes]:
+    """gitignore 에 안 걸리는 untracked 파일 목록(이슈 #2960: basename
+    화이트리스트 대신 `git check-ignore` 로 판정 — 그 리포 자신의
+    `.gitignore` 가 harness noise 든 빌드 산출물이든 이미 아는 파일을
+    걸러내고, 모르는 새 파일은 안전 기본값대로 "잃을 게 있다"로 남는다)."""
+    listed = subprocess.run(
+        ["git", "-C", str(w), "ls-files", "-z", "--others"],
+        capture_output=True).stdout
+    untracked = [p for p in listed.split(b"\0") if p]
+    if not untracked:
+        return []
+    checked = subprocess.run(
+        ["git", "-C", str(w), "check-ignore", "-z", "--stdin"],
+        input=b"\0".join(untracked), capture_output=True)
+    ignored = {p for p in checked.stdout.split(b"\0") if p}
+    return [p for p in untracked if p not in ignored]
 
 
 def _workspace_clean_state(
@@ -753,6 +775,15 @@ def _workspace_clean_state(
     """워크스페이스 하나가 지워도 안전한지 판정한다. `(reason, detail)` —
     `reason` 이 `None` 이면 안전(지워도 됨), 아니면 남기는 이유
     (`"live"`/`"unknown"`/`"dirty"`) 와 사람이 읽을 상세 문자열.
+
+    이슈 #2960: 판정 기준은 "작업트리가 깨끗한가"가 아니라 "지우면 뭘
+    잃는가"다 — unpushed 커밋, stash, 진행 중 merge/rebase, staged/
+    unstaged 내용 변경(M/A/R/C/U), gitignore 안 걸리는 untracked 파일
+    중 하나라도 있으면 "잃을 게 있다"(dirty). 삭제(D)만 있는 트리는
+    예외: 지워진 내용은 이미 커밋 히스토리에 있으므로, 그 커밋이 이미
+    push 돼 있을 때만(= `ahead` 가 비어있을 때만) 안전하다 — 커밋이
+    unpush 상태면 D 항목과 무관하게 `ahead` 검사가 그대로 dirty 로
+    잡는다.
 
     `roster_clean()`(수동)과 `auto_sweep()`(자동, 이슈 #1179)이 같은 판정을
     쓴다 — 두 곳에 독립적으로 안전 검사를 두면 한쪽만 고치고 다른 쪽은
@@ -774,41 +805,50 @@ def _workspace_clean_state(
         return ("unknown",
                  "이웃 체크아웃 로스터를 못 읽어 라이브 여부 확인 불가 — "
                  + "; ".join(unreadable))
+
+    if _sp._workspace_in_progress_merge(w):
+        return ("dirty", "미보존 작업 있음  [merge/rebase 진행 중]")
+
+    stash_out = subprocess.run(["git", "-C", str(w), "stash", "list"],
+                               capture_output=True, text=True).stdout.strip()
+    if stash_out:
+        return ("dirty",
+                 f"미보존 작업 있음  [stash {len(stash_out.splitlines())}건]")
+
     raw_st = subprocess.run(["git", "-C", str(w), "status", "--porcelain"],
                             capture_output=True, text=True).stdout.strip()
-    # untracked(`??`)이면서 harness 자체 마커 파일인 줄만 걸러낸다 —
-    # staged/tracked 변경(M/D/A 등)은 절대 걸러내지 않는다: 실측
-    # (2026-08-13, 이 머신) 잔여 320개 워크스페이스 중 293개가 이
-    # 마커 파일들 때문에 dirty 로 잘못 잡혔다.
-    st_lines = [ln for ln in raw_st.splitlines()
-                if not (ln[:2] == "??"
-                        and os.path.basename(ln[3:].rstrip("/"))
-                        in _sp._HARNESS_NOISE_BASENAMES)]
-    st = "\n".join(st_lines)
+    st_lines = raw_st.splitlines() if raw_st else []
+    tracked_lines = [ln for ln in st_lines if not ln.startswith("??")]
+    content_diff_lines = [ln for ln in tracked_lines
+                           if set(ln[:2]) & _sp._CONTENT_DIFF_CODES]
+    not_ignored = _sp._workspace_untracked_not_ignored(w)
+
     ahead = subprocess.run(
         ["git", "-C", str(w), "log", "--branches", "--not", "--remotes",
          "--oneline"], capture_output=True, text=True).stdout.strip()
-    if ahead:
+    if ahead and not content_diff_lines and not not_ignored:
         # 레거시 워크스페이스는 생성 뒤 다시 fetch 된 적이 없어, 브랜치가
         # 이미 origin 에 머지됐어도 로컬 remote-tracking ref 가 그 사실을
         # 모른다 — "ahead" 로 영원히 오판된다(실측, accessibility-rulebook
-        # issue-19: fetch 전 2건 ahead, fetch 후 0건). 작업트리가 이미
-        # 깨끗할 때만 한 번 fetch 로 갱신하고 재판정한다 — fetch 는
+        # issue-19: fetch 전 2건 ahead, fetch 후 0건). 다른 이유로 이미
+        # dirty 가 아닐 때만 한 번 fetch 로 갱신하고 재판정한다 — fetch 는
         # 로컬을 지우지 않으니 안전.
-        if not st:
-            try:
-                subprocess.run(["git", "-C", str(w), "fetch", "-q", "--all"],
-                               capture_output=True, text=True, timeout=30)
-            except (subprocess.TimeoutExpired, OSError):
-                pass
-            ahead = subprocess.run(
-                ["git", "-C", str(w), "log", "--branches", "--not",
-                 "--remotes", "--oneline"],
-                capture_output=True, text=True).stdout.strip()
-    if st or ahead:
+        try:
+            subprocess.run(["git", "-C", str(w), "fetch", "-q", "--all"],
+                           capture_output=True, text=True, timeout=30)
+        except (subprocess.TimeoutExpired, OSError):
+            pass
+        ahead = subprocess.run(
+            ["git", "-C", str(w), "log", "--branches", "--not",
+             "--remotes", "--oneline"],
+            capture_output=True, text=True).stdout.strip()
+
+    if content_diff_lines or not_ignored or ahead:
         detail = "미보존 작업 있음"
-        if st:
-            detail += f"  [미커밋 {len(st.splitlines())}건]"
+        if content_diff_lines:
+            detail += f"  [내용 변경 {len(content_diff_lines)}건]"
+        if not_ignored:
+            detail += f"  [미추적 파일 {len(not_ignored)}건]"
         if ahead:
             detail += f"  [미push 커밋 {len(ahead.splitlines())}건]"
         return ("dirty", detail)
