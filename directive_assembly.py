@@ -167,24 +167,31 @@ _LANDING_BATCHING_PROSE = (
 # guidance itself survives untouched — issue #2261's own measurement
 # (#2240: 230 tool calls, 69 grep commands, 68 of them unique — not a
 # loop, serial one-grep-per-turn exploration) is still the reason a
-# session should batch, cap or no cap: wall-clock and token/cost are the
-# intended worst-case bound (runaway_backstop.py; no live caller applies
-# them yet), and serial exploration burns straight into those thresholds
-# the same way it used to burn into the cap.
+# session should batch, regardless of what bounds the session.
+# Issue #2961 follow-up (this change): the previous wording here claimed
+# the wall-clock/token backstops are "in force" and that exceeding either
+# "ends the session" — false, per the same follow-up task that already
+# fixed this claim in the code comments/docstrings (PR #2983). As shipped,
+# `runaway_backstop.backstop_verdict()` has zero live callers, so nothing
+# currently ends a session on wall-clock or token grounds either. This
+# prose must not repeat that false claim just because it survived in the
+# session-facing text rather than a comment.
 _TURN_BUDGET_PROSE = (
-    "세션 예산(이슈 #2961): 이 세션에 턴 상한은 없다 — 더 이상 턴 수로 "
-    "죽지 않는다. 대신 지갑/시계 백스톱이 걸려 있다: 벽시계 "
+    "세션 예산(이슈 #2961): 이 세션에는 턴 상한이 없다 — 턴 수는 세션을 "
+    "끝내지 않는다. 그렇다고 다른 무언가가 대신 끝내는 것도 아니다: "
+    "지금 이 세션을 자동으로 끝내는 장치는 아무 것도 없다. "
+    "wall-clock/토큰 임계값(runaway_backstop.py, 벽시계 "
     f"{runaway_backstop.WALL_CLOCK_BACKSTOP_MS // 60_000}분, 누적 토큰 "
     f"{runaway_backstop.TOKEN_COST_BACKSTOP_TOKENS // 1_000_000}백만 "
-    "토큰(runaway_backstop.py) — "
-    "둘 중 하나만 넘어도 세션이 끝난다. 관측 전용 조합 신호("
-    "runaway_signal.py) 는 같이 돌지만 아무 것도 끝내지 않는다 — 참고용 "
-    "판정만 남긴다. 예산이 무제한이 됐다고 탐색을 늘리라는 뜻이 아니다: "
-    "측정 결과(이슈 #2240) 캡에 걸린 세션 하나가 한 턴에 grep 하나씩 "
-    "69번 실행했고 그중 68번이 서로 다른 검색이었다 — 루프가 아니라 "
-    "예산을 선형으로 쓰는 직렬 탐색이 원인이었고, 그 직렬 탐색은 이제 "
-    "턴 캡 대신 저 백스톱을 향해 똑같이 타들어간다. 이걸 줄이려면 두 "
-    "가지를 같이 써라: "
+    "토큰)은 의도된 향후 백스톱으로 이미 코드에 있지만, 아직 이를 "
+    "호출해서 세션을 끝내는 곳은 없다 — thresholds만 존재하고 enforcement "
+    "caller는 없다. 관측 전용 조합 신호(runaway_signal.py) 도 같이 돌지만 "
+    "판정만 남길 뿐 역시 아무 것도 끝내지 않는다. 즉 지금은 무엇도 이 "
+    "세션을 자동으로 끊지 않는다는 뜻이지, 탐색을 늘려도 된다는 뜻은 "
+    "아니다: 측정 결과(이슈 #2240) 캡에 걸린 세션 하나가 한 턴에 grep "
+    "하나씩 69번 실행했고 그중 68번이 서로 다른 검색이었다 — 루프가 "
+    "아니라 예산을 선형으로 쓰는 직렬 탐색이 원인이었다. 이걸 줄이려면 "
+    "두 가지를 같이 써라: "
     "(1) 관련된 grep 여러 개를 한 Bash 호출에 `&&`나 `|`로 묶어서 한 "
     "턴에 실행하고, 파일 전체를 여러 번 나눠 읽기(paging)보다 필요한 "
     "범위만 짚어 Read 하라. (2) 폭넓은 탐색은 Task 도구로 3-4개 병렬 "
