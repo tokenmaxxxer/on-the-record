@@ -208,8 +208,7 @@ it opened with.
   numbers) rather than a review of their claimed results, and to push
   past the PRs' own "genuine untracked content" black-box into what
   that content actually is (Open finding 1).
-- skill-verdict: defect-verification-independence-from-upstream-verdicts
-  — applied: invoked; re-ran all five acceptance checks from primary
+- skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-ran all five acceptance checks from primary
   evidence in a fresh worktree instead of citing PR #2963's pasted
   results, and deliberately went past the happy-path re-derivation to
   interrogate the 0 -> 0 population number rather than accepting PR
