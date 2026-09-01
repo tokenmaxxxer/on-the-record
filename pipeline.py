@@ -679,24 +679,15 @@ def spawn_cmd(settings_path: str, skill: str, unattended: bool,
                                      "project,local")
     if setting_sources:
         cmd += ["--setting-sources", setting_sources]
-    # Issue #2100 item 4: session turn budget pass-through. `None` keeps
-    # today's argv byte-identical (callers that never resolved a budget);
-    # `_spawn_one` always passes the resolved cap. <= 0 means an explicit,
-    # admission-approved unlimited run — no flag is attached.
-    #
-    # Issue #2262: the actual `--max-turns` ceiling handed to the CLI is
-    # the resolved cap PLUS a wrap-up allowance (SWE-agent autosubmit
-    # shape) — a small grace buffer so a session that crosses the
-    # approach-cap warning threshold (env below) still has real turns
-    # left to converge (commit/PR/record) instead of being hard-killed
-    # exactly at the nominal cap. `DEFAULT_SESSION_MAX_TURNS` itself is
-    # untouched: six sessions measured in #2262 spent the budget on
-    # non-looping serial exploration, not runaway looping, so raising
-    # the advertised cap would only make the same shape more expensive —
-    # the allowance is landing room, not more exploration room.
-    wrap_up_allowance = _resolve_wrap_up_allowance_turns()
-    if max_turns is not None and max_turns > 0:
-        cmd += ["--max-turns", str(max_turns + wrap_up_allowance)]
+    # Issue #2961: the CLI's own turn-count cap flag is never attached —
+    # turn count no longer terminates a session (Acceptance: "No session
+    # is terminated on turn count"). The resolved `max_turns` value below
+    # still feeds the soft convergence nudge (env vars further down); it
+    # no longer reaches the CLI's argv. `runaway_backstop.py`'s wall-clock/
+    # token thresholds are derived to be the intended worst-case bound, but
+    # as shipped no live caller invokes `backstop_verdict()` — wiring an
+    # enforcing caller (e.g. into the watchdog poll loop) is out of scope
+    # for this slice, so nothing on this subprocess is bounded yet.
     # 스킬-저장소 가이던스도 core 와 같은 길로 붙는다 — 디렉터리로 넘긴 플러그인의 훅은
     # headless 에서 그대로 발화하고(실측 2026-07-27, CLI 2.1.220), 설치를
     # 안 거치므로 캐시-클론 갈라짐도 유령 등록 항목도 이 경로엔 없다.
@@ -1518,7 +1509,7 @@ def _resolve_session_max_turns(cli_value: int | None) -> int:
             return int(env)
         except ValueError:
             pass
-    return _sp.DEFAULT_SESSION_MAX_TURNS
+    return _sp.DEFAULT_SESSION_TURN_GUIDANCE
 
 
 # Issue #2262: two independent knobs on top of the resolved cap above —
@@ -1545,10 +1536,11 @@ def _resolve_approach_warning_turns() -> int:
 
 
 def _resolve_wrap_up_allowance_turns() -> int:
-    """Extra turns added on top of the resolved cap before it becomes the
-    real `--max-turns` ceiling (issue #2262's wrap-up allowance).
-    MUSTER_WRAP_UP_ALLOWANCE_TURNS env overrides; a non-negative int only,
-    else the built-in default."""
+    """Extra turns on top of the resolved turn-guidance value before the
+    in-session convergence nudge treats it as spent (issue #2262's
+    wrap-up allowance; issue #2961: advisory only, never a CLI turn
+    ceiling anymore). MUSTER_WRAP_UP_ALLOWANCE_TURNS env overrides; a
+    non-negative int only, else the built-in default."""
     env = os.environ.get("MUSTER_WRAP_UP_ALLOWANCE_TURNS")
     if env:
         try:
@@ -1756,10 +1748,14 @@ def _admission_check_watch_registration(ctx: dict) -> bool | None:
 
 
 def _admission_check_budget_caps(ctx: dict) -> bool | None:
-    """Item 4 (issue #2100): the spawn must carry a turn/budget cap. A
-    resolved max-turns is always present (default applies when nothing is
-    set); only an EXPLICIT unlimited (<= 0) without the override flag is
-    refused."""
+    """Item 4 (issue #2100), narrowed by issue #2961: this checks the
+    advisory turn-guidance value only — it never gates the actual
+    worst-case bound. `runaway_backstop.py`'s wall-clock/token thresholds
+    are derived to be that bound, but as shipped no live caller invokes
+    `backstop_verdict()`, so nothing here or elsewhere applies them to a
+    spawn yet. A resolved turn-guidance value is always present (default
+    applies when nothing is set); only an EXPLICIT unlimited (<= 0)
+    without the override flag is refused."""
     max_turns = ctx.get("max_turns")
     if max_turns is None:
         return True  # resolver guarantees a default; None means "not plumbed here"
