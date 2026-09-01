@@ -49,6 +49,7 @@ import lifecycle  # noqa: E402
 import spawn  # noqa: E402
 import spawn_on_pr  # noqa: E402
 import closure_sweep  # noqa: E402
+import check_runner  # noqa: E402
 
 lifecycle._sp = spawn
 
@@ -99,7 +100,25 @@ class SubjectHasDeliverableTest(unittest.TestCase):
     def test_respawn_proceeds_without_deliverable_when_only_record_only_pr_open(self):
         pr_index = {"issue-9001/independent-verification-1":
                     {"number": 5, "state": "OPEN", "body": ""}}
-        with mock.patch.object(closure_sweep, "_pr_index_all", return_value=(pr_index, True)):
+        with mock.patch.object(closure_sweep, "_pr_index_all", return_value=(pr_index, True)), \
+             mock.patch.object(check_runner, "pr_diff_paths",
+                                return_value=["docs/issue-9001/reports/"
+                                              "independent-verification-1.md"]):
+            result = spawn_on_pr.subject_has_deliverable(self.root, self.subject)
+        self.assertIsNone(result)
+
+    def test_respawn_proceeds_without_deliverable_when_only_adversarial_review_pr_open(self):
+        # issue #2981 (PR #3006's live-reproduced gap): a record-only branch
+        # under this repo's OTHER real record-only naming convention (not
+        # the literal `independent-verification-<N>` slug the old regex
+        # matched) must be excluded too -- the decision is diff content, not
+        # any one hardcoded slug.
+        pr_index = {"issue-9001/adversarial-review-abc12345":
+                    {"number": 6, "state": "OPEN", "body": ""}}
+        with mock.patch.object(closure_sweep, "_pr_index_all", return_value=(pr_index, True)), \
+             mock.patch.object(check_runner, "pr_diff_paths",
+                                return_value=["docs/issue-9001/reports/"
+                                              "adversarial-review-abc12345.md"]):
             result = spawn_on_pr.subject_has_deliverable(self.root, self.subject)
         self.assertIsNone(result)
 
@@ -116,7 +135,9 @@ class SubjectHasDeliverableTest(unittest.TestCase):
 
     def test_respawn_skips_existing_deliverable_when_pr_open(self):
         pr_index = {"issue-9001/implementation": {"number": 42, "state": "OPEN", "body": ""}}
-        with mock.patch.object(closure_sweep, "_pr_index_all", return_value=(pr_index, True)):
+        with mock.patch.object(closure_sweep, "_pr_index_all", return_value=(pr_index, True)), \
+             mock.patch.object(check_runner, "pr_diff_paths",
+                                return_value=["gates/spawn_on_pr.py"]):
             result = spawn_on_pr.subject_has_deliverable(self.root, self.subject)
         self.assertEqual(result, {"number": 42, "branch": "issue-9001/implementation",
                                   "state": "OPEN"})
