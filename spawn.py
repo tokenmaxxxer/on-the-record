@@ -425,6 +425,7 @@ if lifecycle._sp is None or __name__ in ("spawn", "__main__"):
 RESPAWN_STATE = lifecycle.RESPAWN_STATE
 RESPAWN_MAX_ATTEMPTS = lifecycle.RESPAWN_MAX_ATTEMPTS
 RESPAWN_ABSOLUTE_MAX = lifecycle.RESPAWN_ABSOLUTE_MAX
+RESPAWN_CONSECUTIVE_CONFIRMATIONS = lifecycle.RESPAWN_CONSECUTIVE_CONFIRMATIONS
 MONITOR_ALIVE_TOUCH_CADENCE_SECONDS = lifecycle.MONITOR_ALIVE_TOUCH_CADENCE_SECONDS
 MONITOR_ALIVE_STALE_THRESHOLD_SECONDS = lifecycle.MONITOR_ALIVE_STALE_THRESHOLD_SECONDS
 LEGACY_MONITOR_ALIVE_DIRNAME = lifecycle.LEGACY_MONITOR_ALIVE_DIRNAME
@@ -4567,6 +4568,14 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                     "wrapper_pid": os.getpid(),
                     "model": _model_routing_model,
                     "model_rule": _model_routing_rule,
+                    # 이슈 #2969: `diagnose_health()`가 `pid` 하나만으로
+                    # "확인된 생존"을 주장하지 않도록, 등록 시점의
+                    # `/proc/<pid>/stat` 시작시각을 함께 남긴다 — 나중에
+                    # 그 값과 짝지어야(`_paired_liveness()`) pid 재사용을
+                    # 구분할 수 있다. `/proc` 없는 플랫폼(macOS, 이슈
+                    # #2924)에서는 항상 `None` — 그 경우 짝짓기 자체가
+                    # 안 서므로 liveness 는 "unconfirmed"로 저하한다.
+                    "start_time": _proc_start_time(os.getpid()),
                 }
                 _early_roster_entry.update(_skill_roster_fields(skill_sources, skill_sha))
                 _early_roster_entry.update(roster_resolution_fields)
@@ -4666,6 +4675,10 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             "issue": issue, "ts": int(time.time()),
             "work": str(cwd), "log": str(log_path),
             "expects_pr": issue is not None,  # 이슈 #492: reconcile() 의 expected 입력
+            # 이슈 #2969: 이 pid 의 등록 시점 시작시각 — `diagnose_health()`
+            # 의 `_paired_liveness()` 가 나중에 이 값과 짝지어 pid 재사용을
+            # 구분한다. 위 fork-child 스텁과 같은 이유·같은 저하 경로.
+            "start_time": _proc_start_time(proc.pid),
             # 이슈 #2574: 이 스폰이 실제로 받은 single_phase 처분을 그대로
             # 남긴다 — lifecycle.py 의 워치독 재스폰(`_auto_respawn_check`)
             # 이 크래시한 세션을 되살릴 때, 원래 two-phase 였던 세션을

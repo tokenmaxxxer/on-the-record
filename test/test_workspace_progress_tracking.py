@@ -99,14 +99,24 @@ class DiagnoseHealthIncludesWorkspaceSummaryTest(unittest.TestCase):
         _git(self.work, "commit", "-q", "-m", "c1")
 
     def _healthy(self):
+        # Issue #2969: `diagnose_health()` now pairs `pid` with a recorded
+        # `start_time` before it will call a live pid "confirmed alive" --
+        # without it, liveness itself is unconfirmed (a different branch
+        # entirely, not this one). Supply the real pairing for this real,
+        # currently-running pid so the test still exercises the healthy
+        # path, not the new liveness-unconfirmed one.
         entry = {"pid": os.getpid(), "work": str(self.work), "log": None,
-                 "issue": 2904, "skill": "demo"}
+                 "issue": 2904, "skill": "demo",
+                 "start_time": watchdog._proc_start_time(os.getpid())}
         return watchdog.diagnose_health("issue-2904/demo", entry,
                                         anomalies=[], root=self.work)
 
     def test_untouched_session_reports_empty_state_not_silence(self):
+        # Issue #2969: no `log` means no way to confirm log growth this
+        # tick, so the residual branch is HEALTHY-UNCONFIRMED, not a bare
+        # "HEALTHY" that would otherwise claim an observation never made.
         health = self._healthy()
-        self.assertEqual(health["state"], "HEALTHY")
+        self.assertEqual(health["state"], "HEALTHY-UNCONFIRMED")
         self.assertIn("손댄 파일 없음", health["detail"])
 
     def test_in_progress_file_touch_changes_the_reported_detail(self):
