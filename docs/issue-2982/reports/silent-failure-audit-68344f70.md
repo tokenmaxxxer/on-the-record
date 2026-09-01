@@ -337,4 +337,4 @@ skill-verdict: work-in-english — applied: invoked; all commits, this
 record, and the PR are written in English despite the spawning prompt
 and directives being in Korean.
 skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-ran PR #3007's three reproduction queries live myself (see `derived:` block under `## What was done`) rather than citing its reported scores at face value, and re-derived the floor from primary evidence (report frontmatter + live BM25 scores) rather than treating PR #3007's "fail" verdict as license to skip independent measurement.
-other mounted skills: verify-finding-record not-applicable — this session builds and lands a fix, not a fresh `docs/issue-<n>/reports/defect-verification.md` reproduction-attempt record; PR #3007's own record already covers that outcome.
+skill-verdict: verify-finding-record — not-applicable: this session builds and lands a fix, not a fresh `docs/issue-<n>/reports/defect-verification.md` reproduction-attempt record; PR #3007's own record already covers that outcome.
