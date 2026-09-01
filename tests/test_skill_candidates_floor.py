@@ -37,6 +37,7 @@ Run: python3 -m pytest tests/test_skill_candidates_floor.py -q
 """
 import sys
 import unittest
+import warnings
 from pathlib import Path
 from unittest import mock
 
@@ -180,11 +181,23 @@ class SkillCandidatesFloorKnownLimitationTest(unittest.TestCase):
 class SkillCandidatesRegressionCasesTest(unittest.TestCase):
     """Issue #2982's own two measured failure cases: neither returns its
     recorded unrelated top candidates as a confident-looking ranked list
-    once the floor is applied. Scores are the exact ones the issue body
-    reports (a live rerun drifts as the skill-repository corpus grows --
-    see docs/issue-2982/reports/ -- so this locks in the reported
-    snapshot as a deterministic regression fixture rather than depending
-    on today's corpus).
+    once the floor is applied.
+
+    PINNED, NOT LIVE (issue #3019): every score below (0.4325, 0.4202,
+    1.3324, 1.3066, and the three PR #3007 survivor scores) is a frozen
+    snapshot, captured 2026-09-01T03:40:29Z -- issue #2982's filing
+    timestamp, when these were the actual `_bm25_cross_family_scores()`
+    values against the skill-repository corpus checked out at that
+    moment (issue body, `gh issue view 2982`). They are mocked into
+    `spawn._bm25_cross_family_scores` below, not recomputed, specifically
+    so this class stays deterministic as the corpus grows (see
+    docs/issue-2982/reports/) rather than depending on today's corpus.
+    A green result here is a claim about that 2026-09-01T03:40:29Z
+    snapshot, not about live behaviour today -- for that, see
+    `SkillCandidatesPinnedFixtureDivergenceTest` below, which replays
+    these same two task descriptions through the real, unmocked scorer
+    and reports (rather than silently passing over) any case where live
+    behaviour has since moved away from what is pinned here.
 
     Also covers the opposite direction, added by this issue's follow-up
     after PR #3007's independent verification: three realistic,
@@ -264,6 +277,72 @@ class SkillCandidatesRegressionCasesTest(unittest.TestCase):
         self.assertEqual(result["outcome"], "bm25-only")
         self.assertEqual([r["name"] for r in result["ranked"]],
                          ["conformance-review-sampling-derivation"])
+
+
+class SkillCandidatesPinnedFixtureDivergenceTest(unittest.TestCase):
+    """Issue #3019: `SkillCandidatesRegressionCasesTest` above pins its two
+    "must-suppress" scores to the 2026-09-01T03:40:29Z snapshot on
+    purpose, so it stays deterministic as the skill-repository corpus
+    grows (that class's own docstring, and docs/issue-2982/reports/,
+    explain why). But a deterministic fixture can quietly stop
+    describing what the live code actually does -- exactly what
+    happened here: PR #3015's independent review replayed these same two
+    task descriptions live and found both now score above the 4.0 floor
+    and rank `bm25-only`, not `no-candidates`
+    (docs/issue-2982/reports/adversarial-review-e63d3cd4.md), yet the
+    pinned regression tests keep passing regardless, and nothing in the
+    test file or record said so.
+
+    This class makes that divergence detectable instead of silent. It
+    replays the same two task descriptions through the real, unmocked
+    `spawn._bm25_cross_family_scores`, using the same `skill="candidates"`
+    / `home` / `target_repo_root` arguments `spawn.py --skill-candidates`
+    itself passes (spawn.py:2514-2518) -- so this reproduces the exact
+    live scoring an operator running that command would see today, not a
+    reduced-corpus approximation. Per issue #3019's must-not: this does
+    NOT re-assert the pinned scores as a live-corpus expectation (that
+    would break every time the corpus grows, which is precisely what
+    the pinned fixture above exists to avoid) -- it only reports, via
+    `warnings.warn` (visible in pytest's warning summary even under
+    `-q`, unlike a bare `print` under output capture), any case whose
+    live outcome no longer matches what is pinned. No divergence today
+    means no warning and a plain pass; the check itself always passes
+    either way, because surfacing drift -- not blocking on it -- is this
+    issue's scope (issue #3018 owns whether the floor value itself is
+    right)."""
+
+    # Same two task descriptions, and the same pinned `outcome`, as
+    # `SkillCandidatesRegressionCasesTest` above.
+    PINNED_CASES = [
+        ("rewrite the workspace preservation predicate in lifecycle.py from "
+         "git-status-based to what-would-be-lost — unpushed commits, stash, "
+         "merge/rebase state, untracked classification via git check-ignore",
+         "no-candidates"),
+        ("remove the 200-turn session cap, replace with wall-clock/token "
+         "backstops and an observe-only runaway signal reusing "
+         "trajectory_analyzer",
+         "no-candidates"),
+    ]
+
+    def test_pinned_fixture_divergence_from_live_scoring_is_reported(self):
+        cwd = str(Path(__file__).resolve().parent.parent)
+        for task_text, pinned_outcome in self.PINNED_CASES:
+            live = spawn.rank_skills(
+                task_text, skill="candidates",
+                repo_root=spawn._skill_repo_root(),
+                cwd=cwd, home=Path.home(), target_repo_root=Path(cwd))
+            if live["outcome"] == pinned_outcome:
+                continue  # empty state: this case has not diverged -- nothing to report.
+            live_top = live["ranked"][0] if live["ranked"] else None
+            warnings.warn(
+                "pinned-fixture-divergence (issue #3019): "
+                f"task={task_text!r} pinned_outcome={pinned_outcome!r} "
+                f"live_outcome={live['outcome']!r} live_top={live_top!r} -- "
+                "SkillCandidatesRegressionCasesTest's pinned score for this "
+                "task (captured 2026-09-01T03:40:29Z) no longer matches "
+                "live _bm25_cross_family_scores() behaviour against "
+                "today's corpus.",
+                UserWarning, stacklevel=2)
 
 
 if __name__ == "__main__":
