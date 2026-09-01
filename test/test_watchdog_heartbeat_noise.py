@@ -143,6 +143,16 @@ class TestTransientGhFailureSuppression:
         assert "gh 실패" not in out
 
 
+def _landed_deliverable_board(author="alice"):
+    # issue #2978: a subject whose OWN deliverable record has already
+    # landed (`subject_deliverable_record()` resolves it) -- its PR
+    # necessarily existed and merged at some point, so an unmappable
+    # branch for it is a genuine anomaly, not "no PR yet" (which #2978
+    # now suppresses before reaching the one-shot-marker path these
+    # tests exercise).
+    return {"implementation": {"author": author}}
+
+
 class TestSpawnOnPrUnmappableSubjectBranchSuppression:
     """Acceptance bullet 1 (spawn-on-pr half, category 3 — issue not named
     but found while implementing): two consecutive ticks with unchanged
@@ -153,7 +163,8 @@ class TestSpawnOnPrUnmappableSubjectBranchSuppression:
         root = tmp_path / "repo"
         monkeypatch.setattr(
             spawn_on_pr.spawn, "board",
-            lambda r: {"issue-1006": {}, "issue-1013": {}})
+            lambda r: {"issue-1006": _landed_deliverable_board(),
+                       "issue-1013": _landed_deliverable_board()})
         issue_states = {1006: "OPEN", 1013: "OPEN"}
 
         out1 = spawn_on_pr.missing_verification(root, issue_states=issue_states, pr_index={})
@@ -172,13 +183,16 @@ class TestSpawnOnPrUnmappableSubjectBranchSuppression:
     def test_genuinely_new_unmappable_subject_still_emits_on_its_own_tick(
             self, tmp_path, monkeypatch, capsys):
         root = tmp_path / "repo"
-        monkeypatch.setattr(spawn_on_pr.spawn, "board", lambda r: {"issue-1006": {}})
+        monkeypatch.setattr(
+            spawn_on_pr.spawn, "board",
+            lambda r: {"issue-1006": _landed_deliverable_board()})
         spawn_on_pr.missing_verification(root, issue_states={1006: "OPEN"}, pr_index={})
         capsys.readouterr()
 
         monkeypatch.setattr(
             spawn_on_pr.spawn, "board",
-            lambda r: {"issue-1006": {}, "issue-2099": {}})
+            lambda r: {"issue-1006": _landed_deliverable_board(),
+                       "issue-2099": _landed_deliverable_board()})
         spawn_on_pr.missing_verification(
             root, issue_states={1006: "OPEN", 2099: "OPEN"}, pr_index={})
         tick2 = capsys.readouterr().out

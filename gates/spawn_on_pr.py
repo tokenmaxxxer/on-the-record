@@ -569,6 +569,22 @@ def missing_verification(root: Path, issue_states: dict[int, str] | None = None,
         # 그 경우에도 branch/PR 조회는 여전히 가능해야 한다.
         branch = subject_deliverable_branch(root, subject, pr_index)
         if branch is None:
+            # issue #2978: `_slug` (from `subject_deliverable_record()`
+            # above) is `None` when this subject's OWN deliverable record
+            # has never landed to main -- meaning its deliverable PR has
+            # never existed in the first place (this subject only reached
+            # this loop because a *verification* record already landed
+            # for it, e.g. reviewing a not-yet-opened deliverable). That
+            # is the ordinary state of a freshly filed issue, not a
+            # mapping failure -- nothing was ever lost from `pr_index`,
+            # so there is nothing to report or one-shot-mark. Once a
+            # deliverable record HAS landed (`_slug` is not `None`), its
+            # PR necessarily existed and merged at some point -- an
+            # unmappable branch past that point is a genuine anomaly
+            # (e.g. #2379's corrupted merge-base case) and must still
+            # print, same as before this issue.
+            if _slug is None:
+                continue
             # 이슈 #2196 category 3: 브랜치가 삭제된 오래된 subject 는 이
             # 조건이 영구적이라 매 틱 재출력하면 wall of noise 가 된다 —
             # board-sweep 의 _watchdog_note_unmappable_pr 과 같은 one-shot
