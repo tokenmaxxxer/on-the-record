@@ -108,13 +108,14 @@ result rather than reading it off the PR body, and tracing the two
 load-bearing properties (mid-kill reclamation, env-var propagation)
 through actual code paths rather than accepting the PR's "independent of
 any session self-cleanup" framing at face value.
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; drove re-running both acceptance checks and the full
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked;
+drove re-running both acceptance checks and the full
 test file from a freshly fetched worktree instead of citing the PR
-body's claimed pass counts, and drove tracing `MUSTER_TEMP_ROOT`
-end-to-end into the `Popen` call and the empty-directory mtime fallback
-in `sweep_temp_repos()` as deliberate negative/edge-case checks rather
-than stopping once the two acceptance test selectors passed.
+body's claimed counts (see the `acceptance:` block above), and drove
+tracing `MUSTER_TEMP_ROOT` end-to-end into the `Popen` call and the
+empty-directory mtime fallback in `sweep_temp_repos()` as deliberate
+negative/edge-case checks going beyond the two acceptance test
+selectors alone.
 other mounted skills: verify-finding-record not-applicable — that skill
 governs recording reproduction attempts in
 `docs/issue-<n>/reports/defect-verification.md`; this task's target file
