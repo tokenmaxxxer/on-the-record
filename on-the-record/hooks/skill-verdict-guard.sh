@@ -71,6 +71,9 @@ elif [ -d "$script_dir/../../gates" ]; then
     gates_dir="$(cd "$script_dir/../../gates" && pwd)"
 fi
 
+# issue #2962: pre-initialize so a heredoc-assignment failure leaves CHECK
+# defined-empty instead of unset -- see stop-gate.sh's identical comment.
+CHECK=""
 IFS='' read -r -d '' CHECK <<'PY' || true
 import json, os, re, subprocess, sys
 
@@ -322,6 +325,8 @@ if violations:
     )
 finish(verdict_text, reminder)
 PY
+
+[ -n "$CHECK" ] || { echo "skill-verdict-guard: heredoc assignment produced no program (disk full / temp file unavailable?) -- bailing, not enforcing this turn" >&2; exit 1; }
 
 SVG_PAYLOAD="$payload" SVG_REPO="$REPO" SVG_GATES_DIR="$gates_dir" python3 -c "$CHECK"
 rc=$?

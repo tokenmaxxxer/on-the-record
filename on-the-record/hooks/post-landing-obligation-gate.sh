@@ -61,6 +61,9 @@ CHECKOUT="$(_checkout_resolve || true)"
 [ -n "$CHECKOUT" ] || exit 0
 [ -f "$CHECKOUT/gates/landing_obligation.py" ] || exit 0
 
+# issue #2962: pre-initialize so a heredoc-assignment failure leaves GUARD
+# defined-empty instead of unset -- see stop-gate.sh's identical comment.
+GUARD=""
 IFS='' read -r -d '' GUARD <<'PY' || true
 import json, os, re, shlex, subprocess, sys
 # issue #2093: the shared total parser replaces this hook's own ad-hoc
@@ -192,6 +195,8 @@ subprocess.run(
 )
 sys.exit(0)
 PY
+
+[ -n "$GUARD" ] || { echo "post-landing-obligation-gate: heredoc assignment produced no program (disk full / temp file unavailable?) -- bailing, obligation not opened this call" >&2; exit 1; }
 
 OTR_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" PLOG_PAYLOAD="$payload" PLOG_CHECKOUT="$CHECKOUT" python3 -c "$GUARD"
 exit 0
