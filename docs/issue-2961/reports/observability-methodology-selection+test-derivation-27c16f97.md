@@ -320,18 +320,39 @@ AssertionError: 4 not greater than 4
 it predates this delivery).
 
 skill-verdict: observability-methodology-selection — applied: invoked;
-used to choose which single signal methodology backs the composite
-runaway signal — reused `trajectory_analyzer.py`'s existing signal set
-rather than proposing a competing one, matching the skill's
-redundant-dashboard-avoidance principle (issue #2961 itself forbids
-inventing a new detector when one already exists).
-skill-verdict: test-derivation — applied: invoked; routed each of the
-issue's five Acceptance checks to Given-When-Then style scenario tests
-(`tests/test_runaway_backstop.py`, `tests/test_runaway_signal.py`) —
-discrimination checks used equivalence partitioning (2240-shape vs.
-repeated-call-shape trajectories as the two partitions); the conjunction
-rule used a boundary-value test (exactly 1 signal vs. 2 signals,
-`test_runaway_signal_discrimination_never_fires_on_a_single_signal`).
+loaded via the Skill tool after the initial delivery, asked whether
+`runaway_backstop.py` (hard termination) plus `runaway_signal.py`
+(observe-only advisory) counts as a redundant second dashboard on top of
+`trajectory_analyzer.py`'s existing `advisory.stalled` report. Applied
+the skill's rule 3 (drop a redundant overview that "just restates the
+same...numbers at coarser granularity"): `runaway_signal.py`'s
+conjunction rule (>= 2 signals) is a materially different aggregation
+from `trajectory_analyzer.analyze()`'s existing OR-across-reasons
+`advisory.stalled`, required specifically because the issue's Acceptance
+forbids single-signal termination — not a restatement, so keeping it
+separate is correct per the skill's own removal criterion rather than a
+violation of it.
+canonical: Skill tool transcript, this session, `observability-methodology-selection` invocation (rules 1-3 returned verbatim)
+
+skill-verdict: test-derivation — applied: invoked; loaded via the Skill
+tool after the initial delivery to check `tests/test_runaway_signal.py`
+for a black-box-technique gap. Surfaced one: `finished_session_verdicts()`
+had a zero-verdicts test (all-unfinished batch) and a one-verdict test
+(all-finished batch) but no MIXED batch (finished + still-running
+together) — the equivalence partition an actual live-workspace sweep
+call would hit. Added
+`test_runaway_signal_observe_only_mixed_batch_only_counts_finished_ones`
+covering it.
+derived: `python3 -m pytest tests/test_runaway_signal.py -q` (after adding the mixed-batch test) — result:
+```
+..........                                                               [100%]
+10 passed in 0.80s
+```
+derived: `python3 -m pytest tests/ -k "backstop or runaway_signal_observe_only or runaway_signal_discrimination or subagent_in_flight" -q` (re-run of all four `-k` acceptance selectors after the addition) — result:
+```
+...............                                                          [100%]
+15 passed in 0.87s
+```
 other mounted skills: not triggered (work-in-english governs language
 only, applied silently throughout rather than surfaced as a design
 decision).

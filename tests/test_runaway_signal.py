@@ -176,3 +176,29 @@ def test_runaway_signal_observe_only_records_one_verdict_per_finished_session(tm
     assert len(verdicts) == 1
     assert verdicts[0]["session_log"] == str(finished)
     assert verdicts[0]["runaway"] is True
+
+
+def test_runaway_signal_observe_only_mixed_batch_only_counts_finished_ones(tmp_path):
+    """Equivalence-partition gap the test-derivation skill's review of
+    this suite surfaced: the zero-verdicts and one-verdict tests above
+    each exercise a pure batch (all-unfinished, all-finished). The
+    realistic call shape — a sweep over live workspace logs — is mixed;
+    this exercises the actual per-path filtering logic those two edge
+    cases can't."""
+    still_running = tmp_path / "still-running.session.log"
+    still_running.write_text(
+        json.dumps(_assistant_tool_use("t1", "Bash", {"command": "echo hi"})) + "\n",
+        encoding="utf-8")
+    finished_ok = tmp_path / "finished-ok.session.log"
+    finished_ok.write_text(
+        "\n".join(json.dumps(e) for e in _serial_exploration_trajectory_2240_shape()) + "\n",
+        encoding="utf-8")
+    finished_runaway = tmp_path / "finished-runaway.session.log"
+    finished_runaway.write_text(
+        "\n".join(json.dumps(e) for e in _repeated_call_trajectory()) + "\n",
+        encoding="utf-8")
+    verdicts = rs.finished_session_verdicts([still_running, finished_ok, finished_runaway])
+    assert {v["session_log"] for v in verdicts} == {str(finished_ok), str(finished_runaway)}
+    by_log = {v["session_log"]: v for v in verdicts}
+    assert by_log[str(finished_ok)]["runaway"] is False
+    assert by_log[str(finished_runaway)]["runaway"] is True
