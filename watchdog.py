@@ -1027,9 +1027,13 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
         full_board, _board_meta = _sp._board_read(root)
         if full_board is None:
             # 이슈 #2196: 단발 gh blip 은 조용히 넘어간다 — 연속 N틱 실패면
-            # (진짜 액셔너블) 그때부터 경고한다.
+            # (진짜 액셔너블) 그때부터 경고한다. 이슈 #2980: 이 조회 실패는
+            # 그 자체로 독립된 상태다 — 다른 verdict 줄과 같은
+            # `requirement-drift:` 채널이 아니라 별도 태그로 찍어서, 조회
+            # 못 했다는 사실을 pass/violation 어느 쪽으로도 읽히지 않게 한다.
             if _sp._watchdog_note_gh_failure(root, "requirement-drift:full", True):
-                print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
+                print("[watchdog] requirement-drift-lookup-failed: gh 실패 — "
+                      "조회 실패, 판정 없음 (advisory, 미집계)")
             return
         _sp._watchdog_note_gh_failure(root, "requirement-drift:full", False)
         all_items = [item
@@ -1038,8 +1042,13 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
                      if item.get("state") == "OPEN"]
         # issue #1688: full-mode run also refreshes the verdict cache so a
         # later delta-mode tick can reuse today's fetch for unchanged numbers.
+        # issue #2980: `cached_at` records when this body was actually
+        # observed, so a later retained-on-failure report can name it
+        # instead of silently passing off stale data as a fresh judgment.
+        now_iso = datetime.now(timezone.utc).isoformat()
         cache = {str(item.get("number")): {"title": item.get("title", ""),
-                                            "body": item.get("body", "") or ""}
+                                            "body": item.get("body", "") or "",
+                                            "cached_at": now_iso}
                  for item in all_items if item.get("number") is not None}
         _sp._save_requirement_drift_cache(cache_path, cache)
     else:
@@ -1049,12 +1058,20 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
         all_items = []
         any_fetch_ok = not changed_numbers
         failed_numbers: list[int] = []
+        # issue #2980: numbers this tick actually fetched (success or
+        # confirmed-closed) — the reuse pass below skips only these, so a
+        # changed number whose fetch failed but has a genuine prior cache
+        # entry still falls through to the reuse pass and is actually
+        # retained, not silently dropped out of the verdict alongside its
+        # "이전 캐시 판정 유지" claim.
+        fetched_numbers: set[int] = set()
         for num in sorted(changed_numbers):
             item = _sp._fetch_issue_or_pr_via_cache(root, num)
             if item is None:
                 failed_numbers.append(num)
                 continue
             any_fetch_ok = True
+            fetched_numbers.add(num)
             # issue #2078: a live refetch may show the number merged/closed
             # since it was last cached as open — drop it from the index
             # entirely instead of re-flagging it as an open uncited PR.
@@ -1063,38 +1080,68 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
                 continue
             all_items.append(item)
             cache[str(num)] = {"title": item.get("title", ""),
-                                "body": item.get("body", "") or ""}
+                                "body": item.get("body", "") or "",
+                                "cached_at": datetime.now(timezone.utc).isoformat()}
         for key, val in cache.items():
             try:
                 key_num = int(key)
             except ValueError:
                 continue
-            if key_num in changed_numbers:
+            if key_num in fetched_numbers:
                 continue
             all_items.append({"number": key_num, "title": val.get("title", ""),
                                "body": val.get("body", "")})
         _sp._save_requirement_drift_cache(cache_path, cache)
+        # 이슈 #2980: gh 연결성 신호(아래)와 "이번 틱에 평가할 데이터가
+        # 있는지"는 별개다 — changed_numbers 전부가 fetch 에 실패해도,
+        # 그중 캐시에 genuine prior 가 있는 번호는 재사용 패스에서 이미
+        # all_items 로 들어왔고, 무관한 다른 열린 이슈/PR 도 캐시에서
+        # 그대로 채워진다. 그래서 이 gh-연결성 신호는 더 이상 조기
+        # return 을 하지 않는다 — return 했다면 changed_numbers 가 딱 1개뿐이고
+        # 그게 genuine prior 를 가진 재조회 실패인, 가장 흔한 케이스에서
+        # cache-retained 줄이 아예 찍히지 못했다(이슈 #2980 에서 실측).
         if not any_fetch_ok:
             # 이슈 #2196: 단발 gh blip 은 조용히 넘어간다 — 연속 N틱
-            # 실패면 그때부터 경고한다.
+            # 실패면 그때부터 경고한다. 이슈 #2980: full 모드와 같은 이유로
+            # 독립 상태 태그를 쓴다 — verdict 채널과 섞이지 않는다.
             if _sp._watchdog_note_gh_failure(root, "requirement-drift:delta", True):
-                print("[watchdog] requirement-drift: gh 실패 — 판정 불가 (advisory, 미집계)")
-            return
-        _sp._watchdog_note_gh_failure(root, "requirement-drift:delta", False)
+                print("[watchdog] requirement-drift-lookup-failed: gh 실패 — "
+                      "조회 실패, 판정 없음 (advisory, 미집계)")
+        else:
+            _sp._watchdog_note_gh_failure(root, "requirement-drift:delta", False)
         if failed_numbers:
-            # 이슈 #2589: 델타 모드에서 개별 번호 조회 실패는 조용히
+            # 이슈 #2589/#2980: 델타 모드에서 개별 번호 조회 실패는 조용히
             # 사라지지 않고 이 줄들로 남는다 — 캐시에 이전 판정이 있는
-            # 번호는 그 판정을 유지한다고 정확히 알리고, 캐시가 없는
+            # 번호는 그 판정을 유지한다고, 언제 관측된 것인지와 함께
+            # 정확히 알리고(fresh judgment 로 오인되지 않게), 캐시가 없는
             # 번호는 "이전 캐시 판정 유지"라고 거짓 주장하지 않고 이번
-            # 틱에서 전혀 평가되지 않았다는 사실을 그대로 알린다.
+            # 틱에서 전혀 평가되지 않은 unknown 이라는 사실을 그대로
+            # 알린다 — 신규 subject 가 한 번도 가져본 적 없는 판정을
+            # 물려받지 않는다.
             cached_failed = [n for n in failed_numbers if str(n) in cache]
             uncached_failed = [n for n in failed_numbers if str(n) not in cache]
-            if cached_failed:
-                print(f"[watchdog] requirement-drift: 조회 실패 {cached_failed} — "
-                      "이전 캐시 판정 유지")
+            for n in cached_failed:
+                observed_at = cache.get(str(n), {}).get("cached_at", "unknown")
+                print(f"[watchdog] requirement-drift-cache-retained: 조회 실패 {n} — "
+                      f"이전 캐시 판정 유지 (관측: {observed_at})")
             if uncached_failed:
-                print(f"[watchdog] requirement-drift: 조회 실패 {uncached_failed} — "
-                      "캐시된 판정 없음, 이번 틱 미평가")
+                print(f"[watchdog] requirement-drift-unknown: 조회 실패 {uncached_failed} — "
+                      "이전 판정 없음, unknown")
+        if failed_numbers and not all_items:
+            # 이슈 #2980 must-not: 이번 틱에 "조회 실패 때문에" 평가할
+            # 데이터가 정말 하나도 없으면(fetch 도 실패, 재사용할 캐시도
+            # 없음) 여기서 멈춘다 — 계속 진행하면 모든 살아있는 요구가
+            # "인용 안 됨"으로 찍혀 조회 실패를 violation 으로 오판하는
+            # 꼴이 된다. `failed_numbers` 를 반드시 함께 검사한다 — 실패가
+            # 전혀 없는 틱(예: 유일하게 캐시됐던 번호가 이번에 merge/close
+            # 로 정상 확인되어 all_items 가 비는 경우)까지 이 guard 로
+            # 막으면, full 모드의 "정말로 열린 이슈/PR 이 하나도 없다"는
+            # 정당한 상태와 똑같은 상황에서 delta 모드만 조용히 아무 것도
+            # 안 찍는 새로운 침묵을 만든다(경고 헌팅으로 실측: #42 하나만
+            # 캐시돼 있었고 이번 틱에 그게 closed 로 정상 재조회되면,
+            # 실패가 전혀 없었는데도 이전 코드가 이 return 으로 살아있는
+            # 요구의 진짜 위반을 그대로 삼켰다).
+            return
 
     # 이슈 #1219: gates 코드는 언제나 이 체크아웃(ROOT)에서 온다 — root 가
     # 컨슈머의 타깃 프로젝트일 때 거기엔 gates/ 가 없다.
