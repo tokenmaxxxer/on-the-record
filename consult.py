@@ -105,6 +105,41 @@ _MIN_PLAUSIBLE_JUDGE_WALL_S = 1.0
 # query-length-sensitive -- it is re-derivable, not sacred.
 _SKILL_CANDIDATES_RELEVANCE_FLOOR = 4.0
 
+# issue #3018: a signal beyond the raw BM25 score, per the issue's own
+# consult ("a relative signal (margin between top-1 and top-2, or a
+# different feature entirely) rather than an absolute BM25-score cutoff,
+# since [the raw score] shows no single cutoff separates the classes on
+# this corpus" -- docs/issue-2982/reports/adversarial-review-e63d3cd4.md).
+#
+# Measured (this issue's own derivation) against the same two fixed sets
+# `tests/test_skill_candidates_signal.py` replays live:
+#   - 7 real operator-chosen top-1 picks (`SkillCandidatesFloorCalibratedTest.
+#     REAL_POSITIVE_TOP1_SCORES` issue/skill pairs, replayed with each
+#     issue's own title via `gh issue view --json title`): top1-vs-top2
+#     margin 0.185-3.139, none below 0.185.
+#   - 13 unrelated task queries drawn from prior verification records (10
+#     from docs/issue-2982/reports/adversarial-review-e63d3cd4.md "10 fresh
+#     task-shaped queries", 3 quoted verbatim in
+#     docs/issue-2982/reports/adversarial-review-fc5c800d.md): margin
+#     0.021-5.219 -- also overlaps the positive range at the high end, the
+#     same overlap problem the raw-score floor has (margin alone is not a
+#     general classifier either, and this constant does not claim to be
+#     one -- see `tests/test_skill_candidates_signal.py`'s own documented
+#     limitation). It does NOT overlap at the low end: every margin under
+#     0.185 across both fixed sets is a negative (0.021, 0.057), never a
+#     real operator pick. This constant sits inside that unclaimed low
+#     band only -- narrower than the gap the evidence supports, same
+#     conservative posture as `_SKILL_CANDIDATES_RELEVANCE_FLOOR` (leaves
+#     mid-band plausible-but-wrong matches alone rather than risk
+#     suppressing a genuine near-tie).
+#
+# Scoped identically to the relevance floor: `rank_skills()`'s
+# `use_judge=False` preview path only, never spawn's own internal
+# cross-family mount, and never the judge/rerank path (issue #3018's own
+# must-not: the judge cannot be assessed as a reranker until its
+# operational timeout is fixed, so it is not made load-bearing here).
+_SKILL_CANDIDATES_MARGIN_FLOOR = 0.1
+
 # issue #2274 (operator-frozen constraint, 2026-08-25: "no added per-spawn
 # overhead or steady-state load"): `runs/ledger.jsonl` is append-only and
 # never rotated, so a full-file scan on every `_skill_judge_timeout()` call
@@ -869,6 +904,28 @@ def rank_skills(task_text: str, skill: str = "candidates",
                          passes through here either, so the floor changes
                          nothing about what spawn mounts on its own (issue
                          #2982 non-goal).
+      "ambiguous"     -- issue #3018: `use_judge=False`, `ranked` cleared
+                         the floor (this is not "no-candidates"), but the
+                         top score does not clearly separate from the
+                         runner-up (`_SKILL_CANDIDATES_MARGIN_FLOOR`, see
+                         that constant's docstring for the measured
+                         derivation). This is the design change issue
+                         #3018's own consult named as not optional: stop
+                         forcing a top-1 return when the retrieved set has
+                         no discriminating candidate. `ranked` stays fully
+                         populated here (unlike "no-candidates") -- the
+                         near-tied candidates are real, plausible picks,
+                         not a suppressed non-match, so hiding them would
+                         itself violate the issue's own must-not ("do not
+                         make `--skill-candidates` select on the
+                         operator's behalf"): the caller sees the tie and
+                         chooses, this function does not break it for
+                         them. Requires 2+ scored candidates -- a single
+                         candidate has no runner-up to be indistinguishable
+                         from, so it is never "ambiguous" (existing
+                         single-candidate regression fixtures are
+                         unaffected). Same scope as the relevance floor:
+                         `use_judge=False` preview only.
 
     `picked` is only ever non-empty when `use_judge=True` -- the names the
     judge (or fast-path) actually chose, a subset of `ranked`'s names,
@@ -899,6 +956,14 @@ def rank_skills(task_text: str, skill: str = "candidates",
             # judge-off default preview path only (issue's own must-not:
             # the judge/rerank path is unchanged by this floor).
             return {"ranked": [], "outcome": "no-candidates", "picked": []}
+        if (len(scored) > 1 and
+                scored[0][0] - scored[1][0] < _sp._SKILL_CANDIDATES_MARGIN_FLOOR):
+            # issue #3018: the top score cleared the relevance floor but
+            # does not clearly separate from the runner-up -- report that
+            # honestly (see "ambiguous" in this function's docstring and
+            # `_SKILL_CANDIDATES_MARGIN_FLOOR`'s derivation) instead of
+            # presenting the best of a bad set as a confident top-1.
+            return {"ranked": ranked, "outcome": "ambiguous", "picked": []}
         return {"ranked": ranked, "outcome": "bm25-only", "picked": []}
     picked_dirs, outcome = _sp._cross_family_skill_matches_with_consult(
         task_text, skill, repo_root, issue, cwd, k=k, model=model,
