@@ -1,12 +1,16 @@
 """Wall-clock and token/cost backstops (issue #2961).
 
-Replaces the 200-turn `--max-turns` cap (removed from spawn.py/pipeline.py/
-directive_assembly.py in this same change) as the thing that bounds a
-session's worst case. Turn count never terminates a session again; these
-two backstops do, each independently (either alone is sufficient — this
-is the hard financial/wall-clock bound, unlike the observe-only composite
-runaway signal in `runaway_signal.py`, which requires a conjunction of
-signals and never terminates anything).
+Intended to replace the 200-turn `--max-turns` cap (removed from
+spawn.py/pipeline.py/directive_assembly.py in this same change) as the
+thing that bounds a session's worst case, each backstop independently
+(either alone sufficient — this is meant to be the hard financial/
+wall-clock bound, unlike the observe-only composite runaway signal in
+`runaway_signal.py`, which requires a conjunction of signals and never
+terminates anything). As shipped, no live caller invokes
+`backstop_verdict()` below — the thresholds exist and are derived, but
+turn count is the only thing that no longer terminates a session; nothing
+here does yet. Wiring an enforcing caller is deliberately out of scope
+for this slice.
 
 Thresholds are DERIVED from recorded observation, not chosen freehand
 (Acceptance): `trajectory_analyzer.harness_fields()` over the 90 finished
@@ -63,8 +67,10 @@ def cumulative_tokens(events: list[dict]) -> int:
 
 def backstop_verdict(elapsed_ms: float, events: list[dict]) -> dict:
     """Both backstops evaluated independently; `terminate` is true when
-    EITHER fires. Pure function — the caller (the watchdog poll loop) is
-    what actually kills the process; this only decides."""
+    EITHER fires. Pure function — deciding, not killing: an enforcing
+    caller would be what actually kills the process, but as shipped
+    nothing in production calls this function; wiring one in (e.g. into
+    the watchdog poll loop) is out of scope for this slice."""
     tokens = cumulative_tokens(events)
     wall = wall_clock_exceeded(elapsed_ms)
     cost = token_cost_exceeded(tokens)

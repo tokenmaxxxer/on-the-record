@@ -2329,9 +2329,10 @@ def main() -> int:
                     help="await-approval: comment poll cadence in seconds "
                          "(default CHECKPOINT_POLL_SECONDS env or 60)")
     # Issue #2961: the CLI turn-cap flag itself is retired (no session is
-    # ever passed a turn ceiling anymore — the wall-clock/token backstops
-    # in runaway_backstop.py bound the worst case instead), so the
-    # user-facing flag that used to forward a value onto it is gone too.
+    # ever passed a turn ceiling anymore — `runaway_backstop.py`'s
+    # wall-clock/token thresholds are the intended replacement bound, but
+    # no live caller wires them in yet), so the user-facing flag that used
+    # to forward a value onto the CLI's turn-cap flag is gone too.
     # `--allow-unlimited-turns` stays: it still gates the advisory
     # turn-guidance admission check below (_admission_check_budget_caps),
     # which no longer affects the CLI subprocess either way.

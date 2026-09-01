@@ -11,7 +11,9 @@ Never terminates, throttles, or refuses anything — it only returns a
 verdict describing what it saw (Acceptance: "runs observe-only"). Nothing
 in this module calls `os.kill`, raises, or has any other side effect; the
 wall-clock/token-cost backstops in `runaway_backstop.py` are the only
-things in this slice that actually end a session.
+things in this slice INTENDED to end a session — as shipped, no live
+caller invokes `backstop_verdict()` either, so nothing in this slice
+actually ends a session yet.
 
 Consults (docs/issue-2961 issue text): a single trajectory_analyzer
 signal is not sufficient on its own — issue #2240's own session tripped

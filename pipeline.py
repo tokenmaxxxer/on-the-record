@@ -683,9 +683,11 @@ def spawn_cmd(settings_path: str, skill: str, unattended: bool,
     # turn count no longer terminates a session (Acceptance: "No session
     # is terminated on turn count"). The resolved `max_turns` value below
     # still feeds the soft convergence nudge (env vars further down); it
-    # no longer reaches the CLI's argv. The actual worst-case bound is
-    # now `runaway_backstop.py`'s wall-clock/token backstops, enforced by
-    # the watchdog poll loop, not by a flag on this subprocess.
+    # no longer reaches the CLI's argv. `runaway_backstop.py`'s wall-clock/
+    # token thresholds are derived to be the intended worst-case bound, but
+    # as shipped no live caller invokes `backstop_verdict()` — wiring an
+    # enforcing caller (e.g. into the watchdog poll loop) is out of scope
+    # for this slice, so nothing on this subprocess is bounded yet.
     # 스킬-저장소 가이던스도 core 와 같은 길로 붙는다 — 디렉터리로 넘긴 플러그인의 훅은
     # headless 에서 그대로 발화하고(실측 2026-07-27, CLI 2.1.220), 설치를
     # 안 거치므로 캐시-클론 갈라짐도 유령 등록 항목도 이 경로엔 없다.
@@ -1748,9 +1750,10 @@ def _admission_check_watch_registration(ctx: dict) -> bool | None:
 def _admission_check_budget_caps(ctx: dict) -> bool | None:
     """Item 4 (issue #2100), narrowed by issue #2961: this checks the
     advisory turn-guidance value only — it never gates the actual
-    worst-case bound anymore, since `runaway_backstop.py`'s wall-clock/
-    token backstops apply unconditionally to every spawn regardless of
-    this ctx. A resolved turn-guidance value is always present (default
+    worst-case bound. `runaway_backstop.py`'s wall-clock/token thresholds
+    are derived to be that bound, but as shipped no live caller invokes
+    `backstop_verdict()`, so nothing here or elsewhere applies them to a
+    spawn yet. A resolved turn-guidance value is always present (default
     applies when nothing is set); only an EXPLICIT unlimited (<= 0)
     without the override flag is refused."""
     max_turns = ctx.get("max_turns")

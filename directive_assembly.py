@@ -118,8 +118,8 @@ DIRECTIVE_DIR = ".on-the-record/directive"
 # Issue #2961: no longer a hard cap — turn count never terminates a
 # session (the CLI's turn-count flag is never passed; see pipeline.py's
 # spawn_cmd). This value now only seeds the soft convergence nudge below;
-# the actual worst-case bound is runaway_backstop.py's wall-clock/token
-# backstops.
+# runaway_backstop.py's wall-clock/token thresholds are the intended
+# worst-case bound, but no live caller applies them yet.
 DEFAULT_SESSION_TURN_GUIDANCE = 200
 
 # Moved verbatim from the issue-workspace preamble (issues #132/#1981 and
@@ -167,9 +167,10 @@ _LANDING_BATCHING_PROSE = (
 # guidance itself survives untouched — issue #2261's own measurement
 # (#2240: 230 tool calls, 69 grep commands, 68 of them unique — not a
 # loop, serial one-grep-per-turn exploration) is still the reason a
-# session should batch, cap or no cap: wall-clock and token/cost now
-# bound the worst case (runaway_backstop.py), and serial exploration
-# burns straight into those the same way it used to burn into the cap.
+# session should batch, cap or no cap: wall-clock and token/cost are the
+# intended worst-case bound (runaway_backstop.py; no live caller applies
+# them yet), and serial exploration burns straight into those thresholds
+# the same way it used to burn into the cap.
 _TURN_BUDGET_PROSE = (
     "세션 예산(이슈 #2961): 이 세션에 턴 상한은 없다 — 더 이상 턴 수로 "
     "죽지 않는다. 대신 지갑/시계 백스톱이 걸려 있다: 벽시계 "
