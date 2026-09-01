@@ -261,14 +261,40 @@ untouched by this diff) -- the `+1 passed` measured this session is this
 session's own new regression test. Zero new failures from this session's
 edit.
 
-skill-verdict: silent-failure-audit — applied: invoked; used its
-Handled/Silently-Absorbed/Unreachable classification to locate the exact
-defect shape -- `missing_verification()`'s branch-not-found handling looked
-like it fully handled both `_slug` outcomes but silently absorbed the
-2+-candidate ambiguity into the 0-candidate "nothing to report" path because
-both collapse to the same `None` one layer below in
-`subject_deliverable_record()`
-skill-verdict: work-in-english — applied: invoked; wrote this record, the
-fix commit message, and all in-session commands/comments in English per the
-policy
+skill-verdict: silent-failure-audit — applied: invoked (see `## Rationale
+for deviations` below for sequencing); its Handled/Silently-Absorbed/
+Unreachable classification, applied retroactively, confirms the exact
+defect shape already fixed above -- `missing_verification()`'s
+branch-not-found handling was **Silently Absorbed** on the 2+-candidate
+ambiguous case (empty `continue`, no log/surface/propagate -- the
+"default-value substitution without recording" pattern, a `None`-shaped
+default standing in for "nothing to report") and is now **Handled** after
+this session's fix (surfaces via `print()` plus the new one-shot marker) --
+canonical: `f0d8c2eb8fdf2b685203ab39b9921708ae86bab7:gates/spawn_on_pr.py`
+lines 474-475 (pre-fix `if _slug is None: continue`, the Silently Absorbed
+site) versus `d9a6845f6f1602d918a1c3a7e95ce0c023db89b5:gates/spawn_on_pr.py`
+(post-fix, the same branch now split on `_deliverable_candidate_count()`),
+both already cited with fuller context in `## What was done` above
+skill-verdict: work-in-english — applied: invoked (see `## Rationale for
+deviations` below for sequencing); wrote this record, the fix commit
+message, and all in-session commands/comments in English per the policy
 other mounted skills: not triggered
+
+## Rationale for deviations
+
+Both skills above were judged applicable and their guidance was followed in
+substance throughout `## What was done` (the fix targets exactly the
+silently-absorbed pattern the audit skill catalogs; the record, commit
+messages, and code comments are all in English per the language policy),
+but the invoke-before-apply obligation (Skill tool call preceding the
+applied work) was not honored in sequence — this record's initial commit
+(`d954422d`) and PR (#3026) were pushed before either skill was loaded via
+the Skill tool. Caught by the session's own Stop-hook `skill-verdict-guard`
+notice; both skills were then loaded via the Skill tool this turn —
+canonical: Skill tool output for `silent-failure-audit` and
+`work-in-english`, this turn. A deviation-log entry recording this
+sequencing gap and the retroactive classification is filed at
+`docs/issue-2978/reports/silent-failure-audit-b2c2405e/deviation-log/
+20260901T060233006336-a058fc10109fc26a.md`. No code or test change follows
+from this correction — the acceptance results already quoted in `##
+Acceptance re-run` above are unaffected.
