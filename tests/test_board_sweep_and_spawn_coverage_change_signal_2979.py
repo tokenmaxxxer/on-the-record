@@ -116,11 +116,18 @@ class BoardSweepSubjectMappingLossReportedTest(unittest.TestCase):
     def test_board_sweep_subject_mapping_loss_reported_shaped_branch_not_on_board(self):
         # C1=Y (branch matches issue-<n>/<skill>), C2=N (issue-2379 is not
         # a current board subject) -> mapping loss, individual + remediation.
+        # issue #3047: cause classification needs `pr_index` too -- a lone
+        # OPEN entry for this subject (no merged/closed sibling) is the
+        # no-record-yet class, not corrupted-merge-base.
+        pr_index = {"issue-2379/observability-signal-golden-abc123":
+                    {"number": 42, "state": "OPEN", "body": ""}}
         (changed, non_subject, loss_new, loss_repeat) = watchdog._classify_narrowing_prs(
-            Path("/nonexistent"), {42}, {42: "issue-2379/observability-signal-golden-abc123"}, {})
+            Path("/nonexistent"), {42}, {42: "issue-2379/observability-signal-golden-abc123"}, {},
+            pr_index)
         self.assertEqual(changed, set())
         self.assertEqual(non_subject, 0)
-        self.assertEqual(loss_new, [(42, 2379, "issue-2379/observability-signal-golden-abc123")])
+        self.assertEqual(loss_new, [(42, 2379, "issue-2379/observability-signal-golden-abc123",
+                                      watchdog._MAPPING_LOSS_NO_RECORD_YET)])
 
     def test_board_sweep_subject_mapping_loss_reported_not_flagged_when_on_board(self):
         # C1=Y, C2=Y -> normal mapping, folded silently into changed_numbers.
@@ -135,22 +142,30 @@ class BoardSweepSubjectMappingLossReportedTest(unittest.TestCase):
     def test_board_sweep_subject_mapping_loss_reported_suppressed_on_repeat(self):
         root = Path("/nonexistent")
         branch_map = {42: "issue-2379/observability-signal-golden-abc123"}
-        first = watchdog._classify_narrowing_prs(root, {42}, branch_map, {})
-        second = watchdog._classify_narrowing_prs(root, {42}, branch_map, {})
-        self.assertEqual(first[2], [(42, 2379, branch_map[42])])
+        pr_index = {"issue-2379/observability-signal-golden-abc123":
+                    {"number": 42, "state": "OPEN", "body": ""}}
+        first = watchdog._classify_narrowing_prs(root, {42}, branch_map, {}, pr_index)
+        second = watchdog._classify_narrowing_prs(root, {42}, branch_map, {}, pr_index)
+        self.assertEqual(first[2], [(42, 2379, branch_map[42],
+                                      watchdog._MAPPING_LOSS_NO_RECORD_YET)])
         self.assertEqual(second[2], [])
         self.assertEqual(second[3], 1)
 
     def test_board_sweep_subject_mapping_loss_reported_resurfaces_for_new_pr(self):
         root = Path("/nonexistent")
+        pr_index = {"issue-2379/observability-signal-golden-abc123":
+                    {"number": 42, "state": "OPEN", "body": ""},
+                    "issue-2379/observability-signal-golden-def456":
+                    {"number": 99, "state": "OPEN", "body": ""}}
         watchdog._classify_narrowing_prs(
-            root, {42}, {42: "issue-2379/observability-signal-golden-abc123"}, {})
+            root, {42}, {42: "issue-2379/observability-signal-golden-abc123"}, {}, pr_index)
         # A different, never-before-seen PR number for the same subject
         # is new information (issue #2196's one-shot marker keys on PR
         # number, not subject) and must still surface once.
         third = watchdog._classify_narrowing_prs(
-            root, {99}, {99: "issue-2379/observability-signal-golden-def456"}, {})
-        self.assertEqual(third[2], [(99, 2379, "issue-2379/observability-signal-golden-def456")])
+            root, {99}, {99: "issue-2379/observability-signal-golden-def456"}, {}, pr_index)
+        self.assertEqual(third[2], [(99, 2379, "issue-2379/observability-signal-golden-def456",
+                                      watchdog._MAPPING_LOSS_NO_RECORD_YET)])
 
 
 class SpawnCoverageReportsChangeTest(unittest.TestCase):

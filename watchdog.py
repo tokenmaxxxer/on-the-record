@@ -852,28 +852,100 @@ def _watchdog_note_unmappable_subject_branch(root: Path, subject: str) -> bool:
     return True
 
 
+# 이슈 #3047: `board_now`에 없는 subject-shaped PR("mapping loss")은 최소
+# 세 가지 서로 다른 원인에서 나온다 — 이 세 상수는 그중 어느 것을 실제로
+# 확립했는지를 명시적으로 표현한다. 구분 없이 하나로 접으면(옛 동작) 새
+# 이슈의 정상적인 "아직 첫 레코드 미병합" 상태에 손상-merge-base 진단과
+# force-push 복구 문구가 그대로 붙는다(#3047 관측 사례).
+_MAPPING_LOSS_CORRUPTED = "corrupted-merge-base"
+_MAPPING_LOSS_NO_RECORD_YET = "no-record-yet"
+_MAPPING_LOSS_UNCLASSIFIED = "unclassified"
+
+
+def _classify_mapping_loss_cause(pr_index: dict, issue_n: int) -> str:
+    """이슈 #3047: `issue_n`에 대한 mapping-loss 의 원인을, 이번 틱에 이미
+    가져온 `pr_index`(branch -> {number, state, body}, `gh api
+    repos/{slug}/pulls?state=all` 전체 페이지네이션 — #1702)만으로
+    판별한다. 추가 `gh` 호출은 절대 하지 않는다 — 이 인덱스 자체가 델타가
+    있을 때만 나가는, 이미 지불한 1회 호출이고(#1688), 틱 예산이 이
+    경로를 델타-게이트한 이유가 그 1회조차 아끼려는 것이기 때문이다.
+
+    신호: `issue-<n>/`로 시작하는 모든 branch 를 이 인덱스에서 훑어(같은
+    subject 의 다른 skill-lease 브랜치들 포함, 병합 여부와 무관하게
+    `state=all`로 이미 다 들어 있다) 그 상태들을 본다.
+
+    - 그중 MERGED 가 하나라도 있으면: 이 subject 는 과거에 실제로 board
+      에 반영된 레코드를 가졌었다는 뜻이고, 지금 그게 `board_now`에서
+      사라진 것은 정상 궤적으로 설명되지 않는다 — #2379 corrupted-merge-base
+      류의 진짜 신호로 남는다.
+    - MERGED 는 없지만 CLOSED(병합 안 된 채 닫힘) 가 있으면: 이전 시도가
+      왜 닫혔는지(정상적으로 상위 시도에 흡수됐는지, 손상을 감지하고
+      스스로 포기했는지) 이 인덱스만으로는 갈리지 않는다 — 확립 못 한
+      원인을 아무 쪽으로도 밀어넣지 않고 unclassified 로 명시한다.
+    - 그 외(전부 OPEN 이거나 이 PR 자신뿐이면): 이 subject 가 첫 레코드를
+      한 번도 병합한 적이 없다는 뜻이고, 이슈가 막 열려 아직 세션의
+      첫 산출물이 안착하기 전인 정상 상태와 구별되지 않는다 —
+      no-record-yet."""
+    prefix = f"issue-{issue_n}/"
+    states = [info.get("state") for branch, info in pr_index.items()
+              if branch.startswith(prefix)]
+    if any(s == "MERGED" for s in states):
+        return _MAPPING_LOSS_CORRUPTED
+    if any(s == "CLOSED" for s in states):
+        return _MAPPING_LOSS_UNCLASSIFIED
+    return _MAPPING_LOSS_NO_RECORD_YET
+
+
+def _format_mapping_loss_line(prn: int, issue_n: int, branch: str, cause: str) -> str:
+    """이슈 #3047: mapping-loss 한 건을 원인별로 다른 문장으로 찍는다.
+    `recut-corrupted` remediation 문장은 `_MAPPING_LOSS_CORRUPTED` 에만
+    붙는다 — 확립 못 한 원인(no-record-yet/unclassified)에는 force-push
+    복구를 절대 제안하지 않는다(#3047 must-not)."""
+    head = (f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
+            f"issue-{issue_n} subject 가 board 매핑을 잃었다 (브랜치={branch!r})")
+    if cause == _MAPPING_LOSS_CORRUPTED:
+        return (f"{head} — 원인: corrupted-merge-base (이 subject 의 이전 "
+                "병합 레코드가 있는데도 지금 board 에 없다) — "
+                "issue-<n>/<skill>[+<skill>]-<lease> 산출물을 잘못된 base 에서 "
+                "다시 잡아온(#2379) 브랜치라면 "
+                "`spawn.py recut-corrupted --issue <n> --session <session>`(#2402)로 "
+                "같은 이름 아래 재컷하라")
+    if cause == _MAPPING_LOSS_NO_RECORD_YET:
+        return (f"{head} — 원인: no-record-yet (이 subject 는 아직 병합된 "
+                "레코드가 한 번도 없다 — 새 이슈의 정상 상태) — 조치 불필요, "
+                "재컷 복구 대상 아님")
+    return (f"{head} — 원인: unclassified (이 subject 에 병합 안 된 채 닫힌 "
+            "PR 이 있어, 정상 흡수와 손상된 시도 포기를 이 인덱스만으로는 "
+            "구별할 수 없다) — 사람이 직접 확인, 자동 재컷 복구를 임의로 "
+            "적용하지 말 것")
+
+
 def _classify_narrowing_prs(
         root: Path, pr_numbers: set[int], number_to_branch: dict[int, str | None],
-        board_now: dict) -> tuple[set[int], int, list[tuple[int, int, str]], int]:
+        board_now: dict, pr_index: dict | None = None
+        ) -> tuple[set[int], int, list[tuple[int, int, str, str]], int]:
     """이슈 #2979: 델타로 바뀐 PR 을 subject 이슈로 좁히면서, 두 상태를
     구분한다 — (a) 브랜치가 `issue-<n>/<skill>` 형태를 한 번도 아니었던
     PR(non-subject, 관측된 #1/#7/#26/#1985 류: `fix/...`, `plan/...`,
     브랜치 삭제로 `None`)과 (b) 브랜치는 그 형태이지만 그 이슈가 지금
-    `board_now`에 없는 PR(subject mapping loss, #2379 corrupted-merge-base
-    류). (a)는 board 와 무관한 PR 이라 언제나 개수로만 접고 개별 줄을
-    절대 찍지 않는다 — 매 틱 반복돼도 one-shot 마커를 타지 않는다(찍을
-    개별 줄 자체가 없으므로 반복 억제가 필요 없다). (b)만 subject 가
-    board 매핑을 잃은, 진짜 신호라 개별 줄 + recut-corrupted remediation
-    대상이다 — 그마저도 `_watchdog_note_unmappable_pr`의 기존 one-shot
-    마커로 저장소 상태가 안 바뀌는 한 반복 보고하지 않는다.
+    `board_now`에 없는 PR(subject mapping loss). (a)는 board 와 무관한 PR
+    이라 언제나 개수로만 접고 개별 줄을 절대 찍지 않는다 — 매 틱 반복돼도
+    one-shot 마커를 타지 않는다(찍을 개별 줄 자체가 없으므로 반복 억제가
+    필요 없다). (b)는 subject 가 board 매핑을 잃은 상태이지만, 이슈
+    #3047: 그 원인은 하나가 아니다 — `_classify_mapping_loss_cause`로
+    `pr_index`(이미 이번 틱에 가져온 것, 추가 `gh` 호출 없음)만 보고
+    corrupted-merge-base/no-record-yet/unclassified 셋 중 하나로 갈라
+    반환한다. `_watchdog_note_unmappable_pr`의 기존 one-shot 마커로
+    저장소 상태가 안 바뀌는 한 반복 보고하지 않는 것은 원인과 무관하게
+    그대로 유지한다.
 
     `(changed_numbers, non_subject_count, mapping_loss_new,
     mapping_loss_already_reported)`. `changed_numbers`는 narrowing set 에
     합칠 이슈 번호(성공 매핑), `mapping_loss_new`는 이번 틱에 처음
-    발견된 `(pr_number, issue_number, branch)` 튜플 목록이다."""
+    발견된 `(pr_number, issue_number, branch, cause)` 튜플 목록이다."""
     changed_numbers: set[int] = set()
     non_subject_count = 0
-    mapping_loss_new: list[tuple[int, int, str]] = []
+    mapping_loss_new: list[tuple[int, int, str, str]] = []
     mapping_loss_already_reported = 0
     for prn in sorted(pr_numbers):
         branch = number_to_branch.get(prn)
@@ -886,7 +958,15 @@ def _classify_narrowing_prs(
             changed_numbers.add(issue_n)
             continue
         if _watchdog_note_unmappable_pr(root, prn):
-            mapping_loss_new.append((prn, issue_n, branch))
+            # 이슈 #3047 (silent-failure-audit): `pr_index`가 아예 안 넘어온
+            # 것(호출자가 못 만들었다 -- 지금 생산 코드엔 없는 경로, 방어적
+            # 케이스)과 실제로 가져왔는데 비어 있는 것은 다른 인식론적
+            # 상태다 -- 전자를 후자로 조용히 뭉개 "no-record-yet"으로
+            # 추측하면 이 이슈가 고치려는 결함을 인자 하나 좁은 범위에서
+            # 재현하게 된다. 못 가져온 경우는 unclassified 로 명시한다.
+            cause = (_classify_mapping_loss_cause(pr_index, issue_n)
+                     if pr_index is not None else _MAPPING_LOSS_UNCLASSIFIED)
+            mapping_loss_new.append((prn, issue_n, branch, cause))
         else:
             mapping_loss_already_reported += 1
     return changed_numbers, non_subject_count, mapping_loss_new, mapping_loss_already_reported
@@ -1487,20 +1567,19 @@ def _board_wide_sweep(root: Path) -> int:
                     number_to_branch = {v.get("number"): k for k, v in pr_index.items()}
                     (mapped, non_subject_count, mapping_loss_new,
                      mapping_loss_already_reported) = _classify_narrowing_prs(
-                        root, pr_numbers, number_to_branch, _sp.board(root))
+                        root, pr_numbers, number_to_branch, _sp.board(root), pr_index)
                     changed_numbers |= mapped
-                    for prn, issue_n, branch in mapping_loss_new:
+                    for prn, issue_n, branch, cause in mapping_loss_new:
                         # 이슈 #2979: 브랜치는 issue-<n>/<skill> 형태지만 그
                         # 이슈가 지금 board 에 없다 — non-subject 와 달리
-                        # 진짜 신호(#2379 corrupted-merge-base 류)라 개별
-                        # 줄로 찍는다. one-shot: 저장소 상태가 그대로면
+                        # 무시할 수 없는 상태다. 이슈 #3047: 그 원인은
+                        # 하나가 아니어서(corrupted-merge-base/no-record-yet/
+                        # unclassified), `_classify_mapping_loss_cause`가 이미
+                        # 정한 `cause`에 따라 다른 문장을 찍는다 —
+                        # recut-corrupted remediation 은 corrupted-merge-base
+                        # 에만 붙는다. one-shot: 저장소 상태가 그대로면
                         # 반복 안 찍는다.
-                        print(f"[watchdog] board-sweep: PR #{prn} 변경 감지했으나 "
-                              f"issue-{issue_n} subject 가 board 매핑을 잃었다 "
-                              f"(브랜치={branch!r}) — issue-<n>/<skill>[+<skill>]-<lease> "
-                              "산출물을 잘못된 base 에서 다시 잡아온(#2379) 브랜치라면 "
-                              "`spawn.py recut-corrupted --issue <n> --session <session>`(#2402)로 "
-                              "같은 이름 아래 재컷하라")
+                        print(_format_mapping_loss_line(prn, issue_n, branch, cause))
                     if mapping_loss_already_reported:
                         # 이슈 #2196: 이전에 이미 개별 보고된 매핑-손실
                         # subject 들은 저장소 상태가 그대로면 반복하지
