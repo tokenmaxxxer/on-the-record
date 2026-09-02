@@ -84,28 +84,32 @@ require, grouped by when the loop first needs it.
   prior clone. The `skill-corpus-bootstrap.sh` `SessionStart` hook now
   calls `spawn.py ensure-skills` (`skills.py:ensure_skill_corpus_cli`) at
   session start instead, so the corpus is usually already there by the
-  time a spawn needs it. Chose automatic-with-notice, not silent,
-  because a multi-second network fetch happening invisibly the first
-  time a user tries `--skills` is a worse surprise than one line on
-  stderr at session start (`[skill-repo] skill-repository 를 받는 중`)
-  — cloning into the plugin's own cache is safe to do unasked (it writes
-  nothing the user owns), but doing it *invisibly* is not, per this
-  issue's own must-not: prefer telling the user over surprising them.
+  time a spawn needs it.
 
-  Hardened for the interrupted-fetch case this issue's acceptance
-  requires demonstrating: `_skill_repo_managed_root()` now clones into a
-  scratch directory next to the final path, checks the git subprocess's
-  own exit code *and* the checkout's actual content, and only then
-  `os.replace()`s the scratch directory into place. A fetch killed
-  mid-transfer — network drop, process kill, anything short of the
-  clone finishing — leaves the scratch directory as garbage (cleaned up
-  on the next attempt) and the real path untouched, so
-  `skill_repository_resolvable` keeps reading unsatisfied until a
-  fetch actually completes. Before this change, `git clone` targeted the
-  final path directly: a kill after some (not all) skill directories had
-  already been checked out could leave that path non-empty, which the
-  same "any non-dot subdirectory exists" validity check would have read
-  as satisfied. `test/test_skill_repo_managed_clone.py` and
+  The tier is automatic-with-notice, not silent. Cloning into the
+  plugin's own cache is safe to do unasked — it writes nothing the user
+  owns. But a multi-second network fetch happening invisibly, the first
+  time a user tries `--skills`, is a worse surprise than one line on
+  stderr at session start (`[skill-repo] skill-repository 를 받는 중`).
+  This issue's own must-not says the same thing: prefer telling the
+  user over surprising them.
+
+  This issue's acceptance requires demonstrating the interrupted-fetch
+  case, so the fetch itself was hardened. `_skill_repo_managed_root()`
+  now clones into a scratch directory next to the final path. It checks
+  the git subprocess's own exit code *and* the checkout's actual
+  content, and only then `os.replace()`s the scratch directory into
+  place. A fetch killed mid-transfer — network drop, process kill,
+  anything short of the clone finishing — leaves the scratch directory
+  as garbage, cleaned up on the next attempt. The real path stays
+  untouched, so `skill_repository_resolvable` keeps reading unsatisfied
+  until a fetch actually completes.
+
+  Before this change, `git clone` targeted the final path directly. A
+  kill after some (not all) skill directories had already been checked
+  out could leave that path non-empty. The same "any non-dot
+  subdirectory exists" validity check would have read that partial
+  state as satisfied. `test/test_skill_repo_managed_clone.py` and
   `tests/test_issue_3231_install_removals.py` both exercise this.
 
 - **`~/.claude/skills` populated — tier: automatic.** The same

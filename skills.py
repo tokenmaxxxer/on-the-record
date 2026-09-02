@@ -110,8 +110,17 @@ def _skill_repo_managed_root() -> Path | None:
                     shutil.rmtree(d, ignore_errors=True)
                 os.replace(str(tmp_dir), str(d))
                 _sp._mark_pulled(d)
-        except OSError:
-            pass
+        except OSError as exc:
+            # silent-failure-audit (issue #3231): a bare `except OSError:
+            # pass` here would discard exactly the detail a stuck fetch
+            # needs to be diagnosable -- git missing, `runs/` read-only,
+            # disk full during os.replace() all degrade to the identical
+            # unhelpful "not fetched yet" message downstream in
+            # ensure_skill_corpus_cli() otherwise, forever, with nothing
+            # distinguishing a transient network hiccup from a permanent
+            # local misconfiguration.
+            print(f"[skill-repo] fetch failed: {type(exc).__name__}: {exc}",
+                  file=sys.stderr)
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
         if _sp._skill_repo_valid(skills_dir):
