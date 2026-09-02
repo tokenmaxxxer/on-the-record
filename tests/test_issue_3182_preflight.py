@@ -30,12 +30,14 @@ its own case rather than one combined assertion:
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts" / "preflight" / "consumer_preconditions.py"
@@ -44,6 +46,12 @@ REQUIRED_FIELDS = ("name", "satisfied", "remedy", "source")
 
 # "spawn.py:2668,4639 (...)" / "board.py:246-256 (...)" / "path/to/x.sh:341 (...)"
 SOURCE_RE = re.compile(r"^(?P<file>\S+?):(?P<lines>[0-9]+(?:[,-][0-9]+)*)(?:\s|$)")
+
+# Imported directly (not just driven as a subprocess) so the disk-headroom
+# observation-failure tests below can monkeypatch os.statvfs.
+_spec = importlib.util.spec_from_file_location("consumer_preconditions_direct", SCRIPT)
+_cp = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_cp)
 
 
 def _run(*args: str) -> subprocess.CompletedProcess:
@@ -134,6 +142,47 @@ class PreflightJsonShapeTest(unittest.TestCase):
             "remote_push_access must be reported unsatisfied: it cannot be "
             "observed without a mutating git push",
         )
+
+
+class WorkspaceDiskHeadroomObservationFailureTest(unittest.TestCase):
+    """Round 4: PR #3184's round-3 verification (PR #3203) reproduced a
+    defect by monkeypatching os.statvfs() to raise -- the inode half of
+    check_workspace_disk_headroom() never ran, yet the precondition still
+    reported satisfied=True. That inverts the script's own contract
+    (module docstring: an unobservable precondition is reported
+    unsatisfied, never guessed satisfied). Both directions are asserted so
+    a fix that over-corrects to always-unsatisfied is caught too."""
+
+    def test_statvfs_failure_reports_unsatisfied_naming_what_failed(self):
+        # shutil.disk_usage() is itself implemented on top of os.statvfs()
+        # on POSIX, so disk_usage must be faked to succeed independently --
+        # otherwise patching os.statvfs alone trips disk_usage's own
+        # except-OSError branch first and never reaches the inode check
+        # this test targets.
+        fake_usage = mock.Mock(free=10 * 1024 * 1024 * 1024)
+        with mock.patch.object(_cp.shutil, "disk_usage", return_value=fake_usage), \
+             mock.patch.object(_cp.os, "statvfs", side_effect=OSError("boom")):
+            ok, detail = _cp.check_workspace_disk_headroom()
+        self.assertFalse(
+            ok, f"os.statvfs() raising must report unsatisfied, got detail={detail!r}"
+        )
+        self.assertIn("inode", detail, f"detail must name what could not be observed: {detail!r}")
+
+    def test_disk_usage_failure_still_reports_unsatisfied(self):
+        # Locks in the sibling exception path (shutil.disk_usage raising)
+        # that was already correct before this fix, so a future edit can't
+        # silently regress it while touching the statvfs branch.
+        with mock.patch.object(_cp.shutil, "disk_usage", side_effect=OSError("boom")):
+            ok, detail = _cp.check_workspace_disk_headroom()
+        self.assertFalse(ok, f"shutil.disk_usage() raising must report unsatisfied, got {detail!r}")
+
+    def test_statvfs_success_with_ample_headroom_reports_satisfied(self):
+        fake_usage = mock.Mock(free=10 * 1024 * 1024 * 1024)
+        fake_statvfs = mock.Mock(f_favail=1_000_000)
+        with mock.patch.object(_cp.shutil, "disk_usage", return_value=fake_usage), \
+             mock.patch.object(_cp.os, "statvfs", return_value=fake_statvfs):
+            ok, detail = _cp.check_workspace_disk_headroom()
+        self.assertTrue(ok, f"ample, observable headroom must report satisfied, got {detail!r}")
 
 
 class PreflightReadOnlyTest(unittest.TestCase):

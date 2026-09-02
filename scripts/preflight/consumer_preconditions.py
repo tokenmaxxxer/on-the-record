@@ -210,8 +210,17 @@ def check_workspace_disk_headroom() -> tuple[bool, str]:
     try:
         st = os.statvfs(probe)
         free_inodes = st.f_favail
-    except (OSError, AttributeError):
-        return True, f"{usage.free // (1024 * 1024)}MB free at {probe} (inode count unavailable)"
+    except (OSError, AttributeError) as exc:
+        # Per this script's own contract: a precondition it cannot observe
+        # is reported unsatisfied, never guessed satisfied. Falling back to
+        # `True` here (as an earlier version did) meant an os.statvfs()
+        # failure silently skipped the inode check while still reporting
+        # the whole precondition met -- PR #3184 round-3 verification
+        # (PR #3203) reproduced it by monkeypatching os.statvfs to raise.
+        return False, (
+            f"{usage.free // (1024 * 1024)}MB free at {probe}, but inode "
+            f"headroom could not be observed: {type(exc).__name__}: {exc}"
+        )
     min_inodes = int(os.environ.get("MUSTER_MIN_FREE_INODES", MIN_FREE_INODES_DEFAULT))
     if free_inodes and free_inodes < min_inodes:
         return False, (
