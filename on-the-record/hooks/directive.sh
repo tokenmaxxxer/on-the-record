@@ -124,6 +124,20 @@ if (now - start) < grace:
 
 alive = os.path.exists(alive_path) and os.path.getmtime(alive_path) >= start
 if alive:
+    # issue #3120: a stale-notice write by an earlier, monitor-late
+    # session in this workspace was never cleared once the monitor came
+    # up -- grep -rn 'orchestrate-wake-notice' found only the write below
+    # and the directive text pointing at it, no unlink on any path. This
+    # branch is reachable only when alive is True, so a genuinely absent
+    # monitor still falls through to the write unchanged. Best-effort
+    # like every other marker touch in this hook: a removal failure must
+    # never turn into a directive failure, and a notice that was already
+    # absent (FileNotFoundError, an OSError subclass) is not a failure.
+    notice_path = os.path.join(_otr_mn_root, ".orchestrate-wake-notice")
+    try:
+        os.remove(notice_path)
+    except OSError:
+        pass
     sys.exit(0)
 
 with open(notified_path, "w") as f:
