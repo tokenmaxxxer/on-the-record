@@ -294,17 +294,39 @@ def _is_utf8_safe(value: str) -> bool:
 #   `repo`/an optional `meta`-shaped extra field) and far below the
 #   interpreter's default recursion limit (1000), leaving headroom for
 #   whatever stack depth the caller already has in play.
-# - Value types: manifest values are written to disk as JSON
-#   (`json.dumps(..., ensure_ascii=False)`), so the only value shapes
-#   that can ever survive that write are JSON's own: `str`, `int`,
-#   `float`, `bool`, `None`, and the two containers `dict`/`list`. That
-#   set is now enumerated POSITIVELY and enforced at validation time --
-#   anything else (`bytes`, `set`, a custom object, anything) is invalid
-#   here, not a surprise `TypeError` at `grant()`'s write step. The same
-#   applies to dict KEYS: JSON object keys are strings, so a non-string
-#   key (which would otherwise reach `json.dumps()` and either silently
-#   stringify in ways nothing here validated, or raise for a key type
-#   `json.dumps` refuses outright, e.g. a tuple) is rejected here too.
+# - Value types: manifest values are written to disk as JSON and read
+#   back with `json.loads()`, so the allowlist is not "everything
+#   `json.dumps()` can turn into bytes without raising" -- it is the
+#   narrower set of Python types a save-then-load round trip hands back
+#   as the SAME type it started as: `str`, `int`, `float`, `bool`,
+#   `None`, and the two containers `dict`/`list`. That set is now
+#   enumerated POSITIVELY and enforced at validation time -- anything
+#   else (`bytes`, `set`, a custom object, anything) is invalid here,
+#   not a surprise `TypeError` at `grant()`'s write step.
+#
+#   `tuple` is the case this distinction exists for (issue #3061 round-8
+#   verification, PR #3216, ninth pass). `json.dumps()` accepts a tuple
+#   value without complaint -- it serializes as a JSON array, same as a
+#   list -- so "can `json.dumps()` write it" alone would admit it. But
+#   `json.loads()` never reconstructs a tuple; every array it reads back
+#   is a `list`. A manifest entry holding a tuple in memory (e.g. what
+#   `grant()` returns before it ever touches disk) would compare unequal
+#   (`(1, 2) != [1, 2]`) to the very same entry read back via
+#   `load_state()`, even though the two hold identical data -- a value
+#   that silently changes Python type across a save and load is exactly
+#   the kind of trap this validator exists to catch at authoring time,
+#   not leave to surface later as an unexplained equality failure
+#   somewhere a caller compares a granted manifest against a reloaded
+#   one. So `tuple` is excluded on purpose, not by omission: `dict` and
+#   `list` are the containers that round-trip stably, and those are the
+#   only two admitted.
+#
+#   The same round-trip-stability standard applies to dict KEYS: JSON
+#   object keys are always strings on read-back regardless of what was
+#   written, so a non-string key (which would otherwise reach
+#   `json.dumps()` and either silently stringify in ways nothing here
+#   validated, or raise for a key type `json.dumps` refuses outright,
+#   e.g. a tuple key) is rejected here too.
 _MANIFEST_MAX_DEPTH = 64
 
 
@@ -315,9 +337,11 @@ def _check_no_surrogates(value, path: str, _depth: int = 0,
     moment it finds: a string that fails `_is_utf8_safe()`; a container
     cycle (direct or through another container); nesting past
     `_MANIFEST_MAX_DEPTH`; or a value/key of any type outside the set
-    JSON, and therefore `grant()`'s disk write, can actually represent
-    (see the module-level comment above this function for the round-7
-    reasoning on each). Every one of these is a reported rejection here,
+    that round-trips through a `json.dumps()`/`json.loads()` save-and-load
+    as the same Python type it started as -- narrower than "everything
+    `json.dumps()` can write without raising" (a `tuple` value clears that
+    bar but is still rejected; see the module-level comment above this
+    function for why). Every one of these is a reported rejection here,
     never a crash later.
 
     issue #3061 round-6 verification (PR #3207 hole 2): checking only the

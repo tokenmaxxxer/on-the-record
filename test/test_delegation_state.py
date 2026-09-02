@@ -837,7 +837,10 @@ class HostileManifestShapeTest(unittest.TestCase):
     the ways a manifest value can be hostile rather than merely
     malformed: two shapes of self-reference (dict, list), a cycle
     spanning two containers, nesting one level past the explicit depth
-    bound, two JSON-unrepresentable value types (bytes, set), a plain
+    bound, two JSON-unrepresentable value types (bytes, set), a value
+    that IS JSON-representable but round-trip-unstable (tuple -- see
+    the module-level comment above `_MANIFEST_MAX_DEPTH` for why it is
+    excluded on purpose, not merely a `json.dumps()` failure), a plain
     custom object, and a value engineered to raise if the validator
     were ever careless enough to compare (`==`/`hash()`) or iterate it
     -- proving the walk rejects by TYPE alone, never by touching the
@@ -904,6 +907,7 @@ class HostileManifestShapeTest(unittest.TestCase):
             "nested_one_past_bound": self._nested_one_past_bound(),
             "bytes_value": b"not utf-8 safe by construction",
             "set_value": {1, 2, 3},
+            "tuple_value": (1, 2, 3),
             "custom_object": object(),
             "raises_on_compare_or_iterate": self._RaisesOnCompareOrIterate(),
         }
@@ -935,6 +939,32 @@ class HostileManifestShapeTest(unittest.TestCase):
                     result = ds.is_covered(self.action, manifest, repo="x")
                 self.assertFalse(result)
                 self.assertIn("malformed manifest", stderr.getvalue())
+
+    def test_tuple_is_rejected_even_though_json_dumps_accepts_it(self):
+        # issue #3061 round-8 verification (PR #3216, ninth pass): a
+        # tuple is JSON-representable as a VALUE -- json.dumps() writes
+        # it as an array without raising -- so "does json.dumps() raise"
+        # is not the actual admission rule (see the module-level comment
+        # above ds._MANIFEST_MAX_DEPTH). Prove the premise, then prove
+        # the rejection: a tuple clears json.dumps() cleanly, and if it
+        # were let through anyway, load_state() would hand back a LIST
+        # in its place (json.loads() never reconstructs a tuple), so the
+        # in-memory record grant() returns would stop equalling the copy
+        # read back off disk -- a value changing Python type across a
+        # save and load. That round-trip instability, not a
+        # json.dumps() failure, is why ds.grant() still refuses it.
+        tup = (1, 2, 3)
+        try:
+            json.dumps(tup)
+        except TypeError:
+            self.fail("premise broken: json.dumps() no longer accepts a "
+                      "tuple value -- this test's reasoning needs revisiting")
+        self.assertEqual(json.loads(json.dumps(tup)), list(tup))
+        self.assertNotEqual(json.loads(json.dumps(tup)), tup)
+        with self.assertRaises(ds.MalformedManifestError):
+            ds.grant(self.repo, "scope", "jiwon", skill_env="",
+                      manifest=[{"tool": "Bash", "resource": "x", "meta": tup}])
+        self.assertIsNone(ds.load_state(self.repo))
 
     def test_nesting_exactly_at_the_bound_is_accepted_not_rejected(self):
         # The bound must reject one level PAST itself (proven above) and
