@@ -824,6 +824,222 @@ def _episode_boundary(events: list[dict], event_index: int) -> int:
     return len(events)
 
 
+# --- live wiring (issue #3229) -----------------------------------------
+#
+# issue #3061 shipped `audit()`, a RETROSPECTIVE scan: given a finished
+# (or at least already-written) session log, find asks whose next episode
+# was entirely covered. Its own acceptance never asked for anything
+# live, and PR #3220's tenth verification named exactly that gap:
+# `delegation_state.py` is wired to nothing that runs while a turn is
+# still happening, so a covered ask still reaches the operator in the
+# moment, and only a later `--audit` run shows it was avoidable.
+#
+# `live_stop_decision()` below is the live-facing counterpart, called
+# from a Stop hook (`on-the-record/hooks/delegation-live-check.sh`) at
+# the exact moment the orchestrator stops with a question. The seam it
+# runs on was established experimentally, not assumed from
+# documentation, before this function was written (docs/issue-3229's
+# record has the captured payloads and the block/additionalContext/
+# exit-2 comparison): a Stop hook CAN refuse the stop and force the
+# turn to continue, via `{"decision": "block", "reason": ...}` on
+# stdout (the same mechanism `skill-verdict-guard.sh`'s "hard"
+# violations already use) -- confirmed live against the real `claude`
+# binary, not inferred from `stop-gate.sh`'s own comment ("not
+# decision:'block'"), which turned out to describe that hook's chosen
+# design intent, not a ceiling on what the mechanism can do. This
+# module takes the strongest honest option: it refuses the stop, it
+# does not merely leave a note for next turn.
+#
+# The inversion from `audit()`: `audit()` classifies the episode AFTER
+# an ask (what did the orchestrator go on to do), because that is the
+# only thing a finished log can show it with any confidence. A live
+# Stop event has no "after" yet -- the turn is stopping right now, on a
+# text-only message, by construction (the harness would never fire Stop
+# on a message that still carries a pending tool_use; it would run the
+# tool first). What IS available live is the episode BEFORE this ask:
+# the tool_use events since the previous ask-shaped stop (or session
+# start), the stretch of what the orchestrator was already doing when
+# it paused to ask -- typically because one of those actions was itself
+# denied or gated and prompted the question. `_previous_episode_boundary`
+# is `_episode_boundary` walked backward instead of forward; the
+# covered/not-covered test applied to that stretch is the exact same
+# `is_covered()` call sites `audit()` already uses, over the exact same
+# `_extract_action()` shape -- this reuses #3061's derivation rather
+# than writing a second one, per this issue's own instruction.
+def _previous_episode_boundary(events: list[dict], event_index: int) -> int:
+    """Index right after the nearest ask-shaped stop strictly before
+    `event_index`, or `0` if none is found walking back to the start of
+    the transcript -- the mirror of `_episode_boundary()`'s forward walk.
+    Used by `live_stop_decision()` to find where THIS episode (the
+    actions immediately preceding the ask currently on the table)
+    began."""
+    for i in range(event_index - 1, -1, -1):
+        ev = events[i]
+        if ev.get("type") != "assistant":
+            continue
+        text, has_tool_use = _turn_text_and_action(ev)
+        if not has_tool_use and text.strip():
+            return i + 1
+    return 0
+
+
+def live_stop_decision(payload: dict, repo: str) -> dict:
+    """Thin crash barrier around `_live_stop_decision_body()` -- every
+    branch inside that function already returns `suppress=False` on its
+    own decline paths, but an UNCAUGHT exception (a transcript file that
+    vanishes between the `is_file()` check and
+    `trajectory_analyzer.parse_session_log()`'s own `open()` call, a
+    `transcript_path` containing a NUL byte raising `ValueError` out of
+    `Path.is_file()`, a permissions error, ...) is a fifth outcome this
+    function's own callers must never see as anything but "decline."
+
+    This matters more here than the ordinary "never crash a caller"
+    standard the rest of this module already holds (see `load_state()`'s
+    own docstring): the caller is a Stop hook whose own trap remaps ANY
+    non-0/non-2 exit code to exit 2, and exit 2 on a Stop event BLOCKS
+    THE STOP (confirmed live, docs/issue-3229's record) -- the same
+    mechanism this function uses on purpose when it decides to suppress.
+    An uncaught exception here would therefore not just fail to decide,
+    it would silently flip into the ONE outcome issue #3229's own
+    must-not clause exists to prevent: a genuine question suppressed,
+    with a Python traceback standing in for a reason no operator asked
+    for. Catching broadly and declining is this function's only
+    fail-closed direction, the same discipline `load_state()` already
+    applies to a corrupt state file, extended here to cover the whole
+    decision, not just one read."""
+    try:
+        return _live_stop_decision_body(payload, repo)
+    except Exception as exc:  # noqa: BLE001 -- see docstring: any crash here must decline, never silently block
+        return {"suppress": False, "hook_output": None, "reason": (
+            f"delegation-live-check: internal error while deriving this "
+            f"episode ({type(exc).__name__}: {exc}) -- cannot decide, "
+            f"leaving the question standing")}
+
+
+def _live_stop_decision_body(payload: dict, repo: str) -> dict:
+    """Given one real Stop-hook payload (the dict a Stop event's stdin
+    JSON parses to -- `session_id`, `transcript_path`, `cwd`,
+    `stop_hook_active`, `last_assistant_message`, ... -- captured live,
+    see docs/issue-3229's record) and the `repo` a standing delegation is
+    scoped to (the session's own `cwd`, matching `spawn.py`'s `--repo`
+    default), decide whether this Stop is a covered, clean redundant ask.
+
+    Returns `{"suppress": bool, "reason": str | None, "hook_output": dict
+    | None}`. `suppress=True` only when every one of the following holds
+    -- ANY other outcome is `suppress=False`, which is this function's
+    only fail-closed direction; the four combinations issue #3229's own
+    must-not clause names each land here:
+
+    - a delegation is on record for `repo` AND currently `in_force()`
+      (an absent, revoked, or expired delegation is `reason=None` --
+      silent, no further work done, satisfying "must not fire on
+      sessions with no recorded grant at all"; every OTHER decline below
+      carries a real `reason` string so a caller can surface it, per
+      "must not silently do nothing when it cannot decide");
+    - its `manifest` is present, well-formed, and non-empty
+      (`_safe_manifest()` already fails closed to `[]` on a malformed
+      one, printing its own stderr diagnostic -- an empty result here
+      covers nothing, so this declines the same as "no manifest" would);
+    - `transcript_path` names a real, readable file, and its LAST
+      assistant event is ask-shaped (text present, no `tool_use` in that
+      same event) with text matching `last_assistant_message` -- the
+      cross-check against the payload's own field is what stands in for
+      "this episode can be established as complete": a transcript read
+      that disagrees with what the harness itself says just happened is
+      exactly the truncated/racing-read shape audit()'s own completion
+      check (against `final_result_event()`) exists to catch
+      retrospectively, just applied live instead, where no terminal
+      `result` event exists yet to check against;
+    - the episode immediately preceding this ask (see
+      `_previous_episode_boundary()`) contains at least one `tool_use`
+      event (zero means no action can be derived -- nothing to check
+      coverage against) AND every action in it, run through
+      `_extract_action()` then `is_covered()` against the recorded
+      manifest, matches.
+
+    On `suppress=True`, `hook_output` is `{"decision": "block", "reason":
+    <human-readable, names the matched actions and the delegation's
+    scope>}` -- the enforcement seam confirmed live (see module comment
+    above). The caller (the Stop hook) writes this to stdout; the reason
+    text is what the orchestrator reads on the forced continuation, so it
+    states plainly that this is the recorded grant applied live, not new
+    authority invented here."""
+    record = load_state(repo)
+    if record is None or not in_force(record):
+        return {"suppress": False, "reason": None, "hook_output": None}
+
+    manifest = _safe_manifest(record.get("manifest"), "live_stop_decision()")
+    if not manifest:
+        return {"suppress": False, "hook_output": None, "reason": (
+            "delegation-live-check: recorded delegation has an empty or "
+            "malformed manifest -- covers nothing, leaving the question "
+            "standing")}
+
+    transcript_path = payload.get("transcript_path")
+    if not isinstance(transcript_path, str) or not transcript_path or not Path(transcript_path).is_file():
+        return {"suppress": False, "hook_output": None, "reason": (
+            "delegation-live-check: transcript_path missing or unreadable "
+            "-- cannot derive this episode's actions, leaving the "
+            "question standing")}
+
+    events = trajectory_analyzer.parse_session_log(transcript_path)
+    current_index = None
+    for i in range(len(events) - 1, -1, -1):
+        if events[i].get("type") == "assistant":
+            current_index = i
+            break
+    if current_index is None:
+        return {"suppress": False, "hook_output": None, "reason": (
+            "delegation-live-check: no assistant event found in the "
+            "transcript -- cannot establish the ask, leaving the "
+            "question standing")}
+
+    text, has_tool_use = _turn_text_and_action(events[current_index])
+    if has_tool_use or not text.strip():
+        return {"suppress": False, "hook_output": None, "reason": (
+            "delegation-live-check: the transcript's final assistant "
+            "event is not ask-shaped (carries a tool_use, or no text) "
+            "-- leaving the question standing")}
+
+    last_msg = payload.get("last_assistant_message")
+    if not isinstance(last_msg, str) or text.strip() != last_msg.strip():
+        return {"suppress": False, "hook_output": None, "reason": (
+            "delegation-live-check: the transcript's final assistant "
+            "text does not match the Stop payload's own "
+            "last_assistant_message -- this episode cannot be "
+            "established as complete (possible truncated or racing "
+            "read), leaving the question standing")}
+
+    prev_boundary = _previous_episode_boundary(events, current_index)
+    tool_uses = trajectory_analyzer.tool_use_events(events)
+    episode = [tu for tu in tool_uses if prev_boundary <= tu["index"] < current_index]
+    if not episode:
+        return {"suppress": False, "hook_output": None, "reason": (
+            "delegation-live-check: no tool_use events in this episode "
+            "-- no action to derive, leaving the question standing")}
+
+    episode_actions = [_extract_action(tu) for tu in episode]
+    repo_name = Path(repo).resolve().name
+    if not all(is_covered(a, manifest, repo=repo_name) for a in episode_actions):
+        return {"suppress": False, "hook_output": None, "reason": (
+            "delegation-live-check: not every action in this episode is "
+            "covered by the recorded manifest -- leaving the question "
+            "standing")}
+
+    covered_desc = ", ".join(f"{a['tool']}:{a['resource']!r}" for a in episode_actions)
+    reason = (
+        f"delegation-live-check: every action in this episode "
+        f"({covered_desc}) is already covered by the recorded standing "
+        f"delegation (scope: {record.get('scope')!r}, granted_by: "
+        f"{record.get('granted_by')}) -- proceed with the pending action "
+        f"without asking again. This is not new authority: it is the "
+        f"already-recorded grant applied while the turn is still "
+        f"happening instead of only detectable afterward (issue #3229)."
+    )
+    return {"suppress": True, "reason": reason,
+            "hook_output": {"decision": "block", "reason": reason}}
+
+
 def _candidate_session_logs(work_dir: Path, repo_name: str, since: datetime) -> list[Path]:
     if not work_dir.exists():
         return []

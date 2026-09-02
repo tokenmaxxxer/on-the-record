@@ -75,6 +75,14 @@
     },
     {
       "event": "PostToolUse",
+      "script": "amends-landing-apply.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "invariant-injecting",
+      "rationale": "issue #3134 repair round 3: the automatic caller of gates/amends_index.py's write_backlinks() landing step -- absence means a correcting PR's `amends:` edge lands permanently unlinked unless a human remembers to run the CLI by hand (confirmed live: no CI workflow, no other caller anywhere in this repo)"
+    },
+    {
+      "event": "PostToolUse",
       "script": "approach-cap-warning.sh",
       "args": ["post"],
       "wrapped": true,
@@ -112,6 +120,14 @@
       "wrapped": true,
       "class": "invariant-injecting",
       "rationale": "the merged per-skill verdict obligation gate (issue #2039/#2138) -- absence means a session's skill-verdict obligation goes unchecked and unreported"
+    },
+    {
+      "event": "Stop",
+      "script": "delegation-live-check.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "invariant-injecting",
+      "rationale": "issue #3229: live wiring for issue #3061's standing-delegation manifest -- on a covered, clean episode it refuses the stop outright (decision:\"block\"); absence means a covered ask reaches the operator that a recorded delegation already answered, the exact gap PR #3220's tenth verification named"
     },
     {
       "event": "PostToolUse",
