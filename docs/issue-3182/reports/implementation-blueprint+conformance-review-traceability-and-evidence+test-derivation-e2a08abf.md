@@ -94,8 +94,8 @@ outside this session's authority.
 skill-verdict: implementation-blueprint — not-applicable: this branch
 carries no code; the structure decision (if any) belongs to the record
 at PR #3184's branch (cited above), where it is addressed.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; the citation above (this branch's own upstream basis) pins
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+the citation above (this branch's own upstream basis) pins
 path + real 40-char sha, per the skill's rule 1.
 skill-verdict: test-derivation — applied: invoked; per the same
 canonical citation above (PR #3184's branch record), consulted to
