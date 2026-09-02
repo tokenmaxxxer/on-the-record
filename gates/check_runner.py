@@ -37,7 +37,23 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 import check_run_artifact as cra  # noqa: E402
 import gh_rest  # noqa: E402
-import gates  # noqa: E402
+# issue #3057 (same collision and fix shape as `gates/record_lint.py`/
+# `gates/claims.py`: see their comments for the full rationale) — a bare
+# `import gates` here resolves to the sibling `gates/gates.py` when this
+# file is run as a script, but under `python3 -m gates.check_runner` the
+# name `gates` is already bound to the enclosing namespace package, so
+# the bare import silently binds to that package instead. Load the
+# sibling file by explicit path under the same private, process-shared
+# key the other fixed modules use.
+import importlib.util as _importlib_util
+_GATES_IMPL_KEY = "_on_the_record_gates_sibling_impl"
+if _GATES_IMPL_KEY not in sys.modules:
+    _spec = _importlib_util.spec_from_file_location(
+        _GATES_IMPL_KEY, str(Path(__file__).parent / "gates.py"))
+    _impl = _importlib_util.module_from_spec(_spec)
+    sys.modules[_GATES_IMPL_KEY] = _impl
+    _spec.loader.exec_module(_impl)
+gates = sys.modules[_GATES_IMPL_KEY]
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn  # noqa: E402
 

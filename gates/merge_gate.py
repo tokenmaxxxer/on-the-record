@@ -21,7 +21,24 @@ import spawn_on_pr  # noqa: E402
 import check_run_artifact as cra  # noqa: E402
 import check_runner  # noqa: E402
 import stale_revert_guard  # noqa: E402
-import gates  # noqa: E402
+# issue #3057 (same collision and fix shape as `gates/record_lint.py`/
+# `gates/claims.py`: see their comments for the full rationale) — a bare
+# `import gates` here resolves to the sibling `gates/gates.py` when this
+# file is run as a script (`sys.path[0]` is `gates/`), but under
+# `python3 -m gates.merge_gate` the name `gates` is already bound to the
+# enclosing namespace package, so the bare import silently binds to that
+# package instead and `gates.record_frontmatter` raises AttributeError.
+# Load the sibling file by explicit path under the same private,
+# process-shared key the other fixed modules use.
+import importlib.util as _importlib_util
+_GATES_IMPL_KEY = "_on_the_record_gates_sibling_impl"
+if _GATES_IMPL_KEY not in sys.modules:
+    _spec = _importlib_util.spec_from_file_location(
+        _GATES_IMPL_KEY, str(Path(__file__).parent / "gates.py"))
+    _impl = _importlib_util.module_from_spec(_spec)
+    sys.modules[_GATES_IMPL_KEY] = _impl
+    _spec.loader.exec_module(_impl)
+gates = sys.modules[_GATES_IMPL_KEY]
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import spawn  # noqa: E402
@@ -397,21 +414,47 @@ def evaluate(root: Path, repo: Path, pr: int, subject: str) -> dict:
     return result
 
 
+# issue #3057: exit code is the only signal a shell caller has, and
+# `evaluate()` raising was previously indistinguishable from a refusal —
+# both surfaced as rc=1 (the crash, via Python's default handler for an
+# uncaught exception; the refusal, via the old explicit `return 1`).
+# Three outcomes now get three distinct codes so a caller branching on
+# `$?` can tell "don't merge, here is why" (EXIT_REFUSED) apart from
+# "the gate itself did not run to completion" (EXIT_COULD_NOT_DECIDE) —
+# the latter must never be read as either an allow or a considered
+# refuse.
+EXIT_ALLOWED = 0
+EXIT_REFUSED = 1
+EXIT_COULD_NOT_DECIDE = 2
+
+
 def main() -> int:
     if len(sys.argv) < 3:
         print("usage: merge_gate.py <pr> <subject> [--repo <경로>]")
-        return 1
+        return EXIT_COULD_NOT_DECIDE
     try:
         pr = int(sys.argv[1])
     except ValueError:
         print(f"usage: merge_gate.py <pr> <subject> [--repo <경로>] "
               f"— pr must be an integer, got {sys.argv[1]!r}")
-        return 1
+        return EXIT_COULD_NOT_DECIDE
     subject = sys.argv[2]
     repo = Path(".").resolve()
     if "--repo" in sys.argv:
         repo = Path(sys.argv[sys.argv.index("--repo") + 1]).resolve()
-    result = evaluate(repo, repo, pr, subject)
+    # issue #3057 must-not: this does not catch-and-continue -- a crash
+    # inside `evaluate()` still aborts with its full traceback printed
+    # (nothing is swallowed) and still returns a non-zero code; the only
+    # change is which non-zero code, so a crash can never be read as a
+    # `EXIT_REFUSED` verdict the gate actually considered.
+    try:
+        result = evaluate(repo, repo, pr, subject)
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        print(f"판정 불가: PR #{pr} ({subject}) — 게이트 실행 중 처리되지 않은 예외 발생, "
+              f"위 트레이스백 참고. 이 종료 코드를 거절({EXIT_REFUSED})로 읽지 말 것.")
+        return EXIT_COULD_NOT_DECIDE
     stale = result.get("staleness")
     if stale is not None:
         # issue #2403: reported unconditionally, before any merge attempt --
@@ -421,11 +464,11 @@ def main() -> int:
               f"{'yes' if stale['conflicting'] else 'no'}")
     if result["allowed"]:
         print(f"허용: PR #{pr} ({subject}) 머지 자격 있음")
-        return 0
+        return EXIT_ALLOWED
     print(f"거절: PR #{pr} ({subject})")
     for reason in result["reasons"]:
         print(f"  - {reason}")
-    return 1
+    return EXIT_REFUSED
 
 
 if __name__ == "__main__":
