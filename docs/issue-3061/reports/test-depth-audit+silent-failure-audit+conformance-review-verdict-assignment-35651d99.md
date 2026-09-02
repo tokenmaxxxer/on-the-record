@@ -7,10 +7,17 @@ verifies_subject: true  # second independent, builder-blind verification of PR #
 code_under_review: 84d8ad04ea7559ad7a59975211921063f11ad9c1
 type: defect-verification-record
 breaking: false
-verdict: 2 of 3 criteria hold, 1 does not (see per-criterion table below).
-  R1 (delegation recorded/read-back) graded Surface. R2 (audit
-  distinguishes redundant-ask from genuine-fork) graded Incorrect. R3
-  (wake-outcome counting) graded Present.
+verdict: Revised after reconciling with PR #3097. canonical: gh pr view
+  3097 (merged as ed45102b) -- the first independent verification,
+  landed to main mid-session; see "Reconciliation" below for the full
+  comparison. R1 (delegation recorded/read-back) revised to Present,
+  matching PR #3097, with a distinct structural caveat kept as an open
+  concern rather than the verdict driver. R2 (audit distinguishes
+  redundant-ask from genuine-fork) Incorrect, matching PR #3097 and
+  reinforced by a 6th independently-constructed counter-example plus a
+  distinct trailing-punctuation defect PR #3097 did not report. R3
+  (wake-outcome counting) revised to Surface, matching PR #3097's stronger
+  reading of the criterion's own "counted and reported" wording.
 loop_state: landed
 upstream:
   - path: PR #3087 (github.com/tokenmaxxxer/on-the-record/pull/3087), head
@@ -56,7 +63,7 @@ task's framing these three checks are weak alone (pass on a hollow
 implementation); the rest of this record grades behavior, not exit codes,
 against each acceptance bullet's actual clause.
 
-### R1 — delegation state: round-trips correctly on disk, but nothing live reads it
+### R1 — delegation state: round-trips correctly on disk (verdict revised to Present, see Reconciliation)
 
 acceptance: `bash -c "cd /tmp/pr3087-check && env -u CLAUDE_SKILL python3 spawn.py delegation-state --repo . --grant '다 판단해서 처분해서 해' --granted-by operator"` — result:
 ```
@@ -77,7 +84,9 @@ rc≠0 — the self-grant ban fires live, not just as a docstring claim.
   replacing it: given the user's request, decompose it into the
   judgments and the work needed to reach it; delegate each judgment to a
 ```
-— the exact prose issue #3061's own body names as "in context on every one of the stops above... did not bind." PR #3087 does not touch this file, does not add a call to `delegation_state.grant()`/`describe()`/`in_force()` from any hook (`hooks.json`, `directive.sh`, `session-role-bind.sh`), and does not wire delegation-state into `poll-heartbeat.sh`'s tick text (checked below, R3 section). The mechanism is real and correctly built — the four acceptance checks above prove genuine cross-process persistence — but nothing in the live turn loop consults it automatically: an operator must remember to run `--grant`, and the orchestrator must remember to run a plain (non-audit) `delegation-state` read on its own initiative every turn to benefit from it. That is the same "remembering" failure mode the issue's own "Why a directive cannot fix this" section rejects, moved from a rule the orchestrator must recall to a command it must recall to run. Grading against the `conformance-review-verdict-assignment` skill's rule 1 (Surface when matching code exists but does not fire on the actual condition the requirement names): the issue's own "What has to become structural" section states the condition as "visible to the orchestrator on every turn... not re-derived from conversational memory each turn" — unmet. **Verdict: Surface.**
+— the exact prose issue #3061's own body names as "in context on every one of the stops above... did not bind." PR #3087 does not touch this file, does not add a call to `delegation_state.grant()`/`describe()`/`in_force()` from any hook (`hooks.json`, `directive.sh`, `session-role-bind.sh`), and does not wire delegation-state into `poll-heartbeat.sh`'s tick text (checked below, R3 section). The mechanism is real and correctly built — the four acceptance checks above prove genuine cross-process persistence — but nothing in the live turn loop consults it automatically: an operator must remember to run `--grant`, and the orchestrator must remember to run a plain (non-audit) `delegation-state` read on its own initiative every turn to benefit from it. That is the same "remembering" failure mode the issue's own "Why a directive cannot fix this" section rejects, moved from a rule the orchestrator must recall to a command it must recall to run. Grading against the `conformance-review-verdict-assignment` skill's rule 1 (Surface when matching code exists but does not fire on the actual condition the requirement names): the issue's own "What has to become structural" section states the condition as "visible to the orchestrator on every turn... not re-derived from conversational memory each turn" — unmet.
+
+canonical: the four `acceptance:` grant/read-back/revoke/self-grant-ban command blocks earlier in this same R1 section (this session's own transcript, this turn) — **Revised verdict: Present** (see "Reconciliation" below). On reflection against the literal acceptance bullet text ("Standing delegation is recorded as state when the operator grants it, and the orchestrator can read it back" — a capability claim, not an automatic-surfacing claim) rather than the surrounding "What has to become structural" prose, those four round-trip results satisfy this criterion as written. The automatic-wiring gap is kept below as an open structural concern, not as the verdict driver — a distinction this session did not draw consistently between R1 and R3 on the first pass (see Reconciliation).
 
 ### R2 — audit(): confirmed false positive on a genuine fork outside the marker vocabulary
 
@@ -116,7 +125,7 @@ Also verified the third named stopping pattern breaks on ordinary punctuation: d
 
 test-depth-audit cross-check: derived: `bash -c "cd /tmp/pr3087-check && grep -c 'def test_' test/test_delegation_state.py"` — result: `11` tests in the file; each of the 6 audit-flagging tests (`test_baseline_all_conditions_true_is_flagged` through `test_timestamp_before_grant_is_not_flagged`, `pr-3087:test/test_delegation_state.py:153-186`) is Genuine Assertion against the code's own 6-condition branch logic (each condition independently flips the outcome via `assertEqual(self._audit_count(...), 0 or 1)`, MC/DC-style) — real, not decorative. But `test_fork_marker_present_is_not_flagged_must_not_suppress_escalation` (`pr-3087:test/test_delegation_state.py:165-172`) is Happy-Path-Only relative to the must-not clause it names in its own docstring comment: its only genuine-fork input is `"이대로 갈까요? 옵션 1과 옵션 2 중 어느 쪽으로 갈지 결정이 필요합니다."` — built from the enumerated marker list itself — so it can only prove the marker list excludes the marker list; it does not and cannot catch case (4) above. The coverage gap is on the requirement (realistic fork phrasing outside the fixed vocabulary), not on the code's internal branches, which the test suite does cover thoroughly. **Verdict: Incorrect** — grading against `conformance-review-verdict-assignment` rule 2 (Incorrect, not Absent, when the artifact actively contradicts the requirement's stated condition): the artifact actively produces the outcome ("genuine fork flagged as redundant") its own design record and the issue's must-not clause both forbid, on phrasing plausible enough that a natural English or Korean fork routinely lands there.
 
-### R3 — wake-outcome counting: live-wired, holds up
+### R3 — wake-outcome counting: live-wired, but not reported (verdict revised to Surface, see Reconciliation)
 
 derived: `bash -c "cd /tmp/pr3087-check && grep -n 'poll_heartbeat_delta' on-the-record/monitors/poll-heartbeat.sh"` — result: line 560 —
 ```
@@ -128,7 +137,9 @@ acceptance: `bash -c "cd /tmp/pr3087-check && python3 -m pytest on-the-record/mo
 ```
 12 passed
 ```
-covering idle-wake vs acted, the periodic-beacon-must-count-as-idle-not-acted case (an unchanged tick past the 1800s bound still prints a liveness beacon — `emitted_now=True` — but `to_emit` is empty, and the test pins this as idle-wake, not acted), and idle-wake never producing a non-zero exit code. canonical: `pr-3087:on-the-record/monitors/poll_heartbeat_delta.py:100-114` (`format_wake_outcomes`, read this session) never emits a failure word, error tag, or threshold comparison — purely descriptive counts, matching the issue's third must-not ("a tick during which spawned sessions are legitimately mid-flight... has nothing to advance, and counting those as failures would push toward busywork"). **Verdict: Present.**
+covering idle-wake vs acted, the periodic-beacon-must-count-as-idle-not-acted case (an unchanged tick past the 1800s bound still prints a liveness beacon — `emitted_now=True` — but `to_emit` is empty, and the test pins this as idle-wake, not acted), and idle-wake never producing a non-zero exit code. canonical: `pr-3087:on-the-record/monitors/poll_heartbeat_delta.py:100-114` (`format_wake_outcomes`, read this session) never emits a failure word, error tag, or threshold comparison — purely descriptive counts, matching the issue's third must-not ("a tick during which spawned sessions are legitimately mid-flight... has nothing to advance, and counting those as failures would push toward busywork").
+
+derived: `bash -c "cd /tmp/pr3087-check2 && grep -n -- '--report' on-the-record/monitors/poll-heartbeat.sh"` — result: no match, rc=1 — confirms no automatic `--report` invocation anywhere in the heartbeat script. **Revised verdict: Surface** (see "Reconciliation" below). The acceptance bullet's own text is "counted **and reported**, distinctly from a wake that acted" — the counting half is confirmed live above, but the reporting half requires a manual `--report` invocation nothing in the operational path issues, so no operator or downstream automation sees these counts during normal operation. This is the same shape as R1's gap (data collected, nothing auto-surfaces it) and should have been graded the same way on the first pass; treating R1's identical gap as Surface-driving while treating R3's as a non-driving footnote was an inconsistency in this session's own reasoning, corrected here.
 
 ### Full suite: no regression, but the task's cited baseline does not match either branch
 
@@ -182,8 +193,30 @@ surfaced the R2 defect.
 - `gh issue view 3061` (issue body, read in full before verification) —
   sha: same-commit (informs this record, not a file in this repo's tree)
 - This session's own scratch verification tooling (`/tmp/dstest/`,
-  `/tmp/pr3087-check`, `/tmp/main-check` — git worktrees and a standalone
-  Python harness, none committed, none inside this repo's tracked tree)
+  `/tmp/pr3087-check`, `/tmp/pr3087-check2`, `/tmp/main-check` — git
+  worktrees and a standalone Python harness, none committed, none inside
+  this repo's tracked tree)
+- PR #3097 (github.com/tokenmaxxxer/on-the-record/pull/3097) — on
+  `origin/main` as of `ed45102b13a755bc27dc342dd471f578a8e8e083`, not in
+  this branch's own checked-out tree (this branch is based on
+  `573e7382`; main advanced mid-session)
+  sha: ed45102b13a755bc27dc342dd471f578a8e8e083
+
+## Reconciliation
+
+amendments-reconciled: `gh issue view 3061 --repo tokenmaxxxer/on-the-record --comments` (this session, this turn) — result: issue #3061 carries comment `issuecomment-5506047531` (posted after this session started).
+canonical: `gh pr view 3097 --repo tokenmaxxxer/on-the-record` (this session, this turn) — result: title "issue-3061: independent verification of PR #3087 (1 Present, 1 Incorrect, 1 Surface)", state MERGED.
+derived: `bash -c "git show origin/main:docs/issue-3061/reports/adversarial-review+defect-verification-independence-from-upstream-verdicts+silent-failure-audit-e66b8b2e.md | wc -l"` — result: `388` lines, read in full this session, this turn (path on `origin/main` at `ed45102b`, untracked in this branch's own tree). Read in full after this session's own R1/R2/R3 findings above were already drafted, then reconciled below:
+
+- **R2 (Incorrect):** both verifications agree. PR #3097 constructed 5 independent genuine-escalation phrasings (irreversible actions, authority language, English + Korean) all misclassified as redundant; this session constructed 1 independently (a fork with named alternatives + "your call"), plus a distinct defect PR #3097's record does not mention: the `다음은[^\n]*하겠습니다\s*$` pattern (the issue's third named stopping shape) fails to match with a trailing period. No reconciliation needed — the verdict and the central finding converge from two different constructed counter-examples.
+- **R1 (was Surface, revised to Present):** canonical: `origin/main:docs/issue-3061/reports/adversarial-review+...-e66b8b2e.md`'s "Criterion 1" section (read this session, this turn) grades Present from the same round-trip mechanics this session independently re-derived (grant/read/revoke/self-grant-ban/fail-closed-expiry). This session's first-pass Surface verdict rested on treating the issue body's "visible to the orchestrator on every turn" framing prose as part of the criterion rather than the literal, narrower acceptance-bullet wording. Revised to Present above, matching PR #3097's reading of the literal bullet. The automatic-wiring gap this session found (nothing in `on-the-record/directive/`, `hooks.json`, or `poll-heartbeat.sh` calls `delegation_state.grant()`/`describe()`) does not appear in PR #3097's Criterion-1 section — kept in "Open findings" below as a structural concern this session contributes, distinct from the verdict itself.
+- **R3 (was Present, revised to Surface):** canonical: `origin/main:docs/issue-3061/reports/adversarial-review+...-e66b8b2e.md`'s "Criterion 3" section (read this session, this turn) grades Surface, reasoning from the acceptance bullet's own "counted **and reported**" wording and a direct comparison to `watchdog.py`'s idle-session anomaly reporting (already flowing into the same live tick output automatically, unlike the new wake-outcome counts). This session's own `derived:` grep in the R3 section above found the identical underlying gap (no automatic `--report` call site) independently, but on the first pass treated it as a secondary caveat under a Present verdict rather than the verdict driver — inconsistent with how this session treated the same shape of gap for R1. Revised to Surface above, matching PR #3097 and correcting that inconsistency.
+
+Net effect: this session's independent construction agrees with PR #3097
+on all three revised verdicts (R1 Present, R2 Incorrect, R3 Surface),
+while contributing two findings not in PR #3097's record — the R1
+automatic-wiring gap and the R2 trailing-punctuation defect on the
+issue's third named pattern.
 
 ## Open findings
 
@@ -195,10 +228,16 @@ surfaced the R2 defect.
   them"). derived: `bash -c "gh issue create --repo tokenmaxxxer/on-the-record --title '...' --body-file /tmp/issue-3061-r2-body.md"` — result: refused pre-flight, rc≠0, no issue created. The finding is recorded here in full (reproduction, code citation, and suggested fix direction) for the orchestrator or `coding` to file/triage instead.
 - **R1 structural gap (nothing in the live orchestrator path calls
   `delegation_state.grant()`/`describe()` automatically)** — not filed as
-  a separate GitHub issue; recorded above with its own evidence as the
-  central open question this verification answers (Surface, not Present),
-  since closing it is plausibly the bulk of a phase-2 follow-up on #3061
-  itself, not an independent defect against otherwise-correct code.
+  a separate GitHub issue; recorded above (see "Reconciliation") with its
+  own evidence as a caveat under the revised Present verdict rather than
+  the verdict driver, since PR #3097's own text of the criterion is
+  narrower than the framing prose this session initially weighted. Left
+  open since closing it is plausibly part of a phase-2 follow-up on
+  #3061 itself, not an independent defect against otherwise-correct code.
+- **R3 structural gap (no automatic `--report` call site)** — the same
+  shape of gap as R1's, and the driver of R3's revised Surface verdict
+  above (see "Reconciliation"); not filed separately since it is the
+  verdict itself, not a caveat under it.
 
 ## Next steps
 
