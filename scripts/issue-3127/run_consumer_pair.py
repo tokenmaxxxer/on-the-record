@@ -807,26 +807,40 @@ def emit_not_executed_results(plan: Plan) -> dict:
         "issue": 3127,
         "run_status": "not_executed",
         "run_status_reason": (
-            "This session built and dry-run-validated scripts/issue-3127/"
-            "run_consumer_pair.py but did not pass --execute. Two "
-            "independent, evidence-backed reasons: (1) spawn.py's real "
-            "--skills dispatch path self-daemonizes (fork + os.setsid() + "
-            "start_new_session=True + stdio redirected to devnull -- "
-            "spawn.py:4684-4749) rather than blocking in the caller, so a "
-            "headless single-shot session (contract v3 s22: must consume "
-            "delegated work within the same turn, or not delegate it) "
-            "cannot safely fire-and-forget a detached recursive claude "
-            "session it cannot then observe finishing; the harness "
-            "instead requires a second blocking `spawn.py watch --follow` "
-            "call, which is implemented in execute_arm() but was never "
-            "run live. (2) Running it for real creates real GitHub "
-            "issues/PRs in a sandbox repo and spends real compute across "
-            "multiple recursive full sessions -- a real-world side effect "
-            "large enough to warrant explicit confirmation before a "
-            "headless session takes it unilaterally, and this session had "
-            "no turn in which a human could grant that confirmation "
-            "(headless, single-shot, no later turn for an answer to land "
-            "in)."),
+            "A later session (2026-09-02, this run) had explicit operator "
+            "authorization to execute for real (CORE_BUILD_NOW=1, and the "
+            "prior session's confirmation blocker was resolved) and "
+            "located the pre-provisioned sandbox repo "
+            "(JiwonJung94/study-companion -- spawn.py-init'd, docs/specs/"
+            "approvers.md present, docs/issue-1 and docs/issue-5 already "
+            "matching this harness's pair task text). The dry-run plan "
+            "was verified to match the pre-registration (arms, "
+            "held-constant factors, H1 gate, blind scorer, wall-clock "
+            "naming). Execution then hit a hard, mechanically-enforced "
+            "block distinct from the prior session's caution-based one: "
+            "creating the 4 seed GitHub issues `--issue-map` requires "
+            "(one skills-on + one skills-off issue per registered pair) "
+            "was refused live by this repo's own gh-guard pretooluse "
+            "hook -- 'issues are the user's requirement backlog, "
+            "user-authored only (contract v3 s9) -- no skill touches "
+            "them' (two-account model, contract v3 s8) -- reproduced "
+            "verbatim against `gh issue create --repo "
+            "JiwonJung94/study-companion ...` this session. This is a "
+            "deliberate safety boundary (skill sessions cannot author "
+            "requirement-backlog issues in ANY repo, not just the "
+            "orchestrator's own), not a caution call this session made "
+            "unilaterally, and it was not bypassed -- no alternate gh "
+            "auth, no hook skip. It structurally means no skill session "
+            "under this protocol can complete this harness's --execute "
+            "path alone: the seed issues for --issue-map must be created "
+            "by the human operator (or another user-authored channel) "
+            "out-of-band, before a skill session's spawn.py dispatch + "
+            "watch --follow can run. The self-daemonization concern from "
+            "the prior session's reasoning is otherwise resolved -- "
+            "execute_arm() calls `spawn.py watch --follow` and blocks "
+            "the caller for real, so a session with the seed issues "
+            "already in hand could complete a live run within one "
+            "sitting."),
         "pre_registration_ref": "docs/issue-3127/decisions/pre-registration.md",
         "pairs_registered": [p.pair_id for p in plan.pairs],
         "threshold": {
@@ -921,17 +935,24 @@ def emit_not_executed_results(plan: Plan) -> dict:
             "JSON reports zero information about effect size in either "
             "direction, not a null."),
         "next_steps_for_a_future_executing_session": [
-            "provision a sandbox repo (spawn.py init'd, docs/specs/"
-            "approvers.md present) distinct from tokenmaxxxer/on-the-"
-            "record itself, so real paired-run PRs never touch the "
-            "production board",
-            "create the 2 registered pairs' issues (skills-on issue + "
-            "skills-off issue per pair) in that sandbox with identical "
-            "body text except the arm label",
+            "sandbox repo already provisioned: JiwonJung94/study-companion "
+            "(spawn.py-init'd, docs/specs/approvers.md present, "
+            "docs/issue-1 + docs/issue-5 already match this harness's "
+            "pair task text) -- no need to provision a new one",
+            "the human operator (not a skill session -- gh-guard refuses "
+            "issue creation from a skill session, contract v3 s8/s9) "
+            "must create the 2 registered pairs' issues (skills-on issue "
+            "+ skills-off issue per pair, 4 total) in that sandbox with "
+            "identical body text except the arm label, then hand the "
+            "resulting issue numbers to the executing session via "
+            "--issue-map",
             "run scripts/issue-3127/run_consumer_pair.py --execute "
-            "--i-understand-this-spawns-real-sessions --repo <sandbox> "
+            "--i-understand-this-spawns-real-sessions --repo <local clone "
+            "of JiwonJung94/study-companion> --issue-map "
+            "'01-study-groups:<on>:<off>,02-onboarding-experiment:<on>:<off>' "
             "in a session with enough turn budget to block on spawn.py "
-            "watch --follow per arm (see execute_arm())",
+            "watch --follow per arm (see execute_arm()); commit results "
+            "after each pair completes",
             "run scrub_skill_slugs() against each arm's deliverable "
             "before scoring, and report whether the scrub changed "
             "either pair's score",
