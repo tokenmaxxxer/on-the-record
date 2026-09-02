@@ -490,29 +490,29 @@ Two false leads, both caught before being reported as findings:
   enforcement-boundary.md is not one of the documents that index tracks,
   so no regeneration was owed; not pursued further as a finding.
 
-skill-verdict: adversarial-review -- applied: invoked; ran this
+skill-verdict: adversarial-review — applied: invoked; ran this
 verification of PR #3084 blind to the builder's session (never received
 the builder's prompt/reasoning, only gh reads of the issue and PR), and
 reached an independent verdict by executing code rather than reading the
 builder's claims as settled.
-skill-verdict: test-depth-audit -- applied: invoked; classified every test
+skill-verdict: test-depth-audit — applied: invoked; classified every test
 in the PR's repo-scope test file per the "Test depth audit" section above
 (derived: 7 GA / 7 total = 100%, same section).
-skill-verdict: defect-verification-reproduction-evidence-quality --
+skill-verdict: defect-verification-reproduction-evidence-quality —
 applied: invoked; every claim above carries a derived:/canonical: tag with
 the actual command and quoted output (rule 5), the pre-fix/post-fix
 environment for each is stated (rule 7), and the spawn_on_pr finding
 attaches evidence to each step of the causal chain (_park_state_path's
 root-ignoring anchor, then parked_report's missing filter) rather than
 one end-state pointer (rule 12).
-skill-verdict: defect-verification-independence-from-upstream-verdicts --
+skill-verdict: defect-verification-independence-from-upstream-verdicts —
 applied: invoked; devised the four adversarial cases independently of
 what PR #3084's own probe/tests already covered (rule 2: deliberately
 included edge/negative cases -- never-swept repo, legacy entry, numeric
 overlap, empty repo), and pursued the issue's own must-not clause to an
 actual reproduction rather than accepting the builder record's verdict at
 face value (rule 1, rule 6).
-skill-verdict: work-in-english -- applied: invoked; this record, all
+skill-verdict: work-in-english — applied: invoked; this record, all
 commands, and all code are in English.
 other mounted skills (conformance-review-finding-record,
 implementation-audit, verify-finding-record): not triggered -- this
