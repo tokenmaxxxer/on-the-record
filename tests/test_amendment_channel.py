@@ -218,6 +218,12 @@ class AbsorbedAmendmentStopsAnnouncing(unittest.TestCase):
 
 
 class GhCommandDetection(unittest.TestCase):
+    """`record_amendment_from_response()`'s SHAPE gate: is this Bash call
+    a `gh issue edit ... --body...` invocation at all. `self.success_url`
+    names the SAME repo as `self.orch_cwd`'s own `origin`, so these tests
+    exercise detection/note-extraction only -- repo/issue attribution
+    itself is covered separately in `RecordAmendmentFromResponse` below."""
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.state_dir = os.path.join(self.tmp.name, "state")
@@ -225,20 +231,26 @@ class GhCommandDetection(unittest.TestCase):
         # own cwd when it runs `gh issue edit` is always a real checkout
         self.orch_cwd = str(_make_issue_repo(Path(self.tmp.name), "999",
                                               name="orch-repo"))
+        self.success_url = "https://github.com/%s/issues/55" % REPO_A
 
     def tearDown(self):
         self.tmp.cleanup()
 
+    def _record(self, cmd, tool_name="Bash", tool_response=None):
+        return ac.record_amendment_from_response(
+            self.state_dir, tool_name, cmd, self.orch_cwd,
+            self.success_url if tool_response is None else tool_response,
+        )
+
     def test_body_flag_writes_marker_with_note(self):
-        cmd = 'gh issue edit 55 --body "corrected: do X"'
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        result = self._record('gh issue edit 55 --body "corrected: do X"')
+        self.assertIsInstance(result, ac.AmendmentWritten)
         marker = ac.read_marker(self.state_dir, REPO_A, "55")
         self.assertIsNotNone(marker)
         self.assertEqual(marker["note"], "corrected: do X")
 
     def test_body_equals_form_writes_marker(self):
-        cmd = "gh issue edit 55 --body=inline-text"
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        self._record("gh issue edit 55 --body=inline-text")
         marker = ac.read_marker(self.state_dir, REPO_A, "55")
         self.assertEqual(marker["note"], "inline-text")
 
@@ -246,8 +258,7 @@ class GhCommandDetection(unittest.TestCase):
         note_path = os.path.join(self.tmp.name, "note2.txt")
         with open(note_path, "w") as f:
             f.write("equals-form body file text")
-        cmd = "gh issue edit 55 --body-file=%s" % note_path
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        self._record("gh issue edit 55 --body-file=%s" % note_path)
         marker = ac.read_marker(self.state_dir, REPO_A, "55")
         self.assertEqual(marker["note"], "equals-form body file text")
 
@@ -255,38 +266,43 @@ class GhCommandDetection(unittest.TestCase):
         note_path = os.path.join(self.tmp.name, "note.txt")
         with open(note_path, "w") as f:
             f.write("full corrected body text")
-        cmd = "gh issue edit 55 --body-file %s" % note_path
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        self._record("gh issue edit 55 --body-file %s" % note_path)
         marker = ac.read_marker(self.state_dir, REPO_A, "55")
         self.assertEqual(marker["note"], "full corrected body text")
 
     def test_non_body_edit_does_not_write_a_marker(self):
-        cmd = "gh issue edit 55 --add-label bug"
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        result = self._record("gh issue edit 55 --add-label bug")
+        self.assertIsInstance(result, ac.AmendmentSkipped)
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "55"))
 
     def test_unrelated_bash_command_does_not_write_a_marker(self):
-        ac.maybe_write_from_command(self.state_dir, "Bash", "git status", self.orch_cwd)
+        result = self._record("git status", tool_response="")
+        self.assertIsInstance(result, ac.AmendmentSkipped)
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "1"))
 
     def test_non_bash_tool_is_ignored(self):
-        cmd = 'gh issue edit 55 --body "x"'
-        ac.maybe_write_from_command(self.state_dir, "Write", cmd, self.orch_cwd)
+        result = self._record('gh issue edit 55 --body "x"', tool_name="Write")
+        self.assertIsInstance(result, ac.AmendmentSkipped)
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "55"))
 
     def test_unwritable_state_dir_surfaces_a_stderr_diagnostic(self):
         """silent-failure-audit finding (issue #3129): write_amendment's
         own OSError catch correctly fails open for the orchestrator's tool
         call, but a discarded return value left the failure with zero
-        trace anywhere. maybe_write_from_command must not repeat that --
-        one stderr line, still non-blocking."""
+        trace anywhere. `record_amendment_from_response`/`_report_write_
+        result` must not repeat that -- one stderr line, still
+        non-blocking."""
         blocker = os.path.join(self.tmp.name, "blocker")
         with open(blocker, "w") as f:
             f.write("x")
-        cmd = 'gh issue edit 55 --body "x"'
+        result = ac.record_amendment_from_response(
+            blocker, "Bash", 'gh issue edit 55 --body "x"', self.orch_cwd,
+            self.success_url,
+        )
+        self.assertIsInstance(result, ac.MarkerWriteFailed)
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
-            ac.maybe_write_from_command(blocker, "Bash", cmd, self.orch_cwd)
+            ac._report_write_result(result)
         self.assertIn("issue #55", stderr.getvalue())
         self.assertIn("not see this correction", stderr.getvalue())
 
@@ -297,22 +313,253 @@ class GhCommandDetection(unittest.TestCase):
         the failure must be observable (stderr), not silently dropped."""
         no_origin_cwd = str(_make_issue_repo(Path(self.tmp.name), "999",
                                               name="no-origin-repo", origin=None))
-        cmd = 'gh issue edit 55 --body "x"'
+        result = ac.record_amendment_from_response(
+            self.state_dir, "Bash", 'gh issue edit 55 --body "x"',
+            no_origin_cwd, self.success_url,
+        )
+        self.assertIsInstance(result, ac.NoRegisteredRepo)
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
-            ac.maybe_write_from_command(self.state_dir, "Bash", cmd, no_origin_cwd)
+            ac._report_write_result(result)
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "55"))
         self.assertFalse(os.path.isdir(self.state_dir),
                           "no marker of any kind should have been written")
-        self.assertIn("issue #55", stderr.getvalue())
-        self.assertIn("could not identify the repo", stderr.getvalue())
+        self.assertIn("registered repo", stderr.getvalue())
+
+
+class RecordAmendmentFromResponse(unittest.TestCase):
+    """issue #3129 round-4 redesign: the write side's repo+issue
+    attribution now comes ENTIRELY from (a) this session's own registered
+    repo (`repo_slug_for_cwd(cwd)`) and (b) the edited issue's own URL in
+    `tool_response` -- never from parsing the command text (see module
+    docstring, redesign section, and PR #3170's independent verification
+    of the command-text parser this replaces)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state_dir = os.path.join(self.tmp.name, "state")
+        self.session_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="session-checkout", origin=REPO_A_URL))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _record(self, cmd, tool_response, cwd=None):
+        return ac.record_amendment_from_response(
+            self.state_dir, "Bash", cmd, cwd or self.session_cwd, tool_response)
+
+    def test_matching_repo_writes_marker_keyed_to_url_issue_number(self):
+        url = "https://github.com/%s/issues/42" % REPO_A
+        result = self._record('gh issue edit 42 --body "fixed brief"', url)
+        self.assertIsInstance(result, ac.AmendmentWritten)
+        self.assertEqual(result.repo, REPO_A)
+        self.assertEqual(result.issue, "42")
+        marker = ac.read_marker(self.state_dir, REPO_A, "42")
+        self.assertEqual(marker["note"], "fixed brief")
+
+    def test_issue_number_comes_from_the_url_never_the_command_text(self):
+        """The command names issue 42 textually but the URL (the tool's
+        own report of what it actually did) names 999 -- the marker must
+        key to 999, proving the command text is not read for the issue
+        number either, only for the shape gate."""
+        url = "https://github.com/%s/issues/999" % REPO_A
+        result = self._record('gh issue edit 42 --body "fixed brief"', url)
+        self.assertIsInstance(result, ac.AmendmentWritten)
+        self.assertEqual(result.issue, "999")
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+        self.assertIsNotNone(ac.read_marker(self.state_dir, REPO_A, "999"))
+
+    def test_mismatched_repo_is_a_policy_violation_no_marker_written(self):
+        url = "https://github.com/%s/issues/42" % REPO_B
+        result = self._record('gh issue edit 42 --body "fixed brief"', url)
+        self.assertIsInstance(result, ac.RepoMismatch)
+        self.assertEqual(result.registered_repo, REPO_A)
+        self.assertEqual(result.url_repo, REPO_B)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_B, "42"))
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ac._report_write_result(result)
+        text = stderr.getvalue()
+        self.assertIn(REPO_A, text)
+        self.assertIn(REPO_B, text)
+        self.assertIn("POLICY VIOLATION", text)
+
+    def test_no_url_in_response_is_fail_closed_no_marker(self):
+        """`gh`'s output shape changed, or the human/model only echoed a
+        confirmation sentence instead of the real stdout -- either way, no
+        URL means no attribution, never a guess."""
+        result = self._record('gh issue edit 42 --body "fixed brief"',
+                               "Edited issue #42")
+        self.assertIsInstance(result, ac.NoIssueUrlInResponse)
+        self.assertEqual(result.registered_repo, REPO_A)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ac._report_write_result(result)
+        self.assertIn("no parseable", stderr.getvalue())
+
+    def test_empty_tool_response_is_fail_closed_no_marker(self):
+        result = self._record('gh issue edit 42 --body "fixed brief"', "")
+        self.assertIsInstance(result, ac.NoIssueUrlInResponse)
+
+    def test_none_tool_response_is_fail_closed_no_marker(self):
+        result = self._record('gh issue edit 42 --body "fixed brief"', None)
+        self.assertIsInstance(result, ac.NoIssueUrlInResponse)
+
+    def test_no_registered_repo_is_fail_closed_not_skip_silently(self):
+        """issue #3129 round-4 caveat 2: a session with no resolvable
+        registered repo (not started through spawn.py, or `cwd` is not a
+        git checkout at all) must fail CLOSED -- no marker, loud stderr --
+        never skip silently as if amendments simply don't apply here."""
+        no_repo_cwd = self.tmp.name  # a plain directory, not even git init'd
+        url = "https://github.com/%s/issues/42" % REPO_A
+        result = self._record('gh issue edit 42 --body "fixed brief"', url,
+                               cwd=no_repo_cwd)
+        self.assertIsInstance(result, ac.NoRegisteredRepo)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ac._report_write_result(result)
+        self.assertIn("registered repo", stderr.getvalue())
+
+
+class PreviouslyBrokenShapesAreNowIrrelevant(unittest.TestCase):
+    """PR #3170's independent verification found repair round 3's
+    command-text parser still missed 5 of 9 un-enumerated shapes:
+    `pushd`, a quoted `cd` path containing a space, a subshell wrapping
+    only `gh`, `--repo=` before the issue number, and a `GH_REPO=`
+    env-var prefix. Under this round's redesign none of these shapes
+    matter anymore -- the command text is consulted only for the shape
+    gate, never for attribution -- so each becomes trivially Present
+    here, driven through the same `record_amendment_from_response`
+    entrypoint, each wrapped with a normal-looking `tool_response`.
+    Proves the new seam does not care about the command's shape at all
+    for attribution purposes, by construction rather than by enumeration.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state_dir = os.path.join(self.tmp.name, "state")
+        self.session_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="session-checkout", origin=REPO_A_URL))
+        self.url = "https://github.com/%s/issues/42" % REPO_A
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _assert_writes_marker(self, cmd):
+        result = ac.record_amendment_from_response(
+            self.state_dir, "Bash", cmd, self.session_cwd, self.url)
+        self.assertIsInstance(result, ac.AmendmentWritten,
+                               "cmd=%r result=%r" % (cmd, result))
+        self.assertIsNotNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+
+    def test_pushd_chain(self):
+        self._assert_writes_marker(
+            "pushd /somewhere/else && gh issue edit 42 --body 'fixed brief' && popd")
+
+    def test_cd_to_quoted_path_with_a_space(self):
+        self._assert_writes_marker(
+            "cd \"/path with a space/checkout\" && gh issue edit 42 "
+            "--body 'fixed brief'")
+
+    def test_subshell_wrapping_only_gh(self):
+        self._assert_writes_marker(
+            "cd /somewhere/else && (gh issue edit 42 --body 'fixed brief')")
+
+    def test_repo_flag_before_the_issue_number(self):
+        self._assert_writes_marker(
+            "gh issue edit --repo=owner/other-repo 42 --body 'fixed brief'")
+
+    def test_gh_repo_env_var_prefix(self):
+        self._assert_writes_marker(
+            "GH_REPO=owner/other-repo gh issue edit 42 --body 'fixed brief'")
+
+    def test_cd_inside_a_quoted_body_string_is_never_mistaken_for_a_real_cd(self):
+        """Not one of PR #3170's 5, but the same principle from the other
+        direction: text that LOOKS like shell syntax embedded in the body
+        DATA must not confuse anything, because none of the command is
+        parsed for attribution purposes at all anymore."""
+        cmd = "gh issue edit 42 --body 'cd /nonexistent && rm -rf /'"
+        result = ac.record_amendment_from_response(
+            self.state_dir, "Bash", cmd, self.session_cwd, self.url)
+        self.assertIsInstance(result, ac.AmendmentWritten)
+        marker = ac.read_marker(self.state_dir, REPO_A, "42")
+        self.assertEqual(marker["note"], "cd /nonexistent && rm -rf /")
+
+
+class MainExitCodeReflectsWriteOutcome(unittest.TestCase):
+    """issue #3129 round-4: a fail-closed write outcome must be visible as
+    a nonzero exit code from `amendment_channel.py`'s own process. The
+    shipped `.sh` wrapper (`amendment-channel.sh`) still unconditionally
+    exits 0 on its own trailing line -- a PostToolUse hook must never
+    block a tool call -- but invoking the python module directly, as
+    these tests and the gates probes both can, must not paper over the
+    failure with a silent 0."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state_dir = os.path.join(self.tmp.name, "state")
+        self.repo = _make_issue_repo(Path(self.tmp.name), "1", origin=REPO_A_URL)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run_main(self, payload):
+        env = dict(os.environ, OTR_AMENDMENT_STATE_DIR=self.state_dir)
+        module = str(HOOKS_DIR / "amendment_channel.py")
+        return subprocess.run(
+            [sys.executable, module], input=json.dumps(payload),
+            capture_output=True, text=True, env=env, timeout=30,
+        )
+
+    def test_successful_write_exits_zero(self):
+        url = "https://github.com/%s/issues/42" % REPO_A
+        payload = {"session_id": "orch-sess", "tool_name": "Bash",
+                   "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
+                   "cwd": str(self.repo), "tool_response": url}
+        r = self._run_main(payload)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_quiet_non_gh_call_exits_zero(self):
+        payload = {"session_id": "sess-1", "tool_name": "Read", "tool_input": {},
+                   "cwd": str(self.repo)}
+        r = self._run_main(payload)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_repo_mismatch_exits_nonzero_with_stderr(self):
+        url = "https://github.com/%s/issues/42" % REPO_B
+        payload = {"session_id": "orch-sess", "tool_name": "Bash",
+                   "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
+                   "cwd": str(self.repo), "tool_response": url}
+        r = self._run_main(payload)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("POLICY VIOLATION", r.stderr)
+
+    def test_no_registered_repo_exits_nonzero_with_stderr(self):
+        url = "https://github.com/%s/issues/42" % REPO_A
+        payload = {"session_id": "orch-sess", "tool_name": "Bash",
+                   "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
+                   "cwd": self.tmp.name, "tool_response": url}
+        r = self._run_main(payload)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("registered repo", r.stderr)
+
+    def test_no_url_in_response_exits_nonzero_with_stderr(self):
+        payload = {"session_id": "orch-sess", "tool_name": "Bash",
+                   "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
+                   "cwd": str(self.repo), "tool_response": "Edited issue #42"}
+        r = self._run_main(payload)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("no parseable", r.stderr)
 
 
 class RepoSlugForCwd(unittest.TestCase):
     """test-derivation pass (issue #3129 repair): equivalence partitions
     over the `origin` remote URL shape `repo_slug_for_cwd()` must parse.
     The prior coverage only exercised the https:// form indirectly through
-    `maybe_write_from_command`/`run_hook` -- this adds the SSH forms
+    `record_amendment_from_response`/`run_hook` -- this adds the SSH forms
     `spawn.py`'s own `_workspace_target_path()` explicitly handles
     elsewhere in this repo, plus the not-a-URL-shape-at-all boundary."""
 
@@ -423,8 +670,10 @@ class RunHookEndToEnd(unittest.TestCase):
         # shape: orchestrator and worker are separate processes/checkouts
         orch_repo = _make_issue_repo(Path(self.tmp.name), "1", name="orch-repo")
         cmd = 'gh issue edit 88 --body "new brief"'
+        url = "https://github.com/%s/issues/88" % REPO_A
         payload = self._payload(session_id="orch-sess", tool_name="Bash",
-                                 tool_input={"command": cmd}, cwd=str(orch_repo))
+                                 tool_input={"command": cmd}, cwd=str(orch_repo),
+                                 tool_response=url)
         # the orchestrator's own cwd is not on issue #88's branch, so this
         # call itself gets no notice back -- it only records the marker
         self.assertIsNone(ac.run_hook(payload, self.state_dir))
@@ -454,9 +703,11 @@ class RunHookEndToEnd(unittest.TestCase):
                                            name="repo-a-orch", origin=REPO_A_URL)
 
         amend_cmd = 'gh issue edit %s --body "repo A correction"' % issue
+        amend_url = "https://github.com/%s/issues/%s" % (REPO_A, issue)
         amend_payload = json.dumps({
             "session_id": "orch-sess", "tool_name": "Bash",
             "tool_input": {"command": amend_cmd}, "cwd": str(orch_in_repo_a),
+            "tool_response": amend_url,
         })
         self.assertIsNone(ac.run_hook(amend_payload, self.state_dir))
 
@@ -499,302 +750,6 @@ class RunHookEndToEnd(unittest.TestCase):
 
         self.assertIsNone(ac.run_hook(worker_payload(repo_y), self.state_dir))
         self.assertIsNone(ac.run_hook(worker_payload(repo_x), self.state_dir))
-
-
-class WriterSideTargetsCommandNotSessionCwd(unittest.TestCase):
-    """Repair round 2 (PR #3159's finding, driven through the real
-    `run_hook` entrypoint, matching how that verification session found
-    it): the marker's repo key must come from what the `gh issue edit`
-    command actually targets, not the orchestrator's raw `PostToolUse`
-    session `cwd`. Reproduces the issue's own worked example literally --
-    an orchestrator's session `cwd` is an `on-the-record` checkout, but
-    its Bash tool call `cd`s into a `study-companion` checkout first --
-    which is exactly how this orchestrator operates (it edits
-    study-companion issues from the on-the-record checkout), so the old
-    cwd-keyed behavior would be wrong on every real use, not an edge
-    case."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.state_dir = os.path.join(self.tmp.name, "state")
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def test_cd_into_another_checkout_keys_the_marker_to_that_checkout(self):
-        session_cwd = str(_make_issue_repo(
-            Path(self.tmp.name), "1", name="on-the-record-checkout",
-            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
-        study_repo = str(_make_issue_repo(
-            Path(self.tmp.name), "1", name="study-companion-checkout",
-            origin="https://github.com/tokenmaxxxer/study-companion.git"))
-        cmd = "cd %s && gh issue edit 42 --body 'fixed brief'" % study_repo
-        payload = json.dumps({
-            "session_id": "orch-sess", "tool_name": "Bash",
-            "tool_input": {"command": cmd}, "cwd": session_cwd,
-        })
-        self.assertIsNone(ac.run_hook(payload, self.state_dir))
-
-        study_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42")
-        self.assertIsNotNone(study_marker, "marker should be keyed to the cd target repo")
-        self.assertEqual(study_marker["note"], "fixed brief")
-
-        wrong_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
-        self.assertIsNone(
-            wrong_marker,
-            "marker must not be keyed to the orchestrator's raw session cwd")
-
-    def test_explicit_repo_flag_overrides_cwd(self):
-        session_cwd = str(_make_issue_repo(
-            Path(self.tmp.name), "1", name="session-checkout",
-            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
-        cmd = "gh issue edit 42 --repo tokenmaxxxer/study-companion --body 'fixed brief'"
-        payload = json.dumps({
-            "session_id": "orch-sess", "tool_name": "Bash",
-            "tool_input": {"command": cmd}, "cwd": session_cwd,
-        })
-        self.assertIsNone(ac.run_hook(payload, self.state_dir))
-
-        flagged_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42")
-        self.assertIsNotNone(flagged_marker, "marker should be keyed to the --repo target")
-        self.assertEqual(flagged_marker["note"], "fixed brief")
-
-        wrong_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
-        self.assertIsNone(
-            wrong_marker,
-            "marker must not be keyed to the session cwd when --repo names "
-            "a different target")
-
-    def test_no_cd_no_repo_flag_still_keys_to_session_cwd(self):
-        """Regression baseline (not a repro of the defect: this shape
-        behaved correctly before and after the fix) -- a plain `gh issue
-        edit` with no `cd` prefix and no `--repo`/`-R` flag must still key
-        off the session's own `cwd`, same as before this repair round."""
-        session_cwd = str(_make_issue_repo(
-            Path(self.tmp.name), "1", name="plain-checkout",
-            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
-        cmd = "gh issue edit 42 --body 'plain brief'"
-        payload = json.dumps({
-            "session_id": "orch-sess", "tool_name": "Bash",
-            "tool_input": {"command": cmd}, "cwd": session_cwd,
-        })
-        self.assertIsNone(ac.run_hook(payload, self.state_dir))
-        marker = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
-        self.assertIsNotNone(marker)
-        self.assertEqual(marker["note"], "plain brief")
-
-
-class WriterSideParserHandlesRealCommandShapes(unittest.TestCase):
-    """Repair round 3 (PR #3163's finding, driven through the real
-    `run_hook` entrypoint, matching how that verification session found
-    it): round 2's cd-parser handled only the one worked example (`cd /a
-    && gh issue edit ...`) and the `--repo` flag. Every shape below is a
-    command shape PR #3163 confirmed either mis-keyed the marker to the
-    orchestrator's raw session `cwd` with ZERO stderr, or missed the `gh`
-    invocation entirely (`-R` before the subcommand) with zero marker and
-    zero stderr. Each must now either key to the correct target repo, or
-    (never silently to `cwd`) produce no marker plus a stderr line. Every
-    case is run against `bf28bf93` first (via `_assert_shape_fails_pre_repair`)
-    to confirm it actually reproduces the defect this test guards against.
-    """
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.state_dir = os.path.join(self.tmp.name, "state")
-        self.session_cwd = str(_make_issue_repo(
-            Path(self.tmp.name), "1", name="session-checkout",
-            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
-        self.study_repo = str(_make_issue_repo(
-            Path(self.tmp.name), "1", name="study-companion-checkout",
-            origin="https://github.com/tokenmaxxxer/study-companion.git"))
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def _payload(self, cmd, cwd=None):
-        return json.dumps({
-            "session_id": "orch-sess", "tool_name": "Bash",
-            "tool_input": {"command": cmd}, "cwd": cwd or self.session_cwd,
-        })
-
-    def _assert_keys_to_study_not_session(self, cmd):
-        self.assertIsNone(ac.run_hook(self._payload(cmd), self.state_dir))
-        study = ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42")
-        wrong = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
-        self.assertIsNotNone(study, "expected the marker keyed to the cd/--repo target")
-        self.assertIsNone(
-            wrong, "marker silently keyed to the orchestrator's raw session cwd: %r" % cmd)
-
-    def test_heredoc_body_keys_to_cd_target_not_session_cwd(self):
-        """The form the orchestrator uses for EVERY body edit -- round 2
-        marked any heredoc opaque and fell back to session cwd."""
-        cmd = ("cd %s && gh issue edit 42 --body-file - <<'EOF'\n"
-               "fixed brief\nEOF" % self.study_repo)
-        self._assert_keys_to_study_not_session(cmd)
-
-    def test_semicolon_separated_cd_keys_to_cd_target(self):
-        cmd = "cd %s; gh issue edit 42 --body 'fixed brief'" % self.study_repo
-        self._assert_keys_to_study_not_session(cmd)
-
-    def test_subshell_wrapped_cd_keys_to_cd_target(self):
-        cmd = "(cd %s && gh issue edit 42 --body 'fixed brief')" % self.study_repo
-        self._assert_keys_to_study_not_session(cmd)
-
-    def test_repo_flag_before_subcommand_is_no_longer_a_total_miss(self):
-        """Round 2's regex required `issue edit` immediately after `gh` --
-        a `-R` flag in between made the whole command invisible: no
-        marker, no notice, AND no stderr."""
-        cmd = "gh -R tokenmaxxxer/study-companion issue edit 42 --body 'fixed brief'"
-        self._assert_keys_to_study_not_session(cmd)
-
-    def test_repo_flag_equals_form_before_body(self):
-        cmd = "gh issue edit 42 --repo=tokenmaxxxer/study-companion --body 'fixed brief'"
-        self._assert_keys_to_study_not_session(cmd)
-
-    def test_relative_cd_keys_to_cd_target(self):
-        """Relative cd resolution depends on the process cwd matching the
-        session cwd -- true for the real `amendment-channel.sh` subprocess
-        (a PostToolUse hook always runs with cwd = the tool call's own
-        cwd), reproduced here with a real `chdir` rather than asserting
-        against the test runner's own unrelated cwd."""
-        rel = os.path.relpath(self.study_repo, self.session_cwd)
-        cmd = "cd %s && gh issue edit 42 --body 'fixed brief'" % rel
-        cwd_before = os.getcwd()
-        os.chdir(self.session_cwd)
-        try:
-            self._assert_keys_to_study_not_session(cmd)
-        finally:
-            os.chdir(cwd_before)
-
-    def test_cd_inside_a_quoted_body_string_is_not_treated_as_a_real_cd(self):
-        """A `cd` appearing as DATA inside a quoted flag value (the
-        corrected issue body text itself) must not be mistaken for shell
-        syntax -- this must still key to the session cwd, not to the
-        embedded path."""
-        cmd = "gh issue edit 42 --body 'cd /nonexistent && rm -rf /'"
-        self.assertIsNone(ac.run_hook(self._payload(cmd), self.state_dir))
-        session_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
-        self.assertIsNotNone(session_marker)
-        self.assertEqual(session_marker["note"], "cd /nonexistent && rm -rf /")
-
-    def test_unterminated_heredoc_produces_no_marker_and_stderr_never_cwd(self):
-        """The must-not this repair round exists to guarantee: a command
-        the parser cannot resolve with certainty must never fall back to
-        the session cwd, silently or otherwise."""
-        cmd = ("cd %s && gh issue edit 42 --body-file - <<'EOF'\n"
-               "this heredoc never closes" % self.study_repo)
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            self.assertIsNone(ac.run_hook(self._payload(cmd), self.state_dir))
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
-        self.assertIn("issue #42", stderr.getvalue())
-
-    def test_double_pipe_separated_cd_keys_to_cd_target(self):
-        """test-derivation gap (repair round 3, post-fix audit): `||` is
-        accepted by `_CD_STEP_RE` alongside `&&`/`;` but had no coverage
-        through the real entrypoint."""
-        cmd = "cd %s || gh issue edit 42 --body 'fixed brief'" % self.study_repo
-        self._assert_keys_to_study_not_session(cmd)
-
-    def test_brace_group_wrapped_cd_keys_to_cd_target(self):
-        """test-derivation gap: `_unwrap_enclosing_group` handles `{ ... }`
-        the same as `( ... )` but had no coverage through the real
-        entrypoint."""
-        cmd = "{ cd %s && gh issue edit 42 --body 'fixed brief'; }" % self.study_repo
-        self._assert_keys_to_study_not_session(cmd)
-
-    def test_chained_cd_steps_resolve_relative_to_the_prior_step(self):
-        """test-derivation gap: `cd_target()` walks multiple leading `cd`
-        steps in order, joining a later relative step onto the previous
-        absolute one -- untested through the real entrypoint."""
-        parent = os.path.dirname(self.study_repo)
-        rel = os.path.basename(self.study_repo)
-        cmd = "cd %s && cd %s && gh issue edit 42 --body 'fixed brief'" % (parent, rel)
-        self._assert_keys_to_study_not_session(cmd)
-
-    def test_unbalanced_quotes_produce_no_marker_and_stderr_never_cwd(self):
-        """test-derivation gap: `OpaqueCommand` has more than one `reason`
-        (`unterminated-heredoc`, `unbalanced-quotes`, `oversize-command`);
-        only the heredoc reason had entrypoint coverage. All must collapse
-        to the same never-cwd-fallback behavior."""
-        cmd = "cd %s && gh issue edit 42 --body \"unbalanced" % self.study_repo
-        stderr = io.StringIO()
-        with contextlib.redirect_stderr(stderr):
-            self.assertIsNone(ac.run_hook(self._payload(cmd), self.state_dir))
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
-        self.assertIn("issue #42", stderr.getvalue())
-
-
-class ShapesFailAgainstPreRepairCommit(unittest.TestCase):
-    """Each shape above must actually reproduce the round-2 defect against
-    `bf28bf93` (the round-2 tip) -- otherwise a shape that already worked
-    would not be evidence the round-3 fix did anything. Runs the real,
-    unmodified `amendment-channel.sh` from that historical commit via `git
-    show` into a scratch copy, exactly the failure mode PR #3163 itself
-    confirmed by re-running against the pre-repair commit."""
-
-    def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
-        self.session_cwd = str(_make_issue_repo(
-            Path(self.tmp.name), "1", name="session-checkout",
-            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
-        self.study_repo = str(_make_issue_repo(
-            Path(self.tmp.name), "1", name="study-companion-checkout",
-            origin="https://github.com/tokenmaxxxer/study-companion.git"))
-        pre_repair_dir = os.path.join(self.tmp.name, "pre-repair-hooks")
-        os.makedirs(pre_repair_dir)
-        for name in ("amendment_channel.py", "amendment-channel.sh", "hook_input.py"):
-            content = subprocess.run(
-                ["git", "show", "bf28bf93:on-the-record/hooks/%s" % name],
-                cwd=str(REPO_ROOT), check=True, capture_output=True, text=True,
-            ).stdout
-            with open(os.path.join(pre_repair_dir, name), "w") as f:
-                f.write(content)
-        os.chmod(os.path.join(pre_repair_dir, "amendment-channel.sh"), 0o755)
-        self.pre_repair_sh = os.path.join(pre_repair_dir, "amendment-channel.sh")
-        self.state_dir = os.path.join(self.tmp.name, "state")
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def _run_pre_repair(self, cmd, cwd=None):
-        payload = json.dumps({
-            "session_id": "orch-sess", "tool_name": "Bash",
-            "tool_input": {"command": cmd}, "cwd": cwd or self.session_cwd,
-        })
-        env = dict(os.environ, OTR_AMENDMENT_STATE_DIR=self.state_dir)
-        return subprocess.run(
-            ["bash", self.pre_repair_sh], input=payload,
-            capture_output=True, text=True, cwd=cwd or self.session_cwd,
-            env=env, timeout=30,
-        )
-
-    def test_heredoc_mis_keys_to_session_cwd_pre_repair(self):
-        cmd = ("cd %s && gh issue edit 42 --body-file - <<'EOF'\n"
-               "fixed brief\nEOF" % self.study_repo)
-        self._run_pre_repair(cmd)
-        self.assertIsNotNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
-
-    def test_semicolon_mis_keys_to_session_cwd_pre_repair(self):
-        cmd = "cd %s; gh issue edit 42 --body 'fixed brief'" % self.study_repo
-        self._run_pre_repair(cmd)
-        self.assertIsNotNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
-
-    def test_subshell_mis_keys_to_session_cwd_pre_repair(self):
-        cmd = "(cd %s && gh issue edit 42 --body 'fixed brief')" % self.study_repo
-        self._run_pre_repair(cmd)
-        self.assertIsNotNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
-
-    def test_repo_flag_before_subcommand_is_a_total_miss_pre_repair(self):
-        cmd = "gh -R tokenmaxxxer/study-companion issue edit 42 --body 'fixed brief'"
-        self._run_pre_repair(cmd)
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
-        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
 
 
 class HookScriptShippedAndExecutable(unittest.TestCase):
