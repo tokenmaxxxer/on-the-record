@@ -46,6 +46,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1480,6 +1481,48 @@ def _sidecar_workspace_name(filename: str) -> str | None:
     return m.group(1) if m else None
 
 
+def _sidecar_groups(wb: Path) -> dict[str, list[Path]]:
+    """`wb` 바로 아래 flat 하게 놓인 sidecar 파일들을 짝 워크스페이스 이름으로
+    그룹핑만 한다(orphan 판정은 `_orphaned_sidecar_groups()`가 한다) — 이슈
+    #3118 `sweep_orphans()`와 `_prune_orphaned_sidecars()`가 같은 그룹핑을
+    공유한다."""
+    groups: dict[str, list[Path]] = {}
+    if wb.is_dir():
+        for p in wb.iterdir():
+            if not p.is_file():
+                continue
+            name = _sidecar_workspace_name(p.name)
+            if name is None:
+                continue
+            groups.setdefault(name, []).append(p)
+    return groups
+
+
+def _orphaned_sidecar_groups(wb: Path, live: dict[Path, dict], now: float,
+                              max_age_sec: float) -> dict[str, list[Path]]:
+    """`_sidecar_groups(wb)` 중 짝 워크스페이스 디렉터리가 이미 없어졌고(존재도
+    안 하고, roster 에도 pid-alive 로 안 남아 있고) `max_age_sec` 보다 오래된
+    그룹만 돌려준다. `_prune_orphaned_sidecars()`(14일 기본 트리거)와
+    `sweep_orphans()`(이슈 #3118, 더 짧은 온디맨드 임계값)가 이 판정을
+    공유한다 — 두 곳에 독립적으로 같은 안전 검사를 두면 한쪽만 고치고 다른
+    쪽은 조용히 어긋난다는 `_workspace_clean_state()` 교훈을 그대로 따른다."""
+    eligible: dict[str, list[Path]] = {}
+    for name, files in _sidecar_groups(wb).items():
+        workspace_dir = wb / name
+        if workspace_dir.exists():
+            continue
+        if workspace_dir.resolve() in live:
+            continue
+        try:
+            age_sec = now - max(f.stat().st_mtime for f in files)
+        except OSError:
+            continue
+        if age_sec <= max_age_sec:
+            continue
+        eligible[name] = files
+    return eligible
+
+
 def _prune_orphaned_sidecars(wb: Path, max_age_days: float | None = None,
                               now: float | None = None) -> dict[str, int]:
     """`~/.tokenmaxxxer/work`(`wb`) 바로 아래 flat 하게 놓인, 짝 워크스페이스
@@ -1517,33 +1560,11 @@ def _prune_orphaned_sidecars(wb: Path, max_age_days: float | None = None,
               f"확인 불가 워크스페이스의 sidecar 는 이번 정리에서 남긴다",
               file=sys.stderr)
 
-    groups: dict[str, list[Path]] = {}
-    if wb.is_dir():
-        for p in wb.iterdir():
-            if not p.is_file():
-                continue
-            name = _sidecar_workspace_name(p.name)
-            if name is None:
-                continue
-            groups.setdefault(name, []).append(p)
+    total_groups = len(_sidecar_groups(wb))
+    eligible = _orphaned_sidecar_groups(wb, live, now, max_age_sec)
 
-    removed = kept = failed = 0
-    for name, files in groups.items():
-        workspace_dir = wb / name
-        if workspace_dir.exists():
-            kept += 1
-            continue
-        if workspace_dir.resolve() in live:
-            kept += 1
-            continue
-        try:
-            age_sec = now - max(f.stat().st_mtime for f in files)
-        except OSError:
-            kept += 1
-            continue
-        if age_sec <= max_age_sec:
-            kept += 1
-            continue
+    removed = failed = 0
+    for name, files in eligible.items():
         for f in files:
             try:
                 f.unlink()
@@ -1553,4 +1574,321 @@ def _prune_orphaned_sidecars(wb: Path, max_age_days: float | None = None,
                 failed += 1
             else:
                 removed += 1
+    kept = total_groups - len(eligible)
     return {"removed": removed, "kept": kept, "failed": failed}
+
+
+# Issue #3118: `spawn.py sweep-orphans [--dry-run]` — a standalone,
+# operator-invoked reclaim pass for the three orphan classes measured after
+# one day of heavy parallel-session use: 193 `/tmp` worktree directories
+# (190 of which no `git worktree prune`/`auto_sweep()` can see, because the
+# checkout that registered them via `git worktree add` is itself already
+# gone), 236 session logs, and 68 `_workspace_base()` workspaces whose
+# branch never merged. `auto_sweep()` and `_prune_orphaned_sidecars()`
+# already cover parts of this, but only at spawn time and only past a
+# generous 14-day age floor — this command runs on demand, with a tighter
+# floor, and lists every candidate with its reason before touching
+# anything.
+#
+# Every category below is gated on process-state liveness FIRST — the same
+# `_live_workspaces_union()` pid-alive roster lookup `_workspace_clean_state()`
+# uses — never on age alone: a session in this repo routinely runs 40+
+# minutes and must survive whatever the age floor is. `min_age_seconds` is
+# only ever an extra guard against a create-time race (pointer file/roster
+# entry written, but not yet flushed when a sweep happens to run
+# concurrently), not a standalone trigger.
+
+_ORPHAN_MIN_AGE_SECONDS_DEFAULT = 3600.0
+
+
+def _orphan_min_age_seconds() -> float:
+    """`MUSTER_ORPHAN_MIN_AGE_SECONDS` — default 3600 (1 hour)."""
+    return float(os.environ.get("MUSTER_ORPHAN_MIN_AGE_SECONDS",
+                                 str(_ORPHAN_MIN_AGE_SECONDS_DEFAULT)))
+
+
+def _sweep_temp_roots() -> list[Path]:
+    """Where `sweep_orphans()` looks for ad-hoc verification-session
+    worktrees. Two roots, deduplicated in order: `tempfile.gettempdir()`
+    (the platform's real scratch root — on macOS a per-user directory
+    under `$TMPDIR`, not `/tmp`) and the literal `/tmp` (this project's
+    own verification briefs write `/tmp/...` paths directly, so both may
+    hold orphans on a Mac). Pure `tempfile`/`Path` — no `stat`/`find`/`du`
+    subprocess, per the portability requirement: GNU and BSD userland
+    differ on those, `os.stat`/`pathlib` do not."""
+    roots: list[Path] = []
+    seen: set[str] = set()
+    for candidate in (Path(tempfile.gettempdir()), Path("/tmp")):
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(candidate)
+    return roots
+
+
+def _worktree_admin_dir(git_file: Path) -> Path | None:
+    """`git worktree add` leaves a `.git` FILE at the worktree root
+    containing `gitdir: <repo>/.git/worktrees/<name>` — read it back.
+    Returns `None` for anything else (a plain `.git` DIRECTORY from a full
+    clone, a missing/unreadable `.git`, or a non-pointer file), so callers
+    treat those as out of scope rather than guessing at ownership."""
+    try:
+        if not git_file.is_file():
+            return None
+        text = git_file.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    line = text.strip()
+    if not line.startswith("gitdir:"):
+        return None
+    target = line[len("gitdir:"):].strip()
+    if not target:
+        return None
+    path = Path(target)
+    return path if path.is_absolute() else (git_file.parent / path)
+
+
+def _scan_orphan_worktrees(temp_roots: list[Path], live: dict[Path, dict],
+                            unreadable: list[str], now: float,
+                            min_age_seconds: float) -> list[dict]:
+    """Category 1 (issue #3118): ad-hoc `git worktree add /tmp/...`
+    checkouts a verification session's own brief creates directly in bash
+    — never registered via `session_temp_root()`, and invisible to `git
+    worktree list` run from any repo that is still alive, because the
+    repo that registered them (the verification session's own throwaway
+    workspace under `_workspace_base()`) is usually the one that gets
+    swept away first, orphaning the child `/tmp` checkout with no admin
+    record left anywhere to prune it from.
+
+    Liveness never comes from the `/tmp` directory's own age — it comes
+    from the OWNING checkout: read the `.git` pointer file back to its
+    admin dir (`<owner-repo>/.git/worktrees/<name>`), and ask whether
+    `owner-repo` is a currently pid-alive session workspace via the same
+    `live`/`unreadable` `_live_workspaces_union()` produces elsewhere. A
+    plain `.git` directory (a full clone, not a worktree) has no such
+    pointer to resolve an owner from, so it is left out of scope rather
+    than guessed at."""
+    results: list[dict] = []
+    for root in temp_roots:
+        if not root.is_dir():
+            continue
+        try:
+            entries = sorted(root.iterdir())
+        except OSError as ex:
+            print(f"[sweep-orphans] 경고: {root} 못 읽음 ({ex}) — 이 temp root 는 "
+                  f"이번 스윕에서 건너뜀", file=sys.stderr)
+            continue
+        for entry in entries:
+            if not entry.is_dir():
+                continue
+            admin_dir = _worktree_admin_dir(entry / ".git")
+            if admin_dir is None:
+                continue
+            try:
+                mtime = max((p.stat().st_mtime for p in entry.rglob("*")),
+                            default=entry.stat().st_mtime)
+            except OSError:
+                continue
+            age_sec = now - mtime
+            if age_sec < min_age_seconds:
+                continue
+            if unreadable:
+                continue
+            if admin_dir.exists():
+                owner_repo = admin_dir.parent.parent.parent
+                if owner_repo.resolve() in live:
+                    continue
+                reason = "no live pid (owning session ended)"
+            else:
+                reason = "owning checkout gone (worktree admin dir missing)"
+            results.append({"path": entry, "reason": reason,
+                             "age_hours": age_sec / 3600})
+    return results
+
+
+def _scan_orphan_workspaces(wb: Path, live: dict[Path, dict],
+                             unreadable: list[str], now: float,
+                             min_age_seconds: float) -> list[dict]:
+    """Category 3 (issue #3118): workspaces whose session ended without
+    the branch ever merging — killed sessions, refused spawns, held PRs.
+    `auto_sweep()`'s age trigger already reclaims these too, but only past
+    `_clean_max_age_days()` (14 days by default, deliberately generous so
+    a slow-to-merge branch is never raced). This adds a second, tighter,
+    on-demand signal: a workspace whose branch has no OPEN or MERGED pull
+    request at all (closed unmerged, or never opened) has nothing left
+    worth protecting, so it is eligible sooner — but only once
+    `_workspace_clean_state()` has already cleared it (not live, not
+    dirty, not unknown) and it has cleared `min_age_seconds`. A `gh`
+    call that fails outright leaves the workspace out of this pass
+    (unknown, not "no PR") rather than risk treating an API hiccup as
+    grounds for removal."""
+    results: list[dict] = []
+    if not wb.is_dir():
+        return results
+    for w in sorted(wb.glob("*")):
+        if not (w / ".git").is_dir():
+            continue
+        reason, _detail = _sp._workspace_clean_state(w, live, unreadable)
+        if reason is not None:
+            continue
+        try:
+            age_sec = now - w.stat().st_mtime
+        except OSError:
+            continue
+        if age_sec < min_age_seconds:
+            continue
+        branch = subprocess.run(
+            ["git", "-C", str(w), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True).stdout.strip()
+        if not branch:
+            continue
+        if not _sp._pr_list_call_ok(w, branch):
+            continue
+        if _sp._pr_open_or_merged_for_branch(w, branch) is not None:
+            continue
+        results.append({"path": w,
+                         "reason": f"no live pid, no open PR (branch {branch})",
+                         "age_hours": age_sec / 3600})
+    return results
+
+
+def _force_rmtree(path: Path) -> None:
+    """Same permission-retry `shutil.rmtree()` `_delete_workspace()` uses
+    (issue #229: a read-only file/dir inside the tree, e.g. a Go module
+    cache, would otherwise raise `PermissionError`) — reused verbatim here
+    so an orphaned `/tmp` worktree with the same shape doesn't need a
+    second bug report to get the same fix."""
+    def _chmod_retry(func, p, exc_info):
+        os.chmod(p, stat.S_IWRITE)
+        parent = os.path.dirname(p)
+        if parent:
+            os.chmod(parent, stat.S_IWRITE | stat.S_IEXEC | stat.S_IREAD)
+        func(p)
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=_chmod_retry)
+    else:
+        shutil.rmtree(path, onerror=_chmod_retry)
+
+
+def sweep_orphans(wb: Path, temp_roots: list[Path] | None = None,
+                   now: float | None = None,
+                   min_age_seconds: float | None = None,
+                   dry_run: bool = False) -> dict:
+    """`spawn.py sweep-orphans [--dry-run]` (issue #3118). Scans all three
+    orphan categories and, unless `dry_run`, removes exactly the ones it
+    lists. See the module comment above `_ORPHAN_MIN_AGE_SECONDS_DEFAULT`
+    for the full picture; every category here defers its liveness
+    judgement to `_live_workspaces_union()` before it ever looks at age."""
+    now = now if now is not None else time.time()
+    min_age_seconds = (_sp._orphan_min_age_seconds() if min_age_seconds is None
+                        else min_age_seconds)
+    temp_roots = _sp._sweep_temp_roots() if temp_roots is None else temp_roots
+    live, unreadable = _sp._live_workspaces_union()
+
+    tmp_worktrees = _scan_orphan_worktrees(temp_roots, live, unreadable, now,
+                                            min_age_seconds)
+    workspaces = _scan_orphan_workspaces(wb, live, unreadable, now,
+                                          min_age_seconds)
+    sidecar_groups = _orphaned_sidecar_groups(wb, live, now, min_age_seconds)
+    sidecars = [
+        {"name": name, "files": files,
+         "reason": "orphaned sidecar (paired workspace gone)",
+         "age_hours": (now - max(f.stat().st_mtime for f in files)) / 3600}
+        for name, files in sidecar_groups.items()
+    ]
+
+    report = {
+        "tmp_worktrees": tmp_worktrees,
+        "workspaces": workspaces,
+        "sidecars": sidecars,
+        "unreadable": unreadable,
+        "dry_run": dry_run,
+    }
+    if dry_run:
+        return report
+
+    for item in tmp_worktrees:
+        try:
+            _sp._force_rmtree(item["path"])
+            item["removed"] = True
+        except OSError as ex:
+            item["removed"] = False
+            item["error"] = str(ex)
+
+    log_outcomes = _sp._ledger_log_outcomes()
+    archive_dir = wb / ".archived-logs"
+    for item in workspaces:
+        try:
+            _sp._delete_workspace(item["path"], wb, log_outcomes, archive_dir)
+            item["removed"] = True
+        except Exception as ex:
+            item["removed"] = False
+            item["error"] = str(ex)
+
+    for item in sidecars:
+        failed_files = []
+        for f in item["files"]:
+            try:
+                f.unlink()
+            except OSError:
+                failed_files.append(f)
+        item["removed"] = not failed_files
+
+    return report
+
+
+def sweep_orphans_cli(wb: Path, dry_run: bool) -> int:
+    """`spawn.py sweep-orphans [--dry-run]` entry point — prints every
+    candidate with its reason before removing anything, and says so
+    explicitly when there is nothing to remove (the symmetric negative
+    the issue's probe checks for).
+
+    A real (non-dry-run) removal can fail per item (`sweep_orphans()`
+    records `item["removed"]`/`item["error"]` rather than raising, so one
+    bad `rmtree`/`unlink` never aborts the rest of the sweep) -- this must
+    say so per line and in the exit code, or a failed deletion prints the
+    exact same line as a real one and a caller checking only the return
+    code sees success either way."""
+    report = _sp.sweep_orphans(wb, dry_run=dry_run)
+    prefix = "[dry-run] " if dry_run else ""
+    total = failed = 0
+
+    def _outcome_suffix(item: dict) -> str:
+        nonlocal failed
+        if dry_run or item.get("removed", True):
+            return ""
+        failed += 1
+        return f"  ** 삭제 실패: {item.get('error', '알 수 없는 오류')} **"
+
+    for item in report["tmp_worktrees"]:
+        total += 1
+        print(f"{prefix}tmp-worktree: {item['path']}  "
+              f"[{item['reason']}; age {item['age_hours']:.1f}h]"
+              f"{_outcome_suffix(item)}")
+    for item in report["workspaces"]:
+        total += 1
+        print(f"{prefix}workspace: {item['path']}  "
+              f"[{item['reason']}; age {item['age_hours']:.1f}h]"
+              f"{_outcome_suffix(item)}")
+    for item in report["sidecars"]:
+        total += 1
+        print(f"{prefix}session-log: {item['name']} "
+              f"({len(item['files'])} files)  "
+              f"[{item['reason']}; age {item['age_hours']:.1f}h]"
+              f"{_outcome_suffix(item)}")
+    for msg in report["unreadable"]:
+        print(f"[sweep-orphans] 경고: 이웃 체크아웃 로스터를 읽지 못함 — {msg} — "
+              f"확인 불가 항목은 이번 스윕에서 남긴다", file=sys.stderr)
+    if total == 0:
+        print(f"{prefix}지울 후보 없음 — 모두 안전(라이브거나, 나이/PR 기준 미달)")
+    else:
+        verb = "지울 후보" if dry_run else "지움"
+        if dry_run:
+            suffix = ""
+        elif failed:
+            suffix = f" (성공 {total - failed}, 실패 {failed})"
+        else:
+            suffix = " (실제로 지워짐)"
+        print(f"[sweep-orphans] {verb} {total}건{suffix}")
+    return 1 if failed else 0
