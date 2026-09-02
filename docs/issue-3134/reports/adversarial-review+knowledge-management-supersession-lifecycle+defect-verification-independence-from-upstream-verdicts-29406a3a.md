@@ -362,19 +362,8 @@ loop_state is landed. Next action belongs to whoever picks up the two
 Open findings above, most likely a follow-up round on issue #3134 or a
 new issue for the discoverability gap specifically.
 
-skill-verdict: adversarial-review — applied: invoked; evaluated PR #3143's
-artifacts (amends.py, gates/amends_index.py, the two probes, the two
-handbook diffs) blind to the delivering session's own record until after
-independently forming a verdict, per the skill's core mechanism (session
-separation) and its Step 3 gate against answering "what was this supposed
-to do" -- applied by re-deriving the discoverability property from a
-freshly-built fixture tree rather than accepting the probe's own framing.
-skill-verdict: knowledge-management-supersession-lifecycle — applied:
-invoked; rule 11's edit-vs-supersession-vs-something-else test framed the
-final "case this was built for" verdict as a third shape (section
-correction), distinct from both plain edit and whole-record supersession.
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; rules 1, 2, 3, and 9 drove re-deriving every check and
-must-not from a fresh worktree before reading the delivering session's own
-claimed verdict, and devising self-authored edge cases beyond the ones
-shipped in the PR's own tests and probes.
+skill-verdict: adversarial-review — applied: invoked; evaluated PR #3143's artifacts (amends.py, gates/amends_index.py, the two probes, the two handbook diffs) blind to the delivering session's own record until after independently forming a verdict, per the skill's core mechanism (session separation) and its Step 3 gate against answering "what was this supposed to do" -- re-derived the discoverability property from a freshly-built fixture tree rather than accepting the probe's own framing.
+
+skill-verdict: knowledge-management-supersession-lifecycle — applied: invoked; rule 11's edit-vs-supersession-vs-something-else test framed the final "case this was built for" verdict as a third shape (section correction), distinct from both plain edit and whole-record supersession.
+
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; rules 1, 2, 3, and 9 drove re-deriving every check and must-not from a fresh worktree before reading the delivering session's own claimed verdict, and devising self-authored edge cases beyond the ones shipped in the PR's own tests and probes.
