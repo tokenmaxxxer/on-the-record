@@ -403,8 +403,7 @@ above). Open finding 1 above is recommended as a follow-up issue but does
 not block this session's verdict on issue #3095's own stated acceptance
 criteria, which PR #3106 satisfies.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; re-derived all three acceptance checks and both
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-derived all three acceptance checks and both
 must-nots from primary evidence in disposable worktrees rather than
 citing PR #3106's own claims (steps 2-6), built the required sensitivity
 control (step 3), added mutation tests beyond what either issue asked
@@ -424,3 +423,7 @@ skill-verdict: silent-failure-audit — applied: invoked; step 9 above
 establishes this PR introduces no new error-handling path, and that the
 one pre-existing try/except in the functions it touches is unchanged,
 documented-intentional fail-safe behavior.
+skill-verdict: work-in-english — applied: invoked; this record, its
+commit messages, and PR #3119's title/body were all written in English
+per this skill's routing rule (repo-bound artifacts to English), with
+only this session's final user-facing chat summary written in Korean.
