@@ -417,3 +417,31 @@ skill-verdict: adversarial-review — applied: invoked; canonical: the per-requi
 skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; every verdict above is re-derived by executing real code against self-constructed inputs rather than citing the PR's pytest-pass or record claims as settled (see "Why" above).
 skill-verdict: conformance-review-finding-record — applied: invoked; per-requirement blocks above (requirement/spec_ref/verdict/evidence/rationale/spec_vs_built) follow this skill's field list, written into this session's own designated record path per the write-set boundary (board-gate R5) rather than a separately-named conformance-review.md, since this session's role does not own that filename.
 other mounted skills (merge-gates): not triggered — this review evaluates whether an already-open PR's fix satisfies its issue, not how concurrent branches should merge to main.
+
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5505844935 (posted 2026-09-02T07:08:15Z,
+after this session's grading was already underway).
+canonical: `gh issue view 3050 --repo tokenmaxxxer/on-the-record --json comments -q '.comments[] | select(.url | contains("5505844935"))'`
+(this session) -- the comment names the same live study-companion
+correction-round case already cited under must-not A above (the
+correcting session's own record and the two PR numbers it names both
+matching what this session had independently found before reading this
+comment), and adds a further ask: that the correction be applied through
+PR #3086's own supersession shape against that real case, as a
+validation step, "if the shape it chose cannot express this case, that
+is a finding about the shape."
+
+derived: `git diff main...pr-3086-review-2` (re-checked this session
+before both worktrees were removed after use) -- PR #3086 contains no
+such application; it ships the new supersession module and its two
+probes/tests only, never touches the study-companion repo or applies the
+marker to that correction. This is not a defect in PR #3086 as scoped
+(applying a fix from this repo to a different repo's PR is outside what
+any commit here can do), but it is unresolved follow-up work the comment
+explicitly requests and this record surfaces rather than silently drops:
+whether the shape *can* express that real case (the correcting session's
+own record already carries the corrected text and could in principle
+carry a `supersedes:` field naming the foreign record without any
+board-gate conflict, since it is that session's own file) is untested by
+anyone as of this record.
