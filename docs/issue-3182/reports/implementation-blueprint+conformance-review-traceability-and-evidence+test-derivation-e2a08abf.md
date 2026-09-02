@@ -11,23 +11,27 @@ verdict: This session's assigned round-3 task (fix PR #3194's two named defects 
 loop_state: landed
 upstream:
   - path: docs/issue-3182/reports/implementation-blueprint+conformance-review-traceability-and-evidence+test-derivation-e2a08abf.md
-    sha: ca03582c2c4f810105a964363763d73d79f7ae28
+    sha: 25176d39b6ea54154064fe00f1d9059d912371fc
 ---
 
 # issue-3182 — implementation-blueprint+conformance-review-traceability-and-evidence+test-derivation-e2a08abf record
 
 ## What was done
 
-canonical: `git push origin HEAD:issue-3182/implementation-blueprint+silent-failure-audit+technical-writing-structure-comprehension-74609923`
-(this round) — `a526670a..ca03582c`, confirmed via `gh pr view 3184
---json headRefOid` -> `ca03582c2c4f810105a964363763d73d79f7ae28`,
-`state: OPEN`, `mergeable: MERGEABLE`.
+canonical: `git push origin HEAD:issue-3182/implementation-blueprint+silent-failure-audit+technical-writing-structure-comprehension-74609923`,
+two pushes this round — `a526670a..ca03582c` then `ca03582c..25176d39`
+-- confirmed via `gh pr view 3184 --json headRefOid` ->
+`25176d39b6ea54154064fe00f1d9059d912371fc`, `state: OPEN`,
+`mergeable: MERGEABLE`.
 
 This round's work (adding the `workspace_disk_headroom` precondition,
 correcting 5 citation-line drifts, adding a citation-accuracy regression
-test, fixing a handbook wording overreach, and a dispatch-path sweep for
-other uncovered gates) was committed and pushed directly to PR #3184's
-own branch,
+test, fixing a handbook wording overreach, a dispatch-path sweep for
+other uncovered gates, and a scope addendum from a second independent
+verification -- PR #3195, posted as an issue comment mid-round -- fixing
+a Surface exit-code test, a one-directional doc-drift test, and a
+platform-dependent `git_cli_on_path` check) was committed and pushed
+directly to PR #3184's own branch,
 `issue-3182/implementation-blueprint+silent-failure-audit+technical-writing-structure-comprehension-74609923`,
 per this round's explicit task brief: "Round 3 on PR #3184... Commit
 incrementally, push to PR #3184's branch, do not merge." This branch
@@ -36,7 +40,7 @@ incrementally, push to PR #3184's branch, do not merge." This branch
 carries no code changes of its own -- the concrete work, all evidence,
 citation tables, and the sweep's findings are recorded in full at
 `docs/issue-3182/reports/implementation-blueprint+conformance-review-traceability-and-evidence+test-derivation-e2a08abf.md`
-on PR #3184's branch, commit `ca03582c2c4f810105a964363763d73d79f7ae28`.
+on PR #3184's branch, commit `25176d39b6ea54154064fe00f1d9059d912371fc`.
 
 ## Why
 
@@ -47,6 +51,16 @@ already-open PR through its existing review cycle, rather than
 fragmenting the same defect-fix work across a second, unrelated PR,
 keeps PR #3194's findings and their fixes auditable in one place.
 
+amendments-reconciled: issuecomment-5512813346 -- canonical: `gh api
+repos/tokenmaxxxer/on-the-record/issues/3182/comments --jq '.[] |
+select(.id==5512813346)'` (this round), comment body opens "Round 3
+scope addendum, from the second verification (PR #3195), for session
+e2a08abf" -- addressed to this session by its own role-slug suffix.
+Addressed on PR #3184's branch (not here, since this branch carries no
+code): the full three-item response is section 5 of
+`docs/issue-3182/reports/implementation-blueprint+conformance-review-traceability-and-evidence+test-derivation-e2a08abf.md`
+on that branch, commit `25176d39b6ea54154064fe00f1d9059d912371fc`.
+
 ## What did not work
 
 None.
@@ -54,13 +68,13 @@ None.
 ## Upstream basis
 
 `docs/issue-3182/reports/implementation-blueprint+conformance-review-traceability-and-evidence+test-derivation-e2a08abf.md`
-on PR #3184's branch, sha `ca03582c2c4f810105a964363763d73d79f7ae28` --
+on PR #3184's branch, sha `25176d39b6ea54154064fe00f1d9059d912371fc` --
 the full record for this round's work.
 
 ## Open findings
 
 canonical: `docs/issue-3182/reports/implementation-blueprint+conformance-review-traceability-and-evidence+test-derivation-e2a08abf.md`
-on PR #3184's branch (sha `ca03582c2c4f810105a964363763d73d79f7ae28`),
+on PR #3184's branch (sha `25176d39b6ea54154064fe00f1d9059d912371fc`),
 this branch's own "Open findings" section. None beyond what that record
 already lists -- three additional dispatch-path gates
 (`core_root`/`core_plugin_dirs`, `require_doctor`,
@@ -70,7 +84,7 @@ as follow-up candidates, not duplicated here.
 ## Next steps
 
 canonical: `gh pr view 3184 --json headRefOid,state,mergeable` (this
-round) -> `headRefOid: ca03582c2c4f810105a964363763d73d79f7ae28`,
+round) -> `headRefOid: 25176d39b6ea54154064fe00f1d9059d912371fc`,
 `state: OPEN`, `mergeable: MERGEABLE`. None from this branch's own
 scope. `loop_state: landed` reflects that this round's deliverable is
 committed and pushed to PR #3184's branch (the terminal state for this
