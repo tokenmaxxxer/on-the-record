@@ -43,6 +43,16 @@ def _watched_result(arm_name: str, issue: int) -> dict:
             "watch_returncode": 0, "watch_stderr": None}
 
 
+def _fake_invocation(invoked: bool) -> dict:
+    """H1 re-operationalized 2026-09-02 (issue #3127 consult) --
+    collect_skill_invocation() is what these tests now mock to control
+    H1 pass/fail, instead of collect_directive_bytes()."""
+    return {"session_log": "/fake.session.log", "mounted": [],
+            "invoked": invoked, "measured": True,
+            "mounted_but_not_invoked": False, "invoked_but_not_mounted": False,
+            "reason": None}
+
+
 class RunPairTest(unittest.TestCase):
     def setUp(self):
         args = _fake_args()
@@ -74,8 +84,9 @@ class RunPairTest(unittest.TestCase):
             def fetcher(plan, issue):
                 return f"deliverable text for issue {issue}, no slug"
 
-            with mock.patch.object(rcp, "collect_directive_bytes") as m_bytes:
-                m_bytes.side_effect = lambda ws: 500 if "101" in str(ws) else 50
+            with mock.patch.object(rcp, "collect_skill_invocation") as m_inv:
+                m_inv.side_effect = lambda ws, skill: \
+                    _fake_invocation(invoked="101" in str(ws))
                 result = rcp.run_pair(
                     self.plan, self.pair, on_issue=101, off_issue=102,
                     confirm_real_spawn=True,
@@ -120,11 +131,12 @@ class RunPairTest(unittest.TestCase):
     def test_missing_deliverable_leaves_h2_none_with_reason_not_h1_reason(self):
         with mock.patch.object(rcp, "execute_arm") as m_exec, \
              mock.patch.object(rcp, "arm_workspace_dir") as m_ws, \
-             mock.patch.object(rcp, "collect_directive_bytes") as m_bytes:
+             mock.patch.object(rcp, "collect_skill_invocation") as m_inv:
             m_exec.side_effect = lambda plan, pair, arm, issue, confirm: \
                 _watched_result(arm.name, issue)
             m_ws.side_effect = lambda plan, issue: Path(f"/tmp/ws-{issue}")
-            m_bytes.side_effect = lambda ws: 500 if "301" in str(ws) else 50
+            m_inv.side_effect = lambda ws, skill: \
+                _fake_invocation(invoked="301" in str(ws))
 
             result = rcp.run_pair(
                 self.plan, self.pair, on_issue=301, off_issue=302,
@@ -168,7 +180,8 @@ class RunPairRealReachabilityTest(unittest.TestCase):
                          ignore_errors=True)
         self.pair = self.plan.pairs[0]
 
-    def _make_workspace(self, issue: int, directive_byte_count: int) -> Path:
+    def _make_workspace(self, issue: int, directive_byte_count: int,
+                         invoked: bool | None = None) -> Path:
         # Must match spawn.py's own _workspace_target_path() naming
         # exactly (<repo_name>-issue-<n>-<skill>) -- this test does not
         # re-derive that convention, it relies on arm_workspace_dir()'s
@@ -178,6 +191,24 @@ class RunPairRealReachabilityTest(unittest.TestCase):
         directive_dir = ws / ".on-the-record" / "directive"
         directive_dir.mkdir(parents=True)
         (directive_dir / "a.md").write_text("x" * directive_byte_count, encoding="utf-8")
+        if invoked is not None:
+            # H1 re-operationalized 2026-09-02 (issue #3127 consult):
+            # collect_skill_invocation() reads a real
+            # <workspace>.session.*.log next to the workspace, the same
+            # convention spawn.py itself uses -- this is NOT mocked in
+            # this reachability test class, so a real file is required.
+            import json as _json
+            skill = self.plan.skill_name
+            plugins = [{"name": skill, "path": f"/x/skill-registry/skills/{skill}"}] \
+                if invoked else []
+            lines = [_json.dumps({"type": "system", "subtype": "init",
+                                   "plugins": plugins}, separators=(",", ":"))]
+            if invoked:
+                lines.append('{"type":"assistant","message":{"content":'
+                              '[{"type":"tool_use","name":"Skill","input":'
+                              f'{{"skill":"{skill}"}}}}]}}')
+            log_path = ws.parent / (ws.name + ".session.20260902T000000.1.log")
+            log_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         return ws
 
     def _stubbed_subprocess_run(self, real_run):
@@ -189,8 +220,8 @@ class RunPairRealReachabilityTest(unittest.TestCase):
 
     def test_run_pair_real_flow_reaches_h1_gate_and_blind_scorer(self):
         on_issue, off_issue = 401, 402
-        self._make_workspace(on_issue, 500)
-        self._make_workspace(off_issue, 50)
+        self._make_workspace(on_issue, 500, invoked=True)
+        self._make_workspace(off_issue, 50, invoked=False)
 
         scorer_calls = []
 
@@ -218,8 +249,10 @@ class RunPairRealReachabilityTest(unittest.TestCase):
 
     def test_run_pair_real_flow_h1_failure_still_excludes_and_skips_scorer(self):
         on_issue, off_issue = 501, 502
-        self._make_workspace(on_issue, 500)
-        self._make_workspace(off_issue, 500)  # identical bytes -> H1 fails
+        # on arm configured but never actually invoked the skill -> H1
+        # fails (re-operationalized 2026-09-02, issue #3127 consult).
+        self._make_workspace(on_issue, 500, invoked=False)
+        self._make_workspace(off_issue, 500, invoked=False)
 
         scorer_calls = []
 

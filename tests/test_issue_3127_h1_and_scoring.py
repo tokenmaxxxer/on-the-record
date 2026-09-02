@@ -32,45 +32,138 @@ sys.path.insert(0, str(ROOT / "scripts" / "issue-3127"))
 import run_consumer_pair as rcp  # noqa: E402
 
 
+SKILL_NAME = "my-skill"
+
+
+def _init_line(mounted: bool) -> str:
+    import json as _json
+    plugins = ([{"name": SKILL_NAME,
+                 "path": f"/some/skill-registry/skills/{SKILL_NAME}"}]
+               if mounted else [])
+    return _json.dumps({"type": "system", "subtype": "init",
+                         "plugins": plugins}, separators=(",", ":"))
+
+
+def _tool_use_line(skill: str) -> str:
+    return ('{"type":"assistant","message":{"content":[{"type":"tool_use",'
+            f'"name":"Skill","input":{{"skill":"{skill}"}}}}]}}')
+
+
 class ComputeH1ManipulationTest(unittest.TestCase):
     """H1 must be an actual, code-enforced comparison, capable of both
-    passing and failing -- not prose."""
+    passing and failing -- not prose.
+
+    Re-operationalized 2026-09-02 (issue #3127 consult,
+    `runs/consult-logs/20260902T125610799701-948846.log`): PR #3172 found,
+    with live evidence from two real skills-on sessions, that the
+    original directive_composition_bytes proxy cannot see a
+    skills-on/skills-off difference for a skill delivered via the
+    runtime Skill tool -- both real workspaces held identical baseline
+    bytes regardless of which skill was mounted. The gate now reads
+    `<workspace>.session.*.log` (the same artifact
+    `scripts/measure_skill_invocation.py` already parses in production)
+    for a real `Skill` tool_use call naming the target skill; these
+    fixtures build that log directly instead of only varying directive
+    bytes."""
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)
 
-    def _make_workspace(self, name: str, directive_bytes: bytes | None) -> Path:
+    def _make_workspace(self, name: str, directive_bytes: bytes | None,
+                         session_log_lines: list[str] | None = None) -> Path:
         ws = Path(self._tmpdir.name) / name
         directive_dir = ws / ".on-the-record" / "directive"
         directive_dir.mkdir(parents=True)
         if directive_bytes is not None:
             (directive_dir / "core.md").write_bytes(directive_bytes)
+        if session_log_lines is not None:
+            log_path = ws.parent / (ws.name + ".session.20260902T000000.1.log")
+            log_path.write_text("\n".join(session_log_lines) + "\n",
+                                 encoding="utf-8")
         return ws
 
-    def test_identical_directive_bytes_flagged_as_manipulation_failure(self):
-        """Reproduces PR #3145 finding 1's silent-full-content-leak failure
-        mode: both arms end up with byte-identical directive composition
-        (the manipulation never actually happened) -- H1 must catch this,
-        not silently pass it through to H2."""
-        on_ws = self._make_workspace("on", b"same content twice-over padding")
-        off_ws = self._make_workspace("off", b"same content twice-over padding")
-        result = rcp.compute_h1_manipulation(on_ws, off_ws)
+    def test_on_invoked_off_did_not_passes(self):
+        on_ws = self._make_workspace(
+            "on", b"a" * 5000,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        off_ws = self._make_workspace(
+            "off", b"a" * 12, session_log_lines=[_init_line(False)])
+        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
+        self.assertTrue(result["differs"])
+        self.assertIsNone(result["reason"])
+        self.assertTrue(result["on_invocation"]["invoked"])
+        self.assertFalse(result["off_invocation"]["invoked"])
+
+    def test_neither_arm_invoked_flagged_as_manipulation_failure(self):
+        """On arm never actually called the Skill tool even though it was
+        configured to -- H1 must catch this, not silently pass it
+        through to H2."""
+        on_ws = self._make_workspace(
+            "on", b"same content twice-over padding",
+            session_log_lines=[_init_line(True)])
+        off_ws = self._make_workspace(
+            "off", b"same content twice-over padding",
+            session_log_lines=[_init_line(False)])
+        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
         self.assertFalse(result["differs"])
         self.assertIsNotNone(result["reason"])
 
-    def test_differing_directive_bytes_passes(self):
-        on_ws = self._make_workspace("on", b"a" * 5000)
-        off_ws = self._make_workspace("off", b"a" * 12)
-        result = rcp.compute_h1_manipulation(on_ws, off_ws)
-        self.assertTrue(result["differs"])
-        self.assertIsNone(result["reason"])
-
-    def test_missing_workspace_data_is_a_failure_not_a_skip(self):
-        on_ws = self._make_workspace("on", b"a" * 5000)
-        result = rcp.compute_h1_manipulation(on_ws, None)
+    def test_both_arms_invoked_is_a_leak_and_fails(self):
+        """Mirror image of issue #3053's retracted zero-mount run: the
+        skills-off arm's isolation leaked and it invoked the skill too."""
+        on_ws = self._make_workspace(
+            "on", b"a" * 5000,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        off_ws = self._make_workspace(
+            "off", b"a" * 12,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
         self.assertFalse(result["differs"])
-        self.assertIsNone(result["off_bytes"])
+        self.assertIn("ALSO recorded", result["reason"])
+
+    def test_missing_on_session_log_is_a_failure_not_a_skip(self):
+        on_ws = self._make_workspace("on", b"a" * 5000)  # no session log
+        off_ws = self._make_workspace(
+            "off", b"a" * 12, session_log_lines=[_init_line(False)])
+        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
+        self.assertFalse(result["differs"])
+        self.assertFalse(result["on_invocation"]["measured"])
+
+    def test_missing_off_session_log_is_compatible_with_h1_pass(self):
+        """The skills-off arm never dispatched at all (PR #3172's actual
+        real-run outcome for both registered pairs) -- absence of
+        invocation evidence is itself evidence of non-invocation, so this
+        does not by itself fail the gate."""
+        on_ws = self._make_workspace(
+            "on", b"a" * 5000,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        off_ws = self._make_workspace("off", b"a" * 12)  # no session log
+        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
+        self.assertTrue(result["differs"])
+        self.assertFalse(result["off_invocation"]["measured"])
+
+    def test_no_skill_name_is_a_failure(self):
+        on_ws = self._make_workspace(
+            "on", b"a" * 5000,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        result = rcp.compute_h1_manipulation(on_ws, None, None)
+        self.assertFalse(result["differs"])
+        self.assertIn("no skill_name supplied", result["reason"])
+
+    def test_directive_bytes_are_reported_but_never_gate(self):
+        """Byte-identical arms must still pass H1 as long as invocation
+        genuinely differs -- the construct-validity fix's core claim."""
+        on_ws = self._make_workspace(
+            "on", b"identical baseline bytes",
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        off_ws = self._make_workspace(
+            "off", b"identical baseline bytes",
+            session_log_lines=[_init_line(False)])
+        result = rcp.compute_h1_manipulation(on_ws, off_ws, SKILL_NAME)
+        self.assertTrue(result["differs"])
+        self.assertEqual(result["directive_bytes_parity"]["on_bytes"],
+                          result["directive_bytes_parity"]["off_bytes"])
 
 
 class GatePairOnH1Test(unittest.TestCase):
@@ -81,16 +174,23 @@ class GatePairOnH1Test(unittest.TestCase):
         self._tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmpdir.cleanup)
 
-    def _make_workspace(self, name: str, directive_bytes: bytes) -> Path:
+    def _make_workspace(self, name: str, directive_bytes: bytes,
+                         session_log_lines: list[str] | None = None) -> Path:
         ws = Path(self._tmpdir.name) / name
         directive_dir = ws / ".on-the-record" / "directive"
         directive_dir.mkdir(parents=True)
         (directive_dir / "core.md").write_bytes(directive_bytes)
+        if session_log_lines is not None:
+            log_path = ws.parent / (ws.name + ".session.20260902T000000.1.log")
+            log_path.write_text("\n".join(session_log_lines) + "\n",
+                                 encoding="utf-8")
         return ws
 
     def test_h1_failure_excludes_pair_and_never_calls_h2_scorer(self):
-        on_ws = self._make_workspace("on", b"identical")
-        off_ws = self._make_workspace("off", b"identical")
+        on_ws = self._make_workspace(
+            "on", b"identical", session_log_lines=[_init_line(True)])
+        off_ws = self._make_workspace(
+            "off", b"identical", session_log_lines=[_init_line(False)])
         calls = []
 
         def compute_h2():
@@ -98,6 +198,7 @@ class GatePairOnH1Test(unittest.TestCase):
             return {"should": "never run"}
 
         result = rcp.gate_pair_on_h1("01-study-groups", on_ws, off_ws,
+                                      skill_name=SKILL_NAME,
                                       compute_h2=compute_h2)
         self.assertTrue(result["excluded_from_h2"])
         self.assertIsNone(result["h2"])
@@ -105,17 +206,25 @@ class GatePairOnH1Test(unittest.TestCase):
         self.assertEqual(calls, [])  # compute_h2 was never invoked
 
     def test_h1_pass_calls_h2_scorer_and_includes_pair(self):
-        on_ws = self._make_workspace("on", b"a" * 5000)
-        off_ws = self._make_workspace("off", b"a" * 12)
+        on_ws = self._make_workspace(
+            "on", b"a" * 5000,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        off_ws = self._make_workspace(
+            "off", b"a" * 12, session_log_lines=[_init_line(False)])
         result = rcp.gate_pair_on_h1("01-study-groups", on_ws, off_ws,
+                                      skill_name=SKILL_NAME,
                                       compute_h2=lambda: {"verdict": "ok"})
         self.assertFalse(result["excluded_from_h2"])
         self.assertEqual(result["h2"], {"verdict": "ok"})
 
     def test_h1_pass_with_no_scorer_supplied_leaves_h2_none_distinctly(self):
-        on_ws = self._make_workspace("on", b"a" * 5000)
-        off_ws = self._make_workspace("off", b"a" * 12)
-        result = rcp.gate_pair_on_h1("01-study-groups", on_ws, off_ws)
+        on_ws = self._make_workspace(
+            "on", b"a" * 5000,
+            session_log_lines=[_init_line(True), _tool_use_line(SKILL_NAME)])
+        off_ws = self._make_workspace(
+            "off", b"a" * 12, session_log_lines=[_init_line(False)])
+        result = rcp.gate_pair_on_h1("01-study-groups", on_ws, off_ws,
+                                      skill_name=SKILL_NAME)
         self.assertFalse(result["excluded_from_h2"])
         self.assertIsNone(result["h2"])
         self.assertIn("h2_unavailable_reason", result)
