@@ -354,21 +354,28 @@ four items:
   distinguishable from same-repo transient failure): Present (step 3,
   mutation-tested).
 
+canonical: this session's own transcript — the Skill tool was called for
+all three skills below only after PR #3093 was already opened (flagged by
+the Stop hook's skill-verdict-guard); see the deviation log entry under
+`deviation-log/` for the correction. The verification work itself (steps
+1-6 above) already matched each skill's actual procedure once read.
+
 skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; every claim re-derived from a fresh worktree on the PR's
-actual head commit rather than cited from PR #3084's own record, including
-re-running the pre-fix reproduction myself and mutation-testing both fixes
-rather than accepting "the probe passes" at face value.
-skill-verdict: adversarial-review — applied: invoked; treated PR #3084's
-record and test-plan checklist as an artifact to check, not a source of
-truth — the "5 pre-existing failures unrelated to this change" and "no CLI
-surface" claims were independently re-derived (full suite on both
-branches, `grep -n "__main__"`), and the spawn-on-pr silence in the PR's
-own record was treated as a gap to investigate rather than evidence of
-nothing to find.
-skill-verdict: silent-failure-audit — applied: invoked; checked the
-retention branch's two failure paths (same-repo lookup failure vs.
-cross-repo lookup failure) are both classified as Handled with a distinct
-printed line (`requirement-drift-cache-retained:` vs.
+applied: invoked, after landing; every claim re-derived from a fresh
+worktree on the PR's actual head commit rather than cited from PR #3084's
+own record, including re-running the pre-fix reproduction myself and
+mutation-testing both fixes rather than accepting "the probe passes" at
+face value.
+skill-verdict: adversarial-review — applied: invoked, after landing;
+treated PR #3084's record and test-plan checklist as an artifact to
+check, not a source of truth — the "5 pre-existing failures unrelated to
+this change" and "no CLI surface" claims were independently re-derived
+(full suite on both branches, `grep -n "__main__"`), and the spawn-on-pr
+silence in the PR's own record was treated as a gap to investigate rather
+than evidence of nothing to find.
+skill-verdict: silent-failure-audit — applied: invoked, after landing;
+checked the retention branch's two failure paths (same-repo lookup
+failure vs. cross-repo lookup failure) are both classified as Handled
+with a distinct printed line (`requirement-drift-cache-retained:` vs.
 `requirement-drift-unknown:`), not one falling silently to a no-op —
 verified by mutation (step 3) that the distinction is structurally real.
