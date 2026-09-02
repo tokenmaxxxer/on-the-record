@@ -306,15 +306,42 @@ acceptance: `python3 -m pytest test/test_delegation_state.py -q`
 The three checks (cycle, depth, type allowlist) themselves needed no
 rework after that.
 
+## Rationale for deviations
+
+Two mounted, applicable skills (silent-failure-audit, test-derivation)
+were applied in substance during the build but not loaded via the Skill
+tool until this session's Stop hook flagged zero skill invocations —
+`invoke-before-apply` (issue #2062) calls for the load to happen before
+applying, not after. A third mounted skill, work-in-english, was applied
+correctly for repo-bound artifacts but the prior turn's chat-facing
+summary was written in English despite the session communicating in
+Korean throughout, which the skill's own rule places in the
+Korean-output category.
+
+derived: this session's own transcript — the Stop hook's
+`skill-verdict-guard: zero-invocation` notice, timestamped after this
+round's code/test commits and the PR #3087 push, is the trigger for this
+correction; commit `001a943c` (this branch) is the deviation log entry
+itself, written and committed before this section.
+
+Full detail, retroactive review, and correction in this round's
+deviation log entry at commit `001a943c`,
+`docs/issue-3061/reports/silent-failure-audit+implementation-blueprint+test-derivation-addc17f2/deviation-log/20260902T183933466046-eed6f8e8efd6d2f3.md`.
+Neither retroactive skill check changed any code or test; the correction
+was sequencing and record honesty, not substance.
+
 ## Next steps
 
 None identified for this seam by this round. `loop_state: landed`.
 
-skill-verdict: silent-failure-audit — applied: invoked; used to frame
-the fix itself — every rejection path in `_check_no_surrogates()`
-(cycle, depth, type) raises a named `MalformedManifestError`, or, on the
-read path, is caught by `_safe_manifest()` and reported on stderr rather
-than absorbed or left to escape as a raw `RecursionError`/`TypeError`.
+skill-verdict: silent-failure-audit — applied: invoked; loaded via the
+Skill tool after the fix was already built and tested (see this round's
+deviation log entry — `invoke-before-apply` should have run before the
+code, not after), then applied retroactively against
+`_check_no_surrogates()`: every rejection path (cycle, depth, type)
+raises a named `MalformedManifestError`, or, on the read path, is caught
+by `_safe_manifest()` and reported on stderr — no Silently Absorbed site
+found; the retroactive audit changed no code.
 
 acceptance: `python3 -m pytest test/test_delegation_state.py -k HostileManifestShapeTest -q`
 — result:
@@ -328,11 +355,20 @@ skill-verdict: implementation-blueprint — not-applicable: this round is
 a bounded fix to one existing recursive function plus its one call site
 in a single file already on PR #3087's branch, not new multi-module
 structure or a fan-out contract to freeze.
-skill-verdict: test-derivation — applied: invoked; the eight required
-hostile shapes were treated as an equivalence partition over "ways a
+skill-verdict: test-derivation — applied: invoked; loaded via the Skill
+tool after `HostileManifestShapeTest` was already written (same
+sequencing deviation as silent-failure-audit above), then confirmed
+retroactively that the eight required hostile shapes already matched
+the skill's EP/BVA route: an equivalence partition over "ways a
 manifest value can defeat the walk's own recursion or type assumptions"
 (self-reference x2 shapes, a two-container cycle, a depth-boundary
-value, and four type/behaviour-hostile leaf values), matching the test
-module's own stated derivation convention (equivalence partitioning by
-requirement, per its module docstring), plus two explicit boundary-value
-cases (exactly-at-bound, one-past-bound) per BVA practice.
+value, and four type/behaviour-hostile leaf values), plus two explicit
+boundary-value cases (exactly-at-bound, one-past-bound) per the skill's
+BVA step — no test change resulted.
+skill-verdict: work-in-english — applied: invoked; loaded via the Skill
+tool at session end. Repo-bound work (commit messages, code, the
+`delegation_state.py`/test docstrings, this record) was in English
+throughout, matching the skill; the session's final chat-facing summary
+in the immediately preceding turn was not (written in English while the
+session communicated in Korean throughout) — logged as this round's
+deviation, corrected in this turn's own chat-facing summary.
