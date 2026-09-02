@@ -645,6 +645,21 @@ that way, through a `denyRead` that was supposedly blocking it. `spawn.py` force
 completely, but the macOS keychain entry is tied to the config directory, so
 authentication breaks.
 
+**A fourth, adjacent trap, in a different subsystem (issue #3053):** `scripts/issue-3041/run_pair.sh`
+spawns bare `claude -p` subprocesses against an external target repo (not a
+`spawn.py` role), and passes `--setting-sources project,local` to keep this
+repo's own operator hooks (registered at `user` scope) from leaking into
+that subprocess. But marketplace plugin/skill registration on this machine
+also lives at `user` scope — the same scope the flag excludes — so that
+flag alone mounted zero marketplace skills in the "skills-on" arm too,
+silently, while leaving the `Skill` tool itself present. The fix is
+`--plugin-dir <path>`: session-scoped and orthogonal to `--setting-sources`,
+it loads a skill corpus without pulling in whatever else is registered at
+`user` scope. Any future harness that needs "the target skill corpus, but
+not this repo's own hooks" needs both flags together — neither one alone
+gets there. See `scripts/issue-3041/README.md`'s "Target-repo grounding"
+section for the live-tested invocation.
+
 ### Package-registry access (issue #38)
 
 A fresh sandboxed workspace has no package cache, so `go build`/`npm
