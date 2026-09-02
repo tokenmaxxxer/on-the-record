@@ -40,3 +40,7 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | gates/test_boundary.py::issue-492-reconcile-markers | `python3 -m pytest gates/test_boundary.py -q -k "492 or reconcile"` | 2026-08-16 (issue #1678) |
 | tests/test_spawn_directive_assembly.py (excl. pre-existing #1981 env-flake) | `python3 -m pytest tests/test_spawn_directive_assembly.py -q -o addopts="" -k "not test_without_flag_is_byte_identical_to_today"` | 2026-08-22 (issue #1981) |
 | gates/test_watch_rearm_registry.py | `python3 -m pytest gates/test_watch_rearm_registry.py -v -o addopts=''` | 2026-08-22 (issue #1975) |
+| tests/test_supersession_shape.py | `python3 -m pytest tests/test_supersession_shape.py -q` | 2026-09-02 (issue #3050) |
+| gates/probe_supersession_marker.py | `python3 gates/probe_supersession_marker.py` | 2026-09-02 (issue #3050) |
+| tests/test_failed_no_commit_reconcile.py | `python3 -m pytest tests/test_failed_no_commit_reconcile.py -q` | 2026-09-02 (issue #3050) |
+| tests/ (full suite, -x) | `python3 -m pytest tests/ -q -x` | 2026-09-02 (issue #3050) -- 5 pre-existing failures unrelated to this repo's own board.py/spawn.py/supersession.py population, see docs/issue-3050/reports/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4.md's "Open findings"; `-x` makes the real exit code non-zero, so cite result: FAIL honestly rather than PASS |
