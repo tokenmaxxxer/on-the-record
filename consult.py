@@ -437,9 +437,17 @@ def _append_consult_trace(path: Path, ts: str, skill: str, issue: int | None,
     자체가 이미 그 증거). 그 결과 자문이 스킬을 하나도 못 싣고 끝났는지
     durable 하게 알 방법이 없었다 — 이 두 필드가 그 공백을 닫는다."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    # 이슈 #3230: 200자 컷은 skill_judge 의 "Task:...\n\nCandidates:..."
+    # 질문을 실사용에서 거의 항상 Candidates 목록이 시작되기도 전에
+    # 잘랐다 — 실측(이슈-3230 진단): 실제 원장에 남은 skill_judge 트레이스
+    # 줄 전부(0/14106)가 이 컷에 걸려, "판단이 실제로 BM25 폴백과 얼마나
+    # 다른 픽을 하는가"를 트레이스만으로 사후 재구성하는 게 원천적으로
+    # 불가능했다. `_CROSS_FAMILY_CONSULT_TOPN`(8)개 후보 각각의 트리거
+    # 문장까지 포함해도 넉넉히 남도록 폭을 늘린다 — 커밋 대상은 여전히
+    # 별도 ref(`_CONSULT_TRACE_REF`)뿐이라 작업 트리 크기에 영향이 없다.
     line = (f"- {ts} | skill={skill} | verb={verb} "
             f"| issue={issue if issue is not None else 'none'} "
-            f"| question={question[:200]!r} | outcome={outcome[:300]!r}")
+            f"| question={question[:4000]!r} | outcome={outcome[:2000]!r}")
     if mounted or unresolved:
         line += f" | mounted={mounted!r} | unresolved={unresolved!r}"
     line += "\n"
