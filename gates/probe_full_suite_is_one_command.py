@@ -15,8 +15,8 @@ two ways, mechanically, never by scraping prose:
    `python3 -m pytest -q --collect-only`'s own collected-file set. A
    file present on disk but absent from that set is exactly the
    `test/`-vs-`tests/` shape this issue exists to catch.
-2. Every git-tracked `*.sh` file living directly under `tests/` (pytest
-   can never collect a shell script) must be a KEY in
+2. Every git-tracked `*.sh` file living anywhere under `tests/`, at any
+   depth (pytest can never collect a shell script) must be a KEY in
    `KNOWN_SHELL_TEST_COMMANDS` below, the command that runs it. A file
    in that position that is NOT a key is exactly the same
    silently-unobserved shape as (1), just in shell instead of Python.
@@ -64,7 +64,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 PY_TEST_FILE_SUFFIXES = ("_test.py",)
 
-# Every `.sh` file that lives directly under `tests/` and is a real test
+# Every `.sh` file that lives anywhere under `tests/` and is a real test
 # suite (not a helper sourced by one), mapped to the exact command that
 # runs it. `docs/handbooks/operations.md` ("issue #3091" section)
 # documents this same list for humans. Add a new entry here in the same
@@ -103,7 +103,12 @@ def _is_py_test_filename(name: str) -> bool:
 
 def _is_shell_test_candidate(relpath: str) -> bool:
     p = Path(relpath)
-    return p.parent == Path("tests") and p.name.endswith(".sh")
+    # Anywhere under tests/, any depth -- not just direct children. A
+    # shell test nested in a subdirectory (tests/subdir/x.test.sh) is
+    # exactly as real and exactly as invisible to pytest as one sitting
+    # directly in tests/; restricting to direct children would silently
+    # exempt it (issue #3091 warrant-hunt finding, before-landing).
+    return Path("tests") in p.parents and p.name.endswith(".sh")
 
 
 def _git_tracked_files() -> list[str]:
@@ -167,7 +172,7 @@ def main() -> None:
     unregistered = [p for p in shell_candidates if p not in KNOWN_SHELL_TEST_COMMANDS]
     if unregistered:
         problems.append(
-            f"{len(unregistered)} shell test file(s) exist directly under "
+            f"{len(unregistered)} shell test file(s) exist under "
             f"`tests/` that are NOT in this probe's KNOWN_SHELL_TEST_COMMANDS "
             f"registry: {unregistered} -- pytest can never collect a shell "
             "script, so a file in this position with no registered command "
