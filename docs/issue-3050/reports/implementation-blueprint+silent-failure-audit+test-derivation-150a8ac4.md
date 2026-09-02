@@ -251,14 +251,14 @@ further phase from this session. PR opened per the build-now bypass
 (`CORE_BUILD_NOW=1`) carrying code + this record in one PR; not merged by
 this session.
 
-skill-verdict: implementation-blueprint -- applied: invoked; classified
+skill-verdict: implementation-blueprint — applied: invoked; classified
 backend/domain-rich (external: no, logic: rich) for both fixes -- kept
 `supersession.py`'s `resolve_authoritative()`/`parse_supersedes()` as pure
 functions with zero filesystem/git/network imports (the archetype's own
 gate), leaving `gates/probe_supersession_marker.py` as the thin
 interface-layer demonstration that calls into it; 2 units (supersession
 shape, reconcile fix), below the fan-out threshold, built solo.
-skill-verdict: silent-failure-audit -- applied: invoked; audited
+skill-verdict: silent-failure-audit — applied: invoked; audited
 `resolve_authoritative()`'s multi-corrector case (two records both
 claiming to supersede one target) as a silent-failure risk -- an earlier
 draft let a later write silently overwrite an earlier one; fixed to
@@ -269,7 +269,7 @@ new `push_succeeded` branch for the same class of defect -- the
 uncommitted-work and dirty-tree branches sit ahead of it in evaluation
 order and are untouched, so a genuine failure with a dirty tree still
 fails regardless of push status.
-skill-verdict: test-derivation -- applied: invoked; routed both acceptance
+skill-verdict: test-derivation — applied: invoked; routed both acceptance
 checks by problem shape. Supersession: equivalence partitioning over
 record-relationship states (no supersession / single correction / chain /
 dangling reference / conflicting correctors), one case per partition in
