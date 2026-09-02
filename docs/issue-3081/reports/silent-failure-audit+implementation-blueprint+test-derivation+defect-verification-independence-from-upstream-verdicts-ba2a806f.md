@@ -19,9 +19,29 @@ upstream:
 ## What was done
 
 canonical: `gh issue view 3081 --repo tokenmaxxxer/on-the-record --comments`
-(4 comments, most importantly the operator's correction in the 4th: the
-shared, orchestrator-scoped cache is not the defect; do not narrow it to
-`root`).
+(5 comments as of this session's last read, most importantly the
+operator's correction in the 4th: the shared, orchestrator-scoped cache is
+not the defect; do not narrow it to `root`).
+
+amendments-reconciled: `issuecomment-5505557426` (5th comment, landed
+mid-session after the code fix's first commit) — established the leak is
+bidirectional (a study-companion PR leaked onto on-the-record's board too,
+not just the reverse) and both boards printed the byte-identical union of
+every repo's cache. `gates/probe_drift_repo_leak.py` and
+`tests/test_requirement_drift_repo_scope.py` were both extended with a
+same-tick, both-directions check per this comment's own suggestion (assert
+the two boards' outputs are not identical, the tightest available signal
+that no per-repo filter runs at all) — see the dedicated commit and "What
+was done" below. The already-committed fix (symmetric composite-key
+filtering by construction) needed no further code change; only the probe
+and tests grew a case.
+derived: `git checkout 573e7382 -- watchdog.py spawn.py && python3
+gates/probe_drift_repo_leak.py; git checkout HEAD -- watchdog.py spawn.py`
+(run against the extended, bidirectional-checking probe) — result:
+`FAIL: repo B's number 77 appeared in repo A's sweep output`, exit 1 —
+confirms the pre-fix code also fails the bidirectional check; re-running
+the same probe with `HEAD` (this session's fix) checked out gives `ok`,
+exit 0.
 
 Two defects in `watchdog.py`'s `requirement_drift()` cache
 (`requirement_drift_cache.json`, anchored via
@@ -60,20 +80,22 @@ carries `"repo"` in its value:
 
 derived: `python3 gates/probe_drift_repo_leak.py` — result: `ok` (exit 0).
 derived: `python3 -m pytest tests/test_requirement_drift_repo_scope.py -q`
-— result: `6 passed in 0.83s`.
+— result: `7 passed`.
 derived: `python3 -m pytest
 tests/test_requirement_drift_repo_scope.py
-tests/test_requirement_drift_third_state_2980.py -q` — result: `13 passed`
+tests/test_requirement_drift_third_state_2980.py -q` — result: `14 passed`
 (the pre-existing regression file plus this session's new one, together).
 
 New: `gates/probe_drift_repo_leak.py` (standalone acceptance probe,
 registered in `docs/specs/enforcement-boundary.md`) and
 `tests/test_requirement_drift_repo_scope.py`
-derived: `grep -c '^class Test' tests/test_requirement_drift_repo_scope.py`
-— result: `5` test classes, `6` test methods total (one class holds two)
-covering the decision table documented at the top of that file (entry
-repo matches sweep × lookup succeeded/failed this tick × entry predates
-the repo field).
+derived: `grep -c '^    def test_' tests/test_requirement_drift_repo_scope.py`
+— result: `7` test methods; `grep -c '^class Test'
+tests/test_requirement_drift_repo_scope.py` — result: `4` classes,
+covering the decision table
+documented at the top of that file (entry repo matches sweep × lookup
+succeeded/failed this tick × entry predates the repo field) plus the
+bidirectional/not-identical case added for the issue's 5th comment.
 
 ## Why
 
@@ -153,13 +175,14 @@ fix): `7 passed`.
 ## Upstream basis
 
 canonical: `gh issue view 3081 --repo tokenmaxxxer/on-the-record
---comments` — all 4 comments read; the acceptance checks
-(`tests/test_requirement_drift_repo_scope.py`,
+--comments` — all 5 comments read (the 5th, `issuecomment-5505557426`,
+landed mid-session — see `amendments-reconciled:` above); the acceptance
+checks (`tests/test_requirement_drift_repo_scope.py`,
 `gates/probe_drift_repo_leak.py`, full `pytest tests/ -q -x`) and the live
 repro numbers (issue #3081's 1st comment: on-the-record PRs `3048`,
-`3051`, `3056`, `3058` printed as study-companion's own open items) come
-from that read; this record's probe/tests reuse `3048`/`3051` as the
-seeded foreign-repo numbers.
+`3051`, `3056`, `3058` printed as study-companion's own open items; 5th
+comment: PR `11` leaking the other direction) come from that read; this
+record's probe/tests reuse `3048`/`3051`/`77` as the seeded numbers.
 
 `watchdog.py` at commit `573e7382282be24439c223c1603be648dd0e158f` (this
 branch's parent / `origin/main` at session start) — the pre-fix
@@ -177,10 +200,11 @@ None.
 ## Next steps
 
 None — `loop_state: landed`.
-derived: `git log --oneline -4` — result: 3 commits on this branch on top
-of `573e7382` (the code fix, the probe+tests, the enforcement-boundary.md
-registration). PR to be opened from this branch, not merged (build-now
-bypass, single session, delivery only).
+derived: `git log --oneline 573e7382..HEAD` — result: 4 commits on this
+branch on top of `573e7382` (the code fix, the enforcement-boundary.md
+registration, the session record, the bidirectional-leak extension) plus
+this record update landing as a 5th. PR to be opened from this branch,
+not merged (build-now bypass, single session, delivery only).
 
 ## Rationale for deviations
 
@@ -222,8 +246,9 @@ recorded at the point they came up rather than after the fact:
    derived: `python3 -m pytest tests/ -q --deselect
    tests/test_respawn_deliverable_gate.py --deselect
    tests/test_spawn_gate_wiring.py::HooksJsonWiringIsAdditive::test_pre_existing_post_tool_use_commands_are_all_still_present`
-   — result: `179 passed` (this session's own commit at the time of that
-   run). derived: `python3 -m pytest tests/ -q` (unfiltered, full run, no
-   `-x`) — result: `5 failed, 188 passed` — the same 5 pre-existing cases
-   (4 + 1 above) and no new failures, confirming this change introduces no
-   regressions beyond baseline.
+   — result (mid-session): `179 passed`. derived: `python3 -m pytest
+   tests/ -q` (unfiltered, full run, no `-x`, after the bidirectional-leak
+   extension) — result: `5 failed, 189 passed` — the same 5 pre-existing
+   cases (4 in `test_respawn_deliverable_gate.py` + 1 in
+   `test_spawn_gate_wiring.py` above) and no new failures, confirming this
+   change introduces no regressions beyond baseline.
