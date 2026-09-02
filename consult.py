@@ -689,7 +689,8 @@ def _cross_family_skill_matches_with_consult(task_text: str, skill: str,
                                              k: int = 2,
                                              model: str | None = None,
                                              home: Path | None = None,
-                                             target_repo_root: Path | None = None
+                                             target_repo_root: Path | None = None,
+                                             skills_csv: str | None = None
                                              ) -> tuple[list[Path], str]:
     """이슈 #2040: BM25 상위 `_CROSS_FAMILY_CONSULT_TOPN` 개를 자문
     (skill_judge)에 넘겨 조건-매치 여부로 좁힌다. BM25 후보가 아예 없으면
@@ -710,7 +711,8 @@ def _cross_family_skill_matches_with_consult(task_text: str, skill: str,
     "fast-path:<이름들>" 이 접두된다 — 상한을 fast-path 만으로 채우면
     그 접두가 outcome 전부이고 자문은 아예 안 불린다; 남는 슬롯이 있으면
     "fast-path:<이름들>+completed|fail-open" 형태다(원장 태깅)."""
-    scored = _sp._bm25_cross_family_scores(task_text, skill, repo_root, home, target_repo_root)
+    scored = _sp._bm25_cross_family_scores(task_text, skill, repo_root, home, target_repo_root,
+                                            skills_csv=skills_csv)
     if not scored:
         # 이슈 #2679: fail-open 로그(아래)만 있으면 "이 줄이 없다"가 성공과
         # not-invoked 두 상태를 동시에 뜻하게 된다 — no-candidates 도 자기
@@ -771,7 +773,8 @@ def _cross_family_skill_matches_with_consult(task_text: str, skill: str,
                                     flags=re.I)
             if len(_sp._tokenize(stripped_task)) >= _FAST_PATH_CORROBORATION_MIN_TOKENS:
                 stripped_scored = _sp._bm25_cross_family_scores(
-                    stripped_task, skill, repo_root, home, target_repo_root)
+                    stripped_task, skill, repo_root, home, target_repo_root,
+                    skills_csv=skills_csv)
                 stripped_names = [n for _s, n, _d, _src in
                                    stripped_scored[:_sp._CROSS_FAMILY_CONSULT_TOPN]]
                 if name not in stripped_names:

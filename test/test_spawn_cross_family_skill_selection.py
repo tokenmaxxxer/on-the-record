@@ -178,7 +178,7 @@ class SpawnOneCrossFamilyAcceptanceTest(unittest.TestCase):
         # 재사용한다. 자문 자체의 판단/트레이스/fail-open 동작은
         # ConsultJudgeStageTest 가 별도로 검증한다.
         def stub_with_consult(task_text, skill, repo_root, issue, cwd, k=2, model=None,
-                              home=None, target_repo_root=None):
+                              home=None, target_repo_root=None, skills_csv=None):
             return (spawn._cross_family_skill_matches(task_text, skill, repo_root, k=k),
                     "completed")
 
@@ -523,6 +523,35 @@ class FourSurfaceCandidateCorpusTest(unittest.TestCase):
         self.assertIn("dup-skill", msg)
         self.assertIn("skill-repo", msg)
         self.assertIn("local-user", msg)
+
+    def test_unqualified_name_with_diverging_tiers_still_fails_closed_when_pins_given(self):
+        # 이슈 #3127 blocker A: `skills_csv` 에 다른 이름의 한정자가 있어도
+        # (또는 아예 없어도) 한정자 없는 이름은 오늘과 동일하게 fail-closed
+        # 로 남는다 — 완화는 명시적으로 소스를 지정한 이름에만 적용된다.
+        self._skill(self.repo_root, "dup-skill", "Use when reviewing code quality.")
+        self._skill(self.home / ".claude" / "skills", "dup-skill",
+                   "Use when a landing page needs contrast review.")
+        with self.assertRaises(SystemExit):
+            spawn._cross_family_candidate_corpus(
+                "implementation", self.repo_root, home=self.home,
+                target_repo_root=self.target_repo,
+                skills_csv="skill-repo:some-other-skill")
+
+    def test_explicit_source_qualifier_pins_the_named_skill_and_skips_conflict(self):
+        # 이슈 #3127 blocker A: `--skills skill-repo:dup-skill` 처럼 사용자가
+        # 소스를 이미 명시했다면, 그 이름이 다른 tier(내용이 다른)에도
+        # 걸려도 cross-family 코퍼스 빌드는 그걸 "겹침"으로 보지 않는다 —
+        # 한정자가 가리키는 소스 하나로만 좁힌다(primary `--skills` 해석,
+        # `resolved_skill_sources()` 의 `source_filter` 와 같은 규칙).
+        d_repo = self._skill(self.repo_root, "dup-skill", "Use when reviewing code quality.")
+        self._skill(self.home / ".claude" / "skills", "dup-skill",
+                   "Use when a landing page needs contrast review.")
+        corpus = spawn._cross_family_candidate_corpus(
+            "implementation", self.repo_root, home=self.home,
+            target_repo_root=self.target_repo,
+            skills_csv="skill-repo:dup-skill")
+        matches = [(name, d, source) for name, d, source in corpus if name == "dup-skill"]
+        self.assertEqual(matches, [("dup-skill", d_repo, "skill-repo")])
 
     def test_same_name_identical_content_across_tiers_dedupes_without_fail_closed(self):
         # 실제 운영 환경에서는 `~/.claude/skills` 가 skill-repository 를 그대로
