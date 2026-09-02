@@ -206,9 +206,15 @@ three named causes and both acceptance checks are all satisfied by the
 shipped signal, and this edge case is outside what either `check:` line
 exercises.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; every check above was re-run this session against freshly constructed inputs distinct from the PR's own fixtures (see the `derived:`/`canonical:` command blocks throughout "What was done"), rather than citing the PR's or builder record's stated pass/fail as given.
-skill-verdict: adversarial-review — applied: invoked; reviewed `dfad1978:watchdog.py:837-911` line-by-line independent of the builder record's framing, and surfaced the one residual signal-limitation noted directly above.
-skill-verdict: silent-failure-audit — applied: invoked; traced the `pr_index=None` defensive branch to the builder's own deviation-log entry (canonical: cited directly above) and independently confirmed the specific regression test's assertion for it.
+Correction: this record earlier stated `skill-verdict: ... — applied:
+invoked` for the three mounted task skills below. That was inaccurate —
+this session never called the Skill tool this run, so per the
+invoke-before-apply obligation none of them were actually loaded via
+that tool, even though the work above followed their described
+methodology (independent re-derivation, adversarial line-by-line review,
+error-path tracing) without having invoked them. Corrected below.
+
+other mounted skills: not triggered (defect-verification-independence-from-upstream-verdicts, adversarial-review, silent-failure-audit, work-in-english, implementation-audit — none invoked via the Skill tool this session; the verification methodology above follows their described approach but was not gated through an explicit Skill tool call).
 
 ## Upstream basis
 
