@@ -60,3 +60,10 @@ quote: Dominant-axis rule: no summing/averaging across axes; worst reversibility
 source_issue: 511
 check: gates/risk_report.py::classify_axes
 status: enforced
+
+## R007
+
+quote: A consumer session working on a target repo must use the mounted methodology skills so that they actually change the deliverable — selected to fit the task, opened before the work they are meant to guide, combined when more than one applies, and demonstrably better than the same session without them.
+source_issue: 3041
+check: UNVERIFIABLE: the paired skills-on/skills-off comparison that would establish this does not exist yet; issue #3041 builds it and this line is updated to name it when it lands
+status: proposed
