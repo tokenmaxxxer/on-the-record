@@ -334,8 +334,7 @@ skill-verdict: adversarial-review — applied: invoked; ran this review
 code-and-data-first, with PR #3085's own record read second, as the
 second independent, structurally separate review of PR #3085 -- see
 "Why."
-skill-verdict: defect-verification-reproduction-evidence-quality —
-applied: invoked; the must-not-3 finding is a numbered minimal-path
+skill-verdict: defect-verification-reproduction-evidence-quality — applied: invoked; the must-not-3 finding is a numbered minimal-path
 reproduction (environment/sha, exact input, expected vs. actual, attached
 script output) rather than an assertion, and the two acceptance checks
 were judged against whether they exercise the claimed behavior before
