@@ -490,3 +490,9 @@ bootstrap_timing lines found: 30
 PR opened targeting `main`; both commands above ran successfully in this
 session against the current working tree, and the diff-stat proof above
 shows the protected paths untouched.
+
+## Skill verdicts
+
+skill-verdict: diagnose-first — applied: invoked; drove the whole task (Amdahl-style share quantification in "The two numbers", Finding 2's cause-relocation before ranking Task 3's options, and the explicit "0 organic firings does not prove the guard is unnecessary" caveat)
+skill-verdict: silent-failure-audit — applied: invoked; used to design `measure_cross_family.py`'s empty-state path (no `bootstrap_timing` line found → nonzero exit with an explicit message, never a silent 0% rate) as a loud failure rather than an absorbed default
+skill-verdict: implementation-blueprint — not-applicable: the deliverable is one single-file script plus one test file with no cross-module structure decision to freeze, not the multi-file architecture case this skill governs
