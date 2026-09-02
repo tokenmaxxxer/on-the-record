@@ -260,7 +260,8 @@ def render_dry_run(plan: Plan) -> str:
                 "      blocking watch (foreground, bounds this session's "
                 "own turn per contract v3 s22): python3 spawn.py watch "
                 f"--issue {placeholder_issue} --session {plan.skill_name} "
-                f"--follow --self-heal  (timeout {plan.watch_timeout_s}s)")
+                f"--follow --self-heal -C {plan.sandbox_repo}  "
+                f"(timeout {plan.watch_timeout_s}s)")
     lines.append("")
     lines.append("Post-run instrumentation per arm (see collect_metrics()):")
     lines.append("  - directive-composition bytes: sum of "

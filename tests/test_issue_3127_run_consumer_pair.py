@@ -144,6 +144,31 @@ class OldMechanismReproducedThenFixedTest(unittest.TestCase):
         self.assertEqual(result[0]["dir"], self.stub_repo_root / "alpha")
 
 
+class RenderDryRunMatchesExecuteArmTest(unittest.TestCase):
+    """Issue #3127 repair round 2: the --dry-run plan's printed 'blocking
+    watch' line omitted `-C <repo>`, even though execute_arm()'s real
+    `spawn.py watch` subprocess call always includes it -- the dry-run
+    output did not match what the code actually does. This test pins the
+    printed line to include every flag the real watch command carries,
+    named identically, so the two cannot drift apart again silently."""
+
+    def test_watch_line_carries_the_same_repo_flag_as_the_real_watch_call(self):
+        args = _fake_args()
+        plan = rcp.build_plan(args)
+        self.addCleanup(__import__("shutil").rmtree,
+                         plan.arms[1].skill_repo_env_override, ignore_errors=True)
+        rendered = rcp.render_dry_run(plan)
+        self.assertIn(f"-C {plan.sandbox_repo}", rendered)
+        watch_lines = [l for l in rendered.splitlines()
+                       if "python3 spawn.py watch --issue" in l]
+        self.assertTrue(watch_lines)
+        for line in watch_lines:
+            self.assertIn(f"-C {plan.sandbox_repo}", line)
+            self.assertIn("--follow", line)
+            self.assertIn("--self-heal", line)
+            self.assertIn(f"--session {plan.skill_name}", line)
+
+
 def _fake_args(**overrides):
     import argparse
     ns = argparse.Namespace(
