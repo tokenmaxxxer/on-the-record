@@ -4007,7 +4007,7 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             _cross_family_skill_matches_with_consult,
             _cross_family_task_text, skill, _skill_repo_root(), issue, cwd,
             k=_COMPOSED_SKILLS_TOPK,
-            home=Path.home(), target_repo_root=Path(cwd))
+            home=Path.home(), target_repo_root=Path(cwd), skills_csv=skills)
     if issue is None:
         # Issue #2293 (scope addition, consumer incident 2026-08-25): an
         # adhoc (no --issue) spawn used to run directly in the caller's

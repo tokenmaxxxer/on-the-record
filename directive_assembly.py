@@ -735,7 +735,8 @@ _CROSS_FAMILY_CONSULT_TOPN = 8  # 이슈 본문: consult 에 넘기는 BM25 상�
 def _bm25_cross_family_scores(task_text: str, skill: str,
                                repo_root: Path | None,
                                home: Path | None = None,
-                               target_repo_root: Path | None = None
+                               target_repo_root: Path | None = None,
+                               skills_csv: str | None = None
                                ) -> list[tuple[float, str, Path, str]]:
     """`task_text` 를 질의로, 역할의 family 밖 스킬 각각의 BM25 문서
     (`_skill_bm25_document()` — description 전문 + 이름 토큰 + metadata.axis,
@@ -753,7 +754,8 @@ def _bm25_cross_family_scores(task_text: str, skill: str,
     query_tokens = _sp._tokenize(task_text)
     if not query_tokens:
         return []
-    corpus = _sp._cross_family_candidate_corpus(skill, repo_root, home, target_repo_root)
+    corpus = _sp._cross_family_candidate_corpus(skill, repo_root, home, target_repo_root,
+                                                 skills_csv=skills_csv)
     docs: list[tuple[str, Path, str, set[str]]] = []
     for name, d, source in corpus:
         # 이슈 #2124 part 1: 문서 = description 전문 + 이름 토큰 + metadata.axis
@@ -791,12 +793,14 @@ def _cross_family_skill_matches(task_text: str, skill: str,
                                  repo_root: Path | None,
                                  k: int = 2,
                                  home: Path | None = None,
-                                 target_repo_root: Path | None = None) -> list[Path]:
+                                 target_repo_root: Path | None = None,
+                                 skills_csv: str | None = None) -> list[Path]:
     """BM25 프리필터의 상위 k 개(이슈 #2040 — 예전 raw-overlap 채점을
     대체, 호출부/시그니처는 그대로다). consult-judge 단계 없이 이 함수
     단독으로도 오늘의 fail-open 경로(자문 에러시 이 함수의 top-k)와
     동일한 모양을 낸다."""
-    scored = _sp._bm25_cross_family_scores(task_text, skill, repo_root, home, target_repo_root)
+    scored = _sp._bm25_cross_family_scores(task_text, skill, repo_root, home, target_repo_root,
+                                            skills_csv=skills_csv)
     return [d for _, _, d, _ in scored[:k]]
 
 
