@@ -379,3 +379,10 @@ failure vs. cross-repo lookup failure) are both classified as Handled
 with a distinct printed line (`requirement-drift-cache-retained:` vs.
 `requirement-drift-unknown:`), not one falling silently to a no-op —
 verified by mutation (step 3) that the distinction is structurally real.
+
+other mounted skills: not triggered — `work-in-english` (this record and
+PR #3093 were already written in English, nothing needed translating) and
+`implementation-audit` (this task used the dedicated
+`defect-verification-independence-from-upstream-verdicts` skill instead
+of the two-session implementation-audit protocol) were mounted but not
+invoked via the Skill tool.
