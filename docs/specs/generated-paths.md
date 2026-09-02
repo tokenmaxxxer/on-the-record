@@ -52,6 +52,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `deliverable-guard.sh` | n/a | reads/validates only, no write call |
 | `delegation-post-gate.sh` | n/a | reads/validates only, no write call |
 | `gate-registration-guard.sh` | n/a | reads/validates only, no write call |
+| `gate-registration-post-guard.sh` | out-of-tree | safe — `$TMPDIR`-rooted (`${OTR_GRG_POST_STATE_DIR:-$TMPDIR/otr-grg-post}/<session_id>.json`), never inside the target repo, same pattern as `approach-cap-warning.sh` |
 | `pr-preflight.sh` | n/a | reads/validates only, no write call |
 | `pr-base-guard.sh` | n/a | reads/validates only, no write call |
 | `record-claim-guard.sh` | n/a | reads/validates only, no write call |

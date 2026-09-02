@@ -105,6 +105,85 @@ a no-op for every other Bash command, a failed-merge response, a
 chained-command bypass attempt, a non-issue-role branch, and an implicit
 current-PR merge.
 
+## gate-registration-guard.sh / gate-registration-post-guard.sh (issue #2705)
+
+`gate-registration-guard.sh` (issue #759/#909) reads `git diff --cached
+--name-status` from `PreToolUse`/`Bash` and denies a `git commit` staging
+a newly-added `gates/*.py`/`on-the-record/hooks/*.sh`/
+`.github/workflows/*.yml` mechanism file with no matching
+`docs/specs/enforcement-boundary.md` row. That read is correct for the
+unbundled shape (stage in one Bash call, commit in the next — by the time
+`PreToolUse` fires on the `commit` call, the earlier `add` call already
+finished, so the index really does hold what `--cached` reports) and
+structurally blind to the bundled shape this repo's own landing-batching
+guidance (#2135) recommends: `git add gates/new_gate.py && git commit -m
+"..."` in ONE Bash call has nothing staged yet when `PreToolUse` fires
+*before that whole call runs*, so `--cached` reads empty and the check
+passes silently.
+
+Issue #2705's history is the record of why this is not a parsing gap:
+four adversarial-review rounds each closed one text-prediction shape (`cd`/
+subshell resolution, directory-add, `:(exclude)` pathspecs, `cd -`,
+symlinked components, `pushd`/`popd` stacks) and the next round found a
+fresh bypass inside the SAME family the prior round had just closed. The
+seam consult's conclusion: predicting what a bash command will eventually
+stage, from its text, before it runs, is undecidable in principle —
+subshells, aliases, functions, and `CDPATH` all change what gets staged
+without changing what the command looks like. Growing the parser further
+was ruled out; two honest alternatives remained (state the bundled shape
+as outside this guard's jurisdiction and stop there, or move the check to
+where git itself already knows and name that a weaker promise). #2705's
+own acceptance criteria require the guard to actually catch the bundled
+shape, which only the second alternative can satisfy — so
+`gate-registration-guard.sh` itself is UNCHANGED (it still refuses the
+unbundled shape exactly as before) and `gate-registration-post-guard.sh`
+is a new, separate, explicitly weaker-promise companion for the shape the
+first guard cannot see.
+
+`gate-registration-post-guard.sh` never reads command text to guess a
+staged set. Its `post` mode (`PostToolUse`/`Bash`) reads git's own
+reported outcome instead: a successful `git commit` prints
+`[<branch> <sha>] <subject>` to its own stdout, which lands in the
+`PostToolUse` payload's `tool_response` (no exit-code field is available
+there for `Bash` — the same gap `post-landing-obligation-gate.sh`
+documents above). Extracting that `sha` and running `git show
+--name-status <sha>` gets the EXACT set of files that commit touched,
+independent of `cd`, subshells, `pushd`, or any other command-text shape
+— because it is read from git's own object store after the fact, not
+predicted before it. A miss is recorded to a session-keyed state file
+(`${OTR_GRG_POST_STATE_DIR:-$TMPDIR/otr-grg-post}/<session_id>.json`,
+same shape `approach-cap-warning.sh` already uses for its own per-session
+counter).
+
+Nothing about `post` mode can deny — the commit already exists in git
+history by the time `PostToolUse` fires, the same invariant
+`post-landing-obligation-gate.sh`'s own comment states. Surfacing the
+finding to the session therefore happens the way this repo's other
+non-blocking nudges do it: NOT from `post` mode itself (which, like
+`retry-loop-bound.sh`'s own `post` mode, only ever records state and
+never emits `additionalContext`), but from a separate `pre` mode
+registered at `PreToolUse` on the next tool call (any tool — same broad
+matcher `approach-cap-warning.sh`'s `pre` mode uses). `pre` mode re-checks
+the CURRENT working tree first (a follow-up commit may already have added
+the row) and, only for a violation still open, emits
+`hookSpecificOutput.additionalContext` naming the commit, the missing
+row, and — in the words the session actually reads, not only in this
+handbook or the script's own header comment — that this is a report
+after the write already happened, that this hook cannot block or revert
+it, and that `gate-registration-guard.sh`'s own pre-commit refusal still
+applies unchanged whenever the file was staged in an earlier, separate
+Bash call. It repeats on every subsequent tool call until the row lands,
+mirroring `approach-cap-warning.sh`'s own "cannot scroll out of context"
+rationale, then clears. Clearing deletes the session's state file rather
+than leaving it behind holding `{"violations": []}`: the `pre`-mode
+bash-only fast path (checked before any process spawn, on every tool
+call) short-circuits on the state file's mere *existence*, so a
+resolved-but-still-present file would defeat that short-circuit forever
+for every later tool call sharing the same `$TMPDIR` — the file's
+existence and "a violation is outstanding" are kept the same fact.
+
+Regression coverage: `on-the-record/hooks/test_gate_registration_post_guard.py`.
+
 ## The shared input parser, the fail-open ledger, and the wrapper (issue #2093)
 
 Three pieces close the hook-crash *class*, of which #2092 was one instance.
