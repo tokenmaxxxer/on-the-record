@@ -309,3 +309,22 @@ Append-only, newest entry last.
   boundary. Source: this session's task instructions relaying the
   independent verification's diagnosis on issue #2139, PR #2873/#2877,
   2026-08-30.
+
+- 2026-09-02: when a two-class discrimination problem (e.g. a redundant
+  confirmation-ask vs. a genuine escalation) is not reliably separable by
+  a program, a partial fix that states its boundary is worth more than a
+  complete-looking one that does not — do not widen a classifier just
+  until a specific handed-over set of counterexamples passes, since that
+  fits the counterexamples on hand and leaves an unseen next one just as
+  exposed. Instead name which class the failure should fall toward: the
+  direction with the cheaper cost. On issue #3061's redundant-ask
+  classifier, a missed redundant ask costs one turn; a genuine escalation
+  misclassified as redundant costs the decision itself, and if paired
+  with an irreversible action taken on that misclassification, the
+  mistake cannot be undone — so the classifier must err toward "genuine"
+  when uncertain, at a stated, measured recall cost, not toward
+  "redundant." The direction chosen, and the false-positive/false-negative
+  rates measured on a held-out set not used to tune the classifier, both
+  belong in the record. Source: operator comment on issue #3061,
+  2026-09-02T07:27:45Z
+  (https://github.com/tokenmaxxxer/on-the-record/issues/3061#issuecomment-5506047531).
