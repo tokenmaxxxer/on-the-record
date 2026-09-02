@@ -65,6 +65,8 @@ Run: python3 -m pytest test/test_delegation_state.py -q
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import sys
 import tempfile
@@ -821,6 +823,143 @@ class MalformedManifestTest(unittest.TestCase):
         self.assertFalse(ds.is_covered(action, ds.load_state(self.repo)["manifest"], repo="x"))
         text = ds.describe(self.repo, now=now)
         self.assertIn("0 action(s)", text)
+
+
+class HostileManifestShapeTest(unittest.TestCase):
+    """issue #3061 round 7 verification (PR #3212, 8th independent
+    pass): `_check_no_surrogates`'s recursive walk reached every
+    position it was asked to, but was not robust to its OWN input --
+    a self-referential or mutually-cyclic container, or plain nesting
+    past Python's default recursion limit, crashed with an uncaught
+    RecursionError; a `bytes`/`set`/custom-object value passed
+    validation silently and crashed `grant()`'s `json.dumps()` with an
+    uncaught TypeError at the write step. Equivalence partition over
+    the ways a manifest value can be hostile rather than merely
+    malformed: two shapes of self-reference (dict, list), a cycle
+    spanning two containers, nesting one level past the explicit depth
+    bound, two JSON-unrepresentable value types (bytes, set), a plain
+    custom object, and a value engineered to raise if the validator
+    were ever careless enough to compare (`==`/`hash()`) or iterate it
+    -- proving the walk rejects by TYPE alone, never by touching the
+    hostile behaviour. Every shape must: (a) make `grant()` raise
+    `MalformedManifestError` -- never `RecursionError`/`TypeError` --
+    and leave no state file on disk; (b) make `is_covered()` return
+    `False` and print one stderr line naming the rejection, never
+    raise or hang."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = self._tmp.name
+        self.action = {"tool": "Bash", "resource": "git status"}
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    @staticmethod
+    def _self_referential_dict() -> dict:
+        d: dict = {"tool": "Bash", "resource": "x"}
+        d["self"] = d
+        return d
+
+    @staticmethod
+    def _self_referential_list() -> list:
+        lst: list = []
+        lst.append(lst)
+        return lst
+
+    @staticmethod
+    def _two_container_cycle() -> dict:
+        a: dict = {}
+        b = {"via": a}
+        a["back"] = b
+        return a
+
+    @staticmethod
+    def _nested_one_past_bound():
+        value = "leaf"
+        for _ in range(ds._MANIFEST_MAX_DEPTH + 1):
+            value = {"n": value}
+        return value
+
+    class _RaisesOnCompareOrIterate:
+        """Engineered so that if the validator ever fell back to `==`,
+        `hash()`, or `iter()` on a value it should have rejected by
+        type alone, the test fails loudly instead of silently passing
+        for the wrong reason."""
+
+        def __eq__(self, other):
+            raise RuntimeError("validator compared a rejected value")
+
+        def __hash__(self):
+            raise RuntimeError("validator hashed a rejected value")
+
+        def __iter__(self):
+            raise RuntimeError("validator iterated a rejected value")
+
+    def _hostile_shapes(self) -> dict:
+        return {
+            "self_referential_dict": self._self_referential_dict(),
+            "self_referential_list": self._self_referential_list(),
+            "two_container_cycle": self._two_container_cycle(),
+            "nested_one_past_bound": self._nested_one_past_bound(),
+            "bytes_value": b"not utf-8 safe by construction",
+            "set_value": {1, 2, 3},
+            "custom_object": object(),
+            "raises_on_compare_or_iterate": self._RaisesOnCompareOrIterate(),
+        }
+
+    def test_grant_refuses_every_hostile_shape_without_crashing_or_writing(self):
+        for name, meta in self._hostile_shapes().items():
+            with self.subTest(shape=name):
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    with self.assertRaises(ds.MalformedManifestError):
+                        ds.grant(self.repo, "scope", "jiwon", skill_env="",
+                                  manifest=[{"tool": "Bash", "resource": "x",
+                                             "meta": meta}])
+                # grant() lets MalformedManifestError propagate rather than
+                # swallowing it into a stderr line (module docstring: it is
+                # the one place this is allowed to raise loudly) -- the
+                # assertion above IS the reported rejection here. What
+                # matters structurally is what did NOT happen: no
+                # RecursionError/TypeError escaped, and nothing landed on
+                # disk.
+                self.assertIsNone(ds.load_state(self.repo))
+
+    def test_is_covered_rejects_every_hostile_shape_with_a_reported_stderr_line(self):
+        for name, meta in self._hostile_shapes().items():
+            with self.subTest(shape=name):
+                manifest = [{"tool": "Bash", "resource": "x", "meta": meta}]
+                stderr = io.StringIO()
+                with contextlib.redirect_stderr(stderr):
+                    result = ds.is_covered(self.action, manifest, repo="x")
+                self.assertFalse(result)
+                self.assertIn("malformed manifest", stderr.getvalue())
+
+    def test_nesting_exactly_at_the_bound_is_accepted_not_rejected(self):
+        # The bound must reject one level PAST itself (proven above) and
+        # accept exactly at it -- otherwise "explicit depth bound" would
+        # really be an off-by-one that silently shrinks the usable
+        # manifest shape.
+        value = "leaf"
+        for _ in range(ds._MANIFEST_MAX_DEPTH - 1):
+            value = {"n": value}
+        record = ds.grant(self.repo, "scope", "jiwon", skill_env="",
+                            manifest=[{"tool": "Bash", "resource": "x",
+                                       "meta": value}])
+        self.assertEqual(record["manifest"][0]["meta"], value)
+
+    def test_a_shared_non_cyclic_sub_object_is_not_mistaken_for_a_cycle(self):
+        # A diamond -- the SAME sub-object referenced twice as sibling
+        # values -- is ordinary JSON-representable structure sharing, not
+        # a cycle: the walk must not confuse "seen before, anywhere" with
+        # "an ancestor of itself on this path."
+        shared = {"k": "v"}
+        record = ds.grant(self.repo, "scope", "jiwon", skill_env="",
+                            manifest=[{"tool": "Bash", "resource": "x",
+                                       "meta": {"a": shared, "b": shared}}])
+        self.assertEqual(record["manifest"][0]["meta"],
+                          {"a": {"k": "v"}, "b": {"k": "v"}})
 
 
 class EpisodeBindingTest(unittest.TestCase):

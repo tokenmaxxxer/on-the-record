@@ -253,10 +253,72 @@ def _is_utf8_safe(value: str) -> bool:
     return True
 
 
-def _check_no_surrogates(value, path: str) -> None:
+# issue #3061 round-7 verification (PR #3212, 8th independent pass): the
+# walk below reached every position round 6 named, but was not robust to
+# its OWN input shape rather than the string content it was looking for.
+# A self-referential dict/list, or a cycle through two containers, sent
+# it into infinite recursion -- an uncaught RecursionError, not a
+# reported rejection. Plain deep-but-acyclic nesting past Python's
+# default recursion limit did the same, because nothing bounded the
+# walk's depth explicitly; it only "worked" by accident when a surrogate
+# happened to be found before the stack ran out. And the walk had no
+# opinion on any value that was neither a string nor a container -- a
+# `bytes` or `set` field passed through silently and reached `grant()`'s
+# `json.dumps()` at the disk-write step, an uncaught TypeError there
+# rather than an early MalformedManifestError here. All three are the
+# same failure class hole 2 already exists to prevent: a validator that
+# crashes on its input has not validated anything, it has just moved the
+# crash a few frames later. Fixed by making every dimension the walk can
+# fail on an explicit, reported check instead of an assumption:
+#
+# - Cycles: `_MANIFEST_MAX_DEPTH` alone does not catch a cycle through a
+#   SHARED sub-container at the same depth on every hop (e.g. two dicts
+#   that reference each other) as anything other than "still descending"
+#   -- it would eventually trip the depth bound, but only after wasting
+#   `_MANIFEST_MAX_DEPTH` frames, and it would misreport a real cycle as
+#   "too deep" rather than name it as a cycle. `visiting` tracks the
+#   `id()` of every dict/list currently open on the CURRENT recursion
+#   path (not every container ever seen -- the same sub-list legitimately
+#   appearing twice as sibling values, e.g. a shared default, is not a
+#   cycle) and is checked before descending into a container, so a
+#   self-reference or a two-container cycle is caught in O(1) the moment
+#   it recurs, before depth or the real Python stack are ever at risk.
+#   `id()` identity, never `==`, is what avoids re-entering a hostile
+#   value's own `__eq__`/`__hash__`.
+# - Depth: `_MANIFEST_MAX_DEPTH` bounds the walk's own recursion
+#   explicitly, independent of `sys.getrecursionlimit()` (which this
+#   walk does not control and must not rely on) -- exceeding it raises
+#   `MalformedManifestError` instead of running the walk into
+#   `RecursionError` territory. The bound is far above any realistic
+#   manifest's nesting (a handful of levels under `tool`/`resource`/
+#   `repo`/an optional `meta`-shaped extra field) and far below the
+#   interpreter's default recursion limit (1000), leaving headroom for
+#   whatever stack depth the caller already has in play.
+# - Value types: manifest values are written to disk as JSON
+#   (`json.dumps(..., ensure_ascii=False)`), so the only value shapes
+#   that can ever survive that write are JSON's own: `str`, `int`,
+#   `float`, `bool`, `None`, and the two containers `dict`/`list`. That
+#   set is now enumerated POSITIVELY and enforced at validation time --
+#   anything else (`bytes`, `set`, a custom object, anything) is invalid
+#   here, not a surprise `TypeError` at `grant()`'s write step. The same
+#   applies to dict KEYS: JSON object keys are strings, so a non-string
+#   key (which would otherwise reach `json.dumps()` and either silently
+#   stringify in ways nothing here validated, or raise for a key type
+#   `json.dumps` refuses outright, e.g. a tuple) is rejected here too.
+_MANIFEST_MAX_DEPTH = 64
+
+
+def _check_no_surrogates(value, path: str, _depth: int = 0,
+                          _visiting: frozenset = frozenset()) -> None:
     """Recursively walk `value` -- every dict key, every dict value, every
     list element, at every depth -- and raise `MalformedManifestError` the
-    moment any string found anywhere fails `_is_utf8_safe()`.
+    moment it finds: a string that fails `_is_utf8_safe()`; a container
+    cycle (direct or through another container); nesting past
+    `_MANIFEST_MAX_DEPTH`; or a value/key of any type outside the set
+    JSON, and therefore `grant()`'s disk write, can actually represent
+    (see the module-level comment above this function for the round-7
+    reasoning on each). Every one of these is a reported rejection here,
+    never a crash later.
 
     issue #3061 round-6 verification (PR #3207 hole 2): checking only the
     three named fields (`tool`/`resource`/`repo`) left every OTHER string
@@ -269,27 +331,48 @@ def _check_no_surrogates(value, path: str) -> None:
     process. A manifest entry is allowed to carry keys beyond `tool`/
     `resource`/`repo` (this module does not enumerate what a caller may
     attach) and those extra values are allowed to be arbitrary nested
-    JSON-shaped structures, not just strings -- so this walks the WHOLE
-    structure looking only for the one thing that can crash the disk
-    write (a string, wherever it appears, that cannot round-trip through
-    UTF-8), rather than re-imposing a field allowlist the manifest schema
-    was never meant to have."""
-    if isinstance(value, str):
+    JSON-shaped structures -- so this walks the WHOLE structure, not just
+    the three named fields."""
+    if _depth > _MANIFEST_MAX_DEPTH:
+        raise MalformedManifestError(
+            f"{path} nests deeper than the maximum manifest depth of "
+            f"{_MANIFEST_MAX_DEPTH} levels")
+    if isinstance(value, (dict, list)):
+        vid = id(value)
+        if vid in _visiting:
+            raise MalformedManifestError(
+                f"{path} contains a cycle -- a container that refers "
+                f"back to itself, directly or through another container")
+        _visiting = _visiting | {vid}
+        if isinstance(value, dict):
+            for key, sub_value in value.items():
+                if not isinstance(key, str):
+                    raise MalformedManifestError(
+                        f"{path} has a dict key of type "
+                        f"{type(key).__name__}, not a string")
+                if not _is_utf8_safe(key):
+                    raise MalformedManifestError(
+                        f"{path} has a dict key that cannot round-trip "
+                        f"through UTF-8 encoding (e.g. a lone Unicode "
+                        f"surrogate)")
+                _check_no_surrogates(sub_value, f"{path}[{key!r}]",
+                                     _depth + 1, _visiting)
+        else:
+            for i, item in enumerate(value):
+                _check_no_surrogates(item, f"{path}[{i}]", _depth + 1,
+                                     _visiting)
+    elif isinstance(value, str):
         if not _is_utf8_safe(value):
             raise MalformedManifestError(
                 f"{path} contains a character that cannot round-trip "
                 f"through UTF-8 encoding (e.g. a lone Unicode surrogate)")
-    elif isinstance(value, dict):
-        for key, sub_value in value.items():
-            if isinstance(key, str) and not _is_utf8_safe(key):
-                raise MalformedManifestError(
-                    f"{path} has a dict key that cannot round-trip "
-                    f"through UTF-8 encoding (e.g. a lone Unicode "
-                    f"surrogate)")
-            _check_no_surrogates(sub_value, f"{path}[{key!r}]")
-    elif isinstance(value, list):
-        for i, item in enumerate(value):
-            _check_no_surrogates(item, f"{path}[{i}]")
+    elif isinstance(value, (int, float, bool)) or value is None:
+        pass  # JSON-representable scalar leaves -- allowed as-is
+    else:
+        raise MalformedManifestError(
+            f"{path} is a {type(value).__name__}, which is not a type a "
+            f"manifest value may be (allowed: string, number, boolean, "
+            f"null, object, array)")
 
 
 def _validate_manifest_entry(entry, index: int) -> dict:
@@ -304,11 +387,23 @@ def _validate_manifest_entry(entry, index: int) -> dict:
                 f"manifest entry {index} field {key!r} is a "
                 f"{type(entry[key]).__name__}, not a string")
     # Structural checks above cover the three named fields' TYPES; this
-    # recursive sweep covers UTF-8 safety for every string anywhere in
-    # the entry -- named field, unlisted key, dict key, or nested inside
-    # a structure under a non-named field (issue #3061 round-6
-    # verification, PR #3207 hole 2).
-    _check_no_surrogates(entry, f"manifest entry {index}")
+    # recursive sweep covers UTF-8 safety, cycle-freedom, depth, and
+    # value/key types for everything anywhere in the entry -- named
+    # field, unlisted key, dict key, or nested inside a structure under a
+    # non-named field (issue #3061 round-6 verification, PR #3207 hole
+    # 2; round-7 verification, PR #3212, added the cycle/depth/type
+    # checks). `_check_no_surrogates` bounds its own recursion via
+    # `_MANIFEST_MAX_DEPTH` and cannot legitimately raise
+    # `RecursionError` -- the wrapper below is defense in depth only, so
+    # that even an unforeseen pathological shape fails closed as a
+    # reported `MalformedManifestError` here rather than an uncaught
+    # crash, holding the same "no crash, ever" standard this module
+    # holds itself to everywhere else.
+    try:
+        _check_no_surrogates(entry, f"manifest entry {index}")
+    except RecursionError:
+        raise MalformedManifestError(
+            f"manifest entry {index} is nested too deeply to validate")
     return entry
 
 
