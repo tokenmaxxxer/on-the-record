@@ -252,10 +252,5 @@ session; this record's own verification pass is complete. Whether/when
 PR #3106 itself merges is a landing decision outside this record's
 scope.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; ran my own worktree-based re-derivation and a
-self-devised adversarial attempt (the unresolvable-slug finding above)
-before reading PR #3119/#3121's bodies, per rules 1, 2, and 5.
-skill-verdict: work-in-english — applied: invoked; this record, all
-commit messages, and the PR body are written in English; only the final
-chat summary to the user is in Korean.
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; ran my own worktree-based re-derivation and a self-devised adversarial attempt (the unresolvable-slug finding above) before reading PR #3119/#3121's bodies, per rules 1, 2, and 5.
+skill-verdict: work-in-english — applied: invoked; this record, all commit messages, and the PR body are written in English; only the final chat summary to the user is in Korean.
