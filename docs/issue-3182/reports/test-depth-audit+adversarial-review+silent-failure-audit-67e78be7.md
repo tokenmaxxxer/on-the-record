@@ -384,3 +384,4 @@ throughout this record
 skill-verdict: silent-failure-audit — applied: invoked; canonical: the `run_checks()`/
 `_run_readonly()` broad-except classification in this record's "What was done" section,
 item 4
+other mounted skills: not triggered (work-in-english, implementation-audit)
