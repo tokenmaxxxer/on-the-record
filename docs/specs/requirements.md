@@ -65,5 +65,5 @@ status: enforced
 
 quote: A consumer session working on a target repo must use the mounted methodology skills so that they actually change the deliverable — selected to fit the task, opened before the work they are meant to guide, combined when more than one applies, and demonstrably better than the same session without them.
 source_issue: 3041
-check: UNVERIFIABLE: the paired skills-on/skills-off comparison that would establish this does not exist yet; issue #3041 builds it and this line is updated to name it when it lands
-status: proposed
+check: scripts/issue-3041/run_pair.sh + evaluate_pair.py — BASELINE FAILS: 4 paired runs on JiwonJung94/study-companion scored 34 (skills-on) vs 33 (skills-off), blind, and every skills-mounted arm opened zero skills, so the split is noise around a null. Seeding the task text with the target skill's own trigger vocabulary still produced zero opens. The requirement is not met on the autonomous path; it holds only when an orchestrator names skills explicitly (measured 4/4 opened at 12-16% of the tool sequence). Issue #3053 owns the gap.
+status: stale

@@ -8,4 +8,3 @@ Source: `docs/specs/requirements.md`. Regenerate: `python3 gates/requirement_dig
 - R004: If the upstream repo is unreachable (permissions/network), the draft is saved to the consumer repo's docs/upstream-find… [enforced] (source: #1131)
 - R005: a PR is refused when merging it would delete or overwrite content that exists at the base branch HEAD but was added by… [enforced] (source: #1664)
 - R006: Dominant-axis rule: no summing/averaging across axes; worst reversibility grade alone forces individual human approval. [enforced] (source: #511)
-- R007: A consumer session working on a target repo must use the mounted methodology skills so that they actually change the de… [proposed] (source: #3041)
