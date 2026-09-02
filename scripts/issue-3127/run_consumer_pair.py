@@ -272,8 +272,14 @@ def render_dry_run(plan: Plan) -> str:
     lines.append("  - verification rounds + defects found: count of "
                   "'repair round' / independent-verification PRs against "
                   "the arm's own issue, and defects each one's record cites")
-    lines.append("  - wall-clock to landed: time from spawn dispatch to the "
-                  "arm's PR reaching a merged/landed state, not first output")
+    lines.append("  - wall-clock: this harness observes only the spawned "
+                  "session's own session-end event (spawn.py watch "
+                  "--follow's stop condition) -- under the unmodified "
+                  "two-phase protocol that is AT MOST a phase-1 proposal "
+                  "PR opening, never a merge. Reported as "
+                  "wall_clock_to_pr_open_s under its true name; "
+                  "wall_clock_to_landed_s is always null with an explicit "
+                  "reason (see execute_arm())")
     lines.append("  - blind quality score: scrub_skill_slugs() then "
                   "evaluate_pair_blind() (wired into run_pair(), the same "
                   "blind-evaluator shape as scripts/issue-3041/"
@@ -584,17 +590,26 @@ def collect_metrics(workspace: Path, issue: int, skill: str) -> dict:
 
 def execute_arm(plan: Plan, pair: PairPlan, arm: ArmConfig, issue: int,
                  confirm_real_spawn: bool) -> dict:
-    """Real (non-dry-run) execution. Not invoked by this issue's acceptance
-    check and not invoked by this session -- see the accompanying record's
-    "Rationale for deviations" for why: spawn.py's own `--skills` dispatch
-    path self-daemonizes (os.setsid() + start_new_session=True + stdio
-    redirected to devnull, spawn.py:4684-4749) rather than blocking in the
-    caller's process, so a bare foreground subprocess.run() of the spawn
-    command does not observe completion -- only `spawn.py watch --follow`
-    afterward does, and that is a second blocking call this function issues
-    explicitly below, bounded by `plan.watch_timeout_s`, so the whole arm
-    stays inside one foreground call chain (contract v3 s22: a headless
-    single-shot turn must consume what it delegates before ending).
+    """Real (non-dry-run) execution: lint, dispatch, then block on
+    `spawn.py watch --follow` (contract v3 s22: a headless single-shot
+    turn must consume what it delegates before ending -- spawn.py's own
+    `--skills` dispatch path self-daemonizes, os.setsid() +
+    start_new_session=True + stdio to devnull, spawn.py:4684-4749, so only
+    the `watch` call afterward observes completion).
+
+    Wall-clock (issue #3127 repair round, defect 4): the only stop
+    condition this function (or `spawn.py watch --follow`) can observe is
+    the spawned session's own session-end event (events.py's `_watch()`),
+    which under the unmodified two-phase protocol is AT MOST a phase-1
+    proposal PR opening -- never a merge to main. A headless single-shot
+    harness cannot block through a later human-approval step, a phase-2
+    build, and a merge without itself becoming a long-running blocking
+    process outside contract v3 s22's own bound. Per the issue's own
+    "record time-to-PR-open under its true name" fallback: this function
+    reports `wall_clock_to_pr_open_s` (what it actually measures) and
+    always sets `wall_clock_to_landed_s: None` with an explicit
+    `landing_measurement_status` reason -- never relabels one as the
+    other.
     """
     if not confirm_real_spawn:
         raise RuntimeError(
@@ -602,6 +617,14 @@ def execute_arm(plan: Plan, pair: PairPlan, arm: ArmConfig, issue: int,
             "creates a real GitHub issue/branch/PR in plan.sandbox_repo "
             "and runs a real recursive claude session. Pass --execute "
             "--i-understand-this-spawns-real-sessions to the CLI.")
+    landing_status = (
+        "not_measured -- this harness observes only the spawned session's "
+        "own session-end event, which under the unmodified two-phase "
+        "protocol is at most a phase-1 proposal PR opening, not a merge to "
+        "main; a headless single-shot session cannot block through a "
+        "later human-approval + phase-2 build + merge (contract v3 s22). "
+        "wall_clock_to_pr_open_s is the honest name for what was actually "
+        "timed.")
     env_override = {"MUSTER_SKILL_REPO": arm.skill_repo_env_override}
     lint = subprocess.run(
         ["python3", "spawn.py", "lint", "--issue", str(issue),
@@ -632,14 +655,18 @@ def execute_arm(plan: Plan, pair: PairPlan, arm: ArmConfig, issue: int,
             capture_output=True, text=True, timeout=plan.watch_timeout_s)
     except subprocess.TimeoutExpired:
         return {"arm": arm.name, "issue": issue, "status": "watch-timed-out",
-                "wall_clock_s": time.monotonic() - t0,
+                "wall_clock_to_pr_open_s": time.monotonic() - t0,
+                "wall_clock_to_landed_s": None,
+                "landing_measurement_status": landing_status,
                 "dispatch_returncode": dispatch.returncode,
                 "watch_timeout_s": plan.watch_timeout_s}
-    wall_clock_s = time.monotonic() - t0
+    wall_clock_to_pr_open_s = time.monotonic() - t0
     status = "watched-to-completion" if watch.returncode == 0 else "watch-failed"
     return {
         "arm": arm.name, "issue": issue, "status": status,
-        "wall_clock_s": wall_clock_s,
+        "wall_clock_to_pr_open_s": wall_clock_to_pr_open_s,
+        "wall_clock_to_landed_s": None,
+        "landing_measurement_status": landing_status,
         "dispatch_returncode": dispatch.returncode,
         "watch_returncode": watch.returncode,
         "watch_stderr": watch.stderr if watch.returncode != 0 else None,
@@ -753,7 +780,13 @@ def emit_not_executed_results(plan: Plan) -> dict:
         "pairs_registered": [p.pair_id for p in plan.pairs],
         "arms": {arm.name: {
             "quality_blind_score": None,
+            "wall_clock_to_pr_open_s": None,
             "wall_clock_to_landed_s": None,
+            "landing_measurement_status": "not measured -- see run_status; "
+                                           "this harness can only ever "
+                                           "measure time-to-PR-open, not "
+                                           "time-to-landed -- see "
+                                           "execute_arm()",
             "tokens_total": None,
             "directive_composition_bytes": None,
             "verification_rounds": None,

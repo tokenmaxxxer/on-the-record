@@ -255,5 +255,76 @@ class EvaluatePairBlindTest(unittest.TestCase):
         self.assertEqual(calls["n"], 1)
 
 
+class ExecuteArmWallClockTest(unittest.TestCase):
+    """defect 4: execute_arm() must never label session-end time as
+    "landed" -- wall_clock_to_landed_s is always None with an explicit
+    reason, and the honestly-measured number lives under
+    wall_clock_to_pr_open_s."""
+
+    def _plan(self):
+        import argparse
+        args = argparse.Namespace(
+            repo="/tmp/sandbox", pinned_sha=None,
+            skill="my-skill", model="sonnet", pairs="01-study-groups",
+            skill_repo_on="$MUSTER_SKILL_REGISTRY_ROOT",
+            skill_repo_off=None, watch_timeout=5)
+        return rcp.build_plan(args)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._plan_cache.arms[1].skill_repo_env_override,
+                       ignore_errors=True)
+
+    def _fake_completed(self, returncode=0, stderr=""):
+        class _Result:
+            pass
+        r = _Result()
+        r.returncode = returncode
+        r.stderr = stderr
+        r.stdout = ""
+        return r
+
+    def test_successful_run_reports_pr_open_not_landed(self):
+        self._plan_cache = plan = self._plan()
+        pair = plan.pairs[0]
+        arm = plan.arms[0]
+
+        def fake_run(cmd, **kwargs):
+            return self._fake_completed(returncode=0)
+
+        import unittest.mock as mock
+        with mock.patch.object(rcp.subprocess, "run", side_effect=fake_run):
+            result = rcp.execute_arm(plan, pair, arm, 999,
+                                      confirm_real_spawn=True)
+
+        self.assertEqual(result["status"], "watched-to-completion")
+        self.assertIsInstance(result["wall_clock_to_pr_open_s"], float)
+        self.assertIsNone(result["wall_clock_to_landed_s"])
+        self.assertIn("not_measured", result["landing_measurement_status"])
+        self.assertIn("phase-1 proposal PR", result["landing_measurement_status"])
+
+    def test_watch_timeout_still_reports_pr_open_not_landed(self):
+        self._plan_cache = plan = self._plan()
+        pair = plan.pairs[0]
+        arm = plan.arms[0]
+        calls = {"n": 0}
+
+        def fake_run(cmd, **kwargs):
+            calls["n"] += 1
+            if calls["n"] <= 2:
+                return self._fake_completed(returncode=0)
+            raise __import__("subprocess").TimeoutExpired(cmd, kwargs.get("timeout"))
+
+        import unittest.mock as mock
+        with mock.patch.object(rcp.subprocess, "run", side_effect=fake_run):
+            result = rcp.execute_arm(plan, pair, arm, 999,
+                                      confirm_real_spawn=True)
+
+        self.assertEqual(result["status"], "watch-timed-out")
+        self.assertIsInstance(result["wall_clock_to_pr_open_s"], float)
+        self.assertIsNone(result["wall_clock_to_landed_s"])
+        self.assertIn("not_measured", result["landing_measurement_status"])
+
+
 if __name__ == "__main__":
     unittest.main()
