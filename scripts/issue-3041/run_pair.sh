@@ -38,6 +38,22 @@ TOOLS_OFF="Read,Glob,Grep,Write,Edit,TodoWrite"
 PLUGIN_DIR="${MUSTER_SKILL_REGISTRY_ROOT:+$(dirname "$MUSTER_SKILL_REGISTRY_ROOT")}"
 PLUGIN_DIR="${PLUGIN_DIR:-$HOME/skill-registry}"
 
+# Strip every CLAUDE_*/MUSTER_* env var from this orchestrator's own shell
+# before spawning the subject `claude -p` process (issue #3053). Two of 4
+# skills-off arms in this issue's first real run resolved "the repo root"
+# to THIS repo's own working directory instead of their own clone -- one
+# actually wrote DELIVERABLE.md there, and the same run separately read (not
+# wrote) this session's own auto-memory MEMORY.md. The inherited
+# CLAUDE_CODE_MESSAGING_SOCKET/BRIDGE_SESSION_ID/SESSION_ID env vars are the
+# likely path: they let a child `claude` process attach to the parent
+# session's own SDK bridge, which is a much deeper leak than the settings
+# leak --plugin-dir/--setting-sources already fixed. Applies to both arms
+# equally, since neither is meant to see this repo at all.
+UNSET_ARGS=()
+while IFS= read -r var; do
+  UNSET_ARGS+=(-u "$var")
+done < <(env | grep -oE '^(CLAUDE|MUSTER)_[A-Z0-9_]*' | sort -u)
+
 TASK_TEXT="$(cat "$TASK_FILE")"
 PROMPT="You are advising the team behind this repository (a study app for university students). Look at the repo to the extent it's useful, then do the following:
 
@@ -68,7 +84,7 @@ run_arm() {
   if [ "$arm" = "skills-on" ]; then
     (
       cd "$ws"
-      timeout 600 claude -p "$PROMPT" \
+      timeout 600 env "${UNSET_ARGS[@]}" claude -p "$PROMPT" \
         --model "$MODEL" \
         --permission-mode bypassPermissions \
         --setting-sources project,local \
@@ -81,7 +97,7 @@ run_arm() {
   else
     (
       cd "$ws"
-      timeout 600 claude -p "$PROMPT" \
+      timeout 600 env "${UNSET_ARGS[@]}" claude -p "$PROMPT" \
         --model "$MODEL" \
         --permission-mode bypassPermissions \
         --setting-sources project,local \

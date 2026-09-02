@@ -63,6 +63,32 @@ pressure.
   pairs re-run from scratch (`rm -rf` on the failed pair dirs first) under
   the same registration above; nothing about the registered metric,
   threshold, or decision rule changed.
+- 2026-09-02: in the second (path-fixed) run of all 4 pairs, the skills-off
+  arms of 01-study-groups and 03-review-scheduler each resolved "the repo
+  root" to this orchestrating session's own working directory instead of
+  their own clone -- re-derived from each session's raw tool_use entries:
+  01's skills-off `Write`'d `DELIVERABLE.md` to this session's own repo
+  root (confirmed via `git status --short` showing an untracked
+  `DELIVERABLE.md` at this session's top level, removed after inspection);
+  03's skills-off went further, `Glob`/`Read`-ing this session's own
+  `README.md` and its own auto-memory `MEMORY.md` (reads only, no write
+  confirmed by `git diff --stat README.md` showing no change) before also
+  writing its `DELIVERABLE.md` to the same wrong absolute path, overwriting
+  01's stray file. Neither skills-on arm in the same pairs showed this
+  pattern, nor did the other 2 pairs' skills-off arms. Root cause not fully
+  isolated, but `env | grep -oE '^(CLAUDE|MUSTER)_'` on this orchestrating
+  shell shows `CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_BRIDGE_SESSION_ID`,
+  and `CLAUDE_CODE_SESSION_ID` among the vars inherited by the `claude -p`
+  child process launched from inside it -- a plausible channel for a child
+  session to resolve paths against the parent session's own context rather
+  than its own `cwd`, independent of the `--setting-sources` scope this
+  issue already fixed. Fix: `run_pair.sh` now strips every `CLAUDE_*`/
+  `MUSTER_*` env var from the child's environment via `env -u ...` before
+  invoking it, for both arms. Both full pairs (01, 03 -- both arms, not
+  just the broken one, to keep each pair internally generated under one
+  script version) re-run from scratch under this fix; 02 and 04 were
+  unaffected and were not re-run. Registered metric/threshold/decision rule
+  unchanged.
 
 ## Scope note (experiment-trust)
 
