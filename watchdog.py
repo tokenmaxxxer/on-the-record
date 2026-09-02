@@ -706,12 +706,32 @@ def _requirement_drift_cache_path(root: Path) -> Path:
     return state_paths.orchestrator_state_path("requirement_drift_cache.json")
 
 
+def _drift_cache_key(repo: str, number: int) -> str:
+    """issue #3081: the cache is one orchestrator-scoped file shared across
+    every repo the orchestrator sweeps (issue #2240 -- that sharing is
+    correct and stays). What was missing is a repo dimension on each entry:
+    a flat `str(number)` key collides across repos (two repos can both have
+    a PR #3048) and, even without a literal collision, carried no way for a
+    reader to tell whose entry it was. Keying by `repo:number` makes each
+    entry self-scoping -- a lookup for one repo's number can never resolve
+    to another repo's entry."""
+    return f"{repo}:{number}"
+
+
 def _load_requirement_drift_cache(path: Path) -> dict:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return data if isinstance(data, dict) else {}
+    data = data if isinstance(data, dict) else {}
+    # issue #3081: entries written before this repo dimension existed carry
+    # no `repo` key at all (a checkout with no resolvable `gh` slug still
+    # gets one, `"repo": None` -- that is a legitimate, if degenerate,
+    # attribution and must survive this filter). An entry with no `repo`
+    # key cannot be retroactively attributed and keeps matching every
+    # repo's lookups, which is exactly the leak this fix closes, so it is
+    # dropped here rather than ridden along as unrecognized state forever.
+    return {k: v for k, v in data.items() if isinstance(v, dict) and "repo" in v}
 
 
 def _save_requirement_drift_cache(path: Path, data: dict) -> None:
@@ -1044,6 +1064,15 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
         return
 
     cache_path = _sp._requirement_drift_cache_path(root)
+    # issue #3081: the cache is one file shared across every repo the
+    # orchestrator sweeps (issue #2240, correct and unchanged). `repo_slug`
+    # is this sweep's attribution key -- every entry this tick writes or
+    # reads is scoped to it via `_drift_cache_key`, so one repo's sweep can
+    # never surface or retain another repo's entries. A checkout with no
+    # resolvable slug (no `gh` remote) still gets a stable key (`None`,
+    # cached per-root by `_repo_slug`) -- it just means every entry from
+    # that checkout shares one bucket, same as before this fix.
+    repo_slug = _sp._repo_slug(root)
     if changed_numbers is None:
         # Issue #2103: full mode reads open issues+PRs from the shared board
         # read (snapshot + delta; was two `gh issue list`/`gh pr list` calls
@@ -1071,11 +1100,20 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
         # issue #2980: `cached_at` records when this body was actually
         # observed, so a later retained-on-failure report can name it
         # instead of silently passing off stale data as a fresh judgment.
+        # issue #3081: full mode is authoritative for *this repo's* current
+        # open set, but the cache file also holds other repos' entries --
+        # load first and only replace this repo's slice, or a full sweep of
+        # repo A would erase repo B's memory outright.
         now_iso = datetime.now(timezone.utc).isoformat()
-        cache = {str(item.get("number")): {"title": item.get("title", ""),
-                                            "body": item.get("body", "") or "",
-                                            "cached_at": now_iso}
-                 for item in all_items if item.get("number") is not None}
+        cache = _sp._load_requirement_drift_cache(cache_path)
+        cache = {k: v for k, v in cache.items() if v.get("repo") != repo_slug}
+        for item in all_items:
+            num = item.get("number")
+            if num is None:
+                continue
+            cache[_sp._drift_cache_key(repo_slug, num)] = {
+                "title": item.get("title", ""), "body": item.get("body", "") or "",
+                "cached_at": now_iso, "repo": repo_slug, "number": num}
         _sp._save_requirement_drift_cache(cache_path, cache)
     else:
         # issue #1688: delta mode — only re-fetch the changed numbers (via
@@ -1098,22 +1136,28 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
                 continue
             any_fetch_ok = True
             fetched_numbers.add(num)
+            key = _sp._drift_cache_key(repo_slug, num)
             # issue #2078: a live refetch may show the number merged/closed
             # since it was last cached as open — drop it from the index
             # entirely instead of re-flagging it as an open uncited PR.
             if item.get("state") not in (None, "open"):
-                cache.pop(str(num), None)
+                cache.pop(key, None)
                 continue
             all_items.append(item)
-            cache[str(num)] = {"title": item.get("title", ""),
-                                "body": item.get("body", "") or "",
-                                "cached_at": datetime.now(timezone.utc).isoformat()}
-        for key, val in cache.items():
-            try:
-                key_num = int(key)
-            except ValueError:
+            cache[key] = {"title": item.get("title", ""),
+                           "body": item.get("body", "") or "",
+                           "cached_at": datetime.now(timezone.utc).isoformat(),
+                           "repo": repo_slug, "number": num}
+        # issue #3081: only this repo's own entries feed the reuse pass --
+        # this is the report-time filter. Without it, another repo's cached
+        # entries (real numbers, real bodies, cached under this same shared
+        # file) get read back in here and printed under this sweep's prefix
+        # as if they were this repo's own open items.
+        for val in cache.values():
+            if val.get("repo") != repo_slug:
                 continue
-            if key_num in fetched_numbers:
+            key_num = val.get("number")
+            if key_num is None or key_num in fetched_numbers:
                 continue
             all_items.append({"number": key_num, "title": val.get("title", ""),
                                "body": val.get("body", "")})
@@ -1144,10 +1188,20 @@ def requirement_drift(root: Path, changed_numbers: set[int] | None = None) -> No
             # 틱에서 전혀 평가되지 않은 unknown 이라는 사실을 그대로
             # 알린다 — 신규 subject 가 한 번도 가져본 적 없는 판정을
             # 물려받지 않는다.
-            cached_failed = [n for n in failed_numbers if str(n) in cache]
-            uncached_failed = [n for n in failed_numbers if str(n) not in cache]
+            # issue #3081: keyed on repo+number, so a number whose only
+            # cache entry belongs to a *different* repo (the failure mode
+            # this fix targets -- a lookup fails precisely because the
+            # cached entry is another repo's, not this repo's) cannot
+            # match here. It falls to `uncached_failed` below and is
+            # reported as unresolved, not silently retained as if this
+            # repo had a genuine prior verdict for it.
+            cached_failed = [n for n in failed_numbers
+                              if _sp._drift_cache_key(repo_slug, n) in cache]
+            uncached_failed = [n for n in failed_numbers
+                                if _sp._drift_cache_key(repo_slug, n) not in cache]
             for n in cached_failed:
-                observed_at = cache.get(str(n), {}).get("cached_at", "unknown")
+                observed_at = cache.get(_sp._drift_cache_key(repo_slug, n), {}).get(
+                    "cached_at", "unknown")
                 print(f"[watchdog] requirement-drift-cache-retained: 조회 실패 {n} — "
                       f"이전 캐시 판정 유지 (관측: {observed_at})")
             if uncached_failed:
