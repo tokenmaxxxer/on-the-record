@@ -192,6 +192,8 @@ derived: the fence above, run this session in `/tmp/pr3137-work` -- the identica
 - skill-verdict: test-authoring-isolation-and-fixture-strategy — not-applicable: fixtures here are the same per-test `tempfile.TemporaryDirectory()`-scoped real git checkouts the existing suite already used before this round -- no shared state, no new isolation question raised by moving from command-text to tool_response fixtures.
 - skill-verdict: work-in-english — applied: this task's dispatch arrived with Korean framing (the implementation-blueprint consult log's own `answer`/`caveats` fields are in Korean); all code, tests, commit messages, and this record are written in English.
 
+Note on who invoked what: the skill verdicts above were produced by the delegated build worker that did the actual implementation for this round, via that worker's own direct Skill tool calls. The top-level orchestrating session that dispatched this build made no direct Skill tool calls of its own.
+
 ## Open findings
 
 - Caveat 1 (multi-repo sessions) — open, not resolved this round: `spawn.py`'s roster schema needs a set-of-repos field before a session can legitimately target more than one repo under this design. No code change proposed here; documented as a known gap.
