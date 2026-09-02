@@ -475,8 +475,7 @@ skill-verdict: test-depth-audit — applied: invoked; the mutation-testing
 result immediately above classified the 4 fixed respawn tests as 3
 Genuine-Assertion plus 1 Surface/Mock-Dominated-on-the-debounce-axis,
 cited by file:line in §4 with a concrete mutation reproduction.
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; Cluster B (§4), the load-bearing claim, was re-derived
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; Cluster B (§4), the load-bearing claim, was re-derived
 from a from-scratch independent script rather than cited from PR #3089's
 own diagnosis or its cited sibling test, and the Surface finding above
 is documented with the same evidentiary weight as the Present verdicts
