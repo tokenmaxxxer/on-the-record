@@ -267,6 +267,39 @@ both are harness-correctness fixes discovered and applied before any
 scoring occurred, not post-hoc adjustments to the rule after seeing a
 result.
 
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5504867589 -- canonical: `gh issue view
+3053 --comments`, re-read this session after the acceptance checks above
+had already passed and the harness run had already landed its data. That
+comment corrects the pipeline this record's skills-on arm represents:
+`run_pair.sh` launches `claude -p` directly, so the skills-on arm is a
+bare Claude session with the marketplace corpus reachable and the `Skill`
+tool available, self-selecting with no `--skills` argument and no
+orchestrator -- not the actual consumer path, which runs
+`/on-the-record:run` -> `spawn.py --skills X,Y` -> role session. This
+record's H1/H2 results above are accordingly a **bare-session baseline**:
+they show self-selection happens at all when the corpus is genuinely
+present (H1 verified; 8 skill-opens, re-derived above, > 0) and that
+self-selected deliverable quality reads indistinguishable from the
+skill-off arm (H2, margin +1, derived above) -- they do not settle whether
+the full consumer pipeline (orchestrator-selected skills through
+`spawn.py`) changes deliverable quality, which per that comment is a
+different, not-yet-built pair design (both arms through `spawn.py`,
+differing only in skill-layer availability) named as necessary follow-on
+work, filed as a comment rather than a new issue.
+
+derived: this session's own 4 acceptance checks (`test "$(python3
+/tmp/check1.py)" -ge 3`, `grep -L '"Skill"'
+docs/issue-3053/_assets/*/skills-off.session.jsonl | wc -l`, `ls -d
+docs/issue-3053/_assets/*/ | wc -l`, `grep -l document_1_score
+docs/issue-3053/_assets/*/verdict.json | wc -l`), re-run this session
+against the committed tree -- all 4 still pass; they were written against
+exactly the harness this session built and ran, and this comment does not
+change them. Nothing in this record's data collection is retracted; the
+framing of what it answers is narrowed to a bare-session baseline, not a
+consumer-pipeline settlement of R007.
+
 ## Upstream basis
 
 - `docs/issue-3053/decisions/pre-registration.md` (same-commit) -- the
