@@ -111,14 +111,15 @@ class HookClassificationTest(unittest.TestCase):
         # raising it to 16 (15 wrapped, 1 unwrapped) -- this comment's own
         # count had drifted from the live registration count it exists to
         # track, exactly the drift this test catches. issue #3231 added
-        # skill-corpus-bootstrap.sh (wrapped) and classified the orphaned
-        # amends-landing-apply.sh entry, landing on 17 (16 wrapped, 1
-        # unwrapped) -- this literal is meant to move again the next time a
-        # hook is legitimately registered; it exists to catch drift, not to
-        # freeze the count at any one issue's number.
+        # skill-corpus-bootstrap.sh and install-precondition-notices.sh
+        # (both wrapped) and classified the orphaned amends-landing-apply.sh
+        # entry, landing on 18 (17 wrapped, 1 unwrapped) -- this literal is
+        # meant to move again the next time a hook is legitimately
+        # registered; it exists to catch drift, not to freeze the count at
+        # any one issue's number.
         live = registrations_from_hooks_json()
-        self.assertEqual(len(live), 17, live)
-        self.assertEqual(sum(1 for r in live if r[3]), 16, live)
+        self.assertEqual(len(live), 18, live)
+        self.assertEqual(sum(1 for r in live if r[3]), 17, live)
         self.assertEqual(sum(1 for r in live if not r[3]), 1, live)
 
     def test_pretooluse_dispatcher_is_classified_but_unwrapped(self):

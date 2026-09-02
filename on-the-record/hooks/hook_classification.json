@@ -27,6 +27,14 @@
     },
     {
       "event": "SessionStart",
+      "script": "install-precondition-notices.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "issue #3231: prints a git-identity / docs/specs/approvers.md remedy early instead of letting the failure surface deep in a spawned session's git commit or require_board() exit -- read-only, no gate deny logic depends on this having run"
+    },
+    {
+      "event": "SessionStart",
       "script": "session-role-bind.sh",
       "args": [],
       "wrapped": true,

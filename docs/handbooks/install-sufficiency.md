@@ -2,27 +2,43 @@
 
 This handbook answers one question honestly: does installing only the
 on-the-record plugin let a consumer session work on a target repo? The
-short answer is no. Several preconditions live outside the plugin's
-reach. This document names them, states which ones the plugin could
-remove, and states which ones it cannot.
+short answer is still no, but less no than it was: issue #3231 removed
+two of the ten preconditions issue #3182 traced, and gave two more a
+better error instead of a silent late failure. This document names all
+ten, states which were removed and how, and states which ones cannot be
+removed at all.
 
 The preflight script at `scripts/preflight/consumer_preconditions.py`
 checks these preconditions on a live machine. Run it with `--json` for
 machine-readable output, or with no flag for a human-readable report.
-It never mutates the machine — it only observes and reports.
+It never mutates the machine — it only observes and reports; none of
+the mechanisms this document describes live inside that script.
 
 ## What a plugin-only install already satisfies
 
-One precondition holds today without any manual step: the marketplace
-`plugin install` clone brings `spawn.py`, `pipeline.py`, and the rest
-of the driver code. `on-the-record/commands/run.md:10` sets
-`ON_THE_RECORD=${CLAUDE_PLUGIN_ROOT}/..` and drives every command
-through `python3 $ON_THE_RECORD/spawn.py`. That resolves correctly
-because the marketplace add clones the whole repository, not just the
-`on-the-record/` plugin subdirectory (`docs/handbooks/setup.md:43-45`).
-No separate checkout is needed for this one piece.
+Three preconditions hold without any manual step, once a session has
+started at least once with the plugin active (the two skill-corpus ones
+below are shipped by a `SessionStart` hook, not by `plugin install`
+itself — see "What was removed"):
 
-Nothing else on the list below is satisfied by the install step alone.
+- The marketplace `plugin install` clone brings `spawn.py`, `pipeline.py`,
+  and the rest of the driver code. `on-the-record/commands/run.md:10`
+  sets `ON_THE_RECORD=${CLAUDE_PLUGIN_ROOT}/..` and drives every command
+  through `python3 $ON_THE_RECORD/spawn.py`. That resolves correctly
+  because the marketplace add clones the whole repository, not just the
+  `on-the-record/` plugin subdirectory (`docs/handbooks/setup.md:43-45`).
+  No separate checkout is needed for this one piece.
+- `skill-repository resolvable`: the `skill-corpus-bootstrap.sh`
+  `SessionStart` hook runs `spawn.py ensure-skills`, which calls the same
+  `_skill_repo_root()` resolution a real `--skills` spawn already used
+  (env > sibling clone > managed clone, issue #1789) — the hook just
+  moves *when* that call first happens, from "inside the first `--skills`
+  spawn" to "session start." See "What was removed" below.
+- `~/.claude/skills` populated (read as: *present* — see that section's
+  caveat on what "populated" means here): the same hook creates this
+  directory if absent, empty.
+
+Nothing else on the list below is satisfied by a plugin-only install.
 
 ## What it does not satisfy
 
@@ -36,7 +52,7 @@ require, grouped by when the loop first needs it.
 | `claude` CLI on PATH | `pipeline.py:661` builds `["claude", "-p", ...]`; `spawn.py:4761` is what actually execs it, inside `_spawn_one()`. | No — see "cannot be removed" below. |
 | `git` CLI on PATH | `pipeline.py:798` shells out to `git remote get-url origin` during workspace bootstrap. | No — see "cannot be removed" below. |
 | `gh` CLI, authenticated | `plumbing.py:355` runs `gh auth token` to fetch the token spawned sessions use as `GH_TOKEN`. | No — see "cannot be removed" below. |
-| Git identity configured (`user.name`, `user.email`) | `board.py:83-86` runs `git commit` directly during `init --push`; an unset identity fails that commit. | Partially — see "could be removed" below. |
+| Git identity configured (`user.name`, `user.email`) | `board.py:83-86` runs `git commit` directly during `init --push`; an unset identity fails that commit. | No, but the error moved earlier — see "stays manual, with a better error" below. |
 | POSIX fork support | `spawn.py:4639` calls `os.fork()`/`os.setsid()` to detach each spawned role session (the same pattern also appears at `spawn.py:2668`, for an unrelated feature). | No — see "cannot be removed" below. |
 | Disk/inode headroom before a workspace clone | `spawn.py:729-764` (`_spawn_capacity_check`, called at `spawn.py:3229`) exits before cloning if free bytes or inodes fall below a threshold. | No — see "cannot be removed" below. |
 
@@ -44,59 +60,101 @@ require, grouped by when the loop first needs it.
 
 | Precondition | Why the loop needs it | Removable by the plugin? |
 |---|---|---|
-| skill-repository resolvable | `skills.py:96-112` (`_skill_repo_root`) looks for `MUSTER_SKILL_REPO`, a sibling clone, or an already-populated managed clone — in that order. | Partially — see "could be removed" below. |
-| `~/.claude/skills` populated | `skills.py:338` reads this path as one of four skill sources. No plugin install writes anything here. | Partially — see "could be removed" below. |
+| skill-repository resolvable | `skills.py:96-112` (`_skill_repo_root`) looks for `MUSTER_SKILL_REPO`, a sibling clone, or an already-populated managed clone — in that order. | Yes — shipped, see "what was removed" below. |
+| `~/.claude/skills` populated | `skills.py:338` reads this path as one of four skill sources. | Yes (existence only) — shipped, see "what was removed" below. |
 
 ### Target-repo state (needed before any spawn against that repo)
 
 | Precondition | Why the loop needs it | Removable by the plugin? |
 |---|---|---|
-| `docs/specs/approvers.md` present | `board.py:246-256` (`require_board`) exits before spawning if this file is absent from the target repo. | Partially — see "could be removed" below. |
+| `docs/specs/approvers.md` present | `board.py:246-256` (`require_board`) exits before spawning if this file is absent from the target repo. | No, but discovery improved — see "stays manual, with a better error" below. |
 | Push access to `origin` for the spawning account | `on-the-record/hooks/git-push-guard.sh:328` requires every spawned session to push its own `issue-<n>/<skill>` branch. | No — see "cannot be removed" below. |
 
-## What could be removed by changing the plugin
+## What was removed (issue #3231)
 
-Four of the ten preconditions above are partially addressable. None
-of the fixes below are shipped yet — they are concrete proposals, not
-claims about current behavior.
+- **skill-repository resolvable — tier: on-first-need-with-notice,
+  automatic.** `skills.py`'s `_skill_repo_managed_root()` already cloned
+  skill-repository into the plugin's own cache
+  (`runs/rulebooks/skill-repository/`) when nothing else resolved it —
+  issue #1789 shipped that months before this handbook's first version
+  claimed "no automatic clone" (`docs/handbooks/setup.md`, fixed by this
+  issue). What was missing was *proactivity*: that clone only ran inside
+  a real `--skills` spawn, so a session's first `--skills` attempt paid
+  the network round-trip inline, or failed outright if offline with no
+  prior clone. The `skill-corpus-bootstrap.sh` `SessionStart` hook now
+  calls `spawn.py ensure-skills` (`skills.py:ensure_skill_corpus_cli`) at
+  session start instead, so the corpus is usually already there by the
+  time a spawn needs it. Chose automatic-with-notice, not silent,
+  because a multi-second network fetch happening invisibly the first
+  time a user tries `--skills` is a worse surprise than one line on
+  stderr at session start (`[skill-repo] skill-repository 를 받는 중`)
+  — cloning into the plugin's own cache is safe to do unasked (it writes
+  nothing the user owns), but doing it *invisibly* is not, per this
+  issue's own must-not: prefer telling the user over surprising them.
 
-- **Git identity.** A `SessionStart` hook could check `git config
-  --get user.name`/`user.email` and print a one-line remedy before the
-  first Bash tool call, instead of letting the failure surface deep
-  inside a spawned session's `git commit`. This does not remove the
-  precondition — the operator still configures git identity once —
-  but it moves the failure to install time, where it is cheap to fix.
+  Hardened for the interrupted-fetch case this issue's acceptance
+  requires demonstrating: `_skill_repo_managed_root()` now clones into a
+  scratch directory next to the final path, checks the git subprocess's
+  own exit code *and* the checkout's actual content, and only then
+  `os.replace()`s the scratch directory into place. A fetch killed
+  mid-transfer — network drop, process kill, anything short of the
+  clone finishing — leaves the scratch directory as garbage (cleaned up
+  on the next attempt) and the real path untouched, so
+  `skill_repository_resolvable` keeps reading unsatisfied until a
+  fetch actually completes. Before this change, `git clone` targeted the
+  final path directly: a kill after some (not all) skill directories had
+  already been checked out could leave that path non-empty, which the
+  same "any non-dot subdirectory exists" validity check would have read
+  as satisfied. `test/test_skill_repo_managed_clone.py` and
+  `tests/test_issue_3231_install_removals.py` both exercise this.
 
-- **skill-repository.** The plugin package could vendor a snapshot of
-  skill-repository's content inside `on-the-record/skills/`, refreshed
-  on a release cadence. This trades a manual clone for a version-skew
-  risk: vendored skills would lag the upstream skill-repository between
-  releases. That tradeoff needs an explicit decision, not a silent
-  default.
+- **`~/.claude/skills` populated — tier: automatic.** The same
+  `SessionStart` hook creates this directory (under the user's own home
+  directory, `Path.home() / ".claude" / "skills"`) if it's absent, empty. This
+  is the lowest-risk removal in the set: `skills.py:213`
+  (`_local_skill_dirs`) already treats an absent directory and an empty
+  one identically (zero skills contributed either way), so creating it
+  changes nothing about what skills resolve — it only satisfies the
+  precondition's literal definition (existence, not content). No
+  content is written, so there's nothing to interrupt and nothing that
+  can read as "populated" when it isn't; the risk this issue's must-not
+  clause is aimed at (a corpus that looks complete but isn't) does not
+  apply to an intentionally-empty directory.
 
-- **`~/.claude/skills`.** Claude Code plugins have no install-time
-  lifecycle event to hook — `on-the-record/.claude-plugin/plugin.json`
-  declares no such field, and the CLI's hook events
-  (`SessionStart`, `PreToolUse`, ...) all fire on session activity, not
-  on `plugin install`. The realistic mechanism is the same
-  `SessionStart` first-run check the other two proposals in this list
-  use: on first session start, detect that `~/.claude/skills` is empty
-  and populate it from a plugin-shipped skill set. Doing this changes
-  what "install" means, from "add a plugin" to "add a plugin and write
-  into the user's home directory on its first run" — a bigger
-  footprint that should be opt-in, not automatic.
+## Stays manual, with a better error
 
-- **`docs/specs/approvers.md`.** The plugin already ships the fix:
-  `spawn.py init -C <repo>` creates this file. What is missing is
-  discovery — nothing prompts a first-time operator to run it. A
-  `SessionStart` hook could detect a target repo with no board marker
-  and print the `init` command as a suggested next step.
+Two preconditions cannot be removed — the operator's own git identity is
+their choice to make, and a target repo's board file is per-repo state
+the plugin has no authority to invent before a session ever opens that
+repo — but issue #3231 moved both failures earlier, from deep inside a
+spawned session to a `SessionStart` notice
+(`install-precondition-notices.sh`), the same "tell, don't surprise"
+call as the skill-corpus fetch above:
+
+- **Git identity.** The hook runs `git config --get user.name`/
+  `user.email` (read-only — it must not modify the user's global git
+  config, and doesn't) and prints the exact `git config --global` remedy
+  if either is unset, instead of letting the failure surface inside
+  `board.py`'s `git commit` during `init --push`.
+- **`docs/specs/approvers.md`.** The plugin already shipped the fix —
+  `spawn.py init -C <repo>` creates this file — what was missing was
+  discovery. When the hook's cwd looks like a git checkout (a `.git`
+  directory present) with no board marker, it prints the `init` command
+  as a suggested next step.
+
+Neither check flips its preflight bit: `check_git_identity_configured()`
+and `check_target_repo_board_file_present()` still observe the same
+real state they always did, honestly, and a printed reminder does not
+change that state. What changed is how early the operator finds out.
 
 ## Preconditions that cannot be removed
 
-Six preconditions are structural. No plugin-side change removes them,
+Four preconditions are structural. No plugin-side change removes them,
 because each one names a real external system the loop has no
-authority over.
+authority over. (Git identity and the board-file precondition moved out
+of this list's predecessor into "stays manual, with a better error"
+above — the precondition itself is still unremovable, but the failure
+mode improved.)
 
 - **The `claude` CLI itself.** The plugin runs inside that CLI. It
   cannot bootstrap the program that hosts it.
@@ -122,11 +180,14 @@ authority over.
 
 ## Reading this honestly
 
-Ten preconditions were traced from real code paths. One is satisfied
-by a plugin-only install today. Four have a concrete, partial fix a
-future plugin change could ship. Six are structural and stay outside
-the plugin's reach permanently. The gap this document exists to make
-visible is real — it does not close by writing more documentation.
-Closing it, where it can close, means shipping the four remedies
-above, one at a time, each as its own change with its own tradeoff
-made explicit.
+Ten preconditions were traced from real code paths. Before issue #3231,
+one was satisfied by a plugin-only install. After it, three are — the
+skill corpus (the precondition that mattered most: a `--skills` spawn
+finding nothing was the difference between the loop working and not)
+and its local-override directory both moved from manual to automatic-
+with-notice. Two more preconditions still cannot be removed, but no
+longer fail silently late — they surface at session start instead. Four
+remain genuinely structural: they name a CLI, an OS capability, a
+remote-side permission, or free disk, none of which any plugin change
+can supply. The gap this document exists to make visible is smaller now
+than it was, and still real where it remains.
