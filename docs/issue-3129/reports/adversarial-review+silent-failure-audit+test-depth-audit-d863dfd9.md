@@ -675,18 +675,39 @@ scratch script under `/tmp/verify6_test/`, and this session's git/gh
 commands are in English; this final summary to the user follows in Korean
 per policy.
 
-other mounted skills: not triggered — `implementation-audit`,
-`conformance-review-verdict-assignment`, and
-`defect-verification-independence-from-upstream-verdicts` were configured
-by task-text match (per the spawning prompt) rather than mounted for this
-role directly; their guidance (independent re-derivation rather than citing
-PR #3178's/PR #3170's own verdicts, naming the failing clause on each
-Incorrect verdict, re-checking a defect once before finalizing it) was
-followed throughout this record without a separate Skill-tool invocation
-distinct from the ones already listed above — every Incorrect/Present
-verdict above cites its own re-derived evidence rather than the upstream
-records' claims, and Angle 3 in particular was re-checked against the real
-hook binary (not just argued from the doc) before being finalized.
+skill-verdict: implementation-audit — applied: invoked; used the
+Present/Surface/Absent/Incorrect/Unverifiable taxonomy directly for every
+Angle 1-5 verdict above, requiring concrete file:line evidence (not a
+builder's stated intent) before any Present verdict — canonical: the per-
+angle "Verdict:" lines in Angles 1, 2, 4, and the depth-check that
+downgraded Angle 2's `right-repo-different-issue-number` finding to
+"Present, by design" only after confirming `check_notice` never reads an
+unrelated issue number, not on the strength of the write path alone.
+
+skill-verdict: conformance-review-verdict-assignment — applied: invoked;
+applied rule 1 (Surface vs. Present) implicitly by confirming every Present
+verdict's evidence actually fires on the path exercised, not merely exists
+in the file; applied rule 2 by naming Angle 3 Incorrect (not Absent) since
+the code actively re-derives a wrong trust value rather than omitting a
+check; applied rule 5 by naming the specific failing clause for every
+Incorrect verdict (Angle 2's missing success/failure check, Angle 3's false
+"unchanged for the session's whole life" claim) rather than a bare label;
+applied rule 6 by re-checking Angle 3 against the real hook binary
+(Angle 3's harness result) before finalizing it as Incorrect rather than
+resting on the doc citation alone.
+
+skill-verdict: defect-verification-independence-from-upstream-verdicts —
+applied: invoked; treated PR #3178's own acceptance-section numbers as
+claims to re-derive, not settled fact — every acceptance number in
+"Acceptance checks" above was re-run this session against the same tip, not
+cited from PR #3178's record (and one, `tests/ -q`, came back different,
+which was investigated rather than silently reconciled); deliberately built
+negative/edge-path attacks (a failed edit, two URLs, cwd drift) rather than
+only re-confirming the happy-path shapes PR #3178 already tested, per rule
+2; did not let round 3's own PR #3170 Present verdicts on cross-repo
+isolation lower the bar for this round's attempt count, per rule 9
+(removal) — this round attacked seven new shapes beyond the nine PR #3170
+already enumerated, not fewer.
 
 ## Next steps
 
