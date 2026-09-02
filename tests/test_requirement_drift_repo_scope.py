@@ -126,6 +126,35 @@ class TestDeltaReusePassFiltersByRepo:
             "repo A's cached entry leaked into repo B's sweep output "
             f"(issue #3081): {out!r}")
 
+    def test_delta_reuse_pass_leak_is_not_one_directional(self, repos, capsys):
+        """issue #3081, 5th comment: the leak is bidirectional -- a
+        study-companion PR was reported on on-the-record's board too, and
+        both boards printed the byte-identical union. Seed both repos,
+        then re-sweep each purely off the reuse pass (nothing of its own
+        changed this tick) and assert neither leaks into the other, and
+        the two outputs are not identical."""
+        root_a, root_b = repos
+        with mock.patch.object(spawn, "_fetch_issue_or_pr_via_cache",
+                                return_value=_item(3048)):
+            spawn.requirement_drift(root_a, changed_numbers={3048})
+        with mock.patch.object(spawn, "_fetch_issue_or_pr_via_cache",
+                                return_value=_item(77)):
+            spawn.requirement_drift(root_b, changed_numbers={77})
+        capsys.readouterr()
+
+        spawn.requirement_drift(root_a, changed_numbers=set())
+        out_a = capsys.readouterr().out
+        spawn.requirement_drift(root_b, changed_numbers=set())
+        out_b = capsys.readouterr().out
+
+        assert "77" not in out_a, (
+            f"repo B's number leaked into repo A's sweep output: {out_a!r}")
+        assert "3048" not in out_b, (
+            f"repo A's number leaked into repo B's sweep output: {out_b!r}")
+        assert out_a != out_b, (
+            "repo A's and repo B's sweep outputs are byte-identical -- "
+            f"each board printing the same union: {out_a!r} == {out_b!r}")
+
     def test_delta_reuse_pass_includes_own_repo(self, repos, capsys):
         root_a, _root_b = repos
         # Tick 1: cache #3048 for repo A.
