@@ -61,6 +61,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -76,6 +77,22 @@ class SkillBoundGrantError(RuntimeError):
     """Raised when a CLAUDE_SKILL-bound session tries to grant its own
     standing delegation — the same self-authorization ban issue #707's
     DELEGATION-CITING APPROVE already applies to APPROVE citations."""
+
+
+class MalformedManifestError(ValueError):
+    """Raised internally when a `manifest` value is not shaped as
+    `list[dict]` with string-typed `tool`/`resource`/`repo` fields —
+    never surfaces past this module's read-path boundary as a raw
+    exception. `is_covered()`, `_describe_manifest()`, and `audit()`
+    each catch it and fail closed to "covers nothing" (the same
+    direction an absent or empty manifest already takes), printing a
+    diagnostic to stderr so the malformed state is visible rather than
+    silently swallowed. `grant()` is the one place this is allowed to
+    propagate: a malformed `manifest=` argument is an authoring-time
+    bug and must fail loudly, the same standard `parse_allow_spec()`
+    already holds itself to for a malformed `--allow` spec — never
+    silently degrade to storing a broken record that every later read
+    then has to fail closed against."""
 
 
 def _state_path(repo: str) -> Path:
@@ -179,6 +196,14 @@ def grant(repo: str, scope: str, granted_by: str, expires_at: str | None = None,
             f"DELEGATION-CITING APPROVE self-approval ban)")
     if not scope or not scope.strip():
         raise ValueError("delegation scope must not be empty")
+    # Validated, not just coerced: `list(manifest)` on a bare string used
+    # to silently explode it into one entry per character (issue #3061
+    # round-4 verification, PR #3192 Q4) and write that to disk, where
+    # every later read would then have to fail closed against it. A
+    # malformed `manifest=` argument is an authoring-time bug and fails
+    # loudly here, the same standard `parse_allow_spec()` already holds
+    # itself to for a malformed `--allow` spec.
+    validated_manifest = _validate_manifest(manifest)
     now = now or datetime.now(timezone.utc)
     if expires_at is None:
         expires_at = _now_iso(now + timedelta(hours=hours))
@@ -189,7 +214,7 @@ def grant(repo: str, scope: str, granted_by: str, expires_at: str | None = None,
         "expires_at": expires_at,
         "revoked_at": None,
         "revoked_by": None,
-        "manifest": list(manifest) if manifest else [],
+        "manifest": validated_manifest,
     }
     path = _state_path(repo)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -211,8 +236,53 @@ def revoke(repo: str, revoked_by: str, now: datetime | None = None) -> dict | No
     return record
 
 
+def _validate_manifest_entry(entry, index: int) -> dict:
+    if not isinstance(entry, dict):
+        raise MalformedManifestError(
+            f"manifest entry {index} is a {type(entry).__name__}, not an object")
+    for key in ("tool", "resource", "repo"):
+        if key in entry and entry[key] is not None and not isinstance(entry[key], str):
+            raise MalformedManifestError(
+                f"manifest entry {index} field {key!r} is a "
+                f"{type(entry[key]).__name__}, not a string")
+    return entry
+
+
+def _validate_manifest(manifest) -> list[dict]:
+    """Returns `manifest` as a validated `list[dict]`, or raises
+    `MalformedManifestError`. `None` and `[]` are both valid — "no
+    manifest" and "empty manifest" already mean "covers nothing" — only
+    a manifest that is present but not shaped as list-of-string-keyed-
+    objects is malformed: a non-list value (a bare string, a dict, an
+    int), a list containing a non-dict entry (a string, `None`, a
+    nested list), or an entry whose `tool`/`resource`/`repo` field holds
+    something other than a string (a nested dict or list one level too
+    deep) all raise here rather than reaching a `.get()` call on the
+    wrong type further down."""
+    if manifest is None:
+        return []
+    if not isinstance(manifest, list):
+        raise MalformedManifestError(
+            f"manifest is a {type(manifest).__name__}, not a list")
+    return [_validate_manifest_entry(e, i) for i, e in enumerate(manifest)]
+
+
+def _safe_manifest(manifest, context: str) -> list[dict]:
+    """Read-path wrapper around `_validate_manifest()`: never raises,
+    fails closed to an empty (covers-nothing) manifest, and says so on
+    stderr so a malformed on-disk record is visible instead of silently
+    read as "nothing was ever granted"."""
+    try:
+        return _validate_manifest(manifest)
+    except MalformedManifestError as exc:
+        print(f"delegation_state: malformed manifest ({exc}) in {context} — "
+              f"treating as 0 covered actions (fail-closed, same direction "
+              f"as no manifest / an empty manifest)", file=sys.stderr)
+        return []
+
+
 def _describe_manifest(manifest: list[dict] | None) -> str:
-    entries = manifest or []
+    entries = _safe_manifest(manifest, "describe()")
     if not entries:
         return "manifest: 0 action(s) — every action still escalates until entries are added"
     parts = ", ".join(
@@ -328,20 +398,89 @@ def describe(repo: str, now: datetime | None = None) -> str:
 
 _ACTION_RESOURCE_FIELDS = ("command", "file_path", "path", "url", "description")
 
+# issue #3061 round-4 verification (PR #3192, Q2): a trailing-wildcard
+# manifest entry -- this module's own recommended authoring idiom, e.g.
+# "git *" -- matched as a bare fnmatch glob against the WHOLE resource
+# string, with no awareness that a shell reads that string as more than
+# one command. "git log --oneline && rm -rf /var/lib/postgres" glob-
+# matches "git *" because fnmatch has no concept of "&&"; the wildcard
+# entry ends up silently authorizing a second, unrelated, unauthorized
+# command chained onto the first.
+#
+# Two honest fixes were on the table: (a) refuse to match a command
+# containing a shell operator against a WILDCARD entry at all, or (b)
+# split the command on its operators and require every segment to be
+# independently covered. (b) needs a real shell tokenizer to split
+# correctly across quoting, nested "$(...)"/backtick substitution, and
+# heredocs -- getting that parser slightly wrong reintroduces exactly
+# this bug class in a new shape (the same lesson four rounds of lexical
+# classifier already taught this issue: a hand-written text heuristic
+# is never the fail-closed side to bet on). (a) needs no parser: it
+# only needs to recognize that a shell operator is PRESENT, not to
+# understand the structure around it, so it fails closed by construction
+# rather than by care. This module takes (a).
+#
+# Cost to an author: a manifest entry using a wildcard glob only ever
+# covers a single, non-chained command. An author who legitimately wants
+# a specific chained command covered (e.g. "git fetch && git rebase
+# origin/main") must enumerate that exact compound string as its own
+# manifest entry with no wildcard in it -- a literal, non-glob `resource`
+# value still matches via plain equality (see below), because that is an
+# explicit, single enumerated action, not a class of actions inferred
+# from a prefix. It does not generalize: a slightly different chain needs
+# its own entry. That is the fix's stated cost, the same shape as
+# `parse_allow_spec()`'s own documented colon-ambiguity limitation.
+_SHELL_OPERATOR_TOKENS = (";", "|", "&", "`", "$(", "<<")
+
+
+def _looks_like_compound_command(resource: str) -> bool:
+    """True iff `resource` contains a shell metacharacter that chains a
+    second command onto the first: `;` (sequential), `|` (pipe), `&`
+    (background job -- also catches `&&`), a backtick or `$(` (command
+    substitution / subshell), or `<<` (here-doc). Presence-only, not a
+    parse: a resource string that merely contains one of these tokens
+    inside quoted data (rare, and the false-positive direction is
+    "escalate a command that didn't actually need it") is treated the
+    same as a real chain -- fail closed, never fail open."""
+    return any(token in resource for token in _SHELL_OPERATOR_TOKENS)
+
+
+def _is_glob_pattern(pattern: str) -> bool:
+    return any(ch in pattern for ch in "*?[")
+
 
 def is_covered(action: dict, manifest: list[dict] | None, repo: str | None = None) -> bool:
     """True iff `action` (`{"tool": str, "resource": str}`) matches at
     least one entry of `manifest`. Set membership, not inference: `tool`
     must match an entry's `tool` exactly; `resource` must match that
-    entry's `resource` glob (`fnmatch`); when both `repo` and the entry's
-    `repo` (default `"*"`) are given, `repo` must also match that glob.
-    An action matching no entry returns False — the manifest enumerates
+    entry's `resource` glob (`fnmatch`) -- UNLESS `action`'s resource is a
+    chained/compound shell command (see `_looks_like_compound_command()`)
+    and the entry's `resource` is a wildcard glob, in which case the
+    match is refused regardless of whether the glob would otherwise hit,
+    so a grant for one command can never authorize a second command
+    chained onto it; when both `repo` and the entry's `repo` (default
+    `"*"`) are given, `repo` must also match that glob. An entry with no
+    `resource` value at all never matches anything -- a manifest entry
+    missing its `resource` key is incomplete authoring, not an implicit
+    wildcard, and must not silently cover everything for its `tool`. A
+    malformed `manifest` (wrong shape, not list[dict] with string
+    fields) fails closed to "nothing covered" and says so on stderr,
+    the same direction an absent or empty manifest already takes. An
+    action matching no entry returns False — the manifest enumerates
     what is delegated, and anything outside that enumeration is a
     genuine escalation by construction, never a guess."""
-    for entry in manifest or []:
+    entries = _safe_manifest(manifest, "is_covered()")
+    action_resource = action.get("resource") or ""
+    action_is_compound = _looks_like_compound_command(action_resource)
+    for entry in entries:
         if entry.get("tool") != action.get("tool"):
             continue
-        if not fnmatch.fnmatch(action.get("resource") or "", entry.get("resource") or "*"):
+        entry_resource = entry.get("resource")
+        if not entry_resource:
+            continue  # missing/empty resource is incomplete authoring, never an implicit "*"
+        if action_is_compound and _is_glob_pattern(entry_resource):
+            continue  # a wildcard entry may not authorize a chained command
+        if not fnmatch.fnmatch(action_resource, entry_resource):
             continue
         entry_repo = entry.get("repo") or "*"
         if repo is not None and not fnmatch.fnmatch(repo, entry_repo):
@@ -406,6 +545,47 @@ def _turn_text_and_action(event: dict) -> tuple[str, bool]:
     return text, has_tool_use
 
 
+def _episode_tool_uses(events: list[dict], tool_uses: list[dict], event_index: int) -> list[dict]:
+    """Every `tool_use` event between this ask (`event_index`) and either
+    the next ask-shaped stop (another assistant event with text and no
+    tool_use) or the end of the transcript.
+
+    issue #3061 round-4 verification (PR #3192, Q5): the transcript
+    format carries no field correlating a specific `tool_use` event to
+    the ask that prompted it -- no parent/reply id, nothing but stream
+    order. Picking "the very next tool_use event" (what this function's
+    predecessor did) is therefore a proxy for "the action this ask was
+    about," not a real binding, and an ordinary intervening action (a
+    `git log` sanity check while waiting on guidance) that happens to be
+    individually covered can stand in for a later, genuinely uncovered
+    action that never gets checked -- a real, irreversible escalation
+    misclassified as redundant via temporal misattribution instead of
+    lexical matching. No positional heuristic fixes this: restricting to
+    "the very next raw event" doesn't help, because the confounding
+    action in that failure mode already IS the very next event.
+
+    What IS honestly available from stream order alone is the full
+    stretch of what the orchestrator did in this episode -- everything
+    up to the next stop or the end of the log. `audit()` uses this
+    (`all(...)` over the whole stretch, not just its first entry) rather
+    than asserting a single-action binding it cannot actually prove:
+    only when EVERY action taken during the stretch was already covered
+    can the stop be called avoidable with any confidence; a single
+    uncovered action anywhere in the stretch means audit() cannot rule
+    out that action being what the ask was actually about, and reports
+    uncertain (not flagged) instead of guessing."""
+    boundary = len(events)
+    for i in range(event_index + 1, len(events)):
+        ev = events[i]
+        if ev.get("type") != "assistant":
+            continue
+        text, has_tool_use = _turn_text_and_action(ev)
+        if not has_tool_use and text.strip():
+            boundary = i
+            break
+    return [tu for tu in tool_uses if event_index < tu["index"] < boundary]
+
+
 def _candidate_session_logs(work_dir: Path, repo_name: str, since: datetime) -> list[Path]:
     if not work_dir.exists():
         return []
@@ -442,22 +622,27 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
     A turn is a flaggable candidate when it (a) ended with assistant text
     and no `tool_use` in that same event (the structural "stopped instead
     of acting" shape) and (b) the delegation was in force at that turn's
-    own timestamp. It is actually FLAGGED only when the next `tool_use`
-    event anywhere later in the same transcript resolves to an action
-    `is_covered()` by the recorded manifest — i.e. what the orchestrator
-    went on to do next was something the standing delegation already
-    authorized, so the stop was avoidable. When there is no later
-    `tool_use` event to check at all (the log ends at the ask, or nothing
-    the manifest covers followed), this cannot establish that the stop
-    was avoidable and it is NOT flagged — the same fail-closed direction
-    `in_force()`/`load_state()` already use elsewhere in this module."""
+    own timestamp. It is actually FLAGGED only when EVERY `tool_use`
+    event in this episode -- the whole stretch between this ask and the
+    next ask-shaped stop or the end of the transcript, not just the
+    first action taken -- resolves to an action `is_covered()` by the
+    recorded manifest (see `_episode_tool_uses()`'s docstring for why a
+    single-next-action binding is not something this transcript format
+    can actually prove). When there is no `tool_use` event in the
+    episode at all (the log ends at the ask, or nothing followed before
+    the next stop), or when even one action in the episode is NOT
+    covered, this cannot establish that the stop was avoidable and it is
+    NOT flagged — the same fail-closed direction `in_force()`/
+    `load_state()` already use elsewhere in this module. A malformed
+    `manifest` on the loaded record fails closed to "covers nothing"
+    (reported on stderr) rather than crashing the scan."""
     since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     record = load_state(repo)
     repo_name = Path(repo).resolve().name
     logs = _candidate_session_logs(work_dir, repo_name, since_dt)
     flagged = []
     if record is not None:
-        manifest = record.get("manifest") or []
+        manifest = _safe_manifest(record.get("manifest"), "audit()")
         for log_path in logs:
             events = trajectory_analyzer.parse_session_log(log_path)
             tool_uses = trajectory_analyzer.tool_use_events(events)
@@ -482,18 +667,18 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
                 text, has_tool_use = _turn_text_and_action(event)
                 if has_tool_use or not text.strip():
                     continue
-                next_tool_use = next(
-                    (tu for tu in tool_uses if tu["index"] > event_index), None)
-                if next_tool_use is None:
+                episode = _episode_tool_uses(events, tool_uses, event_index)
+                if not episode:
                     continue
-                action = _extract_action(next_tool_use)
-                if not is_covered(action, manifest, repo=repo_name):
+                episode_actions = [_extract_action(tu) for tu in episode]
+                if not all(is_covered(a, manifest, repo=repo_name) for a in episode_actions):
                     continue
                 flagged.append({
                     "log": str(log_path),
                     "timestamp": event.get("timestamp"),
                     "text_excerpt": text.strip()[:160],
-                    "next_action": action,
+                    "next_action": episode_actions[0],
+                    "episode_actions": episode_actions,
                 })
     return {"since": since, "scanned_logs": len(logs), "count": len(flagged),
             "flagged": flagged}
