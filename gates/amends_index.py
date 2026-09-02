@@ -33,13 +33,19 @@ entry points fix that split:
     participates in; a missing backlink or a stale index is never a
     commit-time reason. Wired into `on-the-record/hooks/
     amends-index-preflight.sh`.
-  - `check_landing(repo, staged)` -- merge-time, run AFTER
+  - `check_landing(repo, staged)` -- merge-time, meant to run AFTER
     `write_backlinks()`/`update()` have already applied. Reports
     `check_staged()`'s reasons again plus any of this PR's own edges the
-    apply step still could not resolve. The automatic caller is
-    `gates/amends_landing.py::land()`, invoked by `on-the-record/hooks/
-    amends-landing-apply.sh` on a successful `gh pr merge` -- see that
-    module's docstring for "who calls it, and why nothing did before."
+    apply step still could not resolve. Not currently called by any hook
+    (`amends_landing.py::land()`, the automatic caller of the apply step
+    itself, is what `amends-landing-apply.sh` -- a `PostToolUse` hook,
+    which cannot deny -- invokes on a successful `gh pr merge`; see that
+    module's docstring for "who applies it, and why nothing did before").
+    Live enforcement of a still-broken edge stays at commit time
+    (`check_staged()`, above) -- a structurally-sound edge always resolves
+    cleanly at the automatic-apply step, so `check_landing()` exists,
+    tested, for a future `PreToolUse` deny gate should a residual case
+    (e.g. two PRs landing the same target#anchor in a race) ever need one.
 
   python3 gates/amends_index.py [<repo root>]                    # check mode (CI)
   python3 gates/amends_index.py [<repo root>] --update            # regenerate the index
