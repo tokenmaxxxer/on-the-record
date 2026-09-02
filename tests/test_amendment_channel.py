@@ -36,6 +36,32 @@ REPO_B = "acme/gadgets"
 REPO_A_URL = "https://github.com/%s.git" % REPO_A
 REPO_B_URL = "https://github.com/%s.git" % REPO_B
 
+BASH_TOOL_RESPONSE_FIXTURE = (
+    REPO_ROOT / "tests" / "fixtures" / "amendment_channel" / "bash_tool_response.json"
+)
+
+
+def _bash_tool_response(stdout: str, stderr: str = "") -> dict:
+    """The real Claude Code `Bash` `tool_response` shape (issue #3129
+    repair round 7; see `BASH_TOOL_RESPONSE_FIXTURE`'s own `captured_from`
+    field for provenance), `stdout`/`stderr` substituted in.
+
+    Creation Method (test-authoring-isolation-and-fixture-strategy rule
+    1.1/1.2): every write-path fixture below builds its `tool_response`
+    through this instead of a bare string. PR #3205 found the entire
+    pre-round-7 suite constructed `tool_response` as a bare string, which
+    is why 79 tests and both required gate probes passed against code
+    (round 5/6's `fullmatch` check) that never matched a real payload --
+    see `RealBashToolResponseShapeIsHandled` below for the dedicated
+    regression test.
+    """
+    with open(BASH_TOOL_RESPONSE_FIXTURE, "r", encoding="utf-8") as f:
+        template = json.load(f)["template"]
+    payload = dict(template)
+    payload["stdout"] = stdout
+    payload["stderr"] = stderr
+    return payload
+
 
 def _git(*args, cwd):
     subprocess.run(["git", *args], cwd=str(cwd), check=True,
@@ -281,7 +307,7 @@ class GhCommandDetection(unittest.TestCase):
     def _record(self, cmd, tool_name="Bash", tool_response=None):
         return ac.record_amendment_from_response(
             self.state_dir, tool_name, cmd, self.orch_cwd,
-            self.success_url if tool_response is None else tool_response,
+            _bash_tool_response(self.success_url) if tool_response is None else tool_response,
             roster_path=self.roster_path,
         )
 
@@ -340,7 +366,7 @@ class GhCommandDetection(unittest.TestCase):
             f.write("x")
         result = ac.record_amendment_from_response(
             blocker, "Bash", 'gh issue edit 55 --body "x"', self.orch_cwd,
-            self.success_url, roster_path=self.roster_path,
+            _bash_tool_response(self.success_url), roster_path=self.roster_path,
         )
         self.assertIsInstance(result, ac.MarkerWriteFailed)
         stderr = io.StringIO()
@@ -362,7 +388,8 @@ class GhCommandDetection(unittest.TestCase):
                                           no_origin_work)
         result = ac.record_amendment_from_response(
             self.state_dir, "Bash", 'gh issue edit 55 --body "x"',
-            self.orch_cwd, self.success_url, roster_path=no_origin_roster,
+            self.orch_cwd, _bash_tool_response(self.success_url),
+            roster_path=no_origin_roster,
         )
         self.assertIsInstance(result, ac.NoRegisteredRepo)
         stderr = io.StringIO()
@@ -405,7 +432,8 @@ class RecordAmendmentFromResponse(unittest.TestCase):
 
     def test_matching_repo_writes_marker_keyed_to_url_issue_number(self):
         url = "https://github.com/%s/issues/42" % REPO_A
-        result = self._record('gh issue edit 42 --body "fixed brief"', url)
+        result = self._record('gh issue edit 42 --body "fixed brief"',
+                               _bash_tool_response(url))
         self.assertIsInstance(result, ac.AmendmentWritten)
         self.assertEqual(result.repo, REPO_A)
         self.assertEqual(result.issue, "42")
@@ -418,7 +446,8 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         key to 999, proving the command text is not read for the issue
         number either, only for the shape gate."""
         url = "https://github.com/%s/issues/999" % REPO_A
-        result = self._record('gh issue edit 42 --body "fixed brief"', url)
+        result = self._record('gh issue edit 42 --body "fixed brief"',
+                               _bash_tool_response(url))
         self.assertIsInstance(result, ac.AmendmentWritten)
         self.assertEqual(result.issue, "999")
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
@@ -426,7 +455,8 @@ class RecordAmendmentFromResponse(unittest.TestCase):
 
     def test_mismatched_repo_is_a_policy_violation_no_marker_written(self):
         url = "https://github.com/%s/issues/42" % REPO_B
-        result = self._record('gh issue edit 42 --body "fixed brief"', url)
+        result = self._record('gh issue edit 42 --body "fixed brief"',
+                               _bash_tool_response(url))
         self.assertIsInstance(result, ac.RepoMismatch)
         self.assertEqual(result.registered_repo, REPO_A)
         self.assertEqual(result.url_repo, REPO_B)
@@ -445,7 +475,7 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         confirmation sentence instead of the real stdout -- either way, no
         URL means no attribution, never a guess."""
         result = self._record('gh issue edit 42 --body "fixed brief"',
-                               "Edited issue #42")
+                               _bash_tool_response("Edited issue #42"))
         self.assertIsInstance(result, ac.NoIssueUrlInResponse)
         self.assertEqual(result.registered_repo, REPO_A)
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
@@ -468,7 +498,8 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         fail CLOSED -- no marker, loud stderr -- never skip silently as if
         amendments simply don't apply here."""
         url = "https://github.com/%s/issues/42" % REPO_A
-        result = self._record('gh issue edit 42 --body "fixed brief"', url,
+        result = self._record('gh issue edit 42 --body "fixed brief"',
+                               _bash_tool_response(url),
                                roster_path=_empty_roster(Path(self.tmp.name) / "no-roster"))
         self.assertIsInstance(result, ac.NoRegisteredRepo)
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
@@ -501,7 +532,7 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         # though `cwd` now points at a REPO_B checkout.
         url_a = "https://github.com/%s/issues/42" % REPO_A
         result_a = self._record('gh issue edit 42 --body "fixed brief"',
-                                 url_a, cwd=drifted_cwd)
+                                 _bash_tool_response(url_a), cwd=drifted_cwd)
         self.assertIsInstance(result_a, ac.AmendmentWritten,
                                "cwd drift must not change which repo this "
                                "session is registered to: %r" % (result_a,))
@@ -513,7 +544,7 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         # swap.
         url_b = "https://github.com/%s/issues/43" % REPO_B
         result_b = self._record('gh issue edit 43 --body "other edit"',
-                                 url_b, cwd=drifted_cwd)
+                                 _bash_tool_response(url_b), cwd=drifted_cwd)
         self.assertIsInstance(result_b, ac.RepoMismatch,
                                "an edit landing in the repo cwd drifted "
                                "to (not the registered repo) must still "
@@ -532,7 +563,8 @@ class RecordAmendmentFromResponse(unittest.TestCase):
             "https://github.com/%s/issues/7 for the field format example. "
             "(edit 42 was NOT applied)" % REPO_A
         )
-        result = self._record('gh issue edit 42 --body "fixed brief"', failure_text)
+        result = self._record('gh issue edit 42 --body "fixed brief"',
+                               _bash_tool_response(failure_text))
         self.assertIsInstance(result, ac.NoIssueUrlInResponse,
                                "a failed edit's error text must never be "
                                "mistaken for a success report: %r" % (result,))
@@ -547,10 +579,99 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         match."""
         two_urls = "note: also touched https://github.com/%s/issues/5\n%s" % (
             REPO_B, "https://github.com/%s/issues/42" % REPO_A)
-        result = self._record('gh issue edit 42 --body "fixed brief"', two_urls)
+        result = self._record('gh issue edit 42 --body "fixed brief"',
+                               _bash_tool_response(two_urls))
         self.assertIsInstance(result, ac.NoIssueUrlInResponse)
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_B, "5"))
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+
+
+class RealBashToolResponseShapeIsHandled(unittest.TestCase):
+    """issue #3129 repair round 7, following PR #3205's independent
+    verification of round 6: every fixture in this suite BEFORE this round
+    constructed `tool_response` as a bare string, so 79 passing tests and
+    two passing gate probes never caught that `_issue_url_from_response`'s
+    `fullmatch` (round 5) never matches a real Claude Code `Bash`
+    `tool_response` -- a structured object
+    (`BASH_TOOL_RESPONSE_FIXTURE`, live-captured against Claude Code
+    2.1.258, see its own `captured_from` field), never the bare string
+    `hook_input.tool_response_text()`'s docstring assumed. This class
+    drives `record_amendment_from_response` with that literal captured
+    shape directly, below the `_bash_tool_response()` Creation Method every
+    other test above now also uses -- this class exists so the regression
+    itself has one dedicated, unambiguous home. Confirmed this round to
+    FAIL against the round-6 tip (`fc8e23aa`/`6d604d90`) before the
+    `_response_stdout_text()` fix landed; see this round's record for the
+    pre-fix run."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state_dir = os.path.join(self.tmp.name, "state")
+        self.session_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="session-checkout", origin=REPO_A_URL))
+        self.roster_path = _register_pid(Path(self.tmp.name) / "roster",
+                                          self.session_cwd)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_real_dict_shaped_tool_response_writes_a_marker(self):
+        url = "https://github.com/%s/issues/42" % REPO_A
+        result = ac.record_amendment_from_response(
+            self.state_dir, "Bash", 'gh issue edit 42 --body "fixed brief"',
+            self.session_cwd, _bash_tool_response(url),
+            roster_path=self.roster_path)
+        self.assertIsInstance(
+            result, ac.AmendmentWritten,
+            "a real Bash tool_response (dict-shaped: stdout/stderr/"
+            "interrupted/isImage/noOutputExpected) must record an "
+            "amendment for a genuinely successful edit -- got %r; this is "
+            "the exact defect PR #3205 found round 6 missing entirely"
+            % (result,))
+        self.assertEqual(result.repo, REPO_A)
+        self.assertEqual(result.issue, "42")
+        marker = ac.read_marker(self.state_dir, REPO_A, "42")
+        self.assertEqual(marker["note"], "fixed brief")
+
+    def test_real_dict_shaped_failure_text_is_still_refused(self):
+        """Strictness must survive the shape fix: a failed edit's error
+        text, carried in the real dict shape's own `stdout` field, must
+        still be refused -- never a bare URL substring pass."""
+        failure_text = (
+            "HTTP 422: Validation Failed. See "
+            "https://github.com/%s/issues/7 for the field format example. "
+            "(edit 42 was NOT applied)" % REPO_A
+        )
+        result = ac.record_amendment_from_response(
+            self.state_dir, "Bash", 'gh issue edit 42 --body "fixed brief"',
+            self.session_cwd, _bash_tool_response(failure_text),
+            roster_path=self.roster_path)
+        self.assertIsInstance(result, ac.NoIssueUrlInResponse)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "7"))
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+
+    def test_stderr_field_is_never_consulted_for_the_url(self):
+        """A URL sitting only in `stderr` (never `stdout`) must not count
+        -- `gh issue edit`'s own success report is stdout-only; treating
+        stderr as an alternate source would let a warning line coexist
+        with a URL and still pass."""
+        url = "https://github.com/%s/issues/42" % REPO_A
+        response = _bash_tool_response("", stderr=url)
+        result = ac.record_amendment_from_response(
+            self.state_dir, "Bash", 'gh issue edit 42 --body "fixed brief"',
+            self.session_cwd, response, roster_path=self.roster_path)
+        self.assertIsInstance(result, ac.NoIssueUrlInResponse)
+
+    def test_bare_string_tool_response_is_still_accepted(self):
+        """Back-compat path (issue #3129 round 7): a bare string
+        `tool_response` -- the shape every pre-round-7 fixture assumed, no
+        longer known to occur in a real Claude Code `Bash` call, but kept
+        as a defensive fallback -- must still resolve exactly as before."""
+        url = "https://github.com/%s/issues/42" % REPO_A
+        result = ac.record_amendment_from_response(
+            self.state_dir, "Bash", 'gh issue edit 42 --body "fixed brief"',
+            self.session_cwd, url, roster_path=self.roster_path)
+        self.assertIsInstance(result, ac.AmendmentWritten)
 
 
 class RegisteredRepoForPid(unittest.TestCase):
@@ -712,8 +833,8 @@ class PreviouslyBrokenShapesAreNowIrrelevant(unittest.TestCase):
 
     def _assert_writes_marker(self, cmd):
         result = ac.record_amendment_from_response(
-            self.state_dir, "Bash", cmd, self.session_cwd, self.url,
-            roster_path=self.roster_path)
+            self.state_dir, "Bash", cmd, self.session_cwd,
+            _bash_tool_response(self.url), roster_path=self.roster_path)
         self.assertIsInstance(result, ac.AmendmentWritten,
                                "cmd=%r result=%r" % (cmd, result))
         self.assertIsNotNone(ac.read_marker(self.state_dir, REPO_A, "42"))
@@ -746,8 +867,8 @@ class PreviouslyBrokenShapesAreNowIrrelevant(unittest.TestCase):
         parsed for attribution purposes at all anymore."""
         cmd = "gh issue edit 42 --body 'cd /nonexistent && rm -rf /'"
         result = ac.record_amendment_from_response(
-            self.state_dir, "Bash", cmd, self.session_cwd, self.url,
-            roster_path=self.roster_path)
+            self.state_dir, "Bash", cmd, self.session_cwd,
+            _bash_tool_response(self.url), roster_path=self.roster_path)
         self.assertIsInstance(result, ac.AmendmentWritten)
         marker = ac.read_marker(self.state_dir, REPO_A, "42")
         self.assertEqual(marker["note"], "cd /nonexistent && rm -rf /")
@@ -790,7 +911,7 @@ class MainExitCodeReflectsWriteOutcome(unittest.TestCase):
         url = "https://github.com/%s/issues/42" % REPO_A
         payload = {"session_id": "orch-sess", "tool_name": "Bash",
                    "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
-                   "cwd": str(self.repo), "tool_response": url}
+                   "cwd": str(self.repo), "tool_response": _bash_tool_response(url)}
         r = self._run_main(payload)
         self.assertEqual(r.returncode, 0, r.stderr)
 
@@ -804,7 +925,7 @@ class MainExitCodeReflectsWriteOutcome(unittest.TestCase):
         url = "https://github.com/%s/issues/42" % REPO_B
         payload = {"session_id": "orch-sess", "tool_name": "Bash",
                    "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
-                   "cwd": str(self.repo), "tool_response": url}
+                   "cwd": str(self.repo), "tool_response": _bash_tool_response(url)}
         r = self._run_main(payload)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("POLICY VIOLATION", r.stderr)
@@ -817,7 +938,7 @@ class MainExitCodeReflectsWriteOutcome(unittest.TestCase):
         url = "https://github.com/%s/issues/42" % REPO_A
         payload = {"session_id": "orch-sess", "tool_name": "Bash",
                    "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
-                   "cwd": str(self.repo), "tool_response": url}
+                   "cwd": str(self.repo), "tool_response": _bash_tool_response(url)}
         r = self._run_main(payload,
                             roster_path=_empty_roster(Path(self.tmp.name) / "no-roster"))
         self.assertNotEqual(r.returncode, 0)
@@ -826,7 +947,8 @@ class MainExitCodeReflectsWriteOutcome(unittest.TestCase):
     def test_no_url_in_response_exits_nonzero_with_stderr(self):
         payload = {"session_id": "orch-sess", "tool_name": "Bash",
                    "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
-                   "cwd": str(self.repo), "tool_response": "Edited issue #42"}
+                   "cwd": str(self.repo),
+                   "tool_response": _bash_tool_response("Edited issue #42")}
         r = self._run_main(payload)
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("no parseable", r.stderr)
@@ -953,7 +1075,7 @@ class RunHookEndToEnd(unittest.TestCase):
         url = "https://github.com/%s/issues/88" % REPO_A
         payload = self._payload(session_id="orch-sess", tool_name="Bash",
                                  tool_input={"command": cmd}, cwd=str(orch_repo),
-                                 tool_response=url)
+                                 tool_response=_bash_tool_response(url))
         # the orchestrator's own cwd is not on issue #88's branch, so this
         # call itself gets no notice back -- it only records the marker
         self.assertIsNone(ac.run_hook(payload, self.state_dir, roster_path))
@@ -988,7 +1110,7 @@ class RunHookEndToEnd(unittest.TestCase):
         amend_payload = json.dumps({
             "session_id": "orch-sess", "tool_name": "Bash",
             "tool_input": {"command": amend_cmd}, "cwd": str(orch_in_repo_a),
-            "tool_response": amend_url,
+            "tool_response": _bash_tool_response(amend_url),
         })
         self.assertIsNone(ac.run_hook(amend_payload, self.state_dir, roster_path))
 

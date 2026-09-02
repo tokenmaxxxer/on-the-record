@@ -210,6 +210,59 @@ multiple URLs in a response and can misattribute a legitimate edit to the
 wrong (first-matched) repo -- a response with more than one URL now fails
 `fullmatch` the same way a failure message does.
 
+Real-shape repair (PR #3137 repair round 7, following PR #3205's
+independent verification of round 6): round 5's own `fullmatch` check
+(previous section) is correct in principle but was validated against
+hand-built string fixtures only, never a real payload. PR #3205 captured
+one live (`claude -p` against an isolated project with its own
+`PostToolUse` hook dumping raw stdin) and found a real Claude Code `Bash`
+`tool_response` is a STRUCTURED OBJECT --
+`{"stdout": ..., "stderr": ..., "interrupted": ..., "isImage": ...,
+"noOutputExpected": ...}` -- never the bare string
+`hook_input.tool_response_text()`'s own docstring assumed ("usually the
+tool's own stdout as a plain string"). That coercion `json.dumps()`s the
+whole dict for a non-string `tool_response`, wrapping the URL in
+surrounding JSON punctuation (`{"stdout": "https://...", "stderr": ...}`)
+that no `fullmatch` on the bare URL shape can ever match -- so the
+positive success check never fired for a single real `gh issue edit`
+call, success or failure, and the channel this whole issue exists to
+build recorded nothing against real traffic. This round reproduced the
+same capture independently (two live `claude -p` runs against Claude Code
+2.1.258, one isolated project each, one echoing plain text and one
+running a failing `gh issue edit`) and confirmed the identical shape
+before writing this fix.
+
+`_issue_url_from_response()` now reads through `_response_stdout_text()`
+instead of `hook_input.tool_response_text()`: a dict `tool_response` with
+a string `stdout` field yields THAT field alone (never `stderr` -- `gh
+issue edit` writes its success URL to stdout only, and mixing in stderr
+text would let a warning line coexist with a URL and still `fullmatch`,
+exactly the laxness the positive-success design exists to refuse); a bare
+string `tool_response` is still accepted as-is unchanged from round 5 (no
+real Claude Code build found anywhere in this issue's own investigation
+trail -- round 5, round 6, PR #3205, or this round -- ever actually emits
+a bare string for `Bash`, so this path is a defensive compatibility
+fallback, not a confirmed current or historical production shape; kept
+because every pre-round-7 fixture in this suite assumed it and it costs
+nothing to keep accepting). Anything else (`tool_response` absent, not a
+dict/str, or a dict whose `stdout` is not itself a string) yields `""`,
+the same fail-closed "no URL" outcome `_issue_url_from_response()` already
+gives for empty text -- `hook_input.tool_response_text()` itself is
+UNCHANGED (still shared, correctly, by every `.search()`-based consumer
+elsewhere in this repo, which tolerates the json-dumps wrapper because
+`.search()` finds the URL anywhere in the blob; only this module's
+`fullmatch` needed the tool's own stdout isolated first).
+
+The suite-wide blind spot PR #3205 named (every fixture before this round
+built `tool_response` as a bare string, so 79 tests and both gate probes
+passed against code that could not match a real payload) is closed
+separately: `tests/fixtures/amendment_channel/bash_tool_response.json`
+holds the live-captured shape as reviewable data, and
+`tests/test_amendment_channel.py`'s `_bash_tool_response()` Creation
+Method builds every write-path fixture through it now, including a
+dedicated test that failed against the round-6 tip before this fix (see
+that file's `RealBashToolResponseShapeIsHandled` class).
+
 Unresolvable repo (issue #3128's shape, applied here pre-emptively): when
 `repo_slug_for_cwd()` returns None -- no git repo at the target directory,
 no `origin` remote, an origin URL this module's regex does not parse --
@@ -688,6 +741,35 @@ def _gh_issue_edit_body_call(tool_name: str, command: str) -> bool:
     )
 
 
+def _response_stdout_text(tool_response: object) -> str:
+    """The `gh issue edit` command's own stdout text, from a `PostToolUse`
+    `tool_response` field -- issue #3129 repair round 7, replacing
+    `hook_input.tool_response_text()` for this ONE caller
+    (`_issue_url_from_response()`; every other `tool_response` consumer in
+    this repo keeps using `hook_input.tool_response_text()` unchanged, see
+    module docstring round-7 section for why their `.search()`-based scans
+    were never broken by the same gap).
+
+    A real Claude Code `Bash` `tool_response` (Claude Code 2.1.258,
+    live-captured this round and independently by PR #3205 against the
+    same CLI) is a dict shaped `{"stdout": ..., "stderr": ...,
+    "interrupted": ..., "isImage": ..., "noOutputExpected": ...}` -- a
+    dict `tool_response` with a string `stdout` field returns THAT field
+    alone, never `stderr` (see module docstring for why stderr is
+    deliberately excluded here). A bare string `tool_response` is
+    returned as-is, a defensive compatibility path for an older/other
+    shape this round found no live evidence of (see module docstring).
+    Anything else -- absent, not a dict/str, or a dict whose `stdout` is
+    not a string -- returns `""`. Never raises.
+    """
+    if isinstance(tool_response, dict):
+        stdout = tool_response.get("stdout")
+        return stdout if isinstance(stdout, str) else ""
+    if isinstance(tool_response, str):
+        return tool_response
+    return ""
+
+
 def _issue_url_from_response(tool_response: object) -> Optional["_IssueUrl"]:
     """The `(owner/repo, issue_number)` a `gh issue edit` command's own
     `tool_response` reports it edited, or None when no such URL is
@@ -705,10 +787,16 @@ def _issue_url_from_response(tool_response: object) -> Optional["_IssueUrl"]:
     happens to quote -- so this signal structurally cannot appear in a
     failure. `.search()` (matching anywhere in the text) previously let a
     URL-shaped substring inside a FAILED edit's own error message pass as
-    if it were `gh`'s own success report; `fullmatch` closes that. Never
-    raises.
+    if it were `gh`'s own success report; `fullmatch` closes that.
+
+    `text` comes from `_response_stdout_text()` (issue #3129 repair round
+    7), not `hook_input.tool_response_text()`: the latter `json.dumps()`s
+    a real Bash `tool_response` dict whole, and no `fullmatch` on the bare
+    URL shape can ever match text wrapped in surrounding JSON punctuation
+    -- see module docstring, round-7 section, for the live capture that
+    found this. Never raises.
     """
-    text = hook_input.tool_response_text(tool_response)
+    text = _response_stdout_text(tool_response)
     if not text:
         return None
     m = _ISSUE_URL_RE.fullmatch(text.strip())

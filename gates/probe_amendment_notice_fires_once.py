@@ -59,6 +59,24 @@ ISSUE = "8830178"
 BODY_FLAG = "--" + "body"
 TICKS_PER_PHASE = 12
 
+BASH_TOOL_RESPONSE_FIXTURE = (
+    REPO_ROOT / "tests" / "fixtures" / "amendment_channel" / "bash_tool_response.json"
+)
+
+
+def _bash_tool_response(stdout: str, stderr: str = "") -> dict:
+    """The real Claude Code `Bash` `tool_response` shape (issue #3129
+    repair round 7 -- see `BASH_TOOL_RESPONSE_FIXTURE`'s own
+    `captured_from` field for provenance), replacing this probe's own
+    pre-round-7 bare-string `tool_response` (same blind spot PR #3205
+    found in `probe_running_session_sees_amendment.py`)."""
+    with open(BASH_TOOL_RESPONSE_FIXTURE, "r", encoding="utf-8") as f:
+        template = json.load(f)["template"]
+    payload = dict(template)
+    payload["stdout"] = stdout
+    payload["stderr"] = stderr
+    return payload
+
 
 def _fail(message: str) -> None:
     print("FAIL: %s" % message, file=sys.stderr)
@@ -117,7 +135,8 @@ def _amend(env: dict, orchestrator_cwd: Path, note: str) -> None:
         # (tool_response), never from the command text -- must name the
         # same repo as orchestrator_cwd's own `origin` (ORIGIN_URL) or the
         # new cross-repo policy-violation check refuses the write.
-        "tool_response": "https://github.com/example/probe-repo/issues/%s" % ISSUE,
+        "tool_response": _bash_tool_response(
+            "https://github.com/example/probe-repo/issues/%s" % ISSUE),
     }
     _call_hook(payload, env)
 

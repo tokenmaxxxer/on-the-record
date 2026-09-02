@@ -70,6 +70,27 @@ ORIGIN_URL = "https://github.com/example/probe-repo.git"
 ISSUE = "8830177"
 BODY_FLAG = "--" + "body"
 
+BASH_TOOL_RESPONSE_FIXTURE = (
+    REPO_ROOT / "tests" / "fixtures" / "amendment_channel" / "bash_tool_response.json"
+)
+
+
+def _bash_tool_response(stdout: str, stderr: str = "") -> dict:
+    """The real Claude Code `Bash` `tool_response` shape (issue #3129
+    repair round 7 -- see `BASH_TOOL_RESPONSE_FIXTURE`'s own
+    `captured_from` field for provenance), never a bare string: PR #3205
+    found this probe's own `orch_payload` used a bare string, which is
+    exactly why this probe passed against round-5/6 code that could never
+    match a real payload (`_issue_url_from_response`'s `fullmatch` never
+    matches the `json.dumps()`-wrapped text a real dict `tool_response`
+    coerces to)."""
+    with open(BASH_TOOL_RESPONSE_FIXTURE, "r", encoding="utf-8") as f:
+        template = json.load(f)["template"]
+    payload = dict(template)
+    payload["stdout"] = stdout
+    payload["stderr"] = stderr
+    return payload
+
 
 def _fail(message: str) -> None:
     print("FAIL: %s" % message, file=sys.stderr)
@@ -189,7 +210,8 @@ def main() -> None:
             # the SAME repo as orchestrator_cwd's own `origin` (repo_slug)
             # or the new cross-repo policy-violation check refuses the
             # write.
-            "tool_response": "https://github.com/%s/issues/%s" % (repo_slug, ISSUE),
+            "tool_response": _bash_tool_response(
+                "https://github.com/%s/issues/%s" % (repo_slug, ISSUE)),
         }
         _call_hook(orch_payload, env)
 
