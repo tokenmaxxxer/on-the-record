@@ -10,7 +10,9 @@ type: verification
 breaking: false
 verdict: PR #3169 round 2 is Present on both of its own claims (merge-commit
   bind, --follow drop) and Incorrect against one residual defect outside
-  its claimed scope, both graded below with reproductions.
+  its claimed scope (self-disclosed in the round-2 builder's own record,
+  independently re-confirmed here via a different reproduction), both
+  graded below with reproductions.
 upstream:
   - path: PR-3169-branch:scripts/issue-3127/verify_preregistration.py
     sha: 344016209e383381f7a2dd98cd01689038366eff  # this session's own branch carries an EARLIER version of this path (pre-round-2, from main); the round-2 version reviewed here is untracked on this session's own branch and lives on PR #3169's branch, read/exercised via a git worktree of origin/issue-3127/implementation-blueprint+experiment-trust+silent-failure-audit-9afe0675
@@ -173,6 +175,22 @@ failure, never a pass." Grade: **Incorrect** — residual, not closed by
 round 2.
 derived: `git show --stat 344016209e383381f7a2dd98cd01689038366eff` this session — round 2's own diff touches only `scripts/issue-3127/verify_preregistration.py` and its test file, +17/-1 lines, none of it the `_first_commit_for_path` returncode branch this finding is about.
 
+**Not a fresh discovery — already self-disclosed.** The round-2 builder
+session itself found and named this exact site
+(untracked on this session's own branch;
+`docs/issue-3127/reports/implementation-blueprint+experiment-trust+silent-failure-audit-cc11fc03.md`,
+same-commit, "Open findings" first bullet, lines 313-328) after invoking
+`silent-failure-audit` post-landing, with its own reproduction (a
+different forcing method — an unknown `git log` flag —
+`git log --diff-filter=A --format=%H --reverse --nonexistent-flag -- <path>`
+exits 128) reaching the same `_first_commit_for_path`/`results_commit is
+None` conclusion this session's monkeypatch reproduction reaches
+independently. Same pattern as round 1's angle-1 finding, which was
+also self-disclosed in PR #3169's own record before being formally
+graded — this session's contribution is an independent reproduction via
+a different mechanism (direct `_run_git` monkeypatch vs. an invalid CLI
+flag) confirming the same conclusion, not the discovery itself.
+
 No injection seam exists for `_run_git` failures through the public
 `verify(repo_root, gh_runner=...)` API — reproducing this required
 monkeypatching the module attribute directly. This looks more like a
@@ -272,7 +290,12 @@ canonical: items 1-5 above, each with its own `acceptance:`/`derived:` citation 
    `verify_preregistration.py:83-86` on PR-3169-branch sha
    344016209e383381f7a2dd98cd01689038366eff), consumed by `verify()`'s
    `results_commit is None` pass-branch (same file, line 284-291) — not
-   fixed by round 2. Reproduction: `/tmp/atk/attack_empty_as_pass.py`,
+   fixed by round 2, and already self-disclosed by the round-2 builder
+   session itself (untracked on this session's own branch;
+   `docs/issue-3127/reports/implementation-blueprint+experiment-trust+silent-failure-audit-cc11fc03.md`,
+   same-commit, "Open findings" first bullet). This session's
+   contribution is an independent reproduction via a different
+   mechanism: `/tmp/atk/attack_empty_as_pass.py`,
    quoted in full under item 5 above (ephemeral scratch script, not
    committed — exists to demonstrate the defect this turn, not as
    permanent coverage; fixing it is a future round's call, not this
@@ -314,7 +337,8 @@ that.
   constructed fixtures rather than trusting PR #3171/#3177's own
   narration or re-running only the shipped test suite.
   canonical: items 1-5 above (this record, this section).
-- skill-verdict: silent-failure-audit — applied: invoked over
+- skill-verdict: silent-failure-audit — applied: invoked; ran the
+  enumerate-classify-trace-forward procedure over
   `verify_preregistration.py` (item 5 above), which surfaced Open
   finding 1.
   canonical: item 5 above (this record, this section).
