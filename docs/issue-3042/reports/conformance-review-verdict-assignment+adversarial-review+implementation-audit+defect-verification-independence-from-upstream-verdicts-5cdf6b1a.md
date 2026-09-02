@@ -268,8 +268,7 @@ Present/Surface/Absent/Incorrect/Unverifiable taxonomy and the
 depth-check-a-Present-claim discipline to grade whether each of the four
 Acceptance criteria's own sub-checks were actually satisfied, not merely
 addressed in form
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; re-derived three of the audit's own claims (skill_judge
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-derived three of the audit's own claims (skill_judge
 outcome-field distinction, cross_family's failing test, the false
 `invoked;` zero-violation claim) from primary evidence — fresh commands,
 not citations of the PR's own transcripts — per rules 1, 3, and 7
