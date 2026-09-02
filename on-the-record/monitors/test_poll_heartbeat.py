@@ -1648,6 +1648,30 @@ def t_heartbeat_rc95_not_confused_with_crash_rc97():
         assert "[watchdog-stale-code]" not in r.stdout, r.stdout
 
 
+def t_heartbeat_routine_nonzero_rc_gets_neither_label():
+    """issue #3120 layer 1 must-not, third partition (test-derivation
+    equivalence check): roster_watchdog()'s own return value is an anomaly
+    COUNT, not a crash flag (issue #1274) -- an ordinary nonzero rc that is
+    neither >=128, nor ==97, nor ==95 (e.g. "3 anomalies found") must stay
+    completely unlabeled, exactly as before this issue. Pins the boundary
+    on the new elif's own `-eq 95` test: it must not widen to swallow any
+    other value in this routine-anomaly range."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_RC": "3",
+                             "FAKE_WATCHDOG_REPORT": "[poll-report] some-entry: 3 anomalies"})
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "[watchdog-crash]" not in r.stdout, r.stdout
+        assert "[watchdog-stale-code]" not in r.stdout, r.stdout
+
+
 def t_heartbeat_stale_code_restart_target_missing_skips_restart_not_crash():
     """issue #3120 layer 2 mid-update guard, measured (not assumed): `exec`
     into a file that is momentarily absent kills the process outright (bash
