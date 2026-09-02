@@ -273,4 +273,27 @@ gates/probe_full_suite_is_one_command.py's new failure/success paths
 registry check fails loudly rather than silently defaulting to "ok" on
 an unregistered file. derived: the drift-detection sanity checks quoted
 above in "What was done" and immediately above in this section (each a
-staged, unregistered file followed by a FAIL, never a silent pass).
+staged, unregistered file followed by a FAIL, never a silent pass). One
+secondary, pre-existing (not introduced by this session, and not fixed
+here) observation surfaced while tracing: `_defines_any_test_item`
+(unchanged by this session) runs `subprocess.run(...)` without checking
+`r.returncode`, classifying purely on whether `"::"` appears in stdout —
+canonical: gates/probe_full_suite_is_one_command.py, function
+`_defines_any_test_item`, read this session. A Python test file that
+fails to *collect* (import error, syntax error) rather than simply
+defining zero tests would likely print no `"::"` line either, so this
+function returns `False` (not genuinely missing) for both a
+zero-test file and a broken-collection file — the probe would stay
+silent on a file that's broken in a way distinct from what it currently
+reports. Out of scope for this session (unrelated to the shell-registry
+design question); flagged here rather than fixed.
+skill-verdict: work-in-english — applied: invoked; all commits, the PR
+comment, the probe/docs changes, and this record are in English; this
+final message to the user is in Korean per the skill's routing rule.
+other mounted skills: not triggered (product-discovery-guardrail-metrics,
+prose-modes, flow-metrics, adversarial-review, merge-gates — none of
+their trigger conditions matched a rebase-plus-design-decision task with
+no product-discovery phase, no free-form explanatory document, no flow/
+WIP measurement, no need for a structurally independent evaluator beyond
+the warrant-hunter dispatch already covered by the warrant protocol, and
+no merge-gate design work).
