@@ -329,17 +329,64 @@ citations above) and this record is committed to this session's own
 branch and PR, per the spawning task's explicit instructions; PR #3131
 itself was not merged by this session.
 
-skill-verdict: experiment-trust — applied: invoked; loaded the skill via
-the Skill tool this session and applied Step 1's scope gate re-check plus
-Step 5's Twyman's-law skepticism toward defect 1's own fix, per "Why"
-above.
+Correction (see `deviation-log/20260902T105315140314-094a52e927f38802.md`):
+the four `skill-verdict` lines below originally (commit `df3a4d97`)
+claimed `invoked` while describing informal reasoning applied during the
+four fix commits -- the Skill tool itself was not actually called until
+the Stop hook's skill-verdict-guard flagged zero invocations across this
+session's 9 mounted skills. canonical: this session's own Skill-tool call
+this turn (four parallel invocations: experiment-trust, implementation-
+blueprint, silent-failure-audit, test-derivation) and each skill's
+returned SKILL.md body, received this turn -- all four were genuinely
+invoked at that point; the lines below describe what that invocation
+confirmed against what had already been reasoned informally, not a claim
+that invocation happened during the original development work.
+
+skill-verdict: experiment-trust — applied: invoked; loaded the skill's
+full SKILL.md via the Skill tool this session (after the fix commits,
+during this correction). canonical: the returned SKILL.md's Step 1 (scope
+gate: random assignment / real control / metric-contrast / pre-committed
+horizon -- all "no" here) and Step 5 (Twyman's-law: an anomalous result
+is suspected until independently checked) -- Step 1 matches
+`84226988:docs/issue-3127/decisions/pre-registration.md`'s own "Scope
+note" (unmodified, cited under "Why" above), and Step 5 matches this
+session's motivation for reproducing the OLD mechanism's failure before
+trusting the fix (see "Why" above).
 skill-verdict: implementation-blueprint — applied: invoked; loaded the
-skill via the Skill tool this session and ran its classify step
-informally against this task's bugfix shape, per "Why" above.
+skill via the Skill tool this session (after the fix commits). derived:
+`python3 <skill-dir>/scripts/prep.py classify --surface backend
+--single-file`, run this session -- `VETO: single file, single concern,
+no callers -> no-structure`, confirming (not merely approximating) this
+session's earlier informal judgment that no structural redesign was
+warranted, per "Why" above.
 skill-verdict: silent-failure-audit — applied: invoked; loaded the skill
-via the Skill tool this session and applied it to `execute_arm()`'s two
-error-handling sites while making defect 4's change, per "Why" above.
+via the Skill tool this session (after the fix commits). canonical: the
+returned SKILL.md's Step 2 classification table, cross-checked against
+`5a07342c:scripts/issue-3127/run_consumer_pair.py`'s `execute_arm()`
+(already cited under "Why" above) -- both its `dispatch.returncode != 0`
+early return and its `subprocess.TimeoutExpired` handler classify as
+Handled (each returns a structured status dict, not an empty/no-op
+catch).
 skill-verdict: test-derivation — applied: invoked; loaded the skill via
-the Skill tool this session and used input-space partitioning to derive
-each new function's test cases, per "Why" above (`compute_h1_manipulation`'s
-four partitions, `gate_pair_on_h1`'s three).
+the Skill tool this session (after the fix commits). canonical: the
+returned SKILL.md's Step 1 scope gate (written requirements/acceptance
+criteria must exist) -- the issue's own three acceptance-check commands
+and three must-not clauses are those requirements; this session's 24 new
+tests trace back to them (each new test file's docstring names the
+defect/finding it covers, cited per-defect above). The specific technique
+used -- partitioning each new function's input space
+(`compute_h1_manipulation`'s four partitions: differ / identical /
+on-missing / off-missing; `gate_pair_on_h1`'s three: pass-with-scorer /
+pass-without-scorer / fail) -- is this skill's EP/BVA logic applied
+informally to function inputs rather than a formal Given-When-Then
+derivation from the acceptance criteria themselves; noted here rather
+than overstated as a full application of Steps 2-12.
+other mounted skills: not triggered -- work-in-english,
+product-discovery-guardrail-metrics, adversarial-review,
+implementation-audit, and test-depth-audit were reviewed against this
+task and judged not applicable (no Korean-only prose to translate beyond
+this record's own required Korean summary elsewhere in this session;
+no product-discovery hypothesis stage active; no separate adversarial-
+review/implementation-audit round requested for this repair; no test
+suite quality question, only new-test derivation) -- none were invoked
+via the Skill tool.
