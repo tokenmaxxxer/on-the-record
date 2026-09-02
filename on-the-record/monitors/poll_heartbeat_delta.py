@@ -35,8 +35,14 @@ BULLET_RE = re.compile(r"^\s+-\s")
 # issue #2133: [awaiting-approval] joins the always-emit set — the healthy
 # approval pause must reach the Monitor relay every tick (the remaining-time
 # token changes anyway, but the always-emit membership is the contract).
+# issue #3120: [watchdog-stale-code] joins the always-emit set for the same
+# reason [watchdog-crash] already does — the classification line must
+# survive the line-keyed dedup below even on a tick whose text otherwise
+# matches a previous tick's, since the loop restarts (exec) right after
+# emitting it and a suppressed line would be the last thing an operator saw.
 ALWAYS_RE = re.compile(
-    r"^\[(resume|orphaned|watchdog-crash|awaiting-approval)\]|STALLED|CRASHED|COMPLETED|watcher-dead",
+    r"^\[(resume|orphaned|watchdog-crash|watchdog-stale-code|awaiting-approval)\]"
+    r"|STALLED|CRASHED|COMPLETED|watcher-dead",
     re.IGNORECASE,
 )
 AGE_STRIP_RE = re.compile(r"age=[^ ]+")
