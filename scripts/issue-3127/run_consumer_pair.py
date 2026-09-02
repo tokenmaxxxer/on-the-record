@@ -80,6 +80,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 sys.path.insert(0, str(ROOT))
 import spawn as _spawn_mod  # noqa: E402 -- see arm_workspace_dir()
+import skills as _skills_mod  # noqa: E402 -- see build_stub_skill_repo()
 
 # Reused from issue-3053's floor-condition harness so pair identity (task
 # text, discipline) is held constant across the floor and consumer-path
@@ -133,18 +134,32 @@ def build_stub_skill_repo(skill_name: str, dest: Path) -> Path:
     valid directory (`Path(...).is_dir()` true) and never falls through to
     its sibling/managed-clone fallback chain -- see this file's module
     docstring, finding 1.
+
+    Also stubs every name in `skills._STATIC_POLICY_SKILLS` (e.g.
+    `work-in-english`) the same frontmatter-only way (issue #3127 live
+    execution, found dispatching against real sandbox issues 2026-09-02):
+    `resolve_static_policy_source()` resolves those POLICY skills
+    unconditionally from the SAME skill-repo root every session mounts
+    from, regardless of arm or task language -- the `skill-repo:` source
+    qualifier (see `_skills_argument_for_arm()`) forces that resolution
+    through this stub dir for the skills-off arm too. Stubbing only the
+    named target skill left the policy skill unresolvable there
+    (`sys.exit("...모르는 스킬 work-in-english...")`), failing dispatch
+    for every skills-off arm outright rather than producing the intended
+    "corpus present but empty" condition.
     """
-    skill_dir = dest / skill_name
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    (skill_dir / "SKILL.md").write_text(
-        "---\n"
-        f"name: {skill_name}\n"
-        "description: issue #3127 skills-off arm stub -- frontmatter only, "
-        "no procedure body, so the named skill resolves (fail-closed "
-        "unknown-skill rejection never fires) but carries no actual "
-        "guidance content.\n"
-        "---\n",
-        encoding="utf-8")
+    for name in {skill_name, *_skills_mod._STATIC_POLICY_SKILLS}:
+        skill_dir = dest / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            f"name: {name}\n"
+            "description: issue #3127 skills-off arm stub -- frontmatter "
+            "only, no procedure body, so the named skill resolves "
+            "(fail-closed unknown-skill rejection never fires) but "
+            "carries no actual guidance content.\n"
+            "---\n",
+            encoding="utf-8")
     return dest
 
 
