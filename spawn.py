@@ -240,6 +240,7 @@ _maybe_resume_for_ready_pr = watchdog._maybe_resume_for_ready_pr
 _REQ_ID_RE = watchdog._REQ_ID_RE
 _NORTHPOLE_REQ_RE = watchdog._NORTHPOLE_REQ_RE
 _requirement_drift_cache_path = watchdog._requirement_drift_cache_path
+_drift_cache_key = watchdog._drift_cache_key
 _load_requirement_drift_cache = watchdog._load_requirement_drift_cache
 _save_requirement_drift_cache = watchdog._save_requirement_drift_cache
 WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD = watchdog.WATCHDOG_TRANSIENT_GH_FAILURE_THRESHOLD
