@@ -660,6 +660,20 @@ not this repo's own hooks" needs both flags together — neither one alone
 gets there. See `scripts/issue-3041/README.md`'s "Target-repo grounding"
 section for the live-tested invocation.
 
+**A fifth trap, same subsystem, found by the same harness's own re-run:**
+even with settings isolated, 2 of 4 `skills-off` arms in a real run
+resolved "the repo root" to the *orchestrating* session's own working
+directory rather than their own clone -- one actually wrote its
+`DELIVERABLE.md` there, both read (never wrote) the orchestrating session's
+own `README.md`/auto-memory `MEMORY.md`. The orchestrating shell's
+`CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_BRIDGE_SESSION_ID`, and
+`CLAUDE_CODE_SESSION_ID` env vars were inherited by the child `claude -p`
+process; a live SDK-bridge attachment channel, independent of
+`--setting-sources`, is a plausible route for a child to resolve paths
+against its parent's context. `run_pair.sh` now strips every `CLAUDE_*`/
+`MUSTER_*` env var (`env -u ...`, computed from `env | grep`) before
+invoking the child, for both arms.
+
 ### Package-registry access (issue #38)
 
 A fresh sandboxed workspace has no package cache, so `go build`/`npm
