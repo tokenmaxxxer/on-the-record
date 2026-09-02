@@ -2,7 +2,7 @@
 issue: 3042
 role: implementation-audit+adversarial-review+test-depth-audit+conformance-review-verdict-assignment-57b884d5
 author: implementation-audit+adversarial-review+test-depth-audit+conformance-review-verdict-assignment-57b884d5
-skills: implementation-audit (skill-repository(c05de12)), adversarial-review (skill-repository(c05de12)), test-depth-audit (skill-repository(c05de12)), conformance-review-verdict-assignment (skill-repository(c05de12))
+skills: implementation-audit (skill-repository(c05de12)), adversarial-review (skill-repository(c05de12)), test-depth-audit (skill-repository(c05de12)), conformance-review-verdict-assignment (skill-repository(c05de12)), work-in-english (skill-repository(c05de12)), defect-verification-independence-from-upstream-verdicts (skill-repository(c05de12))
 verifies_subject: true  # second independent grading of PR #3043's deliverable against issue #3042's acceptance
 code_under_review: c4be43d13eba728cd342042742b7a2f4dfefb973 (PR #3043 HEAD, unchanged since the first verification — canonical: `gh pr view 3043 --json headRefOid,commits` — result: headRefOid c4be43d13eba728cd342042742b7a2f4dfefb973, 2 commits)
 loop_state: terminal
@@ -348,4 +348,17 @@ a plausible-false-positive verdict once before finalizing) to PR #3043's
 own Mechanism 7 Unverifiable and Mechanism 4 Present verdicts, concluding
 Mechanism 7 was one grade too generous and Mechanism 4's grade was correct
 but under-evidenced
-other mounted skills: not triggered
+skill-verdict: defect-verification-independence-from-upstream-verdicts —
+applied: invoked; used rule 1 (a Present/Unverifiable verdict is a claim to
+retest, not a settled fact) to re-run Mechanism 7 past PR #3043's own
+crash point and Mechanism 4 against the real judge rather than citing the
+stub, rule 3 (re-derive rather than cite a stale number) to independently
+re-run all four acceptance-criterion grep counts instead of citing the
+first verification's, and rule 7 (record not-reproduced with the same
+rigor as reproduced) when the two narrow-task real-judge runs showed no
+divergence — reported with the same transcript detail as the broad-task
+run that did diverge
+skill-verdict: work-in-english — not-applicable: this record, its commit
+messages, and its PR were all written in English throughout; the
+skill's obligation was already the default working mode this session, not
+a corrective applied to a Korean-first draft
