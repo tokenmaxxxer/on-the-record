@@ -265,8 +265,8 @@ real-world side effects reason 2 above describes (a provisioned sandbox
 repo distinct from this one, and either explicit confirmation or a context
 where that confirmation is already standing authorization).
 
-skill-verdict: product-discovery-hypothesis-preregistration — applied:
-invoked; used to write `docs/issue-3127/decisions/pre-registration.md`'s
+skill-verdict: product-discovery-hypothesis-preregistration — applied: invoked;
+used to write `docs/issue-3127/decisions/pre-registration.md`'s
 primary metric, numeric threshold + decision rule, guardrail metric with a
 bounded degradation limit, and sample size/duration, all committed before
 any result (rules 1-5), and to write the power statement (rule 3/must-not
