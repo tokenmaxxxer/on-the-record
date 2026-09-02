@@ -33,6 +33,22 @@ against issue #3081 -- a different verification is running in parallel;
 this record reaches its own verdict by executing code, not by reading the
 other session's output.
 
+amendments-reconciled: `issuecomment-5505985986` (landed mid-session,
+after this session's worktree analysis was already underway) -- reports
+PR #3084 merged and issue #3081 closed, with a before/after production
+heartbeat sample confirming both the cross-repo leak and the retention
+misreport are gone in the live system. The same comment also states
+"Issue #3095 tracks the sibling leak in `spawn_on_pr.parked_report()`,
+which both verifications found unfixed" -- confirming this session's own
+independently-reproduced "must-not 3" finding (below) converges with the
+parallel verification session's finding, and that a tracking issue for it
+already exists.
+derived: `gh issue view 3081 --repo tokenmaxxxer/on-the-record --json
+state` -- result: `{"state":"CLOSED"}`. `gh issue view 3095 --repo
+tokenmaxxxer/on-the-record --json state,title` -- result:
+`{"state":"OPEN","title":"spawn-on-pr's parked-subject list leaks across
+repos the same way requirement-drift did"}`.
+
 Setup for everything below: `git fetch origin pull/3084/head:pr-3084` then
 `git worktree add /tmp/pr3084-wt pr-3084` (PR #3084's branch) and
 `git worktree add /tmp/main-wt 573e7382` (the pre-fix parent commit) --
