@@ -431,8 +431,8 @@ citation), all Genuine Assertion with no mocks; flagged one behavioral
 coverage gap (the `ensure_pushed()`-to-`push_succeeded` integration path
 untested by the shipped suite) and closed it myself with an independent
 construction rather than leaving it as an unverified claim.
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; re-ran every acceptance check on fetched worktrees
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked;
+re-ran every acceptance check on fetched worktrees
 rather than citing either PR's transcript, devised two negative/edge-path
 attempts the shipped suites did not cover (live board-gate cross-session
 write, real-`ensure_pushed()` genuinely-nothing-pushed scenario) per rule
