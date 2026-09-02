@@ -236,6 +236,49 @@ possibility.
 
 ## Open findings
 
+amendments-reconciled: issuecomment-5502953791 (posted 2026-09-02T01:27:17Z,
+after this session started; read via `gh api
+repos/tokenmaxxxer/on-the-record/issues/comments/5502953791`)
+
+- **Structural-vs-factual scoring gap, raised by issuecomment-5502953791.**
+  That comment reports a separate paired study-companion run where a
+  skills-mounted discovery artifact was structurally excellent (a
+  ten-row evidence table with a scored verdict) but 3 of its citation rows
+  did not survive an independent primary-source check (canonical:
+  issuecomment-5502953791's citation table -- row 1 "94 studies /
+  correlation ~.24-.27" vs. actual "115 studies / 502 effects / 15,889
+  participants, weighted mean 0.178"; row 7 "Alshahrani et al." vs. actual
+  "Abdul-Wahab, Salem, Yetilmezsoy & Fadlallah -- no such author on the
+  paper"). The comment's conclusion: a rubric that only checks structural
+  conformance (has a verdict, are claims tagged, is there a disconfirming
+  section) would have scored that artifact near the top, and this issue's
+  harness needs at least one axis a well-formed-but-unfounded artifact
+  fails, checkable without trusting the artifact's own self-tags.
+  **Reconciliation against this run's 4 pairs:** all 4 of `rubrics/*.md`
+  here are structural-content checklists (does the brief name a
+  threshold, a guardrail, a module boundary, an SRM-style check) and do
+  not include a fact-verification axis. This is a real gap of the same
+  shape the comment names, but it did not bite in this sample for a
+  specific reason: none of the 4 task texts asked for citable external
+  claims (no evidence tables, no cited studies/authors) the way the
+  discovery-skill scenario in the comment did -- the closest task,
+  04-paywall-ab-trust, asks for internal reasoning about one described
+  test, not sourced claims a fabricated citation could hide inside.
+  Spot-checked both arms' `DELIVERABLE.md` files for pair 04
+  (`docs/issue-3041/_assets/04-paywall-ab-trust/skills-on/DELIVERABLE.md`
+  and `docs/issue-3041/_assets/04-paywall-ab-trust/skills-off/DELIVERABLE.md`)
+  and confirmed neither cites an external source or study. So this run's
+  rubric gap did not silently launder a fabricated claim into a high
+  score here, but the harness as designed has no defense if a future task
+  (or a different skill) does invite citable claims. **Follow-up needed
+  before that case**: add a rubric line the blind evaluator can check
+  without trusting the deliverable's own hedging -- e.g. "does every
+  factual claim attributed to an external source match a source that
+  actually exists and says that" -- to any task whose target skill
+  produces evidence tables or cited claims. Not added retroactively to
+  the 4 rubrics here because doing so after seeing the scores would
+  itself be the same post-hoc-threshold problem flagged in the
+  pre-registration-gap finding below.
 - **Pre-registration gap, surfaced by applying `hypothesis-testing` and
   `product-discovery-hypothesis-preregistration` to this record's own
   top-line claim.** Both skills' Step 4 / rule 1 require a numeric
