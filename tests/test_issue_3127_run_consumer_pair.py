@@ -6,8 +6,8 @@ never called, and wall-clock-to-landed measured time-to-session-end.
 
 This file covers defect 1 (skills-off arm genuine isolation). Defect 2 (H1
 enforcement), defect 3 (blind scorer wiring), and defect 4 (wall-clock
-honesty) are covered in test_issue_3127_h1_scoring_wallclock.py, added by
-their own later commits, so each defect's own commit carries its own tests.
+honesty) are covered in test_issue_3127_h1_and_scoring.py, added by their
+own later commits, so each defect's own commit carries its own tests.
 """
 import sys
 import tempfile

@@ -259,7 +259,12 @@ def render_dry_run(plan: Plan) -> str:
     lines.append("")
     lines.append("Post-run instrumentation per arm (see collect_metrics()):")
     lines.append("  - directive-composition bytes: sum of "
-                  "<workspace>/.on-the-record/directive/*.md file sizes")
+                  "<workspace>/.on-the-record/directive/*.md file sizes -- "
+                  "also the H1 manipulation check (compute_h1_manipulation()"
+                  " / gate_pair_on_h1()): a pair whose two arms report "
+                  "IDENTICAL bytes is excluded from the H2 quality "
+                  "comparison and the exclusion is recorded with a reason, "
+                  "never silently reported alongside an H2 figure")
     lines.append("  - token cost: matching entries in runs/ledger.jsonl "
                   "for this issue+skill")
     lines.append("  - verification rounds + defects found: count of "
@@ -298,11 +303,111 @@ def scrub_skill_slugs(text: str, known_slugs: list[str]) -> tuple[str, int]:
     return scrubbed, count
 
 
-def collect_directive_bytes(workspace: Path) -> int | None:
+def collect_directive_bytes(workspace: Path | None) -> int | None:
+    if workspace is None:
+        return None
     directive_dir = workspace / ".on-the-record" / "directive"
     if not directive_dir.is_dir():
         return None
     return sum(p.stat().st_size for p in directive_dir.glob("*.md"))
+
+
+def compute_h1_manipulation(workspace_on: Path | None,
+                             workspace_off: Path | None) -> dict:
+    """H1 enforcement (issue #3127 repair round, defect 2). Before this,
+    H1 existed only as prose in docs/issue-3127/decisions/
+    pre-registration.md ("H1... Falsifiable: could return identical
+    directive bytes across arms, meaning the toggle did not actually
+    change what the spawned session received"). This function turns that
+    falsifiable claim into an actual comparison a pair can fail, and a
+    future orchestration entry point built on top of it must refuse to
+    compute H2 for a pair that fails it.
+
+    Missing workspace data (an arm that never reached a mountable state)
+    is treated as a manipulation-check FAILURE, not silently skipped --
+    there is nothing to prove the manipulation worked, so it is not
+    credited as having worked.
+    """
+    on_bytes = collect_directive_bytes(workspace_on)
+    off_bytes = collect_directive_bytes(workspace_off)
+    if on_bytes is None or off_bytes is None:
+        return {"on_bytes": on_bytes, "off_bytes": off_bytes, "differs": False,
+                "reason": "at least one arm's .on-the-record/directive "
+                          "directory was not found -- treated as a "
+                          "manipulation-check failure, not silently passed"}
+    return {"on_bytes": on_bytes, "off_bytes": off_bytes,
+            "differs": on_bytes != off_bytes,
+            "reason": None if on_bytes != off_bytes else
+                      "directive-composition bytes are IDENTICAL between "
+                      "arms -- the skills-off arm's corpus was not "
+                      "genuinely unavailable (a repeat of issue #3053's "
+                      "retracted first, zero-mount run)"}
+
+
+def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
+                     workspace_off: Path | None, compute_h2=None) -> dict:
+    """Applies the H1 gate to one pair (issue #3127 repair round, defect 2):
+    computes H1 via `compute_h1_manipulation()`; if it fails, the pair is
+    excluded from H2 and the exclusion + reason are recorded in the
+    returned dict -- `compute_h2` is NOT EVEN CALLED for an excluded pair,
+    so a failed H1 can never produce an H2 figure. If H1 passes and
+    `compute_h2` (a zero-arg callable) is supplied, its result is stored
+    under "h2"; if not supplied, "h2" stays None with an explicit
+    "h2_unavailable_reason", kept distinct from an H1-driven exclusion so
+    the two "no H2" causes are never conflated in the results JSON.
+    """
+    h1 = compute_h1_manipulation(workspace_on, workspace_off)
+    result = {"pair_id": pair_id, "h1": h1, "h1_manipulation_ok": h1["differs"]}
+    if not h1["differs"]:
+        result["excluded_from_h2"] = True
+        result["exclusion_reason"] = (
+            "H1 manipulation check failed: " + (h1.get("reason") or ""))
+        result["h2"] = None
+        return result
+    result["excluded_from_h2"] = False
+    result["exclusion_reason"] = None
+    if compute_h2 is None:
+        result["h2"] = None
+        result["h2_unavailable_reason"] = "no H2 scorer supplied to gate_pair_on_h1()"
+        return result
+    result["h2"] = compute_h2()
+    return result
+
+
+def build_execute_results(plan: Plan, pair_results: list[dict]) -> dict:
+    """Assembles the final results JSON from a real `--execute` run's
+    per-pair results (issue #3127 repair round, defect 2): a pair excluded
+    by the H1 gate (or with no H2 for any other reason) is listed under
+    `pairs_excluded_from_h2` with its reason and NEVER contributes an H2
+    figure to `pairs_included_in_h2` -- a results file that reported an H2
+    number for a pair whose own H1 failed is exactly the defect this
+    structure prevents.
+    """
+    included = [p for p in pair_results
+                if not p.get("excluded_from_h2", True) and p.get("h2") is not None]
+    excluded = [p for p in pair_results
+                if p.get("excluded_from_h2", True) or p.get("h2") is None]
+    return {
+        "issue": 3127,
+        "run_status": "executed",
+        "pre_registration_ref": "docs/issue-3127/decisions/pre-registration.md",
+        "pairs": pair_results,
+        "pairs_included_in_h2": [p["pair_id"] for p in included],
+        "pairs_excluded_from_h2": [
+            {"pair_id": p["pair_id"],
+             "reason": p.get("exclusion_reason") or p.get("h2_unavailable_reason")}
+            for p in excluded
+        ],
+        "decision": (
+            "no pairs passed the H1 manipulation check with a scored H2 -- "
+            "nothing to compare against the pre-registered threshold"
+            if not included else
+            "see per-pair h2 verdicts in 'pairs'; combined-margin decision-"
+            "rule arithmetic against docs/issue-3127/decisions/"
+            "pre-registration.md's threshold (b) is computed over "
+            "pairs_included_in_h2 only, by the session interpreting this "
+            "file"),
+    }
 
 
 def collect_ledger_tokens(issue: int, skill: str) -> dict | None:
