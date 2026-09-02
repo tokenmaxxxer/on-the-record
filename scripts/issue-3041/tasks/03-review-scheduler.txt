@@ -1,0 +1,1 @@
+We need a new spaced-repetition review scheduler: it has to read a student's past answers, decide which flashcards are due today, and expose that list to both the mobile app and the web app. This will span several files or modules. Before writing the code, write up how you'd structure it.

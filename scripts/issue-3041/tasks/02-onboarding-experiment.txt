@@ -1,0 +1,1 @@
+We're about to test a redesigned first-run onboarding flow against the current one. Before we turn the test on, write up exactly what we'll measure, what number counts as success, how long we'll run it, and what we'd watch to make sure the new flow doesn't quietly hurt something else.
