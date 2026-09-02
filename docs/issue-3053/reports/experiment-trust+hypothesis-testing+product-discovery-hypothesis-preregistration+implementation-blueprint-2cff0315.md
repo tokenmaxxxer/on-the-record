@@ -380,10 +380,10 @@ pre-registration form (metric, threshold, decision rule, sample size, date
 stamp) in `docs/issue-3053/decisions/pre-registration.md` before
 `run_pair.sh` was invoked for real, and Step 5's deviations-log discipline
 to log both harness bugs in real time as they were found.
-skill-verdict: product-discovery-hypothesis-preregistration — applied:
-invoked; rules 1-3 (single primary metric, numeric threshold, sample
-size/duration fixed before data collection) shaped the H2 decision rule in
-the same pre-registration document.
+skill-verdict: product-discovery-hypothesis-preregistration — applied: invoked;
+rules 1-3 (single primary metric, numeric threshold, sample size/duration
+fixed before data collection) shaped the H2 decision rule in the same
+pre-registration document.
 skill-verdict: implementation-blueprint — not-applicable: the delivered
 change is a targeted fix to an existing single-file harness script and
 task-text content, not new multi-module architecture requiring a structure
