@@ -3,6 +3,11 @@ issue: 3127
 type: pre-registration
 date_stamp: 2026-09-02
 status: registered-before-data-collection
+verification_pr: 3131  # PR that originally introduced this file's content;
+  # scripts/issue-3127/verify_preregistration.py's squash-collapse fallback
+  # resolves ordering against this PR's own pre-squash commit history via
+  # `gh pr view <n> --json commits`, since main's own history no longer
+  # carries it after PR #3131 landed as a single squash-merge commit.
 ---
 
 # issue-3127 — pre-registration (product-discovery-hypothesis-preregistration Step 4)
