@@ -18,6 +18,8 @@ upstream:
 
 ## Scope note
 
+amendments-reconciled: issuecomment-5507212053 — canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5507212053` output. The other session (PR #3132, wake-notice + layer-1/2-file-ownership split) confirms exactly this delivery's own scope split: PR #3132 covers `probe_wake_notice_clears.py` only and is landable independently; this PR covers `probe_heartbeat_rc95_is_classified.py` and `probe_heartbeat_survives_head_change.py` (layers 1/2); layer 3 (`probe_dead_heartbeat_is_rearmed.py`) is issue #3125, after both land, since it edits `directive.sh` which PR #3132 owns. Sequence per that comment: PR #3132 and this PR land together or in either order (disjoint files) — no reconciliation needed beyond citing it here, since the split it describes matches what this record already states independently above.
+
 This delivers **layers 1 and 2 only** of the three-layer prescription in
 the issue body. Layer 3 (automatic re-arm from the turn-driven hook,
 `on-the-record/hooks/directive.sh`) and the second, independent defect
