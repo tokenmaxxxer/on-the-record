@@ -147,6 +147,8 @@ paths, stating-verb prose) without touching `INTERPRETERS` — the
 record's corrected citation (crediting #2073 for the allowlist, #2509
 for a separate hardening) is accurate.
 
+other mounted skills: not triggered.
+
 ## Why
 
 Verify-at-landing (contract §1): a deliverable is work plus executed
