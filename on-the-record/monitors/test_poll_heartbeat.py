@@ -652,7 +652,10 @@ def t_heartbeat_bound_with_returned_pr_emits_only_those_lines():
     line verbatim (that repeat-forever shape is exactly what #2180
     reports as noise) -- it now emits a single collapsed
     [returned-pr-pending] count+label line, and still no 'monitoring
-    active' line."""
+    active' line. issue #3061: the same beacon tick now also appends the
+    accumulated wake-outcome summary line (previously collected but never
+    surfaced, PR #3097/#3102 finding) -- expected here as a second line,
+    not a regression."""
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         checkout = _make_checkout(tmp)
@@ -666,7 +669,10 @@ def t_heartbeat_bound_with_returned_pr_emits_only_those_lines():
         _force_last_emit_epoch(checkout, 0)
         r2 = _run_tick(checkout, home, report)
         assert r2.returncode == 0, r2.stderr
-        assert r2.stdout.strip() == "[returned-pr-pending] 1 PR(s) still awaiting review: #22", r2.stdout
+        assert r2.stdout.strip() == (
+            "[returned-pr-pending] 1 PR(s) still awaiting review: #22\n"
+            "wake outcomes: 2 wake(s) recorded -- acted=1, idle-wake=1 (advanced nothing)"
+        ), r2.stdout
         assert "monitoring active" not in r2.stdout, r2.stdout
 
 
