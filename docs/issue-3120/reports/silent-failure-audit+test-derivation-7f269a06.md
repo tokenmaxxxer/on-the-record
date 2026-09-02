@@ -110,32 +110,71 @@ record makes no claim about their state.
 
 ## Test derivation (acceptance → cases)
 
+canonical: this session's own Skill-tool invocation of `test-derivation` this turn (args: the acceptance line quoted below) — the routing, classification, and coverage numbers in this section are that invocation's output, applied.
+
 Requirement (from issue #3120's Acceptance section, wake-notice half):
 "`probe_wake_notice_clears.py` — write a stale notice, make the alive
 marker fresh, run the directive hook's check, assert the notice is gone;
 plus the symmetric negative, that a genuinely absent monitor still gets
-one written." This is a decision-table-shaped requirement over two
-independent binary conditions (existing notice: present/absent; alive
-marker: fresh-for-this-session/absent), so it was routed to a decision
-table rather than plain equivalence partitioning:
+one written." The acceptance line states 2 named scenarios
+(positive/negative), covered below by 2 Given-When-Then scenarios:
+criteria covered / criteria stated = 2/2 = 100%.
+- GWT-1 (positive): Given a stale `.orchestrate-wake-notice` exists and
+  the alive marker is fresh for this session, When `directive.sh`'s
+  check runs, Then the notice file is gone.
+- GWT-2 (negative): Given no notice file and no alive marker for this
+  session, When `directive.sh`'s check runs, Then a notice file is
+  written.
+
+Routing (Step 3): 2 independent binary conditions (pre-existing notice:
+present/absent; alive marker: fresh-for-session/absent) combine to
+select an outcome (notice present after check) → decision table. Not
+EP/BVA (no numeric/ordered ranges), not state-transition (a single
+stateless check, not a multi-event lifecycle), not pairwise (only 2
+parameters, below the 3+ threshold pairwise targets), not MC/DC (not a
+safety-critical in-code Boolean decision).
+
+Classification (Step 3a): **Medium** — user-facing functional behavior
+(a wrong result here reintroduces the exact cross-session poisoning bug
+this issue reports), but neither safety/regulatory/revenue-critical (A:
+no) nor 3+-condition-complex (B: no, only 2 conditions) — so summary
+depth, not full itemized depth, is the calibrated floor; the table below
+exceeds that floor (itemized, not just counts) because the full 2x2 is
+only 4 cells and cheap to write out completely.
 
 | # | pre-existing notice | alive marker fresh for session | expected: notice present after check | covered by |
 |---|---|---|---|---|
 | 1 | stale (present) | fresh | absent (cleared) | `check_positive_clears_stale_notice` |
 | 2 | absent | absent | present (written) | `check_negative_absent_monitor_still_notifies` |
+| 3 | absent | fresh | absent (stays absent, untested) | none |
+| 4 | stale (present) | absent | present (re-written verbatim, untested) | none |
 
 canonical: `gates/probe_wake_notice_clears.py`, this session's own file, same commit — functions `check_positive_clears_stale_notice` and `check_negative_absent_monitor_still_notifies` implement rows 1 and 2 respectively; their pass transcript is in Acceptance evidence below.
 
-The other two cells of the full 2x2 (absent-notice/fresh-marker →
-stays absent; stale-notice/absent-marker → stays present, re-written
-verbatim) are not independent acceptance requirements. Cell
-absent/fresh is the steady-state the existing `alive` early-exit already
-covered before this fix, unaffected by the removal added here since
-`os.remove` on an absent path just raises the already-caught
-`FileNotFoundError`. Cell stale/absent is the pre-existing write-path
-behavior from issue #947, not new surface this issue touches. Adding
-probe cases for either would test code this issue did not change, so
-they were left out by design rather than by omission.
+Decision-table coverage (Step 7): all 4 columns are feasible (no
+business rule makes any combination impossible) — exercised feasible
+columns / total feasible columns = 2/4 = 50%, named honestly rather than
+rounded up. Rows 3 and 4 are not left uncovered by omission; each has a
+stated exclusion reason: row 3 (absent/fresh) is the steady-state the
+existing `alive` early-exit already covered before this fix, unaffected
+by the removal added here since `os.remove` on an absent path just
+raises the already-caught `FileNotFoundError`; row 4 (stale/absent) is
+the pre-existing write-path behavior from issue #947, not new surface
+this issue's fix touches. Both are reachable, feasible states this fix
+could in principle have broken, so they are named as open coverage gaps
+here rather than silently absent from the table, even though this
+session judged them low enough risk not to add probe cases for.
+
+Traceability (Step 11): both stated acceptance scenarios (GWT-1, GWT-2)
+link to a test case, one each — requirement-scenarios linked / stated =
+2/2 = 100%, no empty rows.
+derived: `grep -c '^def check_' gates/probe_wake_notice_clears.py` — result: 2 (rows 1-2 above) — the module defines no other `check_*` function, so no orphan test case exists.
+
+Residual (Step 12.5): this derivation does not establish anything about
+the `poll-heartbeat.sh` half's four acceptance probes, non-functional
+properties (performance, concurrency between two real sessions racing
+the same notice file), or exploratory coverage beyond the acceptance
+line's own two stated scenarios.
 
 ## Skill verdicts
 
@@ -146,10 +185,12 @@ skill-verdict: silent-failure-audit — applied: invoked; audited the new
 derived: this session's own step-by-step trace, recorded in the Why section above — one Silently-Absorbed-by-letter site found (the new empty `except OSError: pass`), traced forward through both its failure branches (benign race vs. persistent failure), left unchanged as adequate given the self-healing per-turn retry and consistency with every sibling marker write in the same file. The probe's own setup/subprocess calls are unguarded by design (fail-loud is correct for a test probe); its `shutil.rmtree(..., ignore_errors=True)` calls are post-assertion cleanup only.
 
 skill-verdict: test-derivation — applied: invoked; routed the
-`probe_wake_notice_clears.py` acceptance line to a 2-row decision table
-over (pre-existing notice) x (alive marker freshness) — see Test
-derivation section above for the full table and the rationale for the
-two uncovered cells.
+`probe_wake_notice_clears.py` acceptance line to a decision table over
+(pre-existing notice) x (alive marker freshness) via the Skill tool's
+`test-derivation` output this turn — see Test derivation section above
+for the GWT scenarios, Medium classification, full 2x2 table, 50%
+decision-table coverage with named exclusion reasons for the two
+untested cells, and traceability check.
 
 other mounted skills: not triggered (work-in-english guidance followed
 throughout without a separate invocation needed — no Korean-language
