@@ -40,7 +40,9 @@ def test_consumer_count():
 # --- consumer 1: branch names -----------------------------------------------
 
 # approval-gate.sh:106 / pr-preflight.sh:106 / contract-guard.sh:185
-_HOOK_BRANCH_RE = re.compile(r"^issue-(\d+)/([\w-]+)$")
+# issue #2576 (PR #2586) widened the charset from [\w-]+ to [^/]+ so a
+# multi-skill `--skills` branch slug (contains `+`) still parses.
+_HOOK_BRANCH_RE = re.compile(r"^issue-(\d+)/([^/]+)$")
 # gates/flows.py:32
 _FLOWS_BRANCH_RE = flows._BRANCH_RE
 # spawn.py:3115
@@ -106,7 +108,8 @@ class BranchNamesEquivalenceTest(unittest.TestCase):
 # --- consumer 2: APPROVE token grammar --------------------------------------
 
 # approval-gate.sh:176 / pr-preflight.sh:154
-_CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([\w-]+) VIA DELEGATION (\S+)$")
+# issue #2576 (PR #2591) widened this the same way, for the same reason.
+_CITE_RE = re.compile(r"^APPROVE issue-(\d+)/([^/]+) VIA DELEGATION (\S+)$")
 
 
 def _needle_exact(issue: int, skill: str) -> str:
@@ -204,10 +207,13 @@ class ApprovalGateEquivalenceTest(unittest.TestCase):
     def test_hook_file_exists_and_has_expected_shape(self):
         self.assertTrue(self.HOOK_PATH.is_file())
         text = self.HOOK_PATH.read_text(encoding="utf-8")
-        self.assertIn('re.match(r"^issue-(\\d+)/([\\w-]+)$", branch)', text)
+        # issue #2576 (PR #2586/#2591) widened both branch-slug and
+        # citation-slug charsets from [\w-]+ to [^/]+ so a multi-skill
+        # `--skills` slug (contains `+`) still parses.
+        self.assertIn('re.match(r"^issue-(\\d+)/([^/]+)$", branch)', text)
         self.assertIn('needle = "APPROVE issue-%d/%s" % (issue, role)', text)
         self.assertIn(
-            're.compile(r"^APPROVE issue-(\\d+)/([\\w-]+) VIA DELEGATION (\\S+)$")',
+            're.compile(r"^APPROVE issue-(\\d+)/([^/]+) VIA DELEGATION (\\S+)$")',
             text,
         )
 
@@ -479,11 +485,12 @@ class BranchRoleFieldDualReadEquivalenceTest(unittest.TestCase):
 
     def test_hooks_retain_original_fallback_regex_verbatim(self):
         # the exact fallback line each hook fell back to before #1814 must
-        # still be present, unchanged, in every hook's source.
+        # still be present in every hook's source -- charset widened from
+        # [\w-]+ to [^/]+ by issue #2576 (PR #2586), still the same fallback.
         for path in self.HOOK_PATHS.values():
             text = path.read_text(encoding="utf-8")
             self.assertIn(
-                're.match(r"^issue-(\\d+)/([\\w-]+)$"', text,
+                're.match(r"^issue-(\\d+)/([^/]+)$"', text,
                 msg=f"{path} lost its branch-regex fallback",
             )
 
