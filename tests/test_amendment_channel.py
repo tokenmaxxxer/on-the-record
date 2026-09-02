@@ -17,10 +17,12 @@ import contextlib
 import io
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -55,6 +57,44 @@ def _make_issue_repo(root: Path, issue: str, name: str = "repo",
     if origin:
         _git("remote", "add", "origin", origin, cwd=repo)
     return repo
+
+
+def _register_pid(roster_dir: Path, work, pid: int = None,
+                   bad_start_time: bool = False) -> str:
+    """issue #3129 repair round 5: write a fake `spawn.py` roster
+    (`active.json`'s own shape) naming `pid` (default: THIS test
+    process's own real pid) as registered against `work` -- the fixture
+    every write-path test below now needs in place of a bare `cwd`.
+
+    Tests run AS the OS process being registered (or spawn a real
+    child/grandchild of it, see `AncestryWalkAgainstRealProcesses`), so
+    `registered_repo_for_pid()`'s real `/proc` ancestry walk finds this
+    entry for real -- nothing in this file mocks `/proc`.
+    `bad_start_time=True` writes a `start_time` that cannot match the
+    live process at `pid`, exercising the pid-reuse guard.
+    """
+    pid = pid if pid is not None else os.getpid()
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    roster_path = roster_dir / "active.json"
+    entry = {"pid": pid, "work": str(work)}
+    if bad_start_time:
+        entry["start_time"] = "not-a-real-start-time"
+    else:
+        live = ac._proc_start_time(pid)
+        if live is not None:
+            entry["start_time"] = live
+    roster_path.write_text(json.dumps({"issue-1/some-role": entry}))
+    return str(roster_path)
+
+
+def _empty_roster(roster_dir: Path) -> str:
+    """A roster naming no pid at all -- the "session never started
+    through spawn.py" shape, round-4 caveat 2 / round-5's own explicit
+    fail-closed requirement."""
+    roster_dir.mkdir(parents=True, exist_ok=True)
+    roster_path = roster_dir / "active.json"
+    roster_path.write_text(json.dumps({}))
+    return str(roster_path)
 
 
 class MarkerReadWrite(unittest.TestCase):
@@ -231,6 +271,8 @@ class GhCommandDetection(unittest.TestCase):
         # own cwd when it runs `gh issue edit` is always a real checkout
         self.orch_cwd = str(_make_issue_repo(Path(self.tmp.name), "999",
                                               name="orch-repo"))
+        self.roster_path = _register_pid(Path(self.tmp.name) / "roster",
+                                          self.orch_cwd)
         self.success_url = "https://github.com/%s/issues/55" % REPO_A
 
     def tearDown(self):
@@ -240,6 +282,7 @@ class GhCommandDetection(unittest.TestCase):
         return ac.record_amendment_from_response(
             self.state_dir, tool_name, cmd, self.orch_cwd,
             self.success_url if tool_response is None else tool_response,
+            roster_path=self.roster_path,
         )
 
     def test_body_flag_writes_marker_with_note(self):
@@ -297,7 +340,7 @@ class GhCommandDetection(unittest.TestCase):
             f.write("x")
         result = ac.record_amendment_from_response(
             blocker, "Bash", 'gh issue edit 55 --body "x"', self.orch_cwd,
-            self.success_url,
+            self.success_url, roster_path=self.roster_path,
         )
         self.assertIsInstance(result, ac.MarkerWriteFailed)
         stderr = io.StringIO()
@@ -307,15 +350,19 @@ class GhCommandDetection(unittest.TestCase):
         self.assertIn("not see this correction", stderr.getvalue())
 
     def test_unresolvable_repo_does_not_write_a_marker_and_logs_to_stderr(self):
-        """issue #3128's shape, applied here: when the orchestrator's own
-        cwd has no resolvable repo (no `origin` remote), the write must not
-        fall back to a shared bucket -- it must not write ANY marker, and
-        the failure must be observable (stderr), not silently dropped."""
-        no_origin_cwd = str(_make_issue_repo(Path(self.tmp.name), "999",
-                                              name="no-origin-repo", origin=None))
+        """issue #3128's shape, applied here: when the session's own
+        REGISTERED work directory (issue #3129 round 5: `spawn.py`'s
+        roster `work` field, no longer `cwd`) has no resolvable repo (no
+        `origin` remote), the write must not fall back to a shared bucket
+        -- it must not write ANY marker, and the failure must be
+        observable (stderr), not silently dropped."""
+        no_origin_work = str(_make_issue_repo(Path(self.tmp.name), "999",
+                                               name="no-origin-repo", origin=None))
+        no_origin_roster = _register_pid(Path(self.tmp.name) / "roster2",
+                                          no_origin_work)
         result = ac.record_amendment_from_response(
             self.state_dir, "Bash", 'gh issue edit 55 --body "x"',
-            no_origin_cwd, self.success_url,
+            self.orch_cwd, self.success_url, roster_path=no_origin_roster,
         )
         self.assertIsInstance(result, ac.NoRegisteredRepo)
         stderr = io.StringIO()
@@ -340,13 +387,21 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         self.state_dir = os.path.join(self.tmp.name, "state")
         self.session_cwd = str(_make_issue_repo(
             Path(self.tmp.name), "1", name="session-checkout", origin=REPO_A_URL))
+        # issue #3129 round 5: this session's registered repo now comes
+        # from spawn.py's own roster (this process's pid -> `work`), never
+        # from `cwd` -- registering `self.session_cwd` here reproduces the
+        # same REPO_A attribution the old cwd-based fixture gave, but via
+        # the new trust root.
+        self.roster_path = _register_pid(Path(self.tmp.name) / "roster",
+                                          self.session_cwd)
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _record(self, cmd, tool_response, cwd=None):
+    def _record(self, cmd, tool_response, cwd=None, roster_path=None):
         return ac.record_amendment_from_response(
-            self.state_dir, "Bash", cmd, cwd or self.session_cwd, tool_response)
+            self.state_dir, "Bash", cmd, cwd or self.session_cwd, tool_response,
+            roster_path=self.roster_path if roster_path is None else roster_path)
 
     def test_matching_repo_writes_marker_keyed_to_url_issue_number(self):
         url = "https://github.com/%s/issues/42" % REPO_A
@@ -408,20 +463,225 @@ class RecordAmendmentFromResponse(unittest.TestCase):
         self.assertIsInstance(result, ac.NoIssueUrlInResponse)
 
     def test_no_registered_repo_is_fail_closed_not_skip_silently(self):
-        """issue #3129 round-4 caveat 2: a session with no resolvable
-        registered repo (not started through spawn.py, or `cwd` is not a
-        git checkout at all) must fail CLOSED -- no marker, loud stderr --
-        never skip silently as if amendments simply don't apply here."""
-        no_repo_cwd = self.tmp.name  # a plain directory, not even git init'd
+        """issue #3129 round-4 caveat 2, round-5 mechanism: a session with
+        no roster registration at all (not started through spawn.py) must
+        fail CLOSED -- no marker, loud stderr -- never skip silently as if
+        amendments simply don't apply here."""
         url = "https://github.com/%s/issues/42" % REPO_A
         result = self._record('gh issue edit 42 --body "fixed brief"', url,
-                               cwd=no_repo_cwd)
+                               roster_path=_empty_roster(Path(self.tmp.name) / "no-roster"))
         self.assertIsInstance(result, ac.NoRegisteredRepo)
         self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             ac._report_write_result(result)
         self.assertIn("registered repo", stderr.getvalue())
+
+    def test_cd_does_not_move_the_registered_repo(self):
+        """issue #3129 repair round 5, the core fix: PR #3191's
+        independent verification of round 4 found that an ordinary,
+        standalone `cd` -- run as its own Bash call, not chained with the
+        `gh issue edit` call -- silently re-registered the session's
+        `cwd`-derived "registered repo" to whatever repo it had just
+        `cd`'d into (Claude Code's own hook docs: `cwd` is live, it is
+        "the new directory after Claude runs cd"). The registration this
+        round uses instead (`spawn.py`'s own roster, keyed off this
+        process's kernel-tracked ancestry) does not read `cwd` for
+        attribution AT ALL -- so passing a `cwd` naming a DIFFERENT repo
+        than the one this session is actually registered to must not move
+        the result even one bit: the edit still attributes to the
+        REGISTERED repo (REPO_A), and an edit actually landing in the
+        drifted-to repo (REPO_B) is still a policy violation, not a
+        silent re-registration."""
+        drifted_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="drifted-into-repo-b", origin=REPO_B_URL))
+
+        # same repo as the edit actually landed in (URL says REPO_A) --
+        # attribution must still succeed, using the REGISTERED repo, even
+        # though `cwd` now points at a REPO_B checkout.
+        url_a = "https://github.com/%s/issues/42" % REPO_A
+        result_a = self._record('gh issue edit 42 --body "fixed brief"',
+                                 url_a, cwd=drifted_cwd)
+        self.assertIsInstance(result_a, ac.AmendmentWritten,
+                               "cwd drift must not change which repo this "
+                               "session is registered to: %r" % (result_a,))
+        self.assertEqual(result_a.repo, REPO_A)
+
+        # the drifted-to repo (matching cwd, NOT the registration) must
+        # still be refused as a cross-repo policy violation -- round 4's
+        # whole worked example, still closed after round 5's mechanism
+        # swap.
+        url_b = "https://github.com/%s/issues/43" % REPO_B
+        result_b = self._record('gh issue edit 43 --body "other edit"',
+                                 url_b, cwd=drifted_cwd)
+        self.assertIsInstance(result_b, ac.RepoMismatch,
+                               "an edit landing in the repo cwd drifted "
+                               "to (not the registered repo) must still "
+                               "be refused: %r" % (result_b,))
+        self.assertEqual(result_b.registered_repo, REPO_A)
+        self.assertEqual(result_b.url_repo, REPO_B)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_B, "43"))
+
+    def test_failed_edit_error_text_containing_a_url_is_not_a_success(self):
+        """PR #3191's Angle 2 finding: a genuinely FAILED `gh issue edit`
+        (the edit was NOT applied) whose error text happens to quote an
+        unrelated issue's URL, in the session's OWN registered repo, must
+        not be silently mistaken for that edit's own success report."""
+        failure_text = (
+            "HTTP 422: Validation Failed. See "
+            "https://github.com/%s/issues/7 for the field format example. "
+            "(edit 42 was NOT applied)" % REPO_A
+        )
+        result = self._record('gh issue edit 42 --body "fixed brief"', failure_text)
+        self.assertIsInstance(result, ac.NoIssueUrlInResponse,
+                               "a failed edit's error text must never be "
+                               "mistaken for a success report: %r" % (result,))
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "7"))
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+
+    def test_two_urls_in_a_response_is_not_a_success(self):
+        """PR #3191's lower-severity Angle 2 finding, closed as a
+        structural consequence of the same `fullmatch` fix: a response
+        naming more than one URL is not `gh`'s own bare success output
+        either, so it must not attribute to the FIRST (possibly wrong)
+        match."""
+        two_urls = "note: also touched https://github.com/%s/issues/5\n%s" % (
+            REPO_B, "https://github.com/%s/issues/42" % REPO_A)
+        result = self._record('gh issue edit 42 --body "fixed brief"', two_urls)
+        self.assertIsInstance(result, ac.NoIssueUrlInResponse)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_B, "5"))
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "42"))
+
+
+class RegisteredRepoForPid(unittest.TestCase):
+    """issue #3129 repair round 5: direct coverage of
+    `registered_repo_for_pid()` itself -- the new trust root -- below the
+    level of `record_amendment_from_response()`. Nothing here mocks
+    `/proc`; every case drives the real kernel-backed ancestry walk."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.roster_dir = Path(self.tmp.name) / "roster"
+        self.repo = _make_issue_repo(Path(self.tmp.name), "1", origin=REPO_A_URL)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_this_process_own_registration_resolves(self):
+        roster_path = _register_pid(self.roster_dir, self.repo)
+        self.assertEqual(
+            ac.registered_repo_for_pid(os.getpid(), roster_path=roster_path),
+            REPO_A)
+
+    def test_no_roster_file_at_all_resolves_to_none(self):
+        missing = str(self.roster_dir / "does-not-exist.json")
+        self.assertIsNone(ac.registered_repo_for_pid(os.getpid(), roster_path=missing))
+
+    def test_empty_roster_resolves_to_none(self):
+        roster_path = _empty_roster(self.roster_dir)
+        self.assertIsNone(ac.registered_repo_for_pid(os.getpid(), roster_path=roster_path))
+
+    def test_roster_entry_for_a_different_pid_does_not_match(self):
+        # a real, currently-nonexistent pid (0 is never a valid userland
+        # pid) -- this process's own ancestry must never happen to walk
+        # through it.
+        roster_path = _register_pid(self.roster_dir, self.repo, pid=0)
+        self.assertIsNone(ac.registered_repo_for_pid(os.getpid(), roster_path=roster_path))
+
+    def test_mismatched_start_time_is_treated_as_pid_reuse_not_a_match(self):
+        """The pid-reuse guard: an entry recorded for THIS pid number but
+        with a `start_time` that does not match the live process wearing
+        it now must not be trusted -- same guard `roster.py`'s own
+        `_paired_liveness()` already applies to liveness checks."""
+        roster_path = _register_pid(self.roster_dir, self.repo, bad_start_time=True)
+        self.assertIsNone(ac.registered_repo_for_pid(os.getpid(), roster_path=roster_path))
+
+    def test_missing_start_time_field_still_trusts_the_pid_match(self):
+        roster_path = self.roster_dir / "active.json"
+        self.roster_dir.mkdir(parents=True, exist_ok=True)
+        roster_path.write_text(json.dumps(
+            {"issue-1/role": {"pid": os.getpid(), "work": str(self.repo)}}))
+        self.assertEqual(
+            ac.registered_repo_for_pid(os.getpid(), roster_path=str(roster_path)),
+            REPO_A)
+
+    def test_corrupt_roster_file_resolves_to_none_not_a_crash(self):
+        self.roster_dir.mkdir(parents=True, exist_ok=True)
+        roster_path = self.roster_dir / "active.json"
+        roster_path.write_text("{not json")
+        self.assertIsNone(
+            ac.registered_repo_for_pid(os.getpid(), roster_path=str(roster_path)))
+
+    def test_no_proc_on_this_platform_resolves_to_none(self):
+        """macOS (issue #2924's precedent) -- no `/proc` at all means no
+        ancestry walk is possible; this must fail closed, never fall back
+        to any other signal."""
+        roster_path = _register_pid(self.roster_dir, self.repo)
+        real_isdir = os.path.isdir
+        with unittest.mock.patch(
+                "os.path.isdir",
+                side_effect=lambda p: False if p == "/proc" else real_isdir(p)):
+            self.assertIsNone(
+                ac.registered_repo_for_pid(os.getpid(), roster_path=roster_path))
+
+    def test_registered_work_dir_with_no_origin_resolves_to_none(self):
+        no_origin = str(_make_issue_repo(Path(self.tmp.name), "1",
+                                          name="no-origin", origin=None))
+        roster_path = _register_pid(self.roster_dir, no_origin)
+        self.assertIsNone(ac.registered_repo_for_pid(os.getpid(), roster_path=roster_path))
+
+
+class AncestryWalkAgainstRealProcesses(unittest.TestCase):
+    """issue #3129 repair round 5, test-depth-audit pass: the unit tests
+    above all hit `registered_repo_for_pid()`'s dict lookup at hop 0
+    (this test process's own pid IS the registered pid). That alone does
+    not prove the ANCESTRY WALK itself works -- the actual mechanism this
+    round relies on, since a real hook subprocess is never the exact
+    registered pid, only a descendant of it. This spawns a real child
+    process and asks IT to resolve ITS OWN parent's (this test's)
+    registration, driving a genuine multi-process `/proc` walk."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = _make_issue_repo(Path(self.tmp.name), "1", origin=REPO_A_URL)
+        self.roster_path = _register_pid(Path(self.tmp.name) / "roster", self.repo)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_a_child_process_resolves_its_parents_registration(self):
+        script = (
+            "import sys, os\n"
+            "sys.path.insert(0, %r)\n"
+            "import amendment_channel as ac\n"
+            "print(ac.registered_repo_for_pid(os.getpid(), roster_path=%r) or '')\n"
+        ) % (str(HOOKS_DIR), self.roster_path)
+        r = subprocess.run([sys.executable, "-c", script],
+                            capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), REPO_A,
+                          "a child process could not resolve its own "
+                          "parent's roster registration: stdout=%r stderr=%r"
+                          % (r.stdout, r.stderr))
+
+    def test_a_grandchild_process_still_resolves_the_registration(self):
+        """Two hops: this test -> child shell -> grandchild python. Proves
+        the walk does not stop at the first ancestor."""
+        script = (
+            "import sys, os\n"
+            "sys.path.insert(0, %r)\n"
+            "import amendment_channel as ac\n"
+            "print(ac.registered_repo_for_pid(os.getpid(), roster_path=%r) or '')\n"
+        ) % (str(HOOKS_DIR), self.roster_path)
+        r = subprocess.run(
+            ["sh", "-c", "%s -c %s" % (sys.executable, shlex.quote(script))],
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), REPO_A,
+                          "a grandchild process could not resolve an "
+                          "ancestor's roster registration: stdout=%r stderr=%r"
+                          % (r.stdout, r.stderr))
 
 
 class PreviouslyBrokenShapesAreNowIrrelevant(unittest.TestCase):
@@ -443,6 +703,8 @@ class PreviouslyBrokenShapesAreNowIrrelevant(unittest.TestCase):
         self.state_dir = os.path.join(self.tmp.name, "state")
         self.session_cwd = str(_make_issue_repo(
             Path(self.tmp.name), "1", name="session-checkout", origin=REPO_A_URL))
+        self.roster_path = _register_pid(Path(self.tmp.name) / "roster",
+                                          self.session_cwd)
         self.url = "https://github.com/%s/issues/42" % REPO_A
 
     def tearDown(self):
@@ -450,7 +712,8 @@ class PreviouslyBrokenShapesAreNowIrrelevant(unittest.TestCase):
 
     def _assert_writes_marker(self, cmd):
         result = ac.record_amendment_from_response(
-            self.state_dir, "Bash", cmd, self.session_cwd, self.url)
+            self.state_dir, "Bash", cmd, self.session_cwd, self.url,
+            roster_path=self.roster_path)
         self.assertIsInstance(result, ac.AmendmentWritten,
                                "cmd=%r result=%r" % (cmd, result))
         self.assertIsNotNone(ac.read_marker(self.state_dir, REPO_A, "42"))
@@ -483,7 +746,8 @@ class PreviouslyBrokenShapesAreNowIrrelevant(unittest.TestCase):
         parsed for attribution purposes at all anymore."""
         cmd = "gh issue edit 42 --body 'cd /nonexistent && rm -rf /'"
         result = ac.record_amendment_from_response(
-            self.state_dir, "Bash", cmd, self.session_cwd, self.url)
+            self.state_dir, "Bash", cmd, self.session_cwd, self.url,
+            roster_path=self.roster_path)
         self.assertIsInstance(result, ac.AmendmentWritten)
         marker = ac.read_marker(self.state_dir, REPO_A, "42")
         self.assertEqual(marker["note"], "cd /nonexistent && rm -rf /")
@@ -502,12 +766,20 @@ class MainExitCodeReflectsWriteOutcome(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.state_dir = os.path.join(self.tmp.name, "state")
         self.repo = _make_issue_repo(Path(self.tmp.name), "1", origin=REPO_A_URL)
+        # issue #3129 round 5: `amendment_channel.py` here runs as a real
+        # DIRECT CHILD subprocess of this test process (`subprocess.run`
+        # below) -- registering THIS test process's own real pid as
+        # `spawn.py` would have exercises the real `/proc` ancestry walk
+        # (one genuine hop: child -> this test's pid), not a same-pid
+        # dict-lookup shortcut.
+        self.roster_path = _register_pid(Path(self.tmp.name) / "roster", self.repo)
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _run_main(self, payload):
-        env = dict(os.environ, OTR_AMENDMENT_STATE_DIR=self.state_dir)
+    def _run_main(self, payload, roster_path=None):
+        env = dict(os.environ, OTR_AMENDMENT_STATE_DIR=self.state_dir,
+                   OTR_ROSTER_PATH=self.roster_path if roster_path is None else roster_path)
         module = str(HOOKS_DIR / "amendment_channel.py")
         return subprocess.run(
             [sys.executable, module], input=json.dumps(payload),
@@ -538,11 +810,16 @@ class MainExitCodeReflectsWriteOutcome(unittest.TestCase):
         self.assertIn("POLICY VIOLATION", r.stderr)
 
     def test_no_registered_repo_exits_nonzero_with_stderr(self):
+        """issue #3129 round 5: a session with no roster registration at
+        all (this real subprocess's own ancestry pid never appears in the
+        roster) must fail closed -- driven through the real binary, real
+        subprocess, real (empty) roster file, not a mocked lookup."""
         url = "https://github.com/%s/issues/42" % REPO_A
         payload = {"session_id": "orch-sess", "tool_name": "Bash",
                    "tool_input": {"command": 'gh issue edit 42 --body "fixed brief"'},
-                   "cwd": self.tmp.name, "tool_response": url}
-        r = self._run_main(payload)
+                   "cwd": str(self.repo), "tool_response": url}
+        r = self._run_main(payload,
+                            roster_path=_empty_roster(Path(self.tmp.name) / "no-roster"))
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("registered repo", r.stderr)
 
@@ -667,8 +944,11 @@ class RunHookEndToEnd(unittest.TestCase):
     def test_orchestrator_bash_call_in_this_same_run_hook_writes_the_marker(self):
         # the orchestrator's own checkout of the SAME repo (same `origin`,
         # different local path/branch from the worker's) -- realistic
-        # shape: orchestrator and worker are separate processes/checkouts
+        # shape: orchestrator and worker are separate processes/checkouts.
+        # issue #3129 round 5: this process's own roster registration
+        # (not `cwd`) names orch_repo as the write's registered repo.
         orch_repo = _make_issue_repo(Path(self.tmp.name), "1", name="orch-repo")
+        roster_path = _register_pid(Path(self.tmp.name) / "roster", orch_repo)
         cmd = 'gh issue edit 88 --body "new brief"'
         url = "https://github.com/%s/issues/88" % REPO_A
         payload = self._payload(session_id="orch-sess", tool_name="Bash",
@@ -676,7 +956,7 @@ class RunHookEndToEnd(unittest.TestCase):
                                  tool_response=url)
         # the orchestrator's own cwd is not on issue #88's branch, so this
         # call itself gets no notice back -- it only records the marker
-        self.assertIsNone(ac.run_hook(payload, self.state_dir))
+        self.assertIsNone(ac.run_hook(payload, self.state_dir, roster_path))
         marker = ac.read_marker(self.state_dir, REPO_A, "88")
         self.assertIsNotNone(marker)
         self.assertEqual(marker["note"], "new brief")
@@ -702,6 +982,7 @@ class RunHookEndToEnd(unittest.TestCase):
         orch_in_repo_a = _make_issue_repo(Path(self.tmp.name), "1",
                                            name="repo-a-orch", origin=REPO_A_URL)
 
+        roster_path = _register_pid(Path(self.tmp.name) / "roster", orch_in_repo_a)
         amend_cmd = 'gh issue edit %s --body "repo A correction"' % issue
         amend_url = "https://github.com/%s/issues/%s" % (REPO_A, issue)
         amend_payload = json.dumps({
@@ -709,7 +990,7 @@ class RunHookEndToEnd(unittest.TestCase):
             "tool_input": {"command": amend_cmd}, "cwd": str(orch_in_repo_a),
             "tool_response": amend_url,
         })
-        self.assertIsNone(ac.run_hook(amend_payload, self.state_dir))
+        self.assertIsNone(ac.run_hook(amend_payload, self.state_dir, roster_path))
 
         def worker_payload(cwd):
             return json.dumps({"session_id": "worker-sess", "tool_name": "Read",
@@ -737,12 +1018,13 @@ class RunHookEndToEnd(unittest.TestCase):
         repo_y = _make_issue_repo(Path(self.tmp.name), issue,
                                    name="unresolvable-y", origin=None)
 
+        roster_path = _register_pid(Path(self.tmp.name) / "roster", repo_x)
         amend_cmd = 'gh issue edit %s --body "correction for x"' % issue
         amend_payload = json.dumps({
             "session_id": "orch-sess", "tool_name": "Bash",
             "tool_input": {"command": amend_cmd}, "cwd": str(repo_x),
         })
-        ac.run_hook(amend_payload, self.state_dir)
+        ac.run_hook(amend_payload, self.state_dir, roster_path)
 
         def worker_payload(cwd):
             return json.dumps({"session_id": "worker-sess", "tool_name": "Read",

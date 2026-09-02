@@ -46,6 +46,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK = REPO_ROOT / "on-the-record" / "hooks" / "amendment-channel.sh"
+HOOKS_DIR = REPO_ROOT / "on-the-record" / "hooks"
+sys.path.insert(0, str(HOOKS_DIR))
+import amendment_channel as ac  # noqa: E402 -- path-computation helper only, not reimplemented logic
 BASH_BIN = shutil.which("bash") or "/bin/bash"
 
 # Both the worker's checkout and the orchestrator's own cwd share this
@@ -128,6 +131,18 @@ def main() -> None:
 
         env = dict(os.environ)
         env["OTR_AMENDMENT_STATE_DIR"] = str(state_dir)
+        # issue #3129 repair round 5: fake this probe process's own
+        # spawn.py registration -- see probe_running_session_sees_
+        # amendment.py's identical comment for why.
+        roster_path = work / "roster" / "active.json"
+        roster_path.parent.mkdir(parents=True, exist_ok=True)
+        roster_path.write_text(json.dumps({
+            "issue-1/probe-orch": {
+                "pid": os.getpid(), "work": str(orchestrator_cwd),
+                "start_time": ac._proc_start_time(os.getpid()),
+            }
+        }))
+        env["OTR_ROSTER_PATH"] = str(roster_path)
 
         def worker_tick():
             payload = {

@@ -140,6 +140,24 @@ def main() -> None:
 
         env = dict(os.environ)
         env["OTR_AMENDMENT_STATE_DIR"] = str(state_dir)
+        # issue #3129 repair round 5: the write side's "registered repo"
+        # now comes from spawn.py's own roster (this orchestrator-call
+        # subprocess's ancestry, walked via /proc), never from the
+        # PostToolUse payload's `cwd` field -- a real hook invocation is
+        # always a subprocess of a genuine spawn.py-registered session,
+        # so this probe fakes that registration the same way: a roster
+        # naming THIS probe process's own pid (the direct parent of the
+        # `_call_hook()` subprocess below) as registered to
+        # `orchestrator_cwd`.
+        roster_path = work / "roster" / "active.json"
+        roster_path.parent.mkdir(parents=True, exist_ok=True)
+        roster_path.write_text(json.dumps({
+            "issue-1/probe-orch": {
+                "pid": os.getpid(), "work": str(orchestrator_cwd),
+                "start_time": ac._proc_start_time(os.getpid()),
+            }
+        }))
+        env["OTR_ROSTER_PATH"] = str(roster_path)
 
         worker_payload = lambda tool_name="Read", tool_input=None: {
             "session_id": "probe-worker-session",
