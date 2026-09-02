@@ -78,6 +78,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
+sys.path.insert(0, str(ROOT))
+import spawn as _spawn_mod  # noqa: E402 -- see arm_workspace_dir()
+
 # Reused from issue-3053's floor-condition harness so pair identity (task
 # text, discipline) is held constant across the floor and consumer-path
 # measurements. Only the first two pairs are registered for this run (see
