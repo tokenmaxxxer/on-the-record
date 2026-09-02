@@ -421,6 +421,23 @@ beyond what is already on record there:
 - `test_family_skill_never_returned_as_cross_family_candidate` is a
   live, currently-failing stale test (issue #3091's scope, not #3127's).
 
+amendments-reconciled: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5508098646`
+(issue #3127 comment, posted 2026-09-02T10:24:26Z, after this session's own
+checks above had already run) -- the operator holds PR #3131 and spawns a
+repair round scoped to four defects: skills-off manipulation not achieving
+"present but empty," H1 prose-only, blind scorer unimplemented, and
+wall-clock-to-landed measuring time-to-session-end not time-to-merge, citing
+both PR #3135 and PR #3145.
+
+canonical: "Reproduction 1"/"Reproduction 2" and the "H1", "blind quality
+scorer", and "Wall-clock-to-landed" subsections under "The deeper question"
+heading above (this session's own `derived:`/`canonical:`-tagged reads and
+live reproductions) match all four defects the operator's comment names. No
+amendment to this record's own verdict is needed: the comment does not
+change any of this session's own primary-source reads or live
+reproductions, and this session's findings already match the scope the
+operator now spawns a repair round against.
+
 ## Next steps
 
 derived: this session's own checks -- `python3 scripts/issue-3127/run_consumer_pair.py --dry-run`
