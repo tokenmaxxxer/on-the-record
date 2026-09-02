@@ -1,0 +1,1 @@
+We're thinking about adding a feature where students can be matched into small study groups by course and exam date. Before the team invests further, write a short brief on whether this is worth building: what would need to be true for it to succeed, how we'd know quickly if it's not working, and what would make us stop or change direction.
