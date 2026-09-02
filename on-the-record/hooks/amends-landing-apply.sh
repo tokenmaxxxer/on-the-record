@@ -14,16 +14,25 @@
 # `merge-allow-gate.sh`, no caller anywhere).
 #
 # `PostToolUse` cannot deny -- this hook is pure side-effect, mirroring
-# `post-landing-obligation-gate.sh`'s own shape exactly: same strict
-# `gh pr merge`/`cd DIR && gh pr merge` command-shape validation, same
-# `tool_response`-text failure-marker heuristic for "did the merge
-# actually succeed" (no exit-code field is available in the PostToolUse
-# payload for Bash), same orchestrator-only posture. Unlike that hook
-# (which resolves issue/role from the merged PR's OWN head branch),
-# `amends:` is repo-local (same class as `spec_index.py` -- checks this
-# repo's own tree, not a consumer's), so there is no per-issue branch to
-# resolve here: this hook always targets the checkout `gh pr merge` itself
-# ran from.
+# `post-landing-obligation-gate.sh`'s own strict `gh pr merge`/
+# `cd DIR && gh pr merge` command-shape validation and orchestrator-only
+# posture. Unlike that hook (which resolves issue/role from the merged
+# PR's OWN head branch), `amends:` is repo-local (same class as
+# `spec_index.py` -- checks this repo's own tree, not a consumer's), so
+# there is no per-issue branch to resolve here: this hook always targets
+# the checkout `gh pr merge` itself ran from.
+#
+# issue #3134 repair round 4: "did the merge actually succeed" is NOT
+# decided by `tool_response`-text failure markers (there is no exit-code
+# field in the PostToolUse payload for Bash, which is why round 3 reached
+# for text in the first place) -- `gh pr merge --help` matches the
+# command-shape check and carries no failure marker either, and PR #3168
+# reproduced this hook pushing to a scratch remote's default branch in
+# response to that non-merge command. Fixed two ways: reject
+# `--help`/`-h`/`--dry-run` outright, and require `gh pr view <pr>
+# --json state,mergedAt` to independently confirm `state == "MERGED"`
+# with a non-empty `mergedAt` before calling `land()` at all. Absence of
+# a failure marker is never sufficient on its own anymore.
 #
 # `gates/amends_landing.py::land()` does the actual work: clones the
 # merged checkout's own `origin` remote at its default branch into a
@@ -121,20 +130,20 @@ else:
 if any(_is_operator_token(t) for t in _tail):
     sys.exit(0)
 
-# --- success detection: heuristic over tool_response text, same markers
-# post-landing-obligation-gate.sh already uses --------------------------
-resp = e.get("tool_response")
-if isinstance(resp, str):
-    text = resp
-elif resp is not None:
-    text = json.dumps(resp)
-else:
-    sys.exit(0)  # no response captured — unreached, fail open
-low = text.lower()
-FAILURE_MARKERS = ("failed to merge", "graphql error", "could not merge",
-                    "is not mergeable", "pull request is not mergeable")
-if any(m in low for m in FAILURE_MARKERS):
-    sys.exit(0)  # merge did not actually succeed — nothing to apply
+# --- issue #3134 repair round 4: a command-shape match is not proof a
+# merge happened. `gh pr merge --help` matches every check above this
+# line, and under the old "no failure marker in the tool_response text"
+# heuristic it was indistinguishable from a real merge -- PR #3168's
+# independent verification reproduced this live, pushing to a scratch
+# remote's default branch in response to `--help`. Fixed with two
+# checks, not one: reject any flag that cannot possibly perform a merge
+# (its help/dry-run text has no failure marker either, so text alone
+# never rules these out), THEN require `gh pr view` -- not the captured
+# response text, not the absence of an error string -- to confirm the PR
+# is actually MERGED before doing anything.
+NON_MERGE_FLAGS = {"--help", "-h", "--dry-run"}
+if any(t in NON_MERGE_FLAGS for t in tokens):
+    sys.exit(0)
 
 # --- identity: orchestrator only, never a spawned session ---------------
 spawned = bool(os.environ.get("TOKENMAXXXER_SPAWNED", ""))
@@ -157,6 +166,45 @@ if spawned:
     sys.exit(0)  # a role session — never this hook's target
 
 run_cwd = target_cwd or e.get("cwd") or os.getcwd()
+
+# --- resolve a PR reference `gh pr view` accepts (number, or a full URL's
+# number), ported from merge-allow-gate.sh's own PR-number resolution --
+# (path:on-the-record/hooks/merge-allow-gate.sh lines 180-197). No
+# explicit number (an implicit "current PR" merge) falls through to a
+# bare `gh pr view` below, which itself needs `run_cwd` still checked out
+# on the merged branch to resolve anything -- `gh pr merge` moves the
+# checkout to the base branch and deletes the head branch by default, so
+# that case legitimately confirms nothing and is left unreached (no
+# backlink applied) rather than guessed at.
+rest = re.split(r"\bgh\s+pr\s+merge\b", cmd, maxsplit=1)[1]
+url_m = re.search(r"github\.com/([^/\s]+/[^/\s]+)/pull/(\d+)", rest)
+if url_m:
+    pr_ref = url_m.group(2)
+else:
+    num_m = re.search(r"(?<!\S)(\d+)(?!\S)", rest)
+    pr_ref = num_m.group(1) if num_m else None
+
+# --- authoritative confirmation: MERGED state comes from `gh pr view`
+# itself, never from tool_response text or the absence of an error
+# string -- the one check the old heuristic skipped entirely -----------
+view_cmd = ["gh", "pr", "view"]
+if pr_ref:
+    view_cmd.append(pr_ref)
+view_cmd += ["--json", "state,mergedAt"]
+try:
+    vr = subprocess.run(view_cmd, capture_output=True, text=True,
+                         timeout=30, cwd=run_cwd)
+except (OSError, subprocess.SubprocessError):
+    sys.exit(0)
+if vr.returncode != 0:
+    sys.exit(0)  # gh could not confirm a PR here — nothing to apply
+try:
+    info = json.loads(vr.stdout)
+except ValueError:
+    sys.exit(0)
+if (not isinstance(info, dict) or info.get("state") != "MERGED"
+        or not info.get("mergedAt")):
+    sys.exit(0)  # not actually merged
 
 # --- resolve this checkout's own origin remote + default branch ---------
 try:

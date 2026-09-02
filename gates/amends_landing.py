@@ -72,10 +72,21 @@ def land(remote: str, branch: str = "main", workdir: str | None = None) -> dict:
             return {"pushed": False, "written": [], "error": str(exc),
                      "remaining": []}
 
-        status = subprocess.run(
+        status_r = subprocess.run(
             ["git", "-C", str(tmp), "status", "--porcelain"],
             capture_output=True, text=True, timeout=30,
-        ).stdout.strip()
+        )
+        if status_r.returncode != 0:
+            # A failed `git status` here (corrupt clone, disk full) read as
+            # empty stdout would fall through to "no changes" below --
+            # indistinguishable from a genuine no-op (`pushed: False`, no
+            # error) even though the status check itself never ran. Issue
+            # #3134 repair round 4, silent-failure-audit skill: PR #3168
+            # found this site unguarded.
+            return {"pushed": False, "written": written,
+                     "error": status_r.stderr.strip() or "git status failed",
+                     "remaining": remaining}
+        status = status_r.stdout.strip()
         if not status:
             return {"pushed": False, "written": written, "error": None,
                      "remaining": remaining}
