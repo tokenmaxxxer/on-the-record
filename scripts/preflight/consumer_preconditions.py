@@ -222,11 +222,18 @@ def check_workspace_disk_headroom() -> tuple[bool, str]:
             f"headroom could not be observed: {type(exc).__name__}: {exc}"
         )
     min_inodes = int(os.environ.get("MUSTER_MIN_FREE_INODES", MIN_FREE_INODES_DEFAULT))
-    if free_inodes and free_inodes < min_inodes:
+    # Rule: absence and zero are different. `free_inodes` is always a real
+    # observed int here (statvfs succeeded above) -- 0 free inodes is the
+    # worst possible value, not a missing one, so it must not be treated as
+    # falsy-and-skip. An earlier version wrote `if free_inodes and ...`,
+    # which let f_favail == 0 (a full filesystem, exactly what this check
+    # exists to catch) short-circuit past the comparison and fall through
+    # to satisfied=True.
+    if free_inodes < min_inodes:
         return False, (
             f"{free_inodes} free inodes at {probe}, below the {min_inodes} threshold"
         )
-    return True, f"{usage.free // (1024 * 1024)}MB free, {free_inodes or 'n/a'} free inodes at {probe}"
+    return True, f"{usage.free // (1024 * 1024)}MB free, {free_inodes} free inodes at {probe}"
 
 
 CHECKS = [

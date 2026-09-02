@@ -184,6 +184,20 @@ class WorkspaceDiskHeadroomObservationFailureTest(unittest.TestCase):
             ok, detail = _cp.check_workspace_disk_headroom()
         self.assertTrue(ok, f"ample, observable headroom must report satisfied, got {detail!r}")
 
+    def test_statvfs_zero_free_inodes_reports_unsatisfied(self):
+        # Round 5 (PR #3208 finding): f_favail == 0 is an observed value --
+        # the worst possible one, a completely full filesystem -- not a
+        # missing one. `if free_inodes and free_inodes < min_inodes` treated
+        # 0 as falsy and skipped the comparison, so the exact condition this
+        # check exists to catch was the one case it reported satisfied.
+        fake_usage = mock.Mock(free=10 * 1024 * 1024 * 1024)
+        fake_statvfs = mock.Mock(f_favail=0)
+        with mock.patch.object(_cp.shutil, "disk_usage", return_value=fake_usage), \
+             mock.patch.object(_cp.os, "statvfs", return_value=fake_statvfs):
+            ok, detail = _cp.check_workspace_disk_headroom()
+        self.assertFalse(ok, f"0 free inodes must report unsatisfied, got detail={detail!r}")
+        self.assertIn("0 free inodes", detail, f"detail must name the observed count: {detail!r}")
+
 
 class PreflightReadOnlyTest(unittest.TestCase):
     def test_working_tree_unchanged_across_two_runs_json(self):
