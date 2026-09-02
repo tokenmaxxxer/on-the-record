@@ -88,8 +88,45 @@ correcting one section inside a larger foreign record without marking
 that entire record non-authoritative — a correction confined to one
 section of a foreign record cannot use this field; see
 `docs/issue-3050/reports/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4.md`
-("Partial supersession" section) for what such a correction should do
-instead.
+("Partial supersession" section) for the decision to leave that gap
+open at the time, and "Amends" below for the primitive that closes it.
+
+## Amends
+
+Issue #3134 gives section-scoped correction the shape "Partial
+supersession" deferred. A correcting session still writes only its own
+record — `board-gate.sh`'s write-set isolation makes a target record's
+own issue directory unreachable regardless of primitive — but instead
+of `supersedes:` it adds an `amends:` frontmatter line naming the
+target *and the section anchor* it corrects:
+
+```
+---
+amends: docs/issue-10/reports/coding.md#limitation  # wrong axis named as the untested harder case
+...
+---
+```
+
+`amends.py`'s `resolve_amendments()` is the reader-side half, mirroring
+`resolve_authoritative()` one section grain down: given every record's
+raw content, it decides which target#section pairs are amended, and
+fails closed — not picking a winner — on a dangling target, a section
+anchor absent from the target's own headings, two records amending the
+same section with conflicting claims, or a cycle.
+
+**The field alone is not the fix.** Unlike `supersedes:`, an amended
+target *stays* authoritative — nothing forces a reader to consult a
+resolver before trusting the target's prose, so a bare frontmatter
+field reproduces the current defect with an extra layer. Discoverability
+is the actual requirement: a required backlink written into the target
+was rejected outright (the same write-set isolation that motivates this
+whole primitive makes it impossible, not merely undesirable). Instead,
+`gates/amends_index.py` maintains a generated index in the `specs/`
+bucket (`amends_index.INDEX_PATH`) — a cross-cutting artifact outside
+any single `docs/issue-<n>/` tree, so any session may regenerate it —
+and fails closed if the tree's `amends:`
+edges and the checked-in index disagree. An amendment can land; it
+cannot land unlinked.
 
 ## What stays additive
 

@@ -42,8 +42,13 @@ correction into your own record and add a `supersedes: <path>  # <reason>`
 frontmatter line naming what it corrects (`docs/handbooks/record-
 contract.md`'s "Supersession" section has the shape and what a reader
 does with it — `supersession.py::resolve_authoritative()`). It only
-replaces a whole artifact; it has no shape yet for correcting one section
-of a larger foreign record.
+replaces a whole artifact — if the target is otherwise correct and only
+one section is wrong, use `amends: <path>#<section>  # <reason>` instead
+(`docs/handbooks/record-contract.md`'s "Amends" section —
+`amends.py::resolve_amendments()`, discoverable via the generated index
+`gates/amends_index.py` maintains), which leaves the target authoritative rather
+than marking the whole record non-authoritative to express a
+single-section fix.
 
 ## Scaffold a new record
 
