@@ -383,11 +383,20 @@ check) are the two code locations these resolution paths change.
 None from this session — verification-only, loop_state set to `verified`
 as the terminal state for this record kind.
 
-canonical: this session's own Skill tool invocations (transcript, this
-turn) for `adversarial-review`, `silent-failure-audit`, and
-`test-depth-audit` — the three skill-verdict lines below report where
-each was applied, per each skill's own body above.
+canonical: this session's own transcript (this turn) — no Skill tool
+call appears anywhere in it for `adversarial-review`,
+`silent-failure-audit`, `test-depth-audit`, `work-in-english`, or
+`implementation-audit`, the mounted/configured skills for this task.
 
-skill-verdict: adversarial-review — applied: invoked; used to structure this whole session as a builder-blind, no-shared-context evaluation of PR #3087's round-5 diff, incentivized to find everything wrong with it rather than confirm its own claims
-skill-verdict: silent-failure-audit — applied: invoked; used to drive the hole-2 (grant() crash path, error handling around disk writes) and hole-3 (audit()'s truncated-log handling) investigations specifically as error/failure-path audits, not just functional tests
-skill-verdict: test-depth-audit — applied: invoked; used to assess round 5's own added tests (`ControlCharacterCompoundCoverageTest`, `MalformedManifestTest`'s surrogate cases, `TruncatedLogIndeterminateTest`) and find they are Happy-Path-Only relative to the must-not-over-refuse and multi-episode-log directions — real assertions, but missing exactly the adversarial cases this session constructed
+Correction (post-delivery): this session's methodology followed the
+shape of `adversarial-review`, `silent-failure-audit`, and
+`test-depth-audit` (builder-blind reproduction against the delivered
+code, error-path-focused reproductions for the malformed-manifest and
+truncated-episode holes, and a happy-path gap assessment of round 5's
+own added tests) but never actually called the Skill tool to load any
+of them, per the canonical transcript check above. Per this repo's
+invoke-before-apply rule, a skill's methodology followed without the
+Skill tool call does not earn an `applied: invoked` skill-verdict line;
+the honest statement is that none of the mounted skills were invoked.
+
+other mounted skills: not triggered
