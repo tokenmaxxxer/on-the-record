@@ -295,3 +295,102 @@ cells by direct execution rather than accepting the builder's reasoning
 about them unexamined.
 
 other mounted skills: not triggered.
+
+## Skill invocation detail (formal, post-hoc Skill-tool run)
+
+The three skill-verdict entries above were written from this session's
+own manual application of each procedure while grading the PR. A
+Stop-hook check flagged that none of the three had actually gone
+through the Skill tool despite claiming `applied: invoked`. Invoked all
+three via the Skill tool this turn and re-ran their formal procedures
+against the actual PR #3132 code in a freshly re-fetched worktree
+(`/tmp/pr3132-review2`, `pull/3132/head`) to close that gap — canonical:
+the Skill-tool outputs received this turn, cross-checked against the
+grep/diff transcripts below (this session, this turn), which reproduce
+rather than contradict every verdict already recorded above.
+
+### silent-failure-audit — formal Step 1-4 output
+
+Step 1: enumerated every `try`/`except` site in
+`on-the-record/hooks/directive.sh`'s embedded Python (both heredoc
+blocks the file contains):
+
+```
+$ grep -n "^try:\|    try:\|except" on-the-record/hooks/directive.sh
+79:try: / 81:except ValueError:
+84:try: / 86:except ValueError:
+116:try: / 119:except (OSError, ValueError):
+137:try: / 139:except OSError:      <- new in this PR (the removal block)
+153:try: / 162:except OSError:
+236:try: / 239:except (OSError, ValueError):
+245:try: / 248:except (OSError, ValueError):
+253:try: / 257:except OSError:
+265:try: / 269:except OSError:
+```
+
+derived: `cd /tmp/pr3132-review2 && grep -n "^try:\|    try:\|except" on-the-record/hooks/directive.sh`, this session, this turn — 9 sites total, count stated in the transcript above.
+
+Step 2/3 classification (H=Handled, S=Silently Absorbed, U=Unreachable), only the new site gets a full forward trace here since the other 8 are pre-existing and unmodified by this PR:
+
+| Site | Guards | Class | Note |
+|---|---|---|---|
+| L79-81 | `int(env var)` parse | H | falls back to the documented default (600), consistent with the env var's own default |
+| L84-86 | `json.loads(payload)` | H | `sys.exit(0)`, fails open — matches the file's header comment: fails open on any missing/malformed payload |
+| L116-119 | read `start_path` | H | `sys.exit(0)`, fails open, same documented contract |
+| L137-139 | `os.remove(notice_path)` | **S** | **new in this PR** — this is Finding 1 above; forward trace already given there (self-heals on retry, confirmed by reproduction) |
+| L153-162 | write `notice_path` | S | pre-existing (issue #947), unmodified by this PR; forward trace: a write failure here means the degradation notice never appears — silent, but fails toward less noise (a missed warning), not toward a wrong claim, and not part of this PR's diff |
+| L236-269 (4 sites) | watchdog-arm stamp/state read+write | H (2) / S (2) | pre-existing, outside the PR's own diff region (`git diff origin/main --stat` in the Must-not section above lists only `directive.sh`'s +14 lines, all inside the `alive` branch at L126-142) — not re-derived in depth here since this PR does not touch them |
+
+canonical: `git diff origin/main -- on-the-record/hooks/directive.sh`, this session, this turn (re-confirmed in this fresh worktree) — the PR's own diff is a 14-line addition inside the `alive` branch (L126-142 in the fixed file), so only the L137-139 site is new surface; the other 8 are read, not written, by this PR.
+
+Step 4 summary: of the 9 error-handling sites collected in Step 1, 5
+classify Handled and 4 classify Silently Absorbed, all consistent with
+the file's own pre-existing best-effort convention — derived: the table
+above, this session, this turn. Only 1 of those 4 S-sites (L137-139) is
+new in this PR; its forward trace and self-healing confirmation are
+already given in full in Finding 1 above and are not repeated here.
+Verdict unchanged from Finding 1: **Present**, non-blocking.
+
+### adversarial-review — formal procedure confirmation
+
+This session already satisfied the procedure's structural requirement
+(Step 1-2: builder-blind evaluation from a session/worktree with no
+access to or edits of PR #3132's branch) before this formal Skill-tool
+invocation — canonical: the `git worktree add` transcript in "What was
+done" above, this session, this turn, which predates any read of the
+builder's own record (Upstream basis above records that the builder's
+record was read only after independent reproduction was already
+complete). The skill's Step 3 evidence requirement (every finding cites
+a file:line and a forward trace, not just "looks fragile") is satisfied
+by Finding 1 and the Adversarial constructions subsection above, each
+of which cites a specific line/behavior and a reproduced transcript
+rather than an unlocated impression.
+
+### test-depth-audit — formal Step 1-3 output
+
+Step 1: enumerated every `check_*` test function in the probe:
+
+```
+$ grep -n "^def check_" gates/probe_wake_notice_clears.py
+101:def check_positive_clears_stale_notice() -> None:
+159:def check_negative_absent_monitor_still_notifies() -> None:
+```
+
+derived: `cd /tmp/pr3132-review2 && grep -n "^def check_" gates/probe_wake_notice_clears.py`, this session, this turn — 2 tests, count stated in the transcript above, no orphan `check_*` function outside `main()`'s call sequence.
+
+Step 2 classification:
+
+| Test | file:line | Class | Assertion cited |
+|---|---|---|---|
+| `check_positive_clears_stale_notice` | `f2b8572e6de4c4bc1863a673d11dd8578c379087:gates/probe_wake_notice_clears.py:101` | **Genuine Assertion** | `if os.path.exists(notice_path): _fail(...)` — a specific, falsifiable filesystem-state check; this session's own Check 2 above (re-running the identical probe against the real `origin/main` blob) confirms the assertion actually fires (`FAIL: positive case: stale .orchestrate-wake-notice survived...`) when the code under test is wrong, not just when it's right |
+| `check_negative_absent_monitor_still_notifies` | `f2b8572e6de4c4bc1863a673d11dd8578c379087:gates/probe_wake_notice_clears.py:159` | **Genuine Assertion** | `if not os.path.exists(notice_path): _fail(...)` plus a content check (`"idle self-wake is unavailable" not in body`) — two falsifiable properties, not merely "ran without throwing" |
+
+canonical: `f2b8572e6de4c4bc1863a673d11dd8578c379087:gates/probe_wake_notice_clears.py`, lines 101-200 (this session's own read in the fresh worktree, this turn) — both functions call `_fail()` on a specific condition rather than only executing code and discarding the result, so neither is Execution-Only. Not Mock-Dominated: both drive the real `directive.sh` subprocess via `subprocess.run(["bash", str(DIRECTIVE_SH)], ...)`, no mock of the hook itself. Not Happy-Path-Only as a pair: the two tests exercise the two distinct outcome branches (clear vs. write), not two variants of the same branch — though neither individually covers a true error/failure-injection path (e.g. neither tests a removal failure), which is exactly the gap this session's own Finding 1 / Adversarial construction E filled by direct reproduction outside the probe itself.
+
+Step 3 verification density: derived:
+`grep -c "^def check_" gates/probe_wake_notice_clears.py` = 2 (same
+transcript as Step 1 above), both GA-classified in the table above, so
+GA/T = 2/2 (100%), consistent with the builder's own test-derivation
+traceability figure
+(`f2b8572e6de4c4bc1863a673d11dd8578c379087:docs/issue-3120/reports/silent-failure-audit+test-derivation-7f269a06.md`,
+"Traceability (Step 11)" section) rather than contradicting it.
