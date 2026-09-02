@@ -57,6 +57,20 @@ otherwise fire inside the target-repo clone too) from leaking into the
 subject sessions. It affects both arms identically, so it does not
 differentially confound the comparison.
 
+The skills-on arm also passes `--plugin-dir "$PLUGIN_DIR"` (resolved from
+`$MUSTER_SKILL_REGISTRY_ROOT`'s parent, falling back to `$HOME/skill-registry`).
+This is not redundant with `--setting-sources`: marketplace plugins register
+at `user` scope on this machine, the same scope that carries this repo's
+operator-hook plugin, so `--setting-sources project,local` alone (issue
+#3041's original invocation) mounted zero marketplace skills in the
+skills-on arm -- the `Skill` tool was present but nothing was behind it
+(issue #3053). `--plugin-dir` is session-scoped and orthogonal to
+`--setting-sources`: it loads the target skill corpus without the
+operator-hook plugin coming along. Verified live in issue #3053 (init event
+carries the full corpus, transcript has no hook-leak signal). The
+skills-off arm needs no equivalent change: `--disable-slash-commands`
+suppresses the skill layer regardless of what `--plugin-dir` would load.
+
 ## Blinding
 
 `evaluate_pair.py` calls a fresh `claude -p` process with `--tools ""` (no
@@ -93,3 +107,21 @@ fitting skill at all, which is itself part of what this harness measures.
 `instrument.py`'s `distinct_skills` field reports whichever skill(s)
 actually opened per run, so a selection miss is visible in the record
 rather than silently absorbed into the rubric.
+
+## Target-repo grounding (issue #3053)
+
+The original 4 task texts (issue #3041) were self-contained synthetic
+scenarios, written when the pinned `study-companion` commit held only 3
+scaffolding files. `PIN_SHA` now points past that -- past a landed,
+independently-verified discovery report on a comprehension-gap job
+(`docs/issue-1`) and a one-pager for it (`docs/issue-5`, live on the
+`issue-5/product-discovery-one-pager+...` branch as of this pin; not yet
+merged to `study-companion`'s `main`, but real, reviewed content at this
+commit). Task texts 01, 02, and 04 were rewritten to require reading those
+documents and reason about their actual content (e.g. task 04 asks whether
+the one-pager's own proposed pilot design can produce a "stop," the same
+question that document's own independent verification raised). Task 03 (the
+review scheduler) has no application code to ground against even at this
+pin -- its text now says so explicitly and asks the model to treat it as
+green-field, rather than silently reusing a task written for a repo that no
+longer matches what it claims.

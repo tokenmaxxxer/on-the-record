@@ -645,6 +645,35 @@ that way, through a `denyRead` that was supposedly blocking it. `spawn.py` force
 completely, but the macOS keychain entry is tied to the config directory, so
 authentication breaks.
 
+**A fourth, adjacent trap, in a different subsystem (issue #3053):** `scripts/issue-3041/run_pair.sh`
+spawns bare `claude -p` subprocesses against an external target repo (not a
+`spawn.py` role), and passes `--setting-sources project,local` to keep this
+repo's own operator hooks (registered at `user` scope) from leaking into
+that subprocess. But marketplace plugin/skill registration on this machine
+also lives at `user` scope — the same scope the flag excludes — so that
+flag alone mounted zero marketplace skills in the "skills-on" arm too,
+silently, while leaving the `Skill` tool itself present. The fix is
+`--plugin-dir <path>`: session-scoped and orthogonal to `--setting-sources`,
+it loads a skill corpus without pulling in whatever else is registered at
+`user` scope. Any future harness that needs "the target skill corpus, but
+not this repo's own hooks" needs both flags together — neither one alone
+gets there. See `scripts/issue-3041/README.md`'s "Target-repo grounding"
+section for the live-tested invocation.
+
+**A fifth trap, same subsystem, found by the same harness's own re-run:**
+even with settings isolated, 2 of 4 `skills-off` arms in a real run
+resolved "the repo root" to the *orchestrating* session's own working
+directory rather than their own clone -- one actually wrote its
+`DELIVERABLE.md` there, both read (never wrote) the orchestrating session's
+own `README.md`/auto-memory `MEMORY.md`. The orchestrating shell's
+`CLAUDE_CODE_MESSAGING_SOCKET`, `CLAUDE_CODE_BRIDGE_SESSION_ID`, and
+`CLAUDE_CODE_SESSION_ID` env vars were inherited by the child `claude -p`
+process; a live SDK-bridge attachment channel, independent of
+`--setting-sources`, is a plausible route for a child to resolve paths
+against its parent's context. `run_pair.sh` now strips every `CLAUDE_*`/
+`MUSTER_*` env var (`env -u ...`, computed from `env | grep`) before
+invoking the child, for both arms.
+
 ### Package-registry access (issue #38)
 
 A fresh sandboxed workspace has no package cache, so `go build`/`npm
