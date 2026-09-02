@@ -8,9 +8,18 @@ straight into an H2 quality comparison with nothing to catch it.
 This file covers compute_h1_manipulation() (the comparison itself),
 gate_pair_on_h1() (the gate that refuses to compute/report H2 for a
 failing pair), and build_execute_results() (the results-JSON assembly that
-keeps a failed pair's H2 out of the reported figures). Defect 3 (blind
-scorer wiring) and defect 4 (wall-clock honesty) are added by later
-commits to this same file.
+keeps a failed pair's H2 out of the reported figures).
+
+defect 3 (found by the same verification, PR #3145): scrub_skill_slugs()
+was defined and never called anywhere -- no blind-evaluator function
+existed in the harness at all. EvaluatePairBlindTest below covers
+evaluate_pair_blind(), wired into run_pair() (see
+test_issue_3127_run_pair.py for the orchestration-level test), verifying
+it is genuinely blind (arm labels never reach the evaluator) and that it
+records whether scrubbing changed the score.
+
+Defect 4 (wall-clock honesty) is added by a later commit to this same
+file.
 """
 import sys
 import tempfile
@@ -158,6 +167,92 @@ class BuildExecuteResultsTest(unittest.TestCase):
                         "h2": None}
         results = rcp.build_execute_results(self._plan(), [failed_pair])
         self.assertIn("nothing to compare", results["decision"])
+
+
+class EvaluatePairBlindTest(unittest.TestCase):
+    """defect 3: the blind scorer must be genuinely blind (no arm labels
+    reach the evaluator) and must actually scrub skill slugs before
+    scoring, recording whether the scrub changed anything."""
+
+    KNOWN_SLUGS = ["my-skill"]
+
+    def test_arm_labels_never_appear_in_evaluator_prompt(self):
+        captured_prompts = []
+
+        def fake_evaluator(prompt: str) -> str:
+            captured_prompts.append(prompt)
+            return '{"document_1_score": 7, "document_2_score": 7, ' \
+                   '"verdict": "indistinguishable", "reasoning": "x"}'
+
+        result = rcp.evaluate_pair_blind(
+            "task text", "rubric text",
+            "on deliverable, no slug mention", "off deliverable, no slug",
+            self.KNOWN_SLUGS, evaluator_fn=fake_evaluator)
+
+        self.assertEqual(len(captured_prompts), 1)  # no-op scrub -> 1 call
+        prompt = captured_prompts[0]
+        self.assertNotIn("skills-on", prompt)
+        self.assertNotIn("skills-off", prompt)
+        self.assertFalse(result["scrub_changed_score"])
+
+    def test_known_slug_is_scrubbed_before_reaching_evaluator(self):
+        captured_prompts = []
+
+        def fake_evaluator(prompt: str) -> str:
+            captured_prompts.append(prompt)
+            return '{"document_1_score": 6, "document_2_score": 6, ' \
+                   '"verdict": "indistinguishable", "reasoning": "x"}'
+
+        deliverable_on = "This brief was written using my-skill's method."
+        deliverable_off = "This brief has no skill mention."
+        result = rcp.evaluate_pair_blind(
+            "task text", "rubric text", deliverable_on, deliverable_off,
+            self.KNOWN_SLUGS, evaluator_fn=fake_evaluator)
+
+        self.assertEqual(result["scrub_replacement_counts"]["skills-on"], 1)
+        self.assertEqual(result["scrub_replacement_counts"]["skills-off"], 0)
+        # First call (scrubbed) must not contain the raw slug text.
+        self.assertNotIn("my-skill", captured_prompts[0])
+        self.assertIn("[skill-name-redacted]", captured_prompts[0])
+        # Because a replacement happened, a second (unscrubbed) call runs.
+        self.assertEqual(len(captured_prompts), 2)
+        self.assertIn("my-skill", captured_prompts[1])
+
+    def test_records_scrub_changed_score_when_scores_actually_differ(self):
+        calls = {"n": 0}
+
+        def fake_evaluator(prompt: str) -> str:
+            calls["n"] += 1
+            # First call is the scrubbed pass, second is unscrubbed --
+            # return different scores to simulate the slug mention itself
+            # moving the evaluator's judgement.
+            if calls["n"] == 1:
+                return '{"document_1_score": 5, "document_2_score": 5, ' \
+                       '"verdict": "indistinguishable", "reasoning": "x"}'
+            return '{"document_1_score": 9, "document_2_score": 5, ' \
+                   '"verdict": "document_1", "reasoning": "y"}'
+
+        deliverable_on = "Uses my-skill extensively."
+        deliverable_off = "No mention here."
+        result = rcp.evaluate_pair_blind(
+            "task text", "rubric text", deliverable_on, deliverable_off,
+            self.KNOWN_SLUGS, evaluator_fn=fake_evaluator)
+        self.assertTrue(result["scrub_changed_score"])
+        self.assertIn("scrubbed_scores_by_arm", result)
+        self.assertIn("unscrubbed_scores_by_arm", result)
+
+    def test_no_slug_mention_skips_the_second_unscrubbed_call(self):
+        calls = {"n": 0}
+
+        def fake_evaluator(prompt: str) -> str:
+            calls["n"] += 1
+            return '{"document_1_score": 7, "document_2_score": 7, ' \
+                   '"verdict": "indistinguishable", "reasoning": "x"}'
+
+        rcp.evaluate_pair_blind(
+            "task text", "rubric text", "clean on text", "clean off text",
+            self.KNOWN_SLUGS, evaluator_fn=fake_evaluator)
+        self.assertEqual(calls["n"], 1)
 
 
 if __name__ == "__main__":

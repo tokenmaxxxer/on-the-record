@@ -67,6 +67,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import re
 import subprocess
 import sys
@@ -84,6 +85,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 # will read the other two if a future session extends the registration.
 DEFAULT_PAIRS = ["01-study-groups", "02-onboarding-experiment"]
 DEFAULT_TASKS_DIR = ROOT / "scripts" / "issue-3041" / "tasks"
+DEFAULT_RUBRICS_DIR = ROOT / "scripts" / "issue-3041" / "rubrics"
 
 
 @dataclass
@@ -272,9 +274,11 @@ def render_dry_run(plan: Plan) -> str:
                   "the arm's own issue, and defects each one's record cites")
     lines.append("  - wall-clock to landed: time from spawn dispatch to the "
                   "arm's PR reaching a merged/landed state, not first output")
-    lines.append("  - blind quality score: scrub_skill_slugs() then the "
-                  "same blind-evaluator shape as scripts/issue-3041/"
-                  "evaluate_pair.py, scored against the pair's own rubric")
+    lines.append("  - blind quality score: scrub_skill_slugs() then "
+                  "evaluate_pair_blind() (wired into run_pair(), the same "
+                  "blind-evaluator shape as scripts/issue-3041/"
+                  "evaluate_pair.py), scored against the pair's own rubric, "
+                  "gated on the pair passing the H1 check above")
     return "\n".join(lines)
 
 
@@ -301,6 +305,141 @@ def scrub_skill_slugs(text: str, known_slugs: list[str]) -> tuple[str, int]:
         scrubbed, n = pattern.subn("[skill-name-redacted]", scrubbed)
         count += n
     return scrubbed, count
+
+
+def _extract_json_object(text: str):
+    """Balanced {...} scan, same shape as scripts/issue-3041/
+    evaluate_pair.py's own helper (duplicated rather than imported --
+    issue-3041's directory is a different issue's own harness, and this
+    repo has no shared scripts/ lib for cross-experiment helpers)."""
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+        start = text.find("{", start + 1)
+    return None
+
+
+def _blind_prompt(task_text: str, rubric_text: str, doc1: str, doc2: str) -> str:
+    return (
+        "You are a blind evaluator. You did not write either document "
+        "below, and you are not told which system, process, or person "
+        "produced them.\n\n"
+        f"TASK GIVEN TO BOTH WRITERS:\n{task_text}\n\n"
+        f"SCORING RUBRIC (what a strong answer should contain):\n{rubric_text}\n\n"
+        f"--- DOCUMENT 1 ---\n{doc1}\n--- END DOCUMENT 1 ---\n\n"
+        f"--- DOCUMENT 2 ---\n{doc2}\n--- END DOCUMENT 2 ---\n\n"
+        "Score DOCUMENT 1 and DOCUMENT 2 independently on a 1-10 scale for "
+        "how well each satisfies the rubric above (structure and content "
+        "only -- ignore length, tone, or formatting flourishes). Then "
+        "state which document is better, or \"indistinguishable\" if the "
+        "gap is not meaningful.\n\n"
+        "Respond with ONLY a JSON object, no other text, no markdown "
+        "fences:\n"
+        '{"document_1_score": <int 1-10>, "document_2_score": <int 1-10>, '
+        '"verdict": "document_1" | "document_2" | "indistinguishable", '
+        '"reasoning": "<2-3 sentences>"}')
+
+
+def _default_blind_evaluator(prompt: str) -> str:
+    """Real evaluator call: a fresh `claude -p` with no tool access, same
+    shape as scripts/issue-3041/evaluate_pair.py's own blind evaluator --
+    it cannot inspect either workspace, so the prompt text itself is the
+    only thing that can leak arm identity (see evaluate_pair_blind())."""
+    result = subprocess.run(
+        ["claude", "-p", prompt, "--model", "sonnet", "--tools", "",
+         "--setting-sources", "project,local", "--output-format", "json",
+         "--max-budget-usd", "0.5"],
+        capture_output=True, text=True, timeout=180)
+    try:
+        outer = json.loads(result.stdout)
+        return outer.get("result", result.stdout)
+    except json.JSONDecodeError:
+        return result.stdout
+
+
+def evaluate_pair_blind(task_text: str, rubric_text: str,
+                         deliverable_on: str, deliverable_off: str,
+                         known_slugs: list[str], evaluator_fn=None) -> dict:
+    """Blind quality scorer (issue #3127 repair round, defect 3): wires
+    `scrub_skill_slugs()` into an actual scoring call instead of leaving it
+    defined and never invoked. `evaluator_fn(prompt) -> raw_response_text`
+    is injectable (defaults to `_default_blind_evaluator`'s real `claude -p`
+    call) so tests can verify blindness and scrubbing without a real
+    subprocess or network call.
+
+    Genuinely blind in two ways: (1) which document is "Document 1" vs
+    "Document 2" is randomized per call, and the arm labels ("skills-on"/
+    "skills-off") never appear anywhere in the prompt text handed to
+    `evaluator_fn` -- only after the raw verdict comes back is it mapped
+    back to an arm, in this function's own return value; (2) skill slugs
+    are redacted from both deliverables before either is placed in the
+    prompt (issue #3053's leak: skills-on deliverables cited their own
+    skill slugs by name).
+
+    Also scores the UNSCRUBBED text whenever the scrub actually changed
+    something (replacement_count > 0 for either document) and records
+    whether the resulting score moved -- "did scrubbing matter" is a
+    reported, evidence-backed field, not assumed either way. When neither
+    document mentions a known slug, scrubbing is a no-op and the second
+    (unscrubbed) call is skipped, since there is nothing for it to test.
+    """
+    evaluator_fn = evaluator_fn or _default_blind_evaluator
+    scrubbed_on, n_on = scrub_skill_slugs(deliverable_on, known_slugs)
+    scrubbed_off, n_off = scrub_skill_slugs(deliverable_off, known_slugs)
+
+    def _score_pair(text_on: str, text_off: str) -> dict:
+        docs = [("skills-on", text_on), ("skills-off", text_off)]
+        random.shuffle(docs)
+        (label_1, doc1), (label_2, doc2) = docs
+        prompt = _blind_prompt(task_text, rubric_text, doc1, doc2)
+        raw = evaluator_fn(prompt)
+        verdict = _extract_json_object(raw)
+        if verdict is None:
+            verdict = {"error": "unparsed", "raw": raw}
+        return {"document_1_actual_arm": label_1,
+                "document_2_actual_arm": label_2, "verdict": verdict}
+
+    scrubbed_result = _score_pair(scrubbed_on, scrubbed_off)
+    result = {
+        "scrub_replacement_counts": {"skills-on": n_on, "skills-off": n_off},
+        "scored_on_scrubbed_text": scrubbed_result,
+    }
+    if n_on == 0 and n_off == 0:
+        result["scrub_changed_score"] = False
+        result["scrub_changed_score_reason"] = (
+            "no known skill slug appeared in either deliverable -- "
+            "scrubbing was a no-op, nothing to compare")
+        return result
+
+    unscrubbed_result = _score_pair(deliverable_on, deliverable_off)
+    result["scored_on_unscrubbed_text"] = unscrubbed_result
+
+    def _scores_by_arm(scored: dict) -> dict:
+        v = scored["verdict"]
+        out = {}
+        if "document_1_score" in v:
+            out[scored["document_1_actual_arm"]] = v.get("document_1_score")
+        if "document_2_score" in v:
+            out[scored["document_2_actual_arm"]] = v.get("document_2_score")
+        return out
+
+    scrubbed_scores = _scores_by_arm(scrubbed_result)
+    unscrubbed_scores = _scores_by_arm(unscrubbed_result)
+    result["scrubbed_scores_by_arm"] = scrubbed_scores
+    result["unscrubbed_scores_by_arm"] = unscrubbed_scores
+    result["scrub_changed_score"] = scrubbed_scores != unscrubbed_scores
+    return result
 
 
 def collect_directive_bytes(workspace: Path | None) -> int | None:
@@ -512,6 +651,100 @@ def _os_environ() -> dict:
     return dict(os.environ)
 
 
+def arm_workspace_dir(plan: Plan, issue: int) -> Path | None:
+    """The workspace directory a real `--execute` run's arm lands in --
+    reuses spawn.py's OWN `_workspace_target_path()` rather than
+    re-deriving the `<repo>-issue-<n>-<skill>` naming convention a second
+    time, so this harness cannot drift from the real layout spawn.py
+    itself computes."""
+    _, work = _spawn_mod._workspace_target_path(
+        plan.sandbox_repo, issue, plan.skill_name)
+    return Path(work) if work else None
+
+
+def _default_deliverable_fetcher(plan: Plan, issue: int) -> str | None:
+    """Best-effort: read the arm's own PR body via `gh pr view`, run inside
+    the sandbox repo and keyed by the issue-scoped branch name the
+    role-handoff contract uses (`issue-<n>/<skill>`). Returns None (not a
+    fabricated empty string) when no such PR is found, so a missing
+    deliverable is visibly missing rather than silently scored as empty."""
+    branch = f"issue-{issue}/{plan.skill_name}"
+    r = subprocess.run(
+        ["gh", "pr", "view", branch, "--json", "body", "-q", ".body"],
+        cwd=plan.sandbox_repo, capture_output=True, text=True)
+    if r.returncode != 0:
+        return None
+    return r.stdout
+
+
+def run_pair(plan: Plan, pair: PairPlan, on_issue: int, off_issue: int,
+             confirm_real_spawn: bool, known_slugs: list[str],
+             deliverable_fetcher=None, evaluator_fn=None) -> dict:
+    """Real per-pair orchestration entry point (issue #3127 repair round,
+    defects 2+3): dispatches+watches both arms via `execute_arm()`, gates
+    the quality comparison behind the H1 manipulation check via
+    `gate_pair_on_h1()`, and -- only for pairs that pass H1 -- calls
+    `evaluate_pair_blind()` (skill slugs scrubbed first) as the H2 scorer.
+    `deliverable_fetcher`/`evaluator_fn` are injectable so tests can
+    exercise this without a real spawn.py dispatch or a real `claude -p`
+    call; defaults are `_default_deliverable_fetcher` /
+    `_default_blind_evaluator`.
+    """
+    deliverable_fetcher = deliverable_fetcher or _default_deliverable_fetcher
+    arm_on, arm_off = plan.arms
+    result_on = execute_arm(plan, pair, arm_on, on_issue, confirm_real_spawn)
+    result_off = execute_arm(plan, pair, arm_off, off_issue, confirm_real_spawn)
+    arm_results = {"skills-on": result_on, "skills-off": result_off}
+
+    if result_on.get("status") != "watched-to-completion" or \
+            result_off.get("status") != "watched-to-completion":
+        return {
+            "pair_id": pair.pair_id, "issue_skills_on": on_issue,
+            "issue_skills_off": off_issue, "arm_results": arm_results,
+            "h1": None, "h1_manipulation_ok": False,
+            "excluded_from_h2": True,
+            "exclusion_reason": (
+                "at least one arm did not reach watched-to-completion "
+                f"(skills-on status={result_on.get('status')!r}, "
+                f"skills-off status={result_off.get('status')!r}) -- no "
+                "workspace to compare, H1 cannot be checked"),
+            "h2": None,
+        }
+
+    workspace_on = arm_workspace_dir(plan, on_issue)
+    workspace_off = arm_workspace_dir(plan, off_issue)
+
+    def compute_h2():
+        deliverable_on = deliverable_fetcher(plan, on_issue)
+        deliverable_off = deliverable_fetcher(plan, off_issue)
+        if deliverable_on is None or deliverable_off is None:
+            return {
+                "h2_unavailable": True,
+                "h2_unavailable_reason":
+                    "deliverable fetch failed for at least one arm -- "
+                    f"skills-on={'ok' if deliverable_on is not None else 'missing'}, "
+                    f"skills-off={'ok' if deliverable_off is not None else 'missing'}",
+            }
+        task_text = pair.task_file.read_text(encoding="utf-8").strip() \
+            if pair.task_file.exists() else ""
+        rubric_file = DEFAULT_RUBRICS_DIR / f"{pair.pair_id}.md"
+        rubric_text = rubric_file.read_text(encoding="utf-8").strip() \
+            if rubric_file.exists() else ""
+        return evaluate_pair_blind(task_text, rubric_text, deliverable_on,
+                                    deliverable_off, known_slugs,
+                                    evaluator_fn=evaluator_fn)
+
+    gated = gate_pair_on_h1(pair.pair_id, workspace_on, workspace_off,
+                             compute_h2=compute_h2)
+    if gated.get("h2", {}) and gated["h2"].get("h2_unavailable"):
+        gated["h2_unavailable_reason"] = gated["h2"]["h2_unavailable_reason"]
+        gated["h2"] = None
+    gated["issue_skills_on"] = on_issue
+    gated["issue_skills_off"] = off_issue
+    gated["arm_results"] = arm_results
+    return gated
+
+
 def emit_not_executed_results(plan: Plan) -> dict:
     return {
         "issue": 3127,
@@ -569,6 +802,13 @@ def main() -> int:
                      help="required alongside --execute: this creates real "
                           "GitHub issues/PRs in --repo and runs real "
                           "recursive claude sessions")
+    ap.add_argument("--issue-map", default=None,
+                     help="required to actually orchestrate a pair under "
+                          "--execute: '<pair_id>:<on_issue>:<off_issue>,...' "
+                          "-- this harness does not create GitHub issues "
+                          "itself (unchanged limitation, left to the "
+                          "caller); a pair with no entry here is reported "
+                          "as skipped, not silently dropped")
     ap.add_argument("--out", default=str(
         ROOT / "docs" / "issue-3127" / "_assets" / "consumer-path-results.json"))
     args = ap.parse_args()
@@ -591,19 +831,52 @@ def main() -> int:
         return 2
 
     # Real execution path: intentionally not exercised by this issue's
-    # acceptance check or by the session that authored this file. Left
-    # implemented (not a stub) so a future session can run it directly.
-    results = emit_not_executed_results(plan)
-    results["run_status"] = "executed-with-incomplete-instrumentation"
+    # acceptance check. This harness does not call `gh issue create`
+    # itself (unchanged limitation) -- a pair only actually dispatches if
+    # the caller supplies its real issue numbers via --issue-map; a pair
+    # with no entry is reported as skipped, not silently dropped.
+    issue_map = _parse_issue_map(args.issue_map)
+    known_slugs = [plan.skill_name]
+    pair_results: list[dict] = []
     for pair in plan.pairs:
-        for arm in plan.arms:
-            print(f"[plan] would execute {arm.name} for pair {pair.pair_id} "
-                  "-- issue-number allocation and result aggregation are "
-                  "left to the caller (this harness stops short of "
-                  "gh issue create side effects); see execute_arm().",
-                  file=sys.stderr)
+        mapping = issue_map.get(pair.pair_id)
+        if mapping is None:
+            print(f"[plan] no --issue-map entry for pair {pair.pair_id} -- "
+                  "cannot orchestrate without real issue numbers (this "
+                  "harness does not call `gh issue create`); skipping real "
+                  "dispatch for this pair.", file=sys.stderr)
+            pair_results.append({
+                "pair_id": pair.pair_id, "status": "no-issue-map-entry",
+                "excluded_from_h2": True,
+                "exclusion_reason": "no --issue-map entry for this pair",
+                "h2": None,
+            })
+            continue
+        on_issue, off_issue = mapping
+        pair_results.append(run_pair(plan, pair, on_issue, off_issue,
+                                      args.confirm_real_spawn, known_slugs))
+
+    results = build_execute_results(plan, pair_results)
     Path(args.out).write_text(json.dumps(results, indent=2), encoding="utf-8")
     return 0
+
+
+def _parse_issue_map(raw: str | None) -> dict[str, tuple[int, int]]:
+    """`--issue-map` CLI value: '<pair_id>:<on_issue>:<off_issue>,...'. This
+    harness does not call `gh issue create` itself (unchanged from the
+    original build session's documented limitation) -- real issue
+    allocation is left to the caller, who supplies the resulting numbers
+    here so `run_pair()` has something real to dispatch against."""
+    if not raw:
+        return {}
+    out: dict[str, tuple[int, int]] = {}
+    for entry in raw.split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        pair_id, on_s, off_s = entry.split(":")
+        out[pair_id] = (int(on_s), int(off_s))
+    return out
 
 
 if __name__ == "__main__":
