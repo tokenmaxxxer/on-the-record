@@ -76,8 +76,8 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
 
         with mock.patch.object(spawn, "issue_workspace",
                                lambda cwd, issue, skill: str(work)), \
-             mock.patch.object(spawn, "checkout_issue_branch",
-                               lambda cwd, issue, skill: "b"), \
+             mock.patch.object(spawn, "_checkout_named_branch",
+                               lambda cwd, br: "b"), \
              mock.patch.object(spawn, "resolve_static_policy_source",
                                lambda repo_root: skill_source), \
              mock.patch.object(spawn, "_skill_repo_root",
@@ -95,7 +95,9 @@ class SpawnOneArtifactSkillPairingTest(unittest.TestCase):
              mock.patch.object(spawn, "ledger_write", lambda *a, **k: None), \
              mock.patch.object(gh_rest, "fetch_issue",
                                lambda repo, issue: {"body": issue_body,
-                                                     "title": "t"}), \
+                                                     "title": "t",
+                                                     "owner": "acme",
+                                                     "repo": "widget"}), \
              mock.patch.object(spawn.Path, "home", lambda: work):
             # 이슈 #2055: cross-family BM25 코퍼스가 이제 `~/.claude/skills`
             # 도 본다 — 이 테스트는 그 tier 를 대상으로 하지 않으므로, 실행

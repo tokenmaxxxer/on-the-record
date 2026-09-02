@@ -211,12 +211,19 @@ class CallSiteWiringTest(unittest.TestCase):
     into `extra_env` before the session subprocess spawns."""
 
     def test_origin_captured_before_workspace_reassignment(self):
+        # issue #2731 renamed the `role` parameter to `skill` throughout
+        # spawn.py, and issue #2742 (PR #2794) wrapped the direct
+        # `issue_workspace()` call in `_create_workspace_with_signal_guard()`
+        # -- search from the capture point on, since an unrelated adhoc-task
+        # branch earlier in this same function also calls
+        # `_create_workspace_with_signal_guard()` for a different reason.
         text = (REPO_ROOT / "spawn.py").read_text(encoding="utf-8")
         start = text.index("def _spawn_one(")
         end = text.index('\nif __name__ == "__main__":', start)
         body = text[start:end]
         capture_at = body.index("origin_cwd = cwd")
-        reassign_at = body.index("cwd = issue_workspace(cwd, issue, role)")
+        reassign_at = body.index(
+            "cwd = _create_workspace_with_signal_guard(", capture_at)
         self.assertLess(capture_at, reassign_at)
 
     def test_local_dependency_env_merged_into_extra_env(self):

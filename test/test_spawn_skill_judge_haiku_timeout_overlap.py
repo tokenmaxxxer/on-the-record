@@ -276,7 +276,7 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
             events.append("workspace")
             return cwd
 
-        def fake_checkout_issue_branch(cwd, issue, skill):
+        def fake_checkout_named_branch(cwd, br):
             events.append("branch")
             return "b"
 
@@ -287,8 +287,8 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
                  mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
                                    fake_matches_with_consult), \
                  mock.patch.object(spawn, "issue_workspace", fake_issue_workspace), \
-                 mock.patch.object(spawn, "checkout_issue_branch",
-                                   fake_checkout_issue_branch), \
+                 mock.patch.object(spawn, "_checkout_named_branch",
+                                   fake_checkout_named_branch), \
                  mock.patch.object(spawn, "resolve_static_policy_source",
                                    lambda repo_root: skill_source), \
                  mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
@@ -347,8 +347,8 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
         with mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
                                lambda *a, **k: matches_return), \
              mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, skill: cwd), \
-             mock.patch.object(spawn, "checkout_issue_branch",
-                               lambda cwd, issue, skill: "b"), \
+             mock.patch.object(spawn, "_checkout_named_branch",
+                               lambda cwd, br: "b"), \
              mock.patch.object(spawn, "resolve_static_policy_source",
                                lambda repo_root: skill_source), \
              mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
@@ -369,17 +369,32 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
                              no_wait=True)
         return recorded
 
+    @staticmethod
+    def _outcome_entry(recorded):
+        # _spawn_one writes more than one ledger entry (e.g. a separate
+        # "skill_judge_perf" sample) alongside the session-outcome record
+        # this class cares about; recorded[-1] is only the outcome entry
+        # when nothing else races it onto the list last, which is not
+        # guaranteed across two independently-scheduled ledger_write
+        # calls. Find the one entry that actually carries the field under
+        # test, and require there be exactly one.
+        matches = [e for e in recorded if "skill_judge_outcome" in e]
+        assert len(matches) == 1, (
+            f"expected exactly 1 entry with skill_judge_outcome, got "
+            f"{len(matches)}: {recorded}")
+        return matches[0]
+
     def test_ledger_entry_records_completed_outcome(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             recorded = self._run_spawn_one_with_outcome(td, work, ([], "completed"))
-        self.assertEqual(recorded[-1]["skill_judge_outcome"], "completed")
+        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "completed")
 
     def test_ledger_entry_records_fail_open_outcome(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             recorded = self._run_spawn_one_with_outcome(td, work, ([], "fail-open"))
-        self.assertEqual(recorded[-1]["skill_judge_outcome"], "fail-open")
+        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "fail-open")
 
     def test_ledger_entry_records_not_run_when_skill_source_is_not_skill_repo(self):
         skill_source = {"source": "flat", "skill_dirs": [], "skills": [], "skill_sha": None}
@@ -390,8 +405,8 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
                                    lambda repo_root: skill_source), \
                  mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
                  mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, skill: cwd), \
-                 mock.patch.object(spawn, "checkout_issue_branch",
-                                   lambda cwd, issue, skill: "b"), \
+                 mock.patch.object(spawn, "_checkout_named_branch",
+                                   lambda cwd, br: "b"), \
                  mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                  mock.patch.object(spawn, "core_version", lambda: "v0"), \
                  mock.patch.object(spawn, "_clean_auto_enabled", lambda: False), \
@@ -407,7 +422,7 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
                 spawn._spawn_one(str(work), "implementation", "task\n",
                                  unattended=True, issue=2061, bounded=False,
                                  no_wait=True)
-        self.assertEqual(recorded[-1]["skill_judge_outcome"], "not-run")
+        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "not-run")
 
 
 if __name__ == "__main__":
