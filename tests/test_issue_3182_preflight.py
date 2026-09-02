@@ -105,6 +105,24 @@ class PreflightJsonShapeTest(unittest.TestCase):
     def test_exit_code_is_zero_or_one_only(self):
         self.assertIn(self.result.returncode, (0, 1))
 
+    def test_exit_code_tracks_actual_satisfaction_state(self):
+        # PR #3195 finding: membership in {0,1} alone passes against a
+        # mutant that ignores every verdict and always returns the same
+        # code. Recompute the expected code from the parsed JSON's own
+        # satisfied flags and require the process's real exit code to
+        # match it -- remote_push_access is always unsatisfied by design
+        # (see test_unobservable_precondition_reported_unsatisfied), so
+        # this is 1 on every real run today, but the assertion is derived
+        # from the data, not hardcoded, so it stays correct if that ever
+        # changes.
+        preconditions = self.data["preconditions"]
+        expected = 0 if all(e["satisfied"] for e in preconditions) else 1
+        self.assertEqual(
+            self.result.returncode, expected,
+            f"exit code {self.result.returncode} does not match the satisfaction "
+            f"state in the parsed JSON (expected {expected})",
+        )
+
     def test_unobservable_precondition_reported_unsatisfied(self):
         # remote_push_access requires a mutating `git push` to check for
         # real; the script's own contract says it must never guess this

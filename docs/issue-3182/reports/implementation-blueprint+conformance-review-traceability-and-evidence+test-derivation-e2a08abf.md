@@ -8,6 +8,8 @@ code_under_review:
   - scripts/preflight/consumer_preconditions.py
   - docs/handbooks/install-sufficiency.md
   - tests/test_issue_3182_citation_line_accuracy.py
+  - tests/test_issue_3182_preflight.py
+  - tests/test_issue_3182_install_sufficiency_doc.py
 type: repair
 breaking: false
 verdict: All two defects PR #3194's independent verification found are fixed. The tenth precondition (workspace_disk_headroom, citing spawn.py's _spawn_capacity_check) is added with its own remedy/source/detection; a dispatch-path sweep beyond it found three more real sys.exit gates, reported below as follow-up, not silently absorbed. All 5 imprecise/incorrect citations are corrected to the exact line the call sits on. A new test (test_issue_3182_citation_line_accuracy.py) opens every cited file at every cited line and asserts the call is actually there, so future code motion fails the suite instead of the citation quietly drifting. The handbook's "post-install hook" wording overreach is corrected to name the actual mechanism (a SessionStart first-run check) plugin.json actually supports.
@@ -15,6 +17,8 @@ loop_state: committing
 upstream:
   - path: docs/issue-3182/reports/adversarial-review+silent-failure-audit+conformance-review-traceability-and-evidence-7ee545a2.md
     sha: 3e04567719f435af2c88b0380cecb61be1cdd790
+  - path: docs/issue-3182/reports/test-depth-audit+adversarial-review+silent-failure-audit-67e78be7.md
+    sha: 3a4da65503edc777e8fa6b51a05d04f05a88cb2d
   - path: scripts/preflight/consumer_preconditions.py
     sha: a526670a031f2181a8383c4cef9a7105843a7044
   - path: docs/handbooks/install-sufficiency.md
@@ -193,6 +197,74 @@ This independently re-derives the doc/script cross-reference (word-level,
 not just my own hand count above) via
 `test_every_precondition_name_is_traceable_into_the_doc`.
 
+### 5. Round-3 scope addendum (issue comment, mid-round)
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/3182/comments
+--jq '.[] | select(.id==5512813346)'` (this round) — comment id
+`5512813346`, posted `2026-09-02T16:25:27Z`, body opens "Round 3 scope
+addendum, from the second verification (PR #3195), for session
+e2a08abf." -- addressed to this session by its own role-slug suffix.
+Names three items from
+`docs/issue-3182/reports/test-depth-audit+adversarial-review+silent-failure-audit-67e78be7.md`
+(PR #3195, sha unresolved at time of this write -- see this section's
+own "Upstream basis" note below).
+
+**5a. Exit-code test discrimination.** derived: PR #3195's record,
+"Open findings" item two -- a mutant that replaces `main()`'s
+`return 0 if all(...) else 1` with an unconditional `return 0` still
+passes `test_exit_code_is_zero_or_one_only` (0 is a member of `{0,1}`).
+Added `test_exit_code_tracks_actual_satisfaction_state` to
+`tests/test_issue_3182_preflight.py`, recomputing the expected code from
+the parsed JSON's own `satisfied` flags and asserting the real process's
+returncode matches it. Reproduced the exact mutant this round (write the
+same `return 0` substitution to a scratch copy of
+`consumer_preconditions.py`, rerun just the new test, restore):
+```
+derived: python3 -m pytest tests/test_issue_3182_preflight.py::PreflightJsonShapeTest::test_exit_code_tracks_actual_satisfaction_state -q -o addopts="-n0" (mutated copy, this round)
+result: FAILED -- AssertionError: 0 != 1 : exit code 0 does not match the satisfaction state in the parsed JSON (expected 1)
+```
+Confirms the new test genuinely discriminates against the same mutant
+PR #3195's record used.
+
+**5b. Doc-drift test directionality.** derived: PR #3195's record,
+"Open findings" item one -- deleting a `CHECKS` entry (their example:
+`git_identity_configured`) while leaving its doc row in place still
+passes `test_every_precondition_name_is_traceable_into_the_doc`, since
+that test only walks script -> doc, never doc -> script. Added
+`test_doc_table_row_count_matches_live_precondition_count` to
+`tests/test_issue_3182_install_sufficiency_doc.py`: counts the total
+data rows across the doc's three `| Precondition | Why the loop needs
+it | Removable by the plugin? |` tables and asserts that count equals
+`len(CHECKS)` exactly -- a row orphaned by a script-side deletion makes
+the doc's count exceed the script's, which this test now catches.
+Reproduced the same removal mutant this round (deleted the
+`git_identity_configured` `CHECKS` entry from a scratch copy, reran,
+restored):
+```
+derived: python3 -m pytest tests/test_issue_3182_install_sufficiency_doc.py::InstallSufficiencyDocTest::test_doc_table_row_count_matches_live_precondition_count -q -o addopts="-n0" (mutated copy, this round)
+result: FAILED -- AssertionError: 10 != 9 : docs/handbooks/install-sufficiency.md has 10 precondition table rows but the live script reports 9 preconditions -- doc and script have drifted apart
+```
+
+**5c. `git_cli_on_path` platform-invariance.** derived: PR #3195's
+record, "Open findings" item three -- `shutil.which("git")` alone can
+report satisfied on macOS against a pre-Xcode-CLT stub binary that
+blocks on a GUI install prompt rather than running git; unverifiable on
+this session's Linux-only machine either, so per the addendum's own
+instruction ("make the detection method one that cannot differ across
+the two platforms, or state the residual risk explicitly"), chose the
+first option: `check_git_cli_present()` now also runs `git --version`
+through the script's existing `_run_readonly()` (same
+`SUBPROCESS_TIMEOUT_SECONDS=10` every other subprocess-backed check
+already uses), so a `git` that cannot actually execute -- missing, or
+blocked on a platform-specific prompt -- reports unsatisfied with the
+real subprocess output as the detail, on every platform this script
+already claims to support, rather than only inferring from PATH
+presence.
+```
+derived: python3 -c "...check_git_cli_present()..." (this round, this machine)
+result: (True, 'git version 2.34.1')
+```
+
 ## Why
 
 derived: the sweep in section 1 above (`grep -n "sys.exit(" spawn.py
@@ -239,6 +311,12 @@ round's task brief, for the "must not silently omit a real gate" and
 "every precondition asserted must cite the file and line" contract text
 this round's fixes are checked against.
 
+`docs/issue-3182/reports/test-depth-audit+adversarial-review+silent-failure-audit-67e78be7.md`
+(PR #3195, sha `3a4da65503edc777e8fa6b51a05d04f05a88cb2d`), and the issue
+comment that surfaced it mid-round (`gh api
+repos/tokenmaxxxer/on-the-record/issues/3182/comments`, id
+`5512813346`), named the three-item addendum fixed in section 5 above.
+
 Base for this round's edits: PR #3184's branch
 `issue-3182/implementation-blueprint+silent-failure-audit+technical-writing-structure-comprehension-74609923`,
 tip `a526670a031f2181a8383c4cef9a7105843a7044` (unchanged since PR #3194
@@ -278,11 +356,16 @@ explicit sweep instruction, not silently dropped.
 
 ## Next steps
 
-derived: `git diff --stat` (this round, worktree) --
-`docs/handbooks/install-sufficiency.md` and
-`scripts/preflight/consumer_preconditions.py` changed (141
-insertions/18 deletions), `tests/test_issue_3182_citation_line_accuracy.py`
-added -- the concrete edit set this round's commit carries.
+derived: `git diff --stat` against this round's first commit (`ca03582c`,
+this worktree) -- `scripts/preflight/consumer_preconditions.py` (+17,
+the `git --version` invocation from section 5c),
+`tests/test_issue_3182_install_sufficiency_doc.py` (+44, section 5b's
+row-count test), `tests/test_issue_3182_preflight.py` (+18, section 5a's
+exit-code test), plus this record file itself -- the addendum's concrete
+edit set, on top of the first commit's 4-file diff described above.
+
+amendments-reconciled: issuecomment-5512813346 (the round-3 scope
+addendum quoted and addressed in section 5 above).
 
 None from this round's own scope beyond the three "Open findings" above,
 which are handoff candidates for a follow-up round, not blocking this

@@ -93,8 +93,23 @@ def check_claude_cli_present() -> tuple[bool, str]:
 
 
 def check_git_cli_present() -> tuple[bool, str]:
+    """`shutil.which` alone is not platform-invariant: macOS ships a
+    `/usr/bin/git` stub on disk before Xcode Command Line Tools are
+    installed, so `which` would find it and report satisfied even though
+    invoking it blocks on a GUI install prompt instead of running git
+    (PR #3195 finding). Actually invoking `git --version` through
+    `_run_readonly`'s timeout closes that gap identically on every
+    platform: a non-functional `git` (missing, or a blocked stub) reports
+    unsatisfied instead of a false positive, and a working `git` reports
+    satisfied everywhere a real `git --version` succeeds."""
     path = shutil.which("git")
-    return path is not None, (path or "not found on PATH")
+    if path is None:
+        return False, "not found on PATH"
+    rc, out, err = _run_readonly(["git", "--version"])
+    if rc != 0:
+        detail = (err or out).strip()[:200] or f"exited {rc}"
+        return False, f"found at {path} but `git --version` did not succeed: {detail}"
+    return True, out.strip() or path
 
 
 def check_gh_cli_authenticated() -> tuple[bool, str]:

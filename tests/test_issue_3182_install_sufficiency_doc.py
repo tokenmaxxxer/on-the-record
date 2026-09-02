@@ -29,6 +29,21 @@ input, so the cases are:
     words would appear anywhere, abbreviated or not -- while a
     precondition whose doc mention is merely reworded still passes,
     which is the point: this catches drift, not phrasing choices.
+  - reverse cross-reference (PR #3195 finding): the word-level check
+    above only catches the script->doc direction (a precondition added
+    to the script with no matching doc row). It does not catch the
+    doc->script direction: a precondition row left in the doc after its
+    `CHECKS` entry is deleted from the script, which leaves the handbook
+    describing a check that no longer runs, with nothing failing. Since
+    every one of the three "Precondition | Why the loop needs it |
+    Removable by the plugin?" tables in the doc has exactly one data row
+    per `CHECKS` entry (the doc's own claimed structure -- one row per
+    precondition, grouped by when the loop needs it), the row count
+    across those tables must equal `len(CHECKS)` exactly. A row orphaned
+    by a script-side deletion makes the doc's count exceed the script's;
+    a script entry added without a new row makes the script's count
+    exceed the doc's (already caught above too, but this check would
+    also flag the row-count mismatch).
 
   python3 -m pytest tests/test_issue_3182_install_sufficiency_doc.py -q
 """
@@ -63,6 +78,35 @@ class InstallSufficiencyDocTest(unittest.TestCase):
     def test_doc_states_cannot_be_removed(self):
         text = DOC.read_text(encoding="utf-8")
         self.assertIn("cannot be removed", text)
+
+    def test_doc_table_row_count_matches_live_precondition_count(self):
+        # PR #3195 finding: the word-level check below only catches the
+        # add-without-doc-update direction. This catches the other
+        # direction too -- a doc row left behind after its CHECKS entry
+        # is deleted from the script -- by requiring the total data-row
+        # count across the doc's three precondition tables to equal the
+        # live script's own precondition count exactly.
+        header = "| Precondition | Why the loop needs it | Removable by the plugin? |"
+        text = DOC.read_text(encoding="utf-8")
+        row_count = 0
+        blocks = text.split("\n\n")
+        for block in blocks:
+            lines = block.strip("\n").splitlines()
+            if lines and lines[0].strip() == header:
+                # lines[0] = header, lines[1] = "|---|---|---|" separator,
+                # everything after that is one data row per line.
+                row_count += len(lines) - 2
+        self.assertGreater(
+            row_count, 0, f"found no '{header}' tables in {DOC.relative_to(ROOT)}"
+        )
+        names = _preflight_names()
+        self.assertEqual(
+            row_count, len(names),
+            f"{DOC.relative_to(ROOT)} has {row_count} precondition table rows but "
+            f"the live script reports {len(names)} preconditions -- doc and script "
+            "have drifted apart (a row orphaned by a script-side removal, or a "
+            "script entry added with no matching row)",
+        )
 
     def test_every_precondition_name_is_traceable_into_the_doc(self):
         text_lower = DOC.read_text(encoding="utf-8").lower()
