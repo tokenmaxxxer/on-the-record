@@ -75,11 +75,10 @@ pytest gates/test_check_runner.py -k
 test_unmapped_interpreter_never_executes_even_if_fed_to_run_checks -q`
 — result: 1 passed (the item still raises `JudgmentCheckError` and is
 never executed, `reason` is inert to every execution path).
-skill-verdict: technical-writing-structure-comprehension — applied:
-invoked; used for the two new acceptance-format.md bullets and the
-PR-comment message text — short sentences, one idea per sentence,
-explicit consequence stated up front rather than buried in a subordinate
-clause.
+skill-verdict: technical-writing-structure-comprehension — applied: invoked;
+used for the two new acceptance-format.md bullets and the PR-comment
+message text — short sentences, one idea per sentence, explicit
+consequence stated up front rather than buried in a subordinate clause.
 skill-verdict: test-derivation — applied: invoked; routed the issue's 3
 acceptance criteria as Given-When-Then scenarios at Low/Medium depth
 (non-safety-critical bugfix, no combinatorial parameter space) — see
@@ -90,6 +89,9 @@ context `general-purpose` agent (agent id `a9ae2d950209f0b57`) with only
 the diff (`git diff` output, no issue text, no rationale) and the
 standard "find everything wrong" evaluator prompt. Findings and their
 disposition are in Open findings below.
+other mounted skills: not triggered (work-in-english, prose-modes —
+followed as ambient convention: commit/PR/doc/record text in English,
+terse prose — without a separate Skill-tool invocation).
 
 ## Why
 
