@@ -328,3 +328,24 @@ Append-only, newest entry last.
   belong in the record. Source: operator comment on issue #3061,
   2026-09-02T07:27:45Z
   (https://github.com/tokenmaxxxer/on-the-record/issues/3061#issuecomment-5506047531).
+
+- 2026-09-02: when new liveness-dependent machinery is added (a sweep, a
+  prune, a self-update gate — anything that decides "is this pid's owner
+  still doing real work"), check whether this codebase already carries a
+  more-robust liveness primitive for exactly that need before reusing the
+  older, known-insufficient one. `roster._session_looks_real()` (cwd
+  cross-check via `/proc`, degrading gracefully off-platform) was already
+  built to close the exact pid-recycling hole a bare `_alive(pid)` /
+  `os.kill(pid, 0)` check has, and one sibling feature
+  (`self_update_pull_cli()`, issue #2749/PR #2823) already adopted it —
+  but `sweep_orphans()` (issue #3118/PR #3126) built new liveness-gated
+  cleanup on top of the older `_live_workspaces_union()` primitive
+  instead, reintroducing the same known gap in a new place. The failure
+  mode here erred safe (a recycled-pid workspace is never reclaimed
+  rather than being deleted while live), so it was not blocking, but the
+  pattern — a fix that exists in the codebase not getting carried to a
+  new call site with the identical need — is the thing to check for
+  before shipping new liveness-gated machinery, not just "did I handle
+  the case I thought of." Source: this session's independent verification
+  of PR #3126, docs/issue-3118/reports/test-depth-audit+experiment-trust+
+  silent-failure-audit-b3d43cb1.md, open finding 2, 2026-09-02.
