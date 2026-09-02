@@ -3,6 +3,10 @@
   "run_status": "not_executed",
   "run_status_reason": "This session built and dry-run-validated scripts/issue-3127/run_consumer_pair.py but did not pass --execute. Two independent, evidence-backed reasons: (1) spawn.py's real --skills dispatch path self-daemonizes (fork + os.setsid() + start_new_session=True + stdio redirected to devnull -- spawn.py:4684-4749) rather than blocking in the caller, so a headless single-shot session (contract v3 s22: must consume delegated work within the same turn, or not delegate it) cannot safely fire-and-forget a detached recursive claude session it cannot then observe finishing; the harness instead requires a second blocking `spawn.py watch --follow` call, which is implemented in execute_arm() but was never run live. (2) Running it for real creates real GitHub issues/PRs in a sandbox repo and spends real compute across multiple recursive full sessions -- a real-world side effect large enough to warrant explicit confirmation before a headless session takes it unilaterally, and this session had no turn in which a human could grant that confirmation (headless, single-shot, no later turn for an answer to land in).",
   "pre_registration_ref": "docs/issue-3127/decisions/pre-registration.md",
+  "pairs_registered": [
+    "01-study-groups",
+    "02-onboarding-experiment"
+  ],
   "threshold": {
     "primary_metric": "blind deliverable score margin (sum(skills-on) - sum(skills-off)) across registered pairs",
     "decision_rule": "better if skills-on wins >=3 of pairs AND combined margin >=3; worse under the symmetric condition; indistinguishable otherwise",
@@ -29,25 +33,29 @@
   "arms": {
     "skills-on": {
       "quality_blind_score": null,
+      "wall_clock_to_pr_open_s": null,
       "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not measured -- see run_status; this harness can only ever measure time-to-PR-open, not time-to-landed -- see execute_arm()",
       "tokens_total": null,
       "directive_composition_bytes": null,
       "verification_rounds": null,
       "verification_defects_found": null,
-      "bm25_selection_position": null,
-      "note": "not measured this session -- see run_status"
+      "note": "not measured -- see run_status",
+      "bm25_selection_position": null
     },
     "skills-off": {
       "quality_blind_score": null,
+      "wall_clock_to_pr_open_s": null,
       "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not measured -- see run_status; this harness can only ever measure time-to-PR-open, not time-to-landed -- see execute_arm()",
       "tokens_total": null,
       "directive_composition_bytes": null,
       "verification_rounds": null,
       "verification_defects_found": null,
-      "note": "not measured this session -- see run_status"
+      "note": "not measured -- see run_status"
     }
   },
-  "decision": "unmeasured -- explicitly not reported as a null/no-effect result; no data was collected against the registered threshold this session",
+  "decision": "unmeasured -- not a null result (no data was collected this session); see power statement in pre-registration.md",
   "power_statement": "At the registered n=2 pairs, a binary per-pair win/loss/tie read has no meaningful statistical power to distinguish a true small effect from noise under any reasonable significance convention. The registered decision rule is a directional threshold (met/not-met against a fixed +/-3-point margin, a 50% wall-clock guardrail, and a 1-round guardrail), never a significance test. Had this session executed the harness and returned 'indistinguishable', that would mean the sample could not resolve an effect smaller than the registered 3-point margin (roughly one grade-band shift per pair on the rubric scale) -- it would not mean no such effect exists. Because no run occurred at all, this JSON reports zero information about effect size in either direction, not a null.",
   "next_steps_for_a_future_executing_session": [
     "provision a sandbox repo (spawn.py init'd, docs/specs/approvers.md present) distinct from tokenmaxxxer/on-the-record itself, so real paired-run PRs never touch the production board",

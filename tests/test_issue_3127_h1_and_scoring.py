@@ -326,5 +326,67 @@ class ExecuteArmWallClockTest(unittest.TestCase):
         self.assertIn("not_measured", result["landing_measurement_status"])
 
 
+class EmitNotExecutedResultsTest(unittest.TestCase):
+    """Issue #3127 repair round 2 (PR #3158 finding): emit_not_executed_
+    results() was defined but never called from anywhere, so the
+    committed docs/issue-3127/_assets/consumer-path-results.json skeleton
+    drifted from it -- it kept the pre-defect-4 single
+    wall_clock_to_landed_s field with no wall_clock_to_pr_open_s and no
+    landing_measurement_status reason. This class covers the function
+    directly; CliEmitNotExecutedTest below covers the --emit-not-executed
+    CLI wiring that makes it reachable."""
+
+    def _plan(self):
+        import argparse
+        args = argparse.Namespace(
+            repo="/tmp/sandbox", pinned_sha=None,
+            skill="my-skill", model="sonnet", pairs="01-study-groups",
+            skill_repo_on="$MUSTER_SKILL_REGISTRY_ROOT",
+            skill_repo_off=None, watch_timeout=5)
+        return rcp.build_plan(args)
+
+    def test_arms_carry_both_wall_clock_fields_with_a_reason(self):
+        plan = self._plan()
+        self.addCleanup(__import__("shutil").rmtree,
+                         plan.arms[1].skill_repo_env_override, ignore_errors=True)
+        results = rcp.emit_not_executed_results(plan)
+        for arm_name in ("skills-on", "skills-off"):
+            arm = results["arms"][arm_name]
+            self.assertIn("wall_clock_to_pr_open_s", arm)
+            self.assertIsNone(arm["wall_clock_to_pr_open_s"])
+            self.assertIn("wall_clock_to_landed_s", arm)
+            self.assertIsNone(arm["wall_clock_to_landed_s"])
+            self.assertIn("landing_measurement_status", arm)
+            self.assertTrue(arm["landing_measurement_status"])
+
+
+class CliEmitNotExecutedTest(unittest.TestCase):
+    """Proves --emit-not-executed actually reaches
+    emit_not_executed_results() end to end through main(), not just that
+    the function is callable in isolation -- the shape of defect this
+    round's must-not (do not mock the function under test) targets."""
+
+    def test_cli_writes_file_matching_the_function_output(self):
+        import json
+        import subprocess
+        import tempfile as _tempfile
+        with _tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "results.json"
+            proc = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "issue-3127" /
+                                      "run_consumer_pair.py"),
+                 "--emit-not-executed", "--out", str(out_path)],
+                capture_output=True, text=True, timeout=30)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            self.assertTrue(out_path.is_file())
+            data = json.loads(out_path.read_text(encoding="utf-8"))
+            self.assertEqual(data["run_status"], "not_executed")
+            for arm_name in ("skills-on", "skills-off"):
+                arm = data["arms"][arm_name]
+                self.assertIn("wall_clock_to_pr_open_s", arm)
+                self.assertIn("wall_clock_to_landed_s", arm)
+                self.assertTrue(arm["landing_measurement_status"])
+
+
 if __name__ == "__main__":
     unittest.main()
