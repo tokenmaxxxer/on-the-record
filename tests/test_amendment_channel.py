@@ -308,6 +308,54 @@ class GhCommandDetection(unittest.TestCase):
         self.assertIn("could not identify the repo", stderr.getvalue())
 
 
+class RepoSlugForCwd(unittest.TestCase):
+    """test-derivation pass (issue #3129 repair): equivalence partitions
+    over the `origin` remote URL shape `repo_slug_for_cwd()` must parse.
+    The prior coverage only exercised the https:// form indirectly through
+    `maybe_write_from_command`/`run_hook` -- this adds the SSH forms
+    `spawn.py`'s own `_workspace_target_path()` explicitly handles
+    elsewhere in this repo, plus the not-a-URL-shape-at-all boundary."""
+
+    def test_https_origin_resolves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _make_issue_repo(Path(tmp), "1",
+                                     origin="https://github.com/acme/widgets.git")
+            self.assertEqual(ac.repo_slug_for_cwd(str(repo)), "acme/widgets")
+
+    def test_git_at_ssh_origin_resolves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _make_issue_repo(Path(tmp), "1",
+                                     origin="git@github.com:acme/widgets.git")
+            self.assertEqual(ac.repo_slug_for_cwd(str(repo)), "acme/widgets")
+
+    def test_ssh_scheme_origin_resolves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _make_issue_repo(Path(tmp), "1",
+                                     origin="ssh://git@github.com/acme/widgets.git")
+            self.assertEqual(ac.repo_slug_for_cwd(str(repo)), "acme/widgets")
+
+    def test_no_origin_remote_resolves_to_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _make_issue_repo(Path(tmp), "1", origin=None)
+            self.assertIsNone(ac.repo_slug_for_cwd(str(repo)))
+
+    def test_unparseable_origin_resolves_to_none_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _make_issue_repo(Path(tmp), "1",
+                                     origin="/local/path/not/a/url/shape")
+            self.assertIsNone(ac.repo_slug_for_cwd(str(repo)))
+
+    def test_non_git_directory_resolves_to_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(ac.repo_slug_for_cwd(tmp))
+
+    def test_missing_directory_resolves_to_none(self):
+        self.assertIsNone(ac.repo_slug_for_cwd("/no/such/path/at/all"))
+
+    def test_empty_cwd_resolves_to_none(self):
+        self.assertIsNone(ac.repo_slug_for_cwd(""))
+
+
 class IssueForCwd(unittest.TestCase):
     def test_issue_branch_resolves_issue_number(self):
         with tempfile.TemporaryDirectory() as tmp:
