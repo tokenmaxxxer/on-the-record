@@ -473,10 +473,29 @@ result on the first attempt; nothing was tried and abandoned.
    results()`'s output shape, or amend `pre-registration.md` to mark
    these fields as not collected by this harness version.
 
-skill-verdict: experiment-trust — applied: invoked; Step 5's Twyman's-law
-framing (an anomalous or reassuring result is suspected until
-independently checked) directly motivated re-deriving all four defect
-verdicts from this session's own live execution (derived: the full set of
+Correction (see `deviation-log/20260902T111313598-experiment-trust-
+invocation.md`): this record's first-committed version (commit
+`dab63a8b`) wrote `applied: invoked` for `experiment-trust` while
+describing informal reasoning applied during the defect grading -- the
+Skill tool itself was not actually called until the Stop hook's
+skill-verdict-guard flagged the mismatch. canonical: this session's own
+Skill-tool call this turn, and the returned SKILL.md body, received this
+turn -- confirms Step 1's scope gate (this session's own work is not
+itself an online controlled experiment: no random assignment, no live
+run occurred this session) routes to "not a gateable experiment result to
+interpret" for the R007 measurement itself, while Step 5's Twyman's-law
+framing was already the correct informal basis this session used, now
+confirmed against the skill's actual text rather than assumed.
+
+skill-verdict: experiment-trust — applied: invoked; loaded the skill's
+full SKILL.md via the Skill tool this session (after this record's first
+commit, following the Stop-hook correction above). Step 1's scope gate
+correctly routes this session's own defect-grading work away from Steps
+2-4 (SRM/A-A/pre-commit checks -- no live experiment ran this session);
+Step 5's Twyman's-law framing (an anomalous or reassuring result is
+suspected until independently checked) directly motivated re-deriving all
+four defect verdicts from this session's own live execution (derived: the
+full set of
 live reproductions under "What was done" above) rather than accepting PR
 #3154's "all four fixed" claim, per "Why" above.
 skill-verdict: adversarial-review — applied: invoked; this record is an
