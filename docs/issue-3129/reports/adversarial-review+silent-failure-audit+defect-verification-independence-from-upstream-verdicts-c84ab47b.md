@@ -14,6 +14,18 @@ upstream:
 
 ## What was done
 
+amendments-reconciled: a comment landed on issue #3129 partway through
+this session, reporting a competing verification (PR #3147):
+
+```
+$ gh api repos/tokenmaxxxer/on-the-record/issues/comments/5508124905 -q '.body'
+## PR #3137 held — marker has no repo dimension
+...
+One Incorrect: the amendment marker is keyed by issue number alone.
+```
+
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5508124905 -q '.body'`, this session, this turn — full text above (truncated for the fence; complete body reports PR #3147 finding the marker has no repo dimension). Re-derived this claim myself against the real code rather than citing it — see Finding 5 below.
+
 Independent, builder-blind verification of PR #3137 against issue
 #3129's 4 named acceptance checks and 3 must-not clauses, run by direct
 reproduction from a separate git worktree (PR #3137 never checked out
@@ -160,6 +172,32 @@ final version: 16   note: race-14
 
 derived: `python3 -c "..."` spawning 20 `subprocess.run(["python3", "amendment_channel.py"], ...)` calls via a `ThreadPoolExecutor`, this session, this turn — 4 of 20 increments lost (16 of 20 landed), zero crashes, zero corrupted marker reads, final marker always valid JSON with the content of one of the writes that did land. Matches the documented tradeoff exactly. Verdict: **Present**, consistent with design.
 
+### Finding 5 — the amendment marker has no repo dimension; cross-repo collision reproduced independently
+
+`issuecomment-5508124905` (quoted in "What was done" above) reports a
+competing verification (PR #3147) grading this **Incorrect**: the
+marker is keyed by issue number alone, with no repo/org component, so
+two unrelated repos sharing the same `issue-<n>/<role>` branch name
+collide. Re-derived directly against the code rather than accepting
+the comment's verdict, per `defect-verification-independence-from-upstream-verdicts`:
+
+```
+$ grep -n "def marker_path" -A2 amendment_channel.py
+def marker_path(state_dir: str, issue: str) -> str:
+    return os.path.join(state_dir, "issue-%s.marker.json" % _safe(str(issue)))
+```
+
+canonical: `cd /tmp/pr-3137-review2/on-the-record/hooks && grep -n "def marker_path" -A2 amendment_channel.py`, this session, this turn — `marker_path` builds its filename from `issue` alone; `default_state_dir()` (read directly, same file) has no repo/org input either. Reproduced the collision end-to-end through the real `write_amendment`/`check_notice` pair with two independent scratch git repos, both on branch `issue-42/some-role`, distinct `origin` remotes:
+
+```
+>>> ac.write_amendment(state_dir, '42', note='repo-a specific correction')   # orchestrator in repo-a
+1
+>>> ac.check_notice(state_dir, 'worker-session-in-repo-b', '42')             # unrelated worker in repo-b
+'[amendment] issue #42 was amended ... Note: repo-a specific correction'
+```
+
+derived: `python3 -c "..."` against `a0abb72d:on-the-record/hooks/amendment_channel.py` imported directly, two separate scratch repos under `/tmp/cross-repo-test/{repo-a,repo-b}` each with its own `git remote add origin <distinct-url>`, this session, this turn — repo-b's worker receives repo-a's correction verbatim, confirming the collision independently rather than citing the comment's own claim. This is the same orchestrator-shared-state-keyed-without-repo shape as issues #3081 and #3095, per the comment. Verdict: **Incorrect** — this is a real defect in PR #3137, not covered by any of the issue's 4 named acceptance checks or 3 must-nots (none of them name repo scoping), so it does not change any of the Present verdicts above, but it is a genuine finding against the delivered code. Per the comment, a repair round is already spawned against PR #3137's own branch; this session does not edit PR #3137 or duplicate that repair, per the spawning prompt's explicit instruction.
+
 ## Independent verification — PR #3137 (issue #3129)
 
 ### Check 1 — `python3 -m pytest tests/test_amendment_channel.py -q`
@@ -276,7 +314,7 @@ canonical: `cd /tmp/pr-3137-review/on-the-record/hooks && grep -n ...` (two grep
 | Cross-platform mechanism (design) | Present |
 | Cross-platform (live macOS execution) | Unverifiable — no macOS host in this environment |
 
-canonical: the 9 check/must-not sections above (Check 1-4, Must-not 1-3, Cross-platform mechanism and its macOS sub-item), each with its own `canonical:`/`derived:` transcript, this session, this turn. 4/4 acceptance checks Present, 3/3 must-nots Present, by direct reproduction — no defect found against any named check or must-not. Finding 1 (stale rebase) is a landing-readiness note outside the named checks' scope. Findings 2-4 answer the spawning prompt's named untested cases (amendment race, pre-spawn timing, concurrent writes) and are confirmed-benign/deliberate, not defects.
+canonical: the 9 check/must-not sections above (Check 1-4, Must-not 1-3, Cross-platform mechanism and its macOS sub-item), each with its own `canonical:`/`derived:` transcript, this session, this turn. 4/4 acceptance checks Present, 3/3 must-nots Present, by direct reproduction — no defect found against any named check or must-not. Finding 1 (stale rebase) is a landing-readiness note outside the named checks' scope. Findings 2-4 answer the spawning prompt's named untested cases (amendment race, pre-spawn timing, concurrent writes) and are confirmed-benign/deliberate, not defects. Finding 5 is a real, independently-reproduced **Incorrect** (marker has no repo dimension) reported via `issuecomment-5508124905` and re-derived directly against the code this session, this turn — it does not touch any of the 9 named items above but is a genuine defect in PR #3137's delivered code, already the subject of a separately-spawned repair round per that comment.
 
 ## Next steps
 
@@ -284,8 +322,10 @@ None for this record's own scope: verification against PR #3137's 4
 acceptance checks and 3 must-nots is finished, derived from the
 transcripts above, this session, this turn. Whoever lands PR #3137
 should rebase onto current `origin/main` first (Finding 1) so `test/`
-does not regress by 15 failures that are already fixed there. This
-session does not merge or edit PR #3137, per the spawning prompt.
+does not regress by 15 failures that are already fixed there, and
+should wait for the Finding 5 repair round (marker repo dimension)
+before merging. This session does not merge or edit PR #3137, per the
+spawning prompt.
 
 skill-verdict: adversarial-review — applied: invoked; used its blind-evaluator framing to grade PR #3137 from the artifact and issue text alone, without reading the builder's own implementation-blueprint record before forming verdicts
 skill-verdict: silent-failure-audit — applied: invoked; traced every `try`/`except` in `amendment_channel.py` (read_marker, write_amendment, _read_seen, _write_seen, check_notice, issue_for_cwd, main) forward to its downstream effect — all fail open by documented, low-blast-radius design, the one write-failure path the PR's own commit message claims to have fixed (stderr trace on `write_amendment` OSError) verified present in the delivered code
