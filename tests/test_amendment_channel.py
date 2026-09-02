@@ -501,6 +501,89 @@ class RunHookEndToEnd(unittest.TestCase):
         self.assertIsNone(ac.run_hook(worker_payload(repo_x), self.state_dir))
 
 
+class WriterSideTargetsCommandNotSessionCwd(unittest.TestCase):
+    """Repair round 2 (PR #3159's finding, driven through the real
+    `run_hook` entrypoint, matching how that verification session found
+    it): the marker's repo key must come from what the `gh issue edit`
+    command actually targets, not the orchestrator's raw `PostToolUse`
+    session `cwd`. Reproduces the issue's own worked example literally --
+    an orchestrator's session `cwd` is an `on-the-record` checkout, but
+    its Bash tool call `cd`s into a `study-companion` checkout first --
+    which is exactly how this orchestrator operates (it edits
+    study-companion issues from the on-the-record checkout), so the old
+    cwd-keyed behavior would be wrong on every real use, not an edge
+    case."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state_dir = os.path.join(self.tmp.name, "state")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_cd_into_another_checkout_keys_the_marker_to_that_checkout(self):
+        session_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="on-the-record-checkout",
+            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
+        study_repo = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="study-companion-checkout",
+            origin="https://github.com/tokenmaxxxer/study-companion.git"))
+        cmd = "cd %s && gh issue edit 42 --body 'fixed brief'" % study_repo
+        payload = json.dumps({
+            "session_id": "orch-sess", "tool_name": "Bash",
+            "tool_input": {"command": cmd}, "cwd": session_cwd,
+        })
+        self.assertIsNone(ac.run_hook(payload, self.state_dir))
+
+        study_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42")
+        self.assertIsNotNone(study_marker, "marker should be keyed to the cd target repo")
+        self.assertEqual(study_marker["note"], "fixed brief")
+
+        wrong_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
+        self.assertIsNone(
+            wrong_marker,
+            "marker must not be keyed to the orchestrator's raw session cwd")
+
+    def test_explicit_repo_flag_overrides_cwd(self):
+        session_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="session-checkout",
+            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
+        cmd = "gh issue edit 42 --repo tokenmaxxxer/study-companion --body 'fixed brief'"
+        payload = json.dumps({
+            "session_id": "orch-sess", "tool_name": "Bash",
+            "tool_input": {"command": cmd}, "cwd": session_cwd,
+        })
+        self.assertIsNone(ac.run_hook(payload, self.state_dir))
+
+        flagged_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42")
+        self.assertIsNotNone(flagged_marker, "marker should be keyed to the --repo target")
+        self.assertEqual(flagged_marker["note"], "fixed brief")
+
+        wrong_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
+        self.assertIsNone(
+            wrong_marker,
+            "marker must not be keyed to the session cwd when --repo names "
+            "a different target")
+
+    def test_no_cd_no_repo_flag_still_keys_to_session_cwd(self):
+        """Regression baseline (not a repro of the defect: this shape
+        behaved correctly before and after the fix) -- a plain `gh issue
+        edit` with no `cd` prefix and no `--repo`/`-R` flag must still key
+        off the session's own `cwd`, same as before this repair round."""
+        session_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="plain-checkout",
+            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
+        cmd = "gh issue edit 42 --body 'plain brief'"
+        payload = json.dumps({
+            "session_id": "orch-sess", "tool_name": "Bash",
+            "tool_input": {"command": cmd}, "cwd": session_cwd,
+        })
+        self.assertIsNone(ac.run_hook(payload, self.state_dir))
+        marker = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
+        self.assertIsNotNone(marker)
+        self.assertEqual(marker["note"], "plain brief")
+
+
 class HookScriptShippedAndExecutable(unittest.TestCase):
     def test_hook_script_exists_and_is_executable(self):
         script = HOOKS_DIR / "amendment-channel.sh"
