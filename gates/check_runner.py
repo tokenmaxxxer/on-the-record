@@ -102,6 +102,17 @@ def _acceptance_section(body: str) -> str | None:
 INTERPRETERS = ("python3", "python", "bash", "sh", "pytest",
                 "node", "npx", "deno", "bun")
 
+# issue #3059: names common non-interpreter CLI tools ONLY for the
+# diagnostic message below — never added to INTERPRETERS (that would
+# execute arbitrary tool invocations, which is exactly what this
+# allowlist exists to refuse) and never used to auto-wrap a check in
+# `bash -c` (that would silently execute text an author never meant as a
+# command).
+# A check whose first token lands here still classifies `judgment` and
+# still never runs; only the reported REASON changes, from "this is a
+# judgment call" to "this is a command missing the wrapper it needs".
+_COMMON_NON_INTERPRETER_TOOLS = frozenset({"grep", "jq", "cat", "test", "diff", "git"})
+
 # issue #2231 residual gap (from #2233's closing comment, PR #2222 live
 # case): a `check:` bullet naming a script in backticks incidentally,
 # while the actual criterion is a comparative/quantitative MEASUREMENT
@@ -259,7 +270,8 @@ def parse_checks(section: str,
             # 명령이 아니다 — 그 안 백틱이 명령 토큰 모양(`dir/name`)이라도
             # 마찬가지다(위 looks_like_command 는 `cd` 없는 compound 상대
             # 경로 명령과 이 모양을 구별 못 한다).
-            if _STATING_VERB_PREFIX.match(raw):
+            stating_verb_suppressed = bool(_STATING_VERB_PREFIX.match(raw))
+            if stating_verb_suppressed:
                 looks_like_command = False
             is_foreign_owned = bool(_FOREIGN_OWNER.search(
                 raw[:bm.start()][-_FOREIGN_OWNER_WINDOW:]))
@@ -293,6 +305,18 @@ def parse_checks(section: str,
                 # --flag" 같은)이 하나의 가짜 리터럴 경로로 기계적으로
                 # "검사"돼 버린다.
                 checks.append({"type": "file-existence", "raw": raw, "path": classify_cmd})
+            elif (not stating_verb_suppressed and tokens
+                    and tokens[0] in _COMMON_NON_INTERPRETER_TOOLS):
+                # issue #3059: this bullet has an honest backtick command —
+                # not prose, not a foreign path, not a measurement claim —
+                # whose only problem is that its first token isn't on
+                # INTERPRETERS. Still lands in `judgment` (still never
+                # executed — the must-not above forbids running it), but
+                # the reason recorded is distinguishable from "this is a
+                # judgment call": see `_judgment_line()`.
+                checks.append({"type": "judgment", "raw": raw,
+                                "reason": "unmapped-interpreter",
+                                "command": cmd, "tool": tokens[0]})
             else:
                 checks.append({"type": "judgment", "raw": raw})
             continue
@@ -382,6 +406,27 @@ def run_checks(repo: Path, checks: list[dict]) -> list[dict]:
     return results
 
 
+def _judgment_line(item: dict) -> str:
+    """`judgment` 로 분류된 항목 하나를 코멘트 한 줄로 렌더링한다(issue
+    #3059). `reason == "unmapped-interpreter"`(허용목록에 없는 첫
+    토큰 때문에 실행되지 못한 진짜 명령)는 그 이유와 `bash -c` 로 감싸는
+    승인된 형태를 이름한다 — 그 외(진짜 산문/측정/foreign-owned 등)는
+    예전과 바이트 단위로 같은 한 줄만 낸다."""
+    if item.get("reason") == "unmapped-interpreter":
+        # shlex.quote (not a literal `"..."` wrap): the command text can
+        # itself contain double quotes (e.g. `grep -n "foo bar" file.md`)
+        # — a naive `"{cmd}"` wrap breaks the outer quoting and silently
+        # changes what runs. shlex.quote produces a single-quoted form
+        # that is always byte-safe to paste back in, whatever the command
+        # contains.
+        wrapped = f"bash -c {shlex.quote(item['command'])}"
+        return (f"- `{item['command']}` — 첫 토큰 `{item['tool']}`이 인터프리터 "
+                f"허용목록({', '.join(INTERPRETERS)})에 없어 명령으로 실행되지 "
+                f"않았다(판단이 필요한 기준이라서가 아니다). 허용된 형태로 감싸 "
+                f"실행하라: `{wrapped}`")
+    return f"- {item['raw']}"
+
+
 def format_comment(results: list[dict], skipped: list[dict] | None = None,
                     disagreement_note: str | None = None) -> str:
     """구조화된 마크다운 PR 코멘트 본문 하나를 만든다.
@@ -413,7 +458,7 @@ def format_comment(results: list[dict], skipped: list[dict] | None = None,
         lines.append(f"judgment (기계 실행 범위 밖, {len(skipped)}개 — "
                       "semantic 채점은 requirement_met.py 몫):")
         for s in skipped:
-            lines.append(f"- {s['raw']}")
+            lines.append(_judgment_line(s))
     if disagreement_note:
         lines.append("")
         lines.append(disagreement_note)
@@ -435,16 +480,39 @@ def format_no_checks_comment(judgment: list[dict] | None = None) -> str:
                 "이 이슈의 `## Acceptance` 절에 기계적으로 실행 가능한 "
                 "`check:`/`gate:` 줄이 없다. 이것은 통과가 아니라 별개의 결과다 "
                 "— 머지 게이트는 이걸 만족으로 취급하면 안 된다.")
-    lines = [
-        NO_CHECKS_MARKER, "",
-        f"이 이슈의 `## Acceptance` 절에 있는 {len(judgment)}개 `check:`/"
-        "`gate:` 항목이 전부 판단이 필요한(judgment) 기준이라 기계적으로 "
-        "실행할 검사가 없다. 이것은 통과가 아니라 별개의 결과다 — 머지 "
-        "게이트는 이걸 만족으로 취급하면 안 된다. semantic 채점은 "
-        "`gates/requirement_met.py`가 담당한다:",
-    ]
+    # issue #3059: "전부 판단이 필요한(judgment) 기준" 은 unmapped-interpreter
+    # 항목(진짜 명령인데 첫 토큰이 허용목록에 없을 뿐)에는 거짓이다 — 그
+    # 항목의 criteria 자체는 이미 기계적이었다. 두 원인이 섞여 있을 수
+    # 있으니 헤더 문구를 실제 구성으로 나눈다; unmapped 가 하나도 없으면
+    # (genuine 만 있으면) 예전과 바이트 단위로 같은 문구를 낸다.
+    unmapped = [j for j in judgment if j.get("reason") == "unmapped-interpreter"]
+    genuine = [j for j in judgment if j.get("reason") != "unmapped-interpreter"]
+    if not unmapped:
+        header = (
+            f"이 이슈의 `## Acceptance` 절에 있는 {len(judgment)}개 `check:`/"
+            "`gate:` 항목이 전부 판단이 필요한(judgment) 기준이라 기계적으로 "
+            "실행할 검사가 없다. 이것은 통과가 아니라 별개의 결과다 — 머지 "
+            "게이트는 이걸 만족으로 취급하면 안 된다. semantic 채점은 "
+            "`gates/requirement_met.py`가 담당한다:")
+    elif not genuine:
+        header = (
+            f"이 이슈의 `## Acceptance` 절에 있는 {len(unmapped)}개 `check:`/"
+            "`gate:` 항목이 실행되지 않았다 — 판단이 필요한(judgment) 기준이라서가 "
+            "아니라, 첫 토큰이 인터프리터 허용목록에 없어서다. 이것은 통과가 "
+            "아니라 별개의 결과다 — 머지 게이트는 이걸 만족으로 취급하면 안 "
+            "된다:")
+    else:
+        header = (
+            f"이 이슈의 `## Acceptance` 절에 있는 {len(judgment)}개 `check:`/"
+            f"`gate:` 항목이 기계적으로 실행되지 않았다 — {len(unmapped)}개는 "
+            f"첫 토큰이 인터프리터 허용목록에 없어서고, {len(genuine)}개는 "
+            "실제로 판단이 필요한(judgment) 기준이다. 이것은 통과가 아니라 "
+            "별개의 결과다 — 머지 게이트는 이걸 만족으로 취급하면 안 된다. "
+            "genuine 항목의 semantic 채점은 `gates/requirement_met.py`가 "
+            "담당한다:")
+    lines = [NO_CHECKS_MARKER, "", header]
     for j in judgment:
-        lines.append(f"- {j['raw']}")
+        lines.append(_judgment_line(j))
     return "\n".join(lines)
 
 
