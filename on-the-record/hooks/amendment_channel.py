@@ -106,20 +106,12 @@ thing only -- deciding whether this Bash call is a `gh issue edit ...
 parse, and it fails closed to "not applicable" rather than a guess when
 undecidable). Two facts, neither of them shell text, are authoritative:
 
-  1. This session's own REGISTERED repo: `repo_slug_for_cwd()` applied to
-     this `PostToolUse` payload's own top-level `cwd` field -- the
-     directory `spawn.py` launched this process into
-     (`subprocess.Popen(cmd, cwd=<workspace>, ...)`), which every hook
-     payload in this session reports unchanged for the session's whole
-     life. This is NOT the same value a `cd X && gh ...` inside a single
-     Bash command string affects -- that `cd` only changes the cwd of the
-     one subprocess that command string spawns, never this payload
-     field (round 2's own worked example, and rounds 2/3's whole reason
-     to parse the command, both rest on this same distinction). Treating
-     THIS field as "what spawn.py registered for this session" needs no
-     new cross-process registration file: spawn.py already IS the one
-     process that chose it, and no session-controlled text can retroactively
-     change what the harness reports here for a later tool call.
+  1. (superseded by repair round 5 below) This session's own REGISTERED
+     repo -- originally `repo_slug_for_cwd()` applied to the `PostToolUse`
+     payload's own top-level `cwd` field, on the claim that field is fixed
+     for the session's whole life. That claim was false (see round 5
+     section) and this source was replaced; kept here only so the "two
+     facts" framing below still reads as history, not as current code.
   2. The actual edited issue's repo and number: `gh issue edit` prints the
      edited issue's URL on success, shaped
      `https://github.com/<owner>/<repo>/issues/<n>`, and the PostToolUse
@@ -139,21 +131,90 @@ comment for why that nonzero exit does not contradict this module's
 "never blocks a tool call" contract. No URL in `tool_response` at all
 (the edit failed, or `gh`'s output shape changed some day) is the same
 fail-closed shape: no marker, one stderr line, nonzero exit. Two caveats
-this redesign does not resolve, recorded in
-`docs/issue-3129/reports/implementation-blueprint+silent-failure-audit+test-derivation-f70893c7.md`
-rather than silently assumed away: a session with more than one
-legitimate target repo (`spawn.py`'s roster entry carries exactly one
-`work` path per session today, so this is a real, currently-unsupported
-case, not a hypothetical), and a session started outside `spawn.py`
-entirely (no resolvable registered repo -- `repo_slug_for_cwd(cwd)`
-returns `None`, which is the SAME fail-closed "no registered repo" path
-caveat 1 above already forces, not a separate skip-silently branch).
+this redesign does not resolve: a session with more than one legitimate
+target repo (`spawn.py`'s roster entry carries exactly one `work` path
+per session today, so this is a real, currently-unsupported case, not a
+hypothetical) -- the FALSE-BLOCK direction, a legitimate multi-repo
+session gets wrongly refused; and a session started outside `spawn.py`
+entirely (no resolvable registration at all -- fails the SAME closed way,
+not a separate skip-silently branch). Round 4's own record framed only
+the false-block direction of caveat 1; it did not anticipate that
+`repo_slug_for_cwd(cwd)` being a LIVE recomputation (not an actual
+registration) also opened a FALSE-ACCEPT direction -- a `cd` could
+silently re-register a session to a second repo with no refusal at all.
+Round 5 below closes the false-accept direction structurally (the trust
+root can no longer move with `cwd`); the false-block direction (no
+multi-repo support) is unchanged and still real.
+
+Trust-root repair (PR #3137 repair round 5, issue #3129, following PR
+#3191's independent verification of round 4): round 4's own central claim
+-- that the payload's `cwd` field is "fixed for the session's whole
+life" and "no session-controlled text can retroactively change what the
+harness reports here" -- is false. Claude Code's own hooks reference
+(`https://code.claude.com/docs/en/hooks`, "cwd follows Claude") states
+plainly that `cwd` is live: it is the new directory after Claude runs
+`cd`. An ordinary, standalone `cd` in its own Bash call -- not chained
+with the `gh issue edit` call, so the round-4 docstring's own "that `cd`
+only changes the cwd of the one subprocess" reasoning does not apply to
+it at all -- silently re-registers a session's `repo_slug_for_cwd(cwd)`
+result to whatever repo it just `cd`'d into, and round 4 had no persisted
+record of the ACTUAL launch-time choice to compare against and catch
+this (PR #3191's Angle 3, reproduced end-to-end against the real hook
+binary, `cwd-drifted-to-other-repo-then-edits-there`: no `RepoMismatch`,
+no stderr, a marker written exactly as if that had been the session's own
+registered repo all along).
+
+Fact 1 above is now `registered_repo_for_pid()`: this session's own
+registered repo comes from `spawn.py`'s own roster (`runs/active.json`,
+written by `roster_register()` at dispatch, BEFORE the session's process
+exists at all -- see `spawn.py`'s two `roster_register()` call sites),
+never from any `PostToolUse` payload field. The correlation from "this
+running hook subprocess" to "the roster entry spawn.py wrote for it" is
+this OS process's own kernel-tracked ANCESTRY (`/proc/<pid>/stat`'s ppid
+field, walked upward): the roster's `pid` field is the actual OS pid
+`subprocess.Popen()` assigned the session's `claude` process, an ancestor
+of every hook subprocess that session ever spawns, and no Bash command a
+session can run -- `cd`, an env re-export, a crafted `--repo=` flag --
+changes what pid its own ancestor processes are; that is kernel state, not
+session-reported state. A `start_time` pairing (the same pid-reuse guard
+`roster.py`'s own `_paired_liveness()` already applies elsewhere in this
+codebase) rejects a stale roster entry whose pid number the OS has since
+reassigned to an unrelated process. No ancestor pid found registered
+within the hop budget -- including a session never launched through
+`spawn.py` at all, round-4 caveat 2's case -- fails the same closed way
+`NoRegisteredRepo` already did: no marker, one stderr line, nonzero exit.
+No `/proc` on this platform (macOS) fails the same way rather than
+falling back to `cwd` or anything else the session could influence.
+
+Fact 2's own detection also had a gap PR #3191 found (Angle 2): the old
+`_ISSUE_URL_RE.search()` scanned `tool_response` for the URL SHAPE
+anywhere in the text, with no check that the match was `gh`'s own
+success report rather than a URL-shaped substring inside a FAILED edit's
+error message (e.g. `HTTP 422: Validation Failed. See
+https://github.com/<repo>/issues/7 for the field format example. (edit 42
+was NOT applied)`) -- a marker was silently written for an edit that
+explicitly did not apply. `gh issue edit` prints ONLY the edited issue's
+URL to stdout on success -- nothing before it, nothing after -- so
+`_issue_url_from_response()` now requires the URL to `fullmatch` the
+ENTIRE (stripped) `tool_response` text, not merely appear inside it. This
+is a POSITIVE success check, not a failure-marker denylist (the
+`FAILURE_MARKERS` heuristic `post-landing-obligation-gate.sh` uses
+elsewhere in this repo): any additional text at all -- an HTTP error
+prefix, a trailing parenthetical, a second URL -- fails the `fullmatch`
+and this module treats it exactly like "no URL in response", because a
+failure message is never JUST a bare URL with nothing else, by
+construction of what an error message is. This also closes, as a
+structural consequence rather than a separate fix, PR #3191's
+lower-severity finding that an unanchored `.search()` picks the FIRST of
+multiple URLs in a response and can misattribute a legitimate edit to the
+wrong (first-matched) repo -- a response with more than one URL now fails
+`fullmatch` the same way a failure message does.
 
 Unresolvable repo (issue #3128's shape, applied here pre-emptively): when
-`repo_slug_for_cwd()` returns None -- no git repo at `cwd`, no `origin`
-remote, an origin URL this module's regex does not parse -- neither the
-write path nor the read path substitutes a fallback key (a path hash, a
-cwd basename, a literal `"unidentified"` string). Any shared fallback is
+`repo_slug_for_cwd()` returns None -- no git repo at the target directory,
+no `origin` remote, an origin URL this module's regex does not parse --
+neither path substitutes a fallback key (a path hash, a directory
+basename, a literal `"unidentified"` string). Any shared fallback is
 itself a bucket two different unresolvable repos would collide into,
 which is the identical leak this repair fixes for the resolvable case.
 Instead, both paths skip entirely: the write path logs one stderr line
@@ -162,7 +223,11 @@ observable, not silently dropped) and returns without writing; the read
 path just returns None (indistinguishable from "no amendment," which is
 already this channel's fail-open shape for every other local I/O
 failure). No bucket is ever created for an unresolvable repo, so there is
-nothing for a second unresolvable repo to collide with.
+nothing for a second unresolvable repo to collide with. (Round 5 changes
+WHICH directory the write path resolves this against -- `spawn.py`'s own
+registered `work` directory, via `registered_repo_for_pid()`, rather than
+`cwd` -- not this fail-closed shape itself, which is unchanged; the read
+path is unchanged by round 5 in both respects.)
 
 `version` is an explicit monotonic counter written into the marker's
 *content*, not read off the filesystem's mtime -- mtime granularity differs
@@ -200,6 +265,15 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hook_input  # noqa: E402
 
 STATE_DIR_ENV = "OTR_AMENDMENT_STATE_DIR"
+# issue #3129 round 5: direct test-injection override for the roster path
+# `registered_repo_for_pid()` reads, mirroring `STATE_DIR_ENV` above.
+ROSTER_PATH_ENV = "OTR_ROSTER_PATH"
+# How many `/proc` ancestry hops `registered_repo_for_pid()` walks before
+# giving up. Generous headroom over the couple of hops a real hook
+# invocation actually needs (this script -> its `.sh` wrapper's shell ->
+# the `claude` process spawn.py registered) -- see module docstring,
+# round-5 section.
+_MAX_ANCESTRY_HOPS = 32
 
 # Matches `gh issue edit ...` anywhere a shell would start a new command
 # (start of string; after `;`/`&&`/`||`/`|`; or after `(`/`{` opening a
@@ -240,6 +314,154 @@ def default_state_dir() -> str:
     if override:
         return override
     return os.path.join(os.environ.get("TMPDIR", "/tmp"), "otr-amendment")
+
+
+def _proc_stat_fields(pid: int) -> Optional[list]:
+    """`/proc/<pid>/stat`'s fields from index 2 (state) onward, or None on
+    any read failure or platform without `/proc` (macOS). `comm` (field 2
+    in the raw file) can itself contain spaces and parentheses, so this
+    cuts after the LAST `)` and re-splits from there -- the same
+    tokenization `watchdog._proc_start_time()` uses for the same file
+    (reimplemented locally rather than imported: this hook keeps its own
+    zero-heavy-dependency contract, see module docstring). Never raises.
+    """
+    try:
+        with open("/proc/%d/stat" % pid, "r", encoding="utf-8") as f:
+            raw = f.read()
+    except (OSError, ValueError):
+        return None
+    rest = raw[raw.rfind(")") + 2:]
+    fields = rest.split()
+    return fields or None
+
+
+def _proc_ppid(pid: int) -> Optional[int]:
+    """`pid`'s own parent pid, read straight from the kernel -- never
+    anything a session's tool call could report about itself (no `cd`, no
+    env re-export, no command text touches this). `None` when the pid is
+    gone, unreadable, or this platform has no `/proc` at all."""
+    fields = _proc_stat_fields(pid)
+    if fields is None or len(fields) < 2:
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
+
+
+def _proc_start_time(pid: int) -> Optional[str]:
+    """`pid`'s own boot-relative start clock tick (`/proc/<pid>/stat`
+    field 22) -- the same pid-reuse guard `spawn.py`'s roster already
+    records at registration time and `roster.py`'s own
+    `_paired_liveness()` already pairs against elsewhere in this
+    codebase. `None` on any read failure or platform without `/proc`."""
+    fields = _proc_stat_fields(pid)
+    if fields is None or len(fields) < 20:
+        return None
+    return fields[19]
+
+
+def _install_root() -> Optional[str]:
+    """The checkout root containing `spawn.py`, found by walking up from
+    THIS FILE's own on-disk location -- fixed at install time by how the
+    interpreter was invoked, never by any `cwd` a session's tool calls
+    report. `None` if not found within a few levels (e.g. this hook
+    shipped to a bare zero-install consumer checkout that has no
+    `spawn.py` at all) -- the caller's fail-closed path handles that."""
+    probe = os.path.dirname(os.path.abspath(__file__))
+    for _ in range(6):
+        if os.path.isfile(os.path.join(probe, "spawn.py")):
+            return probe
+        parent = os.path.dirname(probe)
+        if parent == probe:
+            break
+        probe = parent
+    return None
+
+
+def default_roster_path() -> Optional[str]:
+    """Where `spawn.py`'s own session roster (`runs/active.json`) lives --
+    the registration issue #3129 round 5 trusts INSTEAD OF the
+    `PostToolUse` payload's `cwd` field (see module docstring, round-5
+    section). `ROSTER_PATH_ENV` is a direct test-injection override
+    (mirrors `STATE_DIR_ENV`); `MUSTER_STATE_ROOT` mirrors `spawn.py`'s
+    OWN state-root override so a harness that redirects spawn.py's roster
+    redirects this lookup the same way; otherwise this walks to the
+    installation root via `_install_root()`. `None` when none of the
+    three resolves -- the caller's fail-closed path handles that, same as
+    every other unresolvable case in this module."""
+    override = os.environ.get(ROSTER_PATH_ENV)
+    if override:
+        return override
+    state_root = os.environ.get("MUSTER_STATE_ROOT")
+    if state_root:
+        return os.path.join(state_root, "active.json")
+    root = _install_root()
+    if root is None:
+        return None
+    return os.path.join(root, "runs", "active.json")
+
+
+def registered_repo_for_pid(pid: int, roster_path: Optional[str] = None) -> Optional[str]:
+    """The `owner/repo` `spawn.py` registered for the session this
+    process (`pid`) belongs to -- issue #3129 repair round 5's trust
+    root, replacing round 4's `repo_slug_for_cwd(cwd)` (see module
+    docstring, round-5 section, for why `cwd` is not safe to trust here).
+
+    Walks `pid`'s own kernel-tracked ancestry (via `/proc`, `_proc_ppid`)
+    up to `_MAX_ANCESTRY_HOPS` hops looking for an ancestor pid that
+    appears as some roster entry's own `pid` field -- the OS pid
+    `spawn.py`'s `subprocess.Popen()` chose for this session's `claude`
+    process, written to the roster BEFORE that process (and therefore
+    every hook subprocess it later spawns) existed at all. A match's
+    `start_time` is paired against the live value at that pid (the same
+    pid-reuse guard `roster.py`'s own `_paired_liveness()` already
+    applies to liveness checks) before it is trusted; the walk continues
+    past a reuse mismatch rather than trusting it or stopping short.
+
+    Returns `None` (never a guess, never a fallback to `cwd` or anything
+    else the session could influence) when: this platform has no `/proc`
+    (macOS today), the roster cannot be read at all, or no ancestor pid
+    within the hop budget matches any correctly-paired roster entry --
+    covering issue #3129 round-4 caveat 2's "a session started outside
+    spawn.py entirely" case, since such a session's own ancestry
+    structurally cannot contain a registered pid. Never raises."""
+    if not os.path.isdir("/proc"):
+        return None
+    path = roster_path if roster_path is not None else default_roster_path()
+    if not path:
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            roster = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(roster, dict) or not roster:
+        return None
+    by_pid = {}
+    for entry in roster.values():
+        if not isinstance(entry, dict):
+            continue
+        entry_pid = entry.get("pid")
+        work = entry.get("work")
+        if isinstance(entry_pid, int) and isinstance(work, str) and work:
+            by_pid[entry_pid] = (work, entry.get("start_time"))
+
+    current = pid
+    for _ in range(_MAX_ANCESTRY_HOPS):
+        hit = by_pid.get(current)
+        if hit is not None:
+            work, recorded_start = hit
+            if recorded_start is None or _proc_start_time(current) == recorded_start:
+                return repo_slug_for_cwd(work)
+            # pid reuse: this number WAS a registered session once, but
+            # the live process wearing it now is not that session --
+            # keep walking rather than trust the coincidence.
+        parent = _proc_ppid(current)
+        if parent is None or parent == current or parent <= 1:
+            return None
+        current = parent
+    return None
 
 
 def _safe(s: str) -> str:
@@ -472,15 +694,24 @@ def _issue_url_from_response(tool_response: object) -> Optional["_IssueUrl"]:
     present (the call failed, `gh`'s output shape changed, or this simply
     is not a `tool_response` that carries one).
 
-    `gh issue edit` prints the edited issue's URL
-    (`https://github.com/<owner>/<repo>/issues/<n>`) on success -- this is
-    the tool's own report of what it actually did, not a parse of what the
-    command asked for. Never raises.
+    `gh issue edit` prints the edited issue's URL, and ONLY that URL --
+    nothing before it, nothing after -- to stdout on success
+    (`https://github.com/<owner>/<repo>/issues/<n>`). This is a POSITIVE
+    success check (issue #3129 repair round 5), not a failure-marker
+    denylist: the (stripped) text must `fullmatch` the URL shape in full,
+    not merely contain it anywhere. A failed edit's error text is never
+    JUST a bare URL with nothing else -- by construction of what an error
+    message is, it always carries explanatory text around any URL it
+    happens to quote -- so this signal structurally cannot appear in a
+    failure. `.search()` (matching anywhere in the text) previously let a
+    URL-shaped substring inside a FAILED edit's own error message pass as
+    if it were `gh`'s own success report; `fullmatch` closes that. Never
+    raises.
     """
     text = hook_input.tool_response_text(tool_response)
     if not text:
         return None
-    m = _ISSUE_URL_RE.search(text)
+    m = _ISSUE_URL_RE.fullmatch(text.strip())
     if not m:
         return None
     owner, repo, issue = m.group(1), m.group(2), m.group(3)
@@ -498,15 +729,15 @@ class AmendmentSkipped(NamedTuple):
 
 
 class NoRegisteredRepo(NamedTuple):
-    """(issue #3129 round-4 caveat 2) This session carries no resolvable
-    registered repo at all: `cwd` is not a git checkout, has no `origin`
-    remote, or the remote is a shape `repo_slug_for_cwd()` cannot parse --
-    which is exactly what a session started OUTSIDE `spawn.py` (no
-    registration ever made) looks like from here, since there is no
-    separate "registered" bit to check apart from this. Fails closed: no
-    marker, one stderr line, nonzero exit from `main()`."""
-
-    cwd: str
+    """(issue #3129 round-4 caveat 2, mechanism replaced in round 5) This
+    session's own process ancestry carries no roster registration at all
+    within the hop budget -- no `/proc` on this platform, the roster is
+    unreadable, or no ancestor pid matches a live, correctly-paired
+    roster entry -- which is exactly what a session started OUTSIDE
+    `spawn.py` (no registration ever made) looks like from here. Fails
+    closed: no marker, one stderr line, nonzero exit from `main()`. Never
+    a fallback to `cwd` or anything else the session's own tool calls
+    could influence -- see `registered_repo_for_pid()`."""
 
 
 class NoIssueUrlInResponse(NamedTuple):
@@ -554,21 +785,31 @@ WriteResult = Union[
 
 def record_amendment_from_response(
     state_dir: str, tool_name: str, command: str, cwd: str,
-    tool_response: object,
+    tool_response: object, pid: Optional[int] = None,
+    roster_path: Optional[str] = None,
 ) -> WriteResult:
     """Detect a `gh issue edit ... --body|--body-file ...` Bash call and,
     if the repo it actually edited (from its own `tool_response`, see
     `_issue_url_from_response()`) matches this session's own registered
-    repo (from `cwd`, see `repo_slug_for_cwd()`), bump that repo's issue
-    marker. Returns a `WriteResult` describing exactly what happened --
-    see each variant's own docstring. Never raises.
+    repo (from `spawn.py`'s own roster, see `registered_repo_for_pid()`
+    -- issue #3129 repair round 5, replacing `repo_slug_for_cwd(cwd)`),
+    bump that repo's issue marker. Returns a `WriteResult` describing
+    exactly what happened -- see each variant's own docstring.
+
+    `cwd` is used ONLY for `_extract_note()`'s cosmetic note-text
+    resolution below (a relative `--body-file` path) -- never for repo
+    attribution. `pid` defaults to this process's own pid (`os.getpid()`)
+    -- the real production path always resolves the running hook
+    process's own registration; `roster_path` is a test-injection
+    override (see `registered_repo_for_pid()`). Never raises.
     """
     if not _gh_issue_edit_body_call(tool_name, command):
         return AmendmentSkipped()
 
-    registered_repo = repo_slug_for_cwd(cwd)
+    registered_repo = registered_repo_for_pid(
+        pid if pid is not None else os.getpid(), roster_path=roster_path)
     if registered_repo is None:
-        return NoRegisteredRepo(cwd)
+        return NoRegisteredRepo()
 
     parsed = _issue_url_from_response(tool_response)
     if parsed is None:
@@ -591,11 +832,14 @@ def _report_write_result(result: WriteResult) -> None:
     the marker file). Never raises."""
     if isinstance(result, NoRegisteredRepo):
         sys.stderr.write(
-            "amendment-channel: could not identify this session's own "
-            "registered repo (cwd=%r has no resolvable git origin) -- no "
-            "marker written, the running worker will not see this "
-            "correction (repo unidentified; not attributed to a shared "
-            "bucket another unidentified repo could read)\n" % result.cwd
+            "amendment-channel: could not find this session's own "
+            "registered repo in spawn.py's roster (no /proc on this "
+            "platform, the roster is unreadable, or this process's own "
+            "ancestry carries no registered pid at all -- e.g. a session "
+            "not started through spawn.py) -- no marker written, the "
+            "running worker will not see this correction (unregistered; "
+            "never attributed to cwd or anything else this session's own "
+            "tool calls could influence)\n"
         )
     elif isinstance(result, NoIssueUrlInResponse):
         sys.stderr.write(
@@ -622,7 +866,8 @@ def _report_write_result(result: WriteResult) -> None:
         )
 
 
-def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[str]:
+def run_hook(payload_text: object, state_dir: Optional[str] = None,
+             roster_path: Optional[str] = None) -> Optional[str]:
     """The full PostToolUse behavior: maybe record an amendment, maybe
     return a notice string for the caller to print.
 
@@ -631,13 +876,17 @@ def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[
     (the `.sh` wrapper's conceptual contract, and most of this module's
     own tests) already expects. `main()` uses `_run_hook_full()` directly
     when it needs the `WriteResult` too (to decide its own exit code).
+    `roster_path` is a test-injection override, threaded straight to
+    `record_amendment_from_response()` -- production callers leave it
+    unset and get `default_roster_path()`'s real resolution.
     """
-    notice, _write_result = _run_hook_full(payload_text, state_dir)
+    notice, _write_result = _run_hook_full(payload_text, state_dir, roster_path)
     return notice
 
 
 def _run_hook_full(
     payload_text: object, state_dir: Optional[str] = None,
+    roster_path: Optional[str] = None,
 ) -> "tuple[Optional[str], WriteResult]":
     """`run_hook()`'s full behavior, also returning the `WriteResult` so
     `main()` can set its own exit code from it.
@@ -667,7 +916,7 @@ def _run_hook_full(
 
     write_result = record_amendment_from_response(
         state_dir, payload.tool_name, hook_input.tool_command(payload),
-        cwd, data.get("tool_response"),
+        cwd, data.get("tool_response"), roster_path=roster_path,
     )
     _report_write_result(write_result)
 
