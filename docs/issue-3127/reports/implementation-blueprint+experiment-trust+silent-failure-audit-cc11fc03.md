@@ -312,13 +312,39 @@ under this session's own subtree.
 
 ## Open findings
 
-None new beyond what fix 2 above already closes. The round-1 "Open
-findings" bullet on PR #3169's own record about `gh`/`git` binary
-absence being an Unguarded (loud, non-silent) exception path was left
-as-is — canonical: `PR-3169-branch:docs/issue-3127/reports/
-implementation-blueprint+experiment-trust+silent-failure-audit-
-9afe0675.md`, "Open findings" first bullet — out of this session's
-scope and already disclosed there as a loud, not silent, failure mode.
+- New, post-landing: invoked `silent-failure-audit` via the Skill tool
+  against the final pushed state (`PR-3169-branch:scripts/issue-3127/
+  verify_preregistration.py` commit `34401620`) and traced
+  `_first_commit_for_path`'s remaining `None` path forward — canonical:
+  that file, lines 82-84 (`if r.returncode != 0: return None`). Any
+  `git log` failure for a reason other than "no matches" reaches that
+  branch — derived: this session's own reproduction of such a failure —
+```
+$ git log --diff-filter=A --format=%H --reverse --nonexistent-flag -- docs/issue-3127/_assets/consumer-path-results.json
+fatal: unknown argument: --nonexistent-flag
+exit=128
+```
+  `verify()`'s `results_commit is None` branch (same file, line 289)
+  reads that `None` identically to "genuinely not yet committed" and
+  returns `True`. Fix 2 closed the specific `--follow`-rename trigger
+  the hunter reproduced, but the underlying ambiguity is narrowed, not
+  eliminated: a real `git log` failure on RESULTS_PATH would still be
+  read as "nothing to compare yet" rather than "evidence unavailable,
+  fail closed" — the same silent-failure shape as the fixed finding,
+  one layer further out. Classification: Silently Absorbed (pattern:
+  null-as-success), lower severity than the fixed finding because it
+  requires an actual git-command failure rather than attacker-reachable
+  working-tree content. Not attempted here — this session's landed
+  work is already pushed to PR #3169's branch; flagging for a future
+  repair round rather than reopening that branch a third time this
+  session.
+- The round-1 "Open findings" bullet on PR #3169's own record about
+  `gh`/`git` binary absence being an Unguarded (loud, non-silent)
+  exception path was left as-is — canonical: `PR-3169-branch:docs/
+  issue-3127/reports/implementation-blueprint+experiment-trust+silent-
+  failure-audit-9afe0675.md`, "Open findings" first bullet — out of this
+  session's scope and already disclosed there as a loud, not silent,
+  failure mode.
 
 ## Next steps
 
@@ -332,14 +358,17 @@ expected from this session.
 
 ## Skill verdicts
 
-skill-verdict: silent-failure-audit — applied: invoked; classified the
+skill-verdict: silent-failure-audit — applied: invoked; invoked via the
+Skill tool this session against the final pushed state, classified the
 warrant-hunter's finding (a `None`-as-"nothing to verify" silent misread
 caused by a git-log flag interaction) against this skill's Handled/
 Silently-Absorbed/Unreachable taxonomy in the "Why" section above,
 confirmed the fix addresses that source rather than the symptom
 (canonical: fix 2's diff, cited in "Why", touches only the `git log`
-argument list, no downstream `verify()` branch), and re-confirmed
-round-1's other classifications are unaffected by either fix.
+argument list, no downstream `verify()` branch), re-confirmed round-1's
+other classifications are unaffected by either fix, and traced one
+residual Silently-Absorbed site the two landed fixes did not close (see
+"Open findings").
 skill-verdict: implementation-blueprint — not-applicable: two small,
 localized fixes (a parameter addition plus one new early-return check;
 a single git-flag removal) inside an existing single-file script's
