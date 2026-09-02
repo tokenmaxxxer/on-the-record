@@ -63,6 +63,26 @@ exact ad-hoc-`cd`-extraction defect class as the reason it exists).
 Neither source resolving falls through to the same unresolvable-repo
 handling below -- never a fallback to the session cwd.
 
+Parser-robustness repair (PR #3163 follow-up, repair round 3): the round-2
+resolver above was correct in principle but leaned on
+`hook_input.resolved_cwd()`, whose own contract is "the `cd` target, else
+`default`" for every unresolved case including a structurally opaque
+command -- so a heredoc body (`--body-file - <<'EOF' ... EOF`, the shape
+the orchestrator uses for EVERY body edit), a `cd /a; gh ...` semicolon,
+and a `(cd /a && gh ...)` subshell all fell through to `default=cwd`
+silently, with no marker, no stderr. `target_repo_for_command()` now calls
+`hook_input.cd_target()` directly and never substitutes `cwd` for an
+`OpaqueCommand` result -- see that function's own docstring. `cd_target()`
+itself gained: heredoc BODY stripping (the redirect is real syntax, the
+data between the delimiter lines is not) rather than blanket opacity,
+`;`/`||`/newline as valid separators after a `cd` (not only `&&`),
+unwrapping enclosing `( ... )`/`{ ... }` groups, and walking multiple
+chained `cd` steps in order. Separately, `_GH_ISSUE_EDIT_RE` gained
+tolerance for flags between `gh` and `issue edit` (`gh -R owner/repo issue
+edit 42` used to miss the regex entirely -- a silent total miss, not even
+an unresolvable-repo stderr line, because the write path never triggered
+at all).
+
 Unresolvable repo (issue #3128's shape, applied here pre-emptively): when
 `repo_slug_for_cwd()` returns None -- no git repo at `cwd`, no `origin`
 remote, an origin URL this module's regex does not parse -- neither the
@@ -118,9 +138,14 @@ STATE_DIR_ENV = "OTR_AMENDMENT_STATE_DIR"
 # Matches `gh issue edit 123 ...` anywhere a shell would start a new
 # command (start of string, or after `;`/`&&`/`||`/`|`) -- deliberately
 # permissive about what comes after the issue number since the body flag
-# is checked separately.
+# is checked separately. The `(?:(?!issue\s+edit\b)\S+\s+)*` gap lets any
+# number of flags (`-R owner/repo`, `--repo=owner/repo`, ...) sit between
+# `gh` and the `issue edit` subcommand -- issue #3129 repair round 3:
+# `gh -R owner/repo issue edit 42` used to miss this regex entirely (no
+# marker, no notice, no stderr) because it required `issue` immediately
+# after `gh`.
 _GH_ISSUE_EDIT_RE = re.compile(
-    r"(?:^|[;&|]\s*)gh\s+issue\s+edit\s+(\d+)\b"
+    r"(?:^|[;&|]\s*)gh\s+(?:(?!issue\s+edit\b)\S+\s+)*issue\s+edit\s+(\d+)\b"
 )
 _BODY_FLAG_RE = re.compile(r"--body(?:-file)?(?:=|\s|$)")
 # An explicit `--repo`/`-R owner/repo` on the gh invocation itself --
@@ -376,26 +401,45 @@ def _explicit_repo_flag(command: str, segment_start: int) -> Optional[str]:
 
 
 def target_repo_for_command(command: str, cwd: str, segment_start: int = 0) -> Optional[str]:
-    """The repo a `gh issue edit` command actually targets.
+    """The repo a `gh issue edit` command actually targets, or None when it
+    cannot be identified.
 
     Two sources are authoritative, checked in order; the raw session
     `cwd` is neither of them:
 
       1. an explicit `--repo`/`-R owner/repo` on the invocation itself.
       2. otherwise, the git repo of the directory the command runs in
-         after any leading `cd <path> &&` in the command string
-         (`hook_input.resolved_cwd()` -- the same total, no-network `cd`
+         after walking every leading `cd` in the command string
+         (`hook_input.cd_target()` -- the same total, no-network `cd`
          parser every other hook in this repo already shares).
 
-    Falls back to `cwd` itself only when the command carries no `cd`
-    prefix and no `--repo`/`-R` flag, i.e. `resolved_cwd()`'s own
-    documented default behavior.
+    Falls back to `cwd` itself only when `hook_input.cd_target()` reports
+    `NoCdTarget` -- the command is structurally well-formed and genuinely
+    carries no `cd` prefix at all, so using the session's own `cwd` is not
+    a guess.
+
+    Deliberately does NOT call `hook_input.resolved_cwd()` (issue #3129
+    repair round 3): that helper's own documented contract is "cd target,
+    else `default`" for ANY unresolved case, `OpaqueCommand` included --
+    exactly the fallback this module's docstring forbids. A `gh issue
+    edit ... --body-file - <<'EOF' ... EOF` heredoc (the form the
+    orchestrator uses for every body edit), a `cd /a; gh ...` semicolon,
+    and a `(cd /a && gh ...)` subshell all used to hit that fallback and
+    silently key the marker to the session `cwd` -- which is almost
+    always itself a resolvable repo, so the failure looked like a
+    successful, plausible, WRONG attribution rather than a visible
+    unknown. Calling `cd_target()` directly and treating `OpaqueCommand`
+    as unresolvable (return None, never `cwd`) closes that gap.
     """
     explicit = _explicit_repo_flag(command, segment_start)
     if explicit:
         return explicit
-    target_cwd = hook_input.resolved_cwd(command, default=cwd)
-    return repo_slug_for_cwd(target_cwd)
+    cd_result = hook_input.cd_target(command)
+    if isinstance(cd_result, hook_input.CdTarget):
+        return repo_slug_for_cwd(cd_result.path)
+    if isinstance(cd_result, hook_input.OpaqueCommand):
+        return None
+    return repo_slug_for_cwd(cwd)
 
 
 def maybe_write_from_command(state_dir: str, tool_name: str, command: str, cwd: str) -> None:

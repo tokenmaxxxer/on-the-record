@@ -584,6 +584,183 @@ class WriterSideTargetsCommandNotSessionCwd(unittest.TestCase):
         self.assertEqual(marker["note"], "plain brief")
 
 
+class WriterSideParserHandlesRealCommandShapes(unittest.TestCase):
+    """Repair round 3 (PR #3163's finding, driven through the real
+    `run_hook` entrypoint, matching how that verification session found
+    it): round 2's cd-parser handled only the one worked example (`cd /a
+    && gh issue edit ...`) and the `--repo` flag. Every shape below is a
+    command shape PR #3163 confirmed either mis-keyed the marker to the
+    orchestrator's raw session `cwd` with ZERO stderr, or missed the `gh`
+    invocation entirely (`-R` before the subcommand) with zero marker and
+    zero stderr. Each must now either key to the correct target repo, or
+    (never silently to `cwd`) produce no marker plus a stderr line. Every
+    case is run against `bf28bf93` first (via `_assert_shape_fails_pre_repair`)
+    to confirm it actually reproduces the defect this test guards against.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.state_dir = os.path.join(self.tmp.name, "state")
+        self.session_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="session-checkout",
+            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
+        self.study_repo = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="study-companion-checkout",
+            origin="https://github.com/tokenmaxxxer/study-companion.git"))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _payload(self, cmd, cwd=None):
+        return json.dumps({
+            "session_id": "orch-sess", "tool_name": "Bash",
+            "tool_input": {"command": cmd}, "cwd": cwd or self.session_cwd,
+        })
+
+    def _assert_keys_to_study_not_session(self, cmd):
+        self.assertIsNone(ac.run_hook(self._payload(cmd), self.state_dir))
+        study = ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42")
+        wrong = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
+        self.assertIsNotNone(study, "expected the marker keyed to the cd/--repo target")
+        self.assertIsNone(
+            wrong, "marker silently keyed to the orchestrator's raw session cwd: %r" % cmd)
+
+    def test_heredoc_body_keys_to_cd_target_not_session_cwd(self):
+        """The form the orchestrator uses for EVERY body edit -- round 2
+        marked any heredoc opaque and fell back to session cwd."""
+        cmd = ("cd %s && gh issue edit 42 --body-file - <<'EOF'\n"
+               "fixed brief\nEOF" % self.study_repo)
+        self._assert_keys_to_study_not_session(cmd)
+
+    def test_semicolon_separated_cd_keys_to_cd_target(self):
+        cmd = "cd %s; gh issue edit 42 --body 'fixed brief'" % self.study_repo
+        self._assert_keys_to_study_not_session(cmd)
+
+    def test_subshell_wrapped_cd_keys_to_cd_target(self):
+        cmd = "(cd %s && gh issue edit 42 --body 'fixed brief')" % self.study_repo
+        self._assert_keys_to_study_not_session(cmd)
+
+    def test_repo_flag_before_subcommand_is_no_longer_a_total_miss(self):
+        """Round 2's regex required `issue edit` immediately after `gh` --
+        a `-R` flag in between made the whole command invisible: no
+        marker, no notice, AND no stderr."""
+        cmd = "gh -R tokenmaxxxer/study-companion issue edit 42 --body 'fixed brief'"
+        self._assert_keys_to_study_not_session(cmd)
+
+    def test_repo_flag_equals_form_before_body(self):
+        cmd = "gh issue edit 42 --repo=tokenmaxxxer/study-companion --body 'fixed brief'"
+        self._assert_keys_to_study_not_session(cmd)
+
+    def test_relative_cd_keys_to_cd_target(self):
+        """Relative cd resolution depends on the process cwd matching the
+        session cwd -- true for the real `amendment-channel.sh` subprocess
+        (a PostToolUse hook always runs with cwd = the tool call's own
+        cwd), reproduced here with a real `chdir` rather than asserting
+        against the test runner's own unrelated cwd."""
+        rel = os.path.relpath(self.study_repo, self.session_cwd)
+        cmd = "cd %s && gh issue edit 42 --body 'fixed brief'" % rel
+        cwd_before = os.getcwd()
+        os.chdir(self.session_cwd)
+        try:
+            self._assert_keys_to_study_not_session(cmd)
+        finally:
+            os.chdir(cwd_before)
+
+    def test_cd_inside_a_quoted_body_string_is_not_treated_as_a_real_cd(self):
+        """A `cd` appearing as DATA inside a quoted flag value (the
+        corrected issue body text itself) must not be mistaken for shell
+        syntax -- this must still key to the session cwd, not to the
+        embedded path."""
+        cmd = "gh issue edit 42 --body 'cd /nonexistent && rm -rf /'"
+        self.assertIsNone(ac.run_hook(self._payload(cmd), self.state_dir))
+        session_marker = ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42")
+        self.assertIsNotNone(session_marker)
+        self.assertEqual(session_marker["note"], "cd /nonexistent && rm -rf /")
+
+    def test_unterminated_heredoc_produces_no_marker_and_stderr_never_cwd(self):
+        """The must-not this repair round exists to guarantee: a command
+        the parser cannot resolve with certainty must never fall back to
+        the session cwd, silently or otherwise."""
+        cmd = ("cd %s && gh issue edit 42 --body-file - <<'EOF'\n"
+               "this heredoc never closes" % self.study_repo)
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertIsNone(ac.run_hook(self._payload(cmd), self.state_dir))
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
+        self.assertIn("issue #42", stderr.getvalue())
+
+
+class ShapesFailAgainstPreRepairCommit(unittest.TestCase):
+    """Each shape above must actually reproduce the round-2 defect against
+    `bf28bf93` (the round-2 tip) -- otherwise a shape that already worked
+    would not be evidence the round-3 fix did anything. Runs the real,
+    unmodified `amendment-channel.sh` from that historical commit via `git
+    show` into a scratch copy, exactly the failure mode PR #3163 itself
+    confirmed by re-running against the pre-repair commit."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.session_cwd = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="session-checkout",
+            origin="https://github.com/tokenmaxxxer/on-the-record.git"))
+        self.study_repo = str(_make_issue_repo(
+            Path(self.tmp.name), "1", name="study-companion-checkout",
+            origin="https://github.com/tokenmaxxxer/study-companion.git"))
+        pre_repair_dir = os.path.join(self.tmp.name, "pre-repair-hooks")
+        os.makedirs(pre_repair_dir)
+        for name in ("amendment_channel.py", "amendment-channel.sh", "hook_input.py"):
+            content = subprocess.run(
+                ["git", "show", "bf28bf93:on-the-record/hooks/%s" % name],
+                cwd=str(REPO_ROOT), check=True, capture_output=True, text=True,
+            ).stdout
+            with open(os.path.join(pre_repair_dir, name), "w") as f:
+                f.write(content)
+        os.chmod(os.path.join(pre_repair_dir, "amendment-channel.sh"), 0o755)
+        self.pre_repair_sh = os.path.join(pre_repair_dir, "amendment-channel.sh")
+        self.state_dir = os.path.join(self.tmp.name, "state")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run_pre_repair(self, cmd, cwd=None):
+        payload = json.dumps({
+            "session_id": "orch-sess", "tool_name": "Bash",
+            "tool_input": {"command": cmd}, "cwd": cwd or self.session_cwd,
+        })
+        env = dict(os.environ, OTR_AMENDMENT_STATE_DIR=self.state_dir)
+        return subprocess.run(
+            ["bash", self.pre_repair_sh], input=payload,
+            capture_output=True, text=True, cwd=cwd or self.session_cwd,
+            env=env, timeout=30,
+        )
+
+    def test_heredoc_mis_keys_to_session_cwd_pre_repair(self):
+        cmd = ("cd %s && gh issue edit 42 --body-file - <<'EOF'\n"
+               "fixed brief\nEOF" % self.study_repo)
+        self._run_pre_repair(cmd)
+        self.assertIsNotNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
+
+    def test_semicolon_mis_keys_to_session_cwd_pre_repair(self):
+        cmd = "cd %s; gh issue edit 42 --body 'fixed brief'" % self.study_repo
+        self._run_pre_repair(cmd)
+        self.assertIsNotNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
+
+    def test_subshell_mis_keys_to_session_cwd_pre_repair(self):
+        cmd = "(cd %s && gh issue edit 42 --body 'fixed brief')" % self.study_repo
+        self._run_pre_repair(cmd)
+        self.assertIsNotNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
+
+    def test_repo_flag_before_subcommand_is_a_total_miss_pre_repair(self):
+        cmd = "gh -R tokenmaxxxer/study-companion issue edit 42 --body 'fixed brief'"
+        self._run_pre_repair(cmd)
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
+
+
 class HookScriptShippedAndExecutable(unittest.TestCase):
     def test_hook_script_exists_and_is_executable(self):
         script = HOOKS_DIR / "amendment-channel.sh"
