@@ -325,6 +325,11 @@ so a correction round remains possible against the two findings below.
   reached via different reproduction routes landing on the same root
   causes.
 
+skill-verdict: work-in-english — applied: invoked; used for this whole
+record (English exhaust, Korean-only final user summary), since the
+spawning task text is in Korean.
+other mounted skills: not triggered.
+
 ## Next steps
 
 derived: acceptance checks 1-3 above (all executed and passing on PR
