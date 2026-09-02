@@ -431,8 +431,8 @@ branch. The two new findings in "Open findings" remain open against the
 underlying PR #3131 / issue #3127 line of work, not against this
 verification record.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; re-derived the #3091/#2507 confound check from
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked;
+re-derived the #3091/#2507 confound check from
 `pipeline.py` and a live test run rather than citing the PR's own
 citation of it, deliberately constructed a negative-path attempt against
 `verify_preregistration.py` instead of only its happy path, and read the
