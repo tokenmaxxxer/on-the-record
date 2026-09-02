@@ -42,7 +42,7 @@ Steps:
    - acceptance: `python3 spawn.py sweep-orphans --dry-run 2>&1 | head -20` — result: 20 `[dry-run] tmp-worktree: ...` lines listing real orphaned `/tmp` worktrees on this host, exit 0
    - acceptance: `python3 -m pytest tests/ -q` — result: `287 passed, 2 warnings in 11.47s` (the 2 warnings are `tests/test_skill_candidates_floor.py`'s pre-existing pinned-fixture-divergence warnings, unrelated to this PR)
    - additionally: `python3 -m pytest test/ -q` (singular, requested separately by the task) — result: `15 failed, 548 passed, 3 xfailed in 32.28s`, spread across `test/test_convention_equivalence.py`, `test/test_local_dependency_env.py`, `test/test_spawn_cross_family_skill_selection.py`, `test/test_spawn_artifact_skill_pairing.py`, and `test/test_spawn_skill_judge_haiku_timeout_overlap.py` (all untracked in this branch) — none touching `lifecycle.py`'s liveness helpers or the orphan-sweep files this PR changed, matching the task's statement that these are owned by issue #3091.
-5. Pushed the rebased branch with `git push --force-with-lease origin pr3126-rebase:issue-3118/implementation-blueprint+silent-failure-audit+test-derivation-c9ef1cc3` — canonical: `gh pr view 3126 --json headRefOid,mergeable,mergeStateStatus` — result: `{"headRefOid":"dc40f449ec157d600375c12fd8f9ac048d0d4ccf","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}`, matching the rebased branch's local `HEAD` (`dc40f449`). Not merged, per the task's explicit instruction not to merge — canonical: `gh pr view 3126 --json state` — result: `{"state":"OPEN"}`.
+5. Pushed the rebased branch with `git push --force-with-lease origin pr3126-rebase:issue-3118/implementation-blueprint+silent-failure-audit+test-derivation-c9ef1cc3` — canonical: `gh pr view 3126 --json headRefOid,mergeable,mergeStateStatus` — result: `{"headRefOid":"dc40f449ec157d600375c12fd8f9ac048d0d4ccf","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}`, matching the rebased branch's local `HEAD` (`dc40f449`). This session never ran `gh pr merge` on it, per the task's explicit instruction not to merge. It went CLEAN/MERGEABLE at that point and stayed OPEN through the rest of this session's own work (writing and pushing this record). Checked again while assembling this record — canonical: `gh pr view 3126 --json state,mergedBy,mergedAt` — result: `{"state":"MERGED","mergedBy":{"login":"JiwonJung94"},"mergedAt":"2026-09-02T09:33:41Z"}` — merged by an external process/account roughly a minute after this session's push, not by this session.
 
 ## Why
 
@@ -64,7 +64,7 @@ None from this session. This was a mergeability restoration only; PR #3126's sub
 
 ## Next steps
 
-None. PR #3126 is pushed and mergeable — canonical: `gh pr view 3126 --json mergeable,mergeStateStatus` — result: `{"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN"}` (same command and result already cited in "What was done", step 5).
+None. PR #3126 reached its intended end state after this session's push (mergeable/clean, see "What was done" step 5) and was subsequently merged by an external process — canonical: `gh pr view 3126 --json state` — result: `{"state":"MERGED"}` (same fact already cited in "What was done", step 5).
 
 ## Skill verdicts
 
