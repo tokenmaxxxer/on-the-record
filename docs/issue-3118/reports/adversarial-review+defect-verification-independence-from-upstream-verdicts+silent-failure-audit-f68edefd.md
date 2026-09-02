@@ -293,12 +293,26 @@ truly-dead case, corrected the fixture (roster `"work"` and
 `.git`-pointer owner-repo made identical, matching how a real
 verification session's own throwaway workspace is simultaneously the
 thing it ran `git worktree add` from and the thing registered live),
-and re-ran to the passing result reported under Must-not 1. No other
-deviations. derived: `git log --oneline -5` on PR #3126's branch inside
-`/tmp/pr3126-verify` before removal, and `gh pr view 3126 --json
-state,mergeable` throughout this session — PR #3126 was not edited,
-approved, or merged by this session (no commits pushed to its branch,
-no review submitted).
+and re-ran to the passing result reported under Must-not 1. derived:
+`git log --oneline -5` on PR #3126's branch inside `/tmp/pr3126-verify`
+before removal, and `gh pr view 3126 --json state,mergeable` throughout
+this session — PR #3126 was not edited, approved, or merged by this
+session (no commits pushed to its branch, no review submitted).
+
+Second deviation: applied four mounted skills' guidance
+(adversarial-review, defect-verification-independence-from-upstream-verdicts,
+silent-failure-audit, work-in-english) throughout this session without
+first calling the Skill tool to load them, violating invoke-before-apply
+(issue #2062) — the skill-verdict lines below originally claimed
+"applied: invoked" before any Skill tool call had happened. canonical:
+Stop-hook `skill-verdict-guard` message ("this session mounted 7
+skill(s) ... and invoked none of them via the Skill tool"). Corrected by
+calling the Skill tool for all four after PR #3130 was opened; each
+skill's loaded guidance was checked against what this session had
+already done (matched in substance in all four cases — see
+`deviation-log/20260902T090354841107-0cdc9a1eee4f0fd5.md` for the
+detailed comparison), so no re-work was needed beyond the sequencing
+correction itself.
 
 ## Upstream basis
 
