@@ -4,7 +4,7 @@ role: implementation-blueprint+silent-failure-audit+test-derivation-6eac66c0
 author: implementation-blueprint+silent-failure-audit+test-derivation-6eac66c0
 skills: implementation-blueprint (skill-repository(c05de12)), silent-failure-audit (skill-repository(c05de12)), test-derivation (skill-repository(c05de12))
 verifies_subject: false  # flip to true only if this record is an independent verification of this subject's own deliverable -- see docs/handbooks/observer-verification.md
-code_under_review: 80ff89f8 (issue-3050/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4, PR #3086)
+code_under_review: 74b261e9 (issue-3050/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4, PR #3086; supersedes this record's own earlier citation of 80ff89f8, its immediate parent)
 type: implementation-record
 breaking: false
 verdict: PASS
@@ -256,32 +256,65 @@ pushed to PR #3086's own branch and not part of this PR's diff. A human
 still needs to merge PR #3086 for this issue's acceptance checks to run
 against `main`; this PR alone does not close #3050.
 
-skill-verdict: implementation-blueprint — applied: invoked; classified
-the `push_succeeded` fix as the same backend/domain-rich shape PR #3086's
-own record used, so the fix stayed a pure derivation function
-(`spawn._push_succeeded()`, no I/O) extracted from `_spawn_one()` rather
-than inlined further -- one unit, well below the fan-out threshold, built
-solo.
-skill-verdict: silent-failure-audit — applied: invoked; this repair
-round's own subject is a silent-failure classification defect (must-not
-B). Re-read `relay.py::ensure_pushed()` (untracked on this branch, PR
-#3086's own file) in full to check `_push_succeeded()`'s exclusion tuple
-for the same defect class after the fix -- a fourth status silently
-falling through as success.
+skill-verdict: implementation-blueprint — applied: invoked; ran
+`prep.py classify --surface backend --external no --logic crud
+--asynchronous no --single-file` for the `_push_succeeded()` extraction
+(one pure function, one call site, added to an already-large existing
+module) -- result: `VETO: single file, single concern, no callers ->
+no-structure`, "just write it correctly ... flat is fine". Confirms the
+extraction as a bare module-level function (no class, no interface, no
+archetype ceremony) was the right call, not an accidental
+under-structuring; earlier drafting of this record had instead described
+it as "backend/domain-rich" without running the tool, corrected here
+after the actual invocation.
+skill-verdict: silent-failure-audit — applied: invoked; ran the audit's
+Step 1-3 against `spawn._push_succeeded()`/`board.fail_closed_downgrade()`
+for the same defect class the fix closes (a status silently falling
+through as success). Found `relay.py::ensure_pushed()`'s
+`"issue-closed-stale-branch"` return (a 7th possible status) is not in
+`_push_succeeded()`'s exclusion tuple, before or after this fix.
 
 derived: `grep -n '"nothing-to-push"\|"push-rejected"\|"pr-create-failed"\|"issue-closed-stale-branch"' spawn.py relay.py`
-(PR #3086 branch) -- `spawn._push_succeeded()`'s exclusion tuple names
-three statuses; `relay.py::ensure_pushed()`'s `"issue-closed-stale-branch"`
-return is not one of them, before or after this fix. Checked that
-`fail_closed_downgrade()`'s `already_delivered`/`blocked` checks run
-ahead of `push_succeeded` in every path that matters for that status, so
-it was not a second live instance of must-not B; left unfixed as out of
-this repair round's named scope (only `"nothing-to-push"` was named), not
-silently dropped.
-skill-verdict: test-derivation — applied: invoked; the new
-`PushSucceededDerivationLiveTest` cases are an equivalence partition over
-`ensure_pushed()`'s real status values reached through the two genuinely
-distinct code paths (role branch absent locally vs.
-present-and-pushed-successfully), each driven through real git operations
-rather than a synthetic status string, per the repair round's explicit
-instruction that a test setting the flag directly does not close the gap.
+(PR #3086 branch) -- confirms the tuple names three statuses, not that
+fourth one.
+
+derived: `grep -n "CLOSED => never respawn" lifecycle.py` (PR #3086
+branch) -- `lifecycle.py:428` refuses to *respawn* when the subject issue
+is `CLOSED`, independent of `push_succeeded`. First-pass trace-forward
+concluded that made this Unreachable and left it unfixed; a subsequently
+dispatched background warrant-hunter (before-landing hunt on this repair
+round's own fix) corrected that -- the respawn guard does not touch the
+classification itself: `fail_closed_downgrade()` still returned
+`progressed` for a round with no new commit and no real delivery,
+independent of whether anything respawns on it, which is must-not B's
+actual shape. Fixed in a second commit, `74b261e9`: added
+`"issue-closed-stale-branch"` to `_push_succeeded()`'s exclusion tuple.
+
+derived: `python3 -m pytest tests/test_failed_no_commit_reconcile.py -q`
+(PR #3086 branch, commit `74b261e9`) -- `20 passed`, including the new
+`test_closed_issue_stale_branch_reconciles_to_failed_no_commit` (real
+`ensure_pushed()`/`_push_succeeded()`, `spawn._subject_issue_state`
+stubbed to `CLOSED`).
+skill-verdict: test-derivation — applied: invoked; routed the
+requirement ("`push_succeeded` must reflect `ensure_pushed()`'s real
+7-valued status, not a hand-supplied boolean") to equivalence
+partitioning over that status domain -- High risk (A: this is must-not
+B, a silently-lost-work-shaped failure). Partition list: 7 named
+statuses partition into 2 outcome classes (success:
+`pushed`/`pr-opened`/`pr-already-open`/`issue-closed-stale-branch`;
+failure: `nothing-to-push`/`push-rejected`/`pr-create-failed`).
+`PushSucceededDerivationLiveTest`'s two cases exercise one partition from
+each outcome class (`nothing-to-push` -- the must-not B defect itself;
+`pr-opened` -- a regression pin) through real git operations, not a
+synthetic status string, per the repair round's explicit instruction
+that a test setting the flag directly does not close the gap. EP
+coverage against the full 7-partition list (2 of 7 = 29%, derived: count
+the two named cases against the seven-status list cited above) by direct
+real-path derivation; the other 5 are not separately exercised through
+`ensure_pushed()` in this repair round -- named exclusion, not a silent
+gap: `push-rejected`/`pr-create-failed` were already covered at the
+boolean level by the pre-existing hand-typed test suite (`board`-level,
+not `ensure_pushed()`-level), and constructing real git/gh fixtures for
+`pushed`/`pr-already-open`/`issue-closed-stale-branch` was judged out of
+this repair round's named scope (the one confirmed defect was
+`nothing-to-push`).
