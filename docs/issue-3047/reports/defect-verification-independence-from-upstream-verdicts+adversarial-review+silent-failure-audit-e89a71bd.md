@@ -233,6 +233,46 @@ None. All two acceptance checks and all three must-not clauses graded
 `tests/` alone) is identical between main and the PR branch, confirmed
 by the `diff`/`exit: 0` result above.
 
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5505821354 (posted 2026-09-02T07:05:58Z
+by JiwonJung94 on issue #3047, after this verification session started) —
+reports the watchdog firing this exact alarm live, two ticks after PR
+#3085 opened, against PR #3085 itself (issue-3047 subject) and PR #3086
+(issue-3050 subject), both ordinary just-opened session branches with
+`recut-corrupted` wrongly attached under the pre-fix code. The comment
+asks this session to reconstruct these two real cases rather than only
+synthetic ones.
+canonical: `gh pr list --search "issue-3047" --state all --json number,headRefName,state,title` (run this session) — result:
+```
+[{"headRefName":"issue-3047/silent-failure-audit+implementation-blueprint+test-derivation-48ce3454","number":3085,"state":"OPEN", ...}]
+```
+canonical: `gh pr list --search "issue-3050" --state all --json number,headRefName,state,title` (run this session) — result:
+```
+[{"headRefName":"issue-3050/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4","number":3086,"state":"OPEN", ...}]
+```
+Neither subject has any MERGED or CLOSED sibling under its `issue-<n>/`
+prefix — exactly one OPEN PR each. Rebuilt both real `pr_index` shapes
+and ran them through the PR worktree's classifier (fresh worktree,
+`/tmp/pr3085-verify2`, same `dfad1978` head as above):
+derived: `python3 -c "..."` against `/tmp/pr3085-verify2` (inline script, run this session) — result:
+```
+issue-3047 subject cause: no-record-yet
+[watchdog] board-sweep: PR #3085 변경 감지했으나 issue-3047 subject 가 board 매핑을 잃었다 (브랜치='issue-3047/silent-failure-audit+implementation-blueprint+test-derivation-48ce3454') — 원인: no-record-yet (이 subject 는 아직 병합된 레코드가 한 번도 없다 — 새 이슈의 정상 상태) — 조치 불필요, 재컷 복구 대상 아님
+
+issue-3050 subject cause: no-record-yet
+[watchdog] board-sweep: PR #3086 변경 감지했으나 issue-3050 subject 가 board 매핑을 잃었다 (브랜치='issue-3050/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4') — 원인: no-record-yet (이 subject 는 아직 병합된 레코드가 한 번도 없다 — 새 이슈의 정상 상태) — 조치 불필요, 재컷 복구 대상 아님
+```
+Both real subjects the comment names — including this issue's own fix
+branch — classify as `no-record-yet` with no `recut-corrupted` text under
+PR #3085's code, confirming by execution against the exact live input
+named in the amendment that the fix resolves both new false-alarm
+instances, not only the synthetic and issue-3081 cases checked above.
+This does not change any of the five graded verdicts (all were already
+**Present**); it adds a second, independently-sourced confirmation of
+must-not-3/the acceptance checks against inputs this session did not
+choose.
+
 ## Next steps
 
 None — terminal state.
