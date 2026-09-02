@@ -4,17 +4,19 @@ role: implementation-blueprint+decision-brief+silent-failure-audit+test-derivati
 author: implementation-blueprint+decision-brief+silent-failure-audit+test-derivation-7559ea9e
 skills: implementation-blueprint (skill-repository(c05de12)), decision-brief (skill-repository(c05de12)), silent-failure-audit (skill-repository(c05de12)), test-derivation (skill-repository(c05de12))
 verifies_subject: false  # flip to true only if this record is an independent verification of this subject's own deliverable -- see docs/handbooks/observer-verification.md
-code_under_review: 3f1bb626b10a55d9dfed542df4767a78f56717e2
+code_under_review: adb0dab2aa91ad7927908ca89b17d121906738ea
 type: repair-record
 breaking: false
 verdict: PARTIAL
 loop_state: landed
 upstream:
   - path: PR https://github.com/tokenmaxxxer/on-the-record/pull/3087 (branch issue-3061/implementation-blueprint+silent-failure-audit+test-derivation+decision-brief-f458808c)
-    sha: 3f1bb626b10a55d9dfed542df4767a78f56717e2
+    sha: adb0dab2aa91ad7927908ca89b17d121906738ea
   - path: docs/issue-3061/reports/adversarial-review+defect-verification-independence-from-upstream-verdicts+silent-failure-audit-e66b8b2e.md
     sha: same-commit
   - path: docs/issue-3061/reports/test-depth-audit+silent-failure-audit+conformance-review-verdict-assignment-35651d99.md
+    sha: same-commit
+  - path: gh issue comment https://github.com/tokenmaxxxer/on-the-record/issues/3061#issuecomment-5506254009
     sha: same-commit
 ---
 
@@ -103,6 +105,23 @@ One genuine deviation, logged at the point it occurred: the R3 beacon-wiring com
 derived: `python3 -m pytest -q -m "not slow"` run against PR #3087's branch immediately after commit `c2c38c64` (this session, this turn) — result: `23 failed` (one more than the 22-failure baseline both verification records measured), the extra failure being the `t_heartbeat_bound_with_returned_pr_emits_only_those_lines` function in `on-the-record/monitors/test_poll_heartbeat.py`
 Fixed in a follow-up commit (`3f1bb626`) in the same session rather than left unaddressed; see "Full suite" above for the before/after counts. Nothing else was tried, abandoned, and replaced.
 
+## Amendments reconciled
+
+amendments-reconciled: issuecomment-5506254009
+canonical: `gh api repos/tokenmaxxxer/on-the-record/issues/comments/5506254009` output (this session, this turn) — posted 2026-09-02T07:46:36Z, after this session's R2/R3 code commits were already pushed to PR #3087's branch, before this record's own commit
+
+A third independent verification (PR #3107, merged to `main`) landed after this session's first three commits (R3 wiring, R2 narrowing, the R3-regression test fix) were already pushed. It reproduced the same two defect classes with its own independently constructed inputs, not copied from PR #3097's five or PR #3102's sixth: two more genuine escalations (one Korean, one English) misclassified as redundant under the pre-repair pattern list, and an independent re-confirmation of the trailing-punctuation gap in the third named pattern (`다음은 ...하겠습니다`).
+canonical: `gh pr view 3107` output (this session, this turn) — R1 Present, R2 Incorrect (4 cases, 3 misclassified + 1 punctuation-gap reproduction), R3 Surface, matching both prior verifications
+
+All four of PR #3107's cases were re-run directly against this session's already-landed R2 fix on PR #3087's branch, before any further code change:
+derived: `python3 -c "import delegation_state as ds; print([ds._is_redundant_ask(c) for c in cases])"` (PR #3107's four cases, copied verbatim from its record) run against PR #3087's branch at commit `3f1bb626` (this session, this turn) — result: the two genuine escalations both `False` (correctly not flagged), the fork case `False` (correctly not flagged), the trailing-punctuation case `True` (correctly flagged — the anchor fix from this session's earlier commit already generalizes past the one wording PR #3102 used)
+
+All four already passed without further code changes — the comment's instruction that "the repair round already running must not be judged by whether those ten now pass" is not being treated as a target to hit; the fix's own stated boundary (0/6 false-redundant, 2/6 false-genuine on a held-out set built before PR #3107 existed) stands unchanged. A fifth commit pins PR #3107's four cases as permanent regression tests, since they are now three-sessions-reproduced evidence, not just this session's own construction:
+derived: `git log --oneline -1 adb0dab2` run against PR #3087's branch (this session, this turn) — result: `adb0dab2 issue-3061: add regression tests for PR #3107's third verification`
+Acceptance requirement met — checked: `python3 -m pytest test/test_delegation_state.py -q` (untracked in this checkout — PR #3087-only path, same file cited throughout this record) run against PR #3087's branch at `adb0dab2` (this session, this turn) — result: `28 passed`
+
+The comment also reiterated the R1 automatic-grant-wiring caveat (PR #3102's finding) and asked this repair round to decide scope on it, which the R1 section above already does — no change to that decision from this comment. The comment does not identify any new criterion beyond R1/R2/R3, and does not change the direction-of-error decision already made and recorded above; it is evidence that decision continues to hold against a third, independently-constructed input set.
+
 ## Upstream basis
 
 - `gh issue view 3061 --repo tokenmaxxxer/on-the-record` (issue body, read in full before this repair round) — sha: same-commit (informs this record, not a file in the tree). canonical: `gh issue view 3061 --repo tokenmaxxxer/on-the-record` output (this session, this turn) — issue body read in full, quoted throughout this record's R2/R3/R1 sections above
@@ -118,6 +137,6 @@ Fixed in a follow-up commit (`3f1bb626`) in the same session rather than left un
 
 ## Next steps
 
-loop_state: landed. Both commit sequences (4 commits) are pushed to PR #3087's own branch already; this record documents that work from this session's own board-gate-compliant branch.
-derived: `git push origin issue-3061/implementation-blueprint+silent-failure-audit+test-derivation+decision-brief-f458808c` (this session, this turn) — result: `fa0abb39..3f1bb626  issue-3061/... -> issue-3061/...`, pushed successfully
+loop_state: landed. All 5 commits are pushed to PR #3087's own branch already; this record documents that work from this session's own board-gate-compliant branch.
+derived: `git push origin issue-3061/implementation-blueprint+silent-failure-audit+test-derivation+decision-brief-f458808c` (this session, this turn) — result: `fa0abb39..3f1bb626` then `3f1bb626..adb0dab2  issue-3061/... -> issue-3061/...`, both pushed successfully
 No further action required from this session — PR #3087 remains open for a human to merge (this session neither approves nor merges it), and the R1 follow-up above is handed off rather than independently resolved.
