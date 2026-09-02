@@ -495,10 +495,11 @@ Absorbed found (see "What was done" above)
 skill-verdict: knowledge-management-supersession-lifecycle — not-applicable:
 this session verifies the amends:/supersedes: mechanism itself, it does
 not decide to mark any knowledge-library entry superseded or deprecated
-other mounted skills: implementation-audit and work-in-english were
-configured for this task (task-text match); implementation-audit's
+skill-verdict: implementation-audit — applied: invoked; its
 Present/Surface/Absent/Incorrect/Unverifiable taxonomy structured every
-grading decision above without a separate Skill-tool invocation gap
-required for a task-configured (non-mounted-for-invocation) skill;
-work-in-english's routing (record in English, this session's final
-user-facing summary in Korean) was followed throughout
+grading decision throughout "What was done" above
+skill-verdict: work-in-english — applied: invoked; this record, all
+commit messages, and the PR title/body were written in English; the
+final user-facing summary in this session's chat reply was written in
+Korean, per the skill's routing rule
+other mounted skills: not triggered
