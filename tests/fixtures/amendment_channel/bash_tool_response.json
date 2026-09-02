@@ -1,0 +1,10 @@
+{
+  "captured_from": "PostToolUse payload's tool_response field for a Bash call, Claude Code 2.1.258. Captured this round (issue #3129 repair round 7) by building an isolated project directory with its own .claude/settings.json registering a PostToolUse hook (matcher \"Bash\") that dumps raw stdin to a file, then running `claude -p \"Run the shell command: echo probe-round7-capture\" --dangerously-skip-permissions` in that directory. Independently reproduced by PR #3205's own capture (its finding 2) against the same CLI, same shape, different stdout text. `template.stdout` below is this session's own literal captured value, unedited.",
+  "template": {
+    "stdout": "probe-round7-capture",
+    "stderr": "",
+    "interrupted": false,
+    "isImage": false,
+    "noOutputExpected": false
+  }
+}
