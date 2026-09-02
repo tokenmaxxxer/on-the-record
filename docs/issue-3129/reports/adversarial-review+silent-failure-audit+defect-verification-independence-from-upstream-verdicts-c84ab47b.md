@@ -14,8 +14,9 @@ upstream:
 
 ## What was done
 
-amendments-reconciled: a comment landed on issue #3129 partway through
-this session, reporting a competing verification (PR #3147):
+amendments-reconciled: `issuecomment-5508124905` landed on issue #3129
+partway through this session, reporting a competing verification (PR
+#3147):
 
 ```
 $ gh api repos/tokenmaxxxer/on-the-record/issues/comments/5508124905 -q '.body'
