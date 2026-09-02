@@ -768,9 +768,20 @@ def parked_report(root: Path) -> list[str]:
     watchdog 출력이 park 된 항목을 waiting-for-human 으로 계속 보여주는
     데 쓴다(요구 3, watch-coverage 불가침). issue #2628: park state 가
     subject 단위로 바뀌면서 `(subject, role)` 쌍 대신 subject 하나만
-    돌려준다."""
+    돌려준다.
+
+    issue #3095: park state is one file shared across every repo the
+    orchestrator sweeps (issue #2240, unchanged) -- without this filter, a
+    subject parked while sweeping repo A prints as waiting-for-human on
+    repo B's report too, even though repo B may not even have that subject
+    (the identical defect issue #3081/PR #3084 fixed for
+    requirement_drift's cache). An entry with no `repo` key (written
+    before this fix) only matches a root whose own slug is also
+    unresolvable (`None`) -- same fail-open bucket `_repo_slug` itself
+    already uses for a checkout with no resolvable `gh` remote."""
+    repo_slug = spawn._repo_slug(root)
     return sorted(subject for subject, entry in load_park_state(root).items()
-                  if entry.get("parked"))
+                  if entry.get("parked") and entry.get("repo") == repo_slug)
 
 
 def unpark(root: Path, subject: str) -> bool:
@@ -895,6 +906,14 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     if pr_index is None:
         pr_index, _ = closure_sweep._pr_index_all(root)
 
+    # issue #3095: park state is one file shared across every repo the
+    # orchestrator sweeps (issue #2240, unchanged) -- `repo_slug` is this
+    # tick's attribution key. Every park-state entry this tick writes or
+    # consults is tagged/scoped to it, so one repo's tick can no longer
+    # inherit or report another repo's parked subjects (the identical
+    # defect issue #3081/PR #3084 fixed for requirement_drift's cache).
+    repo_slug = spawn._repo_slug(root)
+
     candidates: list[tuple[str, int, int | None]] = []
     for subject, deficit in missing_verification(
             root, issue_states=issue_states, pr_index=pr_index).items():
@@ -913,11 +932,23 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     for subject, deficit, pr_number in candidates:
         issue = int(subject.split("-", 1)[1])
         prior = park_state.get(subject)
+        # issue #3095: subject names (`issue-<n>`) are repo-local issue
+        # numbers, so the same subject string can legitimately belong to a
+        # different repo's tick (the identical collision `_drift_cache_key`
+        # closed for issue #3081). A prior entry whose `repo` doesn't match
+        # this tick's own is not a genuine prior for this repo at all -- it
+        # must evict (never inherited into this subject's park/attempts/
+        # ceiling history), the retention-split counterpart to the
+        # own-repo fail-closed retention `is_approval_blocked` already does
+        # below when its gh lookup fails.
+        if prior is not None and prior.get("repo") != repo_slug:
+            prior = None
         if prior is not None and prior.get("blocked"):
             if not closure_sweep.recheck_backoff(backoff_state, subject, False):
                 # Not this tick's turn to recheck — stay parked, no gh call.
                 parked_now.append(subject)
-                park_state[subject] = {**prior, "pr_number": pr_number, "parked": True}
+                park_state[subject] = {**prior, "pr_number": pr_number, "parked": True,
+                                        "repo": repo_slug}
                 continue
             blocked = is_approval_blocked(root, issue, VERIFICATION_APPROVAL_TARGET)
             if not blocked:
@@ -925,7 +956,7 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
             if should_park(prior, blocked):
                 parked_now.append(subject)
                 park_state[subject] = {**prior, "blocked": True, "pr_number": pr_number,
-                                        "parked": True}
+                                        "parked": True, "repo": repo_slug}
                 continue
             # blocked cleared by a real external signal (an approval
             # comment) — fall through to spawn, still subject to the
@@ -934,7 +965,8 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
         if attempts >= max_respawn_attempts:
             ceiling_hit.append((subject, attempts))
             park_state[subject] = {**(prior or {}), "blocked": True, "pr_number": pr_number,
-                                    "parked": True, "ceiling_hit": True, "attempts": attempts}
+                                    "parked": True, "ceiling_hit": True, "attempts": attempts,
+                                    "repo": repo_slug}
             continue
         to_spawn.append((subject, deficit, pr_number, issue, attempts))
 
@@ -1019,7 +1051,8 @@ def spawn_missing_for_pr(root: Path, cwd: str, dry_run: bool = False,
     for subject, spawned_here in spawned_counts.items():
         pr_number, attempts_before = subject_meta[subject]
         park_state[subject] = {"blocked": True, "pr_number": pr_number, "parked": False,
-                                "attempts": attempts_before + spawned_here}
+                                "attempts": attempts_before + spawned_here,
+                                "repo": repo_slug}
     _save_park_state(root, park_state)
     return pairs
 
