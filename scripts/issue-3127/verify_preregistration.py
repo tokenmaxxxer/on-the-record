@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -45,6 +46,29 @@ PREREG_PATH = "docs/issue-3127/decisions/pre-registration.md"
 RESULTS_PATH = "docs/issue-3127/_assets/consumer-path-results.json"
 
 GhRunner = Callable[[list], "subprocess.CompletedProcess"]
+
+# `git log`/`git merge-base` here only ever read local, already-fetched
+# history -- no network -- so 10s is generous headroom over a real run, not
+# a tight margin; a local git command that has not returned in 10s is stuck
+# (lock contention, corrupt object), not "still working".
+GIT_TIMEOUT = 10
+# `gh` calls the GitHub API over the network. This repo's other gh call
+# sites (gates/probe_cwd_shapes.py, gates/gh_budget.py) use 10-30s for
+# single API reads; 30s matches the high end so an ordinary slow-network
+# moment doesn't get misread as "gh failed" and fail this check closed on
+# a false alarm.
+GH_TIMEOUT = 30
+
+# Synthetic returncode this file's own TimeoutExpired handlers below use for
+# a command that had to be killed -- matches the conventional exit code the
+# coreutils `timeout` command itself reports, so "(exit 124)" in a message
+# reads as a timeout rather than a real git/gh failure code.
+_TIMEOUT_RETURNCODE = 124
+
+# `git log --format=%H` only ever emits a full 40-character hex sha on a
+# real commit; anything else on a clean exit is unparseable output, not a
+# commit reference.
+_COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}")
 
 
 class GitCommandError(Exception):
@@ -70,13 +94,46 @@ class GitCommandError(Exception):
             f"{stderr.strip()}")
 
 
+class GitOutputError(Exception):
+    """Raised when a git command this check depends on exits 0 but its
+    stdout does not look like the commit sha it was asked for. A clean
+    exit does not, by itself, mean the output can be trusted at face
+    value -- unparseable output is not a real, verifiable commit
+    reference, and reading it as one would let a git binary that returns
+    a corrupted or unexpected exit-0 payload masquerade as a normal
+    result. Distinct from `GitCommandError` (which covers a non-zero
+    exit): this covers a zero exit with untrustworthy output."""
+
+    def __init__(self, args: tuple, output: str):
+        self.args = args
+        self.output = output
+        super().__init__(
+            f"`git {' '.join(args)}` exited 0 but its output does not "
+            f"look like a commit sha: {output!r}")
+
+
 def _run_git(repo_root: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(repo_root), *args],
-                           capture_output=True, text=True)
+    full_args = ["git", "-C", str(repo_root), *args]
+    try:
+        return subprocess.run(full_args, capture_output=True, text=True,
+                               timeout=GIT_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            args=full_args, returncode=_TIMEOUT_RETURNCODE, stdout="",
+            stderr=f"timed out after {GIT_TIMEOUT}s waiting for "
+                   f"`git {' '.join(args)}`")
 
 
 def _default_gh_runner(args: list) -> subprocess.CompletedProcess:
-    return subprocess.run(["gh", *args], capture_output=True, text=True)
+    full_args = ["gh", *args]
+    try:
+        return subprocess.run(full_args, capture_output=True, text=True,
+                               timeout=GH_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return subprocess.CompletedProcess(
+            args=full_args, returncode=_TIMEOUT_RETURNCODE, stdout="",
+            stderr=f"timed out after {GH_TIMEOUT}s waiting for "
+                   f"`gh {' '.join(args)}`")
 
 
 def _first_commit_for_path(repo_root: Path, path: str) -> Optional[str]:
@@ -89,7 +146,11 @@ def _first_commit_for_path(repo_root: Path, path: str) -> Optional[str]:
     command exits non-zero: that is not the same condition as "no commits
     found" and must not be reported as one (see `GitCommandError` for why)
     -- the caller fails the check closed instead of reading it as "not yet
-    committed".
+    committed". Raises `GitOutputError` when the command exits 0 but its
+    first output line is not a 40-character hex sha -- `--format=%H`
+    only ever emits that shape on a real commit, so anything else is
+    unparseable output, not a commit reference, and must not be handed
+    to a caller as one.
 
     No `--follow`: with `git log --diff-filter=A --follow`, git's own
     rename-tracking swallows the very "A" (added) event `--diff-filter=A`
@@ -111,7 +172,12 @@ def _first_commit_for_path(repo_root: Path, path: str) -> Optional[str]:
     if r.returncode != 0:
         raise GitCommandError(args, r.returncode, r.stderr)
     lines = [line for line in r.stdout.splitlines() if line.strip()]
-    return lines[0] if lines else None
+    if not lines:
+        return None
+    sha = lines[0]
+    if not _COMMIT_SHA_RE.fullmatch(sha):
+        raise GitOutputError(args, sha)
+    return sha
 
 
 def _read_frontmatter(text: str) -> dict:
@@ -299,10 +365,11 @@ def verify(repo_root: Path,
     try:
         prereg_commit = _first_commit_for_path(repo_root, PREREG_PATH)
         results_commit = _first_commit_for_path(repo_root, RESULTS_PATH)
-    except GitCommandError as e:
+    except (GitCommandError, GitOutputError) as e:
         return False, (
-            f"could not determine commit history -- {e} -- a failed git "
-            "command is not evidence the path has no commits yet, so this "
+            f"could not determine commit history -- {e} -- neither a "
+            "failed git command nor output that doesn't look like a "
+            "commit sha is evidence the path has no commits yet, so this "
             "cannot be read as a pass (fail closed)")
 
     if prereg_commit is None and results_commit is None:

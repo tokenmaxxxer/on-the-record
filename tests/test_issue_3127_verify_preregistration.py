@@ -28,6 +28,20 @@ git failure could silently read as a pass. `_first_commit_for_path` now
 raises `GitCommandError` on a failed command instead of returning `None`,
 and `verify()` catches it and fails closed. `FirstCommitForPathTest` and
 `VerifyGitFailureTest` cover the distinction.
+
+Round 4 (PR #3223 open findings, round-3 verification): neither
+`subprocess.run` call site (`_run_git`, `_default_gh_runner`) set a
+`timeout=`, so a real hang blocked indefinitely instead of failing
+closed -- the same defect class round 3 fixed, in its time dimension
+rather than its exit-status dimension. Both now set a timeout and
+convert `TimeoutExpired` into a synthetic non-zero `CompletedProcess`
+naming the command, which every existing fail-closed branch already
+handles (`SubprocessTimeoutTest`,
+`VerifyGitFailureTest.test_git_timeout_on_results_path_fails_closed_not_read_as_pass`).
+Also closed: `_first_commit_for_path` accepted any non-blank `git log`
+output line on a clean exit as a commit sha without checking its shape;
+it now raises `GitOutputError` when the line is not a 40-character hex
+sha (`GitOutputErrorTest`, in `FirstCommitForPathTest`).
 """
 import subprocess
 import sys
@@ -282,6 +296,46 @@ class FirstCommitForPathTest(unittest.TestCase):
         self.assertNotEqual(ctx.exception.returncode, 0)
         self.assertIn("git log", str(ctx.exception))
 
+    def test_raises_git_output_error_on_malformed_shape_at_exit_0(self):
+        # `git log` exits 0 but its stdout does not look like a 40-char
+        # hex sha (PR #3223 open finding 2) -- must not be handed to a
+        # caller as a trustworthy commit reference.
+        with mock.patch.object(
+                vp, "_run_git",
+                return_value=_completed(stdout="NOT-A-VALID-SHA-LINE\n")):
+            with self.assertRaises(vp.GitOutputError) as ctx:
+                vp._first_commit_for_path(self.repo_root, vp.PREREG_PATH)
+        self.assertIn("NOT-A-VALID-SHA-LINE", str(ctx.exception))
+
+
+class SubprocessTimeoutTest(unittest.TestCase):
+    """PR #3223 open finding 1: neither `subprocess.run` call site set a
+    `timeout=`, so a real hang blocked indefinitely instead of failing
+    closed. `_run_git`/`_default_gh_runner` now convert a
+    `TimeoutExpired` into a synthetic non-zero `CompletedProcess`, which
+    every existing `returncode != 0` fail-closed branch already handles
+    without further changes."""
+
+    def test_run_git_timeout_becomes_nonzero_completed_process(self):
+        with mock.patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(
+                    cmd=["git", "log"], timeout=vp.GIT_TIMEOUT)):
+            r = vp._run_git(Path("/tmp"), "log")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("timed out", r.stderr)
+        self.assertIn("git log", r.stderr)
+
+    def test_default_gh_runner_timeout_becomes_nonzero_completed_process(self):
+        with mock.patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired(
+                    cmd=["gh", "pr", "view"], timeout=vp.GH_TIMEOUT)):
+            r = vp._default_gh_runner(["pr", "view", "1"])
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("timed out", r.stderr)
+        self.assertIn("gh pr view", r.stderr)
+
 
 class VerifyGitFailureTest(unittest.TestCase):
     """End-to-end: a git command failure while resolving commit history
@@ -327,6 +381,26 @@ class VerifyGitFailureTest(unittest.TestCase):
             return real_run_git(repo_root, *args)
 
         with mock.patch.object(vp, "_run_git", side_effect=flaky_run_git):
+            ok, msg = vp.verify(self.repo_root)
+
+        self.assertFalse(ok, msg)
+        self.assertIn("git log", msg)
+        self.assertIn("fail closed", msg)
+
+    def test_git_timeout_on_results_path_fails_closed_not_read_as_pass(self):
+        # Same shape as the failure test above, but the injected fault is
+        # a hang (TimeoutExpired) rather than a non-zero exit -- the same
+        # defect class in its time dimension (PR #3223 open finding 1).
+        real_run_git = vp._run_git
+
+        def hanging_run_git(repo_root, *args):
+            if args and args[-1] == vp.RESULTS_PATH:
+                return subprocess.CompletedProcess(
+                    args=["git", *args], returncode=124, stdout="",
+                    stderr="timed out after 10s waiting for `git log`")
+            return real_run_git(repo_root, *args)
+
+        with mock.patch.object(vp, "_run_git", side_effect=hanging_run_git):
             ok, msg = vp.verify(self.repo_root)
 
         self.assertFalse(ok, msg)
