@@ -57,8 +57,9 @@ line at the moment outcome is decided.
 canonical: `861895f:board.py:1362-1381` (`fail_closed_downgrade`'s
 `progressed` branch through the new `push_succeeded` check) plus
 `861895f:board.py:1385-1396` (`reconcile_disagreement()`), and
-`861895f:supersession.py:108-129` (`resolve_authoritative`'s
-conflict/broken handling) -- all quoted in full below.
+this delivery's final `supersession.py:127-146` (`resolve_authoritative`'s
+conflict/broken handling, after the path-normalization fix described in
+"What did not work") -- all quoted in full below.
 
 ```python
 # 861895f:board.py:1362-1381
@@ -84,7 +85,7 @@ def reconcile_disagreement(outcome: str, issue: int | None, blocked: list,
 ```
 
 ```python
-# 861895f:supersession.py:108-129
+# supersession.py:127-146 (this delivery's final state)
     superseded: dict[str, str] = {}
     conflicts: dict[str, list[str]] = {}
     excluded: set[str] = set()
@@ -154,7 +155,29 @@ pins).
 
 ## What did not work
 
-None.
+Before-landing warrant hunt (stance 0, "assume the gate/probe just added is
+bypassable"), dispatched after PR #3086 was already open, found a real
+bypass: `resolve_authoritative()`'s first version matched a `supersedes:`
+value against `records` dict keys by raw string equality, so a corrector
+citing the original with a harmless path variant (e.g. a leading `./`)
+failed to resolve, and the stale/fabricated original stayed listed in
+`authoritative` right alongside its own correction -- exactly the failure
+this module exists to prevent.
+
+canonical: `f516fcc6:docs/issue-3050/reports/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4/2026-09-02-hunt-supersession-and-fail-closed-downgrade.md`
+(full finding, reproduction, and expected fix).
+
+Fixed by normalizing both the `supersedes:` value and `records` keys
+through `posixpath.normpath` before comparing (see the `resolve_authoritative`
+citation and code fence above); pinned by a new case in
+`tests/test_supersession_shape.py` (method name
+`test_leading_dot_slash_variant_still_resolves_the_target`).
+
+derived: `python3 -m pytest tests/test_supersession_shape.py -q` (post-fix,
+`f516fcc6`) — `12 passed in 0.86s`.
+derived: `python3 -m pytest tests/ -q` (post-fix) — `5 failed, 211 passed`
+(same 5 pre-existing names "Open findings" lists below, plus this fix's
+own new regression test; 211 = that section's 210 + 1).
 
 ## Upstream basis
 
