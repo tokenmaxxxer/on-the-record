@@ -563,7 +563,19 @@ def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
     marker — its free text (after the `applied:` label) must start with
     `invoked;` — proving the Skill tool was actually called before the
     skill was applied. `not-applicable:` lines and zero-skill sessions
-    are unaffected (shape-only, never judging the marker's truth)."""
+    are unaffected (shape-only, never judging the marker's truth).
+
+    Issue #3044: the converse direction. `skill-verdict-guard.sh` passes
+    the transcript-derived invoked set as `mounted` — the same evidence
+    that proves which names were and weren't invoked. Any `skill-verdict:
+    <name> — applied: invoked; ...` line for a `name` absent from
+    `mounted` is a claim the caller's own evidence disproves, flagged
+    below with an `invoked-mismatch` prefix so callers (the Stop hook)
+    can treat it as a hard violation distinct from the shape-only ones
+    above. Never fires on `not-applicable:` lines (only `applied:
+    invoked;` ones assert invocation), and this function is only ever
+    called by the hook on a non-empty transcript-derived invoked list —
+    an unreadable or absent transcript never reaches here at all."""
     bad: list[str] = []
     if not mounted:
         return bad
@@ -575,6 +587,7 @@ def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
         name, content = m.group(1).strip(), m.group(2).strip()
         if name not in found:
             found[name] = content
+    mounted_set = set(mounted)
     for name in mounted:
         if name not in found:
             bad.append(
@@ -597,6 +610,19 @@ def skill_verdict_reason_check(text: str, mounted: list[str]) -> list[str]:
                 f"#2062): {name!r} — Skill 도구로 호출했다는 증거로 "
                 "`applied: invoked; ...` 형태로 자유 텍스트 맨 앞에 "
                 "`invoked;` 를 붙여야 한다.")
+    for name, content in found.items():
+        if name in mounted_set:
+            continue
+        applied_m = _SKILL_VERDICT_APPLIED.match(content)
+        if applied_m and _SKILL_VERDICT_INVOKED_MARKER.match(
+                applied_m.group(1).strip()):
+            bad.append(
+                "invoked-mismatch (issue #3044): "
+                f"{name!r} 의 `skill-verdict` 줄이 `applied: invoked; "
+                "...`라고 주장하지만, 이 세션의 transcript 는 그 스킬이 "
+                "Skill 도구로 호출된 적이 없다는 것을 보여준다 — "
+                "not-applicable 로 정정하거나, 실제로 Skill 도구를 호출한 "
+                "뒤 다시 기록하라.")
     return bad
 
 

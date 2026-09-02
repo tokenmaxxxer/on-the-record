@@ -313,14 +313,35 @@ if rel is None:
 
 violations = record_lint.skill_verdict_reason_check(record_text, invoked)
 
+# issue #3044: `invoked-mismatch` violations are the ones this hook's own
+# transcript scan (invoked_skill_names above) directly disproves -- the
+# only place that evidence exists, since CI has no durable transcript to
+# re-derive it from at merge time. Those block; the pre-existing
+# shape-only violations (missing line, empty content, missing `invoked;`
+# marker) stay exactly as advisory as before -- unweakened, not
+# strengthened, per the issue's must-not clause.
+hard = [v for v in violations if v.startswith("invoked-mismatch")]
+soft = [v for v in violations if not v.startswith("invoked-mismatch")]
+
+if hard:
+    sys.stdout.write(json.dumps({
+        "decision": "block",
+        "reason": (
+            "skill-verdict-guard: " + rel + " -- " + " / ".join(hard) + " "
+            "-- 자세한 형태는 docs/handbooks/skill-verdict-obligation.md "
+            "참고."
+        ),
+    }))
+    sys.exit(0)
+
 verdict_text = None
-if violations:
+if soft:
     verdict_text = (
         "skill-verdict-guard: 이 세션에서 실제로 호출한(invoked) 스킬 "
         + ", ".join(invoked) + " 마다 " + rel + " 에 "
         "`skill-verdict: <name> — applied: ... | not-applicable: ...` "
         "줄이 하나씩 필요하다 (마운트만 되고 호출하지 않은 스킬은 이 "
-        "줄이 필요 없다 — 이슈 #2153) -- " + " / ".join(violations) + " "
+        "줄이 필요 없다 — 이슈 #2153) -- " + " / ".join(soft) + " "
         "-- 자세한 형태는 docs/handbooks/skill-verdict-obligation.md 참고."
     )
 finish(verdict_text, reminder)
