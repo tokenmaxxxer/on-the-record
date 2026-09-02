@@ -28,10 +28,18 @@ Two things this module does NOT attempt, on purpose:
   decide whether to keep asking. A program cannot always tell "genuine fork
   the operator must decide" apart from "redundant ask" from text alone (the
   issue's own framing: both surface as a question) — `audit()` is
-  deliberately high-precision/low-recall about it (see `_REDUNDANT_ASK_RES`/
-  `_FORK_MARKER_RES` below) rather than guessing on ambiguous cases, because
-  a false positive here (mislabeling a real escalation as redundant) is the
-  worse failure per the issue's own must-not clause.
+  deliberately high-precision/low-recall about it (see the extended comment
+  above `_REDUNDANT_ASK_RES` below) rather than guessing on ambiguous cases,
+  because a false positive here (mislabeling a real escalation as
+  redundant) is the worse failure per the issue's own must-not clause. As
+  of this module's issue #3061 repair round, this is enforced structurally,
+  not just aspirationally: the pattern list matches only the closed set of
+  phrasings actually quoted in the issue's own transcript, after two
+  independent verifications (PR #3097, PR #3102) reproduced six genuine
+  escalations misclassified as redundant by an earlier, more generalized
+  pattern list. `test/test_delegation_state.py`'s
+  `RedundantAskDirectionOfErrorEvalTest` measures the resulting
+  false-redundant/false-genuine trade-off on a held-out set.
 - It never grants indefinite authority. Issue #707's own proposal
   (docs/issue-707/proposals/product-discovery.md) already rejected "blanket
   standing delegation with no scope/expiry field" as unsafe; `grant()`
@@ -201,29 +209,73 @@ def describe(repo: str, now: datetime | None = None) -> str:
 
 # --- audit mode -------------------------------------------------------
 #
-# High-precision, low-recall on purpose (see module docstring). A turn is
-# flagged only when it (a) ended with assistant text and no tool_use in the
-# same event — the same "agent monologue" shape
+# High-precision, low-recall on purpose (see module docstring) — and, as of
+# this repair round (issue #3061 repair, PR #3097 + PR #3102), deliberately
+# narrower than the first cut shipped in PR #3087.
+#
+# Both independent verifications of PR #3087 found the SAME failure mode
+# from different angles: a "redundant ask" pattern list built from generic
+# verb constructions ("shall i", "should i proceed", bare "진행할까요") does
+# not distinguish a redundant ask from a genuine escalation, because real
+# escalations routinely use the exact same verbs — "Shall I roll this out
+# to prod now, or hold for the nightly build?" and "이대로 갈까요?" share a
+# verb, not a meaning. Six independently constructed genuine-escalation
+# phrasings (irreversible actions, explicit authority language, English and
+# Korean, one explicit fork) were all misclassified as redundant by that
+# first cut. This is not six bugs to patch one at a time — the underlying
+# claim (a keyword/verb-pattern regex can separate "redundant ask" from
+# "genuine escalation" in open-ended natural language) does not hold, and
+# no amount of adding negative filters for THESE six phrasings would catch
+# an unseen seventh; it would only make the pattern list fit the six
+# counterexamples on hand.
+#
+# The direction chosen instead: since the two classes are not reliably
+# separable by a program under this design, `_is_redundant_ask()` now only
+# matches the closed set of phrasings actually quoted (or a fixed-anchor
+# bug fix of one actually quoted) in issue #3061's own transcript — never a
+# generalized verb pattern invented beyond that literal set. This is a
+# narrowing, not a widening: `계속 진행할까요` (the issue's literal quote)
+# stays; the bare `진행할까요` stem the first cut generalized it to is
+# removed, because that stem alone is exactly what flagged the adversarial
+# Korean escalation case ("...진행할까요? 되돌릴 수 없는 작업이라 운영자
+# 판단이 필요합니다.") as redundant. `해도 될까요` (never quoted in the
+# issue) and all four English modal-verb patterns (never quoted in the
+# issue — the issue's own examples are Korean) are removed for the same
+# reason: they are generalizations with no grounding in an observed
+# redundant ask, and every one of the six false positives came from
+# exactly this kind of generalized verb match.
+#
+# The error direction this chooses is explicit: a redundant ask that goes
+# undetected costs nothing but an uncounted audit entry; a genuine
+# escalation mislabeled as redundant, in a report an operator might use to
+# judge "is my orchestrator over-asking," costs the operator's trust in
+# the one channel meant to say "an irreversible action was proposed and
+# correctly stopped for you." Recall on redundant-ask detection is
+# intentionally sacrificed for that. See
+# docs/issue-3061/reports/implementation-blueprint+silent-failure-audit+test-derivation+decision-brief-f458808c.md's
+# repair-round section for the measured false-redundant / false-genuine
+# rates on a held-out set built after this narrowing, not used to tune it.
+#
+# A turn is flagged only when it (a) ended with assistant text and no
+# tool_use in the same event — the same "agent monologue" shape
 # trajectory_analyzer.agent_monologue_runs() already uses for "narration
-# with no observation between" — (b) that text matches one of the
-# confirmation-seeking phrasings the issue itself quoted or their direct
-# English equivalents, and (c) that text does NOT also carry a fork marker
-# (named alternatives, a real either/or) — presence of a fork marker
-# disqualifies the turn from being flagged even if it also matches (b),
-# because a genuine escalation reads as a question too and this module must
-# never let a false positive there pass as "redundant."
+# with no observation between" — (b) that text matches one of the closed
+# literal phrasings below, and (c) that text does NOT also carry a fork
+# marker (named alternatives, a real either/or) — presence of a fork
+# marker disqualifies the turn from being flagged even if it also matches
+# (b).
 
 _REDUNDANT_ASK_RES = [re.compile(p, re.IGNORECASE) for p in (
     r"이대로\s*갈까요",
     r"계속\s*진행할까요",
-    r"진행할까요",
     r"이\s*순서로\s*갈까요",
-    r"해도\s*될까요",
-    r"다음은[^\n]*하겠습니다\s*$",
-    r"\bshould i (proceed|continue|go ahead)\b",
-    r"\bshall i\b",
-    r"\bwant me to (proceed|continue|go ahead)\b",
-    r"\bok(ay)? to (proceed|continue)\b",
+    # issue #3061 repair (PR #3102 finding): the trailing `\s*$` anchor
+    # required the string to end immediately after 하겠습니다 -- a plain
+    # trailing period, which ordinary Korean sentences carry, broke the
+    # match for the issue's own third named stopping pattern. Widened only
+    # to tolerate the sentence-final punctuation that pattern's own quoted
+    # example implies, not to catch new phrasings.
+    r"다음은[^\n]*하겠습니다[.!?]?\s*$",
 )]
 
 _FORK_MARKER_RES = [re.compile(p, re.IGNORECASE) for p in (
