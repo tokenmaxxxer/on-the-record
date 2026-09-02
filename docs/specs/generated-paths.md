@@ -69,6 +69,7 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `role-spec-reference-guard.sh` | n/a | reads/validates only, no write call |
 | `role-test-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `spec-index-preflight.sh` | n/a | reads/validates only, no write call |
+| `amends-index-preflight.sh` | n/a | reads/validates only (calls `amends_index.check()`), no write call — the hook never calls `write_backlinks()`/`update()` itself, those are CLI-invoked landing-step actions |
 | `test-tier-directive.sh` | n/a | reads/validates only, no write call |
 | `requirement-digest-preflight.sh` | n/a | reads/validates only, no write call |
 | `test-authoring-invariant-guard.sh` | n/a | reads/validates only, no write call |

@@ -88,8 +88,58 @@ correcting one section inside a larger foreign record without marking
 that entire record non-authoritative — a correction confined to one
 section of a foreign record cannot use this field; see
 `docs/issue-3050/reports/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4.md`
-("Partial supersession" section) for what such a correction should do
-instead.
+("Partial supersession" section) for the decision to leave that gap
+open at the time, and "Amends" below for the primitive that closes it.
+
+## Amends
+
+Issue #3134 gives section-scoped correction the shape "Partial
+supersession" deferred. A correcting session still writes only its own
+record — `board-gate.sh`'s write-set isolation makes a target record's
+own issue directory unreachable regardless of primitive — but instead
+of `supersedes:` it adds an `amends:` frontmatter line naming the
+target *and the section anchor* it corrects:
+
+```
+---
+amends: docs/issue-10/reports/coding.md#limitation  # wrong axis named as the untested harder case
+...
+---
+```
+
+`amends.py`'s `resolve_amendments()` is the reader-side half, mirroring
+`resolve_authoritative()` one section grain down: given every record's
+raw content, it decides which target#section pairs are amended, and
+fails closed — not picking a winner — on a dangling target, a section
+anchor absent from the target's own headings, two records amending the
+same section with conflicting claims, or a cycle.
+
+**The field alone is not the fix.** Unlike `supersedes:`, an amended
+target *stays* authoritative — nothing forces a reader to consult a
+resolver before trusting the target's prose, so a bare frontmatter
+field reproduces the current defect with an extra layer. Discoverability
+is the actual requirement, and "reachable from the merged tree" means a
+reader who opens the target record DIRECTLY — no index, no other file —
+cannot miss the correction (#3134 repair round, after the first delivery
+was independently verified Absent on exactly this point: it made
+"reaching A" mean "consulting the index," which a reader who doesn't
+know the index exists never does). A required backlink written into the
+target in the SAME commit as the correcting session's own record is
+still impossible (the target is outside that session's write set by
+construction — `board-gate.sh`'s write-set isolation). What changed is
+WHO writes it: `gates/amends_index.py --apply-backlinks` is a
+LANDING-STEP action (run by the orchestrator/operator identity, never a
+spawned session, against the merged tree after the correcting PR lands)
+that writes the backlink directly into the target's own content, right
+under the amended heading — see `amends_backlink.py`'s module docstring
+for the full reasoning. `gates/amends_index.py`'s generated index
+(`amends_index.INDEX_PATH`) is kept as a supplementary cross-cutting
+view — "what in this tree has an open correction" — not the primary
+mechanism. `check()` fails closed on either axis independently: an
+`amends:` edge present in the tree with a stale/missing index, OR with a
+target that has not yet received its backlink, is an unlinked
+amendment. An amendment can land; it cannot land unlinked, by either
+route.
 
 ## What stays additive
 
