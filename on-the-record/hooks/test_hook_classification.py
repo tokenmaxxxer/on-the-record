@@ -106,13 +106,19 @@ class HookClassificationTest(unittest.TestCase):
         # deliberately unwrapped/fail-closed. issue #3073: PR #2872 added
         # gate-registration-post-guard.sh's pre/post pair (both wrapped),
         # raising the live count to 14 (13 wrapped, 1 unwrapped). issue
-        # #3129 added amendment-channel.sh (wrapped), raising it to 15 (14
-        # wrapped, 1 unwrapped) -- this literal is meant to move again the
-        # next time a hook is legitimately registered; it exists to catch
-        # drift, not to freeze the count at any one issue's number.
+        # #3129 added amendment-channel.sh (wrapped) and (unrecorded by this
+        # comment at the time) amends-landing-apply.sh (wrapped), actually
+        # raising it to 16 (15 wrapped, 1 unwrapped) -- this comment's own
+        # count had drifted from the live registration count it exists to
+        # track, exactly the drift this test catches. issue #3231 added
+        # skill-corpus-bootstrap.sh (wrapped) and classified the orphaned
+        # amends-landing-apply.sh entry, landing on 17 (16 wrapped, 1
+        # unwrapped) -- this literal is meant to move again the next time a
+        # hook is legitimately registered; it exists to catch drift, not to
+        # freeze the count at any one issue's number.
         live = registrations_from_hooks_json()
-        self.assertEqual(len(live), 15, live)
-        self.assertEqual(sum(1 for r in live if r[3]), 14, live)
+        self.assertEqual(len(live), 17, live)
+        self.assertEqual(sum(1 for r in live if r[3]), 16, live)
         self.assertEqual(sum(1 for r in live if not r[3]), 1, live)
 
     def test_pretooluse_dispatcher_is_classified_but_unwrapped(self):

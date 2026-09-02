@@ -10,6 +10,22 @@
       "rationale": "refreshes the installed checkout; the script's own header calls offline failure fine -- nothing downstream depends on this having run"
     },
     {
+      "event": "PostToolUse",
+      "script": "amends-landing-apply.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "pre-existing gap found while adding this issue's own SessionStart entry (issue #3129, commit 638620e4, never got one): the automatic caller of amends_index.py's backlink-write landing step -- absence leaves a merged amends: edge unlinked, same non-enforcing shape as self-update.sh (records a cross-reference, no gate deny logic depends on it having run)"
+    },
+    {
+      "event": "SessionStart",
+      "script": "skill-corpus-bootstrap.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "issue #3231: pulls the skill-repository managed-clone fetch forward to session start with a printed notice so --skills doesn't hit an empty corpus on first spawn; absence just defers the same fetch to that first spawn, same as before this issue"
+    },
+    {
       "event": "SessionStart",
       "script": "session-role-bind.sh",
       "args": [],
