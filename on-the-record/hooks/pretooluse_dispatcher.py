@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """issue #2146 — single-dispatcher PreToolUse gate execution.
 
-The 20 PreToolUse gate registrations used to run as 20 separate
+The PreToolUse gate registrations (20 originally, issue #3134 repair
+round adds amends-index-preflight.sh as a 21st) used to run as separate
 fail-open-wrapper.sh + gate-script processes per tool call (measured
 1,021ms serial for one Bash payload — each gate's LOGIC is cheap, the
-cost is 20x process startup: bash + a fresh python3 interpreter per
+cost is Nx process startup: bash + a fresh python3 interpreter per
 gate). This dispatcher is registered ONCE for the union matcher and runs
-all 20 checks inside one python process.
+every GATES entry inside one python process.
 
 The gate scripts themselves stay on disk as the single source of truth:
 every one of them is "bash preamble + one python body in a quoted PY
@@ -277,6 +278,9 @@ GATES = [
          need=_need_gh_silent, crash=VERBATIM),
     dict(script="spec-index-preflight.sh", tools=BASH_TOOLS,
          payload_env="CG_PAYLOAD", fastpath=_grep_git_commit,
+         need=_need_git_silent, setup=_env_contract, crash=VERBATIM),
+    dict(script="amends-index-preflight.sh", tools=BASH_TOOLS,
+         payload_env="AIP_PAYLOAD", fastpath=_grep_git_commit,
          need=_need_git_silent, setup=_env_contract, crash=VERBATIM),
     dict(script="gate-registration-guard.sh", tools=BASH_TOOLS,
          payload_env="GRG_PAYLOAD", fastpath=_grep_git_commit,
