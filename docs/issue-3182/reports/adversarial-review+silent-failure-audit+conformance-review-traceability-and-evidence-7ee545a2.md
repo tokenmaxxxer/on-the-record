@@ -478,8 +478,8 @@ skill-verdict: silent-failure-audit — applied: invoked; enumerated both
 error-handling sites in `consumer_preconditions.py`
 (`_run_readonly`, `run_checks`, plus the nested `except OSError`),
 classified all three Handled, 0 Silently Absorbed — section 6.
-skill-verdict: conformance-review-traceability-and-evidence — applied:
-invoked; every citation-accuracy verdict above pins file:line-range,
+skill-verdict: conformance-review-traceability-and-evidence — applied: invoked;
+every citation-accuracy verdict above pins file:line-range,
 the sha it was checked against, and (section "Upstream basis") the sha
 the reviewed record itself claims for each upstream file, per the
 skill's file:line+sha citation rule.
