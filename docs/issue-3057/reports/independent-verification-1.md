@@ -143,3 +143,7 @@ Both PR #3062 (second independent verification) and PR #3058 itself merged durin
 ## Next steps
 
 canonical: `git log origin/main --oneline -1` (same output cited under `## Open findings` above, `cefee773` as tip) — subject already merged, `loop_state: landed` reflects that.
+
+## Skill obligations
+
+skill-verdict: work-in-english — applied: invoked; used via the Skill tool this session to keep this record, the commit message, and the PR body in English per the Korean-language-session policy.
