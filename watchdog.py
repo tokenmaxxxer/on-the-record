@@ -1982,7 +1982,17 @@ def roster_watchdog(auto_respawn: bool = False, all_scope: bool = False,
     넘긴다. 기본값 `ROOT`(spawn.py 자신의 체크아웃)는 CLI 를 거치지 않는
     직접 호출/테스트만을 위한 하위호환 폴백이다 — 워치독 코드(closure_sweep
     등 gates 모듈) 임포트는 항상 `ROOT` 를 쓰고(코드는 언제나 체크아웃에서
-    온다), 보드 스캔 대상(이슈/PR/다이제스트)만 `root` 를 쓴다."""
+    온다), 보드 스캔 대상(이슈/PR/다이제스트)만 `root` 를 쓴다.
+
+    이슈 #3061: 이 함수가 stdout 에 찍는 리포트 텍스트는 poll-heartbeat.sh 를
+    거쳐 on-the-record/monitors/poll_heartbeat_delta.py 로 흐른다 — 그 레이어가
+    매 틱을 no-op wake(advanced nothing, idle-wake 로 집계)와 acted 로 갈라
+    `.on-the-record/`(poll_heartbeat_last_state.json)에 누적한다. 빈 로스터
+    틱("돌고 있는 스킬 세션 없음")도, anomaly_count==0 인 조용한 틱도 정확히
+    하나의 idle-wake 로 집계될 뿐 결함으로 취급되지 않는다 — spawn 돼 있는
+    세션이 정상적으로 mid-flight 라 이번 틱엔 나아갈 게 없는 것과, 워치독이
+    뭔가를 놓친 것은 구별해야 하는 서로 다른 상태다. 집계/리포트 함수는
+    `on-the-record/monitors/poll_heartbeat_delta.py::format_wake_outcomes`."""
     # 이슈 #2904: 자연 종료로 자기 roster 엔트리를 스스로 지운(아래 `d_all`
     # 로드보다 먼저, 이미 사라진 뒤라 dead-scan 이 못 보는) 세션의 완료
     # 사실을 큐에서 드레인해 always-emit `[poll-report] ...: COMPLETED`
