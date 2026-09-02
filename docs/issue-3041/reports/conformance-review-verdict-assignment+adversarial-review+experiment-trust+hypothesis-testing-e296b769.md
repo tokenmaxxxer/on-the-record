@@ -312,8 +312,7 @@ starting it.
 
 ## Skill verdicts
 
-- skill-verdict: conformance-review-verdict-assignment — applied:
-  invoked; used to grade the 5 acceptance criteria Present (see Part 1)
+- skill-verdict: conformance-review-verdict-assignment — applied: invoked; used to grade the 5 acceptance criteria Present (see Part 1)
   and, separately, to grade the Scope clause "skills mounted" as Surface
   rather than Absent/Incorrect (see "Why" above).
 - skill-verdict: adversarial-review — applied: invoked; grading PR #3052
