@@ -690,6 +690,42 @@ class WriterSideParserHandlesRealCommandShapes(unittest.TestCase):
         self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
         self.assertIn("issue #42", stderr.getvalue())
 
+    def test_double_pipe_separated_cd_keys_to_cd_target(self):
+        """test-derivation gap (repair round 3, post-fix audit): `||` is
+        accepted by `_CD_STEP_RE` alongside `&&`/`;` but had no coverage
+        through the real entrypoint."""
+        cmd = "cd %s || gh issue edit 42 --body 'fixed brief'" % self.study_repo
+        self._assert_keys_to_study_not_session(cmd)
+
+    def test_brace_group_wrapped_cd_keys_to_cd_target(self):
+        """test-derivation gap: `_unwrap_enclosing_group` handles `{ ... }`
+        the same as `( ... )` but had no coverage through the real
+        entrypoint."""
+        cmd = "{ cd %s && gh issue edit 42 --body 'fixed brief'; }" % self.study_repo
+        self._assert_keys_to_study_not_session(cmd)
+
+    def test_chained_cd_steps_resolve_relative_to_the_prior_step(self):
+        """test-derivation gap: `cd_target()` walks multiple leading `cd`
+        steps in order, joining a later relative step onto the previous
+        absolute one -- untested through the real entrypoint."""
+        parent = os.path.dirname(self.study_repo)
+        rel = os.path.basename(self.study_repo)
+        cmd = "cd %s && cd %s && gh issue edit 42 --body 'fixed brief'" % (parent, rel)
+        self._assert_keys_to_study_not_session(cmd)
+
+    def test_unbalanced_quotes_produce_no_marker_and_stderr_never_cwd(self):
+        """test-derivation gap: `OpaqueCommand` has more than one `reason`
+        (`unterminated-heredoc`, `unbalanced-quotes`, `oversize-command`);
+        only the heredoc reason had entrypoint coverage. All must collapse
+        to the same never-cwd-fallback behavior."""
+        cmd = "cd %s && gh issue edit 42 --body \"unbalanced" % self.study_repo
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertIsNone(ac.run_hook(self._payload(cmd), self.state_dir))
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/on-the-record", "42"))
+        self.assertIsNone(ac.read_marker(self.state_dir, "tokenmaxxxer/study-companion", "42"))
+        self.assertIn("issue #42", stderr.getvalue())
+
 
 class ShapesFailAgainstPreRepairCommit(unittest.TestCase):
     """Each shape above must actually reproduce the round-2 defect against
