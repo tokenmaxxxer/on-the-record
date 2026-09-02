@@ -3,18 +3,49 @@
 itself (issue #3127) rather than a bare `claude -p` call (issue #3053's
 floor condition).
 
-Both arms invoke `python3 spawn.py --skills <skill> "<task>" --issue <n>
--C <sandbox-repo>` -- the exact command `/on-the-record:run`'s orchestrator
-issues in production (see `on-the-record/commands/run.md` step 4). The
-`--skills` argument names the SAME skill in both arms (the orchestrator's
-selection judgment is held constant); the two arms differ only in whether
-that name resolves to a populated skill corpus when spawn.py mounts it
-(`--skills-corpus` below controls this by pointing `MUSTER_SKILL_REPO` at
-either the real skill-repository checkout or an empty sibling directory
-containing nothing but a placeholder for the named skill, so the
-`--skills` resolver's fail-closed unknown-skill rejection -- issue #2579 --
-never fires in the skills-off arm; the corpus is present but empty of
-actual guidance content).
+Both arms invoke `python3 spawn.py --skills <skill-argument> "<task>" --issue
+<n> -C <sandbox-repo>` -- the exact command `/on-the-record:run`'s
+orchestrator issues in production (see `on-the-record/commands/run.md` step
+4), with one deliberate exception documented below. The two arms differ in
+whether the named skill resolves to a populated skill corpus when spawn.py
+mounts it:
+
+- skills-on: `--skills <skill>` (bare name, byte-identical to production
+  usage) with `MUSTER_SKILL_REPO` pointed at the real skill-repository
+  checkout.
+- skills-off: `--skills skill-repo:<skill>` (the `<source>:<name>` source
+  qualifier, issue #2579) with `MUSTER_SKILL_REPO` pointed at a stub
+  directory this harness creates itself (`build_stub_skill_repo()`)
+  containing only the named skill's frontmatter, no procedure body.
+
+Repair-round note (issue #3127 second verification, PR #3145, finding 1):
+the ORIGINAL version of this harness pointed `MUSTER_SKILL_REPO` at a
+literal placeholder string (`"<empty-sibling-dir>"`) that no code ever
+created, and passed the bare skill name for BOTH arms. `skills.py`'s
+`resolved_skill_sources()` reads FOUR sources unconditionally
+(skill-repo/plugin/local-user/local-repo) and only `MUSTER_SKILL_REPO`
+touches the first; reproduced live against a real environment, that
+combination either (a) fail-closed with `sys.exit()` on a genuine
+multi-source conflict once `~/.claude/skills` also carried the skill, or
+(b) -- because the placeholder string is not a real directory --
+`_skill_repo_root()` silently fell through its sibling/managed-clone
+fallback chain to the REAL, fully populated skill-repository checkout,
+making the "skills-off" arm identical to skills-on (a repeat of #3053's
+retracted first run). Both failure modes are closed here by (1) actually
+creating the stub directory instead of naming one that never exists, and
+(2) adding the `skill-repo:` qualifier to the skills-off arm's `--skills`
+argument so resolution is forced through ONLY the `MUSTER_SKILL_REPO`
+source -- `resolved_skill_sources()` filters to the qualified source
+before it ever compares against the other three tiers, so a real
+`~/.claude/skills` (or a plugin, or the target repo's own `.claude/
+skills`) carrying the same skill under different content can no longer
+produce either failure mode. `test/test_spawn_skills_mount.py`'s
+`SymlinkCollapseAndSourceQualifierTest` already establishes this same
+qualifier behavior against `spawn.resolved_skill_sources()` directly; this
+file's own tests (`tests/test_issue_3127_run_consumer_pair.py`) reproduce
+the specific before/after this issue found, including a case that shows
+the OLD (unqualified) mechanism failing, so the fix is demonstrated
+against a real failure, not just asserted.
 
 Held constant across arms, same as `scripts/issue-3041/run_pair.sh`'s
 pattern: sandbox repo + pinned commit, model, task text, issue number
@@ -25,12 +56,12 @@ experiment`'s task text so pair identity is held constant across the floor-
 condition (#3053) and consumer-path (#3127) measurements.
 
 --dry-run prints the plan (both arms' exact spawn.py command lines and the
-held-constant factor table) without shelling out to anything, so the design
-can be inspected before it burns sessions. No other mode is invoked by this
+held-constant factor table) without spawning any session, so the design can
+be inspected before it burns sessions. No other mode is invoked by this
 issue's acceptance check; --execute (real, non-dry-run) is deliberately a
 separate, explicit opt-in -- see the module docstring in
-`docs/issue-3127/reports/*.md` "Rationale for deviations" for why this
-session did not pass it.
+`docs/issue-3127/reports/*.md` "Rationale for deviations" for why the
+original build session did not pass it.
 """
 from __future__ import annotations
 
@@ -39,6 +70,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -59,10 +91,8 @@ class ArmConfig:
     name: str  # "skills-on" | "skills-off"
     skill_corpus_populated: bool
     # MUSTER_SKILL_REPO override: real skill-repository checkout for the
-    # skills-on arm; an empty sibling dir (containing only the named
-    # skill's frontmatter, no procedure body) for skills-off, so the named
-    # `--skills` argument still resolves (fail-closed avoided) but carries
-    # no actual guidance.
+    # skills-on arm; a stub dir this harness creates (build_stub_skill_repo())
+    # containing only the named skill's frontmatter for skills-off.
     skill_repo_env_override: str
 
 
@@ -86,25 +116,79 @@ class Plan:
     held_constant: dict[str, str] = field(default_factory=dict)
 
 
+def build_stub_skill_repo(skill_name: str, dest: Path) -> Path:
+    """Create a REAL, on-disk skill-repo directory containing only
+    `skill_name`'s frontmatter (name + description), no procedure body --
+    the "corpus present but empty" stub the skills-off arm's
+    `MUSTER_SKILL_REPO` points at.
+
+    This replaces the original harness's literal placeholder string
+    (`"<empty-sibling-dir>"`, a value no code ever turned into a directory)
+    with an actual write, so `skills._skill_repo_root()` finds a real,
+    valid directory (`Path(...).is_dir()` true) and never falls through to
+    its sibling/managed-clone fallback chain -- see this file's module
+    docstring, finding 1.
+    """
+    skill_dir = dest / skill_name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        f"name: {skill_name}\n"
+        "description: issue #3127 skills-off arm stub -- frontmatter only, "
+        "no procedure body, so the named skill resolves (fail-closed "
+        "unknown-skill rejection never fires) but carries no actual "
+        "guidance content.\n"
+        "---\n",
+        encoding="utf-8")
+    return dest
+
+
+def _skills_argument_for_arm(plan: Plan, arm: ArmConfig) -> str:
+    """The `--skills` value passed to spawn.py for one arm. skills-on uses
+    the bare skill name -- byte-identical to what `/on-the-record:run`'s
+    orchestrator actually types in production (held constant, per
+    `held_constant['skill_name_argument']`). skills-off adds the
+    `skill-repo:` source qualifier (issue #2579) -- a harness-only control,
+    never something a production orchestrator types -- so
+    `resolved_skill_sources()` filters to ONLY the `MUSTER_SKILL_REPO`-
+    pointed source before it ever reads (or could conflict against)
+    `~/.claude/skills`, installed plugins, or the target repo's own
+    `.claude/skills`. See this file's module docstring for why the
+    unqualified name did not achieve "corpus present but empty" in a real
+    environment."""
+    if arm.skill_corpus_populated:
+        return plan.skill_name
+    return f"skill-repo:{plan.skill_name}"
+
+
 def build_plan(args: argparse.Namespace) -> Plan:
     pair_ids = args.pairs.split(",") if args.pairs else DEFAULT_PAIRS
     pairs = [
         PairPlan(pair_id=pid, task_file=DEFAULT_TASKS_DIR / f"{pid}.txt")
         for pid in pair_ids
     ]
+    skill_repo_off = args.skill_repo_off
+    if skill_repo_off is None:
+        skill_repo_off = str(Path(tempfile.mkdtemp(prefix="issue-3127-skills-off-")))
+    build_stub_skill_repo(args.skill, Path(skill_repo_off))
     arms = (
         ArmConfig(name="skills-on", skill_corpus_populated=True,
                   skill_repo_env_override=args.skill_repo_on),
         ArmConfig(name="skills-off", skill_corpus_populated=False,
-                  skill_repo_env_override=args.skill_repo_off),
+                  skill_repo_env_override=skill_repo_off),
     )
     held_constant = {
         "sandbox_repo": args.repo,
         "model": args.model,
         "orchestrator_dispatch_shape":
             "spawn.py lint --issue <n> -C <repo>  (then, only if clean)  "
-            "spawn.py --skills <skill> \"<task>\" --issue <n> -C <repo>",
+            "spawn.py --skills <skill-argument> \"<task>\" --issue <n> -C <repo>",
         "skill_name_argument": args.skill,
+        "skill_argument_qualifier_note":
+            "skills-on passes the bare name (identical to production); "
+            "skills-off adds the skill-repo: source qualifier -- a "
+            "harness-only manipulation-isolation control, not a claim "
+            "about production orchestrator behavior (see module docstring)",
         "task_text_per_pair": "held constant, reused from docs/issue-3053/"
                                "_assets task files (scripts/issue-3041/tasks/*.txt)",
         "permission_mode": "spawn.py's own default for --skills spawns "
@@ -132,7 +216,7 @@ def spawn_command(plan: Plan, pair: PairPlan, arm: ArmConfig, issue: int) -> lis
         if pair.task_file.exists() else f"<task file missing: {pair.task_file}>"
     return [
         "python3", "spawn.py",
-        "--skills", plan.skill_name,
+        "--skills", _skills_argument_for_arm(plan, arm),
         task_text,
         "--issue", str(issue),
         "--model", plan.model,
@@ -359,11 +443,19 @@ def main() -> int:
                      help=f"comma-separated pair ids, default: {','.join(DEFAULT_PAIRS)}")
     ap.add_argument("--skill-repo-on", default="$MUSTER_SKILL_REGISTRY_ROOT",
                      help="MUSTER_SKILL_REPO value for the skills-on arm")
-    ap.add_argument("--skill-repo-off", default="<empty-sibling-dir>",
-                     help="MUSTER_SKILL_REPO value for the skills-off arm "
-                          "-- a dir containing only the named skill's "
-                          "frontmatter (name+description), no procedure "
-                          "body, so --skills resolves without fail-closing")
+    ap.add_argument("--skill-repo-off", default=None,
+                     help="MUSTER_SKILL_REPO value for the skills-off arm -- "
+                          "if unset (default), this harness creates a fresh "
+                          "temp dir itself via build_stub_skill_repo(), "
+                          "containing only the named skill's frontmatter. "
+                          "The skills-off arm's --skills argument always "
+                          "adds the skill-repo: qualifier (see "
+                          "_skills_argument_for_arm()) so resolution never "
+                          "reads ~/.claude/skills, installed plugins, or "
+                          "the target repo's own .claude/skills -- see the "
+                          "module docstring for why the old literal-string "
+                          "default and unqualified name did not achieve "
+                          "'corpus present but empty' in a real environment.")
     ap.add_argument("--watch-timeout", type=int, default=1800)
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--execute", action="store_true")
