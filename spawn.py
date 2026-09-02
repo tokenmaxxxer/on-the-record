@@ -3771,7 +3771,8 @@ def _push_succeeded(push_result: dict | None) -> bool:
     no-commit/no-push case, not fall through as if the push had
     succeeded."""
     return push_result is not None and push_result["status"] not in (
-        "push-rejected", "pr-create-failed", "nothing-to-push")
+        "push-rejected", "pr-create-failed", "nothing-to-push",
+        "issue-closed-stale-branch")
 
 
 def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,

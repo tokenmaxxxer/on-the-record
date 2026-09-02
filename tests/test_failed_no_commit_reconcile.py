@@ -253,6 +253,50 @@ else:
                 "progressed", 30502, [], False, [], False, push_succeeded)
             self.assertEqual(outcome, "progressed")
 
+    def test_closed_issue_stale_branch_reconciles_to_failed_no_commit(self):
+        # Warrant-hunt finding (before-landing hunt on this same repair
+        # round): a role branch with only PRIOR-round content (this
+        # round's own before/after HEAD diff -- new_commit -- is False),
+        # whose subject issue is now CLOSED -- ensure_pushed() refuses to
+        # (re)open a PR and flags the branch for cleanup
+        # ("issue-closed-stale-branch"), the same "nothing real happened
+        # this round" shape as "nothing-to-push".
+        orig_state = spawn._subject_issue_state
+        spawn._subject_issue_state = lambda root, issue: ("CLOSED", True)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                tmp = Path(tmp)
+                bin_dir = tmp / "bin"
+                bin_dir.mkdir()
+                self._write_fake_gh(bin_dir)
+                _, work = self._bare_and_clone(tmp)
+                subprocess.run(["git", "-C", str(work), "checkout", "-q", "-b",
+                                "issue-30503/coding"], check=True)
+                (work / "f.txt").write_text("x")
+                subprocess.run(["git", "-C", str(work), "add", "f.txt"], check=True)
+                subprocess.run(["git", "-C", str(work), "commit", "-q", "-m", "old work"], check=True)
+                subprocess.run(["git", "-C", str(work), "push", "-q", "-u",
+                                "origin", "issue-30503/coding"], check=True)
+
+                orig_path = os.environ.get("PATH", "")
+                os.environ["PATH"] = f"{bin_dir}:{orig_path}"
+                try:
+                    push_result = spawn.ensure_pushed(str(work), 30503, "coding")
+                finally:
+                    os.environ["PATH"] = orig_path
+
+                self.assertEqual(push_result["status"], "issue-closed-stale-branch",
+                                  push_result)
+
+                push_succeeded = spawn._push_succeeded(push_result)
+                self.assertFalse(push_succeeded, push_result)
+
+                outcome = board.fail_closed_downgrade(
+                    "progressed", 30503, [], False, [], False, push_succeeded)
+                self.assertEqual(outcome, "failed-no-commit")
+        finally:
+            spawn._subject_issue_state = orig_state
+
 
 if __name__ == "__main__":
     unittest.main()
