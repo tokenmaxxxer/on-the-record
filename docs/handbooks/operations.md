@@ -1125,6 +1125,50 @@ ran" (#334). Before claiming completion, also check for skips:
 python3 gates/skip_gate.py
 ```
 
+## 스위트 전체를 도는 데 필요한 명령 (issue #3091)
+
+`python3 -m pytest -q`는 `test/`와 `tests/` 아래 모든 `test_*.py`/`*_test.py`를
+모으지만, `tests/` 바로 아래 있는 셸 테스트 파일은 절대 모으지 못한다 — pytest는
+`.sh`를 수집 대상으로 보지 않는다. 오늘 기준 넷:
+
+```bash
+bash tests/run-orchestrate-tests.sh
+bash tests/test_stop_gate.sh
+bash tests/check-write-set-conflicts.test.sh
+bash tests/claim-scan-preflight.test.sh
+```
+
+즉 저장소의 모든 테스트를 도는 데는 명령 하나가 아니라 다섯 개(`pytest -q` +
+이 넷)가 필요하다 — 그리고 이 사실 자체가 살아있는 진실이다: `gates/
+probe_full_suite_is_one_command.py`가 `tests/` 바로 아래의 모든 `.sh` 파일을
+훑어 이 목록(파일 하단 `KNOWN_SHELL_TEST_COMMANDS`)과 대조하고, 등록되지 않은
+새 셸 테스트 파일이 나타나면 실패한다. 넷을 하나로 합치는 시도(파이썬으로
+재작성하거나 새 래퍼로 감싸는 것)는 issue #3091에서 의도적으로 보류됐다 —
+근거는 그 이슈의 기록과 이 게이트의 docstring에 있다.
+
+## Commands required to run the entire suite (issue #3091)
+
+`python3 -m pytest -q` collects every `test_*.py`/`*_test.py` under `test/`
+and `tests/`, but it can never collect a shell test file living directly
+under `tests/` — pytest does not treat `.sh` as collectible. As of today
+there are four:
+
+```bash
+bash tests/run-orchestrate-tests.sh
+bash tests/test_stop_gate.sh
+bash tests/check-write-set-conflicts.test.sh
+bash tests/claim-scan-preflight.test.sh
+```
+
+Running every test in the repo therefore takes five commands, not one
+(`pytest -q` plus these four) — and that fact is itself kept live:
+`gates/probe_full_suite_is_one_command.py` scans every `.sh` file directly
+under `tests/`, checks it against this list (`KNOWN_SHELL_TEST_COMMANDS`
+in that file), and fails the moment a new, unregistered shell test file
+shows up. Collapsing the four into one (a Python rewrite or a wrapper
+script) was deliberately deferred by issue #3091 — see that issue's
+record and this gate's docstring for why.
+
 ## 병렬 테스트 실행 (issue #1490)
 
 이 레포의 첫 의존성 매니페스트인 `requirements-dev.txt`가 `pytest-xdist`
