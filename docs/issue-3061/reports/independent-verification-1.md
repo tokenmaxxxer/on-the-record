@@ -183,3 +183,8 @@ recorded.
 None — record is terminal (`loop_state: verified`). The R2/R3 gaps remain
 open for `coding` to pick up against PR #3102's existing writeup and
 resolution path; no further action is needed from this verification slot.
+
+## Skill verdicts
+
+skill-verdict: work-in-english — applied: invoked; used to write this record, the commit messages, and the PR title/body in English while keeping the final Korean summary to the user.
+other mounted skills (observability-phase-trace, defect-verification-severity-band-assignment, issue-retrospective-timeline-comprehensibility-and-subtraction-rules, verify-finding-record, market-analysis-mece-proposal): not triggered — none matched this task (no phase-1 observability methodology to trace, no new severity band to assign beyond the existing Present/Incorrect/Surface verdicts, no cross-skill retrospective being composed, no `docs/issue-<n>/reports/defect-verification.md` outcome to record, no phase-1 proposal being structured).
