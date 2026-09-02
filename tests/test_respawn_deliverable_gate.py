@@ -191,6 +191,18 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
                 "log": None, "issue": 9002, "skill": "demo", "expects_pr": False,
                 "wrapper_pid": DEAD_PID}
 
+    def _confirm_crash(self, state, entry):
+        """Issue #2969: a single "crashed" verdict no longer reaches the
+        deliverable gate / `_respawn_or_cap()` by itself -- it takes
+        `RESPAWN_CONSECUTIVE_CONFIRMATIONS` consecutive calls sharing the
+        same `state` dict (same pattern as
+        test/test_reconcile_crash_verdict_race.py's
+        test_auto_respawn_check_still_respawns_genuine_crash). Warms the
+        counter up to one short of the threshold so the caller's own
+        (already-mocked) call is the one that actually crosses it."""
+        for _ in range(spawn.RESPAWN_CONSECUTIVE_CONFIRMATIONS - 1):
+            spawn._auto_respawn_check("issue-9002/demo", entry, state)
+
     def test_respawn_skips_existing_deliverable_when_open_pr_found(self):
         found = {"number": 4242, "branch": "issue-9002/implementation", "state": "OPEN"}
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=found), \
@@ -206,9 +218,13 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
         respawn_or_cap.assert_not_called()
 
     def test_respawn_proceeds_without_deliverable_when_gate_finds_none(self):
+        entry = self._entry()
+        state = {}
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=None), \
              mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
-            spawn._auto_respawn_check("issue-9002/demo", self._entry(), {})
+            self._confirm_crash(state, entry)
+            respawn_or_cap.assert_not_called()
+            spawn._auto_respawn_check("issue-9002/demo", entry, state)
         respawn_or_cap.assert_called_once()
 
     def test_respawn_proceeds_without_deliverable_still_respawns_genuine_crash(self):
@@ -216,9 +232,12 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
         # crash counterpart, but for this new gate: absence of a deliverable
         # (the ordinary case) must never suppress a real recovery.
         entry = self._entry()
+        state = {}
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=None), \
              mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap:
-            spawn._auto_respawn_check("issue-9002/demo", entry, {})
+            self._confirm_crash(state, entry)
+            respawn_or_cap.assert_not_called()
+            spawn._auto_respawn_check("issue-9002/demo", entry, state)
         respawn_or_cap.assert_called_once()
         args, _kwargs = respawn_or_cap.call_args
         self.assertEqual(args[2], 9002)  # issue
@@ -226,12 +245,16 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
 
     def test_respawn_skip_is_reported_names_the_pr_in_stderr_and_ledger(self):
         found = {"number": 5150, "branch": "issue-9002/implementation", "state": "OPEN"}
+        entry = self._entry()
+        state = {}
         stderr = io.StringIO()
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=found), \
              mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap, \
              mock.patch.object(spawn, "ledger_write") as ledger_write, \
              contextlib.redirect_stderr(stderr):
-            spawn._auto_respawn_check("issue-9002/demo", self._entry(), {})
+            self._confirm_crash(state, entry)
+            respawn_or_cap.assert_not_called()
+            spawn._auto_respawn_check("issue-9002/demo", entry, state)
         respawn_or_cap.assert_not_called()
         self.assertIn("5150", stderr.getvalue())
         ledger_write.assert_called_once()
@@ -245,11 +268,15 @@ class AutoRespawnConsultsDeliverableGateTest(unittest.TestCase):
         # a stale board() snapshot) still names *something* identifying --
         # the branch -- rather than saying nothing.
         found = {"number": None, "branch": "issue-9002/implementation", "state": "MERGED"}
+        entry = self._entry()
+        state = {}
         stderr = io.StringIO()
         with mock.patch.object(spawn, "_subject_has_deliverable", return_value=found), \
              mock.patch.object(spawn, "_respawn_or_cap") as respawn_or_cap, \
              contextlib.redirect_stderr(stderr):
-            spawn._auto_respawn_check("issue-9002/demo", self._entry(), {})
+            self._confirm_crash(state, entry)
+            respawn_or_cap.assert_not_called()
+            spawn._auto_respawn_check("issue-9002/demo", entry, state)
         respawn_or_cap.assert_not_called()
         self.assertIn("issue-9002/implementation", stderr.getvalue())
 
