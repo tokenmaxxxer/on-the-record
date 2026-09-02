@@ -21,6 +21,7 @@ still blocked or newly unblocked. This file covers the feasible columns:
   | yes                       | n/a (report-time read)       | included in own repo's report     | test_parked_report_includes_own_repo        |
   | no                        | n/a (report-time read)       | excluded from other repo's report | test_parked_report_excludes_other_repo      |
   | both repos parked         | n/a                          | reports not byte-identical        | test_parked_report_not_identical_across_repos |
+  | -- (legacy, no repo key)  | n/a (report-time read)       | excluded from a resolvable repo's report | test_legacy_entry_without_repo_key_excluded_from_resolvable_repo |
 
 Run:
   python3 -m pytest tests/test_spawn_on_pr_repo_scope.py -q
@@ -183,3 +184,23 @@ class TestRetentionRepoScoped:
         assert spawn_on_pr.parked_report(root_a) == [], (
             "repo A's own tick just spawned this subject, so it must not "
             "report as parked yet")
+
+
+class TestLegacyEntries:
+    """Entries written before this fix carry no `repo` key at all. Unlike
+    #3081's cache fix, load_park_state() does not drop them at load (kept
+    to stay backward-compatible with gates/test_spawn_on_pr.py's existing
+    bare-subject-key, no-`repo`-field fixtures) -- but a legacy entry must
+    still not surface in a *resolvable*-slug repo's report, since
+    `entry.get("repo")` (None) never equals a real slug string."""
+
+    def test_legacy_entry_without_repo_key_excluded_from_resolvable_repo(self, repos):
+        root_a, _root_b, park_path = repos
+        _seed(park_path, {
+            SUBJECT: {"blocked": True, "pr_number": 1, "parked": True,
+                      "attempts": 1},  # no "repo" key -- pre-fix shape
+        })
+        assert spawn_on_pr.parked_report(root_a) == [], (
+            "a legacy entry with no repo attribution must not be read "
+            "back as though it belonged to a repo whose slug actually "
+            f"resolves: {spawn_on_pr.parked_report(root_a)!r}")
