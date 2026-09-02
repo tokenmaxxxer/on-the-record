@@ -65,4 +65,6 @@ Acceptance requirement met — checked: `python3 gates/probe_heartbeat_rc95_is_c
 
 No further rebase or push is needed for PR #3133.
 
+skill-verdict: work-in-english — applied: invoked; this session's commit messages, PR title/body, and record prose were all written in English, per the skill, with only this final user-facing summary in Korean.
+
 other mounted skills: not triggered — this session was a mechanical git rebase + verification task (no new code architecture decision, no new error-handling code to audit), so neither `implementation-blueprint` nor `silent-failure-audit` was invoked via the Skill tool.
