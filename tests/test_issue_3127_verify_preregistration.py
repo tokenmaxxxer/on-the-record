@@ -310,6 +310,43 @@ class VerifyEndToEndCollisionTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("does not match the colliding commit", msg)
 
+    def test_rename_into_results_path_does_not_bypass_ordering(self):
+        """Warrant-hunt finding (round 2, docs/issue-3127/reports/
+        implementation-blueprint+experiment-trust+silent-failure-audit-
+        cc11fc03/hunt-round2-verification_pr-bind.md): `_first_commit_for_
+        path` used to run `git log --diff-filter=A --follow`, and
+        `--follow`'s rename-tracking made that query return EMPTY for a
+        path that was introduced via a `git mv` rather than a fresh `git
+        add` -- reproduced live on git 2.34.1. `verify()` reads an empty
+        (None) results_commit as "results not yet committed" and returns
+        True unconditionally, so committing real results content under a
+        placeholder name, `git mv`-ing it to RESULTS_PATH, and only then
+        committing the pre-registration (the actual violation) used to
+        pass. `--follow` is dropped; this must now correctly see the
+        rename as the commit that introduces RESULTS_PATH and refuse the
+        out-of-order case."""
+        placeholder = self.repo_root / "docs/issue-3127/_assets/placeholder.json"
+        placeholder.parent.mkdir(parents=True)
+        placeholder.write_text('{"run_status": "WIN"}\n')
+        self._git("add", str(placeholder.relative_to(self.repo_root)))
+        self._git("commit", "-q", "-m", "results content under placeholder name")
+
+        self._git("mv",
+                   str(placeholder.relative_to(self.repo_root)),
+                   vp.RESULTS_PATH)
+        self._git("commit", "-q", "-m", "rename to real results path")
+
+        prereg = self.repo_root / vp.PREREG_PATH
+        prereg.parent.mkdir(parents=True)
+        prereg.write_text("---\nissue: 3127\n---\nprereg committed after "
+                           "results already existed\n")
+        self._git("add", vp.PREREG_PATH)
+        self._git("commit", "-q", "-m",
+                   "commit pre-registration AFTER results already exist")
+
+        ok, msg = vp.verify(self.repo_root)
+        self.assertFalse(ok, msg)
+
 
 if __name__ == "__main__":
     unittest.main()

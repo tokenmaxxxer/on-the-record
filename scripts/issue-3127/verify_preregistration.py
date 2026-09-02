@@ -62,8 +62,23 @@ def _first_commit_for_path(repo_root: Path, path: str) -> Optional[str]:
     landing to main first) that introduces `path`. Empty result means the
     path has no commit yet -- e.g. it exists only as an uncommitted working
     -tree file, which this check treats as "not yet registered."
+
+    No `--follow`: with `git log --diff-filter=A --follow`, git's own
+    rename-tracking swallows the very "A" (added) event `--diff-filter=A`
+    is asking for at the origin of a rename chain -- reproduced live on
+    git 2.34.1 (a plain `git mv` into `path` makes this query return
+    empty). An empty (None) result reads downstream as "not yet
+    committed", which `verify()` treats as trivially satisfied -- so with
+    `--follow`, writing results content under a placeholder name and
+    `git mv`-ing it into RESULTS_PATH *after* committing the
+    pre-registration made this check pass regardless of true order. Both
+    PREREG_PATH and RESULTS_PATH are fixed paths this repo always creates
+    fresh, never legitimately renames into, so dropping `--follow` loses
+    no real rename-tracking case and closes that bypass: without it, git
+    log's default (no rename detection) correctly reports the commit that
+    creates content at `path` as the "A" event, whatever commit that is.
     """
-    r = _run_git(repo_root, "log", "--diff-filter=A", "--follow",
+    r = _run_git(repo_root, "log", "--diff-filter=A",
                  "--format=%H", "--reverse", "--", path)
     if r.returncode != 0:
         return None
