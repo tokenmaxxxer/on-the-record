@@ -21,11 +21,22 @@ TASK_ID="$2"
 OUT_ROOT="$3"
 
 REPO_URL="https://github.com/JiwonJung94/study-companion.git"
-PIN_SHA="e102772480545a6be0af733f51020c97e7357ba7"
+PIN_SHA="d6f14aebd1a79002fda3a7f22320ee63c6e7a736"
 MODEL="sonnet"
 BUDGET="1.5"
 TOOLS_ON="Read,Glob,Grep,Write,Edit,TodoWrite,Skill"
 TOOLS_OFF="Read,Glob,Grep,Write,Edit,TodoWrite"
+
+# --setting-sources project,local (below) deliberately excludes the `user`
+# scope to keep this repo's own operator hooks from leaking into the target
+# subprocess -- but marketplace plugins also register at `user` scope, so
+# that flag alone mounts zero skills in the skills-on arm too (issue #3053).
+# --plugin-dir is session-scoped and orthogonal to --setting-sources: it
+# loads the target skill corpus without pulling in the operator-hook plugin,
+# which is registered separately in this machine's user settings. Verified
+# live in issue #3053 (no hook-leak signal, corpus present in the init event).
+PLUGIN_DIR="${MUSTER_SKILL_REGISTRY_ROOT:+$(dirname "$MUSTER_SKILL_REGISTRY_ROOT")}"
+PLUGIN_DIR="${PLUGIN_DIR:-$HOME/skill-registry}"
 
 TASK_TEXT="$(cat "$TASK_FILE")"
 PROMPT="You are advising the team behind this repository (a study app for university students). Look at the repo to the extent it's useful, then do the following:
@@ -56,6 +67,7 @@ run_arm() {
         --model "$MODEL" \
         --permission-mode bypassPermissions \
         --setting-sources project,local \
+        --plugin-dir "$PLUGIN_DIR" \
         --tools "$TOOLS_ON" \
         --output-format stream-json --verbose \
         --max-budget-usd "$BUDGET" \

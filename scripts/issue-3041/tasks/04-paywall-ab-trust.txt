@@ -1,1 +1,0 @@
-Last week we ran a test comparing two paywall designs, and variant B came back showing a 35% increase in subscriptions. The team wants to roll variant B out to everyone this week. Can we trust this result before that happens? Write up what you'd check and what you'd tell the team.
