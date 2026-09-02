@@ -29,7 +29,8 @@ Acceptance requirement met — checked: `grep -rn 'invoked' gates/record_lint.py
 Acceptance requirement met — checked: `python3 -m pytest on-the-record/hooks/ -q` — result: 42 passed
 
 skill-verdict: silent-failure-audit — not-applicable: no new code was written this session (patch-id-identical rebase of already-reviewed content); nothing to audit for silent failure paths.
-skill-verdict: work-in-english — invoked; loaded to confirm record/commit-message language policy while drafting this record and the landing commit, both written in English per the skill.
+skill-verdict: work-in-english — not-applicable: not invoked via the Skill tool this session (record and commits were written in English by default, not because the skill was loaded and consulted).
+other mounted skills: not triggered
 
 ## Why
 
