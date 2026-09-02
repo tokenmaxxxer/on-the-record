@@ -181,10 +181,20 @@ except (OSError, subprocess.SubprocessError):
 
 checkout = os.environ.get("ALA_CHECKOUT")
 script = os.path.join(checkout, "gates", "amends_landing.py")
-result = subprocess.run(
-    [sys.executable, script, remote, branch],
-    capture_output=True, text=True, timeout=180,
-)
+try:
+    result = subprocess.run(
+        [sys.executable, script, remote, branch],
+        capture_output=True, text=True, timeout=180,
+    )
+except (OSError, subprocess.SubprocessError) as exc:
+    # A hang past the 180s cap (TimeoutExpired) or an unlaunchable
+    # interpreter/script (OSError) must not surface as a raw traceback --
+    # same fail-open-and-report posture as every other subprocess call in
+    # this file, just applied to the one call this file's own review
+    # (issue #3134 repair round 3, silent-failure-audit skill) found
+    # unguarded.
+    sys.stderr.write("amends-landing-apply: " + str(exc) + "\n")
+    sys.exit(0)
 if result.returncode != 0:
     sys.stderr.write("amends-landing-apply: " + result.stderr.strip() + "\n")
 sys.exit(0)

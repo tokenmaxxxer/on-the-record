@@ -58,9 +58,19 @@ def land(remote: str, branch: str = "main", workdir: str | None = None) -> dict:
             return {"pushed": False, "written": [], "error": r.stderr.strip(),
                      "remaining": []}
 
-        written = amends_index.write_backlinks(tmp)
-        amends_index.update(tmp)
-        remaining = amends_index.check(tmp)
+        try:
+            written = amends_index.write_backlinks(tmp)
+            amends_index.update(tmp)
+            remaining = amends_index.check(tmp)
+        except (OSError, ValueError) as exc:
+            # `write_backlinks()`/`insert_backlink()` raise ValueError on a
+            # caller-contract violation (an anchor that does not resolve --
+            # should be unreachable, since `check_staged()` already refused
+            # a structurally malformed edge at commit time, but "should be
+            # unreachable" is not "is": surfaced in `error`, not silently
+            # swallowed nor left to crash this function's caller.
+            return {"pushed": False, "written": [], "error": str(exc),
+                     "remaining": []}
 
         status = subprocess.run(
             ["git", "-C", str(tmp), "status", "--porcelain"],
@@ -72,14 +82,22 @@ def land(remote: str, branch: str = "main", workdir: str | None = None) -> dict:
 
         subprocess.run(["git", "-C", str(tmp), "add", "-A"],
                         capture_output=True, timeout=30)
-        subprocess.run(
+        commit_r = subprocess.run(
             ["git", "-C", str(tmp),
              "-c", "user.email=amends-landing@tokenmaxxxer.local",
              "-c", "user.name=amends-landing-bot",
              "commit", "-q", "-m",
              "amends: apply backlinks -- issue #3134 landing step"],
-            capture_output=True, timeout=30,
+            capture_output=True, text=True, timeout=30,
         )
+        if commit_r.returncode != 0:
+            # A silent `git commit` failure here (e.g. no configured
+            # identity survives the `-c` overrides, disk full) would
+            # otherwise fall through to `git push` and push the OLD head
+            # unchanged -- indistinguishable from success (`pushed: True`,
+            # nothing actually landed). Caught explicitly instead.
+            return {"pushed": False, "written": written,
+                     "error": commit_r.stderr.strip(), "remaining": remaining}
         r = subprocess.run(
             ["git", "-C", str(tmp), "push", "origin", "HEAD:" + branch],
             capture_output=True, text=True, timeout=120,
