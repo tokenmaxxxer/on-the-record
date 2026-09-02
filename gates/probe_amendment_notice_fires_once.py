@@ -109,6 +109,12 @@ def _amend(env: dict, orchestrator_cwd: Path, note: str) -> None:
         "tool_name": "Bash",
         "tool_input": {"command": cmd},
         "cwd": str(orchestrator_cwd),
+        # issue #3129 round-4: the write side now takes the edited issue's
+        # repo+number from gh issue edit's own success output
+        # (tool_response), never from the command text -- must name the
+        # same repo as orchestrator_cwd's own `origin` (ORIGIN_URL) or the
+        # new cross-repo policy-violation check refuses the write.
+        "tool_response": "https://github.com/example/probe-repo/issues/%s" % ISSUE,
     }
     _call_hook(payload, env)
 
