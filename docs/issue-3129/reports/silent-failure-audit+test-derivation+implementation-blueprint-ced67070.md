@@ -247,3 +247,9 @@ code changes are committed and pushed to PR #3137's branch, not merged,
 per the spawning instructions. PR #3137 remains open with `Closes #3129`
 on its own body (unedited by this session); this record documents the
 repair, and this session's own branch carries only this record.
+
+skill-verdict: other mounted skills (silent-failure-audit, test-derivation,
+implementation-blueprint, work-in-english): not triggered — the spawning
+prompt was already fully prescriptive (exact defect, exact fix shape,
+exact tests to add), leaving no open error-handling audit, test-technique
+selection, or architecture decision for these skills to inform.
