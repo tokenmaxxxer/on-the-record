@@ -256,25 +256,29 @@ pushed to PR #3086's own branch and not part of this PR's diff. A human
 still needs to merge PR #3086 for this issue's acceptance checks to run
 against `main`; this PR alone does not close #3050.
 
-skill-verdict: implementation-blueprint -- applied: invoked; classified
+skill-verdict: implementation-blueprint — applied: invoked; classified
 the `push_succeeded` fix as the same backend/domain-rich shape PR #3086's
 own record used, so the fix stayed a pure derivation function
 (`spawn._push_succeeded()`, no I/O) extracted from `_spawn_one()` rather
 than inlined further -- one unit, well below the fan-out threshold, built
 solo.
-skill-verdict: silent-failure-audit -- applied: invoked; this repair
+skill-verdict: silent-failure-audit — applied: invoked; this repair
 round's own subject is a silent-failure classification defect (must-not
 B). Re-read `relay.py::ensure_pushed()` (untracked on this branch, PR
 #3086's own file) in full to check `_push_succeeded()`'s exclusion tuple
 for the same defect class after the fix -- a fourth status silently
-falling through as success. Found `"issue-closed-stale-branch"` was not
-excluded either, before or after this fix; checked that
+falling through as success.
+
+derived: `grep -n '"nothing-to-push"\|"push-rejected"\|"pr-create-failed"\|"issue-closed-stale-branch"' spawn.py relay.py`
+(PR #3086 branch) -- `spawn._push_succeeded()`'s exclusion tuple names
+three statuses; `relay.py::ensure_pushed()`'s `"issue-closed-stale-branch"`
+return is not one of them, before or after this fix. Checked that
 `fail_closed_downgrade()`'s `already_delivered`/`blocked` checks run
 ahead of `push_succeeded` in every path that matters for that status, so
 it was not a second live instance of must-not B; left unfixed as out of
 this repair round's named scope (only `"nothing-to-push"` was named), not
 silently dropped.
-skill-verdict: test-derivation -- applied: invoked; the new
+skill-verdict: test-derivation — applied: invoked; the new
 `PushSucceededDerivationLiveTest` cases are an equivalence partition over
 `ensure_pushed()`'s real status values reached through the two genuinely
 distinct code paths (role branch absent locally vs.
