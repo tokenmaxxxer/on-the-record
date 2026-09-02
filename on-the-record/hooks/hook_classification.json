@@ -42,6 +42,14 @@
       "rationale": "turn-budget warning only; the real --max-turns enforcement lives in the CLI outside this repo"
     },
     {
+      "event": "PreToolUse",
+      "script": "gate-registration-post-guard.sh",
+      "args": ["pre"],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "issue #3073: reads its own state file and, for a still-open violation, emits advisory additionalContext naming the commit and the missing row -- it cannot deny or revert a commit that already landed (PreToolUse fires on the NEXT tool call, after the fact), so this is a nudge, not a rule. The strong deny-before-write guarantee for this class of omission still lives entirely in gate-registration-guard.sh's own PreToolUse/`--cached` check, unchanged by this pair. Not copied from post-landing-obligation-gate.sh despite the superficial 'reads/writes a state file' resemblance: nothing outside this hook's own pre-mode ever reads OTR_GRG_POST_STATE_DIR, so there is no downstream enforcement decision this file's presence or absence changes -- unlike post-landing-obligation-gate.sh's record, which the northpole loop actually consults."
+    },
+    {
       "event": "PostToolUse",
       "script": "retry-loop-bound.sh",
       "args": ["post"],
@@ -56,6 +64,14 @@
       "wrapped": true,
       "class": "invariant-injecting",
       "rationale": "opens the post-landing verification obligation record the northpole loop depends on (issue #1098) -- absence means a landed fix silently owes no tracked verification"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "gate-registration-post-guard.sh",
+      "args": ["post"],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "issue #3073: greps a just-run `git commit`'s own success line out of tool_response and, on a miss, writes a pending-violation record for its pre-mode sibling to later report -- the script's own header states plainly this mode is 'pure side-effect, always exit 0' and 'cannot deny'. Same reasoning as its pre-mode sibling: no other gate reads the state file it writes, so nothing downstream is silently weakened by this registration's absence -- only the follow-up nudge is lost, which is signal, not a rule."
     },
     {
       "event": "PostToolUse",

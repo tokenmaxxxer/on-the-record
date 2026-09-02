@@ -101,12 +101,17 @@ class HookClassificationTest(unittest.TestCase):
             )
 
     def test_registration_count_matches_the_issues_own_count(self):
-        # issue #2962's own verified-wiring count: 12 registrations, 11
+        # issue #2962's own verified-wiring count was 12 registrations, 11
         # wrapped by fail-open-wrapper.sh, 1 (pretooluse-dispatcher.sh)
-        # deliberately unwrapped/fail-closed.
+        # deliberately unwrapped/fail-closed. issue #3073: PR #2872 added
+        # gate-registration-post-guard.sh's pre/post pair (both wrapped),
+        # raising the live count to 14 (13 wrapped, 1 unwrapped) -- this
+        # literal is meant to move again the next time a hook is
+        # legitimately registered; it exists to catch drift, not to freeze
+        # the count at any one issue's number.
         live = registrations_from_hooks_json()
-        self.assertEqual(len(live), 12, live)
-        self.assertEqual(sum(1 for r in live if r[3]), 11, live)
+        self.assertEqual(len(live), 14, live)
+        self.assertEqual(sum(1 for r in live if r[3]), 13, live)
         self.assertEqual(sum(1 for r in live if not r[3]), 1, live)
 
     def test_pretooluse_dispatcher_is_classified_but_unwrapped(self):
