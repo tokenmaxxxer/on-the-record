@@ -74,6 +74,21 @@ class HookScriptShippedAndExecutable(unittest.TestCase):
         self.assertTrue(TIMEOUT_PLUGIN_PATH.is_file(), TIMEOUT_PLUGIN_PATH)
 
 
+def _assert_post_tool_use_additive(before_commands: set, after_commands: set) -> None:
+    """The additive-only guard: raises AssertionError iff a PostToolUse
+    `command` string present in `before_commands` is missing from
+    `after_commands`. Deliberately repo-state-independent -- it must
+    pass when `before == after` (the state right after this change has
+    merged and `origin/main` already contains it too), and fail only
+    when something was actually removed. Shared with
+    gates/probe_hooks_additive_survives_merge.py (issue #3083) so that
+    module's before/after-identical and removal simulations exercise
+    this exact function, not a reimplementation of it."""
+    missing = before_commands - after_commands
+    assert missing == set(), (
+        "PostToolUse commands removed by this change: %s" % missing)
+
+
 class HooksJsonWiringIsAdditive(unittest.TestCase):
     """Wired via fail-open-wrapper.sh, same as every other PostToolUse
     hook, and no pre-existing PostToolUse entry was removed to make room
@@ -130,11 +145,7 @@ class HooksJsonWiringIsAdditive(unittest.TestCase):
             for block in self.hooks["hooks"]["PostToolUse"]
             for h in block.get("hooks", [])
         }
-        missing = before_commands - after_commands
-        self.assertEqual(missing, set(),
-                          "PostToolUse commands removed by this change: %s"
-                          % missing)
-        self.assertGreater(len(after_commands), len(before_commands))
+        _assert_post_tool_use_additive(before_commands, after_commands)
 
 
 class DocsOnlyEmptyState(unittest.TestCase):
