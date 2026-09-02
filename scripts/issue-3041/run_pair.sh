@@ -48,6 +48,11 @@ Write your full answer to DELIVERABLE.md in the repo root. Do not modify any oth
 pair_dir="$OUT_ROOT/$TASK_ID"
 rm -rf "$pair_dir"
 mkdir -p "$pair_dir"
+# Resolve to absolute now: run_arm() below cd's into $ws before writing the
+# session log, so a relative $pair_dir/$arm.session.jsonl redirect target
+# would resolve against the wrong cwd (issue #3053 -- surfaced when
+# <output-root> was passed as a relative path).
+pair_dir="$(cd "$pair_dir" && pwd -P)"
 
 seed="$pair_dir/_seed"
 git clone --quiet "$REPO_URL" "$seed"

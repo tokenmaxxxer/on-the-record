@@ -50,9 +50,19 @@ pressure.
 
 ## Deviations log
 
-None yet — this section is appended to in real time if the actual run
-diverges from this registration (hypothesis-testing Step 5 gate), not
-reconstructed afterward.
+- 2026-09-02: the first invocation of all 4 pairs (relative `<output-root>`
+  `docs/issue-3053/_assets`) failed both arms of all 4 pairs at the
+  `claude -p` step itself (exit 1, no session log, no deliverable) — a
+  pre-existing bug in `run_pair.sh`, not something this registration
+  anticipated: `run_arm()` redirects to `"$pair_dir/$arm.session.jsonl"`
+  *after* `cd`-ing into the per-arm workspace, so a relative `$pair_dir`
+  resolves against the wrong cwd. Fixed by resolving `pair_dir` to an
+  absolute path immediately after `mkdir -p` (see `run_pair.sh`). No
+  deliverable or session log exists from this failed first attempt, so no
+  measurement is affected — it produced zero data, not wrong data. All 4
+  pairs re-run from scratch (`rm -rf` on the failed pair dirs first) under
+  the same registration above; nothing about the registered metric,
+  threshold, or decision rule changed.
 
 ## Scope note (experiment-trust)
 
