@@ -235,6 +235,29 @@ class DelegationAuditFlaggingTest(unittest.TestCase):
                  "SLA -- your call.")
         self.assertEqual(self._audit_count([ev]), 0)
 
+    def test_third_verification_genuine_escalations_are_not_flagged(self):
+        # issue #3061 repair round (PR #3107 finding, a third independent
+        # verification constructed after this narrowing landed on `main`
+        # but reproduced against the pre-repair code): two more genuine
+        # escalations independently constructed, distinct wording from the
+        # six already regression-pinned above.
+        cases = [
+            "이 작업은 되돌릴 수 없습니다. 프로덕션 배포를 진행할까요?",
+            "Should I proceed with deleting the production database? "
+            "This is irreversible.",
+        ]
+        for text in cases:
+            ev = _assistant_event(self.now, text=text)
+            self.assertEqual(self._audit_count([ev]), 0, text)
+
+    def test_third_verification_announcing_next_step_still_flags(self):
+        # issue #3061 repair round (PR #3107 finding): independent
+        # reproduction of the same trailing-punctuation gap PR #3102 found
+        # (다음은 ...하겠습니다 failing to match with a period) -- confirms
+        # the fix above generalizes past the one wording PR #3102 used.
+        ev = _assistant_event(self.now, text="다음은 결제 시스템을 종료하겠습니다.")
+        self.assertEqual(self._audit_count([ev]), 1)
+
     def test_empty_state_no_delegation_ever_granted_reports_zero(self):
         other_repo = str(Path(tempfile.mkdtemp()) / "otherrepo")
         Path(other_repo).mkdir(parents=True)
