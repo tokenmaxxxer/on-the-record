@@ -25,21 +25,31 @@ Two things this module does NOT attempt, on purpose:
 - It never suppresses or auto-answers anything. `audit()` only reports,
   after the fact, turns that plausibly asked for authority a delegation
   already covered — it is diagnostic, not a filter a live turn consults to
-  decide whether to keep asking. A program cannot always tell "genuine fork
-  the operator must decide" apart from "redundant ask" from text alone (the
-  issue's own framing: both surface as a question) — `audit()` is
-  deliberately high-precision/low-recall about it (see the extended comment
-  above `_REDUNDANT_ASK_RES` below) rather than guessing on ambiguous cases,
-  because a false positive here (mislabeling a real escalation as
-  redundant) is the worse failure per the issue's own must-not clause. As
-  of this module's issue #3061 repair round, this is enforced structurally,
-  not just aspirationally: the pattern list matches only the closed set of
-  phrasings actually quoted in the issue's own transcript, after two
-  independent verifications (PR #3097, PR #3102) reproduced six genuine
-  escalations misclassified as redundant by an earlier, more generalized
-  pattern list. `test/test_delegation_state.py`'s
-  `RedundantAskDirectionOfErrorEvalTest` measures the resulting
-  false-redundant/false-genuine trade-off on a held-out set.
+  decide whether to keep asking.
+
+  Four successive rounds (PR #3097, #3102, #3107, then a repair round
+  verified by PR #3122) tried to answer "was this ask redundant" by
+  pattern-matching the *words* of the question, each round narrowing the
+  pattern list after adversarial input broke it, and each round broken
+  again the same way: a genuine escalation and a redundant ask routinely
+  share a verb ("이대로 갈까요?" and a life-or-death rollback question
+  both ask "shall I go ahead"), so no lexical pattern list — however
+  narrow — separates them. See `docs/issue-3061/reports/` for the four
+  records; the last one (PR #3122) measured a 50% false-positive rate on
+  genuine escalations that merely reused a retained idiom.
+
+  This module now classifies the orchestrator's next intended *action*
+  instead — a `{tool, resource}` pair, structurally read off the tool_use
+  event that actually followed the ask, not the prose of the ask itself —
+  against `grant()`'s recorded `manifest`: an enumerable, structured list
+  of covered actions (see the "scope manifest" section below
+  `is_covered()`). Set membership replaces text inference: an action
+  either matches an enumerated manifest entry or it does not, and
+  anything that does not match defaults to "genuine escalation, not
+  flagged" — the same err-toward-asking direction the four lexical
+  rounds tried and failed to hold, now a structural property of "not
+  found in the set" rather than a measured rate on whichever adversarial
+  inputs happened to get tried.
 - It never grants indefinite authority. Issue #707's own proposal
   (docs/issue-707/proposals/product-discovery.md) already rejected "blanket
   standing delegation with no scope/expiry field" as unsafe; `grant()`
@@ -51,7 +61,6 @@ from __future__ import annotations
 import fnmatch
 import json
 import os
-import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -136,13 +145,31 @@ def in_force(record: dict | None, now: datetime | None = None) -> bool:
 
 def grant(repo: str, scope: str, granted_by: str, expires_at: str | None = None,
           hours: float = DEFAULT_GRANT_HOURS, now: datetime | None = None,
-          skill_env: str | None = "unset") -> dict:
+          skill_env: str | None = "unset", manifest: list[dict] | None = None) -> dict:
     """Record a new standing delegation, replacing any prior one — the
     delegation is state, singular, not an appended log. `skill_env` is the
     `CLAUDE_SKILL` value of the granting session; pass the literal string
     "unset" (the default) to read the real environment, or "" / a skill
     name directly in tests. A skill-bound session can never grant its own
-    standing delegation."""
+    standing delegation.
+
+    `scope` stays a free-text human label (unchanged from before this
+    module's manifest repair) — it is what `describe()` prints for a
+    person to read, and it is intentionally NOT what `audit()` classifies
+    against anymore. `manifest` is the new, separate, structured field:
+    a list of `{"tool", "resource", "repo"}` entries (see `is_covered()`'s
+    docstring for the exact matching rule) naming the actions this grant
+    actually covers. Omitting it (the default) stores an EMPTY manifest,
+    not a permissive one — a grant with no `manifest` entries covers
+    nothing, and every action still escalates until entries are added.
+    This is a deliberate, stated boundary, not an oversight: bridging an
+    operator's free-text "쭉 해" into a manifest that covers something
+    without inventing an unrequested guess at what they meant is an open
+    question this module does not resolve on its own (see the module
+    docstring's manifest section and this module's own issue #3061 record
+    for the reasoning); `spawn.py delegation-state --grant --allow
+    TOOL:RESOURCE-GLOB[:REPO-GLOB]` (`parse_allow_spec()` below) is the
+    non-JSON authoring surface for populating it explicitly."""
     resolved_skill = os.environ.get("CLAUDE_SKILL") if skill_env == "unset" else skill_env
     if resolved_skill:
         raise SkillBoundGrantError(
@@ -162,6 +189,7 @@ def grant(repo: str, scope: str, granted_by: str, expires_at: str | None = None,
         "expires_at": expires_at,
         "revoked_at": None,
         "revoked_by": None,
+        "manifest": list(manifest) if manifest else [],
     }
     path = _state_path(repo)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -183,6 +211,16 @@ def revoke(repo: str, revoked_by: str, now: datetime | None = None) -> dict | No
     return record
 
 
+def _describe_manifest(manifest: list[dict] | None) -> str:
+    entries = manifest or []
+    if not entries:
+        return "manifest: 0 action(s) — every action still escalates until entries are added"
+    parts = ", ".join(
+        f"{e.get('tool')}:{e.get('resource')!r}(repo:{e.get('repo', '*')})"
+        for e in entries)
+    return f"manifest: {len(entries)} action(s) — {parts}"
+
+
 def describe(repo: str, now: datetime | None = None) -> str:
     """Human-readable read-back — this is what `spawn.py delegation-state`
     prints with no --grant/--revoke/--audit flag. Reports cleanly when
@@ -198,7 +236,8 @@ def describe(repo: str, now: datetime | None = None) -> str:
         return (f"standing delegation IN FORCE — scope: {record.get('scope')!r}; "
                 f"granted_by: {record.get('granted_by')}; "
                 f"granted_at: {record.get('granted_at')}; "
-                f"expires_at: {record.get('expires_at')}")
+                f"expires_at: {record.get('expires_at')}; "
+                f"{_describe_manifest(record.get('manifest'))}")
     reason = ("revoked_at: " + str(record.get("revoked_at"))
               if record.get("revoked_at") else
               "expired at: " + str(record.get("expires_at")))
@@ -207,85 +246,154 @@ def describe(repo: str, now: datetime | None = None) -> str:
             f"{record.get('granted_by')}, granted_at: {record.get('granted_at')}")
 
 
-# --- audit mode -------------------------------------------------------
+# --- scope manifest ---------------------------------------------------
 #
-# High-precision, low-recall on purpose (see module docstring) — and, as of
-# this repair round (issue #3061 repair, PR #3097 + PR #3102), deliberately
-# narrower than the first cut shipped in PR #3087.
+# Four successive rounds tried to answer "was this ask redundant" by
+# pattern-matching the WORDS of the question the orchestrator asked (PR
+# #3087's first cut, then narrowings verified by PR #3097, #3102, #3107,
+# then a repair round verified by PR #3122). All four were graded
+# Incorrect against the issue's own must-not clause, each time the same
+# way: a genuine escalation and a redundant ask routinely use the exact
+# same verb — "이대로 갈까요?" and "이 마이그레이션은 롤백이 불가능합니다.
+# 계속 진행할까요?" share a verb, not a meaning — so no lexical pattern
+# list, however narrow, separates them; PR #3122's independent
+# verification measured a 50% false-positive rate on genuine escalations
+# built to reuse a retained idiom, after the surface area had already
+# been narrowed from 10 patterns to 4. Full history in
+# docs/issue-3061/reports/ (four records) plus the consult that
+# recommended this redesign, logged in the issue's own comment thread.
 #
-# Both independent verifications of PR #3087 found the SAME failure mode
-# from different angles: a "redundant ask" pattern list built from generic
-# verb constructions ("shall i", "should i proceed", bare "진행할까요") does
-# not distinguish a redundant ask from a genuine escalation, because real
-# escalations routinely use the exact same verbs — "Shall I roll this out
-# to prod now, or hold for the nightly build?" and "이대로 갈까요?" share a
-# verb, not a meaning. Six independently constructed genuine-escalation
-# phrasings (irreversible actions, explicit authority language, English and
-# Korean, one explicit fork) were all misclassified as redundant by that
-# first cut. This is not six bugs to patch one at a time — the underlying
-# claim (a keyword/verb-pattern regex can separate "redundant ask" from
-# "genuine escalation" in open-ended natural language) does not hold, and
-# no amount of adding negative filters for THESE six phrasings would catch
-# an unseen seventh; it would only make the pattern list fit the six
-# counterexamples on hand.
+# The redesign: stop classifying the SENTENCE and start classifying the
+# ACTION. `is_covered()` below is a set-membership lookup — a `{tool,
+# resource}` action either matches an entry in the operator's recorded
+# `manifest` or it does not; there is no inference step to get wrong.
+# "Not enumerated" defaults to "genuine escalation" structurally, not as
+# a measured rate on whichever adversarial inputs happened to get tried
+# — which is exactly the property four lexical rounds tried and failed
+# to hold as a property of a pattern list.
 #
-# The direction chosen instead: since the two classes are not reliably
-# separable by a program under this design, `_is_redundant_ask()` now only
-# matches the closed set of phrasings actually quoted (or a fixed-anchor
-# bug fix of one actually quoted) in issue #3061's own transcript — never a
-# generalized verb pattern invented beyond that literal set. This is a
-# narrowing, not a widening: `계속 진행할까요` (the issue's literal quote)
-# stays; the bare `진행할까요` stem the first cut generalized it to is
-# removed, because that stem alone is exactly what flagged the adversarial
-# Korean escalation case ("...진행할까요? 되돌릴 수 없는 작업이라 운영자
-# 판단이 필요합니다.") as redundant. `해도 될까요` (never quoted in the
-# issue) and all four English modal-verb patterns (never quoted in the
-# issue — the issue's own examples are Korean) are removed for the same
-# reason: they are generalizations with no grounding in an observed
-# redundant ask, and every one of the six false positives came from
-# exactly this kind of generalized verb match.
+# `audit()` still scans historical session transcripts for a turn that
+# stopped to ask (assistant text, no tool_use in that same event — the
+# one part of the old design that was always structural fact, not
+# lexical inference, and stays unchanged). What changed is what it
+# checks that stop against: not the text of the question, but the
+# {tool, resource} of the tool_use event that actually followed it in
+# the same transcript — i.e. what the orchestrator went on to do next,
+# whether because the operator answered or because nothing blocked it.
+# If that next action is in the recorded manifest, the delegation
+# already covered it and the stop was avoidable (flagged). If it is not
+# — including when there is no next tool_use event to look at at all —
+# `audit()` cannot establish that the stop was avoidable, and the safe
+# default (issue #3061's own err-toward-asking direction) is to not
+# flag it, the same direction the four retired lexical rounds were
+# aiming for and structurally missing.
 #
-# The error direction this chooses is explicit: a redundant ask that goes
-# undetected costs nothing but an uncounted audit entry; a genuine
-# escalation mislabeled as redundant, in a report an operator might use to
-# judge "is my orchestrator over-asking," costs the operator's trust in
-# the one channel meant to say "an irreversible action was proposed and
-# correctly stopped for you." Recall on redundant-ask detection is
-# intentionally sacrificed for that. See
-# docs/issue-3061/reports/implementation-blueprint+silent-failure-audit+test-derivation+decision-brief-f458808c.md's
-# repair-round section for the measured false-redundant / false-genuine
-# rates on a held-out set built after this narrowing, not used to tune it.
+# Manifest entry shape: `{"tool": <tool_use event's "name">, "resource":
+# <fnmatch glob against the extracted resource string>, "repo": <fnmatch
+# glob against the repo name, default "*">}`. `tool` is an exact match
+# (a tool name is already a small closed set — "Bash", "Edit", "Write",
+# ... — glob-matching it would only reintroduce the same
+# unanchored-substring risk the lexical classifier had); `resource` and
+# `repo` are globs because the values they match (shell commands, file
+# paths, repo directory names) are open-ended strings a human names
+# approximately, e.g. "git *" or "gh pr *".
 #
-# A turn is flagged only when it (a) ended with assistant text and no
-# tool_use in the same event — the same "agent monologue" shape
-# trajectory_analyzer.agent_monologue_runs() already uses for "narration
-# with no observation between" — (b) that text matches one of the closed
-# literal phrasings below, and (c) that text does NOT also carry a fork
-# marker (named alternatives, a real either/or) — presence of a fork
-# marker disqualifies the turn from being flagged even if it also matches
-# (b).
+# Threshold dimensions: `repo` is the one this delivery actually wires
+# (every action already happens inside a `--repo` context, matching
+# `grant()`/`audit()`'s own `repo` parameter). "spend" (a metered cost
+# limit) and "blast radius" (e.g. a max file/target count per action)
+# would follow the identical mechanism — one more glob-or-bound key on
+# a manifest entry, checked the same way — but neither has a signal to
+# check against today: a `tool_use` event carries no cost figure, and no
+# other module in this repo computes a blast-radius number this one
+# could read. Adding either now would be an unused threshold type with
+# nothing to validate it against — the anti-pattern this repo's own
+# `implementation-blueprint` skill calls speculative-generality — so
+# this delivery leaves them named here as the documented extension
+# point, not built.
+#
+# Authoring without hand-written JSON: `spawn.py delegation-state
+# --grant SCOPE --allow TOOL:RESOURCE-GLOB[:REPO-GLOB]` (repeatable)
+# builds the manifest for you via `parse_allow_spec()` below. Omitting
+# `--allow` entirely grants a delegation with an EMPTY manifest — not a
+# permissive one. This is the fix's stated cost, not an oversight: it
+# pushes the structuring burden onto whoever authors the grant. An
+# operator who says "쭉 해" with no `--allow` flags gets a delegation
+# that is machine-visible and revocable (R1) but covers zero actions
+# (R2) until entries are added — bridging free-text delegation into a
+# manifest that covers something, without this module guessing at an
+# unstated intent, is named as open work in this delivery's record
+# rather than solved by inventing a default allowlist here.
 
-_REDUNDANT_ASK_RES = [re.compile(p, re.IGNORECASE) for p in (
-    r"이대로\s*갈까요",
-    r"계속\s*진행할까요",
-    r"이\s*순서로\s*갈까요",
-    # issue #3061 repair (PR #3102 finding): the trailing `\s*$` anchor
-    # required the string to end immediately after 하겠습니다 -- a plain
-    # trailing period, which ordinary Korean sentences carry, broke the
-    # match for the issue's own third named stopping pattern. Widened only
-    # to tolerate the sentence-final punctuation that pattern's own quoted
-    # example implies, not to catch new phrasings.
-    r"다음은[^\n]*하겠습니다[.!?]?\s*$",
-)]
 
-_FORK_MARKER_RES = [re.compile(p, re.IGNORECASE) for p in (
-    r"옵션\s*[12]|option\s*[12]|choice\s*[12]",
-    r"중\s*(하나|어느)",
-    r"\bwhich (of|one)\b",
-    r"\beither\b.*\bor\b",
-    r"trade-?off|장단점",
-    r"[ab]\s*안\b|방안\s*[12]",
-)]
+_ACTION_RESOURCE_FIELDS = ("command", "file_path", "path", "url", "description")
+
+
+def is_covered(action: dict, manifest: list[dict] | None, repo: str | None = None) -> bool:
+    """True iff `action` (`{"tool": str, "resource": str}`) matches at
+    least one entry of `manifest`. Set membership, not inference: `tool`
+    must match an entry's `tool` exactly; `resource` must match that
+    entry's `resource` glob (`fnmatch`); when both `repo` and the entry's
+    `repo` (default `"*"`) are given, `repo` must also match that glob.
+    An action matching no entry returns False — the manifest enumerates
+    what is delegated, and anything outside that enumeration is a
+    genuine escalation by construction, never a guess."""
+    for entry in manifest or []:
+        if entry.get("tool") != action.get("tool"):
+            continue
+        if not fnmatch.fnmatch(action.get("resource") or "", entry.get("resource") or "*"):
+            continue
+        entry_repo = entry.get("repo") or "*"
+        if repo is not None and not fnmatch.fnmatch(repo, entry_repo):
+            continue
+        return True
+    return False
+
+
+def parse_allow_spec(spec: str) -> dict:
+    """Parse one `--allow` CLI value into a manifest entry — the
+    non-JSON authoring surface `grant()`'s docstring points to. Syntax:
+    `TOOL:RESOURCE-GLOB[:REPO-GLOB]`, e.g. `Bash:git *` or
+    `Bash:gh pr *:on-the-record` (REPO-GLOB defaults to `"*"`, any
+    repo). Raises ValueError on a spec missing its required TOOL or
+    RESOURCE part — a malformed `--allow` value fails the grant loudly
+    at authoring time; it never silently drops to an emptier manifest
+    without saying so. Known limitation: a colon inside RESOURCE itself
+    (e.g. a URL glob) is ambiguous with the `:`-delimited grammar and
+    will split wrong — author such an entry as JSON directly via
+    `grant(..., manifest=[...])` instead of `--allow`."""
+    parts = spec.split(":", 2)
+    if len(parts) < 2 or not parts[0].strip() or not parts[1].strip():
+        raise ValueError(
+            f"malformed --allow spec {spec!r} — expected "
+            f"'TOOL:RESOURCE-GLOB[:REPO-GLOB]', e.g. 'Bash:git *'")
+    tool, resource = parts[0].strip(), parts[1].strip()
+    repo_glob = parts[2].strip() if len(parts) == 3 and parts[2].strip() else "*"
+    return {"tool": tool, "resource": resource, "repo": repo_glob}
+
+
+def _extract_action(tool_use: dict) -> dict:
+    """Turn one `trajectory_analyzer.tool_use_events()` entry into the
+    `{"tool", "resource"}` shape `is_covered()` matches against.
+    `resource` is read from the first populated field among
+    `_ACTION_RESOURCE_FIELDS` in the tool's `input` (`command` covers
+    Bash — the dominant case in practice, since `git`/`gh` calls are
+    shell commands; `file_path`/`path` cover Edit/Write/Read; `url` and
+    `description` are generic fallbacks for other tools). A tool shape
+    this list does not recognize still gets a real (non-empty) resource
+    string — the input dict, JSON-serialized — rather than an empty
+    one, so it can never accidentally glob-match a wildcard entry meant
+    for a different tool's resource."""
+    inp = tool_use.get("input") or {}
+    resource = None
+    for field in _ACTION_RESOURCE_FIELDS:
+        value = inp.get(field)
+        if isinstance(value, str) and value:
+            resource = value
+            break
+    if resource is None:
+        resource = json.dumps(inp, sort_keys=True, ensure_ascii=False) if inp else ""
+    return {"tool": tool_use.get("name") or "", "resource": resource}
 
 
 def _turn_text_and_action(event: dict) -> tuple[str, bool]:
@@ -296,14 +404,6 @@ def _turn_text_and_action(event: dict) -> tuple[str, bool]:
         if isinstance(b, dict) and b.get("type") == "text"
     )
     return text, has_tool_use
-
-
-def _is_redundant_ask(text: str) -> bool:
-    if not text:
-        return False
-    if any(r.search(text) for r in _FORK_MARKER_RES):
-        return False
-    return any(r.search(text) for r in _REDUNDANT_ASK_RES)
 
 
 def _candidate_session_logs(work_dir: Path, repo_name: str, since: datetime) -> list[Path]:
@@ -332,21 +432,36 @@ def _candidate_session_logs(work_dir: Path, repo_name: str, since: datetime) -> 
 def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
           now: datetime | None = None) -> dict:
     """Scan session transcript logs modified since `since` (YYYY-MM-DD) for
-    turns that ended by asking for authority a recorded delegation already
-    covered at that turn's own timestamp. Returns
+    turns that stopped to ask when the actual next action they took was
+    already covered by the recorded delegation's manifest. Returns
     `{"since": since, "scanned_logs": int, "count": int, "flagged": [...]}`.
     Empty-state: no logs found, or no delegation ever recorded, both report
-    count 0 — there is nothing to compare a redundant ask against without a
-    delegation on record."""
+    count 0 — there is nothing to compare a stop-then-continue against
+    without a delegation on record.
+
+    A turn is a flaggable candidate when it (a) ended with assistant text
+    and no `tool_use` in that same event (the structural "stopped instead
+    of acting" shape) and (b) the delegation was in force at that turn's
+    own timestamp. It is actually FLAGGED only when the next `tool_use`
+    event anywhere later in the same transcript resolves to an action
+    `is_covered()` by the recorded manifest — i.e. what the orchestrator
+    went on to do next was something the standing delegation already
+    authorized, so the stop was avoidable. When there is no later
+    `tool_use` event to check at all (the log ends at the ask, or nothing
+    the manifest covers followed), this cannot establish that the stop
+    was avoidable and it is NOT flagged — the same fail-closed direction
+    `in_force()`/`load_state()` already use elsewhere in this module."""
     since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     record = load_state(repo)
     repo_name = Path(repo).resolve().name
     logs = _candidate_session_logs(work_dir, repo_name, since_dt)
     flagged = []
     if record is not None:
+        manifest = record.get("manifest") or []
         for log_path in logs:
             events = trajectory_analyzer.parse_session_log(log_path)
-            for event in events:
+            tool_uses = trajectory_analyzer.tool_use_events(events)
+            for event_index, event in enumerate(events):
                 if event.get("type") != "assistant":
                     continue
                 ts = _parse_iso(event.get("timestamp"))
@@ -365,12 +480,20 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
                     if ts < granted_at:
                         continue
                 text, has_tool_use = _turn_text_and_action(event)
-                if has_tool_use or not _is_redundant_ask(text):
+                if has_tool_use or not text.strip():
+                    continue
+                next_tool_use = next(
+                    (tu for tu in tool_uses if tu["index"] > event_index), None)
+                if next_tool_use is None:
+                    continue
+                action = _extract_action(next_tool_use)
+                if not is_covered(action, manifest, repo=repo_name):
                     continue
                 flagged.append({
                     "log": str(log_path),
                     "timestamp": event.get("timestamp"),
                     "text_excerpt": text.strip()[:160],
+                    "next_action": action,
                 })
     return {"since": since, "scanned_logs": len(logs), "count": len(flagged),
             "flagged": flagged}
@@ -384,5 +507,9 @@ def format_audit(result: dict) -> str:
         return header + "."
     lines = [header + ":"]
     for f in result["flagged"]:
-        lines.append(f"  - {f['timestamp']}: {f['log']} — {f['text_excerpt']!r}")
+        action = f.get("next_action") or {}
+        lines.append(
+            f"  - {f['timestamp']}: {f['log']} — {f['text_excerpt']!r} "
+            f"(next action {action.get('tool')}:{action.get('resource')!r} "
+            f"already in the manifest)")
     return "\n".join(lines)

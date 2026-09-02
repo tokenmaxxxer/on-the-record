@@ -2427,6 +2427,14 @@ def main() -> int:
                     help="delegation-state --grant: 위임 만료 시각(ISO8601, "
                          "기본 24시간 뒤 — 무기한 위임은 issue #707 프로포절이 "
                          "이미 안전하지 않다고 거부한 모양이다)")
+    ap.add_argument("--allow", action="append", metavar="TOOL:RESOURCE-GLOB[:REPO-GLOB]",
+                    help="delegation-state --grant: 이 위임이 실제로 커버하는 "
+                         "액션을 손으로 JSON 안 쓰고 등록한다 (반복 가능, 이슈 "
+                         "#3061 repair — 렉시컬 텍스트 분류기를 scope-manifest "
+                         "룩업으로 교체). 예: --allow 'Bash:git *' --allow "
+                         "'Bash:gh pr *:on-the-record'. 하나도 안 주면 매니페스트는 "
+                         "빈 채로 저장된다 — 아무 액션도 안 커버한다는 뜻이지, "
+                         "전부 커버한다는 뜻이 아니다")
     ap.add_argument("--revoke", action="store_true",
                     help="delegation-state: 현재 기록된 위임을 철회한다")
     ap.add_argument("--audit", action="store_true",
@@ -2766,9 +2774,11 @@ def main() -> int:
             return 0
         if a.grant:
             try:
+                manifest = [delegation_state.parse_allow_spec(s) for s in (a.allow or [])]
                 delegation_state.grant(repo, a.grant,
                                         granted_by=a.granted_by or os.environ.get("USER", "operator"),
-                                        expires_at=a.expires)
+                                        expires_at=a.expires,
+                                        manifest=manifest)
             except (delegation_state.SkillBoundGrantError, ValueError) as e:
                 sys.exit(f"delegation-state --grant 실패: {e}")
             print(delegation_state.describe(repo))

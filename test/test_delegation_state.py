@@ -2,16 +2,38 @@
 after-the-fact audit for a turn that asked for authority a recorded
 delegation already covered.
 
-Test derivation (test-derivation skill): delegation_state.py's grant/read/
-revoke/expiry cycle is a state-transition problem (NONE -> IN_FORCE ->
-{REVOKED, EXPIRED}); audit()'s flagging rule is a 6-condition AND decision
-(no tool_use AND matches a redundant-ask phrasing AND no fork marker AND
-delegation in force AND timestamp >= since AND timestamp >= granted_at) —
-tested MC/DC-style, one baseline-true case per condition flipped to show it
-independently controls the flagged/not-flagged outcome. The fork-marker
-case is the must-not case from the issue body (a genuine escalation must
-never be flagged as redundant) and gets its own adversarial case where the
-redundant-ask phrase and the fork marker are BOTH present in one turn.
+Test derivation (test-derivation skill), by requirement:
+
+- delegation_state.py's grant/read/revoke/expiry cycle is a
+  state-transition problem (NONE -> IN_FORCE -> {REVOKED, EXPIRED}) --
+  DelegationStateTransitionsTest, unchanged shape from before this
+  round's manifest repair, plus one new transition case for the
+  manifest field itself.
+- is_covered()'s matching rule is a 3-condition AND decision (tool
+  matches AND resource glob matches AND repo glob matches) -- tested
+  MC/DC-style in ManifestLookupConditionsTest, one baseline-true case
+  per condition flipped to show it independently controls the
+  covered/not-covered outcome.
+- parse_allow_spec()'s TOOL:RESOURCE[:REPO] grammar is an equivalence
+  partition problem (well-formed 2-part / well-formed 3-part / missing
+  tool / missing resource / empty spec) -- AllowSpecParsingTest.
+- audit()'s flagging rule is a 5-condition AND decision (no tool_use in
+  the ask event AND text non-empty AND delegation in force AND
+  timestamp >= since AND a later tool_use exists whose action
+  is_covered()) -- AuditFlaggingConditionsTest, MC/DC-style again.
+- The regression requirement -- four real turns four independent
+  verification rounds (PR #3097, #3102, #3107, #3122) each found
+  wrongly flagged as redundant by the old lexical classifier must now
+  correctly NOT be flagged -- is RegressionFailureCasesTest: each case
+  is the real quoted text as the ask, plus a next action the case's own
+  manifest does not cover.
+- The must-not's positive half -- this is not "always say no" -- is
+  covered by the one true-positive case in AuditFlaggingConditionsTest
+  (a covered action following a stop IS flagged).
+- The escalate-by-default requirement (three actions outside any
+  manifest) is DefaultEscalationTest, calling is_covered() directly
+  rather than through audit() -- this is the live-facing property a
+  future pre-ask hook would call, not just the retrospective audit.
 
 Run: python3 -m pytest test/test_delegation_state.py -q
 """
@@ -35,13 +57,18 @@ def _write_log(path: Path, events: list[dict]) -> None:
             f.write(json.dumps(ev) + "\n")
 
 
-def _assistant_event(ts: datetime, text: str | None = None,
-                      tool_use: bool = False) -> dict:
+def _assistant_text_event(ts: datetime, text: str) -> dict:
+    return {"type": "assistant", "timestamp": ts.isoformat(),
+            "message": {"content": [{"type": "text", "text": text}]}}
+
+
+def _assistant_tool_use_event(ts: datetime, tool: str, resource_field: str,
+                               resource_value: str, text: str | None = None) -> dict:
     content = []
-    if tool_use:
-        content.append({"type": "tool_use", "name": "Bash", "input": {}})
     if text is not None:
         content.append({"type": "text", "text": text})
+    content.append({"type": "tool_use", "id": "t1", "name": tool,
+                     "input": {resource_field: resource_value}})
     return {"type": "assistant", "timestamp": ts.isoformat(),
             "message": {"content": content}}
 
@@ -49,7 +76,8 @@ def _assistant_event(ts: datetime, text: str | None = None,
 class DelegationStateTransitionsTest(unittest.TestCase):
     """R1: NONE -> IN_FORCE -> {REVOKED, EXPIRED}, plus the invalid-
     transition guards (revoke from NONE, self-grant from a skill-bound
-    session, empty-scope grant)."""
+    session, empty-scope grant), plus the manifest field's own
+    default/round-trip."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -68,6 +96,23 @@ class DelegationStateTransitionsTest(unittest.TestCase):
         record = ds.grant(self.repo, "다 판단해서 처분해서 해", "jiwon", now=now, skill_env="")
         self.assertTrue(ds.in_force(record, now=now))
         self.assertIn("IN FORCE", ds.describe(self.repo, now=now))
+
+    def test_grant_with_no_manifest_argument_stores_an_empty_manifest_not_a_permissive_one(self):
+        # issue #3061 seam change: omitting --allow / manifest= must not
+        # silently grant coverage of everything -- it grants coverage of
+        # nothing, and describe() must say so plainly.
+        now = datetime.now(timezone.utc)
+        record = ds.grant(self.repo, "쭉 해", "jiwon", now=now, skill_env="")
+        self.assertEqual(record["manifest"], [])
+        self.assertIn("manifest: 0 action(s)", ds.describe(self.repo, now=now))
+        self.assertFalse(ds.is_covered({"tool": "Bash", "resource": "git status"},
+                                        record["manifest"]))
+
+    def test_grant_with_explicit_manifest_round_trips_through_load_state(self):
+        now = datetime.now(timezone.utc)
+        manifest = [{"tool": "Bash", "resource": "git *", "repo": "*"}]
+        ds.grant(self.repo, "scope", "jiwon", now=now, skill_env="", manifest=manifest)
+        self.assertEqual(ds.load_state(self.repo)["manifest"], manifest)
 
     def test_revoke_transitions_in_force_to_revoked(self):
         now = datetime.now(timezone.utc)
@@ -124,10 +169,143 @@ class DelegationStateTransitionsTest(unittest.TestCase):
         self.assertIsNone(ds.load_state(self.repo))
         self.assertIn("unreadable/corrupt", ds.describe(self.repo))
 
+    def test_legacy_record_with_no_manifest_key_reads_as_empty_not_a_crash(self):
+        # silent-failure-audit finding: a record written before this
+        # module's manifest field existed has no "manifest" key at all.
+        # audit()/is_covered() must default that to "covers nothing",
+        # never raise and never treat it as "covers everything".
+        now = datetime.now(timezone.utc)
+        ds.grant(self.repo, "scope", "jiwon", now=now, skill_env="")
+        path = Path(self.repo) / ds.STATE_REL_PATH
+        record = json.loads(path.read_text())
+        del record["manifest"]
+        path.write_text(json.dumps(record))
+        loaded = ds.load_state(self.repo)
+        self.assertNotIn("manifest", loaded)
+        self.assertFalse(ds.is_covered({"tool": "Bash", "resource": "git status"},
+                                        loaded.get("manifest")))
 
-class DelegationAuditFlaggingTest(unittest.TestCase):
-    """R2: audit()'s flagging decision, MC/DC-style — one baseline-true
-    case, then one case per condition flipped to False."""
+
+class AllowSpecParsingTest(unittest.TestCase):
+    """R2 authoring surface: parse_allow_spec()'s TOOL:RESOURCE[:REPO]
+    grammar, by equivalence partition (well-formed 2-part, well-formed
+    3-part, missing tool, missing resource, empty spec, resource itself
+    containing a colon)."""
+
+    def test_two_part_spec_defaults_repo_to_wildcard(self):
+        self.assertEqual(ds.parse_allow_spec("Bash:git *"),
+                          {"tool": "Bash", "resource": "git *", "repo": "*"})
+
+    def test_three_part_spec_captures_explicit_repo(self):
+        self.assertEqual(
+            ds.parse_allow_spec("Bash:gh pr *:on-the-record"),
+            {"tool": "Bash", "resource": "gh pr *", "repo": "on-the-record"})
+
+    def test_missing_colon_raises(self):
+        with self.assertRaises(ValueError):
+            ds.parse_allow_spec("Bash git status")
+
+    def test_empty_tool_raises(self):
+        with self.assertRaises(ValueError):
+            ds.parse_allow_spec(":git *")
+
+    def test_empty_resource_raises(self):
+        with self.assertRaises(ValueError):
+            ds.parse_allow_spec("Bash:")
+
+    def test_empty_spec_raises(self):
+        with self.assertRaises(ValueError):
+            ds.parse_allow_spec("")
+
+
+class ManifestLookupConditionsTest(unittest.TestCase):
+    """R2 core: is_covered()'s AND decision (tool matches AND resource
+    glob matches AND repo glob matches), MC/DC-style -- one
+    baseline-true case, then one condition flipped false at a time."""
+
+    def setUp(self):
+        self.manifest = [{"tool": "Bash", "resource": "git *", "repo": "on-the-record"}]
+
+    def test_baseline_all_conditions_true_is_covered(self):
+        self.assertTrue(ds.is_covered(
+            {"tool": "Bash", "resource": "git status"}, self.manifest,
+            repo="on-the-record"))
+
+    def test_tool_mismatch_is_not_covered(self):
+        self.assertFalse(ds.is_covered(
+            {"tool": "Edit", "resource": "git status"}, self.manifest,
+            repo="on-the-record"))
+
+    def test_resource_glob_mismatch_is_not_covered(self):
+        self.assertFalse(ds.is_covered(
+            {"tool": "Bash", "resource": "rm -rf /"}, self.manifest,
+            repo="on-the-record"))
+
+    def test_repo_glob_mismatch_is_not_covered(self):
+        self.assertFalse(ds.is_covered(
+            {"tool": "Bash", "resource": "git status"}, self.manifest,
+            repo="some-other-repo"))
+
+    def test_empty_manifest_covers_nothing(self):
+        self.assertFalse(ds.is_covered(
+            {"tool": "Bash", "resource": "git status"}, [], repo="on-the-record"))
+
+    def test_none_manifest_covers_nothing_not_a_crash(self):
+        self.assertFalse(ds.is_covered(
+            {"tool": "Bash", "resource": "git status"}, None, repo="on-the-record"))
+
+    def test_wildcard_repo_entry_matches_any_repo(self):
+        manifest = [{"tool": "Bash", "resource": "git *", "repo": "*"}]
+        self.assertTrue(ds.is_covered(
+            {"tool": "Bash", "resource": "git log"}, manifest, repo="anything"))
+
+    def test_repo_none_skips_the_repo_check(self):
+        # audit() always passes a repo; a direct caller that doesn't
+        # know/care about repo scoping (e.g. a quick manual check) can
+        # omit it, and the entry's repo glob is simply not consulted.
+        self.assertTrue(ds.is_covered(
+            {"tool": "Bash", "resource": "git status"}, self.manifest, repo=None))
+
+
+class DefaultEscalationTest(unittest.TestCase):
+    """R2 must-not, structural half: an action deliberately outside
+    every manifest entry defaults to escalation (not covered) -- called
+    directly against is_covered(), the same primitive a live pre-ask
+    check would use, not routed through audit()'s transcript scan."""
+
+    def setUp(self):
+        # A realistic, non-trivial manifest -- ordinary git/gh read
+        # operations -- so "not covered" here means "not enumerated",
+        # not "manifest happens to be empty".
+        self.manifest = [
+            {"tool": "Bash", "resource": "git status", "repo": "*"},
+            {"tool": "Bash", "resource": "git log*", "repo": "*"},
+            {"tool": "Bash", "resource": "gh pr view*", "repo": "*"},
+        ]
+
+    def test_destructive_shell_command_outside_manifest_escalates(self):
+        self.assertFalse(ds.is_covered(
+            {"tool": "Bash", "resource": "rm -rf /var/lib/postgres"},
+            self.manifest, repo="on-the-record"))
+
+    def test_force_push_outside_manifest_escalates(self):
+        self.assertFalse(ds.is_covered(
+            {"tool": "Bash", "resource": "git push --force origin main"},
+            self.manifest, repo="on-the-record"))
+
+    def test_privileged_pr_merge_outside_manifest_escalates(self):
+        self.assertFalse(ds.is_covered(
+            {"tool": "Bash", "resource": "gh pr merge --admin 123"},
+            self.manifest, repo="on-the-record"))
+
+
+class RegressionFailureCasesTest(unittest.TestCase):
+    """The four real historical misclassifications, one per independent
+    verification round that found the old lexical classifier flagging a
+    genuine escalation as redundant. Each is expressed as the real
+    quoted ask text, plus the real irreversible action that ask was
+    actually about, against a manifest that (realistically) does not
+    cover it -- and audit() must NOT flag any of them."""
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -138,8 +316,91 @@ class DelegationAuditFlaggingTest(unittest.TestCase):
         self.log = self.work_dir / "myrepo.session.1.1.log"
         self.now = datetime.now(timezone.utc)
         self.granted_at = self.now - timedelta(hours=1)
-        ds.grant(self.repo, "다 판단해서 처분해서 해", "jiwon",
-                  now=self.granted_at, skill_env="")
+        # A manifest covering only ordinary, reversible git/gh reads --
+        # none of the four cases' actual actions (a DROP TABLE, a
+        # customer-data delete, a prod deploy, a secret rotation) match
+        # it, which is the point: these are genuinely uncovered actions.
+        self.manifest = [
+            {"tool": "Bash", "resource": "git *", "repo": "*"},
+            {"tool": "Bash", "resource": "gh pr *", "repo": "*"},
+        ]
+        ds.grant(self.repo, "다 판단해서 처분해서 해", "jiwon", now=self.granted_at,
+                  skill_env="", manifest=self.manifest)
+        self.since = (self.now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _audit_count(self, ask_text: str, next_command: str) -> int:
+        events = [
+            _assistant_text_event(self.now, ask_text),
+            _assistant_tool_use_event(
+                self.now + timedelta(seconds=5), "Bash", "command", next_command),
+        ]
+        _write_log(self.log, events)
+        result = ds.audit(self.repo, self.since, work_dir=self.work_dir, now=self.now)
+        return result["count"]
+
+    def test_pr3097_dropping_the_legacy_table_is_not_flagged(self):
+        # PR #3097 (first independent verification of PR #3087): five
+        # genuine escalations misflagged by the first lexical cut; this
+        # is the one quoted verbatim in that record's Criterion 2.
+        count = self._audit_count(
+            "Should I proceed with dropping the legacy table? This is "
+            "irreversible and I want to confirm the call is still yours "
+            "to make, not mine.",
+            "psql prod -c 'DROP TABLE legacy_table;'")
+        self.assertEqual(count, 0)
+
+    def test_pr3102_deleting_the_customer_table_is_not_flagged(self):
+        # PR #3102 (second independent verification): the narrowed
+        # classifier's own bare-stem generalization flagged this one --
+        # quoted verbatim from that record's finding.
+        count = self._audit_count(
+            "프로덕션 DB의 고객 테이블을 지금 삭제하는 작업을 진행할까요? "
+            "되돌릴 수 없는 작업이라 운영자 판단이 필요합니다.",
+            "psql prod -c 'DELETE FROM customers;'")
+        self.assertEqual(count, 0)
+
+    def test_pr3107_the_irreversible_prod_deploy_is_not_flagged(self):
+        # PR #3107 (third independent verification): the trailing-
+        # punctuation-fixed classifier still flagged this one -- quoted
+        # verbatim from that record's finding.
+        count = self._audit_count(
+            "이 작업은 되돌릴 수 없습니다. 프로덕션 배포를 진행할까요?",
+            "./deploy-prod.sh")
+        self.assertEqual(count, 0)
+
+    def test_pr3122_the_prod_secret_rotation_is_not_flagged(self):
+        # PR #3122 (fourth independent verification, of the repair
+        # round): 3 of 6 genuine escalations built to share a retained
+        # idiom were misflagged -- quoted verbatim from that record's
+        # reproduction (the "이대로 갈까요?" idiom case).
+        count = self._audit_count(
+            "이대로 갈까요? 이 변경은 프로덕션 시크릿을 회전시키므로 "
+            "기존 세션이 모두 끊깁니다.",
+            "rotate-prod-secrets.sh --all")
+        self.assertEqual(count, 0)
+
+
+class AuditFlaggingConditionsTest(unittest.TestCase):
+    """audit()'s flagging decision, MC/DC-style: one baseline-true case
+    (a covered action DOES get flagged -- the must-not's positive half,
+    proving this isn't just "always say no"), then one condition
+    flipped false at a time."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = str(Path(self._tmp.name) / "myrepo")
+        Path(self.repo).mkdir()
+        self.work_dir = Path(self._tmp.name) / "work"
+        self.work_dir.mkdir()
+        self.log = self.work_dir / "myrepo.session.1.1.log"
+        self.now = datetime.now(timezone.utc)
+        self.granted_at = self.now - timedelta(hours=1)
+        self.manifest = [{"tool": "Bash", "resource": "git *", "repo": "*"}]
+        ds.grant(self.repo, "다 판단해서 처분해서 해", "jiwon", now=self.granted_at,
+                  skill_env="", manifest=self.manifest)
         self.since = (self.now - timedelta(days=1)).strftime("%Y-%m-%d")
 
     def tearDown(self):
@@ -150,113 +411,83 @@ class DelegationAuditFlaggingTest(unittest.TestCase):
         result = ds.audit(self.repo, self.since, work_dir=self.work_dir, now=self.now)
         return result["count"]
 
-    def test_baseline_all_conditions_true_is_flagged(self):
-        ev = _assistant_event(self.now, text="이대로 갈까요?")
-        self.assertEqual(self._audit_count([ev]), 1)
+    def _baseline_events(self):
+        return [
+            _assistant_text_event(self.now, "계속 진행할까요?"),
+            _assistant_tool_use_event(
+                self.now + timedelta(seconds=5), "Bash", "command", "git status"),
+        ]
 
-    def test_tool_use_present_is_not_flagged(self):
-        ev = _assistant_event(self.now, text="계속 진행할까요?", tool_use=True)
-        self.assertEqual(self._audit_count([ev]), 0)
+    def test_baseline_stop_then_covered_action_is_flagged(self):
+        # The must-not's positive half: a stop that was genuinely
+        # avoidable -- the next action was already in the manifest --
+        # IS flagged. This is not a design that always says "genuine".
+        self.assertEqual(self._audit_count(self._baseline_events()), 1)
 
-    def test_text_not_matching_redundant_ask_pattern_is_not_flagged(self):
-        ev = _assistant_event(self.now, text="다음 파일을 확인하겠습니다.")
-        self.assertEqual(self._audit_count([ev]), 0)
+    def test_tool_use_in_the_same_event_as_the_ask_is_not_a_stop_not_flagged(self):
+        events = [
+            _assistant_tool_use_event(
+                self.now, "Bash", "command", "git status", text="계속 진행할까요?"),
+        ]
+        self.assertEqual(self._audit_count(events), 0)
 
-    def test_fork_marker_present_is_not_flagged_must_not_suppress_escalation(self):
-        # issue #3061 must-not: a genuine fork the operator must decide is
-        # exactly what should still surface — even when its phrasing also
-        # matches a redundant-ask pattern (adversarial combined case).
-        ev = _assistant_event(
-            self.now,
-            text="이대로 갈까요? 옵션 1과 옵션 2 중 어느 쪽으로 갈지 결정이 필요합니다.")
-        self.assertEqual(self._audit_count([ev]), 0)
+    def test_empty_text_ask_event_is_not_flagged(self):
+        events = [
+            _assistant_text_event(self.now, ""),
+            _assistant_tool_use_event(
+                self.now + timedelta(seconds=5), "Bash", "command", "git status"),
+        ]
+        self.assertEqual(self._audit_count(events), 0)
 
     def test_delegation_not_in_force_is_not_flagged(self):
         ds.revoke(self.repo, "jiwon", now=self.now - timedelta(minutes=30))
-        ev = _assistant_event(self.now, text="이대로 갈까요?")
-        self.assertEqual(self._audit_count([ev]), 0)
+        self.assertEqual(self._audit_count(self._baseline_events()), 0)
 
     def test_timestamp_before_since_cutoff_is_not_flagged(self):
         before_since = self.now - timedelta(days=2)
-        ev = _assistant_event(before_since, text="이대로 갈까요?")
-        self.assertEqual(self._audit_count([ev]), 0)
+        events = [
+            _assistant_text_event(before_since, "계속 진행할까요?"),
+            _assistant_tool_use_event(
+                before_since + timedelta(seconds=5), "Bash", "command", "git status"),
+        ]
+        self.assertEqual(self._audit_count(events), 0)
 
     def test_timestamp_before_grant_is_not_flagged(self):
         before_grant = self.granted_at - timedelta(minutes=1)
-        ev = _assistant_event(before_grant, text="이대로 갈까요?")
-        self.assertEqual(self._audit_count([ev]), 0)
-
-    def test_generalized_english_verb_phrasing_is_no_longer_matched(self):
-        # issue #3061 repair round (PR #3097 + PR #3102 finding): the first
-        # cut's generic English modal-verb patterns ("should i proceed",
-        # "shall i", "want me to proceed", "ok to proceed") fired on
-        # genuine escalations phrased with the same common constructions,
-        # not just on redundant asks -- five of the six reproduced false
-        # positives used exactly these verbs. Retired in favor of matching
-        # only the closed set of Korean phrasings actually quoted in the
-        # issue's own transcript; see the module comment above
-        # _REDUNDANT_ASK_RES.
-        ev = _assistant_event(self.now, text="Should I proceed with the next step?")
-        self.assertEqual(self._audit_count([ev]), 0)
-
-    def test_bare_stem_without_the_quoted_qualifier_is_no_longer_matched(self):
-        # issue #3061 repair round (PR #3102 finding): the first cut
-        # generalized the issue's literal "계속 진행할까요" quote down to
-        # the bare stem "진행할까요", which then flagged an adversarial
-        # genuine-escalation case ("...진행할까요? 되돌릴 수 없는 작업이라
-        # 운영자 판단이 필요합니다.") as redundant. Only the literal quoted
-        # phrase (with 계속) is matched now.
-        ev = _assistant_event(
-            self.now,
-            text="프로덕션 DB의 고객 테이블을 지금 삭제하는 작업을 진행할까요? "
-                 "되돌릴 수 없는 작업이라 운영자 판단이 필요합니다.")
-        self.assertEqual(self._audit_count([ev]), 0)
-
-    def test_third_named_pattern_matches_with_trailing_period(self):
-        # issue #3061 repair round (PR #3102 finding): the issue's own
-        # third named stopping pattern (다음은 ...하겠습니다) failed to
-        # match when followed by a period, which ordinary Korean sentences
-        # carry -- the `\s*$` anchor required the string to end immediately
-        # after 하겠습니다. Fixed to tolerate one trailing `.`/`!`/`?`.
-        ev = _assistant_event(self.now, text="다음은 배포 스크립트를 실행하겠습니다.")
-        self.assertEqual(self._audit_count([ev]), 1)
-
-    def test_genuine_fork_without_enumerated_marker_vocabulary_is_not_flagged(self):
-        # issue #3061 repair round (PR #3102 finding): a genuine fork with
-        # named alternatives and explicit "your call" framing, phrased
-        # without any of the enumerated fork-marker keywords, used to be
-        # flagged because it matched the bare "shall i" pattern. That
-        # pattern is retired; nothing in the closed Korean-only list
-        # matches this text either.
-        ev = _assistant_event(
-            self.now,
-            text="Shall I roll this out to prod now, or hold for the "
-                 "nightly build? Both are defensible and this affects the "
-                 "SLA -- your call.")
-        self.assertEqual(self._audit_count([ev]), 0)
-
-    def test_third_verification_genuine_escalations_are_not_flagged(self):
-        # issue #3061 repair round (PR #3107 finding, a third independent
-        # verification constructed after this narrowing landed on `main`
-        # but reproduced against the pre-repair code): two more genuine
-        # escalations independently constructed, distinct wording from the
-        # six already regression-pinned above.
-        cases = [
-            "이 작업은 되돌릴 수 없습니다. 프로덕션 배포를 진행할까요?",
-            "Should I proceed with deleting the production database? "
-            "This is irreversible.",
+        events = [
+            _assistant_text_event(before_grant, "계속 진행할까요?"),
+            _assistant_tool_use_event(
+                before_grant + timedelta(seconds=5), "Bash", "command", "git status"),
         ]
-        for text in cases:
-            ev = _assistant_event(self.now, text=text)
-            self.assertEqual(self._audit_count([ev]), 0, text)
+        self.assertEqual(self._audit_count(events), 0)
 
-    def test_third_verification_announcing_next_step_still_flags(self):
-        # issue #3061 repair round (PR #3107 finding): independent
-        # reproduction of the same trailing-punctuation gap PR #3102 found
-        # (다음은 ...하겠습니다 failing to match with a period) -- confirms
-        # the fix above generalizes past the one wording PR #3102 used.
-        ev = _assistant_event(self.now, text="다음은 결제 시스템을 종료하겠습니다.")
-        self.assertEqual(self._audit_count([ev]), 1)
+    def test_next_action_not_covered_by_manifest_is_not_flagged(self):
+        events = [
+            _assistant_text_event(self.now, "계속 진행할까요?"),
+            _assistant_tool_use_event(
+                self.now + timedelta(seconds=5), "Bash", "command", "rm -rf /"),
+        ]
+        self.assertEqual(self._audit_count(events), 0)
+
+    def test_no_later_tool_use_event_at_all_is_not_flagged(self):
+        # The log ends right at the ask -- there is nothing to check the
+        # stop against, so this cannot be established as avoidable.
+        events = [_assistant_text_event(self.now, "계속 진행할까요?")]
+        self.assertEqual(self._audit_count(events), 0)
+
+    def test_the_words_of_the_ask_no_longer_matter_at_all(self):
+        # Central property of the redesign: text content plays no part
+        # in the decision anymore. A completely different sentence,
+        # paired with the same covered next action, is flagged exactly
+        # like the baseline -- and a question using none of the old
+        # classifier's retired idioms still flags when its next action
+        # is covered.
+        events = [
+            _assistant_text_event(self.now, "Want me to keep going with this?"),
+            _assistant_tool_use_event(
+                self.now + timedelta(seconds=5), "Bash", "command", "git log --oneline"),
+        ]
+        self.assertEqual(self._audit_count(events), 1)
 
     def test_empty_state_no_delegation_ever_granted_reports_zero(self):
         other_repo = str(Path(tempfile.mkdtemp()) / "otherrepo")
@@ -274,76 +505,12 @@ class DelegationAuditFlaggingTest(unittest.TestCase):
         result = ds.audit(self.repo, self.since, work_dir=Path(tempfile.mkdtemp()), now=self.now)
         self.assertIn("0 turn(s)", ds.format_audit(result))
 
-
-class RedundantAskDirectionOfErrorEvalTest(unittest.TestCase):
-    """issue #3061 repair round: both PR #3097 and PR #3102 found the
-    generic-verb-pattern first cut cannot separate "redundant ask" from
-    "genuine escalation" reliably -- six independently constructed genuine
-    escalations were misclassified as redundant. Rather than add more
-    patterns tuned to pass those six specific counterexamples (which would
-    leave an unseen seventh phrasing just as exposed), the classifier was
-    narrowed to the closed set of phrasings actually quoted in the issue's
-    transcript, and the chosen error direction is explicit: err toward
-    "genuine" (never suppress a real escalation) at the cost of missing
-    some real redundant asks.
-
-    This class is the held-out measurement of that trade-off, built with
-    wording distinct from both the literal patterns the code matches and
-    the six counterexamples already regression-pinned above -- not used to
-    tune `_REDUNDANT_ASK_RES`/`_FORK_MARKER_RES` itself. Re-run this file
-    after any future change to those pattern lists; a false-redundant rate
-    above 0 on this set means a genuine escalation is being suppressed
-    again, which issue #3061's must-not clause treats as the worse
-    failure than a missed redundant ask.
-    """
-
-    # Genuine escalations: none of these should ever be flagged redundant.
-    _GENUINE_ESCALATIONS = [
-        ("en-1", "This drops the customer_events table in prod, no backup "
-                  "exists. Confirm before I run it?"),
-        ("en-2", "We could roll back to v3 or hotfix forward -- both are "
-                  "risky in different ways, and this is your call to make."),
-        ("en-3", "I am about to revoke the on-call engineer's prod access "
-                  "per the ticket. Proceeding unless you object."),
-        ("ko-1", "고객에게 환불 이메일을 지금 일괄 발송할까요? 한번 나가면 "
-                  "취소가 안 됩니다."),
-        ("ko-2", "이 브랜치를 강제로 덮어쓸까요? 다른 사람의 커밋이 "
-                  "사라집니다."),
-        ("ko-3", "두 가지 배포 방식 중에 무엇으로 갈지 운영자 판단이 "
-                  "필요합니다: 즉시 배포 또는 다음 유지보수 창."),
-    ]
-
-    # Paraphrased redundant asks (not the literal quoted patterns the code
-    # matches) -- measuring recall, which this design knowingly sacrifices.
-    _REDUNDANT_ASKS = [
-        ("en-1", "Want me to keep going?"),
-        ("en-2", "Continuing as planned, right?"),
-        ("ko-1", "계속 진행할까요?"),
-        ("ko-2", "이대로 갈까요?"),
-        ("ko-3", "다음은 남은 파일들을 정리하겠습니다."),
-        ("ko-4", "이 순서로 갈까요?"),
-    ]
-
-    def test_false_redundant_rate_is_zero_on_held_out_genuine_escalations(self):
-        # The expensive direction (issue #3061: a suppressed escalation
-        # costs the decision) must measure zero on this held-out set.
-        flagged = [tag for tag, text in self._GENUINE_ESCALATIONS
-                   if ds._is_redundant_ask(text)]
-        self.assertEqual(flagged, [],
-                          f"genuine escalation(s) misflagged as redundant: {flagged}")
-
-    def test_false_genuine_rate_on_held_out_redundant_asks_is_measured(self):
-        # The accepted cost of the chosen direction: some real redundant
-        # asks phrased differently from the literal quoted patterns go
-        # undetected. Measured at 2/6 (33%) on this set as of this repair
-        # round -- both misses are English paraphrases, since English
-        # verb-pattern matching was retired entirely (see module comment
-        # above _REDUNDANT_ASK_RES). Pinned as a value, not a `< N` bound,
-        # so a change to this number is a visible, deliberate diff instead
-        # of a silent drift either direction.
-        missed = [tag for tag, text in self._REDUNDANT_ASKS
-                  if not ds._is_redundant_ask(text)]
-        self.assertEqual(missed, ["en-1", "en-2"])
+    def test_format_audit_flagged_entry_names_the_covering_action(self):
+        self._audit_count(self._baseline_events())
+        result = ds.audit(self.repo, self.since, work_dir=self.work_dir, now=self.now)
+        text = ds.format_audit(result)
+        self.assertIn("Bash", text)
+        self.assertIn("git status", text)
 
 
 if __name__ == "__main__":
