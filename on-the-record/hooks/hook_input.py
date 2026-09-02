@@ -43,6 +43,7 @@ __all__ = [
     "OpaqueCommand",
     "parse_payload",
     "tool_command",
+    "tool_response_text",
     "cd_target",
     "cd_target_dir",
     "usable_dir",
@@ -156,6 +157,33 @@ def tool_command(payload: object) -> str:
         return ""
     cmd = data.get("command")
     return cmd if isinstance(cmd, str) else ""
+
+
+def tool_response_text(raw: object) -> str:
+    """Coerce a `PostToolUse` `tool_response` payload field to plain text
+    for a heuristic substring/regex scan, or `""` when there is nothing to
+    scan.  Never raises.
+
+    `tool_response` is usually the tool's own stdout as a plain string --
+    every existing consumer in this repo already applies exactly this
+    coercion ad hoc (see `gate-registration-post-guard.sh`,
+    `post-landing-obligation-gate.sh`, `retry-loop-bound.sh`: each does
+    `isinstance(resp, str)` else `json.dumps(resp)` else `""` inline).
+    This is that same coercion, shared, for a caller (issue #3129's
+    amendment channel redesign) that needs to scan `tool_response` for a
+    `gh` URL rather than reimplementing the pattern a fourth time. A
+    structured/dict shape is serialized with `json.dumps` so a substring
+    scan still works over it; anything that cannot be serialized, or is
+    simply absent, reads as `""`.
+    """
+    if isinstance(raw, str):
+        return raw
+    if raw is None:
+        return ""
+    try:
+        return json.dumps(raw)
+    except (TypeError, ValueError):
+        return ""
 
 
 def _quotes_balanced(command: str) -> bool:
@@ -278,13 +306,15 @@ def cd_target(command: object) -> CdResult:
 
     `OpaqueCommand` is the caller's signal to treat the cwd as UNKNOWN, not
     as "use my own default" -- issue #3129 repair round 3 found a caller
-    (`amendment_channel.target_repo_for_command`) that funneled this
-    result through `resolved_cwd()`'s generic "cd target, else default"
-    contract and got a silent, plausible-looking WRONG answer instead of a
-    visible unknown, because the "default" it substituted was almost
-    always itself a resolvable repo.  This function stays a pure resolver
-    -- it never substitutes a default -- specifically so a stricter caller
-    can tell "no cd" (safe to use its own default) apart from "cd present
+    (`amendment_channel.target_repo_for_command`, since removed by that
+    issue's round-4 seam redesign, which stopped parsing command text for
+    a target repo at all) that funneled this result through
+    `resolved_cwd()`'s generic "cd target, else default" contract and got
+    a silent, plausible-looking WRONG answer instead of a visible unknown,
+    because the "default" it substituted was almost always itself a
+    resolvable repo.  This function stays a pure resolver -- it never
+    substitutes a default -- specifically so a stricter caller can tell
+    "no cd" (safe to use its own default) apart from "cd present
     but not parseable with confidence" (not safe to guess).
     """
     text = _as_text(command)
