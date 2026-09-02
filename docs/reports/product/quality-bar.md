@@ -380,4 +380,25 @@ Append-only, newest entry last.
   session's own record,
   docs/issue-3061/reports/implementation-blueprint+test-derivation+
   silent-failure-audit-bbf549b4.md.
+
+- 2026-09-03: adversarial-review verification sessions (an evaluator
+  re-deriving another session's measurements/claims) are explicitly
+  exempt from the mounted `freelunch-directive`'s "any repo tool call is
+  always delegated to a background freelunch-worker" rule when the
+  spawning task says so. The rule's own text already carves out the same
+  exemption structurally (headless sessions must not delegate work whose
+  result isn't consumed the same turn) — but the sharper reason is that
+  the entire value of adversarial verification is a human-legible,
+  independently-executed trail of checks where each result informs the
+  next (profile a function, then decide whether that number rules out a
+  hypothesis, then check the next claim against it); handing the whole
+  unit to one raw, unverified worker and relaying its output unread is
+  indistinguishable from not verifying at all. A task spawning an
+  adversarial-review/verification role should say "do the work yourself,
+  no background worker" explicitly if it wants this exemption honored
+  without the session having to reconstruct the reasoning under the
+  freelunch directive's "absolute" framing. Source: spawning-prompt
+  instruction on issue #3186 (verification of PR #3193), this session,
+  and the resulting deviation-log entry at
+  docs/issue-3186/reports/adversarial-review+diagnose-first+silent-failure-audit-ced10aec/deviation-log/20260902T162532067515-686232cebf7aac13.md.
   silent-failure-audit-b3d43cb1.md, open finding 2, 2026-09-02.
