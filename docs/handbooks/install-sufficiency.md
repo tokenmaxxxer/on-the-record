@@ -33,11 +33,12 @@ require, grouped by when the loop first needs it.
 
 | Precondition | Why the loop needs it | Removable by the plugin? |
 |---|---|---|
-| `claude` CLI on PATH | `pipeline.py:663` execs `["claude", "-p", ...]` directly to start every role session. | No — see "cannot be removed" below. |
+| `claude` CLI on PATH | `pipeline.py:661` builds `["claude", "-p", ...]`; `spawn.py:4761` is what actually execs it, inside `_spawn_one()`. | No — see "cannot be removed" below. |
 | `git` CLI on PATH | `pipeline.py:798` shells out to `git remote get-url origin` during workspace bootstrap. | No — see "cannot be removed" below. |
-| `gh` CLI, authenticated | `plumbing.py:349` runs `gh auth token` to fetch the token spawned sessions use as `GH_TOKEN`. | No — see "cannot be removed" below. |
-| Git identity configured (`user.name`, `user.email`) | `board.py:76-79` runs `git commit` directly during `init --push`; an unset identity fails that commit. | Partially — see "could be removed" below. |
-| POSIX fork support | `spawn.py:2668` and `spawn.py:4639` call `os.fork()`/`os.setsid()` to detach each spawned session. | No — see "cannot be removed" below. |
+| `gh` CLI, authenticated | `plumbing.py:355` runs `gh auth token` to fetch the token spawned sessions use as `GH_TOKEN`. | No — see "cannot be removed" below. |
+| Git identity configured (`user.name`, `user.email`) | `board.py:83-86` runs `git commit` directly during `init --push`; an unset identity fails that commit. | Partially — see "could be removed" below. |
+| POSIX fork support | `spawn.py:4639` calls `os.fork()`/`os.setsid()` to detach each spawned role session (the same pattern also appears at `spawn.py:2668`, for an unrelated feature). | No — see "cannot be removed" below. |
+| Disk/inode headroom before a workspace clone | `spawn.py:729-764` (`_spawn_capacity_check`, called at `spawn.py:3229`) exits before cloning if free bytes or inodes fall below a threshold. | No — see "cannot be removed" below. |
 
 ### Skill resolution (needed the first time `--skills` names a role)
 
@@ -51,11 +52,11 @@ require, grouped by when the loop first needs it.
 | Precondition | Why the loop needs it | Removable by the plugin? |
 |---|---|---|
 | `docs/specs/approvers.md` present | `board.py:246-256` (`require_board`) exits before spawning if this file is absent from the target repo. | Partially — see "could be removed" below. |
-| Push access to `origin` for the spawning account | `on-the-record/hooks/git-push-guard.sh:341` expects every spawned session to push its own `issue-<n>/<skill>` branch. | No — see "cannot be removed" below. |
+| Push access to `origin` for the spawning account | `on-the-record/hooks/git-push-guard.sh:328` requires every spawned session to push its own `issue-<n>/<skill>` branch. | No — see "cannot be removed" below. |
 
 ## What could be removed by changing the plugin
 
-Four of the nine preconditions above are partially addressable. None
+Four of the ten preconditions above are partially addressable. None
 of the fixes below are shipped yet — they are concrete proposals, not
 claims about current behavior.
 
@@ -73,10 +74,16 @@ claims about current behavior.
   releases. That tradeoff needs an explicit decision, not a silent
   default.
 
-- **`~/.claude/skills`.** A bundled post-install hook could populate
-  this directory from a plugin-shipped skill set on first run. Doing
-  this changes what "install" means, from "add a plugin" to "add a
-  plugin and write into the user's home directory" — a bigger
+- **`~/.claude/skills`.** Claude Code plugins have no install-time
+  lifecycle event to hook — `on-the-record/.claude-plugin/plugin.json`
+  declares no such field, and the CLI's hook events
+  (`SessionStart`, `PreToolUse`, ...) all fire on session activity, not
+  on `plugin install`. The realistic mechanism is the same
+  `SessionStart` first-run check the other two proposals in this list
+  use: on first session start, detect that `~/.claude/skills` is empty
+  and populate it from a plugin-shipped skill set. Doing this changes
+  what "install" means, from "add a plugin" to "add a plugin and write
+  into the user's home directory on its first run" — a bigger
   footprint that should be opt-in, not automatic.
 
 - **`docs/specs/approvers.md`.** The plugin already ships the fix:
@@ -87,7 +94,7 @@ claims about current behavior.
 
 ## Preconditions that cannot be removed
 
-Five preconditions are structural. No plugin-side change removes them,
+Six preconditions are structural. No plugin-side change removes them,
 because each one names a real external system the loop has no
 authority over.
 
@@ -108,12 +115,16 @@ authority over.
   something the local machine or the plugin can decide. The preflight
   script reports this precondition as unsatisfied unconditionally,
   because checking it for real would require an actual write.
+- **Disk/inode headroom on the host.** Free bytes and free inodes are
+  properties of the machine the session runs on. A plugin cannot
+  create disk space; it can only refuse to clone before running out
+  (`spawn.py:729-764`), which is what it already does.
 
 ## Reading this honestly
 
-Nine preconditions were traced from real code paths. One is satisfied
+Ten preconditions were traced from real code paths. One is satisfied
 by a plugin-only install today. Four have a concrete, partial fix a
-future plugin change could ship. Five are structural and stay outside
+future plugin change could ship. Six are structural and stay outside
 the plugin's reach permanently. The gap this document exists to make
 visible is real — it does not close by writing more documentation.
 Closing it, where it can close, means shipping the four remedies

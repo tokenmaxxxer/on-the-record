@@ -47,6 +47,12 @@ from pathlib import Path
 
 SUBPROCESS_TIMEOUT_SECONDS = 10
 
+# Mirrors spawn.py's own _spawn_capacity_check() defaults (spawn.py:725-726)
+# so this check degrades the same way spawn.py's real gate would, without
+# importing spawn.py itself.
+MIN_FREE_BYTES_DEFAULT = 3 * 119 * 1024 * 1024   # ~357MB
+MIN_FREE_INODES_DEFAULT = 1000
+
 
 def _run_readonly(argv: list[str], timeout: int = SUBPROCESS_TIMEOUT_SECONDS):
     """Run a read-only subprocess; never raises.
@@ -163,6 +169,42 @@ def check_remote_push_access() -> tuple[bool, str]:
     )
 
 
+def check_workspace_disk_headroom() -> tuple[bool, str]:
+    """Mirrors spawn.py's `_spawn_capacity_check(path)` gate (spawn.py:729-764,
+    called at spawn.py:3229 before every workspace clone): observes the same
+    `shutil.disk_usage()`/`os.statvfs()` headroom under the same default
+    thresholds and the same env-var overrides, without creating, deleting, or
+    cloning anything itself. `os.statvfs` is POSIX (present on both macOS and
+    Linux, absent on native Windows -- same platform floor as the rest of
+    this script)."""
+    if os.environ.get("MUSTER_SKIP_SPACE_CHECK", "") not in ("", "0", "false", "no", "off"):
+        return True, "MUSTER_SKIP_SPACE_CHECK set -- spawn.py's own gate is disabled"
+    probe = Path.cwd()
+    while not probe.exists():
+        probe = probe.parent
+    try:
+        usage = shutil.disk_usage(probe)
+    except OSError as exc:
+        return False, f"cannot read disk usage at {probe}: {type(exc).__name__}: {exc}"
+    min_bytes = int(os.environ.get("MUSTER_MIN_FREE_BYTES", MIN_FREE_BYTES_DEFAULT))
+    if usage.free < min_bytes:
+        return False, (
+            f"{usage.free // (1024 * 1024)}MB free at {probe}, below the "
+            f"{min_bytes // (1024 * 1024)}MB threshold"
+        )
+    try:
+        st = os.statvfs(probe)
+        free_inodes = st.f_favail
+    except (OSError, AttributeError):
+        return True, f"{usage.free // (1024 * 1024)}MB free at {probe} (inode count unavailable)"
+    min_inodes = int(os.environ.get("MUSTER_MIN_FREE_INODES", MIN_FREE_INODES_DEFAULT))
+    if free_inodes and free_inodes < min_inodes:
+        return False, (
+            f"{free_inodes} free inodes at {probe}, below the {min_inodes} threshold"
+        )
+    return True, f"{usage.free // (1024 * 1024)}MB free, {free_inodes or 'n/a'} free inodes at {probe}"
+
+
 CHECKS = [
     {
         "name": "posix_fork_support",
@@ -172,25 +214,48 @@ CHECKS = [
             "WSL); this interpreter lacks os.fork()/os.setsid() or is not "
             "reporting a supported sys.platform."
         ),
-        "source": "spawn.py:2668,4639 (os.fork()/os.setsid() drive spawned role sessions)",
+        "source": (
+            "spawn.py:4639 (os.fork()/os.setsid() drives _spawn_one(), the "
+            "real role-session spawn path); the same fork+setsid+dup2 "
+            "pattern also appears at spawn.py:2668 (background "
+            "validity-consult, a different feature that mirrors it)"
+        ),
+        "line_anchors": [
+            ("spawn.py", 4639, "os.fork()"),
+            ("spawn.py", 2668, "os.fork()"),
+        ],
     },
     {
         "name": "claude_cli_on_path",
         "fn": check_claude_cli_present,
         "remedy": "Install the Claude Code CLI so `claude` resolves on PATH.",
-        "source": 'pipeline.py:663 (spawn_cmd builds cmd = ["claude", "-p", ...] and execs it directly)',
+        "source": (
+            'pipeline.py:661 (spawn_cmd builds cmd = ["claude", "-p", ...]); '
+            "spawn.py:4761 (_spawn_one() is what actually execs it, via "
+            "subprocess.Popen(cmd, ...))"
+        ),
+        "line_anchors": [
+            ("pipeline.py", 661, 'cmd = ["claude"'),
+            ("spawn.py", 4761, "subprocess.Popen("),
+        ],
     },
     {
         "name": "git_cli_on_path",
         "fn": check_git_cli_present,
         "remedy": "Install git so `git` resolves on PATH.",
         "source": 'pipeline.py:798 (subprocess.run(["git", "-C", cwd, "remote", "get-url", "origin"], ...))',
+        "line_anchors": [
+            ("pipeline.py", 798, 'subprocess.run(["git", "-C", cwd, "remote", "get-url"'),
+        ],
     },
     {
         "name": "gh_cli_authenticated",
         "fn": check_gh_cli_authenticated,
         "remedy": "Run `gh auth login` with the account that should own spawns/PRs.",
-        "source": 'plumbing.py:349 (subprocess.run(["gh", "auth", "token"], ...) inside _resolve_gh_token(), used by spawn_cmd to inject GH_TOKEN)',
+        "source": 'plumbing.py:355 (subprocess.run(["gh", "auth", "token"], ...) inside _resolve_gh_token(), used by spawn_cmd to inject GH_TOKEN)',
+        "line_anchors": [
+            ("plumbing.py", 355, 'subprocess.run(["gh", "auth", "token"]'),
+        ],
     },
     {
         "name": "git_identity_configured",
@@ -199,7 +264,10 @@ CHECKS = [
             'Run `git config --global user.name "<name>"` and '
             '`git config --global user.email "<email>"`.'
         ),
-        "source": 'board.py:76-79 (subprocess.run(["git", "-C", str(root), "commit", ...]) in init --push, fails with empty ident if unset)',
+        "source": 'board.py:83-86 (subprocess.run(["git", "-C", str(root), "commit", ...]) in init --push, fails with empty ident if unset)',
+        "line_anchors": [
+            ("board.py", 83, 'subprocess.run(["git", "-C", str(root), "commit"'),
+        ],
     },
     {
         "name": "skill_repository_resolvable",
@@ -211,6 +279,9 @@ CHECKS = [
             "MUSTER_SKILL_REPO=<checkout>/skills."
         ),
         "source": "skills.py:96-112 (_skill_repo_root: MUSTER_SKILL_REPO env > sibling clone > managed clone)",
+        "line_anchors": [
+            ("skills.py", 96, "def _skill_repo_root"),
+        ],
     },
     {
         "name": "home_claude_skills_dir_present",
@@ -221,6 +292,9 @@ CHECKS = [
             "populates this directory."
         ),
         "source": "skills.py:338 (tier3 = _sp._local_skill_dirs(home / \".claude\" / \"skills\"))",
+        "line_anchors": [
+            ("skills.py", 338, '_local_skill_dirs(home / ".claude" / "skills")'),
+        ],
     },
     {
         "name": "target_repo_board_file_present",
@@ -231,6 +305,9 @@ CHECKS = [
             "is refused admission until the remote default branch carries it."
         ),
         "source": "board.py:246-256 (require_board: exits if docs/specs/approvers.md is absent)",
+        "line_anchors": [
+            ("board.py", 246, "def require_board"),
+        ],
     },
     {
         "name": "remote_push_access",
@@ -240,7 +317,42 @@ CHECKS = [
             "issue-<n>/<skill> branch for the account gh is authenticated "
             "as -- this cannot be checked without a mutating write."
         ),
-        "source": "on-the-record/hooks/git-push-guard.sh:341 (spawned sessions push their own role branch: `git push -u origin HEAD`)",
+        "source": (
+            "on-the-record/hooks/git-push-guard.sh:328 (_ROLE_BRANCH_RE.match(d), "
+            "the primary enforcing logic that requires an issue-<n>/<skill> "
+            "branch); line 341 carries the remedy text for the fail-closed "
+            "edge case where the remote's default branch cannot be resolved"
+        ),
+        "line_anchors": [
+            ("on-the-record/hooks/git-push-guard.sh", 328, "_ROLE_BRANCH_RE.match(d)"),
+            ("on-the-record/hooks/git-push-guard.sh", 341,
+             "push your own role branch instead"),
+        ],
+    },
+    {
+        "name": "workspace_disk_headroom",
+        "fn": check_workspace_disk_headroom,
+        "remedy": (
+            "Free disk space and inodes before spawning -- spawn.py refuses "
+            "to clone a workspace below its own default thresholds "
+            "(~357MB free / 1000 free inodes), or override with "
+            "MUSTER_MIN_FREE_BYTES / MUSTER_MIN_FREE_INODES / "
+            "MUSTER_SKIP_SPACE_CHECK=1."
+        ),
+        "source": (
+            "spawn.py:729-764 (_spawn_capacity_check: shutil.disk_usage() at "
+            "spawn.py:740, sys.exit() at spawn.py:745 when free bytes fall "
+            "below MIN_FREE_BYTES_DEFAULT, os.statvfs() inode check follows "
+            "and sys.exit()s again if free inodes fall below "
+            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3229, before "
+            "every workspace clone attempt"
+        ),
+        "line_anchors": [
+            ("spawn.py", 729, "def _spawn_capacity_check"),
+            ("spawn.py", 740, "shutil.disk_usage"),
+            ("spawn.py", 745, "sys.exit("),
+            ("spawn.py", 3229, "_spawn_capacity_check(work)"),
+        ],
     },
 ]
 
