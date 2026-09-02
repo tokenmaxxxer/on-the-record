@@ -376,8 +376,8 @@ gap that would not exist had these been invoked before running the pairs).
   bullet under `## Open findings` above) -- this session had fixed the
   test design before running, but not a numeric win threshold, which the
   skill classifies as a procedure violation to record rather than hide.
-- skill-verdict: product-discovery-hypothesis-preregistration — applied:
-  invoked; its rule 1 (numeric threshold + decision rule fixed before
+- skill-verdict: product-discovery-hypothesis-preregistration — applied: invoked; its rule 1
+  (numeric threshold + decision rule fixed before
   data) independently names the same gap as `hypothesis-testing` Step 4
   (canonical: the same "Pre-registration gap" bullet above), cross-confirming
   it's a real omission rather than one skill's idiosyncratic framing.
