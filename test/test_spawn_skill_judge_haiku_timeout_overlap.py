@@ -276,7 +276,7 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
             events.append("workspace")
             return cwd
 
-        def fake_checkout_issue_branch(cwd, issue, skill):
+        def fake_checkout_named_branch(cwd, br):
             events.append("branch")
             return "b"
 
@@ -287,8 +287,8 @@ class SkillJudgeOverlapOrderingTest(unittest.TestCase):
                  mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
                                    fake_matches_with_consult), \
                  mock.patch.object(spawn, "issue_workspace", fake_issue_workspace), \
-                 mock.patch.object(spawn, "checkout_issue_branch",
-                                   fake_checkout_issue_branch), \
+                 mock.patch.object(spawn, "_checkout_named_branch",
+                                   fake_checkout_named_branch), \
                  mock.patch.object(spawn, "resolve_static_policy_source",
                                    lambda repo_root: skill_source), \
                  mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
@@ -347,8 +347,8 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
         with mock.patch.object(spawn, "_cross_family_skill_matches_with_consult",
                                lambda *a, **k: matches_return), \
              mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, skill: cwd), \
-             mock.patch.object(spawn, "checkout_issue_branch",
-                               lambda cwd, issue, skill: "b"), \
+             mock.patch.object(spawn, "_checkout_named_branch",
+                               lambda cwd, br: "b"), \
              mock.patch.object(spawn, "resolve_static_policy_source",
                                lambda repo_root: skill_source), \
              mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
@@ -390,8 +390,8 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
                                    lambda repo_root: skill_source), \
                  mock.patch.object(spawn, "_skill_repo_root", lambda: Path(td)), \
                  mock.patch.object(spawn, "issue_workspace", lambda cwd, issue, skill: cwd), \
-                 mock.patch.object(spawn, "checkout_issue_branch",
-                                   lambda cwd, issue, skill: "b"), \
+                 mock.patch.object(spawn, "_checkout_named_branch",
+                                   lambda cwd, br: "b"), \
                  mock.patch.object(spawn, "core_plugin_dirs", lambda: []), \
                  mock.patch.object(spawn, "core_version", lambda: "v0"), \
                  mock.patch.object(spawn, "_clean_auto_enabled", lambda: False), \
