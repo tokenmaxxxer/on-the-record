@@ -452,8 +452,7 @@ spawning instructions (does not merge, edit, or add commits to PR
 #3131). The open findings above remain open against PR #3131 / issue
 #3127, not against this verification record.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; loaded via the Skill tool this session and applied
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; loaded via the Skill tool this session and applied
 derived: this session's own worktree commands and live Python
 reproductions, quoted throughout the sections above -- rules 1 and 3
 (ran the acceptance checks and must-nots from primary sources myself,
