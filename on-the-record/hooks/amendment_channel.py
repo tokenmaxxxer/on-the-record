@@ -44,6 +44,25 @@ poll gh from PostToolUse"). `repo_slug_for_cwd()` below resolves the same
 git-config plumbing only, the same no-network technique
 `spawn._workspace_target_path()` already uses elsewhere in this repo.
 
+Writer-side repo-targeting repair (PR #3159 follow-up): the write path
+originally called `repo_slug_for_cwd()` on the raw `PostToolUse` payload
+`cwd` -- the orchestrator's own session directory -- even though the `gh
+issue edit` command it is inspecting can `cd` into a DIFFERENT checkout
+first (`cd ../study-companion && gh issue edit 42 --body ...`, run from
+an `on-the-record` session cwd, is this issue's own worked example) or
+name the target explicitly with `--repo`/`-R`. Keying the marker off the
+session cwd in that shape reopens the identical collision class this
+module exists to close, just under a different trigger. Two sources are
+authoritative for what a `gh issue edit` command actually targets, and
+the raw session `cwd` is not one of them: an explicit `--repo`/`-R` flag
+on the invocation itself (`_explicit_repo_flag()`), or otherwise
+`hook_input.resolved_cwd()`'s leading-`cd`-target resolution (the same
+total, no-network `cd <path> &&` parser every other hook in this repo
+already shares -- see `hook_input.py`'s own docstring, which names this
+exact ad-hoc-`cd`-extraction defect class as the reason it exists).
+Neither source resolving falls through to the same unresolvable-repo
+handling below -- never a fallback to the session cwd.
+
 Unresolvable repo (issue #3128's shape, applied here pre-emptively): when
 `repo_slug_for_cwd()` returns None -- no git repo at `cwd`, no `origin`
 remote, an origin URL this module's regex does not parse -- neither the
@@ -104,6 +123,12 @@ _GH_ISSUE_EDIT_RE = re.compile(
     r"(?:^|[;&|]\s*)gh\s+issue\s+edit\s+(\d+)\b"
 )
 _BODY_FLAG_RE = re.compile(r"--body(?:-file)?(?:=|\s|$)")
+# An explicit `--repo`/`-R owner/repo` on the gh invocation itself --
+# scoped by the caller to that command's own segment so a flag belonging
+# to a different command earlier/later in a compound line is never picked
+# up (see `_explicit_repo_flag()`).
+_REPO_FLAG_RE = re.compile(r"(?:--repo|-R)(?:=|\s+)(\S+)")
+_REPO_SLUG_RE = re.compile(r"^[^\s/]+/[^\s/]+$")
 _BRANCH_ISSUE_RE = re.compile(r"^issue-(\d+)\b")
 _REPO_URL_RE = re.compile(
     r"^(?:https?://[^/]+/|git@[^:]+:|ssh://(?:[^@/]+@)?[^/]+/)"
@@ -326,6 +351,53 @@ def issue_for_cwd(cwd: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def _explicit_repo_flag(command: str, segment_start: int) -> Optional[str]:
+    """An explicit `--repo`/`-R owner/repo` flag on the `gh issue edit`
+    invocation itself, or None.
+
+    Scoped to that invocation's own segment (from `segment_start` -- the
+    start of the regex match that found `gh issue edit <n>` -- to the next
+    `;`/`&&`/`||`/`|`, or end of string) so a `--repo` belonging to an
+    unrelated command elsewhere in a compound line is never picked up.
+    Only a value shaped like `owner/repo` is accepted; anything else (a
+    bare name, a URL, a flag with no value) is treated as not present so a
+    malformed flag falls through to the cwd-based resolution below rather
+    than manufacturing a bogus repo key.
+    """
+    end = len(command)
+    sep = re.search(r"[;&|]", command[segment_start:])
+    if sep:
+        end = segment_start + sep.start()
+    m = _REPO_FLAG_RE.search(command, segment_start, end)
+    if not m:
+        return None
+    candidate = m.group(1).strip("'\"")
+    return candidate if _REPO_SLUG_RE.match(candidate) else None
+
+
+def target_repo_for_command(command: str, cwd: str, segment_start: int = 0) -> Optional[str]:
+    """The repo a `gh issue edit` command actually targets.
+
+    Two sources are authoritative, checked in order; the raw session
+    `cwd` is neither of them:
+
+      1. an explicit `--repo`/`-R owner/repo` on the invocation itself.
+      2. otherwise, the git repo of the directory the command runs in
+         after any leading `cd <path> &&` in the command string
+         (`hook_input.resolved_cwd()` -- the same total, no-network `cd`
+         parser every other hook in this repo already shares).
+
+    Falls back to `cwd` itself only when the command carries no `cd`
+    prefix and no `--repo`/`-R` flag, i.e. `resolved_cwd()`'s own
+    documented default behavior.
+    """
+    explicit = _explicit_repo_flag(command, segment_start)
+    if explicit:
+        return explicit
+    target_cwd = hook_input.resolved_cwd(command, default=cwd)
+    return repo_slug_for_cwd(target_cwd)
+
+
 def maybe_write_from_command(state_dir: str, tool_name: str, command: str, cwd: str) -> None:
     """Detect `gh issue edit <n> ... --body|--body-file ...` and bump that
     repo's issue marker. Fires on the command text alone (no `tool_response`
@@ -340,7 +412,11 @@ def maybe_write_from_command(state_dir: str, tool_name: str, command: str, cwd: 
         return
     issue = m.group(1)
     note = _extract_note(command, cwd)
-    repo = repo_slug_for_cwd(cwd)
+    # `m.start()` may point at a consumed leading separator (`; gh ...`),
+    # not at `gh` itself -- offset past it so the flag-segment scan below
+    # does not treat that separator as the segment's own right boundary.
+    segment_start = m.start() + m.group(0).find("gh")
+    repo = target_repo_for_command(command, cwd, segment_start)
     if repo is None:
         # issue #3128's shape, applied pre-emptively: an unresolvable repo
         # must not fall back to a shared bucket (no marker write at all --
