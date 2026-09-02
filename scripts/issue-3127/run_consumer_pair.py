@@ -80,6 +80,10 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 
 sys.path.insert(0, str(ROOT))
 import spawn as _spawn_mod  # noqa: E402 -- see arm_workspace_dir()
+import skills as _skills_mod  # noqa: E402 -- see build_stub_skill_repo()
+
+sys.path.insert(0, str(ROOT / "scripts"))
+import measure_skill_invocation as _msi  # noqa: E402 -- see collect_skill_invocation()
 
 # Reused from issue-3053's floor-condition harness so pair identity (task
 # text, discipline) is held constant across the floor and consumer-path
@@ -133,18 +137,32 @@ def build_stub_skill_repo(skill_name: str, dest: Path) -> Path:
     valid directory (`Path(...).is_dir()` true) and never falls through to
     its sibling/managed-clone fallback chain -- see this file's module
     docstring, finding 1.
+
+    Also stubs every name in `skills._STATIC_POLICY_SKILLS` (e.g.
+    `work-in-english`) the same frontmatter-only way (issue #3127 live
+    execution, found dispatching against real sandbox issues 2026-09-02):
+    `resolve_static_policy_source()` resolves those POLICY skills
+    unconditionally from the SAME skill-repo root every session mounts
+    from, regardless of arm or task language -- the `skill-repo:` source
+    qualifier (see `_skills_argument_for_arm()`) forces that resolution
+    through this stub dir for the skills-off arm too. Stubbing only the
+    named target skill left the policy skill unresolvable there
+    (`sys.exit("...모르는 스킬 work-in-english...")`), failing dispatch
+    for every skills-off arm outright rather than producing the intended
+    "corpus present but empty" condition.
     """
-    skill_dir = dest / skill_name
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    (skill_dir / "SKILL.md").write_text(
-        "---\n"
-        f"name: {skill_name}\n"
-        "description: issue #3127 skills-off arm stub -- frontmatter only, "
-        "no procedure body, so the named skill resolves (fail-closed "
-        "unknown-skill rejection never fires) but carries no actual "
-        "guidance content.\n"
-        "---\n",
-        encoding="utf-8")
+    for name in {skill_name, *_skills_mod._STATIC_POLICY_SKILLS}:
+        skill_dir = dest / name
+        skill_dir.mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_text(
+            "---\n"
+            f"name: {name}\n"
+            "description: issue #3127 skills-off arm stub -- frontmatter "
+            "only, no procedure body, so the named skill resolves "
+            "(fail-closed unknown-skill rejection never fires) but "
+            "carries no actual guidance content.\n"
+            "---\n",
+            encoding="utf-8")
     return dest
 
 
@@ -264,13 +282,23 @@ def render_dry_run(plan: Plan) -> str:
                 f"(timeout {plan.watch_timeout_s}s)")
     lines.append("")
     lines.append("Post-run instrumentation per arm (see collect_metrics()):")
+    lines.append("  - H1 manipulation check (compute_h1_manipulation() / "
+                  "gate_pair_on_h1(), re-operationalized 2026-09-02 -- see "
+                  "docs/issue-3127/decisions/pre-registration.md's dated "
+                  "amendment): did the on arm's session log record a real "
+                  "Skill tool_use call naming the target skill, and did "
+                  "the off arm's NOT (collect_skill_invocation(), parsing "
+                  "the same <workspace>.session.*.log spawn.py already "
+                  "produces). A pair that fails this is excluded from the "
+                  "H2 quality comparison and the exclusion is recorded "
+                  "with a reason, never silently reported alongside an "
+                  "H2 figure")
     lines.append("  - directive-composition bytes: sum of "
                   "<workspace>/.on-the-record/directive/*.md file sizes -- "
-                  "also the H1 manipulation check (compute_h1_manipulation()"
-                  " / gate_pair_on_h1()): a pair whose two arms report "
-                  "IDENTICAL bytes is excluded from the H2 quality "
-                  "comparison and the exclusion is recorded with a reason, "
-                  "never silently reported alongside an H2 figure")
+                  "secondary environment-parity diagnostic ONLY, does not "
+                  "gate H1 (construct-validity gap found by PR #3172: a "
+                  "skill delivered via the runtime Skill tool never "
+                  "touches this file set)")
     lines.append("  - token cost: matching entries in runs/ledger.jsonl "
                   "for this issue+skill")
     lines.append("  - verification rounds + defects found: count of "
@@ -461,40 +489,163 @@ def collect_directive_bytes(workspace: Path | None) -> int | None:
     return sum(p.stat().st_size for p in directive_dir.glob("*.md"))
 
 
-def compute_h1_manipulation(workspace_on: Path | None,
-                             workspace_off: Path | None) -> dict:
-    """H1 enforcement (issue #3127 repair round, defect 2). Before this,
-    H1 existed only as prose in docs/issue-3127/decisions/
-    pre-registration.md ("H1... Falsifiable: could return identical
-    directive bytes across arms, meaning the toggle did not actually
-    change what the spawned session received"). This function turns that
-    falsifiable claim into an actual comparison a pair can fail, and a
-    future orchestration entry point built on top of it must refuse to
-    compute H2 for a pair that fails it.
-
-    Missing workspace data (an arm that never reached a mountable state)
-    is treated as a manipulation-check FAILURE, not silently skipped --
-    there is nothing to prove the manipulation worked, so it is not
-    credited as having worked.
+def _find_latest_session_log(workspace: Path | None) -> Path | None:
+    """Locate the most recent spawn.py-authored
+    `<workspace>.session.<ts>.<pid>.log` stream-json tee for a workspace
+    (issue #3127 H1 re-operationalization, 2026-09-02 consult -- see
+    compute_h1_manipulation()'s docstring for why this replaced
+    directive-composition bytes as the gating signal). A respawned
+    session leaves multiple `.session.*.log` files next to the same
+    workspace directory; the latest by mtime is the one whose events
+    matter for a completed arm.
     """
-    on_bytes = collect_directive_bytes(workspace_on)
-    off_bytes = collect_directive_bytes(workspace_off)
-    if on_bytes is None or off_bytes is None:
-        return {"on_bytes": on_bytes, "off_bytes": off_bytes, "differs": False,
-                "reason": "at least one arm's .on-the-record/directive "
-                          "directory was not found -- treated as a "
+    if workspace is None:
+        return None
+    parent = workspace.parent
+    candidates = sorted(parent.glob(workspace.name + ".session.*.log"),
+                         key=lambda p: p.stat().st_mtime, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def collect_skill_invocation(workspace: Path | None, skill_name: str) -> dict:
+    """H1's manipulation-check evidence (re-operationalized 2026-09-02,
+    issue #3127 consult, `runs/consult-logs/20260902T125610799701-
+    948846.log`): whether the target skill was actually INVOKED via the
+    Skill tool, read from an artifact the spawned session's own model
+    generation does not author.
+
+    Parses `<workspace>.session.<ts>.<pid>.log` -- spawn.py's own capture
+    of the spawned CLI's raw stdout stream -- the exact same artifact
+    `scripts/measure_skill_invocation.py` already parses for production
+    skill-usage measurement (this function reuses that module's
+    `analyze()` rather than re-deriving its regex/schema a second time).
+    A `{"type":"tool_use","name":"Skill","input":{"skill":"<name>"}}`
+    line in that stream is serialized by the `claude` CLI binary itself
+    the instant the model's tool call happens -- the model's own
+    generation has no code path that writes to this file directly; it
+    can only ever cause a genuine entry to appear by actually invoking
+    the Skill tool. (See docs/issue-3127/decisions/pre-registration.md's
+    2026-09-02 amendment for the fuller forgeability comparison against
+    the other three candidate artifacts the consult named, and the
+    residual risk this does not close.)
+
+    Also returns `mounted` -- the session's own init-event plugin list,
+    i.e. availability, not invocation -- so callers can cross-check
+    mounted-but-never-invoked or invoked-without-being-mounted as an
+    internal-consistency signal (this re-operationalization's own
+    instruction to cross-check against spawn.py's mounted-skill list for
+    the arm; the init event's plugin list is populated from the same
+    resolved-skill-sources spawn.py itself computes pre-session for the
+    roster, see `_skill_roster_fields()` in skills.py).
+    """
+    log_path = _find_latest_session_log(workspace)
+    if log_path is None:
+        return {"session_log": None, "mounted": None, "invoked": False,
+                "measured": False,
+                "reason": f"no {workspace}.session.*.log found -- the arm "
+                          "never reached a dispatched, log-producing state"}
+    result = _msi.analyze(workspace.name, str(log_path))
+    if result.get("status") != "measured":
+        return {"session_log": str(log_path), "mounted": None,
+                "invoked": False, "measured": False,
+                "reason": "measure_skill_invocation.analyze() returned "
+                          f"status={result.get('status')!r} "
+                          f"({result.get('reason')})"}
+    mounted = result.get("mounted") or []
+    invoked = skill_name in result.get("invoked_skills", [])
+    return {"session_log": str(log_path), "mounted": mounted,
+            "invoked": invoked, "measured": True,
+            "mounted_but_not_invoked": skill_name in mounted and not invoked,
+            "invoked_but_not_mounted": invoked and skill_name not in mounted,
+            "reason": None}
+
+
+def compute_h1_manipulation(workspace_on: Path | None,
+                             workspace_off: Path | None,
+                             skill_name: str | None) -> dict:
+    """H1 enforcement, re-operationalized 2026-09-02 (issue #3127
+    consult, `runs/consult-logs/20260902T125610799701-948846.log`,
+    following PR #3172's construct-validity finding).
+
+    Before this: H1 gated on `directive_composition_bytes` (sum of
+    `<workspace>/.on-the-record/directive/*.md`). PR #3172 ran two real
+    skills-on sessions (study-companion issues #19, #21) and found, with
+    live evidence, that this proxy cannot see a skills-on/skills-off
+    difference for a skill delivered via the runtime Skill-tool
+    mechanism: both real workspaces held only the 8 session-universal
+    baseline policy files in that directory -- byte-identical regardless
+    of which skill was mounted. The metric could never fail this check
+    even when the manipulation genuinely had not happened, and could
+    never pass it when it genuinely had -- a construct-validity gap, not
+    a measurement of the thing H1 claims to gate.
+
+    The gating signal is now `collect_skill_invocation()`: did the on
+    arm's session log record a real Skill tool_use call naming the
+    target skill, and did the off arm's NOT. `directive_composition_bytes`
+    is still collected, returned under `directive_bytes_parity`, but only
+    as a secondary environment-parity diagnostic -- it no longer gates
+    `differs` (pre-registration's decision rule, threshold, and sample
+    size are unchanged; only this H1 observation changed -- see the
+    pre-registration's dated amendment).
+
+    Missing/unmeasurable session-log data for the ON arm is a
+    manipulation-check FAILURE, same discipline the original proxy used
+    for a missing workspace: there is nothing to prove the manipulation
+    worked, so it is not credited as having worked. Missing/unmeasurable
+    data for the OFF arm is compatible with "the off arm did not invoke
+    the target skill" (absence of invocation evidence is itself evidence
+    of non-invocation for an arm whose corpus was deliberately made
+    empty) and does not by itself fail the gate -- but is recorded, never
+    silently conflated with a genuinely-measured non-invocation.
+    """
+    directive_bytes_parity = {
+        "on_bytes": collect_directive_bytes(workspace_on),
+        "off_bytes": collect_directive_bytes(workspace_off),
+        "note": "secondary environment-parity diagnostic only -- does "
+                "NOT gate H1 (construct-validity gap found by PR #3172: "
+                "a skill delivered via the runtime Skill tool never "
+                "touches this file set, so identical bytes here is "
+                "expected and uninformative, not a manipulation-check "
+                "failure)",
+    }
+    if not skill_name:
+        return {"directive_bytes_parity": directive_bytes_parity,
+                "on_invocation": None, "off_invocation": None,
+                "differs": False,
+                "reason": "no skill_name supplied -- cannot compute the "
+                          "invocation-based H1 check"}
+
+    on_invocation = collect_skill_invocation(workspace_on, skill_name)
+    off_invocation = collect_skill_invocation(workspace_off, skill_name)
+    base = {"directive_bytes_parity": directive_bytes_parity,
+            "on_invocation": on_invocation, "off_invocation": off_invocation}
+
+    if not on_invocation["measured"]:
+        return {**base, "differs": False,
+                "reason": "the skills-on arm's session log could not be "
+                          "found/parsed for a real Skill tool_use call "
+                          f"({on_invocation['reason']}) -- treated as a "
                           "manipulation-check failure, not silently passed"}
-    return {"on_bytes": on_bytes, "off_bytes": off_bytes,
-            "differs": on_bytes != off_bytes,
-            "reason": None if on_bytes != off_bytes else
-                      "directive-composition bytes are IDENTICAL between "
-                      "arms -- the skills-off arm's corpus was not "
-                      "genuinely unavailable (a repeat of issue #3053's "
-                      "retracted first, zero-mount run)"}
+    if not on_invocation["invoked"]:
+        return {**base, "differs": False,
+                "reason": "the skills-on arm's session log never recorded "
+                          f"a Skill tool_use call naming {skill_name!r} -- "
+                          "the manipulation did not happen even though "
+                          "the arm was configured to receive it"}
+    if off_invocation["invoked"]:
+        return {**base, "differs": False,
+                "reason": "the skills-off arm's session log ALSO recorded "
+                          f"a Skill tool_use call naming {skill_name!r} -- "
+                          "the corpus leaked through despite the "
+                          "skill-repo: source-qualifier isolation (the "
+                          "mirror image of issue #3053's retracted first, "
+                          "zero-mount run)"}
+    return {**base, "differs": True, "reason": None}
 
 
 def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
-                     workspace_off: Path | None, compute_h2=None) -> dict:
+                     workspace_off: Path | None, skill_name: str | None = None,
+                     compute_h2=None) -> dict:
     """Applies the H1 gate to one pair (issue #3127 repair round, defect 2):
     computes H1 via `compute_h1_manipulation()`; if it fails, the pair is
     excluded from H2 and the exclusion + reason are recorded in the
@@ -504,8 +655,12 @@ def gate_pair_on_h1(pair_id: str, workspace_on: Path | None,
     under "h2"; if not supplied, "h2" stays None with an explicit
     "h2_unavailable_reason", kept distinct from an H1-driven exclusion so
     the two "no H2" causes are never conflated in the results JSON.
+
+    `skill_name` (re-operationalized 2026-09-02) is the target skill
+    whose invocation compute_h1_manipulation() checks for; omitting it
+    forces an automatic H1 failure (see compute_h1_manipulation()).
     """
-    h1 = compute_h1_manipulation(workspace_on, workspace_off)
+    h1 = compute_h1_manipulation(workspace_on, workspace_off, skill_name)
     result = {"pair_id": pair_id, "h1": h1, "h1_manipulation_ok": h1["differs"]}
     if not h1["differs"]:
         result["excluded_from_h2"] = True
@@ -766,7 +921,7 @@ def run_pair(plan: Plan, pair: PairPlan, on_issue: int, off_issue: int,
                                     evaluator_fn=evaluator_fn)
 
     gated = gate_pair_on_h1(pair.pair_id, workspace_on, workspace_off,
-                             compute_h2=compute_h2)
+                             skill_name=plan.skill_name, compute_h2=compute_h2)
     if gated.get("h2", {}) and gated["h2"].get("h2_unavailable"):
         gated["h2_unavailable_reason"] = gated["h2"]["h2_unavailable_reason"]
         gated["h2"] = None

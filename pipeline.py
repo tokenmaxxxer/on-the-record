@@ -1422,7 +1422,8 @@ def _tokenize(text: str) -> set[str]:
 
 def _cross_family_candidate_corpus(skill: str, repo_root: Path | None,
                                     home: Path | None = None,
-                                    target_repo_root: Path | None = None
+                                    target_repo_root: Path | None = None,
+                                    skills_csv: str | None = None
                                     ) -> list[tuple[str, Path, str]]:
     """이슈 #2055: `_bm25_cross_family_scores` 의 후보 코퍼스를 skill-repository
     단일 소스에서 네 소스(skill-repository, 설치된 플러그인, `~/.claude/skills`,
@@ -1449,10 +1450,28 @@ def _cross_family_candidate_corpus(skill: str, repo_root: Path | None,
     읽는다 — 기존 호출부(테스트 포함)가 skill-repository tier 만 보는
     오늘의 동작을 그대로 유지하기 위한 명시적 opt-in 이다. 설치된 플러그인
     tier 는 `_installed_plugin_skill_dirs()` 자체가 이름이 실제로 필요할
-    때만 파일을 읽으므로 별도 게이트가 필요 없다."""
+    때만 파일을 읽으므로 별도 게이트가 필요 없다.
+
+    이슈 #3127 blocker A: `skills_csv` 는 이번 스폰의 원본 `--skills` 인자
+    (예: `skill-repo:product-discovery-hypothesis-preregistration,other`) —
+    주어지면 `<source>:<name>` 한정자(`_sp._split_skill_qualifier()`, 이슈
+    #2579, `resolved_skill_sources()` 의 primary 해석이 이미 쓰는 것과
+    같은 파서)가 붙은 이름마다, 그 이름이 코퍼스에서 둘 이상의 소스에
+    걸려도 한정자가 가리키는 소스 하나로만 좁혀 fail-closed 를 건너뛴다
+    — "겹침"이 아니라 사용자가 이미 명시적으로 소스를 골랐기 때문이다.
+    한정자 없는 이름(압도적 다수)은 오늘과 동일하게 그대로 fail-closed —
+    이 완화는 명시적으로 소스를 지정한 이름에만 적용된다."""
     # 이슈 #2507: `role` 은 더 이상 후보 풀을 좁히는 데 안 쓰인다 — signature
     # 는 호환을 위해 남긴다(호출부가 여전히 role 을 넘긴다).
     del skill
+    source_pins: dict[str, str] = {}
+    for raw in (skills_csv or "").split(","):
+        raw = raw.strip()
+        if not raw:
+            continue
+        source_filter, name = _sp._split_skill_qualifier(raw)
+        if source_filter is not None:
+            source_pins[name] = source_filter
     family_names = set(_sp._STATIC_POLICY_SKILLS)
     matches: dict[str, list[tuple[str, Path]]] = {}
 
@@ -1478,6 +1497,11 @@ def _cross_family_candidate_corpus(skill: str, repo_root: Path | None,
     for name, ms in matches.items():
         if name in family_names:
             continue
+        pin = source_pins.get(name)
+        if pin is not None and len(ms) > 1:
+            pinned = [(source, d) for source, d in ms if source == pin]
+            if pinned:
+                ms = pinned
         if len(ms) > 1 and len({_sp._skill_content_hash(d) for _, d in ms}) == 1:
             # 실제 운영 환경에서는 `~/.claude/skills` 가 skill-repository 를
             # 그대로 미러링해두는 경우가 흔하다 — 같은 이름이 같은

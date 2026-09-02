@@ -65,6 +65,26 @@ class BuildStubSkillRepoTest(unittest.TestCase):
                 os.environ["MUSTER_SKILL_REPO"] = old_env
         self.assertEqual(resolved, dest)
 
+    def test_also_stubs_static_policy_skills(self):
+        """Issue #3127 live execution (2026-09-02, real dispatch against
+        sandbox issue #20): `resolve_static_policy_source()` resolves
+        `skills._STATIC_POLICY_SKILLS` (e.g. work-in-english)
+        unconditionally from the same skill-repo root every session mounts
+        from. Stubbing only the named target skill left that policy skill
+        unresolvable when the skills-off arm's `skill-repo:` qualifier
+        forced resolution through this stub dir, failing dispatch outright
+        (`sys.exit` on an unknown skill) rather than the intended "corpus
+        present but empty" condition."""
+        import skills as skills_mod
+        dest = Path(self._tmpdir.name) / "stub-repo"
+        rcp.build_stub_skill_repo("some-skill", dest)
+        for policy_name in skills_mod._STATIC_POLICY_SKILLS:
+            policy_md = dest / policy_name / "SKILL.md"
+            self.assertTrue(policy_md.is_file())
+            content = policy_md.read_text(encoding="utf-8")
+            self.assertIn(f"name: {policy_name}", content)
+            self.assertNotIn("## ", content)
+
 
 class SkillsArgumentForArmTest(unittest.TestCase):
     """defect 1: skills-on keeps the bare name (byte-identical to

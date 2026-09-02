@@ -1,67 +1,138 @@
 {
   "issue": 3127,
-  "run_status": "not_executed",
-  "run_status_reason": "A later session (2026-09-02, this run) had explicit operator authorization to execute for real (CORE_BUILD_NOW=1, and the prior session's confirmation blocker was resolved) and located the pre-provisioned sandbox repo (JiwonJung94/study-companion -- spawn.py-init'd, docs/specs/approvers.md present, docs/issue-1 and docs/issue-5 already matching this harness's pair task text). The dry-run plan was verified to match the pre-registration (arms, held-constant factors, H1 gate, blind scorer, wall-clock naming). Execution then hit a hard, mechanically-enforced block distinct from the prior session's caution-based one: creating the 4 seed GitHub issues `--issue-map` requires (one skills-on + one skills-off issue per registered pair) was refused live by this repo's own gh-guard pretooluse hook -- 'issues are the user's requirement backlog, user-authored only (contract v3 s9) -- no skill touches them' (two-account model, contract v3 s8) -- reproduced verbatim against `gh issue create --repo JiwonJung94/study-companion ...` this session. This is a deliberate safety boundary (skill sessions cannot author requirement-backlog issues in ANY repo, not just the orchestrator's own), not a caution call this session made unilaterally, and it was not bypassed -- no alternate gh auth, no hook skip. It structurally means no skill session under this protocol can complete this harness's --execute path alone: the seed issues for --issue-map must be created by the human operator (or another user-authored channel) out-of-band, before a skill session's spawn.py dispatch + watch --follow can run. The self-daemonization concern from the prior session's reasoning is otherwise resolved -- execute_arm() calls `spawn.py watch --follow` and blocks the caller for real, so a session with the seed issues already in hand could complete a live run within one sitting.",
+  "run_status": "executed",
+  "run_status_note": "Real --execute was run against the real sandbox (JiwonJung94/study-companion), with --i-understand-this-spawns-real-sessions, for both registered pairs. Both pairs' skills-on arms genuinely dispatched, ran, and opened real phase-1 proposal PRs (#23, #24). Both pairs' skills-off arms failed to dispatch at all (see h1_not_computable_reason per pair) -- this is 'executed' (real spawns happened, real GitHub side effects exist), not 'not_executed', but it produced zero pairs with a completed manipulation check.",
   "pre_registration_ref": "docs/issue-3127/decisions/pre-registration.md",
-  "pairs_registered": [
-    "01-study-groups",
-    "02-onboarding-experiment"
+  "harness_fix_applied_this_session": "scripts/issue-3127/run_consumer_pair.py::build_stub_skill_repo() was fixed to also stub skills._STATIC_POLICY_SKILLS (work-in-english) -- without this fix, the skills-off arm failed even earlier, on an unrelated 'unknown skill work-in-english' sys.exit, before ever reaching the cross-family conflict reported below. That earlier defect is fixed and tested (tests/test_issue_3127_run_consumer_pair.py::BuildStubSkillRepoTest::test_also_stubs_static_policy_skills). The cross-family tier-conflict defect reported below is a separate, deeper issue (#2055's own fail-closed safety check firing as designed against a real environment where ~/.claude/skills mirrors this machine's skill-repository with diverged content) -- fixing it would mean weakening a real safety check in pipeline.py/directive_assembly.py shared by every session on this machine, which is out of this session's scope, same category as PR #3166's verify_preregistration.py squash-merge finding.",
+  "pairs": [
+    {
+      "pair_id": "01-study-groups",
+      "issue_skills_on": 19,
+      "issue_skills_off": 20,
+      "arm_results": {
+        "skills-on": {
+          "arm": "skills-on",
+          "issue": 19,
+          "harness_watch_status": "watch-failed",
+          "harness_watch_defect_note": "spawn.py watch reported 'issue-19/product-discovery-hypothesis-preregistration: 기록 없음 -- 아직 스폰된 적이 없다' (exit 1) even though dispatch_returncode was 0 and the session genuinely ran to completion and opened a real PR -- a harness/watch defect distinct from H1, found live 2026-09-02. The wall-clock figure below is the execute_arm() subprocess's own timed duration (which did span the real session, per the ledger's independently-recorded duration_s below), not fabricated from the failed watch status.",
+          "manually_verified_real_outcome": {
+            "pr_number": 23,
+            "pr_url": "https://github.com/JiwonJung94/study-companion/pull/23",
+            "verified_via": "gh pr view 23 --repo JiwonJung94/study-companion"
+          },
+          "status": "watched-to-completion (manually verified; harness's own watch call misreported watch-failed)",
+          "wall_clock_to_pr_open_s": 340.36379821226,
+          "wall_clock_to_pr_open_s_source": "execute_arm()'s own time.monotonic() delta around the dispatch+watch subprocess calls",
+          "wall_clock_to_landed_s": null,
+          "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main; contract v3 s22.",
+          "tokens_total": null,
+          "cost_usd": 0.743878,
+          "cost_usd_source": "runs/ledger.jsonl cost-entry for this session_id",
+          "verification_rounds": 0,
+          "verification_rounds_note": "no repair-round / independent-verification PR exists against this issue -- consistent with the two-phase protocol default (stop after phase-1 proposal PR; this session never approved or merged it)",
+          "verification_defects_found": null,
+          "session_turns": 23,
+          "session_duration_s": 274.8,
+          "directive_composition_bytes": 13026,
+          "directive_composition_bytes_note": "sum of .on-the-record/directive/*.md in the real completed workspace",
+          "bm25_selection_position": null,
+          "bm25_selection_position_note": "not extracted this session -- would require parsing the session log's skill-selection trace; not attempted given the pair's H1 gate already fails below",
+          "deliverable_pr_body": "## Summary\n- Read docs/issue-1's discovery report and docs/issue-5's one-pager, and decided the job-fit question: algorithmic study-group matching (by course + exam date) is a **resolution-availability** feature, not the **monitoring** job issue #5 already committed to — the one-pager names this as an explicit, by-design scope exclusion, not an oversight.\n- It also competes for the team's attention: it would inherit the \"shared-ignorance ceiling\" failure mode issue #1 documents for peer coping, and issue #5 already carries a registered, unrun falsifier for the monitoring bet itself (n=36, 6-week bound) that ranks higher by impact×risk.\n- Registered a conditional hypothesis package (theory, 3 falsifiable hypotheses, metric/threshold/decision-rule/guardrail) for study-group matching in case the team revisits it later, per `product-discovery-hypothesis-preregistration` and `hypothesis-testing`.\n- Recommendation: not now — run a zero-build check on whether existing tools (course Discords/GroupMes/LMS groups) already solve group coordination, and wait for issue #5's monitoring falsifier verdict before registering this for a real pilot.\n\n## Test plan\n- [x] `bash -c \"test -n \\\"$(ls docs/issue-*/specs/*.md docs/issue-*/reports/*.md 2>/dev/null | head -1)\\\"\"` — the record file at `docs/issue-19/reports/product-discovery-hypothesis-preregistration-f8df81f9.md` satisfies this.\n\nCloses #19\n\n"
+        },
+        "skills-off": {
+          "arm": "skills-off",
+          "issue": 20,
+          "status": "dispatch-failed",
+          "dispatch_returncode": 1,
+          "dispatch_stderr_summary": "[acceptance-gate] warning about missing 'empty state:'/'provenance:' lines in issue #20's Acceptance section (non-fatal, printed regardless of outcome), followed by a hard sys.exit: \"cross-family 후보 스킬 product-discovery-hypothesis-preregistration 가 둘 이상의 소스에서 겹친다 -- skill-repo(/tmp/issue-3127-skills-off-sy3hif8s/product-discovery-hypothesis-preregistration), local-user(/home/jwjung/.claude/skills/product-discovery-hypothesis-preregistration) (이슈 #2055: 네 소스 중 어느 tier 도 다른 tier 를 조용히 가리지 않는다)\"",
+          "workspace_directive_bytes_at_abort": 13026,
+          "workspace_directive_bytes_note": "Directive assembly wrote only the 8 universal baseline policy files (completion-and-landing.md, hook-contract.md, known-paths.md, record-order.md, repo-discovery.md, skill-obligations.md, task-lookup.md, turn-budget.md -- 13026 bytes total) before sys.exit()'ing on the cross-family tier conflict; the target skill's own content was never reached. These 13026 bytes equal the on-arm's own baseline layer exactly (see arm_results.skills-on.directive_composition_bytes) -- but this equality is a workspace-setup invariant common to every session regardless of arm, not evidence about skill-corpus mounting; treating it as an H1 pass/fail would misattribute a dispatch failure as a mounting result."
+        }
+      },
+      "h1": null,
+      "h1_manipulation_ok": false,
+      "h1_not_computable_reason": "the skills-off arm never dispatched (real, reproducible cross-family skill-source tier conflict -- see arm_results.skills-off.dispatch_stderr_summary), so there is no completed skills-off workspace to compare against the skills-on arm's directive bytes. This is a distinct failure mode from H1's own falsifier text (\"could return identical directive bytes across arms\", i.e. a zero-mount leak) -- here there is no off-arm run at all to leak or not leak.",
+      "excluded_from_h2": true,
+      "exclusion_reason": "H1 could not be computed (see h1_not_computable_reason) -- no comparable skills-off deliverable exists, so H2's paired blind scorer was never invoked for this pair",
+      "h2": null
+    },
+    {
+      "pair_id": "02-onboarding-experiment",
+      "issue_skills_on": 21,
+      "issue_skills_off": 22,
+      "arm_results": {
+        "skills-on": {
+          "arm": "skills-on",
+          "issue": 21,
+          "harness_watch_status": "watch-failed",
+          "harness_watch_defect_note": "spawn.py watch reported 'issue-21/product-discovery-hypothesis-preregistration: 기록 없음 -- 아직 스폰된 적이 없다' (exit 1) even though dispatch_returncode was 0 and the session genuinely ran to completion and opened a real PR -- a harness/watch defect distinct from H1, found live 2026-09-02. The wall-clock figure below is the execute_arm() subprocess's own timed duration (which did span the real session, per the ledger's independently-recorded duration_s below), not fabricated from the failed watch status.",
+          "manually_verified_real_outcome": {
+            "pr_number": 24,
+            "pr_url": "https://github.com/JiwonJung94/study-companion/pull/24",
+            "verified_via": "gh pr view 24 --repo JiwonJung94/study-companion"
+          },
+          "status": "watched-to-completion (manually verified; harness's own watch call misreported watch-failed)",
+          "wall_clock_to_pr_open_s": 364.08934143930674,
+          "wall_clock_to_pr_open_s_source": "execute_arm()'s own time.monotonic() delta around the dispatch+watch subprocess calls",
+          "wall_clock_to_landed_s": null,
+          "landing_measurement_status": "not_measured -- this harness observes only the spawned session's own session-end event, which under the unmodified two-phase protocol is at most a phase-1 proposal PR opening, not a merge to main; contract v3 s22.",
+          "tokens_total": null,
+          "cost_usd": 0.8055754,
+          "cost_usd_source": "runs/ledger.jsonl cost-entry for this session_id",
+          "verification_rounds": 0,
+          "verification_rounds_note": "no repair-round / independent-verification PR exists against this issue -- consistent with the two-phase protocol default (stop after phase-1 proposal PR; this session never approved or merged it)",
+          "verification_defects_found": null,
+          "session_turns": 29,
+          "session_duration_s": 278.3,
+          "directive_composition_bytes": 13026,
+          "directive_composition_bytes_note": "sum of .on-the-record/directive/*.md in the real completed workspace",
+          "bm25_selection_position": null,
+          "bm25_selection_position_note": "not extracted this session -- would require parsing the session log's skill-selection trace; not attempted given the pair's H1 gate already fails below",
+          "deliverable_pr_body": "## Summary\n\n- Pre-registers the hypothesis package for the \"02-onboarding-experiment\" pilot: a redesigned first-run onboarding that mentions the comprehension-gap check, vs. the current onboarding that doesn't.\n- Primary metric: 7-day check-completion rate (not screen-view or click-through, since the feature's mechanism only fires once a check is actually taken).\n- Ship criterion: p<0.05 one-sided AND absolute lift >= 8 percentage points AND no guardrail breach.\n- Sample size/duration: n=352 per arm (704 total), stopping rule = n reached or 8-week cap, no interim peeking.\n- Guardrails: onboarding-funnel completion (>=3pp drop) and day-7 retention (>=2pp drop), both bounded and registered up front.\n\nCloses #21\n\n## Test plan\n\n- [x] `docs/issue-21/specs/onboarding-experiment-hypothesis-preregistration.md` and `docs/issue-21/reports/product-discovery-hypothesis-preregistration-dbeb1ea3.md` exist and satisfy the issue's acceptance check.\n- [x] Package traced to `docs/issue-5/specs/one-pager.md` (job/mechanism) and `docs/issue-1`'s discovery evidence, without reading or referencing the paired \"skills-off\" arm.\n\n"
+        },
+        "skills-off": {
+          "arm": "skills-off",
+          "issue": 22,
+          "status": "dispatch-failed",
+          "dispatch_returncode": 1,
+          "dispatch_stderr_summary": "[acceptance-gate] warning about missing 'empty state:'/'provenance:' lines in issue #22's Acceptance section (non-fatal, printed regardless of outcome), followed by a hard sys.exit: \"cross-family 후보 스킬 product-discovery-hypothesis-preregistration 가 둘 이상의 소스에서 겹친다 -- skill-repo(/tmp/issue-3127-skills-off-bmcyko0c/product-discovery-hypothesis-preregistration), local-user(/home/jwjung/.claude/skills/product-discovery-hypothesis-preregistration) (이슈 #2055: 네 소스 중 어느 tier 도 다른 tier 를 조용히 가리지 않는다)\"",
+          "workspace_directive_bytes_at_abort": 13026,
+          "workspace_directive_bytes_note": "Directive assembly wrote only the 8 universal baseline policy files (completion-and-landing.md, hook-contract.md, known-paths.md, record-order.md, repo-discovery.md, skill-obligations.md, task-lookup.md, turn-budget.md -- 13026 bytes total) before sys.exit()'ing on the cross-family tier conflict; the target skill's own content was never reached. These 13026 bytes equal the on-arm's own baseline layer exactly (see arm_results.skills-on.directive_composition_bytes) -- but this equality is a workspace-setup invariant common to every session regardless of arm, not evidence about skill-corpus mounting; treating it as an H1 pass/fail would misattribute a dispatch failure as a mounting result."
+        }
+      },
+      "h1": null,
+      "h1_manipulation_ok": false,
+      "h1_not_computable_reason": "the skills-off arm never dispatched (real, reproducible cross-family skill-source tier conflict -- see arm_results.skills-off.dispatch_stderr_summary), so there is no completed skills-off workspace to compare against the skills-on arm's directive bytes. This is a distinct failure mode from H1's own falsifier text (\"could return identical directive bytes across arms\", i.e. a zero-mount leak) -- here there is no off-arm run at all to leak or not leak.",
+      "excluded_from_h2": true,
+      "exclusion_reason": "H1 could not be computed (see h1_not_computable_reason) -- no comparable skills-off deliverable exists, so H2's paired blind scorer was never invoked for this pair",
+      "h2": null
+    }
+  ],
+  "pairs_included_in_h2": [],
+  "pairs_excluded_from_h2": [
+    {
+      "pair_id": "01-study-groups",
+      "reason": "the skills-off arm never dispatched (real, reproducible cross-family skill-source tier conflict -- see arm_results.skills-off.dispatch_stderr_summary), so there is no completed skills-off workspace to compare against the skills-on arm's directive bytes. This is a distinct failure mode from H1's own falsifier text (\"could return identical directive bytes across arms\", i.e. a zero-mount leak) -- here there is no off-arm run at all to leak or not leak."
+    },
+    {
+      "pair_id": "02-onboarding-experiment",
+      "reason": "the skills-off arm never dispatched (real, reproducible cross-family skill-source tier conflict -- see arm_results.skills-off.dispatch_stderr_summary), so there is no completed skills-off workspace to compare against the skills-on arm's directive bytes. This is a distinct failure mode from H1's own falsifier text (\"could return identical directive bytes across arms\", i.e. a zero-mount leak) -- here there is no off-arm run at all to leak or not leak."
+    }
   ],
   "threshold": {
     "primary_metric": "blind deliverable score margin (sum(skills-on) - sum(skills-off)) across registered pairs",
     "decision_rule": "better if skills-on wins >=3 of pairs AND combined margin >=3; worse under the symmetric condition; indistinguishable otherwise",
-    "guardrail": "skills-on wall-clock-to-landed must not exceed skills-off's by more than 50% combined, AND skills-on verification-round count must not exceed skills-off's by more than 1 round combined -- a primary-metric win alongside a breached guardrail is reported as a breach, not an unqualified win",
-    "sample_size": "n=2 pairs registered for this run (01-study-groups, 02-onboarding-experiment), extensible to n=4",
+    "sample_size_registered": "n=2 pairs (01-study-groups, 02-onboarding-experiment)",
+    "sample_size_achieved": "n=0 pairs with a completed paired comparison (0 of 2 registered pairs passed the H1 manipulation-check gate -- in both cases because the skills-off arm never dispatched, not because directive bytes matched under a completed run)",
     "threshold_met": null,
-    "threshold_met_reason": "unmeasured -- no data was collected this session, see run_status"
+    "threshold_met_reason": "not evaluable -- zero pairs produced a comparable skills-on/skills-off pair; see power_statement"
   },
-  "confound_check": {
-    "question": "issue #3091's diagnosis: does test/test_spawn_cross_family_skill_selection.py::Bm25CrossFamilySkillMatchesTest::test_family_skill_never_returned_as_cross_family_candidate pin a family-skill exclusion that issue #2507 intentionally removed, narrowing the candidate pool #3053 measured against?",
-    "finding": "current pool is NOT narrowed by this rule -- #3053's selection numbers do not need re-deriving on this account",
-    "evidence": [
-      "pipeline.py's _cross_family_candidate_corpus() docstring states verbatim: '이슈 #2507: `_ROLE_SKILLS[role]` exclusion 은 없앴다 -- 고정 role->skill 표가 더 이상 family를 정의하지 않으므로... 후보 풀을 role 기준으로 미리 좁힐 이유가 사라졌다.' The function body confirms this: it deletes the `skill` parameter (`del skill`) and only excludes `_sp._STATIC_POLICY_SKILLS` (policy skills like work-in-english), never a role-family set.",
-      "test/test_spawn_cross_family_skill_selection.py::Bm25CrossFamilySkillMatchesTest::test_family_skill_never_returned_as_cross_family_candidate currently FAILS live (re-run this session via the lint-test-on-edit hook on Read of that file) -- it asserts the pre-#2507 exclusion behavior against the post-#2507 implementation, confirming the exclusion is gone from the code, not just from the docstring's claim about it.",
-      "commit dates: issue #2507's landing commits (0879f12a, 28e9c1e9) are dated 2026-08-26; issue #3053's actual paired run landed in commit 573e7382 dated 2026-09-02 -- #3053 ran against main after #2507 had already removed the exclusion, so its candidate pool already reflected current (non-excluding) behavior."
-    ],
-    "separate_defect_noted_not_fixed_here": "the stale, currently-failing unit test itself (asserting behavior #2507 removed) is a test-currency defect independent of runtime pool composition -- already covered by issue #3091's diagnosis scope, not fixed in this PR (out of this issue's scope)."
-  },
+  "decision": "no pairs passed the H1 manipulation-check gate with a scored H2 -- nothing to compare against the pre-registered threshold. This is NOT the #3053 zero-mount failure mode (identical directive bytes from a corpus that leaked through); it is a distinct, newly-found dispatch-blocking defect (real, reproducible cross-family skill-source tier conflict, issue #2055's own fail-closed safety check) that prevented the skills-off arm from ever starting, for both registered pairs, on this execution machine.",
+  "power_statement": "At the achieved n=0 completed paired comparisons (2 of 2 registered pairs excluded at the H1 gate), no directional read is possible at all -- the registered decision rule (>=3 of pairs won AND combined margin >=3) requires at least one scored pair to evaluate, and none exist. This is stronger than the pre-registration's own n=2 power statement ('cannot resolve an effect smaller than the registered 3-point margin'): at n=0, there is no resolution at any margin, in either direction. What WAS achieved: two real, independent skills-on sessions (issues #19, #21) each dispatched, ran to completion, and opened a real phase-1 PR, with real per-arm wall-clock (340.4s, 364.1s to PR-open), cost ($0.744, $0.806), turns (23, 29), and directive-composition-byte data reported above -- these are genuine H3-adjacent descriptive data points for the skills-on arm alone, but H3's own guardrail (skills-on vs skills-off wall-clock/verification-round comparison) is equally unevaluable with zero completed skills-off runs to compare against. Reporting 'not measured, manipulation check failed' per the operator's own framing for this exact all-pairs-fail case -- not a null, and not an indistinguishable-effect read; a distinct, dispatch-level blocker, with the actual stderr bytes and workspace byte counts recorded per pair above.",
+  "construct_validity_note_on_h1_metric": "Independent of the dispatch-blocking defect: this session found that compute_h1_manipulation()'s chosen proxy (directive_composition_bytes, i.e. sum of <workspace>/.on-the-record/directive/*.md) would likely NOT have detected a genuine skills-on/skills-off difference even if the off arm had dispatched successfully. Both real skills-on workspaces (issues #19, #21) contain only the 8 session-universal baseline policy files in that directory (13026 bytes, identical across both) -- confirmed via the session logs (grep '\"skill\":\"product-discovery-hypothesis-preregistration\"' matches tool-call JSON, i.e. the skill is delivered at runtime via the Skill tool's on-demand invocation, not pre-written into a static per-skill directive file. A stub-vs-real skill corpus difference (frontmatter-only vs full procedure body) would show up in what the Skill tool *returns* when invoked, not in the pre-mounted directive file set this metric sums. This is a construct-validity gap in H1's operationalization for skill mounting mechanisms of this shape, separate from and in addition to the dispatch-blocking defect above -- flagged per experiment-trust's discipline of checking that a metric actually measures the manipulation it claims to gate, not assumed fixed here.",
   "slug_scrub": {
     "implemented": "scripts/issue-3127/run_consumer_pair.py::scrub_skill_slugs()",
     "applied_this_session": false,
-    "reason": "no real deliverables exist to scrub or score (run_status: not_executed) -- whether the scrub changes any score is unmeasured, not zero-effect"
-  },
-  "arms": {
-    "skills-on": {
-      "quality_blind_score": null,
-      "wall_clock_to_pr_open_s": null,
-      "wall_clock_to_landed_s": null,
-      "landing_measurement_status": "not measured -- see run_status; this harness can only ever measure time-to-PR-open, not time-to-landed -- see execute_arm()",
-      "tokens_total": null,
-      "directive_composition_bytes": null,
-      "verification_rounds": null,
-      "verification_defects_found": null,
-      "note": "not measured -- see run_status",
-      "bm25_selection_position": null
-    },
-    "skills-off": {
-      "quality_blind_score": null,
-      "wall_clock_to_pr_open_s": null,
-      "wall_clock_to_landed_s": null,
-      "landing_measurement_status": "not measured -- see run_status; this harness can only ever measure time-to-PR-open, not time-to-landed -- see execute_arm()",
-      "tokens_total": null,
-      "directive_composition_bytes": null,
-      "verification_rounds": null,
-      "verification_defects_found": null,
-      "note": "not measured -- see run_status"
-    }
-  },
-  "decision": "unmeasured -- not a null result (no data was collected this session); see power statement in pre-registration.md",
-  "power_statement": "At the registered n=2 pairs, a binary per-pair win/loss/tie read has no meaningful statistical power to distinguish a true small effect from noise under any reasonable significance convention. The registered decision rule is a directional threshold (met/not-met against a fixed +/-3-point margin, a 50% wall-clock guardrail, and a 1-round guardrail), never a significance test. Had this session executed the harness and returned 'indistinguishable', that would mean the sample could not resolve an effect smaller than the registered 3-point margin (roughly one grade-band shift per pair on the rubric scale) -- it would not mean no such effect exists. Because no run occurred at all, this JSON reports zero information about effect size in either direction, not a null.",
-  "next_steps_for_a_future_executing_session": [
-    "sandbox repo already provisioned: JiwonJung94/study-companion (spawn.py-init'd, docs/specs/approvers.md present, docs/issue-1 + docs/issue-5 already match this harness's pair task text) -- no need to provision a new one",
-    "the human operator (not a skill session -- gh-guard refuses issue creation from a skill session, contract v3 s8/s9) must create the 2 registered pairs' issues (skills-on issue + skills-off issue per pair, 4 total) in that sandbox with identical body text except the arm label, then hand the resulting issue numbers to the executing session via --issue-map",
-    "run scripts/issue-3127/run_consumer_pair.py --execute --i-understand-this-spawns-real-sessions --repo <local clone of JiwonJung94/study-companion> --issue-map '01-study-groups:<on>:<off>,02-onboarding-experiment:<on>:<off>' in a session with enough turn budget to block on spawn.py watch --follow per arm (see execute_arm()); commit results after each pair completes",
-    "run scrub_skill_slugs() against each arm's deliverable before scoring, and report whether the scrub changed either pair's score",
-    "re-run scripts/issue-3127/verify_preregistration.py before interpreting the populated results -- the pre-registration commit that already exists on this branch remains valid and must not be re-written after seeing the new data"
-  ]
+    "reason": "no paired skills-off deliverable exists for either pair to scrub against -- H2 was never invoked"
+  }
 }

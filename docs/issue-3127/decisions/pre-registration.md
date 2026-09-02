@@ -115,6 +115,103 @@ knew before writing either file.
   rule, or sample size above — those remain fixed for whichever session
   executes this harness next.
 
+## Amendment — H1 re-operationalization (2026-09-02)
+
+Written after two real skills-on arms have run (PR #3172, study-companion
+issues #19/#21, real phase-1 PRs #23/#24) and before any skills-off arm
+has produced data. **No pair has been scored under this registration
+(H2 has never been computed for any pair)**; the amendment below changes
+only H1's *observation source*, not the decision rule, threshold, or
+sample size in the Pre-registration form above, all of which remain
+fixed as originally registered.
+
+**What changed.** PR #3172 ran two real skills-on sessions and found,
+with live evidence, that H1's original manipulation-check proxy
+(`directive_composition_bytes`, sum of `<workspace>/.on-the-record/
+directive/*.md`) cannot see a skills-on/skills-off difference for a
+skill delivered via the runtime Skill-tool mechanism: both real
+workspaces held only the 8 session-universal baseline policy files in
+that directory, byte-identical regardless of which skill was mounted.
+This is a construct-validity gap, not a measurement of the manipulation
+H1 claims to gate — the metric could never fail even when the
+manipulation genuinely had not happened, and could never pass when it
+genuinely had.
+
+Per consult (`experiment-trust`, `runs/consult-logs/
+20260902T125610799701-948846.log`), H1 is re-operationalized to observe
+whether the target skill was actually **invoked**, from a record the
+spawned session's own model generation does not author. Four candidate
+artifacts were compared for forgeability:
+
+| Artifact | Written by | Records invocation (not just availability)? | Forgeability |
+|---|---|---|---|
+| Claude Code transcript's `tool_use` entries for the Skill tool (`~/.claude/projects/<hash>/<session-id>.jsonl`) | The CLI host binary, streaming the model's tool calls as they happen | Yes | Not model-authored directly, but the file sits under a path a live, unsandboxed session could in principle discover and append to via Bash (this machine runs no per-session filesystem sandbox — no container/chroot in spawn.py's dispatch path) |
+| Hook-side PostToolUse trace | N/A | N/A | No PostToolUse hook in `on-the-record/hooks/hooks.json` fires on the Skill tool (matchers are `Write\|Edit\|MultiEdit\|Bash` only) — this candidate does not exist as a distinct artifact; it reduces to the transcript above |
+| `runs/ledger.jsonl` | The orchestrator/parent process (`plumbing.ledger_write()`), called only after the child process has already terminated (`proc.wait()` returned), to a path outside the spawned session's own workspace | **No** — current schema (`skill`, `cost_usd`, `turns`, `rc`, `outcome`) records participation/outcome, not per-invocation skill usage | The write itself cannot be raced by a dead process, but extending it to carry invocation data would still have to derive that data from the same session-log artifact as the transcript, inheriting the same residual risk |
+| Workspace's mounted-skill registration written by spawn.py (roster entry, `_skill_roster_fields()`, written before `Popen()`) | The parent process, strictly pre-session | **No** — records only that a skill *resolved* (was mounted/available), never that it was invoked | Temporally impossible to forge (written before the child process exists), but cannot answer the invocation question by construction |
+
+**What was picked, and why.** `collect_skill_invocation()`
+(`scripts/issue-3127/run_consumer_pair.py`) parses
+`<workspace>.session.<ts>.<pid>.log` — spawn.py's own capture of the
+spawned CLI's raw stdout stream, the same artifact
+`scripts/measure_skill_invocation.py` already parses in production for
+the identical signal (not new instrumentation this harness invented). A
+`{"type":"tool_use","name":"Skill","input":{"skill":"<name>"}}` line in
+that stream is serialized by the `claude` CLI binary itself the instant
+the model's tool call happens — the model's own generation has no
+ordinary code path that writes to this file; it can only cause a
+genuine entry to appear by actually invoking the Skill tool.
+
+**Honest residual risk (Twyman's-law discipline, not overclaiming
+certainty).** This is not cryptographically unforgeable. This machine
+runs every spawned session unsandboxed, as the same OS user, on a
+filesystem this session's own directives explicitly told it to browse
+(`$MUSTER_WORKSPACE_ROOT`) — confirmed live: `ls
+~/.tokenmaxxxer/work/` lists every other session's own `.session.*.log`
+files, including ones still in flight. A session that discovered its
+own log path and deliberately appended a forged `tool_use`/`Skill` line
+via Bash before exiting could, in principle, fool a later parse. None of
+the four candidates above closes this; the mounted-skill registration
+is temporally safe but useless for invocation, and the other three all
+ultimately trace back to the same session-log content. What
+distinguishes the chosen signal is not immunity but *naturalness*: a
+model has no in-task reason to discover and tamper with its own
+protocol stream, unlike `directive_composition_bytes`, which sat
+directly in the model's own visible, editable workspace
+(`.on-the-record/directive/*.md`) where touching it could happen
+incidentally, without any adversarial intent. `directive_composition_bytes`
+is kept in `compute_h1_manipulation()`'s output as a secondary
+environment-parity diagnostic only — it no longer gates H1.
+
+**Cross-check.** `collect_skill_invocation()` also returns `mounted` —
+the session's own init-event plugin list, populated from the same
+resolved-skill-sources spawn.py itself computes pre-session for the
+roster (`_skill_roster_fields()`) — so a pair where the target skill was
+invoked but never reported mounted (or mounted but never invoked) is
+visible as `mounted_but_not_invoked` / `invoked_but_not_mounted`, an
+internal-consistency signal alongside the pass/fail gate itself.
+
+**Verified against PR #3172's real data.** The real skills-on session
+logs for study-companion issues #19 and #21 still exist on this machine
+(`~/.tokenmaxxxer/work/study-companion-issue-19-product-discovery-
+hypothesis-preregistration-f8df81f9.session.20260902T212053.797342.log`
+and the issue-21 equivalent). Running `collect_skill_invocation()`
+against both real logs for skill
+`product-discovery-hypothesis-preregistration` returns `invoked: true`
+for both — the new H1 signal detects the real manipulation PR #3172's
+own construct-validity finding showed `directive_composition_bytes`
+could not. PR #3172's two skills-off arms never dispatched at all (a
+separate, already-documented dispatch-blocking defect — a cross-family
+skill-source tier conflict, issue #2055's own fail-closed check), so no
+real off-arm invocation data exists to complete a full real pair under
+the new H1; this is an unrelated, pre-existing limitation, not a gap in
+the re-operationalization itself.
+
+**Unchanged.** The decision rule (b), guardrail (c), secondary metrics
+(d), sample size (e), and the power statement above all remain exactly
+as registered on 2026-09-02 before this amendment. No pair has been
+scored under either the old or the new H1 observation.
+
 ## Scope note (experiment-trust Step 1 — scope gate)
 
 This is an offline, small-n (2-4) paired comparison with pre-assigned
