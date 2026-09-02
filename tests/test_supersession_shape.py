@@ -116,6 +116,18 @@ class ResolveAuthoritativeTest(unittest.TestCase):
         self.assertEqual(verdict["conflicts"], {"a.md": ["b.md", "c.md"]})
         self.assertEqual(verdict["superseded"], {})
 
+    def test_leading_dot_slash_variant_still_resolves_the_target(self):
+        # Warrant hunt, issue #3050 PR #3086: a `supersedes:` value citing
+        # the same file with a harmless path variant (leading `./`) must
+        # not leave the stale original in `authoritative` -- that is
+        # exactly the failure this module exists to prevent.
+        marker = supersession.render_supersedes_field("./a.md", "reason")
+        records = {"a.md": _record(), "b.md": _record(f"{marker}\n")}
+        verdict = supersession.resolve_authoritative(records)
+        self.assertEqual(verdict["authoritative"], ["b.md"])
+        self.assertEqual(verdict["superseded"], {"a.md": "b.md"})
+        self.assertEqual(verdict["broken"], [])
+
     def test_reader_only_needs_content_no_filesystem_or_git(self):
         # The reader-with-only-the-merged-tree contract: content strings
         # keyed by path are the entire input -- no filesystem/git access

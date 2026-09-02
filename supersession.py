@@ -37,6 +37,7 @@ written in the tree.
 """
 from __future__ import annotations
 
+import posixpath
 import re
 
 _FRONTMATTER_DELIM = "---"
@@ -83,10 +84,11 @@ def resolve_authoritative(records: dict[str, str]) -> dict:
       - `superseded`: {original_path: corrector_path} -- unambiguous
         cases, exactly one record supersedes that original.
       - `broken`: sorted `supersedes:` targets that name a path absent
-        from `records` -- a dangling reference the reader cannot verify
-        from the tree alone. Left out of both `authoritative` (nothing
-        vouches it is current) and `superseded` (nothing in `records`
-        confirms it was actually replaced).
+        from `records` (after path normalization -- see below) -- a
+        dangling reference the reader cannot verify from the tree alone.
+        Left out of both `authoritative` (nothing vouches it is current)
+        and `superseded` (nothing in `records` confirms it was actually
+        replaced).
       - `conflicts`: {target_path: sorted[corrector_paths]} -- two or
         more records both claim to supersede the same target. This is
         the shape the issue's own second report warns about (a second,
@@ -94,17 +96,33 @@ def resolve_authoritative(records: dict[str, str]) -> dict:
         arbitration -- neither the target nor any of its claimed
         correctors is placed in `authoritative`, since content alone
         cannot say which correction is real.
+
+    A `supersedes:` value is matched against `records`' keys through
+    `posixpath.normpath` (warrant hunt, issue #3050 PR #3086: a raw
+    string-equality match let a harmless variant like a leading `./`
+    make a corrector's own target look `broken` instead of resolved,
+    leaving the stale original in `authoritative` right alongside its
+    correction -- the exact failure this module exists to prevent).
+    Keys that collide after normalization (two literally different
+    `records` keys naming the same file) are not expected in a real git
+    tree; the lower one, by plain string order, wins the ambiguity
+    deterministically rather than raising.
     """
+    norm_to_key: dict[str, str] = {}
+    for path in sorted(records, reverse=True):
+        norm_to_key[posixpath.normpath(path)] = path
+
     claims: dict[str, list[str]] = {}
     broken: set[str] = set()
     for path, content in records.items():
         target = parse_supersedes(content)
         if target is None:
             continue
-        if target not in records:
+        resolved_target = norm_to_key.get(posixpath.normpath(target))
+        if resolved_target is None:
             broken.add(target)
             continue
-        claims.setdefault(target, []).append(path)
+        claims.setdefault(resolved_target, []).append(path)
 
     superseded: dict[str, str] = {}
     conflicts: dict[str, list[str]] = {}
