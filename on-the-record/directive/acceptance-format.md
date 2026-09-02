@@ -114,6 +114,38 @@
   slice's scope, so the sanctioned wording keeps it verbatim), and it
   fails closed (an unfetchable issue body blocks, it does not pass) with
   a message naming the sanctioned rewrite rather than a bare refusal.
+- INTERPRETER ALLOWLIST (issue #3059): a backtick `check:`/`gate:` command
+  only runs when its first token is on `gates/check_runner.py`'s
+  `INTERPRETERS` list — `bash`, `bun`, `deno`, `node`, `npx`, `pytest`,
+  `python`, `python3`, `sh` — or the first token contains both `/` and
+  `.` (a bare relative path, most commonly a `.py` test file, which the
+  runner auto-wraps in pytest). A command whose first token is a common
+  non-interpreter tool — `grep`, `jq`, `cat`, `test`, `diff`, `git` are
+  the ones observed live — fails both arms and never runs. Wrap it:
+  `check: \`bash -c "grep -n foo bar.md"\`` runs; `check: \`grep -n foo
+  bar.md\`` does not, even though the two commands are identical. The
+  runner now names this reason distinctly from a genuine judgment
+  criterion instead of folding both into one "판단이 필요한 기준" message
+  — but the fix is still yours to apply; the runner will not auto-wrap
+  the command for you. This allowlist stays deliberately narrow — issue
+  #2073 established it, and issue #2509 shows the same classifier has
+  already been hardened once against a different class of measured false
+  positive (foreign-owned paths, stating-verb prose) — so treat the
+  wrapping convention as a fix for a real command you mean to execute,
+  not license to name any tool.
+- PROSE COSTS THE RECORD-ONLY PATH (issue #3059): a `check:` line with no
+  backtick command at all — a description of an outcome, not an
+  invocation — is correctly classified `judgment` and never runs; that
+  part works as designed. But it has a cost worth knowing about. A
+  documentation-only PR reaches the check-runner's record-only exemption
+  (`RECORD_ONLY_MARKER`, issue #2974) only *after* its issue is found to
+  have at least one runnable check. An issue whose Acceptance section is
+  all prose never gets that far. It stops one step earlier, at
+  `NO_CHECKS_MARKER` (`no checks declared`), which the merge gate does
+  not treat as satisfied. If your issue is docs-only, phrase at least one
+  criterion as a real `check:` command anyway — even a trivial
+  `test -f`/`grep`, wrapped per the convention above — so the issue
+  clears that gate before the record-only exemption can apply.
 - VISUAL-VERIFICATION (issue #2073): when the issue is DESIGN-BEARING
   and its declared design artifacts include a STORYBOARD, the phase-2
   record carries a `screen-verified:` line citing a live-screen
