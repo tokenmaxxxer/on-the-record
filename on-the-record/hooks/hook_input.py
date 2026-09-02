@@ -43,6 +43,7 @@ __all__ = [
     "OpaqueCommand",
     "parse_payload",
     "tool_command",
+    "tool_response_text",
     "cd_target",
     "cd_target_dir",
     "usable_dir",
@@ -98,7 +99,8 @@ class OpaqueCommand(NamedTuple):
 ParseResult = Union[Payload, Unparseable]
 CdResult = Union[CdTarget, NoCdTarget, OpaqueCommand]
 
-_CD_RE = re.compile(r"^\s*cd\s+(\S+)\s*&&")
+_CD_STEP_RE = re.compile(r"^\s*cd\s+(\S+)\s*(?:&&|\|\||;|\n)")
+_HEREDOC_OPEN_RE = re.compile(r"<<(-)?\s*(['\"]?)(\w+)\2")
 
 
 def _as_text(raw: object) -> Union[str, Unparseable]:
@@ -157,10 +159,31 @@ def tool_command(payload: object) -> str:
     return cmd if isinstance(cmd, str) else ""
 
 
-def _has_heredoc(command: str) -> bool:
-    # `<<` starts a heredoc; `<<<` is a here-string.  Both make the text that
-    # follows *data*, not command syntax, so a `cd` inside it is not a `cd`.
-    return "<<" in command
+def tool_response_text(raw: object) -> str:
+    """Coerce a `PostToolUse` `tool_response` payload field to plain text
+    for a heuristic substring/regex scan, or `""` when there is nothing to
+    scan.  Never raises.
+
+    `tool_response` is usually the tool's own stdout as a plain string --
+    every existing consumer in this repo already applies exactly this
+    coercion ad hoc (see `gate-registration-post-guard.sh`,
+    `post-landing-obligation-gate.sh`, `retry-loop-bound.sh`: each does
+    `isinstance(resp, str)` else `json.dumps(resp)` else `""` inline).
+    This is that same coercion, shared, for a caller (issue #3129's
+    amendment channel redesign) that needs to scan `tool_response` for a
+    `gh` URL rather than reimplementing the pattern a fourth time. A
+    structured/dict shape is serialized with `json.dumps` so a substring
+    scan still works over it; anything that cannot be serialized, or is
+    simply absent, reads as `""`.
+    """
+    if isinstance(raw, str):
+        return raw
+    if raw is None:
+        return ""
+    try:
+        return json.dumps(raw)
+    except (TypeError, ValueError):
+        return ""
 
 
 def _quotes_balanced(command: str) -> bool:
@@ -173,13 +196,126 @@ def _quotes_balanced(command: str) -> bool:
     return True
 
 
-def cd_target(command: object) -> CdResult:
-    """Resolve a leading `cd <path> &&` prefix out of a Bash command string.
+def _strip_heredoc_bodies(command: str) -> Optional[str]:
+    """Excise every heredoc BODY (the data between a `<<[-]DELIM` line and
+    its terminator line) from `command`, leaving the operator/delimiter
+    token itself in place so downstream splitting still sees the redirect
+    happened.  Body text is data, not shell syntax (issue #3129 repair
+    round 3): a `--body-file - <<'EOF' ... EOF` body can contain the
+    literal substring `cd /x &&` as part of an issue body, and that must
+    never be mistaken for an actual `cd`.
 
-    Returns `CdTarget(path)` with `~` expanded, `NoCdTarget(reason)` when the
-    command is well-formed and carries no such prefix, or
-    `OpaqueCommand(reason)` when the command cannot be structurally trusted
-    (heredoc body, unbalanced quotes, oversize).  Never raises.
+    Returns the excised text, or `None` when a heredoc is opened but this
+    string never contains its terminator -- undecidable where the body
+    ends, so the caller must treat the whole command as structurally
+    opaque rather than guess.  Never raises.
+    """
+    out = []
+    i = 0
+    n = len(command)
+    while True:
+        m = _HEREDOC_OPEN_RE.search(command, i)
+        if not m:
+            out.append(command[i:])
+            break
+        out.append(command[i:m.end()])
+        dash, delim = m.group(1), m.group(3)
+        line_end = command.find("\n", m.end())
+        if line_end == -1:
+            # The redirect opens but this string ends on the same line --
+            # no body is present in this string to strip.
+            out.append(command[m.end():])
+            i = n
+            break
+        out.append(command[m.end():line_end + 1])
+        pos = line_end + 1
+        terminated = False
+        while pos <= n:
+            next_nl = command.find("\n", pos)
+            line = command[pos:next_nl if next_nl != -1 else n]
+            check_line = line.lstrip("\t") if dash else line
+            if check_line == delim:
+                terminated = True
+                i = (next_nl + 1) if next_nl != -1 else n
+                break
+            if next_nl == -1:
+                break
+            pos = next_nl + 1
+        if not terminated:
+            return None
+    return "".join(out)
+
+
+def _unwrap_enclosing_group(text: str) -> str:
+    """Strip one layer of `( ... )` or `{ ... }` when it wraps the ENTIRE
+    (whitespace-trimmed) string, returning the interior.  Returns `text`
+    unchanged when there is no such wrapper, the brackets are unbalanced,
+    or the closing bracket is not the string's own last character (a group
+    that ends before the string does, e.g. `(cd /a); other`, has a sibling
+    after it -- unwrapping would silently discard that sibling instead of
+    leaving it for the caller to see as "not a bare leading cd").  Never
+    raises.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return text
+    opening = stripped[0]
+    closing = {"(": ")", "{": "}"}.get(opening)
+    if closing is None:
+        return text
+    depth = 0
+    in_squote = in_dquote = False
+    n = len(stripped)
+    i = 0
+    while i < n:
+        c = stripped[i]
+        if in_squote:
+            if c == "'":
+                in_squote = False
+        elif in_dquote:
+            if c == "\\":
+                i += 1
+            elif c == '"':
+                in_dquote = False
+        elif c == "'":
+            in_squote = True
+        elif c == '"':
+            in_dquote = True
+        elif c == opening:
+            depth += 1
+        elif c == closing:
+            depth -= 1
+            if depth == 0:
+                return stripped[1:i] if i == n - 1 else text
+        i += 1
+    return text
+
+
+def cd_target(command: object) -> CdResult:
+    """Resolve the `cd` prefix that determines a compound Bash command's
+    effective working directory when it runs, walking every leading `cd`
+    step in order (`cd /a && cd b && gh ...` resolves `b` relative to `/a`)
+    and unwrapping any number of enclosing `( ... )` / `{ ... }` groups
+    first (`(cd /a && gh ...)` resolves the same as the unwrapped form).
+
+    Returns `CdTarget(path)` with `~` expanded and relative later steps
+    joined onto the prior step, `NoCdTarget(reason)` when the command is
+    well-formed and carries no leading `cd` at all, or `OpaqueCommand
+    (reason)` when the command cannot be structurally trusted (an
+    unterminated heredoc, unbalanced quotes, oversize).  Never raises.
+
+    `OpaqueCommand` is the caller's signal to treat the cwd as UNKNOWN, not
+    as "use my own default" -- issue #3129 repair round 3 found a caller
+    (`amendment_channel.target_repo_for_command`, since removed by that
+    issue's round-4 seam redesign, which stopped parsing command text for
+    a target repo at all) that funneled this result through
+    `resolved_cwd()`'s generic "cd target, else default" contract and got
+    a silent, plausible-looking WRONG answer instead of a visible unknown,
+    because the "default" it substituted was almost always itself a
+    resolvable repo.  This function stays a pure resolver -- it never
+    substitutes a default -- specifically so a stricter caller can tell
+    "no cd" (safe to use its own default) apart from "cd present
+    but not parseable with confidence" (not safe to guess).
     """
     text = _as_text(command)
     if isinstance(text, Unparseable):
@@ -188,26 +324,47 @@ def cd_target(command: object) -> CdResult:
         return NoCdTarget("empty-command")
     if len(text) > MAX_STRUCTURAL_COMMAND:
         return OpaqueCommand("oversize-command")
-    if _has_heredoc(text):
-        return OpaqueCommand("heredoc")
-    if not _quotes_balanced(text):
+    stripped = _strip_heredoc_bodies(text)
+    if stripped is None:
+        return OpaqueCommand("unterminated-heredoc")
+    if not _quotes_balanced(stripped):
         return OpaqueCommand("unbalanced-quotes")
-    m = _CD_RE.match(text)
-    if not m:
+
+    resolved: Optional[str] = None
+    remaining = stripped
+    while True:
+        unwrapped = _unwrap_enclosing_group(remaining)
+        if unwrapped != remaining:
+            remaining = unwrapped
+            continue
+        m = _CD_STEP_RE.match(remaining)
+        if not m:
+            break
+        raw_path = m.group(1)
+        # Strip one layer of matching quotes the regex's `\S+` swept up, then
+        # expand `~` -- the omission that made a `cd ~/x && ...` command
+        # resolve to a literal "~/x" directory that does not exist (#2092).
+        if len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in "'\"":
+            raw_path = raw_path[1:-1]
+        try:
+            expanded = os.path.expanduser(raw_path)
+        except Exception:
+            return OpaqueCommand("expanduser-failed")
+        if not expanded:
+            # A malformed empty `cd` target ends the walk with whatever was
+            # already resolved (or nothing, on the first step) rather than
+            # manufacturing an opaque result over one bad step.
+            break
+        resolved = (
+            expanded
+            if resolved is None or os.path.isabs(expanded)
+            else os.path.join(resolved, expanded)
+        )
+        remaining = remaining[m.end():]
+
+    if resolved is None:
         return NoCdTarget()
-    raw_path = m.group(1)
-    # Strip one layer of matching quotes the regex's `\S+` swept up, then
-    # expand `~` -- the omission that made a `cd ~/x && ...` command resolve
-    # to a literal "~/x" directory that does not exist (issue #2092).
-    if len(raw_path) >= 2 and raw_path[0] == raw_path[-1] and raw_path[0] in "'\"":
-        raw_path = raw_path[1:-1]
-    try:
-        expanded = os.path.expanduser(raw_path)
-    except Exception:
-        return OpaqueCommand("expanduser-failed")
-    if not expanded:
-        return NoCdTarget("empty-cd-path")
-    return CdTarget(expanded)
+    return CdTarget(resolved)
 
 
 def usable_dir(path: object) -> bool:
