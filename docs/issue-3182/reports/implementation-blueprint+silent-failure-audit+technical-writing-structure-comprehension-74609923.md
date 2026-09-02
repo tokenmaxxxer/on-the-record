@@ -226,6 +226,17 @@ skill-verdict: prose-modes — not-applicable: technical-writing-structure-compr
 
 skill-verdict: adversarial-review — not-applicable: this delivery carries its own runnable acceptance checks reproducible by any reviewer without a separate blind evaluator session.
 
+other mounted skills: not triggered — note on provenance: the invocations
+recorded above (implementation-blueprint, silent-failure-audit,
+technical-writing-structure-comprehension) happened inside one delegated
+`freelunch:freelunch-worker`'s own Skill-tool transcript, per this
+session's freelunch-directive tally (width 1, LEAN SOLO, delegated because
+finishing needed repo tool calls). This orchestrating session's own
+transcript called the Skill tool zero times; work-in-english, prose-modes,
+and adversarial-review were reviewed against the task and judged
+not-applicable/covered as above without needing a separate invocation by
+this session.
+
 ## Next steps
 
 None. The preflight script and handbook are committed at
