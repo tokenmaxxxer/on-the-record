@@ -53,15 +53,15 @@ require, grouped by when the loop first needs it.
 | `git` CLI on PATH | `pipeline.py:798` shells out to `git remote get-url origin` during workspace bootstrap. | No — see "cannot be removed" below. |
 | `gh` CLI, authenticated | `plumbing.py:355` runs `gh auth token` to fetch the token spawned sessions use as `GH_TOKEN`. | No — see "cannot be removed" below. |
 | Git identity configured (`user.name`, `user.email`) | `board.py:83-86` runs `git commit` directly during `init --push`; an unset identity fails that commit. | No, but the error moved earlier — see "stays manual, with a better error" below. |
-| POSIX fork support | `spawn.py:4639` calls `os.fork()`/`os.setsid()` to detach each spawned role session (the same pattern also appears at `spawn.py:2668`, for an unrelated feature). | No — see "cannot be removed" below. |
-| Disk/inode headroom before a workspace clone | `spawn.py:729-764` (`_spawn_capacity_check`, called at `spawn.py:3229`) exits before cloning if free bytes or inodes fall below a threshold. | No — see "cannot be removed" below. |
+| POSIX fork support | `spawn.py:4707` calls `os.fork()`/`os.setsid()` to detach each spawned role session (the same pattern also appears at `spawn.py:2705`, for an unrelated feature). | No — see "cannot be removed" below. |
+| Disk/inode headroom before a workspace clone | `spawn.py:734-767` (`_spawn_capacity_check`, called at `spawn.py:3297`) exits before cloning if free bytes or inodes fall below a threshold. | No — see "cannot be removed" below. |
 
 ### Skill resolution (needed the first time `--skills` names a role)
 
 | Precondition | Why the loop needs it | Removable by the plugin? |
 |---|---|---|
-| skill-repository resolvable | `skills.py:96-112` (`_skill_repo_root`) looks for `MUSTER_SKILL_REPO`, a sibling clone, or an already-populated managed clone — in that order. | Yes — shipped, see "what was removed" below. |
-| `~/.claude/skills` populated | `skills.py:338` reads this path as one of four skill sources. | Yes (existence only) — shipped, see "what was removed" below. |
+| skill-repository resolvable | `skills.py:122-137` (`_skill_repo_root`) looks for `MUSTER_SKILL_REPO`, a sibling clone, or an already-populated managed clone — in that order. | Yes — shipped, see "what was removed" below. |
+| `~/.claude/skills` populated | `skills.py:408` reads this path as one of four skill sources. | Yes (existence only) — shipped, see "what was removed" below. |
 
 ### Target-repo state (needed before any spawn against that repo)
 
@@ -176,7 +176,7 @@ mode improved.)
 - **Disk/inode headroom on the host.** Free bytes and free inodes are
   properties of the machine the session runs on. A plugin cannot
   create disk space; it can only refuse to clone before running out
-  (`spawn.py:729-764`), which is what it already does.
+  (`spawn.py:734-767`), which is what it already does.
 
 ## Reading this honestly
 
