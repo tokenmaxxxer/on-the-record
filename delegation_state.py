@@ -236,15 +236,39 @@ def revoke(repo: str, revoked_by: str, now: datetime | None = None) -> dict | No
     return record
 
 
+def _is_utf8_safe(value: str) -> bool:
+    """True iff `value` round-trips through UTF-8 encoding. A lone
+    Unicode surrogate (issue #3061 round-5 verification, PR #3201 hole
+    2) passes `isinstance(value, str)` -- it is a normal Python string
+    -- but raises `UnicodeEncodeError` the moment anything tries to
+    write it as UTF-8 bytes, which is exactly what `grant()`'s
+    `path.write_text(..., encoding="utf-8")` does. Checking this at
+    validation time turns that late, uncaught crash at the disk-write
+    step into an early, loud `MalformedManifestError` here -- the same
+    standard this module already holds a wrong-type field to."""
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def _validate_manifest_entry(entry, index: int) -> dict:
     if not isinstance(entry, dict):
         raise MalformedManifestError(
             f"manifest entry {index} is a {type(entry).__name__}, not an object")
     for key in ("tool", "resource", "repo"):
-        if key in entry and entry[key] is not None and not isinstance(entry[key], str):
+        if key not in entry or entry[key] is None:
+            continue
+        if not isinstance(entry[key], str):
             raise MalformedManifestError(
                 f"manifest entry {index} field {key!r} is a "
                 f"{type(entry[key]).__name__}, not a string")
+        if not _is_utf8_safe(entry[key]):
+            raise MalformedManifestError(
+                f"manifest entry {index} field {key!r} contains a character "
+                f"that cannot round-trip through UTF-8 encoding (e.g. a lone "
+                f"Unicode surrogate)")
     return entry
 
 
@@ -430,19 +454,61 @@ _ACTION_RESOURCE_FIELDS = ("command", "file_path", "path", "url", "description")
 # from a prefix. It does not generalize: a slightly different chain needs
 # its own entry. That is the fix's stated cost, the same shape as
 # `parse_allow_spec()`'s own documented colon-ambiguity limitation.
+#
+# issue #3061 round-5 verification (PR #3201 hole 1): the token list
+# below used to be the WHOLE test -- "does `resource` contain one of
+# these known operator substrings" -- and it has now failed by omission
+# twice for the identical reason: it named `;`, `|`, `&`, a backtick,
+# `$(`, `<<`, but never named `\n` or `\r`, so `"git status\nrm -rf /"`
+# glob-matched a bare `"git *"` wildcard entry via `fnmatch`'s DOTALL
+# `*` and silently authorized the second, unenumerated command. Adding
+# `\n`/`\r` to the tuple would only re-narrow this to the SAME
+# omission-by-enumeration failure mode against the next control or
+# separator character nobody thought to list (a vertical tab, a form
+# feed, a NUL byte, a Unicode line/paragraph separator -- none of which
+# are shell operators in the traditional sense, but all of which a
+# multi-line-aware consumer downstream of this string could read as a
+# second line). A blacklist can only ever be as complete as whoever
+# wrote it remembered to be.
+#
+# The fix flips the direction: `_is_provably_single_command()` below
+# stops asking "is a known-bad substring present" and asks "is every
+# character in this string one this module can PROVE belongs to a
+# single command line" -- `str.isprintable()` is the built-in,
+# Unicode-database-driven answer to that for the control/separator
+# half (it is False for every C0/C1 control character, every Unicode
+# line/paragraph separator, and every non-ASCII space separator, by
+# Unicode category, not by enumeration -- a newly assigned separator
+# codepoint is caught automatically, the same way an already-known one
+# is). The enumerated operator tokens still name the actual multi-
+# character shell chaining SYNTAX (`&&`, `||`, `` ` ``, `$(`, `<<`) --
+# that half is not "control characters nobody thought to list", it is
+# a small, closed, semantically necessary set of shell grammar this
+# module deliberately still recognizes by name, same as before. Fail-
+# closed direction is unchanged: anything not provably a single
+# command still never matches a wildcard entry.
 _SHELL_OPERATOR_TOKENS = (";", "|", "&", "`", "$(", "<<")
 
 
-def _looks_like_compound_command(resource: str) -> bool:
-    """True iff `resource` contains a shell metacharacter that chains a
-    second command onto the first: `;` (sequential), `|` (pipe), `&`
-    (background job -- also catches `&&`), a backtick or `$(` (command
-    substitution / subshell), or `<<` (here-doc). Presence-only, not a
-    parse: a resource string that merely contains one of these tokens
-    inside quoted data (rare, and the false-positive direction is
-    "escalate a command that didn't actually need it") is treated the
-    same as a real chain -- fail closed, never fail open."""
-    return any(token in resource for token in _SHELL_OPERATOR_TOKENS)
+def _is_provably_single_command(resource: str) -> bool:
+    """True iff `resource` can be established as a single, non-chained
+    shell command -- i.e. it is safe to match against a WILDCARD
+    manifest entry. False (not provably single) whenever `resource`
+    contains a known shell-chaining operator token (see
+    `_SHELL_OPERATOR_TOKENS`) OR any non-printable character --
+    `str.isprintable()` is False for control characters (`\\n`, `\\r`,
+    `\\0`, vertical tab, form feed, ...), Unicode line/paragraph
+    separators, and non-ASCII space separators, covering that entire
+    class by Unicode category rather than by an enumerable, and
+    historically incomplete, token list (issue #3061 round-5
+    verification, PR #3201 hole 1). Presence-only for the operator
+    tokens, not a parse: a resource string that merely contains one of
+    these characters inside quoted data (rare, and the false-positive
+    direction is "escalate a command that didn't actually need it") is
+    treated the same as a real chain -- fail closed, never fail open."""
+    if not resource.isprintable():
+        return False
+    return not any(token in resource for token in _SHELL_OPERATOR_TOKENS)
 
 
 def _is_glob_pattern(pattern: str) -> bool:
@@ -453,25 +519,26 @@ def is_covered(action: dict, manifest: list[dict] | None, repo: str | None = Non
     """True iff `action` (`{"tool": str, "resource": str}`) matches at
     least one entry of `manifest`. Set membership, not inference: `tool`
     must match an entry's `tool` exactly; `resource` must match that
-    entry's `resource` glob (`fnmatch`) -- UNLESS `action`'s resource is a
-    chained/compound shell command (see `_looks_like_compound_command()`)
-    and the entry's `resource` is a wildcard glob, in which case the
-    match is refused regardless of whether the glob would otherwise hit,
-    so a grant for one command can never authorize a second command
-    chained onto it; when both `repo` and the entry's `repo` (default
-    `"*"`) are given, `repo` must also match that glob. An entry with no
-    `resource` value at all never matches anything -- a manifest entry
-    missing its `resource` key is incomplete authoring, not an implicit
-    wildcard, and must not silently cover everything for its `tool`. A
-    malformed `manifest` (wrong shape, not list[dict] with string
-    fields) fails closed to "nothing covered" and says so on stderr,
-    the same direction an absent or empty manifest already takes. An
-    action matching no entry returns False — the manifest enumerates
-    what is delegated, and anything outside that enumeration is a
-    genuine escalation by construction, never a guess."""
+    entry's `resource` glob (`fnmatch`) -- UNLESS `action`'s resource is
+    not provably a single, non-chained shell command (see
+    `_is_provably_single_command()`) and the entry's `resource` is a
+    wildcard glob, in which case the match is refused regardless of
+    whether the glob would otherwise hit, so a grant for one command can
+    never authorize a second command chained onto it; when both `repo`
+    and the entry's `repo` (default `"*"`) are given, `repo` must also
+    match that glob. An entry with no `resource` value at all never
+    matches anything -- a manifest entry missing its `resource` key is
+    incomplete authoring, not an implicit wildcard, and must not
+    silently cover everything for its `tool`. A malformed `manifest`
+    (wrong shape, not list[dict] with string fields) fails closed to
+    "nothing covered" and says so on stderr, the same direction an
+    absent or empty manifest already takes. An action matching no entry
+    returns False — the manifest enumerates what is delegated, and
+    anything outside that enumeration is a genuine escalation by
+    construction, never a guess."""
     entries = _safe_manifest(manifest, "is_covered()")
     action_resource = action.get("resource") or ""
-    action_is_compound = _looks_like_compound_command(action_resource)
+    action_is_compound = not _is_provably_single_command(action_resource)
     for entry in entries:
         if entry.get("tool") != action.get("tool"):
             continue
@@ -574,16 +641,28 @@ def _episode_tool_uses(events: list[dict], tool_uses: list[dict], event_index: i
     uncovered action anywhere in the stretch means audit() cannot rule
     out that action being what the ask was actually about, and reports
     uncertain (not flagged) instead of guessing."""
-    boundary = len(events)
+    boundary = _episode_boundary(events, event_index)
+    return [tu for tu in tool_uses if event_index < tu["index"] < boundary]
+
+
+def _episode_boundary(events: list[dict], event_index: int) -> int:
+    """Index of the next ask-shaped stop after `event_index`, or
+    `len(events)` if none is found before the transcript runs out --
+    the same boundary `_episode_tool_uses()` uses, exposed separately
+    so `audit()` can tell "this episode ended at a real next ask" from
+    "this episode ran off the end of THIS transcript," which by itself
+    is ambiguous between "the session genuinely finished here" and "the
+    log was truncated mid-episode" (issue #3061 round-5 verification,
+    PR #3201 hole 3) -- `audit()` resolves that ambiguity separately,
+    against `trajectory_analyzer.final_result_event()`."""
     for i in range(event_index + 1, len(events)):
         ev = events[i]
         if ev.get("type") != "assistant":
             continue
         text, has_tool_use = _turn_text_and_action(ev)
         if not has_tool_use and text.strip():
-            boundary = i
-            break
-    return [tu for tu in tool_uses if event_index < tu["index"] < boundary]
+            return i
+    return len(events)
 
 
 def _candidate_session_logs(work_dir: Path, repo_name: str, since: datetime) -> list[Path]:
@@ -614,10 +693,10 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
     """Scan session transcript logs modified since `since` (YYYY-MM-DD) for
     turns that stopped to ask when the actual next action they took was
     already covered by the recorded delegation's manifest. Returns
-    `{"since": since, "scanned_logs": int, "count": int, "flagged": [...]}`.
-    Empty-state: no logs found, or no delegation ever recorded, both report
-    count 0 — there is nothing to compare a stop-then-continue against
-    without a delegation on record.
+    `{"since": since, "scanned_logs": int, "count": int, "flagged": [...],
+    "indeterminate": [...]}`. Empty-state: no logs found, or no delegation
+    ever recorded, both report count 0 — there is nothing to compare a
+    stop-then-continue against without a delegation on record.
 
     A turn is a flaggable candidate when it (a) ended with assistant text
     and no `tool_use` in that same event (the structural "stopped instead
@@ -628,24 +707,48 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
     first action taken -- resolves to an action `is_covered()` by the
     recorded manifest (see `_episode_tool_uses()`'s docstring for why a
     single-next-action binding is not something this transcript format
-    can actually prove). When there is no `tool_use` event in the
-    episode at all (the log ends at the ask, or nothing followed before
-    the next stop), or when even one action in the episode is NOT
+    can actually prove). When even one action in the episode is NOT
     covered, this cannot establish that the stop was avoidable and it is
     NOT flagged — the same fail-closed direction `in_force()`/
     `load_state()` already use elsewhere in this module. A malformed
     `manifest` on the loaded record fails closed to "covers nothing"
-    (reported on stderr) rather than crashing the scan."""
+    (reported on stderr) rather than crashing the scan.
+
+    issue #3061 round-5 verification (PR #3201 hole 3): an episode whose
+    stretch runs all the way to the end of the events this log actually
+    contains -- no next ask-shaped stop was found before the transcript
+    ran out -- is genuinely ambiguous by itself: it is what a normally-
+    finished session's LAST episode also looks like. Distinguishing them
+    needs a signal beyond "did I find a next ask," so this checks
+    whether the log reached `trajectory_analyzer`'s terminal `result`
+    event at all (absent on a still-running, crashed, or truncated log,
+    per that function's own docstring -- and also absent when the
+    would-be terminal event itself was a partial JSON line cut off
+    mid-write, since `parse_session_log()` already drops an unparseable
+    trailing line rather than raising). When that boundary-reaches-EOF
+    episode's log never reached a terminal `result` event, `audit()`
+    cannot rule out that more of the episode was cut off before it could
+    be recorded -- covered actions seen so far are not the whole
+    picture, and an uncovered one that never got logged is exactly as
+    plausible as it is for any other unseen action. That episode is
+    reported INDETERMINATE, never flagged, regardless of whether the
+    visible portion happens to look fully covered -- the same shape of
+    silent failure this whole module exists to stop happening to a
+    live turn, now caught in audit()'s own retrospective read of a
+    truncated log instead of quietly presenting it as an ordinary
+    "clean" (flagged-or-not) episode."""
     since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     record = load_state(repo)
     repo_name = Path(repo).resolve().name
     logs = _candidate_session_logs(work_dir, repo_name, since_dt)
     flagged = []
+    indeterminate = []
     if record is not None:
         manifest = _safe_manifest(record.get("manifest"), "audit()")
         for log_path in logs:
             events = trajectory_analyzer.parse_session_log(log_path)
             tool_uses = trajectory_analyzer.tool_use_events(events)
+            log_reached_completion = trajectory_analyzer.final_result_event(events) is not None
             for event_index, event in enumerate(events):
                 if event.get("type") != "assistant":
                     continue
@@ -667,10 +770,19 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
                 text, has_tool_use = _turn_text_and_action(event)
                 if has_tool_use or not text.strip():
                     continue
-                episode = _episode_tool_uses(events, tool_uses, event_index)
-                if not episode:
-                    continue
+                boundary = _episode_boundary(events, event_index)
+                episode = [tu for tu in tool_uses if event_index < tu["index"] < boundary]
                 episode_actions = [_extract_action(tu) for tu in episode]
+                if boundary == len(events) and not log_reached_completion:
+                    indeterminate.append({
+                        "log": str(log_path),
+                        "timestamp": event.get("timestamp"),
+                        "text_excerpt": text.strip()[:160],
+                        "episode_actions": episode_actions,
+                    })
+                    continue
+                if not episode_actions:
+                    continue
                 if not all(is_covered(a, manifest, repo=repo_name) for a in episode_actions):
                     continue
                 flagged.append({
@@ -681,14 +793,15 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
                     "episode_actions": episode_actions,
                 })
     return {"since": since, "scanned_logs": len(logs), "count": len(flagged),
-            "flagged": flagged}
+            "flagged": flagged, "indeterminate": indeterminate}
 
 
 def format_audit(result: dict) -> str:
+    indeterminate = result.get("indeterminate") or []
     header = (f"{result['count']} turn(s) since {result['since']} asked for "
               f"authority a recorded delegation already covered "
               f"(scanned {result['scanned_logs']} session log(s))")
-    if result["count"] == 0:
+    if result["count"] == 0 and not indeterminate:
         return header + "."
     lines = [header + ":"]
     for f in result["flagged"]:
@@ -697,4 +810,15 @@ def format_audit(result: dict) -> str:
             f"  - {f['timestamp']}: {f['log']} — {f['text_excerpt']!r} "
             f"(next action {action.get('tool')}:{action.get('resource')!r} "
             f"already in the manifest)")
+    if indeterminate:
+        # issue #3061 round-5 verification (PR #3201 hole 3): said
+        # plainly, not folded silently into the flagged-or-not count --
+        # these episodes were cut off before audit() could see whether
+        # every action in them was covered.
+        lines.append(
+            f"{len(indeterminate)} episode(s) could not be seen to their "
+            f"end (session log truncated or still running) — reported "
+            f"indeterminate, not a clean verdict:")
+        for f in indeterminate:
+            lines.append(f"  - {f['timestamp']}: {f['log']} — {f['text_excerpt']!r}")
     return "\n".join(lines)
