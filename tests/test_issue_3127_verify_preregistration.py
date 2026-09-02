@@ -9,6 +9,16 @@ against the originating PR's own pre-squash commit history instead, via
 the ordering logic is exercised without a network call, then construct an
 actual violation (a result introduced before its pre-registration in the
 PR's own history) and confirm the check refuses it.
+
+Round 2 (PR #3169 repair): the `verification_pr:` pin is attacker-controlled
+working-tree content, so PR #3171's independent verification constructed a
+fabricated same-commit collision pinned at an unrelated, legitimately-
+ordered PR and got `ok=True` -- `_resolve_via_pr_history` never checked that
+the pinned PR actually produced the colliding commit, only that some PR had
+the right order somewhere in its own history. The fix binds the pin to the
+colliding commit via the pinned PR's own recorded merge commit (`gh pr view
+<n> --json mergeCommit`); `PinBoundToWrongCommitTest` reproduces that exact
+attack shape and confirms it is now refused.
 """
 import subprocess
 import sys
@@ -26,19 +36,32 @@ def _completed(stdout="", returncode=0):
                                         stdout=stdout, stderr="")
 
 
-def _fake_gh_runner(commit_shas, files_by_sha, owner_repo="acme/widgets"):
+def _fake_gh_runner(commit_shas, files_by_sha, merge_commit_sha,
+                     owner_repo="acme/widgets"):
     """A `gh` stand-in: no network, no subprocess -- just enough of the
-    `gh pr view --json commits` / `gh repo view` / `gh api .../commits/SHA`
-    surface for `_resolve_via_pr_history` to run its real logic against a
-    scripted commit history."""
+    `gh pr view --json commits`, `gh pr view --json mergeCommit`, `gh repo
+    view`, and `gh api .../commits/SHA` surface for `_resolve_via_pr_history`
+    to run its real logic against a scripted commit history.
+    `merge_commit_sha` is the sha the fake PR reports as its own merge
+    commit -- pass `None` to simulate an unmerged/lookup-failed PR, or an
+    unrelated sha to simulate a pin that does not name the PR that actually
+    produced the commit under review."""
     import json
 
     def runner(args):
         if args[:2] == ["repo", "view"]:
             return _completed(stdout=owner_repo + "\n")
         if args[:2] == ["pr", "view"]:
-            payload = json.dumps({"commits": [{"oid": s} for s in commit_shas]})
-            return _completed(stdout=payload)
+            json_field = args[args.index("--json") + 1]
+            if json_field == "mergeCommit":
+                merge_commit = ({"oid": merge_commit_sha}
+                                 if merge_commit_sha else None)
+                return _completed(stdout=json.dumps(
+                    {"mergeCommit": merge_commit}))
+            if json_field == "commits":
+                return _completed(stdout=json.dumps(
+                    {"commits": [{"oid": s} for s in commit_shas]}))
+            raise AssertionError(f"unexpected --json field: {json_field}")
         if args[0] == "api":
             sha = args[1].rsplit("/", 1)[-1]
             names = "\n".join(files_by_sha.get(sha, []))
@@ -64,7 +87,12 @@ class ReadFrontmatterTest(unittest.TestCase):
 class ResolveViaPrHistoryTest(unittest.TestCase):
     """Unit-level: exercises `_resolve_via_pr_history` directly against a
     scripted, in-memory PR commit history -- the same function `verify()`
-    falls back to on a same-commit collision."""
+    falls back to on a same-commit collision. `COLLIDING` stands in for the
+    real local same-commit sha `verify()` would pass in; each fake PR's
+    `merge_commit_sha` is set to `COLLIDING` unless a test is specifically
+    exercising the merge-commit bind."""
+
+    COLLIDING = "deadbeef" * 5
 
     def setUp(self):
         self._tmpdir = tempfile.TemporaryDirectory()
@@ -83,8 +111,9 @@ class ResolveViaPrHistoryTest(unittest.TestCase):
         gh = _fake_gh_runner(
             commit_shas=["aaa1", "bbb2", "ccc3"],
             files_by_sha={"aaa1": [vp.PREREG_PATH],
-                           "bbb2": [vp.RESULTS_PATH]})
-        ok, msg = vp._resolve_via_pr_history(self.repo_root, gh)
+                           "bbb2": [vp.RESULTS_PATH]},
+            merge_commit_sha=self.COLLIDING)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
         self.assertTrue(ok, msg)
         self.assertIn("strictly earlier", msg)
 
@@ -98,8 +127,9 @@ class ResolveViaPrHistoryTest(unittest.TestCase):
         gh = _fake_gh_runner(
             commit_shas=["aaa1", "bbb2", "ccc3"],
             files_by_sha={"aaa1": [vp.RESULTS_PATH],
-                           "bbb2": [vp.PREREG_PATH]})
-        ok, msg = vp._resolve_via_pr_history(self.repo_root, gh)
+                           "bbb2": [vp.PREREG_PATH]},
+            merge_commit_sha=self.COLLIDING)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
         self.assertFalse(ok)
         self.assertIn("does NOT show", msg)
 
@@ -109,14 +139,16 @@ class ResolveViaPrHistoryTest(unittest.TestCase):
         self._write_prereg("verification_pr: 3131")
         gh = _fake_gh_runner(
             commit_shas=["aaa1"],
-            files_by_sha={"aaa1": [vp.PREREG_PATH, vp.RESULTS_PATH]})
-        ok, msg = vp._resolve_via_pr_history(self.repo_root, gh)
+            files_by_sha={"aaa1": [vp.PREREG_PATH, vp.RESULTS_PATH]},
+            merge_commit_sha=self.COLLIDING)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
         self.assertFalse(ok)
 
     def test_missing_verification_pr_field_fails_closed(self):
         self._write_prereg("status: registered")
-        gh = _fake_gh_runner(commit_shas=["aaa1"], files_by_sha={})
-        ok, msg = vp._resolve_via_pr_history(self.repo_root, gh)
+        gh = _fake_gh_runner(commit_shas=["aaa1"], files_by_sha={},
+                              merge_commit_sha=self.COLLIDING)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
         self.assertFalse(ok)
         self.assertIn("no integer `verification_pr:`", msg)
 
@@ -130,26 +162,72 @@ class ResolveViaPrHistoryTest(unittest.TestCase):
                 return _completed(returncode=1, stdout="")
             raise AssertionError(f"unexpected gh invocation: {args}")
 
-        ok, msg = vp._resolve_via_pr_history(self.repo_root, gh)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
         self.assertFalse(ok)
-        self.assertIn("failed", msg)
+        self.assertIn("mergeCommit", msg)
 
     def test_gh_repo_view_failure_fails_closed(self):
+        """`gh repo view` failing after the merge-commit bind has already
+        succeeded must still fail closed (no code path lets a missing
+        owner/repo silently skip the remaining checks)."""
         self._write_prereg("verification_pr: 3131")
 
         def gh(args):
+            if args[:2] == ["pr", "view"]:
+                json_field = args[args.index("--json") + 1]
+                if json_field == "mergeCommit":
+                    import json
+                    return _completed(stdout=json.dumps(
+                        {"mergeCommit": {"oid": self.COLLIDING}}))
             return _completed(returncode=1, stdout="")
 
-        ok, msg = vp._resolve_via_pr_history(self.repo_root, gh)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
         self.assertFalse(ok)
 
     def test_path_absent_from_pr_history_fails_closed(self):
         self._write_prereg("verification_pr: 3131")
         gh = _fake_gh_runner(commit_shas=["aaa1"],
-                              files_by_sha={"aaa1": ["some/other/file.txt"]})
-        ok, msg = vp._resolve_via_pr_history(self.repo_root, gh)
+                              files_by_sha={"aaa1": ["some/other/file.txt"]},
+                              merge_commit_sha=self.COLLIDING)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
         self.assertFalse(ok)
         self.assertIn("fail closed", msg)
+
+    def test_pin_not_merged_fails_closed(self):
+        """The pinned PR has no recorded merge commit at all (still open,
+        or `gh` could not resolve it) -- there is nothing to bind the pin
+        to, so this must fail closed rather than fall through to trusting
+        the pin's own commit-order claim."""
+        self._write_prereg("verification_pr: 3131")
+        gh = _fake_gh_runner(
+            commit_shas=["aaa1", "bbb2"],
+            files_by_sha={"aaa1": [vp.PREREG_PATH],
+                           "bbb2": [vp.RESULTS_PATH]},
+            merge_commit_sha=None)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
+        self.assertFalse(ok)
+        self.assertIn("no recorded merge commit", msg)
+
+    def test_pin_bound_to_unrelated_pr_is_refused(self):
+        """Round-2 attack, unit level: `verification_pr:` names a real PR
+        whose own (legitimate) history has the right order, but that PR's
+        merge commit is NOT the colliding commit under review -- i.e. the
+        attacker fabricated a local collision and pinned it at someone
+        else's unrelated, already-merged PR. Before the fix this passed
+        (`ok=True`) because only the referenced PR's internal order was
+        checked, never whether it produced the commit in question."""
+        self._write_prereg("verification_pr: 9999")
+        unrelated_pr_merge_sha = "cafebabe" * 5
+        gh = _fake_gh_runner(
+            commit_shas=["legit1", "legit2"],
+            files_by_sha={"legit1": [vp.PREREG_PATH],
+                           "legit2": [vp.RESULTS_PATH]},
+            merge_commit_sha=unrelated_pr_merge_sha)
+        ok, msg = vp._resolve_via_pr_history(self.repo_root, self.COLLIDING, gh)
+        self.assertFalse(ok)
+        self.assertIn("does not match the colliding commit", msg)
+        self.assertIn(self.COLLIDING, msg)
+        self.assertIn(unrelated_pr_merge_sha, msg)
 
 
 class VerifyEndToEndCollisionTest(unittest.TestCase):
@@ -183,13 +261,15 @@ class VerifyEndToEndCollisionTest(unittest.TestCase):
         results.write_text('{"run_status": "not_executed"}\n')
         self._git("add", vp.PREREG_PATH, vp.RESULTS_PATH)
         self._git("commit", "-q", "-m", "squash: both files in one commit")
+        return self._git("rev-parse", "HEAD").stdout.strip()
 
     def test_legitimate_pr_history_resolves_the_collision(self):
-        self._commit_both_files_together("verification_pr: 3131")
+        colliding = self._commit_both_files_together("verification_pr: 3131")
         gh = _fake_gh_runner(
             commit_shas=["aaa1", "bbb2"],
             files_by_sha={"aaa1": [vp.PREREG_PATH],
-                           "bbb2": [vp.RESULTS_PATH]})
+                           "bbb2": [vp.RESULTS_PATH]},
+            merge_commit_sha=colliding)
         ok, msg = vp.verify(self.repo_root, gh_runner=gh)
         self.assertTrue(ok, msg)
 
@@ -200,14 +280,35 @@ class VerifyEndToEndCollisionTest(unittest.TestCase):
         result was actually introduced first. `verify()` must return
         non-ok, not fall back to accepting the collapsed commit as proof
         of nothing-wrong."""
-        self._commit_both_files_together("verification_pr: 3131")
+        colliding = self._commit_both_files_together("verification_pr: 3131")
         gh = _fake_gh_runner(
             commit_shas=["aaa1", "bbb2"],
             files_by_sha={"aaa1": [vp.RESULTS_PATH],
-                           "bbb2": [vp.PREREG_PATH]})
+                           "bbb2": [vp.PREREG_PATH]},
+            merge_commit_sha=colliding)
         ok, msg = vp.verify(self.repo_root, gh_runner=gh)
         self.assertFalse(ok)
         self.assertIn("does NOT show", msg)
+
+    def test_attack1_unrelated_pin_is_refused_end_to_end(self):
+        """PR #3171's independent-verification finding, reproduced end to
+        end: a fresh same-commit collision (the textbook squash shape) is
+        pinned via `verification_pr:` at an old, legitimate, UNRELATED PR
+        whose own real history happens to touch the two paths in the
+        correct order. Before this fix `verify()` returned `ok=True` here
+        -- the fallback trusted "some PR has the right order" instead of
+        "the pinned PR actually produced this commit". It must now be
+        refused because the unrelated PR's merge commit does not match
+        the commit under review."""
+        colliding = self._commit_both_files_together("verification_pr: 9999")
+        gh = _fake_gh_runner(
+            commit_shas=["legit1", "legit2"],
+            files_by_sha={"legit1": [vp.PREREG_PATH],
+                           "legit2": [vp.RESULTS_PATH]},
+            merge_commit_sha="cafebabe" * 5)
+        ok, msg = vp.verify(self.repo_root, gh_runner=gh)
+        self.assertFalse(ok)
+        self.assertIn("does not match the colliding commit", msg)
 
 
 if __name__ == "__main__":

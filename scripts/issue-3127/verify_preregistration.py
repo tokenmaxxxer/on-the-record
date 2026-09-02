@@ -96,6 +96,26 @@ def _repo_owner_repo(gh_runner: GhRunner) -> Optional[str]:
     return name or None
 
 
+def _pr_merge_commit(pr_number: int, gh_runner: GhRunner) -> Optional[str]:
+    """The commit sha GitHub recorded as `pr_number`'s own merge commit --
+    for a squash-merged PR this IS the single commit that lands on main,
+    so it is the value an attacker cannot forge by naming an arbitrary PR
+    number in `verification_pr:`: doing so would require GitHub to report
+    a real, already-merged PR as having produced the attacker's own
+    fabricated local commit. None if the PR has no recorded merge commit
+    (not merged yet, or `gh` failed) -- fail closed at the caller."""
+    r = gh_runner(["pr", "view", str(pr_number), "--json", "mergeCommit"])
+    if r.returncode != 0:
+        return None
+    try:
+        data = json.loads(r.stdout)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    merge_commit = data.get("mergeCommit") if isinstance(data, dict) else None
+    oid = merge_commit.get("oid") if isinstance(merge_commit, dict) else None
+    return oid if isinstance(oid, str) and oid else None
+
+
 def _pr_commit_order(pr_number: int, gh_runner: GhRunner) -> Optional[list]:
     """Ordered (oldest-first) list of commit SHAs GitHub recorded for
     `pr_number`, from the PR object's own commit list -- this survives a
@@ -135,15 +155,29 @@ def _first_pr_commit_touching(owner_repo: str, shas: list, path: str,
     return None
 
 
-def _resolve_via_pr_history(repo_root: Path,
+def _resolve_via_pr_history(repo_root: Path, colliding_commit: str,
                              gh_runner: GhRunner) -> tuple[bool, str]:
     """Fallback for the case where PREREG_PATH and RESULTS_PATH were both
-    first introduced in the same local commit -- the squash-merge collapse
-    this check exists to survive. Resolves the true pre-squash order from
-    the originating PR's own commit history instead of failing outright.
-    Every missing field, gh error, or unresolved lookup is a failure, never
-    a pass -- there is no code path here that returns True without a
-    strictly-ordered pair of indices actually observed."""
+    first introduced in the same local commit (`colliding_commit`) -- the
+    squash-merge collapse this check exists to survive. Resolves the true
+    pre-squash order from the originating PR's own commit history instead
+    of failing outright. Every missing field, gh error, or unresolved
+    lookup is a failure, never a pass -- there is no code path here that
+    returns True without a strictly-ordered pair of indices actually
+    observed.
+
+    `verification_pr:` is attacker-controlled working-tree content (it
+    lives in PREREG_PATH itself), so naming a PR number alone proves
+    nothing -- any PR whose own history happens to touch both paths in
+    the right order would otherwise pass regardless of whether it ever
+    produced `colliding_commit`. The bind below closes that: the named
+    PR's own recorded merge commit (immutable, GitHub-side history the
+    working tree cannot rewrite) must equal `colliding_commit` before its
+    pre-squash commit list is trusted at all. That equality -- not the
+    pin itself -- is the actual trust root; the pin is now only a lookup
+    key naming which PR to check, and a forged pin fails this bind
+    because the attacker cannot make GitHub misreport a real PR's merge
+    commit."""
     frontmatter = _read_frontmatter((repo_root / PREREG_PATH).read_text())
     pr_number = frontmatter.get("verification_pr")
     if not isinstance(pr_number, int):
@@ -153,6 +187,21 @@ def _resolve_via_pr_history(repo_root: Path,
             "carries no integer `verification_pr:` frontmatter field to "
             "resolve the true pre-squash order against -- cannot verify "
             "ordering")
+
+    merge_commit = _pr_merge_commit(pr_number, gh_runner)
+    if merge_commit is None:
+        return False, (
+            f"PR #{pr_number} has no recorded merge commit (`gh pr view "
+            f"{pr_number} --json mergeCommit` failed or returned none) -- "
+            "cannot confirm it actually produced the colliding commit "
+            f"{colliding_commit}, so its history cannot be trusted")
+    if merge_commit != colliding_commit:
+        return False, (
+            f"PR #{pr_number}'s merge commit ({merge_commit}) does not "
+            f"match the colliding commit under review ({colliding_commit})"
+            f" -- `verification_pr: {pr_number}` does not name the PR "
+            "that actually produced this commit, so its history cannot "
+            "be trusted to explain it")
 
     owner_repo = _repo_owner_repo(gh_runner)
     if owner_repo is None:
@@ -233,7 +282,7 @@ def verify(repo_root: Path,
         # order into one. Local ancestry cannot tell these apart anymore;
         # resolve via the originating PR's own pre-squash history instead
         # of assuming either outcome.
-        return _resolve_via_pr_history(repo_root, gh_runner)
+        return _resolve_via_pr_history(repo_root, prereg_commit, gh_runner)
 
     is_ancestor = _run_git(repo_root, "merge-base", "--is-ancestor",
                             prereg_commit, results_commit)
