@@ -284,6 +284,39 @@ work (wiring a real dispatcher) is scoped out of this issue by its own
 scope note and tracked under Next steps below, not as an open finding
 against this deliverable.
 
+## Skill verdicts
+
+skill-verdict: implementation-blueprint — applied: invoked; classified
+both scripts as the `pipeline` archetype (backend/external=no/logic=
+transform/async=no -> pipeline, "structure follows stages, not layers")
+and followed its module layout (source/extractor stage, transformation
+stage, idempotent sink, explicit error channel) when structuring
+`prepare_arms.py`'s create-HOME -> resolve-or-demonstrate-absence ->
+assemble-manifest -> hash-and-write stages and
+`verify_manipulation.py`'s load-manifest -> check-integrity -> load-
+transport -> cross-check stages; 2 units, well under the 5-unit fan-out
+threshold, built solo in this session.
+
+skill-verdict: silent-failure-audit — applied: invoked; audited both
+scripts' planned error-handling sites before and after writing them per
+the skill's Handled/Silently-Absorbed/Unreachable classification.
+derived: same-commit "What did not work" section above, three
+Silently-Absorbed sites named there with their fixes
+(`shutil.rmtree(..., ignore_errors=True)` in `_cleanup()`; the leaked
+temp HOME on the `ArmPreparationError` path in the original
+`build_manifest()`; the two narrower exception catches in
+`verify_manipulation.py`'s sidecar/transport reads than `load_manifest()`
+already had).
+
+other mounted skills: not triggered. experiment-trust's own trigger
+condition gates on interpreting a variant-comparison result; canonical:
+`gh issue view 3183` output, read at the start of this session, states
+"this issue delivers the instrument and its trust root only. Running
+the pairs and scoring them is separate work" -- no variant-comparison
+result exists yet in this session for that trigger to fire against. Its
+Twyman's-law framing is instead cited, not invoked, in
+`instrument-limitations.md`'s operator-independence item.
+
 ## Next steps
 
 - A future session wires a real dispatcher: calls `Popen()` for both
