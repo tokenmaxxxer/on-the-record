@@ -253,6 +253,45 @@ def _is_utf8_safe(value: str) -> bool:
     return True
 
 
+def _check_no_surrogates(value, path: str) -> None:
+    """Recursively walk `value` -- every dict key, every dict value, every
+    list element, at every depth -- and raise `MalformedManifestError` the
+    moment any string found anywhere fails `_is_utf8_safe()`.
+
+    issue #3061 round-6 verification (PR #3207 hole 2): checking only the
+    three named fields (`tool`/`resource`/`repo`) left every OTHER string
+    a manifest entry can carry unchecked -- an unlisted key's value, a
+    surrogate used as a dict key, or a surrogate nested inside a
+    structure under a non-named field all still reached `grant()`'s
+    `path.write_text(..., encoding="utf-8")` uncaught, and worse, since
+    `write_text()` truncates the target file before the encode error
+    fires, this destroyed any pre-existing valid delegation state in the
+    process. A manifest entry is allowed to carry keys beyond `tool`/
+    `resource`/`repo` (this module does not enumerate what a caller may
+    attach) and those extra values are allowed to be arbitrary nested
+    JSON-shaped structures, not just strings -- so this walks the WHOLE
+    structure looking only for the one thing that can crash the disk
+    write (a string, wherever it appears, that cannot round-trip through
+    UTF-8), rather than re-imposing a field allowlist the manifest schema
+    was never meant to have."""
+    if isinstance(value, str):
+        if not _is_utf8_safe(value):
+            raise MalformedManifestError(
+                f"{path} contains a character that cannot round-trip "
+                f"through UTF-8 encoding (e.g. a lone Unicode surrogate)")
+    elif isinstance(value, dict):
+        for key, sub_value in value.items():
+            if isinstance(key, str) and not _is_utf8_safe(key):
+                raise MalformedManifestError(
+                    f"{path} has a dict key that cannot round-trip "
+                    f"through UTF-8 encoding (e.g. a lone Unicode "
+                    f"surrogate)")
+            _check_no_surrogates(sub_value, f"{path}[{key!r}]")
+    elif isinstance(value, list):
+        for i, item in enumerate(value):
+            _check_no_surrogates(item, f"{path}[{i}]")
+
+
 def _validate_manifest_entry(entry, index: int) -> dict:
     if not isinstance(entry, dict):
         raise MalformedManifestError(
@@ -264,11 +303,12 @@ def _validate_manifest_entry(entry, index: int) -> dict:
             raise MalformedManifestError(
                 f"manifest entry {index} field {key!r} is a "
                 f"{type(entry[key]).__name__}, not a string")
-        if not _is_utf8_safe(entry[key]):
-            raise MalformedManifestError(
-                f"manifest entry {index} field {key!r} contains a character "
-                f"that cannot round-trip through UTF-8 encoding (e.g. a lone "
-                f"Unicode surrogate)")
+    # Structural checks above cover the three named fields' TYPES; this
+    # recursive sweep covers UTF-8 safety for every string anywhere in
+    # the entry -- named field, unlisted key, dict key, or nested inside
+    # a structure under a non-named field (issue #3061 round-6
+    # verification, PR #3207 hole 2).
+    _check_no_surrogates(entry, f"manifest entry {index}")
     return entry
 
 
@@ -736,7 +776,38 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
     silent failure this whole module exists to stop happening to a
     live turn, now caught in audit()'s own retrospective read of a
     truncated log instead of quietly presenting it as an ordinary
-    "clean" (flagged-or-not) episode."""
+    "clean" (flagged-or-not) episode.
+
+    issue #3061 round-6 verification (PR #3207 hole 3): round 5's fix
+    above computed "did the log reach completion" ONCE per log file --
+    "does a terminal `result` event exist anywhere in this log" -- and
+    only consulted that single flag for the one episode whose boundary
+    ran off the end of the transcript. A log can genuinely carry more
+    than one `result` event (each completed turn/episode gets its own),
+    and that per-LOG flag going True because an EARLIER episode
+    completed said nothing about whether a LATER episode -- including
+    one bounded by a real next ask, not just one running off the end --
+    ever reached its own. Two failure shapes followed: a log whose
+    earlier episodes completed normally but whose last one was cut off
+    still read as globally "reached completion" and the last episode was
+    flagged as clean; and a middle episode that was itself cut off (the
+    process died mid-episode, before writing that episode's own `result`
+    event, then something later re-appended further events to the same
+    log path) was never even considered for the ambiguity check at all,
+    because only the final, boundary-reaches-EOF episode was ever
+    checked.
+
+    The fix: completion is now a per-EPISODE fact, not a per-log one, and
+    every episode audit() reports on is checked, not just the last.
+    `result_indices` below is every `result` event's index in the whole
+    log; an episode (whatever its own boundary) is known-complete only
+    if at least one of those indices falls strictly inside ITS OWN
+    stretch (`event_index < ri < boundary`). An episode with no `result`
+    event in its own stretch is reported INDETERMINATE regardless of
+    whether its boundary was a genuinely-found next ask or the end of
+    the transcript -- finding a next ask proves the log kept being
+    written to, not that THIS episode's own turn ever reached a
+    completion marker before that later writing happened."""
     since_dt = datetime.strptime(since, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     record = load_state(repo)
     repo_name = Path(repo).resolve().name
@@ -748,7 +819,7 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
         for log_path in logs:
             events = trajectory_analyzer.parse_session_log(log_path)
             tool_uses = trajectory_analyzer.tool_use_events(events)
-            log_reached_completion = trajectory_analyzer.final_result_event(events) is not None
+            result_indices = [i for i, ev in enumerate(events) if ev.get("type") == "result"]
             for event_index, event in enumerate(events):
                 if event.get("type") != "assistant":
                     continue
@@ -773,7 +844,9 @@ def audit(repo: str, since: str, work_dir: Path = DEFAULT_WORK_DIR,
                 boundary = _episode_boundary(events, event_index)
                 episode = [tu for tu in tool_uses if event_index < tu["index"] < boundary]
                 episode_actions = [_extract_action(tu) for tu in episode]
-                if boundary == len(events) and not log_reached_completion:
+                episode_reached_completion = any(
+                    event_index < ri < boundary for ri in result_indices)
+                if not episode_reached_completion:
                     indeterminate.append({
                         "log": str(log_path),
                         "timestamp": event.get("timestamp"),
