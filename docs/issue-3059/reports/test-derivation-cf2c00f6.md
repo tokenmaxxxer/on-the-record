@@ -111,6 +111,10 @@ verbatim file delivery between two existing branches with an
 already-fixed classifier and an already-written probe file — no new
 requirements/acceptance criteria needed test-case derivation.
 
+other mounted skills: not triggered (work-in-english guidance
+followed without invocation — this record, its commits, and PR #3080
+are written in English per that skill's intent).
+
 ## Next steps
 
 None. No further action pending on this delivery; the three
