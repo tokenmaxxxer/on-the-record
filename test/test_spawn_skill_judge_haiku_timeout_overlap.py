@@ -369,17 +369,32 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
                              no_wait=True)
         return recorded
 
+    @staticmethod
+    def _outcome_entry(recorded):
+        # _spawn_one writes more than one ledger entry (e.g. a separate
+        # "skill_judge_perf" sample) alongside the session-outcome record
+        # this class cares about; recorded[-1] is only the outcome entry
+        # when nothing else races it onto the list last, which is not
+        # guaranteed across two independently-scheduled ledger_write
+        # calls. Find the one entry that actually carries the field under
+        # test, and require there be exactly one.
+        matches = [e for e in recorded if "skill_judge_outcome" in e]
+        assert len(matches) == 1, (
+            f"expected exactly 1 entry with skill_judge_outcome, got "
+            f"{len(matches)}: {recorded}")
+        return matches[0]
+
     def test_ledger_entry_records_completed_outcome(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             recorded = self._run_spawn_one_with_outcome(td, work, ([], "completed"))
-        self.assertEqual(recorded[-1]["skill_judge_outcome"], "completed")
+        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "completed")
 
     def test_ledger_entry_records_fail_open_outcome(self):
         with tempfile.TemporaryDirectory() as td:
             work = self._prep_repo(td)
             recorded = self._run_spawn_one_with_outcome(td, work, ([], "fail-open"))
-        self.assertEqual(recorded[-1]["skill_judge_outcome"], "fail-open")
+        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "fail-open")
 
     def test_ledger_entry_records_not_run_when_skill_source_is_not_skill_repo(self):
         skill_source = {"source": "flat", "skill_dirs": [], "skills": [], "skill_sha": None}
@@ -407,7 +422,7 @@ class SkillJudgeLedgerFieldTest(unittest.TestCase):
                 spawn._spawn_one(str(work), "implementation", "task\n",
                                  unattended=True, issue=2061, bounded=False,
                                  no_wait=True)
-        self.assertEqual(recorded[-1]["skill_judge_outcome"], "not-run")
+        self.assertEqual(self._outcome_entry(recorded)["skill_judge_outcome"], "not-run")
 
 
 if __name__ == "__main__":
