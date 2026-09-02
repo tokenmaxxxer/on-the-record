@@ -224,7 +224,7 @@ the Open findings above name the follow-up work without starting it.
 
 ## Skill verdicts
 
-- skill-verdict: work-in-english -- applied: invoked; used to route this
+- skill-verdict: work-in-english — applied: invoked; used to route this
   record's exhaust (commit message, branch content, this record's body,
   citations) to English while keeping the end-of-turn summary to the user
   in Korean, per the spawning prompt's Korean task text.
