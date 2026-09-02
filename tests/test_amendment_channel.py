@@ -29,19 +29,31 @@ sys.path.insert(0, str(HOOKS_DIR))
 import amendment_channel as ac  # noqa: E402
 
 
+REPO_A = "acme/widgets"
+REPO_B = "acme/gadgets"
+REPO_A_URL = "https://github.com/%s.git" % REPO_A
+REPO_B_URL = "https://github.com/%s.git" % REPO_B
+
+
 def _git(*args, cwd):
     subprocess.run(["git", *args], cwd=str(cwd), check=True,
                     capture_output=True, text=True, timeout=30)
 
 
-def _make_issue_repo(root: Path, issue: str) -> Path:
-    repo = root / "repo"
+def _make_issue_repo(root: Path, issue: str, name: str = "repo",
+                      origin: str = REPO_A_URL) -> Path:
+    """A git checkout on branch `issue-<n>/some-role` with an `origin`
+    remote set, so `repo_slug_for_cwd()` resolves. `origin=None` builds a
+    repo with NO remote configured -- the unresolvable-slug case."""
+    repo = root / name
     repo.mkdir(parents=True)
     _git("init", "-q", cwd=repo)
     _git("config", "user.email", "probe@example.com", cwd=repo)
     _git("config", "user.name", "probe", cwd=repo)
     _git("commit", "-q", "--allow-empty", "-m", "init", cwd=repo)
     _git("checkout", "-q", "-b", "issue-%s/some-role" % issue, cwd=repo)
+    if origin:
+        _git("remote", "add", "origin", origin, cwd=repo)
     return repo
 
 
@@ -54,36 +66,36 @@ class MarkerReadWrite(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_read_marker_missing_is_none(self):
-        self.assertIsNone(ac.read_marker(self.state_dir, "1"))
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "1"))
 
     def test_write_then_read_round_trips(self):
-        v = ac.write_amendment(self.state_dir, "42", note="hello")
+        v = ac.write_amendment(self.state_dir, REPO_A, "42", note="hello")
         self.assertEqual(v, 1)
-        marker = ac.read_marker(self.state_dir, "42")
+        marker = ac.read_marker(self.state_dir, REPO_A, "42")
         self.assertEqual(marker["version"], 1)
         self.assertEqual(marker["note"], "hello")
 
     def test_repeated_writes_increment_monotonically(self):
-        versions = [ac.write_amendment(self.state_dir, "7") for _ in range(3)]
+        versions = [ac.write_amendment(self.state_dir, REPO_A, "7") for _ in range(3)]
         self.assertEqual(versions, [1, 2, 3])
 
     def test_corrupt_marker_file_reads_as_absent_not_a_crash(self):
-        path = ac.marker_path(self.state_dir, "9")
+        path = ac.marker_path(self.state_dir, REPO_A, "9")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             f.write("{not json")
-        self.assertIsNone(ac.read_marker(self.state_dir, "9"))
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "9"))
         # a write after a corrupt file self-heals rather than compounding
         # the corruption
-        v = ac.write_amendment(self.state_dir, "9")
+        v = ac.write_amendment(self.state_dir, REPO_A, "9")
         self.assertEqual(v, 1)
 
     def test_marker_missing_version_field_reads_as_absent(self):
-        path = ac.marker_path(self.state_dir, "5")
+        path = ac.marker_path(self.state_dir, REPO_A, "5")
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
             json.dump({"note": "no version here"}, f)
-        self.assertIsNone(ac.read_marker(self.state_dir, "5"))
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "5"))
 
     def test_write_amendment_returns_none_when_state_dir_is_unwritable(self):
         # A file sitting where the state dir needs to be a directory makes
@@ -91,7 +103,16 @@ class MarkerReadWrite(unittest.TestCase):
         blocker = os.path.join(self.tmp.name, "blocker")
         with open(blocker, "w") as f:
             f.write("x")
-        self.assertIsNone(ac.write_amendment(blocker, "1"))
+        self.assertIsNone(ac.write_amendment(blocker, REPO_A, "1"))
+
+    def test_different_repos_get_independent_markers(self):
+        """The repair itself: two repos, same issue number, do not share a
+        marker file -- an amendment in one must not be readable through
+        the other's key."""
+        ac.write_amendment(self.state_dir, REPO_A, "42", note="repo A's correction")
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_B, "42"))
+        marker_a = ac.read_marker(self.state_dir, REPO_A, "42")
+        self.assertEqual(marker_a["note"], "repo A's correction")
 
 
 class FiresOncePerAmendment(unittest.TestCase):
@@ -106,42 +127,42 @@ class FiresOncePerAmendment(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_no_marker_no_notice(self):
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "1"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "1"))
 
     def test_first_check_after_amendment_fires(self):
-        ac.write_amendment(self.state_dir, "1", note="fix the brief")
-        notice = ac.check_notice(self.state_dir, "sess-1", "1")
+        ac.write_amendment(self.state_dir, REPO_A, "1", note="fix the brief")
+        notice = ac.check_notice(self.state_dir, "sess-1", REPO_A, "1")
         self.assertIsNotNone(notice)
         self.assertIn("#1", notice)
         self.assertIn("fix the brief", notice)
 
     def test_many_subsequent_ticks_stay_quiet(self):
-        ac.write_amendment(self.state_dir, "1")
-        first = ac.check_notice(self.state_dir, "sess-1", "1")
+        ac.write_amendment(self.state_dir, REPO_A, "1")
+        first = ac.check_notice(self.state_dir, "sess-1", REPO_A, "1")
         self.assertIsNotNone(first)
         for _ in range(50):
-            self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "1"))
+            self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "1"))
 
     def test_second_amendment_fires_again_exactly_once(self):
-        ac.write_amendment(self.state_dir, "1", note="first")
-        n1 = ac.check_notice(self.state_dir, "sess-1", "1")
+        ac.write_amendment(self.state_dir, REPO_A, "1", note="first")
+        n1 = ac.check_notice(self.state_dir, "sess-1", REPO_A, "1")
         self.assertIn("first", n1)
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "1"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "1"))
 
-        ac.write_amendment(self.state_dir, "1", note="second")
-        n2 = ac.check_notice(self.state_dir, "sess-1", "1")
+        ac.write_amendment(self.state_dir, REPO_A, "1", note="second")
+        n2 = ac.check_notice(self.state_dir, "sess-1", REPO_A, "1")
         self.assertIn("second", n2)
         for _ in range(10):
-            self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "1"))
+            self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "1"))
 
     def test_notices_are_per_session_independently(self):
-        ac.write_amendment(self.state_dir, "1")
-        n_a = ac.check_notice(self.state_dir, "sess-A", "1")
-        n_b = ac.check_notice(self.state_dir, "sess-B", "1")
+        ac.write_amendment(self.state_dir, REPO_A, "1")
+        n_a = ac.check_notice(self.state_dir, "sess-A", REPO_A, "1")
+        n_b = ac.check_notice(self.state_dir, "sess-B", REPO_A, "1")
         self.assertIsNotNone(n_a)
         self.assertIsNotNone(n_b)
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-A", "1"))
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-B", "1"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-A", REPO_A, "1"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-B", REPO_A, "1"))
 
     def test_two_amendments_before_absorption_coalesce_into_one_notice(self):
         """State-transition gap (test-derivation): S1 (unabsorbed) --write_amendment--> S1
@@ -150,20 +171,20 @@ class FiresOncePerAmendment(unittest.TestCase):
         notice (not a crash, not two), carrying the LATEST correction --
         an older, superseded correction does not need its own separate
         notice."""
-        ac.write_amendment(self.state_dir, "1", note="first")
-        ac.write_amendment(self.state_dir, "1", note="second, supersedes first")
-        notice = ac.check_notice(self.state_dir, "sess-1", "1")
+        ac.write_amendment(self.state_dir, REPO_A, "1", note="first")
+        ac.write_amendment(self.state_dir, REPO_A, "1", note="second, supersedes first")
+        notice = ac.check_notice(self.state_dir, "sess-1", REPO_A, "1")
         self.assertIsNotNone(notice)
         self.assertIn("second, supersedes first", notice)
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "1"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "1"))
 
     def test_notices_are_per_issue_independently(self):
-        ac.write_amendment(self.state_dir, "1")
-        ac.write_amendment(self.state_dir, "2")
-        self.assertIsNotNone(ac.check_notice(self.state_dir, "sess-1", "1"))
-        self.assertIsNotNone(ac.check_notice(self.state_dir, "sess-1", "2"))
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "1"))
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "2"))
+        ac.write_amendment(self.state_dir, REPO_A, "1")
+        ac.write_amendment(self.state_dir, REPO_A, "2")
+        self.assertIsNotNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "1"))
+        self.assertIsNotNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "2"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "1"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "2"))
 
 
 class AbsorbedAmendmentStopsAnnouncing(unittest.TestCase):
@@ -179,42 +200,46 @@ class AbsorbedAmendmentStopsAnnouncing(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_seen_state_survives_a_fresh_check_notice_call(self):
-        ac.write_amendment(self.state_dir, "3")
-        self.assertIsNotNone(ac.check_notice(self.state_dir, "sess-1", "3"))
+        ac.write_amendment(self.state_dir, REPO_A, "3")
+        self.assertIsNotNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "3"))
         # a brand-new call (as a fresh PostToolUse invocation would be --
         # this module keeps no in-process cache) still reads the persisted
         # seen file, not a lucky re-run of the same process
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "3"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "3"))
 
     def test_stale_marker_read_directly_does_not_report_unabsorbed_after_seen(self):
-        version = ac.write_amendment(self.state_dir, "3", note="only correction")
-        ac.check_notice(self.state_dir, "sess-1", "3")
+        version = ac.write_amendment(self.state_dir, REPO_A, "3", note="only correction")
+        ac.check_notice(self.state_dir, "sess-1", REPO_A, "3")
         # the marker itself is untouched (still there for anyone else to
         # read) but this session's own view of it is absorbed
-        marker = ac.read_marker(self.state_dir, "3")
+        marker = ac.read_marker(self.state_dir, REPO_A, "3")
         self.assertEqual(marker["version"], version)
-        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "3"))
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", REPO_A, "3"))
 
 
 class GhCommandDetection(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.state_dir = os.path.join(self.tmp.name, "state")
+        # a real checkout with a resolvable `origin` -- the orchestrator's
+        # own cwd when it runs `gh issue edit` is always a real checkout
+        self.orch_cwd = str(_make_issue_repo(Path(self.tmp.name), "999",
+                                              name="orch-repo"))
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def test_body_flag_writes_marker_with_note(self):
         cmd = 'gh issue edit 55 --body "corrected: do X"'
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, ".")
-        marker = ac.read_marker(self.state_dir, "55")
+        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        marker = ac.read_marker(self.state_dir, REPO_A, "55")
         self.assertIsNotNone(marker)
         self.assertEqual(marker["note"], "corrected: do X")
 
     def test_body_equals_form_writes_marker(self):
         cmd = "gh issue edit 55 --body=inline-text"
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, ".")
-        marker = ac.read_marker(self.state_dir, "55")
+        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        marker = ac.read_marker(self.state_dir, REPO_A, "55")
         self.assertEqual(marker["note"], "inline-text")
 
     def test_body_file_equals_form_reads_note_from_file(self):
@@ -222,8 +247,8 @@ class GhCommandDetection(unittest.TestCase):
         with open(note_path, "w") as f:
             f.write("equals-form body file text")
         cmd = "gh issue edit 55 --body-file=%s" % note_path
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, ".")
-        marker = ac.read_marker(self.state_dir, "55")
+        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        marker = ac.read_marker(self.state_dir, REPO_A, "55")
         self.assertEqual(marker["note"], "equals-form body file text")
 
     def test_body_file_form_reads_note_from_file(self):
@@ -231,23 +256,23 @@ class GhCommandDetection(unittest.TestCase):
         with open(note_path, "w") as f:
             f.write("full corrected body text")
         cmd = "gh issue edit 55 --body-file %s" % note_path
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, ".")
-        marker = ac.read_marker(self.state_dir, "55")
+        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        marker = ac.read_marker(self.state_dir, REPO_A, "55")
         self.assertEqual(marker["note"], "full corrected body text")
 
     def test_non_body_edit_does_not_write_a_marker(self):
         cmd = "gh issue edit 55 --add-label bug"
-        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, ".")
-        self.assertIsNone(ac.read_marker(self.state_dir, "55"))
+        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, self.orch_cwd)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "55"))
 
     def test_unrelated_bash_command_does_not_write_a_marker(self):
-        ac.maybe_write_from_command(self.state_dir, "Bash", "git status", ".")
-        self.assertIsNone(ac.read_marker(self.state_dir, "1"))
+        ac.maybe_write_from_command(self.state_dir, "Bash", "git status", self.orch_cwd)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "1"))
 
     def test_non_bash_tool_is_ignored(self):
         cmd = 'gh issue edit 55 --body "x"'
-        ac.maybe_write_from_command(self.state_dir, "Write", cmd, ".")
-        self.assertIsNone(ac.read_marker(self.state_dir, "55"))
+        ac.maybe_write_from_command(self.state_dir, "Write", cmd, self.orch_cwd)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "55"))
 
     def test_unwritable_state_dir_surfaces_a_stderr_diagnostic(self):
         """silent-failure-audit finding (issue #3129): write_amendment's
@@ -261,9 +286,26 @@ class GhCommandDetection(unittest.TestCase):
         cmd = 'gh issue edit 55 --body "x"'
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
-            ac.maybe_write_from_command(blocker, "Bash", cmd, ".")
+            ac.maybe_write_from_command(blocker, "Bash", cmd, self.orch_cwd)
         self.assertIn("issue #55", stderr.getvalue())
         self.assertIn("not see this correction", stderr.getvalue())
+
+    def test_unresolvable_repo_does_not_write_a_marker_and_logs_to_stderr(self):
+        """issue #3128's shape, applied here: when the orchestrator's own
+        cwd has no resolvable repo (no `origin` remote), the write must not
+        fall back to a shared bucket -- it must not write ANY marker, and
+        the failure must be observable (stderr), not silently dropped."""
+        no_origin_cwd = str(_make_issue_repo(Path(self.tmp.name), "999",
+                                              name="no-origin-repo", origin=None))
+        cmd = 'gh issue edit 55 --body "x"'
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ac.maybe_write_from_command(self.state_dir, "Bash", cmd, no_origin_cwd)
+        self.assertIsNone(ac.read_marker(self.state_dir, REPO_A, "55"))
+        self.assertFalse(os.path.isdir(self.state_dir),
+                          "no marker of any kind should have been written")
+        self.assertIn("issue #55", stderr.getvalue())
+        self.assertIn("could not identify the repo", stderr.getvalue())
 
 
 class IssueForCwd(unittest.TestCase):
@@ -320,7 +362,7 @@ class RunHookEndToEnd(unittest.TestCase):
         self.assertIsNone(ac.run_hook(self._payload(), self.state_dir))
 
     def test_amendment_then_worker_tool_call_sees_notice_once(self):
-        ac.write_amendment(self.state_dir, "88", note="brief was wrong")
+        ac.write_amendment(self.state_dir, REPO_A, "88", note="brief was wrong")
         first = ac.run_hook(self._payload(), self.state_dir)
         self.assertIsNotNone(first)
         self.assertIn("brief was wrong", first)
@@ -328,20 +370,87 @@ class RunHookEndToEnd(unittest.TestCase):
         self.assertIsNone(second)
 
     def test_orchestrator_bash_call_in_this_same_run_hook_writes_the_marker(self):
+        # the orchestrator's own checkout of the SAME repo (same `origin`,
+        # different local path/branch from the worker's) -- realistic
+        # shape: orchestrator and worker are separate processes/checkouts
+        orch_repo = _make_issue_repo(Path(self.tmp.name), "1", name="orch-repo")
         cmd = 'gh issue edit 88 --body "new brief"'
         payload = self._payload(session_id="orch-sess", tool_name="Bash",
-                                 tool_input={"command": cmd}, cwd=self.tmp.name)
-        # the orchestrator's own cwd is not on an issue-<n> branch, so this
+                                 tool_input={"command": cmd}, cwd=str(orch_repo))
+        # the orchestrator's own cwd is not on issue #88's branch, so this
         # call itself gets no notice back -- it only records the marker
         self.assertIsNone(ac.run_hook(payload, self.state_dir))
-        marker = ac.read_marker(self.state_dir, "88")
+        marker = ac.read_marker(self.state_dir, REPO_A, "88")
         self.assertIsNotNone(marker)
         self.assertEqual(marker["note"], "new brief")
 
     def test_missing_session_id_is_quiet_not_a_crash(self):
         payload = json.dumps({"tool_name": "Read", "tool_input": {}, "cwd": str(self.repo)})
-        ac.write_amendment(self.state_dir, "88")
+        ac.write_amendment(self.state_dir, REPO_A, "88")
         self.assertIsNone(ac.run_hook(payload, self.state_dir))
+
+    def test_cross_repo_amendment_does_not_leak_to_an_unrelated_repo(self):
+        """The repair itself, driven through the real `run_hook` entrypoint
+        (not the lower-level functions): two independent repos both happen
+        to use `issue-42/some-role` for issue #42 -- a real, unremarkable
+        naming collision since branch names are chosen by convention, not
+        by repo. An orchestrator amendment in repo A must not reach a
+        worker in repo B, even though both are watching the identical
+        issue number on the identical branch shape."""
+        issue = "42"
+        repo_a_worker = _make_issue_repo(Path(self.tmp.name), issue,
+                                          name="repo-a-worker", origin=REPO_A_URL)
+        repo_b_worker = _make_issue_repo(Path(self.tmp.name), issue,
+                                          name="repo-b-worker", origin=REPO_B_URL)
+        orch_in_repo_a = _make_issue_repo(Path(self.tmp.name), "1",
+                                           name="repo-a-orch", origin=REPO_A_URL)
+
+        amend_cmd = 'gh issue edit %s --body "repo A correction"' % issue
+        amend_payload = json.dumps({
+            "session_id": "orch-sess", "tool_name": "Bash",
+            "tool_input": {"command": amend_cmd}, "cwd": str(orch_in_repo_a),
+        })
+        self.assertIsNone(ac.run_hook(amend_payload, self.state_dir))
+
+        def worker_payload(cwd):
+            return json.dumps({"session_id": "worker-sess", "tool_name": "Read",
+                                "tool_input": {}, "cwd": str(cwd)})
+
+        notice_b = ac.run_hook(worker_payload(repo_b_worker), self.state_dir)
+        self.assertIsNone(
+            notice_b,
+            "repo B's worker saw a notice from repo A's amendment -- "
+            "cross-repo leak: %r" % notice_b,
+        )
+        notice_a = ac.run_hook(worker_payload(repo_a_worker), self.state_dir)
+        self.assertIsNotNone(notice_a,
+                              "repo A's own worker should still see its own amendment")
+        self.assertIn("repo A correction", notice_a)
+
+    def test_two_repos_with_unresolvable_slugs_do_not_collide(self):
+        """issue #3128's shape: two DIFFERENT repos that both fail to
+        resolve a slug (no `origin` remote) must not collapse into one
+        shared bucket either -- neither should ever see a notice, since
+        neither write nor read has anywhere to (legitimately) put one."""
+        issue = "42"
+        repo_x = _make_issue_repo(Path(self.tmp.name), issue,
+                                   name="unresolvable-x", origin=None)
+        repo_y = _make_issue_repo(Path(self.tmp.name), issue,
+                                   name="unresolvable-y", origin=None)
+
+        amend_cmd = 'gh issue edit %s --body "correction for x"' % issue
+        amend_payload = json.dumps({
+            "session_id": "orch-sess", "tool_name": "Bash",
+            "tool_input": {"command": amend_cmd}, "cwd": str(repo_x),
+        })
+        ac.run_hook(amend_payload, self.state_dir)
+
+        def worker_payload(cwd):
+            return json.dumps({"session_id": "worker-sess", "tool_name": "Read",
+                                "tool_input": {}, "cwd": str(cwd)})
+
+        self.assertIsNone(ac.run_hook(worker_payload(repo_y), self.state_dir))
+        self.assertIsNone(ac.run_hook(worker_payload(repo_x), self.state_dir))
 
 
 class HookScriptShippedAndExecutable(unittest.TestCase):
