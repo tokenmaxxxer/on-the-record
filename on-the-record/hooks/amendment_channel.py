@@ -44,7 +44,11 @@ poll gh from PostToolUse"). `repo_slug_for_cwd()` below resolves the same
 git-config plumbing only, the same no-network technique
 `spawn._workspace_target_path()` already uses elsewhere in this repo.
 
-Writer-side repo-targeting repair (PR #3159 follow-up): the write path
+Writer-side repo-targeting repair (PR #3159 follow-up; HISTORICAL -- every
+function this section and the next name was deleted by the round-4 seam
+redesign below, which stopped parsing command text for a target repo
+entirely; kept here for the reasoning trail, not as a description of
+current code): the write path
 originally called `repo_slug_for_cwd()` on the raw `PostToolUse` payload
 `cwd` -- the orchestrator's own session directory -- even though the `gh
 issue edit` command it is inspecting can `cd` into a DIFFERENT checkout
@@ -82,6 +86,68 @@ tolerance for flags between `gh` and `issue edit` (`gh -R owner/repo issue
 edit 42` used to miss the regex entirely -- a silent total miss, not even
 an unresolvable-repo stderr line, because the write path never triggered
 at all).
+
+Seam redesign (PR #3170 follow-up, repair round 4 -- supersedes the two
+sections above for the WRITE side): rounds 2 and 3 both tried to recover
+the target repo by parsing the `gh issue edit` command's own text more
+carefully -- `--repo`/`-R` flags, `cd` prefixes, heredocs, subshells. PR
+#3170's independent verification found round 3 still missed 5 of 9
+un-enumerated shapes (`pushd`, a quoted `cd` path with a space, a subshell
+wrapping only `gh`, `--repo=` before the issue number, a `GH_REPO=` env
+prefix) -- parsing shell text is an open-ended enumeration problem, and
+every round closes some shapes while leaving the next one for whoever
+finds it next.
+
+This round changes the seam instead of adding shapes: the command text is
+no longer consulted for the repo AT ALL (it is still consulted for one
+thing only -- deciding whether this Bash call is a `gh issue edit ...
+--body|--body-file ...` invocation in the first place, see
+`_gh_issue_edit_body_call()` -- that is a shape check, not an attribution
+parse, and it fails closed to "not applicable" rather than a guess when
+undecidable). Two facts, neither of them shell text, are authoritative:
+
+  1. This session's own REGISTERED repo: `repo_slug_for_cwd()` applied to
+     this `PostToolUse` payload's own top-level `cwd` field -- the
+     directory `spawn.py` launched this process into
+     (`subprocess.Popen(cmd, cwd=<workspace>, ...)`), which every hook
+     payload in this session reports unchanged for the session's whole
+     life. This is NOT the same value a `cd X && gh ...` inside a single
+     Bash command string affects -- that `cd` only changes the cwd of the
+     one subprocess that command string spawns, never this payload
+     field (round 2's own worked example, and rounds 2/3's whole reason
+     to parse the command, both rest on this same distinction). Treating
+     THIS field as "what spawn.py registered for this session" needs no
+     new cross-process registration file: spawn.py already IS the one
+     process that chose it, and no session-controlled text can retroactively
+     change what the harness reports here for a later tool call.
+  2. The actual edited issue's repo and number: `gh issue edit` prints the
+     edited issue's URL on success, shaped
+     `https://github.com/<owner>/<repo>/issues/<n>`, and the PostToolUse
+     payload's own `tool_response` field carries that stdout
+     (`hook_input.tool_response_text()` -- the same string-or-json-dumps
+     coercion every other `tool_response` consumer in this directory
+     already applies ad hoc). `_issue_url_from_response()` regexes it out.
+
+`record_amendment_from_response()` compares the two: same repo -> write
+the marker keyed to that repo+issue (the URL's issue number, never a
+number lifted from the command text -- round 2/3's own `_GH_ISSUE_EDIT_RE`
+capture group is gone for exactly this reason). Different repo -> this is
+now a POLICY VIOLATION, not a parse failure to route around: no marker,
+one loud stderr line naming BOTH repos, and (unlike every other failure
+mode in this module) `main()` returns nonzero for it -- see `main()`'s own
+comment for why that nonzero exit does not contradict this module's
+"never blocks a tool call" contract. No URL in `tool_response` at all
+(the edit failed, or `gh`'s output shape changed some day) is the same
+fail-closed shape: no marker, one stderr line, nonzero exit. Two caveats
+this redesign does not resolve, recorded in
+`docs/issue-3129/reports/implementation-blueprint+silent-failure-audit+test-derivation-f70893c7.md`
+rather than silently assumed away: a session with more than one
+legitimate target repo (`spawn.py`'s roster entry carries exactly one
+`work` path per session today, so this is a real, currently-unsupported
+case, not a hypothetical), and a session started outside `spawn.py`
+entirely (no resolvable registered repo -- `repo_slug_for_cwd(cwd)`
+returns `None`, which is the SAME fail-closed "no registered repo" path
+caveat 1 above already forces, not a separate skip-silently branch).
 
 Unresolvable repo (issue #3128's shape, applied here pre-emptively): when
 `repo_slug_for_cwd()` returns None -- no git repo at `cwd`, no `origin`
@@ -128,36 +194,43 @@ import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
-from typing import Optional
+from typing import NamedTuple, Optional, Union
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hook_input  # noqa: E402
 
 STATE_DIR_ENV = "OTR_AMENDMENT_STATE_DIR"
 
-# Matches `gh issue edit 123 ...` anywhere a shell would start a new
-# command (start of string, or after `;`/`&&`/`||`/`|`) -- deliberately
-# permissive about what comes after the issue number since the body flag
-# is checked separately. The `(?:(?!issue\s+edit\b)\S+\s+)*` gap lets any
-# number of flags (`-R owner/repo`, `--repo=owner/repo`, ...) sit between
-# `gh` and the `issue edit` subcommand -- issue #3129 repair round 3:
-# `gh -R owner/repo issue edit 42` used to miss this regex entirely (no
-# marker, no notice, no stderr) because it required `issue` immediately
-# after `gh`.
+# Matches `gh issue edit ...` anywhere a shell would start a new command
+# (start of string; after `;`/`&&`/`||`/`|`; or after `(`/`{` opening a
+# subshell/group, e.g. `cd /a && (gh issue edit ...)`) -- a SHAPE check
+# only ("is this call relevant at all"), never an attribution parse (see
+# the module docstring's redesign section): the issue number and target
+# repo both now come from `tool_response`/this session's own registered
+# repo, never from this match. An optional run of leading `NAME=value`
+# env-var assignments is allowed before `gh` itself (`GH_REPO=o/r gh
+# issue edit ...` is valid POSIX simple-command syntax, not a separate
+# command). The `(?:(?!issue\s+edit\b)\S+\s+)*` gap lets any number of
+# flags (`-R owner/repo`, `--repo=owner/repo`, ...) sit between `gh` and
+# the `issue edit` subcommand so those shapes are still detected as
+# relevant, even though their flag value is no longer read for anything.
 _GH_ISSUE_EDIT_RE = re.compile(
-    r"(?:^|[;&|]\s*)gh\s+(?:(?!issue\s+edit\b)\S+\s+)*issue\s+edit\s+(\d+)\b"
+    r"(?:^|[;&|]\s*|[({]\s*)"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+    r"gh\s+(?:(?!issue\s+edit\b)\S+\s+)*issue\s+edit\b"
 )
 _BODY_FLAG_RE = re.compile(r"--body(?:-file)?(?:=|\s|$)")
-# An explicit `--repo`/`-R owner/repo` on the gh invocation itself --
-# scoped by the caller to that command's own segment so a flag belonging
-# to a different command earlier/later in a compound line is never picked
-# up (see `_explicit_repo_flag()`).
-_REPO_FLAG_RE = re.compile(r"(?:--repo|-R)(?:=|\s+)(\S+)")
-_REPO_SLUG_RE = re.compile(r"^[^\s/]+/[^\s/]+$")
 _BRANCH_ISSUE_RE = re.compile(r"^issue-(\d+)\b")
 _REPO_URL_RE = re.compile(
     r"^(?:https?://[^/]+/|git@[^:]+:|ssh://(?:[^@/]+@)?[^/]+/)"
     r"(?P<slug>[^/]+/[^/]+?)(?:\.git)?/?$"
+)
+# `gh issue edit`'s own success output: the edited issue's URL, verbatim.
+# This is the ONLY source of truth for which repo+issue an edit actually
+# landed on (see module docstring redesign section) -- never the command
+# text, never the session cwd alone.
+_ISSUE_URL_RE = re.compile(
+    r"https://github\.com/([^/\s]+)/([^/\s]+)/issues/(\d+)\b"
 )
 _NOTE_MAX = 2000
 
@@ -376,123 +449,198 @@ def issue_for_cwd(cwd: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
-def _explicit_repo_flag(command: str, segment_start: int) -> Optional[str]:
-    """An explicit `--repo`/`-R owner/repo` flag on the `gh issue edit`
-    invocation itself, or None.
+def _gh_issue_edit_body_call(tool_name: str, command: str) -> bool:
+    """True when this Bash call is a `gh issue edit ... --body|--body-file
+    ...` invocation -- the only shape the write side cares about.
 
-    Scoped to that invocation's own segment (from `segment_start` -- the
-    start of the regex match that found `gh issue edit <n>` -- to the next
-    `;`/`&&`/`||`/`|`, or end of string) so a `--repo` belonging to an
-    unrelated command elsewhere in a compound line is never picked up.
-    Only a value shaped like `owner/repo` is accepted; anything else (a
-    bare name, a URL, a flag with no value) is treated as not present so a
-    malformed flag falls through to the cwd-based resolution below rather
-    than manufacturing a bogus repo key.
+    This is the one place command TEXT is still consulted, and only to
+    decide "is this relevant at all" -- never to decide WHICH repo it
+    targets (see module docstring, redesign section). `False` here means
+    "nothing to do", not a failure; nothing is written and nothing is
+    logged.
     """
-    end = len(command)
-    sep = re.search(r"[;&|]", command[segment_start:])
-    if sep:
-        end = segment_start + sep.start()
-    m = _REPO_FLAG_RE.search(command, segment_start, end)
+    return bool(
+        tool_name == "Bash" and command
+        and _GH_ISSUE_EDIT_RE.search(command)
+        and _BODY_FLAG_RE.search(command)
+    )
+
+
+def _issue_url_from_response(tool_response: object) -> Optional["_IssueUrl"]:
+    """The `(owner/repo, issue_number)` a `gh issue edit` command's own
+    `tool_response` reports it edited, or None when no such URL is
+    present (the call failed, `gh`'s output shape changed, or this simply
+    is not a `tool_response` that carries one).
+
+    `gh issue edit` prints the edited issue's URL
+    (`https://github.com/<owner>/<repo>/issues/<n>`) on success -- this is
+    the tool's own report of what it actually did, not a parse of what the
+    command asked for. Never raises.
+    """
+    text = hook_input.tool_response_text(tool_response)
+    if not text:
+        return None
+    m = _ISSUE_URL_RE.search(text)
     if not m:
         return None
-    candidate = m.group(1).strip("'\"")
-    return candidate if _REPO_SLUG_RE.match(candidate) else None
+    owner, repo, issue = m.group(1), m.group(2), m.group(3)
+    return _IssueUrl("%s/%s" % (owner, repo), issue)
 
 
-def target_repo_for_command(command: str, cwd: str, segment_start: int = 0) -> Optional[str]:
-    """The repo a `gh issue edit` command actually targets, or None when it
-    cannot be identified.
+class _IssueUrl(NamedTuple):
+    repo: str
+    issue: str
 
-    Two sources are authoritative, checked in order; the raw session
-    `cwd` is neither of them:
 
-      1. an explicit `--repo`/`-R owner/repo` on the invocation itself.
-      2. otherwise, the git repo of the directory the command runs in
-         after walking every leading `cd` in the command string
-         (`hook_input.cd_target()` -- the same total, no-network `cd`
-         parser every other hook in this repo already shares).
+class AmendmentSkipped(NamedTuple):
+    """Not a `gh issue edit ... --body...` Bash call -- nothing to do,
+    not a failure. `main()` exits 0 for this outcome."""
 
-    Falls back to `cwd` itself only when `hook_input.cd_target()` reports
-    `NoCdTarget` -- the command is structurally well-formed and genuinely
-    carries no `cd` prefix at all, so using the session's own `cwd` is not
-    a guess.
 
-    Deliberately does NOT call `hook_input.resolved_cwd()` (issue #3129
-    repair round 3): that helper's own documented contract is "cd target,
-    else `default`" for ANY unresolved case, `OpaqueCommand` included --
-    exactly the fallback this module's docstring forbids. A `gh issue
-    edit ... --body-file - <<'EOF' ... EOF` heredoc (the form the
-    orchestrator uses for every body edit), a `cd /a; gh ...` semicolon,
-    and a `(cd /a && gh ...)` subshell all used to hit that fallback and
-    silently key the marker to the session `cwd` -- which is almost
-    always itself a resolvable repo, so the failure looked like a
-    successful, plausible, WRONG attribution rather than a visible
-    unknown. Calling `cd_target()` directly and treating `OpaqueCommand`
-    as unresolvable (return None, never `cwd`) closes that gap.
+class NoRegisteredRepo(NamedTuple):
+    """(issue #3129 round-4 caveat 2) This session carries no resolvable
+    registered repo at all: `cwd` is not a git checkout, has no `origin`
+    remote, or the remote is a shape `repo_slug_for_cwd()` cannot parse --
+    which is exactly what a session started OUTSIDE `spawn.py` (no
+    registration ever made) looks like from here, since there is no
+    separate "registered" bit to check apart from this. Fails closed: no
+    marker, one stderr line, nonzero exit from `main()`."""
+
+    cwd: str
+
+
+class NoIssueUrlInResponse(NamedTuple):
+    """`gh issue edit` ran but its `tool_response` carries no parseable
+    issue URL -- the call may have failed, or `gh`'s output shape changed.
+    Fails closed: no marker, one stderr line, nonzero exit from `main()`."""
+
+    registered_repo: str
+
+
+class RepoMismatch(NamedTuple):
+    """POLICY VIOLATION: the edited issue's URL names a different repo
+    than this session's own registered repo. Fails closed: no marker, one
+    stderr line naming BOTH repos, nonzero exit from `main()`."""
+
+    registered_repo: str
+    url_repo: str
+    issue: str
+
+
+class MarkerWriteFailed(NamedTuple):
+    """Repo+issue resolved cleanly (registered repo == URL repo) but the
+    local marker write itself failed (state dir unwritable, etc).
+    write_amendment()'s own OSError catch is correct fail-open for the
+    orchestrator's own tool call, but the failure must not vanish with
+    zero trace -- one stderr line, nonzero exit from `main()`."""
+
+    repo: str
+    issue: str
+
+
+class AmendmentWritten(NamedTuple):
+    """Marker written; `version` is the new monotonic counter value."""
+
+    repo: str
+    issue: str
+    version: int
+
+
+WriteResult = Union[
+    AmendmentSkipped, NoRegisteredRepo, NoIssueUrlInResponse,
+    RepoMismatch, MarkerWriteFailed, AmendmentWritten,
+]
+
+
+def record_amendment_from_response(
+    state_dir: str, tool_name: str, command: str, cwd: str,
+    tool_response: object,
+) -> WriteResult:
+    """Detect a `gh issue edit ... --body|--body-file ...` Bash call and,
+    if the repo it actually edited (from its own `tool_response`, see
+    `_issue_url_from_response()`) matches this session's own registered
+    repo (from `cwd`, see `repo_slug_for_cwd()`), bump that repo's issue
+    marker. Returns a `WriteResult` describing exactly what happened --
+    see each variant's own docstring. Never raises.
     """
-    explicit = _explicit_repo_flag(command, segment_start)
-    if explicit:
-        return explicit
-    cd_result = hook_input.cd_target(command)
-    if isinstance(cd_result, hook_input.CdTarget):
-        return repo_slug_for_cwd(cd_result.path)
-    if isinstance(cd_result, hook_input.OpaqueCommand):
-        return None
-    return repo_slug_for_cwd(cwd)
+    if not _gh_issue_edit_body_call(tool_name, command):
+        return AmendmentSkipped()
 
+    registered_repo = repo_slug_for_cwd(cwd)
+    if registered_repo is None:
+        return NoRegisteredRepo(cwd)
 
-def maybe_write_from_command(state_dir: str, tool_name: str, command: str, cwd: str) -> None:
-    """Detect `gh issue edit <n> ... --body|--body-file ...` and bump that
-    repo's issue marker. Fires on the command text alone (no `tool_response`
-    success check) -- this channel is advisory, and a false-positive bump
-    from a failed `gh` call costs a worker one extra (harmless, non-
-    blocking) re-read, not a wrong decision.
-    """
-    if tool_name != "Bash" or not command:
-        return
-    m = _GH_ISSUE_EDIT_RE.search(command)
-    if not m or not _BODY_FLAG_RE.search(command):
-        return
-    issue = m.group(1)
+    parsed = _issue_url_from_response(tool_response)
+    if parsed is None:
+        return NoIssueUrlInResponse(registered_repo)
+
+    if parsed.repo != registered_repo:
+        return RepoMismatch(registered_repo, parsed.repo, parsed.issue)
+
     note = _extract_note(command, cwd)
-    # `m.start()` may point at a consumed leading separator (`; gh ...`),
-    # not at `gh` itself -- offset past it so the flag-segment scan below
-    # does not treat that separator as the segment's own right boundary.
-    segment_start = m.start() + m.group(0).find("gh")
-    repo = target_repo_for_command(command, cwd, segment_start)
-    if repo is None:
-        # issue #3128's shape, applied pre-emptively: an unresolvable repo
-        # must not fall back to a shared bucket (no marker write at all --
-        # see module docstring), but that must not vanish with zero trace
-        # either, same reasoning as the unwritable-state-dir branch below.
+    version = write_amendment(state_dir, parsed.repo, parsed.issue, note=note)
+    if version is None:
+        return MarkerWriteFailed(parsed.repo, parsed.issue)
+    return AmendmentWritten(parsed.repo, parsed.issue, version)
+
+
+def _report_write_result(result: WriteResult) -> None:
+    """Emit the one stderr line each fail-closed `WriteResult` variant
+    promises. Quiet for `AmendmentSkipped` (nothing happened, nothing to
+    report) and `AmendmentWritten` (the success path speaks for itself via
+    the marker file). Never raises."""
+    if isinstance(result, NoRegisteredRepo):
         sys.stderr.write(
-            "amendment-channel: could not identify the repo for this gh "
-            "issue edit (issue #%s) -- no marker written, the running "
-            "worker will not see this correction (repo unidentified; not "
-            "attributed to a shared bucket another unidentified repo "
-            "could read)\n" % issue
+            "amendment-channel: could not identify this session's own "
+            "registered repo (cwd=%r has no resolvable git origin) -- no "
+            "marker written, the running worker will not see this "
+            "correction (repo unidentified; not attributed to a shared "
+            "bucket another unidentified repo could read)\n" % result.cwd
         )
-        return
-    if write_amendment(state_dir, repo, issue, note=note) is None:
-        # silent-failure-audit (issue #3129): write_amendment's own OSError
-        # catch is correct fail-open for the ORCHESTRATOR's tool call (a
-        # write it cannot make must never block that call), but the
-        # failure itself must not vanish with zero trace -- this is the
-        # one case where losing it silently means the worker's stale
-        # brief is indistinguishable from "the orchestrator never
-        # corrected it". One stderr line, still non-blocking (the `.sh`
-        # wrapper's own trailing `exit 0` is unconditional either way).
+    elif isinstance(result, NoIssueUrlInResponse):
+        sys.stderr.write(
+            "amendment-channel: gh issue edit ran but its tool_response "
+            "carries no parseable https://github.com/<owner>/<repo>/"
+            "issues/<n> URL (the call may have failed, or gh's output "
+            "shape changed) -- no marker written; this session's own "
+            "registered repo is %s\n" % result.registered_repo
+        )
+    elif isinstance(result, RepoMismatch):
+        sys.stderr.write(
+            "amendment-channel: POLICY VIOLATION -- gh issue edit #%s "
+            "landed in %s but this session is registered to %s -- no "
+            "marker written (an edit outside a session's own registered "
+            "repo is refused, never silently attributed)\n"
+            % (result.issue, result.url_repo, result.registered_repo)
+        )
+    elif isinstance(result, MarkerWriteFailed):
         sys.stderr.write(
             "amendment-channel: failed to record an amendment marker for "
-            "issue #%s (state dir unwritable) -- the running worker will "
-            "not see this correction\n" % issue
+            "issue #%s in %s (state dir unwritable) -- the running "
+            "worker will not see this correction\n"
+            % (result.issue, result.repo)
         )
 
 
 def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[str]:
     """The full PostToolUse behavior: maybe record an amendment, maybe
     return a notice string for the caller to print.
+
+    Thin wrapper over `_run_hook_full()` that drops the `WriteResult` --
+    kept as the stable, notice-only entry point every existing caller
+    (the `.sh` wrapper's conceptual contract, and most of this module's
+    own tests) already expects. `main()` uses `_run_hook_full()` directly
+    when it needs the `WriteResult` too (to decide its own exit code).
+    """
+    notice, _write_result = _run_hook_full(payload_text, state_dir)
+    return notice
+
+
+def _run_hook_full(
+    payload_text: object, state_dir: Optional[str] = None,
+) -> "tuple[Optional[str], WriteResult]":
+    """`run_hook()`'s full behavior, also returning the `WriteResult` so
+    `main()` can set its own exit code from it.
 
     Every ANTICIPATED failure mode (missing/corrupt marker, unwritable
     state dir, no git repo at `cwd`, malformed payload) is handled inside
@@ -511,21 +659,23 @@ def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[
     state_dir = state_dir or default_state_dir()
     payload = hook_input.parse_payload(payload_text)
     if isinstance(payload, hook_input.Unparseable):
-        return None
+        return None, AmendmentSkipped()
     data = payload.data
     cwd = data.get("cwd")
     cwd = cwd if isinstance(cwd, str) else ""
     session_id = data.get("session_id")
 
-    maybe_write_from_command(
-        state_dir, payload.tool_name, hook_input.tool_command(payload), cwd
+    write_result = record_amendment_from_response(
+        state_dir, payload.tool_name, hook_input.tool_command(payload),
+        cwd, data.get("tool_response"),
     )
+    _report_write_result(write_result)
 
     if not isinstance(session_id, str) or not session_id or not cwd:
-        return None
+        return None, write_result
     issue = issue_for_cwd(cwd)
     if not issue:
-        return None
+        return None, write_result
     repo = repo_slug_for_cwd(cwd)
     if not repo:
         # Unresolvable repo on the read side: stay quiet, same as any other
@@ -533,8 +683,8 @@ def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[
         # marker, unwritable state dir). No fallback key is substituted
         # here either, so there is nothing for a second unidentified repo
         # to collide with.
-        return None
-    return check_notice(state_dir, session_id, repo, issue)
+        return None, write_result
+    return check_notice(state_dir, session_id, repo, issue), write_result
 
 
 def main() -> int:
@@ -542,13 +692,29 @@ def main() -> int:
         payload_text = sys.stdin.read()
     except OSError:
         return 0
-    notice = run_hook(payload_text)
+    notice, write_result = _run_hook_full(payload_text)
     if notice:
         out = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": notice}}
         try:
             sys.stdout.write(json.dumps(out))
         except OSError:
             pass
+    # issue #3129 round-4: a fail-closed write outcome (no registered repo,
+    # no URL in tool_response, a cross-repo policy violation, or a marker
+    # write that itself failed) makes THIS process's own exit code
+    # nonzero -- observable to anything that invokes amendment_channel.py
+    # directly (tests, the gates probes, a human piping its stderr) even
+    # though the shipped `.sh` wrapper (amendment-channel.sh) unconditionally
+    # exits 0 on its own trailing line regardless of this exit code, same
+    # as it always has: a PostToolUse hook must never block a tool call
+    # (see hook_classification.json), so the wrapper's own exit code stays
+    # fail-open by design -- the stderr line `_report_write_result()`
+    # already wrote is the loud signal for the live hook path, same
+    # mechanism the pre-existing unresolvable-repo/unwritable-state-dir
+    # cases already used before this round.
+    if isinstance(write_result, (NoRegisteredRepo, NoIssueUrlInResponse,
+                                  RepoMismatch, MarkerWriteFailed)):
+        return 1
     return 0
 
 
