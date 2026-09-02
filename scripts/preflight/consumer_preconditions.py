@@ -246,14 +246,14 @@ CHECKS = [
             "reporting a supported sys.platform."
         ),
         "source": (
-            "spawn.py:4639 (os.fork()/os.setsid() drives _spawn_one(), the "
+            "spawn.py:4704 (os.fork()/os.setsid() drives _spawn_one(), the "
             "real role-session spawn path); the same fork+setsid+dup2 "
-            "pattern also appears at spawn.py:2668 (background "
+            "pattern also appears at spawn.py:2702 (background "
             "validity-consult, a different feature that mirrors it)"
         ),
         "line_anchors": [
-            ("spawn.py", 4639, "os.fork()"),
-            ("spawn.py", 2668, "os.fork()"),
+            ("spawn.py", 4704, "os.fork()"),
+            ("spawn.py", 2702, "os.fork()"),
         ],
     },
     {
@@ -371,18 +371,18 @@ CHECKS = [
             "MUSTER_SKIP_SPACE_CHECK=1."
         ),
         "source": (
-            "spawn.py:729-764 (_spawn_capacity_check: shutil.disk_usage() at "
-            "spawn.py:740, sys.exit() at spawn.py:745 when free bytes fall "
+            "spawn.py:733-767 (_spawn_capacity_check: shutil.disk_usage() at "
+            "spawn.py:744, sys.exit() at spawn.py:749 when free bytes fall "
             "below MIN_FREE_BYTES_DEFAULT, os.statvfs() inode check follows "
             "and sys.exit()s again if free inodes fall below "
-            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3229, before "
+            "MIN_FREE_INODES_DEFAULT) -- called at spawn.py:3294, before "
             "every workspace clone attempt"
         ),
         "line_anchors": [
-            ("spawn.py", 729, "def _spawn_capacity_check"),
-            ("spawn.py", 740, "shutil.disk_usage"),
-            ("spawn.py", 745, "sys.exit("),
-            ("spawn.py", 3229, "_spawn_capacity_check(work)"),
+            ("spawn.py", 733, "def _spawn_capacity_check"),
+            ("spawn.py", 744, "shutil.disk_usage"),
+            ("spawn.py", 749, "sys.exit("),
+            ("spawn.py", 3294, "_spawn_capacity_check(work)"),
         ],
     },
 ]
