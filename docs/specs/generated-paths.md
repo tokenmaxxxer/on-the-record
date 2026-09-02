@@ -69,7 +69,8 @@ carry zero such rows; the one #684 survey found is fixed below.
 | `role-spec-reference-guard.sh` | n/a | reads/validates only, no write call |
 | `role-test-claim-guard.sh` | n/a | reads/validates only, no write call |
 | `spec-index-preflight.sh` | n/a | reads/validates only, no write call |
-| `amends-index-preflight.sh` | n/a | reads/validates only (calls `amends_index.check()`), no write call — the hook never calls `write_backlinks()`/`update()` itself, those are CLI-invoked landing-step actions |
+| `amends-index-preflight.sh` | n/a | reads/validates only (calls `amends_index.check_staged()`, round 3 replaced `check()` — see enforcement-boundary.md's row), no write call — the hook never calls `write_backlinks()`/`update()` itself, those are the landing-step actions `amends-landing-apply.sh` below shells out to automatically |
+| `amends-landing-apply.sh` | n/a | shells out to `gates/amends_landing.py`, whose `land()` clones into a disposable `tempfile.mkdtemp()`-rooted directory (never the target repo's own worktree, never the orchestrator's own live checkout) to apply backlinks and push the result back; the hook script itself makes no write call, same shells-out shape as `post-landing-obligation-gate.sh` above |
 | `test-tier-directive.sh` | n/a | reads/validates only, no write call |
 | `requirement-digest-preflight.sh` | n/a | reads/validates only, no write call |
 | `test-authoring-invariant-guard.sh` | n/a | reads/validates only, no write call |
