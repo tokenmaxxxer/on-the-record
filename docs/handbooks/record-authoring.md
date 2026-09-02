@@ -33,6 +33,18 @@ hooks (`record-claim-guard.sh`) and `gates/ci.py` call the same
 functions this module aggregates, so there is exactly one place each
 rule's logic lives.
 
+## Correcting a prior session's record
+
+`board-gate.sh` never lets your session write into or delete a record
+another session authored — that boundary is not something to work
+around. If your task is to correct a prior session's artifact, write the
+correction into your own record and add a `supersedes: <path>  # <reason>`
+frontmatter line naming what it corrects (`docs/handbooks/record-
+contract.md`'s "Supersession" section has the shape and what a reader
+does with it — `supersession.py::resolve_authoritative()`). It only
+replaces a whole artifact; it has no shape yet for correcting one section
+of a larger foreign record.
+
 ## Scaffold a new record
 
 ```

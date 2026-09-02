@@ -3760,6 +3760,20 @@ def _resolve_and_echo_issue(skill: str, cwd: str, issue: int | None) -> dict | N
     return issue_data
 
 
+def _push_succeeded(push_result: dict | None) -> bool:
+    """Derive `push_succeeded` from `ensure_pushed()`'s result (issue
+    #3050). `"nothing-to-push"` means `ensure_pushed()`'s own local
+    `git rev-parse --verify -q <role-branch>` failed -- the session's role
+    branch never existed locally, i.e. zero commits were ever made. That
+    is not a successful push of nothing; it is the same "genuinely pushed
+    nothing" case must-not B names, and must reconcile to
+    `failed-no-commit` in `fail_closed_downgrade()` like any other
+    no-commit/no-push case, not fall through as if the push had
+    succeeded."""
+    return push_result is not None and push_result["status"] not in (
+        "push-rejected", "pr-create-failed", "nothing-to-push")
+
+
 def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
@@ -5023,8 +5037,7 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
               f"{push_result['reason']}", file=sys.stderr)
     new_commit = issue is not None and _is_new_commit(cwd, before_head, after_head)
     already_delivered = False
-    push_succeeded = push_result is not None and push_result["status"] not in (
-        "push-rejected", "pr-create-failed")
+    push_succeeded = _push_succeeded(push_result)
     if issue is not None and not blocked and not new_commit:
         branch = subprocess.run(["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
                                 capture_output=True, text=True).stdout.strip()
