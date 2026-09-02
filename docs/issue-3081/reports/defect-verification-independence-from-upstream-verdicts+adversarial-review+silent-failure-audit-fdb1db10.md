@@ -297,8 +297,7 @@ Followed silent-failure-audit on the diff's own error-handling surface
 "What was done") since it is exactly the kind of AI-written failure-path
 code the skill targets.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; canonical: this record's "What was done" section (Test
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; canonical: this record's "What was done" section (Test
 suite and Silent-failure audit subsections) re-derives criteria 1/2 and
 both must-nots from primary evidence on isolated worktrees rather than
 citing PR #3084's test-plan checkboxes, includes the retention edge case
