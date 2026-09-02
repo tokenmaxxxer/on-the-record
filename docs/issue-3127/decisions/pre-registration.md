@@ -3,6 +3,11 @@ issue: 3127
 type: pre-registration
 date_stamp: 2026-09-02
 status: registered-before-data-collection
+verification_pr: 3131  # PR that originally introduced this file's content;
+  # scripts/issue-3127/verify_preregistration.py's squash-collapse fallback
+  # resolves ordering against this PR's own pre-squash commit history via
+  # `gh pr view <n> --json commits`, since main's own history no longer
+  # carries it after PR #3131 landed as a single squash-merge commit.
 ---
 
 # issue-3127 — pre-registration (product-discovery-hypothesis-preregistration Step 4)
@@ -81,6 +86,23 @@ one-grade-band shift per pair) — it does not mean no such effect exists. If
 this registration is extended to the full n=4 set, that remains true; a
 change of decision rule after seeing partial results is itself a mid-flight
 threshold change and is refused per rule 8 regardless of n.
+
+## Limitation of the mechanical ordering check
+
+`scripts/issue-3127/verify_preregistration.py` proves *construction* order:
+which commit exists first in git's (or, on the squash-collapse fallback, the
+originating PR's) recorded history. It does not and cannot prove *decision*
+order. Git ancestry has no way to see what happened before a commit was
+made — a threshold could be decided after privately observing a result and
+only then committed first, and the check would read that as a clean pass,
+identical to a threshold that was genuinely fixed in advance. The check is
+evidence against the cheap, mechanical version of this failure (writing the
+threshold and results in one commit, or clearly out of order); it is not
+evidence against a determined actor who commits in the right order on
+purpose after already knowing the answer. Nobody should read a passing
+`verify_preregistration.py` run as proving more than "the recorded
+construction order was correct" — it says nothing about what the author
+knew before writing either file.
 
 ## Deviations log
 

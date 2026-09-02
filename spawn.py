@@ -111,6 +111,10 @@ import priorities
 _priorities_aggregate = priorities.priorities_aggregate
 _priorities_entry_path = priorities._priorities_entry_path
 
+# issue #3061: standing delegation as machine-visible state -- same
+# standalone-leaf-module shape as deviation_log.py/priorities.py above.
+import delegation_state
+
 # Issue #2105 extraction 1/N: relay / returned-PR machinery lives in relay.py.
 # spawn.py stays the entry point and re-exports the moved names so external
 # callers and the test suite keep addressing them as `spawn.<name>`. relay
@@ -2420,6 +2424,36 @@ def main() -> int:
                     help="closure-sweep: 위반을 해당 이슈에 코멘트로도 남긴다 (기본은 stdout 만)")
     ap.add_argument("--json", action="store_true",
                     help="flows: 사람용 표 대신 flows-schema.md 계약대로 JSON 을 stdout 에 찍는다")
+    ap.add_argument("--repo", default=None,
+                    help="delegation-state: 상태 파일이 사는 레포 경로 "
+                         "(기본 --cwd, 이슈 #3061)")
+    ap.add_argument("--grant", metavar="SCOPE",
+                    help="delegation-state: operator 가 위임한 범위(자유 텍스트, "
+                         "예: '다 판단해서 처분해서 해')를 상태로 기록한다 "
+                         "(이슈 #3061). 스킬-바운드 세션(CLAUDE_SKILL 설정됨)은 "
+                         "자기 위임을 스스로 못 준다 — 이슈 #707의 "
+                         "DELEGATION-CITING APPROVE 관행과 같은 이유")
+    ap.add_argument("--granted-by", default=None,
+                    help="delegation-state --grant: 위임한 사람 (기본 $USER)")
+    ap.add_argument("--expires", default=None,
+                    help="delegation-state --grant: 위임 만료 시각(ISO8601, "
+                         "기본 24시간 뒤 — 무기한 위임은 issue #707 프로포절이 "
+                         "이미 안전하지 않다고 거부한 모양이다)")
+    ap.add_argument("--allow", action="append", metavar="TOOL:RESOURCE-GLOB[:REPO-GLOB]",
+                    help="delegation-state --grant: 이 위임이 실제로 커버하는 "
+                         "액션을 손으로 JSON 안 쓰고 등록한다 (반복 가능, 이슈 "
+                         "#3061 repair — 렉시컬 텍스트 분류기를 scope-manifest "
+                         "룩업으로 교체). 예: --allow 'Bash:git *' --allow "
+                         "'Bash:gh pr *:on-the-record'. 하나도 안 주면 매니페스트는 "
+                         "빈 채로 저장된다 — 아무 액션도 안 커버한다는 뜻이지, "
+                         "전부 커버한다는 뜻이 아니다")
+    ap.add_argument("--revoke", action="store_true",
+                    help="delegation-state: 현재 기록된 위임을 철회한다")
+    ap.add_argument("--audit", action="store_true",
+                    help="delegation-state: 세션 트랜스크립트를 사후 스캔해, "
+                         "기록된 위임이 이미 커버하는 권한을 다시 물은 턴을 찾는다")
+    ap.add_argument("--since", default=None,
+                    help="delegation-state --audit: 이 날짜(YYYY-MM-DD) 이후만 스캔")
     # Issue #2592: `--role` selected a session instance, not a role, and
     # its own name/help text said otherwise. Retired outright rather than
     # aliased (same precedent as #2572's retired role-positional/bare-task
@@ -2731,6 +2765,37 @@ def main() -> int:
         # priorities.py's module docstring), so this is safe to call again
         # for a second, unrelated entry in the same session.
         print(_priorities_entry_path(a.issue, cwd=a.cwd))
+        return 0
+    if a.role == "delegation-state":
+        # issue #3061: standing delegation as machine-visible state, not a
+        # remembered utterance — see delegation_state.py's module docstring
+        # for why this is a different mechanism from issue #707's live
+        # gh-comment-checked DELEGATE/REVOKE grammar.
+        repo = a.repo or a.cwd
+        if a.audit:
+            if not a.since:
+                sys.exit("사용법: spawn.py delegation-state --audit --since YYYY-MM-DD [--repo <path>]")
+            print(delegation_state.format_audit(delegation_state.audit(repo, a.since)))
+            return 0
+        if a.revoke:
+            revoked = delegation_state.revoke(repo, revoked_by=a.granted_by or os.environ.get("USER", "operator"))
+            if revoked is None:
+                print("no standing delegation recorded — nothing to revoke")
+            else:
+                print(delegation_state.describe(repo))
+            return 0
+        if a.grant:
+            try:
+                manifest = [delegation_state.parse_allow_spec(s) for s in (a.allow or [])]
+                delegation_state.grant(repo, a.grant,
+                                        granted_by=a.granted_by or os.environ.get("USER", "operator"),
+                                        expires_at=a.expires,
+                                        manifest=manifest)
+            except (delegation_state.SkillBoundGrantError, ValueError) as e:
+                sys.exit(f"delegation-state --grant 실패: {e}")
+            print(delegation_state.describe(repo))
+            return 0
+        print(delegation_state.describe(repo))
         return 0
     if a.role in ("ideate", "draft", "review"):
         if not a.task or not a.consult_question:
