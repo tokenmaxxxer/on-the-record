@@ -333,8 +333,7 @@ own structure (Present/Surface/Absent/Incorrect/Unverifiable per
 criterion, each with file:line evidence) follows its classification
 taxonomy directly.
 
-skill-verdict: defect-verification-independence-from-upstream-verdicts
-— applied: invoked; per this record's own "What was done" section
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; per this record's own "What was done" section
 (derived: the builder's record was read only after this session's own
 `pytest`/probe runs had already produced their results, see the
 worktree setup paragraph there), and the cross-repo scenario was a
