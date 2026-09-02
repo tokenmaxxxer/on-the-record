@@ -80,6 +80,12 @@ not pass vacuously; it genuinely depends on the fix being present. Also
 ran the existing suite unaffected by this addition — checked: `python3
 -m pytest gates/test_check_runner.py -q` — result: `11 passed`.
 
+skill-verdict: test-derivation — applied: invoked; routed criterion 2 to
+a Low-risk/Low-depth classification (single boolean branch, no
+partitions/decisions/states/combinatorics) and derived the probe's two
+GWT scenarios (bare-grep positive, prose negative) from that routing —
+see the full rationale below.
+
 test-derivation (skill, invoked via Skill tool) routed this to a
 Low-risk classification: single boolean branch (first token in a
 6-tool curated set or not), no numeric ranges, no combined conditions,
@@ -98,6 +104,11 @@ Given a bare `grep` check, When parsed, Then `reason ==
 Then no `reason` key. A second full partition/boundary/decision-table
 derivation here would duplicate PR #3069's own suite rather than add
 acceptance-checkability.
+
+skill-verdict: silent-failure-audit — not-applicable: the probe has no
+try/except, file I/O beyond its own `__file__` resolution, network call,
+or user-input validation to audit — no error-handling path exists to
+classify.
 
 silent-failure-audit (skill, not invoked) does not apply: the probe has
 no try/except, no file I/O beyond its own `__file__` path resolution, no
