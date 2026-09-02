@@ -255,6 +255,20 @@ def main() -> None:
         for k in order if k.startswith("returned-pr:")
     }
 
+    # issue #3061: `to_emit` (not `emitted_now`) is the acted/idle-wake
+    # signal -- `emitted_now` also goes True for the pure liveness beacon
+    # below (nothing changed, still printed to prove the loop is alive),
+    # which is exactly the "advanced nothing" case this counts as
+    # idle-wake, not acted. See format_wake_outcomes() above. Computed here
+    # (before the beacon block) rather than at persist time so the beacon
+    # branch below can surface it in the same tick it fires.
+    prev_outcomes = prev.get("wake_outcomes") or {}
+    acted_this_tick = bool(to_emit)
+    wake_outcomes = {
+        "idle_wake": int(prev_outcomes.get("idle_wake", 0)) + (0 if acted_this_tick else 1),
+        "acted": int(prev_outcomes.get("acted", 0)) + (1 if acted_this_tick else 0),
+    }
+
     emitted_now = False
     if to_emit:
         sys.stdout.write("\n".join(new_pr_markers + to_emit) + "\n")
@@ -318,20 +332,21 @@ def main() -> None:
             for k in roster_keys:
                 beacon_lines.append("[monitor-heartbeat] " + curr[k].split("] ", 1)[1])
             if beacon_lines:
+                # issue #3061: nothing in the operational path ever called
+                # `--report`, so the wake-outcome counts accumulated but
+                # never surfaced (verification finding on PR #3087, both
+                # PR #3097 and PR #3102: Surface). Wired into this same
+                # ~1800s periodic beacon rather than every tick -- the
+                # beacon already exists precisely to periodically prove
+                # liveness with real content without re-opening #1732's
+                # removed unconditional per-tick chatter, and only fires
+                # when `beacon_lines` is already non-empty (a genuinely
+                # empty roster, nothing tracked, stays fully silent, same
+                # as today -- an empty roster is not itself a failure to
+                # report on, per the issue's third must-not).
+                beacon_lines.append(format_wake_outcomes({"wake_outcomes": wake_outcomes}))
                 sys.stdout.write("\n".join(beacon_lines) + "\n")
                 emitted_now = True
-
-    # issue #3061: `to_emit` (not `emitted_now`) is the acted/idle-wake
-    # signal -- `emitted_now` also goes True for the pure liveness beacon
-    # below (nothing changed, still printed to prove the loop is alive),
-    # which is exactly the "advanced nothing" case this counts as
-    # idle-wake, not acted. See format_wake_outcomes() above.
-    prev_outcomes = prev.get("wake_outcomes") or {}
-    acted_this_tick = bool(to_emit)
-    wake_outcomes = {
-        "idle_wake": int(prev_outcomes.get("idle_wake", 0)) + (0 if acted_this_tick else 1),
-        "acted": int(prev_outcomes.get("acted", 0)) + (1 if acted_this_tick else 0),
-    }
 
     new_state = {
         "lines": new_lines,

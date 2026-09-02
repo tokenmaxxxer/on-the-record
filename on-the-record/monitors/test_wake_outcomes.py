@@ -113,6 +113,29 @@ class WakeOutcomeCountingTest(unittest.TestCase):
         state = json.loads(self.state_path.read_text())
         self.assertEqual(state["wake_outcomes"], {"idle_wake": 1, "acted": 1})
 
+    def test_periodic_beacon_surfaces_wake_outcomes_without_a_separate_report_call(self):
+        # issue #3061 verification finding (PR #3097/#3102): the counting
+        # was real but nothing in the operational path ever called
+        # `--report`, so the counts were collected and never surfaced.
+        # Wired into the same periodic beacon idle-session anomalies
+        # already use, rather than every tick.
+        text = "[returned-pr] issue #22: PR #101 age=1h\n"
+        now0 = int(time.time())
+        _run_tick(self.state_path, text, now=now0)  # first_tick -> acted
+        r = _run_tick(self.state_path, text, now=now0 + 1900)  # beacon tick
+        self.assertIn("wake outcomes:", r.stdout)
+        self.assertIn("acted=1", r.stdout)
+        self.assertIn("idle-wake=1", r.stdout)
+
+    def test_genuinely_empty_roster_stays_silent_wake_outcomes_not_forced_in(self):
+        # must-not: a tick with nothing tracked at all must not be made to
+        # look non-quiet just because wake-outcome reporting was added --
+        # only fires alongside an already-non-empty beacon.
+        r = _run_tick(self.state_path, "", now=int(time.time()))
+        self.assertEqual(r.stdout, "")
+        r2 = _run_tick(self.state_path, "", now=int(time.time()) + 1900)
+        self.assertEqual(r2.stdout, "")
+
 
 if __name__ == "__main__":
     unittest.main()
