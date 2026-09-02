@@ -271,7 +271,31 @@ Two implementation choices worth naming:
 
 ## What did not work
 
-None.
+The first commit attempt was refused by the live `gate-registration-guard.sh`
+(the very hook this issue is about) firing for real on this session's own
+`git add gates/probe_cwd_shapes.py && git commit ...` — canonical:
+```
+gate-registration-guard: newly-added gate/hook module(s) missing a spec registration row (issue #441/#684):
+gates/probe_cwd_shapes.py: no row in docs/specs/enforcement-boundary.md
+```
+Fixed by adding a row for `probe_cwd_shapes.py` to
+`docs/specs/enforcement-boundary.md` in the same commit (the guard's own
+required remedy), not by disabling or working around the guard.
+
+`python3 gates/spec_index.py --update` (the regeneration this repo's own
+landing convention calls for after a `docs/specs/*` edit) fails on this
+branch independent of this session's change — derived: `git stash -u &&
+python3 gates/spec_index.py --update` (before this session's own files
+were staged) — result: identical
+`FileNotFoundError: ... roles/specs/brand-design.spec.json` traceback,
+`git stash pop` restored this session's files afterward. `roles/specs/`
+was deleted repo-wide by commit `480d1a78` ("consolidate roles/ into
+spawn_roles.json, delete roles/ + roles/specs/", #2542) while
+`docs/specs/reconciled-index.md` still lists `roles/specs/brand-design.spec.json`
+(line 28) — a pre-existing stale-generator bug on `origin/main`, unrelated
+to issue #3049's scope. Did not attempt to fix it (out of scope for this
+issue); `docs/specs/reconciled-index.md` is left unregenerated for this
+commit as a result.
 
 ## Upstream basis
 
