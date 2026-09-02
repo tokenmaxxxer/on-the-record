@@ -45,9 +45,14 @@ does with it — `supersession.py::resolve_authoritative()`). It only
 replaces a whole artifact — if the target is otherwise correct and only
 one section is wrong, use `amends: <path>#<section>  # <reason>` instead
 (`docs/handbooks/record-contract.md`'s "Amends" section —
-`amends.py::resolve_amendments()`, discoverable via the generated index
-`gates/amends_index.py` maintains), which leaves the target authoritative rather
-than marking the whole record non-authoritative to express a
+`amends.py::resolve_amendments()`). You will never write into the
+target yourself (write-set isolation forbids it); a landing-step action
+(`gates/amends_index.py --apply-backlinks`) writes a backlink into the
+target's own content once your PR lands, which is what actually makes
+the correction discoverable to a reader who opens the target directly —
+the generated index `gates/amends_index.py` also maintains is a
+secondary, cross-cutting view. `amends:` leaves the target authoritative
+rather than marking the whole record non-authoritative to express a
 single-section fix.
 
 ## Scaffold a new record

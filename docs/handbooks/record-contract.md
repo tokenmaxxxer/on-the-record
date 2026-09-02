@@ -118,15 +118,28 @@ same section with conflicting claims, or a cycle.
 target *stays* authoritative — nothing forces a reader to consult a
 resolver before trusting the target's prose, so a bare frontmatter
 field reproduces the current defect with an extra layer. Discoverability
-is the actual requirement: a required backlink written into the target
-was rejected outright (the same write-set isolation that motivates this
-whole primitive makes it impossible, not merely undesirable). Instead,
-`gates/amends_index.py` maintains a generated index in the `specs/`
-bucket (`amends_index.INDEX_PATH`) — a cross-cutting artifact outside
-any single `docs/issue-<n>/` tree, so any session may regenerate it —
-and fails closed if the tree's `amends:`
-edges and the checked-in index disagree. An amendment can land; it
-cannot land unlinked.
+is the actual requirement, and "reachable from the merged tree" means a
+reader who opens the target record DIRECTLY — no index, no other file —
+cannot miss the correction (#3134 repair round, after the first delivery
+was independently verified Absent on exactly this point: it made
+"reaching A" mean "consulting the index," which a reader who doesn't
+know the index exists never does). A required backlink written into the
+target in the SAME commit as the correcting session's own record is
+still impossible (the target is outside that session's write set by
+construction — `board-gate.sh`'s write-set isolation). What changed is
+WHO writes it: `gates/amends_index.py --apply-backlinks` is a
+LANDING-STEP action (run by the orchestrator/operator identity, never a
+spawned session, against the merged tree after the correcting PR lands)
+that writes the backlink directly into the target's own content, right
+under the amended heading — see `amends_backlink.py`'s module docstring
+for the full reasoning. `gates/amends_index.py`'s generated index
+(`amends_index.INDEX_PATH`) is kept as a supplementary cross-cutting
+view — "what in this tree has an open correction" — not the primary
+mechanism. `check()` fails closed on either axis independently: an
+`amends:` edge present in the tree with a stale/missing index, OR with a
+target that has not yet received its backlink, is an unlinked
+amendment. An amendment can land; it cannot land unlinked, by either
+route.
 
 ## What stays additive
 

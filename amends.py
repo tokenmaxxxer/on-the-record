@@ -17,40 +17,48 @@ alone reproduces today's problem with an extra layer (the issue's own
 framing, from its `decision-brief` consult) -- discoverability is the
 actual deliverable, not the field.
 
-**Discoverability decision -- what was chosen and what was rejected.**
-Three shapes were on the table:
+**Discoverability decision -- REVISED in the #3134 repair round.** The
+first delivery (PR #3143) shipped only the generated-index shape below
+and was independently verified Absent: it redefined "reaching A" as
+"consulting the index," not "opening A," and a reader who does not
+already know the index convention exists has zero signal from A's own
+content. `amends_backlink.py` (new in this round) is the fix -- read its
+module docstring for the full "who writes it, when" reasoning; this
+section only records the final shape:
 
-  1. Required backlink written into the target record itself. Rejected
-     outright, before any design question: `board-gate.sh`'s write-set
-     isolation (contract v3 s11) pins a session to its own
-     `docs/issue-<n>/` tree; an `amends:` edge is by definition
-     cross-issue (the whole reason this primitive exists is that the
-     correcting session cannot write into the record it corrects). No
-     write shape reaches the target, so this option is not a design
-     trade-off, it is impossible under the same boundary
-     `supersession.py` already documents as correct and load-bearing.
+  1. Required backlink written into the target record itself, in the
+     SAME commit as the correcting session's own record. Rejected: the
+     target is by definition outside that session's write set
+     (board-gate's write-set isolation -- harness-side, not a file in
+     this checkout, exercised live in docs/issue-3050/reports/
+     independent-verification-1.md -- pins a session to its own
+     `docs/issue-<n>/` tree). This is not a sequencing question; the
+     session's own Edit/Write calls against a foreign tree are refused
+     before a commit is ever attempted.
 
   2. A generated, cross-cutting index (this repo's own precedent:
-     `docs/specs/reconciled-index.md` + `gates/spec_index.py`, a
-     checked-in artifact outside any single `docs/issue-<n>/` tree that
-     any session may regenerate because it is not owned by one issue).
-     Adopted -- see `gates/amends_index.py`.
+     `docs/specs/reconciled-index.md` + `gates/spec_index.py`). Kept, but
+     demoted from sole mechanism to supplementary cross-cutting summary
+     -- see `gates/amends_index.py`. Answers "what in this tree has an
+     open correction," not "did I just read a wrong section."
 
-  3. Gate refusal on an unlinked amendment. Adopted as well, layered on
-     top of (2) rather than instead of it: a bare index that nobody is
-     required to keep current is exactly the "extra layer, same problem"
-     failure the issue's consult warns about. `gates/amends_index.py`'s
-     `check()` mode fails closed -- any `amends:` edge present in the
-     tree that the checked-in index does not reflect is refused, the
-     same way `spec_index.py` refuses drift between a spec doc and its
-     recorded hash. The index cannot go stale without the gate catching
-     it, which is what makes "reachable from the merged tree" true in
-     practice rather than only in a docstring.
+  3. A required backlink applied by the LANDING step (not the correcting
+     session) once the correcting PR lands, gated so an `amends:` edge
+     cannot go unlinked in the merged tree. Adopted --
+     `amends_backlink.py::apply_backlinks()`/`missing_backlinks()`
+     (pure, domain layer) plus `gates/amends_index.py`'s
+     `write_backlinks()`/`--apply-backlinks` (the landing-step CLI) and
+     `check()`'s `missing_backlinks` blocking reasons (fails closed on an
+     `amended` edge whose target does not yet carry the marker). This is
+     what makes "opening A directly" -- not "knowing to check an index"
+     -- the route that surfaces the amendment.
 
 This module is the domain layer -- pure functions over `path -> content`
 strings, no filesystem or git access, mirroring `supersession.py`'s own
 contract. `gates/amends_index.py` is the infrastructure/interface layer
-that reads the real tree and writes/checks the generated index.
+that reads the real tree and writes/checks the generated index and the
+backlinks; `amends_backlink.py` is the domain layer for the backlink
+half, imported by both.
 """
 from __future__ import annotations
 
@@ -59,6 +67,7 @@ import re
 
 _FRONTMATTER_DELIM = "---"
 _AMENDS_RE = re.compile(r"(?m)^amends:\s*(\S+)")
+_REASON_RE = re.compile(r"(?m)^amends:\s*\S+\s*#\s*(.*)$")
 _HEADING_RE = re.compile(r"(?m)^#{1,6}\s+(.+?)\s*$")
 _SLUG_STRIP_RE = re.compile(r"[^a-z0-9\- ]")
 _SLUG_SPACE_RE = re.compile(r"\s+")
@@ -117,6 +126,19 @@ def parse_amends(content: str) -> tuple[str, str] | None:
     if not target or not anchor:
         return None
     return target, anchor
+
+
+def extract_reason(content: str) -> str:
+    """The free-text reason travelling as a YAML comment on this record's
+    own `amends:` line (see `render_amends_field()`), or `""` when the
+    line carries no `#`-reason -- shared by `gates/amends_index.py`'s
+    generated index rows and `amends_backlink.py`'s backlink marker text
+    so a reader sees the same reason whichever route they took."""
+    fm = _frontmatter_block(content)
+    if fm is None:
+        return ""
+    m = _REASON_RE.search(fm)
+    return m.group(1).strip() if m else ""
 
 
 def extract_section_anchors(content: str) -> set[str]:
