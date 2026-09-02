@@ -163,6 +163,11 @@ class AmendsLandingHookEndToEndTest(unittest.TestCase):
         )
 
     def test_help_invocation_never_pushes(self):
+        # class A ("not a merge, nothing to do"): `--help` matches the
+        # command shape but never merges anything -- silent, exit 0, zero
+        # stderr lines (the designed quiet outcome, not an absorbed
+        # failure -- see test_ordinary_non_gh_command_produces_zero_stderr
+        # for the anti-spam guard this must not violate).
         bare, work = self._build_fixture("help", with_edge=True)
         before = self._bare_tip(bare)
         r = self._run_hook(
@@ -171,13 +176,36 @@ class AmendsLandingHookEndToEndTest(unittest.TestCase):
             gh_json='{"state": "MERGED", "mergedAt": "2026-09-02T00:00:00Z"}',
         )
         self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual("", r.stderr, "class A must produce zero stderr lines")
         self.assertEqual(
             before, self._bare_tip(bare),
             "`gh pr merge --help` must never push a landing-step commit -- "
             "PR #3168 reproduced exactly this as a real push to main",
         )
 
+    def test_ordinary_non_gh_command_produces_zero_stderr(self):
+        # Given an ordinary Bash command with nothing to do with `gh pr
+        # merge` at all, when the hook runs on it, then it must produce
+        # ZERO stderr lines and exit 0 -- this is the anti-spam guard for
+        # class A: every single Bash call in a session reaches this hook,
+        # so a stderr line on each one would bury the real signal.
+        bare, work = self._build_fixture("ordinary", with_edge=True)
+        before = self._bare_tip(bare)
+        for command in ("ls", "echo hi"):
+            r = self._run_hook(work, command, tool_response="hi\n")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(
+                "", r.stderr,
+                f"ordinary command {command!r} must produce zero stderr "
+                f"lines from this hook, got: {r.stderr!r}",
+            )
+        self.assertEqual(before, self._bare_tip(bare))
+
     def test_failed_merge_never_pushes(self):
+        # issue #3134 repair round 5, gap 2, class C ("was a merge,
+        # confirmed not merged"): must now exit nonzero with exactly one
+        # stderr line -- PR #3175 found this path silent (`exit 0`, no
+        # stderr) before this round.
         bare, work = self._build_fixture("failed", with_edge=True)
         before = self._bare_tip(bare)
         r = self._run_hook(
@@ -187,7 +215,11 @@ class AmendsLandingHookEndToEndTest(unittest.TestCase):
                            "cannot be cleanly created.",
             gh_json='{"state": "OPEN", "mergedAt": null}',
         )
-        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertEqual(
+            1, len([ln for ln in r.stderr.splitlines() if ln.strip()]),
+            f"expected exactly one stderr line, got: {r.stderr!r}",
+        )
         self.assertEqual(
             before, self._bare_tip(bare),
             "a merge `gh pr view` itself reports as still OPEN must never push",
@@ -229,6 +261,168 @@ class AmendsLandingHookEndToEndTest(unittest.TestCase):
         landed_target = _git("show", "main:docs/issue-97001/reports/"
                               "target.md", cwd=bare)
         self.assertIn("> **Amended**", landed_target)
+
+    # -- issue #3134 repair round 5: repo-match x decline-class decision
+    # table (PR #3175's two gaps). Registered repo is always the bare
+    # remote built by `_build_fixture` for the `work` checkout passed as
+    # `run_cwd`; "-R"/"--repo"/"--repo="/an inline `GH_REPO=` prefix/a
+    # `cd` to a second, DIFFERENT checkout each name a repo outside that
+    # remit and must be refused before any `gh pr view` confirmation call
+    # -- write nothing, exactly one stderr line naming both repos, nonzero
+    # exit. --------------------------------------------------------------
+
+    def _assert_repo_refused(self, work, bare, command, tool_response,
+                              registered_needle, target_needle):
+        before = self._bare_tip(bare)
+        r = self._run_hook(
+            work, command, tool_response=tool_response,
+            gh_json='{"state": "MERGED", "mergedAt": "2026-09-02T00:00:00Z"}',
+        )
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        lines = [ln for ln in r.stderr.splitlines() if ln.strip()]
+        self.assertEqual(
+            1, len(lines),
+            f"expected exactly one stderr line, got: {r.stderr!r}",
+        )
+        self.assertIn(registered_needle.lower(), lines[0].lower())
+        self.assertIn(target_needle.lower(), lines[0].lower())
+        self.assertEqual(
+            before, self._bare_tip(bare),
+            "an out-of-remit repo target must never push",
+        )
+
+    def test_dash_R_flag_naming_another_repo_is_refused(self):
+        # Given a merge naming another repo via `-R`, when the hook runs,
+        # then it refuses: nothing written, one stderr line naming both
+        # repos, nonzero exit.
+        bare, work = self._build_fixture("mismatch-dashr", with_edge=True)
+        self._assert_repo_refused(
+            work, bare, "gh pr merge 42 -R other-owner/other-repo",
+            "Merged pull request #42 into main",
+            registered_needle="mismatch-dashr", target_needle="other-owner/other-repo",
+        )
+
+    def test_dash_dash_repo_flag_naming_another_repo_is_refused(self):
+        bare, work = self._build_fixture("mismatch-longrepo", with_edge=True)
+        self._assert_repo_refused(
+            work, bare, "gh pr merge 42 --repo other-owner/other-repo",
+            "Merged pull request #42 into main",
+            registered_needle="mismatch-longrepo", target_needle="other-owner/other-repo",
+        )
+
+    def test_dash_dash_repo_equals_flag_naming_another_repo_is_refused(self):
+        bare, work = self._build_fixture("mismatch-eqrepo", with_edge=True)
+        self._assert_repo_refused(
+            work, bare, "gh pr merge 42 --repo=other-owner/other-repo",
+            "Merged pull request #42 into main",
+            registered_needle="mismatch-eqrepo", target_needle="other-owner/other-repo",
+        )
+
+    def test_GH_REPO_env_prefix_naming_another_repo_is_refused(self):
+        # The only observable form of "GH_REPO env var" here: Claude's
+        # Bash tool does not persist exported env vars across calls, so a
+        # real `GH_REPO=...` override can only show up as an inline
+        # prefix on the one command that used it.
+        bare, work = self._build_fixture("mismatch-ghrepo-env", with_edge=True)
+        self._assert_repo_refused(
+            work, bare, "GH_REPO=other-owner/other-repo gh pr merge 42",
+            "Merged pull request #42 into main",
+            registered_needle="mismatch-ghrepo-env", target_needle="other-owner/other-repo",
+        )
+
+    def test_cd_into_another_checkout_then_merge_is_refused(self):
+        # A `cd DIR && gh pr merge` where DIR is a checkout of a
+        # DIFFERENT repo (different `origin`) -- the shape PR #3175 named
+        # as outside this hook's remit alongside `-R`.
+        bare, work = self._build_fixture("mismatch-cd-registered", with_edge=True)
+        other_bare, other_work = self._build_fixture("mismatch-cd-other", with_edge=False)
+        self._assert_repo_refused(
+            work, bare, f"cd {other_work} && gh pr merge 42",
+            "Merged pull request #42 into main",
+            registered_needle="mismatch-cd-registered", target_needle="mismatch-cd-other",
+        )
+        # the OTHER checkout's own remote must be untouched too
+        self.assertEqual(
+            self._bare_tip(other_bare),
+            _git("rev-parse", "main", cwd=other_bare).strip(),
+        )
+
+    def test_dash_R_flag_naming_the_registered_repo_still_lands(self):
+        # Feasible column the matrix must not false-positive on: `-R`
+        # naming the SAME repo the session is registered against is not
+        # an out-of-remit merge and must still land the backlink.
+        bare, work = self._build_fixture("same-repo-dashr", with_edge=True)
+        registered_url = _git("remote", "get-url", "origin", cwd=work).strip()
+        before = self._bare_tip(bare)
+        r = self._run_hook(
+            work, f"gh pr merge 42 -R {registered_url}",
+            tool_response="Merged pull request #42 (issue-97002: "
+                           "correction) into main from issue-97002-branch",
+            gh_json='{"state": "MERGED", "mergedAt": "2026-09-02T00:00:00Z"}',
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotEqual(
+            before, self._bare_tip(bare),
+            "-R naming the session's own registered repo must still land",
+        )
+
+    # -- decline classes A/B/C as their own test functions ----------------
+
+    def test_class_B_confirmation_gh_exit_failure_declines_once(self):
+        # Given a merge command, when `gh pr view` itself exits nonzero
+        # (auth failure/network error), then the hook declines with
+        # exactly one stderr line and a nonzero exit -- distinct wording
+        # from class C (confirmed not merged): this is "confirmation
+        # could not run" at all.
+        bare, work = self._build_fixture("class-b-exit", with_edge=True)
+        before = self._bare_tip(bare)
+        r = self._run_hook(
+            work, "gh pr merge 42 --squash",
+            tool_response="Merged pull request #42 into main",
+            gh_exit="1", gh_json="",
+        )
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        lines = [ln for ln in r.stderr.splitlines() if ln.strip()]
+        self.assertEqual(1, len(lines), f"got: {r.stderr!r}")
+        self.assertIn("confirmation failed", lines[0])
+        self.assertEqual(before, self._bare_tip(bare))
+
+    def test_class_B_confirmation_malformed_json_declines_once(self):
+        # Given a merge command, when `gh pr view` exits 0 but its stdout
+        # is not valid JSON, then the hook declines with exactly one
+        # stderr line and a nonzero exit -- same class B as an auth
+        # failure: confirmation could not run, not "confirmed unmerged".
+        bare, work = self._build_fixture("class-b-json", with_edge=True)
+        before = self._bare_tip(bare)
+        r = self._run_hook(
+            work, "gh pr merge 42 --squash",
+            tool_response="Merged pull request #42 into main",
+            gh_json="not-json-at-all",
+        )
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        lines = [ln for ln in r.stderr.splitlines() if ln.strip()]
+        self.assertEqual(1, len(lines), f"got: {r.stderr!r}")
+        self.assertIn("confirmation failed", lines[0])
+        self.assertEqual(before, self._bare_tip(bare))
+
+    def test_class_C_confirmed_not_merged_declines_once(self):
+        # Given a merge command, when `gh pr view` succeeds and reports a
+        # state other than MERGED, then the hook declines with exactly
+        # one stderr line and a nonzero exit. (Also covered end-to-end by
+        # test_failed_merge_never_pushes above; this is the class's own
+        # minimal Given-When-Then case.)
+        bare, work = self._build_fixture("class-c", with_edge=True)
+        before = self._bare_tip(bare)
+        r = self._run_hook(
+            work, "gh pr merge 42 --squash",
+            tool_response="Merged pull request #42 into main",
+            gh_json='{"state": "CLOSED", "mergedAt": null}',
+        )
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        lines = [ln for ln in r.stderr.splitlines() if ln.strip()]
+        self.assertEqual(1, len(lines), f"got: {r.stderr!r}")
+        self.assertIn("not merged", lines[0])
+        self.assertEqual(before, self._bare_tip(bare))
 
 
 if __name__ == "__main__":
