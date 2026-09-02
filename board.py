@@ -1365,7 +1365,36 @@ def fail_closed_downgrade(outcome: str, issue: int | None, blocked: list,
         return "failed-no-commit"
     if new_commit or already_delivered:
         return outcome
+    # issue #3050: `new_commit` is a purely local before/after HEAD diff on
+    # this session's own workspace -- the same signal that misclassified a
+    # session that had already committed, pushed, and moved its PR's head
+    # as `failed-no-commit` (issue timeline: 10:28 corrects+pushes, 10:38 a
+    # second session is spawned onto the same already-corrected unit).
+    # `push_succeeded` is a real remote check (`ensure_pushed()` diffs the
+    # branch against `origin/<branch>` before deciding whether to push at
+    # all, not a self-report) -- reconcile against it here, before this
+    # outcome is published and `_self_trigger_respawn()` acts on it
+    # synchronously, rather than trusting the local diff alone and leaving
+    # the disagreement for `[reconcile-poll-disagreement]` to name after a
+    # duplicate respawn has already fired.
+    if push_succeeded:
+        return outcome
     return "failed-no-commit"
+
+
+def reconcile_disagreement(outcome: str, issue: int | None, blocked: list,
+                           new_commit: bool, uncommitted: list,
+                           already_delivered: bool, push_succeeded: bool) -> bool:
+    """True exactly when `fail_closed_downgrade()`'s remote reconciliation
+    (issue #3050) is what kept `outcome == "progressed"` from falling to
+    `failed-no-commit` -- the local (`new_commit`) and remote
+    (`push_succeeded`) signals disagreed. Split out from
+    `fail_closed_downgrade()` itself so the caller can name the
+    disagreement (`[reconcile-poll-disagreement]`-shaped) at the moment
+    outcome is decided, without re-deriving the same condition inline."""
+    return (issue is not None and not blocked and not uncommitted
+            and not new_commit and not already_delivered and push_succeeded
+            and outcome == "progressed")
 
 
 def _recovery_policy_module():
