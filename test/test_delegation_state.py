@@ -724,6 +724,21 @@ class MalformedManifestTest(unittest.TestCase):
         "surrogate_in_tool": [{"tool": "Bash\ud800", "resource": "git *"}],
         "surrogate_in_resource": [{"tool": "Bash", "resource": "git \ud800*"}],
         "surrogate_in_repo": [{"tool": "Bash", "resource": "git *", "repo": "on-the-record\ud800"}],
+        # issue #3061 round 6 (PR #3207 hole 2): round 5 only checked the
+        # three NAMED fields -- a surrogate anywhere else in the entry
+        # still reached grant()'s UTF-8 disk write uncaught, destroying
+        # any pre-existing valid state in the process (write_text()
+        # truncates before the encode error fires). Covered in every
+        # position a string can appear that isn't one of the three named
+        # fields: an unlisted key's value, a surrogate used AS a dict
+        # key, and a surrogate nested inside a structure under a
+        # non-named field.
+        "surrogate_in_unlisted_key_value": [
+            {"tool": "Bash", "resource": "git *", "note": "bad\ud800"}],
+        "surrogate_as_dict_key": [
+            {"tool": "Bash", "resource": "git *", "\ud800": "value"}],
+        "surrogate_nested_under_non_named_field": [
+            {"tool": "Bash", "resource": "git *", "meta": {"nested": ["ok", "bad\ud800"]}}],
     }
 
     def test_is_covered_never_crashes_and_escalates_on_every_shape(self):
@@ -878,15 +893,23 @@ class EpisodeBindingTest(unittest.TestCase):
     def test_episode_ends_at_the_next_ask_not_the_end_of_log(self):
         # A second, later ask (with its own uncovered action further on)
         # must not pull that later action into THIS episode's check.
+        # issue #3061 round 6 (PR #3207 hole 3): completion is now checked
+        # per-episode, not per-log -- the first episode needs its OWN
+        # `result` event (marking that turn's own end) to read as
+        # known-complete rather than indeterminate, the same as any other
+        # episode would.
         events = [
             _assistant_text_event(self.now, "첫 번째: 계속 진행할까요?"),
             _assistant_tool_use_event(self.now + timedelta(seconds=5), "Bash", "command", "git status"),
+            _result_event(self.now + timedelta(seconds=6)),
             _assistant_text_event(self.now + timedelta(seconds=20), "두 번째: 계속 진행할까요?"),
             _assistant_tool_use_event(self.now + timedelta(seconds=25), "Bash", "command", "rm -rf /"),
         ]
         result = self._audit(events)
-        # First episode (just "git status") is fully covered -> flagged.
-        # Second episode (just "rm -rf /") is not covered -> not flagged.
+        # First episode (just "git status") is fully covered and known-
+        # complete -> flagged. Second episode (just "rm -rf /") is not
+        # covered -> not flagged (and, having no result event of its own
+        # and running off the end of the log, also indeterminate).
         self.assertEqual(result["count"], 1)
         self.assertIn("첫 번째", result["flagged"][0]["text_excerpt"])
 
@@ -1000,6 +1023,90 @@ class TruncatedLogIndeterminateTest(unittest.TestCase):
         text = ds.format_audit(result)
         self.assertIn("indeterminate", text.lower())
         self.assertIn("계속 진행할까요?", text)
+
+
+class MultiEpisodeCompletionTest(unittest.TestCase):
+    """issue #3061 round 6 (PR #3207 hole 3): round 5's `log_reached_
+    completion` was computed ONCE per log file -- "does a `result` event
+    exist anywhere in this log" -- and only consulted for the one episode
+    whose boundary ran off the end of the transcript. A log can carry
+    more than one `result` event (one per completed episode), so an
+    EARLIER episode completing said nothing about whether a LATER
+    episode -- including a middle one bounded by a genuinely-found next
+    ask -- ever reached its own. audit() now checks every episode it
+    reports on independently: known-complete only if a `result` event
+    falls strictly inside THAT episode's own stretch."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.repo = str(Path(self._tmp.name) / "myrepo")
+        Path(self.repo).mkdir()
+        self.work_dir = Path(self._tmp.name) / "work"
+        self.work_dir.mkdir()
+        self.log = self.work_dir / "myrepo.session.1.1.log"
+        self.now = datetime.now(timezone.utc)
+        self.granted_at = self.now - timedelta(hours=1)
+        self.manifest = [{"tool": "Bash", "resource": "git *", "repo": "*"}]
+        ds.grant(self.repo, "다 판단해서 처분해서 해", "jiwon", now=self.granted_at,
+                  skill_env="", manifest=self.manifest)
+        self.since = (self.now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _audit(self, events):
+        _write_log(self.log, events)
+        return ds.audit(self.repo, self.since, work_dir=self.work_dir, now=self.now)
+
+    def test_two_complete_episodes_then_a_truncated_third_is_indeterminate(self):
+        # PR #3207's own named reproduction: earlier episodes completing
+        # normally must not make a LATER, genuinely truncated episode
+        # read as globally "reached completion" and get flagged clean.
+        events = [
+            _assistant_text_event(self.now, "첫 번째: 계속 진행할까요?"),
+            _assistant_tool_use_event(self.now + timedelta(seconds=5), "Bash", "command", "git status"),
+            _result_event(self.now + timedelta(seconds=6)),
+            _assistant_text_event(self.now + timedelta(seconds=10), "두 번째: 계속 진행할까요?"),
+            _assistant_tool_use_event(self.now + timedelta(seconds=15), "Bash", "command", "git log"),
+            _result_event(self.now + timedelta(seconds=16)),
+            _assistant_text_event(self.now + timedelta(seconds=20), "세 번째: 계속 진행할까요?"),
+            _assistant_tool_use_event(self.now + timedelta(seconds=25), "Bash", "command", "git status"),
+            # No result event for episode 3 -- the process died here.
+        ]
+        result = self._audit(events)
+        # Episodes 1 and 2: covered and each independently known-complete
+        # via their own `result` event -> both flagged.
+        self.assertEqual(result["count"], 2)
+        flagged_texts = {f["text_excerpt"] for f in result["flagged"]}
+        self.assertIn("첫 번째: 계속 진행할까요?", flagged_texts)
+        self.assertIn("두 번째: 계속 진행할까요?", flagged_texts)
+        # Episode 3: visible action is covered too, but no result event
+        # of its own -> indeterminate, never flagged despite looking clean.
+        self.assertEqual(len(result["indeterminate"]), 1)
+        self.assertIn("세 번째", result["indeterminate"][0]["text_excerpt"])
+
+    def test_middle_episode_truncated_while_last_completes_is_indeterminate(self):
+        # The reverse shape: the FIRST episode is the one cut off (no
+        # result event of its own), but the log keeps being written to --
+        # a later ask is found, and that later episode does reach its own
+        # completion. Finding a next ask proves the log kept being
+        # written, not that the earlier episode's own turn ever finished.
+        events = [
+            _assistant_text_event(self.now, "첫 번째: 계속 진행할까요?"),
+            _assistant_tool_use_event(self.now + timedelta(seconds=5), "Bash", "command", "git status"),
+            # No result event here -- episode 1 never reached its own end.
+            _assistant_text_event(self.now + timedelta(seconds=10), "두 번째: 계속 진행할까요?"),
+            _assistant_tool_use_event(self.now + timedelta(seconds=15), "Bash", "command", "git log"),
+            _result_event(self.now + timedelta(seconds=16)),
+        ]
+        result = self._audit(events)
+        # Episode 2: covered and known-complete -> flagged.
+        self.assertEqual(result["count"], 1)
+        self.assertIn("두 번째", result["flagged"][0]["text_excerpt"])
+        # Episode 1: visible action is covered, but it never reached its
+        # own completion marker before the next ask arrived -> indeterminate.
+        self.assertEqual(len(result["indeterminate"]), 1)
+        self.assertIn("첫 번째", result["indeterminate"][0]["text_excerpt"])
 
 
 if __name__ == "__main__":
