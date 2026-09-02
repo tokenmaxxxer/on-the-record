@@ -551,6 +551,7 @@ init_board = _board_mod.init_board
 init_requirement_digest = _board_mod.init_requirement_digest
 lint_issue = _board_mod.lint_issue
 ownership_report = _board_mod.ownership_report
+reconcile_disagreement = _board_mod.reconcile_disagreement
 require_acceptance_gate = _board_mod.require_acceptance_gate
 require_board = _board_mod.require_board
 require_no_repo_config = _board_mod.require_no_repo_config
@@ -3760,6 +3761,21 @@ def _resolve_and_echo_issue(skill: str, cwd: str, issue: int | None) -> dict | N
     return issue_data
 
 
+def _push_succeeded(push_result: dict | None) -> bool:
+    """Derive `push_succeeded` from `ensure_pushed()`'s result (issue
+    #3050). `"nothing-to-push"` means `ensure_pushed()`'s own local
+    `git rev-parse --verify -q <role-branch>` failed -- the session's role
+    branch never existed locally, i.e. zero commits were ever made. That
+    is not a successful push of nothing; it is the same "genuinely pushed
+    nothing" case must-not B names, and must reconcile to
+    `failed-no-commit` in `fail_closed_downgrade()` like any other
+    no-commit/no-push case, not fall through as if the push had
+    succeeded."""
+    return push_result is not None and push_result["status"] not in (
+        "push-rejected", "pr-create-failed", "nothing-to-push",
+        "issue-closed-stale-branch")
+
+
 def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
                issue: int | None = None, bounded: bool = False,
                stall_timeout_min: float = 5.0, no_wait: bool = False,
@@ -5023,8 +5039,7 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
               f"{push_result['reason']}", file=sys.stderr)
     new_commit = issue is not None and _is_new_commit(cwd, before_head, after_head)
     already_delivered = False
-    push_succeeded = push_result is not None and push_result["status"] not in (
-        "push-rejected", "pr-create-failed")
+    push_succeeded = _push_succeeded(push_result)
     if issue is not None and not blocked and not new_commit:
         branch = subprocess.run(["git", "-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"],
                                 capture_output=True, text=True).stdout.strip()
@@ -5032,6 +5047,22 @@ def _spawn_one(cwd: str, skill: str, task: str, unattended: bool,
             already_delivered = _pr_open_or_merged_for_branch(Path(cwd), branch) is not None
     downgraded = fail_closed_downgrade(outcome, issue, blocked, new_commit, uncommitted,
                                        already_delivered, push_succeeded)
+    # issue #3050: the local before/after HEAD diff (`new_commit`) and the
+    # remote push check (`push_succeeded`) disagreed, and the remote
+    # reconciliation is what kept `downgraded` at `outcome` instead of
+    # falling to `failed-no-commit` -- name that disagreement now, at the
+    # point a respawn path would otherwise consume a wrong-but-confident
+    # failed-no-commit, rather than leaving `[reconcile-poll-disagreement]`
+    # to catch it after a duplicate respawn has already fired.
+    if reconcile_disagreement(outcome, issue, blocked, new_commit, uncommitted,
+                              already_delivered, push_succeeded):
+        print(f"[reconcile-poll-disagreement] {skill}/issue-{issue}: local "
+              f"before/after HEAD diff (before {before_head}, after "
+              f"{after_head}) says no new commit, but the host push "
+              f"reconciliation says {push_result['status'] if push_result else '?'} "
+              "-- remote wins, outcome stays progressed; not resolved "
+              "silently, logged as a disagreement",
+              file=sys.stderr)
     if downgraded != outcome:
         if downgraded == "progressed-dirty-tree":
             print(f"[{skill}] 페일-클로즈드: progressed 로 자기보고 했고 새 "

@@ -56,6 +56,41 @@ wired into `lint_record()`'s blocking aggregation. A later stage (3 or
 verification (preventing the same actor from providing both an artifact
 and its independent check).
 
+## Supersession
+
+A correcting session can never write into or delete the record it is
+correcting — `board-gate.sh`'s write-set isolation (contract v3 s11)
+resolves ownership from the *writing* session's own project root, not
+from the path being written, so no write shape (in-place edit, revert,
+append-only) reaches a peer session's record (issue #3050 root-cause
+comment). When a correction round is instructed to fix a prior session's
+artifact, it writes only its own record and adds a `supersedes:`
+frontmatter line naming the record it corrects:
+
+```
+---
+supersedes: docs/issue-9101/reports/coding.md  # three fabricated figures
+...
+---
+```
+
+The reason travels as a plain-text comment on the same line, visible to a
+reader without parsing YAML. `supersession.py`'s `resolve_authoritative()`
+is the reader-side half: given every record's raw content (no git, no PR
+body, no issue comment), it decides which paths are authoritative from
+tree content alone — the target of a `supersedes:` line is superseded,
+the correcting record is authoritative, a dangling target or two records
+both claiming to supersede the same one fails closed (neither the target
+nor either corrector counts as authoritative).
+
+`supersedes:` only replaces a whole artifact. It has no shape for
+correcting one section inside a larger foreign record without marking
+that entire record non-authoritative — a correction confined to one
+section of a foreign record cannot use this field; see
+`docs/issue-3050/reports/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4.md`
+("Partial supersession" section) for what such a correction should do
+instead.
+
 ## What stays additive
 
 Per the stage-1 proposal's Constraints: `author:` and `kind:` are never
