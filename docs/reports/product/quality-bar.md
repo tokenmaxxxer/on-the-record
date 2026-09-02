@@ -328,3 +328,77 @@ Append-only, newest entry last.
   belong in the record. Source: operator comment on issue #3061,
   2026-09-02T07:27:45Z
   (https://github.com/tokenmaxxxer/on-the-record/issues/3061#issuecomment-5506047531).
+
+- 2026-09-02: when new liveness-dependent machinery is added (a sweep, a
+  prune, a self-update gate — anything that decides "is this pid's owner
+  still doing real work"), check whether this codebase already carries a
+  more-robust liveness primitive for exactly that need before reusing the
+  older, known-insufficient one. `roster._session_looks_real()` (cwd
+  cross-check via `/proc`, degrading gracefully off-platform) was already
+  built to close the exact pid-recycling hole a bare `_alive(pid)` /
+  `os.kill(pid, 0)` check has, and one sibling feature
+  (`self_update_pull_cli()`, issue #2749/PR #2823) already adopted it —
+  but `sweep_orphans()` (issue #3118/PR #3126) built new liveness-gated
+  cleanup on top of the older `_live_workspaces_union()` primitive
+  instead, reintroducing the same known gap in a new place. The failure
+  mode here erred safe (a recycled-pid workspace is never reclaimed
+  rather than being deleted while live), so it was not blocking, but the
+  pattern — a fix that exists in the codebase not getting carried to a
+  new call site with the identical need — is the thing to check for
+  before shipping new liveness-gated machinery, not just "did I handle
+  the case I thought of." Source: this session's independent verification
+  of PR #3126, docs/issue-3118/reports/test-depth-audit+experiment-trust+
+  silent-failure-audit-b3d43cb1.md, open finding 2, 2026-09-02.
+
+- 2026-09-02: when a program repeatedly fails to discriminate two classes
+  from a text description of them, and each narrowing round breaks the
+  same way on a fresh adversarial input (issue #3061's redundant-ask
+  classifier: four independent verification rounds, PR #3097/#3102/
+  #3107/#3122, each found a genuine escalation misflagged as redundant
+  after the pattern list was narrowed to fix the previous round's
+  finding), the fix is not a fifth narrowing of the same classifier — it
+  is reclassifying a different object. Text inference over the sentence
+  ("was this phrased like an ask") does not hold up because a redundant
+  ask and a genuine escalation routinely share the words; the object
+  that actually distinguishes them is the action the sentence is about,
+  which can be looked up against an enumerable, structured record (a
+  manifest) instead of inferred. Where such a lookup is possible, the
+  safe-default direction (err toward the more expensive/cautious
+  outcome, per the 2026-09-02 entry above) becomes a structural property
+  of "not found in the set" rather than a measured recall/precision
+  trade-off that has to be re-verified against every new adversarial
+  input. The explicit cost of this move belongs in the record: a
+  structured lookup pushes authoring burden onto whoever writes the
+  record it looks things up against (here: an operator granting standing
+  delegation now has to name the actions it covers, not just say "쭉
+  해") — stating that boundary plainly, rather than inventing an
+  unrequested default to paper over it, is itself part of the fix.
+  Source: consult recommendation logged on issue #3061, operator comment
+  2026-09-02
+  (https://github.com/tokenmaxxxer/on-the-record/issues/3061), adopted in
+  the round-5 repair delivered onto PR #3087 (commit 8058de29) and this
+  session's own record,
+  docs/issue-3061/reports/implementation-blueprint+test-derivation+
+  silent-failure-audit-bbf549b4.md.
+
+- 2026-09-03: adversarial-review verification sessions (an evaluator
+  re-deriving another session's measurements/claims) are explicitly
+  exempt from the mounted `freelunch-directive`'s "any repo tool call is
+  always delegated to a background freelunch-worker" rule when the
+  spawning task says so. The rule's own text already carves out the same
+  exemption structurally (headless sessions must not delegate work whose
+  result isn't consumed the same turn) — but the sharper reason is that
+  the entire value of adversarial verification is a human-legible,
+  independently-executed trail of checks where each result informs the
+  next (profile a function, then decide whether that number rules out a
+  hypothesis, then check the next claim against it); handing the whole
+  unit to one raw, unverified worker and relaying its output unread is
+  indistinguishable from not verifying at all. A task spawning an
+  adversarial-review/verification role should say "do the work yourself,
+  no background worker" explicitly if it wants this exemption honored
+  without the session having to reconstruct the reasoning under the
+  freelunch directive's "absolute" framing. Source: spawning-prompt
+  instruction on issue #3186 (verification of PR #3193), this session,
+  and the resulting deviation-log entry at
+  docs/issue-3186/reports/adversarial-review+diagnose-first+silent-failure-audit-ced10aec/deviation-log/20260902T162532067515-686232cebf7aac13.md.
+  silent-failure-audit-b3d43cb1.md, open finding 2, 2026-09-02.

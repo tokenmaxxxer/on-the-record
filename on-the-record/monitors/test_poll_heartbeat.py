@@ -44,7 +44,11 @@ if sys.argv[1:2] == ["watchdog"]:
     report = os.environ.get("FAKE_WATCHDOG_REPORT", "")
     if report:
         print(report)
-    sys.exit(0)
+    # issue #3120: FAKE_WATCHDOG_RC lets a test drive any watchdog exit
+    # code (e.g. 95, WATCHDOG_STALE_CODE_SENTINEL) without needing a real
+    # HEAD change -- unset/default "0" preserves every pre-#3120 test's
+    # behavior unchanged.
+    sys.exit(int(os.environ.get("FAKE_WATCHDOG_RC", "0")))
 sys.exit(0)
 """
 
@@ -1595,6 +1599,216 @@ def t_force_reclaim_never_suppressed_issue_2977():
             f"every one of {n} force-reclaim events must produce its own line, never "
             f"suppressed or collapsed regardless of volume -- got {occurrences}: {log_text}"
         )
+
+
+# issue #3120 layer 1/2: WATCHDOG_STALE_CODE_SENTINEL (95) classification
+# and the exec-restart self-heal. FAKE_WATCHDOG_RC (added to FAKE_SPAWN_PY
+# above) drives the sentinel directly -- no real HEAD change needed, same
+# test-double convention this file already uses for every other watchdog
+# exit code.
+def t_heartbeat_classifies_stale_code_rc95():
+    """issue #3120 layer 1: rc=95 gets its own [watchdog-stale-code] label,
+    distinct from [watchdog-crash] and from silence -- previously the crash
+    check (rc>=128 || rc==97) did not match 95 at all, so the tick reported
+    nothing meaningful."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_RC": "95",
+                             "FAKE_WATCHDOG_REPORT": "[watchdog] stale-head-report"})
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "[watchdog-stale-code]" in r.stdout, r.stdout
+        assert "rc=95" in r.stdout, r.stdout
+        assert "[watchdog-crash]" not in r.stdout, r.stdout
+
+
+def t_heartbeat_rc95_not_confused_with_crash_rc97():
+    """issue #3120 layer 1 must-not: the new rc=95 branch must not swallow
+    or relabel the pre-existing rc=97 crash classification -- the two stay
+    mutually exclusive and both distinguishable."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_RC": "97"})
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "[watchdog-crash]" in r.stdout, r.stdout
+        assert "rc=97" in r.stdout, r.stdout
+        assert "[watchdog-stale-code]" not in r.stdout, r.stdout
+
+
+def t_heartbeat_routine_nonzero_rc_gets_neither_label():
+    """issue #3120 layer 1 must-not, third partition (test-derivation
+    equivalence check): roster_watchdog()'s own return value is an anomaly
+    COUNT, not a crash flag (issue #1274) -- an ordinary nonzero rc that is
+    neither >=128, nor ==97, nor ==95 (e.g. "3 anomalies found") must stay
+    completely unlabeled, exactly as before this issue. Pins the boundary
+    on the new elif's own `-eq 95` test: it must not widen to swallow any
+    other value in this routine-anomaly range."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_RC": "3",
+                             "FAKE_WATCHDOG_REPORT": "[poll-report] some-entry: 3 anomalies"})
+        assert r.returncode == 0, f"poll-heartbeat.sh should exit 0: {r.stderr}"
+        assert "[watchdog-crash]" not in r.stdout, r.stdout
+        assert "[watchdog-stale-code]" not in r.stdout, r.stdout
+
+
+def t_heartbeat_stale_code_restart_target_missing_skips_restart_not_crash():
+    """issue #3120 layer 2 mid-update guard, measured (not assumed): `exec`
+    into a file that is momentarily absent kills the process outright (bash
+    reports "No such file or directory" and exits 127) -- so before
+    exec'ing, the tick must confirm the exec TARGET itself
+    (${CHECKOUT}/on-the-record/monitors/poll-heartbeat.sh) exists. This
+    fixture's checkout deliberately has no such file (only checkout/spawn.py,
+    same as every other test in this file) -- the tick must fall back to a
+    clean, advisory skip instead of exec'ing into nothing and taking the
+    whole Monitor process down."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        assert not (checkout / "on-the-record" / "monitors" / "poll-heartbeat.sh").exists()
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+        r = _run_heartbeat(checkout, marker,
+                            {"FAKE_POLL_DUE": "1", "HOME": str(home),
+                             "FAKE_WATCHDOG_RC": "95"})
+        assert r.returncode == 0, (
+            f"a missing exec target must degrade to a skipped restart, "
+            f"never take the whole tick loop down: rc={r.returncode} "
+            f"stderr={r.stderr}"
+        )
+        assert "restart target unavailable" in r.stdout, r.stdout
+        assert "mid-update" in r.stdout, r.stdout
+
+
+def t_heartbeat_stale_code_execs_and_keeps_ticking():
+    """issue #3120 layer 2 (consumer condition, unit-level pin -- see also
+    gates/probe_heartbeat_survives_head_change.py for the standalone
+    acceptance probe): given a REAL exec target (a copy of this actual
+    script, not a stub), a tick that hits rc=95 execs into it and the new
+    process image keeps ticking -- proven the same way the probe proves it:
+    an `exec` restart resets the bash loop's own `tick` counter, so with
+    POLL_HEARTBEAT_MAX_TICKS=N the total watchdog invocation count is
+    1 (the stale tick, pre-restart) + N (the post-restart image's own fresh
+    bound), never just N, which is what a loop that never restarts at all
+    would also produce."""
+    import shutil
+    import stat
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        exec_target = checkout / "on-the-record" / "monitors" / "poll-heartbeat.sh"
+        exec_target.parent.mkdir(parents=True)
+        shutil.copyfile(POLL_HEARTBEAT, exec_target)
+        exec_target.chmod(exec_target.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+        shutil.copyfile(MONITORS_DIR / "poll_heartbeat_delta.py",
+                         exec_target.parent / "poll_heartbeat_delta.py")
+        hooks_dir = checkout / "on-the-record" / "hooks"
+        hooks_dir.mkdir(parents=True)
+        shutil.copyfile(REPO_ROOT / "on-the-record" / "hooks" / "poll-rearm.sh",
+                         hooks_dir / "poll-rearm.sh")
+
+        marker = tmp / "marker.log"
+        home = tmp / "home"
+        home.mkdir()
+
+        n_post_restart_ticks = 2
+        env = dict(os.environ)
+        env["TOKENMAXXXER_CHECKOUT"] = str(checkout)
+        env["FAKE_SPAWN_MARKER"] = str(marker)
+        env["POLL_HEARTBEAT_MAX_TICKS"] = str(n_post_restart_ticks)
+        env["POLL_HEARTBEAT_SLEEP_SECONDS"] = "0"
+        env["FAKE_POLL_DUE"] = "1"
+        env["HOME"] = str(home)
+        env.pop("CLAUDE_SKILL", None)
+        env["OTR_MONITOR_OFF"] = ""
+
+        # the fake spawn.py reports 95 exactly once (its first-ever
+        # invocation against this marker file) and 0 forever after --
+        # mirrors gates/probe_heartbeat_survives_head_change.py's fixture.
+        fake_spawn_with_one_shot_stale = """#!/usr/bin/env python3
+import os, sys
+marker = os.environ["FAKE_SPAWN_MARKER"]
+if sys.argv[1:2] == ["poll-due"]:
+    sys.exit(0)
+if sys.argv[1:2] == ["watchdog"]:
+    with open(marker, "a", encoding="utf-8") as f:
+        f.write("watchdog-ran\\n")
+    n = sum(1 for _ in open(marker, encoding="utf-8"))
+    if n == 1:
+        print("[watchdog] stale-head")
+        sys.exit(95)
+    sys.exit(0)
+sys.exit(0)
+"""
+        (checkout / "spawn.py").write_text(fake_spawn_with_one_shot_stale, encoding="utf-8")
+
+        r = subprocess.run(
+            ["bash", str(POLL_HEARTBEAT)], input="", capture_output=True, text=True,
+            env=env, timeout=20,
+        )
+        assert r.returncode == 0, f"bounded run must still exit 0: {r.stderr}\n{r.stdout}"
+        assert "[watchdog-stale-code]" in r.stdout, r.stdout
+
+        n_watchdog_runs = sum(
+            1 for line in marker.read_text(encoding="utf-8").splitlines()
+            if line.strip() == "watchdog-ran"
+        )
+        expected = 1 + n_post_restart_ticks
+        assert n_watchdog_runs == expected, (
+            f"expected {expected} watchdog invocations (1 stale + "
+            f"{n_post_restart_ticks} post-restart from a reset tick "
+            f"counter), got {n_watchdog_runs} -- a bare {n_post_restart_ticks} "
+            f"would mean the tick counter never reset, i.e. no exec restart "
+            f"happened at all: {r.stdout!r}"
+        )
+
+
+def t_poll_heartbeat_delta_always_emits_stale_code_label():
+    """issue #3120: [watchdog-stale-code] joins poll_heartbeat_delta.py's
+    always-emit set (mirroring [watchdog-crash]) so the classification line
+    is never suppressed by the line-keyed dedup even if an identical-text
+    stale tick were ever compared against a matching previous tick."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        tmp = Path(d)
+        checkout = _make_checkout(tmp)
+        home = tmp / "home"
+        home.mkdir()
+        report = "[watchdog-stale-code] watchdog exited rc=95 (checkout HEAD changed — restarting)"
+
+        r1 = _run_tick(checkout, home, report)
+        assert r1.returncode == 0, r1.stderr
+        assert "[watchdog-stale-code]" in r1.stdout, r1.stdout
+
+        # identical text on a second tick: ALWAYS_RE membership means it
+        # must still emit, unlike an ordinary unkeyed line that would be
+        # suppressed as unchanged.
+        r2 = _run_tick(checkout, home, report)
+        assert r2.returncode == 0, r2.stderr
+        assert "[watchdog-stale-code]" in r2.stdout, r2.stdout
 
 
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("t_")]

@@ -1,0 +1,67 @@
+{
+  "issue": 3127,
+  "run_status": "not_executed",
+  "run_status_reason": "This session built and dry-run-validated scripts/issue-3127/run_consumer_pair.py but did not pass --execute. Two independent, evidence-backed reasons: (1) spawn.py's real --skills dispatch path self-daemonizes (fork + os.setsid() + start_new_session=True + stdio redirected to devnull -- spawn.py:4684-4749) rather than blocking in the caller, so a headless single-shot session (contract v3 s22: must consume delegated work within the same turn, or not delegate it) cannot safely fire-and-forget a detached recursive claude session it cannot then observe finishing; the harness instead requires a second blocking `spawn.py watch --follow` call, which is implemented in execute_arm() but was never run live. (2) Running it for real creates real GitHub issues/PRs in a sandbox repo and spends real compute across multiple recursive full sessions -- a real-world side effect large enough to warrant explicit confirmation before a headless session takes it unilaterally, and this session had no turn in which a human could grant that confirmation (headless, single-shot, no later turn for an answer to land in).",
+  "pre_registration_ref": "docs/issue-3127/decisions/pre-registration.md",
+  "pairs_registered": [
+    "01-study-groups",
+    "02-onboarding-experiment"
+  ],
+  "threshold": {
+    "primary_metric": "blind deliverable score margin (sum(skills-on) - sum(skills-off)) across registered pairs",
+    "decision_rule": "better if skills-on wins >=3 of pairs AND combined margin >=3; worse under the symmetric condition; indistinguishable otherwise",
+    "guardrail": "skills-on wall-clock-to-landed must not exceed skills-off's by more than 50% combined, AND skills-on verification-round count must not exceed skills-off's by more than 1 round combined -- a primary-metric win alongside a breached guardrail is reported as a breach, not an unqualified win",
+    "sample_size": "n=2 pairs registered for this run (01-study-groups, 02-onboarding-experiment), extensible to n=4",
+    "threshold_met": null,
+    "threshold_met_reason": "unmeasured -- no data was collected this session, see run_status"
+  },
+  "confound_check": {
+    "question": "issue #3091's diagnosis: does test/test_spawn_cross_family_skill_selection.py::Bm25CrossFamilySkillMatchesTest::test_family_skill_never_returned_as_cross_family_candidate pin a family-skill exclusion that issue #2507 intentionally removed, narrowing the candidate pool #3053 measured against?",
+    "finding": "current pool is NOT narrowed by this rule -- #3053's selection numbers do not need re-deriving on this account",
+    "evidence": [
+      "pipeline.py's _cross_family_candidate_corpus() docstring states verbatim: '이슈 #2507: `_ROLE_SKILLS[role]` exclusion 은 없앴다 -- 고정 role->skill 표가 더 이상 family를 정의하지 않으므로... 후보 풀을 role 기준으로 미리 좁힐 이유가 사라졌다.' The function body confirms this: it deletes the `skill` parameter (`del skill`) and only excludes `_sp._STATIC_POLICY_SKILLS` (policy skills like work-in-english), never a role-family set.",
+      "test/test_spawn_cross_family_skill_selection.py::Bm25CrossFamilySkillMatchesTest::test_family_skill_never_returned_as_cross_family_candidate currently FAILS live (re-run this session via the lint-test-on-edit hook on Read of that file) -- it asserts the pre-#2507 exclusion behavior against the post-#2507 implementation, confirming the exclusion is gone from the code, not just from the docstring's claim about it.",
+      "commit dates: issue #2507's landing commits (0879f12a, 28e9c1e9) are dated 2026-08-26; issue #3053's actual paired run landed in commit 573e7382 dated 2026-09-02 -- #3053 ran against main after #2507 had already removed the exclusion, so its candidate pool already reflected current (non-excluding) behavior."
+    ],
+    "separate_defect_noted_not_fixed_here": "the stale, currently-failing unit test itself (asserting behavior #2507 removed) is a test-currency defect independent of runtime pool composition -- already covered by issue #3091's diagnosis scope, not fixed in this PR (out of this issue's scope)."
+  },
+  "slug_scrub": {
+    "implemented": "scripts/issue-3127/run_consumer_pair.py::scrub_skill_slugs()",
+    "applied_this_session": false,
+    "reason": "no real deliverables exist to scrub or score (run_status: not_executed) -- whether the scrub changes any score is unmeasured, not zero-effect"
+  },
+  "arms": {
+    "skills-on": {
+      "quality_blind_score": null,
+      "wall_clock_to_pr_open_s": null,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not measured -- see run_status; this harness can only ever measure time-to-PR-open, not time-to-landed -- see execute_arm()",
+      "tokens_total": null,
+      "directive_composition_bytes": null,
+      "verification_rounds": null,
+      "verification_defects_found": null,
+      "note": "not measured -- see run_status",
+      "bm25_selection_position": null
+    },
+    "skills-off": {
+      "quality_blind_score": null,
+      "wall_clock_to_pr_open_s": null,
+      "wall_clock_to_landed_s": null,
+      "landing_measurement_status": "not measured -- see run_status; this harness can only ever measure time-to-PR-open, not time-to-landed -- see execute_arm()",
+      "tokens_total": null,
+      "directive_composition_bytes": null,
+      "verification_rounds": null,
+      "verification_defects_found": null,
+      "note": "not measured -- see run_status"
+    }
+  },
+  "decision": "unmeasured -- not a null result (no data was collected this session); see power statement in pre-registration.md",
+  "power_statement": "At the registered n=2 pairs, a binary per-pair win/loss/tie read has no meaningful statistical power to distinguish a true small effect from noise under any reasonable significance convention. The registered decision rule is a directional threshold (met/not-met against a fixed +/-3-point margin, a 50% wall-clock guardrail, and a 1-round guardrail), never a significance test. Had this session executed the harness and returned 'indistinguishable', that would mean the sample could not resolve an effect smaller than the registered 3-point margin (roughly one grade-band shift per pair on the rubric scale) -- it would not mean no such effect exists. Because no run occurred at all, this JSON reports zero information about effect size in either direction, not a null.",
+  "next_steps_for_a_future_executing_session": [
+    "provision a sandbox repo (spawn.py init'd, docs/specs/approvers.md present) distinct from tokenmaxxxer/on-the-record itself, so real paired-run PRs never touch the production board",
+    "create the 2 registered pairs' issues (skills-on issue + skills-off issue per pair) in that sandbox with identical body text except the arm label",
+    "run scripts/issue-3127/run_consumer_pair.py --execute --i-understand-this-spawns-real-sessions --repo <sandbox> in a session with enough turn budget to block on spawn.py watch --follow per arm (see execute_arm())",
+    "run scrub_skill_slugs() against each arm's deliverable before scoring, and report whether the scrub changed either pair's score",
+    "re-run scripts/issue-3127/verify_preregistration.py before interpreting the populated results -- the pre-registration commit that already exists on this branch remains valid and must not be re-written after seeing the new data"
+  ]
+}

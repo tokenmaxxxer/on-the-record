@@ -477,6 +477,8 @@ _dir_size_bytes = lifecycle._dir_size_bytes
 _live_workspaces = lifecycle._live_workspaces
 _live_workspaces_union = lifecycle._live_workspaces_union
 _monitor_alive_root = lifecycle._monitor_alive_root
+_orphan_min_age_seconds = lifecycle._orphan_min_age_seconds
+_orphaned_sidecar_groups = lifecycle._orphaned_sidecar_groups
 _post_crash_comment = lifecycle._post_crash_comment
 _post_session_end_comment = lifecycle._post_session_end_comment
 _post_stall_comment = lifecycle._post_stall_comment
@@ -488,11 +490,15 @@ _respawn_or_cap = lifecycle._respawn_or_cap
 _respawn_state_load = lifecycle._respawn_state_load
 _respawn_state_save = lifecycle._respawn_state_save
 _roster_reconcile_unreported = lifecycle._roster_reconcile_unreported
+_scan_orphan_worktrees = lifecycle._scan_orphan_worktrees
+_scan_orphan_workspaces = lifecycle._scan_orphan_workspaces
 _self_trigger_respawn = lifecycle._self_trigger_respawn
 _sibling_checkout_roots = lifecycle._sibling_checkout_roots
 _sibling_live_sessions = lifecycle._sibling_live_sessions
+_sidecar_groups = lifecycle._sidecar_groups
 _sidecar_workspace_name = lifecycle._sidecar_workspace_name
 _subject_has_deliverable = lifecycle._subject_has_deliverable
+_sweep_temp_roots = lifecycle._sweep_temp_roots
 _temp_repos_base = lifecycle._temp_repos_base
 session_temp_root = lifecycle.session_temp_root
 sweep_temp_repos = lifecycle.sweep_temp_repos
@@ -501,12 +507,16 @@ _workspace_clean_state = lifecycle._workspace_clean_state
 _workspace_in_progress_merge = lifecycle._workspace_in_progress_merge
 _workspace_untracked_not_ignored = lifecycle._workspace_untracked_not_ignored
 _workspace_merge_trigger_status = lifecycle._workspace_merge_trigger_status
+_worktree_admin_dir = lifecycle._worktree_admin_dir
+_force_rmtree = lifecycle._force_rmtree
 auto_sweep = lifecycle.auto_sweep
 detect_legacy_monitor_alive_dirs = lifecycle.detect_legacy_monitor_alive_dirs
 gc_monitor_alive = lifecycle.gc_monitor_alive
 monitor_alive_gc_cli = lifecycle.monitor_alive_gc_cli
 roster_clean = lifecycle.roster_clean
 roster_kill = lifecycle.roster_kill
+sweep_orphans = lifecycle.sweep_orphans
+sweep_orphans_cli = lifecycle.sweep_orphans_cli
 
 # Issue #2105 extraction 8/N: board/approval/lint/report/session-verdict
 # machinery lives in board.py. Same mechanism as extractions 1-7 above:
@@ -2789,6 +2799,8 @@ def main() -> int:
                       self_heal=a.self_heal)
     if a.role == "clean":
         return roster_clean(_workspace_base(), a.issue, Path(a.cwd).resolve())
+    if a.role == "sweep-orphans":
+        return sweep_orphans_cli(_workspace_base(), a.dry_run)
     if a.role == "doctor":
         # 훅 발화 실측. 버전마다 한 번 — 룰북 집행의 전제조건이다.
         return doctor()

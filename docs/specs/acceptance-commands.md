@@ -44,3 +44,8 @@ command with no row here (degrade to `UNMEASURED-with-reason` instead).
 | gates/probe_supersession_marker.py | `python3 gates/probe_supersession_marker.py` | 2026-09-02 (issue #3050) |
 | tests/test_failed_no_commit_reconcile.py | `python3 -m pytest tests/test_failed_no_commit_reconcile.py -q` | 2026-09-02 (issue #3050) |
 | tests/ (full suite, -x) | `python3 -m pytest tests/ -q -x` | 2026-09-02 (issue #3050) -- 5 pre-existing failures unrelated to this repo's own board.py/spawn.py/supersession.py population, see docs/issue-3050/reports/implementation-blueprint+silent-failure-audit+test-derivation-150a8ac4.md's "Open findings"; `-x` makes the real exit code non-zero, so cite result: FAIL honestly rather than PASS |
+| tests/test_amends_resolution.py | `python3 -m pytest tests/test_amends_resolution.py -q` | 2026-09-02 (issue #3134) |
+| gates/probe_amends_is_discoverable.py | `python3 gates/probe_amends_is_discoverable.py` | 2026-09-02 (issue #3134) |
+| gates/probe_amends_fails_closed.py | `python3 gates/probe_amends_fails_closed.py` | 2026-09-02 (issue #3134) |
+| tests/ (full suite) | `python3 -m pytest tests/ -q` | 2026-09-02 (issue #3134) |
+| test/ (full suite) | `python3 -m pytest test/ -q` | 2026-09-02 (issue #3134) |
