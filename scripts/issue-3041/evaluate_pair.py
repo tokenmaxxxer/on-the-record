@@ -17,9 +17,30 @@ Usage:
 from __future__ import annotations
 import json
 import random
-import re
 import subprocess
 import sys
+
+
+def _extract_json_object(text: str):
+    """Find the first balanced {...} object in text, scanning brace depth
+    rather than a greedy regex, so braces inside quoted deliverable text
+    elsewhere in the response can't swallow an unrelated closing brace."""
+    start = text.find("{")
+    while start != -1:
+        depth = 0
+        for i in range(start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    candidate = text[start:i + 1]
+                    try:
+                        return json.loads(candidate)
+                    except json.JSONDecodeError:
+                        break
+        start = text.find("{", start + 1)
+    return None
 
 
 def main() -> None:
@@ -73,8 +94,9 @@ Respond with ONLY a JSON object, no other text, no markdown fences:
     except json.JSONDecodeError:
         pass
 
-    m = re.search(r"\{.*\}", response_text, re.DOTALL)
-    verdict_json = json.loads(m.group(0)) if m else {"error": "unparsed", "raw": response_text}
+    verdict_json = _extract_json_object(response_text)
+    if verdict_json is None:
+        verdict_json = {"error": "unparsed", "raw": response_text}
 
     out = {
         "task_file": task_file,
