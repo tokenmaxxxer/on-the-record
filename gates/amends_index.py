@@ -19,6 +19,34 @@ the index," not "opening A" -- a reader who does not already know the
 index exists has no path to the correction from A's own content. (2) is
 the fix; (1) stays as a secondary, cross-cutting view.
 
+Repair round 3 (this file): `check()` above blocks on BOTH axes at once
+(index staleness and a still-missing backlink) and scans the whole tree
+-- correct for a full/landing-time audit, but wiring it straight into the
+COMMIT-time hook denied a correcting session's own first commit of its
+own, necessarily-still-unlinked record, and let one unresolved edge
+anywhere deny every future report-touching commit repo-wide. Two scoped
+entry points fix that split:
+
+  - `check_staged(repo, staged)` -- commit-time. Only ever blocks on a
+    genuinely malformed edge (dangling target, missing section, conflict,
+    cycle) that `staged` (this commit's own touched paths) actually
+    participates in; a missing backlink or a stale index is never a
+    commit-time reason. Wired into `on-the-record/hooks/
+    amends-index-preflight.sh`.
+  - `check_landing(repo, staged)` -- merge-time, meant to run AFTER
+    `write_backlinks()`/`update()` have already applied. Reports
+    `check_staged()`'s reasons again plus any of this PR's own edges the
+    apply step still could not resolve. Not currently called by any hook
+    (`amends_landing.py::land()`, the automatic caller of the apply step
+    itself, is what `amends-landing-apply.sh` -- a `PostToolUse` hook,
+    which cannot deny -- invokes on a successful `gh pr merge`; see that
+    module's docstring for "who applies it, and why nothing did before").
+    Live enforcement of a still-broken edge stays at commit time
+    (`check_staged()`, above) -- a structurally-sound edge always resolves
+    cleanly at the automatic-apply step, so `check_landing()` exists,
+    tested, for a future `PreToolUse` deny gate should a residual case
+    (e.g. two PRs landing the same target#anchor in a race) ever need one.
+
   python3 gates/amends_index.py [<repo root>]                    # check mode (CI)
   python3 gates/amends_index.py [<repo root>] --update            # regenerate the index
   python3 gates/amends_index.py [<repo root>] --apply-backlinks   # landing step: write backlinks
@@ -29,7 +57,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT))
 import amends  # noqa: E402
 import amends_backlink  # noqa: E402
 
@@ -79,7 +108,7 @@ def _load_records(repo: Path) -> dict[str, str]:
 
 
 def render_index(records: dict[str, str]) -> str:
-    """The full `docs/amends-index.md` content, deterministic from
+    """The full `docs/specs/amends-index.md` content, deterministic from
     `records` (path -> content) alone -- no filesystem access beyond
     what the caller already loaded, matching `amends.py`'s own
     tree-content-only contract."""
@@ -163,6 +192,110 @@ def check(repo: Path) -> list[str]:
     return bad
 
 
+def _structural_problems(repo: Path, staged: set[str]) -> list[str]:
+    """Issue #3134 repair round 3, findings 1+2: the part of `check()`
+    that is safe to enforce at COMMIT time -- a dangling target, a
+    missing section anchor, a conflict, or a cycle are wrong regardless
+    of landing order, unlike `missing_backlinks`/index-staleness (which
+    can only ever be true pre-landing -- see `check_staged()`'s
+    docstring). Scoped to `staged`: only a problem this commit's own
+    staged paths actually participate in is ever reported, so a
+    pre-existing problem elsewhere in the tree -- introduced by some
+    other, already-landed session -- never blocks an unrelated commit
+    (round-3 finding 2: `check()`'s original whole-tree scan let one
+    unresolved edge anywhere deny every future report-touching commit,
+    repo-wide, by any session)."""
+    records = _load_records(repo)
+    verdict = amends.resolve_amendments(records)
+    bad: list[str] = []
+
+    norm_to_key: dict[str, str] = {}
+    for path in sorted(records, reverse=True):
+        norm_to_key[amends.posixpath.normpath(path)] = path
+
+    for path in sorted(staged):
+        content = records.get(path)
+        if content is None:
+            continue
+        parsed = amends.parse_amends(content)
+        if parsed is None:
+            continue
+        raw_target, anchor = parsed
+        resolved = norm_to_key.get(amends.posixpath.normpath(raw_target))
+        if resolved is None:
+            bad.append(f"{path}: `amends:` target {raw_target!r} does not "
+                       "exist in this tree.")
+            continue
+        if anchor not in amends.extract_section_anchors(records[resolved]):
+            bad.append(f"{path}: `amends:` target section "
+                       f"{resolved}#{anchor} does not exist.")
+
+    for key, correctors in sorted(verdict["conflicts"].items()):
+        target = key.rsplit("#", 1)[0]
+        if ({target, *correctors}) & staged:
+            bad.append(f"{key} is claimed by more than one corrector: "
+                       + ", ".join(f"`{c}`" for c in correctors))
+
+    for cycle_str in verdict["cycles"]:
+        corrector, rest = cycle_str.split("->", 1)
+        target = rest.rsplit("#", 1)[0]
+        if {corrector, target} & staged:
+            bad.append(f"amends: cycle: `{corrector}` -> `{rest}`")
+
+    return bad
+
+
+def check_staged(repo: Path, staged: set[str]) -> list[str]:
+    """Commit-time check -- issue #3134 repair round 3, findings 1+2.
+    `check()` above is the full/landing-time check: it also blocks on a
+    still-missing backlink or a stale index, both of which are properties
+    of the LANDING step (`write_backlinks()`/`update()`), not of any one
+    commit -- a correcting session's own first commit of its own
+    `amends:`-carrying record is, by construction, always pre-landing and
+    therefore always "unlinked" in that sense. Blocking it there (as
+    `check()` used to, wired straight into the commit-time hook) denied
+    the correcting session's own necessary commit -- the one action
+    write-set isolation was supposed to leave open (round-3 finding 1,
+    reproduced live in docs/issue-3134/reports/adversarial-review+
+    knowledge-management-supersession-lifecycle+silent-failure-audit-
+    48484397.md). `check_staged()` only ever reports `_structural_problems()`
+    -- a genuinely malformed edge (dangling target, missing section,
+    conflict, cycle), scoped to `staged` so a pre-existing problem
+    elsewhere in the tree is never this commit's fault (finding 2). See
+    `check_landing()` below for the merge-time counterpart that still
+    catches an edge left unlinked despite the automatic apply step."""
+    return _structural_problems(repo, staged)
+
+
+def check_landing(repo: Path, staged: set[str]) -> list[str]:
+    """Merge-time check -- issue #3134 repair round 3, finding 1's
+    "refuse to LAND it unlinked" half. Intended to run AFTER
+    `write_backlinks()`/`update()` have already been applied to `repo`
+    (see `amends_landing.land()` / `on-the-record/hooks/
+    amends-landing-apply.sh`, the automatic caller finding 3 adds).
+    Scoped to `staged` (this PR's own touched paths) for the same reason
+    `check_staged()` is: a pre-existing problem elsewhere in the tree is
+    not this PR's to fix or be blocked by. Reports `_structural_problems()`
+    again (defense in depth -- `check_staged()` should already have kept
+    a structurally-broken edge from landing on this branch at all) plus
+    any of this PR's own `amended` edges still missing their backlink --
+    which, once the automatic apply step above has run, only happens when
+    `write_backlinks()` itself could not resolve it (a structural problem
+    already reported above, or an apply-step failure), never merely
+    because nobody remembered to run the CLI by hand."""
+    bad = _structural_problems(repo, staged)
+    records = _load_records(repo)
+    for missing in amends_backlink.missing_backlinks(records):
+        target_anchor, _, rest = missing.partition(" (amended by ")
+        corrector = rest[:-1] if rest.endswith(")") else ""
+        target = target_anchor.split("#", 1)[0]
+        if {target, corrector} & staged:
+            bad.append(f"unlinked amendment at landing: {missing} -- the "
+                       "automatic backlink-apply step could not resolve "
+                       "this.")
+    return bad
+
+
 def update(repo: Path) -> None:
     records = _load_records(repo)
     (repo / INDEX_PATH).write_text(render_index(records), encoding="utf-8")
@@ -188,7 +321,21 @@ def main() -> int:
     do_apply_backlinks = "--apply-backlinks" in argv
     positional = [a for a in argv
                   if a not in ("--update", "--apply-backlinks")]
-    repo = Path(positional[0] if positional else ".").resolve()
+    # Issue #3134 repair round 3, finding 4: this used to default to
+    # `Path(".").resolve()` -- the invoking process's cwd, not this
+    # checkout's own root -- so `--update` and a bare `check` could
+    # silently disagree whenever they were not both run from the exact
+    # same directory (e.g. `check` run one level down, from `gates/`
+    # itself: `Path(".")` there resolves to `<repo>/gates`, so
+    # `INDEX_PATH` is looked up at `<repo>/gates/docs/specs/
+    # amends-index.md` and reported "missing" even immediately after
+    # `--update` wrote the real one at `<repo>/docs/specs/
+    # amends-index.md`). `_REPO_ROOT` (already computed above, for the
+    # `amends`/`amends_backlink` sys.path insert) is this checkout's own
+    # root regardless of cwd -- anchoring the no-arg default to it makes
+    # `--update` and `check` agree from anywhere; an explicit positional
+    # arg (a scratch/test repo) still overrides it exactly as before.
+    repo = Path(positional[0]).resolve() if positional else _REPO_ROOT
 
     if do_apply_backlinks:
         written = write_backlinks(repo)

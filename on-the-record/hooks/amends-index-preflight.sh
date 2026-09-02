@@ -32,15 +32,33 @@
 # itself (gate-registration-guard.sh precedent for narrow-by-design
 # triggers) -- an unrelated commit never pays the glob-scan cost.
 #
-# Known limitation (documented, not silently absorbed): `check()` reads
-# the WORKING TREE via `Path.read_text`, not staged git blobs (unlike
-# spec-index-preflight.sh's `git show :<path>`) -- a discrepancy between
-# staged content and the working tree (e.g. `git commit` without a prior
-# `git add` of a just-edited record) is a known gap, matching
-# `amends_index.py::check()`'s own existing contract rather than
-# introducing a new one; the working tree is what every session's own
-# Edit/Write tool calls actually write to before staging, so this holds
-# in the harness's normal write-then-add-then-commit sequence.
+# Repair round 3 (issue #3134 reopen, findings 1+2): this hook used to
+# call `amends_index.check()` -- the FULL check, blocking on a still-
+# missing backlink or a stale index just as readily as on a genuinely
+# malformed edge. That denied a correcting session's own first commit of
+# its own record (by construction always pre-landing, so always
+# "unlinked" in `check()`'s sense) and let one unresolved edge anywhere
+# in the tree deny every future report-touching commit, repo-wide, by any
+# session -- reproduced live in docs/issue-3134/reports/adversarial-
+# review+knowledge-management-supersession-lifecycle+silent-failure-
+# audit-48484397.md. This hook now calls `amends_index.check_staged()`
+# instead: scoped to this commit's own staged paths, and never blocking
+# on a missing backlink or index staleness at all -- those are landing-
+# step concerns, checked by `check_landing()` and resolved automatically
+# by `gates/amends_landing.py::land()` (see
+# `on-the-record/hooks/amends-landing-apply.sh`). Only a dangling target,
+# a missing section anchor, a conflict, or a cycle this commit's own
+# staged paths participate in is ever denied here.
+#
+# Known limitation (documented, not silently absorbed): `check_staged()`
+# reads the WORKING TREE via `Path.read_text`, not staged git blobs
+# (unlike spec-index-preflight.sh's `git show :<path>`) -- a discrepancy
+# between staged content and the working tree (e.g. `git commit` without
+# a prior `git add` of a just-edited record) is a known gap, matching
+# `amends_index.py`'s own existing contract rather than introducing a new
+# one; the working tree is what every session's own Edit/Write tool calls
+# actually write to before staging, so this holds in the harness's normal
+# write-then-add-then-commit sequence.
 #
 # Fail-open by design: any environment gap (no python3/git, no `gates/`
 # checkout here, unresolvable payload) exits 0. What must never happen is
@@ -121,9 +139,9 @@ try:
 except ImportError:
     sys.exit(0)  # fail open: this checkout's gates/ can't actually run the check
 
-bad = amends_index.check(Path(cwd))
+bad = amends_index.check_staged(Path(cwd), staged)
 if bad:
-    deny("would land an unlinked amends: edge:\n  - " + "\n  - ".join(bad))
+    deny("this commit's own amends: edge is malformed:\n  - " + "\n  - ".join(bad))
 PY
 
 OTR_HOOKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)" AIP_PAYLOAD="$payload" python3 -c "$GUARD"

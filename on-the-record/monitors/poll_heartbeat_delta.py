@@ -104,7 +104,41 @@ BOARD_SWEEP_LOCK_SKIP_RE = re.compile(
 FIXED_TAG_RE = re.compile(r"^\[([^\]]+)\]\s*([^:]+):")
 
 
+def format_wake_outcomes(state: dict) -> str:
+    """issue #3061: a heartbeat wake that advanced nothing (this tick's
+    delta against the previous tick was empty -- no new/changed line to
+    surface, so nothing for the orchestrator to act on) is a no-op wake /
+    idle-wake, counted distinctly from a wake that acted (delta non-empty).
+    Neither count is a defect signal by itself -- a tick where spawned
+    sessions are legitimately mid-flight has nothing to advance, and that
+    is expected, not counted as a failure; this is visibility, not a
+    threshold anything gates on."""
+    outcomes = state.get("wake_outcomes") or {}
+    idle_wake = int(outcomes.get("idle_wake", 0))
+    acted = int(outcomes.get("acted", 0))
+    if idle_wake == 0 and acted == 0:
+        return "wake outcomes: no wakes recorded yet (idle-wake=0, acted=0)"
+    return (f"wake outcomes: {idle_wake + acted} wake(s) recorded -- "
+            f"acted={acted}, idle-wake={idle_wake} (advanced nothing)")
+
+
 def main() -> None:
+    if len(sys.argv) >= 3 and sys.argv[1] == "--report":
+        # issue #3061: read-only report of this state file's accumulated
+        # wake-outcome counts -- no POLL_HEARTBEAT_TEXT tick involved.
+        state_path = sys.argv[2]
+        state = {}
+        if os.path.exists(state_path):
+            try:
+                with open(state_path, "r", encoding="utf-8") as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    state = loaded
+            except (OSError, ValueError):
+                pass
+        print(format_wake_outcomes(state))
+        return
+
     state_path, now_s = sys.argv[1], sys.argv[2]
     now = int(now_s)
     text = os.environ.get("POLL_HEARTBEAT_TEXT", "")
@@ -227,6 +261,20 @@ def main() -> None:
         for k in order if k.startswith("returned-pr:")
     }
 
+    # issue #3061: `to_emit` (not `emitted_now`) is the acted/idle-wake
+    # signal -- `emitted_now` also goes True for the pure liveness beacon
+    # below (nothing changed, still printed to prove the loop is alive),
+    # which is exactly the "advanced nothing" case this counts as
+    # idle-wake, not acted. See format_wake_outcomes() above. Computed here
+    # (before the beacon block) rather than at persist time so the beacon
+    # branch below can surface it in the same tick it fires.
+    prev_outcomes = prev.get("wake_outcomes") or {}
+    acted_this_tick = bool(to_emit)
+    wake_outcomes = {
+        "idle_wake": int(prev_outcomes.get("idle_wake", 0)) + (0 if acted_this_tick else 1),
+        "acted": int(prev_outcomes.get("acted", 0)) + (1 if acted_this_tick else 0),
+    }
+
     emitted_now = False
     if to_emit:
         sys.stdout.write("\n".join(new_pr_markers + to_emit) + "\n")
@@ -290,6 +338,19 @@ def main() -> None:
             for k in roster_keys:
                 beacon_lines.append("[monitor-heartbeat] " + curr[k].split("] ", 1)[1])
             if beacon_lines:
+                # issue #3061: nothing in the operational path ever called
+                # `--report`, so the wake-outcome counts accumulated but
+                # never surfaced (verification finding on PR #3087, both
+                # PR #3097 and PR #3102: Surface). Wired into this same
+                # ~1800s periodic beacon rather than every tick -- the
+                # beacon already exists precisely to periodically prove
+                # liveness with real content without re-opening #1732's
+                # removed unconditional per-tick chatter, and only fires
+                # when `beacon_lines` is already non-empty (a genuinely
+                # empty roster, nothing tracked, stays fully silent, same
+                # as today -- an empty roster is not itself a failure to
+                # report on, per the issue's third must-not).
+                beacon_lines.append(format_wake_outcomes({"wake_outcomes": wake_outcomes}))
                 sys.stdout.write("\n".join(beacon_lines) + "\n")
                 emitted_now = True
 
@@ -297,6 +358,7 @@ def main() -> None:
         "lines": new_lines,
         "last_emit_epoch": now if emitted_now else prev.get("last_emit_epoch", 0),
         "surfaced_returned_pr_issues": sorted(surfaced_issues),
+        "wake_outcomes": wake_outcomes,
     }
     os.makedirs(os.path.dirname(state_path), exist_ok=True)
     with open(state_path, "w", encoding="utf-8") as f:
