@@ -349,3 +349,35 @@ Append-only, newest entry last.
   the case I thought of." Source: this session's independent verification
   of PR #3126, docs/issue-3118/reports/test-depth-audit+experiment-trust+
   silent-failure-audit-b3d43cb1.md, open finding 2, 2026-09-02.
+
+- 2026-09-02: when a program repeatedly fails to discriminate two classes
+  from a text description of them, and each narrowing round breaks the
+  same way on a fresh adversarial input (issue #3061's redundant-ask
+  classifier: four independent verification rounds, PR #3097/#3102/
+  #3107/#3122, each found a genuine escalation misflagged as redundant
+  after the pattern list was narrowed to fix the previous round's
+  finding), the fix is not a fifth narrowing of the same classifier — it
+  is reclassifying a different object. Text inference over the sentence
+  ("was this phrased like an ask") does not hold up because a redundant
+  ask and a genuine escalation routinely share the words; the object
+  that actually distinguishes them is the action the sentence is about,
+  which can be looked up against an enumerable, structured record (a
+  manifest) instead of inferred. Where such a lookup is possible, the
+  safe-default direction (err toward the more expensive/cautious
+  outcome, per the 2026-09-02 entry above) becomes a structural property
+  of "not found in the set" rather than a measured recall/precision
+  trade-off that has to be re-verified against every new adversarial
+  input. The explicit cost of this move belongs in the record: a
+  structured lookup pushes authoring burden onto whoever writes the
+  record it looks things up against (here: an operator granting standing
+  delegation now has to name the actions it covers, not just say "쭉
+  해") — stating that boundary plainly, rather than inventing an
+  unrequested default to paper over it, is itself part of the fix.
+  Source: consult recommendation logged on issue #3061, operator comment
+  2026-09-02
+  (https://github.com/tokenmaxxxer/on-the-record/issues/3061), adopted in
+  the round-5 repair delivered onto PR #3087 (commit 8058de29) and this
+  session's own record,
+  docs/issue-3061/reports/implementation-blueprint+test-derivation+
+  silent-failure-audit-bbf549b4.md.
+  silent-failure-audit-b3d43cb1.md, open finding 2, 2026-09-02.
