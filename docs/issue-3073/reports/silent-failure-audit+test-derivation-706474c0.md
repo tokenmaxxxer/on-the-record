@@ -116,3 +116,4 @@ None — record is terminal.
 
 skill-verdict: silent-failure-audit — not-applicable: this issue's changes are hook_classification.json data entries and one test-literal update, no error-handling code (try/catch, I/O, network, validation) was written or modified
 skill-verdict: test-derivation — not-applicable: the issue's own Acceptance section already ships as three concrete executable checks (pytest/grep commands); there was no prose requirement needing technique selection or a traceability matrix to derive
+other mounted skills: not triggered
