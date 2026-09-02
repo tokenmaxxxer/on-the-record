@@ -65,3 +65,22 @@ None new. The full record (linked above, canonical:
 ## Next steps
 
 None — `loop_state: landed`.
+
+## skill-verdict
+
+skill-verdict: silent-failure-audit — applied: invoked; the enumerate-
+classify-trace procedure was applied on PR #3184's branch to the `except`
+sites in `scripts/preflight/consumer_preconditions.py` — see
+`046f12b7ee7234812430f487ffeed7ede5aae3fd:docs/issue-3182/reports/silent-failure-audit+implementation-blueprint+test-derivation-b63078f1.md`,
+"Sweep — every other precondition check, for the same shape" section,
+for the full trace and classification table. This branch carries no
+code, so nothing further to apply it to here.
+skill-verdict: test-derivation — applied: invoked; the route-by-problem-
+shape step (2-condition decision tables for both defects, at lightweight
+depth) was applied on PR #3184's branch — see the same record's
+"Defect 1"/"Defect 2" sections for the derived test cases. This branch
+carries no code, so nothing further to apply it to here.
+skill-verdict: implementation-blueprint — not-applicable: no new module
+boundary or multi-file structure decision this round (two function-local
+bug fixes plus matching regression tests in already-existing files); see
+the same reasoning recorded in the full record on PR #3184's branch.
