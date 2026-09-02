@@ -47,11 +47,10 @@ Incorrect to `cross_family` and to invoke-before-apply, rule 5 (name the
 failing clause) on every non-Present row, and rule 3 (Unverifiable names the
 missing evidence location, never a favorable/unfavorable guess) on the
 directive-payload row
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; re-derived the parent issue's own `skill_judge`
-indistinguishability claim and 87%-bootstrap-cost claim live instead of citing
-them, per rule 1 and rule 6 — the `skill_judge` claim did not survive
-re-derivation (see Mechanism 3 below)
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied: invoked; re-derived
+the parent issue's own `skill_judge` indistinguishability claim and
+87%-bootstrap-cost claim live instead of citing them, per rule 1 and rule 6 —
+the `skill_judge` claim did not survive re-derivation (see Mechanism 3 below)
 
 ### Mechanism 1: skill resolution from `--skills` (unknown-name and symlinked-source paths)
 
