@@ -21,8 +21,43 @@ same total-function contract as `hook_input.py` next to it).
 
 State (two local JSON files, issue #3129's design choice):
 
-  MARKER  <state_dir>/issue-<n>.marker.json      {"version": int, ...}
-  SEEN    <state_dir>/seen/<session>__issue-<n>.json   {"absorbed_version": int}
+  MARKER  <state_dir>/issue-<n>__<repo>.marker.json      {"version": int, ...}
+  SEEN    <state_dir>/seen/<session>__<repo>__issue-<n>.json   {"absorbed_version": int}
+
+Repo-attribution repair (PR #3137 follow-up): the marker was originally
+keyed by issue number alone. Two independent repos that both happen to use
+branch `issue-42/<role>` for issue #42 then share the identical marker
+path, so an orchestrator's edit in repo A lands in a worker's context in
+unrelated repo B verbatim -- the third instance of the orchestrator-
+shared-state-keyed-without-repo defect shape this board has found (after
+#3081's `requirement_drift` cache and #3095's `spawn_on_pr` park state).
+Every marker/seen path now carries a repo dimension.
+
+That repo identity is deliberately NOT `plumbing._repo_slug()` (what
+#3084 and #3106 both reuse) -- that helper shells out to `gh repo view`,
+a network round trip, and this module runs as a brand-new subprocess on
+EVERY PostToolUse call (see `amendment-channel.sh`), so calling it here
+would reintroduce on the repo-resolution path the exact must-not this
+issue's acceptance already forbids on the amendment-check path ("do not
+poll gh from PostToolUse"). `repo_slug_for_cwd()` below resolves the same
+`owner/repo` shape from `git remote get-url origin` instead -- local
+git-config plumbing only, the same no-network technique
+`spawn._workspace_target_path()` already uses elsewhere in this repo.
+
+Unresolvable repo (issue #3128's shape, applied here pre-emptively): when
+`repo_slug_for_cwd()` returns None -- no git repo at `cwd`, no `origin`
+remote, an origin URL this module's regex does not parse -- neither the
+write path nor the read path substitutes a fallback key (a path hash, a
+cwd basename, a literal `"unidentified"` string). Any shared fallback is
+itself a bucket two different unresolvable repos would collide into,
+which is the identical leak this repair fixes for the resolvable case.
+Instead, both paths skip entirely: the write path logs one stderr line
+(this session's repo could not be identified, so no marker was written --
+observable, not silently dropped) and returns without writing; the read
+path just returns None (indistinguishable from "no amendment," which is
+already this channel's fail-open shape for every other local I/O
+failure). No bucket is ever created for an unresolvable repo, so there is
+nothing for a second unresolvable repo to collide with.
 
 `version` is an explicit monotonic counter written into the marker's
 *content*, not read off the filesystem's mtime -- mtime granularity differs
@@ -70,6 +105,10 @@ _GH_ISSUE_EDIT_RE = re.compile(
 )
 _BODY_FLAG_RE = re.compile(r"--body(?:-file)?(?:=|\s|$)")
 _BRANCH_ISSUE_RE = re.compile(r"^issue-(\d+)\b")
+_REPO_URL_RE = re.compile(
+    r"^(?:https?://[^/]+/|git@[^:]+:|ssh://(?:[^@/]+@)?[^/]+/)"
+    r"(?P<slug>[^/]+/[^/]+?)(?:\.git)?/?$"
+)
 _NOTE_MAX = 2000
 
 
@@ -84,13 +123,46 @@ def _safe(s: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.-]", "_", s)
 
 
-def marker_path(state_dir: str, issue: str) -> str:
-    return os.path.join(state_dir, "issue-%s.marker.json" % _safe(str(issue)))
+def repo_slug_for_cwd(cwd: str) -> Optional[str]:
+    """The `owner/repo` this `cwd` checkout's `origin` remote points at, or
+    None when it cannot be determined -- no git repo here, no `origin`
+    remote configured, or an origin URL this module's regex does not
+    parse (see module docstring for why this does NOT shell out to
+    `gh repo view` the way `plumbing._repo_slug()` does: this runs on
+    every PostToolUse call, and that helper is a network round trip).
+
+    Callers must treat None as "this repo cannot be attributed" and skip
+    the read/write entirely -- never substitute a fallback key here, that
+    is the exact shared-bucket leak issue #3128 names.
+    """
+    if not cwd or not isinstance(cwd, str) or not os.path.isdir(cwd):
+        return None
+    try:
+        r = subprocess.run(
+            ["git", "-C", cwd, "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    origin = r.stdout.strip()
+    if not origin:
+        return None
+    m = _REPO_URL_RE.match(origin)
+    return m.group("slug") if m else None
 
 
-def seen_path(state_dir: str, session_id: str, issue: str) -> str:
+def marker_path(state_dir: str, repo: str, issue: str) -> str:
     return os.path.join(
-        state_dir, "seen", "%s__issue-%s.json" % (_safe(session_id), _safe(str(issue)))
+        state_dir, "issue-%s__%s.marker.json" % (_safe(str(issue)), _safe(repo))
+    )
+
+
+def seen_path(state_dir: str, session_id: str, repo: str, issue: str) -> str:
+    return os.path.join(
+        state_dir, "seen",
+        "%s__%s__issue-%s.json" % (_safe(session_id), _safe(repo), _safe(str(issue))),
     )
 
 
@@ -102,15 +174,16 @@ def _atomic_write_json(path: str, data: dict) -> None:
     os.replace(tmp, path)
 
 
-def read_marker(state_dir: str, issue: str) -> Optional[dict]:
-    """The current amendment marker for `issue`, or None if absent/corrupt.
+def read_marker(state_dir: str, repo: str, issue: str) -> Optional[dict]:
+    """The current amendment marker for `repo`'s `issue`, or None if
+    absent/corrupt.
 
     Never raises: a missing file, a permission error, or malformed JSON all
     read as "no amendment" (fail open) rather than crashing the caller's
     PostToolUse hook.
     """
     try:
-        with open(marker_path(state_dir, issue), "r", encoding="utf-8") as f:
+        with open(marker_path(state_dir, repo, issue), "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
         return None
@@ -119,8 +192,8 @@ def read_marker(state_dir: str, issue: str) -> Optional[dict]:
     return data
 
 
-def write_amendment(state_dir: str, issue: str, note: str = "") -> Optional[int]:
-    """Bump the amendment marker for `issue` and return the new version.
+def write_amendment(state_dir: str, repo: str, issue: str, note: str = "") -> Optional[int]:
+    """Bump the amendment marker for `repo`'s `issue` and return the new version.
 
     Called from the orchestrator's own PostToolUse call when it edits an
     issue body. Read-increment-write is not atomic across processes (two
@@ -133,22 +206,22 @@ def write_amendment(state_dir: str, issue: str, note: str = "") -> Optional[int]
     not exist -- never a crash of the orchestrator's own hook.
     """
     try:
-        existing = read_marker(state_dir, issue)
+        existing = read_marker(state_dir, repo, issue)
         version = (existing.get("version") if existing else 0) + 1
         data = {
             "version": version,
             "written_at": datetime.now(timezone.utc).isoformat(),
             "note": note[:_NOTE_MAX],
         }
-        _atomic_write_json(marker_path(state_dir, issue), data)
+        _atomic_write_json(marker_path(state_dir, repo, issue), data)
         return version
     except OSError:
         return None
 
 
-def _read_seen(state_dir: str, session_id: str, issue: str) -> int:
+def _read_seen(state_dir: str, session_id: str, repo: str, issue: str) -> int:
     try:
-        with open(seen_path(state_dir, session_id, issue), "r", encoding="utf-8") as f:
+        with open(seen_path(state_dir, session_id, repo, issue), "r", encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, ValueError):
         return 0
@@ -158,8 +231,10 @@ def _read_seen(state_dir: str, session_id: str, issue: str) -> int:
     return v if isinstance(v, int) else 0
 
 
-def _write_seen(state_dir: str, session_id: str, issue: str, version: int) -> None:
-    _atomic_write_json(seen_path(state_dir, session_id, issue), {"absorbed_version": version})
+def _write_seen(state_dir: str, session_id: str, repo: str, issue: str, version: int) -> None:
+    _atomic_write_json(
+        seen_path(state_dir, session_id, repo, issue), {"absorbed_version": version}
+    )
 
 
 def format_notice(issue: str, marker: dict) -> str:
@@ -175,8 +250,9 @@ def format_notice(issue: str, marker: dict) -> str:
     return base
 
 
-def check_notice(state_dir: str, session_id: str, issue: str) -> Optional[str]:
-    """Fire the notice for `issue` at most once per amendment for `session_id`.
+def check_notice(state_dir: str, session_id: str, repo: str, issue: str) -> Optional[str]:
+    """Fire the notice for `repo`'s `issue` at most once per amendment for
+    `session_id`.
 
     Returns the notice text the first time this session observes a marker
     version it has not yet absorbed, and None on every subsequent call
@@ -187,17 +263,17 @@ def check_notice(state_dir: str, session_id: str, issue: str) -> Optional[str]:
     crashing the hook.
     """
     try:
-        marker = read_marker(state_dir, issue)
+        marker = read_marker(state_dir, repo, issue)
         if marker is None:
             return None
         version = marker["version"]
-        seen = _read_seen(state_dir, session_id, issue)
+        seen = _read_seen(state_dir, session_id, repo, issue)
         if version <= seen:
             return None
         # Absorb BEFORE returning: the write below is what makes this
         # amendment stop being announced on the very next call, even if
         # nothing downstream reads the return value.
-        _write_seen(state_dir, session_id, issue, version)
+        _write_seen(state_dir, session_id, repo, issue, version)
         return format_notice(issue, marker)
     except OSError:
         return None
@@ -252,7 +328,7 @@ def issue_for_cwd(cwd: str) -> Optional[str]:
 
 def maybe_write_from_command(state_dir: str, tool_name: str, command: str, cwd: str) -> None:
     """Detect `gh issue edit <n> ... --body|--body-file ...` and bump that
-    issue's marker. Fires on the command text alone (no `tool_response`
+    repo's issue marker. Fires on the command text alone (no `tool_response`
     success check) -- this channel is advisory, and a false-positive bump
     from a failed `gh` call costs a worker one extra (harmless, non-
     blocking) re-read, not a wrong decision.
@@ -264,7 +340,21 @@ def maybe_write_from_command(state_dir: str, tool_name: str, command: str, cwd: 
         return
     issue = m.group(1)
     note = _extract_note(command, cwd)
-    if write_amendment(state_dir, issue, note=note) is None:
+    repo = repo_slug_for_cwd(cwd)
+    if repo is None:
+        # issue #3128's shape, applied pre-emptively: an unresolvable repo
+        # must not fall back to a shared bucket (no marker write at all --
+        # see module docstring), but that must not vanish with zero trace
+        # either, same reasoning as the unwritable-state-dir branch below.
+        sys.stderr.write(
+            "amendment-channel: could not identify the repo for this gh "
+            "issue edit (issue #%s) -- no marker written, the running "
+            "worker will not see this correction (repo unidentified; not "
+            "attributed to a shared bucket another unidentified repo "
+            "could read)\n" % issue
+        )
+        return
+    if write_amendment(state_dir, repo, issue, note=note) is None:
         # silent-failure-audit (issue #3129): write_amendment's own OSError
         # catch is correct fail-open for the ORCHESTRATOR's tool call (a
         # write it cannot make must never block that call), but the
@@ -316,7 +406,15 @@ def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[
     issue = issue_for_cwd(cwd)
     if not issue:
         return None
-    return check_notice(state_dir, session_id, issue)
+    repo = repo_slug_for_cwd(cwd)
+    if not repo:
+        # Unresolvable repo on the read side: stay quiet, same as any other
+        # local lookup failure this module already fails open on (missing
+        # marker, unwritable state dir). No fallback key is substituted
+        # here either, so there is nothing for a second unidentified repo
+        # to collide with.
+        return None
+    return check_notice(state_dir, session_id, repo, issue)
 
 
 def main() -> int:
