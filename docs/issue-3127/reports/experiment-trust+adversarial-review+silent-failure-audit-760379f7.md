@@ -300,9 +300,15 @@ skill-verdict: experiment-trust — not-applicable: no A/B experiment
 result is being interpreted or trusted this session; this is a
 pre-registration ordering-check verification, not an experiment-result
 review.
-other mounted skills: implementation-audit and work-in-english were
-also invoked (task-text-matched, not originally mounted) —
-implementation-audit's Present/Surface/Absent/Incorrect/Unverifiable
-taxonomy was applied to grade the 5 attack angles above; work-in-english
-governed this record's and the fixtures' language (Korean reserved for
-the final user-facing summary only).
+skill-verdict: implementation-audit — applied: invoked; task-text-
+matched (not originally mounted) — applied its Present/Surface/Absent/
+Incorrect/Unverifiable taxonomy directly to grade the 5 attack angles
+in "What was done" above (angle 1 Incorrect, angles 2-4 Present), in a
+single session rather than the full two-session protocol, since this
+session was already structurally independent of PR #3169's builder
+session (did not author it).
+skill-verdict: work-in-english — applied: invoked; task-text-matched
+(not originally mounted) — this record, its commit message, the PR
+title/body, and every fixture script (`/tmp/attack{1,2,4}_*.py`) were
+written in English; the final user-facing summary in the parent
+conversation turn was written in Korean per the policy.
