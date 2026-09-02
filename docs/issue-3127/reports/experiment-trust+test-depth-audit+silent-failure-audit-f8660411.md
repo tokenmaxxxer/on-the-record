@@ -523,24 +523,37 @@ spawning instructions (does not merge PR #3131, does not edit PR #3131).
 The open findings above remain open against PR #3131 / issue #3127, not
 against this verification record.
 
-skill-verdict: experiment-trust — applied: invoked; used Twyman's-law
-skepticism to trace the resolver and watch stop-condition against the
-harness's own optimistic docstrings rather than accept them (see "Why"),
-and confirmed the pre-registration's own scope-gate routing (offline
-small-n paired comparison, not an online randomized experiment) is
-correct so SRM/A-A machinery does not apply here -- canonical:
-`7f249082:docs/issue-3127/decisions/pre-registration.md`'s "Scope note"
-section, read directly, cited above in "Why."
-skill-verdict: test-depth-audit — applied: invoked; classified
-`execute_arm()`, `collect_metrics()`, `scrub_skill_slugs()`, and the
-blind-scoring path as Dead code (written, never executed or asserted
-against by anything in this PR) versus the `--dry-run` path's Genuine
-Assertion -- canonical: `7f249082:scripts/issue-3127/run_consumer_pair.py`
-lines 391-408, read directly, cited above in "Why."
-skill-verdict: silent-failure-audit — applied: invoked; confirmed the
-skill-source conflict path (finding 1) is not silently absorbed on its
-own (`execute_arm()` does check `dispatch.returncode`, quoted above in
-"Why"), but that the silent-full-content-leak failure mode produces a
-clean `returncode == 0` the harness cannot distinguish from a genuine
-skills-off run, because no manipulation-check gate exists to catch it
-(finding 2).
+skill-verdict: experiment-trust — applied: invoked; loaded the skill via
+the Skill tool this session and applied Step 1 (scope gate: confirmed
+this is not an online controlled experiment -- no random assignment --
+so the SRM/A-A machinery of Steps 2-6 correctly does not apply, matching
+canonical: `7f249082:docs/issue-3127/decisions/pre-registration.md`'s
+"Scope note" section, read directly) and Step 5's Twyman's-law
+skepticism (be more suspicious of a clean-looking result, not less) to
+motivate tracing the resolver and watch stop-condition against the
+harness's own optimistic docstrings instead of accepting them at face
+value (see "Why" above).
+skill-verdict: test-depth-audit — not-applicable: loaded the skill via
+the Skill tool this session; its own first gate reads "Does a test suite
+exist? No tests = nothing to audit. Route to test-derivation." PR #3131
+adds zero test files (derived this session: `gh pr diff 3131
+--name-only`, seven files, none under `test/` or `tests/`) -- there is no
+test suite here to classify with the GA/EO/MD/HP/D taxonomy. The
+record's earlier framing of `execute_arm()`/`scrub_skill_slugs()` as
+"Dead" borrowed this skill's vocabulary informally for untested
+application code, which is not what the skill audits (it classifies test
+functions, not the code under test); that framing is corrected here to
+not-applicable rather than restated as a genuine application.
+skill-verdict: silent-failure-audit — applied: invoked; loaded the skill
+via the Skill tool this session and applied Steps 1-3 against
+`run_consumer_pair.py`'s two error-handling sites -- the
+`dispatch.returncode != 0` check (Step 2: Handled, not silently
+absorbed, quoted above in "Why") and the `watch` subprocess's
+`TimeoutExpired` handler (`7f249082:scripts/issue-3127/run_consumer_pair.py`
+lines 298-309, read directly: caught and returned as a structured
+`"status": "watch-timed-out"` result, also Handled). The actual gap this
+audit surfaced is not a silently-absorbed catch block but an entire
+missing check (finding 2/finding 1's silent-full-content-leak path) that
+no error-handling site exists to guard, since the resolver's success case
+(`returncode == 0`) is not itself distinguished from the manipulation
+having silently failed.
