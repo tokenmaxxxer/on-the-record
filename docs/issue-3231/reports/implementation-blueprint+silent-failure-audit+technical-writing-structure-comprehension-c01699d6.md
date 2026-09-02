@@ -45,7 +45,7 @@ derived: `git show b2f089ec -- skills.py | grep -A2 'except OSError as exc'` —
 
 skill-verdict: technical-writing-structure-comprehension — applied: invoked; restructured several 40-60-word multi-clause sentences in install-sufficiency.md's "What was removed" section into shorter single-idea sentences (commit `b2f089ec`, this branch).
 
-skill-verdict: implementation-blueprint — applied: invoked retrospectively.
+skill-verdict: implementation-blueprint — applied: invoked; retrospectively classified the shipped structure (see derived: line below).
 derived: `python3 /home/jwjung/skill-registry/skills/implementation-blueprint/scripts/prep.py classify --surface backend --external no --logic crud --asynchronous no` — result: `ARCHETYPE: data-centric` (controller/service/repository). The shipped shape already matches without having named it going in: the CLI subcommand dispatch is a thin controller, `ensure_skill_corpus_cli()` is the service, `_skill_repo_managed_root()`/`_skill_repo_root()` is the repository. No anti-pattern from the recommended list applies.
 
 ## Why
