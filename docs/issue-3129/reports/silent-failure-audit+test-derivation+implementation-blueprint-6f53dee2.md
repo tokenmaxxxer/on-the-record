@@ -106,7 +106,7 @@ All sites classify Handled: each returns/consumes an explicit `None` a caller ch
 ## skill-verdict
 
 - skill-verdict: silent-failure-audit — applied: invoked; see "Silent-failure audit" section above (derived: the `git show`/`sed` line-cite block there) for the sites and classification.
-- skill-verdict: test-derivation — applied: invoked twice; see "Test derivation" section above (derived: the `pytest --collect-only` count and the `RepoSlugForCwd` method-count block there) for the derived cases and the coverage gap the second invocation found.
+- skill-verdict: test-derivation — applied: invoked; invoked twice, see "Test derivation" section above (derived: the `pytest --collect-only` count and the `RepoSlugForCwd` method-count block there) for the derived cases and the coverage gap the second invocation found.
 - skill-verdict: implementation-blueprint — not-applicable: targeted repair inside one already-existing single-file module (a parameter addition plus one new helper function), not new multi-module architecture or a parallel-worker fan-out decision — the skill's own stated exclusion ("do NOT use for... a one-line fix... purely algorithmic work") covers this shape.
 - other mounted skills: not triggered.
 
