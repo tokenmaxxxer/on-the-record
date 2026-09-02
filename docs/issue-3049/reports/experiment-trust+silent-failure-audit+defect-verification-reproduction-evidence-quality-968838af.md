@@ -436,15 +436,15 @@ test whether each fix is load-bearing, rather than reading the PR's prose
 as sufficient — and classifying probe #3's condition as currently
 Unreachable against the shipped guard rather than grading it the same as
 probe #2's live-reachable one.
-skill-verdict: defect-verification-reproduction-evidence-quality —
-applied: invoked; every claim above cites the actual command run and its
+skill-verdict: defect-verification-reproduction-evidence-quality — applied:
+invoked; every claim above cites the actual command run and its
 captured output, the exact worktree/sha it ran against, and — per this
 skill's rule on judging a "Present" requirement by whether it exercised
 the claimed behavior rather than merely executed the path — adversarial
 probe #3 is graded on reachability of the condition it guards, not just on
 the code existing.
-skill-verdict: defect-verification-independence-from-upstream-verdicts —
-applied: invoked; PR #3094's first-verification record (graded everything
+skill-verdict: defect-verification-independence-from-upstream-verdicts — applied:
+invoked; PR #3094's first-verification record (graded everything
 Present) was deliberately not read until after this session's own
 verdicts were formed on acceptance criteria 1-2 and must-not 1-3, and this
 session's scope was widened beyond a re-confirmation of PR #3094's checks
