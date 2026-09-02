@@ -528,6 +528,16 @@ while true; do
     # it even if two consecutive crash ticks carry the same rc.
     if [ "${watchdog_rc}" -ge 128 ] || [ "${watchdog_rc}" -eq 97 ]; then
       printed_text="$(printf '%s\n[watchdog-crash] watchdog exited rc=%s' "${printed_text}" "${watchdog_rc}")"
+    elif [ "${watchdog_rc}" -eq 95 ]; then
+      # issue #3120 layer 1: WATCHDOG_STALE_CODE_SENTINEL (spawn.py,
+      # currently 95) — watchdog_freshness_check (watchdog.py) detected
+      # that the checkout HEAD moved out from under this tick (a git
+      # pull, a `claude plugin marketplace update`, or an ordinary
+      # merge). This is neither the crash case above nor routine
+      # silence; give it its own tellable-apart label instead of letting
+      # it fall through unclassified — that is exactly how issue #3120
+      # went unnoticed until a live capture caught it.
+      printed_text="$(printf '%s\n[watchdog-stale-code] watchdog exited rc=%s (checkout HEAD changed — restarting)' "${printed_text}" "${watchdog_rc}")"
     fi
     # issue #1220: replaced #1117's whole-text SHA-256 suppression with a
     # line-keyed diff against the previous tick's state — unchanged lines
@@ -560,6 +570,35 @@ while true; do
     diff_output="$(POLL_HEARTBEAT_TEXT="${printed_text}" python3 "${SCRIPT_DIR}/poll_heartbeat_delta.py" "${CHECKOUT}/runs/poll_heartbeat_last_state.json" "$(date +%s)")"
     if [ -n "${diff_output}" ]; then
       printf '%s\n' "${diff_output}"
+    fi
+    if [ "${watchdog_rc}" -eq 95 ]; then
+      # issue #3120 layer 2: self-heal instead of leaving the tick loop
+      # running indefinitely against a checkout the freshness check has
+      # already decided is stale, with nothing to restart it (the
+      # "재기동 필요" sentinel used to be delivered and then ignored).
+      # `exec` replaces this process's OWN image in the SAME pid — a
+      # live probe against this session's own real platform Monitor
+      # process (docs/issue-3120/reports/.../record.md "What was done")
+      # confirmed its stdout/stderr are fds inherited from its parent
+      # (sockets, not files the platform re-opens by path), and `exec`
+      # never touches open file descriptors — so a downstream reader of
+      # this process's output sees no gap across the restart, and
+      # startup_head gets re-captured fresh in the new image. Guard on
+      # the exec TARGET's own presence first: measured directly (not
+      # assumed) that `exec` into a file that is momentarily absent
+      # (mid checkout-update) kills the process outright — bash reports
+      # "No such file or directory" and exits 127, the whole loop gone,
+      # never reaching another tick. This reuses the same
+      # "checkout mid-update" signal the loop's own spawn.py-presence
+      # guard above already trusts (issue #2163), applied to the actual
+      # exec target rather than exec'ing into nothing.
+      _exec_target="${CHECKOUT}/on-the-record/monitors/poll-heartbeat.sh"
+      if [ -f "${_exec_target}" ]; then
+        printf '[poll-heartbeat] stale code (rc=95) -- restarting via exec %s\n' "${_exec_target}"
+        exec bash "${_exec_target}"
+      else
+        printf '[poll-heartbeat] stale code (rc=95) but restart target unavailable at %s (mid-update?) -- skipping restart this tick\n' "${_exec_target}"
+      fi
     fi
   else
     if [ -n "${due_out}" ]; then
