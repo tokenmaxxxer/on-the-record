@@ -427,9 +427,56 @@ See frontmatter `upstream:`.
    the issue's acceptance bar; noted for a future round if a record ever
    needs two amended sections at once.
 
+amendments-reconciled: issuecomment-5508663646 — landed mid-session,
+after this session's own worktree analysis of PR #3143 was already
+underway. It closes issue #3134, states PR #3143 landed on `main` (commit
+`1eb52701` reachable via merge `92b6ec9b`), and cites a second
+independent verification, PR #3157, graded all four checks and all
+three must-nots Present with no open finding. derived: `git ls-tree -r
+origin/main --name-only | grep -i amends` -- result: amends.py,
+amends_backlink.py, docs/specs/amends-index.md, gates/amends_index.py,
+gates/probe_amends_fails_closed.py, gates/probe_amends_is_discoverable.py,
+on-the-record/hooks/amends-index-preflight.sh,
+tests/test_amends_backlink.py, tests/test_amends_index_wiring.py,
+tests/test_amends_resolution.py -- confirming the repair-round code this
+record reviews is now live on `main`, not merely on an open PR branch.
+Read PR #3157's own record in full (via `git show origin/main:docs/issue-3134/reports/independent-verification-1.md`
+-- that path landed on `main` after this session's own branch point,
+untracked here, after this session had already formed its own verdict)
+-- its must-not-2 reproduction wrote a fake corrector record into a
+foreign issue's tree and had the write itself refused (the same
+write-set-isolation shape this record's own item 1-2 above reproduce),
+and its check()-fails-closed reproduction called `amends_index.check()`
+directly against a from-scratch fixture -- but neither invoked the
+actual shell hook (amends-index-preflight.sh) with a payload simulating
+a real correcting session's own commit of its own unlinked amends:
+record, which is exactly the scenario this record's own item 3 above
+reproduces and where the Incorrect finding lives. Both prior sessions
+therefore confirmed the same fail-closed behavior this record confirms,
+without recognizing that the same behavior fires before landing,
+against the correcting session's own necessary commit, not only against
+a genuinely bad state. This record's verdict stands: Incorrect on the
+primary finding, not overturned by the closure comment or by PR #3157's
+Present grade, because neither tested the specific scenario the
+Incorrect finding rests on. Classified INLINE-FIX per
+docs/handbooks/deviation-loop.md: this line was added inside this
+session's own frozen write set (this record only), and does not change
+the verdict already reached before the comment landed -- it corroborates
+that the code is live on `main` and that the closure's own cited
+verification did not test this scenario, rather than requiring a
+different verdict.
+
 ## Next steps
 
-None from this session. canonical: this session's own tool-call history
+None from this session beyond what is stated in "Open findings" above --
+issue #3134 is already closed (see amendments-reconciled above), and
+this record's own PR (against the already-closed issue) uses an
+Advances trailer rather than Closes, per pr-preflight.sh's own escape
+hatch for a PR that does not itself close the issue it references. The
+practical next step this record recommends is that finding 1 above be
+raised as its own follow-up (a new issue or a re-opened #3134), since
+the code it describes is confirmed live on `main`, not merely on an open
+PR branch. canonical: this session's own tool-call history
 this turn contains no `gh pr merge`, `gh pr edit`, or `gh pr review` call
 against PR #3143 -- PR #3143 was not merged, edited, or approved by this
 session. Finding 1 above needs a disposition decision (which of the two
