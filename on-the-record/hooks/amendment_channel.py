@@ -264,12 +264,40 @@ def maybe_write_from_command(state_dir: str, tool_name: str, command: str, cwd: 
         return
     issue = m.group(1)
     note = _extract_note(command, cwd)
-    write_amendment(state_dir, issue, note=note)
+    if write_amendment(state_dir, issue, note=note) is None:
+        # silent-failure-audit (issue #3129): write_amendment's own OSError
+        # catch is correct fail-open for the ORCHESTRATOR's tool call (a
+        # write it cannot make must never block that call), but the
+        # failure itself must not vanish with zero trace -- this is the
+        # one case where losing it silently means the worker's stale
+        # brief is indistinguishable from "the orchestrator never
+        # corrected it". One stderr line, still non-blocking (the `.sh`
+        # wrapper's own trailing `exit 0` is unconditional either way).
+        sys.stderr.write(
+            "amendment-channel: failed to record an amendment marker for "
+            "issue #%s (state dir unwritable) -- the running worker will "
+            "not see this correction\n" % issue
+        )
 
 
 def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[str]:
     """The full PostToolUse behavior: maybe record an amendment, maybe
-    return a notice string for the caller to print. Never raises."""
+    return a notice string for the caller to print.
+
+    Every ANTICIPATED failure mode (missing/corrupt marker, unwritable
+    state dir, no git repo at `cwd`, malformed payload) is handled inside
+    the functions this calls, each documented as never raising for its
+    own domain. This function deliberately does NOT add another blanket
+    catch on top of those: doing so previously (issue #3129 silent-
+    failure-audit) meant a genuine bug in this new module would vanish
+    with zero trace anywhere -- not stderr, not the `fail-open-wrapper.sh`
+    ledger, nothing -- because that ledger's crash detection greps stderr
+    for a traceback regardless of exit code (see fail-open-wrapper.sh),
+    and this module's own `.sh` wrapper always exits 0 on its trailing
+    line independent of this process's exit code either way. An
+    unanticipated exception propagating out of `main()` costs nothing in
+    blocking risk and is the only way such a bug becomes observable.
+    """
     state_dir = state_dir or default_state_dir()
     payload = hook_input.parse_payload(payload_text)
     if isinstance(payload, hook_input.Unparseable):
@@ -279,19 +307,13 @@ def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[
     cwd = cwd if isinstance(cwd, str) else ""
     session_id = data.get("session_id")
 
-    try:
-        maybe_write_from_command(
-            state_dir, payload.tool_name, hook_input.tool_command(payload), cwd
-        )
-    except Exception:  # pragma: no cover - defense in depth; see module docstring
-        pass
+    maybe_write_from_command(
+        state_dir, payload.tool_name, hook_input.tool_command(payload), cwd
+    )
 
     if not isinstance(session_id, str) or not session_id or not cwd:
         return None
-    try:
-        issue = issue_for_cwd(cwd)
-    except Exception:  # pragma: no cover
-        return None
+    issue = issue_for_cwd(cwd)
     if not issue:
         return None
     return check_notice(state_dir, session_id, issue)
@@ -300,17 +322,14 @@ def run_hook(payload_text: object, state_dir: Optional[str] = None) -> Optional[
 def main() -> int:
     try:
         payload_text = sys.stdin.read()
-    except Exception:
+    except OSError:
         return 0
-    try:
-        notice = run_hook(payload_text)
-    except Exception:
-        return 0
+    notice = run_hook(payload_text)
     if notice:
         out = {"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": notice}}
         try:
             sys.stdout.write(json.dumps(out))
-        except Exception:
+        except OSError:
             pass
     return 0
 

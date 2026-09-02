@@ -13,6 +13,8 @@ amendment stops being announced until a NEW amendment bumps it again.
 """
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -141,6 +143,20 @@ class FiresOncePerAmendment(unittest.TestCase):
         self.assertIsNone(ac.check_notice(self.state_dir, "sess-A", "1"))
         self.assertIsNone(ac.check_notice(self.state_dir, "sess-B", "1"))
 
+    def test_two_amendments_before_absorption_coalesce_into_one_notice(self):
+        """State-transition gap (test-derivation): S1 (unabsorbed) --write_amendment--> S1
+        is a real transition -- the orchestrator can amend twice before the
+        worker's next tool call. The session must still see exactly one
+        notice (not a crash, not two), carrying the LATEST correction --
+        an older, superseded correction does not need its own separate
+        notice."""
+        ac.write_amendment(self.state_dir, "1", note="first")
+        ac.write_amendment(self.state_dir, "1", note="second, supersedes first")
+        notice = ac.check_notice(self.state_dir, "sess-1", "1")
+        self.assertIsNotNone(notice)
+        self.assertIn("second, supersedes first", notice)
+        self.assertIsNone(ac.check_notice(self.state_dir, "sess-1", "1"))
+
     def test_notices_are_per_issue_independently(self):
         ac.write_amendment(self.state_dir, "1")
         ac.write_amendment(self.state_dir, "2")
@@ -201,6 +217,15 @@ class GhCommandDetection(unittest.TestCase):
         marker = ac.read_marker(self.state_dir, "55")
         self.assertEqual(marker["note"], "inline-text")
 
+    def test_body_file_equals_form_reads_note_from_file(self):
+        note_path = os.path.join(self.tmp.name, "note2.txt")
+        with open(note_path, "w") as f:
+            f.write("equals-form body file text")
+        cmd = "gh issue edit 55 --body-file=%s" % note_path
+        ac.maybe_write_from_command(self.state_dir, "Bash", cmd, ".")
+        marker = ac.read_marker(self.state_dir, "55")
+        self.assertEqual(marker["note"], "equals-form body file text")
+
     def test_body_file_form_reads_note_from_file(self):
         note_path = os.path.join(self.tmp.name, "note.txt")
         with open(note_path, "w") as f:
@@ -223,6 +248,22 @@ class GhCommandDetection(unittest.TestCase):
         cmd = 'gh issue edit 55 --body "x"'
         ac.maybe_write_from_command(self.state_dir, "Write", cmd, ".")
         self.assertIsNone(ac.read_marker(self.state_dir, "55"))
+
+    def test_unwritable_state_dir_surfaces_a_stderr_diagnostic(self):
+        """silent-failure-audit finding (issue #3129): write_amendment's
+        own OSError catch correctly fails open for the orchestrator's tool
+        call, but a discarded return value left the failure with zero
+        trace anywhere. maybe_write_from_command must not repeat that --
+        one stderr line, still non-blocking."""
+        blocker = os.path.join(self.tmp.name, "blocker")
+        with open(blocker, "w") as f:
+            f.write("x")
+        cmd = 'gh issue edit 55 --body "x"'
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            ac.maybe_write_from_command(blocker, "Bash", cmd, ".")
+        self.assertIn("issue #55", stderr.getvalue())
+        self.assertIn("not see this correction", stderr.getvalue())
 
 
 class IssueForCwd(unittest.TestCase):

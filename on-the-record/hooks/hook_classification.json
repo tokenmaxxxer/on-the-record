@@ -112,6 +112,14 @@
       "wrapped": true,
       "class": "invariant-injecting",
       "rationale": "the merged per-skill verdict obligation gate (issue #2039/#2138) -- absence means a session's skill-verdict obligation goes unchecked and unreported"
+    },
+    {
+      "event": "PostToolUse",
+      "script": "amendment-channel.sh",
+      "args": [],
+      "wrapped": true,
+      "class": "observability",
+      "rationale": "surfaces an orchestrator's issue-body amendment into a running worker session's context via additionalContext (issue #3129); absence loses the mid-flight correction signal but enforces no rule and blocks nothing"
     }
   ]
 }
