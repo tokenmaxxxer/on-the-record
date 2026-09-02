@@ -19,12 +19,22 @@ the right order somewhere in its own history. The fix binds the pin to the
 colliding commit via the pinned PR's own recorded merge commit (`gh pr view
 <n> --json mergeCommit`); `PinBoundToWrongCommitTest` reproduces that exact
 attack shape and confirms it is now refused.
+
+Round 3 (PR #3219 residual finding): `_first_commit_for_path` returned
+`None` both when `git log` genuinely found no commit for a path AND when
+the `git log` command itself failed -- `verify()` reads a `None`
+results_commit as "not yet committed" and passes unconditionally, so a
+git failure could silently read as a pass. `_first_commit_for_path` now
+raises `GitCommandError` on a failed command instead of returning `None`,
+and `verify()` catches it and fails closed. `FirstCommitForPathTest` and
+`VerifyGitFailureTest` cover the distinction.
 """
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts" / "issue-3127"))
@@ -228,6 +238,100 @@ class ResolveViaPrHistoryTest(unittest.TestCase):
         self.assertIn("does not match the colliding commit", msg)
         self.assertIn(self.COLLIDING, msg)
         self.assertIn(unrelated_pr_merge_sha, msg)
+
+
+class FirstCommitForPathTest(unittest.TestCase):
+    """Unit-level coverage of the round-3 fix: `_first_commit_for_path`
+    must distinguish "git ran and found nothing" (legitimate `None`) from
+    "git itself failed" (`GitCommandError`, never `None`)."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self.repo_root = Path(self._tmpdir.name)
+
+    def test_returns_none_when_command_succeeds_with_no_matching_commit(self):
+        # An empty repo (no commits at all) makes `git log` itself fail
+        # ("does not have any commits yet"), which is the failure case
+        # this fix distinguishes -- so commit something unrelated first,
+        # to isolate "command succeeded, path never appeared" from
+        # "command failed".
+        self._git("init", "-q")
+        self._git("config", "user.email", "test@example.com")
+        self._git("config", "user.name", "Test")
+        unrelated = self.repo_root / "unrelated.txt"
+        unrelated.write_text("x\n")
+        self._git("add", "unrelated.txt")
+        self._git("commit", "-q", "-m", "unrelated commit")
+
+        self.assertIsNone(
+            vp._first_commit_for_path(self.repo_root, "no/such/path.txt"))
+
+    def _git(self, *args):
+        r = subprocess.run(["git", "-C", str(self.repo_root), *args],
+                            capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r
+
+    def test_raises_git_command_error_when_git_itself_fails(self):
+        # No `git init` -- `git -C <dir> log ...` exits non-zero ("not a
+        # git repository"), which must not be reported the same as "ran
+        # and found nothing".
+        with self.assertRaises(vp.GitCommandError) as ctx:
+            vp._first_commit_for_path(self.repo_root, vp.PREREG_PATH)
+        self.assertNotEqual(ctx.exception.returncode, 0)
+        self.assertIn("git log", str(ctx.exception))
+
+
+class VerifyGitFailureTest(unittest.TestCase):
+    """End-to-end: a git command failure while resolving commit history
+    must fail `verify()` closed, never be read as "not yet committed" (the
+    legitimate empty-result case `verify()` treats as a pass at line
+    ~284)."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+        self.repo_root = Path(self._tmpdir.name)
+        self._git("init", "-q")
+        self._git("config", "user.email", "test@example.com")
+        self._git("config", "user.name", "Test")
+
+        prereg = self.repo_root / vp.PREREG_PATH
+        prereg.parent.mkdir(parents=True)
+        prereg.write_text("---\nissue: 3127\n---\nbody\n")
+        self._git("add", vp.PREREG_PATH)
+        self._git("commit", "-q", "-m", "commit pre-registration")
+
+        # RESULTS_PATH deliberately left uncommitted (working-tree only) --
+        # the case where, pre-fix, a git failure on this specific query
+        # would have been misread as "not yet committed" and passed.
+        results = self.repo_root / vp.RESULTS_PATH
+        results.parent.mkdir(parents=True)
+        results.write_text('{"run_status": "not_executed"}\n')
+
+    def _git(self, *args):
+        r = subprocess.run(["git", "-C", str(self.repo_root), *args],
+                            capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        return r
+
+    def test_git_failure_on_results_path_fails_closed_not_read_as_pass(self):
+        real_run_git = vp._run_git
+
+        def flaky_run_git(repo_root, *args):
+            if args and args[-1] == vp.RESULTS_PATH:
+                return subprocess.CompletedProcess(
+                    args=["git", *args], returncode=128, stdout="",
+                    stderr="fatal: simulated git failure")
+            return real_run_git(repo_root, *args)
+
+        with mock.patch.object(vp, "_run_git", side_effect=flaky_run_git):
+            ok, msg = vp.verify(self.repo_root)
+
+        self.assertFalse(ok, msg)
+        self.assertIn("git log", msg)
+        self.assertIn("fail closed", msg)
 
 
 class VerifyEndToEndCollisionTest(unittest.TestCase):

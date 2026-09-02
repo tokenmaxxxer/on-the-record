@@ -47,6 +47,29 @@ RESULTS_PATH = "docs/issue-3127/_assets/consumer-path-results.json"
 GhRunner = Callable[[list], "subprocess.CompletedProcess"]
 
 
+class GitCommandError(Exception):
+    """Raised when a git command this check depends on exits non-zero.
+
+    Rule (stated once, applies to every subprocess call in this file): an
+    empty result and a failed observation are different things, and only
+    the empty result -- the command ran and genuinely found nothing -- is
+    evidence this check may reason about. A failed command observed
+    nothing at all; treating its failure the same as a legitimate empty
+    result lets an unrelated git error masquerade as a passing condition.
+    Every call site here must keep the two distinguishable and fail this
+    check closed on the failure case, never silently substitute "empty"
+    for it.
+    """
+
+    def __init__(self, args: tuple, returncode: int, stderr: str):
+        self.args = args
+        self.returncode = returncode
+        self.stderr = stderr
+        super().__init__(
+            f"`git {' '.join(args)}` failed (exit {returncode}): "
+            f"{stderr.strip()}")
+
+
 def _run_git(repo_root: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", "-C", str(repo_root), *args],
                            capture_output=True, text=True)
@@ -59,9 +82,14 @@ def _default_gh_runner(args: list) -> subprocess.CompletedProcess:
 def _first_commit_for_path(repo_root: Path, path: str) -> Optional[str]:
     """Oldest commit (across all local history reachable from HEAD, since
     build-now sessions commit directly on their own branch rather than
-    landing to main first) that introduces `path`. Empty result means the
-    path has no commit yet -- e.g. it exists only as an uncommitted working
-    -tree file, which this check treats as "not yet registered."
+    landing to main first) that introduces `path`. Returns None only when
+    the git command itself succeeded and found no such commit -- e.g. the
+    path exists only as an uncommitted working-tree file, which this check
+    treats as "not yet registered." Raises `GitCommandError` when the git
+    command exits non-zero: that is not the same condition as "no commits
+    found" and must not be reported as one (see `GitCommandError` for why)
+    -- the caller fails the check closed instead of reading it as "not yet
+    committed".
 
     No `--follow`: with `git log --diff-filter=A --follow`, git's own
     rename-tracking swallows the very "A" (added) event `--diff-filter=A`
@@ -78,10 +106,10 @@ def _first_commit_for_path(repo_root: Path, path: str) -> Optional[str]:
     log's default (no rename detection) correctly reports the commit that
     creates content at `path` as the "A" event, whatever commit that is.
     """
-    r = _run_git(repo_root, "log", "--diff-filter=A",
-                 "--format=%H", "--reverse", "--", path)
+    args = ("log", "--diff-filter=A", "--format=%H", "--reverse", "--", path)
+    r = _run_git(repo_root, *args)
     if r.returncode != 0:
-        return None
+        raise GitCommandError(args, r.returncode, r.stderr)
     lines = [line for line in r.stdout.splitlines() if line.strip()]
     return lines[0] if lines else None
 
@@ -268,8 +296,14 @@ def verify(repo_root: Path,
     if not results_full.exists():
         return False, f"missing: {RESULTS_PATH} does not exist -- nothing to verify order against"
 
-    prereg_commit = _first_commit_for_path(repo_root, PREREG_PATH)
-    results_commit = _first_commit_for_path(repo_root, RESULTS_PATH)
+    try:
+        prereg_commit = _first_commit_for_path(repo_root, PREREG_PATH)
+        results_commit = _first_commit_for_path(repo_root, RESULTS_PATH)
+    except GitCommandError as e:
+        return False, (
+            f"could not determine commit history -- {e} -- a failed git "
+            "command is not evidence the path has no commits yet, so this "
+            "cannot be read as a pass (fail closed)")
 
     if prereg_commit is None and results_commit is None:
         return False, ("neither file has a commit yet (both uncommitted in "

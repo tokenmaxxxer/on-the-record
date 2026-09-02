@@ -87,6 +87,23 @@ this registration is extended to the full n=4 set, that remains true; a
 change of decision rule after seeing partial results is itself a mid-flight
 threshold change and is refused per rule 8 regardless of n.
 
+## Limitation of the mechanical ordering check
+
+`scripts/issue-3127/verify_preregistration.py` proves *construction* order:
+which commit exists first in git's (or, on the squash-collapse fallback, the
+originating PR's) recorded history. It does not and cannot prove *decision*
+order. Git ancestry has no way to see what happened before a commit was
+made — a threshold could be decided after privately observing a result and
+only then committed first, and the check would read that as a clean pass,
+identical to a threshold that was genuinely fixed in advance. The check is
+evidence against the cheap, mechanical version of this failure (writing the
+threshold and results in one commit, or clearly out of order); it is not
+evidence against a determined actor who commits in the right order on
+purpose after already knowing the answer. Nobody should read a passing
+`verify_preregistration.py` run as proving more than "the recorded
+construction order was correct" — it says nothing about what the author
+knew before writing either file.
+
 ## Deviations log
 
 - 2026-09-02: this registration's harness (`run_consumer_pair.py`) was not
