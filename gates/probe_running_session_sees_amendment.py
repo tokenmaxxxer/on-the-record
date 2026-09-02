@@ -50,7 +50,16 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK = REPO_ROOT / "on-the-record" / "hooks" / "amendment-channel.sh"
+HOOKS_DIR = REPO_ROOT / "on-the-record" / "hooks"
+sys.path.insert(0, str(HOOKS_DIR))
+import amendment_channel as ac  # noqa: E402 -- path-computation helper only, not reimplemented logic
 BASH_BIN = shutil.which("bash") or "/bin/bash"
+
+# Both the worker's checkout and the orchestrator's own cwd share this
+# `origin` -- realistic shape: same GitHub repo, two separate local
+# checkouts/processes, which is exactly the case the marker's repo
+# attribution must resolve identically for both sides.
+ORIGIN_URL = "https://github.com/example/probe-repo.git"
 
 # A made-up issue number unlikely to collide with anything real, and
 # built so `--` flag text this probe embeds in a Bash command string
@@ -74,15 +83,21 @@ def _git(*args: str, cwd: Path) -> None:
         _fail("git %s failed in %s: %s" % (" ".join(args), cwd, r.stderr))
 
 
-def _make_worker_repo(root: Path) -> Path:
-    repo = root / "worker-repo"
+def _make_repo(root: Path, name: str, branch: str = None) -> Path:
+    repo = root / name
     repo.mkdir(parents=True)
     _git("init", "-q", cwd=repo)
     _git("config", "user.email", "probe@example.com", cwd=repo)
     _git("config", "user.name", "probe", cwd=repo)
     _git("commit", "-q", "--allow-empty", "-m", "init", cwd=repo)
-    _git("checkout", "-q", "-b", "issue-%s/some-role" % ISSUE, cwd=repo)
+    if branch:
+        _git("checkout", "-q", "-b", branch, cwd=repo)
+    _git("remote", "add", "origin", ORIGIN_URL, cwd=repo)
     return repo
+
+
+def _make_worker_repo(root: Path) -> Path:
+    return _make_repo(root, "worker-repo", branch="issue-%s/some-role" % ISSUE)
 
 
 def _call_hook(payload: dict, env: dict) -> dict:
@@ -113,8 +128,15 @@ def main() -> None:
     try:
         state_dir = work / "state"
         worker_repo = _make_worker_repo(work)
-        orchestrator_cwd = work / "orchestrator-cwd"
-        orchestrator_cwd.mkdir()
+        # a separate local checkout of the SAME repo (same `origin`) --
+        # realistic shape for "the orchestrator runs the edit from
+        # wherever it happens to be", which is not necessarily the
+        # worker's own checkout path
+        orchestrator_cwd = _make_repo(work, "orchestrator-cwd")
+        repo_slug = ac.repo_slug_for_cwd(str(orchestrator_cwd))
+        if repo_slug is None:
+            _fail("test setup bug: orchestrator_cwd's repo slug did not "
+                  "resolve (checked %s)" % orchestrator_cwd)
 
         env = dict(os.environ)
         env["OTR_AMENDMENT_STATE_DIR"] = str(state_dir)
@@ -147,7 +169,7 @@ def main() -> None:
         }
         _call_hook(orch_payload, env)
 
-        marker = state_dir / ("issue-%s.marker.json" % ISSUE)
+        marker = Path(ac.marker_path(str(state_dir), repo_slug, ISSUE))
         if not marker.is_file():
             _fail(
                 "no amendment marker written after a gh issue edit --body "

@@ -48,6 +48,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 HOOK = REPO_ROOT / "on-the-record" / "hooks" / "amendment-channel.sh"
 BASH_BIN = shutil.which("bash") or "/bin/bash"
 
+# Both the worker's checkout and the orchestrator's own cwd share this
+# `origin` -- same repo, two separate local checkouts/processes.
+ORIGIN_URL = "https://github.com/example/probe-repo.git"
+
 ISSUE = "8830178"
 BODY_FLAG = "--" + "body"
 TICKS_PER_PHASE = 12
@@ -65,15 +69,21 @@ def _git(*args: str, cwd: Path) -> None:
         _fail("git %s failed in %s: %s" % (" ".join(args), cwd, r.stderr))
 
 
-def _make_worker_repo(root: Path) -> Path:
-    repo = root / "worker-repo"
+def _make_repo(root: Path, name: str, branch: str = None) -> Path:
+    repo = root / name
     repo.mkdir(parents=True)
     _git("init", "-q", cwd=repo)
     _git("config", "user.email", "probe@example.com", cwd=repo)
     _git("config", "user.name", "probe", cwd=repo)
     _git("commit", "-q", "--allow-empty", "-m", "init", cwd=repo)
-    _git("checkout", "-q", "-b", "issue-%s/some-role" % ISSUE, cwd=repo)
+    if branch:
+        _git("checkout", "-q", "-b", branch, cwd=repo)
+    _git("remote", "add", "origin", ORIGIN_URL, cwd=repo)
     return repo
+
+
+def _make_worker_repo(root: Path) -> Path:
+    return _make_repo(root, "worker-repo", branch="issue-%s/some-role" % ISSUE)
 
 
 def _call_hook(payload: dict, env: dict):
@@ -108,8 +118,7 @@ def main() -> None:
     try:
         state_dir = work / "state"
         worker_repo = _make_worker_repo(work)
-        orchestrator_cwd = work / "orchestrator-cwd"
-        orchestrator_cwd.mkdir()
+        orchestrator_cwd = _make_repo(work, "orchestrator-cwd")
 
         env = dict(os.environ)
         env["OTR_AMENDMENT_STATE_DIR"] = str(state_dir)
