@@ -196,39 +196,103 @@ def verify(manifest_path: Path, transport_path: Path) -> dict:
     }
 
 
+def _verify_one(manifest_path: Path, transport_path: Path) -> dict:
+    """Same fail-closed discipline as `main()`'s single-pair path, but
+    returning a verdict dict instead of exiting -- used by both `main()`
+    and `--report` so the two paths cannot silently diverge in what
+    counts as excluded."""
+    try:
+        return verify(manifest_path, transport_path)
+    except VerificationFailure as exc:
+        return {"manipulation_held": False, "pair_excluded": True,
+                "reason": str(exc), "manifest": str(manifest_path),
+                "transport": str(transport_path)}
+    except Exception as exc:  # last-resort fail-closed: an unexpected
+        # error must still exclude the pair and report why, never pass
+        # by falling through.
+        return {"manipulation_held": False, "pair_excluded": True,
+                "reason": f"unexpected error during verification: {exc!r}",
+                "manifest": str(manifest_path), "transport": str(transport_path)}
+
+
+def find_pair_dirs(root: Path) -> list[Path]:
+    """Every directory under `root` holding a `manifest.json` written by
+    `prepare_arms.py` (this launcher's own trust-root output), sorted for
+    a deterministic report. Does not require a sibling `transport.json`
+    to exist -- a manifest with no transport record is itself a pair this
+    report must include (and exclude, per `_verify_one`'s fail-closed
+    "missing transport" path), not one this scan silently skips."""
+    if not root.is_dir():
+        return []
+    return sorted({p.parent for p in root.rglob("manifest.json")},
+                  key=lambda p: str(p))
+
+
+def report(root: Path) -> dict:
+    """Scans `root` for every prepared-arm manifest and verifies each
+    against its sibling transport record. Fails closed on the empty
+    case (issue #3245 acceptance): if no prepared arm manifest exists
+    anywhere under `root`, this returns a report that says so plainly,
+    and `main()` exits nonzero for it -- never a fabricated "0 pairs,
+    all clean" reading."""
+    pair_dirs = find_pair_dirs(root)
+    if not pair_dirs:
+        return {
+            "root": str(root),
+            "pairs_found": 0,
+            "pairs": [],
+            "pairs_included": [],
+            "pairs_excluded": [],
+            "status": "no-manifests-found",
+            "reason": f"no prepared arm manifest (manifest.json) found "
+                      f"under {root} -- nothing to report",
+        }
+    pairs = []
+    for pair_dir in pair_dirs:
+        verdict = _verify_one(pair_dir / "manifest.json", pair_dir / "transport.json")
+        pairs.append({"pair_dir": str(pair_dir), **verdict})
+    included = [p["pair_dir"] for p in pairs if not p["pair_excluded"]]
+    excluded = [{"pair_dir": p["pair_dir"], "reason": p.get("reason")}
+                for p in pairs if p["pair_excluded"]]
+    return {
+        "root": str(root),
+        "pairs_found": len(pairs),
+        "pairs": pairs,
+        "pairs_included": included,
+        "pairs_excluded": excluded,
+        "status": "reported",
+    }
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--manifest", required=True, type=Path)
-    ap.add_argument("--transport", required=True, type=Path)
+    ap.add_argument("--manifest", type=Path)
+    ap.add_argument("--transport", type=Path)
+    ap.add_argument("--report", action="store_true",
+                     help="scan --root for every prepared-arm manifest "
+                          "and verify each against its transport record, "
+                          "instead of checking a single --manifest/"
+                          "--transport pair")
+    ap.add_argument("--root", type=Path,
+                     default=Path(__file__).resolve().parent.parent.parent
+                     / "docs" / "issue-3245" / "_assets",
+                     help="directory to scan under --report (default: "
+                          "docs/issue-3245/_assets)")
     args = ap.parse_args()
 
-    try:
-        verdict = verify(args.manifest, args.transport)
-    except VerificationFailure as exc:
-        verdict = {
-            "manipulation_held": False,
-            "pair_excluded": True,
-            "reason": str(exc),
-            "manifest": str(args.manifest),
-            "transport": str(args.transport),
-        }
-        print(json.dumps(verdict, indent=2, sort_keys=True))
-        return 1
-    except Exception as exc:  # last-resort fail-closed: an unexpected
-        # error must still exclude the pair and report why, never exit
-        # 0 or print a manipulation_held verdict by falling through.
-        verdict = {
-            "manipulation_held": False,
-            "pair_excluded": True,
-            "reason": f"unexpected error during verification: {exc!r}",
-            "manifest": str(args.manifest),
-            "transport": str(args.transport),
-        }
-        print(json.dumps(verdict, indent=2, sort_keys=True))
-        return 1
+    if args.report:
+        result = report(args.root)
+        print(json.dumps(result, indent=2, sort_keys=True))
+        return 1 if result["status"] == "no-manifests-found" else 0
 
+    if not args.manifest or not args.transport:
+        print("error: --manifest and --transport are required unless "
+              "--report is passed", file=sys.stderr)
+        return 2
+
+    verdict = _verify_one(args.manifest, args.transport)
     print(json.dumps(verdict, indent=2, sort_keys=True))
-    return 0
+    return 0 if not verdict["pair_excluded"] else 1
 
 
 if __name__ == "__main__":

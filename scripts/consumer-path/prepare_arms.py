@@ -189,6 +189,41 @@ def make_off_arm(home: Path) -> dict:
     }
 
 
+def seed_credentials(home: Path, source_home: Path | None = None) -> dict:
+    """Copies this launcher's own CLI credentials into `home/.claude/
+    .credentials.json` -- the fix for the gap independent-verification-1/2
+    (issue #3245) both traced live: `prepare_arms.py`'s fresh, empty
+    `tempfile.mkdtemp()` HOME (built for skill-corpus isolation) never
+    provisioned CLI auth into it, so every `claude -p` call under that
+    HOME failed on "Not logged in" before any tool use -- which
+    `spawn.py doctor()`'s crude `fired_ups and fired_pre` check
+    misreported as "hooks silent in headless mode" (see verification-2,
+    `docs/issue-3245/reports/independent-verification-2.md`).
+
+    Applied identically to both arms -- this is enabling authentication,
+    not manipulating skill visibility, so it does not touch the one
+    documented difference (`HOME`, `MUSTER_SKILL_REPO`) between arms.
+
+    Never fatal: a missing source credentials file is recorded with
+    `seeded: False` and a reason, not raised, so `build_manifest()` still
+    produces an honest manifest in environments with no local credentials
+    (e.g. this module's own test suite). `run_pair.py` is the caller that
+    must fail closed on an unseeded arm before attempting a real
+    dispatch -- silently trying anyway would reproduce the exact
+    misdiagnosis this function exists to close."""
+    source = (source_home or Path.home()) / ".claude" / ".credentials.json"
+    if not source.is_file():
+        return {"seeded": False, "source": str(source),
+                "reason": "source credentials file does not exist"}
+    dest_dir = home / ".claude"
+    dest = dest_dir / ".credentials.json"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    data = source.read_bytes()
+    dest.write_bytes(data)
+    dest.chmod(0o600)
+    return {"seeded": True, "source": str(source), "dest": str(dest)}
+
+
 def build_manifest(skills_root_on: Path, skill_name: str, model: str,
                     operator: str) -> tuple[dict, list[Path]]:
     """Returns (manifest, created_dirs) -- `created_dirs` is exactly the
@@ -211,6 +246,9 @@ def build_manifest(skills_root_on: Path, skill_name: str, model: str,
     except ArmPreparationError:
         _cleanup(created_dirs)
         raise
+
+    on_arm["credentials_seeded"] = seed_credentials(on_home)
+    off_arm["credentials_seeded"] = seed_credentials(off_home)
 
     argv = dispatch_command(skill_name, model, "<issue-created-per-arm>",
                              "<sandbox-repo>")
