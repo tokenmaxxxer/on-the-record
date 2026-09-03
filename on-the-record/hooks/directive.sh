@@ -362,6 +362,11 @@ TRIGGERS -- when the condition holds, Read the file BEFORE acting:
 - Writing an Acceptance section -> Read D/acceptance-format.md (format,
   command-identity #1696, artifact-smoke + visual verification #2073;
   record citation shape -> D/record-claim-shape.md).
+- Writing a PR body or commit message that mentions an issue number ->
+  Read D/record-claim-shape.md's closing-keyword section. GitHub closes on
+  \`close/fix/resolve #<n>\` anywhere in a merged body, ignoring backticks
+  AND negation -- \"This does not close #3266\" closed #3266. Use
+  \`Advances #<n>\`; break the token if you must name it.
 - Spawning a session / reading the board / progress checks -> Read
   D/spawn-and-board.md.
 - A poll-heartbeat tick arrives, or you are deciding whether a running

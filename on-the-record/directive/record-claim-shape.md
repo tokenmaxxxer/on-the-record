@@ -34,3 +34,29 @@ the first time instead of learning it from a refusal:
    in the working tree, or (b) a `derived: <command>` fenced
    reproduction. Grep/keyword search stays legal for locating a
    candidate; it is not itself evidence for the claim.
+
+## Never write a closing keyword you do not mean, even to deny it
+
+GitHub closes an issue on `close/closes/closed/fix/fixes/fixed/resolve/
+resolves/resolved #<n>` appearing anywhere in a merged PR's body or its
+squash commit message. It does not read the surrounding sentence. Backticks
+do not neutralise it. Negation does not neutralise it.
+
+Issue #3266 auto-closed twice on this, both times from text written
+specifically to prevent that:
+
+- PR #3272, a verification record, reported as its finding that PR #3269
+  carried a stale closing trailer it should not have. Quoting the phrase
+  closed the issue.
+- PR #3279's body said, in full, **"This does not close #3266."** That
+  sentence closed #3266.
+
+The rule: an issue that a PR advances but does not finish gets
+`Advances #<n>` or `Part of #<n>`, and the PR says nothing else about
+closing. When you must refer to the keyword itself -- reporting it as a
+defect, or explaining this rule -- break the token (`close-s #<n>`) or
+describe it without writing it next to a number.
+
+Check the squash commit body, not only the PR description. The merge uses
+the PR title and body as the commit message by default, so a keyword in
+either reaches GitHub.
