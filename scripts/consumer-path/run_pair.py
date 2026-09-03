@@ -52,6 +52,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import re
 import subprocess
 import sys
@@ -291,6 +292,75 @@ def seed_arm_credentials(home: Path, source: Path | None = None) -> dict:
     return {"seeded": True, "source": str(source)}
 
 
+def seed_arm_github_auth(home: Path, source_home: Path | None = None) -> dict:
+    """Give an arm's isolated HOME the GitHub auth `gh` and `git` need.
+
+    Claude auth and GitHub auth are two different things, and seeding only
+    the first left the arms failing in a new place: the acceptance gate
+    could not read the issue body (`gh api repos/.../issues/19` failed) and
+    the workspace fetch died on "Password authentication is not supported
+    for Git operations". Both arms, both times, before any task work --
+    another failure that arrives wearing someone else's name, since the
+    gate reported it as an Acceptance-format problem.
+
+    Two files, copied verbatim from the launcher's own HOME:
+    `.config/gh/hosts.yml`, which is what `gh` reads, and a minimal
+    `.gitconfig` pointing git's credential helper at `gh auth
+    git-credential` -- the same bridge the launcher itself uses, so git
+    inherits gh's token rather than needing a second copy of it.
+
+    Byte-identical across arms (same source, same call, before either arm
+    dispatches), so it adds nothing either arm could use to tell itself
+    apart from the other, and it touches neither HOME's skills root nor
+    MUSTER_SKILL_REPO -- the manipulated variable is untouched.
+
+    Returns paths and a verdict, never token content: nothing here reaches
+    the manifest, the transport record, or any committed artifact. Fails
+    visibly for `run_pair()` to fail closed on, rather than letting a
+    doomed arm dispatch and report the failure as something else.
+    """
+    source_home = source_home or Path(os.environ.get("HOME", ""))
+    hosts = source_home / ".config" / "gh" / "hosts.yml"
+    if not hosts.is_file():
+        return {"seeded": False,
+                "reason": f"no gh auth at {hosts} -- this launcher cannot "
+                          "reach GitHub, so an arm seeded from it could not "
+                          "either"}
+    gh_bin = shutil.which("gh")
+    if not gh_bin:
+        return {"seeded": False,
+                "reason": "gh is not on PATH -- git's credential helper "
+                          "would have nothing to call"}
+    dest = home / ".config" / "gh" / "hosts.yml"
+    try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(hosts.read_bytes())
+        dest.chmod(0o600)
+        name = _git_identity(source_home, "user.name") or "on-the-record arm"
+        email = (_git_identity(source_home, "user.email")
+                 or "noreply@example.invalid")
+        (home / ".gitconfig").write_text(
+            "[user]\n\tname = %s\n\temail = %s\n"
+            '[credential "https://github.com"]\n\thelper = !%s auth git-credential\n'
+            % (name, email, gh_bin), encoding="utf-8")
+    except OSError as exc:
+        return {"seeded": False,
+                "reason": f"could not seed GitHub auth into {dest}: {exc}"}
+    return {"seeded": True, "source": str(hosts), "gh": gh_bin}
+
+
+def _git_identity(source_home: Path, key: str) -> str | None:
+    """The launcher's own committer identity, so an arm's commits are not
+    rejected for having none. Read from its config, never invented."""
+    try:
+        out = subprocess.run(["git", "config", "--global", key],
+                             capture_output=True, text=True, timeout=10,
+                             env=dict(os.environ, HOME=str(source_home)))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None
+
+
 _LEAK_PRONE_ENV_RE = re.compile(r"^(CLAUDE|MUSTER|TOKENMAXXXER)_[A-Z0-9_]*$")
 
 
@@ -489,6 +559,25 @@ def run_pair(pair_id: str, repo: str, skill_name: str, model: str,
                 "reason": reason, "excluded_from_h2": True,
                 "exclusion_reason": reason, "h2": None,
                 "credential_seeding": credential_seeding}
+
+    # Claude auth is not GitHub auth. With only the former seeded, both arms
+    # died before any task work -- the acceptance gate could not read the
+    # issue body and the workspace fetch was refused -- and the gate
+    # reported it as an Acceptance-format problem, not an auth one.
+    github_seeding = {
+        arm["arm"]: seed_arm_github_auth(Path(arm["home"]))
+        for arm in manifest["arms"]
+    }
+    if not all(r["seeded"] for r in github_seeding.values()):
+        prepare_arms._cleanup(created_dirs)
+        reason = "; ".join(
+            f"{arm}: {r['reason']}" for arm, r in github_seeding.items()
+            if not r["seeded"])
+        return {"pair_id": pair_id, "status": "github-auth-seeding-failed",
+                "reason": reason, "excluded_from_h2": True,
+                "exclusion_reason": reason, "h2": None,
+                "credential_seeding": credential_seeding,
+                "github_seeding": github_seeding}
 
     manifest_path = out_dir / "manifest.json"
     manifest_text = prepare_arms.render_manifest_json(manifest)
