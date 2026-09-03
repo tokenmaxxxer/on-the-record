@@ -969,7 +969,24 @@ def gate_report(cwd: str) -> list[str]:
 # has ever actually written to either subdirectory, so this widening has
 # reclassified no real write; see test/test_board_ownership_report.py for
 # the pinned before/after cases.
-ALT_RECORD_SUBDIRS = ("spikes/", "postmortems/")
+#
+# Issue #3230: `consult-log/` joins the same exemption for a distinct
+# reason -- it was never actually protected by this list, it was
+# protected by TIMING. `_spawn_one()` used to join the cross-family
+# skill_judge future (which writes `docs/issue-<n>/reports/consult-log/`
+# via `_skill_judge_consult()`'s own trace commit) before calling
+# `board_snapshot()` for its "before" comparison, so that write always
+# landed before the delta window opened, never inside it. Issue #3230
+# moved that judge call to a detached subprocess launched after Popen (to
+# stop it blocking the worker session's own start), so its consult-log
+# write now lands during the delta window instead -- same file, same
+# writer identity (the orchestrator, not the worker session), but now
+# arriving after `before` was captured. `consult-log/` is also not
+# exclusively the orchestrator's: a worker session's own mid-session
+# `consult` calls (design-research, validity-consult, ...) write the same
+# path, already multi-writer by design. Path-only exemption, same as
+# `spikes/`/`postmortems/` above.
+ALT_RECORD_SUBDIRS = ("spikes/", "postmortems/", "consult-log/")
 
 
 def ownership_report(cwd: str, skill: str, delta: list) -> list[str]:
