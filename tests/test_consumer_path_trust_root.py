@@ -37,9 +37,11 @@ verify_manipulation = _load_module("verify_manipulation")
 def populated_skills_root(tmp_path):
     root = tmp_path / "skills-corpus"
     (root / "skill-a").mkdir(parents=True)
-    (root / "skill-a" / "SKILL.md").write_text("---\nname: skill-a\n---\n")
+    (root / "skill-a" / "SKILL.md").write_text(
+        "---\nname: skill-a\n---\nReal guidance body for skill-a.\n")
     (root / "skill-b").mkdir(parents=True)
-    (root / "skill-b" / "SKILL.md").write_text("---\nname: skill-b\n---\n")
+    (root / "skill-b" / "SKILL.md").write_text(
+        "---\nname: skill-b\n---\nReal guidance body for skill-b.\n")
     return root
 
 
@@ -87,21 +89,38 @@ def test_resolve_skill_files_skips_dot_directories(populated_skills_root):
     assert all(not f["path"].startswith(".") for f in files)
 
 
-def test_demonstrate_absence_on_nonexistent_path(tmp_path):
-    absent = tmp_path / "never-created"
-    result = prepare_arms.demonstrate_absence(absent)
-    assert result["skills_root_exists"] is False
-    assert result["file_count"] == 0
-    assert result["files_found"] == []
+def test_front_matter_block_strips_body():
+    text = "---\nname: skill-a\n---\nSome guidance body.\nMore lines.\n"
+    assert prepare_arms.front_matter_block(text) == "---\nname: skill-a\n---\n"
 
 
-def test_demonstrate_absence_reports_existing_but_nonempty(tmp_path):
-    populated = tmp_path / "populated"
-    populated.mkdir()
-    (populated / "leaked.md").write_text("leak")
-    result = prepare_arms.demonstrate_absence(populated)
-    assert result["skills_root_exists"] is True
-    assert result["file_count"] == 1
+def test_front_matter_block_falls_back_when_absent():
+    assert prepare_arms.front_matter_block("no front matter here") == \
+        "---\nname: (unknown)\n---\n"
+
+
+def test_build_decoy_skill_root_drops_body(tmp_path, populated_skills_root):
+    real = populated_skills_root / "skill-a" / "SKILL.md"
+    decoy_root = prepare_arms.build_decoy_skill_root("skill-a", real)
+    decoy_md = decoy_root / "skill-a" / "SKILL.md"
+    assert decoy_md.is_file()
+    assert decoy_md.read_text(encoding="utf-8") == "---\nname: skill-a\n---\n"
+    assert decoy_md.read_bytes() != real.read_bytes()
+
+
+def test_build_decoy_skill_root_rejects_missing_source(tmp_path):
+    with pytest.raises(prepare_arms.ArmPreparationError):
+        prepare_arms.build_decoy_skill_root(
+            "skill-a", tmp_path / "no-such-skill" / "SKILL.md")
+
+
+def test_build_decoy_skill_root_rejects_body_free_source(tmp_path):
+    root = tmp_path / "skills-corpus"
+    (root / "skill-a").mkdir(parents=True)
+    real = root / "skill-a" / "SKILL.md"
+    real.write_text("---\nname: skill-a\n---\n")  # no body to strip
+    with pytest.raises(prepare_arms.ArmPreparationError):
+        prepare_arms.build_decoy_skill_root("skill-a", real)
 
 
 # --- build_manifest: exactly-one-difference property --------------------
@@ -114,11 +133,16 @@ def test_arms_differ_only_in_manipulated_variable(populated_skills_root):
     on = [a for a in manifest["arms"] if a["arm"] == "on"][0]
     off = [a for a in manifest["arms"] if a["arm"] == "off"][0]
 
-    # The manipulated variable: corpus reachable vs. not.
+    # The manipulated variable: real guidance vs. a same-named decoy with
+    # none (issue #3280) -- both arms resolve a name and dispatch, but
+    # only the on arm's SKILL.md carries a body.
     assert on["skill_files"] != []
     assert all(f.get("sha256") for f in on["skill_files"])
-    assert off["skill_files"] == []
-    assert off["absence_check"]["skills_root_exists"] is False
+    assert off["skill_files"] != []
+    assert off["decoy"]["has_body_guidance"] is False
+    on_md = next(f for f in on["skill_files"] if f["path"] == "skill-a/SKILL.md")
+    off_md = next(f for f in off["skill_files"] if f["path"] == "skill-a/SKILL.md")
+    assert on_md["sha256"] != off_md["sha256"]
 
     # Isolation infrastructure differs (fresh HOME per arm) but the
     # dispatch shape itself -- argv template -- is identical, so nothing

@@ -41,8 +41,10 @@ run_pair = _load_module("run_pair", CONSUMER_PATH_DIR / "run_pair.py")
 @pytest.fixture
 def populated_skills_root(tmp_path):
     root = tmp_path / "skills-corpus"
-    (root / "skill-a").mkdir(parents=True)
-    (root / "skill-a" / "SKILL.md").write_text("---\nname: skill-a\n---\n")
+    for name in ("skill-a", "my-skill"):
+        (root / name).mkdir(parents=True)
+        (root / name / "SKILL.md").write_text(
+            f"---\nname: {name}\n---\nReal guidance body for {name}.\n")
     return root
 
 
@@ -232,6 +234,77 @@ def test_run_pair_success_path_builds_plan_shim_without_nameerror(
         19, 20, tmp_path / "out", 1800, True)
     assert result["h1_manipulation_ok"] is True
     assert result["h2"] == {"stub": True}
+
+
+# --- fetch_deliverable_files: regression (issue #3245 round 7) ---------
+#
+# `rcp._default_deliverable_fetcher()` reads the arm's own PR *body*
+# (`gh pr view <branch> --json body`) using a guessed branch name with no
+# lease disambiguator. Round 3 and round 4 both scored that PR body and
+# got a meaningless tie -- neither arm's brief lives there; it is a
+# committed file under docs/issue-<n>/{specs,reports}/*.md, per every
+# measurement issue's own acceptance check. `fetch_deliverable_files()`
+# must fetch that file's real content off the discovered branch instead.
+
+def test_deliverable_file_paths_filters_to_specs_and_reports(monkeypatch):
+    def _fake_run(cmd, cwd, capture_output, text):
+        assert cmd[:3] == ["gh", "pr", "view"]
+        return subprocess.CompletedProcess(
+            cmd, 0, stdout=json.dumps({"files": [
+                {"path": "docs/issue-19/reports/skill-abc123.md"},
+                {"path": "docs/issue-19/specs/some-brief.md"},
+                {"path": "README.md"},
+            ]}), stderr="")
+
+    monkeypatch.setattr(run_pair.subprocess, "run", _fake_run)
+    paths = run_pair._deliverable_file_paths("/repo", "issue-19/skill-abc123")
+    assert paths == ["docs/issue-19/reports/skill-abc123.md",
+                      "docs/issue-19/specs/some-brief.md"]
+
+
+def test_deliverable_file_paths_empty_when_gh_fails(monkeypatch):
+    def _fake_run(cmd, cwd, capture_output, text):
+        return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="not found")
+
+    monkeypatch.setattr(run_pair.subprocess, "run", _fake_run)
+    assert run_pair._deliverable_file_paths("/repo", "issue-19/skill") == []
+
+
+def test_fetch_deliverable_files_returns_none_when_branch_undiscoverable(
+        monkeypatch):
+    monkeypatch.setattr(run_pair.rcp, "_discover_arm_branch",
+                         lambda repo, issue: {"found": False, "branch": None})
+    assert run_pair.fetch_deliverable_files("acme/repo", "/repo", 19) is None
+
+
+def test_fetch_deliverable_files_reads_branch_file_content_not_pr_body(
+        monkeypatch):
+    monkeypatch.setattr(
+        run_pair.rcp, "_discover_arm_branch",
+        lambda repo, issue: {"found": True,
+                              "branch": "issue-19/skill-abc123"})
+    monkeypatch.setattr(
+        run_pair, "_deliverable_file_paths",
+        lambda local_repo, branch: ["docs/issue-19/reports/skill-abc123.md"])
+
+    def _fake_content(local_repo, branch, path):
+        assert branch == "issue-19/skill-abc123"
+        assert path == "docs/issue-19/reports/skill-abc123.md"
+        return "# the real brief body\n"
+
+    monkeypatch.setattr(run_pair, "_file_content_from_branch", _fake_content)
+    result = run_pair.fetch_deliverable_files("acme/repo", "/repo", 19)
+    assert "the real brief body" in result
+    assert "docs/issue-19/reports/skill-abc123.md" in result
+
+
+def test_fetch_deliverable_files_none_when_no_deliverable_paths(monkeypatch):
+    monkeypatch.setattr(
+        run_pair.rcp, "_discover_arm_branch",
+        lambda repo, issue: {"found": True, "branch": "issue-19/skill"})
+    monkeypatch.setattr(run_pair, "_deliverable_file_paths",
+                         lambda local_repo, branch: [])
+    assert run_pair.fetch_deliverable_files("acme/repo", "/repo", 19) is None
 
 
 # --- _github_slug_from_local_repo: regression (issue #3245 round 4) ----
