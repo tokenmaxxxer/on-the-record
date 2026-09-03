@@ -58,6 +58,7 @@ import argparse
 import getpass
 import hashlib
 import json
+import os
 import sys
 import tempfile
 import uuid
@@ -189,6 +190,36 @@ def make_off_arm(home: Path) -> dict:
     }
 
 
+def provision_credentials(home: Path, source_home: Path | None = None) -> dict:
+    """Copies only `.claude/.credentials.json` from the real environment's
+    HOME into an arm's isolated temporary HOME -- nothing else (no plugin
+    registration, no marketplace config, no settings). Two independent
+    verifications of PR #3251 traced that PR's "environment-wide CLI/hook
+    regression" diagnosis to this exact gap: an isolated HOME with no
+    credentials makes every `claude -p` call under it fail immediately on
+    "Not logged in", which `spawn.py doctor()`'s `fired_ups and fired_pre`
+    check cannot distinguish from hooks being silenced. Copying only the
+    credentials file (verified sufficient, and isolation-preserving,
+    live -- see PR #3251's independent-verification-2 record) closes that
+    gap without touching the skills-root absence guarantee this module
+    exists to make.
+
+    Never raises: a missing source credentials file leaves the arm exactly
+    as unauthenticated as before this fix, and the returned record says so
+    plainly rather than crashing the whole manifest build over it."""
+    source_home = source_home or Path(os.environ.get("HOME", str(Path.home())))
+    source_creds = source_home / ".claude" / ".credentials.json"
+    if not source_creds.is_file():
+        return {"provisioned": False, "source": str(source_creds),
+                "reason": "no credentials file found at source HOME"}
+    dest_creds = home / ".claude" / ".credentials.json"
+    dest_creds.parent.mkdir(parents=True, exist_ok=True)
+    dest_creds.write_bytes(source_creds.read_bytes())
+    dest_creds.chmod(0o600)
+    return {"provisioned": True, "source": str(source_creds),
+            "dest": str(dest_creds)}
+
+
 def build_manifest(skills_root_on: Path, skill_name: str, model: str,
                     operator: str) -> tuple[dict, list[Path]]:
     """Returns (manifest, created_dirs) -- `created_dirs` is exactly the
@@ -208,6 +239,8 @@ def build_manifest(skills_root_on: Path, skill_name: str, model: str,
             raise ArmPreparationError(
                 "on/off arms received the same HOME -- isolation "
                 "invariant violated")
+        on_arm["credential_provisioning"] = provision_credentials(on_home)
+        off_arm["credential_provisioning"] = provision_credentials(off_home)
     except ArmPreparationError:
         _cleanup(created_dirs)
         raise
@@ -280,7 +313,6 @@ def main() -> int:
               file=sys.stderr)
         return 2
 
-    import os
     skills_root_on = Path(
         args.skills_root_on
         or os.environ.get("MUSTER_SKILL_REGISTRY_ROOT")

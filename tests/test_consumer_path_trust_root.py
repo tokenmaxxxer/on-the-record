@@ -145,6 +145,66 @@ def test_build_manifest_cleans_up_homes_it_created(populated_skills_root):
     assert all(not d.exists() for d in created_dirs)
 
 
+# --- provision_credentials: PR #3251's isolated-HOME auth gap ------------
+# Both independent verifications of PR #3251 traced its "environment-wide
+# CLI/hook regression" misdiagnosis to this exact gap: an isolated HOME
+# with no credentials makes `claude -p` fail auth before any hook fires,
+# which `spawn.py doctor()`'s coarse check misreports as hooks not firing.
+
+def test_provision_credentials_copies_only_the_credentials_file(tmp_path):
+    source_home = tmp_path / "source-home"
+    (source_home / ".claude").mkdir(parents=True)
+    (source_home / ".claude" / ".credentials.json").write_text('{"token": "x"}')
+    (source_home / ".claude" / "settings.json").write_text('{"other": "config"}')
+    (source_home / ".claude" / "plugins").mkdir()
+
+    dest_home = tmp_path / "arm-home"
+    dest_home.mkdir()
+    result = prepare_arms.provision_credentials(dest_home, source_home=source_home)
+
+    assert result["provisioned"] is True
+    assert (dest_home / ".claude" / ".credentials.json").read_text() == '{"token": "x"}'
+    # Nothing else from the source .claude/ directory is copied.
+    assert sorted(p.name for p in (dest_home / ".claude").iterdir()) == [
+        ".credentials.json"]
+
+
+def test_provision_credentials_missing_source_reports_not_provisioned(tmp_path):
+    source_home = tmp_path / "source-home-no-creds"
+    source_home.mkdir()
+    dest_home = tmp_path / "arm-home"
+    dest_home.mkdir()
+
+    result = prepare_arms.provision_credentials(dest_home, source_home=source_home)
+
+    assert result["provisioned"] is False
+    assert not (dest_home / ".claude").exists()
+
+
+def test_build_manifest_provisions_credentials_into_both_arm_homes(
+        monkeypatch, populated_skills_root, tmp_path):
+    source_home = tmp_path / "source-home"
+    (source_home / ".claude").mkdir(parents=True)
+    (source_home / ".claude" / ".credentials.json").write_text('{"token": "x"}')
+    monkeypatch.setenv("HOME", str(source_home))
+
+    manifest, created_dirs = prepare_arms.build_manifest(
+        populated_skills_root, "skill-a", "sonnet", "test-operator")
+    try:
+        on = [a for a in manifest["arms"] if a["arm"] == "on"][0]
+        off = [a for a in manifest["arms"] if a["arm"] == "off"][0]
+        assert on["credential_provisioning"]["provisioned"] is True
+        assert off["credential_provisioning"]["provisioned"] is True
+        assert Path(on["credential_provisioning"]["dest"]).read_text() == '{"token": "x"}'
+        assert Path(off["credential_provisioning"]["dest"]).read_text() == '{"token": "x"}'
+        # The off arm's skills-root absence guarantee is untouched by
+        # credential provisioning -- still nothing to read there.
+        assert off["skill_files"] == []
+        assert off["absence_check"]["skills_root_exists"] is False
+    finally:
+        prepare_arms._cleanup(created_dirs)
+
+
 # --- verify_manipulation.py: happy path ---------------------------------
 
 def test_verify_succeeds_on_matching_pair(tmp_path, populated_skills_root):
