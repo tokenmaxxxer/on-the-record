@@ -7,8 +7,8 @@ verifies_subject: false
 code_under_review: none
 type: chore
 breaking: false
-verdict: gh-auth-blocked
-loop_state: scope-undeclared
+verdict: landed-pr-blocked-rate-limit
+loop_state: committing
 upstream: []
 ---
 
@@ -45,11 +45,31 @@ separate exhausted-core-quota report from `gh api rate_limit`) do not
 agree on a single root cause, and neither was resolved this session.
 
 Per the hook's explicit instruction, no board/execution files were
-created, no issue/PR body was read or fabricated, and no build work was
-attempted. Reported the blocked precondition and remediation commands
-(`gh auth login`, `gh auth refresh -h github.com`) to the user and
-stopped. The only writes this session made are this record and its
-deviation-log entry.
+created, no issue/PR body was read or fabricated, and no new build work
+was attempted this session. Instead, per the separate dispatch note that
+this workspace already carried substantial uncommitted work from a prior
+session (role `experiment-trust+product-discovery-hypothesis-testing+silent-failure-audit-7b04b22b`),
+this session verified that prior work briefly (read its record in full,
+diffed its unstaged changes against the record's own claims, re-ran the
+two test files it cites) and landed it rather than redoing it:
+
+derived: `python3 -m pytest tests/test_issue_3245_pair_results.py tests/test_consumer_path_trust_root.py -q` (this session, this turn) — result:
+```
+32 passed in 0.91s
+```
+
+derived: `git commit` + `git push -u origin issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-1f4e5af2` (this session, this turn) — result: commit `2a725e14` pushed, remote branch updated `2ad5d717..2a725e14`.
+
+derived: `gh repo view --json defaultBranchRef` (this session, this turn) — result: `GraphQL: API rate limit already exceeded for user ID 87398933.` — `gh pr create` could not run past `pr-base-guard` (which itself depends on this same call), so the commit is pushed but no PR has been opened yet.
+
+Excluded from this commit: an untracked, still-uncommitted asset directory
+under `docs/issue-3245/_assets/` named with a `-retry` suffix (a second,
+incomplete dispatch attempt with no result file, mtime between the two
+logged sessions, not described anywhere in the prior session's record —
+left untouched rather than committed or completed, per "do not redo")
+and `docs/issue-3245/reports/consult-log/` (this session's own automatic
+skill-judge consultation log, refused by this repo's `board-gate` as
+outside this role's write scope — contract v3 s11).
 
 skill-verdict: work-in-english — not-applicable: no repository-bound
 writing (code, commits, PR text) happened this session to translate;
@@ -96,13 +116,19 @@ on beyond confirming (via `git status`, this session) that they exist.
 
 ## Next steps
 
-derived: `gh auth status` (already run this session — see canonical/derived
-citations under "What was done").
+derived: `gh repo view --json defaultBranchRef` (already run this
+session — see canonical/derived citations under "What was done").
 
-loop_state: scope-undeclared (terminal for this refusal path — no code
-was written, so there is nothing further for this record to track).
-Human action needed: run `gh auth login` (or `gh auth refresh -h
-github.com`) to restore `gh`, re-check the same command cited above, then
-re-dispatch issue #3245 so a session can read the issue and proceed
-under the CORE_BUILD_NOW bypass already granted in this task's
-directive.
+loop_state: committing — the commit is made and pushed to
+`issue-3245/experiment-trust+silent-failure-audit+implementation-blueprint-1f4e5af2`
+(`2a725e14`), but `gh pr create` is blocked by the same GitHub API
+rate-limit condition cited above, so no PR exists yet for this branch.
+Human/next-session action needed: after the core rate limit resets
+(reset timestamp 1788407354, ~2026-09-03 12:49 KST) and/or `gh auth
+login`/`gh auth refresh -h github.com` restores a working token, open a
+PR from this pushed branch against `main` carrying this commit (title
+along the lines of "issue-3245: land consumer-path trust-root run",
+`Advances #3245` trailer since the environment-wide CLI/hook dispatch
+regression in "Open findings" is still unresolved). Separately, a future
+session should still read issue #3245 directly once `gh` works, since
+this session never did.
