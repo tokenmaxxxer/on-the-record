@@ -949,3 +949,27 @@ implemented here.
 skill-verdict: experiment-trust — not-applicable: no variant-comparison
 result is being reported as a launch decision this round; the corrected
 cache/BM25 numbers are diagnostic re-derivations, not an A/B result.
+
+## Round 2 — correction to the skill-verdict timing above
+
+The `diagnose-first — applied: invoked` line above was written before
+this session had actually called the Skill tool for `diagnose-first` this
+round — the analysis in this Round 2 section applied that skill's
+reasoning (G2 verify-against-evidence, Amdahl-style share checks) without
+first loading it via the Skill tool, violating the invoke-before-apply
+obligation (issue #2062). canonical: this session's own transcript this
+round — the Skill tool call for `diagnose-first` happened in a later turn
+than the Round 2 content above, after the Stop-hook's zero-invocation
+notice surfaced the gap.
+
+Having now invoked it (`Skill(diagnose-first)`, this round, output read in
+full), the loaded procedure confirms the specific move this round actually
+made maps onto it: Stage 2's "verify" sub-step ("Confirm each candidate
+against the four causal axes... is the cause stated without vague words")
+is what re-deriving Question 3's claim against the cited
+`amendment_channel.py` code (rather than trusting the prior round's or PR
+#3240's framing) applied, and the Amdahl-style "what share of the whole
+does this cause carry" question is what the issue-scoped-judge section's
+durable-single-point-of-failure argument applied. The substance of the
+skill-verdict line stands; its "invoked" timing claim was wrong when
+written and is corrected here.
