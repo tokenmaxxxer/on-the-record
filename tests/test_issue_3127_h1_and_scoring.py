@@ -391,6 +391,36 @@ class ComputeH1ManipulationTest(unittest.TestCase):
                           result["directive_bytes_parity"]["off_bytes"])
 
 
+class CheckH1ContentManipulationTest(unittest.TestCase):
+    """silent-failure-audit finding (issue #3288 round 10): the source
+    file's `read_bytes()` used to be unguarded -- `is_file()` above it
+    cannot promise the read itself succeeds (a TOCTOU race, or a
+    permission error). Unguarded, that would crash the whole batch of
+    pairs instead of excluding just the one pair whose evidence could not
+    be read, breaking the fail-closed discipline every other branch in
+    this function follows."""
+
+    def setUp(self):
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmpdir.cleanup)
+
+    def test_unreadable_source_file_is_content_ok_false_not_a_crash(self):
+        on_arm_manifest, off_arm_manifest = _make_arm_manifests(
+            Path(self._tmpdir.name) / "registry")
+        source_path = Path(
+            off_arm_manifest["decoy"]["source_skill_md"])
+        source_path.chmod(0o000)
+        self.addCleanup(source_path.chmod, 0o644)
+        try:
+            result = rcp.check_h1_content_manipulation(
+                on_arm_manifest, off_arm_manifest, SKILL_NAME)
+        except OSError:
+            self.fail("check_h1_content_manipulation() must fail closed "
+                      "on an unreadable source file, not raise")
+        self.assertFalse(result["content_ok"])
+        self.assertIn("could not read", result["reason"])
+
+
 class GatePairOnH1Test(unittest.TestCase):
     """The gate must refuse to even CALL the H2 scorer for a pair that
     fails H1 -- not just fail to report it afterward."""

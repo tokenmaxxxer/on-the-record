@@ -751,7 +751,19 @@ def check_h1_content_manipulation(on_arm_manifest: dict | None,
                           "not an arm's temporary HOME; its absence means "
                           "the registry moved or was cleaned, not that "
                           "the arms are untrustworthy)"}
-    source_bytes = source_path.read_bytes()
+    try:
+        source_bytes = source_path.read_bytes()
+    except OSError as exc:
+        # silent-failure-audit: is_file() above cannot guarantee the read
+        # itself succeeds (permission error, or a TOCTOU race -- the
+        # registry could be concurrently modified between the check and
+        # this read). Unguarded, this would crash the whole batch of
+        # pairs instead of excluding just this one with a named reason --
+        # the same fail-closed discipline every other branch here follows.
+        return {"content_ok": False,
+                "reason": f"could not read the decoy's recorded source "
+                          f"{source_path}: {exc} -- cannot independently "
+                          "verify content"}
     source_hash = hashlib.sha256(source_bytes).hexdigest()
     source_text = source_bytes.decode("utf-8", errors="replace")
     front_matter = _pa_mod.front_matter_block(source_text)
