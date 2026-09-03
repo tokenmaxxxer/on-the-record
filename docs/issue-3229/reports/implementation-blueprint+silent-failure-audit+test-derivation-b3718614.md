@@ -161,3 +161,103 @@ skill-verdict: implementation-blueprint — applied: invoked; retroactive check 
 derived: `python3 skill-registry/skills/implementation-blueprint/scripts/prep.py classify --surface backend --external no --logic rich --asynchronous no` → `ARCHETYPE: domain-rich`; `prep.py recommend domain-rich --team 1` → `FAN-OUT PREP: threshold <=5 build solo` (this session's own two runs, shown verbatim earlier in this session's transcript)
 skill-verdict: silent-failure-audit — applied: invoked; ran against `live_stop_decision()`/`delegation-live-check.sh` before the test suite was written, caught the exit-2 trap-direction defect fixed in "What did not work"
 skill-verdict: test-derivation — applied: invoked; routed tests/test_issue_3229_delegation_live_wiring.py's cases to a decision-table/MC/DC-style derivation matching test/test_delegation_state.py's own established shape for is_covered()/audit(), one case per AND-chain condition flipped
+
+## Round 2 addendum (repair for PR #3236's adversarial verification)
+
+Appended by a different session
+(docs/issue-3229/reports/implementation-blueprint+silent-failure-audit+test-derivation-c0444e1d.md,
+untracked on this branch -- that session's own record lives on the
+issue-3229/implementation-blueprint+silent-failure-audit+test-derivation-c0444e1d
+branch instead) after independent adversarial review PR #3236 found two
+Incorrect findings and one Surface finding against this delivery.
+Appended rather than editing any line above, per this repo's own
+foreign-authored-record rule. This section only corrects the three
+claims PR #3236 found wrong or unscoped in the text above; full
+reasoning and the code diff live in the round-2 session's own record.
+
+**Crash trap (finding 3, Incorrect) — corrects "What did not work"
+above.** That section claims the fix remaps any nonzero exit to 0. False
+for exactly the invocation the fix was written to guard: the shipped
+`on-the-record/hooks/delegation-live-check.sh` (untracked on this
+session's own primary checkout -- exists on this PR's own branch,
+`git show 3bd1f3fb:on-the-record/hooks/delegation-live-check.sh`)'s last
+three lines were `rc=$?; trap - EXIT; exit "$rc"`, disabling the trap
+this section describes immediately before the one exit that matters
+most. Fixed round 2 by dropping `trap - EXIT`, leaving the top-of-file
+trap active through a single `exit "$?"`.
+canonical: `git show 3bd1f3fb:on-the-record/hooks/delegation-live-check.sh`
+lines 115-118 (this round-2 session's own read, pre-fix) —
+```
+DLC_PAYLOAD="$payload" DLC_CHECKOUT="$CHECKOUT" python3 -c "$CHECK"
+rc=$?
+trap - EXIT
+exit "$rc"
+```
+derived: this round-2 session's own reproduction — a scratch copy of the
+hook with `sys.exit(2)` inserted right after `import delegation_state as
+ds` in the CHECK heredoc, run via `bash <scratch>.sh` with
+`TOKENMAXXXER_SPAWNED`/`ORCHESTRATE_OFF` explicitly unset (both were
+live-set in this round-2 session's own environment and were silently
+short-circuiting every earlier attempt to exit 0 before reaching python
+at all, independent of the trap fix) — result: pre-fix hook `EXIT CODE:
+2` (forces continuation), fixed hook `EXIT CODE: 0`.
+
+**Adjacency (finding 4, Incorrect, the most severe of that review) --
+corrects "Episode-before-the-ask, not episode-after" above.** That
+section's "every action in the stretch must be covered" rule reused
+#3061's own retrospective rule for the live/backward direction. Not
+sound there: `audit()` runs after the episode finishes, so an approved
+action already exists as a later `tool_use` event and gets checked for
+real; `live_stop_decision()` runs before anything happens, so a
+not-yet-attempted, purely textual candidate action has no `tool_use`
+representation for that same `all()` check to bind to -- adjacency
+(stream order) was standing in for correlation.
+canonical: `delegation_state.py` lines 774-801 and 869-919 on this
+branch (`_episode_tool_uses()`'s own docstring, citing issue #3061 round
+4 / PR #3192 Q5: "the transcript format carries no field correlating a
+specific `tool_use` event to the ask that prompted it -- no parent/reply
+id, nothing but stream order"; round 6 of that same issue confirmed no
+such field exists) — this round-2 session's own read
+derived: this round-2 session's own reproduction script, driving
+`delegation_state.live_stop_decision()` directly against a constructed
+episode (`git log --oneline -20`, a `CHANGELOG.md` read, both covered by
+a wildcard grant) immediately followed by a text-only ask about a
+never-attempted force-push to main — result: `suppress: False`, reason
+`"...has no field correlating this ask to any specific preceding action
+-- adjacency alone cannot establish that the ask is about a covered
+action, leaving the question standing..."` (post-fix; the pre-fix
+version of this same script returned `suppress: True` with
+`decision:"block"`, matching PR #3236's own finding)
+
+Round 2's resolution: retire the previous-episode-coverage suppress path
+entirely, including the single-action baseline this delivery's own
+`CoveredCleanEpisodeSuppressesTest` used, rather than narrow it to a
+smaller adjacency heuristic -- no narrowing removes the reliance on
+stream order alone. Over-refusing (leaving a redundant question
+standing) is the correct failure direction here. The seam itself (a Stop
+hook can refuse a stop, established in "What was done" item 1 above)
+remains real and wired; there is currently no case in which this
+delivery's own decision logic chooses to use it.
+
+**Latency (finding 6, Surface) — scopes "Measured latency" above.** The
+~38ms figure and "dominated by interpreter startup" explanation are
+accurate for the no-grant path and for a small manifest. They do not
+hold for a large manifest: latency roughly triples at 2000 manifest
+entries, because `is_covered()` re-validates the whole manifest via
+`_safe_manifest()` on every call rather than once per invocation.
+canonical: `delegation_state.py` line 677 (`is_covered()`) and line 453
+(`_safe_manifest()`) on this branch -- this round-2 session's own read
+2000 entries is not a realistic size for a hand-authored "go ahead"
+grant, so this does not currently violate the issue's "must not add
+latency the operator can feel" for ordinary use, but the general claim
+above should be read as scoped to small/typical manifests. Not fixed
+round 2 (validate once, reuse the validated list -- cheap, out of round
+2's own scope).
+
+Round 2 kept, unchanged: the five must-not partitions, the sixth
+partition PR #3236 added, the `stop_hook_active` retry-loop safety, the
+`TOKENMAXXXER_SPAWNED` scope guard, and the incidental
+`hook_classification.json`/`fail-open-wrapper.sh` fix for
+`amends-landing-apply.sh`.
+acceptance: `python3 -m pytest tests/test_issue_3229_delegation_live_wiring.py -q` (this round-2 session's own run, in this PR's checkout, post-fix) — result: 16 passed
+acceptance: `python3 -m pytest test/test_delegation_state.py -q` (this round-2 session's own run) — result: 92 passed

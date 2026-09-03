@@ -8,8 +8,23 @@
 # a later `--audit` run shows the stop was avoidable. This hook is the
 # live counterpart: at the exact moment the orchestrator stops to ask,
 # it re-derives the intended action the same way #3061's own audit()
-# does (from tool_use events, never from the question's prose) and, only
-# on a covered action with a clean episode, refuses the stop.
+# does (from tool_use events, never from the question's prose).
+#
+# issue #3229 round 2 (PR #3236 finding 4): the first cut refused the
+# stop whenever the episode immediately preceding the ask was entirely
+# covered. That is adjacency, not correlation -- the transcript carries
+# no field tying a specific tool_use event to the ask that follows it
+# (issue #3061 round 6), so an episode of innocuous covered actions
+# immediately before a text-only ask about a completely different,
+# never-attempted, dangerous action got suppressed too. The seam below
+# remains real (a Stop hook CAN refuse the stop) and this script stays
+# wired to it, but `delegation_state.live_stop_decision()` no longer has
+# any case where it chooses to use it -- see that function's own module
+# comment for why the honest resolution is to never suppress rather
+# than invent a narrower adjacency heuristic. Over-refusing (leaving a
+# redundant question standing) is the correct failure direction; this
+# hook exists to remove redundant questions, not to answer dangerous
+# ones on the operator's behalf.
 #
 # The seam was established experimentally before this hook was written,
 # not assumed from documentation (docs/issue-3229's record has the
@@ -40,6 +55,20 @@
 # for a crash OUTSIDE python entirely (e.g. this script's own shell
 # syntax) -- exit 0 either way: a hook that cannot run is a hook that
 # does not fire, same direction as "no grant recorded".
+#
+# issue #3229 round 2 (PR #3236 finding 3): the original last three
+# lines disabled this exact trap (`trap - EXIT`) immediately before the
+# one exit that matters most -- the invoked `python3 -c "$CHECK"` call
+# -- so a crash that happened to exit with the literal code 2 (a future
+# `sys.exit(2)` reached through an unrelated edit, or a C-level
+# interpreter fault) would have forced the same-turn continuation
+# exactly like `decision:"block"` does, independent of stdout. Fixed by
+# leaving the top-of-file trap active through the final `exit "$?"`
+# instead of disabling it first, so every nonzero exit from this call --
+# including a stray 2 -- remaps to exit 0 the same as every earlier exit
+# point in this script already does; decisively re-verified by forcing
+# the invoked python program itself to exit 2 and confirming the hook
+# still exits 0 (docs/issue-3229's record has the reproduction).
 #
 # Kill switches: ORCHESTRATE_OFF=1 (matches every other on-the-record
 # hook). A spawned session (TOKENMAXXXER_SPAWNED set) is never the
@@ -113,6 +142,4 @@ PY
 [ -n "$CHECK" ] || { echo "delegation-live-check: heredoc assignment produced no program (disk full / temp file unavailable?) -- bailing, not enforcing this turn" >&2; exit 1; }
 
 DLC_PAYLOAD="$payload" DLC_CHECKOUT="$CHECKOUT" python3 -c "$CHECK"
-rc=$?
-trap - EXIT
-exit "$rc"
+exit "$?"

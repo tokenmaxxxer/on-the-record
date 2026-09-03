@@ -859,13 +859,57 @@ def _episode_boundary(events: list[dict], event_index: int) -> int:
 # tool first). What IS available live is the episode BEFORE this ask:
 # the tool_use events since the previous ask-shaped stop (or session
 # start), the stretch of what the orchestrator was already doing when
-# it paused to ask -- typically because one of those actions was itself
-# denied or gated and prompted the question. `_previous_episode_boundary`
-# is `_episode_boundary` walked backward instead of forward; the
-# covered/not-covered test applied to that stretch is the exact same
-# `is_covered()` call sites `audit()` already uses, over the exact same
-# `_extract_action()` shape -- this reuses #3061's derivation rather
-# than writing a second one, per this issue's own instruction.
+# it paused to ask. `_previous_episode_boundary` is `_episode_boundary`
+# walked backward instead of forward.
+#
+# issue #3229 round 2 (PR #3236 finding 4, the most severe of that
+# review): this module's first cut treated "every action in that
+# preceding stretch is covered" as a proxy for "this ask is redundant."
+# It is not -- a live-reproducible case (an episode of innocuous,
+# individually-covered actions like `git log`/reading a changelog,
+# immediately followed by a text-only ask about a completely different,
+# dangerous, NEVER-attempted action) got suppressed, because nothing in
+# the transcript ties the ask's actual subject to any member of that
+# stretch. Adjacency (stream order) was the entire connection. This is
+# structurally the same confound `_episode_tool_uses()`'s own docstring
+# already names for the *forward* direction (issue #3061 round 4, PR
+# #3192 Q5): "the transcript format carries no field correlating a
+# specific tool_use event to the ask that prompted it -- no parent/reply
+# id, nothing but stream order." Round 6 of that same issue confirmed no
+# such field exists. `audit()` defends the forward direction with its
+# own `all()`-over-the-whole-stretch check, but that defense does not
+# transfer here: `audit()` runs AFTER the episode finishes, so the real
+# action the ask was about (if approved) already exists as a later
+# tool_use event and gets checked for real. `live_stop_decision()` runs
+# BEFORE anything happens -- a not-yet-attempted, purely textual
+# candidate action has no tool_use representation in either direction,
+# so there is nothing sound for an `all()`-over-the-preceding-stretch
+# check to ever bind it to.
+#
+# The honest resolution taken here, given no correlating field exists:
+# a turn ending in a text-only ask has, by construction, no attempted
+# action of its own (Stop only fires on a message with no tool_use),
+# and nothing in the preceding episode can be soundly bound to it
+# either. `_live_stop_decision_body()` below therefore NEVER returns
+# `suppress=True` from the previous-episode-coverage path -- that
+# branch is retired, not merely narrowed, because narrowing it (e.g. to
+# a single preceding action, or one whose own tool_result was an error)
+# would still be adjacency wearing a smaller costume: it still cannot
+# tell "the ask is about this" from "this happened to sit right before
+# the ask." Over-refusing is the correct failure direction here: this
+# hook exists to remove redundant questions, not to answer dangerous
+# ones on the operator's behalf (issue #3229 round 2 instruction,
+# mirroring the issue's own "if the seam supports only a weaker
+# mechanism, say so and deliver that, labelled honestly" framing for the
+# seam-capability question). The seam itself (a Stop hook CAN refuse a
+# stop, confirmed live above) remains wired and is exercised by the
+# crash-safety path staying fail-closed toward NOT blocking -- it simply
+# has no sound case left in which `_live_stop_decision_body()` chooses
+# to use it. `is_covered()` is still called over the preceding episode
+# so a decline can report a specific, useful reason (not covered, vs.
+# covered-but-uncorrelated) for `--audit`/operator visibility, per
+# "every path that declines to act says so where an operator can see
+# it" -- but neither outcome of that call suppresses anymore.
 def _previous_episode_boundary(events: list[dict], event_index: int) -> int:
     """Index right after the nearest ask-shaped stop strictly before
     `event_index`, or `0` if none is found walking back to the start of
@@ -922,13 +966,20 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
     `stop_hook_active`, `last_assistant_message`, ... -- captured live,
     see docs/issue-3229's record) and the `repo` a standing delegation is
     scoped to (the session's own `cwd`, matching `spawn.py`'s `--repo`
-    default), decide whether this Stop is a covered, clean redundant ask.
+    default), decide whether this Stop can be safely left standing.
 
     Returns `{"suppress": bool, "reason": str | None, "hook_output": dict
-    | None}`. `suppress=True` only when every one of the following holds
-    -- ANY other outcome is `suppress=False`, which is this function's
-    only fail-closed direction; the four combinations issue #3229's own
-    must-not clause names each land here:
+    | None}`. issue #3229 round 2 (PR #3236 finding 4): this always
+    returns `suppress=False` -- see the module comment above for why the
+    previous-episode-coverage path that used to produce `suppress=True`
+    was retired rather than narrowed. `reason` and `hook_output` are kept
+    in the return shape (and `hook_output` stays capable of carrying
+    `{"decision": "block", ...}`) because the seam itself is still real
+    and still wired; there is simply no case left in which this function
+    chooses to use it. Every decline below still reports its own specific
+    `reason` -- the four combinations issue #3229's own must-not clause
+    names each land here, plus the fifth outcome that used to be the
+    positive case:
 
     - a delegation is on record for `repo` AND currently `in_force()`
       (an absent, revoked, or expired delegation is `reason=None` --
@@ -953,17 +1004,12 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
     - the episode immediately preceding this ask (see
       `_previous_episode_boundary()`) contains at least one `tool_use`
       event (zero means no action can be derived -- nothing to check
-      coverage against) AND every action in it, run through
+      coverage against);
+    - and even when every action in that episode, run through
       `_extract_action()` then `is_covered()` against the recorded
-      manifest, matches.
-
-    On `suppress=True`, `hook_output` is `{"decision": "block", "reason":
-    <human-readable, names the matched actions and the delegation's
-    scope>}` -- the enforcement seam confirmed live (see module comment
-    above). The caller (the Stop hook) writes this to stdout; the reason
-    text is what the orchestrator reads on the forced continuation, so it
-    states plainly that this is the recorded grant applied live, not new
-    authority invented here."""
+      manifest, matches -- covered is not the same as correlated (see
+      module comment above), so this still declines, with a reason that
+      says so rather than silently doing nothing."""
     record = load_state(repo)
     if record is None or not in_force(record):
         return {"suppress": False, "reason": None, "hook_output": None}
@@ -1026,18 +1072,24 @@ def _live_stop_decision_body(payload: dict, repo: str) -> dict:
             "covered by the recorded manifest -- leaving the question "
             "standing")}
 
+    # issue #3229 round 2 (PR #3236 finding 4): every action in the
+    # preceding episode being covered is adjacency, not correlation --
+    # the transcript carries no field tying this specific ask to any
+    # member of that episode (issue #3061 round 6), so this cannot be
+    # told apart from an unrelated, never-attempted, uncovered action
+    # that merely happens to sit right after a covered episode. Declines
+    # like every other case, with its own reason, rather than
+    # manufacturing a binding the transcript cannot support.
     covered_desc = ", ".join(f"{a['tool']}:{a['resource']!r}" for a in episode_actions)
-    reason = (
-        f"delegation-live-check: every action in this episode "
-        f"({covered_desc}) is already covered by the recorded standing "
-        f"delegation (scope: {record.get('scope')!r}, granted_by: "
-        f"{record.get('granted_by')}) -- proceed with the pending action "
-        f"without asking again. This is not new authority: it is the "
-        f"already-recorded grant applied while the turn is still "
-        f"happening instead of only detectable afterward (issue #3229)."
-    )
-    return {"suppress": True, "reason": reason,
-            "hook_output": {"decision": "block", "reason": reason}}
+    return {"suppress": False, "hook_output": None, "reason": (
+        f"delegation-live-check: this episode's actions ({covered_desc}) "
+        f"are covered by the recorded standing delegation (scope: "
+        f"{record.get('scope')!r}, granted_by: {record.get('granted_by')}), "
+        f"but the transcript has no field correlating this ask to any "
+        f"specific preceding action -- adjacency alone cannot establish "
+        f"that the ask is about a covered action, leaving the question "
+        f"standing (issue #3229 round 2)."
+    )}
 
 
 def _candidate_session_logs(work_dir: Path, repo_name: str, since: datetime) -> list[Path]:

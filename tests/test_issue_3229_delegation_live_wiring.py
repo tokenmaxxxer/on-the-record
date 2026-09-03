@@ -12,19 +12,36 @@ Test derivation (test-derivation skill). The Stop payload determines the
 hook's outcome through a short-circuit AND chain (grant on record and in
 force AND manifest well-formed and non-empty AND transcript readable AND
 final event ask-shaped AND transcript text matches the payload's own
-last_assistant_message AND episode has >=1 tool_use AND every episode
-action is_covered()) -- the same shape `test/test_delegation_state.py`'s
-own `ManifestLookupConditionsTest`/`AuditFlaggingConditionsTest` already
-route to decision-table / MC/DC-style testing for `is_covered()`/`audit()`.
-This file routes the SAME way for the live wrapper: one baseline-true case
-(`CoveredCleanEpisodeSuppressesTest`) and one case per condition flipped to
-false in isolation (`MustNotSuppressTest`), each independently
-demonstrating that condition controls the suppress/leave-standing outcome
--- this is exactly the issue's own five named must-not partitions, plus
-two safety properties that sit outside the AND chain (the
-`stop_hook_active` retry guard and the `TOKENMAXXXER_SPAWNED` scope guard,
-both checked before the chain ever runs) and one visibility property
-(every decline other than "no grant at all" must be observable on stderr).
+last_assistant_message AND episode has >=1 tool_use) -- the same shape
+`test/test_delegation_state.py`'s own
+`ManifestLookupConditionsTest`/`AuditFlaggingConditionsTest` already route
+to decision-table / MC/DC-style testing for `is_covered()`/`audit()`.
+This file routes the SAME way for the live wrapper: one case per
+condition flipped to false in isolation (`MustNotSuppressTest`), each
+independently demonstrating that condition controls the leave-standing
+outcome -- this is exactly the issue's own five named must-not
+partitions, plus two safety properties that sit outside the AND chain
+(the `stop_hook_active` retry guard and the `TOKENMAXXXER_SPAWNED` scope
+guard, both checked before the chain ever runs) and one visibility
+property (every decline other than "no grant at all" must be observable
+on stderr).
+
+issue #3229 round 2 (PR #3236 finding 4): the shipped suite's
+`CoveredCleanEpisodeSuppressesTest` asserted a `decision:"block"` positive
+case -- every episode action covered implies the ask is redundant. PR
+#3236 decisively reproduced that this is unsound: an episode of
+innocuous, individually-covered actions immediately preceding a
+text-only ask about a completely different, dangerous, never-attempted
+action was suppressed too, because the transcript carries no field
+correlating a specific tool_use event to the ask that follows it (issue
+#3061 round 6). The honest resolution taken here (see
+`delegation_state.py`'s own module comment above `_live_stop_decision_body`
+for the full reasoning): the previous-episode-coverage path never
+suppresses anymore, at any episode size, including the single-action case
+the old positive test used -- over-refusing is the correct failure
+direction. `CoveredCleanEpisodeSuppressesTest` below now demonstrates that
+even a matching, single-action episode declines; `AdjacencyDoesNotImplyCoverageTest`
+reproduces PR #3236's own multi-action defect case directly.
 
 Classification (Step 3a): every requirement here is High -- a bug in
 either direction (suppressing a genuine escalation, or never suppressing
@@ -38,13 +55,18 @@ Traceability:
   - issue's must-not (action outside manifest) -> test_action_outside_manifest_leaves_stop_untouched
   - issue's must-not (no derivable action)     -> test_no_derivable_action_leaves_stop_untouched
   - issue's must-not (episode not complete)    -> test_incomplete_episode_leaves_stop_untouched
-  - issue's positive case (refuse the stop)    -> CoveredCleanEpisodeSuppressesTest
+  - covered-episode adjacency is not enough    -> CoveredCleanEpisodeSuppressesTest,
+    to refuse the stop (round 2, PR #3236 #4)     AdjacencyDoesNotImplyCoverageTest
   - issue's must-not (never fire w/ no grant)  -> test_no_grant_produces_no_stderr_either
   - "says so where an operator can see it"     -> test_every_other_decline_produces_a_stderr_reason
   - retry-loop safety (issue #1725 contract)   -> test_stop_hook_active_never_suppresses_even_when_covered
   - orchestrator-only scope                    -> test_spawned_session_never_fires_even_when_covered
   - latency ("must not add latency the         -> LatencyTest
-    operator can feel")
+    operator can feel", scoped to the no-grant
+    path -- see that class's own docstring)
+  - crash direction (round 2, PR #3236 #3)     -> InternalCrashDeclinesRatherThanBlocksTest
+    (subprocess-level, not just the internal
+    function)
 
 Residual: this file does not measure the harness's own decision:"block"
 continuation behavior end-to-end against the real `claude` binary (that
@@ -164,11 +186,18 @@ class RealPayloadShapeTest(_HookHarness):
 
 
 class CoveredCleanEpisodeSuppressesTest(_HookHarness):
-    """The one positive partition: every AND-chain condition true ->
-    suppress. Baseline-true case the MC/DC-style flips in
-    MustNotSuppressTest each depart from exactly one condition at a time."""
+    """issue #3229 round 2 (PR #3236 finding 4): this class used to be the
+    one positive partition (every AND-chain condition true -> suppress).
+    That positive case is retired -- even this baseline, single-action,
+    otherwise-clean episode no longer suppresses, because "every action in
+    the preceding episode is covered" is adjacency, not a sound binding to
+    what the ask is actually about (see delegation_state.py's own module
+    comment above `_live_stop_decision_body` for the full reasoning). This
+    now demonstrates the honest, over-refusing direction even on the
+    friendliest possible input, not just on PR #3236's adversarial one
+    (that reproduction lives in AdjacencyDoesNotImplyCoverageTest below)."""
 
-    def test_covered_clean_episode_emits_decision_block(self):
+    def test_covered_clean_episode_still_leaves_stop_untouched(self):
         self._grant([{"tool": "Bash", "resource": "git push*", "repo": "*"}])
         _write_log(self.transcript, [
             _assistant_tool_use_event(self.now, "Bash", "command", "git push origin issue-x"),
@@ -177,10 +206,38 @@ class CoveredCleanEpisodeSuppressesTest(_HookHarness):
         ])
         r = self._run("Push was denied, shall I proceed anyway?")
         self.assertEqual(r.returncode, 0, r.stderr)
-        out = json.loads(r.stdout)
-        self.assertEqual(out["decision"], "block")
-        self.assertIn("git push origin issue-x", out["reason"])
-        self.assertIn("issue #3229", out["reason"])
+        self.assertEqual(r.stdout, "")
+        self.assertIn("no field correlating this ask", r.stderr)
+
+
+class AdjacencyDoesNotImplyCoverageTest(_HookHarness):
+    """issue #3229 round 2 (PR #3236 finding 4, the most severe finding of
+    that review): live reproduction of the exact adjacency defect --
+    an episode of innocuous, individually-covered actions (a `git log`, a
+    changelog read) immediately preceding a text-only ask about a
+    completely different, dangerous, NEVER-attempted action (a force-push
+    to main). The force-push is never issued as a tool_use event; the
+    orchestrator is asking BEFORE attempting it, the canonical "ask before
+    acting" pattern. Must leave the stop untouched."""
+
+    def test_unrelated_dangerous_ask_after_covered_episode_leaves_stop_untouched(self):
+        self._grant([{"tool": "Bash", "resource": "*", "repo": "*"},
+                      {"tool": "Read", "resource": "*", "repo": "*"}])
+        ask = ("The last three git log entries look suspicious. Should I "
+               "force-push origin main to roll the release branch back to "
+               "the previous release tag?")
+        _write_log(self.transcript, [
+            _assistant_tool_use_event(self.now, "Bash", "command", "git log --oneline -20"),
+            _assistant_tool_use_event(self.now + timedelta(seconds=1), "Read", "file_path", "CHANGELOG.md"),
+            _assistant_text_event(self.now + timedelta(seconds=2), ask),
+        ])
+        r = self._run(ask)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "",
+                          "the hook must never suppress this stop -- the pending "
+                          "force-push was never attempted, so nothing in the "
+                          "preceding covered episode can be bound to it")
+        self.assertIn("no field correlating this ask", r.stderr)
 
 
 class MustNotSuppressTest(_HookHarness):
@@ -371,12 +428,81 @@ class InternalCrashDeclinesRatherThanBlocksTest(_HookHarness):
         self.assertIn("internal error", decision["reason"])
 
 
+class ForcedExit2AtShellLayerDoesNotBlockTest(_HookHarness):
+    """issue #3229 round 2 (PR #3236 finding 3): the shipped hook's last
+    three lines disabled its own top-of-file safety trap (`trap - EXIT`)
+    immediately before the one exit that matters most -- the invoked
+    `python3 -c "$CHECK"` call -- so a crash that happened to exit with
+    the literal code 2 (a C-level interpreter fault, or a future edit
+    that calls `sys.exit()` with a nonzero argument for an unrelated
+    reason) would have forced the same-turn continuation exactly like
+    `decision:"block"` does, independent of stdout. Fixed by leaving the
+    trap active through the final exit instead of disabling it. This test
+    drives that exact boundary -- the real subprocess/shell-trap seam,
+    not `live_stop_decision()`'s internal try/except (already covered by
+    InternalCrashDeclinesRatherThanBlocksTest above) -- by forcing the
+    invoked python program itself to exit 2, the shape no test in the
+    original suite exercised."""
+
+    def test_python_program_forced_to_exit_2_still_exits_0(self):
+        scratch = Path(self._tmp.name) / "delegation-live-check-crashtest.sh"
+        original = HOOK_PATH.read_text()
+        self.assertEqual(original.count("import delegation_state as ds"), 1,
+                          "fixture assumption: exactly one import site to patch")
+        crashing = original.replace(
+            "import delegation_state as ds\n",
+            "import delegation_state as ds\nimport sys as _crash; _crash.exit(2)\n",
+            1,
+        )
+        # Runs from HOOK_PATH's own directory (not the scratch tempdir) so
+        # this hook's own `dirname "${BASH_SOURCE[0]}"`-based sourcing of
+        # hook-fires.sh/poll-rearm.sh still resolves -- only the CHECK
+        # heredoc content is mutated, not the script's location.
+        real_scratch = HOOK_PATH.parent / "delegation-live-check-crashtest.sh"
+        real_scratch.write_text(crashing)
+        self.addCleanup(real_scratch.unlink)
+
+        _write_log(self.transcript, [_assistant_text_event(self.now, "hello")])
+        env = dict(os.environ)
+        env.pop("ORCHESTRATE_OFF", None)
+        env.pop("TOKENMAXXXER_SPAWNED", None)
+        env["TOKENMAXXXER_CHECKOUT"] = str(REPO_ROOT)
+        payload = json.dumps({
+            "session_id": "s1", "transcript_path": str(self.transcript),
+            "cwd": self.repo, "stop_hook_active": False,
+            "last_assistant_message": "hello",
+        })
+        r = subprocess.run(["bash", str(real_scratch)], input=payload,
+                            capture_output=True, text=True, cwd=self.repo,
+                            env=env, timeout=30)
+        self.assertEqual(r.returncode, 0,
+                          f"a python-layer exit(2) must never propagate as this "
+                          f"hook's own exit code -- exit 2 on a Stop event forces "
+                          f"the same-turn continuation exactly like "
+                          f"decision:\"block\" does (docs/issue-3229's record has "
+                          f"the harness-level confirmation); stderr={r.stderr!r}")
+
+
 class LatencyTest(_HookHarness):
     """"must not add latency the operator can feel" -- a coarse regression
     catcher, not a benchmark (docs/issue-3229's record has the actual
     measured numbers, hook vs. an existing sibling Stop hook, from timing
     100 real invocations of each). The no-grant path is what >99% of Stop
-    events hit, so that is the path this test bounds."""
+    events hit, so that is the path this test bounds.
+
+    Scope (issue #3229 round 2, PR #3236 finding 6, Surface): the
+    "dominated by interpreter startup" measurement holds for this
+    no-grant path and for a small manifest at any transcript length --
+    independently re-measured at ~40ms avg. It does NOT hold for a large
+    manifest: latency roughly triples at 2000 manifest entries
+    (`is_covered()` re-validates the whole manifest via `_safe_manifest()`
+    on every call, an O(manifest size) walk done at least twice per
+    invocation). 2000 entries is not a realistic size for a hand-authored
+    "go ahead" grant, so this is scoped honestly here rather than
+    claimed generally; no manifest-size regression test is added since
+    fixing the re-validation is out of this round's scope (PR #3236's
+    own record names the cheap fix: validate once, pass the validated
+    list through)."""
 
     def test_no_grant_path_completes_quickly(self):
         _write_log(self.transcript, [
